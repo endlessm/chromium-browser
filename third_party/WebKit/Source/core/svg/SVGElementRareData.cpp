@@ -4,10 +4,9 @@
 
 #include "core/svg/SVGElementRareData.h"
 
-#include "core/css/CSSCursorImageValue.h"
 #include "core/css/resolver/StyleResolver.h"
 #include "core/dom/Document.h"
-#include "core/svg/SVGCursorElement.h"
+#include "core/svg/SVGElementProxy.h"
 
 namespace blink {
 
@@ -42,35 +41,21 @@ ComputedStyle* SVGElementRareData::overrideComputedStyle(
 DEFINE_TRACE(SVGElementRareData) {
   visitor->trace(m_outgoingReferences);
   visitor->trace(m_incomingReferences);
+  visitor->trace(m_elementProxySet);
   visitor->trace(m_animatedSMILStyleProperties);
   visitor->trace(m_elementInstances);
   visitor->trace(m_correspondingElement);
   visitor->trace(m_owner);
-  visitor->template registerWeakMembers<
-      SVGElementRareData, &SVGElementRareData::processWeakMembers>(this);
-}
-
-void SVGElementRareData::processWeakMembers(Visitor* visitor) {
-  ASSERT(m_owner);
-  if (!ThreadHeap::isHeapObjectAlive(m_cursorElement))
-    m_cursorElement = nullptr;
-
-  if (!ThreadHeap::isHeapObjectAlive(m_cursorImageValue)) {
-    // The owning SVGElement is still alive and if it is pointing to an
-    // SVGCursorElement we unregister it when the CSSCursorImageValue dies.
-    if (m_cursorElement) {
-      m_cursorElement->removeReferencedElement(m_owner);
-      m_cursorElement = nullptr;
-    }
-    m_cursorImageValue = nullptr;
-  }
-  ASSERT(!m_cursorElement || ThreadHeap::isHeapObjectAlive(m_cursorElement));
-  ASSERT(!m_cursorImageValue ||
-         ThreadHeap::isHeapObjectAlive(m_cursorImageValue));
 }
 
 AffineTransform* SVGElementRareData::animateMotionTransform() {
   return &m_animateMotionTransform;
+}
+
+SVGElementProxySet& SVGElementRareData::ensureElementProxySet() {
+  if (!m_elementProxySet)
+    m_elementProxySet = new SVGElementProxySet;
+  return *m_elementProxySet;
 }
 
 }  // namespace blink

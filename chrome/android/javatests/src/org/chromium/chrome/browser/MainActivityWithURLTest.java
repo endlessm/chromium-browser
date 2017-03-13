@@ -4,8 +4,7 @@
 
 package org.chromium.chrome.browser;
 
-import android.os.Environment;
-import android.test.suitebuilder.annotation.SmallTest;
+import android.support.test.filters.SmallTest;
 
 import org.chromium.base.test.util.Feature;
 import org.chromium.base.test.util.RetryOnFailure;
@@ -31,8 +30,8 @@ public class MainActivityWithURLTest extends ChromeTabbedActivityTestBase {
     @SmallTest
     @Feature({"Navigation"})
     public void testLaunchActivityWithURL() throws Exception {
-        EmbeddedTestServer testServer = EmbeddedTestServer.createAndStartFileServer(
-                getInstrumentation().getContext(), Environment.getExternalStorageDirectory());
+        EmbeddedTestServer testServer =
+                EmbeddedTestServer.createAndStartServer(getInstrumentation().getContext());
         try {
             // Launch chrome
             startMainActivityWithURL(testServer.getURL(

@@ -1,6 +1,7 @@
 /**
  * Copyright (C) 2006, 2007, 2010 Apple Inc. All rights reserved.
- *           (C) 2008 Torch Mobile Inc. All rights reserved. (http://www.torchmobile.com/)
+ *           (C) 2008 Torch Mobile Inc. All rights reserved.
+ *               (http://www.torchmobile.com/)
  * Copyright (C) 2010 Google Inc. All rights reserved.
  * Copyright (C) 2010 Nokia Corporation and/or its subsidiary(-ies).
  *
@@ -153,8 +154,9 @@ void LayoutTextControlSingleLine::layout() {
     }
     placeholderBox->setLocation(textOffset);
 
-    // The placeholder gets layout last, after the parent text control and its other children,
-    // so in order to get the correct overflow from the placeholder we need to recompute it now.
+    // The placeholder gets layout last, after the parent text control and its
+    // other children, so in order to get the correct overflow from the
+    // placeholder we need to recompute it now.
     if (neededLayout)
       computeOverflow(clientLogicalBottom());
   }
@@ -277,7 +279,8 @@ LayoutUnit LayoutTextControlSingleLine::preferredContentLogicalWidth(
     if (LayoutBox* spinLayoutObject =
             spinButton ? spinButton->layoutBox() : 0) {
       result += spinLayoutObject->borderAndPaddingLogicalWidth();
-      // Since the width of spinLayoutObject is not calculated yet, spinLayoutObject->logicalWidth() returns 0.
+      // Since the width of spinLayoutObject is not calculated yet,
+      // spinLayoutObject->logicalWidth() returns 0.
       // So ensureComputedStyle()->logicalWidth() is used instead.
       result += spinButton->ensureComputedStyle()->logicalWidth().value();
     }
@@ -298,7 +301,7 @@ PassRefPtr<ComputedStyle> LayoutTextControlSingleLine::createInnerEditorStyle(
   textBlockStyle->inheritFrom(startStyle);
   adjustInnerEditorStyle(*textBlockStyle);
 
-  textBlockStyle->setWhiteSpace(PRE);
+  textBlockStyle->setWhiteSpace(EWhiteSpace::kPre);
   textBlockStyle->setOverflowWrap(NormalOverflowWrap);
   textBlockStyle->setTextOverflow(textShouldBeTruncated() ? TextOverflowEllipsis
                                                           : TextOverflowClip);
@@ -329,9 +332,9 @@ PassRefPtr<ComputedStyle> LayoutTextControlSingleLine::createInnerEditorStyle(
   if (inputElement()->shouldRevealPassword())
     textBlockStyle->setTextSecurity(TSNONE);
 
-  textBlockStyle->setOverflowX(OverflowScroll);
+  textBlockStyle->setOverflowX(EOverflow::Scroll);
   // overflow-y:visible doesn't work because overflow-x:scroll makes a layer.
-  textBlockStyle->setOverflowY(OverflowScroll);
+  textBlockStyle->setOverflowY(EOverflow::Scroll);
   RefPtr<ComputedStyle> noScrollbarStyle = ComputedStyle::create();
   noScrollbarStyle->setStyleType(PseudoIdScrollbar);
   noScrollbarStyle->setDisplay(EDisplay::None);

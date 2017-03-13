@@ -23,31 +23,47 @@ bool IsPlatformAvailable(const PlatformParameters &param)
 {
     switch (param.getRenderer())
     {
-      case EGL_PLATFORM_ANGLE_TYPE_DEFAULT_ANGLE:
-        break;
+        case EGL_PLATFORM_ANGLE_TYPE_DEFAULT_ANGLE:
+            break;
 
-      case EGL_PLATFORM_ANGLE_TYPE_D3D9_ANGLE:
-#ifndef ANGLE_ENABLE_D3D9
-        return false;
+        case EGL_PLATFORM_ANGLE_TYPE_D3D9_ANGLE:
+#if !defined(ANGLE_ENABLE_D3D9)
+            return false;
+#else
+            break;
 #endif
-        break;
 
-      case EGL_PLATFORM_ANGLE_TYPE_D3D11_ANGLE:
-#ifndef ANGLE_ENABLE_D3D11
-        return false;
+        case EGL_PLATFORM_ANGLE_TYPE_D3D11_ANGLE:
+#if !defined(ANGLE_ENABLE_D3D11)
+            return false;
+#else
+            break;
 #endif
-        break;
 
-      case EGL_PLATFORM_ANGLE_TYPE_OPENGL_ANGLE:
-      case EGL_PLATFORM_ANGLE_TYPE_OPENGLES_ANGLE:
-#ifndef ANGLE_ENABLE_OPENGL
-        return false;
+        case EGL_PLATFORM_ANGLE_TYPE_OPENGL_ANGLE:
+        case EGL_PLATFORM_ANGLE_TYPE_OPENGLES_ANGLE:
+#if !defined(ANGLE_ENABLE_OPENGL)
+            return false;
+#else
+            break;
 #endif
-        break;
+
+        case EGL_PLATFORM_ANGLE_TYPE_VULKAN_ANGLE:
+#if !defined(ANGLE_ENABLE_VULKAN)
+            return false;
+#else
+            break;
+#endif
+
+      case EGL_PLATFORM_ANGLE_TYPE_NULL_ANGLE:
+#ifndef ANGLE_ENABLE_NULL
+          return false;
+#endif
+          break;
 
       default:
-        UNREACHABLE();
-        break;
+          std::cout << "Unknown test platform: " << param << std::endl;
+          return false;
     }
 
     static std::map<PlatformParameters, bool> paramAvailabilityCache;
@@ -85,4 +101,4 @@ bool IsPlatformAvailable(const PlatformParameters &param)
     }
 }
 
-}
+}  // namespace angle

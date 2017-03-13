@@ -12,16 +12,13 @@
 
 #include "ash/common/wm/maximize_mode/maximize_mode_controller.h"
 #include "ash/common/wm_shell.h"
-#include "ash/display/display_manager.h"
 #include "ash/display/display_util.h"
 #include "ash/display/json_converter.h"
 #include "ash/display/resolution_notification_controller.h"
 #include "ash/display/screen_orientation_controller_chromeos.h"
 #include "ash/display/window_tree_host_manager.h"
 #include "ash/shell.h"
-#include "ash/shell.h"
 #include "ash/test/ash_test_base.h"
-#include "ash/test/display_manager_test_api.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
@@ -34,11 +31,13 @@
 #include "chrome/test/base/testing_browser_process.h"
 #include "components/prefs/scoped_user_pref_update.h"
 #include "components/prefs/testing_pref_service.h"
-#include "ui/display/chromeos/display_configurator.h"
-#include "ui/display/manager/display_layout_builder.h"
+#include "ui/display/display_layout_builder.h"
+#include "ui/display/manager/chromeos/display_configurator.h"
 #include "ui/display/manager/display_layout_store.h"
+#include "ui/display/manager/display_manager.h"
 #include "ui/display/manager/display_manager_utilities.h"
 #include "ui/display/screen.h"
+#include "ui/display/test/display_manager_test_api.h"
 #include "ui/gfx/geometry/vector3d_f.h"
 #include "ui/message_center/message_center.h"
 
@@ -52,6 +51,9 @@ const char kPositionKey[] = "position";
 const char kOffsetKey[] = "offset";
 const char kPlacementDisplayIdKey[] = "placement.display_id";
 const char kPlacementParentDisplayIdKey[] = "placement.parent_display_id";
+const char kTouchCalibrationWidth[] = "touch_calibration_width";
+const char kTouchCalibrationHeight[] = "touch_calibration_height";
+const char kTouchCalibrationPointPairs[] = "touch_calibration_point_pairs";
 
 // The mean acceleration due to gravity on Earth in m/s^2.
 const float kMeanGravity = -9.80665f;
@@ -223,7 +225,7 @@ TEST_F(DisplayPreferencesTest, ListedLayoutOverrides) {
 
   display::DisplayIdList list = display_manager()->GetCurrentDisplayIdList();
   display::DisplayIdList dummy_list =
-      ash::test::CreateDisplayIdList2(list[0], list[1] + 1);
+      display::test::CreateDisplayIdList2(list[0], list[1] + 1);
   ASSERT_NE(list[0], dummy_list[1]);
 
   StoreDisplayLayoutPrefForList(list, display::DisplayPlacement::TOP, 20);
@@ -261,25 +263,29 @@ TEST_F(DisplayPreferencesTest, BasicStores) {
 
   UpdateDisplay("200x200*2, 400x300#400x400|300x200*1.25");
   int64_t id1 = display::Screen::GetScreen()->GetPrimaryDisplay().id();
-  ash::test::ScopedSetInternalDisplayId set_internal(display_manager(), id1);
+  display::test::ScopedSetInternalDisplayId set_internal(display_manager(),
+                                                         id1);
   int64_t id2 = display_manager()->GetSecondaryDisplay().id();
   int64_t dummy_id = id2 + 1;
   ASSERT_NE(id1, dummy_id);
-  std::vector<ui::ColorCalibrationProfile> profiles;
-  profiles.push_back(ui::COLOR_PROFILE_STANDARD);
-  profiles.push_back(ui::COLOR_PROFILE_DYNAMIC);
-  profiles.push_back(ui::COLOR_PROFILE_MOVIE);
-  profiles.push_back(ui::COLOR_PROFILE_READING);
+  std::vector<display::ColorCalibrationProfile> profiles;
+  profiles.push_back(display::COLOR_PROFILE_STANDARD);
+  profiles.push_back(display::COLOR_PROFILE_DYNAMIC);
+  profiles.push_back(display::COLOR_PROFILE_MOVIE);
+  profiles.push_back(display::COLOR_PROFILE_READING);
   // Allows only |id1|.
-  ash::test::DisplayManagerTestApi(display_manager())
+  display::test::DisplayManagerTestApi(display_manager())
       .SetAvailableColorProfiles(id1, profiles);
-  display_manager()->SetColorCalibrationProfile(id1, ui::COLOR_PROFILE_DYNAMIC);
-  display_manager()->SetColorCalibrationProfile(id2, ui::COLOR_PROFILE_DYNAMIC);
+  display_manager()->SetColorCalibrationProfile(id1,
+                                                display::COLOR_PROFILE_DYNAMIC);
+  display_manager()->SetColorCalibrationProfile(id2,
+                                                display::COLOR_PROFILE_DYNAMIC);
 
   LoggedInAsUser();
 
-  display_manager()->SetLayoutForCurrentDisplays(ash::test::CreateDisplayLayout(
-      display_manager(), display::DisplayPlacement::TOP, 10));
+  display_manager()->SetLayoutForCurrentDisplays(
+      display::test::CreateDisplayLayout(display_manager(),
+                                         display::DisplayPlacement::TOP, 10));
   const display::DisplayLayout& layout =
       display_manager()->GetCurrentDisplayLayout();
   EXPECT_EQ(display::DisplayPlacement::TOP, layout.placement_list[0].position);
@@ -290,7 +296,8 @@ TEST_F(DisplayPreferencesTest, BasicStores) {
       dummy_id, display::DisplayPlacement::LEFT, 20);
   std::unique_ptr<display::DisplayLayout> dummy_layout(
       dummy_layout_builder.Build());
-  display::DisplayIdList list = ash::test::CreateDisplayIdList2(id1, dummy_id);
+  display::DisplayIdList list =
+      display::test::CreateDisplayIdList2(id1, dummy_id);
   StoreDisplayLayoutPrefForTest(list, *dummy_layout);
 
   // Can't switch to a display that does not exist.
@@ -300,8 +307,19 @@ TEST_F(DisplayPreferencesTest, BasicStores) {
   window_tree_host_manager->SetOverscanInsets(id1, gfx::Insets(10, 11, 12, 13));
   display_manager()->SetDisplayRotation(id1, display::Display::ROTATE_90,
                                         display::Display::ROTATION_SOURCE_USER);
-  EXPECT_TRUE(display_manager()->SetDisplayUIScale(id1, 1.25f));
-  EXPECT_FALSE(display_manager()->SetDisplayUIScale(id2, 1.25f));
+  EXPECT_TRUE(display::test::DisplayManagerTestApi(display_manager())
+                  .SetDisplayUIScale(id1, 1.25f));
+  EXPECT_FALSE(display::test::DisplayManagerTestApi(display_manager())
+                   .SetDisplayUIScale(id2, 1.25f));
+
+  // Set touch calibration data for display |id2|.
+  display::TouchCalibrationData::CalibrationPointPairQuad point_pair_quad = {
+      {std::make_pair(gfx::Point(10, 10), gfx::Point(11, 12)),
+       std::make_pair(gfx::Point(190, 10), gfx::Point(195, 8)),
+       std::make_pair(gfx::Point(10, 90), gfx::Point(12, 94)),
+       std::make_pair(gfx::Point(190, 90), gfx::Point(189, 88))}};
+  gfx::Size touch_size(200, 150);
+  display_manager()->SetTouchCalibrationData(id2, point_pair_quad, touch_size);
 
   const base::DictionaryValue* displays =
       local_state()->GetDictionary(prefs::kSecondaryDisplays);
@@ -350,6 +368,11 @@ TEST_F(DisplayPreferencesTest, BasicStores) {
   EXPECT_EQ(12, bottom);
   EXPECT_EQ(13, right);
 
+  std::string touch_str;
+  EXPECT_FALSE(property->GetString(kTouchCalibrationPointPairs, &touch_str));
+  EXPECT_FALSE(property->GetInteger(kTouchCalibrationWidth, &width));
+  EXPECT_FALSE(property->GetInteger(kTouchCalibrationHeight, &height));
+
   std::string color_profile;
   EXPECT_TRUE(property->GetString("color_profile_name", &color_profile));
   EXPECT_EQ("dynamic", color_profile);
@@ -364,6 +387,25 @@ TEST_F(DisplayPreferencesTest, BasicStores) {
   EXPECT_FALSE(property->GetInteger("insets_left", &left));
   EXPECT_FALSE(property->GetInteger("insets_bottom", &bottom));
   EXPECT_FALSE(property->GetInteger("insets_right", &right));
+
+  display::TouchCalibrationData::CalibrationPointPairQuad stored_pair_quad;
+
+  EXPECT_TRUE(property->GetString(kTouchCalibrationPointPairs, &touch_str));
+  EXPECT_TRUE(ParseTouchCalibrationStringForTest(touch_str, &stored_pair_quad));
+
+  for (std::size_t row = 0; row < point_pair_quad.size(); row++) {
+    EXPECT_EQ(point_pair_quad[row].first.x(), stored_pair_quad[row].first.x());
+    EXPECT_EQ(point_pair_quad[row].first.y(), stored_pair_quad[row].first.y());
+    EXPECT_EQ(point_pair_quad[row].second.x(),
+              stored_pair_quad[row].second.x());
+    EXPECT_EQ(point_pair_quad[row].second.y(),
+              stored_pair_quad[row].second.y());
+  }
+  width = height = 0;
+  EXPECT_TRUE(property->GetInteger(kTouchCalibrationWidth, &width));
+  EXPECT_TRUE(property->GetInteger(kTouchCalibrationHeight, &height));
+  EXPECT_EQ(width, touch_size.width());
+  EXPECT_EQ(height, touch_size.height());
 
   // |id2| doesn't have the color_profile because it doesn't have 'dynamic' in
   // its available list.
@@ -428,9 +470,10 @@ TEST_F(DisplayPreferencesTest, BasicStores) {
   EXPECT_TRUE(layout_value->GetString(kPrimaryIdKey, &primary_id_str));
   EXPECT_EQ(base::Int64ToString(id2), primary_id_str);
 
-  display_manager()->SetLayoutForCurrentDisplays(ash::test::CreateDisplayLayout(
-      ash::Shell::GetInstance()->display_manager(),
-      display::DisplayPlacement::BOTTOM, 20));
+  display_manager()->SetLayoutForCurrentDisplays(
+      display::test::CreateDisplayLayout(
+          ash::Shell::GetInstance()->display_manager(),
+          display::DisplayPlacement::BOTTOM, 20));
 
   UpdateDisplay("1+0-200x200*2,1+0-200x200");
   // Mirrored.
@@ -468,7 +511,7 @@ TEST_F(DisplayPreferencesTest, BasicStores) {
   // Set new display's selected resolution.
   display_manager()->RegisterDisplayProperty(
       id2 + 1, display::Display::ROTATE_0, 1.0f, nullptr, gfx::Size(500, 400),
-      1.0f, ui::COLOR_PROFILE_STANDARD);
+      1.0f, display::COLOR_PROFILE_STANDARD, nullptr);
 
   UpdateDisplay("200x200*2, 600x500#600x500|500x400");
 
@@ -494,7 +537,7 @@ TEST_F(DisplayPreferencesTest, BasicStores) {
   // Set yet another new display's selected resolution.
   display_manager()->RegisterDisplayProperty(
       id2 + 1, display::Display::ROTATE_0, 1.0f, nullptr, gfx::Size(500, 400),
-      1.0f, ui::COLOR_PROFILE_STANDARD);
+      1.0f, display::COLOR_PROFILE_STANDARD, nullptr);
   // Disconnect 2nd display first to generate new id for external display.
   UpdateDisplay("200x200*2");
   UpdateDisplay("200x200*2, 500x400#600x500|500x400%60.0f");
@@ -602,8 +645,8 @@ TEST_F(DisplayPreferencesTest, StoreForSwappedDisplay) {
   // Updating layout with primary swapped should save the correct value.
   {
     display_manager()->SetLayoutForCurrentDisplays(
-        ash::test::CreateDisplayLayout(display_manager(),
-                                       display::DisplayPlacement::TOP, 10));
+        display::test::CreateDisplayLayout(display_manager(),
+                                           display::DisplayPlacement::TOP, 10));
     const base::DictionaryValue* new_value = nullptr;
     EXPECT_TRUE(displays->GetDictionary(key, &new_value));
     display::DisplayLayout stored_layout;
@@ -648,20 +691,21 @@ TEST_F(DisplayPreferencesTest, RestoreColorProfiles) {
 
   // id1's available color profiles list is empty, means somehow the color
   // profile suport is temporary in trouble.
-  EXPECT_NE(ui::COLOR_PROFILE_DYNAMIC,
+  EXPECT_NE(display::COLOR_PROFILE_DYNAMIC,
             display_manager()->GetDisplayInfo(id1).color_profile());
 
   // Once the profile is supported, the color profile should be restored.
-  std::vector<ui::ColorCalibrationProfile> profiles;
-  profiles.push_back(ui::COLOR_PROFILE_STANDARD);
-  profiles.push_back(ui::COLOR_PROFILE_DYNAMIC);
-  profiles.push_back(ui::COLOR_PROFILE_MOVIE);
-  profiles.push_back(ui::COLOR_PROFILE_READING);
-  ash::test::DisplayManagerTestApi(ash::Shell::GetInstance()->display_manager())
+  std::vector<display::ColorCalibrationProfile> profiles;
+  profiles.push_back(display::COLOR_PROFILE_STANDARD);
+  profiles.push_back(display::COLOR_PROFILE_DYNAMIC);
+  profiles.push_back(display::COLOR_PROFILE_MOVIE);
+  profiles.push_back(display::COLOR_PROFILE_READING);
+  display::test::DisplayManagerTestApi(
+      ash::Shell::GetInstance()->display_manager())
       .SetAvailableColorProfiles(id1, profiles);
 
   LoadDisplayPreferences(false);
-  EXPECT_EQ(ui::COLOR_PROFILE_DYNAMIC,
+  EXPECT_EQ(display::COLOR_PROFILE_DYNAMIC,
             display_manager()->GetDisplayInfo(id1).color_profile());
 }
 
@@ -673,12 +717,14 @@ TEST_F(DisplayPreferencesTest, DontStoreInGuestMode) {
 
   LoggedInAsGuest();
   int64_t id1 = display::Screen::GetScreen()->GetPrimaryDisplay().id();
-  ash::test::ScopedSetInternalDisplayId set_internal(
+  display::test::ScopedSetInternalDisplayId set_internal(
       ash::Shell::GetInstance()->display_manager(), id1);
   int64_t id2 = display_manager()->GetSecondaryDisplay().id();
-  display_manager()->SetLayoutForCurrentDisplays(ash::test::CreateDisplayLayout(
-      display_manager(), display::DisplayPlacement::TOP, 10));
-  display_manager()->SetDisplayUIScale(id1, 1.25f);
+  display_manager()->SetLayoutForCurrentDisplays(
+      display::test::CreateDisplayLayout(display_manager(),
+                                         display::DisplayPlacement::TOP, 10));
+  display::test::DisplayManagerTestApi(display_manager())
+      .SetDisplayUIScale(id1, 1.25f);
   window_tree_host_manager->SetPrimaryDisplayId(id2);
   int64_t new_primary = display::Screen::GetScreen()->GetPrimaryDisplay().id();
   window_tree_host_manager->SetOverscanInsets(new_primary,
@@ -992,8 +1038,8 @@ TEST_F(DisplayPreferencesTest, SaveUnifiedMode) {
   EXPECT_FALSE(
       displays->GetDictionary(base::Int64ToString(unified_id), &new_value));
 
-  ash::test::SetDisplayResolution(display_manager(), unified_id,
-                                  gfx::Size(200, 100));
+  display::test::SetDisplayResolution(display_manager(), unified_id,
+                                      gfx::Size(200, 100));
   EXPECT_EQ(
       "200x100",
       display::Screen::GetScreen()->GetPrimaryDisplay().size().ToString());
@@ -1017,7 +1063,7 @@ TEST_F(DisplayPreferencesTest, SaveUnifiedMode) {
 
   // Exit unified mode.
   display_manager()->SetDefaultMultiDisplayModeForCurrentDisplays(
-      ash::DisplayManager::EXTENDED);
+      display::DisplayManager::EXTENDED);
   ASSERT_TRUE(secondary_displays->GetDictionary(
       display::DisplayIdListToString(list), &new_value));
   EXPECT_TRUE(ash::JsonToDisplayLayout(*new_value, &stored_layout));
@@ -1027,7 +1073,8 @@ TEST_F(DisplayPreferencesTest, SaveUnifiedMode) {
 
 TEST_F(DisplayPreferencesTest, RestoreUnifiedMode) {
   int64_t id1 = display::Screen::GetScreen()->GetPrimaryDisplay().id();
-  display::DisplayIdList list = ash::test::CreateDisplayIdList2(id1, id1 + 1);
+  display::DisplayIdList list =
+      display::test::CreateDisplayIdList2(id1, id1 + 1);
   StoreDisplayBoolPropertyForList(list, "default_unified", true);
   StoreDisplayPropertyForList(
       list, "primary-id",
@@ -1089,7 +1136,7 @@ TEST_F(DisplayPreferencesTest, RestoreThreeDisplays) {
   LoggedInAsUser();
   int64_t id1 = display::Screen::GetScreen()->GetPrimaryDisplay().id();
   display::DisplayIdList list =
-      ash::test::CreateDisplayIdListN(3, id1, id1 + 1, id1 + 2);
+      display::test::CreateDisplayIdListN(3, id1, id1 + 1, id1 + 2);
 
   display::DisplayLayoutBuilder builder(list[0]);
   builder.AddDisplayPlacement(list[1], list[0], display::DisplayPlacement::LEFT,

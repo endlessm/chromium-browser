@@ -8,10 +8,11 @@ found in the LICENSE file.
 <link rel="import" href="/tracing/core/test_utils.html">
 <link rel="import" href="/tracing/model/event.html">
 <link rel="import" href="/tracing/model/event_set.html">
+<link rel="import" href="/tracing/model/selection_state.html">
 <link rel="import" href="/tracing/ui/timeline_display_transform.html">
-<link rel="import" href="/tracing/ui/tracks/chart_axis.html">
 <link rel="import" href="/tracing/ui/tracks/chart_point.html">
 <link rel="import" href="/tracing/ui/tracks/chart_series.html">
+<link rel="import" href="/tracing/ui/tracks/chart_series_y_axis.html">
 <link rel="import" href="/tracing/ui/tracks/chart_transform.html">
 
 <script>
@@ -21,7 +22,8 @@ tr.b.unittest.testSuite(function() {
   var EventSet = tr.model.EventSet;
   var TimelineDisplayTransform = tr.ui.TimelineDisplayTransform;
   var Event = tr.model.Event;
-  var ChartAxis = tr.ui.tracks.ChartAxis;
+  var SelectionState = tr.model.SelectionState;
+  var ChartSeriesYAxis = tr.ui.tracks.ChartSeriesYAxis;
   var ChartPoint = tr.ui.tracks.ChartPoint;
   var ChartSeries = tr.ui.tracks.ChartSeries;
   var ChartTransform = tr.ui.tracks.ChartTransform;
@@ -29,6 +31,15 @@ tr.b.unittest.testSuite(function() {
 
   var CANVAS_WIDTH = 800;
   var CANVAS_HEIGHT = 80;
+
+  function getSelectionStateForTesting(index) {
+    index = index % 7;
+    if (index < 5) {
+      return SelectionState.getFromBrighteningLevel(index % 4);
+    } else {
+      return SelectionState.getFromDimmingLevel(index % 3);
+    }
+  }
 
   function buildSeries(renderingConfig) {
     var points = [];
@@ -42,8 +53,8 @@ tr.b.unittest.testSuite(function() {
       var point = new ChartPoint(event, i - 30, value, base);
       points.push(point);
     }
-    var axis = new ChartAxis(-1, 1);
-    return new ChartSeries(points, axis, renderingConfig);
+    var seriesYAxis = new ChartSeriesYAxis(-1, 1);
+    return new ChartSeries(points, seriesYAxis, renderingConfig);
   }
 
   function drawSeriesWithDetails(test, series, highDetails) {
@@ -64,7 +75,7 @@ tr.b.unittest.testSuite(function() {
 
     var transform = new ChartTransform(
         displayTransform,
-        series.axis,
+        series.seriesYAxis,
         CANVAS_WIDTH * pixelRatio,
         CANVAS_HEIGHT * pixelRatio,
         10 * pixelRatio,
@@ -77,6 +88,9 @@ tr.b.unittest.testSuite(function() {
   }
 
   function drawSeries(test, series) {
+    drawSeriesWithDetails(test, series, false);
+    drawSeriesWithDetails(test, series, true);
+    series.stepGraph_ = !series.stepGraph_;
     drawSeriesWithDetails(test, series, false);
     drawSeriesWithDetails(test, series, true);
   }
@@ -122,7 +136,21 @@ tr.b.unittest.testSuite(function() {
       colorId: 10
     });
     series.points.forEach(function(point, index) {
-      point.modelItem.selectionState = index % 4;
+      point.modelItem.selectionState = getSelectionStateForTesting(index);
+    });
+    drawSeries(this, series);
+  });
+
+  test('instantiate_selectionWithSolidDots', function() {
+    var series = buildSeries({
+      chartType: ChartSeriesType.AREA,
+      selectedPointSize: 10,
+      unselectedPointSize: 6,
+      solidSelectedDots: true,
+      colorId: 10
+    });
+    series.points.forEach(function(point, index) {
+      point.modelItem.selectionState = getSelectionStateForTesting(index);
     });
     drawSeries(this, series);
   });
@@ -140,7 +168,26 @@ tr.b.unittest.testSuite(function() {
       backgroundOpacity: 0.8
     });
     series.points.forEach(function(point, index) {
-      point.modelItem.selectionState = index % 4;
+      point.modelItem.selectionState = getSelectionStateForTesting(index);
+    });
+    drawSeries(this, series);
+  });
+
+  test('instantiate_selectionWithDotLetters', function() {
+    var series = buildSeries({
+      chartType: ChartSeriesType.AREA,
+      selectedPointSize: 10,
+      unselectedPointSize: 6,
+      solidSelectedDots: true,
+      colorId: 10
+    });
+    series.points.forEach(function(point, index) {
+      point.modelItem.selectionState = getSelectionStateForTesting(index);
+      if (index % 10 === 3) {
+        point.dotLetter = 'P';
+      } else if (index % 10 === 7) {
+        point.dotLetter = '\u26A0';
+      }
     });
     drawSeries(this, series);
   });

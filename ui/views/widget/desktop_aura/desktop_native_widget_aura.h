@@ -9,6 +9,7 @@
 
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
+#include "ui/aura/client/drag_drop_delegate.h"
 #include "ui/aura/client/focus_change_observer.h"
 #include "ui/aura/window_delegate.h"
 #include "ui/aura/window_tree_host_observer.h"
@@ -17,16 +18,14 @@
 #include "ui/wm/core/compound_event_filter.h"
 #include "ui/wm/public/activation_change_observer.h"
 #include "ui/wm/public/activation_delegate.h"
-#include "ui/wm/public/drag_drop_delegate.h"
 
 namespace aura {
 class WindowEventDispatcher;
 class WindowTreeHost;
 namespace client {
 class DragDropClient;
-class FocusClient;
 class ScreenPositionClient;
-class WindowTreeClient;
+class WindowParentingClient;
 }
 }
 
@@ -68,6 +67,11 @@ class VIEWS_EXPORT DesktopNativeWidgetAura
   // window.
   static DesktopNativeWidgetAura* ForWindow(aura::Window* window);
 
+  // Used to explicitly set a DesktopWindowTreeHost. Must be called before
+  // InitNativeWidget().
+  void SetDesktopWindowTreeHost(
+      std::unique_ptr<DesktopWindowTreeHost> desktop_window_tree_host);
+
   // Called by our DesktopWindowTreeHost after it has deleted native resources;
   // this is the signal that we should start our shutdown.
   virtual void OnHostClosed();
@@ -84,6 +88,10 @@ class VIEWS_EXPORT DesktopNativeWidgetAura
   aura::WindowTreeHost* host() {
     return host_.get();
   }
+
+  aura::Window* content_window() { return content_window_; }
+
+  Widget::InitParams::Type widget_type() const { return widget_type_; }
 
   // Ensures that the correct window is activated/deactivated based on whether
   // we are being activated/deactivated.
@@ -171,8 +179,6 @@ class VIEWS_EXPORT DesktopNativeWidgetAura
   void SetVisibilityAnimationDuration(const base::TimeDelta& duration) override;
   void SetVisibilityAnimationTransition(
       Widget::VisibilityTransition transition) override;
-  ui::NativeTheme* GetNativeTheme() const override;
-  void OnRootViewLayout() override;
   bool IsTranslucentWindowOpacitySupported() const override;
   void OnSizeConstraintsChanged() override;
   void RepostNativeEvent(gfx::NativeEvent native_event) override;
@@ -227,8 +233,8 @@ class VIEWS_EXPORT DesktopNativeWidgetAura
   void OnHostCloseRequested(const aura::WindowTreeHost* host) override;
   void OnHostResized(const aura::WindowTreeHost* host) override;
   void OnHostWorkspaceChanged(const aura::WindowTreeHost* host) override;
-  void OnHostMoved(const aura::WindowTreeHost* host,
-                   const gfx::Point& new_origin) override;
+  void OnHostMovedInPixels(const aura::WindowTreeHost* host,
+                           const gfx::Point& new_origin_in_pixels) override;
 
  private:
   friend class RootWindowDestructionObserver;
@@ -263,7 +269,7 @@ class VIEWS_EXPORT DesktopNativeWidgetAura
   std::unique_ptr<wm::FocusController> focus_client_;
   std::unique_ptr<aura::client::ScreenPositionClient> position_client_;
   std::unique_ptr<aura::client::DragDropClient> drag_drop_client_;
-  std::unique_ptr<aura::client::WindowTreeClient> window_tree_client_;
+  std::unique_ptr<aura::client::WindowParentingClient> window_parenting_client_;
   std::unique_ptr<DesktopEventClient> event_client_;
   std::unique_ptr<FocusManagerEventHandler> focus_manager_event_handler_;
 
@@ -291,7 +297,7 @@ class VIEWS_EXPORT DesktopNativeWidgetAura
   // crash.
   static int cursor_reference_count_;
   static wm::CursorManager* cursor_manager_;
-  static views::DesktopNativeCursorManager* native_cursor_manager_;
+  static DesktopNativeCursorManager* native_cursor_manager_;
 
   std::unique_ptr<wm::ShadowController> shadow_controller_;
 
@@ -301,6 +307,9 @@ class VIEWS_EXPORT DesktopNativeWidgetAura
 
   // See class documentation for Widget in widget.h for a note about type.
   Widget::InitParams::Type widget_type_;
+
+  // See DesktopWindowTreeHost::ShouldUseDesktopNativeCursorManager().
+  bool use_desktop_native_cursor_manager_ = false;
 
   // The following factory is used for calls to close the NativeWidgetAura
   // instance.

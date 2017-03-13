@@ -141,8 +141,8 @@ TEST_F(ChildProcessSecurityPolicyTest, IsPseudoSchemeTest) {
   EXPECT_TRUE(p->IsPseudoScheme(url::kAboutScheme));
   EXPECT_TRUE(p->IsPseudoScheme(url::kJavaScriptScheme));
   EXPECT_TRUE(p->IsPseudoScheme(kViewSourceScheme));
-  EXPECT_TRUE(p->IsPseudoScheme(kHttpSuboriginScheme));
-  EXPECT_TRUE(p->IsPseudoScheme(kHttpsSuboriginScheme));
+  EXPECT_TRUE(p->IsPseudoScheme(url::kHttpSuboriginScheme));
+  EXPECT_TRUE(p->IsPseudoScheme(url::kHttpsSuboriginScheme));
 
   EXPECT_FALSE(p->IsPseudoScheme("registered-pseudo-scheme"));
   p->RegisterPseudoScheme("registered-pseudo-scheme");
@@ -261,17 +261,24 @@ TEST_F(ChildProcessSecurityPolicyTest, AboutTest) {
   p->Add(kRendererID);
 
   EXPECT_TRUE(p->CanRequestURL(kRendererID, GURL("about:blank")));
-  EXPECT_TRUE(p->CanRequestURL(kRendererID, GURL("about:BlAnK")));
-  EXPECT_TRUE(p->CanRequestURL(kRendererID, GURL("aBouT:BlAnK")));
+  EXPECT_FALSE(p->CanRequestURL(kRendererID, GURL("about:BlAnK")));
+  EXPECT_FALSE(p->CanRequestURL(kRendererID, GURL("aBouT:BlAnK")));
   EXPECT_TRUE(p->CanRequestURL(kRendererID, GURL("aBouT:blank")));
   EXPECT_TRUE(p->CanCommitURL(kRendererID, GURL("about:blank")));
-  EXPECT_TRUE(p->CanCommitURL(kRendererID, GURL("about:BlAnK")));
-  EXPECT_TRUE(p->CanCommitURL(kRendererID, GURL("aBouT:BlAnK")));
+  EXPECT_FALSE(p->CanCommitURL(kRendererID, GURL("about:BlAnK")));
+  EXPECT_FALSE(p->CanCommitURL(kRendererID, GURL("aBouT:BlAnK")));
   EXPECT_TRUE(p->CanCommitURL(kRendererID, GURL("aBouT:blank")));
   EXPECT_TRUE(p->CanSetAsOriginHeader(kRendererID, GURL("about:blank")));
-  EXPECT_TRUE(p->CanSetAsOriginHeader(kRendererID, GURL("about:BlAnK")));
-  EXPECT_TRUE(p->CanSetAsOriginHeader(kRendererID, GURL("aBouT:BlAnK")));
+  EXPECT_FALSE(p->CanSetAsOriginHeader(kRendererID, GURL("about:BlAnK")));
+  EXPECT_FALSE(p->CanSetAsOriginHeader(kRendererID, GURL("aBouT:BlAnK")));
   EXPECT_TRUE(p->CanSetAsOriginHeader(kRendererID, GURL("aBouT:blank")));
+
+  EXPECT_TRUE(p->CanRequestURL(kRendererID, GURL("about:srcdoc")));
+  EXPECT_TRUE(p->CanCommitURL(kRendererID, GURL("about:srcdoc")));
+  EXPECT_FALSE(p->CanSetAsOriginHeader(kRendererID, GURL("about:srcdoc")));
+  EXPECT_FALSE(p->CanRequestURL(kRendererID, GURL("about:SRCDOC")));
+  EXPECT_FALSE(p->CanCommitURL(kRendererID, GURL("about:SRCDOC")));
+  EXPECT_FALSE(p->CanSetAsOriginHeader(kRendererID, GURL("about:SRCDOC")));
 
   EXPECT_FALSE(p->CanRequestURL(kRendererID, GURL("about:crash")));
   EXPECT_FALSE(p->CanRequestURL(kRendererID, GURL("about:cache")));

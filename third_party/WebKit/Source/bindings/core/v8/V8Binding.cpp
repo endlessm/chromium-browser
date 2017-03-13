@@ -61,7 +61,7 @@
 #include "core/workers/WorkerGlobalScope.h"
 #include "core/workers/WorkletGlobalScope.h"
 #include "core/xml/XPathNSResolver.h"
-#include "platform/tracing/TracedValue.h"
+#include "platform/instrumentation/tracing/TracedValue.h"
 #include "wtf/MathExtras.h"
 #include "wtf/StdLibExtras.h"
 #include "wtf/Threading.h"
@@ -83,7 +83,7 @@ NodeFilter* toNodeFilter(v8::Local<v8::Value> callback,
   NodeFilter* filter = NodeFilter::create();
 
   v8::Local<v8::Value> filterWrapper =
-      toV8(filter, creationContext, scriptState->isolate());
+      ToV8(filter, creationContext, scriptState->isolate());
   if (filterWrapper.IsEmpty())
     return nullptr;
 
@@ -869,7 +869,8 @@ bool isValidEnum(const String& value,
                  const String& enumName,
                  ExceptionState& exceptionState) {
   for (size_t i = 0; i < length; ++i) {
-    if (value == validValues[i])
+    // Avoid the strlen inside String::operator== (because of the StringView).
+    if (WTF::equal(value.impl(), validValues[i]))
       return true;
   }
   exceptionState.throwTypeError("The provided value '" + value +
@@ -897,30 +898,35 @@ v8::Local<v8::Function> getBoundFunction(v8::Local<v8::Function> function) {
              : function;
 }
 
-v8::MaybeLocal<v8::Object> getEsIterator(v8::Isolate* isolate,
-                                         v8::Local<v8::Object> object,
-                                         ExceptionState& exceptionState) {
+v8::Local<v8::Object> getEsIterator(v8::Isolate* isolate,
+                                    v8::Local<v8::Object> object,
+                                    ExceptionState& exceptionState) {
+  v8::TryCatch block(isolate);
   v8::Local<v8::Context> context = isolate->GetCurrentContext();
   v8::Local<v8::Value> iteratorGetter;
   if (!object->Get(context, v8::Symbol::GetIterator(isolate))
-           .ToLocal(&iteratorGetter))
-    return v8::MaybeLocal<v8::Object>();
+           .ToLocal(&iteratorGetter)) {
+    exceptionState.rethrowV8Exception(block.Exception());
+    return v8::Local<v8::Object>();
+  }
   if (!iteratorGetter->IsFunction()) {
     exceptionState.throwTypeError("Iterator getter is not callable.");
-    return v8::MaybeLocal<v8::Object>();
+    return v8::Local<v8::Object>();
   }
 
   v8::Local<v8::Function> getterFunction = iteratorGetter.As<v8::Function>();
   v8::Local<v8::Value> iterator;
   if (!V8ScriptRunner::callFunction(getterFunction, toExecutionContext(context),
                                     object, 0, nullptr, isolate)
-           .ToLocal(&iterator))
-    return v8::MaybeLocal<v8::Object>();
+           .ToLocal(&iterator)) {
+    exceptionState.rethrowV8Exception(block.Exception());
+    return v8::Local<v8::Object>();
+  }
   if (!iterator->IsObject()) {
     exceptionState.throwTypeError("Iterator is not an object.");
-    return v8::MaybeLocal<v8::Object>();
+    return v8::Local<v8::Object>();
   }
-  return v8::MaybeLocal<v8::Object>(iterator.As<v8::Object>());
+  return iterator.As<v8::Object>();
 }
 
 bool addHiddenValueToArray(v8::Isolate* isolate,
@@ -997,6 +1003,20 @@ v8::Local<v8::Value> freezeV8Object(v8::Local<v8::Value> value,
                           v8::IntegrityLevel::kFrozen)
       .ToChecked();
   return value;
+}
+
+v8::Local<v8::Value> fromJSONString(v8::Isolate* isolate,
+                                    const String& stringifiedJSON,
+                                    ExceptionState& exceptionState) {
+  v8::Local<v8::Value> parsed;
+  v8::TryCatch tryCatch(isolate);
+  if (!v8Call(v8::JSON::Parse(isolate, v8String(isolate, stringifiedJSON)),
+              parsed, tryCatch)) {
+    if (tryCatch.HasCaught())
+      exceptionState.rethrowV8Exception(tryCatch.Exception());
+  }
+
+  return parsed;
 }
 
 }  // namespace blink

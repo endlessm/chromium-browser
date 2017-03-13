@@ -28,6 +28,9 @@
 #include "platform/graphics/BitmapImage.h"
 #include "platform/graphics/Path.h"
 #include "platform/graphics/paint/PaintController.h"
+#include "platform/testing/FontTestHelpers.h"
+#include "platform/testing/UnitTestHelpers.h"
+#include "platform/text/TextRun.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "third_party/skia/include/core/SkCanvas.h"
@@ -77,14 +80,13 @@ TEST(GraphicsContextTest, pictureRecording) {
   FloatRect bounds(0, 0, 100, 100);
 
   context.beginRecording(bounds);
-  context.fillRect(FloatRect(0, 0, 50, 50), opaque, SkXfermode::kSrcOver_Mode);
+  context.fillRect(FloatRect(0, 0, 50, 50), opaque, SkBlendMode::kSrcOver);
   sk_sp<const SkPicture> picture = context.endRecording();
   canvas.drawPicture(picture.get());
   EXPECT_OPAQUE_PIXELS_ONLY_IN_RECT(bitmap, IntRect(0, 0, 50, 50))
 
   context.beginRecording(bounds);
-  context.fillRect(FloatRect(0, 0, 100, 100), opaque,
-                   SkXfermode::kSrcOver_Mode);
+  context.fillRect(FloatRect(0, 0, 100, 100), opaque, SkBlendMode::kSrcOver);
   picture = context.endRecording();
   // Make sure the opaque region was unaffected by the rect drawn during Picture
   // recording.
@@ -116,13 +118,12 @@ TEST(GraphicsContextTest, UnboundedDrawsAreClipped) {
 
   // Make skia unable to compute fast bounds for our paths.
   DashArray dashArray;
-  dashArray.append(1);
-  dashArray.append(0);
+  dashArray.push_back(1);
+  dashArray.push_back(0);
   context.setLineDash(dashArray, 0);
 
   // Make the device opaque in 10,10 40x40.
-  context.fillRect(FloatRect(10, 10, 40, 40), opaque,
-                   SkXfermode::kSrcOver_Mode);
+  context.fillRect(FloatRect(10, 10, 40, 40), opaque, SkBlendMode::kSrcOver);
   sk_sp<const SkPicture> picture = context.endRecording();
   canvas.drawPicture(picture.get());
   EXPECT_OPAQUE_PIXELS_ONLY_IN_RECT(bitmap, IntRect(10, 10, 40, 40));
@@ -138,7 +139,7 @@ TEST(GraphicsContextTest, UnboundedDrawsAreClipped) {
   path.addLineTo(FloatPoint(40, 40));
   SkPaint paint;
   paint.setColor(alpha.rgb());
-  paint.setXfermodeMode(SkXfermode::kSrcOut_Mode);
+  paint.setBlendMode(SkBlendMode::kSrcOut);
   context.drawPath(path.getSkPath(), paint);
 
   picture = context.endRecording();

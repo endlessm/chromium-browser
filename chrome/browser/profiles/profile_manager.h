@@ -25,10 +25,10 @@
 #include "chrome/browser/profiles/profile_metrics.h"
 #include "chrome/browser/profiles/profile_shortcut_manager.h"
 #include "chrome/browser/ui/browser_list_observer.h"
+#include "chrome/common/features.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
 
-class NewProfileLauncher;
 class ProfileAttributesStorage;
 class ProfileInfoCache;
 
@@ -42,7 +42,7 @@ class ProfileManager : public base::NonThreadSafe,
   explicit ProfileManager(const base::FilePath& user_data_dir);
   ~ProfileManager() override;
 
-#if defined(ENABLE_SESSION_SERVICE)
+#if BUILDFLAG(ENABLE_SESSION_SERVICE)
   // Invokes SessionServiceFactory::ShutdownForProfile() for all profiles.
   static void ShutdownSessionServices();
 #endif
@@ -210,6 +210,10 @@ class ProfileManager : public base::NonThreadSafe,
   // Checks if any ephemeral profiles are left behind (e.g. because of a browser
   // crash) and schedule them for deletion.
   void CleanUpEphemeralProfiles();
+
+  // Checks if files of deleted profiles are left behind (e.g. because of a
+  // browser crash) and delete them in case they still exist.
+  void CleanUpDeletedProfiles();
 
   // Initializes user prefs of |profile|. This includes profile name and
   // avatar values.

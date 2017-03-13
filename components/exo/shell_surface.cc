@@ -6,15 +6,14 @@
 
 #include <algorithm>
 
-#include "ash/aura/wm_window_aura.h"
-#include "ash/common/accessibility_delegate.h"
+#include "ash/common/frame/custom_frame_view_ash.h"
 #include "ash/common/shelf/wm_shelf.h"
-#include "ash/common/shell_window_ids.h"
-#include "ash/common/system/tray/system_tray_notifier.h"
 #include "ash/common/wm/window_resizer.h"
 #include "ash/common/wm/window_state.h"
 #include "ash/common/wm/window_state_delegate.h"
 #include "ash/common/wm_shell.h"
+#include "ash/common/wm_window.h"
+#include "ash/public/cpp/shell_window_ids.h"
 #include "ash/wm/window_state_aura.h"
 #include "ash/wm/window_util.h"
 #include "base/logging.h"
@@ -39,13 +38,12 @@
 #include "ui/wm/core/shadow.h"
 #include "ui/wm/core/shadow_controller.h"
 #include "ui/wm/core/shadow_types.h"
+#include "ui/wm/core/window_animations.h"
 #include "ui/wm/core/window_util.h"
 
 #if defined(OS_CHROMEOS)
 #include "chromeos/audio/chromeos_sounds.h"
 #endif
-
-DECLARE_WINDOW_PROPERTY_TYPE(std::string*)
 
 namespace exo {
 namespace {
@@ -60,9 +58,6 @@ const struct Accelerator {
     {ui::VKEY_F4, ui::EF_ALT_DOWN}};
 
 void UpdateShelfStateForFullscreenChange(views::Widget* widget) {
-  ash::wm::WindowState* window_state =
-      ash::wm::GetWindowState(widget->GetNativeWindow());
-  window_state->set_hide_shelf_when_fullscreen(false);
   for (ash::WmWindow* root_window : ash::WmShell::Get()->GetAllRootWindows())
     ash::WmShelf::ForWindow(root_window)->UpdateVisibilityState();
 }
@@ -107,6 +102,15 @@ class CustomWindowTargeter : public aura::WindowTargeter {
 
     gfx::Point local_point = event.location();
 
+    if (window->parent()) {
+      aura::Window::ConvertPointToTarget(window->parent(), window,
+                                         &local_point);
+    }
+
+    int component = widget_->non_client_view()->NonClientHitTest(local_point);
+    if (component != HTNOWHERE && component != HTCLIENT)
+      return true;
+
     // If there is an underlay, test against it's bounds instead since it will
     // be equal or larger than the surface's bounds.
     aura::Window* shadow_underlay =
@@ -114,15 +118,9 @@ class CustomWindowTargeter : public aura::WindowTargeter {
             widget_->widget_delegate()->GetContentsView())
             ->shadow_underlay();
     if (shadow_underlay) {
-      if (window->parent())
-        aura::Window::ConvertPointToTarget(window->parent(), shadow_underlay,
-                                           &local_point);
+      aura::Window::ConvertPointToTarget(window, shadow_underlay, &local_point);
       return gfx::Rect(shadow_underlay->layer()->size()).Contains(local_point);
     }
-
-    if (window->parent())
-      aura::Window::ConvertPointToTarget(window->parent(), window,
-                                         &local_point);
 
     aura::Window::ConvertPointToTarget(window, surface->window(), &local_point);
     return surface->HitTestRect(gfx::Rect(local_point, gfx::Size(1, 1)));
@@ -140,9 +138,8 @@ class CustomWindowTargeter : public aura::WindowTargeter {
             ->shadow_underlay();
     if (surface && event->IsLocatedEvent() && shadow_underlay) {
       gfx::Point local_point = event->AsLocatedEvent()->location();
-      aura::Window::ConvertPointToTarget(window, surface->window(),
-                                         &local_point);
-      if (!surface->HitTestRect(gfx::Rect(local_point, gfx::Size(1, 1))))
+      int component = widget_->non_client_view()->NonClientHitTest(local_point);
+      if (component == HTNOWHERE)
         return shadow_underlay;
     }
     return aura::WindowTargeter::FindTargetForEvent(root, event);
@@ -171,6 +168,9 @@ class CustomWindowStateDelegate : public ash::wm::WindowStateDelegate,
     if (widget_) {
       bool enter_fullscreen = !window_state->IsFullscreen();
       widget_->SetFullscreen(enter_fullscreen);
+      ash::wm::WindowState* window_state =
+          ash::wm::GetWindowState(widget_->GetNativeWindow());
+      window_state->set_in_immersive_fullscreen(enter_fullscreen);
       UpdateShelfStateForFullscreenChange(widget_);
     }
     return true;
@@ -235,8 +235,7 @@ class ShadowUnderlayEventHandler : public ui::EventHandler {
           std::find(std::begin(kEarconEventTypes), std::end(kEarconEventTypes),
                     event->type()) != std::end(kEarconEventTypes);
       if (is_earcon_event_type)
-        ash::WmShell::Get()->accessibility_delegate()->PlayEarcon(
-            chromeos::SOUND_VOLUME_ADJUST);
+        WMHelper::GetInstance()->PlayEarcon(chromeos::SOUND_VOLUME_ADJUST);
 #endif
       event->SetHandled();
     }
@@ -332,19 +331,20 @@ ShellSurface::ScopedAnimationsDisabled::~ScopedAnimationsDisabled() {
 ////////////////////////////////////////////////////////////////////////////////
 // ShellSurface, public:
 
-DEFINE_LOCAL_WINDOW_PROPERTY_KEY(std::string*, kApplicationIdKey, nullptr)
 DEFINE_LOCAL_WINDOW_PROPERTY_KEY(Surface*, kMainSurfaceKey, nullptr)
 
 ShellSurface::ShellSurface(Surface* surface,
                            ShellSurface* parent,
                            const gfx::Rect& initial_bounds,
                            bool activatable,
+                           bool can_minimize,
                            int container)
     : widget_(nullptr),
       surface_(surface),
       parent_(parent ? parent->GetWidget()->GetNativeWindow() : nullptr),
       initial_bounds_(initial_bounds),
       activatable_(activatable),
+      can_minimize_(can_minimize),
       container_(container) {
   WMHelper::GetInstance()->AddActivationObserver(this);
   surface_->SetSurfaceDelegate(this);
@@ -360,6 +360,7 @@ ShellSurface::ShellSurface(Surface* surface)
                    nullptr,
                    gfx::Rect(),
                    true,
+                   true,
                    ash::kShellWindowId_DefaultContainer) {}
 
 ShellSurface::~ShellSurface() {
@@ -369,6 +370,9 @@ ShellSurface::~ShellSurface() {
   if (widget_) {
     ash::wm::GetWindowState(widget_->GetNativeWindow())->RemoveObserver(this);
     widget_->GetNativeWindow()->RemoveObserver(this);
+    // Remove transient children so they are not automatically destroyed.
+    for (auto child : wm::GetTransientChildren(widget_->GetNativeWindow()))
+      wm::RemoveTransientChild(widget_->GetNativeWindow(), child);
     if (widget_->IsVisible())
       widget_->Hide();
     widget_->CloseNow();
@@ -382,8 +386,7 @@ ShellSurface::~ShellSurface() {
     surface_->SetSurfaceDelegate(nullptr);
     surface_->RemoveSurfaceObserver(this);
   }
-  ash::WmShell::Get()->system_tray_notifier()->RemoveAccessibilityObserver(
-      this);
+  WMHelper::GetInstance()->RemoveAccessibilityObserver(this);
 }
 
 void ShellSurface::AcknowledgeConfigure(uint32_t serial) {
@@ -427,6 +430,10 @@ void ShellSurface::SetParent(ShellSurface* parent) {
     if (widget_)
       wm::AddTransientChild(parent_, widget_->GetNativeWindow());
   }
+
+  // If |parent_| is set effects the ability to maximize the window.
+  if (widget_)
+    widget_->OnSizeConstraintsChanged();
 }
 
 void ShellSurface::Activate() {
@@ -454,7 +461,7 @@ void ShellSurface::Minimize() {
   TRACE_EVENT0("exo", "ShellSurface::Minimize");
 
   if (!widget_)
-    return;
+    CreateShellSurfaceWidget(ui::SHOW_STATE_MINIMIZED);
 
   // Note: This will ask client to configure its surface even if already
   // minimized.
@@ -536,21 +543,22 @@ void ShellSurface::SetSystemModal(bool system_modal) {
 
 // static
 void ShellSurface::SetApplicationId(aura::Window* window,
-                                    std::string* application_id) {
-  window->SetProperty(kApplicationIdKey, application_id);
+                                    const std::string& id) {
+  TRACE_EVENT1("exo", "ShellSurface::SetApplicationId", "application_id", id);
+  window->SetProperty(aura::client::kAppIdKey, new std::string(id));
 }
 
 // static
 const std::string ShellSurface::GetApplicationId(aura::Window* window) {
-  std::string* string_ptr = window->GetProperty(kApplicationIdKey);
+  std::string* string_ptr = window->GetProperty(aura::client::kAppIdKey);
   return string_ptr ? *string_ptr : std::string();
 }
 
 void ShellSurface::SetApplicationId(const std::string& application_id) {
-  TRACE_EVENT1("exo", "ShellSurface::SetApplicationId", "application_id",
-               application_id);
-
+  // Store the value in |application_id_| in case the window does not exist yet.
   application_id_ = application_id;
+  if (widget_ && widget_->GetNativeWindow())
+    SetApplicationId(widget_->GetNativeWindow(), application_id);
 }
 
 void ShellSurface::Move() {
@@ -584,18 +592,41 @@ void ShellSurface::SetGeometry(const gfx::Rect& geometry) {
   pending_geometry_ = geometry;
 }
 
-void ShellSurface::SetRectangularShadow(const gfx::Rect& content_bounds) {
-  TRACE_EVENT1("exo", "ShellSurface::SetRectangularShadow", "content_bounds",
-               content_bounds.ToString());
+void ShellSurface::SetRectangularShadowEnabled(bool enabled) {
+  TRACE_EVENT1("exo", "ShellSurface::SetRectangularShadowEnabled", "enabled",
+               enabled);
+  shadow_underlay_in_surface_ = false;
+  shadow_enabled_ = enabled;
+}
 
+void ShellSurface::SetRectangularShadow_DEPRECATED(
+    const gfx::Rect& content_bounds) {
+  TRACE_EVENT1("exo", "ShellSurface::SetRectangularShadow_DEPRECATED",
+               "content_bounds", content_bounds.ToString());
+  shadow_underlay_in_surface_ = false;
   shadow_content_bounds_ = content_bounds;
+  shadow_enabled_ = !content_bounds.IsEmpty();
+}
+
+void ShellSurface::SetRectangularSurfaceShadow(
+    const gfx::Rect& content_bounds) {
+  TRACE_EVENT1("exo", "ShellSurface::SetRectangularSurfaceShadow",
+               "content_bounds", content_bounds.ToString());
+  shadow_underlay_in_surface_ = true;
+  shadow_content_bounds_ = content_bounds;
+  shadow_enabled_ = !content_bounds.IsEmpty();
 }
 
 void ShellSurface::SetRectangularShadowBackgroundOpacity(float opacity) {
   TRACE_EVENT1("exo", "ShellSurface::SetRectangularShadowBackgroundOpacity",
                "opacity", opacity);
+  shadow_background_opacity_ = opacity;
+}
 
-  rectangular_shadow_background_opacity_ = opacity;
+void ShellSurface::SetFrame(bool enabled) {
+  TRACE_EVENT1("exo", "ShellSurface::SetFrame", "enabled", enabled);
+
+  frame_enabled_ = enabled;
 }
 
 void ShellSurface::SetScale(double scale) {
@@ -615,6 +646,25 @@ void ShellSurface::SetTopInset(int height) {
   pending_top_inset_height_ = height;
 }
 
+void ShellSurface::SetOrigin(const gfx::Point& origin) {
+  TRACE_EVENT1("exo", "ShellSurface::SetOrigin", "origin", origin.ToString());
+
+  initial_bounds_ = gfx::Rect(origin, gfx::Size(1, 1));
+}
+
+void ShellSurface::SetActivatable(bool activatable) {
+  TRACE_EVENT1("exo", "ShellSurface::SetActivatable", "activatable",
+               activatable);
+
+  activatable_ = activatable;
+}
+
+void ShellSurface::SetContainer(int container) {
+  TRACE_EVENT1("exo", "ShellSurface::SetContainer", "container", container);
+
+  container_ = container;
+}
+
 // static
 void ShellSurface::SetMainSurface(aura::Window* window, Surface* surface) {
   window->SetProperty(kMainSurfaceKey, surface);
@@ -630,7 +680,10 @@ std::unique_ptr<base::trace_event::TracedValue> ShellSurface::AsTracedValue()
   std::unique_ptr<base::trace_event::TracedValue> value(
       new base::trace_event::TracedValue());
   value->SetString("title", base::UTF16ToUTF8(title_));
-  value->SetString("application_id", application_id_);
+  std::string application_id;
+  if (GetWidget() && GetWidget()->GetNativeWindow())
+    application_id = GetApplicationId(GetWidget()->GetNativeWindow());
+  value->SetString("application_id", application_id);
   return value;
 }
 
@@ -666,15 +719,12 @@ void ShellSurface::OnSurfaceCommit() {
       top_inset_height_ = pending_top_inset_height_;
     }
 
-    gfx::Point surface_origin = GetSurfaceOrigin();
-
     // System modal container is used by clients to implement overlay
     // windows using a single ShellSurface instance.  If hit-test
     // region is empty, then it is non interactive window and won't be
     // activated.
     if (container_ == ash::kShellWindowId_SystemModalContainer) {
-      gfx::Rect hit_test_bounds =
-          surface_->GetHitTestBounds() + surface_origin.OffsetFromOrigin();
+      gfx::Rect hit_test_bounds = surface_->GetHitTestBounds();
 
       // Prevent window from being activated when hit test bounds are empty.
       bool activatable = activatable_ && !hit_test_bounds.IsEmpty();
@@ -688,9 +738,13 @@ void ShellSurface::OnSurfaceCommit() {
       }
     }
 
+    gfx::Rect client_view_bounds =
+        widget_->non_client_view()->frame_view()->GetBoundsForClientView();
+
     // Update surface bounds.
     surface_->window()->SetBounds(
-        gfx::Rect(surface_origin, surface_->window()->layer()->size()));
+        gfx::Rect(GetSurfaceOrigin() + client_view_bounds.OffsetFromOrigin(),
+                  surface_->window()->layer()->size()));
 
     // Update surface scale.
     if (pending_scale_ != scale_) {
@@ -729,8 +783,12 @@ void ShellSurface::OnSurfaceDestroying(Surface* surface) {
 
   // Hide widget before surface is destroyed. This allows hide animations to
   // run using the current surface contents.
-  if (widget_)
+  if (widget_) {
+    // Remove transient children so they are not automatically hidden.
+    for (auto child : wm::GetTransientChildren(widget_->GetNativeWindow()))
+      wm::RemoveTransientChild(widget_->GetNativeWindow(), child);
     widget_->Hide();
+  }
 
   // Note: In its use in the Wayland server implementation, the surface
   // destroyed callback may destroy the ShellSurface instance. This call needs
@@ -748,12 +806,15 @@ bool ShellSurface::CanResize() const {
 
 bool ShellSurface::CanMaximize() const {
   // Shell surfaces in system modal container cannot be maximized.
-  return container_ != ash::kShellWindowId_SystemModalContainer;
+  if (container_ == ash::kShellWindowId_SystemModalContainer)
+    return false;
+
+  // Non-transient shell surfaces can be maximized.
+  return !parent_;
 }
 
 bool ShellSurface::CanMinimize() const {
-  // Shell surfaces in system modal container cannot be minimized.
-  return container_ != ash::kShellWindowId_SystemModalContainer;
+  return can_minimize_;
 }
 
 base::string16 ShellSurface::GetWindowTitle() const {
@@ -783,6 +844,15 @@ views::View* ShellSurface::GetContentsView() {
 
 views::NonClientFrameView* ShellSurface::CreateNonClientFrameView(
     views::Widget* widget) {
+  aura::Window* window = widget_->GetNativeWindow();
+  ash::wm::WindowState* window_state = ash::wm::GetWindowState(window);
+  // Set delegate for handling of fullscreening.
+  window_state->SetDelegate(std::unique_ptr<ash::wm::WindowStateDelegate>(
+      new CustomWindowStateDelegate(widget_)));
+
+  if (frame_enabled_)
+    return new ash::CustomFrameViewAsh(widget);
+
   return new CustomFrameView(widget);
 }
 
@@ -807,12 +877,8 @@ gfx::Size ShellSurface::GetPreferredSize() const {
   return surface_ ? surface_->window()->layer()->size() : gfx::Size();
 }
 
-////////////////////////////////////////////////////////////////////////////////
-// ash::AccessibilityObserver overrides:
-
-void ShellSurface::OnAccessibilityModeChanged(
-    ash::AccessibilityNotificationVisibility) {
-  UpdateShadow();
+gfx::Size ShellSurface::GetMinimumSize() const {
+  return gfx::Size(1, 1);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -875,8 +941,13 @@ void ShellSurface::OnWindowBoundsChanged(aura::Window* window,
     pending_origin_config_offset_ += origin_offset;
     origin_ -= origin_offset;
 
+    gfx::Rect client_view_bounds =
+        widget_->non_client_view()->frame_view()->GetBoundsForClientView();
+
+    // Update surface bounds.
     surface_->window()->SetBounds(
-        gfx::Rect(GetSurfaceOrigin(), surface_->window()->layer()->size()));
+        gfx::Rect(GetSurfaceOrigin() + client_view_bounds.OffsetFromOrigin(),
+                  surface_->window()->layer()->size()));
 
     // The shadow size may be updated to match the widget. Change it back
     // to the shadow content size.
@@ -891,9 +962,9 @@ void ShellSurface::OnWindowBoundsChanged(aura::Window* window,
 void ShellSurface::OnWindowDestroying(aura::Window* window) {
   if (window == parent_) {
     parent_ = nullptr;
-    // Disable shell surface in case parent is destroyed before shell surface
-    // widget has been created.
-    SetEnabled(false);
+    // |parent_| being set to null effects the ability to maximize the window.
+    if (widget_)
+      widget_->OnSizeConstraintsChanged();
   }
   window->RemoveObserver(this);
 }
@@ -913,6 +984,13 @@ void ShellSurface::OnWindowActivated(
     Configure();
     UpdateShadow();
   }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// WMHelper::AccessibilityObserver overrides:
+
+void ShellSurface::OnAccessibilityModeChanged() {
+  UpdateShadow();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1026,9 +1104,11 @@ void ShellSurface::CreateShellSurfaceWidget(ui::WindowShowState show_state) {
 
   aura::Window* window = widget_->GetNativeWindow();
   window->SetName("ExoShellSurface");
+  window->SetProperty(aura::client::kAccessibilityFocusFallsbackToWidgetKey,
+                      false);
   window->AddChild(surface_->window());
   window->SetEventTargeter(base::WrapUnique(new CustomWindowTargeter(widget_)));
-  SetApplicationId(window, &application_id_);
+  SetApplicationId(window, application_id_);
   SetMainSurface(window, surface_);
 
   // Start tracking changes to window bounds and window state.
@@ -1053,13 +1133,14 @@ void ShellSurface::CreateShellSurfaceWidget(ui::WindowShowState show_state) {
   widget_->set_movement_disabled(!initial_bounds_.IsEmpty());
   window_state->set_ignore_keyboard_bounds_change(!initial_bounds_.IsEmpty());
 
-  // Allow Ash to manage the position of a top-level shell surfaces if show
-  // state is one that allows auto positioning and |initial_bounds_| has
-  // not been set.
-  window_state->set_window_position_managed(
-      ash::wm::ToWindowShowState(ash::wm::WINDOW_STATE_TYPE_AUTO_POSITIONED) ==
-          show_state &&
-      initial_bounds_.IsEmpty());
+  // AutoHide shelf in fullscreen state.
+  window_state->set_hide_shelf_when_fullscreen(false);
+
+  // Fade visibility animations for non-activatable windows.
+  if (!activatable_) {
+    wm::SetWindowVisibilityAnimationType(
+        window, wm::WINDOW_VISIBILITY_ANIMATION_TYPE_FADE);
+  }
 
   // Register close window accelerators.
   views::FocusManager* focus_manager = widget_->GetFocusManager();
@@ -1069,12 +1150,8 @@ void ShellSurface::CreateShellSurfaceWidget(ui::WindowShowState show_state) {
         ui::AcceleratorManager::kNormalPriority, this);
   }
 
-  // Set delegate for handling of fullscreening.
-  window_state->SetDelegate(std::unique_ptr<ash::wm::WindowStateDelegate>(
-      new CustomWindowStateDelegate(widget_)));
-
   // Receive accessibility changes to update shadow underlay.
-  ash::WmShell::Get()->system_tray_notifier()->AddAccessibilityObserver(this);
+  WMHelper::GetInstance()->AddAccessibilityObserver(this);
 
   // Show widget next time Commit() is called.
   pending_show_widget_ = true;
@@ -1092,20 +1169,28 @@ void ShellSurface::Configure() {
   gfx::Vector2d origin_offset = pending_origin_config_offset_;
   pending_origin_config_offset_ = gfx::Vector2d();
 
-  // If surface is being resized, save the resize direction.
-  int resize_component =
-      resizer_ ? resizer_->details().window_component : HTCAPTION;
+  ash::wm::WindowState* window_state =
+      ash::wm::GetWindowState(widget_->GetNativeWindow());
 
-  if (configure_callback_.is_null()) {
+  // If surface is being resized, save the resize direction.
+  int resize_component = window_state->is_dragged()
+                             ? window_state->drag_details()->window_component
+                             : HTCAPTION;
+
+  uint32_t serial = 0;
+  if (!configure_callback_.is_null()) {
+    const views::NonClientView* non_client_view = widget_->non_client_view();
+    serial = configure_callback_.Run(
+        non_client_view->frame_view()->GetBoundsForClientView().size(),
+        ash::wm::GetWindowState(widget_->GetNativeWindow())->GetStateType(),
+        IsResizing(), widget_->IsActive());
+  }
+
+  if (!serial) {
     pending_origin_offset_ += origin_offset;
     pending_resize_component_ = resize_component;
     return;
   }
-
-  uint32_t serial = configure_callback_.Run(
-      widget_->GetWindowBoundsInScreen().size(),
-      ash::wm::GetWindowState(widget_->GetNativeWindow())->GetStateType(),
-      IsResizing(), widget_->IsActive());
 
   // Apply origin offset and resize component at the first Commit() after this
   // configure request has been acknowledged.
@@ -1171,8 +1256,8 @@ void ShellSurface::AttemptToStartDrag(int component) {
   }
 
   resizer_ = ash::CreateWindowResizer(
-      ash::WmWindowAura::Get(widget_->GetNativeWindow()), drag_location,
-      component, aura::client::WINDOW_MOVE_SOURCE_MOUSE);
+      ash::WmWindow::Get(widget_->GetNativeWindow()), drag_location, component,
+      aura::client::WINDOW_MOVE_SOURCE_MOUSE);
   if (!resizer_)
     return;
 
@@ -1214,10 +1299,12 @@ void ShellSurface::EndDrag(bool revert) {
 }
 
 bool ShellSurface::IsResizing() const {
-  if (!resizer_)
+  ash::wm::WindowState* window_state =
+      ash::wm::GetWindowState(widget_->GetNativeWindow());
+  if (!window_state->is_dragged())
     return false;
 
-  return resizer_->details().bounds_change &
+  return window_state->drag_details()->bounds_change &
          ash::WindowResizer::kBoundsChange_Resizes;
 }
 
@@ -1228,14 +1315,17 @@ gfx::Rect ShellSurface::GetVisibleBounds() const {
 }
 
 gfx::Point ShellSurface::GetSurfaceOrigin() const {
-  gfx::Rect window_bounds = widget_->GetNativeWindow()->bounds();
-
   // If initial bounds were specified then surface origin is always relative
   // to those bounds.
-  if (!initial_bounds_.IsEmpty())
-    return initial_bounds_.origin() - window_bounds.OffsetFromOrigin();
+  if (!initial_bounds_.IsEmpty()) {
+    gfx::Point origin = widget_->GetNativeWindow()->bounds().origin();
+    wm::ConvertPointToScreen(widget_->GetNativeWindow()->parent(), &origin);
+    return initial_bounds_.origin() - origin.OffsetFromOrigin();
+  }
 
   gfx::Rect visible_bounds = GetVisibleBounds();
+  gfx::Rect client_bounds =
+      widget_->non_client_view()->frame_view()->GetBoundsForClientView();
   switch (resize_component_) {
     case HTCAPTION:
       return origin_ - visible_bounds.OffsetFromOrigin();
@@ -1245,16 +1335,16 @@ gfx::Point ShellSurface::GetSurfaceOrigin() const {
       return gfx::Point() - visible_bounds.OffsetFromOrigin();
     case HTTOP:
     case HTTOPRIGHT:
-      return gfx::Point(0, window_bounds.height() - visible_bounds.height()) -
+      return gfx::Point(0, client_bounds.height() - visible_bounds.height()) -
              visible_bounds.OffsetFromOrigin();
       break;
     case HTLEFT:
     case HTBOTTOMLEFT:
-      return gfx::Point(window_bounds.width() - visible_bounds.width(), 0) -
+      return gfx::Point(client_bounds.width() - visible_bounds.width(), 0) -
              visible_bounds.OffsetFromOrigin();
     case HTTOPLEFT:
-      return gfx::Point(window_bounds.width() - visible_bounds.width(),
-                        window_bounds.height() - visible_bounds.height()) -
+      return gfx::Point(client_bounds.width() - visible_bounds.width(),
+                        client_bounds.height() - visible_bounds.height()) -
              visible_bounds.OffsetFromOrigin();
     default:
       NOTREACHED();
@@ -1284,12 +1374,18 @@ void ShellSurface::UpdateWidgetBounds() {
     return;
 
   gfx::Rect visible_bounds = GetVisibleBounds();
-  gfx::Rect new_widget_bounds = visible_bounds;
+  gfx::Rect new_widget_bounds =
+      widget_->non_client_view()->GetWindowBoundsForClientBounds(
+          visible_bounds);
 
   // Avoid changing widget origin unless initial bounds were specified and
   // widget origin is always relative to it.
-  if (initial_bounds_.IsEmpty())
+  if (initial_bounds_.IsEmpty()) {
     new_widget_bounds.set_origin(widget_->GetWindowBoundsInScreen().origin());
+  } else {
+    new_widget_bounds.set_origin(initial_bounds_.origin() +
+                                 visible_bounds.OffsetFromOrigin());
+  }
 
   // Update widget origin using the surface origin if the current location of
   // surface is being anchored to one side of the widget as a result of a
@@ -1309,28 +1405,44 @@ void ShellSurface::UpdateWidgetBounds() {
     widget_->SetBounds(new_widget_bounds);
   ignore_window_bounds_changes_ = false;
 
+  gfx::Rect client_view_bounds =
+      widget_->non_client_view()->frame_view()->GetBoundsForClientView();
+
   // A change to the widget size requires surface bounds to be re-adjusted.
   surface_->window()->SetBounds(
-      gfx::Rect(GetSurfaceOrigin(), surface_->window()->layer()->size()));
+      gfx::Rect(GetSurfaceOrigin() + client_view_bounds.OffsetFromOrigin(),
+                surface_->window()->layer()->size()));
 }
 
 void ShellSurface::UpdateShadow() {
-  if (!widget_)
+  if (!widget_ || !surface_)
     return;
   aura::Window* window = widget_->GetNativeWindow();
-  if (shadow_content_bounds_.IsEmpty()) {
-    wm::SetShadowType(window, wm::SHADOW_TYPE_NONE);
+  if (!shadow_enabled_) {
+    wm::SetShadowElevation(window, wm::ShadowElevation::NONE);
     if (shadow_underlay_)
       shadow_underlay_->Hide();
   } else {
-    wm::SetShadowType(window, wm::SHADOW_TYPE_RECTANGULAR);
+    wm::SetShadowElevation(window, wm::ShadowElevation::MEDIUM);
+    gfx::Rect shadow_content_bounds =
+        gfx::ScaleToEnclosedRect(shadow_content_bounds_, 1.f / scale_);
+    gfx::Rect shadow_underlay_bounds = shadow_content_bounds_;
+    if (shadow_underlay_bounds.IsEmpty())
+      shadow_underlay_bounds = gfx::Rect(surface_->window()->bounds().size());
+
+    if (!shadow_underlay_in_surface_) {
+      shadow_content_bounds = shadow_content_bounds_;
+      if (shadow_content_bounds.IsEmpty()) {
+        shadow_content_bounds = window->bounds();
+      }
+    }
 
     // TODO(oshima): Adjust the coordinates from client screen to
     // chromeos screen when multi displays are supported.
     gfx::Point origin = window->bounds().origin();
-    gfx::Point shadow_origin = shadow_content_bounds_.origin();
+    gfx::Point shadow_origin = shadow_content_bounds.origin();
     shadow_origin -= origin.OffsetFromOrigin();
-    gfx::Rect shadow_bounds(shadow_origin, shadow_content_bounds_.size());
+    gfx::Rect shadow_bounds(shadow_origin, shadow_content_bounds.size());
 
     // Always create and show the underlay, even in maximized/fullscreen.
     if (!shadow_underlay_) {
@@ -1346,16 +1458,20 @@ void ShellSurface::UpdateShadow() {
       shadow_underlay_->Init(ui::LAYER_SOLID_COLOR);
       shadow_underlay_->layer()->SetColor(SK_ColorBLACK);
       DCHECK(shadow_underlay_->layer()->fills_bounds_opaquely());
-      window->AddChild(shadow_underlay_);
-      window->StackChildAtBottom(shadow_underlay_);
+      if (shadow_underlay_in_surface_) {
+        surface_->window()->AddChild(shadow_underlay_);
+        surface_->window()->StackChildAtBottom(shadow_underlay_);
+      } else {
+        window->AddChild(shadow_underlay_);
+        window->StackChildAtBottom(shadow_underlay_);
+      }
     }
 
-    bool underlay_capture_events = ash::WmShell::Get()
-                                       ->accessibility_delegate()
-                                       ->IsSpokenFeedbackEnabled() &&
-                                   widget_->IsActive();
+    bool underlay_capture_events =
+        WMHelper::GetInstance()->IsSpokenFeedbackEnabled() &&
+        widget_->IsActive();
 
-    float shadow_underlay_opacity = rectangular_shadow_background_opacity_;
+    float shadow_underlay_opacity = shadow_background_opacity_;
     // Put the black background layer behind the window if
     // 1) the window is in immersive fullscreen or is active with
     //    spoken feedback enabled.
@@ -1366,14 +1482,28 @@ void ShellSurface::UpdateShadow() {
     if ((widget_->IsFullscreen() || underlay_capture_events) &&
         ash::wm::GetWindowState(window)->allow_set_bounds_in_maximized() &&
         window->layer()->GetTargetTransform().IsIdentity()) {
-      gfx::Point origin;
-      origin -= window->bounds().origin().OffsetFromOrigin();
-      shadow_bounds.set_origin(origin);
-      shadow_bounds.set_size(window->parent()->bounds().size());
+      if (shadow_underlay_in_surface_) {
+        shadow_underlay_bounds = gfx::Rect(surface_->window()->bounds().size());
+      } else {
+        gfx::Point origin;
+        origin -= window->bounds().origin().OffsetFromOrigin();
+        shadow_bounds.set_origin(origin);
+        shadow_bounds.set_size(window->parent()->bounds().size());
+      }
       shadow_underlay_opacity = 1.0f;
     }
 
-    shadow_underlay_->SetBounds(shadow_bounds);
+    if (!shadow_underlay_in_surface_)
+      shadow_underlay_bounds = shadow_bounds;
+
+    // Constrain the underlay bounds to the client area in case shell surface
+    // frame is enabled.
+    if (frame_enabled_) {
+      shadow_underlay_bounds.Intersect(
+          widget_->non_client_view()->frame_view()->GetBoundsForClientView());
+    }
+
+    shadow_underlay_->SetBounds(shadow_underlay_bounds);
 
     // TODO(oshima): Setting to the same value should be no-op.
     // crbug.com/642223.
@@ -1396,10 +1526,17 @@ void ShellSurface::UpdateShadow() {
       shadow_overlay_->Init(ui::LAYER_NOT_DRAWN);
       shadow_overlay_->layer()->Add(shadow->layer());
       window->AddChild(shadow_overlay_);
+      if (shadow_underlay_in_surface_) {
+        window->StackChildBelow(shadow_overlay_, surface_->window());
+      }
       shadow_overlay_->Show();
     }
     shadow_overlay_->SetBounds(shadow_bounds);
     shadow->SetContentBounds(gfx::Rect(shadow_bounds.size()));
+    // Surfaces that can't be activated are usually menus and tooltips. Use a
+    // small style shadow for them.
+    if (!activatable_)
+      shadow->SetElevation(wm::ShadowElevation::SMALL);
   }
 }
 

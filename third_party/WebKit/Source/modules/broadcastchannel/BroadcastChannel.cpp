@@ -28,7 +28,7 @@ mojom::blink::BroadcastChannelProviderPtr& getThreadSpecificProvider() {
       new ThreadSpecific<mojom::blink::BroadcastChannelProviderPtr>);
   if (!provider.isSet()) {
     Platform::current()->interfaceProvider()->getInterface(
-        mojo::GetProxy(&*provider));
+        mojo::MakeRequest(&*provider));
   }
   return *provider;
 }
@@ -74,6 +74,14 @@ void BroadcastChannel::postMessage(const ScriptValue& message,
 }
 
 void BroadcastChannel::close() {
+  if (!Platform::current()) {
+    // TODO(rockot): Remove this hack once renderer shutdown sequence is fixed.
+    // Note that reaching this code indicates that the MessageLoop has already
+    // been torn down, so it's impossible for further incoming messages to be
+    // dispatched on |m_binding| or reply callbacks to be invoked from
+    // |m_remoteClient|.
+    return;
+  }
   m_remoteClient.reset();
   if (m_binding.is_bound())
     m_binding.Close();
@@ -87,7 +95,7 @@ bool BroadcastChannel::hasPendingActivity() const {
   return m_binding.is_bound() && hasEventListeners(EventTypeNames::message);
 }
 
-void BroadcastChannel::contextDestroyed() {
+void BroadcastChannel::contextDestroyed(ExecutionContext*) {
   close();
 }
 
@@ -96,10 +104,12 @@ DEFINE_TRACE(BroadcastChannel) {
   EventTargetWithInlineData::trace(visitor);
 }
 
-void BroadcastChannel::OnMessage(mojo::WTFArray<uint8_t> message) {
+void BroadcastChannel::OnMessage(const WTF::Vector<uint8_t>& message) {
   // Queue a task to dispatch the event.
   RefPtr<SerializedScriptValue> value = SerializedScriptValue::create(
-      reinterpret_cast<const char*>(&message.front()), message.size());
+      message.isEmpty() ? nullptr
+                        : reinterpret_cast<const char*>(&message.front()),
+      message.size());
   MessageEvent* event = MessageEvent::create(
       nullptr, value.release(),
       getExecutionContext()->getSecurityOrigin()->toString());
@@ -115,13 +125,10 @@ void BroadcastChannel::onError() {
 
 BroadcastChannel::BroadcastChannel(ExecutionContext* executionContext,
                                    const String& name)
-    : ActiveScriptWrappable(this),
-      ContextLifecycleObserver(executionContext),
+    : ContextLifecycleObserver(executionContext),
       m_origin(executionContext->getSecurityOrigin()),
       m_name(name),
       m_binding(this) {
-  ThreadState::current()->registerPreFinalizer(this);
-
   mojom::blink::BroadcastChannelProviderPtr& provider =
       getThreadSpecificProvider();
 

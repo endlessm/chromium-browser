@@ -24,7 +24,6 @@ class ImageQualityControllerTest : public RenderingTest {
     m_controller = ImageQualityController::imageQualityController();
     RenderingTest::SetUp();
   }
-  void TearDown() override {}
 
   ImageQualityController* m_controller;
 };
@@ -61,8 +60,11 @@ class TestImageAnimated : public Image {
             const FloatRect& dstRect,
             const FloatRect& srcRect,
             RespectImageOrientationEnum,
-            ImageClampingMode) override {}
-  sk_sp<SkImage> imageForCurrentFrame() override { return nullptr; }
+            ImageClampingMode,
+            const ColorBehavior&) override {}
+  sk_sp<SkImage> imageForCurrentFrame(const ColorBehavior&) override {
+    return nullptr;
+  }
 };
 
 TEST_F(ImageQualityControllerTest, ImageMaybeAnimated) {
@@ -89,10 +91,13 @@ class TestImageWithContrast : public Image {
             const FloatRect& dstRect,
             const FloatRect& srcRect,
             RespectImageOrientationEnum,
-            ImageClampingMode) override {}
+            ImageClampingMode,
+            const ColorBehavior&) override {}
 
   bool isBitmapImage() const override { return true; }
-  sk_sp<SkImage> imageForCurrentFrame() override { return nullptr; }
+  sk_sp<SkImage> imageForCurrentFrame(const ColorBehavior&) override {
+    return nullptr;
+  }
 };
 
 TEST_F(ImageQualityControllerTest, LowQualityFilterForContrast) {
@@ -121,10 +126,13 @@ class TestImageLowQuality : public Image {
             const FloatRect& dstRect,
             const FloatRect& srcRect,
             RespectImageOrientationEnum,
-            ImageClampingMode) override {}
+            ImageClampingMode,
+            const ColorBehavior&) override {}
 
   bool isBitmapImage() const override { return true; }
-  sk_sp<SkImage> imageForCurrentFrame() override { return nullptr; }
+  sk_sp<SkImage> imageForCurrentFrame(const ColorBehavior&) override {
+    return nullptr;
+  }
 };
 
 TEST_F(ImageQualityControllerTest, MediumQualityFilterForUnscaledImage) {
@@ -146,7 +154,7 @@ class MockTimer : public TaskRunnerTimer<ImageQualityController> {
 
   static std::unique_ptr<MockTimer> create(ImageQualityController* o,
                                            TimerFiredFunction f) {
-    auto taskRunner = WTF::wrapUnique(new scheduler::FakeWebTaskRunner);
+    auto taskRunner = adoptRef(new scheduler::FakeWebTaskRunner);
     return WTF::wrapUnique(new MockTimer(std::move(taskRunner), o, f));
   }
 
@@ -158,13 +166,13 @@ class MockTimer : public TaskRunnerTimer<ImageQualityController> {
   void setTime(double newTime) { m_taskRunner->setTime(newTime); }
 
  private:
-  MockTimer(std::unique_ptr<scheduler::FakeWebTaskRunner> taskRunner,
+  MockTimer(RefPtr<scheduler::FakeWebTaskRunner> taskRunner,
             ImageQualityController* o,
             TimerFiredFunction f)
-      : TaskRunnerTimer(taskRunner.get(), o, f),
+      : TaskRunnerTimer(taskRunner, o, f),
         m_taskRunner(std::move(taskRunner)) {}
 
-  std::unique_ptr<scheduler::FakeWebTaskRunner> m_taskRunner;
+  RefPtr<scheduler::FakeWebTaskRunner> m_taskRunner;
 
   DISALLOW_COPY_AND_ASSIGN(MockTimer);
 };
@@ -174,7 +182,7 @@ TEST_F(ImageQualityControllerTest, LowQualityFilterForResizingImage) {
       MockTimer::create(controller(),
                         &ImageQualityController::highQualityRepaintTimerFired)
           .release();
-  controller()->setTimer(wrapUnique(mockTimer));
+  controller()->setTimer(WTF::wrapUnique(mockTimer));
   setBodyInnerHTML("<img src='myimage'></img>");
   LayoutImage* img =
       toLayoutImage(document().body()->firstChild()->layoutObject());
@@ -213,7 +221,7 @@ TEST_F(ImageQualityControllerTest,
       MockTimer::create(controller(),
                         &ImageQualityController::highQualityRepaintTimerFired)
           .release();
-  controller()->setTimer(wrapUnique(mockTimer));
+  controller()->setTimer(WTF::wrapUnique(mockTimer));
   setBodyInnerHTML(
       "<img id='myAnimatingImage' src='myimage'></img> <img "
       "id='myNonAnimatingImage' src='myimage2'></img>");
@@ -266,7 +274,7 @@ TEST_F(ImageQualityControllerTest,
       MockTimer::create(controller(),
                         &ImageQualityController::highQualityRepaintTimerFired)
           .release();
-  controller()->setTimer(wrapUnique(mockTimer));
+  controller()->setTimer(WTF::wrapUnique(mockTimer));
   setBodyInnerHTML("<img src='myimage'></img>");
   LayoutImage* img =
       toLayoutImage(document().body()->firstChild()->layoutObject());
@@ -306,7 +314,7 @@ TEST_F(ImageQualityControllerTest, DontRestartTimerUnlessAdvanced) {
       MockTimer::create(controller(),
                         &ImageQualityController::highQualityRepaintTimerFired)
           .release();
-  controller()->setTimer(wrapUnique(mockTimer));
+  controller()->setTimer(WTF::wrapUnique(mockTimer));
   setBodyInnerHTML("<img src='myimage'></img>");
   LayoutImage* img =
       toLayoutImage(document().body()->firstChild()->layoutObject());

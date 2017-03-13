@@ -72,7 +72,7 @@ class GlyphMetricsMap {
       setMetricsForIndex(glyph % size, metrics);
     }
     void setMetricsForIndex(unsigned index, const T& metrics) {
-      ASSERT_WITH_SECURITY_IMPLICATION(index < size);
+      SECURITY_DCHECK(index < size);
       m_metrics[index] = metrics;
     }
 
@@ -120,10 +120,11 @@ GlyphMetricsMap<T>::locatePageSlowCase(unsigned pageNumber) {
       if (page)
         return page;
     } else {
-      m_pages = wrapUnique(new HashMap<int, std::unique_ptr<GlyphMetricsPage>>);
+      m_pages =
+          WTF::wrapUnique(new HashMap<int, std::unique_ptr<GlyphMetricsPage>>);
     }
     page = new GlyphMetricsPage;
-    m_pages->set(pageNumber, wrapUnique(page));
+    m_pages->set(pageNumber, WTF::wrapUnique(page));
   }
 
   // Fill in the whole page with the unknown glyph information.

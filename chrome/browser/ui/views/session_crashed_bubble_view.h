@@ -19,13 +19,11 @@
 
 namespace views {
 class Checkbox;
-class GridLayout;
 class Widget;
 }
 
 namespace content {
 class WebContents;
-class RenderViewHost;
 }
 
 class Browser;

@@ -11,6 +11,10 @@
 #include "base/macros.h"
 #include "content/public/renderer/content_renderer_client.h"
 
+namespace blink {
+class WebURL;
+}  // namespace blink
+
 namespace extensions {
 
 class Dispatcher;
@@ -18,7 +22,6 @@ class DispatcherDelegate;
 class ExtensionsClient;
 class ExtensionsGuestViewContainerDispatcher;
 class ShellExtensionsRendererClient;
-class ShellRendererMainDelegate;
 
 // Renderer initialization and runtime support for app_shell.
 class ShellContentRendererClient : public content::ContentRendererClient {
@@ -37,10 +40,9 @@ class ShellContentRendererClient : public content::ContentRendererClient {
   blink::WebPlugin* CreatePluginReplacement(
       content::RenderFrame* render_frame,
       const base::FilePath& plugin_path) override;
-  bool WillSendRequest(blink::WebFrame* frame,
+  bool WillSendRequest(blink::WebLocalFrame* frame,
                        ui::PageTransition transition_type,
-                       const GURL& url,
-                       const GURL& first_party_for_cookies,
+                       const blink::WebURL& url,
                        GURL* new_url) override;
   bool IsExternalPepperPlugin(const std::string& module_name) override;
   bool ShouldGatherSiteIsolationStats() const override;

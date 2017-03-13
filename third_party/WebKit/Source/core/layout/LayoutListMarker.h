@@ -1,7 +1,8 @@
 /*
  * Copyright (C) 1999 Lars Knoll (knoll@kde.org)
  *           (C) 1999 Antti Koivisto (koivisto@kde.org)
- * Copyright (C) 2003, 2004, 2005, 2006, 2007, 2009 Apple Inc. All rights reserved.
+ * Copyright (C) 2003, 2004, 2005, 2006, 2007, 2009 Apple Inc.
+ *               All rights reserved.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -42,7 +43,8 @@ class LayoutListMarker final : public LayoutBox {
   // of list style specific logic.
   enum class ListStyleCategory { None, Symbol, Language };
 
-  // Returns the list's style as one of a reduced high level categorical set of styles.
+  // Returns the list's style as one of a reduced high level categorical set of
+  // styles.
   ListStyleCategory getListStyleCategory() const;
 
   bool isInside() const;
@@ -59,6 +61,8 @@ class LayoutListMarker final : public LayoutBox {
   void listItemStyleDidChange();
 
   const char* name() const override { return "LayoutListMarker"; }
+
+  LayoutUnit lineOffset() const { return m_lineOffset; }
 
  protected:
   void willBeDestroyed() override;
@@ -110,6 +114,7 @@ class LayoutListMarker final : public LayoutBox {
   String m_text;
   Persistent<StyleImage> m_image;
   LayoutListItem* m_listItem;
+  LayoutUnit m_lineOffset;
 };
 
 DEFINE_LAYOUT_OBJECT_TYPE_CASTS(LayoutListMarker, isListMarker());

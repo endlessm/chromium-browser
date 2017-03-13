@@ -37,7 +37,6 @@
 #include "components/mime_util/mime_util.h"
 #include "content/app/resources/grit/content_resources.h"
 #include "content/app/strings/grit/content_strings.h"
-#include "content/child/background_sync/background_sync_provider.h"
 #include "content/child/child_thread_impl.h"
 #include "content/child/content_child_helpers.h"
 #include "content/child/notifications/notification_dispatcher.h"
@@ -49,8 +48,10 @@
 #include "content/child/web_url_request_util.h"
 #include "content/child/worker_thread_registry.h"
 #include "content/public/common/content_client.h"
-#include "net/base/data_url.h"
+#include "content/public/common/service_manager_connection.h"
 #include "net/base/net_errors.h"
+#include "services/service_manager/public/cpp/connector.h"
+#include "services/service_manager/public/interfaces/connector.mojom.h"
 #include "third_party/WebKit/public/platform/WebData.h"
 #include "third_party/WebKit/public/platform/WebFloatPoint.h"
 #include "third_party/WebKit/public/platform/WebSecurityOrigin.h"
@@ -73,17 +74,10 @@ using blink::scheduler::WebThreadImplForWorkerScheduler;
 
 namespace content {
 
-namespace {
-
-
-}  // namespace
-
 static int ToMessageID(WebLocalizedString::Name name) {
   switch (name) {
     case WebLocalizedString::AXAMPMFieldText:
       return IDS_AX_AM_PM_FIELD_TEXT;
-    case WebLocalizedString::AXButtonActionVerb:
-      return IDS_AX_BUTTON_ACTION_VERB;
     case WebLocalizedString::AXCalendarShowMonthSelector:
       return IDS_AX_CALENDAR_SHOW_MONTH_SELECTOR;
     case WebLocalizedString::AXCalendarShowNextMonth:
@@ -92,20 +86,14 @@ static int ToMessageID(WebLocalizedString::Name name) {
       return IDS_AX_CALENDAR_SHOW_PREVIOUS_MONTH;
     case WebLocalizedString::AXCalendarWeekDescription:
       return IDS_AX_CALENDAR_WEEK_DESCRIPTION;
-    case WebLocalizedString::AXCheckedCheckBoxActionVerb:
-      return IDS_AX_CHECKED_CHECK_BOX_ACTION_VERB;
     case WebLocalizedString::AXDayOfMonthFieldText:
       return IDS_AX_DAY_OF_MONTH_FIELD_TEXT;
-    case WebLocalizedString::AXDefaultActionVerb:
-      return IDS_AX_DEFAULT_ACTION_VERB;
     case WebLocalizedString::AXHeadingText:
       return IDS_AX_ROLE_HEADING;
     case WebLocalizedString::AXHourFieldText:
       return IDS_AX_HOUR_FIELD_TEXT;
     case WebLocalizedString::AXImageMapText:
       return IDS_AX_ROLE_IMAGE_MAP;
-    case WebLocalizedString::AXLinkActionVerb:
-      return IDS_AX_LINK_ACTION_VERB;
     case WebLocalizedString::AXLinkText:
       return IDS_AX_ROLE_LINK;
     case WebLocalizedString::AXListMarkerText:
@@ -194,16 +182,8 @@ static int ToMessageID(WebLocalizedString::Name name) {
       return IDS_AX_MINUTE_FIELD_TEXT;
     case WebLocalizedString::AXMonthFieldText:
       return IDS_AX_MONTH_FIELD_TEXT;
-    case WebLocalizedString::AXPopUpButtonActionVerb:
-      return IDS_AX_POP_UP_BUTTON_ACTION_VERB;
-    case WebLocalizedString::AXRadioButtonActionVerb:
-      return IDS_AX_RADIO_BUTTON_ACTION_VERB;
     case WebLocalizedString::AXSecondFieldText:
       return IDS_AX_SECOND_FIELD_TEXT;
-    case WebLocalizedString::AXTextFieldActionVerb:
-      return IDS_AX_TEXT_FIELD_ACTION_VERB;
-    case WebLocalizedString::AXUncheckedCheckBoxActionVerb:
-      return IDS_AX_UNCHECKED_CHECK_BOX_ACTION_VERB;
     case WebLocalizedString::AXWebAreaText:
       return IDS_AX_ROLE_WEB_AREA;
     case WebLocalizedString::AXWeekOfYearFieldText:
@@ -232,10 +212,6 @@ static int ToMessageID(WebLocalizedString::Name name) {
       return IDS_FORM_FILE_NO_FILE_LABEL;
     case WebLocalizedString::InputElementAltText:
       return IDS_FORM_INPUT_ALT;
-    case WebLocalizedString::KeygenMenuHighGradeKeySize:
-      return IDS_KEYGEN_HIGH_GRADE_KEY;
-    case WebLocalizedString::KeygenMenuMediumGradeKeySize:
-      return IDS_KEYGEN_MED_GRADE_KEY;
     case WebLocalizedString::MissingPluginText:
       return IDS_PLUGIN_INITIALIZATION_ERROR;
     case WebLocalizedString::MultipleFileUploadText:
@@ -390,8 +366,6 @@ void BlinkPlatformImpl::InternalInit() {
     notification_dispatcher_ =
         ChildThreadImpl::current()->notification_dispatcher();
     push_dispatcher_ = ChildThreadImpl::current()->push_dispatcher();
-    main_thread_sync_provider_.reset(
-        new BackgroundSyncProvider(main_thread_task_runner_.get()));
   }
 }
 
@@ -420,31 +394,9 @@ WebString BlinkPlatformImpl::userAgent() {
   return blink::WebString::fromUTF8(GetContentClient()->GetUserAgent());
 }
 
-WebData BlinkPlatformImpl::parseDataURL(const WebURL& url,
-                                        WebString& mimetype_out,
-                                        WebString& charset_out) {
-  std::string mime_type, char_set, data;
-  if (net::DataURL::Parse(url, &mime_type, &char_set, &data) &&
-      mime_util::IsSupportedMimeType(mime_type)) {
-    mimetype_out = WebString::fromUTF8(mime_type);
-    charset_out = WebString::fromUTF8(char_set);
-    return data;
-  }
-  return WebData();
-}
-
 WebURLError BlinkPlatformImpl::cancelledError(
     const WebURL& unreachableURL) const {
   return CreateWebURLError(unreachableURL, false, net::ERR_ABORTED);
-}
-
-bool BlinkPlatformImpl::parseMultipartHeadersFromBody(
-    const char* bytes,
-    size_t size,
-    blink::WebURLResponse* response,
-    size_t* end) const {
-  return WebURLLoaderImpl::ParseMultipartHeadersFromBody(
-      bytes, size, response, end);
 }
 
 blink::WebThread* BlinkPlatformImpl::createThread(const char* name) {
@@ -539,64 +491,29 @@ struct DataResource {
 const DataResource kDataResources[] = {
     {"missingImage", IDR_BROKENIMAGE, ui::SCALE_FACTOR_100P},
     {"missingImage@2x", IDR_BROKENIMAGE, ui::SCALE_FACTOR_200P},
-    {"mediaplayerPause", IDR_MEDIAPLAYER_PAUSE_BUTTON, ui::SCALE_FACTOR_100P},
-    {"mediaplayerPauseNew",
-     IDR_MEDIAPLAYER_PAUSE_BUTTON_NEW,
+    {"mediaplayerPause",
+     IDR_MEDIAPLAYER_PAUSE_BUTTON,
      ui::SCALE_FACTOR_100P},
-    {"mediaplayerPlay", IDR_MEDIAPLAYER_PLAY_BUTTON, ui::SCALE_FACTOR_100P},
-    {"mediaplayerPlayNew",
-     IDR_MEDIAPLAYER_PLAY_BUTTON_NEW,
+    {"mediaplayerPlay",
+     IDR_MEDIAPLAYER_PLAY_BUTTON,
      ui::SCALE_FACTOR_100P},
-    {"mediaplayerPlayDisabled",
-     IDR_MEDIAPLAYER_PLAY_BUTTON_DISABLED,
+    {"mediaplayerSoundNotMuted",
+     IDR_MEDIAPLAYER_SOUND_NOT_MUTED_BUTTON,
      ui::SCALE_FACTOR_100P},
-    {"mediaplayerSoundLevel3",
-     IDR_MEDIAPLAYER_SOUND_LEVEL3_BUTTON,
-     ui::SCALE_FACTOR_100P},
-    {"mediaplayerSoundLevel3New",
-     IDR_MEDIAPLAYER_SOUND_LEVEL3_BUTTON_NEW,
-     ui::SCALE_FACTOR_100P},
-    {"mediaplayerSoundLevel2",
-     IDR_MEDIAPLAYER_SOUND_LEVEL2_BUTTON,
-     ui::SCALE_FACTOR_100P},
-    {"mediaplayerSoundLevel1",
-     IDR_MEDIAPLAYER_SOUND_LEVEL1_BUTTON,
-     ui::SCALE_FACTOR_100P},
-    {"mediaplayerSoundLevel0",
-     IDR_MEDIAPLAYER_SOUND_LEVEL0_BUTTON,
-     ui::SCALE_FACTOR_100P},
-    {"mediaplayerSoundLevel0New",
-     IDR_MEDIAPLAYER_SOUND_LEVEL0_BUTTON_NEW,
-     ui::SCALE_FACTOR_100P},
-    {"mediaplayerSoundDisabled",
-     IDR_MEDIAPLAYER_SOUND_DISABLED,
+    {"mediaplayerSoundMuted",
+     IDR_MEDIAPLAYER_SOUND_MUTED_BUTTON,
      ui::SCALE_FACTOR_100P},
     {"mediaplayerSliderThumb",
      IDR_MEDIAPLAYER_SLIDER_THUMB,
      ui::SCALE_FACTOR_100P},
-    {"mediaplayerSliderThumbNew",
-     IDR_MEDIAPLAYER_SLIDER_THUMB_NEW,
-     ui::SCALE_FACTOR_100P},
     {"mediaplayerVolumeSliderThumb",
      IDR_MEDIAPLAYER_VOLUME_SLIDER_THUMB,
-     ui::SCALE_FACTOR_100P},
-    {"mediaplayerVolumeSliderThumbNew",
-     IDR_MEDIAPLAYER_VOLUME_SLIDER_THUMB_NEW,
-     ui::SCALE_FACTOR_100P},
-    {"mediaplayerVolumeSliderThumbDisabled",
-     IDR_MEDIAPLAYER_VOLUME_SLIDER_THUMB_DISABLED,
      ui::SCALE_FACTOR_100P},
     {"mediaplayerClosedCaption",
      IDR_MEDIAPLAYER_CLOSEDCAPTION_BUTTON,
      ui::SCALE_FACTOR_100P},
-    {"mediaplayerClosedCaptionNew",
-     IDR_MEDIAPLAYER_CLOSEDCAPTION_BUTTON_NEW,
-     ui::SCALE_FACTOR_100P},
     {"mediaplayerClosedCaptionDisabled",
      IDR_MEDIAPLAYER_CLOSEDCAPTION_BUTTON_DISABLED,
-     ui::SCALE_FACTOR_100P},
-    {"mediaplayerClosedCaptionDisabledNew",
-     IDR_MEDIAPLAYER_CLOSEDCAPTION_BUTTON_DISABLED_NEW,
      ui::SCALE_FACTOR_100P},
     {"mediaplayerEnterFullscreen",
      IDR_MEDIAPLAYER_ENTER_FULLSCREEN_BUTTON,
@@ -604,53 +521,26 @@ const DataResource kDataResources[] = {
     {"mediaplayerExitFullscreen",
      IDR_MEDIAPLAYER_EXIT_FULLSCREEN_BUTTON,
      ui::SCALE_FACTOR_100P},
-    {"mediaplayerFullscreen",
-     IDR_MEDIAPLAYER_FULLSCREEN_BUTTON,
-     ui::SCALE_FACTOR_100P},
     {"mediaplayerCastOff",
      IDR_MEDIAPLAYER_CAST_BUTTON_OFF,
      ui::SCALE_FACTOR_100P},
     {"mediaplayerCastOn",
      IDR_MEDIAPLAYER_CAST_BUTTON_ON,
      ui::SCALE_FACTOR_100P},
-    {"mediaplayerCastOffNew",
-     IDR_MEDIAPLAYER_CAST_BUTTON_OFF_NEW,
-     ui::SCALE_FACTOR_100P},
-    {"mediaplayerCastOnNew",
-     IDR_MEDIAPLAYER_CAST_BUTTON_ON_NEW,
-     ui::SCALE_FACTOR_100P},
-    {"mediaplayerFullscreenDisabled",
-     IDR_MEDIAPLAYER_FULLSCREEN_BUTTON_DISABLED,
-     ui::SCALE_FACTOR_100P},
     {"mediaplayerOverlayCastOff",
      IDR_MEDIAPLAYER_OVERLAY_CAST_BUTTON_OFF,
-     ui::SCALE_FACTOR_100P},
-    {"mediaplayerOverlayCastOffNew",
-     IDR_MEDIAPLAYER_OVERLAY_CAST_BUTTON_OFF_NEW,
      ui::SCALE_FACTOR_100P},
     {"mediaplayerOverlayPlay",
      IDR_MEDIAPLAYER_OVERLAY_PLAY_BUTTON,
      ui::SCALE_FACTOR_100P},
-    {"mediaplayerOverlayPlayNew",
-     IDR_MEDIAPLAYER_OVERLAY_PLAY_BUTTON_NEW,
-     ui::SCALE_FACTOR_100P},
     {"mediaplayerTrackSelectionCheckmark",
      IDR_MEDIAPLAYER_TRACKSELECTION_CHECKMARK,
-     ui::SCALE_FACTOR_100P},
-    {"mediaplayerTrackSelectionCheckmarkNew",
-     IDR_MEDIAPLAYER_TRACKSELECTION_CHECKMARK_NEW,
      ui::SCALE_FACTOR_100P},
     {"mediaplayerClosedCaptionsIcon",
      IDR_MEDIAPLAYER_CLOSEDCAPTIONS_ICON,
      ui::SCALE_FACTOR_100P},
-    {"mediaplayerClosedCaptionsIconNew",
-     IDR_MEDIAPLAYER_CLOSEDCAPTIONS_ICON_NEW,
-     ui::SCALE_FACTOR_100P},
     {"mediaplayerSubtitlesIcon",
      IDR_MEDIAPLAYER_SUBTITLES_ICON,
-     ui::SCALE_FACTOR_100P},
-    {"mediaplayerSubtitlesIconNew",
-     IDR_MEDIAPLAYER_SUBTITLES_ICON_NEW,
      ui::SCALE_FACTOR_100P},
     {"mediaplayerOverflowMenu",
      IDR_MEDIAPLAYER_OVERFLOW_MENU_ICON,
@@ -681,10 +571,6 @@ const DataResource kDataResources[] = {
     {"mediaControlsAndroid.css",
      IDR_UASTYLE_MEDIA_CONTROLS_ANDROID_CSS,
      ui::SCALE_FACTOR_NONE},
-    // Not limited to Android since it's used for mobile layouts in inspector.
-    {"mediaControlsAndroidNew.css",
-     IDR_UASTYLE_MEDIA_CONTROLS_ANDROID_NEW_CSS,
-     ui::SCALE_FACTOR_NONE},
     // Not limited to Linux since it's used for mobile layouts in inspector.
     {"themeChromiumLinux.css",
      IDR_UASTYLE_THEME_CHROMIUM_LINUX_CSS,
@@ -704,9 +590,6 @@ const DataResource kDataResources[] = {
     {"mediaControls.css",
      IDR_UASTYLE_MEDIA_CONTROLS_CSS,
      ui::SCALE_FACTOR_NONE},
-    {"mediaControlsNew.css",
-     IDR_UASTYLE_MEDIA_CONTROLS_NEW_CSS,
-     ui::SCALE_FACTOR_NONE},
     {"fullscreen.css", IDR_UASTYLE_FULLSCREEN_CSS, ui::SCALE_FACTOR_NONE},
     {"xhtmlmp.css", IDR_UASTYLE_XHTMLMP_CSS, ui::SCALE_FACTOR_NONE},
     {"viewportAndroid.css",
@@ -718,20 +601,11 @@ const DataResource kDataResources[] = {
     {"InspectorOverlayPage.html",
      IDR_INSPECTOR_OVERLAY_PAGE_HTML,
      ui::SCALE_FACTOR_NONE},
-    {"DocumentExecCommand.js",
-     IDR_PRIVATE_SCRIPT_DOCUMENTEXECCOMMAND_JS,
-     ui::SCALE_FACTOR_NONE},
     {"DocumentXMLTreeViewer.css",
-     IDR_PRIVATE_SCRIPT_DOCUMENTXMLTREEVIEWER_CSS,
+     IDR_DOCUMENTXMLTREEVIEWER_CSS,
      ui::SCALE_FACTOR_NONE},
     {"DocumentXMLTreeViewer.js",
-     IDR_PRIVATE_SCRIPT_DOCUMENTXMLTREEVIEWER_JS,
-     ui::SCALE_FACTOR_NONE},
-    {"HTMLMarqueeElement.js",
-     IDR_PRIVATE_SCRIPT_HTMLMARQUEEELEMENT_JS,
-     ui::SCALE_FACTOR_NONE},
-    {"PrivateScriptRunner.js",
-     IDR_PRIVATE_SCRIPT_PRIVATESCRIPTRUNNER_JS,
+     IDR_DOCUMENTXMLTREEVIEWER_JS,
      ui::SCALE_FACTOR_NONE},
 #ifdef IDR_PICKER_COMMON_JS
     {"pickerCommon.js", IDR_PICKER_COMMON_JS, ui::SCALE_FACTOR_NONE},
@@ -785,12 +659,14 @@ WebString BlinkPlatformImpl::queryLocalizedString(
   int message_id = ToMessageID(name);
   if (message_id < 0)
     return WebString();
-  return GetContentClient()->GetLocalizedString(message_id);
+  return WebString::fromUTF16(
+      GetContentClient()->GetLocalizedString(message_id));
 }
 
 WebString BlinkPlatformImpl::queryLocalizedString(
     WebLocalizedString::Name name, int numeric_value) {
-  return queryLocalizedString(name, base::IntToString16(numeric_value));
+  return queryLocalizedString(
+      name, WebString::fromUTF16(base::IntToString16(numeric_value)));
 }
 
 WebString BlinkPlatformImpl::queryLocalizedString(
@@ -798,8 +674,8 @@ WebString BlinkPlatformImpl::queryLocalizedString(
   int message_id = ToMessageID(name);
   if (message_id < 0)
     return WebString();
-  return base::ReplaceStringPlaceholders(
-      GetContentClient()->GetLocalizedString(message_id), value, NULL);
+  return WebString::fromUTF16(base::ReplaceStringPlaceholders(
+      GetContentClient()->GetLocalizedString(message_id), value.utf16(), NULL));
 }
 
 WebString BlinkPlatformImpl::queryLocalizedString(
@@ -811,10 +687,10 @@ WebString BlinkPlatformImpl::queryLocalizedString(
     return WebString();
   std::vector<base::string16> values;
   values.reserve(2);
-  values.push_back(value1);
-  values.push_back(value2);
-  return base::ReplaceStringPlaceholders(
-      GetContentClient()->GetLocalizedString(message_id), values, NULL);
+  values.push_back(value1.utf16());
+  values.push_back(value2.utf16());
+  return WebString::fromUTF16(base::ReplaceStringPlaceholders(
+      GetContentClient()->GetLocalizedString(message_id), values, NULL));
 }
 
 blink::WebThread* BlinkPlatformImpl::compositorThread() const {
@@ -866,14 +742,6 @@ blink::WebPushProvider* BlinkPlatformImpl::pushProvider() {
                                               push_dispatcher_.get());
 }
 
-blink::WebSyncProvider* BlinkPlatformImpl::backgroundSyncProvider() {
-  if (IsMainThread())
-    return main_thread_sync_provider_.get();
-
-  return BackgroundSyncProvider::GetOrCreateThreadSpecificInstance(
-      main_thread_task_runner_.get());
-}
-
 WebThemeEngine* BlinkPlatformImpl::themeEngine() {
   return &native_theme_engine_;
 }
@@ -916,12 +784,17 @@ bool BlinkPlatformImpl::databaseSetFileSize(
   return false;
 }
 
-blink::WebString BlinkPlatformImpl::signedPublicKeyAndChallengeString(
-    unsigned key_size_index,
-    const blink::WebString& challenge,
-    const blink::WebURL& url,
-    const blink::WebURL& top_origin) {
-  return blink::WebString("");
+void BlinkPlatformImpl::bindServiceConnector(
+    mojo::ScopedMessagePipeHandle remote_handle) {
+  if (!ChildThreadImpl::current())
+    return;
+
+  service_manager::mojom::ConnectorRequest chromium_request;
+  chromium_request.Bind(std::move(remote_handle));
+  ChildThreadImpl::current()
+      ->GetServiceManagerConnection()
+      ->GetConnector()
+      ->BindConnectorRequest(std::move(chromium_request));
 }
 
 size_t BlinkPlatformImpl::actualMemoryUsageMB() {

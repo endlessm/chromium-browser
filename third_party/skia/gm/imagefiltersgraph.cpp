@@ -7,6 +7,7 @@
 
 #include "gm.h"
 
+#include "SkArithmeticImageFilter.h"
 #include "SkBlurImageFilter.h"
 #include "SkColorFilter.h"
 #include "SkColorFilterImageFilter.h"
@@ -14,13 +15,13 @@
 #include "SkImage.h"
 #include "SkImageSource.h"
 #include "SkMatrixConvolutionImageFilter.h"
+#include "SkMergeImageFilter.h"
+#include "SkMorphologyImageFilter.h"
 #include "SkOffsetImageFilter.h"
 #include "SkReadBuffer.h"
 #include "SkSpecialImage.h"
 #include "SkSpecialSurface.h"
 #include "SkWriteBuffer.h"
-#include "SkMergeImageFilter.h"
-#include "SkMorphologyImageFilter.h"
 #include "SkXfermodeImageFilter.h"
 
 class ImageFiltersGraphGM : public skiagm::GM {
@@ -45,12 +46,13 @@ protected:
         {
             sk_sp<SkImageFilter> bitmapSource(SkImageSource::Make(fImage));
             sk_sp<SkColorFilter> cf(SkColorFilter::MakeModeFilter(SK_ColorRED,
-                                                                  SkXfermode::kSrcIn_Mode));
+                                                                  SkBlendMode::kSrcIn));
             sk_sp<SkImageFilter> blur(SkBlurImageFilter::Make(4.0f, 4.0f, std::move(bitmapSource)));
             sk_sp<SkImageFilter> erode(SkErodeImageFilter::Make(4, 4, blur));
             sk_sp<SkImageFilter> color(SkColorFilterImageFilter::Make(std::move(cf),
                                                                       std::move(erode)));
-            sk_sp<SkImageFilter> merge(SkMergeImageFilter::Make(blur, color));
+            sk_sp<SkImageFilter> merge(SkMergeImageFilter::Make(blur, color,
+                                                                SkBlendMode::kSrcOver));
 
             SkPaint paint;
             paint.setImageFilter(std::move(merge));
@@ -87,11 +89,8 @@ protected:
                                                                         matrixFilter));
 
             SkPaint paint;
-            paint.setImageFilter(
-                SkXfermodeImageFilter::MakeArithmetic(0, 1, 1, 0, true,
-                                            std::move(matrixFilter),
-                                            std::move(offsetFilter),
-                                            nullptr));
+            paint.setImageFilter(SkArithmeticImageFilter::Make(
+                    0, 1, 1, 0, true, std::move(matrixFilter), std::move(offsetFilter), nullptr));
 
             DrawClippedImage(canvas, fImage.get(), paint);
             canvas->translate(SkIntToScalar(100), 0);
@@ -143,9 +142,9 @@ protected:
         {
             // Test that crop offsets are absolute, not relative to the parent's crop rect.
             sk_sp<SkColorFilter> cf1(SkColorFilter::MakeModeFilter(SK_ColorBLUE,
-                                                                   SkXfermode::kSrcIn_Mode));
+                                                                   SkBlendMode::kSrcIn));
             sk_sp<SkColorFilter> cf2(SkColorFilter::MakeModeFilter(SK_ColorGREEN,
-                                                                   SkXfermode::kSrcIn_Mode));
+                                                                   SkBlendMode::kSrcIn));
             SkImageFilter::CropRect outerRect(SkRect::MakeXYWH(SkIntToScalar(10), SkIntToScalar(10),
                                                                SkIntToScalar(80), SkIntToScalar(80)));
             SkImageFilter::CropRect innerRect(SkRect::MakeXYWH(SkIntToScalar(20), SkIntToScalar(20),

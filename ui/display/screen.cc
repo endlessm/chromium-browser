@@ -21,7 +21,7 @@ Screen::~Screen() {}
 
 // static
 Screen* Screen::GetScreen() {
-#if defined(OS_MACOSX) || defined(OS_ANDROID)
+#if defined(OS_MACOSX)
   // TODO(scottmg): https://crbug.com/558054
   if (!g_screen)
     g_screen = CreateNativeScreen();
@@ -44,6 +44,17 @@ gfx::Rect Screen::DIPToScreenRectInWindow(gfx::NativeView view,
                                           const gfx::Rect& dip_rect) const {
   float scale = GetDisplayNearestWindow(view).device_scale_factor();
   return ScaleToEnclosingRect(dip_rect, scale);
+}
+
+bool Screen::GetDisplayWithDisplayId(int64_t display_id,
+                                     Display* display) const {
+  for (const Display& display_in_list : GetAllDisplays()) {
+    if (display_in_list.id() == display_id) {
+      *display = display_in_list;
+      return true;
+    }
+  }
+  return false;
 }
 
 }  // namespace display

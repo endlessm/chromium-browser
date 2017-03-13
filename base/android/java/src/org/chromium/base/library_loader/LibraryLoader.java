@@ -15,6 +15,7 @@ import org.chromium.base.Log;
 import org.chromium.base.TraceEvent;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.JNINamespace;
+import org.chromium.base.annotations.MainDex;
 import org.chromium.base.metrics.RecordHistogram;
 
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -36,6 +37,7 @@ import javax.annotation.Nullable;
  * the native counterpart to this class.
  */
 @JNINamespace("base::android")
+@MainDex
 public class LibraryLoader {
     private static final String TAG = "LibraryLoader";
 
@@ -322,15 +324,6 @@ public class LibraryLoader {
         } catch (UnsatisfiedLinkError e) {
             throw new ProcessInitException(LoaderErrors.LOADER_ERROR_NATIVE_LIBRARY_LOAD_FAILED, e);
         }
-        // Check that the version of the library we have loaded matches the version we expect
-        Log.i(TAG, String.format(
-                "Expected native library version number \"%s\", "
-                        + "actual native library version number \"%s\"",
-                NativeLibraries.sVersionNumber,
-                nativeGetVersionNumber()));
-        if (!NativeLibraries.sVersionNumber.equals(nativeGetVersionNumber())) {
-            throw new ProcessInitException(LoaderErrors.LOADER_ERROR_NATIVE_LIBRARY_WRONG_VERSION);
-        }
     }
 
     // The WebView requires the Command Line to be switched over before
@@ -370,6 +363,14 @@ public class LibraryLoader {
         if (!nativeLibraryLoaded()) {
             Log.e(TAG, "error calling nativeLibraryLoaded");
             throw new ProcessInitException(LoaderErrors.LOADER_ERROR_FAILED_TO_REGISTER_JNI);
+        }
+
+        // Check that the version of the library we have loaded matches the version we expect
+        Log.i(TAG, String.format("Expected native library version number \"%s\", "
+                                   + "actual native library version number \"%s\"",
+                           NativeLibraries.sVersionNumber, nativeGetVersionNumber()));
+        if (!NativeLibraries.sVersionNumber.equals(nativeGetVersionNumber())) {
+            throw new ProcessInitException(LoaderErrors.LOADER_ERROR_NATIVE_LIBRARY_WRONG_VERSION);
         }
 
         // From now on, keep tracing in sync with native.

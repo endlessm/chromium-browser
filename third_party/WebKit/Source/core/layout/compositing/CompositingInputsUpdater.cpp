@@ -5,14 +5,14 @@
 #include "core/layout/compositing/CompositingInputsUpdater.h"
 
 #include "core/dom/Document.h"
+#include "core/frame/FrameHost.h"
 #include "core/frame/FrameView.h"
 #include "core/layout/LayoutBlock.h"
 #include "core/layout/LayoutView.h"
 #include "core/layout/compositing/CompositedLayerMapping.h"
 #include "core/layout/compositing/PaintLayerCompositor.h"
-#include "core/page/scrolling/RootScrollerController.h"
 #include "core/paint/PaintLayer.h"
-#include "platform/tracing/TraceEvent.h"
+#include "platform/instrumentation/tracing/TraceEvent.h"
 
 namespace blink {
 
@@ -102,7 +102,8 @@ void CompositingInputsUpdater::updateRecursive(PaintLayer* layer,
   layer->updateAncestorOverflowLayer(info.lastOverflowClipLayer);
   if (info.lastOverflowClipLayer && layer->needsCompositingInputsUpdate() &&
       layer->layoutObject()->style()->position() == StickyPosition) {
-    if (info.lastOverflowClipLayer != previousOverflowLayer) {
+    if (info.lastOverflowClipLayer != previousOverflowLayer &&
+        !RuntimeEnabledFeatures::rootLayerScrollingEnabled()) {
       // Old ancestor scroller should no longer have these constraints.
       ASSERT(!previousOverflowLayer ||
              !previousOverflowLayer->getScrollableArea()
@@ -144,38 +145,39 @@ void CompositingInputsUpdater::updateRecursive(PaintLayer* layer,
 
   if (updateType == ForceUpdate) {
     PaintLayer::AncestorDependentCompositingInputs properties;
-    PaintLayer::RareAncestorDependentCompositingInputs rareProperties;
 
     if (!layer->isRootLayer()) {
       if (!RuntimeEnabledFeatures::slimmingPaintV2Enabled()) {
-        properties.clippedAbsoluteBoundingBox =
+        properties.unclippedAbsoluteBoundingBox =
             enclosingIntRect(m_geometryMap.absoluteRect(
                 FloatRect(layer->boundingBoxForCompositingOverlapTest())));
         // FIXME: Setting the absBounds to 1x1 instead of 0x0 makes very little
         // sense, but removing this code will make JSGameBench sad.
         // See https://codereview.chromium.org/13912020/
-        if (properties.clippedAbsoluteBoundingBox.isEmpty())
-          properties.clippedAbsoluteBoundingBox.setSize(IntSize(1, 1));
+        if (properties.unclippedAbsoluteBoundingBox.isEmpty())
+          properties.unclippedAbsoluteBoundingBox.setSize(IntSize(1, 1));
 
         IntRect clipRect =
             pixelSnappedIntRect(layer->clipper()
                                     .backgroundClipRect(ClipRectsContext(
                                         m_rootLayer, AbsoluteClipRects))
                                     .rect());
+        properties.clippedAbsoluteBoundingBox =
+            properties.unclippedAbsoluteBoundingBox;
         properties.clippedAbsoluteBoundingBox.intersect(clipRect);
       }
 
       const PaintLayer* parent = layer->parent();
-      rareProperties.opacityAncestor =
+      properties.opacityAncestor =
           parent->isTransparent() ? parent : parent->opacityAncestor();
-      rareProperties.transformAncestor =
+      properties.transformAncestor =
           parent->transform() ? parent : parent->transformAncestor();
-      rareProperties.filterAncestor = parent->hasFilterInducingProperty()
-                                          ? parent
-                                          : parent->filterAncestor();
+      properties.filterAncestor = parent->hasFilterInducingProperty()
+                                      ? parent
+                                      : parent->filterAncestor();
       bool layerIsFixedPosition =
           layer->layoutObject()->style()->position() == FixedPosition;
-      rareProperties.nearestFixedPositionLayer =
+      properties.nearestFixedPositionLayer =
           layerIsFixedPosition ? layer : parent->nearestFixedPositionLayer();
 
       if (info.hasAncestorWithClipRelatedProperty) {
@@ -196,7 +198,7 @@ void CompositingInputsUpdater::updateRecursive(PaintLayer* layer,
                   ? properties.clippingContainer->enclosingLayer()
                   : layer->compositor()->rootLayer();
           if (hasClippedStackingAncestor(layer, clippingLayer))
-            rareProperties.clipParent = clippingLayer;
+            properties.clipParent = clippingLayer;
         }
       }
 
@@ -206,22 +208,21 @@ void CompositingInputsUpdater::updateRecursive(PaintLayer* layer,
         const PaintLayer* parentLayerOnContainingBlockChain =
             findParentLayerOnContainingBlockChain(containingBlock);
 
-        rareProperties.ancestorScrollingLayer =
+        properties.ancestorScrollingLayer =
             parentLayerOnContainingBlockChain->ancestorScrollingLayer();
         if (parentLayerOnContainingBlockChain->scrollsOverflow())
-          rareProperties.ancestorScrollingLayer =
-              parentLayerOnContainingBlockChain;
+          properties.ancestorScrollingLayer = parentLayerOnContainingBlockChain;
 
         if (layer->stackingNode()->isStacked() &&
-            rareProperties.ancestorScrollingLayer &&
+            properties.ancestorScrollingLayer &&
             !info.ancestorStackingContext->layoutObject()->isDescendantOf(
-                rareProperties.ancestorScrollingLayer->layoutObject()))
-          rareProperties.scrollParent = rareProperties.ancestorScrollingLayer;
+                properties.ancestorScrollingLayer->layoutObject()))
+          properties.scrollParent = properties.ancestorScrollingLayer;
       }
     }
 
     layer->updateAncestorDependentCompositingInputs(
-        properties, rareProperties, info.hasAncestorWithClipPath);
+        properties, info.hasAncestorWithClipPath);
   }
 
   if (layer->stackingNode()->isStackingContext())
@@ -239,36 +240,27 @@ void CompositingInputsUpdater::updateRecursive(PaintLayer* layer,
   if (layer->layoutObject()->hasClipPath())
     info.hasAncestorWithClipPath = true;
 
-  bool hasDescendantWithClipPath = false;
-  bool hasNonIsolatedDescendantWithBlendMode = false;
-  bool hasRootScrollerAsDescendant = false;
   for (PaintLayer* child = layer->firstChild(); child;
-       child = child->nextSibling()) {
+       child = child->nextSibling())
     updateRecursive(child, updateType, info);
 
-    hasRootScrollerAsDescendant |= child->hasRootScrollerAsDescendant() ||
-                                   (child ==
-                                    child->layoutObject()
-                                        ->document()
-                                        .rootScrollerController()
-                                        ->rootScrollerPaintLayer());
-    hasDescendantWithClipPath |= child->hasDescendantWithClipPath() ||
-                                 child->layoutObject()->hasClipPath();
-    hasNonIsolatedDescendantWithBlendMode |=
-        (!child->stackingNode()->isStackingContext() &&
-         child->hasNonIsolatedDescendantWithBlendMode()) ||
-        child->layoutObject()->style()->hasBlendMode();
-  }
-
-  layer->updateDescendantDependentCompositingInputs(
-      hasDescendantWithClipPath, hasNonIsolatedDescendantWithBlendMode,
-      hasRootScrollerAsDescendant);
   layer->didUpdateCompositingInputs();
 
   m_geometryMap.popMappingsToAncestor(layer->parent());
+
+  if (layer->selfPaintingStatusChanged()) {
+    layer->clearSelfPaintingStatusChanged();
+    // If the floating object becomes non-self-painting, so some ancestor should
+    // paint it; if it becomes self-painting, it should paint itself and no
+    // ancestor should paint it.
+    if (layer->layoutObject()->isFloating()) {
+      LayoutBlockFlow::updateAncestorShouldPaintFloatingObject(
+          *layer->layoutBox());
+    }
+  }
 }
 
-#if ENABLE(ASSERT)
+#if DCHECK_IS_ON()
 
 void CompositingInputsUpdater::assertNeedsCompositingInputsUpdateBitsCleared(
     PaintLayer* layer) {

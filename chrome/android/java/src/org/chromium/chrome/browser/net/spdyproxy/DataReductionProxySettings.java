@@ -13,6 +13,7 @@ import org.chromium.base.ContextUtils;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.VisibleForTesting;
 import org.chromium.base.annotations.CalledByNative;
+import org.chromium.chrome.browser.UrlConstants;
 
 import java.text.NumberFormat;
 import java.util.HashMap;
@@ -125,14 +126,15 @@ public class DataReductionProxySettings {
         mNativeDataReductionProxySettings = nativeInit();
     }
 
-    /** Returns true if the SPDY proxy is allowed to be used. */
-    public boolean isDataReductionProxyAllowed() {
-        return nativeIsDataReductionProxyAllowed(mNativeDataReductionProxySettings);
-    }
-
     /** Returns true if the SPDY proxy promo is allowed to be shown. */
     public boolean isDataReductionProxyPromoAllowed() {
         return nativeIsDataReductionProxyPromoAllowed(mNativeDataReductionProxySettings);
+    }
+
+    /** Returns true if the snackbar promo is allowed to be shown. */
+    public boolean isSnackbarPromoAllowed(String url) {
+        return url.startsWith(UrlConstants.HTTP_SCHEME) && isDataReductionProxyEnabled()
+                && isDataReductionProxyPromoAllowed();
     }
 
     /**
@@ -201,6 +203,14 @@ public class DataReductionProxySettings {
      */
     public ContentLengths getContentLengths() {
         return nativeGetContentLengths(mNativeDataReductionProxySettings);
+    }
+
+    /**
+     * Returns the total HTTP content length saved.
+     * @return The HTTP content length saved.
+     */
+    public long getTotalHttpContentLengthSaved() {
+        return nativeGetTotalHttpContentLengthSaved(mNativeDataReductionProxySettings);
     }
 
     /**
@@ -287,8 +297,6 @@ public class DataReductionProxySettings {
     }
 
     private native long nativeInit();
-    private native boolean nativeIsDataReductionProxyAllowed(
-            long nativeDataReductionProxySettingsAndroid);
     private native boolean nativeIsDataReductionProxyPromoAllowed(
             long nativeDataReductionProxySettingsAndroid);
     private native boolean nativeIsDataReductionProxyEnabled(
@@ -308,6 +316,8 @@ public class DataReductionProxySettings {
     private native long nativeGetDataReductionLastUpdateTime(
             long nativeDataReductionProxySettingsAndroid);
     private native ContentLengths nativeGetContentLengths(
+            long nativeDataReductionProxySettingsAndroid);
+    private native long nativeGetTotalHttpContentLengthSaved(
             long nativeDataReductionProxySettingsAndroid);
     private native long[] nativeGetDailyOriginalContentLengths(
             long nativeDataReductionProxySettingsAndroid);

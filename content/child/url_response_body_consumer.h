@@ -48,6 +48,9 @@ class CONTENT_EXPORT URLResponseBodyConsumer final
   // cancelled or done.
   void Cancel();
 
+  void SetDefersLoading();
+  void UnsetDefersLoading();
+
  private:
   friend class base::RefCounted<URLResponseBodyConsumer>;
   ~URLResponseBodyConsumer();
@@ -63,10 +66,13 @@ class CONTENT_EXPORT URLResponseBodyConsumer final
   mojo::ScopedDataPipeConsumerHandle handle_;
   mojo::Watcher handle_watcher_;
   ResourceRequestCompletionStatus completion_status_;
+  scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
 
   bool has_received_completion_ = false;
   bool has_been_cancelled_ = false;
   bool has_seen_end_of_data_;
+  bool is_deferred_ = false;
+  bool is_in_on_readable_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(URLResponseBodyConsumer);
 };

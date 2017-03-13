@@ -37,7 +37,8 @@ DECLARE_RESOURCE_ID(IDR_ANDROID_INFOBAR_MULTIPLE_DOWNLOADS,
                     R.drawable.infobar_multiple_downloads)
 DECLARE_RESOURCE_ID(IDR_ANDROID_INFOBAR_NOTIFICATIONS,
                     R.drawable.infobar_desktop_notifications)
-DECLARE_RESOURCE_ID(IDR_ANDROID_INFOBAR_PREVIEWS, R.drawable.infobar_previews)
+DECLARE_RESOURCE_ID(IDR_ANDROID_INFOBAR_PREVIEWS,
+                    R.drawable.infobar_chrome)
 DECLARE_RESOURCE_ID(IDR_ANDROID_INFOBAR_PROTECTED_MEDIA_IDENTIFIER,
                     R.drawable.infobar_protected_media_identifier)
 DECLARE_RESOURCE_ID(IDR_ANDROID_INFOBAR_SUBRESOURCE_FILTERING,
@@ -62,18 +63,27 @@ LINK_RESOURCE_ID(IDR_PAGEINFO_INFO, R.drawable.pageinfo_warning)
 LINK_RESOURCE_ID(IDR_PAGEINFO_WARNING_MAJOR, R.drawable.pageinfo_warning)
 
 // Autofill popup and keyboard accessory images.
+// We use Android's |VectorDrawableCompat| for the following images that are
+// displayed using |DropdownAdapter|.
 LINK_RESOURCE_ID(IDR_AUTOFILL_CC_AMEX, R.drawable.amex_card)
+LINK_RESOURCE_ID(IDR_AUTOFILL_CC_DINERS, R.drawable.ic_credit_card_black)
 LINK_RESOURCE_ID(IDR_AUTOFILL_CC_DISCOVER, R.drawable.discover_card)
-LINK_RESOURCE_ID(IDR_AUTOFILL_CC_GENERIC, R.drawable.generic_card)
+LINK_RESOURCE_ID(IDR_AUTOFILL_CC_GENERIC, R.drawable.ic_credit_card_black)
+LINK_RESOURCE_ID(IDR_AUTOFILL_CC_JCB, R.drawable.ic_credit_card_black)
 LINK_RESOURCE_ID(IDR_AUTOFILL_CC_MASTERCARD, R.drawable.mc_card)
+LINK_RESOURCE_ID(IDR_AUTOFILL_CC_MIR, R.drawable.mir_card)
 LINK_RESOURCE_ID(IDR_AUTOFILL_CC_VISA, R.drawable.visa_card)
-LINK_RESOURCE_ID(IDR_AUTOFILL_CC_SCAN_NEW, android.R.drawable.ic_menu_camera)
-LINK_RESOURCE_ID(IDR_AUTOFILL_CC_SCAN_NEW_KEYBOARD_ACCESSORY,
-                 org.chromium.chrome.R.drawable.ic_photo_camera)
+LINK_RESOURCE_ID(IDR_AUTOFILL_CC_SCAN_NEW, R.drawable.ic_photo_camera_black)
+LINK_RESOURCE_ID(IDR_AUTOFILL_HTTP_WARNING, R.drawable.ic_info_outline_grey)
+LINK_RESOURCE_ID(IDR_AUTOFILL_HTTPS_INVALID_WARNING, R.drawable.ic_warning_red)
+
+// We display settings icon for keyboard accessory using Android's
+// |VectorDrawableCompat|. We do not display settings icon for autofill popup.
+LINK_RESOURCE_ID(IDR_AUTOFILL_SETTINGS, R.drawable.ic_settings_black)
+
+// We use PNG files for the following images.
 LINK_RESOURCE_ID(IDR_CREDIT_CARD_CVC_HINT, R.drawable.cvc_icon)
 LINK_RESOURCE_ID(IDR_CREDIT_CARD_CVC_HINT_AMEX, R.drawable.cvc_icon_amex)
-LINK_RESOURCE_ID(IDR_AUTOFILL_SETTINGS,
-                 org.chromium.chrome.R.drawable.ic_settings)
 
 // PaymentRequest images.
 LINK_RESOURCE_ID(IDR_AUTOFILL_PR_AMEX, R.drawable.pr_amex)
@@ -82,5 +92,6 @@ LINK_RESOURCE_ID(IDR_AUTOFILL_PR_DISCOVER, R.drawable.pr_discover)
 LINK_RESOURCE_ID(IDR_AUTOFILL_PR_GENERIC, R.drawable.pr_generic)
 LINK_RESOURCE_ID(IDR_AUTOFILL_PR_JCB, R.drawable.pr_jcb)
 LINK_RESOURCE_ID(IDR_AUTOFILL_PR_MASTERCARD, R.drawable.pr_mc)
+LINK_RESOURCE_ID(IDR_AUTOFILL_PR_MIR, R.drawable.pr_mir)
 LINK_RESOURCE_ID(IDR_AUTOFILL_PR_UNIONPAY, R.drawable.pr_unionpay)
 LINK_RESOURCE_ID(IDR_AUTOFILL_PR_VISA, R.drawable.pr_visa)

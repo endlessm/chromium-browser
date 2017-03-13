@@ -5,9 +5,12 @@
 #include "ui/compositor/layer_animator.h"
 
 #include <memory>
+#include <string>
+#include <vector>
 
 #include "base/compiler_specific.h"
 #include "base/macros.h"
+#include "base/memory/ptr_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/time/time.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -42,12 +45,12 @@ std::string ColorToString(SkColor color) {
 // Creates vector with two LayerAnimationSequences, based on |first| and
 // |second| layer animation elements.
 std::vector<LayerAnimationSequence*> CreateMultiSequence(
-    LayerAnimationElement* first,
-    LayerAnimationElement* second) {
+    std::unique_ptr<LayerAnimationElement> first,
+    std::unique_ptr<LayerAnimationElement> second) {
   LayerAnimationSequence* first_sequence = new LayerAnimationSequence();
-  first_sequence->AddElement(first);
+  first_sequence->AddElement(std::move(first));
   LayerAnimationSequence* second_sequence = new LayerAnimationSequence();
-  second_sequence->AddElement(second);
+  second_sequence->AddElement(std::move(second));
 
   std::vector<ui::LayerAnimationSequence*> animations;
   animations.push_back(first_sequence);
@@ -145,9 +148,8 @@ class TestImplicitAnimationObserver : public ImplicitAnimationObserver {
 // When notified that an animation has ended, stops all other animations.
 class DeletingLayerAnimationObserver : public LayerAnimationObserver {
  public:
-  DeletingLayerAnimationObserver(LayerAnimator* animator)
-    : animator_(animator) {
-  }
+  explicit DeletingLayerAnimationObserver(LayerAnimator* animator)
+      : animator_(animator) {}
 
   void OnLayerAnimationEnded(LayerAnimationSequence* sequence) override {
     animator_->StopAnimating();
@@ -163,6 +165,30 @@ class DeletingLayerAnimationObserver : public LayerAnimationObserver {
   LayerAnimator* animator_;
 
   DISALLOW_COPY_AND_ASSIGN(DeletingLayerAnimationObserver);
+};
+
+// When notified that an animation has started, aborts all animations.
+class AbortAnimationsOnStartedLayerAnimationObserver
+    : public LayerAnimationObserver {
+ public:
+  explicit AbortAnimationsOnStartedLayerAnimationObserver(
+      LayerAnimator* animator)
+      : animator_(animator) {}
+
+  void OnLayerAnimationStarted(LayerAnimationSequence* sequence) override {
+    animator_->AbortAllAnimations();
+  }
+
+  void OnLayerAnimationEnded(LayerAnimationSequence* sequence) override {}
+
+  void OnLayerAnimationAborted(LayerAnimationSequence* sequence) override {}
+
+  void OnLayerAnimationScheduled(LayerAnimationSequence* sequence) override {}
+
+ private:
+  LayerAnimator* animator_;
+
+  DISALLOW_COPY_AND_ASSIGN(AbortAnimationsOnStartedLayerAnimationObserver);
 };
 
 class LayerAnimatorDestructionObserver {
@@ -217,9 +243,9 @@ class TestLayerAnimator : public LayerAnimator {
 // created and destroyed.
 class TestLayerAnimationSequence : public LayerAnimationSequence {
  public:
-  TestLayerAnimationSequence(LayerAnimationElement* element,
+  TestLayerAnimationSequence(std::unique_ptr<LayerAnimationElement> element,
                              int* num_live_instances)
-      : LayerAnimationSequence(element),
+      : LayerAnimationSequence(std::move(element)),
         num_live_instances_(num_live_instances) {
     (*num_live_instances_)++;
   }
@@ -232,7 +258,102 @@ class TestLayerAnimationSequence : public LayerAnimationSequence {
   DISALLOW_COPY_AND_ASSIGN(TestLayerAnimationSequence);
 };
 
-} // namespace
+}  // namespace
+
+namespace test {
+
+// Tracks the number of calls to the LayerAnimationObserver overrides and fails
+// CHECKS if the counts are inconsistent, e.g. the number of started sequences
+// is greater than the number of attached sequences.
+class CountCheckingLayerAnimationObserver : public LayerAnimationObserver {
+ public:
+  explicit CountCheckingLayerAnimationObserver(LayerAnimationObserver* observer)
+      : observer_(observer) {}
+
+  void OnLayerAnimationStarted(LayerAnimationSequence* sequence) override {
+    ++started_count_;
+    EXPECT_LE(started_count_, attached_sequence_count_);
+    EXPECT_LE(started_count_, sequences_scheduled_);
+    if (observer_)
+      observer_->OnLayerAnimationStarted(sequence);
+  }
+
+  void OnLayerAnimationEnded(LayerAnimationSequence* sequence) override {
+    ++successful_count_;
+    EXPECT_LE(GetNumSequencesCompleted(), sequences_scheduled_)
+        << " aborted_count_=" << aborted_count_
+        << " successful_count_=" << successful_count_;
+    EXPECT_LE(GetNumSequencesCompleted(), attached_sequence_count_)
+        << " aborted_count_=" << aborted_count_
+        << " successful_count_=" << successful_count_;
+    if (observer_)
+      observer_->OnLayerAnimationEnded(sequence);
+  }
+
+  void OnLayerAnimationAborted(LayerAnimationSequence* sequence) override {
+    ++aborted_count_;
+    EXPECT_LE(GetNumSequencesCompleted(), sequences_scheduled_)
+        << " aborted_count_=" << aborted_count_
+        << " successful_count_=" << successful_count_;
+    EXPECT_LE(GetNumSequencesCompleted(), attached_sequence_count_)
+        << " aborted_count_=" << aborted_count_
+        << " successful_count_=" << successful_count_;
+    if (observer_)
+      observer_->OnLayerAnimationAborted(sequence);
+  }
+
+  void OnLayerAnimationScheduled(LayerAnimationSequence* sequence) override {
+    ++sequences_scheduled_;
+    EXPECT_LE(sequences_scheduled_, attached_sequence_count_);
+    if (observer_)
+      observer_->OnLayerAnimationScheduled(sequence);
+  }
+
+  int GetNumSequencesCompleted() { return aborted_count_ + successful_count_; }
+
+ protected:
+  void OnAttachedToSequence(LayerAnimationSequence* sequence) override {
+    ++attached_sequence_count_;
+    if (observer_)
+      observer_->OnAttachedToSequence(sequence);
+  }
+
+  void OnDetachedFromSequence(LayerAnimationSequence* sequence) override {
+    ++detached_sequence_count_;
+    EXPECT_LE(detached_sequence_count_, attached_sequence_count_);
+    EXPECT_LE(detached_sequence_count_, GetNumSequencesCompleted())
+        << " aborted_count_=" << aborted_count_
+        << " successful_count_=" << successful_count_;
+    if (observer_)
+      observer_->OnDetachedFromSequence(sequence);
+  }
+
+ private:
+  // Observer to which LayerAnimationObserver calls are delgated.
+  LayerAnimationObserver* observer_;
+
+  // The total number of animation sequences that have been attached.
+  int attached_sequence_count_ = 0;
+
+  // The total number of animation sequences that have been detached.
+  int detached_sequence_count_ = 0;
+
+  // The total number of animation sequences that have been scheduled.
+  int sequences_scheduled_ = 0;
+
+  // The number of animation sequences that have been started.
+  int started_count_ = 0;
+
+  // The number of animation sequences that were aborted.
+  int aborted_count_ = 0;
+
+  // The number of animation sequences that completed successfully.
+  int successful_count_ = 0;
+
+  DISALLOW_COPY_AND_ASSIGN(CountCheckingLayerAnimationObserver);
+};
+
+}  // namespace test
 
 // Checks that setting a property on an implicit animator causes an animation to
 // happen.
@@ -1986,8 +2107,9 @@ TEST(LayerAnimatorTest, SettingPropertyDuringAnAnimation) {
 
   delegate.SetOpacityFromAnimation(start_opacity);
 
-  std::unique_ptr<LayerAnimationSequence> sequence(new LayerAnimationSequence(
-      LayerAnimationElement::CreateOpacityElement(target_opacity, delta)));
+  std::unique_ptr<LayerAnimationSequence> sequence =
+      base::MakeUnique<LayerAnimationSequence>(
+          LayerAnimationElement::CreateOpacityElement(target_opacity, delta));
 
   animator->StartAnimation(sequence.release());
 
@@ -2020,10 +2142,10 @@ TEST(LayerAnimatorTest, ImmediatelySettingNewTargetDoesNotLeak) {
 
   int num_live_instances = 0;
   base::TimeDelta delta = base::TimeDelta::FromSeconds(1);
-  std::unique_ptr<TestLayerAnimationSequence> sequence(
-      new TestLayerAnimationSequence(
+  std::unique_ptr<TestLayerAnimationSequence> sequence =
+      base::MakeUnique<TestLayerAnimationSequence>(
           LayerAnimationElement::CreateBoundsElement(target_bounds, delta),
-          &num_live_instances));
+          &num_live_instances);
 
   EXPECT_EQ(1, num_live_instances);
 
@@ -2143,20 +2265,20 @@ TEST(LayerAnimatorTest, SchedulePauseForProperties) {
 
 
 class AnimatorOwner {
-public:
- AnimatorOwner() : animator_(CreateDefaultTestAnimator()) {}
+ public:
+  AnimatorOwner() : animator_(CreateDefaultTestAnimator()) {}
 
   LayerAnimator* animator() { return animator_.get(); }
 
-private:
+ private:
   scoped_refptr<LayerAnimator> animator_;
 
   DISALLOW_COPY_AND_ASSIGN(AnimatorOwner);
 };
 
 class DeletingObserver : public LayerAnimationObserver {
-public:
-  DeletingObserver(bool* was_deleted)
+ public:
+  explicit DeletingObserver(bool* was_deleted)
       : animator_owner_(new AnimatorOwner),
         delete_on_animation_ended_(false),
         delete_on_animation_aborted_(false),
@@ -2209,14 +2331,14 @@ public:
       delete this;
   }
 
-private:
- std::unique_ptr<AnimatorOwner> animator_owner_;
- bool delete_on_animation_ended_;
- bool delete_on_animation_aborted_;
- bool delete_on_animation_scheduled_;
- bool* was_deleted_;
+ private:
+  std::unique_ptr<AnimatorOwner> animator_owner_;
+  bool delete_on_animation_ended_;
+  bool delete_on_animation_aborted_;
+  bool delete_on_animation_scheduled_;
+  bool* was_deleted_;
 
- DISALLOW_COPY_AND_ASSIGN(DeletingObserver);
+  DISALLOW_COPY_AND_ASSIGN(DeletingObserver);
 };
 
 TEST(LayerAnimatorTest, ObserverDeletesAnimatorAfterFinishingAnimation) {
@@ -2412,6 +2534,37 @@ TEST(LayerAnimatorTest, LayerAnimatorCollectionTickTime) {
   animator->SetDelegate(nullptr);
 }
 
+// Verifies that sequences are removed from the animation queue prior to be
+// notified of being started. This will allow observers to abort animations in
+// the OnLayerAnimationStarted() callback without triggering a sequence to be
+// started a second time.
+TEST(LayerAnimatorTest,
+     SequencesAreRemovedFromQueueBeforeBeingNotifiedOfStarted) {
+  TestLayerAnimationDelegate delegate;
+  scoped_refptr<LayerAnimator> animator(CreateDefaultTestAnimator(&delegate));
+
+  AbortAnimationsOnStartedLayerAnimationObserver aborting_observer(
+      animator.get());
+  test::CountCheckingLayerAnimationObserver counting_observer(
+      &aborting_observer);
+
+  const base::TimeDelta sequence_duration = base::TimeDelta::FromSeconds(1);
+
+  animator->ScheduleAnimation(new LayerAnimationSequence(
+      LayerAnimationElement::CreateBrightnessElement(1.f, sequence_duration)));
+
+  LayerAnimationSequence* observed_sequence = new LayerAnimationSequence(
+      LayerAnimationElement::CreateBrightnessElement(0.f, sequence_duration));
+  observed_sequence->AddObserver(&counting_observer);
+  animator->ScheduleAnimation(observed_sequence);
+
+  EXPECT_TRUE(animator->is_animating());
+  const base::TimeTicks start_time = animator->last_step_time();
+
+  animator->Step(start_time + sequence_duration * 3);
+  EXPECT_FALSE(animator->is_animating());
+}
+
 TEST(LayerAnimatorTest, AnimatorStartedCorrectly) {
   Layer layer;
   LayerAnimatorTestController test_controller(layer.GetAnimator());
@@ -2456,13 +2609,15 @@ TEST(LayerAnimatorTest, AnimatorRemovedFromCollectionWhenLayerIsDestroyed) {
 
 TEST(LayerAnimatorTest, LayerMovedBetweenCompositorsDuringAnimation) {
   bool enable_pixel_output = false;
-  ui::ContextFactory* context_factory =
-      InitializeContextFactoryForTests(enable_pixel_output);
+  ui::ContextFactory* context_factory = nullptr;
+  ui::ContextFactoryPrivate* context_factory_private = nullptr;
+  InitializeContextFactoryForTests(enable_pixel_output, &context_factory,
+                                   &context_factory_private);
   const gfx::Rect bounds(10, 10, 100, 100);
-  std::unique_ptr<TestCompositorHost> host_1(
-      TestCompositorHost::Create(bounds, context_factory));
-  std::unique_ptr<TestCompositorHost> host_2(
-      TestCompositorHost::Create(bounds, context_factory));
+  std::unique_ptr<TestCompositorHost> host_1(TestCompositorHost::Create(
+      bounds, context_factory, context_factory_private));
+  std::unique_ptr<TestCompositorHost> host_2(TestCompositorHost::Create(
+      bounds, context_factory, context_factory_private));
   host_1->Show();
   host_2->Show();
 
@@ -2481,7 +2636,7 @@ TEST(LayerAnimatorTest, LayerMovedBetweenCompositorsDuringAnimation) {
   Layer layer;
   root_1.Add(&layer);
   LayerAnimator* animator = layer.GetAnimator();
-  EXPECT_FALSE(layer.cc_layer_for_testing()->HasActiveAnimationForTesting());
+  EXPECT_FALSE(layer.cc_layer_for_testing()->HasTickingAnimationForTesting());
 
   double target_opacity = 1.0;
   base::TimeDelta time_delta = base::TimeDelta::FromSeconds(1);
@@ -2490,12 +2645,12 @@ TEST(LayerAnimatorTest, LayerMovedBetweenCompositorsDuringAnimation) {
       LayerAnimationElement::CreateOpacityElement(target_opacity, time_delta)));
   EXPECT_TRUE(compositor_1->layer_animator_collection()->HasActiveAnimators());
   EXPECT_FALSE(compositor_2->layer_animator_collection()->HasActiveAnimators());
-  EXPECT_TRUE(layer.cc_layer_for_testing()->HasActiveAnimationForTesting());
+  EXPECT_TRUE(layer.cc_layer_for_testing()->HasTickingAnimationForTesting());
 
   root_2.Add(&layer);
   EXPECT_FALSE(compositor_1->layer_animator_collection()->HasActiveAnimators());
   EXPECT_TRUE(compositor_2->layer_animator_collection()->HasActiveAnimators());
-  EXPECT_TRUE(layer.cc_layer_for_testing()->HasActiveAnimationForTesting());
+  EXPECT_TRUE(layer.cc_layer_for_testing()->HasTickingAnimationForTesting());
 
   host_2.reset();
   host_1.reset();
@@ -2504,11 +2659,13 @@ TEST(LayerAnimatorTest, LayerMovedBetweenCompositorsDuringAnimation) {
 
 TEST(LayerAnimatorTest, ThreadedAnimationSurvivesIfLayerRemovedAdded) {
   bool enable_pixel_output = false;
-  ui::ContextFactory* context_factory =
-      InitializeContextFactoryForTests(enable_pixel_output);
+  ui::ContextFactory* context_factory = nullptr;
+  ui::ContextFactoryPrivate* context_factory_private = nullptr;
+  InitializeContextFactoryForTests(enable_pixel_output, &context_factory,
+                                   &context_factory_private);
   const gfx::Rect bounds(10, 10, 100, 100);
-  std::unique_ptr<TestCompositorHost> host(
-      TestCompositorHost::Create(bounds, context_factory));
+  std::unique_ptr<TestCompositorHost> host(TestCompositorHost::Create(
+      bounds, context_factory, context_factory_private));
   host->Show();
 
   Compositor* compositor = host->GetCompositor();
@@ -2525,13 +2682,13 @@ TEST(LayerAnimatorTest, ThreadedAnimationSurvivesIfLayerRemovedAdded) {
 
   animator->ScheduleAnimation(new LayerAnimationSequence(
       LayerAnimationElement::CreateOpacityElement(target_opacity, time_delta)));
-  EXPECT_TRUE(layer.cc_layer_for_testing()->HasActiveAnimationForTesting());
+  EXPECT_TRUE(layer.cc_layer_for_testing()->HasTickingAnimationForTesting());
 
   root.Remove(&layer);
-  EXPECT_FALSE(layer.cc_layer_for_testing()->HasActiveAnimationForTesting());
+  EXPECT_FALSE(layer.cc_layer_for_testing()->HasTickingAnimationForTesting());
 
   root.Add(&layer);
-  EXPECT_TRUE(layer.cc_layer_for_testing()->HasActiveAnimationForTesting());
+  EXPECT_TRUE(layer.cc_layer_for_testing()->HasTickingAnimationForTesting());
 
   host.reset();
   TerminateContextFactoryForTests();
@@ -2539,7 +2696,7 @@ TEST(LayerAnimatorTest, ThreadedAnimationSurvivesIfLayerRemovedAdded) {
 
 class LayerOwnerAnimationObserver : public LayerAnimationObserver {
  public:
-  LayerOwnerAnimationObserver(LayerAnimator* animator)
+  explicit LayerOwnerAnimationObserver(LayerAnimator* animator)
       : animator_layer_(new Layer(LAYER_TEXTURED)) {
     animator_layer_->SetAnimator(animator);
   }

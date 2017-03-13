@@ -65,13 +65,6 @@ MediaQuerySet* MediaQuerySet::create(const String& mediaString) {
   return MediaQueryParser::parseMediaQuerySet(mediaString);
 }
 
-MediaQuerySet* MediaQuerySet::createOffMainThread(const String& mediaString) {
-  if (mediaString.isEmpty())
-    return MediaQuerySet::create();
-
-  return MediaQueryParser::parseMediaQuerySet(mediaString);
-}
-
 bool MediaQuerySet::set(const String& mediaString) {
   MediaQuerySet* result = create(mediaString);
   m_queries.swap(result->m_queries);
@@ -99,7 +92,7 @@ bool MediaQuerySet::add(const String& queryString) {
       return true;
   }
 
-  m_queries.append(newQuery);
+  m_queries.push_back(newQuery);
   return true;
 }
 
@@ -132,7 +125,7 @@ bool MediaQuerySet::remove(const String& queryStringToRemove) {
 }
 
 void MediaQuerySet::addMediaQuery(MediaQuery* mediaQuery) {
-  m_queries.append(mediaQuery);
+  m_queries.push_back(mediaQuery);
 }
 
 String MediaQuerySet::mediaText() const {
@@ -150,10 +143,6 @@ String MediaQuerySet::mediaText() const {
 }
 
 DEFINE_TRACE(MediaQuerySet) {
-  // We don't support tracing of vectors of OwnPtrs (ie.
-  // std::unique_ptr<Vector<std::unique_ptr<MediaQuery>>>).
-  // Since this is a transitional object we are just ifdef'ing it out when
-  // oilpan is not enabled.
   visitor->trace(m_queries);
 }
 

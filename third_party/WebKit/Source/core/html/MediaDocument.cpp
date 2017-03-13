@@ -25,7 +25,7 @@
 
 #include "core/html/MediaDocument.h"
 
-#include "bindings/core/v8/ExceptionStatePlaceholder.h"
+#include "bindings/core/v8/ExceptionState.h"
 #include "core/HTMLNames.h"
 #include "core/dom/ElementTraversal.h"
 #include "core/dom/RawDataDocumentParser.h"
@@ -143,6 +143,8 @@ void MediaDocumentParser::createDocumentStructure() {
 
   HTMLBodyElement* body = HTMLBodyElement::create(*document());
   body->setAttribute(styleAttr, "margin: 0px;");
+
+  document()->willInsertBody();
 
   HTMLDivElement* div = HTMLDivElement::create(*document());
   // Style sheets for media controls are lazily loaded until a media element is

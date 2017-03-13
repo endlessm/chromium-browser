@@ -94,6 +94,9 @@ class BLINK_PLATFORM_EXPORT IdleHelper
       base::TimeDelta required_quiescence_duration_before_long_idle_period);
   ~IdleHelper() override;
 
+  // Prevents any further idle tasks from running.
+  void Shutdown();
+
   // Returns the idle task runner. Tasks posted to this runner may be reordered
   // relative to other task types and may be starved for an arbitrarily long
   // time if no idle time is available.
@@ -135,6 +138,7 @@ class BLINK_PLATFORM_EXPORT IdleHelper
   void OnIdleTaskPosted() override;
   base::TimeTicks WillProcessIdleTask() override;
   void DidProcessIdleTask() override;
+  base::TimeTicks NowTicks() override;
 
   // base::MessageLoop::TaskObserver implementation:
   void WillProcessTask(const base::PendingTask& pending_task) override;
@@ -146,6 +150,8 @@ class BLINK_PLATFORM_EXPORT IdleHelper
  private:
   friend class BaseIdleHelperTest;
   friend class IdleHelperTest;
+
+  const scoped_refptr<TaskQueue>& idle_queue() const { return idle_queue_; }
 
   class State {
    public:
@@ -228,6 +234,8 @@ class BLINK_PLATFORM_EXPORT IdleHelper
   base::TimeDelta required_quiescence_duration_before_long_idle_period_;
 
   const char* disabled_by_default_tracing_category_;
+
+  bool is_shutdown_;
 
   base::WeakPtr<IdleHelper> weak_idle_helper_ptr_;
   base::WeakPtrFactory<IdleHelper> weak_factory_;

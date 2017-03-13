@@ -12,20 +12,18 @@
 #include "content/browser/loader/navigation_url_loader_impl.h"
 
 namespace net {
-class URLRequest;
 struct RedirectInfo;
 }
 
 namespace content {
 
-class FrameTreeNode;
+class AppCacheNavigationHandleCore;
 class NavigationResourceHandler;
 class NavigationData;
 class ResourceContext;
-class ResourceHandler;
-class ResourceRequestBody;
 class ServiceWorkerNavigationHandleCore;
 class StreamHandle;
+struct GlobalRequestID;
 struct ResourceResponse;
 struct SSLStatus;
 
@@ -44,6 +42,7 @@ class NavigationURLLoaderImplCore {
   // Starts the request.
   void Start(ResourceContext* resource_context,
              ServiceWorkerNavigationHandleCore* service_worker_handle_core,
+             AppCacheNavigationHandleCore* appcache_handle_core,
              std::unique_ptr<NavigationRequestInfo> request_info,
              std::unique_ptr<NavigationUIData> navigation_ui_data);
 
@@ -65,7 +64,10 @@ class NavigationURLLoaderImplCore {
   void NotifyResponseStarted(ResourceResponse* response,
                              std::unique_ptr<StreamHandle> body,
                              const SSLStatus& ssl_status,
-                             std::unique_ptr<NavigationData> navigation_data);
+                             std::unique_ptr<NavigationData> navigation_data,
+                             const GlobalRequestID& request_id,
+                             bool is_download,
+                             bool is_stream);
 
   // Notifies |loader_| on the UI thread that the request failed.
   void NotifyRequestFailed(bool in_cache, int net_error);

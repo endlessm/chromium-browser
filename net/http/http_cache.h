@@ -15,8 +15,8 @@
 #define NET_HTTP_HTTP_CACHE_H_
 
 #include <list>
+#include <map>
 #include <memory>
-#include <set>
 #include <string>
 #include <unordered_map>
 
@@ -47,19 +47,10 @@ class Entry;
 
 namespace net {
 
-class CertVerifier;
-class ChannelIDService;
-class HostResolver;
-class HttpAuthHandlerFactory;
 class HttpNetworkSession;
 class HttpResponseInfo;
-class HttpServerProperties;
 class IOBuffer;
 class NetLog;
-class NetworkDelegate;
-class ProxyService;
-class SSLConfigService;
-class TransportSecurityState;
 class ViewCacheHelper;
 struct HttpRequestInfo;
 
@@ -181,7 +172,7 @@ class NET_EXPORT HttpCache : public HttpTransactionFactory,
 
   // Get/Set the cache's clock. These are public only for testing.
   void SetClockForTesting(std::unique_ptr<base::Clock> clock) {
-    clock_.reset(clock.release());
+    clock_ = std::move(clock);
   }
   base::Clock* clock() const { return clock_.get(); }
 
@@ -247,7 +238,7 @@ class NET_EXPORT HttpCache : public HttpTransactionFactory,
   struct PendingOp;  // Info for an entry under construction.
 
   typedef std::list<Transaction*> TransactionList;
-  typedef std::list<WorkItem*> WorkItemList;
+  typedef std::list<std::unique_ptr<WorkItem>> WorkItemList;
 
   struct ActiveEntry {
     explicit ActiveEntry(disk_cache::Entry* entry);
@@ -261,9 +252,10 @@ class NET_EXPORT HttpCache : public HttpTransactionFactory,
     bool               doomed;
   };
 
-  using ActiveEntriesMap = std::unordered_map<std::string, ActiveEntry*>;
+  using ActiveEntriesMap =
+      std::unordered_map<std::string, std::unique_ptr<ActiveEntry>>;
   using PendingOpsMap = std::unordered_map<std::string, PendingOp*>;
-  using ActiveEntriesSet = std::set<ActiveEntry*>;
+  using ActiveEntriesSet = std::map<ActiveEntry*, std::unique_ptr<ActiveEntry>>;
   using PlaybackCacheMap = std::unordered_map<std::string, int>;
 
   // Methods ------------------------------------------------------------------

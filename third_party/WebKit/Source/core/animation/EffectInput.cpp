@@ -31,6 +31,7 @@
 #include "core/animation/EffectInput.h"
 
 #include "bindings/core/v8/Dictionary.h"
+#include "bindings/core/v8/DictionaryHelperForBindings.h"
 #include "bindings/core/v8/DictionarySequenceOrDictionary.h"
 #include "core/animation/AnimationInputHelpers.h"
 #include "core/animation/CompositorAnimations.h"
@@ -41,6 +42,9 @@
 #include "core/dom/Element.h"
 #include "core/dom/ExceptionCode.h"
 #include "core/dom/NodeComputedStyle.h"
+#include "core/frame/FrameConsole.h"
+#include "core/frame/LocalFrame.h"
+#include "core/inspector/ConsoleMessage.h"
 #include "wtf/ASCIICType.h"
 #include "wtf/HashSet.h"
 #include "wtf/NonCopyingSort.h"
@@ -54,14 +58,10 @@ bool compareKeyframes(const RefPtr<StringKeyframe>& a,
   return a->offset() < b->offset();
 }
 
-// Gets offset value from keyframeDictionary and returns false if this value was
-// invalid.
-bool getAndCheckOffset(const Dictionary& keyframeDictionary,
-                       double& offset,
-                       double lastOffset,
-                       ExceptionState& exceptionState) {
-  DictionaryHelper::get(keyframeDictionary, "offset", offset);
-
+// Validates the value of |offset| and throws an exception if out of range.
+bool checkOffset(double offset,
+                 double lastOffset,
+                 ExceptionState& exceptionState) {
   // Keyframes with offsets outside the range [0.0, 1.0] are an error.
   if (std::isnan(offset)) {
     exceptionState.throwTypeError("Non numeric offset provided");
@@ -85,18 +85,29 @@ bool getAndCheckOffset(const Dictionary& keyframeDictionary,
 void setKeyframeValue(Element& element,
                       StringKeyframe& keyframe,
                       const String& property,
-                      const String& value) {
+                      const String& value,
+                      ExecutionContext* executionContext) {
   StyleSheetContents* styleSheetContents =
       element.document().elementSheet().contents();
   CSSPropertyID cssProperty =
       AnimationInputHelpers::keyframeAttributeToCSSProperty(property,
                                                             element.document());
   if (cssProperty != CSSPropertyInvalid) {
-    if (cssProperty == CSSPropertyVariable)
-      keyframe.setCSSPropertyValue(AtomicString(property), value,
-                                   styleSheetContents);
-    else
-      keyframe.setCSSPropertyValue(cssProperty, value, styleSheetContents);
+    MutableStylePropertySet::SetResult setResult =
+        cssProperty == CSSPropertyVariable
+            ? keyframe.setCSSPropertyValue(
+                  AtomicString(property), element.document().propertyRegistry(),
+                  value, styleSheetContents)
+            : keyframe.setCSSPropertyValue(cssProperty, value,
+                                           styleSheetContents);
+    if (!setResult.didParse && executionContext) {
+      Document& document = toDocument(*executionContext);
+      if (document.frame()) {
+        document.frame()->console().addMessage(ConsoleMessage::create(
+            JSMessageSource, WarningMessageLevel,
+            "Invalid keyframe value for property " + property + ": " + value));
+      }
+    }
     return;
   }
   cssProperty = AnimationInputHelpers::keyframeAttributeToPresentationAttribute(
@@ -155,7 +166,7 @@ bool exhaustDictionaryIterator(DictionaryIterator& iterator,
       exceptionState.throwTypeError("Keyframes must be objects.");
       return false;
     }
-    result.append(dictionary);
+    result.push_back(dictionary);
   }
   return !exceptionState.hadException();
 }
@@ -171,9 +182,10 @@ EffectModel* EffectInput::convert(
   if (effectInput.isNull() || !element)
     return nullptr;
 
-  if (effectInput.isDictionarySequence())
+  if (effectInput.isDictionarySequence()) {
     return convertArrayForm(*element, effectInput.getAsDictionarySequence(),
-                            exceptionState);
+                            executionContext, exceptionState);
+  }
 
   const Dictionary& dictionary = effectInput.getAsDictionary();
   DictionaryIterator iterator = dictionary.getIterator(executionContext);
@@ -182,8 +194,10 @@ EffectModel* EffectInput::convert(
     // match spec.
     Vector<Dictionary> keyframeDictionaries;
     if (exhaustDictionaryIterator(iterator, executionContext, exceptionState,
-                                  keyframeDictionaries))
-      return convertArrayForm(*element, keyframeDictionaries, exceptionState);
+                                  keyframeDictionaries)) {
+      return convertArrayForm(*element, keyframeDictionaries, executionContext,
+                              exceptionState);
+    }
     return nullptr;
   }
 
@@ -194,6 +208,7 @@ EffectModel* EffectInput::convert(
 EffectModel* EffectInput::convertArrayForm(
     Element& element,
     const Vector<Dictionary>& keyframeDictionaries,
+    ExecutionContext* executionContext,
     ExceptionState& exceptionState) {
   StringKeyframeVector keyframes;
   double lastOffset = 0;
@@ -201,18 +216,14 @@ EffectModel* EffectInput::convertArrayForm(
   for (const Dictionary& keyframeDictionary : keyframeDictionaries) {
     RefPtr<StringKeyframe> keyframe = StringKeyframe::create();
 
-    ScriptValue scriptValue;
-    bool frameHasOffset =
-        DictionaryHelper::get(keyframeDictionary, "offset", scriptValue) &&
-        !scriptValue.isNull();
-
-    double offset = 0.0;
-    if (frameHasOffset) {
-      if (!getAndCheckOffset(keyframeDictionary, offset, lastOffset,
-                             exceptionState))
+    Nullable<double> offset;
+    if (DictionaryHelper::get(keyframeDictionary, "offset", offset) &&
+        !offset.isNull()) {
+      if (!checkOffset(offset.get(), lastOffset, exceptionState))
         return nullptr;
-      lastOffset = offset;
-      keyframe->setOffset(offset);
+
+      lastOffset = offset.get();
+      keyframe->setOffset(offset.get());
     }
 
     String compositeString;
@@ -232,8 +243,10 @@ EffectModel* EffectInput::convertArrayForm(
       keyframe->setEasing(timingFunction);
     }
 
-    Vector<String> keyframeProperties;
-    keyframeDictionary.getPropertyNames(keyframeProperties);
+    const Vector<String>& keyframeProperties =
+        keyframeDictionary.getPropertyNames(exceptionState);
+    if (exceptionState.hadException())
+      return nullptr;
     for (const auto& property : keyframeProperties) {
       if (property == "offset" || property == "composite" ||
           property == "easing") {
@@ -250,9 +263,10 @@ EffectModel* EffectInput::convertArrayForm(
       String value;
       DictionaryHelper::get(keyframeDictionary, property, value);
 
-      setKeyframeValue(element, *keyframe.get(), property, value);
+      setKeyframeValue(element, *keyframe.get(), property, value,
+                       executionContext);
     }
-    keyframes.append(keyframe);
+    keyframes.push_back(keyframe);
   }
 
   DCHECK(!exceptionState.hadException());
@@ -278,7 +292,7 @@ static bool getPropertyIndexedKeyframeValues(
     // Non-object.
     String value;
     DictionaryHelper::get(keyframeDictionary, property, value);
-    result.append(value);
+    result.push_back(value);
     return true;
   }
 
@@ -287,7 +301,7 @@ static bool getPropertyIndexedKeyframeValues(
     // Non-iterable object.
     String value;
     DictionaryHelper::get(keyframeDictionary, property, value);
-    result.append(value);
+    result.push_back(value);
     return true;
   }
 
@@ -298,7 +312,7 @@ static bool getPropertyIndexedKeyframeValues(
       exceptionState.throwTypeError("Unable to read keyframe value as string.");
       return false;
     }
-    result.append(value);
+    result.push_back(value);
   }
   return !exceptionState.hadException();
 }
@@ -320,20 +334,20 @@ EffectModel* EffectInput::convertObjectForm(
       return nullptr;
   }
 
-  ScriptValue scriptValue;
-  bool frameHasOffset =
-      DictionaryHelper::get(keyframeDictionary, "offset", scriptValue) &&
-      !scriptValue.isNull();
-  double offset = 0.0;
-  if (frameHasOffset &&
-      !getAndCheckOffset(keyframeDictionary, offset, 0.0, exceptionState))
-    return nullptr;
+  Nullable<double> offset;
+  if (DictionaryHelper::get(keyframeDictionary, "offset", offset) &&
+      !offset.isNull()) {
+    if (!checkOffset(offset.get(), 0.0, exceptionState))
+      return nullptr;
+  }
 
   String compositeString;
   DictionaryHelper::get(keyframeDictionary, "composite", compositeString);
 
-  Vector<String> keyframeProperties;
-  keyframeDictionary.getPropertyNames(keyframeProperties);
+  const Vector<String>& keyframeProperties =
+      keyframeDictionary.getPropertyNames(exceptionState);
+  if (exceptionState.hadException())
+    return nullptr;
   for (const auto& property : keyframeProperties) {
     if (property == "offset" || property == "composite" ||
         property == "easing") {
@@ -350,8 +364,8 @@ EffectModel* EffectInput::convertObjectForm(
     for (size_t i = 0; i < numKeyframes; ++i) {
       RefPtr<StringKeyframe> keyframe = StringKeyframe::create();
 
-      if (frameHasOffset)
-        keyframe->setOffset(offset);
+      if (!offset.isNull())
+        keyframe->setOffset(offset.get());
       else if (numKeyframes == 1)
         keyframe->setOffset(1.0);
       else
@@ -364,8 +378,9 @@ EffectModel* EffectInput::convertObjectForm(
         keyframe->setComposite(EffectModel::CompositeAdd);
       // TODO(alancutter): Support "accumulate" keyframe composition.
 
-      setKeyframeValue(element, *keyframe.get(), property, values[i]);
-      keyframes.append(keyframe);
+      setKeyframeValue(element, *keyframe.get(), property, values[i],
+                       executionContext);
+      keyframes.push_back(keyframe);
     }
   }
 

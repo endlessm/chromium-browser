@@ -19,6 +19,7 @@
 using base::StringPiece;
 using std::dec;
 using std::hex;
+using std::make_pair;
 using std::max;
 using std::min;
 using std::string;
@@ -30,6 +31,16 @@ namespace {
 const size_t kDefaultStorageBlockSize = 2048;
 
 const char kCookieKey[] = "cookie";
+const char kNullSeparator = 0;
+
+StringPiece SeparatorForKey(StringPiece key) {
+  if (key == kCookieKey) {
+    static StringPiece cookie_separator = "; ";
+    return cookie_separator;
+  } else {
+    return StringPiece(&kNullSeparator, 1);
+  }
+}
 
 }  // namespace
 
@@ -50,24 +61,6 @@ class SpdyHeaderBlock::Storage {
     return StringPiece(arena_.Memdup(s.data(), s.size()), s.size());
   }
 
-  // Given value, a string already in the arena, perform a realloc and append
-  // separator and more to the end of the value's new location. If value is the
-  // most recently added string (via Write), then UnsafeArena will not copy the
-  // existing value but instead will increase the space reserved for value.
-  StringPiece Realloc(StringPiece value,
-                      StringPiece separator,
-                      StringPiece more) {
-    size_t total_length = value.size() + separator.size() + more.size();
-    char* ptr = const_cast<char*>(value.data());
-    ptr = arena_.Realloc(ptr, value.size(), total_length);
-    StringPiece result(ptr, total_length);
-    ptr += value.size();
-    memcpy(ptr, separator.data(), separator.size());
-    ptr += separator.size();
-    memcpy(ptr, more.data(), more.size());
-    return result;
-  }
-
   // If |s| points to the most recent allocation from arena_, the arena will
   // reclaim the memory. Otherwise, this method is a no-op.
   void Rewind(const StringPiece s) {
@@ -76,11 +69,78 @@ class SpdyHeaderBlock::Storage {
 
   void Clear() { arena_.Reset(); }
 
+  // Given a list of fragments and a separator, writes the fragments joined by
+  // the separator to a contiguous region of memory. Returns a StringPiece
+  // pointing to the region of memory.
+  StringPiece WriteFragments(const std::vector<StringPiece>& fragments,
+                             StringPiece separator) {
+    if (fragments.empty()) {
+      return StringPiece();
+    }
+    size_t total_size = separator.size() * (fragments.size() - 1);
+    for (const auto fragment : fragments) {
+      total_size += fragment.size();
+    }
+    char* dst = arena_.Alloc(total_size);
+    size_t written = Join(dst, fragments, separator);
+    DCHECK_EQ(written, total_size);
+    return StringPiece(dst, total_size);
+  }
+
+  size_t bytes_allocated() const { return arena_.status().bytes_allocated(); }
+
  private:
   UnsafeArena arena_;
 };
 
-SpdyHeaderBlock::StringPieceProxy::StringPieceProxy(
+SpdyHeaderBlock::HeaderValue::HeaderValue(Storage* storage,
+                                          StringPiece key,
+                                          StringPiece initial_value)
+    : storage_(storage), fragments_({initial_value}), pair_({key, {}}) {}
+
+SpdyHeaderBlock::HeaderValue::HeaderValue(HeaderValue&& other)
+    : storage_(other.storage_),
+      fragments_(std::move(other.fragments_)),
+      pair_(std::move(other.pair_)) {}
+
+SpdyHeaderBlock::HeaderValue& SpdyHeaderBlock::HeaderValue::operator=(
+    HeaderValue&& other) {
+  storage_ = other.storage_;
+  fragments_ = std::move(other.fragments_);
+  pair_ = std::move(other.pair_);
+  return *this;
+}
+
+SpdyHeaderBlock::HeaderValue::~HeaderValue() {}
+
+StringPiece SpdyHeaderBlock::HeaderValue::ConsolidatedValue() const {
+  if (fragments_.empty()) {
+    return StringPiece();
+  }
+  if (fragments_.size() > 1) {
+    fragments_ = {
+        storage_->WriteFragments(fragments_, SeparatorForKey(pair_.first))};
+  }
+  return fragments_[0];
+}
+
+void SpdyHeaderBlock::HeaderValue::Append(StringPiece fragment) {
+  fragments_.push_back(fragment);
+}
+
+const std::pair<StringPiece, StringPiece>&
+SpdyHeaderBlock::HeaderValue::as_pair() const {
+  pair_.second = ConsolidatedValue();
+  return pair_;
+}
+
+SpdyHeaderBlock::iterator::iterator(MapType::const_iterator it) : it_(it) {}
+
+SpdyHeaderBlock::iterator::iterator(const iterator& other) : it_(other.it_) {}
+
+SpdyHeaderBlock::iterator::~iterator() {}
+
+SpdyHeaderBlock::ValueProxy::ValueProxy(
     SpdyHeaderBlock::MapType* block,
     SpdyHeaderBlock::Storage* storage,
     SpdyHeaderBlock::MapType::iterator lookup_result,
@@ -91,7 +151,7 @@ SpdyHeaderBlock::StringPieceProxy::StringPieceProxy(
       key_(key),
       valid_(true) {}
 
-SpdyHeaderBlock::StringPieceProxy::StringPieceProxy(StringPieceProxy&& other)
+SpdyHeaderBlock::ValueProxy::ValueProxy(ValueProxy&& other)
     : block_(other.block_),
       storage_(other.storage_),
       lookup_result_(other.lookup_result_),
@@ -100,8 +160,8 @@ SpdyHeaderBlock::StringPieceProxy::StringPieceProxy(StringPieceProxy&& other)
   other.valid_ = false;
 }
 
-SpdyHeaderBlock::StringPieceProxy& SpdyHeaderBlock::StringPieceProxy::operator=(
-    SpdyHeaderBlock::StringPieceProxy&& other) {
+SpdyHeaderBlock::ValueProxy& SpdyHeaderBlock::ValueProxy::operator=(
+    SpdyHeaderBlock::ValueProxy&& other) {
   block_ = other.block_;
   storage_ = other.storage_;
   lookup_result_ = other.lookup_result_;
@@ -111,8 +171,8 @@ SpdyHeaderBlock::StringPieceProxy& SpdyHeaderBlock::StringPieceProxy::operator=(
   return *this;
 }
 
-SpdyHeaderBlock::StringPieceProxy::~StringPieceProxy() {
-  // If the StringPieceProxy is destroyed while lookup_result_ == block_->end(),
+SpdyHeaderBlock::ValueProxy::~ValueProxy() {
+  // If the ValueProxy is destroyed while lookup_result_ == block_->end(),
   // the assignment operator was never used, and the block's Storage can
   // reclaim the memory used by the key. This makes lookup-only access to
   // SpdyHeaderBlock through operator[] memory-neutral.
@@ -121,22 +181,29 @@ SpdyHeaderBlock::StringPieceProxy::~StringPieceProxy() {
   }
 }
 
-SpdyHeaderBlock::StringPieceProxy& SpdyHeaderBlock::StringPieceProxy::operator=(
+SpdyHeaderBlock::ValueProxy& SpdyHeaderBlock::ValueProxy::operator=(
     const StringPiece value) {
   if (lookup_result_ == block_->end()) {
     DVLOG(1) << "Inserting: (" << key_ << ", " << value << ")";
     lookup_result_ =
-        block_->insert(std::make_pair(key_, storage_->Write(value))).first;
+        block_
+            ->emplace(make_pair(
+                key_, HeaderValue(storage_, key_, storage_->Write(value))))
+            .first;
   } else {
     DVLOG(1) << "Updating key: " << key_ << " with value: " << value;
-    lookup_result_->second = storage_->Write(value);
+    lookup_result_->second =
+        HeaderValue(storage_, key_, storage_->Write(value));
   }
   return *this;
 }
 
-SpdyHeaderBlock::StringPieceProxy::operator StringPiece() const {
-  return (lookup_result_ == block_->end()) ? StringPiece()
-                                           : lookup_result_->second;
+string SpdyHeaderBlock::ValueProxy::as_string() const {
+  if (lookup_result_ == block_->end()) {
+    return "";
+  } else {
+    return lookup_result_->second.value().as_string();
+  }
 }
 
 SpdyHeaderBlock::SpdyHeaderBlock() {}
@@ -156,8 +223,8 @@ SpdyHeaderBlock& SpdyHeaderBlock::operator=(SpdyHeaderBlock&& other) {
 
 SpdyHeaderBlock SpdyHeaderBlock::Clone() const {
   SpdyHeaderBlock copy;
-  for (auto iter : *this) {
-    copy.AppendHeader(iter.first, iter.second);
+  for (const auto& p : *this) {
+    copy.AppendHeader(p.first, p.second);
   }
   return copy;
 }
@@ -177,7 +244,7 @@ string SpdyHeaderBlock::DebugString() const {
   string output = "\n{\n";
   for (auto it = begin(); it != end(); ++it) {
     output +=
-        "  " + it->first.as_string() + ":" + it->second.as_string() + "\n";
+        "  " + it->first.as_string() + " " + it->second.as_string() + "\n";
   }
   output.append("}\n");
   return output;
@@ -188,18 +255,27 @@ void SpdyHeaderBlock::clear() {
   storage_.reset();
 }
 
-void SpdyHeaderBlock::insert(
-    const SpdyHeaderBlock::MapType::value_type& value) {
-  ReplaceOrAppendHeader(value.first, value.second);
+void SpdyHeaderBlock::insert(const SpdyHeaderBlock::value_type& value) {
+  // TODO(birenroy): Write new value in place of old value, if it fits.
+  auto iter = block_.find(value.first);
+  if (iter == block_.end()) {
+    DVLOG(1) << "Inserting: (" << value.first << ", " << value.second << ")";
+    AppendHeader(value.first, value.second);
+  } else {
+    DVLOG(1) << "Updating key: " << iter->first
+             << " with value: " << value.second;
+    auto storage = GetStorage();
+    iter->second =
+        HeaderValue(storage, iter->first, storage->Write(value.second));
+  }
 }
 
-SpdyHeaderBlock::StringPieceProxy SpdyHeaderBlock::operator[](
-    const StringPiece key) {
+SpdyHeaderBlock::ValueProxy SpdyHeaderBlock::operator[](const StringPiece key) {
   DVLOG(2) << "Operator[] saw key: " << key;
   StringPiece out_key;
   auto iter = block_.find(key);
   if (iter == block_.end()) {
-    // We write the key first, to assure that the StringPieceProxy has a
+    // We write the key first, to assure that the ValueProxy has a
     // reference to a valid StringPiece in its operator=.
     out_key = GetStorage()->Write(key);
     DVLOG(2) << "Key written as: " << std::hex
@@ -208,25 +284,7 @@ SpdyHeaderBlock::StringPieceProxy SpdyHeaderBlock::operator[](
   } else {
     out_key = iter->first;
   }
-  return StringPieceProxy(&block_, GetStorage(), iter, out_key);
-}
-
-StringPiece SpdyHeaderBlock::GetHeader(const StringPiece key) const {
-  auto iter = block_.find(key);
-  return iter == block_.end() ? StringPiece() : iter->second;
-}
-
-void SpdyHeaderBlock::ReplaceOrAppendHeader(const StringPiece key,
-                                            const StringPiece value) {
-  // TODO(birenroy): Write new value in place of old value, if it fits.
-  auto iter = block_.find(key);
-  if (iter == block_.end()) {
-    DVLOG(1) << "Inserting: (" << key << ", " << value << ")";
-    AppendHeader(key, value);
-  } else {
-    DVLOG(1) << "Updating key: " << iter->first << " with value: " << value;
-    iter->second = GetStorage()->Write(value);
-  }
+  return ValueProxy(&block_, GetStorage(), iter, out_key);
 }
 
 void SpdyHeaderBlock::AppendValueOrAddHeader(const StringPiece key,
@@ -238,16 +296,15 @@ void SpdyHeaderBlock::AppendValueOrAddHeader(const StringPiece key,
     return;
   }
   DVLOG(1) << "Updating key: " << iter->first << "; appending value: " << value;
-  StringPiece separator("", 1);
-  if (key == kCookieKey) {
-    separator = "; ";
-  }
-  iter->second = GetStorage()->Realloc(iter->second, separator, value);
+  iter->second.Append(GetStorage()->Write(value));
 }
 
 void SpdyHeaderBlock::AppendHeader(const StringPiece key,
                                    const StringPiece value) {
-  block_.emplace(GetStorage()->Write(key), GetStorage()->Write(value));
+  auto storage = GetStorage();
+  auto backed_key = storage->Write(key);
+  block_.emplace(make_pair(
+      backed_key, HeaderValue(storage, backed_key, storage->Write(value))));
 }
 
 SpdyHeaderBlock::Storage* SpdyHeaderBlock::GetStorage() {
@@ -297,6 +354,33 @@ bool SpdyHeaderBlockFromNetLogParam(
     (*headers)[it.key()] = value;
   }
   return true;
+}
+
+size_t SpdyHeaderBlock::bytes_allocated() const {
+  if (storage_ == nullptr) {
+    return 0;
+  } else {
+    return storage_->bytes_allocated();
+  }
+}
+
+size_t Join(char* dst,
+            const std::vector<StringPiece>& fragments,
+            StringPiece separator) {
+  if (fragments.empty()) {
+    return 0;
+  }
+  auto original_dst = dst;
+  auto it = fragments.begin();
+  memcpy(dst, it->data(), it->size());
+  dst += it->size();
+  for (++it; it != fragments.end(); ++it) {
+    memcpy(dst, separator.data(), separator.size());
+    dst += separator.size();
+    memcpy(dst, it->data(), it->size());
+    dst += it->size();
+  }
+  return dst - original_dst;
 }
 
 }  // namespace net

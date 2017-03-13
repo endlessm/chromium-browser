@@ -20,20 +20,20 @@ namespace net {
 class QuicPacketWriterWrapper : public QuicPacketWriter {
  public:
   QuicPacketWriterWrapper();
-  explicit QuicPacketWriterWrapper(QuicPacketWriter* writer);
   ~QuicPacketWriterWrapper() override;
 
   // Default implementation of the QuicPacketWriter interface. Passes everything
   // to |writer_|.
   WriteResult WritePacket(const char* buffer,
                           size_t buf_len,
-                          const IPAddress& self_address,
-                          const IPEndPoint& peer_address,
+                          const QuicIpAddress& self_address,
+                          const QuicSocketAddress& peer_address,
                           PerPacketOptions* options) override;
   bool IsWriteBlockedDataBuffered() const override;
   bool IsWriteBlocked() const override;
   void SetWritable() override;
-  QuicByteCount GetMaxPacketSize(const IPEndPoint& peer_address) const override;
+  QuicByteCount GetMaxPacketSize(
+      const QuicSocketAddress& peer_address) const override;
 
   // Takes ownership of |writer|.
   void set_writer(QuicPacketWriter* writer);

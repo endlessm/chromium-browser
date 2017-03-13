@@ -11,14 +11,16 @@
   <template>
     <style include="shared-style">
       :host {
-        display: block;
+        display: flex;
         height: 100%;
-        padding-top: 5px;
+        overflow-x: hidden;
+        overflow-y: auto;
         width: var(--side-bar-width);
       }
 
       div.separator {
-        background-color: rgba(0, 0, 0, 0.08);
+        background-color: var(--separator-color);
+        flex-shrink: 0;
         height: 1px;
         margin: 8px 0;
       }
@@ -28,7 +30,7 @@
       }
 
       #clear-browsing-data iron-icon {
-        -webkit-margin-end: 24px;
+        -webkit-margin-end: 20px;
         color: var(--paper-grey-400);
         height: 20px;
         margin-bottom: 10px;
@@ -39,18 +41,24 @@
       iron-selector {
         -webkit-user-select: none;
         background-color: transparent;
-        color: #5a5a5a;
+        color: var(--sidebar-unselected-color);
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        padding-top: 8px;
       }
 
       iron-selector > a {
         @apply(--paper-font-subhead);
+        /* Ensure the focus outline appears correctly (crbug.com/655503). */
+        -webkit-margin-end: 4px;
         -webkit-padding-start: 24px;
         align-items: center;
         box-sizing: border-box;
         color: inherit;
         cursor: pointer;
         display: flex;
-        font-size: 14px;
+        font-size: 108%;
         font-weight: 500;
         min-height: 48px;
         position: relative;
@@ -58,21 +66,16 @@
       }
 
       iron-selector > a.iron-selected {
-        color: var(--google-blue-500);
-        font-weight: 500;
+        color: var(--link-color);
+      }
+
+      #spacer {
+        flex: 1;
       }
 
       #footer {
-        bottom: 0;
-        color: var(--paper-grey-600);
-        position: absolute;
+        color: var(--sidebar-footer-text-color);
         width: var(--side-bar-width);
-      }
-
-      :host([drawer]) #footer {
-        /* This compensates the 120px by which app-drawer protrudes under
-         * the viewport. */
-        bottom: 120px;
       }
 
       #footer-text {
@@ -83,7 +86,6 @@
       }
 
       #footer a {
-        color: var(--google-blue-700);
         text-decoration: none;
       }
     </style>
@@ -108,6 +110,7 @@
         <iron-icon icon="cr:open-in-new"></iron-icon>
         <paper-ripple id="cbd-ripple"></paper-ripple>
       </a>
+      <div id="spacer"></div>
       <div id="footer" hidden="[[!showFooter]]">
         <div class="separator"></div>
         <div id="footer-text">$i18nRaw{sidebarFooter}</div>

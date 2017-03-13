@@ -351,6 +351,7 @@ class DevToolsClientBackend(object):
           continue
         context_id = context['id']
         backend = context_map.GetInspectorBackend(context_id)
+        # TODO(catapult:#3028): Fix interpolation of JavaScript values.
         backend.EvaluateJavaScript(
             "console.time('" + backend.id + "');" +
             "console.timeEnd('" + backend.id + "');" +
@@ -361,9 +362,8 @@ class DevToolsClientBackend(object):
 
   def CollectChromeTracingData(self, trace_data_builder, timeout=30):
     try:
-      for tab_id in self._tab_ids:
-        trace_data_builder.AddEventsTo(
-            trace_data_module.TAB_ID_PART, [tab_id])
+      trace_data_builder.AddTraceFor(
+          trace_data_module.TAB_ID_PART, self._tab_ids[:])
       self._tab_ids = None
     finally:
       self._tracing_backend.CollectTraceData(trace_data_builder, timeout)

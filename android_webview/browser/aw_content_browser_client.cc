@@ -23,18 +23,23 @@
 #include "android_webview/browser/tracing/aw_tracing_delegate.h"
 #include "android_webview/common/aw_descriptors.h"
 #include "android_webview/common/aw_switches.h"
+#include "android_webview/common/crash_reporter/aw_microdump_crash_reporter.h"
 #include "android_webview/common/render_view_messages.h"
 #include "android_webview/common/url_constants.h"
+#include "android_webview/grit/aw_resources.h"
 #include "base/android/locale_utils.h"
 #include "base/base_paths_android.h"
+#include "base/base_switches.h"
 #include "base/command_line.h"
 #include "base/files/scoped_file.h"
+#include "base/json/json_reader.h"
 #include "base/memory/ptr_util.h"
 #include "base/path_service.h"
 #include "components/autofill/content/browser/content_autofill_driver_factory.h"
 #include "components/cdm/browser/cdm_message_filter_android.h"
-#include "components/crash/content/browser/crash_micro_dump_manager_android.h"
+#include "components/crash/content/browser/crash_dump_observer_android.h"
 #include "components/navigation_interception/intercept_navigation_delegate.h"
+#include "components/spellcheck/spellcheck_build_features.h"
 #include "content/public/browser/browser_message_filter.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/child_process_security_policy.h"
@@ -46,6 +51,7 @@
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/content_switches.h"
+#include "content/public/common/service_names.mojom.h"
 #include "content/public/common/url_constants.h"
 #include "content/public/common/web_preferences.h"
 #include "device/geolocation/access_token_store.h"
@@ -53,12 +59,12 @@
 #include "net/android/network_library.h"
 #include "net/ssl/ssl_cert_request_info.h"
 #include "net/ssl/ssl_info.h"
-#include "services/shell/public/cpp/interface_registry.h"
+#include "services/service_manager/public/cpp/interface_registry.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/base/resource/resource_bundle_android.h"
 #include "ui/resources/grit/ui_resources.h"
 
-#if defined(ENABLE_SPELLCHECK)
+#if BUILDFLAG(ENABLE_SPELLCHECK)
 #include "components/spellcheck/browser/spellcheck_message_filter_platform.h"
 #include "components/spellcheck/common/spellcheck_switches.h"
 #endif
@@ -154,19 +160,24 @@ void AwContentsMessageFilter::OnSubFrameCreated(int parent_render_frame_id,
 
 AwLocaleManager* g_locale_manager = NULL;
 
+// A dummy binder for mojo interface autofill::mojom::PasswordManagerDriver.
+void DummyBindPasswordManagerDriver(
+    autofill::mojom::PasswordManagerDriverRequest request) {}
+
 }  // anonymous namespace
 
+// TODO(yirui): can use similar logic as in PrependToAcceptLanguagesIfNecessary
+// in chrome/browser/android/preferences/pref_service_bridge.cc
 // static
 std::string AwContentBrowserClient::GetAcceptLangsImpl() {
-  // Start with the current locale.
-  std::string langs = g_locale_manager->GetLocale();
+  // Start with the current locale(s) in BCP47 format.
+  std::string locales_string = g_locale_manager->GetLocaleList();
 
-  // If we're not en-US, add in en-US which will be
+  // If accept languages do not contain en-US, add in en-US which will be
   // used with a lower q-value.
-  if (base::ToLowerASCII(langs) != "en-us") {
-    langs += ",en-US";
-  }
-  return langs;
+  if (locales_string.find("en-US") == std::string::npos)
+    locales_string += ",en-US";
+  return locales_string;
 }
 
 // static
@@ -195,15 +206,6 @@ AwBrowserContext* AwContentBrowserClient::InitBrowserContext() {
   return browser_context_.get();
 }
 
-void AwContentBrowserClient::AddCertificate(net::CertificateMimeType cert_type,
-                                            const void* cert_data,
-                                            size_t cert_size,
-                                            int render_process_id,
-                                            int render_frame_id) {
-  if (cert_size > 0)
-    net::android::StoreCertificate(cert_type, cert_data, cert_size);
-}
-
 content::BrowserMainParts* AwContentBrowserClient::CreateBrowserMainParts(
     const content::MainFunctionParams& parameters) {
   return new AwBrowserMainParts(this);
@@ -227,7 +229,7 @@ void AwContentBrowserClient::RenderProcessWillLaunch(
   host->AddFilter(new cdm::CdmMessageFilterAndroid());
   host->AddFilter(new AwPrintingMessageFilter(host->GetID()));
 
-#if defined(ENABLE_SPELLCHECK)
+#if BUILDFLAG(ENABLE_SPELLCHECK)
   host->AddFilter(new SpellCheckMessageFilterPlatform(host->GetID()));
 #endif
 }
@@ -263,11 +265,6 @@ bool AwContentBrowserClient::IsHandledURL(const GURL& url) {
   return net::URLRequest::IsHandledProtocol(scheme);
 }
 
-std::string AwContentBrowserClient::GetCanonicalEncodingNameByAliasName(
-    const std::string& alias_name) {
-  return alias_name;
-}
-
 void AwContentBrowserClient::AppendExtraCommandLineSwitches(
     base::CommandLine* command_line,
     int child_process_id) {
@@ -277,11 +274,15 @@ void AwContentBrowserClient::AppendExtraCommandLineSwitches(
     // The only kind of a child process WebView can have is renderer.
     DCHECK_EQ(switches::kRendererProcess,
               command_line->GetSwitchValueASCII(switches::kProcessType));
+    // Pass crash reporter enabled state to renderer processes.
+    if (crash_reporter::IsCrashReporterEnabled()) {
+      command_line->AppendSwitch(::switches::kEnableCrashReporter);
+    }
   }
 }
 
 std::string AwContentBrowserClient::GetApplicationLocale() {
-  return base::android::GetDefaultLocale();
+  return base::android::GetDefaultLocaleString();
 }
 
 std::string AwContentBrowserClient::GetAcceptLangs(
@@ -392,6 +393,8 @@ void AwContentBrowserClient::SelectClientCertificate(
 }
 
 bool AwContentBrowserClient::CanCreateWindow(
+    int opener_render_process_id,
+    int opener_render_frame_id,
     const GURL& opener_url,
     const GURL& opener_top_level_frame_url,
     const GURL& source_origin,
@@ -404,9 +407,6 @@ bool AwContentBrowserClient::CanCreateWindow(
     bool user_gesture,
     bool opener_suppressed,
     content::ResourceContext* context,
-    int render_process_id,
-    int opener_render_view_id,
-    int opener_render_frame_id,
     bool* no_javascript_access) {
   // We unconditionally allow popup windows at this stage and will give
   // the embedder the opporunity to handle displaying of the popup in
@@ -480,26 +480,19 @@ content::TracingDelegate* AwContentBrowserClient::GetTracingDelegate() {
 void AwContentBrowserClient::GetAdditionalMappedFilesForChildProcess(
       const base::CommandLine& command_line,
       int child_process_id,
-      content::FileDescriptorInfo* mappings,
-      std::map<int, base::MemoryMappedFile::Region>* regions) {
-  int fd = ui::GetMainAndroidPackFd(
-      &(*regions)[kAndroidWebViewMainPakDescriptor]);
-  mappings->Share(kAndroidWebViewMainPakDescriptor, fd);
+      content::FileDescriptorInfo* mappings) {
+  base::MemoryMappedFile::Region region;
+  int fd = ui::GetMainAndroidPackFd(&region);
+  mappings->ShareWithRegion(kAndroidWebViewMainPakDescriptor, fd, region);
 
-  fd = ui::GetCommonResourcesPackFd(
-      &(*regions)[kAndroidWebView100PercentPakDescriptor]);
-  mappings->Share(kAndroidWebView100PercentPakDescriptor, fd);
+  fd = ui::GetCommonResourcesPackFd(&region);
+  mappings->ShareWithRegion(kAndroidWebView100PercentPakDescriptor, fd, region);
 
-  fd = ui::GetLocalePackFd(&(*regions)[kAndroidWebViewLocalePakDescriptor]);
-  mappings->Share(kAndroidWebViewLocalePakDescriptor, fd);
+  fd = ui::GetLocalePackFd(&region);
+  mappings->ShareWithRegion(kAndroidWebViewLocalePakDescriptor, fd, region);
 
-  base::ScopedFD crash_signal_file =
-      breakpad::CrashMicroDumpManager::GetInstance()->CreateCrashInfoChannel(
-          child_process_id);
-  if (crash_signal_file.is_valid()) {
-    mappings->Transfer(kAndroidWebViewCrashSignalDescriptor,
-                       std::move(crash_signal_file));
-  }
+  breakpad::CrashDumpObserver::GetInstance()->BrowserChildProcessStarted(
+      child_process_id, mappings);
 }
 
 void AwContentBrowserClient::OverrideWebkitPrefs(
@@ -513,10 +506,10 @@ void AwContentBrowserClient::OverrideWebkitPrefs(
       content::WebContents::FromRenderViewHost(rvh), web_prefs);
 }
 
-ScopedVector<content::NavigationThrottle>
+std::vector<std::unique_ptr<content::NavigationThrottle>>
 AwContentBrowserClient::CreateThrottlesForNavigation(
     content::NavigationHandle* navigation_handle) {
-  ScopedVector<content::NavigationThrottle> throttles;
+  std::vector<std::unique_ptr<content::NavigationThrottle>> throttles;
   // We allow intercepting only navigations within main frames. This
   // is used to post onPageStarted. We handle shouldOverrideUrlLoading
   // via a sync IPC.
@@ -533,12 +526,34 @@ AwContentBrowserClient::GetDevToolsManagerDelegate() {
   return new AwDevToolsManagerDelegate();
 }
 
+std::unique_ptr<base::Value> AwContentBrowserClient::GetServiceManifestOverlay(
+    base::StringPiece name) {
+  int id = -1;
+  if (name == content::mojom::kBrowserServiceName)
+    id = IDR_AW_BROWSER_MANIFEST_OVERLAY;
+  else if (name == content::mojom::kRendererServiceName)
+    id = IDR_AW_RENDERER_MANIFEST_OVERLAY;
+  if (id == -1)
+    return nullptr;
+
+  base::StringPiece manifest_contents =
+      ui::ResourceBundle::GetSharedInstance().GetRawDataResourceForScale(
+          id, ui::ScaleFactor::SCALE_FACTOR_NONE);
+  return base::JSONReader::Read(manifest_contents);
+}
+
 void AwContentBrowserClient::RegisterRenderFrameMojoInterfaces(
-    shell::InterfaceRegistry* registry,
+    service_manager::InterfaceRegistry* registry,
     content::RenderFrameHost* render_frame_host) {
   registry->AddInterface(
       base::Bind(&autofill::ContentAutofillDriverFactory::BindAutofillDriver,
                  render_frame_host));
+
+  // Although WebView does not support password manager feature, renderer code
+  // could still request this interface, so we register a dummy binder which
+  // just drops the incoming request, to avoid the 'Failed to locate a binder
+  // for interface' error log..
+  registry->AddInterface(base::Bind(&DummyBindPasswordManagerDriver));
 }
 
 }  // namespace android_webview

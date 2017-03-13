@@ -26,7 +26,6 @@
 #include "modules/indexeddb/IDBObjectStore.h"
 
 #include "bindings/core/v8/ExceptionState.h"
-#include "bindings/core/v8/ExceptionStatePlaceholder.h"
 #include "bindings/core/v8/ScriptState.h"
 #include "bindings/core/v8/SerializedScriptValueFactory.h"
 #include "bindings/modules/v8/ToV8ForModules.h"
@@ -39,7 +38,6 @@
 #include "modules/indexeddb/IDBDatabase.h"
 #include "modules/indexeddb/IDBKeyPath.h"
 #include "modules/indexeddb/IDBTracing.h"
-#include "modules/indexeddb/WebIDBCallbacksImpl.h"
 #include "platform/SharedBuffer.h"
 #include "public/platform/WebBlobInfo.h"
 #include "public/platform/WebData.h"
@@ -124,7 +122,7 @@ ScriptValue IDBObjectStore::keyPath(ScriptState* scriptState) const {
 
 DOMStringList* IDBObjectStore::indexNames() const {
   IDB_TRACE("IDBObjectStore::indexNames");
-  DOMStringList* indexNames = DOMStringList::create(DOMStringList::IndexedDB);
+  DOMStringList* indexNames = DOMStringList::create();
   for (const auto& it : metadata().indexes)
     indexNames->append(it.value->name);
   indexNames->sort();
@@ -169,7 +167,7 @@ IDBRequest* IDBObjectStore::get(ScriptState* scriptState,
                                            m_transaction.get());
   backendDB()->get(m_transaction->id(), id(), IDBIndexMetadata::InvalidId,
                    keyRange, false /* keyOnly */,
-                   WebIDBCallbacksImpl::create(request).release());
+                   request->createWebCallbacks().release());
   return request;
 }
 
@@ -211,7 +209,7 @@ IDBRequest* IDBObjectStore::getKey(ScriptState* scriptState,
                                            m_transaction.get());
   backendDB()->get(m_transaction->id(), id(), IDBIndexMetadata::InvalidId,
                    keyRange, true /* keyOnly */,
-                   WebIDBCallbacksImpl::create(request).release());
+                   request->createWebCallbacks().release());
   return request;
 }
 
@@ -259,7 +257,7 @@ IDBRequest* IDBObjectStore::getAll(ScriptState* scriptState,
                                            m_transaction.get());
   backendDB()->getAll(m_transaction->id(), id(), IDBIndexMetadata::InvalidId,
                       range, maxCount, false,
-                      WebIDBCallbacksImpl::create(request).release());
+                      request->createWebCallbacks().release());
   return request;
 }
 
@@ -307,7 +305,7 @@ IDBRequest* IDBObjectStore::getAllKeys(ScriptState* scriptState,
                                            m_transaction.get());
   backendDB()->getAll(m_transaction->id(), id(), IDBIndexMetadata::InvalidId,
                       range, maxCount, true,
-                      WebIDBCallbacksImpl::create(request).release());
+                      request->createWebCallbacks().release());
   return request;
 }
 
@@ -327,14 +325,11 @@ static void generateIndexKeysForValue(v8::Isolate* isolate,
     if (!indexKey->isValid())
       return;
 
-    indexKeys->append(indexKey);
+    indexKeys->push_back(indexKey);
   } else {
     DCHECK(indexMetadata.multiEntry);
     DCHECK_EQ(indexKey->getType(), IDBKey::ArrayType);
-    indexKey = IDBKey::createMultiEntryArray(indexKey->array());
-
-    for (size_t i = 0; i < indexKey->array().size(); ++i)
-      indexKeys->append(indexKey->array()[i]);
+    indexKeys->appendVector(indexKey->toMultiEntryArray());
   }
 }
 
@@ -503,8 +498,8 @@ IDBRequest* IDBObjectStore::put(ScriptState* scriptState,
           deserializeScriptValue(scriptState, serializedValue.get(), &blobInfo);
     IndexKeys keys;
     generateIndexKeysForValue(scriptState->isolate(), *it.value, clone, &keys);
-    indexIds.append(it.key);
-    indexKeys.append(keys);
+    indexIds.push_back(it.key);
+    indexKeys.push_back(keys);
   }
 
   IDBRequest* request =
@@ -515,7 +510,7 @@ IDBRequest* IDBObjectStore::put(ScriptState* scriptState,
 
   backendDB()->put(m_transaction->id(), id(), WebData(valueBuffer), blobInfo,
                    key, static_cast<WebIDBPutMode>(putMode),
-                   WebIDBCallbacksImpl::create(request).release(), indexIds,
+                   request->createWebCallbacks().release(), indexIds,
                    indexKeys);
   return request;
 }
@@ -563,7 +558,7 @@ IDBRequest* IDBObjectStore::deleteFunction(ScriptState* scriptState,
   IDBRequest* request = IDBRequest::create(scriptState, IDBAny::create(this),
                                            m_transaction.get());
   backendDB()->deleteRange(m_transaction->id(), id(), keyRange,
-                           WebIDBCallbacksImpl::create(request).release());
+                           request->createWebCallbacks().release());
   return request;
 }
 
@@ -599,7 +594,7 @@ IDBRequest* IDBObjectStore::clear(ScriptState* scriptState,
   IDBRequest* request = IDBRequest::create(scriptState, IDBAny::create(this),
                                            m_transaction.get());
   backendDB()->clear(m_transaction->id(), id(),
-                     WebIDBCallbacksImpl::create(request).release());
+                     request->createWebCallbacks().release());
   return request;
 }
 
@@ -647,6 +642,9 @@ class IndexPopulator final : public EventListener {
   const IDBIndexMetadata& indexMetadata() const { return *m_indexMetadata; }
 
   void handleEvent(ExecutionContext* executionContext, Event* event) override {
+    if (!m_scriptState->contextIsValid())
+      return;
+
     DCHECK_EQ(m_scriptState->getExecutionContext(), executionContext);
     DCHECK_EQ(event->type(), EventTypeNames::success);
     EventTarget* target = event->target();
@@ -655,13 +653,15 @@ class IndexPopulator final : public EventListener {
     if (!m_database->backend())  // If database is stopped?
       return;
 
+    ScriptState::Scope scope(m_scriptState.get());
+
     IDBAny* cursorAny = request->resultAsAny();
     IDBCursorWithValue* cursor = nullptr;
     if (cursorAny->getType() == IDBAny::IDBCursorWithValueType)
       cursor = cursorAny->idbCursorWithValue();
 
     Vector<int64_t> indexIds;
-    indexIds.append(indexMetadata().id);
+    indexIds.push_back(indexMetadata().id);
     if (cursor && !cursor->isDeleted()) {
       cursor->continueFunction(nullptr, nullptr, ASSERT_NO_EXCEPTION);
 
@@ -673,7 +673,7 @@ class IndexPopulator final : public EventListener {
                                 value, &indexKeys);
 
       HeapVector<IndexKeys> indexKeysList;
-      indexKeysList.append(indexKeys);
+      indexKeysList.push_back(indexKeys);
 
       m_database->backend()->setIndexKeys(m_transactionId, m_objectStoreId,
                                           primaryKey, indexIds, indexKeysList);
@@ -900,9 +900,9 @@ IDBRequest* IDBObjectStore::openCursor(ScriptState* scriptState,
                                            m_transaction.get());
   request->setCursorDetails(IndexedDB::CursorKeyAndValue, direction);
 
-  backendDB()->openCursor(
-      m_transaction->id(), id(), IDBIndexMetadata::InvalidId, range, direction,
-      false, taskType, WebIDBCallbacksImpl::create(request).release());
+  backendDB()->openCursor(m_transaction->id(), id(),
+                          IDBIndexMetadata::InvalidId, range, direction, false,
+                          taskType, request->createWebCallbacks().release());
   return request;
 }
 
@@ -947,7 +947,7 @@ IDBRequest* IDBObjectStore::openKeyCursor(ScriptState* scriptState,
   backendDB()->openCursor(m_transaction->id(), id(),
                           IDBIndexMetadata::InvalidId, keyRange, direction,
                           true, WebIDBTaskTypeNormal,
-                          WebIDBCallbacksImpl::create(request).release());
+                          request->createWebCallbacks().release());
   return request;
 }
 
@@ -985,7 +985,7 @@ IDBRequest* IDBObjectStore::count(ScriptState* scriptState,
   IDBRequest* request = IDBRequest::create(scriptState, IDBAny::create(this),
                                            m_transaction.get());
   backendDB()->count(m_transaction->id(), id(), IDBIndexMetadata::InvalidId,
-                     keyRange, WebIDBCallbacksImpl::create(request).release());
+                     keyRange, request->createWebCallbacks().release());
   return request;
 }
 

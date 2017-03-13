@@ -940,7 +940,7 @@ public:
         SET_CONTROL(Res);
         SET_CONTROL(Filter);
         SET_CONTROL(Weight);
-    };
+    }
     
     #undef SET_CONTROL
 
@@ -1219,8 +1219,8 @@ public:
                     draw_points(canvas, pts, 3);
                     } break;
                 case SkPath::kCubic_Verb: {
-                    SkScalar loopT;
-                    bool complex = SkDCubic::ComplexBreak(pts, &loopT);
+                    SkScalar loopT[3];
+                    int complex = SkDCubic::ComplexBreak(pts, loopT);
                     SkPath cPath;
                     cPath.moveTo(pts[0]);
                     cPath.cubicTo(pts[1], pts[2], pts[3]);

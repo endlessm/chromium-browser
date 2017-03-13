@@ -11,15 +11,6 @@ from gpu_tests import exception_formatter
 from gpu_tests import gpu_test_expectations
 
 
-# Temporary class which bridges the gap beween these serially executed
-# browser tests and the old benchmark-based tests. As soon as all of
-# the tests have been coverted over, this will be deleted.
-class _EmulatedPage(object):
-  def __init__(self, url, name):
-    self.url = url
-    self.name = name
-
-
 class GpuIntegrationTest(
     serially_executed_browser_test_case.SeriallyExecutedBrowserTestCase):
 
@@ -37,6 +28,8 @@ class GpuIntegrationTest(
         restart = 'Starting browser, attempt %d of 3' % (x + 1)
         logging.warning(restart)
         super(GpuIntegrationTest, cls).StartBrowser()
+        cls.tab = cls.browser.tabs[0]
+        logging.warning('Started browser successfully.')
         return
       except Exception:
         # If we are on the last try and there is an exception take a screenshot
@@ -50,6 +43,10 @@ class GpuIntegrationTest(
           else:
             logging.warning("GpuIntegrationTest unable to take screenshot")
           raise
+        # Otherwise, stop the browser to make sure it's in an
+        # acceptable state to try restarting it.
+        if cls.browser:
+          cls.StopBrowser()
 
   @classmethod
   def _RestartBrowser(cls, reason):
@@ -57,13 +54,11 @@ class GpuIntegrationTest(
     cls.StopBrowser()
     cls.SetBrowserOptions(cls._finder_options)
     cls.StartBrowser()
-    cls.tab = cls.browser.tabs[0]
 
   def _RunGpuTest(self, url, test_name, *args):
-    temp_page = _EmulatedPage(url, test_name)
     expectations = self.__class__.GetExpectations()
-    expectation = expectations.GetExpectationForPage(
-      self.browser, temp_page)
+    expectation = expectations.GetExpectationForTest(
+      self.browser, url, test_name)
     if expectation == 'skip':
       # skipTest in Python's unittest harness raises an exception, so
       # aborts the control flow here.
@@ -81,6 +76,14 @@ class GpuIntegrationTest(
         # This is not an expected exception or test failure, so print
         # the detail to the console.
         exception_formatter.PrintFormattedException()
+        # Symbolize any crash dump (like from the GPU process) that
+        # might have happened but wasn't detected above. Note we don't
+        # do this for either 'fail' or 'flaky' expectations because
+        # there are still quite a few flaky failures in the WebGL test
+        # expectations, and since minidump symbolization is slow
+        # (upwards of one minute on a fast laptop), symbolizing all the
+        # stacks could slow down the tests' running time unacceptably.
+        self._SymbolizeUnsymbolizedMinidumps()
         # This failure might have been caused by a browser or renderer
         # crash, so restart the browser to make sure any state doesn't
         # propagate to the next test iteration.
@@ -101,8 +104,8 @@ class GpuIntegrationTest(
           expectation, test_name)
         raise
       # Flaky tests are handled here.
-      num_retries = expectations.GetFlakyRetriesForPage(
-        self.browser, temp_page)
+      num_retries = expectations.GetFlakyRetriesForTest(
+        self.browser, url, test_name)
       if not num_retries:
         # Re-raise the exception.
         raise
@@ -127,6 +130,25 @@ class GpuIntegrationTest(
       if expectation == 'fail':
         logging.warning(
             '%s was expected to fail, but passed.\n', test_name)
+
+  def _SymbolizeUnsymbolizedMinidumps(self):
+    # The fakes used for unit tests don't mock this entry point yet.
+    if not hasattr(self.browser, 'GetAllUnsymbolizedMinidumpPaths'):
+      return
+    i = 10
+    if self.browser.GetAllUnsymbolizedMinidumpPaths():
+      logging.error('Symbolizing minidump paths: ' + str(
+        self.browser.GetAllUnsymbolizedMinidumpPaths()))
+    else:
+      logging.error('No minidump paths to symbolize')
+    while i > 0 and self.browser.GetAllUnsymbolizedMinidumpPaths():
+      i = i - 1
+      sym = self.browser.SymbolizeMinidump(
+        self.browser.GetAllUnsymbolizedMinidumpPaths()[0])
+      if sym[0]:
+        logging.error('Symbolized minidump:\n' + sym[1])
+      else:
+        logging.error('Minidump symbolization failed:\n' + sym[1])
 
   @classmethod
   def GenerateGpuTests(cls, options):

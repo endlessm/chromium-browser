@@ -14,7 +14,10 @@ namespace blink {
 
 class Event;
 class IntRect;
+class LocalFrame;
+class MessageEvent;
 class ResourceRequest;
+class SecurityOrigin;
 
 class RemoteFrameClient : public FrameClient {
  public:
@@ -35,6 +38,9 @@ class RemoteFrameClient : public FrameClient {
   virtual void forwardInputEvent(Event*) = 0;
 
   virtual void frameRectsChanged(const IntRect& frameRect) = 0;
+
+  virtual void updateRemoteViewportIntersection(
+      const IntRect& viewportIntersection) = 0;
 
   virtual void advanceFocus(WebFocusType, LocalFrame* source) = 0;
 

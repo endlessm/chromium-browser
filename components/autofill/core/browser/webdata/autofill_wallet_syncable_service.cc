@@ -12,17 +12,19 @@
 #include "base/logging.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
-#include "components/autofill/core/browser/autofill_profile.h"
-#include "components/autofill/core/browser/credit_card.h"
 #include "components/autofill/core/browser/webdata/autofill_table.h"
 #include "components/autofill/core/browser/webdata/autofill_webdata_backend.h"
 #include "components/autofill/core/browser/webdata/autofill_webdata_service.h"
-#include "components/sync/api/sync_error_factory.h"
+#include "components/sync/model/sync_error_factory.h"
 #include "components/sync/protocol/sync.pb.h"
 
 namespace autofill {
 
 namespace {
+
+// The length of the GUIDs used for local autofill data. It is different than
+// the length used for server autofill data.
+const int kLocalGuidSize = 36;
 
 void* UserDataKey() {
   // Use the address of a static so that COMDAT folding won't ever fold
@@ -75,6 +77,7 @@ CreditCard CardFromSpecifics(const sync_pb::WalletMaskedCreditCard& card) {
                     base::UTF8ToUTF16(card.name_on_card()));
   result.SetExpirationMonth(card.exp_month());
   result.SetExpirationYear(card.exp_year());
+  result.set_billing_address_id(card.billing_address_id());
   return result;
 }
 
@@ -118,25 +121,6 @@ AutofillProfile ProfileFromSpecifics(
   return profile;
 }
 
-// Searches for CreditCards with identical server IDs and copies the billing
-// address ID from the existing cards on disk into the new cards from server.
-// The credit card's IDs do not change over time.
-void CopyBillingAddressesFromDisk(AutofillTable* table,
-                                  std::vector<CreditCard>* cards_from_server) {
-  ScopedVector<CreditCard> cards_on_disk;
-  table->GetServerCreditCards(&cards_on_disk.get());
-
-  // The reasons behind brute-force search are explained in SetDataIfChanged.
-  for (const CreditCard* saved_card : cards_on_disk) {
-    for (CreditCard& server_card : *cards_from_server) {
-      if (saved_card->server_id() == server_card.server_id()) {
-        server_card.set_billing_address_id(saved_card->billing_address_id());
-        break;
-      }
-    }
-  }
-}
-
 // This function handles conditionally updating the AutofillTable with either
 // a set of CreditCards or AutocompleteProfiles only when the existing data
 // doesn't match.
@@ -150,15 +134,15 @@ void CopyBillingAddressesFromDisk(AutofillTable* table,
 //
 // Returns true if anything changed. The previous number of items in the table
 // (for sync tracking) will be placed into *prev_item_count.
-template<class Data>
+template <class Data>
 bool SetDataIfChanged(
     AutofillTable* table,
     const std::vector<Data>& data,
-    bool (AutofillTable::*getter)(std::vector<Data*>*),
+    bool (AutofillTable::*getter)(std::vector<std::unique_ptr<Data>>*) const,
     void (AutofillTable::*setter)(const std::vector<Data>&),
     size_t* prev_item_count) {
-  ScopedVector<Data> existing_data;
-  (table->*getter)(&existing_data.get());
+  std::vector<std::unique_ptr<Data>> existing_data;
+  (table->*getter)(&existing_data);
   *prev_item_count = existing_data.size();
 
   // If the user has a large number of addresses, don't bother verifying
@@ -177,7 +161,7 @@ bool SetDataIfChanged(
     // compares). A std::set only uses operator< requiring multiple calls to
     // check equality, giving 8 compares for 2 elements and 16 for 3. For these
     // set sizes, brute force O(n^2) is faster.
-    for (const Data* cur_existing : existing_data) {
+    for (const auto& cur_existing : existing_data) {
       bool found_match_for_cur_existing = false;
       for (const Data& cur_new : data) {
         if (cur_existing->Compare(cur_new) == 0) {
@@ -270,10 +254,12 @@ void AutofillWalletSyncableService::InjectStartSyncFlare(
   flare_ = flare;
 }
 
-syncer::SyncMergeResult AutofillWalletSyncableService::SetSyncData(
-    const syncer::SyncDataList& data_list) {
-  std::vector<CreditCard> wallet_cards;
-  std::vector<AutofillProfile> wallet_addresses;
+// static
+void AutofillWalletSyncableService::PopulateWalletCardsAndAddresses(
+    const syncer::SyncDataList& data_list,
+    std::vector<CreditCard>* wallet_cards,
+    std::vector<AutofillProfile>* wallet_addresses) {
+  std::map<std::string, std::string> ids;
 
   for (const syncer::SyncData& data : data_list) {
     DCHECK_EQ(syncer::AUTOFILL_WALLET_DATA, data.GetDataType());
@@ -281,15 +267,56 @@ syncer::SyncMergeResult AutofillWalletSyncableService::SetSyncData(
         data.GetSpecifics().autofill_wallet();
     if (autofill_specifics.type() ==
         sync_pb::AutofillWalletSpecifics::MASKED_CREDIT_CARD) {
-      wallet_cards.push_back(
+      wallet_cards->push_back(
           CardFromSpecifics(autofill_specifics.masked_card()));
     } else {
       DCHECK_EQ(sync_pb::AutofillWalletSpecifics::POSTAL_ADDRESS,
                 autofill_specifics.type());
-      wallet_addresses.push_back(
+      wallet_addresses->push_back(
           ProfileFromSpecifics(autofill_specifics.address()));
+
+      // Map the sync billing address id to the profile's id.
+      ids[autofill_specifics.address().id()] =
+          wallet_addresses->back().server_id();
     }
   }
+
+  // Set the billing address of the wallet cards to the id of the appropriate
+  // profile.
+  for (CreditCard& card : *wallet_cards) {
+    auto it = ids.find(card.billing_address_id());
+    if (it != ids.end())
+      card.set_billing_address_id(it->second);
+  }
+}
+
+// static
+void AutofillWalletSyncableService::CopyRelevantBillingAddressesFromDisk(
+    const AutofillTable& table,
+    std::vector<CreditCard>* cards_from_server) {
+  std::vector<std::unique_ptr<CreditCard>> cards_on_disk;
+  table.GetServerCreditCards(&cards_on_disk);
+
+  // The reasons behind brute-force search are explained in SetDataIfChanged.
+  for (const auto& saved_card : cards_on_disk) {
+    for (CreditCard& server_card : *cards_from_server) {
+      if (saved_card->server_id() == server_card.server_id()) {
+        // Keep the billing address id of the saved cards only if it points to
+        // a local address.
+        if (saved_card->billing_address_id().length() == kLocalGuidSize) {
+          server_card.set_billing_address_id(saved_card->billing_address_id());
+          break;
+        }
+      }
+    }
+  }
+}
+
+syncer::SyncMergeResult AutofillWalletSyncableService::SetSyncData(
+    const syncer::SyncDataList& data_list) {
+  std::vector<CreditCard> wallet_cards;
+  std::vector<AutofillProfile> wallet_addresses;
+  PopulateWalletCardsAndAddresses(data_list, &wallet_cards, &wallet_addresses);
 
   // Users can set billing address of the server credit card locally, but that
   // information does not propagate to either Chrome Sync or Google Payments
@@ -297,7 +324,7 @@ syncer::SyncMergeResult AutofillWalletSyncableService::SetSyncData(
   // addresses from disk into |wallet_cards|.
   AutofillTable* table =
       AutofillTable::FromWebDatabase(webdata_backend_->GetDatabase());
-  CopyBillingAddressesFromDisk(table, &wallet_cards);
+  CopyRelevantBillingAddressesFromDisk(*table, &wallet_cards);
 
   // In the common case, the database won't have changed. Committing an update
   // to the database will require at least one DB page write and will schedule

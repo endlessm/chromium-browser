@@ -69,8 +69,6 @@ class CORE_EXPORT SVGAnimationElement : public SVGSMILElement {
   DEFINE_MAPPED_ATTRIBUTE_EVENT_LISTENER(end, endEvent);
   DEFINE_MAPPED_ATTRIBUTE_EVENT_LISTENER(repeat, repeatEvent);
 
-  static bool isTargetAttributeCSSProperty(SVGElement*, const QualifiedName&);
-
   virtual bool isAdditive();
   bool isAccumulated() const;
   AnimationMode getAnimationMode() const { return m_animationMode; }
@@ -113,9 +111,7 @@ class CORE_EXPORT SVGAnimationElement : public SVGSMILElement {
  protected:
   SVGAnimationElement(const QualifiedName&, Document&);
 
-  void parseAttribute(const QualifiedName&,
-                      const AtomicString&,
-                      const AtomicString&) override;
+  void parseAttribute(const AttributeModificationParams&) override;
   void svgAttributeChanged(const QualifiedName&) override;
 
   String toValue() const;

@@ -18,7 +18,7 @@
 
 #include "libEGL.hpp"
 #include "Context.hpp"
-#include "Surface.h"
+#include "EGLSurface.h"
 
 #include "resource.h"
 #include "Common/Thread.hpp"
@@ -103,6 +103,7 @@ DESTRUCTOR void detachProcess()
 }
 
 #if defined(_WIN32)
+#ifndef NDEBUG
 static INT_PTR CALLBACK DebuggerWaitDialogProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
 	RECT rect;
@@ -139,6 +140,7 @@ static void WaitForDebugger(HINSTANCE instance)
 		DialogBoxIndirect(instance, dialogTemplate, NULL, DebuggerWaitDialogProc);
 	}
 }
+#endif
 
 extern "C" BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved)
 {

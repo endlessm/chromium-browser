@@ -9,6 +9,7 @@
 #include <string>
 #include <utility>
 
+#include "base/memory/ptr_util.h"
 #include "base/strings/string_util.h"
 #include "base/time/clock.h"
 #include "extensions/browser/api/cast_channel/cast_auth_util.h"
@@ -29,7 +30,7 @@ using proto::SocketEvent;
 
 namespace {
 
-const char* kInternalNamespacePrefix = "com.google.cast";
+const char kInternalNamespacePrefix[] = "com.google.cast";
 
 proto::ChallengeReplyErrorType ChallegeReplyErrorToProto(
     AuthResult::ErrorType error_type) {
@@ -58,6 +59,16 @@ proto::ChallengeReplyErrorType ChallegeReplyErrorToProto(
       return proto::CHALLENGE_REPLY_ERROR_CANNOT_EXTRACT_PUBLIC_KEY;
     case AuthResult::ERROR_SIGNED_BLOBS_MISMATCH:
       return proto::CHALLENGE_REPLY_ERROR_SIGNED_BLOBS_MISMATCH;
+    case AuthResult::ERROR_TLS_CERT_VALIDITY_PERIOD_TOO_LONG:
+      return proto::CHALLENGE_REPLY_ERROR_TLS_CERT_VALIDITY_PERIOD_TOO_LONG;
+    case AuthResult::ERROR_TLS_CERT_VALID_START_DATE_IN_FUTURE:
+      return proto::CHALLENGE_REPLY_ERROR_TLS_CERT_VALID_START_DATE_IN_FUTURE;
+    case AuthResult::ERROR_TLS_CERT_EXPIRED:
+      return proto::CHALLENGE_REPLY_ERROR_TLS_CERT_EXPIRED;
+    case AuthResult::ERROR_CRL_INVALID:
+      return proto::CHALLENGE_REPLY_ERROR_CRL_INVALID;
+    case AuthResult::ERROR_CERT_REVOKED:
+      return proto::CHALLENGE_REPLY_ERROR_CERT_REVOKED;
     default:
       NOTREACHED();
       return proto::CHALLENGE_REPLY_ERROR_NONE;
@@ -147,10 +158,7 @@ void Logger::LogNewSocketEvent(const CastSocket& cast_socket) {
   const net::IPAddress& ip = cast_socket.ip_endpoint().address();
   DCHECK(ip.IsValid());
   aggregated_socket_event.set_endpoint_id(ip.bytes().back());
-  aggregated_socket_event.set_channel_auth_type(cast_socket.channel_auth() ==
-                                                        CHANNEL_AUTH_TYPE_SSL
-                                                    ? proto::SSL
-                                                    : proto::SSL_VERIFIED);
+  aggregated_socket_event.set_channel_auth_type(proto::SSL_VERIFIED);
 }
 
 void Logger::LogSocketEvent(int channel_id, EventType event_type) {

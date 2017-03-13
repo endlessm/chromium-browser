@@ -18,12 +18,13 @@
 #include <stdio.h>
 #include <vector>
 
+#include "webrtc/api/video/video_frame.h"
 #include "webrtc/common_types.h"  // RawVideoTypes.
-#include "webrtc/common_video/rotation.h"
 #include "webrtc/typedefs.h"
-#include "webrtc/video_frame.h"
 
 namespace webrtc {
+
+class I420Buffer;
 
 // Supported video types.
 enum VideoType {
@@ -97,9 +98,10 @@ int ExtractBuffer(const VideoFrame& input_frame, size_t size, uint8_t* buffer);
 // Return value: 0 if OK, < 0 otherwise.
 
 // TODO(nisse): Delete this wrapper, and let users call libyuv directly. Most
-// calls pass |src_video_type| == kI420, and should use libyuv::I420Copy. The
-// only exception at the time of this writing is
-// VideoCaptureImpl::IncomingFrame, which still needs libyuv::ConvertToI420.
+// calls pass |src_video_type| == kI420, and should use libyuv::I420Copy. Also
+// remember to delete the I420Buffer forward declaration above. The only
+// exception at the time of this writing is VideoCaptureImpl::IncomingFrame,
+// which still needs libyuv::ConvertToI420.
 int ConvertToI420(VideoType src_video_type,
                   const uint8_t* src_frame,
                   int crop_x,
@@ -133,6 +135,15 @@ double I420PSNR(const VideoFrameBuffer& ref_buffer,
 double I420SSIM(const VideoFrame* ref_frame, const VideoFrame* test_frame);
 double I420SSIM(const VideoFrameBuffer& ref_buffer,
                 const VideoFrameBuffer& test_buffer);
+
+// Helper function for scaling NV12 to NV12.
+void NV12Scale(std::vector<uint8_t>* tmp_buffer,
+               const uint8_t* src_y, int src_stride_y,
+               const uint8_t* src_uv, int src_stride_uv,
+               int src_width, int src_height,
+               uint8_t* dst_y, int dst_stride_y,
+               uint8_t* dst_uv, int dst_stride_uv,
+               int dst_width, int dst_height);
 
 // Helper class for directly converting and scaling NV12 to I420. The Y-plane
 // will be scaled directly to the I420 destination, which makes this faster

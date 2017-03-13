@@ -15,21 +15,38 @@ namespace chromeos {
 
 class CHROMEOS_EXPORT Printer {
  public:
-  // Represents a Postscript Printer Description with which the printer was
-  // setup.
-  struct PPDFile {
-    // Identifier from the quirks server. -1 otherwise.
-    int id = -1;
+  // Information needed to find the PPD file for this printer.
+  //
+  // If you add fields to this struct, you almost certainly will
+  // want to update PpdResolver and PpdCache::GetCachePath.
+  //
+  // At resolution time, we look for a cached PPD that used the same
+  // PpdReference before.
+  //
+  // If one is not found and user_supplied_ppd_url is set, we'll fail
+  // out with NOT FOUND
+  //
+  // Otherwise, we'll hit QuirksServer to see if we can resolve a Ppd
+  // using manufacturer/model
+  struct PpdReference {
+    // If non-empty, this is the url of a specific PPD the user has specified
+    // for use with this printer.
+    std::string user_supplied_ppd_url;
 
-    std::string file_name;
+    // The *effective* manufacturer and model of this printer, in other words,
+    // the manufacturer and model of the printer for which we grab a PPD.  This
+    // doesn’t have to (but can) be the actual manufacturer/model of the
+    // printer.  We should always try to fill these fields in, even if we don’t
+    // think they’ll be needed, as they provide a fallback mechanism for
+    // finding a PPD.
+    std::string effective_manufacturer;
+    std::string effective_model;
+  };
 
-    // If there is a file with a later version on the quirks server, that file
-    // should be used. The default value is 0.
-    int version_number = 0;
-
-    // This will be true if the file was retrived from the quirks server.
-    // Otherwise, the file was saved to disk by the user.
-    bool from_quirks_server = false;
+  // The location where the printer is stored.
+  enum Source {
+    SRC_USER_PREFS,
+    SRC_POLICY,
   };
 
   // Constructs a printer object that is completely empty.
@@ -68,11 +85,19 @@ class CHROMEOS_EXPORT Printer {
   const std::string& uri() const { return uri_; }
   void set_uri(const std::string& uri) { uri_ = uri; }
 
-  const PPDFile& ppd() const { return ppd_; }
-  void SetPPD(std::unique_ptr<PPDFile> ppd);
+  const PpdReference& ppd_reference() const { return ppd_reference_; }
+  PpdReference* mutable_ppd_reference() { return &ppd_reference_; }
 
   const std::string& uuid() const { return uuid_; }
   void set_uuid(const std::string& uuid) { uuid_ = uuid; }
+
+  // Returns true if the printer should be automatically configured using
+  // IPP Everywhere.  Computed using information from |ppd_reference_| and
+  // |uri_|.
+  bool IsIppEverywhere() const;
+
+  Source source() const { return source_; }
+  void set_source(const Source source) { source_ = source; }
 
  private:
   // Globally unique identifier. Empty indicates a new printer.
@@ -94,11 +119,14 @@ class CHROMEOS_EXPORT Printer {
   // Contains protocol, hostname, port, and queue.
   std::string uri_;
 
-  // The associated postscript printer description.
-  PPDFile ppd_;
+  // How to find the associated postscript printer description.
+  PpdReference ppd_reference_;
 
   // The UUID from an autoconf protocol for deduplication. Could be empty.
   std::string uuid_;
+
+  // The datastore which holds this printer.
+  Source source_;
 };
 
 }  // namespace chromeos

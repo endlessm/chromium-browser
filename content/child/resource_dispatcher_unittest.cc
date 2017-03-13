@@ -13,14 +13,15 @@
 #include <utility>
 #include <vector>
 
-#include "base/feature_list.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/shared_memory.h"
 #include "base/message_loop/message_loop.h"
 #include "base/process/process_handle.h"
 #include "base/run_loop.h"
+#include "base/test/scoped_feature_list.h"
 #include "content/child/request_extra_data.h"
+#include "content/child/test_request_peer.h"
 #include "content/common/appcache_interfaces.h"
 #include "content/common/resource_messages.h"
 #include "content/common/resource_request.h"
@@ -50,95 +51,6 @@ static const char kTestPageContents[] =
   "<html><head><title>Google</title></head><body><h1>Google</h1></body></html>";
 static const char kTestRedirectHeaders[] =
   "HTTP/1.1 302 Found\nLocation:http://www.google.com/\n\n";
-
-// Listens for request response data and stores it so that it can be compared
-// to the reference data.
-class TestRequestPeer : public RequestPeer {
- public:
-  struct Context;
-  TestRequestPeer(ResourceDispatcher* dispatcher, Context* context)
-      : dispatcher_(dispatcher), context_(context) {}
-
-  void OnUploadProgress(uint64_t position, uint64_t size) override {}
-
-  bool OnReceivedRedirect(const net::RedirectInfo& redirect_info,
-                          const ResourceResponseInfo& info) override {
-    EXPECT_FALSE(context_->cancelled);
-    ++context_->seen_redirects;
-    if (context_->defer_on_redirect)
-      dispatcher_->SetDefersLoading(context_->request_id, true);
-    return context_->follow_redirects;
-  }
-
-  void OnReceivedResponse(const ResourceResponseInfo& info) override {
-    EXPECT_FALSE(context_->cancelled);
-    EXPECT_FALSE(context_->received_response);
-    context_->received_response = true;
-    if (context_->cancel_on_receive_response) {
-      dispatcher_->Cancel(context_->request_id);
-      context_->cancelled = true;
-    }
-  }
-
-  void OnDownloadedData(int len, int encoded_data_length) override {
-    EXPECT_FALSE(context_->cancelled);
-    context_->total_downloaded_data_length += len;
-    context_->total_encoded_data_length += encoded_data_length;
-  }
-
-  void OnReceivedData(std::unique_ptr<ReceivedData> data) override {
-    if (context_->cancelled)
-      return;
-    EXPECT_TRUE(context_->received_response);
-    EXPECT_FALSE(context_->complete);
-    context_->data.append(data->payload(), data->length());
-    context_->total_encoded_data_length += data->encoded_data_length();
-  }
-
-  void OnCompletedRequest(int error_code,
-                          bool was_ignored_by_handler,
-                          bool stale_copy_in_cache,
-                          const base::TimeTicks& completion_time,
-                          int64_t total_transfer_size) override {
-    if (context_->cancelled)
-      return;
-    EXPECT_TRUE(context_->received_response);
-    EXPECT_FALSE(context_->complete);
-    context_->complete = true;
-  }
-
-  struct Context {
-    // True if should follow redirects, false if should cancel them.
-    bool follow_redirects = true;
-    // True if the request should be deferred on redirects.
-    bool defer_on_redirect = false;
-
-    // Number of total redirects seen.
-    int seen_redirects = 0;
-
-    bool cancel_on_receive_response = false;
-    bool received_response = false;
-
-    // Data received. If downloading to file, remains empty.
-    std::string data;
-
-    // Total encoded data length, regardless of whether downloading to a file or
-    // not.
-    int total_encoded_data_length = 0;
-    // Total length when downloading to a file.
-    int total_downloaded_data_length = 0;
-
-    bool complete = false;
-    bool cancelled = false;
-    int request_id = -1;
-  };
-
- private:
-  ResourceDispatcher* dispatcher_;
-  Context* context_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestRequestPeer);
-};
 
 // Sets up the message sender override for the unit test.
 class ResourceDispatcherTest : public testing::Test, public IPC::Sender {
@@ -198,16 +110,6 @@ class ResourceDispatcherTest : public testing::Test, public IPC::Sender {
     std::tuple<int> args;
     ASSERT_EQ(ResourceHostMsg_DataReceived_ACK::ID, message_queue_[0].type());
     ASSERT_TRUE(ResourceHostMsg_DataReceived_ACK::Read(
-        &message_queue_[0], &args));
-    EXPECT_EQ(expected_request_id, std::get<0>(args));
-    message_queue_.erase(message_queue_.begin());
-  }
-
-  void ConsumeDataDownloaded_ACK(int expected_request_id) {
-    ASSERT_FALSE(message_queue_.empty());
-    std::tuple<int> args;
-    ASSERT_EQ(ResourceHostMsg_DataDownloaded_ACK::ID, message_queue_[0].type());
-    ASSERT_TRUE(ResourceHostMsg_DataDownloaded_ACK::Read(
         &message_queue_[0], &args));
     EXPECT_EQ(expected_request_id, std::get<0>(args));
     message_queue_.erase(message_queue_.begin());
@@ -278,14 +180,14 @@ class ResourceDispatcherTest : public testing::Test, public IPC::Sender {
            data.length());
 
     EXPECT_TRUE(dispatcher_->OnMessageReceived(ResourceMsg_DataReceived(
-        request_id, 0, data.length(), data.length(), data.length())));
+        request_id, 0, data.length(), data.length())));
   }
 
   void NotifyInlinedDataChunkReceived(int request_id,
                                       const std::vector<char>& data) {
     auto size = data.size();
     EXPECT_TRUE(dispatcher_->OnMessageReceived(
-        ResourceMsg_InlinedDataChunkReceived(request_id, data, size, size)));
+        ResourceMsg_InlinedDataChunkReceived(request_id, data, size)));
   }
 
   void NotifyDataDownloaded(int request_id,
@@ -333,8 +235,8 @@ class ResourceDispatcherTest : public testing::Test, public IPC::Sender {
     std::unique_ptr<TestRequestPeer> peer(
         new TestRequestPeer(dispatcher(), peer_context));
     int request_id = dispatcher()->StartAsync(
-        std::move(request), 0, nullptr, GURL(), std::move(peer),
-        blink::WebURLRequest::LoadingIPCType::ChromeIPC, nullptr);
+        std::move(request), 0, nullptr, url::Origin(), std::move(peer),
+        blink::WebURLRequest::LoadingIPCType::ChromeIPC, nullptr, nullptr);
     peer_context->request_id = request_id;
     return request_id;
   }
@@ -383,11 +285,10 @@ TEST_F(ResourceDispatcherTest, RoundTrip) {
 
 // A simple request with an inline data response.
 TEST_F(ResourceDispatcherTest, ResponseWithInlinedData) {
-  auto feature_list = base::MakeUnique<base::FeatureList>();
-  feature_list->InitializeFromCommandLine(
-      features::kOptimizeLoadingIPCForSmallResources.name, std::string());
-  base::FeatureList::ClearInstanceForTesting();
-  base::FeatureList::SetInstance(std::move(feature_list));
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndEnableFeature(
+      features::kOptimizeLoadingIPCForSmallResources);
+
   std::unique_ptr<ResourceRequest> request(CreateResourceRequest(false));
   TestRequestPeer::Context peer_context;
   StartAsync(std::move(request), NULL, &peer_context);
@@ -544,20 +445,22 @@ class TestResourceDispatcherDelegate : public ResourceDispatcherDelegate {
     void OnReceivedData(std::unique_ptr<ReceivedData> data) override {
       data_.append(data->payload(), data->length());
     }
+    void OnTransferSizeUpdated(int transfer_size_diff) override {}
 
     void OnCompletedRequest(int error_code,
                             bool was_ignored_by_handler,
                             bool stale_copy_in_cache,
                             const base::TimeTicks& completion_time,
-                            int64_t total_transfer_size) override {
+                            int64_t total_transfer_size,
+                            int64_t encoded_body_size) override {
       original_peer_->OnReceivedResponse(response_info_);
       if (!data_.empty()) {
-        original_peer_->OnReceivedData(base::MakeUnique<FixedReceivedData>(
-            data_.data(), data_.size(), -1, data_.size()));
+        original_peer_->OnReceivedData(
+            base::MakeUnique<FixedReceivedData>(data_.data(), data_.size()));
       }
-      original_peer_->OnCompletedRequest(error_code, was_ignored_by_handler,
-                                         stale_copy_in_cache, completion_time,
-                                         total_transfer_size);
+      original_peer_->OnCompletedRequest(
+          error_code, was_ignored_by_handler, stale_copy_in_cache,
+          completion_time, total_transfer_size, encoded_body_size);
     }
 
    private:
@@ -810,6 +713,113 @@ TEST_F(ResourceDispatcherTest, CancelDeferredRequest) {
   EXPECT_EQ(0, peer_context.seen_redirects);
 }
 
+// Checks cancelling a request while flushing deferred requests from
+// the FlushDeferredMessages() task.
+TEST_F(ResourceDispatcherTest, CancelWhileFlushingDeferredRequests) {
+  std::unique_ptr<ResourceRequest> request(CreateResourceRequest(false));
+  TestRequestPeer::Context peer_context;
+  int request_id = StartAsync(std::move(request), NULL, &peer_context);
+
+  // Cancel the request when the data message is handled.
+  peer_context.cancel_on_receive_data = true;
+
+  int id = ConsumeRequestResource();
+  EXPECT_EQ(0u, queued_messages());
+
+  dispatcher()->SetDefersLoading(request_id, true);
+  NotifyReceivedResponse(id);
+  NotifySetDataBuffer(id, strlen(kTestPageContents));
+  NotifyDataReceived(id, kTestPageContents);
+
+  // None of the messages should have been processed yet.
+  EXPECT_EQ("", peer_context.data);
+  EXPECT_FALSE(peer_context.complete);
+  EXPECT_EQ(0u, queued_messages());
+
+  dispatcher()->SetDefersLoading(request_id, false);
+
+  // Make sure that the FlushDeferredMessages() task posted from
+  // SetDefersLoading() is run. It should dispatch all the deferred
+  // messages.
+  base::RunLoop().RunUntilIdle();
+
+  // When the deferred DataReceived is dispatched, the handler will
+  // cancel the request, but the ACK is sent after the handler
+  // returns, so the cancel request ends up before the ACK in the
+  // message queue.
+  ConsumeCancelRequest(id);
+  ConsumeDataReceived_ACK(id);
+
+  // The data was consumed before the handler canceled
+  // the request, so the data should have been received.
+  EXPECT_EQ(kTestPageContents, peer_context.data);
+  EXPECT_FALSE(peer_context.complete);
+  EXPECT_EQ(0u, queued_messages());
+}
+
+// Checks cancelling a request while flushing deferred requests from
+// OnMessageReceived().
+TEST_F(ResourceDispatcherTest,
+       CancelWhileFlushingDeferredRequestsFromOnMessageReceived) {
+  std::unique_ptr<ResourceRequest> request(CreateResourceRequest(false));
+  TestRequestPeer::Context peer_context;
+  int request_id = StartAsync(std::move(request), NULL, &peer_context);
+
+  // Cancel the request when the data message is handled.
+  peer_context.cancel_on_receive_data = true;
+
+  int id = ConsumeRequestResource();
+  EXPECT_EQ(0u, queued_messages());
+
+  dispatcher()->SetDefersLoading(request_id, true);
+  NotifyReceivedResponse(id);
+  NotifySetDataBuffer(id, strlen(kTestPageContents));
+  NotifyDataReceived(id, kTestPageContents);
+
+  // None of the messages should have been processed yet.
+  EXPECT_EQ("", peer_context.data);
+  EXPECT_FALSE(peer_context.complete);
+  EXPECT_EQ(0u, queued_messages());
+
+  dispatcher()->SetDefersLoading(request_id, false);
+
+  // SetDefersLoading() posts a task to run FlushDeferredMessages() to dispatch
+  // the deferred messages. Since the message loop hasn't been run yet the
+  // task hasn't been run either and no IPC-messages should have been
+  // dispatched.
+  EXPECT_EQ("", peer_context.data);
+  EXPECT_FALSE(peer_context.complete);
+  EXPECT_EQ(0u, queued_messages());
+
+  // Calling NotifyRequestComplete() here, before the task from
+  // SetDefersLoading() has been run, triggers the flush in
+  // OnMessageReceived().
+  NotifyRequestComplete(id, strlen(kTestPageContents));
+
+  // When the deferred DataReceived is dispatched, the handler will
+  // cancel the request, but the ACK is sent after the handler
+  // returns, so the cancel request ends up before the ACK in the
+  // message queue.
+  ConsumeCancelRequest(id);
+  ConsumeDataReceived_ACK(id);
+
+  // The data was consumed before the handler canceled
+  // the request, so the data should have been received.
+  EXPECT_EQ(kTestPageContents, peer_context.data);
+  EXPECT_FALSE(peer_context.complete);
+  EXPECT_EQ(0u, queued_messages());
+
+  // Make sure that the FlushDeferredMessages() task posted from
+  // SetDefersLoading() is run. The messages should already have been
+  // flushed above, so it should be a NOOP.
+  base::RunLoop().RunUntilIdle();
+
+  // Check that the task didn't change anything.
+  EXPECT_EQ(kTestPageContents, peer_context.data);
+  EXPECT_FALSE(peer_context.complete);
+  EXPECT_EQ(0u, queued_messages());
+}
+
 TEST_F(ResourceDispatcherTest, DownloadToFile) {
   std::unique_ptr<ResourceRequest> request(CreateResourceRequest(true));
   TestRequestPeer::Context peer_context;
@@ -828,7 +838,6 @@ TEST_F(ResourceDispatcherTest, DownloadToFile) {
   int expected_total_encoded_data_length = 0;
   for (int i = 0; i < 10; ++i) {
     NotifyDataDownloaded(id, kDownloadedIncrement, kEncodedIncrement);
-    ConsumeDataDownloaded_ACK(id);
     expected_total_downloaded_length += kDownloadedIncrement;
     expected_total_encoded_data_length += kEncodedIncrement;
     EXPECT_EQ(expected_total_downloaded_length,

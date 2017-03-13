@@ -32,6 +32,7 @@ import org.chromium.base.annotations.JNINamespace;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -258,21 +259,23 @@ public class VideoCaptureCamera2 extends VideoCapture {
     private CameraDevice mCameraDevice;
     private CameraCaptureSession mPreviewSession;
     private CaptureRequest mPreviewRequest;
-    private Handler mMainHandler = null;
+    private Handler mMainHandler;
+    private ImageReader mImageReader = null;
 
+    private Range<Integer> mAeFpsRange;
     private CameraState mCameraState = CameraState.STOPPED;
     private final float mMaxZoom;
     private Rect mCropRect = new Rect();
-    private int mPhotoWidth = 0;
-    private int mPhotoHeight = 0;
+    private int mPhotoWidth;
+    private int mPhotoHeight;
     private int mFocusMode = AndroidMeteringMode.CONTINUOUS;
     private int mExposureMode = AndroidMeteringMode.CONTINUOUS;
     private MeteringRectangle mAreaOfInterest;
-    private int mExposureCompensation = 0;
+    private int mExposureCompensation;
     private int mWhiteBalanceMode = AndroidMeteringMode.CONTINUOUS;
     private int mColorTemperature = -1;
-    private int mIso = 0;
-    private boolean mRedEyeReduction = false;
+    private int mIso;
+    private boolean mRedEyeReduction;
     private int mFillLightMode = AndroidFillLightMode.OFF;
 
     // Service function to grab CameraCharacteristics and handle exceptions.
@@ -299,13 +302,13 @@ public class VideoCaptureCamera2 extends VideoCapture {
 
         // Create an ImageReader and plug a thread looper into it to have
         // readback take place on its own thread.
-        final ImageReader imageReader = ImageReader.newInstance(mCaptureFormat.getWidth(),
+        mImageReader = ImageReader.newInstance(mCaptureFormat.getWidth(),
                 mCaptureFormat.getHeight(), mCaptureFormat.getPixelFormat(), 2 /* maxImages */);
         HandlerThread thread = new HandlerThread("CameraPreview");
         thread.start();
         final Handler backgroundHandler = new Handler(thread.getLooper());
         final CrImageReaderListener imageReaderListener = new CrImageReaderListener();
-        imageReader.setOnImageAvailableListener(imageReaderListener, backgroundHandler);
+        mImageReader.setOnImageAvailableListener(imageReaderListener, backgroundHandler);
 
         // The Preview template specifically means "high frame rate is given
         // priority over the highest-quality post-processing".
@@ -322,7 +325,7 @@ public class VideoCaptureCamera2 extends VideoCapture {
             return false;
         }
         // Construct an ImageReader Surface and plug it into our CaptureRequest.Builder.
-        previewRequestBuilder.addTarget(imageReader.getSurface());
+        previewRequestBuilder.addTarget(mImageReader.getSurface());
 
         // A series of configuration options in the PreviewBuilder
         previewRequestBuilder.set(CaptureRequest.CONTROL_MODE, CameraMetadata.CONTROL_MODE_AUTO);
@@ -336,7 +339,7 @@ public class VideoCaptureCamera2 extends VideoCapture {
 
         List<Surface> surfaceList = new ArrayList<Surface>(1);
         // TODO(mcasas): release this Surface when not needed, https://crbug.com/643884.
-        surfaceList.add(imageReader.getSurface());
+        surfaceList.add(mImageReader.getSurface());
 
         mPreviewRequest = previewRequestBuilder.build();
         final CrPreviewSessionListener captureSessionListener =
@@ -375,6 +378,7 @@ public class VideoCaptureCamera2 extends VideoCapture {
             requestBuilder.set(CaptureRequest.CONTROL_AE_MODE, CameraMetadata.CONTROL_AE_MODE_OFF);
         } else {
             requestBuilder.set(CaptureRequest.CONTROL_AE_MODE, CameraMetadata.CONTROL_AE_MODE_ON);
+            requestBuilder.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, mAeFpsRange);
         }
         switch (mFillLightMode) {
             case AndroidFillLightMode.OFF:
@@ -598,8 +602,28 @@ public class VideoCaptureCamera2 extends VideoCapture {
             Log.e(TAG, "No supported resolutions.");
             return false;
         }
-        Log.d(TAG, "allocate: matched (%d x %d)", closestSupportedSize.getWidth(),
-                closestSupportedSize.getHeight());
+        final List<Range<Integer>> fpsRanges = Arrays.asList(cameraCharacteristics.get(
+                CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES));
+        if (fpsRanges.isEmpty()) {
+            Log.e(TAG, "No supported framerate ranges.");
+            return false;
+        }
+        final List<FramerateRange> framerateRanges =
+                new ArrayList<FramerateRange>(fpsRanges.size());
+        // On some legacy implementations FPS values are multiplied by 1000. Multiply by 1000
+        // everywhere for consistency. Set fpsUnitFactor to 1 if fps ranges are already multiplied
+        // by 1000.
+        final int fpsUnitFactor = fpsRanges.get(0).getUpper() > 1000 ? 1 : 1000;
+        for (Range<Integer> range : fpsRanges) {
+            framerateRanges.add(new FramerateRange(
+                    range.getLower() * fpsUnitFactor, range.getUpper() * fpsUnitFactor));
+        }
+        final FramerateRange aeFramerateRange =
+                getClosestFramerateRange(framerateRanges, frameRate * 1000);
+        mAeFpsRange = new Range<Integer>(
+                aeFramerateRange.min / fpsUnitFactor, aeFramerateRange.max / fpsUnitFactor);
+        Log.d(TAG, "allocate: matched (%d x %d) @[%d - %d]", closestSupportedSize.getWidth(),
+                closestSupportedSize.getHeight(), mAeFpsRange.getLower(), mAeFpsRange.getUpper());
 
         // |mCaptureFormat| is also used to configure the ImageReader.
         mCaptureFormat = new VideoCaptureFormat(closestSupportedSize.getWidth(),
@@ -688,7 +712,7 @@ public class VideoCaptureCamera2 extends VideoCapture {
             minIso = iso_range.getLower();
             maxIso = iso_range.getUpper();
         }
-        builder.setMinIso(minIso).setMaxIso(maxIso);
+        builder.setMinIso(minIso).setMaxIso(maxIso).setStepIso(1);
         builder.setCurrentIso(mPreviewRequest.get(CaptureRequest.SENSOR_SENSITIVITY));
 
         final StreamConfigurationMap streamMap =
@@ -704,21 +728,18 @@ public class VideoCaptureCamera2 extends VideoCapture {
             if (size.getWidth() > maxWidth) maxWidth = size.getWidth();
             if (size.getHeight() > maxHeight) maxHeight = size.getHeight();
         }
-        builder.setMinHeight(minHeight).setMaxHeight(maxHeight);
-        builder.setMinWidth(minWidth).setMaxWidth(maxWidth);
+        builder.setMinHeight(minHeight).setMaxHeight(maxHeight).setStepHeight(1);
+        builder.setMinWidth(minWidth).setMaxWidth(maxWidth).setStepWidth(1);
         builder.setCurrentHeight((mPhotoHeight > 0) ? mPhotoHeight : mCaptureFormat.getHeight());
         builder.setCurrentWidth((mPhotoWidth > 0) ? mPhotoWidth : mCaptureFormat.getWidth());
 
-        // The Min and Max zoom are returned as x100 by the API to avoid using floating point. There
-        // is no min-zoom per se, so clamp it to always 100.
-        final int minZoom = 100;
-        final int maxZoom = Math.round(mMaxZoom * 100);
-        // Width Ratio x100 is used as measure of current zoom.
-        final int currentZoom = 100
-                * cameraCharacteristics.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE)
-                          .width()
-                / mPreviewRequest.get(CaptureRequest.SCALER_CROP_REGION).width();
-        builder.setMinZoom(minZoom).setMaxZoom(maxZoom).setCurrentZoom(currentZoom);
+        final float currentZoom =
+                cameraCharacteristics.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE)
+                        .width()
+                / (float) mPreviewRequest.get(CaptureRequest.SCALER_CROP_REGION).width();
+        // There is no min-zoom per se, so clamp it to always 1.
+        builder.setMinZoom(1.0).setMaxZoom(mMaxZoom);
+        builder.setCurrentZoom(currentZoom).setStepZoom(0.1);
 
         final int focusMode = mPreviewRequest.get(CaptureRequest.CONTROL_AF_MODE);
         // Classify the Focus capabilities. In CONTINUOUS and SINGLE_SHOT, we can call
@@ -750,14 +771,13 @@ public class VideoCaptureCamera2 extends VideoCapture {
         final float step =
                 cameraCharacteristics.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_STEP)
                         .floatValue();
+        builder.setStepExposureCompensation(step);
         final Range<Integer> exposureCompensationRange =
                 cameraCharacteristics.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_RANGE);
-        builder.setMinExposureCompensation(
-                Math.round(exposureCompensationRange.getLower() * step * 100));
-        builder.setMaxExposureCompensation(
-                Math.round(exposureCompensationRange.getUpper() * step * 100));
-        builder.setCurrentExposureCompensation(Math.round(
-                mPreviewRequest.get(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION) * step * 100));
+        builder.setMinExposureCompensation(exposureCompensationRange.getLower() * step);
+        builder.setMaxExposureCompensation(exposureCompensationRange.getUpper() * step);
+        builder.setCurrentExposureCompensation(
+                mPreviewRequest.get(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION) * step);
 
         final int whiteBalanceMode = mPreviewRequest.get(CaptureRequest.CONTROL_AWB_MODE);
         if (whiteBalanceMode == CameraMetadata.CONTROL_AWB_MODE_OFF) {
@@ -774,6 +794,7 @@ public class VideoCaptureCamera2 extends VideoCapture {
         if (index >= 0) {
             builder.setCurrentColorTemperature(COLOR_TEMPERATURES_MAP.keyAt(index));
         }
+        builder.setStepColorTemperature(1);
 
         if (!cameraCharacteristics.get(CameraCharacteristics.FLASH_INFO_AVAILABLE)) {
             builder.setFillLightMode(AndroidFillLightMode.NONE);
@@ -810,16 +831,17 @@ public class VideoCaptureCamera2 extends VideoCapture {
     }
 
     @Override
-    public void setPhotoOptions(int zoom, int focusMode, int exposureMode, int width, int height,
-            float[] pointsOfInterest2D, boolean hasExposureCompensation, int exposureCompensation,
-            int whiteBalanceMode, int iso, boolean hasRedEyeReduction, boolean redEyeReduction,
-            int fillLightMode, int colorTemperature) {
+    public void setPhotoOptions(double zoom, int focusMode, int exposureMode, double width,
+            double height, float[] pointsOfInterest2D, boolean hasExposureCompensation,
+            double exposureCompensation, int whiteBalanceMode, double iso,
+            boolean hasRedEyeReduction, boolean redEyeReduction, int fillLightMode,
+            double colorTemperature) {
         final CameraCharacteristics cameraCharacteristics = getCameraCharacteristics(mContext, mId);
         final Rect canvas =
                 cameraCharacteristics.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE);
 
         if (zoom != 0) {
-            final float normalizedZoom = Math.max(100, Math.min(zoom, mMaxZoom * 100)) / 100;
+            final float normalizedZoom = Math.max(1.0f, Math.min((float) zoom, mMaxZoom));
             final float cropFactor = (normalizedZoom - 1) / (2 * normalizedZoom);
 
             mCropRect = new Rect(Math.round(canvas.width() * cropFactor),
@@ -833,8 +855,8 @@ public class VideoCaptureCamera2 extends VideoCapture {
         if (exposureMode != AndroidMeteringMode.NOT_SET) mExposureMode = exposureMode;
         if (whiteBalanceMode != AndroidMeteringMode.NOT_SET) mWhiteBalanceMode = whiteBalanceMode;
 
-        if (width > 0) mPhotoWidth = width;
-        if (height > 0) mPhotoHeight = height;
+        if (width > 0) mPhotoWidth = (int) Math.round(width);
+        if (height > 0) mPhotoHeight = (int) Math.round(height);
 
         // Upon new |zoom| configuration, clear up the previous |mAreaOfInterest| if any.
         if (mAreaOfInterest != null && !mAreaOfInterest.getRect().isEmpty() && zoom > 0) {
@@ -874,13 +896,13 @@ public class VideoCaptureCamera2 extends VideoCapture {
         }
 
         if (hasExposureCompensation) {
-            mExposureCompensation = Math.round(exposureCompensation / 100.0f
+            mExposureCompensation = (int) Math.round(exposureCompensation
                     / cameraCharacteristics.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_STEP)
                               .floatValue());
         }
-        if (iso > 0) mIso = iso;
+        if (iso > 0) mIso = (int) Math.round(iso);
         if (mWhiteBalanceMode == AndroidMeteringMode.FIXED && colorTemperature > 0) {
-            mColorTemperature = colorTemperature;
+            mColorTemperature = (int) Math.round(colorTemperature);
         }
         if (fillLightMode != AndroidFillLightMode.NOT_SET) mFillLightMode = fillLightMode;
 

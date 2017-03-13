@@ -6,15 +6,16 @@
 
 #include "ash/common/keyboard/keyboard_ui_observer.h"
 #include "base/memory/ptr_util.h"
-#include "services/shell/public/cpp/connector.h"
+#include "content/public/common/service_names.mojom.h"
+#include "services/service_manager/public/cpp/connector.h"
 
 namespace ash {
 
-KeyboardUIMus::KeyboardUIMus(::shell::Connector* connector)
+KeyboardUIMus::KeyboardUIMus(service_manager::Connector* connector)
     : is_enabled_(false), observer_binding_(this) {
   if (connector) {
     // TODO(sky): should be something like mojo:keyboard, but need mapping.
-    connector->ConnectToInterface("exe:chrome", &keyboard_);
+    connector->BindInterface(content::mojom::kBrowserServiceName, &keyboard_);
     keyboard_->AddObserver(observer_binding_.CreateInterfacePtrAndBind());
   }
 }
@@ -23,16 +24,25 @@ KeyboardUIMus::~KeyboardUIMus() {}
 
 // static
 std::unique_ptr<KeyboardUI> KeyboardUIMus::Create(
-    ::shell::Connector* connector) {
+    service_manager::Connector* connector) {
   return base::MakeUnique<KeyboardUIMus>(connector);
 }
 
 void KeyboardUIMus::Hide() {
-  keyboard_->Hide();
+  if (keyboard_)
+    keyboard_->Hide();
 }
 
 void KeyboardUIMus::Show() {
-  keyboard_->Show();
+  if (keyboard_)
+    keyboard_->Show();
+}
+
+void KeyboardUIMus::ShowInDisplay(const int64_t display_id) {
+  // TODO(yhanada): Send display id after adding a display_id argument to
+  // |Keyboard::Show()| in keyboard.mojom. See crbug.com/585253.
+  if (keyboard_)
+    keyboard_->Show();
 }
 
 bool KeyboardUIMus::IsEnabled() {
@@ -47,8 +57,8 @@ void KeyboardUIMus::OnKeyboardStateChanged(bool is_enabled,
     return;
 
   is_enabled_ = is_enabled;
-  FOR_EACH_OBSERVER(KeyboardUIObserver, *observers(),
-                    OnKeyboardEnabledStateChanged(is_enabled));
+  for (auto& observer : *observers())
+    observer.OnKeyboardEnabledStateChanged(is_enabled);
 }
 
 }  // namespace ash

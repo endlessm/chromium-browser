@@ -23,10 +23,10 @@
 #include "chrome/browser/shell_integration.h"
 #include "components/flags_ui/pref_service_flags_storage.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/common/content_switches.h"
 #include "ui/base/touch/touch_device.h"
 #include "ui/base/ui_base_switches.h"
 #include "ui/display/screen.h"
-#include "ui/events/event_switches.h"
 
 #if !defined(OS_ANDROID)
 #include "chrome/browser/metrics/first_web_contents_profiler.h"
@@ -92,27 +92,29 @@ enum UMALinuxWindowManager {
   UMA_LINUX_WINDOW_MANAGER_STUMPWM,
   UMA_LINUX_WINDOW_MANAGER_WMII,
   UMA_LINUX_WINDOW_MANAGER_FLUXBOX,
+  UMA_LINUX_WINDOW_MANAGER_XMONAD,
+  UMA_LINUX_WINDOW_MANAGER_UNNAMED,
   // NOTE: Append new window managers to the list above this line (i.e. don't
   // renumber) and update LinuxWindowManagerName in
   // tools/metrics/histograms/histograms.xml accordingly.
   UMA_LINUX_WINDOW_MANAGER_COUNT
 };
 
-enum UMATouchEventsState {
-  UMA_TOUCH_EVENTS_ENABLED,
-  UMA_TOUCH_EVENTS_AUTO_ENABLED,
-  UMA_TOUCH_EVENTS_AUTO_DISABLED,
-  UMA_TOUCH_EVENTS_DISABLED,
+enum UMATouchEventFeatureDetectionState {
+  UMA_TOUCH_EVENT_FEATURE_DETECTION_ENABLED,
+  UMA_TOUCH_EVENT_FEATURE_DETECTION_AUTO_ENABLED,
+  UMA_TOUCH_EVENT_FEATURE_DETECTION_AUTO_DISABLED,
+  UMA_TOUCH_EVENT_FEATURE_DETECTION_DISABLED,
   // NOTE: Add states only immediately above this line. Make sure to
   // update the enum list in tools/metrics/histograms/histograms.xml
   // accordingly.
-  UMA_TOUCH_EVENTS_STATE_COUNT
+  UMA_TOUCH_EVENT_FEATURE_DETECTION_STATE_COUNT
 };
 
 #if defined(OS_ANDROID) && defined(__arm__)
 enum UMAAndroidArmFpu {
-  UMA_ANDROID_ARM_FPU_VFPV3_D16, // The ARM CPU only supports vfpv3-d16.
-  UMA_ANDROID_ARM_FPU_NEON,      // The Arm CPU supports NEON.
+  UMA_ANDROID_ARM_FPU_VFPV3_D16,  // The ARM CPU only supports vfpv3-d16.
+  UMA_ANDROID_ARM_FPU_NEON,       // The Arm CPU supports NEON.
   UMA_ANDROID_ARM_FPU_COUNT
 };
 #endif  // defined(OS_ANDROID) && defined(__arm__)
@@ -200,8 +202,10 @@ void RecordLinuxGlibcVersion() {
 #if defined(USE_X11) && !defined(OS_CHROMEOS)
 UMALinuxWindowManager GetLinuxWindowManager() {
   switch (ui::GuessWindowManager()) {
-    case ui::WM_UNKNOWN:
+    case ui::WM_OTHER:
       return UMA_LINUX_WINDOW_MANAGER_OTHER;
+    case ui::WM_UNNAMED:
+      return UMA_LINUX_WINDOW_MANAGER_UNNAMED;
     case ui::WM_AWESOME:
       return UMA_LINUX_WINDOW_MANAGER_AWESOME;
     case ui::WM_BLACKBOX:
@@ -242,7 +246,10 @@ UMALinuxWindowManager GetLinuxWindowManager() {
       return UMA_LINUX_WINDOW_MANAGER_WMII;
     case ui::WM_XFWM4:
       return UMA_LINUX_WINDOW_MANAGER_XFWM4;
+    case ui::WM_XMONAD:
+      return UMA_LINUX_WINDOW_MANAGER_XMONAD;
   }
+  NOTREACHED();
   return UMA_LINUX_WINDOW_MANAGER_OTHER;
 }
 #endif
@@ -251,28 +258,31 @@ void RecordTouchEventState() {
   const base::CommandLine& command_line =
       *base::CommandLine::ForCurrentProcess();
   const std::string touch_enabled_switch =
-      command_line.HasSwitch(switches::kTouchEvents) ?
-      command_line.GetSwitchValueASCII(switches::kTouchEvents) :
-      switches::kTouchEventsAuto;
+      command_line.HasSwitch(switches::kTouchEventFeatureDetection)
+          ? command_line.GetSwitchValueASCII(
+                switches::kTouchEventFeatureDetection)
+          : switches::kTouchEventFeatureDetectionAuto;
 
-  UMATouchEventsState state;
+  UMATouchEventFeatureDetectionState state;
   if (touch_enabled_switch.empty() ||
-      touch_enabled_switch == switches::kTouchEventsEnabled) {
-    state = UMA_TOUCH_EVENTS_ENABLED;
-  } else if (touch_enabled_switch == switches::kTouchEventsAuto) {
+      touch_enabled_switch == switches::kTouchEventFeatureDetectionEnabled) {
+    state = UMA_TOUCH_EVENT_FEATURE_DETECTION_ENABLED;
+  } else if (touch_enabled_switch ==
+             switches::kTouchEventFeatureDetectionAuto) {
     state = (ui::GetTouchScreensAvailability() ==
              ui::TouchScreensAvailability::ENABLED)
-                ? UMA_TOUCH_EVENTS_AUTO_ENABLED
-                : UMA_TOUCH_EVENTS_AUTO_DISABLED;
-  } else if (touch_enabled_switch == switches::kTouchEventsDisabled) {
-    state = UMA_TOUCH_EVENTS_DISABLED;
+                ? UMA_TOUCH_EVENT_FEATURE_DETECTION_AUTO_ENABLED
+                : UMA_TOUCH_EVENT_FEATURE_DETECTION_AUTO_DISABLED;
+  } else if (touch_enabled_switch ==
+             switches::kTouchEventFeatureDetectionDisabled) {
+    state = UMA_TOUCH_EVENT_FEATURE_DETECTION_DISABLED;
   } else {
     NOTREACHED();
     return;
   }
 
   UMA_HISTOGRAM_ENUMERATION("Touchscreen.TouchEventsEnabled", state,
-                            UMA_TOUCH_EVENTS_STATE_COUNT);
+                            UMA_TOUCH_EVENT_FEATURE_DETECTION_STATE_COUNT);
 }
 
 #if defined(USE_OZONE) || defined(USE_X11)
@@ -306,6 +316,36 @@ void AsynchronousTouchEventStateRecorder::OnDeviceListsComplete() {
 }
 
 #endif  // defined(USE_OZONE) || defined(USE_X11)
+
+#if defined(OS_WIN)
+void RecordPinnedToTaskbarProcessError(bool error) {
+  UMA_HISTOGRAM_BOOLEAN("Windows.IsPinnedToTaskbar.ProcessError", error);
+}
+
+void OnShellHandlerConnectionError() {
+  RecordPinnedToTaskbarProcessError(true);
+}
+
+// Record the UMA histogram when a response is received.
+void OnIsPinnedToTaskbarResult(bool succeeded, bool is_pinned_to_taskbar) {
+  RecordPinnedToTaskbarProcessError(false);
+
+  // Used for histograms; do not reorder.
+  enum Result { NOT_PINNED = 0, PINNED = 1, FAILURE = 2, NUM_RESULTS };
+
+  Result result = FAILURE;
+  if (succeeded)
+    result = is_pinned_to_taskbar ? PINNED : NOT_PINNED;
+  UMA_HISTOGRAM_ENUMERATION("Windows.IsPinnedToTaskbar", result, NUM_RESULTS);
+}
+
+// Records the pinned state of the current executable into a histogram.
+void RecordIsPinnedToTaskbarHistogram() {
+  shell_integration::win::GetIsPinnedToTaskbarState(
+      base::Bind(&OnShellHandlerConnectionError),
+      base::Bind(&OnIsPinnedToTaskbarResult));
+}
+#endif  // defined(OS_WIN)
 
 }  // namespace
 
@@ -362,7 +402,7 @@ void ChromeBrowserMainExtraPartsMetrics::PostBrowserStart() {
 #if defined(OS_WIN)
   content::BrowserThread::PostDelayedTask(
       content::BrowserThread::IO, FROM_HERE,
-      base::Bind(&shell_integration::win::RecordIsPinnedToTaskbarHistogram),
+      base::Bind(&RecordIsPinnedToTaskbarHistogram),
       kStartupMetricsGatheringDelay);
 #endif  // defined(OS_WIN)
 

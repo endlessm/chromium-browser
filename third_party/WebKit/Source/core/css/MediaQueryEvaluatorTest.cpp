@@ -7,6 +7,7 @@
 #include "core/MediaTypeNames.h"
 #include "core/css/MediaList.h"
 #include "core/css/MediaValuesCached.h"
+#include "core/css/MediaValuesInitialViewport.h"
 #include "core/frame/FrameView.h"
 #include "core/testing/DummyPageHolder.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -63,6 +64,8 @@ TestCase screenTestCases[] = {
     {"(display-mode: @browser)", 0},
     {"(display-mode: 'browser')", 0},
     {"(display-mode: @junk browser)", 0},
+    {"(shape: rect)", 1},
+    {"(shape: round)", 0},
     {0, 0}  // Do not remove the terminator line.
 };
 
@@ -159,6 +162,7 @@ TEST(MediaQueryEvaluatorTest, Cached) {
   data.mediaType = MediaTypeNames::screen;
   data.strictMode = true;
   data.displayMode = WebDisplayModeBrowser;
+  data.displayShape = DisplayShapeRect;
   MediaValues* mediaValues = MediaValuesCached::create(data);
 
   MediaQueryEvaluator mediaQueryEvaluator(*mediaValues);
@@ -211,6 +215,20 @@ TEST(MediaQueryEvaluatorTest, CachedFloatViewportNonFloatFriendly) {
 
   MediaQueryEvaluator mediaQueryEvaluator(*mediaValues);
   testMQEvaluator(floatNonFriendlyViewportTestCases, mediaQueryEvaluator);
+}
+
+TEST(MediaQueryEvaluatorTest, InitialViewport) {
+  std::unique_ptr<DummyPageHolder> pageHolder =
+      DummyPageHolder::create(IntSize(500, 500));
+  pageHolder->frameView().setMediaType(MediaTypeNames::screen);
+  pageHolder->frameView().setLayoutSizeFixedToFrameSize(false);
+  pageHolder->frameView().setInitialViewportSize(IntSize(500, 500));
+  pageHolder->frameView().setLayoutSize(IntSize(800, 800));
+  pageHolder->frameView().setFrameRect(IntRect(0, 0, 800, 800));
+
+  MediaQueryEvaluator mediaQueryEvaluator(
+      MediaValuesInitialViewport::create(pageHolder->frame()));
+  testMQEvaluator(viewportTestCases, mediaQueryEvaluator);
 }
 
 }  // namespace blink

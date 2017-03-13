@@ -43,6 +43,7 @@
 #include "platform/geometry/IntRect.h"
 #include "platform/geometry/IntSize.h"
 #include "wtf/CurrentTime.h"
+#include "wtf/Time.h"
 
 namespace {
 
@@ -71,15 +72,16 @@ unsigned GetEventModifiers(int modifiers) {
 // is an estimate because these two clocks respond differently to user setting
 // time and NTP adjustments. If timestamp is empty then returns current
 // monotonic timestamp.
-double GetEventTimeStamp(const blink::protocol::Maybe<double>& timestamp) {
+TimeTicks GetEventTimeStamp(const blink::protocol::Maybe<double>& timestamp) {
   // Take a snapshot of difference between two clocks on first run and use it
   // for the duration of the application.
   static double epochToMonotonicTimeDelta =
       currentTime() - monotonicallyIncreasingTime();
-  if (timestamp.isJust())
-    return timestamp.fromJust() - epochToMonotonicTimeDelta;
-
-  return monotonicallyIncreasingTime();
+  if (timestamp.isJust()) {
+    double ticksInSeconds = timestamp.fromJust() - epochToMonotonicTimeDelta;
+    return TimeTicks::FromSeconds(ticksInSeconds);
+  }
+  return TimeTicks::Now();
 }
 
 class SyntheticInspectorTouchPoint : public blink::PlatformTouchPoint {
@@ -106,14 +108,14 @@ class SyntheticInspectorTouchEvent : public blink::PlatformTouchEvent {
  public:
   SyntheticInspectorTouchEvent(const blink::PlatformEvent::EventType type,
                                unsigned modifiers,
-                               double timestamp) {
+                               TimeTicks timestamp) {
     m_type = type;
     m_modifiers = modifiers;
     m_timestamp = timestamp;
   }
 
   void append(const blink::PlatformTouchPoint& point) {
-    m_touchPoints.append(point);
+    m_touchPoints.push_back(point);
   }
 };
 
@@ -139,23 +141,20 @@ InspectorInputAgent::InspectorInputAgent(InspectedFrames* inspectedFrames)
 
 InspectorInputAgent::~InspectorInputAgent() {}
 
-void InspectorInputAgent::dispatchTouchEvent(
-    ErrorString* error,
+Response InspectorInputAgent::dispatchTouchEvent(
     const String& type,
     std::unique_ptr<protocol::Array<protocol::Input::TouchPoint>> touchPoints,
-    const protocol::Maybe<int>& modifiers,
-    const protocol::Maybe<double>& timestamp) {
+    protocol::Maybe<int> modifiers,
+    protocol::Maybe<double> timestamp) {
   PlatformEvent::EventType convertedType;
-  if (type == "touchStart") {
+  if (type == "touchStart")
     convertedType = PlatformEvent::TouchStart;
-  } else if (type == "touchEnd") {
+  else if (type == "touchEnd")
     convertedType = PlatformEvent::TouchEnd;
-  } else if (type == "touchMove") {
+  else if (type == "touchMove")
     convertedType = PlatformEvent::TouchMove;
-  } else {
-    *error = String("Unrecognized type: " + type);
-    return;
-  }
+  else
+    return Response::Error(String("Unrecognized type: " + type));
 
   unsigned convertedModifiers = GetEventModifiers(modifiers.fromMaybe(0));
 
@@ -180,28 +179,25 @@ void InspectorInputAgent::dispatchTouchEvent(
       id = autoId++;
     }
     if (id < 0) {
-      *error =
+      return Response::Error(
           "All or none of the provided TouchPoints must supply positive "
-          "integer ids.";
-      return;
+          "integer ids.");
     }
 
     PlatformTouchPoint::TouchState convertedState;
     String state = point->getState();
-    if (state == "touchPressed") {
+    if (state == "touchPressed")
       convertedState = PlatformTouchPoint::TouchPressed;
-    } else if (state == "touchReleased") {
+    else if (state == "touchReleased")
       convertedState = PlatformTouchPoint::TouchReleased;
-    } else if (state == "touchMoved") {
+    else if (state == "touchMoved")
       convertedState = PlatformTouchPoint::TouchMoved;
-    } else if (state == "touchStationary") {
+    else if (state == "touchStationary")
       convertedState = PlatformTouchPoint::TouchStationary;
-    } else if (state == "touchCancelled") {
+    else if (state == "touchCancelled")
       convertedState = PlatformTouchPoint::TouchCancelled;
-    } else {
-      *error = String("Unrecognized state: " + state);
-      return;
-    }
+    else
+      return Response::Error(String("Unrecognized state: " + state));
 
     // Some platforms may have flipped coordinate systems, but the given
     // coordinates assume the origin is in the top-left of the window. Convert.
@@ -216,7 +212,13 @@ void InspectorInputAgent::dispatchTouchEvent(
     event.append(touchPoint);
   }
 
-  m_inspectedFrames->root()->eventHandler().handleTouchEvent(event);
+  // TODO: We need to add the support for generating coalesced events in
+  // the devtools.
+  Vector<PlatformTouchEvent> coalescedEvents;
+
+  m_inspectedFrames->root()->eventHandler().handleTouchEvent(event,
+                                                             coalescedEvents);
+  return Response::OK();
 }
 
 DEFINE_TRACE(InspectorInputAgent) {

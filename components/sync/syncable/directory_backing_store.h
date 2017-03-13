@@ -20,6 +20,12 @@
 #include "sql/connection.h"
 #include "sql/statement.h"
 
+namespace base {
+namespace trace_event {
+class ProcessMemoryDump;
+}
+}
+
 namespace sync_pb {
 class EntitySpecifics;
 }
@@ -29,8 +35,6 @@ namespace syncable {
 
 extern const int32_t kCurrentDBVersion;
 extern const int32_t kCurrentPageSizeKB;
-
-struct ColumnSpec;
 
 // Interface that provides persistence for a syncable::Directory object. You can
 // load all the persisted data to prime a syncable::Directory on startup by
@@ -99,6 +103,9 @@ class DirectoryBackingStore : public base::NonThreadSafe {
 
   // Returns true on success, false on error.
   bool GetDatabasePageSize(int* page_size);
+
+  bool ReportMemoryUsage(base::trace_event::ProcessMemoryDump* pmd,
+                         const std::string& dump_name);
 
  protected:
   // For test classes.

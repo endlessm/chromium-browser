@@ -10,7 +10,7 @@
 #include "mojo/public/cpp/bindings/binding.h"
 #include "services/navigation/public/interfaces/view.mojom.h"
 
-namespace ui {
+namespace aura {
 class Window;
 }
 
@@ -66,20 +66,15 @@ class View : public mojom::ViewClient {
   void ShowInterstitial(const std::string& html);
   void HideInterstitial();
 
-  // When non-empty, specifies the size of an area in the bottom corner of the
-  // View that should allow the enclosing top-level window to be resized via the
-  // pointer.
-  void SetResizerSize(const gfx::Size& size);
-
   // Embed the View visually within |parent|.
-  void EmbedInWindow(ui::Window* parent);
+  void EmbedInWindow(aura::Window* parent);
 
  private:
   // mojom::ViewClient:
   void OpenURL(mojom::OpenURLParamsPtr params) override;
   void LoadingStateChanged(bool is_loading) override;
   void NavigationStateChanged(const GURL& url,
-                              const mojo::String& title,
+                              const std::string& title,
                               bool can_go_back,
                               bool can_go_forward) override;
   void LoadProgressChanged(double progress) override;

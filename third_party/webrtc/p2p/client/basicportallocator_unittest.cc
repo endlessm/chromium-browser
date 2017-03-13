@@ -18,7 +18,6 @@
 #include "webrtc/p2p/base/teststunserver.h"
 #include "webrtc/p2p/base/testturnserver.h"
 #include "webrtc/p2p/client/basicportallocator.h"
-#include "webrtc/p2p/client/httpportallocator.h"
 #include "webrtc/base/fakenetwork.h"
 #include "webrtc/base/firewallsocketserver.h"
 #include "webrtc/base/gunit.h"
@@ -38,6 +37,7 @@ using rtc::IPAddress;
 using rtc::SocketAddress;
 using rtc::Thread;
 
+static const SocketAddress kAnyAddr("0.0.0.0", 0);
 static const SocketAddress kClientAddr("11.11.11.11", 0);
 static const SocketAddress kClientAddr2("22.22.22.22", 0);
 static const SocketAddress kLoopbackAddr("127.0.0.1", 0);
@@ -115,6 +115,8 @@ class BasicPortAllocatorTest : public testing::Test,
         vss_(new rtc::VirtualSocketServer(pss_.get())),
         fss_(new rtc::FirewallSocketServer(vss_.get())),
         ss_scope_(fss_.get()),
+        // Note that the NAT is not used by default. ResetWithStunServerAndNat
+        // must be called.
         nat_factory_(vss_.get(), kNatUdpAddr, kNatTcpAddr),
         nat_socket_factory_(new rtc::BasicPacketSocketFactory(&nat_factory_)),
         stun_server_(TestStunServer::Create(Thread::Current(), kStunAddr)),
@@ -131,6 +133,9 @@ class BasicPortAllocatorTest : public testing::Test,
     stun_servers.insert(kStunAddr);
     // Passing the addresses of GTURN servers will enable GTURN in
     // Basicportallocator.
+    // TODO(deadbeef): Stop using GTURN by default in this test... Either the
+    // configuration should be blank by default (preferred), or it should use
+    // TURN instead.
     allocator_.reset(new BasicPortAllocator(&network_manager_, stun_servers,
                                             kRelayUdpIntAddr, kRelayTcpIntAddr,
                                             kRelaySslTcpIntAddr));
@@ -193,10 +198,10 @@ class BasicPortAllocatorTest : public testing::Test,
     turn_server.credentials = credentials;
 
     if (!udp_turn.IsNil()) {
-      turn_server.ports.push_back(ProtocolAddress(udp_turn, PROTO_UDP, false));
+      turn_server.ports.push_back(ProtocolAddress(udp_turn, PROTO_UDP));
     }
     if (!tcp_turn.IsNil()) {
-      turn_server.ports.push_back(ProtocolAddress(tcp_turn, PROTO_TCP, false));
+      turn_server.ports.push_back(ProtocolAddress(tcp_turn, PROTO_TCP));
     }
     allocator_->AddTurnServer(turn_server);
   }
@@ -274,6 +279,17 @@ class BasicPortAllocatorTest : public testing::Test,
           return port->Type() == type && port->GetProtocol() == protocol &&
                  port->Network()->GetBestIP() == client_addr.ipaddr();
         });
+  }
+
+  static int CountCandidates(const std::vector<Candidate>& candidates,
+                             const std::string& type,
+                             const std::string& proto,
+                             const SocketAddress& addr) {
+    return std::count_if(candidates.begin(), candidates.end(),
+                         [type, proto, addr](const Candidate& c) {
+                           return c.type() == type && c.protocol() == proto &&
+                                  AddressMatch(c.address(), addr);
+                         });
   }
 
   // Find a candidate and return it.
@@ -759,19 +775,6 @@ TEST_F(BasicPortAllocatorTest, TestGatherLowCostNetworkOnly) {
   EXPECT_TRUE(addr_wifi.EqualIPs(candidates_[0].address()));
 }
 
-// Tests that we allocator session not trying to allocate ports for every 250ms.
-TEST_F(BasicPortAllocatorTest, TestNoNetworkInterface) {
-  EXPECT_TRUE(CreateSession(ICE_CANDIDATE_COMPONENT_RTP));
-  session_->StartGettingPorts();
-  // Waiting for one second to make sure BasicPortAllocatorSession has not
-  // called OnAllocate multiple times. In old behavior it's called every 250ms.
-  // When there are no network interfaces, each execution of OnAllocate will
-  // result in SignalCandidatesAllocationDone signal.
-  rtc::Thread::Current()->ProcessMessages(1000);
-  EXPECT_TRUE(candidate_allocation_done_);
-  EXPECT_EQ(0U, candidates_.size());
-}
-
 // Test that we could use loopback interface as host candidate.
 TEST_F(BasicPortAllocatorTest, TestLoopbackNetworkInterface) {
   AddInterface(kLoopbackAddr, "test_loopback", rtc::ADAPTER_TYPE_LOOPBACK);
@@ -921,26 +924,55 @@ TEST_F(BasicPortAllocatorTest, TestGetAllPortsPortRange) {
   session_->StartGettingPorts();
   ASSERT_EQ_WAIT(7U, candidates_.size(), kDefaultAllocationTimeout);
   EXPECT_EQ(4U, ports_.size());
-  // Check the port number for the UDP port object.
-  EXPECT_PRED3(CheckPort, candidates_[0].address(), kMinPort, kMaxPort);
-  // Check the port number for the STUN port object.
-  EXPECT_PRED3(CheckPort, candidates_[1].address(), kMinPort, kMaxPort);
+
+  int num_nonrelay_candidates = 0;
+  for (const Candidate& candidate : candidates_) {
+    // Check the port number for the UDP/STUN/TCP port objects.
+    if (candidate.type() != RELAY_PORT_TYPE) {
+      EXPECT_PRED3(CheckPort, candidate.address(), kMinPort, kMaxPort);
+      ++num_nonrelay_candidates;
+    }
+  }
+  EXPECT_EQ(3, num_nonrelay_candidates);
   // Check the port number used to connect to the relay server.
   EXPECT_PRED3(CheckPort, relay_server_.GetConnection(0).source(), kMinPort,
                kMaxPort);
-  // Check the port number for the TCP port object.
-  EXPECT_PRED3(CheckPort, candidates_[5].address(), kMinPort, kMaxPort);
   EXPECT_TRUE(candidate_allocation_done_);
 }
 
-// Test that we don't crash or malfunction if we have no network adapters.
+// Test that if we have no network adapters, we bind to the ANY address and
+// still get non-host candidates.
 TEST_F(BasicPortAllocatorTest, TestGetAllPortsNoAdapters) {
+  // Default config uses GTURN and no NAT, so replace that with the
+  // desired setup (NAT, STUN server, TURN server, UDP/TCP).
+  ResetWithStunServerAndNat(kStunAddr);
+  turn_server_.AddInternalSocket(kTurnTcpIntAddr, PROTO_TCP);
+  AddTurnServers(kTurnUdpIntAddr, kTurnTcpIntAddr);
+  AddTurnServers(kTurnUdpIntIPv6Addr, kTurnTcpIntIPv6Addr);
+  // Disable IPv6, because our test infrastructure doesn't support having IPv4
+  // behind a NAT but IPv6 not, or having an IPv6 NAT.
+  // TODO(deadbeef): Fix this.
+  network_manager_.set_ipv6_enabled(false);
   EXPECT_TRUE(CreateSession(ICE_CANDIDATE_COMPONENT_RTP));
   session_->StartGettingPorts();
-  rtc::Thread::Current()->ProcessMessages(100);
-  // Without network adapter, we should not get any candidate.
-  EXPECT_EQ(0U, candidates_.size());
-  EXPECT_TRUE(candidate_allocation_done_);
+  EXPECT_TRUE_WAIT(candidate_allocation_done_, kDefaultAllocationTimeout);
+  EXPECT_EQ(4U, ports_.size());
+  EXPECT_EQ(1, CountPorts(ports_, "stun", PROTO_UDP, kAnyAddr));
+  EXPECT_EQ(1, CountPorts(ports_, "local", PROTO_TCP, kAnyAddr));
+  // Two TURN ports, using UDP/TCP for the first hop to the TURN server.
+  EXPECT_EQ(1, CountPorts(ports_, "relay", PROTO_UDP, kAnyAddr));
+  EXPECT_EQ(1, CountPorts(ports_, "relay", PROTO_TCP, kAnyAddr));
+  // The "any" address port should be in the signaled ready ports, but the host
+  // candidate for it is useless and shouldn't be signaled. So we only have
+  // STUN/TURN candidates.
+  EXPECT_EQ(3U, candidates_.size());
+  EXPECT_PRED4(HasCandidate, candidates_, "stun", "udp",
+               rtc::SocketAddress(kNatUdpAddr.ipaddr(), 0));
+  // Again, two TURN candidates, using UDP/TCP for the first hop to the TURN
+  // server.
+  EXPECT_EQ(2,
+            CountCandidates(candidates_, "relay", "udp",
+                            rtc::SocketAddress(kTurnUdpExtAddr.ipaddr(), 0)));
 }
 
 // Test that when enumeration is disabled, we should not have any ports when
@@ -1446,7 +1478,7 @@ TEST_F(BasicPortAllocatorTest, TestSharedSocketWithServerAddressResolve) {
   RelayCredentials credentials(kTurnUsername, kTurnPassword);
   turn_server.credentials = credentials;
   turn_server.ports.push_back(
-      ProtocolAddress(rtc::SocketAddress("localhost", 3478), PROTO_UDP, false));
+      ProtocolAddress(rtc::SocketAddress("localhost", 3478), PROTO_UDP));
   allocator_->AddTurnServer(turn_server);
 
   allocator_->set_step_delay(kMinimumStepDelay);

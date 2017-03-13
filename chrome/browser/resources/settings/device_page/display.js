@@ -53,15 +53,15 @@ Polymer({
       notify: true,
     },
 
-    /** Maximum mode index value for slider. */
-    maxModeIndex_: {type: Number, value: 0},
+    /** @private {!Array<number>} Mode index values for slider. */
+    modeValues_: Array,
 
-    /** Selected mode index value for slider. */
-    selectedModeIndex_: {type: Number},
-
-    /** Immediate selected mode index value for slider. */
-    immediateSelectedModeIndex_: {type: Number, value: 0}
+    /** @private Selected mode index value for slider. */
+    selectedModeIndex_: Number,
   },
+
+  /** @private {number} Selected mode index received from chrome. */
+  currentSelectedModeIndex_: -1,
 
   /**
    * Listener for chrome.system.display.onDisplayChanged events.
@@ -84,6 +84,7 @@ Polymer({
       settings.display.systemDisplayApi.onDisplayChanged.removeListener(
           this.displayChangedListener_);
     }
+    this.currentSelectedModeIndex_ = -1;
   },
 
   /**
@@ -150,24 +151,77 @@ Polymer({
 
   /** @private */
   selectedDisplayChanged_: function() {
-    // Set maxModeIndex first so that the slider updates correctly.
-    if (this.selectedDisplay.modes.length == 0) {
-      this.maxModeIndex_ = 0;
+    // Set |modeValues_| before |selectedModeIndex_| so that the slider updates
+    // correctly.
+    let numModes = this.selectedDisplay.modes.length;
+    if (numModes == 0) {
+      this.modeValues_ = [];
       this.selectedModeIndex_ = 0;
+      this.currentSelectedModeIndex_ = 0;
       return;
     }
-    this.maxModeIndex_ = this.selectedDisplay.modes.length - 1;
+    this.modeValues_ = Array.from(Array(numModes).keys());
     this.selectedModeIndex_ = this.getSelectedModeIndex_(this.selectedDisplay);
+    this.currentSelectedModeIndex_ = this.selectedModeIndex_;
   },
 
   /**
-   * @param {!chrome.system.display.DisplayUnitInfo} selectedDisplay
-   * @param {string} primaryDisplayId
+   * Returns true if the given display has touch support and is not an internal
+   * display. If the feature is not enabled via the switch, this will return
+   * false.
+   * @param {!chrome.system.display.DisplayUnitInfo} display Display being
+   *     checked for touch support.
    * @return {boolean}
    * @private
    */
-  showMakePrimary_: function(selectedDisplay, primaryDisplayId) {
-    return !!selectedDisplay && selectedDisplay.id != primaryDisplayId;
+  showTouchCalibrationSetting_: function(display) {
+    return !display.isInternal && display.hasTouchSupport &&
+        loadTimeData.getBoolean('enableTouchCalibrationSetting');
+  },
+
+  /**
+   * @param {!Array<!chrome.system.display.DisplayUnitInfo>} displays
+   * @return {boolean}
+   * @private
+   */
+  hasMultipleDisplays_: function(displays) {
+    return displays.length > 1;
+  },
+
+  /**
+   * Returns false if the display select menu has to be hidden.
+   * @param {!Array<!chrome.system.display.DisplayUnitInfo>} displays
+   * @param {!chrome.system.display.DisplayUnitInfo} selectedDisplay
+   * @return {boolean}
+   * @private
+   */
+  showDisplaySelectMenu_: function(displays, selectedDisplay) {
+    return displays.length > 1 && !selectedDisplay.isPrimary;
+  },
+
+  /**
+   * Returns the select menu index indicating whether the display currently is
+   * primary or extended.
+   * @param {!chrome.system.display.DisplayUnitInfo} selectedDisplay
+   * @param {string} primaryDisplayId
+   * @return {number} Retruns 0 if the display is primary else returns 1.
+   * @private
+   */
+  getDisplaySelectMenuIndex_: function(selectedDisplay, primaryDisplayId) {
+    if (selectedDisplay && selectedDisplay.id == primaryDisplayId)
+      return 0;
+    return 1;
+  },
+
+  /**
+   * Returns the i18n string for the text to be used for mirroring settings.
+   * @param {!Array<!chrome.system.display.DisplayUnitInfo>} displays
+   * @return {string} i18n string for mirroring settings text.
+   * @private
+   */
+  getDisplayMirrorText_: function(displays) {
+    return this.i18n(
+        this.isMirrored_(displays) ? 'displayMirrorOn' : 'displayMirrorOff');
   },
 
   /**
@@ -208,23 +262,23 @@ Polymer({
   },
 
   /**
-   * @param {!chrome.system.display.DisplayUnitInfo} selectedDisplay
-   * @param {number} immediateSelectedModeIndex
    * @return {string}
    * @private
    */
-  getResolutionText_: function(selectedDisplay, immediateSelectedModeIndex) {
-    if (this.selectedDisplay.modes.length == 0) {
-      var widthStr = selectedDisplay.bounds.width.toString();
-      var heightStr = selectedDisplay.bounds.height.toString();
+  getResolutionText_: function() {
+    if (this.selectedDisplay.modes.length == 0 ||
+        this.currentSelectedModeIndex_ == -1) {
+      // If currentSelectedModeIndex_ == -1, selectedDisplay and
+      // selectedModeIndex_ are not in sync.
+      let widthStr = this.selectedDisplay.bounds.width.toString();
+      let heightStr = this.selectedDisplay.bounds.height.toString();
       return this.i18n('displayResolutionText', widthStr, heightStr);
     }
-    if (isNaN(immediateSelectedModeIndex))
-      immediateSelectedModeIndex = this.getSelectedModeIndex_(selectedDisplay);
-    var mode = selectedDisplay.modes[immediateSelectedModeIndex];
-    var best = selectedDisplay.isInternal ? mode.uiScale == 1.0 : mode.isNative;
-    var widthStr = mode.width.toString();
-    var heightStr = mode.height.toString();
+    let mode = this.selectedDisplay.modes[this.selectedModeIndex_];
+    let best =
+        this.selectedDisplay.isInternal ? mode.uiScale == 1.0 : mode.isNative;
+    let widthStr = mode.width.toString();
+    let heightStr = mode.height.toString();
     if (best)
       return this.i18n('displayResolutionTextBest', widthStr, heightStr);
     else if (mode.isNative)
@@ -241,16 +295,44 @@ Polymer({
     for (let display of this.displays) {
       if (id != display.id)
         continue;
+      this.currentSelectedModeIndex_ = -1;
       this.selectedDisplay = display;
     }
   },
 
-  /** @private */
-  onMakePrimaryTap_: function() {
+  /**
+   * Handles event when a display tab is selected.
+   * @param {!{detail: !{item: !{displayId: string}}}} e
+   * @private
+   */
+  onSelectDisplayTab_: function(e) {
+    this.onSelectDisplay_({detail: e.detail.item.displayId});
+  },
+
+  /**
+   * Handles event when a touch calibration option is selected.
+   * @param {!Event} e
+   * @private
+   */
+  onTouchCalibrationTap_: function(e) {
+    settings.display.systemDisplayApi.showNativeTouchCalibration(
+        this.selectedDisplay.id);
+  },
+
+  /**
+   * Handles the event when an option from display select menu is selected.
+   * @param {!{target: !HTMLSelectElement}} e
+   * @private
+   */
+  updatePrimaryDisplay_: function(e) {
+    /** @const {number} */ var PRIMARY_DISP_IDX = 0;
     if (!this.selectedDisplay)
       return;
     if (this.selectedDisplay.id == this.primaryDisplayId)
       return;
+    if (e.target.value != PRIMARY_DISP_IDX)
+      return;
+
     /** @type {!chrome.system.display.DisplayProperties} */ var properties = {
       isPrimary: true
     };
@@ -260,18 +342,20 @@ Polymer({
   },
 
   /**
-   * @param {!{target: !PaperSliderElement}} e
+   * Triggered when the 'change' event for the selected mode slider is
+   * triggered. This only occurs when the value is comitted (i.e. not while
+   * the slider is being dragged).
    * @private
    */
-  onChangeMode_: function(e) {
-    var curIndex = this.selectedModeIndex_;
-    var newIndex = parseInt(e.target.value, 10);
-    if (newIndex == curIndex)
+  onSelectedModeChange_: function() {
+    if (this.currentSelectedModeIndex_ == -1 ||
+        this.currentSelectedModeIndex_ == this.selectedModeIndex_) {
+      // Don't change the selected display mode until we have received an update
+      // from Chrome and the mode differs from the current mode.
       return;
-    assert(newIndex >= 0);
-    assert(newIndex < this.selectedDisplay.modes.length);
+    }
     /** @type {!chrome.system.display.DisplayProperties} */ var properties = {
-      displayMode: this.selectedDisplay.modes[newIndex]
+      displayMode: this.selectedDisplay.modes[this.selectedModeIndex_]
     };
     settings.display.systemDisplayApi.setDisplayProperties(
         this.selectedDisplay.id, properties,
@@ -279,12 +363,13 @@ Polymer({
   },
 
   /**
-   * @param {!{detail: !{selected: string}}} e
+   * @param {!Event} event
    * @private
    */
-  onSetOrientation_: function(e) {
+  onOrientationChange_: function(event) {
+    let target = /** @type {!HTMLSelectElement} */ (event.target);
     /** @type {!chrome.system.display.DisplayProperties} */ var properties = {
-      rotation: parseInt(e.detail.selected, 10)
+      rotation: parseInt(target.value, 10)
     };
     settings.display.systemDisplayApi.setDisplayProperties(
         this.selectedDisplay.id, properties,
@@ -312,14 +397,18 @@ Polymer({
         id, properties, this.setPropertiesCallback_.bind(this));
   },
 
-  /** @private */
-  onOverscanTap_: function() {
+  /**
+   * @param {!Event} e
+   * @private
+   */
+  onOverscanTap_: function(e) {
+    e.preventDefault();
     this.overscanDisplayId = this.selectedDisplay.id;
     this.showOverscanDialog_(true);
   },
 
   /** @private */
-  updateDisplayInfo_() {
+  updateDisplayInfo_: function() {
     var displayIds = '';
     var primaryDisplay = undefined;
     var selectedDisplay = undefined;
@@ -336,6 +425,11 @@ Polymer({
     this.primaryDisplayId = (primaryDisplay && primaryDisplay.id) || '';
     this.selectedDisplay = selectedDisplay || primaryDisplay ||
         (this.displays && this.displays[0]);
+    // Save the selected mode index received from Chrome so that we do not
+    // send an unnecessary setDisplayProperties call (which would log an error).
+    this.currentSelectedModeIndex_ =
+        this.getSelectedModeIndex_(this.selectedDisplay);
+
     this.$.displayLayout.updateDisplays(this.displays, this.layouts);
   },
 

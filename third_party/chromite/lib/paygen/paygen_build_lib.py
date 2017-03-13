@@ -16,15 +16,14 @@ from __future__ import print_function
 import json
 import operator
 import os
-import socket
 import sys
 import tempfile
 import urlparse
 
 from chromite.cbuildbot import commands
-from chromite.cbuildbot import constants
-from chromite.cbuildbot import config_lib
-from chromite.cbuildbot import failures_lib
+from chromite.lib import constants
+from chromite.lib import config_lib
+from chromite.lib import failures_lib
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
 from chromite.lib import parallel
@@ -69,6 +68,9 @@ PAYGEN_LOG_TIMESTAMP_FORMAT = '%Y%m%d-%H%M%S-UTC'
 BOARDS_URI = 'gs://chromeos-build-release-console/boards.json'
 FSI_URI = 'gs://chromeos-build-release-console/fsis.json'
 OMAHA_URI = 'gs://chromeos-build-release-console/omaha_status.json'
+
+# Max number of attempts to download and parse a JSON file.
+JSON_PARSE_RETRY_COUNT = 2
 
 
 class Error(Exception):
@@ -415,12 +417,12 @@ class _PaygenBuild(object):
 
   def _GetFsisJson(self):
     if not self.cachedFsisJson:
-      self.cachedFsisJson = json.loads(gslib.Cat(FSI_URI))
+      self.cachedFsisJson = _GetJson(FSI_URI)
     return self.cachedFsisJson
 
   def _GetOmahaJson(self):
     if not self.cachedOmahaJson:
-      self.cachedOmahaJson = json.loads(gslib.Cat(OMAHA_URI))
+      self.cachedOmahaJson = _GetJson(OMAHA_URI)
     return self.cachedOmahaJson
 
   def _GetFlagURI(self, flag):
@@ -1078,33 +1080,6 @@ class _PaygenBuild(object):
     logging.info('Control file emitted at %s', control_file)
     return control_file
 
-  def _ScheduleAutotestTests(self, suite_name):
-    """Run the appropriate command to schedule the Autotests we have prepped.
-
-    Args:
-      suite_name: The name of the test suite.
-    """
-    timeout_mins = config_lib.HWTestConfig.SHARED_HW_TEST_TIMEOUT / 60
-    cmd_result = commands.RunHWTestSuite(
-        board=self._archive_board,
-        build=self._archive_build,
-        suite=suite_name,
-        file_bugs=True,
-        pool='bvt',
-        priority=constants.HWTEST_BUILD_PRIORITY,
-        retry=True,
-        wait_for_results=True,
-        timeout_mins=timeout_mins,
-        suite_min_duts=2,
-        debug=bool(self._drm),
-        skip_duts_check=self._skip_duts_check)
-    if cmd_result.to_raise:
-      if isinstance(cmd_result.to_raise, failures_lib.TestWarning):
-        logging.warning('Warning running test suite; error output:\n%s',
-                        cmd_result.to_raise)
-      else:
-        raise cmd_result.to_raise
-
   def _AutotestPayloads(self, payload_tests):
     """Create necessary test artifacts and initiate Autotest runs.
 
@@ -1166,8 +1141,10 @@ class _PaygenBuild(object):
           'Failed to infer archive build milestone number (%s)' %
           self._archive_build)
 
-    # Actually have the tests run.
-    self._ScheduleAutotestTests(suite_name)
+    # Send the information needed to actually schedule and run the tests.
+    finished_uri = self._GetFlagURI(gspaths.ChromeosReleases.FINISHED)
+    return suite_name, finished_uri
+
 
   @staticmethod
   def _IsTestDeltaPayload(payload):
@@ -1296,6 +1273,7 @@ class _PaygenBuild(object):
     """
     lock_uri = self._GetFlagURI(gspaths.ChromeosReleases.LOCK)
     finished_uri = self._GetFlagURI(gspaths.ChromeosReleases.FINISHED)
+    suite_name = None
 
     logging.info('Examining: %s', self._build)
 
@@ -1374,27 +1352,26 @@ class _PaygenBuild(object):
             self._archive_board = archive_board
             self._archive_build = archive_build
             self._archive_build_uri = archive_build_uri
-
-            # We have a control file directory and all payloads have been
-            # generated. Lets create the list of tests to conduct.
-            payload_tests = self._CreatePayloadTests(payload_manager)
-            if payload_tests:
-              logging.info('Initiating %d payload tests', len(payload_tests))
-              self._drm(self._AutotestPayloads, payload_tests)
           except ArchiveError as e:
             logging.warning('Cannot map build to images archive, skipping '
                             'payload autotesting.')
             can_finish = False
 
+          if can_finish:
+            # We have a control file directory and all payloads have been
+            # generated. Lets create the list of tests to conduct.
+            payload_tests = self._CreatePayloadTests(payload_manager)
+            if payload_tests:
+              logging.info('Uploading %d payload tests', len(payload_tests))
+              suite_name, finished_uri = self._drm(self._AutotestPayloads,
+                                                   payload_tests)
+
         self._CleanupBuild()
-        if can_finish:
-          self._drm(gslib.CreateWithContents, finished_uri,
-                    socket.gethostname())
-        else:
+        if not can_finish:
           logging.warning('Not all payloads were generated, uploaded or '
                           'tested; not marking build as finished')
 
-        logging.info('Finished: %s', self._build)
+        logging.info('Finished generating payloads: %s', self._build)
 
     except gslock.LockNotAcquired as e:
       logging.info('Build already being processed: %s', e)
@@ -1407,6 +1384,8 @@ class _PaygenBuild(object):
     except Exception:
       logging.error('Failed: %s', self._build)
       raise
+
+    return suite_name, self._archive_board, self._archive_build, finished_uri
 
 
 def _FindControlFileDir(work_dir):
@@ -1441,7 +1420,7 @@ def ValidateBoardConfig(board):
     BoardNotConfigured if the board is unknown.
   """
   # Right now, we just validate that the board exists.
-  boards = json.loads(gslib.Cat(BOARDS_URI))
+  boards = _GetJson(BOARDS_URI)
   for b in boards.get('boards', []):
     if b['public_codename'] == board:
       return
@@ -1472,11 +1451,83 @@ def CreatePayloads(build, work_dir, site_config,
   """
   ValidateBoardConfig(build.board)
 
-  _PaygenBuild(build, work_dir, site_config,
-               dry_run=dry_run,
-               ignore_finished=ignore_finished,
-               skip_delta_payloads=skip_delta_payloads,
-               disable_tests=disable_tests,
-               output_dir=output_dir,
-               run_parallel=run_parallel,
-               skip_duts_check=skip_duts_check).CreatePayloads()
+  return _PaygenBuild(build, work_dir, site_config,
+                      dry_run=dry_run,
+                      ignore_finished=ignore_finished,
+                      skip_delta_payloads=skip_delta_payloads,
+                      disable_tests=disable_tests,
+                      output_dir=output_dir,
+                      run_parallel=run_parallel,
+                      skip_duts_check=skip_duts_check).CreatePayloads()
+
+def ScheduleAutotestTests(suite_name, board, build, skip_duts_check,
+                          debug):
+  """Run the appropriate command to schedule the Autotests we have prepped.
+
+  Args:
+  suite_name: The name of the test suite.
+  board: A string representing the name of the archive board.
+  build: A string representing the name of the archive build.
+  skip_duts_check: A boolean indicating to not check minimum available DUTs.
+  debug: A boolean indicating whether or not we are in debug mode.
+  """
+  timeout_mins = config_lib.HWTestConfig.SHARED_HW_TEST_TIMEOUT / 60
+  cmd_result = commands.RunHWTestSuite(
+      board=board,
+      build=build,
+      suite=suite_name,
+      file_bugs=True,
+      pool='bvt',
+      priority=constants.HWTEST_BUILD_PRIORITY,
+      retry=True,
+      wait_for_results=True,
+      timeout_mins=timeout_mins,
+      suite_min_duts=2,
+      debug=debug,
+      skip_duts_check=skip_duts_check)
+
+  if cmd_result.to_raise:
+    if isinstance(cmd_result.to_raise, failures_lib.TestWarning):
+      logging.warning('Warning running test suite; error output:\n%s',
+                      cmd_result.to_raise)
+    else:
+      raise cmd_result.to_raise
+
+
+def _GetAndValidateJson(uri):
+  """Downloads JSON from URI and tries to parse it.
+
+  Args:
+    uri: The URI of a JSON file at the given GS URI.
+
+  Returns:
+    Valid JSON retrived from given uri on success.
+
+  Raises:
+    ValueError if the downloaded JSON fails to parse.
+  """
+  try:
+    downloaded_json = gslib.Cat(uri)
+    return json.loads(downloaded_json)
+  except ValueError as e:
+    logging.error('Failed to parse JSON downloaded from %s.\n'
+                  'Here\'s what we got:\n%r\n'
+                  'Error: %s', uri, downloaded_json, e)
+    raise
+
+
+def _GetJson(uri):
+  """Downloads JSON from URI and tries to parse it.
+
+  This function will attempt to retry if the downloaded JSON is bad
+  JSON_PARSE_RETRY_COUNT times.
+
+  Args:
+    uri: The URI of a JSON file at the given GS URI.
+
+  Returns:
+    Valid JSON retrieved from given uri.
+  """
+  # If the downloaded JSON is bad, a ValueError exception will be rasied.
+  return retry_util.RetryException(ValueError, JSON_PARSE_RETRY_COUNT,
+                                   _GetAndValidateJson, uri)

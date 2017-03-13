@@ -7,12 +7,13 @@ package org.chromium.chrome.browser.contextmenu;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
-import android.os.Environment;
-import android.test.suitebuilder.annotation.LargeTest;
-import android.test.suitebuilder.annotation.MediumTest;
+import android.support.test.filters.LargeTest;
+import android.support.test.filters.MediumTest;
 import android.view.ContextMenu;
 import android.view.KeyEvent;
 
+import org.chromium.base.ThreadUtils;
+import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Feature;
 import org.chromium.base.test.util.FlakyTest;
@@ -21,11 +22,11 @@ import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ChromeSwitches;
 import org.chromium.chrome.browser.compositor.layouts.LayoutManager;
 import org.chromium.chrome.browser.download.DownloadTestBase;
+import org.chromium.chrome.browser.firstrun.FirstRunStatus;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tabmodel.EmptyTabModelSelectorObserver;
 import org.chromium.chrome.browser.tabmodel.TabModel;
 import org.chromium.chrome.test.util.browser.contextmenu.ContextMenuUtils;
-import org.chromium.content.browser.test.util.CallbackHelper;
 import org.chromium.content.browser.test.util.Criteria;
 import org.chromium.content.browser.test.util.CriteriaHelper;
 import org.chromium.content.browser.test.util.DOMUtils;
@@ -40,7 +41,9 @@ import java.util.concurrent.atomic.AtomicReference;
 /**
  * Context menu related tests
  */
-@CommandLineFlags.Add(ChromeSwitches.GOOGLE_BASE_URL + "=http://example.com/")
+@CommandLineFlags.Add({
+        ChromeSwitches.GOOGLE_BASE_URL + "=http://example.com/",
+        ChromeSwitches.HERB_FLAVOR_DISABLED_SWITCH})
 public class ContextMenuTest extends DownloadTestBase {
     private static final String TEST_PATH =
             "/chrome/test/data/android/contextmenu/context_menu_test.html";
@@ -58,16 +61,28 @@ public class ContextMenuTest extends DownloadTestBase {
 
     @Override
     protected void setUp() throws Exception {
-        mTestServer = EmbeddedTestServer.createAndStartFileServer(
-                getInstrumentation().getContext(), Environment.getExternalStorageDirectory());
+        mTestServer = EmbeddedTestServer.createAndStartServer(getInstrumentation().getContext());
         mTestUrl = mTestServer.getURL(TEST_PATH);
         deleteTestFiles();
         super.setUp();
+
+        ThreadUtils.runOnUiThreadBlocking(new Runnable() {
+            @Override
+            public void run() {
+                FirstRunStatus.setFirstRunFlowComplete(true);
+            }
+        });
     }
 
     @Override
     protected void tearDown() throws Exception {
         mTestServer.stopAndDestroyServer();
+        ThreadUtils.runOnUiThreadBlocking(new Runnable() {
+            @Override
+            public void run() {
+                FirstRunStatus.setFirstRunFlowComplete(false);
+            }
+        });
         deleteTestFiles();
         super.tearDown();
     }
@@ -236,10 +251,22 @@ public class ContextMenuTest extends DownloadTestBase {
     public void testCopyEmailAddress() throws InterruptedException, TimeoutException {
         Tab tab = getActivity().getActivityTab();
         ContextMenuUtils.selectContextMenuItem(this, tab, "testEmail",
-                R.id.contextmenu_copy_email_address);
+                R.id.contextmenu_copy);
 
-        assertEquals("Copied email address is not correct", "someone@example.com",
-                getClipboardText());
+        assertEquals("Copied email address is not correct",
+                "someone1@example.com,someone2@example.com", getClipboardText());
+    }
+
+    @MediumTest
+    @Feature({"Browser"})
+    @RetryOnFailure
+    public void testCopyTelNumber() throws InterruptedException, TimeoutException {
+        Tab tab = getActivity().getActivityTab();
+        ContextMenuUtils.selectContextMenuItem(this, tab, "testTel",
+                R.id.contextmenu_copy);
+
+        assertEquals("Copied tel number is not correct",
+                "10000000000", getClipboardText());
     }
 
     @LargeTest

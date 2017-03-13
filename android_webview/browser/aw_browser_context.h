@@ -9,13 +9,14 @@
 #include <vector>
 
 #include "android_webview/browser/aw_download_manager_delegate.h"
-#include "android_webview/browser/aw_message_port_service.h"
+#include "android_webview/browser/aw_safe_browsing_ui_manager.h"
 #include "android_webview/browser/aw_ssl_host_state_delegate.h"
 #include "base/compiler_specific.h"
 #include "base/files/file_path.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "components/prefs/pref_change_registrar.h"
+#include "components/safe_browsing_db/remote_database_manager.h"
 #include "components/visitedlink/browser/visitedlink_delegate.h"
 #include "components/web_restrictions/browser/web_restrictions_client.h"
 #include "content/public/browser/browser_context.h"
@@ -84,7 +85,6 @@ class AwBrowserContext : public content::BrowserContext,
   AwQuotaManagerBridge* GetQuotaManagerBridge();
   AwFormDatabaseService* GetFormDatabaseService();
   AwURLRequestContextGetter* GetAwURLRequestContext();
-  AwMessagePortService* GetMessagePortService();
 
   policy::URLBlacklistManager* GetURLBlacklistManager();
   web_restrictions::WebRestrictionsClient* GetWebRestrictionProvider();
@@ -118,6 +118,9 @@ class AwBrowserContext : public content::BrowserContext,
   // visitedlink::VisitedLinkDelegate implementation.
   void RebuildTable(const scoped_refptr<URLEnumerator>& enumerator) override;
 
+  AwSafeBrowsingUIManager* GetSafeBrowsingUIManager();
+  safe_browsing::RemoteSafeBrowsingDatabaseManager* GetSafeBrowsingDBManager();
+
  private:
   void InitUserPrefService();
   void OnWebRestrictionsAuthorityChanged();
@@ -134,7 +137,6 @@ class AwBrowserContext : public content::BrowserContext,
   scoped_refptr<AwURLRequestContextGetter> url_request_context_getter_;
   scoped_refptr<AwQuotaManagerBridge> quota_manager_bridge_;
   std::unique_ptr<AwFormDatabaseService> form_database_service_;
-  std::unique_ptr<AwMessagePortService> message_port_service_;
 
   AwDownloadManagerDelegate download_manager_delegate_;
 
@@ -150,6 +152,11 @@ class AwBrowserContext : public content::BrowserContext,
   std::unique_ptr<web_restrictions::WebRestrictionsClient>
       web_restriction_provider_;
   PrefChangeRegistrar pref_change_registrar_;
+
+  scoped_refptr<AwSafeBrowsingUIManager> safe_browsing_ui_manager_;
+  scoped_refptr<safe_browsing::RemoteSafeBrowsingDatabaseManager>
+      safe_browsing_db_manager_;
+  bool safe_browsing_db_manager_started_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(AwBrowserContext);
 };

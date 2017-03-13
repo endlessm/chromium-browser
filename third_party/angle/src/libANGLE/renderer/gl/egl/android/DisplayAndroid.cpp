@@ -10,6 +10,7 @@
 
 #include "common/debug.h"
 #include "libANGLE/Display.h"
+#include "libANGLE/Surface.h"
 #include "libANGLE/renderer/gl/renderergl_utils.h"
 #include "libANGLE/renderer/gl/egl/android/DisplayAndroid.h"
 #include "libANGLE/renderer/gl/egl/FunctionsEGLDL.h"
@@ -31,7 +32,8 @@ const char *GetEGLPath()
 namespace rx
 {
 
-DisplayAndroid::DisplayAndroid() : DisplayEGL(), mDummyPbuffer(EGL_NO_SURFACE)
+DisplayAndroid::DisplayAndroid(const egl::DisplayState &state)
+    : DisplayEGL(state), mDummyPbuffer(EGL_NO_SURFACE)
 {
 }
 
@@ -147,7 +149,6 @@ void DisplayAndroid::terminate()
 }
 
 SurfaceImpl *DisplayAndroid::createWindowSurface(const egl::SurfaceState &state,
-                                                 const egl::Config *configuration,
                                                  EGLNativeWindowType window,
                                                  const egl::AttributeMap &attribs)
 {
@@ -155,37 +156,32 @@ SurfaceImpl *DisplayAndroid::createWindowSurface(const egl::SurfaceState &state,
     EGLint numConfig;
     EGLBoolean success;
 
-    const EGLint configAttribList[] = {EGL_CONFIG_ID, mConfigIds[configuration->configID],
-                                       EGL_NONE};
+    const EGLint configAttribList[] = {EGL_CONFIG_ID, mConfigIds[state.config->configID], EGL_NONE};
     success = mEGL->chooseConfig(configAttribList, &config, 1, &numConfig);
     ASSERT(success && numConfig == 1);
-    UNUSED_ASSERTION_VARIABLE(success);
 
     return new WindowSurfaceEGL(state, mEGL, config, window, attribs.toIntVector(), mContext,
                                 getRenderer());
 }
 
 SurfaceImpl *DisplayAndroid::createPbufferSurface(const egl::SurfaceState &state,
-                                                  const egl::Config *configuration,
                                                   const egl::AttributeMap &attribs)
 {
     EGLConfig config;
     EGLint numConfig;
     EGLBoolean success;
 
-    const EGLint configAttribList[] = {EGL_CONFIG_ID, mConfigIds[configuration->configID],
-                                       EGL_NONE};
+    const EGLint configAttribList[] = {EGL_CONFIG_ID, mConfigIds[state.config->configID], EGL_NONE};
     success = mEGL->chooseConfig(configAttribList, &config, 1, &numConfig);
     ASSERT(success && numConfig == 1);
-    UNUSED_ASSERTION_VARIABLE(success);
 
     return new PbufferSurfaceEGL(state, mEGL, config, attribs.toIntVector(), mContext,
                                  getRenderer());
 }
 
 SurfaceImpl *DisplayAndroid::createPbufferFromClientBuffer(const egl::SurfaceState &state,
-                                                           const egl::Config *configuration,
-                                                           EGLClientBuffer shareHandle,
+                                                           EGLenum buftype,
+                                                           EGLClientBuffer clientBuffer,
                                                            const egl::AttributeMap &attribs)
 {
     UNIMPLEMENTED();
@@ -193,7 +189,6 @@ SurfaceImpl *DisplayAndroid::createPbufferFromClientBuffer(const egl::SurfaceSta
 }
 
 SurfaceImpl *DisplayAndroid::createPixmapSurface(const egl::SurfaceState &state,
-                                                 const egl::Config *configuration,
                                                  NativePixmapType nativePixmap,
                                                  const egl::AttributeMap &attribs)
 {
@@ -215,7 +210,6 @@ void DisplayAndroid::getConfigAttrib(EGLConfig config, EGLint attribute, T *valu
     EGLint tmp;
     EGLBoolean success = mEGL->getConfigAttrib(config, attribute, &tmp);
     ASSERT(success == EGL_TRUE);
-    UNUSED_ASSERTION_VARIABLE(success);
     *value = tmp;
 }
 
@@ -233,7 +227,6 @@ egl::ConfigSet DisplayAndroid::generateConfigs()
     success =
         mEGL->chooseConfig(mConfigAttribList.data(), configs.data(), numConfigs, &numConfigs2);
     ASSERT(success == EGL_TRUE && numConfigs2 == numConfigs);
-    UNUSED_ASSERTION_VARIABLE(success);
 
     for (int i = 0; i < numConfigs; i++)
     {

@@ -1,31 +1,45 @@
 {
     "extensions": [
         {
-            "type": "@WebInspector.Panel",
-            "name": "elements",
+            "type": "view",
+            "location": "panel",
+            "id": "elements",
             "title": "Elements",
             "order": 10,
-            "className": "WebInspector.ElementsPanel"
+            "className": "Elements.ElementsPanel"
         },
         {
-            "type": "@WebInspector.ContextMenu.Provider",
-            "contextTypes": ["WebInspector.RemoteObject", "WebInspector.DOMNode", "WebInspector.DeferredDOMNode"],
-            "className": "WebInspector.ElementsPanel.ContextMenuProvider"
+            "type": "@UI.ContextMenu.Provider",
+            "contextTypes": [
+                "SDK.RemoteObject",
+                "SDK.DOMNode",
+                "SDK.DeferredDOMNode"
+            ],
+            "className": "Elements.ElementsPanel.ContextMenuProvider"
         },
         {
-            "type": "@WebInspector.Renderer",
-            "contextTypes": ["WebInspector.DOMNode", "WebInspector.RemoteObject"],
-            "className": "WebInspector.ElementsTreeOutline.Renderer"
+            "type": "@Common.Renderer",
+            "contextTypes": [
+                "SDK.DOMNode",
+                "SDK.RemoteObject"
+            ],
+            "className": "Elements.ElementsTreeOutline.Renderer"
         },
         {
-            "type": "@WebInspector.Revealer",
-            "contextTypes": ["WebInspector.DOMNode", "WebInspector.DeferredDOMNode", "WebInspector.RemoteObject" ],
-            "className": "WebInspector.ElementsPanel.DOMNodeRevealer"
+            "type": "@Common.Revealer",
+            "contextTypes": [
+                "SDK.DOMNode",
+                "SDK.DeferredDOMNode",
+                "SDK.RemoteObject"
+            ],
+            "className": "Elements.ElementsPanel.DOMNodeRevealer"
         },
         {
-            "type": "@WebInspector.Revealer",
-            "contextTypes": ["WebInspector.CSSProperty" ],
-            "className": "WebInspector.ElementsPanel.CSSPropertyRevealer"
+            "type": "@Common.Revealer",
+            "contextTypes": [
+                "SDK.CSSProperty"
+            ],
+            "className": "Elements.ElementsPanel.CSSPropertyRevealer"
         },
         {
             "type": "setting",
@@ -36,16 +50,35 @@
             "settingType": "enum",
             "defaultValue": "original",
             "options": [
-                { "title": "Set color format as authored", "text": "As authored", "value": "original" },
-                { "title": "Set color format to HEX", "text": "HEX: #dac0de", "value": "hex", "raw": true },
-                { "title": "Set color format to RGB", "text": "RGB: rgb(128, 255, 255)", "value": "rgb", "raw": true },
-                { "title": "Set color format to HSL", "text": "HSL: hsl(300, 80%, 90%)", "value": "hsl", "raw": true }
+                {
+                    "title": "Set color format as authored",
+                    "text": "As authored",
+                    "value": "original"
+                },
+                {
+                    "title": "Set color format to HEX",
+                    "text": "HEX: #dac0de",
+                    "value": "hex",
+                    "raw": true
+                },
+                {
+                    "title": "Set color format to RGB",
+                    "text": "RGB: rgb(128, 255, 255)",
+                    "value": "rgb",
+                    "raw": true
+                },
+                {
+                    "title": "Set color format to HSL",
+                    "text": "HSL: hsl(300, 80%, 90%)",
+                    "value": "hsl",
+                    "raw": true
+                }
             ]
         },
         {
             "type": "setting",
             "category": "Elements",
-            "order":1,
+            "order": 1,
             "title": "Show user agent shadow DOM",
             "settingName": "showUAShadowDOM",
             "settingType": "boolean",
@@ -60,8 +93,14 @@
             "settingType": "boolean",
             "defaultValue": true,
             "options": [
-                { "value": true, "title": "Enable DOM word wrap" },
-                { "value": false, "title": "Disable DOM word wrap" }
+                {
+                    "value": true,
+                    "title": "Enable DOM word wrap"
+                },
+                {
+                    "value": false,
+                    "title": "Disable DOM word wrap"
+                }
             ]
         },
         {
@@ -73,8 +112,14 @@
             "settingType": "boolean",
             "defaultValue": true,
             "options": [
-                { "value": true, "title": "Show HTML comments" },
-                { "value": false, "title": "Hide HTML comments" }
+                {
+                    "value": true,
+                    "title": "Show HTML comments"
+                },
+                {
+                    "value": false,
+                    "title": "Hide HTML comments"
+                }
             ]
         },
         {
@@ -93,28 +138,30 @@
             "defaultValue": true
         },
         {
-            "type": "@WebInspector.ToolbarItem.Provider",
-            "className": "WebInspector.ElementStatePaneWidget.ButtonProvider",
+            "type": "@UI.ToolbarItem.Provider",
+            "className": "Elements.ElementStatePaneWidget.ButtonProvider",
             "order": 1,
             "location": "styles-sidebarpane-toolbar"
         },
         {
-            "type": "@WebInspector.ToolbarItem.Provider",
-            "className": "WebInspector.ClassesPaneWidget.ButtonProvider",
+            "type": "@UI.ToolbarItem.Provider",
+            "className": "Elements.ClassesPaneWidget.ButtonProvider",
             "order": 2,
             "location": "styles-sidebarpane-toolbar"
         },
         {
-            "type": "@WebInspector.ToolbarItem.Provider",
-            "className": "WebInspector.StylesSidebarPane.ButtonProvider",
+            "type": "@UI.ToolbarItem.Provider",
+            "className": "Elements.StylesSidebarPane.ButtonProvider",
             "order": 100,
             "location": "styles-sidebarpane-toolbar"
         },
         {
-            "type": "@WebInspector.ActionDelegate",
+            "type": "@UI.ActionDelegate",
             "actionId": "elements.hide-element",
-            "contextTypes": ["WebInspector.ElementsPanel"],
-            "className": "WebInspector.ElementsActionDelegate",
+            "contextTypes": [
+                "Elements.ElementsPanel"
+            ],
+            "className": "Elements.ElementsActionDelegate",
             "bindings": [
                 {
                     "shortcut": "H"
@@ -122,10 +169,12 @@
             ]
         },
         {
-            "type": "@WebInspector.ActionDelegate",
+            "type": "@UI.ActionDelegate",
             "actionId": "elements.edit-as-html",
-            "contextTypes": ["WebInspector.ElementsPanel"],
-            "className": "WebInspector.ElementsActionDelegate",
+            "contextTypes": [
+                "Elements.ElementsPanel"
+            ],
+            "className": "Elements.ElementsActionDelegate",
             "bindings": [
                 {
                     "shortcut": "F2"
@@ -133,23 +182,23 @@
             ]
         },
         {
-            "type": "@WebInspector.DOMPresentationUtils.MarkerDecorator",
-            "className": "WebInspector.ElementsPanel.PseudoStateMarkerDecorator",
+            "type": "@Components.DOMPresentationUtils.MarkerDecorator",
+            "className": "Elements.ElementsPanel.PseudoStateMarkerDecorator",
             "marker": "pseudo-state-marker"
         },
         {
-            "type": "@WebInspector.DOMPresentationUtils.MarkerDecorator",
-            "factoryName": "WebInspector.DOMPresentationUtils.GenericDecorator",
+            "type": "@Components.DOMPresentationUtils.MarkerDecorator",
+            "factoryName": "Components.DOMPresentationUtils.GenericDecorator",
             "marker": "hidden-marker",
             "title": "Element is hidden",
             "color": "#555"
         },
         {
-            "type": "@WebInspector.ActionDelegate",
+            "type": "@UI.ActionDelegate",
             "actionId": "elements.toggle-element-search",
-            "className": "WebInspector.InspectElementModeController.ToggleSearchActionDelegate",
+            "className": "Elements.InspectElementModeController.ToggleSearchActionDelegate",
             "title": "Select an element in the page to inspect it",
-            "iconClass": "node-search-toolbar-item",
+            "iconClass": "largeicon-node-search",
             "bindings": [
                 {
                     "platform": "windows,linux",
@@ -162,22 +211,15 @@
             ]
         },
         {
-            "type": "@WebInspector.ToolbarItem.Provider",
+            "type": "@UI.ToolbarItem.Provider",
             "actionId": "elements.toggle-element-search",
             "location": "main-toolbar-left",
             "order": 0
         },
         {
-            "type": "@WebInspector.ToolbarItem.Provider",
-            "className": "WebInspector.InspectElementModeController.LayoutEditorButtonProvider",
-            "order": 4,
-            "location": "styles-sidebarpane-toolbar",
-            "experiment": "layoutEditor"
-        },
-        {
-            "type": "@WebInspector.ViewLocationResolver",
+            "type": "@UI.ViewLocationResolver",
             "name": "elements-sidebar",
-            "className": "WebInspector.ElementsPanel"
+            "className": "Elements.ElementsPanel"
         },
         {
             "type": "view",
@@ -187,7 +229,7 @@
             "order": 5,
             "hasToolbar": true,
             "persistence": "permanent",
-            "className": "WebInspector.EventListenersWidget"
+            "className": "Elements.EventListenersWidget"
         },
         {
             "type": "view",
@@ -196,7 +238,7 @@
             "title": "DOM Breakpoints",
             "order": 6,
             "persistence": "permanent",
-            "factoryName": "WebInspector.DOMBreakpointsSidebarPane.Proxy"
+            "factoryName": "Components.DOMBreakpointsSidebarPane.Proxy"
         },
         {
             "type": "view",
@@ -205,12 +247,14 @@
             "title": "Properties",
             "order": 7,
             "persistence": "permanent",
-            "className": "WebInspector.PropertiesWidget"
+            "className": "Elements.PropertiesWidget"
         }
     ],
     "dependencies": [
         "components",
-        "extensions"
+        "extensions",
+        "inline_editor",
+        "color_picker"
     ],
     "scripts": [
         "InspectElementModeController.js",
@@ -224,7 +268,7 @@
         "MetricsSidebarPane.js",
         "PlatformFontsWidget.js",
         "PropertiesWidget.js",
-        "PropertyChangeHighlighter.js",
+        "StylePropertyHighlighter.js",
         "StylesSidebarPane.js",
         "ComputedStyleWidget.js",
         "ElementsPanel.js",

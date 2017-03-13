@@ -13,13 +13,14 @@
 #include "base/location.h"
 #include "base/memory/weak_ptr.h"
 #include "base/threading/thread_checker.h"
-#include "components/sync/api/data_type_error_handler.h"
 #include "components/sync/base/model_type.h"
 #include "components/sync/base/unrecoverable_error_handler.h"
+#include "components/sync/engine/cycle/status_counters.h"
+#include "components/sync/model/data_type_error_handler.h"
 
 namespace syncer {
 
-class BackendDataTypeConfigurer;
+class ModelTypeConfigurer;
 class SyncError;
 class SyncMergeResult;
 
@@ -70,6 +71,9 @@ class DataTypeController : public base::SupportsWeakPtr<DataTypeController> {
                               std::unique_ptr<base::ListValue>)>
       AllNodesCallback;
 
+  typedef base::Callback<void(ModelType, const StatusCounters&)>
+      StatusCountersCallback;
+
   typedef std::map<ModelType, std::unique_ptr<DataTypeController>> TypeMap;
   typedef std::map<ModelType, DataTypeController::State> StateMap;
 
@@ -96,9 +100,10 @@ class DataTypeController : public base::SupportsWeakPtr<DataTypeController> {
 
   // Registers with sync backend if needed. This function is called by
   // DataTypeManager before downloading initial data. Non-blocking types need to
-  // pass activation context containing progress marker to sync backend before
-  // initial download starts.
-  virtual void RegisterWithBackend(BackendDataTypeConfigurer* configurer) = 0;
+  // pass activation context containing progress marker to sync backend and use
+  // |set_downloaded| to inform the manager whether their initial sync is done.
+  virtual void RegisterWithBackend(base::Callback<void(bool)> set_downloaded,
+                                   ModelTypeConfigurer* configurer) = 0;
 
   // Will start a potentially asynchronous operation to perform the
   // model association. Once the model association is done the callback will
@@ -109,11 +114,11 @@ class DataTypeController : public base::SupportsWeakPtr<DataTypeController> {
   // one of the implementation specific methods provided by the |configurer|.
   // This is called (on UI thread) after the data type configuration has
   // completed successfully.
-  virtual void ActivateDataType(BackendDataTypeConfigurer* configurer) = 0;
+  virtual void ActivateDataType(ModelTypeConfigurer* configurer) = 0;
 
   // Called by DataTypeManager to deactivate the controlled data type.
   // See comments for ModelAssociationManager::OnSingleDataTypeWillStop.
-  virtual void DeactivateDataType(BackendDataTypeConfigurer* configurer) = 0;
+  virtual void DeactivateDataType(ModelTypeConfigurer* configurer) = 0;
 
   // Synchronously stops the data type. If StartAssociating has already been
   // called but is not done yet it will be aborted. Similarly if LoadModels
@@ -146,17 +151,16 @@ class DataTypeController : public base::SupportsWeakPtr<DataTypeController> {
   // Used for populating nodes in Sync Node Browser of chrome://sync-internals.
   virtual void GetAllNodes(const AllNodesCallback& callback) = 0;
 
- protected:
-  DataTypeController(ModelType type, const base::Closure& dump_stack);
+  // Collects StatusCounters for this datatype and passes them to |callback|,
+  // which should be wrapped with syncer::BindToCurrentThread already.
+  // Used to display entity counts in chrome://sync-internals.
+  virtual void GetStatusCounters(const StatusCountersCallback& callback) = 0;
 
-  // Create an error handler that reports back to this controller.
-  virtual std::unique_ptr<DataTypeErrorHandler> CreateErrorHandler() = 0;
+ protected:
+  explicit DataTypeController(ModelType type);
 
   // Allows subclasses to DCHECK that they're on the correct thread.
   bool CalledOnValidThread() const;
-
-  // Callback to dump and upload a stack trace when an error occurs.
-  base::Closure dump_stack_;
 
  private:
   // The type this object is responsible for controlling.

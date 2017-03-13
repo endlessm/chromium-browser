@@ -17,7 +17,6 @@ class Arguments;
 }
 
 namespace v8 {
-class Function;
 class Isolate;
 class Object;
 }
@@ -44,18 +43,21 @@ class GpuBenchmarking : public gin::Wrappable<GpuBenchmarking> {
   void PrintToSkPicture(v8::Isolate* isolate, const std::string& dirname);
   void PrintPagesToSkPictures(v8::Isolate* isolate,
                               const std::string& filename);
+  void PrintPagesToXPS(v8::Isolate* isolate,
+                         const std::string& filename);
   bool GestureSourceTypeSupported(int gesture_source_type);
   bool SmoothScrollBy(gin::Arguments* args);
   bool SmoothDrag(gin::Arguments* args);
   bool Swipe(gin::Arguments* args);
   bool ScrollBounce(gin::Arguments* args);
   bool PinchBy(gin::Arguments* args);
+  bool Tap(gin::Arguments* args);
+  bool PointerActionSequence(gin::Arguments* args);
   float VisualViewportX();
   float VisualViewportY();
   float VisualViewportHeight();
   float VisualViewportWidth();
   float PageScaleFactor();
-  bool Tap(gin::Arguments* args);
   void ClearImageCache();
   int RunMicroBenchmark(gin::Arguments* args);
   bool SendMessageToMicroBenchmark(int id, v8::Local<v8::Object> message);

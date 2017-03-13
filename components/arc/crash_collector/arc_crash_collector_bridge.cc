@@ -11,6 +11,7 @@
 
 #include "base/logging.h"
 #include "base/process/launch.h"
+#include "components/arc/arc_bridge_service.h"
 #include "mojo/edk/embedder/embedder.h"
 
 namespace {
@@ -62,14 +63,14 @@ ArcCrashCollectorBridge::~ArcCrashCollectorBridge() {
 
 void ArcCrashCollectorBridge::OnInstanceReady() {
   mojom::CrashCollectorHostPtr host_ptr;
-  binding_.Bind(mojo::GetProxy(&host_ptr));
-  auto* instance =
-      arc_bridge_service()->crash_collector()->GetInstanceForMethod("Init");
+  binding_.Bind(mojo::MakeRequest(&host_ptr));
+  auto* instance = ARC_GET_INSTANCE_FOR_METHOD(
+      arc_bridge_service()->crash_collector(), Init);
   DCHECK(instance);
   instance->Init(std::move(host_ptr));
 }
 
-void ArcCrashCollectorBridge::DumpCrash(const mojo::String& type,
+void ArcCrashCollectorBridge::DumpCrash(const std::string& type,
                                         mojo::ScopedHandle pipe) {
   mojo::edk::ScopedPlatformHandle pipe_handle;
   mojo::edk::PassWrappedPlatformHandle(pipe.release().value(), &pipe_handle);
@@ -79,12 +80,12 @@ void ArcCrashCollectorBridge::DumpCrash(const mojo::String& type,
                             base::Passed(std::move(pipe_handle))));
 }
 
-void ArcCrashCollectorBridge::SetBuildProperties(const mojo::String& device,
-                                                 const mojo::String& board,
-                                                 const mojo::String& cpu_abi) {
-  device_ = device.get();
-  board_ = board.get();
-  cpu_abi_ = cpu_abi.get();
+void ArcCrashCollectorBridge::SetBuildProperties(const std::string& device,
+                                                 const std::string& board,
+                                                 const std::string& cpu_abi) {
+  device_ = device;
+  board_ = board;
+  cpu_abi_ = cpu_abi;
 }
 
 }  // namespace arc

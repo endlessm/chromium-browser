@@ -426,7 +426,7 @@ TEST_F(AnimationAnimationTest, FinishBeforeStart) {
 }
 
 TEST_F(AnimationAnimationTest, FinishDoesNothingWithPlaybackRateZero) {
-  TrackExceptionState exceptionState;
+  DummyExceptionStateForTesting exceptionState;
   animation->setCurrentTimeInternal(10);
   animation->setPlaybackRate(0);
   animation->finish(exceptionState);
@@ -441,7 +441,7 @@ TEST_F(AnimationAnimationTest, FinishRaisesException) {
   animation->setEffect(KeyframeEffect::create(0, nullptr, timing));
   animation->setCurrentTimeInternal(10);
 
-  TrackExceptionState exceptionState;
+  DummyExceptionStateForTesting exceptionState;
   animation->finish(exceptionState);
   EXPECT_EQ(10, animation->currentTimeInternal());
   EXPECT_TRUE(exceptionState.hadException());
@@ -690,8 +690,7 @@ TEST_F(AnimationAnimationTest, TimeToNextEffectSimpleCancelledBeforeStart) {
 }
 
 TEST_F(AnimationAnimationTest, AttachedAnimations) {
-  Persistent<Element> element =
-      document->createElement("foo", ASSERT_NO_EXCEPTION);
+  Persistent<Element> element = document->createElement("foo");
 
   Timing timing;
   KeyframeEffect* keyframeEffect =

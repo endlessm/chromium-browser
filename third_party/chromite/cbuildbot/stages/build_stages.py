@@ -9,16 +9,19 @@ from __future__ import print_function
 import glob
 import os
 
+from chromite.cbuildbot import buildbucket_lib
 from chromite.cbuildbot import chroot_lib
 from chromite.cbuildbot import commands
-from chromite.cbuildbot import constants
-from chromite.cbuildbot import failures_lib
 from chromite.cbuildbot import repository
 from chromite.cbuildbot.stages import generic_stages
 from chromite.cbuildbot.stages import test_stages
+from chromite.lib import config_lib
+from chromite.lib import constants
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
+from chromite.lib import failures_lib
 from chromite.lib import git
+from chromite.lib import metrics
 from chromite.lib import osutils
 from chromite.lib import parallel
 from chromite.lib import portage_util
@@ -90,7 +93,7 @@ class CleanUpStage(generic_stages.BuilderStage):
 
   def _DeleteAutotestSitePackages(self):
     """Clears any previously downloaded site-packages."""
-    logging.info('Deteing autotest site packages.')
+    logging.info('Deleting autotest site packages.')
     site_packages_dir = os.path.join(self._build_root, 'src', 'third_party',
                                      'autotest', 'files', 'site-packages')
     # Note that these shouldn't be recreated but might be around from stale
@@ -100,6 +103,65 @@ class CleanUpStage(generic_stages.BuilderStage):
   def _WipeOldOutput(self):
     logging.info('Wiping old output.')
     commands.WipeOldOutput(self._build_root)
+
+  def CancelObsoleteSlaveBuilds(self):
+    """Cancel the obsolete slave builds scheduled by the previous master."""
+    logging.info('Cancelling obsolete slave builds.')
+
+    buildbucket_client = self.GetBuildbucketClient()
+
+    if buildbucket_client is not None:
+      buildbucket_ids = []
+      # Search for scheduled/started slave builds in chromiumos waterfall
+      # and chromeos waterfall.
+      for status in [constants.BUILDBUCKET_BUILDER_STATUS_SCHEDULED,
+                     constants.BUILDBUCKET_BUILDER_STATUS_STARTED]:
+        builds = buildbucket_client.SearchAllBuilds(
+            self._run.options.debug,
+            buckets=[constants.CHROMIUMOS_BUILDBUCKET_BUCKET,
+                     constants.CHROMEOS_BUILDBUCKET_BUCKET],
+            tags=['build_type:%s' % self._run.config.build_type,
+                  'master:False',],
+            status=status)
+
+        ids = buildbucket_lib.ExtractBuildIds(builds)
+        if ids:
+          logging.info('Found builds %s in status %s.', ids, status)
+          buildbucket_ids.extend(ids)
+
+      if buildbucket_ids:
+        logging.info('Going to cancel buildbucket_ids: %s', buildbucket_ids)
+
+        if not self._run.options.debug:
+          fields = {'build_type': self._run.config.build_type,
+                    'build_name': self._run.config.name}
+          metrics.Counter(constants.MON_BB_CANCEL_BATCH_BUILDS_COUNT).increment(
+              fields=fields)
+
+        cancel_content = buildbucket_client.CancelBatchBuildsRequest(
+            buildbucket_ids,
+            dryrun=self._run.options.debug)
+
+        build_id, db = self._run.GetCIDBHandle()
+
+        result_map = buildbucket_lib.GetResultMap(cancel_content)
+        for buildbucket_id, result in result_map.iteritems():
+          # Check if the result contains error messages.
+          if buildbucket_lib.GetNestedAttr(result, ['error']):
+            # TODO(nxia): Get build url and log url in the warnings.
+            logging.warning("Error cancelling build %s with reason: %s. "
+                            "Please check the status of the build.",
+                            buildbucket_id,
+                            buildbucket_lib.GetErrorReason(result))
+          elif db:
+            # The build was successfully canceled by Buildbucket,
+            # change its status to 'aborted' in CIDB.
+            build = db.GetBuildStatusWithBuildbucketId(buildbucket_id)
+            if build is not None:
+              db.FinishBuild(build['id'],
+                             status=constants.BUILDER_STATUS_ABORTED,
+                             summary=('Canceled by master build %s '
+                                      'CleanUpStage' % build_id))
 
   @failures_lib.SetFailureType(failures_lib.InfrastructureFailure)
   def PerformStage(self):
@@ -144,6 +206,14 @@ class CleanUpStage(generic_stages.BuilderStage):
         tasks.append(self._DeleteChroot)
       else:
         tasks.append(self._CleanChroot)
+
+      # Only enable CancelObsoleteSlaveBuilds on the master builds
+      # which use the Buildbucket scheduler, it checks for builds in
+      # ChromiumOs and ChromeOs waterfalls.
+      if (config_lib.UseBuildbucketScheduler(self._run.config) and
+          config_lib.IsMasterBuild(self._run.config)):
+        tasks.append(self.CancelObsoleteSlaveBuilds)
+
       parallel.RunParallelSteps(tasks)
 
 
@@ -216,7 +286,7 @@ class SetupBoardStage(generic_stages.BoardSpecificBuilderStage, InitSDKStage):
                           not self._latest_toolchain)
       commands.UpdateChroot(
           self._build_root, toolchain_boards=[self._current_board],
-          usepkg=usepkg_toolchain)
+          usepkg=usepkg_toolchain, extra_env=self._portage_extra_env)
 
     # Always update the board.
     usepkg = self._run.config.usepkg_build_packages
@@ -311,6 +381,7 @@ class BuildPackagesStage(generic_stages.BoardSpecificBuilderStage,
       logging.info('Recording packages under test')
       self.board_runattrs.SetParallel('packages_under_test', set(deps.keys()))
 
+  @osutils.TempDirDecorator
   def PerformStage(self):
     # If we have rietveld patches, always compile Chrome from source.
     noworkon = not self._run.options.rietveld_patches
@@ -318,17 +389,25 @@ class BuildPackagesStage(generic_stages.BoardSpecificBuilderStage,
     self.VerifyChromeBinpkg(packages)
     self.RecordPackagesUnderTest(packages)
 
-    commands.Build(self._build_root,
-                   self._current_board,
-                   build_autotest=self._run.ShouldBuildAutotest(),
-                   usepkg=self._run.config.usepkg_build_packages,
-                   chrome_binhost_only=self._run.config.chrome_binhost_only,
-                   packages=packages,
-                   skip_chroot_upgrade=True,
-                   chrome_root=self._run.options.chrome_root,
-                   noworkon=noworkon,
-                   noretry=self._run.config.nobuildretry,
-                   extra_env=self._portage_extra_env)
+    event_file = os.path.join(self.tempdir, 'build-events.json')
+
+    try:
+      commands.Build(self._build_root,
+                     self._current_board,
+                     build_autotest=self._run.ShouldBuildAutotest(),
+                     usepkg=self._run.config.usepkg_build_packages,
+                     chrome_binhost_only=self._run.config.chrome_binhost_only,
+                     packages=packages,
+                     skip_chroot_upgrade=True,
+                     chrome_root=self._run.options.chrome_root,
+                     noworkon=noworkon,
+                     noretry=self._run.config.nobuildretry,
+                     extra_env=self._portage_extra_env,
+                     event_file=event_file,)
+
+    finally:
+      if os.path.isfile(event_file):
+        self.UploadArtifact(event_file, strict=False)
 
     if self._update_metadata:
       # TODO: Consider moving this into its own stage if there are other similar

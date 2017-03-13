@@ -28,7 +28,7 @@
 
 #include "modules/webdatabase/InspectorDatabaseAgent.h"
 
-#include "bindings/core/v8/ExceptionStatePlaceholder.h"
+#include "bindings/core/v8/ExceptionState.h"
 #include "core/frame/LocalFrame.h"
 #include "core/html/VoidCallback.h"
 #include "core/loader/DocumentLoader.h"
@@ -177,7 +177,7 @@ class TransactionCallback final : public SQLTransactionCallback {
     SQLStatementErrorCallback* errorCallback =
         StatementErrorCallback::create(m_requestCallback);
     transaction->executeSQL(m_sqlStatement, sqlValues, callback, errorCallback,
-                            IGNORE_EXCEPTION);
+                            IGNORE_EXCEPTION_FOR_TESTING);
     return true;
   }
 
@@ -265,9 +265,9 @@ InspectorDatabaseAgent::InspectorDatabaseAgent(Page* page)
 
 InspectorDatabaseAgent::~InspectorDatabaseAgent() {}
 
-void InspectorDatabaseAgent::enable(ErrorString*) {
+Response InspectorDatabaseAgent::enable() {
   if (m_enabled)
-    return;
+    return Response::OK();
   m_enabled = true;
   m_state->setBoolean(DatabaseAgentState::databaseAgentEnabled, m_enabled);
   if (DatabaseClient* client = DatabaseClient::fromPage(m_page))
@@ -275,34 +275,32 @@ void InspectorDatabaseAgent::enable(ErrorString*) {
   DatabaseTracker::tracker().forEachOpenDatabaseInPage(
       m_page, WTF::bind(&InspectorDatabaseAgent::registerDatabaseOnCreation,
                         wrapPersistent(this)));
+  return Response::OK();
 }
 
-void InspectorDatabaseAgent::disable(ErrorString*) {
+Response InspectorDatabaseAgent::disable() {
   if (!m_enabled)
-    return;
+    return Response::OK();
   m_enabled = false;
   m_state->setBoolean(DatabaseAgentState::databaseAgentEnabled, m_enabled);
   if (DatabaseClient* client = DatabaseClient::fromPage(m_page))
     client->setInspectorAgent(nullptr);
   m_resources.clear();
+  return Response::OK();
 }
 
 void InspectorDatabaseAgent::restore() {
   if (m_state->booleanProperty(DatabaseAgentState::databaseAgentEnabled,
                                false)) {
-    ErrorString error;
-    enable(&error);
+    enable();
   }
 }
 
-void InspectorDatabaseAgent::getDatabaseTableNames(
-    ErrorString* error,
+Response InspectorDatabaseAgent::getDatabaseTableNames(
     const String& databaseId,
     std::unique_ptr<protocol::Array<String>>* names) {
-  if (!m_enabled) {
-    *error = "Database agent is not enabled";
-    return;
-  }
+  if (!m_enabled)
+    return Response::Error("Database agent is not enabled");
 
   *names = protocol::Array<String>::create();
 
@@ -313,6 +311,7 @@ void InspectorDatabaseAgent::getDatabaseTableNames(
     for (unsigned i = 0; i < length; ++i)
       (*names)->addItem(tableNames[i]);
   }
+  return Response::OK();
 }
 
 void InspectorDatabaseAgent::executeSQL(
@@ -323,13 +322,14 @@ void InspectorDatabaseAgent::executeSQL(
       std::move(prpRequestCallback);
 
   if (!m_enabled) {
-    requestCallback->sendFailure("Database agent is not enabled");
+    requestCallback->sendFailure(
+        Response::Error("Database agent is not enabled"));
     return;
   }
 
   blink::Database* database = databaseForId(databaseId);
   if (!database) {
-    requestCallback->sendFailure("Database not found");
+    requestCallback->sendFailure(Response::Error("Database not found"));
     return;
   }
 

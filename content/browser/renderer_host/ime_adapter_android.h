@@ -10,7 +10,14 @@
 #include <vector>
 
 #include "base/android/jni_weak_ref.h"
+#include "base/strings/string16.h"
 #include "ui/gfx/geometry/rect_f.h"
+
+namespace blink {
+
+struct WebCompositionUnderline;
+
+}  // namespace blink
 
 namespace content {
 
@@ -18,7 +25,6 @@ class RenderFrameHost;
 class RenderWidgetHostImpl;
 class RenderWidgetHostViewAndroid;
 class WebContents;
-struct NativeWebKeyboardEvent;
 
 // This class is in charge of dispatching key events from the java side
 // and forward to renderer along with input method results via
@@ -42,13 +48,14 @@ class ImeAdapterAndroid {
       int scan_code,
       bool is_system_key,
       int unicode_text);
-  void SetComposingText(JNIEnv*,
+  void SetComposingText(JNIEnv* env,
                         const base::android::JavaParamRef<jobject>& obj,
                         const base::android::JavaParamRef<jobject>& text,
                         const base::android::JavaParamRef<jstring>& text_str,
                         int relative_cursor_pos);
-  void CommitText(JNIEnv*,
-                  const base::android::JavaParamRef<jobject>&,
+  void CommitText(JNIEnv* env,
+                  const base::android::JavaParamRef<jobject>& obj,
+                  const base::android::JavaParamRef<jobject>& text,
                   const base::android::JavaParamRef<jstring>& text_str,
                   int relative_cursor_pos);
   void FinishComposingText(JNIEnv* env,
@@ -73,7 +80,6 @@ class ImeAdapterAndroid {
                            bool immediateRequest, bool monitorRequest);
   bool RequestTextInputStateUpdate(JNIEnv*,
                                    const base::android::JavaParamRef<jobject>&);
-  bool IsImeThreadEnabled(JNIEnv*, const base::android::JavaParamRef<jobject>&);
 
   // Called from native -> java
   void CancelComposition();
@@ -84,6 +90,11 @@ class ImeAdapterAndroid {
   RenderWidgetHostImpl* GetRenderWidgetHostImpl();
   RenderFrameHost* GetFocusedFrame();
   WebContents* GetWebContents();
+  std::vector<blink::WebCompositionUnderline> GetUnderlinesFromSpans(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& obj,
+      const base::android::JavaParamRef<jobject>& text,
+      const base::string16& text16);
 
   RenderWidgetHostViewAndroid* rwhva_;
   JavaObjectWeakGlobalRef java_ime_adapter_;

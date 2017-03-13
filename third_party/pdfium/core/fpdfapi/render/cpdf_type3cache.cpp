@@ -34,24 +34,24 @@ void CPDF_UniqueKeyGen::Generate(int count, ...) {
   m_KeyLen = count * sizeof(uint32_t);
 }
 
-FX_BOOL IsScanLine1bpp(uint8_t* pBuf, int width) {
+bool IsScanLine1bpp(uint8_t* pBuf, int width) {
   int size = width / 8;
   for (int i = 0; i < size; i++) {
     if (pBuf[i])
-      return TRUE;
+      return true;
   }
   return (width % 8) && (pBuf[width / 8] & (0xff << (8 - width % 8)));
 }
 
-FX_BOOL IsScanLine8bpp(uint8_t* pBuf, int width) {
+bool IsScanLine8bpp(uint8_t* pBuf, int width) {
   for (int i = 0; i < width; i++) {
     if (pBuf[i] > 0x40)
-      return TRUE;
+      return true;
   }
-  return FALSE;
+  return false;
 }
 
-int DetectFirstLastScan(const CFX_DIBitmap* pBitmap, FX_BOOL bFirst) {
+int DetectFirstLastScan(const CFX_DIBitmap* pBitmap, bool bFirst) {
   int height = pBitmap->GetHeight();
   int pitch = pBitmap->GetPitch();
   int width = pBitmap->GetWidth();
@@ -131,22 +131,22 @@ CFX_GlyphBitmap* CPDF_Type3Cache::RenderGlyph(CPDF_Type3Glyphs* pSize,
   int top = 0;
   if (FXSYS_fabs(image_matrix.b) < FXSYS_fabs(image_matrix.a) / 100 &&
       FXSYS_fabs(image_matrix.c) < FXSYS_fabs(image_matrix.d) / 100) {
-    int top_line = DetectFirstLastScan(pBitmap, TRUE);
-    int bottom_line = DetectFirstLastScan(pBitmap, FALSE);
+    int top_line = DetectFirstLastScan(pBitmap, true);
+    int bottom_line = DetectFirstLastScan(pBitmap, false);
     if (top_line == 0 && bottom_line == pBitmap->GetHeight() - 1) {
       FX_FLOAT top_y = image_matrix.d + image_matrix.f;
       FX_FLOAT bottom_y = image_matrix.f;
-      FX_BOOL bFlipped = top_y > bottom_y;
+      bool bFlipped = top_y > bottom_y;
       if (bFlipped) {
         FX_FLOAT temp = top_y;
         top_y = bottom_y;
         bottom_y = temp;
       }
       pSize->AdjustBlue(top_y, bottom_y, top_line, bottom_line);
-      pResBitmap.reset(pBitmap->StretchTo(
+      pResBitmap = pBitmap->StretchTo(
           (int)(FXSYS_round(image_matrix.a) * retinaScaleX),
           (int)((bFlipped ? top_line - bottom_line : bottom_line - top_line) *
-                retinaScaleY)));
+                retinaScaleY));
       top = top_line;
       if (image_matrix.a < 0) {
         image_matrix.Scale(retinaScaleX, retinaScaleY);
@@ -158,7 +158,7 @@ CFX_GlyphBitmap* CPDF_Type3Cache::RenderGlyph(CPDF_Type3Glyphs* pSize,
   }
   if (!pResBitmap) {
     image_matrix.Scale(retinaScaleX, retinaScaleY);
-    pResBitmap.reset(pBitmap->TransformTo(&image_matrix, left, top));
+    pResBitmap = pBitmap->TransformTo(&image_matrix, left, top);
   }
   if (!pResBitmap)
     return nullptr;

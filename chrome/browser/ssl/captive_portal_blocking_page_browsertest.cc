@@ -7,15 +7,19 @@
 #include <string>
 #include <utility>
 
+#include "base/base_switches.h"
+#include "base/bind_helpers.h"
 #include "base/callback.h"
+#include "base/command_line.h"
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/run_loop.h"
-#include "base/strings/stringprintf.h"
 #include "chrome/browser/interstitials/security_interstitial_page_test_utils.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/safe_browsing/certificate_reporting_service_test_utils.h"
 #include "chrome/browser/ssl/cert_report_helper.h"
 #include "chrome/browser/ssl/certificate_reporting_test_utils.h"
+#include "chrome/browser/ssl/security_state_tab_helper.h"
 #include "chrome/browser/ssl/ssl_cert_reporter.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
@@ -23,6 +27,8 @@
 #include "chrome/test/base/in_process_browser_test.h"
 #include "components/captive_portal/captive_portal_detector.h"
 #include "components/prefs/pref_service.h"
+#include "components/security_state/core/security_state.h"
+#include "components/variations/variations_switches.h"
 #include "content/public/browser/interstitial_page.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/test/browser_test_utils.h"
@@ -87,10 +93,19 @@ class CaptivePortalBlockingPageForTesting : public CaptivePortalBlockingPage {
   const std::string wifi_ssid_;
 };
 
-class CaptivePortalBlockingPageTest
-    : public certificate_reporting_test_utils::CertificateReportingTest {
+class CaptivePortalBlockingPageTest : public InProcessBrowserTest {
  public:
   CaptivePortalBlockingPageTest() {}
+
+  void SetUpCommandLine(base::CommandLine* command_line) override {
+    command_line->AppendSwitchASCII(
+        switches::kForceFieldTrials,
+        "ReportCertificateErrors/ShowAndPossiblySend/");
+    // Setting the sending threshold to 1.0 ensures reporting is enabled.
+    command_line->AppendSwitchASCII(
+        variations::switches::kForceFieldTrialParams,
+        "ReportCertificateErrors.ShowAndPossiblySend:sendingThreshold/1.0");
+  }
 
   void TestInterstitial(bool is_wifi_connection,
                         const std::string& wifi_ssid,
@@ -137,6 +152,7 @@ void CaptivePortalBlockingPageTest::TestInterstitial(
   net::SSLInfo ssl_info;
   ssl_info.cert =
       net::ImportCertFromFile(net::GetTestCertsDirectory(), "ok_cert.pem");
+  ssl_info.cert_status = net::CERT_STATUS_COMMON_NAME_INVALID;
   // Blocking page is owned by the interstitial.
   CaptivePortalBlockingPage* blocking_page =
       new CaptivePortalBlockingPageForTesting(
@@ -163,6 +179,14 @@ void CaptivePortalBlockingPageTest::TestInterstitial(
   EXPECT_EQ(expect_login_url == EXPECT_LOGIN_URL_NO,
             IsInterstitialDisplayingText(contents->GetInterstitialPage(),
                                          kGenericLoginURLText));
+
+  // Check that a red/dangerous lock icon is showing on the interstitial.
+  SecurityStateTabHelper* helper =
+      SecurityStateTabHelper::FromWebContents(contents);
+  ASSERT_TRUE(helper);
+  security_state::SecurityInfo security_info;
+  helper->GetSecurityInfo(&security_info);
+  EXPECT_EQ(security_state::DANGEROUS, security_info.security_level);
 }
 
 void CaptivePortalBlockingPageTest::TestInterstitial(
@@ -192,13 +216,16 @@ void CaptivePortalBlockingPageTest::TestInterstitial(
 
 void CaptivePortalBlockingPageTest::TestCertReporting(
     certificate_reporting_test_utils::OptIn opt_in) {
-  ASSERT_NO_FATAL_FAILURE(SetUpMockReporter());
-
   certificate_reporting_test_utils::SetCertReportingOptIn(browser(), opt_in);
   base::RunLoop run_loop;
+  certificate_reporting_test_utils::SSLCertReporterCallback reporter_callback(
+      &run_loop);
+
   std::unique_ptr<SSLCertReporter> ssl_cert_reporter =
-      certificate_reporting_test_utils::SetUpMockSSLCertReporter(
-          &run_loop,
+      certificate_reporting_test_utils::CreateMockSSLCertReporter(
+          base::Bind(&certificate_reporting_test_utils::
+                         SSLCertReporterCallback::ReportSent,
+                     base::Unretained(&reporter_callback)),
           opt_in == certificate_reporting_test_utils::EXTENDED_REPORTING_OPT_IN
               ? certificate_reporting_test_utils::CERT_REPORT_EXPECTED
               : certificate_reporting_test_utils::CERT_REPORT_NOT_EXPECTED);
@@ -208,7 +235,7 @@ void CaptivePortalBlockingPageTest::TestCertReporting(
                    EXPECT_WIFI_SSID_NO, EXPECT_LOGIN_URL_NO,
                    std::move(ssl_cert_reporter));
 
-  EXPECT_EQ(std::string(), GetLatestHostnameReported());
+  EXPECT_EQ(std::string(), reporter_callback.GetLatestHostnameReported());
 
   content::WebContents* tab =
       browser()->tab_strip_model()->GetActiveWebContents();
@@ -217,9 +244,10 @@ void CaptivePortalBlockingPageTest::TestCertReporting(
   if (opt_in == certificate_reporting_test_utils::EXTENDED_REPORTING_OPT_IN) {
     // Check that the mock reporter received a request to send a report.
     run_loop.Run();
-    EXPECT_EQ(GURL(kBrokenSSL).host(), GetLatestHostnameReported());
+    EXPECT_EQ(GURL(kBrokenSSL).host(),
+              reporter_callback.GetLatestHostnameReported());
   } else {
-    EXPECT_EQ(std::string(), GetLatestHostnameReported());
+    EXPECT_EQ(std::string(), reporter_callback.GetLatestHostnameReported());
   }
 }
 
@@ -292,16 +320,8 @@ IN_PROC_BROWSER_TEST_F(CaptivePortalBlockingPageTest,
 }
 
 IN_PROC_BROWSER_TEST_F(CaptivePortalBlockingPageTest, CertReportingOptIn) {
-  // This test should only run if the Finch config is such that reports
-  // will be sent when opted in. This tests that a report *is* sent when
-  // the user opts in under such a Finch config, and the below test
-  // tests that a report *is not* sent when the user doesn't opt in
-  // (under any Finch config).
-  if (certificate_reporting_test_utils::GetReportExpectedFromFinch() ==
-      certificate_reporting_test_utils::CERT_REPORT_EXPECTED) {
-    TestCertReporting(
-        certificate_reporting_test_utils::EXTENDED_REPORTING_OPT_IN);
-  }
+  TestCertReporting(
+      certificate_reporting_test_utils::EXTENDED_REPORTING_OPT_IN);
 }
 
 IN_PROC_BROWSER_TEST_F(CaptivePortalBlockingPageTest, CertReportingOptOut) {
@@ -312,7 +332,7 @@ IN_PROC_BROWSER_TEST_F(CaptivePortalBlockingPageTest, CertReportingOptOut) {
 class CaptivePortalBlockingPageIDNTest : public SecurityInterstitialIDNTest {
  protected:
   // SecurityInterstitialIDNTest implementation
-  SecurityInterstitialPage* CreateInterstitial(
+  security_interstitials::SecurityInterstitialPage* CreateInterstitial(
       content::WebContents* contents,
       const GURL& request_url) const override {
     net::SSLInfo empty_ssl_info;

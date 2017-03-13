@@ -4,11 +4,14 @@
 
 #include "content/public/browser/resource_dispatcher_host.h"
 
+#include <memory>
 #include <utility>
+#include <vector>
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/macros.h"
+#include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
 #include "base/run_loop.h"
 #include "base/strings/string_util.h"
@@ -16,12 +19,15 @@
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "content/browser/download/download_manager_impl.h"
+#include "content/browser/loader/resource_dispatcher_host_impl.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/resource_dispatcher_host_delegate.h"
 #include "content/public/browser/resource_request_info.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/common/browser_side_navigation_policy.h"
+#include "content/public/common/previews_state.h"
 #include "content/public/common/url_constants.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test.h"
@@ -238,6 +244,53 @@ IN_PROC_BROWSER_TEST_F(ResourceDispatcherHostBrowserTest,
   ASSERT_FALSE(got_downloads());
 }
 
+namespace {
+
+// Responses with a HungResponse for the specified URL to hang on the request,
+// and cancells all requests from specifield |child_id|.
+std::unique_ptr<net::test_server::HttpResponse> CancelOnRequest(
+    const std::string& relative_url,
+    int child_id,
+    const net::test_server::HttpRequest& request) {
+  if (request.relative_url != relative_url)
+    return nullptr;
+
+  content::BrowserThread::PostTask(
+      content::BrowserThread::IO,
+      FROM_HERE,
+      base::Bind(&ResourceDispatcherHostImpl::CancelRequestsForProcess,
+                 base::Unretained(ResourceDispatcherHostImpl::Get()),
+                 child_id));
+
+  return base::MakeUnique<net::test_server::HungResponse>();
+}
+
+}  // namespace
+
+// Tests the case where the request is cancelled by a layer above the
+// URLRequest, which passes the error on ResourceLoader teardown, rather than in
+// response to call to AsyncResourceHandler::OnResponseComplete.
+IN_PROC_BROWSER_TEST_F(ResourceDispatcherHostBrowserTest,
+                       SyncXMLHttpRequest_Cancelled) {
+  embedded_test_server()->RegisterRequestHandler(
+      base::Bind(&CancelOnRequest, "/hung",
+                 shell()->web_contents()->GetRenderProcessHost()->GetID()));
+
+  ASSERT_TRUE(embedded_test_server()->Start());
+  WaitForLoadStop(shell()->web_contents());
+
+  NavigateToURL(shell(), embedded_test_server()->GetURL(
+                             "/sync_xmlhttprequest_cancelled.html"));
+
+  int status_code = -1;
+  EXPECT_TRUE(ExecuteScriptAndExtractInt(
+      shell(), "window.domAutomationController.send(getErrorCode());",
+      &status_code));
+
+  // 19 is the value of NETWORK_ERROR on DOMException.
+  EXPECT_EQ(19, status_code);
+}
+
 // Flaky everywhere. http://crbug.com/130404
 // Tests that onunload is run for cross-site requests.  (Bug 1114994)
 IN_PROC_BROWSER_TEST_F(ResourceDispatcherHostBrowserTest,
@@ -297,6 +350,10 @@ std::unique_ptr<net::test_server::HttpResponse> NoContentResponseHandler(
 // If this flakes use http://crbug.com/80596.
 IN_PROC_BROWSER_TEST_F(ResourceDispatcherHostBrowserTest,
                        CrossSiteNoUnloadOn204) {
+  const char kNoContentPath[] = "/nocontent";
+  embedded_test_server()->RegisterRequestHandler(
+      base::Bind(&NoContentResponseHandler, kNoContentPath));
+
   ASSERT_TRUE(embedded_test_server()->Start());
 
   // Start with a URL that sets a cookie in its unload handler.
@@ -304,9 +361,6 @@ IN_PROC_BROWSER_TEST_F(ResourceDispatcherHostBrowserTest,
   CheckTitleTest(url, "set cookie on unload");
 
   // Navigate to a cross-site URL that returns a 204 No Content response.
-  const char kNoContentPath[] = "/nocontent";
-  embedded_test_server()->RegisterRequestHandler(
-      base::Bind(&NoContentResponseHandler, kNoContentPath));
   NavigateToURL(shell(), embedded_test_server()->GetURL(kNoContentPath));
 
   // Check that the unload cookie was not set.
@@ -480,9 +534,9 @@ std::unique_ptr<net::test_server::HttpResponse> HandleRedirectRequest(
 // Test that we update the cookie policy URLs correctly when transferring
 // navigations.
 IN_PROC_BROWSER_TEST_F(ResourceDispatcherHostBrowserTest, CookiePolicy) {
-  ASSERT_TRUE(embedded_test_server()->Start());
   embedded_test_server()->RegisterRequestHandler(
       base::Bind(&HandleRedirectRequest, "/redirect?"));
+  ASSERT_TRUE(embedded_test_server()->Start());
 
   std::string set_cookie_url(base::StringPrintf(
       "http://localhost:%u/set_cookie.html", embedded_test_server()->port()));
@@ -501,11 +555,12 @@ class PageTransitionResourceDispatcherHostDelegate
     : watch_url_(watch_url) {}
 
   // ResourceDispatcherHostDelegate implementation:
-  void RequestBeginning(net::URLRequest* request,
-                        ResourceContext* resource_context,
-                        AppCacheService* appcache_service,
-                        ResourceType resource_type,
-                        ScopedVector<ResourceThrottle>* throttles) override {
+  void RequestBeginning(
+      net::URLRequest* request,
+      ResourceContext* resource_context,
+      AppCacheService* appcache_service,
+      ResourceType resource_type,
+      std::vector<std::unique_ptr<ResourceThrottle>>* throttles) override {
     if (request->url() == watch_url_) {
       const ResourceRequestInfo* info =
           ResourceRequestInfo::ForRequest(request);
@@ -541,31 +596,32 @@ IN_PROC_BROWSER_TEST_F(ResourceDispatcherHostBrowserTest,
 
 namespace {
 
-// Checks whether the given urls are requested, and that IsUsingLofi() returns
-// the appropriate value when the Lo-Fi state is set.
-class LoFiModeResourceDispatcherHostDelegate
+// Checks whether the given urls are requested, and that GetPreviewsState()
+// returns the appropriate value when the Previews are set.
+class PreviewsStateResourceDispatcherHostDelegate
     : public ResourceDispatcherHostDelegate {
  public:
-  LoFiModeResourceDispatcherHostDelegate(const GURL& main_frame_url,
-                                         const GURL& subresource_url,
-                                         const GURL& iframe_url)
+  PreviewsStateResourceDispatcherHostDelegate(const GURL& main_frame_url,
+                                              const GURL& subresource_url,
+                                              const GURL& iframe_url)
       : main_frame_url_(main_frame_url),
         subresource_url_(subresource_url),
         iframe_url_(iframe_url),
         main_frame_url_seen_(false),
         subresource_url_seen_(false),
         iframe_url_seen_(false),
-        use_lofi_(false),
-        should_enable_lofi_mode_called_(false) {}
+        previews_state_(PREVIEWS_OFF),
+        should_get_previews_state_called_(false) {}
 
-  ~LoFiModeResourceDispatcherHostDelegate() override {}
+  ~PreviewsStateResourceDispatcherHostDelegate() override {}
 
   // ResourceDispatcherHostDelegate implementation:
-  void RequestBeginning(net::URLRequest* request,
-                        ResourceContext* resource_context,
-                        AppCacheService* appcache_service,
-                        ResourceType resource_type,
-                        ScopedVector<ResourceThrottle>* throttles) override {
+  void RequestBeginning(
+      net::URLRequest* request,
+      ResourceContext* resource_context,
+      AppCacheService* appcache_service,
+      ResourceType resource_type,
+      std::vector<std::unique_ptr<ResourceThrottle>>* throttles) override {
     DCHECK_CURRENTLY_ON(BrowserThread::IO);
     const ResourceRequestInfo* info = ResourceRequestInfo::ForRequest(request);
     if (request->url() != main_frame_url_ && request->url() != subresource_url_
@@ -583,7 +639,7 @@ class LoFiModeResourceDispatcherHostDelegate
       EXPECT_FALSE(iframe_url_seen_);
       iframe_url_seen_ = true;
     }
-    EXPECT_EQ(use_lofi_, info->IsUsingLoFi());
+    EXPECT_EQ(previews_state_, info->GetPreviewsState());
   }
 
   void SetDelegate() {
@@ -591,28 +647,29 @@ class LoFiModeResourceDispatcherHostDelegate
     ResourceDispatcherHost::Get()->SetDelegate(this);
   }
 
-  bool ShouldEnableLoFiMode(
+  PreviewsState GetPreviewsState(
       const net::URLRequest& request,
       content::ResourceContext* resource_context) override {
     DCHECK_CURRENTLY_ON(BrowserThread::IO);
-    EXPECT_FALSE(should_enable_lofi_mode_called_);
-    should_enable_lofi_mode_called_ = true;
+    EXPECT_FALSE(should_get_previews_state_called_);
+    should_get_previews_state_called_ = true;
     EXPECT_EQ(main_frame_url_, request.url());
-    return use_lofi_;
+    return previews_state_;
   }
 
-  void Reset(bool use_lofi) {
+  void Reset(PreviewsState previews_state) {
     DCHECK_CURRENTLY_ON(BrowserThread::IO);
     main_frame_url_seen_ = false;
     subresource_url_seen_ = false;
     iframe_url_seen_ = false;
-    use_lofi_ = use_lofi;
-    should_enable_lofi_mode_called_ = false;
+    previews_state_ = previews_state;
+    should_get_previews_state_called_ = false;
   }
 
-  void CheckResourcesRequested(bool should_enable_lofi_mode_called) {
+  void CheckResourcesRequested(bool should_get_previews_state_called) {
     DCHECK_CURRENTLY_ON(BrowserThread::IO);
-    EXPECT_EQ(should_enable_lofi_mode_called, should_enable_lofi_mode_called_);
+    EXPECT_EQ(should_get_previews_state_called,
+              should_get_previews_state_called_);
     EXPECT_TRUE(main_frame_url_seen_);
     EXPECT_TRUE(subresource_url_seen_);
     EXPECT_TRUE(iframe_url_seen_);
@@ -626,17 +683,18 @@ class LoFiModeResourceDispatcherHostDelegate
   bool main_frame_url_seen_;
   bool subresource_url_seen_;
   bool iframe_url_seen_;
-  bool use_lofi_;
-  bool should_enable_lofi_mode_called_;
+  PreviewsState previews_state_;
+  bool should_get_previews_state_called_;
 
-  DISALLOW_COPY_AND_ASSIGN(LoFiModeResourceDispatcherHostDelegate);
+  DISALLOW_COPY_AND_ASSIGN(PreviewsStateResourceDispatcherHostDelegate);
 };
 
 }  // namespace
 
-class LoFiResourceDispatcherHostBrowserTest : public ContentBrowserTest {
+class PreviewsStateResourceDispatcherHostBrowserTest
+    : public ContentBrowserTest {
  public:
-  ~LoFiResourceDispatcherHostBrowserTest() override {}
+  ~PreviewsStateResourceDispatcherHostBrowserTest() override {}
 
  protected:
   void SetUpOnMainThread() override {
@@ -644,7 +702,7 @@ class LoFiResourceDispatcherHostBrowserTest : public ContentBrowserTest {
 
     ASSERT_TRUE(embedded_test_server()->Start());
 
-    delegate_.reset(new LoFiModeResourceDispatcherHostDelegate(
+    delegate_.reset(new PreviewsStateResourceDispatcherHostDelegate(
         embedded_test_server()->GetURL("/page_with_iframe.html"),
         embedded_test_server()->GetURL("/image.jpg"),
         embedded_test_server()->GetURL("/title1.html")));
@@ -652,71 +710,70 @@ class LoFiResourceDispatcherHostBrowserTest : public ContentBrowserTest {
     content::BrowserThread::PostTask(
            content::BrowserThread::IO,
            FROM_HERE,
-           base::Bind(&LoFiModeResourceDispatcherHostDelegate::SetDelegate,
+           base::Bind(&PreviewsStateResourceDispatcherHostDelegate::SetDelegate,
                       base::Unretained(delegate_.get())));
   }
 
-  void Reset(bool use_lofi) {
+  void Reset(PreviewsState previews_state) {
     content::BrowserThread::PostTask(
         content::BrowserThread::IO, FROM_HERE,
-        base::Bind(&LoFiModeResourceDispatcherHostDelegate::Reset,
-                   base::Unretained(delegate_.get()), use_lofi));
+        base::Bind(&PreviewsStateResourceDispatcherHostDelegate::Reset,
+                   base::Unretained(delegate_.get()), previews_state));
   }
 
   void CheckResourcesRequested(
-      bool should_enable_lofi_mode_called) {
+      bool should_get_previews_state_called) {
     content::BrowserThread::PostTask(
         content::BrowserThread::IO, FROM_HERE,
-        base::Bind(
-            &LoFiModeResourceDispatcherHostDelegate::CheckResourcesRequested,
-            base::Unretained(delegate_.get()), should_enable_lofi_mode_called));
+        base::Bind(&PreviewsStateResourceDispatcherHostDelegate::
+                       CheckResourcesRequested,
+                   base::Unretained(delegate_.get()),
+                   should_get_previews_state_called));
   }
 
  private:
-  std::unique_ptr<LoFiModeResourceDispatcherHostDelegate> delegate_;
+  std::unique_ptr<PreviewsStateResourceDispatcherHostDelegate> delegate_;
 };
 
-// Test that navigating with ShouldEnableLoFiMode returning true fetches the
-// resources with LOFI_ON.
-IN_PROC_BROWSER_TEST_F(LoFiResourceDispatcherHostBrowserTest,
+// Test that navigating calls GetPreviewsState with SERVER_LOFI_ON.
+IN_PROC_BROWSER_TEST_F(PreviewsStateResourceDispatcherHostBrowserTest,
                        ShouldEnableLoFiModeOn) {
   // Navigate with ShouldEnableLoFiMode returning true.
-  Reset(true);
+  Reset(SERVER_LOFI_ON);
   NavigateToURLBlockUntilNavigationsComplete(
       shell(), embedded_test_server()->GetURL("/page_with_iframe.html"), 1);
   CheckResourcesRequested(true);
 }
 
-// Test that navigating with ShouldEnableLoFiMode returning false fetches the
-// resources with LOFI_OFF.
-IN_PROC_BROWSER_TEST_F(LoFiResourceDispatcherHostBrowserTest,
+// Test that navigating calls GetPreviewsState returning PREVIEWS_OFF.
+IN_PROC_BROWSER_TEST_F(PreviewsStateResourceDispatcherHostBrowserTest,
                        ShouldEnableLoFiModeOff) {
-  // Navigate with ShouldEnableLoFiMode returning false.
+  // Navigate with GetPreviewsState returning false.
   NavigateToURLBlockUntilNavigationsComplete(
       shell(), embedded_test_server()->GetURL("/page_with_iframe.html"), 1);
   CheckResourcesRequested(true);
 }
 
-// Test that reloading calls ShouldEnableLoFiMode again and changes the Lo-Fi
+// Test that reloading calls GetPreviewsState again and changes the Previews
 // state.
-IN_PROC_BROWSER_TEST_F(LoFiResourceDispatcherHostBrowserTest,
+IN_PROC_BROWSER_TEST_F(PreviewsStateResourceDispatcherHostBrowserTest,
                        ShouldEnableLoFiModeReload) {
-  // Navigate with ShouldEnableLoFiMode returning false.
+  // Navigate with GetPreviewsState returning PREVIEWS_OFF.
   NavigateToURLBlockUntilNavigationsComplete(
       shell(), embedded_test_server()->GetURL("/page_with_iframe.html"), 1);
   CheckResourcesRequested(true);
 
-  // Reload. ShouldEnableLoFiMode should be called.
-  Reset(true);
+  // Reload. GetPreviewsState should be called.
+  Reset(SERVER_LOFI_ON);
   ReloadBlockUntilNavigationsComplete(shell(), 1);
   CheckResourcesRequested(true);
 }
 
-// Test that navigating backwards calls ShouldEnableLoFiMode again and changes
-// the Lo-Fi state.
-IN_PROC_BROWSER_TEST_F(LoFiResourceDispatcherHostBrowserTest,
+// Test that navigating backwards calls GetPreviewsState again and changes
+// the Previews state.
+IN_PROC_BROWSER_TEST_F(PreviewsStateResourceDispatcherHostBrowserTest,
                        ShouldEnableLoFiModeNavigateBackThenForward) {
-  // Navigate with ShouldEnableLoFiMode returning false.
+  // Navigate with GetPreviewsState returning false.
   NavigateToURLBlockUntilNavigationsComplete(
       shell(), embedded_test_server()->GetURL("/page_with_iframe.html"), 1);
   CheckResourcesRequested(true);
@@ -724,8 +781,8 @@ IN_PROC_BROWSER_TEST_F(LoFiResourceDispatcherHostBrowserTest,
   // Go to a different page.
   NavigateToURLBlockUntilNavigationsComplete(shell(), GURL("about:blank"), 1);
 
-  // Go back with ShouldEnableLoFiMode returning true.
-  Reset(true);
+  // Go back with GetPreviewsState returning SERVER_LOFI_ON.
+  Reset(SERVER_LOFI_ON);
   TestNavigationObserver tab_observer(shell()->web_contents(), 1);
   shell()->GoBackOrForward(-1);
   tab_observer.Wait();
@@ -734,18 +791,19 @@ IN_PROC_BROWSER_TEST_F(LoFiResourceDispatcherHostBrowserTest,
 
 // Test that reloading with Lo-Fi disabled doesn't call ShouldEnableLoFiMode and
 // already has LOFI_OFF.
-IN_PROC_BROWSER_TEST_F(LoFiResourceDispatcherHostBrowserTest,
+IN_PROC_BROWSER_TEST_F(PreviewsStateResourceDispatcherHostBrowserTest,
                        ShouldEnableLoFiModeReloadDisableLoFi) {
-  // Navigate with ShouldEnableLoFiMode returning true.
-  Reset(true);
+  // Navigate with GetPreviewsState returning SERVER_LOFI_ON.
+  Reset(SERVER_LOFI_ON);
   NavigateToURLBlockUntilNavigationsComplete(
       shell(), embedded_test_server()->GetURL("/page_with_iframe.html"), 1);
   CheckResourcesRequested(true);
 
   // Reload with Lo-Fi disabled.
-  Reset(false);
+  Reset(PREVIEWS_NO_TRANSFORM);
   TestNavigationObserver tab_observer(shell()->web_contents(), 1);
-  shell()->web_contents()->GetController().ReloadDisableLoFi(true);
+  shell()->web_contents()->GetController().Reload(ReloadType::DISABLE_LOFI_MODE,
+                                                  true);
   tab_observer.Wait();
   CheckResourcesRequested(false);
 }
@@ -755,11 +813,11 @@ namespace {
 struct RequestDataForDelegate {
   const GURL url;
   const GURL first_party;
-  const url::Origin initiator;
+  const base::Optional<url::Origin> initiator;
 
   RequestDataForDelegate(const GURL& url,
                          const GURL& first_party,
-                         const url::Origin initiator)
+                         const base::Optional<url::Origin>& initiator)
       : url(url), first_party(first_party), initiator(initiator) {}
 };
 
@@ -770,15 +828,18 @@ class RequestDataResourceDispatcherHostDelegate
  public:
   RequestDataResourceDispatcherHostDelegate() {}
 
-  const ScopedVector<RequestDataForDelegate>& data() { return requests_; }
+  const std::vector<std::unique_ptr<RequestDataForDelegate>>& data() {
+    return requests_;
+  }
 
   // ResourceDispatcherHostDelegate implementation:
-  void RequestBeginning(net::URLRequest* request,
-                        ResourceContext* resource_context,
-                        AppCacheService* appcache_service,
-                        ResourceType resource_type,
-                        ScopedVector<ResourceThrottle>* throttles) override {
-    requests_.push_back(new RequestDataForDelegate(
+  void RequestBeginning(
+      net::URLRequest* request,
+      ResourceContext* resource_context,
+      AppCacheService* appcache_service,
+      ResourceType resource_type,
+      std::vector<std::unique_ptr<ResourceThrottle>>* throttles) override {
+    requests_.push_back(base::MakeUnique<RequestDataForDelegate>(
         request->url(), request->first_party_for_cookies(),
         request->initiator()));
   }
@@ -786,7 +847,7 @@ class RequestDataResourceDispatcherHostDelegate
   void SetDelegate() { ResourceDispatcherHost::Get()->SetDelegate(this); }
 
  private:
-  ScopedVector<RequestDataForDelegate> requests_;
+  std::vector<std::unique_ptr<RequestDataForDelegate>> requests_;
 
   DISALLOW_COPY_AND_ASSIGN(RequestDataResourceDispatcherHostDelegate);
 };
@@ -828,10 +889,23 @@ IN_PROC_BROWSER_TEST_F(RequestDataResourceDispatcherHostBrowserTest, Basic) {
   // All resources loaded directly by the top-level document (including the
   // top-level document itself) should have a |first_party| and |initiator|
   // that match the URL of the top-level document.
-  for (auto* request : delegate_->data()) {
-    SCOPED_TRACE(request->url);
-    EXPECT_EQ(top_url, request->first_party);
-    EXPECT_EQ(top_origin, request->initiator);
+  // PlzNavigate: the document itself should have an empty initiator.
+  if (IsBrowserSideNavigationEnabled()) {
+    const RequestDataForDelegate* first_request = delegate_->data()[0].get();
+    EXPECT_EQ(top_url, first_request->first_party);
+    EXPECT_FALSE(first_request->initiator.has_value());
+    for (size_t i = 1; i < delegate_->data().size(); i++) {
+      const RequestDataForDelegate* request = delegate_->data()[i].get();
+      EXPECT_EQ(top_url, request->first_party);
+      ASSERT_TRUE(request->initiator.has_value());
+      EXPECT_EQ(top_origin, request->initiator);
+    }
+  } else {
+    for (const auto& request : delegate_->data()) {
+      SCOPED_TRACE(request->url);
+      EXPECT_EQ(top_url, request->first_party);
+      EXPECT_EQ(top_origin, request->initiator);
+    }
   }
 }
 
@@ -851,10 +925,16 @@ IN_PROC_BROWSER_TEST_F(RequestDataResourceDispatcherHostBrowserTest,
 
   // The first items loaded are the top-level and nested documents. These should
   // both have a |first_party| and |initiator| that match the URL of the
-  // top-level document:
+  // top-level document.
+  // PlzNavigate: the top-level initiator is null.
   EXPECT_EQ(top_url, delegate_->data()[0]->url);
   EXPECT_EQ(top_url, delegate_->data()[0]->first_party);
-  EXPECT_EQ(top_origin, delegate_->data()[0]->initiator);
+  if (IsBrowserSideNavigationEnabled()) {
+    EXPECT_FALSE(delegate_->data()[0]->initiator.has_value());
+  } else {
+    ASSERT_TRUE(delegate_->data()[0]->initiator.has_value());
+    EXPECT_EQ(top_origin, delegate_->data()[0]->initiator);
+  }
 
   EXPECT_EQ(nested_url, delegate_->data()[1]->url);
   EXPECT_EQ(top_url, delegate_->data()[1]->first_party);
@@ -883,9 +963,15 @@ IN_PROC_BROWSER_TEST_F(RequestDataResourceDispatcherHostBrowserTest,
 
   // User-initiated top-level navigations have a first-party and initiator that
   // matches the URL to which they navigate.
+  // PlzNavigate: the top-level initiator is null.
   EXPECT_EQ(top_url, delegate_->data()[0]->url);
   EXPECT_EQ(top_url, delegate_->data()[0]->first_party);
-  EXPECT_EQ(top_origin, delegate_->data()[0]->initiator);
+  if (IsBrowserSideNavigationEnabled()) {
+    EXPECT_FALSE(delegate_->data()[0]->initiator.has_value());
+  } else {
+    ASSERT_TRUE(delegate_->data()[0]->initiator.has_value());
+    EXPECT_EQ(top_origin, delegate_->data()[0]->initiator);
+  }
 
   // Subresource requests have a first-party and initiator that matches the
   // document in which they're embedded.
@@ -922,9 +1008,15 @@ IN_PROC_BROWSER_TEST_F(RequestDataResourceDispatcherHostBrowserTest,
 
   // User-initiated top-level navigations have a first-party and initiator that
   // matches the URL to which they navigate, even if they fail to load.
+  // PlzNavigate: the top-level initiator is null.
   EXPECT_EQ(top_url, delegate_->data()[0]->url);
   EXPECT_EQ(top_url, delegate_->data()[0]->first_party);
-  EXPECT_EQ(top_origin, delegate_->data()[0]->initiator);
+  if (IsBrowserSideNavigationEnabled()) {
+    EXPECT_FALSE(delegate_->data()[0]->initiator.has_value());
+  } else {
+    ASSERT_TRUE(delegate_->data()[0]->initiator.has_value());
+    EXPECT_EQ(top_origin, delegate_->data()[0]->initiator);
+  }
 
   // Auxiliary navigations have a first-party that matches the URL to which they
   // navigate, and an initiator that matches the document that triggered them.
@@ -963,9 +1055,15 @@ IN_PROC_BROWSER_TEST_F(RequestDataResourceDispatcherHostBrowserTest,
 
   // User-initiated top-level navigations have a first-party and initiator that
   // matches the URL to which they navigate, even if they fail to load.
+  // PlzNavigate: the top-level initiator is null.
   EXPECT_EQ(top_url, delegate_->data()[0]->url);
   EXPECT_EQ(top_url, delegate_->data()[0]->first_party);
-  EXPECT_EQ(top_origin, delegate_->data()[0]->initiator);
+  if (IsBrowserSideNavigationEnabled()) {
+    EXPECT_FALSE(delegate_->data()[0]->initiator.has_value());
+  } else {
+    ASSERT_TRUE(delegate_->data()[0]->initiator.has_value());
+    EXPECT_EQ(top_origin, delegate_->data()[0]->initiator);
+  }
 
   // Auxiliary navigations have a first-party that matches the URL to which they
   // navigate, and an initiator that matches the document that triggered them.
@@ -987,9 +1085,15 @@ IN_PROC_BROWSER_TEST_F(RequestDataResourceDispatcherHostBrowserTest,
 
   // User-initiated top-level navigations have a first-party and initiator that
   // matches the URL to which they navigate, even if they fail to load.
+  // PlzNavigate: the top-level initiator is null.
   EXPECT_EQ(top_url, delegate_->data()[0]->url);
   EXPECT_EQ(top_url, delegate_->data()[0]->first_party);
-  EXPECT_EQ(top_origin, delegate_->data()[0]->initiator);
+  if (IsBrowserSideNavigationEnabled()) {
+    EXPECT_FALSE(delegate_->data()[0]->initiator.has_value());
+  } else {
+    ASSERT_TRUE(delegate_->data()[0]->initiator.has_value());
+    EXPECT_EQ(top_origin, delegate_->data()[0]->initiator);
+  }
 }
 
 IN_PROC_BROWSER_TEST_F(RequestDataResourceDispatcherHostBrowserTest,
@@ -1012,9 +1116,15 @@ IN_PROC_BROWSER_TEST_F(RequestDataResourceDispatcherHostBrowserTest,
 
   // User-initiated top-level navigations have a first-party and initiator that
   // matches the URL to which they navigate.
+  // PlzNavigate: the top-level initiator is null.
   EXPECT_EQ(top_url, delegate_->data()[0]->url);
   EXPECT_EQ(top_url, delegate_->data()[0]->first_party);
-  EXPECT_EQ(top_origin, delegate_->data()[0]->initiator);
+  if (IsBrowserSideNavigationEnabled()) {
+    EXPECT_FALSE(delegate_->data()[0]->initiator.has_value());
+  } else {
+    ASSERT_TRUE(delegate_->data()[0]->initiator.has_value());
+    EXPECT_EQ(top_origin, delegate_->data()[0]->initiator);
+  }
 
   EXPECT_EQ(top_js_url, delegate_->data()[1]->url);
   EXPECT_EQ(top_url, delegate_->data()[1]->first_party);

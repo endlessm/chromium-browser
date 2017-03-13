@@ -38,9 +38,10 @@ class CAPTURE_EXPORT ThreadSafeCaptureOracle
   // If |success| is true then |frame| is valid and |timestamp| indicates when
   // the frame was painted.
   // If |success| is false, all other parameters are invalid.
-  typedef base::Callback<void(const scoped_refptr<VideoFrame>& frame,
+  typedef base::Callback<void(scoped_refptr<VideoFrame> frame,
                               base::TimeTicks timestamp,
-                              bool success)> CaptureFrameCallback;
+                              bool success)>
+      CaptureFrameCallback;
 
   // Record a change |event| along with its |damage_rect| and |event_time|, and
   // then make a decision whether to proceed with capture. The decision is based
@@ -90,19 +91,20 @@ class CAPTURE_EXPORT ThreadSafeCaptureOracle
   void ReportError(const tracked_objects::Location& from_here,
                    const std::string& reason);
 
+  void OnConsumerReportingUtilization(int frame_number, double utilization);
+
  private:
   friend class base::RefCountedThreadSafe<ThreadSafeCaptureOracle>;
   virtual ~ThreadSafeCaptureOracle();
 
   // Callback invoked on completion of all captures.
-  void DidCaptureFrame(
-      int frame_number,
-      std::unique_ptr<VideoCaptureDevice::Client::Buffer> buffer,
-      base::TimeTicks capture_begin_time,
-      base::TimeDelta estimated_frame_duration,
-      const scoped_refptr<VideoFrame>& frame,
-      base::TimeTicks reference_time,
-      bool success);
+  void DidCaptureFrame(int frame_number,
+                       VideoCaptureDevice::Client::Buffer buffer,
+                       base::TimeTicks capture_begin_time,
+                       base::TimeDelta estimated_frame_duration,
+                       scoped_refptr<VideoFrame> frame,
+                       base::TimeTicks reference_time,
+                       bool success);
 
   // Callback invoked once all consumers have finished with a delivered video
   // frame.  Consumer feedback signals are scanned from the frame's |metadata|.

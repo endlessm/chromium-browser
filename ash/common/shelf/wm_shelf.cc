@@ -2,27 +2,97 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "ash/common/shelf/wm_shelf.h"
+
+#include "ash/common/shelf/shelf_controller.h"
 #include "ash/common/shelf/shelf_delegate.h"
 #include "ash/common/shelf/shelf_item_delegate.h"
 #include "ash/common/shelf/shelf_layout_manager.h"
 #include "ash/common/shelf/shelf_locking_manager.h"
 #include "ash/common/shelf/shelf_model.h"
 #include "ash/common/shelf/shelf_widget.h"
-#include "ash/common/shelf/wm_shelf.h"
 #include "ash/common/shelf/wm_shelf_observer.h"
-#include "ash/common/shell_window_ids.h"
+#include "ash/common/system/tray/system_tray_delegate.h"
 #include "ash/common/wm_lookup.h"
-#include "ash/common/wm_root_window_controller.h"
 #include "ash/common/wm_shell.h"
 #include "ash/common/wm_window.h"
+#include "ash/public/cpp/shell_window_ids.h"
+#include "ash/root_window_controller.h"
+#include "ash/shelf/shelf_bezel_event_handler.h"
+#include "ash/shell.h"
 #include "base/logging.h"
+#include "base/memory/ptr_util.h"
+#include "ui/aura/env.h"
 #include "ui/gfx/geometry/rect.h"
 
 namespace ash {
 
+// WmShelf::AutoHideEventHandler -----------------------------------------------
+
+// Forwards mouse and gesture events to ShelfLayoutManager for auto-hide.
+// TODO(mash): Add similar event handling support for mash.
+class WmShelf::AutoHideEventHandler : public ui::EventHandler {
+ public:
+  explicit AutoHideEventHandler(ShelfLayoutManager* shelf_layout_manager)
+      : shelf_layout_manager_(shelf_layout_manager) {
+    Shell::GetInstance()->AddPreTargetHandler(this);
+  }
+  ~AutoHideEventHandler() override {
+    Shell::GetInstance()->RemovePreTargetHandler(this);
+  }
+
+  // Overridden from ui::EventHandler:
+  void OnMouseEvent(ui::MouseEvent* event) override {
+    shelf_layout_manager_->UpdateAutoHideForMouseEvent(
+        event, WmWindow::Get(static_cast<aura::Window*>(event->target())));
+  }
+  void OnGestureEvent(ui::GestureEvent* event) override {
+    shelf_layout_manager_->UpdateAutoHideForGestureEvent(
+        event, WmWindow::Get(static_cast<aura::Window*>(event->target())));
+  }
+
+ private:
+  ShelfLayoutManager* shelf_layout_manager_;
+  DISALLOW_COPY_AND_ASSIGN(AutoHideEventHandler);
+};
+
+// WmShelf ---------------------------------------------------------------------
+
+WmShelf::WmShelf() {}
+
+WmShelf::~WmShelf() {}
+
 // static
 WmShelf* WmShelf::ForWindow(WmWindow* window) {
   return window->GetRootWindowController()->GetShelf();
+}
+
+// static
+bool WmShelf::CanChangeShelfAlignment() {
+  if (WmShell::Get()->system_tray_delegate()->IsUserSupervised())
+    return false;
+
+  LoginStatus login_status =
+      WmShell::Get()->system_tray_delegate()->GetUserLoginStatus();
+
+  switch (login_status) {
+    case LoginStatus::LOCKED:
+    // Shelf alignment changes can be requested while being locked, but will
+    // be applied upon unlock.
+    case LoginStatus::USER:
+    case LoginStatus::OWNER:
+      return true;
+    case LoginStatus::PUBLIC:
+    case LoginStatus::SUPERVISED:
+    case LoginStatus::GUEST:
+    case LoginStatus::KIOSK_APP:
+    case LoginStatus::ARC_KIOSK_APP:
+    case LoginStatus::NOT_LOGGED_IN:
+      return false;
+  }
+
+  NOTREACHED();
+  return false;
 }
 
 void WmShelf::CreateShelfWidget(WmWindow* root) {
@@ -41,6 +111,11 @@ void WmShelf::CreateShelfWidget(WmWindow* root) {
   WmWindow* status_container =
       root->GetChildByShellWindowId(kShellWindowId_StatusContainer);
   shelf_widget_->CreateStatusAreaWidget(status_container);
+
+  // TODO: ShelfBezelEventHandler needs to work with mus too.
+  // http://crbug.com/636647
+  if (aura::Env::GetInstance()->mode() == aura::Env::Mode::LOCAL)
+    bezel_event_handler_ = base::MakeUnique<ShelfBezelEventHandler>(this);
 }
 
 void WmShelf::ShutdownShelfWidget() {
@@ -52,7 +127,7 @@ void WmShelf::DestroyShelfWidget() {
   shelf_widget_.reset();
 }
 
-void WmShelf::InitializeShelf() {
+void WmShelf::CreateShelfView() {
   DCHECK(shelf_layout_manager_);
   DCHECK(shelf_widget_);
   DCHECK(!shelf_view_);
@@ -61,15 +136,13 @@ void WmShelf::InitializeShelf() {
   // When the shelf is created the alignment is unlocked. Chrome will update the
   // alignment later from preferences.
   alignment_ = SHELF_ALIGNMENT_BOTTOM;
-  // NOTE: The delegate may access WmShelf.
-  WmShell::Get()->shelf_delegate()->OnShelfCreated(this);
+  WmShell::Get()->shelf_controller()->NotifyShelfCreated(this);
 }
 
 void WmShelf::ShutdownShelf() {
   DCHECK(shelf_view_);
   shelf_locking_manager_.reset();
   shelf_view_ = nullptr;
-  WmShell::Get()->shelf_delegate()->OnShelfDestroyed(this);
 }
 
 bool WmShelf::IsShelfInitialized() const {
@@ -96,8 +169,8 @@ void WmShelf::SetAlignment(ShelfAlignment alignment) {
   alignment_ = alignment;
   // The ShelfWidget notifies the ShelfView of the alignment change.
   shelf_widget_->OnShelfAlignmentChanged();
-  WmShell::Get()->shelf_delegate()->OnShelfAlignmentChanged(this);
   shelf_layout_manager_->LayoutShelf();
+  WmShell::Get()->shelf_controller()->NotifyShelfAlignmentChanged(this);
   WmShell::Get()->NotifyShelfAlignmentChanged(GetWindow()->GetRootWindow());
 }
 
@@ -141,7 +214,7 @@ void WmShelf::SetAutoHideBehavior(ShelfAutoHideBehavior auto_hide_behavior) {
     return;
 
   auto_hide_behavior_ = auto_hide_behavior;
-  WmShell::Get()->shelf_delegate()->OnShelfAutoHideBehaviorChanged(this);
+  WmShell::Get()->shelf_controller()->NotifyShelfAutoHideBehaviorChanged(this);
   WmShell::Get()->NotifyShelfAutoHideBehaviorChanged(
       GetWindow()->GetRootWindow());
 }
@@ -156,14 +229,6 @@ void WmShelf::UpdateAutoHideState() {
 
 ShelfBackgroundType WmShelf::GetBackgroundType() const {
   return shelf_widget_->GetBackgroundType();
-}
-
-WmDimmerView* WmShelf::CreateDimmerView(bool disable_animations_for_test) {
-  return nullptr;
-}
-
-bool WmShelf::IsDimmed() const {
-  return shelf_widget_->GetDimsShelf();
 }
 
 bool WmShelf::IsVisible() const {
@@ -255,7 +320,8 @@ void WmShelf::RemoveObserver(WmShelfObserver* observer) {
 }
 
 void WmShelf::NotifyShelfIconPositionsChanged() {
-  FOR_EACH_OBSERVER(WmShelfObserver, observers_, OnShelfIconPositionsChanged());
+  for (auto& observer : observers_)
+    observer.OnShelfIconPositionsChanged();
 }
 
 StatusAreaWidget* WmShelf::GetStatusAreaWidget() const {
@@ -274,32 +340,44 @@ ShelfView* WmShelf::GetShelfViewForTesting() {
   return shelf_view_;
 }
 
-WmShelf::WmShelf() {}
-
-WmShelf::~WmShelf() {}
-
 void WmShelf::WillDeleteShelfLayoutManager() {
+  if (aura::Env::GetInstance()->mode() == aura::Env::Mode::MUS) {
+    // TODO(sky): this should be removed once Shell is used everywhere.
+    ShutdownShelfWidget();
+  }
+
+  // Clear event handlers that might forward events to the destroyed instance.
+  auto_hide_event_handler_.reset();
+  bezel_event_handler_.reset();
+
   DCHECK(shelf_layout_manager_);
   shelf_layout_manager_->RemoveObserver(this);
   shelf_layout_manager_ = nullptr;
 }
 
 void WmShelf::WillChangeVisibilityState(ShelfVisibilityState new_state) {
-  FOR_EACH_OBSERVER(WmShelfObserver, observers_,
-                    WillChangeVisibilityState(new_state));
+  for (auto& observer : observers_)
+    observer.WillChangeVisibilityState(new_state);
+  if (new_state != SHELF_AUTO_HIDE) {
+    auto_hide_event_handler_.reset();
+  } else if (!auto_hide_event_handler_ &&
+             aura::Env::GetInstance()->mode() == aura::Env::Mode::LOCAL) {
+    auto_hide_event_handler_ =
+        base::MakeUnique<AutoHideEventHandler>(shelf_layout_manager());
+  }
 }
 
 void WmShelf::OnAutoHideStateChanged(ShelfAutoHideState new_state) {
-  FOR_EACH_OBSERVER(WmShelfObserver, observers_,
-                    OnAutoHideStateChanged(new_state));
+  for (auto& observer : observers_)
+    observer.OnAutoHideStateChanged(new_state);
 }
 
 void WmShelf::OnBackgroundUpdated(ShelfBackgroundType background_type,
                                   BackgroundAnimatorChangeType change_type) {
   if (background_type == GetBackgroundType())
     return;
-  FOR_EACH_OBSERVER(WmShelfObserver, observers_,
-                    OnBackgroundTypeChanged(background_type, change_type));
+  for (auto& observer : observers_)
+    observer.OnBackgroundTypeChanged(background_type, change_type);
 }
 
 }  // namespace ash

@@ -13,11 +13,11 @@
 #include "base/strings/stringprintf.h"
 #include "base/values.h"
 #include "components/signin/core/browser/signin_manager_base.h"
-#include "components/sync/api/time.h"
 #include "components/sync/driver/sync_service.h"
 #include "components/sync/engine/cycle/sync_cycle_snapshot.h"
 #include "components/sync/engine/sync_status.h"
 #include "components/sync/engine/sync_string_conversions.h"
+#include "components/sync/model/time.h"
 #include "components/sync/protocol/proto_enum_conversions.h"
 
 using base::DictionaryValue;
@@ -283,6 +283,9 @@ std::unique_ptr<base::DictionaryValue> ConstructAboutInformation(
   StringSyncStat backend_initialization(section_local,
                                         "Sync Backend Initialization");
   BoolSyncStat is_syncing(section_local, "Syncing");
+  BoolSyncStat is_local_sync_enabled(section_local,
+                                     "Local sync backend enabled");
+  StringSyncStat local_backend_path(section_local, "Local backend path");
 
   base::ListValue* section_network = AddSection(stats_list, "Network");
   BoolSyncStat is_throttled(section_network, "Throttled");
@@ -388,8 +391,12 @@ std::unique_ptr<base::DictionaryValue> ConstructAboutInformation(
 
   last_synced.SetValue(service->GetLastSyncedTimeString());
   is_setup_complete.SetValue(service->IsFirstSetupComplete());
+  is_local_sync_enabled.SetValue(service->IsLocalSyncEnabled());
+  if (service->IsLocalSyncEnabled() && is_status_valid) {
+    local_backend_path.SetValue(full_status.local_sync_folder);
+  }
   backend_initialization.SetValue(
-      service->GetBackendInitializationStateString());
+      service->GetEngineInitializationStateString());
   if (is_status_valid) {
     is_syncing.SetValue(full_status.syncing);
     retry_time.SetValue(GetTimeStr(full_status.retry_time,
@@ -424,7 +431,7 @@ std::unique_ptr<base::DictionaryValue> ConstructAboutInformation(
     if (snapshot.legacy_updates_source() !=
         sync_pb::GetUpdatesCallerInfo::UNKNOWN) {
       session_source.SetValue(
-          GetUpdatesSourceString(snapshot.legacy_updates_source()));
+          ProtoEnumToString(snapshot.legacy_updates_source()));
     }
     get_key_result.SetValue(GetSyncerErrorString(
         snapshot.model_neutral_state().last_get_key_result));

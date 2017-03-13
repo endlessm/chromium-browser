@@ -52,7 +52,11 @@ WebSettingsImpl::WebSettingsImpl(Settings* settings,
       m_shrinksViewportContentToFit(false),
       m_viewportMetaLayoutSizeQuirk(false),
       m_viewportMetaNonUserScalableQuirk(false),
-      m_clobberUserAgentInitialScaleQuirk(false) {
+      m_clobberUserAgentInitialScaleQuirk(false),
+      m_expensiveBackgroundThrottlingCPUBudget(-1),
+      m_expensiveBackgroundThrottlingInitialBudget(-1),
+      m_expensiveBackgroundThrottlingMaxBudget(-1),
+      m_expensiveBackgroundThrottlingMaxDelay(-1) {
   DCHECK(settings);
 }
 
@@ -137,10 +141,6 @@ void WebSettingsImpl::setMinimumLogicalFontSize(int size) {
 
 void WebSettingsImpl::setDeviceSupportsTouch(bool deviceSupportsTouch) {
   m_settings->setDeviceSupportsTouch(deviceSupportsTouch);
-}
-
-void WebSettingsImpl::setDeviceSupportsMouse(bool deviceSupportsMouse) {
-  m_settings->setDeviceSupportsMouse(deviceSupportsMouse);
 }
 
 void WebSettingsImpl::setAutoZoomFocusedNodeToLegibleScale(
@@ -276,6 +276,10 @@ void WebSettingsImpl::setProgressBarCompletion(
 
 void WebSettingsImpl::setPluginsEnabled(bool enabled) {
   m_devToolsEmulator->setPluginsEnabled(enabled);
+}
+
+void WebSettingsImpl::setEncryptedMediaEnabled(bool enabled) {
+  m_settings->setEncryptedMediaEnabled(enabled);
 }
 
 void WebSettingsImpl::setAvailablePointerTypes(int pointers) {
@@ -506,20 +510,20 @@ void WebSettingsImpl::setMinimumAccelerated2dCanvasSize(int numPixels) {
   m_settings->setMinimumAccelerated2dCanvasSize(numPixels);
 }
 
+void WebSettingsImpl::setHideDownloadUI(bool hide) {
+  m_settings->setHideDownloadUI(hide);
+}
+
+void WebSettingsImpl::setPresentationReceiver(bool enabled) {
+  m_settings->setPresentationReceiver(enabled);
+}
+
 void WebSettingsImpl::setHistoryEntryRequiresUserGesture(bool enabled) {
   m_settings->setHistoryEntryRequiresUserGesture(enabled);
 }
 
 void WebSettingsImpl::setHyperlinkAuditingEnabled(bool enabled) {
   m_settings->setHyperlinkAuditingEnabled(enabled);
-}
-
-void WebSettingsImpl::setAutoplayExperimentMode(const WebString& mode) {
-  m_settings->setAutoplayExperimentMode(mode);
-}
-
-void WebSettingsImpl::setCaretBrowsingEnabled(bool enabled) {
-  m_settings->setCaretBrowsingEnabled(enabled);
 }
 
 void WebSettingsImpl::setValidationMessageTimerMagnification(int newValue) {
@@ -586,7 +590,7 @@ void WebSettingsImpl::setEnableTouchAdjustment(bool enabled) {
 }
 
 bool WebSettingsImpl::multiTargetTapNotificationEnabled() {
-  return m_settings->multiTargetTapNotificationEnabled();
+  return m_settings->getMultiTargetTapNotificationEnabled();
 }
 
 void WebSettingsImpl::setMultiTargetTapNotificationEnabled(bool enabled) {
@@ -594,11 +598,11 @@ void WebSettingsImpl::setMultiTargetTapNotificationEnabled(bool enabled) {
 }
 
 bool WebSettingsImpl::viewportEnabled() const {
-  return m_settings->viewportEnabled();
+  return m_settings->getViewportEnabled();
 }
 
 bool WebSettingsImpl::viewportMetaEnabled() const {
-  return m_settings->viewportMetaEnabled();
+  return m_settings->getViewportMetaEnabled();
 }
 
 bool WebSettingsImpl::doubleTapToZoomEnabled() const {
@@ -606,7 +610,7 @@ bool WebSettingsImpl::doubleTapToZoomEnabled() const {
 }
 
 bool WebSettingsImpl::mockGestureTapHighlightsEnabled() const {
-  return m_settings->mockGestureTapHighlightsEnabled();
+  return m_settings->getMockGestureTapHighlightsEnabled();
 }
 
 bool WebSettingsImpl::shrinksViewportContentToFit() const {
@@ -645,6 +649,11 @@ void WebSettingsImpl::setCookieEnabled(bool enabled) {
   m_settings->setCookieEnabled(enabled);
 }
 
+void WebSettingsImpl::setCrossOriginMediaPlaybackRequiresUserGesture(
+    bool required) {
+  m_settings->setCrossOriginMediaPlaybackRequiresUserGesture(required);
+}
+
 void WebSettingsImpl::setNavigateOnDragDrop(bool enabled) {
   m_settings->setNavigateOnDragDrop(enabled);
 }
@@ -669,10 +678,6 @@ void WebSettingsImpl::setSmartInsertDeleteEnabled(bool enabled) {
   m_settings->setSmartInsertDeleteEnabled(enabled);
 }
 
-void WebSettingsImpl::setPinchOverlayScrollbarThickness(int thickness) {
-  m_settings->setPinchOverlayScrollbarThickness(thickness);
-}
-
 void WebSettingsImpl::setUseSolidColorScrollbars(bool enabled) {
   m_settings->setUseSolidColorScrollbars(enabled);
 }
@@ -693,6 +698,25 @@ void WebSettingsImpl::setV8CacheStrategiesForCacheStorage(
 
 void WebSettingsImpl::setViewportStyle(WebViewportStyle style) {
   m_devToolsEmulator->setViewportStyle(style);
+}
+
+void WebSettingsImpl::setExpensiveBackgroundThrottlingCPUBudget(
+    float cpuBudget) {
+  m_expensiveBackgroundThrottlingCPUBudget = cpuBudget;
+}
+
+void WebSettingsImpl::setExpensiveBackgroundThrottlingInitialBudget(
+    float initialBudget) {
+  m_expensiveBackgroundThrottlingInitialBudget = initialBudget;
+}
+
+void WebSettingsImpl::setExpensiveBackgroundThrottlingMaxBudget(
+    float maxBudget) {
+  m_expensiveBackgroundThrottlingMaxBudget = maxBudget;
+}
+
+void WebSettingsImpl::setExpensiveBackgroundThrottlingMaxDelay(float maxDelay) {
+  m_expensiveBackgroundThrottlingMaxDelay = maxDelay;
 }
 
 }  // namespace blink

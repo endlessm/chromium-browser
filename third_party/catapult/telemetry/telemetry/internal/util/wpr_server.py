@@ -14,9 +14,10 @@ import sys
 import tempfile
 import urllib
 
-from telemetry.core import exceptions
 from telemetry.core import util
 from telemetry.internal import forwarders
+
+import py_utils
 
 _REPLAY_DIR = os.path.join(
     util.GetTelemetryThirdPartyDir(), 'web-page-replay')
@@ -157,9 +158,9 @@ class ReplayServer(object):
       return ('http' not in self._started_ports or
               'https' not in self._started_ports or
               (self._use_dns_server and 'dns' not in self._started_ports))
+
     if HasIncompleteStartedPorts():
       self._started_ports = self._ParseLogFilePorts(self._LogLines())
-      logging.info('WPR ports: %s' % self._started_ports)
     if HasIncompleteStartedPorts():
       return False
     try:
@@ -214,14 +215,15 @@ class ReplayServer(object):
           self._cmd_line, stdout=log_fh, stderr=subprocess.STDOUT,
           preexec_fn=(_ResetInterruptHandler if is_posix else None))
     try:
-      util.WaitFor(self._IsStarted, 30)
+      py_utils.WaitFor(self._IsStarted, 30)
+      logging.info('WPR ports: %s' % self._started_ports)
       atexit_with_log.Register(self.StopServer)
       return forwarders.PortSet(
           self._started_ports['http'],
           self._started_ports['https'],
           self._started_ports.get('dns'),  # None if unused
           )
-    except exceptions.TimeoutException:
+    except py_utils.TimeoutException:
       raise ReplayNotStartedError(
           'Web Page Replay failed to start. Log output:\n%s' %
           ''.join(self._LogLines()))
@@ -234,8 +236,6 @@ class ReplayServer(object):
       finally:
         # TODO(rnephew): Upload logs to google storage. crbug.com/525787
         self._CleanUpTempLogFilePath()
-    else:
-      logging.warning('Attempting to stop WPR server that is not running.')
 
   def _StopReplayProcess(self):
     if not self.replay_process:
@@ -250,8 +250,8 @@ class ReplayServer(object):
       pass
 
     try:
-      util.WaitFor(lambda: self.replay_process.poll() is not None, 10)
-    except exceptions.TimeoutException:
+      py_utils.WaitFor(lambda: self.replay_process.poll() is not None, 10)
+    except py_utils.TimeoutException:
       try:
         # Use a SIGINT so that it can do graceful cleanup.
         self.replay_process.send_signal(signal.SIGINT)

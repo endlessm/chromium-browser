@@ -5,14 +5,14 @@
 #include "ui/views/controls/button/radio_button.h"
 
 #include "base/logging.h"
-#include "ui/accessibility/ax_view_state.h"
+#include "ui/accessibility/ax_node_data.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/events/event_utils.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/paint_vector_icon.h"
-#include "ui/gfx/vector_icons_public.h"
 #include "ui/resources/grit/ui_resources.h"
 #include "ui/views/resources/grit/views_resources.h"
+#include "ui/views/resources/vector_icons/vector_icons.h"
 #include "ui/views/widget/widget.h"
 
 namespace views {
@@ -71,9 +71,9 @@ const char* RadioButton::GetClassName() const {
   return kViewClassName;
 }
 
-void RadioButton::GetAccessibleState(ui::AXViewState* state) {
-  Checkbox::GetAccessibleState(state);
-  state->role = ui::AX_ROLE_RADIO_BUTTON;
+void RadioButton::GetAccessibleNodeData(ui::AXNodeData* node_data) {
+  Checkbox::GetAccessibleNodeData(node_data);
+  node_data->role = ui::AX_ROLE_RADIO_BUTTON;
 }
 
 View* RadioButton::GetSelectedViewForGroup(int group) {
@@ -152,9 +152,8 @@ void RadioButton::PaintFocusRing(gfx::Canvas* canvas, const SkPaint& paint) {
                      image()->width() / 2, paint);
 }
 
-gfx::VectorIconId RadioButton::GetVectorIconId() const {
-  return checked() ? gfx::VectorIconId::RADIO_BUTTON_ACTIVE
-                   : gfx::VectorIconId::RADIO_BUTTON_NORMAL;
+const gfx::VectorIcon& RadioButton::GetVectorIcon() const {
+  return checked() ? kRadioButtonActiveIcon : kRadioButtonNormalIcon;
 }
 
 }  // namespace views

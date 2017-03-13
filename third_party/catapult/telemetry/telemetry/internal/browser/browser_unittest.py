@@ -8,7 +8,6 @@ import shutil
 import tempfile
 import unittest
 
-from telemetry.core import util
 from telemetry.core import exceptions
 from telemetry import decorators
 from telemetry.internal.browser import browser as browser_module
@@ -22,7 +21,7 @@ from telemetry.testing import options_for_unittests
 from telemetry.timeline import tracing_config
 
 import mock
-
+import py_utils
 
 class IntentionalException(Exception):
   pass
@@ -123,8 +122,10 @@ class BrowserTest(browser_test_case.BrowserTestCase):
   def testGetSystemTotalMemory(self):
     self.assertTrue(self._browser.memory_stats['SystemTotalPhysicalMemory'] > 0)
 
-  @decorators.Disabled('cros-chrome-guest', 'system-guest',  # chromeos guest
-                       'chromeos')  # crbug.com/628836.
+
+  # crbug.com/628836 (CrOS, where system-guest indicates ChromeOS guest)
+  # github.com/catapult-project/catapult/issues/3130 (Windows)
+  @decorators.Disabled('cros-chrome-guest', 'system-guest', 'chromeos', 'win')
   def testIsTracingRunning(self):
     tracing_controller = self._browser.platform.tracing_controller
     if not tracing_controller.IsChromeTracingSupported():
@@ -248,7 +249,8 @@ class BrowserRestoreSessionTest(unittest.TestCase):
       # old tabs and a new blank tab.
       expected_number_of_tabs = self._number_of_tabs + 1
       try:
-        util.WaitFor(lambda: len(browser.tabs) == expected_number_of_tabs, 10)
+        py_utils.WaitFor(
+            lambda: len(browser.tabs) == expected_number_of_tabs, 10)
       except:
         logging.error('Number of tabs is %s' % len(browser.tabs))
         raise

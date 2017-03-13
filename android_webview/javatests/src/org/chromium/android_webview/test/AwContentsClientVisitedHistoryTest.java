@@ -4,13 +4,13 @@
 
 package org.chromium.android_webview.test;
 
-import android.test.suitebuilder.annotation.SmallTest;
+import android.support.test.filters.SmallTest;
 import android.webkit.ValueCallback;
 
 import org.chromium.android_webview.AwContents;
 import org.chromium.android_webview.test.TestAwContentsClient.DoUpdateVisitedHistoryHelper;
+import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.Feature;
-import org.chromium.content.browser.test.util.CallbackHelper;
 import org.chromium.net.test.util.TestWebServer;
 
 /**
@@ -19,7 +19,7 @@ import org.chromium.net.test.util.TestWebServer;
 public class AwContentsClientVisitedHistoryTest extends AwTestBase {
     private static class GetVisitedHistoryHelper extends CallbackHelper {
         private ValueCallback<String[]> mCallback;
-        private boolean mSaveCallback = false;
+        private boolean mSaveCallback;
 
         public ValueCallback<String[]> getCallback() {
             assert getCallCount() > 0;

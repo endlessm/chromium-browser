@@ -8,11 +8,11 @@
 #include "gm.h"
 #if SK_SUPPORT_GPU
 #include "GrContext.h"
-#include "GrDrawContextPriv.h"
+#include "GrRenderTargetContextPriv.h"
 #include "SkRRect.h"
-#include "batches/GrDrawBatch.h"
-#include "batches/GrRectBatchFactory.h"
 #include "effects/GrRRectEffect.h"
+#include "ops/GrDrawOp.h"
+#include "ops/GrRectOpFactory.h"
 
 namespace skiagm {
 
@@ -48,8 +48,9 @@ protected:
     SkISize onISize() override { return SkISize::Make(fWidth, fHeight); }
 
     void onDraw(SkCanvas* canvas) override {
-        GrDrawContext* drawContext = canvas->internal_private_accessTopLayerDrawContext();
-        if (!drawContext) {
+        GrRenderTargetContext* renderTargetContext =
+            canvas->internal_private_accessTopLayerRenderTargetContext();
+        if (!renderTargetContext) {
             skiagm::GM::DrawGpuOnlyMessage(canvas);
             return;
         }
@@ -73,23 +74,22 @@ protected:
                 paint.setColor(SK_ColorWHITE);
                 canvas->drawRect(testBounds, paint);
 
-                GrPaint grPaint;
-                grPaint.setXPFactory(GrPorterDuffXPFactory::Make(SkXfermode::kSrc_Mode));
-
                 SkRRect rrect = fRRect;
                 rrect.offset(SkIntToScalar(x + kGap), SkIntToScalar(y + kGap));
                 sk_sp<GrFragmentProcessor> fp(GrRRectEffect::Make(edgeType, rrect));
                 SkASSERT(fp);
                 if (fp) {
+                    GrPaint grPaint;
+                    grPaint.setXPFactory(GrPorterDuffXPFactory::Get(SkBlendMode::kSrc));
                     grPaint.addCoverageFragmentProcessor(std::move(fp));
 
                     SkRect bounds = testBounds;
                     bounds.offset(SkIntToScalar(x), SkIntToScalar(y));
 
-                    SkAutoTUnref<GrDrawBatch> batch(
-                            GrRectBatchFactory::CreateNonAAFill(0xff000000, SkMatrix::I(), bounds,
-                                                                nullptr, nullptr));
-                    drawContext->drawContextPriv().testingOnly_drawBatch(grPaint, batch);
+                    std::unique_ptr<GrDrawOp> op(GrRectOpFactory::MakeNonAAFill(
+                            0xff000000, SkMatrix::I(), bounds, nullptr, nullptr));
+                    renderTargetContext->priv().testingOnly_addDrawOp(
+                            std::move(grPaint), GrAAType::kNone, std::move(op));
                 }
             canvas->restore();
             x = x + fTestOffsetX;

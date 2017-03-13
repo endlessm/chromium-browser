@@ -117,6 +117,11 @@ class CanonOutputT {
     cur_len_ += str_len;
   }
 
+  void ReserveSizeIfNeeded(int estimated_size) {
+    if (estimated_size > buffer_len_)
+      Resize(estimated_size);
+  }
+
  protected:
   // Grows the given buffer so that it can fit at least |min_additional|
   // characters. Returns true if the buffer could be resized, false on OOM.
@@ -378,6 +383,33 @@ URL_EXPORT void CanonicalizeHostVerbose(const base::char16* spec,
                                         const Component& host,
                                         CanonOutput* output,
                                         CanonHostInfo* host_info);
+
+// Canonicalizes a string according to the host canonicalization rules. Unlike
+// CanonicalizeHost, this will not check for IP addresses which can change the
+// meaning (and canonicalization) of the components. This means it is possible
+// to call this for sub-components of a host name without corruption.
+//
+// As an example, "01.02.03.04.com" is a canonical hostname. If you called
+// CanonicalizeHost on the substring "01.02.03.04" it will get "fixed" to
+// "1.2.3.4" which will produce an invalid host name when reassembled. This
+// can happen more than one might think because all numbers by themselves are
+// considered IP addresses; so "5" canonicalizes to "0.0.0.5".
+//
+// Be careful: Because Punycode works on each dot-separated substring as a
+// unit, you should only pass this function substrings that represent complete
+// dot-separated subcomponents of the original host. Even if you have ASCII
+// input, percent-escaped characters will have different meanings if split in
+// the middle.
+//
+// Returns true if the host was valid. This function will treat a 0-length
+// host as valid (because it's designed to be used for substrings) while the
+// full version above will mark empty hosts as broken.
+URL_EXPORT bool CanonicalizeHostSubstring(const char* spec,
+                                          const Component& host,
+                                          CanonOutput* output);
+URL_EXPORT bool CanonicalizeHostSubstring(const base::char16* spec,
+                                          const Component& host,
+                                          CanonOutput* output);
 
 // IP addresses.
 //

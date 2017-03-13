@@ -7,28 +7,28 @@
 
 #include <list>
 #include <string>
+#include <vector>
 
 #include "base/files/file_path.h"
+#include "base/files/scoped_file.h"
 #include "base/macros.h"
 #include "base/message_loop/message_loop.h"
+#include "base/strings/sys_string_conversions.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/threading/thread.h"
+#include "components/cronet/ios/version.h"
 #include "components/cronet/url_request_context_config.h"
 #include "net/cert/cert_verifier.h"
-#include "net/url_request/url_request.h"
 #include "net/url_request/url_request_context.h"
-
-class JsonPrefStore;
+#include "net/url_request/url_request_context_getter.h"
 
 namespace base {
 class WaitableEvent;
 }  // namespace base
 
 namespace net {
-class HttpCache;
-class NetworkChangeNotifier;
+class CookieStore;
 class NetLog;
-class ProxyConfigService;
 class WriteToFileNetLogObserver;
 }  // namespace net
 
@@ -41,8 +41,10 @@ class CronetEnvironment {
   // main thread.
   static void Initialize();
 
-  // |user_agent_product_name| will be used to generate the user-agent.
-  CronetEnvironment(const std::string& user_agent_product_name);
+  // |user_agent| will be used to generate the user-agent if
+  // |user_agent_partial| is true, or will be used as the complete user-agent
+  // otherwise.
+  CronetEnvironment(const std::string& user_agent, bool user_agent_partial);
   ~CronetEnvironment();
 
   // Starts this instance of Cronet environment.
@@ -51,9 +53,12 @@ class CronetEnvironment {
   // The full user-agent.
   std::string user_agent();
 
+  // Get global UMA histogram deltas.
+  std::vector<uint8_t> GetHistogramDeltas();
+
   // Creates a new net log (overwrites existing file with this name). If
   // actively logging, this call is ignored.
-  void StartNetLog(base::FilePath::StringType file_name, bool log_bytes);
+  bool StartNetLog(base::FilePath::StringType file_name, bool log_bytes);
   // Stops logging and flushes file. If not currently logging this call is
   // ignored.
   void StopNetLog();
@@ -69,37 +74,49 @@ class CronetEnvironment {
   bool http2_enabled() const { return http2_enabled_; }
   bool quic_enabled() const { return quic_enabled_; }
 
-  void set_cert_verifier(std::unique_ptr<net::CertVerifier> cert_verifier) {
-    cert_verifier_ = std::move(cert_verifier);
+  void set_quic_user_agent_id(const std::string& quic_user_agent_id) {
+    quic_user_agent_id_ = quic_user_agent_id;
   }
 
-  void set_host_resolver_rules(const std::string& host_resolver_rules) {
-    host_resolver_rules_ = host_resolver_rules;
+  void set_accept_language(const std::string& accept_language) {
+    accept_language_ = accept_language;
   }
+
+  void set_mock_cert_verifier(
+      std::unique_ptr<net::CertVerifier> mock_cert_verifier) {
+    mock_cert_verifier_ = std::move(mock_cert_verifier);
+  }
+
+  void set_http_cache(URLRequestContextConfig::HttpCacheType http_cache) {
+    http_cache_ = http_cache;
+  }
+
+  void SetHostResolverRules(const std::string& host_resolver_rules);
 
   void set_ssl_key_log_file_name(const std::string& ssl_key_log_file_name) {
     ssl_key_log_file_name_ = ssl_key_log_file_name;
   }
 
+  // Returns the URLRequestContext associated with this object.
   net::URLRequestContext* GetURLRequestContext() const;
 
-  bool IsOnNetworkThread();
-
-  // Runs a closure on the network thread.
-  void PostToNetworkThread(const tracked_objects::Location& from_here,
-                           const base::Closure& task);
+  // Return the URLRequestContextGetter associated with this object.
+  net::URLRequestContextGetter* GetURLRequestContextGetter() const;
 
  private:
   // Performs initialization tasks that must happen on the network thread.
   void InitializeOnNetworkThread();
+
+  // Runs a closure on the network thread.
+  void PostToNetworkThread(const tracked_objects::Location& from_here,
+                           const base::Closure& task);
 
   // Runs a closure on the file user blocking thread.
   void PostToFileUserBlockingThread(const tracked_objects::Location& from_here,
                                     const base::Closure& task);
 
   // Helper methods that start/stop net logging on the network thread.
-  void StartNetLogOnNetworkThread(const base::FilePath::StringType& file_name,
-                                  bool log_bytes);
+  void StartNetLogOnNetworkThread(base::ScopedFILE file, bool log_bytes);
   void StopNetLogOnNetworkThread(base::WaitableEvent* log_stopped_event);
 
   // Returns the HttpNetworkSession object from the passed in
@@ -107,10 +124,18 @@ class CronetEnvironment {
   net::HttpNetworkSession* GetHttpNetworkSession(
       net::URLRequestContext* context);
 
+  // Sets host resolver rules on the network_io_thread_.
+  void SetHostResolverRulesOnNetworkThread(const std::string& rules,
+                                           base::WaitableEvent* event);
+
+  std::string getDefaultQuicUserAgentId() const;
+
   bool http2_enabled_;
   bool quic_enabled_;
-  std::string host_resolver_rules_;
+  std::string quic_user_agent_id_;
+  std::string accept_language_;
   std::string ssl_key_log_file_name_;
+  URLRequestContextConfig::HttpCacheType http_cache_;
 
   std::list<net::HostPortPair> quic_hints_;
 
@@ -119,12 +144,12 @@ class CronetEnvironment {
   std::unique_ptr<base::Thread> file_thread_;
   std::unique_ptr<base::Thread> file_user_blocking_thread_;
   scoped_refptr<base::SequencedTaskRunner> pref_store_worker_pool_;
-  scoped_refptr<JsonPrefStore> net_pref_store_;
-  std::unique_ptr<net::CertVerifier> cert_verifier_;
-  std::unique_ptr<net::ProxyConfigService> proxy_config_service_;
-  std::unique_ptr<net::HttpServerProperties> http_server_properties_;
+  std::unique_ptr<net::CertVerifier> mock_cert_verifier_;
+  std::unique_ptr<net::CookieStore> cookie_store_;
   std::unique_ptr<net::URLRequestContext> main_context_;
-  std::string user_agent_product_name_;
+  scoped_refptr<net::URLRequestContextGetter> main_context_getter_;
+  std::string user_agent_;
+  bool user_agent_partial_;
   std::unique_ptr<net::NetLog> net_log_;
   std::unique_ptr<net::WriteToFileNetLogObserver> net_log_observer_;
 

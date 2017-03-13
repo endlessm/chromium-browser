@@ -36,6 +36,7 @@
 #include "WebDOMMessageEvent.h"
 #include "WebDataSource.h"
 #include "WebFileChooserParams.h"
+#include "WebFormElement.h"
 #include "WebFrame.h"
 #include "WebFrameOwnerProperties.h"
 #include "WebHistoryCommitType.h"
@@ -49,6 +50,7 @@
 #include "public/platform/BlameContext.h"
 #include "public/platform/WebCommon.h"
 #include "public/platform/WebEffectiveConnectionType.h"
+#include "public/platform/WebFeaturePolicy.h"
 #include "public/platform/WebFileSystem.h"
 #include "public/platform/WebFileSystemType.h"
 #include "public/platform/WebInsecureRequestPolicy.h"
@@ -67,21 +69,18 @@ namespace blink {
 
 enum class WebTreeScopeType;
 class InterfaceProvider;
+class InterfaceRegistry;
 class WebApplicationCacheHost;
 class WebApplicationCacheHostClient;
-class WebAppBannerClient;
-class WebBluetooth;
 class WebColorChooser;
 class WebColorChooserClient;
 class WebContentDecryptionModule;
 class WebCookieJar;
-class WebCString;
 class WebDataSource;
 class WebEncryptedMediaClient;
 class WebExternalPopupMenu;
 class WebExternalPopupMenuClient;
 class WebFileChooserCompletion;
-class WebFormElement;
 class WebInstalledAppClient;
 class WebLocalFrame;
 class WebMediaPlayer;
@@ -89,7 +88,6 @@ class WebMediaPlayerClient;
 class WebMediaPlayerEncryptedMediaClient;
 class WebMediaPlayerSource;
 class WebMediaSession;
-class WebMediaStream;
 class WebServiceWorkerProvider;
 class WebPlugin;
 class WebPresentationClient;
@@ -229,6 +227,11 @@ class BLINK_EXPORT WebFrameClient {
   virtual void didChangeSandboxFlags(WebFrame* childFrame,
                                      WebSandboxFlags flags) {}
 
+  // Called when a Feature-Policy HTTP header is encountered while loading the
+  // frame's document.
+  virtual void didSetFeaturePolicyHeader(
+      const WebParsedFeaturePolicy& parsedHeader) {}
+
   // Called when a new Content Security Policy is added to the frame's
   // document.  This can be triggered by handling of HTTP headers, handling
   // of <meta> element, or by inheriting CSP from the parent (in case of
@@ -248,6 +251,9 @@ class BLINK_EXPORT WebFrameClient {
       WebLocalFrame*,
       const WebVector<WebString>& newlyMatchingSelectors,
       const WebVector<WebString>& stoppedMatchingSelectors) {}
+
+  // Called the first time this frame is the target of a user gesture.
+  virtual void setHasReceivedUserGesture() {}
 
   // Console messages ----------------------------------------------------
 
@@ -270,6 +276,9 @@ class BLINK_EXPORT WebFrameClient {
                                  const WebString& downloadName,
                                  bool shouldReplaceCurrentEntry) {}
 
+  // The client should load an error page in the current frame.
+  virtual void loadErrorPage(int reason) {}
+
   // Navigational queries ------------------------------------------------
 
   // The client may choose to alter the navigation policy.  Otherwise,
@@ -289,6 +298,8 @@ class BLINK_EXPORT WebFrameClient {
     bool replacesCurrentHistoryItem;
     bool isHistoryNavigationInNewChildFrame;
     bool isClientRedirect;
+    WebFormElement form;
+    bool isCacheDisabled;
 
     NavigationPolicyInfo(WebURLRequest& urlRequest)
         : extraData(nullptr),
@@ -297,7 +308,8 @@ class BLINK_EXPORT WebFrameClient {
           defaultPolicy(WebNavigationPolicyIgnore),
           replacesCurrentHistoryItem(false),
           isHistoryNavigationInNewChildFrame(false),
-          isClientRedirect(false) {}
+          isClientRedirect(false),
+          isCacheDisabled(false) {}
   };
 
   virtual WebNavigationPolicy decidePolicyForNavigation(
@@ -334,8 +346,7 @@ class BLINK_EXPORT WebFrameClient {
   virtual void didCreateDataSource(WebLocalFrame*, WebDataSource*) {}
 
   // A new provisional load has been started.
-  virtual void didStartProvisionalLoad(WebLocalFrame* localFrame,
-                                       double triggeringEventTime) {}
+  virtual void didStartProvisionalLoad(WebLocalFrame* localFrame) {}
 
   // The provisional load was redirected via a HTTP 3xx response.
   virtual void didReceiveServerRedirectForProvisionalLoad(WebLocalFrame*) {}
@@ -567,7 +578,6 @@ class BLINK_EXPORT WebFrameClient {
   // frame context.
   virtual void didCreateScriptContext(WebLocalFrame*,
                                       v8::Local<v8::Context>,
-                                      int extensionGroup,
                                       int worldId) {}
 
   // WebKit is about to release its reference to a v8 context for a frame.
@@ -701,9 +711,6 @@ class BLINK_EXPORT WebFrameClient {
                                                 SuddenTerminationDisablerType) {
   }
 
-  // App Banners ---------------------------------------------------------
-  virtual WebAppBannerClient* appBannerClient() { return 0; }
-
   // Navigator Content Utils  --------------------------------------------
 
   // Registers a new URL handler for the given protocol.
@@ -722,9 +729,6 @@ class BLINK_EXPORT WebFrameClient {
     return WebCustomHandlersNew;
   }
 
-  // Bluetooth -----------------------------------------------------------
-  virtual WebBluetooth* bluetooth() { return 0; }
-
   // Audio Output Devices API --------------------------------------------
 
   // Checks that the given audio sink exists and is authorized. The result is
@@ -742,6 +746,7 @@ class BLINK_EXPORT WebFrameClient {
 
   // Mojo ----------------------------------------------------------------
   virtual InterfaceProvider* interfaceProvider() { return nullptr; }
+  virtual InterfaceRegistry* interfaceRegistry() { return nullptr; }
 
   // Visibility ----------------------------------------------------------
 

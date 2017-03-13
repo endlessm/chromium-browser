@@ -20,10 +20,13 @@ triaging functionality in the chart.
 <link rel="import" href="/dashboard/elements/chart-slider.html">
 <link rel="import" href="/dashboard/elements/chart-title.html">
 <link rel="import" href="/dashboard/elements/chart-tooltip.html">
-<link rel="import" href="/dashboard/static/graph.html">
+<link rel="import" href="/dashboard/static/events.html">
 <link rel="import" href="/dashboard/static/simple_xhr.html">
 <link rel="import" href="/dashboard/static/testselection.html">
 <link rel="import" href="/dashboard/static/uri.html">
+
+<link rel="import" href="/tracing/base/sinebow_color_generator.html">
+<link rel="import" href="/tracing/base/utils.html">
 
 <dom-module name="chart-container">
 
@@ -203,7 +206,10 @@ triaging functionality in the chart.
       var MULTIPLE_OF_STD_DEV = 5;
 
       // Regex for links in series annotation which are shown in tooltip.
-      var TOOLTIP_LINK_REGEX = /\[(.+?)\]\((.+?)\)/g;
+      var TOOLTIP_LINK_REGEX = /\[(.+?)\]\((.+?)\)/;
+
+      // Sinebow generator for graph color picking.
+      var GENERATOR = new tr.b.SinebowColorGenerator();
 
       /**
        * Gets the mean for list of numbers.
@@ -360,24 +366,28 @@ triaging functionality in the chart.
           // Default values for reverting series highlighting.
           DEFAULT_SERIES_PROPERTIES: {
             type: Object,
-            value: () => ({
-              lineWidth: 2,
-              opacity: 1,
-              fill: 0.2,
-              shadowSize: 3
-            })
+            value: () => {
+              return {
+                lineWidth: 2,
+                opacity: 1,
+                fill: 0.2,
+                shadowSize: 3
+              };
+            }
           },
 
           DEFAULT_JSON_PROPERTIES: {
             type: Object,
-            value: () => ({
-              annotations: {
-                series: {}
-              },
-              data: {},
-              error_bars: {},
-              warning: null
-            })
+            value: () => {
+              return {
+                annotations: {
+                  series: {}
+                },
+                data: {},
+                error_bars: {},
+                warning: null
+              };
+            }
           },
 
           // Amount of time before a warning is shown for tests with no new
@@ -509,26 +519,28 @@ triaging functionality in the chart.
           // See: https://github.com/flot/flot/blob/master/API.md#plot-options
           chartOptions: {
             type: Object,
-            value: () => ({
-              grid: {
-                hoverable: true,
-                clickable: true,
-                borderWidth: 1,
-                borderColor: 'rgba(0, 0, 0, 0.5)'
-              },
-              crosshair: {
-                mode: 'xy',
-                color: 'rgba(34, 34, 34, 0.3)',
-                lineWidth: 0.3
-              },
-              xaxis: {},
-              yaxis: {
-                labelWidth: 60
-              },
-              selection: {
-                mode: 'y'
-              }
-            })
+            value: () => {
+              return {
+                grid: {
+                  hoverable: true,
+                  clickable: true,
+                  borderWidth: 1,
+                  borderColor: 'rgba(0, 0, 0, 0.5)'
+                },
+                crosshair: {
+                  mode: 'xy',
+                  color: 'rgba(34, 34, 34, 0.3)',
+                  lineWidth: 0.3
+                },
+                xaxis: {},
+                yaxis: {
+                  labelWidth: 60
+                },
+                selection: {
+                  mode: 'y'
+                }
+              };
+            }
           },
 
           // Warning text to be shown over the chart, if any.
@@ -540,7 +552,7 @@ triaging functionality in the chart.
 
           graphParams: {
             type: Object,
-            value: () => ({})
+            value: () => { return {}; }
           },
 
           // List of XMLHttpRequests sent for graph json.
@@ -578,7 +590,7 @@ triaging functionality in the chart.
           this.resizeHandler = this.onResize.bind(this);
 
           // The data fetched from the graph_json handler for this chart.
-          this.json = deepCopy(this.DEFAULT_JSON_PROPERTIES);
+          this.json = tr.b.deepCopy(this.DEFAULT_JSON_PROPERTIES);
 
           this.chartOptions.xaxis.tickFormatter = this.formatXAxis.bind(this);
           this.chartOptions.yaxis.tickFormatter = this.formatYAxis.bind(this);
@@ -600,11 +612,12 @@ triaging functionality in the chart.
           this.$.title.addEventListener(
               'titleclicked', this.onTitleClicked.bind(this), true);
 
-          window.addEventListener('resize', this.resizeHandler);
+          events.addEventListener(window, 'resize', this.resizeHandler);
 
           this.initializePlotEventListeners();
 
-          window.addEventListener('urichange', this.onUriChanged.bind(this));
+          events.addEventListener(
+              window, 'urichange', this.onUriChanged.bind(this));
         },
 
         /**
@@ -867,7 +880,7 @@ triaging functionality in the chart.
               this.nextSeriesIndex++;
             }
 
-            var color = graph.stringToColor(testPath);
+            var color = GENERATOR.colorForKey(testPath).toString();
             newJson.data[index].color = color;
             this.updateJsonDataIndex(newJson.data[index], nextIndex);
             this.json.data[nextIndex] = newJson.data[index];
@@ -1191,7 +1204,7 @@ triaging functionality in the chart.
          *     'end_rev'.
          */
         onRevisionRange: function(event, detail) {
-          var newGraphParams = deepCopy(this.graphParams);
+          var newGraphParams = tr.b.deepCopy(this.graphParams);
           newGraphParams['rev'] = null;
           newGraphParams['num_points'] = null;
           newGraphParams['start_rev'] = detail.start_rev;
@@ -1336,7 +1349,8 @@ triaging functionality in the chart.
          */
         addAxisMargin: function(axis) {
           var margin = 0.2; // Flot's default for autoscaleMargin.
-          var min = axis.min, max = axis.max;
+          var min = axis.min;
+          var max = axis.max;
           var delta = max - min;
           if (delta == 0.0) {
             min -= axis.min == 0 ? 1 : margin;
@@ -1431,7 +1445,7 @@ triaging functionality in the chart.
           for (var i = 0; i < this.indicesToGraph.length; i++) {
             var index = this.indicesToGraph[i];
             if (index >= 0 && this.json.data[index]) {
-              data.push(deepCopy(this.json.data[index]));
+              data.push(tr.b.deepCopy(this.json.data[index]));
             } else {
               console.debug('getDataForFlot: indicesToGraph: ',
                             this.indicesToGraph);
@@ -1443,8 +1457,8 @@ triaging functionality in the chart.
           for (var i = 0; i < this.indicesToGraph.length; i++) {
             var index = this.indicesToGraph[i];
             if (index >= 0 && this.json['error_bars'][index]) {
-              data.push(deepCopy(this.json['error_bars'][index][0]));
-              data.push(deepCopy(this.json['error_bars'][index][1]));
+              data.push(tr.b.deepCopy(this.json['error_bars'][index][0]));
+              data.push(tr.b.deepCopy(this.json['error_bars'][index][1]));
             } else {
               console.debug('getDataForFlot: indicesToGraph: ',
                             this.indicesToGraph);
@@ -1674,7 +1688,7 @@ triaging functionality in the chart.
           var titleParts = event.detail.titleParts;
           var partIndex = event.detail.partIndex;
           var testPath = titleParts.slice(0, partIndex + 1).join('/');
-          this.json = deepCopy(this.DEFAULT_JSON_PROPERTIES);
+          this.json = tr.b.deepCopy(this.DEFAULT_JSON_PROPERTIES);
           this.set('seriesGroupList', []);
           this.set('indicesToGraph', []);
           this.addSeriesGroup([[testPath, []]], true);
@@ -1746,7 +1760,8 @@ triaging functionality in the chart.
               // Flot sends a spurious click event at the end of the selection.
               return;
             }
-            var min = Math.min(from, to), max = Math.max(from, to);
+            var min = Math.min(from, to);
+            var max = Math.max(from, to);
             if (pos.y > min && pos.y < max) {
               this.chartOptions.yaxis.min = min;
               this.chartOptions.yaxis.max = max;
@@ -1831,7 +1846,8 @@ triaging functionality in the chart.
           // The alerts and triaged lists are attributes of chart-tooltip
           // which are used for showing information about anomalies. The alerts
           // list is also used for showing the triage dialog.
-          var alerts = null, triaged = null;
+          var alerts = null;
+          var triaged = null;
           if (anomalyInfo.bug_id) {
             triaged = [anomalyInfo];
           } else {
@@ -1897,6 +1913,7 @@ triaging functionality in the chart.
           alertInfo['end_revision'] = event.detail.endRev;
           seriesAnnotations[dataIndex]['g_anomaly'] = null;
           seriesAnnotations[newDataIndex]['g_anomaly'] = alertInfo;
+          event.detail.alerts[0].dataIndex = newDataIndex;
           this.showAlerts();
         },
 
@@ -1976,6 +1993,8 @@ triaging functionality in the chart.
           var yValue = pointFromJson[1];
 
           this.$.tooltip.testPath = series.path;
+          this.$.tooltip.isLastPoint =
+              dataIndex === seriesFromJson.data.length - 1;
           this.$.tooltip.value = formatNumber(yValue);
           if (annotation.error > 0) {
             this.$.tooltip.stddev = formatNumber(annotation.error);

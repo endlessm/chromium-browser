@@ -5,7 +5,7 @@
 // test_custom_bindings.js
 // mini-framework for ExtensionApiTest browser tests
 
-var binding = require('binding').Binding.create('test');
+var binding = apiBridge || require('binding').Binding.create('test');
 
 var environmentSpecificBindings = require('test_environment_specific_bindings');
 var GetExtensionAPIDefinitionsForTest =
@@ -15,7 +15,6 @@ var natives = requireNative('test_native_handler');
 var uncaughtExceptionHandler = require('uncaught_exception_handler');
 var userGestures = requireNative('user_gestures');
 
-var RunWithNativesEnabled = requireNative('v8_context').RunWithNativesEnabled;
 var GetModuleSystem = requireNative('v8_context').GetModuleSystem;
 
 binding.registerCustomHook(function(api) {
@@ -121,10 +120,6 @@ binding.registerCustomHook(function(api) {
     console.log("[SUCCESS] " + testName(currentTest));
     chromeTest.log("(  SUCCESS )");
     testDone();
-  });
-
-  apiFunctions.setHandleRequest('runWithNativesEnabled', function(callback) {
-    RunWithNativesEnabled(callback);
   });
 
   apiFunctions.setHandleRequest('getModuleSystem', function(context) {
@@ -257,8 +252,9 @@ binding.registerCustomHook(function(api) {
       if (func)
         return $Function.apply(func, undefined, args);
     } catch (e) {
-      var msg = "uncaught exception " + e;
-      chromeTest.fail(msg);
+      if (e === failureException)
+        throw e;
+      uncaughtExceptionHandler.handle(e.message, e);
     }
   };
 
@@ -361,4 +357,5 @@ binding.registerCustomHook(function(api) {
   environmentSpecificBindings.registerHooks(api);
 });
 
-exports.$set('binding', binding.generate());
+if (!apiBridge)
+  exports.$set('binding', binding.generate());

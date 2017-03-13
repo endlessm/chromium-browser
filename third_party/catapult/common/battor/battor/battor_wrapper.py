@@ -17,6 +17,7 @@ from battor import battor_error
 from py_utils import cloud_storage
 import dependency_manager
 from devil.utils import battor_device_mapping
+from devil.utils import cmd_helper
 from devil.utils import find_usb_devices
 
 import serial
@@ -33,7 +34,7 @@ def IsBattOrConnected(test_platform, android_device=None,
 
     if not android_device_map:
       device_tree = find_usb_devices.GetBusNumberToDeviceTreeMap()
-      if len(battor_device_mapping.GetBattorList(device_tree)) == 1:
+      if len(battor_device_mapping.GetBattOrList(device_tree)) == 1:
         return True
       if android_device_file:
         android_device_map = battor_device_mapping.ReadSerialMapFile(
@@ -41,7 +42,7 @@ def IsBattOrConnected(test_platform, android_device=None,
       else:
         try:
           android_device_map = battor_device_mapping.GenerateSerialMap()
-        except battor_error.BattorError:
+        except battor_error.BattOrError:
           return False
 
     # If neither if statement above is triggered, it means that an
@@ -64,21 +65,29 @@ def IsBattOrConnected(test_platform, android_device=None,
 
   elif test_platform == 'linux':
     device_tree = find_usb_devices.GetBusNumberToDeviceTreeMap(fast=True)
-    return bool(battor_device_mapping.GetBattorList(device_tree))
+    return bool(battor_device_mapping.GetBattOrList(device_tree))
 
   return False
 
 
-class BattorWrapper(object):
+class BattOrWrapper(object):
   """A class for communicating with a BattOr in python."""
+  _EXIT_CMD = 'Exit'
+  _GET_FIRMWARE_GIT_HASH_CMD = 'GetFirmwareGitHash'
   _START_TRACING_CMD = 'StartTracing'
   _STOP_TRACING_CMD = 'StopTracing'
   _SUPPORTS_CLOCKSYNC_CMD = 'SupportsExplicitClockSync'
   _RECORD_CLOCKSYNC_CMD = 'RecordClockSyncMarker'
   _SUPPORTED_PLATFORMS = ['android', 'chromeos', 'linux', 'mac', 'win']
 
+  _SUPPORTED_AUTOFLASHING_PLATFORMS = ['linux', 'mac', 'win']
+  _BATTOR_PARTNO = 'x192a3u'
+  _BATTOR_PROGRAMMER = 'avr109'
+  _BATTOR_BAUDRATE = '115200'
+
   def __init__(self, target_platform, android_device=None, battor_path=None,
-               battor_map_file=None, battor_map=None, serial_log_bucket=None):
+               battor_map_file=None, battor_map=None, serial_log_bucket=None,
+               autoflash=True):
     """Constructor.
 
     Args:
@@ -101,18 +110,19 @@ class BattorWrapper(object):
         are uploaded on failure.
       _serial_log_file: Temp file for the BattOr agent serial log.
     """
-    self._battor_path = self._GetBattorPath(target_platform, android_device,
+    self._battor_path = self._GetBattOrPath(target_platform, android_device,
         battor_path, battor_map_file, battor_map)
     config = os.path.join(
         os.path.dirname(os.path.abspath(__file__)),
         'battor_binary_dependencies.json')
 
-    dm = dependency_manager.DependencyManager(
+    self._dm = dependency_manager.DependencyManager(
         [dependency_manager.BaseConfig(config)])
-    self._battor_agent_binary = dm.FetchPath(
+    self._battor_agent_binary = self._dm.FetchPath(
         'battor_agent_binary', '%s_%s' % (sys.platform, platform.machine()))
-    self._serial_log_bucket = serial_log_bucket
 
+    self._autoflash = autoflash
+    self._serial_log_bucket = serial_log_bucket
     self._tracing = False
     self._battor_shell = None
     self._trace_results_path = None
@@ -120,8 +130,35 @@ class BattorWrapper(object):
     self._stop_tracing_time = None
     self._trace_results = None
     self._serial_log_file = None
+    self._target_platform = target_platform
+    self._git_hash = None
 
     atexit.register(self.KillBattOrShell)
+
+  def _FlashBattOr(self):
+    assert self._battor_shell, (
+        'Must start shell before attempting to flash BattOr')
+
+    try:
+      device_git_hash = self.GetFirmwareGitHash()
+      battor_firmware, cs_git_hash = self._dm.FetchPathWithVersion(
+          'battor_firmware', 'default')
+      if cs_git_hash != device_git_hash:
+        logging.info(
+            'Flashing BattOr with old firmware version <%s> with new '
+            'version <%s>.', device_git_hash, cs_git_hash)
+        avrdude_config = self._dm.FetchPath('avrdude_config', 'default')
+        self.StopShell()
+        return self.FlashFirmware(battor_firmware, avrdude_config)
+      return False
+    except ValueError:
+      logging.critical('Git hash returned from BattOr was not as expected: %s'
+                       % self._git_hash)
+      self._UploadSerialLogToCloudStorage()
+      self._serial_log_file = None
+    finally:
+      if not self._battor_shell:
+        self.StartShell()
 
   def KillBattOrShell(self):
     if self._battor_shell:
@@ -130,29 +167,53 @@ class BattorWrapper(object):
 
   def GetShellReturnCode(self):
     """Gets the return code of the BattOr agent shell."""
-    # TODO(rnephew): Get rid of logging after crbug.com/645106 is fixed.
-    logging.critical('Finding return code for BattOr shell.')
     rc = self._battor_shell.poll()
-    logging.critical('Found return code: %s' % rc)
     return rc
 
   def StartShell(self):
     """Start BattOr binary shell."""
     assert not self._battor_shell, 'Attempting to start running BattOr shell.'
+
     battor_cmd = [self._battor_agent_binary]
     if self._serial_log_bucket:
-      self._serial_log_file = tempfile.NamedTemporaryFile()
+      # Create and immediately close a temp file in order to get a filename
+      # for the serial log.
+      self._serial_log_file = tempfile.NamedTemporaryFile(delete=False)
+      self._serial_log_file.close()
       battor_cmd.append('--battor-serial-log=%s' % self._serial_log_file.name)
     if self._battor_path:
       battor_cmd.append('--battor-path=%s' % self._battor_path)
     self._battor_shell = self._StartShellImpl(battor_cmd)
     assert self.GetShellReturnCode() is None, 'Shell failed to start.'
 
+  def StopShell(self, timeout=60):
+    """Stop BattOr binary shell."""
+    assert self._battor_shell, 'Attempting to stop a non-running BattOr shell.'
+    assert not self._tracing, 'Attempting to stop a BattOr shell while tracing.'
+
+    self._SendBattOrCommand(self._EXIT_CMD, check_return=False)
+    seconds_waited = 0
+    # TODO(rnephew): Move to using waitfor after porting to common/py_utils.
+    # https://github.com/catapult-project/catapult/issues/2955
+    while self.GetShellReturnCode() == None:
+      time.sleep(1)
+      seconds_waited += 1
+      if seconds_waited >= timeout:
+        break
+    if self.GetShellReturnCode() == None:
+      self.KillBattOrShell()
+    self._battor_shell = None
+
   def StartTracing(self):
     """Start tracing on the BattOr."""
     assert self._battor_shell, 'Must start shell before tracing'
     assert not self._tracing, 'Tracing already started.'
-    self._SendBattorCommand(self._START_TRACING_CMD)
+    # TODO(rnephew): Remove this when we have windows avrdude binary uploaded.
+    # https://github.com/catapult-project/catapult/issues/2972
+    if (self._target_platform in self._SUPPORTED_AUTOFLASHING_PLATFORMS
+        and self._autoflash):
+      self._FlashBattOr()
+    self._SendBattOrCommand(self._START_TRACING_CMD)
     self._tracing = True
     self._start_tracing_time = int(time.time())
 
@@ -163,7 +224,7 @@ class BattorWrapper(object):
     temp_file = tempfile.NamedTemporaryFile(delete=False)
     self._trace_results_path = temp_file.name
     temp_file.close()
-    self._SendBattorCommand(
+    self._SendBattOrCommand(
         '%s %s' % (self._STOP_TRACING_CMD, self._trace_results_path),
         check_return=False)
     self._tracing = False
@@ -191,20 +252,20 @@ class BattorWrapper(object):
 
   def SupportsExplicitClockSync(self):
     """Returns if BattOr supports Clock Sync events."""
-    return bool(int(self._SendBattorCommand(self._SUPPORTS_CLOCKSYNC_CMD,
+    return bool(int(self._SendBattOrCommand(self._SUPPORTS_CLOCKSYNC_CMD,
                                             check_return=False)))
 
   def RecordClockSyncMarker(self, sync_id):
     """Record clock sync event on BattOr."""
     if not isinstance(sync_id, basestring):
       raise TypeError('sync_id must be a string.')
-    self._SendBattorCommand('%s %s' % (self._RECORD_CLOCKSYNC_CMD, sync_id))
+    self._SendBattOrCommand('%s %s' % (self._RECORD_CLOCKSYNC_CMD, sync_id))
 
-  def _GetBattorPath(self, target_platform, android_device=None,
+  def _GetBattOrPath(self, target_platform, android_device=None,
                      battor_path=None, battor_map_file=None, battor_map=None):
     """Determines most likely path to the correct BattOr."""
     if target_platform not in self._SUPPORTED_PLATFORMS:
-      raise battor_error.BattorError(
+      raise battor_error.BattOrError(
           '%s is an unsupported platform.' % target_platform)
     if target_platform in ['win']:
       # Right now, the BattOr agent binary isn't able to automatically detect
@@ -214,7 +275,7 @@ class BattorWrapper(object):
       for (port, desc, _) in serial.tools.list_ports.comports():
         if 'USB Serial Port' in desc:
           return port
-      raise battor_error.BattorError(
+      raise battor_error.BattOrError(
           'Could not find BattOr attached to machine.')
     if target_platform in ['mac']:
       for (port, desc, _) in serial.tools.list_ports.comports():
@@ -225,26 +286,26 @@ class BattorWrapper(object):
       device_tree = find_usb_devices.GetBusNumberToDeviceTreeMap(fast=True)
       if battor_path:
         if not isinstance(battor_path, basestring):
-          raise battor_error.BattorError(
+          raise battor_error.BattOrError(
               'An invalid BattOr path was specified.')
         return battor_path
 
       if target_platform == 'android':
         if not android_device:
-          raise battor_error.BattorError(
+          raise battor_error.BattOrError(
               'Must specify device for Android platform.')
         if not battor_map_file and not battor_map:
           # No map was passed, so must create one.
           battor_map = battor_device_mapping.GenerateSerialMap()
 
-        return battor_device_mapping.GetBattorPathFromPhoneSerial(
+        return battor_device_mapping.GetBattOrPathFromPhoneSerial(
             str(android_device), serial_map_file=battor_map_file,
             serial_map=battor_map)
 
       # Not Android and no explicitly passed BattOr.
-      battors = battor_device_mapping.GetBattorList(device_tree)
+      battors = battor_device_mapping.GetBattOrList(device_tree)
       if len(battors) != 1:
-        raise battor_error.BattorError(
+        raise battor_error.BattOrError(
             'For non-Android platforms, exactly one BattOr must be '
             'attached unless address is explicitly given.')
       return '/dev/%s' % battors.pop()
@@ -252,20 +313,20 @@ class BattorWrapper(object):
     raise NotImplementedError(
         'BattOr Wrapper not implemented for given platform')
 
-  def _SendBattorCommandImpl(self, cmd):
+  def _SendBattOrCommandImpl(self, cmd):
     """Sends command to the BattOr."""
     self._battor_shell.stdin.write('%s\n' % cmd)
     self._battor_shell.stdin.flush()
     return self._battor_shell.stdout.readline()
 
-  def _SendBattorCommand(self, cmd, check_return=True):
-    status = self._SendBattorCommandImpl(cmd)
+  def _SendBattOrCommand(self, cmd, check_return=True):
+    status = self._SendBattOrCommandImpl(cmd)
 
     if check_return and not 'Done.' in status:
       self.KillBattOrShell()
       self._UploadSerialLogToCloudStorage()
       self._serial_log_file = None
-      raise battor_error.BattorError(
+      raise battor_error.BattOrError(
           'BattOr did not complete command \'%s\' correctly.\n'
           'Outputted: %s' % (cmd, status))
     return status
@@ -291,3 +352,57 @@ class BattorWrapper(object):
     except cloud_storage.PermissionError as e:
       logging.error('Cannot upload BattOr serial log file to cloud storage due '
                     'to permission error: %s' % e.message)
+
+  def GetFirmwareGitHash(self):
+    """Gets the git hash for the BattOr firmware.
+
+    Returns: Git hash for firmware currently on the BattOr.
+        Also sets self._git_hash to this value.
+
+    Raises: ValueException if the git hash is not in hex.
+    """
+    assert self._battor_shell, ('Must start shell before getting firmware git '
+                                'hash')
+    self._git_hash = self._SendBattOrCommand(self._GET_FIRMWARE_GIT_HASH_CMD,
+                                       check_return=False).strip()
+    # We expect the git hash to be a valid 6 character hexstring. This will
+    # throw a ValueError exception otherwise.
+    int(self._git_hash, 16)
+    return self._git_hash
+
+
+  def FlashFirmware(self, hex_path, avrdude_config_path):
+    """Flashes the BattOr using an avrdude config at config_path with the new
+       firmware at hex_path.
+    """
+    assert not self._battor_shell, 'Cannot flash BattOr with open shell'
+    if self._target_platform not in self._SUPPORTED_AUTOFLASHING_PLATFORMS:
+      logging.critical('Flashing firmware on this platform is not supported.')
+      return False
+
+    avrdude_binary = self._dm.FetchPath(
+        'avrdude_binary', '%s_%s' % (sys.platform, platform.machine()))
+    avr_cmd = [
+        avrdude_binary,
+        '-e',  # Specify to erase data on chip.
+        '-p', self._BATTOR_PARTNO,  # Specify AVR device.
+        # Specify which microcontroller programmer to use.
+        '-c', self._BATTOR_PROGRAMMER,
+        '-b', self._BATTOR_BAUDRATE,  # Specify the baud rate to communicate at.
+        '-P', self._battor_path,  # Serial path to the battor.
+        # Command to execute with hex file and path to hex file.
+        '-U', 'flash:w:%s' % hex_path,
+        '-C', avrdude_config_path, # AVRdude config file path.
+        '2>&1'  # All output goes to stderr for some reason.
+    ]
+    status, output = cmd_helper.GetCmdStatusAndOutput(' '.join(avr_cmd),
+                                                      shell=True)
+    logging.critical(output)
+    if status != 0:
+      raise BattOrFlashError('BattOr flash failed with error code: %d' % status)
+    self._git_hash = None
+    return True
+
+
+class BattOrFlashError(Exception):
+  pass

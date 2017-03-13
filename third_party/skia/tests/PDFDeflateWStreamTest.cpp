@@ -5,9 +5,12 @@
  * found in the LICENSE file.
  */
 
+#include "Test.h"
+
+#ifdef SK_SUPPORT_PDF
+
 #include "SkDeflate.h"
 #include "SkRandom.h"
-#include "Test.h"
 
 namespace {
 
@@ -125,9 +128,8 @@ DEF_TEST(SkPDF_DeflateWStream, r) {
             }
             REPORTER_ASSERT(r, deflateWStream.bytesWritten() == size);
         }
-        SkAutoTDelete<SkStreamAsset> compressed(
-                dynamicMemoryWStream.detachAsStream());
-        SkAutoTDelete<SkStreamAsset> decompressed(stream_inflate(r, compressed));
+        std::unique_ptr<SkStreamAsset> compressed(dynamicMemoryWStream.detachAsStream());
+        std::unique_ptr<SkStreamAsset> decompressed(stream_inflate(r, compressed.get()));
 
         if (!decompressed) {
             ERRORF(r, "Decompression failed.");
@@ -163,3 +165,5 @@ DEF_TEST(SkPDF_DeflateWStream, r) {
     SkDeflateWStream emptyDeflateWStream(nullptr);
     REPORTER_ASSERT(r, !emptyDeflateWStream.writeText("FOO"));
 }
+
+#endif

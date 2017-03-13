@@ -16,8 +16,7 @@ WebGLVertexArrayObjectBase::WebGLVertexArrayObjectBase(
       m_object(0),
       m_type(type),
       m_hasEverBeenBound(false),
-      m_destructionInProgress(false),
-      m_boundElementArrayBuffer(nullptr),
+      m_boundElementArrayBuffer(this, nullptr),
       m_isAllEnabledAttribBufferBound(true) {
   m_arrayBufferList.resize(ctx->maxVertexAttribs());
   m_attribEnabled.resize(ctx->maxVertexAttribs());
@@ -35,13 +34,7 @@ WebGLVertexArrayObjectBase::WebGLVertexArrayObjectBase(
 }
 
 WebGLVertexArrayObjectBase::~WebGLVertexArrayObjectBase() {
-  m_destructionInProgress = true;
-
-  // Delete the platform framebuffer resource, in case
-  // where this vertex array object isn't detached when it and
-  // the WebGLRenderingContextBase object it is registered with
-  // are both finalized.
-  detachAndDeleteObject();
+  runDestructor();
 }
 
 void WebGLVertexArrayObjectBase::dispatchDetached(
@@ -70,7 +63,7 @@ void WebGLVertexArrayObjectBase::deleteObjectImpl(
   // since they could have been already finalized.
   // The finalizers of these objects will handle their detachment
   // by themselves.
-  if (!m_destructionInProgress)
+  if (!destructionInProgress())
     dispatchDetached(gl);
 }
 
@@ -94,7 +87,7 @@ void WebGLVertexArrayObjectBase::setArrayBufferForAttrib(GLuint index,
   if (m_arrayBufferList[index])
     m_arrayBufferList[index]->onDetached(context()->contextGL());
 
-  m_arrayBufferList[index] = buffer;
+  m_arrayBufferList[index] = TraceWrapperMember<WebGLBuffer>(this, buffer);
   updateAttribBufferBoundStatus();
 }
 
@@ -149,6 +142,14 @@ DEFINE_TRACE(WebGLVertexArrayObjectBase) {
   visitor->trace(m_boundElementArrayBuffer);
   visitor->trace(m_arrayBufferList);
   WebGLContextObject::trace(visitor);
+}
+
+DEFINE_TRACE_WRAPPERS(WebGLVertexArrayObjectBase) {
+  visitor->traceWrappers(m_boundElementArrayBuffer);
+  for (size_t i = 0; i < m_arrayBufferList.size(); ++i) {
+    visitor->traceWrappers(m_arrayBufferList[i]);
+  }
+  WebGLContextObject::traceWrappers(visitor);
 }
 
 }  // namespace blink

@@ -30,11 +30,11 @@ class ScriptWrappable;
   X(MessageEvent, CachedData)           \
   X(MutationObserver, Callback)         \
   X(PerformanceObserver, Callback)      \
-  X(PrivateScriptRunner, IsInitialized) \
   X(SameObject, NotificationActions)    \
   X(SameObject, NotificationData)       \
   X(SameObject, NotificationVibrate)    \
-  X(V8NodeFilterCondition, Filter)
+  X(V8NodeFilterCondition, Filter)      \
+  X(Window, DocumentCachedAccessor)
 
 // The getter's name for a private property.
 #define V8_PRIVATE_PROPERTY_GETTER_NAME(InterfaceName, PrivateKeyName) \
@@ -105,6 +105,8 @@ class CORE_EXPORT V8PrivateProperty {
       return v8CallBoolean(object->SetPrivate(context, m_privateSymbol, value));
     }
 
+    v8::Local<v8::Private> getPrivate() { return m_privateSymbol; }
+
    private:
     friend class V8PrivateProperty;
     // The following classes are exceptionally allowed to call to
@@ -122,7 +124,7 @@ class CORE_EXPORT V8PrivateProperty {
   };
 
   static std::unique_ptr<V8PrivateProperty> create() {
-    return wrapUnique(new V8PrivateProperty());
+    return WTF::wrapUnique(new V8PrivateProperty());
   }
 
 #define V8_PRIVATE_PROPERTY_DEFINE_GETTER(InterfaceName, KeyName)              \

@@ -24,10 +24,12 @@
 #include "build/build_config.h"
 #include "chrome/browser/net/chrome_network_delegate.h"
 #include "chrome/common/features.h"
+#include "components/metrics/data_use_tracker.h"
 #include "components/prefs/pref_member.h"
 #include "components/ssl_config/ssl_config_service_manager.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/browser_thread_delegate.h"
+#include "extensions/features/features.h"
 #include "net/base/network_change_notifier.h"
 #include "net/http/http_network_session.h"
 
@@ -36,13 +38,13 @@ class PrefService;
 class PrefRegistrySimple;
 class SystemURLRequestContextGetter;
 
-#if BUILDFLAG(ANDROID_JAVA_UI)
+#if defined(OS_ANDROID)
 namespace chrome {
 namespace android {
 class ExternalDataUseObserver;
 }
 }
-#endif  // BUILDFLAG(ANDROID_JAVA_UI)
+#endif  // defined(OS_ANDROID)
 
 namespace base {
 class CommandLine;
@@ -74,10 +76,8 @@ class CertVerifier;
 class ChannelIDService;
 class CookieStore;
 class CTLogVerifier;
-class FtpTransactionFactory;
 class HostMappingRules;
 class HostResolver;
-class HttpAuthHandlerRegistryFactory;
 class HttpAuthPreferences;
 class HttpServerProperties;
 class HttpTransactionFactory;
@@ -138,11 +138,11 @@ class IOThread : public content::BrowserThreadDelegate {
     // Global aggregator of data use. It must outlive the
     // |system_network_delegate|.
     std::unique_ptr<data_usage::DataUseAggregator> data_use_aggregator;
-#if BUILDFLAG(ANDROID_JAVA_UI)
+#if defined(OS_ANDROID)
     // An external observer of data use.
     std::unique_ptr<chrome::android::ExternalDataUseObserver>
         external_data_use_observer;
-#endif  // BUILDFLAG(ANDROID_JAVA_UI)
+#endif  // defined(OS_ANDROID)
     // The "system" NetworkDelegate, used for Profile-agnostic network events.
     std::unique_ptr<net::NetworkDelegate> system_network_delegate;
     std::unique_ptr<net::HostResolver> host_resolver;
@@ -164,8 +164,6 @@ class IOThread : public content::BrowserThreadDelegate {
         proxy_script_fetcher_http_network_session;
     std::unique_ptr<net::HttpTransactionFactory>
         proxy_script_fetcher_http_transaction_factory;
-    std::unique_ptr<net::FtpTransactionFactory>
-        proxy_script_fetcher_ftp_transaction_factory;
     std::unique_ptr<net::URLRequestJobFactory>
         proxy_script_fetcher_url_request_job_factory;
     std::unique_ptr<net::HttpAuthPreferences> http_auth_preferences;
@@ -186,7 +184,7 @@ class IOThread : public content::BrowserThreadDelegate {
     // |system_cookie_store| and |system_channel_id_service| are shared
     // between |proxy_script_fetcher_context| and |system_request_context|.
     std::unique_ptr<net::CookieStore> system_cookie_store;
-#if defined(ENABLE_EXTENSIONS)
+#if BUILDFLAG(ENABLE_EXTENSIONS)
     scoped_refptr<extensions::EventRouterForwarder>
         extension_event_router_forwarder;
 #endif
@@ -238,10 +236,16 @@ class IOThread : public content::BrowserThreadDelegate {
 
   const net::HttpNetworkSession::Params& NetworkSessionParams() const;
 
+  // Dynamically disables QUIC for HttpNetworkSessions owned by io_thread, and
+  // to HttpNetworkSession::Params which are used for the creation of new
+  // HttpNetworkSessions. Not that re-enabling Quic dynamically is not
+  // supported for simplicity and requires a browser restart.
+  void DisableQuic();
+
   base::TimeTicks creation_time() const;
 
   // Returns the callback for updating data use prefs.
-  const metrics::UpdateUsagePrefCallbackType& GetMetricsDataUseForwarder();
+  metrics::UpdateUsagePrefCallbackType GetMetricsDataUseForwarder();
 
   // Registers the |observer| for new STH notifications.
   void RegisterSTHObserver(net::ct::STHObserver* observer);
@@ -298,7 +302,7 @@ class IOThread : public content::BrowserThreadDelegate {
   void UpdateNegotiateEnablePort();
 
   extensions::EventRouterForwarder* extension_event_router_forwarder() {
-#if defined(ENABLE_EXTENSIONS)
+#if BUILDFLAG(ENABLE_EXTENSIONS)
     return extension_event_router_forwarder_;
 #else
     return NULL;
@@ -329,7 +333,7 @@ class IOThread : public content::BrowserThreadDelegate {
   // threads during shutdown, but is used most frequently on the IOThread.
   net_log::ChromeNetLog* net_log_;
 
-#if defined(ENABLE_EXTENSIONS)
+#if BUILDFLAG(ENABLE_EXTENSIONS)
   // The extensions::EventRouterForwarder allows for sending events to
   // extensions from the IOThread.
   extensions::EventRouterForwarder* extension_event_router_forwarder_;
@@ -400,10 +404,6 @@ class IOThread : public content::BrowserThreadDelegate {
   bool http_09_on_non_default_ports_enabled_;
 
   const base::TimeTicks creation_time_;
-
-  // Callback for updating data use prefs which needs to be initialized on UI
-  // thread and passed to |ChromeNetworkDelegate|.
-  metrics::UpdateUsagePrefCallbackType metrics_data_use_forwarder_;
 
   base::WeakPtrFactory<IOThread> weak_factory_;
 

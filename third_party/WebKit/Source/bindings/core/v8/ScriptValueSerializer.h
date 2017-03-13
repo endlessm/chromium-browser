@@ -22,10 +22,8 @@ namespace blink {
 class CompositorProxy;
 class DOMArrayBuffer;
 class DOMArrayBufferView;
-class DOMSharedArrayBuffer;
 class File;
 class FileList;
-class ImageData;
 class StaticBitmapImage;
 
 typedef Vector<WTF::ArrayBufferContents, 1> ArrayBufferContentsArray;
@@ -122,6 +120,8 @@ class CORE_EXPORT SerializedScriptValueWriter {
   void writeFalse();
   void writeBooleanObject(bool value);
   void writeOneByteString(v8::Local<v8::String>&);
+  void writeRawStringBytes(v8::Local<v8::String>&);
+  void writeUtf8String(v8::Local<v8::String>&);
   void writeUCharString(v8::Local<v8::String>&);
   void writeStringObject(const char* data, int length);
   void writeWebCoreString(const String&);
@@ -164,9 +164,7 @@ class CORE_EXPORT SerializedScriptValueWriter {
                                        uint32_t height,
                                        uint32_t canvasId,
                                        uint32_t clientId,
-                                       uint32_t sinkId,
-                                       uint32_t localId,
-                                       uint64_t nonce);
+                                       uint32_t sinkId);
   void writeTransferredSharedArrayBuffer(uint32_t index);
   void writeObjectReference(uint32_t reference);
   void writeObject(uint32_t numProperties);
@@ -477,11 +475,6 @@ class CORE_EXPORT ScriptValueSerializer {
   uint32_t m_nextObjectReference;
   WebBlobInfoArray* m_blobInfo;
   BlobDataHandleMap* m_blobDataHandles;
-
-  // Counts of object types encountered while serializing the object graph.
-  int m_primitiveCount = 0;
-  int m_jsObjectCount = 0;
-  int m_domWrapperCount = 0;
 };
 
 class ScriptValueDeserializer;
@@ -641,8 +634,6 @@ class CORE_EXPORT ScriptValueDeserializer {
                                         uint32_t canvasId,
                                         uint32_t clientId,
                                         uint32_t sinkId,
-                                        uint32_t localId,
-                                        uint64_t nonce,
                                         v8::Local<v8::Value>*);
   bool tryGetTransferredSharedArrayBuffer(uint32_t index,
                                           v8::Local<v8::Value>*);
@@ -659,7 +650,7 @@ class CORE_EXPORT ScriptValueDeserializer {
                         uint32_t numProperties,
                         v8::Local<v8::Value>*);
   bool doDeserialize();
-  void push(v8::Local<v8::Value> value) { m_stack.append(value); };
+  void push(v8::Local<v8::Value> value) { m_stack.push_back(value); };
   void pop(unsigned length) {
     ASSERT(length <= m_stack.size());
     m_stack.shrink(m_stack.size() - length);

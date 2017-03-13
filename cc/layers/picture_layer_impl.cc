@@ -202,7 +202,8 @@ void PictureLayerImpl::AppendQuads(RenderPass* render_pass,
   }
 
   float max_contents_scale = MaximumTilingContentsScale();
-  PopulateScaledSharedQuadState(shared_quad_state, max_contents_scale);
+  PopulateScaledSharedQuadState(shared_quad_state, max_contents_scale,
+                                max_contents_scale);
   Occlusion scaled_occlusion =
       draw_properties()
           .occlusion_in_content_space.GetOcclusionWithGivenDrawTransform(
@@ -477,9 +478,6 @@ bool PictureLayerImpl::UpdateTiles() {
   was_screen_space_transform_animating_ =
       draw_properties().screen_space_transform_is_animating;
 
-  if (screen_space_transform_is_animating())
-    raster_source_->SetShouldAttemptToUseDistanceFieldText();
-
   double current_frame_time_in_seconds =
       (layer_tree_impl()->CurrentBeginFrameArgs().frame_time -
        base::TimeTicks()).InSecondsF();
@@ -577,8 +575,8 @@ void PictureLayerImpl::UpdateRasterSource(
 
   // Only set the image decode controller when we're committing.
   if (!pending_set) {
-    raster_source_->set_image_decode_controller(
-        layer_tree_impl()->image_decode_controller());
+    raster_source_->set_image_decode_cache(
+        layer_tree_impl()->image_decode_cache());
   }
 
   // The |new_invalidation| must be cleared before updating tilings since they
@@ -653,7 +651,7 @@ void PictureLayerImpl::NotifyTileStateChanged(const Tile* tile) {
   }
   if (tile->draw_info().NeedsRaster()) {
     PictureLayerTiling* tiling =
-        tilings_->FindTilingWithScale(tile->contents_scale());
+        tilings_->FindTilingWithScaleKey(tile->contents_scale());
     if (tiling)
       tiling->set_all_tiles_done(false);
   }
@@ -678,8 +676,8 @@ void PictureLayerImpl::ReleaseTileResources() {
 void PictureLayerImpl::RecreateTileResources() {
   tilings_ = CreatePictureLayerTilingSet();
   if (raster_source_) {
-    raster_source_->set_image_decode_controller(
-        layer_tree_impl()->image_decode_controller());
+    raster_source_->set_image_decode_cache(
+        layer_tree_impl()->image_decode_cache());
   }
 }
 
@@ -692,7 +690,8 @@ Region PictureLayerImpl::GetInvalidationRegionForDebugging() {
   return IntersectRegions(invalidation_, update_rect());
 }
 
-ScopedTilePtr PictureLayerImpl::CreateTile(const Tile::CreateInfo& info) {
+std::unique_ptr<Tile> PictureLayerImpl::CreateTile(
+    const Tile::CreateInfo& info) {
   int flags = 0;
 
   // We don't handle solid color masks, so we shouldn't bother analyzing those.
@@ -723,7 +722,7 @@ const PictureLayerTiling* PictureLayerImpl::GetPendingOrActiveTwinTiling(
   PictureLayerImpl* twin_layer = GetPendingOrActiveTwinLayer();
   if (!twin_layer)
     return nullptr;
-  return twin_layer->tilings_->FindTilingWithScale(tiling->contents_scale());
+  return twin_layer->tilings_->FindTilingWithScaleKey(tiling->contents_scale());
 }
 
 bool PictureLayerImpl::RequiresHighResToDraw() const {
@@ -891,7 +890,7 @@ void PictureLayerImpl::AddTilingsForRasterScale() {
   tilings_->MarkAllTilingsNonIdeal();
 
   PictureLayerTiling* high_res =
-      tilings_->FindTilingWithScale(raster_contents_scale_);
+      tilings_->FindTilingWithScaleKey(raster_contents_scale_);
   if (!high_res) {
     // We always need a high res tiling, so create one if it doesn't exist.
     high_res = AddTiling(raster_contents_scale_);
@@ -981,7 +980,7 @@ void PictureLayerImpl::AddLowResolutionTilingIfNeeded() {
     return;
 
   PictureLayerTiling* low_res =
-      tilings_->FindTilingWithScale(low_res_raster_contents_scale_);
+      tilings_->FindTilingWithScaleKey(low_res_raster_contents_scale_);
   DCHECK(!low_res || low_res->resolution() != HIGH_RESOLUTION);
 
   // Only create new low res tilings when the transform is static.  This
@@ -1045,7 +1044,7 @@ void PictureLayerImpl::RecalculateRasterScales() {
       while (desired_contents_scale < ideal_contents_scale_)
         desired_contents_scale *= kMaxScaleRatioDuringPinch;
     }
-    raster_contents_scale_ = tilings_->GetSnappedContentsScale(
+    raster_contents_scale_ = tilings_->GetSnappedContentsScaleKey(
         desired_contents_scale, kSnapToExistingTilingRatio);
     raster_page_scale_ =
         raster_contents_scale_ / raster_device_scale_ / raster_source_scale_;
@@ -1310,8 +1309,8 @@ void PictureLayerImpl::AsValueInto(
 
   state->BeginArray("coverage_tiles");
   for (PictureLayerTilingSet::CoverageIterator iter(
-           tilings_.get(), 1.f, gfx::Rect(raster_source_->GetSize()),
-           ideal_contents_scale_);
+           tilings_.get(), MaximumTilingContentsScale(),
+           gfx::Rect(raster_source_->GetSize()), ideal_contents_scale_);
        iter; ++iter) {
     state->BeginDictionary();
 
@@ -1323,6 +1322,32 @@ void PictureLayerImpl::AsValueInto(
     state->EndDictionary();
   }
   state->EndArray();
+
+  state->BeginDictionary("can_have_tilings_state");
+  state->SetBoolean("can_have_tilings", CanHaveTilings());
+  state->SetBoolean("raster_source_solid_color",
+                    raster_source_->IsSolidColor());
+  state->SetBoolean("draws_content", DrawsContent());
+  state->SetBoolean("raster_source_has_recordings",
+                    raster_source_->HasRecordings());
+  state->SetDouble("max_contents_scale", MaximumTilingContentsScale());
+  state->SetDouble("min_contents_scale", MinimumContentsScale());
+  state->EndDictionary();
+
+  state->BeginDictionary("raster_scales");
+  state->SetDouble("page_scale", raster_page_scale_);
+  state->SetDouble("device_scale", raster_device_scale_);
+  state->SetDouble("source_scale", raster_source_scale_);
+  state->SetDouble("contents_scale", raster_contents_scale_);
+  state->SetDouble("low_res_contents_scale", low_res_raster_contents_scale_);
+  state->EndDictionary();
+
+  state->BeginDictionary("ideal_scales");
+  state->SetDouble("page_scale", ideal_page_scale_);
+  state->SetDouble("device_scale", ideal_device_scale_);
+  state->SetDouble("source_scale", ideal_source_scale_);
+  state->SetDouble("contents_scale", ideal_contents_scale_);
+  state->EndDictionary();
 }
 
 size_t PictureLayerImpl::GPUMemoryUsageInBytes() const {

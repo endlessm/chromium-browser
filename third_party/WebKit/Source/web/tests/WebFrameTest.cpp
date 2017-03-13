@@ -39,6 +39,7 @@
 #include "core/css/resolver/StyleResolver.h"
 #include "core/css/resolver/ViewportStyleResolver.h"
 #include "core/dom/Document.h"
+#include "core/dom/DocumentUserGestureToken.h"
 #include "core/dom/Fullscreen.h"
 #include "core/dom/NodeComputedStyle.h"
 #include "core/dom/Range.h"
@@ -60,7 +61,8 @@
 #include "core/frame/VisualViewport.h"
 #include "core/html/HTMLBodyElement.h"
 #include "core/html/HTMLFormElement.h"
-#include "core/html/HTMLMediaElement.h"
+#include "core/html/HTMLIFrameElement.h"
+#include "core/html/HTMLVideoElement.h"
 #include "core/html/ImageDocument.h"
 #include "core/input/EventHandler.h"
 #include "core/layout/HitTestResult.h"
@@ -73,18 +75,24 @@
 #include "core/loader/FrameLoadRequest.h"
 #include "core/loader/ThreadableLoader.h"
 #include "core/page/Page.h"
-#include "core/page/ScopedPageLoadDeferrer.h"
+#include "core/page/ScopedPageSuspender.h"
 #include "core/paint/PaintLayer.h"
 #include "core/testing/NullExecutionContext.h"
 #include "modules/mediastream/MediaStream.h"
 #include "modules/mediastream/MediaStreamRegistry.h"
+#include "platform/Cursor.h"
 #include "platform/DragImage.h"
+#include "platform/PlatformMouseEvent.h"
 #include "platform/PlatformResourceLoader.h"
 #include "platform/RuntimeEnabledFeatures.h"
 #include "platform/UserGestureIndicator.h"
 #include "platform/geometry/FloatRect.h"
 #include "platform/network/ResourceError.h"
+#include "platform/scroll/Scrollbar.h"
+#include "platform/scroll/ScrollbarTestSuite.h"
 #include "platform/scroll/ScrollbarTheme.h"
+#include "platform/scroll/ScrollbarThemeMock.h"
+#include "platform/scroll/ScrollbarThemeOverlayMock.h"
 #include "platform/testing/RuntimeEnabledFeaturesTestHelpers.h"
 #include "platform/testing/URLTestHelpers.h"
 #include "platform/testing/UnitTestHelpers.h"
@@ -167,10 +175,10 @@ const int touchPointPadding = 32;
     EXPECT_EQ(expected.height(), actual.height()); \
   } while (false)
 
-#define EXPECT_POINT_EQ(expected, actual) \
-  do {                                    \
-    EXPECT_EQ(expected.x(), actual.x());  \
-    EXPECT_EQ(expected.y(), actual.y());  \
+#define EXPECT_SIZE_EQ(expected, actual)           \
+  do {                                             \
+    EXPECT_EQ(expected.width(), actual.width());   \
+    EXPECT_EQ(expected.height(), actual.height()); \
   } while (false)
 
 #define EXPECT_FLOAT_POINT_EQ(expected, actual) \
@@ -227,21 +235,11 @@ class WebFrameTest : public ::testing::Test {
 
   void applyViewportStyleOverride(
       FrameTestHelpers::WebViewHelper* webViewHelper) {
-    StyleSheetContents* styleSheet =
-        StyleSheetContents::create(CSSParserContext(UASheetMode, nullptr));
-    styleSheet->parseString(loadResourceAsASCIIString("viewportAndroid.css"));
-    RuleSet* ruleSet = RuleSet::create();
-    ruleSet->addRulesFromSheet(styleSheet, MediaQueryEvaluator("screen"));
-
-    Document* document =
-        toLocalFrame(webViewHelper->webView()->page()->mainFrame())->document();
-    document->ensureStyleResolver()
-        .viewportStyleResolver()
-        ->collectViewportRules(ruleSet, ViewportStyleResolver::UserAgentOrigin);
-    document->ensureStyleResolver().viewportStyleResolver()->resolve();
+    webViewHelper->webView()->settings()->setViewportStyle(
+        WebViewportStyle::Mobile);
   }
 
-  static void configueCompositingWebView(WebSettings* settings) {
+  static void configureCompositingWebView(WebSettings* settings) {
     settings->setAcceleratedCompositingEnabled(true);
     settings->setPreferCompositingToLCDTextEnabled(true);
   }
@@ -283,6 +281,29 @@ class WebFrameTest : public ::testing::Test {
     DCHECK(element);
     element->remove();
   }
+
+  // Both sets the inner html and runs the document lifecycle.
+  void initializeWithHTML(LocalFrame& frame, const String& htmlContent) {
+    frame.document()->body()->setInnerHTML(htmlContent);
+    frame.document()->view()->updateAllLifecyclePhases();
+  }
+
+  WebFrame* lastChild(WebFrame* frame) { return frame->m_lastChild; }
+  WebFrame* previousSibling(WebFrame* frame) {
+    return frame->m_previousSibling;
+  }
+  void swapAndVerifyFirstChildConsistency(const char* const message,
+                                          WebFrame* parent,
+                                          WebFrame* newChild);
+  void swapAndVerifyMiddleChildConsistency(const char* const message,
+                                           WebFrame* parent,
+                                           WebFrame* newChild);
+  void swapAndVerifyLastChildConsistency(const char* const message,
+                                         WebFrame* parent,
+                                         WebFrame* newChild);
+  void swapAndVerifySubframeConsistency(const char* const message,
+                                        WebFrame* parent,
+                                        WebFrame* newChild);
 
   std::string m_baseURL;
   std::string m_notBaseURL;
@@ -344,23 +365,29 @@ TEST_P(ParameterizedWebFrameTest, FrameForEnteredContext) {
 class ScriptExecutionCallbackHelper : public WebScriptExecutionCallback {
  public:
   explicit ScriptExecutionCallbackHelper(v8::Local<v8::Context> context)
-      : m_didComplete(false), m_context(context) {}
+      : m_didComplete(false), m_boolValue(false), m_context(context) {}
   ~ScriptExecutionCallbackHelper() {}
 
   bool didComplete() const { return m_didComplete; }
   const String& stringValue() const { return m_stringValue; }
+  bool boolValue() { return m_boolValue; }
 
  private:
   void completed(const WebVector<v8::Local<v8::Value>>& values) override {
     m_didComplete = true;
-    if (!values.isEmpty() && values[0]->IsString()) {
-      m_stringValue =
-          toCoreString(values[0]->ToString(m_context).ToLocalChecked());
+    if (!values.isEmpty()) {
+      if (values[0]->IsString()) {
+        m_stringValue =
+            toCoreString(values[0]->ToString(m_context).ToLocalChecked());
+      } else if (values[0]->IsBoolean()) {
+        m_boolValue = values[0].As<v8::Boolean>()->Value();
+      }
     }
   }
 
   bool m_didComplete;
   String m_stringValue;
+  bool m_boolValue;
   v8::Local<v8::Context> m_context;
 };
 
@@ -411,6 +438,106 @@ TEST_P(ParameterizedWebFrameTest, SuspendedRequestExecuteScript) {
                               m_baseURL + "bar.html");
   EXPECT_TRUE(callbackHelper.didComplete());
   EXPECT_EQ(String(), callbackHelper.stringValue());
+}
+
+TEST_P(ParameterizedWebFrameTest, RequestExecuteV8Function) {
+  registerMockedHttpURLLoad("foo.html");
+
+  FrameTestHelpers::WebViewHelper webViewHelper;
+  webViewHelper.initializeAndLoad(m_baseURL + "foo.html", true);
+
+  auto callback = [](const v8::FunctionCallbackInfo<v8::Value>& info) {
+    info.GetReturnValue().Set(v8String(info.GetIsolate(), "hello"));
+  };
+
+  v8::HandleScope scope(v8::Isolate::GetCurrent());
+  v8::Local<v8::Context> context =
+      webViewHelper.webView()->mainFrame()->mainWorldScriptContext();
+  ScriptExecutionCallbackHelper callbackHelper(context);
+  v8::Local<v8::Function> function =
+      v8::Function::New(context, callback).ToLocalChecked();
+  webViewHelper.webView()
+      ->mainFrame()
+      ->toWebLocalFrame()
+      ->requestExecuteV8Function(context, function,
+                                 v8::Undefined(context->GetIsolate()), 0,
+                                 nullptr, &callbackHelper);
+  runPendingTasks();
+  EXPECT_TRUE(callbackHelper.didComplete());
+  EXPECT_EQ("hello", callbackHelper.stringValue());
+}
+
+TEST_P(ParameterizedWebFrameTest, RequestExecuteV8FunctionWhileSuspended) {
+  registerMockedHttpURLLoad("foo.html");
+
+  FrameTestHelpers::WebViewHelper webViewHelper;
+  webViewHelper.initializeAndLoad(m_baseURL + "foo.html", true);
+
+  auto callback = [](const v8::FunctionCallbackInfo<v8::Value>& info) {
+    info.GetReturnValue().Set(v8String(info.GetIsolate(), "hello"));
+  };
+
+  v8::HandleScope scope(v8::Isolate::GetCurrent());
+  v8::Local<v8::Context> context =
+      webViewHelper.webView()->mainFrame()->mainWorldScriptContext();
+
+  // Suspend scheduled tasks so the script doesn't run.
+  WebLocalFrameImpl* mainFrame = webViewHelper.webView()->mainFrameImpl();
+  mainFrame->frame()->document()->suspendScheduledTasks();
+
+  ScriptExecutionCallbackHelper callbackHelper(context);
+  v8::Local<v8::Function> function =
+      v8::Function::New(context, callback).ToLocalChecked();
+  mainFrame->requestExecuteV8Function(context, function,
+                                      v8::Undefined(context->GetIsolate()), 0,
+                                      nullptr, &callbackHelper);
+  runPendingTasks();
+  EXPECT_FALSE(callbackHelper.didComplete());
+
+  mainFrame->frame()->document()->resumeScheduledTasks();
+  runPendingTasks();
+  EXPECT_TRUE(callbackHelper.didComplete());
+  EXPECT_EQ("hello", callbackHelper.stringValue());
+}
+
+TEST_P(ParameterizedWebFrameTest,
+       RequestExecuteV8FunctionWhileSuspendedWithUserGesture) {
+  registerMockedHttpURLLoad("foo.html");
+
+  FrameTestHelpers::WebViewHelper webViewHelper;
+  webViewHelper.initializeAndLoad(m_baseURL + "foo.html", true);
+
+  auto callback = [](const v8::FunctionCallbackInfo<v8::Value>& info) {
+    info.GetReturnValue().Set(v8::Boolean::New(
+        info.GetIsolate(), UserGestureIndicator::processingUserGesture()));
+  };
+
+  // Suspend scheduled tasks so the script doesn't run.
+  WebLocalFrameImpl* mainFrame = webViewHelper.webView()->mainFrameImpl();
+  Document* document = mainFrame->frame()->document();
+  document->suspendScheduledTasks();
+
+  v8::HandleScope scope(v8::Isolate::GetCurrent());
+  v8::Local<v8::Context> context =
+      webViewHelper.webView()->mainFrame()->mainWorldScriptContext();
+
+  std::unique_ptr<UserGestureIndicator> indicator =
+      WTF::wrapUnique(new UserGestureIndicator(DocumentUserGestureToken::create(
+          document, UserGestureToken::NewGesture)));
+  ScriptExecutionCallbackHelper callbackHelper(context);
+  v8::Local<v8::Function> function =
+      v8::Function::New(context, callback).ToLocalChecked();
+  mainFrame->requestExecuteV8Function(
+      mainFrame->mainWorldScriptContext(), function,
+      v8::Undefined(context->GetIsolate()), 0, nullptr, &callbackHelper);
+
+  runPendingTasks();
+  EXPECT_FALSE(callbackHelper.didComplete());
+
+  mainFrame->frame()->document()->resumeScheduledTasks();
+  runPendingTasks();
+  EXPECT_TRUE(callbackHelper.didComplete());
+  EXPECT_EQ(true, callbackHelper.boolValue());
 }
 
 TEST_P(ParameterizedWebFrameTest, IframeScriptRemovesSelf) {
@@ -650,7 +777,7 @@ TEST_F(WebFrameCSSCallbackTest, AuthorStyleSheet) {
       "<div class=\"initial_off\"></div>");
 
   Vector<WebString> selectors;
-  selectors.append(WebString::fromUTF8("div.initial_on"));
+  selectors.push_back(WebString::fromUTF8("div.initial_on"));
   m_frame->document().watchCSSSelectors(WebVector<WebString>(selectors));
   m_frame->view()->updateAllLifecyclePhases();
   runPendingTasks();
@@ -658,7 +785,7 @@ TEST_F(WebFrameCSSCallbackTest, AuthorStyleSheet) {
   EXPECT_THAT(matchedSelectors(), ElementsAre("div.initial_on"));
 
   // Check that adding a watched selector calls back for already-present nodes.
-  selectors.append(WebString::fromUTF8("div.initial_off"));
+  selectors.push_back(WebString::fromUTF8("div.initial_off"));
   doc().watchCSSSelectors(WebVector<WebString>(selectors));
   m_frame->view()->updateAllLifecyclePhases();
   runPendingTasks();
@@ -677,7 +804,7 @@ TEST_F(WebFrameCSSCallbackTest, AuthorStyleSheet) {
 TEST_F(WebFrameCSSCallbackTest, SharedComputedStyle) {
   // Check that adding an element calls back when it matches an existing rule.
   Vector<WebString> selectors;
-  selectors.append(WebString::fromUTF8("span"));
+  selectors.push_back(WebString::fromUTF8("span"));
   doc().watchCSSSelectors(WebVector<WebString>(selectors));
 
   executeScript(
@@ -717,7 +844,7 @@ TEST_F(WebFrameCSSCallbackTest, CatchesAttributeChange) {
   loadHTML("<span></span>");
 
   Vector<WebString> selectors;
-  selectors.append(WebString::fromUTF8("span[attr=\"value\"]"));
+  selectors.push_back(WebString::fromUTF8("span[attr=\"value\"]"));
   doc().watchCSSSelectors(WebVector<WebString>(selectors));
   runPendingTasks();
 
@@ -734,7 +861,7 @@ TEST_F(WebFrameCSSCallbackTest, DisplayNone) {
   loadHTML("<div style='display:none'><span></span></div>");
 
   Vector<WebString> selectors;
-  selectors.append(WebString::fromUTF8("span"));
+  selectors.push_back(WebString::fromUTF8("span"));
   doc().watchCSSSelectors(WebVector<WebString>(selectors));
   runPendingTasks();
 
@@ -786,7 +913,7 @@ TEST_F(WebFrameCSSCallbackTest, Reparenting) {
       "<div id='d2'></div>");
 
   Vector<WebString> selectors;
-  selectors.append(WebString::fromUTF8("span"));
+  selectors.push_back(WebString::fromUTF8("span"));
   doc().watchCSSSelectors(WebVector<WebString>(selectors));
   m_frame->view()->updateAllLifecyclePhases();
   runPendingTasks();
@@ -809,8 +936,8 @@ TEST_F(WebFrameCSSCallbackTest, MultiSelector) {
   // Check that selector lists match as the whole list, not as each element
   // independently.
   Vector<WebString> selectors;
-  selectors.append(WebString::fromUTF8("span"));
-  selectors.append(WebString::fromUTF8("span,p"));
+  selectors.push_back(WebString::fromUTF8("span"));
+  selectors.push_back(WebString::fromUTF8("span,p"));
   doc().watchCSSSelectors(WebVector<WebString>(selectors));
   m_frame->view()->updateAllLifecyclePhases();
   runPendingTasks();
@@ -824,9 +951,9 @@ TEST_F(WebFrameCSSCallbackTest, InvalidSelector) {
 
   // Build a list with one valid selector and one invalid.
   Vector<WebString> selectors;
-  selectors.append(WebString::fromUTF8("span"));
-  selectors.append(WebString::fromUTF8("["));       // Invalid.
-  selectors.append(WebString::fromUTF8("p span"));  // Not compound.
+  selectors.push_back(WebString::fromUTF8("span"));
+  selectors.push_back(WebString::fromUTF8("["));       // Invalid.
+  selectors.push_back(WebString::fromUTF8("p span"));  // Not compound.
   doc().watchCSSSelectors(WebVector<WebString>(selectors));
   m_frame->view()->updateAllLifecyclePhases();
   runPendingTasks();
@@ -874,7 +1001,7 @@ TEST_P(ParameterizedWebFrameTest, PostMessageThenDetach) {
   NonThrowableExceptionState exceptionState;
   MessagePortArray messagePorts;
   frame->domWindow()->postMessage(SerializedScriptValue::serialize("message"),
-                                  messagePorts, "*", frame->localDOMWindow(),
+                                  messagePorts, "*", frame->domWindow(),
                                   exceptionState);
   webViewHelper.reset();
   EXPECT_FALSE(exceptionState.hadException());
@@ -1784,9 +1911,13 @@ TEST_F(WebFrameTest,
   ASSERT_NE(nullptr, element);
   EXPECT_EQ(String("oldValue"), element->innerText());
 
-  PlatformGestureEvent gestureEvent(
-      PlatformEvent::EventType::GestureTap, hitPoint, hitPoint, IntSize(0, 0),
-      0, PlatformEvent::NoModifiers, PlatformGestureSourceTouchscreen);
+  WebGestureEvent gestureEvent(WebInputEvent::GestureTap,
+                               WebInputEvent::NoModifiers,
+                               WebInputEvent::TimeStampForTesting);
+  gestureEvent.setFrameScale(1);
+  gestureEvent.x = gestureEvent.globalX = hitPoint.x();
+  gestureEvent.y = gestureEvent.globalY = hitPoint.y();
+  gestureEvent.sourceDevice = WebGestureDeviceTouchscreen;
   webViewHelper.webView()
       ->mainFrameImpl()
       ->frame()
@@ -2706,6 +2837,79 @@ TEST_P(ParameterizedWebFrameTest,
   EXPECT_NEAR(5.0f, webViewHelper.webView()->maximumPageScaleFactor(), 0.01f);
 }
 
+TEST_P(ParameterizedWebFrameTest, AtViewportInsideAtMediaInitialViewport) {
+  registerMockedHttpURLLoad("viewport-inside-media.html");
+
+  FixedLayoutTestWebViewClient client;
+  FrameTestHelpers::WebViewHelper webViewHelper;
+  webViewHelper.initializeAndLoad(m_baseURL + "viewport-inside-media.html",
+                                  true, nullptr, &client, nullptr,
+                                  enableViewportSettings);
+  webViewHelper.resize(WebSize(640, 480));
+
+  EXPECT_EQ(2000, webViewHelper.webView()
+                      ->mainFrameImpl()
+                      ->frameView()
+                      ->layoutSize()
+                      .width());
+
+  webViewHelper.resize(WebSize(1200, 480));
+
+  EXPECT_EQ(1200, webViewHelper.webView()
+                      ->mainFrameImpl()
+                      ->frameView()
+                      ->layoutSize()
+                      .width());
+}
+
+TEST_P(ParameterizedWebFrameTest, AtViewportAffectingAtMediaRecalcCount) {
+  registerMockedHttpURLLoad("viewport-and-media.html");
+
+  FixedLayoutTestWebViewClient client;
+  FrameTestHelpers::WebViewHelper webViewHelper;
+  webViewHelper.initialize(true, nullptr, &client, nullptr,
+                           enableViewportSettings);
+  webViewHelper.resize(WebSize(640, 480));
+  FrameTestHelpers::loadFrame(webViewHelper.webView()->mainFrame(),
+                              m_baseURL + "viewport-and-media.html");
+
+  Document* document =
+      webViewHelper.webView()->mainFrameImpl()->frame()->document();
+  EXPECT_EQ(2000, webViewHelper.webView()
+                      ->mainFrameImpl()
+                      ->frameView()
+                      ->layoutSize()
+                      .width());
+
+  // The styleForElementCount() should match the number of elements for a single
+  // pass of computed styles construction for the document.
+  EXPECT_EQ(10u, document->styleEngine().styleForElementCount());
+  EXPECT_EQ(Color(0, 128, 0),
+            document->body()->computedStyle()->visitedDependentColor(
+                CSSPropertyColor));
+}
+
+TEST_P(ParameterizedWebFrameTest, AtViewportWithViewportLengths) {
+  registerMockedHttpURLLoad("viewport-lengths.html");
+
+  FixedLayoutTestWebViewClient client;
+  FrameTestHelpers::WebViewHelper webViewHelper;
+  webViewHelper.initialize(true, nullptr, &client, nullptr,
+                           enableViewportSettings);
+  webViewHelper.resize(WebSize(800, 600));
+  FrameTestHelpers::loadFrame(webViewHelper.webView()->mainFrame(),
+                              m_baseURL + "viewport-lengths.html");
+
+  FrameView* view = webViewHelper.webView()->mainFrameImpl()->frameView();
+  EXPECT_EQ(400, view->layoutSize().width());
+  EXPECT_EQ(300, view->layoutSize().height());
+
+  webViewHelper.resize(WebSize(1000, 400));
+
+  EXPECT_EQ(500, view->layoutSize().width());
+  EXPECT_EQ(200, view->layoutSize().height());
+}
+
 class WebFrameResizeTest : public ParameterizedWebFrameTest {
  protected:
   static FloatSize computeRelativeOffset(const IntPoint& absoluteOffset,
@@ -2746,7 +2950,7 @@ class WebFrameResizeTest : public ParameterizedWebFrameTest {
       EXPECT_NEAR(expectedPageScaleFactor,
                   webViewHelper.webView()->pageScaleFactor(), 0.05f);
       EXPECT_EQ(WebSize(),
-                webViewHelper.webView()->mainFrame()->scrollOffset());
+                webViewHelper.webView()->mainFrame()->getScrollOffset());
     }
 
     // Resizing just the height should not affect pageScaleFactor or
@@ -2757,19 +2961,19 @@ class WebFrameResizeTest : public ParameterizedWebFrameTest {
       webViewHelper.webView()->mainFrame()->setScrollOffset(scrollOffset);
       webViewHelper.webView()->updateAllLifecyclePhases();
       const WebSize expectedScrollOffset =
-          webViewHelper.webView()->mainFrame()->scrollOffset();
+          webViewHelper.webView()->mainFrame()->getScrollOffset();
       webViewHelper.resize(
           WebSize(viewportSize.width, viewportSize.height * 0.8f));
       EXPECT_EQ(initialPageScaleFactor,
                 webViewHelper.webView()->pageScaleFactor());
       EXPECT_EQ(expectedScrollOffset,
-                webViewHelper.webView()->mainFrame()->scrollOffset());
+                webViewHelper.webView()->mainFrame()->getScrollOffset());
       webViewHelper.resize(
           WebSize(viewportSize.width, viewportSize.height * 0.8f));
       EXPECT_EQ(initialPageScaleFactor,
                 webViewHelper.webView()->pageScaleFactor());
       EXPECT_EQ(expectedScrollOffset,
-                webViewHelper.webView()->mainFrame()->scrollOffset());
+                webViewHelper.webView()->mainFrame()->getScrollOffset());
     }
   }
 };
@@ -2909,10 +3113,10 @@ TEST_F(WebFrameTest, updateOverlayScrollbarLayers)
   int viewHeight = 500;
 
   std::unique_ptr<FakeCompositingWebViewClient> fakeCompositingWebViewClient =
-      wrapUnique(new FakeCompositingWebViewClient());
+      WTF::makeUnique<FakeCompositingWebViewClient>();
   FrameTestHelpers::WebViewHelper webViewHelper;
   webViewHelper.initialize(true, nullptr, fakeCompositingWebViewClient.get(),
-                           nullptr, &configueCompositingWebView);
+                           nullptr, &configureCompositingWebView);
 
   webViewHelper.resize(WebSize(viewWidth, viewHeight));
   FrameTestHelpers::loadFrame(webViewHelper.webView()->mainFrame(),
@@ -2939,9 +3143,10 @@ void setScaleAndScrollAndLayout(WebViewImpl* webView,
 }
 
 void simulatePageScale(WebViewImpl* webViewImpl, float& scale) {
-  IntSize scrollDelta =
-      webViewImpl->fakePageScaleAnimationTargetPositionForTesting() -
-      webViewImpl->mainFrameImpl()->frameView()->scrollPosition();
+  ScrollOffset scrollDelta =
+      toScrollOffset(
+          webViewImpl->fakePageScaleAnimationTargetPositionForTesting()) -
+      webViewImpl->mainFrameImpl()->frameView()->getScrollOffset();
   float scaleDelta = webViewImpl->fakePageScaleAnimationPageScaleForTesting() /
                      webViewImpl->pageScaleFactor();
   webViewImpl->applyViewportDeltas(WebFloatSize(), FloatSize(scrollDelta),
@@ -3888,7 +4093,7 @@ TEST_P(ParameterizedWebFrameTest, ReloadDoesntSetRedirect) {
   webViewHelper.webView()->mainFrame()->reload(
       WebFrameLoadType::ReloadBypassingCache);
   // start another reload before request is delivered.
-  FrameTestHelpers::reloadFrameIgnoringCache(
+  FrameTestHelpers::reloadFrameBypassingCache(
       webViewHelper.webView()->mainFrame());
 }
 
@@ -3914,44 +4119,45 @@ TEST_F(WebFrameTest, ReloadWithOverrideURLPreservesState) {
   registerMockedHttpURLLoad(secondURL);
   registerMockedHttpURLLoad(thirdURL);
 
-  FrameTestHelpers::WebViewHelper webViewHelper;
   ClearScrollStateOnCommitWebFrameClient client;
+  FrameTestHelpers::WebViewHelper webViewHelper;
   webViewHelper.initializeAndLoad(m_baseURL + firstURL, true, &client);
   webViewHelper.resize(WebSize(pageWidth, pageHeight));
   webViewHelper.webView()->mainFrame()->setScrollOffset(
       WebSize(pageWidth / 4, pageHeight / 4));
   webViewHelper.webView()->setPageScaleFactor(pageScaleFactor);
 
-  WebSize previousOffset = webViewHelper.webView()->mainFrame()->scrollOffset();
+  WebSize previousOffset =
+      webViewHelper.webView()->mainFrame()->getScrollOffset();
   float previousScale = webViewHelper.webView()->pageScaleFactor();
 
   // Reload the page and end up at the same url. State should be propagated.
   webViewHelper.webView()->mainFrame()->reloadWithOverrideURL(
-      toKURL(m_baseURL + firstURL), WebFrameLoadType::Reload);
+      toKURL(m_baseURL + firstURL), WebFrameLoadType::ReloadMainResource);
   FrameTestHelpers::pumpPendingRequestsForFrameToLoad(
       webViewHelper.webView()->mainFrame());
   EXPECT_EQ(previousOffset.width,
-            webViewHelper.webView()->mainFrame()->scrollOffset().width);
+            webViewHelper.webView()->mainFrame()->getScrollOffset().width);
   EXPECT_EQ(previousOffset.height,
-            webViewHelper.webView()->mainFrame()->scrollOffset().height);
+            webViewHelper.webView()->mainFrame()->getScrollOffset().height);
   EXPECT_EQ(previousScale, webViewHelper.webView()->pageScaleFactor());
 
   // Reload the page using the cache. State should not be propagated.
   webViewHelper.webView()->mainFrame()->reloadWithOverrideURL(
-      toKURL(m_baseURL + secondURL), WebFrameLoadType::Reload);
+      toKURL(m_baseURL + secondURL), WebFrameLoadType::ReloadMainResource);
   FrameTestHelpers::pumpPendingRequestsForFrameToLoad(
       webViewHelper.webView()->mainFrame());
-  EXPECT_EQ(0, webViewHelper.webView()->mainFrame()->scrollOffset().width);
-  EXPECT_EQ(0, webViewHelper.webView()->mainFrame()->scrollOffset().height);
+  EXPECT_EQ(0, webViewHelper.webView()->mainFrame()->getScrollOffset().width);
+  EXPECT_EQ(0, webViewHelper.webView()->mainFrame()->getScrollOffset().height);
   EXPECT_EQ(1.0f, webViewHelper.webView()->pageScaleFactor());
 
-  // Reload the page while ignoring the cache. State should not be propagated.
+  // Reload the page while bypassing the cache. State should not be propagated.
   webViewHelper.webView()->mainFrame()->reloadWithOverrideURL(
       toKURL(m_baseURL + thirdURL), WebFrameLoadType::ReloadBypassingCache);
   FrameTestHelpers::pumpPendingRequestsForFrameToLoad(
       webViewHelper.webView()->mainFrame());
-  EXPECT_EQ(0, webViewHelper.webView()->mainFrame()->scrollOffset().width);
-  EXPECT_EQ(0, webViewHelper.webView()->mainFrame()->scrollOffset().height);
+  EXPECT_EQ(0, webViewHelper.webView()->mainFrame()->getScrollOffset().width);
+  EXPECT_EQ(0, webViewHelper.webView()->mainFrame()->getScrollOffset().height);
   EXPECT_EQ(1.0f, webViewHelper.webView()->pageScaleFactor());
 }
 
@@ -3962,19 +4168,17 @@ TEST_P(ParameterizedWebFrameTest, ReloadWhileProvisional) {
 
   FrameTestHelpers::WebViewHelper webViewHelper;
   webViewHelper.initialize();
-  WebURLRequest request;
-  request.setURL(toKURL(m_baseURL + "fixed_layout.html"));
-  request.setRequestorOrigin(WebSecurityOrigin::createUnique());
+  WebURLRequest request(toKURL(m_baseURL + "fixed_layout.html"));
   webViewHelper.webView()->mainFrame()->loadRequest(request);
   // start reload before first request is delivered.
-  FrameTestHelpers::reloadFrameIgnoringCache(
+  FrameTestHelpers::reloadFrameBypassingCache(
       webViewHelper.webView()->mainFrame());
 
   WebDataSource* dataSource =
       webViewHelper.webView()->mainFrame()->dataSource();
   ASSERT_TRUE(dataSource);
   EXPECT_EQ(toKURL(m_baseURL + "fixed_layout.html"),
-            KURL(dataSource->request().url()));
+            KURL(dataSource->getRequest().url()));
 }
 
 TEST_P(ParameterizedWebFrameTest, AppendRedirects) {
@@ -4074,17 +4278,16 @@ class ContextLifetimeTestWebFrameClient
  private:
   void didCreateScriptContext(WebLocalFrame* frame,
                               v8::Local<v8::Context> context,
-                              int extensionGroup,
                               int worldId) override {
-    createNotifications.append(
-        wrapUnique(new Notification(frame, context, worldId)));
+    createNotifications.push_back(
+        WTF::makeUnique<Notification>(frame, context, worldId));
   }
 
   void willReleaseScriptContext(WebLocalFrame* frame,
                                 v8::Local<v8::Context> context,
                                 int worldId) override {
-    releaseNotifications.append(
-        wrapUnique(new Notification(frame, context, worldId)));
+    releaseNotifications.push_back(
+        WTF::makeUnique<Notification>(frame, context, worldId));
   }
 };
 
@@ -4195,9 +4398,8 @@ TEST_P(ParameterizedWebFrameTest, ContextNotificationsIsolatedWorlds) {
   int isolatedWorldId = 42;
   WebScriptSource scriptSource("hi!");
   int numSources = 1;
-  int extensionGroup = 0;
   webViewHelper.webView()->mainFrame()->executeScriptInIsolatedWorld(
-      isolatedWorldId, &scriptSource, numSources, extensionGroup);
+      isolatedWorldId, &scriptSource, numSources);
 
   // We should now have a new create notification.
   ASSERT_EQ(1u, webFrameClient.createNotifications.size());
@@ -4378,7 +4580,6 @@ class TestExecuteScriptDuringDidCreateScriptContext
  public:
   void didCreateScriptContext(WebLocalFrame* frame,
                               v8::Local<v8::Context> context,
-                              int extensionGroup,
                               int worldId) override {
     frame->executeScript(WebScriptSource("window.history = 'replaced';"));
   }
@@ -4449,9 +4650,10 @@ TEST_P(ParameterizedWebFrameTest, FindInPageMatchRects) {
   mainFrame->ensureTextFinder().resetMatchCount();
 
   for (WebLocalFrameImpl* frame = mainFrame; frame;
-       frame = static_cast<WebLocalFrameImpl*>(frame->traverseNext(false)))
-    frame->ensureTextFinder().scopeStringMatches(kFindIdentifier, searchText,
-                                                 options, true);
+       frame = static_cast<WebLocalFrameImpl*>(frame->traverseNext())) {
+    frame->ensureTextFinder().startScopingStringMatches(kFindIdentifier,
+                                                        searchText, options);
+  }
 
   runPendingTasks();
   EXPECT_TRUE(client.findResultsAreReady());
@@ -4512,18 +4714,20 @@ TEST_F(WebFrameTest, FindInPageActiveIndex) {
   mainFrame->ensureTextFinder().resetMatchCount();
 
   for (WebLocalFrameImpl* frame = mainFrame; frame;
-       frame = static_cast<WebLocalFrameImpl*>(frame->traverseNext(false)))
-    frame->ensureTextFinder().scopeStringMatches(kFindIdentifier, searchText,
-                                                 options, true);
+       frame = static_cast<WebLocalFrameImpl*>(frame->traverseNext())) {
+    frame->ensureTextFinder().startScopingStringMatches(kFindIdentifier,
+                                                        searchText, options);
+  }
 
   runPendingTasks();
   EXPECT_TRUE(mainFrame->find(kFindIdentifier, searchText, options, false));
   mainFrame->stopFinding(WebLocalFrame::StopFindActionClearSelection);
 
   for (WebLocalFrameImpl* frame = mainFrame; frame;
-       frame = static_cast<WebLocalFrameImpl*>(frame->traverseNext(false)))
-    frame->ensureTextFinder().scopeStringMatches(kFindIdentifier, searchText,
-                                                 options, true);
+       frame = static_cast<WebLocalFrameImpl*>(frame->traverseNext())) {
+    frame->ensureTextFinder().startScopingStringMatches(kFindIdentifier,
+                                                        searchText, options);
+  }
 
   runPendingTasks();
   EXPECT_TRUE(client.findResultsAreReady());
@@ -4536,9 +4740,10 @@ TEST_F(WebFrameTest, FindInPageActiveIndex) {
   mainFrame->ensureTextFinder().resetMatchCount();
 
   for (WebLocalFrameImpl* frame = mainFrame; frame;
-       frame = static_cast<WebLocalFrameImpl*>(frame->traverseNext(false)))
-    frame->ensureTextFinder().scopeStringMatches(kFindIdentifier, searchTextNew,
-                                                 options, true);
+       frame = static_cast<WebLocalFrameImpl*>(frame->traverseNext())) {
+    frame->ensureTextFinder().startScopingStringMatches(kFindIdentifier,
+                                                        searchTextNew, options);
+  }
 
   runPendingTasks();
   EXPECT_TRUE(client.findResultsAreReady());
@@ -4563,7 +4768,7 @@ TEST_P(ParameterizedWebFrameTest, FindOnDetachedFrame) {
   WebString searchText = WebString::fromUTF8(kFindString);
   WebLocalFrameImpl* mainFrame = webViewHelper.webView()->mainFrameImpl();
   WebLocalFrameImpl* secondFrame =
-      toWebLocalFrameImpl(mainFrame->traverseNext(false));
+      toWebLocalFrameImpl(mainFrame->traverseNext());
 
   // Detach the frame before finding.
   removeElementById(mainFrame, "frame");
@@ -4577,9 +4782,10 @@ TEST_P(ParameterizedWebFrameTest, FindOnDetachedFrame) {
   mainFrame->ensureTextFinder().resetMatchCount();
 
   for (WebLocalFrameImpl* frame = mainFrame; frame;
-       frame = static_cast<WebLocalFrameImpl*>(frame->traverseNext(false)))
-    frame->ensureTextFinder().scopeStringMatches(kFindIdentifier, searchText,
-                                                 options, true);
+       frame = static_cast<WebLocalFrameImpl*>(frame->traverseNext())) {
+    frame->ensureTextFinder().startScopingStringMatches(kFindIdentifier,
+                                                        searchText, options);
+  }
 
   runPendingTasks();
   EXPECT_TRUE(client.findResultsAreReady());
@@ -4603,7 +4809,7 @@ TEST_P(ParameterizedWebFrameTest, FindDetachFrameBeforeScopeStrings) {
   WebString searchText = WebString::fromUTF8(kFindString);
   WebLocalFrameImpl* mainFrame = webViewHelper.webView()->mainFrameImpl();
 
-  for (WebFrame* frame = mainFrame; frame; frame = frame->traverseNext(false))
+  for (WebFrame* frame = mainFrame; frame; frame = frame->traverseNext())
     EXPECT_TRUE(frame->toWebLocalFrame()->find(kFindIdentifier, searchText,
                                                options, false));
 
@@ -4616,9 +4822,10 @@ TEST_P(ParameterizedWebFrameTest, FindDetachFrameBeforeScopeStrings) {
   mainFrame->ensureTextFinder().resetMatchCount();
 
   for (WebLocalFrameImpl* frame = mainFrame; frame;
-       frame = static_cast<WebLocalFrameImpl*>(frame->traverseNext(false)))
-    frame->ensureTextFinder().scopeStringMatches(kFindIdentifier, searchText,
-                                                 options, true);
+       frame = static_cast<WebLocalFrameImpl*>(frame->traverseNext())) {
+    frame->ensureTextFinder().startScopingStringMatches(kFindIdentifier,
+                                                        searchText, options);
+  }
 
   runPendingTasks();
   EXPECT_TRUE(client.findResultsAreReady());
@@ -4642,7 +4849,7 @@ TEST_P(ParameterizedWebFrameTest, FindDetachFrameWhileScopingStrings) {
   WebString searchText = WebString::fromUTF8(kFindString);
   WebLocalFrameImpl* mainFrame = webViewHelper.webView()->mainFrameImpl();
 
-  for (WebFrame* frame = mainFrame; frame; frame = frame->traverseNext(false))
+  for (WebFrame* frame = mainFrame; frame; frame = frame->traverseNext())
     EXPECT_TRUE(frame->toWebLocalFrame()->find(kFindIdentifier, searchText,
                                                options, false));
 
@@ -4652,12 +4859,13 @@ TEST_P(ParameterizedWebFrameTest, FindDetachFrameWhileScopingStrings) {
   mainFrame->ensureTextFinder().resetMatchCount();
 
   for (WebLocalFrameImpl* frame = mainFrame; frame;
-       frame = static_cast<WebLocalFrameImpl*>(frame->traverseNext(false)))
-    frame->ensureTextFinder().scopeStringMatches(kFindIdentifier, searchText,
-                                                 options, true);
+       frame = static_cast<WebLocalFrameImpl*>(frame->traverseNext())) {
+    frame->ensureTextFinder().startScopingStringMatches(kFindIdentifier,
+                                                        searchText, options);
+  }
 
-  // The first scopeStringMatches will have reset the state. Detach before it
-  // actually scopes.
+  // The first startScopingStringMatches will have reset the state. Detach
+  // before it actually scopes.
   removeElementById(mainFrame, "frame");
 
   runPendingTasks();
@@ -4682,9 +4890,9 @@ TEST_P(ParameterizedWebFrameTest, ResetMatchCount) {
   WebLocalFrameImpl* mainFrame = webViewHelper.webView()->mainFrameImpl();
 
   // Check that child frame exists.
-  EXPECT_TRUE(!!mainFrame->traverseNext(false));
+  EXPECT_TRUE(!!mainFrame->traverseNext());
 
-  for (WebFrame* frame = mainFrame; frame; frame = frame->traverseNext(false))
+  for (WebFrame* frame = mainFrame; frame; frame = frame->traverseNext())
     EXPECT_FALSE(frame->toWebLocalFrame()->find(kFindIdentifier, searchText,
                                                 options, false));
 
@@ -4712,8 +4920,8 @@ TEST_P(ParameterizedWebFrameTest, SetTickmarks) {
   EXPECT_TRUE(mainFrame->find(kFindIdentifier, searchText, options, false));
 
   mainFrame->ensureTextFinder().resetMatchCount();
-  mainFrame->ensureTextFinder().scopeStringMatches(kFindIdentifier, searchText,
-                                                   options, true);
+  mainFrame->ensureTextFinder().startScopingStringMatches(kFindIdentifier,
+                                                          searchText, options);
 
   runPendingTasks();
   EXPECT_TRUE(client.findResultsAreReady());
@@ -4727,9 +4935,9 @@ TEST_P(ParameterizedWebFrameTest, SetTickmarks) {
 
   // Override the tickmarks.
   Vector<IntRect> overridingTickmarksExpected;
-  overridingTickmarksExpected.append(IntRect(0, 0, 100, 100));
-  overridingTickmarksExpected.append(IntRect(0, 20, 100, 100));
-  overridingTickmarksExpected.append(IntRect(0, 30, 100, 100));
+  overridingTickmarksExpected.push_back(IntRect(0, 0, 100, 100));
+  overridingTickmarksExpected.push_back(IntRect(0, 20, 100, 100));
+  overridingTickmarksExpected.push_back(IntRect(0, 30, 100, 100));
   mainFrame->setTickmarks(overridingTickmarksExpected);
 
   // Check the tickmarks are overriden correctly.
@@ -4764,8 +4972,8 @@ TEST_P(ParameterizedWebFrameTest, FindInPageJavaScriptUpdatesDOM) {
   bool activeNow;
 
   frame->ensureTextFinder().resetMatchCount();
-  frame->ensureTextFinder().scopeStringMatches(findIdentifier, searchText,
-                                               options, true);
+  frame->ensureTextFinder().startScopingStringMatches(findIdentifier,
+                                                      searchText, options);
   runPendingTasks();
   EXPECT_TRUE(client.findResultsAreReady());
 
@@ -4795,6 +5003,88 @@ TEST_P(ParameterizedWebFrameTest, FindInPageJavaScriptUpdatesDOM) {
   EXPECT_EQ(8, range.endOffset());
   EXPECT_TRUE(frame->document().focusedElement().isNull());
   EXPECT_FALSE(activeNow);
+}
+
+struct FakeTimerSetter {
+  FakeTimerSetter() {
+    s_timeElapsed = 0.0;
+    m_originalTimeFunction = setTimeFunctionsForTesting(returnMockTime);
+  }
+
+  ~FakeTimerSetter() { setTimeFunctionsForTesting(m_originalTimeFunction); }
+  static double returnMockTime() {
+    s_timeElapsed += 1.0;
+    return s_timeElapsed;
+  }
+
+ private:
+  TimeFunction m_originalTimeFunction;
+  static double s_timeElapsed;
+};
+double FakeTimerSetter::s_timeElapsed = 0.;
+
+TEST_P(ParameterizedWebFrameTest, FindInPageJavaScriptUpdatesDOMProperOrdinal) {
+  FakeTimerSetter fakeTimer;
+
+  const WebString searchPattern = WebString::fromUTF8("abc");
+  // We have 2 occurrences of the pattern in our text.
+  const char* html =
+      "foo bar foo bar foo abc bar foo bar foo bar foo bar foo bar foo bar foo "
+      "bar foo bar foo bar foo bar foo bar foo bar foo bar foo bar foo bar foo "
+      "bar foo bar foo abc bar <div id='new_text'></div>";
+
+  FindUpdateWebFrameClient client;
+  FrameTestHelpers::WebViewHelper webViewHelper;
+  webViewHelper.initialize(true, &client);
+
+  WebLocalFrameImpl* frame = webViewHelper.webView()->mainFrameImpl();
+  FrameTestHelpers::loadHTMLString(frame, html,
+                                   URLTestHelpers::toKURL(m_baseURL));
+  webViewHelper.resize(WebSize(640, 480));
+  webViewHelper.webView()->setFocus(true);
+  runPendingTasks();
+
+  const int findIdentifier = 12345;
+  WebFindOptions options;
+
+  // The first search that will start the scoping process.
+  frame->requestFind(findIdentifier, searchPattern, options);
+  EXPECT_FALSE(client.findResultsAreReady());
+  EXPECT_EQ(1, client.count());
+  EXPECT_TRUE(frame->ensureTextFinder().scopingInProgress());
+
+  // The scoping won't find all the entries on the first run due to the fake
+  // timer.
+  while (frame->ensureTextFinder().scopingInProgress())
+    runPendingTasks();
+
+  EXPECT_EQ(2, client.count());
+  EXPECT_EQ(1, client.activeIndex());
+
+  options.findNext = true;
+
+  // The second search will jump to the next match without any scoping.
+  frame->requestFind(findIdentifier, searchPattern, options);
+
+  EXPECT_EQ(2, client.count());
+  EXPECT_EQ(2, client.activeIndex());
+  EXPECT_FALSE(frame->ensureTextFinder().scopingInProgress());
+
+  // Insert new text, which contains occurence of |searchText|.
+  frame->executeScript(
+      WebScriptSource("var textDiv = document.getElementById('new_text');"
+                      "textDiv.innerHTML = 'foo abc';"));
+
+  // The third search will find a new match and initiate a new scoping.
+  frame->requestFind(findIdentifier, searchPattern, options);
+
+  EXPECT_TRUE(frame->ensureTextFinder().scopingInProgress());
+
+  while (frame->ensureTextFinder().scopingInProgress())
+    runPendingTasks();
+
+  EXPECT_EQ(3, client.count());
+  EXPECT_EQ(3, client.activeIndex());
 }
 
 static WebPoint topLeft(const WebRect& rect) {
@@ -5264,7 +5554,7 @@ class CompositedSelectionBoundsTestLayerTreeView : public WebLayerTreeView {
   ~CompositedSelectionBoundsTestLayerTreeView() override {}
 
   void registerSelection(const WebSelection& selection) override {
-    m_selection = wrapUnique(new WebSelection(selection));
+    m_selection = WTF::makeUnique<WebSelection>(selection);
   }
 
   void clearSelection() override {
@@ -5295,7 +5585,9 @@ class CompositedSelectionBoundsTestWebViewClient
     : public FrameTestHelpers::TestWebViewClient {
  public:
   ~CompositedSelectionBoundsTestWebViewClient() override {}
-  WebLayerTreeView* layerTreeView() override { return &m_testLayerTreeView; }
+  WebLayerTreeView* initializeLayerTreeView() override {
+    return &m_testLayerTreeView;
+  }
 
   CompositedSelectionBoundsTestLayerTreeView& selectionLayerTreeView() {
     return m_testLayerTreeView;
@@ -5589,8 +5881,8 @@ class DisambiguationPopupTestWebViewClient
 };
 
 static WebGestureEvent fatTap(int x, int y) {
-  WebGestureEvent event;
-  event.type = WebInputEvent::GestureTap;
+  WebGestureEvent event(WebInputEvent::GestureTap, WebInputEvent::NoModifiers,
+                        WebInputEvent::TimeStampForTesting);
   event.sourceDevice = WebGestureDeviceTouchscreen;
   event.x = x;
   event.y = y;
@@ -5757,14 +6049,14 @@ TEST_F(WebFrameTest, DisambiguationPopupVisualViewport) {
 
   // Scroll main frame to the bottom of the document
   webViewImpl->mainFrame()->setScrollOffset(WebSize(0, 400));
-  EXPECT_POINT_EQ(IntPoint(0, 400), frame->view()->scrollPosition());
+  EXPECT_SIZE_EQ(ScrollOffset(0, 400), frame->view()->getScrollOffset());
 
   webViewImpl->setPageScaleFactor(2.0);
 
   // Scroll visual viewport to the top of the main frame.
   VisualViewport& visualViewport = frame->page()->frameHost().visualViewport();
   visualViewport.setLocation(FloatPoint(0, 0));
-  EXPECT_FLOAT_POINT_EQ(FloatPoint(0, 0), visualViewport.location());
+  EXPECT_SIZE_EQ(ScrollOffset(0, 0), visualViewport.getScrollOffset());
 
   // Tap at the top: there is nothing there.
   client.resetTriggered();
@@ -5773,7 +6065,7 @@ TEST_F(WebFrameTest, DisambiguationPopupVisualViewport) {
 
   // Scroll visual viewport to the bottom of the main frame.
   visualViewport.setLocation(FloatPoint(0, 200));
-  EXPECT_FLOAT_POINT_EQ(FloatPoint(0, 200), visualViewport.location());
+  EXPECT_SIZE_EQ(ScrollOffset(0, 200), visualViewport.getScrollOffset());
 
   // Now the tap with the same coordinates should hit two elements.
   client.resetTriggered();
@@ -5988,7 +6280,7 @@ class SpellCheckClient : public WebSpellCheckClient {
     Vector<WebTextCheckingResult> results;
     const int misspellingStartOffset = 1;
     const int misspellingLength = 8;
-    results.append(WebTextCheckingResult(
+    results.push_back(WebTextCheckingResult(
         WebTextDecorationTypeSpelling, misspellingStartOffset,
         misspellingLength, WebString(), m_hash));
     completion->didFinishCheckingText(results);
@@ -6093,7 +6385,7 @@ TEST_P(ParameterizedWebFrameTest, RemoveSpellingMarkersUnderWords) {
   EXPECT_EQ(1U, documentMarkers1.size());
 
   Vector<String> words;
-  words.append("wellcome");
+  words.push_back("wellcome");
   frame->removeSpellingMarkersUnderWords(words);
 
   WebVector<uint32_t> documentMarkers2;
@@ -6166,8 +6458,8 @@ class StubbornSpellCheckClient : public WebSpellCheckClient {
       return;
     Vector<WebTextCheckingResult> results;
     if (misspellingStartOffset >= 0 && misspellingLength > 0)
-      results.append(WebTextCheckingResult(type, misspellingStartOffset,
-                                           misspellingLength));
+      results.push_back(WebTextCheckingResult(type, misspellingStartOffset,
+                                              misspellingLength));
     m_completion->didFinishCheckingText(results);
     m_completion = 0;
   }
@@ -6220,7 +6512,8 @@ TEST_P(ParameterizedWebFrameTest, CancelSpellingRequestCrash) {
       WebSettings::EditingBehaviorWin);
 
   element->focus();
-  frame->frame()->editor().replaceSelectionWithText("A", false, false);
+  frame->frame()->editor().replaceSelectionWithText(
+      "A", false, false, InputEvent::InputType::InsertReplacementText);
   frame->frame()->spellChecker().cancelCheck();
 }
 
@@ -6616,7 +6909,7 @@ TEST_P(ParameterizedWebFrameTest, SimulateFragmentAnchorMiddleClick) {
 
   Event* event = MouseEvent::create(
       EventTypeNames::click, false, false, document->domWindow(), 0, 0, 0, 0, 0,
-      0, 0, PlatformEvent::NoModifiers, 1, 0, nullptr, 0,
+      0, 0, PlatformEvent::NoModifiers, 1, 0, nullptr, TimeTicks(),
       PlatformMouseEvent::RealOrIndistinguishable, String(), nullptr);
   FrameLoadRequest frameRequest(document, ResourceRequest(destination));
   frameRequest.setTriggeringEvent(event);
@@ -6671,11 +6964,11 @@ TEST_P(ParameterizedWebFrameTest, ModifiedClickNewWindow) {
   // ctrl+click event
   Event* event = MouseEvent::create(
       EventTypeNames::click, false, false, document->domWindow(), 0, 0, 0, 0, 0,
-      0, 0, PlatformEvent::CtrlKey, 0, 0, nullptr, 0,
+      0, 0, PlatformEvent::CtrlKey, 0, 0, nullptr, TimeTicks(),
       PlatformMouseEvent::RealOrIndistinguishable, String(), nullptr);
   FrameLoadRequest frameRequest(document, ResourceRequest(destination));
   frameRequest.setTriggeringEvent(event);
-  UserGestureIndicator gesture(DefinitelyProcessingUserGesture);
+  UserGestureIndicator gesture(DocumentUserGestureToken::create(document));
   toLocalFrame(webViewHelper.webView()->page()->mainFrame())
       ->loader()
       .load(frameRequest);
@@ -6709,7 +7002,7 @@ TEST_P(ParameterizedWebFrameTest, BackToReload) {
 
   FrameTestHelpers::reloadFrame(frame);
   EXPECT_EQ(WebCachePolicy::ValidatingCacheData,
-            frame->dataSource()->request().getCachePolicy());
+            frame->dataSource()->getRequest().getCachePolicy());
 }
 
 TEST_P(ParameterizedWebFrameTest, BackDuringChildFrameReload) {
@@ -6756,11 +7049,11 @@ TEST_P(ParameterizedWebFrameTest, ReloadPost) {
   FrameTestHelpers::pumpPendingRequestsForFrameToLoad(
       webViewHelper.webView()->mainFrame());
   EXPECT_EQ(WebString::fromUTF8("POST"),
-            frame->dataSource()->request().httpMethod());
+            frame->dataSource()->getRequest().httpMethod());
 
   FrameTestHelpers::reloadFrame(frame);
   EXPECT_EQ(WebCachePolicy::ValidatingCacheData,
-            frame->dataSource()->request().getCachePolicy());
+            frame->dataSource()->getRequest().getCachePolicy());
   EXPECT_EQ(WebNavigationTypeFormResubmitted,
             frame->dataSource()->navigationType());
 }
@@ -6786,7 +7079,7 @@ TEST_P(ParameterizedWebFrameTest, LoadHistoryItemReload) {
                                     WebCachePolicy::ValidatingCacheData);
   EXPECT_EQ(firstItem.get(), mainFrameLoader.currentItem());
   EXPECT_EQ(WebCachePolicy::ValidatingCacheData,
-            frame->dataSource()->request().getCachePolicy());
+            frame->dataSource()->getRequest().getCachePolicy());
 }
 
 class TestCachePolicyWebFrameClient
@@ -6880,7 +7173,12 @@ TEST_P(ParameterizedWebFrameTest, ReloadIframe) {
 
   EXPECT_EQ(mainClient.childFrameCreationCount(), 2);
   EXPECT_EQ(childClient.willSendRequestCallCount(), 2);
-  EXPECT_EQ(childClient.getCachePolicy(), WebCachePolicy::ValidatingCacheData);
+
+  // Sub-frames should not be forcibly revalidated.
+  // TODO(toyoshim): Will consider to revalidate main resources in sub-frames
+  // on reloads. Or will do only for bypassingCache.
+  EXPECT_EQ(childClient.getCachePolicy(),
+            WebCachePolicy::UseProtocolCachePolicy);
 }
 
 class TestSameDocumentWebFrameClient
@@ -7081,7 +7379,7 @@ class TestHistoryWebFrameClient : public FrameTestHelpers::TestWebFrameClient {
     m_frame = nullptr;
   }
 
-  void didStartProvisionalLoad(WebLocalFrame* frame, double) {
+  void didStartProvisionalLoad(WebLocalFrame* frame) {
     WebDataSource* ds = frame->provisionalDataSource();
     m_replacesCurrentHistoryItem = ds->replacesCurrentHistoryItem();
     m_frame = frame;
@@ -7101,8 +7399,8 @@ TEST_P(ParameterizedWebFrameTest, FirstBlankSubframeNavigation) {
   registerMockedHttpURLLoad("history.html");
   registerMockedHttpURLLoad("find.html");
 
-  FrameTestHelpers::WebViewHelper webViewHelper;
   TestHistoryWebFrameClient client;
+  FrameTestHelpers::WebViewHelper webViewHelper;
   webViewHelper.initializeAndLoad("about:blank", true, &client);
 
   WebFrame* frame = webViewHelper.webView()->mainFrame();
@@ -7133,8 +7431,8 @@ TEST_P(ParameterizedWebFrameTest, FirstNonBlankSubframeNavigation) {
   registerMockedHttpURLLoad("history.html");
   registerMockedHttpURLLoad("find.html");
 
-  FrameTestHelpers::WebViewHelper webViewHelper;
   TestHistoryWebFrameClient client;
+  FrameTestHelpers::WebViewHelper webViewHelper;
   webViewHelper.initializeAndLoad("about:blank", true, &client);
 
   WebFrame* frame = webViewHelper.webView()->mainFrame();
@@ -7163,10 +7461,10 @@ TEST_P(ParameterizedWebFrameTest, FirstNonBlankSubframeNavigation) {
 TEST_F(WebFrameTest, overflowHiddenRewrite) {
   registerMockedHttpURLLoad("non-scrollable.html");
   std::unique_ptr<FakeCompositingWebViewClient> fakeCompositingWebViewClient =
-      wrapUnique(new FakeCompositingWebViewClient());
+      WTF::makeUnique<FakeCompositingWebViewClient>();
   FrameTestHelpers::WebViewHelper webViewHelper;
   webViewHelper.initialize(true, nullptr, fakeCompositingWebViewClient.get(),
-                           nullptr, &configueCompositingWebView);
+                           nullptr, &configureCompositingWebView);
 
   webViewHelper.resize(WebSize(100, 100));
   FrameTestHelpers::loadFrame(webViewHelper.webView()->mainFrame(),
@@ -7201,9 +7499,7 @@ TEST_P(ParameterizedWebFrameTest, CurrentHistoryItem) {
   WebFrame* frame = webViewHelper.webView()->mainFrame();
   const FrameLoader& mainFrameLoader =
       webViewHelper.webView()->mainFrameImpl()->frame()->loader();
-  WebURLRequest request;
-  request.setURL(toKURL(url));
-  request.setRequestorOrigin(WebSecurityOrigin::createUnique());
+  WebURLRequest request(toKURL(url));
   frame->loadRequest(request);
 
   // Before commit, there is no history item.
@@ -7290,7 +7586,7 @@ TEST_P(ParameterizedWebFrameTest, FrameViewMoveWithSetFrameRect) {
   EXPECT_RECT_EQ(IntRect(100, 100, 200, 200), frameView->frameRect());
 }
 
-TEST_F(WebFrameTest, FrameViewScrollAccountsForTopControls) {
+TEST_F(WebFrameTest, FrameViewScrollAccountsForBrowserControls) {
   FakeCompositingWebViewClient client;
   registerMockedHttpURLLoad("long_scroll.html");
   FrameTestHelpers::WebViewHelper webViewHelper;
@@ -7300,63 +7596,66 @@ TEST_F(WebFrameTest, FrameViewScrollAccountsForTopControls) {
   WebViewImpl* webView = webViewHelper.webView();
   FrameView* frameView = webViewHelper.webView()->mainFrameImpl()->frameView();
 
-  float topControlsHeight = 40;
-  webView->resizeWithTopControls(WebSize(100, 100), topControlsHeight, false);
+  float browserControlsHeight = 40;
+  webView->resizeWithBrowserControls(WebSize(100, 100), browserControlsHeight,
+                                     false);
   webView->setPageScaleFactor(2.0f);
   webView->updateAllLifecyclePhases();
 
   webView->mainFrame()->setScrollOffset(WebSize(0, 2000));
-  EXPECT_POINT_EQ(IntPoint(0, 1900), IntPoint(frameView->scrollOffset()));
+  EXPECT_SIZE_EQ(ScrollOffset(0, 1900), frameView->getScrollOffset());
 
-  // Simulate the top controls showing by 20px, thus shrinking the viewport
+  // Simulate the browser controls showing by 20px, thus shrinking the viewport
   // and allowing it to scroll an additional 20px.
   webView->applyViewportDeltas(WebFloatSize(), WebFloatSize(), WebFloatSize(),
-                               1.0f, 20.0f / topControlsHeight);
-  EXPECT_POINT_EQ(IntPoint(0, 1920), frameView->maximumScrollPosition());
+                               1.0f, 20.0f / browserControlsHeight);
+  EXPECT_SIZE_EQ(ScrollOffset(0, 1920), frameView->maximumScrollOffset());
 
   // Show more, make sure the scroll actually gets clamped.
   webView->applyViewportDeltas(WebFloatSize(), WebFloatSize(), WebFloatSize(),
-                               1.0f, 20.0f / topControlsHeight);
+                               1.0f, 20.0f / browserControlsHeight);
   webView->mainFrame()->setScrollOffset(WebSize(0, 2000));
-  EXPECT_POINT_EQ(IntPoint(0, 1940), IntPoint(frameView->scrollOffset()));
+  EXPECT_SIZE_EQ(ScrollOffset(0, 1940), frameView->getScrollOffset());
 
   // Hide until there's 10px showing.
   webView->applyViewportDeltas(WebFloatSize(), WebFloatSize(), WebFloatSize(),
-                               1.0f, -30.0f / topControlsHeight);
-  EXPECT_POINT_EQ(IntPoint(0, 1910), frameView->maximumScrollPosition());
+                               1.0f, -30.0f / browserControlsHeight);
+  EXPECT_SIZE_EQ(ScrollOffset(0, 1910), frameView->maximumScrollOffset());
 
   // Simulate a LayoutPart::resize. The frame is resized to accomodate
-  // the top controls and Blink's view of the top controls matches that of
-  // the CC
+  // the browser controls and Blink's view of the browser controls matches that
+  // of the CC
   webView->applyViewportDeltas(WebFloatSize(), WebFloatSize(), WebFloatSize(),
-                               1.0f, 30.0f / topControlsHeight);
-  webView->resizeWithTopControls(WebSize(100, 60), 40.0f, true);
+                               1.0f, 30.0f / browserControlsHeight);
+  webView->resizeWithBrowserControls(WebSize(100, 60), 40.0f, true);
   webView->updateAllLifecyclePhases();
-  EXPECT_POINT_EQ(IntPoint(0, 1940), frameView->maximumScrollPosition());
+  EXPECT_SIZE_EQ(ScrollOffset(0, 1940), frameView->maximumScrollOffset());
 
   // Now simulate hiding.
   webView->applyViewportDeltas(WebFloatSize(), WebFloatSize(), WebFloatSize(),
-                               1.0f, -10.0f / topControlsHeight);
-  EXPECT_POINT_EQ(IntPoint(0, 1930), frameView->maximumScrollPosition());
+                               1.0f, -10.0f / browserControlsHeight);
+  EXPECT_SIZE_EQ(ScrollOffset(0, 1930), frameView->maximumScrollOffset());
 
-  // Reset to original state: 100px widget height, top controls fully hidden.
+  // Reset to original state: 100px widget height, browser controls fully
+  // hidden.
   webView->applyViewportDeltas(WebFloatSize(), WebFloatSize(), WebFloatSize(),
-                               1.0f, -30.0f / topControlsHeight);
-  webView->resizeWithTopControls(WebSize(100, 100), topControlsHeight, false);
+                               1.0f, -30.0f / browserControlsHeight);
+  webView->resizeWithBrowserControls(WebSize(100, 100), browserControlsHeight,
+                                     false);
   webView->updateAllLifecyclePhases();
-  EXPECT_POINT_EQ(IntPoint(0, 1900), frameView->maximumScrollPosition());
+  EXPECT_SIZE_EQ(ScrollOffset(0, 1900), frameView->maximumScrollOffset());
 
-  // Show the top controls by just 1px, since we're zoomed in to 2X, that
+  // Show the browser controls by just 1px, since we're zoomed in to 2X, that
   // should allow an extra 0.5px of scrolling in the visual viewport. Make
   // sure we're not losing any pixels when applying the adjustment on the
   // main frame.
   webView->applyViewportDeltas(WebFloatSize(), WebFloatSize(), WebFloatSize(),
-                               1.0f, 1.0f / topControlsHeight);
-  EXPECT_POINT_EQ(IntPoint(0, 1901), frameView->maximumScrollPosition());
+                               1.0f, 1.0f / browserControlsHeight);
+  EXPECT_SIZE_EQ(ScrollOffset(0, 1901), frameView->maximumScrollOffset());
 
   webView->applyViewportDeltas(WebFloatSize(), WebFloatSize(), WebFloatSize(),
-                               1.0f, 2.0f / topControlsHeight);
-  EXPECT_POINT_EQ(IntPoint(0, 1903), frameView->maximumScrollPosition());
+                               1.0f, 2.0f / browserControlsHeight);
+  EXPECT_SIZE_EQ(ScrollOffset(0, 1903), frameView->maximumScrollOffset());
 }
 
 TEST_F(WebFrameTest, MaximumScrollPositionCanBeNegative) {
@@ -7379,7 +7678,7 @@ TEST_F(WebFrameTest, MaximumScrollPositionCanBeNegative) {
   webViewHelper.webView()->updateAllLifecyclePhases();
 
   FrameView* frameView = webViewHelper.webView()->mainFrameImpl()->frameView();
-  EXPECT_LT(frameView->maximumScrollPosition().x(), 0);
+  EXPECT_LT(frameView->maximumScrollOffset().width(), 0);
 }
 
 TEST_P(ParameterizedWebFrameTest, FullscreenLayerSize) {
@@ -7397,12 +7696,17 @@ TEST_P(ParameterizedWebFrameTest, FullscreenLayerSize) {
   webViewImpl->updateAllLifecyclePhases();
 
   Document* document = webViewImpl->mainFrameImpl()->frame()->document();
-  UserGestureIndicator gesture(DefinitelyProcessingUserGesture);
+  UserGestureIndicator gesture(DocumentUserGestureToken::create(document));
   Element* divFullscreen = document->getElementById("div1");
-  Fullscreen::requestFullscreen(*divFullscreen, Fullscreen::PrefixedRequest);
+  Fullscreen::requestFullscreen(*divFullscreen);
+  EXPECT_EQ(nullptr, Fullscreen::currentFullScreenElementFrom(*document));
+  EXPECT_EQ(divFullscreen, Fullscreen::fullscreenElementFrom(*document));
   webViewImpl->didEnterFullscreen();
+  EXPECT_EQ(divFullscreen, Fullscreen::currentFullScreenElementFrom(*document));
+  EXPECT_EQ(divFullscreen, Fullscreen::fullscreenElementFrom(*document));
   webViewImpl->updateAllLifecyclePhases();
-  EXPECT_EQ(Fullscreen::currentFullScreenElementFrom(*document), divFullscreen);
+  EXPECT_EQ(divFullscreen, Fullscreen::currentFullScreenElementFrom(*document));
+  EXPECT_EQ(divFullscreen, Fullscreen::fullscreenElementFrom(*document));
 
   // Verify that the element is sized to the viewport.
   LayoutFullScreen* fullscreenLayoutObject =
@@ -7432,14 +7736,19 @@ TEST_F(WebFrameTest, FullscreenLayerNonScrollable) {
   webViewImpl->updateAllLifecyclePhases();
 
   Document* document = webViewImpl->mainFrameImpl()->frame()->document();
-  UserGestureIndicator gesture(DefinitelyProcessingUserGesture);
+  UserGestureIndicator gesture(DocumentUserGestureToken::create(document));
   Element* divFullscreen = document->getElementById("div1");
-  Fullscreen::requestFullscreen(*divFullscreen, Fullscreen::PrefixedRequest);
+  Fullscreen::requestFullscreen(*divFullscreen);
+  EXPECT_EQ(nullptr, Fullscreen::currentFullScreenElementFrom(*document));
+  EXPECT_EQ(divFullscreen, Fullscreen::fullscreenElementFrom(*document));
   webViewImpl->didEnterFullscreen();
+  EXPECT_EQ(divFullscreen, Fullscreen::currentFullScreenElementFrom(*document));
+  EXPECT_EQ(divFullscreen, Fullscreen::fullscreenElementFrom(*document));
   webViewImpl->updateAllLifecyclePhases();
+  EXPECT_EQ(divFullscreen, Fullscreen::currentFullScreenElementFrom(*document));
+  EXPECT_EQ(divFullscreen, Fullscreen::fullscreenElementFrom(*document));
 
   // Verify that the viewports are nonscrollable.
-  EXPECT_EQ(Fullscreen::currentFullScreenElementFrom(*document), divFullscreen);
   FrameView* frameView = webViewHelper.webView()->mainFrameImpl()->frameView();
   WebLayer* layoutViewportScrollLayer =
       webViewImpl->compositor()->scrollLayer()->platformLayer();
@@ -7454,9 +7763,14 @@ TEST_F(WebFrameTest, FullscreenLayerNonScrollable) {
   ASSERT_FALSE(visualViewportScrollLayer->userScrollableVertical());
 
   // Verify that the viewports are scrollable upon exiting fullscreen.
+  EXPECT_EQ(divFullscreen, Fullscreen::currentFullScreenElementFrom(*document));
+  EXPECT_EQ(divFullscreen, Fullscreen::fullscreenElementFrom(*document));
   webViewImpl->didExitFullscreen();
+  EXPECT_EQ(nullptr, Fullscreen::currentFullScreenElementFrom(*document));
+  EXPECT_EQ(nullptr, Fullscreen::fullscreenElementFrom(*document));
   webViewImpl->updateAllLifecyclePhases();
-  EXPECT_EQ(Fullscreen::currentFullScreenElementFrom(*document), nullptr);
+  EXPECT_EQ(nullptr, Fullscreen::currentFullScreenElementFrom(*document));
+  EXPECT_EQ(nullptr, Fullscreen::fullscreenElementFrom(*document));
   ASSERT_TRUE(layoutViewportScrollLayer->userScrollableHorizontal());
   ASSERT_TRUE(layoutViewportScrollLayer->userScrollableVertical());
   ASSERT_TRUE(visualViewportScrollLayer->userScrollableHorizontal());
@@ -7476,15 +7790,24 @@ TEST_P(ParameterizedWebFrameTest, FullscreenMainFrame) {
   webViewImpl->updateAllLifecyclePhases();
 
   Document* document = webViewImpl->mainFrameImpl()->frame()->document();
-  UserGestureIndicator gesture(DefinitelyProcessingUserGesture);
-  Fullscreen::requestFullscreen(*document->documentElement(),
-                                Fullscreen::PrefixedRequest);
+  UserGestureIndicator gesture(DocumentUserGestureToken::create(document));
+  Fullscreen::requestFullscreen(*document->documentElement());
+  EXPECT_EQ(nullptr, Fullscreen::currentFullScreenElementFrom(*document));
+  EXPECT_EQ(document->documentElement(),
+            Fullscreen::fullscreenElementFrom(*document));
   webViewImpl->didEnterFullscreen();
+  EXPECT_EQ(document->documentElement(),
+            Fullscreen::currentFullScreenElementFrom(*document));
+  EXPECT_EQ(document->documentElement(),
+            Fullscreen::fullscreenElementFrom(*document));
+
   webViewImpl->updateAllLifecyclePhases();
+  EXPECT_EQ(document->documentElement(),
+            Fullscreen::currentFullScreenElementFrom(*document));
+  EXPECT_EQ(document->documentElement(),
+            Fullscreen::fullscreenElementFrom(*document));
 
   // Verify that the main frame is still scrollable.
-  EXPECT_EQ(Fullscreen::currentFullScreenElementFrom(*document),
-            document->documentElement());
   WebLayer* webScrollLayer =
       webViewImpl->compositor()->scrollLayer()->platformLayer();
   ASSERT_TRUE(webScrollLayer->scrollable());
@@ -7517,9 +7840,9 @@ TEST_P(ParameterizedWebFrameTest, FullscreenSubframe) {
       toWebLocalFrameImpl(webViewHelper.webView()->mainFrame()->firstChild())
           ->frame()
           ->document();
-  UserGestureIndicator gesture(DefinitelyProcessingUserGesture);
+  UserGestureIndicator gesture(DocumentUserGestureToken::create(document));
   Element* divFullscreen = document->getElementById("div1");
-  Fullscreen::requestFullscreen(*divFullscreen, Fullscreen::PrefixedRequest);
+  Fullscreen::requestFullscreen(*divFullscreen);
   webViewImpl->didEnterFullscreen();
   webViewImpl->updateAllLifecyclePhases();
 
@@ -7536,6 +7859,56 @@ TEST_P(ParameterizedWebFrameTest, FullscreenSubframe) {
   webViewImpl->updateAllLifecyclePhases();
   EXPECT_EQ(viewportHeight, fullscreenLayoutObject->logicalWidth().toInt());
   EXPECT_EQ(viewportWidth, fullscreenLayoutObject->logicalHeight().toInt());
+}
+
+// Tests entering nested fullscreen and then exiting via the same code path
+// that's used when the browser process exits fullscreen.
+TEST_P(ParameterizedWebFrameTest, FullscreenNestedExit) {
+  registerMockedHttpURLLoad("fullscreen_iframe.html");
+  registerMockedHttpURLLoad("fullscreen_div.html");
+  FrameTestHelpers::WebViewHelper webViewHelper;
+  WebViewImpl* webViewImpl = webViewHelper.initializeAndLoad(
+      m_baseURL + "fullscreen_iframe.html", true);
+
+  webViewImpl->updateAllLifecyclePhases();
+
+  Document* topDoc = webViewImpl->mainFrameImpl()->frame()->document();
+  Element* topBody = topDoc->body();
+
+  HTMLIFrameElement* iframe =
+      toHTMLIFrameElement(topDoc->querySelector("iframe"));
+  Document* iframeDoc = iframe->contentDocument();
+  Element* iframeBody = iframeDoc->body();
+
+  {
+    UserGestureIndicator gesture(DocumentUserGestureToken::create(topDoc));
+    Fullscreen::requestFullscreen(*topBody);
+  }
+  webViewImpl->didEnterFullscreen();
+  webViewImpl->updateAllLifecyclePhases();
+
+  {
+    UserGestureIndicator gesture(DocumentUserGestureToken::create(iframeDoc));
+    Fullscreen::requestFullscreen(*iframeBody);
+  }
+  webViewImpl->didEnterFullscreen();
+  webViewImpl->updateAllLifecyclePhases();
+
+  // We are now in nested fullscreen, with both documents having a non-empty
+  // fullscreen element stack.
+  EXPECT_EQ(topBody, Fullscreen::currentFullScreenElementFrom(*topDoc));
+  EXPECT_EQ(iframe, Fullscreen::fullscreenElementFrom(*topDoc));
+  EXPECT_EQ(iframeBody, Fullscreen::currentFullScreenElementFrom(*iframeDoc));
+  EXPECT_EQ(iframeBody, Fullscreen::fullscreenElementFrom(*iframeDoc));
+
+  webViewImpl->didExitFullscreen();
+  webViewImpl->updateAllLifecyclePhases();
+
+  // We should now have fully exited fullscreen.
+  EXPECT_EQ(nullptr, Fullscreen::currentFullScreenElementFrom(*topDoc));
+  EXPECT_EQ(nullptr, Fullscreen::fullscreenElementFrom(*topDoc));
+  EXPECT_EQ(nullptr, Fullscreen::currentFullScreenElementFrom(*iframeDoc));
+  EXPECT_EQ(nullptr, Fullscreen::fullscreenElementFrom(*iframeDoc));
 }
 
 TEST_P(ParameterizedWebFrameTest, FullscreenWithTinyViewport) {
@@ -7561,9 +7934,8 @@ TEST_P(ParameterizedWebFrameTest, FullscreenWithTinyViewport) {
   EXPECT_FLOAT_EQ(5.0, webViewImpl->maximumPageScaleFactor());
 
   Document* document = webViewImpl->mainFrameImpl()->frame()->document();
-  UserGestureIndicator gesture(DefinitelyProcessingUserGesture);
-  Fullscreen::requestFullscreen(*document->documentElement(),
-                                Fullscreen::PrefixedRequest);
+  UserGestureIndicator gesture(DocumentUserGestureToken::create(document));
+  Fullscreen::requestFullscreen(*document->documentElement());
   webViewImpl->didEnterFullscreen();
   webViewImpl->updateAllLifecyclePhases();
   EXPECT_EQ(384, layoutViewItem.logicalWidth().floor());
@@ -7598,9 +7970,8 @@ TEST_P(ParameterizedWebFrameTest, FullscreenResizeWithTinyViewport) {
   LayoutViewItem layoutViewItem =
       webViewHelper.webView()->mainFrameImpl()->frameView()->layoutViewItem();
   Document* document = webViewImpl->mainFrameImpl()->frame()->document();
-  UserGestureIndicator gesture(DefinitelyProcessingUserGesture);
-  Fullscreen::requestFullscreen(*document->documentElement(),
-                                Fullscreen::PrefixedRequest);
+  UserGestureIndicator gesture(DocumentUserGestureToken::create(document));
+  Fullscreen::requestFullscreen(*document->documentElement());
   webViewImpl->didEnterFullscreen();
   webViewImpl->updateAllLifecyclePhases();
   EXPECT_EQ(384, layoutViewItem.logicalWidth().floor());
@@ -7660,9 +8031,8 @@ TEST_P(ParameterizedWebFrameTest, FullscreenRestoreScaleFactorUponExiting) {
 
   {
     Document* document = webViewImpl->mainFrameImpl()->frame()->document();
-    UserGestureIndicator gesture(DefinitelyProcessingUserGesture);
-    Fullscreen::requestFullscreen(*document->body(),
-                                  Fullscreen::PrefixedRequest);
+    UserGestureIndicator gesture(DocumentUserGestureToken::create(document));
+    Fullscreen::requestFullscreen(*document->body());
   }
 
   webViewImpl->didEnterFullscreen();
@@ -7721,9 +8091,9 @@ TEST_P(ParameterizedWebFrameTest, ClearFullscreenConstraintsOnNavigation) {
   EXPECT_FLOAT_EQ(5.0, webViewImpl->maximumPageScaleFactor());
 
   Document* document = webViewImpl->mainFrameImpl()->frame()->document();
-  UserGestureIndicator gesture(DefinitelyProcessingUserGesture);
-  Fullscreen::requestFullscreen(*document->documentElement(),
-                                Fullscreen::PrefixedRequest);
+  UserGestureIndicator gesture(
+      DocumentUserGestureToken::create(document, UserGestureToken::NewGesture));
+  Fullscreen::requestFullscreen(*document->documentElement());
   webViewImpl->didEnterFullscreen();
   webViewImpl->updateAllLifecyclePhases();
 
@@ -7751,6 +8121,57 @@ TEST_P(ParameterizedWebFrameTest, ClearFullscreenConstraintsOnNavigation) {
   EXPECT_EQ(400, layoutViewItem.logicalHeight().floor());
   EXPECT_FLOAT_EQ(0.5, webViewImpl->minimumPageScaleFactor());
   EXPECT_FLOAT_EQ(5.0, webViewImpl->maximumPageScaleFactor());
+}
+
+namespace {
+
+class TestFullscreenWebLayerTreeView : public WebLayerTreeView {
+ public:
+  void setHasTransparentBackground(bool value) override {
+    hasTransparentBackground = value;
+  }
+  bool hasTransparentBackground = false;
+};
+
+class TestFullscreenWebViewClient : public FrameTestHelpers::TestWebViewClient {
+ public:
+  WebLayerTreeView* initializeLayerTreeView() override {
+    return &testFullscreenLayerTreeView;
+  }
+  TestFullscreenWebLayerTreeView testFullscreenLayerTreeView;
+};
+
+}  // anonymous namespace
+
+TEST_P(ParameterizedWebFrameTest, OverlayFullscreenVideo) {
+  RuntimeEnabledFeatures::setForceOverlayFullscreenVideoEnabled(true);
+  registerMockedHttpURLLoad("fullscreen_video.html");
+  TestFullscreenWebViewClient webViewClient;
+  FrameTestHelpers::WebViewHelper webViewHelper;
+  WebViewImpl* webViewImpl = webViewHelper.initializeAndLoad(
+      m_baseURL + "fullscreen_video.html", true, nullptr, &webViewClient);
+
+  const TestFullscreenWebLayerTreeView& layerTreeView =
+      webViewClient.testFullscreenLayerTreeView;
+
+  Document* document = webViewImpl->mainFrameImpl()->frame()->document();
+  UserGestureIndicator gesture(DocumentUserGestureToken::create(document));
+  HTMLVideoElement* video =
+      toHTMLVideoElement(document->getElementById("video"));
+  EXPECT_TRUE(video->usesOverlayFullscreenVideo());
+  EXPECT_FALSE(video->isFullscreen());
+  EXPECT_FALSE(layerTreeView.hasTransparentBackground);
+
+  video->webkitEnterFullscreen();
+  webViewImpl->didEnterFullscreen();
+  webViewImpl->updateAllLifecyclePhases();
+  EXPECT_TRUE(video->isFullscreen());
+  EXPECT_TRUE(layerTreeView.hasTransparentBackground);
+
+  webViewImpl->didExitFullscreen();
+  webViewImpl->updateAllLifecyclePhases();
+  EXPECT_FALSE(video->isFullscreen());
+  EXPECT_FALSE(layerTreeView.hasTransparentBackground);
 }
 
 TEST_P(ParameterizedWebFrameTest, LayoutBlockPercentHeightDescendants) {
@@ -7792,8 +8213,8 @@ TEST_P(ParameterizedWebFrameTest, HasVisibleContentOnVisibleFrames) {
   FrameTestHelpers::WebViewHelper webViewHelper;
   WebViewImpl* webViewImpl =
       webViewHelper.initializeAndLoad(m_baseURL + "visible_frames.html");
-  for (WebFrame* frame = webViewImpl->mainFrameImpl()->traverseNext(false);
-       frame; frame = frame->traverseNext(false)) {
+  for (WebFrame* frame = webViewImpl->mainFrameImpl()->traverseNext(); frame;
+       frame = frame->traverseNext()) {
     EXPECT_TRUE(frame->hasVisibleContent());
   }
 }
@@ -7803,8 +8224,8 @@ TEST_P(ParameterizedWebFrameTest, HasVisibleContentOnHiddenFrames) {
   FrameTestHelpers::WebViewHelper webViewHelper;
   WebViewImpl* webViewImpl =
       webViewHelper.initializeAndLoad(m_baseURL + "hidden_frames.html");
-  for (WebFrame* frame = webViewImpl->mainFrameImpl()->traverseNext(false);
-       frame; frame = frame->traverseNext(false)) {
+  for (WebFrame* frame = webViewImpl->mainFrameImpl()->traverseNext(); frame;
+       frame = frame->traverseNext()) {
     EXPECT_FALSE(frame->hasVisibleContent());
   }
 }
@@ -7887,7 +8308,10 @@ TEST_P(ParameterizedWebFrameTest, ManifestCSPFetchSelf) {
   Resource* resource = fetchManifest(
       document, toKURL(m_notBaseURL + "link-manifest-fetch.json"));
 
-  EXPECT_EQ(0, resource);  // Fetching resource wasn't allowed.
+  // Fetching resource wasn't allowed.
+  ASSERT_TRUE(resource);
+  EXPECT_TRUE(resource->errorOccurred());
+  EXPECT_TRUE(resource->resourceError().isAccessCheck());
 }
 
 TEST_P(ParameterizedWebFrameTest, ManifestCSPFetchSelfReportOnly) {
@@ -7909,15 +8333,15 @@ TEST_P(ParameterizedWebFrameTest, ManifestCSPFetchSelfReportOnly) {
 }
 
 TEST_P(ParameterizedWebFrameTest, ReloadBypassingCache) {
-  // Check that a reload ignoring cache on a frame will result in the cache
+  // Check that a reload bypassing cache on a frame will result in the cache
   // policy of the request being set to ReloadBypassingCache.
   registerMockedHttpURLLoad("foo.html");
   FrameTestHelpers::WebViewHelper webViewHelper;
   webViewHelper.initializeAndLoad(m_baseURL + "foo.html", true);
   WebFrame* frame = webViewHelper.webView()->mainFrame();
-  FrameTestHelpers::reloadFrameIgnoringCache(frame);
+  FrameTestHelpers::reloadFrameBypassingCache(frame);
   EXPECT_EQ(WebCachePolicy::BypassingCache,
-            frame->dataSource()->request().getCachePolicy());
+            frame->dataSource()->getRequest().getCachePolicy());
 }
 
 static void nodeImageTestValidation(const IntSize& referenceBitmapSize,
@@ -8020,8 +8444,8 @@ class ThemeColorTestWebFrameClient
 
 TEST_P(ParameterizedWebFrameTest, ThemeColor) {
   registerMockedHttpURLLoad("theme_color_test.html");
-  FrameTestHelpers::WebViewHelper webViewHelper;
   ThemeColorTestWebFrameClient client;
+  FrameTestHelpers::WebViewHelper webViewHelper;
   webViewHelper.initializeAndLoad(m_baseURL + "theme_color_test.html", true,
                                   &client);
   EXPECT_TRUE(client.didNotify());
@@ -8183,17 +8607,17 @@ TEST_F(WebFrameTest, SwapMainFrameWhileLoading) {
                                   &frameClient);
 }
 
-void swapAndVerifyFirstChildConsistency(const char* const message,
-                                        WebFrame* parent,
-                                        WebFrame* newChild) {
+void WebFrameTest::swapAndVerifyFirstChildConsistency(const char* const message,
+                                                      WebFrame* parent,
+                                                      WebFrame* newChild) {
   SCOPED_TRACE(message);
   parent->firstChild()->swap(newChild);
 
   EXPECT_EQ(newChild, parent->firstChild());
   EXPECT_EQ(newChild->parent(), parent);
   EXPECT_EQ(newChild,
-            parent->lastChild()->previousSibling()->previousSibling());
-  EXPECT_EQ(newChild->nextSibling(), parent->lastChild()->previousSibling());
+            parent->m_lastChild->m_previousSibling->m_previousSibling);
+  EXPECT_EQ(newChild->nextSibling(), parent->m_lastChild->m_previousSibling);
 }
 
 TEST_F(WebFrameSwapTest, SwapFirstChild) {
@@ -8222,19 +8646,20 @@ TEST_F(WebFrameSwapTest, SwapFirstChild) {
   remoteFrame->close();
 }
 
-void swapAndVerifyMiddleChildConsistency(const char* const message,
-                                         WebFrame* parent,
-                                         WebFrame* newChild) {
+void WebFrameTest::swapAndVerifyMiddleChildConsistency(
+    const char* const message,
+    WebFrame* parent,
+    WebFrame* newChild) {
   SCOPED_TRACE(message);
   parent->firstChild()->nextSibling()->swap(newChild);
 
   EXPECT_EQ(newChild, parent->firstChild()->nextSibling());
-  EXPECT_EQ(newChild, parent->lastChild()->previousSibling());
+  EXPECT_EQ(newChild, parent->m_lastChild->m_previousSibling);
   EXPECT_EQ(newChild->parent(), parent);
   EXPECT_EQ(newChild, parent->firstChild()->nextSibling());
-  EXPECT_EQ(newChild->previousSibling(), parent->firstChild());
-  EXPECT_EQ(newChild, parent->lastChild()->previousSibling());
-  EXPECT_EQ(newChild->nextSibling(), parent->lastChild());
+  EXPECT_EQ(newChild->m_previousSibling, parent->firstChild());
+  EXPECT_EQ(newChild, parent->m_lastChild->m_previousSibling);
+  EXPECT_EQ(newChild->nextSibling(), parent->m_lastChild);
 }
 
 TEST_F(WebFrameSwapTest, SwapMiddleChild) {
@@ -8264,16 +8689,16 @@ TEST_F(WebFrameSwapTest, SwapMiddleChild) {
   remoteFrame->close();
 }
 
-void swapAndVerifyLastChildConsistency(const char* const message,
-                                       WebFrame* parent,
-                                       WebFrame* newChild) {
+void WebFrameTest::swapAndVerifyLastChildConsistency(const char* const message,
+                                                     WebFrame* parent,
+                                                     WebFrame* newChild) {
   SCOPED_TRACE(message);
-  parent->lastChild()->swap(newChild);
+  lastChild(parent)->swap(newChild);
 
-  EXPECT_EQ(newChild, parent->lastChild());
+  EXPECT_EQ(newChild, lastChild(parent));
   EXPECT_EQ(newChild->parent(), parent);
   EXPECT_EQ(newChild, parent->firstChild()->nextSibling()->nextSibling());
-  EXPECT_EQ(newChild->previousSibling(), parent->firstChild()->nextSibling());
+  EXPECT_EQ(newChild->m_previousSibling, parent->firstChild()->nextSibling());
 }
 
 TEST_F(WebFrameSwapTest, SwapLastChild) {
@@ -8302,16 +8727,48 @@ TEST_F(WebFrameSwapTest, SwapLastChild) {
   remoteFrame->close();
 }
 
-void swapAndVerifySubframeConsistency(const char* const message,
-                                      WebFrame* oldFrame,
-                                      WebFrame* newFrame) {
+TEST_F(WebFrameSwapTest, DetachProvisionalFrame) {
+  FrameTestHelpers::TestWebRemoteFrameClient remoteFrameClient;
+  WebRemoteFrameImpl* remoteFrame = WebRemoteFrameImpl::create(
+      WebTreeScopeType::Document, &remoteFrameClient);
+  swapAndVerifyMiddleChildConsistency("local->remote", mainFrame(),
+                                      remoteFrame);
+
+  FrameTestHelpers::TestWebFrameClient client;
+  WebLocalFrameImpl* provisionalFrame = WebLocalFrameImpl::createProvisional(
+      &client, remoteFrame, WebSandboxFlags::None);
+
+  // The provisional frame should have a local frame owner.
+  FrameOwner* owner = provisionalFrame->frame()->owner();
+  ASSERT_TRUE(owner->isLocal());
+
+  // But the owner should point to |remoteFrame|, since the new frame is still
+  // provisional.
+  EXPECT_EQ(remoteFrame->frame(), owner->contentFrame());
+
+  // After detaching the provisional frame, the frame owner should still point
+  // at |remoteFrame|.
+  provisionalFrame->detach();
+
+  // The owner should not be affected by detaching the provisional frame, so it
+  // should still point to |remoteFrame|.
+  EXPECT_EQ(remoteFrame->frame(), owner->contentFrame());
+
+  // Manually reset to break WebViewHelper's dependency on the stack allocated
+  // TestWebFrameClient.
+  reset();
+}
+
+void WebFrameTest::swapAndVerifySubframeConsistency(const char* const message,
+                                                    WebFrame* oldFrame,
+                                                    WebFrame* newFrame) {
   SCOPED_TRACE(message);
 
   EXPECT_TRUE(oldFrame->firstChild());
   oldFrame->swap(newFrame);
 
   EXPECT_FALSE(newFrame->firstChild());
-  EXPECT_FALSE(newFrame->lastChild());
+  EXPECT_FALSE(newFrame->m_lastChild);
 }
 
 TEST_F(WebFrameSwapTest, SwapParentShouldDetachChildren) {
@@ -8408,7 +8865,7 @@ TEST_F(WebFrameSwapTest, SwapInitializesGlobal) {
 
   FrameTestHelpers::TestWebRemoteFrameClient remoteClient;
   WebRemoteFrame* remoteFrame = remoteClient.frame();
-  mainFrame()->lastChild()->swap(remoteFrame);
+  WebFrameTest::lastChild(mainFrame())->swap(remoteFrame);
   remoteFrame->setReplicatedOrigin(SecurityOrigin::createUnique());
   v8::Local<v8::Value> remoteWindowTop =
       mainFrame()->executeScriptAndReturnValue(WebScriptSource("saved.top"));
@@ -8432,7 +8889,7 @@ TEST_F(WebFrameSwapTest, RemoteFramesAreIndexable) {
 
   FrameTestHelpers::TestWebRemoteFrameClient remoteClient;
   WebRemoteFrame* remoteFrame = remoteClient.frame();
-  mainFrame()->lastChild()->swap(remoteFrame);
+  lastChild(mainFrame())->swap(remoteFrame);
   remoteFrame->setReplicatedOrigin(SecurityOrigin::createUnique());
   v8::Local<v8::Value> remoteWindow =
       mainFrame()->executeScriptAndReturnValue(WebScriptSource("window[2]"));
@@ -8450,7 +8907,7 @@ TEST_F(WebFrameSwapTest, RemoteFrameLengthAccess) {
 
   FrameTestHelpers::TestWebRemoteFrameClient remoteClient;
   WebRemoteFrame* remoteFrame = remoteClient.frame();
-  mainFrame()->lastChild()->swap(remoteFrame);
+  lastChild(mainFrame())->swap(remoteFrame);
   remoteFrame->setReplicatedOrigin(SecurityOrigin::createUnique());
   v8::Local<v8::Value> remoteWindowLength =
       mainFrame()->executeScriptAndReturnValue(
@@ -8469,7 +8926,7 @@ TEST_F(WebFrameSwapTest, RemoteWindowNamedAccess) {
   // a named property doesn't crash.
   FrameTestHelpers::TestWebRemoteFrameClient remoteClient;
   WebRemoteFrame* remoteFrame = remoteClient.frame();
-  mainFrame()->lastChild()->swap(remoteFrame);
+  lastChild(mainFrame())->swap(remoteFrame);
   remoteFrame->setReplicatedOrigin(SecurityOrigin::createUnique());
   v8::Local<v8::Value> remoteWindowProperty =
       mainFrame()->executeScriptAndReturnValue(
@@ -8722,7 +9179,7 @@ TEST_F(WebFrameSwapTest, WindowOpenOnRemoteFrame) {
   ASSERT_TRUE(mainFrame()->isWebLocalFrame());
   ASSERT_TRUE(mainFrame()->firstChild()->isWebRemoteFrame());
   LocalDOMWindow* mainWindow =
-      toWebLocalFrameImpl(mainFrame())->frame()->localDOMWindow();
+      toWebLocalFrameImpl(mainFrame())->frame()->domWindow();
 
   KURL destination = toKURL("data:text/html:destination");
   mainWindow->open(destination.getString(), "frame1", "", mainWindow,
@@ -8944,14 +9401,16 @@ TEST_P(ParameterizedWebFrameTest, LoaderOriginAccess) {
   options.crossOriginRequestPolicy = UseAccessControl;
   ResourceLoaderOptions resourceLoaderOptions;
   DocumentThreadableLoader::loadResourceSynchronously(
-      *frame->document(), request, client, options, resourceLoaderOptions);
+      *frame->document(), request, client, options, resourceLoaderOptions,
+      ThreadableLoader::ClientSpec::kTesting);
   EXPECT_TRUE(client.failed());
 
   client.reset();
   // Try to load the request with cross origin access. Should succeed.
   options.crossOriginRequestPolicy = AllowCrossOriginRequests;
   DocumentThreadableLoader::loadResourceSynchronously(
-      *frame->document(), request, client, options, resourceLoaderOptions);
+      *frame->document(), request, client, options, resourceLoaderOptions,
+      ThreadableLoader::ClientSpec::kTesting);
   EXPECT_FALSE(client.failed());
 }
 
@@ -8975,7 +9434,7 @@ class TestConsoleMessageWebFrameClient
                                       const WebString& sourceName,
                                       unsigned sourceLine,
                                       const WebString& stackTrace) {
-    messages.append(message);
+    messages.push_back(message);
   }
 
   Vector<WebConsoleMessage> messages;
@@ -9154,18 +9613,18 @@ TEST_P(ParameterizedWebFrameTest, CreateLocalChildWithPreviousSibling) {
       FrameTestHelpers::createLocalChild(parent, "name1"));
 
   EXPECT_EQ(firstFrame, parent->firstChild());
-  EXPECT_EQ(nullptr, firstFrame->previousSibling());
+  EXPECT_EQ(nullptr, previousSibling(firstFrame));
   EXPECT_EQ(secondFrame, firstFrame->nextSibling());
 
-  EXPECT_EQ(firstFrame, secondFrame->previousSibling());
+  EXPECT_EQ(firstFrame, previousSibling(secondFrame));
   EXPECT_EQ(thirdFrame, secondFrame->nextSibling());
 
-  EXPECT_EQ(secondFrame, thirdFrame->previousSibling());
+  EXPECT_EQ(secondFrame, previousSibling(thirdFrame));
   EXPECT_EQ(fourthFrame, thirdFrame->nextSibling());
 
-  EXPECT_EQ(thirdFrame, fourthFrame->previousSibling());
+  EXPECT_EQ(thirdFrame, previousSibling(fourthFrame));
   EXPECT_EQ(nullptr, fourthFrame->nextSibling());
-  EXPECT_EQ(fourthFrame, parent->lastChild());
+  EXPECT_EQ(fourthFrame, lastChild(parent));
 
   EXPECT_EQ(parent, firstFrame->parent());
   EXPECT_EQ(parent, secondFrame->parent());
@@ -9249,7 +9708,7 @@ TEST_P(ParameterizedWebFrameTest,
 }
 
 // See https://crbug.com/628942.
-TEST_P(ParameterizedWebFrameTest, DeferredPageLoadWithRemoteMainFrame) {
+TEST_P(ParameterizedWebFrameTest, SuspendedPageLoadWithRemoteMainFrame) {
   // Prepare a page with a remote main frame.
   FrameTestHelpers::TestWebViewClient viewClient;
   FrameTestHelpers::TestWebRemoteFrameClient remoteClient;
@@ -9258,31 +9717,31 @@ TEST_P(ParameterizedWebFrameTest, DeferredPageLoadWithRemoteMainFrame) {
   WebRemoteFrame* remoteRoot = view->mainFrame()->toWebRemoteFrame();
   remoteRoot->setReplicatedOrigin(SecurityOrigin::createUnique());
 
-  // Check that ScopedPageLoadDeferrer properly triggers deferred loading for
+  // Check that ScopedPageSuspender properly triggers deferred loading for
   // the current Page.
   Page* page = remoteRoot->toImplBase()->frame()->page();
-  EXPECT_FALSE(page->defersLoading());
+  EXPECT_FALSE(page->suspended());
   {
-    ScopedPageLoadDeferrer deferrer;
-    EXPECT_TRUE(page->defersLoading());
+    ScopedPageSuspender suspender;
+    EXPECT_TRUE(page->suspended());
   }
-  EXPECT_FALSE(page->defersLoading());
+  EXPECT_FALSE(page->suspended());
 
   // Repeat this for a page with a local child frame, and ensure that the
-  // child frame's loads are also deferred.
+  // child frame's loads are also suspended.
   WebLocalFrame* webLocalChild = FrameTestHelpers::createLocalChild(remoteRoot);
   registerMockedHttpURLLoad("foo.html");
   FrameTestHelpers::loadFrame(webLocalChild, m_baseURL + "foo.html");
   LocalFrame* localChild = toWebLocalFrameImpl(webLocalChild)->frame();
-  EXPECT_FALSE(page->defersLoading());
-  EXPECT_FALSE(localChild->document()->fetcher()->defersLoading());
+  EXPECT_FALSE(page->suspended());
+  EXPECT_FALSE(localChild->document()->fetcher()->context().defersLoading());
   {
-    ScopedPageLoadDeferrer deferrer;
-    EXPECT_TRUE(page->defersLoading());
-    EXPECT_TRUE(localChild->document()->fetcher()->defersLoading());
+    ScopedPageSuspender suspender;
+    EXPECT_TRUE(page->suspended());
+    EXPECT_TRUE(localChild->document()->fetcher()->context().defersLoading());
   }
-  EXPECT_FALSE(page->defersLoading());
-  EXPECT_FALSE(localChild->document()->fetcher()->defersLoading());
+  EXPECT_FALSE(page->suspended());
+  EXPECT_FALSE(localChild->document()->fetcher()->context().defersLoading());
 
   view->close();
 }
@@ -9303,8 +9762,8 @@ class WebFrameOverscrollTest
   WebGestureEvent generateEvent(WebInputEvent::Type type,
                                 float deltaX = 0.0,
                                 float deltaY = 0.0) {
-    WebGestureEvent event;
-    event.type = type;
+    WebGestureEvent event(type, WebInputEvent::NoModifiers,
+                          WebInputEvent::TimeStampForTesting);
     // TODO(wjmaclean): Make sure that touchpad device is only ever used for
     // gesture scrolling event types.
     event.sourceDevice = GetParam();
@@ -9633,7 +10092,7 @@ TEST_F(WebFrameTest, ImageDocumentLoadFinishTime) {
   EXPECT_TRUE(document->isImageDocument());
 
   ImageDocument* imgDocument = toImageDocument(document);
-  ImageResource* resource = imgDocument->cachedImage();
+  ImageResource* resource = imgDocument->cachedImageResourceDeprecated();
 
   EXPECT_TRUE(resource);
   EXPECT_NE(0, resource->loadFinishTime());
@@ -9653,7 +10112,7 @@ class CallbackOrderingWebFrameClient
     EXPECT_EQ(0, m_callbackCount++);
     FrameTestHelpers::TestWebFrameClient::didStartLoading(toDifferentDocument);
   }
-  void didStartProvisionalLoad(WebLocalFrame*, double) override {
+  void didStartProvisionalLoad(WebLocalFrame*) override {
     EXPECT_EQ(1, m_callbackCount++);
   }
   void didCommitProvisionalLoad(WebLocalFrame*,
@@ -9681,8 +10140,8 @@ class CallbackOrderingWebFrameClient
 
 TEST_F(WebFrameTest, CallbackOrdering) {
   registerMockedHttpURLLoad("foo.html");
-  FrameTestHelpers::WebViewHelper webViewHelper;
   CallbackOrderingWebFrameClient client;
+  FrameTestHelpers::WebViewHelper webViewHelper;
   webViewHelper.initializeAndLoad(m_baseURL + "foo.html", true, &client);
 }
 
@@ -9718,7 +10177,7 @@ class WebFrameVisibilityChangeTest : public WebFrameTest {
   }
 
   void swapLocalFrameToRemoteFrame() {
-    mainFrame()->lastChild()->swap(remoteFrame());
+    lastChild(mainFrame())->swap(remoteFrame());
     remoteFrame()->setReplicatedOrigin(SecurityOrigin::createUnique());
   }
 
@@ -10013,11 +10472,9 @@ TEST_F(WebFrameTest, LoadJavascriptURLInNewFrame) {
   FrameTestHelpers::WebViewHelper helper;
   helper.initialize(true);
 
-  WebURLRequest request;
   std::string redirectURL = m_baseURL + "foo.html";
   URLTestHelpers::registerMockedURLLoad(toKURL(redirectURL), "foo.html");
-  request.setURL(toKURL("javascript:location='" + redirectURL + "'"));
-  request.setRequestorOrigin(WebSecurityOrigin::createUnique());
+  WebURLRequest request(toKURL("javascript:location='" + redirectURL + "'"));
   helper.webView()->mainFrameImpl()->loadRequest(request);
 
   // Normally, the result of the JS url replaces the existing contents on the
@@ -10052,7 +10509,8 @@ class TestResourcePriorityWebFrameClient
   }
 
   void addExpectedRequest(const KURL& url, WebURLRequest::Priority priority) {
-    m_expectedRequests.add(url, wrapUnique(new ExpectedRequest(url, priority)));
+    m_expectedRequests.add(url,
+                           WTF::makeUnique<ExpectedRequest>(url, priority));
   }
 
   void verifyAllRequests() {
@@ -10136,15 +10594,12 @@ TEST_F(WebFrameTest, ScriptPriority) {
 class MultipleDataChunkDelegate : public WebURLLoaderTestDelegate {
  public:
   void didReceiveData(WebURLLoaderClient* originalClient,
-                      WebURLLoader* loader,
                       const char* data,
-                      int dataLength,
-                      int encodedDataLength) override {
+                      int dataLength) override {
     EXPECT_GT(dataLength, 16);
-    originalClient->didReceiveData(loader, data, 16, 16, 16);
+    originalClient->didReceiveData(data, 16);
     // This didReceiveData call shouldn't crash due to a failed assertion.
-    originalClient->didReceiveData(loader, data + 16, dataLength - 16,
-                                   encodedDataLength - 16, dataLength - 16);
+    originalClient->didReceiveData(data + 16, dataLength - 16);
   }
 };
 
@@ -10163,6 +10618,669 @@ TEST_F(WebFrameTest, ImageDocumentDecodeError) {
   EXPECT_TRUE(document->isImageDocument());
   EXPECT_EQ(Resource::DecodeError,
             toImageDocument(document)->cachedImage()->getStatus());
+}
+
+// Ensure that the root layer -- whose size is ordinarily derived from the
+// content size -- maintains a minimum height matching the viewport in cases
+// where the content is smaller.
+TEST_F(WebFrameTest, RootLayerMinimumHeight) {
+  constexpr int viewportWidth = 320;
+  constexpr int viewportHeight = 640;
+  constexpr int browserControlsHeight = 100;
+
+  FrameTestHelpers::WebViewHelper webViewHelper;
+  webViewHelper.initialize(true, nullptr, nullptr, nullptr,
+                           enableViewportSettings);
+  WebViewImpl* webView = webViewHelper.webView();
+  webView->resizeWithBrowserControls(
+      WebSize(viewportWidth, viewportHeight - browserControlsHeight),
+      browserControlsHeight, true);
+
+  initializeWithHTML(*webView->mainFrameImpl()->frame(),
+                     "<!DOCTYPE html>"
+                     "<style>"
+                     "  html, body {width:100%;height:540px;margin:0px}"
+                     "  #elem {"
+                     "    overflow: scroll;"
+                     "    width: 100px;"
+                     "    height: 10px;"
+                     "    position: fixed;"
+                     "    left: 0px;"
+                     "    bottom: 0px;"
+                     "  }"
+                     "</style>"
+                     "<div id='elem'></div>");
+  webView->updateAllLifecyclePhases();
+
+  Document* document = webView->mainFrameImpl()->frame()->document();
+  FrameView* frameView = webView->mainFrameImpl()->frameView();
+  PaintLayerCompositor* compositor = frameView->layoutViewItem().compositor();
+
+  EXPECT_EQ(viewportHeight - browserControlsHeight,
+            compositor->rootLayer()->boundingBoxForCompositing().height());
+
+  document->view()->setTracksPaintInvalidations(true);
+
+  webView->resizeWithBrowserControls(WebSize(viewportWidth, viewportHeight),
+                                     browserControlsHeight, false);
+
+  EXPECT_EQ(viewportHeight,
+            compositor->rootLayer()->boundingBoxForCompositing().height());
+  EXPECT_EQ(viewportHeight,
+            compositor->rootLayer()->graphicsLayerBacking()->size().height());
+  EXPECT_EQ(viewportHeight, compositor->rootGraphicsLayer()->size().height());
+
+  const RasterInvalidationTracking* invalidationTracking =
+      document->layoutView()
+          ->layer()
+          ->graphicsLayerBacking()
+          ->getRasterInvalidationTracking();
+  ASSERT_TRUE(invalidationTracking);
+  const auto* rasterInvalidations =
+      &invalidationTracking->trackedRasterInvalidations;
+
+  // The newly revealed content at the bottom of the screen should have been
+  // invalidated. There are additional invalidations for the position: fixed
+  // element.
+  EXPECT_GT(rasterInvalidations->size(), 0u);
+  EXPECT_TRUE((*rasterInvalidations)[0].rect.contains(
+      IntRect(0, viewportHeight - browserControlsHeight, viewportWidth,
+              browserControlsHeight)));
+
+  document->view()->setTracksPaintInvalidations(false);
+}
+
+// Load a page with display:none set and try to scroll it. It shouldn't crash
+// due to lack of layoutObject. crbug.com/653327.
+TEST_F(WebFrameTest, ScrollBeforeLayoutDoesntCrash) {
+  registerMockedHttpURLLoad("display-none.html");
+  FrameTestHelpers::WebViewHelper webViewHelper;
+  webViewHelper.initializeAndLoad(m_baseURL + "display-none.html");
+  WebViewImpl* webView = webViewHelper.webView();
+  webViewHelper.resize(WebSize(640, 480));
+
+  Document* document = webView->mainFrameImpl()->frame()->document();
+  document->documentElement()->setLayoutObject(nullptr);
+
+  WebGestureEvent beginEvent(WebInputEvent::GestureScrollBegin,
+                             WebInputEvent::NoModifiers,
+                             WebInputEvent::TimeStampForTesting);
+  beginEvent.sourceDevice = WebGestureDeviceTouchpad;
+  WebGestureEvent updateEvent(WebInputEvent::GestureScrollUpdate,
+                              WebInputEvent::NoModifiers,
+                              WebInputEvent::TimeStampForTesting);
+  updateEvent.sourceDevice = WebGestureDeviceTouchpad;
+  WebGestureEvent endEvent(WebInputEvent::GestureScrollEnd,
+                           WebInputEvent::NoModifiers,
+                           WebInputEvent::TimeStampForTesting);
+  endEvent.sourceDevice = WebGestureDeviceTouchpad;
+
+  // Try GestureScrollEnd and GestureScrollUpdate first to make sure that not
+  // seeing a Begin first doesn't break anything. (This currently happens).
+  webViewHelper.webView()->handleInputEvent(endEvent);
+  webViewHelper.webView()->handleInputEvent(updateEvent);
+
+  // Try a full Begin/Update/End cycle.
+  webViewHelper.webView()->handleInputEvent(beginEvent);
+  webViewHelper.webView()->handleInputEvent(updateEvent);
+  webViewHelper.webView()->handleInputEvent(endEvent);
+}
+
+TEST_F(WebFrameTest, HidingScrollbarsOnScrollableAreaDisablesScrollbars) {
+  FrameTestHelpers::WebViewHelper webViewHelper;
+  webViewHelper.initialize(true);
+  webViewHelper.resize(WebSize(800, 600));
+  WebViewImpl* webView = webViewHelper.webView();
+
+  initializeWithHTML(
+      *webView->mainFrameImpl()->frame(),
+      "<!DOCTYPE html>"
+      "<style>"
+      "  #scroller { overflow: scroll; width: 1000px; height: 1000px }"
+      "  #spacer { width: 2000px; height: 2000px }"
+      "</style>"
+      "<div id='scroller'>"
+      "  <div id='spacer'></div>"
+      "</div>");
+
+  Document* document = webView->mainFrameImpl()->frame()->document();
+  FrameView* frameView = webView->mainFrameImpl()->frameView();
+  Element* scroller = document->getElementById("scroller");
+  ScrollableArea* scrollerArea =
+      toLayoutBox(scroller->layoutObject())->getScrollableArea();
+
+  ASSERT_TRUE(scrollerArea->horizontalScrollbar());
+  ASSERT_TRUE(scrollerArea->verticalScrollbar());
+  ASSERT_TRUE(frameView->horizontalScrollbar());
+  ASSERT_TRUE(frameView->verticalScrollbar());
+
+  EXPECT_FALSE(frameView->scrollbarsHidden());
+  EXPECT_TRUE(
+      frameView->horizontalScrollbar()->shouldParticipateInHitTesting());
+  EXPECT_TRUE(frameView->verticalScrollbar()->shouldParticipateInHitTesting());
+
+  EXPECT_FALSE(scrollerArea->scrollbarsHidden());
+  EXPECT_TRUE(
+      scrollerArea->horizontalScrollbar()->shouldParticipateInHitTesting());
+  EXPECT_TRUE(
+      scrollerArea->verticalScrollbar()->shouldParticipateInHitTesting());
+
+  frameView->setScrollbarsHidden(true);
+  EXPECT_FALSE(
+      frameView->horizontalScrollbar()->shouldParticipateInHitTesting());
+  EXPECT_FALSE(frameView->verticalScrollbar()->shouldParticipateInHitTesting());
+  frameView->setScrollbarsHidden(false);
+  EXPECT_TRUE(
+      frameView->horizontalScrollbar()->shouldParticipateInHitTesting());
+  EXPECT_TRUE(frameView->verticalScrollbar()->shouldParticipateInHitTesting());
+
+  scrollerArea->setScrollbarsHidden(true);
+  EXPECT_FALSE(
+      scrollerArea->horizontalScrollbar()->shouldParticipateInHitTesting());
+  EXPECT_FALSE(
+      scrollerArea->verticalScrollbar()->shouldParticipateInHitTesting());
+  scrollerArea->setScrollbarsHidden(false);
+  EXPECT_TRUE(
+      scrollerArea->horizontalScrollbar()->shouldParticipateInHitTesting());
+  EXPECT_TRUE(
+      scrollerArea->verticalScrollbar()->shouldParticipateInHitTesting());
+}
+
+TEST_F(WebFrameTest, MouseOverDifferntNodeClearsTooltip) {
+  FrameTestHelpers::WebViewHelper webViewHelper;
+  webViewHelper.initialize(true, nullptr, nullptr, nullptr,
+                           [](WebSettings* settings) {});
+  webViewHelper.resize(WebSize(200, 200));
+  WebViewImpl* webView = webViewHelper.webView();
+
+  initializeWithHTML(
+      *webView->mainFrameImpl()->frame(),
+      "<head>"
+      "  <style type='text/css'>"
+      "   div"
+      "    {"
+      "      width: 200px;"
+      "      height: 100px;"
+      "      background-color: #eeeeff;"
+      "    }"
+      "    div:hover"
+      "    {"
+      "      background-color: #ddddff;"
+      "    }"
+      "  </style>"
+      "</head>"
+      "<body>"
+      "  <div id='div1' title='Title Attribute Value'>Hover HERE</div>"
+      "  <div id='div2' title='Title Attribute Value'>Then HERE</div>"
+      "  <br><br><br>"
+      "</body>");
+
+  webView->updateAllLifecyclePhases();
+
+  Document* document = webView->mainFrameImpl()->frame()->document();
+  Element* div1Tag = document->getElementById("div1");
+
+  HitTestResult hitTestResult = webView->coreHitTestResultAt(
+      WebPoint(div1Tag->offsetLeft() + 5, div1Tag->offsetTop() + 5));
+
+  EXPECT_TRUE(hitTestResult.innerElement());
+
+  // Mouse over link. Mouse cursor should be hand.
+  PlatformMouseEvent mouseMoveOverLinkEvent(
+      IntPoint(div1Tag->offsetLeft() + 5, div1Tag->offsetTop() + 5),
+      IntPoint(div1Tag->offsetLeft() + 5, div1Tag->offsetTop() + 5),
+      WebPointerProperties::Button::NoButton, PlatformEvent::MouseMoved, 0,
+      PlatformEvent::NoModifiers, TimeTicks::Now());
+  document->frame()->eventHandler().handleMouseMoveEvent(
+      mouseMoveOverLinkEvent, Vector<PlatformMouseEvent>());
+
+  EXPECT_EQ(document->hoverNode(),
+            document->frame()->chromeClient().lastSetTooltipNodeForTesting());
+  EXPECT_EQ(div1Tag,
+            document->frame()->chromeClient().lastSetTooltipNodeForTesting());
+
+  Element* div2Tag = document->getElementById("div2");
+
+  PlatformMouseEvent mouseMoveEvent(
+      IntPoint(div2Tag->offsetLeft() + 5, div2Tag->offsetTop() + 5),
+      IntPoint(div2Tag->offsetLeft() + 5, div2Tag->offsetTop() + 5),
+      WebPointerProperties::Button::NoButton, PlatformEvent::MouseMoved, 0,
+      PlatformEvent::NoModifiers, TimeTicks::Now());
+  document->frame()->eventHandler().handleMouseMoveEvent(
+      mouseMoveEvent, Vector<PlatformMouseEvent>());
+
+  EXPECT_EQ(document->hoverNode(),
+            document->frame()->chromeClient().lastSetTooltipNodeForTesting());
+  EXPECT_EQ(div2Tag,
+            document->frame()->chromeClient().lastSetTooltipNodeForTesting());
+}
+
+// Makes sure that mouse hover over an overlay scrollbar doesn't activate
+// elements below(except the Element that owns the scrollbar) unless the
+// scrollbar is faded out.
+TEST_F(WebFrameTest, MouseOverLinkAndOverlayScrollbar) {
+  FrameTestHelpers::WebViewHelper webViewHelper;
+  webViewHelper.initialize(true, nullptr, nullptr, nullptr,
+                           [](WebSettings* settings) {});
+  webViewHelper.resize(WebSize(20, 20));
+  WebViewImpl* webView = webViewHelper.webView();
+
+  initializeWithHTML(*webView->mainFrameImpl()->frame(),
+                     "<!DOCTYPE html>"
+                     "<a id='a' href='javascript:void(0);'>"
+                     "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                     "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                     "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                     "</a>"
+                     "<div style='position: absolute; top: 1000px'>end</div>");
+
+  webView->updateAllLifecyclePhases();
+
+  Document* document = webView->mainFrameImpl()->frame()->document();
+  Element* aTag = document->getElementById("a");
+
+  // Ensure hittest has scrollbar and link
+  HitTestResult hitTestResult =
+      webView->coreHitTestResultAt(WebPoint(18, aTag->offsetTop()));
+
+  EXPECT_TRUE(hitTestResult.URLElement());
+  EXPECT_TRUE(hitTestResult.innerElement());
+  EXPECT_TRUE(hitTestResult.scrollbar());
+  EXPECT_FALSE(hitTestResult.scrollbar()->isCustomScrollbar());
+
+  // Mouse over link. Mouse cursor should be hand.
+  PlatformMouseEvent mouseMoveOverLinkEvent(
+      IntPoint(aTag->offsetLeft(), aTag->offsetTop()),
+      IntPoint(aTag->offsetLeft(), aTag->offsetTop()),
+      WebPointerProperties::Button::NoButton, PlatformEvent::MouseMoved, 0,
+      PlatformEvent::NoModifiers, TimeTicks::Now());
+  document->frame()->eventHandler().handleMouseMoveEvent(
+      mouseMoveOverLinkEvent, Vector<PlatformMouseEvent>());
+
+  EXPECT_EQ(
+      Cursor::Type::Hand,
+      document->frame()->chromeClient().lastSetCursorForTesting().getType());
+
+  // Mouse over enabled overlay scrollbar. Mouse cursor should be pointer and no
+  // active hover element.
+  PlatformMouseEvent mouseMoveEvent(
+      IntPoint(18, aTag->offsetTop()), IntPoint(18, aTag->offsetTop()),
+      WebPointerProperties::Button::NoButton, PlatformEvent::MouseMoved, 0,
+      PlatformEvent::NoModifiers, TimeTicks::Now());
+  document->frame()->eventHandler().handleMouseMoveEvent(
+      mouseMoveEvent, Vector<PlatformMouseEvent>());
+
+  EXPECT_EQ(
+      Cursor::Type::Pointer,
+      document->frame()->chromeClient().lastSetCursorForTesting().getType());
+
+  PlatformMouseEvent mousePressEvent(
+      IntPoint(18, aTag->offsetTop()), IntPoint(18, aTag->offsetTop()),
+      WebPointerProperties::Button::Left, PlatformEvent::MousePressed, 0,
+      PlatformEvent::Modifiers::LeftButtonDown, TimeTicks::Now());
+  document->frame()->eventHandler().handleMousePressEvent(mousePressEvent);
+
+  EXPECT_FALSE(document->activeHoverElement());
+  EXPECT_FALSE(document->hoverNode());
+
+  PlatformMouseEvent MouseReleaseEvent(
+      IntPoint(18, aTag->offsetTop()), IntPoint(18, aTag->offsetTop()),
+      WebPointerProperties::Button::Left, PlatformEvent::MouseReleased, 0,
+      PlatformEvent::Modifiers::LeftButtonDown, TimeTicks::Now());
+  document->frame()->eventHandler().handleMouseReleaseEvent(MouseReleaseEvent);
+
+  // Mouse over disabled overlay scrollbar. Mouse cursor should be hand and has
+  // active hover element.
+  webView->mainFrameImpl()->frameView()->setScrollbarsHidden(true);
+
+  // Ensure hittest only has link
+  hitTestResult = webView->coreHitTestResultAt(WebPoint(18, aTag->offsetTop()));
+
+  EXPECT_TRUE(hitTestResult.URLElement());
+  EXPECT_TRUE(hitTestResult.innerElement());
+  EXPECT_FALSE(hitTestResult.scrollbar());
+
+  document->frame()->eventHandler().handleMouseMoveEvent(
+      mouseMoveEvent, Vector<PlatformMouseEvent>());
+
+  EXPECT_EQ(
+      Cursor::Type::Hand,
+      document->frame()->chromeClient().lastSetCursorForTesting().getType());
+
+  document->frame()->eventHandler().handleMousePressEvent(mousePressEvent);
+
+  EXPECT_TRUE(document->activeHoverElement());
+  EXPECT_TRUE(document->hoverNode());
+
+  document->frame()->eventHandler().handleMouseReleaseEvent(MouseReleaseEvent);
+}
+
+// Makes sure that mouse hover over an custom scrollbar doesn't change the
+// activate elements.
+TEST_F(WebFrameTest, MouseOverCustomScrollbar) {
+  registerMockedHttpURLLoad("custom-scrollbar-hover.html");
+  FrameTestHelpers::WebViewHelper webViewHelper;
+  WebViewImpl* webView = webViewHelper.initializeAndLoad(
+      m_baseURL + "custom-scrollbar-hover.html");
+
+  webViewHelper.resize(WebSize(200, 200));
+
+  webView->updateAllLifecyclePhases();
+
+  Document* document = toLocalFrame(webView->page()->mainFrame())->document();
+
+  Element* scrollbarDiv = document->getElementById("scrollbar");
+  EXPECT_TRUE(scrollbarDiv);
+
+  // Ensure hittest only has DIV
+  HitTestResult hitTestResult = webView->coreHitTestResultAt(WebPoint(1, 1));
+
+  EXPECT_TRUE(hitTestResult.innerElement());
+  EXPECT_FALSE(hitTestResult.scrollbar());
+
+  // Mouse over DIV
+  PlatformMouseEvent mouseMoveOverDiv(
+      IntPoint(1, 1), IntPoint(1, 1), WebPointerProperties::Button::NoButton,
+      PlatformEvent::MouseMoved, 0, PlatformEvent::NoModifiers,
+      TimeTicks::Now());
+  document->frame()->eventHandler().handleMouseMoveEvent(
+      mouseMoveOverDiv, Vector<PlatformMouseEvent>());
+
+  // DIV :hover
+  EXPECT_EQ(document->hoverNode(), scrollbarDiv);
+
+  // Ensure hittest has DIV and scrollbar
+  hitTestResult = webView->coreHitTestResultAt(WebPoint(175, 1));
+
+  EXPECT_TRUE(hitTestResult.innerElement());
+  EXPECT_TRUE(hitTestResult.scrollbar());
+  EXPECT_TRUE(hitTestResult.scrollbar()->isCustomScrollbar());
+
+  // Mouse over scrollbar
+  PlatformMouseEvent mouseMoveOverDivAndScrollbar(
+      IntPoint(175, 1), IntPoint(175, 1),
+      WebPointerProperties::Button::NoButton, PlatformEvent::MouseMoved, 0,
+      PlatformEvent::NoModifiers, TimeTicks::Now());
+  document->frame()->eventHandler().handleMouseMoveEvent(
+      mouseMoveOverDivAndScrollbar, Vector<PlatformMouseEvent>());
+
+  // Custom not change the DIV :hover
+  EXPECT_EQ(document->hoverNode(), scrollbarDiv);
+  EXPECT_EQ(hitTestResult.scrollbar()->hoveredPart(), ScrollbarPart::ThumbPart);
+}
+
+TEST_F(WebFrameTest, MouseReleaseUpdatesScrollbarHoveredPart) {
+  registerMockedHttpURLLoad("custom-scrollbar-hover.html");
+  FrameTestHelpers::WebViewHelper webViewHelper;
+  WebViewImpl* webView = webViewHelper.initializeAndLoad(
+      m_baseURL + "custom-scrollbar-hover.html");
+
+  webViewHelper.resize(WebSize(200, 200));
+
+  webView->updateAllLifecyclePhases();
+
+  Document* document = toLocalFrame(webView->page()->mainFrame())->document();
+
+  Element* scrollbarDiv = document->getElementById("scrollbar");
+  EXPECT_TRUE(scrollbarDiv);
+
+  ScrollableArea* scrollableArea =
+      toLayoutBox(scrollbarDiv->layoutObject())->getScrollableArea();
+
+  EXPECT_TRUE(scrollableArea->verticalScrollbar());
+  Scrollbar* scrollbar = scrollableArea->verticalScrollbar();
+  EXPECT_EQ(scrollbar->pressedPart(), ScrollbarPart::NoPart);
+  EXPECT_EQ(scrollbar->hoveredPart(), ScrollbarPart::NoPart);
+
+  // Mouse moved over the scrollbar.
+  PlatformMouseEvent mouseMoveOverScrollbar(
+      IntPoint(175, 1), IntPoint(175, 1),
+      WebPointerProperties::Button::NoButton, PlatformEvent::MouseMoved, 0,
+      PlatformEvent::NoModifiers, TimeTicks::Now());
+  document->frame()->eventHandler().handleMouseMoveEvent(
+      mouseMoveOverScrollbar, Vector<PlatformMouseEvent>());
+  HitTestResult hitTestResult = webView->coreHitTestResultAt(WebPoint(175, 1));
+  EXPECT_EQ(scrollbar->pressedPart(), ScrollbarPart::NoPart);
+  EXPECT_EQ(scrollbar->hoveredPart(), ScrollbarPart::ThumbPart);
+
+  // Mouse pressed.
+  PlatformMouseEvent mousePressEvent(
+      IntPoint(175, 1), IntPoint(175, 1), WebPointerProperties::Button::Left,
+      PlatformEvent::MousePressed, 0, PlatformEvent::Modifiers::LeftButtonDown,
+      TimeTicks::Now());
+  document->frame()->eventHandler().handleMousePressEvent(mousePressEvent);
+  EXPECT_EQ(scrollbar->pressedPart(), ScrollbarPart::ThumbPart);
+  EXPECT_EQ(scrollbar->hoveredPart(), ScrollbarPart::ThumbPart);
+
+  // Mouse moved off the scrollbar while still pressed.
+  PlatformMouseEvent mouseMoveOffScrollbar(
+      IntPoint(1, 1), IntPoint(1, 1), WebPointerProperties::Button::Left,
+      PlatformEvent::MouseMoved, 0, PlatformEvent::Modifiers::LeftButtonDown,
+      TimeTicks::Now());
+  document->frame()->eventHandler().handleMouseLeaveEvent(
+      mouseMoveOffScrollbar);
+  EXPECT_EQ(scrollbar->pressedPart(), ScrollbarPart::ThumbPart);
+  EXPECT_EQ(scrollbar->hoveredPart(), ScrollbarPart::ThumbPart);
+
+  // Mouse released.
+  PlatformMouseEvent MouseReleaseEvent(
+      IntPoint(1, 1), IntPoint(1, 1), WebPointerProperties::Button::Left,
+      PlatformEvent::MouseReleased, 0, PlatformEvent::Modifiers::LeftButtonDown,
+      TimeTicks::Now());
+  document->frame()->eventHandler().handleMouseReleaseEvent(MouseReleaseEvent);
+  EXPECT_EQ(scrollbar->pressedPart(), ScrollbarPart::NoPart);
+  EXPECT_EQ(scrollbar->hoveredPart(), ScrollbarPart::NoPart);
+}
+
+static void disableCompositing(WebSettings* settings) {
+  settings->setAcceleratedCompositingEnabled(false);
+  settings->setPreferCompositingToLCDTextEnabled(false);
+}
+
+// Make sure overlay scrollbars on non-composited scrollers fade out and set
+// the hidden bit as needed.
+TEST_F(WebFrameTest, TestNonCompositedOverlayScrollbarsFade) {
+  FrameTestHelpers::WebViewHelper webViewHelper;
+  WebViewImpl* webViewImpl = webViewHelper.initialize(
+      true, nullptr, nullptr, nullptr, &disableCompositing);
+
+  constexpr double kMockOverlayFadeOutDelayMs = 5.0;
+
+  ScrollbarTheme& theme = ScrollbarTheme::theme();
+  // This test relies on mock overlay scrollbars.
+  ASSERT_TRUE(theme.isMockTheme());
+  ASSERT_TRUE(theme.usesOverlayScrollbars());
+  ScrollbarThemeOverlayMock& mockOverlayTheme =
+      (ScrollbarThemeOverlayMock&)theme;
+  mockOverlayTheme.setOverlayScrollbarFadeOutDelay(kMockOverlayFadeOutDelayMs /
+                                                   1000.0);
+
+  webViewImpl->resizeWithBrowserControls(WebSize(640, 480), 0, false);
+
+  WebURL baseURL = URLTestHelpers::toKURL("http://example.com/");
+  FrameTestHelpers::loadHTMLString(webViewImpl->mainFrame(),
+                                   "<!DOCTYPE html>"
+                                   "<style>"
+                                   "  #space {"
+                                   "    width: 1000px;"
+                                   "    height: 1000px;"
+                                   "  }"
+                                   "  #container {"
+                                   "    width: 200px;"
+                                   "    height: 200px;"
+                                   "    overflow: scroll;"
+                                   "  }"
+                                   "  div { height:1000px; width: 200px; }"
+                                   "</style>"
+                                   "<div id='container'>"
+                                   "  <div id='space'></div>"
+                                   "</div>",
+                                   baseURL);
+  webViewImpl->updateAllLifecyclePhases();
+
+  WebLocalFrameImpl* frame = webViewHelper.webView()->mainFrameImpl();
+  Document* document =
+      toLocalFrame(webViewImpl->page()->mainFrame())->document();
+  Element* container = document->getElementById("container");
+  ScrollableArea* scrollableArea =
+      toLayoutBox(container->layoutObject())->getScrollableArea();
+
+  EXPECT_FALSE(scrollableArea->scrollbarsHidden());
+  testing::runDelayedTasks(kMockOverlayFadeOutDelayMs);
+  EXPECT_TRUE(scrollableArea->scrollbarsHidden());
+
+  scrollableArea->setScrollOffset(ScrollOffset(10, 10), ProgrammaticScroll,
+                                  ScrollBehaviorInstant);
+
+  EXPECT_FALSE(scrollableArea->scrollbarsHidden());
+  testing::runDelayedTasks(kMockOverlayFadeOutDelayMs);
+  EXPECT_TRUE(scrollableArea->scrollbarsHidden());
+
+  frame->executeScript(WebScriptSource(
+      "document.getElementById('space').style.height = '500px';"));
+  frame->view()->updateAllLifecyclePhases();
+
+  EXPECT_FALSE(scrollableArea->scrollbarsHidden());
+  testing::runDelayedTasks(kMockOverlayFadeOutDelayMs);
+  EXPECT_TRUE(scrollableArea->scrollbarsHidden());
+
+  frame->executeScript(WebScriptSource(
+      "document.getElementById('container').style.height = '300px';"));
+  frame->view()->updateAllLifecyclePhases();
+
+  EXPECT_FALSE(scrollableArea->scrollbarsHidden());
+  testing::runDelayedTasks(kMockOverlayFadeOutDelayMs);
+  EXPECT_TRUE(scrollableArea->scrollbarsHidden());
+
+  // Non-composited scrollbars don't fade out while mouse is over.
+  EXPECT_TRUE(scrollableArea->verticalScrollbar());
+  scrollableArea->setScrollOffset(ScrollOffset(20, 20), ProgrammaticScroll,
+                                  ScrollBehaviorInstant);
+  EXPECT_FALSE(scrollableArea->scrollbarsHidden());
+  scrollableArea->mouseEnteredScrollbar(*scrollableArea->verticalScrollbar());
+  testing::runDelayedTasks(kMockOverlayFadeOutDelayMs);
+  EXPECT_FALSE(scrollableArea->scrollbarsHidden());
+  scrollableArea->mouseExitedScrollbar(*scrollableArea->verticalScrollbar());
+  testing::runDelayedTasks(kMockOverlayFadeOutDelayMs);
+  EXPECT_TRUE(scrollableArea->scrollbarsHidden());
+
+  mockOverlayTheme.setOverlayScrollbarFadeOutDelay(0.0);
+}
+
+TEST_F(WebFrameTest, UniqueNames) {
+  registerMockedHttpURLLoad("frameset-repeated-name.html");
+  registerMockedHttpURLLoad("frameset-dest.html");
+  FrameTestHelpers::WebViewHelper webViewHelper;
+  webViewHelper.initializeAndLoad(m_baseURL + "frameset-repeated-name.html");
+  Frame* mainFrame = webViewHelper.webView()->mainFrameImpl()->frame();
+  HashSet<AtomicString> names;
+  for (Frame* frame = mainFrame->tree().firstChild(); frame;
+       frame = frame->tree().traverseNext()) {
+    EXPECT_TRUE(names.add(frame->tree().uniqueName()).isNewEntry);
+  }
+  EXPECT_EQ(10u, names.size());
+}
+
+TEST_F(WebFrameTest, NoLoadingCompletionCallbacksInDetach) {
+  class LoadingObserverFrameClient
+      : public FrameTestHelpers::TestWebFrameClient {
+   public:
+    void frameDetached(WebLocalFrame*, DetachType) override {
+      m_didCallFrameDetached = true;
+    }
+
+    void didStopLoading() override {
+      // TODO(dcheng): Investigate not calling this as well during frame detach.
+      m_didCallDidStopLoading = true;
+    }
+
+    void didFailProvisionalLoad(WebLocalFrame*,
+                                const WebURLError&,
+                                WebHistoryCommitType) override {
+      EXPECT_TRUE(false) << "The load should not have failed.";
+    }
+
+    void didFinishDocumentLoad(WebLocalFrame*) override {
+      // TODO(dcheng): Investigate not calling this as well during frame detach.
+      m_didCallDidFinishDocumentLoad = true;
+    }
+
+    void didHandleOnloadEvents(WebLocalFrame*) override {
+      // TODO(dcheng): Investigate not calling this as well during frame detach.
+      m_didCallDidHandleOnloadEvents = true;
+    }
+
+    void didFinishLoad(WebLocalFrame*) override {
+      EXPECT_TRUE(false) << "didFinishLoad() should not have been called.";
+    }
+
+    void dispatchLoad() override {
+      EXPECT_TRUE(false) << "dispatchLoad() should not have been called.";
+    }
+
+    bool didCallFrameDetached() const { return m_didCallFrameDetached; }
+    bool didCallDidStopLoading() const { return m_didCallDidStopLoading; }
+    bool didCallDidFinishDocumentLoad() const {
+      return m_didCallDidFinishDocumentLoad;
+    }
+    bool didCallDidHandleOnloadEvents() const {
+      return m_didCallDidHandleOnloadEvents;
+    }
+
+   private:
+    bool m_didCallFrameDetached = false;
+    bool m_didCallDidStopLoading = false;
+    bool m_didCallDidFinishDocumentLoad = false;
+    bool m_didCallDidHandleOnloadEvents = false;
+  };
+
+  class MainFrameClient : public FrameTestHelpers::TestWebFrameClient {
+   public:
+    WebLocalFrame* createChildFrame(WebLocalFrame* parent,
+                                    WebTreeScopeType scope,
+                                    const WebString& name,
+                                    const WebString& uniqueName,
+                                    WebSandboxFlags sandboxFlags,
+                                    const WebFrameOwnerProperties&) override {
+      WebLocalFrame* frame = WebLocalFrame::create(scope, &m_childClient);
+      parent->appendChild(frame);
+      return frame;
+    }
+
+    LoadingObserverFrameClient& childClient() { return m_childClient; }
+
+   private:
+    LoadingObserverFrameClient m_childClient;
+  };
+
+  registerMockedHttpURLLoad("single_iframe.html");
+  URLTestHelpers::registerMockedURLLoad(
+      toKURL(m_baseURL + "visible_iframe.html"),
+      WebString::fromUTF8("frame_with_frame.html"));
+  registerMockedHttpURLLoad("parent_detaching_frame.html");
+
+  FrameTestHelpers::WebViewHelper webViewHelper;
+  MainFrameClient mainFrameClient;
+  webViewHelper.initializeAndLoad(m_baseURL + "single_iframe.html", true,
+                                  &mainFrameClient);
+
+  EXPECT_TRUE(mainFrameClient.childClient().didCallFrameDetached());
+  EXPECT_TRUE(mainFrameClient.childClient().didCallDidStopLoading());
+  EXPECT_TRUE(mainFrameClient.childClient().didCallDidFinishDocumentLoad());
+  EXPECT_TRUE(mainFrameClient.childClient().didCallDidHandleOnloadEvents());
+
+  webViewHelper.reset();
+}
+
+TEST_F(WebFrameTest, ClearClosedOpener) {
+  FrameTestHelpers::TestWebViewClient openerWebViewClient;
+  FrameTestHelpers::WebViewHelper openerHelper;
+  openerHelper.initialize(false, nullptr, &openerWebViewClient);
+  FrameTestHelpers::WebViewHelper helper;
+  helper.initializeWithOpener(openerHelper.webView()->mainFrame());
+
+  openerHelper.reset();
+  EXPECT_EQ(nullptr, helper.webView()->mainFrameImpl()->opener());
 }
 
 }  // namespace blink

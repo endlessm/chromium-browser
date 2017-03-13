@@ -106,7 +106,7 @@ import os
 import re
 import sys
 
-from chromite.cbuildbot import constants
+from chromite.lib import constants
 from chromite.lib import commandline
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
@@ -286,10 +286,10 @@ def FindCompiler(gcc, cros_prefix):
   else:
     prefix = glob.glob('/opt/linaro/gcc-linaro-%s-linux-*/bin/*gcc' % gcc)
     if not prefix:
-      cros_build_lib.Die("""Please install an ARM toolchain for your machine.
+      cros_build_lib.Die("""Please install an %s toolchain for your machine.
 Install a Linaro toolchain from:
 https://launchpad.net/linaro-toolchain-binaries
-or see cros/commands/cros_chrome_sdk.py.""")
+or see cros/commands/cros_chrome_sdk.py.""" % gcc)
     prefix = re.sub('gcc$', '', prefix[0])
   return prefix
 
@@ -360,11 +360,16 @@ def SetupBuild(options):
           smdk = fields[3]
           vendor = fields[4]
           family = fields[5]
+          target = fields[6]
         elif board_format in (PRE_KCONFIG, KCONFIG):
           smdk = fields[5]
           vendor = fields[4]
           family = fields[3]
-        break
+          target = fields[0]
+
+        # Make sure this is the right target.
+        if target == uboard:
+          break
   if not arch:
     cros_build_lib.Die("Selected board '%s' not found in boards.cfg." % board)
 
@@ -497,15 +502,24 @@ def RunBuild(options, base, target, queue):
   if not options.incremental:
     # Ignore any error from this, some older U-Boots fail on this.
     cros_build_lib.RunCommand(base + ['distclean'], **kwargs)
-    result = cros_build_lib.RunCommand(base + ['%s_config' % uboard], **kwargs)
+    if os.path.exists('tools/genboardscfg.py'):
+      mtarget = 'defconfig'
+    else:
+      mtarget = 'config'
+    cmd = base + ['%s_%s' % (uboard, mtarget)]
+    result = cros_build_lib.RunCommand(cmd, capture_output=True,
+                                       combine_stdout_stderr=True, **kwargs)
     if result.returncode:
-      sys.exit()
+      print("cmd: '%s', output: '%s'" % (result.cmdstr, result.output))
+      sys.exit(result.returncode)
 
   # Do the actual build.
   if options.build:
-    result = cros_build_lib.RunCommand(base + [target], **kwargs)
+    result = cros_build_lib.RunCommand(base + [target], capture_output=True,
+                                       combine_stdout_stderr=True, **kwargs)
     if result.returncode:
-      sys.exit()
+      print("cmd: '%s', output: '%s'" % (result.cmdstr, result.output))
+      sys.exit(result.returncode)
 
   files = ['%s/u-boot' % outdir]
   spl = glob.glob('%s/spl/u-boot-spl' % outdir)

@@ -452,7 +452,7 @@ static int output_configure(AACContext *ac,
         int id =           layout_map[i][1];
         id_map[type][id] = type_counts[type]++;
         if (id_map[type][id] >= MAX_ELEM_ID) {
-            avpriv_request_sample(ac->avctx, "Remapped id too large\n");
+            avpriv_request_sample(ac->avctx, "Too large remapped id");
             return AVERROR_PATCHWELCOME;
         }
     }
@@ -1104,7 +1104,7 @@ static av_cold void aac_static_table_init(void)
     AAC_RENAME(ff_init_ff_sine_windows)( 9);
     AAC_RENAME(ff_init_ff_sine_windows)( 7);
 
-    AAC_RENAME(cbrt_tableinit)();
+    AAC_RENAME(ff_cbrt_tableinit)();
 }
 
 static AVOnce aac_table_init = AV_ONCE_INIT;
@@ -1795,7 +1795,7 @@ static int decode_spectrum_and_dequant(AACContext *ac, INTFLOAT coef[1024],
                                         v = -v;
                                     *icf++ = v;
 #else
-                                    *icf++ = cbrt_tab[n] | (bits & 1U<<31);
+                                    *icf++ = ff_cbrt_tab[n] | (bits & 1U<<31);
 #endif /* USE_FIXED */
                                     bits <<= 1;
                                 } else {
@@ -2923,7 +2923,7 @@ static int aac_decode_frame_int(AVCodecContext *avctx, void *data,
 {
     AACContext *ac = avctx->priv_data;
     ChannelElement *che = NULL, *che_prev = NULL;
-    enum RawDataBlockType elem_type, elem_type_prev = TYPE_END;
+    enum RawDataBlockType elem_type, che_prev_type = TYPE_END;
     int err, elem_id;
     int samples = 0, multiplier, audio_found = 0, pce_found = 0;
     int is_dmono, sce_count = 0;
@@ -3029,7 +3029,7 @@ static int aac_decode_frame_int(AVCodecContext *avctx, void *data,
                     goto fail;
             }
             while (elem_id > 0)
-                elem_id -= decode_extension_payload(ac, gb, elem_id, che_prev, elem_type_prev);
+                elem_id -= decode_extension_payload(ac, gb, elem_id, che_prev, che_prev_type);
             err = 0; /* FIXME */
             break;
 
@@ -3038,8 +3038,10 @@ static int aac_decode_frame_int(AVCodecContext *avctx, void *data,
             break;
         }
 
-        che_prev       = che;
-        elem_type_prev = elem_type;
+        if (elem_type < TYPE_DSE) {
+            che_prev      = che;
+            che_prev_type = elem_type;
+        }
 
         if (err)
             goto fail;

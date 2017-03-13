@@ -6,6 +6,7 @@
 
 #include <memory>
 
+#include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/timer/elapsed_timer.h"
@@ -49,8 +50,7 @@ class ExtensionWebUiTimer : public content::WebContentsObserver {
   void DidStartProvisionalLoadForFrame(
       content::RenderFrameHost* render_frame_host,
       const GURL& validated_url,
-      bool is_error_page,
-      bool is_iframe_srcdoc) override {
+      bool is_error_page) override {
     timer_.reset(new base::ElapsedTimer());
   }
 
@@ -107,6 +107,8 @@ content::WebUIDataSource* CreateMdExtensionsSource() {
                              IDS_MANAGE_EXTENSIONS_SETTING_WINDOWS_TITLE);
   source->AddLocalizedString("toolbarTitle", IDS_MD_EXTENSIONS_TOOLBAR_TITLE);
   source->AddLocalizedString("search", IDS_MD_EXTENSIONS_SEARCH);
+  // TODO(dpapad): Use a single merged string resource for "Clear search".
+  source->AddLocalizedString("clearSearch", IDS_DOWNLOAD_CLEAR_SEARCH);
   source->AddLocalizedString("sidebarApps", IDS_MD_EXTENSIONS_SIDEBAR_APPS);
   source->AddLocalizedString("sidebarExtensions",
                              IDS_MD_EXTENSIONS_SIDEBAR_EXTENSIONS);
@@ -119,6 +121,8 @@ content::WebUIDataSource* CreateMdExtensionsSource() {
                              IDS_MD_EXTENSIONS_SIDEBAR_DEVELOPER_MODE);
   source->AddLocalizedString("dropToInstall",
                              IDS_EXTENSIONS_INSTALL_DROP_TARGET);
+  source->AddLocalizedString("errorsPageHeading",
+                             IDS_MD_EXTENSIONS_ERROR_PAGE_HEADING);
   source->AddLocalizedString("getMoreExtensions",
                              IDS_MD_EXTENSIONS_SIDEBAR_GET_MORE_EXTENSIONS);
   source->AddLocalizedString("keyboardShortcuts",
@@ -135,6 +139,7 @@ content::WebUIDataSource* CreateMdExtensionsSource() {
   source->AddLocalizedString("itemDependentEntry",
                              IDS_MD_EXTENSIONS_DEPENDENT_ENTRY);
   source->AddLocalizedString("itemDetails", IDS_MD_EXTENSIONS_ITEM_DETAILS);
+  source->AddLocalizedString("itemErrors", IDS_MD_EXTENSIONS_ITEM_ERRORS);
   source->AddLocalizedString("itemPermissions",
                              IDS_MD_EXTENSIONS_ITEM_PERMISSIONS);
   source->AddLocalizedString("itemPermissionsEmpty",
@@ -166,6 +171,8 @@ content::WebUIDataSource* CreateMdExtensionsSource() {
       l10n_util::GetStringFUTF16(
           IDS_EXTENSIONS_ADDED_WITHOUT_KNOWLEDGE,
           l10n_util::GetStringUTF16(IDS_EXTENSION_WEB_STORE_TITLE)));
+  source->AddLocalizedString("noErrorsToShow",
+                             IDS_EXTENSIONS_ERROR_NO_ERRORS_CODE_MESSAGE);
   source->AddLocalizedString("packDialogTitle",
                              IDS_MD_EXTENSIONS_PACK_DIALOG_TITLE);
   source->AddLocalizedString("packDialogBrowse",
@@ -210,6 +217,9 @@ content::WebUIDataSource* CreateMdExtensionsSource() {
                           IDR_MD_EXTENSIONS_ANIMATION_HELPER_HTML);
   source->AddResourcePath("animation_helper.js",
                           IDR_MD_EXTENSIONS_ANIMATION_HELPER_JS);
+  source->AddResourcePath("code_section.html",
+                          IDR_MD_EXTENSIONS_CODE_SECTION_HTML);
+  source->AddResourcePath("code_section.js", IDR_MD_EXTENSIONS_CODE_SECTION_JS);
   source->AddResourcePath("extensions.js", IDR_MD_EXTENSIONS_EXTENSIONS_JS);
   source->AddResourcePath("drag_and_drop_handler.html",
                           IDR_EXTENSIONS_DRAG_AND_DROP_HANDLER_HTML);
@@ -221,6 +231,8 @@ content::WebUIDataSource* CreateMdExtensionsSource() {
   source->AddResourcePath("drop_overlay.html",
                           IDR_MD_EXTENSIONS_DROP_OVERLAY_HTML);
   source->AddResourcePath("drop_overlay.js", IDR_MD_EXTENSIONS_DROP_OVERLAY_JS);
+  source->AddResourcePath("error_page.html", IDR_MD_EXTENSIONS_ERROR_PAGE_HTML);
+  source->AddResourcePath("error_page.js", IDR_MD_EXTENSIONS_ERROR_PAGE_JS);
   source->AddResourcePath("keyboard_shortcuts.html",
                           IDR_MD_EXTENSIONS_KEYBOARD_SHORTCUTS_HTML);
   source->AddResourcePath("keyboard_shortcuts.js",
@@ -284,37 +296,43 @@ ExtensionsUI::ExtensionsUI(content::WebUI* web_ui) : WebUIController(web_ui) {
 
   if (is_md) {
     source = CreateMdExtensionsSource();
-    InstallExtensionHandler* install_extension_handler =
-        new InstallExtensionHandler();
-    install_extension_handler->GetLocalizedValues(source);
-    web_ui->AddMessageHandler(install_extension_handler);
+    auto install_extension_handler =
+        base::MakeUnique<InstallExtensionHandler>();
+    InstallExtensionHandler* handler = install_extension_handler.get();
+    web_ui->AddMessageHandler(std::move(install_extension_handler));
+    handler->GetLocalizedValues(source);
   } else {
     source = CreateExtensionsHTMLSource();
 
-    ExtensionSettingsHandler* handler = new ExtensionSettingsHandler();
-    web_ui->AddMessageHandler(handler);
-    handler->GetLocalizedValues(source);
+    auto extension_settings_handler =
+        base::MakeUnique<ExtensionSettingsHandler>();
+    ExtensionSettingsHandler* settings_handler =
+        extension_settings_handler.get();
+    web_ui->AddMessageHandler(std::move(extension_settings_handler));
+    settings_handler->GetLocalizedValues(source);
 
-    ExtensionLoaderHandler* extension_loader_handler =
-        new ExtensionLoaderHandler(profile);
-    extension_loader_handler->GetLocalizedValues(source);
-    web_ui->AddMessageHandler(extension_loader_handler);
+    auto extension_loader_handler =
+        base::MakeUnique<ExtensionLoaderHandler>(profile);
+    ExtensionLoaderHandler* loader_handler = extension_loader_handler.get();
+    web_ui->AddMessageHandler(std::move(extension_loader_handler));
+    loader_handler->GetLocalizedValues(source);
 
-    InstallExtensionHandler* install_extension_handler =
-        new InstallExtensionHandler();
-    install_extension_handler->GetLocalizedValues(source);
-    web_ui->AddMessageHandler(install_extension_handler);
+    auto install_extension_handler =
+        base::MakeUnique<InstallExtensionHandler>();
+    InstallExtensionHandler* install_handler = install_extension_handler.get();
+    web_ui->AddMessageHandler(std::move(install_extension_handler));
+    install_handler->GetLocalizedValues(source);
 
 #if defined(OS_CHROMEOS)
-    chromeos::KioskAppsHandler* kiosk_app_handler =
-        new chromeos::KioskAppsHandler(
-            chromeos::OwnerSettingsServiceChromeOSFactory::GetForBrowserContext(
-                profile));
-    kiosk_app_handler->GetLocalizedValues(source);
-    web_ui->AddMessageHandler(kiosk_app_handler);
+    auto kiosk_app_handler = base::MakeUnique<chromeos::KioskAppsHandler>(
+        chromeos::OwnerSettingsServiceChromeOSFactory::GetForBrowserContext(
+            profile));
+    chromeos::KioskAppsHandler* kiosk_handler = kiosk_app_handler.get();
+    web_ui->AddMessageHandler(std::move(kiosk_app_handler));
+    kiosk_handler->GetLocalizedValues(source);
 #endif
 
-    web_ui->AddMessageHandler(new MetricsHandler());
+    web_ui->AddMessageHandler(base::MakeUnique<MetricsHandler>());
   }
 
   // Need to allow <object> elements so that the <extensionoptions> browser

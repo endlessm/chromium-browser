@@ -13,9 +13,7 @@ import android.support.graphics.drawable.VectorDrawableCompat;
 import android.support.v4.view.GravityCompat;
 import android.support.v4.widget.DrawerLayout;
 import android.support.v4.widget.DrawerLayout.DrawerListener;
-import android.support.v7.widget.LinearLayoutManager;
 import android.support.v7.widget.RecyclerView;
-import android.support.v7.widget.RecyclerView.AdapterDataObserver;
 import android.support.v7.widget.Toolbar.OnMenuItemClickListener;
 import android.view.Gravity;
 import android.view.LayoutInflater;
@@ -23,9 +21,7 @@ import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ListView;
-import android.widget.TextView;
 
-import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.base.ContextUtils;
 import org.chromium.base.FileUtils;
 import org.chromium.base.ObserverList;
@@ -42,9 +38,7 @@ import org.chromium.chrome.browser.snackbar.Snackbar;
 import org.chromium.chrome.browser.snackbar.SnackbarManager;
 import org.chromium.chrome.browser.snackbar.SnackbarManager.SnackbarController;
 import org.chromium.chrome.browser.snackbar.SnackbarManager.SnackbarManageable;
-import org.chromium.chrome.browser.widget.FadingShadow;
-import org.chromium.chrome.browser.widget.FadingShadowView;
-import org.chromium.chrome.browser.widget.LoadingView;
+import org.chromium.chrome.browser.widget.selection.SelectableListLayout;
 import org.chromium.chrome.browser.widget.selection.SelectionDelegate;
 import org.chromium.ui.base.DeviceFormFactor;
 
@@ -129,7 +123,7 @@ public class DownloadManagerUi implements OnMenuItemClickListener {
             List<DownloadHistoryItemWrapper> items = (List<DownloadHistoryItemWrapper>) actionData;
 
             // Deletion was undone. Add items back to the adapter.
-            mHistoryAdapter.addItemsToAdapter(items);
+            mHistoryAdapter.unmarkItemsForDeletion(items);
 
             RecordUserAction.record("Android.DownloadManager.UndoDelete");
         }
@@ -174,33 +168,15 @@ public class DownloadManagerUi implements OnMenuItemClickListener {
     private final ObserverList<DownloadUiObserver> mObservers = new ObserverList<>();
     private final BackendProvider mBackendProvider;
 
-    private final Activity mActivity;
-    private final ViewGroup mMainView;
-    private final DownloadManagerToolbar mToolbar;
     private final SpaceDisplay mSpaceDisplay;
     private final ListView mFilterView;
-    private final RecyclerView mRecyclerView;
-    private final TextView mEmptyView;
-    private final LoadingView mLoadingView;
+    private final UndoDeletionSnackbarController mUndoDeletionSnackbarController;
 
     private BasicNativePage mNativePage;
-    private UndoDeletionSnackbarController mUndoDeletionSnackbarController;
-
-    private final AdapterDataObserver mAdapterObserver = new AdapterDataObserver() {
-        @Override
-        public void onChanged() {
-            if (mHistoryAdapter.getItemCount() == 0) {
-                mEmptyView.setVisibility(View.VISIBLE);
-                mRecyclerView.setVisibility(View.GONE);
-            } else {
-                mEmptyView.setVisibility(View.GONE);
-                mRecyclerView.setVisibility(View.VISIBLE);
-            }
-            // At inflation, the RecyclerView is set to gone, and the loading view is visible. As
-            // long as the adapter data changes, we show the recycler view, and hide loading view.
-            mLoadingView.hideLoadingUI();
-        }
-    };
+    private Activity mActivity;
+    private ViewGroup mMainView;
+    private DownloadManagerToolbar mToolbar;
+    private SelectableListLayout<DownloadHistoryItemWrapper> mSelectableListLayout;
 
     public DownloadManagerUi(
             Activity activity, boolean isOffTheRecord, ComponentName parentComponent) {
@@ -210,15 +186,26 @@ public class DownloadManagerUi implements OnMenuItemClickListener {
 
         mMainView = (ViewGroup) LayoutInflater.from(activity).inflate(R.layout.download_main, null);
 
-        mEmptyView = (TextView) mMainView.findViewById(R.id.empty_view);
-        mEmptyView.setCompoundDrawablesWithIntrinsicBounds(null, VectorDrawableCompat
-                .create(activity.getResources(), R.drawable.downloads_big, activity.getTheme()),
-                null, null);
-        mLoadingView = (LoadingView) mMainView.findViewById(R.id.loading_view);
-        mLoadingView.showLoadingUI();
+        DrawerLayout drawerLayout = null;
+        if (!DeviceFormFactor.isLargeTablet(activity)) {
+            drawerLayout = (DrawerLayout) mMainView;
+            addDrawerListener(drawerLayout);
+        }
+
+        mSelectableListLayout = (SelectableListLayout<DownloadHistoryItemWrapper>)
+                mMainView.findViewById(R.id.selectable_list);
+
+        mSelectableListLayout.initializeEmptyView(
+                VectorDrawableCompat.create(mActivity.getResources(),
+                        R.drawable.downloads_big, mActivity.getTheme()),
+                R.string.download_manager_ui_empty);
 
         mHistoryAdapter = new DownloadHistoryAdapter(isOffTheRecord, parentComponent);
-        mHistoryAdapter.registerAdapterDataObserver(mAdapterObserver);
+        RecyclerView recyclerView = mSelectableListLayout.initializeRecyclerView(mHistoryAdapter);
+
+        // Prevent every progress update from causing a transition animation.
+        recyclerView.getItemAnimator().setChangeDuration(0);
+
         mHistoryAdapter.initialize(mBackendProvider);
         addObserver(mHistoryAdapter);
 
@@ -230,34 +217,16 @@ public class DownloadManagerUi implements OnMenuItemClickListener {
         mFilterAdapter.initialize(this);
         addObserver(mFilterAdapter);
 
-        mToolbar = (DownloadManagerToolbar) mMainView.findViewById(R.id.action_bar);
-        mToolbar.setOnMenuItemClickListener(this);
-        DrawerLayout drawerLayout = null;
-        if (!DeviceFormFactor.isLargeTablet(activity)) {
-            drawerLayout = (DrawerLayout) mMainView;
-            addDrawerListener(drawerLayout);
-        }
-        mToolbar.initialize(mBackendProvider.getSelectionDelegate(), 0, drawerLayout,
-                R.id.normal_menu_group, R.id.selection_mode_menu_group);
+        mToolbar = (DownloadManagerToolbar) mSelectableListLayout.initializeToolbar(
+                R.layout.download_manager_toolbar, mBackendProvider.getSelectionDelegate(),
+                0, drawerLayout, R.id.normal_menu_group, R.id.selection_mode_menu_group, null, true,
+                this);
+        mToolbar.setTitle(R.string.menu_downloads);
         addObserver(mToolbar);
 
         mFilterView = (ListView) mMainView.findViewById(R.id.section_list);
         mFilterView.setAdapter(mFilterAdapter);
         mFilterView.setOnItemClickListener(mFilterAdapter);
-
-        mRecyclerView = (RecyclerView) mMainView.findViewById(R.id.recycler_view);
-        mRecyclerView.setAdapter(mHistoryAdapter);
-        mRecyclerView.setLayoutManager(new LinearLayoutManager(activity));
-
-        FadingShadowView shadow = (FadingShadowView) mMainView.findViewById(R.id.shadow);
-        if (DeviceFormFactor.isLargeTablet(mActivity)) {
-            shadow.setVisibility(View.GONE);
-        } else {
-            shadow.init(ApiCompatibilityUtils.getColor(mMainView.getResources(),
-                    R.color.toolbar_shadow_color), FadingShadow.POSITION_TOP);
-        }
-
-        mToolbar.setTitle(R.string.menu_downloads);
 
         mUndoDeletionSnackbarController = new UndoDeletionSnackbarController();
     }
@@ -282,8 +251,9 @@ public class DownloadManagerUi implements OnMenuItemClickListener {
 
         mBackendProvider.destroy();
 
-        mHistoryAdapter.unregisterAdapterDataObserver(mAdapterObserver);
         mHistoryAdapter.unregisterAdapterDataObserver(mSpaceDisplay);
+
+        mSelectableListLayout.onDestroyed();
     }
 
     /**
@@ -433,7 +403,7 @@ public class DownloadManagerUi implements OnMenuItemClickListener {
 
         if (itemsToDelete.isEmpty()) return;
 
-        mHistoryAdapter.removeItemsFromAdapter(itemsToDelete);
+        mHistoryAdapter.markItemsForDeletion(itemsToDelete);
 
         dismissUndoDeletionSnackbars();
 
@@ -459,7 +429,7 @@ public class DownloadManagerUi implements OnMenuItemClickListener {
 
         for (DownloadHistoryItemWrapper item : selectedItems) {
             if (!filePathsToRemove.contains(item.getFilePath())) {
-                List<DownloadHistoryItemWrapper> itemsForFilePath =
+                Set<DownloadHistoryItemWrapper> itemsForFilePath =
                         mHistoryAdapter.getItemsForFilePath(item.getFilePath());
                 if (itemsForFilePath != null) {
                     itemsToRemove.addAll(itemsForFilePath);
@@ -512,6 +482,11 @@ public class DownloadManagerUi implements OnMenuItemClickListener {
     @VisibleForTesting
     public DownloadHistoryAdapter getDownloadHistoryAdapterForTests() {
         return mHistoryAdapter;
+    }
+
+    /** Returns the {@link SpaceDisplay}. */
+    public SpaceDisplay getSpaceDisplayForTests() {
+        return mSpaceDisplay;
     }
 
     /** Sets a BackendProvider that is used in place of a real one. */

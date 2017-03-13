@@ -9,16 +9,11 @@
 #include "base/memory/weak_ptr.h"
 #include "third_party/WebKit/public/web/WebWidgetClient.h"
 
-namespace blink {
-class WebWidget;
-}  // namespace blink
-
 namespace test_runner {
 
 class TestRunner;
 class TestRunnerForSpecificView;
 class WebTestDelegate;
-class WebViewTestProxyBase;
 class WebWidgetTestProxyBase;
 
 // WebWidgetTestClient implements WebWidgetClient interface, providing behavior
@@ -34,7 +29,7 @@ class WebWidgetTestClient : public blink::WebWidgetClient {
 
   virtual ~WebWidgetTestClient();
 
-  // WebWidgetClient overrides needed by WebViewTestProxy.
+  // WebWidgetClient overrides needed by WebWidgetTestProxy.
   blink::WebScreenInfo screenInfo() override;
   void scheduleAnimation() override;
   bool requestPointerLock() override;
@@ -42,7 +37,11 @@ class WebWidgetTestClient : public blink::WebWidgetClient {
   bool isPointerLocked() override;
   void setToolTipText(const blink::WebString& text,
                       blink::WebTextDirection direction) override;
-  void resetInputMethod() override;
+  void startDragging(blink::WebReferrerPolicy policy,
+                     const blink::WebDragData& data,
+                     blink::WebDragOperationsMask mask,
+                     const blink::WebImage& image,
+                     const blink::WebPoint& point) override;
 
  private:
   void AnimateNow();

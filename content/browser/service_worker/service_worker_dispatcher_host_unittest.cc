@@ -12,6 +12,7 @@
 #include "base/files/file_path.h"
 #include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
+#include "base/test/simple_test_tick_clock.h"
 #include "base/time/time.h"
 #include "content/browser/browser_thread_impl.h"
 #include "content/browser/message_port_service.h"
@@ -22,8 +23,10 @@
 #include "content/browser/service_worker/service_worker_context_core.h"
 #include "content/browser/service_worker/service_worker_context_wrapper.h"
 #include "content/browser/service_worker/service_worker_handle.h"
+#include "content/browser/service_worker/service_worker_test_utils.h"
 #include "content/common/service_worker/embedded_worker_messages.h"
 #include "content/common/service_worker/service_worker_messages.h"
+#include "content/common/service_worker/service_worker_types.h"
 #include "content/common/service_worker/service_worker_utils.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/test/mock_resource_context.h"
@@ -60,7 +63,7 @@ class TestingServiceWorkerDispatcherHost : public ServiceWorkerDispatcherHost {
       ServiceWorkerContextWrapper* context_wrapper,
       ResourceContext* resource_context,
       EmbeddedWorkerTestHelper* helper)
-      : ServiceWorkerDispatcherHost(process_id, NULL, resource_context),
+      : ServiceWorkerDispatcherHost(process_id, nullptr, resource_context),
         bad_messages_received_count_(0),
         helper_(helper) {
     Init(context_wrapper);
@@ -83,11 +86,13 @@ class FailToStartWorkerTestHelper : public EmbeddedWorkerTestHelper {
  public:
   FailToStartWorkerTestHelper() : EmbeddedWorkerTestHelper(base::FilePath()) {}
 
-  void OnStartWorker(int embedded_worker_id,
-                     int64_t service_worker_version_id,
-                     const GURL& scope,
-                     const GURL& script_url,
-                     bool pause_after_download) override {
+  void OnStartWorker(
+      int embedded_worker_id,
+      int64_t service_worker_version_id,
+      const GURL& scope,
+      const GURL& script_url,
+      bool pause_after_download,
+      mojom::ServiceWorkerEventDispatcherRequest request) override {
     EmbeddedWorkerInstance* worker = registry()->GetWorker(embedded_worker_id);
     registry()->OnWorkerStopped(worker->process_id(), embedded_worker_id);
   }
@@ -129,6 +134,8 @@ class ServiceWorkerDispatcherHostTest : public testing::Test {
     records.push_back(
         ServiceWorkerDatabase::ResourceRecord(10, version_->script_url(), 100));
     version_->script_cache_map()->SetResources(records);
+    version_->SetMainScriptHttpResponseInfo(
+        EmbeddedWorkerTestHelper::CreateHttpResponseInfo());
     version_->set_fetch_handler_existence(
         ServiceWorkerVersion::FetchHandlerExistence::EXISTS);
     version_->SetStatus(ServiceWorkerVersion::INSTALLING);
@@ -259,11 +266,11 @@ class ServiceWorkerDispatcherHostTest : public testing::Test {
 class ServiceWorkerTestContentBrowserClient : public TestContentBrowserClient {
  public:
   ServiceWorkerTestContentBrowserClient() {}
-  bool AllowServiceWorker(const GURL& scope,
-                          const GURL& first_party,
-                          content::ResourceContext* context,
-                          int render_process_id,
-                          int render_frame_id) override {
+  bool AllowServiceWorker(
+      const GURL& scope,
+      const GURL& first_party,
+      content::ResourceContext* context,
+      const base::Callback<WebContents*(void)>& wc_getter) override {
     return false;
   }
 };
@@ -440,8 +447,7 @@ TEST_F(ServiceWorkerDispatcherHostTest, Register_BadCharactersShouldFail) {
   EXPECT_EQ(6, dispatcher_host_->bad_messages_received_count_);
 }
 
-TEST_F(ServiceWorkerDispatcherHostTest,
-       Register_FileSystemDocumentShouldFail) {
+TEST_F(ServiceWorkerDispatcherHostTest, Register_FileSystemDocumentShouldFail) {
   const int64_t kProviderId = 99;  // Dummy value
   std::unique_ptr<ServiceWorkerProviderHost> host(
       CreateServiceWorkerProviderHost(kProviderId));
@@ -687,11 +693,34 @@ TEST_F(ServiceWorkerDispatcherHostTest, DispatchExtendableMessageEvent) {
                                                 version_->version_id());
   const int ref_count = sender_worker_handle->ref_count();
 
+  // Set mock clock on version_ to check timeout behavior.
+  base::SimpleTestTickClock* tick_clock = new base::SimpleTestTickClock();
+  tick_clock->SetNowTicks(base::TimeTicks::Now());
+  version_->SetTickClockForTesting(base::WrapUnique(tick_clock));
+
+  // Make sure worker has a non-zero timeout.
+  bool called = false;
+  ServiceWorkerStatusCode status = SERVICE_WORKER_ERROR_MAX_VALUE;
+  version_->StartWorker(ServiceWorkerMetrics::EventType::UNKNOWN,
+                        base::Bind(&SaveStatusCallback, &called, &status));
+  base::RunLoop().RunUntilIdle();
+  EXPECT_TRUE(called);
+  EXPECT_EQ(SERVICE_WORKER_OK, status);
+  version_->StartRequestWithCustomTimeout(
+      ServiceWorkerMetrics::EventType::ACTIVATE,
+      base::Bind(&ServiceWorkerUtils::NoOpStatusCallback),
+      base::TimeDelta::FromSeconds(10), ServiceWorkerVersion::KILL_ON_TIMEOUT);
+
+  // Advance clock by a couple seconds.
+  tick_clock->Advance(base::TimeDelta::FromSeconds(4));
+  base::TimeDelta remaining_time = version_->remaining_timeout();
+  EXPECT_EQ(base::TimeDelta::FromSeconds(6), remaining_time);
+
   // Dispatch ExtendableMessageEvent.
   std::vector<int> ports;
   SetUpDummyMessagePort(&ports);
-  bool called = false;
-  ServiceWorkerStatusCode status = SERVICE_WORKER_ERROR_MAX_VALUE;
+  called = false;
+  status = SERVICE_WORKER_ERROR_MAX_VALUE;
   DispatchExtendableMessageEvent(
       version_, base::string16(), url::Origin(version_->scope().GetOrigin()),
       ports, provider_host_, base::Bind(&SaveStatusCallback, &called, &status));
@@ -707,6 +736,9 @@ TEST_F(ServiceWorkerDispatcherHostTest, DispatchExtendableMessageEvent) {
     EXPECT_TRUE(MessagePortService::GetInstance()->AreMessagesHeld(port));
 
   EXPECT_EQ(ref_count + 1, sender_worker_handle->ref_count());
+
+  // Timeout of message event should not have extended life of service worker.
+  EXPECT_EQ(remaining_time, version_->remaining_timeout());
 }
 
 TEST_F(ServiceWorkerDispatcherHostTest, DispatchExtendableMessageEvent_Fail) {
@@ -714,19 +746,8 @@ TEST_F(ServiceWorkerDispatcherHostTest, DispatchExtendableMessageEvent_Fail) {
   GURL script_url = GURL("http://www.example.com/service_worker.js");
 
   Initialize(base::WrapUnique(new FailToStartWorkerTestHelper));
-  SendProviderCreated(SERVICE_WORKER_PROVIDER_FOR_CONTROLLER, pattern);
+  SendProviderCreated(SERVICE_WORKER_PROVIDER_FOR_WORKER, pattern);
   SetUpRegistration(pattern, script_url);
-
-  // Set the running hosted version so that we can retrieve a valid service
-  // worker object information for the source attribute of the message event.
-  provider_host_->running_hosted_version_ = version_;
-
-  // Set aside the initial refcount of the worker handle.
-  provider_host_->GetOrCreateServiceWorkerHandle(version_.get());
-  ServiceWorkerHandle* sender_worker_handle =
-      dispatcher_host_->FindServiceWorkerHandle(provider_host_->provider_id(),
-                                                version_->version_id());
-  const int ref_count = sender_worker_handle->ref_count();
 
   // Try to dispatch ExtendableMessageEvent. This should fail to start the
   // worker and to dispatch the event.
@@ -739,7 +760,6 @@ TEST_F(ServiceWorkerDispatcherHostTest, DispatchExtendableMessageEvent_Fail) {
       ports, provider_host_, base::Bind(&SaveStatusCallback, &called, &status));
   for (int port : ports)
     EXPECT_TRUE(MessagePortService::GetInstance()->AreMessagesHeld(port));
-  EXPECT_EQ(ref_count + 1, sender_worker_handle->ref_count());
   base::RunLoop().RunUntilIdle();
   EXPECT_TRUE(called);
   EXPECT_EQ(SERVICE_WORKER_ERROR_START_WORKER_FAILED, status);
@@ -747,7 +767,6 @@ TEST_F(ServiceWorkerDispatcherHostTest, DispatchExtendableMessageEvent_Fail) {
   // The error callback should clean up the ports and handle.
   for (int port : ports)
     EXPECT_FALSE(MessagePortService::GetInstance()->AreMessagesHeld(port));
-  EXPECT_EQ(ref_count, sender_worker_handle->ref_count());
 }
 
 TEST_F(ServiceWorkerDispatcherHostTest, OnSetHostedVersionId) {
@@ -823,9 +842,9 @@ TEST_F(ServiceWorkerDispatcherHostTest, ReceivedTimedOutRequestResponse) {
 
   // Receive a response for a timed out request. The bad message count should
   // not increase.
-  const int kRequestId = 91;  // Dummy value
+  const int kFetchEventId = 91;  // Dummy value
   dispatcher_host_->OnMessageReceived(ServiceWorkerHostMsg_FetchEventResponse(
-      version_->embedded_worker()->embedded_worker_id(), kRequestId,
+      version_->embedded_worker()->embedded_worker_id(), kFetchEventId,
       SERVICE_WORKER_FETCH_EVENT_RESULT_FALLBACK, ServiceWorkerResponse(),
       base::Time::Now()));
 

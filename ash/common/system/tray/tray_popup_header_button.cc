@@ -44,7 +44,7 @@ TrayPopupHeaderButton::TrayPopupHeaderButton(views::ButtonListener* listener,
   SetToggledImage(views::Button::STATE_NORMAL,
                   bundle.GetImageNamed(disabled_resource_id).ToImageSkia());
   SetImage(views::Button::STATE_HOVERED,
-           bundle.GetImageNamed(enabled_resource_id_hover).ToImageSkia());
+           *bundle.GetImageNamed(enabled_resource_id_hover).ToImageSkia());
   SetToggledImage(
       views::Button::STATE_HOVERED,
       bundle.GetImageNamed(disabled_resource_id_hover).ToImageSkia());
@@ -57,7 +57,7 @@ const char* TrayPopupHeaderButton::GetClassName() const {
 }
 
 gfx::Size TrayPopupHeaderButton::GetPreferredSize() const {
-  int size = GetTrayConstant(TRAY_POPUP_ITEM_HEIGHT);
+  int size = GetTrayConstant(TRAY_POPUP_ITEM_MIN_HEIGHT);
   return gfx::Size(size, size);
 }
 
@@ -74,7 +74,7 @@ void TrayPopupHeaderButton::StateChanged() {
 void TrayPopupHeaderButton::Initialize(const gfx::ImageSkia& icon,
                                        int accessible_name_id) {
   ui::ResourceBundle& bundle = ui::ResourceBundle::GetSharedInstance();
-  SetImage(views::Button::STATE_NORMAL, &icon);
+  SetImage(views::Button::STATE_NORMAL, icon);
   SetImageAlignment(views::ImageButton::ALIGN_CENTER,
                     views::ImageButton::ALIGN_MIDDLE);
   SetAccessibleName(bundle.GetLocalizedString(accessible_name_id));

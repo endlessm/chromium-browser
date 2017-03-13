@@ -111,7 +111,7 @@ interface View {
   GoBack();
   GoForward();
   NavigateToOffset(int32 offset);
-  Reload(bool skip_cache);
+  Reload(bool bypass_cache);
   Stop();
 
   // Obtains a Mus WindowTreeClient for the View, so it can be embedded in a
@@ -120,8 +120,4 @@ interface View {
 
   ShowInterstitial(string html);
   HideInterstitial();
-
-  // The resize area is a rectangle in the bottom corner of the view that allows
-  // the top-level window containing the view to be interactively resized.
-  SetResizerSize(gfx.mojom.Size size);
 };

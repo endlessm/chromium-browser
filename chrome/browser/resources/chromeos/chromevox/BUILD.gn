@@ -3,6 +3,7 @@
 # found in the LICENSE file.
 
 import("//build/config/features.gni")
+import("//chrome/common/features.gni")
 import("//testing/test.gni")
 import("//chrome/test/base/js2gtest.gni")
 import("run_jsbundler.gni")
@@ -124,6 +125,7 @@ chromevox_modules = [
   "cvox2/background/automation_util.js",
   "cvox2/background/background.js",
   "cvox2/background/base_automation_handler.js",
+  "cvox2/background/braille_command_handler.js",
   "cvox2/background/chromevox_state.js",
   "cvox2/background/command_handler.js",
   "cvox2/background/constants.js",
@@ -135,6 +137,7 @@ chromevox_modules = [
   "cvox2/background/i_search.js",
   "cvox2/background/keyboard_handler.js",
   "cvox2/background/live_regions.js",
+  "cvox2/background/media_automation_handler.js",
   "cvox2/background/next_earcons.js",
   "cvox2/background/notifications.js",
   "cvox2/background/output.js",
@@ -542,8 +545,7 @@ test("chromevox_tests") {
     "//chrome/test:test_support",
     "//chrome/test:test_support_ui",
     "//content/test:test_support",
-    "//services/shell/background:lib",
-    "//services/shell/background/tests:test_support",
+    "//services/service_manager/background:lib",
     "//testing/gmock",
     "//testing/gtest",
     "//ui/keyboard:resources",
@@ -675,6 +677,7 @@ js2gtest("chromevox_extjs_tests") {
     "cvox2/background/i_search_test.extjs",
     "cvox2/background/live_regions_test.extjs",
     "cvox2/background/output_test.extjs",
+    "cvox2/background/panel_test.extjs",
     "cvox2/background/tree_walker_test.extjs",
     "host/chrome/tts_background_test.extjs",
   ]

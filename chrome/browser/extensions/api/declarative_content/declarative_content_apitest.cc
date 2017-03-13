@@ -522,8 +522,17 @@ IN_PROC_BROWSER_TEST_F(DeclarativeContentApiTest,
   EXPECT_TRUE(incognito_page_action->GetIsVisible(incognito_tab_id));
 }
 
+// Frequently times out on ChromiumOS debug builders: https://crbug.com/512431.
+#if defined(OS_CHROMEOS) && !defined(NDEBUG)
+#define MAYBE_PRE_RulesPersistence DISABLED_PRE_RulesPersistence
+#define MAYBE_RulesPersistence DISABLED_RulesPersistence
+#else
+#define MAYBE_PRE_RulesPersistence PRE_RulesPersistence
+#define MAYBE_RulesPersistence RulesPersistence
+#endif
+
 // Sets up rules matching http://test1/ in a normal and incognito browser.
-IN_PROC_BROWSER_TEST_F(DeclarativeContentApiTest, PRE_RulesPersistence) {
+IN_PROC_BROWSER_TEST_F(DeclarativeContentApiTest, MAYBE_PRE_RulesPersistence) {
   ExtensionTestMessageListener ready("ready", false);
   ExtensionTestMessageListener ready_split("ready (split)", false);
   // An on-disk extension is required so that it can be reloaded later in the
@@ -540,7 +549,7 @@ IN_PROC_BROWSER_TEST_F(DeclarativeContentApiTest, PRE_RulesPersistence) {
 
 // Reloads the extension from PRE_RulesPersistence and checks that the rules
 // continue to work as expected after being persisted and reloaded.
-IN_PROC_BROWSER_TEST_F(DeclarativeContentApiTest, RulesPersistence) {
+IN_PROC_BROWSER_TEST_F(DeclarativeContentApiTest, MAYBE_RulesPersistence) {
   ExtensionTestMessageListener ready("second run ready", false);
   ExtensionTestMessageListener ready_split("second run ready (split)", false);
   ASSERT_TRUE(ready.WaitUntilSatisfied());
@@ -749,20 +758,12 @@ class ShowPageActionWithoutPageActionTest : public DeclarativeContentApiTest {
  private:
   void SetUpCommandLine(base::CommandLine* command_line) override {
     DeclarativeContentApiTest::SetUpCommandLine(command_line);
-    // If disabling the redesign, we need to disable Media Router since having
-    // Media Router enabled will result in auto-enabling the redesign and
-    // breaking the test.
-    if (!enable_redesign_) {
-      override_media_router_.reset(new FeatureSwitch::ScopedOverride(
-          FeatureSwitch::media_router(), false));
-    }
     override_toolbar_redesign_.reset(new FeatureSwitch::ScopedOverride(
         FeatureSwitch::extension_action_redesign(), enable_redesign_));
   }
 
   bool enable_redesign_;
   std::unique_ptr<FeatureSwitch::ScopedOverride> override_toolbar_redesign_;
-  std::unique_ptr<FeatureSwitch::ScopedOverride> override_media_router_;
   DISALLOW_COPY_AND_ASSIGN(ShowPageActionWithoutPageActionTest);
 };
 

@@ -4,7 +4,8 @@
 
 #include "chrome/browser/ui/views/location_bar/icon_label_bubble_view.h"
 
-#include "chrome/browser/ui/layout_constants.h"
+#include "chrome/browser/ui/views/location_bar/location_bar_view.h"
+#include "ui/accessibility/ax_node_data.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/color_utils.h"
 #include "ui/gfx/scoped_canvas.h"
@@ -40,8 +41,8 @@ IconLabelBubbleView::IconLabelBubbleView(const gfx::FontList& font_list,
   // child views in the location bar have the same height. The visible height of
   // the bubble should be smaller, so use an empty border to shrink down the
   // content bounds so the background gets painted correctly.
-  SetBorder(views::Border::CreateEmptyBorder(
-      gfx::Insets(GetLayoutConstant(LOCATION_BAR_BUBBLE_VERTICAL_PADDING), 0)));
+  SetBorder(views::CreateEmptyBorder(
+      gfx::Insets(LocationBarView::kBubbleVerticalPadding, 0)));
 
   // Flip the canvas in RTL so the separator is drawn on the correct side.
   EnableCanvasFlippingForRTLUI(true);
@@ -93,7 +94,7 @@ bool IconLabelBubbleView::OnKeyReleased(const ui::KeyEvent& event) {
 
 void IconLabelBubbleView::Layout() {
   // Compute the image bounds. Leading and trailing padding are the same.
-  int image_x = GetLayoutConstant(LOCATION_BAR_HORIZONTAL_PADDING);
+  int image_x = LocationBarView::kHorizontalPadding;
   int bubble_trailing_padding = image_x;
 
   // If ShouldShowLabel() is true, then either we show a label in the
@@ -128,6 +129,10 @@ void IconLabelBubbleView::Layout() {
   const int label_width =
       std::max(0, width() - label_x - bubble_trailing_padding);
   label_->SetBounds(label_x, 0, label_width, height());
+}
+
+void IconLabelBubbleView::GetAccessibleNodeData(ui::AXNodeData* node_data) {
+  label_->GetAccessibleNodeData(node_data);
 }
 
 void IconLabelBubbleView::OnNativeThemeChanged(
@@ -177,10 +182,7 @@ gfx::Size IconLabelBubbleView::GetSizeForLabelWidth(int label_width) const {
     // kSpaceBesideSeparator region before the separator, as that results in a
     // width closer to the desired gap than if we added a whole DIP for the
     // separator px.  (For scale 2, the two methods have equal error: 1 px.)
-    const views::Widget* widget = GetWidget();
-    // There may be no widget in tests.
-    const int separator_width =
-        (widget && widget->GetCompositor()->device_scale_factor() >= 2) ? 0 : 1;
+    const int separator_width = (GetScaleFactor() >= 2) ? 0 : 1;
     const int post_label_width =
         (kSpaceBesideSeparator + separator_width + GetPostSeparatorPadding());
 
@@ -190,7 +192,7 @@ gfx::Size IconLabelBubbleView::GetSizeForLabelWidth(int label_width) const {
     // enough to show the icon. We don't want to shrink all the way back to
     // zero, since this would mean the view would completely disappear and then
     // pop back to an icon after the animation finishes.
-    const int max_width = GetLayoutConstant(LOCATION_BAR_HORIZONTAL_PADDING) +
+    const int max_width = LocationBarView::kHorizontalPadding +
                           image_->GetPreferredSize().width() +
                           GetInternalSpacing() + label_width + post_label_width;
     const int current_width = WidthMultiplier() * max_width;
@@ -203,13 +205,20 @@ gfx::Size IconLabelBubbleView::GetSizeForLabelWidth(int label_width) const {
 int IconLabelBubbleView::GetInternalSpacing() const {
   return image_->GetPreferredSize().IsEmpty()
              ? 0
-             : GetLayoutConstant(LOCATION_BAR_HORIZONTAL_PADDING);
+             : LocationBarView::kHorizontalPadding;
 }
 
 int IconLabelBubbleView::GetPostSeparatorPadding() const {
-  // The location bar will add LOCATION_BAR_HORIZONTAL_PADDING after us.
-  return kSpaceBesideSeparator -
-         GetLayoutConstant(LOCATION_BAR_HORIZONTAL_PADDING);
+  // The location bar will add LocationBarView::kHorizontalPadding after us.
+  return kSpaceBesideSeparator - LocationBarView::kHorizontalPadding;
+}
+
+float IconLabelBubbleView::GetScaleFactor() const {
+  const views::Widget* widget = GetWidget();
+  // There may be no widget in tests, and in ash there may be no compositor if
+  // the native view of the Widget doesn't have a parent.
+  const ui::Compositor* compositor = widget ? widget->GetCompositor() : nullptr;
+  return compositor ? compositor->device_scale_factor() : 1.0f;
 }
 
 const char* IconLabelBubbleView::GetClassName() const {

@@ -27,11 +27,12 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_delegate.h"
 #include "content/public/browser/web_contents_observer.h"
+#include "extensions/features/features.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/image/image_skia.h"
 
-#if defined(ENABLE_EXTENSIONS)
+#if BUILDFLAG(ENABLE_EXTENSIONS)
 #include "chrome/common/extensions/extension_constants.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/common/extension.h"
@@ -42,7 +43,7 @@ using content::WebContents;
 
 namespace {
 
-#if defined(ENABLE_EXTENSIONS)
+#if BUILDFLAG(ENABLE_EXTENSIONS)
 const extensions::Extension* GetExtension(WebContents* web_contents) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
@@ -69,7 +70,7 @@ bool IsWhitelistedExtension(const extensions::Extension* extension) {
 
   return false;
 }
-#endif  // defined(ENABLE_EXTENSIONS)
+#endif  // BUILDFLAG(ENABLE_EXTENSIONS)
 
 base::string16 GetTitle(WebContents* web_contents) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
@@ -77,7 +78,7 @@ base::string16 GetTitle(WebContents* web_contents) {
   if (!web_contents)
     return base::string16();
 
-#if defined(ENABLE_EXTENSIONS)
+#if BUILDFLAG(ENABLE_EXTENSIONS)
   const extensions::Extension* const extension = GetExtension(web_contents);
   if (extension)
     return base::UTF8ToUTF16(extension->name());
@@ -258,11 +259,10 @@ std::unique_ptr<content::MediaStreamUI>
 MediaStreamCaptureIndicator::RegisterMediaStream(
     content::WebContents* web_contents,
     const content::MediaStreamDevices& devices) {
-  WebContentsDeviceUsage* usage = usage_map_.get(web_contents);
-  if (!usage) {
-    usage = new WebContentsDeviceUsage(this, web_contents);
-    usage_map_.add(web_contents, base::WrapUnique(usage));
-  }
+  auto& usage = usage_map_[web_contents];
+  if (!usage)
+    usage = base::MakeUnique<WebContentsDeviceUsage>(this, web_contents);
+
   return usage->RegisterMediaStream(devices);
 }
 
@@ -283,41 +283,42 @@ bool MediaStreamCaptureIndicator::IsCapturingUserMedia(
     content::WebContents* web_contents) const {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
-  WebContentsDeviceUsage* usage = usage_map_.get(web_contents);
-  return usage && (usage->IsCapturingAudio() || usage->IsCapturingVideo());
+  auto it = usage_map_.find(web_contents);
+  return it != usage_map_.end() &&
+         (it->second->IsCapturingAudio() || it->second->IsCapturingVideo());
 }
 
 bool MediaStreamCaptureIndicator::IsCapturingVideo(
     content::WebContents* web_contents) const {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
-  WebContentsDeviceUsage* usage = usage_map_.get(web_contents);
-  return usage && usage->IsCapturingVideo();
+  auto it = usage_map_.find(web_contents);
+  return it != usage_map_.end() && it->second->IsCapturingVideo();
 }
 
 bool MediaStreamCaptureIndicator::IsCapturingAudio(
     content::WebContents* web_contents) const {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
-  WebContentsDeviceUsage* usage = usage_map_.get(web_contents);
-  return usage && usage->IsCapturingAudio();
+  auto it = usage_map_.find(web_contents);
+  return it != usage_map_.end() && it->second->IsCapturingAudio();
 }
 
 bool MediaStreamCaptureIndicator::IsBeingMirrored(
     content::WebContents* web_contents) const {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
-  WebContentsDeviceUsage* usage = usage_map_.get(web_contents);
-  return usage && usage->IsMirroring();
+  auto it = usage_map_.find(web_contents);
+  return it != usage_map_.end() && it->second->IsMirroring();
 }
 
 void MediaStreamCaptureIndicator::NotifyStopped(
     content::WebContents* web_contents) const {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
-  WebContentsDeviceUsage* usage = usage_map_.get(web_contents);
-  DCHECK(usage);
-  usage->NotifyStopped();
+  auto it = usage_map_.find(web_contents);
+  DCHECK(it != usage_map_.end());
+  it->second->NotifyStopped();
 }
 
 void MediaStreamCaptureIndicator::UnregisterWebContents(
@@ -406,7 +407,7 @@ void MediaStreamCaptureIndicator::UpdateNotificationUserInterface() {
     // The audio/video icon is shown only for non-whitelisted extensions or on
     // Android. For regular tabs on desktop, we show an indicator in the tab
     // icon.
-#if defined(ENABLE_EXTENSIONS)
+#if BUILDFLAG(ENABLE_EXTENSIONS)
     const extensions::Extension* extension = GetExtension(web_contents);
     if (!extension || IsWhitelistedExtension(extension))
       continue;

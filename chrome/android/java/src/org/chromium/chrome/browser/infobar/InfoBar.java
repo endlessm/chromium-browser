@@ -11,7 +11,6 @@ import android.widget.TextView;
 
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.tab.Tab;
 
 /**
  * The base class for all InfoBar classes.
@@ -50,8 +49,7 @@ public abstract class InfoBar implements InfoBarView {
      * @param nativeInfoBarPtr Pointer to the native InfoBarAndroid, not to its subclass.
      */
     @CalledByNative
-    private void setNativeInfoBar(long nativeInfoBarPtr) {
-        assert mNativeInfoBarPtr == 0;
+    private final void setNativeInfoBar(long nativeInfoBarPtr) {
         mNativeInfoBarPtr = nativeInfoBarPtr;
     }
 
@@ -100,11 +98,6 @@ public abstract class InfoBar implements InfoBarView {
     }
 
     /**
-     * Called when the given tab has been reparented.
-     */
-    public void onTabReparented(Tab tab) { }
-
-    /**
      * Returns the View shown in this infobar. Only valid after createView() has been called.
      */
     @Override
@@ -118,6 +111,11 @@ public abstract class InfoBar implements InfoBarView {
         TextView messageView = (TextView) mView.findViewById(R.id.infobar_message);
         if (messageView == null) return "";
         return messageView.getText() + mContext.getString(R.string.bottom_bar_screen_position);
+    }
+
+    @Override
+    public boolean isLegalDisclosure() {
+        return false;
     }
 
     /**

@@ -11,35 +11,37 @@
 #include "angle_gl.h"
 #include "compiler/translator/Compiler.h"
 
+namespace sh
+{
+
 namespace
 {
 
-class ShaderVariableFinder : public TIntermTraverser
+class FunctionCallFinder : public TIntermTraverser
 {
   public:
-    ShaderVariableFinder(const TString &variableName, TBasicType basicType)
-        : TIntermTraverser(true, false, false),
-          mVariableName(variableName),
-          mNodeFound(nullptr),
-          mBasicType(basicType)
+    FunctionCallFinder(const TString &functionName)
+        : TIntermTraverser(true, false, false), mFunctionName(functionName), mNodeFound(nullptr)
     {
     }
 
-    void visitSymbol(TIntermSymbol *node)
+    bool visitAggregate(Visit visit, TIntermAggregate *node) override
     {
-        if (node->getBasicType() == mBasicType && node->getSymbol() == mVariableName)
+        if (node->getOp() == EOpFunctionCall &&
+            node->getFunctionSymbolInfo()->getName() == mFunctionName)
         {
             mNodeFound = node;
+            return false;
         }
+        return true;
     }
 
     bool isFound() const { return mNodeFound != nullptr; }
-    const TIntermSymbol *getNode() const { return mNodeFound; }
+    const TIntermAggregate *getNode() const { return mNodeFound; }
 
   private:
-    TString mVariableName;
-    TIntermSymbol *mNodeFound;
-    TBasicType mBasicType;
+    TString mFunctionName;
+    TIntermAggregate *mNodeFound;
 };
 
 }  // anonymous namespace
@@ -53,7 +55,7 @@ bool compileTestShader(GLenum type,
                        std::string *translatedCode,
                        std::string *infoLog)
 {
-    TCompiler *translator = ConstructCompiler(type, spec, output);
+    sh::TCompiler *translator = sh::ConstructCompiler(type, spec, output);
     if (!translator->Init(*resources))
     {
         SafeDelete(translator);
@@ -81,7 +83,7 @@ bool compileTestShader(GLenum type,
                        std::string *infoLog)
 {
     ShBuiltInResources resources;
-    ShInitBuiltInResources(&resources);
+    sh::InitBuiltInResources(&resources);
     return compileTestShader(type, spec, output, shaderString, &resources, compileOptions, translatedCode, infoLog);
 }
 
@@ -90,7 +92,7 @@ MatchOutputCodeTest::MatchOutputCodeTest(GLenum shaderType,
                                          ShShaderOutput outputType)
     : mShaderType(shaderType), mDefaultCompileOptions(defaultCompileOptions)
 {
-    ShInitBuiltInResources(&mResources);
+    sh::InitBuiltInResources(&mResources);
     mOutputCode[outputType] = std::string();
 }
 
@@ -207,11 +209,11 @@ bool MatchOutputCodeTest::notFoundInCode(const char *stringToFind) const
     return true;
 }
 
-const TIntermSymbol *FindSymbolNode(TIntermNode *root,
-                                    const TString &symbolName,
-                                    TBasicType basicType)
+const TIntermAggregate *FindFunctionCallNode(TIntermNode *root, const TString &functionName)
 {
-    ShaderVariableFinder finder(symbolName, basicType);
+    FunctionCallFinder finder(functionName);
     root->traverse(&finder);
     return finder.getNode();
 }
+
+}  // namespace sh

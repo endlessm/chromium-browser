@@ -21,6 +21,8 @@
 #include "chrome/browser/profiles/profile_attributes_storage.h"
 #include "chrome/browser/profiles/profile_io_data.h"
 #include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/browser/safe_browsing/ping_manager.h"
+#include "chrome/browser/safe_browsing/safe_browsing_service.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/grit/generated_resources.h"
@@ -35,6 +37,8 @@
 #include "content/public/browser/user_metrics.h"
 #include "content/public/common/notification_resources.h"
 #include "content/public/common/platform_notification_data.h"
+#include "extensions/features/features.h"
+#include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/message_center/notification.h"
@@ -47,7 +51,7 @@
 #include "chrome/browser/lifetime/scoped_keep_alive.h"
 #endif
 
-#if defined(ENABLE_EXTENSIONS)
+#if BUILDFLAG(ENABLE_EXTENSIONS)
 #include "chrome/browser/notifications/notifier_state_tracker.h"
 #include "chrome/browser/notifications/notifier_state_tracker_factory.h"
 #include "extensions/browser/extension_registry.h"
@@ -86,6 +90,18 @@ void CancelNotification(const std::string& notification_id,
                  notification_id));
 }
 
+void ReportNotificationImageOnIOThread(
+    scoped_refptr<safe_browsing::SafeBrowsingService> safe_browsing_service,
+    Profile* profile,
+    const GURL& origin,
+    const SkBitmap& image) {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  if (!safe_browsing_service || !safe_browsing_service->enabled())
+    return;
+  safe_browsing_service->ping_manager()->ReportNotificationImage(
+      profile, safe_browsing_service->database_manager(), origin, image);
+}
+
 }  // namespace
 
 // static
@@ -107,7 +123,8 @@ void PlatformNotificationServiceImpl::OnPersistentNotificationClick(
     BrowserContext* browser_context,
     const std::string& notification_id,
     const GURL& origin,
-    int action_index) {
+    int action_index,
+    const base::NullableString16& reply) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   blink::mojom::PermissionStatus permission_status =
       CheckPermissionOnUIThread(browser_context, origin,
@@ -140,7 +157,7 @@ void PlatformNotificationServiceImpl::OnPersistentNotificationClick(
 
   content::NotificationEventDispatcher::GetInstance()
       ->DispatchNotificationClickEvent(
-          browser_context, notification_id, origin, action_index,
+          browser_context, notification_id, origin, action_index, reply,
           base::Bind(
               &PlatformNotificationServiceImpl::OnClickEventDispatchComplete,
               base::Unretained(this)));
@@ -182,7 +199,7 @@ PlatformNotificationServiceImpl::CheckPermissionOnUIThread(
   Profile* profile = Profile::FromBrowserContext(browser_context);
   DCHECK(profile);
 
-#if defined(ENABLE_EXTENSIONS)
+#if BUILDFLAG(ENABLE_EXTENSIONS)
   // Extensions support an API permission named "notification". This will grant
   // not only grant permission for using the Chrome App extension API, but also
   // for the Web Notification API.
@@ -223,7 +240,7 @@ PlatformNotificationServiceImpl::CheckPermissionOnIOThread(
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
   ProfileIOData* io_data = ProfileIOData::FromResourceContext(resource_context);
-#if defined(ENABLE_EXTENSIONS)
+#if BUILDFLAG(ENABLE_EXTENSIONS)
   // Extensions support an API permission named "notification". This will grant
   // not only grant permission for using the Chrome App extension API, but also
   // for the Web Notification API.
@@ -359,16 +376,16 @@ void PlatformNotificationServiceImpl::ClosePersistentNotification(
                                                 notification_id);
 }
 
-bool PlatformNotificationServiceImpl::GetDisplayedPersistentNotifications(
+bool PlatformNotificationServiceImpl::GetDisplayedNotifications(
     BrowserContext* browser_context,
     std::set<std::string>* displayed_notifications) {
   DCHECK(displayed_notifications);
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   Profile* profile = Profile::FromBrowserContext(browser_context);
   if (!profile || profile->AsTestingProfile())
     return false;  // Tests will not have a message center.
 
-  // TODO(peter): Filter for persistent notifications only.
   return GetNotificationDisplayService(profile)->GetDisplayed(
       displayed_notifications);
 }
@@ -426,6 +443,13 @@ Notification PlatformNotificationServiceImpl::CreateNotificationFromData(
     notification.set_type(message_center::NOTIFICATION_TYPE_IMAGE);
     notification.set_image(
         gfx::Image::CreateFrom1xBitmap(notification_resources.image));
+    // n.b. this should only be posted once per notification.
+    BrowserThread::PostTask(
+        BrowserThread::IO, FROM_HERE,
+        base::Bind(
+            &ReportNotificationImageOnIOThread,
+            make_scoped_refptr(g_browser_process->safe_browsing_service()),
+            profile, origin, notification_resources.image));
   }
 
   // Badges are only supported on Android, primarily because it's the only
@@ -483,7 +507,7 @@ PlatformNotificationServiceImpl::GetNotificationDisplayService(
 base::string16 PlatformNotificationServiceImpl::DisplayNameForContextMessage(
     Profile* profile,
     const GURL& origin) const {
-#if defined(ENABLE_EXTENSIONS)
+#if BUILDFLAG(ENABLE_EXTENSIONS)
   // If the source is an extension, lookup the display name.
   if (origin.SchemeIs(extensions::kExtensionScheme)) {
     const extensions::Extension* extension =

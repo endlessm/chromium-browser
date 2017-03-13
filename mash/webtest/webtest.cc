@@ -5,6 +5,7 @@
 #include "mash/webtest/webtest.h"
 
 #include "base/macros.h"
+#include "base/memory/ptr_util.h"
 #include "base/memory/weak_ptr.h"
 #include "base/message_loop/message_loop.h"
 #include "base/strings/string16.h"
@@ -13,14 +14,15 @@
 #include "base/timer/timer.h"
 #include "mash/public/interfaces/launchable.mojom.h"
 #include "services/navigation/public/interfaces/view.mojom.h"
-#include "services/shell/public/c/main.h"
-#include "services/shell/public/cpp/connector.h"
-#include "services/shell/public/cpp/service.h"
-#include "services/shell/public/cpp/service_runner.h"
+#include "services/service_manager/public/c/main.h"
+#include "services/service_manager/public/cpp/connector.h"
+#include "services/service_manager/public/cpp/interface_registry.h"
+#include "services/service_manager/public/cpp/service.h"
+#include "services/service_manager/public/cpp/service_context.h"
+#include "services/service_manager/public/cpp/service_runner.h"
 #include "services/tracing/public/cpp/provider.h"
-#include "services/ui/public/cpp/window.h"
-#include "services/ui/public/cpp/window_tree_client.h"
-#include "ui/aura/mus/mus_util.h"
+#include "ui/aura/mus/window_port_mus.h"
+#include "ui/aura/window.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/paint_throbber.h"
 #include "ui/native_theme/native_theme.h"
@@ -29,7 +31,7 @@
 #include "ui/views/controls/textfield/textfield.h"
 #include "ui/views/controls/textfield/textfield_controller.h"
 #include "ui/views/mus/aura_init.h"
-#include "ui/views/mus/window_manager_connection.h"
+#include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_delegate.h"
 #include "url/gurl.h"
 
@@ -39,6 +41,12 @@ class AuraInit;
 
 namespace mash {
 namespace webtest {
+namespace {
+
+// Callback from Embed().
+void EmbedCallback(bool result) {}
+
+}  // namespace
 
 class UI : public views::WidgetDelegateView,
            public navigation::mojom::ViewClient {
@@ -87,13 +95,16 @@ class UI : public views::WidgetDelegateView,
   void ViewHierarchyChanged(
       const views::View::ViewHierarchyChangedDetails& details) override {
     if (details.is_add && GetWidget() && !content_area_) {
-      ui::Window* window = aura::GetMusWindow(GetWidget()->GetNativeWindow());
-      content_area_ = window->window_tree()->NewWindow(nullptr);
+      aura::Window* window = GetWidget()->GetNativeWindow();
+      content_area_ = new aura::Window(nullptr);
+      content_area_->Init(ui::LAYER_NOT_DRAWN);
       window->AddChild(content_area_);
 
       ui::mojom::WindowTreeClientPtr client;
-      view_->GetWindowTreeClient(GetProxy(&client));
-      content_area_->Embed(std::move(client));
+      view_->GetWindowTreeClient(MakeRequest(&client));
+      const uint32_t embed_flags = 0;  // Nothing special.
+      aura::WindowPortMus::Get(content_area_)
+          ->Embed(std::move(client), embed_flags, base::Bind(&EmbedCallback));
     }
   }
 
@@ -101,10 +112,10 @@ class UI : public views::WidgetDelegateView,
   void OpenURL(navigation::mojom::OpenURLParamsPtr params) override {}
   void LoadingStateChanged(bool is_loading) override {}
   void NavigationStateChanged(const GURL& url,
-                              const mojo::String& title,
+                              const std::string& title,
                               bool can_go_back,
                               bool can_go_forward) override {
-    current_title_ = base::UTF8ToUTF16(title.get());
+    current_title_ = base::UTF8ToUTF16(title);
     GetWidget()->UpdateWindowTitle();
   }
   void LoadProgressChanged(double progress) override {}
@@ -133,7 +144,7 @@ class UI : public views::WidgetDelegateView,
   void NavigationListPruned(bool from_front, int count) override {}
 
   Webtest* webtest_;
-  ui::Window* content_area_ = nullptr;
+  aura::Window* content_area_ = nullptr;
   navigation::mojom::ViewPtr view_;
   mojo::Binding<navigation::mojom::ViewClient> view_client_binding_;
   base::string16 current_title_;
@@ -156,17 +167,15 @@ void Webtest::RemoveWindow(views::Widget* window) {
     base::MessageLoop::current()->QuitWhenIdle();
 }
 
-void Webtest::OnStart(const shell::Identity& identity) {
-  tracing_.Initialize(connector(), identity.name());
-
-  aura_init_.reset(
-      new views::AuraInit(connector(), "views_mus_resources.pak"));
-  window_manager_connection_ =
-      views::WindowManagerConnection::Create(connector(), identity);
+void Webtest::OnStart() {
+  tracing_.Initialize(context()->connector(), context()->identity().name());
+  aura_init_ = base::MakeUnique<views::AuraInit>(
+      context()->connector(), context()->identity(), "views_mus_resources.pak",
+      std::string(), nullptr, views::AuraInit::Mode::AURA_MUS);
 }
 
-bool Webtest::OnConnect(const shell::Identity& remote_identity,
-                        shell::InterfaceRegistry* registry) {
+bool Webtest::OnConnect(const service_manager::ServiceInfo& remote_info,
+                        service_manager::InterfaceRegistry* registry) {
   registry->AddInterface<mojom::Launchable>(this);
   return true;
 }
@@ -180,12 +189,11 @@ void Webtest::Launch(uint32_t what, mojom::LaunchMode how) {
   }
 
   navigation::mojom::ViewFactoryPtr view_factory;
-  connector()->ConnectToInterface("exe:navigation", &view_factory);
+  context()->connector()->BindInterface("navigation", &view_factory);
   navigation::mojom::ViewPtr view;
   navigation::mojom::ViewClientPtr view_client;
-  navigation::mojom::ViewClientRequest view_client_request =
-      GetProxy(&view_client);
-  view_factory->CreateView(std::move(view_client), GetProxy(&view));
+  navigation::mojom::ViewClientRequest view_client_request(&view_client);
+  view_factory->CreateView(std::move(view_client), MakeRequest(&view));
   UI* ui = new UI(this, std::move(view), std::move(view_client_request));
   views::Widget* window = views::Widget::CreateWindowWithContextAndBounds(
       ui, nullptr, gfx::Rect(50, 10, 600, 600));
@@ -194,7 +202,7 @@ void Webtest::Launch(uint32_t what, mojom::LaunchMode how) {
   AddWindow(window);
 }
 
-void Webtest::Create(const shell::Identity& remote_identity,
+void Webtest::Create(const service_manager::Identity& remote_identity,
                      mojom::LaunchableRequest request) {
   bindings_.AddBinding(this, std::move(request));
 }

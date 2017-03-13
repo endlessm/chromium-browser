@@ -14,6 +14,7 @@
 
 #include "base/i18n/case_conversion.h"
 #include "base/i18n/timezone.h"
+#include "base/memory/ptr_util.h"
 #include "base/profiler/scoped_tracker.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
@@ -65,6 +66,10 @@ class FormGroupMatchesByGUIDFunctor {
   }
 
   bool operator()(const T* form_group) {
+    return form_group->guid() == guid_;
+  }
+
+  bool operator()(const std::unique_ptr<T>& form_group) {
     return form_group->guid() == guid_;
   }
 
@@ -180,18 +185,15 @@ base::string16 GetInfoInOneLine(const AutofillProfile* profile,
 // server and local profiles and credit cards.
 template <typename ValueType>
 void ReceiveLoadedDbValues(WebDataServiceBase::Handle h,
-                           const WDTypedResult* result,
+                           WDTypedResult* result,
                            WebDataServiceBase::Handle* pending_handle,
-                           ScopedVector<ValueType>* dest) {
+                           std::vector<std::unique_ptr<ValueType>>* dest) {
   DCHECK_EQ(*pending_handle, h);
   *pending_handle = 0;
 
-  const WDResult<std::vector<ValueType*>>* r =
-      static_cast<const WDResult<std::vector<ValueType*>>*>(result);
-
-  dest->clear();
-  for (ValueType* value : r->GetValue())
-    dest->push_back(value);
+  *dest = std::move(
+      static_cast<WDResult<std::vector<std::unique_ptr<ValueType>>>*>(result)
+          ->GetValue());
 }
 
 // A helper function for finding the maximum value in a string->int map.
@@ -221,7 +223,7 @@ bool IsValidSuggestionForFieldContents(base::string16 suggestion_canon,
 
   // For card number fields, suggest the card if:
   // - the number matches any part of the card, or
-  // - it's a masked card and there are 6 or fewers typed so far.
+  // - it's a masked card and there are 6 or fewer typed so far.
   if (type.GetStorableType() == CREDIT_CARD_NUMBER) {
     if (suggestion_canon.find(field_contents_canon) == base::string16::npos &&
         (!is_masked_server_card || field_contents_canon.size() >= 6)) {
@@ -290,7 +292,15 @@ void PersonalDataManager::Init(scoped_refptr<AutofillWebDataService> database,
   LoadCreditCards();
 
   database_->AddObserver(this);
-  is_autofill_profile_dedupe_pending_ = IsAutofillProfileCleanupEnabled();
+
+  // Check if profile cleanup has already been performed this major version.
+  is_autofill_profile_cleanup_pending_ =
+      pref_service_->GetInteger(prefs::kAutofillLastVersionDeduped) >=
+      atoi(version_info::GetVersionNumber().c_str());
+  DVLOG(1) << "Autofill profile cleanup "
+           << (is_autofill_profile_cleanup_pending_ ? "needs to be"
+                                                    : "has already been")
+           << " performed for this version";
 }
 
 PersonalDataManager::~PersonalDataManager() {
@@ -307,7 +317,7 @@ void PersonalDataManager::OnSyncServiceInitialized(
     syncer::SyncService* sync_service) {
   // We want to know when, if at all, we need to run autofill profile de-
   // duplication: now or after waiting until sync has started.
-  if (!is_autofill_profile_dedupe_pending_) {
+  if (!is_autofill_profile_cleanup_pending_) {
     // De-duplication isn't enabled.
     return;
   }
@@ -331,7 +341,7 @@ void PersonalDataManager::OnSyncServiceInitialized(
 
 void PersonalDataManager::OnWebDataServiceRequestDone(
     WebDataServiceBase::Handle h,
-    const WDTypedResult* result) {
+    std::unique_ptr<WDTypedResult> result) {
   DCHECK(pending_profiles_query_ || pending_server_profiles_query_ ||
          pending_creditcards_query_ || pending_server_creditcards_query_);
 
@@ -347,17 +357,21 @@ void PersonalDataManager::OnWebDataServiceRequestDone(
       pending_creditcards_query_ = 0;
     else if (h == pending_profiles_query_)
       pending_profiles_query_ = 0;
+    else if (h == pending_server_creditcards_query_)
+      pending_server_creditcards_query_ = 0;
+    else if (h == pending_server_profiles_query_)
+      pending_server_profiles_query_ = 0;
     return;
   }
 
   switch (result->GetType()) {
     case AUTOFILL_PROFILES_RESULT:
       if (h == pending_profiles_query_) {
-        ReceiveLoadedDbValues(h, result, &pending_profiles_query_,
+        ReceiveLoadedDbValues(h, result.get(), &pending_profiles_query_,
                               &web_profiles_);
         LogProfileCount();  // This only logs local profiles.
       } else {
-        ReceiveLoadedDbValues(h, result, &pending_server_profiles_query_,
+        ReceiveLoadedDbValues(h, result.get(), &pending_server_profiles_query_,
                               &server_profiles_);
 
         if (!server_profiles_.empty()) {
@@ -370,7 +384,7 @@ void PersonalDataManager::OnWebDataServiceRequestDone(
           // request, in which case there is no point updating
           // |server_profiles_| as it will be cleared.
           if (!email.empty()) {
-            for (AutofillProfile* profile : server_profiles_)
+            for (auto& profile : server_profiles_)
               profile->SetRawInfo(EMAIL_ADDRESS, email);
           }
         }
@@ -378,11 +392,12 @@ void PersonalDataManager::OnWebDataServiceRequestDone(
       break;
     case AUTOFILL_CREDITCARDS_RESULT:
       if (h == pending_creditcards_query_) {
-        ReceiveLoadedDbValues(h, result, &pending_creditcards_query_,
+        ReceiveLoadedDbValues(h, result.get(), &pending_creditcards_query_,
                               &local_credit_cards_);
         LogLocalCreditCardCount();
       } else {
-        ReceiveLoadedDbValues(h, result, &pending_server_creditcards_query_,
+        ReceiveLoadedDbValues(h, result.get(),
+                              &pending_server_creditcards_query_,
                               &server_credit_cards_);
 
         // If the user has a saved unmasked server card and the experiment is
@@ -412,7 +427,8 @@ void PersonalDataManager::AutofillMultipleChanged() {
 }
 
 void PersonalDataManager::SyncStarted(syncer::ModelType model_type) {
-  if (model_type == syncer::AUTOFILL_PROFILE) {
+  if (model_type == syncer::AUTOFILL_PROFILE &&
+      is_autofill_profile_cleanup_pending_) {
     // This runs as a one-time fix, tracked in syncable prefs. If it has already
     // run, it is a NOP (other than checking the pref).
     ApplyProfileUseDatesFix();
@@ -449,8 +465,8 @@ bool PersonalDataManager::ImportFormData(
   if (cc_import || address_import)
     return true;
 
-  FOR_EACH_OBSERVER(PersonalDataManagerObserver, observers_,
-                    OnInsufficientFormData());
+  for (PersonalDataManagerObserver& observer : observers_)
+    observer.OnInsufficientFormData();
   return false;
 }
 
@@ -465,7 +481,7 @@ void PersonalDataManager::RecordUseOf(const AutofillDataModel& data_model) {
     if (credit_card->record_type() == CreditCard::LOCAL_CARD)
       database_->UpdateCreditCard(*credit_card);
     else
-      database_->UpdateServerCardUsageStats(*credit_card);
+      database_->UpdateServerCardMetadata(*credit_card);
 
     Refresh();
     return;
@@ -478,7 +494,7 @@ void PersonalDataManager::RecordUseOf(const AutofillDataModel& data_model) {
     if (profile->record_type() == AutofillProfile::LOCAL_PROFILE)
       database_->UpdateAutofillProfile(*profile);
     else if (profile->record_type() == AutofillProfile::SERVER_PROFILE)
-      database_->UpdateServerAddressUsageStats(*profile);
+      database_->UpdateServerAddressMetadata(*profile);
 
     Refresh();
   }
@@ -586,6 +602,9 @@ void PersonalDataManager::UpdateCreditCard(const CreditCard& credit_card) {
     return;
   }
 
+  // Update the cached version.
+  *existing_credit_card = credit_card;
+
   if (!database_.get())
     return;
 
@@ -605,9 +624,9 @@ void PersonalDataManager::UpdateServerCreditCard(
 
   // Look up by server id, not GUID.
   const CreditCard* existing_credit_card = nullptr;
-  for (const auto* server_card : server_credit_cards_) {
+  for (const auto& server_card : server_credit_cards_) {
     if (credit_card.server_id() == server_card->server_id()) {
-      existing_credit_card = server_card;
+      existing_credit_card = server_card.get();
       break;
     }
   }
@@ -626,35 +645,20 @@ void PersonalDataManager::UpdateServerCreditCard(
   Refresh();
 }
 
-void PersonalDataManager::UpdateServerCardBillingAddress(
+void PersonalDataManager::UpdateServerCardMetadata(
     const CreditCard& credit_card) {
   DCHECK_NE(CreditCard::LOCAL_CARD, credit_card.record_type());
 
-  if (!database_.get())
+  if (is_off_the_record_ || !database_.get())
     return;
 
-  CreditCard* existing_credit_card = nullptr;
-  for (auto* server_card : server_credit_cards_) {
-    if (credit_card.server_id() == server_card->server_id()) {
-      existing_credit_card = server_card;
-      break;
-    }
-  }
-  if (!existing_credit_card
-      || existing_credit_card->billing_address_id() ==
-          credit_card.billing_address_id()) {
-    return;
-  }
-
-  existing_credit_card->set_billing_address_id(
-      credit_card.billing_address_id());
-  database_->UpdateServerCardBillingAddress(*existing_credit_card);
+  database_->UpdateServerCardMetadata(credit_card);
 
   Refresh();
 }
 
 void PersonalDataManager::ResetFullServerCard(const std::string& guid) {
-  for (const CreditCard* card : server_credit_cards_) {
+  for (const auto& card : server_credit_cards_) {
     if (card->guid() == guid) {
       DCHECK_EQ(card->record_type(), CreditCard::FULL_SERVER_CARD);
       CreditCard card_copy = *card;
@@ -667,7 +671,7 @@ void PersonalDataManager::ResetFullServerCard(const std::string& guid) {
 }
 
 void PersonalDataManager::ResetFullServerCards() {
-  for (const CreditCard* card : server_credit_cards_) {
+  for (const auto& card : server_credit_cards_) {
     if (card->record_type() == CreditCard::FULL_SERVER_CARD) {
       CreditCard card_copy = *card;
       card_copy.set_record_type(CreditCard::MASKED_SERVER_CARD);
@@ -693,7 +697,7 @@ void PersonalDataManager::ClearAllServerData() {
 
 void PersonalDataManager::AddServerCreditCardForTest(
     std::unique_ptr<CreditCard> credit_card) {
-  server_credit_cards_.push_back(credit_card.release());
+  server_credit_cards_.push_back(std::move(credit_card));
 }
 
 void PersonalDataManager::RemoveByGUID(const std::string& guid) {
@@ -741,22 +745,27 @@ const std::vector<AutofillProfile*>& PersonalDataManager::GetProfiles() const {
   return GetProfiles(false);
 }
 
-const std::vector<AutofillProfile*>& PersonalDataManager::web_profiles() const {
-  return web_profiles_.get();
+std::vector<AutofillProfile*> PersonalDataManager::web_profiles() const {
+  std::vector<AutofillProfile*> result;
+  for (const auto& profile : web_profiles_)
+    result.push_back(profile.get());
+  return result;
 }
 
-const std::vector<CreditCard*>& PersonalDataManager::GetLocalCreditCards()
-    const {
-  return local_credit_cards_.get();
+std::vector<CreditCard*> PersonalDataManager::GetLocalCreditCards() const {
+  std::vector<CreditCard*> result;
+  for (const auto& card : local_credit_cards_)
+    result.push_back(card.get());
+  return result;
 }
 
 const std::vector<CreditCard*>& PersonalDataManager::GetCreditCards() const {
   credit_cards_.clear();
-  credit_cards_.insert(credit_cards_.end(), local_credit_cards_.begin(),
-                       local_credit_cards_.end());
+  for (const auto& card : local_credit_cards_)
+    credit_cards_.push_back(card.get());
   if (pref_service_->GetBoolean(prefs::kAutofillWalletImportEnabled)) {
-    credit_cards_.insert(credit_cards_.end(), server_credit_cards_.begin(),
-                         server_credit_cards_.end());
+    for (const auto& card : server_credit_cards_)
+      credit_cards_.push_back(card.get());
   }
   return credit_cards_;
 }
@@ -972,7 +981,7 @@ bool PersonalDataManager::IsValidLearnableProfile(
 // variables.
 std::string PersonalDataManager::MergeProfile(
     const AutofillProfile& new_profile,
-    std::vector<AutofillProfile*> existing_profiles,
+    std::vector<std::unique_ptr<AutofillProfile>>* existing_profiles,
     const std::string& app_locale,
     std::vector<AutofillProfile>* merged_profiles) {
   merged_profiles->clear();
@@ -983,12 +992,12 @@ std::string PersonalDataManager::MergeProfile(
   // profiles.
   // TODO(crbug.com/620521): Remove the check for verified from the sort.
   base::Time comparison_time = base::Time::Now();
-  std::sort(existing_profiles.begin(), existing_profiles.end(),
-            [comparison_time](const AutofillDataModel* a,
-                              const AutofillDataModel* b) {
+  std::sort(existing_profiles->begin(), existing_profiles->end(),
+            [comparison_time](const std::unique_ptr<AutofillProfile>& a,
+                              const std::unique_ptr<AutofillProfile>& b) {
               if (a->IsVerified() != b->IsVerified())
                 return !a->IsVerified();
-              return a->CompareFrecency(b, comparison_time);
+              return a->CompareFrecency(b.get(), comparison_time);
             });
 
   // Set to true if |existing_profiles| already contains an equivalent profile.
@@ -996,9 +1005,10 @@ std::string PersonalDataManager::MergeProfile(
   std::string guid = new_profile.guid();
 
   // If we have already saved this address, merge in any missing values.
-  // Only merge with the first match.
+  // Only merge with the first match. Merging the new profile into the existing
+  // one preserves the validity of credit card's billing address reference.
   AutofillProfileComparator comparator(app_locale);
-  for (AutofillProfile* existing_profile : existing_profiles) {
+  for (const auto& existing_profile : *existing_profiles) {
     if (!matching_profile_found &&
         comparator.AreMergeable(new_profile, *existing_profile) &&
         existing_profile->SaveAdditionalInfo(new_profile, app_locale)) {
@@ -1116,7 +1126,7 @@ void PersonalDataManager::SetProfiles(std::vector<AutofillProfile>* profiles) {
 
   // Any profiles that are not in the new profile list should be removed from
   // the web database.
-  for (const AutofillProfile* it : web_profiles_) {
+  for (const auto& it : web_profiles_) {
     if (!FindByGUID<AutofillProfile>(*profiles, it->guid()))
       database_->RemoveAutofillProfile(it->guid());
   }
@@ -1137,7 +1147,7 @@ void PersonalDataManager::SetProfiles(std::vector<AutofillProfile>* profiles) {
   // Copy in the new profiles.
   web_profiles_.clear();
   for (const AutofillProfile& it : *profiles) {
-    web_profiles_.push_back(new AutofillProfile(it));
+    web_profiles_.push_back(base::MakeUnique<AutofillProfile>(it));
   }
 
   // Refresh our local cache and send notifications to observers.
@@ -1159,7 +1169,7 @@ void PersonalDataManager::SetCreditCards(
 
   // Any credit cards that are not in the new credit card list should be
   // removed.
-  for (const CreditCard* card : local_credit_cards_) {
+  for (const auto& card : local_credit_cards_) {
     if (!FindByGUID<CreditCard>(*credit_cards, card->guid()))
       database_->RemoveCreditCard(card->guid());
   }
@@ -1180,7 +1190,7 @@ void PersonalDataManager::SetCreditCards(
   // Copy in the new credit cards.
   local_credit_cards_.clear();
   for (const CreditCard& card : *credit_cards)
-    local_credit_cards_.push_back(new CreditCard(card));
+    local_credit_cards_.push_back(base::MakeUnique<CreditCard>(card));
 
   // Refresh our local cache and send notifications to observers.
   Refresh();
@@ -1231,7 +1241,7 @@ std::string PersonalDataManager::SaveImportedProfile(
 
   // Don't save a web profile if the data in the profile is a subset of a
   // server profile, but do record the fact that it was used.
-  for (const AutofillProfile* profile : server_profiles_) {
+  for (const auto& profile : server_profiles_) {
     if (imported_profile.IsSubsetOf(*profile, app_locale_)) {
       RecordUseOf(*profile);
       return profile->guid();
@@ -1239,15 +1249,15 @@ std::string PersonalDataManager::SaveImportedProfile(
   }
 
   std::vector<AutofillProfile> profiles;
-  std::string guid = MergeProfile(imported_profile, web_profiles_.get(),
-                                  app_locale_, &profiles);
+  std::string guid =
+      MergeProfile(imported_profile, &web_profiles_, app_locale_, &profiles);
   SetProfiles(&profiles);
   return guid;
 }
 
 void PersonalDataManager::NotifyPersonalDataChanged() {
-  FOR_EACH_OBSERVER(PersonalDataManagerObserver, observers_,
-                    OnPersonalDataChanged());
+  for (PersonalDataManagerObserver& observer : observers_)
+    observer.OnPersonalDataChanged();
 }
 
 std::string PersonalDataManager::SaveImportedCreditCard(
@@ -1261,7 +1271,7 @@ std::string PersonalDataManager::SaveImportedCreditCard(
 
   std::string guid = imported_card.guid();
   std::vector<CreditCard> credit_cards;
-  for (CreditCard* card : local_credit_cards_) {
+  for (auto& card : local_credit_cards_) {
     // If |imported_card| has not yet been merged, check whether it should be
     // with the current |card|.
     if (!merged && card->UpdateFromImportedCard(imported_card, app_locale_)) {
@@ -1296,7 +1306,7 @@ void PersonalDataManager::LogLocalCreditCardCount() const {
 void PersonalDataManager::LogServerCreditCardCounts() const {
   if (!has_logged_server_credit_card_counts_) {
     size_t unmasked_cards = 0, masked_cards = 0;
-    for (CreditCard* card : server_credit_cards_) {
+    for (const auto& card : server_credit_cards_) {
       if (card->record_type() == CreditCard::MASKED_SERVER_CARD) {
         masked_cards++;
       } else if (card->record_type() == CreditCard::FULL_SERVER_CARD) {
@@ -1357,7 +1367,7 @@ bool PersonalDataManager::ImportAddressProfiles(const FormStructure& form) {
 
   // Relevant sections for address fields.
   std::set<std::string> sections;
-  for (const AutofillField* field : form) {
+  for (const auto& field : form) {
     if (field->Type().group() != CREDIT_CARD)
       sections.insert(field->section());
   }
@@ -1394,7 +1404,7 @@ bool PersonalDataManager::ImportAddressProfileForSection(
   std::set<ServerFieldType> types_seen;
 
   // Go through each |form| field and attempt to constitute a valid profile.
-  for (const AutofillField* field : form) {
+  for (const auto& field : form) {
     // Reject fields that are not within the specified |section|.
     if (field->section() != section)
       continue;
@@ -1474,7 +1484,7 @@ bool PersonalDataManager::ImportCreditCard(
   candidate_credit_card.set_origin(form.source_url().spec());
 
   std::set<ServerFieldType> types_seen;
-  for (const AutofillField* field : form) {
+  for (const auto& field : form) {
     base::string16 value;
     base::TrimWhitespace(field->value, base::TRIM_ALL, &value);
 
@@ -1530,7 +1540,7 @@ bool PersonalDataManager::ImportCreditCard(
   // true which indicates that upload is enabled. In this case, it's useful to
   // present the upload prompt to the user to promote the card from a local card
   // to a synced server card.
-  for (const CreditCard* card : local_credit_cards_) {
+  for (const auto& card : local_credit_cards_) {
     // Make a local copy so that the data in |local_credit_cards_| isn't
     // modified directly by the UpdateFromImportedCard() call.
     CreditCard card_copy(*card);
@@ -1551,7 +1561,7 @@ bool PersonalDataManager::ImportCreditCard(
   // server card, upload is guaranteed to fail. There's no mechanism for entries
   // with the same number but different names or expiration dates as there is
   // for local cards.
-  for (const CreditCard* card : server_credit_cards_) {
+  for (const auto& card : server_credit_cards_) {
     if (candidate_credit_card.HasSameNumberAs(*card))
       return false;
   }
@@ -1563,11 +1573,11 @@ bool PersonalDataManager::ImportCreditCard(
 const std::vector<AutofillProfile*>& PersonalDataManager::GetProfiles(
     bool record_metrics) const {
   profiles_.clear();
-  profiles_.insert(profiles_.end(), web_profiles().begin(),
-                   web_profiles().end());
+  for (const auto& profile : web_profiles_)
+    profiles_.push_back(profile.get());
   if (pref_service_->GetBoolean(prefs::kAutofillWalletImportEnabled)) {
-    profiles_.insert(
-        profiles_.end(), server_profiles_.begin(), server_profiles_.end());
+    for (const auto& profile : server_profiles_)
+      profiles_.push_back(profile.get());
   }
   return profiles_;
 }
@@ -1610,6 +1620,8 @@ std::vector<Suggestion> PersonalDataManager::GetSuggestionsForCards(
         suggestion->value = credit_card->TypeAndLastFourDigits();
         suggestion->label = credit_card->GetInfo(
             AutofillType(CREDIT_CARD_EXP_DATE_2_DIGIT_YEAR), app_locale_);
+        if (IsAutofillCreditCardPopupLayoutExperimentEnabled())
+          ModifyAutofillCreditCardSuggestion(suggestion);
       } else if (credit_card->number().empty()) {
         if (type.GetStorableType() != CREDIT_CARD_NAME_FULL) {
           suggestion->label = credit_card->GetInfo(
@@ -1663,13 +1675,18 @@ void PersonalDataManager::ApplyProfileUseDatesFix() {
 }
 
 bool PersonalDataManager::ApplyDedupingRoutine() {
-  if (!is_autofill_profile_dedupe_pending_)
+  if (!is_autofill_profile_cleanup_pending_)
     return false;
 
-  DCHECK(IsAutofillProfileCleanupEnabled());
-  is_autofill_profile_dedupe_pending_ = false;
+  is_autofill_profile_cleanup_pending_ = false;
 
-  // Check if the deduping routine has already been run on this major version.
+  // No need to de-duplicate if there are less than two profiles.
+  if (web_profiles_.size() < 2) {
+    DVLOG(1) << "Autofill profile de-duplication not needed.";
+    return false;
+  }
+
+  // Check if de-duplication has already been performed this major version.
   int current_major_version = atoi(version_info::GetVersionNumber().c_str());
   if (pref_service_->GetInteger(prefs::kAutofillLastVersionDeduped) >=
       current_major_version) {
@@ -1679,22 +1696,27 @@ bool PersonalDataManager::ApplyDedupingRoutine() {
   }
 
   DVLOG(1) << "Starting autofill profile de-duplication.";
-  std::vector<AutofillProfile*> existing_profiles = web_profiles_.get();
   std::unordered_set<AutofillProfile*> profiles_to_delete;
-  profiles_to_delete.reserve(existing_profiles.size());
+  profiles_to_delete.reserve(web_profiles_.size());
 
-  DedupeProfiles(&existing_profiles, &profiles_to_delete);
+  // Create the map used to update credit card's billing addresses after the
+  // dedupe.
+  std::unordered_map<std::string, std::string> guids_merge_map;
 
-  // Apply the changes to the database.
-  for (AutofillProfile* profile : existing_profiles) {
+  DedupeProfiles(&web_profiles_, &profiles_to_delete, &guids_merge_map);
+
+  // Apply the profile changes to the database.
+  for (const auto& profile : web_profiles_) {
     // If the profile was set to be deleted, remove it from the database.
-    if (profiles_to_delete.count(profile)) {
+    if (profiles_to_delete.count(profile.get())) {
       database_->RemoveAutofillProfile(profile->guid());
     } else {
       // Otherwise, update the profile in the database.
       database_->UpdateAutofillProfile(*profile);
     }
   }
+
+  UpdateCardsBillingAddressReference(guids_merge_map);
 
   // Set the pref to the current major version.
   pref_service_->SetInteger(prefs::kAutofillLastVersionDeduped,
@@ -1707,8 +1729,9 @@ bool PersonalDataManager::ApplyDedupingRoutine() {
 }
 
 void PersonalDataManager::DedupeProfiles(
-    std::vector<AutofillProfile*>* existing_profiles,
-    std::unordered_set<AutofillProfile*>* profiles_to_delete) {
+    std::vector<std::unique_ptr<AutofillProfile>>* existing_profiles,
+    std::unordered_set<AutofillProfile*>* profiles_to_delete,
+    std::unordered_map<std::string, std::string>* guids_merge_map) {
   AutofillMetrics::LogNumberOfProfilesConsideredForDedupe(
       existing_profiles->size());
 
@@ -1721,17 +1744,17 @@ void PersonalDataManager::DedupeProfiles(
   // similar verified profile will be discarded.
   base::Time comparison_time = base::Time::Now();
   std::sort(existing_profiles->begin(), existing_profiles->end(),
-            [comparison_time](const AutofillDataModel* a,
-                              const AutofillDataModel* b) {
+            [comparison_time](const std::unique_ptr<AutofillProfile>& a,
+                              const std::unique_ptr<AutofillProfile>& b) {
               if (a->IsVerified() != b->IsVerified())
                 return !a->IsVerified();
-              return a->CompareFrecency(b, comparison_time);
+              return a->CompareFrecency(b.get(), comparison_time);
             });
 
   AutofillProfileComparator comparator(app_locale_);
 
   for (size_t i = 0; i < existing_profiles->size(); ++i) {
-    AutofillProfile* profile_to_merge = (*existing_profiles)[i];
+    AutofillProfile* profile_to_merge = (*existing_profiles)[i].get();
 
     // If the profile was set to be deleted, skip it. It has already been
     // merged into another profile.
@@ -1746,7 +1769,7 @@ void PersonalDataManager::DedupeProfiles(
     // If we have not reached the last profile, try to merge |profile_to_merge|
     // with all the less relevant |existing_profiles|.
     for (size_t j = i + 1; j < existing_profiles->size(); ++j) {
-      AutofillProfile* existing_profile = (*existing_profiles)[j];
+      AutofillProfile* existing_profile = (*existing_profiles)[j].get();
 
       // Don't try to merge a profile that was already set for deletion.
       if (profiles_to_delete->count(existing_profile))
@@ -1762,8 +1785,13 @@ void PersonalDataManager::DedupeProfiles(
       // and will not accept updates from profile_to_merge.
       if (existing_profile->SaveAdditionalInfo(*profile_to_merge,
                                                app_locale_)) {
+        // Keep track that a credit card using |profile_to_merge|'s GUID as its
+        // billing address id should replace it by |existing_profile|'s GUID.
+        guids_merge_map->insert(std::pair<std::string, std::string>(
+            profile_to_merge->guid(), existing_profile->guid()));
+
         // Since |profile_to_merge| was a duplicate of |existing_profile|
-        // and was merged sucessfully, it can now be deleted.
+        // and was merged successfully, it can now be deleted.
         profiles_to_delete->insert(profile_to_merge);
 
         // Now try to merge the new resulting profile with the rest of the
@@ -1779,6 +1807,49 @@ void PersonalDataManager::DedupeProfiles(
   }
   AutofillMetrics::LogNumberOfProfilesRemovedDuringDedupe(
       profiles_to_delete->size());
+}
+
+void PersonalDataManager::UpdateCardsBillingAddressReference(
+    const std::unordered_map<std::string, std::string>& guids_merge_map) {
+  /*  Here is an example of what the graph might look like.
+
+      A -> B
+             \
+               -> E
+             /
+      C -> D
+  */
+
+  for (auto& credit_card : local_credit_cards_) {
+    // If the credit card is not associated with a billing address, skip it.
+    if (credit_card->billing_address_id().empty())
+      break;
+
+    // If the billing address profile associated with the card has been merged,
+    // replace it by the id of the profile in which it was merged. Repeat the
+    // process until the billing address has not been merged into another one.
+    std::unordered_map<std::string, std::string>::size_type nb_guid_changes = 0;
+    bool was_modified = false;
+    auto it = guids_merge_map.find(credit_card->billing_address_id());
+    while (it != guids_merge_map.end()) {
+      was_modified = true;
+      credit_card->set_billing_address_id(it->second);
+      it = guids_merge_map.find(credit_card->billing_address_id());
+
+      // Out of abundance of caution.
+      if (nb_guid_changes > guids_merge_map.size()) {
+        NOTREACHED();
+        // Cancel the changes for that card.
+        was_modified = false;
+        break;
+      }
+    }
+
+    // If the card was modified, apply the changes to the database.
+    if (was_modified) {
+      database_->UpdateCreditCard(*credit_card);
+    }
+  }
 }
 
 }  // namespace autofill

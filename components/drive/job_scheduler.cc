@@ -9,7 +9,8 @@
 #include <utility>
 
 #include "base/files/file_util.h"
-#include "base/metrics/histogram.h"
+#include "base/memory/ptr_util.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/rand_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
@@ -721,9 +722,11 @@ void JobScheduler::AddPermission(
 }
 
 JobScheduler::JobEntry* JobScheduler::CreateNewJob(JobType type) {
-  JobEntry* job = new JobEntry(type);
-  job->job_info.job_id = job_map_.Add(job);  // Takes the ownership of |job|.
-  return job;
+  auto job = base::MakeUnique<JobEntry>(type);
+  JobEntry* job_raw = job.get();
+  int32_t job_key = job_map_.Add(std::move(job));
+  job_raw->job_info.job_id = job_key;
+  return job_raw;
 }
 
 void JobScheduler::StartJob(JobEntry* job) {
@@ -1160,19 +1163,21 @@ void JobScheduler::AbortNotRunningJob(JobEntry* job,
 
 void JobScheduler::NotifyJobAdded(const JobInfo& job_info) {
   DCHECK(thread_checker_.CalledOnValidThread());
-  FOR_EACH_OBSERVER(JobListObserver, observer_list_, OnJobAdded(job_info));
+  for (auto& observer : observer_list_)
+    observer.OnJobAdded(job_info);
 }
 
 void JobScheduler::NotifyJobDone(const JobInfo& job_info,
                                  google_apis::DriveApiErrorCode error) {
   DCHECK(thread_checker_.CalledOnValidThread());
-  FOR_EACH_OBSERVER(JobListObserver, observer_list_,
-                    OnJobDone(job_info, GDataToFileError(error)));
+  for (auto& observer : observer_list_)
+    observer.OnJobDone(job_info, GDataToFileError(error));
 }
 
 void JobScheduler::NotifyJobUpdated(const JobInfo& job_info) {
   DCHECK(thread_checker_.CalledOnValidThread());
-  FOR_EACH_OBSERVER(JobListObserver, observer_list_, OnJobUpdated(job_info));
+  for (auto& observer : observer_list_)
+    observer.OnJobUpdated(job_info);
 }
 
 std::string JobScheduler::GetQueueInfo(QueueType type) const {

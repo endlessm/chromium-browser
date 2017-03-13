@@ -26,6 +26,7 @@
 #include "components/strings/grit/components_strings.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/l10n/l10n_util_mac.h"
+#include "ui/base/material_design/material_design_controller.h"
 
 using bookmarks::BookmarkExpandedStateTracker;
 using bookmarks::BookmarkModel;
@@ -75,7 +76,7 @@ void BookmarkEditor::Show(gfx::NativeWindow parent_window,
                           Profile* profile,
                           const EditDetails& details,
                           Configuration configuration) {
-  if (chrome::ToolkitViewsDialogsEnabled()) {
+  if (ui::MaterialDesignController::IsSecondaryUiMaterial()) {
     chrome::ShowBookmarkEditorViews(parent_window, profile, details,
                                     configuration);
     return;
@@ -285,8 +286,8 @@ class BookmarkEditorBaseControllerBridge
   // Lock down floating bar when in full-screen mode.  Don't animate
   // otherwise the pane will be misplaced.
   [[BrowserWindowController browserWindowControllerForWindow:parentWindow_]
-      lockBarVisibilityForOwner:self
-                  withAnimation:NO];
+      lockToolbarVisibilityForOwner:self
+                      withAnimation:NO];
   [NSApp beginSheet:[self window]
      modalForWindow:parentWindow_
       modalDelegate:self
@@ -333,8 +334,8 @@ NSString* const kOkEnabledName = @"okEnabled";
         contextInfo:(void*)contextInfo {
   [sheet close];
   [[BrowserWindowController browserWindowControllerForWindow:parentWindow_]
-      releaseBarVisibilityForOwner:self
-                     withAnimation:YES];
+      releaseToolbarVisibilityForOwner:self
+                         withAnimation:YES];
 }
 
 - (void)windowWillClose:(NSNotification*)notification {

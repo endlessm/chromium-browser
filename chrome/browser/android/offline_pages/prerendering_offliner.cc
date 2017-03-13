@@ -8,39 +8,13 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/sys_info.h"
 #include "chrome/browser/android/offline_pages/offline_page_mhtml_archiver.h"
-#include "chrome/browser/net/prediction_options.h"
+#include "chrome/browser/android/offline_pages/offliner_helper.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/common/pref_names.h"
-#include "components/content_settings/core/common/pref_names.h"
-#include "components/offline_pages/background/save_page_request.h"
-#include "components/offline_pages/client_namespace_constants.h"
-#include "components/offline_pages/offline_page_model.h"
-#include "components/prefs/pref_service.h"
+#include "components/offline_pages/core/background/save_page_request.h"
+#include "components/offline_pages/core/client_namespace_constants.h"
+#include "components/offline_pages/core/offline_page_model.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/web_contents.h"
-
-namespace {
-
-bool AreThirdPartyCookiesBlocked(content::BrowserContext* browser_context) {
-  return Profile::FromBrowserContext(browser_context)
-      ->GetPrefs()
-      ->GetBoolean(prefs::kBlockThirdPartyCookies);
-}
-
-bool IsNetworkPredictionDisabled(content::BrowserContext* browser_context) {
-  return Profile::FromBrowserContext(browser_context)
-             ->GetPrefs()
-             ->GetInteger(prefs::kNetworkPredictionOptions) ==
-         chrome_browser_net::NETWORK_PREDICTION_NEVER;
-}
-
-enum class OfflinePagesCctApiPrerenderAllowedStatus {
-  PRERENDER_ALLOWED,
-  THIRD_PARTY_COOKIES_DISABLED,
-  NETWORK_PREDICTION_DISABLED,
-};
-
-}  // namespace
 
 namespace offline_pages {
 
@@ -85,13 +59,18 @@ void PrerenderingOffliner::OnLoadPageDone(
     DCHECK(web_contents);
     std::unique_ptr<OfflinePageArchiver> archiver(
         new OfflinePageMHTMLArchiver(web_contents));
-    // Pass in the URL from the WebContents in case it is redirected from
-    // the requested URL. This is to work around a check in the
-    // OfflinePageModel implementation that ensures URL passed in here is
-    // same as LastCommittedURL from the snapshot.
-    // TODO(dougarnett): Raise issue of how to better deal with redirects.
-    SavePage(web_contents->GetLastCommittedURL(), request.client_id(),
-             request.request_id(), std::move(archiver),
+
+    OfflinePageModel::SavePageParams save_page_params;
+    save_page_params.url = web_contents->GetLastCommittedURL();
+    save_page_params.client_id = request.client_id();
+    save_page_params.proposed_offline_id = request.request_id();
+    save_page_params.is_background = true;
+    // Pass in the original URL if it is different from the last committed URL
+    // when redirects occur.
+    if (save_page_params.url != request.url())
+      save_page_params.original_url = request.url();
+
+    SavePage(save_page_params, std::move(archiver),
              base::Bind(&PrerenderingOffliner::OnSavePageDone,
                         weak_ptr_factory_.GetWeakPtr(), request));
   } else {
@@ -141,11 +120,6 @@ bool PrerenderingOffliner::LoadAndSave(const SavePageRequest& request,
 
   if (pending_request_) {
     DVLOG(1) << "Already have pending request";
-    return false;
-  }
-
-  if (!GetOrCreateLoader()->CanPrerender()) {
-    DVLOG(1) << "Prerendering not allowed/configured";
     return false;
   }
 
@@ -242,14 +216,12 @@ void PrerenderingOffliner::SetApplicationStateForTesting(
 }
 
 void PrerenderingOffliner::SavePage(
-    const GURL& url,
-    const ClientId& client_id,
-    int64_t proposed_offline_id,
+    const OfflinePageModel::SavePageParams& save_page_params,
     std::unique_ptr<OfflinePageArchiver> archiver,
     const SavePageCallback& save_callback) {
   DCHECK(offline_page_model_);
-  offline_page_model_->SavePage(url, client_id, proposed_offline_id,
-                                std::move(archiver), save_callback);
+  offline_page_model_->SavePage(
+      save_page_params, std::move(archiver), save_callback);
 }
 
 PrerenderingLoader* PrerenderingOffliner::GetOrCreateLoader() {

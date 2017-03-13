@@ -10,8 +10,10 @@
 
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
+#include "components/subresource_filter/content/common/document_load_statistics.h"
 #include "components/subresource_filter/core/common/activation_state.h"
 #include "content/public/renderer/render_frame_observer.h"
+#include "url/gurl.h"
 
 class GURL;
 
@@ -55,8 +57,14 @@ class SubresourceFilterAgent
   // the most recently committed load. Not called if all resources are allowed.
   virtual void SignalFirstSubresourceDisallowedForCommittedLoad();
 
+  // Sends statistics about the DocumentSubresourceFilter's work to the browser.
+  virtual void SendDocumentLoadStatistics(
+      const DocumentLoadStatistics& statistics);
+
  private:
-  void ActivateForProvisionalLoad(ActivationState activation_state);
+  void OnActivateForProvisionalLoad(ActivationState activation_state,
+                                    const GURL& url,
+                                    bool measure_performance);
   void RecordHistogramsOnLoadCommitted();
   void RecordHistogramsOnLoadFinished();
 
@@ -72,6 +80,8 @@ class SubresourceFilterAgent
   RulesetDealer* ruleset_dealer_;
 
   ActivationState activation_state_for_provisional_load_;
+  GURL url_for_provisional_load_;
+  bool measure_performance_ = false;
   base::WeakPtr<DocumentSubresourceFilter> filter_for_last_committed_load_;
 
   DISALLOW_COPY_AND_ASSIGN(SubresourceFilterAgent);

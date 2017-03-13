@@ -68,8 +68,9 @@ static float resolveHeightForRatio(float width,
 }
 
 FloatSize LayoutSVGImage::calculateObjectSize() const {
-  ImageResource* cachedImage = m_imageResource->cachedImage();
-  if (!cachedImage || cachedImage->errorOccurred())
+  ImageResourceContent* cachedImage = m_imageResource->cachedImage();
+  if (!cachedImage || cachedImage->errorOccurred() ||
+      !cachedImage->isSizeAvailable())
     return m_objectBoundingBox.size();
 
   FloatSize intrinsicSize = FloatSize(cachedImage->getImage()->size());
@@ -88,7 +89,7 @@ FloatSize LayoutSVGImage::calculateObjectSize() const {
 }
 
 bool LayoutSVGImage::updateBoundingBox() {
-  FloatRect oldBoundaries = m_objectBoundingBox;
+  FloatRect oldObjectBoundingBox = m_objectBoundingBox;
 
   SVGLengthContext lengthContext(element());
   m_objectBoundingBox =
@@ -104,11 +105,15 @@ bool LayoutSVGImage::updateBoundingBox() {
   if (styleRef().width().isAuto() || styleRef().height().isAuto())
     m_objectBoundingBox.setSize(calculateObjectSize());
 
-  m_needsBoundariesUpdate |= oldBoundaries != m_objectBoundingBox;
+  if (oldObjectBoundingBox != m_objectBoundingBox) {
+    setShouldDoFullPaintInvalidation();
+    m_needsBoundariesUpdate = true;
+  }
+
   if (element())
     element()->setNeedsResizeObserverUpdate();
 
-  return oldBoundaries.size() != m_objectBoundingBox.size();
+  return oldObjectBoundingBox.size() != m_objectBoundingBox.size();
 }
 
 void LayoutSVGImage::layout() {
@@ -123,16 +128,15 @@ void LayoutSVGImage::layout() {
 
   bool updateParentBoundaries = false;
   if (m_needsTransformUpdate) {
-    m_localTransform =
-        toSVGImageElement(element())->calculateAnimatedLocalTransform();
+    m_localTransform = toSVGImageElement(element())->calculateTransform(
+        SVGElement::IncludeMotionTransform);
     m_needsTransformUpdate = false;
     updateParentBoundaries = true;
   }
 
   if (m_needsBoundariesUpdate) {
-    m_paintInvalidationBoundingBox = m_objectBoundingBox;
-    SVGLayoutSupport::intersectPaintInvalidationRectWithResources(
-        this, m_paintInvalidationBoundingBox);
+    m_localVisualRect = m_objectBoundingBox;
+    SVGLayoutSupport::adjustVisualRectWithResources(this, m_localVisualRect);
     m_needsBoundariesUpdate = false;
     updateParentBoundaries = true;
   }
@@ -161,7 +165,7 @@ bool LayoutSVGImage::nodeAtFloatPoint(HitTestResult& result,
   PointerEventsHitRules hitRules(PointerEventsHitRules::SVG_IMAGE_HITTESTING,
                                  result.hitTestRequest(),
                                  style()->pointerEvents());
-  bool isVisible = (style()->visibility() == EVisibility::Visible);
+  bool isVisible = (style()->visibility() == EVisibility::kVisible);
   if (isVisible || !hitRules.requireVisible) {
     FloatPoint localPoint;
     if (!SVGLayoutSupport::transformToUserSpaceAndCheckClipping(
@@ -170,7 +174,7 @@ bool LayoutSVGImage::nodeAtFloatPoint(HitTestResult& result,
 
     if (hitRules.canHitFill || hitRules.canHitBoundingBox) {
       if (m_objectBoundingBox.contains(localPoint)) {
-        const LayoutPoint& localLayoutPoint = roundedLayoutPoint(localPoint);
+        const LayoutPoint& localLayoutPoint = LayoutPoint(localPoint);
         updateHitTestResult(result, localLayoutPoint);
         if (result.addNodeToListBasedTestResult(element(), localLayoutPoint) ==
             StopHitTesting)
@@ -202,7 +206,7 @@ void LayoutSVGImage::addOutlineRects(Vector<LayoutRect>& rects,
                                      IncludeBlockVisualOverflowOrNot) const {
   // this is called from paint() after the localTransform has already been
   // applied
-  rects.append(LayoutRect(paintInvalidationRectInLocalSVGCoordinates()));
+  rects.push_back(LayoutRect(visualRectInLocalSVGCoordinates()));
 }
 
 }  // namespace blink

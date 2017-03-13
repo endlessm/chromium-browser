@@ -24,13 +24,11 @@
 #include "core/css/resolver/ElementStyleResources.h"
 
 #include "core/CSSPropertyNames.h"
-#include "core/css/CSSCursorImageValue.h"
 #include "core/css/CSSGradientValue.h"
 #include "core/css/CSSImageValue.h"
 #include "core/css/CSSURIValue.h"
 #include "core/dom/Document.h"
 #include "core/fetch/ResourceFetcher.h"
-#include "core/layout/svg/ReferenceFilterBuilder.h"
 #include "core/style/ComputedStyle.h"
 #include "core/style/ContentData.h"
 #include "core/style/CursorData.h"
@@ -42,6 +40,7 @@
 #include "core/style/StyleImage.h"
 #include "core/style/StyleInvalidImage.h"
 #include "core/style/StylePendingImage.h"
+#include "core/svg/SVGElementProxy.h"
 
 namespace blink {
 
@@ -60,9 +59,6 @@ StyleImage* ElementStyleResources::styleImage(CSSPropertyID property,
 
   if (value.isImageSetValue())
     return setOrPendingFromValue(property, toCSSImageSetValue(value));
-
-  if (value.isCursorImageValue())
-    return cursorOrPendingFromValue(property, toCSSCursorImageValue(value));
 
   return nullptr;
 }
@@ -98,46 +94,23 @@ StyleImage* ElementStyleResources::cachedOrPendingFromValue(
   return value.cachedImage();
 }
 
-StyleImage* ElementStyleResources::cursorOrPendingFromValue(
-    CSSPropertyID property,
-    const CSSCursorImageValue& value) {
-  if (value.isCachePending(m_deviceScaleFactor)) {
-    m_pendingImageProperties.add(property);
-    return StylePendingImage::create(value);
-  }
-  return value.cachedImage(m_deviceScaleFactor);
-}
-
-void ElementStyleResources::addPendingSVGDocument(
-    FilterOperation* filterOperation,
-    const CSSURIValue* cssUriValue) {
-  m_pendingSVGDocuments.set(filterOperation, cssUriValue);
+SVGElementProxy& ElementStyleResources::cachedOrPendingFromValue(
+    const CSSURIValue& value) {
+  return value.ensureElementProxy(*m_document);
 }
 
 void ElementStyleResources::loadPendingSVGDocuments(
     ComputedStyle* computedStyle) {
-  if (!computedStyle->hasFilter() || m_pendingSVGDocuments.isEmpty())
+  if (!computedStyle->hasFilter())
     return;
-
   FilterOperations::FilterOperationVector& filterOperations =
       computedStyle->mutableFilter().operations();
-  for (unsigned i = 0; i < filterOperations.size(); ++i) {
-    FilterOperation* filterOperation = filterOperations.at(i);
-    if (filterOperation->type() == FilterOperation::REFERENCE) {
-      ReferenceFilterOperation* referenceFilter =
-          toReferenceFilterOperation(filterOperation);
-
-      const CSSURIValue* value = m_pendingSVGDocuments.get(referenceFilter);
-      if (!value)
-        continue;
-      DocumentResource* resource = value->load(*m_document);
-      if (!resource)
-        continue;
-
-      // Stash the DocumentResource on the reference filter.
-      ReferenceFilterBuilder::setDocumentResourceReference(
-          referenceFilter, new DocumentResourceReference(resource));
-    }
+  for (auto& filterOperation : filterOperations) {
+    if (filterOperation->type() != FilterOperation::REFERENCE)
+      continue;
+    ReferenceFilterOperation& referenceOperation =
+        toReferenceFilterOperation(*filterOperation);
+    referenceOperation.elementProxy().resolve(*m_document);
   }
 }
 
@@ -159,10 +132,6 @@ StyleImage* ElementStyleResources::loadPendingImage(
     imageGeneratorValue->loadSubimages(*m_document);
     return StyleGeneratedImage::create(*imageGeneratorValue);
   }
-
-  if (CSSCursorImageValue* cursorImageValue =
-          pendingImage->cssCursorImageValue())
-    return cursorImageValue->cacheImage(*m_document, m_deviceScaleFactor);
 
   if (CSSImageSetValue* imageSetValue = pendingImage->cssImageSetValue())
     return imageSetValue->cacheImage(*m_document, m_deviceScaleFactor,

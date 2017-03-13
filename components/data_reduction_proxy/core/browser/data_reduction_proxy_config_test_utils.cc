@@ -54,7 +54,8 @@ TestDataReductionProxyConfig::TestDataReductionProxyConfig(
       tick_clock_(nullptr),
       network_quality_prohibitively_slow_set_(false),
       network_quality_prohibitively_slow_(false),
-      lofi_accuracy_recording_intervals_set_(false) {
+      lofi_accuracy_recording_intervals_set_(false),
+      is_captive_portal_(false) {
   network_interfaces_.reset(new net::NetworkInterfaceList());
 }
 
@@ -87,13 +88,6 @@ TestDataReductionProxyParams* TestDataReductionProxyConfig::test_params() {
 
 DataReductionProxyConfigValues* TestDataReductionProxyConfig::config_values() {
   return config_values_.get();
-}
-
-void TestDataReductionProxyConfig::SetStateForTest(
-    bool enabled_by_user,
-    bool secure_proxy_allowed) {
-  enabled_by_user_ = enabled_by_user;
-  secure_proxy_allowed_ = secure_proxy_allowed;
 }
 
 void TestDataReductionProxyConfig::ResetLoFiStatusForTest() {
@@ -129,6 +123,42 @@ base::TimeTicks TestDataReductionProxyConfig::GetTicksNow() const {
   return DataReductionProxyConfig::GetTicksNow();
 }
 
+bool TestDataReductionProxyConfig::WasDataReductionProxyUsed(
+    const net::URLRequest* request,
+    DataReductionProxyTypeInfo* proxy_info) const {
+  if (was_data_reduction_proxy_used_ &&
+      !was_data_reduction_proxy_used_.value()) {
+    return false;
+  }
+  bool was_data_reduction_proxy_used =
+      DataReductionProxyConfig::WasDataReductionProxyUsed(request, proxy_info);
+  if (proxy_info && was_data_reduction_proxy_used && proxy_index_)
+    proxy_info->proxy_index = proxy_index_.value();
+  return was_data_reduction_proxy_used;
+}
+
+void TestDataReductionProxyConfig::SetWasDataReductionProxyNotUsed() {
+  was_data_reduction_proxy_used_ = false;
+}
+
+void TestDataReductionProxyConfig::SetWasDataReductionProxyUsedProxyIndex(
+    int proxy_index) {
+  proxy_index_ = proxy_index;
+}
+
+void TestDataReductionProxyConfig::ResetWasDataReductionProxyUsed() {
+  was_data_reduction_proxy_used_.reset();
+  proxy_index_.reset();
+}
+
+void TestDataReductionProxyConfig::SetIsCaptivePortal(bool is_captive_portal) {
+  is_captive_portal_ = is_captive_portal;
+}
+
+bool TestDataReductionProxyConfig::GetIsCaptivePortal() const {
+  return is_captive_portal_;
+}
+
 MockDataReductionProxyConfig::MockDataReductionProxyConfig(
     std::unique_ptr<DataReductionProxyConfigValues> config_values,
     scoped_refptr<base::SingleThreadTaskRunner> io_task_runner,
@@ -142,12 +172,6 @@ MockDataReductionProxyConfig::MockDataReductionProxyConfig(
                                    event_creator) {}
 
 MockDataReductionProxyConfig::~MockDataReductionProxyConfig() {
-}
-
-void MockDataReductionProxyConfig::UpdateConfigurator(
-    bool enabled,
-    bool secure_proxy_allowed) {
-  DataReductionProxyConfig::UpdateConfigurator(enabled, secure_proxy_allowed);
 }
 
 void MockDataReductionProxyConfig::ResetLoFiStatusForTest() {

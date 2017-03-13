@@ -8,13 +8,16 @@
 #define NET_TOOLS_QUIC_QUIC_PACKET_READER_H_
 
 #include <netinet/in.h>
+// Include here to guarantee this header gets included (for MSG_WAITFORONE)
+// regardless of how the below transitive header include set may change.
 #include <sys/socket.h>
 
 #include "base/macros.h"
-#include "net/quic/core/quic_clock.h"
-#include "net/quic/core/quic_protocol.h"
+#include "net/quic/core/quic_packets.h"
+#include "net/quic/platform/api/quic_clock.h"
+#include "net/quic/platform/api/quic_socket_address.h"
+#include "net/tools/quic/platform/impl/quic_socket_utils.h"
 #include "net/tools/quic/quic_process_packet_interface.h"
-#include "net/tools/quic/quic_socket_utils.h"
 
 #define MMSG_MORE 0
 
@@ -24,12 +27,6 @@ namespace net {
 // Read in larger batches to minimize recvmmsg overhead.
 const int kNumPacketsPerReadMmsgCall = 16;
 #endif
-
-namespace test {
-class QuicServerPeer;
-}  // namespace test
-
-class QuicDispatcher;
 
 class QuicPacketReader {
  public:
@@ -44,11 +41,8 @@ class QuicPacketReader {
   // to track dropped packets and some packets are read.
   // If the socket has timestamping enabled, the per packet timestamps will be
   // passed to the processor. Otherwise, |clock| will be used.
-  // If |potentially_small_mtu| is set, the incoming packets have been
-  // identified as potentially having an unusually small MTU.
   virtual bool ReadAndDispatchPackets(int fd,
                                       int port,
-                                      bool potentially_small_mtu,
                                       const QuicClock& clock,
                                       ProcessPacketInterface* processor,
                                       QuicPacketCount* packets_dropped);
@@ -60,7 +54,6 @@ class QuicPacketReader {
   // Reads and dispatches many packets using recvmmsg.
   bool ReadAndDispatchManyPackets(int fd,
                                   int port,
-                                  bool potentially_small_mtu,
                                   const QuicClock& clock,
                                   ProcessPacketInterface* processor,
                                   QuicPacketCount* packets_dropped);
@@ -68,7 +61,6 @@ class QuicPacketReader {
   // Reads and dispatches a single packet using recvmsg.
   static bool ReadAndDispatchSinglePacket(int fd,
                                           int port,
-                                          bool potentially_small_mtu,
                                           const QuicClock& clock,
                                           ProcessPacketInterface* processor,
                                           QuicPacketCount* packets_dropped);

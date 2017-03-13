@@ -26,6 +26,7 @@
 #include "cc/layers/layer.h"
 #include "cc/output/copy_output_request.h"
 #include "cc/output/copy_output_result.h"
+#include "cc/surfaces/sequence_surface_reference_factory.h"
 #include "cc/surfaces/surface_id.h"
 #include "cc/surfaces/surface_sequence.h"
 #include "cc/test/pixel_test_utils.h"
@@ -87,10 +88,6 @@ class ColoredLayer : public Layer, public LayerDelegate {
 
   void OnDeviceScaleFactorChanged(float device_scale_factor) override {}
 
-  base::Closure PrepareForLayerBoundsChange() override {
-    return base::Closure();
-  }
-
  private:
   SkColor color_;
 };
@@ -101,7 +98,6 @@ class DrawStringLayerDelegate : public LayerDelegate {
   enum DrawFunction {
     STRING_WITH_HALO,
     STRING_FADED,
-    STRING_WITH_SHADOWS
   };
 
   DrawStringLayerDelegate(
@@ -130,14 +126,6 @@ class DrawStringLayerDelegate : public LayerDelegate {
         recorder.canvas()->DrawFadedString(
             text, font_list_, SK_ColorRED, bounds, 0);
         break;
-      case STRING_WITH_SHADOWS: {
-        gfx::ShadowValues shadows;
-        shadows.push_back(
-            gfx::ShadowValue(gfx::Vector2d(2, 2), 2, SK_ColorRED));
-        recorder.canvas()->DrawStringRectWithShadows(
-            text, font_list_, SK_ColorRED, bounds, 0, 0, shadows);
-        break;
-      }
       default:
         NOTREACHED();
     }
@@ -146,10 +134,6 @@ class DrawStringLayerDelegate : public LayerDelegate {
   void OnDelegatedFrameDamage(const gfx::Rect& damage_rect_in_dip) override {}
 
   void OnDeviceScaleFactorChanged(float device_scale_factor) override {}
-
-  base::Closure PrepareForLayerBoundsChange() override {
-    return base::Closure();
-  }
 
  private:
   const SkColor background_color_;
@@ -176,12 +160,14 @@ class LayerWithRealCompositorTest : public testing::Test {
   // Overridden from testing::Test:
   void SetUp() override {
     bool enable_pixel_output = true;
-    ui::ContextFactory* context_factory =
-        InitializeContextFactoryForTests(enable_pixel_output);
+    ui::ContextFactory* context_factory = nullptr;
+    ui::ContextFactoryPrivate* context_factory_private = nullptr;
+    InitializeContextFactoryForTests(enable_pixel_output, &context_factory,
+                                     &context_factory_private);
 
     const gfx::Rect host_bounds(10, 10, 500, 500);
-    compositor_host_.reset(
-        TestCompositorHost::Create(host_bounds, context_factory));
+    compositor_host_.reset(TestCompositorHost::Create(
+        host_bounds, context_factory, context_factory_private));
     compositor_host_->Show();
   }
 
@@ -339,10 +325,6 @@ class TestLayerDelegate : public LayerDelegate {
     device_scale_factor_ = device_scale_factor;
   }
 
-  base::Closure PrepareForLayerBoundsChange() override {
-    return base::Closure();
-  }
-
   void reset() {
     color_index_ = 0;
     device_scale_factor_ = 0.0f;
@@ -379,9 +361,6 @@ class DrawTreeLayerDelegate : public LayerDelegate {
   }
   void OnDelegatedFrameDamage(const gfx::Rect& damage_rect_in_dip) override {}
   void OnDeviceScaleFactorChanged(float device_scale_factor) override {}
-  base::Closure PrepareForLayerBoundsChange() override {
-    return base::Closure();
-  }
 
   bool painted_;
   const gfx::Rect layer_bounds_;
@@ -400,9 +379,6 @@ class NullLayerDelegate : public LayerDelegate {
   void OnPaintLayer(const ui::PaintContext& context) override {}
   void OnDelegatedFrameDamage(const gfx::Rect& damage_rect_in_dip) override {}
   void OnDeviceScaleFactorChanged(float device_scale_factor) override {}
-  base::Closure PrepareForLayerBoundsChange() override {
-    return base::Closure();
-  }
 
   DISALLOW_COPY_AND_ASSIGN(NullLayerDelegate);
 };
@@ -410,18 +386,15 @@ class NullLayerDelegate : public LayerDelegate {
 // Remembers if it has been notified.
 class TestCompositorObserver : public CompositorObserver {
  public:
-  TestCompositorObserver()
-      : committed_(false), started_(false), ended_(false), aborted_(false) {}
+  TestCompositorObserver() = default;
 
   bool committed() const { return committed_; }
   bool notified() const { return started_ && ended_; }
-  bool aborted() const { return aborted_; }
 
   void Reset() {
     committed_ = false;
     started_ = false;
     ended_ = false;
-    aborted_ = false;
   }
 
  private:
@@ -436,18 +409,13 @@ class TestCompositorObserver : public CompositorObserver {
 
   void OnCompositingEnded(Compositor* compositor) override { ended_ = true; }
 
-  void OnCompositingAborted(Compositor* compositor) override {
-    aborted_ = true;
-  }
-
   void OnCompositingLockStateChanged(Compositor* compositor) override {}
 
   void OnCompositingShuttingDown(Compositor* compositor) override {}
 
-  bool committed_;
-  bool started_;
-  bool ended_;
-  bool aborted_;
+  bool committed_ = false;
+  bool started_ = false;
+  bool ended_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(TestCompositorObserver);
 };
@@ -528,12 +496,15 @@ class LayerWithDelegateTest : public testing::Test {
   // Overridden from testing::Test:
   void SetUp() override {
     bool enable_pixel_output = false;
-    ui::ContextFactory* context_factory =
-        InitializeContextFactoryForTests(enable_pixel_output);
+    ui::ContextFactory* context_factory = nullptr;
+    ui::ContextFactoryPrivate* context_factory_private = nullptr;
+
+    InitializeContextFactoryForTests(enable_pixel_output, &context_factory,
+                                     &context_factory_private);
 
     const gfx::Rect host_bounds(1000, 1000);
-    compositor_host_.reset(TestCompositorHost::Create(host_bounds,
-                                                      context_factory));
+    compositor_host_.reset(TestCompositorHost::Create(
+        host_bounds, context_factory, context_factory_private));
     compositor_host_->Show();
   }
 
@@ -950,7 +921,7 @@ TEST_F(LayerWithNullDelegateTest, EscapedDebugNames) {
   base::JSONReader json_reader;
   std::unique_ptr<base::Value> debug_info_value(json_reader.ReadToValue(json));
   EXPECT_TRUE(debug_info_value);
-  EXPECT_TRUE(debug_info_value->IsType(base::Value::TYPE_DICTIONARY));
+  EXPECT_TRUE(debug_info_value->IsType(base::Value::Type::DICTIONARY));
   base::DictionaryValue* dictionary = 0;
   EXPECT_TRUE(debug_info_value->GetAsDictionary(&dictionary));
   std::string roundtrip;
@@ -1396,15 +1367,6 @@ TEST_F(LayerWithRealCompositorTest, CompositorObservers) {
   WaitForSwap();
   EXPECT_TRUE(observer.notified());
 
-  // A change resulting in an aborted swap buffer should alert the observer
-  // and also signal an abort.
-  observer.Reset();
-  l2->SetOpacity(0.1f);
-  GetCompositor()->DidAbortSwapBuffers();
-  WaitForSwap();
-  EXPECT_TRUE(observer.notified());
-  EXPECT_TRUE(observer.aborted());
-
   GetCompositor()->RemoveObserver(&observer);
 
   // Opacity changes should no longer alert the removed observer.
@@ -1555,41 +1517,6 @@ TEST_F(LayerWithRealCompositorTest, CanvasDrawFadedString) {
                                  large_error_allowed,
                                  small_error_allowed)));
 }
-
-TEST_F(LayerWithRealCompositorTest, CanvasDrawStringRectWithShadows) {
-  gfx::Size size(50, 50);
-  GetCompositor()->SetScaleAndSize(1.0f, size);
-  DrawStringLayerDelegate delegate(
-      SK_ColorBLUE, SK_ColorWHITE,
-      DrawStringLayerDelegate::STRING_WITH_SHADOWS,
-      size);
-  std::unique_ptr<Layer> layer(
-      CreateDrawStringLayer(gfx::Rect(size), &delegate));
-  DrawTree(layer.get());
-
-  SkBitmap bitmap;
-  ReadPixels(&bitmap);
-  ASSERT_FALSE(bitmap.empty());
-
-  base::FilePath ref_img =
-      test_data_directory().AppendASCII("string_with_shadows.png");
-  // WritePNGFile(bitmap, ref_img, true);
-
-  float percentage_pixels_large_error = 7.4f;  // 185px / (50*50)
-  float percentage_pixels_small_error = 0.0f;
-  float average_error_allowed_in_bad_pixels = 60.f;
-  int large_error_allowed = 246;
-  int small_error_allowed = 0;
-
-  EXPECT_TRUE(MatchesPNGFile(bitmap, ref_img,
-                             cc::FuzzyPixelComparator(
-                                 true,
-                                 percentage_pixels_large_error,
-                                 percentage_pixels_small_error,
-                                 average_error_allowed_in_bad_pixels,
-                                 large_error_allowed,
-                                 small_error_allowed)));
-}
 #endif  // defined(OS_WIN)
 
 // Opacity is rendered correctly.
@@ -1655,10 +1582,6 @@ class SchedulePaintLayerDelegate : public LayerDelegate {
   void OnDelegatedFrameDamage(const gfx::Rect& damage_rect_in_dip) override {}
 
   void OnDeviceScaleFactorChanged(float device_scale_factor) override {}
-
-  base::Closure PrepareForLayerBoundsChange() override {
-    return base::Closure();
-  }
 
   int paint_count_;
   Layer* layer_;
@@ -1848,9 +1771,20 @@ TEST_F(LayerWithDelegateTest, SetBoundsWhenInvisible) {
 
 namespace {
 
-void FakeSatisfyCallback(const cc::SurfaceSequence&) {}
+class TestSurfaceReferenceFactory : public cc::SequenceSurfaceReferenceFactory {
+ public:
+  TestSurfaceReferenceFactory() = default;
 
-void FakeRequireCallback(const cc::SurfaceId&, const cc::SurfaceSequence&) {}
+ private:
+  ~TestSurfaceReferenceFactory() override = default;
+
+  // cc::SequenceSurfaceReferenceFactory implementation:
+  void SatisfySequence(const cc::SurfaceSequence& seq) const override {}
+  void RequireSequence(const cc::SurfaceId& id,
+                       const cc::SurfaceSequence& seq) const override {}
+
+  DISALLOW_COPY_AND_ASSIGN(TestSurfaceReferenceFactory);
+};
 
 }  // namespace
 
@@ -1872,9 +1806,9 @@ TEST_F(LayerWithDelegateTest, ExternalContent) {
 
   // Showing surface content changes the underlying cc layer.
   before = child->cc_layer_for_testing();
-  child->SetShowSurface(cc::SurfaceId(), base::Bind(&FakeSatisfyCallback),
-                        base::Bind(&FakeRequireCallback), gfx::Size(10, 10),
-                        1.0, gfx::Size(10, 10));
+  child->SetShowSurface(
+      cc::SurfaceInfo(cc::SurfaceId(), 1.0, gfx::Size(10, 10)),
+      new TestSurfaceReferenceFactory());
   EXPECT_TRUE(child->cc_layer_for_testing());
   EXPECT_NE(before.get(), child->cc_layer_for_testing());
 
@@ -1888,36 +1822,45 @@ TEST_F(LayerWithDelegateTest, ExternalContent) {
 TEST_F(LayerWithDelegateTest, ExternalContentMirroring) {
   std::unique_ptr<Layer> layer(CreateLayer(LAYER_SOLID_COLOR));
 
-  const auto satisfy_callback = base::Bind(&FakeSatisfyCallback);
-  const auto require_callback = base::Bind(&FakeRequireCallback);
-
-  cc::SurfaceId surface_id(cc::FrameSinkId(0, 1), cc::LocalFrameId(2, 3));
-  layer->SetShowSurface(surface_id, satisfy_callback, require_callback,
-                        gfx::Size(10, 10), 1.0f, gfx::Size(10, 10));
+  cc::SurfaceId surface_id(
+      cc::FrameSinkId(0, 1),
+      cc::LocalFrameId(2, base::UnguessableToken::Create()));
+  cc::SurfaceInfo surface_info(surface_id, 1.0f, gfx::Size(10, 10));
+  layer->SetShowSurface(surface_info, new TestSurfaceReferenceFactory());
 
   const auto mirror = layer->Mirror();
   auto* const cc_layer = mirror->cc_layer_for_testing();
   const auto* surface = static_cast<cc::SurfaceLayer*>(cc_layer);
 
   // Mirroring preserves surface state.
-  EXPECT_EQ(surface_id, surface->surface_id());
-  EXPECT_TRUE(satisfy_callback.Equals(surface->satisfy_callback()));
-  EXPECT_TRUE(require_callback.Equals(surface->require_callback()));
-  EXPECT_EQ(gfx::Size(10, 10), surface->surface_size());
-  EXPECT_EQ(1.0f, surface->surface_scale());
+  EXPECT_EQ(surface_info, surface->surface_info());
 
-  surface_id = cc::SurfaceId(cc::FrameSinkId(1, 2), cc::LocalFrameId(3, 4));
-  layer->SetShowSurface(surface_id, satisfy_callback, require_callback,
-                        gfx::Size(20, 20), 2.0f, gfx::Size(20, 20));
+  surface_id =
+      cc::SurfaceId(cc::FrameSinkId(1, 2),
+                    cc::LocalFrameId(3, base::UnguessableToken::Create()));
+  cc::SurfaceInfo surface_info_2(surface_id, 2.0f, gfx::Size(20, 20));
+  layer->SetShowSurface(surface_info_2, new TestSurfaceReferenceFactory());
 
   // A new cc::Layer should be created for the mirror.
   EXPECT_NE(cc_layer, mirror->cc_layer_for_testing());
   surface = static_cast<cc::SurfaceLayer*>(mirror->cc_layer_for_testing());
 
   // Surface updates propagate to the mirror.
-  EXPECT_EQ(surface_id, surface->surface_id());
-  EXPECT_EQ(gfx::Size(20, 20), surface->surface_size());
-  EXPECT_EQ(2.0f, surface->surface_scale());
+  EXPECT_EQ(surface_info_2, surface->surface_info());
+}
+
+// Test if frame size in dip is properly calculated in SetShowSurface
+TEST_F(LayerWithDelegateTest, FrameSizeInDip) {
+  std::unique_ptr<Layer> layer(CreateLayer(LAYER_SOLID_COLOR));
+
+  cc::SurfaceId surface_id(
+      cc::FrameSinkId(0, 1),
+      cc::LocalFrameId(2, base::UnguessableToken::Create()));
+
+  layer->SetShowSurface(cc::SurfaceInfo(surface_id, 2.0f, gfx::Size(30, 40)),
+                        new TestSurfaceReferenceFactory());
+
+  EXPECT_EQ(layer->frame_size_in_dip_for_testing(), gfx::Size(15, 20));
 }
 
 // Verifies that layer filters still attached after changing implementation
@@ -1934,9 +1877,9 @@ TEST_F(LayerWithDelegateTest, LayerFiltersSurvival) {
 
   // Showing surface content changes the underlying cc layer.
   scoped_refptr<cc::Layer> before = layer->cc_layer_for_testing();
-  layer->SetShowSurface(cc::SurfaceId(), base::Bind(&FakeSatisfyCallback),
-                        base::Bind(&FakeRequireCallback), gfx::Size(10, 10),
-                        1.0, gfx::Size(10, 10));
+  layer->SetShowSurface(
+      cc::SurfaceInfo(cc::SurfaceId(), 1.0, gfx::Size(10, 10)),
+      new TestSurfaceReferenceFactory());
   EXPECT_EQ(layer->layer_grayscale(), 0.5f);
   EXPECT_TRUE(layer->cc_layer_for_testing());
   EXPECT_NE(before.get(), layer->cc_layer_for_testing());
@@ -2175,10 +2118,11 @@ TEST_F(LayerWithDelegateTest, NonAnimatingAnimatorsAreRemovedFromCollection) {
   LayerRemovingLayerAnimationObserver observer(root.get(), parent.get());
   child->GetAnimator()->AddObserver(&observer);
 
-  LayerAnimationElement* element =
+  std::unique_ptr<LayerAnimationElement> element =
       ui::LayerAnimationElement::CreateOpacityElement(
           0.5f, base::TimeDelta::FromSeconds(1));
-  LayerAnimationSequence* sequence = new LayerAnimationSequence(element);
+  LayerAnimationSequence* sequence =
+      new LayerAnimationSequence(std::move(element));
 
   child->GetAnimator()->StartAnimation(sequence);
   EXPECT_TRUE(compositor()->layer_animator_collection()->HasActiveAnimators());
@@ -2257,9 +2201,9 @@ TEST(LayerDelegateTest, DelegatedFrameDamage) {
 
   FrameDamageCheckingDelegate delegate;
   layer->set_delegate(&delegate);
-  layer->SetShowSurface(cc::SurfaceId(), base::Bind(&FakeSatisfyCallback),
-                        base::Bind(&FakeRequireCallback), gfx::Size(10, 10),
-                        1.0, gfx::Size(10, 10));
+  layer->SetShowSurface(
+      cc::SurfaceInfo(cc::SurfaceId(), 1.0, gfx::Size(10, 10)),
+      new TestSurfaceReferenceFactory());
 
   EXPECT_FALSE(delegate.delegated_frame_damage_called());
   layer->OnDelegatedFrameDamage(damage_rect);
@@ -2282,6 +2226,17 @@ TEST_F(LayerWithRealCompositorTest, CompositorAnimationObserverTest) {
   EXPECT_FALSE(animation_observer.shutdown());
   ResetCompositor();
   EXPECT_TRUE(animation_observer.shutdown());
+}
+
+TEST(LayerDebugInfoTest, LayerNameDoesNotClobber) {
+  Layer layer(LAYER_NOT_DRAWN);
+  layer.set_name("foo");
+  std::unique_ptr<base::trace_event::ConvertableToTraceFormat> debug_info =
+      layer.TakeDebugInfo(nullptr);
+  std::string trace_format("bar,");
+  debug_info->AppendAsTraceFormat(&trace_format);
+  std::string expected("bar,{\"layer_name\":\"foo\"}");
+  EXPECT_EQ(expected, trace_format);
 }
 
 }  // namespace ui

@@ -28,8 +28,8 @@ import shlex
 import shutil
 import time
 
-from chromite.cbuildbot import constants
-from chromite.cbuildbot import failures_lib
+from chromite.lib import constants
+from chromite.lib import failures_lib
 from chromite.cli.cros import cros_chrome_sdk
 from chromite.lib import chrome_util
 from chromite.lib import commandline
@@ -100,10 +100,7 @@ class DeployChrome(object):
                                         ping=options.ping)
     self._target_dir_is_still_readonly = multiprocessing.Event()
 
-    if self.options.mash:
-      self.copy_paths = chrome_util.GetCopyPaths('mash')
-    else:
-      self.copy_paths = chrome_util.GetCopyPaths('chrome')
+    self.copy_paths = chrome_util.GetCopyPaths('chrome')
     self.chrome_dir = _CHROME_DIR
 
   def _GetRemoteMountFree(self, remote_dir):
@@ -284,13 +281,11 @@ class DeployChrome(object):
 
       # Handle non-Chrome deployments.
       if not BinaryExists('chrome'):
-        if BinaryExists('envoy_shell'):
-          self.copy_paths = chrome_util.GetCopyPaths('envoy')
-        elif BinaryExists('app_shell'):
+        if BinaryExists('app_shell'):
           self.copy_paths = chrome_util.GetCopyPaths('app_shell')
 
         # TODO(derat): Update _Deploy() and remove this after figuring out how
-        # {app,envoy}_shell should be executed.
+        # app_shell should be executed.
         self.options.startui = False
 
   def _PrepareStagingDir(self):
@@ -345,9 +340,9 @@ class DeployChrome(object):
     self._Deploy()
 
 
-def ValidateGypDefines(value):
-  """Convert GYP_DEFINES-formatted string to dictionary."""
-  return chrome_util.ProcessGypDefines(value)
+def ValidateStagingFlags(value):
+  """Convert formatted string to dictionary."""
+  return chrome_util.ProcessShellFlags(value)
 
 
 def ValidateGnArgs(value):
@@ -374,7 +369,7 @@ def _CreateParser():
                       help='The directory with Chrome build artifacts to '
                            'deploy from. Typically of format '
                            '<chrome_root>/out/Debug. When this option is used, '
-                           'the GYP_DEFINES environment variable must be set.')
+                           'the GN_ARGS environment variable must be set.')
   parser.add_argument('--target-dir', type='path',
                       default=None,
                       help='Target directory on device to deploy Chrome into.')
@@ -409,7 +404,7 @@ def _CreateParser():
                      help='Path to local chrome prebuilt package to deploy.')
   group.add_argument('--sloppy', action='store_true', default=False,
                      help='Ignore when mandatory artifacts are missing.')
-  group.add_argument('--staging-flags', default=None, type=ValidateGypDefines,
+  group.add_argument('--staging-flags', default=None, type=ValidateStagingFlags,
                      help=('Extra flags to control staging.  Valid flags are - '
                            '%s' % ', '.join(chrome_util.STAGING_FLAGS)))
   # TODO(stevenjb): Remove --strict entirely once removed from the ebuild.
@@ -422,9 +417,6 @@ def _CreateParser():
                           "Overrides the default arguments.")
   group.add_argument('--ping', action='store_true', default=False,
                      help='Ping the device before connection attempt.')
-  group.add_argument('--mash', action='store_true', default=False,
-                     help='Copy additional files for mus+ash. Will not fit in '
-                          'the default target-dir.')
 
   group = parser.add_argument_group(
       'Metadata Overrides (Advanced)',
@@ -437,10 +429,9 @@ def _CreateParser():
                      help='Override toolchain url format pattern, e.g. '
                           '2014/04/%%(target)s-2014.04.23.220740.tar.xz')
 
-  # GYP_DEFINES that Chrome was built with.  Influences which files are staged
-  # when --build-dir is set.  Defaults to reading from the GYP_DEFINES
-  # enviroment variable. WILL BE DEPRECATED.
-  parser.add_argument('--gyp-defines', default=None, type=ValidateGypDefines,
+  # DEPRECATED: --gyp-defines is ignored, but retained for backwards
+  # compatibility. TODO(stevenjb): Remove once eliminated from the ebuild.
+  parser.add_argument('--gyp-defines', default=None, type=ValidateStagingFlags,
                       help=argparse.SUPPRESS)
 
   # GN_ARGS (args.gn) used to build Chrome. Influences which files are staged
@@ -483,8 +474,11 @@ def _ParseCommandLine(argv):
     parser.error('Need to specify --to')
   if options.staging_flags and not options.build_dir:
     parser.error('--staging-flags require --build-dir to be set.')
+
   if options.strict:
     logging.warning('--strict is deprecated.')
+  if options.gyp_defines:
+    logging.warning('--gyp-defines is deprecated.')
 
   if options.mount or options.mount_dir:
     if not options.target_dir:
@@ -507,13 +501,6 @@ def _PostParseCheck(options):
   """
   if options.local_pkg_path and not os.path.isfile(options.local_pkg_path):
     cros_build_lib.Die('%s is not a file.', options.local_pkg_path)
-
-  if not options.gyp_defines:
-    gyp_env = os.getenv('GYP_DEFINES')
-    if gyp_env is not None:
-      options.gyp_defines = chrome_util.ProcessGypDefines(gyp_env)
-      logging.info('GYP_DEFINES taken from environment: %s',
-                   options.gyp_defines)
 
   if not options.gn_args:
     gn_env = os.getenv('GN_ARGS')
@@ -597,7 +584,7 @@ def _PrepareStagingDir(options, tempdir, staging_dir, copy_paths=None,
                      shlex.split(options.strip_flags))
       chrome_util.StageChromeFromBuildDir(
           staging_dir, options.build_dir, strip_bin,
-          sloppy=options.sloppy, gyp_defines=options.gyp_defines,
+          sloppy=options.sloppy, gn_args=options.gn_args,
           staging_flags=options.staging_flags,
           strip_flags=strip_flags, copy_paths=copy_paths)
   else:

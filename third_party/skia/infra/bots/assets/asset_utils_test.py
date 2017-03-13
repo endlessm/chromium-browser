@@ -127,38 +127,40 @@ class LocalStoreTest(StoreTest):
     self._test_versions(self._store)
 
 
-class CIPDStoreTest(StoreTest):
-  """Test the CIPD store."""
-  def setUp(self):
-    super(CIPDStoreTest, self).setUp()
-    self._store = asset_utils.CIPDStore(cipd_url=CIPD_DEV_SERVICE_URL)
+# This test is disabled due to permissions issues with CIPD.
+#class CIPDStoreTest(StoreTest):
+#  """Test the CIPD store."""
+#  def setUp(self):
+#    super(CIPDStoreTest, self).setUp()
+#    self._store = asset_utils.CIPDStore(cipd_url=CIPD_DEV_SERVICE_URL)
+#
+#  def tearDown(self):
+#    self._store.delete_contents(self.asset_name)
+#    super(CIPDStoreTest, self).tearDown()
+#
+#  def test_upload_download(self):
+#    self._test_upload_download(self._store)
+#
+#  def test_versions(self):
+#    self._test_versions(self._store)
 
-  def tearDown(self):
-    self._store.delete_contents(self.asset_name)
-    super(CIPDStoreTest, self).tearDown()
 
-  def test_upload_download(self):
-    self._test_upload_download(self._store)
-
-  def test_versions(self):
-    self._test_versions(self._store)
-
-
-class GSStoreTest(StoreTest):
-  """Test the GS store."""
-  def setUp(self):
-    super(GSStoreTest, self).setUp()
-    self._store = asset_utils.GSStore(gsutil=None, bucket=GS_BUCKET)
-
-  def tearDown(self):
-    self._store.delete_contents(self.asset_name)
-    super(GSStoreTest, self).tearDown()
-
-  def test_upload_download(self):
-    self._test_upload_download(self._store)
-
-  def test_versions(self):
-    self._test_versions(self._store)
+# This test is disabled because the interactions with GS can be flaky.
+#class GSStoreTest(StoreTest):
+#  """Test the GS store."""
+#  def setUp(self):
+#    super(GSStoreTest, self).setUp()
+#    self._store = asset_utils.GSStore(gsutil=None, bucket=GS_BUCKET)
+#
+#  def tearDown(self):
+#    self._store.delete_contents(self.asset_name)
+#    super(GSStoreTest, self).tearDown()
+#
+#  def test_upload_download(self):
+#    self._test_upload_download(self._store)
+#
+#  def test_versions(self):
+#    self._test_versions(self._store)
 
 
 class AssetTest(unittest.TestCase):

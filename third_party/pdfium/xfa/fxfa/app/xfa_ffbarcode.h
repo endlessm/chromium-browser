@@ -17,13 +17,13 @@ class CXFA_FFBarcode : public CXFA_FFTextEdit {
   ~CXFA_FFBarcode() override;
 
   // CXFA_FFTextEdit
-  FX_BOOL LoadWidget() override;
+  bool LoadWidget() override;
   void RenderWidget(CFX_Graphics* pGS,
                     CFX_Matrix* pMatrix,
                     uint32_t dwStatus) override;
   void UpdateWidgetProperty() override;
-  FX_BOOL OnLButtonDown(uint32_t dwFlags, FX_FLOAT fx, FX_FLOAT fy) override;
-  FX_BOOL OnRButtonDown(uint32_t dwFlags, FX_FLOAT fx, FX_FLOAT fy) override;
+  bool OnLButtonDown(uint32_t dwFlags, FX_FLOAT fx, FX_FLOAT fy) override;
+  bool OnRButtonDown(uint32_t dwFlags, FX_FLOAT fx, FX_FLOAT fy) override;
 };
 
 enum XFA_BARCODETYPEENUM {
@@ -90,12 +90,12 @@ enum XFA_BARCODETYPEENUM {
   XFA_BARCODETYPE_upcean5,
   XFA_BARCODETYPE_upsMaxicode
 };
+
 struct XFA_BARCODETYPEENUMINFO {
   uint32_t uHash;
   const FX_WCHAR* pName;
   XFA_BARCODETYPEENUM eName;
   BC_TYPE eBCType;
 };
-typedef XFA_BARCODETYPEENUMINFO const* XFA_LPCBARCODETYPEENUMINFO;
 
 #endif  // XFA_FXFA_APP_XFA_FFBARCODE_H_

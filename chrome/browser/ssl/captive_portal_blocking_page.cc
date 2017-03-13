@@ -17,16 +17,20 @@
 #include "chrome/browser/captive_portal/captive_portal_tab_helper.h"
 #include "chrome/browser/interstitials/chrome_controller_client.h"
 #include "chrome/browser/interstitials/chrome_metrics_helper.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ssl/cert_report_helper.h"
 #include "chrome/browser/ssl/ssl_cert_reporter.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/captive_portal/captive_portal_detector.h"
 #include "components/certificate_reporting/error_reporter.h"
+#include "components/safe_browsing_db/safe_browsing_prefs.h"
 #include "components/security_interstitials/core/common_string_util.h"
 #include "components/security_interstitials/core/controller_client.h"
 #include "components/security_interstitials/core/metrics_helper.h"
 #include "components/url_formatter/url_formatter.h"
 #include "components/wifi/wifi_service.h"
+#include "content/public/browser/navigation_entry.h"
+#include "content/public/browser/ssl_status.h"
 #include "content/public/browser/web_contents.h"
 #include "net/base/network_change_notifier.h"
 #include "net/base/network_interfaces.h"
@@ -74,10 +78,14 @@ CaptivePortalBlockingPage::CaptivePortalBlockingPage(
     std::unique_ptr<SSLCertReporter> ssl_cert_reporter,
     const net::SSLInfo& ssl_info,
     const base::Callback<void(content::CertificateRequestResultType)>& callback)
-    : SecurityInterstitialPage(web_contents,
-                               request_url,
-                               CreateMetricsHelper(web_contents, request_url)),
+    : SecurityInterstitialPage(
+          web_contents,
+          request_url,
+          base::MakeUnique<ChromeControllerClient>(
+              web_contents,
+              CreateMetricsHelper(web_contents, request_url))),
       login_url_(login_url),
+      ssl_info_(ssl_info),
       callback_(callback) {
   DCHECK(login_url_.is_valid());
 
@@ -85,7 +93,7 @@ CaptivePortalBlockingPage::CaptivePortalBlockingPage(
     cert_report_helper_.reset(new CertReportHelper(
         std::move(ssl_cert_reporter), web_contents, request_url, ssl_info,
         certificate_reporting::ErrorReport::INTERSTITIAL_CAPTIVE_PORTAL, false,
-        nullptr));
+        base::Time::Now(), nullptr));
   }
 
   RecordUMA(SHOW_ALL);
@@ -223,12 +231,21 @@ void CaptivePortalBlockingPage::CommandReceived(const std::string& command) {
       break;
     case security_interstitials::CMD_DO_REPORT:
       controller()->SetReportingPreference(true);
+      safe_browsing::SetExtendedReportingPrefAndMetric(
+          controller()->GetPrefService(), true,
+          safe_browsing::SBER_OPTIN_SITE_SECURITY_INTERSTITIAL);
       break;
     case security_interstitials::CMD_DONT_REPORT:
       controller()->SetReportingPreference(false);
+      safe_browsing::SetExtendedReportingPrefAndMetric(
+          controller()->GetPrefService(), false,
+          safe_browsing::SBER_OPTIN_SITE_SECURITY_INTERSTITIAL);
       break;
     case security_interstitials::CMD_OPEN_REPORTING_PRIVACY:
       controller()->OpenExtendedReportingPrivacyPolicy();
+      break;
+    case security_interstitials::CMD_OPEN_WHITEPAPER:
+      controller()->OpenExtendedReportingWhitepaper();
       break;
     case security_interstitials::CMD_ERROR:
     case security_interstitials::CMD_TEXT_FOUND:
@@ -241,12 +258,17 @@ void CaptivePortalBlockingPage::CommandReceived(const std::string& command) {
   }
 }
 
+void CaptivePortalBlockingPage::OverrideEntry(content::NavigationEntry* entry) {
+  entry->GetSSL() = content::SSLStatus(ssl_info_);
+}
+
 void CaptivePortalBlockingPage::OnProceed() {
   NOTREACHED()
       << "Cannot proceed through the error on a captive portal interstitial.";
 }
 
 void CaptivePortalBlockingPage::OnDontProceed() {
+  UpdateMetricsAfterSecurityInterstitial();
   if (cert_report_helper_) {
     // Finish collecting information about invalid certificates, if the
     // user opted in to.

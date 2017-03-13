@@ -24,9 +24,9 @@ public class BackgroundSchedulerBridge {
     // not receive a callback.
     // TODO(dougarnett): consider adding policy check api to let caller
     //     separately determine if not allowed by policy.
-    public static boolean startProcessing(
+    public static boolean startScheduledProcessing(
             DeviceConditions deviceConditions, Callback<Boolean> callback) {
-        return nativeStartProcessing(deviceConditions.isPowerConnected(),
+        return nativeStartScheduledProcessing(deviceConditions.isPowerConnected(),
                 deviceConditions.getBatteryPercentage(), deviceConditions.getNetConnectionType(),
                 callback);
     }
@@ -38,12 +38,28 @@ public class BackgroundSchedulerBridge {
 
     @CalledByNative
     private static void backupSchedule(TriggerConditions triggerConditions, long delayInSeconds) {
-        BackgroundScheduler.schedule(ContextUtils.getApplicationContext(), triggerConditions);
+        BackgroundScheduler.backupSchedule(ContextUtils.getApplicationContext(), triggerConditions,
+                                           delayInSeconds);
     }
 
     @CalledByNative
     private static void unschedule() {
         BackgroundScheduler.unschedule(ContextUtils.getApplicationContext());
+    }
+
+    @CalledByNative
+    private static boolean getPowerConditions() {
+        return BackgroundScheduler.getPowerConditions(ContextUtils.getApplicationContext());
+    }
+
+    @CalledByNative
+    private static int getBatteryConditions() {
+        return BackgroundScheduler.getBatteryConditions(ContextUtils.getApplicationContext());
+    }
+
+    @CalledByNative
+    private static int getNetworkConditions() {
+        return BackgroundScheduler.getNetworkConditions(ContextUtils.getApplicationContext());
     }
 
     /**
@@ -58,6 +74,6 @@ public class BackgroundSchedulerBridge {
     }
 
     /** Instructs the native RequestCoordinator to start processing. */
-    private static native boolean nativeStartProcessing(boolean powerConnected,
+    private static native boolean nativeStartScheduledProcessing(boolean powerConnected,
             int batteryPercentage, int netConnectionType, Callback<Boolean> callback);
 }

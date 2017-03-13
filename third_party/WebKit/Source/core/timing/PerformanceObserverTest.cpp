@@ -28,9 +28,9 @@ class PerformanceObserverTest : public ::testing::Test {
     v8::Local<v8::Function> callback =
         v8::Function::New(scriptState->context(), nullptr).ToLocalChecked();
     m_base = new MockPerformanceBase();
-    m_cb =
-        PerformanceObserverCallback::create(scriptState->isolate(), callback);
-    m_observer = PerformanceObserver::create(scriptState, m_base, m_cb);
+    m_cb = PerformanceObserverCallback::create(scriptState, callback);
+    m_observer = PerformanceObserver::create(scriptState->getExecutionContext(),
+                                             m_base, m_cb);
   }
 
   bool isRegistered() { return m_observer->m_isRegistered; }
@@ -51,7 +51,7 @@ TEST_F(PerformanceObserverTest, Observe) {
   NonThrowableExceptionState exceptionState;
   PerformanceObserverInit options;
   Vector<String> entryTypeVec;
-  entryTypeVec.append("mark");
+  entryTypeVec.push_back("mark");
   options.setEntryTypes(entryTypeVec);
 
   m_observer->observe(options, exceptionState);

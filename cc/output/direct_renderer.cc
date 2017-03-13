@@ -10,6 +10,7 @@
 #include <utility>
 #include <vector>
 
+#include "base/auto_reset.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/trace_event/trace_event.h"
@@ -167,8 +168,7 @@ void DirectRenderer::DecideRenderPassAllocationsForFrame(
     const RenderPassList& render_passes_in_draw_order) {
   render_pass_bypass_quads_.clear();
 
-  std::unordered_map<RenderPassId, gfx::Size, RenderPassIdHash>
-      render_passes_in_frame;
+  std::unordered_map<int, gfx::Size> render_passes_in_frame;
   RenderPass* root_render_pass = render_passes_in_draw_order.back().get();
   for (size_t i = 0; i < render_passes_in_draw_order.size(); ++i) {
     RenderPass* pass = render_passes_in_draw_order[i].get();
@@ -178,11 +178,11 @@ void DirectRenderer::DecideRenderPassAllocationsForFrame(
         continue;
       }
     }
-    render_passes_in_frame.insert(std::pair<RenderPassId, gfx::Size>(
-        pass->id, RenderPassTextureSize(pass)));
+    render_passes_in_frame.insert(
+        std::pair<int, gfx::Size>(pass->id, RenderPassTextureSize(pass)));
   }
 
-  std::vector<RenderPassId> passes_to_delete;
+  std::vector<int> passes_to_delete;
   for (auto pass_iter = render_pass_textures_.begin();
        pass_iter != render_pass_textures_.end(); ++pass_iter) {
     auto it = render_passes_in_frame.find(pass_iter->first);
@@ -226,6 +226,23 @@ void DirectRenderer::DrawFrame(RenderPassList* render_passes_in_draw_order,
   RenderPass* root_render_pass = render_passes_in_draw_order->back().get();
   DCHECK(root_render_pass);
 
+  bool overdraw_tracing_enabled;
+  TRACE_EVENT_CATEGORY_GROUP_ENABLED(
+      TRACE_DISABLED_BY_DEFAULT("cc.debug.overdraw"),
+      &overdraw_tracing_enabled);
+  bool overdraw_feedback =
+      settings_->show_overdraw_feedback || overdraw_tracing_enabled;
+  if (overdraw_feedback && !output_surface_->capabilities().supports_stencil) {
+#if DCHECK_IS_ON()
+    DLOG_IF(WARNING, !overdraw_feedback_support_missing_logged_once_)
+        << "Overdraw feedback enabled on platform without support.";
+    overdraw_feedback_support_missing_logged_once_ = true;
+#endif
+    overdraw_feedback = false;
+  }
+  base::AutoReset<bool> auto_reset_overdraw_feedback(&overdraw_feedback_,
+                                                     overdraw_feedback);
+
   DrawingFrame frame;
   frame.render_passes_in_draw_order = render_passes_in_draw_order;
   frame.root_render_pass = root_render_pass;
@@ -233,16 +250,41 @@ void DirectRenderer::DrawFrame(RenderPassList* render_passes_in_draw_order,
   frame.root_damage_rect.Union(overlay_processor_->GetAndResetOverlayDamage());
   frame.root_damage_rect.Intersect(gfx::Rect(device_viewport_size));
   frame.device_viewport_size = device_viewport_size;
+  frame.device_color_space = device_color_space;
 
   // Only reshape when we know we are going to draw. Otherwise, the reshape
   // can leave the window at the wrong size if we never draw and the proper
   // viewport size is never set.
-  output_surface_->Reshape(device_viewport_size, device_scale_factor,
-                           device_color_space,
-                           frame.root_render_pass->has_transparent_background);
-  surface_size_for_swap_buffers_ = device_viewport_size;
+  bool frame_has_alpha = frame.root_render_pass->has_transparent_background;
+  bool use_stencil = overdraw_feedback_;
+  if (device_viewport_size != reshape_surface_size_ ||
+      device_scale_factor != reshape_device_scale_factor_ ||
+      device_color_space != reshape_device_color_space_ ||
+      frame_has_alpha != reshape_has_alpha_ ||
+      use_stencil != reshape_use_stencil_) {
+    reshape_surface_size_ = device_viewport_size;
+    reshape_device_scale_factor_ = device_scale_factor;
+    reshape_device_color_space_ = device_color_space;
+    reshape_has_alpha_ = frame.root_render_pass->has_transparent_background;
+    reshape_use_stencil_ = overdraw_feedback_;
+    output_surface_->Reshape(
+        reshape_surface_size_, reshape_device_scale_factor_,
+        reshape_device_color_space_, reshape_has_alpha_, reshape_use_stencil_);
+  }
 
   BeginDrawingFrame(&frame);
+
+  for (const auto& pass : *render_passes_in_draw_order) {
+    if (!pass->filters.IsEmpty())
+      render_pass_filters_.push_back(std::make_pair(pass->id, &pass->filters));
+    if (!pass->background_filters.IsEmpty()) {
+      render_pass_background_filters_.push_back(
+          std::make_pair(pass->id, &pass->background_filters));
+    }
+    std::sort(render_pass_filters_.begin(), render_pass_filters_.end());
+    std::sort(render_pass_background_filters_.begin(),
+              render_pass_background_filters_.end());
+  }
 
   // Draw all non-root render passes except for the root render pass.
   for (const auto& pass : *render_passes_in_draw_order) {
@@ -267,7 +309,8 @@ void DirectRenderer::DrawFrame(RenderPassList* render_passes_in_draw_order,
   // Attempt to replace some or all of the quads of the root render pass with
   // overlays.
   overlay_processor_->ProcessForOverlays(
-      resource_provider_, root_render_pass, &frame.overlay_list,
+      resource_provider_, root_render_pass, render_pass_filters_,
+      render_pass_background_filters_, &frame.overlay_list,
       &frame.ca_layer_overlay_list, &frame.root_damage_rect);
 
   // We can skip all drawing if the damage rect is now empty.
@@ -295,6 +338,8 @@ void DirectRenderer::DrawFrame(RenderPassList* render_passes_in_draw_order,
 
   FinishDrawingFrame(&frame);
   render_passes_in_draw_order->clear();
+  render_pass_filters_.clear();
+  render_pass_background_filters_.clear();
 }
 
 gfx::Rect DirectRenderer::ComputeScissorRectForRenderPass(
@@ -393,6 +438,28 @@ void DirectRenderer::DoDrawPolygon(const DrawPolygon& poly,
   for (size_t i = 0; i < quads.size(); ++i) {
     DoDrawQuad(frame, poly.original_ref(), &quads[i]);
   }
+}
+
+const FilterOperations* DirectRenderer::FiltersForPass(
+    int render_pass_id) const {
+  auto it = std::lower_bound(
+      render_pass_filters_.begin(), render_pass_filters_.end(),
+      std::pair<int, FilterOperations*>(render_pass_id, nullptr));
+  if (it != render_pass_filters_.end() && it->first == render_pass_id)
+    return it->second;
+  return nullptr;
+}
+
+const FilterOperations* DirectRenderer::BackgroundFiltersForPass(
+    int render_pass_id) const {
+  auto it = std::lower_bound(
+      render_pass_background_filters_.begin(),
+      render_pass_background_filters_.end(),
+      std::pair<int, FilterOperations*>(render_pass_id, nullptr));
+  if (it != render_pass_background_filters_.end() &&
+      it->first == render_pass_id)
+    return it->second;
+  return nullptr;
 }
 
 void DirectRenderer::FlushPolygons(
@@ -542,10 +609,9 @@ bool DirectRenderer::UseRenderPass(DrawingFrame* frame,
   size.Enlarge(enlarge_pass_texture_amount_.width(),
                enlarge_pass_texture_amount_.height());
   if (!texture->id()) {
-    texture->Allocate(size,
-                      ResourceProvider::TEXTURE_HINT_IMMUTABLE_FRAMEBUFFER,
-                      resource_provider_->best_texture_format(),
-                      output_surface_->device_color_space());
+    texture->Allocate(
+        size, ResourceProvider::TEXTURE_HINT_IMMUTABLE_FRAMEBUFFER,
+        resource_provider_->best_texture_format(), frame->device_color_space);
   }
   DCHECK(texture->id());
 
@@ -559,8 +625,8 @@ bool DirectRenderer::UseRenderPass(DrawingFrame* frame,
   return false;
 }
 
-bool DirectRenderer::HasAllocatedResourcesForTesting(RenderPassId id) const {
-  auto iter = render_pass_textures_.find(id);
+bool DirectRenderer::HasAllocatedResourcesForTesting(int render_pass_id) const {
+  auto iter = render_pass_textures_.find(render_pass_id);
   return iter != render_pass_textures_.end() && iter->second->id();
 }
 

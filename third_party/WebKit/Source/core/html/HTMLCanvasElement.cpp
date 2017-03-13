@@ -54,10 +54,11 @@
 #include "core/imagebitmap/ImageBitmapOptions.h"
 #include "core/layout/HitTestCanvasResult.h"
 #include "core/layout/LayoutHTMLCanvas.h"
+#include "core/layout/api/LayoutViewItem.h"
+#include "core/layout/compositing/PaintLayerCompositor.h"
 #include "core/paint/PaintLayer.h"
 #include "core/paint/PaintTiming.h"
 #include "platform/Histogram.h"
-#include "platform/MIMETypeRegistry.h"
 #include "platform/RuntimeEnabledFeatures.h"
 #include "platform/graphics/Canvas2DImageBufferSurface.h"
 #include "platform/graphics/CanvasMetrics.h"
@@ -67,11 +68,10 @@
 #include "platform/graphics/StaticBitmapImage.h"
 #include "platform/graphics/UnacceleratedImageBufferSurface.h"
 #include "platform/graphics/gpu/AcceleratedImageBufferSurface.h"
+#include "platform/image-encoders/ImageEncoderUtils.h"
 #include "platform/transforms/AffineTransform.h"
-#include "public/platform/InterfaceProvider.h"
 #include "public/platform/Platform.h"
 #include "public/platform/WebTraceLocation.h"
-#include "public/platform/modules/offscreencanvas/offscreen_canvas_surface.mojom-blink.h"
 #include "wtf/CheckedNumeric.h"
 #include "wtf/PtrUtil.h"
 #include <math.h>
@@ -111,14 +111,17 @@ const int MaxGlobalGPUMemoryUsage =
 // misinterpreted as a user-input value
 const int UndefinedQualityValue = -1.0;
 
-// Default image mime type for toDataURL and toBlob functions
-const char DefaultMimeType[] = "image/png";
-
-PassRefPtr<Image> createTransparentImage(const IntSize& size) {
-  DCHECK(ImageBuffer::canCreateImageBuffer(size));
+sk_sp<SkImage> createTransparentSkImage(const IntSize& size) {
+  if (!ImageBuffer::canCreateImageBuffer(size))
+    return nullptr;
   sk_sp<SkSurface> surface =
       SkSurface::MakeRasterN32Premul(size.width(), size.height());
-  return StaticBitmapImage::create(surface->makeImageSnapshot());
+  return surface ? surface->makeImageSnapshot() : nullptr;
+}
+
+PassRefPtr<Image> createTransparentImage(const IntSize& size) {
+  sk_sp<SkImage> image = createTransparentSkImage(size);
+  return image ? StaticBitmapImage::create(image) : nullptr;
 }
 
 }  // namespace
@@ -128,6 +131,7 @@ inline HTMLCanvasElement::HTMLCanvasElement(Document& document)
       ContextLifecycleObserver(&document),
       PageVisibilityObserver(document.page()),
       m_size(DefaultWidth, DefaultHeight),
+      m_context(this, nullptr),
       m_ignoreReset(false),
       m_externallyAllocatedMemory(0),
       m_originClean(true),
@@ -147,18 +151,25 @@ HTMLCanvasElement::~HTMLCanvasElement() {
 }
 
 void HTMLCanvasElement::dispose() {
+  if (placeholderFrame())
+    releasePlaceholderFrame();
+
   if (m_context) {
     m_context->detachCanvas();
     m_context = nullptr;
   }
+
+  if (m_imageBuffer) {
+    m_imageBuffer->setClient(nullptr);
+    m_imageBuffer = nullptr;
+  }
 }
 
-void HTMLCanvasElement::parseAttribute(const QualifiedName& name,
-                                       const AtomicString& oldValue,
-                                       const AtomicString& value) {
-  if (name == widthAttr || name == heightAttr)
+void HTMLCanvasElement::parseAttribute(
+    const AttributeModificationParams& params) {
+  if (params.name == widthAttr || params.name == heightAttr)
     reset();
-  HTMLElement::parseAttribute(name, oldValue, value);
+  HTMLElement::parseAttribute(params);
 }
 
 LayoutObject* HTMLCanvasElement::createLayoutObject(
@@ -176,27 +187,10 @@ Node::InsertionNotificationRequest HTMLCanvasElement::insertedInto(
 }
 
 void HTMLCanvasElement::setHeight(int value, ExceptionState& exceptionState) {
-  if (surfaceLayerBridge()) {
-    // The existence of surfaceLayerBridge indicates that
-    // canvas.transferControlToOffscreen has been called.
-    exceptionState.throwDOMException(InvalidStateError,
-                                     "Resizing is not allowed for a canvas "
-                                     "that has transferred its control to "
-                                     "offscreen.");
-    return;
-  }
   setIntegralAttribute(heightAttr, value);
 }
 
 void HTMLCanvasElement::setWidth(int value, ExceptionState& exceptionState) {
-  if (surfaceLayerBridge()) {
-    // Same comment as above.
-    exceptionState.throwDOMException(InvalidStateError,
-                                     "Resizing is not allowed for a canvas "
-                                     "that has transferred its control to "
-                                     "offscreen.");
-    return;
-  }
   setIntegralAttribute(widthAttr, value);
 }
 
@@ -277,6 +271,15 @@ CanvasRenderingContext* HTMLCanvasElement::getCanvasRenderingContext(
   if (m_context->is3d()) {
     updateExternallyAllocatedMemory();
   }
+
+  LayoutObject* layoutObject = this->layoutObject();
+  if (layoutObject && m_context->is2d() &&
+      !m_context->creationAttributes().alpha()) {
+    // In the alpha false case, canvas is initially opaque even though there is
+    // no ImageBuffer, so we need to trigger an invalidation.
+    didDraw(FloatRect(0, 0, size().width(), size().height()));
+  }
+
   setNeedsCompositingUpdate();
 
   return m_context.get();
@@ -325,12 +328,21 @@ void HTMLCanvasElement::didFinalizeFrame() {
   // Propagate the m_dirtyRect accumulated so far to the compositor
   // before restarting with a blank dirty rect.
   FloatRect srcRect(0, 0, size().width(), size().height());
-  m_dirtyRect.intersect(srcRect);
+
   LayoutBox* ro = layoutBox();
   // Canvas content updates do not need to be propagated as
   // paint invalidations if the canvas is accelerated, since
   // the canvas contents are sent separately through a texture layer.
   if (ro && (!m_context || !m_context->isAccelerated())) {
+    // If ro->contentBoxRect() is larger than srcRect the canvas's image is
+    // being stretched, so we need to account for color bleeding caused by the
+    // interpollation filter.
+    if (ro->contentBoxRect().width() > srcRect.width() ||
+        ro->contentBoxRect().height() > srcRect.height()) {
+      m_dirtyRect.inflate(0.5);
+    }
+
+    m_dirtyRect.intersect(srcRect);
     LayoutRect mappedDirtyRect(enclosingIntRect(
         mapRect(m_dirtyRect, srcRect, FloatRect(ro->contentBoxRect()))));
     // For querying PaintLayer::compositingState()
@@ -344,7 +356,7 @@ void HTMLCanvasElement::didFinalizeFrame() {
   if (RuntimeEnabledFeatures::
           enableCanvas2dDynamicRenderingModeSwitchingEnabled() &&
       !RuntimeEnabledFeatures::canvas2dFixedRenderingModeEnabled()) {
-    if (m_context->is2d() && buffer() && buffer()->isAccelerated() &&
+    if (m_context->is2d() && hasImageBuffer() && buffer()->isAccelerated() &&
         m_numFramesSinceLastRenderingModeSwitch >=
             ExpensiveCanvasHeuristicParameters::MinFramesBeforeSwitch &&
         !m_pendingRenderingModeSwitch) {
@@ -389,10 +401,10 @@ void HTMLCanvasElement::doDeferredPaintInvalidation() {
   if (!m_context->is2d()) {
     didFinalizeFrame();
   } else {
-    DCHECK(hasImageBuffer());
     FloatRect srcRect(0, 0, size().width(), size().height());
     m_dirtyRect.intersect(srcRect);
     LayoutBox* lb = layoutBox();
+    FloatRect invalidationRect;
     if (lb) {
       FloatRect mappedDirtyRect =
           mapRect(m_dirtyRect, srcRect, FloatRect(lb->contentBoxRect()));
@@ -401,9 +413,14 @@ void HTMLCanvasElement::doDeferredPaintInvalidation() {
         // to the content box, as opposed to the layout box.
         mappedDirtyRect.move(-lb->contentBoxOffset());
       }
-      m_imageBuffer->finalizeFrame(mappedDirtyRect);
+      invalidationRect = mappedDirtyRect;
     } else {
-      m_imageBuffer->finalizeFrame(m_dirtyRect);
+      invalidationRect = m_dirtyRect;
+    }
+    if (hasImageBuffer()) {
+      m_imageBuffer->finalizeFrame(invalidationRect);
+    } else {
+      didFinalizeFrame();
     }
   }
   DCHECK(m_dirtyRect.isEmpty());
@@ -462,8 +479,9 @@ void HTMLCanvasElement::reset() {
 }
 
 bool HTMLCanvasElement::paintsIntoCanvasBuffer() const {
+  if (placeholderFrame())
+    return false;
   DCHECK(m_context);
-
   if (!m_context->isAccelerated())
     return true;
   if (layoutBox() && layoutBox()->hasAcceleratedCompositing())
@@ -495,7 +513,10 @@ void HTMLCanvasElement::notifyListenersCanvasChanged() {
         FloatSize());
     if (status != NormalSourceImageStatus)
       return;
-    sk_sp<SkImage> image = sourceImage->imageForCurrentFrame();
+    // TODO(ccameron): Canvas should produce sRGB images.
+    // https://crbug.com/672299
+    sk_sp<SkImage> image = sourceImage->imageForCurrentFrame(
+        ColorBehavior::transformToGlobalTarget());
     for (CanvasDrawListener* listener : m_listeners) {
       if (listener->needsNewFrame()) {
         listener->sendNewFrame(image);
@@ -507,7 +528,7 @@ void HTMLCanvasElement::notifyListenersCanvasChanged() {
 void HTMLCanvasElement::paint(GraphicsContext& context, const LayoutRect& r) {
   // FIXME: crbug.com/438240; there is a bug with the new CSS blending and
   // compositing feature.
-  if (!m_context)
+  if (!m_context && !placeholderFrame())
     return;
 
   const ComputedStyle* style = ensureComputedStyle();
@@ -528,6 +549,12 @@ void HTMLCanvasElement::paint(GraphicsContext& context, const LayoutRect& r) {
   if (!paintsIntoCanvasBuffer() && !document().printing())
     return;
 
+  if (placeholderFrame()) {
+    DCHECK(document().printing());
+    context.drawImage(placeholderFrame().get(), pixelSnappedIntRect(r));
+    return;
+  }
+
   // TODO(junov): Paint is currently only implemented by ImageBitmap contexts.
   // We could improve the abstraction by making all context types paint
   // themselves (implement paint()).
@@ -537,10 +564,10 @@ void HTMLCanvasElement::paint(GraphicsContext& context, const LayoutRect& r) {
   m_context->paintRenderingResultsToCanvas(FrontBuffer);
   if (hasImageBuffer()) {
     if (!context.contextDisabled()) {
-      SkXfermode::Mode compositeOperator =
+      SkBlendMode compositeOperator =
           !m_context || m_context->creationAttributes().alpha()
-              ? SkXfermode::kSrcOver_Mode
-              : SkXfermode::kSrc_Mode;
+              ? SkBlendMode::kSrcOver
+              : SkBlendMode::kSrc;
       buffer()->draw(context, pixelSnappedIntRect(r), 0, compositeOperator);
     }
   } else {
@@ -572,70 +599,9 @@ void HTMLCanvasElement::setSurfaceSize(const IntSize& size) {
   }
 }
 
-// This enum is used in a UMA histogram; the values should not be changed.
-enum RequestedImageMimeType {
-  RequestedImageMimeTypePng = 0,
-  RequestedImageMimeTypeJpeg = 1,
-  RequestedImageMimeTypeWebp = 2,
-  RequestedImageMimeTypeGif = 3,
-  RequestedImageMimeTypeBmp = 4,
-  RequestedImageMimeTypeIco = 5,
-  RequestedImageMimeTypeTiff = 6,
-  RequestedImageMimeTypeUnknown = 7,
-  NumberOfRequestedImageMimeTypes
-};
-
-String HTMLCanvasElement::toEncodingMimeType(const String& mimeType,
-                                             const EncodeReason encodeReason) {
-  String lowercaseMimeType = mimeType.lower();
-  if (mimeType.isNull())
-    lowercaseMimeType = DefaultMimeType;
-
-  RequestedImageMimeType imageFormat;
-  if (lowercaseMimeType == "image/png") {
-    imageFormat = RequestedImageMimeTypePng;
-  } else if (lowercaseMimeType == "image/jpeg") {
-    imageFormat = RequestedImageMimeTypeJpeg;
-  } else if (lowercaseMimeType == "image/webp") {
-    imageFormat = RequestedImageMimeTypeWebp;
-  } else if (lowercaseMimeType == "image/gif") {
-    imageFormat = RequestedImageMimeTypeGif;
-  } else if (lowercaseMimeType == "image/bmp" ||
-             lowercaseMimeType == "image/x-windows-bmp") {
-    imageFormat = RequestedImageMimeTypeBmp;
-  } else if (lowercaseMimeType == "image/x-icon") {
-    imageFormat = RequestedImageMimeTypeIco;
-  } else if (lowercaseMimeType == "image/tiff" ||
-             lowercaseMimeType == "image/x-tiff") {
-    imageFormat = RequestedImageMimeTypeTiff;
-  } else {
-    imageFormat = RequestedImageMimeTypeUnknown;
-  }
-
-  if (encodeReason == EncodeReasonToDataURL) {
-    DEFINE_THREAD_SAFE_STATIC_LOCAL(
-        EnumerationHistogram, toDataURLImageFormatHistogram,
-        new EnumerationHistogram("Canvas.RequestedImageMimeTypes_toDataURL",
-                                 NumberOfRequestedImageMimeTypes));
-    toDataURLImageFormatHistogram.count(imageFormat);
-  } else if (encodeReason == EncodeReasonToBlobCallback) {
-    DEFINE_THREAD_SAFE_STATIC_LOCAL(
-        EnumerationHistogram, toBlobCallbackImageFormatHistogram,
-        new EnumerationHistogram(
-            "Canvas.RequestedImageMimeTypes_toBlobCallback",
-            NumberOfRequestedImageMimeTypes));
-    toBlobCallbackImageFormatHistogram.count(imageFormat);
-  }
-
-  // FIXME: Make isSupportedImageMIMETypeForEncoding threadsafe (to allow this
-  // method to be used on a worker thread).
-  if (!MIMETypeRegistry::isSupportedImageMIMETypeForEncoding(lowercaseMimeType))
-    lowercaseMimeType = DefaultMimeType;
-  return lowercaseMimeType;
-}
-
 const AtomicString HTMLCanvasElement::imageSourceURL() const {
-  return AtomicString(toDataURLInternal(DefaultMimeType, 0, FrontBuffer));
+  return AtomicString(
+      toDataURLInternal(ImageEncoderUtils::DefaultMimeType, 0, FrontBuffer));
 }
 
 void HTMLCanvasElement::prepareSurfaceForPaintingIfNeeded() const {
@@ -672,19 +638,26 @@ ImageData* HTMLCanvasElement::toImageData(SourceDrawingBuffer sourceBuffer,
 
   imageData = ImageData::create(m_size);
 
-  if (!m_context || !imageData)
+  if ((!m_context || !imageData) && !placeholderFrame())
     return imageData;
 
-  DCHECK(m_context->is2d());
+  DCHECK((m_context && m_context->is2d()) || placeholderFrame());
+  sk_sp<SkImage> snapshot;
   if (hasImageBuffer()) {
-    sk_sp<SkImage> snapshot =
-        buffer()->newSkImageSnapshot(PreferNoAcceleration, reason);
-    if (snapshot) {
-      SkImageInfo imageInfo = SkImageInfo::Make(
-          width(), height(), kRGBA_8888_SkColorType, kUnpremul_SkAlphaType);
-      snapshot->readPixels(imageInfo, imageData->data()->data(),
-                           imageInfo.minRowBytes(), 0, 0);
-    }
+    snapshot = buffer()->newSkImageSnapshot(PreferNoAcceleration, reason);
+  } else if (placeholderFrame()) {
+    DCHECK(placeholderFrame()->originClean());
+    // TODO(ccameron): Canvas should produce sRGB images.
+    // https://crbug.com/672299
+    snapshot = placeholderFrame()->imageForCurrentFrame(
+        ColorBehavior::transformToGlobalTarget());
+  }
+
+  if (snapshot) {
+    SkImageInfo imageInfo = SkImageInfo::Make(
+        width(), height(), kRGBA_8888_SkColorType, kUnpremul_SkAlphaType);
+    snapshot->readPixels(imageInfo, imageData->data()->data(),
+                         imageInfo.minRowBytes(), 0, 0);
   }
 
   return imageData;
@@ -697,7 +670,32 @@ String HTMLCanvasElement::toDataURLInternal(
   if (!isPaintable())
     return String("data:,");
 
-  String encodingMimeType = toEncodingMimeType(mimeType, EncodeReasonToDataURL);
+  String encodingMimeType = ImageEncoderUtils::toEncodingMimeType(
+      mimeType, ImageEncoderUtils::EncodeReasonToDataURL);
+
+  Optional<ScopedUsHistogramTimer> timer;
+  if (encodingMimeType == "image/png") {
+    DEFINE_THREAD_SAFE_STATIC_LOCAL(
+        CustomCountHistogram, scopedUsCounterPNG,
+        new CustomCountHistogram("Blink.Canvas.ToDataURL.PNG", 0, 10000000,
+                                 50));
+    timer.emplace(scopedUsCounterPNG);
+  } else if (encodingMimeType == "image/jpeg") {
+    DEFINE_THREAD_SAFE_STATIC_LOCAL(
+        CustomCountHistogram, scopedUsCounterJPEG,
+        new CustomCountHistogram("Blink.Canvas.ToDataURL.JPEG", 0, 10000000,
+                                 50));
+    timer.emplace(scopedUsCounterJPEG);
+  } else if (encodingMimeType == "image/webp") {
+    DEFINE_THREAD_SAFE_STATIC_LOCAL(
+        CustomCountHistogram, scopedUsCounterWEBP,
+        new CustomCountHistogram("Blink.Canvas.ToDataURL.WEBP", 0, 10000000,
+                                 50));
+    timer.emplace(scopedUsCounterWEBP);
+  } else {
+    // Currently we only support three encoding types.
+    NOTREACHED();
+  }
 
   ImageData* imageData = toImageData(sourceBuffer, SnapshotReasonToDataURL);
 
@@ -711,71 +709,9 @@ String HTMLCanvasElement::toDataURLInternal(
 String HTMLCanvasElement::toDataURL(const String& mimeType,
                                     const ScriptValue& qualityArgument,
                                     ExceptionState& exceptionState) const {
-  if (surfaceLayerBridge()) {
-    exceptionState.throwDOMException(InvalidStateError,
-                                     "canvas.toDataURL is not allowed for a "
-                                     "canvas that has transferred its control "
-                                     "to offscreen.");
-    return String();
-  }
   if (!originClean()) {
     exceptionState.throwSecurityError("Tainted canvases may not be exported.");
     return String();
-  }
-  Optional<ScopedUsHistogramTimer> timer;
-  String lowercaseMimeType = mimeType.lower();
-  if (mimeType.isNull())
-    lowercaseMimeType = DefaultMimeType;
-  if (lowercaseMimeType == "image/png") {
-    DEFINE_THREAD_SAFE_STATIC_LOCAL(
-        CustomCountHistogram, scopedUsCounterPNG,
-        new CustomCountHistogram("Blink.Canvas.ToDataURL.PNG", 0, 10000000,
-                                 50));
-    timer.emplace(scopedUsCounterPNG);
-  } else if (lowercaseMimeType == "image/jpeg") {
-    DEFINE_THREAD_SAFE_STATIC_LOCAL(
-        CustomCountHistogram, scopedUsCounterJPEG,
-        new CustomCountHistogram("Blink.Canvas.ToDataURL.JPEG", 0, 10000000,
-                                 50));
-    timer.emplace(scopedUsCounterJPEG);
-  } else if (lowercaseMimeType == "image/webp") {
-    DEFINE_THREAD_SAFE_STATIC_LOCAL(
-        CustomCountHistogram, scopedUsCounterWEBP,
-        new CustomCountHistogram("Blink.Canvas.ToDataURL.WEBP", 0, 10000000,
-                                 50));
-    timer.emplace(scopedUsCounterWEBP);
-  } else if (lowercaseMimeType == "image/gif") {
-    DEFINE_THREAD_SAFE_STATIC_LOCAL(
-        CustomCountHistogram, scopedUsCounterGIF,
-        new CustomCountHistogram("Blink.Canvas.ToDataURL.GIF", 0, 10000000,
-                                 50));
-    timer.emplace(scopedUsCounterGIF);
-  } else if (lowercaseMimeType == "image/bmp" ||
-             lowercaseMimeType == "image/x-windows-bmp") {
-    DEFINE_THREAD_SAFE_STATIC_LOCAL(
-        CustomCountHistogram, scopedUsCounterBMP,
-        new CustomCountHistogram("Blink.Canvas.ToDataURL.BMP", 0, 10000000,
-                                 50));
-    timer.emplace(scopedUsCounterBMP);
-  } else if (lowercaseMimeType == "image/x-icon") {
-    DEFINE_THREAD_SAFE_STATIC_LOCAL(
-        CustomCountHistogram, scopedUsCounterICON,
-        new CustomCountHistogram("Blink.Canvas.ToDataURL.ICON", 0, 10000000,
-                                 50));
-    timer.emplace(scopedUsCounterICON);
-  } else if (lowercaseMimeType == "image/tiff" ||
-             lowercaseMimeType == "image/x-tiff") {
-    DEFINE_THREAD_SAFE_STATIC_LOCAL(
-        CustomCountHistogram, scopedUsCounterTIFF,
-        new CustomCountHistogram("Blink.Canvas.ToDataURL.TIFF", 0, 10000000,
-                                 50));
-    timer.emplace(scopedUsCounterTIFF);
-  } else {
-    DEFINE_THREAD_SAFE_STATIC_LOCAL(
-        CustomCountHistogram, scopedUsCounterUnknown,
-        new CustomCountHistogram("Blink.Canvas.ToDataURL.Unknown", 0, 10000000,
-                                 50));
-    timer.emplace(scopedUsCounterUnknown);
   }
 
   double quality = UndefinedQualityValue;
@@ -792,14 +728,6 @@ void HTMLCanvasElement::toBlob(BlobCallback* callback,
                                const String& mimeType,
                                const ScriptValue& qualityArgument,
                                ExceptionState& exceptionState) {
-  if (surfaceLayerBridge()) {
-    exceptionState.throwDOMException(InvalidStateError,
-                                     "canvas.toBlob is not allowed for a "
-                                     "canvas that has transferred its control "
-                                     "to offscreen.");
-    return;
-  }
-
   if (!originClean()) {
     exceptionState.throwSecurityError("Tainted canvases may not be exported.");
     return;
@@ -823,8 +751,8 @@ void HTMLCanvasElement::toBlob(BlobCallback* callback,
     }
   }
 
-  String encodingMimeType =
-      toEncodingMimeType(mimeType, EncodeReasonToBlobCallback);
+  String encodingMimeType = ImageEncoderUtils::toEncodingMimeType(
+      mimeType, ImageEncoderUtils::EncodeReasonToBlobCallback);
 
   ImageData* imageData = toImageData(BackBuffer, SnapshotReasonToBlob);
 
@@ -839,10 +767,9 @@ void HTMLCanvasElement::toBlob(BlobCallback* callback,
 
   CanvasAsyncBlobCreator* asyncCreator = CanvasAsyncBlobCreator::create(
       imageData->data(), encodingMimeType, imageData->size(), callback,
-      startTime, document());
+      startTime, &document());
 
-  bool useIdlePeriodScheduling = (encodingMimeType != "image/webp");
-  asyncCreator->scheduleAsyncBlobCreation(useIdlePeriodScheduling, quality);
+  asyncCreator->scheduleAsyncBlobCreation(quality);
 }
 
 void HTMLCanvasElement::addListener(CanvasDrawListener* listener) {
@@ -859,12 +786,14 @@ SecurityOrigin* HTMLCanvasElement::getSecurityOrigin() const {
 
 bool HTMLCanvasElement::originClean() const {
   if (document().settings() &&
-      document().settings()->disableReadingFromCanvas())
+      document().settings()->getDisableReadingFromCanvas())
     return false;
+  if (placeholderFrame())
+    return placeholderFrame()->originClean();
   return m_originClean;
 }
 
-bool HTMLCanvasElement::shouldAccelerate(const IntSize& size) const {
+bool HTMLCanvasElement::shouldAccelerate(AccelerationCriteria criteria) const {
   if (m_context && !m_context->is2d())
     return false;
 
@@ -880,8 +809,8 @@ bool HTMLCanvasElement::shouldAccelerate(const IntSize& size) const {
   if (layoutBox() && !layoutBox()->hasAcceleratedCompositing())
     return false;
 
-  CheckedNumeric<int> checkedCanvasPixelCount = size.width();
-  checkedCanvasPixelCount *= size.height();
+  CheckedNumeric<int> checkedCanvasPixelCount = size().width();
+  checkedCanvasPixelCount *= size().height();
   if (!checkedCanvasPixelCount.IsValid())
     return false;
   int canvasPixelCount = checkedCanvasPixelCount.ValueOrDie();
@@ -903,27 +832,31 @@ bool HTMLCanvasElement::shouldAccelerate(const IntSize& size) const {
   }
 
   // Do not use acceleration for small canvas.
-  Settings* settings = document().settings();
-  if (!settings ||
-      canvasPixelCount < settings->minimumAccelerated2dCanvasSize())
-    return false;
+  if (criteria != IgnoreResourceLimitCriteria) {
+    Settings* settings = document().settings();
+    if (!settings ||
+        canvasPixelCount < settings->getMinimumAccelerated2dCanvasSize())
+      return false;
 
-  // When GPU allocated memory runs low (due to having created too many
-  // accelerated canvases), the compositor starves and browser becomes laggy.
-  // Thus, we should stop allocating more GPU memory to new canvases created
-  // when the current memory usage exceeds the threshold.
-  if (ImageBuffer::getGlobalGPUMemoryUsage() >= MaxGlobalGPUMemoryUsage)
-    return false;
+    // When GPU allocated memory runs low (due to having created too many
+    // accelerated canvases), the compositor starves and browser becomes laggy.
+    // Thus, we should stop allocating more GPU memory to new canvases created
+    // when the current memory usage exceeds the threshold.
+    if (ImageBuffer::getGlobalGPUMemoryUsage() >= MaxGlobalGPUMemoryUsage)
+      return false;
 
-  // Allocating too many GPU resources can makes us run into the driver's
-  // resource limits. So we need to keep the number of texture resources
-  // under tight control
-  if (ImageBuffer::getGlobalAcceleratedImageBufferCount() >=
-      MaxGlobalAcceleratedImageBufferCount)
-    return false;
+    // Allocating too many GPU resources can makes us run into the driver's
+    // resource limits. So we need to keep the number of texture resources
+    // under tight control
+    if (ImageBuffer::getGlobalAcceleratedImageBufferCount() >=
+        MaxGlobalAcceleratedImageBufferCount)
+      return false;
+  }
 
   return true;
 }
+
+namespace {
 
 class UnacceleratedSurfaceFactory
     : public RecordingImageBufferFallbackSurfaceFactory {
@@ -931,15 +864,21 @@ class UnacceleratedSurfaceFactory
   virtual std::unique_ptr<ImageBufferSurface> createSurface(
       const IntSize& size,
       OpacityMode opacityMode,
-      sk_sp<SkColorSpace> colorSpace) {
-    return wrapUnique(new UnacceleratedImageBufferSurface(
-        size, opacityMode, InitializeImagePixels, colorSpace));
+      sk_sp<SkColorSpace> colorSpace,
+      SkColorType colorType) {
+    return WTF::wrapUnique(new UnacceleratedImageBufferSurface(
+        size, opacityMode, InitializeImagePixels, colorSpace, colorType));
   }
 
   virtual ~UnacceleratedSurfaceFactory() {}
 };
 
-bool HTMLCanvasElement::shouldUseDisplayList(const IntSize& deviceSize) {
+}  // namespace
+
+bool HTMLCanvasElement::shouldUseDisplayList() {
+  if (m_context->colorSpace() != kLegacyCanvasColorSpace)
+    return false;
+
   if (RuntimeEnabledFeatures::forceDisplayList2dCanvasEnabled())
     return true;
 
@@ -950,16 +889,13 @@ bool HTMLCanvasElement::shouldUseDisplayList(const IntSize& deviceSize) {
 }
 
 std::unique_ptr<ImageBufferSurface>
-HTMLCanvasElement::createWebGLImageBufferSurface(
-    const IntSize& deviceSize,
-    OpacityMode opacityMode,
-    sk_sp<SkColorSpace> colorSpace) {
+HTMLCanvasElement::createWebGLImageBufferSurface(OpacityMode opacityMode) {
   DCHECK(is3D());
   // If 3d, but the use of the canvas will be for non-accelerated content
   // then make a non-accelerated ImageBuffer. This means copying the internal
   // Image will require a pixel readback, but that is unavoidable in this case.
-  auto surface = wrapUnique(new AcceleratedImageBufferSurface(
-      deviceSize, opacityMode, std::move(colorSpace)));
+  auto surface = WTF::wrapUnique(new AcceleratedImageBufferSurface(
+      size(), opacityMode, m_context->skColorSpace(), m_context->colorType()));
   if (surface->isValid())
     return std::move(surface);
   return nullptr;
@@ -967,16 +903,12 @@ HTMLCanvasElement::createWebGLImageBufferSurface(
 
 std::unique_ptr<ImageBufferSurface>
 HTMLCanvasElement::createAcceleratedImageBufferSurface(
-    const IntSize& deviceSize,
     OpacityMode opacityMode,
-    sk_sp<SkColorSpace> colorSpace,
     int* msaaSampleCount) {
-  if (!shouldAccelerate(deviceSize))
-    return nullptr;
-
-  if (document().settings())
+  if (document().settings()) {
     *msaaSampleCount =
-        document().settings()->accelerated2dCanvasMSAASampleCount();
+        document().settings()->getAccelerated2dCanvasMSAASampleCount();
+  }
 
   // Avoid creating |contextProvider| until we're sure we want to try use it,
   // since it costs us GPU memory.
@@ -992,9 +924,10 @@ HTMLCanvasElement::createAcceleratedImageBufferSurface(
     return nullptr;  // Don't use accelerated canvas with swiftshader.
 
   std::unique_ptr<ImageBufferSurface> surface =
-      wrapUnique(new Canvas2DImageBufferSurface(
-          std::move(contextProvider), deviceSize, *msaaSampleCount, opacityMode,
-          Canvas2DLayerBridge::EnableAcceleration, std::move(colorSpace)));
+      WTF::wrapUnique(new Canvas2DImageBufferSurface(
+          std::move(contextProvider), size(), *msaaSampleCount, opacityMode,
+          Canvas2DLayerBridge::EnableAcceleration, m_context->skColorSpace(),
+          m_context->colorType()));
   if (!surface->isValid()) {
     CanvasMetrics::countCanvasContextUsage(
         CanvasMetrics::GPUAccelerated2DCanvasImageBufferCreationFailed);
@@ -1008,13 +941,11 @@ HTMLCanvasElement::createAcceleratedImageBufferSurface(
 
 std::unique_ptr<ImageBufferSurface>
 HTMLCanvasElement::createUnacceleratedImageBufferSurface(
-    const IntSize& deviceSize,
-    OpacityMode opacityMode,
-    sk_sp<SkColorSpace> colorSpace) {
-  if (shouldUseDisplayList(deviceSize)) {
-    auto surface = wrapUnique(new RecordingImageBufferSurface(
-        deviceSize, wrapUnique(new UnacceleratedSurfaceFactory), opacityMode,
-        colorSpace));
+    OpacityMode opacityMode) {
+  if (shouldUseDisplayList()) {
+    auto surface = WTF::wrapUnique(new RecordingImageBufferSurface(
+        size(), WTF::wrapUnique(new UnacceleratedSurfaceFactory), opacityMode,
+        m_context->skColorSpace(), m_context->colorType()));
     if (surface->isValid()) {
       CanvasMetrics::countCanvasContextUsage(
           CanvasMetrics::DisplayList2DCanvasImageBufferCreated);
@@ -1024,9 +955,9 @@ HTMLCanvasElement::createUnacceleratedImageBufferSurface(
     // here.
   }
 
-  auto surfaceFactory = wrapUnique(new UnacceleratedSurfaceFactory());
-  auto surface = surfaceFactory->createSurface(deviceSize, opacityMode,
-                                               std::move(colorSpace));
+  auto surfaceFactory = WTF::makeUnique<UnacceleratedSurfaceFactory>();
+  auto surface = surfaceFactory->createSurface(
+      size(), opacityMode, m_context->skColorSpace(), m_context->colorType());
   if (surface->isValid()) {
     CanvasMetrics::countCanvasContextUsage(
         CanvasMetrics::Unaccelerated2DCanvasImageBufferCreated);
@@ -1063,14 +994,15 @@ void HTMLCanvasElement::createImageBufferInternal(
     if (externalSurface->isValid())
       surface = std::move(externalSurface);
   } else if (is3D()) {
-    surface = createWebGLImageBufferSurface(size(), opacityMode,
-                                            m_context->skColorSpace());
+    surface = createWebGLImageBufferSurface(opacityMode);
   } else {
-    surface = createAcceleratedImageBufferSurface(
-        size(), opacityMode, m_context->skColorSpace(), &msaaSampleCount);
-    if (!surface)
-      surface = createUnacceleratedImageBufferSurface(
-          size(), opacityMode, m_context->skColorSpace());
+    if (shouldAccelerate(NormalAccelerationCriteria)) {
+      surface =
+          createAcceleratedImageBufferSurface(opacityMode, &msaaSampleCount);
+    }
+    if (!surface) {
+      surface = createUnacceleratedImageBufferSurface(opacityMode);
+    }
   }
   if (!surface)
     return;
@@ -1088,13 +1020,12 @@ void HTMLCanvasElement::createImageBufferInternal(
     return;
   }
 
-  m_imageBuffer->setClient(this);
   // Enabling MSAA overrides a request to disable antialiasing. This is true
   // regardless of whether the rendering mode is accelerated or not. For
   // consistency, we don't want to apply AA in accelerated canvases but not in
   // unaccelerated canvases.
   if (!msaaSampleCount && document().settings() &&
-      !document().settings()->antialiased2dCanvasEnabled())
+      !document().settings()->getAntialiased2dCanvasEnabled())
     m_context->setShouldAntialias(false);
 
   if (m_context)
@@ -1136,9 +1067,10 @@ void HTMLCanvasElement::updateExternallyAllocatedMemory() const {
 
   // Four bytes per pixel per buffer.
   CheckedNumeric<intptr_t> checkedExternallyAllocatedMemory = 4 * bufferCount;
-  if (is3D())
+  if (is3D()) {
     checkedExternallyAllocatedMemory +=
         m_context->externallyAllocatedBytesPerPixel();
+  }
 
   checkedExternallyAllocatedMemory *= width();
   checkedExternallyAllocatedMemory *= height();
@@ -1200,19 +1132,30 @@ void HTMLCanvasElement::ensureUnacceleratedImageBuffer() {
 
 PassRefPtr<Image> HTMLCanvasElement::copiedImage(
     SourceDrawingBuffer sourceBuffer,
-    AccelerationHint hint) const {
+    AccelerationHint hint,
+    SnapshotReason snapshotReason) const {
   if (!isPaintable())
     return nullptr;
   if (!m_context)
     return createTransparentImage(size());
+
+  if (m_context->getContextType() ==
+      CanvasRenderingContext::ContextImageBitmap) {
+    RefPtr<Image> image = m_context->getImage(hint, snapshotReason);
+    if (image)
+      return m_context->getImage(hint, snapshotReason);
+    // Special case: transferFromImageBitmap is not yet called.
+    sk_sp<SkSurface> surface =
+        SkSurface::MakeRasterN32Premul(width(), height());
+    return StaticBitmapImage::create(surface->makeImageSnapshot());
+  }
 
   bool needToUpdate = !m_copiedImage;
   // The concept of SourceDrawingBuffer is valid on only WebGL.
   if (m_context->is3d())
     needToUpdate |= m_context->paintRenderingResultsToCanvas(sourceBuffer);
   if (needToUpdate && buffer()) {
-    m_copiedImage =
-        buffer()->newImageSnapshot(hint, SnapshotReasonGetCopiedImage);
+    m_copiedImage = buffer()->newImageSnapshot(hint, snapshotReason);
     updateExternallyAllocatedMemory();
   }
   return m_copiedImage;
@@ -1250,7 +1193,7 @@ void HTMLCanvasElement::pageVisibilityChanged() {
   }
 }
 
-void HTMLCanvasElement::contextDestroyed() {
+void HTMLCanvasElement::contextDestroyed(ExecutionContext*) {
   if (m_context)
     m_context->stop();
 }
@@ -1265,6 +1208,21 @@ void HTMLCanvasElement::didMoveToNewDocument(Document& oldDocument) {
   ContextLifecycleObserver::setContext(&document());
   PageVisibilityObserver::setContext(document().page());
   HTMLElement::didMoveToNewDocument(oldDocument);
+}
+
+void HTMLCanvasElement::willDrawImageTo2DContext(CanvasImageSource* source) {
+  if (ExpensiveCanvasHeuristicParameters::EnableAccelerationToAvoidReadbacks &&
+      source->isAccelerated() && !buffer()->isAccelerated() &&
+      shouldAccelerate(IgnoreResourceLimitCriteria)) {
+    OpacityMode opacityMode =
+        m_context->creationAttributes().alpha() ? NonOpaque : Opaque;
+    int msaaSampleCount = 0;
+    std::unique_ptr<ImageBufferSurface> surface =
+        createAcceleratedImageBufferSurface(opacityMode, &msaaSampleCount);
+    if (surface) {
+      buffer()->setSurface(std::move(surface));
+    }
+  }
 }
 
 PassRefPtr<Image> HTMLCanvasElement::getSourceImageForCanvas(
@@ -1282,30 +1240,48 @@ PassRefPtr<Image> HTMLCanvasElement::getSourceImageForCanvas(
     return nullptr;
   }
 
-  if (!m_context) {
+  if (placeholderFrame()) {
     *status = NormalSourceImageStatus;
-    return createTransparentImage(size());
+    return placeholderFrame();
   }
 
+  if (!m_context) {
+    RefPtr<Image> result = createTransparentImage(size());
+    *status = result ? NormalSourceImageStatus : InvalidSourceImageStatus;
+    return result;
+  }
+
+  if (m_context->getContextType() == CanvasRenderingContext::ContextImageBitmap)
+    return m_context->getImage(hint, reason);
+
   sk_sp<SkImage> skImage;
+  // TODO(ccameron): Canvas should produce sRGB images.
+  // https://crbug.com/672299
   if (m_context->is3d()) {
     // Because WebGL sources always require making a copy of the back buffer, we
     // use paintRenderingResultsToCanvas instead of getImage in order to keep a
     // cached copy of the backing in the canvas's ImageBuffer.
     renderingContext()->paintRenderingResultsToCanvas(BackBuffer);
-    skImage = hasImageBuffer()
-                  ? buffer()->newSkImageSnapshot(hint, reason)
-                  : createTransparentImage(size())->imageForCurrentFrame();
+    if (hasImageBuffer()) {
+      skImage = buffer()->newSkImageSnapshot(hint, reason);
+    } else {
+      skImage = createTransparentSkImage(size());
+    }
   } else {
     if (ExpensiveCanvasHeuristicParameters::
             DisableAccelerationToAvoidReadbacks &&
         !RuntimeEnabledFeatures::canvas2dFixedRenderingModeEnabled() &&
         hint == PreferNoAcceleration && m_context->isAccelerated() &&
-        hasImageBuffer())
+        hasImageBuffer()) {
       buffer()->disableAcceleration();
-    RefPtr<blink::Image> image = renderingContext()->getImage(hint, reason);
-    skImage = image ? image->imageForCurrentFrame()
-                    : createTransparentImage(size())->imageForCurrentFrame();
+    }
+    RefPtr<Image> image = renderingContext()->getImage(hint, reason);
+    if (image) {
+      skImage =
+          image->imageForCurrentFrame(ColorBehavior::transformToGlobalTarget());
+    } else {
+      skImage = createTransparentSkImage(size());
+    }
   }
 
   if (skImage) {
@@ -1322,6 +1298,17 @@ bool HTMLCanvasElement::wouldTaintOrigin(SecurityOrigin*) const {
 }
 
 FloatSize HTMLCanvasElement::elementSize(const FloatSize&) const {
+  if (m_context &&
+      m_context->getContextType() ==
+          CanvasRenderingContext::ContextImageBitmap) {
+    RefPtr<Image> image =
+        m_context->getImage(PreferNoAcceleration, SnapshotReasonDrawImage);
+    if (image)
+      return FloatSize(image->width(), image->height());
+    return FloatSize(0, 0);
+  }
+  if (placeholderFrame())
+    return FloatSize(placeholderFrame()->size());
   return FloatSize(width(), height());
 }
 
@@ -1434,15 +1421,15 @@ String HTMLCanvasElement::getIdFromControl(const Element* element) {
   return String();
 }
 
-bool HTMLCanvasElement::createSurfaceLayer() {
+void HTMLCanvasElement::createLayer() {
   DCHECK(!m_surfaceLayerBridge);
-  mojom::blink::OffscreenCanvasSurfacePtr service;
-  Platform::current()->interfaceProvider()->getInterface(
-      mojo::GetProxy(&service));
-  m_surfaceLayerBridge =
-      wrapUnique(new CanvasSurfaceLayerBridge(std::move(service)));
-  return m_surfaceLayerBridge->createSurfaceLayer(this->width(),
-                                                  this->height());
+  m_surfaceLayerBridge = WTF::wrapUnique(new CanvasSurfaceLayerBridge(this));
+  // Creates a placeholder layer first before Surface is created.
+  m_surfaceLayerBridge->createSolidColorLayer();
+}
+
+void HTMLCanvasElement::OnWebLayerReplaced() {
+  setNeedsCompositingUpdate();
 }
 
 }  // namespace blink

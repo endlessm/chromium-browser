@@ -13,7 +13,6 @@
 #include "base/memory/shared_memory.h"
 #include "base/process/process_handle.h"
 #include "build/build_config.h"
-#include "ipc/attachment_broker.h"
 #include "ipc/ipc_channel_proxy.h"
 #include "ipc/ipc_message.h"
 #include "ipc/ipc_message_macros.h"
@@ -23,7 +22,6 @@
 #include "remoting/host/chromoting_messages.h"
 #include "remoting/host/desktop_environment.h"
 #include "remoting/host/input_injector.h"
-#include "remoting/host/ipc_util.h"
 #include "remoting/host/remote_input_filter.h"
 #include "remoting/host/screen_controls.h"
 #include "remoting/host/screen_resolution.h"
@@ -207,20 +205,13 @@ void DesktopSessionAgent::OnChannelConnected(int32_t peer_pid) {
   DCHECK(caller_task_runner_->BelongsToCurrentThread());
 
   VLOG(1) << "IPC: desktop <- network (" << peer_pid << ")";
-
-  desktop_pipe_.Close();
 }
 
 void DesktopSessionAgent::OnChannelError() {
   DCHECK(caller_task_runner_->BelongsToCurrentThread());
 
   // Make sure the channel is closed.
-  if (IPC::AttachmentBroker::GetGlobal()) {
-    IPC::AttachmentBroker::GetGlobal()->DeregisterCommunicationChannel(
-        network_channel_.get());
-  }
   network_channel_.reset();
-  desktop_pipe_.Close();
 
   // Notify the caller that the channel has been disconnected.
   if (delegate_.get())
@@ -261,7 +252,7 @@ void DesktopSessionAgent::SetDisableInputs(bool disable_inputs) {
 void DesktopSessionAgent::OnStartSessionAgent(
     const std::string& authenticated_jid,
     const ScreenResolution& resolution,
-    bool virtual_terminal) {
+    const remoting::DesktopEnvironmentOptions& options) {
   DCHECK(caller_task_runner_->BelongsToCurrentThread());
   DCHECK(!started_);
   DCHECK(!audio_capturer_);
@@ -273,13 +264,9 @@ void DesktopSessionAgent::OnStartSessionAgent(
   started_ = true;
   client_jid_ = authenticated_jid;
 
-  // Enable the curtain mode.
-  delegate_->desktop_environment_factory().SetEnableCurtaining(
-      virtual_terminal);
-
   // Create a desktop environment for the new session.
   desktop_environment_ = delegate_->desktop_environment_factory().Create(
-      weak_factory_.GetWeakPtr());
+      weak_factory_.GetWeakPtr(), options);
 
   // Create the session controller and set the initial screen resolution.
   screen_controls_ = desktop_environment_->CreateScreenControls();
@@ -390,28 +377,17 @@ void DesktopSessionAgent::ProcessAudioPacket(
       serialized_packet));
 }
 
-bool DesktopSessionAgent::Start(const base::WeakPtr<Delegate>& delegate,
-                                IPC::PlatformFileForTransit* desktop_pipe_out) {
+mojo::ScopedMessagePipeHandle DesktopSessionAgent::Start(
+    const base::WeakPtr<Delegate>& delegate) {
   DCHECK(caller_task_runner_->BelongsToCurrentThread());
   DCHECK(delegate_.get() == nullptr);
 
   delegate_ = delegate;
 
-  // Create an IPC channel to communicate with the network process.
-  bool result = CreateConnectedIpcChannel(io_task_runner_,
-                                          this,
-                                          &desktop_pipe_,
-                                          &network_channel_);
-  base::PlatformFile raw_desktop_pipe = desktop_pipe_.GetPlatformFile();
-#if defined(OS_WIN)
-  *desktop_pipe_out =
-      IPC::PlatformFileForTransit(raw_desktop_pipe, base::GetCurrentProcId());
-#elif defined(OS_POSIX)
-  *desktop_pipe_out = IPC::PlatformFileForTransit(raw_desktop_pipe, false);
-#else
-#error Unsupported platform.
-#endif
-  return result;
+  mojo::MessagePipe pipe;
+  network_channel_ = IPC::ChannelProxy::Create(
+      pipe.handle0.release(), IPC::Channel::MODE_SERVER, this, io_task_runner_);
+  return std::move(pipe.handle1);
 }
 
 void DesktopSessionAgent::Stop() {
@@ -420,10 +396,6 @@ void DesktopSessionAgent::Stop() {
   delegate_.reset();
 
   // Make sure the channel is closed.
-  if (IPC::AttachmentBroker::GetGlobal()) {
-    IPC::AttachmentBroker::GetGlobal()->DeregisterCommunicationChannel(
-        network_channel_.get());
-  }
   network_channel_.reset();
 
   if (started_) {
@@ -464,7 +436,7 @@ void DesktopSessionAgent::OnCaptureFrame() {
   // |video_capture_task_runner()| task runner. If the client issues more
   // requests, pixel data in captured frames will likely be corrupted but
   // stability of webrtc::DesktopCapturer will not be affected.
-  video_capturer_->Capture(webrtc::DesktopRegion());
+  video_capturer_->CaptureFrame();
 }
 
 void DesktopSessionAgent::OnInjectClipboardEvent(

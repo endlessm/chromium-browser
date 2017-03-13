@@ -1,7 +1,8 @@
 include_rules = [
-  "+components/sync/api/attachments",
+  "+components/reading_list/core",
   "+components/sync/base",
   "+components/sync/engine",
+  "+components/sync/model",
   "+components/sync/protocol",
   "+components/sync/test",
   "+net/base/escape.h",

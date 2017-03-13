@@ -4,7 +4,7 @@
 
 package org.chromium.chrome.browser.autofill;
 
-import android.test.suitebuilder.annotation.SmallTest;
+import android.support.test.filters.SmallTest;
 
 import org.chromium.base.test.util.Feature;
 import org.chromium.base.test.util.RetryOnFailure;
@@ -151,7 +151,8 @@ public class PersonalDataManagerTest extends NativeLibraryTestBase {
         assertEquals("Visa", storedCard.getName());
         assertEquals("10", storedCard.getMonth());
         assertEquals("4012888888881881", storedCard.getNumber());
-        assertEquals("Visa\u00a0\u22ef1881", storedCard.getObfuscatedNumber());
+        assertEquals("Visa\u0020\u0020\u2022\u2006\u2022\u2006\u2022\u2006\u2022\u20061881",
+                storedCard.getObfuscatedNumber());
         assertNotNull(mHelper.getCreditCard(cardTwoGUID));
     }
 
@@ -325,7 +326,8 @@ public class PersonalDataManagerTest extends NativeLibraryTestBase {
         // a bigger use count that the first profile. It should be second.
         mHelper.setProfileUseStatsForTesting(guid3, 6, 5000);
 
-        List<AutofillProfile> profiles = mHelper.getProfilesToSuggest(false /* includeName */);
+        List<AutofillProfile> profiles =
+                mHelper.getProfilesToSuggest(false /* includeNameInLabel */);
         assertEquals(3, profiles.size());
         assertTrue("Profile2 should be ranked first", guid2.equals(profiles.get(0).getGUID()));
         assertTrue("Profile3 should be ranked second", guid3.equals(profiles.get(1).getGUID()));
@@ -499,7 +501,8 @@ public class PersonalDataManagerTest extends NativeLibraryTestBase {
             TimeoutException {
         mHelper.setProfile(createTestProfile());
 
-        List<AutofillProfile> profiles = mHelper.getProfilesToSuggest(false /* includeName */);
+        List<AutofillProfile> profiles =
+                mHelper.getProfilesToSuggest(false /* includeNameInLabel */);
         assertEquals("Acme Inc., 123 Main, Los Angeles, California 90210, United States",
                 profiles.get(0).getLabel());
     }
@@ -511,7 +514,8 @@ public class PersonalDataManagerTest extends NativeLibraryTestBase {
             TimeoutException {
         mHelper.setProfile(createTestProfile());
 
-        List<AutofillProfile> profiles = mHelper.getProfilesToSuggest(true /* includeName */);
+        List<AutofillProfile> profiles =
+                mHelper.getProfilesToSuggest(true /* includeNameInLabel */);
         assertEquals("John Major, Acme Inc., 123 Main, Los Angeles, California 90210, "
                 + "United States", profiles.get(0).getLabel());
     }

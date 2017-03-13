@@ -4,17 +4,29 @@
 
 #include "modules/payments/PaymentRequest.h"
 
+#include "bindings/core/v8/ConditionalFeatures.h"
 #include "bindings/core/v8/ExceptionState.h"
-#include "bindings/core/v8/JSONValuesForV8.h"
 #include "bindings/core/v8/ScriptPromiseResolver.h"
 #include "bindings/core/v8/ScriptState.h"
+#include "bindings/core/v8/V8StringResource.h"
+#include "bindings/modules/v8/V8AndroidPayMethodData.h"
+#include "bindings/modules/v8/V8BasicCardRequest.h"
 #include "bindings/modules/v8/V8PaymentDetails.h"
 #include "core/EventTypeNames.h"
 #include "core/dom/DOMException.h"
+#include "core/dom/Document.h"
 #include "core/dom/ExceptionCode.h"
 #include "core/events/Event.h"
 #include "core/events/EventQueue.h"
+#include "core/frame/FrameOwner.h"
+#include "core/html/HTMLIFrameElement.h"
+#include "core/inspector/ConsoleMessage.h"
+#include "core/inspector/ConsoleTypes.h"
 #include "modules/EventTargetModulesNames.h"
+#include "modules/payments/AndroidPayMethodData.h"
+#include "modules/payments/AndroidPayTokenization.h"
+#include "modules/payments/BasicCardRequest.h"
+#include "modules/payments/HTMLIFrameElementPayments.h"
 #include "modules/payments/PaymentAddress.h"
 #include "modules/payments/PaymentItem.h"
 #include "modules/payments/PaymentRequestUpdateEvent.h"
@@ -22,31 +34,30 @@
 #include "modules/payments/PaymentShippingOption.h"
 #include "modules/payments/PaymentsValidators.h"
 #include "mojo/public/cpp/bindings/interface_request.h"
-#include "mojo/public/cpp/bindings/wtf_array.h"
+#include "platform/RuntimeEnabledFeatures.h"
 #include "platform/mojo/MojoHelper.h"
 #include "public/platform/InterfaceProvider.h"
 #include "public/platform/Platform.h"
 #include "public/platform/WebTraceLocation.h"
 #include "wtf/HashSet.h"
+#include <stddef.h>
 #include <utility>
 
-namespace mojo {
+using payments::mojom::blink::CanMakePaymentQueryResult;
+using payments::mojom::blink::PaymentAddressPtr;
+using payments::mojom::blink::PaymentCurrencyAmount;
+using payments::mojom::blink::PaymentCurrencyAmountPtr;
+using payments::mojom::blink::PaymentDetailsModifierPtr;
+using payments::mojom::blink::PaymentDetailsPtr;
+using payments::mojom::blink::PaymentErrorReason;
+using payments::mojom::blink::PaymentItemPtr;
+using payments::mojom::blink::PaymentMethodDataPtr;
+using payments::mojom::blink::PaymentOptionsPtr;
+using payments::mojom::blink::PaymentResponsePtr;
+using payments::mojom::blink::PaymentShippingOptionPtr;
+using payments::mojom::blink::PaymentShippingType;
 
-using blink::mojom::blink::PaymentCurrencyAmount;
-using blink::mojom::blink::PaymentCurrencyAmountPtr;
-using blink::mojom::blink::PaymentDetails;
-using blink::mojom::blink::PaymentDetailsModifier;
-using blink::mojom::blink::PaymentDetailsModifierPtr;
-using blink::mojom::blink::PaymentDetailsPtr;
-using blink::mojom::blink::PaymentErrorReason;
-using blink::mojom::blink::PaymentItem;
-using blink::mojom::blink::PaymentItemPtr;
-using blink::mojom::blink::PaymentMethodData;
-using blink::mojom::blink::PaymentMethodDataPtr;
-using blink::mojom::blink::PaymentOptions;
-using blink::mojom::blink::PaymentOptionsPtr;
-using blink::mojom::blink::PaymentShippingOption;
-using blink::mojom::blink::PaymentShippingOptionPtr;
+namespace mojo {
 
 template <>
 struct TypeConverter<PaymentCurrencyAmountPtr, blink::PaymentCurrencyAmount> {
@@ -55,6 +66,8 @@ struct TypeConverter<PaymentCurrencyAmountPtr, blink::PaymentCurrencyAmount> {
     PaymentCurrencyAmountPtr output = PaymentCurrencyAmount::New();
     output->currency = input.currency();
     output->value = input.value();
+    if (input.hasCurrencySystem())
+      output->currency_system = input.currencySystem();
     return output;
   }
 };
@@ -62,9 +75,10 @@ struct TypeConverter<PaymentCurrencyAmountPtr, blink::PaymentCurrencyAmount> {
 template <>
 struct TypeConverter<PaymentItemPtr, blink::PaymentItem> {
   static PaymentItemPtr Convert(const blink::PaymentItem& input) {
-    PaymentItemPtr output = PaymentItem::New();
+    PaymentItemPtr output = payments::mojom::blink::PaymentItem::New();
     output->label = input.label();
     output->amount = PaymentCurrencyAmount::From(input.amount());
+    output->pending = input.pending();
     return output;
   }
 };
@@ -73,7 +87,8 @@ template <>
 struct TypeConverter<PaymentShippingOptionPtr, blink::PaymentShippingOption> {
   static PaymentShippingOptionPtr Convert(
       const blink::PaymentShippingOption& input) {
-    PaymentShippingOptionPtr output = PaymentShippingOption::New();
+    PaymentShippingOptionPtr output =
+        payments::mojom::blink::PaymentShippingOption::New();
     output->id = input.id();
     output->label = input.label();
     output->amount = PaymentCurrencyAmount::From(input.amount());
@@ -83,86 +98,21 @@ struct TypeConverter<PaymentShippingOptionPtr, blink::PaymentShippingOption> {
 };
 
 template <>
-struct TypeConverter<PaymentDetailsModifierPtr, blink::PaymentDetailsModifier> {
-  static PaymentDetailsModifierPtr Convert(
-      const blink::PaymentDetailsModifier& input) {
-    PaymentDetailsModifierPtr output = PaymentDetailsModifier::New();
-    output->supported_methods =
-        WTF::Vector<WTF::String>(input.supportedMethods());
-
-    if (input.hasTotal())
-      output->total = PaymentItem::From(input.total());
-    else
-      output->total = PaymentItem::New();
-
-    if (input.hasAdditionalDisplayItems())
-      output->additional_display_items =
-          mojo::WTFArray<PaymentItemPtr>::From(input.additionalDisplayItems());
-    else
-      output->additional_display_items = mojo::WTFArray<PaymentItemPtr>::New(0);
-
-    return output;
-  }
-};
-
-template <>
-struct TypeConverter<PaymentDetailsPtr, blink::PaymentDetails> {
-  static PaymentDetailsPtr Convert(const blink::PaymentDetails& input) {
-    PaymentDetailsPtr output = PaymentDetails::New();
-    output->total = PaymentItem::From(input.total());
-
-    if (input.hasDisplayItems())
-      output->display_items =
-          mojo::WTFArray<PaymentItemPtr>::From(input.displayItems());
-    else
-      output->display_items = mojo::WTFArray<PaymentItemPtr>::New(0);
-
-    if (input.hasShippingOptions())
-      output->shipping_options = mojo::WTFArray<PaymentShippingOptionPtr>::From(
-          input.shippingOptions());
-    else
-      output->shipping_options =
-          mojo::WTFArray<PaymentShippingOptionPtr>::New(0);
-
-    if (input.hasModifiers())
-      output->modifiers =
-          mojo::WTFArray<PaymentDetailsModifierPtr>::From(input.modifiers());
-    else
-      output->modifiers = mojo::WTFArray<PaymentDetailsModifierPtr>::New(0);
-
-    if (input.hasError())
-      output->error = input.error();
-    else
-      output->error = WTF::emptyString();
-
-    return output;
-  }
-};
-
-template <>
 struct TypeConverter<PaymentOptionsPtr, blink::PaymentOptions> {
   static PaymentOptionsPtr Convert(const blink::PaymentOptions& input) {
-    PaymentOptionsPtr output = PaymentOptions::New();
+    PaymentOptionsPtr output = payments::mojom::blink::PaymentOptions::New();
     output->request_payer_name = input.requestPayerName();
     output->request_payer_email = input.requestPayerEmail();
     output->request_payer_phone = input.requestPayerPhone();
     output->request_shipping = input.requestShipping();
-    return output;
-  }
-};
 
-template <>
-struct TypeConverter<WTFArray<PaymentMethodDataPtr>,
-                     WTF::Vector<blink::PaymentRequest::MethodData>> {
-  static WTFArray<PaymentMethodDataPtr> Convert(
-      const WTF::Vector<blink::PaymentRequest::MethodData>& input) {
-    WTFArray<PaymentMethodDataPtr> output(input.size());
-    for (size_t i = 0; i < input.size(); ++i) {
-      output[i] = PaymentMethodData::New();
-      output[i]->supported_methods =
-          WTF::Vector<WTF::String>(input[i].supportedMethods);
-      output[i]->stringified_data = input[i].stringifiedData;
-    }
+    if (input.shippingType() == "delivery")
+      output->shipping_type = PaymentShippingType::DELIVERY;
+    else if (input.shippingType() == "pickup")
+      output->shipping_type = PaymentShippingType::PICKUP;
+    else
+      output->shipping_type = PaymentShippingType::SHIPPING;
+
     return output;
   }
 };
@@ -202,8 +152,9 @@ void validateShippingOptionOrPaymentItem(const T& item,
   }
 
   String errorMessage;
-  if (!PaymentsValidators::isValidCurrencyCodeFormat(item.amount().currency(),
-                                                     &errorMessage)) {
+  if (!PaymentsValidators::isValidCurrencyCodeFormat(
+          item.amount().currency(), item.amount().currencySystem(),
+          &errorMessage)) {
     exceptionState.throwTypeError(errorMessage);
     return;
   }
@@ -215,217 +166,483 @@ void validateShippingOptionOrPaymentItem(const T& item,
   }
 }
 
-void validateDisplayItems(const HeapVector<PaymentItem>& items,
-                          ExceptionState& exceptionState) {
-  for (const auto& item : items) {
+void validateAndConvertDisplayItems(const HeapVector<PaymentItem>& input,
+                                    Vector<PaymentItemPtr>& output,
+                                    ExceptionState& exceptionState) {
+  for (const PaymentItem& item : input) {
     validateShippingOptionOrPaymentItem(item, exceptionState);
     if (exceptionState.hadException())
       return;
+    output.push_back(payments::mojom::blink::PaymentItem::From(item));
   }
 }
 
-void validateShippingOptions(const HeapVector<PaymentShippingOption>& options,
-                             ExceptionState& exceptionState) {
+// Validates and converts |input| shipping options into |output|. Throws an
+// exception if the data is not valid, except for duplicate identifiers, which
+// returns an empty |output| instead of throwing an exception. There's no need
+// to clear |output| when an exception is thrown, because the caller takes care
+// of deleting |output|.
+void validateAndConvertShippingOptions(
+    const HeapVector<PaymentShippingOption>& input,
+    Vector<PaymentShippingOptionPtr>& output,
+    ExceptionState& exceptionState) {
   HashSet<String> uniqueIds;
-  for (const auto& option : options) {
+  for (const PaymentShippingOption& option : input) {
     if (!option.hasId() || option.id().isEmpty()) {
       exceptionState.throwTypeError("ShippingOption id required");
       return;
     }
 
     if (uniqueIds.contains(option.id())) {
-      exceptionState.throwTypeError(
-          "Duplicate shipping option identifiers are not allowed");
+      // Clear |output| instead of throwing an exception.
+      output.clear();
       return;
     }
+
     uniqueIds.add(option.id());
 
     validateShippingOptionOrPaymentItem(option, exceptionState);
     if (exceptionState.hadException())
       return;
+
+    output.push_back(
+        payments::mojom::blink::PaymentShippingOption::From(option));
   }
 }
 
-void validatePaymentDetailsModifiers(
-    const HeapVector<PaymentDetailsModifier>& modifiers,
+void validateAndConvertTotal(const PaymentItem& input,
+                             PaymentItemPtr& output,
+                             ExceptionState& exceptionState) {
+  validateShippingOptionOrPaymentItem(input, exceptionState);
+  if (exceptionState.hadException())
+    return;
+
+  if (input.amount().value()[0] == '-') {
+    exceptionState.throwTypeError("Total amount value should be non-negative");
+    return;
+  }
+
+  output = payments::mojom::blink::PaymentItem::From(input);
+}
+
+// Parses Android Pay data to avoid parsing JSON in the browser.
+void setAndroidPayMethodData(const ScriptValue& input,
+                             PaymentMethodDataPtr& output,
+                             ExceptionState& exceptionState) {
+  AndroidPayMethodData androidPay;
+  V8AndroidPayMethodData::toImpl(input.isolate(), input.v8Value(), androidPay,
+                                 exceptionState);
+  if (exceptionState.hadException())
+    return;
+
+  if (androidPay.hasEnvironment() && androidPay.environment() == "TEST")
+    output->environment = payments::mojom::blink::AndroidPayEnvironment::TEST;
+
+  output->merchant_name = androidPay.merchantName();
+  output->merchant_id = androidPay.merchantId();
+
+  // 0 means the merchant did not specify or it was an invalid value
+  output->min_google_play_services_version = 0;
+  if (androidPay.hasMinGooglePlayServicesVersion()) {
+    bool ok = false;
+    int minGooglePlayServicesVersion =
+        androidPay.minGooglePlayServicesVersion().toIntStrict(&ok);
+    if (ok) {
+      output->min_google_play_services_version = minGooglePlayServicesVersion;
+    }
+  }
+
+  if (androidPay.hasAllowedCardNetworks()) {
+    using payments::mojom::blink::AndroidPayCardNetwork;
+
+    const struct {
+      const AndroidPayCardNetwork code;
+      const char* const name;
+    } androidPayNetwork[] = {{AndroidPayCardNetwork::AMEX, "AMEX"},
+                             {AndroidPayCardNetwork::DISCOVER, "DISCOVER"},
+                             {AndroidPayCardNetwork::MASTERCARD, "MASTERCARD"},
+                             {AndroidPayCardNetwork::VISA, "VISA"}};
+
+    for (const String& allowedCardNetwork : androidPay.allowedCardNetworks()) {
+      for (size_t i = 0; i < arraysize(androidPayNetwork); ++i) {
+        if (allowedCardNetwork == androidPayNetwork[i].name) {
+          output->allowed_card_networks.push_back(androidPayNetwork[i].code);
+          break;
+        }
+      }
+    }
+  }
+
+  if (androidPay.hasPaymentMethodTokenizationParameters()) {
+    const blink::AndroidPayTokenization& tokenization =
+        androidPay.paymentMethodTokenizationParameters();
+    output->tokenization_type =
+        payments::mojom::blink::AndroidPayTokenization::UNSPECIFIED;
+    if (tokenization.hasTokenizationType()) {
+      using payments::mojom::blink::AndroidPayTokenization;
+
+      const struct {
+        const AndroidPayTokenization code;
+        const char* const name;
+      } androidPayTokenization[] = {
+          {AndroidPayTokenization::GATEWAY_TOKEN, "GATEWAY_TOKEN"},
+          {AndroidPayTokenization::NETWORK_TOKEN, "NETWORK_TOKEN"}};
+
+      for (size_t i = 0; i < arraysize(androidPayTokenization); ++i) {
+        if (tokenization.tokenizationType() == androidPayTokenization[i].name) {
+          output->tokenization_type = androidPayTokenization[i].code;
+          break;
+        }
+      }
+    }
+
+    if (tokenization.hasParameters()) {
+      const Vector<String>& keys =
+          tokenization.parameters().getPropertyNames(exceptionState);
+      if (exceptionState.hadException())
+        return;
+      String value;
+      for (const String& key : keys) {
+        if (!DictionaryHelper::get(tokenization.parameters(), key, value))
+          continue;
+        output->parameters.push_back(
+            payments::mojom::blink::AndroidPayTokenizationParameter::New());
+        output->parameters.back()->key = key;
+        output->parameters.back()->value = value;
+      }
+    }
+  }
+}
+
+// Parses basic-card data to avoid parsing JSON in the browser.
+void setBasicCardMethodData(const ScriptValue& input,
+                            Document& document,
+                            PaymentMethodDataPtr& output,
+                            ExceptionState& exceptionState) {
+  BasicCardRequest basicCard;
+  V8BasicCardRequest::toImpl(input.isolate(), input.v8Value(), basicCard,
+                             exceptionState);
+  if (exceptionState.hadException())
+    return;
+
+  if (basicCard.hasSupportedNetworks()) {
+    using payments::mojom::blink::BasicCardNetwork;
+
+    const struct {
+      const BasicCardNetwork code;
+      const char* const name;
+    } basicCardNetworks[] = {{BasicCardNetwork::AMEX, "amex"},
+                             {BasicCardNetwork::DINERS, "diners"},
+                             {BasicCardNetwork::DISCOVER, "discover"},
+                             {BasicCardNetwork::JCB, "jcb"},
+                             {BasicCardNetwork::MASTERCARD, "mastercard"},
+                             {BasicCardNetwork::MIR, "mir"},
+                             {BasicCardNetwork::UNIONPAY, "unionpay"},
+                             {BasicCardNetwork::VISA, "visa"}};
+
+    for (const String& network : basicCard.supportedNetworks()) {
+      for (size_t i = 0; i < arraysize(basicCardNetworks); ++i) {
+        if (network == basicCardNetworks[i].name) {
+          output->supported_networks.push_back(basicCardNetworks[i].code);
+          break;
+        }
+      }
+    }
+  }
+
+  if (basicCard.hasSupportedTypes()) {
+    using payments::mojom::blink::BasicCardType;
+
+    const struct {
+      const BasicCardType code;
+      const char* const name;
+    } basicCardTypes[] = {{BasicCardType::CREDIT, "credit"},
+                          {BasicCardType::DEBIT, "debit"},
+                          {BasicCardType::PREPAID, "prepaid"}};
+
+    for (const String& type : basicCard.supportedTypes()) {
+      for (size_t i = 0; i < arraysize(basicCardTypes); ++i) {
+        if (type == basicCardTypes[i].name) {
+          output->supported_types.push_back(basicCardTypes[i].code);
+          break;
+        }
+      }
+    }
+
+    if (output->supported_types.size() != arraysize(basicCardTypes)) {
+      document.addConsoleMessage(ConsoleMessage::create(
+          JSMessageSource, WarningMessageLevel,
+          "Cannot yet distinguish credit, debit, and prepaid cards."));
+    }
+  }
+}
+
+void stringifyAndParseMethodSpecificData(const Vector<String>& supportedMethods,
+                                         const ScriptValue& input,
+                                         Document& document,
+                                         PaymentMethodDataPtr& output,
+                                         ExceptionState& exceptionState) {
+  DCHECK(!input.isEmpty());
+  if (!input.v8Value()->IsObject() || input.v8Value()->IsArray()) {
+    exceptionState.throwTypeError("Data should be a JSON-serializable object");
+    return;
+  }
+
+  v8::Local<v8::String> value;
+  if (!v8::JSON::Stringify(input.context(), input.v8Value().As<v8::Object>())
+           .ToLocal(&value)) {
+    exceptionState.throwTypeError(
+        "Unable to parse payment method specific data");
+    return;
+  }
+
+  output->stringified_data =
+      v8StringToWebCoreString<String>(value, DoNotExternalize);
+
+  // Serialize payment method specific data to be sent to the payment apps. The
+  // payment apps are responsible for validating and processing their method
+  // data asynchronously. Do not throw exceptions here.
+  if (supportedMethods.contains("https://android.com/pay")) {
+    setAndroidPayMethodData(input, output, exceptionState);
+    if (exceptionState.hadException())
+      exceptionState.clearException();
+  }
+  if (RuntimeEnabledFeatures::paymentRequestBasicCardEnabled() &&
+      supportedMethods.contains("basic-card")) {
+    setBasicCardMethodData(input, document, output, exceptionState);
+    if (exceptionState.hadException())
+      exceptionState.clearException();
+  }
+}
+
+void validateAndConvertPaymentDetailsModifiers(
+    const HeapVector<PaymentDetailsModifier>& input,
+    Document& document,
+    Vector<PaymentDetailsModifierPtr>& output,
     ExceptionState& exceptionState) {
-  if (modifiers.isEmpty()) {
+  if (input.isEmpty()) {
     exceptionState.throwTypeError(
         "Must specify at least one payment details modifier");
     return;
   }
 
-  HashSet<String> uniqueMethods;
-  for (const auto& modifier : modifiers) {
+  for (const PaymentDetailsModifier& modifier : input) {
+    output.push_back(payments::mojom::blink::PaymentDetailsModifier::New());
+    if (modifier.hasTotal()) {
+      validateAndConvertTotal(modifier.total(), output.back()->total,
+                              exceptionState);
+      if (exceptionState.hadException())
+        return;
+    }
+
+    if (modifier.hasAdditionalDisplayItems()) {
+      validateAndConvertDisplayItems(modifier.additionalDisplayItems(),
+                                     output.back()->additional_display_items,
+                                     exceptionState);
+      if (exceptionState.hadException())
+        return;
+    }
+
     if (modifier.supportedMethods().isEmpty()) {
       exceptionState.throwTypeError(
           "Must specify at least one payment method identifier");
       return;
     }
 
-    for (const auto& method : modifier.supportedMethods()) {
-      if (uniqueMethods.contains(method)) {
-        exceptionState.throwTypeError(
-            "Duplicate payment method identifiers are not allowed");
-        return;
-      }
-      uniqueMethods.add(method);
-    }
+    output.back()->method_data =
+        payments::mojom::blink::PaymentMethodData::New();
+    output.back()->method_data->supported_methods = modifier.supportedMethods();
 
-    if (modifier.hasTotal()) {
-      validateShippingOptionOrPaymentItem(modifier.total(), exceptionState);
-      if (exceptionState.hadException())
-        return;
-
-      if (modifier.total().amount().value()[0] == '-') {
-        exceptionState.throwTypeError(
-            "Total amount value should be non-negative");
-        return;
-      }
-    }
-
-    if (modifier.hasAdditionalDisplayItems()) {
-      validateDisplayItems(modifier.additionalDisplayItems(), exceptionState);
-      if (exceptionState.hadException())
-        return;
+    if (modifier.hasData() && !modifier.data().isEmpty()) {
+      stringifyAndParseMethodSpecificData(
+          modifier.supportedMethods(), modifier.data(), document,
+          output.back()->method_data, exceptionState);
+    } else {
+      output.back()->method_data->stringified_data = "";
     }
   }
 }
 
-void validatePaymentDetails(const PaymentDetails& details,
-                            ExceptionState& exceptionState) {
-  if (!details.hasTotal()) {
+String getSelectedShippingOption(
+    const Vector<PaymentShippingOptionPtr>& shippingOptions) {
+  String result;
+  for (const PaymentShippingOptionPtr& shippingOption : shippingOptions) {
+    if (shippingOption->selected)
+      result = shippingOption->id;
+  }
+  return result;
+}
+
+void validateAndConvertPaymentDetails(const PaymentDetails& input,
+                                      bool requestShipping,
+                                      Document& document,
+                                      PaymentDetailsPtr& output,
+                                      String& shippingOptionOutput,
+                                      ExceptionState& exceptionState) {
+  if (!input.hasTotal()) {
     exceptionState.throwTypeError("Must specify total");
     return;
   }
 
-  validateShippingOptionOrPaymentItem(details.total(), exceptionState);
+  validateAndConvertTotal(input.total(), output->total, exceptionState);
   if (exceptionState.hadException())
     return;
 
-  if (details.total().amount().value()[0] == '-') {
-    exceptionState.throwTypeError("Total amount value should be non-negative");
-    return;
-  }
-
-  if (details.hasDisplayItems()) {
-    validateDisplayItems(details.displayItems(), exceptionState);
+  if (input.hasDisplayItems()) {
+    validateAndConvertDisplayItems(input.displayItems(), output->display_items,
+                                   exceptionState);
     if (exceptionState.hadException())
       return;
   }
 
-  if (details.hasShippingOptions()) {
-    validateShippingOptions(details.shippingOptions(), exceptionState);
+  if (input.hasShippingOptions() && requestShipping) {
+    validateAndConvertShippingOptions(input.shippingOptions(),
+                                      output->shipping_options, exceptionState);
     if (exceptionState.hadException())
       return;
   }
 
-  if (details.hasModifiers()) {
-    validatePaymentDetailsModifiers(details.modifiers(), exceptionState);
+  shippingOptionOutput = getSelectedShippingOption(output->shipping_options);
+
+  if (input.hasModifiers()) {
+    validateAndConvertPaymentDetailsModifiers(
+        input.modifiers(), document, output->modifiers, exceptionState);
+    if (exceptionState.hadException())
+      return;
   }
 
-  String errorMessage;
-  if (!PaymentsValidators::isValidErrorMsgFormat(details.error(),
-                                                 &errorMessage)) {
-    exceptionState.throwTypeError(errorMessage);
-    return;
+  if (input.hasError() && !input.error().isNull()) {
+    String errorMessage;
+    if (!PaymentsValidators::isValidErrorMsgFormat(input.error(),
+                                                   &errorMessage)) {
+      exceptionState.throwTypeError(errorMessage);
+      return;
+    }
+    output->error = input.error();
+  } else {
+    output->error = "";
   }
 }
 
 void validateAndConvertPaymentMethodData(
-    const HeapVector<PaymentMethodData>& paymentMethodData,
-    Vector<PaymentRequest::MethodData>* methodData,
+    const HeapVector<PaymentMethodData>& input,
+    Document& document,
+    Vector<payments::mojom::blink::PaymentMethodDataPtr>& output,
     ExceptionState& exceptionState) {
-  if (paymentMethodData.isEmpty()) {
+  if (input.isEmpty()) {
     exceptionState.throwTypeError(
         "Must specify at least one payment method identifier");
     return;
   }
 
-  HashSet<String> uniqueMethods;
-  for (const auto& pmd : paymentMethodData) {
-    if (pmd.supportedMethods().isEmpty()) {
+  for (const PaymentMethodData paymentMethodData : input) {
+    if (paymentMethodData.supportedMethods().isEmpty()) {
       exceptionState.throwTypeError(
           "Must specify at least one payment method identifier");
       return;
     }
 
-    for (const auto& method : pmd.supportedMethods()) {
-      if (uniqueMethods.contains(method)) {
-        exceptionState.throwTypeError(
-            "Duplicate payment method identifiers are not allowed");
-        return;
-      }
-      uniqueMethods.add(method);
-    }
+    output.push_back(payments::mojom::blink::PaymentMethodData::New());
+    output.back()->supported_methods = paymentMethodData.supportedMethods();
 
-    String stringifiedData = "";
-    if (pmd.hasData() && !pmd.data().isEmpty()) {
-      std::unique_ptr<JSONValue> value =
-          toJSONValue(pmd.data().context(), pmd.data().v8Value());
-      if (!value) {
-        exceptionState.throwTypeError(
-            "Unable to parse payment method specific data");
-        return;
-      }
-      if (!value->isNull()) {
-        if (value->getType() != JSONValue::TypeObject) {
-          exceptionState.throwTypeError(
-              "Data should be a JSON-serializable object");
-          return;
-        }
-        stringifiedData = JSONObject::cast(value.get())->toJSONString();
-      }
-    }
-    methodData->append(
-        PaymentRequest::MethodData(pmd.supportedMethods(), stringifiedData));
-  }
-}
-
-String getSelectedShippingOption(const PaymentDetails& details) {
-  String result;
-  if (!details.hasShippingOptions())
-    return result;
-
-  for (int i = details.shippingOptions().size() - 1; i >= 0; --i) {
-    if (details.shippingOptions()[i].hasSelected() &&
-        details.shippingOptions()[i].selected()) {
-      return details.shippingOptions()[i].id();
+    if (paymentMethodData.hasData() && !paymentMethodData.data().isEmpty()) {
+      stringifyAndParseMethodSpecificData(paymentMethodData.supportedMethods(),
+                                          paymentMethodData.data(), document,
+                                          output.back(), exceptionState);
+    } else {
+      output.back()->stringified_data = "";
     }
   }
-
-  return result;
 }
 
 String getValidShippingType(const String& shippingType) {
   static const char* const validValues[] = {
       "shipping", "delivery", "pickup",
   };
-  for (size_t i = 0; i < WTF_ARRAY_LENGTH(validValues); i++) {
+  for (size_t i = 0; i < arraysize(validValues); i++) {
     if (shippingType == validValues[i])
       return shippingType;
   }
   return validValues[0];
 }
 
+bool allowedToUsePaymentRequest(const Frame* frame) {
+  // To determine whether a Document object |document| is allowed to use the
+  // feature indicated by attribute name |allowpaymentrequest|, run these steps:
+
+  // 1. If |document| has no browsing context, then return false.
+  if (!frame)
+    return false;
+
+  if (!RuntimeEnabledFeatures::featurePolicyEnabled()) {
+    // 2. If |document|'s browsing context is a top-level browsing context, then
+    // return true.
+    if (frame->isMainFrame())
+      return true;
+
+    // 3. If |document|'s browsing context has a browsing context container that
+    // is an iframe element with an |allowpaymentrequest| attribute specified,
+    // and whose node document is allowed to use the feature indicated by
+    // |allowpaymentrequest|, then return true.
+    if (frame->owner() && frame->owner()->allowPaymentRequest())
+      return allowedToUsePaymentRequest(frame->tree().parent());
+
+    // 4. Return false.
+    return false;
+  }
+
+  // If Feature Policy is enabled. then we need this hack to support it, until
+  // we have proper support for <iframe allowfullscreen> in FP:
+  // TODO(lunalu): clean up the code once FP iframe is supported
+  // crbug.com/682280
+
+  // 1. If FP, by itself, enables paymentrequest in this document, then
+  // paymentrequest is allowed.
+  if (frame->securityContext()->getFeaturePolicy()->isFeatureEnabled(
+          kPaymentFeature)) {
+    return true;
+  }
+
+  // 2. Otherwise, if the embedding frame's document is allowed to use
+  // paymentrequest (either through FP or otherwise), and either:
+  //   a) this is a same-origin embedded document, or
+  //   b) this document's iframe has the allowpayment attribute set,
+  // then paymentrequest is allowed.
+  if (!frame->isMainFrame()) {
+    if (allowedToUsePaymentRequest(frame->tree().parent())) {
+      return (frame->owner() && frame->owner()->allowPaymentRequest()) ||
+             frame->tree()
+                 .parent()
+                 ->securityContext()
+                 ->getSecurityOrigin()
+                 ->isSameSchemeHostPortAndSuborigin(
+                     frame->securityContext()->getSecurityOrigin());
+    }
+  }
+
+  // Otherwise, paymentrequest is not allowed. (If we reach here and this is
+  // the main frame, then paymentrequest must have been disabled by FP.)
+  return false;
+}
+
 }  // namespace
 
 PaymentRequest* PaymentRequest::create(
-    ScriptState* scriptState,
+    Document& document,
     const HeapVector<PaymentMethodData>& methodData,
     const PaymentDetails& details,
     ExceptionState& exceptionState) {
-  return new PaymentRequest(scriptState, methodData, details, PaymentOptions(),
+  return new PaymentRequest(document, methodData, details, PaymentOptions(),
                             exceptionState);
 }
 
 PaymentRequest* PaymentRequest::create(
-    ScriptState* scriptState,
+    Document& document,
     const HeapVector<PaymentMethodData>& methodData,
     const PaymentDetails& details,
     const PaymentOptions& options,
     ExceptionState& exceptionState) {
-  return new PaymentRequest(scriptState, methodData, details, options,
+  return new PaymentRequest(document, methodData, details, options,
                             exceptionState);
 }
 
@@ -467,6 +684,20 @@ ScriptPromise PaymentRequest::abort(ScriptState* scriptState) {
   return m_abortResolver->promise();
 }
 
+ScriptPromise PaymentRequest::canMakePayment(ScriptState* scriptState) {
+  if (!m_paymentProvider.is_bound() || m_canMakePaymentResolver ||
+      !scriptState->contextIsValid()) {
+    return ScriptPromise::rejectWithDOMException(
+        scriptState, DOMException::create(InvalidStateError,
+                                          "Cannot query payment request"));
+  }
+
+  m_paymentProvider->CanMakePayment();
+
+  m_canMakePaymentResolver = ScriptPromiseResolver::create(scriptState);
+  return m_canMakePaymentResolver->promise();
+}
+
 bool PaymentRequest::hasPendingActivity() const {
   return m_showResolver || m_completeResolver;
 }
@@ -502,7 +733,7 @@ ScriptPromise PaymentRequest::complete(ScriptState* scriptState,
   m_completeTimer.stop();
 
   // The payment provider should respond in PaymentRequest::OnComplete().
-  m_paymentProvider->Complete(mojom::blink::PaymentComplete(result));
+  m_paymentProvider->Complete(payments::mojom::blink::PaymentComplete(result));
 
   m_completeResolver = ScriptPromiseResolver::create(scriptState);
   return m_completeResolver->promise();
@@ -514,7 +745,9 @@ void PaymentRequest::onUpdatePaymentDetails(
     return;
 
   PaymentDetails details;
-  TrackExceptionState exceptionState;
+  ExceptionState exceptionState(v8::Isolate::GetCurrent(),
+                                ExceptionState::ConstructionContext,
+                                "PaymentDetails");
   V8PaymentDetails::toImpl(detailsScriptValue.isolate(),
                            detailsScriptValue.v8Value(), details,
                            exceptionState);
@@ -525,7 +758,12 @@ void PaymentRequest::onUpdatePaymentDetails(
     return;
   }
 
-  validatePaymentDetails(details, exceptionState);
+  PaymentDetailsPtr validatedDetails =
+      payments::mojom::blink::PaymentDetails::New();
+  validateAndConvertPaymentDetails(
+      details, m_options.requestShipping(),
+      *detailsScriptValue.getScriptState()->domWindow()->document(),
+      validatedDetails, m_shippingOption, exceptionState);
   if (exceptionState.hadException()) {
     m_showResolver->reject(
         DOMException::create(SyntaxError, exceptionState.message()));
@@ -533,10 +771,7 @@ void PaymentRequest::onUpdatePaymentDetails(
     return;
   }
 
-  if (m_options.requestShipping())
-    m_shippingOption = getSelectedShippingOption(details);
-
-  m_paymentProvider->UpdateWith(mojom::blink::PaymentDetails::From(details));
+  m_paymentProvider->UpdateWith(std::move(validatedDetails));
 }
 
 void PaymentRequest::onUpdatePaymentDetailsFailure(const String& error) {
@@ -553,6 +788,7 @@ DEFINE_TRACE(PaymentRequest) {
   visitor->trace(m_showResolver);
   visitor->trace(m_completeResolver);
   visitor->trace(m_abortResolver);
+  visitor->trace(m_canMakePaymentResolver);
   EventTargetWithInlineData::trace(visitor);
   ContextLifecycleObserver::trace(visitor);
 }
@@ -562,67 +798,65 @@ void PaymentRequest::onCompleteTimeoutForTesting() {
   onCompleteTimeout(0);
 }
 
-PaymentRequest::PaymentRequest(ScriptState* scriptState,
+PaymentRequest::PaymentRequest(Document& document,
                                const HeapVector<PaymentMethodData>& methodData,
                                const PaymentDetails& details,
                                const PaymentOptions& options,
                                ExceptionState& exceptionState)
-    : ContextLifecycleObserver(scriptState->getExecutionContext()),
-      ActiveScriptWrappable(this),
+    : ContextLifecycleObserver(&document),
       m_options(options),
       m_clientBinding(this),
       m_completeTimer(this, &PaymentRequest::onCompleteTimeout) {
-  Vector<MethodData> validatedMethodData;
-  validateAndConvertPaymentMethodData(methodData, &validatedMethodData,
+  Vector<payments::mojom::blink::PaymentMethodDataPtr> validatedMethodData;
+  validateAndConvertPaymentMethodData(methodData, document, validatedMethodData,
                                       exceptionState);
   if (exceptionState.hadException())
     return;
 
-  if (!scriptState->getExecutionContext()->isSecureContext()) {
+  if (!document.isSecureContext()) {
     exceptionState.throwSecurityError("Must be in a secure context");
     return;
   }
 
-  if (!scriptState->domWindow()->frame() ||
-      !scriptState->domWindow()->frame()->isMainFrame()) {
+  if (!allowedToUsePaymentRequest(document.frame())) {
     exceptionState.throwSecurityError(
-        "Must be in a top-level browsing context");
+        "Must be in a top-level browsing context or an iframe needs to specify "
+        "'allowpaymentrequest' explicitly");
     return;
   }
 
-  validatePaymentDetails(details, exceptionState);
+  PaymentDetailsPtr validatedDetails =
+      payments::mojom::blink::PaymentDetails::New();
+  validateAndConvertPaymentDetails(details, m_options.requestShipping(),
+                                   document, validatedDetails, m_shippingOption,
+                                   exceptionState);
   if (exceptionState.hadException())
     return;
 
-  if (details.hasError() && !details.error().isEmpty()) {
-    exceptionState.throwTypeError("Error value should be empty");
+  if (details.hasError()) {
+    exceptionState.throwTypeError("Error message not allowed in constructor");
     return;
   }
 
-  if (m_options.requestShipping()) {
-    m_shippingOption = getSelectedShippingOption(details);
+  if (m_options.requestShipping())
     m_shippingType = getValidShippingType(m_options.shippingType());
-  }
 
-  scriptState->domWindow()->frame()->interfaceProvider()->getInterface(
-      mojo::GetProxy(&m_paymentProvider));
+  document.frame()->interfaceProvider()->getInterface(
+      mojo::MakeRequest(&m_paymentProvider));
   m_paymentProvider.set_connection_error_handler(convertToBaseCallback(
       WTF::bind(&PaymentRequest::OnError, wrapWeakPersistent(this),
-                mojom::blink::PaymentErrorReason::UNKNOWN)));
+                PaymentErrorReason::UNKNOWN)));
   m_paymentProvider->Init(
       m_clientBinding.CreateInterfacePtrAndBind(),
-      mojo::WTFArray<mojom::blink::PaymentMethodDataPtr>::From(
-          validatedMethodData),
-      mojom::blink::PaymentDetails::From(details),
-      mojom::blink::PaymentOptions::From(m_options));
+      std::move(validatedMethodData), std::move(validatedDetails),
+      payments::mojom::blink::PaymentOptions::From(m_options));
 }
 
-void PaymentRequest::contextDestroyed() {
+void PaymentRequest::contextDestroyed(ExecutionContext*) {
   clearResolversAndCloseMojoConnection();
 }
 
-void PaymentRequest::OnShippingAddressChange(
-    mojom::blink::PaymentAddressPtr address) {
+void PaymentRequest::OnShippingAddressChange(PaymentAddressPtr address) {
   DCHECK(m_showResolver);
   DCHECK(!m_completeResolver);
 
@@ -656,8 +890,7 @@ void PaymentRequest::OnShippingOptionChange(const String& shippingOptionId) {
   ALLOW_UNUSED_LOCAL(success);
 }
 
-void PaymentRequest::OnPaymentResponse(
-    mojom::blink::PaymentResponsePtr response) {
+void PaymentRequest::OnPaymentResponse(PaymentResponsePtr response) {
   DCHECK(m_showResolver);
   DCHECK(!m_completeResolver);
   DCHECK(!m_completeTimer.isActive());
@@ -708,7 +941,7 @@ void PaymentRequest::OnPaymentResponse(
   m_showResolver.clear();
 }
 
-void PaymentRequest::OnError(mojo::PaymentErrorReason error) {
+void PaymentRequest::OnError(PaymentErrorReason error) {
   if (!Platform::current()) {
     // TODO(rockot): Clean this up once renderer shutdown sequence is fixed.
     return;
@@ -719,15 +952,15 @@ void PaymentRequest::OnError(mojo::PaymentErrorReason error) {
   String message;
 
   switch (error) {
-    case mojom::blink::PaymentErrorReason::USER_CANCEL:
+    case PaymentErrorReason::USER_CANCEL:
       message = "Request cancelled";
       break;
-    case mojom::blink::PaymentErrorReason::NOT_SUPPORTED:
+    case PaymentErrorReason::NOT_SUPPORTED:
       isError = true;
       ec = NotSupportedError;
       message = "The payment method is not supported";
       break;
-    case mojom::blink::PaymentErrorReason::UNKNOWN:
+    case PaymentErrorReason::UNKNOWN:
       isError = true;
       ec = UnknownError;
       message = "Request failed";
@@ -745,6 +978,9 @@ void PaymentRequest::OnError(mojo::PaymentErrorReason error) {
 
     if (m_abortResolver)
       m_abortResolver->reject(DOMException::create(ec, message));
+
+    if (m_canMakePaymentResolver)
+      m_canMakePaymentResolver->reject(DOMException::create(ec, message));
   } else {
     if (m_completeResolver)
       m_completeResolver->reject(message);
@@ -754,6 +990,9 @@ void PaymentRequest::OnError(mojo::PaymentErrorReason error) {
 
     if (m_abortResolver)
       m_abortResolver->reject(message);
+
+    if (m_canMakePaymentResolver)
+      m_canMakePaymentResolver->reject(message);
   }
 
   clearResolversAndCloseMojoConnection();
@@ -780,8 +1019,27 @@ void PaymentRequest::OnAbort(bool abortedSuccessfully) {
   clearResolversAndCloseMojoConnection();
 }
 
+void PaymentRequest::OnCanMakePayment(CanMakePaymentQueryResult result) {
+  DCHECK(m_canMakePaymentResolver);
+
+  switch (result) {
+    case CanMakePaymentQueryResult::CAN_MAKE_PAYMENT:
+      m_canMakePaymentResolver->resolve(true);
+      break;
+    case CanMakePaymentQueryResult::CANNOT_MAKE_PAYMENT:
+      m_canMakePaymentResolver->resolve(false);
+      break;
+    case CanMakePaymentQueryResult::QUERY_QUOTA_EXCEEDED:
+      m_canMakePaymentResolver->reject(
+          DOMException::create(QuotaExceededError, "Query quota exceeded"));
+      break;
+  }
+
+  m_canMakePaymentResolver.clear();
+}
+
 void PaymentRequest::onCompleteTimeout(TimerBase*) {
-  m_paymentProvider->Complete(mojom::blink::PaymentComplete(Fail));
+  m_paymentProvider->Complete(payments::mojom::blink::PaymentComplete(Fail));
   clearResolversAndCloseMojoConnection();
 }
 
@@ -790,6 +1048,7 @@ void PaymentRequest::clearResolversAndCloseMojoConnection() {
   m_completeResolver.clear();
   m_showResolver.clear();
   m_abortResolver.clear();
+  m_canMakePaymentResolver.clear();
   if (m_clientBinding.is_bound())
     m_clientBinding.Close();
   m_paymentProvider.reset();

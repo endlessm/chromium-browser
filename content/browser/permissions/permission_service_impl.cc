@@ -5,15 +5,19 @@
 #include "content/browser/permissions/permission_service_impl.h"
 
 #include <stddef.h>
+
+#include <memory>
 #include <utility>
 
 #include "base/bind.h"
+#include "base/memory/ptr_util.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/permission_manager.h"
 #include "content/public/browser/permission_type.h"
 
 using blink::mojom::PermissionDescriptorPtr;
 using blink::mojom::PermissionName;
+using blink::mojom::PermissionObserverPtr;
 using blink::mojom::PermissionStatus;
 
 namespace content {
@@ -78,17 +82,6 @@ PermissionServiceImpl::PendingRequest::~PendingRequest() {
   callback.Run(result);
 }
 
-PermissionServiceImpl::PendingSubscription::PendingSubscription(
-    PermissionType permission,
-    const url::Origin& origin,
-    const PermissionStatusCallback& callback)
-    : id(-1), permission(permission), origin(origin), callback(callback) {}
-
-PermissionServiceImpl::PendingSubscription::~PendingSubscription() {
-  if (!callback.is_null())
-    callback.Run(PermissionStatus::ASK);
-}
-
 PermissionServiceImpl::PermissionServiceImpl(
     PermissionServiceContext* context,
     mojo::InterfaceRequest<blink::mojom::PermissionService> request)
@@ -130,11 +123,12 @@ void PermissionServiceImpl::RequestPermission(
     return;
   }
 
-  int pending_request_id = pending_requests_.Add(new PendingRequest(
-      base::Bind(&PermissionRequestResponseCallbackWrapper, callback), 1));
+  int pending_request_id =
+      pending_requests_.Add(base::MakeUnique<PendingRequest>(
+          base::Bind(&PermissionRequestResponseCallbackWrapper, callback), 1));
   int id = browser_context->GetPermissionManager()->RequestPermission(
       PermissionDescriptorToPermissionType(permission),
-      context_->render_frame_host(), GURL(origin.Serialize()), user_gesture,
+      context_->render_frame_host(), origin.GetURL(), user_gesture,
       base::Bind(&PermissionServiceImpl::OnRequestPermissionResponse,
                  weak_factory_.GetWeakPtr(), pending_request_id));
 
@@ -182,10 +176,9 @@ void PermissionServiceImpl::RequestPermissions(
     types[i] = PermissionDescriptorToPermissionType(permissions[i]);
 
   int pending_request_id = pending_requests_.Add(
-      new PendingRequest(callback, permissions.size()));
+      base::MakeUnique<PendingRequest>(callback, permissions.size()));
   int id = browser_context->GetPermissionManager()->RequestPermissions(
-      types, context_->render_frame_host(), GURL(origin.Serialize()),
-      user_gesture,
+      types, context_->render_frame_host(), origin.GetURL(), user_gesture,
       base::Bind(&PermissionServiceImpl::OnRequestPermissionsResponse,
                  weak_factory_.GetWeakPtr(), pending_request_id));
 
@@ -223,17 +216,6 @@ void PermissionServiceImpl::CancelPendingOperations() {
         it.GetCurrentValue()->id);
   }
   pending_requests_.Clear();
-
-  // Cancel pending subscriptions.
-  for (SubscriptionsMap::Iterator<PendingSubscription>
-          it(&pending_subscriptions_); !it.IsAtEnd(); it.Advance()) {
-    it.GetCurrentValue()->callback.Run(GetPermissionStatusFromType(
-        it.GetCurrentValue()->permission, it.GetCurrentValue()->origin));
-    it.GetCurrentValue()->callback.Reset();
-    permission_manager->UnsubscribePermissionStatusChange(
-        it.GetCurrentValue()->id);
-  }
-  pending_subscriptions_.Clear();
 }
 
 void PermissionServiceImpl::HasPermission(
@@ -264,43 +246,19 @@ void PermissionServiceImpl::RevokePermission(
   callback.Run(GetPermissionStatusFromType(permission_type, origin));
 }
 
-void PermissionServiceImpl::GetNextPermissionChange(
+void PermissionServiceImpl::AddPermissionObserver(
     PermissionDescriptorPtr permission,
     const url::Origin& origin,
     PermissionStatus last_known_status,
-    const PermissionStatusCallback& callback) {
+    PermissionObserverPtr observer) {
   PermissionStatus current_status = GetPermissionStatus(permission, origin);
   if (current_status != last_known_status) {
-    callback.Run(current_status);
-    return;
+    observer->OnPermissionStatusChange(current_status);
+    last_known_status = current_status;
   }
 
-  BrowserContext* browser_context = context_->GetBrowserContext();
-  DCHECK(browser_context);
-  if (!browser_context->GetPermissionManager()) {
-    callback.Run(current_status);
-    return;
-  }
-
-  PermissionType permission_type =
-      PermissionDescriptorToPermissionType(permission);
-
-  // We need to pass the id of PendingSubscription in pending_subscriptions_
-  // to the callback but SubscribePermissionStatusChange() will also return an
-  // id which is different.
-  PendingSubscription* subscription =
-      new PendingSubscription(permission_type, origin, callback);
-  int pending_subscription_id = pending_subscriptions_.Add(subscription);
-
-  GURL requesting_origin(origin.Serialize());
-  GURL embedding_origin = context_->GetEmbeddingOrigin();
-  subscription->id =
-      browser_context->GetPermissionManager()->SubscribePermissionStatusChange(
-          permission_type, requesting_origin,
-          // If the embedding_origin is empty, we,ll use the |origin| instead.
-          embedding_origin.is_empty() ? requesting_origin : embedding_origin,
-          base::Bind(&PermissionServiceImpl::OnPermissionStatusChanged,
-                     weak_factory_.GetWeakPtr(), pending_subscription_id));
+  context_->CreateSubscription(PermissionDescriptorToPermissionType(permission),
+                               origin, std::move(observer));
 }
 
 PermissionStatus PermissionServiceImpl::GetPermissionStatus(
@@ -339,27 +297,6 @@ void PermissionServiceImpl::ResetPermissionStatus(PermissionType type,
   browser_context->GetPermissionManager()->ResetPermission(
       type, requesting_origin,
       embedding_origin.is_empty() ? requesting_origin : embedding_origin);
-}
-
-void PermissionServiceImpl::OnPermissionStatusChanged(
-    int pending_subscription_id,
-    PermissionStatus status) {
-  PendingSubscription* subscription =
-      pending_subscriptions_.Lookup(pending_subscription_id);
-
-  BrowserContext* browser_context = context_->GetBrowserContext();
-  DCHECK(browser_context);
-  if (browser_context->GetPermissionManager()) {
-    browser_context->GetPermissionManager()->UnsubscribePermissionStatusChange(
-        subscription->id);
-  }
-
-  PermissionStatusCallback callback = subscription->callback;
-
-  subscription->callback.Reset();
-  pending_subscriptions_.Remove(pending_subscription_id);
-
-  callback.Run(status);
 }
 
 }  // namespace content

@@ -26,13 +26,10 @@ scoped_refptr<ElementAnimations> ElementAnimations::Create() {
 }
 
 ElementAnimations::ElementAnimations()
-    : players_list_(new PlayersList()),
-      animation_host_(),
+    : animation_host_(),
       element_id_(),
-      is_active_(false),
       has_element_in_active_list_(false),
       has_element_in_pending_list_(false),
-      scroll_offset_animation_was_interrupted_(false),
       needs_push_properties_(false),
       needs_update_impl_client_state_(false) {}
 
@@ -50,7 +47,7 @@ void ElementAnimations::InitAffectedElementTypes() {
   DCHECK(element_id_);
   DCHECK(animation_host_);
 
-  UpdateActivation(ActivationType::FORCE);
+  UpdatePlayersTickingState(UpdateTickingType::FORCE);
 
   DCHECK(animation_host_->mutator_host_client());
   if (animation_host_->mutator_host_client()->IsElementInList(
@@ -93,8 +90,7 @@ void ElementAnimations::ClearAffectedElementTypes() {
   }
   set_has_element_in_pending_list(false);
 
-  animation_host_->DidDeactivateElementAnimations(this);
-  UpdateActivation(ActivationType::FORCE);
+  RemovePlayersFromTicking();
 }
 
 void ElementAnimations::ElementRegistered(ElementId element_id,
@@ -102,7 +98,7 @@ void ElementAnimations::ElementRegistered(ElementId element_id,
   DCHECK_EQ(element_id_, element_id);
 
   if (!has_element_in_any_list())
-    UpdateActivation(ActivationType::FORCE);
+    UpdatePlayersTickingState(UpdateTickingType::FORCE);
 
   if (list_type == ElementListType::ACTIVE)
     set_has_element_in_active_list(true);
@@ -119,19 +115,19 @@ void ElementAnimations::ElementUnregistered(ElementId element_id,
     set_has_element_in_pending_list(false);
 
   if (!has_element_in_any_list())
-    animation_host_->DidDeactivateElementAnimations(this);
+    RemovePlayersFromTicking();
 }
 
 void ElementAnimations::AddPlayer(AnimationPlayer* player) {
-  players_list_->AddObserver(player);
+  players_list_.AddObserver(player);
 }
 
 void ElementAnimations::RemovePlayer(AnimationPlayer* player) {
-  players_list_->RemoveObserver(player);
+  players_list_.RemoveObserver(player);
 }
 
 bool ElementAnimations::IsEmpty() const {
-  return !players_list_->might_have_observers();
+  return !players_list_.might_have_observers();
 }
 
 void ElementAnimations::SetNeedsPushProperties() {
@@ -139,121 +135,42 @@ void ElementAnimations::SetNeedsPushProperties() {
 }
 
 void ElementAnimations::PushPropertiesTo(
-    scoped_refptr<ElementAnimations> element_animations_impl) {
+    scoped_refptr<ElementAnimations> element_animations_impl) const {
   DCHECK_NE(this, element_animations_impl);
 
   if (!needs_push_properties_)
     return;
   needs_push_properties_ = false;
 
-  element_animations_impl->scroll_offset_animation_was_interrupted_ =
-      scroll_offset_animation_was_interrupted_;
-  scroll_offset_animation_was_interrupted_ = false;
-
   // Update impl client state.
   if (needs_update_impl_client_state_)
     element_animations_impl->UpdateClientAnimationState();
   needs_update_impl_client_state_ = false;
-
-  element_animations_impl->UpdateActivation(ActivationType::NORMAL);
-  UpdateActivation(ActivationType::NORMAL);
 }
 
-void ElementAnimations::Animate(base::TimeTicks monotonic_time) {
-  DCHECK(!monotonic_time.is_null());
-  if (!has_element_in_active_list() && !has_element_in_pending_list())
-    return;
-
-  {
-    // TODO(crbug.com/634916): Shouldn't manually iterate through the list if
-    // base::ObserverList has a callback mechanism.
-    ElementAnimations::PlayersList::Iterator it(players_list_.get());
-    AnimationPlayer* player;
-    while ((player = it.GetNext()) != nullptr) {
-      if (player->needs_to_start_animations())
-        player->StartAnimations(monotonic_time);
-    }
-  }
-  {
-    ElementAnimations::PlayersList::Iterator it(players_list_.get());
-    AnimationPlayer* player;
-    while ((player = it.GetNext()) != nullptr)
-      player->TickAnimations(monotonic_time);
-  }
-  last_tick_time_ = monotonic_time;
-  UpdateClientAnimationState();
+void ElementAnimations::UpdatePlayersTickingState(
+    UpdateTickingType update_ticking_type) const {
+  for (auto& player : players_list_)
+    player.UpdateTickingState(update_ticking_type);
 }
 
-void ElementAnimations::UpdateState(bool start_ready_animations,
-                                    AnimationEvents* events) {
-  if (!has_element_in_active_list())
-    return;
-
-  // Animate hasn't been called, this happens if an element has been added
-  // between the Commit and Draw phases.
-  if (last_tick_time_ == base::TimeTicks())
-    return;
-
-  if (start_ready_animations) {
-    ElementAnimations::PlayersList::Iterator it(players_list_.get());
-    AnimationPlayer* player;
-    while ((player = it.GetNext()) != nullptr)
-      player->PromoteStartedAnimations(last_tick_time_, events);
-  }
-
-  {
-    ElementAnimations::PlayersList::Iterator it(players_list_.get());
-    AnimationPlayer* player;
-    while ((player = it.GetNext()) != nullptr)
-      player->MarkFinishedAnimations(last_tick_time_);
-  }
-  {
-    ElementAnimations::PlayersList::Iterator it(players_list_.get());
-    AnimationPlayer* player;
-    while ((player = it.GetNext()) != nullptr)
-      player->MarkAnimationsForDeletion(last_tick_time_, events);
-  }
-
-  if (start_ready_animations) {
-    ElementAnimations::PlayersList::Iterator it(players_list_.get());
-    AnimationPlayer* player;
-    while ((player = it.GetNext()) != nullptr) {
-      if (player->needs_to_start_animations()) {
-        player->StartAnimations(last_tick_time_);
-        player->PromoteStartedAnimations(last_tick_time_, events);
-      }
-    }
-  }
-
-  UpdateActivation(ActivationType::NORMAL);
-}
-
-void ElementAnimations::ActivateAnimations() {
-  ElementAnimations::PlayersList::Iterator it(players_list_.get());
-  AnimationPlayer* player;
-  while ((player = it.GetNext()) != nullptr)
-    player->ActivateAnimations();
-
-  scroll_offset_animation_was_interrupted_ = false;
-  UpdateActivation(ActivationType::NORMAL);
+void ElementAnimations::RemovePlayersFromTicking() const {
+  for (auto& player : players_list_)
+    player.RemoveFromTicking();
 }
 
 void ElementAnimations::NotifyAnimationStarted(const AnimationEvent& event) {
   DCHECK(!event.is_impl_only);
-  ElementAnimations::PlayersList::Iterator it(players_list_.get());
-  AnimationPlayer* player;
-  while ((player = it.GetNext()) != nullptr) {
-    if (player->NotifyAnimationStarted(event))
+  for (auto& player : players_list_) {
+    if (player.NotifyAnimationStarted(event))
       break;
   }
 }
 
 void ElementAnimations::NotifyAnimationFinished(const AnimationEvent& event) {
   DCHECK(!event.is_impl_only);
-  ElementAnimations::PlayersList::Iterator it(players_list_.get());
-  AnimationPlayer* player;
-  while ((player = it.GetNext()) != nullptr) {
-    if (player->NotifyAnimationFinished(event))
+  for (auto& player : players_list_) {
+    if (player.NotifyAnimationFinished(event))
       break;
   }
 }
@@ -262,19 +179,15 @@ void ElementAnimations::NotifyAnimationTakeover(const AnimationEvent& event) {
   DCHECK(!event.is_impl_only);
   DCHECK(event.target_property == TargetProperty::SCROLL_OFFSET);
 
-  ElementAnimations::PlayersList::Iterator it(players_list_.get());
-  AnimationPlayer* player;
-  while ((player = it.GetNext()) != nullptr)
-    player->NotifyAnimationTakeover(event);
+  for (auto& player : players_list_)
+    player.NotifyAnimationTakeover(event);
 }
 
 void ElementAnimations::NotifyAnimationAborted(const AnimationEvent& event) {
   DCHECK(!event.is_impl_only);
 
-  ElementAnimations::PlayersList::Iterator it(players_list_.get());
-  AnimationPlayer* player;
-  while ((player = it.GetNext()) != nullptr) {
-    if (player->NotifyAnimationAborted(event))
+  for (auto& player : players_list_) {
+    if (player.NotifyAnimationAborted(event))
       break;
   }
 
@@ -301,20 +214,16 @@ void ElementAnimations::NotifyAnimationPropertyUpdate(
 }
 
 bool ElementAnimations::HasFilterAnimationThatInflatesBounds() const {
-  ElementAnimations::PlayersList::Iterator it(players_list_.get());
-  AnimationPlayer* player;
-  while ((player = it.GetNext()) != nullptr) {
-    if (player->HasFilterAnimationThatInflatesBounds())
+  for (auto& player : players_list_) {
+    if (player.HasFilterAnimationThatInflatesBounds())
       return true;
   }
   return false;
 }
 
 bool ElementAnimations::HasTransformAnimationThatInflatesBounds() const {
-  ElementAnimations::PlayersList::Iterator it(players_list_.get());
-  AnimationPlayer* player;
-  while ((player = it.GetNext()) != nullptr) {
-    if (player->HasTransformAnimationThatInflatesBounds())
+  for (auto& player : players_list_) {
+    if (player.HasTransformAnimationThatInflatesBounds())
       return true;
   }
   return false;
@@ -331,11 +240,9 @@ bool ElementAnimations::TransformAnimationBoundsForBox(
     gfx::BoxF* bounds) const {
   *bounds = gfx::BoxF();
 
-  ElementAnimations::PlayersList::Iterator it(players_list_.get());
-  AnimationPlayer* player;
-  while ((player = it.GetNext()) != nullptr) {
+  for (auto& player : players_list_) {
     gfx::BoxF player_bounds;
-    bool success = player->TransformAnimationBoundsForBox(box, &player_bounds);
+    bool success = player.TransformAnimationBoundsForBox(box, &player_bounds);
     if (!success)
       return false;
     bounds->Union(player_bounds);
@@ -345,20 +252,16 @@ bool ElementAnimations::TransformAnimationBoundsForBox(
 
 bool ElementAnimations::HasOnlyTranslationTransforms(
     ElementListType list_type) const {
-  ElementAnimations::PlayersList::Iterator it(players_list_.get());
-  AnimationPlayer* player;
-  while ((player = it.GetNext()) != nullptr) {
-    if (!player->HasOnlyTranslationTransforms(list_type))
+  for (auto& player : players_list_) {
+    if (!player.HasOnlyTranslationTransforms(list_type))
       return false;
   }
   return true;
 }
 
 bool ElementAnimations::AnimationsPreserveAxisAlignment() const {
-  ElementAnimations::PlayersList::Iterator it(players_list_.get());
-  AnimationPlayer* player;
-  while ((player = it.GetNext()) != nullptr) {
-    if (!player->AnimationsPreserveAxisAlignment())
+  for (auto& player : players_list_) {
+    if (!player.AnimationsPreserveAxisAlignment())
       return false;
   }
   return true;
@@ -368,11 +271,9 @@ bool ElementAnimations::AnimationStartScale(ElementListType list_type,
                                             float* start_scale) const {
   *start_scale = 0.f;
 
-  ElementAnimations::PlayersList::Iterator it(players_list_.get());
-  AnimationPlayer* player;
-  while ((player = it.GetNext()) != nullptr) {
+  for (auto& player : players_list_) {
     float player_start_scale = 0.f;
-    bool success = player->AnimationStartScale(list_type, &player_start_scale);
+    bool success = player.AnimationStartScale(list_type, &player_start_scale);
     if (!success)
       return false;
     // Union: a maximum.
@@ -386,11 +287,9 @@ bool ElementAnimations::MaximumTargetScale(ElementListType list_type,
                                            float* max_scale) const {
   *max_scale = 0.f;
 
-  ElementAnimations::PlayersList::Iterator it(players_list_.get());
-  AnimationPlayer* player;
-  while ((player = it.GetNext()) != nullptr) {
+  for (auto& player : players_list_) {
     float player_max_scale = 0.f;
-    bool success = player->MaximumTargetScale(list_type, &player_max_scale);
+    bool success = player.MaximumTargetScale(list_type, &player_max_scale);
     if (!success)
       return false;
     // Union: a maximum.
@@ -400,39 +299,17 @@ bool ElementAnimations::MaximumTargetScale(ElementListType list_type,
   return true;
 }
 
+bool ElementAnimations::ScrollOffsetAnimationWasInterrupted() const {
+  for (auto& player : players_list_) {
+    if (player.scroll_offset_animation_was_interrupted())
+      return true;
+  }
+  return false;
+}
+
 void ElementAnimations::SetNeedsUpdateImplClientState() {
   needs_update_impl_client_state_ = true;
   SetNeedsPushProperties();
-}
-
-void ElementAnimations::UpdateActivation(ActivationType type) {
-  bool force = type == ActivationType::FORCE;
-  if (animation_host_) {
-    bool was_active = is_active_;
-    is_active_ = false;
-
-    ElementAnimations::PlayersList::Iterator it(players_list_.get());
-    AnimationPlayer* player;
-    while ((player = it.GetNext()) != nullptr) {
-      if (player->HasNonDeletedAnimation()) {
-        is_active_ = true;
-        break;
-      }
-    }
-
-    if (is_active_ && (!was_active || force)) {
-      animation_host_->DidActivateElementAnimations(this);
-    } else if (!is_active_ && (was_active || force)) {
-      // Resetting last_tick_time_ here ensures that calling ::UpdateState
-      // before ::Animate doesn't start an animation.
-      last_tick_time_ = base::TimeTicks();
-      animation_host_->DidDeactivateElementAnimations(this);
-    }
-  }
-}
-
-void ElementAnimations::UpdateActivationNormal() {
-  UpdateActivation(ActivationType::NORMAL);
 }
 
 void ElementAnimations::NotifyClientOpacityAnimated(
@@ -488,12 +365,10 @@ void ElementAnimations::UpdateClientAnimationState() {
   pending_state_.Clear();
   active_state_.Clear();
 
-  ElementAnimations::PlayersList::Iterator it(players_list_.get());
-  AnimationPlayer* player;
-  while ((player = it.GetNext()) != nullptr) {
+  for (auto& player : players_list_) {
     PropertyAnimationState player_pending_state, player_active_state;
-    player->GetPropertyAnimationState(&player_pending_state,
-                                      &player_active_state);
+    player.GetPropertyAnimationState(&player_pending_state,
+                                     &player_active_state);
     pending_state_ |= player_pending_state;
     active_state_ |= player_active_state;
   }
@@ -521,11 +396,9 @@ void ElementAnimations::UpdateClientAnimationState() {
   }
 }
 
-bool ElementAnimations::HasActiveAnimation() const {
-  ElementAnimations::PlayersList::Iterator it(players_list_.get());
-  AnimationPlayer* player;
-  while ((player = it.GetNext()) != nullptr) {
-    if (player->HasActiveAnimation())
+bool ElementAnimations::HasTickingAnimation() const {
+  for (auto& player : players_list_) {
+    if (player.HasTickingAnimation())
       return true;
   }
 
@@ -533,10 +406,8 @@ bool ElementAnimations::HasActiveAnimation() const {
 }
 
 bool ElementAnimations::HasAnyAnimation() const {
-  ElementAnimations::PlayersList::Iterator it(players_list_.get());
-  AnimationPlayer* player;
-  while ((player = it.GetNext()) != nullptr) {
-    if (player->has_any_animation())
+  for (auto& player : players_list_) {
+    if (player.has_any_animation())
       return true;
   }
 
@@ -545,10 +416,8 @@ bool ElementAnimations::HasAnyAnimation() const {
 
 bool ElementAnimations::HasAnyAnimationTargetingProperty(
     TargetProperty::Type property) const {
-  ElementAnimations::PlayersList::Iterator it(players_list_.get());
-  AnimationPlayer* player;
-  while ((player = it.GetNext()) != nullptr) {
-    if (player->GetAnimation(property))
+  for (auto& player : players_list_) {
+    if (player.GetAnimation(property))
       return true;
   }
   return false;
@@ -557,10 +426,8 @@ bool ElementAnimations::HasAnyAnimationTargetingProperty(
 bool ElementAnimations::IsPotentiallyAnimatingProperty(
     TargetProperty::Type target_property,
     ElementListType list_type) const {
-  ElementAnimations::PlayersList::Iterator it(players_list_.get());
-  AnimationPlayer* player;
-  while ((player = it.GetNext()) != nullptr) {
-    if (player->IsPotentiallyAnimatingProperty(target_property, list_type))
+  for (auto& player : players_list_) {
+    if (player.IsPotentiallyAnimatingProperty(target_property, list_type))
       return true;
   }
 
@@ -570,18 +437,12 @@ bool ElementAnimations::IsPotentiallyAnimatingProperty(
 bool ElementAnimations::IsCurrentlyAnimatingProperty(
     TargetProperty::Type target_property,
     ElementListType list_type) const {
-  ElementAnimations::PlayersList::Iterator it(players_list_.get());
-  AnimationPlayer* player;
-  while ((player = it.GetNext()) != nullptr) {
-    if (player->IsCurrentlyAnimatingProperty(target_property, list_type))
+  for (auto& player : players_list_) {
+    if (player.IsCurrentlyAnimatingProperty(target_property, list_type))
       return true;
   }
 
   return false;
-}
-
-void ElementAnimations::SetScrollOffsetAnimationWasInterrupted() {
-  scroll_offset_animation_was_interrupted_ = true;
 }
 
 void ElementAnimations::OnFilterAnimated(ElementListType list_type,

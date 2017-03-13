@@ -9,11 +9,14 @@
 #include "chrome/browser/manifest/manifest_icon_downloader.h"
 #include "chrome/browser/manifest/manifest_icon_selector.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/ssl/security_state_tab_helper.h"
+#include "components/security_state/core/security_state.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/service_worker_context.h"
 #include "content/public/browser/storage_partition.h"
+#include "net/base/url_util.h"
 #include "third_party/WebKit/public/platform/WebDisplayMode.h"
 
 namespace {
@@ -22,8 +25,9 @@ const char kPngExtension[] = ".png";
 
 // This constant is the icon size on Android (48dp) multiplied by the scale
 // factor of a Nexus 5 device (3x). For mobile and desktop platforms, a 144px
-// icon is an approximate, appropriate lower bound.
-// TODO(dominickn): consolidate with minimum_icon_size_in_dp across platforms.
+// icon is an approximate, appropriate lower bound. It is the currently
+// advertised minimum icon size for triggering banners.
+// TODO(dominickn): consolidate with minimum_icon_size_in_px across platforms.
 const int kIconMinimumSizeInPx = 144;
 
 // Returns true if |manifest| specifies a PNG icon >= 144x144px (or size "any").
@@ -93,46 +97,33 @@ InstallableManager::InstallableManager(content::WebContents* web_contents)
 
 InstallableManager::~InstallableManager() = default;
 
-bool InstallableManager::IsManifestValidForWebApp(
-    const content::Manifest& manifest) {
-  if (manifest.IsEmpty()) {
-    installable_->error = MANIFEST_EMPTY;
+// static
+bool InstallableManager::IsContentSecure(content::WebContents* web_contents) {
+  if (!web_contents)
     return false;
-  }
 
-  if (!manifest.start_url.is_valid()) {
-    installable_->error = START_URL_NOT_VALID;
-    return false;
-  }
+  // Whitelist localhost. Check the VisibleURL to match what the
+  // SecurityStateTabHelper looks at.
+  if (net::IsLocalhost(web_contents->GetVisibleURL().HostNoBrackets()))
+    return true;
 
-  if ((manifest.name.is_null() || manifest.name.string().empty()) &&
-      (manifest.short_name.is_null() || manifest.short_name.string().empty())) {
-    installable_->error = MANIFEST_MISSING_NAME_OR_SHORT_NAME;
-    return false;
-  }
+  security_state::SecurityInfo security_info;
+  SecurityStateTabHelper::FromWebContents(web_contents)
+      ->GetSecurityInfo(&security_info);
+  return security_info.security_level == security_state::SECURE ||
+         security_info.security_level == security_state::EV_SECURE;
+}
 
-  // TODO(dominickn,mlamouri): when Chrome supports "minimal-ui", it should be
-  // accepted. If we accept it today, it would fallback to "browser" and make
-  // this check moot. See https://crbug.com/604390.
-  if (manifest.display != blink::WebDisplayModeStandalone &&
-      manifest.display != blink::WebDisplayModeFullscreen) {
-    installable_->error = MANIFEST_DISPLAY_NOT_SUPPORTED;
-    return false;
-  }
-
-  if (!DoesManifestContainRequiredIcon(manifest)) {
-    installable_->error = MANIFEST_MISSING_SUITABLE_ICON;
-    return false;
-  }
-
-  return true;
+// static
+int InstallableManager::GetMinimumIconSizeInPx() {
+  return kIconMinimumSizeInPx;
 }
 
 void InstallableManager::GetData(const InstallableParams& params,
                                  const InstallableCallback& callback) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
-  // Return immediately if we've already working on a task. The new task will be
+  // Return immediately if we're already working on a task. The new task will be
   // looked at once the current task is finished.
   tasks_.push_back({params, callback});
   if (is_active_)
@@ -142,19 +133,20 @@ void InstallableManager::GetData(const InstallableParams& params,
   StartNextTask();
 }
 
+InstallableManager::IconProperty& InstallableManager::GetIcon(
+    const InstallableParams& params) {
+  return icons_[{params.ideal_primary_icon_size_in_px,
+                 params.minimum_primary_icon_size_in_px}];
+}
+
 bool InstallableManager::IsIconFetched(const InstallableParams& params) const {
-  const auto it = icons_.find(
-      {params.ideal_icon_size_in_dp, params.minimum_icon_size_in_dp});
+  const auto it = icons_.find({params.ideal_primary_icon_size_in_px,
+                               params.minimum_primary_icon_size_in_px});
   return it != icons_.end() && it->second.fetched;
 }
 
 void InstallableManager::SetIconFetched(const InstallableParams& params) {
   GetIcon(params).fetched = true;
-}
-
-InstallableManager::IconProperty& InstallableManager::GetIcon(
-    const InstallableParams& params) {
-  return icons_[{params.ideal_icon_size_in_dp, params.minimum_icon_size_in_dp}];
 }
 
 InstallableStatusCode InstallableManager::GetErrorCode(
@@ -165,7 +157,7 @@ InstallableStatusCode InstallableManager::GetErrorCode(
   if (params.check_installable && installable_->error != NO_ERROR_DETECTED)
     return installable_->error;
 
-  if (params.fetch_valid_icon) {
+  if (params.fetch_valid_primary_icon) {
     IconProperty& icon = GetIcon(params);
     if (icon.error != NO_ERROR_DETECTED)
       return icon.error;
@@ -215,7 +207,7 @@ bool InstallableManager::IsComplete(const InstallableParams& params) const {
   //  b. the resource has been fetched/checked.
   return manifest_->fetched &&
          (!params.check_installable || installable_->fetched) &&
-         (!params.fetch_valid_icon || IsIconFetched(params));
+         (!params.fetch_valid_primary_icon || IsIconFetched(params));
 }
 
 void InstallableManager::Reset() {
@@ -238,6 +230,21 @@ void InstallableManager::SetManifestDependentTasksComplete() {
   SetIconFetched(params);
 }
 
+void InstallableManager::RunCallback(const Task& task,
+                                     InstallableStatusCode code) {
+  const InstallableParams& params = task.first;
+  IconProperty& icon = GetIcon(params);
+  InstallableData data = {
+      code,
+      manifest_url(),
+      manifest(),
+      params.fetch_valid_primary_icon ? icon.url : GURL::EmptyGURL(),
+      params.fetch_valid_primary_icon ? icon.icon.get() : nullptr,
+      params.check_installable ? is_installable() : false};
+
+  task.second.Run(data);
+}
+
 void InstallableManager::StartNextTask() {
   // If there's nothing to do, exit. Resources remain cached so any future calls
   // won't re-fetch anything that has already been retrieved.
@@ -248,21 +255,6 @@ void InstallableManager::StartNextTask() {
 
   DCHECK(is_active_);
   WorkOnTask();
-}
-
-void InstallableManager::RunCallback(const Task& task,
-                                     InstallableStatusCode code) {
-  const InstallableParams& params = task.first;
-  IconProperty& icon = GetIcon(params);
-  InstallableData data = {
-      code,
-      manifest_url(),
-      manifest(),
-      params.fetch_valid_icon ? icon.url : GURL::EmptyGURL(),
-      params.fetch_valid_icon ? icon.icon.get() : nullptr,
-      params.check_installable ? is_installable() : false};
-
-  task.second.Run(data);
 }
 
 void InstallableManager::WorkOnTask() {
@@ -282,7 +274,7 @@ void InstallableManager::WorkOnTask() {
     FetchManifest();
   else if (params.check_installable && !installable_->fetched)
     CheckInstallable();
-  else if (params.fetch_valid_icon && !IsIconFetched(params))
+  else if (params.fetch_valid_primary_icon && !IsIconFetched(params))
     CheckAndFetchBestIcon();
   else
     NOTREACHED();
@@ -330,6 +322,41 @@ void InstallableManager::CheckInstallable() {
   }
 }
 
+bool InstallableManager::IsManifestValidForWebApp(
+    const content::Manifest& manifest) {
+  if (manifest.IsEmpty()) {
+    installable_->error = MANIFEST_EMPTY;
+    return false;
+  }
+
+  if (!manifest.start_url.is_valid()) {
+    installable_->error = START_URL_NOT_VALID;
+    return false;
+  }
+
+  if ((manifest.name.is_null() || manifest.name.string().empty()) &&
+      (manifest.short_name.is_null() || manifest.short_name.string().empty())) {
+    installable_->error = MANIFEST_MISSING_NAME_OR_SHORT_NAME;
+    return false;
+  }
+
+  // TODO(dominickn,mlamouri): when Chrome supports "minimal-ui", it should be
+  // accepted. If we accept it today, it would fallback to "browser" and make
+  // this check moot. See https://crbug.com/604390.
+  if (manifest.display != blink::WebDisplayModeStandalone &&
+      manifest.display != blink::WebDisplayModeFullscreen) {
+    installable_->error = MANIFEST_DISPLAY_NOT_SUPPORTED;
+    return false;
+  }
+
+  if (!DoesManifestContainRequiredIcon(manifest)) {
+    installable_->error = MANIFEST_MISSING_SUITABLE_ICON;
+    return false;
+  }
+
+  return true;
+}
+
 void InstallableManager::CheckServiceWorker() {
   DCHECK(!installable_->fetched);
   DCHECK(!manifest().IsEmpty());
@@ -375,15 +402,15 @@ void InstallableManager::CheckAndFetchBestIcon() {
   icon.fetched = true;
 
   GURL icon_url = ManifestIconSelector::FindBestMatchingIcon(
-      manifest().icons, params.ideal_icon_size_in_dp,
-      params.minimum_icon_size_in_dp);
+      manifest().icons, params.ideal_primary_icon_size_in_px,
+      params.minimum_primary_icon_size_in_px);
 
   if (icon_url.is_empty()) {
     icon.error = NO_ACCEPTABLE_ICON;
   } else {
     bool can_download_icon = ManifestIconDownloader::Download(
-        GetWebContents(), icon_url, params.ideal_icon_size_in_dp,
-        params.minimum_icon_size_in_dp,
+        GetWebContents(), icon_url, params.ideal_primary_icon_size_in_px,
+        params.minimum_primary_icon_size_in_px,
         base::Bind(&InstallableManager::OnAppIconFetched,
                    weak_factory_.GetWeakPtr(), icon_url));
     if (can_download_icon)
@@ -436,9 +463,4 @@ const content::Manifest& InstallableManager::manifest() const {
 
 bool InstallableManager::is_installable() const {
   return installable_->installable;
-}
-
-// static
-int InstallableManager::GetMinimumIconSizeInPx() {
-  return kIconMinimumSizeInPx;
 }

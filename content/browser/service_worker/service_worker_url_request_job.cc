@@ -7,17 +7,22 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include <limits>
 #include <map>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "base/bind.h"
+#include "base/callback.h"
+#include "base/callback_helpers.h"
+#include "base/files/file_util.h"
 #include "base/guid.h"
 #include "base/location.h"
+#include "base/numerics/safe_conversions.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/stringprintf.h"
+#include "base/task_runner.h"
+#include "base/task_runner_util.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "content/browser/resource_context_impl.h"
@@ -31,6 +36,7 @@
 #include "content/common/service_worker/service_worker_types.h"
 #include "content/common/service_worker/service_worker_utils.h"
 #include "content/public/browser/blob_handle.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/browser/resource_request_info.h"
 #include "content/public/browser/service_worker_context.h"
 #include "content/public/common/referrer.h"
@@ -104,90 +110,109 @@ net::NetLogEventType RequestJobResultToNetEventType(
   return n::FAILED;
 }
 
+std::vector<int64_t> GetFileSizesOnBlockingPool(
+    std::vector<base::FilePath> file_paths) {
+  std::vector<int64_t> sizes;
+  sizes.reserve(file_paths.size());
+  for (const base::FilePath& path : file_paths) {
+    base::File::Info file_info;
+    if (!base::GetFileInfo(path, &file_info) || file_info.is_directory)
+      return std::vector<int64_t>();
+    sizes.push_back(file_info.size);
+  }
+  return sizes;
+}
+
 }  // namespace
 
-class ServiceWorkerURLRequestJob::BlobConstructionWaiter {
+// Sets the size on each DataElement in the request body that is a file with
+// unknown size. This ensures ServiceWorkerURLRequestJob::CreateRequestBodyBlob
+// can successfuly create a blob from the data elements, as files with unknown
+// sizes are not supported by the blob storage system.
+class ServiceWorkerURLRequestJob::FileSizeResolver {
  public:
-  explicit BlobConstructionWaiter(ServiceWorkerURLRequestJob* owner)
+  explicit FileSizeResolver(ServiceWorkerURLRequestJob* owner)
       : owner_(owner), weak_factory_(this) {
-    TRACE_EVENT_ASYNC_BEGIN1("ServiceWorker", "BlobConstructionWaiter", this,
-                             "URL", owner_->request()->url().spec());
+    TRACE_EVENT_ASYNC_BEGIN1("ServiceWorker", "FileSizeResolver", this, "URL",
+                             owner_->request()->url().spec());
     owner_->request()->net_log().BeginEvent(
-        net::NetLogEventType::SERVICE_WORKER_WAITING_FOR_REQUEST_BODY_BLOB);
+        net::NetLogEventType::SERVICE_WORKER_WAITING_FOR_REQUEST_BODY_FILES);
   }
 
-  ~BlobConstructionWaiter() {
+  ~FileSizeResolver() {
     owner_->request()->net_log().EndEvent(
-        net::NetLogEventType::SERVICE_WORKER_WAITING_FOR_REQUEST_BODY_BLOB,
+        net::NetLogEventType::SERVICE_WORKER_WAITING_FOR_REQUEST_BODY_FILES,
         net::NetLog::BoolCallback("success", phase_ == Phase::SUCCESS));
-    TRACE_EVENT_ASYNC_END1("ServiceWorker", "BlobConstructionWaiter", this,
-                           "Success", phase_ == Phase::SUCCESS);
+    TRACE_EVENT_ASYNC_END1("ServiceWorker", "FileSizeResolver", this, "Success",
+                           phase_ == Phase::SUCCESS);
   }
 
-  void RunOnComplete(const base::Callback<void(bool)>& callback) {
+  void Resolve(base::TaskRunner* file_runner,
+               const base::Callback<void(bool)>& callback) {
     DCHECK_EQ(static_cast<int>(Phase::INITIAL), static_cast<int>(phase_));
+    DCHECK(file_elements_.empty());
     phase_ = Phase::WAITING;
-    num_pending_request_body_blobs_ = 0;
+    body_ = owner_->body_;
     callback_ = callback;
 
-    for (const ResourceRequestBodyImpl::Element& element :
-         *(owner_->body_->elements())) {
-      if (element.type() != ResourceRequestBodyImpl::Element::TYPE_BLOB)
-        continue;
-
-      std::unique_ptr<storage::BlobDataHandle> handle =
-          owner_->blob_storage_context_->GetBlobDataFromUUID(
-              element.blob_uuid());
-      if (handle->IsBroken()) {
-        Complete(false);
-        return;
-      }
-      if (handle->IsBeingBuilt()) {
-        ++num_pending_request_body_blobs_;
-        handle->RunOnConstructionComplete(
-            base::Bind(&BlobConstructionWaiter::OneRequestBodyBlobCompleted,
-                       weak_factory_.GetWeakPtr()));
+    std::vector<base::FilePath> file_paths;
+    for (ResourceRequestBodyImpl::Element& element :
+         *body_->elements_mutable()) {
+      if (element.type() == ResourceRequestBodyImpl::Element::TYPE_FILE &&
+          element.length() == ResourceRequestBodyImpl::Element::kUnknownSize) {
+        file_elements_.push_back(&element);
+        file_paths.push_back(element.path());
       }
     }
-
-    if (num_pending_request_body_blobs_ == 0)
+    if (file_elements_.empty()) {
       Complete(true);
+      return;
+    }
+
+    PostTaskAndReplyWithResult(
+        file_runner, FROM_HERE,
+        base::Bind(&GetFileSizesOnBlockingPool, base::Passed(&file_paths)),
+        base::Bind(
+            &ServiceWorkerURLRequestJob::FileSizeResolver::OnFileSizesResolved,
+            weak_factory_.GetWeakPtr()));
   }
 
  private:
   enum class Phase { INITIAL, WAITING, SUCCESS, FAIL };
 
-  void OneRequestBodyBlobCompleted(
-      bool success,
-      storage::IPCBlobCreationCancelCode cancel_code) {
-    DCHECK_GT(num_pending_request_body_blobs_, 0UL);
-
-    if (success)
-      --num_pending_request_body_blobs_;
-    else
-      num_pending_request_body_blobs_ = 0;
-
-    if (num_pending_request_body_blobs_ == 0)
-      Complete(success);
+  void OnFileSizesResolved(std::vector<int64_t> sizes) {
+    bool success = !sizes.empty();
+    if (success) {
+      DCHECK_EQ(sizes.size(), file_elements_.size());
+      size_t num_elements = file_elements_.size();
+      for (size_t i = 0; i < num_elements; i++) {
+        ResourceRequestBodyImpl::Element* element = file_elements_[i];
+        element->SetToFilePathRange(element->path(), element->offset(),
+                                    base::checked_cast<uint64_t>(sizes[i]),
+                                    element->expected_modification_time());
+      }
+      file_elements_.clear();
+    }
+    Complete(success);
   }
 
   void Complete(bool success) {
     DCHECK_EQ(static_cast<int>(Phase::WAITING), static_cast<int>(phase_));
     phase_ = success ? Phase::SUCCESS : Phase::FAIL;
-    // Destroys |this|.
-    callback_.Run(success);
+    // Destroys |this|, so we use a copy.
+    base::ResetAndReturn(&callback_).Run(success);
   }
 
   // Owns and must outlive |this|.
   ServiceWorkerURLRequestJob* owner_;
 
   scoped_refptr<ResourceRequestBodyImpl> body_;
+  std::vector<ResourceRequestBodyImpl::Element*> file_elements_;
   base::Callback<void(bool)> callback_;
-  size_t num_pending_request_body_blobs_ = 0;
   Phase phase_ = Phase::INITIAL;
-  base::WeakPtrFactory<BlobConstructionWaiter> weak_factory_;
+  base::WeakPtrFactory<FileSizeResolver> weak_factory_;
 
-  DISALLOW_COPY_AND_ASSIGN(BlobConstructionWaiter);
+  DISALLOW_COPY_AND_ASSIGN(FileSizeResolver);
 };
 
 bool ServiceWorkerURLRequestJob::Delegate::RequestStillValid(
@@ -209,6 +234,7 @@ ServiceWorkerURLRequestJob::ServiceWorkerURLRequestJob(
     RequestContextFrameType frame_type,
     scoped_refptr<ResourceRequestBodyImpl> body,
     ServiceWorkerFetchType fetch_type,
+    const base::Optional<base::TimeDelta>& timeout,
     Delegate* delegate)
     : net::URLRequestJob(request, network_delegate),
       delegate_(delegate),
@@ -227,13 +253,14 @@ ServiceWorkerURLRequestJob::ServiceWorkerURLRequestJob(
       fall_back_required_(false),
       body_(body),
       fetch_type_(fetch_type),
+      timeout_(timeout),
       weak_factory_(this) {
   DCHECK(delegate_) << "ServiceWorkerURLRequestJob requires a delegate";
 }
 
 ServiceWorkerURLRequestJob::~ServiceWorkerURLRequestJob() {
   stream_reader_.reset();
-  blob_construction_waiter_.reset();
+  file_size_resolver_.reset();
 
   if (!ShouldRecordResult())
     return;
@@ -267,6 +294,12 @@ void ServiceWorkerURLRequestJob::FallbackToNetworkOrRenderer() {
 void ServiceWorkerURLRequestJob::ForwardToServiceWorker() {
   DCHECK_EQ(NOT_DETERMINED, response_type_);
   response_type_ = FORWARD_TO_SERVICE_WORKER;
+  MaybeStartRequest();
+}
+
+void ServiceWorkerURLRequestJob::FailDueToLostController() {
+  DCHECK_EQ(NOT_DETERMINED, response_type_);
+  response_type_ = FAIL_DUE_TO_LOST_CONTROLLER;
   MaybeStartRequest();
 }
 
@@ -366,9 +399,7 @@ void ServiceWorkerURLRequestJob::RecordResult(
   }
   did_record_result_ = true;
   ServiceWorkerMetrics::RecordURLRequestJobResult(IsMainResourceLoad(), result);
-  if (request()) {
-    request()->net_log().AddEvent(RequestJobResultToNetEventType(result));
-  }
+  request()->net_log().AddEvent(RequestJobResultToNetEventType(result));
 }
 
 base::WeakPtr<ServiceWorkerURLRequestJob>
@@ -402,6 +433,12 @@ void ServiceWorkerURLRequestJob::StartRequest() {
       NOTREACHED();
       return;
 
+    case FAIL_DUE_TO_LOST_CONTROLLER:
+      request()->net_log().AddEvent(
+          net::NetLogEventType::SERVICE_WORKER_ERROR_NO_ACTIVE_VERSION);
+      NotifyStartError(net::URLRequestStatus::FromError(net::ERR_FAILED));
+      return;
+
     case FALLBACK_TO_NETWORK:
       FinalizeFallbackToNetwork();
       return;
@@ -412,15 +449,17 @@ void ServiceWorkerURLRequestJob::StartRequest() {
 
     case FORWARD_TO_SERVICE_WORKER:
       if (HasRequestBody()) {
-        DCHECK(!blob_construction_waiter_);
-        blob_construction_waiter_.reset(new BlobConstructionWaiter(this));
-        blob_construction_waiter_->RunOnComplete(
-            base::Bind(&ServiceWorkerURLRequestJob::RequestBodyBlobsCompleted,
-                       GetWeakPtr()));
+        DCHECK(!file_size_resolver_);
+        file_size_resolver_.reset(new FileSizeResolver(this));
+        file_size_resolver_->Resolve(
+            BrowserThread::GetBlockingPool(),
+            base::Bind(
+                &ServiceWorkerURLRequestJob::RequestBodyFileSizesResolved,
+                GetWeakPtr()));
         return;
       }
 
-      RequestBodyBlobsCompleted(true);
+      RequestBodyFileSizesResolved(true);
       return;
   }
 
@@ -472,70 +511,15 @@ ServiceWorkerURLRequestJob::CreateFetchRequest() {
 void ServiceWorkerURLRequestJob::CreateRequestBodyBlob(std::string* blob_uuid,
                                                        uint64_t* blob_size) {
   DCHECK(HasRequestBody());
-  // To ensure the blobs stick around until the end of the reading.
-  std::vector<std::unique_ptr<storage::BlobDataHandle>> handles;
-  std::vector<std::unique_ptr<storage::BlobDataSnapshot>> snapshots;
-  // TODO(dmurph): Allow blobs to be added below, so that the context can
-  // efficiently re-use blob items for the new blob.
-  std::vector<const ResourceRequestBodyImpl::Element*> resolved_elements;
+  storage::BlobDataBuilder blob_builder(base::GenerateGUID());
   for (const ResourceRequestBodyImpl::Element& element : (*body_->elements())) {
-    if (element.type() != ResourceRequestBodyImpl::Element::TYPE_BLOB) {
-      resolved_elements.push_back(&element);
-      continue;
-    }
-    std::unique_ptr<storage::BlobDataHandle> handle =
-        blob_storage_context_->GetBlobDataFromUUID(element.blob_uuid());
-    std::unique_ptr<storage::BlobDataSnapshot> snapshot =
-        handle->CreateSnapshot();
-    if (snapshot->items().empty())
-      continue;
-    const auto& items = snapshot->items();
-    for (const auto& item : items) {
-      DCHECK_NE(storage::DataElement::TYPE_BLOB, item->type());
-      resolved_elements.push_back(item->data_element_ptr());
-    }
-    handles.push_back(std::move(handle));
-    snapshots.push_back(std::move(snapshot));
-  }
-
-  const std::string uuid(base::GenerateGUID());
-  uint64_t total_size = 0;
-
-  storage::BlobDataBuilder blob_builder(uuid);
-  for (size_t i = 0; i < resolved_elements.size(); ++i) {
-    const ResourceRequestBodyImpl::Element& element = *resolved_elements[i];
-    if (total_size != std::numeric_limits<uint64_t>::max() &&
-        element.length() != std::numeric_limits<uint64_t>::max())
-      total_size += element.length();
-    else
-      total_size = std::numeric_limits<uint64_t>::max();
-    switch (element.type()) {
-      case ResourceRequestBodyImpl::Element::TYPE_BYTES:
-        blob_builder.AppendData(element.bytes(), element.length());
-        break;
-      case ResourceRequestBodyImpl::Element::TYPE_FILE:
-        blob_builder.AppendFile(element.path(), element.offset(),
-                                element.length(),
-                                element.expected_modification_time());
-        break;
-      case ResourceRequestBodyImpl::Element::TYPE_BLOB:
-        // Blob elements should be resolved beforehand.
-        NOTREACHED();
-        break;
-      case ResourceRequestBodyImpl::Element::TYPE_FILE_FILESYSTEM:
-        blob_builder.AppendFileSystemFile(element.filesystem_url(),
-                                          element.offset(), element.length(),
-                                          element.expected_modification_time());
-        break;
-      default:
-        NOTIMPLEMENTED();
-    }
+    blob_builder.AppendIPCDataElement(element);
   }
 
   request_body_blob_data_handle_ =
       blob_storage_context_->AddFinishedBlob(&blob_builder);
-  *blob_uuid = uuid;
-  *blob_size = total_size;
+  *blob_uuid = blob_builder.uuid();
+  *blob_size = request_body_blob_data_handle_->size();
 }
 
 void ServiceWorkerURLRequestJob::DidPrepareFetchEvent(
@@ -571,9 +555,11 @@ void ServiceWorkerURLRequestJob::DidPrepareFetchEvent(
   }
   if (version->should_exclude_from_uma())
     return;
-  ServiceWorkerMetrics::RecordActivatedWorkerPreparationTimeForMainFrame(
+  worker_start_situation_ = version->embedded_worker()->start_situation();
+  ServiceWorkerMetrics::RecordActivatedWorkerPreparationForMainFrame(
       worker_ready_time_ - request()->creation_time(), initial_worker_status_,
-      version->embedded_worker()->start_situation());
+      worker_start_situation_, did_navigation_preload_);
+  MaybeReportNavigationPreloadMetrics();
 }
 
 void ServiceWorkerURLRequestJob::DidDispatchFetchEvent(
@@ -581,14 +567,14 @@ void ServiceWorkerURLRequestJob::DidDispatchFetchEvent(
     ServiceWorkerFetchEventResult fetch_result,
     const ServiceWorkerResponse& response,
     const scoped_refptr<ServiceWorkerVersion>& version) {
-  fetch_dispatcher_.reset();
-  ServiceWorkerMetrics::RecordFetchEventStatus(IsMainResourceLoad(), status);
-
-  // Check if we're not orphaned.
-  if (!request()) {
-    RecordResult(ServiceWorkerMetrics::REQUEST_JOB_ERROR_NO_REQUEST);
-    return;
+  // Do not clear |fetch_dispatcher_| if it has dispatched a navigation preload
+  // request to keep the mojom::URLLoader related objects in it, because the
+  // preload response might still need to be streamed even after calling
+  // respondWith().
+  if (!did_navigation_preload_) {
+    fetch_dispatcher_.reset();
   }
+  ServiceWorkerMetrics::RecordFetchEventStatus(IsMainResourceLoad(), status);
 
   ServiceWorkerMetrics::URLRequestJobResult result =
       ServiceWorkerMetrics::REQUEST_JOB_ERROR_BAD_DELEGATE;
@@ -642,14 +628,8 @@ void ServiceWorkerURLRequestJob::DidDispatchFetchEvent(
   DCHECK(version);
   const net::HttpResponseInfo* main_script_http_info =
       version->GetMainScriptHttpResponseInfo();
-  if (main_script_http_info) {
-    // In normal case |main_script_http_info| must be set while starting the
-    // ServiceWorker. But when the ServiceWorker registration database was not
-    // written correctly, it may be null.
-    // TODO(horo): Change this line to DCHECK when crbug.com/485900 is fixed.
-    http_response_info_.reset(
-        new net::HttpResponseInfo(*main_script_http_info));
-  }
+  DCHECK(main_script_http_info);
+  http_response_info_.reset(new net::HttpResponseInfo(*main_script_http_info));
 
   // Set up a request for reading the stream.
   if (response.stream_url.is_valid()) {
@@ -685,7 +665,7 @@ void ServiceWorkerURLRequestJob::DidDispatchFetchEvent(
 
 void ServiceWorkerURLRequestJob::SetResponse(
     const ServiceWorkerResponse& response) {
-  response_url_ = response.url;
+  response_url_list_ = response.url_list;
   service_worker_response_type_ = response.response_type;
   cors_exposed_header_names_ = response.cors_exposed_header_names;
   response_time_ = response.response_time;
@@ -776,8 +756,9 @@ bool ServiceWorkerURLRequestJob::IsFallbackToRendererNeeded() const {
          fetch_type_ != ServiceWorkerFetchType::FOREIGN_FETCH &&
          (request_mode_ == FETCH_REQUEST_MODE_CORS ||
           request_mode_ == FETCH_REQUEST_MODE_CORS_WITH_FORCED_PREFLIGHT) &&
-         !request()->initiator().IsSameOriginWith(
-             url::Origin(request()->url()));
+         (!request()->initiator().has_value() ||
+          !request()->initiator()->IsSameOriginWith(
+              url::Origin(request()->url())));
 }
 
 void ServiceWorkerURLRequestJob::SetResponseBodyType(ResponseBodyType type) {
@@ -817,35 +798,50 @@ void ServiceWorkerURLRequestJob::NotifyStartError(
 
 void ServiceWorkerURLRequestJob::NotifyRestartRequired() {
   ServiceWorkerResponseInfo::ForRequest(request_, true)
-      ->OnPrepareToRestart(worker_start_time_, worker_ready_time_);
+      ->OnPrepareToRestart(worker_start_time_, worker_ready_time_,
+                           did_navigation_preload_);
   delegate_->OnPrepareToRestart();
   URLRequestJob::NotifyRestartRequired();
 }
 
 void ServiceWorkerURLRequestJob::OnStartCompleted() const {
-  if (response_type_ != FORWARD_TO_SERVICE_WORKER &&
-      response_type_ != FALLBACK_TO_RENDERER) {
-    ServiceWorkerResponseInfo::ForRequest(request_, true)
-        ->OnStartCompleted(
-            false /* was_fetched_via_service_worker */,
-            false /* was_fetched_via_foreign_fetch */,
-            false /* was_fallback_required */,
-            GURL() /* original_url_via_service_worker */,
-            blink::WebServiceWorkerResponseTypeDefault,
-            base::TimeTicks() /* service_worker_start_time */,
-            base::TimeTicks() /* service_worker_ready_time */,
-            false /* respons_is_in_cache_storage */,
-            std::string() /* response_cache_storage_cache_name */,
-            ServiceWorkerHeaderList() /* cors_exposed_header_names */);
-    return;
+  switch (response_type_) {
+    case NOT_DETERMINED:
+      NOTREACHED();
+      return;
+    case FAIL_DUE_TO_LOST_CONTROLLER:
+    case FALLBACK_TO_NETWORK:
+      // Indicate that the service worker did not respond to the request.
+      ServiceWorkerResponseInfo::ForRequest(request_, true)
+          ->OnStartCompleted(
+              false /* was_fetched_via_service_worker */,
+              false /* was_fetched_via_foreign_fetch */,
+              false /* was_fallback_required */,
+              std::vector<GURL>() /* url_list_via_service_worker */,
+              blink::WebServiceWorkerResponseTypeDefault,
+              base::TimeTicks() /* service_worker_start_time */,
+              base::TimeTicks() /* service_worker_ready_time */,
+              false /* response_is_in_cache_storage */,
+              std::string() /* response_cache_storage_cache_name */,
+              ServiceWorkerHeaderList() /* cors_exposed_header_names */,
+              did_navigation_preload_);
+      break;
+    case FALLBACK_TO_RENDERER:
+    case FORWARD_TO_SERVICE_WORKER:
+      // Indicate that the service worker responded to the request, which is
+      // considered true if "fallback to renderer" was required since the
+      // renderer expects that.
+      ServiceWorkerResponseInfo::ForRequest(request_, true)
+          ->OnStartCompleted(
+              true /* was_fetched_via_service_worker */,
+              fetch_type_ == ServiceWorkerFetchType::FOREIGN_FETCH,
+              fall_back_required_, response_url_list_,
+              service_worker_response_type_, worker_start_time_,
+              worker_ready_time_, response_is_in_cache_storage_,
+              response_cache_storage_cache_name_, cors_exposed_header_names_,
+              did_navigation_preload_);
+      break;
   }
-  ServiceWorkerResponseInfo::ForRequest(request_, true)
-      ->OnStartCompleted(
-          true /* was_fetched_via_service_worker */,
-          fetch_type_ == ServiceWorkerFetchType::FOREIGN_FETCH,
-          fall_back_required_, response_url_, service_worker_response_type_,
-          worker_start_time_, worker_ready_time_, response_is_in_cache_storage_,
-          response_cache_storage_cache_name_, cors_exposed_header_names_);
 }
 
 bool ServiceWorkerURLRequestJob::IsMainResourceLoad() const {
@@ -858,8 +854,8 @@ bool ServiceWorkerURLRequestJob::HasRequestBody() {
   return request_->has_upload() && body_.get() && blob_storage_context_;
 }
 
-void ServiceWorkerURLRequestJob::RequestBodyBlobsCompleted(bool success) {
-  blob_construction_waiter_.reset();
+void ServiceWorkerURLRequestJob::RequestBodyFileSizesResolved(bool success) {
+  file_size_resolver_.reset();
   if (!success) {
     RecordResult(
         ServiceWorkerMetrics::REQUEST_JOB_ERROR_REQUEST_BODY_BLOB_FAILED);
@@ -887,13 +883,38 @@ void ServiceWorkerURLRequestJob::RequestBodyBlobsCompleted(bool success) {
 
   DCHECK(!fetch_dispatcher_);
   fetch_dispatcher_.reset(new ServiceWorkerFetchDispatcher(
-      CreateFetchRequest(), active_worker, resource_type_, request()->net_log(),
+      CreateFetchRequest(), active_worker, resource_type_, timeout_,
+      request()->net_log(),
       base::Bind(&ServiceWorkerURLRequestJob::DidPrepareFetchEvent,
                  weak_factory_.GetWeakPtr(), active_worker),
       base::Bind(&ServiceWorkerURLRequestJob::DidDispatchFetchEvent,
                  weak_factory_.GetWeakPtr())));
   worker_start_time_ = base::TimeTicks::Now();
+  did_navigation_preload_ = fetch_dispatcher_->MaybeStartNavigationPreload(
+      request(),
+      base::BindOnce(&ServiceWorkerURLRequestJob::OnNavigationPreloadResponse,
+                     weak_factory_.GetWeakPtr()));
   fetch_dispatcher_->Run();
+}
+
+void ServiceWorkerURLRequestJob::OnNavigationPreloadResponse() {
+  DCHECK(navigation_preload_response_time_.is_null());
+  navigation_preload_response_time_ = base::TimeTicks::Now();
+  MaybeReportNavigationPreloadMetrics();
+}
+
+void ServiceWorkerURLRequestJob::MaybeReportNavigationPreloadMetrics() {
+  if (worker_start_time_.is_null() || worker_ready_time_.is_null() ||
+      navigation_preload_response_time_.is_null()) {
+    return;
+  }
+  DCHECK(!reported_navigation_preload_metrics_);
+  reported_navigation_preload_metrics_ = true;
+
+  ServiceWorkerMetrics::RecordNavigationPreloadResponse(
+      worker_ready_time_ - worker_start_time_,
+      navigation_preload_response_time_ - worker_start_time_,
+      initial_worker_status_, worker_start_situation_);
 }
 
 }  // namespace content

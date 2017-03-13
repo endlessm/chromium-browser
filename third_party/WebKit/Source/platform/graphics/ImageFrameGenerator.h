@@ -27,6 +27,7 @@
 #define ImageFrameGenerator_h
 
 #include "platform/PlatformExport.h"
+#include "platform/image-decoders/ImageDecoder.h"
 #include "platform/image-decoders/SegmentReader.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "third_party/skia/include/core/SkSize.h"
@@ -41,7 +42,6 @@
 #include "wtf/Vector.h"
 #include <memory>
 
-class SkData;
 struct SkYUVSizeInfo;
 
 namespace blink {
@@ -63,9 +63,12 @@ class PLATFORM_EXPORT ImageFrameGenerator final
   WTF_MAKE_NONCOPYABLE(ImageFrameGenerator);
 
  public:
-  static PassRefPtr<ImageFrameGenerator> create(const SkISize& fullSize,
-                                                bool isMultiFrame = false) {
-    return adoptRef(new ImageFrameGenerator(fullSize, isMultiFrame));
+  static PassRefPtr<ImageFrameGenerator> create(
+      const SkISize& fullSize,
+      bool isMultiFrame,
+      const ColorBehavior& colorBehavior) {
+    return adoptRef(
+        new ImageFrameGenerator(fullSize, isMultiFrame, colorBehavior));
   }
 
   ~ImageFrameGenerator();
@@ -105,7 +108,9 @@ class PLATFORM_EXPORT ImageFrameGenerator final
   bool getYUVComponentSizes(SegmentReader*, SkYUVSizeInfo*);
 
  private:
-  ImageFrameGenerator(const SkISize& fullSize, bool isMultiFrame);
+  ImageFrameGenerator(const SkISize& fullSize,
+                      bool isMultiFrame,
+                      const ColorBehavior&);
 
   friend class ImageFrameGeneratorTest;
   friend class DeferredImageDecoderTest;
@@ -131,6 +136,9 @@ class PLATFORM_EXPORT ImageFrameGenerator final
               SkBitmap::Allocator*);
 
   const SkISize m_fullSize;
+
+  // Parameters used to create internal ImageDecoder objects.
+  const ColorBehavior m_decoderColorBehavior;
 
   const bool m_isMultiFrame;
   bool m_decodeFailed;

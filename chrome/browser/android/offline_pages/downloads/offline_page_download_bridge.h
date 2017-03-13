@@ -11,7 +11,7 @@
 #include "base/android/jni_weak_ref.h"
 #include "base/macros.h"
 #include "base/supports_user_data.h"
-#include "components/offline_pages/downloads/download_ui_adapter.h"
+#include "components/offline_pages/core/downloads/download_ui_adapter.h"
 
 namespace content {
 class BrowserContext;
@@ -61,8 +61,7 @@ class OfflinePageDownloadBridge : public DownloadUIAdapter::Observer {
   void StartDownload(
       JNIEnv* env,
       const base::android::JavaParamRef<jobject>& obj,
-      const base::android::JavaParamRef<jobject>& j_tab,
-      const base::android::JavaParamRef<jstring>& j_downloads_label);
+      const base::android::JavaParamRef<jobject>& j_tab);
 
   void CancelDownload(JNIEnv* env,
                       const base::android::JavaParamRef<jobject>& obj,

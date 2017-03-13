@@ -16,7 +16,6 @@
 #include "third_party/WebKit/public/web/WebFormControlElement.h"
 #include "third_party/WebKit/public/web/WebHitTestResult.h"
 #include "third_party/WebKit/public/web/WebInputElement.h"
-#include "third_party/WebKit/public/web/WebInputEvent.h"
 #include "third_party/WebKit/public/web/WebLocalFrame.h"
 #include "third_party/WebKit/public/web/WebUserGestureIndicator.h"
 #include "third_party/WebKit/public/web/WebView.h"
@@ -25,8 +24,6 @@ using blink::WebElement;
 using blink::WebFormControlElement;
 using blink::WebGestureEvent;
 using blink::WebInputElement;
-using blink::WebInputEvent;
-using blink::WebMouseEvent;
 using blink::WebNode;
 using blink::WebPoint;
 using blink::WebSize;

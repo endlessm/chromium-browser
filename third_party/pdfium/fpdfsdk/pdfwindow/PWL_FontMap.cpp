@@ -6,6 +6,8 @@
 
 #include "fpdfsdk/pdfwindow/PWL_FontMap.h"
 
+#include <utility>
+
 #include "core/fpdfapi/cpdf_modulemgr.h"
 #include "core/fpdfapi/font/cpdf_font.h"
 #include "core/fpdfapi/font/cpdf_fontencoding.h"
@@ -14,6 +16,7 @@
 #include "core/fpdfdoc/ipvt_fontmap.h"
 #include "fpdfsdk/pdfwindow/PWL_Wnd.h"
 #include "third_party/base/ptr_util.h"
+#include "third_party/base/stl_util.h"
 
 namespace {
 
@@ -48,8 +51,7 @@ CPWL_FontMap::~CPWL_FontMap() {
 CPDF_Document* CPWL_FontMap::GetDocument() {
   if (!m_pPDFDoc) {
     if (CPDF_ModuleMgr::Get()) {
-      m_pPDFDoc =
-          pdfium::MakeUnique<CPDF_Document>(std::unique_ptr<CPDF_Parser>());
+      m_pPDFDoc = pdfium::MakeUnique<CPDF_Document>(nullptr);
       m_pPDFDoc->CreateNewDoc();
     }
   }
@@ -58,33 +60,27 @@ CPDF_Document* CPWL_FontMap::GetDocument() {
 }
 
 CPDF_Font* CPWL_FontMap::GetPDFFont(int32_t nFontIndex) {
-  if (nFontIndex >= 0 && nFontIndex < m_aData.GetSize()) {
-    if (CPWL_FontMap_Data* pData = m_aData.GetAt(nFontIndex)) {
-      return pData->pFont;
-    }
+  if (nFontIndex >= 0 && nFontIndex < pdfium::CollectionSize<int32_t>(m_Data)) {
+    if (m_Data[nFontIndex])
+      return m_Data[nFontIndex]->pFont;
   }
-
   return nullptr;
 }
 
 CFX_ByteString CPWL_FontMap::GetPDFFontAlias(int32_t nFontIndex) {
-  if (nFontIndex >= 0 && nFontIndex < m_aData.GetSize()) {
-    if (CPWL_FontMap_Data* pData = m_aData.GetAt(nFontIndex)) {
-      return pData->sFontName;
-    }
+  if (nFontIndex >= 0 && nFontIndex < pdfium::CollectionSize<int32_t>(m_Data)) {
+    if (m_Data[nFontIndex])
+      return m_Data[nFontIndex]->sFontName;
   }
-
-  return "";
+  return CFX_ByteString();
 }
 
-FX_BOOL CPWL_FontMap::KnowWord(int32_t nFontIndex, uint16_t word) {
-  if (nFontIndex >= 0 && nFontIndex < m_aData.GetSize()) {
-    if (m_aData.GetAt(nFontIndex)) {
+bool CPWL_FontMap::KnowWord(int32_t nFontIndex, uint16_t word) {
+  if (nFontIndex >= 0 && nFontIndex < pdfium::CollectionSize<int32_t>(m_Data)) {
+    if (m_Data[nFontIndex])
       return CharCodeFromUnicode(nFontIndex, word) >= 0;
-    }
   }
-
-  return FALSE;
+  return false;
 }
 
 int32_t CPWL_FontMap::GetWordFontIndex(uint16_t word,
@@ -105,13 +101,13 @@ int32_t CPWL_FontMap::GetWordFontIndex(uint16_t word,
   }
 
   int32_t nNewFontIndex =
-      GetFontIndex(GetNativeFontName(nCharset), nCharset, TRUE);
+      GetFontIndex(GetNativeFontName(nCharset), nCharset, true);
   if (nNewFontIndex >= 0) {
     if (KnowWord(nNewFontIndex, word))
       return nNewFontIndex;
   }
   nNewFontIndex =
-      GetFontIndex("Arial Unicode MS", FXFONT_DEFAULT_CHARSET, FALSE);
+      GetFontIndex("Arial Unicode MS", FXFONT_DEFAULT_CHARSET, false);
   if (nNewFontIndex >= 0) {
     if (KnowWord(nNewFontIndex, word))
       return nNewFontIndex;
@@ -120,11 +116,11 @@ int32_t CPWL_FontMap::GetWordFontIndex(uint16_t word,
 }
 
 int32_t CPWL_FontMap::CharCodeFromUnicode(int32_t nFontIndex, uint16_t word) {
-  CPWL_FontMap_Data* pData = m_aData.GetAt(nFontIndex);
-  if (!pData)
+  if (nFontIndex < 0 || nFontIndex >= pdfium::CollectionSize<int32_t>(m_Data))
     return -1;
 
-  if (!pData->pFont)
+  CPWL_FontMap_Data* pData = m_Data[nFontIndex].get();
+  if (!pData || !pData->pFont)
     return -1;
 
   if (pData->pFont->IsUnicodeCompatible())
@@ -134,72 +130,57 @@ int32_t CPWL_FontMap::CharCodeFromUnicode(int32_t nFontIndex, uint16_t word) {
 }
 
 CFX_ByteString CPWL_FontMap::GetNativeFontName(int32_t nCharset) {
-  // searching native font is slow, so we must save time
-  for (int32_t i = 0, sz = m_aNativeFont.GetSize(); i < sz; i++) {
-    if (CPWL_FontMap_Native* pData = m_aNativeFont.GetAt(i)) {
-      if (pData->nCharset == nCharset)
-        return pData->sFontName;
-    }
+  for (const auto& pData : m_NativeFont) {
+    if (pData && pData->nCharset == nCharset)
+      return pData->sFontName;
   }
 
   CFX_ByteString sNew = GetNativeFont(nCharset);
+  if (sNew.IsEmpty())
+    return CFX_ByteString();
 
-  if (!sNew.IsEmpty()) {
-    CPWL_FontMap_Native* pNewData = new CPWL_FontMap_Native;
-    pNewData->nCharset = nCharset;
-    pNewData->sFontName = sNew;
-
-    m_aNativeFont.Add(pNewData);
-  }
-
+  auto pNewData = pdfium::MakeUnique<CPWL_FontMap_Native>();
+  pNewData->nCharset = nCharset;
+  pNewData->sFontName = sNew;
+  m_NativeFont.push_back(std::move(pNewData));
   return sNew;
 }
 
 void CPWL_FontMap::Empty() {
-  {
-    for (int32_t i = 0, sz = m_aData.GetSize(); i < sz; i++)
-      delete m_aData.GetAt(i);
-
-    m_aData.RemoveAll();
-  }
-  {
-    for (int32_t i = 0, sz = m_aNativeFont.GetSize(); i < sz; i++)
-      delete m_aNativeFont.GetAt(i);
-
-    m_aNativeFont.RemoveAll();
-  }
+  m_Data.clear();
+  m_NativeFont.clear();
 }
 
 void CPWL_FontMap::Initialize() {
-  GetFontIndex(kDefaultFontName, FXFONT_ANSI_CHARSET, FALSE);
+  GetFontIndex(kDefaultFontName, FXFONT_ANSI_CHARSET, false);
 }
 
-FX_BOOL CPWL_FontMap::IsStandardFont(const CFX_ByteString& sFontName) {
+bool CPWL_FontMap::IsStandardFont(const CFX_ByteString& sFontName) {
   for (size_t i = 0; i < FX_ArraySize(g_sDEStandardFontName); ++i) {
     if (sFontName == g_sDEStandardFontName[i])
-      return TRUE;
+      return true;
   }
 
-  return FALSE;
+  return false;
 }
 
 int32_t CPWL_FontMap::FindFont(const CFX_ByteString& sFontName,
                                int32_t nCharset) {
-  for (int32_t i = 0, sz = m_aData.GetSize(); i < sz; i++) {
-    if (CPWL_FontMap_Data* pData = m_aData.GetAt(i)) {
-      if (nCharset == FXFONT_DEFAULT_CHARSET || nCharset == pData->nCharset) {
-        if (sFontName.IsEmpty() || pData->sFontName == sFontName)
-          return i;
-      }
+  int32_t i = 0;
+  for (const auto& pData : m_Data) {
+    if (pData &&
+        (nCharset == FXFONT_DEFAULT_CHARSET || nCharset == pData->nCharset) &&
+        (sFontName.IsEmpty() || pData->sFontName == sFontName)) {
+      return i;
     }
+    ++i;
   }
-
   return -1;
 }
 
 int32_t CPWL_FontMap::GetFontIndex(const CFX_ByteString& sFontName,
                                    int32_t nCharset,
-                                   FX_BOOL bFind) {
+                                   bool bFind) {
   int32_t nFontIndex = FindFont(EncodeFontAlias(sFontName, nCharset), nCharset);
   if (nFontIndex >= 0)
     return nFontIndex;
@@ -226,14 +207,12 @@ CPDF_Font* CPWL_FontMap::FindFontSameCharset(CFX_ByteString& sFontAlias,
 int32_t CPWL_FontMap::AddFontData(CPDF_Font* pFont,
                                   const CFX_ByteString& sFontAlias,
                                   int32_t nCharset) {
-  CPWL_FontMap_Data* pNewData = new CPWL_FontMap_Data;
+  auto pNewData = pdfium::MakeUnique<CPWL_FontMap_Data>();
   pNewData->pFont = pFont;
   pNewData->sFontName = sFontAlias;
   pNewData->nCharset = nCharset;
-
-  m_aData.Add(pNewData);
-
-  return m_aData.GetSize() - 1;
+  m_Data.push_back(std::move(pNewData));
+  return pdfium::CollectionSize<int32_t>(m_Data) - 1;
 }
 
 void CPWL_FontMap::AddedFont(CPDF_Font* pFont,
@@ -244,10 +223,9 @@ CFX_ByteString CPWL_FontMap::GetNativeFont(int32_t nCharset) {
     nCharset = GetNativeCharset();
 
   CFX_ByteString sFontName = GetDefaultFontByCharset(nCharset);
-  if (m_pSystemHandler->FindNativeTrueTypeFont(sFontName))
-    return sFontName;
+  if (!m_pSystemHandler->FindNativeTrueTypeFont(sFontName))
+    return CFX_ByteString();
 
-  sFontName.clear();
   return sFontName;
 }
 
@@ -306,11 +284,10 @@ CFX_ByteString CPWL_FontMap::EncodeFontAlias(const CFX_ByteString& sFontName) {
 }
 
 const CPWL_FontMap_Data* CPWL_FontMap::GetFontMapData(int32_t nIndex) const {
-  if (nIndex >= 0 && nIndex < m_aData.GetSize()) {
-    return m_aData.GetAt(nIndex);
-  }
+  if (nIndex < 0 || nIndex >= pdfium::CollectionSize<int32_t>(m_Data))
+    return nullptr;
 
-  return nullptr;
+  return m_Data[nIndex].get();
 }
 
 int32_t CPWL_FontMap::GetNativeCharset() {

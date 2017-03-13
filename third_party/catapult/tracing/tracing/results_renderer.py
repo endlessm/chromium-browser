@@ -10,31 +10,65 @@ import tracing_project
 from py_vulcanize import generate
 
 
-_JSON_TAG = '<div id="value-set-json">%s</div>'
+# If you change this, please update "Fall-back to old formats."
+_JSON_TAG = '<histogram-json>%s</histogram-json>'
 
 
-def ReadExistingResults(output_stream):
-  output_stream.seek(0)
-  results_html = output_stream.read()
+def ExtractJSON(results_html, json_tag):
+  results = []
+  pattern = '(.*?)'.join(re.escape(part) for part in json_tag.split('%s'))
+  flags = re.MULTILINE | re.DOTALL
+  for match in re.finditer(pattern, results_html, flags):
+    try:
+      results.append(json.loads(match.group(1)))
+    except ValueError:
+      logging.warn('Found existing results json, but failed to parse it.')
+      return []
+  return results
+
+
+def ReadExistingResults(results_html):
   if not results_html:
     return []
-  m = re.search(_JSON_TAG % '(.*?)', results_html, re.MULTILINE
-                | re.DOTALL)
-  if not m:
+
+  histograms = ExtractJSON(results_html, _JSON_TAG)
+
+  # Fall-back to old formats.
+  if not histograms:
+    histograms = ExtractJSON(
+        results_html, json_tag='<div class="histogram-json">%s</div>')
+  if not histograms:
+    match = re.search('<div id="value-set-json">(.*?)</div>', results_html,
+                      re.MULTILINE | re.DOTALL)
+    if match:
+      histograms = json.loads(match.group(1))
+
+  if not histograms:
     logging.warn('Failed to extract previous results from HTML output')
-    return []
-  return json.loads(m.group(1))
+  return histograms
 
 
-def RenderHTMLView(values, output_stream, reset_results=False):
+def RenderHTMLView(histograms, output_stream, reset_results=False):
+  output_stream.seek(0)
+
   if not reset_results:
-    values += ReadExistingResults(output_stream)
+    results_html = output_stream.read()
+    output_stream.seek(0)
+    histograms += ReadExistingResults(results_html)
+
   vulcanizer = tracing_project.TracingProject().CreateVulcanizer()
   load_sequence = vulcanizer.CalcLoadSequenceForModuleNames(
       ['tracing.results2_template'])
   html = generate.GenerateStandaloneHTMLAsString(load_sequence)
-  html = html.replace(_JSON_TAG % '',
-                      _JSON_TAG % json.dumps(values, separators=(',', ':')))
-  output_stream.seek(0)
   output_stream.write(html)
+
+  output_stream.write('<div style="display:none;">')
+  json_tag_newline = '\n%s' % _JSON_TAG
+  for histogram in histograms:
+    hist_json = json.dumps(histogram, separators=(',', ':'))
+    output_stream.write(json_tag_newline % hist_json)
+  output_stream.write('\n</div>\n')
+
+  # If the output file already existed and was longer than the new contents,
+  # discard the old contents after this point.
   output_stream.truncate()

@@ -9,7 +9,6 @@ import android.content.Context;
 import android.content.res.Configuration;
 
 import org.chromium.base.ContextUtils;
-import org.chromium.chrome.browser.preferences.privacy.CrashReportingPermissionManager;
 import org.chromium.chrome.browser.preferences.privacy.PrivacyPreferencesManager;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tabmodel.TabModel;
@@ -27,7 +26,7 @@ public class UmaSessionStats {
 
     private static final String SAMSUNG_MULTWINDOW_PACKAGE = "com.sec.feature.multiwindow";
 
-    private static long sNativeUmaSessionStats = 0;
+    private static long sNativeUmaSessionStats;
 
     // TabModelSelector is needed to get the count of open tabs. We want to log the number of open
     // tabs on every page load.
@@ -38,14 +37,12 @@ public class UmaSessionStats {
     private final boolean mIsMultiWindowCapable;
     private ComponentCallbacks mComponentCallbacks;
 
-    private boolean mKeyboardConnected = false;
-    private final CrashReportingPermissionManager mReportingPermissionManager;
+    private boolean mKeyboardConnected;
 
     public UmaSessionStats(Context context) {
         mContext = context;
         mIsMultiWindowCapable = context.getPackageManager().hasSystemFeature(
                 SAMSUNG_MULTWINDOW_PACKAGE);
-        mReportingPermissionManager = PrivacyPreferencesManager.getInstance();
     }
 
     private void recordPageLoadStats(Tab tab) {
@@ -172,7 +169,7 @@ public class UmaSessionStats {
         // Ensure Android and Chrome local state prefs are in sync.
         privacyManager.syncUsageAndCrashReportingPrefs();
 
-        boolean mayUploadStats = privacyManager.isUmaUploadPermitted();
+        boolean mayUploadStats = privacyManager.isMetricsUploadPermitted();
 
         // Re-start the MetricsService with the given parameter, and current consent.
         nativeUpdateMetricsServiceState(mayUploadStats);

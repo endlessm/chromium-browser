@@ -33,9 +33,11 @@
 
 #include "WebNavigationPolicy.h"
 #include "public/platform/WebCommon.h"
+#include "public/platform/WebDragOperation.h"
 #include "public/platform/WebLayerTreeView.h"
 #include "public/platform/WebPoint.h"
 #include "public/platform/WebRect.h"
+#include "public/platform/WebReferrerPolicy.h"
 #include "public/platform/WebScreenInfo.h"
 #include "public/web/WebMeaningfulLayout.h"
 #include "public/web/WebTextDirection.h"
@@ -43,7 +45,9 @@
 
 namespace blink {
 
+class WebDragData;
 class WebGestureEvent;
+class WebImage;
 class WebNode;
 class WebString;
 class WebWidget;
@@ -51,22 +55,18 @@ struct WebCursorInfo;
 struct WebFloatPoint;
 struct WebFloatRect;
 struct WebFloatSize;
-struct WebSize;
 
 class WebWidgetClient {
  public:
   // Called when a region of the WebWidget needs to be re-painted.
   virtual void didInvalidateRect(const WebRect&) {}
 
-  // Attempt to initialize compositing for this widget. If this is successful,
-  // layerTreeView() will return a valid WebLayerTreeView.
-  virtual void initializeLayerTreeView() {}
-
-  // Return a compositing view used for this widget. This is owned by the
+  // Attempt to initialize compositing view for this widget. If successful,
+  // returns a valid WebLayerTreeView which is owned by the
   // WebWidgetClient.
-  virtual WebLayerTreeView* layerTreeView() { return 0; }
-  // FIXME: Remove all overrides of this and change layerTreeView() above to
-  // ASSERT_NOT_REACHED.
+  virtual WebLayerTreeView* initializeLayerTreeView() { return nullptr; }
+
+  // FIXME: Remove all overrides of this.
   virtual bool allowsBrokenNullLayerTreeView() const { return false; }
 
   // Called when a call to WebWidget::animate is required
@@ -101,9 +101,6 @@ class WebWidgetClient {
 
   // Called when a tooltip should be shown at the current cursor position.
   virtual void setToolTipText(const WebString&, WebTextDirection hint) {}
-
-  // Called to get the position of the resizer rect in window coordinates.
-  virtual WebRect windowResizerRect() { return WebRect(); }
 
   // Called to query information about the screen where this widget is
   // displayed.
@@ -146,12 +143,8 @@ class WebWidgetClient {
   // the embedder of the touch actions that are permitted for this touch.
   virtual void setTouchAction(WebTouchAction touchAction) {}
 
-  // Called when value of focused text field gets dirty, e.g. value is
-  // modified by script, not by user input.
-  virtual void didUpdateTextOfFocusedElementByNonUserInput() {}
-
-  // Request the browser to show the IME for current input type.
-  virtual void showImeIfNeeded() {}
+  // Request the browser to show virtual keyboard for current input type.
+  virtual void showVirtualKeyboard() {}
 
   // Request that the browser show a UI for an unhandled tap, if needed.
   // Invoked during the handling of a GestureTap input event whenever the
@@ -183,6 +176,13 @@ class WebWidgetClient {
   // is eanbled.  TODO(oshima): Update the comment when the
   // migration is completed.
   virtual void convertWindowToViewport(WebFloatRect* rect) {}
+
+  // Called when a drag-and-drop operation should begin.
+  virtual void startDragging(WebReferrerPolicy,
+                             const WebDragData&,
+                             WebDragOperationsMask,
+                             const WebImage& dragImage,
+                             const WebPoint& dragImageOffset) {}
 
  protected:
   ~WebWidgetClient() {}

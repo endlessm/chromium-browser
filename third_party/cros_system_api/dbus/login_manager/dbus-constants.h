@@ -15,8 +15,11 @@ const char kSessionManagerStartSession[] = "StartSession";
 const char kSessionManagerStopSession[] = "StopSession";
 const char kSessionManagerRestartJob[] = "RestartJob";
 const char kSessionManagerStorePolicy[] = "StorePolicy";
+const char kSessionManagerStoreUnsignedPolicy[] = "StoreUnsignedPolicy";
 const char kSessionManagerRetrievePolicy[] = "RetrievePolicy";
 const char kSessionManagerStorePolicyForUser[] = "StorePolicyForUser";
+const char kSessionManagerStoreUnsignedPolicyForUser[] =
+    "StoreUnsignedPolicyForUser";
 const char kSessionManagerRetrievePolicyForUser[] = "RetrievePolicyForUser";
 const char kSessionManagerStoreDeviceLocalAccountPolicy[] =
     "StoreDeviceLocalAccountPolicy";
@@ -41,6 +44,7 @@ const char kSessionManagerCheckArcAvailability[] = "CheckArcAvailability";
 const char kSessionManagerStartArcInstance[] = "StartArcInstance";
 const char kSessionManagerStopArcInstance[] = "StopArcInstance";
 const char kSessionManagerPrioritizeArcInstance[] = "PrioritizeArcInstance";
+const char kSessionManagerSetArcCpuRestriction[] = "SetArcCpuRestriction";
 const char kSessionManagerEmitArcBooted[] = "EmitArcBooted";
 const char kSessionManagerGetArcStartTimeTicks[] = "GetArcStartTimeTicks";
 const char kSessionManagerRemoveArcData[] = "RemoveArcData";
@@ -58,6 +62,14 @@ const char kPropertyChangeCompleteSignal[] = "PropertyChangeComplete";
 // ARC instance signals.
 const char kArcInstanceStopped[] = "ArcInstanceStopped";
 const char kArcInstanceRebooted[] = "ArcInstanceRebooted";
+
+// Values
+enum ContainerCpuRestrictionState {
+  CONTAINER_CPU_RESTRICTION_FOREGROUND = 0,
+  CONTAINER_CPU_RESTRICTION_BACKGROUND = 1,
+  NUM_CONTAINER_CPU_RESTRICTION_STATES = 2,
+};
+
 }  // namespace login_manager
 
 #endif  // SYSTEM_API_DBUS_LOGIN_MANAGER_DBUS_CONSTANTS_H_

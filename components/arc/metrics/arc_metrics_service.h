@@ -5,18 +5,21 @@
 #ifndef COMPONENTS_ARC_METRICS_ARC_METRICS_SERVICE_H_
 #define COMPONENTS_ARC_METRICS_ARC_METRICS_SERVICE_H_
 
+#include <vector>
+
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/threading/thread_checker.h"
 #include "base/timer/timer.h"
-#include "components/arc/arc_bridge_service.h"
 #include "components/arc/arc_service.h"
-#include "components/arc/common/arc_bridge.mojom.h"
+#include "components/arc/common/metrics.mojom.h"
+#include "components/arc/common/process.mojom.h"
 #include "components/arc/instance_holder.h"
-#include "components/arc/metrics/oom_kills_monitor.h"
 #include "mojo/public/cpp/bindings/binding.h"
 
 namespace arc {
+
+class ArcBridgeService;
 
 // Collects information from other ArcServices and send UMA metrics.
 class ArcMetricsService
@@ -37,13 +40,12 @@ class ArcMetricsService
 
   // MetricsHost overrides.
   void ReportBootProgress(
-      mojo::Array<arc::mojom::BootProgressEventPtr> events) override;
+      std::vector<mojom::BootProgressEventPtr> events) override;
 
  private:
   bool CalledOnValidThread();
   void RequestProcessList();
-  void ParseProcessList(
-      mojo::Array<arc::mojom::RunningAppProcessInfoPtr> processes);
+  void ParseProcessList(std::vector<mojom::RunningAppProcessInfoPtr> processes);
 
   // DBus callbacks.
   void OnArcStartTimeRetrieved(bool success, base::TimeTicks arc_start_time);
@@ -62,6 +64,8 @@ class ArcMetricsService
     void OnInstanceClosed() override;
 
     ArcMetricsService* arc_metrics_service_;
+
+    DISALLOW_COPY_AND_ASSIGN(ProcessObserver);
   };
 
   mojo::Binding<mojom::MetricsHost> binding_;
@@ -69,8 +73,6 @@ class ArcMetricsService
   ProcessObserver process_observer_;
   base::ThreadChecker thread_checker_;
   base::RepeatingTimer timer_;
-
-  OomKillsMonitor::Handle oom_kills_monitor_handle_;
 
   base::TimeTicks arc_start_time_;
 

@@ -22,7 +22,6 @@ class WebURL;
 namespace media {
 
 class VideoFrame;
-class WebMediaPlayerDelegate;
 class WebMediaPlayerImpl;
 
 // This shim allows WebMediaPlayer to act sufficiently similar to
@@ -41,10 +40,12 @@ class WebMediaPlayerCast : public RendererMediaPlayerInterface {
 
   void requestRemotePlayback();
   void requestRemotePlaybackControl();
+  void requestRemotePlaybackStop();
 
   void SetMediaPlayerManager(
       RendererMediaPlayerManagerInterface* media_player_manager);
   bool isRemote() const { return is_remote_; }
+  bool IsPaused() const { return paused_; }
 
   double currentTime() const;
   void play();
@@ -75,24 +76,17 @@ class WebMediaPlayerCast : public RendererMediaPlayerInterface {
       const std::string& remote_playback_message) override;
   void OnDisconnectedFromRemoteDevice() override;
   void OnCancelledRemotePlaybackRequest() override;
+  void OnRemotePlaybackStarted() override;
   void OnDidExitFullscreen() override;
   void OnMediaPlayerPlay() override;
   void OnMediaPlayerPause() override;
-  void OnRemoteRouteAvailabilityChanged(bool routes_available) override;
-
-  // Getters of playback state.
-  // bool paused() const override;
-
-  // True if the loaded media has a playable video track.
-  // bool hasVideo() const override;
+  void OnRemoteRouteAvailabilityChanged(
+      blink::WebRemotePlaybackAvailability availability) override;
 
   // This function is called by the RendererMediaPlayerManager to pause the
   // video and release the media player and surface texture when we switch tabs.
   // However, the actual GlTexture is not released to keep the video screenshot.
   void SuspendAndReleaseResources() override;
-
-  bool paused() const override;
-  bool hasVideo() const override;
 
   void SetDeviceScaleFactor(float scale_factor);
   scoped_refptr<VideoFrame> GetCastingBanner();

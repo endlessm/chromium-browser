@@ -10,7 +10,6 @@
 #include "ash/screenshot_delegate.h"
 #include "ash/shell.h"
 #include "ash/test/ash_test_base.h"
-#include "ash/test/display_manager_test_api.h"
 #include "ash/test/mirror_window_test_api.h"
 #include "ash/test/test_screenshot_delegate.h"
 #include "ash/wm/window_util.h"
@@ -180,14 +179,14 @@ TEST_F(PartialScreenshotControllerTest,
 
   generator.EnterPenPointerMode();
   generator.set_current_location(gfx::Point(100, 100));
-  generator.PressLeftButton();
+  generator.PressTouch();
   EXPECT_EQ(0, test_delegate->handle_take_partial_screenshot_count());
   EXPECT_EQ(gfx::Point(100, 100), GetStartPosition());
 
-  generator.MoveMouseBy(200, 200);
+  generator.MoveTouch(gfx::Point(300, 300));
   EXPECT_EQ(0, test_delegate->handle_take_partial_screenshot_count());
 
-  generator.ReleaseLeftButton();
+  generator.ReleaseTouch();
   EXPECT_EQ(gfx::Rect(100, 100, 200, 200),
             GetScreenshotDelegate()->last_rect());
   EXPECT_EQ(1, GetScreenshotDelegate()->handle_take_partial_screenshot_count());
@@ -276,7 +275,6 @@ TEST_F(PartialScreenshotControllerTest, MouseWarpTest) {
             aura::Env::GetInstance()->last_mouse_location());
 }
 
-#if defined(OS_CHROMEOS)
 TEST_F(PartialScreenshotControllerTest, VisibilityTest) {
   aura::client::CursorClient* client = Shell::GetInstance()->cursor_manager();
 
@@ -335,7 +333,6 @@ TEST_F(PartialScreenshotControllerTest, LargeCursor) {
   RunAllPendingInMessageLoop();
   EXPECT_FALSE(IsActive());
 }
-#endif
 
 TEST_F(WindowScreenshotControllerTest, KeyboardOperation) {
   ui::test::EventGenerator& generator(GetEventGenerator());
@@ -479,6 +476,19 @@ TEST_F(ScreenshotControllerTest, MultipleDisplays) {
   UpdateDisplay("400x400");
   RunAllPendingInMessageLoop();
   EXPECT_FALSE(IsActive());
+}
+
+// Windows that take capture can misbehave due to a screenshot session. Break
+// mouse capture when the screenshot session is over. See crbug.com/651939
+TEST_F(ScreenshotControllerTest, BreaksCapture) {
+  std::unique_ptr<aura::Window> window(
+      CreateSelectableWindow(gfx::Rect(100, 100, 100, 100)));
+  window->SetCapture();
+  EXPECT_TRUE(window->HasCapture());
+  StartWindowScreenshotSession();
+  EXPECT_TRUE(window->HasCapture());
+  Cancel();
+  EXPECT_FALSE(window->HasCapture());
 }
 
 }  // namespace ash

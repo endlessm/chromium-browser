@@ -11,12 +11,12 @@
 #include "base/metrics/field_trial.h"
 #include "base/metrics/histogram_macros.h"
 #include "build/build_config.h"
-#include "components/sync/api/sync_error.h"
-#include "components/sync/api/sync_error_factory.h"
-#include "components/sync/api/sync_merge_result.h"
-#include "components/sync/api/time.h"
+#include "components/sync/base/hash_util.h"
 #include "components/sync/device_info/local_device_info_provider.h"
-#include "components/sync/syncable/syncable_util.h"
+#include "components/sync/model/sync_error.h"
+#include "components/sync/model/sync_error_factory.h"
+#include "components/sync/model/sync_merge_result.h"
+#include "components/sync/model/time.h"
 #include "components/sync_sessions/sync_sessions_client.h"
 #include "components/sync_sessions/synced_tab_delegate.h"
 #include "components/sync_sessions/synced_window_delegate.h"
@@ -92,6 +92,7 @@ SessionsSyncManager::SessionsSyncManager(
       local_tab_pool_out_of_sync_(true),
       sync_prefs_(sync_prefs),
       local_device_(local_device),
+      current_device_type_(sync_pb::SyncEnums_DeviceType_TYPE_OTHER),
       local_session_header_node_id_(TabNodePool::kInvalidTabNodeID),
       stale_session_threshold_days_(kDefaultStaleSessionThresholdDays),
       local_event_router_(std::move(router)),
@@ -121,6 +122,19 @@ syncer::SyncMergeResult SessionsSyncManager::MergeDataAndStartSyncing(
   error_handler_ = std::move(error_handler);
   sync_processor_ = std::move(sync_processor);
 
+  // SessionDataTypeController ensures that the local device info
+  // is available before activating this datatype.
+  DCHECK(local_device_);
+  const DeviceInfo* local_device_info = local_device_->GetLocalDeviceInfo();
+  if (!local_device_info) {
+    merge_result.set_error(error_handler_->CreateAndUploadError(
+        FROM_HERE, "Failed to get local device info."));
+    return merge_result;
+  }
+
+  current_session_name_ = local_device_info->client_name();
+  current_device_type_ = local_device_info->device_type();
+
   // It's possible(via RebuildAssociations) for lost_navigations_recorder_ to
   // persist between sync being stopped and started. If it did persist, it's
   // already associated with |sync_processor|, so leave it alone.
@@ -136,19 +150,7 @@ syncer::SyncMergeResult SessionsSyncManager::MergeDataAndStartSyncing(
   // a conveniently safe time to assert sync is ready and the cache_guid is
   // initialized.
   if (current_machine_tag_.empty()) {
-    InitializeCurrentMachineTag();
-  }
-
-  // SessionDataTypeController ensures that the local device info
-  // is available before activating this datatype.
-  DCHECK(local_device_);
-  const DeviceInfo* local_device_info = local_device_->GetLocalDeviceInfo();
-  if (local_device_info) {
-    current_session_name_ = local_device_info->client_name();
-  } else {
-    merge_result.set_error(error_handler_->CreateAndUploadError(
-        FROM_HERE, "Failed to get local device info."));
-    return merge_result;
+    InitializeCurrentMachineTag(local_device_->GetLocalSyncCacheGUID());
   }
 
   session_tracker_.SetLocalSessionTag(current_machine_tag_);
@@ -164,7 +166,7 @@ syncer::SyncMergeResult SessionsSyncManager::MergeDataAndStartSyncing(
     base_specifics->set_session_tag(current_machine_tag());
     sync_pb::SessionHeader* header_s = base_specifics->mutable_header();
     header_s->set_client_name(current_session_name_);
-    header_s->set_device_type(local_device_info->device_type());
+    header_s->set_device_type(current_device_type_);
     syncer::SyncData data = syncer::SyncData::CreateLocalData(
         current_machine_tag(), current_session_name_, specifics);
     new_changes.push_back(
@@ -200,24 +202,33 @@ void SessionsSyncManager::AssociateWindows(
   SyncedSession* current_session = session_tracker_.GetSession(local_tag);
   current_session->modified_time = base::Time::Now();
   header_s->set_client_name(current_session_name_);
-  // SessionDataTypeController ensures that the local device info
-  // is available before activating this datatype.
-  DCHECK(local_device_);
-  const DeviceInfo* local_device_info = local_device_->GetLocalDeviceInfo();
-  header_s->set_device_type(local_device_info->device_type());
+  header_s->set_device_type(current_device_type_);
 
   session_tracker_.ResetSessionTracking(local_tag);
   std::set<const SyncedWindowDelegate*> windows =
       synced_window_delegates_getter()->GetSyncedWindowDelegates();
 
+  if (option == RELOAD_TABS) {
+    UMA_HISTOGRAM_COUNTS("Sync.SessionWindows", windows.size());
+  }
+  if (windows.size() == 0) {
+    // Assume that the window hasn't loaded. Attempting to associate now would
+    // clobber any old windows, so just return.
+    LOG(ERROR) << "No windows present, see crbug.com/639009";
+    return;
+  }
   for (std::set<const SyncedWindowDelegate*>::const_iterator i =
            windows.begin();
        i != windows.end(); ++i) {
+    if (option == RELOAD_TABS) {
+      UMA_HISTOGRAM_COUNTS("Sync.SessionTabs", (*i)->GetTabCount());
+    }
+
     // Make sure the window has tabs and a viewable window. The viewable window
     // check is necessary because, for example, when a browser is closed the
     // destructor is not necessarily run immediately. This means its possible
     // for us to get a handle to a browser that is about to be removed. If
-    // the tab count is 0 or the window is NULL, the browser is about to be
+    // the tab count is 0 or the window is null, the browser is about to be
     // deleted, so we ignore it.
     if ((*i)->ShouldSync() && (*i)->GetTabCount() && (*i)->HasWindow()) {
       sync_pb::SessionWindow window_s;
@@ -232,9 +243,14 @@ void SessionsSyncManager::AssociateWindows(
       if ((*i)->IsTypeTabbed()) {
         window_s.set_browser_type(
             sync_pb::SessionWindow_BrowserType_TYPE_TABBED);
-      } else {
+      } else if ((*i)->IsTypePopup()) {
         window_s.set_browser_type(
             sync_pb::SessionWindow_BrowserType_TYPE_POPUP);
+      } else {
+        // This is a custom tab within an app. These will not be restored on
+        // startup if not present.
+        window_s.set_browser_type(
+            sync_pb::SessionWindow_BrowserType_TYPE_CUSTOM_TAB);
       }
 
       bool found_tabs = false;
@@ -270,7 +286,7 @@ void SessionsSyncManager::AssociateWindows(
         // change processor calling AssociateTab for all modified tabs.
         // Therefore, we can key whether this window has valid tabs based on
         // the tab's presence in the tracker.
-        const sessions::SessionTab* tab = NULL;
+        const sessions::SessionTab* tab = nullptr;
         if (session_tracker_.LookupSessionTab(local_tag, tab_id, &tab)) {
           found_tabs = true;
           window_s.add_tab(tab_id);
@@ -323,7 +339,7 @@ void SessionsSyncManager::AssociateTab(SyncedTabDelegate* const tab,
     return;
 
   TabLinksMap::iterator local_tab_map_iter = local_tab_map_.find(tab_id);
-  TabLink* tab_link = NULL;
+  TabLink* tab_link = nullptr;
 
   if (local_tab_map_iter == local_tab_map_.end()) {
     int tab_node_id = tab->GetSyncId();
@@ -371,7 +387,7 @@ void SessionsSyncManager::AssociateTab(SyncedTabDelegate* const tab,
       base::Time::Now();
 }
 
-void SessionsSyncManager::RebuildAssociations() {
+bool SessionsSyncManager::RebuildAssociations() {
   syncer::SyncDataList data(sync_processor_->GetAllSyncData(syncer::SESSIONS));
   std::unique_ptr<syncer::SyncErrorFactory> error_handler(
       std::move(error_handler_));
@@ -379,8 +395,9 @@ void SessionsSyncManager::RebuildAssociations() {
       std::move(sync_processor_));
 
   StopSyncing(syncer::SESSIONS);
-  MergeDataAndStartSyncing(syncer::SESSIONS, data, std::move(processor),
-                           std::move(error_handler));
+  syncer::SyncMergeResult merge_result = MergeDataAndStartSyncing(
+      syncer::SESSIONS, data, std::move(processor), std::move(error_handler));
+  return !merge_result.error().IsSet();
 }
 
 bool SessionsSyncManager::IsValidSessionHeader(
@@ -416,8 +433,8 @@ void SessionsSyncManager::OnLocalTabModified(SyncedTabDelegate* modified_tab) {
   if (local_tab_pool_out_of_sync_) {
     // If our tab pool is corrupt, pay the price of a full re-association to
     // fix things up.  This takes care of the new tab modification as well.
-    RebuildAssociations();
-    DCHECK(!local_tab_pool_out_of_sync_);
+    bool rebuild_association_succeeded = RebuildAssociations();
+    DCHECK(!rebuild_association_succeeded || !local_tab_pool_out_of_sync_);
     return;
   }
 
@@ -451,7 +468,7 @@ void SessionsSyncManager::StopSyncing(syncer::ModelType type) {
         lost_navigations_recorder_.get());
     lost_navigations_recorder_.reset();
   }
-  sync_processor_.reset(NULL);
+  sync_processor_.reset(nullptr);
   error_handler_.reset();
   session_tracker_.Clear();
   local_tab_map_.clear();
@@ -464,7 +481,7 @@ void SessionsSyncManager::StopSyncing(syncer::ModelType type) {
 syncer::SyncDataList SessionsSyncManager::GetAllSyncData(
     syncer::ModelType type) const {
   syncer::SyncDataList list;
-  const SyncedSession* session = NULL;
+  const SyncedSession* session = nullptr;
   if (!session_tracker_.LookupLocalSession(&session))
     return syncer::SyncDataList();
 
@@ -749,7 +766,8 @@ void SessionsSyncManager::UpdateTrackerWithForeignSession(
   }
 }
 
-void SessionsSyncManager::InitializeCurrentMachineTag() {
+void SessionsSyncManager::InitializeCurrentMachineTag(
+    const std::string& cache_guid) {
   DCHECK(current_machine_tag_.empty());
   std::string persisted_guid;
   persisted_guid = sync_prefs_->GetSyncSessionsGUID();
@@ -757,8 +775,6 @@ void SessionsSyncManager::InitializeCurrentMachineTag() {
     current_machine_tag_ = persisted_guid;
     DVLOG(1) << "Restoring persisted session sync guid: " << persisted_guid;
   } else {
-    DCHECK(local_device_);
-    std::string cache_guid = local_device_->GetLocalSyncCacheGUID();
     DCHECK(!cache_guid.empty());
     current_machine_tag_ = BuildMachineTag(cache_guid);
     DVLOG(1) << "Creating session sync guid: " << current_machine_tag_;
@@ -823,6 +839,8 @@ void SessionsSyncManager::BuildSyncedSessionFromSpecifics(
         sync_pb::SessionWindow_BrowserType_TYPE_TABBED) {
       session_window->type = sessions::SessionWindow::TYPE_TABBED;
     } else {
+      // Note: custom tabs are treated like popup windows on restore, as you can
+      // restore a custom tab on a platform that doesn't support them.
       session_window->type = sessions::SessionWindow::TYPE_POPUP;
     }
   }
@@ -934,7 +952,7 @@ bool SessionsSyncManager::GetForeignSessionTabs(
 bool SessionsSyncManager::GetForeignTab(const std::string& tag,
                                         const SessionID::id_type tab_id,
                                         const sessions::SessionTab** tab) {
-  const sessions::SessionTab* synced_tab = NULL;
+  const sessions::SessionTab* synced_tab = nullptr;
   bool success = session_tracker_.LookupSessionTab(tag, tab_id, &synced_tab);
   if (success)
     *tab = synced_tab;
@@ -944,7 +962,7 @@ bool SessionsSyncManager::GetForeignTab(const std::string& tag,
 void SessionsSyncManager::LocalTabDelegateToSpecifics(
     const SyncedTabDelegate& tab_delegate,
     sync_pb::SessionSpecifics* specifics) {
-  sessions::SessionTab* session_tab = NULL;
+  sessions::SessionTab* session_tab = nullptr;
   session_tab = session_tracker_.GetTab(current_machine_tag(),
                                         tab_delegate.GetSessionId(),
                                         tab_delegate.GetSyncId());
@@ -1114,8 +1132,8 @@ void SessionsSyncManager::DoGarbageCollection() {
 // static
 std::string SessionsSyncManager::TagHashFromSpecifics(
     const sync_pb::SessionSpecifics& specifics) {
-  return syncer::syncable::GenerateSyncableHash(syncer::SESSIONS,
-                                                TagFromSpecifics(specifics));
+  return syncer::GenerateSyncableHash(syncer::SESSIONS,
+                                      TagFromSpecifics(specifics));
 }
 
 };  // namespace sync_sessions

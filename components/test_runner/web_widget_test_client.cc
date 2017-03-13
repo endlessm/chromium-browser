@@ -8,6 +8,7 @@
 #include "base/bind_helpers.h"
 #include "base/logging.h"
 #include "base/time/time.h"
+#include "components/test_runner/event_sender.h"
 #include "components/test_runner/mock_screen_orientation_client.h"
 #include "components/test_runner/test_interfaces.h"
 #include "components/test_runner/test_runner.h"
@@ -37,9 +38,6 @@ void WebWidgetTestClient::scheduleAnimation() {
 
   if (!animation_scheduled_) {
     animation_scheduled_ = true;
-    test_runner()->OnAnimationScheduled(
-        web_widget_test_proxy_base_->web_widget());
-
     delegate()->PostDelayedTask(base::Bind(&WebWidgetTestClient::AnimateNow,
                                            weak_factory_.GetWeakPtr()),
                                 1);
@@ -50,8 +48,6 @@ void WebWidgetTestClient::AnimateNow() {
   if (animation_scheduled_) {
     blink::WebWidget* web_widget = web_widget_test_proxy_base_->web_widget();
     animation_scheduled_ = false;
-    test_runner()->OnAnimationBegun(web_widget);
-
     base::TimeDelta animate_time = base::TimeTicks::Now() - base::TimeTicks();
     web_widget->beginFrame(animate_time.InSecondsF());
     web_widget->updateAllLifecyclePhases();
@@ -94,13 +90,18 @@ void WebWidgetTestClient::setToolTipText(const blink::WebString& text,
   test_runner()->setToolTipText(text);
 }
 
-void WebWidgetTestClient::resetInputMethod() {
-  // If a composition text exists, then we need to let the browser process
-  // to cancel the input method's ongoing composition session.
-  if (web_widget_test_proxy_base_)
-    web_widget_test_proxy_base_->web_widget()->finishComposingText(
-        blink::WebWidget::KeepSelection);
+void WebWidgetTestClient::startDragging(blink::WebReferrerPolicy policy,
+                                        const blink::WebDragData& data,
+                                        blink::WebDragOperationsMask mask,
+                                        const blink::WebImage& image,
+                                        const blink::WebPoint& point) {
+  test_runner()->setDragImage(image);
+
+  // When running a test, we need to fake a drag drop operation otherwise
+  // Windows waits for real mouse events to know when the drag is over.
+  web_widget_test_proxy_base_->event_sender()->DoDragDrop(data, mask);
 }
+
 
 TestRunnerForSpecificView* WebWidgetTestClient::view_test_runner() {
   return web_widget_test_proxy_base_->web_view_test_proxy_base()

@@ -17,7 +17,7 @@ found in the LICENSE file.
 'use strict';
 
 tr.exportTo('tr.metrics.sh', function() {
-  // In the case of Response, Load, and DiscreteAnimation IRs, Responsiveness is
+  // In the case of Response, Load, and DiscreteAnimation UEs, Responsiveness is
   // derived from the time between when the user thinks they begin an interation
   // (expectedStart) and the time when the screen first changes to reflect the
   // interaction (actualEnd).  There may be a delay between expectedStart and
@@ -34,7 +34,8 @@ tr.exportTo('tr.metrics.sh', function() {
                       animationExpectation.stableId);
 
     var durationInS = tr.b.convertUnit(animationExpectation.duration,
-        tr.b.UnitScale.Metric.MILLI, tr.b.UnitScale.Metric.NONE);
+        tr.b.UnitPrefixScale.METRIC.MILLI,
+        tr.b.UnitPrefixScale.METRIC.NONE);
     return animationExpectation.frameEvents.length / durationInS;
   }
 
@@ -54,7 +55,7 @@ tr.exportTo('tr.metrics.sh', function() {
   }
 
   /**
-   * @param {!tr.v.ValueSet} values
+   * @param {!tr.v.HistogramSet} values
    * @param {!tr.model.Model} model
    * @param {!Object=} opt_options
    */
@@ -147,7 +148,7 @@ tr.exportTo('tr.metrics.sh', function() {
   });
 
   return {
-    responsivenessMetric: responsivenessMetric,
+    responsivenessMetric,
   };
 });
 </script>

@@ -7,6 +7,8 @@
 #ifndef CORE_FPDFAPI_PARSER_CPDF_STREAM_ACC_H_
 #define CORE_FPDFAPI_PARSER_CPDF_STREAM_ACC_H_
 
+#include <memory>
+
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/parser/cpdf_stream.h"
 #include "core/fxcrt/fx_string.h"
@@ -17,10 +19,13 @@ class CPDF_StreamAcc {
   CPDF_StreamAcc();
   ~CPDF_StreamAcc();
 
+  CPDF_StreamAcc(const CPDF_StreamAcc&) = delete;
+  CPDF_StreamAcc& operator=(const CPDF_StreamAcc&) = delete;
+
   void LoadAllData(const CPDF_Stream* pStream,
-                   FX_BOOL bRawAccess = FALSE,
+                   bool bRawAccess = false,
                    uint32_t estimated_size = 0,
-                   FX_BOOL bImageAcc = FALSE);
+                   bool bImageAcc = false);
 
   const CPDF_Stream* GetStream() const { return m_pStream; }
   CPDF_Dictionary* GetDict() const {
@@ -31,12 +36,12 @@ class CPDF_StreamAcc {
   uint32_t GetSize() const;
   const CFX_ByteString& GetImageDecoder() const { return m_ImageDecoder; }
   const CPDF_Dictionary* GetImageParam() const { return m_pImageParam; }
-  uint8_t* DetachData();
+  std::unique_ptr<uint8_t, FxFreeDeleter> DetachData();
 
  protected:
   uint8_t* m_pData;
   uint32_t m_dwSize;
-  FX_BOOL m_bNewBuf;
+  bool m_bNewBuf;
   CFX_ByteString m_ImageDecoder;
   CPDF_Dictionary* m_pImageParam;
   const CPDF_Stream* m_pStream;

@@ -112,7 +112,7 @@ MediaQuery::MediaQuery(const MediaQuery& o)
       m_serializationCache(o.m_serializationCache) {
   m_expressions.reserveInitialCapacity(o.m_expressions.size());
   for (unsigned i = 0; i < o.m_expressions.size(); ++i)
-    m_expressions.append(o.m_expressions[i]->copy());
+    m_expressions.push_back(o.m_expressions[i]->copy());
 }
 
 MediaQuery::~MediaQuery() {}
@@ -131,10 +131,6 @@ String MediaQuery::cssText() const {
 }
 
 DEFINE_TRACE(MediaQuery) {
-  // We don't support tracing of vectors of OwnPtrs (ie.
-  // std::unique_ptr<Vector<std::unique_ptr<MediaQuery>>>).
-  // Since this is a transitional object we are just ifdef'ing it out when
-  // oilpan is not enabled.
   visitor->trace(m_expressions);
 }
 

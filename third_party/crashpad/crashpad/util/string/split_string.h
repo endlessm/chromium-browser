@@ -16,6 +16,7 @@
 #define CRASHPAD_UTIL_STRING_SPLIT_STRING_H_
 
 #include <string>
+#include <vector>
 
 namespace crashpad {
 
@@ -29,12 +30,20 @@ namespace crashpad {
 //!     character.
 //!
 //! \return `true` if \a string was split successfully. `false` if \a string
-//!     did not contain a \delimiter character or began with a \delimiter
+//!     did not contain a \a delimiter character or began with a \a delimiter
 //!     character.
-bool SplitString(const std::string& string,
-                 char delimiter,
-                 std::string* left,
-                 std::string* right);
+bool SplitStringFirst(const std::string& string,
+                      char delimiter,
+                      std::string* left,
+                      std::string* right);
+
+//! \brief Splits a string into multiple parts on the given delimiter.
+//!
+//! \param[in] string The string to split.
+//! \param[in] delimiter The delimiter to split at.
+//!
+//! \return The individual parts of the string.
+std::vector<std::string> SplitString(const std::string& string, char delimiter);
 
 }  // namespace crashpad
 

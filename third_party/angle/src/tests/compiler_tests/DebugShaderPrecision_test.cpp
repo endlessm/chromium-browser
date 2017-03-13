@@ -12,6 +12,8 @@
 #include "GLSLANG/ShaderLang.h"
 #include "tests/test_utils/compiler_test.h"
 
+using namespace sh;
+
 class DebugShaderPrecisionTest : public MatchOutputCodeTest
 {
   public:
@@ -1037,7 +1039,7 @@ TEST(DebugShaderPrecisionNegativeTest, HLSL3Unsupported)
     std::string infoLog;
     std::string translatedCode;
     ShBuiltInResources resources;
-    ShInitBuiltInResources(&resources);
+    sh::InitBuiltInResources(&resources);
     resources.WEBGL_debug_shader_precision = 1;
     ASSERT_FALSE(compileTestShader(GL_FRAGMENT_SHADER, SH_GLES3_SPEC, SH_HLSL_3_0_OUTPUT,
                                    shaderString, &resources, 0, &translatedCode, &infoLog));

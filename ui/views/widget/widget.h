@@ -13,6 +13,7 @@
 
 #include "base/macros.h"
 #include "base/observer_list.h"
+#include "base/optional.h"
 #include "base/scoped_observer.h"
 #include "build/build_config.h"
 #include "ui/base/ui_base_types.h"
@@ -43,7 +44,6 @@ class TimeDelta;
 }
 
 namespace gfx {
-class Canvas;
 class Point;
 class Rect;
 }
@@ -59,6 +59,10 @@ class OSExchangeData;
 class ThemeProvider;
 class Window;
 }  // namespace ui
+
+namespace wm {
+enum class ShadowElevation;
+}
 
 namespace views {
 
@@ -233,6 +237,9 @@ class VIEWS_EXPORT Widget : public internal::NativeWidgetDelegate,
     Ownership ownership;
     bool mirror_origin_in_rtl;
     ShadowType shadow_type;
+    // A hint about the size of the shadow if the type is SHADOW_TYPE_DROP. May
+    // be ignored on some platforms. No value indicates no preference.
+    base::Optional<wm::ShadowElevation> shadow_elevation;
     // Specifies that the system default caption and icon should not be
     // rendered, and that the client area should be equivalent to the window
     // area. Only used on some platforms (Windows and Linux).
@@ -763,10 +770,6 @@ class VIEWS_EXPORT Widget : public internal::NativeWidgetDelegate,
   // mouse location to refresh hovering status in the widget.
   void SynthesizeMouseMoveEvent();
 
-  // Called by our RootView after it has performed a Layout. Used to forward
-  // window sizing information to the window server on some platforms.
-  void OnRootViewLayout();
-
   // Whether the widget supports translucency.
   bool IsTranslucentWindowOpacitySupported() const;
 
@@ -975,6 +978,9 @@ class VIEWS_EXPORT Widget : public internal::NativeWidgetDelegate,
   bool movement_disabled_;
 
   ScopedObserver<ui::NativeTheme, ui::NativeThemeObserver> observer_manager_;
+
+  // Guard to avoid reentrancy while processing a theme changed message.
+  bool processing_theme_changed_;
 
   DISALLOW_COPY_AND_ASSIGN(Widget);
 };

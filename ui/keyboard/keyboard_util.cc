@@ -9,7 +9,7 @@
 #include "base/command_line.h"
 #include "base/lazy_instance.h"
 #include "base/logging.h"
-#include "base/metrics/histogram.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/strings/string16.h"
 #include "media/audio/audio_manager.h"
 #include "ui/aura/client/aura_constants.h"
@@ -25,6 +25,7 @@
 #include "ui/keyboard/keyboard_controller.h"
 #include "ui/keyboard/keyboard_switches.h"
 #include "ui/keyboard/keyboard_ui.h"
+#include "ui/keyboard/scoped_keyboard_disabler.h"
 
 namespace {
 
@@ -49,6 +50,8 @@ bool g_accessibility_keyboard_enabled = false;
 bool g_hotrod_keyboard_enabled = false;
 
 bool g_touch_keyboard_enabled = false;
+
+bool g_overscroll_enabled_with_accessibility_keyboard = false;
 
 keyboard::KeyboardState g_requested_keyboard_state =
     keyboard::KEYBOARD_STATE_AUTO;
@@ -111,6 +114,9 @@ std::string GetKeyboardLayout() {
 }
 
 bool IsKeyboardEnabled() {
+  // Blocks keyboard from showing up regardless of other settings.
+  if (ScopedKeyboardDisabler::GetForceDisableVirtualKeyboard())
+    return false;
   // Accessibility setting prioritized over policy setting.
   if (g_accessibility_keyboard_enabled)
     return true;
@@ -138,8 +144,10 @@ bool IsKeyboardOverscrollEnabled() {
 
   // Users of the accessibility on-screen keyboard are likely to be using mouse
   // input, which may interfere with overscrolling.
-  if (g_accessibility_keyboard_enabled)
+  if (g_accessibility_keyboard_enabled &&
+      !g_overscroll_enabled_with_accessibility_keyboard) {
     return false;
+  }
 
   // If overscroll enabled override is set, use it instead. Currently
   // login / out-of-box disable keyboard overscroll. http://crbug.com/363635
@@ -376,6 +384,10 @@ void LogKeyboardControlEvent(KeyboardControlEvent event) {
       "VirtualKeyboard.KeyboardControlEvent",
       event,
       keyboard::KEYBOARD_CONTROL_MAX);
+}
+
+void SetOverscrollEnabledWithAccessibilityKeyboard(bool enabled) {
+  g_overscroll_enabled_with_accessibility_keyboard = enabled;
 }
 
 }  // namespace keyboard

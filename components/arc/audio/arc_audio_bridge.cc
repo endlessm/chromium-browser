@@ -4,20 +4,12 @@
 
 #include "components/arc/audio/arc_audio_bridge.h"
 
-#include "ash/common/system/tray/system_tray_notifier.h"
-#include "ash/common/wm_shell.h"
+#include "ash/common/system/chromeos/audio/tray_audio.h"
 #include "base/logging.h"
 #include "chromeos/audio/audio_device.h"
+#include "components/arc/arc_bridge_service.h"
 
 namespace arc {
-
-namespace {
-
-// Note: unlike most of our mojom definitions, AudioInstance::Init's minimum
-// version is not zero.
-constexpr uint32_t kMinInstanceVersionForInit = 1;
-
-}  // namespace
 
 ArcAudioBridge::ArcAudioBridge(ArcBridgeService* bridge_service)
     : ArcService(bridge_service), binding_(this) {
@@ -37,16 +29,14 @@ ArcAudioBridge::~ArcAudioBridge() {
 
 void ArcAudioBridge::OnInstanceReady() {
   mojom::AudioInstance* audio_instance =
-      arc_bridge_service()->audio()->GetInstanceForMethod(
-          "Init", kMinInstanceVersionForInit);
+      ARC_GET_INSTANCE_FOR_METHOD(arc_bridge_service()->audio(), Init);
   DCHECK(audio_instance);  // the instance on ARC side is too old.
   audio_instance->Init(binding_.CreateInterfacePtrAndBind());
 }
 
 void ArcAudioBridge::ShowVolumeControls() {
   VLOG(2) << "ArcAudioBridge::ShowVolumeControls";
-  ash::WmShell::Get()->system_tray_notifier()->NotifyAudioOutputVolumeChanged(
-      0, 0);
+  ash::TrayAudio::ShowPopUpVolumeView();
 }
 
 void ArcAudioBridge::OnAudioNodesChanged() {
@@ -82,8 +72,8 @@ void ArcAudioBridge::SendSwitchState(bool headphone_inserted,
   }
 
   VLOG(1) << "Send switch state " << switch_state;
-  mojom::AudioInstance* audio_instance =
-      arc_bridge_service()->audio()->GetInstanceForMethod("NotifySwitchState");
+  mojom::AudioInstance* audio_instance = ARC_GET_INSTANCE_FOR_METHOD(
+      arc_bridge_service()->audio(), NotifySwitchState);
   if (audio_instance)
     audio_instance->NotifySwitchState(switch_state);
 }

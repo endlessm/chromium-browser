@@ -19,6 +19,7 @@
         '<(DEPTH)/ui/webui/resources/js/compiled_resources2.gyp:load_time_data',
         '<(DEPTH)/ui/webui/resources/js/compiled_resources2.gyp:util',
         '<(DEPTH)/ui/webui/resources/js/compiled_resources2.gyp:web_ui_listener_behavior',
+        '../compiled_resources2.gyp:route',
         'camera',
         'change_picture_browser_proxy',
       ],
@@ -50,6 +51,13 @@
       'includes': ['../../../../../third_party/closure_compiler/compile_js2.gypi'],
     },
     {
+      'target_name': 'import_data_browser_proxy',
+      'dependencies': [
+        '<(DEPTH)/ui/webui/resources/js/compiled_resources2.gyp:cr',
+      ],
+      'includes': ['../../../../../third_party/closure_compiler/compile_js2.gypi'],
+    },
+    {
       'target_name': 'manage_profile',
       'dependencies': [
         '../compiled_resources2.gyp:route',
@@ -72,6 +80,7 @@
       'dependencies': [
         '../compiled_resources2.gyp:route',
         '<(EXTERNS_GYP):quick_unlock_private',
+	'lock_screen_constants',
       ],
       'includes': ['../../../../../third_party/closure_compiler/compile_js2.gypi'],
     },
@@ -87,6 +96,7 @@
         '<(DEPTH)/ui/webui/resources/js/compiled_resources2.gyp:web_ui_listener_behavior',
         'easy_unlock_browser_proxy',
         'easy_unlock_turn_off_dialog',
+	'lock_screen_constants',
         'lock_state_behavior',
         'profile_info_browser_proxy',
         'sync_browser_proxy',
@@ -109,9 +119,17 @@
       'includes': ['../../../../../third_party/closure_compiler/compile_js2.gypi'],
     },
     {
+      'target_name': 'lock_screen_constants',
+      'dependencies': [
+        '<(DEPTH)/ui/webui/resources/js/compiled_resources2.gyp:cr',
+      ],
+      'includes': ['../../../../../third_party/closure_compiler/compile_js2.gypi'],
+    },
+    {
       'target_name': 'lock_screen',
       'dependencies': [
         '../compiled_resources2.gyp:route',
+	'lock_screen_constants',
         'lock_state_behavior',
         'password_prompt_dialog',
         '<(DEPTH)/ui/webui/resources/js/compiled_resources2.gyp:i18n_behavior',
@@ -122,6 +140,7 @@
       'target_name': 'setup_pin_dialog',
       'dependencies': [
         '../compiled_resources2.gyp:route',
+	'lock_screen_constants',
         'password_prompt_dialog',
         '<(DEPTH)/ui/webui/resources/js/compiled_resources2.gyp:i18n_behavior',
       ],
@@ -134,7 +153,6 @@
         '../settings_page/compiled_resources2.gyp:settings_animated_pages',
         'sync_browser_proxy',
         '<(DEPTH)/ui/webui/resources/js/compiled_resources2.gyp:assert',
-        '<(DEPTH)/ui/webui/resources/js/compiled_resources2.gyp:i18n_behavior',
         '<(DEPTH)/ui/webui/resources/js/compiled_resources2.gyp:load_time_data',
         '<(DEPTH)/ui/webui/resources/js/compiled_resources2.gyp:web_ui_listener_behavior',
       ],
@@ -152,6 +170,7 @@
     {
       'target_name': 'user_list',
       'dependencies': [
+        '../compiled_resources2.gyp:route',
         '<(EXTERNS_GYP):settings_private',
         '<(EXTERNS_GYP):users_private',
       ],
@@ -170,6 +189,16 @@
       'dependencies': [
         'user_list',
         'users_add_user_dialog',
+      ],
+      'includes': ['../../../../../third_party/closure_compiler/compile_js2.gypi'],
+    },
+    {
+      'target_name': 'import_data_dialog',
+      'dependencies': [
+        '../prefs/compiled_resources2.gyp:prefs_behavior',
+        '<(DEPTH)/ui/webui/resources/js/compiled_resources2.gyp:i18n_behavior',
+        '<(DEPTH)/ui/webui/resources/js/compiled_resources2.gyp:web_ui_listener_behavior',
+        'import_data_browser_proxy',
       ],
       'includes': ['../../../../../third_party/closure_compiler/compile_js2.gypi'],
     },

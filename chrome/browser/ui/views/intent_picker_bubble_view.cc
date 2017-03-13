@@ -5,6 +5,7 @@
 #include "chrome/browser/ui/views/intent_picker_bubble_view.h"
 
 #include "base/bind.h"
+#include "base/i18n/rtl.h"
 #include "base/logging.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/utf_string_conversions.h"
@@ -15,7 +16,6 @@
 #include "content/public/browser/navigation_handle.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/base/l10n/l10n_util.h"
-#include "ui/base/material_design/material_design_controller.h"
 #include "ui/gfx/canvas.h"
 #include "ui/views/animation/ink_drop_host_view.h"
 #include "ui/views/border.h"
@@ -31,6 +31,7 @@ namespace {
 // Using |kMaxAppResults| as a measure of how many apps we want to show.
 constexpr size_t kMaxAppResults = arc::ArcNavigationThrottle::kMaxAppResults;
 // Main components sizes
+constexpr int kTitlePadding = 16;
 constexpr int kDialogDelegateInsets = 16;
 constexpr int kRowHeight = 40;
 constexpr int kMaxWidth = 320;
@@ -39,6 +40,11 @@ constexpr int kMaxWidth = 320;
 constexpr int kTopContainerMerge = 3;
 
 constexpr char kInvalidPackageName[] = "";
+
+bool IsKeyboardCodeArrow(ui::KeyboardCode key_code) {
+  return key_code == ui::VKEY_UP || key_code == ui::VKEY_DOWN ||
+         key_code == ui::VKEY_RIGHT || key_code == ui::VKEY_LEFT;
+}
 
 }  // namespace
 
@@ -55,18 +61,17 @@ class IntentPickerLabelButton : public views::LabelButton {
                     base::UTF8ToUTF16(base::StringPiece(activity_name))),
         package_name_(package_name) {
     SetHorizontalAlignment(gfx::ALIGN_LEFT);
-    SetFocusBehavior(View::FocusBehavior::ALWAYS);
     SetMinSize(gfx::Size(kMaxWidth, kRowHeight));
     SetInkDropMode(InkDropMode::ON);
     if (!icon->IsEmpty())
       SetImage(views::ImageButton::STATE_NORMAL, *icon->ToImageSkia());
-    SetBorder(views::Border::CreateEmptyBorder(10, 16, 10, 0));
+    SetBorder(views::CreateEmptyBorder(10, 16, 10, 0));
   }
 
   SkColor GetInkDropBaseColor() const override { return SK_ColorBLACK; }
 
   void MarkAsUnselected(const ui::Event* event) {
-    AnimateInkDrop(views::InkDropState::DEACTIVATED,
+    AnimateInkDrop(views::InkDropState::HIDDEN,
                    ui::LocatedEvent::FromIfValid(event));
   }
 
@@ -76,7 +81,7 @@ class IntentPickerLabelButton : public views::LabelButton {
   }
 
   views::InkDropState GetTargetInkDropState() {
-    return ink_drop()->GetTargetInkDropState();
+    return GetInkDrop()->GetTargetInkDropState();
   }
 
  private:
@@ -99,16 +104,12 @@ void IntentPickerBubbleView::ShowBubble(
   BrowserView* browser_view = BrowserView::GetBrowserViewForBrowser(browser);
   IntentPickerBubbleView* delegate =
       new IntentPickerBubbleView(app_info, intent_picker_cb, web_contents);
-  // TODO(djacobo): Remove the left and right insets when
-  // http://crbug.com/656662 gets fixed.
-  // Add a 1-pixel extra boundary left and right when using secondary UI.
-  if (ui::MaterialDesignController::IsSecondaryUiMaterial())
-    delegate->set_margins(gfx::Insets(16, 1, 0, 1));
-  else
-    delegate->set_margins(gfx::Insets(16, 0, 0, 0));
+  delegate->set_margins(gfx::Insets());
   delegate->set_parent_window(browser_view->GetNativeWindow());
   views::Widget* widget =
       views::BubbleDialogDelegateView::CreateBubble(delegate);
+  delegate->GetDialogClientView()->set_button_row_insets(
+      gfx::Insets(kDialogDelegateInsets));
 
   delegate->SetArrowPaintType(views::BubbleBorder::PAINT_NONE);
   delegate->SetAlignment(views::BubbleBorder::ALIGN_EDGE_TO_ANCHOR_EDGE);
@@ -122,9 +123,8 @@ void IntentPickerBubbleView::ShowBubble(
                 browser_view->GetTopContainerBoundsInScreen().width(),
                 browser_view->GetTopContainerBoundsInScreen().height() -
                     kTopContainerMerge));
-  delegate->GetDialogClientView()->set_button_row_insets(
-      gfx::Insets(kDialogDelegateInsets));
   delegate->GetDialogClientView()->Layout();
+  delegate->SetFocusBehavior(View::FocusBehavior::ALWAYS);
   delegate->GetIntentPickerLabelButtonAt(0)->MarkAsSelected(nullptr);
   widget->Show();
 }
@@ -162,9 +162,8 @@ bool IntentPickerBubbleView::Close() {
 }
 
 void IntentPickerBubbleView::Init() {
-  views::BoxLayout* general_layout =
-      new views::BoxLayout(views::BoxLayout::kVertical, 0, 0, 0);
-  SetLayoutManager(general_layout);
+  views::GridLayout* layout = new views::GridLayout(this);
+  SetLayoutManager(layout);
 
   // Creates a view to hold the views for each app.
   views::View* scrollable_view = new views::View();
@@ -194,7 +193,15 @@ void IntentPickerBubbleView::Init() {
   } else {
     scroll_view_->ClipHeightTo(kRowHeight, (kMaxAppResults + 0.5) * kRowHeight);
   }
-  AddChildView(scroll_view_);
+
+  const int cs_id = 0;
+  views::ColumnSet* cs = layout->AddColumnSet(cs_id);
+  cs->AddColumn(views::GridLayout::FILL, views::GridLayout::CENTER, 0,
+                views::GridLayout::FIXED, kMaxWidth, 0);
+
+  layout->AddPaddingRow(0, kTitlePadding);
+  layout->StartRow(0, cs_id);
+  layout->AddView(scroll_view_);
 }
 
 base::string16 IntentPickerBubbleView::GetWindowTitle() const {
@@ -233,33 +240,47 @@ void IntentPickerBubbleView::OnWidgetDestroying(views::Widget* widget) {
 
 void IntentPickerBubbleView::ButtonPressed(views::Button* sender,
                                            const ui::Event& event) {
-  // The selected app must be a value in the range [0, app_info_.size()-1].
-  DCHECK_LT(static_cast<size_t>(sender->tag()), app_info_.size());
-  GetIntentPickerLabelButtonAt(selected_app_tag_)->MarkAsUnselected(&event);
-
-  selected_app_tag_ = sender->tag();
-  GetIntentPickerLabelButtonAt(selected_app_tag_)->MarkAsSelected(&event);
+  SetSelectedAppIndex(sender->tag(), &event);
+  RequestFocus();
 }
 
-gfx::Size IntentPickerBubbleView::GetPreferredSize() const {
-  gfx::Size ps;
-  ps.set_width(kMaxWidth);
-  int apps_height = app_info_.size();
-  // We are showing |kMaxAppResults| + 0.5 rows at max, the extra 0.5 is used so
-  // the user can notice that more options are available.
-  if (app_info_.size() > kMaxAppResults) {
-    apps_height = (kMaxAppResults + 0.5) * kRowHeight;
-  } else {
-    apps_height *= kRowHeight;
-  }
-  ps.set_height(apps_height + kDialogDelegateInsets);
-  return ps;
+void IntentPickerBubbleView::ArrowButtonPressed(int index) {
+  SetSelectedAppIndex(index, nullptr);
+  AdjustScrollViewVisibleRegion();
 }
 
 // If the actual web_contents gets destroyed in the middle of the process we
 // should inform the caller about this error.
 void IntentPickerBubbleView::WebContentsDestroyed() {
   GetWidget()->Close();
+}
+
+void IntentPickerBubbleView::OnKeyEvent(ui::KeyEvent* event) {
+  if (!IsKeyboardCodeArrow(event->key_code()) ||
+      event->type() != ui::ET_KEY_RELEASED)
+    return;
+
+  int delta = 0;
+  switch (event->key_code()) {
+    case ui::VKEY_UP:
+      delta = -1;
+      break;
+    case ui::VKEY_DOWN:
+      delta = 1;
+      break;
+    case ui::VKEY_LEFT:
+      delta = base::i18n::IsRTL() ? 1 : -1;
+      break;
+    case ui::VKEY_RIGHT:
+      delta = base::i18n::IsRTL() ? -1 : 1;
+      break;
+    default:
+      NOTREACHED();
+      break;
+  }
+  ArrowButtonPressed(CalculateNextAppIndex(delta));
+
+  View::OnKeyEvent(event);
 }
 
 IntentPickerLabelButton* IntentPickerBubbleView::GetIntentPickerLabelButtonAt(
@@ -279,6 +300,33 @@ void IntentPickerBubbleView::RunCallback(
     intent_picker_cb_.Reset();
     callback.Run(package, close_reason);
   }
+}
+
+size_t IntentPickerBubbleView::GetScrollViewSize() const {
+  return scroll_view_->contents()->child_count();
+}
+
+void IntentPickerBubbleView::AdjustScrollViewVisibleRegion() {
+  const views::ScrollBar* bar = scroll_view_->vertical_scroll_bar();
+  if (bar) {
+    scroll_view_->ScrollToPosition(const_cast<views::ScrollBar*>(bar),
+                                   (selected_app_tag_ - 1) * kRowHeight);
+  }
+}
+
+void IntentPickerBubbleView::SetSelectedAppIndex(int index,
+                                                 const ui::Event* event) {
+  // The selected app must be a value in the range [0, app_info_.size()-1].
+  DCHECK_LT(static_cast<size_t>(index), app_info_.size());
+
+  GetIntentPickerLabelButtonAt(selected_app_tag_)->MarkAsUnselected(nullptr);
+  selected_app_tag_ = index;
+  GetIntentPickerLabelButtonAt(selected_app_tag_)->MarkAsSelected(event);
+}
+
+size_t IntentPickerBubbleView::CalculateNextAppIndex(int delta) {
+  size_t size = GetScrollViewSize();
+  return static_cast<size_t>((selected_app_tag_ + size + delta) % size);
 }
 
 gfx::ImageSkia IntentPickerBubbleView::GetAppImageForTesting(size_t index) {

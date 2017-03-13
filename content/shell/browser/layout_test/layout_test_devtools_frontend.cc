@@ -52,17 +52,35 @@ GURL LayoutTestDevToolsFrontend::GetDevToolsPathAsURL(
   // We need to go up 3 directories to get to out/Release.
   dir_exe = dir_exe.AppendASCII("../../..");
 #endif
+  base::FilePath dev_tools_path;
   bool is_debug_dev_tools = base::CommandLine::ForCurrentProcess()->HasSwitch(
       switches::kDebugDevTools);
-  std::string folder = is_debug_dev_tools ? "debug/" : "";
-  base::FilePath dev_tools_path =
-      dir_exe.AppendASCII("resources/inspector/" + folder + "inspector.html");
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kCustomDevToolsFrontend)) {
+    dev_tools_path = base::CommandLine::ForCurrentProcess()->GetSwitchValuePath(
+        switches::kCustomDevToolsFrontend);
+  } else {
+    std::string folder = is_debug_dev_tools ? "debug/" : "";
+    dev_tools_path = dir_exe.AppendASCII("resources/inspector/" + folder);
+  }
 
-  GURL result = net::FilePathToFileURL(dev_tools_path);
+  GURL result =
+      net::FilePathToFileURL(dev_tools_path.AppendASCII("inspector.html"));
   std::string url_string =
       base::StringPrintf("%s?experiments=true", result.spec().c_str());
   if (is_debug_dev_tools)
     url_string += "&debugFrontend=true";
+  return GURL(url_string);
+}
+
+// static.
+GURL LayoutTestDevToolsFrontend::MapJSTestURL(const GURL& test_url) {
+  std::string url_string = GetDevToolsPathAsURL(std::string()).spec();
+  std::string inspector_file_name = "inspector.html";
+  size_t start_position = url_string.find(inspector_file_name);
+  url_string.replace(start_position, inspector_file_name.length(),
+                     "unit_test_runner.html");
+  url_string += "&test=" + test_url.spec();
   return GURL(url_string);
 }
 

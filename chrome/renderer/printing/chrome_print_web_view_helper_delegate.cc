@@ -9,44 +9,44 @@
 #include "base/command_line.h"
 #include "base/strings/string_util.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/render_messages.h"
+#include "chrome/common/prerender.mojom.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/renderer/prerender/prerender_helper.h"
 #include "content/public/renderer/render_frame.h"
-#include "content/public/renderer/render_view.h"
-#include "ipc/ipc_message.h"
+#include "extensions/features/features.h"
+#include "services/service_manager/public/cpp/interface_provider.h"
 #include "third_party/WebKit/public/web/WebDocument.h"
 #include "third_party/WebKit/public/web/WebElement.h"
 #include "third_party/WebKit/public/web/WebLocalFrame.h"
 
-#if defined(ENABLE_EXTENSIONS)
+#if BUILDFLAG(ENABLE_EXTENSIONS)
 #include "chrome/common/extensions/extension_constants.h"
 #include "extensions/common/constants.h"
 #include "extensions/renderer/guest_view/mime_handler_view/mime_handler_view_container.h"
-#endif  // defined(ENABLE_EXTENSIONS)
+#endif  // BUILDFLAG(ENABLE_EXTENSIONS)
 
-ChromePrintWebViewHelperDelegate::~ChromePrintWebViewHelperDelegate(){
-}
+ChromePrintWebViewHelperDelegate::~ChromePrintWebViewHelperDelegate() {}
 
 bool ChromePrintWebViewHelperDelegate::CancelPrerender(
-    content::RenderView* render_view, int routing_id) {
-  if (!render_view || !prerender::PrerenderHelper::IsPrerendering(
-      render_view->GetMainRenderFrame()))
+    content::RenderFrame* render_frame) {
+  if (!prerender::PrerenderHelper::IsPrerendering(render_frame))
     return false;
 
-  return render_view->Send(
-      new ChromeViewHostMsg_CancelPrerenderForPrinting(routing_id));
+  chrome::mojom::PrerenderCancelerPtr canceler;
+  render_frame->GetRemoteInterfaces()->GetInterface(&canceler);
+  canceler->CancelPrerenderForPrinting();
+  return true;
 }
 
 // Return the PDF object element if |frame| is the out of process PDF extension.
 blink::WebElement ChromePrintWebViewHelperDelegate::GetPdfElement(
         blink::WebLocalFrame* frame) {
-#if defined(ENABLE_EXTENSIONS)
+#if BUILDFLAG(ENABLE_EXTENSIONS)
   GURL url = frame->document().url();
-  bool inside_print_preview =
-      url.GetOrigin() == GURL(chrome::kChromeUIPrintURL);
-  bool inside_pdf_extension = url.SchemeIs(extensions::kExtensionScheme) &&
-                              url.host() == extension_misc::kPdfExtensionId;
+  bool inside_print_preview = url.GetOrigin() == chrome::kChromeUIPrintURL;
+  bool inside_pdf_extension =
+      url.SchemeIs(extensions::kExtensionScheme) &&
+      url.host_piece() == extension_misc::kPdfExtensionId;
   if (inside_print_preview || inside_pdf_extension) {
     // <object> with id="plugin" is created in
     // chrome/browser/resources/pdf/pdf.js.
@@ -56,7 +56,7 @@ blink::WebElement ChromePrintWebViewHelperDelegate::GetPdfElement(
     }
     NOTREACHED();
   }
-#endif  // defined(ENABLE_EXTENSIONS)
+#endif  // BUILDFLAG(ENABLE_EXTENSIONS)
   return blink::WebElement();
 }
 
@@ -67,7 +67,7 @@ bool ChromePrintWebViewHelperDelegate::IsPrintPreviewEnabled() {
 
 bool ChromePrintWebViewHelperDelegate::OverridePrint(
     blink::WebLocalFrame* frame) {
-#if defined(ENABLE_EXTENSIONS)
+#if BUILDFLAG(ENABLE_EXTENSIONS)
   if (!frame->document().isPluginDocument())
     return false;
 
@@ -84,6 +84,6 @@ bool ChromePrintWebViewHelperDelegate::OverridePrint(
     mime_handlers.front()->PostMessageFromValue(message);
     return true;
   }
-#endif  // defined(ENABLE_EXTENSIONS)
+#endif  // BUILDFLAG(ENABLE_EXTENSIONS)
   return false;
 }

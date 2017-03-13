@@ -29,28 +29,20 @@ namespace tracing {
 bool BeginTracing(const std::string& category_patterns) WARN_UNUSED_RESULT;
 
 // Called from UI thread.
-// Specify a watch event in order to use the WaitForWatchEvent function.
-// After |num_occurrences| of the given event have been seen on a particular
-// process, WaitForWatchEvent will return.
-bool BeginTracingWithWatch(const std::string& category_patterns,
-                           const std::string& category_name,
-                           const std::string& event_name,
-                           int num_occurrences) WARN_UNUSED_RESULT;
-
-// Called from UI thread.
 // Begin tracing specified category_patterns on the browser.
 // |trace_config| specifies the configuration for tracing. This includes the
 // list of categories enabled, tracing modes and memory dumps configuration.
+// Once all child processes have acked to the StartTracing request,
+// |start_tracing_done_callback| will be called back.
 //
 // See base/trace_event/trace_config.h for documentation of configurations.
 bool BeginTracingWithTraceConfig(
     const base::trace_event::TraceConfig& trace_config) WARN_UNUSED_RESULT;
 
-// Called from UI thread.
-// Wait on the event set with BeginTracingWithWatch. If non-zero, return after
-// |timeout| regardless of watch event notification. Returns true if watch event
-// occurred, false if it timed out.
-bool WaitForWatchEvent(base::TimeDelta timeout) WARN_UNUSED_RESULT;
+typedef base::Callback<void()> StartTracingDoneCallback;
+bool BeginTracingWithTraceConfig(
+    const base::trace_event::TraceConfig& trace_config,
+    StartTracingDoneCallback start_tracing_done_callback) WARN_UNUSED_RESULT;
 
 // Called from UI thread.
 // End trace and collect the trace output as a json string.

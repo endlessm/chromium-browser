@@ -11,6 +11,7 @@
 #include <set>
 #include <vector>
 
+#include "base/memory/ptr_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/test/test_timeouts.h"
 #include "base/threading/thread_task_runner_handle.h"
@@ -30,12 +31,11 @@
 #include "content/public/browser/resource_dispatcher_host.h"
 #include "content/public/browser/resource_throttle.h"
 #include "content/public/common/file_chooser_file_info.h"
-#include "content/public/common/file_chooser_params.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test_utils.h"
+#include "content/public/test/test_frame_navigation_observer.h"
 #include "content/shell/browser/shell.h"
 #include "content/shell/browser/shell_javascript_dialog_manager.h"
-#include "content/test/test_frame_navigation_observer.h"
 #include "net/url_request/url_request.h"
 
 namespace content {
@@ -228,7 +228,7 @@ std::string FrameTreeVisualizer::DepictFrameTree(FrameTreeNode* root) {
     SiteInstanceImpl* site_instance =
         static_cast<SiteInstanceImpl*>(legend_entry.second);
     std::string description = site_instance->GetSiteURL().spec();
-    if (site_instance->is_default_subframe_site_instance())
+    if (site_instance->IsDefaultSubframeSiteInstance())
       description = "default subframe process";
     base::StringAppendF(&result, "\n%s%s = %s", prefix,
                         legend_entry.first.c_str(), description.c_str());
@@ -320,7 +320,7 @@ void SurfaceHitTestReadyNotifier::WaitForSurfaceReady() {
 
 bool SurfaceHitTestReadyNotifier::ContainsSurfaceId(
     cc::SurfaceId container_surface_id) {
-  if (container_surface_id.is_null())
+  if (!container_surface_id.is_valid())
     return false;
   for (cc::SurfaceId id :
        surface_manager_->GetSurfaceForId(container_surface_id)
@@ -338,10 +338,10 @@ void NavigationStallDelegate::RequestBeginning(
     content::ResourceContext* resource_context,
     content::AppCacheService* appcache_service,
     ResourceType resource_type,
-    ScopedVector<content::ResourceThrottle>* throttles) {
+    std::vector<std::unique_ptr<content::ResourceThrottle>>* throttles) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   if (request->url() == url_)
-    throttles->push_back(new HttpRequestStallThrottle);
+    throttles->push_back(base::MakeUnique<HttpRequestStallThrottle>());
 }
 
 FileChooserDelegate::FileChooserDelegate(const base::FilePath& file)
@@ -357,6 +357,7 @@ void FileChooserDelegate::RunFileChooser(RenderFrameHost* render_frame_host,
   render_frame_host->FilesSelectedInChooser(files, FileChooserParams::Open);
 
   file_chosen_ = true;
+  params_ = params;
 }
 
 FrameTestNavigationManager::FrameTestNavigationManager(
@@ -378,13 +379,13 @@ UrlCommitObserver::UrlCommitObserver(FrameTreeNode* frame_tree_node,
                                        ->delegate()
                                        ->GetAsWebContents()),
       frame_tree_node_id_(frame_tree_node->frame_tree_node_id()),
-      url_(url),
-      message_loop_runner_(new MessageLoopRunner) {}
+      url_(url) {
+}
 
 UrlCommitObserver::~UrlCommitObserver() {}
 
 void UrlCommitObserver::Wait() {
-  message_loop_runner_->Run();
+  run_loop_.Run();
 }
 
 void UrlCommitObserver::DidFinishNavigation(
@@ -393,7 +394,7 @@ void UrlCommitObserver::DidFinishNavigation(
       !navigation_handle->IsErrorPage() &&
       navigation_handle->GetURL() == url_ &&
       navigation_handle->GetFrameTreeNodeId() == frame_tree_node_id_) {
-    message_loop_runner_->Quit();
+    run_loop_.Quit();
   }
 }
 

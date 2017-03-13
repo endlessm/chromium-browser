@@ -155,8 +155,8 @@ public class CastSessionImpl implements MediaNotificationListener, CastSession {
                 .setPrivate(isIncognito)
                 .setActions(MediaNotificationInfo.ACTION_STOP)
                 .setContentIntent(contentIntent)
-                .setIcon(R.drawable.ic_notification_media_route)
-                .setDefaultLargeIcon(R.drawable.cast_playing_square)
+                .setNotificationSmallIcon(R.drawable.ic_notification_media_route)
+                .setDefaultNotificationLargeIcon(R.drawable.cast_playing_square)
                 .setId(R.id.presentation_notification)
                 .setListener(this);
         setNotificationMetadata(mNotificationBuilder);
@@ -185,6 +185,9 @@ public class CastSessionImpl implements MediaNotificationListener, CastSession {
         stopApplication();
         mRouteProvider.onSessionStopAction();
     }
+
+    @Override
+    public void onMediaSessionAction(int action) {}
 
     /////////////////////////////////////////////////////////////////////////////////////////////
     // Utility functions.

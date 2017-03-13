@@ -30,8 +30,8 @@
 #include "core/fileapi/FilePropertyBag.h"
 #include "core/frame/UseCounter.h"
 #include "platform/FileMetadata.h"
-#include "platform/MIMETypeRegistry.h"
 #include "platform/blob/BlobData.h"
+#include "platform/network/mime/MIMETypeRegistry.h"
 #include "public/platform/Platform.h"
 #include "public/platform/WebFileUtilities.h"
 #include "wtf/CurrentTime.h"
@@ -60,9 +60,9 @@ static String getContentTypeFromFileName(const String& name,
 static std::unique_ptr<BlobData> createBlobDataForFileWithType(
     const String& path,
     const String& contentType) {
-  std::unique_ptr<BlobData> blobData = BlobData::create();
+  std::unique_ptr<BlobData> blobData =
+      BlobData::createForFileWithUnknownSize(path);
   blobData->setContentType(contentType);
-  blobData->appendFile(path);
   return blobData;
 }
 

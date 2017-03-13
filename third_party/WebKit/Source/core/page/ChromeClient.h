@@ -57,17 +57,16 @@ class Element;
 class FileChooser;
 class FloatPoint;
 class Frame;
-class GraphicsContext;
 class GraphicsLayer;
 class HTMLFormControlElement;
 class HTMLInputElement;
 class HTMLSelectElement;
 class HitTestResult;
 class IntRect;
+class KeyboardEvent;
 class LocalFrame;
 class Node;
 class Page;
-class PaintArtifact;
 class PopupOpeningObserver;
 class WebDragData;
 class WebFrameScheduler;
@@ -77,9 +76,9 @@ class WebLayer;
 struct CompositedSelection;
 struct DateTimeChooserParameters;
 struct FrameLoadRequest;
-struct GraphicsDeviceAdapter;
 struct ViewportDescription;
 struct WebPoint;
+struct WebScreenInfo;
 struct WindowFeatures;
 
 class CORE_EXPORT ChromeClient : public HostWindow {
@@ -177,13 +176,15 @@ class CORE_EXPORT ChromeClient : public HostWindow {
 
   virtual void* webView() const = 0;
 
-  virtual IntRect windowResizerRect(LocalFrame&) const = 0;
-
   // Methods used by HostWindow.
   virtual WebScreenInfo screenInfo() const = 0;
   virtual void setCursor(const Cursor&, LocalFrame* localRoot) = 0;
   // End methods used by HostWindow.
+
   virtual Cursor lastSetCursorForTesting() const = 0;
+  Node* lastSetTooltipNodeForTesting() const {
+    return m_lastMouseOverNode.get();
+  }
 
   // Returns a custom visible content rect if a viewport override is active.
   virtual WTF::Optional<IntRect> visibleContentRectForPainting() const {
@@ -205,7 +206,7 @@ class CORE_EXPORT ChromeClient : public HostWindow {
   virtual void setToolTip(LocalFrame&, const String&, TextDirection) = 0;
   void clearToolTip(LocalFrame&);
 
-  void print(LocalFrame*);
+  bool print(LocalFrame*);
 
   virtual void annotatedRegionsChanged() = 0;
 
@@ -248,8 +249,9 @@ class CORE_EXPORT ChromeClient : public HostWindow {
   virtual void detachCompositorAnimationTimeline(CompositorAnimationTimeline*,
                                                  LocalFrame* localRoot) {}
 
-  virtual void enterFullscreenForElement(Element*) {}
-  virtual void exitFullscreenForElement(Element*) {}
+  virtual void enterFullscreen(LocalFrame&) {}
+  virtual void exitFullscreen(LocalFrame&) {}
+  virtual void fullscreenElementChanged(Element*, Element*) {}
 
   virtual void clearCompositedSelection(LocalFrame*) {}
   virtual void updateCompositedSelection(LocalFrame*,
@@ -262,7 +264,7 @@ class CORE_EXPORT ChromeClient : public HostWindow {
   virtual void setHasScrollEventHandlers(bool) = 0;
   virtual bool hasScrollEventHandlers() const = 0;
 
-  virtual void setTouchAction(TouchAction) = 0;
+  virtual void setTouchAction(LocalFrame*, TouchAction) = 0;
 
   // Checks if there is an opened popup, called by LayoutMenuList::showPopup().
   virtual bool hasOpenedPopup() const = 0;
@@ -280,7 +282,8 @@ class CORE_EXPORT ChromeClient : public HostWindow {
     HTMLDialog = 3
   };
   virtual bool shouldOpenModalDialogDuringPageDismissal(
-      const DialogType&,
+      LocalFrame&,
+      DialogType,
       const String&,
       Document::PageDismissalType) const {
     return true;
@@ -305,9 +308,9 @@ class CORE_EXPORT ChromeClient : public HostWindow {
 
   // Input method editor related functions.
   virtual void didCancelCompositionOnSelectionChange() {}
-  virtual void willSetInputMethodState() {}
+  virtual void resetInputMethod() {}
   virtual void didUpdateTextOfFocusedElementByNonUserInput(LocalFrame&) {}
-  virtual void showImeIfNeeded() {}
+  virtual void showVirtualKeyboard() {}
 
   virtual void registerViewportLayers() const {}
 
@@ -315,7 +318,7 @@ class CORE_EXPORT ChromeClient : public HostWindow {
 
   virtual void onMouseDown(Node*) {}
 
-  virtual void didUpdateTopControls() const {}
+  virtual void didUpdateBrowserControls() const {}
 
   virtual void registerPopupOpeningObserver(PopupOpeningObserver*) = 0;
   virtual void unregisterPopupOpeningObserver(PopupOpeningObserver*) = 0;
@@ -338,6 +341,8 @@ class CORE_EXPORT ChromeClient : public HostWindow {
 
   virtual void installSupplements(LocalFrame&) {}
 
+  DECLARE_TRACE();
+
  protected:
   ~ChromeClient() override {}
 
@@ -359,6 +364,7 @@ class CORE_EXPORT ChromeClient : public HostWindow {
                                          const String& message);
   void setToolTip(LocalFrame&, const HitTestResult&);
 
+  WeakMember<Node> m_lastMouseOverNode;
   LayoutPoint m_lastToolTipPoint;
   String m_lastToolTipText;
 

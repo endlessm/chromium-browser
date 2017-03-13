@@ -30,9 +30,14 @@
 #include "wtf/StringHasher.h"
 #include "wtf/Vector.h"
 #include "wtf/WTFExport.h"
+#include "wtf/text/ASCIIFastPath.h"
 #include "wtf/text/Unicode.h"
 #include <limits.h>
 #include <string.h>
+
+#if DCHECK_IS_ON()
+#include "wtf/ThreadRestrictionVerifier.h"
+#endif
 
 #if OS(MACOSX)
 typedef const struct __CFString* CFStringRef;
@@ -51,7 +56,11 @@ class RetainPtr;
 enum TextCaseSensitivity {
   TextCaseSensitive,
   TextCaseASCIIInsensitive,
-  TextCaseInsensitive
+
+  // Unicode aware case insensitive matching. Non-ASCII characters might match
+  // to ASCII characters. This flag is rarely used to implement web platform
+  // features.
+  TextCaseUnicodeInsensitive
 };
 
 enum StripBehavior { StripExtraWhiteSpace, DoNotStripWhiteSpace };
@@ -129,6 +138,8 @@ class WTF_EXPORT StringImpl {
       : m_refCount(1),
         m_length(0),
         m_hash(0),
+        m_containsOnlyASCII(true),
+        m_needsASCIICheck(false),
         m_isAtomic(false),
         m_is8Bit(true),
         m_isStatic(true) {
@@ -145,6 +156,8 @@ class WTF_EXPORT StringImpl {
       : m_refCount(1),
         m_length(0),
         m_hash(0),
+        m_containsOnlyASCII(true),
+        m_needsASCIICheck(false),
         m_isAtomic(false),
         m_is8Bit(false),
         m_isStatic(true) {
@@ -158,10 +171,12 @@ class WTF_EXPORT StringImpl {
       : m_refCount(1),
         m_length(length),
         m_hash(0),
+        m_containsOnlyASCII(!length),
+        m_needsASCIICheck(static_cast<bool>(length)),
         m_isAtomic(false),
         m_is8Bit(true),
         m_isStatic(false) {
-    ASSERT(m_length);
+    DCHECK(m_length);
     STRING_STATS_ADD_8BIT_STRING(m_length);
   }
 
@@ -169,10 +184,12 @@ class WTF_EXPORT StringImpl {
       : m_refCount(1),
         m_length(length),
         m_hash(0),
+        m_containsOnlyASCII(!length),
+        m_needsASCIICheck(static_cast<bool>(length)),
         m_isAtomic(false),
         m_is8Bit(false),
         m_isStatic(false) {
-    ASSERT(m_length);
+    DCHECK(m_length);
     STRING_STATS_ADD_16BIT_STRING(m_length);
   }
 
@@ -181,6 +198,8 @@ class WTF_EXPORT StringImpl {
       : m_refCount(1),
         m_length(length),
         m_hash(hash),
+        m_containsOnlyASCII(!length),
+        m_needsASCIICheck(static_cast<bool>(length)),
         m_isAtomic(false),
         m_is8Bit(true),
         m_isStatic(true) {}
@@ -226,11 +245,11 @@ class WTF_EXPORT StringImpl {
   bool is8Bit() const { return m_is8Bit; }
 
   ALWAYS_INLINE const LChar* characters8() const {
-    ASSERT(is8Bit());
+    DCHECK(is8Bit());
     return reinterpret_cast<const LChar*>(this + 1);
   }
   ALWAYS_INLINE const UChar* characters16() const {
-    ASSERT(!is8Bit());
+    DCHECK(!is8Bit());
     return reinterpret_cast<const UChar*>(this + 1);
   }
   ALWAYS_INLINE const void* bytes() const {
@@ -248,6 +267,8 @@ class WTF_EXPORT StringImpl {
   void setIsAtomic(bool isAtomic) { m_isAtomic = isAtomic; }
 
   bool isStatic() const { return m_isStatic; }
+
+  bool containsOnlyASCII() const;
 
   bool isSafeToSendToAnotherThread() const;
 
@@ -280,17 +301,27 @@ class WTF_EXPORT StringImpl {
     return hashSlowCase();
   }
 
-  ALWAYS_INLINE bool hasOneRef() const { return m_refCount == 1; }
+  ALWAYS_INLINE bool hasOneRef() const {
+#if DCHECK_IS_ON()
+    DCHECK(isStatic() || m_verifier.isSafeToUse()) << asciiForDebugging();
+#endif
+    return m_refCount == 1;
+  }
 
-  ALWAYS_INLINE void ref() { ++m_refCount; }
+  ALWAYS_INLINE void ref() const {
+#if DCHECK_IS_ON()
+    DCHECK(isStatic() || m_verifier.onRef(m_refCount)) << asciiForDebugging();
+#endif
+    ++m_refCount;
+  }
 
-  ALWAYS_INLINE void deref() {
-    if (hasOneRef()) {
+  ALWAYS_INLINE void deref() const {
+#if DCHECK_IS_ON()
+    DCHECK(isStatic() || m_verifier.onDeref(m_refCount))
+        << asciiForDebugging() << " " << currentThread();
+#endif
+    if (!--m_refCount)
       destroyIfNotStatic();
-      return;
-    }
-
-    --m_refCount;
   }
 
   static StringImpl* empty();
@@ -316,10 +347,10 @@ class WTF_EXPORT StringImpl {
   // its own copy of the string.
   PassRefPtr<StringImpl> isolatedCopy() const;
 
-  PassRefPtr<StringImpl> substring(unsigned pos, unsigned len = UINT_MAX);
+  PassRefPtr<StringImpl> substring(unsigned pos, unsigned len = UINT_MAX) const;
 
   UChar operator[](unsigned i) const {
-    ASSERT_WITH_SECURITY_IMPLICATION(i < m_length);
+    SECURITY_DCHECK(i < m_length);
     if (is8Bit())
       return characters8()[i];
     return characters16()[i];
@@ -384,6 +415,9 @@ class WTF_EXPORT StringImpl {
 
   // Find substrings.
   size_t find(const StringView&, unsigned index = 0);
+  // Unicode aware case insensitive string matching. Non-ASCII characters might
+  // match to ASCII characters. This function is rarely used to implement web
+  // platform features.
   size_t findIgnoringCase(const StringView&, unsigned index = 0);
   size_t findIgnoringASCIICase(const StringView&, unsigned index = 0);
 
@@ -471,7 +505,12 @@ class WTF_EXPORT StringImpl {
                                                           StripBehavior);
   NEVER_INLINE unsigned hashSlowCase() const;
 
-  void destroyIfNotStatic();
+  void destroyIfNotStatic() const;
+  void updateContainsOnlyASCII() const;
+
+#if DCHECK_IS_ON()
+  std::string asciiForDebugging() const;
+#endif
 
 #ifdef STRING_STATS
   static StringStats m_stringStats;
@@ -479,18 +518,23 @@ class WTF_EXPORT StringImpl {
 
   static unsigned m_highestStaticStringLength;
 
-#if ENABLE(ASSERT)
+#if DCHECK_IS_ON()
   void assertHashIsCorrect() {
-    ASSERT(hasHash());
-    ASSERT(existingHash() ==
-           StringHasher::computeHashAndMaskTop8Bits(characters8(), length()));
+    DCHECK(hasHash());
+    DCHECK_EQ(existingHash(), StringHasher::computeHashAndMaskTop8Bits(
+                                  characters8(), length()));
   }
 #endif
 
  private:
-  unsigned m_refCount;
+#if DCHECK_IS_ON()
+  mutable ThreadRestrictionVerifier m_verifier;
+#endif
+  mutable unsigned m_refCount;
   const unsigned m_length;
   mutable unsigned m_hash : 24;
+  mutable unsigned m_containsOnlyASCII : 1;
+  mutable unsigned m_needsASCIICheck : 1;
   unsigned m_isAtomic : 1;
   const unsigned m_is8Bit : 1;
   const unsigned m_isStatic : 1;
@@ -524,6 +568,12 @@ inline bool equal(const char* a, StringImpl* b) {
 }
 WTF_EXPORT bool equalNonNull(const StringImpl* a, const StringImpl* b);
 
+ALWAYS_INLINE bool StringImpl::containsOnlyASCII() const {
+  if (m_needsASCIICheck)
+    updateContainsOnlyASCII();
+  return m_containsOnlyASCII;
+}
+
 template <typename CharType>
 ALWAYS_INLINE bool equal(const CharType* a,
                          const CharType* b,
@@ -543,12 +593,14 @@ ALWAYS_INLINE bool equal(const UChar* a, const LChar* b, unsigned length) {
   return equal(b, a, length);
 }
 
+// Unicode aware case insensitive string matching. Non-ASCII characters might
+// match to ASCII characters. These functions are rarely used to implement web
+// platform features.
 WTF_EXPORT bool equalIgnoringCase(const LChar*, const LChar*, unsigned length);
 WTF_EXPORT bool equalIgnoringCase(const UChar*, const LChar*, unsigned length);
 inline bool equalIgnoringCase(const LChar* a, const UChar* b, unsigned length) {
   return equalIgnoringCase(b, a, length);
 }
-
 WTF_EXPORT bool equalIgnoringCase(const UChar*, const UChar*, unsigned length);
 
 WTF_EXPORT bool equalIgnoringNullity(StringImpl*, StringImpl*);
@@ -831,7 +883,7 @@ struct DefaultHash<RefPtr<StringImpl>> {
 
 using WTF::StringImpl;
 using WTF::TextCaseASCIIInsensitive;
-using WTF::TextCaseInsensitive;
+using WTF::TextCaseUnicodeInsensitive;
 using WTF::TextCaseSensitive;
 using WTF::TextCaseSensitivity;
 using WTF::equal;

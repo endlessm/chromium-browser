@@ -367,8 +367,8 @@ void AnimationTimelinesTest::SetUp() {
 }
 
 void AnimationTimelinesTest::TearDown() {
-  host_impl_->ClearTimelines();
-  host_->ClearTimelines();
+  host_impl_->ClearMutators();
+  host_->ClearMutators();
 }
 
 void AnimationTimelinesTest::CreateTestLayer(
@@ -384,6 +384,10 @@ void AnimationTimelinesTest::CreateTestLayer(
 
 void AnimationTimelinesTest::CreateTestMainLayer() {
   client_.RegisterElement(element_id_, ElementListType::ACTIVE);
+}
+
+void AnimationTimelinesTest::DestroyTestMainLayer() {
+  client_.UnregisterElement(element_id_, ElementListType::ACTIVE);
 }
 
 void AnimationTimelinesTest::CreateTestImplLayer(
@@ -420,16 +424,18 @@ void AnimationTimelinesTest::ReleaseRefPtrs() {
   timeline_impl_ = nullptr;
 }
 
-void AnimationTimelinesTest::AnimateLayersTransferEvents(
+void AnimationTimelinesTest::TickAnimationsTransferEvents(
     base::TimeTicks time,
     unsigned expect_events) {
-  std::unique_ptr<AnimationEvents> events = host_->CreateEvents();
+  std::unique_ptr<MutatorEvents> events = host_->CreateEvents();
 
-  host_impl_->AnimateLayers(time);
+  host_impl_->TickAnimations(time);
   host_impl_->UpdateAnimationState(true, events.get());
-  EXPECT_EQ(expect_events, events->events_.size());
 
-  host_->AnimateLayers(time);
+  auto animation_events = static_cast<const AnimationEvents*>(events.get());
+  EXPECT_EQ(expect_events, animation_events->events_.size());
+
+  host_->TickAnimations(time);
   host_->UpdateAnimationState(true, nullptr);
   host_->SetAnimationEvents(std::move(events));
 }
@@ -438,22 +444,16 @@ AnimationPlayer* AnimationTimelinesTest::GetPlayerForElementId(
     ElementId element_id) {
   const scoped_refptr<ElementAnimations> element_animations =
       host_->GetElementAnimationsForElementId(element_id);
-  return element_animations
-             ? ElementAnimations::PlayersList::Iterator(
-                   &element_animations->players_list())
-                   .GetNext()
-             : nullptr;
+  return element_animations ? &*element_animations->players_list().begin()
+                            : nullptr;
 }
 
 AnimationPlayer* AnimationTimelinesTest::GetImplPlayerForLayerId(
     ElementId element_id) {
   const scoped_refptr<ElementAnimations> element_animations =
       host_impl_->GetElementAnimationsForElementId(element_id);
-  return element_animations
-             ? ElementAnimations::PlayersList::Iterator(
-                   &element_animations->players_list())
-                   .GetNext()
-             : nullptr;
+  return element_animations ? &*element_animations->players_list().begin()
+                            : nullptr;
 }
 
 int AnimationTimelinesTest::NextTestLayerId() {

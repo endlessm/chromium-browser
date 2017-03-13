@@ -32,7 +32,9 @@
 
 #include "core/dom/Document.h"
 #include "core/layout/LayoutBox.h"
+#include "core/layout/LayoutView.h"
 #include "core/paint/PaintLayer.h"
+#include "platform/testing/RuntimeEnabledFeaturesTestHelpers.h"
 #include "platform/testing/URLTestHelpers.h"
 #include "public/platform/Platform.h"
 #include "public/platform/WebURLLoaderMockFactory.h"
@@ -44,9 +46,15 @@
 
 namespace blink {
 
-class LayoutGeometryMapTest : public testing::Test {
+typedef bool TestParamRootLayerScrolling;
+class LayoutGeometryMapTest
+    : public testing::Test,
+      public testing::WithParamInterface<TestParamRootLayerScrolling>,
+      private ScopedRootLayerScrollingForTest {
  public:
-  LayoutGeometryMapTest() : m_baseURL("http://www.test.com/") {}
+  LayoutGeometryMapTest()
+      : ScopedRootLayerScrollingForTest(GetParam()),
+        m_baseURL("http://www.test.com/") {}
 
   void TearDown() override {
     Platform::current()->getURLLoaderMockFactory()->unregisterAllURLs();
@@ -69,14 +77,19 @@ class LayoutGeometryMapTest : public testing::Test {
     return element->layoutBox();
   }
 
-  static LayoutBox* getLayoutBox(WebView* webView,
-                                 const WTF::AtomicString& elementId) {
+  static Element* getElement(WebView* webView,
+                             const WTF::AtomicString& elementId) {
     WebViewImpl* webViewImpl = toWebViewImpl(webView);
     if (!webViewImpl)
       return nullptr;
     LocalFrame* frame = webViewImpl->mainFrameImpl()->frame();
     Document* doc = frame->document();
-    Element* element = doc->getElementById(elementId);
+    return doc->getElementById(elementId);
+  }
+
+  static LayoutBox* getLayoutBox(WebView* webView,
+                                 const WTF::AtomicString& elementId) {
+    Element* element = getElement(webView, elementId);
     if (!element)
       return nullptr;
     return element->layoutBox();
@@ -129,6 +142,21 @@ class LayoutGeometryMapTest : public testing::Test {
     return rect;
   }
 
+  // Adjust rect by the scroll offset of the LayoutView.  This only has an
+  // effect if root layer scrolling is enabled.  The only reason for doing
+  // this here is so the test expected values can be the same whether or not
+  // root layer scrolling is enabled.  For more context, see:
+  // https://codereview.chromium.org/2417103002/#msg11
+  static FloatRect adjustForFrameScroll(WebView* webView,
+                                        const FloatRect& rect) {
+    FloatRect result(rect);
+    LocalFrame* frame = toWebViewImpl(webView)->mainFrameImpl()->frame();
+    LayoutView* layoutView = frame->document()->layoutView();
+    if (layoutView->hasOverflowClip())
+      result.move(layoutView->scrolledContentOffset());
+    return result;
+  }
+
   void registerMockedHttpURLLoad(const std::string& fileName) {
     URLTestHelpers::registerMockedURLFromBaseURL(
         WebString::fromUTF8(m_baseURL.c_str()),
@@ -139,7 +167,9 @@ class LayoutGeometryMapTest : public testing::Test {
   FrameTestHelpers::TestWebFrameClient m_mockWebViewClient;
 };
 
-TEST_F(LayoutGeometryMapTest, SimpleGeometryMapTest) {
+INSTANTIATE_TEST_CASE_P(All, LayoutGeometryMapTest, ::testing::Bool());
+
+TEST_P(LayoutGeometryMapTest, SimpleGeometryMapTest) {
   registerMockedHttpURLLoad("rgm_test.html");
   FrameTestHelpers::WebViewHelper webViewHelper;
   WebView* webView =
@@ -179,9 +209,9 @@ TEST_F(LayoutGeometryMapTest, SimpleGeometryMapTest) {
 // Fails on Windows due to crbug.com/391457. When run through the transform the
 // position on windows differs by a pixel
 #if OS(WIN)
-TEST_F(LayoutGeometryMapTest, DISABLED_TransformedGeometryTest)
+TEST_P(LayoutGeometryMapTest, DISABLED_TransformedGeometryTest)
 #else
-TEST_F(LayoutGeometryMapTest, TransformedGeometryTest)
+TEST_P(LayoutGeometryMapTest, TransformedGeometryTest)
 #endif
 {
   registerMockedHttpURLLoad("rgm_transformed_test.html");
@@ -242,7 +272,7 @@ TEST_F(LayoutGeometryMapTest, TransformedGeometryTest)
             rgm.mapToAncestor(rect, nullptr).boundingBox());
 }
 
-TEST_F(LayoutGeometryMapTest, FixedGeometryTest) {
+TEST_P(LayoutGeometryMapTest, FixedGeometryTest) {
   registerMockedHttpURLLoad("rgm_fixed_position_test.html");
   FrameTestHelpers::WebViewHelper webViewHelper;
   WebView* webView = webViewHelper.initializeAndLoad(
@@ -280,7 +310,7 @@ TEST_F(LayoutGeometryMapTest, FixedGeometryTest) {
             rgm.mapToAncestor(rect, nullptr));
 }
 
-TEST_F(LayoutGeometryMapTest, ContainsFixedPositionTest) {
+TEST_P(LayoutGeometryMapTest, ContainsFixedPositionTest) {
   registerMockedHttpURLLoad("rgm_contains_fixed_position_test.html");
   FrameTestHelpers::WebViewHelper webViewHelper;
   WebView* webView = webViewHelper.initializeAndLoad(
@@ -294,36 +324,36 @@ TEST_F(LayoutGeometryMapTest, ContainsFixedPositionTest) {
   // This fixed position element is not contained and so is attached at the top
   // of the viewport.
   rgm.pushMappingsToAncestor(getLayoutBox(webView, "simple-container"), 0);
-  EXPECT_EQ(FloatQuad(FloatRect(8.0f, 100.0f, 100.0f, 100.0f)),
-            rgm.mapToAncestor(rect, nullptr));
+  EXPECT_EQ(FloatRect(8.0f, 100.0f, 100.0f, 100.0f),
+            adjustForFrameScroll(webView, rgm.absoluteRect(rect)));
   rgm.pushMappingsToAncestor(getLayoutBox(webView, "fixed1"),
                              getLayoutBox(webView, "simple-container"));
-  EXPECT_EQ(FloatQuad(FloatRect(8.0f, 50.0f, 100.0f, 100.0f)),
-            rgm.mapToAncestor(rect, nullptr));
+  EXPECT_EQ(FloatRect(8.0f, 50.0f, 100.0f, 100.0f),
+            adjustForFrameScroll(webView, rgm.absoluteRect(rect)));
   rgm.popMappingsToAncestor(static_cast<PaintLayer*>(nullptr));
 
   // Transforms contain fixed position descendants.
   rgm.pushMappingsToAncestor(getLayoutBox(webView, "has-transform"), 0);
-  EXPECT_EQ(FloatQuad(FloatRect(8.0f, 100.0f, 100.0f, 100.0f)),
-            rgm.mapToAncestor(rect, nullptr));
+  EXPECT_EQ(FloatRect(8.0f, 100.0f, 100.0f, 100.0f),
+            adjustForFrameScroll(webView, rgm.absoluteRect(rect)));
   rgm.pushMappingsToAncestor(getLayoutBox(webView, "fixed2"),
                              getLayoutBox(webView, "has-transform"));
-  EXPECT_EQ(FloatQuad(FloatRect(8.0f, 100.0f, 100.0f, 100.0f)),
-            rgm.mapToAncestor(rect, nullptr));
+  EXPECT_EQ(FloatRect(8.0f, 100.0f, 100.0f, 100.0f),
+            adjustForFrameScroll(webView, rgm.absoluteRect(rect)));
   rgm.popMappingsToAncestor(static_cast<PaintLayer*>(nullptr));
 
   // Paint containment contains fixed position descendants.
   rgm.pushMappingsToAncestor(getLayoutBox(webView, "contains-paint"), 0);
-  EXPECT_EQ(FloatQuad(FloatRect(8.0f, 100.0f, 100.0f, 100.0f)),
-            rgm.mapToAncestor(rect, nullptr));
+  EXPECT_EQ(FloatRect(8.0f, 100.0f, 100.0f, 100.0f),
+            adjustForFrameScroll(webView, rgm.absoluteRect(rect)));
   rgm.pushMappingsToAncestor(getLayoutBox(webView, "fixed3"),
                              getLayoutBox(webView, "contains-paint"));
-  EXPECT_EQ(FloatQuad(FloatRect(8.0f, 100.0f, 100.0f, 100.0f)),
-            rgm.mapToAncestor(rect, nullptr));
+  EXPECT_EQ(FloatRect(8.0f, 100.0f, 100.0f, 100.0f),
+            adjustForFrameScroll(webView, rgm.absoluteRect(rect)));
   rgm.popMappingsToAncestor(static_cast<PaintLayer*>(nullptr));
 }
 
-TEST_F(LayoutGeometryMapTest, IframeTest) {
+TEST_P(LayoutGeometryMapTest, IframeTest) {
   registerMockedHttpURLLoad("rgm_iframe_test.html");
   registerMockedHttpURLLoad("rgm_test.html");
   FrameTestHelpers::WebViewHelper webViewHelper;
@@ -420,7 +450,7 @@ TEST_F(LayoutGeometryMapTest, IframeTest) {
             rgmNoFrame.mapToAncestor(rect, nullptr));
 }
 
-TEST_F(LayoutGeometryMapTest, ColumnTest) {
+TEST_P(LayoutGeometryMapTest, ColumnTest) {
   registerMockedHttpURLLoad("rgm_column_test.html");
   FrameTestHelpers::WebViewHelper webViewHelper;
   WebView* webView = webViewHelper.initializeAndLoad(
@@ -467,6 +497,40 @@ TEST_F(LayoutGeometryMapTest, ColumnTest) {
   EXPECT_NEAR(8.0f, rectFromQuad(rgm.mapToAncestor(rect, nullptr)).y(), 0.1f);
   EXPECT_EQ(5.0f, rectFromQuad(rgm.mapToAncestor(rect, nullptr)).width());
   EXPECT_EQ(3.0f, rectFromQuad(rgm.mapToAncestor(rect, nullptr)).height());
+}
+
+TEST_P(LayoutGeometryMapTest, FloatUnderInlineLayer) {
+  registerMockedHttpURLLoad("rgm_float_under_inline.html");
+  FrameTestHelpers::WebViewHelper webViewHelper;
+  WebView* webView = webViewHelper.initializeAndLoad(
+      m_baseURL + "rgm_float_under_inline.html", true, 0, 0);
+  webView->resize(WebSize(1000, 1000));
+  webView->updateAllLifecyclePhases();
+
+  LayoutGeometryMap rgm;
+  auto* layerUnderFloat = getLayoutBox(webView, "layer-under-float");
+  auto* span = getElement(webView, "span")->layoutBoxModelObject();
+  auto* floating = getLayoutBox(webView, "float");
+  auto* container = getLayoutBox(webView, "container");
+  FloatRect rect(3.0f, 4.0f, 10.0f, 8.0f);
+
+  rgm.pushMappingsToAncestor(container->layer(), nullptr);
+  rgm.pushMappingsToAncestor(span->layer(), container->layer());
+  rgm.pushMappingsToAncestor(layerUnderFloat->layer(), span->layer());
+  EXPECT_EQ(rect, rectFromQuad(rgm.mapToAncestor(rect, container)));
+  EXPECT_EQ(FloatRect(63.0f, 54.0f, 10.0f, 8.0f),
+            rectFromQuad(rgm.mapToAncestor(rect, nullptr)));
+
+  rgm.popMappingsToAncestor(span->layer());
+  EXPECT_EQ(FloatRect(203.0f, 104.0f, 10.0f, 8.0f),
+            rectFromQuad(rgm.mapToAncestor(rect, container)));
+  EXPECT_EQ(FloatRect(263.0f, 154.0f, 10.0f, 8.0f),
+            rectFromQuad(rgm.mapToAncestor(rect, nullptr)));
+
+  rgm.pushMappingsToAncestor(floating, span);
+  EXPECT_EQ(rect, rectFromQuad(rgm.mapToAncestor(rect, container)));
+  EXPECT_EQ(FloatRect(63.0f, 54.0f, 10.0f, 8.0f),
+            rectFromQuad(rgm.mapToAncestor(rect, nullptr)));
 }
 
 }  // namespace blink

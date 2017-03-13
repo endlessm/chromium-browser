@@ -32,7 +32,10 @@ class TestLeakDetectorController : public LeakDetectorController {
  public:
   using LeakDetectorController::OnLeaksFound;
 
-  TestLeakDetectorController() {}
+  // This constructor suppresses starting memory metrics job in the superclass.
+  TestLeakDetectorController() {
+    LeakDetectorController::set_enable_collect_memory_usage_step(false);
+  }
 
  private:
   DISALLOW_COPY_AND_ASSIGN(TestLeakDetectorController);
@@ -53,10 +56,11 @@ class LeakDetectorControllerTest : public ::testing::Test {
 // initializes class LeakDetector, which can only be initialized once, enforced
 // by an internal CHECK. Multiple initializations of LeakDetectorController in
 // the same process will result in multiple initializations of class
-// LeakDetector.
+// LeakDetector. It has to be Leaky as running its destructor will otherwise
+// DCHECK when called outside the scope of a TestBrowserThreadBundle.
 //
 // See src/components/metrics/leak_detector/leak_detector.h for more info.
-base::LazyInstance<TestLeakDetectorController> g_instance =
+base::LazyInstance<TestLeakDetectorController>::Leaky g_instance =
     LAZY_INSTANCE_INITIALIZER;
 
 TEST_F(LeakDetectorControllerTest, SingleReport) {

@@ -6,13 +6,14 @@
 #define UI_DISPLAY_TYPES_DISPLAY_MODE_H_
 
 #include <memory>
+#include <ostream>
 #include <string>
 
 #include "base/macros.h"
 #include "ui/display/types/display_types_export.h"
 #include "ui/gfx/geometry/size.h"
 
-namespace ui {
+namespace display {
 
 // This class represents the basic information for a native mode. Platforms will
 // extend this class to add platform specific information about the mode.
@@ -36,6 +37,9 @@ class DISPLAY_TYPES_EXPORT DisplayMode {
   DISALLOW_COPY_AND_ASSIGN(DisplayMode);
 };
 
-}  // namespace ui
+// Used to by gtest to print readable errors.
+DISPLAY_TYPES_EXPORT void PrintTo(const DisplayMode& mode, std::ostream* os);
+
+}  // namespace display
 
 #endif  // UI_DISPLAY_TYPES_DISPLAY_MODE_H_

@@ -256,6 +256,53 @@ IN_PROC_BROWSER_TEST_F(WebstoreInlineInstallerTest,
   RunTest(popup_contents, "runTest");
 }
 
+// Allow inline install while in browser fullscreen mode. Browser fullscreen
+// is initiated by the user using F11 (windows), ctrl+cmd+F (mac) or the green
+// maximize window button on mac. This will be allowed since it cannot be
+// initiated by an API and because of the nuance with mac windows.
+IN_PROC_BROWSER_TEST_F(WebstoreInlineInstallerTest,
+                       AllowInlineInstallFromFullscreenForBrowser) {
+  const GURL install_url = GenerateTestServerUrl(kAppDomain, "install.html");
+  ui_test_utils::NavigateToURL(browser(), install_url);
+  AutoAcceptInstall();
+
+  // Enter browser fullscreen mode.
+  FullscreenController* controller =
+      browser()->exclusive_access_manager()->fullscreen_controller();
+  controller->ToggleBrowserFullscreenMode();
+
+  RunTest("runTest");
+
+  // Ensure extension is installed.
+  ExtensionRegistry* registry = ExtensionRegistry::Get(profile());
+  EXPECT_TRUE(
+      registry->GenerateInstalledExtensionsSet()->Contains(kTestExtensionId));
+}
+
+// Prevent inline install while in tab fullscreen mode. Tab fullscreen is
+// initiated using the browser API.
+IN_PROC_BROWSER_TEST_F(WebstoreInlineInstallerTest,
+                       BlockInlineInstallFromFullscreenForTab) {
+  const GURL install_url =
+      GenerateTestServerUrl(kAppDomain, "install_from_fullscreen.html");
+  ui_test_utils::NavigateToURL(browser(), install_url);
+  AutoAcceptInstall();
+  WebContents* web_contents =
+      browser()->tab_strip_model()->GetActiveWebContents();
+  FullscreenController* controller =
+      browser()->exclusive_access_manager()->fullscreen_controller();
+
+  // Enter tab fullscreen mode.
+  controller->EnterFullscreenModeForTab(web_contents, install_url);
+
+  RunTest("runTest");
+
+  // Ensure extension is not installed.
+  ExtensionRegistry* registry = ExtensionRegistry::Get(profile());
+  EXPECT_FALSE(
+      registry->GenerateInstalledExtensionsSet()->Contains(kTestExtensionId));
+}
+
 // Ensure that inline-installing a disabled extension simply re-enables it.
 IN_PROC_BROWSER_TEST_F(WebstoreInlineInstallerTest,
                        ReinstallDisabledExtension) {

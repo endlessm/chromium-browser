@@ -29,10 +29,12 @@
 
 #include "platform/weborigin/KnownPorts.h"
 #include "url/url_util.h"
+#include "wtf/MathExtras.h"
 #include "wtf/PtrUtil.h"
 #include "wtf/StdLibExtras.h"
 #include "wtf/text/CString.h"
 #include "wtf/text/StringHash.h"
+#include "wtf/text/StringStatics.h"
 #include "wtf/text/StringUTF8Adaptor.h"
 #include "wtf/text/TextEncoding.h"
 #include <algorithm>
@@ -46,7 +48,8 @@ static const int maximumValidPortNumber = 0xFFFE;
 static const int invalidPortNumber = 0xFFFF;
 
 static void assertProtocolIsGood(const char* protocol) {
-#if ENABLE(ASSERT)
+#if DCHECK_IS_ON()
+  DCHECK_NE(protocol, "");
   const char* p = protocol;
   while (*p) {
     ASSERT(*p > ' ' && *p < 0x7F && !(*p >= 'A' && *p <= 'Z'));
@@ -240,7 +243,7 @@ KURL::KURL(const AtomicString& canonicalString,
       m_protocolIsInHTTPFamily(false),
       m_parsed(parsed),
       m_string(canonicalString) {
-  initProtocolIsInHTTPFamily();
+  initProtocolMetadata();
   initInnerURL();
 }
 
@@ -252,10 +255,11 @@ KURL::KURL(WTF::HashTableDeletedValueType)
 KURL::KURL(const KURL& other)
     : m_isValid(other.m_isValid),
       m_protocolIsInHTTPFamily(other.m_protocolIsInHTTPFamily),
+      m_protocol(other.m_protocol),
       m_parsed(other.m_parsed),
       m_string(other.m_string) {
   if (other.m_innerURL.get())
-    m_innerURL = wrapUnique(new KURL(other.m_innerURL->copy()));
+    m_innerURL = WTF::wrapUnique(new KURL(other.m_innerURL->copy()));
 }
 
 KURL::~KURL() {}
@@ -263,10 +267,11 @@ KURL::~KURL() {}
 KURL& KURL::operator=(const KURL& other) {
   m_isValid = other.m_isValid;
   m_protocolIsInHTTPFamily = other.m_protocolIsInHTTPFamily;
+  m_protocol = other.m_protocol;
   m_parsed = other.m_parsed;
   m_string = other.m_string;
   if (other.m_innerURL)
-    m_innerURL = wrapUnique(new KURL(other.m_innerURL->copy()));
+    m_innerURL = WTF::wrapUnique(new KURL(other.m_innerURL->copy()));
   else
     m_innerURL.reset();
   return *this;
@@ -276,10 +281,11 @@ KURL KURL::copy() const {
   KURL result;
   result.m_isValid = m_isValid;
   result.m_protocolIsInHTTPFamily = m_protocolIsInHTTPFamily;
+  result.m_protocol = m_protocol.isolatedCopy();
   result.m_parsed = m_parsed;
   result.m_string = m_string.isolatedCopy();
   if (m_innerURL)
-    result.m_innerURL = wrapUnique(new KURL(m_innerURL->copy()));
+    result.m_innerURL = WTF::wrapUnique(new KURL(m_innerURL->copy()));
   return result;
 }
 
@@ -311,7 +317,7 @@ bool KURL::hasPath() const {
 
 String KURL::lastPathComponent() const {
   if (!m_isValid)
-    return stringForInvalidComponent();
+    return stringViewForInvalidComponent().toString();
   ASSERT(!m_string.isNull());
 
   // When the output ends in a slash, WebCore has different expectations than
@@ -335,7 +341,8 @@ String KURL::lastPathComponent() const {
 }
 
 String KURL::protocol() const {
-  return componentString(m_parsed.scheme);
+  DCHECK_EQ(componentString(m_parsed.scheme), m_protocol);
+  return m_protocol;
 }
 
 String KURL::host() const {
@@ -363,6 +370,9 @@ unsigned short KURL::port() const {
 
   return static_cast<unsigned short>(port);
 }
+
+// TODO(csharrison): Migrate pass() and user() to return a StringView. Most
+// consumers just need to know if the string is empty.
 
 String KURL::pass() const {
   // Bug: https://bugs.webkit.org/show_bug.cgi?id=21015 this function returns
@@ -717,25 +727,13 @@ bool protocolIs(const String& url, const char* protocol) {
 void KURL::init(const KURL& base,
                 const String& relative,
                 const WTF::TextEncoding* queryEncoding) {
-  if (!relative.isNull() && relative.is8Bit()) {
-    StringUTF8Adaptor relativeUTF8(relative);
-    init(base, relativeUTF8.data(), relativeUTF8.length(), queryEncoding);
-  } else
-    init(base, relative.characters16(), relative.length(), queryEncoding);
-  initProtocolIsInHTTPFamily();
-  initInnerURL();
-}
-
-template <typename CHAR>
-void KURL::init(const KURL& base,
-                const CHAR* relative,
-                int relativeLength,
-                const WTF::TextEncoding* queryEncoding) {
   // As a performance optimization, we do not use the charset converter
   // if encoding is UTF-8 or other Unicode encodings. Note that this is
   // per HTML5 2.5.3 (resolving URL). The URL canonicalizer will be more
   // efficient with no charset converter object because it can do UTF-8
   // internally with no extra copies.
+
+  StringUTF8Adaptor baseUTF8(base.getString());
 
   // We feel free to make the charset converter object every time since it's
   // just a wrapper around a reference.
@@ -745,16 +743,41 @@ void KURL::init(const KURL& base,
           ? 0
           : &charsetConverterObject;
 
-  StringUTF8Adaptor baseUTF8(base.getString());
-
+  // Clamp to int max to avoid overflow.
   url::RawCanonOutputT<char> output;
-  m_isValid = url::ResolveRelative(baseUTF8.data(), baseUTF8.length(),
-                                   base.m_parsed, relative, relativeLength,
-                                   charsetConverter, &output, &m_parsed);
+  if (!relative.isNull() && relative.is8Bit()) {
+    StringUTF8Adaptor relativeUTF8(relative);
+    m_isValid = url::ResolveRelative(baseUTF8.data(), baseUTF8.length(),
+                                     base.m_parsed, relativeUTF8.data(),
+                                     clampTo<int>(relativeUTF8.length()),
+                                     charsetConverter, &output, &m_parsed);
+  } else {
+    m_isValid = url::ResolveRelative(baseUTF8.data(), baseUTF8.length(),
+                                     base.m_parsed, relative.characters16(),
+                                     clampTo<int>(relative.length()),
+                                     charsetConverter, &output, &m_parsed);
+  }
 
-  // See FIXME in KURLPrivate in the header. If canonicalization has not
-  // changed the string, we can avoid an extra allocation by using assignment.
-  m_string = AtomicString::fromUTF8(output.data(), output.length());
+  // AtomicString::fromUTF8 will re-hash the raw output and check the
+  // AtomicStringTable (addWithTranslator) for the string. This can be very
+  // expensive for large URLs. However, since many URLs are generated from
+  // existing AtomicStrings (which already have their hashes computed), this
+  // fast path is used if the input string is already canonicalized.
+  //
+  // Because this optimization does not apply to non-AtomicStrings, explicitly
+  // check that the input is Atomic before moving forward with it. If we mark
+  // non-Atomic input as Atomic here, we will render the (const) input string
+  // thread unsafe.
+  if (!relative.isNull() && relative.impl()->isAtomic() &&
+      StringView(output.data(), static_cast<unsigned>(output.length())) ==
+          relative) {
+    m_string = relative;
+  } else {
+    m_string = AtomicString::fromUTF8(output.data(), output.length());
+  }
+
+  initProtocolMetadata();
+  initInnerURL();
 }
 
 void KURL::initInnerURL() {
@@ -763,7 +786,7 @@ void KURL::initInnerURL() {
     return;
   }
   if (url::Parsed* innerParsed = m_parsed.inner_parsed())
-    m_innerURL = wrapUnique(new KURL(
+    m_innerURL = WTF::wrapUnique(new KURL(
         ParsedURLString,
         m_string.substring(innerParsed->scheme.begin,
                            innerParsed->Length() - innerParsed->scheme.begin)));
@@ -771,50 +794,26 @@ void KURL::initInnerURL() {
     m_innerURL.reset();
 }
 
-template <typename CHAR>
-bool internalProtocolIs(const url::Component& scheme,
-                        const CHAR* spec,
-                        const char* protocol) {
-  const CHAR* begin = spec + scheme.begin;
-  const CHAR* end = begin + scheme.len;
-
-  while (begin != end && *protocol) {
-    ASSERT(toASCIILower(*protocol) == *protocol);
-    if (toASCIILower(*begin++) != *protocol++)
-      return false;
-  }
-
-  // Both strings are equal (ignoring case) if and only if all of the characters
-  // were equal, and the end of both has been reached.
-  return begin == end && !*protocol;
-}
-
-template <typename CHAR>
-bool checkIfProtocolIsInHTTPFamily(const url::Component& scheme,
-                                   const CHAR* spec) {
-  if (scheme.len == 4)
-    return internalProtocolIs(scheme, spec, "http");
-  if (scheme.len == 5)
-    return internalProtocolIs(scheme, spec, "https");
-  if (scheme.len == 7)
-    return internalProtocolIs(scheme, spec, "http-so");
-  if (scheme.len == 8)
-    return internalProtocolIs(scheme, spec, "https-so");
-  return false;
-}
-
-void KURL::initProtocolIsInHTTPFamily() {
+void KURL::initProtocolMetadata() {
   if (!m_isValid) {
     m_protocolIsInHTTPFamily = false;
+    m_protocol = componentString(m_parsed.scheme);
     return;
   }
 
-  ASSERT(!m_string.isNull());
-  m_protocolIsInHTTPFamily =
-      m_string.is8Bit() ? checkIfProtocolIsInHTTPFamily(m_parsed.scheme,
-                                                        m_string.characters8())
-                        : checkIfProtocolIsInHTTPFamily(
-                              m_parsed.scheme, m_string.characters16());
+  DCHECK(!m_string.isNull());
+  StringView protocol = componentStringView(m_parsed.scheme);
+  m_protocolIsInHTTPFamily = true;
+  if (protocol == WTF::httpsAtom) {
+    m_protocol = WTF::httpsAtom;
+  } else if (protocol == WTF::httpAtom) {
+    m_protocol = WTF::httpAtom;
+  } else {
+    m_protocol = protocol.toAtomicString();
+    m_protocolIsInHTTPFamily =
+        m_protocol == "http-so" || m_protocol == "https-so";
+  }
+  DCHECK_EQ(m_protocol, m_protocol.lower());
 }
 
 bool KURL::protocolIs(const char* protocol) const {
@@ -825,26 +824,16 @@ bool KURL::protocolIs(const char* protocol) const {
   // instead.
   // FIXME: Chromium code needs to be fixed for this assert to be enabled.
   // ASSERT(strcmp(protocol, "javascript"));
-
-  if (m_string.isNull() || m_parsed.scheme.len <= 0)
-    return *protocol == '\0';
-
-  return m_string.is8Bit()
-             ? internalProtocolIs(m_parsed.scheme, m_string.characters8(),
-                                  protocol)
-             : internalProtocolIs(m_parsed.scheme, m_string.characters16(),
-                                  protocol);
+  return m_protocol == protocol;
 }
 
-String KURL::stringForInvalidComponent() const {
-  if (m_string.isNull())
-    return String();
-  return emptyString();
+StringView KURL::stringViewForInvalidComponent() const {
+  return m_string.isNull() ? StringView() : StringView("", 0);
 }
 
-String KURL::componentString(const url::Component& component) const {
+StringView KURL::componentStringView(const url::Component& component) const {
   if (!m_isValid || component.len <= 0)
-    return stringForInvalidComponent();
+    return stringViewForInvalidComponent();
   // begin and len are in terms of bytes which do not match
   // if string() is UTF-16 and input contains non-ASCII characters.
   // However, the only part in urlString that can contain non-ASCII
@@ -853,7 +842,14 @@ String KURL::componentString(const url::Component& component) const {
   // byte) will be longer than what's needed by 'mid'. However, mid
   // truncates len to avoid go past the end of a string so that we can
   // get away without doing anything here.
-  return getString().substring(component.begin, component.len);
+
+  int maxLength = getString().length() - component.begin;
+  return StringView(getString(), component.begin,
+                    component.len > maxLength ? maxLength : component.len);
+}
+
+String KURL::componentString(const url::Component& component) const {
+  return componentStringView(component).toString();
 }
 
 template <typename CHAR>
@@ -867,6 +863,7 @@ void KURL::replaceComponents(const url::Replacements<CHAR>& replacements) {
 
   m_parsed = newParsed;
   m_string = AtomicString::fromUTF8(output.data(), output.length());
+  initProtocolMetadata();
 }
 
 bool KURL::isSafeToSendToAnotherThread() const {

@@ -14,10 +14,11 @@
 #include "chrome/common/media_galleries/itunes_library.h"
 #include "chrome/common/media_galleries/metadata_types.h"
 #include "chrome/common/media_galleries/picasa_types.h"
+#include "extensions/features/features.h"
 #include "ipc/ipc_message_macros.h"
 #include "ipc/ipc_platform_file.h"
 
-#if !defined(ENABLE_EXTENSIONS)
+#if !BUILDFLAG(ENABLE_EXTENSIONS)
 #error "Extensions must be enabled"
 #endif
 
@@ -53,11 +54,6 @@ IPC_STRUCT_TRAITS_BEGIN(picasa::FolderINIContents)
   IPC_STRUCT_TRAITS_MEMBER(ini_contents)
 IPC_STRUCT_TRAITS_END()
 #endif  // defined(OS_WIN) || defined(OS_MACOSX)
-
-IPC_STRUCT_TRAITS_BEGIN(metadata::AttachedImage)
-  IPC_STRUCT_TRAITS_MEMBER(type)
-  IPC_STRUCT_TRAITS_MEMBER(data)
-IPC_STRUCT_TRAITS_END()
 
 //------------------------------------------------------------------------------
 // Utility process messages:
@@ -96,11 +92,6 @@ IPC_MESSAGE_CONTROL2(ChromeUtilityMsg_IndexPicasaAlbumsContents,
 IPC_MESSAGE_CONTROL2(ChromeUtilityMsg_CheckMediaFile,
                      int64_t /* milliseconds_of_decoding */,
                      IPC::PlatformFileForTransit /* Media file to parse */)
-
-IPC_MESSAGE_CONTROL3(ChromeUtilityMsg_ParseMediaMetadata,
-                     std::string /* mime_type */,
-                     int64_t /* total_size */,
-                     bool /* get_attached_images */)
 
 IPC_MESSAGE_CONTROL2(ChromeUtilityMsg_RequestBlobBytes_Finished,
                      int64_t /* request_id */,
@@ -159,12 +150,6 @@ IPC_MESSAGE_CONTROL1(ChromeUtilityHostMsg_IndexPicasaAlbumsContents_Finished,
 IPC_MESSAGE_CONTROL1(ChromeUtilityHostMsg_CheckMediaFile_Finished,
                      bool /* passed_checks */)
 
-IPC_MESSAGE_CONTROL3(
-    ChromeUtilityHostMsg_ParseMediaMetadata_Finished,
-    bool /* parse_success */,
-    base::DictionaryValue /* metadata */,
-    std::vector<metadata::AttachedImage> /* attached_images */)
-
 IPC_MESSAGE_CONTROL3(ChromeUtilityHostMsg_RequestBlobBytes,
                      int64_t /* request_id */,
                      int64_t /* start_byte */,
@@ -183,16 +168,3 @@ IPC_MESSAGE_CONTROL1(ChromeUtilityHostMsg_ImageWriter_Failed,
 // Periodic status update about the progress of an operation.
 IPC_MESSAGE_CONTROL1(ChromeUtilityHostMsg_ImageWriter_Progress,
                      int64_t /* number of bytes processed */)
-
-#if defined(OS_WIN)
-// Get plain-text WiFi credentials from the system (requires UAC privilege
-// elevation).
-IPC_MESSAGE_CONTROL1(ChromeUtilityHostMsg_GetWiFiCredentials,
-                     std::string /* ssid */)
-
-// Reply after getting WiFi credentials from the system. |success| is false if
-// error occurred.
-IPC_MESSAGE_CONTROL2(ChromeUtilityHostMsg_GotWiFiCredentials,
-                     std::string /* key_data */,
-                     bool /* success */)
-#endif  // defined(OS_WIN)

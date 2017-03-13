@@ -20,8 +20,6 @@
 
 template <class T> class scoped_refptr;
 
-class GURL;
-
 namespace base {
 class FilePath;
 class SequencedTaskRunner;
@@ -124,6 +122,8 @@ class GCMClient {
     std::string gcm_client_state;
     bool connection_client_created;
     std::string connection_state;
+    base::Time last_checkin;
+    base::Time next_checkin;
     uint64_t android_id;
     std::vector<std::string> registered_app_ids;
     int send_queue_size;
@@ -212,6 +212,10 @@ class GCMClient {
 
     // Called when the connection is interrupted.
     virtual void OnDisconnected() = 0;
+
+    // Called when the GCM store is reset (e.g. due to corruption), which
+    // changes the device ID, invalidating all prior registrations.
+    virtual void OnStoreReset() = 0;
   };
 
   GCMClient();

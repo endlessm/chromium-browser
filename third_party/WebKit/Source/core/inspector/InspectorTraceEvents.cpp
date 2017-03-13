@@ -7,29 +7,30 @@
 #include "bindings/core/v8/ScriptSourceCode.h"
 #include "bindings/core/v8/SourceLocation.h"
 #include "core/animation/Animation.h"
-#include "core/animation/KeyframeEffect.h"
+#include "core/animation/KeyframeEffectReadOnly.h"
 #include "core/css/invalidation/InvalidationSet.h"
 #include "core/dom/DOMNodeIds.h"
 #include "core/dom/StyleChangeReason.h"
 #include "core/events/Event.h"
-#include "core/fetch/CSSStyleSheetResource.h"
 #include "core/frame/FrameView.h"
 #include "core/frame/LocalFrame.h"
+#include "core/html/HTMLFrameOwnerElement.h"
 #include "core/inspector/IdentifiersFactory.h"
-#include "core/inspector/InstanceCounters.h"
 #include "core/layout/HitTestResult.h"
 #include "core/layout/LayoutImage.h"
 #include "core/layout/LayoutObject.h"
+#include "core/loader/resource/CSSStyleSheetResource.h"
 #include "core/page/Page.h"
 #include "core/paint/PaintLayer.h"
 #include "core/workers/WorkerGlobalScope.h"
 #include "core/workers/WorkerThread.h"
 #include "core/xmlhttprequest/XMLHttpRequest.h"
+#include "platform/InstanceCounters.h"
 #include "platform/graphics/GraphicsLayer.h"
+#include "platform/instrumentation/tracing/TracedValue.h"
 #include "platform/network/ResourceLoadPriority.h"
 #include "platform/network/ResourceRequest.h"
 #include "platform/network/ResourceResponse.h"
-#include "platform/tracing/TracedValue.h"
 #include "platform/weborigin/KURL.h"
 #include "wtf/Vector.h"
 #include "wtf/text/TextPosition.h"
@@ -118,6 +119,7 @@ const char* pseudoTypeToString(CSSSelector::PseudoType pseudoType) {
     DEFINE_STRING_MAPPING(PseudoBackdrop)
     DEFINE_STRING_MAPPING(PseudoLang)
     DEFINE_STRING_MAPPING(PseudoNot)
+    DEFINE_STRING_MAPPING(PseudoPlaceholder)
     DEFINE_STRING_MAPPING(PseudoResizer)
     DEFINE_STRING_MAPPING(PseudoRoot)
     DEFINE_STRING_MAPPING(PseudoScope)
@@ -166,6 +168,12 @@ const char* pseudoTypeToString(CSSSelector::PseudoType pseudoType) {
 
   ASSERT_NOT_REACHED();
   return "";
+}
+
+String urlForFrame(LocalFrame* frame) {
+  KURL url = frame->document()->url();
+  url.removeFragmentIdentifier();
+  return url.getString();
 }
 
 }  // namespace
@@ -504,6 +512,38 @@ std::unique_ptr<TracedValue> InspectorSendRequestEvent::data(
   return value;
 }
 
+namespace {
+void recordTiming(const ResourceLoadTiming& timing, TracedValue* value) {
+  value->setDouble("requestTime", timing.requestTime());
+  value->setDouble("proxyStart",
+                   timing.calculateMillisecondDelta(timing.proxyStart()));
+  value->setDouble("proxyEnd",
+                   timing.calculateMillisecondDelta(timing.proxyEnd()));
+  value->setDouble("dnsStart",
+                   timing.calculateMillisecondDelta(timing.dnsStart()));
+  value->setDouble("dnsEnd", timing.calculateMillisecondDelta(timing.dnsEnd()));
+  value->setDouble("connectStart",
+                   timing.calculateMillisecondDelta(timing.connectStart()));
+  value->setDouble("connectEnd",
+                   timing.calculateMillisecondDelta(timing.connectEnd()));
+  value->setDouble("sslStart",
+                   timing.calculateMillisecondDelta(timing.sslStart()));
+  value->setDouble("sslEnd", timing.calculateMillisecondDelta(timing.sslEnd()));
+  value->setDouble("workerStart",
+                   timing.calculateMillisecondDelta(timing.workerStart()));
+  value->setDouble("workerReady",
+                   timing.calculateMillisecondDelta(timing.workerReady()));
+  value->setDouble("sendStart",
+                   timing.calculateMillisecondDelta(timing.sendStart()));
+  value->setDouble("sendEnd",
+                   timing.calculateMillisecondDelta(timing.sendEnd()));
+  value->setDouble("receiveHeadersEnd", timing.calculateMillisecondDelta(
+                                            timing.receiveHeadersEnd()));
+  value->setDouble("pushStart", timing.pushStart());
+  value->setDouble("pushEnd", timing.pushEnd());
+}
+}  // namespace
+
 std::unique_ptr<TracedValue> InspectorReceiveResponseEvent::data(
     unsigned long identifier,
     LocalFrame* frame,
@@ -515,6 +555,16 @@ std::unique_ptr<TracedValue> InspectorReceiveResponseEvent::data(
   value->setString("frame", toHexString(frame));
   value->setInteger("statusCode", response.httpStatusCode());
   value->setString("mimeType", response.mimeType().getString().isolatedCopy());
+  value->setDouble("encodedDataLength", response.encodedDataLength());
+  value->setBoolean("fromCache", response.wasCached());
+  value->setBoolean("fromServiceWorker", response.wasFetchedViaServiceWorker());
+  if (response.resourceLoadTiming()) {
+    value->beginDictionary("timing");
+    recordTiming(*response.resourceLoadTiming(), value.get());
+    value->endDictionary();
+  }
+  if (response.wasFetchedViaServiceWorker())
+    value->setBoolean("fromServiceWorker", true);
   return value;
 }
 
@@ -534,14 +584,16 @@ std::unique_ptr<TracedValue> InspectorReceiveDataEvent::data(
 std::unique_ptr<TracedValue> InspectorResourceFinishEvent::data(
     unsigned long identifier,
     double finishTime,
-    bool didFail) {
+    bool didFail,
+    int64_t encodedDataLength) {
   String requestId = IdentifiersFactory::requestId(identifier);
 
   std::unique_ptr<TracedValue> value = TracedValue::create();
   value->setString("requestId", requestId);
   value->setBoolean("didFail", didFail);
+  value->setDouble("encodedDataLength", encodedDataLength);
   if (finishTime)
-    value->setDouble("networkTime", finishTime);
+    value->setDouble("finishTime", finishTime);
   return value;
 }
 
@@ -741,19 +793,37 @@ std::unique_ptr<TracedValue> InspectorPaintEvent::data(
 
 std::unique_ptr<TracedValue> frameEventData(LocalFrame* frame) {
   std::unique_ptr<TracedValue> value = TracedValue::create();
-  value->setString("frame", toHexString(frame));
   bool isMainFrame = frame && frame->isMainFrame();
   value->setBoolean("isMainFrame", isMainFrame);
-  value->setString("page", toHexString(frame));
+  value->setString("page", toHexString(frame->localFrameRoot()));
   return value;
 }
 
+void fillCommonFrameData(TracedValue* frameData, LocalFrame* frame) {
+  frameData->setString("frame", toHexString(frame));
+  frameData->setString("url", urlForFrame(frame));
+  frameData->setString("name", frame->tree().name());
+
+  FrameOwner* owner = frame->owner();
+  if (owner && owner->isLocal()) {
+    frameData->setInteger(
+        "nodeId", DOMNodeIds::idForNode(toHTMLFrameOwnerElement(owner)));
+  }
+  Frame* parent = frame->tree().parent();
+  if (parent && parent->isLocalFrame())
+    frameData->setString("parent", toHexString(parent));
+}
+
 std::unique_ptr<TracedValue> InspectorCommitLoadEvent::data(LocalFrame* frame) {
-  return frameEventData(frame);
+  std::unique_ptr<TracedValue> frameData = frameEventData(frame);
+  fillCommonFrameData(frameData.get(), frame);
+  return frameData;
 }
 
 std::unique_ptr<TracedValue> InspectorMarkLoadEvent::data(LocalFrame* frame) {
-  return frameEventData(frame);
+  std::unique_ptr<TracedValue> frameData = frameEventData(frame);
+  frameData->setString("frame", toHexString(frame));
+  return frameData;
 }
 
 std::unique_ptr<TracedValue> InspectorScrollLayerEvent::data(
@@ -835,7 +905,7 @@ std::unique_ptr<TracedValue> InspectorPaintImageEvent::data(
     const LayoutImage& layoutImage) {
   std::unique_ptr<TracedValue> value = TracedValue::create();
   setGeneratingNodeInfo(value.get(), &layoutImage, "nodeId");
-  if (const ImageResource* resource = layoutImage.cachedImage())
+  if (const ImageResourceContent* resource = layoutImage.cachedImage())
     value->setString("url", resource->url().getString());
   return value;
 }
@@ -845,14 +915,14 @@ std::unique_ptr<TracedValue> InspectorPaintImageEvent::data(
     const StyleImage& styleImage) {
   std::unique_ptr<TracedValue> value = TracedValue::create();
   setGeneratingNodeInfo(value.get(), &owningLayoutObject, "nodeId");
-  if (const ImageResource* resource = styleImage.cachedImage())
+  if (const ImageResourceContent* resource = styleImage.cachedImage())
     value->setString("url", resource->url().getString());
   return value;
 }
 
 std::unique_ptr<TracedValue> InspectorPaintImageEvent::data(
     const LayoutObject* owningLayoutObject,
-    const ImageResource& imageResource) {
+    const ImageResourceContent& imageResource) {
   std::unique_ptr<TracedValue> value = TracedValue::create();
   setGeneratingNodeInfo(value.get(), owningLayoutObject, "nodeId");
   value->setString("url", imageResource.url().getString());
@@ -930,7 +1000,16 @@ std::unique_ptr<TracedValue> InspectorTracingStartedInFrame::data(
     LocalFrame* frame) {
   std::unique_ptr<TracedValue> value = TracedValue::create();
   value->setString("sessionId", sessionId);
-  value->setString("page", toHexString(frame));
+  value->setString("page", toHexString(frame->localFrameRoot()));
+  value->beginArray("frames");
+  for (Frame* f = frame; f; f = f->tree().traverseNext(frame)) {
+    if (!f->isLocalFrame())
+      continue;
+    value->beginDictionary();
+    fillCommonFrameData(value.get(), toLocalFrame(f));
+    value->endDictionary();
+  }
+  value->endArray();
   return value;
 }
 
@@ -950,8 +1029,8 @@ std::unique_ptr<TracedValue> InspectorAnimationEvent::data(
   value->setString("state", animation.playState());
   if (const AnimationEffectReadOnly* effect = animation.effect()) {
     value->setString("name", animation.id());
-    if (effect->isKeyframeEffect()) {
-      if (Element* target = toKeyframeEffect(effect)->target())
+    if (effect->isKeyframeEffectReadOnly()) {
+      if (Element* target = toKeyframeEffectReadOnly(effect)->target())
         setNodeInfo(value.get(), target, "nodeId", "nodeName");
     }
   }

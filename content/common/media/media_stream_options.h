@@ -24,8 +24,8 @@ CONTENT_EXPORT extern const char kMediaStreamSourceSystem[];
 struct CONTENT_EXPORT TrackControls {
  public:
   TrackControls();
-  TrackControls(bool request);
-  TrackControls(const TrackControls& other);
+  explicit TrackControls(bool request);
+  explicit TrackControls(const TrackControls& other);
   ~TrackControls();
   bool requested;
 
@@ -33,17 +33,13 @@ struct CONTENT_EXPORT TrackControls {
   // Consider replacing with MediaStreamType enum variables.
   std::string stream_source;  // audio.kMediaStreamSource
 
-  // Device ID requests.
-  // The first set represents required devices - either grab one or fail.
-  // The second set represents optional devices - if we can't get one of
-  // these, we will grab the default device (if possible).
-  // The constraint names are "sourceId" and "chromeMediaSourceId".
-  std::vector<std::string> device_ids;
-  std::vector<std::string> alternate_device_ids;
+  // An empty string represents the default device.
+  // A nonempty string represents a specific device.
+  std::string device_id;
 };
 
 // StreamControls describes what is sent to the browser process
-// to the renderer process in order to control the opening of a device
+// from the renderer process in order to control the opening of a device
 // pair. This may result in opening one audio and/or one video device.
 // This has to be a struct with public members in order to allow it to
 // be sent in the IPC of media_stream_messages.h
@@ -57,6 +53,7 @@ struct CONTENT_EXPORT StreamControls {
   // Hotword functionality (chromeos only)
   // See crbug.com/564574 for discussion on possibly #ifdef'ing this out.
   bool hotword_enabled;  // kMediaStreamAudioHotword = "googHotword";
+  bool disable_local_echo;
 };
 
 // StreamDeviceInfo describes information about a device.
@@ -70,11 +67,6 @@ struct CONTENT_EXPORT StreamDeviceInfo {
   StreamDeviceInfo(MediaStreamType service_param,
                    const std::string& name_param,
                    const std::string& device_param,
-                   const std::string& group_param);
-  StreamDeviceInfo(MediaStreamType service_param,
-                   const std::string& name_param,
-                   const std::string& device_param,
-                   const std::string& group_param,
                    int sample_rate,
                    int channel_layout,
                    int frames_per_buffer);

@@ -76,38 +76,23 @@ void Display::ResetForceDeviceScaleFactorForTesting() {
 constexpr int DEFAULT_BITS_PER_PIXEL = 24;
 constexpr int DEFAULT_BITS_PER_COMPONENT = 8;
 
-Display::Display()
-    : id_(kInvalidDisplayID),
-      device_scale_factor_(GetForcedDeviceScaleFactor()),
-      rotation_(ROTATE_0),
-      touch_support_(TOUCH_SUPPORT_UNKNOWN),
-      color_depth_(DEFAULT_BITS_PER_PIXEL),
-      depth_per_component_(DEFAULT_BITS_PER_COMPONENT),
-      is_monochrome_(false) {}
+Display::Display() : Display(kInvalidDisplayId) {}
 
-Display::Display(const Display& other) = default;
-
-Display::Display(int64_t id)
-    : id_(id),
-      device_scale_factor_(GetForcedDeviceScaleFactor()),
-      rotation_(ROTATE_0),
-      touch_support_(TOUCH_SUPPORT_UNKNOWN),
-      color_depth_(DEFAULT_BITS_PER_PIXEL),
-      depth_per_component_(DEFAULT_BITS_PER_COMPONENT) {}
+Display::Display(int64_t id) : Display(id, gfx::Rect()) {}
 
 Display::Display(int64_t id, const gfx::Rect& bounds)
     : id_(id),
       bounds_(bounds),
       work_area_(bounds),
       device_scale_factor_(GetForcedDeviceScaleFactor()),
-      rotation_(ROTATE_0),
-      touch_support_(TOUCH_SUPPORT_UNKNOWN),
       color_depth_(DEFAULT_BITS_PER_PIXEL),
       depth_per_component_(DEFAULT_BITS_PER_COMPONENT) {
 #if defined(USE_AURA)
   SetScaleAndBounds(device_scale_factor_, bounds);
 #endif
 }
+
+Display::Display(const Display& other) = default;
 
 Display::~Display() {}
 
@@ -168,6 +153,9 @@ void Display::SetScaleAndBounds(float device_scale_factor,
                                                1.0f / device_scale_factor_),
                       gfx::ScaleToFlooredSize(bounds_in_pixel.size(),
                                               1.0f / device_scale_factor_));
+#if defined(OS_ANDROID)
+  size_in_pixels_ = bounds_in_pixel.size();
+#endif  // defined(OS_ANDROID)
   UpdateWorkAreaFromInsets(insets);
 }
 
@@ -185,12 +173,15 @@ void Display::UpdateWorkAreaFromInsets(const gfx::Insets& insets) {
 }
 
 gfx::Size Display::GetSizeInPixel() const {
+  // TODO(oshima): This should always use size_in_pixels_.
+  if (!size_in_pixels_.IsEmpty())
+    return size_in_pixels_;
   return gfx::ScaleToFlooredSize(size(), device_scale_factor_);
 }
 
 std::string Display::ToString() const {
   return base::StringPrintf(
-      "Display[%lld] bounds=%s, workarea=%s, scale=%f, %s",
+      "Display[%lld] bounds=%s, workarea=%s, scale=%g, %s",
       static_cast<long long int>(id_), bounds_.ToString().c_str(),
       work_area_.ToString().c_str(), device_scale_factor_,
       IsInternal() ? "internal" : "external");
@@ -202,7 +193,7 @@ bool Display::IsInternal() const {
 
 // static
 int64_t Display::InternalDisplayId() {
-  DCHECK_NE(kInvalidDisplayID, internal_display_id_);
+  DCHECK_NE(kInvalidDisplayId, internal_display_id_);
   return internal_display_id_;
 }
 
@@ -213,13 +204,13 @@ void Display::SetInternalDisplayId(int64_t internal_display_id) {
 
 // static
 bool Display::IsInternalDisplayId(int64_t display_id) {
-  DCHECK_NE(kInvalidDisplayID, display_id);
+  DCHECK_NE(kInvalidDisplayId, display_id);
   return HasInternalDisplay() && internal_display_id_ == display_id;
 }
 
 // static
 bool Display::HasInternalDisplay() {
-  return internal_display_id_ != kInvalidDisplayID;
+  return internal_display_id_ != kInvalidDisplayId;
 }
 
 }  // namespace display

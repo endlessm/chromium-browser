@@ -45,12 +45,11 @@ static SkPath::FillType fillRuleFromStyle(const PaintInfo& paintInfo,
 
 void SVGShapePainter::paint(const PaintInfo& paintInfo) {
   if (paintInfo.phase != PaintPhaseForeground ||
-      m_layoutSVGShape.style()->visibility() != EVisibility::Visible ||
+      m_layoutSVGShape.style()->visibility() != EVisibility::kVisible ||
       m_layoutSVGShape.isShapeEmpty())
     return;
 
-  FloatRect boundingBox =
-      m_layoutSVGShape.paintInvalidationRectInLocalSVGCoordinates();
+  FloatRect boundingBox = m_layoutSVGShape.visualRectInLocalSVGCoordinates();
   if (!paintInfo.cullRect().intersectsCullRect(
           m_layoutSVGShape.localSVGTransform(), boundingBox))
     return;
@@ -189,7 +188,7 @@ void SVGShapePainter::strokeShape(GraphicsContext& context,
       context.drawOval(m_layoutSVGShape.objectBoundingBox(), paint);
       break;
     default:
-      ASSERT(m_layoutSVGShape.hasPath());
+      DCHECK(m_layoutSVGShape.hasPath());
       Path* usePath = &m_layoutSVGShape.path();
       if (m_layoutSVGShape.hasNonScalingStroke())
         usePath = m_layoutSVGShape.nonScalingStrokePath(

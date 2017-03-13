@@ -72,7 +72,7 @@ static int process_frame(FFFrameSync *fs)
                 AVFrame *out;
 
                 if (s->is_audio && s->last_pts[j] == in[j]->pts &&
-                    ctx->outputs[i]->frame_count > 0)
+                    ctx->outputs[i]->frame_count_in > 0)
                     continue;
                 out = av_frame_clone(in[j]);
                 if (!out)
@@ -267,7 +267,7 @@ static av_cold int init(AVFilterContext *ctx)
     if (!strcmp(ctx->filter->name, "astreamselect"))
         s->is_audio = 1;
 
-    for (;;) {
+    for (; map;) {
         char *p;
 
         strtol(map, &p, 0);

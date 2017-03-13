@@ -15,18 +15,19 @@
 #include "third_party/skia/include/core/SkImageFilter.h"
 #include "third_party/skia/include/core/SkPaint.h"
 #include "third_party/skia/include/core/SkRefCnt.h"
-#include "third_party/skia/include/core/SkXfermode.h"
 #include "ui/gfx/skia_util.h"
 
 namespace cc {
 
 FilterDisplayItem::FilterDisplayItem(const FilterOperations& filters,
                                      const gfx::RectF& bounds,
-                                     const gfx::PointF& origin) {
+                                     const gfx::PointF& origin)
+    : DisplayItem(FILTER) {
   SetNew(filters, bounds, origin);
 }
 
-FilterDisplayItem::FilterDisplayItem(const proto::DisplayItem& proto) {
+FilterDisplayItem::FilterDisplayItem(const proto::DisplayItem& proto)
+    : DisplayItem(FILTER) {
   DCHECK_EQ(proto::DisplayItem::Type_Filter, proto.type());
 
   const proto::FilterDisplayItem& details = proto.filter_item();
@@ -68,7 +69,7 @@ void FilterDisplayItem::Raster(SkCanvas* canvas,
   boundaries.offset(-origin_.x(), -origin_.y());
 
   SkPaint paint;
-  paint.setXfermodeMode(SkXfermode::kSrcOver_Mode);
+  paint.setBlendMode(SkBlendMode::kSrcOver);
   paint.setImageFilter(std::move(image_filter));
   canvas->saveLayer(&boundaries, &paint);
 
@@ -83,15 +84,10 @@ void FilterDisplayItem::AsValueInto(
       bounds_.ToString().c_str(), visual_rect.ToString().c_str()));
 }
 
-size_t FilterDisplayItem::ExternalMemoryUsage() const {
-  // FilterOperations doesn't expose its capacity, but size is probably good
-  // enough.
-  return filters_.size() * sizeof(filters_.at(0));
-}
+EndFilterDisplayItem::EndFilterDisplayItem() : DisplayItem(END_FILTER) {}
 
-EndFilterDisplayItem::EndFilterDisplayItem() {}
-
-EndFilterDisplayItem::EndFilterDisplayItem(const proto::DisplayItem& proto) {
+EndFilterDisplayItem::EndFilterDisplayItem(const proto::DisplayItem& proto)
+    : DisplayItem(END_FILTER) {
   DCHECK_EQ(proto::DisplayItem::Type_EndFilter, proto.type());
 }
 
@@ -113,10 +109,6 @@ void EndFilterDisplayItem::AsValueInto(
   array->AppendString(
       base::StringPrintf("EndFilterDisplayItem  visualRect: [%s]",
                          visual_rect.ToString().c_str()));
-}
-
-size_t EndFilterDisplayItem::ExternalMemoryUsage() const {
-  return 0;
 }
 
 }  // namespace cc

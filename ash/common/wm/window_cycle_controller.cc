@@ -6,12 +6,12 @@
 
 #include "ash/common/metrics/task_switch_source.h"
 #include "ash/common/session/session_state_delegate.h"
-#include "ash/common/shell_window_ids.h"
 #include "ash/common/wm/mru_window_tracker.h"
 #include "ash/common/wm/window_cycle_event_filter.h"
 #include "ash/common/wm/window_cycle_list.h"
 #include "ash/common/wm_shell.h"
 #include "ash/common/wm_window.h"
+#include "ash/public/cpp/shell_window_ids.h"
 #include "base/metrics/histogram.h"
 
 namespace ash {
@@ -76,6 +76,15 @@ void WindowCycleController::StartCycling() {
   WmShell::Get()->RecordUserMetricsAction(UMA_WINDOW_CYCLE);
   UMA_HISTOGRAM_COUNTS_100("Ash.WindowCycleController.Items",
                            window_list.size());
+}
+
+void WindowCycleController::CompleteCycling() {
+  window_cycle_list_->set_user_did_accept(true);
+  StopCycling();
+}
+
+void WindowCycleController::CancelCycling() {
+  StopCycling();
 }
 
 //////////////////////////////////////////////////////////////////////////////

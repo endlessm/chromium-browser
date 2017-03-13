@@ -16,6 +16,7 @@
 #include "chrome/browser/ui/webui/chromeos/login/base_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/network_state_informer.h"
 #include "net/base/net_errors.h"
+#include "third_party/cros_system_api/dbus/service_constants.h"
 
 namespace chromeos {
 
@@ -40,10 +41,10 @@ class EnrollmentScreenHandler
   // Implements EnrollmentScreenActor:
   void SetParameters(Controller* controller,
                      const policy::EnrollmentConfig& config) override;
-  void PrepareToShow() override;
   void Show() override;
   void Hide() override;
   void ShowSigninScreen() override;
+  void ShowAdJoin() override;
   void ShowAttributePromptScreen(const std::string& asset_id,
                                  const std::string& location) override;
   void ShowAttestationBasedEnrollmentSuccessScreen(
@@ -68,6 +69,9 @@ class EnrollmentScreenHandler
   void HandleClose(const std::string& reason);
   void HandleCompleteLogin(const std::string& user,
                            const std::string& auth_code);
+  void HandleAdCompleteLogin(const std::string& machine_name,
+                             const std::string& user_name,
+                             const std::string& password);
   void HandleRetry();
   void HandleFrameLoadingCompleted();
   void HandleDeviceAttributesProvided(const std::string& asset_id,
@@ -105,6 +109,15 @@ class EnrollmentScreenHandler
   // Returns true if current visible screen is the error screen over
   // enrollment sign-in page.
   bool IsEnrollmentScreenHiddenByError() const;
+
+  // Helper function to wait for AD password written to a pipe.
+  void OnPasswordPipeReady(const std::string& machine_name,
+                           const std::string& user_name,
+                           base::ScopedFD password_fd);
+  // Handler callback from AuthPolicyClient.
+  void HandleAdDomainJoin(const std::string& machine_name,
+                          const std::string& user_name,
+                          authpolicy::ErrorType code);
 
   // Keeps the controller for this actor.
   Controller* controller_;

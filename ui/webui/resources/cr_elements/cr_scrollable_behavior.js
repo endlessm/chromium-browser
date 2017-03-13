@@ -36,7 +36,12 @@
 
 /** @polymerBehavior */
 var CrScrollableBehavior = {
-  attached: function() {
+  properties: {
+    /** @private {number|null} */
+    intervalId_: {type: Number, value: null}
+  },
+
+  ready: function() {
     var scrollableElements = this.root.querySelectorAll('[scrollable]');
 
     // Setup the intial scrolling related classes for each scrollable container.
@@ -51,12 +56,8 @@ var CrScrollableBehavior = {
   },
 
   detached: function() {
-    // Remove 'scroll' event listeners.
-    var scrollableElements = this.root.querySelectorAll('[scrollable]');
-    for (let scrollable of scrollableElements) {
-      scrollable.removeEventListener(
-          'scroll', this.updateScrollEvent_.bind(this));
-    }
+    if (this.intervalId_ !== null)
+      clearInterval(this.intervalId_);
   },
 
   /**
@@ -64,10 +65,13 @@ var CrScrollableBehavior = {
    * This ensures that the <iron-list> contents of dynamically sized
    * containers are resized correctly.
    */
-  updateScrollableContents() {
+  updateScrollableContents: function() {
+    if (this.intervalId_ !== null)
+      return;  // notifyResize is arelady in progress.
+
     let nodeList = this.root.querySelectorAll('[scrollable] iron-list');
-    // Use setTimeout to avoid initial render / sizing issues.
-    let intervalId = setInterval(function() {
+    // Use setInterval to avoid initial render / sizing issues.
+    this.intervalId_ = window.setInterval(function() {
       let unreadyNodes = [];
       for (let node of nodeList) {
         if (node.parentNode.scrollHeight == 0) {
@@ -77,11 +81,13 @@ var CrScrollableBehavior = {
         let ironList = /** @type {!IronListElement} */ (node);
         ironList.notifyResize();
       }
-      if (unreadyNodes.length == 0)
-        clearInterval(intervalId);
-      else
+      if (unreadyNodes.length == 0) {
+        window.clearInterval(this.intervalId_);
+        this.intervalId_ = null;
+      } else {
         nodeList = unreadyNodes;
-    }, 10);
+      }
+    }.bind(this), 10);
   },
 
   /**
@@ -89,7 +95,7 @@ var CrScrollableBehavior = {
    * @param {!Event} event
    * @private
    */
-  updateScrollEvent_(event) {
+  updateScrollEvent_: function(event) {
     let scrollable = /** @type {!HTMLElement} */ (event.target);
     this.updateScroll_(scrollable);
   },
@@ -99,7 +105,7 @@ var CrScrollableBehavior = {
    * @param {!HTMLElement} scrollable
    * @private
    */
-  updateScroll_(scrollable) {
+  updateScroll_: function(scrollable) {
     scrollable.classList.toggle(
         'can-scroll', scrollable.clientHeight < scrollable.scrollHeight);
     scrollable.classList.toggle('is-scrolled', scrollable.scrollTop > 0);

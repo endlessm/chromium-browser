@@ -11,7 +11,7 @@
 #include "base/logging.h"
 #include "base/macros.h"
 #include "build/build_config.h"
-#include "ui/accessibility/ax_view_state.h"
+#include "ui/accessibility/ax_node_data.h"
 #include "ui/base/default_style.h"
 #include "ui/base/ime/input_method.h"
 #include "ui/base/material_design/material_design_controller.h"
@@ -30,6 +30,7 @@
 #include "ui/resources/grit/ui_resources.h"
 #include "ui/views/animation/flood_fill_ink_drop_ripple.h"
 #include "ui/views/animation/ink_drop_highlight.h"
+#include "ui/views/animation/ink_drop_impl.h"
 #include "ui/views/background.h"
 #include "ui/views/controls/button/custom_button.h"
 #include "ui/views/controls/button/label_button.h"
@@ -37,7 +38,6 @@
 #include "ui/views/controls/focus_ring.h"
 #include "ui/views/controls/focusable_border.h"
 #include "ui/views/controls/menu/menu_config.h"
-#include "ui/views/controls/menu/menu_model_adapter.h"
 #include "ui/views/controls/menu/menu_runner.h"
 #include "ui/views/controls/prefix_selector.h"
 #include "ui/views/controls/textfield/textfield.h"
@@ -142,23 +142,26 @@ class TransparentButton : public CustomButton {
   }
 
   // Overridden from InkDropHost:
+  std::unique_ptr<InkDrop> CreateInkDrop() override {
+    std::unique_ptr<views::InkDropImpl> ink_drop = CreateDefaultInkDropImpl();
+    ink_drop->SetShowHighlightOnHover(false);
+    return std::move(ink_drop);
+  }
+
   std::unique_ptr<InkDropRipple> CreateInkDropRipple() const override {
     return std::unique_ptr<views::InkDropRipple>(
         new views::FloodFillInkDropRipple(
-            GetLocalBounds(), GetInkDropCenterBasedOnLastEvent(),
+            size(), GetInkDropCenterBasedOnLastEvent(),
             GetNativeTheme()->GetSystemColor(
                 ui::NativeTheme::kColorId_LabelEnabledColor),
             ink_drop_visible_opacity()));
-  }
-
-  std::unique_ptr<InkDropHighlight> CreateInkDropHighlight() const override {
-    return nullptr;
   }
 
  private:
   DISALLOW_COPY_AND_ASSIGN(TransparentButton);
 };
 
+#if !defined(OS_MACOSX)
 // Returns the next or previous valid index (depending on |increment|'s value).
 // Skips separator or disabled indices. Returns -1 if there is no valid adjacent
 // index.
@@ -173,6 +176,7 @@ int GetAdjacentIndex(ui::ComboboxModel* model, int increment, int index) {
   }
   return kNoSelection;
 }
+#endif
 
 // Returns the image resource ids of an array for the body button.
 //
@@ -409,12 +413,6 @@ Combobox::Combobox(ui::ComboboxModel* model, Style style)
 #endif
 
   UpdateBorder();
-  if (UseMd()) {
-    // set_background() takes ownership but takes a raw pointer.
-    std::unique_ptr<Background> b =
-        PlatformStyle::CreateComboboxBackground(GetArrowContainerWidth());
-    set_background(b.release());
-  }
 
   // Initialize the button images.
   Button::ButtonState button_states[] = {
@@ -430,8 +428,8 @@ Combobox::Combobox(ui::ComboboxModel* model, Style style)
       size_t num;
       bool focused = !!i;
       const int* ids = GetBodyButtonImageIds(focused, state, &num);
-      body_button_painters_[focused][state].reset(
-          Painter::CreateImageGridPainter(ids));
+      body_button_painters_[focused][state] =
+          Painter::CreateImageGridPainter(ids);
       menu_button_images_[focused][state] = GetMenuButtonImages(focused, state);
     }
   }
@@ -513,6 +511,11 @@ void Combobox::SetInvalid(bool invalid) {
 
   invalid_ = invalid;
 
+  if (HasFocus() && UseMd()) {
+    FocusRing::Install(this, invalid_
+                                 ? ui::NativeTheme::kColorId_AlertSeverityHigh
+                                 : ui::NativeTheme::kColorId_NumColors);
+  }
   UpdateBorder();
   SchedulePaint();
 }
@@ -550,11 +553,11 @@ void Combobox::OnNativeThemeChanged(const ui::NativeTheme* theme) {
   if (!UseMd())
     return;
 
-  set_background(Background::CreateBackgroundPainter(
-      true, Painter::CreateSolidRoundRectPainter(
-                theme->GetSystemColor(
-                    ui::NativeTheme::kColorId_TextfieldDefaultBackground),
-                FocusableBorder::kCornerRadiusDp)));
+  set_background(
+      Background::CreateBackgroundPainter(Painter::CreateSolidRoundRectPainter(
+          theme->GetSystemColor(
+              ui::NativeTheme::kColorId_TextfieldDefaultBackground),
+          FocusableBorder::kCornerRadiusDp)));
 }
 
 int Combobox::GetRowCount() {
@@ -618,6 +621,16 @@ bool Combobox::OnKeyPressed(const ui::KeyEvent& e) {
   bool show_menu = false;
   int new_index = kNoSelection;
   switch (e.key_code()) {
+#if defined(OS_MACOSX)
+    case ui::VKEY_DOWN:
+    case ui::VKEY_UP:
+    case ui::VKEY_SPACE:
+    case ui::VKEY_HOME:
+    case ui::VKEY_END:
+      // On Mac, navigation keys should always just show the menu first.
+      show_menu = true;
+      break;
+#else
     // Show the menu on F4 without modifiers.
     case ui::VKEY_F4:
       if (e.IsAltDown() || e.IsAltGrDown() || e.IsControlDown())
@@ -666,7 +679,7 @@ bool Combobox::OnKeyPressed(const ui::KeyEvent& e) {
       else
         show_menu = true;
       break;
-
+#endif  // OS_MACOSX
     default:
       return false;
   }
@@ -687,7 +700,8 @@ bool Combobox::OnKeyReleased(const ui::KeyEvent& e) {
   if (style_ != STYLE_ACTION)
     return false;  // crbug.com/127520
 
-  if (e.key_code() == ui::VKEY_SPACE && style_ == STYLE_ACTION)
+  if (e.key_code() == ui::VKEY_SPACE && style_ == STYLE_ACTION &&
+      text_button_->state() == Button::STATE_PRESSED)
     OnPerformAction();
 
   return false;
@@ -716,8 +730,11 @@ void Combobox::OnFocus() {
   View::OnFocus();
   // Border renders differently when focused.
   SchedulePaint();
-  if (UseMd())
-    FocusRing::Install(this);
+  if (UseMd()) {
+    FocusRing::Install(this, invalid_
+                                 ? ui::NativeTheme::kColorId_AlertSeverityHigh
+                                 : ui::NativeTheme::kColorId_NumColors);
+  }
 }
 
 void Combobox::OnBlur() {
@@ -732,12 +749,16 @@ void Combobox::OnBlur() {
     FocusRing::Uninstall(this);
 }
 
-void Combobox::GetAccessibleState(ui::AXViewState* state) {
-  state->role = ui::AX_ROLE_COMBO_BOX;
-  state->name = accessible_name_;
-  state->value = model_->GetItemAt(selected_index_);
-  state->index = selected_index_;
-  state->count = model_->GetItemCount();
+void Combobox::GetAccessibleNodeData(ui::AXNodeData* node_data) {
+  node_data->role = ui::AX_ROLE_COMBO_BOX;
+  node_data->SetName(accessible_name_);
+  node_data->SetValue(model_->GetItemAt(selected_index_));
+  if (enabled()) {
+    node_data->AddIntAttribute(ui::AX_ATTR_ACTION,
+                               ui::AX_SUPPORTED_ACTION_OPEN);
+  }
+  node_data->AddIntAttribute(ui::AX_ATTR_POS_IN_SET, selected_index_);
+  node_data->AddIntAttribute(ui::AX_ATTR_SET_SIZE, model_->GetItemCount());
 }
 
 void Combobox::ButtonPressed(Button* sender, const ui::Event& event) {
@@ -767,12 +788,11 @@ void Combobox::ButtonPressed(Button* sender, const ui::Event& event) {
 }
 
 void Combobox::UpdateBorder() {
-  std::unique_ptr<FocusableBorder> border(
-      PlatformStyle::CreateComboboxBorder());
+  std::unique_ptr<FocusableBorder> border(new FocusableBorder());
   if (style_ == STYLE_ACTION)
     border->SetInsets(5, 10, 5, 10);
   if (invalid_)
-    border->SetColor(gfx::kGoogleRed700);
+    border->SetColorId(ui::NativeTheme::kColorId_AlertSeverityHigh);
   SetBorder(std::move(border));
 }
 
@@ -930,12 +950,10 @@ void Combobox::ShowDropDownMenu(ui::MenuSourceType source_type) {
   // Allow |menu_runner_| to be set by the testing API, but if this method is
   // ever invoked recursively, ensure the old menu is closed.
   if (!menu_runner_ || menu_runner_->IsRunning()) {
-    menu_model_adapter_.reset(new MenuModelAdapter(
-        menu_model_.get(), base::Bind(&Combobox::OnMenuClosed,
-                                      base::Unretained(this), original_state)));
-    menu_runner_.reset(
-        new MenuRunner(menu_model_adapter_->CreateMenu(),
-                       MenuRunner::COMBOBOX | MenuRunner::ASYNC));
+    menu_runner_.reset(new MenuRunner(
+        menu_model_.get(), MenuRunner::COMBOBOX | MenuRunner::ASYNC,
+        base::Bind(&Combobox::OnMenuClosed, base::Unretained(this),
+                   original_state)));
   }
   menu_runner_->RunMenuAt(GetWidget(), nullptr, bounds, anchor_position,
                           source_type);
@@ -943,15 +961,9 @@ void Combobox::ShowDropDownMenu(ui::MenuSourceType source_type) {
 
 void Combobox::OnMenuClosed(Button::ButtonState original_button_state) {
   menu_runner_.reset();
-  menu_model_adapter_.reset();
   if (arrow_button_)
     arrow_button_->SetState(original_button_state);
   closed_time_ = base::Time::Now();
-
-  // Need to explicitly clear mouse handler so that events get sent
-  // properly after the menu finishes running. If we don't do this, then
-  // the first click to other parts of the UI is eaten.
-  SetMouseHandler(NULL);
 }
 
 void Combobox::OnPerformAction() {

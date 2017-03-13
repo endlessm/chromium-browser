@@ -151,12 +151,13 @@ class MockInlineSigninHelper : public InlineSigninHelper {
 
   MOCK_METHOD1(OnClientOAuthSuccess, void(const ClientOAuthResult& result));
   MOCK_METHOD1(OnClientOAuthFailure, void(const GoogleServiceAuthError& error));
-  MOCK_METHOD7(CreateSyncStarter,
+  MOCK_METHOD8(CreateSyncStarter,
                void(Browser*,
                     content::WebContents*,
                     const GURL&,
                     const GURL&,
                     const std::string&,
+                    OneClickSigninSyncStarter::ProfileMode,
                     OneClickSigninSyncStarter::StartSyncMode,
                     OneClickSigninSyncStarter::ConfirmationRequired));
 
@@ -177,18 +178,19 @@ MockInlineSigninHelper::MockInlineSigninHelper(
     const std::string& signin_scoped_device_id,
     bool choose_what_to_sync,
     bool confirm_untrusted_signin)
-  : InlineSigninHelper(handler,
-                       getter,
-                       profile,
-                       current_url,
-                       email,
-                       gaia_id,
-                       password,
-                       session_index,
-                       auth_code,
-                       signin_scoped_device_id,
-                       choose_what_to_sync,
-                       confirm_untrusted_signin) {}
+    : InlineSigninHelper(handler,
+                         getter,
+                         profile,
+                         Profile::CreateStatus::CREATE_STATUS_INITIALIZED,
+                         current_url,
+                         email,
+                         gaia_id,
+                         password,
+                         session_index,
+                         auth_code,
+                         signin_scoped_device_id,
+                         choose_what_to_sync,
+                         confirm_untrusted_signin) {}
 
 // This class is used to mock out virtual methods with side effects so that
 // tests below can ensure they are called without causing side effects.
@@ -208,12 +210,13 @@ class MockSyncStarterInlineSigninHelper : public InlineSigninHelper {
       bool choose_what_to_sync,
       bool confirm_untrusted_signin);
 
-  MOCK_METHOD7(CreateSyncStarter,
+  MOCK_METHOD8(CreateSyncStarter,
                void(Browser*,
                     content::WebContents*,
                     const GURL&,
                     const GURL&,
                     const std::string&,
+                    OneClickSigninSyncStarter::ProfileMode,
                     OneClickSigninSyncStarter::StartSyncMode,
                     OneClickSigninSyncStarter::ConfirmationRequired));
 
@@ -234,18 +237,19 @@ MockSyncStarterInlineSigninHelper::MockSyncStarterInlineSigninHelper(
     const std::string& signin_scoped_device_id,
     bool choose_what_to_sync,
     bool confirm_untrusted_signin)
-  : InlineSigninHelper(handler,
-                       getter,
-                       profile,
-                       current_url,
-                       email,
-                       gaia_id,
-                       password,
-                       session_index,
-                       auth_code,
-                       signin_scoped_device_id,
-                       choose_what_to_sync,
-                       confirm_untrusted_signin) {}
+    : InlineSigninHelper(handler,
+                         getter,
+                         profile,
+                         Profile::CreateStatus::CREATE_STATUS_INITIALIZED,
+                         current_url,
+                         email,
+                         gaia_id,
+                         password,
+                         session_index,
+                         auth_code,
+                         signin_scoped_device_id,
+                         choose_what_to_sync,
+                         confirm_untrusted_signin) {}
 
 }  // namespace
 
@@ -591,6 +595,7 @@ IN_PROC_BROWSER_TEST_F(InlineLoginHelperBrowserTest,
   EXPECT_CALL(
       *helper,
       CreateSyncStarter(_, _, _, _, "refresh_token",
+                        OneClickSigninSyncStarter::CURRENT_PROFILE,
                         OneClickSigninSyncStarter::CONFIRM_SYNC_SETTINGS_FIRST,
                         OneClickSigninSyncStarter::CONFIRM_AFTER_SIGNIN));
 
@@ -625,6 +630,7 @@ IN_PROC_BROWSER_TEST_F(InlineLoginHelperBrowserTest,
           false);  // confirm untrusted signin
   EXPECT_CALL(*helper, CreateSyncStarter(
                            _, _, _, _, "refresh_token",
+                           OneClickSigninSyncStarter::CURRENT_PROFILE,
                            OneClickSigninSyncStarter::CONFIGURE_SYNC_FIRST,
                            OneClickSigninSyncStarter::CONFIRM_AFTER_SIGNIN));
 
@@ -660,6 +666,7 @@ IN_PROC_BROWSER_TEST_F(InlineLoginHelperBrowserTest,
   EXPECT_CALL(
       *helper,
       CreateSyncStarter(_, _, _, _, "refresh_token",
+                        OneClickSigninSyncStarter::CURRENT_PROFILE,
                         OneClickSigninSyncStarter::CONFIRM_SYNC_SETTINGS_FIRST,
                         OneClickSigninSyncStarter::CONFIRM_UNTRUSTED_SIGNIN));
 
@@ -697,6 +704,7 @@ IN_PROC_BROWSER_TEST_F(InlineLoginHelperBrowserTest,
   // settings, which means the user wants to CONFIGURE_SYNC_FIRST.
   EXPECT_CALL(*helper, CreateSyncStarter(
                            _, _, _, _, "refresh_token",
+                           OneClickSigninSyncStarter::CURRENT_PROFILE,
                            OneClickSigninSyncStarter::CONFIGURE_SYNC_FIRST,
                            OneClickSigninSyncStarter::CONFIRM_AFTER_SIGNIN));
 
@@ -713,17 +721,14 @@ IN_PROC_BROWSER_TEST_F(InlineLoginHelperBrowserTest,
   // possible values of access_point=, reason=.
   GURL url("chrome://chrome-signin/?access_point=3&reason=2");
   base::WeakPtr<InlineLoginHandlerImpl> handler;
-  InlineSigninHelper helper(handler,
-                            browser()->profile()->GetRequestContext(),
+  InlineSigninHelper helper(handler, browser()->profile()->GetRequestContext(),
                             browser()->profile(),
-                            url,
-                            "foo@gmail.com",
-                            "gaiaid-12345",
-                            "password",
-                            "",  // session index
+                            Profile::CreateStatus::CREATE_STATUS_INITIALIZED,
+                            url, "foo@gmail.com", "gaiaid-12345", "password",
+                            "",           // session index
                             "auth_code",  // auth code
                             std::string(),
-                            false,  // choose what to sync
+                            false,   // choose what to sync
                             false);  // confirm untrusted signin
   SimulateOnClientOAuthSuccess(&helper, "refresh_token");
   ASSERT_EQ(1ul, token_service()->GetAccounts().size());
@@ -740,17 +745,14 @@ IN_PROC_BROWSER_TEST_F(InlineLoginHelperBrowserTest,
   // possible values of access_point=, reason=.
   GURL url("chrome://chrome-signin/?access_point=10&reason=1");
   base::WeakPtr<InlineLoginHandlerImpl> handler;
-  InlineSigninHelper helper(handler,
-                            browser()->profile()->GetRequestContext(),
+  InlineSigninHelper helper(handler, browser()->profile()->GetRequestContext(),
                             browser()->profile(),
-                            url,
-                            "foo@gmail.com",
-                            "gaiaid-12345",
-                            "password",
-                            "",  // session index
+                            Profile::CreateStatus::CREATE_STATUS_INITIALIZED,
+                            url, "foo@gmail.com", "gaiaid-12345", "password",
+                            "",           // session index
                             "auth_code",  // auth code
                             std::string(),
-                            false,  // choose what to sync
+                            false,   // choose what to sync
                             false);  // confirm untrusted signin
   SimulateOnClientOAuthSuccess(&helper, "refresh_token");
   ASSERT_EQ(1ul, token_service()->GetAccounts().size());

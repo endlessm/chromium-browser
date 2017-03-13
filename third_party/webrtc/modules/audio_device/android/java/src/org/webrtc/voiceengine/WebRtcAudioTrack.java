@@ -12,7 +12,6 @@ package org.webrtc.voiceengine;
 
 import org.webrtc.Logging;
 
-import android.annotation.TargetApi;
 import android.content.Context;
 import android.media.AudioFormat;
 import android.media.AudioManager;
@@ -78,6 +77,7 @@ public class WebRtcAudioTrack {
         assertTrue(audioTrack.getPlayState() == AudioTrack.PLAYSTATE_PLAYING);
       } catch (IllegalStateException e) {
         Logging.e(TAG, "AudioTrack.play failed: " + e.getMessage());
+        releaseAudioResources();
         return;
       }
 
@@ -130,7 +130,6 @@ public class WebRtcAudioTrack {
       audioTrack.flush();
     }
 
-    @TargetApi(21)
     private int writeOnLollipop(AudioTrack audioTrack, ByteBuffer byteBuffer, int sizeInBytes) {
       return audioTrack.write(byteBuffer, sizeInBytes, AudioTrack.WRITE_BLOCKING);
     }
@@ -176,8 +175,9 @@ public class WebRtcAudioTrack {
     // AudioTrack object to be created in the MODE_STREAM mode.
     // Note that this size doesn't guarantee a smooth playback under load.
     // TODO(henrika): should we extend the buffer size to avoid glitches?
-    final int minBufferSizeInBytes = AudioTrack.getMinBufferSize(
-        sampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT);
+    final int channelConfig = channelCountToConfiguration(channels);
+    final int minBufferSizeInBytes =
+        AudioTrack.getMinBufferSize(sampleRate, channelConfig, AudioFormat.ENCODING_PCM_16BIT);
     Logging.d(TAG, "AudioTrack.getMinBufferSize: " + minBufferSizeInBytes);
     // For the streaming mode, data must be written to the audio sink in
     // chunks of size (given by byteBuffer.capacity()) less than or equal
@@ -199,21 +199,24 @@ public class WebRtcAudioTrack {
       // Create an AudioTrack object and initialize its associated audio buffer.
       // The size of this buffer determines how long an AudioTrack can play
       // before running out of data.
-      audioTrack =
-          new AudioTrack(AudioManager.STREAM_VOICE_CALL, sampleRate, AudioFormat.CHANNEL_OUT_MONO,
-              AudioFormat.ENCODING_PCM_16BIT, minBufferSizeInBytes, AudioTrack.MODE_STREAM);
+      audioTrack = new AudioTrack(AudioManager.STREAM_VOICE_CALL, sampleRate, channelConfig,
+          AudioFormat.ENCODING_PCM_16BIT, minBufferSizeInBytes, AudioTrack.MODE_STREAM);
     } catch (IllegalArgumentException e) {
       Logging.d(TAG, e.getMessage());
+      releaseAudioResources();
       return false;
     }
 
     // It can happen that an AudioTrack is created but it was not successfully
     // initialized upon creation. Seems to be the case e.g. when the maximum
     // number of globally available audio tracks is exceeded.
-    if (audioTrack.getState() != AudioTrack.STATE_INITIALIZED) {
+    if (audioTrack == null || audioTrack.getState() != AudioTrack.STATE_INITIALIZED) {
       Logging.e(TAG, "Initialization of audio track failed.");
+      releaseAudioResources();
       return false;
     }
+    logMainParameters();
+    logMainParametersExtended();
     return true;
   }
 
@@ -222,7 +225,7 @@ public class WebRtcAudioTrack {
     assertTrue(audioTrack != null);
     assertTrue(audioThread == null);
     if (audioTrack.getState() != AudioTrack.STATE_INITIALIZED) {
-      Logging.e(TAG, "Audio track is not successfully initialized.");
+      Logging.e(TAG, "AudioTrack instance is not successfully initialized.");
       return false;
     }
     audioThread = new AudioTrackThread("AudioTrackJavaThread");
@@ -233,23 +236,21 @@ public class WebRtcAudioTrack {
   private boolean stopPlayout() {
     Logging.d(TAG, "stopPlayout");
     assertTrue(audioThread != null);
+    logUnderrunCount();
     audioThread.joinThread();
     audioThread = null;
-    if (audioTrack != null) {
-      audioTrack.release();
-      audioTrack = null;
-    }
+    releaseAudioResources();
     return true;
   }
 
-  /** Get max possible volume index for a phone call audio stream. */
+  // Get max possible volume index for a phone call audio stream.
   private int getStreamMaxVolume() {
     Logging.d(TAG, "getStreamMaxVolume");
     assertTrue(audioManager != null);
     return audioManager.getStreamMaxVolume(AudioManager.STREAM_VOICE_CALL);
   }
 
-  /** Set current volume level for a phone call audio stream. */
+  // Set current volume level for a phone call audio stream.
   private boolean setStreamVolume(int volume) {
     Logging.d(TAG, "setStreamVolume(" + volume + ")");
     assertTrue(audioManager != null);
@@ -261,7 +262,6 @@ public class WebRtcAudioTrack {
     return true;
   }
 
-  @TargetApi(21)
   private boolean isVolumeFixed() {
     if (!WebRtcAudioUtils.runningOnLollipopOrHigher())
       return false;
@@ -275,11 +275,49 @@ public class WebRtcAudioTrack {
     return audioManager.getStreamVolume(AudioManager.STREAM_VOICE_CALL);
   }
 
-  /** Helper method which throws an exception  when an assertion has failed. */
+  private void logMainParameters() {
+    Logging.d(TAG, "AudioTrack: "
+            + "session ID: " + audioTrack.getAudioSessionId() + ", "
+            + "channels: " + audioTrack.getChannelCount() + ", "
+            + "sample rate: " + audioTrack.getSampleRate() + ", "
+            // Gain (>=1.0) expressed as linear multiplier on sample values.
+            + "max gain: " + audioTrack.getMaxVolume());
+  }
+
+  private void logMainParametersExtended() {
+    if (WebRtcAudioUtils.runningOnMarshmallowOrHigher()) {
+      Logging.d(TAG, "AudioTrack: "
+              // The effective size of the AudioTrack buffer that the app writes to.
+              + "buffer size in frames: " + audioTrack.getBufferSizeInFrames());
+    }
+    if (WebRtcAudioUtils.runningOnNougatOrHigher()) {
+      Logging.d(TAG, "AudioTrack: "
+              // Maximum size of the AudioTrack buffer in frames.
+              + "buffer capacity in frames: " + audioTrack.getBufferCapacityInFrames());
+    }
+  }
+
+  // Prints the number of underrun occurrences in the application-level write
+  // buffer since the AudioTrack was created. An underrun occurs if the app does
+  // not write audio data quickly enough, causing the buffer to underflow and a
+  // potential audio glitch.
+  // TODO(henrika): keep track of this value in the field and possibly add new
+  // UMA stat if needed.
+  private void logUnderrunCount() {
+    if (WebRtcAudioUtils.runningOnNougatOrHigher()) {
+      Logging.d(TAG, "underrun count: " + audioTrack.getUnderrunCount());
+    }
+  }
+
+  // Helper method which throws an exception  when an assertion has failed.
   private static void assertTrue(boolean condition) {
     if (!condition) {
       throw new AssertionError("Expected condition to be true");
     }
+  }
+
+  private int channelCountToConfiguration(int channels) {
+    return (channels == 1 ? AudioFormat.CHANNEL_OUT_MONO : AudioFormat.CHANNEL_OUT_STEREO);
   }
 
   private native void nativeCacheDirectBufferAddress(ByteBuffer byteBuffer, long nativeAudioRecord);
@@ -291,5 +329,13 @@ public class WebRtcAudioTrack {
   public static void setSpeakerMute(boolean mute) {
     Logging.w(TAG, "setSpeakerMute(" + mute + ")");
     speakerMute = mute;
+  }
+
+  // Releases the native AudioTrack resources.
+  private void releaseAudioResources() {
+    if (audioTrack != null) {
+      audioTrack.release();
+      audioTrack = null;
+    }
   }
 }

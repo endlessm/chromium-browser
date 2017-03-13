@@ -1,8 +1,6 @@
 // Copyright (c) 2012 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
-//
-// Mock ServerConnectionManager class for use in client unit tests.
 
 #ifndef COMPONENTS_SYNC_TEST_ENGINE_MOCK_CONNECTION_MANAGER_H_
 #define COMPONENTS_SYNC_TEST_ENGINE_MOCK_CONNECTION_MANAGER_H_
@@ -27,6 +25,11 @@
 
 namespace syncer {
 
+namespace syncable {
+class Directory;
+}
+
+// Mock ServerConnectionManager class for use in client unit tests.
 class MockConnectionManager : public ServerConnectionManager {
  public:
   class MidCommitObserver {
@@ -217,7 +220,9 @@ class MockConnectionManager : public ServerConnectionManager {
     store_birthday_ = new_birthday;
   }
 
-  void set_partial_throttling(bool value) { partialThrottling_ = value; }
+  void set_throttling(bool value) { throttling_ = value; }
+
+  void set_partial_failure(bool value) { partial_failure_ = value; }
 
   // Retrieve the number of GetUpdates requests that the mock server has
   // seen since the last time this function was called.  Can be used to
@@ -235,8 +240,10 @@ class MockConnectionManager : public ServerConnectionManager {
     expected_filter_ = expected_filter;
   }
 
-  // Set throttled date types.
-  void SetThrottledTypes(ModelTypeSet types) { throttled_type_ = types; }
+  // Set partial failure date types.
+  void SetPartialFailureTypes(ModelTypeSet types) {
+    partial_failure_type_ = types;
+  }
 
   void SetServerReachable();
 
@@ -264,6 +271,8 @@ class MockConnectionManager : public ServerConnectionManager {
 
   // Adds a new progress marker to the last update.
   sync_pb::DataTypeProgressMarker* AddUpdateProgressMarker();
+
+  void ResetAuthToken() { auth_token_.clear(); }
 
  private:
   sync_pb::SyncEntity* AddUpdateFull(syncable::Id id,
@@ -355,7 +364,7 @@ class MockConnectionManager : public ServerConnectionManager {
   int countdown_to_postbuffer_fail_;
 
   // Our directory.  Used only to ensure that we are not holding the transaction
-  // lock when performing network I/O.  Can be NULL if the test author is
+  // lock when performing network I/O.  Can be null if the test author is
   // confident this can't happen.
   syncable::Directory* directory_;
 
@@ -376,10 +385,10 @@ class MockConnectionManager : public ServerConnectionManager {
   // Protected by |response_code_override_lock_|.
   bool throttling_;
 
-  // Whether we are faking a server mandating clients to partial throttle
+  // Whether we are faking a server mandating clients to partial failure
   // requests.
   // Protected by |response_code_override_lock_|.
-  bool partialThrottling_;
+  bool partial_failure_;
 
   base::Lock response_code_override_lock_;
 
@@ -399,7 +408,7 @@ class MockConnectionManager : public ServerConnectionManager {
 
   ModelTypeSet expected_filter_;
 
-  ModelTypeSet throttled_type_;
+  ModelTypeSet partial_failure_type_;
 
   int num_get_updates_requests_;
 

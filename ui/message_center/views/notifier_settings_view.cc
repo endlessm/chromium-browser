@@ -122,7 +122,7 @@ class EntryView : public views::View {
   // views::View:
   void Layout() override;
   gfx::Size GetPreferredSize() const override;
-  void GetAccessibleState(ui::AXViewState* state) override;
+  void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
   void OnFocus() override;
   bool OnKeyPressed(const ui::KeyEvent& event) override;
   bool OnKeyReleased(const ui::KeyEvent& event) override;
@@ -158,9 +158,9 @@ gfx::Size EntryView::GetPreferredSize() const {
   return size;
 }
 
-void EntryView::GetAccessibleState(ui::AXViewState* state) {
+void EntryView::GetAccessibleNodeData(ui::AXNodeData* node_data) {
   DCHECK_EQ(1, child_count());
-  child_at(0)->GetAccessibleState(state);
+  child_at(0)->GetAccessibleNodeData(node_data);
 }
 
 void EntryView::OnFocus() {
@@ -231,17 +231,17 @@ base::string16 NotifierGroupComboboxModel::GetItemAt(int index) {
 // showing 'icon'.
 NotifierSettingsView::NotifierButton::NotifierButton(
     NotifierSettingsProvider* provider,
-    Notifier* notifier,
+    std::unique_ptr<Notifier> notifier,
     views::ButtonListener* listener)
     : views::CustomButton(listener),
       provider_(provider),
-      notifier_(notifier),
+      notifier_(std::move(notifier)),
       icon_view_(new views::ImageView()),
       name_view_(new views::Label(notifier_->name)),
       checkbox_(new views::Checkbox(base::string16())),
       learn_more_(nullptr) {
-  DCHECK(provider);
-  DCHECK(notifier);
+  DCHECK(provider_);
+  DCHECK(notifier_);
 
   // Since there may never be an icon (but that could change at a later time),
   // we own the icon view here.
@@ -274,11 +274,9 @@ NotifierSettingsView::NotifierButton::NotifierButton(
         (kLearnMoreTargetHeight - kLearnMoreSize) / 2;
     // The image itself is quite small, this large invisible border creates a
     // much bigger click target.
-    learn_more_->SetBorder(
-        views::Border::CreateEmptyBorder(learn_more_border_height,
-                                         learn_more_border_width,
-                                         learn_more_border_height,
-                                         learn_more_border_width));
+    learn_more_->SetBorder(views::CreateEmptyBorder(
+        learn_more_border_height, learn_more_border_width,
+        learn_more_border_height, learn_more_border_width));
     learn_more_->SetImageAlignment(views::ImageButton::ALIGN_CENTER,
                                    views::ImageButton::ALIGN_MIDDLE);
   }
@@ -346,9 +344,9 @@ void NotifierSettingsView::NotifierButton::ButtonPressed(
   }
 }
 
-void NotifierSettingsView::NotifierButton::GetAccessibleState(
-    ui::AXViewState* state) {
-  static_cast<views::View*>(checkbox_)->GetAccessibleState(state);
+void NotifierSettingsView::NotifierButton::GetAccessibleNodeData(
+    ui::AXNodeData* node_data) {
+  static_cast<views::View*>(checkbox_)->GetAccessibleNodeData(node_data);
 }
 
 bool NotifierSettingsView::NotifierButton::ShouldHaveLearnMoreButton() const {
@@ -437,22 +435,21 @@ NotifierSettingsView::NotifierSettingsView(NotifierSettingsProvider* provider)
   title_label_->SetHorizontalAlignment(gfx::ALIGN_LEFT);
   title_label_->SetMultiLine(true);
   title_label_->SetBorder(
-      views::Border::CreateEmptyBorder(kComputedTitleTopMargin,
-                                       kTitleMargin,
-                                       kComputedTitleBottomMargin,
-                                       kTitleMargin));
+      views::CreateEmptyBorder(kComputedTitleTopMargin, kTitleMargin,
+                               kComputedTitleBottomMargin, kTitleMargin));
 
   AddChildView(title_label_);
 
   scroller_ = new views::ScrollView();
   scroller_->SetVerticalScrollBar(new views::OverlayScrollBar(false));
+  scroller_->SetHorizontalScrollBar(new views::OverlayScrollBar(true));
   AddChildView(scroller_);
 
-  std::vector<Notifier*> notifiers;
+  std::vector<std::unique_ptr<Notifier>> notifiers;
   if (provider_)
     provider_->GetNotifierList(&notifiers);
 
-  UpdateContentsView(notifiers);
+  UpdateContentsView(std::move(notifiers));
 }
 
 NotifierSettingsView::~NotifierSettingsView() {
@@ -478,18 +475,18 @@ void NotifierSettingsView::UpdateIconImage(const NotifierId& notifier_id,
 }
 
 void NotifierSettingsView::NotifierGroupChanged() {
-  std::vector<Notifier*> notifiers;
+  std::vector<std::unique_ptr<Notifier>> notifiers;
   if (provider_)
     provider_->GetNotifierList(&notifiers);
 
-  UpdateContentsView(notifiers);
+  UpdateContentsView(std::move(notifiers));
 }
 
 void NotifierSettingsView::NotifierEnabledChanged(const NotifierId& notifier_id,
                                                   bool enabled) {}
 
 void NotifierSettingsView::UpdateContentsView(
-    const std::vector<Notifier*>& notifiers) {
+    std::vector<std::unique_ptr<Notifier>> notifiers) {
   buttons_.clear();
 
   views::View* contents_view = new views::View();
@@ -508,7 +505,7 @@ void NotifierSettingsView::UpdateContentsView(
 
   views::Label* top_label =
       new views::Label(l10n_util::GetStringUTF16(top_label_resource_id));
-  top_label->SetBorder(views::Border::CreateEmptyBorder(
+  top_label->SetBorder(views::CreateEmptyBorder(
       gfx::Insets(0, kTitleMargin - settings::kHorizontalMargin)));
   top_label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
   top_label->SetMultiLine(true);
@@ -530,8 +527,7 @@ void NotifierSettingsView::UpdateContentsView(
                       views::LabelButton::STYLE_TEXTBUTTON)
                       .left() -
                   notifier_group_combobox_->border()->GetInsets().left();
-    combobox_spacer->SetBorder(
-        views::Border::CreateEmptyBorder(0, padding, 0, 0));
+    combobox_spacer->SetBorder(views::CreateEmptyBorder(0, padding, 0, 0));
     combobox_spacer->AddChildView(notifier_group_combobox_);
 
     contents_title_view->AddChildView(combobox_spacer);
@@ -541,22 +537,20 @@ void NotifierSettingsView::UpdateContentsView(
 
   size_t notifier_count = notifiers.size();
   for (size_t i = 0; i < notifier_count; ++i) {
-    NotifierButton* button = new NotifierButton(provider_, notifiers[i], this);
+    NotifierButton* button =
+        new NotifierButton(provider_, std::move(notifiers[i]), this);
     EntryView* entry = new EntryView(button);
 
     // This code emulates separators using borders.  We will create an invisible
     // border on the last notifier, as the spec leaves a space for it.
     std::unique_ptr<views::Border> entry_border;
     if (i == notifier_count - 1) {
-      entry_border = views::Border::CreateEmptyBorder(
-          0, 0, settings::kEntrySeparatorHeight, 0);
+      entry_border =
+          views::CreateEmptyBorder(0, 0, settings::kEntrySeparatorHeight, 0);
     } else {
       entry_border =
-          views::Border::CreateSolidSidedBorder(0,
-                                                0,
-                                                settings::kEntrySeparatorHeight,
-                                                0,
-                                                settings::kEntrySeparatorColor);
+          views::CreateSolidSidedBorder(0, 0, settings::kEntrySeparatorHeight,
+                                        0, settings::kEntrySeparatorColor);
     }
     entry->SetBorder(std::move(entry_border));
     entry->SetFocusBehavior(FocusBehavior::ALWAYS);
@@ -578,7 +572,7 @@ void NotifierSettingsView::Layout() {
   int content_width = width();
   int content_height = contents_view->GetHeightForWidth(content_width);
   if (title_height + content_height > height()) {
-    content_width -= scroller_->GetScrollBarWidth();
+    content_width -= scroller_->GetScrollBarLayoutWidth();
     content_height = contents_view->GetHeightForWidth(content_width);
   }
   contents_view->SetBounds(0, 0, content_width, content_height);
@@ -590,7 +584,7 @@ gfx::Size NotifierSettingsView::GetMinimumSize() const {
   int total_height = title_label_->GetPreferredSize().height() +
                      scroller_->contents()->GetPreferredSize().height();
   if (total_height > kMinimumHeight)
-    size.Enlarge(scroller_->GetScrollBarWidth(), 0);
+    size.Enlarge(scroller_->GetScrollBarLayoutWidth(), 0);
   return size;
 }
 

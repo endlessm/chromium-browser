@@ -7,6 +7,7 @@
 
 namespace ash {
 
+// See ui/aura/client/aura_constants.h for some more detailed descriptions.
 enum class WmWindowProperty {
   // Not a valid property; used for property key translation purposes.
   INVALID_PROPERTY,
@@ -14,14 +15,20 @@ enum class WmWindowProperty {
   // Type bool.
   ALWAYS_ON_TOP,
 
-  // Type bool. See aura::client:kExcludeFromMruKey for details.
-  EXCLUDE_FROM_MRU,
+  // Type ImageSkia.
+  APP_ICON,
+
+  // Type std::string.
+  APP_ID,
+
+  // Type bool.
+  DRAW_ATTENTION,
 
   // Type int, but cast to ui::ModalType.
   MODAL_TYPE,
 
-  // Type int.
-  SHELF_ICON_RESOURCE_ID,
+  // Type bool. See ash::kPanelAttachedKey for details.
+  PANEL_ATTACHED,
 
   // Type int.
   SHELF_ID,
@@ -37,6 +44,9 @@ enum class WmWindowProperty {
 
   // Type int. See aura::client::kTopViewInset for details.
   TOP_VIEW_INSET,
+
+  // Type ImageSkia.
+  WINDOW_ICON,
 };
 
 }  // namespace ash

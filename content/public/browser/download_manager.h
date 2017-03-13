@@ -43,17 +43,11 @@
 
 class GURL;
 
-namespace url {
-class Origin;
-}
-
 namespace content {
 
 class BrowserContext;
 class ByteStreamReader;
 class DownloadManagerDelegate;
-class DownloadQuery;
-class DownloadRequestHandle;
 struct DownloadCreateInfo;
 
 // Browser's download manager: manages all downloads and destination view.
@@ -121,10 +115,6 @@ class CONTENT_EXPORT DownloadManager : public base::SupportsUserData::Data {
       const base::Callback<bool(const GURL&)>& url_filter,
       base::Time remove_begin,
       base::Time remove_end) = 0;
-
-  // Remove all downloads will delete all downloads. The number of downloads
-  // deleted is returned back to the caller.
-  virtual int RemoveAllDownloads() = 0;
 
   // See DownloadUrlParameters for details about controlling the download.
   virtual void DownloadUrl(

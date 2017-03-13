@@ -20,8 +20,9 @@
 #include "content/public/browser/web_ui.h"
 #include "content/public/browser/web_ui_data_source.h"
 #include "content/public/browser/web_ui_message_handler.h"
+#include "extensions/features/features.h"
 
-#if defined(ENABLE_EXTENSIONS)
+#if BUILDFLAG(ENABLE_EXTENSIONS)
 #include "extensions/browser/extension_registry_observer.h"
 #endif
 
@@ -30,11 +31,11 @@ struct PolicyStringMap {
   int string_id;
 };
 
-class CloudPolicyStatusProvider;
+class PolicyStatusProvider;
 
 // The JavaScript message handler for the chrome://policy page.
 class PolicyUIHandler : public content::WebUIMessageHandler,
-#if defined(ENABLE_EXTENSIONS)
+#if BUILDFLAG(ENABLE_EXTENSIONS)
                         public extensions::ExtensionRegistryObserver,
 #endif
                         public policy::PolicyService::Observer,
@@ -54,7 +55,7 @@ class PolicyUIHandler : public content::WebUIMessageHandler,
   // content::WebUIMessageHandler implementation.
   void RegisterMessages() override;
 
-#if defined(ENABLE_EXTENSIONS)
+#if BUILDFLAG(ENABLE_EXTENSIONS)
   // extensions::ExtensionRegistryObserver implementation.
   void OnExtensionLoaded(content::BrowserContext* browser_context,
                          const extensions::Extension* extension) override;
@@ -110,8 +111,8 @@ class PolicyUIHandler : public content::WebUIMessageHandler,
   // Providers that supply status dictionaries for user and device policy,
   // respectively. These are created on initialization time as appropriate for
   // the platform (Chrome OS / desktop) and type of policy that is in effect.
-  std::unique_ptr<CloudPolicyStatusProvider> user_status_provider_;
-  std::unique_ptr<CloudPolicyStatusProvider> device_status_provider_;
+  std::unique_ptr<PolicyStatusProvider> user_status_provider_;
+  std::unique_ptr<PolicyStatusProvider> device_status_provider_;
 
   base::WeakPtrFactory<PolicyUIHandler> weak_factory_;
 

@@ -27,8 +27,8 @@ import time
 import unittest
 import urllib
 
-from chromite.cbuildbot import config_lib
-from chromite.cbuildbot import constants
+from chromite.lib import config_lib
+from chromite.lib import constants
 from chromite.lib import cidb
 from chromite.lib import commandline
 from chromite.lib import cros_build_lib
@@ -963,6 +963,11 @@ class TempDirTestCase(TestCase):
       self._tempdir_obj.Cleanup()
       self._tempdir_obj = None
       self.tempdir = None
+
+  def ExpectRootOwnedFiles(self):
+    """Tells us that we may need to clean up root owned files."""
+    if self._tempdir_obj is not None:
+      self._tempdir_obj.SetSudoRm()
 
   def assertFileContents(self, file_path, content):
     """Assert that the file contains the given content."""

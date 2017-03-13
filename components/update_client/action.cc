@@ -17,6 +17,7 @@
 #include "components/update_client/action_update.h"
 #include "components/update_client/action_wait.h"
 #include "components/update_client/configurator.h"
+#include "components/update_client/update_client_errors.h"
 #include "components/update_client/update_engine.h"
 #include "components/update_client/utils.h"
 
@@ -43,7 +44,7 @@ ActionImpl::~ActionImpl() {
   DCHECK(thread_checker_.CalledOnValidThread());
 }
 
-void ActionImpl::Run(UpdateContext* update_context, Action::Callback callback) {
+void ActionImpl::Run(UpdateContext* update_context, Callback callback) {
   DCHECK(thread_checker_.CalledOnValidThread());
 
   update_context_ = update_context;
@@ -53,12 +54,9 @@ void ActionImpl::Run(UpdateContext* update_context, Action::Callback callback) {
 CrxUpdateItem* ActionImpl::FindUpdateItemById(const std::string& id) const {
   DCHECK(thread_checker_.CalledOnValidThread());
 
-  const auto it(std::find_if(
-      update_context_->update_items.begin(),
-      update_context_->update_items.end(),
-      [&id](const CrxUpdateItem* item) { return item->id == id; }));
+  const auto it = update_context_->update_items.find(id);
 
-  return it != update_context_->update_items.end() ? *it : nullptr;
+  return it != update_context_->update_items.end() ? it->second.get() : nullptr;
 }
 
 void ActionImpl::ChangeItemState(CrxUpdateItem* item, CrxUpdateItem::State to) {
@@ -102,9 +100,9 @@ size_t ActionImpl::ChangeAllItemsState(CrxUpdateItem::State from,
                                        CrxUpdateItem::State to) {
   DCHECK(thread_checker_.CalledOnValidThread());
   size_t count = 0;
-  for (auto* item : update_context_->update_items) {
-    if (item->state == from) {
-      ChangeItemState(item, to);
+  for (const auto& item : update_context_->update_items) {
+    if (item.second->state == from) {
+      ChangeItemState(item.second.get(), to);
       ++count;
     }
   }
@@ -129,10 +127,8 @@ void ActionImpl::UpdateCrx() {
 
   if (item->component.supports_group_policy_enable_component_updates &&
       !update_context_->enabled_component_updates) {
-    item->error_category =
-        static_cast<int>(Action::ErrorCategory::kServiceError);
-    item->error_code =
-        static_cast<int>(Action::ServiceError::ERROR_UPDATE_DISABLED);
+    item->error_category = static_cast<int>(ErrorCategory::kServiceError);
+    item->error_code = static_cast<int>(ServiceError::UPDATE_DISABLED);
     item->extra_code1 = 0;
     ChangeItemState(item, CrxUpdateItem::State::kNoUpdate);
 
@@ -149,7 +145,7 @@ void ActionImpl::UpdateCrx() {
       FROM_HERE, base::Bind(&Action::Run, base::Unretained(update_action.get()),
                             update_context_, callback_));
 
-  update_context_->current_action.reset(update_action.release());
+  update_context_->current_action = std::move(update_action);
 }
 
 void ActionImpl::UpdateCrxComplete(CrxUpdateItem* item) {
@@ -161,7 +157,7 @@ void ActionImpl::UpdateCrxComplete(CrxUpdateItem* item) {
   update_context_->queue.pop();
 
   if (update_context_->queue.empty()) {
-    UpdateComplete(0);
+    UpdateComplete(Error::NONE);
   } else {
     DCHECK(!item->update_begin.is_null());
 
@@ -181,11 +177,11 @@ void ActionImpl::UpdateCrxComplete(CrxUpdateItem* item) {
         FROM_HERE, base::Bind(&Action::Run, base::Unretained(action_wait.get()),
                               update_context_, callback_));
 
-    update_context_->current_action.reset(action_wait.release());
+    update_context_->current_action = std::move(action_wait);
   }
 }
 
-void ActionImpl::UpdateComplete(int error) {
+void ActionImpl::UpdateComplete(Error error) {
   DCHECK(thread_checker_.CalledOnValidThread());
 
   base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE,

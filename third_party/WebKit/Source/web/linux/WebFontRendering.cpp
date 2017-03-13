@@ -41,9 +41,8 @@ using blink::FontPlatformData;
 namespace blink {
 
 // static
-void WebFontRendering::setSkiaFontManager(SkFontMgr* fontMgr) {
-  WTF::adopted(fontMgr);
-  FontCache::setFontManager(sk_ref_sp(fontMgr));
+void WebFontRendering::setSkiaFontManager(sk_sp<SkFontMgr> fontMgr) {
+  FontCache::setFontManager(std::move(fontMgr));
 }
 
 // static
@@ -79,6 +78,11 @@ void WebFontRendering::setSubpixelPositioning(bool useSubpixelPositioning) {
 // static
 void WebFontRendering::setDefaultFontSize(int size) {
   LayoutThemeFontProvider::setDefaultFontSize(size);
+}
+
+// static
+void WebFontRendering::setSystemFontFamily(const WebString& name) {
+  FontCache::setSystemFontFamily(name);
 }
 
 }  // namespace blink

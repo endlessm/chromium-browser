@@ -14,6 +14,7 @@
 #include "base/files/file_util.h"
 #include "base/location.h"
 #include "base/logging.h"
+#include "base/memory/ptr_util.h"
 #include "base/message_loop/message_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/task_runner.h"
@@ -187,8 +188,8 @@ void ScreenshotGrabber::NotifyScreenshotCompleted(
 #if defined(USE_AURA)
   cursor_hider_.reset();
 #endif
-  FOR_EACH_OBSERVER(ScreenshotGrabberObserver, observers_,
-                    OnScreenshotCompleted(screenshot_result, screenshot_path));
+  for (ScreenshotGrabberObserver& observer : observers_)
+    observer.OnScreenshotCompleted(screenshot_result, screenshot_path);
 }
 
 void ScreenshotGrabber::AddObserver(ScreenshotGrabberObserver* observer) {

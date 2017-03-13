@@ -10,8 +10,8 @@
 #include "cc/animation/animation_events.h"
 #include "cc/animation/animation_host.h"
 #include "cc/animation/animation_timeline.h"
-#include "cc/animation/property_animation_state.h"
 #include "cc/animation/scroll_offset_animation_curve.h"
+#include "cc/trees/property_animation_state.h"
 
 namespace cc {
 
@@ -26,7 +26,9 @@ AnimationPlayer::AnimationPlayer(int id)
       animation_delegate_(),
       id_(id),
       needs_push_properties_(false),
-      needs_to_start_animations_(false) {
+      needs_to_start_animations_(false),
+      is_ticking_(false),
+      scroll_offset_animation_was_interrupted_(false) {
   DCHECK(id_);
 }
 
@@ -137,7 +139,7 @@ void AnimationPlayer::AnimationAdded() {
   SetNeedsCommit();
   needs_to_start_animations_ = true;
 
-  element_animations_->UpdateActivationNormal();
+  UpdateTickingState(UpdateTickingType::NORMAL);
   element_animations_->UpdateClientAnimationState();
 }
 
@@ -172,7 +174,7 @@ void AnimationPlayer::RemoveAnimation(int animation_id) {
   for (auto it = animations_to_remove; it != animations_.end(); ++it) {
     if ((*it)->target_property() == TargetProperty::SCROLL_OFFSET) {
       if (element_animations_)
-        element_animations_->SetScrollOffsetAnimationWasInterrupted();
+        scroll_offset_animation_was_interrupted_ = true;
     } else if (!(*it)->is_finished()) {
       animation_removed = true;
     }
@@ -181,7 +183,7 @@ void AnimationPlayer::RemoveAnimation(int animation_id) {
   animations_.erase(animations_to_remove, animations_.end());
 
   if (element_animations_) {
-    element_animations_->UpdateActivationNormal();
+    UpdateTickingState(UpdateTickingType::NORMAL);
     if (animation_removed)
       element_animations_->UpdateClientAnimationState();
     SetNeedsCommit();
@@ -259,6 +261,76 @@ void AnimationPlayer::PushPropertiesTo(AnimationPlayer* player_impl) {
   RemoveAnimationsCompletedOnMainThread(player_impl);
 
   PushPropertiesToImplThread(player_impl);
+
+  player_impl->UpdateTickingState(UpdateTickingType::NORMAL);
+}
+
+void AnimationPlayer::Tick(base::TimeTicks monotonic_time) {
+  DCHECK(!monotonic_time.is_null());
+  DCHECK(element_animations_);
+
+  if (!element_animations_->has_element_in_any_list())
+    return;
+
+  if (needs_to_start_animations())
+    StartAnimations(monotonic_time);
+
+  TickAnimations(monotonic_time);
+
+  last_tick_time_ = monotonic_time;
+  element_animations_->UpdateClientAnimationState();
+}
+
+void AnimationPlayer::UpdateState(bool start_ready_animations,
+                                  AnimationEvents* events) {
+  DCHECK(element_animations_);
+  if (!element_animations_->has_element_in_active_list())
+    return;
+
+  // Animate hasn't been called, this happens if an element has been added
+  // between the Commit and Draw phases.
+  if (last_tick_time_ == base::TimeTicks())
+    return;
+
+  if (start_ready_animations)
+    PromoteStartedAnimations(last_tick_time_, events);
+
+  MarkFinishedAnimations(last_tick_time_);
+  MarkAnimationsForDeletion(last_tick_time_, events);
+
+  if (start_ready_animations) {
+    if (needs_to_start_animations()) {
+      StartAnimations(last_tick_time_);
+      PromoteStartedAnimations(last_tick_time_, events);
+    }
+  }
+
+  UpdateTickingState(UpdateTickingType::NORMAL);
+}
+
+void AnimationPlayer::UpdateTickingState(UpdateTickingType type) {
+  bool force = type == UpdateTickingType::FORCE;
+  if (animation_host_) {
+    bool was_ticking = is_ticking_;
+    is_ticking_ = HasNonDeletedAnimation();
+
+    bool has_element_in_any_list =
+        element_animations_->has_element_in_any_list();
+
+    if (is_ticking_ && ((!was_ticking && has_element_in_any_list) || force)) {
+      animation_host_->AddToTicking(this);
+    } else if (!is_ticking_ && (was_ticking || force)) {
+      RemoveFromTicking();
+    }
+  }
+}
+
+void AnimationPlayer::RemoveFromTicking() {
+  DCHECK(animation_host_);
+  // Resetting last_tick_time_ here ensures that calling ::UpdateState
+  // before ::Animate doesn't start an animation.
+  last_tick_time_ = base::TimeTicks();
+  animation_host_->RemoveFromTicking(this);
 }
 
 bool AnimationPlayer::NotifyAnimationStarted(const AnimationEvent& event) {
@@ -360,7 +432,7 @@ void AnimationPlayer::SetNeedsPushProperties() {
   element_animations_->SetNeedsPushProperties();
 }
 
-bool AnimationPlayer::HasActiveAnimation() const {
+bool AnimationPlayer::HasTickingAnimation() const {
   for (size_t i = 0; i < animations_.size(); ++i) {
     if (!animations_[i]->is_finished())
       return true;
@@ -749,6 +821,9 @@ void AnimationPlayer::ActivateAnimations() {
 
   if (animation_activated)
     element_animations_->UpdateClientAnimationState();
+
+  scroll_offset_animation_was_interrupted_ = false;
+  UpdateTickingState(UpdateTickingType::NORMAL);
 }
 
 bool AnimationPlayer::HasFilterAnimationThatInflatesBounds() const {
@@ -1035,8 +1110,8 @@ void AnimationPlayer::PurgeAnimationsMarkedForDeletion() {
 
 void AnimationPlayer::PushNewAnimationsToImplThread(
     AnimationPlayer* animation_player_impl) const {
-  // Any new animations owned by the main thread's ElementAnimations are cloned
-  // and added to the impl thread's ElementAnimations.
+  // Any new animations owned by the main thread's AnimationPlayer are cloned
+  // and added to the impl thread's AnimationPlayer.
   for (size_t i = 0; i < animations_.size(); ++i) {
     // If the animation is already running on the impl thread, there is no
     // need to copy it over.
@@ -1118,6 +1193,10 @@ void AnimationPlayer::PushPropertiesToImplThread(
     if (current_impl)
       animations_[i]->PushPropertiesTo(current_impl);
   }
+
+  animation_player_impl->scroll_offset_animation_was_interrupted_ =
+      scroll_offset_animation_was_interrupted_;
+  scroll_offset_animation_was_interrupted_ = false;
 }
 
 }  // namespace cc

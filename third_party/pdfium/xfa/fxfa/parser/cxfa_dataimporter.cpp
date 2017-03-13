@@ -9,6 +9,7 @@
 #include <memory>
 
 #include "core/fxcrt/fx_stream.h"
+#include "third_party/base/ptr_util.h"
 #include "xfa/fde/xml/fde_xml_imp.h"
 #include "xfa/fxfa/fxfa.h"
 #include "xfa/fxfa/fxfa_basic.h"
@@ -21,24 +22,25 @@ CXFA_DataImporter::CXFA_DataImporter(CXFA_Document* pDocument)
   ASSERT(m_pDocument);
 }
 
-FX_BOOL CXFA_DataImporter::ImportData(IFX_FileRead* pDataDocument) {
-  std::unique_ptr<CXFA_SimpleParser> pDataDocumentParser(
-      new CXFA_SimpleParser(m_pDocument, false));
+bool CXFA_DataImporter::ImportData(
+    const CFX_RetainPtr<IFX_SeekableReadStream>& pDataDocument) {
+  auto pDataDocumentParser =
+      pdfium::MakeUnique<CXFA_SimpleParser>(m_pDocument, false);
   if (pDataDocumentParser->StartParse(pDataDocument, XFA_XDPPACKET_Datasets) !=
       XFA_PARSESTATUS_Ready) {
-    return FALSE;
+    return false;
   }
   if (pDataDocumentParser->DoParse(nullptr) < XFA_PARSESTATUS_Done)
-    return FALSE;
+    return false;
 
   CXFA_Node* pImportDataRoot = pDataDocumentParser->GetRootNode();
   if (!pImportDataRoot)
-    return FALSE;
+    return false;
 
   CXFA_Node* pDataModel =
       ToNode(m_pDocument->GetXFAObject(XFA_HASHCODE_Datasets));
   if (!pDataModel)
-    return FALSE;
+    return false;
 
   CXFA_Node* pDataNode = ToNode(m_pDocument->GetXFAObject(XFA_HASHCODE_Data));
   if (pDataNode)
@@ -57,6 +59,6 @@ FX_BOOL CXFA_DataImporter::ImportData(IFX_FileRead* pDataDocument) {
       pParentXMLNode->RemoveChildNode(pXMLNode);
     pDataModel->InsertChild(pImportDataRoot);
   }
-  m_pDocument->DoDataRemerge(FALSE);
-  return TRUE;
+  m_pDocument->DoDataRemerge(false);
+  return true;
 }

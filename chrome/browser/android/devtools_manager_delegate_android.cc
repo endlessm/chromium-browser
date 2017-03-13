@@ -13,7 +13,6 @@
 #include "chrome/browser/devtools/devtools_network_protocol_handler.h"
 #include "chrome/browser/ui/android/tab_model/tab_model.h"
 #include "chrome/browser/ui/android/tab_model/tab_model_list.h"
-#include "chrome/common/features.h"
 #include "chrome/grit/browser_resources.h"
 #include "content/public/browser/devtools_agent_host.h"
 #include "content/public/browser/devtools_agent_host_client.h"
@@ -160,9 +159,11 @@ class TabProxyDelegate : public content::DevToolsExternalAgentProxyDelegate,
 
 DevToolsManagerDelegateAndroid::DevToolsManagerDelegateAndroid()
     : network_protocol_handler_(new DevToolsNetworkProtocolHandler()) {
+  content::DevToolsAgentHost::AddObserver(this);
 }
 
 DevToolsManagerDelegateAndroid::~DevToolsManagerDelegateAndroid() {
+  content::DevToolsAgentHost::RemoveObserver(this);
 }
 
 base::DictionaryValue* DevToolsManagerDelegateAndroid::HandleCommand(
@@ -191,7 +192,7 @@ std::string DevToolsManagerDelegateAndroid::GetTargetTitle(
 
 bool DevToolsManagerDelegateAndroid::DiscoverTargets(
       const DevToolsAgentHost::DiscoveryCallback& callback) {
-#if BUILDFLAG(ANDROID_JAVA_UI)
+#if defined(OS_ANDROID)
   // Enumerate existing tabs, including the ones with no WebContents.
   DevToolsAgentHost::List result;
   std::set<WebContents*> tab_web_contents;
@@ -229,7 +230,7 @@ bool DevToolsManagerDelegateAndroid::DiscoverTargets(
   return true;
 #else
   return false;
-#endif  // BUILDFLAG(ANDROID_JAVA_UI)
+#endif  // defined(OS_ANDROID)
 }
 
 scoped_refptr<DevToolsAgentHost>
@@ -259,7 +260,12 @@ std::string DevToolsManagerDelegateAndroid::GetDiscoveryPageHTML() {
       IDR_DEVTOOLS_DISCOVERY_PAGE_HTML).as_string();
 }
 
-void DevToolsManagerDelegateAndroid::DevToolsAgentStateChanged(
-    DevToolsAgentHost* agent_host, bool attached) {
-  network_protocol_handler_->DevToolsAgentStateChanged(agent_host, attached);
+void DevToolsManagerDelegateAndroid::DevToolsAgentHostAttached(
+    content::DevToolsAgentHost* agent_host) {
+  network_protocol_handler_->DevToolsAgentStateChanged(agent_host, true);
+}
+
+void DevToolsManagerDelegateAndroid::DevToolsAgentHostDetached(
+    content::DevToolsAgentHost* agent_host) {
+  network_protocol_handler_->DevToolsAgentStateChanged(agent_host, false);
 }

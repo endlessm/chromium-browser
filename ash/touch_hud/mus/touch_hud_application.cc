@@ -4,17 +4,20 @@
 
 #include "ash/touch_hud/mus/touch_hud_application.h"
 
-#include "ash/public/interfaces/container.mojom.h"
+#include "ash/public/cpp/shell_window_ids.h"
 #include "ash/touch_hud/touch_hud_renderer.h"
 #include "base/macros.h"
+#include "base/memory/ptr_util.h"
 #include "base/strings/utf_string_conversions.h"
-#include "services/shell/public/cpp/connector.h"
+#include "services/service_manager/public/cpp/connector.h"
+#include "services/service_manager/public/cpp/interface_registry.h"
+#include "services/service_manager/public/cpp/service_context.h"
 #include "services/ui/public/cpp/property_type_converters.h"
 #include "services/ui/public/interfaces/window_manager_constants.mojom.h"
+#include "ui/aura/mus/property_converter.h"
 #include "ui/views/mus/aura_init.h"
-#include "ui/views/mus/native_widget_mus.h"
+#include "ui/views/mus/mus_client.h"
 #include "ui/views/mus/pointer_watcher_event_router.h"
-#include "ui/views/mus/window_manager_connection.h"
 #include "ui/views/pointer_watcher.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_delegate.h"
@@ -23,20 +26,19 @@ namespace ash {
 namespace touch_hud {
 
 // TouchHudUI handles events on the widget of the touch-hud app. After
-// receiving touch events from ui::WindowManagerConnection, it calls
-// ash::TouchHudRenderer to draw out touch points.
+// receiving touch events from PointerWatcher, it calls ash::TouchHudRenderer to
+// draw the touch points.
 class TouchHudUI : public views::WidgetDelegateView,
                    public views::PointerWatcher {
  public:
-  TouchHudUI(views::WindowManagerConnection* window_manager_connection,
-             views::Widget* widget)
-      : window_manager_connection_(window_manager_connection),
-        touch_hud_renderer_(new TouchHudRenderer(widget)) {
-    window_manager_connection_->pointer_watcher_event_router()
-        ->AddPointerWatcher(this, true /* want_moves */);
+  explicit TouchHudUI(views::Widget* widget)
+      : touch_hud_renderer_(new TouchHudRenderer(widget)) {
+    views::MusClient::Get()->pointer_watcher_event_router()->AddPointerWatcher(
+        this, true /* want_moves */);
   }
   ~TouchHudUI() override {
-    window_manager_connection_->pointer_watcher_event_router()
+    views::MusClient::Get()
+        ->pointer_watcher_event_router()
         ->RemovePointerWatcher(this);
   }
 
@@ -55,7 +57,6 @@ class TouchHudUI : public views::WidgetDelegateView,
       touch_hud_renderer_->HandleTouchEvent(event);
   }
 
-  views::WindowManagerConnection* window_manager_connection_;
   TouchHudRenderer* touch_hud_renderer_;
 
   DISALLOW_COPY_AND_ASSIGN(TouchHudUI);
@@ -64,14 +65,15 @@ class TouchHudUI : public views::WidgetDelegateView,
 TouchHudApplication::TouchHudApplication() : binding_(this) {}
 TouchHudApplication::~TouchHudApplication() {}
 
-void TouchHudApplication::OnStart(const shell::Identity& identity) {
-  aura_init_.reset(new views::AuraInit(connector(), "views_mus_resources.pak"));
-  window_manager_connection_ =
-      views::WindowManagerConnection::Create(connector(), identity);
+void TouchHudApplication::OnStart() {
+  aura_init_ = base::MakeUnique<views::AuraInit>(
+      context()->connector(), context()->identity(), "views_mus_resources.pak",
+      std::string(), nullptr, views::AuraInit::Mode::AURA_MUS);
 }
 
-bool TouchHudApplication::OnConnect(const shell::Identity& remote_identity,
-                                    shell::InterfaceRegistry* registry) {
+bool TouchHudApplication::OnConnect(
+    const service_manager::ServiceInfo& remote_info,
+    service_manager::InterfaceRegistry* registry) {
   registry->AddInterface<mash::mojom::Launchable>(this);
   return true;
 }
@@ -84,19 +86,11 @@ void TouchHudApplication::Launch(uint32_t what, mash::mojom::LaunchMode how) {
     params.opacity = views::Widget::InitParams::TRANSLUCENT_WINDOW;
     params.activatable = views::Widget::InitParams::ACTIVATABLE_NO;
     params.accept_events = false;
-    params.delegate = new TouchHudUI(window_manager_connection_.get(), widget_);
-
-    std::map<std::string, std::vector<uint8_t>> properties;
-    properties[ash::mojom::kWindowContainer_Property] =
+    params.delegate = new TouchHudUI(widget_);
+    params.mus_properties[ui::mojom::WindowManager::kContainerId_InitProperty] =
         mojo::ConvertTo<std::vector<uint8_t>>(
-            static_cast<int32_t>(ash::mojom::Container::OVERLAY));
-    properties[ui::mojom::WindowManager::kShowState_Property] =
-        mojo::ConvertTo<std::vector<uint8_t>>(
-            static_cast<int32_t>(ui::mojom::ShowState::FULLSCREEN));
-    ui::Window* window =
-        window_manager_connection_.get()->NewWindow(properties);
-    params.native_widget = new views::NativeWidgetMus(
-        widget_, window, ui::mojom::SurfaceType::DEFAULT);
+            ash::kShellWindowId_OverlayContainer);
+    params.show_state = ui::SHOW_STATE_FULLSCREEN;
     widget_->Init(params);
     widget_->Show();
   } else {
@@ -105,8 +99,9 @@ void TouchHudApplication::Launch(uint32_t what, mash::mojom::LaunchMode how) {
   }
 }
 
-void TouchHudApplication::Create(const shell::Identity& remote_identity,
-                                 mash::mojom::LaunchableRequest request) {
+void TouchHudApplication::Create(
+    const service_manager::Identity& remote_identity,
+    mash::mojom::LaunchableRequest request) {
   binding_.Close();
   binding_.Bind(std::move(request));
 }

@@ -39,6 +39,7 @@
 #include "ui/compositor/dip_util.h"
 #include "ui/compositor/layer.h"
 #include "ui/compositor/layer_animator_collection.h"
+#include "ui/compositor/scoped_animation_duration_scale_mode.h"
 #include "ui/gl/gl_switches.h"
 
 namespace {
@@ -71,9 +72,12 @@ void CompositorLock::CancelLock() {
   compositor_ = NULL;
 }
 
-Compositor::Compositor(ui::ContextFactory* context_factory,
+Compositor::Compositor(const cc::FrameSinkId& frame_sink_id,
+                       ui::ContextFactory* context_factory,
+                       ui::ContextFactoryPrivate* context_factory_private,
                        scoped_refptr<base::SingleThreadTaskRunner> task_runner)
     : context_factory_(context_factory),
+      context_factory_private_(context_factory_private),
       root_layer_(NULL),
       widget_(gfx::kNullAcceleratedWidget),
 #if defined(USE_AURA)
@@ -81,7 +85,7 @@ Compositor::Compositor(ui::ContextFactory* context_factory,
 #endif
       widget_valid_(false),
       compositor_frame_sink_requested_(false),
-      frame_sink_id_(context_factory->AllocateFrameSinkId()),
+      frame_sink_id_(frame_sink_id),
       task_runner_(task_runner),
       vsync_manager_(new CompositorVSyncManager()),
       device_scale_factor_(0.0f),
@@ -89,7 +93,10 @@ Compositor::Compositor(ui::ContextFactory* context_factory,
       compositor_lock_(NULL),
       layer_animator_collection_(this),
       weak_ptr_factory_(this) {
-  context_factory->GetSurfaceManager()->RegisterFrameSinkId(frame_sink_id_);
+  if (context_factory_private) {
+    context_factory_private->GetSurfaceManager()->RegisterFrameSinkId(
+        frame_sink_id_);
+  }
   root_web_layer_ = cc::Layer::Create();
 
   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
@@ -125,6 +132,8 @@ Compositor::Compositor(ui::ContextFactory* context_factory,
 #endif
   settings.renderer_settings.gl_composited_texture_quad_border =
       command_line->HasSwitch(cc::switches::kGlCompositedTextureQuadBorder);
+  settings.renderer_settings.show_overdraw_feedback =
+      command_line->HasSwitch(cc::switches::kShowOverdrawFeedback);
 
   // These flags should be mirrored by renderer versions in content/renderer/.
   settings.initial_debug_state.show_debug_borders =
@@ -154,7 +163,8 @@ Compositor::Compositor(ui::ContextFactory* context_factory,
       command_line->HasSwitch(cc::switches::kUIEnableLayerLists);
 
   settings.enable_color_correct_rendering =
-      command_line->HasSwitch(cc::switches::kEnableColorCorrectRendering);
+      command_line->HasSwitch(cc::switches::kEnableColorCorrectRendering) ||
+      command_line->HasSwitch(cc::switches::kEnableTrueColorRendering);
 
   // UI compositor always uses partial raster if not using zero-copy. Zero copy
   // doesn't currently support partial raster.
@@ -169,9 +179,8 @@ Compositor::Compositor(ui::ContextFactory* context_factory,
          ++format_idx) {
       gfx::BufferFormat format = static_cast<gfx::BufferFormat>(format_idx);
       uint32_t target = context_factory_->GetImageTextureTarget(format, usage);
-      settings.renderer_settings.buffer_to_texture_target_map.insert(
-          cc::BufferToTextureTargetMap::value_type(
-              cc::BufferToTextureTargetKey(usage, format), target));
+      settings.renderer_settings
+          .buffer_to_texture_target_map[std::make_pair(usage, format)] = target;
     }
   }
 
@@ -185,27 +194,30 @@ Compositor::Compositor(ui::ContextFactory* context_factory,
 
   base::TimeTicks before_create = base::TimeTicks::Now();
 
+  animation_host_ = cc::AnimationHost::CreateMainInstance();
+
   cc::LayerTreeHostInProcess::InitParams params;
   params.client = this;
-  params.shared_bitmap_manager = context_factory_->GetSharedBitmapManager();
-  params.gpu_memory_buffer_manager =
-      context_factory_->GetGpuMemoryBufferManager();
   params.task_graph_runner = context_factory_->GetTaskGraphRunner();
   params.settings = &settings;
   params.main_task_runner = task_runner_;
-  params.animation_host = cc::AnimationHost::CreateMainInstance();
+  params.mutator_host = animation_host_.get();
   host_ = cc::LayerTreeHostInProcess::CreateSingleThreaded(this, &params);
   UMA_HISTOGRAM_TIMES("GPU.CreateBrowserCompositor",
                       base::TimeTicks::Now() - before_create);
 
   animation_timeline_ =
       cc::AnimationTimeline::Create(cc::AnimationIdProvider::NextTimelineId());
-  host_->GetLayerTree()->animation_host()->AddAnimationTimeline(
-      animation_timeline_.get());
+  animation_host_->AddAnimationTimeline(animation_timeline_.get());
 
   host_->GetLayerTree()->SetRootLayer(root_web_layer_);
   host_->SetFrameSinkId(frame_sink_id_);
   host_->SetVisible(true);
+
+  if (command_line->HasSwitch(switches::kUISlowAnimations)) {
+    slow_animations_ = base::MakeUnique<ScopedAnimationDurationScaleMode>(
+        ScopedAnimationDurationScaleMode::SLOW_DURATION);
+  }
 }
 
 Compositor::~Compositor() {
@@ -214,43 +226,48 @@ Compositor::~Compositor() {
   CancelCompositorLock();
   DCHECK(!compositor_lock_);
 
-  FOR_EACH_OBSERVER(CompositorObserver, observer_list_,
-                    OnCompositingShuttingDown(this));
+  for (auto& observer : observer_list_)
+    observer.OnCompositingShuttingDown(this);
 
-  FOR_EACH_OBSERVER(CompositorAnimationObserver, animation_observer_list_,
-                    OnCompositingShuttingDown(this));
+  for (auto& observer : animation_observer_list_)
+    observer.OnCompositingShuttingDown(this);
 
   if (root_layer_)
     root_layer_->ResetCompositor();
 
   if (animation_timeline_)
-    host_->GetLayerTree()->animation_host()->RemoveAnimationTimeline(
-        animation_timeline_.get());
+    animation_host_->RemoveAnimationTimeline(animation_timeline_.get());
 
   // Stop all outstanding draws before telling the ContextFactory to tear
   // down any contexts that the |host_| may rely upon.
   host_.reset();
 
   context_factory_->RemoveCompositor(this);
-  auto* manager = context_factory_->GetSurfaceManager();
-  for (auto& client : child_frame_sinks_) {
-    DCHECK(!client.is_null());
-    manager->UnregisterFrameSinkHierarchy(frame_sink_id_, client);
+  if (context_factory_private_) {
+    auto* manager = context_factory_private_->GetSurfaceManager();
+    for (auto& client : child_frame_sinks_) {
+      DCHECK(client.is_valid());
+      manager->UnregisterFrameSinkHierarchy(frame_sink_id_, client);
+    }
+    manager->InvalidateFrameSinkId(frame_sink_id_);
   }
-  manager->InvalidateFrameSinkId(frame_sink_id_);
 }
 
 void Compositor::AddFrameSink(const cc::FrameSinkId& frame_sink_id) {
-  context_factory_->GetSurfaceManager()->RegisterFrameSinkHierarchy(
+  if (!context_factory_private_)
+    return;
+  context_factory_private_->GetSurfaceManager()->RegisterFrameSinkHierarchy(
       frame_sink_id_, frame_sink_id);
   child_frame_sinks_.insert(frame_sink_id);
 }
 
 void Compositor::RemoveFrameSink(const cc::FrameSinkId& frame_sink_id) {
+  if (!context_factory_private_)
+    return;
   auto it = child_frame_sinks_.find(frame_sink_id);
   DCHECK(it != child_frame_sinks_.end());
-  DCHECK(!it->is_null());
-  context_factory_->GetSurfaceManager()->UnregisterFrameSinkHierarchy(
+  DCHECK(it->is_valid());
+  context_factory_private_->GetSurfaceManager()->UnregisterFrameSinkHierarchy(
       frame_sink_id_, *it);
   child_frame_sinks_.erase(it);
 }
@@ -261,8 +278,10 @@ void Compositor::SetCompositorFrameSink(
   host_->SetCompositorFrameSink(std::move(compositor_frame_sink));
   // Display properties are reset when the output surface is lost, so update it
   // to match the Compositor's.
-  context_factory_->SetDisplayVisible(this, host_->IsVisible());
-  context_factory_->SetDisplayColorSpace(this, color_space_);
+  if (context_factory_private_) {
+    context_factory_private_->SetDisplayVisible(this, host_->IsVisible());
+    context_factory_private_->SetDisplayColorSpace(this, color_space_);
+  }
 }
 
 void Compositor::ScheduleDraw() {
@@ -295,7 +314,8 @@ void Compositor::ScheduleFullRedraw() {
   // will also commit.  This should probably just redraw the screen
   // from damage and not commit.  ScheduleDraw/ScheduleRedraw need
   // better names.
-  host_->SetNeedsRedraw();
+  host_->SetNeedsRedrawRect(
+      gfx::Rect(host_->GetLayerTree()->device_viewport_size()));
   host_->SetNeedsCommit();
 }
 
@@ -306,7 +326,7 @@ void Compositor::ScheduleRedrawRect(const gfx::Rect& damage_rect) {
 }
 
 void Compositor::DisableSwapUntilResize() {
-  context_factory_->ResizeDisplay(this, gfx::Size());
+  context_factory_private_->ResizeDisplay(this, gfx::Size());
 }
 
 void Compositor::SetLatencyInfo(const ui::LatencyInfo& latency_info) {
@@ -321,7 +341,9 @@ void Compositor::SetScaleAndSize(float scale, const gfx::Size& size_in_pixel) {
     size_ = size_in_pixel;
     host_->GetLayerTree()->SetViewportSize(size_in_pixel);
     root_web_layer_->SetBounds(size_in_pixel);
-    context_factory_->ResizeDisplay(this, size_in_pixel);
+    // TODO(fsamuel): Get rid of ContextFactoryPrivate.
+    if (context_factory_private_)
+      context_factory_private_->ResizeDisplay(this, size_in_pixel);
   }
   if (device_scale_factor_ != scale) {
     device_scale_factor_ = scale;
@@ -336,7 +358,9 @@ void Compositor::SetDisplayColorSpace(const gfx::ColorSpace& color_space) {
   color_space_ = color_space;
   // Color space is reset when the output surface is lost, so this must also be
   // updated then.
-  context_factory_->SetDisplayColorSpace(this, color_space_);
+  // TODO(fsamuel): Get rid of this.
+  if (context_factory_private_)
+    context_factory_private_->SetDisplayColorSpace(this, color_space_);
 }
 
 void Compositor::SetBackgroundColor(SkColor color) {
@@ -348,7 +372,9 @@ void Compositor::SetVisible(bool visible) {
   host_->SetVisible(visible);
   // Visibility is reset when the output surface is lost, so this must also be
   // updated then.
-  context_factory_->SetDisplayVisible(this, visible);
+  // TODO(fsamuel): Eliminate this call.
+  if (context_factory_private_)
+    context_factory_private_->SetDisplayVisible(this, visible);
 }
 
 bool Compositor::IsVisible() {
@@ -366,13 +392,22 @@ bool Compositor::GetScrollOffsetForLayer(int layer_id,
 
 void Compositor::SetAuthoritativeVSyncInterval(
     const base::TimeDelta& interval) {
-  context_factory_->SetAuthoritativeVSyncInterval(this, interval);
+  if (context_factory_private_)
+    context_factory_private_->SetAuthoritativeVSyncInterval(this, interval);
   vsync_manager_->SetAuthoritativeVSyncInterval(interval);
 }
 
 void Compositor::SetDisplayVSyncParameters(base::TimeTicks timebase,
                                            base::TimeDelta interval) {
-  context_factory_->SetDisplayVSyncParameters(this, timebase, interval);
+  if (interval.is_zero()) {
+    // TODO(brianderson): We should not be receiving 0 intervals.
+    interval = cc::BeginFrameArgs::DefaultInterval();
+  }
+
+  if (context_factory_private_) {
+    context_factory_private_->SetDisplayVSyncParameters(this, timebase,
+                                                        interval);
+  }
   vsync_manager_->UpdateVSyncParameters(timebase, interval);
 }
 
@@ -406,7 +441,6 @@ void Compositor::SetWindow(ui::Window* window) {
 }
 
 ui::Window* Compositor::window() const {
-  DCHECK(window_);
   return window_;
 }
 #endif
@@ -443,9 +477,8 @@ bool Compositor::HasAnimationObserver(
 }
 
 void Compositor::BeginMainFrame(const cc::BeginFrameArgs& args) {
-  FOR_EACH_OBSERVER(CompositorAnimationObserver,
-                    animation_observer_list_,
-                    OnAnimationStep(args.frame_time));
+  for (auto& observer : animation_observer_list_)
+    observer.OnAnimationStep(args.frame_time);
   if (animation_observer_list_.might_have_observers())
     host_->SetNeedsAnimate();
 }
@@ -472,8 +505,6 @@ void Compositor::RequestNewCompositorFrameSink() {
     context_factory_->CreateCompositorFrameSink(weak_ptr_factory_.GetWeakPtr());
 }
 
-void Compositor::DidInitializeCompositorFrameSink() {}
-
 void Compositor::DidFailToInitializeCompositorFrameSink() {
   // The CompositorFrameSink should already be bound/initialized before being
   // given to
@@ -483,33 +514,24 @@ void Compositor::DidFailToInitializeCompositorFrameSink() {
 
 void Compositor::DidCommit() {
   DCHECK(!IsLocked());
-  FOR_EACH_OBSERVER(CompositorObserver,
-                    observer_list_,
-                    OnCompositingDidCommit(this));
+  for (auto& observer : observer_list_)
+    observer.OnCompositingDidCommit(this);
 }
 
-void Compositor::DidCommitAndDrawFrame() {
+void Compositor::DidReceiveCompositorFrameAck() {
+  for (auto& observer : observer_list_)
+    observer.OnCompositingEnded(this);
 }
 
-void Compositor::DidCompleteSwapBuffers() {
-  FOR_EACH_OBSERVER(CompositorObserver, observer_list_,
-                    OnCompositingEnded(this));
-}
-
-void Compositor::DidPostSwapBuffers() {
+void Compositor::DidSubmitCompositorFrame() {
   base::TimeTicks start_time = base::TimeTicks::Now();
-  FOR_EACH_OBSERVER(CompositorObserver, observer_list_,
-                    OnCompositingStarted(this, start_time));
-}
-
-void Compositor::DidAbortSwapBuffers() {
-  FOR_EACH_OBSERVER(CompositorObserver,
-                    observer_list_,
-                    OnCompositingAborted(this));
+  for (auto& observer : observer_list_)
+    observer.OnCompositingStarted(this, start_time);
 }
 
 void Compositor::SetOutputIsSecure(bool output_is_secure) {
-  context_factory_->SetOutputIsSecure(this, output_is_secure);
+  if (context_factory_private_)
+    context_factory_private_->SetOutputIsSecure(this, output_is_secure);
 }
 
 const cc::LayerTreeDebugState& Compositor::GetLayerTreeDebugState() const {
@@ -529,9 +551,8 @@ scoped_refptr<CompositorLock> Compositor::GetCompositorLock() {
   if (!compositor_lock_) {
     compositor_lock_ = new CompositorLock(this);
     host_->SetDeferCommits(true);
-    FOR_EACH_OBSERVER(CompositorObserver,
-                      observer_list_,
-                      OnCompositingLockStateChanged(this));
+    for (auto& observer : observer_list_)
+      observer.OnCompositingLockStateChanged(this);
   }
   return compositor_lock_;
 }
@@ -540,9 +561,8 @@ void Compositor::UnlockCompositor() {
   DCHECK(compositor_lock_);
   compositor_lock_ = NULL;
   host_->SetDeferCommits(false);
-  FOR_EACH_OBSERVER(CompositorObserver,
-                    observer_list_,
-                    OnCompositingLockStateChanged(this));
+  for (auto& observer : observer_list_)
+    observer.OnCompositingLockStateChanged(this);
 }
 
 void Compositor::CancelCompositorLock() {

@@ -16,6 +16,7 @@
 
 #include <openssl/bio.h>
 #include <openssl/dh.h>
+#include <openssl/err.h>
 #include <openssl/evp.h>
 #include <openssl/rand.h>
 #include <openssl/rsa.h>
@@ -239,6 +240,8 @@ struct GlobalState {
 
     SSL_CTX_set_alpn_select_cb(ctx, ALPNSelectCallback, nullptr);
     SSL_CTX_set_next_protos_advertised_cb(ctx, NPNAdvertiseCallback, nullptr);
+
+    SSL_CTX_set_short_header_enabled(ctx, 1);
   }
 
   ~GlobalState() {
@@ -250,7 +253,7 @@ struct GlobalState {
 
 static GlobalState g_state;
 
-extern "C" int LLVMFuzzerTestOneInput(uint8_t *buf, size_t len) {
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t *buf, size_t len) {
   RAND_reset_for_fuzzing();
 
   // TODO(davidben): Extract an SSL_SESSION from |buf| and preconfigure the
@@ -268,10 +271,10 @@ extern "C" int LLVMFuzzerTestOneInput(uint8_t *buf, size_t len) {
   SSL_set_bio(server, in, out);
   SSL_set_accept_state(server);
   SSL_set_max_version(server, TLS1_3_VERSION);
-  SSL_enable_tls_channel_id(server);
+  SSL_set_tls_channel_id_enabled(server, 1);
 
   // Enable ciphers that are off by default.
-  SSL_set_cipher_list(server, "ALL:kCECPQ1:NULL-SHA");
+  SSL_set_cipher_list(server, "ALL:NULL-SHA");
 
   DH *dh = DH_get_1024_160(nullptr);
   SSL_set_tmp_dh(server, dh);
@@ -289,5 +292,6 @@ extern "C" int LLVMFuzzerTestOneInput(uint8_t *buf, size_t len) {
   }
   SSL_free(server);
 
+  ERR_clear_error();
   return 0;
 }

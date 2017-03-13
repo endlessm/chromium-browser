@@ -100,29 +100,27 @@ def UpdateProductsProject(file_input, file_output, configurations):
       if 'IPHONEOS_DEPLOYMENT_TARGET' not in build_settings:
         build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '9.0'
 
-    # Remove path name key and change path to basename.
-    if isa == 'PBXFileReference':
-      if 'name' in value:
-        del value['name']
-      value['path'] = os.path.basename(value['path'])
-
     # Teach build shell script to look for the configuration and platform.
     if isa == 'PBXShellScriptBuildPhase':
       value['shellScript'] = value['shellScript'].replace(
           'ninja -C .',
           'ninja -C "../${CONFIGURATION}${EFFECTIVE_PLATFORM_NAME}"')
 
-    # Configure BUNDLE_LOADER and TEST_HOST for xctest target (assuming that
-    # the host is named "${target}_host") unless gn has already configured
-    # them.
+    # Configure BUNDLE_LOADER and TEST_HOST for xctest targets (if not yet
+    # configured by gn). Old convention was to name the test dynamic module
+    # "foo" and the host "foo_host" while the new convention is to name the
+    # test "foo_module" and the host "foo". Decide which convention to use
+    # by inspecting the target name.
     if isa == 'PBXNativeTarget' and value['productType'] == XCTEST_PRODUCT_TYPE:
       configuration_list = project.objects[value['buildConfigurationList']]
       for config_name in configuration_list['buildConfigurations']:
         config = project.objects[config_name]
         if not config['buildSettings'].get('BUNDLE_LOADER'):
+          assert value['name'].endswith('_module')
+          host_name = value['name'][:-len('_module')]
           config['buildSettings']['BUNDLE_LOADER'] = '$(TEST_HOST)'
           config['buildSettings']['TEST_HOST'] = \
-              '${BUILT_PRODUCTS_DIR}/%(name)s_host.app/%(name)s' % value
+              '${BUILT_PRODUCTS_DIR}/%s.app/%s' % (host_name, host_name)
 
     # Add new configuration, using the first one as default.
     if isa == 'XCConfigurationList':
@@ -169,21 +167,25 @@ def ConvertGnXcodeProject(input_dir, output_dir, configurations):
   product_output = os.path.join(output_dir, products)
   UpdateProductsProject(product_input, product_output, configurations)
 
-  # Copy sources project and all workspace.
-  sources = os.path.join('sources.xcodeproj', 'project.pbxproj')
-  CopyFileIfChanged(os.path.join(input_dir, sources),
-                    os.path.join(output_dir, sources))
+  # Copy all workspace.
   xcwspace = os.path.join('all.xcworkspace', 'contents.xcworkspacedata')
   CopyFileIfChanged(os.path.join(input_dir, xcwspace),
                     os.path.join(output_dir, xcwspace))
-
+  # TODO(crbug.com/679110): gn has been modified to remove 'sources.xcodeproj'
+  # and keep 'all.xcworkspace' and 'products.xcodeproj'. The following code is
+  # here to support both old and new projects setup and will be removed once gn
+  # has rolled past it.
+  sources = os.path.join('sources.xcodeproj', 'project.pbxproj')
+  if os.path.isfile(os.path.join(input_dir, sources)):
+    CopyFileIfChanged(os.path.join(input_dir, sources),
+                      os.path.join(output_dir, sources))
 
 def Main(args):
   parser = argparse.ArgumentParser(
       description='Convert GN Xcode projects for iOS.')
   parser.add_argument(
       'input',
-      help='directory containing [product|sources|all] Xcode projects.')
+      help='directory containing [product|all] Xcode projects.')
   parser.add_argument(
       'output',
       help='directory where to generate the iOS configuration.')
@@ -196,7 +198,7 @@ def Main(args):
     sys.stderr.write('Input directory does not exists.\n')
     return 1
 
-  required = set(['products.xcodeproj', 'sources.xcodeproj', 'all.xcworkspace'])
+  required = set(['products.xcodeproj', 'all.xcworkspace'])
   if not required.issubset(os.listdir(args.input)):
     sys.stderr.write(
         'Input directory does not contain all necessary Xcode projects.\n')

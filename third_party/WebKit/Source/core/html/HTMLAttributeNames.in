@@ -12,6 +12,7 @@ action
 align
 alink
 allowfullscreen
+allowpaymentrequest
 alt
 archive
 aria-activedescendant
@@ -19,6 +20,9 @@ aria-atomic
 aria-autocomplete
 aria-busy
 aria-checked
+aria-colcount
+aria-colindex
+aria-colspan
 aria-controls
 aria-current
 aria-describedby
@@ -40,11 +44,15 @@ aria-multiline
 aria-multiselectable
 aria-orientation
 aria-owns
+aria-placeholder
 aria-posinset
 aria-pressed
 aria-readonly
 aria-relevant
 aria-required
+aria-rowcount
+aria-rowindex
+aria-rowspan
 aria-selected
 aria-setsize
 aria-sort
@@ -56,6 +64,7 @@ as
 async
 autocapitalize
 autocomplete
+autocorrect
 autofocus
 autoplay
 axis
@@ -167,6 +176,7 @@ onabort
 onanimationstart
 onanimationiteration
 onanimationend
+onauxclick
 onbeforecopy
 onbeforecut
 onbeforepaste
@@ -228,6 +238,14 @@ onpaste
 onpause
 onplay
 onplaying
+onpointercancel
+onpointerdown
+onpointerenter
+onpointerleave
+onpointermove
+onpointerout
+onpointerover
+onpointerup
 onpopstate
 onprogress
 onratechange

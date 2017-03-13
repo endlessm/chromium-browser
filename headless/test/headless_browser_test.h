@@ -9,8 +9,8 @@
 #include <string>
 
 #include "content/public/test/browser_test_base.h"
-#include "headless/public/domains/network.h"
-#include "headless/public/domains/page.h"
+#include "headless/public/devtools/domains/network.h"
+#include "headless/public/devtools/domains/page.h"
 #include "headless/public/headless_browser.h"
 #include "headless/public/headless_web_contents.h"
 
@@ -80,6 +80,10 @@ class HeadlessBrowserTest : public content::BrowserTestBase {
   // Returns the browser for the test.
   HeadlessBrowser* browser() const;
 
+  // Returns the options used by the browser. Modify with caution, since some
+  // options only take effect if they were set before browser creation.
+  HeadlessBrowser::Options* options() const;
+
  private:
   std::unique_ptr<base::RunLoop> run_loop_;
 
@@ -88,6 +92,10 @@ class HeadlessBrowserTest : public content::BrowserTestBase {
 
 #define HEADLESS_ASYNC_DEVTOOLED_TEST_F(TEST_FIXTURE_NAME)               \
   IN_PROC_BROWSER_TEST_F(TEST_FIXTURE_NAME, RunAsyncTest) { RunTest(); } \
+  class AsyncHeadlessBrowserTestNeedsSemicolon##TEST_FIXTURE_NAME {}
+
+#define HEADLESS_ASYNC_DEVTOOLED_TEST_P(TEST_FIXTURE_NAME)               \
+  IN_PROC_BROWSER_TEST_P(TEST_FIXTURE_NAME, RunAsyncTest) { RunTest(); } \
   class AsyncHeadlessBrowserTestNeedsSemicolon##TEST_FIXTURE_NAME {}
 
 // Base class for tests that require access to a DevToolsClient. Subclasses
@@ -101,6 +109,8 @@ class HeadlessAsyncDevTooledBrowserTest : public HeadlessBrowserTest,
 
   // HeadlessWebContentsObserver implementation:
   void DevToolsTargetReady() override;
+  void RenderProcessExited(base::TerminationStatus status,
+                           int exit_code) override;
 
   // Implemented by tests and used to send request(s) to DevTools. Subclasses
   // need to ensure that FinishAsynchronousTest() is called after response(s)
@@ -113,6 +123,7 @@ class HeadlessAsyncDevTooledBrowserTest : public HeadlessBrowserTest,
   HeadlessBrowserContext* browser_context_;  // Not owned.
   HeadlessWebContents* web_contents_;
   std::unique_ptr<HeadlessDevToolsClient> devtools_client_;
+  bool render_process_exited_;
 };
 
 }  // namespace headless

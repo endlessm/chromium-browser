@@ -9,6 +9,7 @@
 #include "components/autofill/core/common/password_form.h"
 #include "components/password_manager/content/browser/bad_message.h"
 #include "components/password_manager/content/browser/content_password_manager_driver_factory.h"
+#include "components/password_manager/content/browser/visible_password_observer.h"
 #include "components/password_manager/core/browser/log_manager.h"
 #include "components/password_manager/core/browser/password_manager.h"
 #include "components/password_manager/core/browser/password_manager_client.h"
@@ -23,7 +24,7 @@
 #include "content/public/browser/ssl_status.h"
 #include "content/public/browser/web_contents.h"
 #include "net/cert/cert_status_flags.h"
-#include "services/shell/public/cpp/interface_provider.h"
+#include "services/service_manager/public/cpp/interface_provider.h"
 
 namespace password_manager {
 
@@ -36,8 +37,26 @@ ContentPasswordManagerDriver::ContentPasswordManagerDriver(
       password_generation_manager_(client, this),
       password_autofill_manager_(this, autofill_client),
       next_free_key_(0),
-      binding_(this),
-      weak_factory_(this) {}
+      password_manager_binding_(this),
+      weak_factory_(this) {
+  // Does nothing if a VisiblePasswordObserver has already been created
+  // for this WebContents.
+  VisiblePasswordObserver::CreateForWebContents(
+      content::WebContents::FromRenderFrameHost(render_frame_host_));
+
+  // For some frames |this| may be instantiated before log manager creation, so
+  // here we can not send logging state to renderer process for them. For such
+  // cases, after the log manager got ready later,
+  // ContentPasswordManagerDriverFactory::RequestSendLoggingAvailability() will
+  // call ContentPasswordManagerDriver::SendLoggingAvailability() on |this| to
+  // do it actually.
+  if (client_->GetLogManager()) {
+    // Do not call the virtual method SendLoggingAvailability from a constructor
+    // here, inline its steps instead.
+    GetPasswordAutofillAgent()->SetLoggingState(
+        client_->GetLogManager()->IsLoggingActive());
+  }
+}
 
 ContentPasswordManagerDriver::~ContentPasswordManagerDriver() {
 }
@@ -54,7 +73,12 @@ ContentPasswordManagerDriver::GetForRenderFrameHost(
 
 void ContentPasswordManagerDriver::BindRequest(
     autofill::mojom::PasswordManagerDriverRequest request) {
-  binding_.Bind(std::move(request));
+  password_manager_binding_.Bind(std::move(request));
+}
+
+void ContentPasswordManagerDriver::BindSensitiveInputVisibilityServiceRequest(
+    blink::mojom::SensitiveInputVisibilityServiceRequest request) {
+  sensitive_input_visibility_bindings_.AddBinding(this, std::move(request));
 }
 
 void ContentPasswordManagerDriver::FillPasswordForm(
@@ -189,6 +213,19 @@ void ContentPasswordManagerDriver::OnFocusedPasswordFormFound(
   GetPasswordManager()->OnPasswordFormForceSaveRequested(this, password_form);
 }
 
+void ContentPasswordManagerDriver::PasswordFieldVisibleInInsecureContext() {
+  VisiblePasswordObserver* observer = VisiblePasswordObserver::FromWebContents(
+      content::WebContents::FromRenderFrameHost(render_frame_host_));
+  observer->RenderFrameHasVisiblePasswordField(render_frame_host_);
+}
+
+void ContentPasswordManagerDriver::
+    AllPasswordFieldsInInsecureContextInvisible() {
+  VisiblePasswordObserver* observer = VisiblePasswordObserver::FromWebContents(
+      content::WebContents::FromRenderFrameHost(render_frame_host_));
+  observer->RenderFrameHasNoVisiblePasswordFields(render_frame_host_);
+}
+
 void ContentPasswordManagerDriver::DidNavigateFrame(
     const content::LoadCommittedDetails& details,
     const content::FrameNavigateParams& params) {
@@ -249,8 +286,10 @@ void ContentPasswordManagerDriver::ShowPasswordSuggestions(
       key, text_direction, typed_username, options, bounds);
 }
 
-void ContentPasswordManagerDriver::PasswordAutofillAgentConstructed() {
-  SendLoggingAvailability();
+void ContentPasswordManagerDriver::ShowNotSecureWarning(
+    base::i18n::TextDirection text_direction,
+    const gfx::RectF& bounds) {
+  password_autofill_manager_.OnShowNotSecureWarning(text_direction, bounds);
 }
 
 void ContentPasswordManagerDriver::RecordSavePasswordProgress(
@@ -284,8 +323,8 @@ ContentPasswordManagerDriver::GetAutofillAgent() {
 const autofill::mojom::PasswordAutofillAgentPtr&
 ContentPasswordManagerDriver::GetPasswordAutofillAgent() {
   if (!password_autofill_agent_) {
-    autofill::mojom::PasswordAutofillAgentRequest request =
-        mojo::GetProxy(&password_autofill_agent_);
+    autofill::mojom::PasswordAutofillAgentRequest request(
+        &password_autofill_agent_);
     // Some test codes may have no initialized remote interfaces.
     if (render_frame_host_->GetRemoteInterfaces()) {
       render_frame_host_->GetRemoteInterfaces()->GetInterface(
@@ -300,7 +339,7 @@ const autofill::mojom::PasswordGenerationAgentPtr&
 ContentPasswordManagerDriver::GetPasswordGenerationAgent() {
   if (!password_gen_agent_) {
     render_frame_host_->GetRemoteInterfaces()->GetInterface(
-        mojo::GetProxy(&password_gen_agent_));
+        mojo::MakeRequest(&password_gen_agent_));
   }
 
   return password_gen_agent_;

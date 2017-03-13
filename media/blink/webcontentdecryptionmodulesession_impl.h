@@ -16,7 +16,7 @@
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/threading/thread_checker.h"
-#include "media/base/media_keys.h"
+#include "media/base/content_decryption_module.h"
 #include "media/blink/new_session_cdm_result_promise.h"
 #include "third_party/WebKit/public/platform/WebContentDecryptionModuleSession.h"
 #include "third_party/WebKit/public/platform/WebString.h"
@@ -24,7 +24,6 @@
 namespace media {
 
 class CdmSessionAdapter;
-class MediaKeys;
 
 class WebContentDecryptionModuleSessionImpl
     : public blink::WebContentDecryptionModuleSession {
@@ -52,11 +51,11 @@ class WebContentDecryptionModuleSessionImpl
   void remove(blink::WebContentDecryptionModuleResult result) override;
 
   // Callbacks.
-  void OnSessionMessage(MediaKeys::MessageType message_type,
+  void OnSessionMessage(ContentDecryptionModule::MessageType message_type,
                         const std::vector<uint8_t>& message);
   void OnSessionKeysChange(bool has_additional_usable_key,
                            CdmKeysInfo keys_info);
-  void OnSessionExpirationUpdate(const base::Time& new_expiry_time);
+  void OnSessionExpirationUpdate(base::Time new_expiry_time);
   void OnSessionClosed();
 
  private:
@@ -75,9 +74,14 @@ class WebContentDecryptionModuleSessionImpl
   // promise.
   std::string session_id_;
 
-  // Don't pass more than 1 close() event to blink::
-  // TODO(jrummell): Remove this once blink tests handle close() promise and
-  // closed() event.
+  // Keep track of whether the session has been closed or not. The session
+  // may be closed as a result of an application calling close(), or the CDM
+  // may close the session at any point.
+  // https://w3c.github.io/encrypted-media/#session-closed
+  // |has_close_been_called_| is used to keep track of whether close() has
+  // been called or not. |is_closed_| is used to keep track of whether the
+  // close event has been received or not.
+  bool has_close_been_called_;
   bool is_closed_;
 
   base::ThreadChecker thread_checker_;

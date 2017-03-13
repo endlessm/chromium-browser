@@ -15,7 +15,7 @@
 #include "core/fxge/fx_dib.h"
 #include "xfa/fde/fde_object.h"
 #include "xfa/fgas/crt/fgas_utils.h"
-#include "xfa/fgas/font/fgas_font.h"
+#include "xfa/fgas/font/cfgas_fontmgr.h"
 
 #define FDE_TTOSTYLE_Underline 0x0001
 #define FDE_TTOSTYLE_Strikeout 0x0002
@@ -26,7 +26,6 @@
 #define FDE_TTOSTYLE_Ellipsis 0x0080
 #define FDE_TTOSTYLE_LineWrap 0x0100
 #define FDE_TTOSTYLE_ArabicShapes 0x0200
-#define FDE_TTOSTYLE_RTL 0x0400
 #define FDE_TTOSTYLE_ArabicContext 0x0800
 #define FDE_TTOSTYLE_LastLineHeight 0x1000
 #define FDE_TTOALIGNMENT_TopLeft 0
@@ -55,19 +54,19 @@ struct FDE_TTOPIECE {
 };
 typedef CFX_MassArrayTemplate<FDE_TTOPIECE> CFDE_TTOPieceArray;
 
-class CFDE_TTOLine : public CFX_Target {
+class CFDE_TTOLine {
  public:
   CFDE_TTOLine();
   CFDE_TTOLine(const CFDE_TTOLine& ttoLine);
-  ~CFDE_TTOLine() override;
+  ~CFDE_TTOLine();
 
   int32_t AddPiece(int32_t index, const FDE_TTOPIECE& ttoPiece);
   int32_t GetSize() const;
   FDE_TTOPIECE* GetPtrAt(int32_t index);
   void RemoveLast(int32_t iCount);
-  void RemoveAll(FX_BOOL bLeaveMemory);
+  void RemoveAll(bool bLeaveMemory);
 
-  FX_BOOL m_bNewReload;
+  bool m_bNewReload;
   CFDE_TTOPieceArray m_pieces;
 
  protected:
@@ -75,12 +74,12 @@ class CFDE_TTOLine : public CFX_Target {
 };
 typedef CFX_ObjectMassArrayTemplate<CFDE_TTOLine> CFDE_TTOLineArray;
 
-class CFDE_TextOut : public CFX_Target {
+class CFDE_TextOut {
  public:
   CFDE_TextOut();
-  ~CFDE_TextOut() override;
+  ~CFDE_TextOut();
 
-  void SetFont(CFGAS_GEFont* pFont);
+  void SetFont(const CFX_RetainPtr<CFGAS_GEFont>& pFont);
   void SetFontSize(FX_FLOAT fFontSize);
   void SetTextColor(FX_ARGB color);
   void SetStyles(uint32_t dwStyles);
@@ -122,10 +121,10 @@ class CFDE_TextOut : public CFX_Target {
 
  protected:
   void CalcTextSize(const FX_WCHAR* pwsStr, int32_t iLength, CFX_RectF& rect);
-  FX_BOOL RetrieveLineWidth(uint32_t dwBreakStatus,
-                            FX_FLOAT& fStartPos,
-                            FX_FLOAT& fWidth,
-                            FX_FLOAT& fHeight);
+  bool RetrieveLineWidth(uint32_t dwBreakStatus,
+                         FX_FLOAT& fStartPos,
+                         FX_FLOAT& fWidth,
+                         FX_FLOAT& fHeight);
   void SetLineWidth(CFX_RectF& rect);
   void DrawText(const FX_WCHAR* pwsStr,
                 int32_t iLength,
@@ -138,14 +137,12 @@ class CFDE_TextOut : public CFX_Target {
 
   void Reload(const CFX_RectF& rect);
   void ReloadLinePiece(CFDE_TTOLine* pLine, const CFX_RectF& rect);
-  FX_BOOL RetriecePieces(uint32_t dwBreakStatus,
-                         int32_t& iStartChar,
-                         int32_t& iPieceWidths,
-                         FX_BOOL bReload,
-                         const CFX_RectF& rect);
-  void AppendPiece(const FDE_TTOPIECE& ttoPiece,
-                   FX_BOOL bNeedReload,
-                   FX_BOOL bEnd);
+  bool RetriecePieces(uint32_t dwBreakStatus,
+                      int32_t& iStartChar,
+                      int32_t& iPieceWidths,
+                      bool bReload,
+                      const CFX_RectF& rect);
+  void AppendPiece(const FDE_TTOPIECE& ttoPiece, bool bNeedReload, bool bEnd);
   void ReplaceWidthEllipsis();
   void DoAlignment(const CFX_RectF& rect);
   void OnDraw(const CFX_RectF& rtClip);
@@ -156,7 +153,7 @@ class CFDE_TextOut : public CFX_Target {
   void DrawLine(const FDE_TTOPIECE* pPiece, CFDE_Pen*& pPen);
 
   std::unique_ptr<CFX_TxtBreak> m_pTxtBreak;
-  CFGAS_GEFont* m_pFont;  // not owned.
+  CFX_RetainPtr<CFGAS_GEFont> m_pFont;
   FX_FLOAT m_fFontSize;
   FX_FLOAT m_fLineSpace;
   FX_FLOAT m_fLinePos;
@@ -170,7 +167,7 @@ class CFDE_TextOut : public CFX_Target {
   uint32_t m_dwStyles;
   uint32_t m_dwTxtBkStyles;
   CFX_WideString m_wsEllipsis;
-  FX_BOOL m_bElliChanged;
+  bool m_bElliChanged;
   int32_t m_iEllipsisWidth;
   CFX_WideString m_wsText;
   CFX_RectF m_rtClip;

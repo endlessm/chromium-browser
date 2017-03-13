@@ -9,12 +9,12 @@ from telemetry.core import exceptions
 from telemetry.internal.platform import android_platform_backend as \
   android_platform_backend_module
 from telemetry.core import util
-from telemetry.internal.backends import android_command_line_backend
 from telemetry.internal.backends import browser_backend
 from telemetry.internal.backends.chrome import chrome_browser_backend
 from telemetry.internal.browser import user_agent
 
 from devil.android import app_ui
+from devil.android import flag_changer
 from devil.android.sdk import intent
 
 
@@ -89,8 +89,9 @@ class AndroidBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
         self.browser_options.browser_user_agent_type)
 
     browser_startup_args = self.GetBrowserStartupArgs()
-    with android_command_line_backend.SetUpCommandLineFlags(
-        self.device, self._backend_settings, browser_startup_args):
+    command_line_name = self._backend_settings.command_line_name
+    with flag_changer.CustomCommandLineFlags(
+        self.device, command_line_name, browser_startup_args):
       self.device.StartActivity(
           intent.Intent(package=self._backend_settings.package,
                         activity=self._backend_settings.activity,
@@ -172,14 +173,14 @@ class AndroidBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
           'Timed out waiting for browser to come back foreground.')
 
   def Background(self):
-    # Launch clock app, pushing Chrome to the background.
-    # TODO(crbug.com/586148): The clock app isn't necessarily on every phone,
-    # replace this with the PushAppsToBackground instead.
+    package = 'org.chromium.push_apps_to_background'
+    activity = package + '.PushAppsToBackgroundActivity'
     self.device.StartActivity(
-        intent.Intent(package='com.google.android.deskclock',
-                      activity='com.android.deskclock.DeskClock',
-                      action=None,
-                      flags=[intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED]),
+        intent.Intent(
+            package=package,
+            activity=activity,
+            action=None,
+            flags=[intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED]),
         blocking=True)
 
   def GetBrowserStartupArgs(self):

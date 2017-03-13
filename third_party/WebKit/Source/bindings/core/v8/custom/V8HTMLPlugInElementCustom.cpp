@@ -33,6 +33,7 @@
 #include "bindings/core/v8/V8Binding.h"
 #include "bindings/core/v8/V8HTMLEmbedElement.h"
 #include "bindings/core/v8/V8HTMLObjectElement.h"
+#include "core/frame/Deprecation.h"
 #include "core/frame/UseCounter.h"
 #include "wtf/PtrUtil.h"
 #include <memory>
@@ -73,19 +74,20 @@ void setScriptableObjectProperty(
     v8::Local<v8::Value> value,
     const v8::PropertyCallbackInfo<v8::Value>& info) {
   ASSERT(!value.IsEmpty());
+  // Don't intercept any of the properties of the HTMLPluginElement.
+  v8::Local<v8::String> v8Name = v8String(info.GetIsolate(), name);
+  if (v8CallBoolean(
+          info.Holder()->Has(info.GetIsolate()->GetCurrentContext(), v8Name)))
+    return;
+
   HTMLPlugInElement* impl = ElementType::toImpl(info.Holder());
   RefPtr<SharedPersistent<v8::Object>> wrapper = impl->pluginWrapper();
   if (!wrapper)
     return;
 
   v8::Local<v8::Object> instance = wrapper->newLocal(info.GetIsolate());
-  if (instance.IsEmpty())
-    return;
 
-  // Don't intercept any of the properties of the HTMLPluginElement.
-  v8::Local<v8::String> v8Name = v8String(info.GetIsolate(), name);
-  if (v8CallBoolean(
-          info.Holder()->Has(info.GetIsolate()->GetCurrentContext(), v8Name)))
+  if (instance.IsEmpty())
     return;
 
   // FIXME: The gTalk pepper plugin is the only plugin to make use of
@@ -162,17 +164,15 @@ void invokeOnScriptableObject(const v8::FunctionCallbackInfo<v8::Value>& info) {
 void V8HTMLEmbedElement::legacyCallCustom(
     const v8::FunctionCallbackInfo<v8::Value>& info) {
   invokeOnScriptableObject<V8HTMLEmbedElement>(info);
-  UseCounter::countIfNotPrivateScript(
-      info.GetIsolate(), V8HTMLEmbedElement::toImpl(info.Holder())->document(),
-      UseCounter::HTMLEmbedElementLegacyCall);
+  Deprecation::countDeprecation(currentExecutionContext(info.GetIsolate()),
+                                UseCounter::HTMLEmbedElementLegacyCall);
 }
 
 void V8HTMLObjectElement::legacyCallCustom(
     const v8::FunctionCallbackInfo<v8::Value>& info) {
   invokeOnScriptableObject<V8HTMLObjectElement>(info);
-  UseCounter::countIfNotPrivateScript(
-      info.GetIsolate(), V8HTMLObjectElement::toImpl(info.Holder())->document(),
-      UseCounter::HTMLObjectElementLegacyCall);
+  Deprecation::countDeprecation(currentExecutionContext(info.GetIsolate()),
+                                UseCounter::HTMLObjectElementLegacyCall);
 }
 
 }  // namespace blink

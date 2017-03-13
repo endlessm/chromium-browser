@@ -7,34 +7,26 @@
 
 #include "base/macros.h"
 #include "cc/base/cc_export.h"
-#include "cc/input/top_controls_state.h"
-#include "cc/trees/channel_main.h"
+#include "cc/input/browser_controls_state.h"
 #include "cc/trees/proxy.h"
 #include "cc/trees/proxy_common.h"
-#include "cc/trees/remote_proto_channel.h"
 
 namespace cc {
 
-class AnimationEvents;
-class BeginFrameSource;
-class ChannelMain;
+class MutatorEvents;
+class CompletionEvent;
 class CompositorFrameSink;
 class LayerTreeHostInProcess;
 class LayerTreeMutator;
+class ProxyImpl;
 
 // This class aggregates all interactions that the impl side of the compositor
 // needs to have with the main side.
 // The class is created and lives on the main thread.
 class CC_EXPORT ProxyMain : public Proxy {
  public:
-  static std::unique_ptr<ProxyMain> CreateThreaded(
-      LayerTreeHostInProcess* layer_tree_host,
-      TaskRunnerProvider* task_runner_provider);
-
-  static std::unique_ptr<ProxyMain> CreateRemote(
-      RemoteProtoChannel* remote_proto_channel,
-      LayerTreeHostInProcess* layer_tree_host,
-      TaskRunnerProvider* task_runner_provider);
+  ProxyMain(LayerTreeHostInProcess* layer_tree_host,
+            TaskRunnerProvider* task_runner_provider);
 
   ~ProxyMain() override;
 
@@ -48,10 +40,10 @@ class CC_EXPORT ProxyMain : public Proxy {
     COMMIT_PIPELINE_STAGE,
   };
 
-  void DidCompleteSwapBuffers();
+  void DidReceiveCompositorFrameAck();
   void BeginMainFrameNotExpectedSoon();
   void DidCommitAndDrawFrame();
-  void SetAnimationEvents(std::unique_ptr<AnimationEvents> events);
+  void SetAnimationEvents(std::unique_ptr<MutatorEvents> events);
   void DidLoseCompositorFrameSink();
   void RequestNewCompositorFrameSink();
   void DidInitializeCompositorFrameSink(bool success);
@@ -59,7 +51,6 @@ class CC_EXPORT ProxyMain : public Proxy {
   void BeginMainFrame(
       std::unique_ptr<BeginMainFrameAndCommitState> begin_main_frame_state);
 
-  ChannelMain* channel_main() const { return channel_main_.get(); }
   CommitPipelineStage max_requested_pipeline_stage() const {
     return max_requested_pipeline_stage_;
   }
@@ -70,13 +61,7 @@ class CC_EXPORT ProxyMain : public Proxy {
     return final_pipeline_stage_;
   }
 
- protected:
-  ProxyMain(LayerTreeHostInProcess* layer_tree_host,
-            TaskRunnerProvider* task_runner_provider);
-
  private:
-  friend class ProxyMainForTest;
-
   // Proxy implementation.
   bool IsStarted() const override;
   bool CommitToActiveTree() const override;
@@ -99,18 +84,20 @@ class CC_EXPORT ProxyMain : public Proxy {
   void SetMutator(std::unique_ptr<LayerTreeMutator> mutator) override;
   bool MainFrameWillHappenForTesting() override;
   void ReleaseCompositorFrameSink() override;
-  void UpdateTopControlsState(TopControlsState constraints,
-                              TopControlsState current,
-                              bool animate) override;
-
-  // This sets the channel used by ProxyMain to communicate with ProxyImpl.
-  void SetChannel(std::unique_ptr<ChannelMain> channel_main);
+  void UpdateBrowserControlsState(BrowserControlsState constraints,
+                                  BrowserControlsState current,
+                                  bool animate) override;
 
   // Returns |true| if the request was actually sent, |false| if one was
   // already outstanding.
   bool SendCommitRequestToImplThreadIfNeeded(
       CommitPipelineStage required_stage);
   bool IsMainThread() const;
+  bool IsImplThread() const;
+  base::SingleThreadTaskRunner* ImplThreadTaskRunner();
+
+  void InitializeOnImplThread(CompletionEvent* completion_event);
+  void DestroyProxyImplOnImplThread(CompletionEvent* completion_event);
 
   LayerTreeHostInProcess* layer_tree_host_;
 
@@ -136,7 +123,14 @@ class CC_EXPORT ProxyMain : public Proxy {
 
   bool defer_commits_;
 
-  std::unique_ptr<ChannelMain> channel_main_;
+  // ProxyImpl is created and destroyed on the impl thread, and should only be
+  // accessed on the impl thread.
+  // It is safe to use base::Unretained to post tasks to ProxyImpl on the impl
+  // thread, since we control its lifetime. Any tasks posted to it are bound to
+  // run before we destroy it on the impl thread.
+  std::unique_ptr<ProxyImpl> proxy_impl_;
+
+  base::WeakPtrFactory<ProxyMain> weak_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(ProxyMain);
 };

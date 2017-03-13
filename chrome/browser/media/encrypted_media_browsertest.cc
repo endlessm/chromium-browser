@@ -8,23 +8,33 @@
 #include "base/command_line.h"
 #include "base/path_service.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/win/windows_version.h"
 #include "build/build_config.h"
 #include "chrome/browser/media/media_browsertest.h"
 #include "chrome/browser/media/test_license_server.h"
 #include "chrome/browser/media/wv_test_license_server_config.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/chrome_switches.h"
+#include "chrome/common/pref_names.h"
 #include "chrome/test/base/test_launcher_utils.h"
+#include "components/prefs/pref_service.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/test/browser_test_utils.h"
+#include "media/base/key_system_names.h"
+#include "media/base/media_switches.h"
+#include "ppapi/features/features.h"
 #include "testing/gtest/include/gtest/gtest-spi.h"
+
 #if defined(OS_ANDROID)
 #include "base/android/build_info.h"
 #endif
 
-#if defined(ENABLE_PEPPER_CDMS)
+#if defined(OS_WIN)
+#include "base/win/windows_version.h"
+#endif
+
+#if BUILDFLAG(ENABLE_PEPPER_CDMS)
 #include "chrome/browser/media/pepper_cdm_test_constants.h"
 #include "chrome/browser/media/pepper_cdm_test_helper.h"
 #include "media/base/media_switches.h"
@@ -49,6 +59,8 @@ const char kExternalClearKeyInitializeFailKeySystem[] =
     "org.chromium.externalclearkey.initializefail";
 const char kExternalClearKeyOutputProtectionTestKeySystem[] =
     "org.chromium.externalclearkey.outputprotectiontest";
+const char kExternalClearKeyPlatformVerificationTestKeySystem[] =
+    "org.chromium.externalclearkey.platformverificationtest";
 const char kExternalClearKeyCrashKeySystem[] =
     "org.chromium.externalclearkey.crash";
 
@@ -62,6 +74,8 @@ const char kWebMVP9VideoOnly[] = "video/webm; codecs=\"vp9\"";
 #if defined(USE_PROPRIETARY_CODECS)
 const char kMP4AudioOnly[] = "audio/mp4; codecs=\"mp4a.40.2\"";
 const char kMP4VideoOnly[] = "video/mp4; codecs=\"avc1.4D000C\"";
+const char kMP4VideoVp9Only[] =
+    "video/mp4; codecs=\"vp09.00.01.08.02.01.01.00\"";
 #endif  // defined(USE_PROPRIETARY_CODECS)
 
 // Sessions to load.
@@ -79,6 +93,7 @@ const char kEmeUpdateFailed[] = "EME_UPDATE_FAILED";
 const char kEmeErrorEvent[] = "EME_ERROR_EVENT";
 const char kEmeMessageUnexpectedType[] = "EME_MESSAGE_UNEXPECTED_TYPE";
 const char kEmeRenewalMissingHeader[] = "EME_RENEWAL_MISSING_HEADER";
+const char kEmeSessionClosedAndError[] = "EME_SESSION_CLOSED_AND_ERROR";
 
 const char kDefaultEmePlayer[] = "eme_player.html";
 
@@ -237,16 +252,17 @@ class EncryptedMediaTestBase : public MediaBrowserTest {
   void SetUpCommandLine(base::CommandLine* command_line) override {
     command_line->AppendSwitch(
         switches::kDisableGestureRequirementForMediaPlayback);
+    command_line->AppendSwitch(switches::kEnableVp9InMp4);
   }
 
-#if defined(ENABLE_PEPPER_CDMS)
+#if BUILDFLAG(ENABLE_PEPPER_CDMS)
   void SetUpDefaultCommandLine(base::CommandLine* command_line) override {
     base::CommandLine default_command_line(base::CommandLine::NO_PROGRAM);
     InProcessBrowserTest::SetUpDefaultCommandLine(&default_command_line);
     test_launcher_utils::RemoveCommandLineSwitch(
         default_command_line, switches::kDisableComponentUpdate, command_line);
   }
-#endif  // defined(ENABLE_PEPPER_CDMS)
+#endif  // BUILDFLAG(ENABLE_PEPPER_CDMS)
 
   void SetUpCommandLineForKeySystem(const std::string& key_system,
                                     base::CommandLine* command_line) {
@@ -256,7 +272,7 @@ class EncryptedMediaTestBase : public MediaBrowserTest {
       // TODO(shadi): Add port forwarding to the test web server configuration.
       command_line->AppendSwitch(switches::kDisableWebSecurity);
 
-#if defined(ENABLE_PEPPER_CDMS)
+#if BUILDFLAG(ENABLE_PEPPER_CDMS)
     if (IsExternalClearKey(key_system)) {
       RegisterPepperCdm(command_line, kClearKeyCdmBaseDirectory,
                         kClearKeyCdmAdapterFileName, kClearKeyCdmDisplayName,
@@ -264,11 +280,11 @@ class EncryptedMediaTestBase : public MediaBrowserTest {
       command_line->AppendSwitchASCII(switches::kEnableFeatures,
                                       media::kExternalClearKeyForTesting.name);
     }
-#endif  // defined(ENABLE_PEPPER_CDMS)
+#endif  // BUILDFLAG(ENABLE_PEPPER_CDMS)
   }
 };
 
-#if defined(ENABLE_PEPPER_CDMS)
+#if BUILDFLAG(ENABLE_PEPPER_CDMS)
 // Tests encrypted media playback using ExternalClearKey key system in
 // decrypt-and-decode mode.
 class ECKEncryptedMediaTest : public EncryptedMediaTestBase {
@@ -311,7 +327,7 @@ class WVEncryptedMediaTest : public EncryptedMediaTestBase {
 };
 
 #endif  // defined(WIDEVINE_CDM_AVAILABLE)
-#endif  // defined(ENABLE_PEPPER_CDMS)
+#endif  // BUILDFLAG(ENABLE_PEPPER_CDMS)
 
 // Tests encrypted media playback with a combination of parameters:
 // - char*: Key system name.
@@ -398,6 +414,11 @@ class EncryptedMediaTest : public EncryptedMediaTestBase,
                               CurrentKeySystem(), query_params, kEnded);
   }
 
+  void DisableEncryptedMedia() {
+    PrefService* pref_service = browser()->profile()->GetPrefs();
+    pref_service->SetBoolean(prefs::kWebKitEncryptedMediaEnabled, false);
+  }
+
  protected:
   void SetUpCommandLine(base::CommandLine* command_line) override {
     EncryptedMediaTestBase::SetUpCommandLine(command_line);
@@ -419,7 +440,7 @@ INSTANTIATE_TEST_CASE_P(MSE_ClearKey,
                         Combine(Values(kClearKeyKeySystem), Values(MSE)));
 
 // External Clear Key is currently only used on platforms that use Pepper CDMs.
-#if defined(ENABLE_PEPPER_CDMS)
+#if BUILDFLAG(ENABLE_PEPPER_CDMS)
 INSTANTIATE_TEST_CASE_P(SRC_ExternalClearKey,
                         EncryptedMediaTest,
                         Combine(Values(kExternalClearKeyKeySystem),
@@ -438,7 +459,7 @@ INSTANTIATE_TEST_CASE_P(MSE_ExternalClearKeyDecryptOnly,
                         EncryptedMediaTest,
                         Combine(Values(kExternalClearKeyDecryptOnlyKeySystem),
                                 Values(MSE)));
-#endif  // defined(ENABLE_PEPPER_CDMS)
+#endif  // BUILDFLAG(ENABLE_PEPPER_CDMS)
 
 #if defined(WIDEVINE_CDM_AVAILABLE)
 #if !defined(OS_CHROMEOS)
@@ -468,8 +489,14 @@ IN_PROC_BROWSER_TEST_P(EncryptedMediaTest, Playback_VideoClearAudio_WebM) {
   TestSimplePlayback("bear-320x240-av_enc-v.webm", kWebMVorbisAudioVP8Video);
 }
 
-IN_PROC_BROWSER_TEST_P(EncryptedMediaTest, Playback_VP9Video_WebM) {
-  TestSimplePlayback("bear-320x240-v-vp9_enc-v.webm", kWebMVP9VideoOnly);
+IN_PROC_BROWSER_TEST_P(EncryptedMediaTest, Playback_VP9Video_WebM_Fullsample) {
+  TestSimplePlayback("bear-320x240-v-vp9_fullsample_enc-v.webm",
+                     kWebMVP9VideoOnly);
+}
+
+IN_PROC_BROWSER_TEST_P(EncryptedMediaTest, Playback_VP9Video_WebM_Subsample) {
+  TestSimplePlayback("bear-320x240-v-vp9_subsample_enc-v.webm",
+                     kWebMVP9VideoOnly);
 }
 
 IN_PROC_BROWSER_TEST_P(EncryptedMediaTest, Playback_AudioOnly_WebM_Opus) {
@@ -506,16 +533,24 @@ IN_PROC_BROWSER_TEST_P(EncryptedMediaTest, ConfigChangeVideo) {
 }
 
 IN_PROC_BROWSER_TEST_P(EncryptedMediaTest, FrameSizeChangeVideo) {
-  // Times out on Windows XP. http://crbug.com/171937
-#if defined(OS_WIN)
-  if (base::win::GetVersion() < base::win::VERSION_VISTA)
-    return;
-#endif
   if (!IsPlayBackPossible(CurrentKeySystem())) {
     DVLOG(0) << "Skipping test - FrameSizeChange test requires video playback.";
     return;
   }
   TestFrameSizeChange();
+}
+
+IN_PROC_BROWSER_TEST_P(EncryptedMediaTest, EncryptedMediaDisabled) {
+  DisableEncryptedMedia();
+
+  // Clear Key key system is always supported.
+  std::string expected_title =
+      media::IsClearKey(CurrentKeySystem()) ? kEnded : kEmeNotSupportedError;
+
+  RunEncryptedMediaTest(kDefaultEmePlayer, "bear-a_enc-a.webm",
+                        kWebMVorbisAudioOnly, CurrentKeySystem(),
+                        CurrentSourceType(), kNoSessionToLoad, false,
+                        PlayTwice::NO, expected_title);
 }
 
 #if defined(USE_PROPRIETARY_CODECS)
@@ -541,6 +576,15 @@ IN_PROC_BROWSER_TEST_P(EncryptedMediaTest, Playback_AudioOnly_MP4) {
     return;
   }
   TestSimplePlayback("bear-640x360-a_frag-cenc.mp4", kMP4AudioOnly);
+}
+
+IN_PROC_BROWSER_TEST_P(EncryptedMediaTest, Playback_VideoOnly_MP4_VP9) {
+  // MP4 without MSE is not support yet, http://crbug.com/170793.
+  if (CurrentSourceType() != MSE) {
+    DVLOG(0) << "Skipping test; Can only play MP4 encrypted streams by MSE.";
+    return;
+  }
+  TestSimplePlayback("bear-320x240-v_frag-vp9-cenc.mp4", kMP4VideoVp9Only);
 }
 
 IN_PROC_BROWSER_TEST_P(EncryptedMediaTest,
@@ -599,26 +643,26 @@ IN_PROC_BROWSER_TEST_F(WVEncryptedMediaTest, ParentThrowsException) {
 }
 #endif  // defined(WIDEVINE_CDM_AVAILABLE)
 
-#if defined(ENABLE_PEPPER_CDMS)
+#if BUILDFLAG(ENABLE_PEPPER_CDMS)
 IN_PROC_BROWSER_TEST_F(ECKEncryptedMediaTest, InitializeCDMFail) {
   TestNonPlaybackCases(kExternalClearKeyInitializeFailKeySystem,
                        kEmeNotSupportedError);
 }
 
-// When CDM crashes, we should still get a decode error. |kError| is reported
-// when the HTMLVideoElement error event fires, indicating an error happened
-// during playback.
+// When CDM crashes, we should still get a decode error and all sessions should
+// be closed.
 IN_PROC_BROWSER_TEST_F(ECKEncryptedMediaTest, CDMCrashDuringDecode) {
   IgnorePluginCrash();
-  TestNonPlaybackCases(kExternalClearKeyCrashKeySystem, kError);
+  TestNonPlaybackCases(kExternalClearKeyCrashKeySystem,
+                       kEmeSessionClosedAndError);
 }
 
 // Testing that the media browser test does fail on plugin crash.
 IN_PROC_BROWSER_TEST_F(ECKEncryptedMediaTest, CDMExpectedCrash) {
   // Plugin crash is not ignored by default, the test is expected to fail.
-  EXPECT_NONFATAL_FAILURE(
-      TestNonPlaybackCases(kExternalClearKeyCrashKeySystem, kError),
-      "Failing test due to plugin crash.");
+  EXPECT_NONFATAL_FAILURE(TestNonPlaybackCases(kExternalClearKeyCrashKeySystem,
+                                               kEmeSessionClosedAndError),
+                          "Failing test due to plugin crash.");
 }
 
 IN_PROC_BROWSER_TEST_F(ECKEncryptedMediaTest, FileIOTest) {
@@ -629,6 +673,11 @@ IN_PROC_BROWSER_TEST_F(ECKEncryptedMediaTest, FileIOTest) {
 // network link detection logic in OutputProtectionProxy.
 IN_PROC_BROWSER_TEST_F(ECKEncryptedMediaTest, OutputProtectionTest) {
   TestNonPlaybackCases(kExternalClearKeyOutputProtectionTestKeySystem,
+                       kUnitTestSuccess);
+}
+
+IN_PROC_BROWSER_TEST_F(ECKEncryptedMediaTest, PlatformVerificationTest) {
+  TestNonPlaybackCases(kExternalClearKeyPlatformVerificationTestKeySystem,
                        kUnitTestSuccess);
 }
 
@@ -645,4 +694,4 @@ IN_PROC_BROWSER_TEST_F(ECKEncryptedMediaTest, LoadUnknownSession) {
                    kEmeSessionNotFound);
 }
 
-#endif  // defined(ENABLE_PEPPER_CDMS)
+#endif  // BUILDFLAG(ENABLE_PEPPER_CDMS)

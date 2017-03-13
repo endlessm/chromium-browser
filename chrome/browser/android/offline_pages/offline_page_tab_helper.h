@@ -8,7 +8,7 @@
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/time/time.h"
-#include "components/offline_pages/request_header/offline_page_header.h"
+#include "components/offline_pages/core/request_header/offline_page_header.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/browser/web_contents_user_data.h"
 #include "url/gurl.h"
@@ -42,7 +42,7 @@ class OfflinePageTabHelper :
   }
 
   // Whether the page is an offline preview.
-  bool is_offline_preview() const { return offline_info_.is_offline_preview; }
+  bool IsShowingOfflinePreview() const;
 
   // Returns provisional offline page since actual navigation does not happen
   // during unit tests.
@@ -64,7 +64,7 @@ class OfflinePageTabHelper :
 
     // Whether the page is an offline preview. Offline page previews are shown
     // when a user's effective connection type is prohibitively slow.
-    bool is_offline_preview;
+    bool is_showing_offline_preview;
 
     void Clear();
   };
@@ -77,7 +77,7 @@ class OfflinePageTabHelper :
   void DidFinishNavigation(
       content::NavigationHandle* navigation_handle) override;
 
-  void SelectPageForOnlineURLDone(const OfflinePageItem* offline_page);
+  void SelectPageForURLDone(const OfflinePageItem* offline_page);
 
   // The provisional info about the offline page being loaded. This is set when
   // the offline interceptor decides to serve the offline page and it will be

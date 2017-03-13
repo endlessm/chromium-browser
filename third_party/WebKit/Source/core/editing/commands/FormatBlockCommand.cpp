@@ -25,7 +25,7 @@
 
 #include "core/editing/commands/FormatBlockCommand.h"
 
-#include "bindings/core/v8/ExceptionStatePlaceholder.h"
+#include "bindings/core/v8/ExceptionState.h"
 #include "core/HTMLNames.h"
 #include "core/dom/Element.h"
 #include "core/dom/Range.h"
@@ -155,10 +155,6 @@ Element* FormatBlockCommand::elementForFormatBlockCommand(Range* range) {
     return 0;
 
   return commonAncestor->isElementNode() ? toElement(commonAncestor) : 0;
-}
-
-InputEvent::InputType FormatBlockCommand::inputType() const {
-  return InputEvent::InputType::FormatBlock;
 }
 
 bool isElementForFormatBlock(const QualifiedName& tagName) {

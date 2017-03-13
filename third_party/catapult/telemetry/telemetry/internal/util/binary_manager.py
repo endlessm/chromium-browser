@@ -73,7 +73,7 @@ def LocalPath(binary_name, arch, os_name, os_version=None):
   return _binary_manager.LocalPath(binary_name, os_name, arch, os_version)
 
 
-def FetchBinaryDepdencies(platform, client_configs,
+def FetchBinaryDependencies(platform, client_configs,
                           fetch_reference_chrome_binary):
   """ Fetch all binary dependenencies for the given |platform|.
 
@@ -132,13 +132,10 @@ def FetchBinaryDepdencies(platform, client_configs,
       logging.error('Error when trying to prefetch paths for %s: %s',
                     target_platform, e.message)
 
-  # TODO(aiolos, jbudorick): we should have a devil pre-fetch API to call here
-  # and/or switch devil to use the same platform names so we can include it in
-  # the primary loop.
   if fetch_devil_deps:
     devil_env.config.Initialize()
-    devil_env.config._dm.PrefetchPaths(target_platform)
-    devil_env.config._dm.PrefetchPaths('linux2_x86_64')
+    devil_env.config.PrefetchPaths(arch=platform.GetArchName())
+    devil_env.config.PrefetchPaths()
 
 
 def _FetchReferenceBrowserBinary(platform):
@@ -153,4 +150,4 @@ def _FetchReferenceBrowserBinary(platform):
         'chrome_stable', os_name, arch_name, os_version)
   else:
     manager.FetchPath(
-        'reference_build', os_name, arch_name)
+        'chrome_stable', os_name, arch_name)

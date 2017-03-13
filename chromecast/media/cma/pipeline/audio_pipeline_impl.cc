@@ -44,6 +44,7 @@ AudioPipelineImpl::~AudioPipelineImpl() {}
   DCHECK(audio_config.IsValidConfig());
   AudioConfig cast_audio_config =
       DecoderConfigAdapter::ToCastAudioConfig(kPrimary, audio_config);
+  encryption_scheme_ = cast_audio_config.encryption_scheme;
   if (!audio_decoder_->SetConfig(cast_audio_config)) {
     return ::media::PIPELINE_ERROR_INITIALIZATION_FAILED;
   }
@@ -63,18 +64,27 @@ void AudioPipelineImpl::OnUpdateConfig(
     CMALOG(kLogControl) << __FUNCTION__ << " id:" << id << " "
                         << audio_config.AsHumanReadableString();
 
-    bool success = audio_decoder_->SetConfig(
-        DecoderConfigAdapter::ToCastAudioConfig(id, audio_config));
+    AudioConfig cast_audio_config =
+        DecoderConfigAdapter::ToCastAudioConfig(id, audio_config);
+    encryption_scheme_ = cast_audio_config.encryption_scheme;
+    bool success = audio_decoder_->SetConfig(cast_audio_config);
     if (!success && !client().playback_error_cb.is_null())
       client().playback_error_cb.Run(::media::PIPELINE_ERROR_DECODE);
   }
+}
+
+const EncryptionScheme& AudioPipelineImpl::GetEncryptionScheme(
+    StreamId id) const {
+  return encryption_scheme_;
 }
 
 void AudioPipelineImpl::UpdateStatistics() {
   if (client().statistics_cb.is_null())
     return;
 
-  MediaPipelineBackend::AudioDecoder::Statistics audio_stats;
+  // TODO(mbjorge): Give Statistics a default constructor when the
+  // next system update happens. b/32802298
+  MediaPipelineBackend::AudioDecoder::Statistics audio_stats = {};
   audio_decoder_->GetStatistics(&audio_stats);
 
   ::media::PipelineStatistics current_stats;

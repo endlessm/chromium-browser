@@ -4,12 +4,15 @@
 
 #include "components/exo/wm_helper_ash.h"
 
+#include "ash/common/accessibility_delegate.h"
+#include "ash/common/system/tray/system_tray_notifier.h"
 #include "ash/common/wm/maximize_mode/maximize_mode_controller.h"
 #include "ash/common/wm_shell.h"
-#include "ash/display/display_manager.h"
 #include "ash/shell.h"
 #include "base/memory/singleton.h"
 #include "ui/aura/client/focus_client.h"
+#include "ui/display/manager/display_manager.h"
+#include "ui/events/devices/device_data_manager.h"
 #include "ui/wm/public/activation_client.h"
 
 namespace exo {
@@ -23,6 +26,8 @@ WMHelperAsh::WMHelperAsh() {
   aura::client::FocusClient* focus_client =
       aura::client::GetFocusClient(ash::Shell::GetPrimaryRootWindow());
   focus_client->AddObserver(this);
+  ui::DeviceDataManager::GetInstance()->AddObserver(this);
+  ash::WmShell::Get()->system_tray_notifier()->AddAccessibilityObserver(this);
 }
 
 WMHelperAsh::~WMHelperAsh() {
@@ -33,6 +38,9 @@ WMHelperAsh::~WMHelperAsh() {
   focus_client->RemoveObserver(this);
   ash::Shell::GetInstance()->activation_client()->RemoveObserver(this);
   ash::WmShell::Get()->RemoveShellObserver(this);
+  ui::DeviceDataManager::GetInstance()->RemoveObserver(this);
+  ash::WmShell::Get()->system_tray_notifier()->RemoveAccessibilityObserver(
+      this);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -89,6 +97,16 @@ bool WMHelperAsh::IsMaximizeModeWindowManagerEnabled() const {
       ->IsMaximizeModeWindowManagerEnabled();
 }
 
+bool WMHelperAsh::IsSpokenFeedbackEnabled() const {
+  return ash::WmShell::Get()
+      ->accessibility_delegate()
+      ->IsSpokenFeedbackEnabled();
+}
+
+void WMHelperAsh::PlayEarcon(int sound_key) const {
+  return ash::WmShell::Get()->accessibility_delegate()->PlayEarcon(sound_key);
+}
+
 void WMHelperAsh::OnWindowActivated(
     aura::client::ActivationChangeObserver::ActivationReason reason,
     aura::Window* gained_active,
@@ -109,12 +127,21 @@ void WMHelperAsh::OnCursorSetChanged(ui::CursorSetType cursor_set) {
   NotifyCursorSetChanged(cursor_set);
 }
 
+void WMHelperAsh::OnAccessibilityModeChanged(
+    ash::AccessibilityNotificationVisibility notify) {
+  NotifyAccessibilityModeChanged();
+}
+
 void WMHelperAsh::OnMaximizeModeStarted() {
   NotifyMaximizeModeStarted();
 }
 
 void WMHelperAsh::OnMaximizeModeEnded() {
   NotifyMaximizeModeEnded();
+}
+
+void WMHelperAsh::OnKeyboardDeviceConfigurationChanged() {
+  NotifyKeyboardDeviceConfigurationChanged();
 }
 
 }  // namespace exo

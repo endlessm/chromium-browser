@@ -32,30 +32,47 @@
 
 #include "platform/network/HTTPParsers.h"
 
+#include "net/http/http_response_headers.h"
 #include "net/http/http_util.h"
+#include "platform/json/JSONParser.h"
+#include "platform/network/ResourceResponse.h"
 #include "platform/weborigin/Suborigin.h"
+#include "public/platform/WebString.h"
 #include "wtf/DateMath.h"
 #include "wtf/MathExtras.h"
 #include "wtf/text/CString.h"
 #include "wtf/text/CharacterNames.h"
 #include "wtf/text/ParsingUtilities.h"
 #include "wtf/text/StringBuilder.h"
+#include "wtf/text/StringUTF8Adaptor.h"
 #include "wtf/text/WTFString.h"
 
 using namespace WTF;
 
 namespace blink {
 
-static bool isWhitespace(UChar chr) {
+namespace {
+
+const Vector<AtomicString>& replaceHeaders() {
+  // The list of response headers that we do not copy from the original
+  // response when generating a ResourceResponse for a MIME payload.
+  // Note: this is called only on the main thread.
+  DEFINE_STATIC_LOCAL(Vector<AtomicString>, headers,
+                      ({"content-type", "content-length", "content-disposition",
+                        "content-range", "range", "set-cookie"}));
+  return headers;
+}
+
+bool isWhitespace(UChar chr) {
   return (chr == ' ') || (chr == '\t');
 }
 
 // true if there is more to parse, after incrementing pos past whitespace.
 // Note: Might return pos == str.length()
 // if |matcher| is nullptr, isWhitespace() is used.
-static inline bool skipWhiteSpace(const String& str,
-                                  unsigned& pos,
-                                  CharacterMatchFunctionPtr matcher = nullptr) {
+inline bool skipWhiteSpace(const String& str,
+                           unsigned& pos,
+                           CharacterMatchFunctionPtr matcher = nullptr) {
   unsigned len = str.length();
 
   if (matcher) {
@@ -72,9 +89,7 @@ static inline bool skipWhiteSpace(const String& str,
 // Returns true if the function can match the whole token (case insensitive)
 // incrementing pos on match, otherwise leaving pos unchanged.
 // Note: Might return pos == str.length()
-static inline bool skipToken(const String& str,
-                             unsigned& pos,
-                             const char* token) {
+inline bool skipToken(const String& str, unsigned& pos, const char* token) {
   unsigned len = str.length();
   unsigned current = pos;
 
@@ -92,14 +107,14 @@ static inline bool skipToken(const String& str,
 }
 
 // True if the expected equals sign is seen and there is more to follow.
-static inline bool skipEquals(const String& str, unsigned& pos) {
+inline bool skipEquals(const String& str, unsigned& pos) {
   return skipWhiteSpace(str, pos) && str[pos++] == '=' &&
          skipWhiteSpace(str, pos);
 }
 
 // True if a value present, incrementing pos to next space or semicolon, if any.
 // Note: might return pos == str.length().
-static inline bool skipValue(const String& str, unsigned& pos) {
+inline bool skipValue(const String& str, unsigned& pos) {
   unsigned start = pos;
   unsigned len = str.length();
   while (pos < len) {
@@ -111,11 +126,16 @@ static inline bool skipValue(const String& str, unsigned& pos) {
 }
 
 template <typename CharType>
-static inline bool isASCIILowerAlphaOrDigitOrHyphen(CharType c) {
-  return isASCIILower(c) || isASCIIDigit(c) || c == '-';
+inline bool isASCIILowerAlphaOrDigit(CharType c) {
+  return isASCIILower(c) || isASCIIDigit(c);
 }
 
-static Suborigin::SuboriginPolicyOptions getSuboriginPolicyOptionFromString(
+template <typename CharType>
+inline bool isASCIILowerAlphaOrDigitOrHyphen(CharType c) {
+  return isASCIILowerAlphaOrDigit(c) || c == '-';
+}
+
+Suborigin::SuboriginPolicyOptions getSuboriginPolicyOptionFromString(
     const String& policyOptionName) {
   if (policyOptionName == "'unsafe-postmessage-send'")
     return Suborigin::SuboriginPolicyOptions::UnsafePostMessageSend;
@@ -126,58 +146,69 @@ static Suborigin::SuboriginPolicyOptions getSuboriginPolicyOptionFromString(
   if (policyOptionName == "'unsafe-cookies'")
     return Suborigin::SuboriginPolicyOptions::UnsafeCookies;
 
+  if (policyOptionName == "'unsafe-credentials'")
+    return Suborigin::SuboriginPolicyOptions::UnsafeCredentials;
+
   return Suborigin::SuboriginPolicyOptions::None;
 }
 
-static const UChar* parseSuboriginName(const UChar* begin,
-                                       const UChar* end,
-                                       String& name,
-                                       WTF::Vector<String>& messages) {
+// suborigin-name = LOWERALPHA *( LOWERALPHA / DIGIT )
+//
+// Does not trim whitespace before or after the suborigin-name.
+const UChar* parseSuboriginName(const UChar* begin,
+                                const UChar* end,
+                                String& name,
+                                WTF::Vector<String>& messages) {
   // Parse the name of the suborigin (no spaces, single string)
-  skipWhile<UChar, isASCIISpace>(begin, end);
   if (begin == end) {
-    messages.append(String("No Suborigin name specified."));
+    messages.push_back(String("No Suborigin name specified."));
     return nullptr;
   }
 
   const UChar* position = begin;
 
-  skipWhile<UChar, isASCIILowerAlphaOrDigitOrHyphen>(position, end);
-  if (position != end && !isASCIISpace(*position)) {
-    messages.append("Invalid character \'" + String(position, 1) +
-                    "\' in suborigin.");
+  if (!skipExactly<UChar, isASCIILower>(position, end)) {
+    messages.push_back("Invalid character \'" + String(position, 1) +
+                       "\' in suborigin. First character must be a lower case "
+                       "alphabetic character.");
     return nullptr;
   }
-  size_t length = position - begin;
-  skipWhile<UChar, isASCIISpace>(position, end);
 
+  skipWhile<UChar, isASCIILowerAlphaOrDigit>(position, end);
+  if (position != end && !isASCIISpace(*position)) {
+    messages.push_back("Invalid character \'" + String(position, 1) +
+                       "\' in suborigin.");
+    return nullptr;
+  }
+
+  size_t length = position - begin;
   name = String(begin, length).lower();
   return position;
 }
 
-static const UChar* parseSuboriginPolicyOption(const UChar* begin,
-                                               const UChar* end,
-                                               String& option,
-                                               WTF::Vector<String>& messages) {
+const UChar* parseSuboriginPolicyOption(const UChar* begin,
+                                        const UChar* end,
+                                        String& option,
+                                        WTF::Vector<String>& messages) {
   const UChar* position = begin;
 
   if (*position != '\'') {
-    messages.append("Invalid character \'" + String(position, 1) +
-                    "\' in suborigin policy. Suborigin policy options must "
-                    "start and end with a single quote.");
+    messages.push_back("Invalid character \'" + String(position, 1) +
+                       "\' in suborigin policy. Suborigin policy options must "
+                       "start and end with a single quote.");
     return nullptr;
   }
   position = position + 1;
 
   skipWhile<UChar, isASCIILowerAlphaOrDigitOrHyphen>(position, end);
   if (position == end || isASCIISpace(*position)) {
-    messages.append(String("Expected \' to end policy option."));
+    messages.push_back(String("Expected \' to end policy option."));
     return nullptr;
   }
 
   if (*position != '\'') {
-    messages.append("Invalid character \'" + String(position, 1) +
-                    "\' in suborigin policy.");
+    messages.push_back("Invalid character \'" + String(position, 1) +
+                       "\' in suborigin policy.");
     return nullptr;
   }
 
@@ -187,6 +218,8 @@ static const UChar* parseSuboriginPolicyOption(const UChar* begin,
   option = String(begin, length);
   return position + 1;
 }
+
+}  // namespace
 
 bool isValidHTTPHeaderValue(const String& name) {
   // FIXME: This should really match name against
@@ -298,7 +331,8 @@ bool parseHTTPRefresh(const String& refresh,
       ++pos;
     skipWhiteSpace(refresh, pos, matcher);
     unsigned urlStartPos = pos;
-    if (refresh.find("url", urlStartPos, TextCaseInsensitive) == urlStartPos) {
+    if (refresh.find("url", urlStartPos, TextCaseASCIIInsensitive) ==
+        urlStartPos) {
       urlStartPos += 3;
       skipWhiteSpace(refresh, urlStartPos, matcher);
       if (refresh[urlStartPos] == '=') {
@@ -398,7 +432,7 @@ void findCharsetInMediaType(const String& mediaType,
   unsigned length = mediaType.length();
 
   while (pos < length) {
-    pos = mediaType.find("charset", pos, TextCaseInsensitive);
+    pos = mediaType.find("charset", pos, TextCaseASCIIInsensitive);
     if (pos == kNotFound || !pos) {
       charsetLen = 0;
       return;
@@ -545,35 +579,6 @@ ContentTypeOptionsDisposition parseContentTypeOptionsHeader(
   return ContentTypeOptionsNone;
 }
 
-XFrameOptionsDisposition parseXFrameOptionsHeader(const String& header) {
-  XFrameOptionsDisposition result = XFrameOptionsInvalid;
-
-  if (header.isEmpty())
-    return result;
-
-  Vector<String> headers;
-  header.split(',', headers);
-
-  bool hasValue = false;
-  for (size_t i = 0; i < headers.size(); i++) {
-    String currentHeader = headers[i].stripWhiteSpace();
-    XFrameOptionsDisposition currentValue = XFrameOptionsInvalid;
-    if (equalIgnoringCase(currentHeader, "deny"))
-      currentValue = XFrameOptionsDeny;
-    else if (equalIgnoringCase(currentHeader, "sameorigin"))
-      currentValue = XFrameOptionsSameOrigin;
-    else if (equalIgnoringCase(currentHeader, "allowall"))
-      currentValue = XFrameOptionsAllowAll;
-
-    if (!hasValue)
-      result = currentValue;
-    else if (result != currentValue)
-      return XFrameOptionsConflict;
-    hasValue = true;
-  }
-  return result;
-}
-
 static bool isCacheHeaderSeparator(UChar c) {
   // See RFC 2616, Section 2.2
   switch (c) {
@@ -633,7 +638,7 @@ static void parseCacheHeader(const String& header,
         size_t nextDoubleQuotePosition = value.find('"', 1);
         if (nextDoubleQuotePosition != kNotFound) {
           // Store the value as a quoted string without quotes
-          result.append(std::pair<String, String>(
+          result.push_back(std::pair<String, String>(
               directive, value.substring(1, nextDoubleQuotePosition - 1)
                              .stripWhiteSpace()));
           pos +=
@@ -646,7 +651,7 @@ static void parseCacheHeader(const String& header,
             return;  // Parse error if there is anything left with no comma
         } else {
           // Parse error; just use the rest as the value
-          result.append(std::pair<String, String>(
+          result.push_back(std::pair<String, String>(
               directive,
               trimToNextSeparator(
                   value.substring(1, value.length() - 1).stripWhiteSpace())));
@@ -657,14 +662,14 @@ static void parseCacheHeader(const String& header,
         size_t nextCommaPosition2 = value.find(',');
         if (nextCommaPosition2 != kNotFound) {
           // The value is delimited by the next comma
-          result.append(std::pair<String, String>(
+          result.push_back(std::pair<String, String>(
               directive,
               trimToNextSeparator(
                   value.substring(0, nextCommaPosition2).stripWhiteSpace())));
           pos += (safeHeader.find(',', pos) - pos) + 1;
         } else {
           // The rest is the value; no change to value needed
-          result.append(
+          result.push_back(
               std::pair<String, String>(directive, trimToNextSeparator(value)));
           return;
         }
@@ -673,14 +678,14 @@ static void parseCacheHeader(const String& header,
                (nextCommaPosition < nextEqualSignPosition ||
                 nextEqualSignPosition == kNotFound)) {
       // Add directive to map with empty string as value
-      result.append(std::pair<String, String>(
+      result.push_back(std::pair<String, String>(
           trimToNextSeparator(safeHeader.substring(pos, nextCommaPosition - pos)
                                   .stripWhiteSpace()),
           ""));
       pos += nextCommaPosition - pos + 1;
     } else {
       // Add last directive to map with empty string as value
-      result.append(std::pair<String, String>(
+      result.push_back(std::pair<String, String>(
           trimToNextSeparator(
               safeHeader.substring(pos, max - pos).stripWhiteSpace()),
           ""));
@@ -698,13 +703,11 @@ CacheControlHeader parseCacheControlDirectives(
   cacheControlHeader.staleWhileRevalidate =
       std::numeric_limits<double>::quiet_NaN();
 
-  DEFINE_STATIC_LOCAL(const AtomicString, noCacheDirective, ("no-cache"));
-  DEFINE_STATIC_LOCAL(const AtomicString, noStoreDirective, ("no-store"));
-  DEFINE_STATIC_LOCAL(const AtomicString, mustRevalidateDirective,
-                      ("must-revalidate"));
-  DEFINE_STATIC_LOCAL(const AtomicString, maxAgeDirective, ("max-age"));
-  DEFINE_STATIC_LOCAL(const AtomicString, staleWhileRevalidateDirective,
-                      ("stale-while-revalidate"));
+  static const char noCacheDirective[] = "no-cache";
+  static const char noStoreDirective[] = "no-store";
+  static const char mustRevalidateDirective[] = "must-revalidate";
+  static const char maxAgeDirective[] = "max-age";
+  static const char staleWhileRevalidateDirective[] = "stale-while-revalidate";
 
   if (!cacheControlValue.isEmpty()) {
     Vector<std::pair<String, String>> directives;
@@ -771,7 +774,7 @@ bool parseSuboriginHeader(const String& header,
   header.split(',', true, headers);
 
   if (headers.size() > 1)
-    messages.append(
+    messages.push_back(
         "Multiple Suborigin headers found. Ignoring all but the first.");
 
   Vector<UChar> characters;
@@ -784,7 +787,10 @@ bool parseSuboriginHeader(const String& header,
 
   String name;
   position = parseSuboriginName(position, end, name, messages);
-  if (!position)
+  // For now it is appropriate to simply return false if the name is empty and
+  // act as if the header doesn't exist. If suborigin policy options are created
+  // that can apply to the empty suborigin, than this will have to change.
+  if (!position || name.isEmpty())
     return false;
 
   suborigin->setName(name);
@@ -805,13 +811,69 @@ bool parseSuboriginHeader(const String& header,
     Suborigin::SuboriginPolicyOptions option =
         getSuboriginPolicyOptionFromString(optionName);
     if (option == Suborigin::SuboriginPolicyOptions::None)
-      messages.append("Ignoring unknown suborigin policy option " + optionName +
-                      ".");
+      messages.push_back("Ignoring unknown suborigin policy option " +
+                         optionName + ".");
     else
       suborigin->addPolicyOption(option);
   }
 
   return true;
+}
+
+bool parseMultipartHeadersFromBody(const char* bytes,
+                                   size_t size,
+                                   ResourceResponse* response,
+                                   size_t* end) {
+  DCHECK(isMainThread());
+
+  int headersEndPos =
+      net::HttpUtil::LocateEndOfAdditionalHeaders(bytes, size, 0);
+
+  if (headersEndPos < 0)
+    return false;
+
+  *end = headersEndPos;
+
+  // Eat headers and prepend a status line as is required by
+  // HttpResponseHeaders.
+  std::string headers("HTTP/1.1 200 OK\r\n");
+  headers.append(bytes, headersEndPos);
+
+  scoped_refptr<net::HttpResponseHeaders> responseHeaders =
+      new net::HttpResponseHeaders(
+          net::HttpUtil::AssembleRawHeaders(headers.data(), headers.length()));
+
+  std::string mimeType, charset;
+  responseHeaders->GetMimeTypeAndCharset(&mimeType, &charset);
+  response->setMimeType(WebString::fromUTF8(mimeType));
+  response->setTextEncodingName(WebString::fromUTF8(charset));
+
+  // Copy headers listed in replaceHeaders to the response.
+  for (const AtomicString& header : replaceHeaders()) {
+    std::string value;
+    StringUTF8Adaptor adaptor(header);
+    base::StringPiece headerStringPiece(adaptor.asStringPiece());
+    size_t iterator = 0;
+
+    response->clearHTTPHeaderField(header);
+    while (responseHeaders->EnumerateHeader(&iterator, headerStringPiece,
+                                            &value)) {
+      response->addHTTPHeaderField(header, WebString::fromLatin1(value));
+    }
+  }
+  return true;
+}
+
+// See https://tools.ietf.org/html/draft-ietf-httpbis-jfv-01, Section 4.
+std::unique_ptr<JSONArray> parseJSONHeader(const String& header,
+                                           int maxParseDepth) {
+  StringBuilder sb;
+  sb.append("[");
+  sb.append(header);
+  sb.append("]");
+  std::unique_ptr<JSONValue> headerValue =
+      parseJSON(sb.toString(), maxParseDepth);
+  return JSONArray::from(std::move(headerValue));
 }
 
 }  // namespace blink

@@ -16,6 +16,7 @@
 #include "chrome/grit/generated_resources.h"
 #include "components/constrained_window/constrained_window_views.h"
 #include "components/strings/grit/components_strings.h"
+#include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/web_contents.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/common/extension.h"
@@ -73,8 +74,8 @@ PlatformVerificationDialog::PlatformVerificationDialog(
       domain_(domain),
       callback_(callback) {
   SetLayoutManager(new views::FillLayout());
-  SetBorder(views::Border::CreateEmptyBorder(
-      0, views::kButtonHEdgeMarginNew, 0, views::kButtonHEdgeMarginNew));
+  SetBorder(views::CreateEmptyBorder(0, views::kButtonHEdgeMarginNew, 0,
+                                     views::kButtonHEdgeMarginNew));
   const base::string16 learn_more = l10n_util::GetStringUTF16(IDS_LEARN_MORE);
   std::vector<size_t> offsets;
   base::string16 headline = l10n_util::GetStringFUTF16(
@@ -149,9 +150,11 @@ void PlatformVerificationDialog::StyledLabelLinkClicked(
   }
 }
 
-void PlatformVerificationDialog::DidStartNavigationToPendingEntry(
-    const GURL& url,
-    content::ReloadType reload_type) {
+void PlatformVerificationDialog::DidStartNavigation(
+    content::NavigationHandle* navigation_handle) {
+  if (!navigation_handle->IsInMainFrame() || navigation_handle->IsSamePage())
+    return;
+
   views::Widget* widget = GetWidget();
   if (widget)
     widget->Close();

@@ -11,8 +11,6 @@
 
 namespace blink {
 
-class RoundedRect;
-
 class PLATFORM_EXPORT FloatClipDisplayItem final
     : public PairedBeginDisplayItem {
  public:
@@ -54,7 +52,7 @@ class PLATFORM_EXPORT EndFloatClipDisplayItem final
                                   WebDisplayItemList*) const override;
 
  private:
-#if ENABLE(ASSERT)
+#if DCHECK_IS_ON()
   bool isEndAndPairedWith(DisplayItem::Type otherType) const final {
     return DisplayItem::isFloatClipType(otherType);
   }

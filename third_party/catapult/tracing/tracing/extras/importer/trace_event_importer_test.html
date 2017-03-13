@@ -11,6 +11,7 @@ found in the LICENSE file.
 <link rel="import" href="/tracing/extras/importer/battor_importer.html">
 <link rel="import" href="/tracing/extras/importer/trace_event_importer.html">
 <link rel="import" href="/tracing/extras/measure/measure.html">
+<link rel="import" href="/tracing/extras/v8_config.html">
 <link rel="import" href="/tracing/importer/import.html">
 <link rel="import" href="/tracing/model/container_memory_dump.html">
 <link rel="import" href="/tracing/model/memory_dump_test_utils.html">
@@ -1140,7 +1141,7 @@ tr.b.unittest.testSuite(function() {
     assert.equal(t.asyncSliceGroup.slices[0].title, 'a');
     assert.equal(t.asyncSliceGroup.slices[0].category, 'cat');
     assert.isTrue(t.asyncSliceGroup.slices[0].isTopLevel);
-    assert.equal(t.asyncSliceGroup.slices[0].id, 72);
+    assert.equal(t.asyncSliceGroup.slices[0].id, ':ptr:72');
     assert.equal(t.asyncSliceGroup.slices[0].args.foo, 'bar');
     assert.equal(t.asyncSliceGroup.slices[0].start, 0);
     assert.closeTo(
@@ -1829,7 +1830,7 @@ tr.b.unittest.testSuite(function() {
     var eventASlice = t.asyncSliceGroup.slices[0];
     assert.equal(eventASlice.title, 'EVENT_A');
     assert.equal(eventASlice.category, 'foo');
-    assert.equal(eventASlice.id, 'foo:72');
+    assert.equal(eventASlice.id, 'foo::ptr:72');
     assert.isTrue(eventASlice.isTopLevel);
     assert.equal(eventASlice.args['x'], 1);
     assert.sameMembers(eventASlice.subSlices, []);
@@ -1837,7 +1838,7 @@ tr.b.unittest.testSuite(function() {
     var eventBSlice = t.asyncSliceGroup.slices[1];
     assert.equal(eventBSlice.title, 'EVENT_B');
     assert.equal(eventBSlice.category, 'bar');
-    assert.equal(eventBSlice.id, 'bar:72');
+    assert.equal(eventBSlice.id, 'bar::ptr:72');
     assert.isTrue(eventBSlice.isTopLevel);
     assert.equal(eventBSlice.args['y'], 2);
     assert.sameMembers(eventBSlice.subSlices, []);
@@ -1874,6 +1875,75 @@ tr.b.unittest.testSuite(function() {
     assert.equal(slice.endStackFrame.title, 'frame7');
   });
 
+  test('processLocalAsync', function() {
+    var events = [
+      {name: 'a', args: {}, pid: 52, ts: 524, cat: 'foo', tid: 53,
+        ph: 'b', id2: {local: 72}},
+      {name: 'b', args: {x: 1}, pid: 54, ts: 525, cat: 'foo', tid: 55,
+        ph: 'b', id2: {local: 72}},
+      {name: 'b', args: {y: 2}, pid: 54, ts: 560, cat: 'foo', tid: 55,
+        ph: 'e', id2: {local: 72}},
+      {name: 'a', args: {}, pid: 52, ts: 565, cat: 'foo', tid: 53,
+        ph: 'e', id2: {local: 72}}
+    ];
+
+    var m = makeModel(events);
+    var t = m.processes[52].threads[53];
+    assert.isDefined(t);
+    assert.equal(t.asyncSliceGroup.slices.length, 1);
+    var parentSlice = t.asyncSliceGroup.slices[0];
+    assert.equal(parentSlice.title, 'a');
+    assert.equal(parentSlice.category, 'foo');
+    assert.isTrue(parentSlice.isTopLevel);
+    assert.isDefined(parentSlice.subSlices);
+    assert.equal(parentSlice.subSlices.length, 0);
+
+    t = m.processes[54].threads[55];
+    assert.isDefined(t);
+    assert.equal(t.asyncSliceGroup.slices.length, 1);
+    parentSlice = t.asyncSliceGroup.slices[0];
+    assert.equal(parentSlice.title, 'b');
+    assert.equal(parentSlice.category, 'foo');
+    assert.equal(parentSlice.args['x'], 1);
+    assert.equal(parentSlice.args['y'], 2);
+    assert.isTrue(parentSlice.isTopLevel);
+    assert.isDefined(parentSlice.subSlices);
+    assert.equal(parentSlice.subSlices.length, 0);
+  });
+
+  test('globalAsync', function() {
+    var events = [
+      {name: 'a', args: {}, pid: 52, ts: 524, cat: 'foo', tid: 53,
+        ph: 'b', id2: {global: 72}},
+      {name: 'b', args: {x: 1}, pid: 54, ts: 525, cat: 'foo', tid: 55,
+        ph: 'b', id2: {global: 72}},
+      {name: 'b', args: {y: 2}, pid: 54, ts: 560, cat: 'foo', tid: 55,
+        ph: 'e', id2: {global: 72}},
+      {name: 'a', args: {}, pid: 52, ts: 565, cat: 'foo', tid: 53,
+        ph: 'e', id2: {global: 72}}
+    ];
+
+    var m = makeModel(events);
+    var t = m.processes[52].threads[53];
+    assert.isDefined(t);
+    assert.equal(t.asyncSliceGroup.slices.length, 1);
+    var parentSlice = t.asyncSliceGroup.slices[0];
+    assert.equal(parentSlice.title, 'a');
+    assert.equal(parentSlice.category, 'foo');
+    assert.isTrue(parentSlice.isTopLevel);
+
+    assert.isDefined(parentSlice.subSlices);
+    assert.equal(parentSlice.subSlices.length, 1);
+    var subSlice = parentSlice.subSlices[0];
+    assert.isFalse(subSlice.isTopLevel);
+    // Arguments should include both BEGIN and END event.
+    assert.equal(subSlice.args['x'], 1);
+    assert.equal(subSlice.args['y'], 2);
+    assert.sameMembers(subSlice.subSlices, []);
+
+    assert.isUndefined(m.processes[54].threads[55]);
+  });
+
   test('importSamples', function() {
     var events = [
       {name: 'a', args: {}, pid: 52, ts: 548, cat: 'test', tid: 53, ph: 'P'},
@@ -1890,10 +1960,10 @@ tr.b.unittest.testSuite(function() {
     assert.equal(t.samples_[0].start, 0.0);
     assert.equal(t.samples_[1].start, 0.0);
     assert.closeTo(0.01, t.samples_[2].start, 1e-5);
-    assert.equal(t.samples_[0].leafStackFrame.title, 'a');
-    assert.equal(t.samples_[1].leafStackFrame.title, 'b');
-    assert.equal(t.samples_[2].leafStackFrame.title, 'c');
-    assert.equal(t.samples_[3].leafStackFrame, t.samples[0].leafStackFrame);
+    assert.equal(t.samples_[0].leafNode.title, 'a');
+    assert.equal(t.samples_[1].leafNode.title, 'b');
+    assert.equal(t.samples_[2].leafNode.title, 'c');
+    assert.equal(t.samples_[3].leafNode, t.samples[0].leafNode);
     assert.isFalse(m.hasImportWarnings);
   });
 
@@ -1922,7 +1992,7 @@ tr.b.unittest.testSuite(function() {
 
     assert.equal(t.samples.length, 1);
     assert.equal(t.samples_[0].start, 0.0);
-    assert.equal(t.samples_[0].leafStackFrame.title, 'frame7');
+    assert.equal(t.samples_[0].leafNode.title, 'frame7');
     assert.isFalse(m.hasImportWarnings);
   });
 
@@ -1962,12 +2032,11 @@ tr.b.unittest.testSuite(function() {
     assert.equal(t.samples.length, 2);
 
     var sample = t.samples_[0];
-    assert.equal(sample.leafStackFrame.title,
-        'foo http://example.com/bar.js:22');
-    assert.equal(sample.leafStackFrame.parentFrame.title, 'bar');
+    assert.deepEqual(sample.userFriendlyStack,
+                     ['foo url: http://example.com/bar.js:22', 'bar url: unknown']);
 
     var sample = t.samples_[1];
-    assert.equal(sample.leafStackFrame.title, 'gc');
+    assert.deepEqual(sample.userFriendlyStack, ['gc url: unknown']);
   });
 
   test('importOldFormatV8Samples', function() {
@@ -1990,12 +2059,11 @@ tr.b.unittest.testSuite(function() {
     assert.equal(t.samples.length, 2);
 
     var sample = t.samples_[0];
-    assert.equal(sample.leafStackFrame.title,
-        'foo http://example.com/bar.js:22');
-    assert.equal(sample.leafStackFrame.parentFrame.title, 'bar');
+    assert.deepEqual(sample.userFriendlyStack,
+                     ['foo url: http://example.com/bar.js:22', 'bar url: unknown']);
 
     var sample = t.samples_[1];
-    assert.equal(sample.leafStackFrame.title, 'gc');
+    assert.deepEqual(sample.userFriendlyStack, ['gc url: unknown']);
   });
 
   test('importSimpleObject', function() {
@@ -2290,12 +2358,12 @@ tr.b.unittest.testSuite(function() {
   test('importOldFlowEventBindtoNext', function() {
     // Old trace format without event.bp, and event.cat doesn't contain input
     var events = [
-      { name: 'slice1', cat: 'foo', pid: 52, tid: 53, ts: 547, ph: 'X', 'dur': 100},   // @suppress longLineCheck
+      { name: 'slice1', cat: 'foo', pid: 52, tid: 53, ts: 547, ph: 'X', dur: 100},   // @suppress longLineCheck
       { name: 'flow', cat: 'foo', id: 72, pid: 52, tid: 53, ts: 548, ph: 's', args: {}},  // @suppress longLineCheck
 
       { name: 'flow', cat: 'foo', id: 72, pid: 70, tid: 71, ts: 580, ph: 'f', args: {}},   // @suppress longLineCheck
-      { name: 'slice2', cat: 'foo', pid: 70, tid: 71, ts: 570, ph: 'X', args: {}, 'dur': 100},   // @suppress longLineCheck
-      { name: 'slice3', cat: 'foo', pid: 70, tid: 71, ts: 770, ph: 'X', args: {}, 'dur': 1000}   // @suppress longLineCheck
+      { name: 'slice2', cat: 'foo', pid: 70, tid: 71, ts: 570, ph: 'X', args: {}, dur: 100},   // @suppress longLineCheck
+      { name: 'slice3', cat: 'foo', pid: 70, tid: 71, ts: 770, ph: 'X', args: {}, dur: 1000}   // @suppress longLineCheck
 
     ];
 
@@ -2318,12 +2386,12 @@ tr.b.unittest.testSuite(function() {
   test('importOldInputFlowEventBindtoParent', function() {
     // Old trace format without event.bp, but event.cat contains input
     var events = [
-      { name: 'slice1', cat: 'foo', pid: 52, tid: 53, ts: 547, ph: 'X', 'dur': 100},   // @suppress longLineCheck
+      { name: 'slice1', cat: 'foo', pid: 52, tid: 53, ts: 547, ph: 'X', dur: 100},   // @suppress longLineCheck
       { name: 'flow', cat: 'input', id: 72, pid: 52, tid: 53, ts: 548, ph: 's', args: {}},  // @suppress longLineCheck
 
       { name: 'flow', cat: 'input', id: 72, pid: 70, tid: 71, ts: 580, ph: 'f', args: {}},   // @suppress longLineCheck
-      { name: 'slice2', cat: 'foo', pid: 70, tid: 71, ts: 570, ph: 'X', args: {}, 'dur': 100},   // @suppress longLineCheck
-      { name: 'slice3', cat: 'foo', pid: 70, tid: 71, ts: 770, ph: 'X', args: {}, 'dur': 1000}   // @suppress longLineCheck
+      { name: 'slice2', cat: 'foo', pid: 70, tid: 71, ts: 570, ph: 'X', args: {}, dur: 100},   // @suppress longLineCheck
+      { name: 'slice3', cat: 'foo', pid: 70, tid: 71, ts: 770, ph: 'X', args: {}, dur: 1000}   // @suppress longLineCheck
 
     ];
 
@@ -2346,12 +2414,12 @@ tr.b.unittest.testSuite(function() {
   test('importOldIPCFlowEventBindtoParent', function() {
     // Old trace format without event.bp, but event.cat contains ipc.flow
     var events = [
-      { name: 'slice1', cat: 'foo', pid: 52, tid: 53, ts: 547, ph: 'X', 'dur': 100},   // @suppress longLineCheck
+      { name: 'slice1', cat: 'foo', pid: 52, tid: 53, ts: 547, ph: 'X', dur: 100},   // @suppress longLineCheck
       { name: 'flow', cat: 'disabled-by-default-ipc.flow', id: 72, pid: 52, tid: 53, ts: 548, ph: 's', args: {}},  // @suppress longLineCheck
 
       { name: 'flow', cat: 'disabled-by-default-ipc.flow', id: 72, pid: 70, tid: 71, ts: 580, ph: 'f', args: {}},   // @suppress longLineCheck
-      { name: 'slice2', cat: 'foo', pid: 70, tid: 71, ts: 570, ph: 'X', args: {}, 'dur': 100},   // @suppress longLineCheck
-      { name: 'slice3', cat: 'foo', pid: 70, tid: 71, ts: 770, ph: 'X', args: {}, 'dur': 1000}   // @suppress longLineCheck
+      { name: 'slice2', cat: 'foo', pid: 70, tid: 71, ts: 570, ph: 'X', args: {}, dur: 100},   // @suppress longLineCheck
+      { name: 'slice3', cat: 'foo', pid: 70, tid: 71, ts: 770, ph: 'X', args: {}, dur: 1000}   // @suppress longLineCheck
 
     ];
 
@@ -2374,12 +2442,12 @@ tr.b.unittest.testSuite(function() {
   test('importNewFlowEventBindtoParent', function() {
     // New trace format with event.bp
     var events = [
-      { name: 'slice1', cat: 'foo', pid: 52, tid: 53, ts: 547, ph: 'X', 'dur': 100},   // @suppress longLineCheck
+      { name: 'slice1', cat: 'foo', pid: 52, tid: 53, ts: 547, ph: 'X', dur: 100},   // @suppress longLineCheck
       { name: 'flow', cat: 'foo', id: 72, pid: 52, tid: 53, ts: 548, ph: 's', bp: 'e', args: {}},  // @suppress longLineCheck
 
       { name: 'flow', cat: 'foo', id: 72, pid: 70, tid: 71, ts: 580, ph: 'f', bp: 'e', args: {}},   // @suppress longLineCheck
-      { name: 'slice2', cat: 'foo', pid: 70, tid: 71, ts: 570, ph: 'X', args: {}, 'dur': 100},   // @suppress longLineCheck
-      { name: 'slice3', cat: 'foo', pid: 70, tid: 71, ts: 770, ph: 'X', args: {}, 'dur': 1000}   // @suppress longLineCheck
+      { name: 'slice2', cat: 'foo', pid: 70, tid: 71, ts: 570, ph: 'X', args: {}, dur: 100},   // @suppress longLineCheck
+      { name: 'slice3', cat: 'foo', pid: 70, tid: 71, ts: 770, ph: 'X', args: {}, dur: 1000}   // @suppress longLineCheck
 
     ];
 
@@ -2402,12 +2470,12 @@ tr.b.unittest.testSuite(function() {
   test('importNewFlowEventWithInvalidBindingPoint', function() {
     // New trace format with event.bp, which however !== 'e'
     var events = [
-      { name: 'slice1', cat: 'foo', pid: 52, tid: 53, ts: 547, ph: 'X', 'dur': 100},   // @suppress longLineCheck
+      { name: 'slice1', cat: 'foo', pid: 52, tid: 53, ts: 547, ph: 'X', dur: 100},   // @suppress longLineCheck
       { name: 'flow', cat: 'foo', id: 72, pid: 52, tid: 53, ts: 548, ph: 's', bp: 'z', args: {}},  // @suppress longLineCheck
 
       { name: 'flow', cat: 'foo', id: 72, pid: 70, tid: 71, ts: 580, ph: 'f', bp: 'z', args: {}},   // @suppress longLineCheck
-      { name: 'slice2', cat: 'foo', pid: 70, tid: 71, ts: 570, ph: 'X', args: {}, 'dur': 100},   // @suppress longLineCheck
-      { name: 'slice3', cat: 'foo', pid: 70, tid: 71, ts: 770, ph: 'X', args: {}, 'dur': 1000}   // @suppress longLineCheck
+      { name: 'slice2', cat: 'foo', pid: 70, tid: 71, ts: 570, ph: 'X', args: {}, dur: 100},   // @suppress longLineCheck
+      { name: 'slice3', cat: 'foo', pid: 70, tid: 71, ts: 770, ph: 'X', args: {}, dur: 1000}   // @suppress longLineCheck
 
     ];
 
@@ -2419,8 +2487,8 @@ tr.b.unittest.testSuite(function() {
   test('importFlowV2OnePair', function() {
     // Flow V2: one flow producer one flow consumer
     var events = [
-      { name: 'producer', cat: 'foo', pid: 52, tid: 53, ts: 547, ph: 'X', 'dur': 100, bind_id: '0xaaa', flow_out: true},   // @suppress longLineCheck
-      { name: 'consumer', cat: 'foo', pid: 70, tid: 71, ts: 770, ph: 'X', 'dur': 1000, bind_id: '0xaaa', flow_in: true}   // @suppress longLineCheck
+      { name: 'producer', cat: 'foo', pid: 52, tid: 53, ts: 547, ph: 'X', dur: 100, bind_id: '0xaaa', flow_out: true},   // @suppress longLineCheck
+      { name: 'consumer', cat: 'foo', pid: 70, tid: 71, ts: 770, ph: 'X', dur: 1000, bind_id: '0xaaa', flow_in: true}   // @suppress longLineCheck
     ];
 
     var m = makeModel(events);
@@ -2438,9 +2506,9 @@ tr.b.unittest.testSuite(function() {
   test('importFlowV2OneFlowStep', function() {
     // Flow V2: one flow producer one flow consumer
     var events = [
-      { name: 'producer', cat: 'foo', pid: 52, tid: 53, ts: 547, ph: 'X', 'dur': 100, bind_id: '0xaaa', flow_out: true},   // @suppress longLineCheck
-      { name: 'step', cat: 'foo', pid: 62, tid: 63, ts: 647, ph: 'X', 'dur': 100, bind_id: '0xaaa', flow_out: true, flow_in: true},   // @suppress longLineCheck
-      { name: 'consumer', cat: 'foo', pid: 70, tid: 71, ts: 770, ph: 'X', 'dur': 1000, bind_id: '0xaaa', args: { 'queue_duration': 0}, flow_in: true}   // @suppress longLineCheck
+      { name: 'producer', cat: 'foo', pid: 52, tid: 53, ts: 547, ph: 'X', dur: 100, bind_id: '0xaaa', flow_out: true},   // @suppress longLineCheck
+      { name: 'step', cat: 'foo', pid: 62, tid: 63, ts: 647, ph: 'X', dur: 100, bind_id: '0xaaa', flow_out: true, flow_in: true},   // @suppress longLineCheck
+      { name: 'consumer', cat: 'foo', pid: 70, tid: 71, ts: 770, ph: 'X', dur: 1000, bind_id: '0xaaa', args: { 'queue_duration': 0}, flow_in: true}   // @suppress longLineCheck
     ];
 
     var m = makeModel(events);
@@ -2464,9 +2532,9 @@ tr.b.unittest.testSuite(function() {
   test('importFlowV2MultipleConsumers', function() {
     // Flow V2: one flow producer multiple flow consumers
     var events = [
-      { name: 'producer', cat: 'foo', pid: 52, tid: 53, ts: 547, ph: 'X', 'dur': 100, bind_id: '0xaaa', flow_out: true},   // @suppress longLineCheck
-      { name: 'consumer1', cat: 'foo', pid: 70, tid: 71, ts: 770, ph: 'X', 'dur': 1000, bind_id: '0xaaa', flow_in: true},   // @suppress longLineCheck
-      { name: 'consumer2', cat: 'foo', pid: 70, tid: 72, ts: 870, ph: 'X', 'dur': 1000, bind_id: '0xaaa', flow_in: true}   // @suppress longLineCheck
+      { name: 'producer', cat: 'foo', pid: 52, tid: 53, ts: 547, ph: 'X', dur: 100, bind_id: '0xaaa', flow_out: true},   // @suppress longLineCheck
+      { name: 'consumer1', cat: 'foo', pid: 70, tid: 71, ts: 770, ph: 'X', dur: 1000, bind_id: '0xaaa', flow_in: true},   // @suppress longLineCheck
+      { name: 'consumer2', cat: 'foo', pid: 70, tid: 72, ts: 870, ph: 'X', dur: 1000, bind_id: '0xaaa', flow_in: true}   // @suppress longLineCheck
     ];
 
     var m = makeModel(events);
@@ -2492,9 +2560,9 @@ tr.b.unittest.testSuite(function() {
   test('importFlowV2MultipleProducers', function() {
     // Flow V2: multiple flow producers, which is not allowed
     var events = [
-      { name: 'producer1', cat: 'foo', pid: 52, tid: 53, ts: 547, ph: 'X', 'dur': 100, bind_id: '0xaaa', flow_out: true},   // @suppress longLineCheck
-      { name: 'producer2', cat: 'foo', pid: 52, tid: 54, ts: 567, ph: 'X', 'dur': 100, bind_id: '0xaaa', flow_out: true},   // @suppress longLineCheck
-      { name: 'consumer', cat: 'foo', pid: 70, tid: 71, ts: 770, ph: 'X', 'dur': 1000, bind_id: '0xaaa', flow_in: true}   // @suppress longLineCheck
+      { name: 'producer1', cat: 'foo', pid: 52, tid: 53, ts: 547, ph: 'X', dur: 100, bind_id: '0xaaa', flow_out: true},   // @suppress longLineCheck
+      { name: 'producer2', cat: 'foo', pid: 52, tid: 54, ts: 567, ph: 'X', dur: 100, bind_id: '0xaaa', flow_out: true},   // @suppress longLineCheck
+      { name: 'consumer', cat: 'foo', pid: 70, tid: 71, ts: 770, ph: 'X', dur: 1000, bind_id: '0xaaa', flow_in: true}   // @suppress longLineCheck
     ];
 
     var m = makeModel(events);
@@ -2506,12 +2574,12 @@ tr.b.unittest.testSuite(function() {
   // the 'X' event which it triggers begins.
   test('importFlowEventOverlaps', function() {
     var events = [
-      { name: 'SomeTask', cat: 'foo', pid: 52, tid: 53, ts: 547, ph: 'X', 'dur': 100},   // @suppress longLineCheck
+      { name: 'SomeTask', cat: 'foo', pid: 52, tid: 53, ts: 547, ph: 'X', dur: 100},   // @suppress longLineCheck
       { name: 'PostTask', cat: 'foo', id: 72, pid: 52, tid: 53, ts: 548, ph: 's', args: {}},  // @suppress longLineCheck
 
       { name: 'PostTask', cat: 'foo', id: 72, pid: 70, tid: 71, ts: 580, ph: 'f', args: { 'queue_duration': 0}},   // @suppress longLineCheck
       // Note that RunTask has the same time-stamp as PostTask 'f'
-      { name: 'RunTask', cat: 'foo', pid: 70, tid: 71, ts: 580, ph: 'X', args: {'src_func': 'PostRunTask'}, 'dur': 1000}   // @suppress longLineCheck
+      { name: 'RunTask', cat: 'foo', pid: 70, tid: 71, ts: 580, ph: 'X', args: {'src_func': 'PostRunTask'}, dur: 1000}   // @suppress longLineCheck
     ];
 
     var m = makeModel(events, false);
@@ -2545,27 +2613,27 @@ tr.b.unittest.testSuite(function() {
 
   test('importOutOfOrderFlowEvent', function() {
     var events = [
-      { name: 'SomeTask', cat: 'foo', pid: 52, tid: 53, ts: 548, ph: 'X', 'dur': 10},   // @suppress longLineCheck
+      { name: 'SomeTask', cat: 'foo', pid: 52, tid: 53, ts: 548, ph: 'X', dur: 10},   // @suppress longLineCheck
       { name: 'a', cat: 'foo', id: 72, pid: 52, tid: 53, ts: 548, ph: 's', args: {} },  // @suppress longLineCheck
 
-      { name: 'SomeTask', cat: 'foo', pid: 52, tid: 53, ts: 148, ph: 'X', 'dur': 10},   // @suppress longLineCheck
+      { name: 'SomeTask', cat: 'foo', pid: 52, tid: 53, ts: 148, ph: 'X', dur: 10},   // @suppress longLineCheck
       { name: 'b', cat: 'foo', id: 73, pid: 52, tid: 53, ts: 148, ph: 's', args: {} },  // @suppress longLineCheck
 
       { name: 'b', cat: 'foo', id: 73, pid: 52, tid: 53, ts: 570, ph: 'f', args: {} },   // @suppress longLineCheck
-      { name: 'SomeTask', cat: 'foo', pid: 52, tid: 53, ts: 571, ph: 'X', 'dur': 10},   // @suppress longLineCheck
+      { name: 'SomeTask', cat: 'foo', pid: 52, tid: 53, ts: 571, ph: 'X', dur: 10},   // @suppress longLineCheck
 
-      { name: 'SomeTask', cat: 'foo', pid: 52, tid: 53, ts: 560, ph: 'X', 'dur': 10},   // @suppress longLineCheck
+      { name: 'SomeTask', cat: 'foo', pid: 52, tid: 53, ts: 560, ph: 'X', dur: 10},   // @suppress longLineCheck
       { name: 'a', cat: 'foo', id: 72, pid: 52, tid: 53, ts: 560, ph: 't', args: {} },  // @suppress longLineCheck
 
       { name: 'a', cat: 'foo', id: 72, pid: 52, tid: 53, ts: 580, ph: 'f', args: {} },   // @suppress longLineCheck
-      { name: 'SomeTask', cat: 'foo', pid: 52, tid: 53, ts: 581, ph: 'X', 'dur': 10}   // @suppress longLineCheck
+      { name: 'SomeTask', cat: 'foo', pid: 52, tid: 53, ts: 581, ph: 'X', dur: 10}   // @suppress longLineCheck
     ];
 
     var expected = [0.4, 0.0, 0.412];
     var m = makeModel(events);
     assert.equal(m.flowIntervalTree.size, 3);
 
-    var order = m.flowEvents.map(function(x) { return x.start });
+    var order = m.flowEvents.map(function(x) { return x.start; });
     for (var i = 0; i < expected.length; ++i)
       assert.closeTo(expected[i], order[i], 1e-5);
   });
@@ -2775,7 +2843,7 @@ tr.b.unittest.testSuite(function() {
     events.push({name: 'a', cat: 'foo', id: 72, pid: 52, tid: 53, ts: 0, ph: 'S', args: {'seq': 0}});  // @suppress longLineCheck
 
     for (var i = 1; i <= 1000; i++)
-      events.push({name: 'a', cat: 'foo', id: 72, pid: 52, tid: 53, ts: Math.round(i / 2) , ph: 'T', args: {'seq': i}});  // @suppress longLineCheck
+      events.push({name: 'a', cat: 'foo', id: 72, pid: 52, tid: 53, ts: Math.round(i / 2), ph: 'T', args: {'seq': i}});  // @suppress longLineCheck
 
     events.push({name: 'a', cat: 'foo', id: 72, pid: 52, tid: 53, ts: 1000, ph: 'F', args: {'seq': 1001}});  // @suppress longLineCheck
 
@@ -2842,7 +2910,6 @@ tr.b.unittest.testSuite(function() {
     assert.isDefined(m.kernel.cpus[0]);
     assert.equal(m.getAllThreads().length, 1);
 
-    assert.equal(tr.b.dictionaryKeys(m.stackFrames).length, 4);
     assert.equal(m.samples.length, 3);
 
     var t1 = m.processes[1].threads[1];
@@ -2858,8 +2925,9 @@ tr.b.unittest.testSuite(function() {
     assert.equal(m.samples[0].title, 'cycles:HG');
     assert.equal(m.samples[0].start, 1);
     assert.deepEqual(
-        ['a_sub', 'a', 'main'],
-        m.samples[0].stackTrace.map(function(x) { return x.title; }));
+      ['a_sub', 'a', 'main'],
+      m.samples[0].userFriendlyStack
+        .map(x => x.substr(0, x.indexOf('url') - 1)));
     assert.equal(m.samples[0].weight, 1);
   });
 
@@ -4162,7 +4230,7 @@ tr.b.unittest.testSuite(function() {
           stackFrames: {
             '0': { name: 'MessageLoop::RunTask' },
             '1': { name: 'TimerBase::run', parent: '0' },
-            'TWO': { name: 'ScheduledAction::execute', 'parent': '1' },
+            'TWO': { name: 'ScheduledAction::execute', parent: '1' },
             '3': { name: 'FunctionCall', parent: 'TWO' },
             '4': { name: 'UpdateLayoutTree', parent: '1' },
             '5': { name: 'MessageLoop::JogTask' }
@@ -4259,7 +4327,7 @@ tr.b.unittest.testSuite(function() {
 
     // Stack frames.
     assert.deepEqual(
-        tr.b.mapItems(m.stackFrames, function(id, f) { return f.title }),
+        tr.b.mapItems(m.stackFrames, function(id, f) { return f.title; }),
         {
           'p21:0': 'FrameView::layout',
           'p21:0:self': '<self>',
@@ -4391,8 +4459,8 @@ tr.b.unittest.testSuite(function() {
             '0': { name: 'MessageLoop::RunTask' },
             '0.5': { name: '<self>', parent: '0' },
             '1': { name: 'TimerBase::run', parent: '0' },
-            'TWO': { name: 'ScheduledAction::execute', 'parent': '1' },
-            '2.72': { name: '<self>', 'parent': 'TWO' },
+            'TWO': { name: 'ScheduledAction::execute', parent: '1' },
+            '2.72': { name: '<self>', parent: 'TWO' },
             '3': { name: 'FunctionCall', parent: 'TWO' },
             '\u03C0': { name: '<self>', parent: '3' },
             '4': { name: 'UpdateLayoutTree', parent: '1' },
@@ -4589,7 +4657,7 @@ tr.b.unittest.testSuite(function() {
 
     // Stack frames.
     assert.deepEqual(
-        tr.b.mapItems(m.stackFrames, function(id, f) { return f.title }),
+        tr.b.mapItems(m.stackFrames, function(id, f) { return f.title; }),
         {
           'p21:0': 'FrameView::layout',
           'p21:A': '<self>',
@@ -5724,11 +5792,11 @@ tr.b.unittest.testSuite(function() {
     var m = makeModel(events);
 
     m.clockSyncManager.addClockSyncMarker(
-        ClockDomainId.LINUX_CLOCK_MONOTONIC, 'abc', 10);
+        ClockDomainId.LINUX_CLOCK_MONOTONIC, 'abc', 15);
 
     assert.equal(
         m.clockSyncManager.getModelTimeTransformer(
-            ClockDomainId.TELEMETRY)(15),
+            ClockDomainId.TELEMETRY)(10),
         10);
     assert.equal(
         m.clockSyncManager.getModelTimeTransformer(
@@ -5747,8 +5815,177 @@ tr.b.unittest.testSuite(function() {
     assert.isTrue(m.hasImportWarnings);
   });
 
+  test('clockSync_legacyChrome', function() {
+    var events = {
+      traceEvents: [
+        {
+          name: 'ClockSyncEvent.abc', ts: 5000,
+          cat: 'blink.user_timing', pid: 1, tid: 2, ph: 'S'
+        },
+        {
+          name: 'ClockSyncEvent.abc', ts: 15000,
+          cat: 'blink.user_timing', pid: 1, tid: 2, ph: 'F'
+        }
+      ]
+    };
+
+    var m = makeModel(events);
+
+    m.clockSyncManager.addClockSyncMarker(
+        ClockDomainId.TELEMETRY, 'abc', 15);
+
+    assert.equal(
+        m.clockSyncManager.getModelTimeTransformer(
+            ClockDomainId.UNKNOWN_CHROME_LEGACY)(10),
+        10);
+    assert.equal(
+        m.clockSyncManager.getModelTimeTransformer(
+            ClockDomainId.TELEMETRY)(15),
+        10);
+  });
+
+  test('clockSync_legacyChromeThrowsWithInconsistentSyncID', function() {
+    var events = {
+      traceEvents: [
+        {
+          name: 'ClockSyncEvent.abc', ts: 5000,
+          cat: 'blink.user_timing', pid: 1, tid: 2, ph: 'S'
+        },
+        {
+          name: 'ClockSyncEvent.def', ts: 15000,
+          cat: 'blink.user_timing', pid: 1, tid: 2, ph: 'F'
+        }
+      ]
+    };
+
+    assert.throws(() => makeModel(events),
+        'Inconsistent clock sync ID of legacy Chrome clock sync events');
+  });
+
+  test('importV8SamplesInStreamingFormat', function() {
+    var events = {
+      'traceEvents': [
+        {'pid': 1, 'tid': 2, 'ts': 3, 'ph': 'P',
+         'cat': 'disabled-by-default-v8.cpu_profiler',
+         'name': 'Profile',
+         'args': {'data': {'startTime': 10}},
+         'id': 123
+        },
+        {'pid': 1, 'tid': 3, 'ts': 4, 'ph': 'P',
+         'cat': 'disabled-by-default-v8.cpu_profiler',
+         'name': 'Profile',
+         'args': {
+           'data': {
+             'timeDeltas': [1, 1],
+             'cpuProfile': {
+               'nodes': [
+                 // eslint-disable-next-line
+                 {'callFrame': {'functionName': '(root)', 'scriptId': 0}, 'id': 1},
+                 // eslint-disable-next-line
+                 {'callFrame': {'functionName': 'a', 'url': 'a.js', 'scriptId': 1, 'lineNumber': 1, 'columnNumber': 2}, 'id': 2, 'parent': 1},
+                 // eslint-disable-next-line
+                 {'callFrame': {'functionName': 'b', 'url': 'b.js', 'scriptId': 2, 'lineNumber': 1, 'columnNumber': 2}, 'deoptReason': 'a reason', 'id': 3, 'parent': 2}
+               ],
+               'samples': [3, 2]
+             }
+           }
+         },
+         'id': 123
+        },
+        {'pid': 1, 'tid': 3, 'ts': 4, 'ph': 'P',
+         'cat': 'disabled-by-default-v8.cpu_profiler',
+         'name': 'Profile',
+         'args': {
+           'data': {
+             'timeDeltas': [3, 3],
+             'cpuProfile': {
+               'nodes': [
+                 // eslint-disable-next-line
+                 {'callFrame': {'functionName': 'c', 'url': 'c.js', 'scriptId': 3, 'lineNumber': 2, 'columnNumber': 3}, 'id': 4, 'parent': 2},
+                 // eslint-disable-next-line
+                 {'callFrame': {'functionName': 'd', 'url': 'd.js', 'scriptId': 4, 'lineNumber': 2, 'columnNumber': 3}, 'deoptReason': 'another reason', 'id': 5, 'parent': 3}
+               ],
+               'samples': [5, 4]
+             }
+           }
+         },
+         'id': 123
+        }
+      ]
+    };
+    var m = makeModel(events, false);
+    var samples = m.samples;
+    assert.equal(m.samples.length, 4);
+    assert.deepEqual(samples.map(sample => sample.start.toFixed(3)), [
+      '0.011',
+      '0.012',
+      '0.015',
+      '0.018'
+    ]);
+    assert.deepEqual(samples[0].userFriendlyStack, [
+      'b url: b.js:1:2 Deoptimized reason: a reason',
+      'a url: a.js:1:2'
+    ]);
+    assert.deepEqual(samples[1].userFriendlyStack, [
+      'a url: a.js:1:2'
+    ]);
+    assert.deepEqual(samples[2].userFriendlyStack, [
+      'd url: d.js:2:3 Deoptimized reason: another reason',
+      'b url: b.js:1:2 Deoptimized reason: a reason',
+      'a url: a.js:1:2'
+    ]);
+    assert.deepEqual(samples[3].userFriendlyStack, [
+      'c url: c.js:2:3',
+      'a url: a.js:1:2'
+    ]);
+  });
+
+  test('scopedIdForEvent_defaultScopeAsyncEvent', function() {
+    var event = {pid: 1, ph: 'b', id: '0x1000'};
+    var id = tr.e.importer.TraceEventImporter.scopedIdForEvent_(event);
+    assert.isDefined(id);
+    assert.equal('0x1000', id.id);
+    assert.equal('ptr', id.scope);
+    assert.isUndefined(id.pid);
+  });
+
+  test('scopedIdForEvent_defaultScopeContextEvent', function() {
+    var event = {pid: 1, ph: '(', id: '0x1000'};
+    var id = tr.e.importer.TraceEventImporter.scopedIdForEvent_(event);
+    assert.isDefined(id);
+    assert.equal('0x1000', id.id);
+    assert.equal('ptr', id.scope);
+    assert.equal(1, id.pid);
+  });
+
+  test('scopedIdForEvent_defaultScopeProcessLocalId', function() {
+    var event = {pid: 1, ph: 'b', id2: {local: '0x1000'}};
+    var id = tr.e.importer.TraceEventImporter.scopedIdForEvent_(event);
+    assert.isDefined(id);
+    assert.equal('0x1000', id.id);
+    assert.equal('ptr', id.scope);
+    assert.equal(1, id.pid);
+  });
+
+  test('scopedIdForEvent_defaultScopeGlobalId', function() {
+    var event = {pid: 1, ph: '(', id2: {global: '0x1000'}};
+    var id = tr.e.importer.TraceEventImporter.scopedIdForEvent_(event);
+    assert.isDefined(id);
+    assert.equal('0x1000', id.id);
+    assert.equal('ptr', id.scope);
+    assert.isUndefined(id.pid);
+  });
+
+  test('scopedIdForEvent_explicitScopeGlobalId', function() {
+    var event = {pid: 1, ph: '(', id2: {global: '0x1000'}, scope: 'scope'};
+    var id = tr.e.importer.TraceEventImporter.scopedIdForEvent_(event);
+    assert.isDefined(id);
+    assert.equal('0x1000', id.id);
+    assert.equal('scope', id.scope);
+    assert.isUndefined(id.pid);
+  });
+
   // TODO(nduca): one slice, two threads
   // TODO(nduca): one slice, two pids
-
 });
 </script>

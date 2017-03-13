@@ -10,12 +10,16 @@
 #include "ash/common/system/status_area_widget.h"
 #include "ash/common/system/tray/ime_info.h"
 #include "ash/common/system/tray/system_tray_notifier.h"
+#include "ash/common/test/test_system_tray_delegate.h"
 #include "ash/common/wm_shell.h"
 #include "ash/test/ash_test_base.h"
 #include "ash/test/status_area_widget_test_helper.h"
-#include "ash/test/test_system_tray_delegate.h"
 #include "base/strings/utf_string_conversions.h"
-#include "ui/accessibility/ax_view_state.h"
+#include "ui/accessibility/ax_node_data.h"
+#include "ui/base/ime/chromeos/input_method_manager.h"
+#include "ui/base/ime/chromeos/mock_input_method_manager.h"
+#include "ui/base/ime/ime_bridge.h"
+#include "ui/base/ime/text_input_flags.h"
 #include "ui/events/event.h"
 #include "ui/views/controls/label.h"
 
@@ -40,9 +44,7 @@ class ImeMenuTrayTest : public test::AshTestBase {
   const base::string16& GetTrayText() { return GetTray()->label_->text(); }
 
   // Returns true if the background color of the tray is active.
-  bool IsTrayBackgroundActive() {
-    return GetTray()->draw_background_as_active();
-  }
+  bool IsTrayBackgroundActive() { return GetTray()->is_active(); }
 
   // Returns true if the IME menu bubble has been shown.
   bool IsBubbleShown() { return GetTray()->IsImeMenuBubbleShown(); }
@@ -67,14 +69,22 @@ class ImeMenuTrayTest : public test::AshTestBase {
       }
 
       // Tests that the checked IME is the current IME.
-      ui::AXViewState state;
-      ime.first->GetAccessibleState(&state);
-      if (state.HasStateFlag(ui::AX_STATE_CHECKED)) {
+      ui::AXNodeData node_data;
+      node_data.state = 0;
+      ime.first->GetAccessibleNodeData(&node_data);
+      if (node_data.HasStateFlag(ui::AX_STATE_CHECKED)) {
         if (ime.second != expected_current_ime.id)
           return false;
       }
     }
     return true;
+  }
+
+  // Focuses in the given type of input context.
+  void FocusInInputContext(ui::TextInputType input_type) {
+    ui::IMEEngineHandlerInterface::InputContext input_context(
+        input_type, ui::TEXT_INPUT_MODE_DEFAULT, ui::TEXT_INPUT_FLAG_NONE);
+    ui::IMEBridge::Get()->SetCurrentInputContext(input_context);
   }
 
  private:
@@ -280,6 +290,24 @@ TEST_F(ImeMenuTrayTest, ForceToShowEmojiKeyset) {
   GetTray()->OnKeyboardHidden();
   // The keyboard should still be disabled.
   EXPECT_FALSE(accessibility_delegate->IsVirtualKeyboardEnabled());
+}
+
+TEST_F(ImeMenuTrayTest, ShowEmojiHandwritingVoiceButtons) {
+  FocusInInputContext(ui::TEXT_INPUT_TYPE_TEXT);
+  EXPECT_FALSE(GetTray()->ShouldShowEmojiHandwritingVoiceButtons());
+
+  chromeos::input_method::InputMethodManager* input_method_manager =
+      chromeos::input_method::InputMethodManager::Get();
+  EXPECT_FALSE(input_method_manager);
+  chromeos::input_method::InputMethodManager::Initialize(
+      new chromeos::input_method::MockInputMethodManager);
+  input_method_manager = chromeos::input_method::InputMethodManager::Get();
+  EXPECT_TRUE(input_method_manager &&
+              input_method_manager->IsEmojiHandwritingVoiceOnImeMenuEnabled());
+  EXPECT_TRUE(GetTray()->ShouldShowEmojiHandwritingVoiceButtons());
+
+  FocusInInputContext(ui::TEXT_INPUT_TYPE_PASSWORD);
+  EXPECT_FALSE(GetTray()->ShouldShowEmojiHandwritingVoiceButtons());
 }
 
 }  // namespace ash

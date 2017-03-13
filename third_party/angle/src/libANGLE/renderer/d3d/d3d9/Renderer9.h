@@ -18,6 +18,7 @@
 #include "libANGLE/renderer/d3d/d3d9/ShaderCache.h"
 #include "libANGLE/renderer/d3d/d3d9/VertexDeclarationCache.h"
 #include "libANGLE/renderer/d3d/d3d9/StateManager9.h"
+#include "libANGLE/renderer/driver_utils.h"
 
 namespace gl
 {
@@ -87,9 +88,17 @@ class Renderer9 : public RendererD3D
 
     SwapChainD3D *createSwapChain(NativeWindowD3D *nativeWindow,
                                   HANDLE shareHandle,
+                                  IUnknown *d3dTexture,
                                   GLenum backBufferFormat,
                                   GLenum depthBufferFormat,
                                   EGLint orientation) override;
+    egl::Error getD3DTextureInfo(IUnknown *d3dTexture,
+                                 EGLint *width,
+                                 EGLint *height,
+                                 GLenum *fboFormat) const override;
+    egl::Error validateShareHandle(const egl::Config *config,
+                                   HANDLE shareHandle,
+                                   const egl::AttributeMap &attribs) const override;
 
     ContextImpl *createContext(const gl::ContextState &state) override;
 
@@ -211,6 +220,10 @@ class Renderer9 : public RendererD3D
                           bool unpackFlipY,
                           bool unpackPremultiplyAlpha,
                           bool unpackUnmultiplyAlpha) override;
+    gl::Error copyCompressedTexture(const gl::Texture *source,
+                                    GLint sourceLevel,
+                                    TextureStorage *storage,
+                                    GLint destLevel) override;
 
     // RenderTarget creation
     gl::Error createRenderTarget(int width,
@@ -232,8 +245,10 @@ class Renderer9 : public RendererD3D
                                   ShaderType type,
                                   const std::vector<D3DVarying> &streamOutVaryings,
                                   bool separatedOutputBuffers,
-                                  const D3DCompilerWorkarounds &workarounds,
+                                  const angle::CompilerWorkaroundsD3D &workarounds,
                                   ShaderExecutableD3D **outExectuable) override;
+    gl::Error ensureHLSLCompilerInitialized() override;
+
     UniformStorageD3D *createUniformStorage(size_t storageSize) override;
 
     // Image operations
@@ -355,7 +370,7 @@ class Renderer9 : public RendererD3D
                       gl::Extensions *outExtensions,
                       gl::Limitations *outLimitations) const override;
 
-    WorkaroundsD3D generateWorkarounds() const override;
+    angle::WorkaroundsD3D generateWorkarounds() const override;
 
     gl::Error setBlendDepthRasterStates(const gl::ContextState &glData, GLenum drawMode);
 

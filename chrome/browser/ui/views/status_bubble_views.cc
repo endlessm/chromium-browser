@@ -18,6 +18,7 @@
 #include "chrome/browser/themes/theme_properties.h"
 #include "components/url_formatter/elide_url.h"
 #include "components/url_formatter/url_formatter.h"
+#include "services/service_manager/runner/common/client_util.h"
 #include "third_party/skia/include/core/SkPaint.h"
 #include "third_party/skia/include/core/SkPath.h"
 #include "third_party/skia/include/pathops/SkPathOps.h"
@@ -34,7 +35,7 @@
 #include "ui/gfx/text_elider.h"
 #include "ui/gfx/text_utils.h"
 #include "ui/native_theme/native_theme.h"
-#include "ui/views/controls/scrollbar/native_scroll_bar.h"
+#include "ui/views/controls/scrollbar/scroll_bar_views.h"
 #include "ui/views/widget/root_view.h"
 #include "ui/views/widget/widget.h"
 #include "url/gurl.h"
@@ -663,8 +664,13 @@ void StatusBubbleViews::Init() {
     popup_->SetOpacity(0.f);
     popup_->SetContentsView(view_);
 #if defined(USE_ASH)
-    ash::wm::GetWindowState(popup_->GetNativeWindow())->
-        set_ignored_by_shelf(true);
+    // TODO: http://crbug.com/671729 convert to WindowProperty (and then can
+    // remove explicit kWindowIgnoredByShelf_Property above and make this ifdef
+    // USE_AURA).
+    if (!service_manager::ServiceManagerIsRemote()) {
+      ash::wm::GetWindowState(popup_->GetNativeWindow())
+          ->set_ignored_by_shelf(true);
+    }
 #endif
     RepositionPopup();
   }
@@ -936,9 +942,10 @@ int StatusBubbleViews::GetStandardStatusBubbleWidth() {
 
 int StatusBubbleViews::GetMaxStatusBubbleWidth() {
   const ui::NativeTheme* theme = base_view_->GetNativeTheme();
-  return static_cast<int>(std::max(0, base_view_->bounds().width() -
-      (kShadowThickness * 2) - kTextPositionX - kTextHorizPadding - 1 -
-      views::NativeScrollBar::GetVerticalScrollBarWidth(theme)));
+  return static_cast<int>(
+      std::max(0, base_view_->bounds().width() - (kShadowThickness * 2) -
+                      kTextPositionX - kTextHorizPadding - 1 -
+                      views::ScrollBarViews::GetVerticalScrollBarWidth(theme)));
 }
 
 void StatusBubbleViews::SetBubbleWidth(int width) {

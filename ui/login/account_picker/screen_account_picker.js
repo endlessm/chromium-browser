@@ -118,6 +118,8 @@ login.createScreen('AccountPickerScreen', 'account-picker', function() {
       this.showing_ = true;
       chrome.send('loginUIStateChanged', ['account-picker', true]);
       $('login-header-bar').signinUIState = SIGNIN_UI_STATE.ACCOUNT_PICKER;
+      // Header bar should be always visible on Account Picker screen.
+      Oobe.getInstance().headerHidden = false;
       chrome.send('hideCaptivePortal');
       var podRow = $('pod-row');
       podRow.handleBeforeShow();
@@ -225,8 +227,10 @@ login.createScreen('AccountPickerScreen', 'account-picker', function() {
         bubble.style.visibility = 'hidden';
         bubble.hidden = false;
         // Now we need the bubble to have the new content before calculating
-        // size.
-        bubble.replaceContent(error);
+        // size. Undefined |error| == reuse old content.
+        if (error !== undefined)
+          bubble.replaceContent(error);
+
         // Get bubble size.
         var bubbleOffsetHeight = parseInt(bubble.offsetHeight);
         var bubbleOffsetWidth = parseInt(bubble.offsetWidth);
@@ -266,6 +270,14 @@ login.createScreen('AccountPickerScreen', 'account-picker', function() {
      * @param {array} users Array of user instances.
      */
     initializePinKeyboardStateForUsers_: function(users) {
+      // It is possible that the PIN keyboard HTML has already been loaded. If
+      // that is the case, we want to show the user pods with the PIN keyboard
+      // immediately without running the PIN show/hide effect.
+      document.body.classList.add('disable-pin-animation');
+      setTimeout(function() {
+        document.body.classList.remove('disable-pin-animation');
+      });
+
       for (var i = 0; i < users.length; ++i) {
         var user = users[i];
         if (user.showPin) {

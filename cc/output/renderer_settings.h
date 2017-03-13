@@ -13,10 +13,6 @@
 
 namespace cc {
 
-namespace proto {
-class RendererSettings;
-}  // namespace proto
-
 class CC_EXPORT RendererSettings {
  public:
   RendererSettings();
@@ -32,6 +28,7 @@ class CC_EXPORT RendererSettings {
   bool disable_display_vsync;
   bool release_overlay_resources_after_gpu_query;
   bool gl_composited_texture_quad_border;
+  bool show_overdraw_feedback;
 
   double refresh_rate;
   int highp_threshold_min;
@@ -39,9 +36,6 @@ class CC_EXPORT RendererSettings {
   bool use_gpu_memory_buffer_resources;
   ResourceFormat preferred_tile_format;
   BufferToTextureTargetMap buffer_to_texture_target_map;
-
-  void ToProtobuf(proto::RendererSettings* proto) const;
-  void FromProtobuf(const proto::RendererSettings& proto);
 
   bool operator==(const RendererSettings& other) const;
 };

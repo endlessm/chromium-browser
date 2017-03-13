@@ -132,9 +132,6 @@ class ChromeTracingAgent(tracing_agent.TracingAgent):
       self, sync_id, record_controller_clock_sync_marker_callback,
       devtools_clients):
     has_clock_synced = False
-    if not devtools_clients:
-      raise ChromeClockSyncError('Cannot issue clock sync. No devtools clients')
-
     for client in devtools_clients:
       try:
         timestamp = trace_time.Now()
@@ -156,8 +153,10 @@ class ChromeTracingAgent(tracing_agent.TracingAgent):
     for backend in self._IterInspectorBackends():
       try:
         timestamp = trace_time.Now()
+        # TODO(catapult:#3028): Fix interpolation of JavaScript values.
         backend.EvaluateJavaScript(
             "console.time('ClockSyncEvent.%s');" % sync_id)
+        # TODO(catapult:#3028): Fix interpolation of JavaScript values.
         backend.EvaluateJavaScript(
             "console.timeEnd('ClockSyncEvent.%s');" % sync_id)
         has_clock_synced = True
@@ -174,6 +173,8 @@ class ChromeTracingAgent(tracing_agent.TracingAgent):
                             record_controller_clock_sync_marker_callback):
     devtools_clients = (chrome_tracing_devtools_manager
         .GetActiveDevToolsClients(self._platform_backend))
+    if not devtools_clients:
+      raise ChromeClockSyncError('Cannot issue clock sync. No devtools clients')
     version = None
     for client in devtools_clients:
       version = client.GetChromeBranchNumber()

@@ -39,9 +39,8 @@
 #include "components/policy/core/common/external_data_fetcher.h"
 #include "components/policy/core/common/policy_bundle.h"
 #include "components/policy/core/common/policy_map.h"
-#include "components/policy/core/common/policy_test_utils.h"
 #include "components/policy/core/common/policy_types.h"
-#include "components/policy/core/common/preg_parser_win.h"
+#include "components/policy/core/common/preg_parser.h"
 #include "components/policy/core/common/schema_map.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -73,24 +72,24 @@ bool InstallValue(const base::Value& value,
   RegKey key(hive, path.c_str(), KEY_ALL_ACCESS);
   EXPECT_TRUE(key.Valid());
   switch (value.GetType()) {
-    case base::Value::TYPE_NULL:
+    case base::Value::Type::NONE:
       return key.WriteValue(name.c_str(), L"") == ERROR_SUCCESS;
 
-    case base::Value::TYPE_BOOLEAN: {
+    case base::Value::Type::BOOLEAN: {
       bool bool_value;
       if (!value.GetAsBoolean(&bool_value))
         return false;
       return key.WriteValue(name.c_str(), bool_value ? 1 : 0) == ERROR_SUCCESS;
     }
 
-    case base::Value::TYPE_INTEGER: {
+    case base::Value::Type::INTEGER: {
       int int_value;
       if (!value.GetAsInteger(&int_value))
         return false;
       return key.WriteValue(name.c_str(), int_value) == ERROR_SUCCESS;
     }
 
-    case base::Value::TYPE_DOUBLE: {
+    case base::Value::Type::DOUBLE: {
       double double_value;
       if (!value.GetAsDouble(&double_value))
         return false;
@@ -99,14 +98,14 @@ bool InstallValue(const base::Value& value,
       return key.WriteValue(name.c_str(), str_value.c_str()) == ERROR_SUCCESS;
     }
 
-    case base::Value::TYPE_STRING: {
+    case base::Value::Type::STRING: {
       base::string16 str_value;
       if (!value.GetAsString(&str_value))
         return false;
       return key.WriteValue(name.c_str(), str_value.c_str()) == ERROR_SUCCESS;
     }
 
-    case base::Value::TYPE_DICTIONARY: {
+    case base::Value::Type::DICTIONARY: {
       const base::DictionaryValue* sub_dict = NULL;
       if (!value.GetAsDictionary(&sub_dict))
         return false;
@@ -120,7 +119,7 @@ bool InstallValue(const base::Value& value,
       return true;
     }
 
-    case base::Value::TYPE_LIST: {
+    case base::Value::Type::LIST: {
       const base::ListValue* list = NULL;
       if (!value.GetAsList(&list))
         return false;
@@ -136,7 +135,7 @@ bool InstallValue(const base::Value& value,
       return true;
     }
 
-    case base::Value::TYPE_BINARY:
+    case base::Value::Type::BINARY:
       return false;
   }
   NOTREACHED();
@@ -625,31 +624,31 @@ void PRegTestHarness::AppendPolicyToPRegFile(const base::string16& path,
                                              const std::string& key,
                                              const base::Value* value) {
   switch (value->GetType()) {
-    case base::Value::TYPE_BOOLEAN: {
+    case base::Value::Type::BOOLEAN: {
       bool boolean_value = false;
       ASSERT_TRUE(value->GetAsBoolean(&boolean_value));
       AppendDWORDToPRegFile(path, key, boolean_value);
       break;
     }
-    case base::Value::TYPE_INTEGER: {
+    case base::Value::Type::INTEGER: {
       int int_value = 0;
       ASSERT_TRUE(value->GetAsInteger(&int_value));
       AppendDWORDToPRegFile(path, key, int_value);
       break;
     }
-    case base::Value::TYPE_DOUBLE: {
+    case base::Value::Type::DOUBLE: {
       double double_value = 0;
       ASSERT_TRUE(value->GetAsDouble(&double_value));
       AppendStringToPRegFile(path, key, base::DoubleToString(double_value));
       break;
     }
-    case base::Value::TYPE_STRING: {
+    case base::Value::Type::STRING: {
       std::string string_value;
       ASSERT_TRUE(value->GetAsString(&string_value));
       AppendStringToPRegFile(path, key, string_value);
       break;
     }
-    case base::Value::TYPE_DICTIONARY: {
+    case base::Value::Type::DICTIONARY: {
       base::string16 subpath = path + kPathSep + UTF8ToUTF16(key);
       const base::DictionaryValue* dict = NULL;
       ASSERT_TRUE(value->GetAsDictionary(&dict));
@@ -659,7 +658,7 @@ void PRegTestHarness::AppendPolicyToPRegFile(const base::string16& path,
       }
       break;
     }
-    case base::Value::TYPE_LIST: {
+    case base::Value::Type::LIST: {
       base::string16 subpath = path + kPathSep + UTF8ToUTF16(key);
       const base::ListValue* list = NULL;
       ASSERT_TRUE(value->GetAsList(&list));
@@ -670,8 +669,8 @@ void PRegTestHarness::AppendPolicyToPRegFile(const base::string16& path,
       }
       break;
     }
-    case base::Value::TYPE_BINARY:
-    case base::Value::TYPE_NULL: {
+    case base::Value::Type::BINARY:
+    case base::Value::Type::NONE: {
       ADD_FAILURE();
       break;
     }
@@ -753,12 +752,7 @@ class PolicyLoaderWinTest : public PolicyTestBase,
                            gpo_list_provider_);
     std::unique_ptr<PolicyBundle> loaded(
         loader.InitialLoad(schema_registry_.schema_map()));
-    bool match = loaded->Equals(expected);
-    if (!match) {
-      LOG(ERROR) << "EXPECTED: " << expected;
-      LOG(ERROR) << "ACTUAL: " << *loaded.get();
-    }
-    return match;
+    return loaded->Equals(expected);
   }
 
   void InstallRegistrySentinel() {

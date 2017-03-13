@@ -33,11 +33,12 @@
 
 #include "bindings/core/v8/ScriptWrappable.h"
 #include "core/CoreExport.h"
-#include "core/frame/DOMWindowProperty.h"
+#include "core/dom/ContextLifecycleObserver.h"
 #include "platform/heap/Handle.h"
 
 namespace blink {
 
+class CSSTiming;
 class DocumentLoadTiming;
 class DocumentLoader;
 class DocumentParserTiming;
@@ -48,10 +49,11 @@ class ResourceLoadTiming;
 class ScriptState;
 class ScriptValue;
 
+// Legacy support for NT1(https://www.w3.org/TR/navigation-timing/).
 class CORE_EXPORT PerformanceTiming final
     : public GarbageCollected<PerformanceTiming>,
       public ScriptWrappable,
-      public DOMWindowProperty {
+      public ContextClient {
   DEFINE_WRAPPERTYPEINFO();
   USING_GARBAGE_COLLECTED_MIXIN(PerformanceTiming);
 
@@ -106,6 +108,8 @@ class CORE_EXPORT PerformanceTiming final
   unsigned long long parseBlockedOnScriptExecutionDuration() const;
   unsigned long long parseBlockedOnScriptExecutionFromDocumentWriteDuration()
       const;
+  unsigned long long authorStyleSheetParseDurationBeforeFCP() const;
+  unsigned long long updateStyleDurationBeforeFCP() const;
 
   ScriptValue toJSONForBinding(ScriptState*) const;
 
@@ -118,6 +122,7 @@ class CORE_EXPORT PerformanceTiming final
   explicit PerformanceTiming(LocalFrame*);
 
   const DocumentTiming* documentTiming() const;
+  const CSSTiming* cssTiming() const;
   const DocumentParserTiming* documentParserTiming() const;
   const PaintTiming* paintTiming() const;
   DocumentLoader* documentLoader() const;

@@ -13,10 +13,6 @@ namespace syncer {
 
 class CommitContribution;
 
-namespace syncable {
-class Directory;
-}
-
 // This class represents a source of items to commit to the sync server.
 //
 // When asked, it can return CommitContribution objects that contain a set of
@@ -27,7 +23,7 @@ class CommitContributor {
   virtual ~CommitContributor() = 0;
 
   // Gathers up to |max_entries| unsynced items from this contributor into a
-  // CommitContribution.  Returns NULL when the contributor has nothing to
+  // CommitContribution.  Returns null when the contributor has nothing to
   // contribute.
   virtual std::unique_ptr<CommitContribution> GetContribution(
       size_t max_entries) = 0;

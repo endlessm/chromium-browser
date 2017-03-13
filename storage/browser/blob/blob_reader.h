@@ -39,7 +39,6 @@ class BlobDataItem;
 class BlobDataHandle;
 class BlobDataSnapshot;
 class FileStreamReader;
-class FileSystemContext;
 
 // The blob reader is used to read a blob.  This can only be used in the browser
 // process, and we need to be on the IO thread.
@@ -155,8 +154,7 @@ class STORAGE_EXPORT BlobReader {
   void InvalidateCallbacksAndDone(int net_error, net::CompletionCallback done);
 
   void AsyncCalculateSize(const net::CompletionCallback& done,
-                          bool async_succeeded,
-                          IPCBlobCreationCancelCode reason);
+                          BlobStatus status);
   Status CalculateSizeImpl(const net::CompletionCallback& done);
   bool AddItemLength(size_t index, uint64_t length);
   bool ResolveFileItemLength(const BlobDataItem& item,

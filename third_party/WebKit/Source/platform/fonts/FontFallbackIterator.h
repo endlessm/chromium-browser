@@ -21,7 +21,6 @@ using namespace WTF;
 class FontDescription;
 class FontFallbackList;
 class SimpleFontData;
-class FontFamily;
 
 class FontFallbackIterator : public RefCounted<FontFallbackIterator> {
   WTF_MAKE_NONCOPYABLE(FontFallbackIterator);
@@ -52,7 +51,8 @@ class FontFallbackIterator : public RefCounted<FontFallbackIterator> {
       const Vector<UChar32>& hintList);
 
   PassRefPtr<SimpleFontData> fallbackPriorityFont(UChar32 hint);
-  PassRefPtr<SimpleFontData> uniqueSystemFontForHint(UChar32 hint);
+  PassRefPtr<SimpleFontData> uniqueSystemFontForHintList(
+      const Vector<UChar32>& hintList);
 
   const FontDescription& m_fontDescription;
   RefPtr<FontFallbackList> m_fontFallbackList;

@@ -10,9 +10,13 @@
 #include "base/callback_forward.h"
 #include "base/files/file_path.h"
 #include "base/files/file_path_watcher.h"
+#include "content/public/browser/browser_thread.h"
 
-typedef base::Callback<void(std::unique_ptr<base::FilePathWatcher> watcher)>
-    FileWatchStartedCallback;
+using MediaFilePathWatcherUniquePtr =
+    std::unique_ptr<base::FilePathWatcher,
+                    content::BrowserThread::DeleteOnFileThread>;
+using FileWatchStartedCallback =
+    base::Callback<void(MediaFilePathWatcherUniquePtr watcher)>;
 
 // Called on the MediaTaskRunner to begin a file watch.
 // |watch_started_callback| is responsible for taking ownership of the

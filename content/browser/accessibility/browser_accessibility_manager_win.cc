@@ -89,7 +89,12 @@ IAccessible* BrowserAccessibilityManagerWin::GetParentIAccessible() {
 }
 
 void BrowserAccessibilityManagerWin::OnIAccessible2Used() {
-  BrowserAccessibilityStateImpl::GetInstance()->OnScreenReaderDetected();
+  // When IAccessible2 APIs have been used elsewhere in the codebase,
+  // enable basic web accessibility support. (Full screen reader support is
+  // detected later when specific more advanced APIs are accessed.)
+  BrowserAccessibilityStateImpl::GetInstance()->AddAccessibilityModeFlags(
+      ACCESSIBILITY_MODE_FLAG_NATIVE_APIS |
+      ACCESSIBILITY_MODE_FLAG_WEB_CONTENTS);
 }
 
 void BrowserAccessibilityManagerWin::UserIsReloading() {
@@ -118,7 +123,7 @@ void BrowserAccessibilityManagerWin::NotifyAccessibilityEvent(
   if (event_type == ui::AX_EVENT_LOAD_COMPLETE && can_fire_events)
     load_complete_pending_ = false;
 
-  if (load_complete_pending_ && can_fire_events) {
+  if (load_complete_pending_ && can_fire_events && GetRoot()) {
     load_complete_pending_ = false;
     NotifyAccessibilityEvent(BrowserAccessibilityEvent::FromPendingLoadComplete,
                              ui::AX_EVENT_LOAD_COMPLETE,
@@ -128,6 +133,7 @@ void BrowserAccessibilityManagerWin::NotifyAccessibilityEvent(
   if (!can_fire_events &&
       !load_complete_pending_ &&
       event_type == ui::AX_EVENT_LOAD_COMPLETE &&
+      GetRoot() &&
       !GetRoot()->HasState(ui::AX_STATE_OFFSCREEN) &&
       GetRoot()->PlatformChildCount() > 0) {
     load_complete_pending_ = true;

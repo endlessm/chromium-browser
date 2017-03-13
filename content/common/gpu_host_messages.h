@@ -18,6 +18,7 @@
 #include "ipc/ipc_channel_handle.h"
 #include "ipc/ipc_message_macros.h"
 #include "ipc/ipc_message_start.h"
+#include "media/media_features.h"
 #include "ui/events/ipc/latency_info_param_traits.h"
 #include "ui/gfx/gpu_memory_buffer.h"
 #include "ui/gfx/ipc/gfx_param_traits.h"
@@ -69,11 +70,12 @@ IPC_STRUCT_TRAITS_BEGIN(gpu::GpuPreferences)
 #if defined(OS_CHROMEOS)
   IPC_STRUCT_TRAITS_MEMBER(disable_vaapi_accelerated_video_encode)
 #endif
-#if defined(ENABLE_WEBRTC)
+#if BUILDFLAG(ENABLE_WEBRTC)
   IPC_STRUCT_TRAITS_MEMBER(disable_web_rtc_hw_encoding)
 #endif
 #if defined(OS_WIN)
   IPC_STRUCT_TRAITS_MEMBER(enable_accelerated_vpx_decode)
+  IPC_STRUCT_TRAITS_MEMBER(enable_low_latency_dxva)
   IPC_STRUCT_TRAITS_MEMBER(enable_zero_copy_dxgi_video)
   IPC_STRUCT_TRAITS_MEMBER(enable_nv12_dxgi_video)
 #endif
@@ -85,18 +87,18 @@ IPC_STRUCT_TRAITS_BEGIN(gpu::GpuPreferences)
   IPC_STRUCT_TRAITS_MEMBER(enable_gpu_command_logging)
   IPC_STRUCT_TRAITS_MEMBER(enable_gpu_debugging)
   IPC_STRUCT_TRAITS_MEMBER(enable_gpu_service_logging_gpu)
+  IPC_STRUCT_TRAITS_MEMBER(enable_gpu_driver_debug_logging)
   IPC_STRUCT_TRAITS_MEMBER(disable_gpu_program_cache)
   IPC_STRUCT_TRAITS_MEMBER(enforce_gl_minimums)
   IPC_STRUCT_TRAITS_MEMBER(force_gpu_mem_available)
   IPC_STRUCT_TRAITS_MEMBER(gpu_program_cache_size)
   IPC_STRUCT_TRAITS_MEMBER(disable_gpu_shader_disk_cache)
-  IPC_STRUCT_TRAITS_MEMBER(enable_share_group_async_texture_upload)
   IPC_STRUCT_TRAITS_MEMBER(enable_threaded_texture_mailboxes)
   IPC_STRUCT_TRAITS_MEMBER(gl_shader_interm_output)
   IPC_STRUCT_TRAITS_MEMBER(emulate_shader_precision)
   IPC_STRUCT_TRAITS_MEMBER(enable_gpu_service_logging)
   IPC_STRUCT_TRAITS_MEMBER(enable_gpu_service_tracing)
-  IPC_STRUCT_TRAITS_MEMBER(enable_unsafe_es3_apis)
+  IPC_STRUCT_TRAITS_MEMBER(enable_es3_apis)
   IPC_STRUCT_TRAITS_MEMBER(use_passthrough_cmd_decoder)
 IPC_STRUCT_TRAITS_END()
 

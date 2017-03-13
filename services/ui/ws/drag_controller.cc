@@ -46,7 +46,7 @@ DragController::DragController(
     ServerWindow* source_window,
     DragTargetConnection* source_connection,
     int32_t drag_pointer,
-    mojo::Map<mojo::String, mojo::Array<uint8_t>> mime_data,
+    const std::unordered_map<std::string, std::vector<uint8_t>>& mime_data,
     DropEffectBitmask drag_operations)
     : source_(source),
       cursor_updater_(cursor_updater),
@@ -55,7 +55,7 @@ DragController::DragController(
       current_cursor_(ui::mojom::Cursor::NO_DROP),
       source_window_(source_window),
       source_connection_(source_connection),
-      mime_data_(std::move(mime_data)),
+      mime_data_(mime_data),
       weak_factory_(this) {
   SetCurrentTargetWindow(nullptr);
   EnsureWindowObserved(source_window_);
@@ -211,12 +211,12 @@ void DragController::EnsureWindowObserved(ServerWindow* window) {
 void DragController::QueueOperation(ServerWindow* window,
                                     OperationType type,
                                     uint32_t event_flags,
-                                    gfx::Point screen_position) {
+                                    const gfx::Point& screen_position) {
   // If this window doesn't have the mime data, send it.
   DragTargetConnection* connection = source_->GetDragTargetForWindow(window);
   if (connection != source_connection_ &&
       !base::ContainsKey(called_on_drag_mime_types_, connection)) {
-    connection->PerformOnDragDropStart(mime_data_.Clone());
+    connection->PerformOnDragDropStart(mime_data_);
     called_on_drag_mime_types_.insert(connection);
   }
 

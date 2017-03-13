@@ -7,6 +7,7 @@
 #include <algorithm>
 
 #include "base/logging.h"
+#include "base/memory/ptr_util.h"
 #include "components/sync/base/model_type.h"
 #include "components/sync/base/time.h"
 #include "components/sync/syncable/syncable_util.h"
@@ -24,17 +25,19 @@ bool WorkerEntityTracker::HasPendingCommit() const {
   return !!pending_commit_;
 }
 
+bool WorkerEntityTracker::PendingCommitIsDeletion() const {
+  DCHECK(pending_commit_);
+  return pending_commit_->entity.value().is_deleted();
+}
+
 void WorkerEntityTracker::PopulateCommitProto(
     sync_pb::SyncEntity* commit_entity) const {
   DCHECK(HasPendingCommit());
 
-  if (!id_.empty()) {
-    commit_entity->set_id_string(id_);
-  }
-
   const EntityData& entity = pending_commit_->entity.value();
   DCHECK_EQ(client_tag_hash_, entity.client_tag_hash);
 
+  commit_entity->set_id_string(id_);
   commit_entity->set_client_defined_unique_tag(client_tag_hash_);
   commit_entity->set_version(base_version_);
   commit_entity->set_deleted(entity.is_deleted());
@@ -82,7 +85,7 @@ void WorkerEntityTracker::RequestCommit(const CommitRequestData& data) {
   DCHECK_EQ(client_tag_hash_, data.entity->client_tag_hash);
   // TODO(stanisc): consider simply copying CommitRequestData instead of
   // allocating one dynamically.
-  pending_commit_.reset(new CommitRequestData(data));
+  pending_commit_ = base::MakeUnique<CommitRequestData>(data);
 
   // Do our counter values indicate a conflict? If so, don't commit.
   //
@@ -110,6 +113,7 @@ void WorkerEntityTracker::ReceiveCommitResponse(CommitResponseData* ack) {
       << " id: " << id_;
 
   // Commit responses, especially after the first commit, can update our ID.
+  DCHECK(!ack->id.empty());
   id_ = ack->id;
   highest_commit_response_version_ = ack->response_version;
 
@@ -127,10 +131,11 @@ void WorkerEntityTracker::ReceiveCommitResponse(CommitResponseData* ack) {
 }
 
 void WorkerEntityTracker::ReceiveUpdate(const UpdateResponseData& update) {
-  if (update.response_version <= highest_gu_response_version_)
+  if (!UpdateContainsNewVersion(update))
     return;
 
   highest_gu_response_version_ = update.response_version;
+  DCHECK(!update.entity->id.empty());
   id_ = update.entity->id;
 
   // Got an applicable update newer than any pending updates. It must be safe
@@ -144,13 +149,18 @@ void WorkerEntityTracker::ReceiveUpdate(const UpdateResponseData& update) {
   }
 }
 
+bool WorkerEntityTracker::UpdateContainsNewVersion(
+    const UpdateResponseData& update) {
+  return (update.response_version > highest_gu_response_version_);
+}
+
 bool WorkerEntityTracker::ReceiveEncryptedUpdate(
     const UpdateResponseData& data) {
   if (data.response_version < highest_gu_response_version_)
     return false;
 
   highest_gu_response_version_ = data.response_version;
-  encrypted_update_.reset(new UpdateResponseData(data));
+  encrypted_update_ = base::MakeUnique<UpdateResponseData>(data);
   ClearPendingCommit();
   return true;
 }

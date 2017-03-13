@@ -5,23 +5,28 @@
 import collections
 import copy
 import datetime
+import json
 import logging
+import os
 import random
 import sys
+import tempfile
 import traceback
 
 from py_utils import cloud_storage  # pylint: disable=import-error
 
+from telemetry import value as value_module
+from telemetry.internal.results import chart_json_output_formatter
 from telemetry.internal.results import json_output_formatter
 from telemetry.internal.results import progress_reporter as reporter_module
 from telemetry.internal.results import story_run
-from telemetry import value as value_module
 from telemetry.value import failure
 from telemetry.value import skip
 from telemetry.value import trace
 
+from tracing.value import convert_chart_json
 
-class IterationInfo(object):
+class TelemetryInfo(object):
   def __init__(self):
     self._benchmark_name = None
     self._benchmark_start_ms = None
@@ -155,18 +160,42 @@ class PageTestResults(object):
     # actually need set-ness in python.
     self._value_set = []
 
-    self._iteration_info = IterationInfo()
+    self._telemetry_info = TelemetryInfo()
 
     # State of the benchmark this set of results represents.
     self._benchmark_enabled = benchmark_enabled
 
   @property
-  def iteration_info(self):
-    return self._iteration_info
+  def telemetry_info(self):
+    return self._telemetry_info
 
   @property
   def value_set(self):
     return self._value_set
+
+  def AsHistogramDicts(self, benchmark_metadata):
+    if self.value_set:
+      return self.value_set
+    chart_json = chart_json_output_formatter.ResultsAsChartDict(
+        benchmark_metadata, self.all_page_specific_values,
+        self.all_summary_values)
+    info = self.telemetry_info
+    chart_json['label'] = info.label
+    chart_json['benchmarkStartMs'] = info.benchmark_start_ms
+
+    file_descriptor, chart_json_path = tempfile.mkstemp()
+    os.close(file_descriptor)
+    json.dump(chart_json, file(chart_json_path, 'w'))
+
+    vinn_result = convert_chart_json.ConvertChartJson(chart_json_path)
+
+    os.remove(chart_json_path)
+
+    if vinn_result.returncode != 0:
+      logging.error('Error converting chart json to Histograms:\n' +
+          vinn_result.stdout)
+      return []
+    return json.loads(vinn_result.stdout)
 
   def __copy__(self):
     cls = self.__class__
@@ -264,7 +293,7 @@ class PageTestResults(object):
     assert not self._current_page_run, 'Did not call DidRunPage.'
     self._current_page_run = story_run.StoryRun(page)
     self._progress_reporter.WillRunPage(self)
-    self.iteration_info.WillRunStory(
+    self.telemetry_info.WillRunStory(
         page, storyset_repeat_counter, story_repeat_counter)
 
   def DidRunPage(self, page):  # pylint: disable=unused-argument
@@ -339,6 +368,7 @@ class PageTestResults(object):
         self._SerializeTracesToDirPath(self._output_dir)
       for output_formatter in self._output_formatters:
         output_formatter.Format(self)
+        output_formatter.PrintViewResults()
     else:
       for output_formatter in self._output_formatters:
         output_formatter.FormatDisabled()

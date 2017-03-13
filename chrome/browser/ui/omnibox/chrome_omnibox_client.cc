@@ -48,6 +48,7 @@
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/web_contents.h"
 #include "extensions/common/constants.h"
+#include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/base/window_open_disposition.h"
 #include "url/gurl.h"
 
@@ -140,11 +141,12 @@ ChromeOmniboxClient::CreateOmniboxNavigationObserver(
 }
 
 bool ChromeOmniboxClient::CurrentPageExists() const {
-  return (controller_->GetWebContents() != NULL);
+  return (controller_->GetWebContents() != nullptr);
 }
 
 const GURL& ChromeOmniboxClient::GetURL() const {
-  return controller_->GetWebContents()->GetVisibleURL();
+  return CurrentPageExists() ? controller_->GetWebContents()->GetVisibleURL()
+                             : GURL::EmptyGURL();
 }
 
 const base::string16& ChromeOmniboxClient::GetTitle() const {
@@ -213,8 +215,8 @@ gfx::Image ChromeOmniboxClient::GetIconIfExtensionMatch(
   const TemplateURL* template_url = match.GetTemplateURL(service, false);
   if (template_url &&
       (template_url->type() == TemplateURL::OMNIBOX_API_EXTENSION)) {
-    return extensions::OmniboxAPI::Get(profile_)
-        ->GetOmniboxPopupIcon(template_url->GetExtensionId());
+    return extensions::OmniboxAPI::Get(profile_)->GetOmniboxIcon(
+        template_url->GetExtensionId());
   }
   return gfx::Image();
 }

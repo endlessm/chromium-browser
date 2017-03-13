@@ -12,6 +12,7 @@
 #include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
 #include "chrome/app/chrome_command_ids.h"
+#include "chrome/app/vector_icons/vector_icons.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/command_updater.h"
 #include "chrome/browser/extensions/extension_util.h"
@@ -29,6 +30,7 @@
 #include "chrome/browser/ui/layout_constants.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/view_ids.h"
+#include "chrome/browser/ui/views/autofill/save_card_bubble_views.h"
 #include "chrome/browser/ui/views/autofill/save_card_icon_view.h"
 #include "chrome/browser/ui/views/bookmarks/bookmark_bubble_view.h"
 #include "chrome/browser/ui/views/extensions/extension_popup.h"
@@ -43,6 +45,7 @@
 #include "chrome/browser/ui/views/toolbar/home_button.h"
 #include "chrome/browser/ui/views/toolbar/reload_button.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_button.h"
+#include "chrome/browser/ui/views/translate/translate_bubble_view.h"
 #include "chrome/browser/ui/views/translate/translate_icon_view.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
@@ -57,7 +60,7 @@
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/user_metrics.h"
 #include "content/public/browser/web_contents.h"
-#include "ui/accessibility/ax_view_state.h"
+#include "ui/accessibility/ax_node_data.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/material_design/material_design_controller.h"
 #include "ui/base/theme_provider.h"
@@ -66,7 +69,6 @@
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/image/canvas_image_source.h"
 #include "ui/gfx/paint_vector_icon.h"
-#include "ui/gfx/vector_icons_public.h"
 #include "ui/keyboard/keyboard_controller.h"
 #include "ui/native_theme/native_theme_aura.h"
 #include "ui/views/focus/view_storage.h"
@@ -103,6 +105,11 @@ bool HasAshShell() {
 #endif  // USE_ASH
 }
 #endif  // OS_CHROMEOS
+
+int GetToolbarHorizontalPadding() {
+  using Md = ui::MaterialDesignController;
+  return Md::GetMode() == Md::MATERIAL_HYBRID ? 8 : 4;
+}
 
 }  // namespace
 
@@ -305,33 +312,52 @@ void ToolbarView::ShowBookmarkBubble(
   views::Widget* bubble_widget = BookmarkBubbleView::ShowBubble(
       anchor_view, gfx::Rect(), nullptr, observer, std::move(delegate),
       browser_->profile(), url, already_bookmarked);
-  if (star_view)
+  if (bubble_widget && star_view)
     bubble_widget->AddObserver(star_view);
 }
 
-views::View* ToolbarView::GetSaveCreditCardBubbleAnchor() {
-  views::View* save_credit_card_icon_view =
-      location_bar()->save_credit_card_icon_view();
-  return (save_credit_card_icon_view && save_credit_card_icon_view->visible())
-             ? save_credit_card_icon_view
-             : app_menu_button_;
-}
-
-views::View* ToolbarView::GetTranslateBubbleAnchor() {
-  views::View* translate_icon_view = location_bar()->translate_icon_view();
-  return (translate_icon_view && translate_icon_view->visible())
-             ? translate_icon_view
-             : app_menu_button_;
-}
-
-void ToolbarView::OnBubbleCreatedForAnchor(views::View* anchor_view,
-                                           views::Widget* bubble_widget) {
-  if (bubble_widget &&
-      (anchor_view == location_bar()->save_credit_card_icon_view() ||
-       anchor_view == location_bar()->translate_icon_view())) {
-    DCHECK(anchor_view);
-    bubble_widget->AddObserver(static_cast<BubbleIconView*>(anchor_view));
+autofill::SaveCardBubbleView* ToolbarView::ShowSaveCreditCardBubble(
+    content::WebContents* web_contents,
+    autofill::SaveCardBubbleController* controller,
+    bool is_user_gesture) {
+  views::View* anchor_view = location_bar();
+  BubbleIconView* card_view = location_bar()->save_credit_card_icon_view();
+  if (!ui::MaterialDesignController::IsSecondaryUiMaterial()) {
+    if (card_view && card_view->visible())
+      anchor_view = card_view;
+    else
+      anchor_view = app_menu_button_;
   }
+
+  autofill::SaveCardBubbleViews* bubble = new autofill::SaveCardBubbleViews(
+      anchor_view, web_contents, controller);
+  if (card_view)
+    bubble->GetWidget()->AddObserver(card_view);
+  bubble->Show(is_user_gesture ? autofill::SaveCardBubbleViews::USER_GESTURE
+                               : autofill::SaveCardBubbleViews::AUTOMATIC);
+  return bubble;
+}
+
+void ToolbarView::ShowTranslateBubble(
+    content::WebContents* web_contents,
+    translate::TranslateStep step,
+    translate::TranslateErrors::Type error_type,
+    bool is_user_gesture) {
+  views::View* anchor_view = location_bar();
+  BubbleIconView* translate_icon_view = location_bar()->translate_icon_view();
+  if (!ui::MaterialDesignController::IsSecondaryUiMaterial()) {
+    if (translate_icon_view && translate_icon_view->visible())
+      anchor_view = translate_icon_view;
+    else
+      anchor_view = app_menu_button_;
+  }
+
+  views::Widget* bubble_widget = TranslateBubbleView::ShowBubble(
+      anchor_view, web_contents, step,
+      error_type, is_user_gesture ? TranslateBubbleView::USER_GESTURE
+                                  : TranslateBubbleView::AUTOMATIC);
+  if (bubble_widget && translate_icon_view)
+    bubble_widget->AddObserver(translate_icon_view);
 }
 
 int ToolbarView::GetMaxBrowserActionsWidth() const {
@@ -353,9 +379,9 @@ bool ToolbarView::SetPaneFocus(views::View* initial_focus) {
   return true;
 }
 
-void ToolbarView::GetAccessibleState(ui::AXViewState* state) {
-  state->role = ui::AX_ROLE_TOOLBAR;
-  state->name = l10n_util::GetStringUTF16(IDS_ACCNAME_TOOLBAR);
+void ToolbarView::GetAccessibleNodeData(ui::AXNodeData* node_data) {
+  node_data->role = ui::AX_ROLE_TOOLBAR;
+  node_data->SetName(l10n_util::GetStringUTF8(IDS_ACCNAME_TOOLBAR));
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -396,12 +422,8 @@ ToolbarView::GetContentSettingBubbleModelDelegate() {
   return browser_->content_setting_bubble_model_delegate();
 }
 
-void ToolbarView::ShowWebsiteSettings(
-    content::WebContents* web_contents,
-    const GURL& virtual_url,
-    const security_state::SecurityStateModel::SecurityInfo& security_info) {
-  chrome::ShowWebsiteSettings(browser_, web_contents, virtual_url,
-                              security_info);
+void ToolbarView::ShowWebsiteSettings(content::WebContents* web_contents) {
+  chrome::ShowWebsiteSettings(browser_, web_contents);
 }
 
 PageActionImageView* ToolbarView::CreatePageActionImageView(
@@ -510,12 +532,13 @@ void ToolbarView::Layout() {
   const bool maximized =
       browser_->window() && browser_->window()->IsMaximized();
   const int back_width = back_->GetPreferredSize().width();
-  const gfx::Insets insets(GetLayoutInsets(TOOLBAR));
+  // The padding at either end of the toolbar.
+  const int end_padding = GetToolbarHorizontalPadding();
   if (maximized) {
-    back_->SetBounds(0, child_y, back_width + insets.left(), child_height);
-    back_->SetLeadingMargin(insets.left());
+    back_->SetBounds(0, child_y, back_width + end_padding, child_height);
+    back_->SetLeadingMargin(end_padding);
   } else {
-    back_->SetBounds(insets.left(), child_y, back_width, child_height);
+    back_->SetBounds(end_padding, child_y, back_width, child_height);
     back_->SetLeadingMargin(0);
   }
   const int element_padding = GetLayoutConstant(TOOLBAR_ELEMENT_PADDING);
@@ -543,8 +566,7 @@ void ToolbarView::Layout() {
       home_->bounds().right() + GetLayoutConstant(TOOLBAR_STANDARD_SPACING);
 
   int app_menu_width = app_menu_button_->GetPreferredSize().width();
-  const int right_padding =
-      GetLayoutConstant(TOOLBAR_LOCATION_BAR_RIGHT_PADDING);
+  const int right_padding = GetLayoutConstant(TOOLBAR_STANDARD_SPACING);
 
   // Note that the browser actions container has its own internal left and right
   // padding to visually separate it from the location bar and app menu button.
@@ -552,7 +574,7 @@ void ToolbarView::Layout() {
   // value used to visually separate the location bar and app menu button.
   int available_width = std::max(
       0,
-      width() - insets.right() - app_menu_width -
+      width() - end_padding - app_menu_width -
       (browser_actions_->GetPreferredSize().IsEmpty() ? right_padding : 0) -
       next_element_x);
   // Don't allow the omnibox to shrink to the point of non-existence, so
@@ -587,10 +609,10 @@ void ToolbarView::Layout() {
   // Extend the app menu to the screen's right edge in maximized mode just like
   // we extend the back button to the left edge.
   if (maximized)
-    app_menu_width += insets.right();
+    app_menu_width += end_padding;
   app_menu_button_->SetBounds(next_element_x, child_y, app_menu_width,
                               child_height);
-  app_menu_button_->SetTrailingMargin(maximized ? insets.right() : 0);
+  app_menu_button_->SetTrailingMargin(maximized ? end_padding : 0);
 }
 
 void ToolbarView::OnThemeChanged() {
@@ -683,18 +705,17 @@ gfx::Size ToolbarView::GetSizeInternal(
     const int element_padding = GetLayoutConstant(TOOLBAR_ELEMENT_PADDING);
     const int browser_actions_width =
         (browser_actions_->*get_size)().width();
-    const int right_padding =
-        GetLayoutConstant(TOOLBAR_LOCATION_BAR_RIGHT_PADDING);
     const int content_width =
-        GetLayoutInsets(TOOLBAR).width() +
-        (back_->*get_size)().width() + element_padding +
-        (forward_->*get_size)().width() + element_padding +
+        2 * GetToolbarHorizontalPadding() + (back_->*get_size)().width() +
+        element_padding + (forward_->*get_size)().width() + element_padding +
         (reload_->*get_size)().width() +
         (show_home_button_.GetValue()
              ? element_padding + (home_->*get_size)().width()
              : 0) +
         GetLayoutConstant(TOOLBAR_STANDARD_SPACING) +
-        (browser_actions_width > 0 ? browser_actions_width : right_padding) +
+        (browser_actions_width > 0
+             ? browser_actions_width
+             : GetLayoutConstant(TOOLBAR_STANDARD_SPACING)) +
         (app_menu_button_->*get_size)().width();
     size.Enlarge(content_width, 0);
   }
@@ -707,8 +728,8 @@ gfx::Size ToolbarView::SizeForContentSize(gfx::Size size) const {
     // and constant padding values.
     int content_height = std::max(back_->GetPreferredSize().height(),
                                   location_bar_->GetPreferredSize().height());
-    int padding = GetLayoutInsets(TOOLBAR).height();
-    size.SetToMax(gfx::Size(0, content_height + padding));
+    const int kExtraVerticalSpace = 9;
+    size.SetToMax(gfx::Size(0, content_height + kExtraVerticalSpace));
   }
   return size;
 }
@@ -723,19 +744,18 @@ void ToolbarView::LoadImages() {
 
   back_->SetImage(
       views::Button::STATE_NORMAL,
-      gfx::CreateVectorIcon(gfx::VectorIconId::NAVIGATE_BACK, normal_color));
+      gfx::CreateVectorIcon(kNavigateBackIcon, normal_color));
   back_->SetImage(
       views::Button::STATE_DISABLED,
-      gfx::CreateVectorIcon(gfx::VectorIconId::NAVIGATE_BACK, disabled_color));
+      gfx::CreateVectorIcon(kNavigateBackIcon, disabled_color));
   forward_->SetImage(
       views::Button::STATE_NORMAL,
-      gfx::CreateVectorIcon(gfx::VectorIconId::NAVIGATE_FORWARD, normal_color));
-  forward_->SetImage(views::Button::STATE_DISABLED,
-                     gfx::CreateVectorIcon(gfx::VectorIconId::NAVIGATE_FORWARD,
-                                           disabled_color));
-  home_->SetImage(
-      views::Button::STATE_NORMAL,
-      gfx::CreateVectorIcon(gfx::VectorIconId::NAVIGATE_HOME, normal_color));
+      gfx::CreateVectorIcon(kNavigateForwardIcon, normal_color));
+  forward_->SetImage(
+      views::Button::STATE_DISABLED,
+      gfx::CreateVectorIcon(kNavigateForwardIcon, disabled_color));
+  home_->SetImage(views::Button::STATE_NORMAL,
+                  gfx::CreateVectorIcon(kNavigateHomeIcon, normal_color));
   app_menu_button_->UpdateIcon();
 
   back_->set_ink_drop_base_color(normal_color);

@@ -18,7 +18,7 @@
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/sys_info.h"
-#include "base/threading/worker_pool.h"
+#include "base/task_scheduler/post_task.h"
 #include "base/time/time.h"
 #include "base/values.h"
 #include "components/prefs/pref_registry_simple.h"
@@ -323,11 +323,12 @@ void WallpaperManagerBase::EnsureLoggedInUserWallpaperLoaded() {
   if (GetLoggedInUserWallpaperInfo(&info)) {
     UMA_HISTOGRAM_ENUMERATION("Ash.Wallpaper.Type", info.type,
                               user_manager::User::WALLPAPER_TYPE_COUNT);
+    RecordWallpaperAppType();
     if (info == current_user_wallpaper_info_)
       return;
   }
   SetUserWallpaperNow(
-      user_manager::UserManager::Get()->GetLoggedInUser()->GetAccountId());
+      user_manager::UserManager::Get()->GetActiveUser()->GetAccountId());
 }
 
 void WallpaperManagerBase::ClearDisposableWallpaperCache() {
@@ -368,8 +369,7 @@ bool WallpaperManagerBase::GetLoggedInUserWallpaperInfo(WallpaperInfo* info) {
   }
 
   return GetUserWallpaperInfo(
-      user_manager::UserManager::Get()->GetLoggedInUser()->GetAccountId(),
-      info);
+      user_manager::UserManager::Get()->GetActiveUser()->GetAccountId(), info);
 }
 
 // static
@@ -474,7 +474,13 @@ void WallpaperManagerBase::OnPolicyCleared(const std::string& policy,
   GetUserWallpaperInfo(account_id, &info);
   info.type = user_manager::User::DEFAULT;
   SetUserWallpaperInfo(account_id, info, true /* is_persistent */);
-  SetDefaultWallpaperNow(account_id);
+  // If the user's policy is cleared, try to set the device wallpaper first.
+  // Note We have to modify the user wallpaper info first. Otherwise, we won't
+  // be able to override the current user policy wallpaper. The wallpaper info
+  // will be set correctly if the device wallpaper is set successfully.
+  if (!SetDeviceWallpaperIfApplicable(account_id)) {
+    SetDefaultWallpaperNow(account_id);
+  }
 }
 
 // static
@@ -616,6 +622,15 @@ void WallpaperManagerBase::InitInitialUserWallpaper(const AccountId& account_id,
   current_user_wallpaper_info_.type = user_manager::User::DEFAULT;
   current_user_wallpaper_info_.date = base::Time::Now().LocalMidnight();
 
+  std::string device_wallpaper_url;
+  std::string device_wallpaper_hash;
+  if (ShouldSetDeviceWallpaper(account_id, &device_wallpaper_url,
+                               &device_wallpaper_hash)) {
+    current_user_wallpaper_info_.location =
+        GetDeviceWallpaperFilePath().value();
+    current_user_wallpaper_info_.type = user_manager::User::DEVICE;
+  }
+
   WallpaperInfo info = current_user_wallpaper_info_;
   SetUserWallpaperInfo(account_id, info, is_persistent);
 }
@@ -630,7 +645,8 @@ void WallpaperManagerBase::SetUserWallpaperNow(const AccountId& account_id) {
 }
 
 void WallpaperManagerBase::UpdateWallpaper(bool clear_cache) {
-  FOR_EACH_OBSERVER(Observer, observers_, OnUpdateWallpaperForTesting());
+  for (auto& observer : observers_)
+    observer.OnUpdateWallpaperForTesting();
   if (clear_cache)
     wallpaper_cache_.clear();
   SetUserWallpaperNow(last_selected_user_);
@@ -647,8 +663,8 @@ void WallpaperManagerBase::RemoveObserver(
 }
 
 void WallpaperManagerBase::NotifyAnimationFinished() {
-  FOR_EACH_OBSERVER(Observer, observers_,
-                    OnWallpaperAnimationFinished(last_selected_user_));
+  for (auto& observer : observers_)
+    observer.OnWallpaperAnimationFinished(last_selected_user_);
 }
 
 // WallpaperManager, protected: -----------------------------------------------
@@ -708,10 +724,15 @@ void WallpaperManagerBase::CacheUserWallpaper(const AccountId& account_id) {
     base::FilePath wallpaper_dir;
     base::FilePath wallpaper_path;
     if (info.type == user_manager::User::CUSTOMIZED ||
-        info.type == user_manager::User::POLICY) {
-      const char* sub_dir = GetCustomWallpaperSubdirForCurrentResolution();
-      base::FilePath wallpaper_path = GetCustomWallpaperDir(sub_dir);
-      wallpaper_path = wallpaper_path.Append(info.location);
+        info.type == user_manager::User::POLICY ||
+        info.type == user_manager::User::DEVICE) {
+      base::FilePath wallpaper_path;
+      if (info.type == user_manager::User::DEVICE) {
+        wallpaper_path = GetDeviceWallpaperFilePath();
+      } else {
+        const char* sub_dir = GetCustomWallpaperSubdirForCurrentResolution();
+        wallpaper_path = GetCustomWallpaperDir(sub_dir).Append(info.location);
+      }
       // Set the path to the cache.
       wallpaper_cache_[account_id] =
           CustomWallpaperElement(wallpaper_path, gfx::ImageSkia());
@@ -759,8 +780,13 @@ void WallpaperManagerBase::DeleteUserWallpapers(
   wallpaper_path = wallpaper_path.Append(path_to_file);
   file_to_remove.push_back(wallpaper_path);
 
-  base::WorkerPool::PostTask(
-      FROM_HERE, base::Bind(&DeleteWallpaperInList, file_to_remove), false);
+  base::PostTaskWithTraits(
+      FROM_HERE, base::TaskTraits()
+                     .WithShutdownBehavior(
+                         base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN)
+                     .WithPriority(base::TaskPriority::BACKGROUND)
+                     .MayBlock(),
+      base::Bind(&DeleteWallpaperInList, file_to_remove));
 }
 
 void WallpaperManagerBase::SetCommandLineForTesting(
@@ -871,7 +897,7 @@ void WallpaperManagerBase::MoveCustomWallpapersSuccess(
 void WallpaperManagerBase::MoveLoggedInUserCustomWallpaper() {
   DCHECK(thread_checker_.CalledOnValidThread());
   const user_manager::User* logged_in_user =
-      user_manager::UserManager::Get()->GetLoggedInUser();
+      user_manager::UserManager::Get()->GetActiveUser();
   if (logged_in_user) {
     task_runner_->PostTask(
         FROM_HERE,
@@ -941,7 +967,6 @@ void WallpaperManagerBase::OnCustomizedDefaultWallpaperDecoded(
   std::unique_ptr<gfx::ImageSkia> small_wallpaper_image(new gfx::ImageSkia);
   std::unique_ptr<gfx::ImageSkia> large_wallpaper_image(new gfx::ImageSkia);
 
-  // TODO(bshe): This may break if Bytes becomes RefCountedMemory.
   base::Closure resize_closure = base::Bind(
       &WallpaperManagerBase::ResizeCustomizedDefaultWallpaper,
       base::Passed(&deep_copy),

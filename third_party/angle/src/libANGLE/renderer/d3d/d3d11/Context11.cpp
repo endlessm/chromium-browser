@@ -82,6 +82,9 @@ TextureImpl *Context11::createTexture(const gl::TextureState &state)
             return new TextureD3D_2DArray(state, mRenderer);
         case GL_TEXTURE_EXTERNAL_OES:
             return new TextureD3D_External(state, mRenderer);
+        case GL_TEXTURE_2D_MULTISAMPLE:
+            return new TextureD3D_2DMultisample(state, mRenderer);
+            break;
         default:
             UNREACHABLE();
     }
@@ -94,9 +97,9 @@ RenderbufferImpl *Context11::createRenderbuffer()
     return new RenderbufferD3D(mRenderer);
 }
 
-BufferImpl *Context11::createBuffer()
+BufferImpl *Context11::createBuffer(const gl::BufferState &state)
 {
-    Buffer11 *buffer = new Buffer11(mRenderer);
+    Buffer11 *buffer = new Buffer11(state, mRenderer);
     mRenderer->onBufferCreate(buffer);
     return buffer;
 }
@@ -187,6 +190,18 @@ gl::Error Context11::drawRangeElements(GLenum mode,
                                        const gl::IndexRange &indexRange)
 {
     return mRenderer->genericDrawElements(this, mode, count, type, indices, 0, indexRange);
+}
+
+gl::Error Context11::drawArraysIndirect(GLenum mode, const GLvoid *indirect)
+{
+    UNIMPLEMENTED();
+    return gl::InternalError() << "DrawArraysIndirect hasn't been implemented for D3D11 backend.";
+}
+
+gl::Error Context11::drawElementsIndirect(GLenum mode, GLenum type, const GLvoid *indirect)
+{
+    UNIMPLEMENTED();
+    return gl::InternalError() << "DrawElementsIndirect hasn't been implemented for D3D11 backend.";
 }
 
 GLenum Context11::getResetStatus()

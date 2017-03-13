@@ -21,8 +21,9 @@ RecordingImageBufferSurface::RecordingImageBufferSurface(
     const IntSize& size,
     std::unique_ptr<RecordingImageBufferFallbackSurfaceFactory> fallbackFactory,
     OpacityMode opacityMode,
-    sk_sp<SkColorSpace> colorSpace)
-    : ImageBufferSurface(size, opacityMode, std::move(colorSpace)),
+    sk_sp<SkColorSpace> colorSpace,
+    SkColorType colorType)
+    : ImageBufferSurface(size, opacityMode, std::move(colorSpace), colorType),
       m_imageBuffer(0),
       m_currentFramePixelCount(0),
       m_previousFramePixelCount(0),
@@ -38,7 +39,7 @@ RecordingImageBufferSurface::~RecordingImageBufferSurface() {}
 
 void RecordingImageBufferSurface::initializeCurrentFrame() {
   static SkRTreeFactory rTreeFactory;
-  m_currentFrame = wrapUnique(new SkPictureRecorder);
+  m_currentFrame = WTF::wrapUnique(new SkPictureRecorder);
   SkCanvas* canvas = m_currentFrame->beginRecording(
       size().width(), size().height(), &rTreeFactory);
   // Always save an initial frame, to support resetting the top level matrix
@@ -94,8 +95,8 @@ void RecordingImageBufferSurface::fallBackToRasterCanvas(
                                FallbackReasonCount));
   canvasFallbackHistogram.count(reason);
 
-  m_fallbackSurface =
-      m_fallbackFactory->createSurface(size(), getOpacityMode(), colorSpace());
+  m_fallbackSurface = m_fallbackFactory->createSurface(
+      size(), getOpacityMode(), colorSpace(), colorType());
   m_fallbackSurface->setImageBuffer(m_imageBuffer);
 
   if (m_previousFrame) {
@@ -124,9 +125,6 @@ snapshotReasonToFallbackReason(SnapshotReason reason) {
       return RecordingImageBufferSurface::FallbackReasonUnknown;
     case SnapshotReasonGetImageData:
       return RecordingImageBufferSurface::FallbackReasonSnapshotForGetImageData;
-    case SnapshotReasonCopyToWebGLTexture:
-      return RecordingImageBufferSurface::
-          FallbackReasonSnapshotForCopyToWebGLTexture;
     case SnapshotReasonPaint:
       return RecordingImageBufferSurface::FallbackReasonSnapshotForPaint;
     case SnapshotReasonToDataURL:
@@ -151,8 +149,26 @@ snapshotReasonToFallbackReason(SnapshotReason reason) {
     case SnapshotReasonWebGLDrawImageIntoBuffer:
       return RecordingImageBufferSurface::
           FallbackReasonSnapshotWebGLDrawImageIntoBuffer;
+    case SnapshotReasonWebGLTexImage2D:
+      return RecordingImageBufferSurface::
+          FallbackReasonSnapshotForWebGLTexImage2D;
+    case SnapshotReasonWebGLTexSubImage2D:
+      return RecordingImageBufferSurface::
+          FallbackReasonSnapshotForWebGLTexSubImage2D;
+    case SnapshotReasonWebGLTexImage3D:
+      return RecordingImageBufferSurface::
+          FallbackReasonSnapshotForWebGLTexImage3D;
+    case SnapshotReasonWebGLTexSubImage3D:
+      return RecordingImageBufferSurface::
+          FallbackReasonSnapshotForWebGLTexSubImage3D;
+    case SnapshotReasonCopyToClipboard:
+      return RecordingImageBufferSurface::
+          FallbackReasonSnapshotForCopyToClipboard;
+    case SnapshotReasonCreateImageBitmap:
+      return RecordingImageBufferSurface::
+          FallbackReasonSnapshotForCreateImageBitmap;
   }
-  ASSERT_NOT_REACHED();
+  NOTREACHED();
   return RecordingImageBufferSurface::FallbackReasonUnknown;
 }
 
@@ -320,7 +336,7 @@ bool RecordingImageBufferSurface::finalizeFrameInternal(
 void RecordingImageBufferSurface::draw(GraphicsContext& context,
                                        const FloatRect& destRect,
                                        const FloatRect& srcRect,
-                                       SkXfermode::Mode op) {
+                                       SkBlendMode op) {
   if (m_fallbackSurface) {
     m_fallbackSurface->draw(context, destRect, srcRect, op);
     return;

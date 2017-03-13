@@ -15,13 +15,8 @@
 #include "chrome/browser/profiles/profile_window.h"
 #include "components/signin/core/browser/signin_metrics.h"
 
-@class ReauthDialogWindowController;
+@class DialogWindowController;
 @class UserManagerWindowController;
-
-namespace content {
-class NavigationController;
-class WebContents;
-}
 
 // Dialog widget that contains the Desktop User Manager webui. This object
 // should always be created from the UserManager::Show() method. Note that only
@@ -49,10 +44,15 @@ class UserManagerMac {
 
   void LogTimeToOpen();
 
-  void ShowReauthDialog(content::BrowserContext* browser_context,
-                        const std::string& email,
-                        signin_metrics::Reason reason);
-  void CloseReauthDialog();
+  void ShowDialog(content::BrowserContext* browser_context,
+                  const std::string& email,
+                  const GURL& url);
+  void CloseDialog();
+
+  void DisplayErrorMessage();
+
+  void SetSigninProfilePath(const base::FilePath& profile_path);
+  base::FilePath GetSigninProfilePath();
 
  private:
   explicit UserManagerMac(Profile* profile);
@@ -61,9 +61,11 @@ class UserManagerMac {
   // Controller of the window.
   base::scoped_nsobject<UserManagerWindowController> window_controller_;
 
-  base::scoped_nsobject<ReauthDialogWindowController> reauth_window_;
+  base::scoped_nsobject<DialogWindowController> reauth_window_;
 
   base::Time user_manager_started_showing_;
+
+  base::FilePath signin_profile_path_;
 
   DISALLOW_COPY_AND_ASSIGN(UserManagerMac);
 };

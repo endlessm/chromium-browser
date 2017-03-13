@@ -463,6 +463,8 @@ class CrosBrowserOptions(ChromeBrowserOptions):
     self.username = 'test@test.test'
     self.password = ''
     self.gaia_id = '12345'
+    # For non-accelerated QEMU VMs.
+    self.browser_startup_timeout = 240
 
   def IsCrosBrowserOptions(self):
     return True

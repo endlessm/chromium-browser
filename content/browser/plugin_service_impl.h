@@ -8,7 +8,9 @@
 #ifndef CONTENT_BROWSER_PLUGIN_SERVICE_IMPL_H_
 #define CONTENT_BROWSER_PLUGIN_SERVICE_IMPL_H_
 
-#if !defined(ENABLE_PLUGINS)
+#include "ppapi/features/features.h"
+
+#if !BUILDFLAG(ENABLE_PLUGINS)
 #error "Plugins should be enabled"
 #endif
 
@@ -48,7 +50,6 @@ class SingleThreadTaskRunner;
 
 namespace content {
 class BrowserContext;
-class PluginDirWatcherDelegate;
 class PluginServiceFilter;
 class ResourceContext;
 struct PepperPluginInfo;

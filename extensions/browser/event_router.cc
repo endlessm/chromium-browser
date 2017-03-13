@@ -103,26 +103,14 @@ void EventRouter::DispatchExtensionMessage(IPC::Sender* ipc_sender,
   NotifyEventDispatched(browser_context_id, extension_id, event_name,
                         *event_args);
 
-  // TODO(chirantan): Make event dispatch a separate IPC so that it doesn't
-  // piggyback off MessageInvoke, which is used for other things.
-  ListValue args;
-  args.Set(0, new base::StringValue(event_name));
-  args.Set(1, event_args);
-  args.Set(2, info.AsValue().release());
-  args.Set(3, new base::FundamentalValue(event_id));
-  ipc_sender->Send(new ExtensionMsg_MessageInvoke(
-      MSG_ROUTING_CONTROL,
-      extension_id,
-      kEventBindings,
-      "dispatchEvent",
-      args,
-      user_gesture == USER_GESTURE_ENABLED));
+  ExtensionMsg_DispatchEvent_Params params;
+  params.extension_id = extension_id;
+  params.event_name = event_name;
+  params.event_id = event_id;
+  params.is_user_gesture = user_gesture == USER_GESTURE_ENABLED;
+  params.filtering_info.Swap(info.AsValue().get());
 
-  // DispatchExtensionMessage does _not_ take ownership of event_args, so we
-  // must ensure that the destruction of args does not attempt to free it.
-  std::unique_ptr<base::Value> removed_event_args;
-  args.Remove(1, &removed_event_args);
-  ignore_result(removed_event_args.release());
+  ipc_sender->Send(new ExtensionMsg_DispatchEvent(params, *event_args));
 }
 
 // static
@@ -409,7 +397,7 @@ void EventRouter::AddFilterToEvent(const std::string& event_name,
     filtered_events = update.Create();
 
   ListValue* filter_list = nullptr;
-  if (!filtered_events->GetList(event_name, &filter_list)) {
+  if (!filtered_events->GetListWithoutPathExpansion(event_name, &filter_list)) {
     filter_list = new ListValue;
     filtered_events->SetWithoutPathExpansion(event_name,
                                              base::WrapUnique(filter_list));
@@ -431,10 +419,10 @@ void EventRouter::RemoveFilterFromEvent(const std::string& event_name,
   }
 
   for (size_t i = 0; i < filter_list->GetSize(); i++) {
-    DictionaryValue* filter = NULL;
-    CHECK(filter_list->GetDictionary(i, &filter));
-    if (filter->Equals(filter)) {
-      filter_list->Remove(i, NULL);
+    DictionaryValue* filter_value = nullptr;
+    CHECK(filter_list->GetDictionary(i, &filter_value));
+    if (filter_value->Equals(filter)) {
+      filter_list->Remove(i, nullptr);
       break;
     }
   }
@@ -600,7 +588,8 @@ void EventRouter::DispatchEventToProcess(
 
   Feature::Availability availability =
       ExtensionAPI::GetSharedInstance()->IsAvailable(
-          event->event_name, extension, target_context, listener_url);
+          event->event_name, extension, target_context, listener_url,
+          CheckAliasStatus::ALLOWED);
   if (!availability.is_available()) {
     // It shouldn't be possible to reach here, because access is checked on
     // registration. However, for paranoia, check on dispatch as well.

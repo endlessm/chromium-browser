@@ -31,7 +31,7 @@
 
 #include "core/html/forms/RangeInputType.h"
 
-#include "bindings/core/v8/ExceptionStatePlaceholder.h"
+#include "bindings/core/v8/ExceptionState.h"
 #include "core/HTMLNames.h"
 #include "core/InputTypeNames.h"
 #include "core/dom/AXObjectCache.h"
@@ -86,6 +86,10 @@ DEFINE_TRACE(RangeInputType) {
 
 InputTypeView* RangeInputType::createView() {
   return this;
+}
+
+InputType::ValueMode RangeInputType::valueMode() const {
+  return ValueMode::kValue;
 }
 
 void RangeInputType::countUsage() {
@@ -163,7 +167,7 @@ void RangeInputType::handleMouseDownEvent(MouseEvent* event) {
   SliderThumbElement* thumb = sliderThumbElement();
   if (targetNode == thumb)
     return;
-  thumb->dragFrom(event->absoluteLocation());
+  thumb->dragFrom(LayoutPoint(event->absoluteLocation()));
 }
 
 void RangeInputType::handleKeydownEvent(KeyboardEvent* event) {
@@ -186,7 +190,7 @@ void RangeInputType::handleKeydownEvent(KeyboardEvent* event) {
   const Decimal bigStep =
       std::max((stepRange.maximum() - stepRange.minimum()) / 10, step);
 
-  TextDirection dir = LTR;
+  TextDirection dir = TextDirection::kLtr;
   bool isVertical = false;
   if (element().layoutObject()) {
     dir = computedTextDirection();
@@ -195,31 +199,34 @@ void RangeInputType::handleKeydownEvent(KeyboardEvent* event) {
   }
 
   Decimal newValue;
-  if (key == "ArrowUp")
+  if (key == "ArrowUp") {
     newValue = current + step;
-  else if (key == "ArrowDown")
+  } else if (key == "ArrowDown") {
     newValue = current - step;
-  else if (key == "ArrowLeft")
-    newValue = (isVertical || dir == RTL) ? current + step : current - step;
-  else if (key == "ArrowRight")
-    newValue = (isVertical || dir == RTL) ? current - step : current + step;
-  else if (key == "PageUp")
+  } else if (key == "ArrowLeft") {
+    newValue = (isVertical || dir == TextDirection::kRtl) ? current + step
+                                                          : current - step;
+  } else if (key == "ArrowRight") {
+    newValue = (isVertical || dir == TextDirection::kRtl) ? current - step
+                                                          : current + step;
+  } else if (key == "PageUp") {
     newValue = current + bigStep;
-  else if (key == "PageDown")
+  } else if (key == "PageDown") {
     newValue = current - bigStep;
-  else if (key == "Home")
+  } else if (key == "Home") {
     newValue = isVertical ? stepRange.maximum() : stepRange.minimum();
-  else if (key == "End")
+  } else if (key == "End") {
     newValue = isVertical ? stepRange.minimum() : stepRange.maximum();
-  else
+  } else {
     return;  // Did not match any key binding.
+  }
 
   newValue = stepRange.clampValue(newValue);
 
   if (newValue != current) {
     EventQueueScope scope;
     TextFieldEventBehavior eventBehavior = DispatchInputAndChangeEvent;
-    setValueAsDecimal(newValue, eventBehavior, IGNORE_EXCEPTION);
+    setValueAsDecimal(newValue, eventBehavior, IGNORE_EXCEPTION_FOR_TESTING);
 
     if (AXObjectCache* cache = element().document().existingAXObjectCache())
       cache->handleValueChanged(&element());
@@ -269,30 +276,26 @@ void RangeInputType::accessKeyAction(bool sendMouseEvents) {
 void RangeInputType::sanitizeValueInResponseToMinOrMaxAttributeChange() {
   if (element().hasDirtyValue())
     element().setValue(element().value());
+  else
+    element().setNonDirtyValue(element().value());
   element().updateView();
 }
 
 void RangeInputType::stepAttributeChanged() {
   if (element().hasDirtyValue())
     element().setValue(element().value());
+  else
+    element().setNonDirtyValue(element().value());
   element().updateView();
 }
 
-void RangeInputType::setValue(const String& value,
-                              bool valueChanged,
-                              TextFieldEventBehavior eventBehavior) {
-  InputType::setValue(value, valueChanged, eventBehavior);
-
+void RangeInputType::didSetValue(const String&, bool valueChanged) {
   if (valueChanged)
     element().updateView();
 }
 
 void RangeInputType::updateView() {
   sliderThumbElement()->setPositionFromValue();
-}
-
-String RangeInputType::fallbackValue() const {
-  return serializeForNumberType(createStepRange(RejectAny).defaultValue());
 }
 
 String RangeInputType::sanitizeValue(const String& proposedValue) const {
@@ -322,8 +325,9 @@ bool RangeInputType::shouldRespectListAttribute() {
 }
 
 inline SliderThumbElement* RangeInputType::sliderThumbElement() const {
-  return toSliderThumbElement(element().userAgentShadowRoot()->getElementById(
-      ShadowElementNames::sliderThumb()));
+  return toSliderThumbElementOrDie(
+      element().userAgentShadowRoot()->getElementById(
+          ShadowElementNames::sliderThumb()));
 }
 
 inline Element* RangeInputType::sliderTrackElement() const {
@@ -362,7 +366,7 @@ void RangeInputType::updateTickMarkValues() {
     String optionValue = optionElement->value();
     if (!this->element().isValidValue(optionValue))
       continue;
-    m_tickMarkValues.append(parseToNumber(optionValue, Decimal::nan()));
+    m_tickMarkValues.push_back(parseToNumber(optionValue, Decimal::nan()));
   }
   m_tickMarkValues.shrinkToFit();
   nonCopyingSort(m_tickMarkValues.begin(), m_tickMarkValues.end(),

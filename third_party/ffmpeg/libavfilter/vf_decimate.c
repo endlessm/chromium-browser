@@ -164,9 +164,12 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
         return 0;
     dm->got_frame[INPUT_MAIN] = dm->got_frame[INPUT_CLEANSRC] = 0;
 
+    if (dm->ppsrc)
+        in = dm->clean_src[dm->fid];
+
     if (in) {
         /* update frame metrics */
-        prv = dm->fid ? dm->queue[dm->fid - 1].frame : dm->last;
+        prv = dm->fid ? (dm->ppsrc ? dm->clean_src[dm->fid - 1] : dm->queue[dm->fid - 1].frame) : dm->last;
         if (!prv) {
             dm->queue[dm->fid].maxbdiff = INT64_MAX;
             dm->queue[dm->fid].totdiff  = INT64_MAX;
@@ -220,7 +223,7 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
                 av_frame_free(&frame);
                 frame = dm->clean_src[i];
             }
-            frame->pts = av_rescale_q(outlink->frame_count, dm->ts_unit, (AVRational){1,1}) +
+            frame->pts = av_rescale_q(outlink->frame_count_in, dm->ts_unit, (AVRational){1,1}) +
                          (dm->start_pts == AV_NOPTS_VALUE ? 0 : dm->start_pts);
             ret = ff_filter_frame(outlink, frame);
             if (ret < 0)
@@ -365,21 +368,12 @@ static int config_output(AVFilterLink *outlink)
     DecimateContext *dm = ctx->priv;
     const AVFilterLink *inlink =
         ctx->inputs[dm->ppsrc ? INPUT_CLEANSRC : INPUT_MAIN];
-    const AVFilterLink *inlink_main =
-        ctx->inputs[INPUT_MAIN];
     AVRational fps = inlink->frame_rate;
 
     if (!fps.num || !fps.den) {
         av_log(ctx, AV_LOG_ERROR, "The input needs a constant frame rate; "
                "current rate of %d/%d is invalid\n", fps.num, fps.den);
         return AVERROR(EINVAL);
-    }
-
-    if (inlink->w != inlink_main->w ||
-        inlink->h != inlink_main->h ||
-        inlink->format != inlink_main->format) {
-        av_log(ctx, AV_LOG_ERROR, "frame parameters differ between inputs\n");
-        return AVERROR_PATCHWELCOME;
     }
     fps = av_mul_q(fps, (AVRational){dm->cycle - 1, dm->cycle});
     av_log(ctx, AV_LOG_VERBOSE, "FPS: %d/%d -> %d/%d\n",

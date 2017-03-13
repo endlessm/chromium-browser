@@ -31,8 +31,7 @@ class ChromeShellDelegate : public ash::ShellDelegate,
   ~ChromeShellDelegate() override;
 
   // ash::ShellDelegate overrides;
-  shell::Connector* GetShellConnector() const override;
-  bool IsFirstRunAfterBoot() const override;
+  service_manager::Connector* GetShellConnector() const override;
   bool IsMultiProfilesEnabled() const override;
   bool IsIncognitoAllowed() const override;
   bool IsRunningInForcedAppMode() const override;
@@ -43,14 +42,11 @@ class ChromeShellDelegate : public ash::ShellDelegate,
   void Exit() override;
   keyboard::KeyboardUI* CreateKeyboardUI() override;
   void OpenUrlFromArc(const GURL& url) override;
-  app_list::AppListPresenter* GetAppListPresenter() override;
   ash::ShelfDelegate* CreateShelfDelegate(ash::ShelfModel* model) override;
   ash::SystemTrayDelegate* CreateSystemTrayDelegate() override;
   std::unique_ptr<ash::WallpaperDelegate> CreateWallpaperDelegate() override;
   ash::SessionStateDelegate* CreateSessionStateDelegate() override;
   ash::AccessibilityDelegate* CreateAccessibilityDelegate() override;
-  ash::NewWindowDelegate* CreateNewWindowDelegate() override;
-  ash::MediaDelegate* CreateMediaDelegate() override;
   std::unique_ptr<ash::PaletteDelegate> CreatePaletteDelegate() override;
   ui::MenuModel* CreateContextMenu(ash::WmShelf* wm_shelf,
                                    const ash::ShelfItem* item) override;
@@ -58,8 +54,11 @@ class ChromeShellDelegate : public ash::ShellDelegate,
   base::string16 GetProductName() const override;
   void OpenKeyboardShortcutHelpPage() const override;
   gfx::Image GetDeprecatedAcceleratorImage() const override;
+  bool IsTouchscreenEnabledInPrefs(bool use_local_state) const override;
+  void SetTouchscreenEnabledInPrefs(bool enabled,
+                                    bool use_local_state) override;
+  void UpdateTouchscreenStatusFromPrefs() override;
   void ToggleTouchpad() override;
-  void ToggleTouchscreen() override;
 
   // content::NotificationObserver override:
   void Observe(int type,

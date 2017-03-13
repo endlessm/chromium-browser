@@ -18,7 +18,7 @@ tr.exportTo('tr.model.um', function() {
 
   var DOES_LOAD_SUBTYPE_NAME_EXIST = {};
   for (var key in LOAD_SUBTYPE_NAMES) {
-    DOES_LOAD_SUBTYPE_NAME_EXIST[LOAD_SUBTYPE_NAMES[key]] = true;;
+    DOES_LOAD_SUBTYPE_NAME_EXIST[LOAD_SUBTYPE_NAMES[key]] = true;
   }
 
   function LoadExpectation(parentModel, initiatorTitle, start, duration) {
@@ -47,8 +47,8 @@ tr.exportTo('tr.model.um', function() {
     // |loadFinishedEvent|, if present, signals that this is a main frame.
     this.loadFinishedEvent = undefined;
 
-    // Startup LoadIRs do not have renderProcess, routingId, or
-    // parentRoutingId. Maybe RenderLoadIR should be a separate class?
+    // Startup LoadExpectations do not have renderProcess, routingId, or
+    // parentRoutingId. Maybe RenderLoadExpectation should be a separate class?
   }
 
   LoadExpectation.prototype = {
@@ -62,8 +62,8 @@ tr.exportTo('tr.model.um', function() {
   });
 
   return {
-    LOAD_SUBTYPE_NAMES: LOAD_SUBTYPE_NAMES,
-    LoadExpectation: LoadExpectation
+    LOAD_SUBTYPE_NAMES,
+    LoadExpectation,
   };
 });
 </script>

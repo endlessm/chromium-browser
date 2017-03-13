@@ -2,39 +2,41 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef NET_QUIC_QUIC_CRYPTO_STREAM_H_
-#define NET_QUIC_QUIC_CRYPTO_STREAM_H_
+#ifndef NET_QUIC_CORE_QUIC_CRYPTO_STREAM_H_
+#define NET_QUIC_CORE_QUIC_CRYPTO_STREAM_H_
 
 #include <stddef.h>
 
 #include "base/macros.h"
-#include "net/base/net_export.h"
 #include "net/quic/core/crypto/crypto_framer.h"
 #include "net/quic/core/crypto/crypto_utils.h"
 #include "net/quic/core/quic_config.h"
-#include "net/quic/core/quic_protocol.h"
-#include "net/quic/core/reliable_quic_stream.h"
+#include "net/quic/core/quic_packets.h"
+#include "net/quic/core/quic_stream.h"
+#include "net/quic/platform/api/quic_export.h"
 
 namespace net {
 
 class CryptoHandshakeMessage;
 class QuicSession;
 
-// Crypto handshake messages in QUIC take place over a reserved
-// reliable stream with the id 1.  Each endpoint (client and server)
-// will allocate an instance of a subclass of QuicCryptoStream
-// to send and receive handshake messages.  (In the normal 1-RTT
-// handshake, the client will send a client hello, CHLO, message.
-// The server will receive this message and respond with a server
-// hello message, SHLO.  At this point both sides will have established
-// a crypto context they can use to send encrypted messages.
+// Crypto handshake messages in QUIC take place over a reserved stream with the
+// id 1.  Each endpoint (client and server) will allocate an instance of a
+// subclass of QuicCryptoStream to send and receive handshake messages.  (In the
+// normal 1-RTT handshake, the client will send a client hello, CHLO, message.
+// The server will receive this message and respond with a server hello message,
+// SHLO.  At this point both sides will have established a crypto context they
+// can use to send encrypted messages.
 //
-// For more details: http://goto.google.com/quic-crypto
-class NET_EXPORT_PRIVATE QuicCryptoStream
-    : public ReliableQuicStream,
+// For more details:
+// https://docs.google.com/document/d/1g5nIXAIkN_Y-7XJW5K45IblHd_L2f5LTaDUDwvZ5L6g/edit?usp=sharing
+class QUIC_EXPORT_PRIVATE QuicCryptoStream
+    : public QuicStream,
       public CryptoFramerVisitorInterface {
  public:
   explicit QuicCryptoStream(QuicSession* session);
+
+  ~QuicCryptoStream() override;
 
   // Returns the per-packet framing overhead associated with sending a
   // handshake message for |version|.
@@ -44,7 +46,7 @@ class NET_EXPORT_PRIVATE QuicCryptoStream
   void OnError(CryptoFramer* framer) override;
   void OnHandshakeMessage(const CryptoHandshakeMessage& message) override;
 
-  // ReliableQuicStream implementation
+  // QuicStream implementation
   void OnDataAvailable() override;
 
   // Sends |message| to the peer.
@@ -79,7 +81,8 @@ class NET_EXPORT_PRIVATE QuicCryptoStream
   bool encryption_established_;
   bool handshake_confirmed_;
 
-  QuicCryptoNegotiatedParameters crypto_negotiated_params_;
+  QuicReferenceCountedPointer<QuicCryptoNegotiatedParameters>
+      crypto_negotiated_params_;
 
  private:
   CryptoFramer crypto_framer_;
@@ -89,4 +92,4 @@ class NET_EXPORT_PRIVATE QuicCryptoStream
 
 }  // namespace net
 
-#endif  // NET_QUIC_QUIC_CRYPTO_STREAM_H_
+#endif  // NET_QUIC_CORE_QUIC_CRYPTO_STREAM_H_

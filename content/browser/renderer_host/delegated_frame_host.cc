@@ -38,28 +38,6 @@
 
 namespace content {
 
-namespace {
-
-void SatisfyCallback(cc::SurfaceManager* manager,
-                     const cc::SurfaceSequence& sequence) {
-  std::vector<uint32_t> sequences;
-  sequences.push_back(sequence.sequence);
-  manager->DidSatisfySequences(sequence.frame_sink_id, &sequences);
-}
-
-void RequireCallback(cc::SurfaceManager* manager,
-                     const cc::SurfaceId& id,
-                     const cc::SurfaceSequence& sequence) {
-  cc::Surface* surface = manager->GetSurfaceForId(id);
-  if (!surface) {
-    LOG(ERROR) << "Attempting to require callback on nonexistent surface";
-    return;
-  }
-  surface->AddDestructionDependency(sequence);
-}
-
-}  // namespace
-
 ////////////////////////////////////////////////////////////////////////////////
 // DelegatedFrameHost
 
@@ -79,15 +57,20 @@ DelegatedFrameHost::DelegatedFrameHost(const cc::FrameSinkId& frame_sink_id,
   ImageTransportFactory* factory = ImageTransportFactory::GetInstance();
   factory->GetContextFactory()->AddObserver(this);
   id_allocator_.reset(new cc::SurfaceIdAllocator());
-  factory->GetSurfaceManager()->RegisterFrameSinkId(frame_sink_id_);
-  factory->GetSurfaceManager()->RegisterSurfaceFactoryClient(frame_sink_id_,
-                                                             this);
+  factory->GetContextFactoryPrivate()->GetSurfaceManager()->RegisterFrameSinkId(
+      frame_sink_id_);
+  factory->GetContextFactoryPrivate()
+      ->GetSurfaceManager()
+      ->RegisterSurfaceFactoryClient(frame_sink_id_, this);
+  surface_factory_ = base::MakeUnique<cc::SurfaceFactory>(
+      frame_sink_id_, factory->GetContextFactoryPrivate()->GetSurfaceManager(),
+      this);
 }
 
 void DelegatedFrameHost::WasShown(const ui::LatencyInfo& latency_info) {
   delegated_frame_evictor_->SetVisible(true);
 
-  if (local_frame_id_.is_null() && !released_front_lock_.get()) {
+  if (!local_frame_id_.is_valid() && !released_front_lock_.get()) {
     if (compositor_)
       released_front_lock_ = compositor_->GetCompositorLock();
   }
@@ -216,40 +199,43 @@ cc::SurfaceId DelegatedFrameHost::SurfaceIdAtPoint(
     const gfx::Point& point,
     gfx::Point* transformed_point) {
   cc::SurfaceId surface_id(frame_sink_id_, local_frame_id_);
-  if (surface_id.is_null())
+  if (!surface_id.is_valid())
     return surface_id;
   cc::SurfaceHittest hittest(delegate, GetSurfaceManager());
   gfx::Transform target_transform;
   cc::SurfaceId target_local_frame_id =
       hittest.GetTargetSurfaceAtPoint(surface_id, point, &target_transform);
   *transformed_point = point;
-  if (!target_local_frame_id.is_null())
+  if (target_local_frame_id.is_valid())
     target_transform.TransformPoint(transformed_point);
   return target_local_frame_id;
 }
 
-gfx::Point DelegatedFrameHost::TransformPointToLocalCoordSpace(
+bool DelegatedFrameHost::TransformPointToLocalCoordSpace(
     const gfx::Point& point,
-    const cc::SurfaceId& original_surface) {
+    const cc::SurfaceId& original_surface,
+    gfx::Point* transformed_point) {
   cc::SurfaceId surface_id(frame_sink_id_, local_frame_id_);
-  if (surface_id.is_null() || original_surface == surface_id)
-    return point;
+  if (!surface_id.is_valid())
+    return false;
+  *transformed_point = point;
+  if (original_surface == surface_id)
+    return true;
 
-  gfx::Point transformed_point = point;
   cc::SurfaceHittest hittest(nullptr, GetSurfaceManager());
-  hittest.TransformPointToTargetSurface(original_surface, surface_id,
-                                        &transformed_point);
-  return transformed_point;
+  return hittest.TransformPointToTargetSurface(original_surface, surface_id,
+                                               transformed_point);
 }
 
-gfx::Point DelegatedFrameHost::TransformPointToCoordSpaceForView(
+bool DelegatedFrameHost::TransformPointToCoordSpaceForView(
     const gfx::Point& point,
-    RenderWidgetHostViewBase* target_view) {
-  if (local_frame_id_.is_null())
-    return point;
+    RenderWidgetHostViewBase* target_view,
+    gfx::Point* transformed_point) {
+  if (!local_frame_id_.is_valid())
+    return false;
 
   return target_view->TransformPointToLocalCoordSpace(
-      point, cc::SurfaceId(frame_sink_id_, local_frame_id_));
+      point, cc::SurfaceId(frame_sink_id_, local_frame_id_), transformed_point);
 }
 
 bool DelegatedFrameHost::ShouldSkipFrame(gfx::Size size_in_dip) const {
@@ -280,7 +266,7 @@ SkColor DelegatedFrameHost::GetGutterColor() const {
 }
 
 void DelegatedFrameHost::UpdateGutters() {
-  if (local_frame_id_.is_null()) {
+  if (!local_frame_id_.is_valid()) {
     right_gutter_.reset();
     bottom_gutter_.reset();
     return;
@@ -384,15 +370,14 @@ void DelegatedFrameHost::AttemptFrameSubscriberCapture(
         subscriber_texture->target()));
   }
 
-  if (surface_factory_.get()) {
+  if (local_frame_id_.is_valid()) {
     // To avoid unnecessary composites, go directly to the Surface rather than
     // through RequestCopyOfOutput (which goes through the browser
     // compositor).
     if (!request_copy_of_output_callback_for_testing_.is_null())
       request_copy_of_output_callback_for_testing_.Run(std::move(request));
     else
-      surface_factory_->RequestCopyOfSurface(local_frame_id_,
-                                             std::move(request));
+      surface_factory_->RequestCopyOfSurface(std::move(request));
   } else {
     request->set_area(gfx::Rect(current_frame_size_in_dip_));
     RequestCopyOfOutput(std::move(request));
@@ -401,16 +386,14 @@ void DelegatedFrameHost::AttemptFrameSubscriberCapture(
 
 void DelegatedFrameHost::SwapDelegatedFrame(uint32_t compositor_frame_sink_id,
                                             cc::CompositorFrame frame) {
-  DCHECK(frame.delegated_frame_data.get());
 #if defined(OS_CHROMEOS)
   DCHECK(!resize_lock_ || !client_->IsAutoResizeEnabled());
 #endif
-  cc::DelegatedFrameData* frame_data = frame.delegated_frame_data.get();
   float frame_device_scale_factor = frame.metadata.device_scale_factor;
 
-  DCHECK(!frame_data->render_pass_list.empty());
+  DCHECK(!frame.render_pass_list.empty());
 
-  cc::RenderPass* root_pass = frame_data->render_pass_list.back().get();
+  cc::RenderPass* root_pass = frame.render_pass_list.back().get();
 
   gfx::Size frame_size = root_pass->output_rect.size();
   gfx::Size frame_size_in_dip =
@@ -423,8 +406,7 @@ void DelegatedFrameHost::SwapDelegatedFrame(uint32_t compositor_frame_sink_id,
 
   if (ShouldSkipFrame(frame_size_in_dip)) {
     cc::ReturnedResourceArray resources;
-    cc::TransferableResource::ReturnResources(frame_data->resource_list,
-                                              &resources);
+    cc::TransferableResource::ReturnResources(frame.resource_list, &resources);
 
     skipped_latency_info_list_.insert(skipped_latency_info_list_.end(),
                                       frame.metadata.latency_info.begin(),
@@ -442,7 +424,7 @@ void DelegatedFrameHost::SwapDelegatedFrame(uint32_t compositor_frame_sink_id,
     damage_rect_in_dip = gfx::Rect(frame_size_in_dip);
 
     // Give the same damage rect to the compositor.
-    cc::RenderPass* root_pass = frame_data->render_pass_list.back().get();
+    cc::RenderPass* root_pass = frame.render_pass_list.back().get();
     root_pass->damage_rect = damage_rect;
   }
 
@@ -456,7 +438,7 @@ void DelegatedFrameHost::SwapDelegatedFrame(uint32_t compositor_frame_sink_id,
     // the DelegatedRendererLayer.
     EvictDelegatedFrame();
 
-    surface_factory_.reset();
+    surface_factory_->Reset();
     if (!surface_returned_resources_.empty()) {
       SendReclaimCompositorResources(last_compositor_frame_sink_id_,
                                      false /* is_swap_ack */);
@@ -468,30 +450,19 @@ void DelegatedFrameHost::SwapDelegatedFrame(uint32_t compositor_frame_sink_id,
 
   background_color_ = frame.metadata.root_background_color;
 
+  bool did_send_ack_callback = false;
   if (frame_size.IsEmpty()) {
-    DCHECK(frame_data->resource_list.empty());
+    DCHECK(frame.resource_list.empty());
     EvictDelegatedFrame();
   } else {
     ImageTransportFactory* factory = ImageTransportFactory::GetInstance();
-    cc::SurfaceManager* manager = factory->GetSurfaceManager();
-    if (!surface_factory_) {
-      surface_factory_ =
-          base::MakeUnique<cc::SurfaceFactory>(frame_sink_id_, manager, this);
-    }
-    if (local_frame_id_.is_null() || frame_size != current_surface_size_ ||
+    cc::SurfaceManager* manager =
+        factory->GetContextFactoryPrivate()->GetSurfaceManager();
+    bool allocated_new_local_frame_id = false;
+    if (!local_frame_id_.is_valid() || frame_size != current_surface_size_ ||
         frame_size_in_dip != current_frame_size_in_dip_) {
-      if (!local_frame_id_.is_null())
-        surface_factory_->Destroy(local_frame_id_);
       local_frame_id_ = id_allocator_->GenerateId();
-      surface_factory_->Create(local_frame_id_);
-      // manager must outlive compositors using it.
-      client_->DelegatedFrameHostGetLayer()->SetShowSurface(
-          cc::SurfaceId(frame_sink_id_, local_frame_id_),
-          base::Bind(&SatisfyCallback, base::Unretained(manager)),
-          base::Bind(&RequireCallback, base::Unretained(manager)), frame_size,
-          frame_device_scale_factor, frame_size_in_dip);
-      current_surface_size_ = frame_size;
-      current_scale_factor_ = frame_device_scale_factor;
+      allocated_new_local_frame_id = true;
     }
 
     gfx::Size desired_size = client_->DelegatedFrameHostDesiredSizeInDIP();
@@ -512,9 +483,20 @@ void DelegatedFrameHost::SwapDelegatedFrame(uint32_t compositor_frame_sink_id,
     if (compositor_ && !skip_frame) {
       ack_callback = base::Bind(&DelegatedFrameHost::SurfaceDrawn, AsWeakPtr(),
                                 compositor_frame_sink_id);
+      did_send_ack_callback = true;
     }
     surface_factory_->SubmitCompositorFrame(local_frame_id_, std::move(frame),
                                             ack_callback);
+    if (allocated_new_local_frame_id) {
+      // manager must outlive compositors using it.
+      cc::SurfaceId surface_id(frame_sink_id_, local_frame_id_);
+      cc::SurfaceInfo surface_info(surface_id, frame_device_scale_factor,
+                                   frame_size);
+      client_->DelegatedFrameHostGetLayer()->SetShowSurface(
+          surface_info, manager->reference_factory());
+      current_surface_size_ = frame_size;
+      current_scale_factor_ = frame_device_scale_factor;
+    }
   }
   released_front_lock_ = NULL;
   current_frame_size_in_dip_ = frame_size_in_dip;
@@ -531,11 +513,11 @@ void DelegatedFrameHost::SwapDelegatedFrame(uint32_t compositor_frame_sink_id,
   // SetShowDelegatedContent above.
   if (!compositor_ || skip_frame) {
     SendReclaimCompositorResources(compositor_frame_sink_id,
-                                   true /* is_swap_ack */);
+                                   !did_send_ack_callback /* is_swap_ack */);
   } else {
     can_lock_compositor_ = NO_PENDING_COMMIT;
   }
-  if (!local_frame_id_.is_null()) {
+  if (local_frame_id_.is_valid()) {
     delegated_frame_evictor_->SwappedFrame(
         client_->DelegatedFrameHostIsVisible());
   }
@@ -543,7 +525,7 @@ void DelegatedFrameHost::SwapDelegatedFrame(uint32_t compositor_frame_sink_id,
 }
 
 void DelegatedFrameHost::ClearDelegatedFrame() {
-  if (!local_frame_id_.is_null())
+  if (local_frame_id_.is_valid())
     EvictDelegatedFrame();
 }
 
@@ -594,8 +576,8 @@ void DelegatedFrameHost::SetBeginFrameSource(
 
 void DelegatedFrameHost::EvictDelegatedFrame() {
   client_->DelegatedFrameHostGetLayer()->SetShowSolidColorContent();
-  if (!local_frame_id_.is_null()) {
-    surface_factory_->Destroy(local_frame_id_);
+  if (local_frame_id_.is_valid()) {
+    surface_factory_->EvictSurface();
     local_frame_id_ = cc::LocalFrameId();
   }
   delegated_frame_evictor_->DiscardedFrame();
@@ -791,8 +773,6 @@ void DelegatedFrameHost::OnCompositingStarted(ui::Compositor* compositor,
 
 void DelegatedFrameHost::OnCompositingEnded(ui::Compositor* compositor) {}
 
-void DelegatedFrameHost::OnCompositingAborted(ui::Compositor* compositor) {}
-
 void DelegatedFrameHost::OnCompositingLockStateChanged(
     ui::Compositor* compositor) {
   // A compositor lock that is part of a resize lock timed out. We
@@ -818,12 +798,10 @@ void DelegatedFrameHost::OnUpdateVSyncParameters(base::TimeTicks timebase,
 // DelegatedFrameHost, ImageTransportFactoryObserver implementation:
 
 void DelegatedFrameHost::OnLostResources() {
-  if (!local_frame_id_.is_null())
+  if (local_frame_id_.is_valid())
     EvictDelegatedFrame();
   idle_frame_subscriber_textures_.clear();
   yuv_readback_pipeline_.reset();
-
-  client_->DelegatedFrameHostOnLostCompositorResources();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -833,11 +811,13 @@ DelegatedFrameHost::~DelegatedFrameHost() {
   DCHECK(!compositor_);
   ImageTransportFactory* factory = ImageTransportFactory::GetInstance();
   factory->GetContextFactory()->RemoveObserver(this);
-
-  if (!local_frame_id_.is_null())
-    surface_factory_->Destroy(local_frame_id_);
-  factory->GetSurfaceManager()->UnregisterSurfaceFactoryClient(frame_sink_id_);
-  factory->GetSurfaceManager()->InvalidateFrameSinkId(frame_sink_id_);
+  surface_factory_->EvictSurface();
+  factory->GetContextFactoryPrivate()
+      ->GetSurfaceManager()
+      ->UnregisterSurfaceFactoryClient(frame_sink_id_);
+  factory->GetContextFactoryPrivate()
+      ->GetSurfaceManager()
+      ->InvalidateFrameSinkId(frame_sink_id_);
 
   DCHECK(!vsync_manager_.get());
 }
@@ -874,7 +854,7 @@ void DelegatedFrameHost::ResetCompositor() {
 }
 
 void DelegatedFrameHost::LockResources() {
-  DCHECK(!local_frame_id_.is_null());
+  DCHECK(local_frame_id_.is_valid());
   delegated_frame_evictor_->LockFrame();
 }
 
@@ -889,7 +869,7 @@ void DelegatedFrameHost::RequestCopyOfOutput(
 }
 
 void DelegatedFrameHost::UnlockResources() {
-  DCHECK(!local_frame_id_.is_null());
+  DCHECK(local_frame_id_.is_valid());
   delegated_frame_evictor_->UnlockFrame();
 }
 

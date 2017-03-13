@@ -26,11 +26,10 @@ class GPU_EXPORT GpuMemoryBufferImplSharedMemory : public GpuMemoryBufferImpl {
       gfx::BufferFormat format,
       const DestructionCallback& callback);
 
-  static gfx::GpuMemoryBufferHandle AllocateForChildProcess(
+  static gfx::GpuMemoryBufferHandle CreateGpuMemoryBuffer(
       gfx::GpuMemoryBufferId id,
       const gfx::Size& size,
-      gfx::BufferFormat format,
-      base::ProcessHandle child_process);
+      gfx::BufferFormat format);
 
   static std::unique_ptr<GpuMemoryBufferImplSharedMemory> CreateFromHandle(
       const gfx::GpuMemoryBufferHandle& handle,

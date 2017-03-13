@@ -7,167 +7,20 @@
 //   Tests for constant folding
 //
 
-#include <vector>
+#include "tests/test_utils/ConstantFoldingTest.h"
 
-#include "angle_gl.h"
-#include "gtest/gtest.h"
-#include "GLSLANG/ShaderLang.h"
-#include "compiler/translator/PoolAlloc.h"
-#include "compiler/translator/TranslatorESSL.h"
+using namespace sh;
 
-template <typename T>
-class ConstantFinder : public TIntermTraverser
+// Test that zero, true or false are not found in AST when they are not expected. This is to make
+// sure that the subsequent tests run correctly.
+TEST_F(ConstantFoldingExpressionTest, FoldFloatTestSanityCheck)
 {
-  public:
-    ConstantFinder(const std::vector<T> &constantVector)
-        : TIntermTraverser(true, false, false),
-          mConstantVector(constantVector),
-          mFaultTolerance(T()),
-          mFound(false)
-    {}
-
-    ConstantFinder(const std::vector<T> &constantVector, const T &faultTolerance)
-        : TIntermTraverser(true, false, false),
-        mConstantVector(constantVector),
-        mFaultTolerance(faultTolerance),
-        mFound(false)
-    {}
-
-    ConstantFinder(const T &value)
-        : TIntermTraverser(true, false, false),
-          mFaultTolerance(T()),
-          mFound(false)
-    {
-        mConstantVector.push_back(value);
-    }
-
-    void visitConstantUnion(TIntermConstantUnion *node)
-    {
-        if (node->getType().getObjectSize() == mConstantVector.size())
-        {
-            bool found = true;
-            for (size_t i = 0; i < mConstantVector.size(); i++)
-            {
-                if (!isEqual(node->getUnionArrayPointer()[i], mConstantVector[i]))
-                {
-                    found = false;
-                    break;
-                }
-            }
-            if (found)
-            {
-                mFound = found;
-            }
-        }
-    }
-
-    bool found() const { return mFound; }
-
-  private:
-    bool isEqual(const TConstantUnion &node, const float &value) const
-    {
-        return mFaultTolerance >= fabsf(node.getFConst() - value);
-    }
-
-    bool isEqual(const TConstantUnion &node, const int &value) const
-    {
-        ASSERT(mFaultTolerance < std::numeric_limits<int>::max());
-        // abs() returns 0 at least on some platforms when the minimum int value is passed in (it
-        // doesn't have a positive counterpart).
-        return mFaultTolerance >= abs(node.getIConst() - value) &&
-               (node.getIConst() - value) != std::numeric_limits<int>::min();
-    }
-
-    bool isEqual(const TConstantUnion &node, const unsigned int &value) const
-    {
-        ASSERT(mFaultTolerance < static_cast<unsigned int>(std::numeric_limits<int>::max()));
-        return static_cast<int>(mFaultTolerance) >=
-                   abs(static_cast<int>(node.getUConst() - value)) &&
-               static_cast<int>(node.getUConst() - value) != std::numeric_limits<int>::min();
-    }
-
-    bool isEqual(const TConstantUnion &node, const bool &value) const
-    {
-        return node.getBConst() == value;
-    }
-
-    std::vector<T> mConstantVector;
-    T mFaultTolerance;
-    bool mFound;
-};
-
-class ConstantFoldingTest : public testing::Test
-{
-  public:
-    ConstantFoldingTest() {}
-
-  protected:
-    virtual void SetUp()
-    {
-        allocator.push();
-        SetGlobalPoolAllocator(&allocator);
-        ShBuiltInResources resources;
-        ShInitBuiltInResources(&resources);
-
-        mTranslatorESSL = new TranslatorESSL(GL_FRAGMENT_SHADER, SH_GLES3_SPEC);
-        ASSERT_TRUE(mTranslatorESSL->Init(resources));
-    }
-
-    virtual void TearDown()
-    {
-        delete mTranslatorESSL;
-        SetGlobalPoolAllocator(NULL);
-        allocator.pop();
-    }
-
-    void compile(const std::string& shaderString)
-    {
-        const char *shaderStrings[] = { shaderString.c_str() };
-
-        mASTRoot = mTranslatorESSL->compileTreeForTesting(shaderStrings, 1, SH_OBJECT_CODE);
-        if (!mASTRoot)
-        {
-            TInfoSink &infoSink = mTranslatorESSL->getInfoSink();
-            FAIL() << "Shader compilation into ESSL failed " << infoSink.info.c_str();
-        }
-    }
-
-    template <typename T>
-    bool constantFoundInAST(T constant)
-    {
-        ConstantFinder<T> finder(constant);
-        mASTRoot->traverse(&finder);
-        return finder.found();
-    }
-
-    template <typename T>
-    bool constantVectorFoundInAST(const std::vector<T> &constantVector)
-    {
-        ConstantFinder<T> finder(constantVector);
-        mASTRoot->traverse(&finder);
-        return finder.found();
-    }
-
-    template <typename T>
-    bool constantColumnMajorMatrixFoundInAST(const std::vector<T> &constantMatrix)
-    {
-        return constantVectorFoundInAST(constantMatrix);
-    }
-
-    template <typename T>
-    bool constantVectorNearFoundInAST(const std::vector<T> &constantVector, const T &faultTolerance)
-    {
-        ConstantFinder<T> finder(constantVector, faultTolerance);
-        mASTRoot->traverse(&finder);
-        return finder.found();
-    }
-
-  private:
-    TranslatorESSL *mTranslatorESSL;
-    TIntermNode *mASTRoot;
-
-    TPoolAllocator allocator;
-};
+    const std::string &floatString = "1.0";
+    evaluateFloat(floatString);
+    ASSERT_FALSE(constantFoundInAST(0.0f));
+    ASSERT_FALSE(constantFoundInAST(true));
+    ASSERT_FALSE(constantFoundInAST(false));
+}
 
 TEST_F(ConstantFoldingTest, FoldIntegerAdd)
 {
@@ -179,7 +32,7 @@ TEST_F(ConstantFoldingTest, FoldIntegerAdd)
         "   const int i = 1124 + 5;\n"
         "   my_Int = i;\n"
         "}\n";
-    compile(shaderString);
+    compileAssumeSuccess(shaderString);
     ASSERT_FALSE(constantFoundInAST(1124));
     ASSERT_FALSE(constantFoundInAST(5));
     ASSERT_TRUE(constantFoundInAST(1129));
@@ -195,7 +48,7 @@ TEST_F(ConstantFoldingTest, FoldIntegerSub)
         "   const int i = 1124 - 5;\n"
         "   my_Int = i;\n"
         "}\n";
-    compile(shaderString);
+    compileAssumeSuccess(shaderString);
     ASSERT_FALSE(constantFoundInAST(1124));
     ASSERT_FALSE(constantFoundInAST(5));
     ASSERT_TRUE(constantFoundInAST(1119));
@@ -211,7 +64,7 @@ TEST_F(ConstantFoldingTest, FoldIntegerMul)
         "   const int i = 1124 * 5;\n"
         "   my_Int = i;\n"
         "}\n";
-    compile(shaderString);
+    compileAssumeSuccess(shaderString);
     ASSERT_FALSE(constantFoundInAST(1124));
     ASSERT_FALSE(constantFoundInAST(5));
     ASSERT_TRUE(constantFoundInAST(5620));
@@ -227,7 +80,7 @@ TEST_F(ConstantFoldingTest, FoldIntegerDiv)
         "   const int i = 1124 / 5;\n"
         "   my_Int = i;\n"
         "}\n";
-    compile(shaderString);
+    compileAssumeSuccess(shaderString);
     ASSERT_FALSE(constantFoundInAST(1124));
     ASSERT_FALSE(constantFoundInAST(5));
     // Rounding mode of division is undefined in the spec but ANGLE can be expected to round down.
@@ -244,7 +97,7 @@ TEST_F(ConstantFoldingTest, FoldIntegerModulus)
         "   const int i = 1124 % 5;\n"
         "   my_Int = i;\n"
         "}\n";
-    compile(shaderString);
+    compileAssumeSuccess(shaderString);
     ASSERT_FALSE(constantFoundInAST(1124));
     ASSERT_FALSE(constantFoundInAST(5));
     ASSERT_TRUE(constantFoundInAST(4));
@@ -260,7 +113,7 @@ TEST_F(ConstantFoldingTest, FoldVectorCrossProduct)
         "   const vec3 v3 = cross(vec3(1.0f, 1.0f, 1.0f), vec3(1.0f, -1.0f, 1.0f));\n"
         "   my_Vec3 = v3;\n"
         "}\n";
-    compile(shaderString);
+    compileAssumeSuccess(shaderString);
     std::vector<float> input1(3, 1.0f);
     ASSERT_FALSE(constantVectorFoundInAST(input1));
     std::vector<float> input2;
@@ -292,7 +145,7 @@ TEST_F(ConstantFoldingTest, Fold2x2MatrixInverse)
         "   mat2 m = m2 * mat2(i);\n"
         "   my_Vec = m[0];\n"
         "}\n";
-    compile(shaderString);
+    compileAssumeSuccess(shaderString);
     float inputElements[] =
     {
         2.0f, 3.0f,
@@ -324,7 +177,7 @@ TEST_F(ConstantFoldingTest, Fold3x3MatrixInverse)
         "   mat3 m = m3 * mat3(i);\n"
         "   my_Vec = m3[0];\n"
         "}\n";
-    compile(shaderString);
+    compileAssumeSuccess(shaderString);
     float inputElements[] =
     {
         11.0f, 13.0f, 19.0f,
@@ -360,7 +213,7 @@ TEST_F(ConstantFoldingTest, Fold4x4MatrixInverse)
         "   mat4 m = m4 * mat4(i);\n"
         "   my_Vec = m[0];\n"
         "}\n";
-    compile(shaderString);
+    compileAssumeSuccess(shaderString);
     float inputElements[] =
     {
         29.0f, 31.0f, 37.0f, 41.0f,
@@ -397,7 +250,7 @@ TEST_F(ConstantFoldingTest, Fold2x2MatrixDeterminant)
         "                                    5.0f, 7.0f));\n"
         "   my_Float = f;\n"
         "}\n";
-    compile(shaderString);
+    compileAssumeSuccess(shaderString);
     float inputElements[] =
     {
         2.0f, 3.0f,
@@ -421,7 +274,7 @@ TEST_F(ConstantFoldingTest, Fold3x3MatrixDeterminant)
         "                                    37.0f, 41.0f, 43.0f));\n"
         "   my_Float = f;\n"
         "}\n";
-    compile(shaderString);
+    compileAssumeSuccess(shaderString);
     float inputElements[] =
     {
         11.0f, 13.0f, 19.0f,
@@ -447,7 +300,7 @@ TEST_F(ConstantFoldingTest, Fold4x4MatrixDeterminant)
         "                                    79.0f, 83.0f, 89.0f, 97.0f));\n"
         "   my_Float = f;\n"
         "}\n";
-    compile(shaderString);
+    compileAssumeSuccess(shaderString);
     float inputElements[] =
     {
         29.0f, 31.0f, 37.0f, 41.0f,
@@ -476,7 +329,7 @@ TEST_F(ConstantFoldingTest, Fold3x3MatrixTranspose)
         "   mat3 m = m3 * mat3(i);\n"
         "   my_Vec = m[0];\n"
         "}\n";
-    compile(shaderString);
+    compileAssumeSuccess(shaderString);
     float inputElements[] =
     {
         11.0f, 13.0f, 19.0f,
@@ -510,7 +363,7 @@ TEST_F(ConstantFoldingTest, ParseWrappedHexIntLiteral)
         "   const int i = 0xFFFFFFFF;\n"
         "   my_Vec = vec4(i * inInt);\n"
         "}\n";
-    compile(shaderString);
+    compileAssumeSuccess(shaderString);
     ASSERT_TRUE(constantFoundInAST(-1));
 }
 
@@ -529,7 +382,7 @@ TEST_F(ConstantFoldingTest, ParseWrappedDecimalIntLiteral)
         "   const int i = 3000000000;\n"
         "   my_Vec = vec4(i * inInt);\n"
         "}\n";
-    compile(shaderString);
+    compileAssumeSuccess(shaderString);
     ASSERT_TRUE(constantFoundInAST(-1294967296));
 }
 
@@ -548,7 +401,7 @@ TEST_F(ConstantFoldingTest, ParseMaxUintLiteral)
         "   const uint i = 0xFFFFFFFFu;\n"
         "   my_Vec = vec4(i * inInt);\n"
         "}\n";
-    compile(shaderString);
+    compileAssumeSuccess(shaderString);
     ASSERT_TRUE(constantFoundInAST(0xFFFFFFFFu));
 }
 
@@ -567,7 +420,7 @@ TEST_F(ConstantFoldingTest, FoldUnaryMinusOnUintLiteral)
         "   const uint i = -1u;\n"
         "   my_Vec = vec4(i * inInt);\n"
         "}\n";
-    compile(shaderString);
+    compileAssumeSuccess(shaderString);
     ASSERT_TRUE(constantFoundInAST(0xFFFFFFFFu));
 }
 
@@ -582,7 +435,7 @@ TEST_F(ConstantFoldingTest, FoldMat2ConstructorTakingMat2)
         "   mat2 m = cm * mult;\n"
         "   gl_FragColor = vec4(m[0], m[1]);\n"
         "}\n";
-    compile(shaderString);
+    compileAssumeSuccess(shaderString);
     float outputElements[] =
     {
         0.0f, 1.0f,
@@ -603,7 +456,7 @@ TEST_F(ConstantFoldingTest, FoldMat2ConstructorTakingScalar)
         "   mat2 m = cm * mult;\n"
         "   gl_FragColor = vec4(m[0], m[1]);\n"
         "}\n";
-    compile(shaderString);
+    compileAssumeSuccess(shaderString);
     float outputElements[] =
     {
         3.0f, 0.0f,
@@ -624,7 +477,7 @@ TEST_F(ConstantFoldingTest, FoldMat2ConstructorTakingMix)
         "   mat2 m = cm * mult;\n"
         "   gl_FragColor = vec4(m[0], m[1]);\n"
         "}\n";
-    compile(shaderString);
+    compileAssumeSuccess(shaderString);
     float outputElements[] =
     {
         -1.0, 0.0f,
@@ -645,7 +498,7 @@ TEST_F(ConstantFoldingTest, FoldMat2ConstructorTakingMat3)
         "   mat2 m = cm * mult;\n"
         "   gl_FragColor = vec4(m[0], m[1]);\n"
         "}\n";
-    compile(shaderString);
+    compileAssumeSuccess(shaderString);
     float outputElements[] =
     {
         0.0f, 1.0f,
@@ -670,7 +523,7 @@ TEST_F(ConstantFoldingTest, FoldMat4x3ConstructorTakingMat3x2)
         "   mat4x3 m = cm * mult;\n"
         "   my_FragColor = vec4(m[0], m[1][0]);\n"
         "}\n";
-    compile(shaderString);
+    compileAssumeSuccess(shaderString);
     float outputElements[] =
     {
         1.0f, 2.0f, 0.0f,
@@ -694,7 +547,7 @@ TEST_F(ConstantFoldingTest, FoldMat2ConstructorTakingVec4)
         "   mat2 m = cm * mult;\n"
         "   gl_FragColor = vec4(m[0], m[1]);\n"
         "}\n";
-    compile(shaderString);
+    compileAssumeSuccess(shaderString);
     float outputElements[] =
     {
         0.0f, 1.0f,
@@ -723,7 +576,7 @@ TEST_F(ConstantFoldingTest, FoldNestedDifferentStructEqualityComparison)
         "    const S s2 = S(nested(0.0), 3.0);\n"
         "    gl_FragColor = (s1 == s2 ? 1.0 : 0.5) * mult;\n"
         "}\n";
-    compile(shaderString);
+    compileAssumeSuccess(shaderString);
     ASSERT_TRUE(constantFoundInAST(0.5f));
 }
 
@@ -747,7 +600,7 @@ TEST_F(ConstantFoldingTest, FoldNestedIdenticalStructEqualityComparison)
         "    const S s2 = S(nested(0.0), 2.0, 3);\n"
         "    gl_FragColor = (s1 == s2 ? 1.0 : 0.5) * mult;\n"
         "}\n";
-    compile(shaderString);
+    compileAssumeSuccess(shaderString);
     ASSERT_TRUE(constantFoundInAST(1.0f));
 }
 
@@ -762,7 +615,7 @@ TEST_F(ConstantFoldingTest, FoldNonSquareMatrixIndexing)
         "{\n"
         "    my_FragColor = mat3x4(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)[1];\n"
         "}\n";
-    compile(shaderString);
+    compileAssumeSuccess(shaderString);
     float outputElements[] = {4.0f, 5.0f, 6.0f, 7.0f};
     std::vector<float> result(outputElements, outputElements + 4);
     ASSERT_TRUE(constantVectorFoundInAST(result));
@@ -780,7 +633,7 @@ TEST_F(ConstantFoldingTest, FoldNonSquareOuterProduct)
         "    mat3x2 prod = outerProduct(vec2(2.0, 3.0), vec3(5.0, 7.0, 11.0));\n"
         "    my_FragColor = vec4(prod[0].x);\n"
         "}\n";
-    compile(shaderString);
+    compileAssumeSuccess(shaderString);
     // clang-format off
     float outputElements[] =
     {
@@ -805,7 +658,7 @@ TEST_F(ConstantFoldingTest, FoldBitShiftLeftDifferentSignedness)
         "    uint u = 0xffffffffu << 31;\n"
         "    my_FragColor = vec4(u);\n"
         "}\n";
-    compile(shaderString);
+    compileAssumeSuccess(shaderString);
     ASSERT_TRUE(constantFoundInAST(0x80000000u));
 }
 
@@ -821,8 +674,47 @@ TEST_F(ConstantFoldingTest, FoldBitShiftRightDifferentSignedness)
         "    uint u = 0xffffffffu >> 30;\n"
         "    my_FragColor = vec4(u);\n"
         "}\n";
-    compile(shaderString);
+    compileAssumeSuccess(shaderString);
     ASSERT_TRUE(constantFoundInAST(0x3u));
+}
+
+// Test that folding signed bit shift right extends the sign bit.
+// ESSL 3.00.6 section 5.9 Expressions.
+TEST_F(ConstantFoldingTest, FoldBitShiftRightExtendSignBit)
+{
+    const std::string &shaderString =
+        "#version 300 es\n"
+        "precision mediump float;\n"
+        "out vec4 my_FragColor;\n"
+        "void main()\n"
+        "{\n"
+        "    const int i = 0x8fffe000 >> 6;\n"
+        "    uint u = uint(i);"
+        "    my_FragColor = vec4(u);\n"
+        "}\n";
+    compileAssumeSuccess(shaderString);
+    // The bits of the operand are 0x8fffe000 = 1000 1111 1111 1111 1110 0000 0000 0000
+    // After shifting, they become              1111 1110 0011 1111 1111 1111 1000 0000 = 0xfe3fff80
+    ASSERT_TRUE(constantFoundInAST(0xfe3fff80u));
+}
+
+// Signed bit shift left should interpret its operand as a bit pattern. As a consequence a number
+// may turn from positive to negative when shifted left.
+// ESSL 3.00.6 section 5.9 Expressions.
+TEST_F(ConstantFoldingTest, FoldBitShiftLeftInterpretedAsBitPattern)
+{
+    const std::string &shaderString =
+        "#version 300 es\n"
+        "precision mediump float;\n"
+        "out vec4 my_FragColor;\n"
+        "void main()\n"
+        "{\n"
+        "    const int i = 0x1fffffff << 3;\n"
+        "    uint u = uint(i);"
+        "    my_FragColor = vec4(u);\n"
+        "}\n";
+    compileAssumeSuccess(shaderString);
+    ASSERT_TRUE(constantFoundInAST(0xfffffff8u));
 }
 
 // Test that dividing the minimum signed integer by -1 works.
@@ -840,7 +732,7 @@ TEST_F(ConstantFoldingTest, FoldDivideMinimumIntegerByMinusOne)
         "    int i = 0x80000000 / (-1);\n"
         "    my_FragColor = vec4(i);\n"
         "}\n";
-    compile(shaderString);
+    compileAssumeSuccess(shaderString);
     ASSERT_TRUE(constantFoundInAST(0x7fffffff) || constantFoundInAST(-0x7fffffff - 1));
 }
 
@@ -860,7 +752,7 @@ TEST_F(ConstantFoldingTest, FoldUnsignedIntegerAddOverflow)
         "    uint u = 0xffffffffu + 43u;\n"
         "    my_FragColor = vec4(u);\n"
         "}\n";
-    compile(shaderString);
+    compileAssumeSuccess(shaderString);
     ASSERT_TRUE(constantFoundInAST(42u));
 }
 
@@ -880,7 +772,7 @@ TEST_F(ConstantFoldingTest, FoldSignedIntegerAddOverflow)
         "    int i = 0x7fffffff + 4;\n"
         "    my_FragColor = vec4(i);\n"
         "}\n";
-    compile(shaderString);
+    compileAssumeSuccess(shaderString);
     ASSERT_TRUE(constantFoundInAST(-0x7ffffffd));
 }
 
@@ -900,7 +792,7 @@ TEST_F(ConstantFoldingTest, FoldUnsignedIntegerDiffOverflow)
         "    uint u = 0u - 5u;\n"
         "    my_FragColor = vec4(u);\n"
         "}\n";
-    compile(shaderString);
+    compileAssumeSuccess(shaderString);
     ASSERT_TRUE(constantFoundInAST(0xfffffffbu));
 }
 
@@ -920,7 +812,7 @@ TEST_F(ConstantFoldingTest, FoldSignedIntegerDiffOverflow)
         "    int i = -0x7fffffff - 7;\n"
         "    my_FragColor = vec4(i);\n"
         "}\n";
-    compile(shaderString);
+    compileAssumeSuccess(shaderString);
     ASSERT_TRUE(constantFoundInAST(0x7ffffffa));
 }
 
@@ -940,7 +832,7 @@ TEST_F(ConstantFoldingTest, FoldUnsignedIntegerMultiplyOverflow)
         "    uint u = 0xffffffffu * 10u;\n"
         "    my_FragColor = vec4(u);\n"
         "}\n";
-    compile(shaderString);
+    compileAssumeSuccess(shaderString);
     ASSERT_TRUE(constantFoundInAST(0xfffffff6u));
 }
 
@@ -960,7 +852,7 @@ TEST_F(ConstantFoldingTest, FoldSignedIntegerMultiplyOverflow)
         "    int i = 0x7fffffff * 42;\n"
         "    my_FragColor = vec4(i);\n"
         "}\n";
-    compile(shaderString);
+    compileAssumeSuccess(shaderString);
     ASSERT_TRUE(constantFoundInAST(-42));
 }
 
@@ -981,7 +873,374 @@ TEST_F(ConstantFoldingTest, FoldMinimumSignedIntegerNegation)
         "    int i = -0x80000000;\n"
         "    my_FragColor = vec4(i);\n"
         "}\n";
-    compile(shaderString);
+    compileAssumeSuccess(shaderString);
     // Negating the minimum signed integer overflows the positive range, so it wraps back to itself.
     ASSERT_TRUE(constantFoundInAST(-0x7fffffff - 1));
+}
+
+// Test that folding of shifting the minimum representable integer works.
+TEST_F(ConstantFoldingTest, FoldMinimumSignedIntegerRightShift)
+{
+    const std::string &shaderString =
+        "#version 300 es\n"
+        "precision mediump float;\n"
+        "out vec4 my_FragColor;\n"
+        "void main()\n"
+        "{\n"
+        "    int i = (0x80000000 >> 1);\n"
+        "    int j = (0x80000000 >> 7);\n"
+        "    my_FragColor = vec4(i, j, i, j);\n"
+        "}\n";
+    compileAssumeSuccess(shaderString);
+    ASSERT_TRUE(constantFoundInAST(-0x40000000));
+    ASSERT_TRUE(constantFoundInAST(-0x01000000));
+}
+
+// Test that folding of shifting by 0 works.
+TEST_F(ConstantFoldingTest, FoldShiftByZero)
+{
+    const std::string &shaderString =
+        "#version 300 es\n"
+        "precision mediump float;\n"
+        "out vec4 my_FragColor;\n"
+        "void main()\n"
+        "{\n"
+        "    int i = (3 >> 0);\n"
+        "    int j = (73 << 0);\n"
+        "    my_FragColor = vec4(i, j, i, j);\n"
+        "}\n";
+    compileAssumeSuccess(shaderString);
+    ASSERT_TRUE(constantFoundInAST(3));
+    ASSERT_TRUE(constantFoundInAST(73));
+}
+
+// Test that folding IsInf results in true when the parameter is an out-of-range float literal.
+// ESSL 3.00.6 section 4.1.4 Floats:
+// "If the value of the floating point number is too large (small) to be stored as a single
+// precision value, it is converted to positive (negative) infinity."
+// ESSL 3.00.6 section 12.4:
+// "Mandate support for signed infinities."
+TEST_F(ConstantFoldingTest, FoldIsInfOutOfRangeFloatLiteral)
+{
+    const std::string &shaderString =
+        "#version 300 es\n"
+        "precision mediump float;\n"
+        "out vec4 my_FragColor;\n"
+        "void main()\n"
+        "{\n"
+        "    bool b = isinf(1.0e2048);\n"
+        "    my_FragColor = vec4(b);\n"
+        "}\n";
+    compileAssumeSuccess(shaderString);
+    ASSERT_TRUE(constantFoundInAST(true));
+}
+
+// Test that floats that are too small to be represented get flushed to zero.
+// ESSL 3.00.6 section 4.1.4 Floats:
+// "A value with a magnitude too small to be represented as a mantissa and exponent is converted to
+// zero."
+TEST_F(ConstantFoldingExpressionTest, FoldTooSmallFloat)
+{
+    const std::string &floatString = "1.0e-2048";
+    evaluateFloat(floatString);
+    ASSERT_TRUE(constantFoundInAST(0.0f));
+}
+
+// IEEE 754 dictates that behavior of infinity is derived from limiting cases of real arithmetic.
+// lim radians(x) x -> inf = inf
+// ESSL 3.00.6 section 4.5.1: "Infinities and zeroes are generated as dictated by IEEE".
+TEST_F(ConstantFoldingExpressionTest, FoldRadiansInfinity)
+{
+    const std::string &floatString = "radians(1.0e2048)";
+    evaluateFloat(floatString);
+    ASSERT_TRUE(constantFoundInAST(std::numeric_limits<float>::infinity()));
+}
+
+// IEEE 754 dictates that behavior of infinity is derived from limiting cases of real arithmetic.
+// lim degrees(x) x -> inf = inf
+// ESSL 3.00.6 section 4.5.1: "Infinities and zeroes are generated as dictated by IEEE".
+TEST_F(ConstantFoldingExpressionTest, FoldDegreesInfinity)
+{
+    const std::string &floatString = "degrees(1.0e2048)";
+    evaluateFloat(floatString);
+    ASSERT_TRUE(constantFoundInAST(std::numeric_limits<float>::infinity()));
+}
+
+// IEEE 754 dictates that sinh(inf) = inf.
+// ESSL 3.00.6 section 4.5.1: "Infinities and zeroes are generated as dictated by IEEE".
+TEST_F(ConstantFoldingExpressionTest, FoldSinhInfinity)
+{
+    const std::string &floatString = "sinh(1.0e2048)";
+    evaluateFloat(floatString);
+    ASSERT_TRUE(constantFoundInAST(std::numeric_limits<float>::infinity()));
+}
+
+// IEEE 754 dictates that sinh(-inf) = -inf.
+// ESSL 3.00.6 section 4.5.1: "Infinities and zeroes are generated as dictated by IEEE".
+TEST_F(ConstantFoldingExpressionTest, FoldSinhNegativeInfinity)
+{
+    const std::string &floatString = "sinh(-1.0e2048)";
+    evaluateFloat(floatString);
+    ASSERT_TRUE(constantFoundInAST(-std::numeric_limits<float>::infinity()));
+}
+
+// IEEE 754 dictates that cosh(inf) = inf.
+// ESSL 3.00.6 section 4.5.1: "Infinities and zeroes are generated as dictated by IEEE".
+TEST_F(ConstantFoldingExpressionTest, FoldCoshInfinity)
+{
+    const std::string &floatString = "cosh(1.0e2048)";
+    evaluateFloat(floatString);
+    ASSERT_TRUE(constantFoundInAST(std::numeric_limits<float>::infinity()));
+}
+
+// IEEE 754 dictates that cosh(-inf) = inf.
+// ESSL 3.00.6 section 4.5.1: "Infinities and zeroes are generated as dictated by IEEE".
+TEST_F(ConstantFoldingExpressionTest, FoldCoshNegativeInfinity)
+{
+    const std::string &floatString = "cosh(-1.0e2048)";
+    evaluateFloat(floatString);
+    ASSERT_TRUE(constantFoundInAST(std::numeric_limits<float>::infinity()));
+}
+
+// IEEE 754 dictates that asinh(inf) = inf.
+// ESSL 3.00.6 section 4.5.1: "Infinities and zeroes are generated as dictated by IEEE".
+TEST_F(ConstantFoldingExpressionTest, FoldAsinhInfinity)
+{
+    const std::string &floatString = "asinh(1.0e2048)";
+    evaluateFloat(floatString);
+    ASSERT_TRUE(constantFoundInAST(std::numeric_limits<float>::infinity()));
+}
+
+// IEEE 754 dictates that asinh(-inf) = -inf.
+// ESSL 3.00.6 section 4.5.1: "Infinities and zeroes are generated as dictated by IEEE".
+TEST_F(ConstantFoldingExpressionTest, FoldAsinhNegativeInfinity)
+{
+    const std::string &floatString = "asinh(-1.0e2048)";
+    evaluateFloat(floatString);
+    ASSERT_TRUE(constantFoundInAST(-std::numeric_limits<float>::infinity()));
+}
+
+// IEEE 754 dictates that acosh(inf) = inf.
+// ESSL 3.00.6 section 4.5.1: "Infinities and zeroes are generated as dictated by IEEE".
+TEST_F(ConstantFoldingExpressionTest, FoldAcoshInfinity)
+{
+    const std::string &floatString = "acosh(1.0e2048)";
+    evaluateFloat(floatString);
+    ASSERT_TRUE(constantFoundInAST(std::numeric_limits<float>::infinity()));
+}
+
+// IEEE 754 dictates that pow or powr(0, inf) = 0.
+// ESSL 3.00.6 section 4.5.1: "Infinities and zeroes are generated as dictated by IEEE".
+TEST_F(ConstantFoldingExpressionTest, FoldPowInfinity)
+{
+    const std::string &floatString = "pow(0.0, 1.0e2048)";
+    evaluateFloat(floatString);
+    ASSERT_TRUE(constantFoundInAST(0.0f));
+}
+
+// IEEE 754 dictates that exp(inf) = inf.
+// ESSL 3.00.6 section 4.5.1: "Infinities and zeroes are generated as dictated by IEEE".
+TEST_F(ConstantFoldingExpressionTest, FoldExpInfinity)
+{
+    const std::string &floatString = "exp(1.0e2048)";
+    evaluateFloat(floatString);
+    ASSERT_TRUE(constantFoundInAST(std::numeric_limits<float>::infinity()));
+}
+
+// IEEE 754 dictates that exp(-inf) = 0.
+// ESSL 3.00.6 section 4.5.1: "Infinities and zeroes are generated as dictated by IEEE".
+TEST_F(ConstantFoldingExpressionTest, FoldExpNegativeInfinity)
+{
+    const std::string &floatString = "exp(-1.0e2048)";
+    evaluateFloat(floatString);
+    ASSERT_TRUE(constantFoundInAST(0.0f));
+}
+
+// IEEE 754 dictates that log(inf) = inf.
+// ESSL 3.00.6 section 4.5.1: "Infinities and zeroes are generated as dictated by IEEE".
+TEST_F(ConstantFoldingExpressionTest, FoldLogInfinity)
+{
+    const std::string &floatString = "log(1.0e2048)";
+    evaluateFloat(floatString);
+    ASSERT_TRUE(constantFoundInAST(std::numeric_limits<float>::infinity()));
+}
+
+// IEEE 754 dictates that exp2(inf) = inf.
+// ESSL 3.00.6 section 4.5.1: "Infinities and zeroes are generated as dictated by IEEE".
+TEST_F(ConstantFoldingExpressionTest, FoldExp2Infinity)
+{
+    const std::string &floatString = "exp2(1.0e2048)";
+    evaluateFloat(floatString);
+    ASSERT_TRUE(constantFoundInAST(std::numeric_limits<float>::infinity()));
+}
+
+// IEEE 754 dictates that exp2(-inf) = 0.
+// ESSL 3.00.6 section 4.5.1: "Infinities and zeroes are generated as dictated by IEEE".
+TEST_F(ConstantFoldingExpressionTest, FoldExp2NegativeInfinity)
+{
+    const std::string &floatString = "exp2(-1.0e2048)";
+    evaluateFloat(floatString);
+    ASSERT_TRUE(constantFoundInAST(0.0f));
+}
+
+// IEEE 754 dictates that log2(inf) = inf.
+// ESSL 3.00.6 section 4.5.1: "Infinities and zeroes are generated as dictated by IEEE".
+TEST_F(ConstantFoldingExpressionTest, FoldLog2Infinity)
+{
+    const std::string &floatString = "log2(1.0e2048)";
+    evaluateFloat(floatString);
+    ASSERT_TRUE(constantFoundInAST(std::numeric_limits<float>::infinity()));
+}
+
+// IEEE 754 dictates that behavior of infinity is derived from limiting cases of real arithmetic.
+// lim sqrt(x) x -> inf = inf
+// ESSL 3.00.6 section 4.5.1: "Infinities and zeroes are generated as dictated by IEEE".
+TEST_F(ConstantFoldingExpressionTest, FoldSqrtInfinity)
+{
+    const std::string &floatString = "sqrt(1.0e2048)";
+    evaluateFloat(floatString);
+    ASSERT_TRUE(constantFoundInAST(std::numeric_limits<float>::infinity()));
+}
+
+// IEEE 754 dictates that rSqrt(inf) = 0
+// ESSL 3.00.6 section 4.5.1: "Infinities and zeroes are generated as dictated by IEEE".
+TEST_F(ConstantFoldingExpressionTest, FoldInversesqrtInfinity)
+{
+    const std::string &floatString = "inversesqrt(1.0e2048)";
+    evaluateFloat(floatString);
+    ASSERT_TRUE(constantFoundInAST(0.0f));
+}
+
+// IEEE 754 dictates that behavior of infinity is derived from limiting cases of real arithmetic.
+// lim length(x) x -> inf = inf
+// ESSL 3.00.6 section 4.5.1: "Infinities and zeroes are generated as dictated by IEEE".
+TEST_F(ConstantFoldingExpressionTest, FoldLengthInfinity)
+{
+    const std::string &floatString = "length(1.0e2048)";
+    evaluateFloat(floatString);
+    ASSERT_TRUE(constantFoundInAST(std::numeric_limits<float>::infinity()));
+}
+
+// IEEE 754 dictates that behavior of infinity is derived from limiting cases of real arithmetic.
+// lim dot(x, y) x -> inf, y > 0 = inf
+// ESSL 3.00.6 section 4.5.1: "Infinities and zeroes are generated as dictated by IEEE".
+TEST_F(ConstantFoldingExpressionTest, FoldDotInfinity)
+{
+    const std::string &floatString = "dot(1.0e2048, 1.0)";
+    evaluateFloat(floatString);
+    ASSERT_TRUE(constantFoundInAST(std::numeric_limits<float>::infinity()));
+}
+
+// IEEE 754 dictates that behavior of infinity is derived from limiting cases of real arithmetic.
+// lim dot(vec2(x, y), vec2(z)) x -> inf, finite y, z > 0 = inf
+// ESSL 3.00.6 section 4.5.1: "Infinities and zeroes are generated as dictated by IEEE".
+TEST_F(ConstantFoldingExpressionTest, FoldDotInfinity2)
+{
+    const std::string &floatString = "dot(vec2(1.0e2048, -1.0), vec2(1.0))";
+    evaluateFloat(floatString);
+    ASSERT_TRUE(constantFoundInAST(std::numeric_limits<float>::infinity()));
+}
+
+// Faceforward behavior with infinity as a parameter can be derived from dot().
+// ESSL 3.00.6 section 4.5.1: "Infinities and zeroes are generated as dictated by IEEE".
+TEST_F(ConstantFoldingExpressionTest, FoldFaceForwardInfinity)
+{
+    const std::string &floatString = "faceforward(4.0, 1.0e2048, 1.0)";
+    evaluateFloat(floatString);
+    ASSERT_TRUE(constantFoundInAST(-4.0f));
+}
+
+// Faceforward behavior with infinity as a parameter can be derived from dot().
+// ESSL 3.00.6 section 4.5.1: "Infinities and zeroes are generated as dictated by IEEE".
+TEST_F(ConstantFoldingExpressionTest, FoldFaceForwardInfinity2)
+{
+    const std::string &floatString = "faceforward(vec2(4.0), vec2(1.0e2048, -1.0), vec2(1.0)).x";
+    evaluateFloat(floatString);
+    ASSERT_TRUE(constantFoundInAST(-4.0f));
+}
+
+// Test that infinity - finite value evaluates to infinity.
+// ESSL 3.00.6 section 4.5.1: "Infinities and zeroes are generated as dictated by IEEE".
+TEST_F(ConstantFoldingExpressionTest, FoldInfinityMinusFinite)
+{
+    const std::string &floatString = "1.0e2048 - 1.0e20";
+    evaluateFloat(floatString);
+    ASSERT_TRUE(constantFoundInAST(std::numeric_limits<float>::infinity()));
+}
+
+// Test that -infinity + finite value evaluates to -infinity.
+// ESSL 3.00.6 section 4.5.1: "Infinities and zeroes are generated as dictated by IEEE".
+TEST_F(ConstantFoldingExpressionTest, FoldMinusInfinityPlusFinite)
+{
+    const std::string &floatString = "(-1.0e2048) + 1.0e20";
+    evaluateFloat(floatString);
+    ASSERT_TRUE(constantFoundInAST(-std::numeric_limits<float>::infinity()));
+}
+
+// Test that infinity * finite value evaluates to infinity.
+// ESSL 3.00.6 section 4.5.1: "Infinities and zeroes are generated as dictated by IEEE".
+TEST_F(ConstantFoldingExpressionTest, FoldInfinityMultipliedByFinite)
+{
+    const std::string &floatString = "1.0e2048 * 1.0e-20";
+    evaluateFloat(floatString);
+    ASSERT_TRUE(constantFoundInAST(std::numeric_limits<float>::infinity()));
+}
+
+// Test that infinity * infinity evaluates to infinity.
+// ESSL 3.00.6 section 4.5.1: "Infinities and zeroes are generated as dictated by IEEE".
+TEST_F(ConstantFoldingExpressionTest, FoldInfinityMultipliedByInfinity)
+{
+    const std::string &floatString = "1.0e2048 * 1.0e2048";
+    evaluateFloat(floatString);
+    ASSERT_TRUE(constantFoundInAST(std::numeric_limits<float>::infinity()));
+}
+
+// Test that infinity * negative infinity evaluates to negative infinity.
+// ESSL 3.00.6 section 4.5.1: "Infinities and zeroes are generated as dictated by IEEE".
+TEST_F(ConstantFoldingExpressionTest, FoldInfinityMultipliedByNegativeInfinity)
+{
+    const std::string &floatString = "1.0e2048 * (-1.0e2048)";
+    evaluateFloat(floatString);
+    ASSERT_TRUE(constantFoundInAST(-std::numeric_limits<float>::infinity()));
+}
+
+// Test that dividing by minus zero results in the appropriately signed infinity.
+// ESSL 3.00.6 section 4.5.1: "Infinities and zeroes are generated as dictated by IEEE".
+// "If both positive and negative zeros are implemented, the correctly signed Inf will be
+// generated".
+TEST_F(ConstantFoldingExpressionTest, FoldDivideByNegativeZero)
+{
+    const std::string &floatString = "1.0 / (-0.0)";
+    evaluateFloat(floatString);
+    ASSERT_TRUE(constantFoundInAST(-std::numeric_limits<float>::infinity()));
+    ASSERT_TRUE(hasWarning());
+}
+
+// Test that infinity divided by zero evaluates to infinity.
+// ESSL 3.00.6 section 4.5.1: "Infinities and zeroes are generated as dictated by IEEE".
+TEST_F(ConstantFoldingExpressionTest, FoldInfinityDividedByZero)
+{
+    const std::string &floatString = "1.0e2048 / 0.0";
+    evaluateFloat(floatString);
+    ASSERT_TRUE(constantFoundInAST(std::numeric_limits<float>::infinity()));
+    ASSERT_TRUE(hasWarning());
+}
+
+// Test that negative infinity divided by zero evaluates to negative infinity.
+// ESSL 3.00.6 section 4.5.1: "Infinities and zeroes are generated as dictated by IEEE".
+TEST_F(ConstantFoldingExpressionTest, FoldMinusInfinityDividedByZero)
+{
+    const std::string &floatString = "(-1.0e2048) / 0.0";
+    evaluateFloat(floatString);
+    ASSERT_TRUE(constantFoundInAST(-std::numeric_limits<float>::infinity()));
+    ASSERT_TRUE(hasWarning());
+}
+
+// Test that dividing a finite number by infinity results in zero.
+// ESSL 3.00.6 section 4.5.1: "Infinities and zeroes are generated as dictated by IEEE".
+TEST_F(ConstantFoldingExpressionTest, FoldDivideByInfinity)
+{
+    const std::string &floatString = "1.0e30 / 1.0e2048";
+    evaluateFloat(floatString);
+    ASSERT_TRUE(constantFoundInAST(0.0f));
 }

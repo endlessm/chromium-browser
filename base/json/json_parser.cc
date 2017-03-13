@@ -24,7 +24,9 @@ namespace internal {
 
 namespace {
 
-const int kStackMaxDepth = 100;
+// Chosen to support 99.9% of documents found in the wild late 2016.
+// http://crbug.com/673263
+const int kStackMaxDepth = 200;
 
 const int32_t kExtendedASCIIStart = 0x80;
 
@@ -39,7 +41,7 @@ class DictionaryHiddenRootValue : public DictionaryValue {
   DictionaryHiddenRootValue(std::unique_ptr<std::string> json,
                             std::unique_ptr<Value> root)
       : json_(std::move(json)) {
-    DCHECK(root->IsType(Value::TYPE_DICTIONARY));
+    DCHECK(root->IsType(Value::Type::DICTIONARY));
     DictionaryValue::Swap(static_cast<DictionaryValue*>(root.get()));
   }
 
@@ -91,7 +93,7 @@ class ListHiddenRootValue : public ListValue {
   ListHiddenRootValue(std::unique_ptr<std::string> json,
                       std::unique_ptr<Value> root)
       : json_(std::move(json)) {
-    DCHECK(root->IsType(Value::TYPE_LIST));
+    DCHECK(root->IsType(Value::Type::LIST));
     ListValue::Swap(static_cast<ListValue*>(root.get()));
   }
 
@@ -140,7 +142,7 @@ class ListHiddenRootValue : public ListValue {
 class JSONStringValue : public Value {
  public:
   explicit JSONStringValue(StringPiece piece)
-      : Value(TYPE_STRING), string_piece_(piece) {}
+      : Value(Type::STRING), string_piece_(piece) {}
 
   // Overridden from Value:
   bool GetAsString(std::string* out_value) const override {
@@ -151,11 +153,15 @@ class JSONStringValue : public Value {
     *out_value = UTF8ToUTF16(string_piece_);
     return true;
   }
+  bool GetAsString(StringPiece* out_value) const override {
+    *out_value = string_piece_;
+    return true;
+  }
   Value* DeepCopy() const override { return new StringValue(string_piece_); }
   bool Equals(const Value* other) const override {
     std::string other_string;
-    return other->IsType(TYPE_STRING) && other->GetAsString(&other_string) &&
-        StringPiece(other_string) == string_piece_;
+    return other->IsType(Type::STRING) && other->GetAsString(&other_string) &&
+           StringPiece(other_string) == string_piece_;
   }
 
  private:
@@ -187,6 +193,9 @@ class StackMarker {
 };
 
 }  // namespace
+
+// This is U+FFFD.
+const char kUnicodeReplacementString[] = "\xEF\xBF\xBD";
 
 JSONParser::JSONParser(int options)
     : options_(options),
@@ -252,15 +261,15 @@ std::unique_ptr<Value> JSONParser::Parse(StringPiece input) {
   // Dictionaries and lists can contain JSONStringValues, so wrap them in a
   // hidden root.
   if (!(options_ & JSON_DETACHABLE_CHILDREN)) {
-    if (root->IsType(Value::TYPE_DICTIONARY)) {
+    if (root->IsType(Value::Type::DICTIONARY)) {
       return MakeUnique<DictionaryHiddenRootValue>(std::move(input_copy),
                                                    std::move(root));
     }
-    if (root->IsType(Value::TYPE_LIST)) {
+    if (root->IsType(Value::Type::LIST)) {
       return MakeUnique<ListHiddenRootValue>(std::move(input_copy),
                                              std::move(root));
     }
-    if (root->IsType(Value::TYPE_STRING)) {
+    if (root->IsType(Value::Type::STRING)) {
       // A string type could be a JSONStringValue, but because there's no
       // corresponding HiddenRootValue, the memory will be lost. Deep copy to
       // preserve it.
@@ -626,11 +635,18 @@ bool JSONParser::ConsumeStringRaw(StringBuilder* out) {
   int32_t next_char = 0;
 
   while (CanConsume(1)) {
+    int start_index = index_;
     pos_ = start_pos_ + index_;  // CBU8_NEXT is postcrement.
     CBU8_NEXT(start_pos_, index_, length, next_char);
     if (next_char < 0 || !IsValidCharacter(next_char)) {
-      ReportError(JSONReader::JSON_UNSUPPORTED_ENCODING, 1);
-      return false;
+      if ((options_ & JSON_REPLACE_INVALID_CHARACTERS) == 0) {
+        ReportError(JSONReader::JSON_UNSUPPORTED_ENCODING, 1);
+        return false;
+      }
+      CBU8_NEXT(start_pos_, start_index, length, next_char);
+      string.Convert();
+      string.AppendString(kUnicodeReplacementString);
+      continue;
     }
 
     if (next_char == '"') {

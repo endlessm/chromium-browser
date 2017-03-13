@@ -196,6 +196,8 @@ void VolumeToVolumeMetadata(
       break;
     case SOURCE_DEVICE:
       volume_metadata->source = file_manager_private::SOURCE_DEVICE;
+      volume_metadata->is_read_only_removable_device = volume
+          .is_read_only_removable_device();
       break;
     case SOURCE_NETWORK:
       volume_metadata->source =
@@ -239,6 +241,10 @@ void VolumeToVolumeMetadata(
       break;
     case VOLUME_TYPE_MTP:
       volume_metadata->volume_type = file_manager_private::VOLUME_TYPE_MTP;
+      break;
+    case VOLUME_TYPE_MEDIA_VIEW:
+      volume_metadata->volume_type =
+          file_manager_private::VOLUME_TYPE_MEDIA_VIEW;
       break;
     case VOLUME_TYPE_TESTING:
       volume_metadata->volume_type =

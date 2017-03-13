@@ -5,7 +5,7 @@
 #ifndef PerformanceObserver_h
 #define PerformanceObserver_h
 
-#include "bindings/core/v8/ScriptWrappable.h"
+#include "bindings/core/v8/TraceWrapperMember.h"
 #include "core/CoreExport.h"
 #include "core/timing/PerformanceEntry.h"
 #include "platform/heap/Handle.h"
@@ -13,12 +13,12 @@
 
 namespace blink {
 
+class ExecutionContext;
 class ExceptionState;
 class PerformanceBase;
 class PerformanceObserver;
 class PerformanceObserverCallback;
 class PerformanceObserverInit;
-class ScriptState;
 
 using PerformanceEntryVector = HeapVector<Member<PerformanceEntry>>;
 
@@ -31,7 +31,7 @@ class CORE_EXPORT PerformanceObserver final
   friend class PerformanceObserverTest;
 
  public:
-  static PerformanceObserver* create(ScriptState*,
+  static PerformanceObserver* create(ExecutionContext*,
                                      PerformanceBase*,
                                      PerformanceObserverCallback*);
   static void resumeSuspendedObservers();
@@ -42,16 +42,17 @@ class CORE_EXPORT PerformanceObserver final
   PerformanceEntryTypeMask filterOptions() const { return m_filterOptions; }
 
   DECLARE_TRACE();
+  DECLARE_TRACE_WRAPPERS();
 
  private:
-  PerformanceObserver(ScriptState*,
+  PerformanceObserver(ExecutionContext*,
                       PerformanceBase*,
                       PerformanceObserverCallback*);
   void deliver();
   bool shouldBeSuspended() const;
 
-  RefPtr<ScriptState> m_scriptState;
-  Member<PerformanceObserverCallback> m_callback;
+  Member<ExecutionContext> m_executionContext;
+  TraceWrapperMember<PerformanceObserverCallback> m_callback;
   WeakMember<PerformanceBase> m_performance;
   PerformanceEntryVector m_performanceEntries;
   PerformanceEntryTypeMask m_filterOptions;

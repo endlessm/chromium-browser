@@ -19,6 +19,8 @@ namespace autofill {
 
 namespace {
 
+// Note: if adding an enum value here, update the corresponding description for
+// AutofillTypeQualityByFieldType in histograms.xml.
 enum FieldTypeGroupForMetrics {
   GROUP_AMBIGUOUS = 0,
   GROUP_NAME,
@@ -40,6 +42,7 @@ enum FieldTypeGroupForMetrics {
   GROUP_ADDRESS_LINE_3,
   GROUP_USERNAME,
   GROUP_STREET_ADDRESS,
+  GROUP_CREDIT_CARD_VERIFICATION,
   NUM_FIELD_TYPE_GROUPS_FOR_METRICS
 };
 
@@ -116,7 +119,7 @@ int GetFieldTypeGroupMetric(ServerFieldType field_type,
           group = GROUP_ADDRESS_COUNTRY;
           break;
         default:
-          NOTREACHED();
+          NOTREACHED() << field_type << " has no group assigned (ambiguous)";
           group = GROUP_AMBIGUOUS;
           break;
       }
@@ -151,8 +154,11 @@ int GetFieldTypeGroupMetric(ServerFieldType field_type,
         case CREDIT_CARD_EXP_DATE_4_DIGIT_YEAR:
           group = GROUP_CREDIT_CARD_DATE;
           break;
+        case CREDIT_CARD_VERIFICATION_CODE:
+          group = GROUP_CREDIT_CARD_VERIFICATION;
+          break;
         default:
-          NOTREACHED();
+          NOTREACHED() << field_type << " has no group assigned (ambiguous)";
           group = GROUP_AMBIGUOUS;
           break;
       }
@@ -258,10 +264,16 @@ void AutofillMetrics::LogCardUploadDecisionMetric(
 }
 
 // static
-void AutofillMetrics::LogCreditCardInfoBarMetric(InfoBarMetric metric) {
+void AutofillMetrics::LogCreditCardInfoBarMetric(InfoBarMetric metric,
+                                                 bool is_uploading) {
   DCHECK_LT(metric, NUM_INFO_BAR_METRICS);
-  UMA_HISTOGRAM_ENUMERATION("Autofill.CreditCardInfoBar", metric,
-                            NUM_INFO_BAR_METRICS);
+  if (is_uploading) {
+    UMA_HISTOGRAM_ENUMERATION("Autofill.CreditCardInfoBar.Server", metric,
+                              NUM_INFO_BAR_METRICS);
+  } else {
+    UMA_HISTOGRAM_ENUMERATION("Autofill.CreditCardInfoBar.Local", metric,
+                              NUM_INFO_BAR_METRICS);
+  }
 }
 
 // static
@@ -663,10 +675,17 @@ void AutofillMetrics::LogIsQueriedCreditCardFormSecure(bool is_secure) {
   UMA_HISTOGRAM_BOOLEAN("Autofill.QueriedCreditCardFormIsSecure", is_secure);
 }
 
+// static
+void AutofillMetrics::LogShowedHttpNotSecureExplanation() {
+  base::RecordAction(
+      base::UserMetricsAction("Autofill_ShowedHttpNotSecureExplanation"));
+}
+
 AutofillMetrics::FormEventLogger::FormEventLogger(bool is_for_credit_card)
     : is_for_credit_card_(is_for_credit_card),
       is_server_data_available_(false),
       is_local_data_available_(false),
+      is_context_secure_(false),
       has_logged_interacted_(false),
       has_logged_suggestions_shown_(false),
       has_logged_masked_server_card_suggestion_selected_(false),
@@ -674,8 +693,7 @@ AutofillMetrics::FormEventLogger::FormEventLogger(bool is_for_credit_card)
       has_logged_will_submit_(false),
       has_logged_submitted_(false),
       logged_suggestion_filled_was_server_data_(false),
-      logged_suggestion_filled_was_masked_server_card_(false) {
-}
+      logged_suggestion_filled_was_masked_server_card_(false) {}
 
 void AutofillMetrics::FormEventLogger::OnDidInteractWithAutofillableForm() {
   if (!has_logged_interacted_) {
@@ -802,6 +820,10 @@ void AutofillMetrics::FormEventLogger::OnWillSubmitForm() {
     Log(AutofillMetrics::FORM_EVENT_LOCAL_SUGGESTION_WILL_SUBMIT_ONCE);
   }
 
+  if (has_logged_suggestions_shown_) {
+    Log(AutofillMetrics::FORM_EVENT_SUGGESTION_SHOWN_WILL_SUBMIT_ONCE);
+  }
+
   base::RecordAction(base::UserMetricsAction("Autofill_OnWillSubmitForm"));
 }
 
@@ -825,6 +847,10 @@ void AutofillMetrics::FormEventLogger::OnFormSubmitted() {
   } else {
     Log(AutofillMetrics::FORM_EVENT_LOCAL_SUGGESTION_SUBMITTED_ONCE);
   }
+
+  if (has_logged_suggestions_shown_) {
+    Log(AutofillMetrics::FORM_EVENT_SUGGESTION_SHOWN_SUBMITTED_ONCE);
+  }
 }
 
 void AutofillMetrics::FormEventLogger::Log(FormEvent event) const {
@@ -835,6 +861,14 @@ void AutofillMetrics::FormEventLogger::Log(FormEvent event) const {
   else
     name += "Address";
   LogUMAHistogramEnumeration(name, event, NUM_FORM_EVENTS);
+
+  // Log again in a different histogram for credit card forms on nonsecure
+  // pages, so that form interactions on nonsecure pages can be analyzed on
+  // their own.
+  if (is_for_credit_card_ && !is_context_secure_) {
+    LogUMAHistogramEnumeration(name + ".OnNonsecurePage", event,
+                               NUM_FORM_EVENTS);
+  }
 
   // Logging again in a different histogram for segmentation purposes.
   // TODO(waltercacau): Re-evaluate if we still need such fine grained

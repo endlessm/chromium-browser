@@ -12,7 +12,6 @@
 #include "chrome/browser/net/net_error_diagnostics_dialog.h"
 #include "chrome/browser/platform_util.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/common/features.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/render_messages.h"
 #include "components/error_page/common/net_error_info.h"
@@ -26,14 +25,12 @@
 #include "net/base/net_errors.h"
 #include "url/gurl.h"
 
-#if BUILDFLAG(ANDROID_JAVA_UI)
-#include "chrome/browser/android/offline_pages/offline_page_model_factory.h"
-#include "chrome/browser/android/tab_android.h"
-#include "components/offline_pages/client_namespace_constants.h"
-#include "components/offline_pages/offline_page_feature.h"
-#include "components/offline_pages/offline_page_item.h"
-#include "components/offline_pages/offline_page_model.h"
-#endif  // BUILDFLAG(ANDROID_JAVA_UI)
+#if defined(OS_ANDROID)
+#include "base/guid.h"
+#include "chrome/browser/android/offline_pages/request_coordinator_factory.h"
+#include "components/offline_pages/core/background/request_coordinator.h"
+#include "components/offline_pages/core/client_namespace_constants.h"
+#endif  // defined(OS_ANDROID)
 
 using content::BrowserContext;
 using content::BrowserThread;
@@ -93,7 +90,7 @@ void NetErrorTabHelper::RenderFrameCreated(
   if (render_frame_host->GetParent())
     return;
 
-  mojom::NetworkDiagnosticsClientAssociatedPtr client;
+  chrome::mojom::NetworkDiagnosticsClientAssociatedPtr client;
   render_frame_host->GetRemoteAssociatedInterfaces()->GetInterface(&client);
   client->SetCanShowNetworkDiagnosticsDialog(CanShowNetworkDiagnosticsDialog());
 }
@@ -104,14 +101,11 @@ void NetErrorTabHelper::DidStartNavigation(
     return;
 
   if (navigation_handle->IsErrorPage() &&
-      navigation_handle->GetPageTransition() == ui::PAGE_TRANSITION_RELOAD) {
+      PageTransitionCoreTypeIs(navigation_handle->GetPageTransition(),
+                               ui::PAGE_TRANSITION_RELOAD)) {
     error_page::RecordEvent(
         error_page::NETWORK_ERROR_PAGE_BROWSER_INITIATED_RELOAD);
   }
-
-#if BUILDFLAG(ANDROID_JAVA_UI)
-  UpdateHasOfflinePages(navigation_handle->GetFrameTreeNodeId());
-#endif  // BUILDFLAG(ANDROID_JAVA_UI)
 }
 
 void NetErrorTabHelper::DidFinishNavigation(
@@ -136,6 +130,9 @@ void NetErrorTabHelper::DidFinishNavigation(
              !navigation_handle->IsErrorPage()) {
     dns_error_active_ = false;
     dns_error_page_committed_ = false;
+#if defined(OS_ANDROID)
+    is_showing_download_button_in_error_page_ = false;
+#endif  // defined(OS_ANDROID)
   }
 }
 
@@ -144,17 +141,20 @@ bool NetErrorTabHelper::OnMessageReceived(
     content::RenderFrameHost* render_frame_host) {
   if (render_frame_host != web_contents()->GetMainFrame())
     return false;
-#if BUILDFLAG(ANDROID_JAVA_UI)
+#if defined(OS_ANDROID)
   bool handled = true;
   IPC_BEGIN_MESSAGE_MAP(NetErrorTabHelper, message)
-    IPC_MESSAGE_HANDLER(ChromeViewHostMsg_ShowOfflinePages, ShowOfflinePages)
+    IPC_MESSAGE_HANDLER(ChromeViewHostMsg_DownloadPageLater,
+                        OnDownloadPageLater)
+    IPC_MESSAGE_HANDLER(ChromeViewHostMsg_SetIsShowingDownloadButtonInErrorPage,
+                        OnSetIsShowingDownloadButtonInErrorPage)
     IPC_MESSAGE_UNHANDLED(handled = false)
   IPC_END_MESSAGE_MAP()
 
   return handled;
 #else
   return false;
-#endif  // BUILDFLAG(ANDROID_JAVA_UI)
+#endif  // defined(OS_ANDROID)
 }
 
 NetErrorTabHelper::NetErrorTabHelper(WebContents* contents)
@@ -163,6 +163,9 @@ NetErrorTabHelper::NetErrorTabHelper(WebContents* contents)
       is_error_page_(false),
       dns_error_active_(false),
       dns_error_page_committed_(false),
+#if defined(OS_ANDROID)
+      is_showing_download_button_in_error_page_(false),
+#endif  // defined(OS_ANDROID)
       dns_probe_status_(error_page::DNS_PROBE_POSSIBLE),
       weak_factory_(this) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
@@ -213,6 +216,28 @@ void NetErrorTabHelper::OnDnsProbeFinished(DnsProbeStatus result) {
   if (dns_error_page_committed_)
     SendInfo();
 }
+
+#if defined(OS_ANDROID)
+void NetErrorTabHelper::OnDownloadPageLater() {
+  // Makes sure that this is coming from an error page.
+  content::NavigationEntry* entry =
+      web_contents()->GetController().GetLastCommittedEntry();
+  if (!entry || entry->GetPageType() != content::PAGE_TYPE_ERROR)
+    return;
+
+  // Only download the page for HTTP/HTTPS URLs.
+  GURL url(entry->GetVirtualURL());
+  if (!url.SchemeIsHTTPOrHTTPS())
+    return;
+
+  DownloadPageLaterHelper(url);
+}
+
+void NetErrorTabHelper::OnSetIsShowingDownloadButtonInErrorPage(
+    bool is_showing_download_button) {
+  is_showing_download_button_in_error_page_ = is_showing_download_button;
+}
+#endif  // defined(OS_ANDROID)
 
 void NetErrorTabHelper::InitializePref(WebContents* contents) {
   DCHECK(contents);
@@ -265,40 +290,19 @@ void NetErrorTabHelper::RunNetworkDiagnosticsHelper(
   ShowNetworkDiagnosticsDialog(web_contents(), sanitized_url);
 }
 
-#if BUILDFLAG(ANDROID_JAVA_UI)
-void NetErrorTabHelper::UpdateHasOfflinePages(int frame_tree_node_id) {
-  // TODO(chili): remove entirely in M55 if AsyncLoading does not need this.
-  SetHasOfflinePages(frame_tree_node_id, false);
+#if defined(OS_ANDROID)
+void NetErrorTabHelper::DownloadPageLaterHelper(const GURL& page_url) {
+  offline_pages::RequestCoordinator* request_coordinator =
+      offline_pages::RequestCoordinatorFactory::GetForBrowserContext(
+          web_contents()->GetBrowserContext());
+  DCHECK(request_coordinator) << "No RequestCoordinator for SavePageLater";
+  offline_pages::ClientId client_id(
+      offline_pages::kAsyncNamespace, base::GenerateGUID());
+  request_coordinator->SavePageLater(
+      page_url, client_id, true /*user_requested*/,
+      offline_pages::RequestCoordinator::RequestAvailability::
+          ENABLED_FOR_OFFLINER);
 }
-
-void NetErrorTabHelper::SetHasOfflinePages(int frame_tree_node_id,
-                                           bool has_offline_pages) {
-  content::RenderFrameHost* render_frame_host =
-      web_contents()->FindFrameByFrameTreeNodeId(frame_tree_node_id);
-  if (render_frame_host == nullptr)
-    return;
-
-  render_frame_host->Send(new ChromeViewMsg_SetHasOfflinePages(
-      render_frame_host->GetRoutingID(), has_offline_pages));
-}
-
-void NetErrorTabHelper::ShowOfflinePages() {
-  // Makes sure that this is coming from an error page.
-  if (!IsFromErrorPage())
-    return;
-
-  DCHECK(web_contents());
-  TabAndroid* tab = TabAndroid::FromWebContents(web_contents());
-  if (tab)
-    tab->ShowOfflinePages();
-}
-
-bool NetErrorTabHelper::IsFromErrorPage() const {
-  content::NavigationEntry* entry =
-      web_contents()->GetController().GetLastCommittedEntry();
-  return entry && (entry->GetPageType() == content::PAGE_TYPE_ERROR);
-}
-
-#endif  // BUILDFLAG(ANDROID_JAVA_UI)
+#endif  // defined(OS_ANDROID)
 
 }  // namespace chrome_browser_net

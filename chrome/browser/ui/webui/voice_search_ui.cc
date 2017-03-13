@@ -10,6 +10,7 @@
 #include "base/command_line.h"
 #include "base/files/file_enumerator.h"
 #include "base/macros.h"
+#include "base/memory/ptr_util.h"
 #include "base/memory/weak_ptr.h"
 #include "base/metrics/field_trial.h"
 #include "base/path_service.h"
@@ -28,6 +29,7 @@
 #include "chrome/common/chrome_content_client.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/extensions/extension_constants.h"
+#include "chrome/common/features.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/browser_resources.h"
@@ -46,6 +48,7 @@
 #include "extensions/browser/extension_prefs.h"
 #include "extensions/browser/extension_system.h"
 #include "extensions/common/extension.h"
+#include "extensions/features/features.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "v8/include/v8.h"
 
@@ -259,7 +262,7 @@ class VoiceSearchDomHandler : public WebUIMessageHandler {
     // platforms. ENABLE_EXTENSIONS covers those platforms and hey would not
     // allow Hotwording anyways since it is an extension.
     std::string nacl_enabled = "not available";
-#if defined(ENABLE_EXTENSIONS)
+#if BUILDFLAG(ENABLE_EXTENSIONS)
     nacl_enabled = "No";
     // Determine if NaCl is available.
     base::FilePath path;
@@ -380,7 +383,7 @@ class VoiceSearchDomHandler : public WebUIMessageHandler {
 
   // Adds information specific to voice search in the app launcher to the list.
   void AddAppListInfo(base::ListValue* list) {
-#if defined (ENABLE_APP_LIST)
+#if BUILDFLAG(ENABLE_APP_LIST)
     std::string state = "No Start Page Service";
     app_list::StartPageService* start_page_service =
         app_list::StartPageService::Get(profile_);
@@ -435,7 +438,7 @@ class VoiceSearchDomHandler : public WebUIMessageHandler {
 VoiceSearchUI::VoiceSearchUI(content::WebUI* web_ui)
     : content::WebUIController(web_ui) {
   Profile* profile = Profile::FromWebUI(web_ui);
-  web_ui->AddMessageHandler(new VoiceSearchDomHandler(profile));
+  web_ui->AddMessageHandler(base::MakeUnique<VoiceSearchDomHandler>(profile));
 
   // Set up the about:voicesearch source.
   content::WebUIDataSource::Add(profile, CreateVoiceSearchUiHtmlSource());

@@ -6,11 +6,13 @@
 
 #include "base/memory/ptr_util.h"
 #include "gpu/command_buffer/service/gpu_preferences.h"
+#include "media/base/media_switches.h"
 #include "media/gpu/gpu_video_accelerator_util.h"
 #include "media/gpu/media_gpu_export.h"
 
 #if defined(OS_WIN)
 #include "base/win/windows_version.h"
+#include "media/gpu/d3d11_video_decode_accelerator_win.h"
 #include "media/gpu/dxva_video_decode_accelerator_win.h"
 #elif defined(OS_MACOSX)
 #include "media/gpu/vt_video_decode_accelerator_mac.h"
@@ -125,6 +127,7 @@ GpuVideoDecodeAcceleratorFactory::CreateVDA(
                                            const gpu::GpuPreferences&) const;
   const CreateVDAFp create_vda_fps[] = {
 #if defined(OS_WIN)
+    &GpuVideoDecodeAcceleratorFactory::CreateD3D11VDA,
     &GpuVideoDecodeAcceleratorFactory::CreateDXVAVDA,
 #endif
 #if defined(OS_CHROMEOS) && defined(USE_V4L2_CODEC)
@@ -155,15 +158,30 @@ GpuVideoDecodeAcceleratorFactory::CreateVDA(
 
 #if defined(OS_WIN)
 std::unique_ptr<VideoDecodeAccelerator>
+GpuVideoDecodeAcceleratorFactory::CreateD3D11VDA(
+    const gpu::GpuDriverBugWorkarounds& workarounds,
+    const gpu::GpuPreferences& gpu_preferences) const {
+  std::unique_ptr<VideoDecodeAccelerator> decoder;
+  if (!base::FeatureList::IsEnabled(kD3D11VideoDecoding))
+    return decoder;
+  if (base::win::GetVersion() >= base::win::VERSION_WIN8) {
+    DVLOG(0) << "Initializing D3D11 HW decoder for windows.";
+    decoder.reset(new D3D11VideoDecodeAccelerator(get_gl_context_cb_,
+                                                  make_context_current_cb_));
+  }
+  return decoder;
+}
+
+std::unique_ptr<VideoDecodeAccelerator>
 GpuVideoDecodeAcceleratorFactory::CreateDXVAVDA(
     const gpu::GpuDriverBugWorkarounds& workarounds,
     const gpu::GpuPreferences& gpu_preferences) const {
   std::unique_ptr<VideoDecodeAccelerator> decoder;
   if (base::win::GetVersion() >= base::win::VERSION_WIN7) {
     DVLOG(0) << "Initializing DXVA HW decoder for windows.";
-    decoder.reset(new DXVAVideoDecodeAccelerator(get_gl_context_cb_,
-                                                 make_context_current_cb_,
-                                                 workarounds, gpu_preferences));
+    decoder.reset(new DXVAVideoDecodeAccelerator(
+        get_gl_context_cb_, make_context_current_cb_, bind_image_cb_,
+        workarounds, gpu_preferences));
   }
   return decoder;
 }
@@ -175,7 +193,7 @@ GpuVideoDecodeAcceleratorFactory::CreateV4L2VDA(
     const gpu::GpuDriverBugWorkarounds& workarounds,
     const gpu::GpuPreferences& gpu_preferences) const {
   std::unique_ptr<VideoDecodeAccelerator> decoder;
-  scoped_refptr<V4L2Device> device = V4L2Device::Create(V4L2Device::kDecoder);
+  scoped_refptr<V4L2Device> device = V4L2Device::Create();
   if (device.get()) {
     decoder.reset(new V4L2VideoDecodeAccelerator(
         gl::GLSurfaceEGL::GetHardwareDisplay(), get_gl_context_cb_,
@@ -189,7 +207,7 @@ GpuVideoDecodeAcceleratorFactory::CreateV4L2SVDA(
     const gpu::GpuDriverBugWorkarounds& workarounds,
     const gpu::GpuPreferences& gpu_preferences) const {
   std::unique_ptr<VideoDecodeAccelerator> decoder;
-  scoped_refptr<V4L2Device> device = V4L2Device::Create(V4L2Device::kDecoder);
+  scoped_refptr<V4L2Device> device = V4L2Device::Create();
   if (device.get()) {
     decoder.reset(new V4L2SliceVideoDecodeAccelerator(
         device, gl::GLSurfaceEGL::GetHardwareDisplay(), get_gl_context_cb_,

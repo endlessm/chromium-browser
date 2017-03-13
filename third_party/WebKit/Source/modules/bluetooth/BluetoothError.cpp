@@ -6,20 +6,17 @@
 
 #include "core/dom/DOMException.h"
 #include "core/dom/ExceptionCode.h"
-#include "third_party/WebKit/public/platform/modules/bluetooth/web_bluetooth.mojom-blink.h"
 
 namespace blink {
 
-DOMException* BluetoothError::take(
-    ScriptPromiseResolver*,
-    int32_t
-        webError /* Corresponds to WebBluetoothError in web_bluetooth.mojom */) {
-  switch (static_cast<mojom::blink::WebBluetoothError>(webError)) {
-    case mojom::blink::WebBluetoothError::SUCCESS:
+DOMException* BluetoothError::take(ScriptPromiseResolver*,
+                                   mojom::blink::WebBluetoothResult error) {
+  switch (error) {
+    case mojom::blink::WebBluetoothResult::SUCCESS:
       ASSERT_NOT_REACHED();
       return DOMException::create(UnknownError);
-#define MAP_ERROR(enumeration, name, message)        \
-  case mojom::blink::WebBluetoothError::enumeration: \
+#define MAP_ERROR(enumeration, name, message)         \
+  case mojom::blink::WebBluetoothResult::enumeration: \
     return DOMException::create(name, message)
 
       // InvalidModificationErrors:
@@ -95,6 +92,10 @@ DOMException* BluetoothError::take(
                 "No Characteristics with specified UUID found in Service.");
       MAP_ERROR(NO_CHARACTERISTICS_FOUND, NotFoundError,
                 "No Characteristics found in service.");
+      MAP_ERROR(DESCRIPTOR_NOT_FOUND, NotFoundError,
+                "No Descriptors with specified UUID found in Characteristic.");
+      MAP_ERROR(NO_DESCRIPTORS_FOUND, NotFoundError,
+                "No Descriptors found in Characteristic.");
       MAP_ERROR(BLUETOOTH_LOW_ENERGY_NOT_AVAILABLE, NotFoundError,
                 "Bluetooth Low Energy not available.");
 
@@ -112,21 +113,28 @@ DOMException* BluetoothError::take(
       // SecurityErrors:
       MAP_ERROR(GATT_NOT_AUTHORIZED, SecurityError,
                 "GATT operation not authorized.");
-      MAP_ERROR(BLACKLISTED_CHARACTERISTIC_UUID, SecurityError,
-                "getCharacteristic(s) called with blacklisted UUID. "
+      MAP_ERROR(BLOCKLISTED_CHARACTERISTIC_UUID, SecurityError,
+                "getCharacteristic(s) called with blocklisted UUID. "
                 "https://goo.gl/4NeimX");
-      MAP_ERROR(BLACKLISTED_READ, SecurityError,
-                "readValue() called on blacklisted object marked "
+      MAP_ERROR(BLOCKLISTED_DESCRIPTOR_UUID, SecurityError,
+                "getDescriptor(s) called with blocklisted UUID. "
+                "https://goo.gl/4NeimX");
+      MAP_ERROR(BLOCKLISTED_READ, SecurityError,
+                "readValue() called on blocklisted object marked "
                 "exclude-reads. https://goo.gl/4NeimX");
-      MAP_ERROR(BLACKLISTED_WRITE, SecurityError,
-                "writeValue() called on blacklisted object marked "
+      MAP_ERROR(BLOCKLISTED_WRITE, SecurityError,
+                "writeValue() called on blocklisted object marked "
                 "exclude-writes. https://goo.gl/4NeimX");
+      MAP_ERROR(NOT_ALLOWED_TO_ACCESS_ANY_SERVICE, SecurityError,
+                "Origin is not allowed to access any service. Tip: Add the "
+                "service UUID to 'optionalServices' in requestDevice() "
+                "options. https://goo.gl/HxfxSQ");
       MAP_ERROR(NOT_ALLOWED_TO_ACCESS_SERVICE, SecurityError,
                 "Origin is not allowed to access the service. Tip: Add the "
                 "service UUID to 'optionalServices' in requestDevice() "
                 "options. https://goo.gl/HxfxSQ");
-      MAP_ERROR(REQUEST_DEVICE_WITH_BLACKLISTED_UUID, SecurityError,
-                "requestDevice() called with a filter containing a blacklisted "
+      MAP_ERROR(REQUEST_DEVICE_WITH_BLOCKLISTED_UUID, SecurityError,
+                "requestDevice() called with a filter containing a blocklisted "
                 "UUID. https://goo.gl/4NeimX");
       MAP_ERROR(REQUEST_DEVICE_FROM_CROSS_ORIGIN_IFRAME, SecurityError,
                 "requestDevice() called from cross-origin iframe.");

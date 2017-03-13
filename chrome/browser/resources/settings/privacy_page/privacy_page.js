@@ -12,9 +12,7 @@ Polymer({
 
   behaviors: [
     settings.RouteObserverBehavior,
-<if expr="_google_chrome and not chromeos">
     WebUIListenerBehavior,
-</if>
   ],
 
   properties: {
@@ -32,10 +30,15 @@ Polymer({
      */
     pageVisibility: Object,
 
-<if expr="_google_chrome and not chromeos">
+// <if expr="_google_chrome and not chromeos">
     /** @type {MetricsReporting} */
     metricsReporting_: Object,
-</if>
+
+    showRestart_: Boolean,
+// </if>
+
+    /** @private */
+    safeBrowsingExtendedReportingEnabled_: Boolean,
 
     /** @private */
     showClearBrowsingDataDialog_: Boolean,
@@ -44,13 +47,19 @@ Polymer({
   ready: function() {
     this.ContentSettingsTypes = settings.ContentSettingsTypes;
 
-<if expr="_google_chrome and not chromeos">
+// <if expr="_google_chrome and not chromeos">
     var boundSetMetricsReporting = this.setMetricsReporting_.bind(this);
     this.addWebUIListener('metrics-reporting-change', boundSetMetricsReporting);
 
     var browserProxy = settings.PrivacyPageBrowserProxyImpl.getInstance();
     browserProxy.getMetricsReporting().then(boundSetMetricsReporting);
-</if>
+// </if>
+
+    var boundSetSber = this.setSafeBrowsingExtendedReporting_.bind(this);
+    this.addWebUIListener('safe-browsing-extended-reporting-change',
+                          boundSetSber);
+    settings.PrivacyPageBrowserProxyImpl.getInstance()
+        .getSafeBrowsingExtendedReporting().then(boundSetSber);
   },
 
   /** @protected */
@@ -61,13 +70,24 @@ Polymer({
 
   /** @private */
   onManageCertificatesTap_: function() {
-<if expr="use_nss_certs">
+// <if expr="use_nss_certs">
     settings.navigateTo(settings.Route.CERTIFICATES);
-</if>
-<if expr="is_win or is_macosx">
+// </if>
+// <if expr="is_win or is_macosx">
     settings.PrivacyPageBrowserProxyImpl.getInstance().
         showManageSSLCertificates();
-</if>
+// </if>
+  },
+
+  /**
+   * This is a workaround to connect the remove all button to the subpage.
+   * @private
+   */
+  onRemoveAllCookiesFromSite_: function() {
+    var node = /** @type {?SiteDataDetailsSubpageElement} */(this.$$(
+        'site-data-details-subpage'));
+    if (node)
+      node.removeAll();
   },
 
   /** @private */
@@ -85,11 +105,17 @@ Polymer({
     settings.navigateToPreviousRoute();
   },
 
-<if expr="_google_chrome and not chromeos">
   /** @private */
-  onMetricsReportingCheckboxTap_: function() {
+  onHelpTap_: function() {
+    window.open(
+        'https://support.google.com/chrome/?p=settings_manage_exceptions');
+  },
+
+// <if expr="_google_chrome and not chromeos">
+  /** @private */
+  onMetricsReportingControlTap_: function() {
     var browserProxy = settings.PrivacyPageBrowserProxyImpl.getInstance();
-    var enabled = this.$.metricsReportingCheckbox.checked;
+    var enabled = this.$.metricsReportingControl.checked;
     browserProxy.setMetricsReportingEnabled(enabled);
   },
 
@@ -98,7 +124,53 @@ Polymer({
    * @private
    */
   setMetricsReporting_: function(metricsReporting) {
+    // TODO(dbeam): remember whether metrics reporting was enabled when Chrome
+    // started.
+    if (metricsReporting.managed) {
+      this.showRestart_ = false;
+    } else if (this.metricsReporting_ &&
+               metricsReporting.enabled != this.metricsReporting_.enabled) {
+      this.showRestart_ = true;
+    }
     this.metricsReporting_ = metricsReporting;
   },
-</if>
+
+  /** @private */
+  onRestartTap_: function() {
+    settings.LifetimeBrowserProxyImpl.getInstance().restart();
+  },
+// </if>
+
+  /** @private */
+  onSafeBrowsingExtendedReportingControlTap_: function() {
+    var browserProxy = settings.PrivacyPageBrowserProxyImpl.getInstance();
+    var enabled = this.$.safeBrowsingExtendedReportingControl.checked;
+    browserProxy.setSafeBrowsingExtendedReportingEnabled(enabled);
+  },
+
+  /** @param {boolean} enabled Whether reporting is enabled or not.
+    * @private
+    */
+  setSafeBrowsingExtendedReporting_: function(enabled) {
+    this.safeBrowsingExtendedReportingEnabled_ = enabled;
+  },
+
+  /**
+   * The sub-page title for the site or content settings.
+   * @return {string}
+   * @private
+   */
+  siteSettingsPageTitle_: function() {
+    return loadTimeData.getBoolean('enableSiteSettings') ?
+        loadTimeData.getString('siteSettings') :
+        loadTimeData.getString('contentSettings');
+  },
+
+// <if expr="chromeos">
+  /** @private */
+  onAdobeFlashStorageClicked_: function() {
+    window.open('https://www.macromedia.com/support/' +
+        'documentation/en/flashplayer/help/settings_manager07.html');
+  },
+// </if>
 });

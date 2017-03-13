@@ -27,11 +27,13 @@
 
 #include "core/dom/Document.h"
 #include "core/dom/Node.h"
+#include "core/dom/TaskRunnerHelper.h"
 #include "core/editing/EditingUtilities.h"
 #include "core/editing/markers/DocumentMarkerController.h"
 #include "core/editing/spellcheck/SpellChecker.h"
 #include "core/frame/LocalFrame.h"
 #include "core/frame/Settings.h"
+#include "core/html/TextControlElement.h"
 #include "platform/text/TextCheckerClient.h"
 
 namespace blink {
@@ -39,7 +41,6 @@ namespace blink {
 SpellCheckRequest::SpellCheckRequest(
     Range* checkingRange,
     const String& text,
-    TextCheckingProcessType processType,
     const Vector<uint32_t>& documentMarkersInRange,
     const Vector<unsigned>& documentMarkerOffsets,
     int requestNumber)
@@ -49,7 +50,6 @@ SpellCheckRequest::SpellCheckRequest(
           blink::rootEditableElement(*m_checkingRange->startContainer())),
       m_requestData(unrequestedTextCheckingSequence,
                     text,
-                    processType,
                     documentMarkersInRange,
                     documentMarkerOffsets),
       m_requestNumber(requestNumber) {
@@ -74,7 +74,6 @@ void SpellCheckRequest::dispose() {
 
 // static
 SpellCheckRequest* SpellCheckRequest::create(
-    TextCheckingProcessType processType,
     const EphemeralRange& checkingRange,
     int requestNumber) {
   if (checkingRange.isNull())
@@ -100,8 +99,8 @@ SpellCheckRequest* SpellCheckRequest::create(
     offsets[i] = markers[i]->startOffset();
   }
 
-  return new SpellCheckRequest(checkingRangeObject, text, processType, hashes,
-                               offsets, requestNumber);
+  return new SpellCheckRequest(checkingRangeObject, text, hashes, offsets,
+                               requestNumber);
 }
 
 const TextCheckingRequestData& SpellCheckRequest::data() const {
@@ -141,6 +140,7 @@ SpellCheckRequester::SpellCheckRequester(LocalFrame& frame)
       m_lastRequestSequence(0),
       m_lastProcessedSequence(0),
       m_timerToProcessQueuedRequest(
+          TaskRunnerHelper::get(TaskType::UnspecedTimer, &frame),
           this,
           &SpellCheckRequester::timerFiredToProcessQueuedRequest) {}
 
@@ -227,13 +227,14 @@ void SpellCheckRequester::enqueueRequest(SpellCheckRequest* request) {
   // Spellcheck requests for chunks of text in the same element should not
   // overwrite each other.
   if (!continuation) {
-    for (auto& requestQueue : m_requestQueue) {
-      if (request->rootEditableElement() != requestQueue->rootEditableElement())
-        continue;
-
-      requestQueue = request;
-      return;
-    }
+    RequestQueue::const_iterator sameElementRequest =
+        std::find_if(m_requestQueue.begin(), m_requestQueue.end(),
+                     [request](const SpellCheckRequest* queuedRequest) -> bool {
+                       return request->rootEditableElement() ==
+                              queuedRequest->rootEditableElement();
+                     });
+    if (sameElementRequest != m_requestQueue.end())
+      m_requestQueue.remove(sameElementRequest);
   }
 
   m_requestQueue.append(request);
@@ -250,8 +251,8 @@ void SpellCheckRequester::didCheck(int sequence,
 
   frame().spellChecker().markAndReplaceFor(m_processingRequest, results);
 
-  if (m_lastProcessedSequence < sequence)
-    m_lastProcessedSequence = sequence;
+  DCHECK_LT(m_lastProcessedSequence, sequence);
+  m_lastProcessedSequence = sequence;
 
   clearProcessingRequest();
   if (!m_requestQueue.isEmpty())

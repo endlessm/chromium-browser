@@ -26,11 +26,13 @@
 #include "modules/webaudio/OfflineAudioDestinationNode.h"
 
 #include "core/dom/ExecutionContextTask.h"
+#include "core/dom/TaskRunnerHelper.h"
 #include "modules/webaudio/AudioNodeInput.h"
 #include "modules/webaudio/AudioNodeOutput.h"
 #include "modules/webaudio/BaseAudioContext.h"
 #include "modules/webaudio/OfflineAudioContext.h"
 #include "platform/audio/AudioBus.h"
+#include "platform/audio/AudioUtilities.h"
 #include "platform/audio/DenormalDisabler.h"
 #include "platform/audio/HRTFDatabaseLoader.h"
 #include "public/platform/Platform.h"
@@ -39,21 +41,19 @@
 
 namespace blink {
 
-const size_t OfflineAudioDestinationHandler::renderQuantumSize = 128;
-
 OfflineAudioDestinationHandler::OfflineAudioDestinationHandler(
     AudioNode& node,
     AudioBuffer* renderTarget)
     : AudioDestinationHandler(node, renderTarget->sampleRate()),
       m_renderTarget(renderTarget),
-      m_renderThread(wrapUnique(
+      m_renderThread(WTF::wrapUnique(
           Platform::current()->createThread("offline audio renderer"))),
       m_framesProcessed(0),
       m_framesToProcess(0),
       m_isRenderingStarted(false),
       m_shouldSuspend(false) {
-  m_renderBus =
-      AudioBus::create(renderTarget->numberOfChannels(), renderQuantumSize);
+  m_renderBus = AudioBus::create(renderTarget->numberOfChannels(),
+                                 AudioUtilities::kRenderQuantumFrames);
   m_framesToProcess = m_renderTarget->length();
 
   // Node-specific defaults.
@@ -133,6 +133,11 @@ void OfflineAudioDestinationHandler::stopRendering() {
   ASSERT_NOT_REACHED();
 }
 
+size_t OfflineAudioDestinationHandler::callbackBufferSize() const {
+  // The callback buffer size has no meaning for an offline context.
+  NOTREACHED();
+  return 0;
+}
 WebThread* OfflineAudioDestinationHandler::offlineRenderThread() {
   DCHECK(m_renderThread);
 
@@ -157,7 +162,8 @@ void OfflineAudioDestinationHandler::startOfflineRendering() {
   if (!channelsMatch)
     return;
 
-  bool isRenderBusAllocated = m_renderBus->length() >= renderQuantumSize;
+  bool isRenderBusAllocated =
+      m_renderBus->length() >= AudioUtilities::kRenderQuantumFrames;
   DCHECK(isRenderBusAllocated);
   if (!isRenderBusAllocated)
     return;
@@ -181,14 +187,15 @@ void OfflineAudioDestinationHandler::doOfflineRendering() {
     // Suspend the rendering and update m_shouldSuspend if a scheduled
     // suspend found at the current sample frame. Otherwise render one
     // quantum and return false.
-    m_shouldSuspend =
-        renderIfNotSuspended(0, m_renderBus.get(), renderQuantumSize);
+    m_shouldSuspend = renderIfNotSuspended(
+        0, m_renderBus.get(), AudioUtilities::kRenderQuantumFrames);
 
     if (m_shouldSuspend)
       return;
 
     size_t framesAvailableToCopy =
-        std::min(m_framesToProcess, renderQuantumSize);
+        std::min(m_framesToProcess,
+                 static_cast<size_t>(AudioUtilities::kRenderQuantumFrames));
 
     for (unsigned channelIndex = 0; channelIndex < numberOfChannels;
          ++channelIndex) {
@@ -215,7 +222,7 @@ void OfflineAudioDestinationHandler::suspendOfflineRendering() {
   // The actual rendering has been suspended. Notify the context.
   if (context()->getExecutionContext()) {
     context()->getExecutionContext()->postTask(
-        BLINK_FROM_HERE,
+        TaskType::MediaElementEvent, BLINK_FROM_HERE,
         createCrossThreadTask(&OfflineAudioDestinationHandler::notifySuspend,
                               PassRefPtr<OfflineAudioDestinationHandler>(this),
                               context()->currentSampleFrame()));
@@ -228,9 +235,9 @@ void OfflineAudioDestinationHandler::finishOfflineRendering() {
   // The actual rendering has been completed. Notify the context.
   if (context()->getExecutionContext()) {
     context()->getExecutionContext()->postTask(
-        BLINK_FROM_HERE, createCrossThreadTask(
-                             &OfflineAudioDestinationHandler::notifyComplete,
-                             PassRefPtr<OfflineAudioDestinationHandler>(this)));
+        TaskType::MediaElementEvent, BLINK_FROM_HERE,
+        createCrossThreadTask(&OfflineAudioDestinationHandler::notifyComplete,
+                              wrapPassRefPtr(this)));
   }
 }
 

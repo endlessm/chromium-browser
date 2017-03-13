@@ -120,6 +120,11 @@ public class CustomTabTabPersistencePolicy implements TabPersistencePolicy {
     }
 
     @Override
+    public boolean shouldMergeOnStartup() {
+        return false;
+    }
+
+    @Override
     @Nullable
     public String getStateToBeMergedFileName() {
         return null;
@@ -191,8 +196,28 @@ public class CustomTabTabPersistencePolicy implements TabPersistencePolicy {
     }
 
     @Override
+    public void notifyStateLoaded(int tabCountAtStartup) {
+    }
+
+    @Override
     public void destroy() {
         mDestroyed = true;
+    }
+
+    /**
+     * Triggers an async deletion of the tab state metadata file.
+     */
+    public void deleteMetadataStateFileAsync() {
+        AsyncTask.SERIAL_EXECUTOR.execute(new Runnable() {
+            @Override
+            public void run() {
+                File stateDir = getOrCreateStateDirectory();
+                File metadataFile = new File(stateDir, getStateFileName());
+                if (metadataFile.exists() && !metadataFile.delete()) {
+                    Log.e(TAG, "Failed to delete file: " + metadataFile);
+                }
+            }
+        });
     }
 
     /**

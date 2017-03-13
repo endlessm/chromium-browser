@@ -10,22 +10,13 @@
   min-height: 84px; /* 64 title + 20 subtitle */
 }
 
-:host([welcome-screen]) .oobe-header {
-  height: 64px;
-  min-height: unset;
-}
-
 #footer-container {
   padding: 44px 64px 0 64px;
-}
-
-:host([welcome-screen]) #footer-container {
-  padding-top: 32px;
 }
 
 #oobe-bottom {
   box-shadow: 0 -1px 1px rgba(0, 0, 0, 0.14);
   height: 80px;
-  padding: 0 24px 0 24px;
+  padding: 0;
   z-index: 1;
 }

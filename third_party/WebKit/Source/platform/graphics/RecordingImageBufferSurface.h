@@ -27,8 +27,10 @@ class RecordingImageBufferFallbackSurfaceFactory {
   WTF_MAKE_NONCOPYABLE(RecordingImageBufferFallbackSurfaceFactory);
 
  public:
-  virtual std::unique_ptr<ImageBufferSurface>
-  createSurface(const IntSize&, OpacityMode, sk_sp<SkColorSpace>) = 0;
+  virtual std::unique_ptr<ImageBufferSurface> createSurface(const IntSize&,
+                                                            OpacityMode,
+                                                            sk_sp<SkColorSpace>,
+                                                            SkColorType) = 0;
   virtual ~RecordingImageBufferFallbackSurfaceFactory() {}
 
  protected:
@@ -49,7 +51,8 @@ class PLATFORM_EXPORT RecordingImageBufferSurface : public ImageBufferSurface {
       std::unique_ptr<RecordingImageBufferFallbackSurfaceFactory>
           fallbackFactory = nullptr,
       OpacityMode = NonOpaque,
-      sk_sp<SkColorSpace> = nullptr);
+      sk_sp<SkColorSpace> = nullptr,
+      SkColorType = kN32_SkColorType);
   ~RecordingImageBufferSurface() override;
 
   // Implementation of ImageBufferSurface interfaces
@@ -72,7 +75,7 @@ class PLATFORM_EXPORT RecordingImageBufferSurface : public ImageBufferSurface {
   void draw(GraphicsContext&,
             const FloatRect& destRect,
             const FloatRect& srcRect,
-            SkXfermode::Mode) override;
+            SkBlendMode) override;
   bool isExpensiveToPaint() override;
   void setHasExpensiveOp() override { m_currentFrameHasExpensiveOp = true; }
 
@@ -92,7 +95,6 @@ class PLATFORM_EXPORT RecordingImageBufferSurface : public ImageBufferSurface {
     FallbackReasonFlushInitialClear = 4,
     FallbackReasonFlushForDrawImageOfWebGL = 5,
     FallbackReasonSnapshotForGetImageData = 6,
-    FallbackReasonSnapshotForCopyToWebGLTexture = 7,
     FallbackReasonSnapshotForPaint = 8,
     FallbackReasonSnapshotForToDataURL = 9,
     FallbackReasonSnapshotForToBlob = 10,
@@ -110,6 +112,12 @@ class PLATFORM_EXPORT RecordingImageBufferSurface : public ImageBufferSurface {
         21,  // This value should never appear in production histograms
     FallbackReasonSnapshotGetCopiedImage = 22,
     FallbackReasonSnapshotWebGLDrawImageIntoBuffer = 23,
+    FallbackReasonSnapshotForWebGLTexImage2D = 24,
+    FallbackReasonSnapshotForWebGLTexSubImage2D = 25,
+    FallbackReasonSnapshotForWebGLTexImage3D = 26,
+    FallbackReasonSnapshotForWebGLTexSubImage3D = 27,
+    FallbackReasonSnapshotForCopyToClipboard = 28,
+    FallbackReasonSnapshotForCreateImageBitmap = 29,
     FallbackReasonCount,
   };
 

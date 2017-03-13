@@ -25,6 +25,7 @@
 #include "net/base/net_export.h"
 #include "net/disk_cache/disk_cache.h"
 #include "net/disk_cache/simple/simple_entry_impl.h"
+#include "net/disk_cache/simple/simple_experiment.h"
 #include "net/disk_cache/simple/simple_index_delegate.h"
 
 namespace base {
@@ -109,6 +110,10 @@ class NET_EXPORT_PRIVATE SimpleBackendImpl : public Backend,
   int DoomEntriesSince(base::Time initial_time,
                        const CompletionCallback& callback) override;
   int CalculateSizeOfAllEntries(const CompletionCallback& callback) override;
+  int CalculateSizeOfEntriesBetween(
+      base::Time initial_time,
+      base::Time end_time,
+      const CompletionCallback& callback) override;
   std::unique_ptr<Iterator> CreateIterator() override;
   void GetStats(base::StringPairs* stats) override;
   void OnExternalCacheHit(const std::string& key) override;
@@ -147,10 +152,19 @@ class NET_EXPORT_PRIVATE SimpleBackendImpl : public Backend,
   void IndexReadyForSizeCalculation(const CompletionCallback& callback,
                                     int result);
 
+  // Calculates the size all cache entries between |initial_time| and
+  // |end_time|. Invoked when the index is ready.
+  void IndexReadyForSizeBetweenCalculation(base::Time initial_time,
+                                           base::Time end_time,
+                                           const CompletionCallback& callback,
+                                           int result);
+
   // Try to create the directory if it doesn't exist. This must run on the IO
   // thread.
-  static DiskStatResult InitCacheStructureOnDisk(const base::FilePath& path,
-                                                 uint64_t suggested_max_size);
+  static DiskStatResult InitCacheStructureOnDisk(
+      const base::FilePath& path,
+      uint64_t suggested_max_size,
+      const SimpleExperiment& experiment);
 
   // Searches |active_entries_| for the entry corresponding to |key|. If found,
   // returns the found entry. Otherwise, creates a new entry and returns that.

@@ -13,6 +13,7 @@
 #include "base/location.h"
 #include "base/memory/ptr_util.h"
 #include "base/single_thread_task_runner.h"
+#include "base/strings/stringprintf.h"
 #include "base/synchronization/lock.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "cc/animation/timing_function.h"
@@ -29,7 +30,6 @@
 #include "cc/output/copy_output_result.h"
 #include "cc/output/output_surface.h"
 #include "cc/output/swap_promise.h"
-#include "cc/playback/display_item_list_settings.h"
 #include "cc/quads/draw_quad.h"
 #include "cc/quads/render_pass_draw_quad.h"
 #include "cc/quads/tile_draw_quad.h"
@@ -47,15 +47,17 @@
 #include "cc/test/geometry_test_utils.h"
 #include "cc/test/layer_internals_for_test.h"
 #include "cc/test/layer_tree_test.h"
+#include "cc/test/push_properties_counting_layer.h"
+#include "cc/test/push_properties_counting_layer_impl.h"
 #include "cc/test/render_pass_test_utils.h"
 #include "cc/test/skia_common.h"
 #include "cc/test/test_compositor_frame_sink.h"
-#include "cc/test/test_shared_bitmap_manager.h"
 #include "cc/test/test_web_graphics_context_3d.h"
 #include "cc/trees/effect_node.h"
 #include "cc/trees/layer_tree_host_common.h"
 #include "cc/trees/layer_tree_host_impl.h"
 #include "cc/trees/layer_tree_impl.h"
+#include "cc/trees/scroll_node.h"
 #include "cc/trees/single_thread_proxy.h"
 #include "cc/trees/swap_promise_manager.h"
 #include "cc/trees/transform_node.h"
@@ -81,25 +83,25 @@ class LayerTreeHostTest : public LayerTreeTest {};
 
 class LayerTreeHostTestHasImplThreadTest : public LayerTreeHostTest {
  public:
-  LayerTreeHostTestHasImplThreadTest() : threaded_(false) {}
+  LayerTreeHostTestHasImplThreadTest() : single_threaded_(false) {}
 
   void RunTest(CompositorMode mode) override {
-    threaded_ = mode == CompositorMode::THREADED;
+    single_threaded_ = mode == CompositorMode::SINGLE_THREADED;
     LayerTreeHostTest::RunTest(mode);
   }
 
   void BeginTest() override {
-    EXPECT_EQ(threaded_, HasImplThread());
+    EXPECT_EQ(single_threaded_, !HasImplThread());
     EndTest();
   }
 
-  void AfterTest() override { EXPECT_EQ(threaded_, HasImplThread()); }
+  void AfterTest() override { EXPECT_EQ(single_threaded_, !HasImplThread()); }
 
  private:
-  bool threaded_;
+  bool single_threaded_;
 };
 
-SINGLE_AND_MULTI_THREAD_TEST_F(LayerTreeHostTestHasImplThreadTest);
+SINGLE_MULTI_AND_REMOTE_TEST_F(LayerTreeHostTestHasImplThreadTest);
 
 class LayerTreeHostTestSetNeedsCommitInsideLayout : public LayerTreeHostTest {
  protected:
@@ -118,7 +120,7 @@ class LayerTreeHostTestSetNeedsCommitInsideLayout : public LayerTreeHostTest {
   void AfterTest() override {}
 };
 
-SINGLE_AND_MULTI_THREAD_TEST_F(LayerTreeHostTestSetNeedsCommitInsideLayout);
+SINGLE_MULTI_AND_REMOTE_TEST_F(LayerTreeHostTestSetNeedsCommitInsideLayout);
 
 class LayerTreeHostTestFrameOrdering : public LayerTreeHostTest {
  protected:
@@ -193,7 +195,7 @@ class LayerTreeHostTestFrameOrdering : public LayerTreeHostTest {
   ImplOrder impl_ = IMPL_START;
 };
 
-SINGLE_AND_MULTI_THREAD_TEST_F(LayerTreeHostTestFrameOrdering);
+SINGLE_MULTI_AND_REMOTE_TEST_F(LayerTreeHostTestFrameOrdering);
 
 class LayerTreeHostTestSetNeedsUpdateInsideLayout : public LayerTreeHostTest {
  protected:
@@ -212,7 +214,7 @@ class LayerTreeHostTestSetNeedsUpdateInsideLayout : public LayerTreeHostTest {
   void AfterTest() override {}
 };
 
-SINGLE_AND_MULTI_THREAD_TEST_F(LayerTreeHostTestSetNeedsUpdateInsideLayout);
+SINGLE_MULTI_AND_REMOTE_TEST_F(LayerTreeHostTestSetNeedsUpdateInsideLayout);
 
 // Test if the LTHI receives ReadyToActivate notifications from the TileManager
 // when no raster tasks get scheduled.
@@ -256,7 +258,7 @@ class LayerTreeHostTestReadyToActivateEmpty : public LayerTreeHostTest {
   size_t required_for_activation_count_;
 };
 
-SINGLE_AND_MULTI_THREAD_TEST_F(LayerTreeHostTestReadyToActivateEmpty);
+SINGLE_MULTI_AND_REMOTE_TEST_F(LayerTreeHostTestReadyToActivateEmpty);
 
 // Test if the LTHI receives ReadyToActivate notifications from the TileManager
 // when some raster tasks flagged as REQUIRED_FOR_ACTIVATION got scheduled.
@@ -285,9 +287,9 @@ class LayerTreeHostTestReadyToActivateNonEmpty
   FakeContentLayerClient client_;
 };
 
-// Multi-thread only because in single thread the commit goes directly to the
-// active tree, so notify ready to activate is skipped.
-MULTI_THREAD_TEST_F(LayerTreeHostTestReadyToActivateNonEmpty);
+// No single thread test because the commit goes directly to the active tree in
+// single thread mode, so notify ready to activate is skipped.
+REMOTE_AND_MULTI_THREAD_TEST_F(LayerTreeHostTestReadyToActivateNonEmpty);
 
 // Test if the LTHI receives ReadyToDraw notifications from the TileManager when
 // no raster tasks get scheduled.
@@ -327,7 +329,7 @@ class LayerTreeHostTestReadyToDrawEmpty : public LayerTreeHostTest {
   size_t required_for_draw_count_;
 };
 
-SINGLE_AND_MULTI_THREAD_TEST_F(LayerTreeHostTestReadyToDrawEmpty);
+SINGLE_MULTI_AND_REMOTE_TEST_F(LayerTreeHostTestReadyToDrawEmpty);
 
 // Test if the LTHI receives ReadyToDraw notifications from the TileManager when
 // some raster tasks flagged as REQUIRED_FOR_DRAW got scheduled.
@@ -434,6 +436,8 @@ class LayerTreeHostTestReadyToDrawVisibility : public LayerTreeHostTest {
 // single threaded mode.
 SINGLE_THREAD_TEST_F(LayerTreeHostTestReadyToDrawVisibility);
 
+// Since the LayerTreeHostContextCacheTests exclusively tests the behavior of
+// LayerTreeHostImpl, they don't need to run for the remote mode.
 class LayerTreeHostContextCacheTest : public LayerTreeHostTest {
  public:
   std::unique_ptr<TestCompositorFrameSink> CreateCompositorFrameSink(
@@ -573,35 +577,36 @@ class LayerTreeHostFreeContextResourcesOnDestroy
 SINGLE_AND_MULTI_THREAD_TEST_F(LayerTreeHostFreeContextResourcesOnDestroy);
 
 // Test if the LTH successfully frees and stops freeing context resources
-// when the OutputSurface is lost and recreated.
-class LayerTreeHostCacheBehaviorOnOutputSurfaceRecreated
+// when the CompositorFrameSink is lost and recreated.
+class LayerTreeHostCacheBehaviorOnCompositorFrameSinkRecreated
     : public LayerTreeHostContextCacheTest {
  public:
   void WillBeginImplFrameOnThread(LayerTreeHostImpl* host_impl,
                                   const BeginFrameArgs& args) override {
-    // This code is run once, to trigger recreation of our OutputSurface.
-    if (has_recreated_)
+    // This code is run once, to trigger recreation of our CompositorFrameSink.
+    if (test_state_ != TestState::INIT)
       return;
 
     // Ensure that our initialization expectations have completed.
     Mock::VerifyAndClearExpectations(mock_main_context_support_);
     Mock::VerifyAndClearExpectations(mock_worker_context_support_);
 
-    // Output surface lost expectations.
+    // CompositorFrameSink lost expectations.
     EXPECT_CALL(*mock_worker_context_support_,
                 SetAggressivelyFreeResources(true));
     EXPECT_CALL(*mock_main_context_support_,
                 SetAggressivelyFreeResources(true));
     host_impl->DidLoseCompositorFrameSink();
-    has_recreated_ = true;
+    test_state_ = TestState::RECREATED;
   }
 
-  void DidInitializeCompositorFrameSink() override {
-    // This is run after we have recreated our OutputSurface.
-    if (!has_recreated_)
+  void InitializedRendererOnThread(LayerTreeHostImpl* host_impl,
+                                   bool success) override {
+    // This is run after we have recreated our CompositorFrameSink.
+    if (test_state_ != TestState::RECREATED)
       return;
 
-    // Ensure that our initialization expectations have completed.
+    // Ensure that our expectations have completed.
     Mock::VerifyAndClearExpectations(mock_main_context_support_);
     Mock::VerifyAndClearExpectations(mock_worker_context_support_);
 
@@ -611,14 +616,16 @@ class LayerTreeHostCacheBehaviorOnOutputSurfaceRecreated
     EXPECT_CALL(*mock_main_context_support_,
                 SetAggressivelyFreeResources(true));
     EndTest();
+    test_state_ = TestState::DONE;
   }
 
  private:
-  bool has_recreated_ = false;
+  enum class TestState { INIT, RECREATED, DONE };
+  TestState test_state_ = TestState::INIT;
 };
 
 SINGLE_AND_MULTI_THREAD_TEST_F(
-    LayerTreeHostCacheBehaviorOnOutputSurfaceRecreated);
+    LayerTreeHostCacheBehaviorOnCompositorFrameSinkRecreated);
 
 // Two setNeedsCommits in a row should lead to at least 1 commit and at least 1
 // draw with frame 0.
@@ -651,7 +658,7 @@ class LayerTreeHostTestSetNeedsCommit1 : public LayerTreeHostTest {
   int num_draws_;
 };
 
-SINGLE_AND_MULTI_THREAD_TEST_F(LayerTreeHostTestSetNeedsCommit1);
+SINGLE_MULTI_AND_REMOTE_TEST_F(LayerTreeHostTestSetNeedsCommit1);
 
 // A SetNeedsCommit should lead to 1 commit. Issuing a second commit after that
 // first committed frame draws should lead to another commit.
@@ -687,7 +694,7 @@ class LayerTreeHostTestSetNeedsCommit2 : public LayerTreeHostTest {
   int num_draws_;
 };
 
-MULTI_THREAD_TEST_F(LayerTreeHostTestSetNeedsCommit2);
+REMOTE_AND_MULTI_THREAD_TEST_F(LayerTreeHostTestSetNeedsCommit2);
 
 // Verify that we pass property values in PushPropertiesTo.
 class LayerTreeHostTestPushPropertiesTo : public LayerTreeHostTest {
@@ -782,7 +789,7 @@ class LayerTreeHostTestPushPropertiesTo : public LayerTreeHostTest {
   int index_;
 };
 
-SINGLE_AND_MULTI_THREAD_TEST_F(LayerTreeHostTestPushPropertiesTo);
+SINGLE_MULTI_AND_REMOTE_TEST_F(LayerTreeHostTestPushPropertiesTo);
 
 class LayerTreeHostTestPushNodeOwnerToNodeIdMap : public LayerTreeHostTest {
  protected:
@@ -816,81 +823,90 @@ class LayerTreeHostTestPushNodeOwnerToNodeIdMap : public LayerTreeHostTest {
   void CommitCompleteOnThread(LayerTreeHostImpl* impl) override {
     PropertyTrees* property_trees = impl->sync_tree()->property_trees();
     auto root_transform_id_to_index =
-        property_trees->transform_id_to_index_map.find(root_->id());
+        property_trees->layer_id_to_transform_node_index.find(root_->id());
     auto child_transform_id_to_index =
-        property_trees->transform_id_to_index_map.find(child_->id());
+        property_trees->layer_id_to_transform_node_index.find(child_->id());
     auto root_effect_id_to_index =
-        property_trees->effect_id_to_index_map.find(root_->id());
+        property_trees->layer_id_to_effect_node_index.find(root_->id());
     auto child_effect_id_to_index =
-        property_trees->effect_id_to_index_map.find(child_->id());
+        property_trees->layer_id_to_effect_node_index.find(child_->id());
     auto root_clip_id_to_index =
-        property_trees->clip_id_to_index_map.find(root_->id());
+        property_trees->layer_id_to_clip_node_index.find(root_->id());
     auto child_clip_id_to_index =
-        property_trees->clip_id_to_index_map.find(child_->id());
+        property_trees->layer_id_to_clip_node_index.find(child_->id());
     auto root_scroll_id_to_index =
-        property_trees->scroll_id_to_index_map.find(root_->id());
+        property_trees->layer_id_to_scroll_node_index.find(root_->id());
     auto child_scroll_id_to_index =
-        property_trees->scroll_id_to_index_map.find(child_->id());
+        property_trees->layer_id_to_scroll_node_index.find(child_->id());
     switch (impl->sync_tree()->source_frame_number()) {
       case 0:
         // root_ should create every property tree node and child_ should not
         // create any.
         EXPECT_NE(root_transform_id_to_index,
-                  property_trees->transform_id_to_index_map.end());
+                  property_trees->layer_id_to_transform_node_index.end());
         EXPECT_EQ(root_transform_id_to_index->second,
                   root_->transform_tree_index());
         EXPECT_NE(root_effect_id_to_index,
-                  property_trees->effect_id_to_index_map.end());
+                  property_trees->layer_id_to_effect_node_index.end());
         EXPECT_EQ(root_effect_id_to_index->second, root_->effect_tree_index());
         EXPECT_NE(root_clip_id_to_index,
-                  property_trees->clip_id_to_index_map.end());
+                  property_trees->layer_id_to_clip_node_index.end());
         EXPECT_EQ(root_clip_id_to_index->second, root_->clip_tree_index());
         EXPECT_NE(root_scroll_id_to_index,
-                  property_trees->scroll_id_to_index_map.end());
+                  property_trees->layer_id_to_scroll_node_index.end());
         EXPECT_EQ(root_scroll_id_to_index->second, root_->scroll_tree_index());
         EXPECT_EQ(child_transform_id_to_index,
-                  property_trees->transform_id_to_index_map.end());
+                  property_trees->layer_id_to_transform_node_index.end());
         EXPECT_EQ(child_effect_id_to_index,
-                  property_trees->effect_id_to_index_map.end());
+                  property_trees->layer_id_to_effect_node_index.end());
         EXPECT_EQ(child_clip_id_to_index,
-                  property_trees->clip_id_to_index_map.end());
+                  property_trees->layer_id_to_clip_node_index.end());
         EXPECT_EQ(child_scroll_id_to_index,
-                  property_trees->scroll_id_to_index_map.end());
+                  property_trees->layer_id_to_scroll_node_index.end());
         break;
       case 1:
         // child_ should create a transfrom, clip, effect nodes but not a scroll
         // node.
-        EXPECT_NE(property_trees->transform_id_to_index_map.find(child_->id()),
-                  property_trees->transform_id_to_index_map.end());
+        EXPECT_NE(
+            property_trees->layer_id_to_transform_node_index.find(child_->id()),
+            property_trees->layer_id_to_transform_node_index.end());
         EXPECT_EQ(child_transform_id_to_index->second,
                   child_->transform_tree_index());
-        EXPECT_NE(property_trees->effect_id_to_index_map.find(child_->id()),
-                  property_trees->effect_id_to_index_map.end());
+        EXPECT_NE(
+            property_trees->layer_id_to_effect_node_index.find(child_->id()),
+            property_trees->layer_id_to_effect_node_index.end());
         EXPECT_EQ(child_effect_id_to_index->second,
                   child_->effect_tree_index());
-        EXPECT_NE(property_trees->clip_id_to_index_map.find(child_->id()),
-                  property_trees->clip_id_to_index_map.end());
+        EXPECT_NE(
+            property_trees->layer_id_to_clip_node_index.find(child_->id()),
+            property_trees->layer_id_to_clip_node_index.end());
         EXPECT_EQ(child_clip_id_to_index->second, child_->clip_tree_index());
-        EXPECT_EQ(property_trees->scroll_id_to_index_map.find(child_->id()),
-                  property_trees->scroll_id_to_index_map.end());
+        EXPECT_EQ(
+            property_trees->layer_id_to_scroll_node_index.find(child_->id()),
+            property_trees->layer_id_to_scroll_node_index.end());
         break;
       case 2:
         // child_ should create a scroll node.
-        EXPECT_NE(property_trees->scroll_id_to_index_map.find(child_->id()),
-                  property_trees->scroll_id_to_index_map.end());
+        EXPECT_NE(
+            property_trees->layer_id_to_scroll_node_index.find(child_->id()),
+            property_trees->layer_id_to_scroll_node_index.end());
         EXPECT_EQ(child_scroll_id_to_index->second,
                   child_->scroll_tree_index());
         break;
       case 3:
         // child_ should not create any property tree nodes.
-        EXPECT_EQ(property_trees->transform_id_to_index_map.find(child_->id()),
-                  property_trees->transform_id_to_index_map.end());
-        EXPECT_EQ(property_trees->effect_id_to_index_map.find(child_->id()),
-                  property_trees->effect_id_to_index_map.end());
-        EXPECT_EQ(property_trees->clip_id_to_index_map.find(child_->id()),
-                  property_trees->clip_id_to_index_map.end());
-        EXPECT_EQ(property_trees->scroll_id_to_index_map.find(child_->id()),
-                  property_trees->scroll_id_to_index_map.end());
+        EXPECT_EQ(
+            property_trees->layer_id_to_transform_node_index.find(child_->id()),
+            property_trees->layer_id_to_transform_node_index.end());
+        EXPECT_EQ(
+            property_trees->layer_id_to_effect_node_index.find(child_->id()),
+            property_trees->layer_id_to_effect_node_index.end());
+        EXPECT_EQ(
+            property_trees->layer_id_to_clip_node_index.find(child_->id()),
+            property_trees->layer_id_to_clip_node_index.end());
+        EXPECT_EQ(
+            property_trees->layer_id_to_scroll_node_index.find(child_->id()),
+            property_trees->layer_id_to_scroll_node_index.end());
 
         EndTest();
         break;
@@ -904,7 +920,117 @@ class LayerTreeHostTestPushNodeOwnerToNodeIdMap : public LayerTreeHostTest {
   scoped_refptr<Layer> child_;
 };
 
+// This test compares the value of tree indexes from Layers on the engine to the
+// resulting PropertyTrees copied to the pending tree after the commit on the
+// client. This will result in a failure for LTH remote test since while the
+// client side Layers would have the correct values for these indexes, but the
+// engine will never build PropertyTrees in LTH remote. See crbug.com/655795.
 SINGLE_AND_MULTI_THREAD_TEST_F(LayerTreeHostTestPushNodeOwnerToNodeIdMap);
+
+class LayerTreeHostTestPushElementIdToNodeIdMap : public LayerTreeHostTest {
+ protected:
+  void SetupTree() override {
+    root_ = Layer::Create();
+    child_ = Layer::Create();
+    child_->SetElementId(kTestElementId);
+    root_->AddChild(child_);
+    layer_tree()->SetRootLayer(root_);
+    LayerTreeHostTest::SetupTree();
+  }
+
+  void BeginTest() override { PostSetNeedsCommitToMainThread(); }
+
+  void DidCommit() override {
+    switch (layer_tree_host()->SourceFrameNumber()) {
+      case 1:
+        child_->SetForceRenderSurfaceForTesting(true);
+        child_->AddMainThreadScrollingReasons(
+            MainThreadScrollingReason::kHasBackgroundAttachmentFixedObjects);
+        break;
+      case 2:
+        child_->SetForceRenderSurfaceForTesting(false);
+        child_->ClearMainThreadScrollingReasons(
+            MainThreadScrollingReason::kHasBackgroundAttachmentFixedObjects);
+        break;
+    }
+  }
+
+  void CommitCompleteOnThread(LayerTreeHostImpl* impl) override {
+    PropertyTrees* property_trees = impl->sync_tree()->property_trees();
+    LayerImpl* child_impl_ = impl->sync_tree()->LayerById(child_->id());
+    switch (impl->sync_tree()->source_frame_number()) {
+      case 0:
+        EXPECT_EQ(2U, child_impl_->layer_tree_impl()
+                          ->property_trees()
+                          ->transform_tree.size());
+        EXPECT_EQ(2U, child_impl_->layer_tree_impl()
+                          ->property_trees()
+                          ->effect_tree.size());
+        EXPECT_EQ(2U, child_impl_->layer_tree_impl()
+                          ->property_trees()
+                          ->scroll_tree.size());
+        EXPECT_TRUE(property_trees->element_id_to_transform_node_index.find(
+                        kTestElementId) ==
+                    property_trees->element_id_to_transform_node_index.end());
+        EXPECT_TRUE(property_trees->element_id_to_effect_node_index.find(
+                        kTestElementId) ==
+                    property_trees->element_id_to_effect_node_index.end());
+        EXPECT_TRUE(property_trees->element_id_to_scroll_node_index.find(
+                        kTestElementId) ==
+                    property_trees->element_id_to_scroll_node_index.end());
+        break;
+      case 1:
+        EXPECT_EQ(3U, child_impl_->layer_tree_impl()
+                          ->property_trees()
+                          ->transform_tree.size());
+        EXPECT_EQ(3U, child_impl_->layer_tree_impl()
+                          ->property_trees()
+                          ->effect_tree.size());
+        EXPECT_EQ(3U, child_impl_->layer_tree_impl()
+                          ->property_trees()
+                          ->scroll_tree.size());
+        EXPECT_EQ(
+            2,
+            property_trees->element_id_to_transform_node_index[kTestElementId]);
+        EXPECT_EQ(
+            2, property_trees->element_id_to_effect_node_index[kTestElementId]);
+        EXPECT_EQ(
+            2, property_trees->element_id_to_scroll_node_index[kTestElementId]);
+        break;
+      case 2:
+        EXPECT_EQ(2U, child_impl_->layer_tree_impl()
+                          ->property_trees()
+                          ->transform_tree.size());
+        EXPECT_EQ(2U, child_impl_->layer_tree_impl()
+                          ->property_trees()
+                          ->effect_tree.size());
+        EXPECT_TRUE(property_trees->element_id_to_transform_node_index.find(
+                        kTestElementId) ==
+                    property_trees->element_id_to_transform_node_index.end());
+        EXPECT_TRUE(property_trees->element_id_to_effect_node_index.find(
+                        kTestElementId) ==
+                    property_trees->element_id_to_effect_node_index.end());
+        EXPECT_TRUE(property_trees->element_id_to_scroll_node_index.find(
+                        kTestElementId) ==
+                    property_trees->element_id_to_scroll_node_index.end());
+        break;
+    }
+    EndTest();
+  }
+
+  void AfterTest() override {}
+
+ private:
+  const ElementId kTestElementId = ElementId(42, 8118);
+
+  scoped_refptr<Layer> root_;
+  scoped_refptr<Layer> child_;
+};
+
+// Validates that, for a layer with a compositor element id set on it, mappings
+// from compositor element id to transform/effect node indexes are created as
+// part of building a layer's property tree and are present on the impl thread.
+SINGLE_AND_MULTI_THREAD_TEST_F(LayerTreeHostTestPushElementIdToNodeIdMap);
 
 class LayerTreeHostTestSurfaceDamage : public LayerTreeHostTest {
  protected:
@@ -985,6 +1111,12 @@ class LayerTreeHostTestSurfaceDamage : public LayerTreeHostTest {
   scoped_refptr<Layer> grand_child_;
 };
 
+// This test changes properties on the Layer and ensures that the subtree damage
+// is tracked correctly on the resulting RenderSurfaceImpl for the corresponding
+// LayerImpl. Since the remote code path currently synchronizes the hierarchy
+// between the engine and client for every frame, all Layers on the client end
+// up being marked as damaged.
+// Enable this when crbug.com/605170 is fixed.
 SINGLE_AND_MULTI_THREAD_TEST_F(LayerTreeHostTestSurfaceDamage);
 
 // Verify damage status of property trees is preserved after commit.
@@ -1196,6 +1328,9 @@ class LayerTreeHostTestEffectTreeSync : public LayerTreeHostTest {
   FilterOperations sepia_filter_;
 };
 
+// This test verifies that correct values are retained on the impl thread in
+// cases where they are animated on that thread. Since remote mode doesn't
+// support threaded animations, we don't need to run this in remote mode.
 SINGLE_AND_MULTI_THREAD_TEST_F(LayerTreeHostTestEffectTreeSync);
 
 class LayerTreeHostTestTransformTreeSync : public LayerTreeHostTest {
@@ -1273,6 +1408,9 @@ class LayerTreeHostTestTransformTreeSync : public LayerTreeHostTest {
   scoped_refptr<Layer> root_;
 };
 
+// This test verifies that correct values are retained on the impl thread in
+// cases where they are animated on that thread. Since remote mode doesn't
+// support threaded animations, we don't need to run this in remote mode.
 SINGLE_AND_MULTI_THREAD_TEST_F(LayerTreeHostTestTransformTreeSync);
 
 // Verify damage status is updated even when the transform tree doesn't need
@@ -1347,6 +1485,9 @@ class LayerTreeHostTestTransformTreeDamageIsUpdated : public LayerTreeHostTest {
   scoped_refptr<Layer> grand_child_;
 };
 
+// This test verifies that correct values are retained on the impl thread in
+// cases where they are animated on that thread. Since remote mode doesn't
+// support threaded animations, we don't need to run this in remote mode.
 SINGLE_AND_MULTI_THREAD_TEST_F(LayerTreeHostTestTransformTreeDamageIsUpdated);
 
 // Test that when mask layers switches layers, this gets pushed onto impl.
@@ -1417,6 +1558,12 @@ class LayerTreeHostTestSwitchMaskLayer : public LayerTreeHostTest {
   int index_;
 };
 
+// This test also verifies that the Layers updated in a main frame correspond
+// only to the Layers that need updates computed using
+// draw_property_utils::FindLayersThatNeedUpdates. Since LayerTreeHostRemote
+// currently updates all Layers during the main frame, the test fails for remote
+// mode.
+// TODO(xingliu): Revisit enabling this when crbug.com/650885 is resolved.
 SINGLE_AND_MULTI_THREAD_TEST_F(LayerTreeHostTestSwitchMaskLayer);
 
 // 1 setNeedsRedraw after the first commit has completed should lead to 1
@@ -1453,7 +1600,7 @@ class LayerTreeHostTestSetNeedsRedraw : public LayerTreeHostTest {
   int num_draws_;
 };
 
-MULTI_THREAD_TEST_F(LayerTreeHostTestSetNeedsRedraw);
+REMOTE_AND_MULTI_THREAD_TEST_F(LayerTreeHostTestSetNeedsRedraw);
 
 // After setNeedsRedrawRect(invalid_rect) the final damage_rect
 // must contain invalid_rect.
@@ -1511,7 +1658,7 @@ class LayerTreeHostTestSetNeedsRedrawRect : public LayerTreeHostTest {
   scoped_refptr<FakePictureLayer> root_layer_;
 };
 
-SINGLE_AND_MULTI_THREAD_TEST_F(LayerTreeHostTestSetNeedsRedrawRect);
+SINGLE_MULTI_AND_REMOTE_TEST_F(LayerTreeHostTestSetNeedsRedrawRect);
 
 // Ensure the texture size of the pending and active trees are identical when a
 // layer is not in the viewport and a resize happens on the viewport
@@ -1590,7 +1737,7 @@ class LayerTreeHostTestGpuRasterDeviceSizeChanged : public LayerTreeHostTest {
 
 // As there's no pending tree in single-threaded case, this test should run
 // only for multi-threaded case.
-MULTI_THREAD_TEST_F(LayerTreeHostTestGpuRasterDeviceSizeChanged);
+REMOTE_AND_MULTI_THREAD_TEST_F(LayerTreeHostTestGpuRasterDeviceSizeChanged);
 
 class LayerTreeHostTestNoExtraCommitFromInvalidate : public LayerTreeHostTest {
  public:
@@ -1640,7 +1787,7 @@ class LayerTreeHostTestNoExtraCommitFromInvalidate : public LayerTreeHostTest {
   scoped_refptr<Layer> scaled_layer_;
 };
 
-SINGLE_AND_MULTI_THREAD_TEST_F(LayerTreeHostTestNoExtraCommitFromInvalidate);
+SINGLE_MULTI_AND_REMOTE_TEST_F(LayerTreeHostTestNoExtraCommitFromInvalidate);
 
 class LayerTreeHostTestNoExtraCommitFromScrollbarInvalidate
     : public LayerTreeHostTest {
@@ -1697,6 +1844,8 @@ class LayerTreeHostTestNoExtraCommitFromScrollbarInvalidate
   scoped_refptr<FakePaintedScrollbarLayer> scrollbar_;
 };
 
+// No remote test here because PaintedScrollbarLayer is not supported by LTH
+// remote.
 SINGLE_AND_MULTI_THREAD_TEST_F(
     LayerTreeHostTestNoExtraCommitFromScrollbarInvalidate);
 
@@ -1764,7 +1913,7 @@ class LayerTreeHostTestDeviceScaleFactorChange : public LayerTreeHostTest {
   scoped_refptr<Layer> child_layer_;
 };
 
-SINGLE_AND_MULTI_THREAD_TEST_F(LayerTreeHostTestDeviceScaleFactorChange);
+SINGLE_MULTI_AND_REMOTE_TEST_F(LayerTreeHostTestDeviceScaleFactorChange);
 
 class LayerTreeHostTestDeviceColorSpaceChange : public LayerTreeHostTest {
  public:
@@ -1887,6 +2036,9 @@ class LayerTreeHostTestDeviceColorSpaceChange : public LayerTreeHostTest {
   scoped_refptr<Layer> child_layer_;
 };
 
+// No remote test because LTH remote doesn't serialize device_color_space, so
+// LTH in process will always use the default color space here.
+// see crbug/658786.
 SINGLE_AND_MULTI_THREAD_TEST_F(LayerTreeHostTestDeviceColorSpaceChange);
 
 class LayerTreeHostTestSetNextCommitForcesRedraw : public LayerTreeHostTest {
@@ -1977,6 +2129,7 @@ class LayerTreeHostTestSetNextCommitForcesRedraw : public LayerTreeHostTest {
 
 // This test blocks activation which is not supported for single thread mode.
 MULTI_THREAD_BLOCKNOTIFY_TEST_F(LayerTreeHostTestSetNextCommitForcesRedraw);
+REMOTE_TEST_F(LayerTreeHostTestSetNextCommitForcesRedraw);
 
 // Tests that if a layer is not drawn because of some reason in the parent then
 // its damage is preserved until the next time it is drawn.
@@ -2073,7 +2226,7 @@ class LayerTreeHostTestUndrawnLayersDamageLater : public LayerTreeHostTest {
   scoped_refptr<FakePictureLayer> child_layer_;
 };
 
-SINGLE_AND_MULTI_THREAD_TEST_F(LayerTreeHostTestUndrawnLayersDamageLater);
+SINGLE_MULTI_AND_REMOTE_TEST_F(LayerTreeHostTestUndrawnLayersDamageLater);
 
 // Tests that if a layer is not drawn because of some reason in the parent then
 // its damage is preserved until the next time it is drawn.
@@ -2178,7 +2331,7 @@ class LayerTreeHostTestDamageWithScale : public LayerTreeHostTest {
   scoped_refptr<Layer> child_layer_;
 };
 
-SINGLE_AND_MULTI_THREAD_TEST_F(LayerTreeHostTestDamageWithScale);
+SINGLE_MULTI_AND_REMOTE_TEST_F(LayerTreeHostTestDamageWithScale);
 
 // This test verifies that properties on the layer tree host are commited
 // to the impl side.
@@ -2222,7 +2375,7 @@ class LayerTreeHostTestCommit : public LayerTreeHostTest {
   void AfterTest() override {}
 };
 
-MULTI_THREAD_TEST_F(LayerTreeHostTestCommit);
+REMOTE_AND_MULTI_THREAD_TEST_F(LayerTreeHostTestCommit);
 
 // This test verifies that LayerTreeHostImpl's current frame time gets
 // updated in consecutive frames when it doesn't draw due to tree
@@ -2280,6 +2433,7 @@ class LayerTreeHostTestFrameTimeUpdatesAfterActivationFails
 // This test blocks activation which is not supported for single thread mode.
 MULTI_THREAD_BLOCKNOTIFY_TEST_F(
     LayerTreeHostTestFrameTimeUpdatesAfterActivationFails);
+REMOTE_TEST_F(LayerTreeHostTestFrameTimeUpdatesAfterActivationFails);
 
 // This test verifies that LayerTreeHostImpl's current frame time gets
 // updated in consecutive frames when it draws in each frame.
@@ -2328,7 +2482,7 @@ class LayerTreeHostTestFrameTimeUpdatesAfterDraw : public LayerTreeHostTest {
   base::TimeTicks first_frame_time_;
 };
 
-SINGLE_AND_MULTI_THREAD_TEST_F(LayerTreeHostTestFrameTimeUpdatesAfterDraw);
+SINGLE_MULTI_AND_REMOTE_TEST_F(LayerTreeHostTestFrameTimeUpdatesAfterDraw);
 
 // Verifies that StartPageScaleAnimation events propagate correctly
 // from LayerTreeHost to LayerTreeHostImpl in the MT compositor.
@@ -2406,6 +2560,7 @@ class LayerTreeHostTestStartPageScaleAnimation : public LayerTreeHostTest {
 };
 
 // Single thread proxy does not support impl-side page scale changes.
+// Remote test does not support page scale animation.
 MULTI_THREAD_TEST_F(LayerTreeHostTestStartPageScaleAnimation);
 
 class LayerTreeHostTestSetVisible : public LayerTreeHostTest {
@@ -2436,7 +2591,7 @@ class LayerTreeHostTestSetVisible : public LayerTreeHostTest {
   int num_draws_;
 };
 
-MULTI_THREAD_TEST_F(LayerTreeHostTestSetVisible);
+REMOTE_AND_MULTI_THREAD_TEST_F(LayerTreeHostTestSetVisible);
 
 class LayerTreeHostTestDeviceScaleFactorScalesViewportAndLayers
     : public LayerTreeHostTest {
@@ -2538,7 +2693,8 @@ class LayerTreeHostTestDeviceScaleFactorScalesViewportAndLayers
   scoped_refptr<FakePictureLayer> child_layer_;
 };
 
-MULTI_THREAD_TEST_F(LayerTreeHostTestDeviceScaleFactorScalesViewportAndLayers);
+REMOTE_AND_MULTI_THREAD_TEST_F(
+    LayerTreeHostTestDeviceScaleFactorScalesViewportAndLayers);
 
 class LayerTreeHostTestContinuousInvalidate : public LayerTreeHostTest {
  public:
@@ -2588,7 +2744,7 @@ class LayerTreeHostTestContinuousInvalidate : public LayerTreeHostTest {
   int num_draw_layers_;
 };
 
-SINGLE_AND_MULTI_THREAD_TEST_F(LayerTreeHostTestContinuousInvalidate);
+SINGLE_MULTI_AND_REMOTE_TEST_F(LayerTreeHostTestContinuousInvalidate);
 
 class LayerTreeHostTestDeferCommits : public LayerTreeHostTest {
  public:
@@ -2646,7 +2802,7 @@ class LayerTreeHostTestDeferCommits : public LayerTreeHostTest {
   int num_send_begin_main_frame_;
 };
 
-SINGLE_AND_MULTI_THREAD_TEST_F(LayerTreeHostTestDeferCommits);
+SINGLE_MULTI_AND_REMOTE_TEST_F(LayerTreeHostTestDeferCommits);
 
 class LayerTreeHostTestCompositeImmediatelyStateTransitions
     : public LayerTreeHostTest {
@@ -2805,7 +2961,7 @@ class LayerTreeHostTestLCDChange : public LayerTreeHostTest {
   int num_tiles_rastered_;
 };
 
-SINGLE_AND_MULTI_THREAD_TEST_F(LayerTreeHostTestLCDChange);
+SINGLE_MULTI_AND_REMOTE_TEST_F(LayerTreeHostTestLCDChange);
 
 class LayerTreeHostTestBeginFrameNotificationShutdownWhileEnabled
     : public LayerTreeHostTest {
@@ -2827,6 +2983,8 @@ class LayerTreeHostTestBeginFrameNotificationShutdownWhileEnabled
   void AfterTest() override {}
 };
 
+// No remote test since synchronous renderer compositor is not supported for LTH
+// remote.
 MULTI_THREAD_TEST_F(
     LayerTreeHostTestBeginFrameNotificationShutdownWhileEnabled);
 
@@ -2880,7 +3038,6 @@ class OnDrawCompositorFrameSink : public TestCompositorFrameSink {
   explicit OnDrawCompositorFrameSink(
       scoped_refptr<ContextProvider> compositor_context_provider,
       scoped_refptr<ContextProvider> worker_context_provider,
-      std::unique_ptr<OutputSurface> display_output_surface,
       SharedBitmapManager* shared_bitmap_manager,
       gpu::GpuMemoryBufferManager* gpu_memory_buffer_manager,
       const RendererSettings& renderer_settings,
@@ -2890,7 +3047,6 @@ class OnDrawCompositorFrameSink : public TestCompositorFrameSink {
       base::Closure invalidate_callback)
       : TestCompositorFrameSink(std::move(compositor_context_provider),
                                 std::move(worker_context_provider),
-                                std::move(display_output_surface),
                                 shared_bitmap_manager,
                                 gpu_memory_buffer_manager,
                                 renderer_settings,
@@ -2927,16 +3083,15 @@ class LayerTreeHostTestAbortedCommitDoesntStallSynchronousCompositor
         &LayerTreeHostTestAbortedCommitDoesntStallSynchronousCompositor::
             CallOnDraw,
         base::Unretained(this));
-    auto output_surface = base::MakeUnique<OnDrawCompositorFrameSink>(
+    auto frame_sink = base::MakeUnique<OnDrawCompositorFrameSink>(
         compositor_context_provider, std::move(worker_context_provider),
-        CreateDisplayOutputSurface(compositor_context_provider),
         shared_bitmap_manager(), gpu_memory_buffer_manager(),
         layer_tree_host()->GetSettings().renderer_settings,
         ImplThreadTaskRunner(), false /* synchronous_composite */,
         false /* force_disable_reclaim_resources */,
         std::move(on_draw_callback));
-    output_surface_ = output_surface.get();
-    return std::move(output_surface);
+    compositor_frame_sink_ = frame_sink.get();
+    return std::move(frame_sink);
   }
 
   void CallOnDraw() {
@@ -2946,14 +3101,16 @@ class LayerTreeHostTestAbortedCommitDoesntStallSynchronousCompositor
       bool resourceless_software_draw = false;
       ImplThreadTaskRunner()->PostTask(
           FROM_HERE, base::Bind(&OnDrawCompositorFrameSink::OnDraw,
-                                base::Unretained(output_surface_),
+                                base::Unretained(compositor_frame_sink_),
                                 resourceless_software_draw));
     }
   }
 
-  OnDrawCompositorFrameSink* output_surface_ = nullptr;
+  OnDrawCompositorFrameSink* compositor_frame_sink_ = nullptr;
 };
 
+// No remote test since synchronous renderer compositor is not supported for LTH
+// remote.
 MULTI_THREAD_TEST_F(
     LayerTreeHostTestAbortedCommitDoesntStallSynchronousCompositor);
 
@@ -2981,7 +3138,7 @@ class LayerTreeHostTestUninvertibleTransformDoesNotBlockActivation
   FakeContentLayerClient client_;
 };
 
-SINGLE_AND_MULTI_THREAD_TEST_F(
+SINGLE_MULTI_AND_REMOTE_TEST_F(
     LayerTreeHostTestUninvertibleTransformDoesNotBlockActivation);
 
 class LayerTreeHostTestNumFramesPending : public LayerTreeHostTest {
@@ -3001,12 +3158,13 @@ class LayerTreeHostTestNumFramesPending : public LayerTreeHostTest {
       case 2:
         // Round 2 done.
         EXPECT_EQ(1, frame_);
-        layer_tree_host()->SetNeedsRedraw();
+        layer_tree_host()->SetNeedsRedrawRect(
+            gfx::Rect(layer_tree()->device_viewport_size()));
         break;
     }
   }
 
-  void DidCompleteSwapBuffers() override {
+  void DidReceiveCompositorFrameAck() override {
     int commit = layer_tree_host()->SourceFrameNumber();
     ++frame_;
     switch (frame_) {
@@ -3029,7 +3187,7 @@ class LayerTreeHostTestNumFramesPending : public LayerTreeHostTest {
   int frame_;
 };
 
-SINGLE_AND_MULTI_THREAD_TEST_F(LayerTreeHostTestNumFramesPending);
+SINGLE_MULTI_AND_REMOTE_TEST_F(LayerTreeHostTestNumFramesPending);
 
 class LayerTreeHostTestResourcelessSoftwareDraw : public LayerTreeHostTest {
  protected:
@@ -3065,16 +3223,15 @@ class LayerTreeHostTestResourcelessSoftwareDraw : public LayerTreeHostTest {
     auto on_draw_callback =
         base::Bind(&LayerTreeHostTestResourcelessSoftwareDraw::CallOnDraw,
                    base::Unretained(this));
-    auto output_surface = base::MakeUnique<OnDrawCompositorFrameSink>(
+    auto frame_sink = base::MakeUnique<OnDrawCompositorFrameSink>(
         compositor_context_provider, std::move(worker_context_provider),
-        CreateDisplayOutputSurface(compositor_context_provider),
         shared_bitmap_manager(), gpu_memory_buffer_manager(),
         layer_tree_host()->GetSettings().renderer_settings,
         ImplThreadTaskRunner(), false /* synchronous_composite */,
         false /* force_disable_reclaim_resources */,
         std::move(on_draw_callback));
-    output_surface_ = output_surface.get();
-    return std::move(output_surface);
+    compositor_frame_sink_ = frame_sink.get();
+    return std::move(frame_sink);
   }
 
   void BeginTest() override { PostSetNeedsCommitToMainThread(); }
@@ -3086,7 +3243,7 @@ class LayerTreeHostTestResourcelessSoftwareDraw : public LayerTreeHostTest {
       bool resourceless_software_draw = true;
       ImplThreadTaskRunner()->PostTask(
           FROM_HERE, base::Bind(&OnDrawCompositorFrameSink::OnDraw,
-                                base::Unretained(output_surface_),
+                                base::Unretained(compositor_frame_sink_),
                                 resourceless_software_draw));
     }
   }
@@ -3127,7 +3284,7 @@ class LayerTreeHostTestResourcelessSoftwareDraw : public LayerTreeHostTest {
   void AfterTest() override {}
 
  private:
-  OnDrawCompositorFrameSink* output_surface_ = nullptr;
+  OnDrawCompositorFrameSink* compositor_frame_sink_ = nullptr;
   FakeContentLayerClient client_;
   scoped_refptr<Layer> root_layer_;
   scoped_refptr<Layer> parent_layer_;
@@ -3136,6 +3293,8 @@ class LayerTreeHostTestResourcelessSoftwareDraw : public LayerTreeHostTest {
 };
 
 // Resourceless is not used for SingleThreadProxy, so it is unimplemented.
+// No remote test since synchronous renderer compositor is not supported for LTH
+// remote.
 MULTI_THREAD_TEST_F(LayerTreeHostTestResourcelessSoftwareDraw);
 
 // Test for UI Resource management.
@@ -3232,84 +3391,9 @@ class LayerTreeHostTestUIResource : public LayerTreeHostTest {
   int num_ui_resources_;
 };
 
+// No remote test since LTH remote does not support UIResourceLayers and
+// PaintedScrollbarLayers, which uses UIResourceManager.
 MULTI_THREAD_TEST_F(LayerTreeHostTestUIResource);
-
-class PushPropertiesCountingLayerImpl : public LayerImpl {
- public:
-  static std::unique_ptr<PushPropertiesCountingLayerImpl> Create(
-      LayerTreeImpl* tree_impl,
-      int id) {
-    return base::WrapUnique(new PushPropertiesCountingLayerImpl(tree_impl, id));
-  }
-
-  ~PushPropertiesCountingLayerImpl() override {}
-
-  void PushPropertiesTo(LayerImpl* layer) override {
-    LayerImpl::PushPropertiesTo(layer);
-    push_properties_count_++;
-    // Push state to the active tree because we can only access it from there.
-    static_cast<PushPropertiesCountingLayerImpl*>(layer)
-        ->push_properties_count_ = push_properties_count_;
-  }
-
-  std::unique_ptr<LayerImpl> CreateLayerImpl(
-      LayerTreeImpl* tree_impl) override {
-    return PushPropertiesCountingLayerImpl::Create(tree_impl, id());
-  }
-
-  size_t push_properties_count() const { return push_properties_count_; }
-  void reset_push_properties_count() { push_properties_count_ = 0; }
-
- private:
-  size_t push_properties_count_;
-
-  PushPropertiesCountingLayerImpl(LayerTreeImpl* tree_impl, int id)
-      : LayerImpl(tree_impl, id), push_properties_count_(0) {
-    SetBounds(gfx::Size(1, 1));
-  }
-};
-
-class PushPropertiesCountingLayer : public Layer {
- public:
-  static scoped_refptr<PushPropertiesCountingLayer> Create() {
-    return new PushPropertiesCountingLayer();
-  }
-
-  void PushPropertiesTo(LayerImpl* layer) override {
-    Layer::PushPropertiesTo(layer);
-    push_properties_count_++;
-    if (persist_needs_push_properties_) {
-      GetLayerTree()->AddLayerShouldPushProperties(this);
-    }
-  }
-
-  // Something to make this layer push properties, but no other layer.
-  void MakePushProperties() { SetContentsOpaque(!contents_opaque()); }
-
-  std::unique_ptr<LayerImpl> CreateLayerImpl(
-      LayerTreeImpl* tree_impl) override {
-    return PushPropertiesCountingLayerImpl::Create(tree_impl, id());
-  }
-
-  void SetDrawsContent(bool draws_content) { SetIsDrawable(draws_content); }
-
-  size_t push_properties_count() const { return push_properties_count_; }
-  void reset_push_properties_count() { push_properties_count_ = 0; }
-
-  void set_persist_needs_push_properties(bool persist) {
-    persist_needs_push_properties_ = persist;
-  }
-
- private:
-  PushPropertiesCountingLayer()
-      : push_properties_count_(0), persist_needs_push_properties_(false) {
-    SetBounds(gfx::Size(1, 1));
-  }
-  ~PushPropertiesCountingLayer() override {}
-
-  size_t push_properties_count_;
-  bool persist_needs_push_properties_;
-};
 
 class LayerTreeHostTestLayersPushProperties : public LayerTreeHostTest {
  protected:
@@ -3511,6 +3595,9 @@ class LayerTreeHostTestLayersPushProperties : public LayerTreeHostTest {
   size_t expected_push_properties_leaf_layer_;
 };
 
+// No remote test because LTH remote does not build property trees, so layers
+// to push properties are different between engine and client.
+// See crbug/655795.
 MULTI_THREAD_TEST_F(LayerTreeHostTestLayersPushProperties);
 
 class LayerTreeHostTestImplLayersPushProperties
@@ -3707,7 +3794,9 @@ class LayerTreeHostTestImplLayersPushProperties
   size_t expected_push_properties_grandchild2_impl_;
 };
 
-// In single thread there's no pending tree to push properties from.
+// No remote test because LTH remote does not build property trees, so layers
+// to push properties are different between engine and client.
+// See crbug/655795.
 MULTI_THREAD_TEST_F(LayerTreeHostTestImplLayersPushProperties);
 
 class LayerTreeHostTestPropertyChangesDuringUpdateArePushed
@@ -3765,6 +3854,7 @@ class LayerTreeHostTestPropertyChangesDuringUpdateArePushed
   scoped_refptr<FakePaintedScrollbarLayer> scrollbar_layer_;
 };
 
+// No remote test since remote LTH does not support PaintedScrollbarLayer.
 MULTI_THREAD_TEST_F(LayerTreeHostTestPropertyChangesDuringUpdateArePushed);
 
 class LayerTreeHostTestSetDrawableCausesCommit : public LayerTreeHostTest {
@@ -3796,7 +3886,7 @@ class LayerTreeHostTestSetDrawableCausesCommit : public LayerTreeHostTest {
         EXPECT_EQ(0, root_->NumDescendantsThatDrawContent());
         root_->reset_push_properties_count();
         child_->reset_push_properties_count();
-        child_->SetDrawsContent(true);
+        child_->SetIsDrawable(true);
         EXPECT_EQ(1, root_->NumDescendantsThatDrawContent());
         EXPECT_EQ(0u, root_->push_properties_count());
         EXPECT_EQ(0u, child_->push_properties_count());
@@ -3825,7 +3915,7 @@ class LayerTreeHostTestSetDrawableCausesCommit : public LayerTreeHostTest {
   scoped_refptr<PushPropertiesCountingLayer> child_;
 };
 
-MULTI_THREAD_TEST_F(LayerTreeHostTestSetDrawableCausesCommit);
+REMOTE_AND_MULTI_THREAD_TEST_F(LayerTreeHostTestSetDrawableCausesCommit);
 
 class LayerTreeHostTestCasePushPropertiesThreeGrandChildren
     : public LayerTreeHostTest {
@@ -3898,7 +3988,8 @@ class LayerTreeHostTestPushPropertiesAddingToTreeRequiresPush
   }
 };
 
-MULTI_THREAD_TEST_F(LayerTreeHostTestPushPropertiesAddingToTreeRequiresPush);
+REMOTE_AND_MULTI_THREAD_TEST_F(
+    LayerTreeHostTestPushPropertiesAddingToTreeRequiresPush);
 
 class LayerTreeHostTestPushPropertiesRemovingChildStopsRecursion
     : public LayerTreeHostTestCasePushPropertiesThreeGrandChildren {
@@ -3981,7 +4072,8 @@ class LayerTreeHostTestPushPropertiesRemovingChildStopsRecursion
   }
 };
 
-MULTI_THREAD_TEST_F(LayerTreeHostTestPushPropertiesRemovingChildStopsRecursion);
+REMOTE_AND_MULTI_THREAD_TEST_F(
+    LayerTreeHostTestPushPropertiesRemovingChildStopsRecursion);
 
 class LayerTreeHostTestPushPropertiesRemovingChildStopsRecursionWithPersistence
     : public LayerTreeHostTestCasePushPropertiesThreeGrandChildren {
@@ -4029,7 +4121,7 @@ class LayerTreeHostTestPushPropertiesRemovingChildStopsRecursionWithPersistence
   }
 };
 
-MULTI_THREAD_TEST_F(
+REMOTE_AND_MULTI_THREAD_TEST_F(
     LayerTreeHostTestPushPropertiesRemovingChildStopsRecursionWithPersistence);
 
 class LayerTreeHostTestPushPropertiesSetPropertiesWhileOutsideTree
@@ -4098,7 +4190,7 @@ class LayerTreeHostTestPushPropertiesSetPropertiesWhileOutsideTree
   }
 };
 
-MULTI_THREAD_TEST_F(
+REMOTE_AND_MULTI_THREAD_TEST_F(
     LayerTreeHostTestPushPropertiesSetPropertiesWhileOutsideTree);
 
 class LayerTreeHostTestPushPropertiesSetPropertyInParentThenChild
@@ -4163,7 +4255,7 @@ class LayerTreeHostTestPushPropertiesSetPropertyInParentThenChild
   }
 };
 
-MULTI_THREAD_TEST_F(
+REMOTE_AND_MULTI_THREAD_TEST_F(
     LayerTreeHostTestPushPropertiesSetPropertyInParentThenChild);
 
 class LayerTreeHostTestPushPropertiesSetPropertyInChildThenParent
@@ -4228,7 +4320,7 @@ class LayerTreeHostTestPushPropertiesSetPropertyInChildThenParent
   }
 };
 
-MULTI_THREAD_TEST_F(
+REMOTE_AND_MULTI_THREAD_TEST_F(
     LayerTreeHostTestPushPropertiesSetPropertyInChildThenParent);
 
 // This test verifies that the tree activation callback is invoked correctly.
@@ -4287,7 +4379,7 @@ class LayerTreeHostTestTreeActivationCallback : public LayerTreeHostTest {
   int callback_count_;
 };
 
-SINGLE_AND_MULTI_THREAD_TEST_F(LayerTreeHostTestTreeActivationCallback);
+SINGLE_MULTI_AND_REMOTE_TEST_F(LayerTreeHostTestTreeActivationCallback);
 
 class LayerInvalidateCausesDraw : public LayerTreeHostTest {
  public:
@@ -4350,6 +4442,7 @@ class LayerTreeHostTestVideoLayerInvalidate : public LayerInvalidateCausesDraw {
   FakeVideoFrameProvider provider_;
 };
 
+// LTH remote does not support VideoLayer.
 SINGLE_AND_MULTI_THREAD_TEST_F(LayerTreeHostTestVideoLayerInvalidate);
 
 class LayerTreeHostTestPushHiddenLayer : public LayerTreeHostTest {
@@ -4417,7 +4510,7 @@ class LayerTreeHostTestPushHiddenLayer : public LayerTreeHostTest {
   scoped_refptr<SolidColorLayer> child_layer_;
 };
 
-SINGLE_AND_MULTI_THREAD_TEST_F(LayerTreeHostTestPushHiddenLayer);
+SINGLE_MULTI_AND_REMOTE_TEST_F(LayerTreeHostTestPushHiddenLayer);
 
 class LayerTreeHostTestUpdateLayerInEmptyViewport : public LayerTreeHostTest {
  protected:
@@ -4450,7 +4543,7 @@ class LayerTreeHostTestUpdateLayerInEmptyViewport : public LayerTreeHostTest {
   scoped_refptr<FakePictureLayer> root_layer_;
 };
 
-MULTI_THREAD_TEST_F(LayerTreeHostTestUpdateLayerInEmptyViewport);
+REMOTE_AND_MULTI_THREAD_TEST_F(LayerTreeHostTestUpdateLayerInEmptyViewport);
 
 class LayerTreeHostTestElasticOverscroll : public LayerTreeHostTest {
  public:
@@ -4545,6 +4638,7 @@ class LayerTreeHostTestElasticOverscroll : public LayerTreeHostTest {
   int num_draws_;
 };
 
+// Remote test does not support enable_elastic_overscroll.
 MULTI_THREAD_TEST_F(LayerTreeHostTestElasticOverscroll);
 
 struct TestSwapPromiseResult {
@@ -4580,12 +4674,14 @@ class TestSwapPromise : public SwapPromise {
     result_->did_activate_called = true;
   }
 
-  void DidSwap(CompositorFrameMetadata* metadata) override {
+  void WillSwap(CompositorFrameMetadata* metadata) override {
     base::AutoLock lock(result_->lock);
     EXPECT_FALSE(result_->did_swap_called);
     EXPECT_FALSE(result_->did_not_swap_called);
     result_->did_swap_called = true;
   }
+
+  void DidSwap() override {}
 
   DidNotSwapAction DidNotSwap(DidNotSwapReason reason) override {
     base::AutoLock lock(result_->lock);
@@ -4649,6 +4745,9 @@ class PinnedLayerTreeSwapPromise : public LayerTreeHostTest {
   TestSwapPromiseResult pinned_active_swap_promise_result_;
 };
 
+// No remote test because this test compares the swap promises result between
+// LTH in process and LTH impl. LTH remote runs its own swap promise, and we
+// don't send swap promises to the client.
 MULTI_THREAD_TEST_F(PinnedLayerTreeSwapPromise);
 
 class LayerTreeHostTestBreakSwapPromise : public LayerTreeHostTest {
@@ -4746,6 +4845,8 @@ class LayerTreeHostTestBreakSwapPromise : public LayerTreeHostTest {
   TestSwapPromiseResult swap_promise_result_[3];
 };
 
+// No remote test because LTH remote runs its own swap promises, and we
+// don't send swap promises to the LTH in process on the client side.
 MULTI_THREAD_TEST_F(LayerTreeHostTestBreakSwapPromise);
 
 class LayerTreeHostTestKeepSwapPromise : public LayerTreeHostTest {
@@ -4837,6 +4938,8 @@ class LayerTreeHostTestKeepSwapPromise : public LayerTreeHostTest {
   TestSwapPromiseResult swap_promise_result_;
 };
 
+// No remote test because LTH remote runs its own swap promises, and we
+// don't send swap promises to the LTH in process on the client side.
 SINGLE_AND_MULTI_THREAD_TEST_F(LayerTreeHostTestKeepSwapPromise);
 
 class LayerTreeHostTestKeepSwapPromiseMFBA : public LayerTreeHostTest {
@@ -4951,6 +5054,8 @@ class LayerTreeHostTestKeepSwapPromiseMFBA : public LayerTreeHostTest {
   TestSwapPromiseResult swap_promise_result_;
 };
 
+// No remote test because LTH remote runs its own swap promises, and we
+// don't send swap promises to the LTH in process on the client side.
 MULTI_THREAD_TEST_F(LayerTreeHostTestKeepSwapPromiseMFBA);
 
 class LayerTreeHostTestBreakSwapPromiseForVisibility
@@ -4993,6 +5098,8 @@ class LayerTreeHostTestBreakSwapPromiseForVisibility
   TestSwapPromiseResult swap_promise_result_;
 };
 
+// No remote test because LTH remote runs its own swap promises, and we
+// don't send swap promises to the LTH in process on the client side.
 SINGLE_AND_MULTI_THREAD_TEST_F(LayerTreeHostTestBreakSwapPromiseForVisibility);
 
 class SimpleSwapPromiseMonitor : public SwapPromiseMonitor {
@@ -5076,6 +5183,8 @@ class LayerTreeHostTestSimpleSwapPromiseMonitor : public LayerTreeHostTest {
   void AfterTest() override {}
 };
 
+// No remote test because LTH remote runs its own swap promises, and we
+// don't send swap promises to the LTH in process on the client side.
 SINGLE_AND_MULTI_THREAD_TEST_F(LayerTreeHostTestSimpleSwapPromiseMonitor);
 
 class LayerTreeHostTestHighResRequiredAfterEvictingUIResources
@@ -5297,6 +5406,8 @@ class LayerTreeHostTestGpuRasterizationEnabled : public LayerTreeHostTest {
   FakeRecordingSource* recording_source_;
 };
 
+// No remote test since we does not send gpu rasterization flag to the client.
+// See crbug/650431.
 MULTI_THREAD_TEST_F(LayerTreeHostTestGpuRasterizationEnabled);
 
 class LayerTreeHostTestGpuRasterizationReenabled : public LayerTreeHostTest {
@@ -5619,6 +5730,82 @@ class LayerTreeHostTestActivateOnInvisible : public LayerTreeHostTest {
 // This test blocks activation which is not supported for single thread mode.
 MULTI_THREAD_BLOCKNOTIFY_TEST_F(LayerTreeHostTestActivateOnInvisible);
 
+class LayerTreeHostTestRenderSurfaceEffectTreeIndex : public LayerTreeHostTest {
+ public:
+  LayerTreeHostTestRenderSurfaceEffectTreeIndex() = default;
+
+  void BeginTest() override { PostSetNeedsCommitToMainThread(); }
+
+  void SetupTree() override {
+    root_ = Layer::Create();
+    child_ = Layer::Create();
+    grand_child_ = Layer::Create();
+
+    layer_tree()->SetRootLayer(root_);
+    root_->AddChild(child_);
+    child_->AddChild(grand_child_);
+
+    root_->SetBounds(gfx::Size(50, 50));
+    child_->SetBounds(gfx::Size(50, 50));
+    grand_child_->SetBounds(gfx::Size(50, 50));
+    child_->SetForceRenderSurfaceForTesting(true);
+    grand_child_->SetForceRenderSurfaceForTesting(true);
+
+    LayerTreeHostTest::SetupTree();
+  }
+
+  void CommitCompleteOnThread(LayerTreeHostImpl* host_impl) override {
+    if (host_impl->sync_tree()->source_frame_number() >= 1) {
+      LayerImpl* grand_child_impl =
+          host_impl->sync_tree()->LayerById(grand_child_->id());
+      EXPECT_EQ(grand_child_impl->effect_tree_index(),
+                grand_child_impl->render_surface()->EffectTreeIndex());
+    }
+  }
+
+  void DidActivateTreeOnThread(LayerTreeHostImpl* host_impl) override {
+    LayerImpl* grand_child_impl =
+        host_impl->active_tree()->LayerById(grand_child_->id());
+    switch (host_impl->active_tree()->source_frame_number()) {
+      case 0:
+        PostSetNeedsCommitToMainThread();
+        break;
+      case 1:
+      case 2:
+        EXPECT_EQ(grand_child_impl->effect_tree_index(),
+                  grand_child_impl->render_surface()->EffectTreeIndex());
+        PostSetNeedsCommitToMainThread();
+        break;
+      case 3:
+        EXPECT_EQ(grand_child_impl->effect_tree_index(),
+                  grand_child_impl->render_surface()->EffectTreeIndex());
+        EndTest();
+    }
+  }
+
+  void DidCommit() override {
+    switch (layer_tree_host()->SourceFrameNumber()) {
+      case 2:
+        // Setting an empty viewport causes draws to get skipped, so the active
+        // tree won't update draw properties.
+        layer_tree()->SetViewportSize(gfx::Size());
+        child_->SetForceRenderSurfaceForTesting(false);
+        break;
+      case 3:
+        layer_tree()->SetViewportSize(root_->bounds());
+    }
+  }
+
+  void AfterTest() override {}
+
+ private:
+  scoped_refptr<Layer> root_;
+  scoped_refptr<Layer> child_;
+  scoped_refptr<Layer> grand_child_;
+};
+
+SINGLE_MULTI_AND_REMOTE_TEST_F(LayerTreeHostTestRenderSurfaceEffectTreeIndex);
+
 // Do a synchronous composite and assert that the swap promise succeeds.
 class LayerTreeHostTestSynchronousCompositeSwapPromise
     : public LayerTreeHostTest {
@@ -5640,7 +5827,6 @@ class LayerTreeHostTestSynchronousCompositeSwapPromise
     bool force_disable_reclaim_resources = !reclaim_resources_;
     return base::MakeUnique<TestCompositorFrameSink>(
         compositor_context_provider, std::move(worker_context_provider),
-        CreateDisplayOutputSurface(compositor_context_provider),
         shared_bitmap_manager(), gpu_memory_buffer_manager(),
         layer_tree_host()->GetSettings().renderer_settings,
         ImplThreadTaskRunner(), synchronous_composite,
@@ -5967,7 +6153,7 @@ MULTI_THREAD_TEST_F(LayerTreeHostTestCrispUpAfterPinchEnds);
 class LayerTreeHostTestCrispUpAfterPinchEndsWithOneCopy
     : public LayerTreeHostTestCrispUpAfterPinchEnds {
  protected:
-  std::unique_ptr<OutputSurface> CreateDisplayOutputSurface(
+  std::unique_ptr<OutputSurface> CreateDisplayOutputSurfaceOnThread(
       scoped_refptr<ContextProvider> compositor_context_provider) override {
     scoped_refptr<TestContextProvider> display_context_provider =
         TestContextProvider::Create();
@@ -5977,7 +6163,8 @@ class LayerTreeHostTestCrispUpAfterPinchEndsWithOneCopy
 #if defined(OS_MACOSX)
     context3d->set_support_texture_rectangle(true);
 #endif
-    return LayerTreeTest::CreateDisplayOutputSurface(
+    display_context_provider->BindToCurrentThread();
+    return LayerTreeTest::CreateDisplayOutputSurfaceOnThread(
         std::move(display_context_provider));
   }
 };
@@ -6730,7 +6917,7 @@ class LayerTreeTestMaskLayerWithDifferentBounds : public LayerTreeTest {
   FakeContentLayerClient client_;
 };
 
-SINGLE_AND_MULTI_THREAD_TEST_F(LayerTreeTestMaskLayerWithDifferentBounds);
+SINGLE_MULTI_AND_REMOTE_TEST_F(LayerTreeTestMaskLayerWithDifferentBounds);
 
 class LayerTreeTestPageScaleFlags : public LayerTreeTest {
  protected:
@@ -6801,7 +6988,7 @@ class LayerTreeTestPageScaleFlags : public LayerTreeTest {
   std::vector<int> not_affected_by_page_scale_;
 };
 
-SINGLE_AND_MULTI_THREAD_TEST_F(LayerTreeTestPageScaleFlags);
+SINGLE_MULTI_AND_REMOTE_TEST_F(LayerTreeTestPageScaleFlags);
 
 class LayerTreeHostTestDestroyWhileInitializingOutputSurface
     : public LayerTreeHostTest {
@@ -6947,15 +7134,12 @@ class LayerTreeHostTestSubmitFrameMetadata : public LayerTreeHostTest {
       const CompositorFrame& frame) override {
     EXPECT_EQ(1, ++num_swaps_);
 
-    DelegatedFrameData* last_frame_data = frame.delegated_frame_data.get();
-    ASSERT_TRUE(frame.delegated_frame_data);
-    EXPECT_EQ(drawn_viewport_,
-              last_frame_data->render_pass_list.back()->output_rect);
+    EXPECT_EQ(drawn_viewport_, frame.render_pass_list.back()->output_rect);
     EXPECT_EQ(0.5f, frame.metadata.min_page_scale_factor);
     EXPECT_EQ(4.f, frame.metadata.max_page_scale_factor);
 
-    EXPECT_EQ(0u, frame.delegated_frame_data->resource_list.size());
-    EXPECT_EQ(1u, frame.delegated_frame_data->render_pass_list.size());
+    EXPECT_EQ(0u, frame.resource_list.size());
+    EXPECT_EQ(1u, frame.render_pass_list.size());
 
     EndTest();
   }
@@ -6978,14 +7162,15 @@ class LayerTreeHostTestSubmitFrameResources : public LayerTreeHostTest {
     frame->render_passes.clear();
 
     RenderPass* child_pass =
-        AddRenderPass(&frame->render_passes, RenderPassId(2, 1),
-                      gfx::Rect(3, 3, 10, 10), gfx::Transform());
+        AddRenderPass(&frame->render_passes, 2, gfx::Rect(3, 3, 10, 10),
+                      gfx::Transform(), FilterOperations());
     gpu::SyncToken mailbox_sync_token;
-    AddOneOfEveryQuadType(child_pass, host_impl->resource_provider(),
-                          RenderPassId(0, 0), &mailbox_sync_token);
+    AddOneOfEveryQuadType(child_pass, host_impl->resource_provider(), 0,
+                          &mailbox_sync_token);
 
-    RenderPass* pass = AddRenderPass(&frame->render_passes, RenderPassId(1, 1),
-                                     gfx::Rect(3, 3, 10, 10), gfx::Transform());
+    RenderPass* pass =
+        AddRenderPass(&frame->render_passes, 1, gfx::Rect(3, 3, 10, 10),
+                      gfx::Transform(), FilterOperations());
     AddOneOfEveryQuadType(pass, host_impl->resource_provider(), child_pass->id,
                           &mailbox_sync_token);
     return draw_result;
@@ -6993,14 +7178,12 @@ class LayerTreeHostTestSubmitFrameResources : public LayerTreeHostTest {
 
   void DisplayReceivedCompositorFrameOnThread(
       const CompositorFrame& frame) override {
-    ASSERT_TRUE(frame.delegated_frame_data);
-
-    EXPECT_EQ(2u, frame.delegated_frame_data->render_pass_list.size());
+    EXPECT_EQ(2u, frame.render_pass_list.size());
     // Each render pass has 10 resources in it. And the root render pass has a
     // mask resource used when drawing the child render pass. The number 10 may
     // change if AppendOneOfEveryQuadType() is updated, and the value here
     // should be updated accordingly.
-    EXPECT_EQ(21u, frame.delegated_frame_data->resource_list.size());
+    EXPECT_EQ(21u, frame.resource_list.size());
 
     EndTest();
   }

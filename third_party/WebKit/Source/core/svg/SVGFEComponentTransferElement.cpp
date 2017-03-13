@@ -35,9 +35,7 @@ inline SVGFEComponentTransferElement::SVGFEComponentTransferElement(
     Document& document)
     : SVGFilterPrimitiveStandardAttributes(SVGNames::feComponentTransferTag,
                                            document),
-      m_in1(SVGAnimatedString::create(this,
-                                      SVGNames::inAttr,
-                                      SVGString::create())) {
+      m_in1(SVGAnimatedString::create(this, SVGNames::inAttr)) {
   addToPropertyMap(m_in1);
 }
 
@@ -85,7 +83,7 @@ FilterEffect* SVGFEComponentTransferElement::build(
 
   FilterEffect* effect =
       FEComponentTransfer::create(filter, red, green, blue, alpha);
-  effect->inputEffects().append(input1);
+  effect->inputEffects().push_back(input1);
   return effect;
 }
 

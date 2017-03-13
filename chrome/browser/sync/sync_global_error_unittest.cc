@@ -32,7 +32,7 @@ namespace {
 
 class FakeLoginUIService: public LoginUIService {
  public:
-  FakeLoginUIService() : LoginUIService(NULL) {}
+  FakeLoginUIService() : LoginUIService(nullptr) {}
 };
 
 class FakeLoginUI : public LoginUIService::LoginUI {
@@ -143,7 +143,7 @@ TEST_F(SyncGlobalErrorTest, PassphraseGlobalError) {
       GlobalErrorServiceFactory::GetForProfile(profile()), login_ui_service,
       &error, &service);
 
-  syncer::SyncBackendHost::Status status;
+  syncer::SyncEngine::Status status;
   EXPECT_CALL(service, QueryDetailedSyncStatus(_))
               .WillRepeatedly(Return(false));
 

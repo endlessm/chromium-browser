@@ -13,16 +13,17 @@
 #include "build/build_config.h"
 #include "chrome/common/media_galleries/picasa_types.h"
 #include "chrome/utility/utility_message_handler.h"
+#include "extensions/features/features.h"
 #include "extensions/utility/utility_handler.h"
 
-#if !defined(ENABLE_EXTENSIONS)
+#if !BUILDFLAG(ENABLE_EXTENSIONS)
 #error "Extensions must be enabled"
 #endif
 
 class ChromeContentUtilityClient;
 
-namespace metadata {
-class MediaMetadataParser;
+namespace service_manager {
+class InterfaceRegistry;
 }
 
 namespace extensions {
@@ -30,10 +31,17 @@ namespace extensions {
 // Dispatches IPCs for Chrome extensions utility messages.
 class ExtensionsHandler : public UtilityMessageHandler {
  public:
-  explicit ExtensionsHandler(ChromeContentUtilityClient* utility_client);
+  ExtensionsHandler();
   ~ExtensionsHandler() override;
 
   static void PreSandboxStartup();
+
+  // TODO(noel): consider moving this API to the UtilityMessageHandler
+  // interface.
+  static void ExposeInterfacesToBrowser(
+      service_manager::InterfaceRegistry* registry,
+      ChromeContentUtilityClient* utility_client,
+      bool running_elevated);
 
   // UtilityMessageHandler:
   bool OnMessageReceived(const IPC::Message& message) override;
@@ -42,10 +50,6 @@ class ExtensionsHandler : public UtilityMessageHandler {
   // IPC message handlers.
   void OnCheckMediaFile(int64_t milliseconds_of_decoding,
                         const IPC::PlatformFileForTransit& media_file);
-
-  void OnParseMediaMetadata(const std::string& mime_type,
-                            int64_t total_size,
-                            bool get_attached_images);
 
 #if defined(OS_WIN)
   void OnParseITunesPrefXml(const std::string& itunes_xml_data);
@@ -63,14 +67,7 @@ class ExtensionsHandler : public UtilityMessageHandler {
       const std::vector<picasa::FolderINIContents>& folders_inis);
 #endif  // defined(OS_WIN) || defined(OS_MACOSX)
 
-#if defined(OS_WIN)
-  void OnGetWiFiCredentials(const std::string& network_guid);
-#endif  // defined(OS_WIN)
-
   UtilityHandler utility_handler_;
-
-  // The client that owns this.
-  ChromeContentUtilityClient* const utility_client_;
 
   DISALLOW_COPY_AND_ASSIGN(ExtensionsHandler);
 };

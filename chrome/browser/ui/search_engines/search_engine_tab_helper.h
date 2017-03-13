@@ -12,8 +12,6 @@
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/browser/web_contents_user_data.h"
 
-class TemplateURL;
-
 // Per-tab search engine manager. Handles dealing search engine processing
 // functionality.
 class SearchEngineTabHelper
@@ -23,9 +21,8 @@ class SearchEngineTabHelper
   ~SearchEngineTabHelper() override;
 
   // content::WebContentsObserver overrides.
-  void DidNavigateMainFrame(
-      const content::LoadCommittedDetails& details,
-      const content::FrameNavigateParams& params) override;
+  void DidFinishNavigation(content::NavigationHandle* handle) override;
+
   bool OnMessageReceived(const IPC::Message& message) override;
   bool OnMessageReceived(const IPC::Message& message,
                          content::RenderFrameHost* rfh) override;
@@ -38,8 +35,7 @@ class SearchEngineTabHelper
   void OnPageHasOSDD(const GURL& page_url, const GURL& osdd_url);
 
   // If params has a searchable form, this tries to create a new keyword.
-  void GenerateKeywordIfNecessary(
-      const content::FrameNavigateParams& params);
+  void GenerateKeywordIfNecessary(content::NavigationHandle* handle);
 
   DISALLOW_COPY_AND_ASSIGN(SearchEngineTabHelper);
 };

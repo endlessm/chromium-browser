@@ -1,60 +1,43 @@
 {
     "extensions": [
         {
-            "type": "@WebInspector.InplaceEditor",
-            "className": "WebInspector.CodeMirrorUtils"
+            "type": "@UI.InplaceEditor",
+            "className": "TextEditor.CodeMirrorUtils"
         },
         {
-            "type": "@WebInspector.TokenizerFactory",
-            "className": "WebInspector.CodeMirrorUtils.TokenizerFactory"
+            "type": "@Common.TokenizerFactory",
+            "className": "TextEditor.CodeMirrorUtils.TokenizerFactory"
         },
         {
-            "type": "@WebInspector.TextEditorFactory",
-            "className": "WebInspector.CodeMirrorTextEditorFactory"
+            "type": "@UI.TextEditorFactory",
+            "className": "TextEditor.CodeMirrorTextEditorFactory"
         }
     ],
     "dependencies": [
         "ui",
         "platform",
-        "common"
+        "common",
+        "cm"
     ],
     "scripts": [
-        "../cm/codemirror.js",
-        "../cm/css.js",
-        "../cm/javascript.js",
-        "../cm/simple.js",
-        "../cm/xml.js",
-        "../cm/multiplex.js",
-        "../cm/htmlmixed.js",
-        "../cm/htmlembedded.js",
-        "../cm/matchbrackets.js",
-        "../cm/closebrackets.js",
-        "../cm/markselection.js",
-        "../cm/comment.js",
-        "../cm/overlay.js",
-        "../cm/activeline.js",
+        "../cm_web_modes/css.js",
+        "../cm_web_modes/javascript.js",
+        "../cm_web_modes/xml.js",
+        "../cm_web_modes/htmlmixed.js",
+        "../cm_web_modes/htmlembedded.js",
         "CodeMirrorUtils.js",
         "TextEditorAutocompleteController.js",
         "CodeMirrorTextEditor.js"
     ],
-    "skip_compilation": [
-        "../cm/codemirror.js",
-        "../cm/css.js",
-        "../cm/javascript.js",
-        "../cm/simple.js",
-        "../cm/xml.js",
-        "../cm/multiplex.js",
-        "../cm/htmlmixed.js",
-        "../cm/htmlembedded.js",
-        "../cm/matchbrackets.js",
-        "../cm/closebrackets.js",
-        "../cm/markselection.js",
-        "../cm/comment.js",
-        "../cm/overlay.js",
-        "../cm/activeline.js"
-    ],
     "resources": [
-        "../cm/codemirror.css",
         "cmdevtools.css"
+    ],
+    "skip_compilation": [
+        "acorn/acorn.js",
+        "../cm_web_modes/css.js",
+        "../cm_web_modes/javascript.js",
+        "../cm_web_modes/xml.js",
+        "../cm_web_modes/htmlmixed.js",
+        "../cm_web_modes/htmlembedded.js"
     ]
 }

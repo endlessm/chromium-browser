@@ -15,23 +15,23 @@
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/synchronization/waitable_event.h"
+#include "base/unguessable_token.h"
 #include "cc/output/buffer_to_texture_target_map.h"
 #include "content/child/thread_safe_sender.h"
 #include "content/common/content_export.h"
 #include "media/renderers/gpu_video_accelerator_factories.h"
 #include "ui/gfx/geometry/size.h"
 
-namespace base {
-class WaitableEvent;
-}
-
 namespace gpu {
 class GpuChannelHost;
 class GpuMemoryBufferManager;
 }
 
-namespace content {
+namespace ui {
 class ContextProviderCommandBuffer;
+}
+
+namespace content {
 
 // Glue code to expose functionality needed by media::GpuVideoAccelerator to
 // RenderViewImpl.  This class is entirely an implementation detail of
@@ -51,13 +51,15 @@ class CONTENT_EXPORT RendererGpuVideoAcceleratorFactories
       const scoped_refptr<base::SingleThreadTaskRunner>&
           main_thread_task_runner,
       const scoped_refptr<base::SingleThreadTaskRunner>& task_runner,
-      const scoped_refptr<ContextProviderCommandBuffer>& context_provider,
+      const scoped_refptr<ui::ContextProviderCommandBuffer>& context_provider,
       bool enable_gpu_memory_buffer_video_frames,
       const cc::BufferToTextureTargetMap& image_texture_targets,
       bool enable_video_accelerator);
 
   // media::GpuVideoAcceleratorFactories implementation.
   bool IsGpuVideoAcceleratorEnabled() override;
+  base::UnguessableToken GetChannelToken() override;
+  int32_t GetCommandBufferRouteId() override;
   std::unique_ptr<media::VideoDecodeAccelerator> CreateVideoDecodeAccelerator()
       override;
   std::unique_ptr<media::VideoEncodeAccelerator> CreateVideoEncodeAccelerator()
@@ -73,14 +75,14 @@ class CONTENT_EXPORT RendererGpuVideoAcceleratorFactories
   gpu::SyncToken CreateSyncToken() override;
   void WaitSyncToken(const gpu::SyncToken& sync_token) override;
 
-  std::unique_ptr<gfx::GpuMemoryBuffer> AllocateGpuMemoryBuffer(
+  std::unique_ptr<gfx::GpuMemoryBuffer> CreateGpuMemoryBuffer(
       const gfx::Size& size,
       gfx::BufferFormat format,
       gfx::BufferUsage usage) override;
 
   bool ShouldUseGpuMemoryBuffersForVideoFrames() const override;
   unsigned ImageTextureTarget(gfx::BufferFormat format) override;
-  media::VideoPixelFormat VideoFrameOutputFormat() override;
+  OutputFormat VideoFrameOutputFormat() override;
   std::unique_ptr<media::GpuVideoAcceleratorFactories::ScopedGLContextLock>
   GetGLContextLock() override;
   bool CheckContextLost();
@@ -93,7 +95,7 @@ class CONTENT_EXPORT RendererGpuVideoAcceleratorFactories
       GetVideoEncodeAcceleratorSupportedProfiles() override;
 
   void ReleaseContextProvider();
-  scoped_refptr<ContextProviderCommandBuffer> ContextProviderMainThread();
+  scoped_refptr<ui::ContextProviderCommandBuffer> ContextProviderMainThread();
 
   ~RendererGpuVideoAcceleratorFactories() override;
 
@@ -103,7 +105,7 @@ class CONTENT_EXPORT RendererGpuVideoAcceleratorFactories
       const scoped_refptr<base::SingleThreadTaskRunner>&
           main_thread_task_runner,
       const scoped_refptr<base::SingleThreadTaskRunner>& task_runner,
-      const scoped_refptr<ContextProviderCommandBuffer>& context_provider,
+      const scoped_refptr<ui::ContextProviderCommandBuffer>& context_provider,
       bool enable_gpu_memory_buffer_video_frames,
       const cc::BufferToTextureTargetMap& image_texture_targets,
       bool enable_video_accelerator);
@@ -114,10 +116,12 @@ class CONTENT_EXPORT RendererGpuVideoAcceleratorFactories
 
   // Shared pointer to a shared context provider that should be accessed
   // and set only on the main thread.
-  scoped_refptr<ContextProviderCommandBuffer> context_provider_refptr_;
+  scoped_refptr<ui::ContextProviderCommandBuffer> context_provider_refptr_;
 
   // Raw pointer to a context provider accessed from the media thread.
-  ContextProviderCommandBuffer* context_provider_;
+  ui::ContextProviderCommandBuffer* context_provider_;
+
+  base::UnguessableToken channel_token_;
 
   // Whether gpu memory buffers should be used to hold video frames data.
   bool enable_gpu_memory_buffer_video_frames_;

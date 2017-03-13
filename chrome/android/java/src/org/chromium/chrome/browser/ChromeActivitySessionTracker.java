@@ -7,11 +7,13 @@ package org.chromium.chrome.browser;
 import android.app.Activity;
 import android.content.SharedPreferences;
 import android.provider.Settings;
+import android.text.TextUtils;
 
 import org.chromium.base.ApplicationState;
 import org.chromium.base.ApplicationStatus;
 import org.chromium.base.ApplicationStatus.ApplicationStateListener;
 import org.chromium.base.ContextUtils;
+import org.chromium.base.LocaleUtils;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.VisibleForTesting;
 import org.chromium.base.metrics.RecordHistogram;
@@ -29,7 +31,6 @@ import org.chromium.chrome.browser.util.FeatureUtilities;
 import org.chromium.content.browser.ChildProcessLauncher;
 
 import java.lang.ref.WeakReference;
-import java.util.Locale;
 
 /**
  * Tracks the foreground session state for the Chrome activities.
@@ -131,6 +132,7 @@ public class ChromeActivitySessionTracker {
      */
     private void onForegroundSessionEnd() {
         if (!mIsStarted) return;
+        UmaUtils.recordBackgroundTime();
         ChromeApplication.flushPersistentData();
         mIsStarted = false;
         mPowerBroadcastReceiver.onForegroundSessionEnd();
@@ -182,7 +184,7 @@ public class ChromeActivitySessionTracker {
      */
     private void updateAcceptLanguages() {
         PrefServiceBridge instance = PrefServiceBridge.getInstance();
-        String localeString = Locale.getDefault().toString();  // ex) en_US, de_DE, zh_CN_#Hans
+        String localeString = LocaleUtils.getDefaultLocaleListString();
         if (hasLocaleChanged(localeString)) {
             instance.resetAcceptLanguages(localeString);
             // Clear cache so that accept-languages change can be applied immediately.
@@ -196,15 +198,14 @@ public class ChromeActivitySessionTracker {
     }
 
     private boolean hasLocaleChanged(String newLocale) {
-        String previousLocale = ContextUtils.getAppSharedPreferences().getString(
-                PREF_LOCALE, "");
-
-        if (!previousLocale.equals(newLocale)) {
+        String previousLocale = ContextUtils.getAppSharedPreferences().getString(PREF_LOCALE, null);
+        if (!TextUtils.equals(previousLocale, newLocale)) {
             SharedPreferences prefs = ContextUtils.getAppSharedPreferences();
             SharedPreferences.Editor editor = prefs.edit();
             editor.putString(PREF_LOCALE, newLocale);
             editor.apply();
-            return true;
+            // Consider writing the initial value to prefs as _not_ changing the locale.
+            return previousLocale != null;
         }
         return false;
     }

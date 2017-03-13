@@ -7,13 +7,19 @@
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/renderer_context_menu/render_view_context_menu_test_util.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "components/url_formatter/url_formatter.h"
+#include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/notification_service.h"
+#include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents_observer.h"
+#include "content/public/common/content_switches.h"
 #include "content/public/common/context_menu_params.h"
+#include "content/public/common/url_constants.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/test_navigation_observer.h"
 #include "net/dns/mock_host_resolver.h"
@@ -24,6 +30,11 @@ class ChromeNavigationBrowserTest : public InProcessBrowserTest {
   ~ChromeNavigationBrowserTest() override {}
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
+    // Backgrounded renderer processes run at a lower priority, causing the
+    // tests to take more time to complete. Disable backgrounding so that the
+    // tests don't time out.
+    command_line->AppendSwitch(switches::kDisableRendererBackgrounding);
+
     ASSERT_TRUE(embedded_test_server()->Start());
   }
 
@@ -130,6 +141,52 @@ IN_PROC_BROWSER_TEST_F(
     EXPECT_TRUE(new_web_contents->GetController().GetTransientEntry());
     EXPECT_FALSE(new_web_contents->IsLoading());
   }
+}
+
+// Tests that viewing frame source on a local file:// page with an iframe
+// with a remote URL shows the correct tab title.
+IN_PROC_BROWSER_TEST_F(ChromeNavigationBrowserTest, TestViewFrameSource) {
+  // The local page file:// URL.
+  GURL local_page_with_iframe_url = ui_test_utils::GetTestUrl(
+      base::FilePath(base::FilePath::kCurrentDirectory),
+      base::FilePath(FILE_PATH_LITERAL("iframe.html")));
+
+  // The non-file:// URL of the page to load in the iframe.
+  GURL iframe_target_url = embedded_test_server()->GetURL("/title1.html");
+  ui_test_utils::NavigateToURL(browser(), local_page_with_iframe_url);
+  content::WebContents* web_contents =
+      browser()->tab_strip_model()->GetActiveWebContents();
+
+  content::TestNavigationObserver observer(web_contents);
+  ASSERT_TRUE(content::ExecuteScript(
+      web_contents->GetMainFrame(),
+      base::StringPrintf("var iframe = document.getElementById('test');\n"
+                         "iframe.setAttribute('src', '%s');\n",
+                         iframe_target_url.spec().c_str())));
+  observer.Wait();
+
+  content::RenderFrameHost* frame =
+      content::ChildFrameAt(web_contents->GetMainFrame(), 0);
+  ASSERT_TRUE(frame);
+  ASSERT_NE(frame, web_contents->GetMainFrame());
+
+  content::ContextMenuParams params;
+  params.page_url = local_page_with_iframe_url;
+  params.frame_url = frame->GetLastCommittedURL();
+  params.frame_page_state = content::PageState::CreateFromURL(params.frame_url);
+  TestRenderViewContextMenu menu(frame, params);
+  menu.Init();
+  menu.ExecuteCommand(IDC_CONTENT_CONTEXT_VIEWFRAMESOURCE, 0);
+  ASSERT_EQ(browser()->tab_strip_model()->count(), 2);
+  content::WebContents* new_web_contents =
+      browser()->tab_strip_model()->GetWebContentsAt(1);
+  ASSERT_NE(new_web_contents, web_contents);
+  WaitForLoadStop(new_web_contents);
+
+  GURL view_frame_source_url(content::kViewSourceScheme + std::string(":") +
+                             iframe_target_url.spec());
+  EXPECT_EQ(url_formatter::FormatUrl(view_frame_source_url),
+            new_web_contents->GetTitle());
 }
 
 class ChromeNavigationPortMappedBrowserTest : public InProcessBrowserTest {

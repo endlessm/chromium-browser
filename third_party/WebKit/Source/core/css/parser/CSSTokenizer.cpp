@@ -11,13 +11,12 @@ namespace blink {
 #include "core/css/parser/CSSParserIdioms.h"
 #include "core/css/parser/CSSParserObserverWrapper.h"
 #include "core/css/parser/CSSParserTokenRange.h"
-#include "core/css/parser/CSSTokenizerInputStream.h"
 #include "core/html/parser/HTMLParserIdioms.h"
 #include "wtf/text/CharacterNames.h"
 
 namespace blink {
 
-CSSTokenizer::Scope::Scope(const String& string) : m_string(string) {
+CSSTokenizer::CSSTokenizer(const String& string) : m_input(string) {
   // According to the spec, we should perform preprocessing here.
   // See: http://dev.w3.org/csswg/css-syntax/#input-preprocessing
   //
@@ -34,50 +33,45 @@ CSSTokenizer::Scope::Scope(const String& string) : m_string(string) {
   // Most strings we tokenize have about 3.5 to 5 characters per token.
   m_tokens.reserveInitialCapacity(string.length() / 3);
 
-  CSSTokenizerInputStream input(string);
-  CSSTokenizer tokenizer(input, *this);
   while (true) {
-    CSSParserToken token = tokenizer.nextToken();
+    CSSParserToken token = nextToken();
     if (token.type() == CommentToken)
       continue;
     if (token.type() == EOFToken)
       return;
-    m_tokens.append(token);
+    m_tokens.push_back(token);
   }
 }
 
-CSSTokenizer::Scope::Scope(const String& string,
+CSSTokenizer::CSSTokenizer(const String& string,
                            CSSParserObserverWrapper& wrapper)
-    : m_string(string) {
+    : m_input(string) {
   if (string.isEmpty())
     return;
 
-  CSSTokenizerInputStream input(string);
-  CSSTokenizer tokenizer(input, *this);
-
   unsigned offset = 0;
   while (true) {
-    CSSParserToken token = tokenizer.nextToken();
+    CSSParserToken token = nextToken();
     if (token.type() == EOFToken)
       break;
     if (token.type() == CommentToken) {
-      wrapper.addComment(offset, input.offset(), m_tokens.size());
+      wrapper.addComment(offset, m_input.offset(), m_tokens.size());
     } else {
-      m_tokens.append(token);
+      m_tokens.push_back(token);
       wrapper.addToken(offset);
     }
-    offset = input.offset();
+    offset = m_input.offset();
   }
 
   wrapper.addToken(offset);
   wrapper.finalizeConstruction(m_tokens.begin());
 }
 
-CSSParserTokenRange CSSTokenizer::Scope::tokenRange() {
+CSSParserTokenRange CSSTokenizer::tokenRange() {
   return m_tokens;
 }
 
-unsigned CSSTokenizer::Scope::tokenCount() {
+unsigned CSSTokenizer::tokenCount() {
   return m_tokens.size();
 }
 
@@ -90,9 +84,6 @@ static bool isNewLine(UChar cc) {
 static bool twoCharsAreValidEscape(UChar first, UChar second) {
   return first == '\\' && !isNewLine(second);
 }
-
-CSSTokenizer::CSSTokenizer(CSSTokenizerInputStream& inputStream, Scope& scope)
-    : m_input(inputStream), m_scope(scope) {}
 
 void CSSTokenizer::reconsume(UChar c) {
   m_input.pushBack(c);
@@ -110,21 +101,21 @@ CSSParserToken CSSTokenizer::whiteSpace(UChar cc) {
 }
 
 CSSParserToken CSSTokenizer::blockStart(CSSParserTokenType type) {
-  m_blockStack.append(type);
+  m_blockStack.push_back(type);
   return CSSParserToken(type, CSSParserToken::BlockStart);
 }
 
 CSSParserToken CSSTokenizer::blockStart(CSSParserTokenType blockType,
                                         CSSParserTokenType type,
                                         StringView name) {
-  m_blockStack.append(blockType);
+  m_blockStack.push_back(blockType);
   return CSSParserToken(type, name, CSSParserToken::BlockStart);
 }
 
 CSSParserToken CSSTokenizer::blockEnd(CSSParserTokenType type,
                                       CSSParserTokenType startType) {
-  if (!m_blockStack.isEmpty() && m_blockStack.last() == startType) {
-    m_blockStack.removeLast();
+  if (!m_blockStack.isEmpty() && m_blockStack.back() == startType) {
+    m_blockStack.pop_back();
     return CSSParserToken(type, CSSParserToken::BlockEnd);
   }
   return CSSParserToken(type);
@@ -317,7 +308,7 @@ CSSParserToken CSSTokenizer::nextToken() {
   CodePoint codePointFunc = 0;
 
   if (isASCII(cc)) {
-    ASSERT_WITH_SECURITY_IMPLICATION(cc < codePointsNumber);
+    SECURITY_DCHECK(cc < codePointsNumber);
     codePointFunc = codePoints[cc];
   } else {
     codePointFunc = &CSSTokenizer::nameStart;
@@ -686,7 +677,7 @@ bool CSSTokenizer::nextCharsAreIdentifier() {
 }
 
 StringView CSSTokenizer::registerString(const String& string) {
-  m_scope.storeString(string);
+  m_stringPool.push_back(string);
   return string;
 }
 

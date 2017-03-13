@@ -3,6 +3,8 @@
 # found in the LICENSE file.
 
 import("//build/config/features.gni")
+import("//media/media_options.gni")
+import("//ppapi/features/features.gni")
 
 # See //content/BUILD.gn for how this works.
 group("renderer") {
@@ -38,8 +40,6 @@ target(link_target_type, "renderer_sources") {
     "context_menu_client.h",
     "document_state.cc",
     "document_state.h",
-    "guest_mode.cc",
-    "guest_mode.h",
     "navigation_state.cc",
     "navigation_state.h",
     "pepper_plugin_instance.h",
@@ -72,13 +72,15 @@ target(link_target_type, "renderer_sources") {
     "//content/renderer",
     "//gin",
     "//media",
+    "//media/capture",
     "//media/gpu/ipc/client",
     "//net",
     "//ppapi/c",
+    "//ppapi/features",
     "//skia",
     "//third_party/WebKit/public:blink_headers",
     "//third_party/libjingle",
-    "//third_party/widevine/cdm:version_h",
+    "//third_party/widevine/cdm:headers",
     "//ui/base",
     "//ui/base/ime",
     "//ui/gfx",
@@ -108,7 +110,6 @@ target(link_target_type, "renderer_sources") {
     deps += [
       "//content/public/common:feature_h264_with_openh264_ffmpeg",
       "//content/public/common:features",
-      "//third_party/webrtc",
     ]
   }
 

@@ -56,14 +56,11 @@ class ExtensionIconSource : public content::URLDataSource,
 
   // Gets the URL of the |extension| icon in the given |icon_size|, falling back
   // based on the |match| type. If |grayscale|, the URL will be for the
-  // desaturated version of the icon. |exists|, if non-NULL, will be set to true
-  // if the icon exists; false if it will lead to a default or not-present
-  // image.
+  // desaturated version of the icon.
   static GURL GetIconURL(const Extension* extension,
                          int icon_size,
                          ExtensionIconSet::MatchType match,
-                         bool grayscale,
-                         bool* exists);
+                         bool grayscale);
 
   // A public utility function for accessing the bitmap of the image specified
   // by |resource_id|.
@@ -122,7 +119,7 @@ class ExtensionIconSource : public content::URLDataSource,
   //  3) If still no matches, load the default extension / application icon.
   void LoadIconFailed(int request_id);
 
-  // Parses and savse an ExtensionIconRequest for the URL |path| for the
+  // Parses and saves an ExtensionIconRequest for the URL |path| for the
   // specified |request_id|.
   bool ParseData(const std::string& path,
                  int request_id,
@@ -149,7 +146,7 @@ class ExtensionIconSource : public content::URLDataSource,
   std::map<int, int> tracker_map_;
 
   // Maps request_ids to ExtensionIconRequests.
-  std::map<int, ExtensionIconRequest*> request_map_;
+  std::map<int, std::unique_ptr<ExtensionIconRequest>> request_map_;
 
   std::unique_ptr<SkBitmap> default_app_data_;
 

@@ -16,7 +16,6 @@
 #include "chrome/browser/profiles/profile_android.h"
 #include "content/public/browser/web_contents.h"
 #include "jni/ExternalPrerenderHandler_jni.h"
-#include "net/base/network_change_notifier.h"
 
 using base::android::ConvertJavaStringToUTF16;
 using base::android::JavaParamRef;
@@ -50,7 +49,8 @@ bool CheckAndConvertParams(JNIEnv* env,
 
 }  // namespace
 
-bool ExternalPrerenderHandlerAndroid::AddPrerender(
+base::android::ScopedJavaLocalRef<jobject>
+ExternalPrerenderHandlerAndroid::AddPrerender(
     JNIEnv* env,
     const JavaParamRef<jobject>& obj,
     const JavaParamRef<jobject>& jprofile,
@@ -61,13 +61,12 @@ bool ExternalPrerenderHandlerAndroid::AddPrerender(
     jint left,
     jint bottom,
     jint right,
-    jboolean prerender_on_cellular) {
+    jboolean forced_prerender) {
   Profile* profile = ProfileAndroid::FromProfileAndroid(jprofile);
 
   GURL url = GURL(ConvertJavaStringToUTF16(env, jurl));
   if (!url.is_valid())
-    return false;
-
+    return nullptr;
   content::Referrer referrer;
   if (!jreferrer.is_null()) {
     GURL referrer_url(ConvertJavaStringToUTF16(env, jreferrer));
@@ -80,17 +79,16 @@ bool ExternalPrerenderHandlerAndroid::AddPrerender(
   PrerenderManager* prerender_manager =
       PrerenderManagerFactory::GetForBrowserContext(profile);
   if (!prerender_manager)
-    return false;
+    return nullptr;
 
   content::WebContents* web_contents =
       content::WebContents::FromJavaWebContents(jweb_contents);
   if (prerender_handle_)
     prerender_handle_->OnNavigateAway();
 
-  if (prerender_on_cellular && net::NetworkChangeNotifier::IsConnectionCellular(
-                   net::NetworkChangeNotifier::GetConnectionType())) {
+  if (forced_prerender) {
     prerender_handle_ =
-        prerender_manager->AddPrerenderOnCellularFromExternalRequest(
+        prerender_manager->AddForcedPrerenderFromExternalRequest(
             url, referrer,
             web_contents->GetController().GetDefaultSessionStorageNamespace(),
             gfx::Rect(left, top, right - left, bottom - top));
@@ -101,7 +99,12 @@ bool ExternalPrerenderHandlerAndroid::AddPrerender(
         gfx::Rect(left, top, right - left, bottom - top));
   }
 
-  return !!prerender_handle_;
+  if (!prerender_handle_) {
+    return nullptr;
+  } else {
+    return prerender_handle_
+        ->contents()->prerender_contents()->GetJavaWebContents();
+  }
 }
 
 void ExternalPrerenderHandlerAndroid::CancelCurrentPrerender(

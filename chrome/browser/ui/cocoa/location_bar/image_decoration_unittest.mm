@@ -6,7 +6,7 @@
 
 #import "chrome/browser/ui/cocoa/location_bar/image_decoration.h"
 
-#import "chrome/browser/ui/cocoa/cocoa_test_helper.h"
+#import "chrome/browser/ui/cocoa/test/cocoa_test_helper.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace {
@@ -33,6 +33,7 @@ TEST_F(ImageDecorationTest, SetGetImage) {
 TEST_F(ImageDecorationTest, GetWidthForSpace) {
   const CGFloat kWide = 100.0;
   const CGFloat kNarrow = 10.0;
+  const CGFloat kImageHorizontalPadding = 10.0;
 
   // Decoration with no image is omitted.
   EXPECT_EQ(decoration_.GetWidthForSpace(kWide),
@@ -42,9 +43,10 @@ TEST_F(ImageDecorationTest, GetWidthForSpace) {
   base::scoped_nsobject<NSImage> image(
       [[NSImage alloc] initWithSize:kImageSize]);
 
-  // Decoration takes up the space of the image.
+  // Decoration takes up the space of the image and the horizontal padding.
   decoration_.SetImage(image);
-  EXPECT_EQ(decoration_.GetWidthForSpace(kWide), kImageSize.width);
+  EXPECT_EQ(decoration_.GetWidthForSpace(kWide),
+            kImageSize.width + kImageHorizontalPadding);
 
   // If the image doesn't fit, decoration is omitted.
   EXPECT_EQ(decoration_.GetWidthForSpace(kNarrow),

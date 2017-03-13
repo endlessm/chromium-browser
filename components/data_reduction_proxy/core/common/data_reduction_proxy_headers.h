@@ -12,8 +12,6 @@
 #include "base/time/time.h"
 #include "net/proxy/proxy_service.h"
 
-class GURL;
-
 namespace net {
 
 class HttpResponseHeaders;
@@ -21,8 +19,6 @@ class HttpResponseHeaders;
 }  // namespace net
 
 namespace data_reduction_proxy {
-
-class DataReductionProxyEventCreator;
 
 // Values of the UMA DataReductionProxy.BypassType{Primary|Fallback} and
 // DataReductionProxy.BlockType{Primary|Fallback} histograms. This enum must
@@ -71,9 +67,27 @@ struct DataReductionProxyInfo {
 // Gets the header used for data reduction proxy requests and responses.
 const char* chrome_proxy_header();
 
-// Gets the Chrome-Proxy directive used by data reduction proxy Lo-Fi preview
-// requests and responses.
-const char* chrome_proxy_lo_fi_directive();
+// Gets the ChromeProxyAcceptTransform header name.
+const char* chrome_proxy_accept_transform_header();
+
+// Gets the ChromeProxyContentTransform header name.
+const char* chrome_proxy_content_transform_header();
+
+// Gets the directive used by data reduction proxy Lo-Fi requests and
+// responses.
+const char* empty_image_directive();
+
+// Gets the directive used by data reduction proxy Lite-Page requests
+// and responses.
+const char* lite_page_directive();
+
+// Gets the directive used by the data reduction proxy to request
+// compressed video.
+const char* compressed_video_directive();
+
+// Gets the directive used by the data reduction proxy to request that
+// a resource not be transformed.
+const char* identity_directive();
 
 // Gets the Chrome-Proxy directive used by data reduction proxy lite page
 // preview requests and responses.
@@ -82,6 +96,25 @@ const char* chrome_proxy_lite_page_directive();
 // Gets the Chrome-Proxy directive used by data reduction proxy lite page
 // preview experiment to ignore the blacklist.
 const char* chrome_proxy_lite_page_ignore_blacklist_directive();
+
+// Requests a transformation only if the server determines that the page is
+// otherwise heavy (i.e., the associated page load ordinarily requires the
+// network to transfer of a lot of bytes). Added to a previews directive. E.g.,
+// "lite-page;if-heavy".
+const char* if_heavy_qualifier();
+
+// Returns true if the Chrome-Proxy-Content-Transform response header indicates
+// that an empty image has been provided.
+bool IsEmptyImagePreview(const net::HttpResponseHeaders& headers);
+
+// Returns true if the provided value of the Chrome-Proxy-Content-Transform
+// response header that is provided in |content_transform_value| indicates that
+// an empty image has been provided.
+bool IsEmptyImagePreview(const std::string& content_transform_value);
+
+// Returns true if the Chrome-Proxy-Content-Transform response header indicates
+// that a lite page has been provided.
+bool IsLitePagePreview(const net::HttpResponseHeaders& headers);
 
 // Returns true if the Chrome-Proxy header is present and contains a bypass
 // delay. Sets |proxy_info->bypass_duration| to the specified delay if greater

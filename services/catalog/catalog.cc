@@ -7,6 +7,7 @@
 #include "base/bind.h"
 #include "base/files/file_path.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "base/path_service.h"
 #include "base/strings/string_split.h"
@@ -16,11 +17,12 @@
 #include "components/filesystem/public/interfaces/types.mojom.h"
 #include "mojo/public/cpp/bindings/strong_binding.h"
 #include "services/catalog/constants.h"
+#include "services/catalog/entry_cache.h"
 #include "services/catalog/instance.h"
 #include "services/catalog/reader.h"
-#include "services/shell/public/cpp/connection.h"
-#include "services/shell/public/cpp/names.h"
-#include "services/shell/public/cpp/service_context.h"
+#include "services/service_manager/public/cpp/connection.h"
+#include "services/service_manager/public/cpp/interface_registry.h"
+#include "services/service_manager/public/cpp/service_context.h"
 
 namespace catalog {
 namespace {
@@ -38,22 +40,15 @@ bool IsPathNameValid(const std::string& name) {
 }
 
 base::FilePath GetPathForApplicationName(const std::string& application_name) {
+  static const char kServicePrefix[] = "";
   std::string path = application_name;
-  const bool is_service =
-      base::StartsWith(path, "service:", base::CompareCase::INSENSITIVE_ASCII);
-  const bool is_exe =
-      !is_service &&
-      base::StartsWith(path, "exe:", base::CompareCase::INSENSITIVE_ASCII);
-  if (!is_service && !is_exe)
+  const bool is_service = base::StartsWith(
+      path, kServicePrefix, base::CompareCase::INSENSITIVE_ASCII);
+  if (!is_service)
     return base::FilePath();
   if (path.find('.') != std::string::npos)
     return base::FilePath();
-  if (is_service) {
-    path.erase(path.begin(),
-      path.begin() + strlen(shell::kNameType_Service) + 1);
-  } else {
-    path.erase(path.begin(), path.begin() + strlen(shell::kNameType_Exe) + 1);
-  }
+  path.erase(path.begin(), path.begin() + strlen(kServicePrefix));
   base::TrimString(path, "/", &path);
   size_t end_of_name = path.find('/');
   if (end_of_name != std::string::npos)
@@ -71,64 +66,84 @@ base::FilePath GetPathForApplicationName(const std::string& application_name) {
 
 }  // namespace
 
+class Catalog::ServiceImpl : public service_manager::Service {
+ public:
+  explicit ServiceImpl(Catalog* catalog) : catalog_(catalog) {}
+  ~ServiceImpl() override {}
+
+  // service_manager::Service:
+  bool OnConnect(const service_manager::ServiceInfo& remote_info,
+                 service_manager::InterfaceRegistry* registry) override {
+    registry->AddInterface<mojom::Catalog>(catalog_);
+    registry->AddInterface<mojom::CatalogControl>(catalog_);
+    registry->AddInterface<filesystem::mojom::Directory>(catalog_);
+    registry->AddInterface<service_manager::mojom::Resolver>(catalog_);
+    return true;
+  }
+
+ private:
+  Catalog* const catalog_;
+
+  DISALLOW_COPY_AND_ASSIGN(ServiceImpl);
+};
+
+Catalog::Catalog(std::unique_ptr<base::Value> static_manifest) : Catalog() {
+  system_reader_.reset(new Reader(std::move(static_manifest),
+                                  system_cache_.get()));
+  loaded_ = true;
+}
+
 Catalog::Catalog(base::SequencedWorkerPool* worker_pool,
-                 std::unique_ptr<Store> store,
-                 ManifestProvider* manifest_provider)
-    : Catalog(std::move(store)) {
+                 ManifestProvider* manifest_provider) : Catalog() {
   system_reader_.reset(new Reader(worker_pool, manifest_provider));
   ScanSystemPackageDir();
 }
 
 Catalog::Catalog(base::SingleThreadTaskRunner* task_runner,
-                 std::unique_ptr<Store> store,
-                 ManifestProvider* manifest_provider)
-    : Catalog(std::move(store)) {
+                 ManifestProvider* manifest_provider) : Catalog() {
   system_reader_.reset(new Reader(task_runner, manifest_provider));
   ScanSystemPackageDir();
 }
 
 Catalog::~Catalog() {}
 
-shell::mojom::ServicePtr Catalog::TakeService() {
+void Catalog::OverridePackageName(const std::string& service_name,
+                                  const std::string& package_name) {
+  system_reader_->OverridePackageName(service_name, package_name);
+}
+
+service_manager::mojom::ServicePtr Catalog::TakeService() {
   return std::move(service_);
 }
 
-Catalog::Catalog(std::unique_ptr<Store> store)
-    : store_(std::move(store)), weak_factory_(this) {
-  shell::mojom::ServiceRequest request = GetProxy(&service_);
-  shell_connection_.reset(new shell::ServiceContext(this, std::move(request)));
+Catalog::Catalog() : system_cache_(new EntryCache), weak_factory_(this) {
+  service_context_.reset(new service_manager::ServiceContext(
+      base::MakeUnique<ServiceImpl>(this),
+      service_manager::mojom::ServiceRequest(&service_)));
 }
 
 void Catalog::ScanSystemPackageDir() {
   base::FilePath system_package_dir;
   PathService::Get(base::DIR_MODULE, &system_package_dir);
   system_package_dir = system_package_dir.AppendASCII(kPackagesDirName);
-  system_reader_->Read(system_package_dir, &system_cache_,
+  system_reader_->Read(system_package_dir, system_cache_.get(),
                        base::Bind(&Catalog::SystemPackageDirScanned,
                                   weak_factory_.GetWeakPtr()));
 }
 
-bool Catalog::OnConnect(const shell::Identity& remote_identity,
-                        shell::InterfaceRegistry* registry) {
-  registry->AddInterface<mojom::Catalog>(this);
-  registry->AddInterface<filesystem::mojom::Directory>(this);
-  registry->AddInterface<shell::mojom::Resolver>(this);
-  return true;
-}
-
-void Catalog::Create(const shell::Identity& remote_identity,
-                     shell::mojom::ResolverRequest request) {
+void Catalog::Create(const service_manager::Identity& remote_identity,
+                     service_manager::mojom::ResolverRequest request) {
   Instance* instance = GetInstanceForUserId(remote_identity.user_id());
   instance->BindResolver(std::move(request));
 }
 
-void Catalog::Create(const shell::Identity& remote_identity,
+void Catalog::Create(const service_manager::Identity& remote_identity,
                      mojom::CatalogRequest request) {
   Instance* instance = GetInstanceForUserId(remote_identity.user_id());
   instance->BindCatalog(std::move(request));
 }
 
-void Catalog::Create(const shell::Identity& remote_identity,
+void Catalog::Create(const service_manager::Identity& remote_identity,
                      filesystem::mojom::DirectoryRequest request) {
   if (!lock_table_)
     lock_table_ = new filesystem::LockTable;
@@ -141,16 +156,28 @@ void Catalog::Create(const shell::Identity& remote_identity,
       std::move(request));
 }
 
+void Catalog::Create(const service_manager::Identity& remote_identity,
+                     mojom::CatalogControlRequest request) {
+  control_bindings_.AddBinding(this, std::move(request));
+}
+
+void Catalog::OverrideManifestPath(
+    const std::string& service_name,
+    const base::FilePath& path,
+    const OverrideManifestPathCallback& callback) {
+  system_reader_->OverrideManifestPath(service_name, path);
+  callback.Run();
+}
+
 Instance* Catalog::GetInstanceForUserId(const std::string& user_id) {
   auto it = instances_.find(user_id);
   if (it != instances_.end())
     return it->second.get();
 
-  // TODO(beng): There needs to be a way to load the store from different users.
-  Instance* instance = new Instance(std::move(store_), system_reader_.get());
+  Instance* instance = new Instance(system_reader_.get());
   instances_[user_id] = base::WrapUnique(instance);
   if (loaded_)
-    instance->CacheReady(&system_cache_);
+    instance->CacheReady(system_cache_.get());
 
   return instance;
 }
@@ -158,7 +185,7 @@ Instance* Catalog::GetInstanceForUserId(const std::string& user_id) {
 void Catalog::SystemPackageDirScanned() {
   loaded_ = true;
   for (auto& instance : instances_)
-    instance.second->CacheReady(&system_cache_);
+    instance.second->CacheReady(system_cache_.get());
 }
 
 }  // namespace catalog

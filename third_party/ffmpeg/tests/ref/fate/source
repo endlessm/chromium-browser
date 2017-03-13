@@ -5,14 +5,12 @@ compat/avisynth/windowsPorts/windows2linux.h
 libavcodec/file_open.c
 libavcodec/interplayacm.c
 libavcodec/log2_tab.c
-libavcodec/mathops.c
 libavcodec/reverse.c
 libavdevice/file_open.c
 libavfilter/log2_tab.c
 libavformat/file_open.c
 libavformat/golomb_tab.c
 libavformat/log2_tab.c
-libavutil/x86_cpu.h
 libswresample/log2_tab.c
 libswscale/log2_tab.c
 tools/uncoded_frame.c
@@ -26,6 +24,10 @@ compat/avisynth/avs/types.h
 compat/avisynth/avxsynth_c.h
 compat/avisynth/windowsPorts/basicDataTypeConversions.h
 compat/avisynth/windowsPorts/windows2linux.h
+compat/cuda/dynlink_cuda.h
+compat/cuda/dynlink_cuviddec.h
+compat/cuda/dynlink_loader.h
+compat/cuda/dynlink_nvcuvid.h
 compat/float/float.h
 compat/float/limits.h
-libavutil/x86_cpu.h
+compat/nvenc/nvEncodeAPI.h

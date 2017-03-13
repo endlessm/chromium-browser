@@ -18,11 +18,11 @@
 #include "chrome/browser/safe_browsing/threat_details_history.h"
 #include "chrome/browser/safe_browsing/ui_manager.h"
 #include "chrome/common/safe_browsing/csd.pb.h"
-#include "chrome/common/safe_browsing/safebrowsing_messages.h"
 #include "chrome/test/base/chrome_render_view_host_test_harness.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/history/core/browser/history_backend.h"
 #include "components/history/core/browser/history_service.h"
+#include "components/safe_browsing/common/safebrowsing_messages.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/test/web_contents_tester.h"
@@ -151,7 +151,7 @@ class ThreatDetailsWrap : public ThreatDetails {
   ThreatDetailsWrap(
       SafeBrowsingUIManager* ui_manager,
       WebContents* web_contents,
-      const SafeBrowsingUIManager::UnsafeResource& unsafe_resource,
+      const security_interstitials::UnsafeResource& unsafe_resource,
       net::URLRequestContextGetter* request_context_getter)
       : ThreatDetails(ui_manager, web_contents, unsafe_resource) {
     request_context_getter_ = request_context_getter;
@@ -348,7 +348,7 @@ TEST_F(ThreatDetailsTest, ThreatSubResource) {
   // Commit a load.
   content::WebContentsTester::For(web_contents())
       ->TestDidNavigateWithReferrer(
-          web_contents()->GetMainFrame(), 1 /* page_id */, 0 /* nav_entry_id */,
+          web_contents()->GetMainFrame(), 0 /* nav_entry_id */,
           true /* did_create_new_entry */, GURL(kLandingURL),
           content::Referrer(GURL(kReferrerURL),
                             blink::WebReferrerPolicyDefault),
@@ -568,7 +568,7 @@ TEST_F(ThreatDetailsTest, ThreatOnMainPageLoadBlocked) {
   // navigation entry.
   content::WebContentsTester::For(web_contents())
       ->TestDidNavigateWithReferrer(
-          web_contents()->GetMainFrame(), 1 /* page_id */, 0 /* nav_entry_id */,
+          web_contents()->GetMainFrame(), 0 /* nav_entry_id */,
           true /* did_create_new_entry */, GURL(kUnrelatedURL),
           content::Referrer(GURL(kUnrelatedReferrerURL),
                             blink::WebReferrerPolicyDefault),
@@ -629,7 +629,7 @@ TEST_F(ThreatDetailsTest, ThreatWithPendingLoad) {
   // Load and commit the landing URL with a referrer.
   content::WebContentsTester::For(web_contents())
       ->TestDidNavigateWithReferrer(
-          web_contents()->GetMainFrame(), 1 /* page_id */, 0 /* nav_entry_id */,
+          web_contents()->GetMainFrame(), 0 /* nav_entry_id */,
           true /* did_create_new_entry */, GURL(kLandingURL),
           content::Referrer(GURL(kReferrerURL),
                             blink::WebReferrerPolicyDefault),

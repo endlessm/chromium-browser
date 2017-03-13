@@ -31,7 +31,8 @@
 
 namespace blink {
 
-class PLATFORM_EXPORT TranslateTransformOperation : public TransformOperation {
+class PLATFORM_EXPORT TranslateTransformOperation final
+    : public TransformOperation {
  public:
   static PassRefPtr<TranslateTransformOperation> create(const Length& tx,
                                                         const Length& ty,
@@ -73,6 +74,7 @@ class PLATFORM_EXPORT TranslateTransformOperation : public TransformOperation {
 
  private:
   OperationType type() const override { return m_type; }
+  OperationType primitiveType() const final { return Translate3D; }
 
   bool operator==(const TransformOperation& o) const override {
     if (!isSameType(o))

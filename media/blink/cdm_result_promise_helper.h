@@ -7,15 +7,16 @@
 
 #include <string>
 
-#include "media/base/media_keys.h"
+#include "media/base/cdm_promise.h"
 #include "media/blink/media_blink_export.h"
 #include "third_party/WebKit/public/platform/WebContentDecryptionModuleResult.h"
 
 namespace media {
 
-// A superset of media::MediaKeys::Exception for UMA reporting. These values
-// should never be changed as it will affect existing reporting, and must match
-// the values for CdmPromiseResult in tools/metrics/histograms/histograms.xml.
+// A superset of media::ContentDecryptionModule::Exception for UMA reporting.
+// These values should never be changed as it will affect existing reporting,
+// and must match the values for CdmPromiseResult in
+// tools/metrics/histograms/histograms.xml.
 enum CdmResultForUMA {
   SUCCESS = 0,
   NOT_SUPPORTED_ERROR = 1,
@@ -29,10 +30,10 @@ enum CdmResultForUMA {
 };
 
 MEDIA_BLINK_EXPORT CdmResultForUMA
-ConvertCdmExceptionToResultForUMA(MediaKeys::Exception exception_code);
+ConvertCdmExceptionToResultForUMA(CdmPromise::Exception exception_code);
 
 MEDIA_BLINK_EXPORT blink::WebContentDecryptionModuleException
-ConvertCdmException(MediaKeys::Exception exception_code);
+ConvertCdmException(CdmPromise::Exception exception_code);
 
 MEDIA_BLINK_EXPORT void ReportCdmResultUMA(const std::string& uma_name,
                                            CdmResultForUMA result);

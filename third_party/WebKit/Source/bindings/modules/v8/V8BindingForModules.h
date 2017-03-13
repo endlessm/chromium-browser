@@ -11,13 +11,11 @@
 
 namespace blink {
 
-class IDBAny;
 class IDBKey;
 class IDBKeyPath;
 class IDBKeyRange;
 class IDBValue;
 class SerializedScriptValue;
-class SharedBuffer;
 class WebBlobInfo;
 
 // Exposed for unit testing:
@@ -34,7 +32,7 @@ ScriptValue deserializeScriptValue(ScriptState*,
                                    SerializedScriptValue*,
                                    const Vector<WebBlobInfo>*);
 
-#if ENABLE(ASSERT)
+#if DCHECK_IS_ON()
 void assertPrimaryKeyValidOrInjectable(ScriptState*, const IDBValue*);
 #endif
 
@@ -62,8 +60,6 @@ struct NativeValueTraits<IDBKeyRange*> {
                                   v8::Local<v8::Value>,
                                   ExceptionState&);
 };
-
-void registerInstallOriginTrialsForModules();
 
 }  // namespace blink
 

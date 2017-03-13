@@ -15,10 +15,10 @@ namespace blink {
 
 class ExecutionContext;
 class WebString;
-class ScriptState;
 
 class MODULES_EXPORT AudioOutputDeviceClient : public Supplement<LocalFrame> {
  public:
+  explicit AudioOutputDeviceClient(LocalFrame&);
   virtual ~AudioOutputDeviceClient() {}
 
   // Checks that a given sink exists and has permissions to be used from the

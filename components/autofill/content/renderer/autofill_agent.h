@@ -13,8 +13,8 @@
 #include "base/memory/weak_ptr.h"
 #include "base/strings/string16.h"
 #include "base/time/time.h"
-#include "components/autofill/content/public/interfaces/autofill_agent.mojom.h"
-#include "components/autofill/content/public/interfaces/autofill_driver.mojom.h"
+#include "components/autofill/content/common/autofill_agent.mojom.h"
+#include "components/autofill/content/common/autofill_driver.mojom.h"
 #include "components/autofill/content/renderer/form_cache.h"
 #include "components/autofill/content/renderer/page_click_listener.h"
 #include "content/public/renderer/render_frame_observer.h"
@@ -82,6 +82,8 @@ class AutofillAgent : public content::RenderFrameObserver,
   void ShowInitialPasswordAccountSuggestions(
       int32_t key,
       const PasswordFormFillData& form_data) override;
+
+  void ShowNotSecureWarning(const blink::WebInputElement& element);
 
  protected:
   // blink::WebAutofillClient:
@@ -182,13 +184,10 @@ class AutofillAgent : public content::RenderFrameObserver,
   void textFieldDidReceiveKeyDown(
       const blink::WebInputElement& element,
       const blink::WebKeyboardEvent& event) override;
-  void setIgnoreTextChanges(bool ignore) override;
   void openTextDataListChooser(const blink::WebInputElement& element) override;
   void dataListOptionsChanged(const blink::WebInputElement& element) override;
   void firstUserGestureObserved() override;
   void ajaxSucceeded() override;
-
-  void OnPing();
 
   // Called when a same-page navigation is detected.
   void OnSamePageNavigationCompleted();

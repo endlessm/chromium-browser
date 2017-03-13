@@ -29,10 +29,11 @@
 #include "core/dom/ParserContentPolicy.h"
 #include "core/dom/ScriptableDocumentParser.h"
 #include "core/fetch/ResourceClient.h"
-#include "core/fetch/ScriptResource.h"
+#include "core/loader/resource/ScriptResource.h"
 #include "core/xml/parser/XMLErrors.h"
 #include "platform/heap/Handle.h"
 #include "platform/text/SegmentedString.h"
+#include "wtf/Compiler.h"
 #include "wtf/HashMap.h"
 #include "wtf/RefCounted.h"
 #include "wtf/text/CString.h"
@@ -43,7 +44,6 @@
 namespace blink {
 
 class ContainerNode;
-class ResourceFetcher;
 class DocumentFragment;
 class Document;
 class Element;
@@ -140,8 +140,8 @@ class XMLDocumentParser final : public ScriptableDocumentParser,
 
  public:
   // Callbacks from parser SAX
-  void error(XMLErrors::ErrorType, const char* message, va_list args)
-      WTF_ATTRIBUTE_PRINTF(3, 0);
+  PRINTF_FORMAT(3, 0)
+  void error(XMLErrors::ErrorType, const char* message, va_list args);
   void startElementNs(const AtomicString& localName,
                       const AtomicString& prefix,
                       const AtomicString& uri,

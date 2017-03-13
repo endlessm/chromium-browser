@@ -35,6 +35,7 @@ class AttestationFlow;
 namespace policy {
 
 class DeviceCloudPolicyStoreChromeOS;
+class DMTokenStorage;
 class ServerBackedStateKeysBroker;
 
 // Implements the logic that establishes enterprise enrollment for Chromium OS
@@ -99,21 +100,23 @@ class EnrollmentHandlerChromeOS : public CloudPolicyClient::Observer,
 
  private:
   // Indicates what step of the process is currently pending. These steps need
-  // to be listed in the order they are traversed in.
+  // to be listed in the order they are traversed in.  (Steps are numbered
+  // explicitly to make it easier to read debug logs.)
   enum EnrollmentStep {
-    STEP_PENDING,             // Not started yet.
-    STEP_STATE_KEYS,          // Waiting for state keys to become available.
-    STEP_LOADING_STORE,       // Waiting for |store_| to initialize.
-    STEP_REGISTRATION,        // Currently registering the client.
-    STEP_POLICY_FETCH,        // Fetching policy.
-    STEP_VALIDATION,          // Policy validation.
-    STEP_ROBOT_AUTH_FETCH,    // Fetching device API auth code.
-    STEP_ROBOT_AUTH_REFRESH,  // Fetching device API refresh token.
-    STEP_LOCK_DEVICE,         // Writing installation-time attributes.
-    STEP_STORE_TOKEN_AND_ID,  // Storing DM token and virtual device ID.
-    STEP_STORE_ROBOT_AUTH,    // Encrypting & writing robot refresh token.
-    STEP_STORE_POLICY,        // Storing policy and API refresh token.
-    STEP_FINISHED,            // Enrollment process finished, no further action.
+    STEP_PENDING = 0,             // Not started yet.
+    STEP_STATE_KEYS = 1,          // Waiting for state keys to become available.
+    STEP_LOADING_STORE = 2,       // Waiting for |store_| to initialize.
+    STEP_REGISTRATION = 3,        // Currently registering the client.
+    STEP_POLICY_FETCH = 4,        // Fetching policy.
+    STEP_VALIDATION = 5,          // Policy validation.
+    STEP_ROBOT_AUTH_FETCH = 6,    // Fetching device API auth code.
+    STEP_ROBOT_AUTH_REFRESH = 7,  // Fetching device API refresh token.
+    STEP_LOCK_DEVICE = 8,         // Writing installation-time attributes.
+    STEP_STORE_TOKEN = 9,         // Encrypting and storing DM token.
+    STEP_STORE_ROBOT_AUTH = 10,   // Encrypting & writing robot refresh token.
+    STEP_STORE_POLICY = 11,       // Storing policy and API refresh token. For
+                                  // AD, includes policy fetch via authpolicyd.
+    STEP_FINISHED = 12,           // Enrollment process done, no further action.
   };
 
   // Handles the response to a request for server-backed state keys.
@@ -139,13 +142,15 @@ class EnrollmentHandlerChromeOS : public CloudPolicyClient::Observer,
   // enrollment.
   void StartLockDevice();
 
-  // Called after SetManagementSettings() is done. Proceeds to robot
-  // auth code storing if successful.
-  void HandleSetManagementSettingsDone(bool success);
-
   // Handle callback from InstallAttributes::LockDevice() and retry on failure.
   void HandleLockDeviceResult(
       chromeos::InstallAttributes::LockResult lock_result);
+
+  // Initiates storing DM token. For Active Directory devices only.
+  void StartStoreDMToken();
+
+  // Called after StartStoreDMtoken() is done.
+  void HandleDMTokenStoreResult(bool success);
 
   // Initiates storing of robot auth token.
   void StartStoreRobotAuth();
@@ -153,11 +158,17 @@ class EnrollmentHandlerChromeOS : public CloudPolicyClient::Observer,
   // Handles completion of the robot token store operation.
   void HandleStoreRobotAuthTokenResult(bool result);
 
+  // Handles result from device policy refresh via authpolicyd.
+  void HandleActiveDirectoryPolicyRefreshed(bool success);
+
   // Drops any ongoing actions.
   void Stop();
 
   // Reports the result of the enrollment process to the initiator.
   void ReportResult(EnrollmentStatus status);
+
+  // Set |enrollment_step_| to |step|.
+  void SetStep(EnrollmentStep step);
 
   DeviceCloudPolicyStoreChromeOS* store_;
   chromeos::InstallAttributes* install_attributes_;
@@ -166,6 +177,7 @@ class EnrollmentHandlerChromeOS : public CloudPolicyClient::Observer,
   std::unique_ptr<CloudPolicyClient> client_;
   scoped_refptr<base::SequencedTaskRunner> background_task_runner_;
   std::unique_ptr<gaia::GaiaOAuthClient> gaia_oauth_client_;
+  std::unique_ptr<policy::DMTokenStorage> dm_token_storage_;
 
   EnrollmentConfig enrollment_config_;
   std::string auth_token_;
@@ -187,9 +199,8 @@ class EnrollmentHandlerChromeOS : public CloudPolicyClient::Observer,
 
   // The validated policy response info to be installed in the store.
   std::unique_ptr<enterprise_management::PolicyFetchResponse> policy_;
-  std::string username_;
+  std::string domain_;
   std::string device_id_;
-  std::string request_token_;
 
   // Current enrollment step.
   EnrollmentStep enrollment_step_;

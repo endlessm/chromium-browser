@@ -4,6 +4,7 @@
 
 #include "chrome/browser/ui/webui/vr_shell/vr_shell_ui_ui.h"
 
+#include "base/memory/ptr_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/webui/vr_shell/vr_shell_ui_message_handler.h"
 #include "chrome/common/url_constants.h"
@@ -79,6 +80,8 @@ class RemoteDataSource : public content::URLDataSource,
       const content::ResourceRequestInfo::WebContentsGetter& wc_getter,
       const GotDataCallback& callback) override;
 
+  bool AllowCaching() const override { return false; }
+
  private:
   // content::URLDataSource overrides.
   std::string GetMimeType(const std::string& path) const override;
@@ -129,6 +132,9 @@ void RemoteDataSource::StartDataRequest(
   }
   net::URLFetcher* fetcher =
       net::URLFetcher::Create(url, net::URLFetcher::GET, this).release();
+
+  fetcher->AddExtraRequestHeader("Cache-Control: no-cache");
+
   pending_[fetcher] = callback;
   fetcher->SetRequestContext(request_context_.get());
   fetcher->Start();
@@ -178,21 +184,21 @@ void RemoteDataSource::OnURLFetchComplete(const net::URLFetcher* source) {
 content::WebUIDataSource* CreateVrShellUIHTMLSource() {
   content::WebUIDataSource* source =
       content::WebUIDataSource::Create(chrome::kChromeUIVrShellUIHost);
+  source->UseGzip(std::unordered_set<std::string>() /* excluded_paths */);
   source->AddResourcePath("vr_shell_ui.css", IDR_VR_SHELL_UI_CSS);
   source->AddResourcePath("vr_shell_ui.js", IDR_VR_SHELL_UI_JS);
   source->AddResourcePath("vr_shell_ui_api.js", IDR_VR_SHELL_UI_API_JS);
   source->AddResourcePath("vr_shell_ui_scene.js", IDR_VR_SHELL_UI_SCENE_JS);
   source->SetDefaultResource(IDR_VR_SHELL_UI_HTML);
-  // We're localizing strings, so we can't currently use gzip since it's
-  // incompatible with i18n. TODO(klausw): re-enable gzip once an i18n
-  // compatible variant of WebUIDataSource's DisableI18nAndUseGzipForAllPaths
-  // gets added, and add compress=gzip to browser_resources.grd as appropriate.
   source->AddLocalizedString(
       "insecureWebVrContentPermanent",
       IDS_WEBSITE_SETTINGS_INSECURE_WEBVR_CONTENT_PERMANENT);
   source->AddLocalizedString(
       "insecureWebVrContentTransient",
       IDS_WEBSITE_SETTINGS_INSECURE_WEBVR_CONTENT_TRANSIENT);
+  source->AddLocalizedString("back", IDS_VR_SHELL_UI_BACK_BUTTON);
+  source->AddLocalizedString("forward", IDS_VR_SHELL_UI_FORWARD_BUTTON);
+  source->AddLocalizedString("reload", IDS_VR_SHELL_UI_RELOAD_BUTTON);
 
   return source;
 }
@@ -208,7 +214,7 @@ VrShellUIUI::VrShellUIUI(content::WebUI* web_ui) : WebUIController(web_ui) {
   content::URLDataSource::Add(
       profile, new RemoteDataSource(profile->GetRequestContext()));
 #endif
-  web_ui->AddMessageHandler(new VrShellUIMessageHandler);
+  web_ui->AddMessageHandler(base::MakeUnique<VrShellUIMessageHandler>());
 }
 
 VrShellUIUI::~VrShellUIUI() {}

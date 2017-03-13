@@ -26,7 +26,7 @@
 #ifndef Range_h
 #define Range_h
 
-#include "bindings/core/v8/ExceptionStatePlaceholder.h"
+#include "bindings/core/v8/ExceptionState.h"
 #include "bindings/core/v8/ScriptWrappable.h"
 #include "core/CoreExport.h"
 #include "core/dom/RangeBoundaryPoint.h"
@@ -109,10 +109,6 @@ class CORE_EXPORT Range final : public GarbageCollected<Range>,
                                      ExceptionState&);
   bool boundaryPointsValid() const;
   bool intersectsNode(Node* refNode, ExceptionState&);
-  static bool intersectsNode(Node* refNode,
-                             const Position& start,
-                             const Position& end,
-                             ExceptionState&);
   void deleteContents(ExceptionState&);
   DocumentFragment* extractContents(ExceptionState&);
   DocumentFragment* cloneContents(ExceptionState&);
@@ -159,7 +155,7 @@ class CORE_EXPORT Range final : public GarbageCollected<Range>,
   void didInsertText(Node*, unsigned offset, unsigned length);
   void didRemoveText(Node*, unsigned offset, unsigned length);
   void didMergeTextNodes(const NodeWithIndex& oldNode, unsigned offset);
-  void didSplitTextNode(Text& oldNode);
+  void didSplitTextNode(const Text& oldNode);
   void updateOwnerDocumentIfNeeded();
 
   // Expand range to a unit (word or sentence or block or document) boundary.
@@ -186,6 +182,7 @@ class CORE_EXPORT Range final : public GarbageCollected<Range>,
 
   void checkNodeBA(Node*, ExceptionState&) const;
   void checkExtractPrecondition(ExceptionState&);
+  bool hasSameRoot(const Node&) const;
 
   enum ActionType { DELETE_CONTENTS, EXTRACT_CONTENTS, CLONE_CONTENTS };
   DocumentFragment* processContents(ActionType, ExceptionState&);

@@ -6,6 +6,7 @@
 #define FetchEvent_h
 
 #include "bindings/core/v8/ScriptPromise.h"
+#include "bindings/core/v8/ScriptPromiseProperty.h"
 #include "modules/EventModules.h"
 #include "modules/ModulesExport.h"
 #include "modules/fetch/Request.h"
@@ -19,7 +20,12 @@ namespace blink {
 
 class ExceptionState;
 class Request;
+class Response;
 class RespondWithObserver;
+class ScriptState;
+class WebDataConsumerHandle;
+struct WebServiceWorkerError;
+class WebURLResponse;
 
 // A fetch event is dispatched by the client to a service worker's script
 // context. RespondWithObserver can be used to notify the client about the
@@ -28,6 +34,9 @@ class MODULES_EXPORT FetchEvent final : public ExtendableEvent {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
+  using PreloadResponseProperty = ScriptPromiseProperty<Member<FetchEvent>,
+                                                        Member<Response>,
+                                                        Member<DOMException>>;
   static FetchEvent* create(ScriptState*,
                             const AtomicString& type,
                             const FetchEventInit&);
@@ -35,13 +44,21 @@ class MODULES_EXPORT FetchEvent final : public ExtendableEvent {
                             const AtomicString& type,
                             const FetchEventInit&,
                             RespondWithObserver*,
-                            WaitUntilObserver*);
+                            WaitUntilObserver*,
+                            bool navigationPreloadSent);
 
   Request* request() const;
   String clientId() const;
   bool isReload() const;
 
   void respondWith(ScriptState*, ScriptPromise, ExceptionState&);
+  ScriptPromise preloadResponse(ScriptState*);
+
+  void onNavigationPreloadResponse(ScriptState*,
+                                   std::unique_ptr<WebURLResponse>,
+                                   std::unique_ptr<WebDataConsumerHandle>);
+  void onNavigationPreloadError(ScriptState*,
+                                std::unique_ptr<WebServiceWorkerError>);
 
   const AtomicString& interfaceName() const override;
 
@@ -52,11 +69,13 @@ class MODULES_EXPORT FetchEvent final : public ExtendableEvent {
              const AtomicString& type,
              const FetchEventInit&,
              RespondWithObserver*,
-             WaitUntilObserver*);
+             WaitUntilObserver*,
+             bool navigationPreloadSent);
 
  private:
   Member<RespondWithObserver> m_observer;
   Member<Request> m_request;
+  Member<PreloadResponseProperty> m_preloadResponseProperty;
   String m_clientId;
   bool m_isReload;
 };

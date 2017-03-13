@@ -166,17 +166,17 @@ void PannerHandler::process(size_t framesToProcess) {
 void PannerHandler::processSampleAccurateValues(AudioBus* destination,
                                                 const AudioBus* source,
                                                 size_t framesToProcess) {
-  RELEASE_ASSERT(framesToProcess <= ProcessingSizeInFrames);
+  RELEASE_ASSERT(framesToProcess <= AudioUtilities::kRenderQuantumFrames);
 
   // Get the sample accurate values from all of the AudioParams, including the
   // values from the AudioListener.
-  float pannerX[ProcessingSizeInFrames];
-  float pannerY[ProcessingSizeInFrames];
-  float pannerZ[ProcessingSizeInFrames];
+  float pannerX[AudioUtilities::kRenderQuantumFrames];
+  float pannerY[AudioUtilities::kRenderQuantumFrames];
+  float pannerZ[AudioUtilities::kRenderQuantumFrames];
 
-  float orientationX[ProcessingSizeInFrames];
-  float orientationY[ProcessingSizeInFrames];
-  float orientationZ[ProcessingSizeInFrames];
+  float orientationX[AudioUtilities::kRenderQuantumFrames];
+  float orientationY[AudioUtilities::kRenderQuantumFrames];
+  float orientationZ[AudioUtilities::kRenderQuantumFrames];
 
   m_positionX->calculateSampleAccurateValues(pannerX, framesToProcess);
   m_positionY->calculateSampleAccurateValues(pannerY, framesToProcess);
@@ -187,24 +187,30 @@ void PannerHandler::processSampleAccurateValues(AudioBus* destination,
 
   // Get the automation values from the listener.
   const float* listenerX =
-      listener()->getPositionXValues(ProcessingSizeInFrames);
+      listener()->getPositionXValues(AudioUtilities::kRenderQuantumFrames);
   const float* listenerY =
-      listener()->getPositionYValues(ProcessingSizeInFrames);
+      listener()->getPositionYValues(AudioUtilities::kRenderQuantumFrames);
   const float* listenerZ =
-      listener()->getPositionZValues(ProcessingSizeInFrames);
+      listener()->getPositionZValues(AudioUtilities::kRenderQuantumFrames);
 
-  const float* forwardX = listener()->getForwardXValues(ProcessingSizeInFrames);
-  const float* forwardY = listener()->getForwardYValues(ProcessingSizeInFrames);
-  const float* forwardZ = listener()->getForwardZValues(ProcessingSizeInFrames);
+  const float* forwardX =
+      listener()->getForwardXValues(AudioUtilities::kRenderQuantumFrames);
+  const float* forwardY =
+      listener()->getForwardYValues(AudioUtilities::kRenderQuantumFrames);
+  const float* forwardZ =
+      listener()->getForwardZValues(AudioUtilities::kRenderQuantumFrames);
 
-  const float* upX = listener()->getUpXValues(ProcessingSizeInFrames);
-  const float* upY = listener()->getUpYValues(ProcessingSizeInFrames);
-  const float* upZ = listener()->getUpZValues(ProcessingSizeInFrames);
+  const float* upX =
+      listener()->getUpXValues(AudioUtilities::kRenderQuantumFrames);
+  const float* upY =
+      listener()->getUpYValues(AudioUtilities::kRenderQuantumFrames);
+  const float* upZ =
+      listener()->getUpZValues(AudioUtilities::kRenderQuantumFrames);
 
   // Compute the azimuth, elevation, and total gains for each position.
-  double azimuth[ProcessingSizeInFrames];
-  double elevation[ProcessingSizeInFrames];
-  float totalGain[ProcessingSizeInFrames];
+  double azimuth[AudioUtilities::kRenderQuantumFrames];
+  double elevation[AudioUtilities::kRenderQuantumFrames];
+  float totalGain[AudioUtilities::kRenderQuantumFrames];
 
   for (unsigned k = 0; k < framesToProcess; ++k) {
     FloatPoint3D pannerPosition(pannerX[k], pannerY[k], pannerZ[k]);
@@ -226,6 +232,20 @@ void PannerHandler::processSampleAccurateValues(AudioBus* destination,
                                         internalChannelInterpretation());
   destination->copyWithSampleAccurateGainValuesFrom(*destination, totalGain,
                                                     framesToProcess);
+}
+
+void PannerHandler::processOnlyAudioParams(size_t framesToProcess) {
+  float values[AudioUtilities::kRenderQuantumFrames];
+
+  DCHECK_LE(framesToProcess, AudioUtilities::kRenderQuantumFrames);
+
+  m_positionX->calculateSampleAccurateValues(values, framesToProcess);
+  m_positionY->calculateSampleAccurateValues(values, framesToProcess);
+  m_positionZ->calculateSampleAccurateValues(values, framesToProcess);
+
+  m_orientationX->calculateSampleAccurateValues(values, framesToProcess);
+  m_orientationY->calculateSampleAccurateValues(values, framesToProcess);
+  m_orientationZ->calculateSampleAccurateValues(values, framesToProcess);
 }
 
 void PannerHandler::initialize() {
@@ -336,8 +356,8 @@ bool PannerHandler::setDistanceModel(unsigned model) {
       if (model != m_distanceModel) {
         // This synchronizes with process().
         MutexLocker processLocker(m_processLock);
-        m_distanceEffect.setModel(static_cast<DistanceEffect::ModelType>(model),
-                                  true);
+        m_distanceEffect.setModel(
+            static_cast<DistanceEffect::ModelType>(model));
         m_distanceModel = model;
       }
       break;
@@ -672,9 +692,9 @@ PannerNode* PannerNode::create(BaseAudioContext* context,
     node->orientationZ()->setValue(options.orientationZ());
 
   if (options.hasRefDistance())
-    node->setRefDistance(options.refDistance());
+    node->setRefDistance(options.refDistance(), exceptionState);
   if (options.hasMaxDistance())
-    node->setMaxDistance(options.maxDistance());
+    node->setMaxDistance(options.maxDistance(), exceptionState);
   if (options.hasRolloffFactor())
     node->setRolloffFactor(options.rolloffFactor());
   if (options.hasConeInnerAngle())
@@ -707,11 +727,6 @@ void PannerNode::setOrientation(float x, float y, float z) {
   pannerHandler().setOrientation(x, y, z);
 }
 
-void PannerNode::setVelocity(float x, float y, float z) {
-  // The velocity is not used internally and cannot be read back by scripts,
-  // so it can be ignored entirely.
-}
-
 String PannerNode::distanceModel() const {
   return pannerHandler().distanceModel();
 }
@@ -724,7 +739,15 @@ double PannerNode::refDistance() const {
   return pannerHandler().refDistance();
 }
 
-void PannerNode::setRefDistance(double distance) {
+void PannerNode::setRefDistance(double distance,
+                                ExceptionState& exceptionState) {
+  if (distance <= 0) {
+    exceptionState.throwDOMException(
+        V8RangeError, ExceptionMessages::indexExceedsMinimumBound<double>(
+                          "refDistance", distance, 0));
+    return;
+  }
+
   pannerHandler().setRefDistance(distance);
 }
 
@@ -732,7 +755,15 @@ double PannerNode::maxDistance() const {
   return pannerHandler().maxDistance();
 }
 
-void PannerNode::setMaxDistance(double distance) {
+void PannerNode::setMaxDistance(double distance,
+                                ExceptionState& exceptionState) {
+  if (distance <= 0) {
+    exceptionState.throwDOMException(
+        V8RangeError, ExceptionMessages::indexExceedsMinimumBound<double>(
+                          "maxDistance", distance, 0));
+    return;
+  }
+
   pannerHandler().setMaxDistance(distance);
 }
 

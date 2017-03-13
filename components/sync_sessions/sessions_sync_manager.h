@@ -20,9 +20,9 @@
 #include "base/time/time.h"
 #include "components/sessions/core/session_id.h"
 #include "components/sessions/core/session_types.h"
-#include "components/sync/api/syncable_service.h"
+#include "components/sync/base/sync_prefs.h"
 #include "components/sync/device_info/device_info.h"
-#include "components/sync/driver/sync_prefs.h"
+#include "components/sync/model/syncable_service.h"
 #include "components/sync_sessions/favicon_cache.h"
 #include "components/sync_sessions/local_session_event_router.h"
 #include "components/sync_sessions/lost_navigations_recorder.h"
@@ -43,7 +43,6 @@ class SessionHeader;
 class SessionSpecifics;
 class SessionTab;
 class SessionWindow;
-class TabNavigation;
 }  // namespace sync_pb
 
 namespace extensions {
@@ -91,7 +90,7 @@ class SessionsSyncManager : public syncer::SyncableService,
       const std::string& tag,
       std::vector<const sessions::SessionWindow*>* windows) override;
   bool GetForeignTab(const std::string& tag,
-                     const SessionID::id_type tab_id,
+                     SessionID::id_type tab_id,
                      const sessions::SessionTab** tab) override;
   bool GetForeignSessionTabs(
       const std::string& tag,
@@ -181,7 +180,7 @@ class SessionsSyncManager : public syncer::SyncableService,
                            ProcessRemoteDeleteOfLocalSession);
   FRIEND_TEST_ALL_PREFIXES(SessionsSyncManagerTest, SetVariationIds);
 
-  void InitializeCurrentMachineTag();
+  void InitializeCurrentMachineTag(const std::string& cache_guid);
 
   // Load and add window or tab data for a foreign session to our internal
   // tracking.
@@ -300,9 +299,10 @@ class SessionsSyncManager : public syncer::SyncableService,
       const syncer::SyncDataList& restored_tabs,
       syncer::SyncChangeList* change_output);
 
-  // Stops and re-starts syncing to rebuild association mappings.
+  // Stops and re-starts syncing to rebuild association mappings. Returns true
+  // when re-starting succeeds.
   // See |local_tab_pool_out_of_sync_|.
-  void RebuildAssociations();
+  bool RebuildAssociations();
 
   // Validates the content of a SessionHeader protobuf.
   // Returns false if validation fails.
@@ -352,8 +352,9 @@ class SessionsSyncManager : public syncer::SyncableService,
   // Unique client tag.
   std::string current_machine_tag_;
 
-  // User-visible machine name.
+  // User-visible machine name and device type to populate header.
   std::string current_session_name_;
+  sync_pb::SyncEnums::DeviceType current_device_type_;
 
   // SyncID for the sync node containing all the window information for this
   // client.

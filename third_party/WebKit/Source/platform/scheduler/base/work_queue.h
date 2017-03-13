@@ -12,6 +12,7 @@
 #include "base/trace_event/trace_event.h"
 #include "base/trace_event/trace_event_argument.h"
 #include "platform/scheduler/base/enqueue_order.h"
+#include "platform/scheduler/base/intrusive_heap.h"
 #include "platform/scheduler/base/task_queue_impl.h"
 
 namespace blink {
@@ -30,7 +31,9 @@ class WorkQueueSets;
 // throttling mechanisms.
 class BLINK_PLATFORM_EXPORT WorkQueue {
  public:
-  WorkQueue(TaskQueueImpl* task_queue, const char* name);
+  enum class QueueType { DELAYED, IMMEDIATE };
+
+  WorkQueue(TaskQueueImpl* task_queue, const char* name, QueueType queue_type);
   ~WorkQueue();
 
   // Associates this work queue with the given work queue sets. This must be
@@ -62,10 +65,10 @@ class BLINK_PLATFORM_EXPORT WorkQueue {
   // informs the WorkQueueSets if the head changed.
   void Push(TaskQueueImpl::Task task);
 
-  // Swap the |work_queue_| with |incoming_queue| and if a fence hasn't been
-  // reached it informs the WorkQueueSets if the head changed. Assumes
-  // |task_queue_->any_thread_lock_| is locked.
-  void SwapLocked(std::queue<TaskQueueImpl::Task>& incoming_queue);
+  // Reloads the empty |work_queue_| with
+  // |task_queue_->TakeImmediateIncomingQueue| and if a fence hasn't been
+  // reached it informs the WorkQueueSets if the head changed.
+  void ReloadEmptyImmediateQueue();
 
   size_t Size() const { return work_queue_.size(); }
 
@@ -81,6 +84,10 @@ class BLINK_PLATFORM_EXPORT WorkQueue {
   WorkQueueSets* work_queue_sets() const { return work_queue_sets_; }
 
   size_t work_queue_set_index() const { return work_queue_set_index_; }
+
+  HeapHandle heap_handle() const { return heap_handle_; }
+
+  void set_heap_handle(HeapHandle handle) { heap_handle_ = handle; }
 
   // Test support function. This should not be used in production code.
   void PopTaskForTest();
@@ -108,12 +115,14 @@ class BLINK_PLATFORM_EXPORT WorkQueue {
   bool BlockedByFence() const;
 
  private:
-  std::queue<TaskQueueImpl::Task> work_queue_;
-  WorkQueueSets* work_queue_sets_;  // NOT OWNED.
-  TaskQueueImpl* task_queue_;       // NOT OWNED.
+  WTF::Deque<TaskQueueImpl::Task> work_queue_;
+  WorkQueueSets* work_queue_sets_;   // NOT OWNED.
+  TaskQueueImpl* const task_queue_;  // NOT OWNED.
   size_t work_queue_set_index_;
-  const char* name_;
+  HeapHandle heap_handle_;
+  const char* const name_;
   EnqueueOrder fence_;
+  const QueueType queue_type_;
 
   DISALLOW_COPY_AND_ASSIGN(WorkQueue);
 };

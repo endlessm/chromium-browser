@@ -13,7 +13,7 @@ import mock
 import os
 import string
 
-from chromite.cbuildbot import constants
+from chromite.lib import constants
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_build_lib_unittest
 from chromite.lib import cros_test_lib
@@ -122,6 +122,60 @@ class CanonicalizeURLTest(cros_test_lib.TestCase):
          'https://storage.cloud.google.com/some/file/t.gz'),
         ('gs://releases/some/'
          'https://storage.cloud.google.com/some/file/t.gz'))
+
+
+class GsUrlToHttpTest(cros_test_lib.TestCase):
+  """Tests for the CanonicalizeURL function."""
+
+  def setUp(self):
+    self.testUrls = [
+        'gs://releases',
+        'gs://releases/',
+        'gs://releases/path',
+        'gs://releases/path/',
+        'gs://releases/path/file',
+    ]
+
+  def testPublicUrls(self):
+    """Test public https URLs."""
+    expected = [
+        'https://storage.googleapis.com/releases',
+        'https://storage.googleapis.com/releases/',
+        'https://storage.googleapis.com/releases/path',
+        'https://storage.googleapis.com/releases/path/',
+        'https://storage.googleapis.com/releases/path/file',
+    ]
+
+    for gs_url, http_url in zip(self.testUrls, expected):
+      self.assertEqual(gs.GsUrlToHttp(gs_url), http_url)
+      self.assertEqual(gs.GsUrlToHttp(gs_url, directory=True), http_url)
+
+  def testPrivateUrls(self):
+    """Test public https URLs."""
+    expected = [
+        'https://storage.cloud.google.com/releases',
+        'https://pantheon.corp.google.com/storage/browser/releases/',
+        'https://storage.cloud.google.com/releases/path',
+        'https://pantheon.corp.google.com/storage/browser/releases/path/',
+        'https://storage.cloud.google.com/releases/path/file',
+    ]
+
+    for gs_url, http_url in zip(self.testUrls, expected):
+      self.assertEqual(gs.GsUrlToHttp(gs_url, public=False), http_url)
+
+  def testPrivateDirectoryUrls(self):
+    """Test public https URLs."""
+    expected = [
+        'https://pantheon.corp.google.com/storage/browser/releases',
+        'https://pantheon.corp.google.com/storage/browser/releases/',
+        'https://pantheon.corp.google.com/storage/browser/releases/path',
+        'https://pantheon.corp.google.com/storage/browser/releases/path/',
+        'https://pantheon.corp.google.com/storage/browser/releases/path/file',
+    ]
+
+    for gs_url, http_url in zip(self.testUrls, expected):
+      self.assertEqual(
+          gs.GsUrlToHttp(gs_url, public=False, directory=True), http_url)
 
 
 class VersionTest(AbstractGSContextTest):
@@ -929,6 +983,26 @@ class GSRetryFilterTest(cros_test_lib.TestCase):
     e = self._getException(['gsutil', 'rm', 'gs://foo/bar/monkey'], error)
     self.assertEqual(self.ctx._RetryFilter(e), True)
 
+  def testRetrySSLEOF(self):
+    """Verify retry behavior when EOF occurs in violation of SSL protocol."""
+    error = ('ssl.SSLError: [Errno 8] _ssl.c:510: EOF occurred in violation of'
+             ' protocol')
+    e = self._getException(['gsutil', 'cat', 'gs://totally/legit/uri'], error)
+    self.assertEqual(self.ctx._RetryFilter(e), True)
+
+  def testRetrySSLTimeout(self):
+    """Verify retry behavior when read operation timed out."""
+    error = 'ssl.SSLError: (\'The read operation timed out\',)'
+    e = self._getException(['gsutil', 'cp', self.REMOTE_PATH, self.LOCAL_PATH],
+                           error)
+    self.assertEqual(self.ctx._RetryFilter(e), True)
+
+  def testRetrySSLHandshakeTimeout(self):
+    """Verify retry behavior when handshake operation timed out."""
+    error = 'ssl.SSLError: _ssl.c:495: The handshake operation timed out'
+    e = self._getException(['gsutil', 'cp', self.REMOTE_PATH, self.LOCAL_PATH],
+                           error)
+    self.assertEqual(self.ctx._RetryFilter(e), True)
 
 class GSContextTest(AbstractGSContextTest):
   """Tests for GSContext()"""

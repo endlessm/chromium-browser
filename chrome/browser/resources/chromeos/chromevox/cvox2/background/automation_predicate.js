@@ -57,7 +57,8 @@ AutomationPredicate.match = function(params) {
 };
 
 /** @type {AutomationPredicate.Unary} */
-AutomationPredicate.checkBox = AutomationPredicate.roles([Role.checkBox]);
+AutomationPredicate.checkBox =
+    AutomationPredicate.roles([Role.checkBox, Role.switch]);
 /** @type {AutomationPredicate.Unary} */
 AutomationPredicate.comboBox = AutomationPredicate.roles(
     [Role.comboBox, Role.popUpButton, Role.menuListPopup]);
@@ -100,10 +101,45 @@ AutomationPredicate.formField = AutomationPredicate.match({
   ],
   anyRole: [
     Role.checkBox,
+    Role.colorWell,
     Role.listBox,
     Role.slider,
+    Role.switch,
     Role.tab,
     Role.tree
+  ]
+});
+
+/** @type {AutomationPredicate.Unary} */
+AutomationPredicate.control = AutomationPredicate.match({
+  anyPredicate: [
+    AutomationPredicate.formField,
+  ],
+  anyRole: [
+    Role.disclosureTriangle,
+    Role.menuItem,
+    Role.menuItemCheckBox,
+    Role.menuItemRadio,
+    Role.menuListOption,
+    Role.scrollBar
+  ]
+});
+
+/**
+ * @param {!AutomationNode} node
+ * @return {boolean}
+ */
+AutomationPredicate.image = function(node) {
+  return node.role == Role.image && !!(node.name || node.url);
+};
+
+/** @type {AutomationPredicate.Unary} */
+AutomationPredicate.linkOrControl = AutomationPredicate.match({
+  anyPredicate: [
+    AutomationPredicate.control
+  ],
+  anyRole: [
+    Role.link
   ]
 });
 
@@ -188,6 +224,10 @@ AutomationPredicate.object = function(node) {
   if (node.parent && node.parent.state.editable)
     return false;
 
+  // Descend into large nodes.
+  if (node.name && node.name.length > constants.OBJECT_MAX_CHARCOUNT)
+    return false;
+
   return node.state.focusable ||
       (AutomationPredicate.leafOrStaticText(node) &&
        (/\S+/.test(node.name) ||
@@ -235,16 +275,27 @@ AutomationPredicate.linebreak = function(first, second) {
  * @return {boolean}
  */
 AutomationPredicate.container = function(node) {
-  return AutomationPredicate.structuralContainer(node) ||
-      node.role == Role.div ||
-      node.role == Role.document ||
-      node.role == Role.group ||
-      node.role == Role.listItem ||
-      node.role == Role.toolbar ||
-      node.role == Role.window ||
-      // For example, crosh.
-      (node.role == Role.textField && node.state.readOnly) ||
-      (node.state.editable && node.parent && !node.parent.state.editable);
+  return AutomationPredicate.match({
+    anyRole: [
+      Role.div,
+      Role.document,
+      Role.group,
+      Role.listItem,
+      Role.toolbar,
+      Role.window],
+    anyPredicate: [
+      AutomationPredicate.landmark,
+      AutomationPredicate.structuralContainer,
+      function(node) {
+        // For example, crosh.
+        return (node.role == Role.textField && node.state.readOnly);
+      },
+      function(node) {
+        return (node.state.editable &&
+            node.parent &&
+            !node.parent.state.editable);
+      }]
+  })(node);
 };
 
 /**
@@ -254,7 +305,11 @@ AutomationPredicate.container = function(node) {
  * @return {boolean}
  */
 AutomationPredicate.structuralContainer = AutomationPredicate.roles([
+    Role.alertDialog,
+    Role.dialog,
     Role.rootWebArea,
+    Role.webView,
+    Role.window,
     Role.embeddedObject,
     Role.iframe,
     Role.iframePresentational]);
@@ -267,9 +322,17 @@ AutomationPredicate.structuralContainer = AutomationPredicate.roles([
  */
 AutomationPredicate.root = function(node) {
   switch (node.role) {
-    case Role.dialog:
     case Role.window:
       return true;
+    case Role.dialog:
+      // The below logic handles nested dialogs properly in the desktop tree
+      // like that found in a bubble view.
+      return node.root.role != Role.desktop ||
+          (!!node.parent &&
+           node.parent.role == Role.window &&
+           node.parent.children.every(function(child) {
+             return node.role == Role.window || node.role == Role.dialog;
+           }));
     case Role.toolbar:
       return node.root.role == Role.desktop;
     case Role.rootWebArea:
@@ -299,8 +362,8 @@ AutomationPredicate.shouldIgnoreNode = function(node) {
   if (node.role == Role.listMarker)
     return true;
 
-  // Don't ignore nodes with names.
-  if (node.name || node.value || node.description)
+  // Don't ignore nodes with names or name-like attribute.
+  if (node.name || node.value || node.description || node.url)
     return false;
 
   // Ignore some roles.
@@ -311,7 +374,10 @@ AutomationPredicate.shouldIgnoreNode = function(node) {
                                   Role.group,
                                   Role.image,
                                   Role.staticText,
-                                  Role.tableHeaderContainer])(node));
+                                  Role.svgRoot,
+                                  Role.tableHeaderContainer,
+                                  Role.unknown
+                                 ])(node));
 };
 
 /**

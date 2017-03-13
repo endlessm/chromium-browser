@@ -18,6 +18,7 @@
 #include "base/json/json_writer.h"
 #include "base/logging.h"
 #include "base/macros.h"
+#include "chrome/browser/android/search_geolocation/search_geolocation_service.h"
 #include "chrome/browser/browsing_data/browsing_data_flash_lso_helper.h"
 #include "chrome/browser/browsing_data/browsing_data_local_storage_helper.h"
 #include "chrome/browser/browsing_data/browsing_data_quota_helper.h"
@@ -44,6 +45,7 @@
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
 #include "storage/browser/quota/quota_manager.h"
 #include "storage/common/quota/quota_status_code.h"
+#include "url/origin.h"
 #include "url/url_constants.h"
 
 using base::android::ConvertJavaStringToUTF8;
@@ -174,34 +176,6 @@ void SetSettingForOrigin(JNIEnv* env,
 
 }  // anonymous namespace
 
-static void GetFullscreenOrigins(JNIEnv* env,
-                                 const JavaParamRef<jclass>& clazz,
-                                 const JavaParamRef<jobject>& list,
-                                 jboolean managedOnly) {
-  GetOrigins(env, CONTENT_SETTINGS_TYPE_FULLSCREEN,
-             &Java_WebsitePreferenceBridge_insertFullscreenInfoIntoList, list,
-             managedOnly);
-}
-
-static jint GetFullscreenSettingForOrigin(JNIEnv* env,
-                                          const JavaParamRef<jclass>& clazz,
-                                          const JavaParamRef<jstring>& origin,
-                                          const JavaParamRef<jstring>& embedder,
-                                          jboolean is_incognito) {
-  return GetSettingForOrigin(env, CONTENT_SETTINGS_TYPE_FULLSCREEN, origin,
-                             embedder, is_incognito);
-}
-
-static void SetFullscreenSettingForOrigin(JNIEnv* env,
-                                          const JavaParamRef<jclass>& clazz,
-                                          const JavaParamRef<jstring>& origin,
-                                          const JavaParamRef<jstring>& embedder,
-                                          jint value,
-                                          jboolean is_incognito) {
-  SetSettingForOrigin(env, CONTENT_SETTINGS_TYPE_FULLSCREEN, origin, embedder,
-                      static_cast<ContentSetting>(value), is_incognito);
-}
-
 static void GetGeolocationOrigins(JNIEnv* env,
                                   const JavaParamRef<jclass>& clazz,
                                   const JavaParamRef<jobject>& list,
@@ -230,42 +204,6 @@ static void SetGeolocationSettingForOrigin(
     jboolean is_incognito) {
   SetSettingForOrigin(env, CONTENT_SETTINGS_TYPE_GEOLOCATION, origin, embedder,
                       static_cast<ContentSetting>(value), is_incognito);
-}
-
-static void GetKeygenOrigins(JNIEnv* env,
-                             const JavaParamRef<jclass>& clazz,
-                             const JavaParamRef<jobject>& list) {
-  GetOrigins(env, CONTENT_SETTINGS_TYPE_KEYGEN,
-             &Java_WebsitePreferenceBridge_insertKeygenInfoIntoList, list,
-             false);
-}
-
-static jint GetKeygenSettingForOrigin(JNIEnv* env,
-                                      const JavaParamRef<jclass>& clazz,
-                                      const JavaParamRef<jstring>& origin,
-                                      const JavaParamRef<jstring>& embedder,
-                                      jboolean is_incognito) {
-  return GetSettingForOrigin(env, CONTENT_SETTINGS_TYPE_KEYGEN, origin,
-                             embedder, is_incognito);
-}
-
-static void SetKeygenSettingForOrigin(JNIEnv* env,
-                                      const JavaParamRef<jclass>& clazz,
-                                      const JavaParamRef<jstring>& origin,
-                                      jint value,
-                                      jboolean is_incognito) {
-  // Here 'nullptr' indicates that keygen uses wildcard for embedder.
-  SetSettingForOrigin(env, CONTENT_SETTINGS_TYPE_KEYGEN, origin, nullptr,
-                      static_cast<ContentSetting>(value), is_incognito);
-}
-
-static jboolean GetKeygenBlocked(JNIEnv* env,
-                             const JavaParamRef<jclass>& clazz,
-                             const JavaParamRef<jobject>& java_web_contents) {
-  content::WebContents* web_contents =
-      content::WebContents::FromJavaWebContents(java_web_contents);
-  return TabSpecificContentSettings::FromWebContents(
-      web_contents)->IsContentBlocked(CONTENT_SETTINGS_TYPE_KEYGEN);
 }
 
 static void GetMidiOrigins(JNIEnv* env,
@@ -531,7 +469,7 @@ class SiteDataDeleteHelper :
         new BrowsingDataCookieHelper(profile_->GetRequestContext()),
         new BrowsingDataDatabaseHelper(profile_),
         new BrowsingDataLocalStorageHelper(profile_),
-        NULL,
+        nullptr,
         new BrowsingDataAppCacheHelper(profile_),
         new BrowsingDataIndexedDBHelper(indexed_db_context),
         BrowsingDataFileSystemHelper::Create(file_system_context),
@@ -539,7 +477,8 @@ class SiteDataDeleteHelper :
         BrowsingDataChannelIDHelper::Create(profile_->GetRequestContext()),
         new BrowsingDataServiceWorkerHelper(service_worker_context),
         new BrowsingDataCacheStorageHelper(cache_storage_context),
-        NULL);
+        nullptr,
+        nullptr);
 
     cookies_tree_model_.reset(new CookiesTreeModel(
         container, profile_->GetExtensionSpecialStoragePolicy()));
@@ -793,6 +732,44 @@ static void ClearCookieData(JNIEnv* env,
   scoped_refptr<SiteDataDeleteHelper> site_data_deleter(
       new SiteDataDeleteHelper(profile, url));
   site_data_deleter->Run();
+}
+
+static void ClearBannerData(JNIEnv* env,
+                            const JavaParamRef<jclass>& clazz,
+                            const JavaParamRef<jstring>& jorigin) {
+  GetHostContentSettingsMap(false)->SetWebsiteSettingDefaultScope(
+      GURL(ConvertJavaStringToUTF8(env, jorigin)), GURL(),
+      CONTENT_SETTINGS_TYPE_APP_BANNER, std::string(), nullptr);
+}
+
+static jboolean ShouldUseDSEGeolocationSetting(
+    JNIEnv* env,
+    const JavaParamRef<jclass>& clazz,
+    const JavaParamRef<jstring>& jorigin,
+    jboolean is_incognito) {
+  SearchGeolocationService* search_helper =
+      SearchGeolocationService::Factory::GetForBrowserContext(
+          GetActiveUserProfile(is_incognito));
+  return search_helper &&
+         search_helper->UseDSEGeolocationSetting(
+             url::Origin(GURL(ConvertJavaStringToUTF8(env, jorigin))));
+}
+
+static jboolean GetDSEGeolocationSetting(JNIEnv* env,
+                                         const JavaParamRef<jclass>& clazz) {
+  SearchGeolocationService* search_helper =
+      SearchGeolocationService::Factory::GetForBrowserContext(
+          GetActiveUserProfile(false /* is_incognito */));
+  return search_helper->GetDSEGeolocationSetting();
+}
+
+static void SetDSEGeolocationSetting(JNIEnv* env,
+                                     const JavaParamRef<jclass>& clazz,
+                                     jboolean setting) {
+  SearchGeolocationService* search_helper =
+      SearchGeolocationService::Factory::GetForBrowserContext(
+          GetActiveUserProfile(false /* is_incognito */));
+  return search_helper->SetDSEGeolocationSetting(setting);
 }
 
 // Register native methods

@@ -67,11 +67,12 @@ class IconLabelBubbleView : public views::InkDropHostView {
   // true if some handling was performed.
   virtual bool OnActivate(const ui::Event& event);
 
-  // views::View:
+  // views::InkDropHostView:
   gfx::Size GetPreferredSize() const override;
   void Layout() override;
   bool OnKeyPressed(const ui::KeyEvent& event) override;
   bool OnKeyReleased(const ui::KeyEvent& event) override;
+  void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
   void OnNativeThemeChanged(const ui::NativeTheme* native_theme) override;
   void AddInkDropLayer(ui::Layer* ink_drop_layer) override;
   void RemoveInkDropLayer(ui::Layer* ink_drop_layer) override;
@@ -96,6 +97,8 @@ class IconLabelBubbleView : public views::InkDropHostView {
 
   // Padding after the separator.
   int GetPostSeparatorPadding() const;
+
+  float GetScaleFactor() const;
 
   // views::View:
   const char* GetClassName() const override;

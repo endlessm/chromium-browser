@@ -26,8 +26,8 @@
 #include "core/CoreExport.h"
 #include "core/layout/LayoutBoxModelObject.h"
 #include "core/layout/OverflowModel.h"
-#include "core/layout/ScrollEnums.h"
 #include "platform/scroll/ScrollTypes.h"
+#include "wtf/Compiler.h"
 #include "wtf/PtrUtil.h"
 #include <memory>
 
@@ -51,12 +51,6 @@ enum MarginDirection { BlockDirection, InlineDirection };
 enum BackgroundRectType { BackgroundClipRect, BackgroundKnownOpaqueRect };
 
 enum ShouldComputePreferred { ComputeActual, ComputePreferred };
-
-enum ApplyOverflowClipFlag {
-  ApplyOverflowClip,
-  // Don't apply overflow clipping or scrolling.
-  ApplyNonScrollOverflowClip
-};
 
 using SnapAreaSet = HashSet<const LayoutBox*>;
 
@@ -87,7 +81,8 @@ struct LayoutBoxRareData {
   LayoutUnit m_overrideContainingBlockContentLogicalWidth;
   LayoutUnit m_overrideContainingBlockContentLogicalHeight;
 
-  LayoutUnit m_pageLogicalOffset;
+  LayoutUnit m_offsetToNextPage;
+
   LayoutUnit m_paginationStrut;
 
   LayoutBlock* m_percentHeightContainer;
@@ -99,7 +94,7 @@ struct LayoutBoxRareData {
 
   SnapAreaSet& ensureSnapAreas() {
     if (!m_snapAreas)
-      m_snapAreas = wrapUnique(new SnapAreaSet);
+      m_snapAreas = WTF::wrapUnique(new SnapAreaSet);
 
     return *m_snapAreas;
   }
@@ -207,6 +202,7 @@ class CORE_EXPORT LayoutBox : public LayoutBoxModelObject {
 
   // Use this with caution! No type checking is done!
   LayoutBox* firstChildBox() const;
+  LayoutBox* firstInFlowChildBox() const;
   LayoutBox* lastChildBox() const;
 
   int pixelSnappedWidth() const { return m_frameRect.pixelSnappedWidth(); }
@@ -216,25 +212,25 @@ class CORE_EXPORT LayoutBox : public LayoutBoxModelObject {
     if (x == m_frameRect.x())
       return;
     m_frameRect.setX(x);
-    frameRectChanged();
+    locationChanged();
   }
   void setY(LayoutUnit y) {
     if (y == m_frameRect.y())
       return;
     m_frameRect.setY(y);
-    frameRectChanged();
+    locationChanged();
   }
   void setWidth(LayoutUnit width) {
     if (width == m_frameRect.width())
       return;
     m_frameRect.setWidth(width);
-    frameRectChanged();
+    sizeChanged();
   }
   void setHeight(LayoutUnit height) {
     if (height == m_frameRect.height())
       return;
     m_frameRect.setHeight(height);
-    frameRectChanged();
+    sizeChanged();
   }
 
   LayoutUnit logicalLeft() const {
@@ -255,6 +251,10 @@ class CORE_EXPORT LayoutBox : public LayoutBoxModelObject {
     return style()->isHorizontalWritingMode() ? m_frameRect.height()
                                               : m_frameRect.width();
   }
+
+  // Logical height of the object, including content overflowing the
+  // border-after edge.
+  virtual LayoutUnit logicalHeightWithVisibleOverflow() const;
 
   LayoutUnit constrainLogicalWidthByMinMax(LayoutUnit,
                                            LayoutUnit,
@@ -324,10 +324,10 @@ class CORE_EXPORT LayoutBox : public LayoutBoxModelObject {
     if (location == m_frameRect.location())
       return;
     m_frameRect.setLocation(location);
-    frameRectChanged();
+    locationChanged();
   }
 
-  // The ancestor box that this object's location and topLeftLocation are
+  // The ancestor box that this object's location and physicalLocation are
   // relative to.
   virtual LayoutBox* locationContainer() const;
 
@@ -342,13 +342,13 @@ class CORE_EXPORT LayoutBox : public LayoutBoxModelObject {
     if (size == m_frameRect.size())
       return;
     m_frameRect.setSize(size);
-    frameRectChanged();
+    sizeChanged();
   }
   void move(LayoutUnit dx, LayoutUnit dy) {
     if (!dx && !dy)
       return;
     m_frameRect.move(dx, dy);
-    frameRectChanged();
+    locationChanged();
   }
 
   // This function is in the container's coordinate system, meaning
@@ -356,10 +356,8 @@ class CORE_EXPORT LayoutBox : public LayoutBoxModelObject {
   // inline-start/block-start margins.
   LayoutRect frameRect() const { return m_frameRect; }
   void setFrameRect(const LayoutRect& rect) {
-    if (rect == m_frameRect)
-      return;
-    m_frameRect = rect;
-    frameRectChanged();
+    setLocation(rect.location());
+    setSize(rect.size());
   }
 
   // Note that those functions have their origin at this box's CSS border box.
@@ -563,9 +561,9 @@ class CORE_EXPORT LayoutBox : public LayoutBoxModelObject {
   virtual void setScrollLeft(LayoutUnit);
   virtual void setScrollTop(LayoutUnit);
 
-  void scrollToOffset(const DoubleSize&,
-                      ScrollBehavior = ScrollBehaviorInstant);
-  void scrollByRecursively(const DoubleSize& delta);
+  void scrollToPosition(const FloatPoint&,
+                        ScrollBehavior = ScrollBehaviorInstant);
+  void scrollByRecursively(const ScrollOffset& delta);
   // If makeVisibleInVisualViewport is set, the visual viewport will be scrolled
   // if required to make the rect visible.
   void scrollRectToVisible(const LayoutRect&,
@@ -666,13 +664,9 @@ class CORE_EXPORT LayoutBox : public LayoutBoxModelObject {
 
   void absoluteRects(Vector<IntRect>&,
                      const LayoutPoint& accumulatedOffset) const override;
-  void absoluteQuads(Vector<FloatQuad>&) const override;
+  void absoluteQuads(Vector<FloatQuad>&,
+                     MapCoordinatesFlags mode = 0) const override;
   FloatRect localBoundingBoxRectForAccessibility() const final;
-
-  int reflectionOffset() const;
-  // Given a rect in the object's coordinate space, returns the corresponding
-  // rect in the reflection.
-  LayoutRect reflectedRect(const LayoutRect&) const;
 
   void layout() override;
   void paint(const PaintInfo&, const LayoutPoint&) const override;
@@ -772,20 +766,23 @@ class CORE_EXPORT LayoutBox : public LayoutBoxModelObject {
 
   LayoutUnit offsetFromLogicalTopOfFirstPage() const;
 
-  // The page logical offset is the object's offset from the top of the page in
-  // the page progression direction (so an x-offset in vertical text and a
-  // y-offset for horizontal text).
-  LayoutUnit pageLogicalOffset() const {
-    return m_rareData ? m_rareData->m_pageLogicalOffset : LayoutUnit();
+  // The block offset from the logical top of this object to the end of the
+  // first fragmentainer it lives in. If it only lives in one fragmentainer, 0
+  // is returned.
+  LayoutUnit offsetToNextPage() const {
+    return m_rareData ? m_rareData->m_offsetToNextPage : LayoutUnit();
   }
-  void setPageLogicalOffset(LayoutUnit);
+  void setOffsetToNextPage(LayoutUnit);
 
   // Specify which page or column to associate with an offset, if said offset is
   // exactly at a page or column boundary.
   enum PageBoundaryRule { AssociateWithFormerPage, AssociateWithLatterPage };
   LayoutUnit pageLogicalHeightForOffset(LayoutUnit) const;
+  bool isPageLogicalHeightKnown() const;
   LayoutUnit pageRemainingLogicalHeightForOffset(LayoutUnit,
                                                  PageBoundaryRule) const;
+
+  bool crossesPageBoundary(LayoutUnit offset, LayoutUnit logicalHeight) const;
 
   // Calculate the strut to insert in order fit content of size
   // |contentLogicalHeight|. |strutToNextPage| is the strut to add to |offset|
@@ -873,7 +870,7 @@ class CORE_EXPORT LayoutBox : public LayoutBoxModelObject {
   bool needsForcedBreakBefore(EBreak previousBreakAfterValue) const;
 
   bool paintedOutputOfObjectHasNoEffectRegardlessOfSize() const override;
-  LayoutRect localOverflowRectForPaintInvalidation() const override;
+  LayoutRect localVisualRect() const override;
   bool mapToVisualRectInAncestorSpace(
       const LayoutBoxModelObject* ancestor,
       LayoutRect&,
@@ -890,6 +887,7 @@ class CORE_EXPORT LayoutBox : public LayoutBoxModelObject {
 
   virtual void updateLogicalWidth();
   void updateLogicalHeight();
+  void computeLogicalHeight(LogicalExtentComputedValues&) const;
   virtual void computeLogicalHeight(LayoutUnit logicalHeight,
                                     LayoutUnit logicalTop,
                                     LogicalExtentComputedValues&) const;
@@ -1001,16 +999,15 @@ class CORE_EXPORT LayoutBox : public LayoutBoxModelObject {
   IntSize calculateAutoscrollDirection(const IntPoint& pointInRootFrame) const;
   static LayoutBox* findAutoscrollable(LayoutObject*);
   virtual void stopAutoscroll() {}
-  virtual void middleClickAutoscroll(const IntPoint&);
 
   DISABLE_CFI_PERF bool hasAutoVerticalScrollbar() const {
-    return hasOverflowClip() && (style()->overflowY() == OverflowAuto ||
-                                 style()->overflowY() == OverflowPagedY ||
-                                 style()->overflowY() == OverflowOverlay);
+    return hasOverflowClip() && (style()->overflowY() == EOverflow::Auto ||
+                                 style()->overflowY() == EOverflow::PagedY ||
+                                 style()->overflowY() == EOverflow::Overlay);
   }
   DISABLE_CFI_PERF bool hasAutoHorizontalScrollbar() const {
-    return hasOverflowClip() && (style()->overflowX() == OverflowAuto ||
-                                 style()->overflowX() == OverflowOverlay);
+    return hasOverflowClip() && (style()->overflowX() == EOverflow::Auto ||
+                                 style()->overflowX() == EOverflow::Overlay);
   }
   DISABLE_CFI_PERF bool scrollsOverflow() const {
     return scrollsOverflowX() || scrollsOverflowY();
@@ -1028,11 +1025,11 @@ class CORE_EXPORT LayoutBox : public LayoutBoxModelObject {
            pixelSnappedScrollHeight() != pixelSnappedClientHeight();
   }
   virtual bool scrollsOverflowX() const {
-    return hasOverflowClip() && (style()->overflowX() == OverflowScroll ||
+    return hasOverflowClip() && (style()->overflowX() == EOverflow::Scroll ||
                                  hasAutoHorizontalScrollbar());
   }
   virtual bool scrollsOverflowY() const {
-    return hasOverflowClip() && (style()->overflowY() == OverflowScroll ||
+    return hasOverflowClip() && (style()->overflowY() == EOverflow::Scroll ||
                                  hasAutoVerticalScrollbar());
   }
 
@@ -1054,7 +1051,7 @@ class CORE_EXPORT LayoutBox : public LayoutBoxModelObject {
     AvoidBreaks    // Preferably avoid breaks. If not possible, examine children
                    // to find possible break points.
   };
-  PaginationBreakability getPaginationBreakability() const;
+  virtual PaginationBreakability getPaginationBreakability() const;
 
   LayoutRect localCaretRect(
       InlineBox*,
@@ -1099,9 +1096,11 @@ class CORE_EXPORT LayoutBox : public LayoutBoxModelObject {
 
   bool shrinkToAvoidFloats() const;
   virtual bool avoidsFloats() const;
+  bool shouldBeConsideredAsReplaced() const;
 
-  void markChildForPaginationRelayoutIfNeeded(LayoutBox& child,
-                                              SubtreeLayoutScope&);
+  void updateFragmentationInfoForChild(LayoutBox&);
+  bool childNeedsRelayoutForPagination(const LayoutBox&) const;
+  void markChildForPaginationRelayoutIfNeeded(LayoutBox&, SubtreeLayoutScope&);
 
   bool isWritingModeRoot() const {
     return !parent() ||
@@ -1144,23 +1143,23 @@ class CORE_EXPORT LayoutBox : public LayoutBoxModelObject {
 
   LayoutPoint flipForWritingModeForChild(const LayoutBox* child,
                                          const LayoutPoint&) const;
-  LayoutUnit flipForWritingMode(LayoutUnit position) const WARN_UNUSED_RETURN {
+  WARN_UNUSED_RESULT LayoutUnit flipForWritingMode(LayoutUnit position) const {
     // The offset is in the block direction (y for horizontal writing modes, x
     // for vertical writing modes).
     if (!UNLIKELY(hasFlippedBlocksWritingMode()))
       return position;
     return logicalHeight() - position;
   }
-  LayoutPoint flipForWritingMode(const LayoutPoint& position) const
-      WARN_UNUSED_RETURN {
+  WARN_UNUSED_RESULT LayoutPoint
+  flipForWritingMode(const LayoutPoint& position) const {
     if (!UNLIKELY(hasFlippedBlocksWritingMode()))
       return position;
     return isHorizontalWritingMode()
                ? LayoutPoint(position.x(), m_frameRect.height() - position.y())
                : LayoutPoint(m_frameRect.width() - position.x(), position.y());
   }
-  LayoutSize flipForWritingMode(const LayoutSize& offset) const
-      WARN_UNUSED_RETURN {
+  WARN_UNUSED_RESULT LayoutSize
+  flipForWritingMode(const LayoutSize& offset) const {
     if (!UNLIKELY(hasFlippedBlocksWritingMode()))
       return offset;
     return LayoutSize(m_frameRect.width() - offset.width(), offset.height());
@@ -1170,8 +1169,8 @@ class CORE_EXPORT LayoutBox : public LayoutBoxModelObject {
       return;
     rect.setX(m_frameRect.width() - rect.maxX());
   }
-  FloatPoint flipForWritingMode(const FloatPoint& position) const
-      WARN_UNUSED_RETURN {
+  WARN_UNUSED_RESULT FloatPoint
+  flipForWritingMode(const FloatPoint& position) const {
     if (!UNLIKELY(hasFlippedBlocksWritingMode()))
       return position;
     return FloatPoint(m_frameRect.width() - position.x(), position.y());
@@ -1181,14 +1180,13 @@ class CORE_EXPORT LayoutBox : public LayoutBoxModelObject {
       return;
     rect.setX(m_frameRect.width() - rect.maxX());
   }
-  // These represent your location relative to your container as a physical
-  // offset. In layout related methods you almost always want the logical
-  // location (e.g. x() and y()). Passing |container| causes flipped-block
-  // flipping w.r.t. that container, or containingBlock() otherwise.
-  LayoutPoint topLeftLocation(
+
+  // Passing |container| causes flipped-block flipping w.r.t. that container,
+  // or containingBlock() otherwise.
+  LayoutPoint physicalLocation(
       const LayoutBox* flippedBlocksContainer = nullptr) const;
-  LayoutSize topLeftLocationOffset() const {
-    return toLayoutSize(topLeftLocation());
+  LayoutSize physicalLocationOffset() const {
+    return toLayoutSize(physicalLocation());
   }
 
   LayoutRect logicalVisualOverflowRectForPropagation(
@@ -1219,7 +1217,6 @@ class CORE_EXPORT LayoutBox : public LayoutBoxModelObject {
   // may return true even if the resulting rect has zero area.
   bool mapScrollingContentsRectToBoxSpace(
       LayoutRect&,
-      ApplyOverflowClipFlag,
       VisualRectFlags = DefaultVisualRectFlags) const;
 
   virtual bool hasRelativeLogicalWidth() const;
@@ -1247,7 +1244,7 @@ class CORE_EXPORT LayoutBox : public LayoutBoxModelObject {
 
   virtual LayoutBox* createAnonymousBoxWithSameTypeAs(
       const LayoutObject*) const {
-    ASSERT_NOT_REACHED();
+    NOTREACHED();
     return nullptr;
   }
 
@@ -1277,7 +1274,7 @@ class CORE_EXPORT LayoutBox : public LayoutBoxModelObject {
                           TransformState&,
                           MapCoordinatesFlags) const override;
 
-  void clearPreviousPaintInvalidationRects() override;
+  void clearPreviousVisualRects() override;
 
   LayoutBlock* percentHeightContainer() const {
     return m_rareData ? m_rareData->m_percentHeightContainer : nullptr;
@@ -1292,9 +1289,8 @@ class CORE_EXPORT LayoutBox : public LayoutBoxModelObject {
   SnapAreaSet* snapAreas() const;
   void clearSnapAreas();
 
-  bool hitTestClippedOutByRoundedBorder(
-      const HitTestLocation& locationInContainer,
-      const LayoutPoint& borderBoxLocation) const;
+  bool hitTestClippedOutByBorder(const HitTestLocation& locationInContainer,
+                                 const LayoutPoint& borderBoxLocation) const;
 
   static bool mustInvalidateFillLayersPaintOnWidthChange(const FillLayer&);
   static bool mustInvalidateFillLayersPaintOnHeightChange(const FillLayer&);
@@ -1306,6 +1302,10 @@ class CORE_EXPORT LayoutBox : public LayoutBoxModelObject {
   bool intersectsVisibleViewport() const;
 
   bool hasNonCompositedScrollbars() const final;
+
+  void ensureIsReadyForPaintInvalidation() override;
+
+  virtual bool shouldClipOverflow() const;
 
  protected:
   void willBeDestroyed() override;
@@ -1484,7 +1484,7 @@ class CORE_EXPORT LayoutBox : public LayoutBoxModelObject {
 
   LayoutBoxRareData& ensureRareData() {
     if (!m_rareData)
-      m_rareData = wrapUnique(new LayoutBoxRareData());
+      m_rareData = WTF::makeUnique<LayoutBoxRareData>();
     return *m_rareData.get();
   }
 
@@ -1493,7 +1493,8 @@ class CORE_EXPORT LayoutBox : public LayoutBoxModelObject {
   bool isBox() const =
       delete;  // This will catch anyone doing an unnecessary check.
 
-  void frameRectChanged();
+  void locationChanged();
+  void sizeChanged();
 
   virtual bool isInSelfHitTestingPhase(HitTestAction hitTestAction) const {
     return hitTestAction == HitTestForeground;
@@ -1577,6 +1578,13 @@ inline LayoutBox* LayoutBox::nextInFlowSiblingBox() const {
 
 inline LayoutBox* LayoutBox::parentBox() const {
   return toLayoutBox(parent());
+}
+
+inline LayoutBox* LayoutBox::firstInFlowChildBox() const {
+  LayoutBox* first = firstChildBox();
+  return (first && first->isOutOfFlowPositioned())
+             ? first->nextInFlowSiblingBox()
+             : first;
 }
 
 inline LayoutBox* LayoutBox::firstChildBox() const {

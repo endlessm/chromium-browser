@@ -10,6 +10,8 @@
 #include <string>
 
 #include "base/message_loop/message_loop.h"
+#include "base/time/clock.h"
+#include "base/time/time.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_settings.h"
 #include "components/prefs/testing_pref_service.h"
 #include "net/log/test_net_log.h"
@@ -19,12 +21,10 @@
 #include "testing/gtest/include/gtest/gtest.h"
 
 class PrefService;
-class TestingPrefServiceSimple;
 
 namespace data_reduction_proxy {
 
 class DataReductionProxyTestContext;
-class MockDataReductionProxyConfig;
 
 template <class C>
 class MockDataReductionProxySettings : public C {
@@ -33,8 +33,7 @@ class MockDataReductionProxySettings : public C {
   }
   MOCK_METHOD0(GetOriginalProfilePrefs, PrefService*());
   MOCK_METHOD0(GetLocalStatePrefs, PrefService*());
-  MOCK_METHOD1(RecordStartupState,
-               void(ProxyStartupState state));
+  MOCK_CONST_METHOD1(RecordStartupState, void(ProxyStartupState state));
 };
 
 class DataReductionProxySettingsTestBase : public testing::Test {
@@ -42,21 +41,18 @@ class DataReductionProxySettingsTestBase : public testing::Test {
   static void AddTestProxyToCommandLine();
 
   DataReductionProxySettingsTestBase();
-  DataReductionProxySettingsTestBase(bool allowed,
-                                     bool fallback_allowed,
-                                     bool promo_allowed);
+  DataReductionProxySettingsTestBase(bool promo_allowed);
   ~DataReductionProxySettingsTestBase() override;
 
   void AddProxyToCommandLine();
 
   void SetUp() override;
 
-  template <class C> void ResetSettings(bool allowed,
-                                        bool fallback_allowed,
-                                        bool promo_allowed,
-                                        bool holdback);
-  virtual void ResetSettings(bool allowed,
-                             bool fallback_allowed,
+  template <class C>
+  void ResetSettings(std::unique_ptr<base::Clock> clock,
+                     bool promo_allowed,
+                     bool holdback);
+  virtual void ResetSettings(std::unique_ptr<base::Clock> clock,
                              bool promo_allowed,
                              bool holdback) = 0;
 
@@ -93,12 +89,11 @@ class ConcreteDataReductionProxySettingsTest
     : public DataReductionProxySettingsTestBase {
  public:
   typedef MockDataReductionProxySettings<C> MockSettings;
-  void ResetSettings(bool allowed,
-                     bool fallback_allowed,
+  void ResetSettings(std::unique_ptr<base::Clock> clock,
                      bool promo_allowed,
                      bool holdback) override {
     return DataReductionProxySettingsTestBase::ResetSettings<C>(
-        allowed, fallback_allowed, promo_allowed, holdback);
+        std::move(clock), promo_allowed, holdback);
   }
 };
 

@@ -38,6 +38,10 @@ namespace content {
 class CONTENT_EXPORT MediaPlayerRenderer : public media::Renderer,
                                            public media::MediaPlayerManager {
  public:
+  // Permits embedders to handle custom urls.
+  static void RegisterMediaUrlInterceptor(
+      media::MediaUrlInterceptor* media_url_interceptor);
+
   explicit MediaPlayerRenderer(content::RenderFrameHost* render_frame_host);
 
   ~MediaPlayerRenderer() override;
@@ -58,8 +62,6 @@ class CONTENT_EXPORT MediaPlayerRenderer : public media::Renderer,
   void SetPlaybackRate(double playback_rate) override;
   void SetVolume(float volume) override;
   base::TimeDelta GetMediaTime() override;
-  bool HasAudio() override;
-  bool HasVideo() override;
 
   // media::MediaPlayerManager implementation
   media::MediaResourceGetter* GetMediaResourceGetter() override;
@@ -96,6 +98,9 @@ class CONTENT_EXPORT MediaPlayerRenderer : public media::Renderer,
   void OnScopedSurfaceRequestCompleted(gl::ScopedJavaSurface surface);
 
  private:
+  void CreateMediaPlayer(const media::MediaUrlParams& params,
+                         const media::PipelineStatusCB& init_cb);
+
   // Used when creating |media_player_|.
   void OnDecoderResourcesReleased(int player_id);
 

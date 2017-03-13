@@ -9,11 +9,9 @@
 #include "base/memory/ref_counted.h"
 
 namespace syncer {
-struct EntityData;
-class ProcessorEntityTracker;
-}  // namespace syncer
 
-namespace syncer {
+class ProcessorEntityTracker;
+struct EntityData;
 
 namespace syncable {
 struct EntryKernel;
@@ -126,6 +124,13 @@ class ProtoValuePtr {
 
   scoped_refptr<Wrapper> wrapper_;
 };
+
+template <typename T, typename Traits>
+size_t EstimateMemoryUsage(const ProtoValuePtr<T, Traits>& ptr) {
+  return &ptr.value() != &Traits::DefaultValue()
+             ? EstimateMemoryUsage(ptr.value())
+             : 0;
+}
 
 }  // namespace syncer
 

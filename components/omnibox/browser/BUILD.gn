@@ -77,6 +77,8 @@ static_library("browser") {
     "omnibox_switches.h",
     "omnibox_view.cc",
     "omnibox_view.h",
+    "physical_web_node.cc",
+    "physical_web_node.h",
     "physical_web_provider.cc",
     "physical_web_provider.h",
     "scored_history_match.cc",
@@ -95,6 +97,8 @@ static_library("browser") {
     "shortcuts_provider.h",
     "suggestion_answer.cc",
     "suggestion_answer.h",
+    "titled_url_match_utils.cc",
+    "titled_url_match_utils.h",
     "url_index_private_data.cc",
     "url_index_private_data.h",
     "url_prefix.cc",
@@ -168,8 +172,12 @@ proto_library("in_memory_url_index_cache_proto") {
 static_library("test_support") {
   testonly = true
   sources = [
+    "fake_autocomplete_provider_client.cc",
+    "fake_autocomplete_provider_client.h",
     "history_index_restore_observer.cc",
     "history_index_restore_observer.h",
+    "history_test_util.cc",
+    "history_test_util.h",
     "in_memory_url_index_test_util.cc",
     "in_memory_url_index_test_util.h",
     "mock_autocomplete_provider_client.cc",
@@ -183,12 +191,17 @@ static_library("test_support") {
   deps = [
     ":browser",
     "//base",
+    "//base/test:test_support",
+    "//components/bookmarks/browser",
+    "//components/bookmarks/test",
     "//components/history/core/browser",
+    "//components/history/core/test",
     "//components/metrics/proto",
     "//components/search_engines",
     "//net",
     "//testing/gmock",
     "//testing/gtest",
+    "//ui/base",
   ]
 }
 
@@ -234,6 +247,7 @@ source_set("unit_tests") {
     "shortcuts_database_unittest.cc",
     "shortcuts_provider_unittest.cc",
     "suggestion_answer_unittest.cc",
+    "titled_url_match_utils_unittest.cc",
     "url_prefix_unittest.cc",
     "zero_suggest_provider_unittest.cc",
   ]
@@ -243,12 +257,12 @@ source_set("unit_tests") {
     ":test_support",
     ":unit_tests_bundle_data",
     "//base",
-    "//base/test:test_support",
     "//components/bookmarks/browser",
     "//components/bookmarks/test",
     "//components/history/core/test",
     "//components/open_from_clipboard:test_support",
     "//components/physical_web/data_source",
+    "//components/physical_web/data_source:test_support",
     "//components/prefs:test_support",
     "//components/search",
     "//components/search_engines",
@@ -262,7 +276,7 @@ source_set("unit_tests") {
     "//sql:test_support",
     "//testing/gmock",
     "//testing/gtest",
-    "//ui/base",
+    "//ui/base:base",
     "//url",
   ]
 }

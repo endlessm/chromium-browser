@@ -33,7 +33,8 @@
 #include "net/base/io_buffer.h"
 #include "net/base/load_flags.h"
 #include "net/base/mime_util.h"
-#include "net/filter/filter.h"
+#include "net/filter/gzip_source_stream.h"
+#include "net/filter/source_stream.h"
 #include "net/http/http_util.h"
 #include "net/url_request/url_request_error_job.h"
 #include "net/url_request/url_request_file_dir_job.h"
@@ -145,13 +146,6 @@ bool URLRequestFileJob::IsRedirectResponse(GURL* location,
 #endif
 }
 
-std::unique_ptr<Filter> URLRequestFileJob::SetupFilter() const {
-  // Bug 9936 - .svgz files needs to be decompressed.
-  return base::LowerCaseEqualsASCII(file_path_.Extension(), ".svgz")
-             ? Filter::GZipFactory()
-             : nullptr;
-}
-
 bool URLRequestFileJob::GetMimeType(std::string* mime_type) const {
   DCHECK(request_);
   if (meta_info_.mime_type_result) {
@@ -178,11 +172,13 @@ void URLRequestFileJob::SetExtraRequestHeaders(
         // because we need to do multipart encoding here.
         // TODO(hclam): decide whether we want to support multiple range
         // requests.
-        range_parse_result_ = net::ERR_REQUEST_RANGE_NOT_SATISFIABLE;
+        range_parse_result_ = ERR_REQUEST_RANGE_NOT_SATISFIABLE;
       }
     }
   }
 }
+
+void URLRequestFileJob::OnOpenComplete(int result) {}
 
 void URLRequestFileJob::OnSeekComplete(int64_t result) {}
 
@@ -190,6 +186,14 @@ void URLRequestFileJob::OnReadComplete(IOBuffer* buf, int result) {
 }
 
 URLRequestFileJob::~URLRequestFileJob() {
+}
+
+std::unique_ptr<SourceStream> URLRequestFileJob::SetUpSourceStream() {
+  std::unique_ptr<SourceStream> source = URLRequestJob::SetUpSourceStream();
+  if (!base::LowerCaseEqualsASCII(file_path_.Extension(), ".svgz"))
+    return source;
+
+  return GzipSourceStream::Create(std::move(source), SourceStream::TYPE_GZIP);
 }
 
 void URLRequestFileJob::FetchMetaInfo(const base::FilePath& file_path,
@@ -237,20 +241,15 @@ void URLRequestFileJob::DidFetchMetaInfo(const FileMetaInfo* meta_info) {
 }
 
 void URLRequestFileJob::DidOpen(int result) {
+  OnOpenComplete(result);
   if (result != OK) {
     NotifyStartError(URLRequestStatus(URLRequestStatus::FAILED, result));
     return;
   }
 
-  if (range_parse_result_ != net::OK) {
-    NotifyStartError(
-        URLRequestStatus(URLRequestStatus::FAILED, range_parse_result_));
-    return;
-  }
-
-  if (!byte_range_.ComputeBounds(meta_info_.file_size)) {
-    NotifyStartError(URLRequestStatus(URLRequestStatus::FAILED,
-                                      net::ERR_REQUEST_RANGE_NOT_SATISFIABLE));
+  if (range_parse_result_ != OK ||
+      !byte_range_.ComputeBounds(meta_info_.file_size)) {
+    DidSeek(ERR_REQUEST_RANGE_NOT_SATISFIABLE);
     return;
   }
 
@@ -262,11 +261,8 @@ void URLRequestFileJob::DidOpen(int result) {
     int rv = stream_->Seek(byte_range_.first_byte_position(),
                            base::Bind(&URLRequestFileJob::DidSeek,
                                       weak_ptr_factory_.GetWeakPtr()));
-    if (rv != ERR_IO_PENDING) {
-      // stream_->Seek() failed, so pass an intentionally erroneous value
-      // into DidSeek().
-      DidSeek(-1);
-    }
+    if (rv != ERR_IO_PENDING)
+      DidSeek(ERR_REQUEST_RANGE_NOT_SATISFIABLE);
   } else {
     // We didn't need to call stream_->Seek() at all, so we pass to DidSeek()
     // the value that would mean seek success. This way we skip the code
@@ -276,8 +272,10 @@ void URLRequestFileJob::DidOpen(int result) {
 }
 
 void URLRequestFileJob::DidSeek(int64_t result) {
+  DCHECK(result < 0 || result == byte_range_.first_byte_position());
+
   OnSeekComplete(result);
-  if (result != byte_range_.first_byte_position()) {
+  if (result < 0) {
     NotifyStartError(URLRequestStatus(URLRequestStatus::FAILED,
                                       ERR_REQUEST_RANGE_NOT_SATISFIABLE));
     return;

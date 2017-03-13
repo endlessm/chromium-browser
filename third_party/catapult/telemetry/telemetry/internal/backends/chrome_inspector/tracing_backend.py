@@ -71,7 +71,9 @@ class _DevToolsStreamReader(object):
       raise TracingUnrecoverableException(
           'Reading trace failed: %s' % response['error']['message'])
     result = response['result']
-    self._data.append(result['data'])
+    # Convert the trace data that's receive as UTF32 to its native encoding of
+    # UTF8 in order to reduce its size.
+    self._data.append(result['data'].encode('utf8'))
     if not result.get('eof', False):
       self._ReadChunkFromStream()
       return
@@ -269,7 +271,7 @@ class TracingBackend(object):
   def _NotificationHandler(self, res):
     if 'Tracing.dataCollected' == res.get('method'):
       value = res.get('params', {}).get('value')
-      self._trace_data_builder.AddEventsTo(
+      self._trace_data_builder.AddTraceFor(
         trace_data_module.CHROME_TRACE_PART, value)
     elif 'Tracing.tracingComplete' == res.get('method'):
       stream_handle = res.get('params', {}).get('stream')
@@ -280,22 +282,10 @@ class TracingBackend(object):
       reader.Read(self._ReceivedAllTraceDataFromStream)
 
   def _ReceivedAllTraceDataFromStream(self, data):
+    # For now we still unpack trace data to dictionary form.
     trace = json.loads(data)
-    if type(trace) == dict:
-      for part in trace_data_module.ALL_TRACE_PARTS:
-        field_name = part.raw_field_name
-        if field_name in trace:
-          self._trace_data_builder.AddEventsTo(part, trace[field_name])
-
-      if 'metadata' in trace:
-        self._trace_data_builder.SetMetadataFor(
-            trace_data_module.CHROME_TRACE_PART, trace['metadata'])
-
-    elif type(trace) == list:
-      self._trace_data_builder.AddEventsTo(
+    self._trace_data_builder.AddTraceFor(
         trace_data_module.CHROME_TRACE_PART, trace)
-    else:
-      raise TracingUnexpectedResponseException('Unexpected trace type')
     self._has_received_all_tracing_data = True
 
   def Close(self):

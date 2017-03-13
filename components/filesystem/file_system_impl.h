@@ -15,12 +15,11 @@ namespace base {
 class FilePath;
 }
 
-namespace shell {
+namespace service_manager {
 class Identity;
 }
 
 namespace filesystem {
-class FileSystemApp;
 
 class LockTable;
 
@@ -29,7 +28,7 @@ class FileSystemImpl : public mojom::FileSystem {
  public:
   // |persistent_dir| is the directory served to callers of
   // |OpenPersistentFileSystem().
-  FileSystemImpl(const shell::Identity& remote_identity,
+  FileSystemImpl(const service_manager::Identity& remote_identity,
                  base::FilePath persistent_dir,
                  scoped_refptr<LockTable> lock_table);
   ~FileSystemImpl() override;

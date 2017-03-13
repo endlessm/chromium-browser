@@ -325,16 +325,20 @@ class WebSocketStreamCreateUMATest : public ::testing::Test {
 
 // Confirm that the basic case works as expected.
 TEST_F(WebSocketStreamCreateTest, SimpleSuccess) {
+  EXPECT_FALSE(url_request_);
   CreateAndConnectStandard("ws://localhost/", "localhost", "/",
                            NoSubProtocols(), LocalhostOrigin(), LocalhostUrl(),
                            "", "", "");
   EXPECT_FALSE(request_info_);
   EXPECT_FALSE(response_info_);
+  EXPECT_TRUE(url_request_);
   WaitUntilConnectDone();
   EXPECT_FALSE(has_failed());
   EXPECT_TRUE(stream_);
   EXPECT_TRUE(request_info_);
   EXPECT_TRUE(response_info_);
+  EXPECT_EQ(ERR_WS_UPGRADE,
+            url_request_context_host_.network_delegate().last_error());
 }
 
 TEST_F(WebSocketStreamCreateTest, HandshakeInfo) {
@@ -481,6 +485,8 @@ TEST_F(WebSocketStreamCreateTest, UnsolicitedSubProtocol) {
             "Response must not include 'Sec-WebSocket-Protocol' header "
             "if not present in request: chatv20.chromium.org",
             failure_message());
+  EXPECT_EQ(ERR_INVALID_RESPONSE,
+            url_request_context_host_.network_delegate().last_error());
 }
 
 // Missing sub-protocol response is rejected.

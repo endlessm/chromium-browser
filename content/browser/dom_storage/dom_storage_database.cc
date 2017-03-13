@@ -135,6 +135,13 @@ bool DOMStorageDatabase::CommitChanges(bool clear_all_first,
   return success;
 }
 
+void DOMStorageDatabase::ReportMemoryUsage(
+    base::trace_event::ProcessMemoryDump* pmd,
+    const std::string& name) {
+  if (IsOpen())
+    db_->ReportMemoryUsage(pmd, name);
+}
+
 bool DOMStorageDatabase::LazyOpen(bool create_if_needed) {
   if (failed_to_open_) {
     // Don't try to open a database that we know has failed
@@ -158,9 +165,8 @@ bool DOMStorageDatabase::LazyOpen(bool create_if_needed) {
   db_.reset(new sql::Connection());
   db_->set_histogram_tag("DOMStorageDatabase");
 
-  // TODO(shess): The current mitigation for http://crbug.com/537742 stores
-  // state in the meta table, which this database does not use.
-  db_->set_mmap_disabled();
+  // This db does not use [meta] table, store mmap status data elsewhere.
+  db_->set_mmap_alt_status();
 
   if (file_path_.empty()) {
     // This code path should only be triggered by unit tests.

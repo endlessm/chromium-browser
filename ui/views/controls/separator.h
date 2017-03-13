@@ -38,13 +38,17 @@ class VIEWS_EXPORT Separator : public View {
 
   // Overridden from View:
   gfx::Size GetPreferredSize() const override;
-  void GetAccessibleState(ui::AXViewState* state) override;
+  void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
   void OnPaint(gfx::Canvas* canvas) override;
+  void OnNativeThemeChanged(const ui::NativeTheme* theme) override;
   const char* GetClassName() const override;
 
  private:
+  void SetColorFromNativeTheme();
+
   const Orientation orientation_;
   SkColor color_;
+  bool color_overridden_;
   int size_;
 
   DISALLOW_COPY_AND_ASSIGN(Separator);

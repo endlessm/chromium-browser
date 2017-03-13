@@ -74,10 +74,10 @@ class VIEWS_EXPORT ScrollView : public View, public ScrollBarController {
   // Returns whether or not the ScrollView is bounded (as set by ClipHeightTo).
   bool is_bounded() const { return max_height_ >= 0 && min_height_ >= 0; }
 
-  // Retrieves the width/height of scrollbars. These return 0 if the scrollbar
-  // has not yet been created.
-  int GetScrollBarWidth() const;
-  int GetScrollBarHeight() const;
+  // Retrieves the width/height reserved for scrollbars. These return 0 if the
+  // scrollbar has not yet been created or in the case of overlay scrollbars.
+  int GetScrollBarLayoutWidth() const;
+  int GetScrollBarLayoutHeight() const;
 
   // Returns the horizontal/vertical scrollbar. This may return NULL.
   const ScrollBar* horizontal_scroll_bar() const { return horiz_sb_; }
@@ -88,14 +88,15 @@ class VIEWS_EXPORT ScrollView : public View, public ScrollBarController {
   void SetHorizontalScrollBar(ScrollBar* horiz_sb);
   void SetVerticalScrollBar(ScrollBar* vert_sb);
 
+  // Sets whether this ScrollView has a focus ring or not.
+  void SetHasFocusRing(bool has_focus_ring);
+
   // View overrides:
   gfx::Size GetPreferredSize() const override;
   int GetHeightForWidth(int width) const override;
   void Layout() override;
   bool OnKeyPressed(const ui::KeyEvent& event) override;
   bool OnMouseWheel(const ui::MouseWheelEvent& e) override;
-  void OnMouseEntered(const ui::MouseEvent& event) override;
-  void OnMouseExited(const ui::MouseEvent& event) override;
   void OnScrollEvent(ui::ScrollEvent* event) override;
   void OnGestureEvent(ui::GestureEvent* event) override;
   const char* GetClassName() const override;
@@ -184,6 +185,9 @@ class VIEWS_EXPORT ScrollView : public View, public ScrollBarController {
   // If true, never show the horizontal scrollbar (even if the contents is wider
   // than the viewport).
   bool hide_horizontal_scrollbar_;
+
+  // Focus ring, if one is installed.
+  View* focus_ring_ = nullptr;
 
   DISALLOW_COPY_AND_ASSIGN(ScrollView);
 };

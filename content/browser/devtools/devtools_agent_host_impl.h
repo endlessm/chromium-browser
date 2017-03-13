@@ -11,29 +11,18 @@
 
 #include "base/compiler_specific.h"
 #include "content/browser/devtools/devtools_io_context.h"
-#include "content/browser/devtools/protocol/devtools_protocol_delegate.h"
 #include "content/common/content_export.h"
 #include "content/common/devtools_messages.h"
 #include "content/public/browser/devtools_agent_host.h"
 
-namespace IPC {
-class Message;
-}
-
 namespace content {
 
 class BrowserContext;
+class DevToolsSession;
 
 // Describes interface for managing devtools agents from the browser process.
-class CONTENT_EXPORT DevToolsAgentHostImpl : public DevToolsAgentHost,
-                                             public DevToolsProtocolDelegate {
+class CONTENT_EXPORT DevToolsAgentHostImpl : public DevToolsAgentHost {
  public:
-  // Informs the hosted agent that a client host has attached.
-  virtual void Attach() = 0;
-
-  // Informs the hosted agent that a client host has detached.
-  virtual void Detach() = 0;
-
   // DevToolsAgentHost implementation.
   bool AttachClient(DevToolsAgentHostClient* client) override;
   void ForceAttachClient(DevToolsAgentHostClient* client) override;
@@ -54,36 +43,42 @@ class CONTENT_EXPORT DevToolsAgentHostImpl : public DevToolsAgentHost,
   void ConnectWebContents(WebContents* wc) override;
 
   bool Inspect();
-
-  // DevToolsProtocolDelegate implementation.
-  void SendProtocolResponse(int session_id,
-                            const std::string& message) override;
-  void SendProtocolNotification(const std::string& message) override;
+  void SendMessageToClient(int session_id, const std::string& message);
 
  protected:
   DevToolsAgentHostImpl(const std::string& id);
   ~DevToolsAgentHostImpl() override;
 
-  virtual bool DispatchProtocolMessage(const std::string& message) = 0;
-  virtual void InspectElement(int x, int y);
+  static bool ShouldForceCreation();
 
-  void HostClosed();
-  void SendMessageToClient(int session_id, const std::string& message);
-  devtools::DevToolsIOContext* GetIOContext() { return &io_context_; }
+  virtual void AttachSession(DevToolsSession* session) = 0;
+  virtual void DetachSession(int session_id) = 0;
+  virtual bool DispatchProtocolMessage(
+      DevToolsSession* session,
+      const std::string& message) = 0;
+  virtual void InspectElement(DevToolsSession* session, int x, int y);
 
-  int session_id() { DCHECK(client_); return session_id_; }
+  void NotifyCreated();
+  void ForceDetach(bool replaced);
+  DevToolsIOContext* GetIOContext() { return &io_context_; }
 
-  static void NotifyCallbacks(DevToolsAgentHostImpl* agent_host, bool attached);
+  // TODO(dgozman): remove this accessor.
+  DevToolsSession* session() { return session_.get(); }
 
  private:
   friend class DevToolsAgentHost; // for static methods
-  bool InnerAttach(DevToolsAgentHostClient* client, bool force);
-  void InnerDetach();
+  bool InnerAttachClient(DevToolsAgentHostClient* client, bool force);
+  void InnerDetachClient();
+  void NotifyAttached();
+  void NotifyDetached();
+  void NotifyDestroyed();
 
   const std::string id_;
-  int session_id_;
-  DevToolsAgentHostClient* client_;
-  devtools::DevToolsIOContext io_context_;
+  int last_session_id_;
+  std::unique_ptr<DevToolsSession> session_;
+  DevToolsIOContext io_context_;
+  static int s_attached_count_;
+  static int s_force_creation_count_;
 };
 
 class DevToolsMessageChunkProcessor {

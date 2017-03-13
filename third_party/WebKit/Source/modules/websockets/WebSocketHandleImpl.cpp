@@ -5,6 +5,7 @@
 #include "modules/websockets/WebSocketHandleImpl.h"
 
 #include "modules/websockets/WebSocketHandleClient.h"
+#include "platform/WebTaskRunner.h"
 #include "platform/network/NetworkLog.h"
 #include "platform/network/WebSocketHandshakeRequest.h"
 #include "platform/network/WebSocketHandshakeResponse.h"
@@ -39,10 +40,11 @@ void WebSocketHandleImpl::initialize(InterfaceProvider* interfaceProvider) {
   NETWORK_DVLOG(1) << this << " initialize(...)";
 
   DCHECK(!m_websocket);
-  interfaceProvider->getInterface(mojo::GetProxy(&m_websocket));
+  interfaceProvider->getInterface(mojo::MakeRequest(&m_websocket));
 
-  m_websocket.set_connection_error_with_reason_handler(convertToBaseCallback(
-      WTF::bind(&WebSocketHandleImpl::onConnectionError, unretained(this))));
+  m_websocket.set_connection_error_with_reason_handler(
+      convertToBaseCallback(WTF::bind(&WebSocketHandleImpl::onConnectionError,
+                                      WTF::unretained(this))));
 }
 
 void WebSocketHandleImpl::connect(const KURL& url,

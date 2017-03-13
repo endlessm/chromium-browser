@@ -32,14 +32,15 @@ class MODULES_EXPORT RespondWithObserver
   virtual ~RespondWithObserver();
 
   static RespondWithObserver* create(ExecutionContext*,
-                                     int eventID,
+                                     int fetchEventID,
                                      const KURL& requestURL,
                                      WebURLRequest::FetchRequestMode,
+                                     WebURLRequest::FetchRedirectMode,
                                      WebURLRequest::FrameType,
                                      WebURLRequest::RequestContext,
                                      WaitUntilObserver*);
 
-  void contextDestroyed() override;
+  void contextDestroyed(ExecutionContext*) override;
 
   void willDispatchEvent();
   void didDispatchEvent(DispatchEventResult dispatchResult);
@@ -55,9 +56,10 @@ class MODULES_EXPORT RespondWithObserver
 
  protected:
   RespondWithObserver(ExecutionContext*,
-                      int eventID,
+                      int fetchEventID,
                       const KURL& requestURL,
                       WebURLRequest::FetchRequestMode,
+                      WebURLRequest::FetchRedirectMode,
                       WebURLRequest::FrameType,
                       WebURLRequest::RequestContext,
                       WaitUntilObserver*);
@@ -65,11 +67,12 @@ class MODULES_EXPORT RespondWithObserver
  private:
   class ThenFunction;
 
-  int m_eventID;
-  KURL m_requestURL;
-  WebURLRequest::FetchRequestMode m_requestMode;
-  WebURLRequest::FrameType m_frameType;
-  WebURLRequest::RequestContext m_requestContext;
+  const int m_fetchEventID;
+  const KURL m_requestURL;
+  const WebURLRequest::FetchRequestMode m_requestMode;
+  const WebURLRequest::FetchRedirectMode m_redirectMode;
+  const WebURLRequest::FrameType m_frameType;
+  const WebURLRequest::RequestContext m_requestContext;
 
   double m_eventDispatchTime = 0;
 

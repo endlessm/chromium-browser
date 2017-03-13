@@ -32,6 +32,7 @@
 #include "core/css/CSSCustomIdentValue.h"
 #include "core/css/CSSFontFamilyValue.h"
 #include "core/css/CSSFontFeatureValue.h"
+#include "core/css/CSSFontVariationValue.h"
 #include "core/css/CSSFunctionValue.h"
 #include "core/css/CSSGridAutoRepeatValue.h"
 #include "core/css/CSSGridLineNamesValue.h"
@@ -45,10 +46,13 @@
 #include "core/css/CSSURIValue.h"
 #include "core/css/CSSValuePair.h"
 #include "core/css/resolver/FilterOperationResolver.h"
+#include "core/css/resolver/TransformBuilder.h"
 #include "core/frame/LocalFrame.h"
+#include "core/frame/UseCounter.h"
 #include "core/style/ClipPathOperation.h"
 #include "core/style/TextSizeAdjust.h"
 #include "core/svg/SVGURIReference.h"
+#include "platform/fonts/FontCache.h"
 #include "platform/transforms/RotateTransformOperation.h"
 #include "platform/transforms/ScaleTransformOperation.h"
 #include "platform/transforms/TranslateTransformOperation.h"
@@ -135,17 +139,11 @@ PassRefPtr<ClipPathOperation> StyleBuilderConverter::convertClipPath(
   if (value.isBasicShapeValue())
     return ShapeClipPathOperation::create(basicShapeForValue(state, value));
   if (value.isURIValue()) {
-    SVGURLReferenceResolver resolver(toCSSURIValue(value).value(),
-                                     state.document());
-    // If the reference is non-local, then the fragment will remain as a
-    // null string, which makes the element lookup fail.
-    AtomicString fragmentIdentifier;
-    if (resolver.isLocal())
-      fragmentIdentifier = resolver.fragmentIdentifier();
-    // TODO(fs): Doesn't work with forward or external SVG references
-    // (crbug.com/391604, crbug.com/109212, ...)
-    return ReferenceClipPathOperation::create(toCSSURIValue(value).value(),
-                                              fragmentIdentifier);
+    const CSSURIValue& urlValue = toCSSURIValue(value);
+    SVGElementProxy& elementProxy =
+        state.elementStyleResources().cachedOrPendingFromValue(urlValue);
+    // TODO(fs): Doesn't work with external SVG references (crbug.com/109212.)
+    return ReferenceClipPathOperation::create(urlValue.value(), elementProxy);
   }
   DCHECK(value.isIdentifierValue() &&
          toCSSIdentifierValue(value).getValueID() == CSSValueNone);
@@ -188,6 +186,12 @@ static bool convertFontFamilyName(
   if (value.isFontFamilyValue()) {
     genericFamily = FontDescription::NoFamily;
     familyName = AtomicString(toCSSFontFamilyValue(value).value());
+#if OS(MACOSX)
+    if (familyName == FontCache::legacySystemFontFamily()) {
+      UseCounter::count(state.document(), UseCounter::BlinkMacSystemFont);
+      familyName = FontFamilyNames::system_ui;
+    }
+#endif
   } else if (state.document().settings()) {
     genericFamily =
         convertGenericFamily(toCSSIdentifierValue(value).getValueID());
@@ -243,6 +247,24 @@ StyleBuilderConverter::convertFontFeatureSettings(StyleResolverState& state,
   for (int i = 0; i < len; ++i) {
     const CSSFontFeatureValue& feature = toCSSFontFeatureValue(list.item(i));
     settings->append(FontFeature(feature.tag(), feature.value()));
+  }
+  return settings;
+}
+
+PassRefPtr<FontVariationSettings>
+StyleBuilderConverter::convertFontVariationSettings(StyleResolverState& state,
+                                                    const CSSValue& value) {
+  if (value.isIdentifierValue() &&
+      toCSSIdentifierValue(value).getValueID() == CSSValueNormal)
+    return FontBuilder::initialVariationSettings();
+
+  const CSSValueList& list = toCSSValueList(value);
+  RefPtr<FontVariationSettings> settings = FontVariationSettings::create();
+  int len = list.length();
+  for (int i = 0; i < len; ++i) {
+    const CSSFontVariationValue& feature =
+        toCSSFontVariationValue(list.item(i));
+    settings->append(FontVariationAxis(feature.tag(), feature.value()));
   }
   return settings;
 }
@@ -539,8 +561,6 @@ GridPosition StyleBuilderConverter::convertGridPosition(StyleResolverState&,
   GridPosition position;
 
   if (value.isCustomIdentValue()) {
-    // We translate <custom-ident> to <string> during parsing as it
-    // makes handling it more simple.
     position.setNamedGridArea(toCSSCustomIdentValue(value).value());
     return position;
   }
@@ -619,10 +639,10 @@ static void convertGridLineNamesList(
     String namedGridLine = toCSSCustomIdentValue(*namedGridLineValue).value();
     NamedGridLinesMap::AddResult result =
         namedGridLines.add(namedGridLine, Vector<size_t>());
-    result.storedValue->value.append(currentNamedGridLine);
+    result.storedValue->value.push_back(currentNamedGridLine);
     OrderedNamedGridLines::AddResult orderedInsertionResult =
         orderedNamedGridLines.add(currentNamedGridLine, Vector<String>());
-    orderedInsertionResult.storedValue->value.append(namedGridLine);
+    orderedInsertionResult.storedValue->value.push_back(namedGridLine);
   }
 }
 
@@ -634,7 +654,7 @@ Vector<GridTrackSize> StyleBuilderConverter::convertGridTrackSizeList(
   for (auto& currValue : toCSSValueList(value)) {
     DCHECK(!currValue->isGridLineNamesValue());
     DCHECK(!currValue->isGridAutoRepeatValue());
-    trackSizes.append(convertGridTrackSize(state, *currValue));
+    trackSizes.push_back(convertGridTrackSize(state, *currValue));
   }
   return trackSizes;
 }
@@ -679,7 +699,7 @@ void StyleBuilderConverter::convertGridTrackList(
           continue;
         }
         ++autoRepeatIndex;
-        autoRepeatTrackSizes.append(
+        autoRepeatTrackSizes.push_back(
             convertGridTrackSize(state, *autoRepeatValue));
       }
       autoRepeatInsertionPoint = currentNamedGridLine++;
@@ -687,7 +707,7 @@ void StyleBuilderConverter::convertGridTrackList(
     }
 
     ++currentNamedGridLine;
-    trackSizes.append(convertGridTrackSize(state, *currValue));
+    trackSizes.push_back(convertGridTrackSize(state, *currValue));
   }
 
   // The parser should have rejected any <track-list> without any <track-size>
@@ -707,7 +727,7 @@ void StyleBuilderConverter::convertOrderedNamedGridLinesMapToNamedGridLinesMap(
     for (auto& lineName : orderedNamedGridLine.value) {
       NamedGridLinesMap::AddResult startResult =
           namedGridLines.add(lineName, Vector<size_t>());
-      startResult.storedValue->value.append(orderedNamedGridLine.key);
+      startResult.storedValue->value.push_back(orderedNamedGridLine.key);
     }
   }
 
@@ -727,14 +747,14 @@ void StyleBuilderConverter::createImplicitNamedGridLinesFromGridArea(
     {
       NamedGridLinesMap::AddResult startResult = namedGridLines.add(
           namedGridAreaEntry.key + "-start", Vector<size_t>());
-      startResult.storedValue->value.append(areaSpan.startLine());
+      startResult.storedValue->value.push_back(areaSpan.startLine());
       std::sort(startResult.storedValue->value.begin(),
                 startResult.storedValue->value.end());
     }
     {
       NamedGridLinesMap::AddResult endResult =
           namedGridLines.add(namedGridAreaEntry.key + "-end", Vector<size_t>());
-      endResult.storedValue->value.append(areaSpan.endLine());
+      endResult.storedValue->value.push_back(areaSpan.endLine());
       std::sort(endResult.storedValue->value.begin(),
                 endResult.storedValue->value.end());
     }
@@ -830,8 +850,10 @@ Length StyleBuilderConverter::convertLineHeight(StyleResolverState& state,
               100.0,
           Fixed);
     }
-    if (primitiveValue.isNumber())
-      return Length(primitiveValue.getDoubleValue() * 100.0, Percent);
+    if (primitiveValue.isNumber()) {
+      return Length(clampTo<float>(primitiveValue.getDoubleValue() * 100.0),
+                    Percent);
+    }
     if (primitiveValue.isCalculated()) {
       Length zoomedLength = Length(primitiveValue.cssCalcValue()->toCalcValue(
           lineHeightToLengthConversionData(state)));
@@ -856,13 +878,13 @@ float StyleBuilderConverter::convertNumberOrPercentage(
   return primitiveValue.getFloatValue() / 100.0f;
 }
 
-StyleOffsetRotation StyleBuilderConverter::convertOffsetRotation(
+StyleOffsetRotation StyleBuilderConverter::convertOffsetRotate(
     StyleResolverState&,
     const CSSValue& value) {
-  return convertOffsetRotation(value);
+  return convertOffsetRotate(value);
 }
 
-StyleOffsetRotation StyleBuilderConverter::convertOffsetRotation(
+StyleOffsetRotation StyleBuilderConverter::convertOffsetRotate(
     const CSSValue& value) {
   StyleOffsetRotation result(0, OffsetRotationFixed);
 
@@ -875,44 +897,15 @@ StyleOffsetRotation StyleBuilderConverter::convertOffsetRotation(
     } else if (item->isIdentifierValue() &&
                toCSSIdentifierValue(*item).getValueID() == CSSValueReverse) {
       result.type = OffsetRotationAuto;
-      result.angle += 180;
+      result.angle = clampTo<float>(result.angle + 180);
     } else {
       const CSSPrimitiveValue& primitiveValue = toCSSPrimitiveValue(*item);
-      result.angle += primitiveValue.computeDegrees();
+      result.angle =
+          clampTo<float>(result.angle + primitiveValue.computeDegrees());
     }
   }
-  result.angle = clampTo<float>(result.angle);
 
   return result;
-}
-
-template <CSSValueID cssValueFor0, CSSValueID cssValueFor100>
-Length StyleBuilderConverter::convertPositionLength(StyleResolverState& state,
-                                                    const CSSValue& value) {
-  if (value.isValuePair()) {
-    const CSSValuePair& pair = toCSSValuePair(value);
-    Length length = StyleBuilderConverter::convertLength(state, pair.second());
-    if (toCSSIdentifierValue(pair.first()).getValueID() == cssValueFor0)
-      return length;
-    DCHECK_EQ(toCSSIdentifierValue(pair.first()).getValueID(), cssValueFor100);
-    return length.subtractFromOneHundredPercent();
-  }
-
-  if (value.isIdentifierValue()) {
-    switch (toCSSIdentifierValue(value).getValueID()) {
-      case cssValueFor0:
-        return Length(0, Percent);
-      case cssValueFor100:
-        return Length(100, Percent);
-      case CSSValueCenter:
-        return Length(50, Percent);
-      default:
-        ASSERT_NOT_REACHED();
-    }
-  }
-
-  return StyleBuilderConverter::convertLength(state,
-                                              toCSSPrimitiveValue(value));
 }
 
 LengthPoint StyleBuilderConverter::convertPosition(StyleResolverState& state,
@@ -1007,7 +1000,29 @@ LengthSize StyleBuilderConverter::convertRadius(StyleResolverState& state,
   return LengthSize(radiusWidth, radiusHeight);
 }
 
-PassRefPtr<ShadowList> StyleBuilderConverter::convertShadow(
+ShadowData StyleBuilderConverter::convertShadow(StyleResolverState& state,
+                                                const CSSValue& value) {
+  const CSSShadowValue& shadow = toCSSShadowValue(value);
+  float x = shadow.x->computeLength<float>(state.cssToLengthConversionData());
+  float y = shadow.y->computeLength<float>(state.cssToLengthConversionData());
+  float blur =
+      shadow.blur
+          ? shadow.blur->computeLength<float>(state.cssToLengthConversionData())
+          : 0;
+  float spread = shadow.spread
+                     ? shadow.spread->computeLength<float>(
+                           state.cssToLengthConversionData())
+                     : 0;
+  ShadowStyle shadowStyle =
+      shadow.style && shadow.style->getValueID() == CSSValueInset ? Inset
+                                                                  : Normal;
+  StyleColor color = StyleColor::currentColor();
+  if (shadow.color)
+    color = convertStyleColor(state, *shadow.color);
+  return ShadowData(FloatPoint(x, y), blur, spread, shadowStyle, color);
+}
+
+PassRefPtr<ShadowList> StyleBuilderConverter::convertShadowList(
     StyleResolverState& state,
     const CSSValue& value) {
   if (value.isIdentifierValue()) {
@@ -1015,30 +1030,10 @@ PassRefPtr<ShadowList> StyleBuilderConverter::convertShadow(
     return PassRefPtr<ShadowList>();
   }
 
-  const CSSValueList& valueList = toCSSValueList(value);
-  size_t shadowCount = valueList.length();
   ShadowDataVector shadows;
-  for (size_t i = 0; i < shadowCount; ++i) {
-    const CSSShadowValue& item = toCSSShadowValue(valueList.item(i));
-    float x = item.x->computeLength<float>(state.cssToLengthConversionData());
-    float y = item.y->computeLength<float>(state.cssToLengthConversionData());
-    float blur =
-        item.blur
-            ? item.blur->computeLength<float>(state.cssToLengthConversionData())
-            : 0;
-    float spread = item.spread
-                       ? item.spread->computeLength<float>(
-                             state.cssToLengthConversionData())
-                       : 0;
-    ShadowStyle shadowStyle =
-        item.style && item.style->getValueID() == CSSValueInset ? Inset
-                                                                : Normal;
-    StyleColor color = StyleColor::currentColor();
-    if (item.color)
-      color = convertStyleColor(state, *item.color);
-    shadows.append(
-        ShadowData(FloatPoint(x, y), blur, spread, shadowStyle, color));
-  }
+  for (const auto& item : toCSSValueList(value))
+    shadows.push_back(convertShadow(state, *item));
+
   return ShadowList::adopt(shadows);
 }
 
@@ -1109,6 +1104,20 @@ StyleColor StyleBuilderConverter::convertStyleColor(StyleResolverState& state,
                                                              forVisitedLink);
 }
 
+StyleAutoColor StyleBuilderConverter::convertStyleAutoColor(
+    StyleResolverState& state,
+    const CSSValue& value,
+    bool forVisitedLink) {
+  if (value.isIdentifierValue()) {
+    if (toCSSIdentifierValue(value).getValueID() == CSSValueCurrentcolor)
+      return StyleAutoColor::currentColor();
+    if (toCSSIdentifierValue(value).getValueID() == CSSValueAuto)
+      return StyleAutoColor::autoColor();
+  }
+  return state.document().textLinkColors().colorFromCSSValue(value, Color(),
+                                                             forVisitedLink);
+}
+
 float StyleBuilderConverter::convertTextStrokeWidth(StyleResolverState& state,
                                                     const CSSValue& value) {
   if (value.isIdentifierValue() && toCSSIdentifierValue(value).getValueID()) {
@@ -1133,6 +1142,13 @@ TextSizeAdjust StyleBuilderConverter::convertTextSizeAdjust(
   const CSSPrimitiveValue& primitiveValue = toCSSPrimitiveValue(value);
   DCHECK(primitiveValue.isPercentage());
   return TextSizeAdjust(primitiveValue.getFloatValue() / 100.0f);
+}
+
+TransformOperations StyleBuilderConverter::convertTransformOperations(
+    StyleResolverState& state,
+    const CSSValue& value) {
+  return TransformBuilder::createTransformOperations(
+      value, state.cssToLengthConversionData());
 }
 
 TransformOrigin StyleBuilderConverter::convertTransformOrigin(
@@ -1161,7 +1177,7 @@ ScrollSnapPoints StyleBuilderConverter::convertSnapPoints(
     return points;
 
   const CSSFunctionValue& repeatFunction = toCSSFunctionValue(value);
-  ASSERT_WITH_SECURITY_IMPLICATION(repeatFunction.length() == 1);
+  SECURITY_DCHECK(repeatFunction.length() == 1);
   points.repeatOffset =
       convertLength(state, toCSSPrimitiveValue(repeatFunction.item(0)));
   points.hasRepeat = true;
@@ -1208,15 +1224,16 @@ PassRefPtr<TranslateTransformOperation> StyleBuilderConverter::convertTranslate(
 Rotation StyleBuilderConverter::convertRotation(const CSSValue& value) {
   const CSSValueList& list = toCSSValueList(value);
   ASSERT(list.length() == 1 || list.length() == 4);
-  double angle = toCSSPrimitiveValue(list.item(0)).computeDegrees();
   double x = 0;
   double y = 0;
   double z = 1;
   if (list.length() == 4) {
-    x = toCSSPrimitiveValue(list.item(1)).getDoubleValue();
-    y = toCSSPrimitiveValue(list.item(2)).getDoubleValue();
-    z = toCSSPrimitiveValue(list.item(3)).getDoubleValue();
+    x = toCSSPrimitiveValue(list.item(0)).getDoubleValue();
+    y = toCSSPrimitiveValue(list.item(1)).getDoubleValue();
+    z = toCSSPrimitiveValue(list.item(2)).getDoubleValue();
   }
+  double angle =
+      toCSSPrimitiveValue(list.item(list.length() - 1)).computeDegrees();
   return Rotation(FloatPoint3D(x, y, z), angle);
 }
 
@@ -1230,10 +1247,15 @@ PassRefPtr<RotateTransformOperation> StyleBuilderConverter::convertRotate(
 PassRefPtr<ScaleTransformOperation> StyleBuilderConverter::convertScale(
     StyleResolverState& state,
     const CSSValue& value) {
+  if (value.isIdentifierValue()) {
+    DCHECK_EQ(toCSSIdentifierValue(value).getValueID(), CSSValueNone);
+    return nullptr;
+  }
+
   const CSSValueList& list = toCSSValueList(value);
   ASSERT(list.length() <= 3);
   double sx = toCSSPrimitiveValue(list.item(0)).getDoubleValue();
-  double sy = sx;
+  double sy = 1;
   double sz = 1;
   if (list.length() >= 2)
     sy = toCSSPrimitiveValue(list.item(1)).getDoubleValue();
@@ -1262,30 +1284,46 @@ PassRefPtr<StylePath> StyleBuilderConverter::convertPathOrNone(
   return nullptr;
 }
 
-const CSSValue& StyleBuilderConverter::convertRegisteredPropertyValue(
-    const StyleResolverState& state,
+static const CSSValue& computeRegisteredPropertyValue(
+    const CSSToLengthConversionData& cssToLengthConversionData,
     const CSSValue& value) {
   // TODO(timloh): Images and transform-function values can also contain
   // lengths.
   if (value.isValueList()) {
     CSSValueList* newList = CSSValueList::createSpaceSeparated();
-    for (const CSSValue* innerValue : toCSSValueList(value))
-      newList->append(convertRegisteredPropertyValue(state, *innerValue));
+    for (const CSSValue* innerValue : toCSSValueList(value)) {
+      newList->append(computeRegisteredPropertyValue(cssToLengthConversionData,
+                                                     *innerValue));
+    }
     return *newList;
   }
 
   if (value.isPrimitiveValue()) {
     const CSSPrimitiveValue& primitiveValue = toCSSPrimitiveValue(value);
-    if (primitiveValue.isCalculated() ||
+    if ((primitiveValue.isCalculated() &&
+         (primitiveValue.isCalculatedPercentageWithLength() ||
+          primitiveValue.isLength() || primitiveValue.isPercentage())) ||
         CSSPrimitiveValue::isRelativeUnit(
             primitiveValue.typeWithCalcResolved())) {
       // Instead of the actual zoom, use 1 to avoid potential rounding errors
       Length length = primitiveValue.convertToLength(
-          state.cssToLengthConversionData().copyWithAdjustedZoom(1));
+          cssToLengthConversionData.copyWithAdjustedZoom(1));
       return *CSSPrimitiveValue::create(length, 1);
     }
   }
   return value;
+}
+
+const CSSValue& StyleBuilderConverter::convertRegisteredPropertyInitialValue(
+    const CSSValue& value) {
+  return computeRegisteredPropertyValue(CSSToLengthConversionData(), value);
+}
+
+const CSSValue& StyleBuilderConverter::convertRegisteredPropertyValue(
+    const StyleResolverState& state,
+    const CSSValue& value) {
+  return computeRegisteredPropertyValue(state.cssToLengthConversionData(),
+                                        value);
 }
 
 }  // namespace blink

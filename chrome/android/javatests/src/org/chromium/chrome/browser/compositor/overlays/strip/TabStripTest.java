@@ -5,9 +5,10 @@
 package org.chromium.chrome.browser.compositor.overlays.strip;
 
 import android.content.pm.ActivityInfo;
-import android.test.suitebuilder.annotation.LargeTest;
+import android.support.test.filters.LargeTest;
 
 import org.chromium.base.ThreadUtils;
+import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.Feature;
 import org.chromium.base.test.util.FlakyTest;
 import org.chromium.base.test.util.Restriction;
@@ -21,7 +22,6 @@ import org.chromium.chrome.test.ChromeTabbedActivityTestBase;
 import org.chromium.chrome.test.util.ChromeRestriction;
 import org.chromium.chrome.test.util.ChromeTabUtils;
 import org.chromium.chrome.test.util.TabStripUtils;
-import org.chromium.content.browser.test.util.CallbackHelper;
 import org.chromium.content.browser.test.util.Criteria;
 import org.chromium.content.browser.test.util.CriteriaHelper;
 import org.chromium.content.browser.test.util.DOMUtils;
@@ -1113,8 +1113,7 @@ public class TabStripTest extends ChromeTabbedActivityTestBase {
      * @param expectsShown Whether shown status is expected.
      * @throws InterruptedException
      */
-    private void assertWaitForKeyboardStatus(final boolean expectsShown)
-            throws InterruptedException {
+    private void assertWaitForKeyboardStatus(final boolean expectsShown) {
         CriteriaHelper.pollInstrumentationThread(new Criteria() {
             @Override
             public boolean isSatisfied() {

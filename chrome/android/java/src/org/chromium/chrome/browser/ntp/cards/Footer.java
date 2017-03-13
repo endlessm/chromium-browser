@@ -11,21 +11,23 @@ import android.view.ViewGroup;
 import android.widget.TextView;
 
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.ntp.NewTabPageView.NewTabPageManager;
+import org.chromium.chrome.browser.suggestions.SuggestionsNavigationDelegate;
 import org.chromium.ui.text.NoUnderlineClickableSpan;
 import org.chromium.ui.text.SpanApplier;
 
 /**
  * A footer to show some text and a link to learn more.
  */
-public class Footer extends SingleItemGroup {
+public class Footer extends OptionalLeaf {
+
     @Override
-    public int getType() {
-        return NewTabPageItem.VIEW_TYPE_FOOTER;
+    @ItemViewType
+    protected int getItemViewType() {
+        return ItemViewType.FOOTER;
     }
 
     @Override
-    public void onBindViewHolder(NewTabPageViewHolder holder) {
+    protected void onBindViewHolder(NewTabPageViewHolder holder) {
         // Nothing to do (the footer view is static).
     }
 
@@ -33,7 +35,7 @@ public class Footer extends SingleItemGroup {
      * The {@code ViewHolder} for the {@link Footer}.
      */
     public static class ViewHolder extends NewTabPageViewHolder {
-        public ViewHolder(ViewGroup root, final NewTabPageManager manager) {
+        public ViewHolder(ViewGroup root, final SuggestionsNavigationDelegate navigationDelegate) {
             super(LayoutInflater.from(root.getContext())
                             .inflate(R.layout.new_tab_page_footer, root, false));
 
@@ -41,11 +43,11 @@ public class Footer extends SingleItemGroup {
                 @Override
                 public void onClick(View view) {
                     // TODO(mvanouwerkerk): Ensure this can be activated when using TalkBack.
-                    manager.onLearnMoreClicked();
+                    navigationDelegate.navigateToHelpPage();
                 }
             };
 
-            TextView textView = (TextView) itemView;
+            TextView textView = (TextView) itemView.findViewById(R.id.text);
             textView.setText(SpanApplier.applySpans(
                     root.getResources().getString(R.string.ntp_learn_more_about_suggested_content),
                     new SpanApplier.SpanInfo("<link>", "</link>", link)));

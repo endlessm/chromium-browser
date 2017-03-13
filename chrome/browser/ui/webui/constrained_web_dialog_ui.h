@@ -16,13 +16,11 @@ class Size;
 
 namespace content {
 class BrowserContext;
-class RenderViewHost;
 class WebContents;
 }
 
 namespace ui {
 class WebDialogDelegate;
-class WebDialogWebContentsDelegate;
 }
 
 class ConstrainedWebDialogDelegate {
@@ -71,7 +69,7 @@ class ConstrainedWebDialogUI : public content::WebUIController {
   ~ConstrainedWebDialogUI() override;
 
   // WebUIController implementation:
-  void RenderViewCreated(content::RenderViewHost* render_view_host) override;
+  void RenderFrameCreated(content::RenderFrameHost* render_frame_host) override;
 
   // Sets the delegate on the WebContents.
   static void SetConstrainedDelegate(content::WebContents* web_contents,

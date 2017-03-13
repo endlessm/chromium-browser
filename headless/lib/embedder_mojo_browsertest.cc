@@ -5,14 +5,15 @@
 #include <memory>
 #include "base/optional.h"
 #include "base/path_service.h"
+#include "base/strings/string_piece.h"
 #include "base/strings/stringprintf.h"
 #include "base/threading/thread_restrictions.h"
 #include "content/public/test/browser_test.h"
 #include "headless/grit/headless_browsertest_resources.h"
 #include "headless/lib/embedder_test.mojom.h"
-#include "headless/public/domains/network.h"
-#include "headless/public/domains/page.h"
-#include "headless/public/domains/runtime.h"
+#include "headless/public/devtools/domains/network.h"
+#include "headless/public/devtools/domains/page.h"
+#include "headless/public/devtools/domains/runtime.h"
 #include "headless/public/headless_browser.h"
 #include "headless/public/headless_devtools_client.h"
 #include "headless/public/headless_devtools_target.h"
@@ -48,6 +49,13 @@ class EmbedderMojoTest : public HeadlessBrowserTest,
         http_policy_(http_policy) {}
 
   ~EmbedderMojoTest() override {}
+
+  void SetUp() override {
+    // Set service names before they are used during main thread initialization.
+    options()->mojo_service_names.insert("embedder_test::TestEmbedderService");
+
+    HeadlessBrowserTest::SetUp();
+  }
 
   void SetUpOnMainThread() override {
     base::ThreadRestrictions::SetIOAllowed(true);
@@ -144,16 +152,12 @@ class MojoBindingsTest : public EmbedderMojoTest {
         "// fires after the requested modules have been loaded.              \n"
         "define([                                                            \n"
         "    'headless/lib/embedder_test.mojom',                             \n"
-        "    'mojo/public/js/core',                                          \n"
-        "    'mojo/public/js/router',                                        \n"
         "    'content/public/renderer/frame_interfaces',                     \n"
-        "    ], function(embedderMojom, mojoCore, routerModule,              \n"
-        "                frameInterfaces) {                                  \n"
+        "    ], function(embedderMojom, frameInterfaces) {                   \n"
         "  var testEmbedderService =                                         \n"
-        "      new embedderMojom.TestEmbedderService.proxyClass(             \n"
-        "          new routerModule.Router(                                  \n"
-        "              frameInterfaces.getInterface(                         \n"
-        "                  embedderMojom.TestEmbedderService.name)));        \n"
+        "      new embedderMojom.TestEmbedderServicePtr(                     \n"
+        "          frameInterfaces.getInterface(                             \n"
+        "              embedderMojom.TestEmbedderService.name));             \n"
         "                                                                    \n"
         "  // Send a message to the embedder!                                \n"
         "  testEmbedderService.returnTestResult('hello world');              \n"
@@ -230,7 +234,7 @@ class HttpDisabledByDefaultWhenMojoBindingsUsed : public EmbedderMojoTest,
   }
 
   void ReturnTestResult(const std::string& result) override {
-    FinishAsynchronousTest();
+    DisableClientAndFinishAsynchronousTest();
     FAIL() << "The HTTP page should not have been served and we should not have"
               " recieved a mojo callback!";
   }
@@ -238,6 +242,12 @@ class HttpDisabledByDefaultWhenMojoBindingsUsed : public EmbedderMojoTest,
   void OnLoadingFailed(const network::LoadingFailedParams& params) override {
     // The navigation should fail since HTTP requests are blackholed.
     EXPECT_EQ(params.GetErrorText(), "net::ERR_FILE_NOT_FOUND");
+    DisableClientAndFinishAsynchronousTest();
+  }
+
+  void DisableClientAndFinishAsynchronousTest() {
+    devtools_client_->GetNetwork()->Disable();
+    devtools_client_->GetNetwork()->RemoveObserver(this);
     FinishAsynchronousTest();
   }
 };

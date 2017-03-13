@@ -16,6 +16,7 @@
 #include "platform/graphics/Canvas2DLayerBridge.h"
 #include "platform/graphics/test/FakeGLES2Interface.h"
 #include "platform/graphics/test/FakeWebGraphicsContext3DProvider.h"
+#include "platform/testing/RuntimeEnabledFeaturesTestHelpers.h"
 #include "public/platform/WebLayer.h"
 #include "public/platform/WebSize.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -24,10 +25,17 @@
 
 namespace blink {
 
-class HTMLCanvasPainterTestForSPv2 : public ::testing::Test {
+class HTMLCanvasPainterTestForSPv2 : public ::testing::Test,
+                                     public testing::WithParamInterface<bool>,
+                                     private ScopedSlimmingPaintV2ForTest,
+                                     private ScopedRootLayerScrollingForTest {
+ public:
+  HTMLCanvasPainterTestForSPv2()
+      : ScopedSlimmingPaintV2ForTest(true),
+        ScopedRootLayerScrollingForTest(GetParam()) {}
+
  protected:
   void SetUp() override {
-    RuntimeEnabledFeatures::setSlimmingPaintV2Enabled(true);
     m_chromeClient = new StubChromeClientForSPv2();
     Page::PageClients clients;
     fillWithEmptyClients(clients);
@@ -42,8 +50,6 @@ class HTMLCanvasPainterTestForSPv2 : public ::testing::Test {
     document().view()->setSelfVisible(true);
   }
 
-  void TearDown() override { m_featuresBackup.restore(); }
-
   Document& document() { return m_pageHolder->document(); }
   bool hasLayerAttached(const WebLayer& layer) {
     return m_chromeClient->hasLayer(layer);
@@ -51,21 +57,22 @@ class HTMLCanvasPainterTestForSPv2 : public ::testing::Test {
 
   PassRefPtr<Canvas2DLayerBridge> makeCanvas2DLayerBridge(const IntSize& size) {
     return adoptRef(new Canvas2DLayerBridge(
-        wrapUnique(new FakeWebGraphicsContext3DProvider(&m_gl)), size, 0,
-        NonOpaque, Canvas2DLayerBridge::ForceAccelerationForTesting, nullptr));
+        WTF::wrapUnique(new FakeWebGraphicsContext3DProvider(&m_gl)), size, 0,
+        NonOpaque, Canvas2DLayerBridge::ForceAccelerationForTesting, nullptr,
+        kN32_SkColorType));
   }
 
  private:
-  RuntimeEnabledFeatures::Backup m_featuresBackup;
   Persistent<StubChromeClientForSPv2> m_chromeClient;
   FakeGLES2Interface m_gl;
   std::unique_ptr<DummyPageHolder> m_pageHolder;
 };
 
-TEST_F(HTMLCanvasPainterTestForSPv2, Canvas2DLayerAppearsInLayerTree) {
+INSTANTIATE_TEST_CASE_P(All, HTMLCanvasPainterTestForSPv2, ::testing::Bool());
+
+TEST_P(HTMLCanvasPainterTestForSPv2, Canvas2DLayerAppearsInLayerTree) {
   // Insert a <canvas> and force it into accelerated mode.
-  document().body()->setInnerHTML("<canvas width=300 height=200>",
-                                  ASSERT_NO_EXCEPTION);
+  document().body()->setInnerHTML("<canvas width=300 height=200>");
   HTMLCanvasElement* element =
       toHTMLCanvasElement(document().body()->firstChild());
   CanvasContextCreationAttributes attributes;
@@ -74,8 +81,8 @@ TEST_F(HTMLCanvasPainterTestForSPv2, Canvas2DLayerAppearsInLayerTree) {
       element->getCanvasRenderingContext("2d", attributes);
   RefPtr<Canvas2DLayerBridge> bridge =
       makeCanvas2DLayerBridge(IntSize(300, 200));
-  element->createImageBufferUsingSurfaceForTesting(
-      wrapUnique(new Canvas2DImageBufferSurface(bridge, IntSize(300, 200))));
+  element->createImageBufferUsingSurfaceForTesting(WTF::wrapUnique(
+      new Canvas2DImageBufferSurface(bridge, IntSize(300, 200))));
   ASSERT_EQ(context, element->renderingContext());
   ASSERT_TRUE(context->isAccelerated());
 

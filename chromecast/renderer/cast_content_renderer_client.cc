@@ -16,7 +16,7 @@
 #include "chromecast/common/media/cast_media_client.h"
 #include "chromecast/crash/cast_crash_keys.h"
 #include "chromecast/renderer/cast_gin_runner.h"
-#include "chromecast/renderer/cast_media_load_deferrer.h"
+#include "chromecast/renderer/cast_render_frame_action_deferrer.h"
 #include "chromecast/renderer/key_systems_cast.h"
 #include "chromecast/renderer/media/media_caps_observer_impl.h"
 #include "components/network_hints/renderer/prescient_networking_dispatcher.h"
@@ -29,7 +29,7 @@
 #include "gin/per_context_data.h"
 #include "gin/public/context_holder.h"
 #include "media/base/media.h"
-#include "services/shell/public/cpp/interface_provider.h"
+#include "services/service_manager/public/cpp/interface_provider.h"
 #include "third_party/WebKit/public/platform/WebColor.h"
 #include "third_party/WebKit/public/web/WebFrameWidget.h"
 #include "third_party/WebKit/public/web/WebKit.h"
@@ -117,7 +117,9 @@ void CastContentRendererClient::RenderViewCreated(
 void CastContentRendererClient::AddSupportedKeySystems(
     std::vector<std::unique_ptr<::media::KeySystemProperties>>*
         key_systems_properties) {
-  AddChromecastKeySystems(key_systems_properties, false);
+  AddChromecastKeySystems(key_systems_properties,
+                          false /* enable_persistent_license_support */,
+                          false /* force_software_crypto */);
 }
 
 blink::WebPrescientNetworking*
@@ -129,13 +131,24 @@ void CastContentRendererClient::DeferMediaLoad(
     content::RenderFrame* render_frame,
     bool render_frame_has_played_media_before,
     const base::Closure& closure) {
-  if (!render_frame->IsHidden() || allow_hidden_media_playback_) {
+  if (allow_hidden_media_playback_) {
+    closure.Run();
+    return;
+  }
+
+  RunWhenInForeground(render_frame, closure);
+}
+
+void CastContentRendererClient::RunWhenInForeground(
+    content::RenderFrame* render_frame,
+    const base::Closure& closure) {
+  if (!render_frame->IsHidden()) {
     closure.Run();
     return;
   }
 
   // Lifetime is tied to |render_frame| via content::RenderFrameObserver.
-  new CastMediaLoadDeferrer(render_frame, closure);
+  new CastRenderFrameActionDeferrer(render_frame, closure);
 }
 
 void CastContentRendererClient::RunScriptsAtDocumentStart(
@@ -146,8 +159,7 @@ void CastContentRendererClient::RunScriptsAtDocumentStart(
   v8::Local<v8::Context> context =
       render_frame->GetWebFrame()->mainWorldScriptContext();
 
-  // CastGinRunner manages its own lifetime.
-  CastGinRunner* runner = new CastGinRunner(render_frame);
+  CastGinRunner* runner = CastGinRunner::Get(render_frame);
   gin::Runner::Scope scoper(runner);
 
   // Initialize AMD API for Mojo.
@@ -158,12 +170,12 @@ void CastContentRendererClient::RunScriptsAtDocumentStart(
   static const int mojo_resource_ids[] = {
       IDR_MOJO_UNICODE_JS,
       IDR_MOJO_BUFFER_JS,
+      IDR_MOJO_INTERFACE_TYPES_JS,
       IDR_MOJO_CODEC_JS,
       IDR_MOJO_CONNECTOR_JS,
       IDR_MOJO_VALIDATOR_JS,
       IDR_MOJO_ROUTER_JS,
       IDR_MOJO_BINDINGS_JS,
-      IDR_MOJO_CONNECTION_JS,
   };
   for (size_t i = 0; i < arraysize(mojo_resource_ids); i++) {
     ExecuteJavaScript(render_frame, mojo_resource_ids[i]);

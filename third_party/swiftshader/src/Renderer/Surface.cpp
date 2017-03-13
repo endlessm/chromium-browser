@@ -1426,7 +1426,7 @@ namespace sw
 		internal.unlockRect();
 	}
 
-	void *Surface::lockStencil(int front, Accessor client)
+	void *Surface::lockStencil(int x, int y, int front, Accessor client)
 	{
 		resource->lock(client);
 
@@ -1435,7 +1435,7 @@ namespace sw
 			stencil.buffer = allocateBuffer(stencil.width, stencil.height, stencil.depth, stencil.format);
 		}
 
-		return stencil.lockRect(0, 0, front, LOCK_READWRITE);   // FIXME
+		return stencil.lockRect(x, y, front, LOCK_READWRITE);   // FIXME
 	}
 
 	void Surface::unlockStencil()
@@ -2629,6 +2629,34 @@ namespace sw
 		}
 	}
 
+	bool Surface::hasQuadLayout(Format format)
+	{
+		switch(format)
+		{
+		case FORMAT_D32:
+		case FORMAT_D16:
+		case FORMAT_D24X8:
+		case FORMAT_D24S8:
+		case FORMAT_D24FS8:
+		case FORMAT_D32F:
+		case FORMAT_D32F_COMPLEMENTARY:
+		case FORMAT_DF24S8:
+		case FORMAT_DF16S8:
+		case FORMAT_INTZ:
+		case FORMAT_S8:
+		case FORMAT_A8G8R8B8Q:
+		case FORMAT_X8G8R8B8Q:
+			return true;
+		case FORMAT_D32F_LOCKABLE:
+		case FORMAT_D32FS8_TEXTURE:
+		case FORMAT_D32FS8_SHADOW:
+		default:
+			break;
+		}
+
+		return false;
+	}
+
 	bool Surface::isPalette(Format format)
 	{
 		switch(format)
@@ -2686,6 +2714,7 @@ namespace sw
 		case FORMAT_A8:
 		case FORMAT_R8I:
 		case FORMAT_R8:
+		case FORMAT_S8:
 		case FORMAT_L8:
 		case FORMAT_L16:
 		case FORMAT_A8L8:
@@ -2703,6 +2732,7 @@ namespace sw
 			return false;
 		case FORMAT_R32F:
 		case FORMAT_G32R32F:
+		case FORMAT_B32G32R32F:
 		case FORMAT_X32B32G32R32F:
 		case FORMAT_A32B32G32R32F:
 		case FORMAT_D32F:
@@ -2790,6 +2820,7 @@ namespace sw
 		case FORMAT_G8R8I_SNORM:
 			return component >= 2;
 		case FORMAT_A16W16V16U16:
+		case FORMAT_B32G32R32F:
 		case FORMAT_X32B32G32R32F:
 		case FORMAT_X8B8G8R8I:
 		case FORMAT_X16B16G16R16I:
@@ -3022,6 +3053,7 @@ namespace sw
 		int height2 = (height + 1) & ~1;
 
 		// FIXME: Unpacking byte4 to short4 in the sampler currently involves reading 8 bytes,
+		// and stencil operations also read 8 bytes per four 8-bit stencil values,
 		// so we have to allocate 4 extra bytes to avoid buffer overruns.
 		return allocateZero(size(width2, height2, depth, format) + 4);
 	}
@@ -3258,7 +3290,7 @@ namespace sw
 		unsigned int fill = maskedS;
 		fill = fill | (fill << 8) | (fill << 16) + (fill << 24);
 
-		char *buffer = (char*)lockStencil(0, PUBLIC);
+		char *buffer = (char*)lockStencil(0, 0, 0, PUBLIC);
 
 		// Stencil buffers are assumed to use quad layout
 		for(int z = 0; z < stencil.depth; z++)

@@ -68,6 +68,17 @@ std::string GetMultiPartBoundary(const std::string& headers) {
   return std::string();
 }
 
+// Return true if the HTTP response of |loader| is a successful one and loading
+// should continue. 4xx error indicate subsequent requests will fail too.
+// e.g. resource has been removed from the server while loading it. 301
+// indicates a redirect was returned which won't be successful because we
+// disable following redirects for PDF loading (we assume they are already
+// resolved by the browser.
+bool ResponseStatusSuccess(const pp::URLLoader& loader) {
+  int32_t http_code = loader.GetResponseInfo().GetStatusCode();
+  return (http_code < 400 && http_code != 301) || http_code >= 500;
+}
+
 bool IsValidContentType(const std::string& type) {
   return (base::EndsWith(type, "/pdf", base::CompareCase::INSENSITIVE_ASCII) ||
           base::EndsWith(type, ".pdf", base::CompareCase::INSENSITIVE_ASCII) ||
@@ -99,6 +110,11 @@ bool DocumentLoader::Init(const pp::URLLoader& loader,
                           const std::string& url,
                           const std::string& headers) {
   DCHECK(url_.empty());
+
+  // Check that the initial response status is a valid one.
+  if (!ResponseStatusSuccess(loader))
+    return false;
+
   url_ = url;
   loader_ = loader;
 
@@ -355,15 +371,12 @@ pp::URLRequestInfo DocumentLoader::GetRequest(uint32_t position,
 void DocumentLoader::DidOpen(int32_t result) {
   if (result != PP_OK) {
     NOTREACHED();
+    client_->OnDocumentFailed();
     return;
   }
 
-  int32_t http_code = loader_.GetResponseInfo().GetStatusCode();
-  if (http_code >= 400 && http_code < 500) {
-    // Error accessing resource. 4xx error indicate subsequent requests
-    // will fail too.
-    // E.g. resource has been removed from the server while loading it.
-    // https://code.google.com/p/chromium/issues/detail?id=414827
+  if (!ResponseStatusSuccess(loader_)) {
+    client_->OnDocumentFailed();
     return;
   }
 

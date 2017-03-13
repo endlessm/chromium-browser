@@ -13,7 +13,7 @@
 #include "vk/GrVkDefines.h"
 
 struct GrVkInterface;
-class GrGLSLCaps;
+class GrShaderCaps;
 
 /**
  * Stores some capabilities of a Vk backend.
@@ -36,6 +36,8 @@ public:
     bool isConfigRenderable(GrPixelConfig config, bool withMSAA) const override {
         return SkToBool(ConfigInfo::kRenderable_Flag & fConfigTable[config].fOptimalFlags);
     }
+
+    bool canConfigBeImageStorage(GrPixelConfig) const override { return false; }
 
     bool isConfigTexturableLinearly(GrPixelConfig config) const {
         return SkToBool(ConfigInfo::kTextureable_Flag & fConfigTable[config].fLinearFlags);
@@ -66,10 +68,6 @@ public:
         return fMustDoCopiesFromOrigin;
     }
 
-    bool allowInitializationErrorOnTearDown() const {
-        return fAllowInitializationErrorOnTearDown;
-    }
-
     bool supportsCopiesAsDraws() const {
         return fSupportsCopiesAsDraws;
     }
@@ -85,8 +83,6 @@ public:
         return fPreferedStencilFormat;
     }
 
-    GrGLSLCaps* glslCaps() const { return reinterpret_cast<GrGLSLCaps*>(fShaderCaps.get()); }
-
 private:
     enum VkVendor {
         kQualcomm_VkVendor = 20803,
@@ -98,7 +94,7 @@ private:
     void initGrCaps(const VkPhysicalDeviceProperties&,
                     const VkPhysicalDeviceMemoryProperties&,
                     uint32_t featureFlags);
-    void initGLSLCaps(const VkPhysicalDeviceProperties&, uint32_t featureFlags);
+    void initShaderCaps(const VkPhysicalDeviceProperties&, uint32_t featureFlags);
     void initSampleCount(const VkPhysicalDeviceProperties& properties);
 
 
@@ -131,11 +127,6 @@ private:
     // On Adreno vulkan, they do not respect the imageOffset parameter at least in
     // copyImageToBuffer. This flag says that we must do the copy starting from the origin always.
     bool fMustDoCopiesFromOrigin;
-
-    // On Adreno, there is a bug where vkQueueWaitIdle will once in a while return
-    // VK_ERROR_INITIALIZATION_FAILED instead of the required VK_SUCCESS or VK_DEVICE_LOST. This
-    // flag says we will accept VK_ERROR_INITIALIZATION_FAILED as well.
-    bool fAllowInitializationErrorOnTearDown;
 
     // Check whether we support using draws for copies.
     bool fSupportsCopiesAsDraws;

@@ -5,6 +5,7 @@ Use of this source code is governed by a BSD-style license that can be
 found in the LICENSE file.
 -->
 
+<link rel="import" href="/tracing/base/fixed_color_scheme.html">
 <link rel="import" href="/tracing/base/iteration_helpers.html">
 <link rel="import" href="/tracing/base/multi_dimensional_view.html">
 <link rel="import" href="/tracing/base/range.html">
@@ -13,6 +14,7 @@ found in the LICENSE file.
 <link rel="import" href="/tracing/model/container_memory_dump.html">
 <link rel="import" href="/tracing/model/helpers/chrome_model_helper.html">
 <link rel="import" href="/tracing/model/memory_allocator_dump.html">
+<link rel="import" href="/tracing/value/diagnostics/breakdown.html">
 <link rel="import" href="/tracing/value/histogram.html">
 
 <script>
@@ -44,6 +46,30 @@ tr.exportTo('tr.metrics.sh', function() {
       new tr.v.HistogramBinBoundaries(0)
           .addBinBoundary(1024 /* 1 KiB */)
           .addExponentialBins(16 * 1024 * 1024 * 1024 /* 16 GiB */, 4 * 24));
+
+  var BROWSER_PROCESS_NAME = 'browser_process';
+  var RENDERER_PROCESSES_NAME = 'renderer_processes'; // Intentionally plural.
+  var ALL_PROCESSES_NAME = 'all_processes';
+  var GPU_PROCESS_NAME = 'gpu_process';
+  var PPAPI_PROCESS_NAME = 'ppapi_process';
+  var UNKNOWN_PROCESSES_NAME = 'unknown_processes';
+  // When adding a new process id update KNOWN_PROCESS_NAMES.
+
+  var KNOWN_PROCESS_NAMES = [
+    BROWSER_PROCESS_NAME,
+    RENDERER_PROCESSES_NAME,
+    ALL_PROCESSES_NAME,
+    GPU_PROCESS_NAME,
+    PPAPI_PROCESS_NAME,
+    UNKNOWN_PROCESSES_NAME
+  ];
+
+  var PROCESS_COLOR_SCHEME_NAME = 'ChromeProcessNames';
+  var PROCESS_COLOR_SCHEME =
+      tr.b.FixedColorScheme.fromNames(KNOWN_PROCESS_NAMES);
+  tr.b.FixedColorSchemeRegistry.register(() => PROCESS_COLOR_SCHEME, {
+    'name': PROCESS_COLOR_SCHEME_NAME,
+  });
 
   function memoryMetric(values, model, opt_options) {
     var rangeOfInterest = opt_options ? opt_options.rangeOfInterest : undefined;
@@ -154,14 +180,24 @@ tr.exportTo('tr.metrics.sh', function() {
 
   function canonicalizeProcessName(rawProcessName) {
     if (!rawProcessName)
-      return 'unknown_processes';
+      return UNKNOWN_PROCESSES_NAME;
     var baseCanonicalName = canonicalizeName(rawProcessName);
     switch (baseCanonicalName) {
       case 'renderer':
-        return 'renderer_processes';  // Intentionally plural.
+        return RENDERER_PROCESSES_NAME;
       case 'browser':
-        return 'browser_process';
+        return BROWSER_PROCESS_NAME;
       default:
+        if (KNOWN_PROCESS_NAMES.indexOf(baseCanonicalName) === -1) {
+          // In the very rare case where a new process type has been added
+          // and this file has not yet been updated add it to the list of known
+          // process ids so we can give it a consistent color in the UI.
+          console.warn('Unknown process id "' + baseCanonicalName + '".' +
+            ' Please add it to |KNOWN_PROCESS_NAMES| in memory_metric.html.');
+          KNOWN_PROCESS_NAMES.push(baseCanonicalName);
+          PROCESS_COLOR_SCHEME =
+            tr.b.FixedColorScheme.fromNames(KNOWN_PROCESS_NAMES);
+        }
         return baseCanonicalName;
     }
   }
@@ -173,17 +209,17 @@ tr.exportTo('tr.metrics.sh', function() {
   function convertProcessNameToUserFriendlyName(processName,
       opt_requirePlural) {
     switch (processName) {
-      case 'browser_process':
+      case BROWSER_PROCESS_NAME:
         return opt_requirePlural ? 'browser processes' : 'the browser process';
-      case 'renderer_processes':
+      case RENDERER_PROCESSES_NAME:
         return 'renderer processes';
-      case 'gpu_process':
+      case GPU_PROCESS_NAME:
         return opt_requirePlural ? 'GPU processes' : 'the GPU process';
-      case 'ppapi_process':
+      case PPAPI_PROCESS_NAME:
         return opt_requirePlural ? 'PPAPI processes' : 'the PPAPI process';
-      case 'all_processes':
+      case ALL_PROCESSES_NAME:
         return 'all processes';
-      case 'unknown_processes':
+      case UNKNOWN_PROCESSES_NAME:
         return 'unknown processes';
       default:
         return '\'' + processName + '\' processes';
@@ -915,7 +951,7 @@ tr.exportTo('tr.metrics.sh', function() {
    * @param {!function(!tr.b.MultiDimensionalViewNode)}
    *     customComponentTreeModifier Callback applied to every component tree
    *     wrt each process name.
-   * @param {!tr.v.ValueSet} values List of values to which the
+   * @param {!tr.v.HistogramSet} values List of values to which the
    *     resulting aggregated values are added.
    */
   function addMemoryDumpValues(browserNameToGlobalDumps, customGlobalDumpFilter,
@@ -1023,79 +1059,111 @@ tr.exportTo('tr.metrics.sh', function() {
 
   function reportDataAsValues(sourceToPropertyToBuilder, browserName,
       customComponentTreeModifier, values) {
+
     // For each source name (e.g. 'reported_by_os')...
     sourceToPropertyToBuilder.forEach(function(propertyToBuilder, sourceName) {
       // For each property (e.g. EFFECTIVE_SIZE)...
       propertyToBuilder.forEach(function(builders, property) {
         var tree = builders.buildTopDownTreeView();
-
-        // Total over 'all' processes...
-        customComponentTreeModifier(tree);
-        reportComponentDataAsValues(browserName, sourceName,
-            property, 'all_processes', [] /* componentPath */, tree, values);
-
-        // For each process name (e.g. 'renderer')...
-        tree.children[0].forEach(function(processTree, processName) {
-          if (processTree.children[0].size > 0) {
-            throw new Error('Multi-dimensional view node for source=' +
-                sourceName + ', property=' +
-                (propertyName === undefined ? '(undefined)' : propertyName) +
-                ', process=' + processName +
-                ' has children wrt the process name dimension');
-          }
-          customComponentTreeModifier(processTree);
-          reportComponentDataAsValues(browserName, sourceName,
-              property, processName, [] /* componentPath */, processTree,
-              values);
-        });
+        reportComponentDataAsValues(browserName, sourceName, property,
+            [] /* componentPath */, tree, values, customComponentTreeModifier);
       });
     });
   }
 
   /**
-   * For the given |browserName| (e.g. 'chrome'), |processName|
-   * (e.g. 'gpu_process'), |property| (e.g. EFFECTIVE_SIZE), |componentPath|
-   * (e.g. ['v8']), add a tr.v.Histogram with |unit| aggregating the total
+   * For the given |browserName| (e.g. 'chrome'), |property|
+   * (e.g. EFFECTIVE_SIZE), |componentPath| (e.g. ['v8']), add
+   * a tr.v.Histogram with |unit| aggregating the total
    * values of the associated |componentNode| across all timestamps
    * (corresponding to global memory dumps associated with the given browser)
-   * to |values|.
+   * |values| for each process (e.g. 'gpu_process', 'browser_process', etc).
+   * We also report a special 'all_processes' histogram which agregates all
+   * others, this has a RelatedHistogramBreakdown diagnostic explaining
+   * how it is built from the other histograms.
    *
    * See addMemoryDumpValues for more details.
    */
-  function reportComponentDataAsValues(
-      browserName, sourceName, property, processName, componentPath,
-      componentNode, values) {
-    // Construct the name of the memory value.
-    var nameParts = ['memory', browserName, processName, sourceName].concat(
-        componentPath);
-    if (property.name !== undefined)
-      nameParts.push(property.name);
-    var name = nameParts.join(':');
+  function reportComponentDataAsValues(browserName, sourceName, property,
+      componentPath, tree, values, customComponentTreeModifier) {
 
-    // Build the underlying numeric for the memory value.
-    var numeric = buildMemoryNumericFromNode(name, componentNode,
-        property.unit);
+    var breakdown = new tr.v.d.RelatedHistogramBreakdown();
+    breakdown.colorScheme = PROCESS_COLOR_SCHEME_NAME;
 
-    // Build the options for the memory value.
-    numeric.description = [
-      property.buildDescriptionPrefix(componentPath, processName),
-      'in',
-      convertBrowserNameToUserFriendlyName(browserName)
-    ].join(' ');
+    // For each process report the value for this component.
+    tree.children[0].forEach(function(processTree, processName) {
+      customComponentTreeModifier(processTree);
+      var numeric = buildNamedMemoryNumericFromNode(browserName,
+          sourceName, property, processName, componentPath, processTree);
+      // Report the memory value.
+      values.addHistogram(numeric);
+      // Add it to the breakdown.
+      breakdown.set(processName, numeric);
+    });
 
-    // Report the memory value.
+    // Report the total over 'all' processes.
+    customComponentTreeModifier(tree);
+    var numeric = buildNamedMemoryNumericFromNode(browserName, sourceName,
+        property, 'all_processes', componentPath, tree);
+    numeric.diagnostics.set('processes', breakdown);
     values.addHistogram(numeric);
 
     // Recursively report memory values for sub-components.
     var depth = componentPath.length;
     componentPath.push(undefined);
-    componentNode.children[1].forEach(function(childNode, childName) {
+    tree.children[1].forEach(function(childNode, childName) {
       componentPath[depth] = childName;
       reportComponentDataAsValues(
-          browserName, sourceName, property, processName, componentPath,
-          childNode, values);
+          browserName, sourceName, property, componentPath,
+          childNode, values, customComponentTreeModifier);
     });
     componentPath.pop();
+  }
+
+  /**
+   * Gets the name for a histogram.
+   * The histograms have the following naming scheme:
+   * memory:chrome:browser_process:reported_by_chrome:v8:heap:effective_size_avg
+   *        ^browser ^process      ^source            ^component  ^property
+   */
+  function getNumericName(
+      browserName, sourceName, propertyName, processName, componentPath) {
+    // Construct the name of the memory value.
+    var nameParts = ['memory', browserName, processName, sourceName].concat(
+        componentPath);
+    if (propertyName !== undefined) nameParts.push(propertyName);
+    return nameParts.join(':');
+  }
+
+  /**
+   * Gets the description of a histogram.
+   */
+  function getNumericDescription(
+      property, browserName, processName, componentPath) {
+    return [
+      property.buildDescriptionPrefix(componentPath, processName),
+      'in',
+      convertBrowserNameToUserFriendlyName(browserName)
+    ].join(' ');
+  }
+
+  /**
+   * Create a memory tr.v.Histogram with |unit| and add all total values in
+   * |node| to it. Names and describes the histogram according to the
+   * |browserName|, |sourceName|, |property|, |processName| and
+   * |componentPath|.
+   */
+  function buildNamedMemoryNumericFromNode(
+        browserName, sourceName, property, processName, componentPath, node) {
+    var name = getNumericName(
+        browserName, sourceName, property.name, processName, componentPath);
+    var description = getNumericDescription(
+        property, browserName, processName, componentPath);
+
+    // Build the underlying numeric for the memory value.
+    var numeric = buildMemoryNumericFromNode(name, node, property.unit);
+    numeric.description = description;
+    return numeric;
   }
 
   /**
@@ -1114,7 +1182,7 @@ tr.exportTo('tr.metrics.sh', function() {
   });
 
   return {
-    memoryMetric: memoryMetric
+    memoryMetric,
   };
 });
 </script>

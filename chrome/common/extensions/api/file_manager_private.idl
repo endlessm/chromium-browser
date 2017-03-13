@@ -9,7 +9,7 @@
 namespace fileManagerPrivate {
 // Type of the mounted volume.
 enum VolumeType { drive, downloads, removable, archive, provided, mtp,
-                  testing };
+                  media_view, testing };
 
 // Device type. Available if this is removable volume.
 enum DeviceType { usb, sd, optical, mobile, unknown };
@@ -346,6 +346,10 @@ dictionary VolumeMetadata {
 
   // Flag that specifies if volume is mounted in read-only mode.
   boolean isReadOnly;
+
+  // Flag that specifies if the device is write-protected.
+  // Valid only for the volumes of removable device partitions.
+  boolean isReadOnlyRemovableDevice;
 
   // Flag that specifies whether the volume contains media.
   boolean hasMedia;
@@ -1001,5 +1005,7 @@ interface Events {
   static void onDeviceChanged(DeviceEvent event);
 
   static void onDriveSyncError(DriveSyncErrorEvent event);
+
+  static void onAppsUpdated();
 };
 };

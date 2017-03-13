@@ -7,7 +7,7 @@
 #include <cmath>
 
 #include "base/strings/sys_string_conversions.h"
-#include "chrome/browser/ui/chrome_style.h"
+#include "chrome/browser/ui/cocoa/chrome_style.h"
 #import "chrome/browser/ui/cocoa/passwords/passwords_bubble_utils.h"
 #import "chrome/browser/ui/cocoa/passwords/passwords_list_view_controller.h"
 #include "chrome/browser/ui/passwords/manage_passwords_bubble_model.h"
@@ -84,10 +84,8 @@
   [view addSubview:contentView];
 
   // Wrap the title if necessary to match the width of the content view.
-  if (NSWidth([titleLabel frame]) > NSWidth([contentView frame])) {
-    [titleLabel setFrameSize:NSMakeSize(NSWidth([contentView frame]), 0)];
-    [GTMUILocalizerAndLayoutTweaker sizeToFitFixedWidthTextField:titleLabel];
-  }
+  [titleLabel setFrameSize:NSMakeSize(NSWidth([contentView frame]), 0)];
+  [GTMUILocalizerAndLayoutTweaker sizeToFitFixedWidthTextField:titleLabel];
 
   // Done button.
   doneButton_.reset([[self addButton:l10n_util::GetNSString(IDS_DONE)

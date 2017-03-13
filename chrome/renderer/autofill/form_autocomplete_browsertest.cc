@@ -4,6 +4,7 @@
 
 #include <tuple>
 
+#include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
@@ -13,7 +14,7 @@
 #include "content/public/renderer/render_frame.h"
 #include "content/public/renderer/render_view.h"
 #include "mojo/public/cpp/bindings/binding_set.h"
-#include "services/shell/public/cpp/interface_provider.h"
+#include "services/service_manager/public/cpp/interface_provider.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/WebKit/public/web/WebDocument.h"
 #include "third_party/WebKit/public/web/WebElement.h"
@@ -72,8 +73,6 @@ class FakeContentAutofillDriver : public mojom::AutofillDriver {
                               const gfx::RectF& bounding_box) override {}
 
   void HidePopup() override {}
-
-  void PingAck() override {}
 
   void FocusNoLongerOnForm() override { did_unfocus_form_ = true; }
 
@@ -187,9 +186,9 @@ class FormAutocompleteTest : public ChromeRenderViewTest {
 
     // We only use the fake driver for main frame
     // because our test cases only involve the main frame.
-    shell::InterfaceProvider* remote_interfaces =
+    service_manager::InterfaceProvider* remote_interfaces =
         view_->GetMainRenderFrame()->GetRemoteInterfaces();
-    shell::InterfaceProvider::TestApi test_api(remote_interfaces);
+    service_manager::InterfaceProvider::TestApi test_api(remote_interfaces);
     test_api.SetBinderForName(
         mojom::AutofillDriver::Name_,
         base::Bind(&FormAutocompleteTest::BindAutofillDriver,

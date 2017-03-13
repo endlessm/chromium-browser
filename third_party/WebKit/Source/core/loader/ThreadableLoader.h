@@ -131,13 +131,26 @@ class CORE_EXPORT ThreadableLoader
   WTF_MAKE_NONCOPYABLE(ThreadableLoader);
 
  public:
-  // ThreadableLoaderClient methods may not destroy the ThreadableLoader
-  // instance in them.
+  // TODO(yhirano): Remove this enum once https://crbug.com/667254 is fixed.
+  enum class ClientSpec {
+    kBlobBytesConsumer,
+    kEventSource,
+    kFetchManager,
+    kFileReaderLoader,
+    kMainThreadLoaderHolder,
+    kNotificationImageLoader,
+    kWebAssociatedURLLoader,
+    kWorkerScriptLoader,
+    kXHR,
+    kTesting,
+  };
+
   static void loadResourceSynchronously(ExecutionContext&,
                                         const ResourceRequest&,
                                         ThreadableLoaderClient&,
                                         const ThreadableLoaderOptions&,
-                                        const ResourceLoaderOptions&);
+                                        const ResourceLoaderOptions&,
+                                        ClientSpec);
 
   // This method never returns nullptr.
   //
@@ -169,14 +182,12 @@ class CORE_EXPORT ThreadableLoader
   // called with a ResourceError with isCancellation() returning true
   // also for cancellation happened inside the loader.)
   //
-  // ThreadableLoaderClient methods:
-  // - may call cancel()
-  // - can destroy the ThreadableLoader instance in them (by clearing
-  //   std::unique_ptr<ThreadableLoader>).
+  // ThreadableLoaderClient methods may call cancel().
   static ThreadableLoader* create(ExecutionContext&,
                                   ThreadableLoaderClient*,
                                   const ThreadableLoaderOptions&,
-                                  const ResourceLoaderOptions&);
+                                  const ResourceLoaderOptions&,
+                                  ClientSpec);
 
   // The methods on the ThreadableLoaderClient passed on create() call
   // may be called synchronous to start() call.

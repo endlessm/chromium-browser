@@ -9,8 +9,8 @@ from __future__ import print_function
 import os
 import pprint
 
-from chromite.cbuildbot import config_lib
-from chromite.cbuildbot import constants
+from chromite.lib import config_lib
+from chromite.lib import constants
 from chromite.lib import cros_build_lib
 from chromite.lib import git
 from chromite.lib import osutils
@@ -239,7 +239,7 @@ def Sync(gclient, cwd, reset=False):
     cwd: Directory to sync.
     reset: Reset to pristine version of the source code.
   """
-  cmd = [gclient, 'sync', '--verbose', '--nohooks', '--transitive',
+  cmd = [gclient, 'sync', '--verbose', '--nohooks',
          '--with_branch_heads', '--with_tags']
 
   if reset:

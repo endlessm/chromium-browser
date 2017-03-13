@@ -7,6 +7,7 @@ package org.chromium.components.autofill;
 import android.annotation.SuppressLint;
 import android.graphics.Typeface;
 import android.os.Build;
+import android.support.v7.content.res.AppCompatResources;
 import android.text.TextUtils;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -20,7 +21,6 @@ import android.widget.TextView;
 import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.ui.UiUtils;
 import org.chromium.ui.base.WindowAndroid;
-import org.chromium.ui.gfx.DeviceDisplayInfo;
 
 /**
  * The Autofill suggestion view that lists relevant suggestions. It sits above the keyboard and
@@ -48,7 +48,7 @@ public class AutofillKeyboardAccessory extends LinearLayout
         mWindowAndroid = windowAndroid;
         mAutofillDelegate = autofillDelegate;
 
-        int deviceWidthPx = DeviceDisplayInfo.create(getContext()).getDisplayWidth();
+        int deviceWidthPx = windowAndroid.getDisplay().getDisplayWidth();
         mMaximumLabelWidthPx = deviceWidthPx / 2;
         mMaximumSublabelWidthPx = deviceWidthPx / 4;
 
@@ -79,7 +79,8 @@ public class AutofillKeyboardAccessory extends LinearLayout
                 if (separatorPosition == -1) separatorPosition = i;
 
                 ImageView icon = (ImageView) touchTarget;
-                icon.setImageResource(suggestion.getIconId());
+                icon.setImageDrawable(
+                        AppCompatResources.getDrawable(getContext(), suggestion.getIconId()));
                 icon.setContentDescription(suggestion.getLabel());
             } else {
                 touchTarget = LayoutInflater.from(getContext()).inflate(
@@ -99,7 +100,9 @@ public class AutofillKeyboardAccessory extends LinearLayout
 
                 if (suggestion.getIconId() != 0) {
                     ApiCompatibilityUtils.setCompoundDrawablesRelativeWithIntrinsicBounds(
-                            label, suggestion.getIconId(), 0, 0, 0);
+                            label,
+                            AppCompatResources.getDrawable(getContext(), suggestion.getIconId()),
+                            null /* top */, null /* end */, null /* bottom */);
                 }
 
                 if (!TextUtils.isEmpty(suggestion.getSublabel())) {

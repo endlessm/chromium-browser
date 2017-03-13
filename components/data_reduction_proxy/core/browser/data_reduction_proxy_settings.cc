@@ -9,6 +9,8 @@
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/time/clock.h"
+#include "base/time/default_clock.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_compression_stats.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_config.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_io_data.h"
@@ -33,23 +35,30 @@ void RecordSettingsEnabledState(
       data_reduction_proxy::DATA_REDUCTION_SETTINGS_ACTION_BOUNDARY);
 }
 
+// Record the number of days since data reduction proxy was enabled by the
+// user.
+void RecordDaysSinceEnabledMetric(int days_since_enabled) {
+  UMA_HISTOGRAM_CUSTOM_COUNTS("DataReductionProxy.DaysSinceEnabled",
+                              days_since_enabled, 0, 365 * 10, 100);
+}
+
 }  // namespace
 
 namespace data_reduction_proxy {
 
 const char kDataReductionPassThroughHeader[] =
-    "Chrome-Proxy: pass-through\nCache-Control: no-cache";
+    "Chrome-Proxy-Accept-Transform: identity\nCache-Control: no-cache";
 
 DataReductionProxySettings::DataReductionProxySettings()
     : unreachable_(false),
       deferred_initialization_(false),
-      allowed_(false),
       promo_allowed_(false),
       lo_fi_mode_active_(false),
       lo_fi_load_image_requested_(false),
       data_reduction_proxy_enabled_pref_name_(),
       prefs_(NULL),
-      config_(nullptr) {
+      config_(nullptr),
+      clock_(new base::DefaultClock()) {
   lo_fi_user_requests_for_images_per_session_ =
       params::GetFieldTrialParameterAsInteger(
           params::GetLoFiFieldTrialName(), "load_images_requests_per_session",
@@ -59,8 +68,7 @@ DataReductionProxySettings::DataReductionProxySettings()
 }
 
 DataReductionProxySettings::~DataReductionProxySettings() {
-  if (allowed_)
-    spdy_proxy_auth_enabled_.Destroy();
+  spdy_proxy_auth_enabled_.Destroy();
 }
 
 void DataReductionProxySettings::InitPrefMembers() {
@@ -73,7 +81,6 @@ void DataReductionProxySettings::InitPrefMembers() {
 
 void DataReductionProxySettings::UpdateConfigValues() {
   DCHECK(config_);
-  allowed_ = config_->allowed();
   promo_allowed_ = config_->promo_allowed();
 }
 
@@ -134,10 +141,6 @@ bool DataReductionProxySettings::IsDataReductionProxyManaged() {
 
 void DataReductionProxySettings::SetDataReductionProxyEnabled(bool enabled) {
   DCHECK(thread_checker_.CalledOnValidThread());
-  // Prevent configuring the proxy when it is not allowed to be used.
-  if (!allowed_)
-    return;
-
   if (spdy_proxy_auth_enabled_.GetValue() != enabled) {
     spdy_proxy_auth_enabled_.SetValue(enabled);
     OnProxyEnabledPrefChange();
@@ -149,6 +152,14 @@ int64_t DataReductionProxySettings::GetDataReductionLastUpdateTime() {
   DCHECK(data_reduction_proxy_service_->compression_stats());
   return
       data_reduction_proxy_service_->compression_stats()->GetLastUpdateTime();
+}
+
+int64_t DataReductionProxySettings::GetTotalHttpContentLengthSaved() {
+  DCHECK(thread_checker_.CalledOnValidThread());
+  return data_reduction_proxy_service_->compression_stats()
+             ->GetHttpOriginalContentLength() -
+         data_reduction_proxy_service_->compression_stats()
+             ->GetHttpReceivedContentLength();
 }
 
 void DataReductionProxySettings::SetUnreachable(bool unreachable) {
@@ -222,8 +233,6 @@ void DataReductionProxySettings::OnProxyEnabledPrefChange() {
   if (!register_synthetic_field_trial_.is_null()) {
     RegisterDataReductionProxyFieldTrial();
   }
-  if (!allowed_)
-    return;
   MaybeActivateDataReductionProxy(false);
 }
 
@@ -247,16 +256,54 @@ void DataReductionProxySettings::MaybeActivateDataReductionProxy(
   // related prefs.
   if (!prefs)
     return;
+
+  if (spdy_proxy_auth_enabled_.GetValue() && at_startup) {
+    // Record the number of days since data reduction proxy has been enabled.
+    int64_t last_enabled_time =
+        prefs->GetInt64(prefs::kDataReductionProxyLastEnabledTime);
+    if (last_enabled_time != 0) {
+      // Record the metric only if the time when data reduction proxy was
+      // enabled is available.
+      RecordDaysSinceEnabledMetric(
+          (clock_->Now() - base::Time::FromInternalValue(last_enabled_time))
+              .InDays());
+    }
+
+    int64_t last_savings_cleared_time = prefs->GetInt64(
+        prefs::kDataReductionProxySavingsClearedNegativeSystemClock);
+    if (last_savings_cleared_time != 0) {
+      int32_t days_since_savings_cleared =
+          (clock_->Now() -
+           base::Time::FromInternalValue(last_savings_cleared_time))
+              .InDays();
+
+      // Sample in the UMA histograms must be at least 1.
+      if (days_since_savings_cleared == 0)
+        days_since_savings_cleared = 1;
+      UMA_HISTOGRAM_CUSTOM_COUNTS(
+          "DataReductionProxy.DaysSinceSavingsCleared.NegativeSystemClock",
+          days_since_savings_cleared, 1, 365, 50);
+    }
+  }
+
   if (spdy_proxy_auth_enabled_.GetValue() &&
       !prefs->GetBoolean(prefs::kDataReductionProxyWasEnabledBefore)) {
     prefs->SetBoolean(prefs::kDataReductionProxyWasEnabledBefore, true);
     ResetDataReductionStatistics();
   }
   if (!at_startup) {
-    if (IsDataReductionProxyEnabled())
+    if (IsDataReductionProxyEnabled()) {
       RecordSettingsEnabledState(DATA_REDUCTION_SETTINGS_ACTION_OFF_TO_ON);
-    else
+
+      // Data reduction proxy has been enabled by the user. Record the number of
+      // days since the data reduction proxy has been enabled as zero, and
+      // store the current time in the pref.
+      prefs->SetInt64(prefs::kDataReductionProxyLastEnabledTime,
+                      clock_->Now().ToInternalValue());
+      RecordDaysSinceEnabledMetric(0);
+    } else {
       RecordSettingsEnabledState(DATA_REDUCTION_SETTINGS_ACTION_ON_TO_OFF);
+    }
   }
   // Configure use of the data reduction proxy if it is enabled.
   if (at_startup && !data_reduction_proxy_service_->Initialized())
@@ -274,20 +321,14 @@ DataReductionProxyEventStore* DataReductionProxySettings::GetEventStore()
 }
 
 // Metrics methods
-void DataReductionProxySettings::RecordDataReductionInit() {
+void DataReductionProxySettings::RecordDataReductionInit() const {
   DCHECK(thread_checker_.CalledOnValidThread());
-  ProxyStartupState state = PROXY_NOT_AVAILABLE;
-  if (allowed_) {
-    if (IsDataReductionProxyEnabled())
-      state = PROXY_ENABLED;
-    else
-      state = PROXY_DISABLED;
-  }
-
-  RecordStartupState(state);
+  RecordStartupState(IsDataReductionProxyEnabled() ? PROXY_ENABLED
+                                                   : PROXY_DISABLED);
 }
 
-void DataReductionProxySettings::RecordStartupState(ProxyStartupState state) {
+void DataReductionProxySettings::RecordStartupState(
+    ProxyStartupState state) const {
   UMA_HISTOGRAM_ENUMERATION(kUMAProxyStartupStateHistogram,
                             state,
                             PROXY_STARTUP_STATE_COUNT);

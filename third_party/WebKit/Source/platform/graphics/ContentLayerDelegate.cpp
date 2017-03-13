@@ -25,17 +25,17 @@
 
 #include "platform/graphics/ContentLayerDelegate.h"
 
-#include "platform/RuntimeEnabledFeatures.h"
 #include "platform/geometry/IntRect.h"
 #include "platform/graphics/GraphicsContext.h"
 #include "platform/graphics/GraphicsLayer.h"
-#include "platform/graphics/paint/PaintArtifactToSkCanvas.h"
 #include "platform/graphics/paint/PaintController.h"
-#include "platform/tracing/TraceEvent.h"
-#include "platform/tracing/TracedValue.h"
+#include "platform/image-decoders/ImageDecoder.h"
+#include "platform/instrumentation/tracing/TraceEvent.h"
+#include "platform/instrumentation/tracing/TracedValue.h"
 #include "public/platform/WebDisplayItemList.h"
 #include "public/platform/WebRect.h"
 #include "third_party/skia/include/core/SkPicture.h"
+#include "ui/gfx/color_space.h"
 #include "ui/gfx/geometry/rect.h"
 
 namespace blink {
@@ -44,24 +44,6 @@ ContentLayerDelegate::ContentLayerDelegate(GraphicsLayer* graphicsLayer)
     : m_graphicsLayer(graphicsLayer) {}
 
 ContentLayerDelegate::~ContentLayerDelegate() {}
-
-static void paintArtifactToWebDisplayItemList(WebDisplayItemList* list,
-                                              const PaintArtifact& artifact,
-                                              const gfx::Rect& bounds) {
-  if (RuntimeEnabledFeatures::slimmingPaintV2Enabled()) {
-    // This is a temporary path to paint the artifact using the paint chunk
-    // properties. Ultimately, we should instead split the artifact into
-    // separate layers and send those to the compositor, instead of sending
-    // one big flat SkPicture.
-    SkRect skBounds = SkRect::MakeXYWH(bounds.x(), bounds.y(), bounds.width(),
-                                       bounds.height());
-    list->appendDrawingItem(
-        WebRect(bounds.x(), bounds.y(), bounds.width(), bounds.height()),
-        paintArtifactToSkPicture(artifact, skBounds));
-    return;
-  }
-  artifact.appendToWebDisplayItemList(list);
-}
 
 gfx::Rect ContentLayerDelegate::paintableRegion() {
   IntRect interestRect = m_graphicsLayer->interestRect();
@@ -99,14 +81,18 @@ void ContentLayerDelegate::paintContents(
 
   // Anything other than PaintDefaultBehavior is for testing. In non-testing
   // scenarios, it is an error to call GraphicsLayer::paint. Actual painting
-  // occurs in FrameView::synchronizedPaint; this method merely copies the
-  // painted output to the WebDisplayItemList.
+  // occurs in FrameView::paintTree(); this method merely copies the painted
+  // output to the WebDisplayItemList.
   if (paintingControl != PaintDefaultBehavior)
     m_graphicsLayer->paint(nullptr, disabledMode);
 
-  paintArtifactToWebDisplayItemList(
-      webDisplayItemList, paintController.paintArtifact(), paintableRegion());
+  paintController.paintArtifact().appendToWebDisplayItemList(
+      webDisplayItemList);
 
+  if (m_graphicsLayer->colorBehavior().isTransformToTargetColorSpace()) {
+    webDisplayItemList->setImpliedColorSpace(gfx::ColorSpace::FromSkColorSpace(
+        m_graphicsLayer->colorBehavior().targetColorSpace()));
+  }
   paintController.setDisplayItemConstructionIsDisabled(false);
   paintController.setSubsequenceCachingIsDisabled(false);
 }

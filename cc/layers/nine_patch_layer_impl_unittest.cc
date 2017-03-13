@@ -44,12 +44,11 @@ void NinePatchLayerLayoutTest(const gfx::Size& bitmap_size,
                                layer_size.height() - border.height());
 
   FakeImplTaskRunnerProvider task_runner_provider;
-  TestSharedBitmapManager shared_bitmap_manager;
   TestTaskGraphRunner task_graph_runner;
   std::unique_ptr<CompositorFrameSink> compositor_frame_sink =
       FakeCompositorFrameSink::Create3d();
-  FakeUIResourceLayerTreeHostImpl host_impl(
-      &task_runner_provider, &shared_bitmap_manager, &task_graph_runner);
+  FakeUIResourceLayerTreeHostImpl host_impl(&task_runner_provider,
+                                            &task_graph_runner);
   host_impl.SetVisible(true);
   host_impl.InitializeRenderer(compositor_frame_sink.get());
 
@@ -67,8 +66,12 @@ void NinePatchLayerLayoutTest(const gfx::Size& bitmap_size,
   layer->SetUIResourceId(uid);
   layer->SetImageBounds(bitmap_size);
   layer->SetLayout(aperture_rect, border, gfx::Rect(), fill_center, false);
+  host_impl.active_tree()->SetRootLayerForTesting(std::move(layer));
+  host_impl.active_tree()->BuildPropertyTreesForTesting();
+
   AppendQuadsData data;
-  layer->AppendQuads(render_pass.get(), &data);
+  host_impl.active_tree()->root_layer_for_testing()->AppendQuads(
+      render_pass.get(), &data);
 
   // Verify quad rects
   const QuadList& quads = render_pass->quad_list;
@@ -149,12 +152,11 @@ void NinePatchLayerLayoutTestWithOcclusion(const gfx::Size& bitmap_size,
       bitmap_size.height() - image_remaining_bottom - image_remaining_top);
 
   FakeImplTaskRunnerProvider task_runner_provider;
-  TestSharedBitmapManager shared_bitmap_manager;
   TestTaskGraphRunner task_graph_runner;
   std::unique_ptr<CompositorFrameSink> compositor_frame_sink =
       FakeCompositorFrameSink::Create3d();
-  FakeUIResourceLayerTreeHostImpl host_impl(
-      &task_runner_provider, &shared_bitmap_manager, &task_graph_runner);
+  FakeUIResourceLayerTreeHostImpl host_impl(&task_runner_provider,
+                                            &task_graph_runner);
   host_impl.SetVisible(true);
   host_impl.InitializeRenderer(compositor_frame_sink.get());
 
@@ -172,8 +174,12 @@ void NinePatchLayerLayoutTestWithOcclusion(const gfx::Size& bitmap_size,
   layer->SetUIResourceId(uid);
   layer->SetImageBounds(bitmap_size);
   layer->SetLayout(aperture_rect, border, occlusion, false, false);
+  host_impl.active_tree()->SetRootLayerForTesting(std::move(layer));
+  host_impl.active_tree()->BuildPropertyTreesForTesting();
+
   AppendQuadsData data;
-  layer->AppendQuads(render_pass.get(), &data);
+  host_impl.active_tree()->root_layer_for_testing()->AppendQuads(
+      render_pass.get(), &data);
 
   // Verify quad rects
   const QuadList& quads = render_pass->quad_list;

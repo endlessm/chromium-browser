@@ -5,6 +5,7 @@
 package org.chromium.chrome.browser.tab;
 
 import android.graphics.Bitmap;
+import android.support.annotation.Nullable;
 import android.view.ContextMenu;
 
 import org.chromium.chrome.browser.TabLoadStatus;
@@ -148,11 +149,6 @@ public interface TabObserver {
      */
     void onContextualActionBarVisibilityChanged(Tab tab, boolean visible);
 
-    /**
-     * Called when the WebContents Instant support is disabled.
-     */
-    void onWebContentsInstantSupportDisabled();
-
     // WebContentsDelegateAndroid methods ---------------------------------------------------------
 
     /**
@@ -211,17 +207,11 @@ public interface TabObserver {
     /**
      * Called when load is started for a given frame.
      * @param tab            The notifying {@link Tab}.
-     * @param frameId        A positive, non-zero integer identifying the navigating frame.
-     * @param parentFrameId  The frame identifier of the frame containing the navigating frame,
-     *                       or -1 if the frame is not contained in another frame.
      * @param isMainFrame    Whether the load is happening for the main frame.
      * @param validatedUrl   The validated URL that is being navigated to.
-     * @param isErrorPage    Whether this is navigating to an error page.
-     * @param isIframeSrcdoc Whether this is navigating to about:srcdoc.
      */
     public void onDidStartProvisionalLoadForFrame(
-            Tab tab, long frameId, long parentFrameId, boolean isMainFrame, String validatedUrl,
-            boolean isErrorPage, boolean isIframeSrcdoc);
+            Tab tab, boolean isMainFrame, String validatedUrl);
 
     /**
      * Notifies that the provisional load was successfully committed. The RenderViewHost is now
@@ -251,6 +241,35 @@ public interface TabObserver {
      */
     public void onDidNavigateMainFrame(Tab tab, String url, String baseUrl,
             boolean isNavigationToDifferentPage, boolean isFragmentNavigation, int statusCode);
+
+    /**
+     * Called when a navigation is started in the WebContents.
+     * @param tab The notifying {@link Tab}.
+     * @param url The validated URL for the loading page.
+     * @param isInMainFrame Whether the navigation is for the main frame.
+     * @param isErrorPage Whether the navigation shows an error page.
+     */
+    public void onDidStartNavigation(
+            Tab tab, String url, boolean isInMainFrame, boolean isErrorPage);
+
+    /**
+     * Called when a navigation is finished i.e. committed, aborted or replaced by a new one.
+     * @param tab The notifying {@link Tab}.
+     * @param url The validated URL for the loading page.
+     * @param isInMainFrame Whether the navigation is for the main frame.
+     * @param isErrorPage Whether the navigation shows an error page.
+     * @param hasCommitted Whether the navigation has committed. This returns true for either
+     *                     successful commits or error pages that replace the previous page
+     *                     (distinguished by |isErrorPage|), and false for errors that leave the
+     *                     user on the previous page.
+     * @param isSamePage Whether the main frame navigation did not cause changes to the
+     *                   document (for example scrolling to a named anchor or PopState).
+     * @param pageTransition The page transition type associated with this navigation.
+     * @param errorCode The net error code if an error occurred prior to commit, otherwise net::OK.
+     */
+    public void onDidFinishNavigation(Tab tab, String url, boolean isInMainFrame,
+            boolean isErrorPage, boolean hasCommitted, boolean isSamePage,
+            @Nullable Integer pageTransition, int errorCode);
 
     /**
      * Called when the page has painted something non-empty.
@@ -293,15 +312,17 @@ public interface TabObserver {
 
     /**
      * Called when a {@link WebContents} object has been created.
-     * @param tab                 The notifying {@link Tab}.
-     * @param sourceWebContents   The {@link WebContents} that triggered the creation.
-     * @param openerRenderFrameId The opener render frame id.
-     * @param frameName           The name of the frame.
-     * @param targetUrl           The target url.
-     * @param newWebContents      The newly created {@link WebContents}.
+     * @param tab                    The notifying {@link Tab}.
+     * @param sourceWebContents      The {@link WebContents} that triggered the creation.
+     * @param openerRenderProcessId  The opener render process id.
+     * @param openerRenderFrameId    The opener render frame id.
+     * @param frameName              The name of the frame.
+     * @param targetUrl              The target url.
+     * @param newWebContents         The newly created {@link WebContents}.
      */
-    public void webContentsCreated(Tab tab, WebContents sourceWebContents, long openerRenderFrameId,
-            String frameName, String targetUrl, WebContents newWebContents);
+    public void webContentsCreated(Tab tab, WebContents sourceWebContents,
+            long openerRenderProcessId, long openerRenderFrameId, String frameName,
+            String targetUrl, WebContents newWebContents);
 
     /**
      * Called when the tab reparenting process has finished.

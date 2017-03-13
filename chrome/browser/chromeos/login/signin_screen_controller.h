@@ -6,11 +6,13 @@
 #define CHROME_BROWSER_CHROMEOS_LOGIN_SIGNIN_SCREEN_CONTROLLER_H_
 
 #include "base/macros.h"
+#include "base/memory/weak_ptr.h"
 #include "chrome/browser/chromeos/login/screens/gaia_screen.h"
 #include "chrome/browser/chromeos/login/screens/user_selection_screen.h"
 #include "chrome/browser/chromeos/login/ui/login_display_host.h"
 #include "components/user_manager/remove_user_delegate.h"
 #include "components/user_manager/user.h"
+#include "components/user_manager/user_manager.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
 
@@ -23,7 +25,12 @@ class OobeUI;
 
 // Class that manages control flow between wizard screens. Wizard controller
 // interacts with screen controllers to move the user between screens.
+//
+// This class is allocated when the signin or lock screen is actually visible to
+// the user. It is a 'per-session' class; SignInScreenHandler, in comparsion, is
+// tied to the WebContents lifetime and therefore may live beyond this class.
 class SignInScreenController : public user_manager::RemoveUserDelegate,
+                               public user_manager::UserManager::Observer,
                                public content::NotificationObserver {
  public:
   SignInScreenController(OobeUI* oobe_ui,
@@ -57,6 +64,9 @@ class SignInScreenController : public user_manager::RemoveUserDelegate,
   void OnBeforeUserRemoved(const AccountId& account_id) override;
   void OnUserRemoved(const AccountId& account_id) override;
 
+  // user_manager::UserManager::Observer implementation:
+  void OnUserImageChanged(const user_manager::User& user) override;
+
   // content::NotificationObserver implementation.
   void Observe(int type,
                const content::NotificationSource& source,
@@ -71,6 +81,8 @@ class SignInScreenController : public user_manager::RemoveUserDelegate,
 
   std::unique_ptr<GaiaScreen> gaia_screen_;
   std::unique_ptr<UserSelectionScreen> user_selection_screen_;
+
+  base::WeakPtr<UserBoardView> user_board_view_;
 
   // Used for notifications during the login process.
   content::NotificationRegistrar registrar_;

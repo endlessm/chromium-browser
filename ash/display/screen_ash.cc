@@ -4,10 +4,9 @@
 
 #include "ash/display/screen_ash.h"
 
-#include "ash/aura/wm_window_aura.h"
 #include "ash/common/shelf/shelf_widget.h"
 #include "ash/common/wm/root_window_finder.h"
-#include "ash/display/display_manager.h"
+#include "ash/common/wm_window.h"
 #include "ash/display/window_tree_host_manager.h"
 #include "ash/root_window_controller.h"
 #include "ash/root_window_settings.h"
@@ -18,7 +17,9 @@
 #include "ui/aura/window_event_dispatcher.h"
 #include "ui/display/display.h"
 #include "ui/display/display_finder.h"
+#include "ui/display/manager/display_manager.h"
 #include "ui/display/screen.h"
+#include "ui/display/types/display_constants.h"
 
 namespace ash {
 
@@ -28,7 +29,7 @@ namespace {
 // the object in display::Screen::GetScreenByType is for shutdown.
 display::Screen* screen_for_shutdown = nullptr;
 
-DisplayManager* GetDisplayManager() {
+display::DisplayManager* GetDisplayManager() {
   return Shell::GetInstance()->display_manager();
 }
 
@@ -45,7 +46,7 @@ class ScreenForShutdown : public display::Screen {
     return NULL;
   }
   int GetNumDisplays() const override { return display_list_.size(); }
-  std::vector<display::Display> GetAllDisplays() const override {
+  const std::vector<display::Display>& GetAllDisplays() const override {
     return display_list_;
   }
   display::Display GetDisplayNearestWindow(
@@ -95,7 +96,7 @@ bool ScreenAsh::IsWindowUnderCursor(gfx::NativeWindow window) {
 
 gfx::NativeWindow ScreenAsh::GetWindowAtScreenPoint(const gfx::Point& point) {
   aura::Window* root_window =
-      WmWindowAura::GetAuraWindow(wm::GetRootWindowAt(point));
+      WmWindow::GetAuraWindow(wm::GetRootWindowAt(point));
   aura::client::ScreenPositionClient* position_client =
       aura::client::GetScreenPositionClient(root_window);
 
@@ -110,7 +111,7 @@ int ScreenAsh::GetNumDisplays() const {
   return GetDisplayManager()->GetNumDisplays();
 }
 
-std::vector<display::Display> ScreenAsh::GetAllDisplays() const {
+const std::vector<display::Display>& ScreenAsh::GetAllDisplays() const {
   return GetDisplayManager()->active_display_list();
 }
 
@@ -124,11 +125,11 @@ display::Display ScreenAsh::GetDisplayNearestWindow(
   const RootWindowSettings* rws = GetRootWindowSettings(root_window);
   int64_t id = rws->display_id;
   // if id is |kInvaildDisplayID|, it's being deleted.
-  DCHECK(id != display::Display::kInvalidDisplayID);
-  if (id == display::Display::kInvalidDisplayID)
+  DCHECK(id != display::kInvalidDisplayId);
+  if (id == display::kInvalidDisplayId)
     return GetPrimaryDisplay();
 
-  DisplayManager* display_manager = GetDisplayManager();
+  display::DisplayManager* display_manager = GetDisplayManager();
   // RootWindow needs Display to determine its device scale factor
   // for non desktop display.
   display::Display mirroring_display =
@@ -176,7 +177,7 @@ void ScreenAsh::RemoveObserver(display::DisplayObserver* observer) {
 }
 
 // static
-DisplayManager* ScreenAsh::CreateDisplayManager() {
+display::DisplayManager* ScreenAsh::CreateDisplayManager() {
   std::unique_ptr<ScreenAsh> screen(new ScreenAsh);
 
   display::Screen* current = display::Screen::GetScreen();
@@ -184,7 +185,7 @@ DisplayManager* ScreenAsh::CreateDisplayManager() {
   // use ash's screen.
   if (!current || current == screen_for_shutdown)
     display::Screen::SetScreenInstance(screen.get());
-  return new DisplayManager(std::move(screen));
+  return new display::DisplayManager(std::move(screen));
 }
 
 // static

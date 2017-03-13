@@ -45,13 +45,13 @@ inline AudioNodeOutput::AudioNodeOutput(AudioHandler* handler,
   DCHECK_LE(numberOfChannels, BaseAudioContext::maxNumberOfChannels());
 
   m_internalBus =
-      AudioBus::create(numberOfChannels, AudioHandler::ProcessingSizeInFrames);
+      AudioBus::create(numberOfChannels, AudioUtilities::kRenderQuantumFrames);
 }
 
 std::unique_ptr<AudioNodeOutput> AudioNodeOutput::create(
     AudioHandler* handler,
     unsigned numberOfChannels) {
-  return wrapUnique(new AudioNodeOutput(handler, numberOfChannels));
+  return WTF::wrapUnique(new AudioNodeOutput(handler, numberOfChannels));
 }
 
 void AudioNodeOutput::dispose() {
@@ -86,7 +86,7 @@ void AudioNodeOutput::updateInternalBus() {
     return;
 
   m_internalBus = AudioBus::create(numberOfChannels(),
-                                   AudioHandler::ProcessingSizeInFrames);
+                                   AudioUtilities::kRenderQuantumFrames);
 }
 
 void AudioNodeOutput::updateRenderingState() {

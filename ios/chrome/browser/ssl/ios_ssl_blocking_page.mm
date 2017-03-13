@@ -12,18 +12,20 @@
 #include "base/strings/utf_string_conversions.h"
 #include "components/security_interstitials/core/metrics_helper.h"
 #include "components/security_interstitials/core/ssl_error_ui.h"
-#include "grit/components_strings.h"
+#include "components/strings/grit/components_strings.h"
 #include "ios/chrome/browser/browser_state/chrome_browser_state.h"
 #include "ios/chrome/browser/interstitials/ios_chrome_controller_client.h"
 #include "ios/chrome/browser/interstitials/ios_chrome_metrics_helper.h"
-#include "ios/chrome/grit/ios_strings.h"
-#include "ios/public/provider/chrome/browser/browser_constants.h"
 #import "ios/web/public/navigation_item.h"
 #include "ios/web/public/ssl_status.h"
 #include "ios/web/public/web_state/web_state.h"
 #include "net/base/net_errors.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "url/gurl.h"
+
+#if !defined(__has_feature) || !__has_feature(objc_arc)
+#error "This file requires ARC support."
+#endif
 
 using security_interstitials::SSLErrorUI;
 
@@ -36,11 +38,6 @@ enum SSLExpirationAndDecision {
   NOT_EXPIRED_AND_DO_NOT_PROCEED,
   END_OF_SSL_EXPIRATION_AND_DECISION,
 };
-
-// Rappor prefix, which is used for both overridable and non-overridable
-// interstitials so we don't leak the "overridable" bit.
-const char kDeprecatedSSLRapporPrefix[] = "ssl2";
-const char kSSLRapporPrefix[] = "ssl3";
 
 void RecordSSLExpirationPageEventState(bool expired_but_previously_allowed,
                                        bool proceed,
@@ -73,10 +70,6 @@ IOSChromeMetricsHelper* CreateMetricsHelper(web::WebState* web_state,
   security_interstitials::MetricsHelper::ReportDetails reporting_info;
   reporting_info.metric_prefix =
       overridable ? "ssl_overridable" : "ssl_nonoverridable";
-  reporting_info.rappor_prefix = kSSLRapporPrefix;
-  reporting_info.deprecated_rappor_prefix = kDeprecatedSSLRapporPrefix;
-  reporting_info.rappor_report_type = rappor::LOW_FREQUENCY_UMA_RAPPOR_TYPE;
-  reporting_info.deprecated_rappor_report_type = rappor::UMA_RAPPOR_TYPE;
   return new IOSChromeMetricsHelper(web_state, request_url, reporting_info);
 }
 
@@ -138,27 +131,6 @@ void IOSSSLBlockingPage::AfterShow() {
 void IOSSSLBlockingPage::PopulateInterstitialStrings(
     base::DictionaryValue* load_time_data) const {
   ssl_error_ui_->PopulateStringsForHTML(load_time_data);
-  // Spoofing attempts have a custom message on iOS.
-  // This code will no longer be necessary once UIWebView is gone.
-  if (ssl_info_.cert->subject().GetDisplayName() == ios::kSpoofingAttemptFlag) {
-    load_time_data->SetString(
-        "errorCode", base::string16(base::ASCIIToUTF16("Unverified URL")));
-    load_time_data->SetString(
-        "tabTitle", l10n_util::GetStringUTF16(
-                        IDS_IOS_INTERSTITIAL_HEADING_SPOOFING_ATTEMPT_ERROR));
-    load_time_data->SetString(
-        "heading", l10n_util::GetStringUTF16(
-                       IDS_IOS_INTERSTITIAL_HEADING_SPOOFING_ATTEMPT_ERROR));
-    load_time_data->SetString(
-        "primaryParagraph",
-        l10n_util::GetStringUTF16(
-            IDS_IOS_INTERSTITIAL_SUMMARY_SPOOFING_ATTEMPT_ERROR));
-    load_time_data->SetString(
-        "explanationParagraph",
-        l10n_util::GetStringUTF16(
-            IDS_IOS_INTERSTITIAL_DETAILS_SPOOFING_ATTEMPT_ERROR));
-    load_time_data->SetString("finalParagraph", base::string16());
-  }
 }
 
 // This handles the commands sent from the interstitial JavaScript.

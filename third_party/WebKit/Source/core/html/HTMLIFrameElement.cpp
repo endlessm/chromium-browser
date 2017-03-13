@@ -48,6 +48,7 @@ DEFINE_TRACE(HTMLIFrameElement) {
   visitor->trace(m_sandbox);
   visitor->trace(m_permissions);
   HTMLFrameElementBase::trace(visitor);
+  Supplementable<HTMLIFrameElement>::trace(visitor);
 }
 
 HTMLIFrameElement::~HTMLIFrameElement() {}
@@ -96,48 +97,76 @@ void HTMLIFrameElement::collectStyleForPresentationAttribute(
   }
 }
 
-void HTMLIFrameElement::parseAttribute(const QualifiedName& name,
-                                       const AtomicString& oldValue,
-                                       const AtomicString& value) {
+void HTMLIFrameElement::parseAttribute(
+    const AttributeModificationParams& params) {
+  const QualifiedName& name = params.name;
+  const AtomicString& value = params.newValue;
   if (name == nameAttr) {
     if (isInDocumentTree() && document().isHTMLDocument()) {
       HTMLDocument& document = toHTMLDocument(this->document());
       document.removeExtraNamedItem(m_name);
       document.addExtraNamedItem(value);
     }
+    AtomicString oldName = m_name;
     m_name = value;
+    if (m_name != oldName)
+      frameOwnerPropertiesChanged();
   } else if (name == sandboxAttr) {
     m_sandbox->setValue(value);
     UseCounter::count(document(), UseCounter::SandboxViaIFrame);
   } else if (name == referrerpolicyAttr) {
     m_referrerPolicy = ReferrerPolicyDefault;
-    if (!value.isNull())
+    if (!value.isNull()) {
       SecurityPolicy::referrerPolicyFromStringWithLegacyKeywords(
           value, &m_referrerPolicy);
+      UseCounter::count(document(),
+                        UseCounter::HTMLIFrameElementReferrerPolicyAttribute);
+    }
   } else if (name == allowfullscreenAttr) {
     bool oldAllowFullscreen = m_allowFullscreen;
     m_allowFullscreen = !value.isNull();
-    if (m_allowFullscreen != oldAllowFullscreen)
+    if (m_allowFullscreen != oldAllowFullscreen) {
+      // TODO(iclelland): Remove this use counter when the allowfullscreen
+      // attribute state is snapshotted on document creation. crbug.com/682282
+      if (m_allowFullscreen && contentFrame()) {
+        UseCounter::count(
+            document(),
+            UseCounter::
+                HTMLIFrameElementAllowfullscreenAttributeSetAfterContentLoad);
+      }
+      frameOwnerPropertiesChanged();
+    }
+  } else if (name == allowpaymentrequestAttr) {
+    bool oldAllowPaymentRequest = m_allowPaymentRequest;
+    m_allowPaymentRequest = !value.isNull();
+    if (m_allowPaymentRequest != oldAllowPaymentRequest)
       frameOwnerPropertiesChanged();
   } else if (name == permissionsAttr) {
     if (initializePermissionsAttribute())
       m_permissions->setValue(value);
   } else if (RuntimeEnabledFeatures::embedderCSPEnforcementEnabled() &&
              name == cspAttr) {
+    // TODO(amalika): add more robust validation of the value
+    if (!value.getString().containsOnlyASCII()) {
+      m_csp = nullAtom;
+      document().addConsoleMessage(ConsoleMessage::create(
+          OtherMessageSource, ErrorMessageLevel,
+          "'csp' attribute contains non-ASCII characters: " + value));
+      return;
+    }
     AtomicString oldCSP = m_csp;
     m_csp = value;
     if (m_csp != oldCSP)
       frameOwnerPropertiesChanged();
   } else {
     if (name == srcAttr)
-      logUpdateAttributeIfIsolatedWorldAndInDocument("iframe", srcAttr,
-                                                     oldValue, value);
-    HTMLFrameElementBase::parseAttribute(name, oldValue, value);
+      logUpdateAttributeIfIsolatedWorldAndInDocument("iframe", params);
+    HTMLFrameElementBase::parseAttribute(params);
   }
 }
 
 bool HTMLIFrameElement::layoutObjectIsNeeded(const ComputedStyle& style) {
-  return isURLAllowed() && HTMLElement::layoutObjectIsNeeded(style);
+  return contentFrame() && HTMLElement::layoutObjectIsNeeded(style);
 }
 
 LayoutObject* HTMLIFrameElement::createLayoutObject(const ComputedStyle&) {

@@ -4,7 +4,7 @@
 
 #include "chrome/browser/media/webrtc/desktop_media_list_ash.h"
 
-#include "ash/common/shell_window_ids.h"
+#include "ash/public/cpp/shell_window_ids.h"
 #include "ash/shell.h"
 #include "chrome/grit/generated_resources.h"
 #include "content/public/browser/browser_thread.h"
@@ -55,7 +55,7 @@ void DesktopMediaListAsh::EnumerateWindowsForRoot(
         content::DesktopMediaID::TYPE_WINDOW, *it);
     if (id.aura_id == view_dialog_id_.aura_id)
       continue;
-    SourceDescription window_source(id, (*it)->title());
+    SourceDescription window_source(id, (*it)->GetTitle());
     sources->push_back(window_source);
 
     CaptureThumbnail(window_source.id, *it);
@@ -73,7 +73,7 @@ void DesktopMediaListAsh::EnumerateSources(
       SourceDescription screen_source(
           content::DesktopMediaID::RegisterAuraWindow(
               content::DesktopMediaID::TYPE_SCREEN, root_windows[i]),
-          root_windows[i]->title());
+          root_windows[i]->GetTitle());
 
       if (root_windows[i] == ash::Shell::GetPrimaryRootWindow())
         sources->insert(sources->begin(), screen_source);

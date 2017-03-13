@@ -4,14 +4,14 @@
 
 #include "ash/common/wallpaper/wallpaper_controller.h"
 
-#include "ash/common/shell_window_ids.h"
 #include "ash/common/wallpaper/wallpaper_controller_observer.h"
 #include "ash/common/wallpaper/wallpaper_delegate.h"
 #include "ash/common/wallpaper/wallpaper_view.h"
 #include "ash/common/wallpaper/wallpaper_widget_controller.h"
-#include "ash/common/wm_root_window_controller.h"
 #include "ash/common/wm_shell.h"
 #include "ash/common/wm_window.h"
+#include "ash/public/cpp/shell_window_ids.h"
+#include "ash/root_window_controller.h"
 #include "base/bind.h"
 #include "base/logging.h"
 #include "base/task_runner.h"
@@ -43,6 +43,11 @@ WallpaperController::~WallpaperController() {
   WmShell::Get()->RemoveShellObserver(this);
 }
 
+void WallpaperController::BindRequest(
+    mojom::WallpaperControllerRequest request) {
+  bindings_.AddBinding(this, std::move(request));
+}
+
 gfx::ImageSkia WallpaperController::GetWallpaper() const {
   if (current_wallpaper_)
     return current_wallpaper_->image();
@@ -64,7 +69,7 @@ wallpaper::WallpaperLayout WallpaperController::GetWallpaperLayout() const {
   return wallpaper::WALLPAPER_LAYOUT_CENTER_CROPPED;
 }
 
-bool WallpaperController::SetWallpaperImage(const gfx::ImageSkia& image,
+void WallpaperController::SetWallpaperImage(const gfx::ImageSkia& image,
                                             wallpaper::WallpaperLayout layout) {
   VLOG(1) << "SetWallpaper: image_id="
           << wallpaper::WallpaperResizer::GetImageId(image)
@@ -72,18 +77,17 @@ bool WallpaperController::SetWallpaperImage(const gfx::ImageSkia& image,
 
   if (WallpaperIsAlreadyLoaded(image, true /* compare_layouts */, layout)) {
     VLOG(1) << "Wallpaper is already loaded";
-    return false;
+    return;
   }
 
   current_wallpaper_.reset(new wallpaper::WallpaperResizer(
       image, GetMaxDisplaySizeInNative(), layout, task_runner_));
   current_wallpaper_->StartResize();
 
-  FOR_EACH_OBSERVER(WallpaperControllerObserver, observers_,
-                    OnWallpaperDataChanged());
+  for (auto& observer : observers_)
+    observer.OnWallpaperDataChanged();
   wallpaper_mode_ = WALLPAPER_IMAGE;
   InstallDesktopControllerForAllWindows();
-  return true;
 }
 
 void WallpaperController::CreateEmptyWallpaper() {
@@ -182,6 +186,25 @@ bool WallpaperController::WallpaperIsAlreadyLoaded(
          current_wallpaper_->original_image_id();
 }
 
+void WallpaperController::OpenSetWallpaperPage() {
+  if (wallpaper_picker_ &&
+      WmShell::Get()->wallpaper_delegate()->CanOpenSetWallpaperPage()) {
+    wallpaper_picker_->Open();
+  }
+}
+
+void WallpaperController::SetWallpaperPicker(mojom::WallpaperPickerPtr picker) {
+  wallpaper_picker_ = std::move(picker);
+}
+
+void WallpaperController::SetWallpaper(const SkBitmap& wallpaper,
+                                       wallpaper::WallpaperLayout layout) {
+  if (wallpaper.isNull())
+    return;
+
+  SetWallpaperImage(gfx::ImageSkia::CreateFrom1xBitmap(wallpaper), layout);
+}
+
 void WallpaperController::InstallDesktopController(WmWindow* root_window) {
   WallpaperWidgetController* component = nullptr;
   int container_id = GetWallpaperContainerId(locked_);
@@ -197,7 +220,7 @@ void WallpaperController::InstallDesktopController(WmWindow* root_window) {
       return;
   }
 
-  WmRootWindowController* controller = root_window->GetRootWindowController();
+  RootWindowController* controller = root_window->GetRootWindowController();
   controller->SetAnimatingWallpaperWidgetController(
       new AnimatingWallpaperWidgetController(component));
   component->StartAnimating(controller);
@@ -212,7 +235,7 @@ void WallpaperController::InstallDesktopControllerForAllWindows() {
 bool WallpaperController::ReparentWallpaper(int container) {
   bool moved = false;
   for (WmWindow* root_window : WmShell::Get()->GetAllRootWindows()) {
-    WmRootWindowController* root_window_controller =
+    RootWindowController* root_window_controller =
         root_window->GetRootWindowController();
     // In the steady state (no animation playing) the wallpaper widget
     // controller exists in the RootWindowController.

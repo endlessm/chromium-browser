@@ -739,7 +739,16 @@ var glTypeToTypedArrayType = function(gl, type) {
     case gl.INT:
       return window.Int32Array;
     case gl.UNSIGNED_INT:
+    case gl.UNSIGNED_INT_5_9_9_9_REV:
+    case gl.UNSIGNED_INT_10F_11F_11F_REV:
+    case gl.UNSIGNED_INT_2_10_10_10_REV:
+    case gl.UNSIGNED_INT_24_8:
       return window.Uint32Array;
+    case gl.HALF_FLOAT:
+    case 0x8D61:  // HALF_FLOAT_OES
+      return window.Uint16Array;
+    case gl.FLOAT:
+      return window.Float32Array;
     default:
       throw 'unknown gl type ' + glEnumToString(gl, type);
   }
@@ -761,9 +770,16 @@ var getBytesPerComponent = function(gl, type) {
     case gl.UNSIGNED_SHORT_5_6_5:
     case gl.UNSIGNED_SHORT_4_4_4_4:
     case gl.UNSIGNED_SHORT_5_5_5_1:
+    case gl.HALF_FLOAT:
+    case 0x8D61:  // HALF_FLOAT_OES
       return 2;
     case gl.INT:
     case gl.UNSIGNED_INT:
+    case gl.UNSIGNED_INT_5_9_9_9_REV:
+    case gl.UNSIGNED_INT_10F_11F_11F_REV:
+    case gl.UNSIGNED_INT_2_10_10_10_REV:
+    case gl.UNSIGNED_INT_24_8:
+    case gl.FLOAT:
       return 4;
     default:
       throw 'unknown gl type ' + glEnumToString(gl, type);
@@ -827,12 +843,21 @@ var fillTexture = function(gl, tex, width, height, color, opt_level, opt_format,
   var numComponents = color.length;
   var bytesPerComponent = getBytesPerComponent(gl, opt_type);
   var rowSize = numComponents * width * bytesPerComponent;
-  var paddedRowSize = Math.floor((rowSize + pack - 1) / pack) * pack;
-  var size = rowSize + (height - 1) * paddedRowSize;
-  size = Math.floor((size + bytesPerComponent - 1) / bytesPerComponent) * bytesPerComponent;
+  // See equation 3.10 in ES 2.0 spec and equation 3.13 in ES 3.0 spec for paddedRowLength calculation.
+  // k is paddedRowLength.
+  // n is numComponents.
+  // l is width.
+  // a is pack.
+  // s is bytesPerComponent.
+  var paddedRowLength;
+  if (bytesPerComponent >= pack)
+    paddedRowLength = numComponents * width;
+  else
+    paddedRowLength = Math.floor((rowSize + pack - 1) / pack) * pack / bytesPerComponent;
+  var size = width * numComponents + (height - 1) * paddedRowLength;
   var buf = new (glTypeToTypedArrayType(gl, opt_type))(size);
   for (var yy = 0; yy < height; ++yy) {
-    var off = yy * paddedRowSize;
+    var off = yy * paddedRowLength;
     for (var xx = 0; xx < width; ++xx) {
       for (var jj = 0; jj < numComponents; ++jj) {
         buf[off++] = color[jj];
@@ -1773,6 +1798,7 @@ var getFileListAsync = function(url, callback) {
 var readFile = function(file) {
   var xhr = new XMLHttpRequest();
   xhr.open("GET", file, false);
+  xhr.overrideMimeType("text/plain");
   xhr.send();
   return xhr.responseText.replace(/\r/g, "");
 };
@@ -2986,6 +3012,64 @@ function linearChannelToSRGB(value) {
     }
     return Math.trunc(value * 255 + 0.5);
 }
+
+function comparePixels(cmp, ref, tolerance, diff) {
+    if (cmp.length != ref.length) {
+        testFailed("invalid pixel size.");
+    }
+
+    var count = 0;
+    for (var i = 0; i < cmp.length; i++) {
+        diff[i * 4] = 0;
+        diff[i * 4 + 1] = 255;
+        diff[i * 4 + 2] = 0;
+        diff[i * 4 + 3] = 255;
+        if (Math.abs(cmp[i * 4] - ref[i * 4]) > tolerance ||
+            Math.abs(cmp[i * 4 + 1] - ref[i * 4 + 1]) > tolerance ||
+            Math.abs(cmp[i * 4 + 2] - ref[i * 4 + 2]) > tolerance ||
+            Math.abs(cmp[i * 4 + 3] - ref[i * 4 + 3]) > tolerance) {
+            if (count < 10) {
+                testFailed("Pixel " + i + ": expected (" +
+                [ref[i * 4], ref[i * 4 + 1], ref[i * 4 + 2], ref[i * 4 + 3]] + "), got (" +
+                [cmp[i * 4], cmp[i * 4 + 1], cmp[i * 4 + 2], cmp[i * 4 + 3]] + ")");
+            }
+            count++;
+            diff[i * 4] = 255;
+            diff[i * 4 + 1] = 0;
+        }
+    }
+
+    return count;
+}
+
+function displayImageDiff(cmp, ref, diff, width, height) {
+    var div = document.createElement("div");
+
+    var cmpImg = createImageFromPixel(cmp, width, height);
+    var refImg = createImageFromPixel(ref, width, height);
+    var diffImg = createImageFromPixel(diff, width, height);
+    wtu.insertImage(div, "Reference", refImg);
+    wtu.insertImage(div, "Result", cmpImg);
+    wtu.insertImage(div, "Difference", diffImg);
+
+    var console = document.getElementById("console");
+    console.appendChild(div);
+}
+
+function createImageFromPixel(buf, width, height) {
+    var canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    var ctx = canvas.getContext("2d");
+    var imgData = ctx.getImageData(0, 0, width, height);
+
+    for (var i = 0; i < buf.length; i++)
+        imgData.data[i] = buf[i];
+    ctx.putImageData(imgData, 0, 0);
+    var img = wtu.makeImageFromCanvas(canvas);
+    return img;
+}
+
 var API = {
   addShaderSource: addShaderSource,
   addShaderSources: addShaderSources,
@@ -3005,6 +3089,8 @@ var API = {
   createProgram: createProgram,
   clearAndDrawUnitQuad: clearAndDrawUnitQuad,
   clearAndDrawIndexedQuad: clearAndDrawIndexedQuad,
+  comparePixels: comparePixels,
+  displayImageDiff: displayImageDiff,
   drawUnitQuad: drawUnitQuad,
   drawIndexedQuad: drawIndexedQuad,
   drawUByteColorQuad: drawUByteColorQuad,

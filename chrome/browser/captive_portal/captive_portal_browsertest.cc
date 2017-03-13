@@ -25,7 +25,6 @@
 #include "chrome/browser/captive_portal/captive_portal_tab_helper.h"
 #include "chrome/browser/captive_portal/captive_portal_tab_reloader.h"
 #include "chrome/browser/chrome_notification_types.h"
-#include "chrome/browser/interstitials/security_interstitial_page.h"
 #include "chrome/browser/net/url_request_mock_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ssl/captive_portal_blocking_page.h"
@@ -42,6 +41,7 @@
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/prefs/pref_service.h"
+#include "components/security_interstitials/content/security_interstitial_page.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/interstitial_page.h"
 #include "content/public/browser/interstitial_page_delegate.h"
@@ -485,8 +485,8 @@ URLRequestMockCaptivePortalJobFactory::Interceptor::MaybeInterceptRequest(
   base::FilePath root_http;
   PathService::Get(chrome::DIR_TEST_DATA, &root_http);
 
-  if (request->url() == GURL(kMockHttpsUrl) ||
-      request->url() == GURL(kMockHttpsUrl2)) {
+  if (request->url() == kMockHttpsUrl ||
+      request->url() == kMockHttpsUrl2) {
     if (behind_captive_portal_)
       return new URLRequestTimeoutOnDemandJob(request, network_delegate);
     // Once logged in to the portal, HTTPS requests return the page that was
@@ -497,7 +497,7 @@ URLRequestMockCaptivePortalJobFactory::Interceptor::MaybeInterceptRequest(
         root_http.Append(FILE_PATH_LITERAL("title2.html")),
         BrowserThread::GetBlockingPool()->GetTaskRunnerWithShutdownBehavior(
             base::SequencedWorkerPool::SKIP_ON_SHUTDOWN));
-  } else if (request->url() == GURL(kMockHttpsQuickTimeoutUrl)) {
+  } else if (request->url() == kMockHttpsQuickTimeoutUrl) {
     if (behind_captive_portal_)
       return new URLRequestFailedJob(
           request, network_delegate, net::ERR_CONNECTION_TIMED_OUT);
@@ -511,13 +511,13 @@ URLRequestMockCaptivePortalJobFactory::Interceptor::MaybeInterceptRequest(
             base::SequencedWorkerPool::SKIP_ON_SHUTDOWN));
   } else {
     // The URL should be the captive portal test URL.
-    EXPECT_TRUE(GURL(kMockCaptivePortalTestUrl) == request->url() ||
-                GURL(kMockCaptivePortal511Url) == request->url());
+    EXPECT_TRUE(request->url() == kMockCaptivePortalTestUrl ||
+                request->url() == kMockCaptivePortal511Url);
 
     if (behind_captive_portal_) {
       // Prior to logging in to the portal, the HTTP test URLs are intercepted
       // by the captive portal.
-      if (GURL(kMockCaptivePortal511Url) == request->url()) {
+      if (request->url() == kMockCaptivePortal511Url) {
         return new URLRequestMockHTTPJob(
             request,
             network_delegate,
@@ -871,11 +871,11 @@ SSLInterstitialTimerObserver::SSLInterstitialTimerObserver(
       message_loop_runner_(new content::MessageLoopRunner) {
   callback_ = base::Bind(&SSLInterstitialTimerObserver::OnTimerStarted,
                          base::Unretained(this));
-  SSLErrorHandler::SetInterstitialTimerStartedCallbackForTest(&callback_);
+  SSLErrorHandler::SetInterstitialTimerStartedCallbackForTesting(&callback_);
 }
 
 SSLInterstitialTimerObserver::~SSLInterstitialTimerObserver() {
-  SSLErrorHandler::SetInterstitialTimerStartedCallbackForTest(nullptr);
+  SSLErrorHandler::SetInterstitialTimerStartedCallbackForTesting(nullptr);
 }
 
 void SSLInterstitialTimerObserver::WaitForTimerStarted() {
@@ -1125,7 +1125,8 @@ void CaptivePortalBrowserTest::SetUpOnMainThread() {
   // Set SSL interstitial delay long enough so that a captive portal result
   // is guaranteed to arrive during this window, and a captive portal
   // error page is displayed instead of an SSL interstitial.
-  SSLErrorHandler::SetInterstitialDelayForTest(base::TimeDelta::FromHours(1));
+  SSLErrorHandler::SetInterstitialDelayForTesting(
+      base::TimeDelta::FromHours(1));
 }
 
 void CaptivePortalBrowserTest::TearDownOnMainThread() {
@@ -2339,7 +2340,7 @@ IN_PROC_BROWSER_TEST_F(CaptivePortalBrowserTest, SSLCertErrorLogin) {
   // Set SSL interstitial delay to zero so that a captive portal result can not
   // arrive during this window, so an SSL interstitial is displayed instead
   // of a captive portal error page.
-  SSLErrorHandler::SetInterstitialDelayForTest(base::TimeDelta());
+  SSLErrorHandler::SetInterstitialDelayForTesting(base::TimeDelta());
   TabStripModel* tab_strip_model = browser()->tab_strip_model();
   WebContents* broken_tab_contents = tab_strip_model->GetActiveWebContents();
 
@@ -2635,7 +2636,8 @@ IN_PROC_BROWSER_TEST_F(CaptivePortalBrowserTest, ReloadTimeout) {
   SetSlowSSLLoadTime(tab_reloader, base::TimeDelta());
 
   MultiNavigationObserver navigation_observer;
-  tab_strip_model->GetActiveWebContents()->GetController().Reload(true);
+  tab_strip_model->GetActiveWebContents()->GetController().Reload(
+      content::ReloadType::NORMAL, true);
 
   // Wait for the check triggered by the broken tab and for the login tab to
   // stop loading.

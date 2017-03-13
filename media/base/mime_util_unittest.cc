@@ -124,6 +124,8 @@ TEST(MimeUtilTest, CommonMediaMimeType) {
   EXPECT_TRUE(IsSupportedMediaMimeType("audio/wav"));
   EXPECT_TRUE(IsSupportedMediaMimeType("audio/x-wav"));
 
+  EXPECT_TRUE(IsSupportedMediaMimeType("audio/flac"));
+
   EXPECT_TRUE(IsSupportedMediaMimeType("audio/ogg"));
   EXPECT_TRUE(IsSupportedMediaMimeType("application/ogg"));
 #if defined(OS_ANDROID)
@@ -144,6 +146,8 @@ TEST(MimeUtilTest, CommonMediaMimeType) {
   EXPECT_EQ(kHlsSupported, IsSupportedMediaMimeType("Application/X-MPEGURL"));
   EXPECT_EQ(kHlsSupported, IsSupportedMediaMimeType(
       "application/vnd.apple.mpegurl"));
+  EXPECT_EQ(kHlsSupported, IsSupportedMediaMimeType("audio/mpegurl"));
+  EXPECT_EQ(kHlsSupported, IsSupportedMediaMimeType("audio/x-mpegurl"));
 
 #if defined(USE_PROPRIETARY_CODECS)
   EXPECT_TRUE(IsSupportedMediaMimeType("audio/mp4"));
@@ -264,6 +268,7 @@ TEST(IsCodecSupportedOnPlatformTest, EncryptedCodecBehavior) {
           case MimeUtil::MP3:
           case MimeUtil::MPEG4_AAC:
           case MimeUtil::VORBIS:
+          case MimeUtil::FLAC:
           case MimeUtil::H264:
             EXPECT_TRUE(result);
             break;
@@ -314,6 +319,7 @@ TEST(IsCodecSupportedOnPlatformTest, ClearCodecBehaviorWithAndroidPipeline) {
             break;
 
           // These codecs are always available via MediaPlayer.
+          case MimeUtil::FLAC:
           case MimeUtil::PCM:
           case MimeUtil::MP3:
           case MimeUtil::MPEG4_AAC:
@@ -374,6 +380,7 @@ TEST(IsCodecSupportedOnPlatformTest, ClearCodecBehaviorWithUnifiedPipeline) {
             break;
 
           // These codecs are always supported with the unified pipeline.
+          case MimeUtil::FLAC:
           case MimeUtil::PCM:
           case MimeUtil::MPEG2_AAC:
           case MimeUtil::MP3:
@@ -423,6 +430,10 @@ TEST(IsCodecSupportedOnPlatformTest, HLSDoesNotSupportMPEG2AAC) {
             MimeUtil::MPEG2_AAC, "application/x-mpegurl", false, info));
         EXPECT_FALSE(MimeUtil::IsCodecSupportedOnPlatform(
             MimeUtil::MPEG2_AAC, "application/vnd.apple.mpegurl", false, info));
+        EXPECT_FALSE(MimeUtil::IsCodecSupportedOnPlatform(
+            MimeUtil::MPEG2_AAC, "audio/mpegurl", false, info));
+        EXPECT_FALSE(MimeUtil::IsCodecSupportedOnPlatform(
+            MimeUtil::MPEG2_AAC, "audio/x-mpegurl", false, info));
       });
 }
 

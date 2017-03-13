@@ -103,6 +103,15 @@ class OmniboxFieldTrial {
   // given number.  Omitted types are assumed to have multipliers of 1.0.
   typedef std::map<AutocompleteMatchType::Type, float> DemotionMultipliers;
 
+  // A vector that maps from the number of matching pages to the document
+  // specificity score used in HistoryQuick provider / ScoredHistoryMatch
+  // scoring. The vector is sorted by the size_t (the number of matching pages).
+  // If an entry is omitted, the appropriate value is assumed to be the one in
+  // the later bucket.  For example, with a vector containing {{1, 2.0},
+  // {3, 1.5}}, the score for 2 is inferred to be 1.5.  Values beyond the
+  // end of the vector are assumed to have scores of 1.0.
+  typedef std::vector<std::pair<size_t, double>> NumMatchesScores;
+
   // Do not change these values as they need to be in sync with values
   // specified in experiment configs on the variations server.
   enum EmphasizeTitlesCondition {
@@ -227,6 +236,7 @@ class OmniboxFieldTrial {
   static void GetDefaultHUPScoringParams(HUPScoringParams* scoring_params);
   static void GetExperimentalHUPScoringParams(HUPScoringParams* scoring_params);
 
+  // ---------------------------------------------------------
   // For the HQPBookmarkValue experiment that's part of the
   // bundled omnibox field trial.
 
@@ -234,7 +244,7 @@ class OmniboxFieldTrial {
   // Compare this value with the default of 1 for non-bookmarked untyped
   // visits to pages and the default of 20 for typed visits.  Returns
   // 10 if the bookmark value experiment isn't active.
-  static int HQPBookmarkValue();
+  static float HQPBookmarkValue();
 
   // ---------------------------------------------------------
   // For the HQPAllowMatchInTLD experiment that's part of the
@@ -269,22 +279,15 @@ class OmniboxFieldTrial {
   // For HQP scoring related experiments to control the topicality and scoring
   // ranges of relevancy scores.
 
-  // Returns true if HQP experimental scoring is enabled. Returns false if
-  // |kHQPExperimentalScoringEnabledParam| is not specified in the field trial.
-  static bool HQPExperimentalScoringEnabled();
-
-  // Returns the scoring buckets for HQP experiments. Returns empty string
-  // in case |kHQPExperimentalScoringBucketsParam| or
-  // |kHQPExperimentalScoringEnabledParam| is not specified in the
-  // field trial. Scoring buckets are stored in string form giving mapping from
-  // (topicality_score, frequency_score) to final relevance score.
-  // Please see GetRelevancyScore() under
-  // chrome/browser/history::ScoredHistoryMatch for details.
+  // Returns the scoring buckets for HQP experiments. Returns an empty string
+  // if scoring buckets are not specified in the field trial. Scoring buckets
+  // are stored in string form giving mapping from (topicality_score,
+  // frequency_score) to final relevance score. Please see GetRelevancyScore()
+  // under chrome/browser/history::ScoredHistoryMatch for details.
   static std::string HQPExperimentalScoringBuckets();
 
-  // Returns the topicality threshold for HQP experiments. Returns -1 if
-  // |kHQPExperimentalScoringTopicalityThresholdParam| or
-  // |kHQPExperimentalScoringEnabledParam| is not specified in the field trial.
+  // Returns the topicality threshold for HQP experiments. Returns a default
+  // value of 0.8 if no threshold is specified in the field trial.
   static float HQPExperimentalTopicalityThreshold();
 
   // ---------------------------------------------------------
@@ -294,6 +297,23 @@ class OmniboxFieldTrial {
   // Returns true if HQP should apply the bug fix to discount the visits to
   // pages visited less than ten times.
   static bool HQPFixFewVisitsBug();
+
+  // Returns true if HQP should use the weighted sum when computing frequency
+  // scores.  False means to use the weighted average.  Returns false if the
+  // experiment isn't active.
+  static bool HQPFreqencyUsesSum();
+
+  // Returns the number of visits HQP should use when computing frequency
+  // scores.  Returns 10 if the epxeriment isn't active.
+  static size_t HQPMaxVisitsToScore();
+
+  // Returns the score that should be given to typed transitions.  (The score
+  // of non-typed transitions is 1.)  Returns 20 if the experiment isn't active.
+  static float HQPTypedValue();
+
+  // Returns NumMatchesScores; see comment by the declaration of it.
+  // Returns an empty NumMatchesScores if the experiment isn't active.
+  static NumMatchesScores HQPNumMatchesScores();
 
   // ---------------------------------------------------------
   // For the HQPNumTitleWords experiment that's part of the
@@ -354,6 +374,26 @@ class OmniboxFieldTrial {
       metrics::OmniboxInputType::Type input_type);
 
   // ---------------------------------------------------------
+  // For PhysicalWebProvider related experiments.
+
+  // Returns whether the user is in a Physical Web field trial where the
+  // PhysicalWebProvider should be used to get suggestions when the user clicks
+  // on the omnibox but has not typed anything yet.
+  static bool InPhysicalWebZeroSuggestFieldTrial();
+
+  // Returns whether the user is in a Physical Web field trial and URL-based
+  // suggestions can continue to appear after the user has started typing.
+  static bool InPhysicalWebAfterTypingFieldTrial();
+
+  // Returns the base relevance score for Physical Web omnibox suggestions when
+  // the user has clicked on the omnibox but has not typed anything yet.
+  static int GetPhysicalWebZeroSuggestBaseRelevance();
+
+  // Returns the base relevance score for Physical Web omnibox suggestions when
+  // the user has started typing in the omnibox.
+  static int GetPhysicalWebAfterTypingBaseRelevance();
+
+  // ---------------------------------------------------------
   // Exposed publicly for the sake of unittests.
   static const char kBundledExperimentFieldTrialName[];
   // Rule names used by the bundled experiment.
@@ -362,6 +402,7 @@ class OmniboxFieldTrial {
   static const char kSearchHistoryRule[];
   static const char kDemoteByTypeRule[];
   static const char kHQPBookmarkValueRule[];
+  static const char kHQPTypedValueRule[];
   static const char kHQPDiscountFrecencyWhenFewVisitsRule[];
   static const char kHQPAllowMatchInTLDRule[];
   static const char kHQPAllowMatchInSchemeRule[];
@@ -372,6 +413,9 @@ class OmniboxFieldTrial {
   static const char kMeasureSuggestPollingDelayFromLastKeystrokeRule[];
   static const char kSuggestPollingDelayMsRule[];
   static const char kHQPFixFewVisitsBugRule[];
+  static const char kHQPFreqencyUsesSumRule[];
+  static const char kHQPMaxVisitsToScoreRule[];
+  static const char kHQPNumMatchesScoresRule[];
   static const char kHQPNumTitleWordsRule[];
   static const char kHQPAlsoDoHUPLikeScoringRule[];
   static const char kHUPSearchDatabaseRule[];
@@ -381,6 +425,8 @@ class OmniboxFieldTrial {
   static const char kKeywordScoreForSufficientlyCompleteMatchRule[];
   static const char kHQPAllowDupMatchesForScoringRule[];
   static const char kEmphasizeTitlesRule[];
+  static const char kPhysicalWebZeroSuggestRule[];
+  static const char kPhysicalWebAfterTypingRule[];
 
   // Parameter names used by the HUP new scoring experiments.
   static const char kHUPNewScoringEnabledParam[];
@@ -394,9 +440,12 @@ class OmniboxFieldTrial {
   static const char kHUPNewScoringVisitedCountUseDecayFactorParam[];
 
   // Parameter names used by the HQP experimental scoring experiments.
-  static const char kHQPExperimentalScoringEnabledParam[];
   static const char kHQPExperimentalScoringBucketsParam[];
   static const char kHQPExperimentalScoringTopicalityThresholdParam[];
+
+  // Parameter names used by the Physical Web experimental scoring experiments.
+  static const char kPhysicalWebZeroSuggestBaseRelevanceParam[];
+  static const char kPhysicalWebAfterTypingBaseRelevanceParam[];
 
   // The amount of time to wait before sending a new suggest request after the
   // previous one unless overridden by a field trial parameter.

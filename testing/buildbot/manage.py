@@ -126,6 +126,7 @@ SKIP = {
 
   # One off builders. Note that Swarming does support ARM.
   'Linux ARM Cross-Compile',
+  'Site Isolation Android',
   'Site Isolation Linux',
   'Site Isolation Win',
 }
@@ -143,8 +144,6 @@ SKIP_GN_ISOLATE_MAP_TARGETS = {
   'cast_shell_apk',
   'chrome_official_builder_no_unittests',
   'chromium_builder_asan',
-  'chromium_builder_dbg_drmemory_win',
-  'chromium_builder_lkgr_drmemory_win',
   'chromium_builder_perf',
   'chromium_builder_tests',
   'chromium_swarm_tests',
@@ -157,7 +156,6 @@ SKIP_GN_ISOLATE_MAP_TARGETS = {
   'next_version_mini_installer',
 
   # this is used at least on iOS
-  'gn_all',
   'cronet_test',
 
   # These are listed in Builders that are skipped for other reasons.
@@ -168,6 +166,8 @@ SKIP_GN_ISOLATE_MAP_TARGETS = {
   'content_junit_tests',
   'content_junit_tests',
   'junit_unit_tests',
+  'media_router_perf_tests',
+  'media_router_tests',
   'net_junit_tests',
   'net_junit_tests',
   'ui_junit_tests',
@@ -196,6 +196,10 @@ SKIP_GN_ISOLATE_MAP_TARGETS = {
   'voice_engine_unittests',
   'webrtc_nonparallel_tests',
   'xmllite_xmpp_unittests',
+
+  # isolate is currently too slow for this target.
+  # http://crbug.com/524758
+  'webkit_layout_tests',
 }
 
 

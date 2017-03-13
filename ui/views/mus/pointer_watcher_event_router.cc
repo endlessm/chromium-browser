@@ -4,40 +4,37 @@
 
 #include "ui/views/mus/pointer_watcher_event_router.h"
 
-#include "services/ui/public/cpp/window.h"
-#include "services/ui/public/cpp/window_tree_client.h"
+#include "ui/aura/client/capture_client.h"
+#include "ui/aura/mus/window_tree_client.h"
+#include "ui/aura/window.h"
 #include "ui/display/screen.h"
 #include "ui/events/base_event_utils.h"
 #include "ui/events/event.h"
-#include "ui/views/mus/native_widget_mus.h"
 #include "ui/views/pointer_watcher.h"
+#include "ui/views/widget/desktop_aura/desktop_native_widget_aura.h"
 
 namespace views {
 namespace {
 
 bool HasPointerWatcher(
     base::ObserverList<views::PointerWatcher, true>* observer_list) {
-  if (!observer_list->might_have_observers())
-    return false;
-
-  // might_have_observers() returned true, see if there really are any
-  // observers. The only way to truly know is to use an Iterator and see if it
-  // has at least one observer.
-  base::ObserverList<PointerWatcher>::Iterator iterator(observer_list);
-  return !!iterator.GetNext();
+  return observer_list->begin() != observer_list->end();
 }
 
 }  // namespace
 
 PointerWatcherEventRouter::PointerWatcherEventRouter(
-    ui::WindowTreeClient* client)
-    : window_tree_client_(client) {
-  client->AddObserver(this);
+    aura::WindowTreeClient* window_tree_client)
+    : window_tree_client_(window_tree_client) {
+  window_tree_client->AddObserver(this);
+  window_tree_client_->GetCaptureClient()->AddObserver(this);
 }
 
 PointerWatcherEventRouter::~PointerWatcherEventRouter() {
-  if (window_tree_client_)
+  if (window_tree_client_) {
     window_tree_client_->RemoveObserver(this);
+    window_tree_client_->GetCaptureClient()->RemoveObserver(this);
+  }
 }
 
 void PointerWatcherEventRouter::AddPointerWatcher(PointerWatcher* watcher,
@@ -91,27 +88,47 @@ void PointerWatcherEventRouter::RemovePointerWatcher(PointerWatcher* watcher) {
 
 void PointerWatcherEventRouter::OnPointerEventObserved(
     const ui::PointerEvent& event,
-    ui::Window* target) {
+    aura::Window* target) {
   Widget* target_widget = nullptr;
+  ui::PointerEvent updated_event(event);
   if (target) {
-    ui::Window* window = target;
+    aura::Window* window = target;
     while (window && !target_widget) {
-      target_widget = NativeWidgetMus::GetWidgetForWindow(target);
+      target_widget = Widget::GetWidgetForNativeView(window);
+      if (!target_widget) {
+        // Widget::GetWidgetForNativeView() uses NativeWidgetAura. Views with
+        // aura-mus may also create DesktopNativeWidgetAura.
+        DesktopNativeWidgetAura* desktop_native_widget_aura =
+            DesktopNativeWidgetAura::ForWindow(target);
+        if (desktop_native_widget_aura) {
+          target_widget = static_cast<internal::NativeWidgetPrivate*>(
+                              desktop_native_widget_aura)
+                              ->GetWidget();
+        }
+      }
       window = window->parent();
+    }
+    if (target_widget) {
+      gfx::Point widget_relative_location(event.location());
+      aura::Window::ConvertPointToTarget(target, target_widget->GetNativeView(),
+                                         &widget_relative_location);
+      updated_event.set_location(widget_relative_location);
     }
   }
 
   // The mojo input events type converter uses the event root_location field
   // to store screen coordinates. Screen coordinates really should be returned
   // separately. See http://crbug.com/608547
-  gfx::Point location_in_screen = event.AsLocatedEvent()->root_location();
-  FOR_EACH_OBSERVER(
-      PointerWatcher, move_watchers_,
-      OnPointerEventObserved(event, location_in_screen, target_widget));
+  gfx::Point location_in_screen = event.root_location();
+  for (PointerWatcher& observer : move_watchers_) {
+    observer.OnPointerEventObserved(updated_event, location_in_screen,
+                                    target_widget);
+  }
   if (event.type() != ui::ET_POINTER_MOVED) {
-    FOR_EACH_OBSERVER(
-        PointerWatcher, non_move_watchers_,
-        OnPointerEventObserved(event, location_in_screen, target_widget));
+    for (PointerWatcher& observer : non_move_watchers_) {
+      observer.OnPointerEventObserved(updated_event, location_in_screen,
+                                      target_widget);
+    }
   }
 }
 
@@ -126,25 +143,25 @@ PointerWatcherEventRouter::DetermineEventTypes() {
   return EventTypes::NONE;
 }
 
-void PointerWatcherEventRouter::OnWindowTreeCaptureChanged(
-    ui::Window* gained_capture,
-    ui::Window* lost_capture) {
+void PointerWatcherEventRouter::OnCaptureChanged(aura::Window* lost_capture,
+                                                 aura::Window* gained_capture) {
   const ui::MouseEvent mouse_event(ui::ET_MOUSE_CAPTURE_CHANGED, gfx::Point(),
                                    gfx::Point(), ui::EventTimeForNow(), 0, 0);
   const ui::PointerEvent event(mouse_event);
   gfx::Point location_in_screen =
       display::Screen::GetScreen()->GetCursorScreenPoint();
-  FOR_EACH_OBSERVER(PointerWatcher, move_watchers_,
-                    OnPointerEventObserved(event, location_in_screen, nullptr));
-  FOR_EACH_OBSERVER(PointerWatcher, non_move_watchers_,
-                    OnPointerEventObserved(event, location_in_screen, nullptr));
+  for (PointerWatcher& observer : move_watchers_)
+    observer.OnPointerEventObserved(event, location_in_screen, nullptr);
+  for (PointerWatcher& observer : non_move_watchers_)
+    observer.OnPointerEventObserved(event, location_in_screen, nullptr);
 }
 
 void PointerWatcherEventRouter::OnDidDestroyClient(
-    ui::WindowTreeClient* client) {
+    aura::WindowTreeClient* client) {
   // We expect that all observers have been removed by this time.
   DCHECK_EQ(event_types_, EventTypes::NONE);
   DCHECK_EQ(client, window_tree_client_);
+  window_tree_client_->GetCaptureClient()->RemoveObserver(this);
   window_tree_client_->RemoveObserver(this);
   window_tree_client_ = nullptr;
 }

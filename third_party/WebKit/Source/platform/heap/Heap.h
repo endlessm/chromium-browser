@@ -47,6 +47,9 @@
 
 namespace blink {
 
+class FreePagePool;
+class OrphanedPagePool;
+
 class PLATFORM_EXPORT HeapAllocHooks {
  public:
   // TODO(hajimehoshi): Pass a type name of the allocated object.
@@ -78,6 +81,7 @@ class PLATFORM_EXPORT HeapAllocHooks {
 };
 
 class CrossThreadPersistentRegion;
+class HeapCompact;
 template <typename T>
 class Member;
 template <typename T>
@@ -93,7 +97,7 @@ class ObjectAliveTrait<T, false> {
   STATIC_ONLY(ObjectAliveTrait);
 
  public:
-  static bool isHeapObjectAlive(T* object) {
+  static bool isHeapObjectAlive(const T* object) {
     static_assert(sizeof(T), "T must be fully defined");
     return HeapObjectHeader::fromPayload(object)->isMarked();
   }
@@ -105,7 +109,7 @@ class ObjectAliveTrait<T, true> {
 
  public:
   NO_SANITIZE_ADDRESS
-  static bool isHeapObjectAlive(T* object) {
+  static bool isHeapObjectAlive(const T* object) {
     static_assert(sizeof(T), "T must be fully defined");
     return object->isHeapObjectAlive();
   }
@@ -120,7 +124,6 @@ class PLATFORM_EXPORT ProcessHeap {
 
   static CrossThreadPersistentRegion& crossThreadPersistentRegion();
 
-  static bool isLowEndDevice() { return s_isLowEndDevice; }
   static void increaseTotalAllocatedObjectSize(size_t delta) {
     atomicAdd(&s_totalAllocatedObjectSize, static_cast<long>(delta));
   }
@@ -152,7 +155,6 @@ class PLATFORM_EXPORT ProcessHeap {
 
  private:
   static bool s_shutdownComplete;
-  static bool s_isLowEndDevice;
   static size_t s_totalAllocatedSpace;
   static size_t s_totalAllocatedObjectSize;
   static size_t s_totalMarkedObjectSize;
@@ -232,13 +234,13 @@ class PLATFORM_EXPORT ThreadHeap {
   bool isMainThreadHeap() { return this == ThreadHeap::mainThreadHeap(); }
   static ThreadHeap* mainThreadHeap() { return s_mainThreadHeap; }
 
-#if ENABLE(ASSERT)
+#if DCHECK_IS_ON()
   bool isAtSafePoint();
   BasePage* findPageFromAddress(Address);
 #endif
 
   template <typename T>
-  static inline bool isHeapObjectAlive(T* object) {
+  static inline bool isHeapObjectAlive(const T* object) {
     static_assert(sizeof(T), "T must be fully defined");
     // The strongification of collections relies on the fact that once a
     // collection has been strongified, there is no way that it can contain
@@ -267,10 +269,6 @@ class PLATFORM_EXPORT ThreadHeap {
   template <typename T>
   static inline bool isHeapObjectAlive(const UntracedMember<T>& member) {
     return isHeapObjectAlive(member.get());
-  }
-  template <typename T>
-  static inline bool isHeapObjectAlive(const T*& ptr) {
-    return isHeapObjectAlive(ptr);
   }
 
   StackFrameDepth& stackFrameDepth() { return m_stackFrameDepth; }
@@ -380,9 +378,30 @@ class PLATFORM_EXPORT ThreadHeap {
   void registerWeakTable(void* containerObject,
                          EphemeronCallback,
                          EphemeronCallback);
-#if ENABLE(ASSERT)
+#if DCHECK_IS_ON()
   bool weakTableRegistered(const void*);
 #endif
+
+  // Heap compaction registration methods:
+
+  // Register |slot| as containing a reference to a movable heap object.
+  //
+  // When compaction moves the object pointed to by |*slot| to |newAddress|,
+  // |*slot| must be updated to hold |newAddress| instead.
+  void registerMovingObjectReference(MovableReference*);
+
+  // Register a callback to be invoked upon moving the object starting at
+  // |reference|; see |MovingObjectCallback| documentation for details.
+  //
+  // This callback mechanism is needed to account for backing store objects
+  // containing intra-object pointers, all of which must be relocated/rebased
+  // with respect to the moved-to location.
+  //
+  // For Blink, |HeapLinkedHashSet<>| is currently the only abstraction which
+  // relies on this feature.
+  void registerMovingObjectCallback(MovableReference,
+                                    MovingObjectCallback,
+                                    void* callbackData);
 
   BlinkGC::GCReason lastGCReason() { return m_lastGCReason; }
   RegionTree* getRegionTree() { return m_regionTree.get(); }
@@ -412,6 +431,7 @@ class PLATFORM_EXPORT ThreadHeap {
 
   void preGC();
   void postGC(BlinkGC::GCType);
+  void preSweep(BlinkGC::GCType);
 
   // Conservatively checks whether an address is a pointer in any of the
   // thread heaps.  If so marks the object pointed to as live.
@@ -441,6 +461,8 @@ class PLATFORM_EXPORT ThreadHeap {
   static void reportMemoryUsageHistogram();
   static void reportMemoryUsageForTracing();
 
+  HeapCompact* compaction();
+
  private:
   // Reset counters that track live and allocated-since-last-GC sizes.
   void resetHeapCounters();
@@ -465,6 +487,8 @@ class PLATFORM_EXPORT ThreadHeap {
   std::unique_ptr<CallbackStack> m_ephemeronStack;
   BlinkGC::GCReason m_lastGCReason;
   StackFrameDepth m_stackFrameDepth;
+
+  std::unique_ptr<HeapCompact> m_compaction;
 
   static ThreadHeap* s_mainThreadHeap;
 
@@ -567,7 +591,7 @@ inline bool ThreadHeap::isNormalArenaIndex(int index) {
 
 #define IS_EAGERLY_FINALIZED() \
   (pageFromObject(this)->arena()->arenaIndex() == BlinkGC::EagerSweepArenaIndex)
-#if ENABLE(ASSERT)
+#if DCHECK_IS_ON()
 class VerifyEagerFinalization {
   DISALLOW_NEW();
 

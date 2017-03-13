@@ -6,6 +6,7 @@
 
 #include <memory>
 #include <string>
+#include <utility>
 
 #include "base/format_macros.h"
 #include "base/logging.h"
@@ -47,6 +48,13 @@ void SpdyFramerVisitorAdapter::OnError(SpdyFramer* framer) {
   visitor_->OnError(framer_);
 }
 
+void SpdyFramerVisitorAdapter::OnCommonHeader(SpdyStreamId stream_id,
+                                              size_t length,
+                                              uint8_t type,
+                                              uint8_t flags) {
+  visitor_->OnCommonHeader(stream_id, length, type, flags);
+}
+
 void SpdyFramerVisitorAdapter::OnDataFrameHeader(SpdyStreamId stream_id,
                                                  size_t length,
                                                  bool fin) {
@@ -78,36 +86,14 @@ void SpdyFramerVisitorAdapter::OnHeaderFrameEnd(SpdyStreamId stream_id,
   visitor_->OnHeaderFrameEnd(stream_id, end_headers);
 }
 
-bool SpdyFramerVisitorAdapter::OnControlFrameHeaderData(
-    SpdyStreamId stream_id,
-    const char* header_data,
-    size_t header_data_len) {
-  return visitor_->OnControlFrameHeaderData(stream_id, header_data,
-                                            header_data_len);
-}
-
-void SpdyFramerVisitorAdapter::OnSynStream(SpdyStreamId stream_id,
-                                           SpdyStreamId associated_stream_id,
-                                           SpdyPriority priority,
-                                           bool fin,
-                                           bool unidirectional) {
-  visitor_->OnSynStream(stream_id, associated_stream_id, priority, fin,
-                        unidirectional);
-}
-
-void SpdyFramerVisitorAdapter::OnSynReply(SpdyStreamId stream_id, bool fin) {
-  visitor_->OnSynReply(stream_id, fin);
-}
-
 void SpdyFramerVisitorAdapter::OnRstStream(SpdyStreamId stream_id,
                                            SpdyRstStreamStatus status) {
   visitor_->OnRstStream(stream_id, status);
 }
 
 void SpdyFramerVisitorAdapter::OnSetting(SpdySettingsIds id,
-                                         uint8_t flags,
                                          uint32_t value) {
-  visitor_->OnSetting(id, flags, value);
+  visitor_->OnSetting(id, value);
 }
 
 void SpdyFramerVisitorAdapter::OnPing(SpdyPingId unique_id, bool is_ack) {
@@ -197,7 +183,10 @@ class NestedSpdyFramerDecoder : public SpdyFramerDecoderAdapter {
 
  public:
   explicit NestedSpdyFramerDecoder(SpdyFramer* outer)
-      : framer_(HTTP2, nullptr), outer_(outer) {
+      : framer_(nullptr,
+                outer->compression_enabled() ? SpdyFramer::ENABLE_COMPRESSION
+                                             : SpdyFramer::DISABLE_COMPRESSION),
+        outer_(outer) {
     DVLOG(1) << PRETTY_THIS;
   }
   ~NestedSpdyFramerDecoder() override { DVLOG(1) << PRETTY_THIS; }
@@ -233,12 +222,6 @@ class NestedSpdyFramerDecoder : public SpdyFramerDecoderAdapter {
 
   size_t ProcessInput(const char* data, size_t len) override {
     DVLOG(2) << "ProcessInput(data, " << len << ")";
-    const bool use_new_methods = outer_->use_new_methods_for_test();
-    if (framer_.use_new_methods_for_test() != use_new_methods) {
-      DVLOG(1) << "Overriding use_new_methods_ in nested framer, setting="
-               << (use_new_methods ? "true" : "false");
-      framer_.set_use_new_methods_for_test(use_new_methods);
-    }
     size_t result = framer_.ProcessInput(data, len);
     DVLOG(2) << "ProcessInput(data, " << len << ")  returning " << result;
     return result;

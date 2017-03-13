@@ -4,17 +4,16 @@
 
 #include "ash/display/unified_mouse_warp_controller.h"
 
-#include "ash/display/display_manager.h"
 #include "ash/display/display_util.h"
 #include "ash/display/mirror_window_controller.h"
 #include "ash/display/mouse_cursor_event_filter.h"
 #include "ash/host/ash_window_tree_host.h"
 #include "ash/shell.h"
 #include "ash/test/ash_test_base.h"
-#include "ash/test/display_manager_test_api.h"
 #include "ui/aura/env.h"
 #include "ui/aura/window_tree_host.h"
 #include "ui/display/display.h"
+#include "ui/display/manager/display_manager.h"
 #include "ui/display/manager/display_manager_utilities.h"
 #include "ui/display/screen.h"
 #include "ui/events/test/event_generator.h"
@@ -54,8 +53,7 @@ class UnifiedMouseWarpControllerTest : public test::AshTestBase {
                 ->window_tree_host_manager()
                 ->mirror_window_controller()
                 ->GetAshWindowTreeHostForDisplayId(info.id());
-        ash_host->AsWindowTreeHost()->ConvertPointFromHost(
-            point_in_unified_host);
+        ash_host->AsWindowTreeHost()->ConvertPixelsToDIP(point_in_unified_host);
         return true;
       }
     }
@@ -88,7 +86,7 @@ class UnifiedMouseWarpControllerTest : public test::AshTestBase {
     gfx::Point new_location_in_unified_host =
         aura::Env::GetInstance()->last_mouse_location();
     // Convert screen to the host.
-    root->GetHost()->ConvertPointToHost(&new_location_in_unified_host);
+    root->GetHost()->ConvertDIPToPixels(&new_location_in_unified_host);
 
     int new_index = display::FindDisplayIndexContainingPoint(
         display_manager()->software_mirroring_display_list(),

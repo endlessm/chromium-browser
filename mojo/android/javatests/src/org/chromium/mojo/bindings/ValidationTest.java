@@ -4,7 +4,7 @@
 
 package org.chromium.mojo.bindings;
 
-import android.test.suitebuilder.annotation.SmallTest;
+import android.support.test.filters.SmallTest;
 
 import org.chromium.base.test.util.UrlUtils;
 import org.chromium.mojo.HandleMock;
@@ -58,14 +58,6 @@ public class ValidationTest extends MojoTestCase {
         public boolean accept(File pathname) {
             // TODO(yzshen, qsr): skip some interface versioning tests.
             if (pathname.getName().startsWith("conformance_mthd13_good_2")) {
-                return false;
-            }
-            // TODO(crbug/640298): Implement max recursion depth for Java.
-            if (pathname.getName().startsWith("conformance_mthd19_exceed_recursion_limit")) {
-                return false;
-            }
-            // TODO(crbug/628104): Support struct map keys for Java.
-            if (pathname.getName().startsWith("conformance_mthd20_good")) {
                 return false;
             }
             return pathname.isFile() && pathname.getName().startsWith(mPrefix)

@@ -4,12 +4,12 @@
 
 #include "ios/chrome/browser/ui/webui/physical_web_ui.h"
 
-#include "base/bind.h"
 #include "base/macros.h"
+#include "base/memory/ptr_util.h"
 #include "base/metrics/user_metrics.h"
-#include "base/values.h"
 #include "components/grit/components_resources.h"
 #include "components/physical_web/data_source/physical_web_data_source.h"
+#include "components/physical_web/webui/physical_web_base_message_handler.h"
 #include "components/physical_web/webui/physical_web_ui_constants.h"
 #include "components/strings/grit/components_strings.h"
 #include "ios/chrome/browser/application_context.h"
@@ -38,6 +38,33 @@ web::WebUIIOSDataSource* CreatePhysicalWebUIDataSource() {
   return html_source;
 }
 
+// Implements all MessageHandler core functionality.  This is extends the
+// PhysicalWebBaseMessageHandler and implements functions to manipulate an
+// iOS-specific WebUI object.
+class MessageHandlerImpl
+    : public physical_web_ui::PhysicalWebBaseMessageHandler {
+ public:
+  explicit MessageHandlerImpl(web::WebUIIOS* web_ui) : web_ui_(web_ui) {}
+  ~MessageHandlerImpl() override {}
+
+ private:
+  void RegisterMessageCallback(
+      const std::string& message,
+      const physical_web_ui::MessageCallback& callback) override {
+    web_ui_->RegisterMessageCallback(message, callback);
+  }
+  void CallJavaScriptFunction(const std::string& function,
+                              const base::Value& arg) override {
+    web_ui_->CallJavascriptFunction(function, arg);
+  }
+  physical_web::PhysicalWebDataSource* GetPhysicalWebDataSource() override {
+    return GetApplicationContext()->GetPhysicalWebDataSource();
+  }
+
+  web::WebUIIOS* web_ui_;
+  DISALLOW_COPY_AND_ASSIGN(MessageHandlerImpl);
+};
+
 ////////////////////////////////////////////////////////////////////////////////
 //
 // PhysicalWebDOMHandler
@@ -50,32 +77,15 @@ class PhysicalWebDOMHandler : public web::WebUIIOSMessageHandler {
   PhysicalWebDOMHandler() {}
   ~PhysicalWebDOMHandler() override {}
 
-  void RegisterMessages() override;
-
-  void HandleRequestNearbyURLs(const base::ListValue* args);
+  void RegisterMessages() override {
+    impl_.reset(new MessageHandlerImpl(web_ui()));
+    impl_->RegisterMessages();
+  }
 
  private:
+  std::unique_ptr<MessageHandlerImpl> impl_;
   DISALLOW_COPY_AND_ASSIGN(PhysicalWebDOMHandler);
 };
-
-void PhysicalWebDOMHandler::RegisterMessages() {
-  web_ui()->RegisterMessageCallback(
-      physical_web_ui::kRequestNearbyUrls,
-      base::Bind(&PhysicalWebDOMHandler::HandleRequestNearbyURLs,
-                 base::Unretained(this)));
-}
-
-void PhysicalWebDOMHandler::HandleRequestNearbyURLs(
-    const base::ListValue* args) {
-  base::DictionaryValue results;
-
-  std::unique_ptr<base::ListValue> metadata =
-      GetApplicationContext()->GetPhysicalWebDataSource()->GetMetadata();
-
-  results.Set(physical_web_ui::kMetadata, metadata.release());
-
-  web_ui()->CallJavascriptFunction(physical_web_ui::kReturnNearbyUrls, results);
-}
 
 }  // namespace
 
@@ -87,8 +97,7 @@ void PhysicalWebDOMHandler::HandleRequestNearbyURLs(
 
 PhysicalWebUI::PhysicalWebUI(web::WebUIIOS* web_ui)
     : web::WebUIIOSController(web_ui) {
-  PhysicalWebDOMHandler* handler = new PhysicalWebDOMHandler();
-  web_ui->AddMessageHandler(handler);
+  web_ui->AddMessageHandler(base::MakeUnique<PhysicalWebDOMHandler>());
 
   web::WebUIIOSDataSource::Add(ios::ChromeBrowserState::FromWebUIIOS(web_ui),
                                CreatePhysicalWebUIDataSource());

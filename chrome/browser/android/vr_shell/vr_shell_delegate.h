@@ -11,31 +11,42 @@
 #include "base/macros.h"
 #include "device/vr/android/gvr/gvr_delegate.h"
 
-namespace vr_shell {
+namespace device {
+class GvrDeviceProvider;
+}
 
-class VrShell;
+namespace vr_shell {
 
 class VrShellDelegate : public device::GvrDelegateProvider {
  public:
   VrShellDelegate(JNIEnv* env, jobject obj);
   virtual ~VrShellDelegate();
 
-  static VrShellDelegate* getNativeDelegate(JNIEnv* env, jobject jdelegate);
+  static VrShellDelegate* GetNativeDelegate(JNIEnv* env, jobject jdelegate);
 
-  // Called by the Java VrShellDelegate. Returns true if the GvrDeviceProvider
-  // needs to handle shutdown first.
-  bool ExitWebVRIfNecessary(JNIEnv* env, jobject obj);
+  void SetDelegate(device::GvrDelegate* delegate);
+  void RemoveDelegate();
 
-  // device::vrDelegateProvider implementation
-  bool RequestWebVRPresent(device::GvrDeviceProvider* device_provider) override;
+  void SetPresentResult(JNIEnv* env, jobject obj, jboolean result);
+  void DisplayActivate(JNIEnv* env, jobject obj);
+
+  void ForceExitVr();
+  device::GvrDeviceProvider* device_provider() { return device_provider_; }
+
+  // device::GvrDelegateProvider implementation
+  void SetDeviceProvider(device::GvrDeviceProvider* device_provider) override;
+  void RequestWebVRPresent(const base::Callback<void(bool)>& callback) override;
   void ExitWebVRPresent() override;
-
-  // Called from VRShell
-  void OnVrShellReady(VrShell* vr_shell);
+  device::GvrDelegate* GetNonPresentingDelegate() override;
+  void DestroyNonPresentingDelegate() override;
+  void SetListeningForActivate(bool listening) override;
 
  private:
+  std::unique_ptr<device::GvrDelegate> non_presenting_delegate_;
   base::android::ScopedJavaGlobalRef<jobject> j_vr_shell_delegate_;
-  device::GvrDeviceProvider* device_provider_;
+  device::GvrDeviceProvider* device_provider_ = nullptr;
+  device::GvrDelegate* delegate_ = nullptr;
+  base::Callback<void(bool)> present_callback_;
 
   DISALLOW_COPY_AND_ASSIGN(VrShellDelegate);
 };

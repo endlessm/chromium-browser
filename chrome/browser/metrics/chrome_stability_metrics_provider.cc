@@ -14,12 +14,14 @@
 #include "content/public/browser/child_process_data.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/render_process_host.h"
+#include "extensions/features/features.h"
+#include "ppapi/features/features.h"
 
-#if defined(ENABLE_EXTENSIONS)
+#if BUILDFLAG(ENABLE_EXTENSIONS)
 #include "extensions/browser/process_map.h"
 #endif
 
-#if defined(ENABLE_PLUGINS)
+#if BUILDFLAG(ENABLE_PLUGINS)
 #include "chrome/browser/metrics/plugin_metrics_provider.h"
 #endif
 
@@ -81,7 +83,7 @@ void ChromeStabilityMetricsProvider::Observe(
           content::Details<content::RenderProcessHost::RendererClosedDetails>(
               details).ptr();
       bool was_extension_process = false;
-#if defined(ENABLE_EXTENSIONS)
+#if BUILDFLAG(ENABLE_EXTENSIONS)
       content::RenderProcessHost* host =
           content::Source<content::RenderProcessHost>(source).ptr();
       if (extensions::ProcessMap::Get(host->GetBrowserContext())
@@ -100,7 +102,7 @@ void ChromeStabilityMetricsProvider::Observe(
 
     case content::NOTIFICATION_RENDERER_PROCESS_CREATED: {
       bool was_extension_process = false;
-#if defined(ENABLE_EXTENSIONS)
+#if BUILDFLAG(ENABLE_EXTENSIONS)
       content::RenderProcessHost* host =
           content::Source<content::RenderProcessHost>(source).ptr();
       if (extensions::ProcessMap::Get(host->GetBrowserContext())
@@ -121,7 +123,7 @@ void ChromeStabilityMetricsProvider::Observe(
 void ChromeStabilityMetricsProvider::BrowserChildProcessCrashed(
     const content::ChildProcessData& data,
     int exit_code) {
-#if defined(ENABLE_PLUGINS)
+#if BUILDFLAG(ENABLE_PLUGINS)
   // Exclude plugin crashes from the count below because we report them via
   // a separate UMA metric.
   if (PluginMetricsProvider::IsPluginProcess(data.process_type))

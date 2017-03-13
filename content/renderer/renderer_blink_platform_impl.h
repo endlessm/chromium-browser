@@ -25,10 +25,6 @@
 #include "third_party/WebKit/public/platform/modules/indexeddb/WebIDBFactory.h"
 #include "third_party/WebKit/public/platform/modules/screen_orientation/WebScreenOrientationType.h"
 
-namespace cc {
-class ContextProvider;
-}
-
 namespace IPC {
 class SyncMessageFilter;
 }
@@ -36,7 +32,6 @@ class SyncMessageFilter;
 namespace blink {
 namespace scheduler {
 class RendererScheduler;
-class WebThreadImplForRendererScheduler;
 }
 class WebCanvasCaptureHandler;
 class WebDeviceMotionData;
@@ -49,7 +44,7 @@ class WebSecurityOrigin;
 class WebServiceWorkerCacheStorage;
 }
 
-namespace shell {
+namespace service_manager {
 class InterfaceProvider;
 }
 
@@ -59,17 +54,15 @@ class LocalStorageCachedAreas;
 class PlatformEventObserverBase;
 class QuotaMessageFilter;
 class RendererClipboardDelegate;
-class RenderView;
 class ThreadSafeSender;
 class WebClipboardImpl;
 class WebDatabaseObserverImpl;
-class WebFileSystemImpl;
 
 class CONTENT_EXPORT RendererBlinkPlatformImpl : public BlinkPlatformImpl {
  public:
   RendererBlinkPlatformImpl(
       blink::scheduler::RendererScheduler* renderer_scheduler,
-      base::WeakPtr<shell::InterfaceProvider> remote_interfaces);
+      base::WeakPtr<service_manager::InterfaceProvider> remote_interfaces);
   ~RendererBlinkPlatformImpl() override;
 
   // Shutdown must be called just prior to shutting down blink.
@@ -80,7 +73,6 @@ class CONTENT_EXPORT RendererBlinkPlatformImpl : public BlinkPlatformImpl {
   }
   // Platform methods:
   blink::WebClipboard* clipboard() override;
-  blink::WebMimeRegistry* mimeRegistry() override;
   blink::WebFileUtilities* fileUtilities() override;
   blink::WebSandboxSupport* sandboxSupport() override;
   blink::WebCookieJar* cookieJar() override;
@@ -122,12 +114,8 @@ class CONTENT_EXPORT RendererBlinkPlatformImpl : public BlinkPlatformImpl {
                            long long size) override;
   blink::WebString databaseCreateOriginIdentifier(
       const blink::WebSecurityOrigin& origin) override;
+  cc::FrameSinkId generateFrameSinkId() override;
 
-  blink::WebString signedPublicKeyAndChallengeString(
-      unsigned key_size_index,
-      const blink::WebString& challenge,
-      const blink::WebURL& url,
-      const blink::WebURL& top_origin) override;
   void getPluginList(bool refresh,
                      const blink::WebSecurityOrigin& mainFrameOrigin,
                      blink::WebPluginListBuilder* builder) override;
@@ -249,8 +237,8 @@ class CONTENT_EXPORT RendererBlinkPlatformImpl : public BlinkPlatformImpl {
 
   // Factory that takes a type and return PlatformEventObserverBase that matches
   // it.
-  static PlatformEventObserverBase* CreatePlatformEventObserverFromType(
-      blink::WebPlatformEventType type);
+  static std::unique_ptr<PlatformEventObserverBase>
+  CreatePlatformEventObserverFromType(blink::WebPlatformEventType type);
 
   // Use the data previously set via SetMockDevice...DataForTesting() and send
   // them to the registered listener.
@@ -263,9 +251,6 @@ class CONTENT_EXPORT RendererBlinkPlatformImpl : public BlinkPlatformImpl {
 
   class FileUtilities;
   std::unique_ptr<FileUtilities> file_utilities_;
-
-  class MimeRegistry;
-  std::unique_ptr<MimeRegistry> mime_registry_;
 
 #if !defined(OS_ANDROID) && !defined(OS_WIN)
   class SandboxSupport;
@@ -300,7 +285,7 @@ class CONTENT_EXPORT RendererBlinkPlatformImpl : public BlinkPlatformImpl {
 
   std::unique_ptr<blink::WebScrollbarBehavior> web_scrollbar_behavior_;
 
-  IDMap<PlatformEventObserverBase, IDMapOwnPointer> platform_event_observers_;
+  IDMap<std::unique_ptr<PlatformEventObserverBase>> platform_event_observers_;
 
   blink::scheduler::RendererScheduler* renderer_scheduler_;  // NOT OWNED
   TopLevelBlameContext top_level_blame_context_;
@@ -311,7 +296,7 @@ class CONTENT_EXPORT RendererBlinkPlatformImpl : public BlinkPlatformImpl {
 
   std::unique_ptr<BlinkInterfaceProviderImpl> blink_interface_provider_;
 
-  mojom::URLLoaderFactoryPtr url_loader_factory_;
+  mojom::URLLoaderFactoryAssociatedPtr url_loader_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(RendererBlinkPlatformImpl);
 };

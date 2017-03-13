@@ -21,18 +21,14 @@ Clone the Skia repository
 
 <!--?prettify lang=sh?-->
 
-    mkdir $SRC
-    cd $SRC
-    gclient config --unmanaged https://skia.googlesource.com/skia.git
-    gclient sync
+    git clone https://skia.googlesource.com/skia.git
     cd skia
+    python tools/git-sync-deps
 
 Getting started with Skia
 -------------------------
 
-Try out more things from the [desktop](./quick/desktop),
-[Android](./quick/android), and [iOS](./quick/ios)-specific Skia
-guides.
+You probably now want to [build](./build) Skia.
 
 Changing and contributing to Skia
 ---------------------------------

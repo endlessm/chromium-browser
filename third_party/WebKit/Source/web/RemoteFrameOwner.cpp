@@ -14,11 +14,14 @@ RemoteFrameOwner::RemoteFrameOwner(
     SandboxFlags flags,
     const WebFrameOwnerProperties& frameOwnerProperties)
     : m_sandboxFlags(flags),
+      m_browsingContextContainerName(
+          static_cast<String>(frameOwnerProperties.name)),
       m_scrolling(
           static_cast<ScrollbarMode>(frameOwnerProperties.scrollingMode)),
       m_marginWidth(frameOwnerProperties.marginWidth),
       m_marginHeight(frameOwnerProperties.marginHeight),
       m_allowFullscreen(frameOwnerProperties.allowFullscreen),
+      m_allowPaymentRequest(frameOwnerProperties.allowPaymentRequest),
       m_csp(frameOwnerProperties.requiredCsp) {}
 
 DEFINE_TRACE(RemoteFrameOwner) {

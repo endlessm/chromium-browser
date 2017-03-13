@@ -7,7 +7,6 @@
 
 #include <memory>
 
-#include "base/containers/scoped_ptr_hash_map.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/time/time.h"
@@ -15,6 +14,7 @@
 #include "content/browser/frame_host/navigator.h"
 #include "content/common/content_export.h"
 #include "content/common/navigation_params.h"
+#include "content/public/common/previews_state.h"
 #include "url/gurl.h"
 
 class GURL;
@@ -23,7 +23,6 @@ namespace content {
 
 class NavigationControllerImpl;
 class NavigatorDelegate;
-class NavigatorTest;
 class ResourceRequestBodyImpl;
 struct LoadCommittedDetails;
 
@@ -56,7 +55,8 @@ class CONTENT_EXPORT NavigatorImpl : public Navigator {
                             bool was_ignored_by_handler) override;
   void DidNavigate(
       RenderFrameHostImpl* render_frame_host,
-      const FrameHostMsg_DidCommitProvisionalLoad_Params& params) override;
+      const FrameHostMsg_DidCommitProvisionalLoad_Params& params,
+      std::unique_ptr<NavigationHandleImpl> navigation_handle) override;
   bool NavigateToPendingEntry(FrameTreeNode* frame_tree_node,
                               const FrameNavigationEntry& frame_entry,
                               ReloadType reload_type,
@@ -67,22 +67,22 @@ class CONTENT_EXPORT NavigatorImpl : public Navigator {
                       const GURL& url,
                       bool uses_post,
                       const scoped_refptr<ResourceRequestBodyImpl>& body,
-                      SiteInstance* source_site_instance,
+                      const std::string& extra_headers,
                       const Referrer& referrer,
                       WindowOpenDisposition disposition,
                       bool should_replace_current_entry,
                       bool user_gesture) override;
-  void RequestTransferURL(
-      RenderFrameHostImpl* render_frame_host,
-      const GURL& url,
-      SiteInstance* source_site_instance,
-      const std::vector<GURL>& redirect_chain,
-      const Referrer& referrer,
-      ui::PageTransition page_transition,
-      const GlobalRequestID& transferred_global_request_id,
-      bool should_replace_current_entry,
-      const std::string& method,
-      scoped_refptr<ResourceRequestBodyImpl> post_body) override;
+  void RequestTransferURL(RenderFrameHostImpl* render_frame_host,
+                          const GURL& url,
+                          SiteInstance* source_site_instance,
+                          const std::vector<GURL>& redirect_chain,
+                          const Referrer& referrer,
+                          ui::PageTransition page_transition,
+                          const GlobalRequestID& transferred_global_request_id,
+                          bool should_replace_current_entry,
+                          const std::string& method,
+                          scoped_refptr<ResourceRequestBodyImpl> post_body,
+                          const std::string& extra_headers) override;
   void OnBeforeUnloadACK(FrameTreeNode* frame_tree_node, bool proceed) override;
   void OnBeginNavigation(FrameTreeNode* frame_tree_node,
                          const CommonNavigationParams& common_params,
@@ -96,8 +96,6 @@ class CONTENT_EXPORT NavigatorImpl : public Navigator {
       const base::TimeTicks& renderer_before_unload_start_time,
       const base::TimeTicks& renderer_before_unload_end_time) override;
   void CancelNavigation(FrameTreeNode* frame_tree_node) override;
-  NavigationHandleImpl* GetNavigationHandleForFrameHost(
-      RenderFrameHostImpl* render_frame_host) override;
   void DiscardPendingEntryIfNeeded(NavigationHandleImpl* handle) override;
 
  private:
@@ -130,7 +128,7 @@ class CONTENT_EXPORT NavigatorImpl : public Navigator {
                          const FrameNavigationEntry& frame_entry,
                          const NavigationEntryImpl& entry,
                          ReloadType reload_type,
-                         LoFiState lofi_state,
+                         PreviewsState previews_state,
                          bool is_same_document_history_load,
                          bool is_history_navigation_in_new_child,
                          base::TimeTicks navigation_start);

@@ -10,11 +10,9 @@
 #include "base/strings/string16.h"
 #include "build/build_config.h"
 #include "content/common/content_export.h"
-#include "third_party/WebKit/public/web/WebInputEvent.h"
+#include "third_party/WebKit/public/platform/WebInputEvent.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/gfx/native_widget_types.h"
-
-class GURL;
 
 namespace gfx {
 class Point;
@@ -65,6 +63,9 @@ class CONTENT_EXPORT RenderWidgetHostView {
 
   // Retrieves the last known scroll position.
   virtual gfx::Vector2dF GetLastScrollOffset() const = 0;
+
+  // Sets a flag that indicates if it is in virtual reality mode.
+  virtual void SetIsInVR(bool is_in_vr) = 0;
 
   // Coordinate points received from a renderer process need to be transformed
   // to the top-level frame's coordinate space. For coordinates received from
@@ -131,6 +132,7 @@ class CONTENT_EXPORT RenderWidgetHostView {
   virtual void SetBackgroundColor(SkColor color) = 0;
   // Convenience method to fill the background layer with the default color by
   // calling |SetBackgroundColor|.
+  virtual SkColor background_color() = 0;
   virtual void SetBackgroundColorToDefault() = 0;
   virtual bool GetBackgroundOpaque() = 0;
 

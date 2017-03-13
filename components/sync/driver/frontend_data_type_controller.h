@@ -10,8 +10,8 @@
 
 #include "base/compiler_specific.h"
 #include "base/macros.h"
-#include "components/sync/api/data_type_error_handler.h"
 #include "components/sync/driver/directory_data_type_controller.h"
+#include "components/sync/model/data_type_error_handler.h"
 
 namespace base {
 class TimeDelta;
@@ -46,7 +46,6 @@ class FrontendDataTypeController : public DirectoryDataTypeController {
   void LoadModels(const ModelLoadCallback& model_load_callback) override;
   void StartAssociating(const StartCallback& start_callback) override;
   void Stop() override;
-  ModelSafeGroup model_safe_group() const override;
   std::string name() const override;
   State state() const override;
 

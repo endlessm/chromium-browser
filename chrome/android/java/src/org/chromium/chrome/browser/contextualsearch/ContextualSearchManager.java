@@ -47,7 +47,8 @@ import org.chromium.content_public.browser.GestureStateListener;
 import org.chromium.content_public.browser.LoadUrlParams;
 import org.chromium.content_public.browser.NavigationEntry;
 import org.chromium.content_public.browser.WebContents;
-import org.chromium.content_public.common.TopControlsState;
+import org.chromium.content_public.common.BrowserControlsState;
+import org.chromium.net.NetworkChangeNotifier;
 import org.chromium.ui.base.WindowAndroid;
 
 import java.net.MalformedURLException;
@@ -66,9 +67,6 @@ public class ContextualSearchManager implements ContextualSearchManagementDelega
         ContextualSearchTranslateInterface, ContextualSearchNetworkCommunicator,
         ContextualSearchSelectionHandler, ContextualSearchClient {
 
-    private static final boolean ALWAYS_USE_RESOLVED_SEARCH_TERM = true;
-    private static final boolean NEVER_USE_RESOLVED_SEARCH_TERM = false;
-
     private static final String INTENT_URL_PREFIX = "intent:";
 
     // The animation duration of a URL being promoted to a tab when triggered by an
@@ -80,6 +78,9 @@ public class ContextualSearchManager implements ContextualSearchManagementDelega
     private static final String BLACKLISTED_URL = "about:blank";
 
     private static final Pattern CONTAINS_WHITESPACE_PATTERN = Pattern.compile("\\s");
+
+    // When we don't need to send any "home country" code we can just pass the empty string.
+    private static final String NO_HOME_COUNTRY = "";
 
     private final ObserverList<ContextualSearchObserver> mObservers =
             new ObserverList<ContextualSearchObserver>();
@@ -420,7 +421,6 @@ public class ContextualSearchManager implements ContextualSearchManagementDelega
 
         boolean isTap = mSelectionController.getSelectionType() == SelectionType.TAP;
         boolean didRequestSurroundings = false;
-
         if (isTap) {
             // If the user action was not a long-press, immediately start loading content.
             mShouldLoadDelayedSearch = false;
@@ -460,7 +460,7 @@ public class ContextualSearchManager implements ContextualSearchManagementDelega
             // part of search term resolution, just sent to Icing which keeps them local until
             // the user activates a Voice Search.
             nativeGatherSurroundingText(mNativeContextualSearchManagerPtr,
-                    mSelectionController.getSelectedText(), NEVER_USE_RESOLVED_SEARCH_TERM,
+                    mSelectionController.getSelectedText(), NO_HOME_COUNTRY,
                     getBaseContentView().getWebContents(), mPolicy.maySendBasePageUrl());
         }
 
@@ -507,7 +507,7 @@ public class ContextualSearchManager implements ContextualSearchManagementDelega
         ContentViewCore baseContentView = getBaseContentView();
         if (baseContentView != null) {
             nativeStartSearchTermResolutionRequest(mNativeContextualSearchManagerPtr, selection,
-                    ALWAYS_USE_RESOLVED_SEARCH_TERM, getBaseContentView().getWebContents(),
+                    mPolicy.getHomeCountry(mActivity), getBaseContentView().getWebContents(),
                     mPolicy.maySendBasePageUrl());
         }
     }
@@ -655,28 +655,33 @@ public class ContextualSearchManager implements ContextualSearchManagementDelega
      * @param contextLanguage The language of the original search term, or an empty string.
      * @param thumbnailUrl The URL of the thumbnail to display in our UX.
      * @param caption The caption to display.
+     * @param quickActionUri The URI for the intent associated with the quick action.
+     * @param quickActionCategory The {@link QuickActionCategory} for the quick action.
      */
     @CalledByNative
     public void onSearchTermResolutionResponse(boolean isNetworkUnavailable, int responseCode,
             final String searchTerm, final String displayText, final String alternateTerm,
             final String mid, boolean doPreventPreload, int selectionStartAdjust,
             int selectionEndAdjust, final String contextLanguage, final String thumbnailUrl,
-            final String caption) {
+            final String caption, final String quickActionUri, final int quickActionCategory) {
         mNetworkCommunicator.handleSearchTermResolutionResponse(isNetworkUnavailable, responseCode,
                 searchTerm, displayText, alternateTerm, mid, doPreventPreload, selectionStartAdjust,
-                selectionEndAdjust, contextLanguage, thumbnailUrl, caption);
+                selectionEndAdjust, contextLanguage, thumbnailUrl, caption, quickActionUri,
+                quickActionCategory);
     }
 
     @Override
     public void handleSearchTermResolutionResponse(boolean isNetworkUnavailable, int responseCode,
             String searchTerm, String displayText, String alternateTerm, String mid,
             boolean doPreventPreload, int selectionStartAdjust, int selectionEndAdjust,
-            String contextLanguage, String thumbnailUrl, String caption) {
+            String contextLanguage, String thumbnailUrl, String caption, String quickActionUri,
+            int quickActionCategory) {
         // Show an appropriate message for what to search for.
         String message;
         boolean doLiteralSearch = false;
         if (isNetworkUnavailable) {
-            // TODO(donnd): double-check that the network is really unavailable?
+            // TODO(donnd): double-check that the network is really unavailable, maybe using
+            // NetworkChangeNotifier#isOnline.
             message = mActivity.getResources().getString(
                     R.string.contextual_search_network_unavailable);
         } else if (!isHttpFailureCode(responseCode) && !TextUtils.isEmpty(displayText)) {
@@ -690,8 +695,9 @@ public class ContextualSearchManager implements ContextualSearchManagementDelega
             doLiteralSearch = true;
         }
 
-        boolean receivedContextualCardsData = !TextUtils.isEmpty(caption)
+        boolean receivedCaptionOrThumbnail = !TextUtils.isEmpty(caption)
                 || !TextUtils.isEmpty(thumbnailUrl);
+
         if (ContextualSearchFieldTrial.shouldHideContextualCardsData()) {
             // Clear the thumbnail URL and caption so that they are not displayed in the bar. This
             // is used to determine the CTR on contextual searches where we would have shown
@@ -700,8 +706,8 @@ public class ContextualSearchManager implements ContextualSearchManagementDelega
             caption = "";
         }
 
-        mSearchPanel.onSearchTermResolved(message, thumbnailUrl);
-
+        mSearchPanel.onSearchTermResolved(message, thumbnailUrl, quickActionUri,
+                quickActionCategory);
         if (!TextUtils.isEmpty(caption)) {
             // Call #onSetCaption() to set the caption. For entities, the caption should not be
             // regarded as an answer. In the future, when quick actions are added, doesAnswer will
@@ -710,10 +716,20 @@ public class ContextualSearchManager implements ContextualSearchManagementDelega
             onSetCaption(caption, doesAnswer);
         }
 
+        boolean quickActionShown =
+                mSearchPanel.getSearchBarControl().getQuickActionControl().hasQuickAction();
+        boolean receivedContextualCardsEntityData = !quickActionShown && receivedCaptionOrThumbnail;
+
         if (ContextualSearchFieldTrial.isContextualCardsBarIntegrationEnabled()) {
-            ContextualSearchUma.logContextualCardsDataShown(receivedContextualCardsData);
+            ContextualSearchUma.logContextualCardsDataShown(receivedContextualCardsEntityData);
             mSearchPanel.getPanelMetrics().setWasContextualCardsDataShown(
-                    receivedContextualCardsData);
+                    receivedContextualCardsEntityData);
+        }
+
+        if (ContextualSearchFieldTrial.isContextualSearchSingleActionsEnabled()) {
+            ContextualSearchUma.logQuickActionShown(quickActionShown, quickActionCategory);
+            mSearchPanel.getPanelMetrics().setWasQuickActionShown(quickActionShown,
+                    quickActionCategory);
         }
 
         // If there was an error, fall back onto a literal search for the selection.
@@ -744,6 +760,23 @@ public class ContextualSearchManager implements ContextualSearchManagementDelega
         if (selectionStartAdjust != 0 || selectionEndAdjust != 0) {
             mSelectionController.adjustSelection(selectionStartAdjust, selectionEndAdjust);
         }
+    }
+
+    /**
+     * External entry point to determine if the device is currently online or not.
+     * Stubbed out when under test.
+     * @return Whether the device is currently online.
+     */
+    boolean isDeviceOnline() {
+        return mNetworkCommunicator.isOnline();
+    }
+
+    /**
+     * Handles this {@link ContextualSearchNetworkCommunicator} vector when not under test.
+     */
+    @Override
+    public boolean isOnline() {
+        return NetworkChangeNotifier.isOnline();
     }
 
     /**
@@ -815,7 +848,14 @@ public class ContextualSearchManager implements ContextualSearchManagementDelega
      * @param isEnabled Whether the feature is enabled.
      */
     public void onContextualSearchPrefChanged(boolean isEnabled) {
-        mSearchPanel.onContextualSearchPrefChanged(isEnabled);
+        // The pref may be automatically changed during application startup due to enterprise
+        // configuration settings, so we may not have a panel yet.
+        if (mSearchPanel != null) mSearchPanel.onContextualSearchPrefChanged(isEnabled);
+    }
+
+    @Override
+    public void stopPanelContentsNavigation() {
+        mSearchPanel.getContentViewCore().getWebContents().stop();
     }
 
     // ============================================================================================
@@ -892,7 +932,7 @@ public class ContextualSearchManager implements ContextualSearchManagementDelega
 
         @Override
         public void onMainFrameLoadStarted(String url, boolean isExternalUrl) {
-            mSearchPanel.updateTopControlsState();
+            mSearchPanel.updateBrowserControlsState();
 
             if (isExternalUrl) {
                 onExternalNavigation(url);
@@ -1067,7 +1107,7 @@ public class ContextualSearchManager implements ContextualSearchManagementDelega
             // Stop loading the page that displays the error to the user.
             if (mSearchPanel.getContentViewCore() != null) {
                 // When running tests the Content View might not exist.
-                mSearchPanel.getContentViewCore().getWebContents().stop();
+                mNetworkCommunicator.stopPanelContentsNavigation();
             }
             mSearchRequest.setHasFailed();
             mSearchRequest.setNormalPriority();
@@ -1199,7 +1239,7 @@ public class ContextualSearchManager implements ContextualSearchManagementDelega
     public void onSelectionChanged(String selection) {
         if (!isOverlayVideoMode()) {
             mSelectionController.handleSelectionChanged(selection);
-            mSearchPanel.updateTopControlsState(TopControlsState.BOTH, true);
+            mSearchPanel.updateBrowserControlsState(BrowserControlsState.BOTH, true);
         }
     }
 
@@ -1268,6 +1308,7 @@ public class ContextualSearchManager implements ContextualSearchManagementDelega
             mHeuristics.add(mQuickAnswersHeuristic);
         }
         mSearchPanel.getPanelMetrics().setResultsSeenExperiments(mHeuristics);
+        mSearchPanel.getPanelMetrics().setRankerLogExperiments(mHeuristics);
     }
 
     @Override
@@ -1413,10 +1454,10 @@ public class ContextualSearchManager implements ContextualSearchManagementDelega
     private native long nativeInit();
     private native void nativeDestroy(long nativeContextualSearchManager);
     private native void nativeStartSearchTermResolutionRequest(long nativeContextualSearchManager,
-            String selection, boolean useResolvedSearchTerm, WebContents baseWebContents,
+            String selection, String homeCountry, WebContents baseWebContents,
             boolean maySendBasePageUrl);
     protected native void nativeGatherSurroundingText(long nativeContextualSearchManager,
-            String selection, boolean useResolvedSearchTerm, WebContents baseWebContents,
+            String selection, String homeCountry, WebContents baseWebContents,
             boolean maySendBasePageUrl);
     private native void nativeEnableContextualSearchJsApiForOverlay(
             long nativeContextualSearchManager, WebContents overlayWebContents);

@@ -48,37 +48,28 @@ enum WorldIdConstants {
   MainWorldId = 0,
   // Embedder isolated worlds can use IDs in [1, 1<<29).
   EmbedderWorldIdLimit = (1 << 29),
-  PrivateScriptIsolatedWorldId,
+  DocumentXMLTreeViewerWorldId,
   IsolatedWorldIdLimit,
   WorkerWorldId,
   TestingWorldId,
 };
 
 class DOMObjectHolderBase;
-class DOMWrapperWorldVisitor;
-template <typename T>
-class DOMObjectHolder;
 
 // This class represent a collection of DOM wrappers for a specific world.
 class CORE_EXPORT DOMWrapperWorld : public RefCounted<DOMWrapperWorld> {
  public:
-  static PassRefPtr<DOMWrapperWorld> create(v8::Isolate*,
-                                            int worldId = -1,
-                                            int extensionGroup = -1);
+  static PassRefPtr<DOMWrapperWorld> create(v8::Isolate*, int worldId = -1);
 
-  static const int mainWorldExtensionGroup = 0;
-  static const int privateScriptIsolatedWorldExtensionGroup = 1;
   static PassRefPtr<DOMWrapperWorld> ensureIsolatedWorld(v8::Isolate*,
-                                                         int worldId,
-                                                         int extensionGroup);
+                                                         int worldId);
   ~DOMWrapperWorld();
   void dispose();
 
   static bool isolatedWorldsExist() { return isolatedWorldCount; }
   static void allWorldsInMainThread(Vector<RefPtr<DOMWrapperWorld>>& worlds);
   static void markWrappersInAllWorlds(ScriptWrappable*,
-                                      const ScriptWrappableVisitor*,
-                                      v8::EmbedderReachableReferenceReporter*);
+                                      const ScriptWrappableVisitor*);
   static void setWrapperReferencesInAllWorlds(
       const v8::Persistent<v8::Object>& parent,
       ScriptWrappable*,
@@ -92,8 +83,9 @@ class CORE_EXPORT DOMWrapperWorld : public RefCounted<DOMWrapperWorld> {
     return world(isolate->GetCurrentContext());
   }
 
+  static DOMWrapperWorld*& workerWorld();
   static DOMWrapperWorld& mainWorld();
-  static DOMWrapperWorld& privateScriptIsolatedWorld();
+  static PassRefPtr<DOMWrapperWorld> fromWorldId(v8::Isolate*, int worldId);
 
   static void setIsolatedWorldHumanReadableName(int worldID, const String&);
   String isolatedWorldHumanReadableName();
@@ -118,16 +110,12 @@ class CORE_EXPORT DOMWrapperWorld : public RefCounted<DOMWrapperWorld> {
   bool isolatedWorldHasContentSecurityPolicy();
 
   bool isMainWorld() const { return m_worldId == MainWorldId; }
-  bool isPrivateScriptIsolatedWorld() const {
-    return m_worldId == PrivateScriptIsolatedWorldId;
-  }
   bool isWorkerWorld() const { return m_worldId == WorkerWorldId; }
   bool isIsolatedWorld() const {
     return MainWorldId < m_worldId && m_worldId < IsolatedWorldIdLimit;
   }
 
   int worldId() const { return m_worldId; }
-  int extensionGroup() const { return m_extensionGroup; }
   DOMDataStore& domDataStore() const { return *m_domDataStore; }
 
  public:
@@ -135,7 +123,7 @@ class CORE_EXPORT DOMWrapperWorld : public RefCounted<DOMWrapperWorld> {
   void registerDOMObjectHolder(v8::Isolate*, T*, v8::Local<v8::Value>);
 
  private:
-  DOMWrapperWorld(v8::Isolate*, int worldId, int extensionGroup);
+  DOMWrapperWorld(v8::Isolate*, int worldId);
 
   static void weakCallbackForDOMObjectHolder(
       const v8::WeakCallbackInfo<DOMObjectHolderBase>&);
@@ -145,7 +133,6 @@ class CORE_EXPORT DOMWrapperWorld : public RefCounted<DOMWrapperWorld> {
   static unsigned isolatedWorldCount;
 
   const int m_worldId;
-  const int m_extensionGroup;
   std::unique_ptr<DOMDataStore> m_domDataStore;
   HashSet<std::unique_ptr<DOMObjectHolderBase>> m_domObjectHolders;
 };

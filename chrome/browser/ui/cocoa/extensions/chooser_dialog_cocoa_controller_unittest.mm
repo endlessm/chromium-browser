@@ -11,11 +11,11 @@
 
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/chooser_controller/mock_chooser_controller.h"
-#import "chrome/browser/ui/cocoa/chooser_content_view_cocoa.h"
-#import "chrome/browser/ui/cocoa/cocoa_profile_test.h"
-#include "chrome/browser/ui/cocoa/cocoa_test_helper.h"
+#import "chrome/browser/ui/cocoa/device_chooser_content_view_cocoa.h"
 #import "chrome/browser/ui/cocoa/extensions/chooser_dialog_cocoa.h"
 #include "chrome/browser/ui/cocoa/spinner_view.h"
+#import "chrome/browser/ui/cocoa/test/cocoa_profile_test.h"
+#include "chrome/browser/ui/cocoa/test/cocoa_test_helper.h"
 #include "chrome/grit/generated_resources.h"
 #include "skia/ext/skia_utils_mac.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -70,36 +70,40 @@ class ChooserDialogCocoaControllerTest : public CocoaProfileTest {
     chooser_dialog_controller_ =
         chooser_dialog_->chooser_dialog_cocoa_controller_.get();
     ASSERT_TRUE(chooser_dialog_controller_);
-    chooser_content_view_ = [chooser_dialog_controller_ chooserContentView];
-    ASSERT_TRUE(chooser_content_view_);
-    adapter_off_help_button_ = [chooser_content_view_ adapterOffHelpButton];
+    device_chooser_content_view_ =
+        [chooser_dialog_controller_ deviceChooserContentView];
+    ASSERT_TRUE(device_chooser_content_view_);
+    adapter_off_help_button_ =
+        [device_chooser_content_view_ adapterOffHelpButton];
     ASSERT_TRUE(adapter_off_help_button_);
-    table_view_ = [chooser_content_view_ tableView];
+    table_view_ = [device_chooser_content_view_ tableView];
     ASSERT_TRUE(table_view_);
-    spinner_ = [chooser_content_view_ spinner];
+    spinner_ = [device_chooser_content_view_ spinner];
     ASSERT_TRUE(spinner_);
-    status_ = [chooser_content_view_ status];
-    ASSERT_TRUE(status_);
-    rescan_button_ = [chooser_content_view_ rescanButton];
-    ASSERT_TRUE(rescan_button_);
-    connect_button_ = [chooser_content_view_ connectButton];
+    connect_button_ = [device_chooser_content_view_ connectButton];
     ASSERT_TRUE(connect_button_);
-    cancel_button_ = [chooser_content_view_ cancelButton];
+    cancel_button_ = [device_chooser_content_view_ cancelButton];
     ASSERT_TRUE(cancel_button_);
-    help_button_ = [chooser_content_view_ helpButton];
+    help_button_ = [device_chooser_content_view_ helpButton];
     ASSERT_TRUE(help_button_);
+    scanning_message_ = [device_chooser_content_view_ scanningMessage];
+    ASSERT_TRUE(scanning_message_);
+    word_connector_ = [device_chooser_content_view_ wordConnector];
+    ASSERT_TRUE(word_connector_);
+    rescan_button_ = [device_chooser_content_view_ rescanButton];
+    ASSERT_TRUE(rescan_button_);
   }
 
   void ExpectNoRowImage(int row) {
-    ASSERT_FALSE(
-        [chooser_content_view_ tableRowViewImage:static_cast<NSInteger>(row)]);
+    ASSERT_FALSE([device_chooser_content_view_
+        tableRowViewImage:static_cast<NSInteger>(row)]);
   }
 
   void ExpectSignalStrengthLevelImageIs(int row,
                                         int expected_signal_strength_level,
                                         int expected_color) {
-    NSImageView* image_view =
-        [chooser_content_view_ tableRowViewImage:static_cast<NSInteger>(row)];
+    NSImageView* image_view = [device_chooser_content_view_
+        tableRowViewImage:static_cast<NSInteger>(row)];
     ASSERT_TRUE(image_view);
     int image_id =
         expected_color == MockChooserController::kImageColorUnselected
@@ -111,8 +115,8 @@ class ChooserDialogCocoaControllerTest : public CocoaProfileTest {
   }
 
   void ExpectRowImageIsConnectedImage(int row, SkColor expected_color) {
-    NSImageView* image_view =
-        [chooser_content_view_ tableRowViewImage:static_cast<NSInteger>(row)];
+    NSImageView* image_view = [device_chooser_content_view_
+        tableRowViewImage:static_cast<NSInteger>(row)];
     ASSERT_TRUE(image_view);
     EXPECT_TRUE(gfx::test::AreImagesEqual(
         gfx::Image(gfx::CreateVectorIcon(gfx::VectorIconId::BLUETOOTH_CONNECTED,
@@ -122,18 +126,18 @@ class ChooserDialogCocoaControllerTest : public CocoaProfileTest {
 
   void ExpectRowTextIs(int row, NSString* expected_text) {
     EXPECT_NSEQ(expected_text,
-                [[chooser_content_view_
+                [[device_chooser_content_view_
                     tableRowViewText:static_cast<NSInteger>(row)] stringValue]);
   }
 
   void ExpectRowTextColorIs(int row, NSColor* expected_color) {
     EXPECT_NSEQ(expected_color,
-                [[chooser_content_view_
+                [[device_chooser_content_view_
                     tableRowViewText:static_cast<NSInteger>(row)] textColor]);
   }
 
   bool IsRowPaired(int row) {
-    NSTextField* paired_status = [chooser_content_view_
+    NSTextField* paired_status = [device_chooser_content_view_
         tableRowViewPairedStatus:static_cast<NSInteger>(row)];
     if (paired_status) {
       EXPECT_NSEQ(l10n_util::GetNSString(IDS_DEVICE_CHOOSER_PAIRED_STATUS_TEXT),
@@ -147,7 +151,7 @@ class ChooserDialogCocoaControllerTest : public CocoaProfileTest {
   void ExpectPairedTextColorIs(int row, NSColor* expected_color) {
     EXPECT_NSEQ(
         expected_color,
-        [[chooser_content_view_
+        [[device_chooser_content_view_
             tableRowViewPairedStatus:static_cast<NSInteger>(row)] textColor]);
   }
 
@@ -157,15 +161,16 @@ class ChooserDialogCocoaControllerTest : public CocoaProfileTest {
 
   MockChooserController* mock_chooser_controller_;
   ChooserDialogCocoaController* chooser_dialog_controller_;
-  ChooserContentViewCocoa* chooser_content_view_;
+  DeviceChooserContentViewCocoa* device_chooser_content_view_;
   NSButton* adapter_off_help_button_;
   NSTableView* table_view_;
   SpinnerView* spinner_;
-  NSTextField* status_;
-  NSButton* rescan_button_;
   NSButton* connect_button_;
   NSButton* cancel_button_;
   NSButton* help_button_;
+  NSTextField* scanning_message_;
+  NSTextField* word_connector_;
+  NSButton* rescan_button_;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(ChooserDialogCocoaControllerTest);
@@ -191,7 +196,9 @@ TEST_F(ChooserDialogCocoaControllerTest, InitialState) {
   EXPECT_FALSE(connect_button_.enabled);
   EXPECT_TRUE(cancel_button_.enabled);
   EXPECT_TRUE(help_button_.enabled);
-  EXPECT_NSEQ(l10n_util::GetNSString(IDS_DEVICE_CHOOSER_GET_HELP_LINK_TEXT),
+  EXPECT_NSEQ(l10n_util::GetNSStringF(
+                  IDS_DEVICE_CHOOSER_GET_HELP_LINK_WITH_SCANNING_STATUS,
+                  base::string16()),
               help_button_.title);
 }
 
@@ -844,14 +851,17 @@ TEST_F(ChooserDialogCocoaControllerTest, SelectAnOptionAndPressConnectButton) {
   // Select option 0 and press "Connect" button.
   [table_view_ selectRowIndexes:[NSIndexSet indexSetWithIndex:0]
            byExtendingSelection:NO];
-  EXPECT_CALL(*mock_chooser_controller_, Select(0)).Times(1);
+  std::vector<size_t> indices(1);
+  indices[0] = 0;
+  EXPECT_CALL(*mock_chooser_controller_, Select(indices)).Times(1);
   EXPECT_CALL(*mock_chooser_controller_, Cancel()).Times(0);
   [connect_button_ performClick:chooser_dialog_controller_];
 
   // Select option 2 and press "Connect" button.
   [table_view_ selectRowIndexes:[NSIndexSet indexSetWithIndex:2]
            byExtendingSelection:NO];
-  EXPECT_CALL(*mock_chooser_controller_, Select(2)).Times(1);
+  indices[0] = 2;
+  EXPECT_CALL(*mock_chooser_controller_, Select(indices)).Times(1);
   EXPECT_CALL(*mock_chooser_controller_, Cancel()).Times(0);
   [connect_button_ performClick:chooser_dialog_controller_];
 }
@@ -898,7 +908,8 @@ TEST_F(ChooserDialogCocoaControllerTest, AdapterOnAndOffAndOn) {
       0, l10n_util::GetNSString(IDS_DEVICE_CHOOSER_NO_DEVICES_FOUND_PROMPT));
   EXPECT_FALSE(IsRowPaired(0));
   EXPECT_TRUE(spinner_.hidden);
-  EXPECT_TRUE(status_.hidden);
+  EXPECT_TRUE(scanning_message_.hidden);
+  EXPECT_FALSE(word_connector_.hidden);
   EXPECT_FALSE(rescan_button_.hidden);
   EXPECT_NSEQ(l10n_util::GetNSString(IDS_BLUETOOTH_DEVICE_CHOOSER_RE_SCAN),
               rescan_button_.title);
@@ -929,12 +940,13 @@ TEST_F(ChooserDialogCocoaControllerTest, AdapterOnAndOffAndOn) {
   mock_chooser_controller_->OnAdapterPresenceChanged(
       content::BluetoothChooser::AdapterPresence::POWERED_OFF);
   EXPECT_FALSE(adapter_off_help_button_.hidden);
-  EXPECT_NSEQ(
-      l10n_util::GetNSString(IDS_BLUETOOTH_DEVICE_CHOOSER_TURN_ADAPTER_OFF),
-      adapter_off_help_button_.title);
+  EXPECT_NSEQ(l10n_util::GetNSString(
+                  IDS_BLUETOOTH_DEVICE_CHOOSER_TURN_ON_BLUETOOTH_LINK_TEXT),
+              adapter_off_help_button_.title);
   EXPECT_TRUE(table_view_.hidden);
   EXPECT_TRUE(spinner_.hidden);
-  EXPECT_TRUE(status_.hidden);
+  EXPECT_TRUE(scanning_message_.hidden);
+  EXPECT_TRUE(word_connector_.hidden);
   EXPECT_TRUE(rescan_button_.hidden);
   // Since the adapter is turned off, the previously selected option
   // becomes invalid, the OK button is disabled.
@@ -978,7 +990,8 @@ TEST_F(ChooserDialogCocoaControllerTest, DiscoveringAndNoOptionAddedAndIdle) {
            byExtendingSelection:NO];
   EXPECT_EQ(1, table_view_.selectedRow);
   EXPECT_TRUE(spinner_.hidden);
-  EXPECT_TRUE(status_.hidden);
+  EXPECT_TRUE(scanning_message_.hidden);
+  EXPECT_TRUE(word_connector_.hidden);
   EXPECT_TRUE(rescan_button_.hidden);
   EXPECT_TRUE(connect_button_.enabled);
   EXPECT_TRUE(cancel_button_.enabled);
@@ -987,7 +1000,8 @@ TEST_F(ChooserDialogCocoaControllerTest, DiscoveringAndNoOptionAddedAndIdle) {
       content::BluetoothChooser::DiscoveryState::DISCOVERING);
   EXPECT_TRUE(table_view_.hidden);
   EXPECT_FALSE(spinner_.hidden);
-  EXPECT_FALSE(status_.hidden);
+  EXPECT_FALSE(scanning_message_.hidden);
+  EXPECT_TRUE(word_connector_.hidden);
   EXPECT_TRUE(rescan_button_.hidden);
   // OK button is disabled since the chooser is refreshing options.
   EXPECT_FALSE(connect_button_.enabled);
@@ -1008,7 +1022,8 @@ TEST_F(ChooserDialogCocoaControllerTest, DiscoveringAndNoOptionAddedAndIdle) {
       0, l10n_util::GetNSString(IDS_DEVICE_CHOOSER_NO_DEVICES_FOUND_PROMPT));
   EXPECT_FALSE(IsRowPaired(0));
   EXPECT_TRUE(spinner_.hidden);
-  EXPECT_TRUE(status_.hidden);
+  EXPECT_TRUE(scanning_message_.hidden);
+  EXPECT_FALSE(word_connector_.hidden);
   EXPECT_FALSE(rescan_button_.hidden);
   EXPECT_NSEQ(l10n_util::GetNSString(IDS_BLUETOOTH_DEVICE_CHOOSER_RE_SCAN),
               rescan_button_.title);
@@ -1052,7 +1067,8 @@ TEST_F(ChooserDialogCocoaControllerTest,
   ExpectRowTextIs(0, @"d");
   EXPECT_FALSE(IsRowPaired(0));
   EXPECT_TRUE(spinner_.hidden);
-  EXPECT_FALSE(status_.hidden);
+  EXPECT_FALSE(scanning_message_.hidden);
+  EXPECT_TRUE(word_connector_.hidden);
   EXPECT_TRUE(rescan_button_.hidden);
   // OK button is disabled since no option is selected.
   EXPECT_FALSE(connect_button_.enabled);
@@ -1072,12 +1088,108 @@ TEST_F(ChooserDialogCocoaControllerTest,
   ExpectRowTextIs(0, @"d");
   EXPECT_FALSE(IsRowPaired(0));
   EXPECT_TRUE(spinner_.hidden);
-  EXPECT_TRUE(status_.hidden);
+  EXPECT_TRUE(scanning_message_.hidden);
+  EXPECT_FALSE(word_connector_.hidden);
   EXPECT_FALSE(rescan_button_.hidden);
   EXPECT_NSEQ(l10n_util::GetNSString(IDS_BLUETOOTH_DEVICE_CHOOSER_RE_SCAN),
               rescan_button_.title);
   EXPECT_TRUE(connect_button_.enabled);
   EXPECT_TRUE(cancel_button_.enabled);
+}
+
+TEST_F(ChooserDialogCocoaControllerTest, MultipleSelection) {
+  CreateChooserDialog();
+  [table_view_ setAllowsMultipleSelection:YES];
+
+  mock_chooser_controller_->OptionAdded(
+      base::ASCIIToUTF16("a"),
+      MockChooserController::kNoSignalStrengthLevelImage,
+      MockChooserController::ConnectedPairedStatus::CONNECTED |
+          MockChooserController::ConnectedPairedStatus::PAIRED);
+  mock_chooser_controller_->OptionAdded(
+      base::ASCIIToUTF16("b"), MockChooserController::kSignalStrengthLevel0Bar,
+      MockChooserController::ConnectedPairedStatus::NONE);
+  mock_chooser_controller_->OptionAdded(
+      base::ASCIIToUTF16("c"), MockChooserController::kSignalStrengthLevel1Bar,
+      MockChooserController::ConnectedPairedStatus::NONE);
+  mock_chooser_controller_->OptionAdded(
+      base::ASCIIToUTF16("d"), MockChooserController::kSignalStrengthLevel2Bar,
+      MockChooserController::ConnectedPairedStatus::NONE);
+  mock_chooser_controller_->OptionAdded(
+      base::ASCIIToUTF16("e"), MockChooserController::kSignalStrengthLevel3Bar,
+      MockChooserController::ConnectedPairedStatus::NONE);
+  mock_chooser_controller_->OptionAdded(
+      base::ASCIIToUTF16("f"), MockChooserController::kSignalStrengthLevel4Bar,
+      MockChooserController::ConnectedPairedStatus::NONE);
+
+  NSMutableIndexSet* selected_rows = [NSMutableIndexSet indexSet];
+  // Select options "a", "c", "d".
+  [selected_rows addIndex:0];
+  [selected_rows addIndex:2];
+  [selected_rows addIndex:3];
+  [table_view_ selectRowIndexes:selected_rows byExtendingSelection:NO];
+
+  // The options are: [a] b [c] [d] e f. The option with [] is selected.
+  EXPECT_NSEQ(selected_rows, [table_view_ selectedRowIndexes]);
+  ExpectRowImageIsConnectedImage(0, SK_ColorWHITE);
+  ExpectSignalStrengthLevelImageIs(
+      1, MockChooserController::kSignalStrengthLevel0Bar,
+      MockChooserController::kImageColorUnselected);
+  ExpectSignalStrengthLevelImageIs(
+      2, MockChooserController::kSignalStrengthLevel1Bar,
+      MockChooserController::kImageColorSelected);
+  ExpectSignalStrengthLevelImageIs(
+      3, MockChooserController::kSignalStrengthLevel2Bar,
+      MockChooserController::kImageColorSelected);
+  ExpectSignalStrengthLevelImageIs(
+      4, MockChooserController::kSignalStrengthLevel3Bar,
+      MockChooserController::kImageColorUnselected);
+  ExpectSignalStrengthLevelImageIs(
+      5, MockChooserController::kSignalStrengthLevel4Bar,
+      MockChooserController::kImageColorUnselected);
+  ExpectRowTextColorIs(0, [NSColor whiteColor]);
+  ExpectRowTextColorIs(1, [NSColor blackColor]);
+  ExpectRowTextColorIs(2, [NSColor whiteColor]);
+  ExpectRowTextColorIs(3, [NSColor whiteColor]);
+  ExpectRowTextColorIs(4, [NSColor blackColor]);
+  ExpectRowTextColorIs(5, [NSColor blackColor]);
+  ExpectPairedTextColorIs(
+      0, skia::SkColorToCalibratedNSColor(gfx::kGoogleGreen300));
+  EXPECT_TRUE(connect_button_.enabled);
+
+  // Remove option "b".
+  // The options are: [a] [c] [d] e f.
+  mock_chooser_controller_->OptionRemoved(base::ASCIIToUTF16("b"));
+  EXPECT_TRUE([table_view_ isRowSelected:0]);
+  EXPECT_TRUE([table_view_ isRowSelected:1]);
+  EXPECT_TRUE([table_view_ isRowSelected:2]);
+  EXPECT_FALSE([table_view_ isRowSelected:3]);
+  EXPECT_FALSE([table_view_ isRowSelected:4]);
+  EXPECT_TRUE(connect_button_.enabled);
+
+  // Remove option "c".
+  // The options are: [a] [d] e f.
+  mock_chooser_controller_->OptionRemoved(base::ASCIIToUTF16("c"));
+  EXPECT_TRUE([table_view_ isRowSelected:0]);
+  EXPECT_TRUE([table_view_ isRowSelected:1]);
+  EXPECT_FALSE([table_view_ isRowSelected:2]);
+  EXPECT_FALSE([table_view_ isRowSelected:3]);
+  EXPECT_TRUE(connect_button_.enabled);
+
+  // Remove option "a".
+  // The options are: [d] e f.
+  mock_chooser_controller_->OptionRemoved(base::ASCIIToUTF16("a"));
+  EXPECT_TRUE([table_view_ isRowSelected:0]);
+  EXPECT_FALSE([table_view_ isRowSelected:1]);
+  EXPECT_FALSE([table_view_ isRowSelected:2]);
+  EXPECT_TRUE(connect_button_.enabled);
+
+  // Remove option "d".
+  // The options are: e f.
+  mock_chooser_controller_->OptionRemoved(base::ASCIIToUTF16("d"));
+  EXPECT_FALSE([table_view_ isRowSelected:0]);
+  EXPECT_FALSE([table_view_ isRowSelected:1]);
+  EXPECT_FALSE(connect_button_.enabled);
 }
 
 TEST_F(ChooserDialogCocoaControllerTest, PressAdapterOffHelpButton) {

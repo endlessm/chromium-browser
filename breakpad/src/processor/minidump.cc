@@ -74,7 +74,7 @@ using std::vector;
 // Returns true iff |context_size| matches exactly one of the sizes of the
 // various MDRawContext* types.
 // TODO(blundell): This function can be removed once
-// http://code.google.com/p/google-breakpad/issues/detail?id=550 is fixed.
+// https://bugs.chromium.org/p/google-breakpad/issues/detail?id=550 is fixed.
 static bool IsContextSizeUnique(uint32_t context_size) {
   int num_matching_contexts = 0;
   if (context_size == sizeof(MDRawContextX86))
@@ -195,6 +195,21 @@ static inline void Swap(MDSystemTime* system_time) {
   Swap(&system_time->minute);
   Swap(&system_time->second);
   Swap(&system_time->milliseconds);
+}
+
+static inline void Swap(MDXStateFeature* xstate_feature) {
+  Swap(&xstate_feature->offset);
+  Swap(&xstate_feature->size);
+}
+
+static inline void Swap(MDXStateConfigFeatureMscInfo* xstate_feature_info) {
+  Swap(&xstate_feature_info->size_of_info);
+  Swap(&xstate_feature_info->context_size);
+  Swap(&xstate_feature_info->enabled_features);
+
+  for (size_t i = 0; i < MD_MAXIMUM_XSTATE_FEATURES; i++) {
+    Swap(&xstate_feature_info->features[i]);
+  }
 }
 
 static inline void Swap(uint16_t* data, size_t size_in_bytes) {
@@ -458,7 +473,7 @@ bool MinidumpContext::Read(uint32_t expected_size) {
 
     if (cpu_type != MD_CONTEXT_AMD64) {
       // TODO: Fall through to switch below.
-      // http://code.google.com/p/google-breakpad/issues/detail?id=550
+      // https://bugs.chromium.org/p/google-breakpad/issues/detail?id=550
       BPLOG(ERROR) << "MinidumpContext not actually amd64 context";
       return false;
     }
@@ -560,7 +575,7 @@ bool MinidumpContext::Read(uint32_t expected_size) {
 
     if (cpu_type != MD_CONTEXT_PPC64) {
       // TODO: Fall through to switch below.
-      // http://code.google.com/p/google-breakpad/issues/detail?id=550
+      // https://bugs.chromium.org/p/google-breakpad/issues/detail?id=550
       BPLOG(ERROR) << "MinidumpContext not actually ppc64 context";
       return false;
     }
@@ -657,7 +672,7 @@ bool MinidumpContext::Read(uint32_t expected_size) {
 
     if (cpu_type != MD_CONTEXT_ARM64) {
       // TODO: Fall through to switch below.
-      // http://code.google.com/p/google-breakpad/issues/detail?id=550
+      // https://bugs.chromium.org/p/google-breakpad/issues/detail?id=550
       BPLOG(ERROR) << "MinidumpContext not actually arm64 context";
       return false;
     }
@@ -3495,6 +3510,390 @@ void MinidumpSystemInfo::Print() {
 
 
 //
+// MinidumpUnloadedModule
+//
+
+
+MinidumpUnloadedModule::MinidumpUnloadedModule(Minidump* minidump)
+    : MinidumpObject(minidump),
+      module_valid_(false),
+      unloaded_module_(),
+      name_(NULL) {
+
+}
+
+MinidumpUnloadedModule::~MinidumpUnloadedModule() {
+  delete name_;
+}
+
+string MinidumpUnloadedModule::code_file() const {
+  if (!valid_) {
+    BPLOG(ERROR) << "Invalid MinidumpUnloadedModule for code_file";
+    return "";
+  }
+
+  return *name_;
+}
+
+string MinidumpUnloadedModule::code_identifier() const {
+  if (!valid_) {
+    BPLOG(ERROR) << "Invalid MinidumpUnloadedModule for code_identifier";
+    return "";
+  }
+
+  MinidumpSystemInfo *minidump_system_info = minidump_->GetSystemInfo();
+  if (!minidump_system_info) {
+    BPLOG(ERROR) << "MinidumpUnloadedModule code_identifier requires "
+                    "MinidumpSystemInfo";
+    return "";
+  }
+
+  const MDRawSystemInfo *raw_system_info = minidump_system_info->system_info();
+  if (!raw_system_info) {
+    BPLOG(ERROR) << "MinidumpUnloadedModule code_identifier requires "
+                 << "MDRawSystemInfo";
+    return "";
+  }
+
+  string identifier;
+
+  switch (raw_system_info->platform_id) {
+    case MD_OS_WIN32_NT:
+    case MD_OS_WIN32_WINDOWS: {
+      // Use the same format that the MS symbol server uses in filesystem
+      // hierarchies.
+      char identifier_string[17];
+      snprintf(identifier_string, sizeof(identifier_string), "%08X%x",
+               unloaded_module_.time_date_stamp,
+               unloaded_module_.size_of_image);
+      identifier = identifier_string;
+      break;
+    }
+
+    case MD_OS_ANDROID:
+    case MD_OS_LINUX:
+    case MD_OS_MAC_OS_X:
+    case MD_OS_IOS:
+    case MD_OS_SOLARIS:
+    case MD_OS_NACL:
+    case MD_OS_PS3: {
+      // TODO(mmentovai): support uuid extension if present, otherwise fall
+      // back to version (from LC_ID_DYLIB?), otherwise fall back to something
+      // else.
+      identifier = "id";
+      break;
+    }
+
+    default: {
+      // Without knowing what OS generated the dump, we can't generate a good
+      // identifier.  Return an empty string, signalling failure.
+      BPLOG(ERROR) << "MinidumpUnloadedModule code_identifier requires known "
+                   << "platform, found "
+                   << HexString(raw_system_info->platform_id);
+      break;
+    }
+  }
+
+  return identifier;
+}
+
+string MinidumpUnloadedModule::debug_file() const {
+  return "";  // No debug info provided with unloaded modules
+}
+
+string MinidumpUnloadedModule::debug_identifier() const {
+  return "";  // No debug info provided with unloaded modules
+}
+
+string MinidumpUnloadedModule::version() const {
+  return "";  // No version info provided with unloaded modules
+}
+
+CodeModule* MinidumpUnloadedModule::Copy() const {
+  return new BasicCodeModule(this);
+}
+
+uint64_t MinidumpUnloadedModule::shrink_down_delta() const {
+  return 0;
+}
+
+void MinidumpUnloadedModule::SetShrinkDownDelta(uint64_t shrink_down_delta) {
+  // Not implemented
+  assert(false);
+}
+
+bool MinidumpUnloadedModule::Read(uint32_t expected_size) {
+
+  delete name_;
+  valid_ = false;
+
+  if (expected_size < sizeof(unloaded_module_)) {
+    BPLOG(ERROR) << "MinidumpUnloadedModule expected size is less than size "
+                 << "of struct " << expected_size << " < "
+                 << sizeof(unloaded_module_);
+    return false;
+  }
+
+  if (!minidump_->ReadBytes(&unloaded_module_, sizeof(unloaded_module_))) {
+    BPLOG(ERROR) << "MinidumpUnloadedModule cannot read module";
+    return false;
+  }
+
+  if (expected_size > sizeof(unloaded_module_)) {
+    uint32_t module_bytes_remaining = expected_size - sizeof(unloaded_module_);
+    off_t pos = minidump_->Tell();
+    if (!minidump_->SeekSet(pos + module_bytes_remaining)) {
+      BPLOG(ERROR) << "MinidumpUnloadedModule unable to seek to end of module";
+      return false;
+    }
+  }
+
+  if (minidump_->swap()) {
+    Swap(&unloaded_module_.base_of_image);
+    Swap(&unloaded_module_.size_of_image);
+    Swap(&unloaded_module_.checksum);
+    Swap(&unloaded_module_.time_date_stamp);
+    Swap(&unloaded_module_.module_name_rva);
+  }
+
+  // Check for base + size overflow or undersize.
+  if (unloaded_module_.size_of_image == 0 ||
+      unloaded_module_.size_of_image >
+          numeric_limits<uint64_t>::max() - unloaded_module_.base_of_image) {
+    BPLOG(ERROR) << "MinidumpUnloadedModule has a module problem, " <<
+                    HexString(unloaded_module_.base_of_image) << "+" <<
+                    HexString(unloaded_module_.size_of_image);
+    return false;
+  }
+
+
+  module_valid_ = true;
+  return true;
+}
+
+bool MinidumpUnloadedModule::ReadAuxiliaryData() {
+  if (!module_valid_) {
+    BPLOG(ERROR) << "Invalid MinidumpUnloadedModule for ReadAuxiliaryData";
+    return false;
+  }
+
+  // Each module must have a name.
+  name_ = minidump_->ReadString(unloaded_module_.module_name_rva);
+  if (!name_) {
+    BPLOG(ERROR) << "MinidumpUnloadedModule could not read name";
+    return false;
+  }
+
+  // At this point, we have enough info for the module to be valid.
+  valid_ = true;
+  return true;
+}
+
+//
+// MinidumpUnloadedModuleList
+//
+
+
+uint32_t MinidumpUnloadedModuleList::max_modules_ = 1024;
+
+
+MinidumpUnloadedModuleList::MinidumpUnloadedModuleList(Minidump* minidump)
+  : MinidumpStream(minidump),
+    range_map_(new RangeMap<uint64_t, unsigned int>()),
+    unloaded_modules_(NULL),
+    module_count_(0) {
+  range_map_->SetEnableShrinkDown(true);
+}
+
+MinidumpUnloadedModuleList::~MinidumpUnloadedModuleList() {
+  delete range_map_;
+  delete unloaded_modules_;
+}
+
+
+bool MinidumpUnloadedModuleList::Read(uint32_t expected_size) {
+  range_map_->Clear();
+  delete unloaded_modules_;
+  unloaded_modules_ = NULL;
+  module_count_ = 0;
+
+  valid_ = false;
+
+  uint32_t size_of_header;
+  if (!minidump_->ReadBytes(&size_of_header, sizeof(size_of_header))) {
+    BPLOG(ERROR) << "MinidumpUnloadedModuleList could not read header size";
+    return false;
+  }
+
+  uint32_t size_of_entry;
+  if (!minidump_->ReadBytes(&size_of_entry, sizeof(size_of_entry))) {
+    BPLOG(ERROR) << "MinidumpUnloadedModuleList could not read entry size";
+    return false;
+  }
+
+  uint32_t number_of_entries;
+  if (!minidump_->ReadBytes(&number_of_entries, sizeof(number_of_entries))) {
+    BPLOG(ERROR) <<
+                 "MinidumpUnloadedModuleList could not read number of entries";
+    return false;
+  }
+
+  if (minidump_->swap()) {
+    Swap(&size_of_header);
+    Swap(&size_of_entry);
+    Swap(&number_of_entries);
+  }
+
+  uint32_t header_bytes_remaining = size_of_header - sizeof(size_of_header) -
+      sizeof(size_of_entry) - sizeof(number_of_entries);
+  if (header_bytes_remaining) {
+    off_t pos = minidump_->Tell();
+    if (!minidump_->SeekSet(pos + header_bytes_remaining)) {
+      BPLOG(ERROR) << "MinidumpUnloadedModuleList could not read header sized "
+                   << size_of_header;
+      return false;
+    }
+  }
+
+  if (expected_size != size_of_header + (size_of_entry * number_of_entries)) {
+    BPLOG(ERROR) << "MinidumpUnloadedModuleList expected_size mismatch " <<
+                 expected_size << " != " << size_of_header << " + (" <<
+                 size_of_entry << " * " << number_of_entries << ")";
+    return false;
+  }
+
+  if (number_of_entries > max_modules_) {
+    BPLOG(ERROR) << "MinidumpUnloadedModuleList count " <<
+                 number_of_entries << " exceeds maximum " << max_modules_;
+    return false;
+  }
+
+  if (number_of_entries != 0) {
+    scoped_ptr<MinidumpUnloadedModules> modules(
+        new MinidumpUnloadedModules(number_of_entries,
+                                    MinidumpUnloadedModule(minidump_)));
+
+    for (unsigned int module_index = 0;
+         module_index < number_of_entries;
+         ++module_index) {
+      MinidumpUnloadedModule* module = &(*modules)[module_index];
+
+      if (!module->Read(size_of_entry)) {
+        BPLOG(ERROR) << "MinidumpUnloadedModuleList could not read module " <<
+                     module_index << "/" << number_of_entries;
+        return false;
+      }
+    }
+
+    for (unsigned int module_index = 0;
+         module_index < number_of_entries;
+         ++module_index) {
+      MinidumpUnloadedModule* module = &(*modules)[module_index];
+
+      if (!module->ReadAuxiliaryData()) {
+        BPLOG(ERROR) << "MinidumpUnloadedModuleList could not read required "
+                     "module auxiliary data for module " <<
+                     module_index << "/" << number_of_entries;
+        return false;
+      }
+
+      uint64_t base_address = module->base_address();
+      uint64_t module_size = module->size();
+
+      // Ignore any failures for conflicting address ranges
+      range_map_->StoreRange(base_address, module_size, module_index);
+
+    }
+    unloaded_modules_ = modules.release();
+  }
+
+  module_count_ = number_of_entries;
+  valid_ = true;
+  return true;
+}
+
+const MinidumpUnloadedModule* MinidumpUnloadedModuleList::GetModuleForAddress(
+    uint64_t address) const {
+  if (!valid_) {
+    BPLOG(ERROR)
+        << "Invalid MinidumpUnloadedModuleList for GetModuleForAddress";
+    return NULL;
+  }
+
+  unsigned int module_index;
+  if (!range_map_->RetrieveRange(address, &module_index, NULL /* base */,
+                                 NULL /* delta */, NULL /* size */)) {
+    BPLOG(INFO) << "MinidumpUnloadedModuleList has no module at "
+                << HexString(address);
+    return NULL;
+  }
+
+  return GetModuleAtIndex(module_index);
+}
+
+const MinidumpUnloadedModule*
+MinidumpUnloadedModuleList::GetMainModule() const {
+  return NULL;
+}
+
+const MinidumpUnloadedModule*
+MinidumpUnloadedModuleList::GetModuleAtSequence(unsigned int sequence) const {
+  if (!valid_) {
+    BPLOG(ERROR)
+        << "Invalid MinidumpUnloadedModuleList for GetModuleAtSequence";
+    return NULL;
+  }
+
+  if (sequence >= module_count_) {
+    BPLOG(ERROR) << "MinidumpUnloadedModuleList sequence out of range: "
+                 << sequence << "/" << module_count_;
+    return NULL;
+  }
+
+  unsigned int module_index;
+  if (!range_map_->RetrieveRangeAtIndex(sequence, &module_index,
+                                        NULL /* base */, NULL /* delta */,
+                                        NULL /* size */)) {
+    BPLOG(ERROR) << "MinidumpUnloadedModuleList has no module at sequence "
+                 << sequence;
+    return NULL;
+  }
+
+  return GetModuleAtIndex(module_index);
+}
+
+const MinidumpUnloadedModule*
+MinidumpUnloadedModuleList::GetModuleAtIndex(
+    unsigned int index) const {
+  if (!valid_) {
+    BPLOG(ERROR) << "Invalid MinidumpUnloadedModuleList for GetModuleAtIndex";
+    return NULL;
+  }
+
+  if (index >= module_count_) {
+    BPLOG(ERROR) << "MinidumpUnloadedModuleList index out of range: "
+                 << index << "/" << module_count_;
+    return NULL;
+  }
+
+  return &(*unloaded_modules_)[index];
+}
+
+const CodeModules* MinidumpUnloadedModuleList::Copy() const {
+  return new BasicCodeModules(this);
+}
+
+vector<linked_ptr<const CodeModule>>
+MinidumpUnloadedModuleList::GetShrunkRangeModules() const {
+  return vector<linked_ptr<const CodeModule> >();
+}
+
+bool MinidumpUnloadedModuleList::IsModuleShrinkEnabled() const {
+  return range_map_->IsShrinkDownEnabled();
+}
+
+
+//
 // MinidumpMiscInfo
 //
 
@@ -3508,20 +3907,44 @@ MinidumpMiscInfo::MinidumpMiscInfo(Minidump* minidump)
 bool MinidumpMiscInfo::Read(uint32_t expected_size) {
   valid_ = false;
 
+  size_t padding = 0;
   if (expected_size != MD_MISCINFO_SIZE &&
       expected_size != MD_MISCINFO2_SIZE &&
       expected_size != MD_MISCINFO3_SIZE &&
-      expected_size != MD_MISCINFO4_SIZE) {
-    BPLOG(ERROR) << "MinidumpMiscInfo size mismatch, " << expected_size
-                 << " != " << MD_MISCINFO_SIZE << ", " << MD_MISCINFO2_SIZE
-                 << ", " << MD_MISCINFO3_SIZE << ", " << MD_MISCINFO4_SIZE
-                 << ")";
-    return false;
+      expected_size != MD_MISCINFO4_SIZE &&
+      expected_size != MD_MISCINFO5_SIZE) {
+    if (expected_size > MD_MISCINFO5_SIZE) {
+      // Only read the part of the misc info structure we know how to handle
+      BPLOG(INFO) << "MinidumpMiscInfo size larger than expected "
+                  << expected_size << ", skipping over the unknown part";
+      padding = expected_size - MD_MISCINFO5_SIZE;
+      expected_size = MD_MISCINFO5_SIZE;
+    } else {
+      BPLOG(ERROR) << "MinidumpMiscInfo size mismatch, " << expected_size
+                  << " != " << MD_MISCINFO_SIZE << ", " << MD_MISCINFO2_SIZE
+                  << ", " << MD_MISCINFO3_SIZE << ", " << MD_MISCINFO4_SIZE
+                  << ", " << MD_MISCINFO5_SIZE << ")";
+      return false;
+    }
   }
 
   if (!minidump_->ReadBytes(&misc_info_, expected_size)) {
     BPLOG(ERROR) << "MinidumpMiscInfo cannot read miscellaneous info";
     return false;
+  }
+
+  if (padding != 0) {
+    off_t saved_position = minidump_->Tell();
+    if (saved_position == -1) {
+      BPLOG(ERROR) << "MinidumpMiscInfo could not tell the current position";
+      return false;
+    }
+
+    if (!minidump_->SeekSet(saved_position + padding)) {
+      BPLOG(ERROR) << "MinidumpMiscInfo could not seek past the miscellaneous "
+                   << "info structure";
+      return false;
+    }
   }
 
   if (minidump_->swap()) {
@@ -3553,9 +3976,14 @@ bool MinidumpMiscInfo::Read(uint32_t expected_size) {
       // Do not swap UTF-16 strings.  The swap is done as part of the
       // conversion to UTF-8 (code follows below).
     }
+    if (misc_info_.size_of_info > MD_MISCINFO4_SIZE) {
+      // Swap version 5 fields
+      Swap(&misc_info_.xstate_data);
+      Swap(&misc_info_.process_cookie);
+    }
   }
 
-  if (expected_size != misc_info_.size_of_info) {
+  if (expected_size + padding != misc_info_.size_of_info) {
     BPLOG(ERROR) << "MinidumpMiscInfo size mismatch, " <<
                     expected_size << " != " << misc_info_.size_of_info;
     return false;
@@ -3703,6 +4131,35 @@ void MinidumpMiscInfo::Print() {
     } else {
       printf("  build_string                 = (invalid)\n");
       printf("  dbg_bld_str                  = (invalid)\n");
+    }
+  }
+  if (misc_info_.size_of_info > MD_MISCINFO4_SIZE) {
+    // Print version 5 fields
+    if (misc_info_.flags1 & MD_MISCINFO_FLAGS1_PROCESS_COOKIE) {
+      printf("  xstate_data.size_of_info     = %d\n",
+             misc_info_.xstate_data.size_of_info);
+      printf("  xstate_data.context_size     = %d\n",
+             misc_info_.xstate_data.context_size);
+      printf("  xstate_data.enabled_features = 0x%" PRIx64 "\n",
+             misc_info_.xstate_data.enabled_features);
+      for (size_t i = 0; i < MD_MAXIMUM_XSTATE_FEATURES; i++) {
+        if ((misc_info_.xstate_data.enabled_features >> i) & 1) {
+          printf("  xstate_data.features[%02zu]     = { %d, %d }\n", i,
+                 misc_info_.xstate_data.features[i].offset,
+                 misc_info_.xstate_data.features[i].size);
+        }
+      }
+      if (misc_info_.xstate_data.enabled_features == 0) {
+        printf("  xstate_data.features[]       = (empty)\n");
+      }
+      printf("  process_cookie               = %d\n",
+             misc_info_.process_cookie);
+    } else {
+      printf("  xstate_data.size_of_info     = (invalid)\n");
+      printf("  xstate_data.context_size     = (invalid)\n");
+      printf("  xstate_data.enabled_features = (invalid)\n");
+      printf("  xstate_data.features[]       = (invalid)\n");
+      printf("  process_cookie               = (invalid)\n");
     }
   }
   printf("\n");
@@ -4527,6 +4984,12 @@ MinidumpAssertion* Minidump::GetAssertion() {
 MinidumpSystemInfo* Minidump::GetSystemInfo() {
   MinidumpSystemInfo* system_info;
   return GetStream(&system_info);
+}
+
+
+MinidumpUnloadedModuleList* Minidump::GetUnloadedModuleList() {
+  MinidumpUnloadedModuleList* unloaded_module_list;
+  return GetStream(&unloaded_module_list);
 }
 
 

@@ -4,9 +4,10 @@
 #include "net/quic/core/spdy_utils.h"
 
 #include "base/macros.h"
-#include "base/strings/string_number_conversions.h"
 #include "base/strings/string_piece.h"
+#include "net/quic/platform/api/quic_text_utils.h"
 #include "net/test/gtest_util.h"
+#include "testing/gtest/include/gtest/gtest.h"
 
 using base::StringPiece;
 using std::string;
@@ -26,7 +27,8 @@ TEST(SpdyUtilsTest, SerializeAndParseHeaders) {
   input_headers[":pseudo2"] = "pseudo value2";
   input_headers["key1"] = "value1";
   const int64_t kContentLength = 1234;
-  input_headers["content-length"] = base::Int64ToString(kContentLength);
+  input_headers["content-length"] =
+      QuicTextUtils::Uint64ToString(kContentLength);
   input_headers["key2"] = "value2";
 
   // Serialize the header block.
@@ -55,7 +57,8 @@ TEST(SpdyUtilsTest, SerializeAndParseHeadersLargeContentLength) {
   input_headers[":pseudo2"] = "pseudo value2";
   input_headers["key1"] = "value1";
   const int64_t kContentLength = 12345678900;
-  input_headers["content-length"] = base::Int64ToString(kContentLength);
+  input_headers["content-length"] =
+      QuicTextUtils::Uint64ToString(kContentLength);
   input_headers["key2"] = "value2";
 
   // Serialize the header block.
@@ -80,7 +83,8 @@ TEST(SpdyUtilsTest, SerializeAndParseValidTrailers) {
   // result is the same as the trailers that the test started with.
   SpdyHeaderBlock input_trailers;
   const size_t kFinalOffset = 5678;
-  input_trailers[kFinalOffsetHeaderKey] = base::IntToString(kFinalOffset);
+  input_trailers[kFinalOffsetHeaderKey] =
+      QuicTextUtils::Uint64ToString(kFinalOffset);
   input_trailers["key1"] = "value1";
   input_trailers["key2"] = "value2";
 
@@ -360,6 +364,15 @@ TEST(SpdyUtilsTest, PopulateHeaderBlockFromUrl) {
   EXPECT_EQ("https", headers[":scheme"].as_string());
   EXPECT_EQ("www.google.com", headers[":authority"].as_string());
   EXPECT_EQ("/index.html", headers[":path"].as_string());
+}
+
+TEST(SpdyUtilsTest, PopulateHeaderBlockFromUrlWithNoPath) {
+  string url = "https://www.google.com";
+  SpdyHeaderBlock headers;
+  EXPECT_TRUE(SpdyUtils::PopulateHeaderBlockFromUrl(url, &headers));
+  EXPECT_EQ("https", headers[":scheme"].as_string());
+  EXPECT_EQ("www.google.com", headers[":authority"].as_string());
+  EXPECT_EQ("/", headers[":path"].as_string());
 }
 
 TEST(SpdyUtilsTest, PopulateHeaderBlockFromUrlFails) {

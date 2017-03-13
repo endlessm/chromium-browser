@@ -28,6 +28,77 @@
 //
 ////////////////////////////////////////////////////////////////////////
 
+namespace
+{
+	bool IsVaryingOut(TQualifier qualifier)
+	{
+		switch(qualifier)
+		{
+		case EvqVaryingOut:
+		case EvqSmoothOut:
+		case EvqFlatOut:
+		case EvqCentroidOut:
+		case EvqVertexOut:
+			return true;
+
+		default: break;
+		}
+
+		return false;
+	}
+
+	bool IsVaryingIn(TQualifier qualifier)
+	{
+		switch(qualifier)
+		{
+		case EvqVaryingIn:
+		case EvqSmoothIn:
+		case EvqFlatIn:
+		case EvqCentroidIn:
+		case EvqFragmentIn:
+			return true;
+
+		default: break;
+		}
+
+		return false;
+	}
+
+	bool IsVarying(TQualifier qualifier)
+	{
+		return IsVaryingIn(qualifier) || IsVaryingOut(qualifier);
+	}
+
+	bool IsAssignment(TOperator op)
+	{
+		switch(op)
+		{
+		case EOpPostIncrement:
+		case EOpPostDecrement:
+		case EOpPreIncrement:
+		case EOpPreDecrement:
+		case EOpAssign:
+		case EOpAddAssign:
+		case EOpSubAssign:
+		case EOpMulAssign:
+		case EOpVectorTimesMatrixAssign:
+		case EOpVectorTimesScalarAssign:
+		case EOpMatrixTimesScalarAssign:
+		case EOpMatrixTimesMatrixAssign:
+		case EOpDivAssign:
+		case EOpIModAssign:
+		case EOpBitShiftLeftAssign:
+		case EOpBitShiftRightAssign:
+		case EOpBitwiseAndAssign:
+		case EOpBitwiseXorAssign:
+		case EOpBitwiseOrAssign:
+			return true;
+		default:
+			return false;
+		}
+	}
+}
+
 //
 // Look at a '.' field selector string and change it into offsets
 // for a vector.
@@ -282,6 +353,7 @@ bool TParseContext::lValueErrorCheck(const TSourceLoc &line, const char* op, TIn
 		case EOpIndexDirect:
 		case EOpIndexIndirect:
 		case EOpIndexDirectStruct:
+		case EOpIndexDirectInterfaceBlock:
 			return lValueErrorCheck(line, op, binaryNode->getLeft());
 		case EOpVectorSwizzle:
 			errorReturn = lValueErrorCheck(line, op, binaryNode->getLeft());
@@ -756,7 +828,7 @@ bool TParseContext::containsSampler(TType& type)
 	if (IsSampler(type.getBasicType()))
 		return true;
 
-	if (type.getBasicType() == EbtStruct) {
+	if (type.getBasicType() == EbtStruct || type.isInterfaceBlock()) {
 		const TFieldList& fields = type.getStruct()->fields();
 		for(unsigned int i = 0; i < fields.size(); ++i) {
 			if (containsSampler(*fields[i]->type()))
@@ -776,7 +848,7 @@ bool TParseContext::arraySizeErrorCheck(const TSourceLoc &line, TIntermTyped* ex
 {
 	TIntermConstantUnion* constant = expr->getAsConstantUnion();
 
-	if (constant == 0 || !constant->isScalarInt())
+	if (expr->getQualifier() != EvqConstExpr || constant == 0 || !constant->isScalarInt())
 	{
 		error(line, "array size must be a constant integer expression", "");
 		return true;
@@ -798,12 +870,18 @@ bool TParseContext::arraySizeErrorCheck(const TSourceLoc &line, TIntermTyped* ex
 	{
 		size = constant->getIConst(0);
 
-		if (size <= 0)
+		if (size < 0)
 		{
-			error(line, "array size must be a positive integer", "");
+			error(line, "array size must be non-negative", "");
 			size = 1;
 			return true;
 		}
+	}
+
+	if(size == 0)
+	{
+		error(line, "array size must be greater than zero", "");
+		return true;
 	}
 
 	return false;
@@ -816,7 +894,7 @@ bool TParseContext::arraySizeErrorCheck(const TSourceLoc &line, TIntermTyped* ex
 //
 bool TParseContext::arrayQualifierErrorCheck(const TSourceLoc &line, TPublicType type)
 {
-	if ((type.qualifier == EvqAttribute) || (type.qualifier == EvqVertexIn) || (type.qualifier == EvqConstExpr)) {
+	if ((type.qualifier == EvqAttribute) || (type.qualifier == EvqVertexIn) || (type.qualifier == EvqConstExpr && mShaderVersion < 300)) {
 		error(line, "cannot declare arrays of this qualifier", TType(type).getCompleteString().c_str());
 		return true;
 	}
@@ -836,6 +914,15 @@ bool TParseContext::arrayTypeErrorCheck(const TSourceLoc &line, TPublicType type
 	//
 	if (type.array) {
 		error(line, "cannot declare arrays of arrays", TType(type).getCompleteString().c_str());
+		return true;
+	}
+
+	// In ESSL1.00 shaders, structs cannot be varying (section 4.3.5). This is checked elsewhere.
+	// In ESSL3.00 shaders, struct inputs/outputs are allowed but not arrays of structs (section 4.3.4).
+	if(mShaderVersion >= 300 && type.type == EbtStruct && IsVarying(type.qualifier))
+	{
+		error(line, "cannot declare arrays of structs of this qualifier",
+		      TType(type).getCompleteString().c_str());
 		return true;
 	}
 
@@ -1170,12 +1257,12 @@ const TFunction* TParseContext::findFunction(const TSourceLoc &line, TFunction* 
 
 	if (symbol == 0) {
 		error(line, "no matching overloaded function found", call->getName().c_str());
-		return 0;
+		return nullptr;
 	}
 
 	if (!symbol->isFunction()) {
 		error(line, "function name expected", call->getName().c_str());
-		return 0;
+		return nullptr;
 	}
 
 	return static_cast<const TFunction*>(symbol);
@@ -1191,9 +1278,19 @@ bool TParseContext::executeInitializer(const TSourceLoc& line, const TString& id
 	ASSERT(intermNode != nullptr);
 	TType type = TType(pType);
 
-	if(type.isArray() && (type.getArraySize() == 0))
+	if(type.isUnsizedArray())
 	{
-		type.setArraySize(initializer->getArraySize());
+		// We have not checked yet whether the initializer actually is an array or not.
+		if(initializer->isArray())
+		{
+			type.setArraySize(initializer->getArraySize());
+		}
+		else
+		{
+			// Having a non-array initializer for an unsized array will result in an error later,
+			// so we don't generate an error message here.
+			type.setArraySize(1u);
+		}
 	}
 
 	TVariable *variable = nullptr;
@@ -1285,6 +1382,12 @@ TPublicType TParseContext::addFullySpecifiedType(TQualifier qualifier, bool inva
 
 	if(mShaderVersion < 300)
 	{
+		if(typeSpecifier.array)
+		{
+			error(typeSpecifier.line, "not supported", "first-class array");
+			returnType.clearArrayness();
+		}
+
 		if(qualifier == EvqAttribute && (typeSpecifier.type == EbtBool || typeSpecifier.type == EbtInt))
 		{
 			error(typeSpecifier.line, "cannot be bool or int", getQualifierString(qualifier));
@@ -1300,42 +1403,85 @@ TPublicType TParseContext::addFullySpecifiedType(TQualifier qualifier, bool inva
 	}
 	else
 	{
-		switch(qualifier)
+		if(!returnType.layoutQualifier.isEmpty())
 		{
-		case EvqSmoothIn:
-		case EvqSmoothOut:
-		case EvqVertexOut:
-		case EvqFragmentIn:
-		case EvqCentroidOut:
-		case EvqCentroidIn:
-			if(typeSpecifier.type == EbtBool)
-			{
-				error(typeSpecifier.line, "cannot be bool", getQualifierString(qualifier));
-				recover();
-			}
-			if(typeSpecifier.type == EbtInt || typeSpecifier.type == EbtUInt)
-			{
-				error(typeSpecifier.line, "must use 'flat' interpolation here", getQualifierString(qualifier));
-				recover();
-			}
-			break;
+			globalErrorCheck(typeSpecifier.line, symbolTable.atGlobalLevel(), "layout");
+		}
 
-		case EvqVertexIn:
-		case EvqFragmentOut:
-		case EvqFlatIn:
-		case EvqFlatOut:
-			if(typeSpecifier.type == EbtBool)
-			{
-				error(typeSpecifier.line, "cannot be bool", getQualifierString(qualifier));
-				recover();
-			}
-			break;
-
-		default: break;
+		if(IsVarying(returnType.qualifier) || returnType.qualifier == EvqVertexIn || returnType.qualifier == EvqFragmentOut)
+		{
+			checkInputOutputTypeIsValidES3(returnType.qualifier, typeSpecifier, typeSpecifier.line);
 		}
 	}
 
 	return returnType;
+}
+
+void TParseContext::checkInputOutputTypeIsValidES3(const TQualifier qualifier,
+                                                   const TPublicType &type,
+                                                   const TSourceLoc &qualifierLocation)
+{
+	// An input/output variable can never be bool or a sampler. Samplers are checked elsewhere.
+	if(type.type == EbtBool)
+	{
+		error(qualifierLocation, "cannot be bool", getQualifierString(qualifier));
+	}
+
+	// Specific restrictions apply for vertex shader inputs and fragment shader outputs.
+	switch(qualifier)
+	{
+	case EvqVertexIn:
+		// ESSL 3.00 section 4.3.4
+		if(type.array)
+		{
+			error(qualifierLocation, "cannot be array", getQualifierString(qualifier));
+		}
+		// Vertex inputs with a struct type are disallowed in singleDeclarationErrorCheck
+		return;
+	case EvqFragmentOut:
+		// ESSL 3.00 section 4.3.6
+		if(type.isMatrix())
+		{
+			error(qualifierLocation, "cannot be matrix", getQualifierString(qualifier));
+		}
+		// Fragment outputs with a struct type are disallowed in singleDeclarationErrorCheck
+		return;
+	default:
+		break;
+	}
+
+	// Vertex shader outputs / fragment shader inputs have a different, slightly more lenient set of
+	// restrictions.
+	bool typeContainsIntegers = (type.type == EbtInt || type.type == EbtUInt ||
+	                            type.isStructureContainingType(EbtInt) ||
+	                            type.isStructureContainingType(EbtUInt));
+	if(typeContainsIntegers && qualifier != EvqFlatIn && qualifier != EvqFlatOut)
+	{
+		error(qualifierLocation, "must use 'flat' interpolation here", getQualifierString(qualifier));
+	}
+
+	if(type.type == EbtStruct)
+	{
+		// ESSL 3.00 sections 4.3.4 and 4.3.6.
+		// These restrictions are only implied by the ESSL 3.00 spec, but
+		// the ESSL 3.10 spec lists these restrictions explicitly.
+		if(type.array)
+		{
+			error(qualifierLocation, "cannot be an array of structures", getQualifierString(qualifier));
+		}
+		if(type.isStructureContainingArrays())
+		{
+			error(qualifierLocation, "cannot be a structure containing an array", getQualifierString(qualifier));
+		}
+		if(type.isStructureContainingType(EbtStruct))
+		{
+			error(qualifierLocation, "cannot be a structure containing a structure", getQualifierString(qualifier));
+		}
+		if(type.isStructureContainingType(EbtBool))
+		{
+			error(qualifierLocation, "cannot be a structure containing a bool", getQualifierString(qualifier));
+		}
+	}
 }
 
 TIntermAggregate *TParseContext::parseSingleDeclaration(TPublicType &publicType,
@@ -1915,7 +2061,13 @@ TFunction *TParseContext::parseFunctionDeclarator(const TSourceLoc &location, TF
 	// here.
 	//
 	TFunction *prevDec = static_cast<TFunction *>(symbolTable.find(function->getMangledName(), getShaderVersion()));
-	if(prevDec)
+	if(getShaderVersion() >= 300 && symbolTable.hasUnmangledBuiltIn(function->getName().c_str()))
+	{
+		// With ESSL 3.00, names of built-in functions cannot be redeclared as functions.
+		// Therefore overloading or redefining builtin functions is an error.
+		error(location, "Name of a built-in function cannot be redeclared as function", function->getName().c_str());
+	}
+	else if(prevDec)
 	{
 		if(prevDec->getReturnType() != function->getReturnType())
 		{
@@ -1969,84 +2121,7 @@ TFunction *TParseContext::addConstructorFunc(const TPublicType &publicTypeIn)
 	}
 	else
 	{
-		switch(publicType.type)
-		{
-		case EbtFloat:
-			if(publicType.isMatrix())
-			{
-				switch(publicType.getCols())
-				{
-				case 2:
-					switch(publicType.getRows())
-					{
-					case 2: op = EOpConstructMat2;  break;
-					case 3: op = EOpConstructMat2x3;  break;
-					case 4: op = EOpConstructMat2x4;  break;
-					}
-					break;
-				case 3:
-					switch(publicType.getRows())
-					{
-					case 2: op = EOpConstructMat3x2;  break;
-					case 3: op = EOpConstructMat3;  break;
-					case 4: op = EOpConstructMat3x4;  break;
-					}
-					break;
-				case 4:
-					switch(publicType.getRows())
-					{
-					case 2: op = EOpConstructMat4x2;  break;
-					case 3: op = EOpConstructMat4x3;  break;
-					case 4: op = EOpConstructMat4;  break;
-					}
-					break;
-				}
-			}
-			else
-			{
-				switch(publicType.getNominalSize())
-				{
-				case 1: op = EOpConstructFloat; break;
-				case 2: op = EOpConstructVec2;  break;
-				case 3: op = EOpConstructVec3;  break;
-				case 4: op = EOpConstructVec4;  break;
-				}
-			}
-			break;
-
-		case EbtInt:
-			switch(publicType.getNominalSize())
-			{
-			case 1: op = EOpConstructInt;   break;
-			case 2: op = EOpConstructIVec2; break;
-			case 3: op = EOpConstructIVec3; break;
-			case 4: op = EOpConstructIVec4; break;
-			}
-			break;
-
-		case EbtUInt:
-			switch(publicType.getNominalSize())
-			{
-			case 1: op = EOpConstructUInt;  break;
-			case 2: op = EOpConstructUVec2; break;
-			case 3: op = EOpConstructUVec3; break;
-			case 4: op = EOpConstructUVec4; break;
-			}
-			break;
-
-		case EbtBool:
-			switch(publicType.getNominalSize())
-			{
-			case 1: op = EOpConstructBool;  break;
-			case 2: op = EOpConstructBVec2; break;
-			case 3: op = EOpConstructBVec3; break;
-			case 4: op = EOpConstructBVec4; break;
-			}
-			break;
-
-		default: break;
-		}
-
+		op = TypeToConstructorOperator(TType(publicType));
 		if(op == EOpNull)
 		{
 			error(publicType.line, "cannot construct this type", getBasicString(publicType.type));
@@ -2076,7 +2151,23 @@ TIntermTyped* TParseContext::addConstructor(TIntermNode* arguments, const TType*
 		aggregateArguments->getSequence().push_back(arguments);
 	}
 
-	if(op == EOpConstructStruct)
+	if(type->isArray())
+	{
+		// GLSL ES 3.00 section 5.4.4: Each argument must be the same type as the element type of
+		// the array.
+		for(TIntermNode *&argNode : aggregateArguments->getSequence())
+		{
+			const TType &argType = argNode->getAsTyped()->getType();
+			// It has already been checked that the argument is not an array.
+			ASSERT(!argType.isArray());
+			if(!argType.sameElementType(*type))
+			{
+				error(line, "Array constructor argument has an incorrect type", "Error");
+				return nullptr;
+			}
+		}
+	}
+	else if(op == EOpConstructStruct)
 	{
 		const TFieldList &fields = type->getStruct()->fields();
 		TIntermSequence &args = aggregateArguments->getSequence();
@@ -2088,7 +2179,7 @@ TIntermTyped* TParseContext::addConstructor(TIntermNode* arguments, const TType*
 				error(line, "Structure constructor arguments do not match structure fields", "Error");
 				recover();
 
-				return 0;
+				return nullptr;
 			}
 		}
 	}
@@ -2117,12 +2208,12 @@ TIntermTyped* TParseContext::foldConstConstructor(TIntermAggregate* aggrNode, co
 			returnVal = intermediate.parseConstTree(aggrNode->getLine(), aggrNode, unionArray, aggrNode->getOp(), type);
 		}
 		if (returnVal)
-			return 0;
+			return nullptr;
 
 		return intermediate.addConstantUnion(unionArray, type, aggrNode->getLine());
 	}
 
-	return 0;
+	return nullptr;
 }
 
 //
@@ -2148,7 +2239,7 @@ TIntermTyped* TParseContext::addConstVectorNode(TVectorFields& fields, TIntermTy
 		error(line, "Cannot offset into the vector", "Error");
 		recover();
 
-		return 0;
+		return nullptr;
 	}
 
 	ConstantUnion* constArray = new ConstantUnion[fields.num];
@@ -2199,7 +2290,7 @@ TIntermTyped* TParseContext::addConstMatrixNode(int index, TIntermTyped* node, c
 		error(line, "Cannot offset into the matrix", "Error");
 		recover();
 
-		return 0;
+		return nullptr;
 	}
 
 	return typedNode;
@@ -2237,7 +2328,7 @@ TIntermTyped* TParseContext::addConstArrayNode(int index, TIntermTyped* node, co
 		error(line, "Cannot offset into the array", "Error");
 		recover();
 
-		return 0;
+		return nullptr;
 	}
 
 	return typedNode;
@@ -2272,7 +2363,7 @@ TIntermTyped* TParseContext::addConstStruct(const TString& identifier, TIntermTy
 		error(line, "Cannot offset into the structure", "Error");
 		recover();
 
-		return 0;
+		return nullptr;
 	}
 
 	return typedNode;
@@ -2701,9 +2792,8 @@ TIntermTyped *TParseContext::addFieldSelectionExpression(TIntermTyped *baseExpre
 				}
 				else
 				{
-					ConstantUnion *unionArray = new ConstantUnion[1];
-					unionArray->setIConst(i);
-					TIntermTyped *index = intermediate.addConstantUnion(unionArray, *fields[i]->type(), fieldLocation);
+					TIntermTyped *index = TIntermTyped::CreateIndexNode(i);
+					index->setLine(fieldLocation);
 					indexedExpression = intermediate.addIndex(EOpIndexDirectStruct, baseExpression, index, dotLocation);
 					indexedExpression->setType(*fields[i]->type());
 				}
@@ -3221,6 +3311,46 @@ bool TParseContext::binaryOpCommonCheck(TOperator op, TIntermTyped *left, TInter
 		{
 			return false;
 		}
+		break;
+	case EOpAdd:
+	case EOpSub:
+	case EOpDiv:
+	case EOpIMod:
+	case EOpBitShiftLeft:
+	case EOpBitShiftRight:
+	case EOpBitwiseAnd:
+	case EOpBitwiseXor:
+	case EOpBitwiseOr:
+	case EOpAddAssign:
+	case EOpSubAssign:
+	case EOpDivAssign:
+	case EOpIModAssign:
+	case EOpBitShiftLeftAssign:
+	case EOpBitShiftRightAssign:
+	case EOpBitwiseAndAssign:
+	case EOpBitwiseXorAssign:
+	case EOpBitwiseOrAssign:
+		if((left->isMatrix() && right->isVector()) || (left->isVector() && right->isMatrix()))
+		{
+			return false;
+		}
+
+		// Are the sizes compatible?
+		if(left->getNominalSize() != right->getNominalSize() || left->getSecondarySize() != right->getSecondarySize())
+		{
+			// If the nominal sizes of operands do not match:
+			// One of them must be a scalar.
+			if(!left->isScalar() && !right->isScalar())
+				return false;
+
+			// In the case of compound assignment other than multiply-assign,
+			// the right side needs to be a scalar. Otherwise a vector/matrix
+			// would be assigned to a scalar. A scalar can't be shifted by a
+			// vector either.
+			if(!right->isScalar() && (IsAssignment(op) || op == EOpBitShiftLeft || op == EOpBitShiftRight))
+				return false;
+		}
+		break;
 	default:
 		break;
 	}

@@ -87,10 +87,10 @@ ExecutionContext* ImageCapture::getExecutionContext() const {
 }
 
 bool ImageCapture::hasPendingActivity() const {
-  return hasEventListeners();
+  return getExecutionContext() && hasEventListeners();
 }
 
-void ImageCapture::contextDestroyed() {
+void ImageCapture::contextDestroyed(ExecutionContext*) {
   removeAllEventListeners();
   m_serviceRequests.clear();
   DCHECK(!hasEventListeners());
@@ -180,7 +180,7 @@ ScriptPromise ImageCapture::setOptions(ScriptState* scriptState,
       auto mojoPoint = media::mojom::blink::Point2D::New();
       mojoPoint->x = point.x();
       mojoPoint->y = point.y();
-      settings->points_of_interest.append(std::move(mojoPoint));
+      settings->points_of_interest.push_back(std::move(mojoPoint));
     }
   }
   settings->has_color_temperature = photoSettings.hasColorTemperature();
@@ -248,9 +248,10 @@ ScriptPromise ImageCapture::grabFrame(ScriptState* scriptState,
   }
 
   // Create |m_frameGrabber| the first time.
-  if (!m_frameGrabber)
+  if (!m_frameGrabber) {
     m_frameGrabber =
-        wrapUnique(Platform::current()->createImageCaptureFrameGrabber());
+        WTF::wrapUnique(Platform::current()->createImageCaptureFrameGrabber());
+  }
 
   if (!m_frameGrabber) {
     resolver->reject(DOMException::create(
@@ -267,14 +268,12 @@ ScriptPromise ImageCapture::grabFrame(ScriptState* scriptState,
 }
 
 ImageCapture::ImageCapture(ExecutionContext* context, MediaStreamTrack* track)
-    : ActiveScriptWrappable(this),
-      ContextLifecycleObserver(context),
-      m_streamTrack(track) {
+    : ContextLifecycleObserver(context), m_streamTrack(track) {
   DCHECK(m_streamTrack);
   DCHECK(!m_service.is_bound());
 
   Platform::current()->interfaceProvider()->getInterface(
-      mojo::GetProxy(&m_service));
+      mojo::MakeRequest(&m_service));
 
   m_service.set_connection_error_handler(convertToBaseCallback(WTF::bind(
       &ImageCapture::onServiceConnectionError, wrapWeakPersistent(this))));
@@ -292,36 +291,38 @@ void ImageCapture::onCapabilities(
     // TODO(mcasas): Should be using a mojo::StructTraits.
     MediaSettingsRange* iso = MediaSettingsRange::create(
         capabilities->iso->max, capabilities->iso->min,
-        capabilities->iso->current);
+        capabilities->iso->current, capabilities->iso->step);
     MediaSettingsRange* height = MediaSettingsRange::create(
         capabilities->height->max, capabilities->height->min,
-        capabilities->height->current);
+        capabilities->height->current, capabilities->height->step);
     MediaSettingsRange* width = MediaSettingsRange::create(
         capabilities->width->max, capabilities->width->min,
-        capabilities->width->current);
+        capabilities->width->current, capabilities->width->step);
     MediaSettingsRange* zoom = MediaSettingsRange::create(
         capabilities->zoom->max, capabilities->zoom->min,
-        capabilities->zoom->current);
-    MediaSettingsRange* exposureCompensation = MediaSettingsRange::create(
-        capabilities->exposure_compensation->max,
-        capabilities->exposure_compensation->min,
-        capabilities->exposure_compensation->current);
+        capabilities->zoom->current, capabilities->zoom->step);
+    MediaSettingsRange* exposureCompensation =
+        MediaSettingsRange::create(capabilities->exposure_compensation->max,
+                                   capabilities->exposure_compensation->min,
+                                   capabilities->exposure_compensation->current,
+                                   capabilities->exposure_compensation->step);
     MediaSettingsRange* colorTemperature =
         MediaSettingsRange::create(capabilities->color_temperature->max,
                                    capabilities->color_temperature->min,
-                                   capabilities->color_temperature->current);
+                                   capabilities->color_temperature->current,
+                                   capabilities->color_temperature->step);
     MediaSettingsRange* brightness = MediaSettingsRange::create(
         capabilities->brightness->max, capabilities->brightness->min,
-        capabilities->brightness->current);
+        capabilities->brightness->current, capabilities->brightness->step);
     MediaSettingsRange* contrast = MediaSettingsRange::create(
         capabilities->contrast->max, capabilities->contrast->min,
-        capabilities->contrast->current);
+        capabilities->contrast->current, capabilities->contrast->step);
     MediaSettingsRange* saturation = MediaSettingsRange::create(
         capabilities->saturation->max, capabilities->saturation->min,
-        capabilities->saturation->current);
+        capabilities->saturation->current, capabilities->saturation->step);
     MediaSettingsRange* sharpness = MediaSettingsRange::create(
         capabilities->sharpness->max, capabilities->sharpness->min,
-        capabilities->sharpness->current);
+        capabilities->sharpness->current, capabilities->sharpness->step);
     PhotoCapabilities* caps = PhotoCapabilities::create();
     caps->setIso(iso);
     caps->setImageHeight(height);

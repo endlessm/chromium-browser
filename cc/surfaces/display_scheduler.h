@@ -18,7 +18,6 @@
 
 namespace cc {
 
-class OutputSurface;
 class BeginFrameSource;
 
 class CC_SURFACES_EXPORT DisplaySchedulerClient {
@@ -30,12 +29,12 @@ class CC_SURFACES_EXPORT DisplaySchedulerClient {
 
 class CC_SURFACES_EXPORT DisplayScheduler : public BeginFrameObserverBase {
  public:
-  DisplayScheduler(BeginFrameSource* begin_frame_source,
-                   base::SingleThreadTaskRunner* task_runner,
+  DisplayScheduler(base::SingleThreadTaskRunner* task_runner,
                    int max_pending_swaps);
   ~DisplayScheduler() override;
 
   void SetClient(DisplaySchedulerClient* client);
+  void SetBeginFrameSource(BeginFrameSource* begin_frame_source);
 
   void SetVisible(bool visible);
   void SetRootSurfaceResourcesLocked(bool locked);
@@ -45,7 +44,7 @@ class CC_SURFACES_EXPORT DisplayScheduler : public BeginFrameObserverBase {
   virtual void SurfaceDamaged(const SurfaceId& surface_id);
 
   virtual void DidSwapBuffers();
-  void DidSwapBuffersComplete();
+  void DidReceiveSwapBuffersAck();
 
   void OutputSurfaceLost();
 
@@ -56,12 +55,13 @@ class CC_SURFACES_EXPORT DisplayScheduler : public BeginFrameObserverBase {
  protected:
   base::TimeTicks DesiredBeginFrameDeadlineTime();
   virtual void ScheduleBeginFrameDeadline();
-  void AttemptDrawAndSwap();
+  bool AttemptDrawAndSwap();
   void OnBeginFrameDeadline();
-  void DrawAndSwap();
+  bool DrawAndSwap();
   void StartObservingBeginFrames();
   void StopObservingBeginFrames();
   bool ShouldDraw();
+  void DidFinishFrame(bool did_draw);
 
   DisplaySchedulerClient* client_;
   BeginFrameSource* begin_frame_source_;

@@ -39,48 +39,62 @@ const char kHistogramFromGWSParseStart[] =
     "PageLoad.Clients.FromGoogleSearch.ParseTiming.NavigationToParseStart";
 
 const char kHistogramFromGWSAbortNewNavigationBeforeCommit[] =
-    "PageLoad.Clients.FromGoogleSearch.AbortTiming.NewNavigation.BeforeCommit";
-const char kHistogramFromGWSAbortNewNavigationBeforePaint[] =
-    "PageLoad.Clients.FromGoogleSearch.AbortTiming.NewNavigation.AfterCommit."
-    "BeforePaint";
-const char kHistogramFromGWSAbortNewNavigationBeforeInteraction[] =
-    "PageLoad.Clients.FromGoogleSearch.AbortTiming.NewNavigation.AfterPaint."
-    "BeforeInteraction";
-const char kHistogramFromGWSAbortStopBeforeCommit[] =
-    "PageLoad.Clients.FromGoogleSearch.AbortTiming.Stop.BeforeCommit";
-const char kHistogramFromGWSAbortStopBeforePaint[] =
-    "PageLoad.Clients.FromGoogleSearch.AbortTiming.Stop.AfterCommit."
-    "BeforePaint";
-const char kHistogramFromGWSAbortStopBeforeInteraction[] =
-    "PageLoad.Clients.FromGoogleSearch.AbortTiming.Stop.AfterPaint."
-    "BeforeInteraction";
-const char kHistogramFromGWSAbortCloseBeforeCommit[] =
-    "PageLoad.Clients.FromGoogleSearch.AbortTiming.Close.BeforeCommit";
-const char kHistogramFromGWSAbortCloseBeforePaint[] =
-    "PageLoad.Clients.FromGoogleSearch.AbortTiming.Close.AfterCommit."
-    "BeforePaint";
-const char kHistogramFromGWSAbortCloseBeforeInteraction[] =
-    "PageLoad.Clients.FromGoogleSearch.AbortTiming.Close.AfterPaint."
-    "BeforeInteraction";
-const char kHistogramFromGWSAbortOtherBeforeCommit[] =
-    "PageLoad.Clients.FromGoogleSearch.AbortTiming.Other.BeforeCommit";
-const char kHistogramFromGWSAbortReloadBeforeCommit[] =
-    "PageLoad.Clients.FromGoogleSearch.AbortTiming.Reload.BeforeCommit";
-const char kHistogramFromGWSAbortReloadBeforePaint[] =
-    "PageLoad.Clients.FromGoogleSearch.AbortTiming.Reload.AfterCommit."
-    "BeforePaint";
-const char kHistogramFromGWSAbortReloadBeforeInteraction[] =
-    "PageLoad.Clients.FromGoogleSearch.AbortTiming.Reload.AfterPaint."
-    "Before1sDelayedInteraction";
-const char kHistogramFromGWSAbortForwardBackBeforeCommit[] =
-    "PageLoad.Clients.FromGoogleSearch.AbortTiming.ForwardBackNavigation."
+    "PageLoad.Clients.FromGoogleSearch.Experimental.AbortTiming.NewNavigation."
     "BeforeCommit";
-const char kHistogramFromGWSAbortForwardBackBeforePaint[] =
-    "PageLoad.Clients.FromGoogleSearch.AbortTiming.ForwardBackNavigation."
+const char kHistogramFromGWSAbortNewNavigationBeforePaint[] =
+    "PageLoad.Clients.FromGoogleSearch.Experimental.AbortTiming.NewNavigation."
     "AfterCommit.BeforePaint";
-const char kHistogramFromGWSAbortForwardBackBeforeInteraction[] =
-    "PageLoad.Clients.FromGoogleSearch.AbortTiming.ForwardBackNavigation."
+const char kHistogramFromGWSAbortNewNavigationBeforeInteraction[] =
+    "PageLoad.Clients.FromGoogleSearch.Experimental.AbortTiming.NewNavigation."
+    "AfterPaint.BeforeInteraction";
+const char kHistogramFromGWSAbortStopBeforeCommit[] =
+    "PageLoad.Clients.FromGoogleSearch.Experimental.AbortTiming.Stop."
+    "BeforeCommit";
+const char kHistogramFromGWSAbortStopBeforePaint[] =
+    "PageLoad.Clients.FromGoogleSearch.Experimental.AbortTiming.Stop."
+    "AfterCommit.BeforePaint";
+const char kHistogramFromGWSAbortStopBeforeInteraction[] =
+    "PageLoad.Clients.FromGoogleSearch.Experimental.AbortTiming.Stop."
+    "AfterPaint.BeforeInteraction";
+const char kHistogramFromGWSAbortCloseBeforeCommit[] =
+    "PageLoad.Clients.FromGoogleSearch.Experimental.AbortTiming.Close."
+    "BeforeCommit";
+const char kHistogramFromGWSAbortCloseBeforePaint[] =
+    "PageLoad.Clients.FromGoogleSearch.Experimental.AbortTiming.Close."
+    "AfterCommit.BeforePaint";
+const char kHistogramFromGWSAbortCloseBeforeInteraction[] =
+    "PageLoad.Clients.FromGoogleSearch.Experimental.AbortTiming.Close."
+    "AfterPaint.BeforeInteraction";
+const char kHistogramFromGWSAbortOtherBeforeCommit[] =
+    "PageLoad.Clients.FromGoogleSearch.Experimental.AbortTiming.Other."
+    "BeforeCommit";
+const char kHistogramFromGWSAbortReloadBeforeCommit[] =
+    "PageLoad.Clients.FromGoogleSearch.Experimental.AbortTiming.Reload."
+    "BeforeCommit";
+const char kHistogramFromGWSAbortReloadBeforePaint[] =
+    "PageLoad.Clients.FromGoogleSearch.Experimental.AbortTiming.Reload."
+    "AfterCommit.BeforePaint";
+const char kHistogramFromGWSAbortReloadBeforeInteraction[] =
+    "PageLoad.Clients.FromGoogleSearch.Experimental.AbortTiming.Reload."
     "AfterPaint.Before1sDelayedInteraction";
+const char kHistogramFromGWSAbortForwardBackBeforeCommit[] =
+    "PageLoad.Clients.FromGoogleSearch.Experimental.AbortTiming."
+    "ForwardBackNavigation.BeforeCommit";
+const char kHistogramFromGWSAbortForwardBackBeforePaint[] =
+    "PageLoad.Clients.FromGoogleSearch.Experimental.AbortTiming."
+    "ForwardBackNavigation.AfterCommit.BeforePaint";
+const char kHistogramFromGWSAbortForwardBackBeforeInteraction[] =
+    "PageLoad.Clients.FromGoogleSearch.Experimental.AbortTiming."
+    "ForwardBackNavigation.AfterPaint.Before1sDelayedInteraction";
+const char kHistogramFromGWSAbortBackgroundBeforeCommit[] =
+    "PageLoad.Clients.FromGoogleSearch.Experimental.AbortTiming.Background."
+    "BeforeCommit";
+const char kHistogramFromGWSAbortBackgroundBeforePaint[] =
+    "PageLoad.Clients.FromGoogleSearch.Experimental.AbortTiming.Background."
+    "AfterCommit.BeforePaint";
+const char kHistogramFromGWSAbortBackgroundBeforeInteraction[] =
+    "PageLoad.Clients.FromGoogleSearch.Experimental.AbortTiming.Background."
+    "AfterPaint.BeforeInteraction";
 
 }  // namespace internal
 
@@ -110,6 +124,10 @@ void LogCommittedAbortsBeforePaint(UserAbortType abort_type,
       PAGE_LOAD_HISTOGRAM(
           internal::kHistogramFromGWSAbortForwardBackBeforePaint,
           time_to_abort);
+      break;
+    case UserAbortType::ABORT_BACKGROUND:
+      PAGE_LOAD_HISTOGRAM(internal::kHistogramFromGWSAbortBackgroundBeforePaint,
+                          time_to_abort);
       break;
     default:
       // These should only be logged for provisional aborts.
@@ -143,6 +161,11 @@ void LogAbortsAfterPaintBeforeInteraction(UserAbortType abort_type,
     case UserAbortType::ABORT_FORWARD_BACK:
       PAGE_LOAD_HISTOGRAM(
           internal::kHistogramFromGWSAbortForwardBackBeforeInteraction,
+          time_to_abort);
+      break;
+    case UserAbortType::ABORT_BACKGROUND:
+      PAGE_LOAD_HISTOGRAM(
+          internal::kHistogramFromGWSAbortBackgroundBeforeInteraction,
           time_to_abort);
       break;
     default:
@@ -179,6 +202,11 @@ void LogProvisionalAborts(UserAbortType abort_type,
     case UserAbortType::ABORT_FORWARD_BACK:
       PAGE_LOAD_HISTOGRAM(
           internal::kHistogramFromGWSAbortForwardBackBeforeCommit,
+          time_to_abort);
+      break;
+    case UserAbortType::ABORT_BACKGROUND:
+      PAGE_LOAD_HISTOGRAM(
+          internal::kHistogramFromGWSAbortBackgroundBeforeCommit,
           time_to_abort);
       break;
     default:

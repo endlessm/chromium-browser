@@ -25,6 +25,7 @@
 #include "chrome/browser/search/search.h"
 #include "chrome/browser/sessions/session_service_factory.h"
 #include "chrome/browser/sessions/tab_restore_service_factory.h"
+#include "chrome/browser/ssl/security_state_tab_helper.h"
 #include "chrome/browser/translate/chrome_translate_client.h"
 #include "chrome/browser/ui/accelerator_utils.h"
 #include "chrome/browser/ui/autofill/save_card_bubble_controller_impl.h"
@@ -51,6 +52,7 @@
 #include "chrome/browser/ui/tab_contents/core_tab_helper.h"
 #include "chrome/browser/ui/tab_dialogs.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
+#include "chrome/browser/ui/translate/translate_bubble_view_state_transition.h"
 #include "chrome/browser/upgrade_detector.h"
 #include "chrome/common/content_restriction.h"
 #include "chrome/common/features.h"
@@ -61,6 +63,7 @@
 #include "components/favicon/content/content_favicon_driver.h"
 #include "components/google/core/browser/google_util.h"
 #include "components/prefs/pref_service.h"
+#include "components/security_state/core/security_state.h"
 #include "components/sessions/core/live_tab_context.h"
 #include "components/sessions/core/tab_restore_service.h"
 #include "components/signin/core/browser/signin_header_helper.h"
@@ -83,10 +86,13 @@
 #include "content/public/common/url_constants.h"
 #include "content/public/common/url_utils.h"
 #include "content/public/common/user_agent.h"
+#include "extensions/features/features.h"
 #include "net/base/escape.h"
+#include "printing/features/features.h"
+#include "rlz/features/features.h"
 #include "ui/events/keycodes/keyboard_codes.h"
 
-#if defined(ENABLE_EXTENSIONS)
+#if BUILDFLAG(ENABLE_EXTENSIONS)
 #include "chrome/browser/extensions/api/commands/command_service.h"
 #include "chrome/browser/extensions/api/extension_action/extension_action_api.h"
 #include "chrome/browser/extensions/tab_helper.h"
@@ -100,14 +106,14 @@
 #include "extensions/common/extension_set.h"
 #endif
 
-#if defined(ENABLE_PRINTING)
+#if BUILDFLAG(ENABLE_PRINTING)
 #include "chrome/browser/printing/print_view_manager_common.h"
-#if defined(ENABLE_PRINT_PREVIEW)
+#if BUILDFLAG(ENABLE_PRINT_PREVIEW)
 #include "chrome/browser/printing/print_preview_dialog_controller.h"
-#endif  // defined(ENABLE_PRINT_PREVIEW)
-#endif  // defined(ENABLE_PRINTING)
+#endif  // BUILDFLAG(ENABLE_PRINT_PREVIEW)
+#endif  // BUILDFLAG(ENABLE_PRINTING)
 
-#if defined(ENABLE_RLZ)
+#if BUILDFLAG(ENABLE_RLZ)
 #include "components/rlz/rlz_tracker.h"  // nogncheck
 #endif
 
@@ -116,8 +122,36 @@
 #endif
 
 namespace {
+
 const char kOsOverrideForTabletSite[] = "Linux; Android 4.0.3";
+
+translate::TranslateBubbleUiEvent TranslateBubbleResultToUiEvent(
+    ShowTranslateBubbleResult result) {
+  switch (result) {
+    default:
+      NOTREACHED();
+      // Fall through.
+    case ShowTranslateBubbleResult::SUCCESS:
+      return translate::TranslateBubbleUiEvent::BUBBLE_SHOWN;
+    case ShowTranslateBubbleResult::BROWSER_WINDOW_NOT_VALID:
+      return translate::TranslateBubbleUiEvent::
+          BUBBLE_NOT_SHOWN_WINDOW_NOT_VALID;
+    case ShowTranslateBubbleResult::BROWSER_WINDOW_MINIMIZED:
+      return translate::TranslateBubbleUiEvent::
+          BUBBLE_NOT_SHOWN_WINDOW_MINIMIZED;
+    case ShowTranslateBubbleResult::BROWSER_WINDOW_NOT_ACTIVE:
+      return translate::TranslateBubbleUiEvent::
+          BUBBLE_NOT_SHOWN_WINDOW_NOT_ACTIVE;
+    case ShowTranslateBubbleResult::WEB_CONTENTS_NOT_ACTIVE:
+      return translate::TranslateBubbleUiEvent::
+          BUBBLE_NOT_SHOWN_WEB_CONTENTS_NOT_ACTIVE;
+    case ShowTranslateBubbleResult::EDITABLE_FIELD_IS_ACTIVE:
+      return translate::TranslateBubbleUiEvent::
+          BUBBLE_NOT_SHOWN_EDITABLE_FIELD_IS_ACTIVE;
+  }
 }
+
+}  // namespace
 
 using base::UserMetricsAction;
 using bookmarks::BookmarkModel;
@@ -142,7 +176,7 @@ bool CanBookmarkCurrentPageInternal(const Browser* browser,
            !chrome::ShouldRemoveBookmarkThisPageUI(browser->profile()));
 }
 
-#if defined(ENABLE_EXTENSIONS)
+#if BUILDFLAG(ENABLE_EXTENSIONS)
 bool GetBookmarkOverrideCommand(
     Profile* profile,
     const extensions::Extension** extension,
@@ -232,10 +266,10 @@ void ReloadInternal(Browser* browser,
   if (devtools && devtools->ReloadInspectedWebContents(bypass_cache))
     return;
 
-  if (bypass_cache)
-    new_tab->GetController().ReloadBypassingCache(true);
-  else
-    new_tab->GetController().Reload(true);
+  new_tab->GetController().Reload(bypass_cache
+                                      ? content::ReloadType::BYPASSING_CACHE
+                                      : content::ReloadType::NORMAL,
+                                  true);
 }
 
 bool IsShowingWebContentsModalDialog(Browser* browser) {
@@ -255,7 +289,7 @@ bool IsShowingWebContentsModalDialog(Browser* browser) {
 
 #if BUILDFLAG(ENABLE_BASIC_PRINT_DIALOG)
 bool PrintPreviewShowing(const Browser* browser) {
-#if defined(ENABLE_PRINT_PREVIEW)
+#if BUILDFLAG(ENABLE_PRINT_PREVIEW)
   WebContents* contents = browser->tab_strip_model()->GetActiveWebContents();
   printing::PrintPreviewDialogController* controller =
       printing::PrintPreviewDialogController::GetInstance();
@@ -442,7 +476,7 @@ void Home(Browser* browser, WindowOpenDisposition disposition) {
   content::RecordAction(UserMetricsAction("Home"));
 
   std::string extra_headers;
-#if defined(ENABLE_RLZ)
+#if BUILDFLAG(ENABLE_RLZ)
   // If the home page is a Google home page, add the RLZ header to the request.
   PrefService* pref_service = browser->profile()->GetPrefs();
   if (pref_service) {
@@ -452,11 +486,11 @@ void Home(Browser* browser, WindowOpenDisposition disposition) {
           rlz::RLZTracker::ChromeHomePage());
     }
   }
-#endif  // defined(ENABLE_RLZ)
+#endif  // BUILDFLAG(ENABLE_RLZ)
 
   GURL url = browser->profile()->GetHomePage();
 
-#if defined(ENABLE_EXTENSIONS)
+#if BUILDFLAG(ENABLE_EXTENSIONS)
   // With bookmark apps enabled, hosted apps should return to their launch page
   // when the home button is pressed.
   if (browser->is_app()) {
@@ -522,7 +556,7 @@ void OpenCurrentURL(Browser* browser) {
       TabStripModel::ADD_FORCE_INDEX | TabStripModel::ADD_INHERIT_OPENER;
   Navigate(&params);
 
-#if defined(ENABLE_EXTENSIONS)
+#if BUILDFLAG(ENABLE_EXTENSIONS)
   DCHECK(extensions::ExtensionSystem::Get(
       browser->profile())->extension_service());
   const extensions::Extension* extension =
@@ -761,7 +795,7 @@ void BookmarkCurrentPageIgnoringExtensionOverrides(Browser* browser) {
 void BookmarkCurrentPageAllowingExtensionOverrides(Browser* browser) {
   DCHECK(!chrome::ShouldRemoveBookmarkThisPageUI(browser->profile()));
 
-#if defined(ENABLE_EXTENSIONS)
+#if BUILDFLAG(ENABLE_EXTENSIONS)
   const extensions::Extension* extension = NULL;
   extensions::Command command;
   extensions::CommandService::ExtensionCommandType command_type;
@@ -826,8 +860,10 @@ void Translate(Browser* browser) {
     else if (chrome_translate_client->GetLanguageState().IsPageTranslated())
       step = translate::TRANSLATE_STEP_AFTER_TRANSLATE;
   }
-  browser->window()->ShowTranslateBubble(
+  ShowTranslateBubbleResult result = browser->window()->ShowTranslateBubble(
       web_contents, step, translate::TranslateErrors::NONE, true);
+  if (result != ShowTranslateBubbleResult::SUCCESS)
+    translate::ReportUiAction(TranslateBubbleResultToUiEvent(result));
 }
 
 void ManagePasswordsForPage(Browser* browser) {
@@ -862,23 +898,30 @@ void ShowFindBar(Browser* browser) {
   browser->GetFindBarController()->Show();
 }
 
-void ShowWebsiteSettings(
-    Browser* browser,
-    content::WebContents* web_contents,
-    const GURL& url,
-    const security_state::SecurityStateModel::SecurityInfo& security_info) {
+bool ShowWebsiteSettings(Browser* browser, content::WebContents* web_contents) {
+  content::NavigationEntry* entry =
+      web_contents->GetController().GetVisibleEntry();
+  if (!entry)
+    return false;
+
+  SecurityStateTabHelper* helper =
+      SecurityStateTabHelper::FromWebContents(web_contents);
+  security_state::SecurityInfo security_info;
+  helper->GetSecurityInfo(&security_info);
+
   browser->window()->ShowWebsiteSettings(
       Profile::FromBrowserContext(web_contents->GetBrowserContext()),
-      web_contents, url, security_info);
+      web_contents, entry->GetVirtualURL(), security_info);
+  return true;
 }
 
 void Print(Browser* browser) {
-#if defined(ENABLE_PRINTING)
-  printing::StartPrint(
-      browser->tab_strip_model()->GetActiveWebContents(),
-      browser->profile()->GetPrefs()->GetBoolean(prefs::kPrintPreviewDisabled),
-      false);
-#endif  // defined(ENABLE_PRINTING)
+#if BUILDFLAG(ENABLE_PRINTING)
+  auto* web_contents = browser->tab_strip_model()->GetActiveWebContents();
+  printing::StartPrint(web_contents, browser->profile()->GetPrefs()->GetBoolean(
+                                         prefs::kPrintPreviewDisabled),
+                       false /* has_selection? */);
+#endif
 }
 
 bool CanPrint(Browser* browser) {
@@ -896,7 +939,7 @@ bool CanPrint(Browser* browser) {
         GetContentRestrictions(browser) & CONTENT_RESTRICTION_PRINT);
 }
 
-#if defined(ENABLE_BASIC_PRINTING)
+#if BUILDFLAG(ENABLE_BASIC_PRINTING)
 void BasicPrint(Browser* browser) {
   printing::StartBasicPrint(browser->tab_strip_model()->GetActiveWebContents());
 }
@@ -911,7 +954,7 @@ bool CanBasicPrint(Browser* browser) {
   return false;  // The print dialog is disabled.
 #endif  // BUILDFLAG(ENABLE_BASIC_PRINT_DIALOG)
 }
-#endif  // defined(ENABLE_BASIC_PRINTING)
+#endif  // BUILDFLAG(ENABLE_BASIC_PRINTING)
 
 bool CanRouteMedia(Browser* browser) {
   // Do not allow user to open Media Router dialog when there is already an
@@ -1042,7 +1085,7 @@ void FocusPreviousPane(Browser* browser) {
 }
 
 void ToggleDevToolsWindow(Browser* browser, DevToolsToggleAction action) {
-  if (action.type() == DevToolsToggleAction::kShowConsole)
+  if (action.type() == DevToolsToggleAction::kShowConsolePanel)
     content::RecordAction(UserMetricsAction("DevTools_ToggleConsole"));
   else
     content::RecordAction(UserMetricsAction("DevTools_ToggleWindow"));
@@ -1050,7 +1093,7 @@ void ToggleDevToolsWindow(Browser* browser, DevToolsToggleAction action) {
 }
 
 bool CanOpenTaskManager() {
-#if defined(ENABLE_TASK_MANAGER)
+#if !defined(OS_ANDROID)
   return true;
 #else
   return false;
@@ -1058,7 +1101,7 @@ bool CanOpenTaskManager() {
 }
 
 void OpenTaskManager(Browser* browser) {
-#if defined(ENABLE_TASK_MANAGER)
+#if !defined(OS_ANDROID)
   content::RecordAction(UserMetricsAction("TaskManager"));
   chrome::ShowTaskManager(browser);
 #else
@@ -1147,7 +1190,7 @@ void ToggleRequestTabletSite(Browser* browser) {
     current_tab->SetUserAgentOverride(content::BuildUserAgentFromOSAndProduct(
         kOsOverrideForTabletSite, product));
   }
-  controller.ReloadOriginalRequestURL(true);
+  controller.Reload(content::ReloadType::ORIGINAL_REQUEST_URL, true);
 }
 
 void ToggleFullscreenMode(Browser* browser) {
@@ -1160,7 +1203,7 @@ void ToggleFullscreenMode(Browser* browser) {
 void ClearCache(Browser* browser) {
   BrowsingDataRemover* remover =
       BrowsingDataRemoverFactory::GetForBrowserContext(browser->profile());
-  remover->Remove(BrowsingDataRemover::Unbounded(),
+  remover->Remove(base::Time(), base::Time::Max(),
                   BrowsingDataRemover::REMOVE_CACHE,
                   BrowsingDataHelper::UNPROTECTED_WEB);
   // BrowsingDataRemover takes care of deleting itself when done.
@@ -1202,6 +1245,7 @@ void ViewSource(Browser* browser,
   GURL view_source_url =
       GURL(content::kViewSourceScheme + std::string(":") + url.spec());
   last_committed_entry->SetVirtualURL(view_source_url);
+  last_committed_entry->SetURL(url);
 
   // Do not restore scroller position.
   last_committed_entry->SetPageState(page_state.RemoveScrollOffset());
@@ -1257,7 +1301,7 @@ bool CanViewSource(const Browser* browser) {
           CanViewSource();
 }
 
-#if defined(ENABLE_EXTENSIONS)
+#if BUILDFLAG(ENABLE_EXTENSIONS)
 void CreateApplicationShortcuts(Browser* browser) {
   content::RecordAction(UserMetricsAction("CreateShortcut"));
   extensions::TabHelper::FromWebContents(
@@ -1301,6 +1345,6 @@ void ConvertTabToAppWindow(Browser* browser,
   contents->GetRenderViewHost()->SyncRendererPrefs();
   app_browser->window()->Show();
 }
-#endif  // defined(ENABLE_EXTENSIONS)
+#endif  // BUILDFLAG(ENABLE_EXTENSIONS)
 
 }  // namespace chrome

@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "base/feature_list.h"
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
@@ -83,11 +84,29 @@ class NET_EXPORT CertVerifyProc
   friend class base::RefCountedThreadSafe<CertVerifyProc>;
   FRIEND_TEST_ALL_PREFIXES(CertVerifyProcTest, DigiNotarCerts);
   FRIEND_TEST_ALL_PREFIXES(CertVerifyProcTest, TestHasTooLongValidity);
+  FRIEND_TEST_ALL_PREFIXES(CertVerifyProcTest,
+                           VerifyRejectsSHA1AfterDeprecationLegacyMode);
 
   // Performs the actual verification using the desired underlying
-  // cryptographic library. On entry, |verify_result->verified_cert|
-  // is set to |cert|, the unverified chain. If no chain is built, the
-  // value must be left untouched.
+  //
+  // On entry, |verify_result| will be default-initialized as a successful
+  // validation, with |verify_result->verified_cert| set to |cert|.
+  //
+  // Implementations are expected to fill in all applicable fields, excluding:
+  //
+  // * ocsp_result
+  // * has_md2
+  // * has_md4
+  // * has_md5
+  // * has_sha1
+  // * has_sha1_leaf
+  //
+  // which will be filled in by |Verify()|. If an error code is returned,
+  // |verify_result->cert_status| should be non-zero, indicating an
+  // error occurred.
+  //
+  // On success, net::OK should be returned, with |verify_result| updated to
+  // reflect the successfully verified chain.
   virtual int VerifyInternal(X509Certificate* cert,
                              const std::string& hostname,
                              const std::string& ocsp_response,
@@ -123,6 +142,10 @@ class NET_EXPORT CertVerifyProc
   // requirement they expire within 7 years after the effective date of the BRs
   // (i.e. by 1 July 2019).
   static bool HasTooLongValidity(const X509Certificate& cert);
+
+  // Emergency kill-switch for SHA-1 deprecation. Disabled by default.
+  static const base::Feature kSHA1LegacyMode;
+  const bool sha1_legacy_mode_enabled;
 
   DISALLOW_COPY_AND_ASSIGN(CertVerifyProc);
 };

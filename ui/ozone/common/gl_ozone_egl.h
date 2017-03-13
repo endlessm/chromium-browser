@@ -22,13 +22,13 @@ class GLOzoneEGL : public GLOzone {
   bool InitializeGLOneOffPlatform() override;
   bool InitializeStaticGLBindings(gl::GLImplementation implementation) override;
   void InitializeDebugGLBindings() override;
-  void ClearGLBindings() override;
+  void ShutdownGL() override;
   bool GetGLWindowSystemBindingInfo(
       gl::GLWindowSystemBindingInfo* info) override;
   scoped_refptr<gl::GLContext> CreateGLContext(
       gl::GLShareGroup* share_group,
       gl::GLSurface* compatible_surface,
-      gl::GpuPreference gpu_preference) override;
+      const gl::GLContextAttribs& attribs) override;
   scoped_refptr<gl::GLSurface> CreateViewGLSurface(
       gfx::AcceleratedWidget window) override = 0;
   scoped_refptr<gl::GLSurface> CreateSurfacelessViewGLSurface(

@@ -24,17 +24,18 @@ include_rules = [
   "+components/variations",
   "+content/public/common",
   "+content/public/test",
+  "+media/media_features.h",
   "+mojo/common",
   "+mojo/public",
+  "+ppapi/features",
 
   # Don't allow inclusion of these other libs we shouldn't be calling directly.
   "-webkit",
   "-tools",
 
-  "-crypto/third_party",
-
   # Allow inclusion of WebKit API files.
   "+third_party/WebKit/public/platform",
+  "+third_party/WebKit/public/public_features.h",
   "+third_party/WebKit/public/web",
 
   # Allow inclusion of third-party code:

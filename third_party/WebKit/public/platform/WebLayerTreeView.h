@@ -26,18 +26,16 @@
 #ifndef WebLayerTreeView_h
 #define WebLayerTreeView_h
 
+#include "WebBrowserControlsState.h"
 #include "WebColor.h"
 #include "WebCommon.h"
 #include "WebCompositorMutatorClient.h"
 #include "WebEventListenerProperties.h"
 #include "WebFloatPoint.h"
 #include "WebSize.h"
-#include "WebTopControlsState.h"
-
-class SkBitmap;
 
 namespace cc {
-class AnimationTimeline;
+class AnimationHost;
 }
 
 namespace blink {
@@ -46,9 +44,7 @@ class WebCompositeAndReadbackAsyncCallback;
 class WebLayer;
 class WebLayoutAndPaintAsyncCallback;
 struct WebPoint;
-struct WebSelectionBound;
 class WebSelection;
-class WebWidget;
 
 class WebLayerTreeView {
  public:
@@ -60,9 +56,8 @@ class WebLayerTreeView {
   virtual void setRootLayer(const WebLayer&) {}
   virtual void clearRootLayer() {}
 
-  // TODO(loyso): These should use CompositorAnimationTimeline. crbug.com/584551
-  virtual void attachCompositorAnimationTimeline(cc::AnimationTimeline*) {}
-  virtual void detachCompositorAnimationTimeline(cc::AnimationTimeline*) {}
+  // TODO(loyso): This should use CompositorAnimationHost. crbug.com/584551
+  virtual cc::AnimationHost* compositorAnimationHost() { return nullptr; }
 
   // View properties ---------------------------------------------------
 
@@ -104,18 +99,18 @@ class WebLayerTreeView {
 
   virtual void heuristicsForGpuRasterizationUpdated(bool) {}
 
-  // Sets the amount that the top controls are showing, from 0 (hidden) to 1
+  // Sets the amount that the browser controls are showing, from 0 (hidden) to 1
   // (fully shown).
-  virtual void setTopControlsShownRatio(float) {}
+  virtual void setBrowserControlsShownRatio(float) {}
 
-  // Update top controls permitted and current states
-  virtual void updateTopControlsState(WebTopControlsState constraints,
-                                      WebTopControlsState current,
-                                      bool animate) {}
+  // Update browser controls permitted and current states
+  virtual void updateBrowserControlsState(WebBrowserControlsState constraints,
+                                          WebBrowserControlsState current,
+                                          bool animate) {}
 
-  // Set top controls height. If |shrinkViewport| is set to true, then Blink
-  // shrunk the viewport clip layers by the top controls height.
-  virtual void setTopControlsHeight(float height, bool shrinkViewport) {}
+  // Set browser controls height. If |shrinkViewport| is set to true, then Blink
+  // shrunk the viewport clip layers by the browser controls height.
+  virtual void setBrowserControlsHeight(float height, bool shrinkViewport) {}
 
   // Flow control and scheduling ---------------------------------------
 

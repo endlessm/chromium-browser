@@ -121,6 +121,9 @@ class AudioCodingModuleImpl final : public AudioCodingModule {
   // Get current playout frequency.
   int PlayoutFrequency() const override;
 
+  bool RegisterReceiveCodec(int rtp_payload_type,
+                            const SdpAudioFormat& audio_format) override;
+
   int RegisterReceiveCodec(const CodecInst& receive_codec) override;
   int RegisterReceiveCodec(
       const CodecInst& receive_codec,
@@ -134,6 +137,8 @@ class AudioCodingModuleImpl final : public AudioCodingModule {
 
   // Get current received codec.
   int ReceiveCodec(CodecInst* current_codec) const override;
+
+  rtc::Optional<SdpAudioFormat> ReceiveFormat() const override;
 
   // Incoming packet from network parsed and ready for decode.
   int IncomingPacket(const uint8_t* incoming_payload,
@@ -402,12 +407,6 @@ class RawAudioEncoderWrapper final : public AudioEncoder {
   void SetMaxPlaybackRate(int frequency_hz) override {
     return enc_->SetMaxPlaybackRate(frequency_hz);
   }
-  void SetProjectedPacketLossRate(double fraction) override {
-    return enc_->SetProjectedPacketLossRate(fraction);
-  }
-  void SetTargetBitrate(int target_bps) override {
-    return enc_->SetTargetBitrate(target_bps);
-  }
 
  private:
   AudioEncoder* enc_;
@@ -531,7 +530,7 @@ int32_t AudioCodingModuleImpl::Encode(const InputData& input_data) {
     frame_type = kEmptyFrame;
     encoded_info.payload_type = previous_pltype;
   } else {
-    RTC_DCHECK_GT(encode_buffer_.size(), 0u);
+    RTC_DCHECK_GT(encode_buffer_.size(), 0);
     frame_type = encoded_info.speech ? kAudioFrameSpeech : kAudioFrameCN;
   }
 
@@ -649,7 +648,8 @@ int AudioCodingModuleImpl::SendFrequency() const {
 void AudioCodingModuleImpl::SetBitRate(int bitrate_bps) {
   rtc::CritScope lock(&acm_crit_sect_);
   if (encoder_stack_) {
-    encoder_stack_->SetTargetBitrate(bitrate_bps);
+    encoder_stack_->OnReceivedUplinkBandwidth(bitrate_bps,
+                                              rtc::Optional<int64_t>());
   }
 }
 
@@ -901,7 +901,7 @@ int AudioCodingModuleImpl::SetCodecFEC(bool enable_codec_fec) {
 int AudioCodingModuleImpl::SetPacketLossRate(int loss_rate) {
   rtc::CritScope lock(&acm_crit_sect_);
   if (HaveValidEncoder("SetPacketLossRate")) {
-    encoder_stack_->SetProjectedPacketLossRate(loss_rate / 100.0);
+    encoder_stack_->OnReceivedUplinkPacketLossFraction(loss_rate / 100.0);
   }
   return 0;
 }
@@ -987,6 +987,21 @@ int AudioCodingModuleImpl::PlayoutFrequency() const {
   return receiver_.last_output_sample_rate_hz();
 }
 
+bool AudioCodingModuleImpl::RegisterReceiveCodec(
+    int rtp_payload_type,
+    const SdpAudioFormat& audio_format) {
+  rtc::CritScope lock(&acm_crit_sect_);
+  RTC_DCHECK(receiver_initialized_);
+
+  if (!acm2::RentACodec::IsPayloadTypeValid(rtp_payload_type)) {
+    LOG_F(LS_ERROR) << "Invalid payload-type " << rtp_payload_type
+                    << " for decoder.";
+    return false;
+  }
+
+  return receiver_.AddCodec(rtp_payload_type, audio_format);
+}
+
 int AudioCodingModuleImpl::RegisterReceiveCodec(const CodecInst& codec) {
   rtc::CritScope lock(&acm_crit_sect_);
   auto* ef = encoder_factory_.get();
@@ -1067,6 +1082,11 @@ int AudioCodingModuleImpl::RegisterExternalReceiveCodec(
 int AudioCodingModuleImpl::ReceiveCodec(CodecInst* current_codec) const {
   rtc::CritScope lock(&acm_crit_sect_);
   return receiver_.LastAudioCodec(current_codec);
+}
+
+rtc::Optional<SdpAudioFormat> AudioCodingModuleImpl::ReceiveFormat() const {
+  rtc::CritScope lock(&acm_crit_sect_);
+  return receiver_.LastAudioFormat();
 }
 
 // Incoming packet from network parsed and ready for decode.

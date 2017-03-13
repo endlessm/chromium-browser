@@ -11,10 +11,13 @@
 #include "SkHalf.h"
 #include "SkImageEncoder.h"
 #include "SkOSFile.h"
+#include "SkOSPath.h"
 #include "SkPM4fPriv.h"
 #include "SkPicture.h"
 #include "SkStream.h"
 #include "SkString.h"
+
+#include "sk_tool_utils.h"
 
 namespace sk_tools {
     void force_all_opaque(const SkBitmap& bitmap) {
@@ -62,7 +65,7 @@ namespace sk_tools {
             partialPath.set(dirPath);
         }
         SkString fullPath = SkOSPath::Join(partialPath.c_str(), baseName.c_str());
-        if (SkImageEncoder::EncodeFile(fullPath.c_str(), bm, SkImageEncoder::kPNG_Type, 100)) {
+        if (sk_tool_utils::EncodeImageToFile(fullPath.c_str(), bm, SkEncodedImageFormat::kPNG, 100)) {
             return true;
         } else {
             SkDebugf("Failed to write the bitmap to %s.\n", fullPath.c_str());
@@ -79,7 +82,7 @@ namespace sk_tools {
 
         SkAutoTMalloc<uint32_t> rgba(w*h);
 
-        auto srgbColorSpace = SkColorSpace::NewNamed(SkColorSpace::kSRGB_Named);
+        auto srgbColorSpace = SkColorSpace::MakeNamed(SkColorSpace::kSRGB_Named);
         if (bitmap. colorType() ==  kN32_SkColorType &&
             bitmap.colorSpace() == srgbColorSpace.get()) {
             // These are premul sRGB 8-bit pixels in SkPMColor order.

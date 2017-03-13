@@ -60,6 +60,10 @@ static const std::string AudioCodecToAndroidMimeType(const AudioCodec& codec) {
       return "audio/opus";
     case kCodecAAC:
       return "audio/mp4a-latm";
+    case kCodecAC3:
+      return "audio/ac3";
+    case kCodecEAC3:
+      return "audio/eac3";
     default:
       return std::string();
   }
@@ -155,7 +159,7 @@ MediaCodecStatus SdkMediaCodecBridge::QueueInputBuffer(
     const uint8_t* data,
     size_t data_size,
     base::TimeDelta presentation_time) {
-  DVLOG(3) << __FUNCTION__ << index << ": " << data_size;
+  DVLOG(3) << __func__ << index << ": " << data_size;
   if (data_size >
       base::checked_cast<size_t>(std::numeric_limits<int32_t>::max())) {
     return MEDIA_CODEC_ERROR;
@@ -178,8 +182,9 @@ MediaCodecStatus SdkMediaCodecBridge::QueueSecureInputBuffer(
     const std::vector<char>& iv,
     const SubsampleEntry* subsamples,
     int subsamples_size,
+    const EncryptionScheme& encryption_scheme,
     base::TimeDelta presentation_time) {
-  DVLOG(3) << __FUNCTION__ << index << ": " << data_size;
+  DVLOG(3) << __func__ << index << ": " << data_size;
   if (data_size >
       base::checked_cast<size_t>(std::numeric_limits<int32_t>::max())) {
     return MEDIA_CODEC_ERROR;
@@ -230,11 +235,14 @@ MediaCodecStatus SdkMediaCodecBridge::QueueSecureInputBuffer(
       Java_MediaCodecBridge_queueSecureInputBuffer(
           env, j_media_codec_.obj(), index, 0, j_iv.obj(), j_key_id.obj(),
           clear_array, cypher_array, new_subsamples_size,
+          static_cast<int>(encryption_scheme.mode()),
+          static_cast<int>(encryption_scheme.pattern().encrypt_blocks()),
+          static_cast<int>(encryption_scheme.pattern().skip_blocks()),
           presentation_time.InMicroseconds()));
 }
 
 void SdkMediaCodecBridge::QueueEOS(int input_buffer_index) {
-  DVLOG(3) << __FUNCTION__ << ": " << input_buffer_index;
+  DVLOG(3) << __func__ << ": " << input_buffer_index;
   JNIEnv* env = AttachCurrentThread();
   Java_MediaCodecBridge_queueInputBuffer(
       env, j_media_codec_, input_buffer_index, 0, 0, 0, kBufferFlagEndOfStream);
@@ -249,7 +257,7 @@ MediaCodecStatus SdkMediaCodecBridge::DequeueInputBuffer(
   *index = Java_DequeueInputResult_index(env, result);
   MediaCodecStatus status = static_cast<MediaCodecStatus>(
       Java_DequeueInputResult_status(env, result));
-  DVLOG(3) << __FUNCTION__ << ": status: " << status << ", index: " << *index;
+  DVLOG(3) << __func__ << ": status: " << status << ", index: " << *index;
   return status;
 }
 
@@ -281,14 +289,14 @@ MediaCodecStatus SdkMediaCodecBridge::DequeueOutputBuffer(
     *key_frame = flags & kBufferFlagSyncFrame;
   MediaCodecStatus status = static_cast<MediaCodecStatus>(
       Java_DequeueOutputResult_status(env, result));
-  DVLOG(3) << __FUNCTION__ << ": status: " << status << ", index: " << *index
+  DVLOG(3) << __func__ << ": status: " << status << ", index: " << *index
            << ", offset: " << *offset << ", size: " << *size
            << ", flags: " << flags;
   return status;
 }
 
 void SdkMediaCodecBridge::ReleaseOutputBuffer(int index, bool render) {
-  DVLOG(3) << __FUNCTION__ << ": " << index;
+  DVLOG(3) << __func__ << ": " << index;
   JNIEnv* env = AttachCurrentThread();
   Java_MediaCodecBridge_releaseOutputBuffer(env, j_media_codec_, index, render);
 }
@@ -387,7 +395,7 @@ bool AudioCodecBridge::ConfigureAndStart(const AudioCodec& codec,
                                          int64_t codec_delay_ns,
                                          int64_t seek_preroll_ns,
                                          jobject media_crypto) {
-  DVLOG(2) << __FUNCTION__ << ": "
+  DVLOG(2) << __func__ << ": "
            << " codec:" << GetCodecName(codec)
            << " samples_per_second:" << sample_rate
            << " channel_count:" << channel_count
@@ -560,13 +568,16 @@ bool VideoCodecBridge::IsKnownUnaccelerated(const VideoCodec& codec,
 }
 
 // static
-VideoCodecBridge* VideoCodecBridge::CreateDecoder(const VideoCodec& codec,
-                                                  bool is_secure,
-                                                  const gfx::Size& size,
-                                                  jobject surface,
-                                                  jobject media_crypto,
-                                                  bool allow_adaptive_playback,
-                                                  bool require_software_codec) {
+VideoCodecBridge* VideoCodecBridge::CreateDecoder(
+    const VideoCodec& codec,
+    bool is_secure,
+    const gfx::Size& size,
+    jobject surface,
+    jobject media_crypto,
+    const std::vector<uint8_t>& csd0,
+    const std::vector<uint8_t>& csd1,
+    bool allow_adaptive_playback,
+    bool require_software_codec) {
   if (!MediaCodecUtil::IsMediaCodecAvailable())
     return nullptr;
 
@@ -585,6 +596,19 @@ VideoCodecBridge* VideoCodecBridge::CreateDecoder(const VideoCodec& codec,
       Java_MediaCodecBridge_createVideoDecoderFormat(env, j_mime, size.width(),
                                                      size.height()));
   DCHECK(!j_format.is_null());
+
+  if (!csd0.empty()) {
+    ScopedJavaLocalRef<jbyteArray> j_csd0 =
+        base::android::ToJavaByteArray(env, csd0.data(), csd0.size());
+    Java_MediaCodecBridge_setCodecSpecificData(env, j_format, 0, j_csd0);
+  }
+
+  if (!csd1.empty()) {
+    ScopedJavaLocalRef<jbyteArray> j_csd1 =
+        base::android::ToJavaByteArray(env, csd1.data(), csd1.size());
+    Java_MediaCodecBridge_setCodecSpecificData(env, j_format, 1, j_csd1);
+  }
+
   if (!Java_MediaCodecBridge_configureVideo(env, bridge->media_codec(),
                                             j_format, surface, media_crypto, 0,
                                             allow_adaptive_playback)) {
@@ -617,8 +641,8 @@ VideoCodecBridge* VideoCodecBridge::CreateEncoder(const VideoCodec& codec,
   ScopedJavaLocalRef<jstring> j_mime = ConvertUTF8ToJavaString(env, mime);
   ScopedJavaLocalRef<jobject> j_format(
       Java_MediaCodecBridge_createVideoEncoderFormat(
-          env, j_mime, size.width(), size.height(), bit_rate, frame_rate,
-          i_frame_interval, color_format));
+          env, bridge->media_codec(), j_mime, size.width(), size.height(),
+          bit_rate, frame_rate, i_frame_interval, color_format));
   DCHECK(!j_format.is_null());
   if (!Java_MediaCodecBridge_configureVideo(env, bridge->media_codec(),
                                             j_format, nullptr, nullptr,
@@ -636,9 +660,15 @@ VideoCodecBridge::VideoCodecBridge(const std::string& mime,
     : SdkMediaCodecBridge(mime, is_secure, direction, require_software_codec),
       adaptive_playback_supported_for_testing_(-1) {}
 
-void VideoCodecBridge::SetVideoBitrate(int bps) {
+bool VideoCodecBridge::SetSurface(jobject surface) {
+  DCHECK_GE(base::android::BuildInfo::GetInstance()->sdk_int(), 23);
   JNIEnv* env = AttachCurrentThread();
-  Java_MediaCodecBridge_setVideoBitrate(env, media_codec(), bps);
+  return Java_MediaCodecBridge_setSurface(env, media_codec(), surface);
+}
+
+void VideoCodecBridge::SetVideoBitrate(int bps, int frame_rate) {
+  JNIEnv* env = AttachCurrentThread();
+  Java_MediaCodecBridge_setVideoBitrate(env, media_codec(), bps, frame_rate);
 }
 
 void VideoCodecBridge::RequestKeyFrameSoon() {

@@ -8,11 +8,12 @@
 
 #include "base/logging.h"
 #include "base/macros.h"
+#include "base/strings/string_util.h"
 #include "remoting/protocol/content_description.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/webrtc/libjingle/xmllite/xmlelement.h"
-#include "third_party/webrtc/libjingle/xmpp/constants.h"
+#include "third_party/libjingle_xmpp/xmllite/xmlelement.h"
+#include "third_party/libjingle_xmpp/xmpp/constants.h"
 
 using buzz::QName;
 using buzz::XmlAttr;
@@ -405,7 +406,7 @@ TEST(JingleMessageTest, SessionInfo) {
 
 TEST(JingleMessageTest, ParseAddress) {
   const char* kTestSessionInfoMessage =
-      "<cli:iq from='remoting@talk.google.com' "
+      "<cli:iq from='remoting@bot.talk.google.com' "
               "to='user@gmail.com/chromiumsy5C6A652D' type='set' "
               "xmlns:cli='jabber:client'>"
         "<jingle action='session-info' "
@@ -418,17 +419,40 @@ TEST(JingleMessageTest, ParseAddress) {
 
   JingleMessage message;
   ParseFormatAndCompare(kTestSessionInfoMessage, &message);
-  EXPECT_EQ(message.from.jid, "remoting@talk.google.com");
-  EXPECT_EQ(message.from.channel, SignalingAddress::Channel::LCS);
-  EXPECT_EQ(message.from.endpoint_id, "user@gmail.com/xBrnereror=");
+  EXPECT_EQ(message.from.jid(), "remoting@bot.talk.google.com");
+  EXPECT_EQ(message.from.channel(), SignalingAddress::Channel::LCS);
+  EXPECT_EQ(message.from.endpoint_id(), "user@gmail.com/xBrnereror=");
   EXPECT_EQ(message.from.id(), "user@gmail.com/xBrnereror=");
 
-  EXPECT_EQ(message.to.jid, "user@gmail.com/chromiumsy5C6A652D");
-  EXPECT_EQ(message.to.channel, SignalingAddress::Channel::XMPP);
-  EXPECT_EQ(message.to.endpoint_id, "");
+  EXPECT_EQ(message.to.jid(), "user@gmail.com/chromiumsy5C6A652D");
+  EXPECT_EQ(message.to.channel(), SignalingAddress::Channel::XMPP);
+  EXPECT_EQ(message.to.endpoint_id(), "");
   EXPECT_EQ(message.to.id(), "user@gmail.com/chromiumsy5C6A652D");
 
   EXPECT_EQ(message.action, JingleMessage::SESSION_INFO);
+}
+
+
+TEST(JingleMessageTest, IgnoreInvalidAddress) {
+  const char* kInvalidFromField =
+      "<cli:iq from='evil@gmail.com' "
+              "to='victim@gmail.com/chromiumsy5C6A652D' type='set' "
+              "xmlns:cli='jabber:client'>"
+        "<jingle action='session-info' "
+                "sid='2227053353' xmlns='urn:xmpp:jingle:1' "
+                "from-channel='lcs' "
+                "from-endpoint-id='victim@gmail.com/evilAddress'>"
+          "<test-info>TestMessage</test-info>"
+        "</jingle>"
+      "</cli:iq>";
+
+  std::unique_ptr<XmlElement> xml(XmlElement::ForStr(kInvalidFromField));
+  ASSERT_TRUE(xml.get());
+  EXPECT_TRUE(JingleMessage::IsJingleMessage(xml.get()));
+  JingleMessage message;
+  std::string error;
+  EXPECT_FALSE(message.ParseXml(xml.get(), &error));
+  EXPECT_TRUE(message.from.empty());
 }
 
 TEST(JingleMessageReplyTest, ToXml) {
@@ -439,7 +463,7 @@ TEST(JingleMessageReplyTest, ToXml) {
       "sid='2227053353' xmlns='urn:xmpp:jingle:1'><reason><success/>"
       "</reason></jingle></cli:iq>";
   const char* kTestIncomingMessage2 =
-      "<cli:iq from='remoting@talk.google.com' id='4' "
+      "<cli:iq from='remoting@bot.talk.google.com' id='4' "
       "to='user@gmail.com/chromiumsy5C6A652D' type='set' "
       "xmlns:cli='jabber:client'><jingle action='session-terminate' "
       "from-channel='lcs' from-endpoint-id='from@gmail.com/AbCdEf1234=' "
@@ -496,7 +520,7 @@ TEST(JingleMessageReplyTest, ToXml) {
        kTestIncomingMessage1},
       {JingleMessageReply::INVALID_SID, "ErrorText",
        "<iq xmlns='jabber:client' "
-       "to='remoting@talk.google.com' id='4' "
+       "to='remoting@bot.talk.google.com' id='4' "
        "type='error'><jingle "
        "action='session-terminate' sid='2227053353' xmlns='urn:xmpp:jingle:1' "
        "from-channel='lcs' from-endpoint-id='from@gmail.com/AbCdEf1234='>"
@@ -504,7 +528,7 @@ TEST(JingleMessageReplyTest, ToXml) {
        "<item-not-found/><text xml:lang='en'>ErrorText</text></error></iq>",
        kTestIncomingMessage2},
       {JingleMessageReply::NONE, "",
-       "<iq xmlns='jabber:client' to='remoting@talk.google.com' id='4' "
+       "<iq xmlns='jabber:client' to='remoting@bot.talk.google.com' id='4' "
        "type='result'><jingle xmlns='urn:xmpp:jingle:1' to-channel='lcs' "
        "to-endpoint-id='from@gmail.com/AbCdEf1234='/></iq>",
        kTestIncomingMessage2},
@@ -597,6 +621,71 @@ TEST(JingleMessageTest, RemotingErrorCode) {
     EXPECT_EQ(message.action, JingleMessage::SESSION_TERMINATE);
     EXPECT_EQ(message.reason, JingleMessage::DECLINE);
     EXPECT_EQ(message.error_code, error);
+  }
+}
+
+TEST(JingleMessageTest, AttachmentsMessage) {
+  // Ordering of the "attachments" tag and other tags are irrelevent. But the
+  // JingleMessage implementation always puts it before other tags, so we do the
+  // same thing in test cases.
+  const char* kMessageWithPluginTag =
+      "<cli:iq from='user@gmail.com/chromoting016DBB07' "
+      "to='user@gmail.com/chromiumsy5C6A652D' type='set' "
+      "xmlns:cli='jabber:client'><jingle action='$1' "
+      "sid='2227053353' xmlns='urn:xmpp:jingle:1'>"
+      "<gr:attachments xmlns:gr='google:remoting'>"
+      "<gr:sometag>some-message</gr:sometag>"
+      "</gr:attachments>$2</jingle></cli:iq>";
+  for (int i = JingleMessage::SESSION_INITIATE;
+       i <= JingleMessage::TRANSPORT_INFO; i++) {
+    JingleMessage::ActionType action_type =
+        static_cast<JingleMessage::ActionType>(i);
+    std::vector<std::string> substitutes = {
+        JingleMessage::GetActionName(action_type)
+    };
+    if (action_type == JingleMessage::SESSION_INFO) {
+      substitutes.push_back("<test-info>test-message</test-info>");
+    } else if (action_type == JingleMessage::SESSION_TERMINATE) {
+      substitutes.emplace_back();
+    } else if (action_type == JingleMessage::TRANSPORT_INFO) {
+      substitutes.push_back(
+          "<content name='chromoting' creator='initiator'>"
+            "<transport xmlns='google:remoting:webrtc'>"
+              "<credentials channel='event' ufrag='tPUyEAmQrEw3y7hi' "
+                           "password='2iRdhLfawKZC5ydJ'/>"
+              "<credentials channel='video' ufrag='EPK3CXo5sTLJSez0' "
+                           "password='eM0VUfUkZ+1Pyi0M'/>"
+              "<candidate name='event' foundation='725747215' "
+                         "address='172.23.164.186' port='59089' type='local' "
+                         "protocol='udp' priority='2122194688' generation='0'/>"
+              "<candidate name='video' foundation='3623806809' "
+                         "address='172.23.164.186' port='57040' type='local' "
+                         "protocol='udp' priority='2122194688' generation='0'/>"
+            "</transport>"
+          "</content>");
+    } else {
+      substitutes.push_back("<content name='chromoting' creator='initiator'>"
+                        "<description xmlns='google:remoting'>"
+                          "<authentication><auth-token>"
+                            "j7whCMii0Z0AAPwj7whCM/j7whCMii0Z0AAPw="
+                          "</auth-token></authentication>"
+                        "</description>"
+                        "<transport xmlns='google:remoting:webrtc' />"
+                      "</content>");
+    }
+    std::string message_str = base::ReplaceStringPlaceholders(
+        kMessageWithPluginTag, substitutes, nullptr);
+
+    JingleMessage message;
+    ParseFormatAndCompare(message_str.c_str(), &message);
+
+    EXPECT_TRUE(message.attachments);
+    XmlElement expected(QName("google:remoting", "attachments"));
+    expected.AddElement(new XmlElement(QName("google:remoting", "sometag")));
+    expected.FirstElement()->SetBodyText("some-message");
+    std::string error;
+    EXPECT_TRUE(VerifyXml(&expected, message.attachments.get(), &error))
+        << error;
   }
 }
 

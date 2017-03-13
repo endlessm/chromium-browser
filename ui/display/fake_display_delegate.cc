@@ -13,8 +13,10 @@
 #include "base/memory/ptr_util.h"
 #include "base/strings/string_split.h"
 #include "base/strings/stringprintf.h"
+#include "base/time/time.h"
 #include "ui/display/display.h"
 #include "ui/display/display_switches.h"
+#include "ui/display/types/display_constants.h"
 #include "ui/display/types/native_display_observer.h"
 #include "ui/display/util/display_util.h"
 
@@ -28,6 +30,9 @@ const uint16_t kReservedManufacturerID = 1 << 15;
 // A random product name hash.
 const uint32_t kProductCodeHash = base::Hash("Very Generic Display");
 
+// Delay for Configure() in milliseconds.
+constexpr int64_t kConfigureDisplayDelayMs = 200;
+
 }  // namespace
 
 FakeDisplayDelegate::FakeDisplayDelegate() {}
@@ -39,7 +44,7 @@ int64_t FakeDisplayDelegate::AddDisplay(const gfx::Size& display_size) {
 
   if (next_display_id_ == 0xFF) {
     LOG(ERROR) << "Exceeded display id limit";
-    return Display::kInvalidDisplayID;
+    return kInvalidDisplayId;
   }
 
   int64_t id = GenerateDisplayID(kReservedManufacturerID, kProductCodeHash,
@@ -47,17 +52,11 @@ int64_t FakeDisplayDelegate::AddDisplay(const gfx::Size& display_size) {
 
   FakeDisplaySnapshot::Builder builder;
   builder.SetId(id).SetNativeMode(display_size);
-  builder.SetName(base::StringPrintf("Fake Display %d", next_display_id_));
 
-  // Add the first display as internal.
-  if (displays_.empty())
-    builder.SetType(ui::DISPLAY_CONNECTION_TYPE_INTERNAL);
-
-  return AddDisplay(builder.Build()) ? id : Display::kInvalidDisplayID;
+  return AddDisplay(builder.Build()) ? id : kInvalidDisplayId;
 }
 
-bool FakeDisplayDelegate::AddDisplay(
-    std::unique_ptr<ui::DisplaySnapshot> display) {
+bool FakeDisplayDelegate::AddDisplay(std::unique_ptr<DisplaySnapshot> display) {
   DCHECK(display);
 
   int64_t display_id = display->display_id();
@@ -93,9 +92,18 @@ bool FakeDisplayDelegate::RemoveDisplay(int64_t display_id) {
 void FakeDisplayDelegate::Initialize() {
   DCHECK(!initialized_);
 
-  // If no command line flags are provided then initialize a default display.
-  if (!InitFromCommandLine())
-    AddDisplay(gfx::Size(1024, 768));
+  // The default display will be an internal display with a native resolution
+  // of 1024x768 if --screen-config not specified on the command line.
+  std::string command_str = "1024x768/i";
+
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
+  if (command_line->HasSwitch(switches::kScreenConfig))
+    command_str = command_line->GetSwitchValueASCII(switches::kScreenConfig);
+
+  if (!InitializeFromSpecString(command_str)) {
+    NOTREACHED() << "Bad --" << switches::kScreenConfig << " flag provided.";
+    return;
+  }
 
   initialized_ = true;
 }
@@ -105,12 +113,12 @@ void FakeDisplayDelegate::GrabServer() {}
 void FakeDisplayDelegate::UngrabServer() {}
 
 void FakeDisplayDelegate::TakeDisplayControl(
-    const ui::DisplayControlCallback& callback) {
+    const DisplayControlCallback& callback) {
   callback.Run(false);
 }
 
 void FakeDisplayDelegate::RelinquishDisplayControl(
-    const ui::DisplayControlCallback& callback) {
+    const DisplayControlCallback& callback) {
   callback.Run(false);
 }
 
@@ -120,131 +128,135 @@ void FakeDisplayDelegate::SetBackgroundColor(uint32_t color_argb) {}
 
 void FakeDisplayDelegate::ForceDPMSOn() {}
 
-void FakeDisplayDelegate::GetDisplays(const ui::GetDisplaysCallback& callback) {
-  std::vector<ui::DisplaySnapshot*> displays;
+void FakeDisplayDelegate::GetDisplays(const GetDisplaysCallback& callback) {
+  std::vector<DisplaySnapshot*> displays;
   for (auto& display : displays_)
     displays.push_back(display.get());
   callback.Run(displays);
 }
 
-void FakeDisplayDelegate::AddMode(const ui::DisplaySnapshot& output,
-                                  const ui::DisplayMode* mode) {}
+void FakeDisplayDelegate::AddMode(const DisplaySnapshot& output,
+                                  const DisplayMode* mode) {}
 
-void FakeDisplayDelegate::Configure(const ui::DisplaySnapshot& output,
-                                    const ui::DisplayMode* mode,
+void FakeDisplayDelegate::Configure(const DisplaySnapshot& output,
+                                    const DisplayMode* mode,
                                     const gfx::Point& origin,
-                                    const ui::ConfigureCallback& callback) {
-  callback.Run(true);
+                                    const ConfigureCallback& callback) {
+  bool configure_success = false;
+
+  if (!mode) {
+    // This is a request to turn off the display.
+    configure_success = true;
+  } else {
+    // Check that |mode| is appropriate for the display snapshot.
+    for (const auto& existing_mode : output.modes()) {
+      if (existing_mode.get() == mode) {
+        configure_success = true;
+        break;
+      }
+    }
+  }
+
+  configure_callbacks_.push(base::Bind(callback, configure_success));
+
+  // Start the timer if it's not already running. If there are multiple queued
+  // configuration requests then ConfigureDone() will handle starting the
+  // next request.
+  if (!configure_timer_.IsRunning()) {
+    configure_timer_.Start(
+        FROM_HERE, base::TimeDelta::FromMilliseconds(kConfigureDisplayDelayMs),
+        this, &FakeDisplayDelegate::ConfigureDone);
+  }
 }
 
 void FakeDisplayDelegate::CreateFrameBuffer(const gfx::Size& size) {}
 
-void FakeDisplayDelegate::GetHDCPState(
-    const ui::DisplaySnapshot& output,
-    const ui::GetHDCPStateCallback& callback) {
-  callback.Run(false, ui::HDCP_STATE_UNDESIRED);
+void FakeDisplayDelegate::GetHDCPState(const DisplaySnapshot& output,
+                                       const GetHDCPStateCallback& callback) {
+  callback.Run(false, HDCP_STATE_UNDESIRED);
 }
 
-void FakeDisplayDelegate::SetHDCPState(
-    const ui::DisplaySnapshot& output,
-    ui::HDCPState state,
-    const ui::SetHDCPStateCallback& callback) {
+void FakeDisplayDelegate::SetHDCPState(const DisplaySnapshot& output,
+                                       HDCPState state,
+                                       const SetHDCPStateCallback& callback) {
   callback.Run(false);
 }
 
-std::vector<ui::ColorCalibrationProfile>
+std::vector<ColorCalibrationProfile>
 FakeDisplayDelegate::GetAvailableColorCalibrationProfiles(
-    const ui::DisplaySnapshot& output) {
-  return std::vector<ui::ColorCalibrationProfile>();
+    const DisplaySnapshot& output) {
+  return std::vector<ColorCalibrationProfile>();
 }
 
 bool FakeDisplayDelegate::SetColorCalibrationProfile(
-    const ui::DisplaySnapshot& output,
-    ui::ColorCalibrationProfile new_profile) {
+    const DisplaySnapshot& output,
+    ColorCalibrationProfile new_profile) {
   return false;
 }
 
 bool FakeDisplayDelegate::SetColorCorrection(
-    const ui::DisplaySnapshot& output,
-    const std::vector<ui::GammaRampRGBEntry>& degamma_lut,
-    const std::vector<ui::GammaRampRGBEntry>& gamma_lut,
+    const DisplaySnapshot& output,
+    const std::vector<GammaRampRGBEntry>& degamma_lut,
+    const std::vector<GammaRampRGBEntry>& gamma_lut,
     const std::vector<float>& correction_matrix) {
   return false;
 }
 
-void FakeDisplayDelegate::AddObserver(ui::NativeDisplayObserver* observer) {
+void FakeDisplayDelegate::AddObserver(NativeDisplayObserver* observer) {
   observers_.AddObserver(observer);
 }
 
-void FakeDisplayDelegate::RemoveObserver(ui::NativeDisplayObserver* observer) {
+void FakeDisplayDelegate::RemoveObserver(NativeDisplayObserver* observer) {
   observers_.RemoveObserver(observer);
 }
 
 FakeDisplayController* FakeDisplayDelegate::GetFakeDisplayController() {
-  return static_cast<FakeDisplayController*>(this);
+  return this;
 }
 
-bool FakeDisplayDelegate::InitFromCommandLine() {
-  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
-  if (!command_line->HasSwitch(switches::kScreenConfig))
-    return false;
-
-  const std::string command_string =
-      command_line->GetSwitchValueASCII(switches::kScreenConfig);
-
+bool FakeDisplayDelegate::InitializeFromSpecString(const std::string& str) {
   // Start without any displays.
-  if (command_string == "none")
+  if (str == "none")
     return true;
 
   // Split on commas and parse each display string.
-  for (std::string part : base::SplitString(
-           command_string, ",", base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL)) {
-    std::unique_ptr<ui::DisplaySnapshot> snapshot =
-        CreateSnapshotFromSpec(part);
+  for (const std::string& part : base::SplitString(
+           str, ",", base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL)) {
+    int64_t id = GenerateDisplayID(kReservedManufacturerID, kProductCodeHash,
+                                   next_display_id_);
+    std::unique_ptr<DisplaySnapshot> snapshot =
+        FakeDisplaySnapshot::CreateFromSpec(id, part);
     if (snapshot) {
       AddDisplay(std::move(snapshot));
+      next_display_id_++;
     } else {
       LOG(ERROR) << "Failed to parse display \"" << part << "\"";
+      return false;
     }
   }
 
   return true;
 }
 
-std::unique_ptr<ui::DisplaySnapshot>
-FakeDisplayDelegate::CreateSnapshotFromSpec(const std::string& spec) {
-  int width = 0;
-  int height = 0;
-  int dpi = 0;
-
-  // Width and height are required but DPI is optional.
-  int found = sscanf(spec.c_str(), "%dx%d^%d", &width, &height, &dpi);
-  if (found < 2)
-    return nullptr;
-
-  int64_t id = GenerateDisplayID(kReservedManufacturerID, kProductCodeHash,
-                                 ++next_display_id_);
-
-  FakeDisplaySnapshot::Builder builder;
-  builder.SetId(id).SetNativeMode(gfx::Size(width, height));
-  builder.SetName(base::StringPrintf("Fake Display %d", next_display_id_));
-
-  if (found >= 3)
-    builder.SetDPI(dpi);
-
-  // TODO(kylechar): Add type to the spec string.
-  if (displays_.empty())
-    builder.SetType(ui::DISPLAY_CONNECTION_TYPE_INTERNAL);
-
-  return builder.Build();
-}
-
 void FakeDisplayDelegate::OnConfigurationChanged() {
   if (!initialized_)
     return;
 
-  FOR_EACH_OBSERVER(ui::NativeDisplayObserver, observers_,
-                    OnConfigurationChanged());
+  for (NativeDisplayObserver& observer : observers_)
+    observer.OnConfigurationChanged();
+}
+
+void FakeDisplayDelegate::ConfigureDone() {
+  DCHECK(!configure_callbacks_.empty());
+  configure_callbacks_.front().Run();
+  configure_callbacks_.pop();
+
+  // If there are more configuration requests waiting then restart the timer.
+  if (!configure_callbacks_.empty()) {
+    configure_timer_.Start(
+        FROM_HERE, base::TimeDelta::FromMilliseconds(kConfigureDisplayDelayMs),
+        this, &FakeDisplayDelegate::ConfigureDone);
+  }
 }
 
 }  // namespace display

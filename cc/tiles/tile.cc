@@ -23,6 +23,7 @@ Tile::Tile(TileManager* tile_manager,
            int source_frame_number,
            int flags)
     : tile_manager_(tile_manager),
+      tiling_(info.tiling),
       content_rect_(info.content_rect),
       enclosing_layer_rect_(info.enclosing_layer_rect),
       contents_scale_(info.contents_scale),
@@ -42,12 +43,13 @@ Tile::~Tile() {
   TRACE_EVENT_OBJECT_DELETED_WITH_ID(
       TRACE_DISABLED_BY_DEFAULT("cc.debug"),
       "cc::Tile", this);
+  tile_manager_->Release(this);
 }
 
 void Tile::AsValueInto(base::trace_event::TracedValue* value) const {
   TracedValue::MakeDictIntoImplicitSnapshotWithCategory(
       TRACE_DISABLED_BY_DEFAULT("cc.debug"), value, "cc::Tile", this);
-  value->SetDouble("contents_scale", contents_scale_);
+  value->SetDouble("contents_scale", contents_scale());
 
   MathUtil::AddToTracedValue("content_rect", content_rect_, value);
 
@@ -74,10 +76,6 @@ size_t Tile::GPUMemoryUsageInBytes() const {
         draw_info_.resource_->size(), draw_info_.resource_->format());
   }
   return 0;
-}
-
-void Tile::Deleter::operator()(Tile* tile) const {
-  tile->tile_manager_->Release(tile);
 }
 
 }  // namespace cc

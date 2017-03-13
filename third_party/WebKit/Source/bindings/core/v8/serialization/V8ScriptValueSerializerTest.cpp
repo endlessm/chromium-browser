@@ -4,7 +4,7 @@
 
 #include "bindings/core/v8/serialization/V8ScriptValueSerializer.h"
 
-#include "bindings/core/v8/ExceptionStatePlaceholder.h"
+#include "bindings/core/v8/ExceptionState.h"
 #include "bindings/core/v8/ScriptController.h"
 #include "bindings/core/v8/ScriptSourceCode.h"
 #include "bindings/core/v8/V8BindingForTesting.h"
@@ -12,6 +12,7 @@
 #include "bindings/core/v8/V8CompositorProxy.h"
 #include "bindings/core/v8/V8DOMException.h"
 #include "bindings/core/v8/V8File.h"
+#include "bindings/core/v8/V8FileList.h"
 #include "bindings/core/v8/V8ImageBitmap.h"
 #include "bindings/core/v8/V8ImageData.h"
 #include "bindings/core/v8/V8MessagePort.h"
@@ -22,6 +23,7 @@
 #include "core/dom/MessagePort.h"
 #include "core/fileapi/Blob.h"
 #include "core/fileapi/File.h"
+#include "core/fileapi/FileList.h"
 #include "core/frame/LocalFrame.h"
 #include "core/html/ImageData.h"
 #include "core/offscreencanvas/OffscreenCanvas.h"
@@ -209,7 +211,7 @@ TEST(V8ScriptValueSerializerTest, NeuteringHappensAfterSerialization) {
   ASSERT_FALSE(arrayBuffer->isNeutered());
   v8::Local<v8::Value> object = eval("({ get a() { throw 'party'; }})", scope);
   Transferables transferables;
-  transferables.arrayBuffers.append(arrayBuffer);
+  transferables.arrayBuffers.push_back(arrayBuffer);
 
   roundTrip(object, scope, &exceptionState, &transferables);
   ASSERT_TRUE(exceptionState.hadException());
@@ -225,7 +227,7 @@ TEST(V8ScriptValueSerializerTest, RoundTripImageData) {
   ImageData* imageData = ImageData::create(2, 1, ASSERT_NO_EXCEPTION);
   imageData->data()->data()[0] = 200;
   v8::Local<v8::Value> wrapper =
-      toV8(imageData, scope.context()->Global(), scope.isolate());
+      ToV8(imageData, scope.context()->Global(), scope.isolate());
   v8::Local<v8::Value> result = roundTrip(wrapper, scope);
   ASSERT_TRUE(V8ImageData::hasInstance(result, scope.isolate()));
   ImageData* newImageData = V8ImageData::toImpl(result.As<v8::Object>());
@@ -285,9 +287,9 @@ TEST(V8ScriptValueSerializerTest, RoundTripMessagePort) {
   WebMessagePortChannel* unownedChannel;
   MessagePort* port =
       makeMessagePort(scope.getExecutionContext(), &unownedChannel);
-  v8::Local<v8::Value> wrapper = toV8(port, scope.getScriptState());
+  v8::Local<v8::Value> wrapper = ToV8(port, scope.getScriptState());
   Transferables transferables;
-  transferables.messagePorts.append(port);
+  transferables.messagePorts.push_back(port);
 
   v8::Local<v8::Value> result =
       roundTrip(wrapper, scope, nullptr, &transferables);
@@ -307,9 +309,9 @@ TEST(V8ScriptValueSerializerTest, NeuteredMessagePortThrowsDataCloneError) {
 
   MessagePort* port = MessagePort::create(*scope.getExecutionContext());
   EXPECT_TRUE(port->isNeutered());
-  v8::Local<v8::Value> wrapper = toV8(port, scope.getScriptState());
+  v8::Local<v8::Value> wrapper = ToV8(port, scope.getScriptState());
   Transferables transferables;
-  transferables.messagePorts.append(port);
+  transferables.messagePorts.push_back(port);
 
   roundTrip(wrapper, scope, &exceptionState, &transferables);
   ASSERT_TRUE(hadDOMException("DataCloneError", scope.getScriptState(),
@@ -327,7 +329,7 @@ TEST(V8ScriptValueSerializerTest,
   WebMessagePortChannel* unownedChannel;
   MessagePort* port =
       makeMessagePort(scope.getExecutionContext(), &unownedChannel);
-  v8::Local<v8::Value> wrapper = toV8(port, scope.getScriptState());
+  v8::Local<v8::Value> wrapper = ToV8(port, scope.getScriptState());
   Transferables transferables;
 
   roundTrip(wrapper, scope, &exceptionState, &transferables);
@@ -354,15 +356,15 @@ TEST(V8ScriptValueSerializerTest, OutOfRangeMessagePortIndex) {
   }
   {
     MessagePortArray* ports = new MessagePortArray;
-    ports->append(port1);
+    ports->push_back(port1);
     V8ScriptValueDeserializer deserializer(scriptState, input);
     deserializer.setTransferredMessagePorts(ports);
     ASSERT_TRUE(deserializer.deserialize()->IsNull());
   }
   {
     MessagePortArray* ports = new MessagePortArray;
-    ports->append(port1);
-    ports->append(port2);
+    ports->push_back(port1);
+    ports->push_back(port2);
     V8ScriptValueDeserializer deserializer(scriptState, input);
     deserializer.setTransferredMessagePorts(ports);
     v8::Local<v8::Value> result = deserializer.deserialize();
@@ -386,7 +388,7 @@ TEST(V8ScriptValueSerializerTest, RoundTripImageBitmap) {
       StaticBitmapImage::create(surface->makeImageSnapshot()));
 
   // Serialize and deserialize it.
-  v8::Local<v8::Value> wrapper = toV8(imageBitmap, scope.getScriptState());
+  v8::Local<v8::Value> wrapper = ToV8(imageBitmap, scope.getScriptState());
   v8::Local<v8::Value> result = roundTrip(wrapper, scope);
   ASSERT_TRUE(V8ImageBitmap::hasInstance(result, scope.isolate()));
   ImageBitmap* newImageBitmap = V8ImageBitmap::toImpl(result.As<v8::Object>());
@@ -394,9 +396,12 @@ TEST(V8ScriptValueSerializerTest, RoundTripImageBitmap) {
 
   // Check that the pixel at (3, 3) is red.
   uint8_t pixel[4] = {};
-  ASSERT_TRUE(newImageBitmap->bitmapImage()->imageForCurrentFrame()->readPixels(
-      SkImageInfo::Make(1, 1, kRGBA_8888_SkColorType, kPremul_SkAlphaType),
-      &pixel, 4, 3, 3));
+  ASSERT_TRUE(
+      newImageBitmap->bitmapImage()
+          ->imageForCurrentFrame(ColorBehavior::transformToTargetForTesting())
+          ->readPixels(SkImageInfo::Make(1, 1, kRGBA_8888_SkColorType,
+                                         kPremul_SkAlphaType),
+                       &pixel, 4, 3, 3));
   ASSERT_THAT(pixel, ::testing::ElementsAre(255, 0, 0, 255));
 }
 
@@ -430,9 +435,12 @@ TEST(V8ScriptValueSerializerTest, DecodeImageBitmap) {
 
   // Check that the pixels are opaque red and green, respectively.
   uint8_t pixels[8] = {};
-  ASSERT_TRUE(newImageBitmap->bitmapImage()->imageForCurrentFrame()->readPixels(
-      SkImageInfo::Make(2, 1, kRGBA_8888_SkColorType, kPremul_SkAlphaType),
-      &pixels, 8, 0, 0));
+  ASSERT_TRUE(
+      newImageBitmap->bitmapImage()
+          ->imageForCurrentFrame(ColorBehavior::transformToTargetForTesting())
+          ->readPixels(SkImageInfo::Make(2, 1, kRGBA_8888_SkColorType,
+                                         kPremul_SkAlphaType),
+                       &pixels, 8, 0, 0));
   ASSERT_THAT(pixels, ::testing::ElementsAre(255, 0, 0, 255, 0, 255, 0, 255));
 }
 
@@ -485,9 +493,9 @@ TEST(V8ScriptValueSerializerTest, TransferImageBitmap) {
   ImageBitmap* imageBitmap =
       ImageBitmap::create(StaticBitmapImage::create(image));
 
-  v8::Local<v8::Value> wrapper = toV8(imageBitmap, scope.getScriptState());
+  v8::Local<v8::Value> wrapper = ToV8(imageBitmap, scope.getScriptState());
   Transferables transferables;
-  transferables.imageBitmaps.append(imageBitmap);
+  transferables.imageBitmaps.push_back(imageBitmap);
   v8::Local<v8::Value> result =
       roundTrip(wrapper, scope, nullptr, &transferables);
   ASSERT_TRUE(V8ImageBitmap::hasInstance(result, scope.isolate()));
@@ -496,8 +504,8 @@ TEST(V8ScriptValueSerializerTest, TransferImageBitmap) {
 
   // Check that the pixel at (3, 3) is red.
   uint8_t pixel[4] = {};
-  sk_sp<SkImage> newImage =
-      newImageBitmap->bitmapImage()->imageForCurrentFrame();
+  sk_sp<SkImage> newImage = newImageBitmap->bitmapImage()->imageForCurrentFrame(
+      ColorBehavior::transformToTargetForTesting());
   ASSERT_TRUE(newImage->readPixels(
       SkImageInfo::Make(1, 1, kRGBA_8888_SkColorType, kPremul_SkAlphaType),
       &pixel, 4, 3, 3));
@@ -513,17 +521,17 @@ TEST(V8ScriptValueSerializerTest, TransferOffscreenCanvas) {
   ScopedEnableV8BasedStructuredClone enable;
   V8TestingScope scope;
   OffscreenCanvas* canvas = OffscreenCanvas::create(10, 7);
-  canvas->setAssociatedCanvasId(519);
-  v8::Local<v8::Value> wrapper = toV8(canvas, scope.getScriptState());
+  canvas->setPlaceholderCanvasId(519);
+  v8::Local<v8::Value> wrapper = ToV8(canvas, scope.getScriptState());
   Transferables transferables;
-  transferables.offscreenCanvases.append(canvas);
+  transferables.offscreenCanvases.push_back(canvas);
   v8::Local<v8::Value> result =
       roundTrip(wrapper, scope, nullptr, &transferables);
   ASSERT_TRUE(V8OffscreenCanvas::hasInstance(result, scope.isolate()));
   OffscreenCanvas* newCanvas =
       V8OffscreenCanvas::toImpl(result.As<v8::Object>());
   EXPECT_EQ(IntSize(10, 7), newCanvas->size());
-  EXPECT_EQ(519, newCanvas->getAssociatedCanvasId());
+  EXPECT_EQ(519, newCanvas->placeholderCanvasId());
   EXPECT_TRUE(canvas->isNeutered());
   EXPECT_FALSE(newCanvas->isNeutered());
 }
@@ -537,7 +545,7 @@ TEST(V8ScriptValueSerializerTest, RoundTripBlob) {
                    sizeof(kHelloWorld), "text/plain");
   String uuid = blob->uuid();
   EXPECT_FALSE(uuid.isEmpty());
-  v8::Local<v8::Value> wrapper = toV8(blob, scope.getScriptState());
+  v8::Local<v8::Value> wrapper = ToV8(blob, scope.getScriptState());
   v8::Local<v8::Value> result = roundTrip(wrapper, scope);
   ASSERT_TRUE(V8Blob::hasInstance(result, scope.isolate()));
   Blob* newBlob = V8Blob::toImpl(result.As<v8::Object>());
@@ -573,7 +581,7 @@ TEST(V8ScriptValueSerializerTest, RoundTripBlobIndex) {
                    sizeof(kHelloWorld), "text/plain");
   String uuid = blob->uuid();
   EXPECT_FALSE(uuid.isEmpty());
-  v8::Local<v8::Value> wrapper = toV8(blob, scope.getScriptState());
+  v8::Local<v8::Value> wrapper = ToV8(blob, scope.getScriptState());
   WebBlobInfoArray blobInfoArray;
   v8::Local<v8::Value> result =
       roundTrip(wrapper, scope, nullptr, nullptr, &blobInfoArray);
@@ -601,8 +609,8 @@ TEST(V8ScriptValueSerializerTest, DecodeBlobIndex) {
   RefPtr<SerializedScriptValue> input =
       serializedValue({0xff, 0x09, 0x3f, 0x00, 0x69, 0x00});
   WebBlobInfoArray blobInfoArray;
-  blobInfoArray.emplaceAppend("d875dfc2-4505-461b-98fe-0cf6cc5eaf44",
-                              "text/plain", 12);
+  blobInfoArray.emplace_back("d875dfc2-4505-461b-98fe-0cf6cc5eaf44",
+                             "text/plain", 12);
   V8ScriptValueDeserializer deserializer(scope.getScriptState(), input);
   deserializer.setBlobInfoArray(&blobInfoArray);
   v8::Local<v8::Value> result = deserializer.deserialize();
@@ -624,8 +632,8 @@ TEST(V8ScriptValueSerializerTest, DecodeBlobIndexOutOfRange) {
   }
   {
     WebBlobInfoArray blobInfoArray;
-    blobInfoArray.emplaceAppend("d875dfc2-4505-461b-98fe-0cf6cc5eaf44",
-                                "text/plain", 12);
+    blobInfoArray.emplace_back("d875dfc2-4505-461b-98fe-0cf6cc5eaf44",
+                               "text/plain", 12);
     V8ScriptValueDeserializer deserializer(scope.getScriptState(), input);
     deserializer.setBlobInfoArray(&blobInfoArray);
     ASSERT_TRUE(deserializer.deserialize()->IsNull());
@@ -636,7 +644,7 @@ TEST(V8ScriptValueSerializerTest, RoundTripFileNative) {
   ScopedEnableV8BasedStructuredClone enable;
   V8TestingScope scope;
   File* file = File::create("/native/path");
-  v8::Local<v8::Value> wrapper = toV8(file, scope.getScriptState());
+  v8::Local<v8::Value> wrapper = ToV8(file, scope.getScriptState());
   v8::Local<v8::Value> result = roundTrip(wrapper, scope);
   ASSERT_TRUE(V8File::hasInstance(result, scope.isolate()));
   File* newFile = V8File::toImpl(result.As<v8::Object>());
@@ -651,7 +659,7 @@ TEST(V8ScriptValueSerializerTest, RoundTripFileBackedByBlob) {
   const double modificationTime = 0.0;
   RefPtr<BlobDataHandle> blobDataHandle = BlobDataHandle::create();
   File* file = File::create("/native/path", modificationTime, blobDataHandle);
-  v8::Local<v8::Value> wrapper = toV8(file, scope.getScriptState());
+  v8::Local<v8::Value> wrapper = ToV8(file, scope.getScriptState());
   v8::Local<v8::Value> result = roundTrip(wrapper, scope);
   ASSERT_TRUE(V8File::hasInstance(result, scope.isolate()));
   File* newFile = V8File::toImpl(result.As<v8::Object>());
@@ -667,7 +675,7 @@ TEST(V8ScriptValueSerializerTest, RoundTripFileNativeSnapshot) {
   metadata.platformPath = "/native/snapshot";
   File* file =
       File::createForFileSystemFile("name", metadata, File::IsUserVisible);
-  v8::Local<v8::Value> wrapper = toV8(file, scope.getScriptState());
+  v8::Local<v8::Value> wrapper = ToV8(file, scope.getScriptState());
   v8::Local<v8::Value> result = roundTrip(wrapper, scope);
   ASSERT_TRUE(V8File::hasInstance(result, scope.isolate()));
   File* newFile = V8File::toImpl(result.As<v8::Object>());
@@ -684,7 +692,7 @@ TEST(V8ScriptValueSerializerTest, RoundTripFileNonNativeSnapshot) {
            "filesystem:http://example.com/isolated/hash/non-native-file");
   File* file =
       File::createForFileSystemFile(url, FileMetadata(), File::IsUserVisible);
-  v8::Local<v8::Value> wrapper = toV8(file, scope.getScriptState());
+  v8::Local<v8::Value> wrapper = ToV8(file, scope.getScriptState());
   v8::Local<v8::Value> result = roundTrip(wrapper, scope);
   ASSERT_TRUE(V8File::hasInstance(result, scope.isolate()));
   File* newFile = V8File::toImpl(result.As<v8::Object>());
@@ -841,7 +849,7 @@ TEST(V8ScriptValueSerializerTest, RoundTripFileIndex) {
   ScopedEnableV8BasedStructuredClone enable;
   V8TestingScope scope;
   File* file = File::create("/native/path");
-  v8::Local<v8::Value> wrapper = toV8(file, scope.getScriptState());
+  v8::Local<v8::Value> wrapper = ToV8(file, scope.getScriptState());
   WebBlobInfoArray blobInfoArray;
   v8::Local<v8::Value> result =
       roundTrip(wrapper, scope, nullptr, nullptr, &blobInfoArray);
@@ -868,8 +876,8 @@ TEST(V8ScriptValueSerializerTest, DecodeFileIndex) {
   RefPtr<SerializedScriptValue> input =
       serializedValue({0xff, 0x09, 0x3f, 0x00, 0x65, 0x00});
   WebBlobInfoArray blobInfoArray;
-  blobInfoArray.emplaceAppend("d875dfc2-4505-461b-98fe-0cf6cc5eaf44",
-                              "/native/path", "path", "text/plain");
+  blobInfoArray.emplace_back("d875dfc2-4505-461b-98fe-0cf6cc5eaf44",
+                             "/native/path", "path", "text/plain");
   V8ScriptValueDeserializer deserializer(scope.getScriptState(), input);
   deserializer.setBlobInfoArray(&blobInfoArray);
   v8::Local<v8::Value> result = deserializer.deserialize();
@@ -892,12 +900,152 @@ TEST(V8ScriptValueSerializerTest, DecodeFileIndexOutOfRange) {
   }
   {
     WebBlobInfoArray blobInfoArray;
-    blobInfoArray.emplaceAppend("d875dfc2-4505-461b-98fe-0cf6cc5eaf44",
-                                "/native/path", "path", "text/plain");
+    blobInfoArray.emplace_back("d875dfc2-4505-461b-98fe-0cf6cc5eaf44",
+                               "/native/path", "path", "text/plain");
     V8ScriptValueDeserializer deserializer(scope.getScriptState(), input);
     deserializer.setBlobInfoArray(&blobInfoArray);
     ASSERT_TRUE(deserializer.deserialize()->IsNull());
   }
+}
+
+// Most of the logic for FileList is shared with File, so the tests here are
+// fairly basic.
+
+TEST(V8ScriptValueSerializerTest, RoundTripFileList) {
+  ScopedEnableV8BasedStructuredClone enable;
+  V8TestingScope scope;
+  FileList* fileList = FileList::create();
+  fileList->append(File::create("/native/path"));
+  fileList->append(File::create("/native/path2"));
+  v8::Local<v8::Value> wrapper = ToV8(fileList, scope.getScriptState());
+  v8::Local<v8::Value> result = roundTrip(wrapper, scope);
+  ASSERT_TRUE(V8FileList::hasInstance(result, scope.isolate()));
+  FileList* newFileList = V8FileList::toImpl(result.As<v8::Object>());
+  ASSERT_EQ(2u, newFileList->length());
+  EXPECT_EQ("/native/path", newFileList->item(0)->path());
+  EXPECT_EQ("/native/path2", newFileList->item(1)->path());
+}
+
+TEST(V8ScriptValueSerializerTest, DecodeEmptyFileList) {
+  ScopedEnableV8BasedStructuredClone enable;
+  V8TestingScope scope;
+  RefPtr<SerializedScriptValue> input =
+      serializedValue({0xff, 0x09, 0x3f, 0x00, 0x6c, 0x00});
+  v8::Local<v8::Value> result =
+      V8ScriptValueDeserializer(scope.getScriptState(), input).deserialize();
+  ASSERT_TRUE(V8FileList::hasInstance(result, scope.isolate()));
+  FileList* newFileList = V8FileList::toImpl(result.As<v8::Object>());
+  EXPECT_EQ(0u, newFileList->length());
+}
+
+TEST(V8ScriptValueSerializerTest, DecodeFileListWithInvalidLength) {
+  ScopedEnableV8BasedStructuredClone enable;
+  V8TestingScope scope;
+  RefPtr<SerializedScriptValue> input =
+      serializedValue({0xff, 0x09, 0x3f, 0x00, 0x6c, 0x01});
+  v8::Local<v8::Value> result =
+      V8ScriptValueDeserializer(scope.getScriptState(), input).deserialize();
+  EXPECT_TRUE(result->IsNull());
+}
+
+TEST(V8ScriptValueSerializerTest, DecodeFileListV8WithoutSnapshot) {
+  ScopedEnableV8BasedStructuredClone enable;
+  V8TestingScope scope;
+  TimeIntervalChecker timeIntervalChecker;
+  RefPtr<SerializedScriptValue> input = serializedValue(
+      {0xff, 0x08, 0x3f, 0x00, 0x6c, 0x01, 0x04, 'p', 'a',  't',  'h', 0x04,
+       'n',  'a',  'm',  'e',  0x03, 'r',  'e',  'l', 0x24, 'f',  '4', 'a',
+       '6',  'e',  'd',  'd',  '5',  '-',  '6',  '5', 'a',  'd',  '-', '4',
+       'd',  'c',  '3',  '-',  'b',  '6',  '7',  'c', '-',  'a',  '7', '7',
+       '9',  'c',  '0',  '2',  'f',  '0',  'f',  'a', '3',  0x0a, 't', 'e',
+       'x',  't',  '/',  'p',  'l',  'a',  'i',  'n', 0x00, 0x00});
+  v8::Local<v8::Value> result =
+      V8ScriptValueDeserializer(scope.getScriptState(), input).deserialize();
+  ASSERT_TRUE(V8FileList::hasInstance(result, scope.isolate()));
+  FileList* newFileList = V8FileList::toImpl(result.As<v8::Object>());
+  EXPECT_EQ(1u, newFileList->length());
+  File* newFile = newFileList->item(0);
+  EXPECT_EQ("path", newFile->path());
+  EXPECT_EQ("name", newFile->name());
+  EXPECT_EQ("rel", newFile->webkitRelativePath());
+  EXPECT_EQ("f4a6edd5-65ad-4dc3-b67c-a779c02f0fa3", newFile->uuid());
+  EXPECT_EQ("text/plain", newFile->type());
+  EXPECT_FALSE(newFile->hasValidSnapshotMetadata());
+  EXPECT_EQ(0u, newFile->size());
+  EXPECT_TRUE(timeIntervalChecker.wasAliveAt(newFile->lastModifiedDate()));
+  EXPECT_EQ(File::IsNotUserVisible, newFile->getUserVisibility());
+}
+
+TEST(V8ScriptValueSerializerTest, RoundTripFileListIndex) {
+  ScopedEnableV8BasedStructuredClone enable;
+  V8TestingScope scope;
+  FileList* fileList = FileList::create();
+  fileList->append(File::create("/native/path"));
+  fileList->append(File::create("/native/path2"));
+  v8::Local<v8::Value> wrapper = ToV8(fileList, scope.getScriptState());
+  WebBlobInfoArray blobInfoArray;
+  v8::Local<v8::Value> result =
+      roundTrip(wrapper, scope, nullptr, nullptr, &blobInfoArray);
+
+  // FileList should be produced correctly.
+  ASSERT_TRUE(V8FileList::hasInstance(result, scope.isolate()));
+  FileList* newFileList = V8FileList::toImpl(result.As<v8::Object>());
+  ASSERT_EQ(2u, newFileList->length());
+  EXPECT_EQ("/native/path", newFileList->item(0)->path());
+  EXPECT_EQ("/native/path2", newFileList->item(1)->path());
+
+  // And the blob info array should be populated.
+  ASSERT_EQ(2u, blobInfoArray.size());
+  EXPECT_TRUE(blobInfoArray[0].isFile());
+  EXPECT_EQ("/native/path", blobInfoArray[0].filePath());
+  EXPECT_TRUE(blobInfoArray[1].isFile());
+  EXPECT_EQ("/native/path2", blobInfoArray[1].filePath());
+}
+
+TEST(V8ScriptValueSerializerTest, DecodeEmptyFileListIndex) {
+  ScopedEnableV8BasedStructuredClone enable;
+  V8TestingScope scope;
+  RefPtr<SerializedScriptValue> input =
+      serializedValue({0xff, 0x09, 0x3f, 0x00, 0x4c, 0x00});
+  WebBlobInfoArray blobInfoArray;
+  V8ScriptValueDeserializer deserializer(scope.getScriptState(), input);
+  deserializer.setBlobInfoArray(&blobInfoArray);
+  v8::Local<v8::Value> result = deserializer.deserialize();
+  ASSERT_TRUE(V8FileList::hasInstance(result, scope.isolate()));
+  FileList* newFileList = V8FileList::toImpl(result.As<v8::Object>());
+  EXPECT_EQ(0u, newFileList->length());
+}
+
+TEST(V8ScriptValueSerializerTest, DecodeFileListIndexWithInvalidLength) {
+  ScopedEnableV8BasedStructuredClone enable;
+  V8TestingScope scope;
+  RefPtr<SerializedScriptValue> input =
+      serializedValue({0xff, 0x09, 0x3f, 0x00, 0x4c, 0x02});
+  WebBlobInfoArray blobInfoArray;
+  V8ScriptValueDeserializer deserializer(scope.getScriptState(), input);
+  deserializer.setBlobInfoArray(&blobInfoArray);
+  v8::Local<v8::Value> result = deserializer.deserialize();
+  EXPECT_TRUE(result->IsNull());
+}
+
+TEST(V8ScriptValueSerializerTest, DecodeFileListIndex) {
+  ScopedEnableV8BasedStructuredClone enable;
+  V8TestingScope scope;
+  RefPtr<SerializedScriptValue> input =
+      serializedValue({0xff, 0x09, 0x3f, 0x00, 0x4c, 0x01, 0x00, 0x00});
+  WebBlobInfoArray blobInfoArray;
+  blobInfoArray.emplace_back("d875dfc2-4505-461b-98fe-0cf6cc5eaf44",
+                             "/native/path", "name", "text/plain");
+  V8ScriptValueDeserializer deserializer(scope.getScriptState(), input);
+  deserializer.setBlobInfoArray(&blobInfoArray);
+  v8::Local<v8::Value> result = deserializer.deserialize();
+  FileList* newFileList = V8FileList::toImpl(result.As<v8::Object>());
+  EXPECT_EQ(1u, newFileList->length());
+  File* newFile = newFileList->item(0);
+  EXPECT_EQ("/native/path", newFile->path());
+  EXPECT_EQ("name", newFile->name());
+  EXPECT_EQ("d875dfc2-4505-461b-98fe-0cf6cc5eaf44", newFile->uuid());
+  EXPECT_EQ("text/plain", newFile->type());
 }
 
 class ScopedEnableCompositorWorker {
@@ -924,7 +1072,7 @@ TEST(V8ScriptValueSerializerTest, RoundTripCompositorProxy) {
       scope.getExecutionContext(), element, properties, ASSERT_NO_EXCEPTION);
   uint64_t elementId = proxy->elementId();
 
-  v8::Local<v8::Value> wrapper = toV8(proxy, scope.getScriptState());
+  v8::Local<v8::Value> wrapper = ToV8(proxy, scope.getScriptState());
   v8::Local<v8::Value> result = roundTrip(wrapper, scope);
   ASSERT_TRUE(V8CompositorProxy::hasInstance(result, scope.isolate()));
   CompositorProxy* newProxy =

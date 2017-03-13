@@ -15,32 +15,48 @@ namespace cc {
 // When adding a new MainThreadScrollingReason, make sure the corresponding
 // [MainThread/Compositor]CanSetScrollReasons function is also updated.
 struct MainThreadScrollingReason {
-  // Non-transient scrolling reasons.
-  enum : uint32_t { kNotScrollingOnMain = 0 };
-  enum : uint32_t { kHasBackgroundAttachmentFixedObjects = 1 << 0 };
-  enum : uint32_t { kHasNonLayerViewportConstrainedObjects = 1 << 1 };
-  enum : uint32_t { kThreadedScrollingDisabled = 1 << 2 };
-  enum : uint32_t { kScrollbarScrolling = 1 << 3 };
-  enum : uint32_t { kPageOverlay = 1 << 4 };
-  // This bit is set when any of the other main thread scrolling reasons cause
-  // an input event to be handled on the main thread, and the main thread
-  // blink::ScrollAnimator is in the middle of running a scroll offset
-  // animation. Note that a scroll handled by the main thread can result in an
-  // animation running on the main thread or on the compositor thread.
-  enum : uint32_t { kHandlingScrollFromMainThread = 1 << 13 };
-  enum : uint32_t { kCustomScrollbarScrolling = 1 << 15 };
+  enum : uint32_t {
+    // Non-transient scrolling reasons.
+    kNotScrollingOnMain = 0,
+    kHasBackgroundAttachmentFixedObjects = 1 << 0,
+    kHasNonLayerViewportConstrainedObjects = 1 << 1,
+    kThreadedScrollingDisabled = 1 << 2,
+    kScrollbarScrolling = 1 << 3,
+    kPageOverlay = 1 << 4,
 
-  // Transient scrolling reasons. These are computed for each scroll begin.
-  enum : uint32_t { kNonFastScrollableRegion = 1 << 5 };
-  enum : uint32_t { kFailedHitTest = 1 << 7 };
-  enum : uint32_t { kNoScrollingLayer = 1 << 8 };
-  enum : uint32_t { kNotScrollable = 1 << 9 };
-  enum : uint32_t { kContinuingMainThreadScroll = 1 << 10 };
-  enum : uint32_t { kNonInvertibleTransform = 1 << 11 };
-  enum : uint32_t { kPageBasedScrolling = 1 << 12 };
+    // This bit is set when any of the other main thread scrolling reasons cause
+    // an input event to be handled on the main thread, and the main thread
+    // blink::ScrollAnimator is in the middle of running a scroll offset
+    // animation. Note that a scroll handled by the main thread can result in an
+    // animation running on the main thread or on the compositor thread.
+    kHandlingScrollFromMainThread = 1 << 13,
+    kCustomScrollbarScrolling = 1 << 15,
 
-  // The number of flags in this struct (excluding itself).
-  enum : uint32_t { kMainThreadScrollingReasonCount = 17 };
+    // Style-related scrolling on main reasons.
+    // These *AndLCDText reasons are due to subpixel text rendering which can
+    // only be applied by blending glyphs with the background at a specific
+    // screen position; transparency and transforms break this.
+    kHasOpacityAndLCDText = 1 << 16,
+    kHasTransformAndLCDText = 1 << 17,
+    kBackgroundNotOpaqueInRectAndLCDText = 1 << 18,
+    kHasBorderRadius = 1 << 19,
+    kHasClipRelatedProperty = 1 << 20,
+
+    // Transient scrolling reasons. These are computed for each scroll begin.
+    kNonFastScrollableRegion = 1 << 5,
+    kFailedHitTest = 1 << 7,
+    kNoScrollingLayer = 1 << 8,
+    kNotScrollable = 1 << 9,
+    kContinuingMainThreadScroll = 1 << 10,
+    kNonInvertibleTransform = 1 << 11,
+    kPageBasedScrolling = 1 << 12,
+
+    // The maximum number of flags in this struct (excluding itself).
+    // New flags should increment this number but it should never be decremented
+    // because the values are used in UMA histograms. It should also be noted
+    // that it excludes the kNotScrollingOnMain value.
+    kMainThreadScrollingReasonCount = 21,
+  };
 
   // Returns true if the given MainThreadScrollingReason can be set by the main
   // thread.
@@ -49,7 +65,9 @@ struct MainThreadScrollingReason {
         kNotScrollingOnMain | kHasBackgroundAttachmentFixedObjects |
         kHasNonLayerViewportConstrainedObjects | kThreadedScrollingDisabled |
         kScrollbarScrolling | kPageOverlay | kHandlingScrollFromMainThread |
-        kCustomScrollbarScrolling;
+        kCustomScrollbarScrolling | kHasOpacityAndLCDText |
+        kHasTransformAndLCDText | kBackgroundNotOpaqueInRectAndLCDText |
+        kHasBorderRadius | kHasClipRelatedProperty;
     return (reasons & reasons_set_by_main_thread) == reasons;
   }
 
@@ -94,6 +112,19 @@ struct MainThreadScrollingReason {
       tracedValue->AppendString("Handling scroll from main thread");
     if (reasons & MainThreadScrollingReason::kCustomScrollbarScrolling)
       tracedValue->AppendString("Custom scrollbar scrolling");
+    if (reasons & MainThreadScrollingReason::kHasOpacityAndLCDText)
+      tracedValue->AppendString("Has opacity and LCD text");
+    if (reasons & MainThreadScrollingReason::kHasTransformAndLCDText)
+      tracedValue->AppendString("Has transform and LCD text");
+    if (reasons &
+        MainThreadScrollingReason::kBackgroundNotOpaqueInRectAndLCDText) {
+      tracedValue->AppendString(
+          "Background is not opaque in rect and LCD text");
+    }
+    if (reasons & MainThreadScrollingReason::kHasBorderRadius)
+      tracedValue->AppendString("Has border radius");
+    if (reasons & MainThreadScrollingReason::kHasClipRelatedProperty)
+      tracedValue->AppendString("Has clip related property");
 
     // Transient scrolling reasons.
     if (reasons & MainThreadScrollingReason::kNonFastScrollableRegion)
@@ -111,6 +142,20 @@ struct MainThreadScrollingReason {
     if (reasons & MainThreadScrollingReason::kPageBasedScrolling)
       tracedValue->AppendString("Page-based scrolling");
     tracedValue->EndArray();
+  }
+
+  // For a given reason, return its index in enum
+  static int getReasonIndex(uint32_t reason) {
+    // Multiple reasons provided
+    if (reason & (reason - 1))
+      return -1;
+
+    int index = -1;
+    while (reason > 0) {
+      reason = reason >> 1;
+      ++index;
+    }
+    return index;
   }
 };
 

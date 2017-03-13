@@ -8,10 +8,12 @@
 #include <utility>
 
 #include "base/callback_helpers.h"
+#include "base/feature_list.h"
+#include "base/lazy_instance.h"
 #include "base/macros.h"
-#include "base/metrics/field_trial.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/stringprintf.h"
+#include "base/threading/non_thread_safe.h"
 #include "base/time/clock.h"
 #include "base/time/time.h"
 #include "chrome/browser/browser_process.h"
@@ -19,6 +21,8 @@
 #include "chrome/browser/ssl/bad_clock_blocking_page.h"
 #include "chrome/browser/ssl/ssl_blocking_page.h"
 #include "chrome/browser/ssl/ssl_cert_reporter.h"
+#include "chrome/common/features.h"
+#include "components/network_time/network_time_tracker.h"
 #include "components/ssl_errors/error_classification.h"
 #include "components/ssl_errors/error_info.h"
 #include "content/public/browser/notification_service.h"
@@ -27,33 +31,31 @@
 #include "content/public/browser/web_contents.h"
 #include "net/base/net_errors.h"
 
-#if defined(ENABLE_CAPTIVE_PORTAL_DETECTION)
+#if BUILDFLAG(ENABLE_CAPTIVE_PORTAL_DETECTION)
 #include "chrome/browser/captive_portal/captive_portal_service.h"
 #include "chrome/browser/captive_portal/captive_portal_service_factory.h"
 #include "chrome/browser/captive_portal/captive_portal_tab_helper.h"
 #include "chrome/browser/ssl/captive_portal_blocking_page.h"
 #endif
 
-namespace network_time {
-class NetworkTimeTracker;
-}
-
 namespace {
 
-// The delay in milliseconds before displaying the SSL interstitial.
+#if BUILDFLAG(ENABLE_CAPTIVE_PORTAL_DETECTION)
+const base::Feature kCaptivePortalInterstitial{
+    "CaptivePortalInterstitial", base::FEATURE_ENABLED_BY_DEFAULT};
+#endif
+
+const base::Feature kSSLCommonNameMismatchHandling{
+    "SSLCommonNameMismatchHandling", base::FEATURE_ENABLED_BY_DEFAULT};
+
+// Default delay in milliseconds before displaying the SSL interstitial.
 // This can be changed in tests.
 // - If there is a name mismatch and a suggested URL available result arrives
 //   during this time, the user is redirected to the suggester URL.
 // - If a "captive portal detected" result arrives during this time,
 //   a captive portal interstitial is displayed.
 // - Otherwise, an SSL interstitial is displayed.
-int64_t g_interstitial_delay_in_milliseconds = 3000;
-
-// Callback to call when the interstitial timer is started. Used for testing.
-SSLErrorHandler::TimerStartedCallback* g_timer_started_callback = nullptr;
-
-// The clock to use when deciding which error type to display. Used for testing.
-base::Clock* g_testing_clock = nullptr;
+const int64_t kInterstitialDelayInMilliseconds = 3000;
 
 // Events for UMA.
 enum SSLErrorHandlerEvent {
@@ -109,7 +111,7 @@ class CommonNameMismatchRedirectObserver
             "Redirecting navigation %s -> %s because the server presented a "
             "certificate valid for %s but not for %s. To disable such "
             "redirects launch Chrome with the following flag: "
-            "--force-fieldtrials=SSLCommonNameMismatchHandling/Disabled/",
+            "--disable-features=SSLCommonNameMismatchHandling",
             request_url_hostname_.c_str(), suggested_url_hostname_.c_str(),
             suggested_url_hostname_.c_str(), request_url_hostname_.c_str()));
     web_contents_->RemoveUserData(UserDataKey());
@@ -131,17 +133,93 @@ void RecordUMA(SSLErrorHandlerEvent event) {
                             SSL_ERROR_HANDLER_EVENT_COUNT);
 }
 
-#if defined(ENABLE_CAPTIVE_PORTAL_DETECTION)
+#if BUILDFLAG(ENABLE_CAPTIVE_PORTAL_DETECTION)
 bool IsCaptivePortalInterstitialEnabled() {
-  return base::FieldTrialList::FindFullName("CaptivePortalInterstitial") ==
-         "Enabled";
+  return base::FeatureList::IsEnabled(kCaptivePortalInterstitial);
 }
 #endif
 
 bool IsSSLCommonNameMismatchHandlingEnabled() {
-  return base::FieldTrialList::FindFullName("SSLCommonNameMismatchHandling") ==
-         "Enabled";
+  return base::FeatureList::IsEnabled(kSSLCommonNameMismatchHandling);
 }
+
+// Configuration for SSLErrorHandler.
+class ConfigSingleton : public base::NonThreadSafe {
+ public:
+  ConfigSingleton();
+
+  base::TimeDelta interstitial_delay() const;
+  SSLErrorHandler::TimerStartedCallback* timer_started_callback() const;
+  base::Clock* clock() const;
+  network_time::NetworkTimeTracker* network_time_tracker() const;
+
+  void SetInterstitialDelayForTesting(const base::TimeDelta& delay);
+  void SetTimerStartedCallbackForTesting(
+      SSLErrorHandler::TimerStartedCallback* callback);
+  void SetClockForTesting(base::Clock* clock);
+  void SetNetworkTimeTrackerForTesting(
+      network_time::NetworkTimeTracker* tracker);
+
+ private:
+  base::TimeDelta interstitial_delay_;
+
+  // Callback to call when the interstitial timer is started. Used for
+  // testing.
+  SSLErrorHandler::TimerStartedCallback* timer_started_callback_ = nullptr;
+
+  // The clock to use when deciding which error type to display. Used for
+  // testing.
+  base::Clock* testing_clock_ = nullptr;
+
+  network_time::NetworkTimeTracker* network_time_tracker_ = nullptr;
+};
+
+ConfigSingleton::ConfigSingleton()
+    : interstitial_delay_(
+          base::TimeDelta::FromMilliseconds(kInterstitialDelayInMilliseconds)) {
+}
+
+base::TimeDelta ConfigSingleton::interstitial_delay() const {
+  return interstitial_delay_;
+}
+
+SSLErrorHandler::TimerStartedCallback* ConfigSingleton::timer_started_callback()
+    const {
+  return timer_started_callback_;
+}
+
+network_time::NetworkTimeTracker* ConfigSingleton::network_time_tracker()
+    const {
+  return network_time_tracker_ ? network_time_tracker_
+                               : g_browser_process->network_time_tracker();
+}
+
+base::Clock* ConfigSingleton::clock() const {
+  return testing_clock_;
+}
+
+void ConfigSingleton::SetInterstitialDelayForTesting(
+    const base::TimeDelta& delay) {
+  interstitial_delay_ = delay;
+}
+
+void ConfigSingleton::SetTimerStartedCallbackForTesting(
+    SSLErrorHandler::TimerStartedCallback* callback) {
+  DCHECK(!callback || !callback->is_null());
+  timer_started_callback_ = callback;
+}
+
+void ConfigSingleton::SetClockForTesting(base::Clock* clock) {
+  testing_clock_ = clock;
+}
+
+void ConfigSingleton::SetNetworkTimeTrackerForTesting(
+    network_time::NetworkTimeTracker* tracker) {
+  network_time_tracker_ = tracker;
+}
+
+static base::LazyInstance<ConfigSingleton>::Leaky g_config =
+    LAZY_INSTANCE_INITIALIZER;
 
 }  // namespace
 
@@ -166,20 +244,26 @@ void SSLErrorHandler::HandleSSLError(
 }
 
 // static
-void SSLErrorHandler::SetInterstitialDelayForTest(base::TimeDelta delay) {
-  g_interstitial_delay_in_milliseconds = delay.InMilliseconds();
+void SSLErrorHandler::SetInterstitialDelayForTesting(
+    const base::TimeDelta& delay) {
+  g_config.Pointer()->SetInterstitialDelayForTesting(delay);
 }
 
 // static
-void SSLErrorHandler::SetInterstitialTimerStartedCallbackForTest(
+void SSLErrorHandler::SetInterstitialTimerStartedCallbackForTesting(
     TimerStartedCallback* callback) {
-  DCHECK(!callback || !callback->is_null());
-  g_timer_started_callback = callback;
+  g_config.Pointer()->SetTimerStartedCallbackForTesting(callback);
 }
 
 // static
-void SSLErrorHandler::SetClockForTest(base::Clock* testing_clock) {
-  g_testing_clock = testing_clock;
+void SSLErrorHandler::SetClockForTesting(base::Clock* testing_clock) {
+  g_config.Pointer()->SetClockForTesting(testing_clock);
+}
+
+// static
+void SSLErrorHandler::SetNetworkTimeTrackerForTesting(
+    network_time::NetworkTimeTracker* tracker) {
+  g_config.Pointer()->SetNetworkTimeTrackerForTesting(tracker);
 }
 
 SSLErrorHandler::SSLErrorHandler(
@@ -198,7 +282,8 @@ SSLErrorHandler::SSLErrorHandler(
       options_mask_(options_mask),
       callback_(callback),
       profile_(Profile::FromBrowserContext(web_contents->GetBrowserContext())),
-      ssl_cert_reporter_(std::move(ssl_cert_reporter)) {}
+      ssl_cert_reporter_(std::move(ssl_cert_reporter)),
+      weak_ptr_factory_(this) {}
 
 SSLErrorHandler::~SSLErrorHandler() {
 }
@@ -206,18 +291,10 @@ SSLErrorHandler::~SSLErrorHandler() {
 void SSLErrorHandler::StartHandlingError() {
   RecordUMA(HANDLE_ALL);
 
-  const base::Time now = g_testing_clock == nullptr
-                             ? base::Time::NowFromSystemTime()
-                             : g_testing_clock->Now();
   if (ssl_errors::ErrorInfo::NetErrorToErrorType(cert_error_) ==
       ssl_errors::ErrorInfo::CERT_DATE_INVALID) {
-    ssl_errors::ClockState clock_state = ssl_errors::GetClockState(
-        now, g_browser_process->network_time_tracker());
-    if (clock_state == ssl_errors::CLOCK_STATE_FUTURE ||
-        clock_state == ssl_errors::CLOCK_STATE_PAST) {
-      ShowBadClockInterstitial(now, clock_state);
-      return;  // |this| is deleted after showing the interstitial.
-    }
+    HandleCertDateInvalidError();
+    return;
   }
 
   std::vector<std::string> dns_names;
@@ -240,11 +317,11 @@ void SSLErrorHandler::StartHandlingError() {
       return;
     }
     CheckSuggestedUrl(suggested_url);
-    timer_.Start(FROM_HERE, base::TimeDelta::FromMilliseconds(
-                                g_interstitial_delay_in_milliseconds),
-                 this, &SSLErrorHandler::ShowSSLInterstitial);
-    if (g_timer_started_callback)
-      g_timer_started_callback->Run(web_contents_);
+    timer_.Start(FROM_HERE, g_config.Pointer()->interstitial_delay(), this,
+                 &SSLErrorHandler::ShowSSLInterstitial);
+
+    if (g_config.Pointer()->timer_started_callback())
+      g_config.Pointer()->timer_started_callback()->Run(web_contents_);
 
     // Do not check for a captive portal in this case, because a captive
     // portal most likely cannot serve a valid certificate which passes the
@@ -252,7 +329,7 @@ void SSLErrorHandler::StartHandlingError() {
     return;
   }
 
-#if defined(ENABLE_CAPTIVE_PORTAL_DETECTION)
+#if BUILDFLAG(ENABLE_CAPTIVE_PORTAL_DETECTION)
   CaptivePortalTabHelper* captive_portal_tab_helper =
       CaptivePortalTabHelper::FromWebContents(web_contents_);
   if (captive_portal_tab_helper) {
@@ -264,11 +341,10 @@ void SSLErrorHandler::StartHandlingError() {
 
   if (IsCaptivePortalInterstitialEnabled()) {
     CheckForCaptivePortal();
-    timer_.Start(FROM_HERE, base::TimeDelta::FromMilliseconds(
-                                g_interstitial_delay_in_milliseconds),
-                 this, &SSLErrorHandler::ShowSSLInterstitial);
-    if (g_timer_started_callback)
-      g_timer_started_callback->Run(web_contents_);
+    timer_.Start(FROM_HERE, g_config.Pointer()->interstitial_delay(), this,
+                 &SSLErrorHandler::ShowSSLInterstitial);
+    if (g_config.Pointer()->timer_started_callback())
+      g_config.Pointer()->timer_started_callback()->Run(web_contents_);
     return;
   }
 #endif
@@ -277,7 +353,7 @@ void SSLErrorHandler::StartHandlingError() {
 }
 
 void SSLErrorHandler::CheckForCaptivePortal() {
-#if defined(ENABLE_CAPTIVE_PORTAL_DETECTION)
+#if BUILDFLAG(ENABLE_CAPTIVE_PORTAL_DETECTION)
   CaptivePortalService* captive_portal_service =
       CaptivePortalServiceFactory::GetForProfile(profile_);
   captive_portal_service->DetectCaptivePortal();
@@ -315,7 +391,7 @@ bool SSLErrorHandler::IsErrorOverridable() const {
 }
 
 void SSLErrorHandler::ShowCaptivePortalInterstitial(const GURL& landing_url) {
-#if defined(ENABLE_CAPTIVE_PORTAL_DETECTION)
+#if BUILDFLAG(ENABLE_CAPTIVE_PORTAL_DETECTION)
   // Show captive portal blocking page. The interstitial owns the blocking page.
   RecordUMA(IsErrorOverridable()
                 ? SHOW_CAPTIVE_PORTAL_INTERSTITIAL_OVERRIDABLE
@@ -379,7 +455,7 @@ void SSLErrorHandler::Observe(
     int type,
     const content::NotificationSource& source,
     const content::NotificationDetails& details) {
-#if defined(ENABLE_CAPTIVE_PORTAL_DETECTION)
+#if BUILDFLAG(ENABLE_CAPTIVE_PORTAL_DETECTION)
   DCHECK_EQ(chrome::NOTIFICATION_CAPTIVE_PORTAL_CHECK_RESULT, type);
 
   timer_.Stop();
@@ -419,4 +495,53 @@ void SSLErrorHandler::DeleteSSLErrorHandler() {
   }
   // Deletes |this| and also destroys the timer.
   web_contents_->RemoveUserData(UserDataKey());
+}
+
+void SSLErrorHandler::HandleCertDateInvalidError() {
+  const base::TimeTicks now = base::TimeTicks::Now();
+  timer_.Start(FROM_HERE, g_config.Pointer()->interstitial_delay(),
+               base::Bind(&SSLErrorHandler::HandleCertDateInvalidErrorImpl,
+                          base::Unretained(this), now));
+  // Try kicking off a time fetch to get an up-to-date estimate of the
+  // true time. This will only have an effect if network time is
+  // unavailable or if there is not already a query in progress.
+  //
+  // Pass a weak pointer as the callback; if the timer fires before the
+  // fetch completes and shows an interstitial, this SSLErrorHandler
+  // will be deleted.
+  network_time::NetworkTimeTracker* tracker =
+      g_config.Pointer()->network_time_tracker();
+  if (!tracker->StartTimeFetch(
+          base::Bind(&SSLErrorHandler::HandleCertDateInvalidErrorImpl,
+                     weak_ptr_factory_.GetWeakPtr(), now))) {
+    HandleCertDateInvalidErrorImpl(now);
+    return;
+  }
+
+  if (g_config.Pointer()->timer_started_callback())
+    g_config.Pointer()->timer_started_callback()->Run(web_contents_);
+}
+
+void SSLErrorHandler::HandleCertDateInvalidErrorImpl(
+    base::TimeTicks started_handling_error) {
+  UMA_HISTOGRAM_CUSTOM_TIMES(
+      "interstitial.ssl_error_handler.cert_date_error_delay",
+      base::TimeTicks::Now() - started_handling_error,
+      base::TimeDelta::FromMilliseconds(1), base::TimeDelta::FromSeconds(4),
+      50);
+
+  timer_.Stop();
+  base::Clock* testing_clock = g_config.Pointer()->clock();
+  const base::Time now =
+      testing_clock ? testing_clock->Now() : base::Time::NowFromSystemTime();
+
+  network_time::NetworkTimeTracker* tracker =
+      g_config.Pointer()->network_time_tracker();
+  ssl_errors::ClockState clock_state = ssl_errors::GetClockState(now, tracker);
+  if (clock_state == ssl_errors::CLOCK_STATE_FUTURE ||
+      clock_state == ssl_errors::CLOCK_STATE_PAST) {
+    ShowBadClockInterstitial(now, clock_state);
+    return;  // |this| is deleted after showing the interstitial.
+  }
+  ShowSSLInterstitial();
 }

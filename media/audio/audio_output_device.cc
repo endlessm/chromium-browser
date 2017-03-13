@@ -39,14 +39,13 @@ class AudioOutputDevice::AudioThreadCallback
   void MapSharedMemory() override;
 
   // Called whenever we receive notifications about pending data.
-  void Process(uint32_t pending_data) override;
+  void Process(uint32_t control_signal) override;
 
   // Returns whether the current thread is the audio device thread or not.
   // Will always return true if DCHECKs are not enabled.
   bool CurrentThreadIsAudioDeviceThread();
 
  private:
-  const int bytes_per_frame_;
   AudioRendererSink::RenderCallback* render_callback_;
   std::unique_ptr<AudioBus> output_bus_;
   uint64_t callback_num_;
@@ -278,36 +277,24 @@ void AudioOutputDevice::SetVolumeOnIOThread(double volume) {
     ipc_->SetVolume(volume);
 }
 
-void AudioOutputDevice::OnStateChanged(AudioOutputIPCDelegateState state) {
+void AudioOutputDevice::OnError() {
   DCHECK(task_runner()->BelongsToCurrentThread());
 
   // Do nothing if the stream has been closed.
   if (state_ < CREATING_STREAM)
     return;
 
-  // TODO(miu): Clean-up inconsistent and incomplete handling here.
-  // http://crbug.com/180640
-  switch (state) {
-    case AUDIO_OUTPUT_IPC_DELEGATE_STATE_PLAYING:
-    case AUDIO_OUTPUT_IPC_DELEGATE_STATE_PAUSED:
-      break;
-    case AUDIO_OUTPUT_IPC_DELEGATE_STATE_ERROR:
-      DLOG(WARNING) << "AudioOutputDevice::OnStateChanged(ERROR)";
-      // Don't dereference the callback object if the audio thread
-      // is stopped or stopping.  That could mean that the callback
-      // object has been deleted.
-      // TODO(tommi): Add an explicit contract for clearing the callback
-      // object.  Possibly require calling Initialize again or provide
-      // a callback object via Start() and clear it in Stop().
-      {
-        base::AutoLock auto_lock_(audio_thread_lock_);
-        if (audio_thread_)
-          callback_->OnRenderError();
-      }
-      break;
-    default:
-      NOTREACHED();
-      break;
+  DLOG(WARNING) << "AudioOutputDevice::OnError()";
+  // Don't dereference the callback object if the audio thread
+  // is stopped or stopping.  That could mean that the callback
+  // object has been deleted.
+  // TODO(tommi): Add an explicit contract for clearing the callback
+  // object.  Possibly require calling Initialize again or provide
+  // a callback object via Start() and clear it in Stop().
+  {
+    base::AutoLock auto_lock_(audio_thread_lock_);
+    if (audio_thread_)
+      callback_->OnRenderError();
   }
 }
 
@@ -338,8 +325,11 @@ void AudioOutputDevice::OnDeviceAuthorized(
   // different from OUTPUT_DEVICE_STATUS_OK, so the AudioOutputDevice
   // will enter the IPC_CLOSED state anyway, which is the safe thing to do.
   // This is preferable to holding a lock.
-  if (!did_receive_auth_.IsSignaled())
+  if (!did_receive_auth_.IsSignaled()) {
     device_status_ = device_status;
+    UMA_HISTOGRAM_ENUMERATION("Media.Audio.Render.OutputDeviceStatus",
+                              device_status, OUTPUT_DEVICE_STATUS_MAX + 1);
+  }
 
   if (device_status == OUTPUT_DEVICE_STATUS_OK) {
     state_ = AUTHORIZED;
@@ -443,7 +433,6 @@ AudioOutputDevice::AudioThreadCallback::AudioThreadCallback(
     int memory_length,
     AudioRendererSink::RenderCallback* render_callback)
     : AudioDeviceThread::Callback(audio_parameters, memory, memory_length, 1),
-      bytes_per_frame_(audio_parameters.GetBytesPerFrame()),
       render_callback_(render_callback),
       callback_num_(0) {}
 
@@ -463,10 +452,7 @@ void AudioOutputDevice::AudioThreadCallback::MapSharedMemory() {
 }
 
 // Called whenever we receive notifications about pending data.
-void AudioOutputDevice::AudioThreadCallback::Process(uint32_t pending_data) {
-  // Convert the number of pending bytes in the render buffer into frames.
-  double frames_delayed = static_cast<double>(pending_data) / bytes_per_frame_;
-
+void AudioOutputDevice::AudioThreadCallback::Process(uint32_t control_signal) {
   callback_num_++;
   TRACE_EVENT1("audio", "AudioOutputDevice::FireRenderCallback",
                "callback_num", callback_num_);
@@ -484,16 +470,22 @@ void AudioOutputDevice::AudioThreadCallback::Process(uint32_t pending_data) {
   uint32_t frames_skipped = buffer->params.frames_skipped;
   buffer->params.frames_skipped = 0;
 
-  DVLOG(4) << __func__ << " pending_data:" << pending_data
-           << " frames_delayed(pre-round):" << frames_delayed
+  base::TimeDelta delay =
+      base::TimeDelta::FromMicroseconds(buffer->params.delay);
+
+  base::TimeTicks delay_timestamp =
+      base::TimeTicks() +
+      base::TimeDelta::FromMicroseconds(buffer->params.delay_timestamp);
+
+  DVLOG(4) << __func__ << " delay:" << delay << " delay_timestamp:" << delay
            << " frames_skipped:" << frames_skipped;
 
   // Update the audio-delay measurement, inform about the number of skipped
   // frames, and ask client to render audio.  Since |output_bus_| is wrapping
   // the shared memory the Render() call is writing directly into the shared
   // memory.
-  render_callback_->Render(output_bus_.get(), std::round(frames_delayed),
-                           frames_skipped);
+  render_callback_->Render(delay, delay_timestamp, frames_skipped,
+                           output_bus_.get());
 }
 
 bool AudioOutputDevice::AudioThreadCallback::

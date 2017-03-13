@@ -26,7 +26,6 @@ class MakeElementTypeHelpersWriter(in_generator.Writer):
         'ImplementedAs': None,
         'JSInterfaceName': None,
         'constructorNeedsCreatedByParser': None,
-        'constructorNeedsFormElement': None,
         'interfaceName': None,
         'noConstructor': None,
         'noTypeHelpers': None,
@@ -56,24 +55,32 @@ class MakeElementTypeHelpersWriter(in_generator.Writer):
 
         self._outputs = {
             (self.namespace + "ElementTypeHelpers.h"): self.generate_helper_header,
+            (self.namespace + "ElementTypeHelpers.cpp"): self.generate_helper_implementation,
         }
 
         self._template_context = {
             'namespace': self.namespace,
             'tags': self.in_file.name_dictionaries,
+            'elements': set(),
         }
 
         tags = self._template_context['tags']
+        elements = self._template_context['elements']
         interface_counts = defaultdict(int)
         for tag in tags:
             tag['interface'] = self._interface(tag)
             interface_counts[tag['interface']] += 1
+            elements.add(tag['interface'])
 
         for tag in tags:
             tag['multipleTagNames'] = (interface_counts[tag['interface']] > 1 or tag['interface'] == self.fallbackInterface)
 
     @template_expander.use_jinja("ElementTypeHelpers.h.tmpl", filters=filters)
     def generate_helper_header(self):
+        return self._template_context
+
+    @template_expander.use_jinja("ElementTypeHelpers.cpp.tmpl", filters=filters)
+    def generate_helper_implementation(self):
         return self._template_context
 
     def _interface(self, tag):

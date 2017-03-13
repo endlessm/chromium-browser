@@ -17,37 +17,19 @@
 #include "chrome/browser/media/router/media_source_helper.h"
 #include "chrome/browser/media/router/route_message.h"
 #include "chrome/browser/media/router/route_message_observer.h"
+#include "chrome/common/chrome_features.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/browser/render_frame_host.h"
+#include "content/public/browser/render_process_host.h"
 #include "content/public/browser/web_contents.h"
 #include "mojo/public/cpp/bindings/strong_binding.h"
 
 using content::BrowserThread;
+using media::mojom::RemotingSinkCapabilities;
 using media::mojom::RemotingStartFailReason;
 using media::mojom::RemotingStopReason;
 
 using Messaging = CastRemotingConnectorMessaging;
-
-class CastRemotingConnector::FrameRemoterFactory
-    : public media::mojom::RemoterFactory {
- public:
-  // |render_frame_host| represents the source render frame.
-  explicit FrameRemoterFactory(content::RenderFrameHost* render_frame_host)
-      : host_(render_frame_host) {
-    DCHECK(host_);
-  }
-  ~FrameRemoterFactory() final {}
-
-  void Create(media::mojom::RemotingSourcePtr source,
-              media::mojom::RemoterRequest request) final {
-    CastRemotingConnector::Get(content::WebContents::FromRenderFrameHost(host_))
-        ->CreateBridge(std::move(source), std::move(request));
-  }
-
- private:
-  content::RenderFrameHost* const host_;
-
-  DISALLOW_COPY_AND_ASSIGN(FrameRemoterFactory);
-};
 
 class CastRemotingConnector::RemotingBridge : public media::mojom::Remoter {
  public:
@@ -71,7 +53,9 @@ class CastRemotingConnector::RemotingBridge : public media::mojom::Remoter {
   }
 
   // The CastRemotingConnector calls these to call back to the RemotingSource.
-  void OnSinkAvailable() { source_->OnSinkAvailable(); }
+  void OnSinkAvailable(RemotingSinkCapabilities capabilities) {
+    source_->OnSinkAvailable(capabilities);
+  }
   void OnSinkGone() { source_->OnSinkGone(); }
   void OnStarted() { source_->OnStarted(); }
   void OnStartFailed(RemotingStartFailReason reason) {
@@ -165,19 +149,37 @@ CastRemotingConnector* CastRemotingConnector::Get(
 }
 
 // static
-void CastRemotingConnector::CreateRemoterFactory(
-    content::RenderFrameHost* render_frame_host,
-    media::mojom::RemoterFactoryRequest request) {
-  mojo::MakeStrongBinding(
-      base::MakeUnique<FrameRemoterFactory>(render_frame_host),
-      std::move(request));
+void CastRemotingConnector::CreateMediaRemoter(
+    content::RenderFrameHost* host,
+    media::mojom::RemotingSourcePtr source,
+    media::mojom::RemoterRequest request) {
+  DCHECK(host);
+  auto* const contents = content::WebContents::FromRenderFrameHost(host);
+  if (!contents)
+    return;
+  CastRemotingConnector::Get(contents)->CreateBridge(std::move(source),
+                                                     std::move(request));
 }
+
+namespace {
+RemotingSinkCapabilities GetFeatureEnabledCapabilities() {
+#if !defined(OS_ANDROID) && !defined(OS_IOS)
+  if (base::FeatureList::IsEnabled(features::kMediaRemoting)) {
+    if (base::FeatureList::IsEnabled(features::kMediaRemotingEncrypted))
+      return RemotingSinkCapabilities::CONTENT_DECRYPTION_AND_RENDERING;
+    return RemotingSinkCapabilities::RENDERING_ONLY;
+  }
+#endif  // !defined(OS_ANDROID) && !defined(OS_IOS)
+  return RemotingSinkCapabilities::NONE;
+}
+}  // namespace
 
 CastRemotingConnector::CastRemotingConnector(
     media_router::MediaRouter* router,
     const media_router::MediaSource::Id& media_source_id)
     : media_router::MediaRoutesObserver(router),
       media_source_id_(media_source_id),
+      enabled_features_(GetFeatureEnabledCapabilities()),
       session_counter_(0),
       active_bridge_(nullptr),
       weak_factory_(this) {}
@@ -207,7 +209,7 @@ void CastRemotingConnector::RegisterBridge(RemotingBridge* bridge) {
 
   bridges_.insert(bridge);
   if (message_observer_ && !active_bridge_)
-    bridge->OnSinkAvailable();
+    bridge->OnSinkAvailable(enabled_features_);
 }
 
 void CastRemotingConnector::DeregisterBridge(RemotingBridge* bridge,
@@ -432,7 +434,7 @@ void CastRemotingConnector::ProcessMessagesFromRoute(
                          RemotingStopReason::UNEXPECTED_FAILURE);
           }
           for (RemotingBridge* notifyee : bridges_)
-            notifyee->OnSinkAvailable();
+            notifyee->OnSinkAvailable(enabled_features_);
           break;
         }
 
@@ -505,7 +507,7 @@ void CastRemotingConnector::OnRoutesUpdated(
     // properties and pass these to the source in the OnSinkAvailable()
     // notification.
     for (RemotingBridge* notifyee : bridges_)
-      notifyee->OnSinkAvailable();
+      notifyee->OnSinkAvailable(enabled_features_);
     break;
   }
 }

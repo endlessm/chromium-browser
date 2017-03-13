@@ -34,13 +34,9 @@ struct StructTraits<metrics::mojom::CallStackModuleDataView,
 
   static bool Read(metrics::mojom::CallStackModuleDataView data,
                    base::StackSamplingProfiler::Module* out) {
-    // Linux has the longest build id at 40 bytes.
-    static const size_t kMaxIDSize = 40;
-
     std::string id;
     base::FilePath filename;
-    if (!data.ReadId(&id) || id.size() > kMaxIDSize ||
-        !data.ReadFilename(&filename))
+    if (!data.ReadId(&id) || !data.ReadFilename(&filename))
       return false;
 
     *out =
@@ -80,6 +76,31 @@ struct StructTraits<metrics::mojom::CallStackFrameDataView,
 };
 
 template <>
+struct StructTraits<metrics::mojom::CallStackSampleDataView,
+                    base::StackSamplingProfiler::Sample> {
+  static const std::vector<base::StackSamplingProfiler::Frame>& frames(
+      const base::StackSamplingProfiler::Sample& sample) {
+    return sample.frames;
+  }
+  static int32_t process_milestones(
+      const base::StackSamplingProfiler::Sample& sample) {
+    return sample.process_milestones;
+  }
+
+  static bool Read(metrics::mojom::CallStackSampleDataView data,
+                   base::StackSamplingProfiler::Sample* out) {
+    std::vector<base::StackSamplingProfiler::Frame> frames;
+    if (!data.ReadFrames(&frames))
+      return false;
+
+    *out = base::StackSamplingProfiler::Sample();
+    out->frames = std::move(frames);
+    out->process_milestones = data.process_milestones();
+    return true;
+  }
+};
+
+template <>
 struct StructTraits<metrics::mojom::CallStackProfileDataView,
                     base::StackSamplingProfiler::CallStackProfile> {
   static const std::vector<base::StackSamplingProfiler::Module>& modules(
@@ -103,7 +124,7 @@ struct StructTraits<metrics::mojom::CallStackProfileDataView,
       std::vector<base::StackSamplingProfiler::Sample> samples,
       size_t module_count) {
     for (const base::StackSamplingProfiler::Sample& sample : samples) {
-      for (const base::StackSamplingProfiler::Frame& frame : sample) {
+      for (const base::StackSamplingProfiler::Frame& frame : sample.frames) {
         if (frame.module_index >= module_count &&
             frame.module_index !=
                 base::StackSamplingProfiler::Frame::kUnknownModuleIndex)

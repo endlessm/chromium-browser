@@ -23,6 +23,7 @@
 #include "core/svg/SVGPatternElement.h"
 
 #include "core/dom/ElementTraversal.h"
+#include "core/dom/StyleChangeReason.h"
 #include "core/layout/svg/LayoutSVGResourcePattern.h"
 #include "core/svg/PatternAttributes.h"
 #include "platform/transforms/AffineTransform.h"
@@ -51,7 +52,7 @@ inline SVGPatternElement::SVGPatternElement(Document& document)
       m_patternTransform(
           SVGAnimatedTransformList::create(this,
                                            SVGNames::patternTransformAttr,
-                                           SVGTransformList::create())),
+                                           CSSPropertyTransform)),
       m_patternUnits(SVGAnimatedEnumeration<SVGUnitTypes::SVGUnitType>::create(
           this,
           SVGNames::patternUnitsAttr,
@@ -86,10 +87,29 @@ DEFINE_TRACE(SVGPatternElement) {
 
 DEFINE_NODE_FACTORY(SVGPatternElement)
 
+void SVGPatternElement::collectStyleForPresentationAttribute(
+    const QualifiedName& name,
+    const AtomicString& value,
+    MutableStylePropertySet* style) {
+  if (name == SVGNames::patternTransformAttr) {
+    addPropertyToPresentationAttributeStyle(
+        style, CSSPropertyTransform,
+        m_patternTransform->currentValue()->cssValue());
+    return;
+  }
+  SVGElement::collectStyleForPresentationAttribute(name, value, style);
+}
+
 void SVGPatternElement::svgAttributeChanged(const QualifiedName& attrName) {
   bool isLengthAttr =
       attrName == SVGNames::xAttr || attrName == SVGNames::yAttr ||
       attrName == SVGNames::widthAttr || attrName == SVGNames::heightAttr;
+
+  if (attrName == SVGNames::patternTransformAttr) {
+    invalidateSVGPresentationAttributeStyle();
+    setNeedsStyleRecalc(LocalStyleChange,
+                        StyleChangeReasonForTracing::fromAttribute(attrName));
+  }
 
   if (isLengthAttr || attrName == SVGNames::patternUnitsAttr ||
       attrName == SVGNames::patternContentUnitsAttr ||
@@ -161,10 +181,9 @@ static void setPatternAttributes(const SVGPatternElement* element,
         element->patternContentUnits()->currentValue()->enumValue());
 
   if (!attributes.hasPatternTransform() &&
-      element->patternTransform()->isSpecified()) {
-    AffineTransform transform;
-    element->patternTransform()->currentValue()->concatenate(transform);
-    attributes.setPatternTransform(transform);
+      element->hasTransform(SVGElement::ExcludeMotionTransform)) {
+    attributes.setPatternTransform(
+        element->calculateTransform(SVGElement::ExcludeMotionTransform));
   }
 
   if (!attributes.hasPatternContentElement() &&
@@ -199,9 +218,7 @@ void SVGPatternElement::collectPatternAttributes(
 
 AffineTransform SVGPatternElement::localCoordinateSpaceTransform(
     SVGElement::CTMScope) const {
-  AffineTransform matrix;
-  m_patternTransform->currentValue()->concatenate(matrix);
-  return matrix;
+  return calculateTransform(SVGElement::ExcludeMotionTransform);
 }
 
 bool SVGPatternElement::selfHasRelativeLengths() const {

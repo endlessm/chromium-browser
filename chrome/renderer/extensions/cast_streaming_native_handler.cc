@@ -440,7 +440,7 @@ void CastStreamingNativeHandler::CallCreateCallback(
   const int udp_id = last_transport_id_++;
   udp_transport_map_[udp_id] = std::move(udp_transport);
   callback_args[2] = v8::Integer::New(isolate, udp_id);
-  context()->CallFunction(
+  context()->SafeCallFunction(
       v8::Local<v8::Function>::New(isolate, create_callback_), 3,
       callback_args);
   create_callback_.Reset();
@@ -712,8 +712,8 @@ void CastStreamingNativeHandler::CallGetRawEventsCallback(
   std::unique_ptr<V8ValueConverter> converter(V8ValueConverter::create());
   v8::Local<v8::Value> callback_args[] = {
       converter->ToV8Value(raw_events.get(), context()->v8_context())};
-  context()->CallFunction(v8::Local<v8::Function>::New(isolate, it->second),
-                          arraysize(callback_args), callback_args);
+  context()->SafeCallFunction(v8::Local<v8::Function>::New(isolate, it->second),
+                              arraysize(callback_args), callback_args);
   get_raw_events_callbacks_.erase(it);
 }
 
@@ -731,8 +731,8 @@ void CastStreamingNativeHandler::CallGetStatsCallback(
   std::unique_ptr<V8ValueConverter> converter(V8ValueConverter::create());
   v8::Local<v8::Value> callback_args[] = {
       converter->ToV8Value(stats.get(), context()->v8_context())};
-  context()->CallFunction(v8::Local<v8::Function>::New(isolate, it->second),
-                          arraysize(callback_args), callback_args);
+  context()->SafeCallFunction(v8::Local<v8::Function>::New(isolate, it->second),
+                              arraysize(callback_args), callback_args);
   get_stats_callbacks_.erase(it);
 }
 
@@ -936,7 +936,7 @@ void CastStreamingNativeHandler::StartCastRtpReceiver(
     std::unique_ptr<V8ValueConverter> converter(V8ValueConverter::create());
     std::unique_ptr<base::Value> options_value(
         converter->FromV8Value(args[8], context()->v8_context()));
-    if (!options_value->IsType(base::Value::TYPE_NULL)) {
+    if (!options_value->IsType(base::Value::Type::NONE)) {
       options = base::DictionaryValue::From(std::move(options_value));
       if (!options) {
         args.GetIsolate()->ThrowException(v8::Exception::TypeError(
@@ -971,8 +971,8 @@ void CastStreamingNativeHandler::CallReceiverErrorCallback(
                                                       error_message.data(),
                                                       v8::String::kNormalString,
                                                       error_message.size());
-  context()->CallFunction(
-      v8::Local<v8::Function>::New(isolate, function), 1, &arg);
+  context()->SafeCallFunction(v8::Local<v8::Function>::New(isolate, function),
+                              1, &arg);
 }
 
 void CastStreamingNativeHandler::AddTracksToMediaStream(

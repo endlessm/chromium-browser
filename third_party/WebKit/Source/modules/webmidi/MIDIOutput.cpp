@@ -36,11 +36,12 @@
 #include "core/frame/LocalDOMWindow.h"
 #include "core/timing/DOMWindowPerformance.h"
 #include "core/timing/Performance.h"
+#include "media/midi/midi_service.mojom-blink.h"
 #include "modules/webmidi/MIDIAccess.h"
 
-namespace blink {
+using midi::mojom::PortState;
 
-using PortState = MIDIAccessor::MIDIPortState;
+namespace blink {
 
 namespace {
 
@@ -204,10 +205,8 @@ MIDIOutput* MIDIOutput::create(MIDIAccess* access,
                                const String& version,
                                PortState state) {
   DCHECK(access);
-  MIDIOutput* output =
-      new MIDIOutput(access, portIndex, id, manufacturer, name, version, state);
-  output->suspendIfNeeded();
-  return output;
+  return new MIDIOutput(access, portIndex, id, manufacturer, name, version,
+                        state);
 }
 
 MIDIOutput::MIDIOutput(MIDIAccess* access,

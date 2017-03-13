@@ -13,9 +13,10 @@
 #include "base/macros.h"
 #include "base/threading/thread_checker.h"
 #include "content/common/content_export.h"
-#include "media/base/video_capture_types.h"
 #include "media/base/video_frame.h"
 #include "media/base/video_frame_pool.h"
+#include "media/capture/video_capture_types.h"
+#include "third_party/WebKit/public/platform/WebMediaStreamTrack.h"
 #include "third_party/webrtc/media/base/videocapturer.h"
 
 namespace content {
@@ -31,13 +32,17 @@ namespace content {
 class CONTENT_EXPORT WebRtcVideoCapturerAdapter
     : NON_EXPORTED_BASE(public cricket::VideoCapturer) {
  public:
-  explicit WebRtcVideoCapturerAdapter(bool is_screencast);
+  WebRtcVideoCapturerAdapter(
+      bool is_screencast,
+      blink::WebMediaStreamTrack::ContentHintType content_hint);
   ~WebRtcVideoCapturerAdapter() override;
 
   // OnFrameCaptured delivers video frames to libjingle. It must be called on
   // libjingles worker thread.
   // This method is virtual for testing purposes.
   virtual void OnFrameCaptured(const scoped_refptr<media::VideoFrame>& frame);
+
+  void SetContentHint(blink::WebMediaStreamTrack::ContentHintType content_hint);
 
  private:
   // cricket::VideoCapturer implementation.
@@ -51,10 +56,17 @@ class CONTENT_EXPORT WebRtcVideoCapturerAdapter
                             cricket::VideoFormat* best_format) override;
   bool IsScreencast() const override;
 
+  bool ShouldAdaptResolution() const;
+
+  // Helper class used for copying texture backed frames.
+  class TextureFrameCopier;
+  const scoped_refptr<TextureFrameCopier> texture_copier_;
+
   // |thread_checker_| is bound to the libjingle worker thread.
   base::ThreadChecker thread_checker_;
 
   const bool is_screencast_;
+  blink::WebMediaStreamTrack::ContentHintType content_hint_;
   bool running_;
 
   media::VideoFramePool scaled_frame_pool_;

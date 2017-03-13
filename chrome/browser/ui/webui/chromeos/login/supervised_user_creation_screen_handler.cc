@@ -6,16 +6,17 @@
 
 #include <utility>
 
+#include "base/memory/ptr_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/chromeos/accessibility/accessibility_manager.h"
+#include "chrome/browser/chromeos/login/oobe_screen.h"
 #include "chrome/browser/chromeos/login/screens/user_selection_screen.h"
 #include "chrome/browser/chromeos/login/supervised/supervised_user_creation_flow.h"
 #include "chrome/browser/chromeos/login/users/chrome_user_manager.h"
 #include "chrome/browser/chromeos/login/users/supervised_user_manager.h"
 #include "chrome/browser/chromeos/login/users/wallpaper/wallpaper_manager.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
-#include "chrome/browser/ui/webui/chromeos/login/oobe_screen.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/browser_resources.h"
 #include "chrome/grit/generated_resources.h"
@@ -218,8 +219,6 @@ void SupervisedUserCreationScreenHandler::RegisterMessages() {
                   HandleCurrentSupervisedUserPage);
 }
 
-void SupervisedUserCreationScreenHandler::PrepareToShow() {}
-
 void SupervisedUserCreationScreenHandler::Show() {
   std::unique_ptr<base::DictionaryValue> data(new base::DictionaryValue());
   std::unique_ptr<base::ListValue> users_list(new base::ListValue());
@@ -231,14 +230,14 @@ void SupervisedUserCreationScreenHandler::Show() {
   for (user_manager::UserList::const_iterator it = users.begin();
        it != users.end();
        ++it) {
-    bool is_owner = ((*it)->email() == owner);
-    base::DictionaryValue* user_dict = new base::DictionaryValue();
+    bool is_owner = ((*it)->GetAccountId().GetUserEmail() == owner);
+    auto user_dict = base::MakeUnique<base::DictionaryValue>();
     UserSelectionScreen::FillUserDictionary(
         *it, is_owner, false, /* is_signin_to_add */
         proximity_auth::ScreenlockBridge::LockHandler::OFFLINE_PASSWORD,
         NULL, /* public_session_recommended_locales */
-        user_dict);
-    users_list->Append(user_dict);
+        user_dict.get());
+    users_list->Append(std::move(user_dict));
   }
   data->Set("managers", users_list.release());
   ShowScreenWithData(OobeScreen::SCREEN_CREATE_SUPERVISED_USER_FLOW,

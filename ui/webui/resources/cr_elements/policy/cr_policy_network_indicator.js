@@ -27,9 +27,9 @@ Polymer({
 
     /**
      * Recommended value for non enforced properties.
-     * @type {?CrOnc.NetworkPropertyType}
+     * @private {!CrOnc.NetworkPropertyType|undefined}
      */
-    recommended: {type: Object, value: null},
+    recommended_: Object,
   },
 
   /**
@@ -37,7 +37,7 @@ Polymer({
    * @private
    */
   propertyChanged_: function(property) {
-    if (!this.isNetworkPolicyControlled(property)) {
+    if (!this.isControlled(property)) {
       this.indicatorType = CrPolicyIndicatorType.NONE;
       return;
     }
@@ -49,42 +49,40 @@ Polymer({
     if (property.UserEditable === true &&
         property.hasOwnProperty('UserPolicy')) {
       // We ignore UserEditable unless there is a UserPolicy.
+      this.recommended_ =
+          /** @type {!CrOnc.NetworkPropertyType} */ (property.UserPolicy);
       this.indicatorType = CrPolicyIndicatorType.RECOMMENDED;
-      this.recommended =
-          /** @type {CrOnc.NetworkPropertyType} */(property.UserPolicy);
-    } else if (property.DeviceEditable === true &&
-               property.hasOwnProperty('DevicePolicy')) {
+    } else if (
+        property.DeviceEditable === true &&
+        property.hasOwnProperty('DevicePolicy')) {
       // We ignore DeviceEditable unless there is a DevicePolicy.
+      this.recommended_ =
+          /** @type {!CrOnc.NetworkPropertyType} */ (property.DevicePolicy);
       this.indicatorType = CrPolicyIndicatorType.RECOMMENDED;
-      this.recommended =
-          /** @type {CrOnc.NetworkPropertyType} */(property.DevicePolicy);
     } else if (effective == 'UserPolicy') {
       this.indicatorType = CrPolicyIndicatorType.USER_POLICY;
     } else if (effective == 'DevicePolicy') {
       this.indicatorType = CrPolicyIndicatorType.DEVICE_POLICY;
+    } else if (effective == 'ActiveExtension') {
+      this.indicatorType = CrPolicyIndicatorType.EXTENSION;
     } else {
       this.indicatorType = CrPolicyIndicatorType.NONE;
     }
   },
 
   /**
-   * @param {CrPolicyIndicatorType} type
-   * @param {!CrOnc.ManagedProperty} property
-   * @param {!CrOnc.NetworkPropertyType} recommended
    * @return {string} The tooltip text for |type|.
    * @private
    */
-  getTooltip_: function(type, property, recommended) {
-    if (type == CrPolicyIndicatorType.NONE || typeof property != 'object')
-      return '';
-    if (type == CrPolicyIndicatorType.RECOMMENDED) {
-      var value = property.Active;
-      if (value == undefined && property.Effective)
-        value = property[property.Effective];
-      if (value == recommended)
-        return this.i18n_('controlledSettingRecommendedMatches');
-      return this.i18n_('controlledSettingRecommendedDiffers');
+  getTooltip_: function() {
+    var matches;
+    if (this.indicatorType == CrPolicyIndicatorType.RECOMMENDED &&
+        this.property) {
+      var value = this.property.Active;
+      if (value == undefined && this.property.Effective)
+        value = this.property[this.property.Effective];
+      matches = value == this.recommended_;
     }
-    return this.getPolicyIndicatorTooltip(type, '');
+    return this.getPolicyIndicatorTooltip(this.indicatorType, '', matches);
   }
 });

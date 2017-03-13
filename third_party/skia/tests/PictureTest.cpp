@@ -14,7 +14,6 @@
 #include "SkDashPathEffect.h"
 #include "SkData.h"
 #include "SkImageGenerator.h"
-#include "SkError.h"
 #include "SkImageEncoder.h"
 #include "SkImageGenerator.h"
 #include "SkMD5.h"
@@ -288,7 +287,7 @@ static void test_gpu_veto(skiatest::Reporter* reporter) {
         for (int i = 0; i < 50; ++i) {
             canvas->clipPath(convexClip);
             canvas->clipPath(concaveClip);
-            canvas->clipPath(convexClip, SkCanvas::kIntersect_Op, true);
+            canvas->clipPath(convexClip, kIntersect_SkClipOp, true);
             canvas->drawRect(SkRect::MakeWH(100, 100), SkPaint());
         }
     }
@@ -300,7 +299,7 @@ static void test_gpu_veto(skiatest::Reporter* reporter) {
     {
         const SkPath concaveClip = make_concave_path();
         for (int i = 0; i < 50; ++i) {
-            canvas->clipPath(concaveClip, SkCanvas::kIntersect_Op, true);
+            canvas->clipPath(concaveClip, kIntersect_SkClipOp, true);
             canvas->drawRect(SkRect::MakeWH(100, 100), SkPaint());
         }
     }
@@ -399,7 +398,7 @@ static void create_imbalance(SkCanvas* canvas) {
     SkRect clipRect = SkRect::MakeWH(2, 2);
     SkRect drawRect = SkRect::MakeWH(10, 10);
     canvas->save();
-        canvas->clipRect(clipRect, SkCanvas::kReplace_Op);
+        canvas->clipRect(clipRect, kReplace_SkClipOp);
         canvas->translate(1.0f, 1.0f);
         SkPaint p;
         p.setColor(SK_ColorGREEN);
@@ -621,100 +620,6 @@ static void test_bad_bitmap() {
 }
 #endif
 
-static sk_sp<SkData> serialized_picture_from_bitmap(const SkBitmap& bitmap) {
-    SkPictureRecorder recorder;
-    SkCanvas* canvas = recorder.beginRecording(SkIntToScalar(bitmap.width()),
-                                               SkIntToScalar(bitmap.height()));
-    canvas->drawBitmap(bitmap, 0, 0);
-    sk_sp<SkPicture> picture(recorder.finishRecordingAsPicture());
-
-    SkDynamicMemoryWStream wStream;
-    SkAutoTUnref<SkPixelSerializer> serializer(
-            SkImageEncoder::CreatePixelSerializer());
-    picture->serialize(&wStream, serializer);
-    return wStream.detachAsData();
-}
-
-struct ErrorContext {
-    int fErrors;
-    skiatest::Reporter* fReporter;
-};
-
-static void assert_one_parse_error_cb(SkError error, void* context) {
-    ErrorContext* errorContext = static_cast<ErrorContext*>(context);
-    errorContext->fErrors++;
-    // This test only expects one error, and that is a kParseError. If there are others,
-    // there is some unknown problem.
-    REPORTER_ASSERT_MESSAGE(errorContext->fReporter, 1 == errorContext->fErrors,
-                            "This threw more errors than expected.");
-    REPORTER_ASSERT_MESSAGE(errorContext->fReporter, kParseError_SkError == error,
-                            SkGetLastErrorString());
-}
-
-static void md5(const SkBitmap& bm, SkMD5::Digest* digest) {
-    SkAutoLockPixels autoLockPixels(bm);
-    SkASSERT(bm.getPixels());
-    SkMD5 md5;
-    size_t rowLen = bm.info().bytesPerPixel() * bm.width();
-    for (int y = 0; y < bm.height(); ++y) {
-        md5.write(bm.getAddr(0, y), rowLen);
-    }
-    md5.finish(*digest);
-}
-
-DEF_TEST(Picture_EncodedData, reporter) {
-    // Create a bitmap that will be encoded.
-    SkBitmap original;
-    make_bm(&original, 100, 100, SK_ColorBLUE, true);
-    SkDynamicMemoryWStream wStream;
-    if (!SkImageEncoder::EncodeStream(&wStream, original, SkImageEncoder::kPNG_Type, 100)) {
-        return;
-    }
-    sk_sp<SkData> data = wStream.detachAsData();
-
-    SkBitmap bm;
-    bool installSuccess = SkDEPRECATED_InstallDiscardablePixelRef(data.get(), &bm);
-    REPORTER_ASSERT(reporter, installSuccess);
-
-    // Write both bitmaps to pictures, and ensure that the resulting data streams are the same.
-    // Flattening original will follow the old path of performing an encode, while flattening bm
-    // will use the already encoded data.
-    sk_sp<SkData> picture1(serialized_picture_from_bitmap(original));
-    sk_sp<SkData> picture2(serialized_picture_from_bitmap(bm));
-    REPORTER_ASSERT(reporter, picture1->equals(picture2.get()));
-
-    // Now test that a parse error was generated when trying to create a new SkPicture without
-    // providing a function to decode the bitmap.
-    ErrorContext context;
-    context.fErrors = 0;
-    context.fReporter = reporter;
-    SkSetErrorCallback(assert_one_parse_error_cb, &context);
-    SkMemoryStream pictureStream(std::move(picture1));
-    SkClearLastError();
-    sk_sp<SkPicture> pictureFromStream(SkPicture::MakeFromStream(&pictureStream));
-    REPORTER_ASSERT(reporter, pictureFromStream.get() != nullptr);
-    SkClearLastError();
-    SkSetErrorCallback(nullptr, nullptr);
-
-    // Test that using the version of CreateFromStream that just takes a stream also decodes the
-    // bitmap. Drawing this picture should look exactly like the original bitmap.
-    SkMD5::Digest referenceDigest;
-    md5(original, &referenceDigest);
-
-    SkBitmap dst;
-    dst.allocPixels(original.info());
-    dst.eraseColor(SK_ColorRED);
-    SkCanvas canvas(dst);
-
-    pictureStream.rewind();
-    pictureFromStream = SkPicture::MakeFromStream(&pictureStream);
-    canvas.drawPicture(pictureFromStream.get());
-
-    SkMD5::Digest digest2;
-    md5(dst, &digest2);
-    REPORTER_ASSERT(reporter, referenceDigest == digest2);
-}
-
 static void test_clip_bound_opt(skiatest::Reporter* reporter) {
     // Test for crbug.com/229011
     SkRect rect1 = SkRect::MakeXYWH(SkIntToScalar(4), SkIntToScalar(4),
@@ -759,7 +664,7 @@ static void test_clip_bound_opt(skiatest::Reporter* reporter) {
     {
         SkCanvas* canvas = recorder.beginRecording(10, 10);
         canvas->clipPath(path);
-        canvas->clipPath(invPath, SkCanvas::kUnion_Op);
+        canvas->clipPath(invPath, kUnion_SkClipOp);
         bool nonEmpty = canvas->getClipDeviceBounds(&clipBounds);
         REPORTER_ASSERT(reporter, true == nonEmpty);
         REPORTER_ASSERT(reporter, 0 == clipBounds.fLeft);
@@ -769,7 +674,7 @@ static void test_clip_bound_opt(skiatest::Reporter* reporter) {
     }
     {
         SkCanvas* canvas = recorder.beginRecording(10, 10);
-        canvas->clipPath(path, SkCanvas::kDifference_Op);
+        canvas->clipPath(path, kDifference_SkClipOp);
         bool nonEmpty = canvas->getClipDeviceBounds(&clipBounds);
         REPORTER_ASSERT(reporter, true == nonEmpty);
         REPORTER_ASSERT(reporter, 0 == clipBounds.fLeft);
@@ -779,7 +684,7 @@ static void test_clip_bound_opt(skiatest::Reporter* reporter) {
     }
     {
         SkCanvas* canvas = recorder.beginRecording(10, 10);
-        canvas->clipPath(path, SkCanvas::kReverseDifference_Op);
+        canvas->clipPath(path, kReverseDifference_SkClipOp);
         bool nonEmpty = canvas->getClipDeviceBounds(&clipBounds);
         // True clip is actually empty in this case, but the best
         // determination we can make using only bounds as input is that the
@@ -792,8 +697,8 @@ static void test_clip_bound_opt(skiatest::Reporter* reporter) {
     }
     {
         SkCanvas* canvas = recorder.beginRecording(10, 10);
-        canvas->clipPath(path, SkCanvas::kIntersect_Op);
-        canvas->clipPath(path2, SkCanvas::kXOR_Op);
+        canvas->clipPath(path, kIntersect_SkClipOp);
+        canvas->clipPath(path2, kXOR_SkClipOp);
         bool nonEmpty = canvas->getClipDeviceBounds(&clipBounds);
         REPORTER_ASSERT(reporter, true == nonEmpty);
         REPORTER_ASSERT(reporter, 6 == clipBounds.fLeft);
@@ -841,22 +746,22 @@ public:
         , fClipCount(0){
     }
 
-    void onClipRect(const SkRect& r, ClipOp op, ClipEdgeStyle edgeStyle) override {
+    void onClipRect(const SkRect& r, SkClipOp op, ClipEdgeStyle edgeStyle) override {
         fClipCount += 1;
         this->INHERITED::onClipRect(r, op, edgeStyle);
     }
 
-    void onClipRRect(const SkRRect& rrect, ClipOp op, ClipEdgeStyle edgeStyle)override {
+    void onClipRRect(const SkRRect& rrect, SkClipOp op, ClipEdgeStyle edgeStyle)override {
         fClipCount += 1;
         this->INHERITED::onClipRRect(rrect, op, edgeStyle);
     }
 
-    void onClipPath(const SkPath& path, ClipOp op, ClipEdgeStyle edgeStyle) override {
+    void onClipPath(const SkPath& path, SkClipOp op, ClipEdgeStyle edgeStyle) override {
         fClipCount += 1;
         this->INHERITED::onClipPath(path, op, edgeStyle);
     }
 
-    void onClipRegion(const SkRegion& deviceRgn, ClipOp op) override {
+    void onClipRegion(const SkRegion& deviceRgn, SkClipOp op) override {
         fClipCount += 1;
         this->INHERITED::onClipRegion(deviceRgn, op);
     }
@@ -873,9 +778,9 @@ static void test_clip_expansion(skiatest::Reporter* reporter) {
     SkPictureRecorder recorder;
     SkCanvas* canvas = recorder.beginRecording(10, 10);
 
-    canvas->clipRect(SkRect::MakeEmpty(), SkCanvas::kReplace_Op);
+    canvas->clipRect(SkRect::MakeEmpty(), kReplace_SkClipOp);
     // The following expanding clip should not be skipped.
-    canvas->clipRect(SkRect::MakeXYWH(4, 4, 3, 3), SkCanvas::kUnion_Op);
+    canvas->clipRect(SkRect::MakeXYWH(4, 4, 3, 3), kUnion_SkClipOp);
     // Draw something so the optimizer doesn't just fold the world.
     SkPaint p;
     p.setColor(SK_ColorBLUE);
@@ -1182,8 +1087,8 @@ DEF_TEST(Picture_preserveCullRect, r) {
     SkDynamicMemoryWStream wstream;
     picture->serialize(&wstream);
 
-    SkAutoTDelete<SkStream> rstream(wstream.detachAsStream());
-    sk_sp<SkPicture> deserializedPicture(SkPicture::MakeFromStream(rstream));
+    std::unique_ptr<SkStream> rstream(wstream.detachAsStream());
+    sk_sp<SkPicture> deserializedPicture(SkPicture::MakeFromStream(rstream.get()));
 
     REPORTER_ASSERT(r, deserializedPicture != nullptr);
     REPORTER_ASSERT(r, deserializedPicture->cullRect().left() == 1);
@@ -1229,14 +1134,14 @@ DEF_TEST(PictureGpuAnalyzer, r) {
     const SkPath convexClip = make_convex_path();
     const SkPath concaveClip = make_concave_path();
     for (int i = 0; i < 50; ++i) {
-        analyzer.analyzeClipPath(convexClip, SkCanvas::kIntersect_Op, false);
-        analyzer.analyzeClipPath(convexClip, SkCanvas::kIntersect_Op, true);
-        analyzer.analyzeClipPath(concaveClip, SkCanvas::kIntersect_Op, false);
+        analyzer.analyzeClipPath(convexClip, kIntersect_SkClipOp, false);
+        analyzer.analyzeClipPath(convexClip, kIntersect_SkClipOp, true);
+        analyzer.analyzeClipPath(concaveClip, kIntersect_SkClipOp, false);
     }
     REPORTER_ASSERT(r, analyzer.suitableForGpuRasterization());
 
     for (int i = 0; i < 50; ++i) {
-        analyzer.analyzeClipPath(concaveClip, SkCanvas::kIntersect_Op, true);
+        analyzer.analyzeClipPath(concaveClip, kIntersect_SkClipOp, true);
     }
     REPORTER_ASSERT(r, !analyzer.suitableForGpuRasterization());
 }

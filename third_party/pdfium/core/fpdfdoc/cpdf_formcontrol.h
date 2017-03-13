@@ -46,6 +46,8 @@ class CPDF_FormControl {
  public:
   enum HighlightingMode { None = 0, Invert, Outline, Push, Toggle };
 
+  CPDF_FormControl(CPDF_FormField* pField, CPDF_Dictionary* pWidgetDict);
+
   CPDF_FormField::Type GetType() const { return m_pField->GetType(); }
   CPDF_InterForm* GetInterForm() const { return m_pForm; }
   CPDF_FormField* GetField() const { return m_pField; }
@@ -111,11 +113,9 @@ class CPDF_FormControl {
   friend class CPDF_InterForm;
   friend class CPDF_FormField;
 
-  CPDF_FormControl(CPDF_FormField* pField, CPDF_Dictionary* pWidgetDict);
-
   CFX_ByteString GetOnStateName() const;
   void SetOnStateName(const CFX_ByteString& csOn);
-  void CheckControl(FX_BOOL bChecked);
+  void CheckControl(bool bChecked);
   FX_ARGB GetColor(int& iColorType, const CFX_ByteString& csEntry);
   FX_FLOAT GetOriginalColor(int index, const CFX_ByteString& csEntry);
   void GetOriginalColor(int& iColorType,

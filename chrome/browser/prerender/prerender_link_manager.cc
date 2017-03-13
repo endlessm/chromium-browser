@@ -23,10 +23,11 @@
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/session_storage_namespace.h"
 #include "content/public/common/referrer.h"
+#include "extensions/features/features.h"
 #include "ui/gfx/geometry/size.h"
 #include "url/gurl.h"
 
-#if defined(ENABLE_EXTENSIONS)
+#if BUILDFLAG(ENABLE_EXTENSIONS)
 #include "components/guest_view/browser/guest_view_base.h"
 #endif
 
@@ -169,7 +170,7 @@ void PrerenderLinkManager::OnAddPrerender(int launcher_child_id,
             FindByLauncherChildIdAndPrerenderId(launcher_child_id,
                                                 prerender_id));
 
-#if defined(ENABLE_EXTENSIONS)
+#if BUILDFLAG(ENABLE_EXTENSIONS)
   content::RenderViewHost* rvh =
       content::RenderViewHost::FromID(launcher_child_id, render_view_route_id);
   content::WebContents* web_contents =
@@ -391,16 +392,20 @@ void PrerenderLinkManager::StartPrerenders() {
       continue;
     }
 
-    // We have successfully started a new prerender.
-    (*i)->handle = handle.release();
-    ++total_started_prerender_count;
-    (*i)->handle->SetObserver(this);
-    if ((*i)->handle->IsPrerendering())
+    if (handle->IsPrerendering()) {
+      // We have successfully started a new prerender.
+      (*i)->handle = handle.release();
+      ++total_started_prerender_count;
+      (*i)->handle->SetObserver(this);
       OnPrerenderStart((*i)->handle);
-    RecordLinkManagerStarting((*i)->rel_types);
-
-    running_launcher_and_render_view_routes.insert(
-        launcher_and_render_view_route);
+      RecordLinkManagerStarting((*i)->rel_types);
+      running_launcher_and_render_view_routes.insert(
+          launcher_and_render_view_route);
+    } else {
+      Send((*i)->launcher_child_id,
+          new PrerenderMsg_OnPrerenderStop((*i)->prerender_id));
+      prerenders_.erase(*i);
+    }
   }
 }
 
@@ -521,7 +526,7 @@ void PrerenderLinkManager::OnPrerenderStop(
     return;
 
   Send(prerender->launcher_child_id,
-       new PrerenderMsg_OnPrerenderStop(prerender->prerender_id));
+      new PrerenderMsg_OnPrerenderStop(prerender->prerender_id));
   RemovePrerender(prerender);
   StartPrerenders();
 }

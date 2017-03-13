@@ -5,7 +5,7 @@
 #ifndef DOMMatrix_h
 #define DOMMatrix_h
 
-#include "bindings/core/v8/ExceptionStatePlaceholder.h"
+#include "bindings/core/v8/ExceptionState.h"
 #include "core/dom/DOMMatrixInit.h"
 #include "core/dom/DOMMatrixReadOnly.h"
 
@@ -19,6 +19,7 @@ class CORE_EXPORT DOMMatrix : public DOMMatrixReadOnly {
   static DOMMatrix* create(DOMMatrixReadOnly*,
                            ExceptionState& = ASSERT_NO_EXCEPTION);
   static DOMMatrix* create(const SkMatrix44&, ExceptionState&);
+  static DOMMatrix* create(const String&, ExceptionState&);
   static DOMMatrix* create(Vector<double>, ExceptionState&);
   static DOMMatrix* fromFloat32Array(DOMFloat32Array*, ExceptionState&);
   static DOMMatrix* fromFloat64Array(DOMFloat64Array*, ExceptionState&);
@@ -80,21 +81,31 @@ class CORE_EXPORT DOMMatrix : public DOMMatrixReadOnly {
 
   DOMMatrix* multiplySelf(DOMMatrixInit&, ExceptionState&);
   DOMMatrix* preMultiplySelf(DOMMatrixInit&, ExceptionState&);
-  DOMMatrix* translateSelf(double tx, double ty, double tz = 0);
-  DOMMatrix* scaleSelf(double scale, double ox = 0, double oy = 0);
-  DOMMatrix* scale3dSelf(double scale,
+  DOMMatrix* translateSelf(double tx = 0, double ty = 0, double tz = 0);
+  DOMMatrix* scaleSelf(double sx = 1);
+  DOMMatrix* scaleSelf(double sx,
+                       double sy,
+                       double sz = 1,
+                       double ox = 0,
+                       double oy = 0,
+                       double oz = 0);
+  DOMMatrix* scale3dSelf(double scale = 1,
                          double ox = 0,
                          double oy = 0,
                          double oz = 0);
-  DOMMatrix* scaleNonUniformSelf(double sx,
-                                 double sy = 1,
-                                 double sz = 1,
-                                 double ox = 0,
-                                 double oy = 0,
-                                 double oz = 0);
+  DOMMatrix* rotateSelf(double rotX);
+  DOMMatrix* rotateSelf(double rotX, double rotY);
+  DOMMatrix* rotateSelf(double rotX, double rotY, double rotZ);
+  DOMMatrix* rotateFromVectorSelf(double x, double y);
+  DOMMatrix* rotateAxisAngleSelf(double x = 0,
+                                 double y = 0,
+                                 double z = 0,
+                                 double angle = 0);
   DOMMatrix* skewXSelf(double sx = 0);
   DOMMatrix* skewYSelf(double sy = 0);
   DOMMatrix* invertSelf();
+
+  DOMMatrix* setMatrixValue(const String&, ExceptionState&);
 
  private:
   DOMMatrix(const TransformationMatrix&, bool is2D = true);
@@ -102,6 +113,7 @@ class CORE_EXPORT DOMMatrix : public DOMMatrixReadOnly {
   DOMMatrix(T sequence, int size);
 
   void setIs2D(bool value);
+  void setNAN();
 };
 
 }  // namespace blink

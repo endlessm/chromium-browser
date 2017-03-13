@@ -12,6 +12,9 @@
 #include "base/command_line.h"
 #include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
+#include "base/threading/thread_task_runner_handle.h"
+#include "mojo/edk/embedder/embedder.h"
+#include "mojo/edk/embedder/scoped_ipc_support.h"
 #include "remoting/host/host_exit_codes.h"
 #include "remoting/host/logging.h"
 #include "remoting/host/security_key/security_key_ipc_client.h"
@@ -136,6 +139,11 @@ int StartRemoteSecurityKey() {
 #else
 #error Not implemented.
 #endif
+
+  mojo::edk::Init();
+  mojo::edk::ScopedIPCSupport ipc_support(
+      base::ThreadTaskRunnerHandle::Get(),
+      mojo::edk::ScopedIPCSupport::ShutdownPolicy::FAST);
 
   base::RunLoop run_loop;
 

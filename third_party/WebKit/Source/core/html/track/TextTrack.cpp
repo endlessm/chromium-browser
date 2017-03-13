@@ -32,7 +32,6 @@
 #include "core/html/track/TextTrack.h"
 
 #include "bindings/core/v8/ExceptionState.h"
-#include "bindings/core/v8/ExceptionStatePlaceholder.h"
 #include "core/dom/ExceptionCode.h"
 #include "core/html/HTMLMediaElement.h"
 #include "core/html/track/CueTimeline.h"
@@ -92,7 +91,8 @@ TextTrack::TextTrack(const AtomicString& kind,
                      const AtomicString& id,
                      TextTrackType type)
     : TrackBase(WebMediaPlayer::TextTrack, kind, label, language, id),
-      m_cues(nullptr),
+      m_cues(this, nullptr),
+      m_activeCues(nullptr),
       m_regions(nullptr),
       m_trackList(nullptr),
       m_mode(disabledKeyword()),
@@ -206,8 +206,9 @@ TextTrackCueList* TextTrack::activeCues() {
   if (!m_cues || m_mode == disabledKeyword())
     return nullptr;
 
-  if (!m_activeCues)
+  if (!m_activeCues) {
     m_activeCues = TextTrackCueList::create();
+  }
 
   m_cues->collectActiveCues(*m_activeCues);
   return m_activeCues;
@@ -405,8 +406,10 @@ bool TextTrack::canBeRendered() const {
 }
 
 TextTrackCueList* TextTrack::ensureTextTrackCueList() {
-  if (!m_cues)
+  if (!m_cues) {
     m_cues = TextTrackCueList::create();
+    ScriptWrappableVisitor::writeBarrier(this, m_cues);
+  }
 
   return m_cues.get();
 }
@@ -453,5 +456,6 @@ DEFINE_TRACE(TextTrack) {
 
 DEFINE_TRACE_WRAPPERS(TextTrack) {
   visitor->traceWrappers(m_cues);
+  EventTargetWithInlineData::traceWrappers(visitor);
 }
 }  // namespace blink

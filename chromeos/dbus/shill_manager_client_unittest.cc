@@ -10,6 +10,7 @@
 #include "base/bind.h"
 #include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
+#include "base/test/mock_callback.h"
 #include "base/values.h"
 #include "chromeos/dbus/shill_client_unittest_base.h"
 #include "dbus/message.h"
@@ -52,6 +53,21 @@ void ExpectStringArgumentsFollowedByObjectPath(
   EXPECT_FALSE(reader->HasMoreData());
 }
 
+void ExpectThrottlingArguments(bool throttling_enabled_expected,
+                               uint32_t upload_rate_kbits_expected,
+                               uint32_t download_rate_kbits_expected,
+                               dbus::MessageReader* reader) {
+  bool throttling_enabled_actual;
+  uint32_t upload_rate_kbits_actual;
+  uint32_t download_rate_kbits_actual;
+  ASSERT_TRUE(reader->PopBool(&throttling_enabled_actual));
+  EXPECT_EQ(throttling_enabled_actual, throttling_enabled_expected);
+  ASSERT_TRUE(reader->PopUint32(&upload_rate_kbits_actual));
+  EXPECT_EQ(upload_rate_kbits_expected, upload_rate_kbits_actual);
+  ASSERT_TRUE(reader->PopUint32(&download_rate_kbits_actual));
+  EXPECT_EQ(download_rate_kbits_expected, download_rate_kbits_actual);
+  EXPECT_FALSE(reader->HasMoreData());
+}
 
 }  // namespace
 
@@ -196,12 +212,10 @@ TEST_F(ShillManagerClientTest, SetProperty) {
                                   &value),
                        response.get());
   // Call method.
-  MockClosure mock_closure;
-  MockErrorCallback mock_error_callback;
-  client_->SetProperty(shill::kCheckPortalListProperty,
-                       value,
-                       mock_closure.GetCallback(),
-                       mock_error_callback.GetCallback());
+  base::MockCallback<base::Closure> mock_closure;
+  base::MockCallback<ShillManagerClient::ErrorCallback> mock_error_callback;
+  client_->SetProperty(shill::kCheckPortalListProperty, value,
+                       mock_closure.Get(), mock_error_callback.Get());
   EXPECT_CALL(mock_closure, Run()).Times(1);
   EXPECT_CALL(mock_error_callback, Run(_, _)).Times(0);
 
@@ -217,11 +231,10 @@ TEST_F(ShillManagerClientTest, RequestScan) {
                        base::Bind(&ExpectStringArgument, shill::kTypeWifi),
                        response.get());
   // Call method.
-  MockClosure mock_closure;
-  MockErrorCallback mock_error_callback;
-  client_->RequestScan(shill::kTypeWifi,
-                       mock_closure.GetCallback(),
-                       mock_error_callback.GetCallback());
+  base::MockCallback<base::Closure> mock_closure;
+  base::MockCallback<ShillManagerClient::ErrorCallback> mock_error_callback;
+  client_->RequestScan(shill::kTypeWifi, mock_closure.Get(),
+                       mock_error_callback.Get());
   EXPECT_CALL(mock_closure, Run()).Times(1);
   EXPECT_CALL(mock_error_callback, Run(_, _)).Times(0);
 
@@ -237,11 +250,34 @@ TEST_F(ShillManagerClientTest, EnableTechnology) {
                        base::Bind(&ExpectStringArgument, shill::kTypeWifi),
                        response.get());
   // Call method.
-  MockClosure mock_closure;
-  MockErrorCallback mock_error_callback;
-  client_->EnableTechnology(shill::kTypeWifi,
-                            mock_closure.GetCallback(),
-                            mock_error_callback.GetCallback());
+  base::MockCallback<base::Closure> mock_closure;
+  base::MockCallback<ShillManagerClient::ErrorCallback> mock_error_callback;
+  client_->EnableTechnology(shill::kTypeWifi, mock_closure.Get(),
+                            mock_error_callback.Get());
+  EXPECT_CALL(mock_closure, Run()).Times(1);
+  EXPECT_CALL(mock_error_callback, Run(_, _)).Times(0);
+
+  // Run the message loop.
+  base::RunLoop().RunUntilIdle();
+}
+
+TEST_F(ShillManagerClientTest, NetworkThrottling) {
+  // Create response.
+  std::unique_ptr<dbus::Response> response(dbus::Response::CreateEmpty());
+  // Set expectations.
+  const bool enabled = true;
+  const uint32_t upload_rate = 1200;
+  const uint32_t download_rate = 2000;
+  PrepareForMethodCall(shill::kSetNetworkThrottlingFunction,
+                       base::Bind(&ExpectThrottlingArguments, enabled,
+                                  upload_rate, download_rate),
+                       response.get());
+  // Call method.
+  base::MockCallback<base::Closure> mock_closure;
+  base::MockCallback<ShillManagerClient::ErrorCallback> mock_error_callback;
+  client_->SetNetworkThrottlingStatus(enabled, upload_rate, download_rate,
+                                      mock_closure.Get(),
+                                      mock_error_callback.Get());
   EXPECT_CALL(mock_closure, Run()).Times(1);
   EXPECT_CALL(mock_error_callback, Run(_, _)).Times(0);
 
@@ -257,11 +293,10 @@ TEST_F(ShillManagerClientTest, DisableTechnology) {
                        base::Bind(&ExpectStringArgument, shill::kTypeWifi),
                        response.get());
   // Call method.
-  MockClosure mock_closure;
-  MockErrorCallback mock_error_callback;
-  client_->DisableTechnology(shill::kTypeWifi,
-                             mock_closure.GetCallback(),
-                             mock_error_callback.GetCallback());
+  base::MockCallback<base::Closure> mock_closure;
+  base::MockCallback<ShillManagerClient::ErrorCallback> mock_error_callback;
+  client_->DisableTechnology(shill::kTypeWifi, mock_closure.Get(),
+                             mock_error_callback.Get());
   EXPECT_CALL(mock_closure, Run()).Times(1);
   EXPECT_CALL(mock_error_callback, Run(_, _)).Times(0);
 
@@ -285,11 +320,10 @@ TEST_F(ShillManagerClientTest, ConfigureService) {
       base::Bind(&ExpectDictionaryValueArgument, arg.get(), string_valued),
       response.get());
   // Call method.
-  MockErrorCallback mock_error_callback;
-  client_->ConfigureService(*arg,
-                            base::Bind(&ExpectObjectPathResultWithoutStatus,
-                                       object_path),
-                            mock_error_callback.GetCallback());
+  base::MockCallback<ShillManagerClient::ErrorCallback> mock_error_callback;
+  client_->ConfigureService(
+      *arg, base::Bind(&ExpectObjectPathResultWithoutStatus, object_path),
+      mock_error_callback.Get());
   EXPECT_CALL(mock_error_callback, Run(_, _)).Times(0);
 
   // Run the message loop.
@@ -312,11 +346,10 @@ TEST_F(ShillManagerClientTest, GetService) {
       base::Bind(&ExpectDictionaryValueArgument, arg.get(), string_valued),
       response.get());
   // Call method.
-  MockErrorCallback mock_error_callback;
-  client_->GetService(*arg,
-                      base::Bind(&ExpectObjectPathResultWithoutStatus,
-                                 object_path),
-                      mock_error_callback.GetCallback());
+  base::MockCallback<ShillManagerClient::ErrorCallback> mock_error_callback;
+  client_->GetService(
+      *arg, base::Bind(&ExpectObjectPathResultWithoutStatus, object_path),
+      mock_error_callback.Get());
   EXPECT_CALL(mock_error_callback, Run(_, _)).Times(0);
 
   // Run the message loop.
@@ -343,7 +376,7 @@ TEST_F(ShillManagerClientTest, VerifyDestination) {
                        response.get());
 
   // Call method.
-  MockErrorCallback mock_error_callback;
+  base::MockCallback<ShillManagerClient::ErrorCallback> mock_error_callback;
   ShillManagerClient::VerificationProperties properties;
   properties.certificate = arguments[0];
   properties.public_key = arguments[1];
@@ -353,9 +386,8 @@ TEST_F(ShillManagerClientTest, VerifyDestination) {
   properties.device_ssid = arguments[5];
   properties.device_bssid = arguments[6];
   client_->VerifyDestination(
-      properties,
-      base::Bind(&ExpectBoolResultWithoutStatus, expected),
-      mock_error_callback.GetCallback());
+      properties, base::Bind(&ExpectBoolResultWithoutStatus, expected),
+      mock_error_callback.Get());
   EXPECT_CALL(mock_error_callback, Run(_, _)).Times(0);
 
   // Run the message loop.
@@ -386,7 +418,7 @@ TEST_F(ShillManagerClientTest, VerifyAndEncryptCredentials) {
                        response.get());
 
   // Call method.
-  MockErrorCallback mock_error_callback;
+  base::MockCallback<ShillManagerClient::ErrorCallback> mock_error_callback;
   ShillManagerClient::VerificationProperties properties;
   properties.certificate = arguments[0];
   properties.public_key = arguments[1];
@@ -396,10 +428,9 @@ TEST_F(ShillManagerClientTest, VerifyAndEncryptCredentials) {
   properties.device_ssid = arguments[5];
   properties.device_bssid = arguments[6];
   client_->VerifyAndEncryptCredentials(
-      properties,
-      service_path,
+      properties, service_path,
       base::Bind(&ExpectStringResultWithoutStatus, expected),
-      mock_error_callback.GetCallback());
+      mock_error_callback.Get());
   EXPECT_CALL(mock_error_callback, Run(_, _)).Times(0);
 
   // Run the message loop.
@@ -427,7 +458,7 @@ TEST_F(ShillManagerClientTest, VerifyAndEncryptData) {
                        response.get());
 
   // Call method.
-  MockErrorCallback mock_error_callback;
+  base::MockCallback<ShillManagerClient::ErrorCallback> mock_error_callback;
   ShillManagerClient::VerificationProperties properties;
   properties.certificate = arguments[0];
   properties.public_key = arguments[1];
@@ -437,10 +468,9 @@ TEST_F(ShillManagerClientTest, VerifyAndEncryptData) {
   properties.device_ssid = arguments[5];
   properties.device_bssid = arguments[6];
   client_->VerifyAndEncryptData(
-      properties,
-      arguments[7],
+      properties, arguments[7],
       base::Bind(&ExpectStringResultWithoutStatus, expected),
-      mock_error_callback.GetCallback());
+      mock_error_callback.Get());
   EXPECT_CALL(mock_error_callback, Run(_, _)).Times(0);
 
   // Run the message loop.

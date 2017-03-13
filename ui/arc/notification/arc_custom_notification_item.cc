@@ -4,12 +4,17 @@
 
 #include "ui/arc/notification/arc_custom_notification_item.h"
 
+#include <memory>
+#include <string>
+#include <utility>
+
 #include "base/memory/ptr_util.h"
 #include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
 #include "ui/arc/notification/arc_custom_notification_view.h"
 #include "ui/message_center/notification.h"
 #include "ui/message_center/notification_types.h"
+#include "ui/message_center/views/custom_notification_content_view_delegate.h"
 
 namespace arc {
 
@@ -22,8 +27,12 @@ class ArcNotificationDelegate : public message_center::NotificationDelegate {
   explicit ArcNotificationDelegate(ArcCustomNotificationItem* item)
       : item_(item) {}
 
-  std::unique_ptr<views::View> CreateCustomContent() override {
-    return base::MakeUnique<ArcCustomNotificationView>(item_);
+  std::unique_ptr<message_center::CustomContent> CreateCustomContent()
+      override {
+    auto view = base::MakeUnique<ArcCustomNotificationView>(item_);
+    auto content_view_delegate = view->CreateContentViewDelegate();
+    return base::MakeUnique<message_center::CustomContent>(
+        std::move(view), std::move(content_view_delegate));
   }
 
  private:
@@ -49,7 +58,8 @@ ArcCustomNotificationItem::ArcCustomNotificationItem(
 }
 
 ArcCustomNotificationItem::~ArcCustomNotificationItem() {
-  FOR_EACH_OBSERVER(Observer, observers_, OnItemDestroying());
+  for (auto& observer : observers_)
+    observer.OnItemDestroying();
 }
 
 void ArcCustomNotificationItem::UpdateWithArcNotificationData(
@@ -67,19 +77,17 @@ void ArcCustomNotificationItem::UpdateWithArcNotificationData(
   rich_data.priority = ConvertAndroidPriority(data->priority);
   if (data->small_icon)
     rich_data.small_image = gfx::Image::CreateFrom1xBitmap(*data->small_icon);
-  if (!data->accessible_name.is_null())
-    rich_data.accessible_name = base::UTF8ToUTF16(data->accessible_name.get());
+  if (data->accessible_name.has_value())
+    rich_data.accessible_name = base::UTF8ToUTF16(*data->accessible_name);
 
   message_center::NotifierId notifier_id(
       message_center::NotifierId::SYSTEM_COMPONENT, kNotifierId);
   notifier_id.profile_id = profile_id().GetUserEmail();
 
-  DCHECK(!data->title.is_null());
-  DCHECK(!data->message.is_null());
   SetNotification(base::MakeUnique<message_center::Notification>(
       message_center::NOTIFICATION_TYPE_CUSTOM, notification_id(),
-      base::UTF8ToUTF16(data->title.get()),
-      base::UTF8ToUTF16(data->message.get()), gfx::Image(),
+      base::UTF8ToUTF16(data->title), base::UTF8ToUTF16(data->message),
+      gfx::Image(),
       base::UTF8ToUTF16("arc"),  // display source
       GURL(),                    // empty origin url, for system component
       notifier_id, rich_data, new ArcNotificationDelegate(this)));
@@ -93,7 +101,8 @@ void ArcCustomNotificationItem::UpdateWithArcNotificationData(
         *data->snapshot_image, data->snapshot_image_scale));
   }
 
-  FOR_EACH_OBSERVER(Observer, observers_, OnItemUpdated());
+  for (auto& observer : observers_)
+    observer.OnItemUpdated();
 
   AddToMessageCenter();
 }

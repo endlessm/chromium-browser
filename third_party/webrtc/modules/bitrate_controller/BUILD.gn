@@ -9,6 +9,11 @@
 import("../../build/webrtc.gni")
 
 rtc_static_library("bitrate_controller") {
+  # TODO(mbonadei): Remove (bugs.webrtc.org/6828)
+  # Errors on cyclic dependency with:
+  # congestion_controller:congestion_controller if enabled.
+  check_includes = false
+
   sources = [
     "bitrate_controller_impl.cc",
     "bitrate_controller_impl.h",
@@ -26,13 +31,14 @@ rtc_static_library("bitrate_controller") {
   # TODO(jschuh): Bug 1348: fix this warning.
   configs += [ "//build/config/compiler:no_size_t_to_int_warning" ]
 
-  if (is_clang) {
-    # Suppress warnings from Chrome's Clang plugins.
-    # See http://code.google.com/p/webrtc/issues/detail?id=163 for details.
+  if (!build_with_chromium && is_clang) {
+    # Suppress warnings from the Chromium Clang plugin (bugs.webrtc.org/163).
     suppressed_configs += [ "//build/config/clang:find_bad_constructs" ]
   }
 
   deps = [
+    "../../base:rtc_base_approved",
     "../../system_wrappers",
+    "../rtp_rtcp",
   ]
 }

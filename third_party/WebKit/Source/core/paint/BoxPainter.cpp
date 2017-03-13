@@ -22,6 +22,7 @@
 #include "core/paint/BoxDecorationData.h"
 #include "core/paint/LayoutObjectDrawingRecorder.h"
 #include "core/paint/NinePieceImagePainter.h"
+#include "core/paint/ObjectPainter.h"
 #include "core/paint/PaintInfo.h"
 #include "core/paint/PaintLayer.h"
 #include "core/paint/RoundedInnerRectClipper.h"
@@ -36,9 +37,7 @@
 
 namespace blink {
 
-namespace {
-
-bool isPaintingBackgroundOfPaintContainerIntoScrollingContentsLayer(
+bool BoxPainter::isPaintingBackgroundOfPaintContainerIntoScrollingContentsLayer(
     const LayoutBoxModelObject* obj,
     const PaintInfo& paintInfo) {
   return paintInfo.paintFlags() & PaintLayerPaintingOverflowContents &&
@@ -47,16 +46,19 @@ bool isPaintingBackgroundOfPaintContainerIntoScrollingContentsLayer(
          obj == paintInfo.paintContainer();
 }
 
-}  // namespace
-
 void BoxPainter::paint(const PaintInfo& paintInfo,
                        const LayoutPoint& paintOffset) {
-  LayoutPoint adjustedPaintOffset = paintOffset + m_layoutBox.location();
+  ObjectPainter(m_layoutBox).checkPaintOffset(paintInfo, paintOffset);
   // Default implementation. Just pass paint through to the children.
+  paintChildren(paintInfo, paintOffset + m_layoutBox.location());
+}
+
+void BoxPainter::paintChildren(const PaintInfo& paintInfo,
+                               const LayoutPoint& paintOffset) {
   PaintInfo childInfo(paintInfo);
   for (LayoutObject* child = m_layoutBox.slowFirstChild(); child;
        child = child->nextSibling())
-    child->paint(childInfo, adjustedPaintOffset);
+    child->paint(childInfo, paintOffset);
 }
 
 void BoxPainter::paintBoxDecorationBackground(const PaintInfo& paintInfo,
@@ -108,6 +110,41 @@ bool bleedAvoidanceIsClipping(BackgroundBleedAvoidance bleedAvoidance) {
 
 }  // anonymous namespace
 
+// Sets a preferred composited raster scale for box with a background image,
+// if possible.
+// |srcRect| is the rect, in the space of the source image, to raster.
+// |destRect| is the rect, in the local layout space of |obj|, to raster.
+inline void updatePreferredRasterBoundsFromImage(
+    const FloatRect srcRect,
+    const FloatRect& destRect,
+    const LayoutBoxModelObject& obj) {
+  if (!RuntimeEnabledFeatures::preferredImageRasterBoundsEnabled())
+    return;
+  // Not yet implemented for SPv2.
+  if (RuntimeEnabledFeatures::slimmingPaintV2Enabled())
+    return;
+  if (destRect.width() == 0.0f || destRect.height() == 0.0f)
+    return;
+  if (PaintLayer* paintLayer = obj.layer()) {
+    if (paintLayer->compositingState() != PaintsIntoOwnBacking)
+      return;
+    // TODO(chrishtr): ensure that this rounding does not ever lose any
+    // precision.
+    paintLayer->graphicsLayerBacking()->setPreferredRasterBounds(
+        roundedIntSize(srcRect.size()));
+  }
+}
+
+inline void clearPreferredRasterBounds(const LayoutBox& obj) {
+  if (!RuntimeEnabledFeatures::preferredImageRasterBoundsEnabled())
+    return;
+  if (PaintLayer* paintLayer = obj.layer()) {
+    if (paintLayer->compositingState() != PaintsIntoOwnBacking)
+      return;
+    paintLayer->graphicsLayerBacking()->clearPreferredRasterBounds();
+  }
+}
+
 void BoxPainter::paintBoxDecorationBackgroundWithRect(
     const PaintInfo& paintInfo,
     const LayoutPoint& paintOffset,
@@ -144,6 +181,8 @@ void BoxPainter::paintBoxDecorationBackgroundWithRect(
           DisplayItem::kBoxDecorationBackground))
     return;
 
+  clearPreferredRasterBounds(m_layoutBox);
+
   DrawingRecorder recorder(
       paintInfo.context, displayItemClient,
       DisplayItem::kBoxDecorationBackground,
@@ -155,10 +194,7 @@ void BoxPainter::paintBoxDecorationBackgroundWithRect(
     // FIXME: Should eventually give the theme control over whether the box
     // shadow should paint, since controls could have custom shadows of their
     // own.
-    if (!m_layoutBox.boxShadowShouldBeAppliedToBackground(
-            boxDecorationData.bleedAvoidance)) {
-      paintBoxShadow(paintInfo, paintRect, style, Normal);
-    }
+    paintNormalBoxShadow(paintInfo, paintRect, style);
 
     if (bleedAvoidanceIsClipping(boxDecorationData.bleedAvoidance)) {
       stateSaver.save();
@@ -190,7 +226,7 @@ void BoxPainter::paintBoxDecorationBackgroundWithRect(
   }
 
   if (!paintingOverflowContents) {
-    paintBoxShadow(paintInfo, paintRect, style, Inset);
+    paintInsetBoxShadow(paintInfo, paintRect, style);
 
     // The theme will tell us whether or not we should also paint the CSS
     // border.
@@ -231,7 +267,7 @@ bool BoxPainter::calculateFillLayerOcclusionCulling(
   bool isNonAssociative = false;
   for (auto currentLayer = &fillLayer; currentLayer;
        currentLayer = currentLayer->next()) {
-    reversedPaintList.append(currentLayer);
+    reversedPaintList.push_back(currentLayer);
     // Stop traversal when an opaque layer is encountered.
     // FIXME : It would be possible for the following occlusion culling test to
     // be more aggressive on layers with no repeat by testing whether the image
@@ -262,30 +298,11 @@ void BoxPainter::paintFillLayers(const PaintInfo& paintInfo,
                                  const FillLayer& fillLayer,
                                  const LayoutRect& rect,
                                  BackgroundBleedAvoidance bleedAvoidance,
-                                 SkXfermode::Mode op,
+                                 SkBlendMode op,
                                  const LayoutObject* backgroundObject) {
-  // TODO(trchen): Box shadow optimization and background color are concepts
-  // that only apply to background layers. Ideally we should refactor those out
-  // of paintFillLayer.
   FillLayerOcclusionOutputList reversedPaintList;
-  bool shouldDrawBackgroundInSeparateBuffer = false;
-  if (!m_layoutBox.boxShadowShouldBeAppliedToBackground(bleedAvoidance)) {
-    shouldDrawBackgroundInSeparateBuffer =
-        calculateFillLayerOcclusionCulling(reversedPaintList, fillLayer);
-  } else {
-    // If we are responsible for painting box shadow, don't perform fill layer
-    // culling.
-    // TODO(trchen): In theory we only need to make sure the last layer has
-    // border box clipping and make it paint the box shadow. Investigate
-    // optimization opportunity later.
-    for (auto currentLayer = &fillLayer; currentLayer;
-         currentLayer = currentLayer->next()) {
-      reversedPaintList.append(currentLayer);
-      if (currentLayer->composite() != CompositeSourceOver ||
-          currentLayer->blendMode() != WebBlendModeNormal)
-        shouldDrawBackgroundInSeparateBuffer = true;
-    }
-  }
+  bool shouldDrawBackgroundInSeparateBuffer =
+      calculateFillLayerOcclusionCulling(reversedPaintList, fillLayer);
 
   // TODO(trchen): We can optimize out isolation group if we have a
   // non-transparent background color and the bottom layer encloses all other
@@ -306,38 +323,6 @@ void BoxPainter::paintFillLayers(const PaintInfo& paintInfo,
 }
 
 namespace {
-
-// RAII shadow helper.
-class ShadowContext {
-  STACK_ALLOCATED();
-
- public:
-  ShadowContext(GraphicsContext& context,
-                const LayoutObject& obj,
-                bool applyShadow)
-      : m_saver(context, applyShadow) {
-    if (!applyShadow)
-      return;
-
-    const ShadowList* shadowList = obj.style()->boxShadow();
-    DCHECK(shadowList);
-    for (size_t i = shadowList->shadows().size(); i--;) {
-      const ShadowData& boxShadow = shadowList->shadows()[i];
-      if (boxShadow.style() != Normal)
-        continue;
-      FloatSize shadowOffset(boxShadow.x(), boxShadow.y());
-      context.setShadow(
-          shadowOffset, boxShadow.blur(),
-          boxShadow.color().resolve(obj.resolveColor(CSSPropertyColor)),
-          DrawLooperBuilder::ShadowRespectsTransforms,
-          DrawLooperBuilder::ShadowIgnoresAlpha);
-      break;
-    }
-  }
-
- private:
-  GraphicsContextStateSaver m_saver;
-};
 
 FloatRoundedRect getBackgroundRoundedRect(const LayoutObject& obj,
                                           const LayoutRect& borderRect,
@@ -453,9 +438,6 @@ struct FillLayerInfo {
     shouldPaintColor =
         isBottomLayer && color.alpha() &&
         (!shouldPaintImage || !layer.imageOccludesNextLayers(obj));
-    shouldPaintShadow =
-        shouldPaintColor &&
-        obj.boxShadowShouldBeAppliedToBackground(bleedAvoidance, box);
   }
 
   // FillLayerInfo is a temporary, stack-allocated container which cannot
@@ -473,7 +455,6 @@ struct FillLayerInfo {
 
   bool shouldPaintImage;
   bool shouldPaintColor;
-  bool shouldPaintShadow;
 };
 
 // RAII image paint helper.
@@ -485,15 +466,15 @@ class ImagePaintContext {
                     GraphicsContext& context,
                     const FillLayer& layer,
                     const StyleImage& styleImage,
-                    SkXfermode::Mode op,
+                    SkBlendMode op,
                     const LayoutObject* backgroundObject,
                     const LayoutSize& containerSize)
       : m_context(context),
         m_previousInterpolationQuality(context.imageInterpolationQuality()) {
-    SkXfermode::Mode bgOp =
+    SkBlendMode bgOp =
         WebCoreCompositeToSkiaComposite(layer.composite(), layer.blendMode());
-    // if op != SkXfermode::kSrcOver_Mode, a mask is being painted.
-    m_compositeOp = (op == SkXfermode::kSrcOver_Mode) ? bgOp : op;
+    // if op != SkBlendMode::kSrcOver, a mask is being painted.
+    m_compositeOp = (op == SkBlendMode::kSrcOver) ? bgOp : op;
 
     const LayoutObject& imageClient =
         backgroundObject ? *backgroundObject : obj;
@@ -516,12 +497,12 @@ class ImagePaintContext {
 
   Image* image() const { return m_image.get(); }
 
-  SkXfermode::Mode compositeOp() const { return m_compositeOp; }
+  SkBlendMode compositeOp() const { return m_compositeOp; }
 
  private:
   RefPtr<Image> m_image;
   GraphicsContext& m_context;
-  SkXfermode::Mode m_compositeOp;
+  SkBlendMode m_compositeOp;
   InterpolationQuality m_interpolationQuality;
   InterpolationQuality m_previousInterpolationQuality;
 };
@@ -534,7 +515,7 @@ inline bool paintFastBottomLayer(const LayoutBoxModelObject& obj,
                                  BackgroundBleedAvoidance bleedAvoidance,
                                  const InlineFlowBox* box,
                                  const LayoutSize& boxSize,
-                                 SkXfermode::Mode op,
+                                 SkBlendMode op,
                                  const LayoutObject* backgroundObject,
                                  Optional<BackgroundImageGeometry>& geometry) {
   // Complex cases not handled on the fast path.
@@ -591,13 +572,11 @@ inline bool paintFastBottomLayer(const LayoutBoxModelObject& obj,
     border.setRadii(FloatRoundedRect::Radii());
   }
 
-  // Paint the color + shadow if needed.
-  if (info.shouldPaintColor) {
-    const ShadowContext shadowContext(context, obj, info.shouldPaintShadow);
+  // Paint the color if needed.
+  if (info.shouldPaintColor)
     context.fillRoundedRect(border, info.color);
-  }
 
-  // Paint the image + shadow if needed.
+  // Paint the image if needed.
   if (!info.shouldPaintImage || imageTile.isEmpty())
     return true;
 
@@ -613,13 +592,12 @@ inline bool paintFastBottomLayer(const LayoutBoxModelObject& obj,
   const FloatRect srcRect =
       Image::computeSubsetForTile(imageTile, border.rect(), intrinsicTileSize);
 
-  // The shadow may have been applied with the color fill.
-  const ShadowContext shadowContext(
-      context, obj, info.shouldPaintShadow && !info.shouldPaintColor);
   TRACE_EVENT1(TRACE_DISABLED_BY_DEFAULT("devtools.timeline"), "PaintImage",
                "data", InspectorPaintImageEvent::data(obj, *info.image));
   context.drawImageRRect(imageContext.image(), border, srcRect,
                          imageContext.compositeOp());
+
+  updatePreferredRasterBoundsFromImage(srcRect, border.rect(), obj);
 
   return true;
 }
@@ -634,7 +612,7 @@ void BoxPainter::paintFillLayer(const LayoutBoxModelObject& obj,
                                 BackgroundBleedAvoidance bleedAvoidance,
                                 const InlineFlowBox* box,
                                 const LayoutSize& boxSize,
-                                SkXfermode::Mode op,
+                                SkBlendMode op,
                                 const LayoutObject* backgroundObject) {
   GraphicsContext& context = paintInfo.context;
   if (rect.isEmpty())
@@ -756,12 +734,9 @@ void BoxPainter::paintFillLayer(const LayoutBoxModelObject& obj,
   // TODO(trchen): In the !bgLayer.hasRepeatXY() case, we could improve the
   // culling test by verifying whether the background image covers the entire
   // painting area.
-  if (info.isBottomLayer && info.color.alpha()) {
+  if (info.isBottomLayer && info.color.alpha() && info.shouldPaintColor) {
     IntRect backgroundRect(pixelSnappedIntRect(scrolledPaintRect));
-    if (info.shouldPaintColor || info.shouldPaintShadow) {
-      const ShadowContext shadowContext(context, obj, info.shouldPaintShadow);
-      context.fillRect(backgroundRect, info.color);
-    }
+    context.fillRect(backgroundRect, info.color);
   }
 
   // no progressive loading of the background image
@@ -792,7 +767,7 @@ void BoxPainter::paintFillLayer(const LayoutBoxModelObject& obj,
 
   if (bgLayer.clip() == TextFillBox) {
     // Create the text mask layer.
-    context.beginLayer(1, SkXfermode::kDstIn_Mode);
+    context.beginLayer(1, SkBlendMode::kDstIn);
 
     // Now draw the text into the mask. We do this by painting using a special
     // paint phase that signals to
@@ -819,7 +794,7 @@ void BoxPainter::paintFillLayer(const LayoutBoxModelObject& obj,
 
 void BoxPainter::paintMask(const PaintInfo& paintInfo,
                            const LayoutPoint& paintOffset) {
-  if (m_layoutBox.style()->visibility() != EVisibility::Visible ||
+  if (m_layoutBox.style()->visibility() != EVisibility::kVisible ||
       paintInfo.phase != PaintPhaseMask)
     return;
 
@@ -859,7 +834,7 @@ void BoxPainter::paintMaskImages(const PaintInfo& paintInfo,
 
     allMaskImagesLoaded &= maskLayers.imagesAreLoaded();
 
-    paintInfo.context.beginLayer(1, SkXfermode::kDstIn_Mode);
+    paintInfo.context.beginLayer(1, SkBlendMode::kDstIn);
   }
 
   if (allMaskImagesLoaded) {
@@ -876,9 +851,9 @@ void BoxPainter::paintMaskImages(const PaintInfo& paintInfo,
 
 void BoxPainter::paintClippingMask(const PaintInfo& paintInfo,
                                    const LayoutPoint& paintOffset) {
-  ASSERT(paintInfo.phase == PaintPhaseClippingMask);
+  DCHECK(paintInfo.phase == PaintPhaseClippingMask);
 
-  if (m_layoutBox.style()->visibility() != EVisibility::Visible)
+  if (m_layoutBox.style()->visibility() != EVisibility::kVisible)
     return;
 
   if (!m_layoutBox.layer() ||
@@ -910,7 +885,7 @@ bool BoxPainter::paintNinePieceImage(const LayoutBoxModelObject& obj,
                                      const LayoutRect& rect,
                                      const ComputedStyle& style,
                                      const NinePieceImage& ninePieceImage,
-                                     SkXfermode::Mode op) {
+                                     SkBlendMode op) {
   NinePieceImagePainter ninePieceImagePainter(obj);
   return ninePieceImagePainter.paint(graphicsContext, rect, style,
                                      ninePieceImage, op);
@@ -933,26 +908,18 @@ void BoxPainter::paintBorder(const LayoutBoxModelObject& obj,
   borderPainter.paintBorder(info, rect);
 }
 
-void BoxPainter::paintBoxShadow(const PaintInfo& info,
-                                const LayoutRect& paintRect,
-                                const ComputedStyle& style,
-                                ShadowStyle shadowStyle,
-                                bool includeLogicalLeftEdge,
-                                bool includeLogicalRightEdge) {
-  // FIXME: Deal with border-image. Would be great to use border-image as a
-  // mask.
-  GraphicsContext& context = info.context;
+void BoxPainter::paintNormalBoxShadow(const PaintInfo& info,
+                                      const LayoutRect& paintRect,
+                                      const ComputedStyle& style,
+                                      bool includeLogicalLeftEdge,
+                                      bool includeLogicalRightEdge) {
   if (!style.boxShadow())
     return;
-  FloatRoundedRect border =
-      (shadowStyle == Inset)
-          ? style.getRoundedInnerBorderFor(paintRect, includeLogicalLeftEdge,
-                                           includeLogicalRightEdge)
-          : style.getRoundedBorderFor(paintRect, includeLogicalLeftEdge,
-                                      includeLogicalRightEdge);
+  GraphicsContext& context = info.context;
+  FloatRoundedRect border = style.getRoundedBorderFor(
+      paintRect, includeLogicalLeftEdge, includeLogicalRightEdge);
 
   bool hasBorderRadius = style.hasBorderRadius();
-  bool isHorizontal = style.isHorizontalWritingMode();
   bool hasOpaqueBackground =
       style.visitedDependentColor(CSSPropertyBackgroundColor).alpha() == 255;
 
@@ -961,7 +928,7 @@ void BoxPainter::paintBoxShadow(const PaintInfo& info,
   const ShadowList* shadowList = style.boxShadow();
   for (size_t i = shadowList->shadows().size(); i--;) {
     const ShadowData& shadow = shadowList->shadows()[i];
-    if (shadow.style() != shadowStyle)
+    if (shadow.style() != Normal)
       continue;
 
     FloatSize shadowOffset(shadow.x(), shadow.y());
@@ -974,97 +941,138 @@ void BoxPainter::paintBoxShadow(const PaintInfo& info,
     const Color& shadowColor =
         shadow.color().resolve(style.visitedDependentColor(CSSPropertyColor));
 
-    if (shadow.style() == Normal) {
-      FloatRect fillRect = border.rect();
-      fillRect.inflate(shadowSpread);
-      if (fillRect.isEmpty())
-        continue;
+    FloatRect fillRect = border.rect();
+    fillRect.inflate(shadowSpread);
+    if (fillRect.isEmpty())
+      continue;
 
-      FloatRect shadowRect(border.rect());
-      shadowRect.inflate(shadowBlur + shadowSpread);
-      shadowRect.move(shadowOffset);
+    FloatRect shadowRect(border.rect());
+    shadowRect.inflate(shadowBlur + shadowSpread);
+    shadowRect.move(shadowOffset);
 
-      // Save the state and clip, if not already done.
-      // The clip does not depend on any shadow-specific properties.
-      if (!stateSaver.saved()) {
-        stateSaver.save();
-        if (hasBorderRadius) {
-          FloatRoundedRect rectToClipOut = border;
-
-          // If the box is opaque, it is unnecessary to clip it out. However,
-          // doing so saves time when painting the shadow. On the other hand, it
-          // introduces subpixel gaps along the corners. Those are avoided by
-          // insetting the clipping path by one CSS pixel.
-          if (hasOpaqueBackground)
-            rectToClipOut.inflateWithRadii(-1);
-
-          if (!rectToClipOut.isEmpty())
-            context.clipOutRoundedRect(rectToClipOut);
-        } else {
-          // This IntRect is correct even with fractional shadows, because it is
-          // used for the rectangle of the box itself, which is always
-          // pixel-aligned.
-          FloatRect rectToClipOut = border.rect();
-
-          // If the box is opaque, it is unnecessary to clip it out. However,
-          // doing so saves time when painting the shadow. On the other hand, it
-          // introduces subpixel gaps along the edges if they are not
-          // pixel-aligned. Those are avoided by insetting the clipping path by
-          // one CSS pixel.
-          if (hasOpaqueBackground)
-            rectToClipOut.inflate(-1);
-
-          if (!rectToClipOut.isEmpty())
-            context.clipOut(rectToClipOut);
-        }
-      }
-
-      // Draw only the shadow.
-      context.setShadow(shadowOffset, shadowBlur, shadowColor,
-                        DrawLooperBuilder::ShadowRespectsTransforms,
-                        DrawLooperBuilder::ShadowIgnoresAlpha, DrawShadowOnly);
-
+    // Save the state and clip, if not already done.
+    // The clip does not depend on any shadow-specific properties.
+    if (!stateSaver.saved()) {
+      stateSaver.save();
       if (hasBorderRadius) {
-        FloatRoundedRect influenceRect(
-            pixelSnappedIntRect(LayoutRect(shadowRect)), border.getRadii());
-        float changeAmount = 2 * shadowBlur + shadowSpread;
-        if (changeAmount >= 0)
-          influenceRect.expandRadii(changeAmount);
-        else
-          influenceRect.shrinkRadii(-changeAmount);
+        FloatRoundedRect rectToClipOut = border;
 
-        FloatRoundedRect roundedFillRect = border;
-        roundedFillRect.inflate(shadowSpread);
+        // If the box is opaque, it is unnecessary to clip it out. However,
+        // doing so saves time when painting the shadow. On the other hand, it
+        // introduces subpixel gaps along the corners. Those are avoided by
+        // insetting the clipping path by one CSS pixel.
+        if (hasOpaqueBackground)
+          rectToClipOut.inflateWithRadii(-1);
 
-        if (shadowSpread >= 0)
-          roundedFillRect.expandRadii(shadowSpread);
-        else
-          roundedFillRect.shrinkRadii(-shadowSpread);
-        if (!roundedFillRect.isRenderable())
-          roundedFillRect.adjustRadii();
-        roundedFillRect.constrainRadii();
-        context.fillRoundedRect(roundedFillRect, Color::black);
+        if (!rectToClipOut.isEmpty())
+          context.clipOutRoundedRect(rectToClipOut);
       } else {
-        context.fillRect(fillRect, Color::black);
+        // This IntRect is correct even with fractional shadows, because it is
+        // used for the rectangle of the box itself, which is always
+        // pixel-aligned.
+        FloatRect rectToClipOut = border.rect();
+
+        // If the box is opaque, it is unnecessary to clip it out. However,
+        // doing so saves time when painting the shadow. On the other hand, it
+        // introduces subpixel gaps along the edges if they are not
+        // pixel-aligned. Those are avoided by insetting the clipping path by
+        // one CSS pixel.
+        if (hasOpaqueBackground)
+          rectToClipOut.inflate(-1);
+
+        if (!rectToClipOut.isEmpty())
+          context.clipOut(rectToClipOut);
       }
-    } else {
-      // The inset shadow case.
-      GraphicsContext::Edges clippedEdges = GraphicsContext::NoEdge;
-      if (!includeLogicalLeftEdge) {
-        if (isHorizontal)
-          clippedEdges |= GraphicsContext::LeftEdge;
-        else
-          clippedEdges |= GraphicsContext::TopEdge;
-      }
-      if (!includeLogicalRightEdge) {
-        if (isHorizontal)
-          clippedEdges |= GraphicsContext::RightEdge;
-        else
-          clippedEdges |= GraphicsContext::BottomEdge;
-      }
-      context.drawInnerShadow(border, shadowColor, shadowOffset, shadowBlur,
-                              shadowSpread, clippedEdges);
     }
+
+    // Draw only the shadow.
+    context.setShadow(shadowOffset, shadowBlur, shadowColor,
+                      DrawLooperBuilder::ShadowRespectsTransforms,
+                      DrawLooperBuilder::ShadowIgnoresAlpha, DrawShadowOnly);
+
+    if (hasBorderRadius) {
+      FloatRoundedRect influenceRect(
+          pixelSnappedIntRect(LayoutRect(shadowRect)), border.getRadii());
+      float changeAmount = 2 * shadowBlur + shadowSpread;
+      if (changeAmount >= 0)
+        influenceRect.expandRadii(changeAmount);
+      else
+        influenceRect.shrinkRadii(-changeAmount);
+
+      FloatRoundedRect roundedFillRect = border;
+      roundedFillRect.inflate(shadowSpread);
+
+      if (shadowSpread >= 0)
+        roundedFillRect.expandRadii(shadowSpread);
+      else
+        roundedFillRect.shrinkRadii(-shadowSpread);
+      if (!roundedFillRect.isRenderable())
+        roundedFillRect.adjustRadii();
+      roundedFillRect.constrainRadii();
+      context.fillRoundedRect(roundedFillRect, Color::black);
+    } else {
+      context.fillRect(fillRect, Color::black);
+    }
+  }
+}
+
+void BoxPainter::paintInsetBoxShadow(const PaintInfo& info,
+                                     const LayoutRect& paintRect,
+                                     const ComputedStyle& style,
+                                     bool includeLogicalLeftEdge,
+                                     bool includeLogicalRightEdge) {
+  if (!style.boxShadow())
+    return;
+  FloatRoundedRect bounds = style.getRoundedInnerBorderFor(
+      paintRect, includeLogicalLeftEdge, includeLogicalRightEdge);
+  paintInsetBoxShadowInBounds(info, bounds, style, includeLogicalLeftEdge,
+                              includeLogicalRightEdge);
+}
+
+void BoxPainter::paintInsetBoxShadowInBounds(const PaintInfo& info,
+                                             const FloatRoundedRect& bounds,
+                                             const ComputedStyle& style,
+                                             bool includeLogicalLeftEdge,
+                                             bool includeLogicalRightEdge) {
+  // The caller should have checked style.boxShadow() when computing bounds.
+  DCHECK(style.boxShadow());
+  GraphicsContext& context = info.context;
+
+  bool isHorizontal = style.isHorizontalWritingMode();
+  GraphicsContextStateSaver stateSaver(context, false);
+
+  const ShadowList* shadowList = style.boxShadow();
+  for (size_t i = shadowList->shadows().size(); i--;) {
+    const ShadowData& shadow = shadowList->shadows()[i];
+    if (shadow.style() != Inset)
+      continue;
+
+    FloatSize shadowOffset(shadow.x(), shadow.y());
+    float shadowBlur = shadow.blur();
+    float shadowSpread = shadow.spread();
+
+    if (shadowOffset.isZero() && !shadowBlur && !shadowSpread)
+      continue;
+
+    const Color& shadowColor =
+        shadow.color().resolve(style.visitedDependentColor(CSSPropertyColor));
+
+    // The inset shadow case.
+    GraphicsContext::Edges clippedEdges = GraphicsContext::NoEdge;
+    if (!includeLogicalLeftEdge) {
+      if (isHorizontal)
+        clippedEdges |= GraphicsContext::LeftEdge;
+      else
+        clippedEdges |= GraphicsContext::TopEdge;
+    }
+    if (!includeLogicalRightEdge) {
+      if (isHorizontal)
+        clippedEdges |= GraphicsContext::RightEdge;
+      else
+        clippedEdges |= GraphicsContext::BottomEdge;
+    }
+    context.drawInnerShadow(bounds, shadowColor, shadowOffset, shadowBlur,
+                            shadowSpread, clippedEdges);
   }
 }
 
@@ -1072,9 +1080,9 @@ bool BoxPainter::shouldForceWhiteBackgroundForPrintEconomy(
     const ComputedStyle& style,
     const Document& document) {
   return document.printing() &&
-         style.getPrintColorAdjust() == PrintColorAdjustEconomy &&
+         style.printColorAdjust() == EPrintColorAdjust::kEconomy &&
          (!document.settings() ||
-          !document.settings()->shouldPrintBackgrounds());
+          !document.settings()->getShouldPrintBackgrounds());
 }
 
 }  // namespace blink

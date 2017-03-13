@@ -9,13 +9,14 @@
 #include <string>
 
 #include "base/memory/ptr_util.h"
-#include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
 #include "base/values.h"
 #include "device/bluetooth/bluetooth_adapter.h"
 #include "device/bluetooth/bluetooth_gatt_connection.h"
+#include "device/bluetooth/bluetooth_remote_gatt_characteristic.h"
+#include "device/bluetooth/bluetooth_remote_gatt_descriptor.h"
 #include "device/bluetooth/bluetooth_remote_gatt_service.h"
 #include "device/bluetooth/string_util_icu.h"
 #include "grit/bluetooth_strings.h"
@@ -23,9 +24,14 @@
 
 namespace device {
 
-BluetoothDevice::DeviceUUIDs::DeviceUUIDs() {}
+BluetoothDevice::DeviceUUIDs::DeviceUUIDs() = default;
 
-BluetoothDevice::DeviceUUIDs::~DeviceUUIDs() {}
+BluetoothDevice::DeviceUUIDs::~DeviceUUIDs() = default;
+
+BluetoothDevice::DeviceUUIDs::DeviceUUIDs(const DeviceUUIDs& other) = default;
+
+BluetoothDevice::DeviceUUIDs& BluetoothDevice::DeviceUUIDs::operator=(
+    const DeviceUUIDs& other) = default;
 
 void BluetoothDevice::DeviceUUIDs::ReplaceAdvertisedUUIDs(
     UUIDList new_advertised_uuids) {
@@ -44,9 +50,8 @@ void BluetoothDevice::DeviceUUIDs::ClearAdvertisedUUIDs() {
 void BluetoothDevice::DeviceUUIDs::ReplaceServiceUUIDs(
     const GattServiceMap& gatt_services) {
   service_uuids_.clear();
-  for (const auto& gatt_service_pair : gatt_services) {
+  for (const auto& gatt_service_pair : gatt_services)
     service_uuids_.insert(gatt_service_pair.second->GetUUID());
-  }
   UpdateDeviceUUIDs();
 }
 
@@ -312,12 +317,39 @@ const std::vector<uint8_t>* BluetoothDevice::GetServiceDataForUUID(
   return nullptr;
 }
 
+const BluetoothDevice::ManufacturerDataMap&
+BluetoothDevice::GetManufacturerData() const {
+  return manufacturer_data_;
+}
+
+BluetoothDevice::ManufacturerIDSet BluetoothDevice::GetManufacturerDataIDs()
+    const {
+  ManufacturerIDSet manufacturer_data_ids;
+  for (const auto& manufacturer_data_pair : manufacturer_data_) {
+    manufacturer_data_ids.insert(manufacturer_data_pair.first);
+  }
+  return manufacturer_data_ids;
+}
+
+const std::vector<uint8_t>* BluetoothDevice::GetManufacturerDataForID(
+    const ManufacturerId manufacturerID) const {
+  auto it = manufacturer_data_.find(manufacturerID);
+  if (it != manufacturer_data_.end()) {
+    return &it->second;
+  }
+  return nullptr;
+}
+
 base::Optional<int8_t> BluetoothDevice::GetInquiryRSSI() const {
   return inquiry_rssi_;
 }
 
 base::Optional<int8_t> BluetoothDevice::GetInquiryTxPower() const {
   return inquiry_tx_power_;
+}
+
+base::Optional<uint8_t> BluetoothDevice::GetAdvertisingDataFlags() const {
+  return advertising_data_flags_;
 }
 
 void BluetoothDevice::CreateGattConnection(
@@ -344,13 +376,16 @@ std::vector<BluetoothRemoteGattService*> BluetoothDevice::GetGattServices()
     const {
   std::vector<BluetoothRemoteGattService*> services;
   for (const auto& iter : gatt_services_)
-    services.push_back(iter.second);
+    services.push_back(iter.second.get());
   return services;
 }
 
 BluetoothRemoteGattService* BluetoothDevice::GetGattService(
     const std::string& identifier) const {
-  return gatt_services_.get(identifier);
+  auto it = gatt_services_.find(identifier);
+  if (it == gatt_services_.end())
+    return nullptr;
+  return it->second.get();
 }
 
 // static
@@ -416,6 +451,68 @@ void BluetoothDevice::ClearAdvertisementData() {
   GetAdapter()->NotifyDeviceChanged(this);
 }
 
+std::vector<BluetoothRemoteGattService*> BluetoothDevice::GetPrimaryServices() {
+  std::vector<BluetoothRemoteGattService*> services;
+  VLOG(2) << "Looking for services.";
+  for (BluetoothRemoteGattService* service : GetGattServices()) {
+    VLOG(2) << "Service in cache: " << service->GetUUID().canonical_value();
+    if (service->IsPrimary()) {
+      services.push_back(service);
+    }
+  }
+  return services;
+}
+
+std::vector<BluetoothRemoteGattService*>
+BluetoothDevice::GetPrimaryServicesByUUID(const BluetoothUUID& service_uuid) {
+  std::vector<BluetoothRemoteGattService*> services;
+  VLOG(2) << "Looking for service: " << service_uuid.canonical_value();
+  for (BluetoothRemoteGattService* service : GetGattServices()) {
+    VLOG(2) << "Service in cache: " << service->GetUUID().canonical_value();
+    if (service->GetUUID() == service_uuid && service->IsPrimary()) {
+      services.push_back(service);
+    }
+  }
+  return services;
+}
+
+std::vector<BluetoothRemoteGattCharacteristic*>
+BluetoothDevice::GetCharacteristicsByUUID(
+    const std::string& service_instance_id,
+    const BluetoothUUID& characteristic_uuid) {
+  std::vector<BluetoothRemoteGattCharacteristic*> characteristics;
+  VLOG(2) << "Looking for characteristic: "
+          << characteristic_uuid.canonical_value();
+  BluetoothRemoteGattService* service = GetGattService(service_instance_id);
+  if (service) {
+    for (BluetoothRemoteGattCharacteristic* characteristic :
+         service->GetCharacteristics()) {
+      VLOG(2) << "Characteristic in cache: "
+              << characteristic->GetUUID().canonical_value();
+      if (characteristic->GetUUID() == characteristic_uuid) {
+        characteristics.push_back(characteristic);
+      }
+    }
+  }
+  return characteristics;
+}
+
+std::vector<device::BluetoothRemoteGattDescriptor*>
+BluetoothDevice::GetDescriptorsByUUID(
+    device::BluetoothRemoteGattCharacteristic* characteristic,
+    const BluetoothUUID& descriptor_uuid) {
+  std::vector<device::BluetoothRemoteGattDescriptor*> descriptors;
+  DVLOG(1) << "Looking for descriptor: " << descriptor_uuid.canonical_value();
+  for (auto* descriptor : characteristic->GetDescriptors()) {
+    DVLOG(1) << "Descriptor in cache: "
+             << descriptor->GetUUID().canonical_value();
+    if (descriptor->GetUUID() == descriptor_uuid) {
+      descriptors.push_back(descriptor);
+    }
+  }
+  return descriptors;
+}
+
 void BluetoothDevice::DidConnectGatt() {
   for (const auto& callback : create_gatt_connection_success_callbacks_) {
     callback.Run(
@@ -437,7 +534,11 @@ void BluetoothDevice::DidFailToConnectGatt(ConnectErrorCode error) {
   create_gatt_connection_error_callbacks_.clear();
 }
 
-void BluetoothDevice::DidDisconnectGatt() {
+void BluetoothDevice::DidDisconnectGatt(bool notifyDeviceChanged) {
+  gatt_services_.clear();
+  device_uuids_.ClearServiceUUIDs();
+  SetGattServicesDiscoveryComplete(false);
+
   // Pending calls to connect GATT are not expected, if they were then
   // DidFailToConnectGatt should have been called.
   DCHECK(create_gatt_connection_error_callbacks_.empty());
@@ -447,7 +548,8 @@ void BluetoothDevice::DidDisconnectGatt() {
     connection->InvalidateConnectionReference();
   }
   gatt_connections_.clear();
-  GetAdapter()->NotifyDeviceChanged(this);
+  if (notifyDeviceChanged)
+    GetAdapter()->NotifyDeviceChanged(this);
 }
 
 void BluetoothDevice::AddGattConnection(BluetoothGattConnection* connection) {

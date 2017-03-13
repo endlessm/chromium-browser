@@ -30,7 +30,15 @@ bool DefaultUserFlow::CanLockScreen() {
   return true;
 }
 
+bool DefaultUserFlow::CanStartArc() {
+  return true;
+}
+
 bool DefaultUserFlow::ShouldShowSettings() {
+  return true;
+}
+
+bool DefaultUserFlow::ShouldShowNotificationTray() {
   return true;
 }
 
@@ -73,6 +81,10 @@ void ExtendedUserFlow::AppendAdditionalCommandLineSwitches() {
 }
 
 bool ExtendedUserFlow::ShouldShowSettings() {
+  return true;
+}
+
+bool ExtendedUserFlow::ShouldShowNotificationTray() {
   return true;
 }
 

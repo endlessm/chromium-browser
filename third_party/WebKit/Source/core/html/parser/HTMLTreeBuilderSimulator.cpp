@@ -92,10 +92,18 @@ static bool tokenExitsMath(const CompactHTMLToken& token) {
          threadSafeMatch(tagName, MathMLNames::mtextTag);
 }
 
+static bool tokenExitsInSelect(const CompactHTMLToken& token) {
+  // https://html.spec.whatwg.org/#parsing-main-inselect
+  const String& tagName = token.data();
+  return threadSafeMatch(tagName, inputTag) ||
+         threadSafeMatch(tagName, keygenTag) ||
+         threadSafeMatch(tagName, textareaTag);
+}
+
 HTMLTreeBuilderSimulator::HTMLTreeBuilderSimulator(
     const HTMLParserOptions& options)
-    : m_options(options) {
-  m_namespaceStack.append(HTML);
+    : m_options(options), m_inSelectInsertionMode(false) {
+  m_namespaceStack.push_back(HTML);
 }
 
 HTMLTreeBuilderSimulator::State HTMLTreeBuilderSimulator::stateFor(
@@ -111,8 +119,8 @@ HTMLTreeBuilderSimulator::State HTMLTreeBuilderSimulator::stateFor(
     else if (record->namespaceURI() == MathMLNames::mathmlNamespaceURI)
       currentNamespace = MathML;
 
-    if (namespaceStack.isEmpty() || namespaceStack.last() != currentNamespace)
-      namespaceStack.append(currentNamespace);
+    if (namespaceStack.isEmpty() || namespaceStack.back() != currentNamespace)
+      namespaceStack.push_back(currentNamespace);
   }
   namespaceStack.reverse();
   return namespaceStack;
@@ -126,53 +134,76 @@ HTMLTreeBuilderSimulator::SimulatedToken HTMLTreeBuilderSimulator::simulate(
   if (token.type() == HTMLToken::StartTag) {
     const String& tagName = token.data();
     if (threadSafeMatch(tagName, SVGNames::svgTag))
-      m_namespaceStack.append(SVG);
+      m_namespaceStack.push_back(SVG);
     if (threadSafeMatch(tagName, MathMLNames::mathTag))
-      m_namespaceStack.append(MathML);
+      m_namespaceStack.push_back(MathML);
     if (inForeignContent() && tokenExitsForeignContent(token))
-      m_namespaceStack.removeLast();
-    if ((m_namespaceStack.last() == SVG && tokenExitsSVG(token)) ||
-        (m_namespaceStack.last() == MathML && tokenExitsMath(token)))
-      m_namespaceStack.append(HTML);
+      m_namespaceStack.pop_back();
+    if ((m_namespaceStack.back() == SVG && tokenExitsSVG(token)) ||
+        (m_namespaceStack.back() == MathML && tokenExitsMath(token)))
+      m_namespaceStack.push_back(HTML);
     if (!inForeignContent()) {
       // FIXME: This is just a copy of Tokenizer::updateStateFor which uses
       // threadSafeMatches.
       if (threadSafeMatch(tagName, textareaTag) ||
           threadSafeMatch(tagName, titleTag)) {
         tokenizer->setState(HTMLTokenizer::RCDATAState);
-      } else if (threadSafeMatch(tagName, plaintextTag)) {
-        tokenizer->setState(HTMLTokenizer::PLAINTEXTState);
       } else if (threadSafeMatch(tagName, scriptTag)) {
         tokenizer->setState(HTMLTokenizer::ScriptDataState);
         simulatedToken = ScriptStart;
-      } else if (threadSafeMatch(tagName, styleTag) ||
-                 threadSafeMatch(tagName, iframeTag) ||
-                 threadSafeMatch(tagName, xmpTag) ||
-                 (threadSafeMatch(tagName, noembedTag) &&
-                  m_options.pluginsEnabled) ||
-                 threadSafeMatch(tagName, noframesTag) ||
-                 (threadSafeMatch(tagName, noscriptTag) &&
-                  m_options.scriptEnabled)) {
-        tokenizer->setState(HTMLTokenizer::RAWTEXTState);
+      } else if (!m_inSelectInsertionMode) {
+        // If we're in the "in select" insertion mode, all of these tags are
+        // ignored, so we shouldn't change the tokenizer state:
+        // https://html.spec.whatwg.org/#parsing-main-inselect
+        if (threadSafeMatch(tagName, plaintextTag) &&
+            !m_inSelectInsertionMode) {
+          tokenizer->setState(HTMLTokenizer::PLAINTEXTState);
+        } else if (threadSafeMatch(tagName, styleTag) ||
+                   threadSafeMatch(tagName, iframeTag) ||
+                   threadSafeMatch(tagName, xmpTag) ||
+                   (threadSafeMatch(tagName, noembedTag) &&
+                    m_options.pluginsEnabled) ||
+                   threadSafeMatch(tagName, noframesTag) ||
+                   (threadSafeMatch(tagName, noscriptTag) &&
+                    m_options.scriptEnabled)) {
+          tokenizer->setState(HTMLTokenizer::RAWTEXTState);
+        }
+      }
+
+      // We need to track whether we're in the "in select" insertion mode
+      // in order to determine whether '<plaintext>' will put the tokenizer
+      // into PLAINTEXTState, and whether '<xmp>' and others will consume
+      // textual content.
+      //
+      // https://html.spec.whatwg.org/#parsing-main-inselect
+      if (threadSafeMatch(tagName, selectTag)) {
+        m_inSelectInsertionMode = true;
+      } else if (m_inSelectInsertionMode && tokenExitsInSelect(token)) {
+        m_inSelectInsertionMode = false;
       }
     }
   }
 
-  if (token.type() == HTMLToken::EndTag) {
+  if (token.type() == HTMLToken::EndTag ||
+      (token.type() == HTMLToken::StartTag && token.selfClosing() &&
+       inForeignContent())) {
     const String& tagName = token.data();
-    if ((m_namespaceStack.last() == SVG &&
+    if ((m_namespaceStack.back() == SVG &&
          threadSafeMatch(tagName, SVGNames::svgTag)) ||
-        (m_namespaceStack.last() == MathML &&
+        (m_namespaceStack.back() == MathML &&
          threadSafeMatch(tagName, MathMLNames::mathTag)) ||
-        (m_namespaceStack.contains(SVG) && m_namespaceStack.last() == HTML &&
+        (m_namespaceStack.contains(SVG) && m_namespaceStack.back() == HTML &&
          tokenExitsSVG(token)) ||
-        (m_namespaceStack.contains(MathML) && m_namespaceStack.last() == HTML &&
-         tokenExitsMath(token)))
-      m_namespaceStack.removeLast();
+        (m_namespaceStack.contains(MathML) && m_namespaceStack.back() == HTML &&
+         tokenExitsMath(token))) {
+      m_namespaceStack.pop_back();
+    }
     if (threadSafeMatch(tagName, scriptTag)) {
       if (!inForeignContent())
         tokenizer->setState(HTMLTokenizer::DataState);
       return ScriptEnd;
+    } else if (threadSafeMatch(tagName, selectTag)) {
+      m_inSelectInsertionMode = false;
     }
   }
 

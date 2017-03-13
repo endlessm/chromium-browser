@@ -5,6 +5,7 @@
 #include "content/renderer/media/gpu/rtc_video_encoder_factory.h"
 
 #include "base/command_line.h"
+#include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/feature_h264_with_openh264_ffmpeg.h"
 #include "content/renderer/media/gpu/rtc_video_encoder.h"
@@ -29,22 +30,22 @@ void VEAToWebRTCCodecs(
   const base::CommandLine* cmd_line = base::CommandLine::ForCurrentProcess();
   if (profile.profile >= media::VP8PROFILE_MIN &&
       profile.profile <= media::VP8PROFILE_MAX) {
-    codecs->push_back(cricket::WebRtcVideoEncoderFactory::VideoCodec(
-        webrtc::kVideoCodecVP8, "VP8", width, height, fps));
+    if (!cmd_line->HasSwitch(switches::kDisableWebRtcHWVP8Encoding)) {
+      codecs->push_back(cricket::WebRtcVideoEncoderFactory::VideoCodec(
+          webrtc::kVideoCodecVP8, "VP8", width, height, fps));
+    }
   } else if (profile.profile >= media::H264PROFILE_MIN &&
              profile.profile <= media::H264PROFILE_MAX) {
     // Enable H264 HW encode for WebRTC when SW fallback is available, which is
     // checked by kWebRtcH264WithOpenH264FFmpeg flag. This check should be
     // removed when SW implementation is fully enabled.
-    // kEnableWebRtcHWH264Encoding flag is only enabled for extensions, and
-    // can be used without SW fallback.
     bool webrtc_h264_sw_enabled = false;
 #if BUILDFLAG(RTC_USE_H264) && !defined(MEDIA_DISABLE_FFMPEG)
     webrtc_h264_sw_enabled =
         base::FeatureList::IsEnabled(kWebRtcH264WithOpenH264FFmpeg);
 #endif  // BUILDFLAG(RTC_USE_H264) && !defined(MEDIA_DISABLE_FFMPEG)
-    if (cmd_line->HasSwitch(switches::kEnableWebRtcHWH264Encoding) ||
-        webrtc_h264_sw_enabled) {
+    if (webrtc_h264_sw_enabled ||
+        base::FeatureList::IsEnabled(features::kWebRtcHWH264Encoding)) {
       codecs->push_back(cricket::WebRtcVideoEncoderFactory::VideoCodec(
           webrtc::kVideoCodecH264, "H264", width, height, fps));
     }

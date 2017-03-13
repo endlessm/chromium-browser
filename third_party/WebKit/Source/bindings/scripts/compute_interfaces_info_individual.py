@@ -220,13 +220,12 @@ class InterfaceInfoCollector(object):
         self.union_types.update(this_union_types)
         self.typedefs.update(definitions.typedefs)
         for callback_function_name, callback_function in definitions.callback_functions.iteritems():
-            if 'ExperimentalCallbackFunction' in callback_function.extended_attributes:
-                # Set 'component_dir' to specify a directory that callback function files belong to
-                self.callback_functions[callback_function_name] = {
-                    'callback_function': callback_function,
-                    'component_dir': idl_filename_to_component(idl_filename),
-                    'full_path': os.path.realpath(idl_filename),
-                }
+            # Set 'component_dir' to specify a directory that callback function files belong to
+            self.callback_functions[callback_function_name] = {
+                'callback_function': callback_function,
+                'component_dir': idl_filename_to_component(idl_filename),
+                'full_path': os.path.realpath(idl_filename),
+            }
         # Check enum duplication.
         for enum_name in definitions.enumerations.keys():
             for defined_enum in self.enumerations:
@@ -270,7 +269,7 @@ class InterfaceInfoCollector(object):
         extended_attributes = definition.extended_attributes
         implemented_as = extended_attributes.get('ImplementedAs')
         full_path = os.path.realpath(idl_filename)
-        this_include_path = None if 'NoImplHeader' in extended_attributes else include_path(idl_filename, implemented_as)
+        this_include_path = include_path(idl_filename, implemented_as)
         if definition.is_partial:
             # We don't create interface_info for partial interfaces, but
             # adds paths to another dict.

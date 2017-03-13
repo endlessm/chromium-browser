@@ -4,6 +4,7 @@
 
 #include "net/spdy/buffered_spdy_framer.h"
 
+#include <algorithm>
 #include <utility>
 
 #include "base/logging.h"
@@ -16,14 +17,10 @@ namespace {
 // GOAWAY frame debug data is only buffered up to this many bytes.
 size_t kGoAwayDebugDataMaxSize = 1024;
 
-// Initial and maximum sizes for header block buffer.
-size_t kHeaderBufferInitialSize = 8 * 1024;
-size_t kHeaderBufferMaxSize = 256 * 1024;
-
 }  // namespace
 
 BufferedSpdyFramer::BufferedSpdyFramer()
-    : spdy_framer_(HTTP2),
+    : spdy_framer_(SpdyFramer::ENABLE_COMPRESSION),
       visitor_(NULL),
       header_buffer_valid_(false),
       header_stream_id_(SpdyFramer::kInvalidStream),
@@ -48,14 +45,6 @@ void BufferedSpdyFramer::OnError(SpdyFramer* spdy_framer) {
   visitor_->OnError(spdy_framer->error_code());
 }
 
-void BufferedSpdyFramer::OnSynStream(SpdyStreamId stream_id,
-                                     SpdyStreamId associated_stream_id,
-                                     SpdyPriority priority,
-                                     bool fin,
-                                     bool unidirectional) {
-  NOTREACHED();
-}
-
 void BufferedSpdyFramer::OnHeaders(SpdyStreamId stream_id,
                                    bool has_priority,
                                    int weight,
@@ -77,76 +66,6 @@ void BufferedSpdyFramer::OnHeaders(SpdyStreamId stream_id,
   control_frame_fields_->fin = fin;
 
   InitHeaderStreaming(stream_id);
-}
-
-void BufferedSpdyFramer::OnSynReply(SpdyStreamId stream_id,
-                                    bool fin) {
-  NOTREACHED();
-}
-
-bool BufferedSpdyFramer::OnControlFrameHeaderData(SpdyStreamId stream_id,
-                                                  const char* header_data,
-                                                  size_t len) {
-  CHECK_EQ(header_stream_id_, stream_id);
-
-  if (len == 0) {
-    // Indicates end-of-header-block.
-    CHECK(header_buffer_valid_);
-
-    SpdyHeaderBlock headers;
-    if (!spdy_framer_.ParseHeaderBlockInBuffer(
-            header_buffer_.data(), header_buffer_.size(), &headers)) {
-      visitor_->OnStreamError(
-          stream_id, "Could not parse Spdy Control Frame Header.");
-      return false;
-    }
-    DCHECK(control_frame_fields_.get());
-    switch (control_frame_fields_->type) {
-      case SYN_STREAM:
-        NOTREACHED();
-        break;
-      case SYN_REPLY:
-        NOTREACHED();
-        break;
-      case HEADERS:
-        visitor_->OnHeaders(control_frame_fields_->stream_id,
-                            control_frame_fields_->has_priority,
-                            control_frame_fields_->weight,
-                            control_frame_fields_->parent_stream_id,
-                            control_frame_fields_->exclusive,
-                            control_frame_fields_->fin, std::move(headers));
-        break;
-      case PUSH_PROMISE:
-        visitor_->OnPushPromise(control_frame_fields_->stream_id,
-                                control_frame_fields_->promised_stream_id,
-                                std::move(headers));
-        break;
-      default:
-        DCHECK(false) << "Unexpect control frame type: "
-                      << control_frame_fields_->type;
-        break;
-    }
-    control_frame_fields_.reset(NULL);
-    return true;
-  }
-
-  const size_t new_size = header_buffer_.size() + len;
-  if (new_size > kHeaderBufferMaxSize) {
-    header_buffer_valid_ = false;
-    visitor_->OnStreamError(stream_id, "Received too much header data.");
-    return false;
-  }
-
-  if (new_size > header_buffer_.capacity()) {
-    // Grow |header_buffer_| exponentially to reduce memory allocations and
-    // copies.
-    size_t new_capacity = std::max(new_size, kHeaderBufferInitialSize);
-    new_capacity = std::max(new_capacity, 2 * header_buffer_.capacity());
-    new_capacity = std::min(new_capacity, kHeaderBufferMaxSize);
-    header_buffer_.reserve(new_capacity);
-  }
-  header_buffer_.append(header_data, len);
-  return true;
 }
 
 void BufferedSpdyFramer::OnDataFrameHeader(SpdyStreamId stream_id,
@@ -186,12 +105,6 @@ void BufferedSpdyFramer::OnHeaderFrameEnd(SpdyStreamId stream_id,
   }
   DCHECK(control_frame_fields_.get());
   switch (control_frame_fields_->type) {
-    case SYN_STREAM:
-      NOTREACHED();
-      break;
-    case SYN_REPLY:
-      NOTREACHED();
-      break;
     case HEADERS:
       visitor_->OnHeaders(
           control_frame_fields_->stream_id, control_frame_fields_->has_priority,
@@ -214,13 +127,11 @@ void BufferedSpdyFramer::OnHeaderFrameEnd(SpdyStreamId stream_id,
 }
 
 void BufferedSpdyFramer::OnSettings(bool clear_persisted) {
-  visitor_->OnSettings(clear_persisted);
+  visitor_->OnSettings();
 }
 
-void BufferedSpdyFramer::OnSetting(SpdySettingsIds id,
-                                   uint8_t flags,
-                                   uint32_t value) {
-  visitor_->OnSetting(id, flags, value);
+void BufferedSpdyFramer::OnSetting(SpdySettingsIds id, uint32_t value) {
+  visitor_->OnSetting(id, value);
 }
 
 void BufferedSpdyFramer::OnSettingsAck() {
@@ -338,14 +249,9 @@ SpdySerializedFrame* BufferedSpdyFramer::CreateRstStream(
 SpdySerializedFrame* BufferedSpdyFramer::CreateSettings(
     const SettingsMap& values) const {
   SpdySettingsIR settings_ir;
-  for (SettingsMap::const_iterator it = values.begin();
-       it != values.end();
+  for (SettingsMap::const_iterator it = values.begin(); it != values.end();
        ++it) {
-    settings_ir.AddSetting(
-        it->first,
-        (it->second.first & SETTINGS_FLAG_PLEASE_PERSIST) != 0,
-        (it->second.first & SETTINGS_FLAG_PERSISTED) != 0,
-        it->second.second);
+    settings_ir.AddSetting(it->first, it->second);
   }
   return new SpdySerializedFrame(spdy_framer_.SerializeSettings(settings_ir));
 }
@@ -411,6 +317,17 @@ SpdySerializedFrame* BufferedSpdyFramer::CreatePushPromise(
                                     std::move(headers));
   return new SpdySerializedFrame(
       spdy_framer_.SerializePushPromise(push_promise_ir));
+}
+
+// TODO(jgraettinger): Eliminate uses of this method (prefer
+// SpdyPriorityIR).
+SpdySerializedFrame* BufferedSpdyFramer::CreatePriority(
+    SpdyStreamId stream_id,
+    SpdyStreamId dependency_id,
+    int weight,
+    bool exclusive) const {
+  SpdyPriorityIR priority_ir(stream_id, dependency_id, weight, exclusive);
+  return new SpdySerializedFrame(spdy_framer_.SerializePriority(priority_ir));
 }
 
 SpdyPriority BufferedSpdyFramer::GetHighestPriority() const {

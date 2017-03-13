@@ -7,7 +7,7 @@
 from __future__ import print_function
 
 from chromite.cbuildbot import afdo
-from chromite.cbuildbot import constants
+from chromite.lib import constants
 from chromite.lib import alerts
 from chromite.lib import cros_logging as logging
 from chromite.lib import gs
@@ -32,6 +32,7 @@ class AFDODataGenerateStage(generic_stages.BoardSpecificBuilderStage,
       logging.warning('Board %s cannot generate its own AFDO profile.', board)
       return
 
+    afdo.InitGSUrls(board)
     arch = self._GetCurrentArch()
     buildroot = self._build_root
     gs_context = gs.GSContext()
@@ -89,6 +90,7 @@ class AFDOUpdateEbuildStage(generic_stages.BuilderStage):
     # If we don't have any boards, leave the called function to guess.
     board = self._boards[0] if self._boards else None
     arch_profiles = {}
+    afdo.InitGSUrls(board)
     for arch in afdo.AFDO_ARCH_GENERATORS:
       afdo_file = afdo.GetLatestAFDOFile(cpv, arch, buildroot, gs_context)
       if not afdo_file:

@@ -13,9 +13,10 @@ import sys
 
 from chromite.cbuildbot import cbuildbot_unittest
 from chromite.cbuildbot import commands
-from chromite.cbuildbot import constants
-from chromite.cbuildbot import failures_lib
+from chromite.lib import constants
+from chromite.lib import failures_lib
 from chromite.cbuildbot import prebuilts
+from chromite.lib import results_lib
 from chromite.cbuildbot.stages import artifact_stages
 from chromite.cbuildbot.stages import build_stages_unittest
 from chromite.cbuildbot.stages import generic_stages_unittest
@@ -298,7 +299,7 @@ class DebugSymbolsStageTest(generic_stages_unittest.AbstractStageTestCase,
 
     self.assertEqual(self.gen_mock.call_count, 1)
     self.assertEqual(self.upload_mock.call_count, 1)
-    self.assertEqual(self.tar_mock.call_count, 1)
+    self.assertEqual(self.tar_mock.call_count, 2)
 
     self.assertBoardAttrEqual('breakpad_symbols_generated', True)
     self.assertBoardAttrEqual('debug_tarball_generated', True)
@@ -315,7 +316,7 @@ class DebugSymbolsStageTest(generic_stages_unittest.AbstractStageTestCase,
 
     self.assertEqual(self.gen_mock.call_count, 1)
     self.assertEqual(self.upload_mock.call_count, 0)
-    self.assertEqual(self.tar_mock.call_count, 1)
+    self.assertEqual(self.tar_mock.call_count, 2)
 
     self.assertBoardAttrEqual('breakpad_symbols_generated', True)
     self.assertBoardAttrEqual('debug_tarball_generated', True)
@@ -341,7 +342,7 @@ class DebugSymbolsStageTest(generic_stages_unittest.AbstractStageTestCase,
     self.upload_mock.side_effect = \
         artifact_stages.DebugSymbolsUploadException('mew')
     result = self._TestPerformStage()
-    self.assertIsInstance(result[0], failures_lib.InfrastructureFailure)
+    self.assertIs(result[0], results_lib.Results.FORGIVEN)
 
     self.assertBoardAttrEqual('breakpad_symbols_generated', True)
     self.assertBoardAttrEqual('debug_tarball_generated', True)

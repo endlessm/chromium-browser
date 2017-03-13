@@ -117,7 +117,18 @@ class TestMachOImageAnnotationsReader final
                                    bool* destroy_complex_request) override {
     *destroy_complex_request = true;
 
-    EXPECT_EQ(ChildTask(), task);
+    // In 10.12, dyld fatal errors as tested by test_type_ = kCrashDyld are via
+    // abort_with_payload(). In 10.12.1, the task port delivered in an exception
+    // message for this termination type is a corpse, even when the exception is
+    // EXC_CRASH and not EXC_CORPSE_NOTIFY. The corpse task port (here, |task|)
+    // is distinct from the process’ original task port (ChildTask()). This is
+    // filed as https://openradar.appspot.com/29079442.
+    //
+    // Instead of comparing task ports, compare PIDs.
+    pid_t task_pid;
+    kern_return_t kr = pid_for_task(task, &task_pid);
+    EXPECT_EQ(KERN_SUCCESS, kr) << MachErrorMessage(kr, "pid_for_task");
+    EXPECT_EQ(ChildPID(), task_pid);
 
     ProcessReader process_reader;
     bool rv = process_reader.Initialize(task);
@@ -188,8 +199,8 @@ class TestMachOImageAnnotationsReader final
         for (const std::string& annotation : all_annotations_vector) {
           // Look for the expectation as a leading susbtring, because the actual
           // string that dyld uses will have the contents of the
-          // DYLD_INSERT_LIBRARIES environment variable appended to it on Mac
-          // OS X 10.10.
+          // DYLD_INSERT_LIBRARIES environment variable appended to it on OS X
+          // 10.10.
           if (annotation.substr(0, expected_annotation.length()) ==
                   expected_annotation) {
             found = true;
@@ -206,8 +217,8 @@ class TestMachOImageAnnotationsReader final
         bool found = false;
         for (const std::string& annotation : all_annotations_vector) {
           // Look for the expectation as a leading substring, because the actual
-          // string will contain the library’s pathname and, on Mac OS X 10.9
-          // and later, a reason.
+          // string will contain the library’s pathname and, on OS X 10.9 and
+          // later, a reason.
           if (annotation.substr(0, expected_annotation_length) ==
                   kExpectedAnnotation) {
             found = true;

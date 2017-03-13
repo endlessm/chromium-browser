@@ -55,15 +55,15 @@ static const char* ja = "ja";
 
 class FontMgrGM : public skiagm::GM {
 public:
-    FontMgrGM(SkFontMgr* fontMgr = nullptr) {
+    FontMgrGM(sk_sp<SkFontMgr> fontMgr = nullptr) {
         SkGraphics::SetFontCacheLimit(16 * 1024 * 1024);
 
         fName.set("fontmgr_iter");
         if (fontMgr) {
             fName.append("_factory");
-            fFM.reset(fontMgr);
+            fFM = std::move(fontMgr);
         } else {
-            fFM.reset(SkFontMgr::RefDefault());
+            fFM = SkFontMgr::RefDefault();
         }
         fName.append(sk_tool_utils::platform_os_name());
         fName.append(sk_tool_utils::platform_extra_config("GDI"));
@@ -86,7 +86,7 @@ protected:
         paint.setSubpixelText(true);
         paint.setTextSize(17);
 
-        SkFontMgr* fm = fFM;
+        SkFontMgr* fm = fFM.get();
         int count = SkMin32(fm->countFamilies(), MAX_FAMILIES);
 
         for (int i = 0; i < count; ++i) {
@@ -97,7 +97,7 @@ protected:
 
             SkScalar x = 220;
 
-            SkAutoTUnref<SkFontStyleSet> set(fm->createStyleSet(i));
+            sk_sp<SkFontStyleSet> set(fm->createStyleSet(i));
             for (int j = 0; j < set->count(); ++j) {
                 SkString sname;
                 SkFontStyle fs;
@@ -118,13 +118,13 @@ protected:
     }
 
 private:
-    SkAutoTUnref<SkFontMgr> fFM;
+    sk_sp<SkFontMgr> fFM;
     SkString fName;
     typedef GM INHERITED;
 };
 
 class FontMgrMatchGM : public skiagm::GM {
-    SkAutoTUnref<SkFontMgr> fFM;
+    sk_sp<SkFontMgr> fFM;
 
 public:
     FontMgrMatchGM() : fFM(SkFontMgr::RefDefault()) {
@@ -192,7 +192,7 @@ protected:
             "Helvetica Neue", "Arial"
         };
 
-        SkAutoTUnref<SkFontStyleSet> fset;
+        sk_sp<SkFontStyleSet> fset;
         for (size_t i = 0; i < SK_ARRAY_COUNT(gNames); ++i) {
             fset.reset(fFM->matchFamily(gNames[i]));
             if (fset->count() > 0) {
@@ -204,9 +204,9 @@ protected:
         }
 
         canvas->translate(20, 40);
-        this->exploreFamily(canvas, paint, fset);
+        this->exploreFamily(canvas, paint, fset.get());
         canvas->translate(150, 0);
-        this->iterateFamily(canvas, paint, fset);
+        this->iterateFamily(canvas, paint, fset.get());
     }
 
 private:
@@ -225,7 +225,7 @@ public:
         }
         fName.append(sk_tool_utils::platform_os_name());
         fName.append(sk_tool_utils::platform_extra_config("GDI"));
-        fFM.reset(SkFontMgr::RefDefault());
+        fFM = SkFontMgr::RefDefault();
     }
 
     static void show_bounds(SkCanvas* canvas, const SkPaint& paint, SkScalar x, SkScalar y,
@@ -263,7 +263,7 @@ protected:
 
         const SkColor boundsColors[2] = { SK_ColorRED, SK_ColorBLUE };
 
-        SkFontMgr* fm = fFM;
+        SkFontMgr* fm = fFM.get();
         int count = SkMin32(fm->countFamilies(), 32);
 
         int index = 0;
@@ -272,7 +272,7 @@ protected:
         canvas->translate(80, 120);
 
         for (int i = 0; i < count; ++i) {
-            SkAutoTUnref<SkFontStyleSet> set(fm->createStyleSet(i));
+            sk_sp<SkFontStyleSet> set(fm->createStyleSet(i));
             for (int j = 0; j < set->count(); ++j) {
                 paint.setTypeface(sk_sp<SkTypeface>(set->createTypeface(j)));
                 if (paint.getTypeface()) {
@@ -292,7 +292,7 @@ protected:
     }
 
 private:
-    SkAutoTUnref<SkFontMgr> fFM;
+    sk_sp<SkFontMgr> fFM;
     SkString fName;
     SkScalar fScaleX, fSkewX;
     typedef GM INHERITED;

@@ -6,7 +6,6 @@
 
 #include "base/trace_event/trace_event_argument.h"
 #include "cc/proto/base_conversions.h"
-#include "cc/proto/begin_main_frame_and_commit_state.pb.h"
 
 namespace cc {
 
@@ -25,64 +24,37 @@ const char* BeginFrameArgs::TypeToString(BeginFrameArgsType type) {
   return "???";
 }
 
-void BeginFrameArgs::BeginFrameArgsTypeToProtobuf(
-    proto::BeginFrameArgs* proto) const {
-  switch (type) {
-    case BeginFrameArgs::INVALID:
-      proto->set_type(proto::BeginFrameArgs::INVALID);
-      return;
-    case BeginFrameArgs::NORMAL:
-      proto->set_type(proto::BeginFrameArgs::NORMAL);
-      return;
-    case BeginFrameArgs::MISSED:
-      proto->set_type(proto::BeginFrameArgs::MISSED);
-      return;
-    case BeginFrameArgs::BEGIN_FRAME_ARGS_TYPE_MAX:
-      proto->set_type(proto::BeginFrameArgs::BEGIN_FRAME_ARGS_TYPE_MAX);
-      return;
-  }
-  NOTREACHED();
-}
-
-void BeginFrameArgs::BeginFrameArgsTypeFromProtobuf(
-    const proto::BeginFrameArgs& proto) {
-  switch (proto.type()) {
-    case proto::BeginFrameArgs::INVALID:
-      type = BeginFrameArgs::INVALID;
-      return;
-    case proto::BeginFrameArgs::NORMAL:
-      type = BeginFrameArgs::NORMAL;
-      return;
-    case proto::BeginFrameArgs::MISSED:
-      type = BeginFrameArgs::MISSED;
-      return;
-    case proto::BeginFrameArgs::BEGIN_FRAME_ARGS_TYPE_MAX:
-      type = BeginFrameArgs::BEGIN_FRAME_ARGS_TYPE_MAX;
-      return;
-  }
-  NOTREACHED();
-}
+constexpr uint64_t BeginFrameArgs::kInvalidFrameNumber;
+constexpr uint64_t BeginFrameArgs::kStartingFrameNumber;
 
 BeginFrameArgs::BeginFrameArgs()
     : frame_time(base::TimeTicks()),
       deadline(base::TimeTicks()),
       interval(base::TimeDelta::FromMicroseconds(-1)),
+      sequence_number(kInvalidFrameNumber),
+      source_id(0),
       type(BeginFrameArgs::INVALID),
-      on_critical_path(true) {
-}
+      on_critical_path(true) {}
 
-BeginFrameArgs::BeginFrameArgs(base::TimeTicks frame_time,
+BeginFrameArgs::BeginFrameArgs(uint32_t source_id,
+                               uint64_t sequence_number,
+                               base::TimeTicks frame_time,
                                base::TimeTicks deadline,
                                base::TimeDelta interval,
                                BeginFrameArgs::BeginFrameArgsType type)
     : frame_time(frame_time),
       deadline(deadline),
       interval(interval),
+      sequence_number(sequence_number),
+      source_id(source_id),
       type(type),
       on_critical_path(true) {
+  DCHECK_LT(kInvalidFrameNumber, sequence_number);
 }
 
 BeginFrameArgs BeginFrameArgs::Create(BeginFrameArgs::CreationLocation location,
+                                      uint32_t source_id,
+                                      uint64_t sequence_number,
                                       base::TimeTicks frame_time,
                                       base::TimeTicks deadline,
                                       base::TimeDelta interval,
@@ -90,9 +62,11 @@ BeginFrameArgs BeginFrameArgs::Create(BeginFrameArgs::CreationLocation location,
   DCHECK_NE(type, BeginFrameArgs::INVALID);
   DCHECK_NE(type, BeginFrameArgs::BEGIN_FRAME_ARGS_TYPE_MAX);
 #ifdef NDEBUG
-  return BeginFrameArgs(frame_time, deadline, interval, type);
+  return BeginFrameArgs(source_id, sequence_number, frame_time, deadline,
+                        interval, type);
 #else
-  BeginFrameArgs args = BeginFrameArgs(frame_time, deadline, interval, type);
+  BeginFrameArgs args = BeginFrameArgs(source_id, sequence_number, frame_time,
+                                       deadline, interval, type);
   args.created_from = location;
   return args;
 #endif
@@ -109,6 +83,8 @@ BeginFrameArgs::AsValue() const {
 void BeginFrameArgs::AsValueInto(base::trace_event::TracedValue* state) const {
   state->SetString("type", "BeginFrameArgs");
   state->SetString("subtype", TypeToString(type));
+  state->SetInteger("source_id", source_id);
+  state->SetInteger("sequence_number", sequence_number);
   state->SetDouble("frame_time_us", frame_time.ToInternalValue());
   state->SetDouble("deadline_us", deadline.ToInternalValue());
   state->SetDouble("interval_us", interval.InMicroseconds());
@@ -116,22 +92,6 @@ void BeginFrameArgs::AsValueInto(base::trace_event::TracedValue* state) const {
   state->SetString("created_from", created_from.ToString());
 #endif
   state->SetBoolean("on_critical_path", on_critical_path);
-}
-
-void BeginFrameArgs::ToProtobuf(proto::BeginFrameArgs* proto) const {
-  proto->set_frame_time(TimeTicksToProto(frame_time));
-  proto->set_deadline(TimeTicksToProto(deadline));
-  proto->set_interval(interval.ToInternalValue());
-  BeginFrameArgsTypeToProtobuf(proto);
-  proto->set_on_critical_path(on_critical_path);
-}
-
-void BeginFrameArgs::FromProtobuf(const proto::BeginFrameArgs& proto) {
-  frame_time = ProtoToTimeTicks(proto.frame_time());
-  deadline = ProtoToTimeTicks(proto.deadline());
-  interval = base::TimeDelta::FromInternalValue(proto.interval());
-  BeginFrameArgsTypeFromProtobuf(proto);
-  on_critical_path = proto.on_critical_path();
 }
 
 // This is a hard-coded deadline adjustment that assumes 60Hz, to be used in
@@ -146,6 +106,26 @@ base::TimeDelta BeginFrameArgs::DefaultEstimatedParentDrawTime() {
 
 base::TimeDelta BeginFrameArgs::DefaultInterval() {
   return base::TimeDelta::FromMicroseconds(16666);
+}
+
+BeginFrameAck::BeginFrameAck()
+    : sequence_number(BeginFrameArgs::kInvalidFrameNumber),
+      latest_confirmed_sequence_number(BeginFrameArgs::kInvalidFrameNumber),
+      source_id(0),
+      remaining_frames(0),
+      has_damage(false) {}
+
+BeginFrameAck::BeginFrameAck(uint32_t source_id,
+                             uint64_t sequence_number,
+                             uint64_t latest_confirmed_sequence_number,
+                             uint32_t remaining_frames,
+                             bool has_damage)
+    : sequence_number(sequence_number),
+      latest_confirmed_sequence_number(latest_confirmed_sequence_number),
+      source_id(source_id),
+      remaining_frames(remaining_frames),
+      has_damage(has_damage) {
+  DCHECK_LT(BeginFrameArgs::kInvalidFrameNumber, sequence_number);
 }
 
 }  // namespace cc

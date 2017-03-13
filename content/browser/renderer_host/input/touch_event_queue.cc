@@ -8,11 +8,12 @@
 
 #include "base/auto_reset.h"
 #include "base/macros.h"
+#include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/stl_util.h"
 #include "base/trace_event/trace_event.h"
 #include "content/browser/renderer_host/input/timeout_monitor.h"
 #include "content/common/input/web_touch_event_traits.h"
+#include "ui/events/base_event_utils.h"
 #include "ui/gfx/geometry/point_f.h"
 
 using blink::WebInputEvent;
@@ -37,14 +38,13 @@ TouchEventWithLatencyInfo ObtainCancelEventForTouchEvent(
   WebTouchEventTraits::ResetTypeAndTouchStates(
       WebInputEvent::TouchCancel,
       // TODO(rbyers): Shouldn't we use a fresh timestamp?
-      event.event.timeStampSeconds,
-      &event.event);
+      event.event.timeStampSeconds(), &event.event);
   return event;
 }
 
 bool ShouldTouchTriggerTimeout(const WebTouchEvent& event) {
-  return (event.type == WebInputEvent::TouchStart ||
-          event.type == WebInputEvent::TouchMove) &&
+  return (event.type() == WebInputEvent::TouchStart ||
+          event.type() == WebInputEvent::TouchMove) &&
          event.dispatchType == WebInputEvent::Blocking;
 }
 
@@ -261,7 +261,6 @@ class TouchEventQueue::TouchTimeoutHandler {
     return pending_ack_state_ != PENDING_ACK_NONE;
   }
 
-
   TouchEventQueue* touch_queue_;
 
   // How long to wait on a touch ack before cancelling the touch sequence.
@@ -298,11 +297,11 @@ class TouchEventQueue::TouchMoveSlopSuppressor {
       touch_start_location_ = gfx::PointF(event.touches[0].position);
     }
 
-    if (event.type == WebInputEvent::TouchEnd ||
-        event.type == WebInputEvent::TouchCancel)
+    if (event.type() == WebInputEvent::TouchEnd ||
+        event.type() == WebInputEvent::TouchCancel)
       suppressing_touchmoves_ = false;
 
-    if (event.type != WebInputEvent::TouchMove)
+    if (event.type() != WebInputEvent::TouchMove)
       return false;
 
     if (suppressing_touchmoves_) {
@@ -451,8 +450,6 @@ TouchEventQueue::TouchEventQueue(TouchEventQueueClient* client,
 }
 
 TouchEventQueue::~TouchEventQueue() {
-  if (!touch_queue_.empty())
-    base::STLDeleteElements(&touch_queue_);
 }
 
 void TouchEventQueue::QueueEvent(const TouchEventWithLatencyInfo& event) {
@@ -475,7 +472,8 @@ void TouchEventQueue::QueueEvent(const TouchEventWithLatencyInfo& event) {
 
     // There is no touch event in the queue. Forward it to the renderer
     // immediately.
-    touch_queue_.push_back(new CoalescedWebTouchEvent(event, false));
+    touch_queue_.push_back(
+        base::MakeUnique<CoalescedWebTouchEvent>(event, false));
     ForwardNextEventToRenderer();
     return;
   }
@@ -483,11 +481,12 @@ void TouchEventQueue::QueueEvent(const TouchEventWithLatencyInfo& event) {
   // If the last queued touch-event was a touch-move, and the current event is
   // also a touch-move, then the events can be coalesced into a single event.
   if (touch_queue_.size() > 1) {
-    CoalescedWebTouchEvent* last_event = touch_queue_.back();
+    CoalescedWebTouchEvent* last_event = touch_queue_.back().get();
     if (last_event->CoalesceEventIfPossible(event))
       return;
   }
-  touch_queue_.push_back(new CoalescedWebTouchEvent(event, false));
+  touch_queue_.push_back(
+      base::MakeUnique<CoalescedWebTouchEvent>(event, false));
 }
 
 void TouchEventQueue::PrependTouchScrollNotification() {
@@ -505,15 +504,15 @@ void TouchEventQueue::PrependTouchScrollNotification() {
   // non-empty queue to keep those tests as-is w/o exposing internals of this
   // class all the way up.
   if (!touch_queue_.empty()) {
-    TouchEventWithLatencyInfo touch;
-    touch.event.type = WebInputEvent::TouchScrollStarted;
-    touch.event.uniqueTouchEventId = 0;
-    touch.event.touchesLength = 0;
+    TouchEventWithLatencyInfo touch(
+        WebInputEvent::TouchScrollStarted, WebInputEvent::NoModifiers,
+        ui::EventTimeStampToSeconds(ui::EventTimeForNow()), LatencyInfo());
     touch.event.dispatchType = WebInputEvent::EventNonBlocking;
 
     auto it = touch_queue_.begin();
     DCHECK(it != touch_queue_.end());
-    touch_queue_.insert(++it, new CoalescedWebTouchEvent(touch, false));
+    touch_queue_.insert(++it,
+                        base::MakeUnique<CoalescedWebTouchEvent>(touch, false));
   }
 }
 
@@ -532,7 +531,7 @@ void TouchEventQueue::ProcessTouchAck(InputEventAckState ack_result,
       DCHECK(touch_queue_.empty());
 
       // Dispatch the next pending async touch move when time expires.
-      if (pending_async_touchmove_->event.timeStampSeconds >=
+      if (pending_async_touchmove_->event.timeStampSeconds() >=
           last_sent_touch_timestamp_sec_ + kAsyncTouchMoveIntervalSec) {
         FlushPendingAsyncTouchmove();
       }
@@ -595,7 +594,7 @@ void TouchEventQueue::ForwardNextEventToRenderer() {
   TouchEventWithLatencyInfo touch = touch_queue_.front()->coalesced_event();
 
   if (send_touch_events_async_ &&
-      touch.event.type == WebInputEvent::TouchMove) {
+      touch.event.type() == WebInputEvent::TouchMove) {
     // Throttling touchmove's in a continuous touchmove stream while scrolling
     // reduces the risk of jank. However, it's still important that the web
     // application be sent touches at key points in the gesture stream,
@@ -606,7 +605,7 @@ void TouchEventQueue::ForwardNextEventToRenderer() {
                           !pending_async_touchmove_->CanCoalesceWith(touch);
     send_touchmove_now |=
         ack_pending_async_touchmove_ids_.empty() &&
-        (touch.event.timeStampSeconds >=
+        (touch.event.timeStampSeconds() >=
          last_sent_touch_timestamp_sec_ + kAsyncTouchMoveIntervalSec);
 
     if (!send_touchmove_now) {
@@ -627,7 +626,7 @@ void TouchEventQueue::ForwardNextEventToRenderer() {
     }
   }
 
-  last_sent_touch_timestamp_sec_ = touch.event.timeStampSeconds;
+  last_sent_touch_timestamp_sec_ = touch.event.timeStampSeconds();
 
   // Flush any pending async touch move. If it can be combined with the current
   // (touchmove) event, great, otherwise send it immediately but separately. Its
@@ -649,7 +648,8 @@ void TouchEventQueue::ForwardNextEventToRenderer() {
   // Note: Touchstart events are marked cancelable to allow transitions between
   // platform scrolling and JS pinching. Touchend events, however, remain
   // uncancelable, mitigating the risk of jank when transitioning to a fling.
-  if (send_touch_events_async_ && touch.event.type != WebInputEvent::TouchStart)
+  if (send_touch_events_async_ &&
+      touch.event.type() != WebInputEvent::TouchStart)
     touch.event.dispatchType = WebInputEvent::EventNonBlocking;
 
   SendTouchEventImmediately(&touch);
@@ -660,13 +660,14 @@ void TouchEventQueue::FlushPendingAsyncTouchmove() {
   std::unique_ptr<TouchEventWithLatencyInfo> touch =
       std::move(pending_async_touchmove_);
   touch->event.dispatchType = WebInputEvent::EventNonBlocking;
-  touch_queue_.push_front(new CoalescedWebTouchEvent(*touch, true));
+  touch_queue_.push_front(
+      base::MakeUnique<CoalescedWebTouchEvent>(*touch, true));
   SendTouchEventImmediately(touch.get());
 }
 
 void TouchEventQueue::OnGestureScrollEvent(
     const GestureEventWithLatencyInfo& gesture_event) {
-  if (gesture_event.event.type == blink::WebInputEvent::GestureScrollBegin) {
+  if (gesture_event.event.type() == blink::WebInputEvent::GestureScrollBegin) {
     if (has_handler_for_current_sequence_ &&
         !drop_remaining_touches_in_sequence_) {
       DCHECK(!touchmove_slop_suppressor_->suppressing_touchmoves())
@@ -678,7 +679,7 @@ void TouchEventQueue::OnGestureScrollEvent(
     return;
   }
 
-  if (gesture_event.event.type == blink::WebInputEvent::GestureScrollUpdate &&
+  if (gesture_event.event.type() == blink::WebInputEvent::GestureScrollUpdate &&
       gesture_event.event.resendingPluginId == -1) {
     send_touch_events_async_ = true;
   }
@@ -694,7 +695,7 @@ void TouchEventQueue::OnGestureEventAck(
   // A valid |pending_async_touchmove_| will be flushed when the next event is
   // forwarded. Scroll updates that are being resent from a GuestView are
   // ignored.
-  if (event.event.type == blink::WebInputEvent::GestureScrollUpdate &&
+  if (event.event.type() == blink::WebInputEvent::GestureScrollUpdate &&
       event.event.resendingPluginId == -1) {
     send_touch_events_async_ = (ack_result == INPUT_EVENT_ACK_STATE_CONSUMED);
   }
@@ -713,7 +714,7 @@ bool TouchEventQueue::IsPendingAckTouchStart() const {
 
   const blink::WebTouchEvent& event =
       touch_queue_.front()->coalesced_event().event;
-  return (event.type == WebInputEvent::TouchStart);
+  return (event.type() == WebInputEvent::TouchStart);
 }
 
 void TouchEventQueue::SetAckTimeoutEnabled(bool enabled) {
@@ -770,7 +771,8 @@ void TouchEventQueue::AckTouchEventToClient(
     NOTREACHED() << "Too many acks";
     return;
   }
-  std::unique_ptr<CoalescedWebTouchEvent> acked_event(touch_queue_.front());
+  std::unique_ptr<CoalescedWebTouchEvent> acked_event =
+      std::move(touch_queue_.front());
   DCHECK(acked_event);
 
   UpdateTouchConsumerStates(acked_event->coalesced_event().event, ack_result);
@@ -780,7 +782,7 @@ void TouchEventQueue::AckTouchEventToClient(
   base::AutoReset<bool> dispatching_touch_ack(&dispatching_touch_ack_, true);
 
   // Skip ack for TouchScrollStarted since it was synthesized within the queue.
-  if (acked_event->coalesced_event().event.type !=
+  if (acked_event->coalesced_event().event.type() !=
       WebInputEvent::TouchScrollStarted) {
     acked_event->DispatchAckToClient(ack_result, optional_latency_info,
                                      client_);
@@ -795,14 +797,14 @@ void TouchEventQueue::SendTouchEventImmediately(
   if (dispatching_touch_)
     return;
 
-  if (touch->event.type == WebInputEvent::TouchStart)
+  if (touch->event.type() == WebInputEvent::TouchStart)
     touch->event.touchStartOrFirstTouchMove = true;
 
   // For touchmove events, compare touch points position from current event
   // to last sent event and update touch points state.
-  if (touch->event.type == WebInputEvent::TouchMove) {
+  if (touch->event.type() == WebInputEvent::TouchMove) {
     CHECK(last_sent_touchevent_);
-    if (last_sent_touchevent_->type == WebInputEvent::TouchStart)
+    if (last_sent_touchevent_->type() == WebInputEvent::TouchStart)
       touch->event.touchStartOrFirstTouchMove = true;
     for (unsigned int i = 0; i < last_sent_touchevent_->touchesLength; ++i) {
       const WebTouchPoint& last_touch_point =
@@ -821,7 +823,7 @@ void TouchEventQueue::SendTouchEventImmediately(
     }
   }
 
-  if (touch->event.type != WebInputEvent::TouchScrollStarted) {
+  if (touch->event.type() != WebInputEvent::TouchScrollStarted) {
     if (last_sent_touchevent_)
       *last_sent_touchevent_ = touch->event;
     else
@@ -835,7 +837,7 @@ void TouchEventQueue::SendTouchEventImmediately(
   // A synchronous ack will reset |dispatching_touch_|, in which case the touch
   // timeout should not be started and the count also should not be increased.
   if (dispatching_touch_) {
-    if (touch->event.type == WebInputEvent::TouchMove &&
+    if (touch->event.type() == WebInputEvent::TouchMove &&
         touch->event.dispatchType != WebInputEvent::Blocking) {
       // When we send out a uncancelable touch move, we increase the count and
       // we do not process input event ack any more, we will just ack to client
@@ -856,7 +858,7 @@ void TouchEventQueue::SendTouchEventImmediately(
 
 TouchEventQueue::PreFilterResult
 TouchEventQueue::FilterBeforeForwarding(const WebTouchEvent& event) {
-  if (event.type == WebInputEvent::TouchScrollStarted)
+  if (event.type() == WebInputEvent::TouchScrollStarted)
     return FORWARD_TO_RENDERER;
 
   if (WebTouchEventTraits::IsTouchSequenceStart(event)) {
@@ -880,11 +882,11 @@ TouchEventQueue::FilterBeforeForwarding(const WebTouchEvent& event) {
     return ACK_WITH_NOT_CONSUMED;
 
   if (drop_remaining_touches_in_sequence_ &&
-      event.type != WebInputEvent::TouchCancel) {
+      event.type() != WebInputEvent::TouchCancel) {
     return ACK_WITH_NO_CONSUMER_EXISTS;
   }
 
-  if (event.type == WebInputEvent::TouchStart) {
+  if (event.type() == WebInputEvent::TouchStart) {
     return (has_handlers_ || has_handler_for_current_sequence_)
                ? FORWARD_TO_RENDERER
                : ACK_WITH_NO_CONSUMER_EXISTS;
@@ -907,7 +909,7 @@ TouchEventQueue::FilterBeforeForwarding(const WebTouchEvent& event) {
         if (point.id != last_sent_touchevent_->touches[j].id)
           continue;
 
-        if (event.type != WebInputEvent::TouchMove)
+        if (event.type() != WebInputEvent::TouchMove)
           return FORWARD_TO_RENDERER;
 
         // All pointers in TouchMove events may have state as StateMoved,
@@ -930,7 +932,7 @@ TouchEventQueue::FilterBeforeForwarding(const WebTouchEvent& event) {
 
 void TouchEventQueue::UpdateTouchConsumerStates(const WebTouchEvent& event,
                                                 InputEventAckState ack_result) {
-  if (event.type == WebInputEvent::TouchStart) {
+  if (event.type() == WebInputEvent::TouchStart) {
     if (ack_result == INPUT_EVENT_ACK_STATE_CONSUMED)
       send_touch_events_async_ = false;
     has_handler_for_current_sequence_ |=

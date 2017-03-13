@@ -26,12 +26,10 @@ class SyncEntity;
 namespace syncer {
 
 class ServerConnectionManager;
-class SyncCycleContext;
 struct SyncProtocolError;
 
 namespace syncable {
 class Directory;
-class Entry;
 }
 
 // Returns the types to migrate from the data in |response|.
@@ -134,6 +132,7 @@ class SyncerProtoUtil {
   static base::TimeDelta GetThrottleDelay(
       const sync_pb::ClientToServerResponse& response);
 
+  friend class LoopbackServerTest;
   friend class SyncerProtoUtilTest;
   FRIEND_TEST_ALL_PREFIXES(SyncerProtoUtilTest, AddRequestBirthday);
   FRIEND_TEST_ALL_PREFIXES(SyncerProtoUtilTest, PostAndProcessHeaders);

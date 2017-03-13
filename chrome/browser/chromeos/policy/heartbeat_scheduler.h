@@ -30,7 +30,6 @@ class GCMDriver;
 
 namespace policy {
 
-class InstallAttributes;
 class HeartbeatRegistrationHelper;
 
 // Class responsible for periodically sending heartbeats to the policy service
@@ -58,6 +57,7 @@ class HeartbeatScheduler : public gcm::GCMAppHandler,
 
   // GCMAppHandler overrides.
   void ShutdownHandler() override;
+  void OnStoreReset() override;
   void OnMessage(const std::string& app_id,
                  const gcm::IncomingMessage& message) override;
   void OnMessagesDeleted(const std::string& app_id) override;

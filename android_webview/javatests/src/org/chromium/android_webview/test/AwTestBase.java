@@ -10,6 +10,7 @@ import android.app.Instrumentation;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.os.Build;
+import android.util.AndroidRuntimeException;
 import android.util.Log;
 
 import org.chromium.android_webview.AwBrowserContext;
@@ -22,12 +23,12 @@ import org.chromium.android_webview.test.util.GraphicsTestUtils;
 import org.chromium.android_webview.test.util.JSUtils;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.BaseActivityInstrumentationTestCase;
+import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.InMemorySharedPreferences;
 import org.chromium.base.test.util.MinAndroidSdkLevel;
 import org.chromium.base.test.util.parameter.Parameter;
 import org.chromium.base.test.util.parameter.ParameterizedTest;
-import org.chromium.content.browser.test.util.CallbackHelper;
 import org.chromium.content.browser.test.util.Criteria;
 import org.chromium.content.browser.test.util.CriteriaHelper;
 import org.chromium.content.browser.test.util.TestCallbackHelperContainer.OnPageFinishedHelper;
@@ -41,6 +42,8 @@ import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * A base class for android_webview tests. WebView only runs on KitKat and later,
@@ -70,6 +73,7 @@ public class AwTestBase
     public static final long WAIT_TIMEOUT_MS = scaleTimeout(15000);
     public static final int CHECK_INTERVAL = 100;
     private static final String TAG = "AwTestBase";
+    private static final Pattern MAYBE_QUOTED_STRING = Pattern.compile("^(\"?)(.*)\\1$");
 
     // The browser context needs to be a process-wide singleton.
     private AwBrowserContext mBrowserContext;
@@ -80,8 +84,9 @@ public class AwTestBase
 
     @Override
     protected void setUp() throws Exception {
-        Context appContext = getInstrumentation().getTargetContext().getApplicationContext();
-        mBrowserContext = new AwBrowserContext(new InMemorySharedPreferences(), appContext);
+        if (needsAwBrowserContextCreated()) {
+            createAwBrowserContext();
+        }
 
         super.setUp();
         if (needsBrowserProcessStarted()) {
@@ -89,8 +94,23 @@ public class AwTestBase
         }
     }
 
+    protected void createAwBrowserContext() {
+        if (mBrowserContext != null) {
+            throw new AndroidRuntimeException("There should only be one browser context.");
+        }
+        getActivity(); // The Activity must be launched in order to load native code
+        final InMemorySharedPreferences prefs = new InMemorySharedPreferences();
+        final Context appContext = getInstrumentation().getTargetContext().getApplicationContext();
+        getInstrumentation().runOnMainSync(new Runnable() {
+            @Override
+            public void run() {
+                mBrowserContext = new AwBrowserContext(prefs, appContext);
+            }
+        });
+    }
+
     protected void startBrowserProcess() throws Exception {
-        // The activity must be launched in order for proper webview statics to be setup.
+        // The Activity must be launched in order for proper webview statics to be setup.
         getActivity();
         getInstrumentation().runOnMainSync(new Runnable() {
             @Override
@@ -98,6 +118,14 @@ public class AwTestBase
                 AwBrowserProcess.start();
             }
         });
+    }
+
+    /**
+     * Override this to return false if the test doesn't want to create an AwBrowserContext
+     * automatically.
+     */
+    protected boolean needsAwBrowserContextCreated() {
+        return true;
     }
 
     /**
@@ -483,6 +511,17 @@ public class AwTestBase
                 return awContents.getSettings();
             }
         });
+    }
+
+    /**
+     * Verify double quotes in both sides of the raw string. Strip the double quotes and
+     * returns rest of the string.
+     */
+    protected String maybeStripDoubleQuotes(String raw) {
+        assertNotNull(raw);
+        Matcher m = MAYBE_QUOTED_STRING.matcher(raw);
+        assertTrue(m.matches());
+        return m.group(2);
     }
 
     /**

@@ -44,6 +44,7 @@ FrameCaptionButton::FrameCaptionButton(views::ButtonListener* listener,
       use_light_images_(false),
       alpha_(255),
       swap_images_animation_(new gfx::SlideAnimation(this)) {
+  set_animate_on_state_change(true);
   swap_images_animation_->Reset(1);
 
   // Do not flip the gfx::Canvas passed to the OnPaint() method. The snap left
@@ -55,9 +56,10 @@ FrameCaptionButton::~FrameCaptionButton() {}
 
 void FrameCaptionButton::SetImage(CaptionButtonIcon icon,
                                   Animate animate,
-                                  gfx::VectorIconId icon_image_id) {
+                                  const gfx::VectorIcon& icon_definition) {
   gfx::ImageSkia new_icon_image = gfx::CreateVectorIcon(
-      icon_image_id, use_light_images_ ? SK_ColorWHITE : gfx::kChromeIconGrey);
+      icon_definition,
+      use_light_images_ ? SK_ColorWHITE : gfx::kChromeIconGrey);
 
   // The early return is dependent on |animate| because callers use SetImage()
   // with ANIMATE_NO to progress the crossfade animation to the end.
@@ -71,7 +73,7 @@ void FrameCaptionButton::SetImage(CaptionButtonIcon icon,
     crossfade_icon_image_ = icon_image_;
 
   icon_ = icon;
-  icon_image_id_ = icon_image_id;
+  icon_definition_ = &icon_definition;
   icon_image_ = new_icon_image;
 
   if (animate == ANIMATE_YES) {
@@ -130,7 +132,7 @@ void FrameCaptionButton::OnPaint(gfx::Canvas* canvas) {
     icon_canvas.DrawImageInt(icon_image_, 0, 0, paint);
 
     paint.setAlpha(crossfade_icon_alpha);
-    paint.setXfermodeMode(SkXfermode::kPlus_Mode);
+    paint.setBlendMode(SkBlendMode::kPlus);
     icon_canvas.DrawImageInt(crossfade_icon_image_, 0, 0, paint);
 
     PaintCentered(canvas, gfx::ImageSkia(icon_canvas.ExtractImageRep()),

@@ -29,6 +29,7 @@
 #include "webrtc/base/helpers.h"
 #include "webrtc/base/logging.h"
 #include "webrtc/base/physicalsocketserver.h"
+#include "webrtc/base/socketadapters.h"
 #include "webrtc/base/socketaddress.h"
 #include "webrtc/base/ssladapter.h"
 #include "webrtc/base/thread.h"
@@ -79,6 +80,8 @@ static const cricket::ProtocolAddress kTurnUdpProtoAddr(
     kTurnUdpIntAddr, cricket::PROTO_UDP);
 static const cricket::ProtocolAddress kTurnTcpProtoAddr(
     kTurnTcpIntAddr, cricket::PROTO_TCP);
+static const cricket::ProtocolAddress kTurnTlsProtoAddr(kTurnTcpIntAddr,
+                                                        cricket::PROTO_TLS);
 static const cricket::ProtocolAddress kTurnUdpIPv6ProtoAddr(
     kTurnUdpIPv6IntAddr, cricket::PROTO_UDP);
 
@@ -331,7 +334,8 @@ class TurnPortTest : public testing::Test,
   }
 
   bool CheckConnectionFailedAndPruned(Connection* conn) {
-    return conn && !conn->active() && conn->state() == Connection::STATE_FAILED;
+    return conn && !conn->active() &&
+           conn->state() == IceCandidatePairState::FAILED;
   }
 
   // Checks that |turn_port_| has a nonempty set of connections and they are all
@@ -439,6 +443,59 @@ class TurnPortTest : public testing::Test,
         (protocol_type == PROTO_TCP ? kSimulatedRtt * 4 : kSimulatedRtt * 3),
         fake_clock_);
     ASSERT_EQ(0U, turn_port_->Candidates().size());
+  }
+
+  // A certain security exploit works by redirecting to a loopback address,
+  // which doesn't ever actually make sense. So redirects to loopback should
+  // be treated as errors.
+  // See: https://bugs.chromium.org/p/chromium/issues/detail?id=649118
+  void TestTurnAlternateServerLoopback(ProtocolType protocol_type, bool ipv6) {
+    const SocketAddress& local_address = ipv6 ? kLocalIPv6Addr : kLocalAddr1;
+    const SocketAddress& server_address =
+        ipv6 ? kTurnIPv6IntAddr : kTurnIntAddr;
+
+    std::vector<rtc::SocketAddress> redirect_addresses;
+    // Pick an unusual address in the 127.0.0.0/8 range to make sure more than
+    // 127.0.0.1 is covered.
+    SocketAddress loopback_address(ipv6 ? "::1" : "127.1.2.3",
+                                   TURN_SERVER_PORT);
+    redirect_addresses.push_back(loopback_address);
+
+    // Make a socket and bind it to the local port, to make extra sure no
+    // packet is sent to this address.
+    std::unique_ptr<rtc::Socket> loopback_socket(ss_->CreateSocket(
+        protocol_type == PROTO_UDP ? SOCK_DGRAM : SOCK_STREAM));
+    ASSERT_NE(nullptr, loopback_socket.get());
+    ASSERT_EQ(0, loopback_socket->Bind(loopback_address));
+    if (protocol_type == PROTO_TCP) {
+      ASSERT_EQ(0, loopback_socket->Listen(1));
+    }
+
+    TestTurnRedirector redirector(redirect_addresses);
+
+    turn_server_.AddInternalSocket(server_address, protocol_type);
+    turn_server_.set_redirect_hook(&redirector);
+    CreateTurnPort(local_address, kTurnUsername, kTurnPassword,
+                   ProtocolAddress(server_address, protocol_type));
+
+    turn_port_->PrepareAddress();
+    EXPECT_TRUE_SIMULATED_WAIT(
+        turn_error_,
+        (protocol_type == PROTO_TCP ? kSimulatedRtt * 3 : kSimulatedRtt * 2),
+        fake_clock_);
+
+    // Wait for some extra time, and make sure no packets were received on the
+    // loopback port we created (or in the case of TCP, no connection attempt
+    // occurred).
+    SIMULATED_WAIT(false, kSimulatedRtt, fake_clock_);
+    if (protocol_type == PROTO_UDP) {
+      char buf[1];
+      EXPECT_EQ(-1, loopback_socket->Recv(&buf, 1, nullptr));
+    } else {
+      std::unique_ptr<rtc::Socket> accepted_socket(
+          loopback_socket->Accept(nullptr));
+      EXPECT_EQ(nullptr, accepted_socket.get());
+    }
   }
 
   void TestTurnConnection(ProtocolType protocol_type) {
@@ -917,6 +974,23 @@ TEST_F(TurnPortTest, TestTurnAlternateServerDetectRepetitionTCP) {
   TestTurnAlternateServerDetectRepetition(PROTO_TCP);
 }
 
+// Test catching the case of a redirect to loopback.
+TEST_F(TurnPortTest, TestTurnAlternateServerLoopbackUdpIpv4) {
+  TestTurnAlternateServerLoopback(PROTO_UDP, false);
+}
+
+TEST_F(TurnPortTest, TestTurnAlternateServerLoopbackUdpIpv6) {
+  TestTurnAlternateServerLoopback(PROTO_UDP, true);
+}
+
+TEST_F(TurnPortTest, TestTurnAlternateServerLoopbackTcpIpv4) {
+  TestTurnAlternateServerLoopback(PROTO_TCP, false);
+}
+
+TEST_F(TurnPortTest, TestTurnAlternateServerLoopbackTcpIpv6) {
+  TestTurnAlternateServerLoopback(PROTO_TCP, true);
+}
+
 // Do a TURN allocation and try to send a packet to it from the outside.
 // The packet should be dropped. Then, try to send a packet from TURN to the
 // outside. It should reach its destination. Finally, try again from the
@@ -956,8 +1030,8 @@ TEST_F(TurnPortTest, TestDestroyTurnConnectionUsingSharedSocket) {
 // Test that we fail to create a connection when we want to use TLS over TCP.
 // This test should be removed once we have TLS support.
 TEST_F(TurnPortTest, TestTurnTlsTcpConnectionFails) {
-  ProtocolAddress secure_addr(kTurnTcpProtoAddr.address,
-                              kTurnTcpProtoAddr.proto, true);
+  ProtocolAddress secure_addr(kTurnTlsProtoAddr.address,
+                              kTurnTlsProtoAddr.proto);
   CreateTurnPort(kTurnUsername, kTurnPassword, secure_addr);
   turn_port_->PrepareAddress();
   EXPECT_TRUE_SIMULATED_WAIT(turn_error_, kSimulatedRtt * 2, fake_clock_);

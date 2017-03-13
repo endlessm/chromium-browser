@@ -10,10 +10,10 @@
 #include "base/trace_event/trace_event.h"
 #include "cc/output/context_cache_controller.h"
 #include "cc/output/managed_memory_policy.h"
-#include "gpu/command_buffer/client/gl_in_process_context.h"
 #include "gpu/command_buffer/client/gles2_implementation.h"
 #include "gpu/command_buffer/client/gles2_lib.h"
 #include "gpu/command_buffer/client/shared_memory_limits.h"
+#include "gpu/ipc/gl_in_process_context.h"
 #include "gpu/skia_bindings/gl_bindings_skia_cmd_buffer.h"
 #include "third_party/skia/include/gpu/GrContext.h"
 #include "third_party/skia/include/gpu/gl/GrGLInterface.h"
@@ -62,7 +62,7 @@ AwRenderThreadContextProvider::AwRenderThreadContextProvider(
   limits.min_transfer_buffer_size = 64 * 1024;
 
   context_.reset(gpu::GLInProcessContext::Create(
-      service, surface, surface->IsOffscreen(), gfx::kNullAcceleratedWidget,
+      service, surface, surface->IsOffscreen(), gpu::kNullSurfaceHandle,
       nullptr /* share_context */, attributes, limits, nullptr, nullptr,
       nullptr));
 

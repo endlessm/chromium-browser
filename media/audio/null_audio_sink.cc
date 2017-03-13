@@ -76,7 +76,7 @@ bool NullAudioSink::SetVolume(double volume) {
 }
 
 OutputDeviceInfo NullAudioSink::GetOutputDeviceInfo() {
-  return OutputDeviceInfo();
+  return OutputDeviceInfo(OUTPUT_DEVICE_STATUS_OK);
 }
 
 bool NullAudioSink::CurrentThreadIsRenderingThread() {
@@ -92,7 +92,8 @@ void NullAudioSink::SwitchOutputDevice(const std::string& device_id,
 void NullAudioSink::CallRender() {
   DCHECK(task_runner_->BelongsToCurrentThread());
 
-  int frames_received = callback_->Render(audio_bus_.get(), 0, 0);
+  int frames_received = callback_->Render(
+      base::TimeDelta(), base::TimeTicks::Now(), 0, audio_bus_.get());
   if (!audio_hash_ || frames_received <= 0)
     return;
 

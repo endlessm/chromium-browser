@@ -4,8 +4,6 @@
 
 """The datastore model for alerts when data is no longer received for a test."""
 
-import logging
-
 from google.appengine.ext import ndb
 
 from dashboard.common import utils
@@ -34,6 +32,9 @@ class StoppageAlert(alert.Alert):
   # Whether new points have been received for the test after this alert.
   recovered = ndb.BooleanProperty(indexed=True, default=False)
 
+  # The time the last row added was seen.
+  last_row_timestamp = ndb.DateTimeProperty()
+
   # Computed properties are treated like member variables, so they have
   # lowercase names, even though they look like methods to pylint.
   # pylint: disable=invalid-name
@@ -58,14 +59,6 @@ class StoppageAlert(alert.Alert):
   @ndb.ComputedProperty
   def end_revision(self):
     return self.revision
-
-  @ndb.ComputedProperty
-  def last_row_date(self):
-    row = self.row.get()
-    if not row:
-      logging.warning('No Row with key %s', self.row)
-      return None
-    return row.timestamp
 
 
 def GetStoppageAlert(test_path, revision):
@@ -98,7 +91,8 @@ def CreateStoppageAlert(test, row):
       parent=ndb.Key('StoppageAlertParent', test.test_path),
       id=row.revision,
       internal_only=test.internal_only,
-      sheriff=test.sheriff)
+      sheriff=test.sheriff,
+      last_row_timestamp=row.timestamp)
   alert_group.GroupAlerts([new_alert], test.suite_name, 'StoppageAlert')
   grouped_alert_keys = StoppageAlert.query(
       StoppageAlert.group == new_alert.group).fetch(keys_only=True)

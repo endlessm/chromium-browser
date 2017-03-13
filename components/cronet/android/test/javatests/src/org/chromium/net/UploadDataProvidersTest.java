@@ -7,7 +7,7 @@ package org.chromium.net;
 import android.os.ConditionVariable;
 import android.os.ParcelFileDescriptor;
 import android.os.StrictMode;
-import android.test.suitebuilder.annotation.SmallTest;
+import android.support.test.filters.SmallTest;
 
 import org.chromium.base.annotations.SuppressFBWarnings;
 import org.chromium.base.test.util.Feature;
@@ -25,6 +25,7 @@ public class UploadDataProvidersTest extends CronetTestBase {
     private CronetTestFramework mTestFramework;
     private File mFile;
     private StrictMode.VmPolicy mOldVmPolicy;
+    private MockUrlRequestJobFactory mMockUrlRequestJobFactory;
 
     @Override
     protected void setUp() throws Exception {
@@ -38,7 +39,7 @@ public class UploadDataProvidersTest extends CronetTestBase {
         mTestFramework = startCronetTestFramework();
         assertTrue(NativeTestServer.startNativeTestServer(getContext()));
         // Add url interceptors after native application context is initialized.
-        MockUrlRequestJobFactory.setUp();
+        mMockUrlRequestJobFactory = new MockUrlRequestJobFactory(mTestFramework.mCronetEngine);
         mFile = new File(getContext().getCacheDir().getPath() + "/tmpfile");
         FileOutputStream fileOutputStream = new FileOutputStream(mFile);
         try {
@@ -52,6 +53,7 @@ public class UploadDataProvidersTest extends CronetTestBase {
     @Override
     protected void tearDown() throws Exception {
         try {
+            mMockUrlRequestJobFactory.shutdown();
             NativeTestServer.shutdownNativeTestServer();
             mTestFramework.mCronetEngine.shutdown();
             assertTrue(mFile.delete());
@@ -72,9 +74,8 @@ public class UploadDataProvidersTest extends CronetTestBase {
     @Feature({"Cronet"})
     public void testFileProvider() throws Exception {
         TestUrlRequestCallback callback = new TestUrlRequestCallback();
-        UrlRequest.Builder builder =
-                new UrlRequest.Builder(NativeTestServer.getRedirectToEchoBody(), callback,
-                        callback.getExecutor(), mTestFramework.mCronetEngine);
+        UrlRequest.Builder builder = mTestFramework.mCronetEngine.newUrlRequestBuilder(
+                NativeTestServer.getRedirectToEchoBody(), callback, callback.getExecutor());
         UploadDataProvider dataProvider = UploadDataProviders.create(mFile);
         builder.setUploadDataProvider(dataProvider, callback.getExecutor());
         builder.addHeader("Content-Type", "useless/string");
@@ -91,9 +92,8 @@ public class UploadDataProvidersTest extends CronetTestBase {
                 ParcelFileDescriptor.open(mFile, ParcelFileDescriptor.MODE_READ_ONLY);
         assertTrue(descriptor.getFileDescriptor().valid());
         TestUrlRequestCallback callback = new TestUrlRequestCallback();
-        UrlRequest.Builder builder =
-                new UrlRequest.Builder(NativeTestServer.getRedirectToEchoBody(), callback,
-                        callback.getExecutor(), mTestFramework.mCronetEngine);
+        UrlRequest.Builder builder = mTestFramework.mCronetEngine.newUrlRequestBuilder(
+                NativeTestServer.getRedirectToEchoBody(), callback, callback.getExecutor());
         UploadDataProvider dataProvider = UploadDataProviders.create(descriptor);
         builder.setUploadDataProvider(dataProvider, callback.getExecutor());
         builder.addHeader("Content-Type", "useless/string");
@@ -107,9 +107,8 @@ public class UploadDataProvidersTest extends CronetTestBase {
     @Feature({"Cronet"})
     public void testBadFileDescriptorProvider() throws Exception {
         TestUrlRequestCallback callback = new TestUrlRequestCallback();
-        UrlRequest.Builder builder =
-                new UrlRequest.Builder(NativeTestServer.getRedirectToEchoBody(), callback,
-                        callback.getExecutor(), mTestFramework.mCronetEngine);
+        UrlRequest.Builder builder = mTestFramework.mCronetEngine.newUrlRequestBuilder(
+                NativeTestServer.getRedirectToEchoBody(), callback, callback.getExecutor());
         ParcelFileDescriptor[] pipe = ParcelFileDescriptor.createPipe();
         try {
             UploadDataProvider dataProvider = UploadDataProviders.create(pipe[0]);
@@ -128,9 +127,8 @@ public class UploadDataProvidersTest extends CronetTestBase {
     @Feature({"Cronet"})
     public void testBufferProvider() throws Exception {
         TestUrlRequestCallback callback = new TestUrlRequestCallback();
-        UrlRequest.Builder builder =
-                new UrlRequest.Builder(NativeTestServer.getRedirectToEchoBody(), callback,
-                        callback.getExecutor(), mTestFramework.mCronetEngine);
+        UrlRequest.Builder builder = mTestFramework.mCronetEngine.newUrlRequestBuilder(
+                NativeTestServer.getRedirectToEchoBody(), callback, callback.getExecutor());
         UploadDataProvider dataProvider = UploadDataProviders.create(LOREM.getBytes("UTF-8"));
         builder.setUploadDataProvider(dataProvider, callback.getExecutor());
         builder.addHeader("Content-Type", "useless/string");
@@ -145,8 +143,8 @@ public class UploadDataProvidersTest extends CronetTestBase {
     @Feature({"Cronet"})
     public void testNoErrorWhenCanceledDuringStart() throws Exception {
         TestUrlRequestCallback callback = new TestUrlRequestCallback();
-        UrlRequest.Builder builder = new UrlRequest.Builder(NativeTestServer.getEchoBodyURL(),
-                callback, callback.getExecutor(), mTestFramework.mCronetEngine);
+        UrlRequest.Builder builder = mTestFramework.mCronetEngine.newUrlRequestBuilder(
+                NativeTestServer.getEchoBodyURL(), callback, callback.getExecutor());
         final ConditionVariable first = new ConditionVariable();
         final ConditionVariable second = new ConditionVariable();
         builder.addHeader("Content-Type", "useless/string");
@@ -178,8 +176,8 @@ public class UploadDataProvidersTest extends CronetTestBase {
     @Feature({"Cronet"})
     public void testNoErrorWhenExceptionDuringStart() throws Exception {
         TestUrlRequestCallback callback = new TestUrlRequestCallback();
-        UrlRequest.Builder builder = new UrlRequest.Builder(NativeTestServer.getEchoBodyURL(),
-                callback, callback.getExecutor(), mTestFramework.mCronetEngine);
+        UrlRequest.Builder builder = mTestFramework.mCronetEngine.newUrlRequestBuilder(
+                NativeTestServer.getEchoBodyURL(), callback, callback.getExecutor());
         final ConditionVariable first = new ConditionVariable();
         final String exceptionMessage = "Bad Length";
         builder.addHeader("Content-Type", "useless/string");
@@ -202,9 +200,9 @@ public class UploadDataProvidersTest extends CronetTestBase {
         first.block();
         callback.blockForDone();
         assertFalse(callback.mOnCanceledCalled);
-        assertEquals(UrlRequestError.LISTENER_EXCEPTION_THROWN, callback.mError.getErrorCode());
-        assertEquals("Exception received from UploadDataProvider", callback.mError.getMessage());
-        assertEquals(exceptionMessage, callback.mError.getCause().getMessage());
+        assertTrue(callback.mError instanceof CallbackException);
+        assertContains("Exception received from UploadDataProvider", callback.mError.getMessage());
+        assertContains(exceptionMessage, callback.mError.getCause().getMessage());
     }
 
     @SmallTest
@@ -214,9 +212,8 @@ public class UploadDataProvidersTest extends CronetTestBase {
     public void testCreateByteBufferUploadWithArrayOffset() throws Exception {
         TestUrlRequestCallback callback = new TestUrlRequestCallback();
         // This URL will trigger a rewind().
-        UrlRequest.Builder builder =
-                new UrlRequest.Builder(NativeTestServer.getRedirectToEchoBody(), callback,
-                        callback.getExecutor(), mTestFramework.mCronetEngine);
+        UrlRequest.Builder builder = mTestFramework.mCronetEngine.newUrlRequestBuilder(
+                NativeTestServer.getRedirectToEchoBody(), callback, callback.getExecutor());
         builder.addHeader("Content-Type", "useless/string");
         byte[] uploadData = LOREM.getBytes("UTF-8");
         int offset = 5;

@@ -4,12 +4,17 @@
 
 #include "modules/encryptedmedia/NavigatorRequestMediaKeySystemAccess.h"
 
+#include <algorithm>
+
+#include "bindings/core/v8/ScriptPromise.h"
 #include "bindings/core/v8/ScriptPromiseResolver.h"
 #include "bindings/core/v8/ScriptState.h"
+#include "bindings/core/v8/V8ThrowException.h"
 #include "core/dom/DOMException.h"
 #include "core/dom/Document.h"
 #include "core/dom/ExceptionCode.h"
 #include "core/frame/Deprecation.h"
+#include "core/frame/Settings.h"
 #include "core/inspector/ConsoleMessage.h"
 #include "modules/encryptedmedia/EncryptedMediaUtils.h"
 #include "modules/encryptedmedia/MediaKeySession.h"
@@ -26,7 +31,6 @@
 #include "wtf/PtrUtil.h"
 #include "wtf/Vector.h"
 #include "wtf/text/WTFString.h"
-#include <algorithm>
 
 namespace blink {
 
@@ -102,9 +106,7 @@ class MediaKeySystemAccessInitializer final : public EncryptedMediaRequest {
       const override {
     return m_supportedConfigurations;
   }
-  SecurityOrigin* getSecurityOrigin() const override {
-    return m_resolver->getExecutionContext()->getSecurityOrigin();
-  }
+  SecurityOrigin* getSecurityOrigin() const override;
   void requestSucceeded(WebContentDecryptionModuleAccess*) override;
   void requestNotSupported(const WebString& errorMessage) override;
 
@@ -116,11 +118,12 @@ class MediaKeySystemAccessInitializer final : public EncryptedMediaRequest {
   }
 
  private:
+  // Returns true if the ExecutionContext is valid, false otherwise.
+  bool isExecutionContextValid() const;
+
   // For widevine key system, generate warning and report to UMA if
   // |m_supportedConfigurations| contains any video capability with empty
   // robustness string.
-  // TODO(xhwang): Remove after we handle empty robustness correctly.
-  // See http://crbug.com/482277
   void checkVideoCapabilityRobustness() const;
 
   // Generate deprecation warning and log UseCounter if configuration
@@ -192,20 +195,40 @@ MediaKeySystemAccessInitializer::MediaKeySystemAccessInitializer(
   checkVideoCapabilityRobustness();
 }
 
+SecurityOrigin* MediaKeySystemAccessInitializer::getSecurityOrigin() const {
+  return isExecutionContextValid()
+             ? m_resolver->getExecutionContext()->getSecurityOrigin()
+             : nullptr;
+}
+
 void MediaKeySystemAccessInitializer::requestSucceeded(
     WebContentDecryptionModuleAccess* access) {
   checkEmptyCodecs(access->getConfiguration());
   checkCapabilities(access->getConfiguration());
 
+  if (!isExecutionContextValid())
+    return;
+
   m_resolver->resolve(
-      new MediaKeySystemAccess(m_keySystem, wrapUnique(access)));
+      new MediaKeySystemAccess(m_keySystem, WTF::wrapUnique(access)));
   m_resolver.clear();
 }
 
 void MediaKeySystemAccessInitializer::requestNotSupported(
     const WebString& errorMessage) {
+  if (!isExecutionContextValid())
+    return;
+
   m_resolver->reject(DOMException::create(NotSupportedError, errorMessage));
   m_resolver.clear();
+}
+
+bool MediaKeySystemAccessInitializer::isExecutionContextValid() const {
+  // isContextDestroyed() is called to see if the context is in the
+  // process of being destroyed. If it is true, assume the context is no
+  // longer valid as it is about to be destroyed anyway.
+  ExecutionContext* context = m_resolver->getExecutionContext();
+  return context && !context->isContextDestroyed();
 }
 
 void MediaKeySystemAccessInitializer::checkVideoCapabilityRobustness() const {
@@ -241,9 +264,8 @@ void MediaKeySystemAccessInitializer::checkVideoCapabilityRobustness() const {
     m_resolver->getExecutionContext()->addConsoleMessage(ConsoleMessage::create(
         JSMessageSource, WarningMessageLevel,
         "It is recommended that a robustness level be specified. Not "
-        "specifying the robustness level could "
-        "result in unexpected behavior in the future, potentially including "
-        "failure to play."));
+        "specifying the robustness level could result in unexpected behavior, "
+        "potentially including failure to play."));
   }
 }
 
@@ -294,10 +316,9 @@ void MediaKeySystemAccessInitializer::checkCapabilities(
     UseCounter::count(m_resolver->getExecutionContext(),
                       UseCounter::EncryptedMediaCapabilityProvided);
   } else {
-    // TODO(jrummell): Switch to deprecation message once we understand
-    // current usage. http://crbug.com/616233.
-    UseCounter::count(m_resolver->getExecutionContext(),
-                      UseCounter::EncryptedMediaCapabilityNotProvided);
+    Deprecation::countDeprecation(
+        m_resolver->getExecutionContext(),
+        UseCounter::EncryptedMediaCapabilityNotProvided);
   }
 }
 
@@ -310,23 +331,43 @@ ScriptPromise NavigatorRequestMediaKeySystemAccess::requestMediaKeySystemAccess(
     const HeapVector<MediaKeySystemConfiguration>& supportedConfigurations) {
   DVLOG(3) << __func__;
 
+  ExecutionContext* executionContext = scriptState->getExecutionContext();
+  Document* document = toDocument(executionContext);
+
+  // From https://w3c.github.io/encrypted-media/#common-key-systems
+  // All user agents MUST support the common key systems described in this
+  // section.
+  // 9.1 Clear Key: The "org.w3.clearkey" Key System uses plain-text clear
+  //                (unencrypted) key(s) to decrypt the source.
+  //
+  // Do not check settings for Clear Key.
+  if (keySystem != "org.w3.clearkey") {
+    // For other key systems, check settings.
+    if (!document->settings() ||
+        !document->settings()->getEncryptedMediaEnabled()) {
+      return ScriptPromise::rejectWithDOMException(
+          scriptState,
+          DOMException::create(NotSupportedError, "Unsupported keySystem"));
+    }
+  }
+
   // From https://w3c.github.io/encrypted-media/#requestMediaKeySystemAccess
   // When this method is invoked, the user agent must run the following steps:
-  // 1. If keySystem is an empty string, return a promise rejected with a
-  //    new DOMException whose name is InvalidAccessError.
+  // 1. If keySystem is the empty string, return a promise rejected with a
+  //    newly created TypeError.
   if (keySystem.isEmpty()) {
-    return ScriptPromise::rejectWithDOMException(
-        scriptState, DOMException::create(InvalidAccessError,
+    return ScriptPromise::reject(
+        scriptState,
+        V8ThrowException::createTypeError(scriptState->isolate(),
                                           "The keySystem parameter is empty."));
   }
 
-  // 2. If supportedConfigurations was provided and is empty, return a
-  //    promise rejected with a new DOMException whose name is
-  //    InvalidAccessError.
+  // 2. If supportedConfigurations is empty, return a promise rejected with
+  //    a newly created TypeError.
   if (!supportedConfigurations.size()) {
-    return ScriptPromise::rejectWithDOMException(
-        scriptState, DOMException::create(
-                         InvalidAccessError,
+    return ScriptPromise::reject(
+        scriptState, V8ThrowException::createTypeError(
+                         scriptState->isolate(),
                          "The supportedConfigurations parameter is empty."));
   }
 
@@ -334,9 +375,7 @@ ScriptPromise NavigatorRequestMediaKeySystemAccess::requestMediaKeySystemAccess(
   // by the [SecureContext] IDL attribute. Since that will break some existing
   // sites, we simply keep track of sites that aren't secure and output a
   // deprecation message.
-  ExecutionContext* executionContext = scriptState->getExecutionContext();
-  String errorMessage;
-  if (executionContext->isSecureContext(errorMessage)) {
+  if (executionContext->isSecureContext()) {
     UseCounter::count(executionContext, UseCounter::EncryptedMediaSecureOrigin);
   } else {
     Deprecation::countDeprecation(executionContext,
@@ -346,7 +385,7 @@ ScriptPromise NavigatorRequestMediaKeySystemAccess::requestMediaKeySystemAccess(
   }
 
   // 3. Let document be the calling context's Document.
-  Document* document = toDocument(executionContext);
+  //    (Done at the begining of this function.)
   if (!document->page()) {
     return ScriptPromise::rejectWithDOMException(
         scriptState,

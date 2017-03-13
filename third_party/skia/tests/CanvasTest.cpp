@@ -173,13 +173,13 @@ class Canvas2CanvasClipVisitor : public SkCanvas::ClipVisitor {
 public:
     Canvas2CanvasClipVisitor(SkCanvas* target) : fTarget(target) {}
 
-    void clipRect(const SkRect& r, SkCanvas::ClipOp op, bool aa) override {
+    void clipRect(const SkRect& r, SkClipOp op, bool aa) override {
         fTarget->clipRect(r, op, aa);
     }
-    void clipRRect(const SkRRect& r, SkCanvas::ClipOp op, bool aa) override {
+    void clipRRect(const SkRRect& r, SkClipOp op, bool aa) override {
         fTarget->clipRRect(r, op, aa);
     }
-    void clipPath(const SkPath& p, SkCanvas::ClipOp op, bool aa) override {
+    void clipPath(const SkPath& p, SkClipOp op, bool aa) override {
         fTarget->clipPath(p, op, aa);
     }
 
@@ -188,6 +188,7 @@ private:
 };
 
 static void test_clipstack(skiatest::Reporter* reporter) {
+#ifdef SK_SUPPORT_LEGACY_CANVAS_GETCLIPSTACK
     // The clipstack is refcounted, and needs to be able to out-live the canvas if a client has
     // ref'd it.
     const SkClipStack* cs = nullptr;
@@ -197,6 +198,7 @@ static void test_clipstack(skiatest::Reporter* reporter) {
     }
     REPORTER_ASSERT(reporter, cs->unique());
     cs->unref();
+#endif
 }
 
 // Format strings that describe the test context.  The %s token is where
@@ -299,7 +301,7 @@ SIMPLE_TEST_STEP(Concat, concat(d.fMatrix));
 SIMPLE_TEST_STEP(SetMatrix, setMatrix(d.fMatrix));
 SIMPLE_TEST_STEP(ClipRect, clipRect(d.fRect));
 SIMPLE_TEST_STEP(ClipPath, clipPath(d.fPath));
-SIMPLE_TEST_STEP(ClipRegion, clipRegion(d.fRegion, SkCanvas::kReplace_Op));
+SIMPLE_TEST_STEP(ClipRegion, clipRegion(d.fRegion, kReplace_SkClipOp));
 SIMPLE_TEST_STEP(Clear, clear(d.fColor));
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -384,7 +386,7 @@ static void DrawVerticesShaderTestStep(SkCanvas* canvas, const TestData& d,
     paint.setShader(SkShader::MakeBitmapShader(d.fBitmap, SkShader::kClamp_TileMode,
                                                SkShader::kClamp_TileMode));
     canvas->drawVertices(SkCanvas::kTriangleFan_VertexMode, 4, pts, pts,
-                         nullptr, nullptr, nullptr, 0, paint);
+                         nullptr, SkBlendMode::kModulate, nullptr, 0, paint);
 }
 // NYI: issue 240.
 TEST_STEP_NO_PDF(DrawVerticesShader, DrawVerticesShaderTestStep);
@@ -542,7 +544,7 @@ static void test_newraster(skiatest::Reporter* reporter) {
     SkPMColor* baseAddr = storage.get();
     sk_bzero(baseAddr, size);
 
-    SkCanvas* canvas = SkCanvas::NewRasterDirect(info, baseAddr, minRowBytes);
+    std::unique_ptr<SkCanvas> canvas = SkCanvas::MakeRasterDirect(info, baseAddr, minRowBytes);
     REPORTER_ASSERT(reporter, canvas);
 
     SkPixmap pmap;
@@ -556,25 +558,23 @@ static void test_newraster(skiatest::Reporter* reporter) {
         }
         addr = (const SkPMColor*)((const char*)addr + pmap.rowBytes());
     }
-    delete canvas;
 
     // now try a deliberately bad info
     info = info.makeWH(-1, info.height());
-    REPORTER_ASSERT(reporter, nullptr == SkCanvas::NewRasterDirect(info, baseAddr, minRowBytes));
+    REPORTER_ASSERT(reporter, nullptr == SkCanvas::MakeRasterDirect(info, baseAddr, minRowBytes));
 
     // too big
     info = info.makeWH(1 << 30, 1 << 30);
-    REPORTER_ASSERT(reporter, nullptr == SkCanvas::NewRasterDirect(info, baseAddr, minRowBytes));
+    REPORTER_ASSERT(reporter, nullptr == SkCanvas::MakeRasterDirect(info, baseAddr, minRowBytes));
 
     // not a valid pixel type
     info = SkImageInfo::Make(10, 10, kUnknown_SkColorType, info.alphaType());
-    REPORTER_ASSERT(reporter, nullptr == SkCanvas::NewRasterDirect(info, baseAddr, minRowBytes));
+    REPORTER_ASSERT(reporter, nullptr == SkCanvas::MakeRasterDirect(info, baseAddr, minRowBytes));
 
     // We should succeed with a zero-sized valid info
     info = SkImageInfo::MakeN32Premul(0, 0);
-    canvas = SkCanvas::NewRasterDirect(info, baseAddr, minRowBytes);
+    canvas = SkCanvas::MakeRasterDirect(info, baseAddr, minRowBytes);
     REPORTER_ASSERT(reporter, canvas);
-    delete canvas;
 }
 
 DEF_TEST(Canvas, reporter) {
@@ -696,7 +696,7 @@ DEF_TEST(PaintFilterCanvas_ConsistentState, reporter) {
     filterCanvas.scale(0.75f, 0.5f);
     REPORTER_ASSERT(reporter, canvas.getTotalMatrix() == filterCanvas.getTotalMatrix());
     REPORTER_ASSERT(reporter, canvas.getClipBounds(&clip1) == filterCanvas.getClipBounds(&clip2));
-    REPORTER_ASSERT(reporter, clip1 == clip2);
+    REPORTER_ASSERT(reporter, clip2.contains(clip1));
 
 #ifdef SK_EXPERIMENTAL_SHADOWING
     SkShadowTestCanvas* tCanvas = new SkShadowTestCanvas(100,100, reporter);
@@ -736,3 +736,71 @@ DEF_TEST(DeferredCanvas, r) {
     canvas.restore();
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
+#include "SkCanvasStack.h"
+#include "SkNWayCanvas.h"
+
+// Subclass that takes a bool*, which it updates in its construct (true) and destructor (false)
+// to allow the caller to know how long the object is alive.
+class LifeLineCanvas : public SkCanvas {
+    bool*   fLifeLine;
+public:
+    LifeLineCanvas(int w, int h, bool* lifeline) : SkCanvas(w, h), fLifeLine(lifeline) {
+        *fLifeLine = true;
+    }
+    ~LifeLineCanvas() {
+        *fLifeLine = false;
+    }
+};
+
+// Check that NWayCanvas does NOT try to manage the lifetime of its sub-canvases
+DEF_TEST(NWayCanvas, r) {
+    const int w = 10;
+    const int h = 10;
+    bool life[2];
+    {
+        LifeLineCanvas c0(w, h, &life[0]);
+        REPORTER_ASSERT(r, life[0]);
+    }
+    REPORTER_ASSERT(r, !life[0]);
+
+
+    std::unique_ptr<SkCanvas> c0 = std::unique_ptr<SkCanvas>(new LifeLineCanvas(w, h, &life[0]));
+    std::unique_ptr<SkCanvas> c1 = std::unique_ptr<SkCanvas>(new LifeLineCanvas(w, h, &life[1]));
+    REPORTER_ASSERT(r, life[0]);
+    REPORTER_ASSERT(r, life[1]);
+
+    {
+        SkNWayCanvas nway(w, h);
+        nway.addCanvas(c0.get());
+        nway.addCanvas(c1.get());
+        REPORTER_ASSERT(r, life[0]);
+        REPORTER_ASSERT(r, life[1]);
+    }
+    // Now assert that the death of the nway has NOT also killed the sub-canvases
+    REPORTER_ASSERT(r, life[0]);
+    REPORTER_ASSERT(r, life[1]);
+}
+
+// Check that CanvasStack DOES manage the lifetime of its sub-canvases
+DEF_TEST(CanvasStack, r) {
+    const int w = 10;
+    const int h = 10;
+    bool life[2];
+    std::unique_ptr<SkCanvas> c0 = std::unique_ptr<SkCanvas>(new LifeLineCanvas(w, h, &life[0]));
+    std::unique_ptr<SkCanvas> c1 = std::unique_ptr<SkCanvas>(new LifeLineCanvas(w, h, &life[1]));
+    REPORTER_ASSERT(r, life[0]);
+    REPORTER_ASSERT(r, life[1]);
+
+    {
+        SkCanvasStack stack(w, h);
+        stack.pushCanvas(std::move(c0), {0,0});
+        stack.pushCanvas(std::move(c1), {0,0});
+        REPORTER_ASSERT(r, life[0]);
+        REPORTER_ASSERT(r, life[1]);
+    }
+    // Now assert that the death of the canvasstack has also killed the sub-canvases
+    REPORTER_ASSERT(r, !life[0]);
+    REPORTER_ASSERT(r, !life[1]);
+}

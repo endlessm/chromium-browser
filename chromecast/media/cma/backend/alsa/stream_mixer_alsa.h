@@ -28,7 +28,6 @@ class AudioBus;
 namespace chromecast {
 namespace media {
 class AlsaWrapper;
-class StreamMixerAlsaInputImpl;
 
 // Mixer implementation. The mixer has one or more input queues; these can be
 // added/removed at any time. When an input source pushes frames to an input
@@ -248,6 +247,7 @@ class StreamMixerAlsa {
 
   std::unique_ptr<AudioFilterInterface> pre_loopback_filter_;
   std::unique_ptr<AudioFilterInterface> post_loopback_filter_;
+  int silence_frames_filtered_ = 0;
 
   DISALLOW_COPY_AND_ASSIGN(StreamMixerAlsa);
 };

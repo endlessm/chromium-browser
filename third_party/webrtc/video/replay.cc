@@ -16,8 +16,9 @@
 
 #include "gflags/gflags.h"
 #include "webrtc/base/checks.h"
-#include "webrtc/call.h"
+#include "webrtc/call/call.h"
 #include "webrtc/common_video/libyuv/include/webrtc_libyuv.h"
+#include "webrtc/logging/rtc_event_log/rtc_event_log.h"
 #include "webrtc/modules/rtp_rtcp/include/rtp_header_parser.h"
 #include "webrtc/system_wrappers/include/clock.h"
 #include "webrtc/system_wrappers/include/sleep.h"
@@ -211,14 +212,15 @@ void RtpReplay() {
   FileRenderPassthrough file_passthrough(flags::OutBase(),
                                          playback_video.get());
 
-  std::unique_ptr<Call> call(Call::Create(Call::Config()));
+  webrtc::RtcEventLogNullImpl event_log;
+  std::unique_ptr<Call> call(Call::Create(Call::Config(&event_log)));
 
   test::NullTransport transport;
   VideoReceiveStream::Config receive_config(&transport);
   receive_config.rtp.remote_ssrc = flags::Ssrc();
   receive_config.rtp.local_ssrc = kReceiverLocalSsrc;
-  receive_config.rtp.fec.ulpfec_payload_type = flags::FecPayloadType();
-  receive_config.rtp.fec.red_payload_type = flags::RedPayloadType();
+  receive_config.rtp.ulpfec.ulpfec_payload_type = flags::FecPayloadType();
+  receive_config.rtp.ulpfec.red_payload_type = flags::RedPayloadType();
   receive_config.rtp.nack.rtp_history_ms = 1000;
   if (flags::TransmissionOffsetId() != -1) {
     receive_config.rtp.extensions.push_back(RtpExtension(

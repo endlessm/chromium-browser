@@ -33,7 +33,7 @@
 #include "core/frame/csp/ContentSecurityPolicy.h"
 #include "core/html/HTMLStyleElement.h"
 #include "core/svg/SVGStyleElement.h"
-#include "platform/tracing/TraceEvent.h"
+#include "platform/instrumentation/tracing/TraceEvent.h"
 #include "wtf/text/StringBuilder.h"
 
 namespace blink {
@@ -77,22 +77,13 @@ void StyleElement::removedFrom(Element& element,
 
   Document& document = element.document();
   if (m_registeredAsCandidate) {
-    ShadowRoot* shadowRoot = element.containingShadowRoot();
-    if (!shadowRoot)
-      shadowRoot = insertionPoint->containingShadowRoot();
-
-    document.styleEngine().removeStyleSheetCandidateNode(
-        element, shadowRoot ? *toTreeScope(shadowRoot) : toTreeScope(document));
+    document.styleEngine().removeStyleSheetCandidateNode(element,
+                                                         *insertionPoint);
     m_registeredAsCandidate = false;
   }
 
-  StyleSheet* removedSheet = m_sheet.get();
-
   if (m_sheet)
     clearSheet(element);
-  if (removedSheet)
-    document.styleEngine().setNeedsActiveStyleUpdate(removedSheet,
-                                                     AnalyzedStyleUpdate);
 }
 
 StyleElement::ProcessingResult StyleElement::childrenChanged(Element& element) {
@@ -148,7 +139,7 @@ StyleElement::ProcessingResult StyleElement::createSheet(Element& element,
   bool passesContentSecurityPolicyChecks =
       shouldBypassMainWorldCSP(element) ||
       csp->allowStyleWithHash(text, ContentSecurityPolicy::InlineType::Block) ||
-      csp->allowInlineStyle(document.url(),
+      csp->allowInlineStyle(&element, document.url(),
                             element.fastGetAttribute(HTMLNames::nonceAttr),
                             m_startPosition.m_line, text);
 
@@ -161,8 +152,8 @@ StyleElement::ProcessingResult StyleElement::createSheet(Element& element,
   if (isCSS(element, type) && passesContentSecurityPolicyChecks) {
     MediaQuerySet* mediaQueries = MediaQuerySet::create(media());
 
-    MediaQueryEvaluator screenEval("screen", true);
-    MediaQueryEvaluator printEval("print", true);
+    MediaQueryEvaluator screenEval("screen");
+    MediaQueryEvaluator printEval("print");
     if (screenEval.eval(mediaQueries) || printEval.eval(mediaQueries)) {
       m_loading = true;
       TextPosition startPosition =

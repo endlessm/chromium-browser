@@ -31,7 +31,6 @@
 #ifndef WebViewClient_h
 #define WebViewClient_h
 
-#include "../platform/WebDragOperation.h"
 #include "../platform/WebPageVisibilityState.h"
 #include "../platform/WebString.h"
 #include "WebAXEnums.h"
@@ -42,12 +41,9 @@
 
 namespace blink {
 
-class WebAXObject;
 class WebDateTimeChooserCompletion;
-class WebDragData;
 class WebFileChooserCompletion;
 class WebHitTestResult;
-class WebImage;
 class WebNode;
 class WebSpeechRecognizer;
 class WebStorageNamespace;
@@ -57,7 +53,6 @@ class WebView;
 class WebWidget;
 struct WebDateTimeChooserParams;
 struct WebPoint;
-struct WebPopupMenuInfo;
 struct WebRect;
 struct WebSize;
 struct WebWindowFeatures;
@@ -159,13 +154,6 @@ class WebViewClient : protected WebWidgetClient {
 
   // Called when keyboard focus switches to an anchor with the given URL.
   virtual void setKeyboardFocusURL(const WebURL&) {}
-
-  // Called when a drag-n-drop operation should begin.
-  virtual void startDragging(WebLocalFrame*,
-                             const WebDragData&,
-                             WebDragOperationsMask,
-                             const WebImage&,
-                             const WebPoint& dragImageOffset) {}
 
   // Called to determine if drag-n-drop operations may initiate a page
   // navigation.
@@ -284,11 +272,11 @@ class WebViewClient : protected WebWidgetClient {
                      const WebFloatPoint& positionInViewport,
                      const WebFloatSize& velocityInViewport) override {}
   void hasTouchEventHandlers(bool) override {}
-  void initializeLayerTreeView() override {}
+  WebLayerTreeView* initializeLayerTreeView() override { return nullptr; }
   void resetInputMethod() override {}
   WebScreenInfo screenInfo() override { return WebScreenInfo(); }
   void setTouchAction(WebTouchAction touchAction) override {}
-  void showImeIfNeeded() override {}
+  void showVirtualKeyboard() override {}
   void showUnhandledTapUIIfNeeded(const WebPoint& tappedPosition,
                                   const WebNode& tappedNode,
                                   bool pageChanged) override {}

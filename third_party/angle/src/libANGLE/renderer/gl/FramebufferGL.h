@@ -76,13 +76,14 @@ class FramebufferGL : public FramebufferImpl
                    GLbitfield mask,
                    GLenum filter) override;
 
+    gl::Error getSamplePosition(size_t index, GLfloat *xy) const override;
+
     bool checkStatus() const override;
 
     void syncState(const gl::Framebuffer::DirtyBits &dirtyBits) override;
 
-    void syncDrawState() const;
-
     GLuint getFramebufferID() const;
+    bool isDefault() const;
 
   private:
     void syncClearState(GLbitfield mask);

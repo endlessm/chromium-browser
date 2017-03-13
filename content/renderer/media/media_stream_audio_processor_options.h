@@ -26,8 +26,6 @@ class TypingDetection;
 
 namespace content {
 
-class RTCMediaConstraints;
-
 using webrtc::AudioProcessing;
 
 // A helper class to parse audio constraints from a blink::WebMediaConstraints
@@ -54,7 +52,6 @@ class CONTENT_EXPORT MediaAudioConstraints {
   // be added.
   // TODO(hta): Switch to an interface without "cricket::" when webrtc has one.
 
-  static void ApplyFixedAudioConstraints(cricket::AudioOptions* options);
 
   // |effects| is the bitmasks telling whether certain platform
   // hardware audio effects are enabled, like hardware echo cancellation. If
@@ -144,9 +141,6 @@ void EnableEchoCancellation(AudioProcessing* audio_processing);
 void EnableNoiseSuppression(AudioProcessing* audio_processing,
                             webrtc::NoiseSuppression::Level ns_level);
 
-// Enables the high pass filter in |audio_processing|.
-void EnableHighPassFilter(AudioProcessing* audio_processing);
-
 // Enables the typing detection in |audio_processing|.
 void EnableTypingDetection(AudioProcessing* audio_processing,
                            webrtc::TypingDetection* typing_detector);
@@ -162,8 +156,9 @@ void StopEchoCancellationDump(AudioProcessing* audio_processing);
 
 void EnableAutomaticGainControl(AudioProcessing* audio_processing);
 
-void GetAecStats(webrtc::EchoCancellation* echo_cancellation,
-                 webrtc::AudioProcessorInterface::AudioProcessorStats* stats);
+void GetAudioProcessingStats(
+    AudioProcessing* audio_processing,
+    webrtc::AudioProcessorInterface::AudioProcessorStats* stats);
 
 // Returns the array geometry from the media constraints if existing and
 // otherwise that provided by the input device.

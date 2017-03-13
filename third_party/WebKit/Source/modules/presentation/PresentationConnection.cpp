@@ -9,6 +9,8 @@
 #include "core/dom/DOMArrayBufferView.h"
 #include "core/dom/Document.h"
 #include "core/dom/ExceptionCode.h"
+#include "core/dom/ExecutionContextTask.h"
+#include "core/dom/TaskRunnerHelper.h"
 #include "core/events/Event.h"
 #include "core/events/MessageEvent.h"
 #include "core/fileapi/FileReaderLoader.h"
@@ -23,7 +25,6 @@
 #include "modules/presentation/PresentationController.h"
 #include "modules/presentation/PresentationReceiver.h"
 #include "modules/presentation/PresentationRequest.h"
-#include "public/platform/modules/presentation/WebPresentationConnectionClient.h"
 #include "wtf/Assertions.h"
 #include "wtf/text/AtomicString.h"
 #include <memory>
@@ -46,11 +47,14 @@ WebPresentationClient* presentationClient(ExecutionContext* executionContext) {
 
 const AtomicString& connectionStateToString(
     WebPresentationConnectionState state) {
+  DEFINE_STATIC_LOCAL(const AtomicString, connectingValue, ("connecting"));
   DEFINE_STATIC_LOCAL(const AtomicString, connectedValue, ("connected"));
   DEFINE_STATIC_LOCAL(const AtomicString, closedValue, ("closed"));
   DEFINE_STATIC_LOCAL(const AtomicString, terminatedValue, ("terminated"));
 
   switch (state) {
+    case WebPresentationConnectionState::Connecting:
+      return connectingValue;
     case WebPresentationConnectionState::Connected:
       return connectedValue;
     case WebPresentationConnectionState::Closed:
@@ -145,10 +149,10 @@ class PresentationConnection::BlobLoader final
 PresentationConnection::PresentationConnection(LocalFrame* frame,
                                                const String& id,
                                                const KURL& url)
-    : DOMWindowProperty(frame),
+    : ContextClient(frame),
       m_id(id),
       m_url(url),
-      m_state(WebPresentationConnectionState::Connected),
+      m_state(WebPresentationConnectionState::Connecting),
       m_binaryType(BinaryTypeBlob) {}
 
 PresentationConnection::~PresentationConnection() {
@@ -158,10 +162,9 @@ PresentationConnection::~PresentationConnection() {
 // static
 PresentationConnection* PresentationConnection::take(
     ScriptPromiseResolver* resolver,
-    std::unique_ptr<WebPresentationConnectionClient> client,
+    const WebPresentationSessionInfo& sessionInfo,
     PresentationRequest* request) {
   ASSERT(resolver);
-  ASSERT(client);
   ASSERT(request);
   ASSERT(resolver->getExecutionContext()->isDocument());
 
@@ -174,22 +177,31 @@ PresentationConnection* PresentationConnection::take(
   if (!controller)
     return nullptr;
 
-  return take(controller, std::move(client), request);
+  return take(controller, sessionInfo, request);
 }
 
 // static
 PresentationConnection* PresentationConnection::take(
     PresentationController* controller,
-    std::unique_ptr<WebPresentationConnectionClient> client,
+    const WebPresentationSessionInfo& sessionInfo,
     PresentationRequest* request) {
   ASSERT(controller);
   ASSERT(request);
 
   PresentationConnection* connection = new PresentationConnection(
-      controller->frame(), client->getId(), client->getUrl());
+      controller->frame(), sessionInfo.id, sessionInfo.url);
   controller->registerConnection(connection);
-  request->dispatchEvent(PresentationConnectionAvailableEvent::create(
-      EventTypeNames::connectionavailable, connection));
+
+  // Fire onconnectionavailable event asynchronously.
+  auto* event = PresentationConnectionAvailableEvent::create(
+      EventTypeNames::connectionavailable, connection);
+  request->getExecutionContext()->postTask(
+      TaskType::Presentation, BLINK_FROM_HERE,
+      createSameThreadTask(&PresentationConnection::dispatchEventAsync,
+                           wrapPersistent(request), wrapPersistent(event)));
+
+  // Fire onconnect event asynchronously, after onconnectionavailable.
+  connection->didChangeState(WebPresentationConnectionState::Connected);
 
   return connection;
 }
@@ -197,12 +209,11 @@ PresentationConnection* PresentationConnection::take(
 // static
 PresentationConnection* PresentationConnection::take(
     PresentationReceiver* receiver,
-    std::unique_ptr<WebPresentationConnectionClient> client) {
+    const WebPresentationSessionInfo& sessionInfo) {
   DCHECK(receiver);
-  DCHECK(client);
 
   PresentationConnection* connection = new PresentationConnection(
-      receiver->frame(), client->getId(), client->getUrl());
+      receiver->frame(), sessionInfo.id, sessionInfo.url);
   receiver->registerConnection(connection);
 
   return connection;
@@ -240,7 +251,7 @@ DEFINE_TRACE(PresentationConnection) {
   visitor->trace(m_blobLoader);
   visitor->trace(m_messages);
   EventTargetWithInlineData::trace(visitor);
-  DOMWindowProperty::trace(visitor);
+  ContextClient::trace(visitor);
 }
 
 const AtomicString& PresentationConnection::state() const {
@@ -373,9 +384,15 @@ void PresentationConnection::didReceiveBinaryMessage(const uint8_t* data,
   ASSERT_NOT_REACHED();
 }
 
+WebPresentationConnectionState PresentationConnection::getState() {
+  return m_state;
+}
+
 void PresentationConnection::close() {
-  if (m_state != WebPresentationConnectionState::Connected)
+  if (m_state != WebPresentationConnectionState::Connecting &&
+      m_state != WebPresentationConnectionState::Connected) {
     return;
+  }
   WebPresentationClient* client = presentationClient(getExecutionContext());
   if (client)
     client->closeSession(m_url, m_id);
@@ -394,9 +411,12 @@ void PresentationConnection::terminate() {
 }
 
 bool PresentationConnection::matches(
-    WebPresentationConnectionClient* client) const {
-  return client && m_url == KURL(client->getUrl()) &&
-         m_id == static_cast<String>(client->getId());
+    const WebPresentationSessionInfo& sessionInfo) const {
+  return m_url == KURL(sessionInfo.url) && m_id == String(sessionInfo.id);
+}
+
+bool PresentationConnection::matches(const String& id, const KURL& url) const {
+  return m_url == url && m_id == id;
 }
 
 void PresentationConnection::didChangeState(
@@ -406,17 +426,21 @@ void PresentationConnection::didChangeState(
 
   m_state = state;
   switch (m_state) {
+    case WebPresentationConnectionState::Connecting:
+      NOTREACHED();
+      return;
     case WebPresentationConnectionState::Connected:
-      dispatchEvent(Event::create(EventTypeNames::connect));
+      dispatchStateChangeEvent(Event::create(EventTypeNames::connect));
       return;
     case WebPresentationConnectionState::Terminated:
-      dispatchEvent(Event::create(EventTypeNames::terminate));
+      dispatchStateChangeEvent(Event::create(EventTypeNames::terminate));
       return;
     // Closed state is handled in |didClose()|.
     case WebPresentationConnectionState::Closed:
+      NOTREACHED();
       return;
   }
-  ASSERT_NOT_REACHED();
+  NOTREACHED();
 }
 
 void PresentationConnection::didClose(
@@ -426,7 +450,7 @@ void PresentationConnection::didClose(
     return;
 
   m_state = WebPresentationConnectionState::Closed;
-  dispatchEvent(PresentationConnectionCloseEvent::create(
+  dispatchStateChangeEvent(PresentationConnectionCloseEvent::create(
       EventTypeNames::close, connectionCloseReasonToString(reason), message));
 }
 
@@ -453,6 +477,21 @@ void PresentationConnection::didFailLoadingBlob(
   m_messages.removeFirst();
   m_blobLoader.clear();
   handleMessageQueue();
+}
+
+void PresentationConnection::dispatchStateChangeEvent(Event* event) {
+  getExecutionContext()->postTask(
+      TaskType::Presentation, BLINK_FROM_HERE,
+      createSameThreadTask(&PresentationConnection::dispatchEventAsync,
+                           wrapPersistent(this), wrapPersistent(event)));
+}
+
+// static
+void PresentationConnection::dispatchEventAsync(EventTarget* target,
+                                                Event* event) {
+  DCHECK(target);
+  DCHECK(event);
+  target->dispatchEvent(event);
 }
 
 void PresentationConnection::tearDown() {

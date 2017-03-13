@@ -37,12 +37,14 @@ void HTMLCanvasElementModule::getContext(
 OffscreenCanvas* HTMLCanvasElementModule::transferControlToOffscreen(
     HTMLCanvasElement& canvas,
     ExceptionState& exceptionState) {
-  if (!canvas.createSurfaceLayer()) {
+  if (canvas.surfaceLayerBridge()) {
     exceptionState.throwDOMException(
-        V8Error,
-        "Offscreen canvas creation failed due to an internal timeout.");
+        InvalidStateError,
+        "Cannot transfer control from a canvas for more than one time.");
     return nullptr;
   }
+
+  canvas.createLayer();
 
   return transferControlToOffscreenInternal(canvas, exceptionState);
 }
@@ -58,17 +60,15 @@ OffscreenCanvas* HTMLCanvasElementModule::transferControlToOffscreenInternal(
   }
   OffscreenCanvas* offscreenCanvas =
       OffscreenCanvas::create(canvas.width(), canvas.height());
-  offscreenCanvas->setAssociatedCanvasId(DOMNodeIds::idForNode(&canvas));
+
+  int canvasId = DOMNodeIds::idForNode(&canvas);
+  offscreenCanvas->setPlaceholderCanvasId(canvasId);
+  canvas.registerPlaceholder(canvasId);
 
   CanvasSurfaceLayerBridge* bridge = canvas.surfaceLayerBridge();
   if (bridge) {
-    // If a bridge exists, it means canvas.createSurfaceLayer() has been called
-    // and its SurfaceId has been populated as well.
-    offscreenCanvas->setSurfaceId(
-        bridge->getSurfaceId().frame_sink_id().client_id(),
-        bridge->getSurfaceId().frame_sink_id().sink_id(),
-        bridge->getSurfaceId().local_frame_id().local_id(),
-        bridge->getSurfaceId().local_frame_id().nonce());
+    offscreenCanvas->setFrameSinkId(bridge->getFrameSinkId().client_id(),
+                                    bridge->getFrameSinkId().sink_id());
   }
   return offscreenCanvas;
 }

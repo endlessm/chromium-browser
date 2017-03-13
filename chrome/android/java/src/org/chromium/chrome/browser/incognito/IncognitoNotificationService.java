@@ -23,12 +23,15 @@ import org.chromium.base.ApplicationStatus;
 import org.chromium.base.ContextUtils;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.VisibleForTesting;
+import org.chromium.base.library_loader.LibraryProcessType;
 import org.chromium.chrome.browser.ChromeTabbedActivity;
 import org.chromium.chrome.browser.TabState;
 import org.chromium.chrome.browser.document.ChromeLauncherActivity;
 import org.chromium.chrome.browser.document.DocumentUtils;
+import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.tabmodel.TabWindowManager;
 import org.chromium.chrome.browser.tabmodel.TabbedModeTabPersistencePolicy;
+import org.chromium.content.browser.BrowserStartupController;
 
 import java.io.File;
 import java.lang.ref.WeakReference;
@@ -50,7 +53,7 @@ public class IncognitoNotificationService extends IntentService {
     public static PendingIntent getRemoveAllIncognitoTabsIntent(Context context) {
         Intent intent = new Intent(context, IncognitoNotificationService.class);
         intent.setAction(ACTION_CLOSE_ALL_INCOGNITO);
-        return PendingIntent.getService(context, 0, intent, PendingIntent.FLAG_ONE_SHOT);
+        return PendingIntent.getService(context, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT);
     }
 
     /** Empty public constructor needed by Android. */
@@ -72,10 +75,19 @@ public class IncognitoNotificationService extends IntentService {
             @Override
             public void run() {
                 int incognitoCount = TabWindowManager.getInstance().getIncognitoTabCount();
-                assert incognitoCount == 0;
+                if (incognitoCount != 0) {
+                    assert false : "Not all incognito tabs closed as expected";
+                    return;
+                }
+                IncognitoNotificationManager.dismissIncognitoNotification();
 
-                if (incognitoCount == 0) {
-                    IncognitoNotificationManager.dismissIncognitoNotification();
+                if (BrowserStartupController.get(
+                        ContextUtils.getApplicationContext(), LibraryProcessType.PROCESS_BROWSER)
+                                .isStartupSuccessfullyCompleted()) {
+                    if (Profile.getLastUsedProfile().hasOffTheRecordProfile()) {
+                        Profile.getLastUsedProfile().getOffTheRecordProfile()
+                                .destroyWhenAppropriate();
+                    }
                 }
             }
         });
@@ -138,7 +150,7 @@ public class IncognitoNotificationService extends IntentService {
             // It is not easily possible to distinguish between tasks sitting on top of
             // ChromeLauncherActivity, so we treat them all as likely ChromeTabbedActivities and
             // close them to be on the cautious side of things.
-            if ((TextUtils.equals(className, ChromeTabbedActivity.class.getName())
+            if ((ChromeTabbedActivity.isTabbedModeClassName(className)
                     || TextUtils.equals(className, ChromeLauncherActivity.class.getName()))
                     && !visibleTaskIds.contains(info.id)) {
                 task.finishAndRemoveTask();

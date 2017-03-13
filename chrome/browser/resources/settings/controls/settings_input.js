@@ -36,6 +36,8 @@ Polymer({
       reflectToAttribute: true
     },
 
+    canTab: Boolean,
+
     /* Properties for paper-input. This is not strictly necessary.
      * Though it does define the types for the closure compiler. */
     errorMessage: { type: String },
@@ -78,10 +80,21 @@ Polymer({
   },
 
   /**
-   * Blur method for paper-input. Only update the pref value on a blur event.
+   * Gets a tab index for this control if it can be tabbed to.
+   * @param {boolean} canTab
+   * @return {number}
    * @private
    */
-  onBlur_: function() {
+  getTabindex_: function(canTab) {
+    return canTab ? 0 : -1;
+  },
+
+  /**
+   * Change event handler for paper-input. Updates the pref value.
+   * settings-input uses the change event because it is fired by the Enter key.
+   * @private
+   */
+  onChange_: function() {
     if (!this.pref)
       return;
 

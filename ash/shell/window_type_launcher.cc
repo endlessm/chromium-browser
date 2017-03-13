@@ -7,11 +7,11 @@
 #include <utility>
 
 #include "ash/common/session/session_state_delegate.h"
-#include "ash/common/shell_window_ids.h"
 #include "ash/common/system/status_area_widget.h"
 #include "ash/common/system/web_notification/web_notification_tray.h"
 #include "ash/common/wm_shell.h"
 #include "ash/content/shell_content_state.h"
+#include "ash/public/cpp/shell_window_ids.h"
 #include "ash/root_window_controller.h"
 #include "ash/shell.h"
 #include "ash/shell/example_factory.h"
@@ -165,7 +165,8 @@ void InitWindowTypeLauncher() {
       new WindowTypeLauncher, Shell::GetPrimaryRootWindow(),
       gfx::Rect(120, 150, 300, 410));
   widget->GetNativeView()->SetName("WindowTypeLauncher");
-  ::wm::SetShadowType(widget->GetNativeView(), ::wm::SHADOW_TYPE_RECTANGULAR);
+  ::wm::SetShadowElevation(widget->GetNativeView(),
+                           ::wm::ShadowElevation::MEDIUM);
   widget->Show();
 }
 

@@ -12,7 +12,6 @@ found in the LICENSE file.
 <script src="/flot/jquery.flot.selection.min.js"></script>
 
 <link rel="import" href="/dashboard/elements/chart-container.html">
-<link rel="import" href="/dashboard/static/graph.html">
 <link rel="import" href="/dashboard/static/testdata/dromaeo-charts.html">
 <link rel="import" href="/dashboard/static/testing_common.html">
 <link rel="import" href="/dashboard/static/uri.html">
@@ -45,29 +44,29 @@ tr.b.unittest.testSuite(function() {
   }
 
   test('instantiate basic', function() {
-    testing_common.mockChartJson(dromaeo_charts);
+    testing_common.mockChartJson(dromaeoCharts);
     var chart = createChart();
     this.addHTMLOutput(chart);
-    chart.addSeriesGroup(dromaeo_charts.graphParams);
+    chart.addSeriesGroup(dromaeoCharts.graphParams);
   }, testOptions);
 
   test('data is loaded when a series group is added', function() {
-    testing_common.mockChartJson(dromaeo_charts);
+    testing_common.mockChartJson(dromaeoCharts);
     var chart = createChart();
-    chart.addSeriesGroup(dromaeo_charts.graphParams);
+    chart.addSeriesGroup(dromaeoCharts.graphParams);
     this.addHTMLOutput(chart);
     assert.equal(chart.getDataForFlot().length, 3);
   }, testOptions);
 
   test('warning added for stale series', function() {
-    var graphJson = testing_common.deepCopy(dromaeo_charts.graphSelectedJson);
+    var graphJson = testing_common.deepCopy(dromaeoCharts.graphSelectedJson);
     for (var annotation in graphJson['annotations']['0']) {
       graphJson['annotations']['0'][annotation]['timestamp'] -= 8 * 86400000;
     }
-    testing_common.mockChartJson(dromaeo_charts, graphJson);
+    testing_common.mockChartJson(dromaeoCharts, graphJson);
     var chart = createChart();
     this.addHTMLOutput(chart);
-    chart.addSeriesGroup(dromaeo_charts.graphParams);
+    chart.addSeriesGroup(dromaeoCharts.graphParams);
 
     return new Promise(function(resolve) {
       function check() {

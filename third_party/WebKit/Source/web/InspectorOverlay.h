@@ -37,7 +37,7 @@
 #include "platform/geometry/LayoutRect.h"
 #include "platform/graphics/Color.h"
 #include "platform/heap/Handle.h"
-#include "public/web/WebInputEvent.h"
+#include "public/platform/WebInputEvent.h"
 #include "wtf/RefPtr.h"
 #include "wtf/text/WTFString.h"
 #include <memory>
@@ -46,16 +46,14 @@
 namespace blink {
 
 class Color;
-class EmptyChromeClient;
 class LocalFrame;
-class GraphicsContext;
-class GraphicsLayer;
-class InspectorCSSAgent;
-class LayoutEditor;
 class Node;
 class Page;
 class PageOverlay;
-class WebViewImpl;
+class PlatformMouseEvent;
+class PlatformTouchEvent;
+class WebGestureEvent;
+class WebLocalFrameImpl;
 
 namespace protocol {
 class Value;
@@ -68,16 +66,11 @@ class InspectorOverlay final
   USING_GARBAGE_COLLECTED_MIXIN(InspectorOverlay);
 
  public:
-  static InspectorOverlay* create(WebViewImpl* webViewImpl) {
-    return new InspectorOverlay(webViewImpl);
-  }
-
+  explicit InspectorOverlay(WebLocalFrameImpl*);
   ~InspectorOverlay() override;
   DECLARE_TRACE();
 
-  void init(InspectorCSSAgent*,
-            v8_inspector::V8InspectorSession*,
-            InspectorDOMAgent*);
+  void init(v8_inspector::V8InspectorSession*, InspectorDOMAgent*);
 
   void clear();
   void suspend();
@@ -96,19 +89,12 @@ class InspectorOverlay final
   String evaluateInOverlayForTest(const String&);
 
  private:
-  explicit InspectorOverlay(WebViewImpl*);
   class InspectorOverlayChromeClient;
   class InspectorPageOverlayDelegate;
 
   // InspectorOverlayHost::Listener implementation.
   void overlayResumed() override;
   void overlaySteppedOver() override;
-  void overlayStartedPropertyChange(const String&) override;
-  void overlayPropertyChanged(float) override;
-  void overlayEndedPropertyChange() override;
-  void overlayClearSelection(bool) override;
-  void overlayNextSelector() override;
-  void overlayPreviousSelector() override;
 
   // InspectorDOMAgent::Client implementation.
   void hideHighlight() override;
@@ -119,7 +105,6 @@ class InspectorOverlay final
                      const InspectorHighlightConfig&) override;
   void setInspectMode(InspectorDOMAgent::SearchMode,
                       std::unique_ptr<InspectorHighlightConfig>) override;
-  void setInspectedNode(Node*) override;
 
   void highlightNode(Node*,
                      Node* eventTarget,
@@ -146,14 +131,13 @@ class InspectorOverlay final
   void clearInternal();
 
   bool handleMousePress();
-  bool handleGestureEvent(const PlatformGestureEvent&);
+  bool handleGestureEvent(const WebGestureEvent&);
   bool handleTouchEvent(const PlatformTouchEvent&);
   bool handleMouseMove(const PlatformMouseEvent&);
   bool shouldSearchForNode();
   void inspect(Node*);
-  void initializeLayoutEditorIfNeeded(Node*);
 
-  WebViewImpl* m_webViewImpl;
+  Member<WebLocalFrameImpl> m_frameImpl;
   String m_pausedInDebuggerMessage;
   Member<Node> m_highlightNode;
   Member<Node> m_eventTargetNode;
@@ -173,8 +157,6 @@ class InspectorOverlay final
   bool m_needsUpdate;
   v8_inspector::V8InspectorSession* m_v8Session;
   Member<InspectorDOMAgent> m_domAgent;
-  Member<InspectorCSSAgent> m_cssAgent;
-  Member<LayoutEditor> m_layoutEditor;
   std::unique_ptr<PageOverlay> m_pageOverlay;
   Member<Node> m_hoveredNodeForInspectMode;
   InspectorDOMAgent::SearchMode m_inspectMode;

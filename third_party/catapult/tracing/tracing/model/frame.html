@@ -51,7 +51,7 @@ tr.exportTo('tr.model', function() {
         threadTimeRanges, function(x) { return x.end - x.start; });
 
     this.perfClass = FRAME_PERF_CLASS.NEUTRAL;
-  };
+  }
 
   Frame.prototype = {
     __proto__: tr.model.Event.prototype,
@@ -89,8 +89,8 @@ tr.exportTo('tr.model', function() {
       });
 
   return {
-    Frame: Frame,
-    FRAME_PERF_CLASS: FRAME_PERF_CLASS
+    Frame,
+    FRAME_PERF_CLASS,
   };
 });
 </script>

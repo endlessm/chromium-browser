@@ -5,6 +5,7 @@
 package org.chromium.chrome.browser;
 
 import android.app.Activity;
+import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Handler;
@@ -16,13 +17,12 @@ import org.chromium.base.ActivityState;
 import org.chromium.base.ApplicationStatus;
 import org.chromium.base.CommandLineInitUtil;
 import org.chromium.base.ContextUtils;
-import org.chromium.base.ResourceExtractor;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.TraceEvent;
 import org.chromium.base.annotations.CalledByNative;
+import org.chromium.base.annotations.MainDex;
 import org.chromium.base.annotations.SuppressFBWarnings;
 import org.chromium.base.library_loader.ProcessInitException;
-import org.chromium.chrome.R;
 import org.chromium.chrome.browser.banners.AppDetailsDelegate;
 import org.chromium.chrome.browser.customtabs.CustomTabsConnection;
 import org.chromium.chrome.browser.datausage.ExternalDataUseObserver;
@@ -60,18 +60,19 @@ import org.chromium.chrome.browser.tabmodel.document.ActivityDelegateImpl;
 import org.chromium.chrome.browser.tabmodel.document.DocumentTabModelSelector;
 import org.chromium.chrome.browser.tabmodel.document.StorageDelegate;
 import org.chromium.chrome.browser.tabmodel.document.TabDelegate;
+import org.chromium.chrome.browser.webapps.GooglePlayWebApkInstallDelegate;
 import org.chromium.components.signin.AccountManagerDelegate;
 import org.chromium.components.signin.SystemAccountManagerDelegate;
 import org.chromium.content.app.ContentApplication;
 import org.chromium.content.browser.ChildProcessCreationParams;
 import org.chromium.policy.AppRestrictionsProvider;
 import org.chromium.policy.CombinedPolicyProvider;
-import org.chromium.ui.base.ResourceBundle;
 
 /**
  * Basic application functionality that should be shared among all browser applications that use
  * chrome layer.
  */
+@MainDex
 public class ChromeApplication extends ContentApplication {
     public static final String COMMAND_LINE_FILE = "chrome-command-line";
 
@@ -82,8 +83,9 @@ public class ChromeApplication extends ContentApplication {
 
     private static DocumentTabModelSelector sDocumentTabModelSelector;
 
-    public ChromeApplication() {
-        super();
+    @Override
+    protected void attachBaseContext(Context base) {
+        super.attachBaseContext(base);
         ContextUtils.initApplicationContext(this);
     }
 
@@ -151,14 +153,6 @@ public class ChromeApplication extends ContentApplication {
     protected void showPasswordSettings() {
         PreferencesLauncher.launchSettingsPage(this,
                 SavePasswordsPreferences.class.getName());
-    }
-
-    @Override
-    protected void initializeLibraryDependencies() {
-        // The ResourceExtractor is only needed by the browser process, but this will have no
-        // impact on the renderer process construction.
-        ResourceBundle.initializeLocalePaks(this, R.array.locale_paks);
-        ResourceExtractor.setResourcesToExtract(ResourceBundle.getActiveLocaleResources());
     }
 
     @Override
@@ -398,8 +392,13 @@ public class ChromeApplication extends ContentApplication {
         return null;
     }
 
+    /** Returns the singleton instance of GooglePlayWebApkInstallDelegate. */
+    public GooglePlayWebApkInstallDelegate getGooglePlayWebApkInstallDelegate() {
+        return null;
+    }
+
     /**
-     * Returns the Singleton instance of the DocumentTabModelSelector.
+     * Returns the singleton instance of the DocumentTabModelSelector.
      * TODO(dfalcantara): Find a better place for this once we differentiate between activity and
      *                    application-level TabModelSelectors.
      * @return The DocumentTabModelSelector for the application.

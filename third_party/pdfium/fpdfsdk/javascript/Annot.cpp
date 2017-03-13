@@ -37,23 +37,25 @@ Annot::Annot(CJS_Object* pJSObject) : CJS_EmbedObj(pJSObject) {}
 
 Annot::~Annot() {}
 
-FX_BOOL Annot::hidden(IJS_Context* cc,
-                      CJS_PropValue& vp,
-                      CFX_WideString& sError) {
-  CPDFSDK_BAAnnot* baAnnot = ToBAAnnot(m_pAnnot.Get());
-  if (!baAnnot)
-    return FALSE;
-
+bool Annot::hidden(IJS_Context* cc, CJS_PropValue& vp, CFX_WideString& sError) {
   if (vp.IsGetting()) {
-    CPDF_Annot* pPDFAnnot = baAnnot->GetPDFAnnot();
+    if (!m_pAnnot) {
+      sError = JSGetStringFromID(IDS_STRING_JSBADOBJECT);
+      return false;
+    }
+    CPDF_Annot* pPDFAnnot = ToBAAnnot(m_pAnnot.Get())->GetPDFAnnot();
     vp << CPDF_Annot::IsAnnotationHidden(pPDFAnnot->GetAnnotDict());
-    return TRUE;
+    return true;
   }
 
   bool bHidden;
-  vp >> bHidden;
+  vp >> bHidden;  // May invalidate m_pAnnot.
+  if (!m_pAnnot) {
+    sError = JSGetStringFromID(IDS_STRING_JSBADOBJECT);
+    return false;
+  }
 
-  uint32_t flags = baAnnot->GetFlags();
+  uint32_t flags = ToBAAnnot(m_pAnnot.Get())->GetFlags();
   if (bHidden) {
     flags |= ANNOTFLAG_HIDDEN;
     flags |= ANNOTFLAG_INVISIBLE;
@@ -65,42 +67,43 @@ FX_BOOL Annot::hidden(IJS_Context* cc,
     flags &= ~ANNOTFLAG_NOVIEW;
     flags |= ANNOTFLAG_PRINT;
   }
-  baAnnot->SetFlags(flags);
-  return TRUE;
+  ToBAAnnot(m_pAnnot.Get())->SetFlags(flags);
+  return true;
 }
 
-FX_BOOL Annot::name(IJS_Context* cc,
-                    CJS_PropValue& vp,
-                    CFX_WideString& sError) {
-  CPDFSDK_BAAnnot* baAnnot = ToBAAnnot(m_pAnnot.Get());
-  if (!baAnnot)
-    return FALSE;
-
+bool Annot::name(IJS_Context* cc, CJS_PropValue& vp, CFX_WideString& sError) {
   if (vp.IsGetting()) {
-    vp << baAnnot->GetAnnotName();
-    return TRUE;
+    if (!m_pAnnot) {
+      sError = JSGetStringFromID(IDS_STRING_JSBADOBJECT);
+      return false;
+    }
+    vp << ToBAAnnot(m_pAnnot.Get())->GetAnnotName();
+    return true;
   }
 
   CFX_WideString annotName;
-  vp >> annotName;
-  baAnnot->SetAnnotName(annotName);
-  return TRUE;
-}
-
-FX_BOOL Annot::type(IJS_Context* cc,
-                    CJS_PropValue& vp,
-                    CFX_WideString& sError) {
-  if (vp.IsSetting()) {
-    sError = JSGetStringFromID(IDS_STRING_JSREADONLY);
-    return FALSE;
+  vp >> annotName;  // May invalidate m_pAnnot.
+  if (!m_pAnnot) {
+    sError = JSGetStringFromID(IDS_STRING_JSBADOBJECT);
+    return false;
   }
 
-  CPDFSDK_BAAnnot* baAnnot = ToBAAnnot(m_pAnnot.Get());
-  if (!baAnnot)
-    return FALSE;
+  ToBAAnnot(m_pAnnot.Get())->SetAnnotName(annotName);
+  return true;
+}
 
-  vp << CPDF_Annot::AnnotSubtypeToString(baAnnot->GetAnnotSubtype());
-  return TRUE;
+bool Annot::type(IJS_Context* cc, CJS_PropValue& vp, CFX_WideString& sError) {
+  if (vp.IsSetting()) {
+    sError = JSGetStringFromID(IDS_STRING_JSREADONLY);
+    return false;
+  }
+  if (!m_pAnnot) {
+    sError = JSGetStringFromID(IDS_STRING_JSBADOBJECT);
+    return false;
+  }
+  vp << CPDF_Annot::AnnotSubtypeToString(
+      ToBAAnnot(m_pAnnot.Get())->GetAnnotSubtype());
+  return true;
 }
 
 void Annot::SetSDKAnnot(CPDFSDK_BAAnnot* annot) {

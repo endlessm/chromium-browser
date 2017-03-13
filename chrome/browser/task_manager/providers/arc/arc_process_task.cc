@@ -9,6 +9,7 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/arc/arc_bridge_service.h"
 #include "components/arc/arc_service_manager.h"
 #include "components/arc/common/process.mojom.h"
 #include "content/public/browser/browser_thread.h"
@@ -19,8 +20,6 @@
 namespace task_manager {
 
 namespace {
-
-constexpr uint32_t kKillProcessMinInstanceVersion = 1;
 
 base::string16 MakeTitle(const std::string& process_name,
                          arc::mojom::ProcessState process_state) {
@@ -106,12 +105,22 @@ void ArcProcessTask::StartIconLoading() {
 
   if (result == arc::ActivityIconLoader::GetResult::FAILED_ARC_NOT_READY) {
     // Need to retry loading the icon.
-    arc::ArcBridgeService::Get()->intent_helper()->AddObserver(this);
+    arc::ArcServiceManager::Get()
+        ->arc_bridge_service()
+        ->intent_helper()
+        ->AddObserver(this);
   }
 }
 
 ArcProcessTask::~ArcProcessTask() {
-  arc::ArcBridgeService::Get()->intent_helper()->RemoveObserver(this);
+  auto* service_manager = arc::ArcServiceManager::Get();
+  // This destructor can also be called when TaskManagerImpl is destructed.
+  // Since TaskManagerImpl is a LAZY_INSTANCE, arc::ArcServiceManager may have
+  // already been destructed. In that case, arc_bridge_service() has also been
+  // destructed, and it is safe to just return.
+  if (!service_manager)
+    return;
+  service_manager->arc_bridge_service()->intent_helper()->RemoveObserver(this);
 }
 
 Task::Type ArcProcessTask::GetType() const {
@@ -129,9 +138,9 @@ bool ArcProcessTask::IsKillable() {
 }
 
 void ArcProcessTask::Kill() {
-  auto* process_instance =
-      arc::ArcBridgeService::Get()->process()->GetInstanceForMethod(
-          "KillProcess", kKillProcessMinInstanceVersion);
+  auto* process_instance = ARC_GET_INSTANCE_FOR_METHOD(
+      arc::ArcServiceManager::Get()->arc_bridge_service()->process(),
+      KillProcess);
   if (!process_instance)
     return;
   process_instance->KillProcess(nspid_, "Killed manually from Task Manager");
@@ -142,7 +151,10 @@ void ArcProcessTask::OnInstanceReady() {
 
   VLOG(2) << "intent_helper instance is ready. Fetching the icon for "
           << package_name_;
-  arc::ArcBridgeService::Get()->intent_helper()->RemoveObserver(this);
+  arc::ArcServiceManager::Get()
+      ->arc_bridge_service()
+      ->intent_helper()
+      ->RemoveObserver(this);
 
   // Instead of calling into StartIconLoading() directly, return to the main
   // loop first to make sure other ArcBridgeService observers are notified.

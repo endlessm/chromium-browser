@@ -5,37 +5,40 @@
 #include "content/browser/devtools/protocol/schema_handler.h"
 
 namespace content {
-namespace devtools {
-namespace schema {
+namespace protocol {
 
-using Response = DevToolsProtocolClient::Response;
-
-SchemaHandler::SchemaHandler() {
+SchemaHandler::SchemaHandler()
+    : DevToolsDomainHandler(Schema::Metainfo::domainName) {
 }
 
 SchemaHandler::~SchemaHandler() {
 }
 
+void SchemaHandler::Wire(UberDispatcher* dispatcher) {
+  Schema::Dispatcher::wire(dispatcher, this);
+}
+
 Response SchemaHandler::GetDomains(
-    std::vector<scoped_refptr<Domain>>* domains) {
+    std::unique_ptr<protocol::Array<Schema::Domain>>* domains) {
   // TODO(kozyatisnkiy): get this from the target instead of hardcoding a list.
   static const char kVersion[] = "1.2";
   static const char* kDomains[] = {
     "Inspector", "Memory", "Page", "Rendering", "Emulation", "Security",
     "Network", "Database", "IndexedDB", "CacheStorage", "DOMStorage", "CSS",
-    "ApplicationCache", "DOM", "IO", "DOMDebugger", "Worker", "ServiceWorker",
+    "ApplicationCache", "DOM", "IO", "DOMDebugger", "ServiceWorker",
     "Input", "LayerTree", "DeviceOrientation", "Tracing", "Animation",
-    "Accessibility", "Storage", "Log", "Browser", "Runtime", "Debugger",
+    "Accessibility", "Storage", "Log", "Runtime", "Debugger",
     "Profiler", "HeapProfiler", "Schema", "Target"
   };
+  *domains = protocol::Array<Schema::Domain>::create();
   for (size_t i = 0; i < arraysize(kDomains); ++i) {
-    domains->push_back(Domain::Create()
-        ->set_name(kDomains[i])
-        ->set_version(kVersion));
+    (*domains)->addItem(Schema::Domain::Create()
+        .SetName(kDomains[i])
+        .SetVersion(kVersion)
+        .Build());
   }
   return Response::OK();
 }
 
-}  // namespace schema
-}  // namespace devtools
+}  // namespace protocol
 }  // namespace content

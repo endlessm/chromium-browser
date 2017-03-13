@@ -14,11 +14,11 @@ var presentationUrl = null;
 if (window.location.href.indexOf('__is_android__=true') >= 0) {
   // For android, "google.com/cast" is required in presentation URL.
   // TODO(zqzhang): this requirement may be removed in the future.
-  presentationUrl = "http://google.com/cast#__castAppId__=CCCCCCCC/";
+  presentationUrl = "https://google.com/cast#__castAppId__=CCCCCCCC/";
 } else {
   presentationUrl = "http://www.google.com/#__testprovider__=true";
 }
-var startSessionRequest = new PresentationRequest(presentationUrl);
+var startSessionRequest = new PresentationRequest([presentationUrl]);
 var defaultRequestSessionId = null;
 var lastExecutionResult = null;
 var useDomAutomationController = !!window.domAutomationController;
@@ -67,16 +67,27 @@ function checkSession() {
   } else {
     startSessionPromise.then(function(session) {
       if(!session) {
-        sendResult(false, 'Failed to start session');
+        sendResult(false, 'Failed to start session: connection is null');
       } else {
         // set the new session
         startedConnection = session;
-        sendResult(true, '');
+        console.log('connection state is "' + startedConnection.state + '"');
+        if (startedConnection.state == "connected") {
+          sendResult(true, '');
+        } else if (startedConnection.state == "connecting") {
+          startedConnection.onconnect = () => {
+            sendResult(true, '');
+          };
+        } else {
+          sendResult(false,
+            'Expect connection state to be "connecting" or "connected", ' +
+            'actual "' + startedConnection.state + '"');
+        }
       }
-    }).catch(function() {
+    }).catch(function(e) {
       // terminate old session if exists
       startedConnection && startedConnection.terminate();
-      sendResult(false, 'Failed to start session');
+      sendResult(false, 'Failed to start session: encountered exception ' + e);
     })
   }
 }

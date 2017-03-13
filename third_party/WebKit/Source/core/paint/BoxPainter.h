@@ -9,13 +9,13 @@
 #include "core/style/ShadowData.h"
 #include "platform/geometry/LayoutSize.h"
 #include "platform/graphics/GraphicsTypes.h"
-#include "third_party/skia/include/core/SkXfermode.h"
+#include "third_party/skia/include/core/SkBlendMode.h"
 #include "wtf/Allocator.h"
 
 namespace blink {
 
-class BackgroundImageGeometry;
 class ComputedStyle;
+class Document;
 class FillLayer;
 class FloatRoundedRect;
 class GraphicsContext;
@@ -36,6 +36,7 @@ class BoxPainter {
   BoxPainter(const LayoutBox& layoutBox) : m_layoutBox(layoutBox) {}
   void paint(const PaintInfo&, const LayoutPoint&);
 
+  void paintChildren(const PaintInfo&, const LayoutPoint&);
   void paintBoxDecorationBackground(const PaintInfo&, const LayoutPoint&);
   void paintMask(const PaintInfo&, const LayoutPoint&);
   void paintClippingMask(const PaintInfo&, const LayoutPoint&);
@@ -58,7 +59,7 @@ class BoxPainter {
                        const FillLayer&,
                        const LayoutRect&,
                        BackgroundBleedAvoidance = BackgroundBleedNone,
-                       SkXfermode::Mode = SkXfermode::kSrcOver_Mode,
+                       SkBlendMode = SkBlendMode::kSrcOver,
                        const LayoutObject* backgroundObject = nullptr);
   void paintMaskImages(const PaintInfo&, const LayoutRect&);
   void paintBoxDecorationBackgroundWithRect(const PaintInfo&,
@@ -72,7 +73,7 @@ class BoxPainter {
                              BackgroundBleedAvoidance,
                              const InlineFlowBox* = nullptr,
                              const LayoutSize& = LayoutSize(),
-                             SkXfermode::Mode = SkXfermode::kSrcOver_Mode,
+                             SkBlendMode = SkBlendMode::kSrcOver,
                              const LayoutObject* backgroundObject = nullptr);
   static InterpolationQuality chooseInterpolationQuality(const LayoutObject&,
                                                          Image*,
@@ -83,7 +84,7 @@ class BoxPainter {
                                   const LayoutRect&,
                                   const ComputedStyle&,
                                   const NinePieceImage&,
-                                  SkXfermode::Mode = SkXfermode::kSrcOver_Mode);
+                                  SkBlendMode = SkBlendMode::kSrcOver);
   static void paintBorder(const LayoutBoxModelObject&,
                           const PaintInfo&,
                           const LayoutRect&,
@@ -91,17 +92,35 @@ class BoxPainter {
                           BackgroundBleedAvoidance = BackgroundBleedNone,
                           bool includeLogicalLeftEdge = true,
                           bool includeLogicalRightEdge = true);
-  static void paintBoxShadow(const PaintInfo&,
-                             const LayoutRect&,
-                             const ComputedStyle&,
-                             ShadowStyle,
-                             bool includeLogicalLeftEdge = true,
-                             bool includeLogicalRightEdge = true);
+  static void paintNormalBoxShadow(const PaintInfo&,
+                                   const LayoutRect&,
+                                   const ComputedStyle&,
+                                   bool includeLogicalLeftEdge = true,
+                                   bool includeLogicalRightEdge = true);
+  // The input rect should be the border rect. The outer bounds of the shadow
+  // will be inset by border widths.
+  static void paintInsetBoxShadow(const PaintInfo&,
+                                  const LayoutRect&,
+                                  const ComputedStyle&,
+                                  bool includeLogicalLeftEdge = true,
+                                  bool includeLogicalRightEdge = true);
+  // This form is used by callers requiring special computation of the outer
+  // bounds of the shadow. For example, TableCellPainter insets the bounds by
+  // half widths of collapsed borders instead of the default whole widths.
+  static void paintInsetBoxShadowInBounds(const PaintInfo&,
+                                          const FloatRoundedRect& bounds,
+                                          const ComputedStyle&,
+                                          bool includeLogicalLeftEdge = true,
+                                          bool includeLogicalRightEdge = true);
   static bool shouldForceWhiteBackgroundForPrintEconomy(const ComputedStyle&,
                                                         const Document&);
 
   LayoutRect boundsForDrawingRecorder(const PaintInfo&,
                                       const LayoutPoint& adjustedPaintOffset);
+
+  static bool isPaintingBackgroundOfPaintContainerIntoScrollingContentsLayer(
+      const LayoutBoxModelObject*,
+      const PaintInfo&);
 
  private:
   void paintBackground(const PaintInfo&,

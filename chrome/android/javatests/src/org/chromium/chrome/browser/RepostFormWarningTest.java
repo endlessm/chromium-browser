@@ -4,10 +4,9 @@
 
 package org.chromium.chrome.browser;
 
-import android.os.Environment;
+import android.support.test.filters.MediumTest;
+import android.support.test.filters.SmallTest;
 import android.support.v7.app.AlertDialog;
-import android.test.suitebuilder.annotation.MediumTest;
-import android.test.suitebuilder.annotation.SmallTest;
 
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.util.Feature;
@@ -50,8 +49,7 @@ public class RepostFormWarningTest extends ChromeActivityTestCaseBase<ChromeActi
 
         mTab = getActivity().getActivityTab();
         mCallbackHelper = new TestCallbackHelperContainer(mTab.getContentViewCore());
-        mTestServer = EmbeddedTestServer.createAndStartFileServer(
-                getInstrumentation().getContext(), Environment.getExternalStorageDirectory());
+        mTestServer = EmbeddedTestServer.createAndStartServer(getInstrumentation().getContext());
     }
 
     @Override
@@ -156,7 +154,7 @@ public class RepostFormWarningTest extends ChromeActivityTestCaseBase<ChromeActi
                 });
     }
 
-    private AlertDialog waitForRepostFormWarningDialog() throws InterruptedException {
+    private AlertDialog waitForRepostFormWarningDialog() {
         CriteriaHelper.pollUiThread(
                 new Criteria("Form resubmission warning not shown") {
                     @Override

@@ -6,7 +6,6 @@
 
 #include "cc/output/filter_operations.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/skia/include/core/SkXfermode.h"
 #include "third_party/skia/include/effects/SkBlurImageFilter.h"
 #include "third_party/skia/include/effects/SkDropShadowImageFilter.h"
 #include "third_party/skia/include/effects/SkOffsetImageFilter.h"
@@ -38,6 +37,14 @@ TEST(FilterOperationsTest, MapRectBlur) {
             ops.MapRect(gfx::Rect(0, 0, 20, 20), SkMatrix::MakeScale(2, 2)));
   EXPECT_EQ(gfx::Rect(-60, -70, 130, 130),
             ops.MapRect(gfx::Rect(0, -10, 10, 10), SkMatrix::MakeScale(1, -1)));
+}
+
+TEST(FilterOperationsTest, MapRectBlurOverflow) {
+  // Passes if float-cast-overflow does not occur in ubsan builds.
+  // The blur spread exceeds INT_MAX.
+  FilterOperations ops;
+  ops.Append(FilterOperation::CreateBlurFilter(2e9f));
+  ops.MapRect(gfx::Rect(0, 0, 10, 10), SkMatrix::I());
 }
 
 TEST(FilterOperationsTest, MapRectReverseBlur) {
@@ -286,7 +293,7 @@ TEST(FilterOperationsTest, MapRectTypeConversionDoesNotOverflow) {
 
   FilterOperations ops;
   ops.Append(FilterOperation::CreateReferenceFilter(SkXfermodeImageFilter::Make(
-      SkXfermode::Make(SkXfermode::kSrcOver_Mode),
+      SkBlendMode::kSrcOver,
       SkOffsetImageFilter::Make(-big_offset, -big_offset, nullptr),
       SkOffsetImageFilter::Make(big_offset, big_offset, nullptr), nullptr)));
   gfx::Rect rect = ops.MapRect(gfx::Rect(-10, -10, 20, 20), SkMatrix::I());
@@ -955,6 +962,17 @@ TEST(FilterOperationsTest, BlendRaggedSequences) {
   EXPECT_EQ(to, blended);
   blended = to.Blend(from, 1.5);
   EXPECT_EQ(to, blended);
+}
+
+TEST(FilterOperationsTest, ToString) {
+  FilterOperations filters;
+  EXPECT_EQ(std::string("{\"FilterOperations\":[]}"), filters.ToString());
+
+  filters.Append(FilterOperation::CreateSaturateFilter(3.f));
+  filters.Append(FilterOperation::CreateBlurFilter(2.f));
+  EXPECT_EQ(std::string("{\"FilterOperations\":[{\"amount\":3.0,\"type\":2},"
+                        "{\"amount\":2.0,\"type\":8}]}"),
+            filters.ToString());
 }
 
 }  // namespace

@@ -8,14 +8,14 @@
 #include <vector>
 
 #include "base/message_loop/message_loop.h"
-#include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile.h"
 #include "content/public/test/test_browser_thread_bundle.h"
+#include "extensions/features/features.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
-#if defined(ENABLE_EXTENSIONS)
+#if BUILDFLAG(ENABLE_EXTENSIONS)
 #include "base/strings/string_split.h"
 #include "chrome/browser/browsing_data/hosted_apps_counter.h"
 #endif
@@ -32,7 +32,7 @@ class BrowsingDataCounterUtilsTest : public testing::Test {
   TestingProfile profile_;
 };
 
-#if defined(ENABLE_EXTENSIONS)
+#if BUILDFLAG(ENABLE_EXTENSIONS)
 // Tests the complex output of the hosted apps counter.
 TEST_F(BrowsingDataCounterUtilsTest, HostedAppsCounterResult) {
   HostedAppsCounter counter(GetProfile());

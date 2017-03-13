@@ -20,7 +20,7 @@ var ExceptionPairEntryEvent;
 Polymer({
   is: 'passwords-section',
 
-  behaviors: [CrScrollableBehavior],
+  behaviors: [settings.GlobalScrollTargetBehavior],
 
   properties: {
     /** Preferences state. */
@@ -39,14 +39,6 @@ Polymer({
     },
 
     /**
-     * Whether passwords can be shown or not.
-     * @type {boolean}
-     */
-    showPasswords: {
-      type: Boolean,
-    },
-
-    /**
      * An array of sites to display.
      * @type {!Array<!chrome.passwordsPrivate.ExceptionPair>}
      */
@@ -55,32 +47,26 @@ Polymer({
       value: function() { return []; },
     },
 
+    /** @override */
+    subpageRoute: {
+      type: Object,
+      value: settings.Route.MANAGE_PASSWORDS,
+    },
 
     /**
-     * Assigning a non-null value triggers the add/edit dialog.
+     * The model for any password related action menus or dialogs.
      * @private {?chrome.passwordsPrivate.PasswordUiEntry}
      */
     activePassword: Object,
+
+    /** @private */
+    showPasswordEditDialog_: Boolean,
 
     /** Filter on the saved passwords and exceptions. */
     filter: {
       type: String,
       value: '',
     },
-  },
-
-  listeners: {
-    'passwordList.scroll': 'closeMenu_',
-  },
-
-  observers: ['passwordListChanged_(savedPasswords, filter)'],
-
-  /**
-   * Updates the scrollable contents when the list of passwords has changed.
-   * @private
-   */
-  passwordListChanged_: function() {
-    this.updateScrollableContents();
   },
 
   /**
@@ -98,18 +84,18 @@ Polymer({
 
   /**
    * Shows the edit password dialog.
+   * @param {!Event} e
    * @private
    */
-  onMenuEditPasswordTap_: function() {
-    var menu = /** @type {CrSharedMenuElement} */(this.$.menu);
-    this.activePassword =
-        /** @type {chrome.passwordsPrivate.PasswordUiEntry} */(menu.itemData);
-    menu.closeMenu();
+  onMenuEditPasswordTap_: function(e) {
+    e.preventDefault();
+    /** @type {CrActionMenuElement} */(this.$.menu).close();
+    this.showPasswordEditDialog_ = true;
   },
 
   /** @private */
-  unstampPasswordEditDialog_: function(e) {
-    this.activePassword = null;
+  onPasswordEditDialogClosed_: function() {
+    this.showPasswordEditDialog_ = false;
   },
 
   /**
@@ -144,11 +130,8 @@ Polymer({
    * @private
    */
   onMenuRemovePasswordTap_: function() {
-    var menu = /** @type {CrSharedMenuElement} */(this.$.menu);
-    var data =
-        /** @type {chrome.passwordsPrivate.PasswordUiEntry} */(menu.itemData);
-    this.fire('remove-saved-password', data.loginPair);
-    menu.closeMenu();
+    this.fire('remove-saved-password', this.activePassword.loginPair);
+    /** @type {CrActionMenuElement} */(this.$.menu).close();
   },
 
   /**
@@ -169,25 +152,18 @@ Polymer({
   getEmptyPassword_: function(length) { return ' '.repeat(length); },
 
   /**
-   * Toggles the overflow menu.
-   * @param {!Event} e The polymer event.
+   * Opens the password action menu.
    * @private
    */
   onPasswordMenuTap_: function(e) {
-    var menu = /** @type {CrSharedMenuElement} */(this.$.menu);
+    var menu = /** @type {!CrActionMenuElement} */(this.$.menu);
     var target = /** @type {!Element} */(Polymer.dom(e).localTarget);
     var passwordUiEntryEvent = /** @type {!PasswordUiEntryEvent} */(e);
 
-    menu.toggleMenu(target, passwordUiEntryEvent.model.item);
-    e.stopPropagation();  // Prevent the tap event from closing the menu.
-  },
-
-  /**
-   * Closes the overflow menu.
-   * @private
-   */
-  closeMenu_: function() {
-    /** @type {CrSharedMenuElement} */(this.$.menu).closeMenu();
+    this.activePassword =
+        /** @type {!chrome.passwordsPrivate.PasswordUiEntry} */ (
+            passwordUiEntryEvent.model.item);
+    menu.showAt(target);
   },
 
   /**

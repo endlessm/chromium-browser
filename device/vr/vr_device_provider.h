@@ -9,7 +9,6 @@
 
 namespace device {
 
-class VRClientDispatcher;
 class VRDevice;
 
 class VRDeviceProvider {
@@ -24,7 +23,7 @@ class VRDeviceProvider {
 
   virtual void PollEvents() {}
 
-  virtual void SetClient(VRClientDispatcher* client) {}
+  virtual void SetListeningForActivate(bool listening) {}
 };
 
 }  // namespace device

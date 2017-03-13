@@ -7,6 +7,7 @@
 
 #include "core/CoreExport.h"
 #include "core/page/scrolling/RootScrollerController.h"
+#include "platform/geometry/IntSize.h"
 #include "platform/heap/Handle.h"
 
 namespace blink {
@@ -14,15 +15,17 @@ namespace blink {
 class Element;
 class FrameHost;
 class GraphicsLayer;
+class PaintLayer;
 class RootFrameViewport;
 class ScrollStateCallback;
+class ScrollableArea;
 class ViewportScrollCallback;
 
 // This class manages the the page level aspects of the root scroller.  That
 // is, given all the iframes on a page and their individual root scrollers,
 // this class will determine which ultimate Element should be used as the root
-// scroller and ensures that Element is used to scroll top controls and provide
-// overscroll effects.
+// scroller and ensures that Element is used to scroll browser controls and
+// provide overscroll effects.
 // TODO(bokan): This class is currently OOPIF unaware. crbug.com/642378.
 class CORE_EXPORT TopDocumentRootScrollerController
     : public GarbageCollected<TopDocumentRootScrollerController> {
@@ -35,8 +38,12 @@ class CORE_EXPORT TopDocumentRootScrollerController
   // update the compositor when the effective root scroller changes.
   void didUpdateCompositing();
 
+  // PaintLayerScrollableAreas need to notify this class when they're being
+  // disposed so that we can remove them as the root scroller.
+  void didDisposeScrollableArea(ScrollableArea&);
+
   // This method needs to be called to create a ViewportScrollCallback that
-  // will be used to apply viewport scrolling actions like top controls
+  // will be used to apply viewport scrolling actions like browser controls
   // movement and overscroll glow.
   void initializeViewportScrollCallback(RootFrameViewport&);
 
@@ -50,11 +57,25 @@ class CORE_EXPORT TopDocumentRootScrollerController
   // Returns the GraphicsLayer for the global root scroller.
   GraphicsLayer* rootScrollerLayer() const;
 
+  PaintLayer* rootScrollerPaintLayer() const;
+
   // Returns the Element that's the global root scroller.
   Element* globalRootScroller() const;
 
   // Called when the root scroller in any frames on the page has changed.
   void didChangeRootScroller();
+
+  void mainFrameViewResized();
+
+  // Returns the ScrollableArea associated with the globalRootScroller(). Note,
+  // this isn't necessarily the PLSA belonging to the root scroller Element's
+  // LayoutBox.  If the root scroller is the documentElement then we use the
+  // FrameView (or LayoutView if root-layer-scrolls).
+  ScrollableArea* rootScrollerArea() const;
+
+  // Returns the size we should use for the root scroller, accounting for top
+  // controls adjustment and using the root FrameView.
+  IntSize rootScrollerVisibleArea() const;
 
  private:
   TopDocumentRootScrollerController(FrameHost&);
@@ -74,13 +95,13 @@ class CORE_EXPORT TopDocumentRootScrollerController
 
   void setNeedsCompositingInputsUpdateOnGlobalRootScroller();
 
-  // The apply-scroll callback that moves top controls and produces
+  // The apply-scroll callback that moves browser controls and produces
   // overscroll effects. This class makes sure this callback is set on the
   // appropriate root scroller element.
   Member<ViewportScrollCallback> m_viewportApplyScroll;
 
   // The page level root scroller. i.e. The actual element for which
-  // scrolling should move top controls and produce overscroll glow. Once an
+  // scrolling should move browser controls and produce overscroll glow. Once an
   // m_viewportApplyScroll has been created, it will always be set on this
   // Element.
   WeakMember<Element> m_globalRootScroller;

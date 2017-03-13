@@ -13,13 +13,11 @@
 namespace blink {
 
 class Event;
-class IntRect;
 class LocalFrame;
-class RemoteDOMWindow;
 class RemoteFrameClient;
 class RemoteFrameView;
+class RemoteWindowProxyManager;
 class WebLayer;
-class WindowProxyManager;
 struct FrameLoadRequest;
 
 class CORE_EXPORT RemoteFrame final : public Frame {
@@ -30,7 +28,6 @@ class CORE_EXPORT RemoteFrame final : public Frame {
 
   // Frame overrides:
   DECLARE_VIRTUAL_TRACE();
-  DOMWindow* domWindow() const override;
   WindowProxy* windowProxy(DOMWrapperWorld&) override;
   void navigate(Document& originDocument,
                 const KURL&,
@@ -41,6 +38,7 @@ class CORE_EXPORT RemoteFrame final : public Frame {
   void detach(FrameDetachType) override;
   RemoteSecurityContext* securityContext() const override;
   void printNavigationErrorMessage(const Frame&, const char* reason) override {}
+  void printNavigationWarning(const String&) override {}
   bool prepareForCommit() override;
   bool shouldClose() override;
 
@@ -48,12 +46,8 @@ class CORE_EXPORT RemoteFrame final : public Frame {
   // process. See http://crbug.com/339659.
   void forwardInputEvent(Event*);
 
-  void frameRectsChanged(const IntRect& frameRect);
-
-  void visibilityChanged(bool visible);
-
-  void setRemotePlatformLayer(WebLayer*);
-  WebLayer* remotePlatformLayer() const { return m_remotePlatformLayer; }
+  void setWebLayer(WebLayer*);
+  WebLayer* webLayer() const { return m_webLayer; }
 
   void advanceFocus(WebFocusType, LocalFrame* source);
 
@@ -68,9 +62,8 @@ class CORE_EXPORT RemoteFrame final : public Frame {
   RemoteFrame(RemoteFrameClient*, FrameHost*, FrameOwner*);
 
   // Internal Frame helper overrides:
-  WindowProxyManager* getWindowProxyManager() const override {
-    return m_windowProxyManager.get();
-  }
+  WindowProxyManagerBase* getWindowProxyManager() const override;
+
   // Intentionally private to prevent redundant checks when the type is
   // already RemoteFrame.
   bool isLocalFrame() const override { return false; }
@@ -80,9 +73,8 @@ class CORE_EXPORT RemoteFrame final : public Frame {
 
   Member<RemoteFrameView> m_view;
   Member<RemoteSecurityContext> m_securityContext;
-  Member<RemoteDOMWindow> m_domWindow;
-  Member<WindowProxyManager> m_windowProxyManager;
-  WebLayer* m_remotePlatformLayer;
+  Member<RemoteWindowProxyManager> m_windowProxyManager;
+  WebLayer* m_webLayer = nullptr;
 };
 
 inline RemoteFrameView* RemoteFrame::view() const {

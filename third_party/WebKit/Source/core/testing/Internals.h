@@ -27,14 +27,13 @@
 #ifndef Internals_h
 #define Internals_h
 
-#include "bindings/core/v8/ExceptionStatePlaceholder.h"
+#include "bindings/core/v8/ExceptionState.h"
 #include "bindings/core/v8/Iterable.h"
 #include "bindings/core/v8/ScriptPromise.h"
 #include "bindings/core/v8/ScriptState.h"
 #include "bindings/core/v8/ScriptValue.h"
 #include "bindings/core/v8/ScriptWrappable.h"
 #include "core/css/CSSComputedStyleDeclaration.h"
-#include "core/dom/ContextLifecycleObserver.h"
 #include "core/page/scrolling/ScrollingCoordinator.h"
 #include "platform/heap/Handle.h"
 #include "wtf/Forward.h"
@@ -42,6 +41,7 @@
 
 namespace blink {
 
+class Animation;
 class CallbackFunctionTest;
 class CanvasRenderingContext;
 class ClientRect;
@@ -54,17 +54,18 @@ class DocumentMarker;
 class Element;
 class ExceptionState;
 class GCObservation;
+class HTMLInputElement;
 class HTMLMediaElement;
+class HTMLSelectElement;
 class InternalRuntimeFlags;
 class InternalSettings;
-class Iterator;
 class LayerRectList;
 class LocalDOMWindow;
 class LocalFrame;
+class Location;
 class Node;
 class OriginTrialsTest;
 class Page;
-class PrivateScriptTest;
 class Range;
 class SerializedScriptValue;
 class ShadowRoot;
@@ -75,16 +76,15 @@ template <typename NodeType>
 class StaticNodeTypeList;
 using StaticNodeList = StaticNodeTypeList<Node>;
 
-class Internals final : public GarbageCollectedFinalized<Internals>,
+class Internals final : public GarbageCollected<Internals>,
                         public ScriptWrappable,
-                        public ContextLifecycleObserver,
                         public ValueIterable<int> {
   DEFINE_WRAPPERTYPEINFO();
-  USING_GARBAGE_COLLECTED_MIXIN(Internals);
 
  public:
-  static Internals* create(ScriptState*);
-  virtual ~Internals();
+  static Internals* create(ExecutionContext* context) {
+    return new Internals(context);
+  }
 
   static void resetToConsistentState(Page*);
 
@@ -96,6 +96,7 @@ class Internals final : public GarbageCollectedFinalized<Internals>,
 
   bool isPreloaded(const String& url);
   bool isPreloadedBy(const String& url, Document*);
+  bool isLoading(const String& url);
   bool isLoadingFromMemoryCache(const String& url);
   int getResourcePriority(const String& url, Document*);
   String getResourceHeader(const String& url, const String& header, Document*);
@@ -180,6 +181,7 @@ class Internals final : public GarbageCollectedFinalized<Internals>,
 
   ClientRect* boundingBox(Element*);
 
+  void setMarker(Document*, const Range*, const String&, ExceptionState&);
   unsigned markerCountForNode(Node*, const String&, ExceptionState&);
   unsigned activeMarkerCountForNode(Node*);
   Range* markerRangeForNode(Node*,
@@ -256,7 +258,9 @@ class Internals final : public GarbageCollectedFinalized<Internals>,
   Vector<AtomicString> userPreferredLanguages() const;
   void setUserPreferredLanguages(const Vector<String>&);
 
-  unsigned activeDOMObjectCount(Document*);
+  unsigned mediaKeysCount();
+  unsigned mediaKeySessionCount();
+  unsigned suspendableObjectCount(Document*);
   unsigned wheelEventHandlerCount(Document*);
   unsigned scrollEventHandlerCount(Document*);
   unsigned touchStartOrMoveEventHandlerCount(Document*);
@@ -286,9 +290,10 @@ class Internals final : public GarbageCollectedFinalized<Internals>,
                                 bool allowChildFrameContent,
                                 ExceptionState&) const;
 
-  bool hasSpellingMarker(Document*, int from, int length);
-  bool hasGrammarMarker(Document*, int from, int length);
-  void setSpellCheckingEnabled(bool);
+  bool hasSpellingMarker(Document*, int from, int length, ExceptionState&);
+  bool hasGrammarMarker(Document*, int from, int length, ExceptionState&);
+  void setSpellCheckingEnabled(bool, ExceptionState&);
+  void replaceMisspelled(Document*, const String&, ExceptionState&);
 
   bool canHyphenate(const AtomicString& locale);
   void setMockHyphenation(const AtomicString& locale);
@@ -299,8 +304,6 @@ class Internals final : public GarbageCollectedFinalized<Internals>,
   unsigned numberOfScrollableAreas(Document*);
 
   bool isPageBoxVisible(Document*, int pageNumber);
-
-  static const char* internalsId;
 
   InternalSettings* settings() const;
   InternalRuntimeFlags* runtimeFlags() const;
@@ -333,9 +336,6 @@ class Internals final : public GarbageCollectedFinalized<Internals>,
   String dumpRefCountedInstanceCounts() const;
   LocalDOMWindow* openDummyInspectorFrontend(const String& url);
   void closeDummyInspectorFrontend();
-  Vector<unsigned long> setMemoryCacheCapacities(unsigned long minDeadBytes,
-                                                 unsigned long maxDeadBytes,
-                                                 unsigned long totalBytes);
 
   String counterValue(Element*);
 
@@ -367,12 +367,10 @@ class Internals final : public GarbageCollectedFinalized<Internals>,
 
   void setIsCursorVisible(Document*, bool, ExceptionState&);
 
-  double effectiveMediaVolume(HTMLMediaElement*);
   String effectivePreload(HTMLMediaElement*);
 
   void mediaPlayerRemoteRouteAvailabilityChanged(HTMLMediaElement*, bool);
   void mediaPlayerPlayingRemotelyChanged(HTMLMediaElement*, bool);
-  void setAllowHiddenVolumeControls(HTMLMediaElement*, bool);
 
   void registerURLSchemeAsBypassingContentSecurityPolicy(const String& scheme);
   void registerURLSchemeAsBypassingContentSecurityPolicy(
@@ -382,13 +380,15 @@ class Internals final : public GarbageCollectedFinalized<Internals>,
       const String& scheme);
 
   TypeConversions* typeConversions() const;
-  PrivateScriptTest* privateScriptTest() const;
   DictionaryTest* dictionaryTest() const;
   UnionTypesTest* unionTypesTest() const;
   OriginTrialsTest* originTrialsTest() const;
   CallbackFunctionTest* callbackFunctionTest() const;
 
   Vector<String> getReferencedFilePaths() const;
+
+  void startStoringCompositedLayerDebugInfo(Document*, ExceptionState&);
+  void stopStoringCompositedLayerDebugInfo(Document*, ExceptionState&);
 
   void startTrackingRepaints(Document*, ExceptionState&);
   void stopTrackingRepaints(Document*, ExceptionState&);
@@ -450,7 +450,7 @@ class Internals final : public GarbageCollectedFinalized<Internals>,
 
   DECLARE_TRACE();
 
-  void setValueForUser(Element*, const String&);
+  void setValueForUser(HTMLInputElement*, const String&);
 
   String textSurroundingNode(Node*, int x, int y, unsigned long maxLength);
 
@@ -487,8 +487,8 @@ class Internals final : public GarbageCollectedFinalized<Internals>,
   int visualViewportHeight();
   int visualViewportWidth();
   // The scroll position of the visual viewport relative to the document origin.
-  double visualViewportScrollX();
-  double visualViewportScrollY();
+  float visualViewportScrollX();
+  float visualViewportScrollY();
 
   // Return true if the given use counter exists for the given document.
   // |useCounterId| must be one of the values from the UseCounter::Feature enum.
@@ -511,9 +511,6 @@ class Internals final : public GarbageCollectedFinalized<Internals>,
 
   void setMediaElementNetworkState(HTMLMediaElement*, int state);
 
-  // TODO(liberato): remove once autoplay gesture override experiment concludes.
-  void triggerAutoplayViewportCheck(HTMLMediaElement*);
-
   // Returns the run state of the node's scroll animator (see
   // ScrollAnimatorCompositorCoordinater::RunState), or -1 if the node does not
   // have a scrollable area.
@@ -530,8 +527,11 @@ class Internals final : public GarbageCollectedFinalized<Internals>,
   // Intentional crash.
   void crash();
 
+  // Overrides if the device is low-end (low on memory).
+  void setIsLowEndDevice(bool);
+
  private:
-  explicit Internals(ScriptState*);
+  explicit Internals(ExecutionContext*);
   Document* contextDocument() const;
   LocalFrame* frame() const;
   Vector<String> iconURLs(Document*, int iconTypesMask) const;
@@ -542,6 +542,7 @@ class Internals final : public GarbageCollectedFinalized<Internals>,
                            unsigned index,
                            ExceptionState&);
   Member<InternalRuntimeFlags> m_runtimeFlags;
+  Member<Document> m_document;
 
   IterationSource* startIteration(ScriptState*, ExceptionState&) override;
 };

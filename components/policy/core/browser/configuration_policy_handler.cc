@@ -85,7 +85,7 @@ IntRangePolicyHandlerBase::IntRangePolicyHandlerBase(
     int min,
     int max,
     bool clamp)
-    : TypeCheckingPolicyHandler(policy_name, base::Value::TYPE_INTEGER),
+    : TypeCheckingPolicyHandler(policy_name, base::Value::Type::INTEGER),
       min_(min),
       max_(max),
       clamp_(clamp) {
@@ -145,7 +145,7 @@ StringMappingListPolicyHandler::StringMappingListPolicyHandler(
     const char* policy_name,
     const char* pref_path,
     const GenerateMapCallback& callback)
-    : TypeCheckingPolicyHandler(policy_name, base::Value::TYPE_LIST),
+    : TypeCheckingPolicyHandler(policy_name, base::Value::Type::LIST),
       pref_path_(pref_path),
       map_getter_(callback) {}
 
@@ -182,14 +182,13 @@ bool StringMappingListPolicyHandler::Convert(const base::Value* input,
     return false;
   }
 
-  for (base::ListValue::const_iterator entry(list_value->begin());
-       entry != list_value->end(); ++entry) {
+  for (auto entry = list_value->begin(); entry != list_value->end(); ++entry) {
     std::string entry_value;
     if (!(*entry)->GetAsString(&entry_value)) {
       if (errors) {
         errors->AddError(policy_name(), entry - list_value->begin(),
                          IDS_POLICY_TYPE_ERROR,
-                         base::Value::GetTypeName(base::Value::TYPE_STRING));
+                         base::Value::GetTypeName(base::Value::Type::STRING));
       }
       continue;
     }
@@ -216,14 +215,12 @@ std::unique_ptr<base::Value> StringMappingListPolicyHandler::Map(
   if (map_.empty())
     map_getter_.Run(&map_);
 
-  std::unique_ptr<base::Value> return_value;
-  for (const auto* mapping_entry : map_) {
+  for (const auto& mapping_entry : map_) {
     if (mapping_entry->enum_value == entry_value) {
-      return_value = base::WrapUnique(mapping_entry->mapped_value->DeepCopy());
-      break;
+      return mapping_entry->mapped_value->CreateDeepCopy();
     }
   }
-  return return_value;
+  return nullptr;
 }
 
 // IntRangePolicyHandler implementation ----------------------------------------
@@ -412,7 +409,8 @@ void SimpleSchemaValidatingPolicyHandler::ApplyPolicySettings(
 // LegacyPoliciesDeprecatingPolicyHandler implementation -----------------------
 
 LegacyPoliciesDeprecatingPolicyHandler::LegacyPoliciesDeprecatingPolicyHandler(
-    ScopedVector<ConfigurationPolicyHandler> legacy_policy_handlers,
+    std::vector<std::unique_ptr<ConfigurationPolicyHandler>>
+        legacy_policy_handlers,
     std::unique_ptr<SchemaValidatingPolicyHandler> new_policy_handler)
     : legacy_policy_handlers_(std::move(legacy_policy_handlers)),
       new_policy_handler_(std::move(new_policy_handler)) {}
@@ -428,9 +426,8 @@ bool LegacyPoliciesDeprecatingPolicyHandler::CheckPolicySettings(
     return new_policy_handler_->CheckPolicySettings(policies, errors);
 
   // The new policy is not set, fall back to legacy ones.
-  ScopedVector<ConfigurationPolicyHandler>::iterator handler;
   bool valid_policy_found = false;
-  for (auto* handler : legacy_policy_handlers_) {
+  for (const auto& handler : legacy_policy_handlers_) {
     if (handler->CheckPolicySettings(policies, errors))
       valid_policy_found = true;
   }
@@ -449,7 +446,7 @@ void LegacyPoliciesDeprecatingPolicyHandler::ApplyPolicySettingsWithParameters(
 
   // The new policy is not set, fall back to legacy ones.
   PolicyErrorMap scoped_errors;
-  for (auto* handler : legacy_policy_handlers_) {
+  for (const auto& handler : legacy_policy_handlers_) {
     if (handler->CheckPolicySettings(policies, &scoped_errors))
       handler->ApplyPolicySettingsWithParameters(policies, parameters, prefs);
   }

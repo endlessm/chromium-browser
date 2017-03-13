@@ -1,2 +1,7 @@
+/.venv/
+/.full_venv/
+
+# TODO(ayatane): These are deprecated by the new virtualenv
 /pip_packages/
 /venv/
+.venv_lock

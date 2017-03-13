@@ -1,119 +1,131 @@
-
 // Copyright 2014 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
-
 /**
- * @constructor
- * @implements {WebInspector.SourcesView.EditorAction}
+ * @implements {Sources.SourcesView.EditorAction}
+ * @unrestricted
  */
-WebInspector.InplaceFormatterEditorAction = function()
-{
-}
+Sources.InplaceFormatterEditorAction = class {
+  /**
+   * @param {!Common.Event} event
+   */
+  _editorSelected(event) {
+    var uiSourceCode = /** @type {!Workspace.UISourceCode} */ (event.data);
+    this._updateButton(uiSourceCode);
+  }
 
-WebInspector.InplaceFormatterEditorAction.prototype = {
+  /**
+   * @param {!Common.Event} event
+   */
+  _editorClosed(event) {
+    var wasSelected = /** @type {boolean} */ (event.data.wasSelected);
+    if (wasSelected)
+      this._updateButton(null);
+  }
+
+  /**
+   * @param {?Workspace.UISourceCode} uiSourceCode
+   */
+  _updateButton(uiSourceCode) {
+    this._button.element.classList.toggle('hidden', !this._isFormattable(uiSourceCode));
+  }
+
+  /**
+   * @override
+   * @param {!Sources.SourcesView} sourcesView
+   * @return {!UI.ToolbarButton}
+   */
+  button(sourcesView) {
+    if (this._button)
+      return this._button;
+
+    this._sourcesView = sourcesView;
+    this._sourcesView.addEventListener(Sources.SourcesView.Events.EditorSelected, this._editorSelected.bind(this));
+    this._sourcesView.addEventListener(Sources.SourcesView.Events.EditorClosed, this._editorClosed.bind(this));
+
+    this._button = new UI.ToolbarButton(Common.UIString('Format'), 'largeicon-pretty-print');
+    this._button.addEventListener(UI.ToolbarButton.Events.Click, this._formatSourceInPlace, this);
+    this._updateButton(sourcesView.currentUISourceCode());
+
+    return this._button;
+  }
+
+  /**
+   * @param {?Workspace.UISourceCode} uiSourceCode
+   * @return {boolean}
+   */
+  _isFormattable(uiSourceCode) {
+    if (!uiSourceCode)
+      return false;
+    if (uiSourceCode.project().canSetFileContent())
+      return true;
+    if (Persistence.persistence.binding(uiSourceCode))
+      return true;
+    return uiSourceCode.contentType().isStyleSheet();
+  }
+
+  /**
+   * @param {!Common.Event} event
+   */
+  _formatSourceInPlace(event) {
+    var uiSourceCode = this._sourcesView.currentUISourceCode();
+    if (!this._isFormattable(uiSourceCode))
+      return;
+
+    if (uiSourceCode.isDirty())
+      contentLoaded.call(this, uiSourceCode.workingCopy());
+    else
+      uiSourceCode.requestContent().then(contentLoaded.bind(this));
+
     /**
-     * @param {!WebInspector.Event} event
+     * @this {Sources.InplaceFormatterEditorAction}
+     * @param {?string} content
      */
-    _editorSelected: function(event)
-    {
-        var uiSourceCode = /** @type {!WebInspector.UISourceCode} */ (event.data);
-        this._updateButton(uiSourceCode);
-    },
+    function contentLoaded(content) {
+      var highlighterType = Bindings.NetworkProject.uiSourceCodeMimeType(uiSourceCode);
+      Sources.Formatter.format(uiSourceCode.contentType(), highlighterType, content || '', innerCallback.bind(this));
+    }
 
     /**
-     * @param {!WebInspector.Event} event
+     * @this {Sources.InplaceFormatterEditorAction}
+     * @param {string} formattedContent
+     * @param {!Sources.FormatterSourceMapping} formatterMapping
      */
-    _editorClosed: function(event)
-    {
-        var wasSelected = /** @type {boolean} */ (event.data.wasSelected);
-        if (wasSelected)
-            this._updateButton(null);
-    },
+    function innerCallback(formattedContent, formatterMapping) {
+      if (uiSourceCode.workingCopy() === formattedContent)
+        return;
+      var sourceFrame = this._sourcesView.viewForFile(uiSourceCode);
+      var start = [0, 0];
+      if (sourceFrame) {
+        var selection = sourceFrame.selection();
+        start = formatterMapping.originalToFormatted(selection.startLine, selection.startColumn);
+      }
+      uiSourceCode.setWorkingCopy(formattedContent);
+      this._formatDecorations(uiSourceCode, formatterMapping);
 
-    /**
-     * @param {?WebInspector.UISourceCode} uiSourceCode
-     */
-    _updateButton: function(uiSourceCode)
-    {
-        this._button.element.classList.toggle("hidden", !this._isFormattable(uiSourceCode));
-    },
+      this._sourcesView.showSourceLocation(uiSourceCode, start[0], start[1]);
+    }
+  }
 
-    /**
-     * @override
-     * @param {!WebInspector.SourcesView} sourcesView
-     * @return {!WebInspector.ToolbarButton}
-     */
-    button: function(sourcesView)
-    {
-        if (this._button)
-            return this._button;
+  /**
+   * @param {!Workspace.UISourceCode} uiSourceCode
+   * @param {!Sources.FormatterSourceMapping} sourceMapping
+   */
+  _formatDecorations(uiSourceCode, sourceMapping) {
+    var decorations = uiSourceCode.allDecorations();
+    if (!decorations.length)
+      return;
 
-        this._sourcesView = sourcesView;
-        this._sourcesView.addEventListener(WebInspector.SourcesView.Events.EditorSelected, this._editorSelected.bind(this));
-        this._sourcesView.addEventListener(WebInspector.SourcesView.Events.EditorClosed, this._editorClosed.bind(this));
+    uiSourceCode.removeAllDecorations();
 
-        this._button = new WebInspector.ToolbarButton(WebInspector.UIString("Format"), "format-toolbar-item");
-        this._button.addEventListener("click", this._formatSourceInPlace, this);
-        this._updateButton(sourcesView.currentUISourceCode());
+    for (var decoration of decorations) {
+      var range = decoration.range();
+      var startLocation = sourceMapping.originalToFormatted(range.startLine, range.startColumn);
+      var endLocation = sourceMapping.originalToFormatted(range.endLine, range.endColumn);
 
-        return this._button;
-    },
-
-    /**
-     * @param {?WebInspector.UISourceCode} uiSourceCode
-     * @return {boolean}
-     */
-    _isFormattable: function(uiSourceCode)
-    {
-        if (!uiSourceCode)
-            return false;
-        if (uiSourceCode.project().type() === WebInspector.projectTypes.FileSystem)
-            return true;
-        if (WebInspector.persistence.binding(uiSourceCode))
-            return true;
-        return uiSourceCode.contentType().isStyleSheet()
-            || uiSourceCode.project().type() === WebInspector.projectTypes.Snippets;
-    },
-
-    _formatSourceInPlace: function()
-    {
-        var uiSourceCode = this._sourcesView.currentUISourceCode();
-        if (!this._isFormattable(uiSourceCode))
-            return;
-
-        if (uiSourceCode.isDirty())
-            contentLoaded.call(this, uiSourceCode.workingCopy());
-        else
-            uiSourceCode.requestContent().then(contentLoaded.bind(this));
-
-        /**
-         * @this {WebInspector.InplaceFormatterEditorAction}
-         * @param {?string} content
-         */
-        function contentLoaded(content)
-        {
-            var highlighterType = WebInspector.NetworkProject.uiSourceCodeMimeType(uiSourceCode);
-            WebInspector.Formatter.format(uiSourceCode.contentType(), highlighterType, content || "", innerCallback.bind(this));
-        }
-
-        /**
-         * @this {WebInspector.InplaceFormatterEditorAction}
-         * @param {string} formattedContent
-         * @param {!WebInspector.FormatterSourceMapping} formatterMapping
-         */
-        function innerCallback(formattedContent, formatterMapping)
-        {
-            if (uiSourceCode.workingCopy() === formattedContent)
-                return;
-            var sourceFrame = this._sourcesView.viewForFile(uiSourceCode);
-            var start = [0, 0];
-            if (sourceFrame) {
-                var selection = sourceFrame.selection();
-                start = formatterMapping.originalToFormatted(selection.startLine, selection.startColumn);
-            }
-            uiSourceCode.setWorkingCopy(formattedContent);
-            this._sourcesView.showSourceLocation(uiSourceCode, start[0], start[1]);
-        }
-    },
-}
+      uiSourceCode.addDecoration(
+          new Common.TextRange(...startLocation, ...endLocation),
+          /** @type {string} */ (decoration.type()), decoration.data());
+    }
+  }
+};

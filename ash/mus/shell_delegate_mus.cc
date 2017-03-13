@@ -7,27 +7,19 @@
 #include <utility>
 
 #include "ash/common/gpu_support_stub.h"
-#include "ash/common/media_delegate.h"
 #include "ash/common/palette_delegate.h"
 #include "ash/common/session/session_state_delegate.h"
 #include "ash/common/wm_shell.h"
 #include "ash/mus/accessibility_delegate_mus.h"
 #include "ash/mus/context_menu_mus.h"
-#include "ash/mus/new_window_delegate_mus.h"
 #include "ash/mus/shelf_delegate_mus.h"
+#include "ash/mus/system_tray_delegate_mus.h"
 #include "ash/mus/wallpaper_delegate_mus.h"
 #include "base/memory/ptr_util.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_util.h"
 #include "components/user_manager/user_info_impl.h"
-#include "ui/app_list/presenter/app_list_presenter.h"
 #include "ui/gfx/image/image.h"
-
-#if defined(OS_CHROMEOS)
-#include "ash/mus/system_tray_delegate_mus.h"
-#else
-#include "ash/common/system/tray/default_system_tray_delegate.h"
-#endif
 
 namespace ash {
 namespace {
@@ -48,7 +40,7 @@ class SessionStateDelegateStub : public SessionStateDelegate {
   bool IsActiveUserSessionStarted() const override { return true; }
   bool CanLockScreen() const override { return true; }
   bool IsScreenLocked() const override { return screen_locked_; }
-  bool ShouldLockScreenBeforeSuspending() const override { return false; }
+  bool ShouldLockScreenAutomatically() const override { return false; }
   void LockScreen() override {
     screen_locked_ = true;
     NOTIMPLEMENTED();
@@ -58,7 +50,9 @@ class SessionStateDelegateStub : public SessionStateDelegate {
     screen_locked_ = false;
   }
   bool IsUserSessionBlocked() const override { return false; }
-  SessionState GetSessionState() const override { return SESSION_STATE_ACTIVE; }
+  session_manager::SessionState GetSessionState() const override {
+    return session_manager::SessionState::ACTIVE;
+  }
   const user_manager::UserInfo* GetUserInfo(UserIndex index) const override {
     return user_info_.get();
   }
@@ -88,40 +82,19 @@ class SessionStateDelegateStub : public SessionStateDelegate {
   DISALLOW_COPY_AND_ASSIGN(SessionStateDelegateStub);
 };
 
-class MediaDelegateStub : public MediaDelegate {
- public:
-  MediaDelegateStub() {}
-  ~MediaDelegateStub() override {}
-
-  // MediaDelegate:
-  void HandleMediaNextTrack() override { NOTIMPLEMENTED(); }
-  void HandleMediaPlayPause() override { NOTIMPLEMENTED(); }
-  void HandleMediaPrevTrack() override { NOTIMPLEMENTED(); }
-  MediaCaptureState GetMediaCaptureState(UserIndex index) override {
-    NOTIMPLEMENTED();
-    return MEDIA_CAPTURE_NONE;
-  }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(MediaDelegateStub);
-};
-
 }  // namespace
 
-ShellDelegateMus::ShellDelegateMus(shell::Connector* connector)
-    : connector_(connector), app_list_presenter_(connector) {
-  // |connector_| may be null in tests.
+ShellDelegateMus::ShellDelegateMus(
+    service_manager::Connector* connector,
+    std::unique_ptr<SystemTrayDelegate> system_tray_delegate_for_test)
+    : connector_(connector),
+      system_tray_delegate_for_test_(std::move(system_tray_delegate_for_test)) {
 }
 
 ShellDelegateMus::~ShellDelegateMus() {}
 
-::shell::Connector* ShellDelegateMus::GetShellConnector() const {
+service_manager::Connector* ShellDelegateMus::GetShellConnector() const {
   return connector_;
-}
-
-bool ShellDelegateMus::IsFirstRunAfterBoot() const {
-  NOTIMPLEMENTED();
-  return false;
 }
 
 bool ShellDelegateMus::IsIncognitoAllowed() const {
@@ -170,26 +143,18 @@ void ShellDelegateMus::OpenUrlFromArc(const GURL& url) {
   NOTIMPLEMENTED();
 }
 
-app_list::AppListPresenter* ShellDelegateMus::GetAppListPresenter() {
-  return &app_list_presenter_;
-}
-
 ShelfDelegate* ShellDelegateMus::CreateShelfDelegate(ShelfModel* model) {
-  return new ShelfDelegateMus(WmShell::Get()->shelf_model());
+  return new ShelfDelegateMus();
 }
 
 SystemTrayDelegate* ShellDelegateMus::CreateSystemTrayDelegate() {
-#if defined(OS_CHROMEOS)
+  if (system_tray_delegate_for_test_)
+    return system_tray_delegate_for_test_.release();
   return new SystemTrayDelegateMus();
-#else
-  // Windows and Linux do not support the services required for most system tray
-  // items. Use the same stub delegate as ash_shell_with_content.
-  return new DefaultSystemTrayDelegate();
-#endif
 }
 
 std::unique_ptr<WallpaperDelegate> ShellDelegateMus::CreateWallpaperDelegate() {
-  return base::MakeUnique<WallpaperDelegateMus>(connector_);
+  return base::MakeUnique<WallpaperDelegateMus>();
 }
 
 SessionStateDelegate* ShellDelegateMus::CreateSessionStateDelegate() {
@@ -200,16 +165,6 @@ SessionStateDelegate* ShellDelegateMus::CreateSessionStateDelegate() {
 
 AccessibilityDelegate* ShellDelegateMus::CreateAccessibilityDelegate() {
   return new AccessibilityDelegateMus(connector_);
-}
-
-NewWindowDelegate* ShellDelegateMus::CreateNewWindowDelegate() {
-  return new mus::NewWindowDelegateMus;
-}
-
-MediaDelegate* ShellDelegateMus::CreateMediaDelegate() {
-  // TODO: http://crbug.com/647409.
-  NOTIMPLEMENTED() << " Using a stub MediaDelegate implementation";
-  return new MediaDelegateStub;
 }
 
 std::unique_ptr<PaletteDelegate> ShellDelegateMus::CreatePaletteDelegate() {
@@ -237,6 +192,20 @@ base::string16 ShellDelegateMus::GetProductName() const {
 gfx::Image ShellDelegateMus::GetDeprecatedAcceleratorImage() const {
   NOTIMPLEMENTED();
   return gfx::Image();
+}
+
+bool ShellDelegateMus::IsTouchscreenEnabledInPrefs(bool use_local_state) const {
+  NOTIMPLEMENTED();
+  return true;
+}
+
+void ShellDelegateMus::SetTouchscreenEnabledInPrefs(bool enabled,
+                                                    bool use_local_state) {
+  NOTIMPLEMENTED();
+}
+
+void ShellDelegateMus::UpdateTouchscreenStatusFromPrefs() {
+  NOTIMPLEMENTED();
 }
 
 }  // namespace ash

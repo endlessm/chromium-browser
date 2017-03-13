@@ -160,7 +160,7 @@ BIGNUM *bn_expand(BIGNUM *bn, size_t bits);
 #define BN_TBIT		(0x8000000000000000UL)
 #define BN_DEC_CONV	(10000000000000000000UL)
 #define BN_DEC_NUM	19
-#define TOBN(hi, lo) ((BN_ULONG)hi << 32 | lo)
+#define TOBN(hi, lo) ((BN_ULONG)(hi) << 32 | (lo))
 
 #elif defined(OPENSSL_32_BIT)
 
@@ -181,17 +181,17 @@ BIGNUM *bn_expand(BIGNUM *bn, size_t bits);
 #define BN_TBIT		(0x80000000UL)
 #define BN_DEC_CONV	(1000000000UL)
 #define BN_DEC_NUM	9
-#define TOBN(hi, lo) lo, hi
+#define TOBN(hi, lo) (lo), (hi)
 
 #else
 #error "Must define either OPENSSL_32_BIT or OPENSSL_64_BIT"
 #endif
 
 
-#define STATIC_BIGNUM(x)                                \
-  {                                                     \
-    (BN_ULONG *)x, sizeof(x) / sizeof(BN_ULONG),        \
-    sizeof(x) / sizeof(BN_ULONG), 0, BN_FLG_STATIC_DATA \
+#define STATIC_BIGNUM(x)                                    \
+  {                                                         \
+    (BN_ULONG *)(x), sizeof(x) / sizeof(BN_ULONG),          \
+        sizeof(x) / sizeof(BN_ULONG), 0, BN_FLG_STATIC_DATA \
   }
 
 #if defined(BN_ULLONG)
@@ -228,6 +228,7 @@ int bn_mul_mont(BN_ULONG *rp, const BN_ULONG *ap, const BN_ULONG *bp,
                 const BN_ULONG *np, const BN_ULONG *n0, int num);
 
 uint64_t bn_mont_n0(const BIGNUM *n);
+int bn_mod_exp_base_2_vartime(BIGNUM *r, unsigned p, const BIGNUM *n);
 
 #if defined(OPENSSL_X86_64) && defined(_MSC_VER)
 #define BN_UMULT_LOHI(low, high, a, b) ((low) = _umul128((a), (b), &(high)))
@@ -236,6 +237,18 @@ uint64_t bn_mont_n0(const BIGNUM *n);
 #if !defined(BN_ULLONG) && !defined(BN_UMULT_LOHI)
 #error "Either BN_ULLONG or BN_UMULT_LOHI must be defined on every platform."
 #endif
+
+/* bn_mod_inverse_prime sets |out| to the modular inverse of |a| modulo |p|,
+ * computed with Fermat's Little Theorem. It returns one on success and zero on
+ * error. If |mont_p| is NULL, one will be computed temporarily. */
+int bn_mod_inverse_prime(BIGNUM *out, const BIGNUM *a, const BIGNUM *p,
+                         BN_CTX *ctx, const BN_MONT_CTX *mont_p);
+
+/* bn_mod_inverse_secret_prime behaves like |bn_mod_inverse_prime| but uses
+ * |BN_mod_exp_mont_consttime| instead of |BN_mod_exp_mont| in hopes of
+ * protecting the exponent. */
+int bn_mod_inverse_secret_prime(BIGNUM *out, const BIGNUM *a, const BIGNUM *p,
+                                BN_CTX *ctx, const BN_MONT_CTX *mont_p);
 
 
 #if defined(__cplusplus)

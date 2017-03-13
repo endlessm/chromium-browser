@@ -2,8 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "base/memory/ptr_util.h"
 #include "base/strings/utf_string_conversions.h"
-#include "ui/accessibility/ax_view_state.h"
+#include "ui/accessibility/ax_node_data.h"
 #include "ui/gfx/geometry/rect_conversions.h"
 #include "ui/views/accessibility/native_view_accessibility.h"
 #include "ui/views/controls/button/button.h"
@@ -34,7 +35,7 @@ class NativeViewAccessibilityTest : public ViewsTestBase {
 
     widget_ = new views::Widget;
     views::Widget::InitParams params =
-        CreateParams(views::Widget::InitParams::TYPE_WINDOW_FRAMELESS);
+        CreateParams(views::Widget::InitParams::TYPE_WINDOW);
     params.bounds = gfx::Rect(0, 0, 200, 200);
     widget_->Init(params);
 
@@ -46,7 +47,8 @@ class NativeViewAccessibilityTest : public ViewsTestBase {
     button_->AddChildView(label_);
     label_accessibility_ = NativeViewAccessibility::Create(label_);
 
-    widget_->SetContentsView(button_);
+    widget_->GetContentsView()->AddChildView(button_);
+    widget_->Show();
   }
 
   void TearDown() override {
@@ -85,6 +87,38 @@ TEST_F(NativeViewAccessibilityTest, LabelIsChildOfButton) {
             button_accessibility_->ChildAtIndex(0));
   EXPECT_EQ(button_->GetNativeViewAccessible(),
             label_accessibility_->GetParent());
+}
+
+// Verify Views with invisible ancestors have AX_STATE_INVISIBLE.
+TEST_F(NativeViewAccessibilityTest, InvisibleViews) {
+  EXPECT_TRUE(widget_->IsVisible());
+  EXPECT_FALSE(
+      button_accessibility_->GetData().HasStateFlag(ui::AX_STATE_INVISIBLE));
+  EXPECT_FALSE(
+      label_accessibility_->GetData().HasStateFlag(ui::AX_STATE_INVISIBLE));
+  button_->SetVisible(false);
+  EXPECT_TRUE(
+      button_accessibility_->GetData().HasStateFlag(ui::AX_STATE_INVISIBLE));
+  EXPECT_TRUE(
+      label_accessibility_->GetData().HasStateFlag(ui::AX_STATE_INVISIBLE));
+}
+
+TEST_F(NativeViewAccessibilityTest, WritableFocus) {
+  // Make |button_| focusable, and focus/unfocus it via NativeViewAccessibility.
+  button_->SetFocusBehavior(View::FocusBehavior::ALWAYS);
+  EXPECT_EQ(nullptr, button_->GetFocusManager()->GetFocusedView());
+  EXPECT_EQ(nullptr, button_accessibility_->GetFocus());
+  EXPECT_TRUE(button_accessibility_->SetFocused(true));
+  EXPECT_EQ(button_, button_->GetFocusManager()->GetFocusedView());
+  EXPECT_EQ(button_->GetNativeViewAccessible(),
+            button_accessibility_->GetFocus());
+  EXPECT_TRUE(button_accessibility_->SetFocused(false));
+  EXPECT_EQ(nullptr, button_->GetFocusManager()->GetFocusedView());
+  EXPECT_EQ(nullptr, button_accessibility_->GetFocus());
+
+  // If not focusable at all, SetFocused() should return false.
+  button_->SetEnabled(false);
+  EXPECT_FALSE(button_accessibility_->SetFocused(true));
 }
 
 // Subclass of NativeViewAccessibility that destroys itself when its

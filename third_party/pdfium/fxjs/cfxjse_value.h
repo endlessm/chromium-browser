@@ -7,6 +7,9 @@
 #ifndef FXJS_CFXJSE_VALUE_H_
 #define FXJS_CFXJSE_VALUE_H_
 
+#include <memory>
+#include <vector>
+
 #include "core/fxcrt/fx_string.h"
 #include "core/fxcrt/fx_system.h"
 #include "fxjs/cfxjse_isolatetracker.h"
@@ -21,17 +24,17 @@ class CFXJSE_Value {
   explicit CFXJSE_Value(v8::Isolate* pIsolate);
   ~CFXJSE_Value();
 
-  FX_BOOL IsUndefined() const;
-  FX_BOOL IsNull() const;
-  FX_BOOL IsBoolean() const;
-  FX_BOOL IsString() const;
-  FX_BOOL IsNumber() const;
-  FX_BOOL IsInteger() const;
-  FX_BOOL IsObject() const;
-  FX_BOOL IsArray() const;
-  FX_BOOL IsFunction() const;
-  FX_BOOL IsDate() const;
-  FX_BOOL ToBoolean() const;
+  bool IsUndefined() const;
+  bool IsNull() const;
+  bool IsBoolean() const;
+  bool IsString() const;
+  bool IsNumber() const;
+  bool IsInteger() const;
+  bool IsObject() const;
+  bool IsArray() const;
+  bool IsFunction() const;
+  bool IsDate() const;
+  bool ToBoolean() const;
   FX_FLOAT ToFloat() const;
   double ToDouble() const;
   int32_t ToInteger() const;
@@ -43,7 +46,7 @@ class CFXJSE_Value {
 
   void SetUndefined();
   void SetNull();
-  void SetBoolean(FX_BOOL bBoolean);
+  void SetBoolean(bool bBoolean);
   void SetInteger(int32_t nInteger);
   void SetDouble(double dDouble);
   void SetString(const CFX_ByteStringC& szString);
@@ -52,25 +55,25 @@ class CFXJSE_Value {
 
   void SetObject(CFXJSE_HostObject* lpObject, CFXJSE_Class* pClass);
   void SetHostObject(CFXJSE_HostObject* lpObject, CFXJSE_Class* lpClass);
-  void SetArray(uint32_t uValueCount, CFXJSE_Value** rgValues);
+  void SetArray(const std::vector<std::unique_ptr<CFXJSE_Value>>& values);
   void SetDate(double dDouble);
 
-  FX_BOOL GetObjectProperty(const CFX_ByteStringC& szPropName,
+  bool GetObjectProperty(const CFX_ByteStringC& szPropName,
+                         CFXJSE_Value* lpPropValue);
+  bool SetObjectProperty(const CFX_ByteStringC& szPropName,
+                         CFXJSE_Value* lpPropValue);
+  bool GetObjectPropertyByIdx(uint32_t uPropIdx, CFXJSE_Value* lpPropValue);
+  bool SetObjectProperty(uint32_t uPropIdx, CFXJSE_Value* lpPropValue);
+  bool DeleteObjectProperty(const CFX_ByteStringC& szPropName);
+  bool HasObjectOwnProperty(const CFX_ByteStringC& szPropName,
+                            bool bUseTypeGetter);
+  bool SetObjectOwnProperty(const CFX_ByteStringC& szPropName,
                             CFXJSE_Value* lpPropValue);
-  FX_BOOL SetObjectProperty(const CFX_ByteStringC& szPropName,
-                            CFXJSE_Value* lpPropValue);
-  FX_BOOL GetObjectPropertyByIdx(uint32_t uPropIdx, CFXJSE_Value* lpPropValue);
-  FX_BOOL SetObjectProperty(uint32_t uPropIdx, CFXJSE_Value* lpPropValue);
-  FX_BOOL DeleteObjectProperty(const CFX_ByteStringC& szPropName);
-  FX_BOOL HasObjectOwnProperty(const CFX_ByteStringC& szPropName,
-                               FX_BOOL bUseTypeGetter);
-  FX_BOOL SetObjectOwnProperty(const CFX_ByteStringC& szPropName,
-                               CFXJSE_Value* lpPropValue);
-  FX_BOOL SetFunctionBind(CFXJSE_Value* lpOldFunction, CFXJSE_Value* lpNewThis);
-  FX_BOOL Call(CFXJSE_Value* lpReceiver,
-               CFXJSE_Value* lpRetValue,
-               uint32_t nArgCount,
-               CFXJSE_Value** lpArgs);
+  bool SetFunctionBind(CFXJSE_Value* lpOldFunction, CFXJSE_Value* lpNewThis);
+  bool Call(CFXJSE_Value* lpReceiver,
+            CFXJSE_Value* lpRetValue,
+            uint32_t nArgCount,
+            CFXJSE_Value** lpArgs);
 
   v8::Isolate* GetIsolate() const { return m_pIsolate; }
   const v8::Global<v8::Value>& DirectGetValue() const { return m_hValue; }

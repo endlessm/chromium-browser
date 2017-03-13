@@ -9,6 +9,7 @@
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/callback.h"
+#include "base/memory/ptr_util.h"
 #include "base/message_loop/message_loop.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_split.h"
@@ -587,6 +588,11 @@ NetworkingPrivateLinux::GetDeviceStateList() {
   properties->state = api::networking_private::DEVICE_STATE_TYPE_ENABLED;
   device_state_list->push_back(std::move(properties));
   return device_state_list;
+}
+
+std::unique_ptr<base::DictionaryValue>
+NetworkingPrivateLinux::GetGlobalPolicy() {
+  return base::MakeUnique<base::DictionaryValue>();
 }
 
 bool NetworkingPrivateLinux::EnableNetworkType(const std::string& type) {
@@ -1176,17 +1182,15 @@ bool NetworkingPrivateLinux::SetConnectionStateAndPostEvent(
 void NetworkingPrivateLinux::OnNetworksChangedEventOnUIThread(
     const GuidList& network_guids) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  FOR_EACH_OBSERVER(NetworkingPrivateDelegateObserver,
-                    network_events_observers_,
-                    OnNetworksChangedEvent(network_guids));
+  for (auto& observer : network_events_observers_)
+    observer.OnNetworksChangedEvent(network_guids);
 }
 
 void NetworkingPrivateLinux::OnNetworkListChangedEventOnUIThread(
     const GuidList& network_guids) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  FOR_EACH_OBSERVER(NetworkingPrivateDelegateObserver,
-                    network_events_observers_,
-                    OnNetworkListChangedEvent(network_guids));
+  for (auto& observer : network_events_observers_)
+    observer.OnNetworkListChangedEvent(network_guids);
 }
 
 void NetworkingPrivateLinux::PostOnNetworksChangedToUIThread(

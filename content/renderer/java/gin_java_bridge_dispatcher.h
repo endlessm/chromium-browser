@@ -16,10 +16,6 @@
 #include "content/common/android/gin_java_bridge_errors.h"
 #include "content/public/renderer/render_frame_observer.h"
 
-namespace blink {
-class WebFrame;
-}
-
 namespace content {
 
 class GinJavaBridgeObject;
@@ -38,8 +34,8 @@ class GinJavaBridgeDispatcher
   // when it is no more referenced from JS. As GinJavaBridgeObject reports
   // deletion of self to GinJavaBridgeDispatcher, we would not have stale
   // pointers here.
-  typedef IDMap<GinJavaBridgeObject, IDMapExternalPointer> ObjectMap;
-  typedef ObjectMap::KeyType ObjectID;
+  using ObjectMap = IDMap<GinJavaBridgeObject*>;
+  using ObjectID = ObjectMap::KeyType;
 
   explicit GinJavaBridgeDispatcher(RenderFrame* render_frame);
   ~GinJavaBridgeDispatcher() override;

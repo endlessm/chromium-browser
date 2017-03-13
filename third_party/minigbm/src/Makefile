@@ -8,16 +8,21 @@ PC_DEPS = libdrm
 PC_CFLAGS := $(shell $(PKG_CONFIG) --cflags $(PC_DEPS))
 PC_LIBS := $(shell $(PKG_CONFIG) --libs $(PC_DEPS))
 
-CPPFLAGS += -std=c99 -D_GNU_SOURCE=1
-CFLAGS += -Wall -Wsign-compare -Wpointer-arith -Wcast-qual -Wcast-align
+CPPFLAGS += -D_GNU_SOURCE=1
+CFLAGS += -std=c99 -Wall -Wsign-compare -Wpointer-arith -Wcast-qual \
+	  -Wcast-align -D_GNU_SOURCE=1 -D_FILE_OFFSET_BITS=64
 
-ifdef GBM_EXYNOS
+ifdef DRV_AMDGPU
+	CFLAGS += $(shell $(PKG_CONFIG) --cflags libdrm_amdgpu)
+	LDLIBS += -lamdgpuaddr
+endif
+ifdef DRV_EXYNOS
 	CFLAGS += $(shell $(PKG_CONFIG) --cflags libdrm_exynos)
 endif
-ifdef GBM_I915
+ifdef DRV_I915
 	CFLAGS += $(shell $(PKG_CONFIG) --cflags libdrm_intel)
 endif
-ifdef GBM_ROCKCHIP
+ifdef DRV_ROCKCHIP
 	CFLAGS += $(shell $(PKG_CONFIG) --cflags libdrm_rockchip)
 endif
 

@@ -10,8 +10,8 @@
 #include "build/build_config.h"
 #include "chrome/browser/devtools/devtools_toggle_action.h"
 #include "chrome/browser/ui/tabs/tab_strip_model_delegate.h"
-#include "components/security_state/security_state_model.h"
 #include "content/public/common/page_zoom.h"
+#include "printing/features/features.h"
 #include "ui/base/window_open_disposition.h"
 
 class Browser;
@@ -102,14 +102,10 @@ void ManagePasswordsForPage(Browser* browser);
 void SavePage(Browser* browser);
 bool CanSavePage(const Browser* browser);
 void ShowFindBar(Browser* browser);
-void ShowWebsiteSettings(
-    Browser* browser,
-    content::WebContents* web_contents,
-    const GURL& url,
-    const security_state::SecurityStateModel::SecurityInfo& security_info);
+bool ShowWebsiteSettings(Browser* browser, content::WebContents* web_contents);
 void Print(Browser* browser);
 bool CanPrint(Browser* browser);
-#if defined(ENABLE_BASIC_PRINTING)
+#if BUILDFLAG(ENABLE_BASIC_PRINTING)
 void BasicPrint(Browser* browser);
 bool CanBasicPrint(Browser* browser);
 #endif  // ENABLE_BASIC_PRINTING

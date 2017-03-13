@@ -8,13 +8,6 @@ namespace installer {
 
 namespace switches {
 
-// Install Chrome.
-// Currently this is only required when used in combination with kMultiInstall.
-const char kChrome[] = "chrome";
-
-// Install Chrome Frame.
-const char kChromeFrame[] = "chrome-frame";
-
 // Run the installer for Chrome SxS.
 const char kChromeSxS[] = "chrome-sxs";
 
@@ -85,10 +78,6 @@ const char kMakeChromeDefault[] = "make-chrome-default";
 
 // Tells installer to expect to be run as a subsidiary to an MSI.
 const char kMsi[] = "msi";
-
-// Tells installer to install multiple products specified on the command line.
-// (e.g. Chrome Frame, Chrome)
-const char kMultiInstall[] = "multi-install";
 
 // Useful only when used with --update-setup-exe, otherwise ignored. It
 // specifies the full path where updated setup.exe will be stored.
@@ -163,9 +152,6 @@ const char kVerboseLogging[] = "verbose-logging";
 // Show the embedded EULA dialog.
 const char kShowEula[] = "show-eula";
 
-// Show the embedded EULA dialog, relaunch metro Chrome on acceptance.
-const char kShowEulaForMetro[] = "show-eula-for-metro";
-
 // Perform the inactive user toast experiment.
 const char kInactiveUserToast[] = "inactive-user-toast";
 
@@ -209,19 +195,12 @@ const char kGoogleUpdateIsMachineEnvVar[] = "GoogleUpdateIsMachine";
 // TODO(gab): Rename setup.exe itself altogether and use the same binary for
 // Active Setup.
 const wchar_t kActiveSetupExe[] = L"chrmstp.exe";
-const wchar_t kAppLauncherGuid[] = L"{FDA71E6F-AC4C-4a00-8B70-9958A68906BF}";
 const wchar_t kChromeDll[] = L"chrome.dll";
 const wchar_t kChromeChildDll[] = L"chrome_child.dll";
 const wchar_t kChromeExe[] = L"chrome.exe";
-const wchar_t kChromeFrameDll[] = L"npchrome_frame.dll";
-const wchar_t kChromeFrameHelperDll[] = L"chrome_frame_helper.dll";
-const wchar_t kChromeFrameHelperExe[] = L"chrome_frame_helper.exe";
-const wchar_t kChromeFrameHelperWndClass[] = L"ChromeFrameHelperWindowClass";
-const wchar_t kChromeLauncherExe[] = L"chrome_launcher.exe";
 const wchar_t kChromeNewExe[] = L"new_chrome.exe";
 const wchar_t kChromeOldExe[] = L"old_chrome.exe";
 const wchar_t kCmdOnOsUpgrade[] = L"on-os-upgrade";
-const wchar_t kCmdQuickEnableCf[] = L"quick-enable-cf";
 const wchar_t kEULASentinelFile[] = L"EULA Accepted";
 const wchar_t kGoogleChromeInstallSubDir1[] = L"Google";
 const wchar_t kGoogleChromeInstallSubDir2[] = L"Chrome";
@@ -243,8 +222,6 @@ const wchar_t kInstallerResult[] = L"InstallerResult";
 const wchar_t kInstallerResultUIString[] = L"InstallerResultUIString";
 const wchar_t kInstallerSuccessLaunchCmdLine[] =
     L"InstallerSuccessLaunchCmdLine";
-
-const wchar_t kOptionMultiInstall[] = L"multi-install";
 
 // Chrome channel display names.
 const wchar_t kChromeChannelUnknown[] = L"unknown";

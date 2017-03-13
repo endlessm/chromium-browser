@@ -28,7 +28,9 @@ class UserFlow {
 
   // Indicates if screen locking should be enabled or disabled for a flow.
   virtual bool CanLockScreen() = 0;
+  virtual bool CanStartArc() = 0;
   virtual bool ShouldShowSettings() = 0;
+  virtual bool ShouldShowNotificationTray() = 0;
   virtual bool ShouldLaunchBrowser() = 0;
   virtual bool ShouldSkipPostLoginScreens() = 0;
   virtual bool SupportsEarlyRestartToApplyFlags() = 0;
@@ -55,7 +57,9 @@ class DefaultUserFlow : public UserFlow {
 
   void AppendAdditionalCommandLineSwitches() override;
   bool CanLockScreen() override;
+  bool CanStartArc() override;
   bool ShouldShowSettings() override;
+  bool ShouldShowNotificationTray() override;
   bool ShouldLaunchBrowser() override;
   bool ShouldSkipPostLoginScreens() override;
   bool SupportsEarlyRestartToApplyFlags() override;
@@ -75,6 +79,7 @@ class ExtendedUserFlow : public UserFlow {
 
   void AppendAdditionalCommandLineSwitches() override;
   bool ShouldShowSettings() override;
+  bool ShouldShowNotificationTray() override;
   void HandleOAuthTokenStatusChange(
       user_manager::User::OAuthTokenStatus status) override;
 

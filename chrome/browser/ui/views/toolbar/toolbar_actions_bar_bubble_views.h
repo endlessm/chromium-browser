@@ -12,13 +12,11 @@
 #include "ui/views/controls/button/button.h"
 #include "ui/views/controls/link_listener.h"
 
-class Profile;
 class ToolbarActionsBarBubbleDelegate;
-class ToolbarActionsBarBubbleViewsUnitTest;
+class ToolbarActionsBarBubbleViewsTest;
 
 namespace views {
 class Label;
-class LabelButton;
 class Link;
 }
 
@@ -33,9 +31,11 @@ class ToolbarActionsBarBubbleViews : public views::BubbleDialogDelegateView,
   void Show();
 
   const views::Label* item_list() const { return item_list_; }
-  const views::Link* learn_more_button() const { return learn_more_button_; }
+  const views::Link* learn_more_button() const { return link_; }
 
  private:
+  friend class ToolbarActionsBarBubbleViewsTest;
+
   // views::BubbleDialogDelegateView:
   base::string16 GetWindowTitle() const override;
   views::View* CreateExtraView() override;
@@ -52,7 +52,7 @@ class ToolbarActionsBarBubbleViews : public views::BubbleDialogDelegateView,
 
   std::unique_ptr<ToolbarActionsBarBubbleDelegate> delegate_;
   views::Label* item_list_;
-  views::Link* learn_more_button_;
+  views::Link* link_;
 
   DISALLOW_COPY_AND_ASSIGN(ToolbarActionsBarBubbleViews);
 };

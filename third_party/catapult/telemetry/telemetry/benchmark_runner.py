@@ -8,7 +8,6 @@ Handles benchmark configuration, but all the logic for
 actually running the benchmark is in Benchmark and PageRunner."""
 
 import argparse
-import hashlib
 import json
 import logging
 import os
@@ -23,6 +22,7 @@ from telemetry.internal.util import binary_manager
 from telemetry.internal.util import command_line
 from telemetry.internal.util import ps_util
 from telemetry.util import matching
+from telemetry.util import bot_utils
 
 
 # Right now, we only have one of each of our power perf bots. This means that
@@ -149,6 +149,10 @@ class List(command_line.OptparseCommand):
       parser.error('Must provide at most one benchmark name.')
 
   def Run(self, args):
+    # Set at least log info level for List command.
+    # TODO(nedn): remove this once crbug.com/656224 is resolved. The recipe
+    # should be change to use verbose logging instead.
+    logging.getLogger().setLevel(logging.INFO)
     possible_browser = browser_finder.FindBrowser(args)
     if args.browser_type in (
         'release', 'release_x64', 'debug', 'debug_x64', 'canary',
@@ -197,7 +201,7 @@ class Run(command_line.OptparseCommand):
       matching_benchmark.SetArgumentDefaults(parser)
 
   @classmethod
-  def _FindBenchmark(cls, parser, args, environment):
+  def ProcessCommandLineArgs(cls, parser, args, environment):
     all_benchmarks = _Benchmarks(environment)
     if not args.positional_args:
       possible_browser = (
@@ -232,12 +236,6 @@ class Run(command_line.OptparseCommand):
     assert issubclass(benchmark_class, benchmark.Benchmark), (
         'Trying to run a non-Benchmark?!')
 
-    return benchmark_class
-
-  @classmethod
-  def ProcessCommandLineArgs(cls, parser, args, environment):
-    benchmark_class = cls._FindBenchmark(parser, args, environment)
-
     benchmark.ProcessCommandLineArgs(parser, args)
     benchmark_class.ProcessCommandLineArgs(parser, args)
 
@@ -245,22 +243,6 @@ class Run(command_line.OptparseCommand):
 
   def Run(self, args):
     return min(255, self._benchmark().Run(args))
-
-
-class CheckIndependent(Run):
-  """Return 0 if benchmark stories are independent, 1 if not."""
-
-  usage = '[benchmark_name]'
-
-  @classmethod
-  def ProcessCommandLineArgs(cls, parser, args, environment):
-    cls._benchmark = cls._FindBenchmark(parser, args, environment)
-
-  def Run(self, args):
-    if self._benchmark.ShouldTearDownStateAfterEachStoryRun():
-      sys.exit(0)
-    else:
-      sys.exit(1)
 
 
 def _ScriptName():
@@ -360,18 +342,7 @@ def _GetJsonBenchmarkList(possible_browser, possible_reference_browser,
                 base_name]
     perf_dashboard_id = base_name
 
-    # Based on the current timings, we shift the result of the hash function to
-    # achieve better load balancing. Those shift values are to be revised when
-    # necessary. The shift value is calculated such that the total cycle time
-    # is minimized.
-    hash_shift = {
-      2 : 47,  # for old desktop configurations with 2 slaves
-      5 : 56,  # for new desktop configurations with 5 slaves
-      21 : 43  # for Android 3 slaves 7 devices configurations
-    }
-    shift = hash_shift.get(num_shards, 0)
-    base_name_hash = hashlib.sha1(base_name).hexdigest()
-    device_affinity = (int(base_name_hash, 16) >> shift) % num_shards
+    device_affinity = bot_utils.GetDeviceAffinity(num_shards, base_name)
 
     output['steps'][base_name] = {
       'cmd': ' '.join(base_cmd + [
@@ -387,14 +358,6 @@ def _GetJsonBenchmarkList(possible_browser, possible_reference_browser,
         'device_affinity': device_affinity,
         'perf_dashboard_id': perf_dashboard_id,
       }
-
-  # Make sure that page_cycler_v2.typical_25 is assigned to the same device
-  # as page_cycler.typical_25 benchmark.
-  # TODO(nednguyen): remove this hack when crbug.com/618156 is resolved.
-  if ('page_cycler_v2.typical_25' in output['steps'] and
-      'page_cycler.typical_25' in output['steps']):
-    output['steps']['page_cycler_v2.typical_25']['device_affinity'] = (
-      output['steps']['page_cycler.typical_25']['device_affinity'])
 
   return json.dumps(output, indent=2, sort_keys=True)
 
@@ -424,7 +387,7 @@ def main(environment, extra_commands=None, **log_config_kwargs):
 
   if extra_commands is None:
     extra_commands = []
-  all_commands = [Help, CheckIndependent, List, Run] + extra_commands
+  all_commands = [Help, List, Run] + extra_commands
 
   # Validate and interpret the command name.
   commands = _MatchingCommands(command_name, all_commands)
@@ -440,8 +403,7 @@ def main(environment, extra_commands=None, **log_config_kwargs):
   else:
     command = Run
 
-  if binary_manager.NeedsInit():
-    binary_manager.InitDependencyManager(environment.client_configs)
+  binary_manager.InitDependencyManager(environment.client_configs)
 
   # Parse and run the command.
   parser = command.CreateParser()

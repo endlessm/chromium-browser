@@ -75,7 +75,7 @@ class ContextFeaturesCache final
 
   Entry& entryFor(ContextFeatures::FeatureType type) {
     size_t index = static_cast<size_t>(type);
-    ASSERT_WITH_SECURITY_IMPLICATION(index < ContextFeatures::FeatureTypeSize);
+    SECURITY_DCHECK(index < ContextFeatures::FeatureTypeSize);
     return m_entries[index];
   }
 
@@ -84,6 +84,9 @@ class ContextFeaturesCache final
   DEFINE_INLINE_VIRTUAL_TRACE() { Supplement<Document>::trace(visitor); }
 
  private:
+  explicit ContextFeaturesCache(Document& document)
+      : Supplement<Document>(document) {}
+
   String m_domain;
   Entry m_entries[ContextFeatures::FeatureTypeSize];
 };
@@ -96,7 +99,7 @@ ContextFeaturesCache& ContextFeaturesCache::from(Document& document) {
   ContextFeaturesCache* cache = static_cast<ContextFeaturesCache*>(
       Supplement<Document>::from(document, supplementName()));
   if (!cache) {
-    cache = new ContextFeaturesCache();
+    cache = new ContextFeaturesCache(document);
     Supplement<Document>::provideTo(document, supplementName(), cache);
   }
 

@@ -7,6 +7,7 @@
 
 #include "platform/heap/Handle.h"
 #include "web/WebFrameWidgetBase.h"
+#include "web/WebInputMethodControllerImpl.h"
 #include "web/WebLocalFrameImpl.h"
 #include "wtf/Noncopyable.h"
 #include "wtf/RefPtr.h"
@@ -61,19 +62,10 @@ class WebViewFrameWidget : public WebFrameWidgetBase {
                            const WebFloatSize& layoutViewportDelta,
                            const WebFloatSize& elasticOverscrollDelta,
                            float scaleFactor,
-                           float topControlsShownRatioDelta) override;
+                           float browserControlsShownRatioDelta) override;
   void mouseCaptureLost() override;
   void setFocus(bool) override;
-  bool setComposition(const WebString& text,
-                      const WebVector<WebCompositionUnderline>& underlines,
-                      int selectionStart,
-                      int selectionEnd) override;
-  bool commitText(const WebString& text, int relativeCaretPosition) override;
-  bool finishComposingText(
-      ConfirmCompositionBehavior selectionBehavior) override;
   WebRange compositionRange() override;
-  WebTextInputInfo textInputInfo() override;
-  WebTextInputType textInputType() override;
   bool selectionBounds(WebRect& anchor, WebRect& focus) const override;
   bool selectionTextDirection(WebTextDirection& start,
                               WebTextDirection& end) const override;
@@ -87,19 +79,20 @@ class WebViewFrameWidget : public WebFrameWidgetBase {
   void didAcquirePointerLock() override;
   void didNotAcquirePointerLock() override;
   void didLosePointerLock() override;
-  void didChangeWindowResizerRect() override;
   WebColor backgroundColor() const override;
   WebPagePopup* pagePopup() const override;
   bool getCompositionCharacterBounds(WebVector<WebRect>& bounds) override;
   void applyReplacementRange(const WebRange&) override;
-  void updateTopControlsState(WebTopControlsState constraints,
-                              WebTopControlsState current,
-                              bool animate) override;
+  void updateBrowserControlsState(WebBrowserControlsState constraints,
+                                  WebBrowserControlsState current,
+                                  bool animate) override;
   void setVisibilityState(WebPageVisibilityState) override;
   bool isTransparent() const override;
   void setIsTransparent(bool) override;
   void setBaseBackgroundColor(WebColor) override;
-  WebLocalFrameImpl* localRoot() override;
+  WebLocalFrameImpl* localRoot() const override;
+  WebInputMethodControllerImpl* getActiveWebInputMethodController()
+      const override;
 
   // WebFrameWidgetBase overrides:
   bool forSubframe() const override { return false; }
@@ -107,8 +100,8 @@ class WebViewFrameWidget : public WebFrameWidgetBase {
   CompositorProxyClient* createCompositorProxyClient() override;
   void setRootGraphicsLayer(GraphicsLayer*) override;
   void setRootLayer(WebLayer*) override;
-  void attachCompositorAnimationTimeline(CompositorAnimationTimeline*) override;
-  void detachCompositorAnimationTimeline(CompositorAnimationTimeline*) override;
+  WebLayerTreeView* getLayerTreeView() const override;
+  CompositorAnimationHost* animationHost() const override;
   WebWidgetClient* client() const override { return m_client; }
   HitTestResult coreHitTestResultAt(const WebPoint&) override;
 

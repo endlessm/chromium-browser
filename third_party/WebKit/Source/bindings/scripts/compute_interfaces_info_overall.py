@@ -81,12 +81,17 @@ code changes (for inherited extended attributes).
 Design doc: http://www.chromium.org/developers/design-documents/idl-build
 """
 
-from collections import defaultdict
-import cPickle as pickle
+# pylint: disable=relative-import
+
 import optparse
 import sys
 
-from utilities import idl_filename_to_component, read_pickle_files, write_pickle_file, merge_dict_recursively, shorten_union_name
+from collections import defaultdict
+from utilities import idl_filename_to_component
+from utilities import merge_dict_recursively
+from utilities import read_pickle_files
+from utilities import shorten_union_name
+from utilities import write_pickle_file
 
 INHERITED_EXTENDED_ATTRIBUTES = set([
     'ActiveScriptWrappable',
@@ -255,12 +260,10 @@ def compute_interfaces_info_overall(info_individuals):
         # However, they are needed for legacy implemented interfaces that
         # are being treated as partial interfaces, until we remove these.
         # http://crbug.com/360435
-        implemented_interfaces_include_paths = []
-        for implemented_interface_info in implemented_interfaces_info:
-            if (implemented_interface_info['is_legacy_treat_as_partial_interface'] and
-                implemented_interface_info['include_path']):
-                implemented_interfaces_include_paths.append(
-                    implemented_interface_info['include_path'])
+        implemented_interfaces_include_paths = [
+            implemented_interface_info['include_path']
+            for implemented_interface_info in implemented_interfaces_info
+            if implemented_interface_info['is_legacy_treat_as_partial_interface']]
 
         dependencies_full_paths = implemented_interfaces_full_paths
         dependencies_include_paths = implemented_interfaces_include_paths

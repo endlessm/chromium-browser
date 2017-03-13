@@ -16,7 +16,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "content/browser/browser_main_loop.h"
 #include "content/browser/fileapi/browser_file_system_helper.h"
-#include "content/browser/gpu/shader_disk_cache.h"
+#include "content/browser/gpu/shader_cache_factory.h"
 #include "content/browser/host_zoom_map_impl.h"
 #include "content/browser/notifications/platform_notification_context_impl.h"
 #include "content/common/dom_storage/dom_storage_types.h"
@@ -32,12 +32,13 @@
 #include "net/cookies/cookie_monster.h"
 #include "net/url_request/url_request_context.h"
 #include "net/url_request/url_request_context_getter.h"
+#include "ppapi/features/features.h"
 #include "storage/browser/database/database_tracker.h"
 #include "storage/browser/quota/quota_manager.h"
 
-#if defined(ENABLE_PLUGINS)
+#if BUILDFLAG(ENABLE_PLUGINS)
 #include "content/browser/plugin_private_storage_helper.h"
-#endif  // defined(ENABLE_PLUGINS)
+#endif  // BUILDFLAG(ENABLE_PLUGINS)
 
 namespace content {
 
@@ -131,7 +132,7 @@ void ClearShaderCacheOnIOThread(const base::FilePath& path,
                                 const base::Time end,
                                 const base::Closure& callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  ShaderCacheFactory::GetInstance()->ClearByPath(
+  GetShaderCacheFactorySingleton()->ClearByPath(
       path, begin, end, base::Bind(&ClearedShaderCache, callback));
 }
 
@@ -193,7 +194,7 @@ void ClearLocalStorageOnUIThread(
                       origin_matcher.Run(storage_origin,
                                          special_storage_policy.get());
     if (can_delete)
-      dom_storage_context->DeleteLocalStorage(storage_origin);
+      dom_storage_context->DeleteLocalStorageForPhysicalOrigin(storage_origin);
 
     callback.Run();
     return;
@@ -370,10 +371,12 @@ StoragePartitionImpl::StoragePartitionImpl(
     IndexedDBContextImpl* indexed_db_context,
     CacheStorageContextImpl* cache_storage_context,
     ServiceWorkerContextWrapper* service_worker_context,
+    PushMessagingContext* push_messaging_context,
     storage::SpecialStoragePolicy* special_storage_policy,
     HostZoomLevelContext* host_zoom_level_context,
     PlatformNotificationContextImpl* platform_notification_context,
     BackgroundSyncContext* background_sync_context,
+    PaymentAppContextImpl* payment_app_context,
     scoped_refptr<BroadcastChannelProvider> broadcast_channel_provider)
     : partition_path_(partition_path),
       quota_manager_(quota_manager),
@@ -384,10 +387,12 @@ StoragePartitionImpl::StoragePartitionImpl(
       indexed_db_context_(indexed_db_context),
       cache_storage_context_(cache_storage_context),
       service_worker_context_(service_worker_context),
+      push_messaging_context_(push_messaging_context),
       special_storage_policy_(special_storage_policy),
       host_zoom_level_context_(host_zoom_level_context),
       platform_notification_context_(platform_notification_context),
       background_sync_context_(background_sync_context),
+      payment_app_context_(payment_app_context),
       broadcast_channel_provider_(std::move(broadcast_channel_provider)),
       browser_context_(browser_context) {}
 
@@ -420,8 +425,12 @@ StoragePartitionImpl::~StoragePartitionImpl() {
 
   if (GetBackgroundSyncContext())
     GetBackgroundSyncContext()->Shutdown();
+
+  if (GetPaymentAppContext())
+    GetPaymentAppContext()->Shutdown();
 }
 
+// static
 std::unique_ptr<StoragePartitionImpl> StoragePartitionImpl::Create(
     BrowserContext* context,
     bool in_memory,
@@ -496,6 +505,9 @@ std::unique_ptr<StoragePartitionImpl> StoragePartitionImpl::Create(
   scoped_refptr<storage::SpecialStoragePolicy> special_storage_policy(
       context->GetSpecialStoragePolicy());
 
+  scoped_refptr<PushMessagingContext> push_messaging_context(
+      new PushMessagingContext(context, service_worker_context));
+
   scoped_refptr<HostZoomLevelContext> host_zoom_level_context(
       new HostZoomLevelContext(
           context->CreateZoomLevelDelegate(partition_path)));
@@ -509,6 +521,10 @@ std::unique_ptr<StoragePartitionImpl> StoragePartitionImpl::Create(
       new BackgroundSyncContext();
   background_sync_context->Init(service_worker_context);
 
+  scoped_refptr<PaymentAppContextImpl> payment_app_context =
+      new PaymentAppContextImpl();
+  payment_app_context->Init(service_worker_context);
+
   scoped_refptr<BroadcastChannelProvider>
       broadcast_channel_provider = new BroadcastChannelProvider();
 
@@ -518,8 +534,9 @@ std::unique_ptr<StoragePartitionImpl> StoragePartitionImpl::Create(
           filesystem_context.get(), database_tracker.get(),
           dom_storage_context.get(), indexed_db_context.get(),
           cache_storage_context.get(), service_worker_context.get(),
-          special_storage_policy.get(), host_zoom_level_context.get(),
-          platform_notification_context.get(), background_sync_context.get(),
+          push_messaging_context.get(), special_storage_policy.get(),
+          host_zoom_level_context.get(), platform_notification_context.get(),
+          background_sync_context.get(), payment_app_context.get(),
           std::move(broadcast_channel_provider)));
 
   service_worker_context->set_storage_partition(storage_partition.get());
@@ -595,16 +612,18 @@ BackgroundSyncContext* StoragePartitionImpl::GetBackgroundSyncContext() {
   return background_sync_context_.get();
 }
 
+PaymentAppContextImpl* StoragePartitionImpl::GetPaymentAppContext() {
+  return payment_app_context_.get();
+}
+
 BroadcastChannelProvider* StoragePartitionImpl::GetBroadcastChannelProvider() {
   return broadcast_channel_provider_.get();
 }
 
 void StoragePartitionImpl::OpenLocalStorage(
     const url::Origin& origin,
-    mojom::LevelDBObserverPtr observer,
     mojo::InterfaceRequest<mojom::LevelDBWrapper> request) {
-  dom_storage_context_->OpenLocalStorage(
-      origin, std::move(observer), std::move(request));
+  dom_storage_context_->OpenLocalStorage(origin, std::move(request));
 }
 
 void StoragePartitionImpl::ClearDataImpl(
@@ -834,7 +853,7 @@ void StoragePartitionImpl::DataDeletionHelper::ClearDataOnUIThread(
                    path, begin, end, decrement_callback));
   }
 
-#if defined(ENABLE_PLUGINS)
+#if BUILDFLAG(ENABLE_PLUGINS)
   if (remove_mask & REMOVE_DATA_MASK_PLUGIN_PRIVATE_DATA) {
     IncrementTaskCountOnUI();
     filesystem_context->default_file_task_runner()->PostTask(
@@ -842,7 +861,7 @@ void StoragePartitionImpl::DataDeletionHelper::ClearDataOnUIThread(
                               make_scoped_refptr(filesystem_context),
                               storage_origin, begin, end, decrement_callback));
   }
-#endif  // defined(ENABLE_PLUGINS)
+#endif  // BUILDFLAG(ENABLE_PLUGINS)
 
   DecrementTaskCountOnUI();
 }

@@ -31,10 +31,12 @@
 #ifndef SVGGeometryElement_h
 #define SVGGeometryElement_h
 
+#include "core/svg/SVGAnimatedNumber.h"
 #include "core/svg/SVGGraphicsElement.h"
 
 namespace blink {
 
+class Path;
 class SVGPointTearOff;
 
 class SVGGeometryElement : public SVGGraphicsElement {
@@ -47,7 +49,14 @@ class SVGGeometryElement : public SVGGraphicsElement {
 
   void toClipPath(Path&) const;
 
+  SVGAnimatedNumber* pathLength() const { return m_pathLength.get(); }
   LayoutObject* createLayoutObject(const ComputedStyle&) override;
+  virtual float getTotalLength();
+  virtual SVGPointTearOff* getPointAtLength(float distance);
+  float pathLengthScaleFactor() const;
+  virtual float computePathLength() const;
+
+  DECLARE_VIRTUAL_TRACE();
 
  protected:
   SVGGeometryElement(const QualifiedName&,
@@ -56,6 +65,8 @@ class SVGGeometryElement : public SVGGraphicsElement {
 
  private:
   bool isSVGGeometryElement() const final { return true; }
+
+  Member<SVGAnimatedNumber> m_pathLength;
 };
 
 inline bool isSVGGeometryElement(const SVGElement& element) {

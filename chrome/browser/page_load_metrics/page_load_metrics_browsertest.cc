@@ -1,7 +1,8 @@
-// Copyright (c) 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "base/files/scoped_temp_dir.h"
 #include "base/macros.h"
 #include "base/test/histogram_tester.h"
 #include "base/time/time.h"
@@ -10,15 +11,18 @@
 #include "chrome/browser/page_load_metrics/observers/core_page_load_metrics_observer.h"
 #include "chrome/browser/page_load_metrics/observers/document_write_page_load_metrics_observer.h"
 #include "chrome/browser/page_load_metrics/observers/no_state_prefetch_page_load_metrics_observer.h"
+#include "chrome/browser/page_load_metrics/page_load_tracker.h"
 #include "chrome/browser/prerender/prerender_histograms.h"
 #include "chrome/browser/prerender/prerender_origin.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_navigator_params.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
+#include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "components/prefs/pref_service.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/download_test_observer.h"
@@ -45,6 +49,7 @@ class PageLoadMetricsBrowserTest : public InProcessBrowserTest {
 
   base::HistogramTester histogram_tester_;
 
+ private:
   DISALLOW_COPY_AND_ASSIGN(PageLoadMetricsBrowserTest);
 };
 
@@ -81,6 +86,7 @@ IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTest, NewPage) {
       internal::kHistogramParseBlockedOnScriptLoad, 1);
   histogram_tester_.ExpectTotalCount(
       internal::kHistogramParseBlockedOnScriptExecution, 1);
+  histogram_tester_.ExpectTotalCount(internal::kHistogramTotalBytes, 1);
 
   // Verify that NoPageLoadMetricsRecorded returns false when PageLoad metrics
   // have been recorded.
@@ -111,7 +117,6 @@ IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTest, SameUrlNavigation) {
   NavigateToUntrackedUrl();
 
   // We expect one histogram sample for each navigation to title1.html.
-  histogram_tester_.ExpectTotalCount(internal::kHistogramCommit, 2);
   histogram_tester_.ExpectTotalCount(internal::kHistogramDomContentLoaded, 2);
   histogram_tester_.ExpectTotalCount(internal::kHistogramLoad, 2);
   histogram_tester_.ExpectTotalCount(internal::kHistogramFirstLayout, 2);
@@ -173,6 +178,10 @@ IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTest, Ignore204Pages) {
 IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTest, IgnoreDownloads) {
   ASSERT_TRUE(embedded_test_server()->Start());
 
+  base::ScopedTempDir downloads_directory;
+  ASSERT_TRUE(downloads_directory.CreateUniqueTempDir());
+  browser()->profile()->GetPrefs()->SetFilePath(
+      prefs::kDownloadDefaultDirectory, downloads_directory.GetPath());
   content::DownloadTestObserverTerminal downloads_observer(
       content::BrowserContext::GetDownloadManager(browser()->profile()),
       1,  // == wait_count (only waiting for "download-test3.gif").
@@ -220,6 +229,7 @@ IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTest, NoDocumentWrite) {
       internal::kHistogramDocWriteParseStartToFirstContentfulPaint, 0);
   histogram_tester_.ExpectTotalCount(
       internal::kHistogramDocWriteBlockParseStartToFirstContentfulPaint, 0);
+  histogram_tester_.ExpectTotalCount(internal::kHistogramDocWriteBlockCount, 0);
 }
 
 IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTest, DocumentWriteBlock) {
@@ -232,6 +242,7 @@ IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTest, DocumentWriteBlock) {
 
   histogram_tester_.ExpectTotalCount(
       internal::kHistogramDocWriteBlockParseStartToFirstContentfulPaint, 1);
+  histogram_tester_.ExpectTotalCount(internal::kHistogramDocWriteBlockCount, 1);
 }
 
 IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTest, DocumentWriteReload) {
@@ -260,6 +271,7 @@ IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTest, DocumentWriteReload) {
 
   histogram_tester_.ExpectTotalCount(
       internal::kHistogramDocWriteBlockReloadCount, 2);
+  histogram_tester_.ExpectTotalCount(internal::kHistogramDocWriteBlockCount, 1);
 }
 
 IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTest, DocumentWriteAsync) {
@@ -272,6 +284,7 @@ IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTest, DocumentWriteAsync) {
 
   histogram_tester_.ExpectTotalCount(
       internal::kHistogramDocWriteBlockParseStartToFirstContentfulPaint, 0);
+  histogram_tester_.ExpectTotalCount(internal::kHistogramDocWriteBlockCount, 0);
 }
 
 IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTest, DocumentWriteSameDomain) {
@@ -284,6 +297,7 @@ IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTest, DocumentWriteSameDomain) {
 
   histogram_tester_.ExpectTotalCount(
       internal::kHistogramDocWriteBlockParseStartToFirstContentfulPaint, 0);
+  histogram_tester_.ExpectTotalCount(internal::kHistogramDocWriteBlockCount, 0);
 }
 
 IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTest, NoDocumentWriteScript) {
@@ -296,6 +310,7 @@ IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTest, NoDocumentWriteScript) {
 
   histogram_tester_.ExpectTotalCount(
       internal::kHistogramDocWriteBlockParseStartToFirstContentfulPaint, 0);
+  histogram_tester_.ExpectTotalCount(internal::kHistogramDocWriteBlockCount, 0);
 }
 
 IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTest, BadXhtml) {
@@ -329,7 +344,7 @@ IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTest, AbortNewNavigation) {
       browser()->tab_strip_model()->GetActiveWebContents(), url);
 
   chrome::Navigate(&params);
-  EXPECT_TRUE(manager.WaitForWillStartRequest());
+  EXPECT_TRUE(manager.WaitForRequestStart());
 
   GURL url2(embedded_test_server()->GetURL("/title2.html"));
   chrome::NavigateParams params2(browser(), url2,
@@ -352,7 +367,7 @@ IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTest, AbortReload) {
       browser()->tab_strip_model()->GetActiveWebContents(), url);
 
   chrome::Navigate(&params);
-  EXPECT_TRUE(manager.WaitForWillStartRequest());
+  EXPECT_TRUE(manager.WaitForRequestStart());
 
   chrome::NavigateParams params2(browser(), url, ui::PAGE_TRANSITION_RELOAD);
   content::TestNavigationManager manager2(
@@ -373,7 +388,7 @@ IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTest, AbortClose) {
       browser()->tab_strip_model()->GetActiveWebContents(), url);
 
   chrome::Navigate(&params);
-  EXPECT_TRUE(manager.WaitForWillStartRequest());
+  EXPECT_TRUE(manager.WaitForRequestStart());
 
   browser()->tab_strip_model()->GetActiveWebContents()->Close();
 
@@ -392,7 +407,7 @@ IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTest, AbortMultiple) {
       browser()->tab_strip_model()->GetActiveWebContents(), url);
 
   chrome::Navigate(&params);
-  EXPECT_TRUE(manager.WaitForWillStartRequest());
+  EXPECT_TRUE(manager.WaitForRequestStart());
 
   GURL url2(embedded_test_server()->GetURL("/title2.html"));
   chrome::NavigateParams params2(browser(), url2, ui::PAGE_TRANSITION_TYPED);
@@ -400,7 +415,7 @@ IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTest, AbortMultiple) {
       browser()->tab_strip_model()->GetActiveWebContents(), url2);
   chrome::Navigate(&params2);
 
-  EXPECT_TRUE(manager2.WaitForWillStartRequest());
+  EXPECT_TRUE(manager2.WaitForRequestStart());
   manager.WaitForNavigationFinished();
 
   GURL url3(embedded_test_server()->GetURL("/title3.html"));
@@ -409,7 +424,7 @@ IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTest, AbortMultiple) {
       browser()->tab_strip_model()->GetActiveWebContents(), url3);
   chrome::Navigate(&params3);
 
-  EXPECT_TRUE(manager3.WaitForWillStartRequest());
+  EXPECT_TRUE(manager3.WaitForRequestStart());
   manager2.WaitForNavigationFinished();
 
   manager3.WaitForNavigationFinished();
@@ -430,7 +445,7 @@ IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTest, AbortClientRedirect) {
   content::TestNavigationManager manager(
       browser()->tab_strip_model()->GetActiveWebContents(), second_url);
   chrome::Navigate(&params);
-  EXPECT_TRUE(manager.WaitForWillStartRequest());
+  EXPECT_TRUE(manager.WaitForRequestStart());
 
   {
     content::TestNavigationManager reload_manager(
@@ -503,13 +518,9 @@ IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTest,
   NavigateToUntrackedUrl();
 
   histogram_tester_.ExpectTotalCount(
-      prerender::PrerenderHistograms::GetFirstContentfulPaintHistogramName(
-          prerender::ORIGIN_NONE, false, true, base::TimeDelta()),
-      0);
+      "Prerender.none_PrefetchTTFCP.Reference.NoStore.Visible", 0);
   histogram_tester_.ExpectTotalCount(
-      prerender::PrerenderHistograms::GetFirstContentfulPaintHistogramName(
-          prerender::ORIGIN_NONE, false, false, base::TimeDelta()),
-      1);
+      "Prerender.none_PrefetchTTFCP.Reference.Cacheable.Visible", 1);
 }
 
 IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTest,
@@ -521,11 +532,42 @@ IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTest,
   NavigateToUntrackedUrl();
 
   histogram_tester_.ExpectTotalCount(
-      prerender::PrerenderHistograms::GetFirstContentfulPaintHistogramName(
-          prerender::ORIGIN_NONE, false, true, base::TimeDelta()),
-      1);
+      "Prerender.none_PrefetchTTFCP.Reference.NoStore.Visible", 1);
   histogram_tester_.ExpectTotalCount(
-      prerender::PrerenderHistograms::GetFirstContentfulPaintHistogramName(
-          prerender::ORIGIN_NONE, false, false, base::TimeDelta()),
-      0);
+      "Prerender.none_PrefetchTTFCP.Reference.Cacheable.Visible", 0);
+}
+
+IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTest, CSSTiming) {
+  ASSERT_TRUE(embedded_test_server()->Start());
+
+  // Careful: Blink code clamps timestamps to 5us, so any CSS parsing we do here
+  // must take >> 5us, otherwise we'll log 0 for the value and it will remain
+  // unset here.
+  ui_test_utils::NavigateToURL(
+      browser(),
+      embedded_test_server()->GetURL("/page_load_metrics/page_with_css.html"));
+  NavigateToUntrackedUrl();
+
+  histogram_tester_.ExpectTotalCount(internal::kHistogramFirstContentfulPaint,
+                                     1);
+  histogram_tester_.ExpectTotalCount(
+      "PageLoad.CSSTiming.Parse.BeforeFirstContentfulPaint", 1);
+  histogram_tester_.ExpectTotalCount(
+      "PageLoad.CSSTiming.Update.BeforeFirstContentfulPaint", 1);
+  histogram_tester_.ExpectTotalCount(
+      "PageLoad.CSSTiming.ParseAndUpdate.BeforeFirstContentfulPaint", 1);
+}
+
+IN_PROC_BROWSER_TEST_F(PageLoadMetricsBrowserTest, PayloadSize) {
+  ASSERT_TRUE(embedded_test_server()->Start());
+
+  ui_test_utils::NavigateToURL(browser(), embedded_test_server()->GetURL(
+                                              "/page_load_metrics/large.html"));
+  NavigateToUntrackedUrl();
+
+  histogram_tester_.ExpectTotalCount(internal::kHistogramTotalBytes, 1);
+
+  // Verify that there is a single sample recorded in the 10kB bucket (the size
+  // of the main HTML response).
+  histogram_tester_.ExpectBucketCount(internal::kHistogramTotalBytes, 10, 1);
 }

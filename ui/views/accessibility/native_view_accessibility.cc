@@ -5,8 +5,6 @@
 #include "ui/views/accessibility/native_view_accessibility.h"
 
 #include "base/strings/utf_string_conversions.h"
-#include "build/build_config.h"
-#include "ui/accessibility/ax_view_state.h"
 #include "ui/events/event_utils.h"
 #include "ui/gfx/native_widget_types.h"
 #include "ui/views/controls/native/native_view_host.h"
@@ -49,10 +47,22 @@ void NativeViewAccessibility::NotifyAccessibilityEvent(ui::AXEvent event_type) {
     ax_node_->NotifyAccessibilityEvent(event_type);
 }
 
+bool NativeViewAccessibility::SetFocused(bool focused) {
+  if (!ui::AXNodeData::IsFlagSet(GetData().state, ui::AX_STATE_FOCUSABLE))
+    return false;
+
+  if (focused)
+    view_->RequestFocus();
+  else if (view_->HasFocus())
+    view_->GetFocusManager()->ClearFocus();
+  return true;
+}
+
 // ui::AXPlatformNodeDelegate
 
 const ui::AXNodeData& NativeViewAccessibility::GetData() {
   data_ = ui::AXNodeData();
+  data_.state = 0;
 
   // Views may misbehave if their widget is closed; return an unknown role
   // rather than possibly crashing.
@@ -62,34 +72,20 @@ const ui::AXNodeData& NativeViewAccessibility::GetData() {
     return data_;
   }
 
-  ui::AXViewState state;
-  view_->GetAccessibleState(&state);
-  data_.role = state.role;
-  data_.state = state.state();
+  view_->GetAccessibleNodeData(&data_);
   data_.location = gfx::RectF(view_->GetBoundsInScreen());
-  data_.AddStringAttribute(ui::AX_ATTR_NAME, base::UTF16ToUTF8(state.name));
-  data_.AddStringAttribute(ui::AX_ATTR_VALUE, base::UTF16ToUTF8(state.value));
-  data_.AddStringAttribute(ui::AX_ATTR_ACTION,
-                           base::UTF16ToUTF8(state.default_action));
-  data_.AddStringAttribute(ui::AX_ATTR_SHORTCUT,
-                           base::UTF16ToUTF8(state.keyboard_shortcut));
-  data_.AddStringAttribute(ui::AX_ATTR_PLACEHOLDER,
-                           base::UTF16ToUTF8(state.placeholder));
+  base::string16 description;
+  view_->GetTooltipText(gfx::Point(), &description);
+  data_.AddStringAttribute(ui::AX_ATTR_DESCRIPTION,
+                           base::UTF16ToUTF8(description));
 
-  if (state.description.empty() &&
-      view_->GetTooltipText(gfx::Point(), &state.description))
-    data_.AddStringAttribute(ui::AX_ATTR_DESCRIPTION,
-                             base::UTF16ToUTF8(state.description));
-
-  data_.AddIntAttribute(ui::AX_ATTR_TEXT_SEL_START, state.selection_start);
-  data_.AddIntAttribute(ui::AX_ATTR_TEXT_SEL_END, state.selection_end);
-
-  data_.state |= (1 << ui::AX_STATE_FOCUSABLE);
+  if (view_->IsAccessibilityFocusable())
+    data_.state |= (1 << ui::AX_STATE_FOCUSABLE);
 
   if (!view_->enabled())
     data_.state |= (1 << ui::AX_STATE_DISABLED);
 
-  if (!view_->visible())
+  if (!view_->IsDrawn())
     data_.state |= (1 << ui::AX_STATE_INVISIBLE);
 
   return data_;
@@ -197,6 +193,30 @@ NativeViewAccessibility::GetTargetForNativeAccessibilityEvent() {
   return gfx::kNullAcceleratedWidget;
 }
 
+bool NativeViewAccessibility::AccessibilityPerformAction(
+    const ui::AXActionData& data) {
+  switch (data.action) {
+    // Handle accessible actions that apply to all Views here.
+    case ui::AX_ACTION_DO_DEFAULT:
+      DoDefaultAction();
+      return true;
+    case ui::AX_ACTION_FOCUS:
+      return SetFocused(true);
+    case ui::AX_ACTION_BLUR:
+      return SetFocused(false);
+
+    case ui::AX_ACTION_NONE:
+      NOTREACHED();
+      break;
+
+    // All other actions can potentially be dealt with by the View itself.
+    default:
+      return view_->HandleAccessibleAction(data);
+      break;
+  }
+  return false;
+}
+
 void NativeViewAccessibility::DoDefaultAction() {
   gfx::Point center = view_->GetLocalBounds().CenterPoint();
   view_->OnMousePressed(ui::MouseEvent(ui::ET_MOUSE_PRESSED,
@@ -211,24 +231,6 @@ void NativeViewAccessibility::DoDefaultAction() {
                                         ui::EventTimeForNow(),
                                         ui::EF_LEFT_MOUSE_BUTTON,
                                         ui::EF_LEFT_MOUSE_BUTTON));
-}
-
-bool NativeViewAccessibility::SetStringValue(const base::string16& new_value) {
-  // Return an error if the view can't set the value.
-  if (!CanSetStringValue())
-    return false;
-
-  ui::AXViewState state;
-  view_->GetAccessibleState(&state);
-  state.set_value_callback.Run(new_value);
-  return true;
-}
-
-bool NativeViewAccessibility::CanSetStringValue() {
-  ui::AXViewState state;
-  view_->GetAccessibleState(&state);
-  return !ui::AXViewState::IsFlagSet(GetData().state, ui::AX_STATE_READ_ONLY) &&
-         !state.set_value_callback.is_null();
 }
 
 void NativeViewAccessibility::OnWidgetDestroying(Widget* widget) {

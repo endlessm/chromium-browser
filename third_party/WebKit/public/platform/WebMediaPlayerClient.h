@@ -40,6 +40,8 @@ class WebInbandTextTrack;
 class WebLayer;
 class WebMediaSource;
 
+enum class WebRemotePlaybackAvailability;
+
 class BLINK_PLATFORM_EXPORT WebMediaPlayerClient {
  public:
   enum VideoTrackKind {
@@ -86,16 +88,29 @@ class BLINK_PLATFORM_EXPORT WebMediaPlayerClient {
   virtual void removeTextTrack(WebInbandTextTrack*) = 0;
   virtual void mediaSourceOpened(WebMediaSource*) = 0;
   virtual void requestSeek(double) = 0;
-  virtual void remoteRouteAvailabilityChanged(bool) = 0;
+  virtual void remoteRouteAvailabilityChanged(
+      WebRemotePlaybackAvailability) = 0;
   virtual void connectedToRemoteDevice() = 0;
   virtual void disconnectedFromRemoteDevice() = 0;
   virtual void cancelledRemotePlaybackRequest() = 0;
+  virtual void remotePlaybackStarted() = 0;
+
+  // After the monitoring is activated, the client will inform WebMediaPlayer
+  // when the element becomes/stops being the dominant visible content by
+  // calling WebMediaPlayer::becameDominantVisibleContent(bool).
+  virtual void activateViewportIntersectionMonitoring(bool) {}
 
   // Returns whether the media element is in an autoplay muted state.
   virtual bool isAutoplayingMuted() = 0;
 
   // Warning: This method will destruct the caller.
   virtual void requestReload(const WebURL& newUrl) = 0;
+
+  // Returns if there's a selected video track.
+  virtual bool hasSelectedVideoTrack() = 0;
+
+  // Returns the selected video track id (or an empty id if there's none).
+  virtual WebMediaPlayer::TrackId getSelectedVideoTrackId() = 0;
 
  protected:
   ~WebMediaPlayerClient() {}

@@ -9,7 +9,7 @@
 
 #include "base/macros.h"
 #include "chrome/browser/android/vr_shell/vr_math.h"
-#include "third_party/gvr-android-sdk/src/ndk/include/vr/gvr/capi/include/gvr_types.h"
+#include "third_party/gvr-android-sdk/src/libraries/headers/vr/gvr/capi/include/gvr_types.h"
 #include "ui/gl/gl_bindings.h"
 
 namespace vr_shell {
@@ -36,6 +36,9 @@ class BaseRenderer {
  protected:
   BaseRenderer(ShaderID vertex_id, ShaderID fragment_id);
 
+  void PrepareToDraw(GLuint combined_matrix_handle,
+                     const gvr::Mat4f& combined_matrix);
+
   GLuint program_handle_;
   GLuint position_handle_;
   GLuint tex_coord_handle_;
@@ -50,12 +53,13 @@ class TexturedQuadRenderer : public BaseRenderer {
 
   // Draw the content rect in the texture quad.
   void Draw(int texture_data_handle, const gvr::Mat4f& combined_matrix,
-            const Rectf& copy_rect);
+            const Rectf& copy_rect, float opacity);
 
  private:
   GLuint combined_matrix_handle_;
   GLuint copy_rect_uniform_handle_;
   GLuint tex_uniform_handle_;
+  GLuint opacity_handle_;
 
   DISALLOW_COPY_AND_ASSIGN(TexturedQuadRenderer);
 };
@@ -68,21 +72,13 @@ class WebVrRenderer : public BaseRenderer {
 
   void Draw(int texture_handle);
 
-  void UpdateTextureBounds(int eye, const gvr::Rectf& bounds);
-
  private:
   static constexpr size_t VERTEX_STRIDE = sizeof(float) * 4;
-  static constexpr size_t POSITION_ELEMENTS = 2;
-  static constexpr size_t TEXCOORD_ELEMENTS = 2;
-  static constexpr size_t POSITION_OFFSET = 0;
-  static constexpr size_t TEXCOORD_OFFSET = sizeof(float) * 2;
+  static constexpr size_t VERTEX_ELEMENTS = 4;
+  static constexpr size_t VERTEX_OFFSET = 0;
 
-  GLuint src_rect_uniform_handle_;
   GLuint tex_uniform_handle_;
   GLuint vertex_buffer_;
-
-  gvr::Rectf left_bounds_;
-  gvr::Rectf right_bounds_;
 
   DISALLOW_COPY_AND_ASSIGN(WebVrRenderer);
 };

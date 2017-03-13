@@ -96,6 +96,9 @@ void ParseEndpointToFloats(Animation::Property property,
     case Animation::Property::TRANSLATION:
       ParseFloats(dict, {"x", "y", "z"}, vec);
       break;
+    case Animation::Property::OPACITY:
+      ParseFloats(dict, {"x"}, vec);
+      break;
   }
 }
 
@@ -202,6 +205,9 @@ void UiScene::UpdateUiElementFromDict(const base::DictionaryValue& dict) {
 void UiScene::RemoveUiElement(int element_id) {
   for (auto it = ui_elements_.begin(); it != ui_elements_.end(); ++it) {
     if ((*it)->id == element_id) {
+      if ((*it)->content_quad) {
+        content_element_ = nullptr;
+      }
       ui_elements_.erase(it);
       return;
     }
@@ -275,7 +281,7 @@ void UiScene::RemoveAnimation(int element_id, int animation_id) {
   }
 }
 
-void UiScene::HandleCommands(const base::ListValue* commands,
+void UiScene::HandleCommands(std::unique_ptr<base::ListValue> commands,
                              int64_t time_in_micro) {
   for (auto& item : *commands) {
     base::DictionaryValue* dict;
@@ -321,7 +327,9 @@ void UiScene::UpdateTransforms(float screen_tilt, int64_t time_in_micro) {
   for (auto& element : ui_elements_) {
     element->transform.MakeIdentity();
     element->transform.Scale(element->size.x, element->size.y, element->size.z);
-    ApplyRecursiveTransforms(*element.get(), &element->transform);
+    element->computed_opacity = 1.0f;
+    ApplyRecursiveTransforms(*element.get(), &element->transform,
+                             &element->computed_opacity);
     element->transform.Rotate(1.0f, 0.0f, 0.0f, screen_tilt);
   }
 }
@@ -335,6 +343,10 @@ ContentRectangle* UiScene::GetUiElementById(int element_id) {
   return nullptr;
 }
 
+ContentRectangle* UiScene::GetContentQuad() {
+  return content_element_;
+}
+
 const std::vector<std::unique_ptr<ContentRectangle>>&
 UiScene::GetUiElements() const {
   return ui_elements_;
@@ -344,25 +356,22 @@ UiScene::UiScene() = default;
 
 UiScene::~UiScene() = default;
 
-int64_t UiScene::TimeInMicroseconds() {
-  return std::chrono::duration_cast<std::chrono::microseconds>(
-      std::chrono::steady_clock::now().time_since_epoch()).count();
-}
-
 void UiScene::ApplyRecursiveTransforms(const ContentRectangle& element,
-                                       ReversibleTransform* transform) {
+                                       ReversibleTransform* transform,
+                                       float* opacity) {
   transform->Scale(element.scale.x, element.scale.y, element.scale.z);
   transform->Rotate(element.rotation.x, element.rotation.y,
                     element.rotation.z, element.rotation.angle);
   transform->Translate(element.translation.x, element.translation.y,
                        element.translation.z);
+  *opacity *= element.opacity;
 
   if (element.parent_id >= 0) {
     const ContentRectangle* parent = GetUiElementById(element.parent_id);
     CHECK(parent != nullptr);
     ApplyAnchoring(*parent, element.x_anchoring, element.y_anchoring,
                    transform);
-    ApplyRecursiveTransforms(*parent, transform);
+    ApplyRecursiveTransforms(*parent, transform, opacity);
   }
 }
 
@@ -376,11 +385,28 @@ void UiScene::ApplyDictToElement(const base::DictionaryValue& dict,
   }
 
   dict.GetBoolean("visible", &element->visible);
+  dict.GetBoolean("hitTestable", &element->hit_testable);
+  dict.GetBoolean("lockToFov", &element->lock_to_fov);
   ParseRecti(dict, "copyRect", &element->copy_rect);
   Parse2DVec3f(dict, "size", &element->size);
   ParseVec3f(dict, "scale", &element->scale);
   ParseRotationAxisAngle(dict, "rotation", &element->rotation);
   ParseVec3f(dict, "translation", &element->translation);
+  double opacity;
+  if (dict.GetDouble("opacity", &opacity)) {
+    element->opacity = opacity;
+  }
+
+  if (dict.GetBoolean("contentQuad", &element->content_quad)) {
+    if (element->content_quad) {
+      CHECK_EQ(content_element_, nullptr);
+      content_element_ = element;
+    } else {
+      if (content_element_ == element) {
+        content_element_ = nullptr;
+      }
+    }
+  }
 
   if (dict.GetInteger("xAnchoring",
                       reinterpret_cast<int*>(&element->x_anchoring))) {

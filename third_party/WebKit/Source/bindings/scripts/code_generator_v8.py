@@ -48,7 +48,7 @@ Design doc: http://www.chromium.org/developers/design-documents/idl-compiler
 import os
 import posixpath
 
-from code_generator import CodeGeneratorBase, normalize_and_sort_includes
+from code_generator import CodeGeneratorBase, render_template, normalize_and_sort_includes
 from idl_definitions import Visitor
 from idl_types import IdlType
 import v8_callback_function
@@ -97,6 +97,8 @@ class TypedefResolver(Visitor):
         self._update_dependencies_include_paths(definition_name)
 
     def _update_dependencies_include_paths(self, definition_name):
+        if definition_name not in self.info_provider.interfaces_info:
+            return
         interface_info = self.info_provider.interfaces_info[definition_name]
         interface_info['additional_header_includes'] = set(
             self.additional_header_includes)
@@ -138,7 +140,6 @@ class CodeGeneratorV8Base(CodeGeneratorBase):
         if not self.should_generate_code(definitions):
             return set()
 
-        IdlType.set_callback_functions(definitions.callback_functions.keys())
         # Resolve typedefs
         self.typedef_resolver.resolve(definitions, definition_name)
         return self.generate_code_internal(definitions, definition_name)
@@ -201,7 +202,7 @@ class CodeGeneratorV8(CodeGeneratorV8Base):
         # Add the include for interface itself
         if IdlType(interface_name).is_typed_array:
             template_context['header_includes'].add('core/dom/DOMTypedArray.h')
-        elif interface_info['include_path']:
+        else:
             template_context['header_includes'].add(interface_info['include_path'])
         template_context['header_includes'].update(
             interface_info.get('additional_header_includes', []))
@@ -227,8 +228,7 @@ class CodeGeneratorV8(CodeGeneratorV8Base):
             dictionary, interfaces_info)
         include_paths = interface_info.get('dependencies_include_paths')
         # Add the include for interface itself
-        if interface_info['include_path']:
-            template_context['header_includes'].add(interface_info['include_path'])
+        template_context['header_includes'].add(interface_info['include_path'])
         if not is_testing_target(interface_info.get('full_path')):
             template_context['header_includes'].add(self.info_provider.include_path_for_export)
             template_context['exported'] = self.info_provider.specifier_for_export
@@ -301,8 +301,8 @@ class CodeGeneratorUnionType(CodeGeneratorBase):
         template_context['exported'] = self.info_provider.specifier_for_export
         name = shorten_union_name(union_type)
         template_context['this_include_header_name'] = name
-        header_text = header_template.render(template_context)
-        cpp_text = cpp_template.render(template_context)
+        header_text = render_template(header_template, template_context)
+        cpp_text = render_template(cpp_template, template_context)
         header_path = posixpath.join(self.output_dir, '%s.h' % name)
         cpp_path = posixpath.join(self.output_dir, '%s.cpp' % name)
         return (
@@ -341,8 +341,10 @@ class CodeGeneratorCallbackFunction(CodeGeneratorBase):
     def __init__(self, info_provider, cache_dir, output_dir, target_component):
         CodeGeneratorBase.__init__(self, MODULE_PYNAME, info_provider, cache_dir, output_dir)
         self.target_component = target_component
+        self.typedef_resolver = TypedefResolver(info_provider)
 
     def generate_code_internal(self, callback_function, path):
+        self.typedef_resolver.resolve(callback_function, callback_function.name)
         header_template = self.jinja_env.get_template('callback_function.h.tmpl')
         cpp_template = self.jinja_env.get_template('callback_function.cpp.tmpl')
         template_context = v8_callback_function.callback_function_context(
@@ -354,8 +356,8 @@ class CodeGeneratorCallbackFunction(CodeGeneratorBase):
         template_context['header_includes'] = normalize_and_sort_includes(
             template_context['header_includes'])
         template_context['code_generator'] = MODULE_PYNAME
-        header_text = header_template.render(template_context)
-        cpp_text = cpp_template.render(template_context)
+        header_text = render_template(header_template, template_context)
+        cpp_text = render_template(cpp_template, template_context)
         header_path = posixpath.join(self.output_dir, '%s.h' % callback_function.name)
         cpp_path = posixpath.join(self.output_dir, '%s.cpp' % callback_function.name)
         return (
@@ -373,6 +375,8 @@ class CodeGeneratorCallbackFunction(CodeGeneratorBase):
             if callback_function_dict['component_dir'] != self.target_component:
                 continue
             callback_function = callback_function_dict['callback_function']
+            if 'Custom' in callback_function.extended_attributes:
+                continue
             path = callback_function_dict['full_path']
             outputs.update(self.generate_code_internal(callback_function, path))
         return outputs

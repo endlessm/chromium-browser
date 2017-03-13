@@ -56,8 +56,9 @@ void UserCloudPolicyManager::Connect(
     PrefService* local_state,
     scoped_refptr<net::URLRequestContextGetter> request_context,
     std::unique_ptr<CloudPolicyClient> client) {
-  CreateComponentCloudPolicyService(component_policy_cache_path_,
-                                    request_context, client.get());
+  CreateComponentCloudPolicyService(
+      dm_protocol::kChromeExtensionPolicyType, component_policy_cache_path_,
+      request_context, client.get(), schema_registry());
   core()->Connect(std::move(client));
   core()->StartRefreshScheduler();
   core()->TrackRefreshDelayPref(local_state,
@@ -72,9 +73,9 @@ UserCloudPolicyManager::CreateCloudPolicyClient(
     DeviceManagementService* device_management_service,
     scoped_refptr<net::URLRequestContextGetter> request_context) {
   return base::MakeUnique<CloudPolicyClient>(
-      std::string(), std::string(), kPolicyVerificationKeyHash,
+      std::string() /* machine_id */, std::string() /* machine_model */,
       device_management_service, request_context,
-      nullptr /* signing_service_ */);
+      nullptr /* signing_service */);
 }
 
 void UserCloudPolicyManager::DisconnectAndRemovePolicy() {

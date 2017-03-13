@@ -77,7 +77,8 @@ class NotifierComparator {
  public:
   explicit NotifierComparator(icu::Collator* collator) : collator_(collator) {}
 
-  bool operator() (Notifier* n1, Notifier* n2) {
+  bool operator()(const std::unique_ptr<Notifier>& n1,
+                  const std::unique_ptr<Notifier>& n2) {
     if (n1->notifier_id.type != n2->notifier_id.type)
       return n1->notifier_id.type < n2->notifier_id.type;
 
@@ -187,7 +188,7 @@ void MessageCenterSettingsController::SwitchToNotifierGroup(size_t index) {
 }
 
 void MessageCenterSettingsController::GetNotifierList(
-    std::vector<Notifier*>* notifiers) {
+    std::vector<std::unique_ptr<Notifier>>* notifiers) {
   DCHECK(notifiers);
   if (notifier_groups_.size() <= current_notifier_group_)
     return;
@@ -198,16 +199,15 @@ void MessageCenterSettingsController::GetNotifierList(
   for (auto& source : sources_) {
     auto source_notifiers = source.second->GetNotifierList(profile);
     for (auto& notifier : source_notifiers) {
-      notifiers->push_back(notifier.release());
+      notifiers->push_back(std::move(notifier));
     }
   }
 
   UErrorCode error = U_ZERO_ERROR;
   std::unique_ptr<icu::Collator> collator(icu::Collator::createInstance(error));
-  std::unique_ptr<NotifierComparator> comparator(
-      new NotifierComparator(U_SUCCESS(error) ? collator.get() : NULL));
+  NotifierComparator comparator(U_SUCCESS(error) ? collator.get() : NULL);
 
-  std::sort(notifiers->begin(), notifiers->end(), *comparator);
+  std::sort(notifiers->begin(), notifiers->end(), comparator);
 }
 
 void MessageCenterSettingsController::SetNotifierEnabled(
@@ -317,20 +317,20 @@ void MessageCenterSettingsController::OnProfileAuthInfoChanged(
 void MessageCenterSettingsController::OnIconImageUpdated(
     const message_center::NotifierId& id,
     const gfx::Image& image) {
-  FOR_EACH_OBSERVER(message_center::NotifierSettingsObserver, observers_,
-                    UpdateIconImage(id, image));
+  for (message_center::NotifierSettingsObserver& observer : observers_)
+    observer.UpdateIconImage(id, image);
 }
 
 void MessageCenterSettingsController::OnNotifierEnabledChanged(
     const message_center::NotifierId& id,
     bool enabled) {
-  FOR_EACH_OBSERVER(message_center::NotifierSettingsObserver, observers_,
-                    NotifierEnabledChanged(id, enabled));
+  for (message_center::NotifierSettingsObserver& observer : observers_)
+    observer.NotifierEnabledChanged(id, enabled);
 }
 
 void MessageCenterSettingsController::DispatchNotifierGroupChanged() {
-  FOR_EACH_OBSERVER(message_center::NotifierSettingsObserver, observers_,
-                    NotifierGroupChanged());
+  for (message_center::NotifierSettingsObserver& observer : observers_)
+    observer.NotifierGroupChanged();
 }
 
 #if defined(OS_CHROMEOS)

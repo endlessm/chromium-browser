@@ -28,14 +28,24 @@ class BoxPaintInvalidator {
   PaintInvalidationReason invalidatePaintIfNeeded();
 
  private:
+  bool backgroundGeometryDependsOnLayoutOverflowRect();
+  bool backgroundPaintsOntoScrollingContentsLayer();
+  bool shouldFullyInvalidateBackgroundOnLayoutOverflowChange(
+      const LayoutRect& oldLayoutOverflow,
+      const LayoutRect& newLayoutOverflow);
+  void invalidateScrollingContentsBackgroundIfNeeded();
+
   PaintInvalidationReason computePaintInvalidationReason();
 
-  bool incrementallyInvalidatePaint();
-  void invalidatePaintRectClippedByOldAndNewBounds(const LayoutRect&);
+  bool incrementallyInvalidatePaint(PaintInvalidationReason,
+                                    const LayoutRect& oldRect,
+                                    const LayoutRect& newRect);
 
-  bool needsToSavePreviousBoxSizes();
-  void savePreviousBoxSizesIfNeeded();
-  LayoutSize computePreviousBorderBoxSize(const LayoutSize& previousBoundsSize);
+  bool needsToSavePreviousBoxGeometries();
+  void savePreviousBoxGeometriesIfNeeded();
+  LayoutSize previousBorderBoxSize();
+  LayoutRect previousContentBoxRect();
+  LayoutRect previousLayoutOverflowRect();
 
   const LayoutBox& m_box;
   const PaintInvalidatorContext& m_context;

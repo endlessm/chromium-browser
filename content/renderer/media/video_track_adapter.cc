@@ -14,6 +14,7 @@
 #include "base/macros.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/threading/thread_task_runner_handle.h"
 #include "base/trace_event/trace_event.h"
 #include "content/public/common/content_switches.h"
 #include "media/base/bind_to_current_loop.h"
@@ -217,8 +218,7 @@ void VideoTrackAdapter::VideoFrameResolutionAdapter::DeliverFrame(
 
   // TODO(perkj): Allow cropping / scaling of textures once
   // http://crbug/362521 is fixed.
-  if (frame->HasTextures() ||
-      frame->storage_type() == media::VideoFrame::STORAGE_GPU_MEMORY_BUFFERS) {
+  if (frame->HasTextures()) {
     DoDeliverFrame(frame, estimated_capture_time);
     return;
   }

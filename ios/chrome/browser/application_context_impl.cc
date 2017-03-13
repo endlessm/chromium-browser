@@ -17,13 +17,11 @@
 #include "base/time/default_tick_clock.h"
 #include "base/tracked_objects.h"
 #include "components/component_updater/component_updater_service.h"
-#include "components/component_updater/component_updater_service.h"
 #include "components/gcm_driver/gcm_client_factory.h"
 #include "components/gcm_driver/gcm_desktop_utils.h"
 #include "components/gcm_driver/gcm_driver.h"
 #include "components/history/core/browser/history_service.h"
 #include "components/keyed_service/core/service_access_type.h"
-#include "components/metrics/metrics_pref_names.h"
 #include "components/metrics/metrics_service.h"
 #include "components/metrics_services_manager/metrics_services_manager.h"
 #include "components/net_log/chrome_net_log.h"
@@ -35,7 +33,6 @@
 #include "components/update_client/configurator.h"
 #include "components/update_client/update_query_params.h"
 #include "components/variations/service/variations_service.h"
-#include "components/web_resource/web_resource_pref_names.h"
 #include "ios/chrome/browser/browser_state/chrome_browser_state.h"
 #include "ios/chrome/browser/browser_state/chrome_browser_state_manager_impl.h"
 #include "ios/chrome/browser/chrome_paths.h"
@@ -81,16 +78,6 @@ ApplicationContextImpl::~ApplicationContextImpl() {
   DCHECK_EQ(this, GetApplicationContext());
   tracked_objects::ThreadData::EnsureCleanupWasCalled(4);
   SetApplicationContext(nullptr);
-}
-
-// static
-void ApplicationContextImpl::RegisterPrefs(PrefRegistrySimple* registry) {
-  registry->RegisterStringPref(prefs::kApplicationLocale, std::string());
-  registry->RegisterBooleanPref(prefs::kEulaAccepted, false);
-  registry->RegisterBooleanPref(metrics::prefs::kMetricsReportingEnabled,
-                                false);
-  registry->RegisterBooleanPref(prefs::kLastSessionExitedCleanly, true);
-  registry->RegisterBooleanPref(prefs::kMetricsReportingWifiOnly, true);
 }
 
 void ApplicationContextImpl::PreCreateThreads() {
@@ -240,9 +227,9 @@ variations::VariationsService* ApplicationContextImpl::GetVariationsService() {
   return GetMetricsServicesManager()->GetVariationsService();
 }
 
-rappor::RapporService* ApplicationContextImpl::GetRapporService() {
+rappor::RapporServiceImpl* ApplicationContextImpl::GetRapporServiceImpl() {
   DCHECK(thread_checker_.CalledOnValidThread());
-  return GetMetricsServicesManager()->GetRapporService();
+  return GetMetricsServicesManager()->GetRapporServiceImpl();
 }
 
 net_log::ChromeNetLog* ApplicationContextImpl::GetNetLog() {
@@ -298,10 +285,12 @@ CRLSetFetcher* ApplicationContextImpl::GetCRLSetFetcher() {
   return crl_set_fetcher_.get();
 }
 
-PhysicalWebDataSource* ApplicationContextImpl::GetPhysicalWebDataSource() {
+physical_web::PhysicalWebDataSource*
+ApplicationContextImpl::GetPhysicalWebDataSource() {
   DCHECK(thread_checker_.CalledOnValidThread());
   if (!physical_web_data_source_) {
-    physical_web_data_source_ = CreateIOSChromePhysicalWebDataSource();
+    physical_web_data_source_ =
+        CreateIOSChromePhysicalWebDataSource(GetLocalState());
     DCHECK(physical_web_data_source_);
   }
   return physical_web_data_source_.get();

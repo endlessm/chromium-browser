@@ -12,7 +12,7 @@
 #include "public/fpdfview.h"
 
 #ifdef PDF_ENABLE_XFA
-#include "fpdfsdk/fpdfxfa/cpdfxfa_document.h"
+#include "fpdfsdk/fpdfxfa/cpdfxfa_context.h"
 #endif  // PDF_ENABLE_XFA
 
 #ifdef _WIN32
@@ -25,55 +25,16 @@ class CPDF_Page;
 class CPDF_PageRenderContext;
 class IFSDK_PAUSE_Adapter;
 
-class CPDF_CustomAccess final : public IFX_FileRead {
- public:
-  explicit CPDF_CustomAccess(FPDF_FILEACCESS* pFileAccess);
-  ~CPDF_CustomAccess() override {}
-
-  // IFX_FileRead
-  FX_FILESIZE GetSize() override;
-  void Release() override;
-  FX_BOOL ReadBlock(void* buffer, FX_FILESIZE offset, size_t size) override;
+// Layering prevents fxcrt from knowing about FPDF_FILEACCESS, so this can't
+// be a static method of IFX_SeekableReadStream.
+CFX_RetainPtr<IFX_SeekableReadStream> MakeSeekableReadStream(
+    FPDF_FILEACCESS* pFileAccess);
 
 #ifdef PDF_ENABLE_XFA
-  virtual CFX_ByteString GetFullPath();
-  virtual FX_BOOL GetByte(uint32_t pos, uint8_t& ch);
-  virtual FX_BOOL GetBlock(uint32_t pos, uint8_t* pBuf, uint32_t size);
-#endif  // PDF_ENABLE_XFA
-
- private:
-  FPDF_FILEACCESS m_FileAccess;
-#ifdef PDF_ENABLE_XFA
-  uint8_t m_Buffer[512];
-  uint32_t m_BufferOffset;
-#endif  // PDF_ENABLE_XFA
-};
-
-#ifdef PDF_ENABLE_XFA
-class CFPDF_FileStream : public IFX_FileStream {
- public:
-  explicit CFPDF_FileStream(FPDF_FILEHANDLER* pFS);
-  ~CFPDF_FileStream() override {}
-
-  // IFX_FileStream:
-  IFX_FileStream* Retain() override;
-  void Release() override;
-  FX_FILESIZE GetSize() override;
-  FX_BOOL IsEOF() override;
-  FX_FILESIZE GetPosition() override;
-  FX_BOOL ReadBlock(void* buffer, FX_FILESIZE offset, size_t size) override;
-  size_t ReadBlock(void* buffer, size_t size) override;
-  FX_BOOL WriteBlock(const void* buffer,
-                     FX_FILESIZE offset,
-                     size_t size) override;
-  FX_BOOL Flush() override;
-
-  void SetPosition(FX_FILESIZE pos) { m_nCurPos = pos; }
-
- protected:
-  FPDF_FILEHANDLER* m_pFS;
-  FX_FILESIZE m_nCurPos;
-};
+// Layering prevents fxcrt from knowing about FPDF_FILEHANDLER, so this can't
+// be a static method of IFX_SeekableStream.
+CFX_RetainPtr<IFX_SeekableStream> MakeSeekableStream(
+    FPDF_FILEHANDLER* pFileHandler);
 #endif  // PDF_ENABLE_XFA
 
 // Object types for public FPDF_ types; these correspond to next layer down
@@ -83,7 +44,7 @@ class CFPDF_FileStream : public IFX_FileStream {
 using UnderlyingDocumentType = CPDF_Document;
 using UnderlyingPageType = CPDF_Page;
 #else   // PDF_ENABLE_XFA
-using UnderlyingDocumentType = CPDFXFA_Document;
+using UnderlyingDocumentType = CPDFXFA_Context;
 using UnderlyingPageType = CPDFXFA_Page;
 #endif  // PDF_ENABLE_XFA
 
@@ -111,7 +72,7 @@ void FPDF_RenderPage_Retail(CPDF_PageRenderContext* pContext,
                             int size_y,
                             int rotate,
                             int flags,
-                            FX_BOOL bNeedToRestore,
+                            bool bNeedToRestore,
                             IFSDK_PAUSE_Adapter* pause);
 
 void CheckUnSupportError(CPDF_Document* pDoc, uint32_t err_code);

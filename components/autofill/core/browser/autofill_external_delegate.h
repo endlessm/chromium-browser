@@ -51,6 +51,9 @@ class AutofillExternalDelegate : public AutofillPopupDelegate {
                                    base::string16* body) override;
   bool RemoveSuggestion(const base::string16& value, int identifier) override;
   void ClearPreviewedForm() override;
+  // Returns false for all popups prior to |onQuery|, true for credit card
+  // popups after call to |onQuery|.
+  bool IsCreditCardPopup() override;
 
   // Records and associates a query_id with web form data.  Called
   // when the renderer posts an Autofill query to the browser. |bounds|
@@ -81,9 +84,6 @@ class AutofillExternalDelegate : public AutofillPopupDelegate {
   // values or settings.
   void Reset();
 
-  // The renderer sent an IPC acknowledging an earlier ping IPC.
-  void OnPingAck();
-
  protected:
   base::WeakPtr<AutofillExternalDelegate> GetWeakPtr();
 
@@ -100,8 +100,12 @@ class AutofillExternalDelegate : public AutofillPopupDelegate {
   // this data.
   void FillAutofillFormData(int unique_id, bool is_preview);
 
-  // Handle applying any Autofill warnings to the Autofill popup.
-  void ApplyAutofillWarnings(std::vector<Suggestion>* suggestions);
+  // Will remove Autofill warnings from |suggestions| if there are also
+  // autocomplete entries in the vector. Note: at this point, it is assumed that
+  // if there are Autofill warnings, they will be at the head of the vector and
+  // any entry that is not an Autofill warning is considered an Autocomplete
+  // entry.
+  void PossiblyRemoveAutofillWarnings(std::vector<Suggestion>* suggestions);
 
   // Handle applying any Autofill option listings to the Autofill popup.
   // This function should only get called when there is at least one
@@ -113,6 +117,9 @@ class AutofillExternalDelegate : public AutofillPopupDelegate {
   // duplicate autocomplete (not Autofill) suggestions, keeping their datalist
   // version.
   void InsertDataListValues(std::vector<Suggestion>* suggestions);
+
+  // Returns the text (i.e. |Suggestion| value) for Chrome autofill options.
+  base::string16 GetSettingsSuggestionValue() const;
 
   AutofillManager* manager_;  // weak.
 
@@ -138,8 +145,8 @@ class AutofillExternalDelegate : public AutofillPopupDelegate {
   // currently editing?  Used to keep track of state for metrics logging.
   bool has_shown_popup_for_current_edit_;
 
-  // FIXME
   bool should_show_scan_credit_card_;
+  bool is_credit_card_popup_;
 
   // Whether the credit card signin promo should be shown to the user.
   bool should_show_cc_signin_promo_;

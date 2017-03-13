@@ -129,18 +129,6 @@ CORE_EXPORT bool DictionaryHelper::get(const Dictionary& dictionary,
   return getStringType(dictionary, key, value);
 }
 
-template <>
-bool DictionaryHelper::get(const Dictionary& dictionary,
-                           const StringView& key,
-                           ScriptValue& value) {
-  v8::Local<v8::Value> v8Value;
-  if (!dictionary.get(key, v8Value))
-    return false;
-
-  value = ScriptValue(ScriptState::current(dictionary.isolate()), v8Value);
-  return true;
-}
-
 template <typename NumericType>
 bool getNumericType(const Dictionary& dictionary,
                     const StringView& key,
@@ -288,7 +276,7 @@ CORE_EXPORT bool DictionaryHelper::get(const Dictionary& dictionary,
              .ToLocal(&indexedValue))
       return false;
     TOSTRING_DEFAULT(V8StringResource<>, stringValue, indexedValue, false);
-    value.append(stringValue);
+    value.push_back(stringValue);
   }
 
   return true;
@@ -318,7 +306,7 @@ CORE_EXPORT bool DictionaryHelper::get(const Dictionary& dictionary,
         v8IndexedValue, i, dictionary.isolate(), exceptionState);
     if (exceptionState.hadException())
       return false;
-    value.append(indexedValue);
+    value.push_back(indexedValue);
   }
 
   return true;

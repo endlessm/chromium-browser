@@ -74,6 +74,7 @@
 #include "extensions/common/extension_set.h"
 #include "extensions/common/permissions/api_permission.h"
 #include "extensions/common/permissions/permissions_data.h"
+#include "ppapi/features/features.h"
 #include "ui/base/l10n/l10n_util.h"
 
 #if defined(OS_CHROMEOS)
@@ -143,16 +144,6 @@ const ExceptionsInfoMap& GetExceptionsInfoMap() {
         ContentSettingWithExceptions(
             true, UserMetricsAction("Options_DefaultPopupsSettingChanged"))));
     exceptions_info_map.insert(std::make_pair(
-        CONTENT_SETTINGS_TYPE_FULLSCREEN,
-        ContentSettingWithExceptions(
-            true,
-            UserMetricsAction("Options_DefaultFullScreenSettingChanged"))));
-    exceptions_info_map.insert(std::make_pair(
-        CONTENT_SETTINGS_TYPE_MOUSELOCK,
-        ContentSettingWithExceptions(
-            true,
-            UserMetricsAction("Options_DefaultMouseLockSettingChanged"))));
-    exceptions_info_map.insert(std::make_pair(
         CONTENT_SETTINGS_TYPE_PPAPI_BROKER,
         ContentSettingWithExceptions(
             true,
@@ -165,10 +156,6 @@ const ExceptionsInfoMap& GetExceptionsInfoMap() {
             UserMetricsAction(
                 "Options_DefaultProtectedMediaIdentifierSettingChanged"))));
 #endif
-    exceptions_info_map.insert(std::make_pair(
-        CONTENT_SETTINGS_TYPE_KEYGEN,
-        ContentSettingWithExceptions(
-            true, UserMetricsAction("Options_DefaultKeygenSettingChanged"))));
 
     // Without OTR exceptions.
     exceptions_info_map.insert(std::make_pair(
@@ -432,19 +419,13 @@ void ContentSettingsHandler::GetLocalizedValues(
     {"notificationsAllow", IDS_NOTIFICATIONS_ALLOW_RADIO},
     {"notificationsAsk", IDS_NOTIFICATIONS_ASK_RADIO},
     {"notificationsBlock", IDS_NOTIFICATIONS_BLOCK_RADIO},
-    // Fullscreen filter.
-    {"fullscreenTabLabel", IDS_FULLSCREEN_TAB_LABEL},
-    {"fullscreenHeader", IDS_FULLSCREEN_HEADER},
-    {"fullscreenDeprecated", IDS_EXCLUSIVE_ACCESS_DEPRECATED},
-    // Mouse Lock filter.
-    {"mouselockTabLabel", IDS_MOUSE_LOCK_TAB_LABEL},
-    {"mouselockHeader", IDS_MOUSE_LOCK_HEADER},
-    {"mouselockDeprecated", IDS_EXCLUSIVE_ACCESS_DEPRECATED},
-#if defined(OS_CHROMEOS) || defined(OS_WIN)
     // Protected Content filter
     {"protectedContentTabLabel", IDS_PROTECTED_CONTENT_TAB_LABEL},
+    {"protectedContentEnableCheckbox", IDS_PROTECTED_CONTENT_ENABLE_CHECKBOX},
+#if defined(OS_CHROMEOS) || defined(OS_WIN)
     {"protectedContentInfo", IDS_PROTECTED_CONTENT_INFO},
-    {"protectedContentEnable", IDS_PROTECTED_CONTENT_ENABLE},
+    {"protectedContentEnableIdentifiersCheckbox",
+     IDS_PROTECTED_CONTENT_ENABLE_IDENTIFIERS_CHECKBOX},
     {"protectedContentHeader", IDS_PROTECTED_CONTENT_HEADER},
 #endif  // defined(OS_CHROMEOS) || defined(OS_WIN)
     // Microphone filter.
@@ -501,11 +482,6 @@ void ContentSettingsHandler::GetLocalizedValues(
     // Zoom levels.
     {"zoomlevelsHeader", IDS_ZOOMLEVELS_HEADER_AND_TAB_LABEL},
     {"zoomLevelsManage", IDS_ZOOMLEVELS_MANAGE_BUTTON},
-    // Keygen filter.
-    {"keygenTabLabel", IDS_KEYGEN_TAB_LABEL},
-    {"keygenHeader", IDS_KEYGEN_HEADER},
-    {"keygenAllow", IDS_KEYGEN_ALLOW_RADIO},
-    {"keygenBlock", IDS_KEYGEN_DONOTALLOW_RADIO},
     // PDF Plugin filter.
     {"pdfTabLabel", IDS_PDF_TAB_LABEL},
     {"pdfEnable", IDS_PDF_ENABLE_CHECKBOX},
@@ -558,10 +534,6 @@ void ContentSettingsHandler::GetLocalizedValues(
                 IDS_GEOLOCATION_TAB_LABEL);
   RegisterTitle(localized_strings, "notifications",
                 IDS_NOTIFICATIONS_TAB_LABEL);
-  RegisterTitle(localized_strings, "fullscreen",
-                IDS_FULLSCREEN_TAB_LABEL);
-  RegisterTitle(localized_strings, "mouselock",
-                IDS_MOUSE_LOCK_TAB_LABEL);
 #if defined(OS_CHROMEOS)
   RegisterTitle(localized_strings, "protectedContent",
                 IDS_PROTECTED_CONTENT_TAB_LABEL);
@@ -582,7 +554,6 @@ void ContentSettingsHandler::GetLocalizedValues(
                 IDS_BACKGROUND_SYNC_HEADER);
   RegisterTitle(localized_strings, "zoomlevels",
                 IDS_ZOOMLEVELS_HEADER_AND_TAB_LABEL);
-  RegisterTitle(localized_strings, "keygen", IDS_KEYGEN_TAB_LABEL);
 
   localized_strings->SetString("exceptionsLearnMoreUrl",
                                kExceptionsLearnMoreUrl);
@@ -746,7 +717,7 @@ void ContentSettingsHandler::UpdateSettingDefaultFromModel(
   ContentSetting default_setting =
       host_content_settings_map->GetDefaultContentSetting(type, &provider_id);
 
-#if defined(ENABLE_PLUGINS)
+#if BUILDFLAG(ENABLE_PLUGINS)
   default_setting = PluginsFieldTrial::EffectiveContentSetting(
       host_content_settings_map, type, default_setting);
 #endif
@@ -964,10 +935,12 @@ void ContentSettingsHandler::CompareMediaExceptionsWithFlash(
   MediaSettingsInfo::ForOneType& settings = media_settings_->forType(type);
   HostContentSettingsMap* settings_map =
       HostContentSettingsMapFactory::GetForProfile(GetProfile());
-
+  const auto* extension_registry =
+      extensions::ExtensionRegistry::Get(GetProfile());
   base::ListValue exceptions;
-  site_settings::GetExceptionsFromHostContentSettingsMap(settings_map, type,
-      web_ui(), /*incognito=*/false, /*filter=*/nullptr, &exceptions);
+  site_settings::GetExceptionsFromHostContentSettingsMap(
+      settings_map, type, extension_registry, web_ui(), /*incognito=*/false,
+      /*filter=*/nullptr, &exceptions);
 
   settings.exceptions.clear();
   for (base::ListValue::const_iterator entry = exceptions.begin();
@@ -1111,22 +1084,17 @@ void ContentSettingsHandler::UpdateExceptionsViewFromHostContentSettingsMap(
   base::ListValue exceptions;
   HostContentSettingsMap* settings_map =
       HostContentSettingsMapFactory::GetForProfile(GetProfile());
-  site_settings::GetExceptionsFromHostContentSettingsMap(settings_map, type,
-      web_ui(), /*incognito=*/false, /*filter=*/nullptr, &exceptions);
+  const auto* extension_registry =
+      extensions::ExtensionRegistry::Get(GetProfile());
+  site_settings::GetExceptionsFromHostContentSettingsMap(
+      settings_map, type, extension_registry, web_ui(), /*incognito=*/false,
+      /*filter=*/nullptr, &exceptions);
   base::StringValue type_string(
       site_settings::ContentSettingsTypeToGroupName(type));
   web_ui()->CallJavascriptFunctionUnsafe("ContentSettings.setExceptions",
                                          type_string, exceptions);
 
   UpdateExceptionsViewFromOTRHostContentSettingsMap(type);
-
-  // Fullscreen and mouse lock have no global settings to update.
-  // TODO(mgiuca): Delete this after removing these content settings entirely
-  // (https://crbug.com/591896).
-  if (type == CONTENT_SETTINGS_TYPE_FULLSCREEN ||
-      type == CONTENT_SETTINGS_TYPE_MOUSELOCK) {
-    return;
-  }
 
 #if defined(OS_CHROMEOS)
   // Also the default for protected contents is managed in another place.
@@ -1145,9 +1113,12 @@ void ContentSettingsHandler::UpdateExceptionsViewFromOTRHostContentSettingsMap(
       HostContentSettingsMapFactory::GetForProfile(GetOTRProfile());
   if (!otr_settings_map)
     return;
+  const auto* extension_registry =
+      extensions::ExtensionRegistry::Get(GetOTRProfile());
   base::ListValue exceptions;
-  site_settings::GetExceptionsFromHostContentSettingsMap(otr_settings_map, type,
-      web_ui(), /*incognito=*/true, /*filter=*/nullptr, &exceptions);
+  site_settings::GetExceptionsFromHostContentSettingsMap(
+      otr_settings_map, type, extension_registry, web_ui(), /*incognito=*/true,
+      /*filter=*/nullptr, &exceptions);
   base::StringValue type_string(
       site_settings::ContentSettingsTypeToGroupName(type));
   web_ui()->CallJavascriptFunctionUnsafe("ContentSettings.setOTRExceptions",

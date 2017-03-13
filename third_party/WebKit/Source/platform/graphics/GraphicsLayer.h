@@ -34,6 +34,7 @@
 #include "platform/geometry/FloatSize.h"
 #include "platform/geometry/IntRect.h"
 #include "platform/graphics/Color.h"
+#include "platform/graphics/ColorBehavior.h"
 #include "platform/graphics/CompositorElementId.h"
 #include "platform/graphics/ContentLayerDelegate.h"
 #include "platform/graphics/GraphicsContext.h"
@@ -57,11 +58,11 @@
 namespace blink {
 
 class CompositorFilterOperations;
-class FloatRect;
 class Image;
 class JSONObject;
 class LinkHighlight;
 class PaintController;
+struct RasterInvalidationTracking;
 class ScrollableArea;
 class WebLayer;
 
@@ -230,6 +231,7 @@ class PLATFORM_EXPORT GraphicsLayer : public WebLayerScrollClient,
 
   void resetTrackedRasterInvalidations();
   bool hasTrackedRasterInvalidations() const;
+  const RasterInvalidationTracking* getRasterInvalidationTracking() const;
   void trackRasterInvalidation(const DisplayItemClient&,
                                const IntRect&,
                                PaintInvalidationReason);
@@ -259,6 +261,7 @@ class PLATFORM_EXPORT GraphicsLayer : public WebLayerScrollClient,
   std::unique_ptr<base::trace_event::ConvertableToTraceFormat> TakeDebugInfo(
       cc::Layer*) override;
   void didUpdateMainThreadScrollingReasons() override;
+  void didChangeScrollbarsHidden(bool);
 
   PaintController& getPaintController();
 
@@ -266,6 +269,8 @@ class PLATFORM_EXPORT GraphicsLayer : public WebLayerScrollClient,
   WebLayer* contentsLayer() const { return m_contentsLayer; }
 
   void setElementId(const CompositorElementId&);
+  CompositorElementId elementId() const;
+
   void setCompositorMutableProperties(uint32_t);
 
   ContentLayerDelegate* contentLayerDelegateForTesting() const {
@@ -277,6 +282,12 @@ class PLATFORM_EXPORT GraphicsLayer : public WebLayerScrollClient,
   LayoutRect visualRect() const override;
 
   void setHasWillChangeTransformHint(bool);
+
+  // See comments in cc::Layer::SetPreferredRasterBounds.
+  void setPreferredRasterBounds(const IntSize&);
+  void clearPreferredRasterBounds();
+
+  const ColorBehavior& colorBehavior() const { return m_colorBehavior; }
 
  protected:
   String debugName(cc::Layer*) const;
@@ -297,13 +308,11 @@ class PLATFORM_EXPORT GraphicsLayer : public WebLayerScrollClient,
   // can be batched before updating.
   void addChildInternal(GraphicsLayer*);
 
-#if ENABLE(ASSERT)
+#if DCHECK_IS_ON()
   bool hasAncestor(GraphicsLayer*) const;
 #endif
 
   void incrementPaintCount() { ++m_paintCount; }
-
-  void notifyFirstPaintToClient();
 
   // Helper functions used by settors to keep layer's the state consistent.
   void updateChildList();
@@ -394,7 +403,11 @@ class PLATFORM_EXPORT GraphicsLayer : public WebLayerScrollClient,
 
   std::unique_ptr<PaintController> m_paintController;
 
+  ColorBehavior m_colorBehavior;
+
   IntRect m_previousInterestRect;
+  IntSize m_preferredRasterBounds;
+  bool m_hasPreferredRasterBounds;
 };
 
 }  // namespace blink

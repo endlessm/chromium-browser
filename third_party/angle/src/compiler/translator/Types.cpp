@@ -5,7 +5,7 @@
 //
 
 #if defined(_MSC_VER)
-#pragma warning(disable: 4718)
+#pragma warning(disable : 4718)
 #endif
 
 #include "compiler/translator/Types.h"
@@ -16,35 +16,94 @@
 #include <algorithm>
 #include <climits>
 
-const char* getBasicString(TBasicType t)
+namespace sh
+{
+
+const char *getBasicString(TBasicType t)
 {
     switch (t)
     {
-      case EbtVoid:                 return "void";                 break;
-      case EbtFloat:                return "float";                break;
-      case EbtInt:                  return "int";                  break;
-      case EbtUInt:                 return "uint";                 break;
-      case EbtBool:                 return "bool";                 break;
-      case EbtSampler2D:            return "sampler2D";            break;
-      case EbtSampler3D:            return "sampler3D";            break;
-      case EbtSamplerCube:          return "samplerCube";          break;
-      case EbtSamplerExternalOES:   return "samplerExternalOES";   break;
-      case EbtSampler2DRect:        return "sampler2DRect";        break;
-      case EbtSampler2DArray:       return "sampler2DArray";       break;
-      case EbtISampler2D:           return "isampler2D";           break;
-      case EbtISampler3D:           return "isampler3D";           break;
-      case EbtISamplerCube:         return "isamplerCube";         break;
-      case EbtISampler2DArray:      return "isampler2DArray";      break;
-      case EbtUSampler2D:           return "usampler2D";           break;
-      case EbtUSampler3D:           return "usampler3D";           break;
-      case EbtUSamplerCube:         return "usamplerCube";         break;
-      case EbtUSampler2DArray:      return "usampler2DArray";      break;
-      case EbtSampler2DShadow:      return "sampler2DShadow";      break;
-      case EbtSamplerCubeShadow:    return "samplerCubeShadow";    break;
-      case EbtSampler2DArrayShadow: return "sampler2DArrayShadow"; break;
-      case EbtStruct:               return "structure";            break;
-      case EbtInterfaceBlock:       return "interface block";      break;
-      default: UNREACHABLE();       return "unknown type";
+        case EbtVoid:
+            return "void";
+        case EbtFloat:
+            return "float";
+        case EbtInt:
+            return "int";
+        case EbtUInt:
+            return "uint";
+        case EbtBool:
+            return "bool";
+        case EbtSampler2D:
+            return "sampler2D";
+        case EbtSampler3D:
+            return "sampler3D";
+        case EbtSamplerCube:
+            return "samplerCube";
+        case EbtSamplerExternalOES:
+            return "samplerExternalOES";
+        case EbtSampler2DRect:
+            return "sampler2DRect";
+        case EbtSampler2DArray:
+            return "sampler2DArray";
+        case EbtSampler2DMS:
+            return "sampler2DMS";
+        case EbtISampler2D:
+            return "isampler2D";
+        case EbtISampler3D:
+            return "isampler3D";
+        case EbtISamplerCube:
+            return "isamplerCube";
+        case EbtISampler2DArray:
+            return "isampler2DArray";
+        case EbtISampler2DMS:
+            return "isampler2DMS";
+        case EbtUSampler2D:
+            return "usampler2D";
+        case EbtUSampler3D:
+            return "usampler3D";
+        case EbtUSamplerCube:
+            return "usamplerCube";
+        case EbtUSampler2DArray:
+            return "usampler2DArray";
+        case EbtUSampler2DMS:
+            return "usampler2DMS";
+        case EbtSampler2DShadow:
+            return "sampler2DShadow";
+        case EbtSamplerCubeShadow:
+            return "samplerCubeShadow";
+        case EbtSampler2DArrayShadow:
+            return "sampler2DArrayShadow";
+        case EbtStruct:
+            return "structure";
+        case EbtInterfaceBlock:
+            return "interface block";
+        case EbtImage2D:
+            return "image2D";
+        case EbtIImage2D:
+            return "iimage2D";
+        case EbtUImage2D:
+            return "uimage2D";
+        case EbtImage3D:
+            return "image3D";
+        case EbtIImage3D:
+            return "iimage3D";
+        case EbtUImage3D:
+            return "uimage3D";
+        case EbtImage2DArray:
+            return "image2DArray";
+        case EbtIImage2DArray:
+            return "iimage2DArray";
+        case EbtUImage2DArray:
+            return "uimage2DArray";
+        case EbtImageCube:
+            return "imageCube";
+        case EbtIImageCube:
+            return "iimageCube";
+        case EbtUImageCube:
+            return "uimageCube";
+        default:
+            UNREACHABLE();
+            return "unknown type";
     }
 }
 
@@ -53,6 +112,7 @@ TType::TType(const TPublicType &p)
       precision(p.precision),
       qualifier(p.qualifier),
       invariant(p.invariant),
+      memoryQualifier(p.memoryQualifier),
       layoutQualifier(p.layoutQualifier),
       primarySize(p.getPrimarySize()),
       secondarySize(p.getSecondarySize()),
@@ -220,78 +280,123 @@ TString TType::buildMangledName() const
 
     switch (type)
     {
-      case EbtFloat:
-        mangledName += 'f';
-        break;
-      case EbtInt:
-        mangledName += 'i';
-        break;
-      case EbtUInt:
-        mangledName += 'u';
-        break;
-      case EbtBool:
-        mangledName += 'b';
-        break;
-      case EbtSampler2D:
-        mangledName += "s2";
-        break;
-      case EbtSampler3D:
-        mangledName += "s3";
-        break;
-      case EbtSamplerCube:
-        mangledName += "sC";
-        break;
-      case EbtSampler2DArray:
-        mangledName += "s2a";
-        break;
-      case EbtSamplerExternalOES:
-        mangledName += "sext";
-        break;
-      case EbtSampler2DRect:
-        mangledName += "s2r";
-        break;
-      case EbtISampler2D:
-        mangledName += "is2";
-        break;
-      case EbtISampler3D:
-        mangledName += "is3";
-        break;
-      case EbtISamplerCube:
-        mangledName += "isC";
-        break;
-      case EbtISampler2DArray:
-        mangledName += "is2a";
-        break;
-      case EbtUSampler2D:
-        mangledName += "us2";
-        break;
-      case EbtUSampler3D:
-        mangledName += "us3";
-        break;
-      case EbtUSamplerCube:
-        mangledName += "usC";
-        break;
-      case EbtUSampler2DArray:
-        mangledName += "us2a";
-        break;
-      case EbtSampler2DShadow:
-        mangledName += "s2s";
-        break;
-      case EbtSamplerCubeShadow:
-        mangledName += "sCs";
-        break;
-      case EbtSampler2DArrayShadow:
-        mangledName += "s2as";
-        break;
-      case EbtStruct:
-        mangledName += structure->mangledName();
-        break;
-      case EbtInterfaceBlock:
-        mangledName += interfaceBlock->mangledName();
-        break;
-      default:
-        // EbtVoid, EbtAddress and non types
-        break;
+        case EbtFloat:
+            mangledName += 'f';
+            break;
+        case EbtInt:
+            mangledName += 'i';
+            break;
+        case EbtUInt:
+            mangledName += 'u';
+            break;
+        case EbtBool:
+            mangledName += 'b';
+            break;
+        case EbtSampler2D:
+            mangledName += "s2";
+            break;
+        case EbtSampler3D:
+            mangledName += "s3";
+            break;
+        case EbtSamplerCube:
+            mangledName += "sC";
+            break;
+        case EbtSampler2DArray:
+            mangledName += "s2a";
+            break;
+        case EbtSamplerExternalOES:
+            mangledName += "sext";
+            break;
+        case EbtSampler2DRect:
+            mangledName += "s2r";
+            break;
+        case EbtSampler2DMS:
+            mangledName += "s2ms";
+            break;
+        case EbtISampler2D:
+            mangledName += "is2";
+            break;
+        case EbtISampler3D:
+            mangledName += "is3";
+            break;
+        case EbtISamplerCube:
+            mangledName += "isC";
+            break;
+        case EbtISampler2DArray:
+            mangledName += "is2a";
+            break;
+        case EbtISampler2DMS:
+            mangledName += "is2ms";
+            break;
+        case EbtUSampler2D:
+            mangledName += "us2";
+            break;
+        case EbtUSampler3D:
+            mangledName += "us3";
+            break;
+        case EbtUSamplerCube:
+            mangledName += "usC";
+            break;
+        case EbtUSampler2DArray:
+            mangledName += "us2a";
+            break;
+        case EbtUSampler2DMS:
+            mangledName += "us2ms";
+            break;
+        case EbtSampler2DShadow:
+            mangledName += "s2s";
+            break;
+        case EbtSamplerCubeShadow:
+            mangledName += "sCs";
+            break;
+        case EbtSampler2DArrayShadow:
+            mangledName += "s2as";
+            break;
+        case EbtImage2D:
+            mangledName += "im2";
+            break;
+        case EbtIImage2D:
+            mangledName += "iim2";
+            break;
+        case EbtUImage2D:
+            mangledName += "uim2";
+            break;
+        case EbtImage3D:
+            mangledName += "im3";
+            break;
+        case EbtIImage3D:
+            mangledName += "iim3";
+            break;
+        case EbtUImage3D:
+            mangledName += "uim3";
+            break;
+        case EbtImage2DArray:
+            mangledName += "im2a";
+            break;
+        case EbtIImage2DArray:
+            mangledName += "iim2a";
+            break;
+        case EbtUImage2DArray:
+            mangledName += "uim2a";
+            break;
+        case EbtImageCube:
+            mangledName += "imc";
+            break;
+        case EbtIImageCube:
+            mangledName += "iimc";
+            break;
+        case EbtUImageCube:
+            mangledName += "uimc";
+            break;
+        case EbtStruct:
+            mangledName += structure->mangledName();
+            break;
+        case EbtInterfaceBlock:
+            mangledName += interfaceBlock->mangledName();
+            break;
+        default:
+            // EbtVoid, EbtAddress and non types
+            break;
     }
 
     if (isMatrix())
@@ -381,6 +486,17 @@ bool TStructure::containsSamplers() const
     return false;
 }
 
+bool TStructure::containsImages() const
+{
+    for (size_t i = 0; i < mFields->size(); ++i)
+    {
+        const TType *fieldType = (*mFields)[i]->type();
+        if (IsImage(fieldType->getBasicType()) || fieldType->isStructureContainingImages())
+            return true;
+    }
+    return false;
+}
+
 void TStructure::createSamplerSymbols(const TString &structName,
                                       const TString &structAPIName,
                                       const unsigned int arrayOfStructsSize,
@@ -417,7 +533,7 @@ void TStructure::createSamplerSymbols(const TString &structName,
 
                 if (outputSymbolsToAPINames)
                 {
-                    TString apiName = structAPIName + "." + field->name();
+                    TString apiName                    = structAPIName + "." + field->name();
                     (*outputSymbolsToAPINames)[symbol] = apiName;
                 }
             }
@@ -485,3 +601,5 @@ int TStructure::calculateDeepestNesting() const
         maxNesting = std::max(maxNesting, (*mFields)[i]->type()->getDeepestStructNesting());
     return 1 + maxNesting;
 }
+
+}  // namespace sh

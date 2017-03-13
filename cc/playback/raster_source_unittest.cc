@@ -10,7 +10,7 @@
 
 #include "cc/test/fake_recording_source.h"
 #include "cc/test/skia_common.h"
-#include "cc/tiles/software_image_decode_controller.h"
+#include "cc/tiles/software_image_decode_cache.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/skia/include/core/SkPixelRef.h"
 #include "third_party/skia/include/core/SkRefCnt.h"
@@ -48,7 +48,7 @@ TEST(RasterSourceTest, AnalyzeIsSolidUnscaled) {
   for (int y = 0; y <= 300; y += 100) {
     for (int x = 0; x <= 300; x += 100) {
       gfx::Rect rect(x, y, 100, 100);
-      is_solid_color = raster->PerformSolidColorAnalysis(rect, 1.0, &color);
+      is_solid_color = raster->PerformSolidColorAnalysis(rect, 1.f, &color);
       EXPECT_TRUE(is_solid_color) << rect.ToString();
       EXPECT_EQ(solid_color, color) << rect.ToString();
     }
@@ -63,31 +63,31 @@ TEST(RasterSourceTest, AnalyzeIsSolidUnscaled) {
 
   color = SK_ColorTRANSPARENT;
   is_solid_color =
-      raster->PerformSolidColorAnalysis(gfx::Rect(0, 0, 100, 100), 1.0, &color);
+      raster->PerformSolidColorAnalysis(gfx::Rect(0, 0, 100, 100), 1.f, &color);
   EXPECT_FALSE(is_solid_color);
 
   color = SK_ColorTRANSPARENT;
   is_solid_color = raster->PerformSolidColorAnalysis(
-      gfx::Rect(100, 0, 100, 100), 1.0, &color);
+      gfx::Rect(100, 0, 100, 100), 1.f, &color);
   EXPECT_TRUE(is_solid_color);
   EXPECT_EQ(solid_color, color);
 
   // Boundaries should be clipped.
   color = SK_ColorTRANSPARENT;
   is_solid_color = raster->PerformSolidColorAnalysis(
-      gfx::Rect(350, 0, 100, 100), 1.0, &color);
+      gfx::Rect(350, 0, 100, 100), 1.f, &color);
   EXPECT_TRUE(is_solid_color);
   EXPECT_EQ(solid_color, color);
 
   color = SK_ColorTRANSPARENT;
   is_solid_color = raster->PerformSolidColorAnalysis(
-      gfx::Rect(0, 350, 100, 100), 1.0, &color);
+      gfx::Rect(0, 350, 100, 100), 1.f, &color);
   EXPECT_TRUE(is_solid_color);
   EXPECT_EQ(solid_color, color);
 
   color = SK_ColorTRANSPARENT;
   is_solid_color = raster->PerformSolidColorAnalysis(
-      gfx::Rect(350, 350, 100, 100), 1.0, &color);
+      gfx::Rect(350, 350, 100, 100), 1.f, &color);
   EXPECT_TRUE(is_solid_color);
   EXPECT_EQ(solid_color, color);
 }
@@ -572,10 +572,10 @@ TEST(RasterSourceTest, ImageHijackCanvasRespectsSharedCanvasTransform) {
   bool can_use_lcd = true;
   scoped_refptr<RasterSource> raster_source =
       recording_source->CreateRasterSource(can_use_lcd);
-  SoftwareImageDecodeController controller(
+  SoftwareImageDecodeCache controller(
       ResourceFormat::RGBA_8888,
       LayerTreeSettings().software_decoded_image_budget_bytes);
-  raster_source->set_image_decode_controller(&controller);
+  raster_source->set_image_decode_cache(&controller);
 
   SkBitmap bitmap;
   bitmap.allocN32Pixels(size.width() * 0.5f, size.height() * 0.25f);

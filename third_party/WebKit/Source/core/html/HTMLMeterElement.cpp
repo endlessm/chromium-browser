@@ -22,7 +22,6 @@
 
 #include "bindings/core/v8/ExceptionMessages.h"
 #include "bindings/core/v8/ExceptionState.h"
-#include "bindings/core/v8/ExceptionStatePlaceholder.h"
 #include "core/HTMLNames.h"
 #include "core/dom/NodeComputedStyle.h"
 #include "core/dom/shadow/ShadowRoot.h"
@@ -30,7 +29,6 @@
 #include "core/html/HTMLContentElement.h"
 #include "core/html/HTMLDivElement.h"
 #include "core/html/parser/HTMLParserIdioms.h"
-#include "core/layout/LayoutObject.h"
 #include "core/style/ComputedStyle.h"
 
 namespace blink {
@@ -62,17 +60,17 @@ LayoutObject* HTMLMeterElement::createLayoutObject(const ComputedStyle& style) {
     default:
       break;
   }
-  return LayoutObject::createObject(this, style);
+  return LabelableElement::createLayoutObject(style);
 }
 
-void HTMLMeterElement::parseAttribute(const QualifiedName& name,
-                                      const AtomicString& oldValue,
-                                      const AtomicString& value) {
+void HTMLMeterElement::parseAttribute(
+    const AttributeModificationParams& params) {
+  const QualifiedName& name = params.name;
   if (name == valueAttr || name == minAttr || name == maxAttr ||
       name == lowAttr || name == highAttr || name == optimumAttr)
     didElementStateChange();
   else
-    LabelableElement::parseAttribute(name, oldValue, value);
+    LabelableElement::parseAttribute(params);
 }
 
 double HTMLMeterElement::value() const {

@@ -22,7 +22,7 @@
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/metrics/field_trial.h"
-#include "base/metrics/histogram.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/thread_restrictions.h"
@@ -261,7 +261,7 @@ std::unique_ptr<base::DictionaryValue> LoadManifest(
     return NULL;
   }
 
-  if (!root->IsType(base::Value::TYPE_DICTIONARY)) {
+  if (!root->IsType(base::Value::Type::DICTIONARY)) {
     *error = l10n_util::GetStringUTF8(IDS_EXTENSION_MANIFEST_INVALID);
     return NULL;
   }
@@ -457,28 +457,6 @@ base::FilePath ExtensionURLToRelativeFilePath(const GURL& url) {
   if (path.IsAbsolute())
     return base::FilePath();
 
-  return path;
-}
-
-base::FilePath ExtensionResourceURLToFilePath(const GURL& url,
-                                              const base::FilePath& root) {
-  std::string host = net::UnescapeURLComponent(
-      url.host(),
-      net::UnescapeRule::SPACES |
-          net::UnescapeRule::URL_SPECIAL_CHARS_EXCEPT_PATH_SEPARATORS);
-  if (host.empty())
-    return base::FilePath();
-
-  base::FilePath relative_path = ExtensionURLToRelativeFilePath(url);
-  if (relative_path.empty())
-    return base::FilePath();
-
-  base::FilePath path = root.AppendASCII(host).Append(relative_path);
-  if (!base::PathExists(path))
-    return base::FilePath();
-  path = base::MakeAbsoluteFilePath(path);
-  if (path.empty() || !root.IsParent(path))
-    return base::FilePath();
   return path;
 }
 

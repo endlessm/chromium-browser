@@ -19,6 +19,20 @@ class ChromeUserMetricsExtension;
 // Performs metrics logging for the stack sampling profiler.
 class CallStackProfileMetricsProvider : public MetricsProvider {
  public:
+  // These milestones of a process lifetime can be passed as process "mile-
+  // stones" to StackSmaplingProfile::SetProcessMilestone(). Be sure to update
+  // the translation constants at the top of the .cc file when this is changed.
+  enum Milestones : int {
+    MAIN_LOOP_START,
+    MAIN_NAVIGATION_START,
+    MAIN_NAVIGATION_FINISHED,
+    FIRST_NONEMPTY_PAINT,
+
+    SHUTDOWN_START,
+
+    MILESTONES_MAX_VALUE
+  };
+
   CallStackProfileMetricsProvider();
   ~CallStackProfileMetricsProvider() override;
 
@@ -31,11 +45,12 @@ class CallStackProfileMetricsProvider : public MetricsProvider {
 
   // Provides completed stack profiles to the metrics provider. Intended for use
   // when receiving profiles over IPC. In-process StackSamplingProfiler users
-  // should use GetProfilerCallback() instead.
+  // should use GetProfilerCallback() instead. |profiles| is not const& because
+  // it must be passed with std::move.
   static void ReceiveCompletedProfiles(
       const CallStackProfileParams& params,
       base::TimeTicks start_timestamp,
-      const base::StackSamplingProfiler::CallStackProfiles& profiles);
+      base::StackSamplingProfiler::CallStackProfiles profiles);
 
   // MetricsProvider:
   void OnRecordingEnabled() override;

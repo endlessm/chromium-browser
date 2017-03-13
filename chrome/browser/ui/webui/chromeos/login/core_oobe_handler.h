@@ -18,13 +18,10 @@
 #include "chrome/browser/ui/webui/chromeos/login/base_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/demo_mode_detector.h"
 #include "ui/events/event_source.h"
+#include "ui/keyboard/scoped_keyboard_disabler.h"
 
 namespace base {
 class ListValue;
-}
-
-namespace gfx {
-class Rect;
 }
 
 namespace ui {
@@ -45,7 +42,7 @@ class CoreOobeHandler : public BaseScreenHandler,
   class Delegate {
    public:
     // Called when current screen is changed.
-    virtual void OnCurrentScreenChanged(const std::string& screen) = 0;
+    virtual void OnCurrentScreenChanged(OobeScreen screen) = 0;
   };
 
   explicit CoreOobeHandler(OobeUI* oobe_ui);
@@ -122,6 +119,8 @@ class CoreOobeHandler : public BaseScreenHandler,
   void SetClientAreaSize(int width, int height) override;
   void ShowDeviceResetScreen() override;
   void ShowEnableDebuggingScreen() override;
+  void ShowActiveDirectoryPasswordChangeScreen(
+      const std::string& username) override;
 
   void InitDemoModeDetection() override;
   void StopDemoModeDetection() override;
@@ -131,6 +130,7 @@ class CoreOobeHandler : public BaseScreenHandler,
   void HandleEnableLargeCursor(bool enabled);
   void HandleEnableHighContrast(bool enabled);
   void HandleEnableVirtualKeyboard(bool enabled);
+  void HandleSetForceDisableVirtualKeyboard(bool disable);
   void HandleEnableScreenMagnifier(bool enabled);
   void HandleEnableSpokenFeedback(bool /* enabled */);
   void HandleInitialized();
@@ -172,17 +172,17 @@ class CoreOobeHandler : public BaseScreenHandler,
   //
   // The instance becomes initialized after the corresponding message is
   // received from javascript side.
-  bool is_initialized_;
+  bool is_initialized_ = false;
 
   // Javascript calls that have been deferred while the instance was not
   // initialized yet.
   std::vector<base::Closure> deferred_js_calls_;
 
   // Owner of this handler.
-  OobeUI* oobe_ui_;
+  OobeUI* oobe_ui_ = nullptr;
 
   // True if we should show OOBE instead of login.
-  bool show_oobe_ui_;
+  bool show_oobe_ui_ = false;
 
   // Updates when version info is changed.
   VersionInfoUpdater version_info_updater_;
@@ -190,11 +190,13 @@ class CoreOobeHandler : public BaseScreenHandler,
   // Help application used for help dialogs.
   scoped_refptr<HelpAppLauncher> help_app_;
 
-  Delegate* delegate_;
+  Delegate* delegate_ = nullptr;
 
   std::unique_ptr<AccessibilityStatusSubscription> accessibility_subscription_;
 
   DemoModeDetector demo_mode_detector_;
+
+  keyboard::ScopedKeyboardDisabler scoped_keyboard_disabler_;
 
   DISALLOW_COPY_AND_ASSIGN(CoreOobeHandler);
 };

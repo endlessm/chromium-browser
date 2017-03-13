@@ -54,14 +54,14 @@ class WebRtcMediaStreamAdapterTest : public ::testing::Test {
       ProcessedLocalAudioSource* const source = new ProcessedLocalAudioSource(
           -1 /* consumer_render_frame_id is N/A for non-browser tests */,
           StreamDeviceInfo(MEDIA_DEVICE_AUDIO_CAPTURE, "Mock audio device",
-                           "mock_audio_device_id", "mock_group_id",
+                           "mock_audio_device_id",
                            media::AudioParameters::kAudioCDSampleRate,
                            media::CHANNEL_LAYOUT_STEREO,
                            media::AudioParameters::kAudioCDSampleRate / 50),
+          MockConstraintFactory().CreateWebMediaConstraints(),
+          base::Bind(&WebRtcMediaStreamAdapterTest::OnAudioSourceStarted),
           dependency_factory_.get());
       source->SetAllowInvalidRenderFrameIdForTesting(true);
-      source->SetSourceConstraints(
-          MockConstraintFactory().CreateWebMediaConstraints());
       audio_source.setExtraData(source);  // Takes ownership.
       audio_track_vector[0].initialize(audio_source);
       EXPECT_CALL(*mock_audio_device_factory_.mock_capturer_source(),
@@ -119,6 +119,10 @@ class WebRtcMediaStreamAdapterTest : public ::testing::Test {
   }
 
  private:
+  static void OnAudioSourceStarted(MediaStreamSource* source,
+                                   MediaStreamRequestResult result,
+                                   const blink::WebString& result_name) {}
+
   base::MessageLoop message_loop_;
   std::unique_ptr<ChildProcess> child_process_;
   std::unique_ptr<MockPeerConnectionDependencyFactory> dependency_factory_;

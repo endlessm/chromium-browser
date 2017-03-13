@@ -8,7 +8,6 @@
 #include <string>
 
 #include "base/macros.h"
-#include "chrome/browser/interstitials/security_interstitial_page.h"
 #include "components/certificate_reporting/error_report.h"
 #include "net/ssl/ssl_info.h"
 #include "url/gurl.h"
@@ -44,6 +43,7 @@ class CertReportHelper {
                    certificate_reporting::ErrorReport::InterstitialReason
                        interstitial_reason,
                    bool overridable,
+                   const base::Time& interstitial_time,
                    security_interstitials::MetricsHelper* metrics_helper);
 
   virtual ~CertReportHelper();
@@ -88,6 +88,8 @@ class CertReportHelper {
   // True if the user was given the option to proceed through the
   // certificate chain error being reported.
   bool overridable_;
+  // The time at which the interstitial was constructed.
+  const base::Time interstitial_time_;
   // Helpful for recording metrics about cert reports.
   security_interstitials::MetricsHelper* metrics_helper_;
 

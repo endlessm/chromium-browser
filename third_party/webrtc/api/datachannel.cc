@@ -14,9 +14,10 @@
 #include <string>
 
 #include "webrtc/api/sctputils.h"
+#include "webrtc/base/checks.h"
 #include "webrtc/base/logging.h"
 #include "webrtc/base/refcount.h"
-#include "webrtc/media/sctp/sctpdataengine.h"
+#include "webrtc/media/sctp/sctptransportinternal.h"
 
 namespace webrtc {
 
@@ -126,8 +127,12 @@ DataChannel::DataChannel(
     cricket::DataChannelType dct,
     const std::string& label)
     : label_(label),
-      observer_(NULL),
+      observer_(nullptr),
       state_(kConnecting),
+      messages_sent_(0),
+      bytes_sent_(0),
+      messages_received_(0),
+      bytes_received_(0),
       data_channel_type_(dct),
       provider_(provider),
       handshake_state_(kHandshakeInit),
@@ -244,7 +249,7 @@ bool DataChannel::Send(const DataBuffer& buffer) {
   if (!queued_send_data_.Empty()) {
     // Only SCTP DataChannel queues the outgoing data when the transport is
     // blocked.
-    ASSERT(data_channel_type_ == cricket::DCT_SCTP);
+    RTC_DCHECK(data_channel_type_ == cricket::DCT_SCTP);
     if (!QueueSendDataMessage(buffer)) {
       Close();
     }
@@ -261,7 +266,7 @@ bool DataChannel::Send(const DataBuffer& buffer) {
 }
 
 void DataChannel::SetReceiveSsrc(uint32_t receive_ssrc) {
-  ASSERT(data_channel_type_ == cricket::DCT_RTP);
+  RTC_DCHECK(data_channel_type_ == cricket::DCT_RTP);
 
   if (receive_ssrc_set_) {
     return;
@@ -277,7 +282,8 @@ void DataChannel::RemotePeerRequestClose() {
 }
 
 void DataChannel::SetSctpSid(int sid) {
-  ASSERT(config_.id < 0 && sid >= 0 && data_channel_type_ == cricket::DCT_SCTP);
+  RTC_DCHECK(config_.id < 0 && sid >= 0 &&
+             data_channel_type_ == cricket::DCT_SCTP);
   if (config_.id == sid) {
     return;
   }
@@ -287,7 +293,7 @@ void DataChannel::SetSctpSid(int sid) {
 }
 
 void DataChannel::OnTransportChannelCreated() {
-  ASSERT(data_channel_type_ == cricket::DCT_SCTP);
+  RTC_DCHECK(data_channel_type_ == cricket::DCT_SCTP);
   if (!connected_to_provider_) {
     connected_to_provider_ = provider_->ConnectDataChannel(this);
   }
@@ -307,7 +313,7 @@ void DataChannel::OnTransportChannelDestroyed() {
 }
 
 void DataChannel::SetSendSsrc(uint32_t send_ssrc) {
-  ASSERT(data_channel_type_ == cricket::DCT_RTP);
+  RTC_DCHECK(data_channel_type_ == cricket::DCT_RTP);
   if (send_ssrc_set_) {
     return;
   }
@@ -324,39 +330,39 @@ void DataChannel::OnMessage(rtc::Message* msg) {
   }
 }
 
-void DataChannel::OnDataReceived(cricket::DataChannel* channel,
-                                 const cricket::ReceiveDataParams& params,
+void DataChannel::OnDataReceived(const cricket::ReceiveDataParams& params,
                                  const rtc::CopyOnWriteBuffer& payload) {
-  uint32_t expected_ssrc =
-      (data_channel_type_ == cricket::DCT_RTP) ? receive_ssrc_ : config_.id;
-  if (params.ssrc != expected_ssrc) {
+  if (data_channel_type_ == cricket::DCT_RTP && params.ssrc != receive_ssrc_) {
+    return;
+  }
+  if (data_channel_type_ == cricket::DCT_SCTP && params.sid != config_.id) {
     return;
   }
 
   if (params.type == cricket::DMT_CONTROL) {
-    ASSERT(data_channel_type_ == cricket::DCT_SCTP);
+    RTC_DCHECK(data_channel_type_ == cricket::DCT_SCTP);
     if (handshake_state_ != kHandshakeWaitingForAck) {
       // Ignore it if we are not expecting an ACK message.
       LOG(LS_WARNING) << "DataChannel received unexpected CONTROL message, "
-                      << "sid = " << params.ssrc;
+                      << "sid = " << params.sid;
       return;
     }
     if (ParseDataChannelOpenAckMessage(payload)) {
       // We can send unordered as soon as we receive the ACK message.
       handshake_state_ = kHandshakeReady;
       LOG(LS_INFO) << "DataChannel received OPEN_ACK message, sid = "
-                   << params.ssrc;
+                   << params.sid;
     } else {
       LOG(LS_WARNING) << "DataChannel failed to parse OPEN_ACK message, sid = "
-                      << params.ssrc;
+                      << params.sid;
     }
     return;
   }
 
-  ASSERT(params.type == cricket::DMT_BINARY ||
-         params.type == cricket::DMT_TEXT);
+  RTC_DCHECK(params.type == cricket::DMT_BINARY ||
+             params.type == cricket::DMT_TEXT);
 
-  LOG(LS_VERBOSE) << "DataChannel received DATA message, sid = " << params.ssrc;
+  LOG(LS_VERBOSE) << "DataChannel received DATA message, sid = " << params.sid;
   // We can send unordered as soon as we receive any DATA message since the
   // remote side must have received the OPEN (and old clients do not send
   // OPEN_ACK).
@@ -367,6 +373,8 @@ void DataChannel::OnDataReceived(cricket::DataChannel* channel,
   bool binary = (params.type == cricket::DMT_BINARY);
   std::unique_ptr<DataBuffer> buffer(new DataBuffer(payload, binary));
   if (state_ == kOpen && observer_) {
+    ++messages_received_;
+    bytes_received_ += buffer->size();
     observer_->OnMessage(*buffer.get());
   } else {
     if (queued_received_data_.byte_count() + payload.size() >
@@ -384,9 +392,8 @@ void DataChannel::OnDataReceived(cricket::DataChannel* channel,
   }
 }
 
-void DataChannel::OnStreamClosedRemotely(uint32_t sid) {
-  if (data_channel_type_ == cricket::DCT_SCTP &&
-      sid == static_cast<uint32_t>(config_.id)) {
+void DataChannel::OnStreamClosedRemotely(int sid) {
+  if (data_channel_type_ == cricket::DCT_SCTP && sid == config_.id) {
     Close();
   }
 }
@@ -474,7 +481,9 @@ void DataChannel::SetState(DataState state) {
   if (observer_) {
     observer_->OnStateChange();
   }
-  if (state_ == kClosed) {
+  if (state_ == kOpen) {
+    SignalOpened(this);
+  } else if (state_ == kClosed) {
     SignalClosed(this);
   }
 }
@@ -498,6 +507,8 @@ void DataChannel::DeliverQueuedReceivedData() {
 
   while (!queued_received_data_.Empty()) {
     std::unique_ptr<DataBuffer> buffer(queued_received_data_.Front());
+    ++messages_received_;
+    bytes_received_ += buffer->size();
     observer_->OnMessage(*buffer);
     queued_received_data_.Pop();
   }
@@ -508,7 +519,7 @@ void DataChannel::SendQueuedDataMessages() {
     return;
   }
 
-  ASSERT(state_ == kOpen || state_ == kClosing);
+  RTC_DCHECK(state_ == kOpen || state_ == kClosing);
 
   uint64_t start_buffered_amount = buffered_amount();
   while (!queued_send_data_.Empty()) {
@@ -541,7 +552,7 @@ bool DataChannel::SendDataMessage(const DataBuffer& buffer,
 
     send_params.max_rtx_count = config_.maxRetransmits;
     send_params.max_rtx_ms = config_.maxRetransmitTime;
-    send_params.ssrc = config_.id;
+    send_params.sid = config_.id;
   } else {
     send_params.ssrc = send_ssrc_;
   }
@@ -551,6 +562,8 @@ bool DataChannel::SendDataMessage(const DataBuffer& buffer,
   bool success = provider_->SendData(send_params, buffer.data, &send_result);
 
   if (success) {
+    ++messages_sent_;
+    bytes_sent_ += buffer.size();
     return true;
   }
 
@@ -605,13 +618,11 @@ void DataChannel::QueueControlMessage(const rtc::CopyOnWriteBuffer& buffer) {
 bool DataChannel::SendControlMessage(const rtc::CopyOnWriteBuffer& buffer) {
   bool is_open_message = handshake_state_ == kHandshakeShouldSendOpen;
 
-  ASSERT(data_channel_type_ == cricket::DCT_SCTP &&
-         writable_ &&
-         config_.id >= 0 &&
-         (!is_open_message || !config_.negotiated));
+  RTC_DCHECK(data_channel_type_ == cricket::DCT_SCTP && writable_ &&
+             config_.id >= 0 && (!is_open_message || !config_.negotiated));
 
   cricket::SendDataParams send_params;
-  send_params.ssrc = config_.id;
+  send_params.sid = config_.id;
   // Send data as ordered before we receive any message from the remote peer to
   // make sure the remote peer will not receive any data before it receives the
   // OPEN message.

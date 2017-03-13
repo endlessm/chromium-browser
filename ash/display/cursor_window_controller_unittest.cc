@@ -8,12 +8,12 @@
 #include "ash/display/window_tree_host_manager.h"
 #include "ash/shell.h"
 #include "ash/test/ash_test_base.h"
-#include "ash/test/display_manager_test_api.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_tree_host.h"
 #include "ui/base/cursor/cursor.h"
 #include "ui/display/display.h"
 #include "ui/display/screen.h"
+#include "ui/display/test/display_manager_test_api.h"
 #include "ui/events/test/event_generator.h"
 #include "ui/wm/core/coordinate_conversion.h"
 
@@ -102,7 +102,7 @@ TEST_F(CursorWindowControllerTest, MoveToDifferentDisplay) {
   // asynchronously. This is implemented in a platform specific way. Generate a
   // fake mouse move instead of waiting.
   gfx::Point new_cursor_position_in_host(20, 50);
-  secondary_root->GetHost()->ConvertPointToHost(&new_cursor_position_in_host);
+  secondary_root->GetHost()->ConvertDIPToPixels(&new_cursor_position_in_host);
   ui::test::EventGenerator secondary_generator(secondary_root);
   secondary_generator.MoveMouseToInHost(new_cursor_position_in_host);
 
@@ -156,14 +156,16 @@ TEST_F(CursorWindowControllerTest, DSF) {
   UpdateDisplay("1000x500*2");
   int64_t primary_id = display::Screen::GetScreen()->GetPrimaryDisplay().id();
 
-  test::ScopedSetInternalDisplayId set_internal(display_manager(), primary_id);
+  display::test::ScopedSetInternalDisplayId set_internal(display_manager(),
+                                                         primary_id);
   SetCursorCompositionEnabled(true);
   ASSERT_EQ(
       2.0f,
       display::Screen::GetScreen()->GetPrimaryDisplay().device_scale_factor());
   EXPECT_TRUE(GetCursorImage().HasRepresentation(2.0f));
 
-  ASSERT_TRUE(display_manager()->SetDisplayUIScale(primary_id, 2.0f));
+  ASSERT_TRUE(display::test::DisplayManagerTestApi(display_manager())
+                  .SetDisplayUIScale(primary_id, 2.0f));
   ASSERT_EQ(
       1.0f,
       display::Screen::GetScreen()->GetPrimaryDisplay().device_scale_factor());

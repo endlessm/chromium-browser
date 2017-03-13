@@ -7,6 +7,7 @@
 #include "bindings/core/v8/ScriptPromiseResolver.h"
 #include "core/dom/DOMException.h"
 #include "core/dom/Document.h"
+#include "core/dom/DocumentUserGestureToken.h"
 #include "core/dom/ExceptionCode.h"
 #include "core/frame/LocalDOMWindow.h"
 #include "core/frame/LocalFrame.h"
@@ -17,6 +18,8 @@
 #include "modules/vr/VRDisplay.h"
 #include "modules/vr/VRGetDevicesCallback.h"
 #include "modules/vr/VRPose.h"
+#include "platform/UserGestureIndicator.h"
+#include "public/platform/Platform.h"
 #include "wtf/PtrUtil.h"
 
 namespace blink {
@@ -32,7 +35,7 @@ NavigatorVR& NavigatorVR::from(Navigator& navigator) {
   NavigatorVR* supplement = static_cast<NavigatorVR*>(
       Supplement<Navigator>::from(navigator, supplementName()));
   if (!supplement) {
-    supplement = new NavigatorVR(navigator.frame());
+    supplement = new NavigatorVR(navigator);
     provideTo(navigator, supplementName(), supplement);
   }
   return *supplement;
@@ -47,16 +50,20 @@ ScriptPromise NavigatorVR::getVRDisplays(ScriptState* scriptState) {
   ScriptPromiseResolver* resolver = ScriptPromiseResolver::create(scriptState);
   ScriptPromise promise = resolver->promise();
 
-  Document* document = frame() ? frame()->document() : 0;
-
-  if (!document || !controller()) {
+  if (!document()) {
     DOMException* exception = DOMException::create(
         InvalidStateError, "The object is no longer associated to a document.");
     resolver->reject(exception);
     return promise;
   }
 
-  UseCounter::count(*document, UseCounter::VRGetDisplays);
+  UseCounter::count(*document(), UseCounter::VRGetDisplays);
+  ExecutionContext* executionContext = scriptState->getExecutionContext();
+  if (!executionContext->isSecureContext())
+    UseCounter::count(*document(), UseCounter::VRGetDisplaysInsecureOrigin);
+
+  Platform::current()->recordRapporURL("VR.WebVR.GetDisplays",
+                                       document()->url());
 
   controller()->getDisplays(resolver);
 
@@ -64,7 +71,7 @@ ScriptPromise NavigatorVR::getVRDisplays(ScriptState* scriptState) {
 }
 
 VRController* NavigatorVR::controller() {
-  if (!frame())
+  if (!supplementable()->frame())
     return 0;
 
   if (!m_controller) {
@@ -75,17 +82,21 @@ VRController* NavigatorVR::controller() {
 }
 
 Document* NavigatorVR::document() {
-  return frame() ? frame()->document() : 0;
+  return supplementable()->frame() ? supplementable()->frame()->document()
+                                   : nullptr;
 }
 
 DEFINE_TRACE(NavigatorVR) {
   visitor->trace(m_controller);
-
   Supplement<Navigator>::trace(visitor);
-  DOMWindowProperty::trace(visitor);
+  PageVisibilityObserver::trace(visitor);
 }
 
-NavigatorVR::NavigatorVR(LocalFrame* frame) : DOMWindowProperty(frame) {}
+NavigatorVR::NavigatorVR(Navigator& navigator)
+    : Supplement<Navigator>(navigator),
+      PageVisibilityObserver(navigator.frame()->page()) {
+  navigator.frame()->domWindow()->registerEventListenerObserver(this);
+}
 
 NavigatorVR::~NavigatorVR() {}
 
@@ -93,16 +104,57 @@ const char* NavigatorVR::supplementName() {
   return "NavigatorVR";
 }
 
-void NavigatorVR::fireVRDisplayPresentChange(VRDisplay* display) {
-  if (frame() && frame()->localDOMWindow()) {
-    frame()->localDOMWindow()->enqueueWindowEvent(VRDisplayEvent::create(
-        EventTypeNames::vrdisplaypresentchange, true, false, display, ""));
+void NavigatorVR::enqueueVREvent(VRDisplayEvent* event) {
+  if (supplementable()->frame()) {
+    supplementable()->frame()->domWindow()->enqueueWindowEvent(event);
   }
 }
 
-void NavigatorVR::fireVREvent(VRDisplayEvent* event) {
-  if (frame() && frame()->localDOMWindow()) {
-    frame()->localDOMWindow()->enqueueWindowEvent(event);
+void NavigatorVR::dispatchVRGestureEvent(VRDisplayEvent* event) {
+  if (!(supplementable()->frame()))
+    return;
+  UserGestureIndicator gestureIndicator(
+      DocumentUserGestureToken::create(document()));
+  LocalDOMWindow* window = supplementable()->frame()->domWindow();
+  DCHECK(window);
+  event->setTarget(window);
+  window->dispatchEvent(event);
+}
+
+void NavigatorVR::pageVisibilityChanged() {
+  if (!page())
+    return;
+  if (m_controller) {
+    m_controller->setListeningForActivate(page()->isPageVisible() &&
+                                          m_listeningForActivate);
+  }
+}
+
+void NavigatorVR::didAddEventListener(LocalDOMWindow* window,
+                                      const AtomicString& eventType) {
+  if (eventType == EventTypeNames::vrdisplayactivate) {
+    controller()->setListeningForActivate(true);
+    m_listeningForActivate = true;
+  } else if (eventType == EventTypeNames::vrdisplayconnect) {
+    // If the page is listening for connection events make sure we've created a
+    // controller so that we'll be notified of new devices.
+    controller();
+  }
+}
+
+void NavigatorVR::didRemoveEventListener(LocalDOMWindow* window,
+                                         const AtomicString& eventType) {
+  if (eventType == EventTypeNames::vrdisplayactivate &&
+      !window->hasEventListeners(EventTypeNames::vrdisplayactivate)) {
+    controller()->setListeningForActivate(false);
+    m_listeningForActivate = false;
+  }
+}
+
+void NavigatorVR::didRemoveAllEventListeners(LocalDOMWindow* window) {
+  if (m_controller) {
+    m_controller->setListeningForActivate(false);
+    m_listeningForActivate = false;
   }
 }
 

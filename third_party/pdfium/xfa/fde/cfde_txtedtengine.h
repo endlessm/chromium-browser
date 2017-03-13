@@ -9,6 +9,7 @@
 
 #include <memory>
 
+#include "core/fxcrt/cfx_retain_ptr.h"
 #include "xfa/fde/ifde_txtedtengine.h"
 
 class CFDE_TxtEdtBuf;
@@ -28,24 +29,24 @@ class CFDE_TxtEdtEngine {
   int32_t CountPages() const;
   IFDE_TxtEdtPage* GetPage(int32_t nIndex);
 
-  void SetTextByStream(IFX_Stream* pStream);
+  void SetTextByStream(const CFX_RetainPtr<IFGAS_Stream>& pStream);
   void SetText(const CFX_WideString& wsText);
   int32_t GetTextLength() const;
-  void GetText(CFX_WideString& wsText, int32_t nStart, int32_t nCount = -1);
+  CFX_WideString GetText(int32_t nStart, int32_t nCount) const;
   void ClearText();
 
   int32_t GetCaretRect(CFX_RectF& rtCaret) const;
   int32_t GetCaretPos() const;
-  int32_t SetCaretPos(int32_t nIndex, FX_BOOL bBefore);
+  int32_t SetCaretPos(int32_t nIndex, bool bBefore);
   int32_t MoveCaretPos(FDE_TXTEDTMOVECARET eMoveCaret,
-                       FX_BOOL bShift = FALSE,
-                       FX_BOOL bCtrl = FALSE);
+                       bool bShift = false,
+                       bool bCtrl = false);
   void Lock();
   void Unlock();
-  FX_BOOL IsLocked() const;
+  bool IsLocked() const;
 
   int32_t Insert(int32_t nStart, const FX_WCHAR* lpText, int32_t nLength);
-  int32_t Delete(int32_t nStart, FX_BOOL bBackspace = FALSE);
+  int32_t Delete(int32_t nStart, bool bBackspace = false);
   int32_t DeleteRange(int32_t nStart, int32_t nCount = -1);
   int32_t Replace(int32_t nStart,
                   int32_t nLength,
@@ -54,21 +55,20 @@ class CFDE_TxtEdtEngine {
   void SetLimit(int32_t nLimit);
   void SetAliasChar(FX_WCHAR wcAlias);
 
-  void RemoveSelRange(int32_t nStart, int32_t nCount = -1);
+  void RemoveSelRange(int32_t nStart, int32_t nCount);
 
-  void AddSelRange(int32_t nStart, int32_t nCount = -1);
-  int32_t CountSelRanges();
-  int32_t GetSelRange(int32_t nIndex, int32_t& nStart);
+  void AddSelRange(int32_t nStart, int32_t nCount);
+  int32_t CountSelRanges() const;
+  int32_t GetSelRange(int32_t nIndex, int32_t* nStart) const;
   void ClearSelection();
 
-  FX_BOOL Redo(const IFDE_TxtEdtDoRecord* pRecord);
-  FX_BOOL Undo(const IFDE_TxtEdtDoRecord* pRecord);
+  bool Redo(const IFDE_TxtEdtDoRecord* pRecord);
+  bool Undo(const IFDE_TxtEdtDoRecord* pRecord);
 
   int32_t StartLayout();
   int32_t DoLayout(IFX_Pause* pPause);
   void EndLayout();
 
-  FX_BOOL Optimize(IFX_Pause* pPause = nullptr);
   int32_t CountParags() const;
   CFDE_TxtEdtParag* GetParag(int32_t nParagIndex) const;
   IFX_CharIter* CreateCharIter();
@@ -100,23 +100,17 @@ class CFDE_TxtEdtEngine {
   };
 
   void Inner_Insert(int32_t nStart, const FX_WCHAR* lpText, int32_t nLength);
-  void GetPreDeleteText(CFX_WideString& wsText,
-                        int32_t nIndex,
-                        int32_t nLength);
-  void GetPreInsertText(CFX_WideString& wsText,
-                        int32_t nIndex,
-                        const FX_WCHAR* lpText,
-                        int32_t nLength);
-  void GetPreReplaceText(CFX_WideString& wsText,
-                         int32_t nIndex,
-                         int32_t nOriginLength,
-                         const FX_WCHAR* lpText,
-                         int32_t nLength);
+  CFX_WideString GetPreDeleteText(int32_t nIndex, int32_t nLength);
+  CFX_WideString GetPreInsertText(int32_t nIndex,
+                                  const FX_WCHAR* lpText,
+                                  int32_t nLength);
+  CFX_WideString GetPreReplaceText(int32_t nIndex,
+                                   int32_t nOriginLength,
+                                   const FX_WCHAR* lpText,
+                                   int32_t nLength);
 
   void Inner_DeleteRange(int32_t nStart, int32_t nCount = -1);
-  void DeleteRange_DoRecord(int32_t nStart,
-                            int32_t nCount,
-                            FX_BOOL bSel = FALSE);
+  void DeleteRange_DoRecord(int32_t nStart, int32_t nCount, bool bSel = false);
   void ResetEngine();
   void RebuildParagraphs();
   void RemoveAllParags();
@@ -125,31 +119,31 @@ class CFDE_TxtEdtEngine {
   void UpdatePages();
   void UpdateTxtBreak();
 
-  FX_BOOL ReplaceParagEnd(FX_WCHAR*& lpText,
-                          int32_t& nLength,
-                          FX_BOOL bPreIsCR = FALSE);
-  void RecoverParagEnd(CFX_WideString& wsText);
+  bool ReplaceParagEnd(FX_WCHAR*& lpText,
+                       int32_t& nLength,
+                       bool bPreIsCR = false);
+  void RecoverParagEnd(CFX_WideString& wsText) const;
   int32_t MovePage2Char(int32_t nIndex);
   void TextPos2ParagPos(int32_t nIndex, FDE_TXTEDTPARAGPOS& ParagPos) const;
-  int32_t MoveForward(FX_BOOL& bBefore);
-  int32_t MoveBackward(FX_BOOL& bBefore);
-  FX_BOOL MoveUp(CFX_PointF& ptCaret);
-  FX_BOOL MoveDown(CFX_PointF& ptCaret);
-  FX_BOOL MoveLineStart();
-  FX_BOOL MoveLineEnd();
-  FX_BOOL MoveParagStart();
-  FX_BOOL MoveParagEnd();
-  FX_BOOL MoveHome();
-  FX_BOOL MoveEnd();
-  FX_BOOL IsFitArea(CFX_WideString& wsText);
-  void UpdateCaretRect(int32_t nIndex, FX_BOOL bBefore = TRUE);
+  int32_t MoveForward(bool& bBefore);
+  int32_t MoveBackward(bool& bBefore);
+  bool MoveUp(CFX_PointF& ptCaret);
+  bool MoveDown(CFX_PointF& ptCaret);
+  bool MoveLineStart();
+  bool MoveLineEnd();
+  bool MoveParagStart();
+  bool MoveParagEnd();
+  bool MoveHome();
+  bool MoveEnd();
+  bool IsFitArea(CFX_WideString& wsText);
+  void UpdateCaretRect(int32_t nIndex, bool bBefore = true);
   void GetCaretRect(CFX_RectF& rtCaret,
                     int32_t nPageIndex,
                     int32_t nCaret,
-                    FX_BOOL bBefore = TRUE);
+                    bool bBefore = true);
   void UpdateCaretIndex(const CFX_PointF& ptCaret);
 
-  FX_BOOL IsSelect();
+  bool IsSelect();
   void DeleteSelect();
 
   std::unique_ptr<CFDE_TxtEdtBuf> m_pTxtBuf;
@@ -164,15 +158,15 @@ class CFDE_TxtEdtEngine {
   int32_t m_nLayoutPos;
   FX_FLOAT m_fCaretPosReserve;
   int32_t m_nCaret;
-  FX_BOOL m_bBefore;
+  bool m_bBefore;
   int32_t m_nCaretPage;
   CFX_RectF m_rtCaret;
   uint32_t m_dwFindFlags;
-  FX_BOOL m_bLock;
+  bool m_bLock;
   int32_t m_nLimit;
   FX_WCHAR m_wcAliasChar;
   int32_t m_nFirstLineEnd;
-  FX_BOOL m_bAutoLineEnd;
+  bool m_bAutoLineEnd;
   FX_WCHAR m_wLineEnd;
   FDE_TXTEDT_TEXTCHANGE_INFO m_ChangeInfo;
 };

@@ -4,10 +4,13 @@
 
 #include "chrome/browser/ui/ash/app_list/app_list_presenter_delegate_mus.h"
 
+#include "ui/app_list/presenter/app_list_presenter_impl.h"
 #include "ui/app_list/presenter/app_list_view_delegate_factory.h"
 #include "ui/app_list/views/app_list_view.h"
 #include "ui/display/display.h"
 #include "ui/display/screen.h"
+#include "ui/views/mus/mus_client.h"
+#include "ui/views/mus/pointer_watcher_event_router.h"
 
 namespace {
 
@@ -36,10 +39,15 @@ gfx::Point GetCenterOfDisplay(int64_t display_id, int minimum_height) {
 }  // namespace
 
 AppListPresenterDelegateMus::AppListPresenterDelegateMus(
+    app_list::AppListPresenterImpl* presenter,
     app_list::AppListViewDelegateFactory* view_delegate_factory)
-    : view_delegate_factory_(view_delegate_factory) {}
+    : presenter_(presenter), view_delegate_factory_(view_delegate_factory) {}
 
-AppListPresenterDelegateMus::~AppListPresenterDelegateMus() {}
+AppListPresenterDelegateMus::~AppListPresenterDelegateMus() {
+  // Presenter is supposed to be dismissed when the delegate is destroyed. This
+  // means we don't have to worry about unregistering the PointerWatcher here.
+  DCHECK(!presenter_->GetTargetVisibility());
+}
 
 app_list::AppListViewDelegate* AppListPresenterDelegateMus::GetViewDelegate() {
   return view_delegate_factory_->GetDelegate();
@@ -52,38 +60,34 @@ void AppListPresenterDelegateMus::Init(app_list::AppListView* view,
 
   // Note: This would place the app list into the USER_WINDOWS container, unlike
   // in classic ash, where it has it's own container.
-  // Note: We can't center the app list until we have its dimensions, so we
-  // init at (0, 0) and then reset its anchor point.
   // TODO(mfomitchev): We are currently passing NULL for |parent|. It seems like
   // the only thing this is used for is choosing the right scale factor in
   // AppListMainView::PreloadIcons(), so we take care of that - perhaps by
   // passing the display_id or the scale factor directly
-  view->InitAsBubbleAtFixedLocation(nullptr /* parent */, current_apps_page,
-                                    gfx::Point(), views::BubbleBorder::FLOAT,
-                                    true /* border_accepts_events */);
-
+  view->InitAsBubble(nullptr /* parent */, current_apps_page);
   view->SetAnchorPoint(
       GetCenterOfDisplay(display_id, GetMinimumBoundsHeightForAppList(view)));
 
   // TODO(mfomitchev): Setup updating bounds on keyboard bounds change.
-  // TODO(mfomitchev): Setup dismissing on mouse/touch gesture anywhere outside
-  // the bounds of the app list.
   // TODO(mfomitchev): Setup dismissing on maximize (touch-view) mode start/end.
   // TODO(mfomitchev): Setup DnD.
   // TODO(mfomitchev): UpdateAutoHideState for shelf
 }
 
 void AppListPresenterDelegateMus::OnShown(int64_t display_id) {
-  is_visible_ = true;
+  views::MusClient::Get()->pointer_watcher_event_router()->AddPointerWatcher(
+      this, false);
+  DCHECK(presenter_->GetTargetVisibility());
 }
 
 void AppListPresenterDelegateMus::OnDismissed() {
-  DCHECK(is_visible_);
-  is_visible_ = false;
+  views::MusClient::Get()->pointer_watcher_event_router()->RemovePointerWatcher(
+      this);
+  DCHECK(!presenter_->GetTargetVisibility());
 }
 
 void AppListPresenterDelegateMus::UpdateBounds() {
-  if (!view_ || !is_visible_)
+  if (!view_ || !presenter_->GetTargetVisibility())
     return;
 
   view_->UpdateBounds();
@@ -94,4 +98,15 @@ gfx::Vector2d AppListPresenterDelegateMus::GetVisibilityAnimationOffset(
   // TODO(mfomitchev): Classic ash does different animation here depending on
   // shelf alignment. We should probably do that too.
   return gfx::Vector2d(0, kAnimationOffset);
+}
+
+void AppListPresenterDelegateMus::OnPointerEventObserved(
+    const ui::PointerEvent& event,
+    const gfx::Point& location_in_screen,
+    views::Widget* target) {
+  // Dismiss app list on a mouse click or touch outside of the app list window.
+  if ((event.type() == ui::ET_TOUCH_PRESSED ||
+       event.type() == ui::ET_POINTER_DOWN) &&
+      (!target || (view_ && (target != view_->GetWidget()))))
+    presenter_->Dismiss();
 }

@@ -112,7 +112,12 @@ FloatRect SVGInlineTextBox::selectionRectForTextFragment(
   ASSERT(scalingFactor);
 
   const Font& scaledFont = lineLayoutItem.scaledFont();
-  const FontMetrics& scaledFontMetrics = scaledFont.getFontMetrics();
+  const SimpleFontData* fontData = scaledFont.primaryFont();
+  DCHECK(fontData);
+  if (!fontData)
+    return FloatRect();
+
+  const FontMetrics& scaledFontMetrics = fontData->getFontMetrics();
   FloatPoint textOrigin(fragment.x, fragment.y);
   if (scalingFactor != 1)
     textOrigin.scale(scalingFactor, scalingFactor);
@@ -185,7 +190,7 @@ TextRun SVGInlineTextBox::constructTextRun(
       0,  // padding, only relevant for justified text, not relevant for SVG
       TextRun::AllowTrailingExpansion, direction(),
       dirOverride() ||
-          style.rtlOrdering() == VisualOrder /* directionalOverride */);
+          style.rtlOrdering() == EOrder::kVisual /* directionalOverride */);
 
   if (fragment.length) {
     if (text.is8Bit())
@@ -226,7 +231,7 @@ bool SVGInlineTextBox::mapStartEndPositionsIntoFragmentCoordinates(
 
 void SVGInlineTextBox::paintDocumentMarker(GraphicsContext&,
                                            const LayoutPoint&,
-                                           DocumentMarker*,
+                                           const DocumentMarker&,
                                            const ComputedStyle&,
                                            const Font&,
                                            bool) const {
@@ -237,7 +242,7 @@ void SVGInlineTextBox::paintDocumentMarker(GraphicsContext&,
 void SVGInlineTextBox::paintTextMatchMarkerForeground(
     const PaintInfo& paintInfo,
     const LayoutPoint& point,
-    DocumentMarker* marker,
+    const DocumentMarker& marker,
     const ComputedStyle& style,
     const Font& font) const {
   SVGInlineTextBoxPainter(*this).paintTextMatchMarkerForeground(
@@ -247,7 +252,7 @@ void SVGInlineTextBox::paintTextMatchMarkerForeground(
 void SVGInlineTextBox::paintTextMatchMarkerBackground(
     const PaintInfo& paintInfo,
     const LayoutPoint& point,
-    DocumentMarker* marker,
+    const DocumentMarker& marker,
     const ComputedStyle& style,
     const Font& font) const {
   SVGInlineTextBoxPainter(*this).paintTextMatchMarkerBackground(
@@ -257,11 +262,14 @@ void SVGInlineTextBox::paintTextMatchMarkerBackground(
 LayoutRect SVGInlineTextBox::calculateBoundaries() const {
   LineLayoutSVGInlineText lineLayoutItem =
       LineLayoutSVGInlineText(this->getLineLayoutItem());
+  const SimpleFontData* fontData = lineLayoutItem.scaledFont().primaryFont();
+  DCHECK(fontData);
+  if (!fontData)
+    return LayoutRect();
+
   float scalingFactor = lineLayoutItem.scalingFactor();
   ASSERT(scalingFactor);
-  LayoutUnit baseline(
-      lineLayoutItem.scaledFont().getFontMetrics().floatAscent() /
-      scalingFactor);
+  LayoutUnit baseline(fontData->getFontMetrics().floatAscent() / scalingFactor);
 
   LayoutRect textBoundingRect;
   for (const SVGTextFragment& fragment : m_textFragments)
@@ -282,7 +290,7 @@ bool SVGInlineTextBox::nodeAtPoint(HitTestResult& result,
                                  result.hitTestRequest(),
                                  getLineLayoutItem().style()->pointerEvents());
   bool isVisible =
-      getLineLayoutItem().style()->visibility() == EVisibility::Visible;
+      getLineLayoutItem().style()->visibility() == EVisibility::kVisible;
   if (isVisible || !hitRules.requireVisible) {
     if (hitRules.canHitBoundingBox ||
         (hitRules.canHitStroke &&
@@ -291,16 +299,20 @@ bool SVGInlineTextBox::nodeAtPoint(HitTestResult& result,
         (hitRules.canHitFill &&
          (getLineLayoutItem().style()->svgStyle().hasFill() ||
           !hitRules.requireFill))) {
-      LayoutRect rect(topLeft(), LayoutSize(logicalWidth(), logicalHeight()));
+      LayoutRect rect(location(), size());
       rect.moveBy(accumulatedOffset);
       if (locationInContainer.intersects(rect)) {
         LineLayoutSVGInlineText lineLayoutItem =
             LineLayoutSVGInlineText(this->getLineLayoutItem());
-        ASSERT(lineLayoutItem.scalingFactor());
-        float baseline =
-            lineLayoutItem.scaledFont().getFontMetrics().floatAscent() /
-            lineLayoutItem.scalingFactor();
+        const SimpleFontData* fontData =
+            lineLayoutItem.scaledFont().primaryFont();
+        DCHECK(fontData);
+        if (!fontData)
+          return false;
 
+        DCHECK(lineLayoutItem.scalingFactor());
+        float baseline = fontData->getFontMetrics().floatAscent() /
+                         lineLayoutItem.scalingFactor();
         FloatPoint floatLocation = FloatPoint(locationInContainer.point());
         for (const SVGTextFragment& fragment : m_textFragments) {
           FloatQuad fragmentQuad = fragment.boundingQuad(baseline);

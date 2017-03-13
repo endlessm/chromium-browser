@@ -16,7 +16,9 @@
 #include "base/trace_event/trace_event.h"
 #include "base/trace_event/trace_event_argument.h"
 #include "platform/scheduler/base/enqueue_order.h"
+#include "platform/scheduler/base/intrusive_heap.h"
 #include "public/platform/scheduler/base/task_queue.h"
+#include "wtf/Deque.h"
 
 namespace blink {
 namespace scheduler {
@@ -118,9 +120,10 @@ class BLINK_PLATFORM_EXPORT TaskQueueImpl final : public TaskQueue {
   bool PostNonNestableDelayedTask(const tracked_objects::Location& from_here,
                                   const base::Closure& task,
                                   base::TimeDelta delay) override;
-  void SetQueueEnabled(bool enabled) override;
+  std::unique_ptr<QueueEnabledVoter> CreateQueueEnabledVoter() override;
   bool IsQueueEnabled() const override;
   bool IsEmpty() const override;
+  size_t GetNumberOfPendingTasks() const override;
   bool HasPendingImmediateWork() const override;
   base::Optional<base::TimeTicks> GetNextScheduledWakeUp() override;
   void SetQueuePriority(QueuePriority priority) override;
@@ -131,15 +134,14 @@ class BLINK_PLATFORM_EXPORT TaskQueueImpl final : public TaskQueue {
   void SetTimeDomain(TimeDomain* time_domain) override;
   TimeDomain* GetTimeDomain() const override;
   void SetBlameContext(base::trace_event::BlameContext* blame_context) override;
-  void InsertFence() override;
+  void InsertFence(InsertFencePosition position) override;
   void RemoveFence() override;
   bool BlockedByFence() const override;
-
-  // If this returns false then future updates for this queue are not needed
-  // unless requested.
-  bool MaybeUpdateImmediateWorkQueues();
-
   const char* GetName() const override;
+  QueueType GetQueueType() const override;
+
+  // Must only be called from the thread this task queue was created on.
+  void ReloadImmediateWorkQueueIfEmpty();
 
   void AsValueInto(base::trace_event::TracedValue* state) const;
 
@@ -148,9 +150,6 @@ class BLINK_PLATFORM_EXPORT TaskQueueImpl final : public TaskQueue {
 
   void NotifyWillProcessTask(const base::PendingTask& pending_task);
   void NotifyDidProcessTask(const base::PendingTask& pending_task);
-
-  // Can be called on any thread.
-  static const char* PriorityToString(TaskQueue::QueuePriority priority);
 
   WorkQueue* delayed_work_queue() {
     return main_thread_only().delayed_work_queue.get();
@@ -177,6 +176,45 @@ class BLINK_PLATFORM_EXPORT TaskQueueImpl final : public TaskQueue {
   // TimeDomain. Must be called from the main thread.
   void WakeUpForDelayedWork(LazyNow* lazy_now);
 
+  base::TimeTicks scheduled_time_domain_wakeup() const {
+    return main_thread_only().scheduled_time_domain_wakeup;
+  }
+
+  void set_scheduled_time_domain_wakeup(
+      base::TimeTicks scheduled_time_domain_wakeup) {
+    main_thread_only().scheduled_time_domain_wakeup =
+        scheduled_time_domain_wakeup;
+  }
+
+  HeapHandle heap_handle() const { return main_thread_only().heap_handle; }
+
+  void set_heap_handle(HeapHandle heap_handle) {
+    main_thread_only().heap_handle = heap_handle;
+  }
+
+  void PushImmediateIncomingTaskForTest(TaskQueueImpl::Task&& task);
+  EnqueueOrder GetFenceForTest() const;
+
+  class QueueEnabledVoterImpl : public QueueEnabledVoter {
+   public:
+    explicit QueueEnabledVoterImpl(TaskQueueImpl* task_queue);
+    ~QueueEnabledVoterImpl() override;
+
+    // QueueEnabledVoter implementation.
+    void SetQueueEnabled(bool enabled) override;
+
+    TaskQueueImpl* GetTaskQueueForTest() const { return task_queue_.get(); }
+
+   private:
+    friend class TaskQueueImpl;
+
+    scoped_refptr<TaskQueueImpl> task_queue_;
+    bool enabled_;
+  };
+
+  // Iterates over |delayed_incoming_queue| removing canceled tasks.
+  void SweepCanceledDelayedTasks(base::TimeTicks now);
+
  private:
   friend class WorkQueue;
   friend class WorkQueueTest;
@@ -196,7 +234,7 @@ class BLINK_PLATFORM_EXPORT TaskQueueImpl final : public TaskQueue {
     TaskQueueManager* task_queue_manager;
     TimeDomain* time_domain;
 
-    std::queue<Task> immediate_incoming_queue;
+    WTF::Deque<Task> immediate_incoming_queue;
   };
 
   struct MainThreadOnly {
@@ -215,9 +253,12 @@ class BLINK_PLATFORM_EXPORT TaskQueueImpl final : public TaskQueue {
     std::priority_queue<Task> delayed_incoming_queue;
     base::ObserverList<base::MessageLoop::TaskObserver> task_observers;
     size_t set_index;
-    bool is_enabled;
+    HeapHandle heap_handle;
+    int is_enabled_refcount;
+    int voter_refcount;
     base::trace_event::BlameContext* blame_context;  // Not owned.
     EnqueueOrder current_fence;
+    base::TimeTicks scheduled_time_domain_wakeup;
   };
 
   ~TaskQueueImpl() override;
@@ -253,16 +294,24 @@ class BLINK_PLATFORM_EXPORT TaskQueueImpl final : public TaskQueue {
       EnqueueOrder sequence_number,
       bool nestable);
 
+  // Extracts all the tasks from the immediate incoming queue and clears it.
+  // Can be called from any thread.
+  WTF::Deque<TaskQueueImpl::Task> TakeImmediateIncomingQueue();
+
   // As BlockedByFence but safe to be called while locked.
   bool BlockedByFenceLocked() const;
 
   void TraceQueueSize(bool is_locked) const;
-  static void QueueAsValueInto(const std::queue<Task>& queue,
+  static void QueueAsValueInto(const WTF::Deque<Task>& queue,
                                base::trace_event::TracedValue* state);
   static void QueueAsValueInto(const std::priority_queue<Task>& queue,
                                base::trace_event::TracedValue* state);
   static void TaskAsValueInto(const Task& task,
                               base::trace_event::TracedValue* state);
+
+  void RemoveQueueEnabledVoter(const QueueEnabledVoterImpl* voter);
+  void OnQueueEnabledVoteChanged(bool enabled);
+  void EnableOrDisableWithSelector(bool enable);
 
   const base::PlatformThreadId thread_id_;
 
@@ -277,9 +326,10 @@ class BLINK_PLATFORM_EXPORT TaskQueueImpl final : public TaskQueue {
     return any_thread_;
   }
 
-  const char* name_;
-  const char* disabled_by_default_tracing_category_;
-  const char* disabled_by_default_verbose_tracing_category_;
+  const QueueType type_;
+  const char* const name_;
+  const char* const disabled_by_default_tracing_category_;
+  const char* const disabled_by_default_verbose_tracing_category_;
 
   base::ThreadChecker main_thread_checker_;
   MainThreadOnly main_thread_only_;

@@ -4,6 +4,7 @@
 
 #include "chrome/test/base/testing_browser_process.h"
 
+#include "base/path_service.h"
 #include "base/strings/string_util.h"
 #include "base/time/default_clock.h"
 #include "base/time/default_tick_clock.h"
@@ -17,6 +18,7 @@
 #include "chrome/browser/printing/print_job_manager.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/safe_browsing/safe_browsing_service.h"
+#include "chrome/common/chrome_paths.h"
 #include "chrome/common/features.h"
 #include "chrome/test/base/testing_browser_process_platform_part.h"
 #include "components/network_time/network_time_tracker.h"
@@ -24,7 +26,10 @@
 #include "components/prefs/pref_service.h"
 #include "components/subresource_filter/core/browser/ruleset_service.h"
 #include "content/public/browser/notification_service.h"
+#include "extensions/features/features.h"
+#include "media/media_features.h"
 #include "net/url_request/url_request_context_getter.h"
+#include "printing/features/features.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/message_center/message_center.h"
 
@@ -32,7 +37,7 @@
 #include "chrome/browser/background/background_mode_manager.h"
 #endif
 
-#if defined(ENABLE_EXTENSIONS)
+#if BUILDFLAG(ENABLE_EXTENSIONS)
 #include "chrome/browser/extensions/chrome_extensions_browser_client.h"
 #include "chrome/browser/media_galleries/media_file_system_registry.h"
 #include "chrome/browser/ui/apps/chrome_app_window_client.h"
@@ -40,7 +45,7 @@
 #include "components/storage_monitor/test_storage_monitor.h"
 #endif
 
-#if defined(ENABLE_PRINT_PREVIEW)
+#if BUILDFLAG(ENABLE_PRINT_PREVIEW)
 #include "chrome/browser/printing/background_printing_manager.h"
 #include "chrome/browser/printing/print_preview_dialog_controller.h"
 #endif
@@ -73,7 +78,7 @@ TestingBrowserProcess::TestingBrowserProcess()
       system_request_context_(nullptr),
       rappor_service_(nullptr),
       platform_part_(new TestingBrowserProcessPlatformPart()) {
-#if defined(ENABLE_EXTENSIONS)
+#if BUILDFLAG(ENABLE_EXTENSIONS)
   extensions_browser_client_.reset(
       new extensions::ChromeExtensionsBrowserClient);
   extensions::AppWindowClient::Set(ChromeAppWindowClient::GetInstance());
@@ -84,7 +89,7 @@ TestingBrowserProcess::TestingBrowserProcess()
 TestingBrowserProcess::~TestingBrowserProcess() {
   EXPECT_FALSE(local_state_);
   ShutdownBrowserPolicyConnector();
-#if defined(ENABLE_EXTENSIONS)
+#if BUILDFLAG(ENABLE_EXTENSIONS)
   extensions::ExtensionsBrowserClient::Set(nullptr);
 #endif
 
@@ -108,7 +113,7 @@ metrics::MetricsService* TestingBrowserProcess::metrics_service() {
   return nullptr;
 }
 
-rappor::RapporService* TestingBrowserProcess::rappor_service() {
+rappor::RapporServiceImpl* TestingBrowserProcess::rappor_service() {
   return rappor_service_;
 }
 
@@ -148,6 +153,19 @@ policy::BrowserPolicyConnector*
   if (!browser_policy_connector_) {
     EXPECT_FALSE(created_browser_policy_connector_);
     created_browser_policy_connector_ = true;
+
+#if defined(OS_POSIX) && !defined(OS_MACOSX)
+    // Make sure that the machine policy directory does not exist so that
+    // machine-wide policies do not affect tests.
+    // Note that passing false as last argument to OverrideAndCreateIfNeeded
+    // means that the directory will not be created.
+    // If a test needs to place a file in this directory in the future, we could
+    // create a temporary directory and make its path available to tests.
+    base::FilePath local_policy_path("/tmp/non/existing/directory");
+    EXPECT_TRUE(PathService::OverrideAndCreateIfNeeded(
+        chrome::DIR_POLICY_FILES, local_policy_path, true, false));
+#endif
+
     browser_policy_connector_ = platform_part_->CreateBrowserPolicyConnector();
 
     // Note: creating the ChromeBrowserPolicyConnector invokes BrowserThread::
@@ -218,7 +236,7 @@ TestingBrowserProcess::extension_event_router_forwarder() {
 }
 
 NotificationUIManager* TestingBrowserProcess::notification_ui_manager() {
-#if defined(ENABLE_NOTIFICATIONS) && !defined(OS_ANDROID)
+#if !defined(OS_ANDROID)
   if (!notification_ui_manager_.get())
     notification_ui_manager_.reset(NotificationUIManager::Create());
   return notification_ui_manager_.get();
@@ -254,7 +272,7 @@ bool TestingBrowserProcess::IsShuttingDown() {
 }
 
 printing::PrintJobManager* TestingBrowserProcess::print_job_manager() {
-#if defined(ENABLE_PRINTING)
+#if BUILDFLAG(ENABLE_PRINTING)
   if (!print_job_manager_.get())
     print_job_manager_.reset(new printing::PrintJobManager());
   return print_job_manager_.get();
@@ -266,7 +284,7 @@ printing::PrintJobManager* TestingBrowserProcess::print_job_manager() {
 
 printing::PrintPreviewDialogController*
 TestingBrowserProcess::print_preview_dialog_controller() {
-#if defined(ENABLE_PRINT_PREVIEW)
+#if BUILDFLAG(ENABLE_PRINT_PREVIEW)
   if (!print_preview_dialog_controller_.get())
     print_preview_dialog_controller_ =
         new printing::PrintPreviewDialogController();
@@ -279,7 +297,7 @@ TestingBrowserProcess::print_preview_dialog_controller() {
 
 printing::BackgroundPrintingManager*
 TestingBrowserProcess::background_printing_manager() {
-#if defined(ENABLE_PRINT_PREVIEW)
+#if BUILDFLAG(ENABLE_PRINT_PREVIEW)
   if (!background_printing_manager_.get()) {
     background_printing_manager_.reset(
         new printing::BackgroundPrintingManager());
@@ -346,7 +364,7 @@ bool TestingBrowserProcess::created_local_state() const {
   return (local_state_ != nullptr);
 }
 
-#if defined(ENABLE_WEBRTC)
+#if BUILDFLAG(ENABLE_WEBRTC)
 WebRtcLogUploader* TestingBrowserProcess::webrtc_log_uploader() {
   return nullptr;
 }
@@ -383,7 +401,7 @@ TestingBrowserProcess::CachedDefaultWebClientState() {
   return shell_integration::UNKNOWN_DEFAULT;
 }
 
-PhysicalWebDataSource*
+physical_web::PhysicalWebDataSource*
 TestingBrowserProcess::GetPhysicalWebDataSource() {
   return nullptr;
 }
@@ -442,8 +460,8 @@ void TestingBrowserProcess::SetRulesetService(
   subresource_filter_ruleset_service_.swap(ruleset_service);
 }
 
-void TestingBrowserProcess::SetRapporService(
-    rappor::RapporService* rappor_service) {
+void TestingBrowserProcess::SetRapporServiceImpl(
+    rappor::RapporServiceImpl* rappor_service) {
   rappor_service_ = rappor_service;
 }
 

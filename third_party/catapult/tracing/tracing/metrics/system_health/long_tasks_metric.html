@@ -54,19 +54,21 @@ tr.exportTo('tr.metrics.sh', function() {
   function iterateRendererMainThreads(model, cb, opt_this) {
     var modelHelper = model.getOrCreateHelper(
         tr.model.helpers.ChromeModelHelper);
-    tr.b.dictionaryValues(modelHelper.rendererHelpers).forEach(
-        function(rendererHelper) {
-          if (!rendererHelper.mainThread)
-            return;
-          cb.call(opt_this, rendererHelper.mainThread);
-        });
+    if (modelHelper !== undefined) {
+      tr.b.dictionaryValues(modelHelper.rendererHelpers).forEach(
+          function(rendererHelper) {
+            if (!rendererHelper.mainThread)
+              return;
+            cb.call(opt_this, rendererHelper.mainThread);
+          });
+    }
   }
 
   /**
    * This metric directly measures long tasks on renderer main threads.
    * This metric requires only the 'toplevel' tracing category.
    *
-   * @param {!tr.v.ValueSet} values
+   * @param {!tr.v.HistogramSet} values
    * @param {!tr.model.Model} model
    * @param {!Object=} opt_options
    */
@@ -105,12 +107,11 @@ tr.exportTo('tr.metrics.sh', function() {
   });
 
   return {
-    longTasksMetric: longTasksMetric,
-    iterateLongTopLevelTasksOnThreadInRange:
-      iterateLongTopLevelTasksOnThreadInRange,
-    iterateRendererMainThreads: iterateRendererMainThreads,
-    LONG_TASK_MS: LONG_TASK_MS,
-    LONGEST_TASK_MS: LONGEST_TASK_MS
+    longTasksMetric,
+    iterateLongTopLevelTasksOnThreadInRange,
+    iterateRendererMainThreads,
+    LONG_TASK_MS,
+    LONGEST_TASK_MS,
   };
 });
 </script>

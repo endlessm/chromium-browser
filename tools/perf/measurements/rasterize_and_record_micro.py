@@ -4,10 +4,10 @@
 
 import time
 
-from telemetry.core import exceptions
 from telemetry.page import legacy_page_test
 from telemetry.value import scalar
 
+import py_utils
 
 class RasterizeAndRecordMicro(legacy_page_test.LegacyPageTest):
 
@@ -30,11 +30,12 @@ class RasterizeAndRecordMicro(legacy_page_test.LegacyPageTest):
     del page  # unused
     try:
       tab.WaitForDocumentReadyStateToBeComplete()
-    except exceptions.TimeoutException:
+    except py_utils.TimeoutException:
       pass
     time.sleep(self._start_wait_time)
 
     # Enqueue benchmark
+    # TODO(catapult:#3028): Fix interpolation of JavaScript values.
     tab.ExecuteJavaScript("""
         window.benchmark_results = {};
         window.benchmark_results.done = false;

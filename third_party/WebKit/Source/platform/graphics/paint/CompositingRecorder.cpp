@@ -15,7 +15,7 @@ namespace blink {
 
 CompositingRecorder::CompositingRecorder(GraphicsContext& graphicsContext,
                                          const DisplayItemClient& client,
-                                         const SkXfermode::Mode xferMode,
+                                         const SkBlendMode xferMode,
                                          const float opacity,
                                          const FloatRect* bounds,
                                          ColorFilter colorFilter)
@@ -30,7 +30,7 @@ CompositingRecorder::~CompositingRecorder() {
 
 void CompositingRecorder::beginCompositing(GraphicsContext& graphicsContext,
                                            const DisplayItemClient& client,
-                                           const SkXfermode::Mode xferMode,
+                                           const SkBlendMode xferMode,
                                            const float opacity,
                                            const FloatRect* bounds,
                                            ColorFilter colorFilter) {
@@ -52,8 +52,8 @@ void CompositingRecorder::endCompositing(GraphicsContext& graphicsContext,
   const DisplayItem* lastDisplayItem = paintController.lastDisplayItem(0);
   const DisplayItem* secondToLastDisplayItem =
       paintController.lastDisplayItem(1);
-  if (lastDisplayItem && secondToLastDisplayItem &&
-      lastDisplayItem->drawsContent() &&
+  if (!RuntimeEnabledFeatures::slimmingPaintV2Enabled() && lastDisplayItem &&
+      secondToLastDisplayItem && lastDisplayItem->drawsContent() &&
       secondToLastDisplayItem->getType() == DisplayItem::kBeginCompositing) {
     FloatRect cullRect(
         ((DrawingDisplayItem*)lastDisplayItem)->picture()->cullRect());
@@ -63,6 +63,14 @@ void CompositingRecorder::endCompositing(GraphicsContext& graphicsContext,
     // Re-record the last two DisplayItems into a new SkPicture.
     SkPictureBuilder pictureBuilder(cullRect, nullptr, &graphicsContext);
     {
+#if DCHECK_IS_ON()
+      // The picture builder creates an internal paint controller that has been
+      // initialized with null paint properties. Painting into this controller
+      // without properties will not cause problems because the display item
+      // from this internal paint controller is immediately reunited with the
+      // correct properties.
+      DisableNullPaintPropertyChecks disabler;
+#endif
       DrawingRecorder newRecorder(pictureBuilder.context(), displayItemClient,
                                   displayItemType, cullRect);
       DCHECK(!DrawingRecorder::useCachedDrawingIfPossible(

@@ -7,7 +7,6 @@
 #include <algorithm>
 
 #include "third_party/skia/include/core/SkColor.h"
-#include "third_party/skia/include/core/SkXfermode.h"
 #include "ui/compositor/dip_util.h"
 #include "ui/compositor/paint_recorder.h"
 #include "ui/gfx/canvas.h"
@@ -284,10 +283,6 @@ void ImageGrid::ImagePainter::OnDelegatedFrameDamage(
 void ImageGrid::ImagePainter::OnDeviceScaleFactorChanged(
     float device_scale_factor) {
   // Redrawing will take care of scale factor change.
-}
-
-base::Closure ImageGrid::ImagePainter::PrepareForLayerBoundsChange() {
-  return base::Closure();
 }
 
 void ImageGrid::SetImage(const gfx::Image* image,

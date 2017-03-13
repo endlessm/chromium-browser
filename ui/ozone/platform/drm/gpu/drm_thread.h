@@ -14,7 +14,7 @@
 #include "base/memory/weak_ptr.h"
 #include "base/threading/thread.h"
 #include "mojo/public/cpp/bindings/binding_set.h"
-#include "services/shell/public/cpp/connection.h"
+#include "services/service_manager/public/cpp/connection.h"
 #include "ui/gfx/native_pixmap_handle.h"
 #include "ui/gfx/native_widget_types.h"
 #include "ui/gfx/vsync_provider.h"
@@ -26,26 +26,23 @@ namespace base {
 struct FileDescriptor;
 }
 
+namespace display {
+struct GammaRampRGBEntry;
+}
+
 namespace gfx {
 class Point;
 class Rect;
-}
-
-namespace shell {
-class Connection;
 }
 
 namespace ui {
 
 class DrmDeviceManager;
 class DrmGpuDisplayManager;
-class DrmWindow;
-class DrmWindowProxy;
 class GbmBuffer;
 class ScanoutBufferGenerator;
 class ScreenManager;
 
-struct GammaRampRGBEntry;
 struct OverlayPlane;
 
 // Holds all the DRM related state and performs all DRM related operations.
@@ -117,14 +114,15 @@ class DrmThread : public base::Thread, public ozone::mojom::DeviceCursor {
   void RemoveGraphicsDevice(const base::FilePath& path);
   void GetHDCPState(
       int64_t display_id,
-      const base::Callback<void(int64_t, bool, HDCPState)>& callback);
+      const base::Callback<void(int64_t, bool, display::HDCPState)>& callback);
   void SetHDCPState(int64_t display_id,
-                    HDCPState state,
+                    display::HDCPState state,
                     const base::Callback<void(int64_t, bool)>& callback);
-  void SetColorCorrection(int64_t display_id,
-                          const std::vector<GammaRampRGBEntry>& degamma_lut,
-                          const std::vector<GammaRampRGBEntry>& gamma_lut,
-                          const std::vector<float>& correction_matrix);
+  void SetColorCorrection(
+      int64_t display_id,
+      const std::vector<display::GammaRampRGBEntry>& degamma_lut,
+      const std::vector<display::GammaRampRGBEntry>& gamma_lut,
+      const std::vector<float>& correction_matrix);
 
   // base::Thread:
   void Init() override;

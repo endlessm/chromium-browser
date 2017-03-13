@@ -321,6 +321,10 @@ std::string GetFileSystemTypeString(FileSystemType type) {
       return "Provided";
     case kFileSystemTypeDeviceMediaAsFileStorage:
       return "DeviceMediaStorage";
+    case kFileSystemTypeArcContent:
+      return "ArcContent";
+    case kFileSystemTypeArcDocumentsProvider:
+      return "ArcDocumentsProvider";
     case kFileSystemInternalTypeEnumStart:
     case kFileSystemInternalTypeEnumEnd:
       NOTREACHED();

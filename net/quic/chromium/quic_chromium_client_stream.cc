@@ -14,7 +14,7 @@
 #include "net/base/net_errors.h"
 #include "net/log/net_log_event_type.h"
 #include "net/quic/chromium/quic_chromium_client_session.h"
-#include "net/quic/core/quic_http_utils.h"
+#include "net/quic/chromium/quic_http_utils.h"
 #include "net/quic/core/quic_spdy_session.h"
 #include "net/quic/core/quic_write_blocked_list.h"
 #include "net/quic/core/spdy_utils.h"
@@ -36,33 +36,6 @@ QuicChromiumClientStream::QuicChromiumClientStream(
 QuicChromiumClientStream::~QuicChromiumClientStream() {
   if (delegate_)
     delegate_->OnClose();
-}
-
-void QuicChromiumClientStream::OnStreamHeadersComplete(bool fin,
-                                                       size_t frame_len) {
-  QuicSpdyStream::OnStreamHeadersComplete(fin, frame_len);
-  if (decompressed_headers().empty() && !decompressed_trailers().empty()) {
-    DCHECK(trailers_decompressed());
-    // The delegate will read the trailers via a posted task.
-    NotifyDelegateOfHeadersCompleteLater(received_trailers().Clone(),
-                                         frame_len);
-  } else {
-    DCHECK(!headers_delivered_);
-    SpdyHeaderBlock headers;
-    SpdyFramer framer(HTTP2);
-    size_t headers_len = decompressed_headers().length();
-    const char* header_data = decompressed_headers().data();
-    if (!framer.ParseHeaderBlockInBuffer(header_data, headers_len, &headers)) {
-      DLOG(WARNING) << "Invalid headers";
-      Reset(QUIC_BAD_APPLICATION_PAYLOAD);
-      return;
-    }
-    MarkHeadersConsumed(headers_len);
-    session_->OnInitialHeadersComplete(id(), headers);
-
-    // The delegate will read the headers via a posted task.
-    NotifyDelegateOfHeadersCompleteLater(std::move(headers), frame_len);
-  }
 }
 
 void QuicChromiumClientStream::OnInitialHeadersComplete(
@@ -93,23 +66,6 @@ void QuicChromiumClientStream::OnTrailingHeadersComplete(
     const QuicHeaderList& header_list) {
   QuicSpdyStream::OnTrailingHeadersComplete(fin, frame_len, header_list);
   NotifyDelegateOfHeadersCompleteLater(received_trailers().Clone(), frame_len);
-}
-
-void QuicChromiumClientStream::OnPromiseHeadersComplete(
-    QuicStreamId promised_id,
-    size_t frame_len) {
-  size_t headers_len = decompressed_headers().length();
-  SpdyHeaderBlock headers;
-  SpdyFramer framer(HTTP2);
-  if (!framer.ParseHeaderBlockInBuffer(decompressed_headers().data(),
-                                       headers_len, &headers)) {
-    DLOG(WARNING) << "Invalid headers";
-    Reset(QUIC_BAD_APPLICATION_PAYLOAD);
-    return;
-  }
-  MarkHeadersConsumed(headers_len);
-
-  session_->HandlePromised(id(), promised_id, headers);
 }
 
 void QuicChromiumClientStream::OnPromiseHeaderList(
@@ -153,11 +109,11 @@ void QuicChromiumClientStream::OnClose() {
     delegate_ = nullptr;
     delegate_tasks_.clear();
   }
-  ReliableQuicStream::OnClose();
+  QuicStream::OnClose();
 }
 
 void QuicChromiumClientStream::OnCanWrite() {
-  ReliableQuicStream::OnCanWrite();
+  QuicStream::OnCanWrite();
 
   if (!HasBufferedData() && !callback_.is_null()) {
     base::ResetAndReturn(&callback_).Run(OK);
@@ -167,7 +123,7 @@ void QuicChromiumClientStream::OnCanWrite() {
 size_t QuicChromiumClientStream::WriteHeaders(
     SpdyHeaderBlock header_block,
     bool fin,
-    QuicAckListenerInterface* ack_notifier_delegate) {
+    QuicReferenceCountedPointer<QuicAckListenerInterface> ack_listener) {
   if (!session()->IsCryptoHandshakeConfirmed()) {
     auto entry = header_block.find(":method");
     DCHECK(entry != header_block.end());
@@ -178,7 +134,7 @@ size_t QuicChromiumClientStream::WriteHeaders(
       base::Bind(&QuicRequestNetLogCallback, id(), &header_block,
                  QuicSpdyStream::priority()));
   return QuicSpdyStream::WriteHeaders(std::move(header_block), fin,
-                                      ack_notifier_delegate);
+                                      std::move(ack_listener));
 }
 
 SpdyPriority QuicChromiumClientStream::priority() const {
@@ -291,7 +247,6 @@ void QuicChromiumClientStream::NotifyDelegateOfHeadersComplete(
     return;
   // Only mark trailers consumed when we are about to notify delegate.
   if (headers_delivered_) {
-    MarkTrailersConsumed(decompressed_trailers().length());
     MarkTrailersConsumed();
     // Post an async task to notify delegate of the FIN flag.
     NotifyDelegateOfDataAvailableLater();

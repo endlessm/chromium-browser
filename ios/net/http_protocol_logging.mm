@@ -4,11 +4,15 @@
 
 #include "ios/net/http_protocol_logging.h"
 
-#include <Foundation/Foundation.h>
+#import <Foundation/Foundation.h>
 
 #include "base/logging.h"
 #include "base/strings/sys_string_conversions.h"
 #import "ios/net/url_scheme_util.h"
+
+#if !defined(__has_feature) || !__has_feature(objc_arc)
+#error "This file requires ARC support."
+#endif
 
 namespace {
 const unsigned int kMaxUrlLength = 100;

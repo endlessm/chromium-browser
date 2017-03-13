@@ -7,6 +7,7 @@
 
 #include <memory>
 #include <queue>
+#include <string>
 
 #include "base/containers/hash_tables.h"
 #include "base/gtest_prod_util.h"
@@ -18,6 +19,7 @@
 #include "base/values.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/render_process_host_observer.h"
+#include "media/media_features.h"
 #include "ui/shell_dialogs/select_file_dialog.h"
 
 namespace device {
@@ -108,6 +110,9 @@ class CONTENT_EXPORT WebRTCInternals : public RenderProcessHostObserver,
   bool IsEventLogRecordingsEnabled() const;
   const base::FilePath& GetEventLogFilePath() const;
 
+  int num_open_connections() const { return num_open_connections_; }
+  bool IsPowerSavingBlocked() const { return !!power_save_blocker_; }
+
  protected:
   // Constructor/Destructor are protected to allow tests to derive from the
   // class and do per-instance testing without having to use the global
@@ -128,11 +133,13 @@ class CONTENT_EXPORT WebRTCInternals : public RenderProcessHostObserver,
   FRIEND_TEST_ALL_PREFIXES(WebRtcInternalsTest,
                            AudioDebugRecordingsFileSelectionCanceled);
 
-  void SendUpdate(const std::string& command,
+  void SendUpdate(const char* command,
                   std::unique_ptr<base::Value> value);
 
   // RenderProcessHostObserver implementation.
-  void RenderProcessHostDestroyed(RenderProcessHost* host) override;
+  void RenderProcessExited(RenderProcessHost* host,
+                           base::TerminationStatus status,
+                           int exit_code) override;
 
   // ui::SelectFileDialog::Listener implementation.
   void FileSelected(const base::FilePath& path,
@@ -143,7 +150,7 @@ class CONTENT_EXPORT WebRTCInternals : public RenderProcessHostObserver,
   // Called when a renderer exits (including crashes).
   void OnRendererExit(int render_process_id);
 
-#if defined(ENABLE_WEBRTC)
+#if BUILDFLAG(ENABLE_WEBRTC)
   // Enables diagnostic audio recordings on all render process hosts using
   // |audio_debug_recordings_file_path_|.
   void EnableAudioDebugRecordingsOnAllRenderProcessHosts();
@@ -153,9 +160,13 @@ class CONTENT_EXPORT WebRTCInternals : public RenderProcessHostObserver,
   void EnableEventLogRecordingsOnAllRenderProcessHosts();
 #endif
 
-  // Called whenever an element is added to or removed from
-  // |peer_connection_data_| to impose/release a block on suspending the current
-  // application for power-saving.
+  // Updates the number of open PeerConnections. Called when a PeerConnection
+  // is stopped or removed.
+  void MaybeClosePeerConnection(base::DictionaryValue* record);
+
+  // Called whenever a PeerConnection is created or stopped in order to
+  // impose/release a block on suspending the current application for power
+  // saving.
   void CreateOrReleasePowerSaveBlocker();
 
   // Called on a timer to deliver updates to javascript.
@@ -203,9 +214,10 @@ class CONTENT_EXPORT WebRTCInternals : public RenderProcessHostObserver,
   bool selecting_event_log_;
   base::FilePath event_log_recordings_file_path_;
 
-  // While |peer_connection_data_| is non-empty, hold an instance of
+  // While |num_open_connections_| is greater than zero, hold an instance of
   // PowerSaveBlocker.  This prevents the application from being suspended while
   // remoting.
+  int num_open_connections_;
   std::unique_ptr<device::PowerSaveBlocker> power_save_blocker_;
   const bool should_block_power_saving_;
 
@@ -222,17 +234,17 @@ class CONTENT_EXPORT WebRTCInternals : public RenderProcessHostObserver,
   // thread.
   class PendingUpdate {
    public:
-    PendingUpdate(const std::string& command,
+    PendingUpdate(const char* command,
                   std::unique_ptr<base::Value> value);
     PendingUpdate(PendingUpdate&& other);
     ~PendingUpdate();
 
-    const std::string& command() const;
+    const char* command() const;
     const base::Value* value() const;
 
    private:
     base::ThreadChecker thread_checker_;
-    std::string command_;
+    const char* command_;
     std::unique_ptr<base::Value> value_;
     DISALLOW_COPY_AND_ASSIGN(PendingUpdate);
   };

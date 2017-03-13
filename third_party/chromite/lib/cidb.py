@@ -13,7 +13,7 @@ import os
 import re
 
 
-from chromite.cbuildbot import constants
+from chromite.lib import constants
 from chromite.lib import clactions
 from chromite.lib import cros_logging as logging
 from chromite.lib import factory
@@ -609,7 +609,7 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
   BUILD_STATUS_KEYS = (
       'id', 'build_config', 'start_time', 'finish_time', 'status', 'waterfall',
       'build_number', 'builder_name', 'platform_version', 'full_version',
-      'milestone_version', 'important', 'buildbucket_id')
+      'milestone_version', 'important', 'buildbucket_id', 'summary')
 
   def __init__(self, db_credentials_dir, *args, **kwargs):
     super(CIDBConnection, self).__init__('cidb', CIDB_MIGRATIONS_DIR,
@@ -707,9 +707,8 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
       statsd_name = 'cl_actions.%s' % cl_action.action
       stats.Counter(statsd_name).increment(r.replace(':', '_'))
 
-      monarch_name = constants.MON_CL_ACTION % cl_action.action
-      counter = metrics.Counter(monarch_name)
-      counter.increment(fields={'reason': r})
+      counter = metrics.Counter(constants.MON_CL_ACTION)
+      counter.increment(fields={'reason': r, 'action': cl_action.action})
 
     return retval
 
@@ -936,6 +935,7 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
          'finish_time': current_timestamp,
          'final': True})
 
+
   @minimum_schema(25)
   def FinishBuild(self, build_id, status=None, summary=None, metadata_url=None):
     """Update the given build row, marking it as finished.
@@ -953,15 +953,23 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
                           'R39-6225.0.0-rc1/metadata.json')
     """
     self._ReflectToMetadata()
-    if summary:
-      summary = summary[:1024]
+
     # The current timestamp is evaluated on the database, not locally.
     current_timestamp = sqlalchemy.func.current_timestamp()
-    self._Update('buildTable', build_id, {'finish_time': current_timestamp,
-                                          'status': status,
-                                          'summary': summary,
-                                          'metadata_url': metadata_url,
-                                          'final': True})
+    values = {
+        'finish_time': current_timestamp,
+        'final': True
+    }
+
+    if status is not None:
+      values.update(status=status)
+    if summary is not None:
+      summary = summary[:1024]
+      values.update(summary=summary)
+    if metadata_url is not None:
+      values.update(metadata_url=metadata_url)
+
+    self._Update('buildTable', build_id, values)
 
 
   @minimum_schema(16)
@@ -983,6 +991,13 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
         'SET status="%s", final=1 '
         'WHERE (build_id, child_config) = (%d, "%s")' %
         (status, build_id, child_config))
+
+  @minimum_schema(50)
+  def GetBuildStatusWithBuildbucketId(self, buildbucket_id):
+    status = self._SelectWhere('buildTable',
+                               'buildbucket_id = "%s"' % buildbucket_id,
+                               self.BUILD_STATUS_KEYS)
+    return status[0] if status else None
 
   @minimum_schema(47)
   def GetBuildStatus(self, build_id):
@@ -1051,51 +1066,91 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
          'last_updated', 'start_time', 'finish_time', 'final'])
 
   @minimum_schema(43)
-  def GetSlaveStatuses(self, master_build_id):
+  def GetSlaveStatuses(self, master_build_id, buildbucket_ids=None):
     """Gets the statuses of slave builders to given build.
 
     Args:
       master_build_id: build id of the master build to fetch the slave
                        statuses for.
+      buildbucket_ids: A list of buildbucket_ids (string). If it's given,
+        only fetch the builds with buildbucket_id in the buildbucket_ids.
+        Default to None.
 
     Returns:
-      A list containing, for each slave build (row) found, a dictionary
-      with keys BUILD_STATUS_KEYS.
+      A list containing a dictionary with keys BUILD_STATUS_KEYS.
+      If buildbucket_ids is None, the list contains all slave builds found
+      in the buildTable; else, the list only contains the slave builds
+      with |buildbucket_id| in the buildbucket_ids list.
     """
-    return self._SelectWhere('buildTable',
-                             'master_build_id = %d' % master_build_id,
-                             self.BUILD_STATUS_KEYS)
+    if buildbucket_ids is None:
+      return self._SelectWhere(
+          'buildTable',
+          'master_build_id = %d' % master_build_id,
+          self.BUILD_STATUS_KEYS)
+    else:
+      if buildbucket_ids:
+        return self._SelectWhere(
+            'buildTable',
+            'master_build_id = %d AND buildbucket_id IN (%s)' %
+            (master_build_id, ','.join(
+                '"%s"' % x for x in buildbucket_ids)),
+            self.BUILD_STATUS_KEYS)
+      else:
+        return []
 
   @minimum_schema(30)
-  def GetSlaveStages(self, master_build_id):
-    """Gets all the stages of slave builds to given build.
+  def GetSlaveStages(self, master_build_id, buildbucket_ids=None):
+    """Gets the stages of slave builds to given master_build_id.
 
     Args:
       master_build_id: build id of the master build to fetch the slave
                        stages for.
+      buildbucket_ids: A list of buildbucket_ids (strings) of slave builds
+        to given master_build_id. If buildbucket_ids is given, only fetch
+        the stages of builds with |buildbucket_id| in buildbucket_ids.
+        Default to None.
 
     Returns:
-      A list containing, for each stage of each slave build found,
+      A list containing, for each stage of slave builds found,
       a dictionary with keys (id, build_id, name, board, status, last_updated,
       start_time, finish_time, final, build_config).
+      If buildbucket_ids is None, the list contains all stages of all slaves;
+      else, it only contains the stages of the slaves with |buildbucket_id|
+      in buildbucket_ids.
     """
     bs_table_columns = ['id', 'build_id', 'name', 'board', 'status',
                         'last_updated', 'start_time', 'finish_time', 'final']
     bs_prepended_columns = ['bs.' + x for x in bs_table_columns]
-    results = self._Execute(
-        'SELECT %s, b.build_config FROM buildStageTable bs JOIN buildTable b '
-        'ON build_id = b.id where b.master_build_id = %d' %
-        (', '.join(bs_prepended_columns), master_build_id)).fetchall()
+
+    query = ('SELECT %s, b.build_config FROM buildStageTable bs JOIN '
+             'buildTable b ON build_id = b.id WHERE b.master_build_id = %d' %
+             (', '.join(bs_prepended_columns), master_build_id))
+
+    results = []
+    if buildbucket_ids is None:
+      results = self._Execute(query).fetchall()
+    else:
+      if not buildbucket_ids:
+        return []
+
+      query += (' AND b.buildbucket_id IN (%s)' %
+                (','.join('"%s"' % x for x in buildbucket_ids)))
+      results = self._Execute(query).fetchall()
+
     columns = bs_table_columns + ['build_config']
     return [dict(zip(columns, values)) for values in results]
 
   @minimum_schema(44)
-  def GetSlaveFailures(self, master_build_id):
+  def GetSlaveFailures(self, master_build_id, buildbucket_ids=None):
     """Gets the failure entries for slave builds to given build.
 
     Args:
       master_build_id: build id of the master build to fetch failures
                        for.
+      buildbucket_ids: A list of buildbucket_ids (strings) of slave builds
+        to given master_build_id. If buildbucket_ids is given, only fetch
+        the failures of builds with |buildbucket_id| in buildbucket_ids.
+        Default to None.
 
     Returns:
       A list containing, for each failure entry, a dictionary with keys
@@ -1108,11 +1163,23 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
                'exception_message', 'exception_category', 'extra_info',
                'timestamp', 'stage_name', 'board', 'stage_status', 'build_id',
                'master_build_id', 'builder_name', 'waterfall', 'build_number',
-               'build_config', 'build_status', 'important']
+               'build_config', 'build_status', 'important', 'buildbucket_id']
     columns_string = ', '.join(columns)
-    results = self._Execute('SELECT %s FROM failureView '
-                            'WHERE master_build_id = %s ' %
-                            (columns_string, master_build_id)).fetchall()
+
+    query = ('SELECT %s FROM failureView WHERE master_build_id = %s ' %
+             (columns_string, master_build_id))
+
+    results = []
+    if buildbucket_ids is None:
+      results = self._Execute(query).fetchall()
+    else:
+      if not buildbucket_ids:
+        return []
+
+      query += (' AND buildbucket_id IN (%s)' %
+                (','.join('"%s"' % x for x in buildbucket_ids)))
+      results = self._Execute(query).fetchall()
+
     return [dict(zip(columns, values)) for values in results]
 
   @minimum_schema(32)
@@ -1298,15 +1365,16 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
       start_date: (Type: datetime.date) The first date on which you want action
           history.
       end_date: (Type: datetime.date) The last date on which you want action
-          history.
+          history (inclusive).
     """
     values = {'start_date': start_date.strftime(self._DATE_FORMAT),
               'end_date': end_date.strftime(self._DATE_FORMAT)}
 
     # Enforce start and end date.
-    conds = 'DATE(timestamp) >= %(start_date)s'
+    conds = 'timestamp >= TIMESTAMP(%(start_date)s)'
     if end_date:
-      conds += ' AND DATE(timestamp) <= %(end_date)s'
+      conds += (' AND timestamp < '
+                'TIMESTAMP(DATE_ADD(%(end_date)s, INTERVAL 1 DAY))')
 
     changes = ('SELECT DISTINCT change_number, patch_number, change_source '
                'FROM clActionTable WHERE %s' % conds)
@@ -1314,6 +1382,28 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
     results = self._Execute(query, values).fetchall()
     return clactions.CLActionHistory(clactions.CLAction(*values)
                                      for values in results)
+
+  @minimum_schema(11)
+  def GetActionsSince(self, start_date):
+    """Get all CL actions after a specific |start_date|.
+
+    Unlike GetActionHistory, this method makes use of only a single simple
+    SELECT query, and does not perform any of the precalculations that
+    CLActionHistory makes use of for statistics. Hence, this method is most
+    suitable for queries expected to return a large result set.
+
+    Args:
+      start_date: (Type: datetime.date) The first date on which you want action
+                  history.
+    """
+    values = {'start_date': start_date.strftime(self._DATE_FORMAT)}
+
+    # Enforce start date
+    conds = 'timestamp >= TIMESTAMP(%(start_date)s)'
+
+    query = '%s WHERE %s' % (self._SQL_FETCH_ACTIONS, conds)
+    results = self._Execute(query, values).fetchall()
+    return [clactions.CLAction(*values) for values in results]
 
   @minimum_schema(29)
   def HasBuildStageFailed(self, build_stage_id):
@@ -1366,6 +1456,11 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
       keys build_id, build_config, waterfall, builder_name, build_number,
       message_type, message_subtype, message_value, timestamp, board.
     """
+    # Currently we only retry slave builds in Buildbucket which fail to pass
+    # SyncStage. It means if a build fails to pass HWTestStage, where it posts
+    # messages to buildMessageTable, we won't retry it. So there won't be
+    # duplicated messages for one slave build.
+    # TODO(nxia): it'll be good to have the buildbucket_ids filter.
     return self._GetBuildMessagesWithClause(
         'master_build_id = %s' % master_build_id)
 

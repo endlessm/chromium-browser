@@ -13,6 +13,7 @@
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_process_host_observer.h"
+#include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/test_utils.h"
@@ -134,8 +135,15 @@ class AppViewTest : public extensions::PlatformAppBrowserTest,
     extensions::PlatformAppBrowserTest::SetUpCommandLine(command_line);
 
     bool use_cross_process_frames_for_guests = GetParam();
-    if (use_cross_process_frames_for_guests)
-      command_line->AppendSwitch(switches::kUseCrossProcessFramesForGuests);
+    if (use_cross_process_frames_for_guests) {
+      command_line->AppendSwitchASCII(
+          switches::kEnableFeatures,
+          ::features::kGuestViewCrossProcessFrames.name);
+    } else {
+      command_line->AppendSwitchASCII(
+          switches::kDisableFeatures,
+          ::features::kGuestViewCrossProcessFrames.name);
+    }
   }
 
   void SetUpOnMainThread() override {
@@ -230,7 +238,15 @@ IN_PROC_BROWSER_TEST_P(AppViewTest, KillGuestWithInvalidInstanceID) {
   exit_observer.WaitUntilRenderProcessHostKilled();
 }
 
-IN_PROC_BROWSER_TEST_P(AppViewTest, KillGuestCommunicatingWithWrongAppView) {
+#if defined(OS_LINUX)
+#define MAYBE_KillGuestCommunicatingWithWrongAppView \
+    DISABLED_KillGuestCommunicatingWithWrongAppView
+#else
+#define MAYBE_KillGuestCommunicatingWithWrongAppView \
+    KillGuestCommunicatingWithWrongAppView
+#endif
+IN_PROC_BROWSER_TEST_P(AppViewTest,
+                       MAYBE_KillGuestCommunicatingWithWrongAppView) {
   const extensions::Extension* host_app =
       LoadAndLaunchPlatformApp("app_view/host_app", "AppViewTest.LAUNCHED");
   const extensions::Extension* guest_app =

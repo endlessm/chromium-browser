@@ -9,13 +9,12 @@
 #include <memory>
 #include <vector>
 
-#include <components/autofill/core/common/password_form.h>
+#include "components/autofill/core/common/password_form.h"
 #include "components/autofill/core/common/password_form_field_prediction_map.h"
 #include "third_party/WebKit/public/platform/WebString.h"
 #include "url/gurl.h"
 
 namespace blink {
-class WebDocument;
 class WebFormElement;
 class WebFormControlElement;
 class WebFrame;
@@ -24,8 +23,6 @@ class WebInputElement;
 
 namespace autofill {
 
-struct FormData;
-struct FormFieldData;
 struct PasswordForm;
 
 // Tests whether the given form is a GAIA reauthentication form. The form is

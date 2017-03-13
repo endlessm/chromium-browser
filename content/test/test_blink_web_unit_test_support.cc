@@ -19,10 +19,12 @@
 #include "cc/blink/web_layer_impl.h"
 #include "cc/test/test_shared_bitmap_manager.h"
 #include "cc/trees/layer_tree_settings.h"
+#include "content/app/mojo/mojo_init.h"
 #include "content/child/web_url_loader_impl.h"
 #include "content/test/mock_webclipboard_impl.h"
 #include "content/test/web_gesture_curve_mock.h"
 #include "media/base/media.h"
+#include "media/media_features.h"
 #include "net/cookies/cookie_monster.h"
 #include "storage/browser/database/vfs_backend.h"
 #include "third_party/WebKit/public/platform/WebConnectionType.h"
@@ -44,13 +46,13 @@
 #endif
 
 #ifdef V8_USE_EXTERNAL_STARTUP_DATA
-#include "gin/v8_initializer.h"
+#include "gin/v8_initializer.h"  // nogncheck
 #endif
 
-#if defined(ENABLE_WEBRTC)
+#if BUILDFLAG(ENABLE_WEBRTC)
 #include "content/renderer/media/rtc_certificate.h"
 #include "third_party/WebKit/public/platform/WebRTCCertificateGenerator.h"
-#include "third_party/webrtc/base/rtccertificate.h"
+#include "third_party/webrtc/base/rtccertificate.h"  // nogncheck
 #endif
 
 namespace {
@@ -124,11 +126,14 @@ TestBlinkWebUnitTestSupport::TestBlinkWebUnitTestSupport() {
   // an error that it's not set. Cleared by ClearInstanceForTesting() below.
   base::FeatureList::SetInstance(base::WrapUnique(new base::FeatureList));
 
+  // Initialize mojo firstly to enable Blink initialization to use it.
+  InitializeMojo();
+
   blink::initialize(this);
   blink::setLayoutTestMode(true);
   blink::WebRuntimeFeatures::enableDatabase(true);
   blink::WebRuntimeFeatures::enableNotifications(true);
-  blink::WebRuntimeFeatures::enableTouch(true);
+  blink::WebRuntimeFeatures::enableTouchEventFeatureDetection(true);
 
   // Initialize NetworkStateNotifier.
   blink::WebNetworkStateNotifier::setWebConnection(
@@ -186,14 +191,11 @@ blink::WebIDBFactory* TestBlinkWebUnitTestSupport::idbFactory() {
   return NULL;
 }
 
-blink::WebMimeRegistry* TestBlinkWebUnitTestSupport::mimeRegistry() {
-  return &mime_registry_;
-}
-
 blink::WebURLLoader* TestBlinkWebUnitTestSupport::createURLLoader() {
   // This loader should be used only for process-local resources such as
   // data URLs.
-  blink::WebURLLoader* default_loader = new WebURLLoaderImpl(nullptr, nullptr);
+  blink::WebURLLoader* default_loader =
+      new WebURLLoaderImpl(nullptr, nullptr, nullptr);
   return url_loader_factory_->createURLLoader(default_loader);
 }
 
@@ -308,7 +310,7 @@ void TestBlinkWebUnitTestSupport::getPluginList(
   builder->addMediaTypeToLastPlugin("application/pdf", "pdf");
 }
 
-#if defined(ENABLE_WEBRTC)
+#if BUILDFLAG(ENABLE_WEBRTC)
 namespace {
 
 class TestWebRTCCertificateGenerator
@@ -330,18 +332,21 @@ class TestWebRTCCertificateGenerator
   std::unique_ptr<blink::WebRTCCertificate> fromPEM(
       blink::WebString pem_private_key,
       blink::WebString pem_certificate) override {
-    return base::MakeUnique<RTCCertificate>(
+    rtc::scoped_refptr<rtc::RTCCertificate> certificate =
         rtc::RTCCertificate::FromPEM(rtc::RTCCertificatePEM(
-            pem_private_key.utf8(), pem_certificate.utf8())));
+            pem_private_key.utf8(), pem_certificate.utf8()));
+    if (!certificate)
+      return nullptr;
+    return base::MakeUnique<RTCCertificate>(certificate);
   }
 };
 
 }  // namespace
-#endif  // defined(ENABLE_WEBRTC)
+#endif  // BUILDFLAG(ENABLE_WEBRTC)
 
 blink::WebRTCCertificateGenerator*
 TestBlinkWebUnitTestSupport::createRTCCertificateGenerator() {
-#if defined(ENABLE_WEBRTC)
+#if BUILDFLAG(ENABLE_WEBRTC)
   return new TestWebRTCCertificateGenerator();
 #else
   return nullptr;

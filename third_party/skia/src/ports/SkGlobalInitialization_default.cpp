@@ -23,9 +23,9 @@
 #include "SkDiscretePathEffect.h"
 #include "SkDisplacementMapEffect.h"
 #include "SkDropShadowImageFilter.h"
-#include "SkEmbossMaskFilter.h"
+#include "../../src/effects/SkEmbossMaskFilter.h"
 #include "SkGaussianEdgeShader.h"
-#include "SkRRectsGaussianEdgeShader.h"
+#include "SkRRectsGaussianEdgeMaskFilter.h"
 #include "SkGradientShader.h"
 #include "SkImageSource.h"
 #include "SkLayerDrawLooper.h"
@@ -40,6 +40,7 @@
 #include "SkMorphologyImageFilter.h"
 #include "SkNormalSource.h"
 #include "SkOffsetImageFilter.h"
+#include "../../src/effects/SkOverdrawColorFilter.h"
 #include "SkPaintImageFilter.h"
 #include "SkPerlinNoiseShader.h"
 #include "SkPictureImageFilter.h"
@@ -70,6 +71,7 @@ void SkFlattenable::PrivateInitializer::InitEffects() {
     // MaskFilter
     SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkEmbossMaskFilter)
     SkBlurMaskFilter::InitializeFlattenables();
+    SkRRectsGaussianEdgeMaskFilter::InitializeFlattenables();
 
     // DrawLooper
     SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkBlurDrawLooper)
@@ -85,6 +87,7 @@ void SkFlattenable::PrivateInitializer::InitEffects() {
     SkAlphaThresholdFilter::InitializeFlattenables();
     SkArithmeticMode::InitializeFlattenables();
     SkTableColorFilter::InitializeFlattenables();
+    SkOverdrawColorFilter::InitializeFlattenables();
 
     // Shader
     SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkPerlinNoiseShader)
@@ -92,7 +95,6 @@ void SkFlattenable::PrivateInitializer::InitEffects() {
     SkLightingShader::InitializeFlattenables();
     SkNormalSource::InitializeFlattenables();
     SkGaussianEdgeShader::InitializeFlattenables();
-    SkRRectsGaussianEdgeShader::InitializeFlattenables();
 
     // PathEffect
     SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkArcToPathEffect)
@@ -106,6 +108,7 @@ void SkFlattenable::PrivateInitializer::InitEffects() {
 
     // ImageFilter
     SkImageFilter::InitializeFlattenables();
+    SkArithmeticImageFilter::InitializeFlattenables();
     SkXfermodeImageFilter::InitializeFlattenables();
     SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkDilateImageFilter)
     SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkDisplacementMapEffect)

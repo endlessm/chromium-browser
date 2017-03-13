@@ -87,6 +87,7 @@ class ClientCertResolverTest : public testing::Test,
     client_cert_resolver_->RemoveObserver(this);
     client_cert_resolver_.reset();
     test_clock_.reset();
+    network_state_handler_->Shutdown();
     managed_config_handler_.reset();
     network_config_handler_.reset();
     network_profile_handler_.reset();
@@ -135,7 +136,7 @@ class ClientCertResolverTest : public testing::Test,
   }
 
   void SetupNetworkHandlers() {
-    network_state_handler_.reset(NetworkStateHandler::InitializeForTest());
+    network_state_handler_ = NetworkStateHandler::InitializeForTest();
     network_profile_handler_.reset(new NetworkProfileHandler());
     network_config_handler_.reset(new NetworkConfigurationHandler());
     managed_config_handler_.reset(new ManagedNetworkConfigurationHandlerImpl());

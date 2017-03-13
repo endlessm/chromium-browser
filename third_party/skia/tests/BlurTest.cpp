@@ -281,8 +281,8 @@ static bool gpu_blur_path(GrContext* context, const SkPath& path,
     desc.fHeight = 30;
     desc.fSampleCnt = 0;
 
-    SkAutoTUnref<GrTexture> texture(grContext->createTexture(desc, false, nullptr, 0));
-    SkAutoTUnref<SkGpuDevice> device(new SkGpuDevice  (grContext, texture.get()));
+    sk_sp<GrTexture> texture(grContext->createTexture(desc, false, nullptr, 0));
+    sk_sp<SkGpuDevice> device(new SkGpuDevice(grContext, texture.get()));
     SkCanvas canvas(device.get());
 
     blur_path(&canvas, path, gaussianSigma);
@@ -454,7 +454,7 @@ static void make_noop_layer(SkLayerDrawLooper::Builder* builder) {
     SkLayerDrawLooper::LayerInfo info;
 
     info.fPaintBits = 0;
-    info.fColorMode = SkXfermode::kDst_Mode;
+    info.fColorMode = SkBlendMode::kDst;
     builder->addLayer(info);
 }
 
@@ -462,7 +462,7 @@ static void make_blur_layer(SkLayerDrawLooper::Builder* builder, sk_sp<SkMaskFil
     SkLayerDrawLooper::LayerInfo info;
 
     info.fPaintBits = SkLayerDrawLooper::kMaskFilter_Bit;
-    info.fColorMode = SkXfermode::kSrc_Mode;
+    info.fColorMode = SkBlendMode::kSrc;
     SkPaint* paint = builder->addLayer(info);
     paint->setMaskFilter(std::move(mf));
 }
@@ -507,7 +507,7 @@ DEF_TEST(BlurAsABlur, reporter) {
     // Test asABlur for SkBlurMaskFilter
     //
     for (size_t i = 0; i < SK_ARRAY_COUNT(styles); ++i) {
-        const SkBlurStyle style = (SkBlurStyle)styles[i];
+        const SkBlurStyle style = styles[i];
         for (size_t j = 0; j < SK_ARRAY_COUNT(sigmas); ++j) {
             const SkScalar sigma = sigmas[j];
             for (int flags = 0; flags <= SkBlurMaskFilter::kAll_BlurFlag; ++flags) {

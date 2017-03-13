@@ -5,6 +5,8 @@
 #ifndef CONTENT_BROWSER_WEBUI_WEB_UI_DATA_SOURCE_IMPL_H_
 #define CONTENT_BROWSER_WEBUI_WEB_UI_DATA_SOURCE_IMPL_H_
 
+#include <stdint.h>
+
 #include <map>
 #include <string>
 
@@ -34,6 +36,7 @@ class CONTENT_EXPORT WebUIDataSourceImpl
   void AddLocalizedStrings(
       const base::DictionaryValue& localized_strings) override;
   void AddBoolean(const std::string& name, bool value) override;
+  void AddInteger(const std::string& name, int32_t value) override;
   void SetJsonPath(const std::string& path) override;
   void AddResourcePath(const std::string& path, int resource_id) override;
   void SetDefaultResource(int resource_id) override;
@@ -41,10 +44,17 @@ class CONTENT_EXPORT WebUIDataSourceImpl
       const WebUIDataSource::HandleRequestCallback& callback) override;
   void DisableReplaceExistingSource() override;
   void DisableContentSecurityPolicy() override;
+  void OverrideContentSecurityPolicyScriptSrc(const std::string& data) override;
   void OverrideContentSecurityPolicyObjectSrc(const std::string& data) override;
   void OverrideContentSecurityPolicyChildSrc(const std::string& data) override;
   void DisableDenyXFrameOptions() override;
-  void DisableI18nAndUseGzipForAllPaths() override;
+  void UseGzip(const std::unordered_set<std::string>& excluded_paths) override;
+  const ui::TemplateReplacements* GetReplacements() const override;
+
+  // Add the locale to the load time data defaults. May be called repeatedly.
+  void EnsureLoadTimeDataDefaultsAdded();
+
+  bool IsWebUIDataSourceImpl() const override;
 
  protected:
   ~WebUIDataSourceImpl() override;
@@ -82,13 +92,19 @@ class CONTENT_EXPORT WebUIDataSourceImpl
   int default_resource_;
   std::string json_path_;
   std::map<std::string, int> path_to_idr_map_;
-  // The |replacements_| is intended to replace |localized_strings_|.
-  // TODO(dschuyler): phase out |localized_strings_| in Q1 2016. (Or rename
-  // to |load_time_flags_| if the usage is reduced to storing flags only).
+  std::unordered_set<std::string> excluded_paths_;
+  // The replacements are initiallized in the main thread and then used in the
+  // IO thread. The map is safe to read from multiple threads as long as no
+  // futher changes are made to it after initialization.
   ui::TemplateReplacements replacements_;
+  // The |replacements_| is intended to replace |localized_strings_|.
+  // TODO(dschuyler): phase out |localized_strings_| in Q1 2017. (Or rename
+  // to |load_time_flags_| if the usage is reduced to storing flags only).
   base::DictionaryValue localized_strings_;
   WebUIDataSource::HandleRequestCallback filter_callback_;
   bool add_csp_;
+  bool script_src_set_;
+  std::string script_src_;
   bool object_src_set_;
   std::string object_src_;
   bool frame_src_set_;
@@ -96,7 +112,7 @@ class CONTENT_EXPORT WebUIDataSourceImpl
   bool deny_xframe_options_;
   bool add_load_time_data_defaults_;
   bool replace_existing_source_;
-  bool use_gzip_for_all_paths_;
+  bool use_gzip_;
 
   DISALLOW_COPY_AND_ASSIGN(WebUIDataSourceImpl);
 };

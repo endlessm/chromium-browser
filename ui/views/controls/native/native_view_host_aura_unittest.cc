@@ -277,9 +277,9 @@ TEST_F(NativeViewHostAuraTest, ParentAfterDetach) {
         << (*test_observer.events().begin()).type;
     delete child_win;
   } else {
-    // In mus, the child window is still attached to the aura::WindowTreeHost
-    // for the Widget. So destroying the toplevel Widget takes down the child
-    // window with it.
+    // In mus and aura-mus, the child window is still attached to the
+    // aura::WindowTreeHost for the Widget. So destroying the toplevel Widget
+    // takes down the child window with it.
   }
 
   ASSERT_EQ(1u, test_observer.events().size());

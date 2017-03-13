@@ -4,7 +4,7 @@
 
 #include "web/TextFinder.h"
 
-#include "bindings/core/v8/ExceptionStatePlaceholder.h"
+#include "bindings/core/v8/ExceptionState.h"
 #include "core/dom/Document.h"
 #include "core/dom/NodeList.h"
 #include "core/dom/Range.h"
@@ -71,8 +71,7 @@ WebFloatRect TextFinderTest::findInPageRect(Node* startContainer,
 }
 
 TEST_F(TextFinderTest, FindTextSimple) {
-  document().body()->setInnerHTML("XXXXFindMeYYYYfindmeZZZZ",
-                                  ASSERT_NO_EXCEPTION);
+  document().body()->setInnerHTML("XXXXFindMeYYYYfindmeZZZZ");
   document().updateStyleAndLayout();
   Node* textNode = document().body()->firstChild();
 
@@ -146,8 +145,7 @@ TEST_F(TextFinderTest, FindTextSimple) {
 }
 
 TEST_F(TextFinderTest, FindTextAutosizing) {
-  document().body()->setInnerHTML("XXXXFindMeYYYYfindmeZZZZ",
-                                  ASSERT_NO_EXCEPTION);
+  document().body()->setInnerHTML("XXXXFindMeYYYYfindmeZZZZ");
   document().updateStyleAndLayout();
 
   int identifier = 0;
@@ -185,8 +183,7 @@ TEST_F(TextFinderTest, FindTextAutosizing) {
 }
 
 TEST_F(TextFinderTest, FindTextNotFound) {
-  document().body()->setInnerHTML("XXXXFindMeYYYYfindmeZZZZ",
-                                  ASSERT_NO_EXCEPTION);
+  document().body()->setInnerHTML("XXXXFindMeYYYYfindmeZZZZ");
   document().updateStyleAndLayout();
 
   int identifier = 0;
@@ -200,12 +197,11 @@ TEST_F(TextFinderTest, FindTextNotFound) {
 }
 
 TEST_F(TextFinderTest, FindTextInShadowDOM) {
-  document().body()->setInnerHTML("<b>FOO</b><i>foo</i>", ASSERT_NO_EXCEPTION);
+  document().body()->setInnerHTML("<b>FOO</b><i>foo</i>");
   ShadowRoot* shadowRoot = document().body()->createShadowRootInternal(
       ShadowRootType::V0, ASSERT_NO_EXCEPTION);
   shadowRoot->setInnerHTML(
-      "<content select=\"i\"></content><u>Foo</u><content></content>",
-      ASSERT_NO_EXCEPTION);
+      "<content select=\"i\"></content><u>Foo</u><content></content>");
   Node* textInBElement = document().body()->firstChild()->firstChild();
   Node* textInIElement = document().body()->lastChild()->firstChild();
   Node* textInUElement = shadowRoot->childNodes()->item(1)->firstChild();
@@ -302,8 +298,7 @@ TEST_F(TextFinderTest, FindTextInShadowDOM) {
 }
 
 TEST_F(TextFinderTest, ScopeTextMatchesSimple) {
-  document().body()->setInnerHTML("XXXXFindMeYYYYfindmeZZZZ",
-                                  ASSERT_NO_EXCEPTION);
+  document().body()->setInnerHTML("XXXXFindMeYYYYfindmeZZZZ");
   document().updateStyleAndLayout();
 
   Node* textNode = document().body()->firstChild();
@@ -313,7 +308,7 @@ TEST_F(TextFinderTest, ScopeTextMatchesSimple) {
   WebFindOptions findOptions;  // Default.
 
   textFinder().resetMatchCount();
-  textFinder().scopeStringMatches(identifier, searchText, findOptions, true);
+  textFinder().startScopingStringMatches(identifier, searchText, findOptions);
   while (textFinder().scopingInProgress())
     runPendingTasks();
 
@@ -325,13 +320,38 @@ TEST_F(TextFinderTest, ScopeTextMatchesSimple) {
   EXPECT_EQ(findInPageRect(textNode, 14, textNode, 20), matchRects[1]);
 }
 
+TEST_F(TextFinderTest, ScopeTextMatchesRepeated) {
+  document().body()->setInnerHTML("XXXXFindMeYYYYfindmeZZZZ");
+  document().updateStyleAndLayout();
+
+  Node* textNode = document().body()->firstChild();
+
+  int identifier = 0;
+  WebString searchText1(String("XFindMe"));
+  WebString searchText2(String("FindMe"));
+  WebFindOptions findOptions;  // Default.
+
+  textFinder().resetMatchCount();
+  textFinder().startScopingStringMatches(identifier, searchText1, findOptions);
+  textFinder().startScopingStringMatches(identifier, searchText2, findOptions);
+  while (textFinder().scopingInProgress())
+    runPendingTasks();
+
+  // Only searchText2 should be highlighted.
+  EXPECT_EQ(2, textFinder().totalMatchCount());
+  WebVector<WebFloatRect> matchRects;
+  textFinder().findMatchRects(matchRects);
+  ASSERT_EQ(2u, matchRects.size());
+  EXPECT_EQ(findInPageRect(textNode, 4, textNode, 10), matchRects[0]);
+  EXPECT_EQ(findInPageRect(textNode, 14, textNode, 20), matchRects[1]);
+}
+
 TEST_F(TextFinderTest, ScopeTextMatchesWithShadowDOM) {
-  document().body()->setInnerHTML("<b>FOO</b><i>foo</i>", ASSERT_NO_EXCEPTION);
+  document().body()->setInnerHTML("<b>FOO</b><i>foo</i>");
   ShadowRoot* shadowRoot = document().body()->createShadowRootInternal(
       ShadowRootType::V0, ASSERT_NO_EXCEPTION);
   shadowRoot->setInnerHTML(
-      "<content select=\"i\"></content><u>Foo</u><content></content>",
-      ASSERT_NO_EXCEPTION);
+      "<content select=\"i\"></content><u>Foo</u><content></content>");
   Node* textInBElement = document().body()->firstChild()->firstChild();
   Node* textInIElement = document().body()->lastChild()->firstChild();
   Node* textInUElement = shadowRoot->childNodes()->item(1)->firstChild();
@@ -342,7 +362,7 @@ TEST_F(TextFinderTest, ScopeTextMatchesWithShadowDOM) {
   WebFindOptions findOptions;  // Default.
 
   textFinder().resetMatchCount();
-  textFinder().scopeStringMatches(identifier, searchText, findOptions, true);
+  textFinder().startScopingStringMatches(identifier, searchText, findOptions);
   while (textFinder().scopingInProgress())
     runPendingTasks();
 
@@ -362,7 +382,7 @@ TEST_F(TextFinderTest, ScopeTextMatchesWithShadowDOM) {
 }
 
 TEST_F(TextFinderTest, ScopeRepeatPatternTextMatches) {
-  document().body()->setInnerHTML("ab ab ab ab ab", ASSERT_NO_EXCEPTION);
+  document().body()->setInnerHTML("ab ab ab ab ab");
   document().updateStyleAndLayout();
 
   Node* textNode = document().body()->firstChild();
@@ -372,7 +392,7 @@ TEST_F(TextFinderTest, ScopeRepeatPatternTextMatches) {
   WebFindOptions findOptions;  // Default.
 
   textFinder().resetMatchCount();
-  textFinder().scopeStringMatches(identifier, searchText, findOptions, true);
+  textFinder().startScopingStringMatches(identifier, searchText, findOptions);
   while (textFinder().scopingInProgress())
     runPendingTasks();
 
@@ -385,7 +405,7 @@ TEST_F(TextFinderTest, ScopeRepeatPatternTextMatches) {
 }
 
 TEST_F(TextFinderTest, OverlappingMatches) {
-  document().body()->setInnerHTML("aababaa", ASSERT_NO_EXCEPTION);
+  document().body()->setInnerHTML("aababaa");
   document().updateStyleAndLayout();
 
   Node* textNode = document().body()->firstChild();
@@ -395,7 +415,7 @@ TEST_F(TextFinderTest, OverlappingMatches) {
   WebFindOptions findOptions;  // Default.
 
   textFinder().resetMatchCount();
-  textFinder().scopeStringMatches(identifier, searchText, findOptions, true);
+  textFinder().startScopingStringMatches(identifier, searchText, findOptions);
   while (textFinder().scopingInProgress())
     runPendingTasks();
 
@@ -408,7 +428,7 @@ TEST_F(TextFinderTest, OverlappingMatches) {
 }
 
 TEST_F(TextFinderTest, SequentialMatches) {
-  document().body()->setInnerHTML("ababab", ASSERT_NO_EXCEPTION);
+  document().body()->setInnerHTML("ababab");
   document().updateStyleAndLayout();
 
   Node* textNode = document().body()->firstChild();
@@ -418,7 +438,7 @@ TEST_F(TextFinderTest, SequentialMatches) {
   WebFindOptions findOptions;  // Default.
 
   textFinder().resetMatchCount();
-  textFinder().scopeStringMatches(identifier, searchText, findOptions, true);
+  textFinder().startScopingStringMatches(identifier, searchText, findOptions);
   while (textFinder().scopingInProgress())
     runPendingTasks();
 
@@ -432,8 +452,7 @@ TEST_F(TextFinderTest, SequentialMatches) {
 }
 
 TEST_F(TextFinderTest, FindTextJavaScriptUpdatesDOM) {
-  document().body()->setInnerHTML("<b>XXXXFindMeYYYY</b><i></i>",
-                                  ASSERT_NO_EXCEPTION);
+  document().body()->setInnerHTML("<b>XXXXFindMeYYYY</b><i></i>");
   document().updateStyleAndLayout();
 
   int identifier = 0;
@@ -443,7 +462,7 @@ TEST_F(TextFinderTest, FindTextJavaScriptUpdatesDOM) {
   bool activeNow;
 
   textFinder().resetMatchCount();
-  textFinder().scopeStringMatches(identifier, searchText, findOptions, true);
+  textFinder().startScopingStringMatches(identifier, searchText, findOptions);
   while (textFinder().scopingInProgress())
     runPendingTasks();
 
@@ -458,7 +477,7 @@ TEST_F(TextFinderTest, FindTextJavaScriptUpdatesDOM) {
   // Add new text to DOM and try FindNext.
   Element* iElement = toElement(document().body()->lastChild());
   ASSERT_TRUE(iElement);
-  iElement->setInnerHTML("ZZFindMe", ASSERT_NO_EXCEPTION);
+  iElement->setInnerHTML("ZZFindMe");
   document().updateStyleAndLayout();
 
   ASSERT_TRUE(textFinder().find(identifier, searchText, findOptions,
@@ -473,7 +492,7 @@ TEST_F(TextFinderTest, FindTextJavaScriptUpdatesDOM) {
   findOptions.findNext = false;
   textFinder().resetMatchCount();
   textFinder().cancelPendingScopingEffort();
-  textFinder().scopeStringMatches(identifier, searchText, findOptions, true);
+  textFinder().startScopingStringMatches(identifier, searchText, findOptions);
   while (textFinder().scopingInProgress())
     runPendingTasks();
   EXPECT_EQ(2, textFinder().totalMatchCount());
@@ -487,6 +506,57 @@ TEST_F(TextFinderTest, FindTextJavaScriptUpdatesDOM) {
             matchRects[0]);
   EXPECT_EQ(findInPageRect(textInIElement, 2, textInIElement, 8),
             matchRects[1]);
+}
+
+TEST_F(TextFinderTest, FindTextJavaScriptUpdatesDOMAfterNoMatches) {
+  document().body()->setInnerHTML("<b>XXXXYYYY</b><i></i>");
+  document().updateStyleAndLayout();
+
+  int identifier = 0;
+  WebString searchText(String("FindMe"));
+  WebFindOptions findOptions;  // Default.
+  bool wrapWithinFrame = true;
+  bool activeNow = false;
+
+  textFinder().resetMatchCount();
+  textFinder().startScopingStringMatches(identifier, searchText, findOptions);
+  while (textFinder().scopingInProgress())
+    runPendingTasks();
+
+  findOptions.findNext = true;
+  ASSERT_FALSE(textFinder().find(identifier, searchText, findOptions,
+                                 wrapWithinFrame, &activeNow));
+  EXPECT_FALSE(activeNow);
+
+  // Add new text to DOM and try FindNext.
+  Element* iElement = toElement(document().body()->lastChild());
+  ASSERT_TRUE(iElement);
+  iElement->setInnerHTML("ZZFindMe");
+  document().updateStyleAndLayout();
+
+  ASSERT_TRUE(textFinder().find(identifier, searchText, findOptions,
+                                wrapWithinFrame, &activeNow));
+  Range* activeMatch = textFinder().activeMatch();
+  ASSERT_TRUE(activeMatch);
+  EXPECT_FALSE(activeNow);
+  EXPECT_EQ(2, activeMatch->startOffset());
+  EXPECT_EQ(8, activeMatch->endOffset());
+
+  // Restart full search and check that added text is found.
+  findOptions.findNext = false;
+  textFinder().resetMatchCount();
+  textFinder().cancelPendingScopingEffort();
+  textFinder().startScopingStringMatches(identifier, searchText, findOptions);
+  while (textFinder().scopingInProgress())
+    runPendingTasks();
+  EXPECT_EQ(1, textFinder().totalMatchCount());
+
+  WebVector<WebFloatRect> matchRects;
+  textFinder().findMatchRects(matchRects);
+  ASSERT_EQ(1u, matchRects.size());
+  Node* textInIElement = document().body()->lastChild()->firstChild();
+  EXPECT_EQ(findInPageRect(textInIElement, 2, textInIElement, 8),
+            matchRects[0]);
 }
 
 class TextFinderFakeTimerTest : public TextFinderTest {
@@ -523,7 +593,7 @@ TEST_F(TextFinderFakeTimerTest, ScopeWithTimeouts) {
   text.insert(searchPattern, 50);
   text.insert(searchPattern, 90);
 
-  document().body()->setInnerHTML(text, ASSERT_NO_EXCEPTION);
+  document().body()->setInnerHTML(text);
   document().updateStyleAndLayout();
 
   int identifier = 0;
@@ -533,7 +603,8 @@ TEST_F(TextFinderFakeTimerTest, ScopeWithTimeouts) {
 
   // There will be only one iteration before timeout, because increment
   // of the TimeProxyPlatform timer is greater than timeout threshold.
-  textFinder().scopeStringMatches(identifier, searchPattern, findOptions, true);
+  textFinder().startScopingStringMatches(identifier, searchPattern,
+                                         findOptions);
   while (textFinder().scopingInProgress())
     runPendingTasks();
 

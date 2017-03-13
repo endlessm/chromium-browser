@@ -8,6 +8,7 @@
 #define FPDFSDK_PDFWINDOW_PWL_FONTMAP_H_
 
 #include <memory>
+#include <vector>
 
 #include "core/fpdfdoc/ipvt_fontmap.h"
 #include "core/fxge/fx_font.h"
@@ -30,7 +31,7 @@ struct CPWL_FontMap_Native {
 
 class CPWL_FontMap : public IPVT_FontMap {
  public:
-  CPWL_FontMap(CFX_SystemHandler* pSystemHandler);
+  explicit CPWL_FontMap(CFX_SystemHandler* pSystemHandler);
   ~CPWL_FontMap() override;
 
   // IPVT_FontMap
@@ -56,12 +57,12 @@ class CPWL_FontMap : public IPVT_FontMap {
                                          int32_t nCharset);
   virtual void AddedFont(CPDF_Font* pFont, const CFX_ByteString& sFontAlias);
 
-  FX_BOOL KnowWord(int32_t nFontIndex, uint16_t word);
+  bool KnowWord(int32_t nFontIndex, uint16_t word);
 
   void Empty();
   int32_t GetFontIndex(const CFX_ByteString& sFontName,
                        int32_t nCharset,
-                       FX_BOOL bFind);
+                       bool bFind);
   int32_t AddFontData(CPDF_Font* pFont,
                       const CFX_ByteString& sFontAlias,
                       int32_t nCharset = FXFONT_DEFAULT_CHARSET);
@@ -70,8 +71,8 @@ class CPWL_FontMap : public IPVT_FontMap {
                                  int32_t nCharset);
   CFX_ByteString EncodeFontAlias(const CFX_ByteString& sFontName);
 
-  CFX_ArrayTemplate<CPWL_FontMap_Data*> m_aData;
-  CFX_ArrayTemplate<CPWL_FontMap_Native*> m_aNativeFont;
+  std::vector<std::unique_ptr<CPWL_FontMap_Data>> m_Data;
+  std::vector<std::unique_ptr<CPWL_FontMap_Native>> m_NativeFont;
 
  private:
   int32_t FindFont(const CFX_ByteString& sFontName,
@@ -81,7 +82,7 @@ class CPWL_FontMap : public IPVT_FontMap {
   CPDF_Font* AddFontToDocument(CPDF_Document* pDoc,
                                CFX_ByteString& sFontName,
                                uint8_t nCharset);
-  FX_BOOL IsStandardFont(const CFX_ByteString& sFontName);
+  bool IsStandardFont(const CFX_ByteString& sFontName);
   CPDF_Font* AddStandardFont(CPDF_Document* pDoc, CFX_ByteString& sFontName);
   CPDF_Font* AddSystemFont(CPDF_Document* pDoc,
                            CFX_ByteString& sFontName,

@@ -17,10 +17,10 @@
 #include "SkPixelRef.h"
 #include "SkPixmap.h"
 #include "SkRasterClip.h"
+#include "SkRasterHandleAllocator.h"
 #include "SkShader.h"
 #include "SkSpecialImage.h"
 #include "SkSurface.h"
-#include "SkXfermode.h"
 
 class SkColorTable;
 
@@ -80,26 +80,35 @@ SkBitmapDevice* SkBitmapDevice::Create(const SkImageInfo& info) {
     return Create(info, SkSurfaceProps(SkSurfaceProps::kLegacyFontHost_InitType));
 }
 
-SkBitmapDevice::SkBitmapDevice(const SkBitmap& bitmap, const SkSurfaceProps& surfaceProps)
+SkBitmapDevice::SkBitmapDevice(const SkBitmap& bitmap, const SkSurfaceProps& surfaceProps,
+                               SkRasterHandleAllocator::Handle hndl)
     : INHERITED(bitmap.info(), surfaceProps)
     , fBitmap(bitmap)
+    , fRasterHandle(hndl)
 {
     SkASSERT(valid_for_bitmap_device(bitmap.info(), nullptr));
     fBitmap.lockPixels();
 }
 
 SkBitmapDevice* SkBitmapDevice::Create(const SkImageInfo& origInfo,
-                                       const SkSurfaceProps& surfaceProps) {
+                                       const SkSurfaceProps& surfaceProps,
+                                       SkRasterHandleAllocator* allocator) {
     SkAlphaType newAT = origInfo.alphaType();
     if (!valid_for_bitmap_device(origInfo, &newAT)) {
         return nullptr;
     }
 
+    SkRasterHandleAllocator::Handle hndl = nullptr;
     const SkImageInfo info = origInfo.makeAlphaType(newAT);
     SkBitmap bitmap;
 
     if (kUnknown_SkColorType == info.colorType()) {
         if (!bitmap.setInfo(info)) {
+            return nullptr;
+        }
+    } else if (allocator) {
+        hndl = allocator->allocBitmap(info, &bitmap);
+        if (!hndl) {
             return nullptr;
         }
     } else if (info.isOpaque()) {
@@ -117,7 +126,7 @@ SkBitmapDevice* SkBitmapDevice::Create(const SkImageInfo& origInfo,
         }
     }
 
-    return new SkBitmapDevice(bitmap, surfaceProps);
+    return new SkBitmapDevice(bitmap, surfaceProps, hndl);
 }
 
 void SkBitmapDevice::setNewSize(const SkISize& size) {
@@ -136,7 +145,7 @@ void SkBitmapDevice::replaceBitmapBackendForRasterSurface(const SkBitmap& bm) {
 
 SkBaseDevice* SkBitmapDevice::onCreateDevice(const CreateInfo& cinfo, const SkPaint*) {
     const SkSurfaceProps surfaceProps(this->surfaceProps().flags(), cinfo.fPixelGeometry);
-    return SkBitmapDevice::Create(cinfo.fInfo, surfaceProps);
+    return SkBitmapDevice::Create(cinfo.fInfo, surfaceProps, cinfo.fAllocator);
 }
 
 const SkBitmap& SkBitmapDevice::onAccessBitmap() {
@@ -168,12 +177,7 @@ bool SkBitmapDevice::onWritePixels(const SkImageInfo& srcInfo, const void* srcPi
         return false;
     }
 
-    const SkImageInfo dstInfo = fBitmap.info().makeWH(srcInfo.width(), srcInfo.height());
-
-    void* dstPixels = fBitmap.getAddr(x, y);
-    size_t dstRowBytes = fBitmap.rowBytes();
-
-    if (SkPixelInfo::CopyPixels(dstInfo, dstPixels, dstRowBytes, srcInfo, srcPixels, srcRowBytes)) {
+    if (fBitmap.writePixels(SkPixmap(srcInfo, srcPixels, srcRowBytes), x, y)) {
         fBitmap.notifyPixelsChanged();
         return true;
     }
@@ -367,10 +371,10 @@ void SkBitmapDevice::drawPosText(const SkDraw& draw, const void* text, size_t le
 void SkBitmapDevice::drawVertices(const SkDraw& draw, SkCanvas::VertexMode vmode,
                                   int vertexCount,
                                   const SkPoint verts[], const SkPoint textures[],
-                                  const SkColor colors[], SkXfermode* xmode,
+                                  const SkColor colors[], SkBlendMode bmode,
                                   const uint16_t indices[], int indexCount,
                                   const SkPaint& paint) {
-    draw.drawVertices(vmode, vertexCount, verts, textures, colors, xmode,
+    draw.drawVertices(vmode, vertexCount, verts, textures, colors, bmode,
                       indices, indexCount, paint);
 }
 
@@ -394,10 +398,10 @@ void SkBitmapDevice::drawSpecial(const SkDraw& draw, SkSpecialImage* srcImg, int
         SkMatrix matrix = *draw.fMatrix;
         matrix.postTranslate(SkIntToScalar(-x), SkIntToScalar(-y));
         const SkIRect clipBounds = draw.fRC->getBounds().makeOffset(-x, -y);
-        SkAutoTUnref<SkImageFilterCache> cache(this->getImageFilterCache());
+        sk_sp<SkImageFilterCache> cache(this->getImageFilterCache());
         SkImageFilter::OutputProperties outputProperties(fBitmap.colorSpace());
         SkImageFilter::Context ctx(matrix, clipBounds, cache.get(), outputProperties);
-        
+
         sk_sp<SkSpecialImage> resultImg(filter->filterImage(srcImg, ctx, &offset));
         if (resultImg) {
             SkPaint tmpUnfiltered(paint);
@@ -419,7 +423,7 @@ sk_sp<SkSpecialImage> SkBitmapDevice::makeSpecial(const SkBitmap& bitmap) {
 
 sk_sp<SkSpecialImage> SkBitmapDevice::makeSpecial(const SkImage* image) {
     return SkSpecialImage::MakeFromImage(SkIRect::MakeWH(image->width(), image->height()),
-                                         image->makeNonTextureImage());
+                                         image->makeNonTextureImage(), fBitmap.colorSpace());
 }
 
 sk_sp<SkSpecialImage> SkBitmapDevice::snapSpecial() {

@@ -8,7 +8,7 @@ found in the LICENSE file.
 <link rel="import" href="/tracing/base/iteration_helpers.html">
 <link rel="import" href="/tracing/base/statistics.html">
 <link rel="import" href="/tracing/base/xhr.html">
-<link rel="import" href="/tracing/value/value_set.html">
+<link rel="import" href="/tracing/value/histogram_set.html">
 
 <script>
 'use strict';
@@ -16,13 +16,15 @@ found in the LICENSE file.
 var escapeChars = s => s.replace(/[\:|=\/#&,]/g, '_');
 
 function findUnescapedKey(escaped, d) {
-  for (var k of tr.b.dictionaryKeys(d)) {
-    if (escapeChars(k) === escaped) {
+  if (!d) {
+    return undefined;
+  }
+
+  for (var k of Object.keys(d)) {
+    if (escapeChars(k) === escapeChars(escaped)) {
       return k;
     }
   }
-  throw new Error('did not find key ' + escaped + ' in ' +
-      tr.b.dictionaryKeys(d));
 }
 
 function geoMeanFromHistogram(h) {
@@ -43,6 +45,14 @@ function geoMeanFromHistogram(h) {
   }
   if (count === 0) return 0.0;
   return Math.exp(sumOfLogs / count);
+}
+
+function guessFullTIRMetricName(metricName) {
+  var parts = metricName.split('/');
+  if (parts.length === 2) {
+    return metricName + '/summary';
+  }
+  return undefined;
 }
 
 function splitMetric(metricName) {
@@ -71,18 +81,35 @@ function valuesFromCharts(listOfCharts, metricName) {
       if (traceName) {
         if (charts.charts[chartName][traceName].type ===
             'list_of_scalar_values')
-          allValues.push(...charts.charts[chartName][traceName].values);
+          allValues.push(tr.b.Statistics.mean(
+              charts.charts[chartName][traceName].values));
         if (charts.charts[chartName][traceName].type === 'histogram')
           allValues.push(
               geoMeanFromHistogram(charts.charts[chartName][traceName]));
+        if (charts.charts[chartName][traceName].type === 'scalar')
+          allValues.push(charts.charts[chartName][traceName].value);
       }
     }
   }
   return allValues;
 }
 
+function valuesFromChartsWithFallback(listOfCharts, metricName) {
+  var allValues = valuesFromCharts(listOfCharts, metricName);
+  if (allValues.length > 0)
+    return allValues;
+
+  // If this had a tir_label, the "summary" part may have been stripped by
+  // the dashboard during upload. We can re-add it here.
+  var fullMetricName = guessFullTIRMetricName(metricName);
+  if (!fullMetricName)
+    return [];
+  return valuesFromCharts(listOfCharts, fullMetricName);
+}
+
 function rawValuesByMetricName(valueSet, metricName) {
-  var interactionRecord, valueName;
+  var interactionRecord;
+  var valueName;
   var [itrPlusChart, story] = splitMetric(metricName);
   if (itrPlusChart.indexOf('@@') > -1) {
     [interactionRecord, valueName] = itrPlusChart.split('@@');
@@ -104,7 +131,7 @@ function rawValuesByMetricName(valueSet, metricName) {
   var filtered = [];
   for (var value of values) {
     if (value.name !== valueName) continue;
-    var ii = tr.v.d.IterationInfo.getFromValue(value);
+    var ii = tr.v.d.TelemetryInfo.getFromValue(value);
     if (interactionRecord) {
       var irParts = [];
       var keys = Object.keys(ii.storyGroupingKeys);
@@ -195,12 +222,19 @@ function parseMultipleBuildbotStreams(files, metric) {
 }
 
 var buildComparisonResultOutput = function(a, b) {
+  if (!a.length || !b.length) {
+    var comparisonResult = {
+      significance: tr.b.Statistics.Significance.NEED_MORE_DATA
+    };
+  } else {
+    var comparisonResult = tr.b.Statistics.mwu(
+        a, b, tr.b.Statistics.DEFAULT_ALPHA,
+        tr.b.Statistics.MAX_SUGGESTED_SAMPLE_SIZE);
+  }
   return {
     sampleA: a,
     sampleB: b,
-    result: tr.b.Statistics.mwu(
-        a, b, tr.b.Statistics.DEFAULT_ALPHA,
-        tr.b.Statistics.MAX_SUGGESTED_SAMPLE_SIZE)
+    result: comparisonResult
   };
 };
 
@@ -218,14 +252,14 @@ var SampleComparison = {
   compareValuesets: function(valueSetAPathList, valueSetBPathList, metric) {
     var aPaths = valueSetAPathList.split(',');
     var bPaths = valueSetBPathList.split(',');
-    var valueSetA = new tr.v.ValueSet();
-    var valueSetB = new tr.v.ValueSet();
+    var valueSetA = new tr.v.HistogramSet();
+    var valueSetB = new tr.v.HistogramSet();
     var dictsA = parseFiles(aPaths);
     var dictsB = parseFiles(bPaths);
     for (var d of dictsA)
-      valueSetA.addValuesFromDicts(d);
+      valueSetA.importDicts(d);
     for (var d of dictsB)
-      valueSetB.addValuesFromDicts(d);
+      valueSetB.importDicts(d);
 
     var sampleA = rawValuesByMetricName(valueSetA, metric);
     var sampleB = rawValuesByMetricName(valueSetB, metric);
@@ -237,15 +271,16 @@ var SampleComparison = {
     var bPaths = chartPathListB.split(',');
     var chartsA = parseFiles(aPaths);
     var chartsB = parseFiles(bPaths);
-    var sampleA = valuesFromCharts(chartsA, metric);
-    var sampleB = valuesFromCharts(chartsB, metric);
+    var sampleA = valuesFromChartsWithFallback(chartsA, metric);
+    var sampleB = valuesFromChartsWithFallback(chartsB, metric);
     return buildComparisonResultOutput(sampleA, sampleB);
   }
 
 };
 
 if (tr.isHeadless) {
-  var method, rest;
+  var method;
+  var rest;
   [method, ...rest] = sys.argv.slice(1);
   if (SampleComparison[method])
     console.log(JSON.stringify(SampleComparison[method](...rest)));

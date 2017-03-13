@@ -57,7 +57,6 @@ class BitmapImageTest : public ::testing::Test {
           safeCast<int>(newSize) - safeCast<int>(m_lastDecodedSize);
       m_lastDecodedSize = newSize;
     }
-    void didDraw(const Image*) override {}
     bool shouldPauseAnimation(const Image*) override { return false; }
     void animationAdvanced(const Image*) override {}
 
@@ -77,7 +76,7 @@ class BitmapImageTest : public ::testing::Test {
   void destroyDecodedData() { m_image->destroyDecodedData(); }
   size_t frameCount() { return m_image->frameCount(); }
   sk_sp<SkImage> frameAtIndex(size_t index) {
-    return m_image->frameAtIndex(index);
+    return m_image->frameAtIndex(index, m_image->m_cachedFrameColorBehavior);
   }
   void setCurrentFrame(size_t frame) { m_image->m_currentFrame = frame; }
   size_t frameDecodedSize(size_t frame) {
@@ -143,7 +142,7 @@ class BitmapImageTest : public ::testing::Test {
 };
 
 TEST_F(BitmapImageTest, destroyDecodedData) {
-  loadImage("/LayoutTests/fast/images/resources/animated-10color.gif");
+  loadImage("/LayoutTests/images/resources/animated-10color.gif");
   size_t totalSize = decodedSize();
   EXPECT_GT(totalSize, 0u);
   destroyDecodedData();
@@ -152,7 +151,7 @@ TEST_F(BitmapImageTest, destroyDecodedData) {
 }
 
 TEST_F(BitmapImageTest, maybeAnimated) {
-  loadImage("/LayoutTests/fast/images/resources/gif-loop-count.gif");
+  loadImage("/LayoutTests/images/resources/gif-loop-count.gif");
   for (size_t i = 0; i < frameCount(); ++i) {
     EXPECT_TRUE(m_image->maybeAnimated());
     advanceAnimation();
@@ -161,7 +160,7 @@ TEST_F(BitmapImageTest, maybeAnimated) {
 }
 
 TEST_F(BitmapImageTest, animationRepetitions) {
-  loadImage("/LayoutTests/fast/images/resources/full2loop.gif");
+  loadImage("/LayoutTests/images/resources/full2loop.gif");
   int expectedRepetitionCount = 2;
   EXPECT_EQ(expectedRepetitionCount, repetitionCount());
 
@@ -177,7 +176,7 @@ TEST_F(BitmapImageTest, animationRepetitions) {
 
 TEST_F(BitmapImageTest, isAllDataReceived) {
   RefPtr<SharedBuffer> imageData =
-      readFile("/LayoutTests/fast/images/resources/green.jpg");
+      readFile("/LayoutTests/images/resources/green.jpg");
   ASSERT_TRUE(imageData.get());
 
   RefPtr<BitmapImage> image = BitmapImage::create();
@@ -197,14 +196,14 @@ TEST_F(BitmapImageTest, isAllDataReceived) {
 }
 
 TEST_F(BitmapImageTest, noColorProfile) {
-  loadImage("/LayoutTests/fast/images/resources/green.jpg");
+  loadImage("/LayoutTests/images/resources/green.jpg");
   EXPECT_EQ(1u, decodedFramesCount());
   EXPECT_EQ(1024u, decodedSize());
   EXPECT_FALSE(m_image->hasColorProfile());
 }
 
 TEST_F(BitmapImageTest, jpegHasColorProfile) {
-  loadImage("/LayoutTests/fast/images/resources/icc-v2-gbr.jpg");
+  loadImage("/LayoutTests/images/resources/icc-v2-gbr.jpg");
   EXPECT_EQ(1u, decodedFramesCount());
   EXPECT_EQ(227700u, decodedSize());
   EXPECT_TRUE(m_image->hasColorProfile());
@@ -212,7 +211,7 @@ TEST_F(BitmapImageTest, jpegHasColorProfile) {
 
 TEST_F(BitmapImageTest, pngHasColorProfile) {
   loadImage(
-      "/LayoutTests/fast/images/resources/"
+      "/LayoutTests/images/resources/"
       "palatted-color-png-gamma-one-color-profile.png");
   EXPECT_EQ(1u, decodedFramesCount());
   EXPECT_EQ(65536u, decodedSize());
@@ -220,21 +219,21 @@ TEST_F(BitmapImageTest, pngHasColorProfile) {
 }
 
 TEST_F(BitmapImageTest, webpHasColorProfile) {
-  loadImage("/LayoutTests/fast/images/resources/webp-color-profile-lossy.webp");
+  loadImage("/LayoutTests/images/resources/webp-color-profile-lossy.webp");
   EXPECT_EQ(1u, decodedFramesCount());
   EXPECT_EQ(2560000u, decodedSize());
   EXPECT_TRUE(m_image->hasColorProfile());
 }
 
 TEST_F(BitmapImageTest, icoHasWrongFrameDimensions) {
-  loadImage("/LayoutTests/fast/images/resources/wrong-frame-dimensions.ico");
+  loadImage("/LayoutTests/images/resources/wrong-frame-dimensions.ico");
   // This call would cause crash without fix for 408026
   imageForDefaultFrame();
 }
 
 TEST_F(BitmapImageTest, correctDecodedDataSize) {
   // Requesting any one frame shouldn't result in decoding any other frames.
-  loadImage("/LayoutTests/fast/images/resources/anim_none.gif", false);
+  loadImage("/LayoutTests/images/resources/anim_none.gif", false);
   frameAtIndex(1);
   int frameSize =
       static_cast<int>(m_image->size().area() * sizeof(ImageFrame::PixelData));
@@ -242,7 +241,7 @@ TEST_F(BitmapImageTest, correctDecodedDataSize) {
 }
 
 TEST_F(BitmapImageTest, recachingFrameAfterDataChanged) {
-  loadImage("/LayoutTests/fast/images/resources/green.jpg");
+  loadImage("/LayoutTests/images/resources/green.jpg");
   setFirstFrameNotComplete();
   EXPECT_GT(lastDecodedSizeChange(), 0);
   m_imageObserver->m_lastDecodedSizeChangedDelta = 0;
@@ -252,7 +251,7 @@ TEST_F(BitmapImageTest, recachingFrameAfterDataChanged) {
   m_image->dataChanged(true);
   EXPECT_EQ(0, lastDecodedSizeChange());
   // Recaching the first frame also shouldn't affect decoded size.
-  m_image->imageForCurrentFrame();
+  m_image->imageForCurrentFrame(ColorBehavior::transformToTargetForTesting());
   EXPECT_EQ(0, lastDecodedSizeChange());
 }
 
@@ -283,18 +282,18 @@ TEST_P(DecodedImageTypeHistogramTest, ImageType) {
 
 DecodedImageTypeHistogramTest::ParamType
     kDecodedImageTypeHistogramTestParams[] = {
-        {"/LayoutTests/fast/images/resources/green.jpg",
+        {"/LayoutTests/images/resources/green.jpg",
          BitmapImageMetrics::ImageJPEG},
-        {"/LayoutTests/fast/images/resources/"
+        {"/LayoutTests/images/resources/"
          "palatted-color-png-gamma-one-color-profile.png",
          BitmapImageMetrics::ImagePNG},
-        {"/LayoutTests/fast/images/resources/animated-10color.gif",
+        {"/LayoutTests/images/resources/animated-10color.gif",
          BitmapImageMetrics::ImageGIF},
-        {"/LayoutTests/fast/images/resources/webp-color-profile-lossy.webp",
+        {"/LayoutTests/images/resources/webp-color-profile-lossy.webp",
          BitmapImageMetrics::ImageWebP},
-        {"/LayoutTests/fast/images/resources/wrong-frame-dimensions.ico",
+        {"/LayoutTests/images/resources/wrong-frame-dimensions.ico",
          BitmapImageMetrics::ImageICO},
-        {"/LayoutTests/fast/images/resources/lenna.bmp",
+        {"/LayoutTests/images/resources/lenna.bmp",
          BitmapImageMetrics::ImageBMP}};
 
 INSTANTIATE_TEST_CASE_P(
@@ -311,21 +310,21 @@ TEST_P(DecodedImageOrientationHistogramTest, ImageOrientation) {
 
 DecodedImageOrientationHistogramTest::ParamType
     kDecodedImageOrientationHistogramTestParams[] = {
-        {"/LayoutTests/fast/images/resources/exif-orientation-1-ul.jpg",
+        {"/LayoutTests/images/resources/exif-orientation-1-ul.jpg",
          OriginTopLeft},
-        {"/LayoutTests/fast/images/resources/exif-orientation-2-ur.jpg",
+        {"/LayoutTests/images/resources/exif-orientation-2-ur.jpg",
          OriginTopRight},
-        {"/LayoutTests/fast/images/resources/exif-orientation-3-lr.jpg",
+        {"/LayoutTests/images/resources/exif-orientation-3-lr.jpg",
          OriginBottomRight},
-        {"/LayoutTests/fast/images/resources/exif-orientation-4-lol.jpg",
+        {"/LayoutTests/images/resources/exif-orientation-4-lol.jpg",
          OriginBottomLeft},
-        {"/LayoutTests/fast/images/resources/exif-orientation-5-lu.jpg",
+        {"/LayoutTests/images/resources/exif-orientation-5-lu.jpg",
          OriginLeftTop},
-        {"/LayoutTests/fast/images/resources/exif-orientation-6-ru.jpg",
+        {"/LayoutTests/images/resources/exif-orientation-6-ru.jpg",
          OriginRightTop},
-        {"/LayoutTests/fast/images/resources/exif-orientation-7-rl.jpg",
+        {"/LayoutTests/images/resources/exif-orientation-7-rl.jpg",
          OriginRightBottom},
-        {"/LayoutTests/fast/images/resources/exif-orientation-8-llo.jpg",
+        {"/LayoutTests/images/resources/exif-orientation-8-llo.jpg",
          OriginLeftBottom}};
 
 INSTANTIATE_TEST_CASE_P(

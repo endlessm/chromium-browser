@@ -7,8 +7,9 @@
 #include "base/bind.h"
 #include "base/rand_util.h"
 #include "base/strings/string_number_conversions.h"
-#include "third_party/webrtc/libjingle/xmllite/xmlelement.h"
-#include "third_party/webrtc/libjingle/xmpp/constants.h"
+#include "base/threading/thread_task_runner_handle.h"
+#include "third_party/libjingle_xmpp/xmllite/xmlelement.h"
+#include "third_party/libjingle_xmpp/xmpp/constants.h"
 
 namespace remoting {
 
@@ -38,18 +39,16 @@ void DelegatingSignalStrategy::OnIncomingMessage(const std::string& message) {
     return;
   }
 
-  base::ObserverListBase<Listener>::Iterator it(&listeners_);
-  Listener* listener;
-  while ((listener = it.GetNext()) != nullptr) {
-    if (listener->OnSignalStrategyIncomingStanza(stanza.get()))
+  for (auto& listener : listeners_) {
+    if (listener.OnSignalStrategyIncomingStanza(stanza.get()))
       break;
   }
 }
 
 void DelegatingSignalStrategy::Connect() {
   DCHECK(client_task_runner_->BelongsToCurrentThread());
-  FOR_EACH_OBSERVER(Listener, listeners_,
-                    OnSignalStrategyStateChange(CONNECTED));
+  for (auto& observer : listeners_)
+    observer.OnSignalStrategyStateChange(CONNECTED);
 }
 
 void DelegatingSignalStrategy::Disconnect() {

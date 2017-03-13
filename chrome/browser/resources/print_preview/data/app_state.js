@@ -103,6 +103,7 @@ cr.define('print_preview', function() {
     IS_COLLATE_ENABLED: 'isCollateEnabled',
     IS_FIT_TO_PAGE_ENABLED: 'isFitToPageEnabled',
     IS_CSS_BACKGROUND_ENABLED: 'isCssBackgroundEnabled',
+    SCALING: 'scaling',
     VENDOR_OPTIONS: 'vendorOptions'
   };
 
@@ -131,6 +132,15 @@ cr.define('print_preview', function() {
     get selectedDestination() {
       return (this.state_[AppState.Field.RECENT_DESTINATIONS].length > 0) ?
           this.state_[AppState.Field.RECENT_DESTINATIONS][0] : null;
+    },
+
+    /**
+     * @return {boolean} Whether the selected destination is valid.
+     */
+    isSelectedDestinationValid: function() {
+      return this.selectedDestination &&
+             this.selectedDestination.id &&
+             this.selectedDestination.origin;
     },
 
     /**
@@ -205,6 +215,9 @@ cr.define('print_preview', function() {
         this.state_[AppState.Field.RECENT_DESTINATIONS].length =
             AppState.NUM_DESTINATIONS_;
       }
+      if (!loadTimeData.getBoolean('scalingEnabled'))
+        this.state_[AppState.Field.SCALING] = 100;
+
     },
 
     /**

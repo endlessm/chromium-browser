@@ -22,7 +22,6 @@
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
-#include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/thread.h"
 #include "base/threading/thread_restrictions.h"
@@ -57,7 +56,6 @@
 #include "chrome/browser/extensions/tab_helper.h"
 #include "chrome/browser/file_select_helper.h"
 #include "chrome/browser/first_run/first_run.h"
-#include "chrome/browser/history/top_sites_factory.h"
 #include "chrome/browser/infobars/infobar_service.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/lifetime/keep_alive_registry.h"
@@ -79,7 +77,7 @@
 #include "chrome/browser/sessions/session_service_factory.h"
 #include "chrome/browser/sessions/session_tab_helper.h"
 #include "chrome/browser/sessions/tab_restore_service_factory.h"
-#include "chrome/browser/ssl/chrome_security_state_model_client.h"
+#include "chrome/browser/ssl/security_state_tab_helper.h"
 #include "chrome/browser/sync/profile_sync_service_factory.h"
 #include "chrome/browser/sync/sync_ui_util.h"
 #include "chrome/browser/tab_contents/retargeting_details.h"
@@ -138,7 +136,6 @@
 #include "chrome/browser/ui/tab_modal_confirm_dialog.h"
 #include "chrome/browser/ui/tabs/tab_menu_model.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
-#include "chrome/browser/ui/tabs/tab_strip_model_utils.h"
 #include "chrome/browser/ui/tabs/tab_utils.h"
 #include "chrome/browser/ui/unload_controller.h"
 #include "chrome/browser/ui/validation_message_bubble.h"
@@ -164,10 +161,10 @@
 #include "components/bubble/bubble_controller.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "components/favicon/content/content_favicon_driver.h"
-#include "components/history/core/browser/top_sites.h"
 #include "components/prefs/pref_service.h"
 #include "components/search/search.h"
-#include "components/security_state/security_state_model.h"
+#include "components/security_state/content/content_utils.h"
+#include "components/security_state/core/security_state.h"
 #include "components/sessions/core/session_types.h"
 #include "components/sessions/core/tab_restore_service.h"
 #include "components/startup_metric_utils/browser/startup_metric_utils.h"
@@ -203,6 +200,7 @@
 #include "extensions/common/constants.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/manifest_handlers/background_info.h"
+#include "extensions/features/features.h"
 #include "net/base/filename_util.h"
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
 #include "net/cookies/cookie_monster.h"
@@ -242,7 +240,6 @@ using content::RenderWidgetHostView;
 using content::SiteInstance;
 using content::WebContents;
 using extensions::Extension;
-using security_state::SecurityStateModel;
 using ui::WebDialogDelegate;
 using web_modal::WebContentsModalDialogManager;
 using blink::WebWindowFeatures;
@@ -395,7 +392,7 @@ Browser::Browser(const CreateParams& params)
   registrar_.Add(this,
                  extensions::NOTIFICATION_EXTENSION_PROCESS_TERMINATED,
                  content::NotificationService::AllSources());
-#if defined(ENABLE_THEMES)
+#if !defined(OS_ANDROID)
   registrar_.Add(
       this, chrome::NOTIFICATION_BROWSER_THEME_CHANGED,
       content::Source<ThemeService>(
@@ -577,16 +574,24 @@ gfx::Image Browser::GetCurrentPageIcon() const {
 
 base::string16 Browser::GetWindowTitleForCurrentTab(
     bool include_app_name) const {
-  WebContents* contents = tab_strip_model_->GetActiveWebContents();
+  return GetWindowTitleFromWebContents(
+      include_app_name, tab_strip_model_->GetActiveWebContents());
+}
+
+base::string16 Browser::GetWindowTitleForTab(bool include_app_name,
+                                             int index) const {
+  return GetWindowTitleFromWebContents(
+      include_app_name, tab_strip_model_->GetWebContentsAt(index));
+}
+
+base::string16 Browser::GetWindowTitleFromWebContents(
+    bool include_app_name,
+    content::WebContents* contents) const {
   base::string16 title;
 
   // |contents| can be NULL because GetWindowTitleForCurrentTab is called by the
   // window during the window's creation (before tabs have been added).
   if (contents) {
-    // The web app frame uses the host instead of the title.
-    if (ShouldUseWebAppFrame())
-      return base::UTF8ToUTF16(contents->GetURL().host());
-
     title = contents->GetTitle();
     FormatTitleForDisplay(&title);
   }
@@ -958,6 +963,7 @@ void Browser::TabClosingAt(TabStripModel* tab_strip_model,
       SessionServiceFactory::GetForProfile(profile_);
   if (session_service)
     session_service->TabClosing(contents);
+  HideValidationMessage(contents);
   content::NotificationService::current()->Notify(
       chrome::NOTIFICATION_TAB_CLOSING,
       content::Source<NavigationController>(&contents->GetController()),
@@ -1257,9 +1263,9 @@ bool Browser::PreHandleGestureEvent(content::WebContents* source,
                                     const blink::WebGestureEvent& event) {
   // Disable pinch zooming in undocked dev tools window due to poor UX.
   if (app_name() == DevToolsWindow::kDevToolsApp)
-    return event.type == blink::WebGestureEvent::GesturePinchBegin ||
-           event.type == blink::WebGestureEvent::GesturePinchUpdate ||
-           event.type == blink::WebGestureEvent::GesturePinchEnd;
+    return event.type() == blink::WebGestureEvent::GesturePinchBegin ||
+           event.type() == blink::WebGestureEvent::GesturePinchUpdate ||
+           event.type() == blink::WebGestureEvent::GesturePinchEnd;
 
   return false;
 }
@@ -1276,16 +1282,16 @@ bool Browser::CanDragEnter(content::WebContents* source,
   return true;
 }
 
-content::SecurityStyle Browser::GetSecurityStyle(
+blink::WebSecurityStyle Browser::GetSecurityStyle(
     WebContents* web_contents,
     content::SecurityStyleExplanations* security_style_explanations) {
-  ChromeSecurityStateModelClient* model_client =
-      ChromeSecurityStateModelClient::FromWebContents(web_contents);
-  DCHECK(model_client);
-  security_state::SecurityStateModel::SecurityInfo security_info;
-  model_client->GetSecurityInfo(&security_info);
-  return model_client->GetSecurityStyle(security_info,
-                                        security_style_explanations);
+  SecurityStateTabHelper* helper =
+      SecurityStateTabHelper::FromWebContents(web_contents);
+  DCHECK(helper);
+  security_state::SecurityInfo security_info;
+  helper->GetSecurityInfo(&security_info);
+  return security_state::GetSecurityStyle(security_info,
+                                          security_style_explanations);
 }
 
 void Browser::ShowCertificateViewerInDevTools(
@@ -1424,12 +1430,16 @@ void Browser::NavigationStateChanged(WebContents* source,
     hosted_app_controller_->UpdateLocationBarVisibility(true);
 }
 
-void Browser::VisibleSSLStateChanged(const WebContents* source) {
-  // When the current tab's SSL state changes, we need to update the URL
+void Browser::VisibleSecurityStateChanged(WebContents* source) {
+  // When the current tab's security state changes, we need to update the URL
   // bar to reflect the new state.
   DCHECK(source);
   if (tab_strip_model_->GetActiveWebContents() == source)
     UpdateToolbar(false);
+
+  SecurityStateTabHelper* helper =
+      SecurityStateTabHelper::FromWebContents(source);
+  helper->VisibleSecurityStateChanged();
 }
 
 void Browser::AddNewContents(WebContents* source,
@@ -1525,10 +1535,6 @@ bool Browser::TakeFocus(content::WebContents* source,
   return false;
 }
 
-gfx::Rect Browser::GetRootWindowResizerRect() const {
-  return window_->GetRootWindowResizerRect();
-}
-
 void Browser::BeforeUnloadFired(WebContents* web_contents,
                                 bool proceed,
                                 bool* proceed_to_fire_unload) {
@@ -1546,15 +1552,20 @@ void Browser::BeforeUnloadFired(WebContents* web_contents,
 }
 
 bool Browser::ShouldFocusLocationBarByDefault(WebContents* source) {
+  // Navigations in background tabs shouldn't change the focus state of the
+  // omnibox, since it's associated with the foreground tab.
+  if (source != tab_strip_model_->GetActiveWebContents())
+    return false;
+
   const content::NavigationEntry* entry =
       source->GetController().GetActiveEntry();
   if (entry) {
-    GURL url = entry->GetURL();
-    GURL virtual_url = entry->GetVirtualURL();
+    const GURL& url = entry->GetURL();
+    const GURL& virtual_url = entry->GetVirtualURL();
     if ((url.SchemeIs(content::kChromeUIScheme) &&
-        url.host() == chrome::kChromeUINewTabHost) ||
+         url.host_piece() == chrome::kChromeUINewTabHost) ||
         (virtual_url.SchemeIs(content::kChromeUIScheme) &&
-        virtual_url.host() == chrome::kChromeUINewTabHost)) {
+         virtual_url.host_piece() == chrome::kChromeUINewTabHost)) {
       return true;
     }
   }
@@ -1580,11 +1591,13 @@ void Browser::ShowRepostFormWarningDialog(WebContents* source) {
 }
 
 bool Browser::ShouldCreateWebContents(
-    WebContents* web_contents,
+    content::WebContents* web_contents,
+    content::SiteInstance* source_site_instance,
     int32_t route_id,
     int32_t main_frame_route_id,
     int32_t main_frame_widget_route_id,
     WindowContainerType window_container_type,
+    const GURL& opener_url,
     const std::string& frame_name,
     const GURL& target_url,
     const std::string& partition_id,
@@ -1592,8 +1605,9 @@ bool Browser::ShouldCreateWebContents(
   if (window_container_type == WINDOW_CONTAINER_TYPE_BACKGROUND) {
     // If a BackgroundContents is created, suppress the normal WebContents.
     return !MaybeCreateBackgroundContents(
-        route_id, main_frame_route_id, main_frame_widget_route_id, web_contents,
-        frame_name, target_url, partition_id, session_storage_namespace);
+        source_site_instance, opener_url, route_id, main_frame_route_id,
+        main_frame_widget_route_id, frame_name, target_url, partition_id,
+        session_storage_namespace);
   }
 
   return true;
@@ -1628,14 +1642,17 @@ void Browser::WebContentsCreated(WebContents* source_contents,
       content::Details<RetargetingDetails>(&details));
 }
 
-void Browser::RendererUnresponsive(WebContents* source) {
+void Browser::RendererUnresponsive(
+    WebContents* source,
+    const content::WebContentsUnresponsiveState& unresponsive_state) {
   // Ignore hangs if a tab is blocked.
   int index = tab_strip_model_->GetIndexOfWebContents(source);
   DCHECK_NE(TabStripModel::kNoTab, index);
   if (tab_strip_model_->IsTabBlocked(index))
     return;
 
-  TabDialogs::FromWebContents(source)->ShowHungRendererDialog();
+  TabDialogs::FromWebContents(source)->ShowHungRendererDialog(
+      unresponsive_state);
 }
 
 void Browser::RendererResponsive(WebContents* source) {
@@ -1848,6 +1865,18 @@ void Browser::SwapTabContents(content::WebContents* old_contents,
                               content::WebContents* new_contents,
                               bool did_start_load,
                               bool did_finish_load) {
+  // Copies the background color from an old WebContents to a new one that
+  // replaces it on the screen. This allows the new WebContents to use the
+  // old one's background color as the starting background color, before having
+  // loaded any contents. As a result, we avoid flashing white when navigating
+  // from a site whith a dark background to another site with a dark background.
+  if (old_contents && new_contents) {
+    RenderWidgetHostView* old_view = old_contents->GetMainFrame()->GetView();
+    RenderWidgetHostView* new_view = new_contents->GetMainFrame()->GetView();
+    if (old_view && new_view)
+      new_view->SetBackgroundColor(old_view->background_color());
+  }
+
   int index = tab_strip_model_->GetIndexOfWebContents(old_contents);
   DCHECK_NE(TabStripModel::kNoTab, index);
   tab_strip_model_->ReplaceWebContentsAt(index, new_contents);
@@ -1875,17 +1904,6 @@ OmniboxView* Browser::GetOmniboxView() {
   return window_->GetLocationBar()->GetOmniboxView();
 }
 
-std::set<std::string> Browser::GetOpenUrls() {
-  scoped_refptr<history::TopSites> top_sites =
-      TopSitesFactory::GetForProfile(profile_);
-  if (!top_sites)  // NULL for Incognito profiles.
-    return std::set<std::string>();
-
-  std::set<std::string> open_urls;
-  chrome::GetOpenUrls(*tab_strip_model_, *top_sites, &open_urls);
-  return open_urls;
-}
-
 ///////////////////////////////////////////////////////////////////////////////
 // Browser, web_modal::WebContentsModalDialogManagerDelegate implementation:
 
@@ -1897,7 +1915,13 @@ void Browser::SetWebContentsBlocked(content::WebContents* web_contents,
     return;
   }
   tab_strip_model_->SetTabBlocked(index, blocked);
-  if (!blocked && tab_strip_model_->GetActiveWebContents() == web_contents)
+
+  bool browser_active = BrowserList::GetInstance()->GetLastActive() == this;
+  bool contents_is_active =
+      tab_strip_model_->GetActiveWebContents() == web_contents;
+  // If the WebContents is foremost (the active tab in the front-most browser)
+  // and is being unblocked, focus it to make sure that input works again.
+  if (!blocked && contents_is_active && browser_active)
     web_contents->Focus();
 }
 
@@ -1970,7 +1994,7 @@ void Browser::Observe(int type,
       break;
     }
 
-#if defined(ENABLE_THEMES)
+#if !defined(OS_ANDROID)
     case chrome::NOTIFICATION_BROWSER_THEME_CHANGED:
       window()->UserChangedTheme();
       break;
@@ -1991,7 +2015,7 @@ void Browser::Observe(int type,
   }
 }
 
-#if defined(ENABLE_EXTENSIONS)
+#if BUILDFLAG(ENABLE_EXTENSIONS)
 ///////////////////////////////////////////////////////////////////////////////
 // Browser, extensions::ExtensionRegistryObserver implementation:
 
@@ -2035,7 +2059,7 @@ void Browser::OnExtensionUnloaded(
       // schemes, e.g. https://mail.google.com if you have the Gmail app
       // installed.
       if ((web_contents->GetURL().SchemeIs(extensions::kExtensionScheme) &&
-           web_contents->GetURL().host() == extension->id()) ||
+           web_contents->GetURL().host_piece() == extension->id()) ||
           (extensions::TabHelper::FromWebContents(web_contents)
                ->extension_app() == extension)) {
         tab_strip_model_->CloseWebContentsAt(i, TabStripModel::CLOSE_NONE);
@@ -2045,7 +2069,7 @@ void Browser::OnExtensionUnloaded(
     }
   }
 }
-#endif  // defined(ENABLE_EXTENSIONS)
+#endif  // BUILDFLAG(ENABLE_EXTENSIONS)
 
 ///////////////////////////////////////////////////////////////////////////////
 // Browser, translate::ContentTranslateDriver::Observer implementation:
@@ -2384,20 +2408,9 @@ bool Browser::SupportsLocationBar() const {
   if (!is_app())
     return !is_trusted_source();
 
+  // Hosted apps always support a location bar.
   if (hosted_app_controller_)
-    return hosted_app_controller_->SupportsLocationBar();
-
-  return false;
-}
-
-bool Browser::ShouldUseWebAppFrame() const {
-  // Only use the web app frame for apps in ash, and only if the web app frame
-  // is enabled.
-  if (!is_app())
-    return false;
-
-  if (hosted_app_controller_)
-    return hosted_app_controller_->should_use_web_app_frame();
+    return true;
 
   return false;
 }
@@ -2423,9 +2436,6 @@ bool Browser::SupportsWindowFeatureImpl(WindowFeature feature,
 
     if (SupportsLocationBar())
       features |= FEATURE_LOCATIONBAR;
-
-    if (ShouldUseWebAppFrame())
-      features |= FEATURE_WEBAPPFRAME;
   }
   return !!(features & feature);
 }
@@ -2488,7 +2498,7 @@ void Browser::UpdateBookmarkBarState(BookmarkBarStateChangeReason reason) {
 }
 
 bool Browser::ShouldHideUIForFullscreen() const {
-  // Windows and GTK remove the top controls in fullscreen, but Mac and Ash
+  // Windows and GTK remove the browser controls in fullscreen, but Mac and Ash
   // keep the controls in a slide-down panel.
   return window_ && window_->ShouldHideUIForFullscreen();
 }
@@ -2498,21 +2508,19 @@ bool Browser::ShouldStartShutdown() const {
 }
 
 bool Browser::MaybeCreateBackgroundContents(
+    content::SiteInstance* source_site_instance,
+    const GURL& opener_url,
     int32_t route_id,
     int32_t main_frame_route_id,
     int32_t main_frame_widget_route_id,
-    WebContents* opener_web_contents,
     const std::string& frame_name,
     const GURL& target_url,
     const std::string& partition_id,
     content::SessionStorageNamespace* session_storage_namespace) {
-  GURL opener_url = opener_web_contents->GetURL();
   ExtensionService* extensions_service =
       extensions::ExtensionSystem::Get(profile_)->extension_service();
 
-  if (!opener_url.is_valid() ||
-      frame_name.empty() ||
-      !extensions_service ||
+  if (!opener_url.is_valid() || frame_name.empty() || !extensions_service ||
       !extensions_service->is_ready())
     return false;
 
@@ -2533,11 +2541,10 @@ bool Browser::MaybeCreateBackgroundContents(
     return false;
 
   // Ensure that we're trying to open this from the extension's process.
-  SiteInstance* opener_site_instance = opener_web_contents->GetSiteInstance();
   extensions::ProcessMap* process_map = extensions::ProcessMap::Get(profile_);
-  if (!opener_site_instance->GetProcess() ||
-      !process_map->Contains(
-          extension->id(), opener_site_instance->GetProcess()->GetID())) {
+  if (!source_site_instance->GetProcess() ||
+      !process_map->Contains(extension->id(),
+                             source_site_instance->GetProcess()->GetID())) {
     return false;
   }
 
@@ -2555,28 +2562,33 @@ bool Browser::MaybeCreateBackgroundContents(
     delete existing;
   }
 
-  // If script access is not allowed, create the the background contents in a
-  // new SiteInstance, so that a separate process is used.
-  scoped_refptr<content::SiteInstance> site_instance =
-      allow_js_access ?
-      opener_site_instance :
-      content::SiteInstance::Create(opener_web_contents->GetBrowserContext());
-
   // Passed all the checks, so this should be created as a BackgroundContents.
-  BackgroundContents* contents = service->CreateBackgroundContents(
-      site_instance.get(), route_id, main_frame_route_id,
-      main_frame_widget_route_id, profile_, frame_name,
-      base::ASCIIToUTF16(extension->id()), partition_id,
-      session_storage_namespace);
+  BackgroundContents* contents = nullptr;
+  if (allow_js_access) {
+    contents = service->CreateBackgroundContents(
+        source_site_instance, route_id, main_frame_route_id,
+        main_frame_widget_route_id, profile_, frame_name,
+        base::ASCIIToUTF16(extension->id()), partition_id,
+        session_storage_namespace);
+  } else {
+    // If script access is not allowed, create the the background contents in a
+    // new SiteInstance, so that a separate process is used. We must not use any
+    // of the passed-in routing IDs, as they are objects in the opener's
+    // process.
+    contents = service->CreateBackgroundContents(
+        content::SiteInstance::Create(
+            source_site_instance->GetBrowserContext()),
+        MSG_ROUTING_NONE, MSG_ROUTING_NONE, MSG_ROUTING_NONE, profile_,
+        frame_name, base::ASCIIToUTF16(extension->id()), partition_id,
+        session_storage_namespace);
 
-  // When a separate process is used, the original renderer cannot access the
-  // new window later, thus we need to navigate the window now.
-  if (contents && !allow_js_access) {
-    contents->web_contents()->GetController().LoadURL(
-        target_url,
-        content::Referrer(),
-        ui::PAGE_TRANSITION_LINK,
-        std::string());  // No extra headers.
+    // When a separate process is used, the original renderer cannot access the
+    // new window later, thus we need to navigate the window now.
+    if (contents) {
+      contents->web_contents()->GetController().LoadURL(
+          target_url, content::Referrer(), ui::PAGE_TRANSITION_LINK,
+          std::string());  // No extra headers.
+    }
   }
 
   return contents != NULL;

@@ -30,12 +30,6 @@ class ComputeShaderTestES3 : public ANGLETest
 // link a simple compute program. It should be successful.
 TEST_P(ComputeShaderTest, LinkComputeProgram)
 {
-    if (IsIntel() && IsLinux())
-    {
-        std::cout << "Test skipped on Intel Linux due to failures." << std::endl;
-        return;
-    }
-
     const std::string csSource =
         "#version 310 es\n"
         "layout(local_size_x=1) in;\n"
@@ -69,11 +63,6 @@ TEST_P(ComputeShaderTest, LinkComputeProgramNoLocalSizeLinkError)
 // make sure that uniforms and uniform samplers get recorded
 TEST_P(ComputeShaderTest, LinkComputeProgramWithUniforms)
 {
-    if (IsIntel() && IsLinux())
-    {
-        std::cout << "Test skipped on Intel Linux due to failures." << std::endl;
-        return;
-    }
     const std::string csSource =
         "#version 310 es\n"
         "precision mediump sampler2D;\n"
@@ -101,11 +90,6 @@ TEST_P(ComputeShaderTest, LinkComputeProgramWithUniforms)
 // OpenGL ES 3.10, 7.3 Program Objects
 TEST_P(ComputeShaderTest, AttachMultipleShaders)
 {
-    if (IsIntel() && IsLinux())
-    {
-        std::cout << "Test skipped on Intel Linux due to failures." << std::endl;
-        return;
-    }
     const std::string csSource =
         "#version 310 es\n"
         "layout(local_size_x=1) in;\n"
@@ -158,11 +142,6 @@ TEST_P(ComputeShaderTest, AttachMultipleShaders)
 // Query for the number of attached shaders and check the count.
 TEST_P(ComputeShaderTest, AttachmentCount)
 {
-    if (IsIntel() && IsLinux())
-    {
-        std::cout << "Test skipped on Intel Linux due to failures." << std::endl;
-        return;
-    }
     const std::string csSource =
         "#version 310 es\n"
         "layout(local_size_x=1) in;\n"
@@ -211,6 +190,41 @@ TEST_P(ComputeShaderTest, AttachmentCount)
     EXPECT_GL_NO_ERROR();
 }
 
+// Access all compute shader special variables.
+TEST_P(ComputeShaderTest, AccessAllSpecialVariables)
+{
+    const std::string csSource =
+        "#version 310 es\n"
+        "layout(local_size_x=4, local_size_y=3, local_size_z=2) in;\n"
+        "void main()\n"
+        "{\n"
+        "    uvec3 temp1 = gl_NumWorkGroups;\n"
+        "    uvec3 temp2 = gl_WorkGroupSize;\n"
+        "    uvec3 temp3 = gl_WorkGroupID;\n"
+        "    uvec3 temp4 = gl_LocalInvocationID;\n"
+        "    uvec3 temp5 = gl_GlobalInvocationID;\n"
+        "    uint  temp6 = gl_LocalInvocationIndex;\n"
+        "}\n";
+
+    ANGLE_GL_COMPUTE_PROGRAM(program, csSource);
+}
+
+// Access part compute shader special variables.
+TEST_P(ComputeShaderTest, AccessPartSpecialVariables)
+{
+    const std::string csSource =
+        "#version 310 es\n"
+        "layout(local_size_x=4, local_size_y=3, local_size_z=2) in;\n"
+        "void main()\n"
+        "{\n"
+        "    uvec3 temp1 = gl_WorkGroupSize;\n"
+        "    uvec3 temp2 = gl_WorkGroupID;\n"
+        "    uint  temp3 = gl_LocalInvocationIndex;\n"
+        "}\n";
+
+    ANGLE_GL_COMPUTE_PROGRAM(program, csSource);
+}
+
 // Check that it is not possible to create a compute shader when the context does not support ES
 // 3.10
 TEST_P(ComputeShaderTestES3, NotSupported)
@@ -220,7 +234,7 @@ TEST_P(ComputeShaderTestES3, NotSupported)
     EXPECT_GL_ERROR(GL_INVALID_ENUM);
 }
 
-ANGLE_INSTANTIATE_TEST(ComputeShaderTest, ES31_OPENGL(), ES31_OPENGLES());
+ANGLE_INSTANTIATE_TEST(ComputeShaderTest, ES31_OPENGL(), ES31_OPENGLES(), ES31_D3D11());
 ANGLE_INSTANTIATE_TEST(ComputeShaderTestES3, ES3_OPENGL(), ES3_OPENGLES());
 
 }  // namespace

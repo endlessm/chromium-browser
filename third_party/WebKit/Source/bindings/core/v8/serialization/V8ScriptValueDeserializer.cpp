@@ -11,6 +11,7 @@
 #include "core/dom/MessagePort.h"
 #include "core/fileapi/Blob.h"
 #include "core/fileapi/File.h"
+#include "core/fileapi/FileList.h"
 #include "core/frame/ImageBitmap.h"
 #include "core/html/ImageData.h"
 #include "core/offscreencanvas/OffscreenCanvas.h"
@@ -28,10 +29,8 @@ V8ScriptValueDeserializer::V8ScriptValueDeserializer(
     : m_scriptState(std::move(scriptState)),
       m_serializedScriptValue(std::move(serializedScriptValue)),
       m_deserializer(m_scriptState->isolate(),
-                     reinterpret_cast<const uint8_t*>(
-                         m_serializedScriptValue->data().ensure16Bit(),
-                         m_serializedScriptValue->data().characters16()),
-                     m_serializedScriptValue->data().length() * 2,
+                     m_serializedScriptValue->data(),
+                     m_serializedScriptValue->dataLengthInBytes(),
                      this) {
   DCHECK(RuntimeEnabledFeatures::v8BasedStructuredCloneEnabled());
   m_deserializer.SetSupportsLegacyWireFormat(true);
@@ -77,14 +76,14 @@ void V8ScriptValueDeserializer::transfer() {
         DOMSharedArrayBuffer* arrayBuffer =
             DOMSharedArrayBuffer::create(contents);
         v8::Local<v8::Value> wrapper =
-            toV8(arrayBuffer, creationContext, isolate);
+            ToV8(arrayBuffer, creationContext, isolate);
         DCHECK(wrapper->IsSharedArrayBuffer());
         m_deserializer.TransferSharedArrayBuffer(
             i, v8::Local<v8::SharedArrayBuffer>::Cast(wrapper));
       } else {
         DOMArrayBuffer* arrayBuffer = DOMArrayBuffer::create(contents);
         v8::Local<v8::Value> wrapper =
-            toV8(arrayBuffer, creationContext, isolate);
+            ToV8(arrayBuffer, creationContext, isolate);
         DCHECK(wrapper->IsArrayBuffer());
         m_deserializer.TransferArrayBuffer(
             i, v8::Local<v8::ArrayBuffer>::Cast(wrapper));
@@ -98,7 +97,7 @@ void V8ScriptValueDeserializer::transfer() {
     m_transferredImageBitmaps.reserveInitialCapacity(
         imageBitmapContents->size());
     for (const auto& image : *imageBitmapContents)
-      m_transferredImageBitmaps.append(ImageBitmap::create(image));
+      m_transferredImageBitmaps.push_back(ImageBitmap::create(image));
   }
 }
 
@@ -151,6 +150,36 @@ ScriptWrappable* V8ScriptValueDeserializer::readDOMObject(
       return readFile();
     case FileIndexTag:
       return readFileIndex();
+    case FileListTag: {
+      // This does not presently deduplicate a File object and its entry in a
+      // FileList, which is non-standard behavior.
+      uint32_t length;
+      if (!readUint32(&length))
+        return nullptr;
+      FileList* fileList = FileList::create();
+      for (uint32_t i = 0; i < length; i++) {
+        if (File* file = readFile())
+          fileList->append(file);
+        else
+          return nullptr;
+      }
+      return fileList;
+    }
+    case FileListIndexTag: {
+      // This does not presently deduplicate a File object and its entry in a
+      // FileList, which is non-standard behavior.
+      uint32_t length;
+      if (!readUint32(&length))
+        return nullptr;
+      FileList* fileList = FileList::create();
+      for (uint32_t i = 0; i < length; i++) {
+        if (File* file = readFileIndex())
+          fileList->append(file);
+        else
+          return nullptr;
+      }
+      return fileList;
+    }
     case ImageBitmapTag: {
       uint32_t originClean = 0, isPremultiplied = 0, width = 0, height = 0,
                pixelLength = 0;
@@ -203,16 +232,14 @@ ScriptWrappable* V8ScriptValueDeserializer::readDOMObject(
       return (*m_transferredMessagePorts)[index].get();
     }
     case OffscreenCanvasTransferTag: {
-      uint32_t width = 0, height = 0, canvasId = 0, clientId = 0, sinkId = 0,
-               localId = 0;
-      uint64_t nonce = 0;
+      uint32_t width = 0, height = 0, canvasId = 0, clientId = 0, sinkId = 0;
       if (!readUint32(&width) || !readUint32(&height) ||
           !readUint32(&canvasId) || !readUint32(&clientId) ||
-          !readUint32(&sinkId) || !readUint32(&localId) || !readUint64(&nonce))
+          !readUint32(&sinkId))
         return nullptr;
       OffscreenCanvas* canvas = OffscreenCanvas::create(width, height);
-      canvas->setAssociatedCanvasId(canvasId);
-      canvas->setSurfaceId(clientId, sinkId, localId, nonce);
+      canvas->setPlaceholderCanvasId(canvasId);
+      canvas->setFrameSinkId(clientId, sinkId);
       return canvas;
     }
     default:
@@ -302,7 +329,7 @@ v8::MaybeLocal<v8::Object> V8ScriptValueDeserializer::ReadHostObject(
     return v8::MaybeLocal<v8::Object>();
   }
   v8::Local<v8::Object> creationContext = m_scriptState->context()->Global();
-  v8::Local<v8::Value> wrapper = toV8(wrappable, creationContext, isolate);
+  v8::Local<v8::Value> wrapper = ToV8(wrappable, creationContext, isolate);
   DCHECK(wrapper->IsObject());
   return wrapper.As<v8::Object>();
 }

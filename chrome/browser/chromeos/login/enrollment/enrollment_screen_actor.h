@@ -32,6 +32,7 @@ class EnrollmentScreenActor {
     virtual void OnRetry() = 0;
     virtual void OnCancel() = 0;
     virtual void OnConfirmationClosed() = 0;
+    virtual void OnAdJoined(const std::string& realm) = 0;
     virtual void OnDeviceAttributeProvided(const std::string& asset_id,
                                            const std::string& location) = 0;
   };
@@ -42,9 +43,6 @@ class EnrollmentScreenActor {
   virtual void SetParameters(Controller* controller,
                              const policy::EnrollmentConfig& config) = 0;
 
-  // Prepare the contents to showing.
-  virtual void PrepareToShow() = 0;
-
   // Shows the contents of the screen.
   virtual void Show() = 0;
 
@@ -53,6 +51,9 @@ class EnrollmentScreenActor {
 
   // Shows the signin screen.
   virtual void ShowSigninScreen() = 0;
+
+  // Shows the AD domain joining screen.
+  virtual void ShowAdJoin() = 0;
 
   // Shows the device attribute prompt screen.
   virtual void ShowAttributePromptScreen(const std::string& asset_id,

@@ -43,9 +43,9 @@ TextTrackCue* TextTrackCueList::anonymousIndexedGetter(unsigned index) const {
 }
 
 TextTrackCue* TextTrackCueList::getCueById(const AtomicString& id) const {
-  for (size_t i = 0; i < m_list.size(); ++i) {
-    if (m_list[i]->id() == id)
-      return m_list[i].get();
+  for (const auto& cue : m_list) {
+    if (cue->id() == id)
+      return cue.get();
   }
   return nullptr;
 }
@@ -70,7 +70,7 @@ bool TextTrackCueList::add(TextTrackCue* cue) {
   if (!m_list.isEmpty() && (index > 0) && (m_list[index - 1].get() == cue))
     return false;
 
-  m_list.insert(index, cue);
+  m_list.insert(index, TraceWrapperMember<TextTrackCue>(this, cue));
   invalidateCueIndex(index);
   return true;
 }

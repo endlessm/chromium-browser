@@ -8,7 +8,6 @@
 #include <stddef.h>
 
 #include <memory>
-#include <string>
 #include <vector>
 
 #include "base/base_export.h"
@@ -17,22 +16,21 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/synchronization/atomic_flag.h"
-#include "base/task_runner.h"
-#include "base/task_scheduler/delayed_task_manager.h"
 #include "base/task_scheduler/scheduler_worker_pool_impl.h"
 #include "base/task_scheduler/sequence.h"
 #include "base/task_scheduler/task_scheduler.h"
-#include "base/task_scheduler/task_tracker.h"
 #include "base/task_scheduler/task_traits.h"
 #include "base/threading/thread.h"
 
 namespace base {
 
+class HistogramBase;
 class SchedulerWorkerPoolParams;
 
 namespace internal {
 
-class SchedulerServiceThread;
+class DelayedTaskManager;
+class TaskTracker;
 
 // Default TaskScheduler implementation. This class is thread-safe.
 class BASE_EXPORT TaskSchedulerImpl : public TaskScheduler {
@@ -52,17 +50,22 @@ class BASE_EXPORT TaskSchedulerImpl : public TaskScheduler {
   ~TaskSchedulerImpl() override;
 
   // TaskScheduler:
-  void PostTaskWithTraits(const tracked_objects::Location& from_here,
-                          const TaskTraits& traits,
-                          const Closure& task) override;
+  void PostDelayedTaskWithTraits(const tracked_objects::Location& from_here,
+                                 const TaskTraits& traits,
+                                 const Closure& task,
+                                 TimeDelta delay) override;
   scoped_refptr<TaskRunner> CreateTaskRunnerWithTraits(
-      const TaskTraits& traits,
-      ExecutionMode execution_mode) override;
+      const TaskTraits& traits) override;
+  scoped_refptr<SequencedTaskRunner> CreateSequencedTaskRunnerWithTraits(
+      const TaskTraits& traits) override;
+  scoped_refptr<SingleThreadTaskRunner> CreateSingleThreadTaskRunnerWithTraits(
+      const TaskTraits& traits) override;
+  std::vector<const HistogramBase*> GetHistograms() const override;
   void Shutdown() override;
   void FlushForTesting() override;
 
-  // Joins all threads of this scheduler. Tasks that are already running are
-  // allowed to complete their execution. This can only be called once.
+  // Joins all threads. Tasks that are already running are allowed to complete
+  // their execution. This can only be called once.
   void JoinForTesting();
 
  private:
@@ -79,15 +82,11 @@ class BASE_EXPORT TaskSchedulerImpl : public TaskScheduler {
   // worker pops a Task from it.
   void ReEnqueueSequenceCallback(scoped_refptr<Sequence> sequence);
 
-  // Callback invoked when the delayed run time is changed from the
-  // DelayedTaskManager.
-  void OnDelayedRunTimeUpdated();
-
-  TaskTracker task_tracker_;
-  DelayedTaskManager delayed_task_manager_;
+  Thread service_thread_;
+  std::unique_ptr<TaskTracker> task_tracker_;
+  std::unique_ptr<DelayedTaskManager> delayed_task_manager_;
   const WorkerPoolIndexForTraitsCallback worker_pool_index_for_traits_callback_;
   std::vector<std::unique_ptr<SchedulerWorkerPoolImpl>> worker_pools_;
-  std::unique_ptr<SchedulerServiceThread> service_thread_;
 
 #if DCHECK_IS_ON()
   // Set once JoinForTesting() has returned.

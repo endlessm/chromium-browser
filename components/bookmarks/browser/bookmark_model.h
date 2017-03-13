@@ -46,14 +46,14 @@ namespace bookmarks {
 
 class BookmarkCodecTest;
 class BookmarkExpandedStateTracker;
-class BookmarkIndex;
 class BookmarkLoadDetails;
 class BookmarkModelObserver;
 class BookmarkStorage;
 class BookmarkUndoDelegate;
 class ScopedGroupBookmarkActions;
 class TestBookmarkClient;
-struct BookmarkMatch;
+class TitledUrlIndex;
+struct TitledUrlMatch;
 
 // BookmarkModel --------------------------------------------------------------
 
@@ -112,10 +112,6 @@ class BookmarkModel : public BookmarkUndoProvider,
   bool is_permanent_node(const BookmarkNode* node) const {
     return node && (node == &root_ || node->parent() == &root_);
   }
-
-  // Returns the parent the last node was added to. This never returns NULL
-  // (as long as the model is loaded).
-  const BookmarkNode* GetParentForNewNodes();
 
   void AddObserver(BookmarkModelObserver* observer);
   void RemoveObserver(BookmarkModelObserver* observer);
@@ -247,14 +243,14 @@ class BookmarkModel : public BookmarkUndoProvider,
   // in either the title or the URL. It uses default matching algorithm.
   void GetBookmarksMatching(const base::string16& text,
                             size_t max_count,
-                            std::vector<BookmarkMatch>* matches);
+                            std::vector<TitledUrlMatch>* matches);
 
   // Returns up to |max_count| of bookmarks containing each term from |text|
   // in either the title or the URL.
   void GetBookmarksMatching(const base::string16& text,
                             size_t max_count,
                             query_parser::MatchingAlgorithm matching_algorithm,
-                            std::vector<BookmarkMatch>* matches);
+                            std::vector<TitledUrlMatch>* matches);
 
   // Sets the store to NULL, making it so the BookmarkModel does not persist
   // any changes to disk. This is only useful during testing to speed up
@@ -454,7 +450,7 @@ class BookmarkModel : public BookmarkUndoProvider,
   // Reads/writes bookmarks to disk.
   std::unique_ptr<BookmarkStorage> store_;
 
-  std::unique_ptr<BookmarkIndex> index_;
+  std::unique_ptr<TitledUrlIndex> index_;
 
   base::WaitableEvent loaded_signal_;
 

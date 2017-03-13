@@ -6,9 +6,9 @@
 
 #include "xfa/fde/fde_render.h"
 
+#include "third_party/base/ptr_util.h"
 #include "xfa/fde/fde_gedevice.h"
 #include "xfa/fde/fde_object.h"
-#include "xfa/fgas/crt/fgas_memory.h"
 
 #define FDE_PATHRENDER_Stroke 1
 #define FDE_PATHRENDER_Fill 2
@@ -24,21 +24,21 @@ CFDE_RenderContext::~CFDE_RenderContext() {
   StopRender();
 }
 
-FX_BOOL CFDE_RenderContext::StartRender(CFDE_RenderDevice* pRenderDevice,
-                                        IFDE_CanvasSet* pCanvasSet,
-                                        const CFX_Matrix& tmDoc2Device) {
+bool CFDE_RenderContext::StartRender(CFDE_RenderDevice* pRenderDevice,
+                                     IFDE_CanvasSet* pCanvasSet,
+                                     const CFX_Matrix& tmDoc2Device) {
   if (m_pRenderDevice)
-    return FALSE;
+    return false;
   if (!pRenderDevice)
-    return FALSE;
+    return false;
   if (!pCanvasSet)
-    return FALSE;
+    return false;
 
   m_eStatus = FDE_RENDERSTATUS_Paused;
   m_pRenderDevice = pRenderDevice;
   m_Transform = tmDoc2Device;
   if (!m_pIterator)
-    m_pIterator.reset(new CFDE_VisualSetIterator);
+    m_pIterator = pdfium::MakeUnique<CFDE_VisualSetIterator>();
 
   return m_pIterator->AttachCanvas(pCanvasSet) && m_pIterator->FilterObjects();
 }
@@ -63,7 +63,7 @@ FDE_RENDERSTATUS CFDE_RenderContext::DoRender(IFX_Pause* pPause) {
   FDE_TEXTEDITPIECE* pPiece;
   CFX_RectF rtObj;
   int32_t iCount = 0;
-  while (TRUE) {
+  while (true) {
     pPiece = m_pIterator->GetNext(pVisualSet);
     if (!pPiece || !pVisualSet) {
       eStatus = FDE_RENDERSTATUS_Done;
@@ -80,7 +80,7 @@ FDE_RENDERSTATUS CFDE_RenderContext::DoRender(IFX_Pause* pPause) {
         iCount += 5;
         break;
       case FDE_VISUALOBJ_Canvas:
-        ASSERT(FALSE);
+        ASSERT(false);
         break;
       default:
         break;
@@ -107,21 +107,21 @@ void CFDE_RenderContext::RenderText(IFDE_TextSet* pTextSet,
   ASSERT(m_pRenderDevice);
   ASSERT(pTextSet && pText);
 
-  CFGAS_GEFont* pFont = pTextSet->GetFont();
+  CFX_RetainPtr<CFGAS_GEFont> pFont = pTextSet->GetFont();
   if (!pFont)
     return;
 
-  int32_t iCount = pTextSet->GetDisplayPos(pText, nullptr, FALSE);
+  int32_t iCount = pTextSet->GetDisplayPos(pText, nullptr, false);
   if (iCount < 1)
     return;
 
   if (!m_pBrush)
-    m_pBrush.reset(new CFDE_Brush);
+    m_pBrush = pdfium::MakeUnique<CFDE_Brush>();
 
   if (m_CharPos.size() < static_cast<size_t>(iCount))
     m_CharPos.resize(iCount, FXTEXT_CHARPOS());
 
-  iCount = pTextSet->GetDisplayPos(pText, m_CharPos.data(), FALSE);
+  iCount = pTextSet->GetDisplayPos(pText, m_CharPos.data(), false);
   FX_FLOAT fFontSize = pTextSet->GetFontSize();
   FX_ARGB dwColor = pTextSet->GetFontColor();
   m_pBrush->SetColor(dwColor);

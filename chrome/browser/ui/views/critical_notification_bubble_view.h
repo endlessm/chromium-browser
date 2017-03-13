@@ -16,14 +16,12 @@ class CriticalNotificationBubbleView : public views::BubbleDialogDelegateView {
 
   // views::BubbleDialogDelegateView overrides:
   base::string16 GetWindowTitle() const override;
-  gfx::ImageSkia GetWindowIcon() override;
-  bool ShouldShowWindowIcon() const override;
   void WindowClosing() override;
   bool Cancel() override;
   bool Accept() override;
   void Init() override;
   base::string16 GetDialogButtonLabel(ui::DialogButton button) const override;
-  void GetAccessibleState(ui::AXViewState* state) override;
+  void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
   void ViewHierarchyChanged(
       const ViewHierarchyChangedDetails& details) override;
 

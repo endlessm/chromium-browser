@@ -8,6 +8,7 @@
 #include "stdio.h"
 #include <fstream>
 #include "SkSLCompiler.h"
+#include "GrContextOptions.h"
 
 /**
  * Very simple standalone executable to facilitate testing.
@@ -29,20 +30,42 @@ int main(int argc, const char** argv) {
     }
 
     std::ifstream in(argv[1]);
-    std::string text((std::istreambuf_iterator<char>(in)),
-                     std::istreambuf_iterator<char>());
+    std::string stdText((std::istreambuf_iterator<char>(in)),
+                        std::istreambuf_iterator<char>());
+    SkString text(stdText.c_str());
     if (in.rdstate()) {
         printf("error reading '%s'\n", argv[1]);
         exit(2);
     }
-    std::ofstream out(argv[2], std::ofstream::binary);
-    SkSL::Compiler compiler;
-    if (!compiler.toSPIRV(kind, text, out)) {
-        printf("%s", compiler.errorText().c_str());
-        exit(3);
-    }
-    if (out.rdstate()) {
-        printf("error writing '%s'\n", argv[2]);
-        exit(4);
+    SkSL::Program::Settings settings;
+    sk_sp<GrShaderCaps> caps = SkSL::ShaderCapsFactory::Default();
+    settings.fCaps = caps.get();
+    SkString name(argv[2]);
+    if (name.endsWith(".spirv")) {
+        SkFILEWStream out(argv[2]);
+        SkSL::Compiler compiler;
+        if (!out.isValid()) {
+            printf("error writing '%s'\n", argv[2]);
+            exit(4);
+        }
+        std::unique_ptr<SkSL::Program> program = compiler.convertProgram(kind, text, settings);
+        if (!program || !compiler.toSPIRV(*program, out)) {
+            printf("%s", compiler.errorText().c_str());
+            exit(3);
+        }
+    } else if (name.endsWith(".glsl")) {
+        SkFILEWStream out(argv[2]);
+        SkSL::Compiler compiler;
+        if (!out.isValid()) {
+            printf("error writing '%s'\n", argv[2]);
+            exit(4);
+        }
+        std::unique_ptr<SkSL::Program> program = compiler.convertProgram(kind, text, settings);
+        if (!program || !compiler.toGLSL(*program, out)) {
+            printf("%s", compiler.errorText().c_str());
+            exit(3);
+        }
+    } else {
+        printf("expected output filename to end with '.spirv' or '.glsl'");
     }
 }

@@ -33,8 +33,6 @@
 #include "bindings/core/v8/ExceptionState.h"
 #include "bindings/core/v8/SerializedScriptValue.h"
 #include "core/dom/ExecutionContextTask.h"
-#include "core/frame/Deprecation.h"
-#include "core/frame/UseCounter.h"
 #include "core/frame/csp/ContentSecurityPolicy.h"
 #include "core/origin_trials/OriginTrialContext.h"
 #include "core/workers/DedicatedWorkerThread.h"
@@ -54,7 +52,7 @@ DedicatedWorkerGlobalScope* DedicatedWorkerGlobalScope::create(
   DedicatedWorkerGlobalScope* context = new DedicatedWorkerGlobalScope(
       startupData->m_scriptURL, startupData->m_userAgent, thread, timeOrigin,
       std::move(startupData->m_starterOriginPrivilegeData),
-      startupData->m_workerClients.release());
+      startupData->m_workerClients);
   context->applyContentSecurityPolicyFromVector(
       *startupData->m_contentSecurityPolicyHeaders);
   context->setWorkerSettings(std::move(startupData->m_workerSettings));
@@ -96,36 +94,13 @@ void DedicatedWorkerGlobalScope::postMessage(
       MessagePort::disentanglePorts(context, ports, exceptionState);
   if (exceptionState.hadException())
     return;
-  thread()->workerObjectProxy().postMessageToWorkerObject(std::move(message),
-                                                          std::move(channels));
+  workerObjectProxy().postMessageToWorkerObject(std::move(message),
+                                                std::move(channels));
 }
 
-DedicatedWorkerThread* DedicatedWorkerGlobalScope::thread() const {
-  return static_cast<DedicatedWorkerThread*>(WorkerGlobalScope::thread());
-}
-
-static void countOnDocument(UseCounter::Feature feature,
-                            ExecutionContext* context) {
-  DCHECK(context->isDocument());
-  UseCounter::count(context, feature);
-}
-
-static void countDeprecationOnDocument(UseCounter::Feature feature,
-                                       ExecutionContext* context) {
-  DCHECK(context->isDocument());
-  Deprecation::countDeprecation(context, feature);
-}
-
-void DedicatedWorkerGlobalScope::countFeature(
-    UseCounter::Feature feature) const {
-  thread()->workerObjectProxy().postTaskToMainExecutionContext(
-      createCrossThreadTask(&countOnDocument, feature));
-}
-
-void DedicatedWorkerGlobalScope::countDeprecation(
-    UseCounter::Feature feature) const {
-  thread()->workerObjectProxy().postTaskToMainExecutionContext(
-      createCrossThreadTask(&countDeprecationOnDocument, feature));
+InProcessWorkerObjectProxy& DedicatedWorkerGlobalScope::workerObjectProxy()
+    const {
+  return static_cast<DedicatedWorkerThread*>(thread())->workerObjectProxy();
 }
 
 DEFINE_TRACE(DedicatedWorkerGlobalScope) {

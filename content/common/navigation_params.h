@@ -11,31 +11,23 @@
 #include <string>
 
 #include "base/memory/ref_counted.h"
+#include "base/optional.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "content/common/content_export.h"
 #include "content/common/frame_message_enums.h"
 #include "content/common/resource_request_body_impl.h"
 #include "content/public/common/page_state.h"
+#include "content/public/common/previews_state.h"
 #include "content/public/common/referrer.h"
 #include "content/public/common/request_context_type.h"
 #include "content/public/common/resource_response.h"
+#include "third_party/WebKit/public/platform/WebMixedContentContextType.h"
 #include "ui/base/page_transition_types.h"
 #include "url/gurl.h"
+#include "url/origin.h"
 
 namespace content {
-
-// The LoFi state which determines whether to add the Lo-Fi header.
-enum LoFiState {
-  // Let the browser process decide whether or not to request the Lo-Fi version.
-  LOFI_UNSPECIFIED = 0,
-
-  // Request a normal (non-Lo-Fi) version of the resource.
-  LOFI_OFF,
-
-  // Request a Lo-Fi version of the resource.
-  LOFI_ON,
-};
 
 // PlzNavigate
 // Helper function to determine if the navigation to |url| should make a request
@@ -63,7 +55,7 @@ struct CONTENT_EXPORT CommonNavigationParams {
       FrameMsg_UILoadMetricsReportType::Value report_type,
       const GURL& base_url_for_data_url,
       const GURL& history_url_for_data_url,
-      LoFiState lofi_state,
+      PreviewsState previews_state,
       const base::TimeTicks& navigation_start,
       std::string method,
       const scoped_refptr<ResourceRequestBodyImpl>& post_data);
@@ -111,9 +103,9 @@ struct CONTENT_EXPORT CommonNavigationParams {
   // Is only used with data: URLs.
   GURL history_url_for_data_url;
 
-  // Whether or not to request a LoFi version of the document or let the browser
-  // decide.
-  LoFiState lofi_state;
+  // Bitmask that has whether or not to request a Preview version of the
+  // document for various preview types or let the browser decide.
+  PreviewsState previews_state;
 
   // The navigationStart time exposed through the Navigation Timing API to JS.
   // If this is for a browser-initiated navigation, this can override the
@@ -142,12 +134,16 @@ struct CONTENT_EXPORT BeginNavigationParams {
   // TODO(clamy): See if it is possible to reuse this in
   // ResourceMsg_Request_Params.
   BeginNavigationParams();
-  BeginNavigationParams(std::string headers,
-                        int load_flags,
-                        bool has_user_gesture,
-                        bool skip_service_worker,
-                        RequestContextType request_context_type);
+  BeginNavigationParams(
+      std::string headers,
+      int load_flags,
+      bool has_user_gesture,
+      bool skip_service_worker,
+      RequestContextType request_context_type,
+      blink::WebMixedContentContextType mixed_content_context_type,
+      const base::Optional<url::Origin>& initiator_origin);
   BeginNavigationParams(const BeginNavigationParams& other);
+  ~BeginNavigationParams();
 
   // Additional HTTP request headers.
   std::string headers;
@@ -163,6 +159,18 @@ struct CONTENT_EXPORT BeginNavigationParams {
 
   // Indicates the request context type.
   RequestContextType request_context_type;
+
+  // The mixed content context type for potential mixed content checks.
+  blink::WebMixedContentContextType mixed_content_context_type;
+
+  // See WebSearchableFormData for a description of these.
+  GURL searchable_form_url;
+  std::string searchable_form_encoding;
+
+  // Indicates the initiator of the request. In auxilliary navigations, this is
+  // the origin of the document that triggered the navigation. This parameter
+  // can be null during browser-initiated navigations.
+  base::Optional<url::Origin> initiator_origin;
 };
 
 // Provided by the browser -----------------------------------------------------
@@ -217,9 +225,7 @@ struct CONTENT_EXPORT RequestNavigationParams {
   RequestNavigationParams(bool is_overriding_user_agent,
                           const std::vector<GURL>& redirects,
                           bool can_load_local_resources,
-                          base::Time request_time,
                           const PageState& page_state,
-                          int32_t page_id,
                           int nav_entry_id,
                           bool is_same_document_history_load,
                           bool is_history_navigation_in_new_child,
@@ -249,19 +255,8 @@ struct CONTENT_EXPORT RequestNavigationParams {
   // resources.
   bool can_load_local_resources;
 
-  // The time the request was created. This is used by the old performance
-  // infrastructure to set up DocumentState associated with the RenderView.
-  // TODO(ppi): make it go away.
-  base::Time request_time;
-
   // Opaque history state (received by ViewHostMsg_UpdateState).
   PageState page_state;
-
-  // The page_id for this navigation, or -1 if it is a new navigation.  Back,
-  // Forward, and Reload navigations should have a valid page_id.  If the load
-  // succeeds, then this page_id will be reflected in the resultant
-  // FrameHostMsg_DidCommitProvisionalLoad message.
-  int32_t page_id;
 
   // For browser-initiated navigations, this is the unique id of the
   // NavigationEntry being navigated to. (For renderer-initiated navigations it
@@ -333,6 +328,10 @@ struct CONTENT_EXPORT RequestNavigationParams {
   // This parameter is not used in the current navigation architecture, where
   // it will always be equal to kInvalidServiceWorkerProviderId.
   int service_worker_provider_id;
+
+  // PlzNavigate
+  // The AppCache host id to be used to identify this navigation.
+  int appcache_host_id;
 
   // True if the navigation originated due to a user gesture.
   bool has_user_gesture;

@@ -6,10 +6,9 @@
 
 #include "base/bind.h"
 #include "services/catalog/entry.h"
+#include "services/catalog/entry_cache.h"
 #include "services/catalog/manifest_provider.h"
 #include "services/catalog/reader.h"
-#include "services/catalog/store.h"
-#include "services/shell/public/cpp/names.h"
 
 namespace catalog {
 namespace {
@@ -23,16 +22,11 @@ void AddEntry(const Entry& entry, std::vector<mojom::EntryPtr>* ary) {
 
 }  // namespace
 
-////////////////////////////////////////////////////////////////////////////////
-// Instance, public:
+Instance::Instance(Reader* system_reader) : system_reader_(system_reader) {}
 
-Instance::Instance(std::unique_ptr<Store> store, Reader* system_reader)
-    : store_(std::move(store)),
-      system_reader_(system_reader),
-      weak_factory_(this) {}
 Instance::~Instance() {}
 
-void Instance::BindResolver(shell::mojom::ResolverRequest request) {
+void Instance::BindResolver(service_manager::mojom::ResolverRequest request) {
   if (system_cache_)
     resolver_bindings_.AddBinding(this, std::move(request));
   else
@@ -48,47 +42,26 @@ void Instance::BindCatalog(mojom::CatalogRequest request) {
 
 void Instance::CacheReady(EntryCache* cache) {
   system_cache_ = cache;
-  DeserializeCatalog();
   for (auto& request : pending_resolver_requests_)
     BindResolver(std::move(request));
   for (auto& request : pending_catalog_requests_)
     BindCatalog(std::move(request));
 }
 
-////////////////////////////////////////////////////////////////////////////////
-// Instance, shell::mojom::Resolver:
-
-void Instance::ResolveMojoName(const std::string& mojo_name,
-                               const ResolveMojoNameCallback& callback) {
+void Instance::ResolveServiceName(const std::string& service_name,
+                                  const ResolveServiceNameCallback& callback) {
   DCHECK(system_cache_);
 
-  std::string type = shell::GetNameType(mojo_name);
-  if (type != shell::kNameType_Service && type != shell::kNameType_Exe) {
-    std::unique_ptr<Entry> entry(new Entry(mojo_name));
-    shell::mojom::ResolveResultPtr result =
-        shell::mojom::ResolveResult::From(*entry);
-    result->capabilities = base::nullopt;
-    callback.Run(std::move(result));
-    return;
-  }
-
   // TODO(beng): per-user catalogs.
-  auto entry = system_cache_->find(mojo_name);
-  if (entry != system_cache_->end()) {
-    callback.Run(shell::mojom::ResolveResult::From(*entry->second));
+  const Entry* entry = system_cache_->GetEntry(service_name);
+  if (entry) {
+    callback.Run(service_manager::mojom::ResolveResult::From(entry),
+                 service_manager::mojom::ResolveResult::From(entry->parent()));
     return;
   }
 
-  // Manifests for mojo: names should always be in the catalog by this point.
-  //DCHECK(type == shell::kNameType_Exe);
-  system_reader_->CreateEntryForName(
-      mojo_name, system_cache_,
-      base::Bind(&Instance::OnReadManifest, weak_factory_.GetWeakPtr(),
-                 mojo_name, callback));
+  system_reader_->CreateEntryForName(service_name, system_cache_, callback);
 }
-
-////////////////////////////////////////////////////////////////////////////////
-// Instance, mojom::Catalog:
 
 void Instance::GetEntries(const base::Optional<std::vector<std::string>>& names,
                           const GetEntriesCallback& callback) {
@@ -97,28 +70,25 @@ void Instance::GetEntries(const base::Optional<std::vector<std::string>>& names,
   std::vector<mojom::EntryPtr> entries;
   if (!names.has_value()) {
     // TODO(beng): user catalog.
-    for (const auto& entry : *system_cache_)
+    for (const auto& entry : system_cache_->entries())
       AddEntry(*entry.second, &entries);
   } else {
     for (const std::string& name : names.value()) {
-      Entry* entry = nullptr;
+      const Entry* entry = system_cache_->GetEntry(name);
       // TODO(beng): user catalog.
-      if (system_cache_->find(name) != system_cache_->end())
-        entry = (*system_cache_)[name].get();
-      else
-        continue;
-      AddEntry(*entry, &entries);
+      if (entry)
+        AddEntry(*entry, &entries);
     }
   }
   callback.Run(std::move(entries));
 }
 
-void Instance::GetEntriesProvidingClass(
-    const std::string& clazz,
-    const GetEntriesProvidingClassCallback& callback) {
+void Instance::GetEntriesProvidingCapability(
+    const std::string& capability,
+    const GetEntriesProvidingCapabilityCallback& callback) {
   std::vector<mojom::EntryPtr> entries;
-  for (const auto& entry : *system_cache_)
-    if (entry.second->ProvidesClass(clazz))
+  for (const auto& entry : system_cache_->entries())
+    if (entry.second->ProvidesCapability(capability))
       entries.push_back(mojom::Entry::From(*entry.second));
   callback.Run(std::move(entries));
 }
@@ -133,47 +103,6 @@ void Instance::GetEntriesSupportingScheme(
     const std::string& scheme,
     const GetEntriesSupportingSchemeCallback& callback) {
   // TODO(beng): implement.
-}
-
-////////////////////////////////////////////////////////////////////////////////
-// Instance, private:
-
-void Instance::DeserializeCatalog() {
-  DCHECK(system_cache_);
-  if (!store_)
-    return;
-  const base::ListValue* catalog = store_->GetStore();
-  CHECK(catalog);
-  // TODO(sky): make this handle aliases.
-  // TODO(beng): implement this properly!
-  for (const auto& v : *catalog) {
-    const base::DictionaryValue* dictionary = nullptr;
-    CHECK(v->GetAsDictionary(&dictionary));
-    std::unique_ptr<Entry> entry = Entry::Deserialize(*dictionary);
-    // TODO(beng): user catalog.
-    if (entry)
-      (*system_cache_)[entry->name()] = std::move(entry);
-  }
-}
-
-void Instance::SerializeCatalog() {
-  DCHECK(system_cache_);
-  std::unique_ptr<base::ListValue> catalog(new base::ListValue);
-  // TODO(beng): user catalog.
-  for (const auto& entry : *system_cache_)
-    catalog->Append(entry.second->Serialize());
-  if (store_)
-    store_->UpdateStore(std::move(catalog));
-}
-
-// static
-void Instance::OnReadManifest(base::WeakPtr<Instance> instance,
-                              const std::string& mojo_name,
-                              const ResolveMojoNameCallback& callback,
-                              shell::mojom::ResolveResultPtr result) {
-  callback.Run(std::move(result));
-  if (instance)
-    instance->SerializeCatalog();
 }
 
 }  // namespace catalog

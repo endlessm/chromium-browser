@@ -29,7 +29,7 @@ class Profile;
 class PortForwardingStatusSerializer;
 
 namespace content {
-struct FileChooserParams;
+class NavigationHandle;
 class WebContents;
 }
 
@@ -43,6 +43,9 @@ class DevToolsUIBindings : public DevToolsEmbedderMessageDispatcher::Delegate,
   static DevToolsUIBindings* ForWebContents(
       content::WebContents* web_contents);
 
+  static GURL SanitizeFrontendURL(const GURL& url);
+  static bool IsValidFrontendURL(const GURL& url);
+
   class Delegate {
    public:
     virtual ~Delegate() {}
@@ -54,6 +57,7 @@ class DevToolsUIBindings : public DevToolsEmbedderMessageDispatcher::Delegate,
     virtual void SetIsDocked(bool is_docked) = 0;
     virtual void OpenInNewTab(const std::string& url) = 0;
     virtual void SetWhitelistedShortcuts(const std::string& message) = 0;
+    virtual void OpenNodeFrontend() = 0;
 
     virtual void InspectedContentsClosing() = 0;
     virtual void OnLoadCompleted() = 0;
@@ -76,7 +80,7 @@ class DevToolsUIBindings : public DevToolsEmbedderMessageDispatcher::Delegate,
                           const base::Value* arg2,
                           const base::Value* arg3);
   void AttachTo(const scoped_refptr<content::DevToolsAgentHost>& agent_host);
-  void Reattach();
+  void Reload();
   void Detach();
   bool IsAttachedTo(content::DevToolsAgentHost* agent_host);
 
@@ -132,6 +136,7 @@ class DevToolsUIBindings : public DevToolsEmbedderMessageDispatcher::Delegate,
                                  const std::string& action) override;
   void OpenRemotePage(const std::string& browser_id,
                       const std::string& url) override;
+  void OpenNodeFrontend() override;
   void DispatchProtocolMessageFromDevToolsFrontend(
       const std::string& message) override;
   void RecordEnumeratedHistogram(const std::string& name,
@@ -145,6 +150,7 @@ class DevToolsUIBindings : public DevToolsEmbedderMessageDispatcher::Delegate,
                      const std::string& value) override;
   void RemovePreference(const std::string& name) override;
   void ClearPreferences() override;
+  void Reattach(const DispatchCallback& callback) override;
   void ReadyForTest() override;
 
   // net::URLFetcherDelegate overrides.
@@ -198,6 +204,7 @@ class DevToolsUIBindings : public DevToolsEmbedderMessageDispatcher::Delegate,
   typedef base::Callback<void(bool)> InfoBarCallback;
   void ShowDevToolsConfirmInfoBar(const base::string16& message,
                                   const InfoBarCallback& callback);
+  void UpdateFrontendHost(content::NavigationHandle* navigation_handle);
 
   // Extensions support.
   void AddDevToolsExtensionsToClient();
@@ -221,7 +228,7 @@ class DevToolsUIBindings : public DevToolsEmbedderMessageDispatcher::Delegate,
 
   bool devices_updates_enabled_;
   bool frontend_loaded_;
-  bool reattaching_;
+  bool reloading_;
   std::unique_ptr<DevToolsTargetsUIHandler> remote_targets_handler_;
   std::unique_ptr<PortForwardingStatusSerializer> port_status_serializer_;
   PrefChangeRegistrar pref_change_registrar_;

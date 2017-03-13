@@ -9,7 +9,7 @@ import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Rect;
 import android.os.SystemClock;
-import android.test.suitebuilder.annotation.SmallTest;
+import android.support.test.filters.SmallTest;
 import android.view.MotionEvent;
 import android.view.View;
 
@@ -80,10 +80,13 @@ public class PopupZoomerTest extends ContentShellTestBase {
         super.setUp();
         mPopupZoomer = createPopupZoomerForTest(getInstrumentation().getTargetContext());
         mContentViewCore = new ContentViewCore(getActivity(), "");
+        ImeAdapter imeAdapter = new ImeAdapter(new TestInputMethodManagerWrapper(mContentViewCore),
+                new TestImeAdapterDelegate(getContentViewCore().getContainerView()));
+        mContentViewCore.setSelectionPopupControllerForTesting(
+                new SelectionPopupController(getActivity(), null, null, null,
+                        mContentViewCore.getRenderCoordinates(), imeAdapter));
         mContentViewCore.setPopupZoomerForTest(mPopupZoomer);
-        mContentViewCore.setImeAdapterForTest(
-                new ImeAdapter(new TestInputMethodManagerWrapper(mContentViewCore),
-                        new TestImeAdapterDelegate(getContentViewCore().getContainerView())));
+        mContentViewCore.setImeAdapterForTest(imeAdapter);
     }
 
     @SmallTest

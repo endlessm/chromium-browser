@@ -6,7 +6,9 @@
 #define NavigatorVR_h
 
 #include "bindings/core/v8/ScriptPromise.h"
-#include "core/frame/DOMWindowProperty.h"
+#include "core/frame/LocalDOMWindow.h"
+#include "core/frame/Navigator.h"
+#include "core/page/PageVisibilityObserver.h"
 #include "modules/ModulesExport.h"
 #include "modules/vr/VRDisplay.h"
 #include "modules/vr/VRDisplayEvent.h"
@@ -24,7 +26,8 @@ class VRController;
 class MODULES_EXPORT NavigatorVR final
     : public GarbageCollectedFinalized<NavigatorVR>,
       public Supplement<Navigator>,
-      public DOMWindowProperty {
+      public PageVisibilityObserver,
+      public LocalDOMWindow::EventListenerObserver {
   USING_GARBAGE_COLLECTED_MIXIN(NavigatorVR);
   WTF_MAKE_NONCOPYABLE(NavigatorVR);
 
@@ -39,7 +42,19 @@ class MODULES_EXPORT NavigatorVR final
   VRController* controller();
   Document* document();
 
-  void fireVREvent(VRDisplayEvent*);
+  // Queues up event to be fired soon.
+  void enqueueVREvent(VRDisplayEvent*);
+
+  // Dispatches a user gesture event immediately.
+  void dispatchVRGestureEvent(VRDisplayEvent*);
+
+  // Inherited from PageVisibilityObserver.
+  void pageVisibilityChanged() override;
+
+  // Inherited from LocalDOMWindow::EventListenerObserver.
+  void didAddEventListener(LocalDOMWindow*, const AtomicString&) override;
+  void didRemoveEventListener(LocalDOMWindow*, const AtomicString&) override;
+  void didRemoveAllEventListeners(LocalDOMWindow*) override;
 
   DECLARE_VIRTUAL_TRACE();
 
@@ -47,13 +62,16 @@ class MODULES_EXPORT NavigatorVR final
   friend class VRDisplay;
   friend class VRGetDevicesCallback;
 
-  explicit NavigatorVR(LocalFrame*);
+  explicit NavigatorVR(Navigator&);
 
   static const char* supplementName();
 
   void fireVRDisplayPresentChange(VRDisplay*);
 
   Member<VRController> m_controller;
+
+  // Whether this page is listening for vrdisplayactivate event.
+  bool m_listeningForActivate = false;
 };
 
 }  // namespace blink

@@ -3,15 +3,13 @@
 # found in the LICENSE file.
 
 import("//build/config/ui.gni")
-import("//services/shell/public/service_manifest.gni")
+import("//services/service_manager/public/service_manifest.gni")
 import("//testing/test.gni")
 
 source_set("mus_common") {
   sources = [
-    "event_matcher_util.cc",
-    "event_matcher_util.h",
-    "generic_shared_memory_id_generator.cc",
-    "generic_shared_memory_id_generator.h",
+    "accelerator_util.cc",
+    "accelerator_util.h",
     "switches.cc",
     "switches.h",
     "transient_window_utils.h",
@@ -25,7 +23,7 @@ source_set("mus_common") {
     "//gpu/ipc/client",
     "//gpu/ipc/common:command_buffer_traits",
     "//ipc:ipc",
-    "//services/shell/public/cpp",
+    "//services/service_manager/public/cpp",
     "//ui/events:events",
     "//ui/gfx/ipc/geometry",
   ]
@@ -38,20 +36,56 @@ source_set("mus_common") {
   ]
 }
 
-source_set("run_all_shelltests") {
+# GPU related code used by the server-side components (e.g. window server
+# process, display compositor in the gpu process).
+source_set("server_gpu") {
+  sources = [
+    "server_gpu_memory_buffer_manager.cc",
+    "server_gpu_memory_buffer_manager.h",
+  ]
+
+  deps = [
+    "//gpu/ipc/client",
+  ]
+
+  public_deps = [
+    "//gpu/command_buffer/client",
+    "//gpu/ipc/common",
+    "//gpu/ipc/host",
+    "//services/ui/gpu/interfaces",
+    "//ui/gfx",
+  ]
+}
+
+source_set("run_all_service_tests") {
   testonly = true
 
   sources = [
-    "run_all_shelltests.cc",
+    "run_all_service_tests.cc",
   ]
 
   deps = [
     "//base/test:test_support",
     "//mojo/edk/system",
-    "//services/shell/background:main",
+    "//services/service_manager/background:main",
   ]
 
   if (use_ozone) {
     deps += [ "//ui/ozone" ]
   }
+}
+
+source_set("task_runner_test_base") {
+  testonly = true
+
+  sources = [
+    "task_runner_test_base.cc",
+    "task_runner_test_base.h",
+  ]
+
+  deps = [
+    "//base",
+    "//base/test:test_support",
+    "//testing/gtest",
+  ]
 }

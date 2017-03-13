@@ -30,9 +30,6 @@
 
 #include "platform/image-decoders/bmp/BMPImageReader.h"
 
-#include "platform/Histogram.h"
-#include "wtf/Threading.h"
-
 namespace {
 
 // See comments on m_lookupTableAddresses in the header.
@@ -120,10 +117,11 @@ bool BMPImageReader::decodeBMP(bool onlySize) {
   // Initialize the framebuffer if needed.
   ASSERT(m_buffer);  // Parent should set this before asking us to decode!
   if (m_buffer->getStatus() == ImageFrame::FrameEmpty) {
-    if (!m_buffer->setSizeAndColorProfile(m_parent->size().width(),
-                                          m_parent->size().height(),
-                                          ImageFrame::ICCProfile()))
+    if (!m_buffer->setSizeAndColorSpace(m_parent->size().width(),
+                                        m_parent->size().height(),
+                                        m_parent->colorSpaceForSkImages())) {
       return m_parent->setFailed();  // Unable to allocate.
+    }
     m_buffer->setStatus(ImageFrame::FramePartial);
     // setSize() calls eraseARGB(), which resets the alpha flag, so we force
     // it back to false here.  We'll set it true below in all cases where
@@ -219,12 +217,6 @@ bool BMPImageReader::processInfoHeader() {
       !readInfoHeader())
     return false;
   m_decodedOffset += m_infoHeader.biSize;
-
-  DEFINE_THREAD_SAFE_STATIC_LOCAL(
-      blink::CustomCountHistogram, dimensionsLocationHistogram,
-      new blink::CustomCountHistogram(
-          "Blink.DecodedImage.EffectiveDimensionsLocation.BMP", 0, 50000, 50));
-  dimensionsLocationHistogram.count(m_decodedOffset - 1);
 
   // Sanity-check header values.
   if (!isInfoHeaderValid())

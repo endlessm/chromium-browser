@@ -11,8 +11,12 @@
 
 #include "build/build_config.h"
 #include "content/common/content_export.h"
+#include "content/common/drag_event_source_info.h"
+#include "content/public/browser/renderer_unresponsive_type.h"
+#include "content/public/common/drop_data.h"
 #include "third_party/WebKit/public/platform/WebDisplayMode.h"
-#include "third_party/WebKit/public/web/WebInputEvent.h"
+#include "third_party/WebKit/public/platform/WebDragOperation.h"
+#include "third_party/WebKit/public/platform/WebInputEvent.h"
 #include "ui/gfx/native_widget_types.h"
 
 namespace blink {
@@ -22,8 +26,11 @@ class WebGestureEvent;
 
 namespace gfx {
 class Point;
-class Rect;
 class Size;
+}
+
+namespace rappor {
+class Sample;
 }
 
 namespace content {
@@ -31,7 +38,9 @@ namespace content {
 class BrowserAccessibilityManager;
 class RenderWidgetHostImpl;
 class RenderWidgetHostInputEventRouter;
+class RenderViewHostDelegateView;
 class TextInputManager;
+class WebContents;
 struct ScreenInfo;
 struct NativeWebKeyboardEvent;
 
@@ -140,20 +149,6 @@ class CONTENT_EXPORT RenderWidgetHostDelegate {
   virtual RenderWidgetHostImpl* GetFocusedRenderWidgetHost(
       RenderWidgetHostImpl* receiving_widget);
 
-  // Used in histograms to differentiate between the different types of
-  // renderer hang reported by RenderWidgetHostDelegate::RendererUnresponsive.
-  // Only add values at the end, do not delete values.
-  enum RendererUnresponsiveType {
-    RENDERER_UNRESPONSIVE_UNKNOWN = 0,
-    RENDERER_UNRESPONSIVE_IN_FLIGHT_EVENTS = 1,
-    RENDERER_UNRESPONSIVE_DIALOG_CLOSED = 2,
-    RENDERER_UNRESPONSIVE_DIALOG_SUPPRESSED = 3,
-    RENDERER_UNRESPONSIVE_BEFORE_UNLOAD = 4,
-    RENDERER_UNRESPONSIVE_UNLOAD = 5,
-    RENDERER_UNRESPONSIVE_CLOSE_PAGE = 6,
-    RENDERER_UNRESPONSIVE_MAX = RENDERER_UNRESPONSIVE_CLOSE_PAGE,
-  };
-
   // Notification that the renderer has become unresponsive. The
   // delegate can use this notification to show a warning to the user.
   virtual void RendererUnresponsive(RenderWidgetHostImpl* render_widget_host,
@@ -173,11 +168,6 @@ class CONTENT_EXPORT RenderWidgetHostDelegate {
                                   bool last_unlocked_by_target,
                                   bool privileged) {}
 
-  // Return the rect where to display the resize corner, if any, otherwise
-  // an empty rect.
-  virtual gfx::Rect GetRootWindowResizerRect(
-      RenderWidgetHostImpl* render_widget_host) const;
-
   // Returns whether the associated tab is in fullscreen mode.
   virtual bool IsFullscreenForCurrentTab() const;
 
@@ -193,11 +183,6 @@ class CONTENT_EXPORT RenderWidgetHostDelegate {
 
   // Returns true if |render_widget_host| holds the mouse lock.
   virtual bool HasMouseLock(RenderWidgetHostImpl* render_widget_host);
-
-  // Called when the widget has sent a compositor proto.  This is used in Btlimp
-  // mode with the RemoteChannel compositor.
-  virtual void ForwardCompositorProto(RenderWidgetHostImpl* render_widget_host,
-                                      const std::vector<uint8_t>& proto) {}
 
   // Called when the visibility of the RenderFrameProxyHost in outer
   // WebContents changes. This method is only called on an inner WebContents and
@@ -222,10 +207,47 @@ class CONTENT_EXPORT RenderWidgetHostDelegate {
   // this RenderWidgetHost.
   virtual bool IsHidden();
 
+  // Returns the associated RenderViewHostDelegateView*, if possible.
+  virtual RenderViewHostDelegateView* GetDelegateView();
+
   // Returns the current Flash fullscreen RenderWidgetHostImpl if any. This is
   // not intended for use with other types of fullscreen, such as HTML
   // fullscreen, and will return nullptr for those cases.
   virtual RenderWidgetHostImpl* GetFullscreenRenderWidgetHost() const;
+
+  // Allow the delegate to handle the cursor update. Returns true if handled.
+  virtual bool OnUpdateDragCursor();
+
+  // Inner WebContents Helpers -------------------------------------------------
+  //
+  // These functions are helpers in managing a hierharchy of WebContents
+  // involved in rendering inner WebContents.
+
+  // Get the RenderWidgetHost that should receive page level focus events. This
+  // will be the widget that is rendering the main frame of the currently
+  // focused WebContents.
+  virtual RenderWidgetHostImpl* GetRenderWidgetHostWithPageFocus();
+
+  // In cases with multiple RenderWidgetHosts involved in rendering a page, only
+  // one widget should be focused and active. This ensures that
+  // |render_widget_host| is focused and that its owning WebContents is also
+  // the focused WebContents.
+  virtual void FocusOwningWebContents(
+      RenderWidgetHostImpl* render_widget_host) {}
+
+  // Augment a Rappor sample with eTLD+1 context. The caller is still
+  // responsible for logging the sample to the RapporService. Returns false
+  // if the eTLD+1 is not known for |render_widget_host|.
+  virtual bool AddDomainInfoToRapporSample(rappor::Sample* sample);
+
+  // Notifies the delegate that a focused editable element has been touched
+  // inside this RenderWidgetHost. If |editable| is true then the focused
+  // element accepts text input.
+  virtual void FocusedNodeTouched(bool editable) {}
+
+  // Return this object cast to a WebContents, if it is one. If the object is
+  // not a WebContents, returns nullptr.
+  virtual WebContents* GetAsWebContents();
 
  protected:
   virtual ~RenderWidgetHostDelegate() {}

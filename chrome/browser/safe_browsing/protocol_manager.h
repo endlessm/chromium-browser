@@ -31,6 +31,7 @@
 #include "chrome/browser/safe_browsing/protocol_manager_helper.h"
 #include "chrome/browser/safe_browsing/protocol_parser.h"
 #include "chrome/browser/safe_browsing/safe_browsing_util.h"
+#include "components/safe_browsing_db/safe_browsing_prefs.h"
 #include "components/safe_browsing_db/safebrowsing.pb.h"
 #include "components/safe_browsing_db/util.h"
 #include "net/url_request/url_fetcher_delegate.h"
@@ -87,7 +88,7 @@ class SafeBrowsingProtocolManager : public net::URLFetcherDelegate {
   virtual void GetFullHash(const std::vector<SBPrefix>& prefixes,
                            FullHashCallback callback,
                            bool is_download,
-                           bool is_extended_reporting);
+                           ExtendedReportingLevel reporting_level);
 
   // Forces the start of next update after |interval| time.
   void ForceScheduleNextUpdate(base::TimeDelta interval);
@@ -101,7 +102,7 @@ class SafeBrowsingProtocolManager : public net::URLFetcherDelegate {
   // should try again later to open the database.
   void OnGetChunksComplete(const std::vector<SBListChunkRanges>& list,
                            bool database_error,
-                           bool is_extended_reporting);
+                           ExtendedReportingLevel reporting_level);
 
   // The last time we received an update.
   base::Time last_update() const { return last_update_; }
@@ -173,6 +174,8 @@ class SafeBrowsingProtocolManager : public net::URLFetcherDelegate {
   // Returns whether another update is currently scheduled.
   bool IsUpdateScheduled() const;
 
+  static base::TimeDelta GetUpdateTimeoutForTesting();
+
  protected:
   // Constructs a SafeBrowsingProtocolManager for |delegate| that issues
   // network requests using |request_context_getter|.
@@ -211,15 +214,14 @@ class SafeBrowsingProtocolManager : public net::URLFetcherDelegate {
   };
 
   // Generates Update URL for querying about the latest set of chunk updates.
-  GURL UpdateUrl(bool is_extended_reporting) const;
+  GURL UpdateUrl(ExtendedReportingLevel reporting_level) const;
 
   // Generates backup Update URL for querying about the latest set of chunk
   // updates. |url_prefix| is the base prefix to use.
   GURL BackupUpdateUrl(BackupUpdateReason reason) const;
 
   // Generates GetHash request URL for retrieving full hashes.
-  GURL GetHashUrl(bool is_extended_reporting) const;
-  // Generates URL for reporting safe browsing hits for UMA users.
+  GURL GetHashUrl(ExtendedReportingLevel reporting_level) const;
 
   // Composes a ChunkUrl based on input string.
   GURL NextChunkUrl(const std::string& input) const;
@@ -280,7 +282,6 @@ class SafeBrowsingProtocolManager : public net::URLFetcherDelegate {
   // Called after the chunks are added to the database.
   void OnAddChunksComplete();
 
- private:
   // Map of GetHash requests to parameters which created it.
   struct FullHashDetails {
     FullHashDetails();
@@ -410,7 +411,7 @@ class SafeBrowsingProtocolManagerDelegate {
   using GetChunksCallback = base::Callback<void(
       const std::vector<SBListChunkRanges>&, /* List of chunks */
       bool,                                  /* database_error */
-      bool                                   /* is_extended_reporting */)>;
+      ExtendedReportingLevel                 /* reporting_level */)>;
   using AddChunksCallback = base::Closure;
 
   virtual ~SafeBrowsingProtocolManagerDelegate();

@@ -19,7 +19,7 @@ without changes to the corresponding grd file. -->
       <!-- Roboto Font. Roboto-Regular and Roboto-Light is already available on
            Android, and Roboto-Medium is not used on Android. All 6 weights of
            Roboto are available on Chrome OS.-->
-      <if expr="not android and not chromeos">
+      <if expr="not is_android and not chromeos">
         <include name="IDR_WEBUI_ROBOTO_ROBOTO_REGULAR_WOFF2" file="roboto/roboto-regular.woff2" type="BINDATA" />
         <include name="IDR_WEBUI_ROBOTO_ROBOTO_MEDIUM_WOFF2" file="roboto/roboto-medium.woff2" type="BINDATA" />
         <include name="IDR_WEBUI_ROBOTO_ROBOTO_BOLD_WOFF2" file="roboto/roboto-bold.woff2" type="BINDATA" />
@@ -197,8 +197,8 @@ without changes to the corresponding grd file. -->
       <include name="IDR_WEBUI_IMAGES_TRASH"
                file="images/trash.png" type="BINDATA" />
 
-      <if expr="chromeos">
-        <part file="cr_elements_images_chromeos.grdp" />
+      <if expr="not is_android">
+        <part file="cr_elements_images.grdp" />
       </if>
     </includes>
     <structures>
@@ -277,6 +277,8 @@ without changes to the corresponding grd file. -->
                  file="html/cr/ui.html" type="chrome_html" />
       <structure name="IDR_WEBUI_HTML_CR_UI_ALERT_OVERLAY"
                  file="html/cr/ui/alert_overlay.html" type="chrome_html" />
+      <structure name="IDR_WEBUI_HTML_CR_UI_ARRAY_DATA_MODEL"
+                 file="html/cr/ui/array_data_model.html" type="chrome_html" />
       <structure name="IDR_WEBUI_HTML_CR_UI_COMMAND"
                  file="html/cr/ui/command.html" type="chrome_html" />
       <structure name="IDR_WEBUI_HTML_CR_UI_CONTEXT_MENU_BUTTON"
@@ -296,6 +298,18 @@ without changes to the corresponding grd file. -->
                  type="chrome_html" />
       <structure name="IDR_WEBUI_HTML_CR_UI_FOCUS_ROW"
                  file="html/cr/ui/focus_row.html" type="chrome_html" />
+      <structure name="IDR_WEBUI_HTML_CR_UI_LIST"
+                 file="html/cr/ui/list.html"
+                 type="chrome_html" />
+      <structure name="IDR_WEBUI_HTML_CR_UI_LIST_ITEM"
+                 file="html/cr/ui/list_item.html"
+                 type="chrome_html" />
+      <structure name="IDR_WEBUI_HTML_CR_UI_LIST_SELECTION_CONTROLLER"
+                 file="html/cr/ui/list_selection_controller.html"
+                 type="chrome_html" />
+      <structure name="IDR_WEBUI_HTML_CR_UI_LIST_SELECTION_MODEL"
+                 file="html/cr/ui/list_selection_model.html"
+                 type="chrome_html" />
       <structure name="IDR_WEBUI_HTML_CR_UI_MENU"
                  file="html/cr/ui/menu.html" type="chrome_html" />
       <structure name="IDR_WEBUI_HTML_CR_UI_MENU_BUTTON"
@@ -304,6 +318,12 @@ without changes to the corresponding grd file. -->
                  file="html/cr/ui/menu_item.html" type="chrome_html" />
       <structure name="IDR_WEBUI_HTML_CR_UI_OVERLAY"
                  file="html/cr/ui/overlay.html" type="chrome_html" />
+      <structure name="IDR_WEBUI_HTML_CR_UI_PAGE_MANAGER_PAGE"
+                 file="html/cr/ui/page_manager/page.html" type="chrome_html"
+                 flattenhtml="true" />
+      <structure name="IDR_WEBUI_HTML_CR_UI_PAGE_MANAGER_PAGE_MANAGER"
+                 file="html/cr/ui/page_manager/page_manager.html"
+                 type="chrome_html" />
       <structure name="IDR_WEBUI_HTML_CR_UI_POSITION_UTIL"
                  file="html/cr/ui/position_util.html" type="chrome_html" />
       <structure name="IDR_WEBUI_HTML_EVENT_TRACKER"
@@ -312,6 +332,9 @@ without changes to the corresponding grd file. -->
                  file="html/icon.html" type="chrome_html" />
       <structure name="IDR_WEBUI_HTML_I18N_TEMPLATE"
                  file="html/i18n_template.html" type="chrome_html" />
+      <structure name="IDR_WEBUI_HTML_MD_SELECT_CSS_HTML"
+                 file="html/md_select_css.html" type="chrome_html"
+                 flattenhtml="true" />
       <structure name="IDR_WEBUI_HTML_LOAD_TIME_DATA"
                  file="html/load_time_data.html" type="chrome_html" />
       <structure name="IDR_WEBUI_HTML_PARSE_HTML_SUBSET"
@@ -468,8 +491,8 @@ without changes to the corresponding grd file. -->
                    file="js/chromeos/ui_account_tweaks.js"
                    type="chrome_html" />
       </if>
-      <part file="cr_elements_resources.grdp" />
       <if expr="not is_android">
+        <part file="cr_elements_resources.grdp" />
         <part file="polymer_resources.grdp" />
       </if>
     </structures>

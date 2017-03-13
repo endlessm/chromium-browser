@@ -5,7 +5,8 @@
 #include "ui/views/bubble/bubble_dialog_delegate.h"
 
 #include "build/build_config.h"
-#include "ui/accessibility/ax_view_state.h"
+#include "ui/accessibility/ax_node_data.h"
+#include "ui/base/default_style.h"
 #include "ui/base/material_design/material_design_controller.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/color_utils.h"
@@ -14,6 +15,8 @@
 #include "ui/views/bubble/bubble_frame_view.h"
 #include "ui/views/focus/view_storage.h"
 #include "ui/views/layout/layout_constants.h"
+#include "ui/views/style/platform_style.h"
+#include "ui/views/views_delegate.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_observer.h"
 #include "ui/views/window/dialog_client_view.h"
@@ -101,9 +104,7 @@ ClientView* BubbleDialogDelegateView::CreateClientView(Widget* widget) {
 
 NonClientFrameView* BubbleDialogDelegateView::CreateNonClientFrameView(
     Widget* widget) {
-  BubbleFrameView* frame = new BubbleFrameView(
-      gfx::Insets(kPanelVertMargin, kPanelHorizMargin, 0, kPanelHorizMargin),
-      margins());
+  BubbleFrameView* frame = new BubbleFrameView(title_margins_, margins_);
   // Note: In CreateBubble, the call to SizeToContents() will cause
   // the relayout that this call requires.
   frame->SetTitleFontList(GetTitleFontList());
@@ -208,17 +209,19 @@ BubbleDialogDelegateView::BubbleDialogDelegateView(View* anchor_view,
       anchor_view_storage_id_(ViewStorage::GetInstance()->CreateStorageID()),
       anchor_widget_(NULL),
       arrow_(arrow),
-      mirror_arrow_in_rtl_(true),
+      mirror_arrow_in_rtl_(PlatformStyle::kMirrorBubbleArrowInRTLByDefault),
       shadow_(BubbleBorder::SMALL_SHADOW),
       color_explicitly_set_(false),
-      margins_(kPanelVertMargin,
-               kPanelHorizMargin,
-               kPanelVertMargin,
-               kPanelHorizMargin),
       accept_events_(true),
-      border_accepts_events_(true),
       adjust_if_offscreen_(true),
       parent_window_(NULL) {
+  ViewsDelegate* views_delegate = ViewsDelegate::GetInstance();
+  margins_ = views_delegate ? views_delegate->GetBubbleDialogMargins()
+                            : gfx::Insets(kPanelVertMargin, kPanelHorizMargin);
+  title_margins_ = views_delegate
+                       ? views_delegate->GetDialogFrameViewInsets()
+                       : gfx::Insets(kPanelVertMargin, kPanelHorizMargin, 0,
+                                     kPanelHorizMargin);
   if (anchor_view)
     SetAnchorView(anchor_view);
   UpdateColorsFromTheme(GetNativeTheme());
@@ -235,6 +238,8 @@ gfx::Rect BubbleDialogDelegateView::GetBubbleBounds() {
 
 const gfx::FontList& BubbleDialogDelegateView::GetTitleFontList() const {
   ui::ResourceBundle& rb = ui::ResourceBundle::GetSharedInstance();
+  if (ui::MaterialDesignController::IsSecondaryUiMaterial())
+    return rb.GetFontListWithDelta(ui::kTitleFontSizeDelta);
   return rb.GetFontList(ui::ResourceBundle::MediumFont);
 }
 
@@ -295,14 +300,15 @@ void BubbleDialogDelegateView::UpdateColorsFromTheme(
     const ui::NativeTheme* theme) {
   if (!color_explicitly_set_)
     color_ = theme->GetSystemColor(ui::NativeTheme::kColorId_BubbleBackground);
-  // The background color is handled by the BubbleFrameView, so it shouldn't be
-  // necessary to set the color on |this|. I am cowardly leaving it in place for
-  // pre-MD bubbles in case this is necessary for some reason.
-  if (!ui::MaterialDesignController::IsSecondaryUiMaterial())
-    set_background(Background::CreateSolidBackground(color()));
   BubbleFrameView* frame_view = GetBubbleFrameView();
   if (frame_view)
     frame_view->bubble_border()->set_background_color(color());
+
+  // When there's an opaque layer, the bubble border background won't show
+  // through, so explicitly paint a background color.
+  set_background(layer() && layer()->fills_bounds_opaquely()
+                     ? Background::CreateSolidBackground(color())
+                     : nullptr);
 }
 
 void BubbleDialogDelegateView::HandleVisibilityChanged(Widget* widget,
@@ -317,9 +323,9 @@ void BubbleDialogDelegateView::HandleVisibilityChanged(Widget* widget,
   // than just its title and initially focused view.  See
   // http://crbug.com/474622 for details.
   if (widget == GetWidget() && visible) {
-    ui::AXViewState state;
-    GetAccessibleState(&state);
-    if (state.role == ui::AX_ROLE_ALERT_DIALOG)
+    ui::AXNodeData node_data;
+    GetAccessibleNodeData(&node_data);
+    if (node_data.role == ui::AX_ROLE_ALERT_DIALOG)
       NotifyAccessibilityEvent(ui::AX_EVENT_ALERT, true);
   }
 }

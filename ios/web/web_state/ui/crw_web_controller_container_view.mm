@@ -4,9 +4,9 @@
 
 #import "ios/web/web_state/ui/crw_web_controller_container_view.h"
 
-#include "base/ios/weak_nsobject.h"
+#import "base/ios/weak_nsobject.h"
 #include "base/logging.h"
-#include "base/mac/scoped_nsobject.h"
+#import "base/mac/scoped_nsobject.h"
 #import "ios/web/public/web_state/ui/crw_content_view.h"
 #import "ios/web/public/web_state/ui/crw_native_content.h"
 #import "ios/web/public/web_state/ui/crw_web_view_content_view.h"
@@ -172,6 +172,9 @@
 - (void)setNativeController:(id<CRWNativeContent>)nativeController {
   if (![_nativeController isEqual:nativeController]) {
     base::WeakNSProtocol<id> oldController(_nativeController);
+    if ([oldController respondsToSelector:@selector(willBeDismissed)]) {
+      [oldController willBeDismissed];
+    }
     [[oldController view] removeFromSuperview];
     _nativeController.reset([nativeController retain]);
     // TODO(crbug.com/503297): Re-enable this DCHECK once native controller
@@ -210,6 +213,14 @@
   CGFloat headerHeight = [_delegate headerHeightForContainerView:self];
   return UIEdgeInsetsInsetRect(self.bounds,
                                UIEdgeInsetsMake(headerHeight, 0, 0, 0));
+}
+
+- (id<CRWWebControllerContainerViewDelegate>)delegate {
+  return _delegate.get();
+}
+
+- (void)setDelegate:(id<CRWWebControllerContainerViewDelegate>)delegate {
+  _delegate.reset(delegate);
 }
 
 #pragma mark Layout

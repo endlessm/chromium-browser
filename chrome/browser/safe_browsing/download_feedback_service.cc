@@ -8,7 +8,7 @@
 
 #include "base/bind.h"
 #include "base/files/file_path.h"
-#include "base/files/file_util_proxy.h"
+#include "base/files/file_util.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/supports_user_data.h"
 #include "base/task_runner.h"
@@ -140,11 +140,10 @@ void DownloadFeedbackService::RecordEligibleDownloadShown(
                             content::DOWNLOAD_DANGER_TYPE_MAX);
 }
 
-
 void DownloadFeedbackService::BeginFeedbackForDownload(
-    content::DownloadItem* download) {
+    content::DownloadItem* download,
+    DownloadCommands::Command download_command) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-
   UMA_HISTOGRAM_ENUMERATION("SBDownloadFeedback.Activations",
                             download->GetDangerType(),
                             content::DOWNLOAD_DANGER_TYPE_MAX);
@@ -153,11 +152,12 @@ void DownloadFeedbackService::BeginFeedbackForDownload(
   DCHECK(pings);
 
   download->StealDangerousDownload(
+      download_command == DownloadCommands::DISCARD,
       base::Bind(&DownloadFeedbackService::BeginFeedbackOrDeleteFile,
-                 file_task_runner_,
-                 weak_ptr_factory_.GetWeakPtr(),
-                 pings->ping_request(),
-                 pings->ping_response()));
+                 file_task_runner_, weak_ptr_factory_.GetWeakPtr(),
+                 pings->ping_request(), pings->ping_response()));
+  if (download_command == DownloadCommands::KEEP)
+    DownloadCommands(download).ExecuteCommand(download_command);
 }
 
 // static
@@ -168,12 +168,16 @@ void DownloadFeedbackService::BeginFeedbackOrDeleteFile(
     const std::string& ping_response,
     const base::FilePath& path) {
   if (service) {
+    bool is_path_empty = path.empty();
+    UMA_HISTOGRAM_BOOLEAN("SBDownloadFeedback.EmptyFilePathFailure",
+                          is_path_empty);
+    if (is_path_empty)
+      return;
     service->BeginFeedback(ping_request, ping_response, path);
   } else {
-    base::FileUtilProxy::DeleteFile(file_task_runner.get(),
-                                    path,
-                                    false,
-                                    base::FileUtilProxy::StatusCallback());
+    file_task_runner->PostTask(
+        FROM_HERE,
+        base::Bind(base::IgnoreResult(&base::DeleteFile), path, false));
   }
 }
 
@@ -183,10 +187,9 @@ void DownloadFeedbackService::StartPendingFeedback() {
       &DownloadFeedbackService::FeedbackComplete, base::Unretained(this)));
 }
 
-void DownloadFeedbackService::BeginFeedback(
-    const std::string& ping_request,
-    const std::string& ping_response,
-    const base::FilePath& path) {
+void DownloadFeedbackService::BeginFeedback(const std::string& ping_request,
+                                            const std::string& ping_response,
+                                            const base::FilePath& path) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   std::unique_ptr<DownloadFeedback> feedback(DownloadFeedback::Create(
       request_context_getter_.get(), file_task_runner_.get(), path,

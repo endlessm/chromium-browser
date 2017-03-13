@@ -49,7 +49,8 @@ class MockWebSocketChannel : public WebSocketChannel {
   MOCK_METHOD2(connect, bool(const KURL&, const String&));
   MOCK_METHOD1(send, void(const CString&));
   MOCK_METHOD3(send, void(const DOMArrayBuffer&, unsigned, unsigned));
-  MOCK_METHOD1(send, void(PassRefPtr<BlobDataHandle>));
+  MOCK_METHOD1(sendMock, void(BlobDataHandle*));
+  void send(PassRefPtr<BlobDataHandle> handle) { sendMock(handle.get()); }
   MOCK_METHOD1(sendTextAsCharVectorMock, void(Vector<char>*));
   void sendTextAsCharVector(std::unique_ptr<Vector<char>> vector) {
     sendTextAsCharVectorMock(vector.get());
@@ -188,7 +189,7 @@ TEST(DOMWebSocketTest, invalidSubprotocols) {
   V8TestingScope scope;
   DOMWebSocketTestScope webSocketScope(scope.getExecutionContext());
   Vector<String> subprotocols;
-  subprotocols.append("@subprotocol-|'\"x\x01\x02\x03x");
+  subprotocols.push_back("@subprotocol-|'\"x\x01\x02\x03x");
 
   webSocketScope.socket().connect("ws://example.com/", subprotocols,
                                   scope.getExceptionState());
@@ -245,8 +246,8 @@ TEST(DOMWebSocketTest, channelConnectSuccess) {
   V8TestingScope scope;
   DOMWebSocketTestScope webSocketScope(scope.getExecutionContext());
   Vector<String> subprotocols;
-  subprotocols.append("aa");
-  subprotocols.append("bb");
+  subprotocols.push_back("aa");
+  subprotocols.push_back("bb");
 
   {
     InSequence s;
@@ -270,8 +271,8 @@ TEST(DOMWebSocketTest, channelConnectFail) {
   V8TestingScope scope;
   DOMWebSocketTestScope webSocketScope(scope.getExecutionContext());
   Vector<String> subprotocols;
-  subprotocols.append("aa");
-  subprotocols.append("bb");
+  subprotocols.push_back("aa");
+  subprotocols.push_back("bb");
 
   {
     InSequence s;
@@ -324,8 +325,8 @@ TEST(DOMWebSocketTest, connectSuccess) {
   V8TestingScope scope;
   DOMWebSocketTestScope webSocketScope(scope.getExecutionContext());
   Vector<String> subprotocols;
-  subprotocols.append("aa");
-  subprotocols.append("bb");
+  subprotocols.push_back("aa");
+  subprotocols.push_back("bb");
   {
     InSequence s;
     EXPECT_CALL(webSocketScope.channel(),

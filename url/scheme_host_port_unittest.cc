@@ -12,6 +12,28 @@
 
 namespace {
 
+void ExpectParsedUrlsEqual(const GURL& a, const GURL& b) {
+  EXPECT_EQ(a, b);
+  const url::Parsed& a_parsed = a.parsed_for_possibly_invalid_spec();
+  const url::Parsed& b_parsed = b.parsed_for_possibly_invalid_spec();
+  EXPECT_EQ(a_parsed.scheme.begin, b_parsed.scheme.begin);
+  EXPECT_EQ(a_parsed.scheme.len, b_parsed.scheme.len);
+  EXPECT_EQ(a_parsed.username.begin, b_parsed.username.begin);
+  EXPECT_EQ(a_parsed.username.len, b_parsed.username.len);
+  EXPECT_EQ(a_parsed.password.begin, b_parsed.password.begin);
+  EXPECT_EQ(a_parsed.password.len, b_parsed.password.len);
+  EXPECT_EQ(a_parsed.host.begin, b_parsed.host.begin);
+  EXPECT_EQ(a_parsed.host.len, b_parsed.host.len);
+  EXPECT_EQ(a_parsed.port.begin, b_parsed.port.begin);
+  EXPECT_EQ(a_parsed.port.len, b_parsed.port.len);
+  EXPECT_EQ(a_parsed.path.begin, b_parsed.path.begin);
+  EXPECT_EQ(a_parsed.path.len, b_parsed.path.len);
+  EXPECT_EQ(a_parsed.query.begin, b_parsed.query.begin);
+  EXPECT_EQ(a_parsed.query.len, b_parsed.query.len);
+  EXPECT_EQ(a_parsed.ref.begin, b_parsed.ref.begin);
+  EXPECT_EQ(a_parsed.ref.len, b_parsed.ref.len);
+}
+
 TEST(SchemeHostPortTest, Invalid) {
   url::SchemeHostPort invalid;
   EXPECT_EQ("", invalid.scheme());
@@ -20,11 +42,19 @@ TEST(SchemeHostPortTest, Invalid) {
   EXPECT_TRUE(invalid.IsInvalid());
   EXPECT_TRUE(invalid.Equals(invalid));
 
-  const char* urls[] = {"data:text/html,Hello!",
-                        "javascript:alert(1)",
-                        "file://example.com:443/etc/passwd",
-                        "blob:https://example.com/uuid-goes-here",
-                        "filesystem:https://example.com/temporary/yay.png"};
+  const char* urls[] = {
+      "data:text/html,Hello!", "javascript:alert(1)",
+      "file://example.com:443/etc/passwd",
+
+      // These schemes do not follow the generic URL syntax, so make sure we
+      // treat them as invalid (scheme, host, port) tuples (even though such
+      // URLs' _Origin_ might have a (scheme, host, port) tuple, they themselves
+      // do not). This is only *implicitly* checked in the code, by means of
+      // blob schemes not being standard, and filesystem schemes having type
+      // SCHEME_WITHOUT_AUTHORITY. If conditions change such that the implicit
+      // checks no longer hold, this policy should be made explicit.
+      "blob:https://example.com/uuid-goes-here",
+      "filesystem:https://example.com/temporary/yay.png"};
 
   for (auto* test : urls) {
     SCOPED_TRACE(test);
@@ -37,6 +67,7 @@ TEST(SchemeHostPortTest, Invalid) {
     EXPECT_TRUE(tuple.Equals(tuple));
     EXPECT_TRUE(tuple.Equals(invalid));
     EXPECT_TRUE(invalid.Equals(tuple));
+    ExpectParsedUrlsEqual(GURL(tuple.Serialize()), tuple.GetURL());
   }
 }
 
@@ -63,6 +94,7 @@ TEST(SchemeHostPortTest, ExplicitConstruction) {
     EXPECT_EQ(test.port, tuple.port());
     EXPECT_FALSE(tuple.IsInvalid());
     EXPECT_TRUE(tuple.Equals(tuple));
+    ExpectParsedUrlsEqual(GURL(tuple.Serialize()), tuple.GetURL());
   }
 }
 
@@ -98,6 +130,7 @@ TEST(SchemeHostPortTest, InvalidConstruction) {
     EXPECT_EQ(0, tuple.port());
     EXPECT_TRUE(tuple.IsInvalid());
     EXPECT_TRUE(tuple.Equals(tuple));
+    ExpectParsedUrlsEqual(GURL(tuple.Serialize()), tuple.GetURL());
   }
 }
 
@@ -125,6 +158,7 @@ TEST(SchemeHostPortTest, InvalidConstructionWithEmbeddedNulls) {
     EXPECT_EQ("", tuple.host());
     EXPECT_EQ(0, tuple.port());
     EXPECT_TRUE(tuple.IsInvalid());
+    ExpectParsedUrlsEqual(GURL(tuple.Serialize()), tuple.GetURL());
   }
 }
 
@@ -160,6 +194,7 @@ TEST(SchemeHostPortTest, GURLConstruction) {
     EXPECT_EQ(test.port, tuple.port());
     EXPECT_FALSE(tuple.IsInvalid());
     EXPECT_TRUE(tuple.Equals(tuple));
+    ExpectParsedUrlsEqual(GURL(tuple.Serialize()), tuple.GetURL());
   }
 }
 
@@ -184,6 +219,7 @@ TEST(SchemeHostPortTest, Serialization) {
     GURL url(test.url);
     url::SchemeHostPort tuple(url);
     EXPECT_EQ(test.expected, tuple.Serialize());
+    ExpectParsedUrlsEqual(GURL(tuple.Serialize()), tuple.GetURL());
   }
 }
 

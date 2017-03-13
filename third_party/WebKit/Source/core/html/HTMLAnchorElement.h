@@ -93,15 +93,14 @@ class CORE_EXPORT HTMLAnchorElement : public HTMLElement, public DOMURLUtils {
  protected:
   HTMLAnchorElement(const QualifiedName&, Document&);
 
-  void parseAttribute(const QualifiedName&,
-                      const AtomicString&,
-                      const AtomicString&) override;
+  void parseAttribute(const AttributeModificationParams&) override;
   bool supportsFocus() const override;
   bool matchesEnabledPseudoClass() const override;
 
  private:
   class NavigationHintSender;
 
+  void attributeChanged(const AttributeModificationParams&) override;
   bool shouldHaveFocusAppearance() const final;
   void dispatchFocusEvent(Element* oldFocusedElement,
                           WebFocusType,
@@ -117,7 +116,7 @@ class CORE_EXPORT HTMLAnchorElement : public HTMLElement, public DOMURLUtils {
   bool isURLAttribute(const Attribute&) const final;
   bool hasLegalLinkAttribute(const QualifiedName&) const final;
   bool canStartSelection() const final;
-  short tabIndex() const final;
+  int tabIndex() const final;
   bool draggable() const final;
   bool isInteractiveContent() const final;
   InsertionNotificationRequest insertedInto(ContainerNode*) override;

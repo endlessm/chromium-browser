@@ -5,9 +5,8 @@
 #include "ui/views/controls/button/menu_button.h"
 
 #include "base/strings/utf_string_conversions.h"
-#include "ui/accessibility/ax_view_state.h"
+#include "ui/accessibility/ax_node_data.h"
 #include "ui/base/dragdrop/drag_drop_types.h"
-#include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/display/screen.h"
 #include "ui/events/event.h"
@@ -17,7 +16,6 @@
 #include "ui/gfx/image/image.h"
 #include "ui/gfx/text_constants.h"
 #include "ui/resources/grit/ui_resources.h"
-#include "ui/strings/grit/ui_strings.h"
 #include "ui/views/controls/button/button.h"
 #include "ui/views/controls/button/menu_button_listener.h"
 #include "ui/views/mouse_constants.h"
@@ -297,11 +295,14 @@ bool MenuButton::OnKeyReleased(const ui::KeyEvent& event) {
   return false;
 }
 
-void MenuButton::GetAccessibleState(ui::AXViewState* state) {
-  CustomButton::GetAccessibleState(state);
-  state->role = ui::AX_ROLE_POP_UP_BUTTON;
-  state->default_action = l10n_util::GetStringUTF16(IDS_APP_ACCACTION_PRESS);
-  state->AddStateFlag(ui::AX_STATE_HASPOPUP);
+void MenuButton::GetAccessibleNodeData(ui::AXNodeData* node_data) {
+  CustomButton::GetAccessibleNodeData(node_data);
+  node_data->role = ui::AX_ROLE_POP_UP_BUTTON;
+  node_data->AddStateFlag(ui::AX_STATE_HASPOPUP);
+  if (enabled()) {
+    node_data->AddIntAttribute(ui::AX_ATTR_ACTION,
+                               ui::AX_SUPPORTED_ACTION_OPEN);
+  }
 }
 
 void MenuButton::PaintMenuMarker(gfx::Canvas* canvas) {
@@ -372,7 +373,7 @@ void MenuButton::IncrementPressedLocked(bool snap_ink_drop_to_activated) {
   should_disable_after_press_ = state() == STATE_DISABLED;
   if (state() != STATE_PRESSED) {
     if (snap_ink_drop_to_activated)
-      ink_drop()->SnapToActivated();
+      GetInkDrop()->SnapToActivated();
     else
       AnimateInkDrop(InkDropState::ACTIVATED, nullptr /* event */);
   }

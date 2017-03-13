@@ -20,15 +20,15 @@
 
 #include "core/html/HTMLDetailsElement.h"
 
-#include "bindings/core/v8/ExceptionStatePlaceholder.h"
+#include "bindings/core/v8/ExceptionState.h"
 #include "core/CSSPropertyNames.h"
 #include "core/CSSValueKeywords.h"
 #include "core/HTMLNames.h"
 #include "core/dom/ElementTraversal.h"
+#include "core/dom/TaskRunnerHelper.h"
 #include "core/dom/Text.h"
 #include "core/dom/shadow/ShadowRoot.h"
 #include "core/events/Event.h"
-#include "core/events/EventSender.h"
 #include "core/frame/UseCounter.h"
 #include "core/html/HTMLContentElement.h"
 #include "core/html/HTMLDivElement.h"
@@ -67,12 +67,6 @@ class FirstSummarySelectFilter final : public HTMLContentSelectFilter {
   FirstSummarySelectFilter() {}
 };
 
-static DetailsEventSender& detailsToggleEventSender() {
-  DEFINE_STATIC_LOCAL(DetailsEventSender, sharedToggleEventSender,
-                      (DetailsEventSender::create(EventTypeNames::toggle)));
-  return sharedToggleEventSender;
-}
-
 HTMLDetailsElement* HTMLDetailsElement::create(Document& document) {
   HTMLDetailsElement* details = new HTMLDetailsElement(document);
   details->ensureUserAgentShadowRoot();
@@ -86,8 +80,7 @@ HTMLDetailsElement::HTMLDetailsElement(Document& document)
 
 HTMLDetailsElement::~HTMLDetailsElement() {}
 
-void HTMLDetailsElement::dispatchPendingEvent(DetailsEventSender* eventSender) {
-  DCHECK_EQ(eventSender, &detailsToggleEventSender());
+void HTMLDetailsElement::dispatchPendingEvent() {
   dispatchEvent(Event::create(EventTypeNames::toggle));
 }
 
@@ -119,24 +112,27 @@ Element* HTMLDetailsElement::findMainSummary() const {
     return summary;
 
   HTMLContentElement* content =
-      toHTMLContentElement(userAgentShadowRoot()->firstChild());
+      toHTMLContentElementOrDie(userAgentShadowRoot()->firstChild());
   DCHECK(content->firstChild());
-  DCHECK(isHTMLSummaryElement(*content->firstChild()));
+  CHECK(isHTMLSummaryElement(*content->firstChild()));
   return toElement(content->firstChild());
 }
 
-void HTMLDetailsElement::parseAttribute(const QualifiedName& name,
-                                        const AtomicString& oldValue,
-                                        const AtomicString& value) {
-  if (name == openAttr) {
+void HTMLDetailsElement::parseAttribute(
+    const AttributeModificationParams& params) {
+  if (params.name == openAttr) {
     bool oldValue = m_isOpen;
-    m_isOpen = !value.isNull();
+    m_isOpen = !params.newValue.isNull();
     if (m_isOpen == oldValue)
       return;
 
     // Dispatch toggle event asynchronously.
-    detailsToggleEventSender().cancelEvent(this);
-    detailsToggleEventSender().dispatchEventSoon(this);
+    m_pendingEvent =
+        TaskRunnerHelper::get(TaskType::DOMManipulation, &document())
+            ->postCancellableTask(
+                BLINK_FROM_HERE,
+                WTF::bind(&HTMLDetailsElement::dispatchPendingEvent,
+                          wrapPersistent(this)));
 
     Element* content = ensureUserAgentShadowRoot().getElementById(
         ShadowElementNames::detailsContent());
@@ -157,7 +153,7 @@ void HTMLDetailsElement::parseAttribute(const QualifiedName& name,
 
     return;
   }
-  HTMLElement::parseAttribute(name, oldValue, value);
+  HTMLElement::parseAttribute(params);
 }
 
 void HTMLDetailsElement::toggleOpen() {

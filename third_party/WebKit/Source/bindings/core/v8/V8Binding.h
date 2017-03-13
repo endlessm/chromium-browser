@@ -64,9 +64,6 @@ class Frame;
 class LocalDOMWindow;
 class LocalFrame;
 class NodeFilter;
-class TracedValue;
-class WorkerGlobalScope;
-class WorkerOrWorkletGlobalScope;
 class XPathNSResolver;
 
 template <typename T>
@@ -205,28 +202,20 @@ inline void v8SetReturnValue(const CallbackInfo& callbackInfo, Node* impl) {
   v8SetReturnValue(callbackInfo, wrapper);
 }
 
-// Special versions for DOMWindow, WorkerGlobalScope and EventTarget
+// Special versions for DOMWindow and EventTarget
 
 template <typename CallbackInfo>
 inline void v8SetReturnValue(const CallbackInfo& callbackInfo,
                              DOMWindow* impl) {
-  v8SetReturnValue(callbackInfo, toV8(impl, callbackInfo.Holder(),
+  v8SetReturnValue(callbackInfo, ToV8(impl, callbackInfo.Holder(),
                                       callbackInfo.GetIsolate()));
 }
 
 template <typename CallbackInfo>
 inline void v8SetReturnValue(const CallbackInfo& callbackInfo,
                              EventTarget* impl) {
-  v8SetReturnValue(callbackInfo, toV8(impl, callbackInfo.Holder(),
+  v8SetReturnValue(callbackInfo, ToV8(impl, callbackInfo.Holder(),
                                       callbackInfo.GetIsolate()));
-}
-
-template <typename CallbackInfo>
-inline void v8SetReturnValue(const CallbackInfo& callbackInfo,
-                             WorkerGlobalScope* impl) {
-  v8SetReturnValue(callbackInfo,
-                   toV8((WorkerOrWorkletGlobalScope*)impl,
-                        callbackInfo.Holder(), callbackInfo.GetIsolate()));
 }
 
 template <typename CallbackInfo, typename T>
@@ -275,28 +264,20 @@ inline void v8SetReturnValueForMainWorld(const CallbackInfo& callbackInfo,
   v8SetReturnValueForMainWorld(callbackInfo, ScriptWrappable::fromNode(impl));
 }
 
-// Special versions for DOMWindow, WorkerGlobalScope and EventTarget
+// Special versions for DOMWindow and EventTarget
 
 template <typename CallbackInfo>
 inline void v8SetReturnValueForMainWorld(const CallbackInfo& callbackInfo,
                                          DOMWindow* impl) {
-  v8SetReturnValue(callbackInfo, toV8(impl, callbackInfo.Holder(),
+  v8SetReturnValue(callbackInfo, ToV8(impl, callbackInfo.Holder(),
                                       callbackInfo.GetIsolate()));
 }
 
 template <typename CallbackInfo>
 inline void v8SetReturnValueForMainWorld(const CallbackInfo& callbackInfo,
                                          EventTarget* impl) {
-  v8SetReturnValue(callbackInfo, toV8(impl, callbackInfo.Holder(),
+  v8SetReturnValue(callbackInfo, ToV8(impl, callbackInfo.Holder(),
                                       callbackInfo.GetIsolate()));
-}
-
-template <typename CallbackInfo>
-inline void v8SetReturnValueForMainWorld(const CallbackInfo& callbackInfo,
-                                         WorkerGlobalScope* impl) {
-  v8SetReturnValue(callbackInfo,
-                   toV8((WorkerOrWorkletGlobalScope*)impl,
-                        callbackInfo.Holder(), callbackInfo.GetIsolate()));
 }
 
 template <typename CallbackInfo, typename T>
@@ -337,13 +318,13 @@ inline void v8SetReturnValueFast(const CallbackInfo& callbackInfo,
   v8SetReturnValue(callbackInfo, wrapper);
 }
 
-// Special versions for DOMWindow, WorkerGlobalScope and EventTarget
+// Special versions for DOMWindow and EventTarget
 
 template <typename CallbackInfo>
 inline void v8SetReturnValueFast(const CallbackInfo& callbackInfo,
                                  DOMWindow* impl,
                                  const ScriptWrappable*) {
-  v8SetReturnValue(callbackInfo, toV8(impl, callbackInfo.Holder(),
+  v8SetReturnValue(callbackInfo, ToV8(impl, callbackInfo.Holder(),
                                       callbackInfo.GetIsolate()));
 }
 
@@ -351,17 +332,8 @@ template <typename CallbackInfo>
 inline void v8SetReturnValueFast(const CallbackInfo& callbackInfo,
                                  EventTarget* impl,
                                  const ScriptWrappable*) {
-  v8SetReturnValue(callbackInfo, toV8(impl, callbackInfo.Holder(),
+  v8SetReturnValue(callbackInfo, ToV8(impl, callbackInfo.Holder(),
                                       callbackInfo.GetIsolate()));
-}
-
-template <typename CallbackInfo>
-inline void v8SetReturnValueFast(const CallbackInfo& callbackInfo,
-                                 WorkerGlobalScope* impl,
-                                 const ScriptWrappable*) {
-  v8SetReturnValue(callbackInfo,
-                   toV8((WorkerOrWorkletGlobalScope*)impl,
-                        callbackInfo.Holder(), callbackInfo.GetIsolate()));
 }
 
 template <typename CallbackInfo, typename T, typename Wrappable>
@@ -369,6 +341,13 @@ inline void v8SetReturnValueFast(const CallbackInfo& callbackInfo,
                                  PassRefPtr<T> impl,
                                  const Wrappable* wrappable) {
   v8SetReturnValueFast(callbackInfo, impl.get(), wrappable);
+}
+
+template <typename CallbackInfo, typename T>
+inline void v8SetReturnValueFast(const CallbackInfo& callbackInfo,
+                                 const v8::Local<T> handle,
+                                 const ScriptWrappable*) {
+  v8SetReturnValue(callbackInfo, handle);
 }
 
 // Convert v8::String to a WTF::String. If the V8 string is not already
@@ -652,9 +631,7 @@ inline double toCoreDate(v8::Isolate* isolate,
 inline v8::MaybeLocal<v8::Value> v8DateOrNaN(v8::Isolate* isolate,
                                              double value) {
   ASSERT(isolate);
-  return v8::Date::New(
-      isolate->GetCurrentContext(),
-      std::isfinite(value) ? value : std::numeric_limits<double>::quiet_NaN());
+  return v8::Date::New(isolate->GetCurrentContext(), value);
 }
 
 // FIXME: Remove the special casing for NodeFilter and XPathNSResolver.
@@ -825,9 +802,9 @@ VectorType toImplArguments(const v8::FunctionCallbackInfo<v8::Value>& info,
 }
 
 // Gets an iterator from an Object.
-CORE_EXPORT v8::MaybeLocal<v8::Object> getEsIterator(v8::Isolate*,
-                                                     v8::Local<v8::Object>,
-                                                     ExceptionState&);
+CORE_EXPORT v8::Local<v8::Object> getEsIterator(v8::Isolate*,
+                                                v8::Local<v8::Object>,
+                                                ExceptionState&);
 
 // Validates that the passed object is a sequence type per WebIDL spec
 // http://www.w3.org/TR/2012/CR-WebIDL-20120419/#es-sequence
@@ -968,7 +945,7 @@ struct NativeValueTraits<Vector<T>> {
 CORE_EXPORT v8::Isolate* toIsolate(ExecutionContext*);
 CORE_EXPORT v8::Isolate* toIsolate(LocalFrame*);
 
-DOMWindow* toDOMWindow(v8::Isolate*, v8::Local<v8::Value>);
+CORE_EXPORT DOMWindow* toDOMWindow(v8::Isolate*, v8::Local<v8::Value>);
 DOMWindow* toDOMWindow(v8::Local<v8::Context>);
 LocalDOMWindow* enteredDOMWindow(v8::Isolate*);
 CORE_EXPORT LocalDOMWindow* currentDOMWindow(v8::Isolate*);
@@ -1019,9 +996,10 @@ VectorType toImplSequence(v8::Isolate* isolate,
     return VectorType();
   }
 
-  v8::Local<v8::Object> iterator;
-  if (!getEsIterator(isolate, value.As<v8::Object>(), exceptionState)
-           .ToLocal(&iterator))
+  v8::TryCatch block(isolate);
+  v8::Local<v8::Object> iterator =
+      getEsIterator(isolate, value.As<v8::Object>(), exceptionState);
+  if (exceptionState.hadException())
     return VectorType();
 
   v8::Local<v8::String> nextKey = v8String(isolate, "next");
@@ -1031,8 +1009,10 @@ VectorType toImplSequence(v8::Isolate* isolate,
   VectorType result;
   while (true) {
     v8::Local<v8::Value> next;
-    if (!iterator->Get(context, nextKey).ToLocal(&next))
+    if (!iterator->Get(context, nextKey).ToLocal(&next)) {
+      exceptionState.rethrowV8Exception(block.Exception());
       return VectorType();
+    }
     // TODO(bashi): Support callable objects.
     if (!next->IsObject() || !next.As<v8::Object>()->IsFunction()) {
       exceptionState.throwTypeError("Iterator.next should be callable.");
@@ -1042,8 +1022,10 @@ VectorType toImplSequence(v8::Isolate* isolate,
     if (!V8ScriptRunner::callFunction(next.As<v8::Function>(),
                                       toExecutionContext(context), iterator, 0,
                                       nullptr, isolate)
-             .ToLocal(&nextResult))
+             .ToLocal(&nextResult)) {
+      exceptionState.rethrowV8Exception(block.Exception());
       return VectorType();
+    }
     if (!nextResult->IsObject()) {
       exceptionState.throwTypeError(
           "Iterator.next() did not return an object.");
@@ -1053,15 +1035,19 @@ VectorType toImplSequence(v8::Isolate* isolate,
     v8::Local<v8::Value> element;
     v8::Local<v8::Value> done;
     if (!resultObject->Get(context, valueKey).ToLocal(&element) ||
-        !resultObject->Get(context, doneKey).ToLocal(&done))
+        !resultObject->Get(context, doneKey).ToLocal(&done)) {
+      exceptionState.rethrowV8Exception(block.Exception());
       return VectorType();
+    }
     v8::Local<v8::Boolean> doneBoolean;
-    if (!done->ToBoolean(context).ToLocal(&doneBoolean))
+    if (!done->ToBoolean(context).ToLocal(&doneBoolean)) {
+      exceptionState.rethrowV8Exception(block.Exception());
       return VectorType();
+    }
     if (doneBoolean->Value())
       break;
-    result.append(NativeValueTraits<ValueType>::nativeValue(isolate, element,
-                                                            exceptionState));
+    result.push_back(NativeValueTraits<ValueType>::nativeValue(isolate, element,
+                                                               exceptionState));
   }
   return result;
 }
@@ -1148,11 +1134,14 @@ typedef void (*InstallTemplateFunction)(
     v8::Local<v8::FunctionTemplate> interfaceTemplate);
 
 // Freeze a V8 object. The type of the first parameter and the return value is
-// intentionally v8::Value so that this function can wrap toV8().
+// intentionally v8::Value so that this function can wrap ToV8().
 // If the argument isn't an object, this will crash.
 CORE_EXPORT v8::Local<v8::Value> freezeV8Object(v8::Local<v8::Value>,
                                                 v8::Isolate*);
 
+CORE_EXPORT v8::Local<v8::Value> fromJSONString(v8::Isolate*,
+                                                const String& stringifiedJSON,
+                                                ExceptionState&);
 }  // namespace blink
 
 #endif  // V8Binding_h

@@ -93,7 +93,7 @@ void TextCodecLatin1::registerEncodingNames(EncodingNameRegistrar registrar) {
 static std::unique_ptr<TextCodec> newStreamingTextDecoderWindowsLatin1(
     const TextEncoding&,
     const void*) {
-  return wrapUnique(new TextCodecLatin1);
+  return WTF::wrapUnique(new TextCodecLatin1);
 }
 
 void TextCodecLatin1::registerCodecs(TextCodecRegistrar registrar) {
@@ -259,7 +259,7 @@ CString TextCodecLatin1::encodeCommon(const CharType* characters,
                                       UnencodableHandling handling) {
   {
     char* bytes;
-    CString string = CString::newUninitialized(length, bytes);
+    CString string = CString::createUninitialized(length, bytes);
 
     // Convert the string a fast way and simultaneously do an efficient check to
     // see if it's all ASCII.

@@ -38,11 +38,11 @@
 #include "public/platform/modules/serviceworker/WebServiceWorkerEventResult.h"
 #include "public/platform/modules/serviceworker/WebServiceWorkerSkipWaitingCallbacks.h"
 #include "public/web/WebDevToolsAgentClient.h"
+#include <memory>
 #include <v8.h>
 
 namespace blink {
 
-struct WebCrossOriginServiceWorkerClient;
 struct WebServiceWorkerClientQueryOptions;
 class WebDataSource;
 class WebServiceWorkerContextProxy;
@@ -143,11 +143,12 @@ class WebServiceWorkerContextClient {
   // lifecycle. When no response is provided, the browser should fallback to
   // native fetch. EventIDs are the same with the ids passed from
   // dispatchFetchEvent respectively.
-  virtual void respondToFetchEvent(int responseID, double eventDispatchTime) {}
-  virtual void respondToFetchEvent(int responseID,
+  virtual void respondToFetchEvent(int fetchEventID, double eventDispatchTime) {
+  }
+  virtual void respondToFetchEvent(int fetchEventID,
                                    const WebServiceWorkerResponse& response,
                                    double eventDispatchTime) {}
-  virtual void didHandleFetchEvent(int eventFinishID,
+  virtual void didHandleFetchEvent(int fetchEventID,
                                    WebServiceWorkerEventResult result,
                                    double eventDispatchTime) {}
 
@@ -188,6 +189,13 @@ class WebServiceWorkerContextClient {
                                   WebServiceWorkerEventResult result,
                                   double eventDispatchTime) {}
 
+  // ServiceWorker specific method. Called after PaymentRequestEvent (dispatched
+  // via WebServiceWorkerContextProxy) is handled by the ServiceWorker's script
+  // context.
+  virtual void didHandlePaymentRequestEvent(int paymentRequestEventID,
+                                            WebServiceWorkerEventResult result,
+                                            double eventDispatchTime) {}
+
   // Ownership of the returned object is transferred to the caller.
   // This is called on the main thread.
   virtual WebServiceWorkerNetworkProvider* createServiceWorkerNetworkProvider(
@@ -206,20 +214,22 @@ class WebServiceWorkerContextClient {
   // WebServiceWorkerClientInfo and WebServiceWorkerError ownerships are
   // passed to the WebServiceWorkerClientCallbacks implementation.
   virtual void getClient(const WebString&,
-                         WebServiceWorkerClientCallbacks*) = 0;
+                         std::unique_ptr<WebServiceWorkerClientCallbacks>) = 0;
 
   // Ownership of the passed callbacks is transferred to the callee, callee
   // should delete the callbacks after calling either onSuccess or onError.
   // WebServiceWorkerClientsInfo and WebServiceWorkerError ownerships are
   // passed to the WebServiceWorkerClientsCallbacks implementation.
-  virtual void getClients(const WebServiceWorkerClientQueryOptions&,
-                          WebServiceWorkerClientsCallbacks*) = 0;
+  virtual void getClients(
+      const WebServiceWorkerClientQueryOptions&,
+      std::unique_ptr<WebServiceWorkerClientsCallbacks>) = 0;
 
   // Ownership of the passed callbacks is transferred to the callee, callee
   // should delete the callbacks after calling either onSuccess or onError.
   // WebServiceWorkerClientInfo and WebServiceWorkerError ownerships are
   // passed to the WebServiceWorkerClientsCallbacks implementation.
-  virtual void openWindow(const WebURL&, WebServiceWorkerClientCallbacks*) = 0;
+  virtual void openWindow(const WebURL&,
+                          std::unique_ptr<WebServiceWorkerClientCallbacks>) = 0;
 
   // A suggestion to cache this metadata in association with this URL.
   virtual void setCachedMetadata(const WebURL& url,
@@ -235,25 +245,20 @@ class WebServiceWorkerContextClient {
                                    const WebString&,
                                    WebMessagePortChannelArray*) = 0;
 
-  // Callee receives ownership of the passed vector.
-  // FIXME: Blob refs should be passed to maintain ref counts. crbug.com/351753
-  virtual void postMessageToCrossOriginClient(
-      const WebCrossOriginServiceWorkerClient&,
-      const WebString&,
-      WebMessagePortChannelArray*) = 0;
+  // Ownership of the passed callbacks is transferred to the callee, callee
+  // should delete the callbacks after run.
+  virtual void skipWaiting(
+      std::unique_ptr<WebServiceWorkerSkipWaitingCallbacks>) = 0;
 
   // Ownership of the passed callbacks is transferred to the callee, callee
   // should delete the callbacks after run.
-  virtual void skipWaiting(WebServiceWorkerSkipWaitingCallbacks*) = 0;
-
-  // Ownership of the passed callbacks is transferred to the callee, callee
-  // should delete the callbacks after run.
-  virtual void claim(WebServiceWorkerClientsClaimCallbacks*) = 0;
+  virtual void claim(
+      std::unique_ptr<WebServiceWorkerClientsClaimCallbacks>) = 0;
 
   // Ownership of the passed callbacks is transferred to the callee, callee
   // should delete the callback after calling either onSuccess or onError.
   virtual void focus(const WebString& uuid,
-                     WebServiceWorkerClientCallbacks*) = 0;
+                     std::unique_ptr<WebServiceWorkerClientCallbacks>) = 0;
 
   // Ownership of the passed callbacks is transferred to the callee, callee
   // should delete the callbacks after calling either onSuccess or onError.
@@ -261,7 +266,7 @@ class WebServiceWorkerContextClient {
   // passed to the WebServiceWorkerClientsCallbacks implementation.
   virtual void navigate(const WebString& uuid,
                         const WebURL&,
-                        WebServiceWorkerClientCallbacks*) = 0;
+                        std::unique_ptr<WebServiceWorkerClientCallbacks>) = 0;
 
   // Called when the worker wants to register subscopes to handle via foreign
   // fetch. Will only be called while an install event is in progress.

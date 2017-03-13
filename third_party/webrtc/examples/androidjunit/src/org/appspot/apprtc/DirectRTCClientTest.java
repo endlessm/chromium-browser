@@ -13,8 +13,8 @@ package org.appspot.apprtc;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
-import static org.mockito.Matchers.any;
-import static org.mockito.Matchers.isNotNull;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.isNotNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
@@ -25,6 +25,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.annotation.Config;
+import org.robolectric.shadows.ShadowLog;
 import org.webrtc.IceCandidate;
 import org.webrtc.SessionDescription;
 
@@ -41,8 +42,8 @@ public class DirectRTCClientTest {
   private static final String DUMMY_SDP_MID = "sdpMid";
   private static final String DUMMY_SDP = "sdp";
 
-  public static final int SERVER_WAIT = 10;
-  public static final int NETWORK_TIMEOUT = 100;
+  public static final int SERVER_WAIT = 100;
+  public static final int NETWORK_TIMEOUT = 1000;
 
   private DirectRTCClient client;
   private DirectRTCClient server;
@@ -52,6 +53,8 @@ public class DirectRTCClientTest {
 
   @Before
   public void setUp() {
+    ShadowLog.stream = System.out;
+
     clientEvents = mock(AppRTCClient.SignalingEvents.class);
     serverEvents = mock(AppRTCClient.SignalingEvents.class);
 
@@ -107,6 +110,8 @@ public class DirectRTCClientTest {
     }
   }
 
+  // TODO(sakal): Replace isNotNull(class) with isNotNull() once Java 8 is used.
+  @SuppressWarnings("deprecation")
   @Test
   public void testDirectRTCClient() {
     server.connectToRoom(new AppRTCClient.RoomConnectionParameters(ROOM_URL, "0.0.0.0", LOOPBACK));

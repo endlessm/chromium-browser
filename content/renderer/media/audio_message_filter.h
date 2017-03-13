@@ -85,15 +85,14 @@ class CONTENT_EXPORT AudioMessageFilter : public IPC::MessageFilter {
 
   // Received when internal state of browser process' audio output device has
   // changed.
-  void OnStreamStateChanged(int stream_id,
-                            media::AudioOutputIPCDelegateState state);
+  void OnStreamError(int stream_id);
 
   // IPC sender for Send(); must only be accessed on |io_task_runner_|.
   IPC::Sender* sender_;
 
   // A map of stream ids to delegates; must only be accessed on
   // |io_task_runner_|.
-  IDMap<media::AudioOutputIPCDelegate> delegates_;
+  IDMap<media::AudioOutputIPCDelegate*> delegates_;
 
   // Task runner on which IPC calls are executed.
   const scoped_refptr<base::SingleThreadTaskRunner> io_task_runner_;

@@ -7,14 +7,17 @@
 
 #include <string>
 
-class Profile;
+#include "base/files/file_path.h"
 
-namespace base {
-class FilePath;
-}
+class GURL;
+class Profile;
 
 namespace file_manager {
 namespace util {
+
+// Absolute base path for removable media on Chrome OS. Exposed here so it can
+// be used by tests.
+extern const base::FilePath::CharType kRemovableMediaPath[];
 
 // Gets the absolute path for the 'Downloads' folder for the |profile|.
 base::FilePath GetDownloadsFolderForProfile(Profile* profile);
@@ -38,6 +41,10 @@ bool MigratePathFromOldFormat(Profile* profile,
 
 // The canonical mount point name for "Downloads" folder.
 std::string GetDownloadsMountPointName(Profile* profile);
+
+// Converts a Chrome OS file path to an ARC file URL. Returns true if the path
+// was converted successfully and false otherwise.
+bool ConvertPathToArcUrl(const base::FilePath& path, GURL* arc_url_out);
 
 }  // namespace util
 }  // namespace file_manager

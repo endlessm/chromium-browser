@@ -11,7 +11,6 @@
 #include "base/debug/crash_logging.h"
 #include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
@@ -22,8 +21,8 @@
 #include "chrome/browser/plugins/plugin_infobar_delegates.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/tab_modal_confirm_dialog.h"
+#include "chrome/common/features.h"
 #include "chrome/common/render_messages.h"
-#include "chrome/common/url_constants.h"
 #include "chrome/grit/generated_resources.h"
 #include "chrome/grit/theme_resources.h"
 #include "components/component_updater/component_updater_service.h"
@@ -43,22 +42,19 @@
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/gfx/vector_icons_public.h"
 
-#if defined(ENABLE_PLUGIN_INSTALLATION)
+#if BUILDFLAG(ENABLE_PLUGIN_INSTALLATION)
 #include "chrome/browser/plugins/plugin_installer.h"
 #include "chrome/browser/plugins/plugin_installer_observer.h"
 #include "chrome/browser/ui/tab_modal_confirm_dialog_delegate.h"
-#endif  // defined(ENABLE_PLUGIN_INSTALLATION)
+#endif  // BUILDFLAG(ENABLE_PLUGIN_INSTALLATION)
 
-using content::OpenURLParams;
 using content::PluginService;
-using content::Referrer;
-using content::WebContents;
 
 DEFINE_WEB_CONTENTS_USER_DATA_KEY(PluginObserver);
 
 namespace {
 
-#if defined(ENABLE_PLUGIN_INSTALLATION)
+#if BUILDFLAG(ENABLE_PLUGIN_INSTALLATION)
 
 // ConfirmInstallDialogDelegate ------------------------------------------------
 
@@ -123,7 +119,7 @@ void ConfirmInstallDialogDelegate::DownloadStarted() {
 void ConfirmInstallDialogDelegate::OnlyWeakObserversLeft() {
   Cancel();
 }
-#endif  // defined(ENABLE_PLUGIN_INSTALLATION)
+#endif  // BUILDFLAG(ENABLE_PLUGIN_INSTALLATION)
 
 // ReloadPluginInfoBarDelegate -------------------------------------------------
 
@@ -192,7 +188,7 @@ base::string16 ReloadPluginInfoBarDelegate::GetButtonLabel(
 }
 
 bool ReloadPluginInfoBarDelegate::Accept() {
-  controller_->Reload(true);
+  controller_->Reload(content::ReloadType::NORMAL, true);
   return true;
 }
 
@@ -200,7 +196,7 @@ bool ReloadPluginInfoBarDelegate::Accept() {
 
 // PluginObserver -------------------------------------------------------------
 
-#if defined(ENABLE_PLUGIN_INSTALLATION)
+#if BUILDFLAG(ENABLE_PLUGIN_INSTALLATION)
 class PluginObserver::PluginPlaceholderHost : public PluginInstallerObserver {
  public:
   PluginPlaceholderHost(PluginObserver* observer,
@@ -247,7 +243,7 @@ class PluginObserver::PluginPlaceholderHost : public PluginInstallerObserver {
 
   int routing_id_;
 };
-#endif  // defined(ENABLE_PLUGIN_INSTALLATION)
+#endif  // BUILDFLAG(ENABLE_PLUGIN_INSTALLATION)
 
 class PluginObserver::ComponentObserver
     : public update_client::UpdateClient::Observer {
@@ -303,9 +299,6 @@ PluginObserver::PluginObserver(content::WebContents* web_contents)
 }
 
 PluginObserver::~PluginObserver() {
-#if defined(ENABLE_PLUGIN_INSTALLATION)
-  base::STLDeleteValues(&plugin_placeholders_);
-#endif
 }
 
 void PluginObserver::PluginCrashed(const base::FilePath& plugin_path,
@@ -365,12 +358,10 @@ bool PluginObserver::OnMessageReceived(
                         OnBlockedOutdatedPlugin)
     IPC_MESSAGE_HANDLER(ChromeViewHostMsg_BlockedComponentUpdatedPlugin,
                         OnBlockedComponentUpdatedPlugin)
-#if defined(ENABLE_PLUGIN_INSTALLATION)
+#if BUILDFLAG(ENABLE_PLUGIN_INSTALLATION)
     IPC_MESSAGE_HANDLER(ChromeViewHostMsg_RemovePluginPlaceholderHost,
                         OnRemovePluginPlaceholderHost)
 #endif
-    IPC_MESSAGE_HANDLER(ChromeViewHostMsg_OpenAboutPlugins,
-                        OnOpenAboutPlugins)
     IPC_MESSAGE_HANDLER(ChromeViewHostMsg_ShowFlashPermissionBubble,
                         OnShowFlashPermissionBubble)
     IPC_MESSAGE_HANDLER(ChromeViewHostMsg_CouldNotLoadPlugin,
@@ -384,14 +375,15 @@ bool PluginObserver::OnMessageReceived(
 
 void PluginObserver::OnBlockedOutdatedPlugin(int placeholder_id,
                                              const std::string& identifier) {
-#if defined(ENABLE_PLUGIN_INSTALLATION)
+#if BUILDFLAG(ENABLE_PLUGIN_INSTALLATION)
   PluginFinder* finder = PluginFinder::GetInstance();
   // Find plugin to update.
   PluginInstaller* installer = NULL;
   std::unique_ptr<PluginMetadata> plugin;
   if (finder->FindPluginWithIdentifier(identifier, &installer, &plugin)) {
-    plugin_placeholders_[placeholder_id] = new PluginPlaceholderHost(
-        this, placeholder_id, plugin->name(), installer);
+    plugin_placeholders_[placeholder_id] =
+        base::MakeUnique<PluginPlaceholderHost>(this, placeholder_id,
+                                                plugin->name(), installer);
     OutdatedPluginInfoBarDelegate::Create(
         InfoBarService::FromWebContents(web_contents()), installer,
         std::move(plugin));
@@ -402,7 +394,7 @@ void PluginObserver::OnBlockedOutdatedPlugin(int placeholder_id,
   // If we don't support third-party plugin installation, we shouldn't have
   // outdated plugins.
   NOTREACHED();
-#endif  // defined(ENABLE_PLUGIN_INSTALLATION)
+#endif  // BUILDFLAG(ENABLE_PLUGIN_INSTALLATION)
 }
 
 void PluginObserver::OnBlockedComponentUpdatedPlugin(
@@ -411,8 +403,7 @@ void PluginObserver::OnBlockedComponentUpdatedPlugin(
   component_observers_[placeholder_id] =
       base::MakeUnique<ComponentObserver>(this, placeholder_id, identifier);
   g_browser_process->component_updater()->GetOnDemandUpdater().OnDemandUpdate(
-      identifier,
-      component_updater::ComponentUpdateService::CompletionCallback());
+      identifier, component_updater::Callback());
 }
 
 void PluginObserver::RemoveComponentObserver(int placeholder_id) {
@@ -421,29 +412,16 @@ void PluginObserver::RemoveComponentObserver(int placeholder_id) {
   component_observers_.erase(it);
 }
 
-#if defined(ENABLE_PLUGIN_INSTALLATION)
+#if BUILDFLAG(ENABLE_PLUGIN_INSTALLATION)
 void PluginObserver::OnRemovePluginPlaceholderHost(int placeholder_id) {
-  std::map<int, PluginPlaceholderHost*>::iterator it =
-      plugin_placeholders_.find(placeholder_id);
+  auto it = plugin_placeholders_.find(placeholder_id);
   if (it == plugin_placeholders_.end()) {
     NOTREACHED();
     return;
   }
-  delete it->second;
   plugin_placeholders_.erase(it);
 }
-#endif  // defined(ENABLE_PLUGIN_INSTALLATION)
-
-void PluginObserver::OnOpenAboutPlugins() {
-  web_contents()->OpenURL(
-      OpenURLParams(GURL(chrome::kChromeUIPluginsURL),
-                    content::Referrer::SanitizeForRequest(
-                        GURL(chrome::kChromeUIPluginsURL),
-                        content::Referrer(web_contents()->GetURL(),
-                                          blink::WebReferrerPolicyDefault)),
-                    WindowOpenDisposition::NEW_FOREGROUND_TAB,
-                    ui::PAGE_TRANSITION_AUTO_BOOKMARK, false));
-}
+#endif  // BUILDFLAG(ENABLE_PLUGIN_INSTALLATION)
 
 void PluginObserver::OnShowFlashPermissionBubble() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);

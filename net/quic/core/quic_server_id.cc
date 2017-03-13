@@ -6,9 +6,9 @@
 
 #include <tuple>
 
-#include "base/logging.h"
 #include "net/base/host_port_pair.h"
 #include "net/base/port_util.h"
+#include "net/quic/platform/api/quic_str_cat.h"
 #include "url/gurl.h"
 
 using std::string;
@@ -46,14 +46,14 @@ QuicServerId QuicServerId::FromString(const std::string& str) {
   GURL url(str);
   if (!url.is_valid())
     return QuicServerId();
-  return QuicServerId(HostPortPair::FromURL(url), url.path() == "/private"
+  return QuicServerId(HostPortPair::FromURL(url), url.path_piece() == "/private"
                                                       ? PRIVACY_MODE_ENABLED
                                                       : PRIVACY_MODE_DISABLED);
 }
 
 string QuicServerId::ToString() const {
-  return "https://" + host_port_pair_.ToString() +
-         (privacy_mode_ == PRIVACY_MODE_ENABLED ? "/private" : "");
+  return QuicStrCat("https://", host_port_pair_.ToString(),
+                    (privacy_mode_ == PRIVACY_MODE_ENABLED ? "/private" : ""));
 }
 
 }  // namespace net

@@ -24,7 +24,6 @@ class IqSender;
 namespace protocol {
 
 class JingleSession;
-class TransportFactory;
 
 // JingleSessionManager and JingleSession implement the subset of the
 // Jingle protocol used in Chromoting. JingleSessionManager provides
@@ -57,7 +56,7 @@ class JingleSessionManager : public SessionManager,
   typedef std::map<std::string, JingleSession*> SessionsMap;
 
   IqSender* iq_sender() { return iq_sender_.get(); }
-  void SendReply(const buzz::XmlElement* original_stanza,
+  void SendReply(std::unique_ptr<buzz::XmlElement> original_stanza,
                  JingleMessageReply::ErrorType error);
 
   // Called by JingleSession when it is being destroyed.

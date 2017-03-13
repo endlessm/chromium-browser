@@ -11,14 +11,14 @@
 
 #if SK_SUPPORT_GPU
 
-#include "GrDrawContextPriv.h"
+#include "GrRenderTargetContextPriv.h"
 #include "GrContext.h"
 #include "GrPathUtils.h"
 #include "GrTest.h"
 #include "SkColorPriv.h"
 #include "SkGeometry.h"
 
-#include "batches/GrTestBatch.h"
+#include "ops/GrTestMeshDrawOp.h"
 
 #include "effects/GrBezierEffect.h"
 
@@ -28,24 +28,27 @@ static inline SkScalar eval_line(const SkPoint& p, const SkScalar lineEq[3], SkS
 
 namespace skiagm {
 
-class BezierCubicOrConicTestBatch : public GrTestBatch {
+class BezierCubicOrConicTestOp : public GrTestMeshDrawOp {
 public:
-    DEFINE_BATCH_CLASS_ID
+    DEFINE_OP_CLASS_ID
 
-    const char* name() const override { return "BezierCubicOrConicTestBatch"; }
+    const char* name() const override { return "BezierCubicOrConicTestOp"; }
 
-    BezierCubicOrConicTestBatch(sk_sp<GrGeometryProcessor> gp, const SkRect& bounds,
-                                GrColor color, const SkScalar klmEqs[9], SkScalar sign)
-        : INHERITED(ClassID(), bounds, color)
-        , fGeometryProcessor(std::move(gp)) {
+    static std::unique_ptr<GrDrawOp> Make(sk_sp<GrGeometryProcessor> gp, const SkRect& bounds,
+                                          GrColor color, const SkScalar klmEqs[9], SkScalar sign) {
+        return std::unique_ptr<GrDrawOp>(
+                new BezierCubicOrConicTestOp(gp, bounds, color, klmEqs, sign));
+    }
+
+private:
+    BezierCubicOrConicTestOp(sk_sp<GrGeometryProcessor> gp, const SkRect& bounds, GrColor color,
+                             const SkScalar klmEqs[9], SkScalar sign)
+            : INHERITED(ClassID(), bounds, color), fGeometryProcessor(std::move(gp)) {
         for (int i = 0; i < 9; i++) {
             fKlmEqs[i] = klmEqs[i];
         }
         fSign = sign;
     }
-
-private:
-
     struct Vertex {
         SkPoint fPosition;
         float   fKLM[4]; // The last value is ignored. The effect expects a vec4f.
@@ -77,7 +80,7 @@ private:
     static constexpr int kVertsPerCubic = 4;
     static constexpr int kIndicesPerCubic = 6;
 
-    typedef GrTestBatch INHERITED;
+    typedef GrTestMeshDrawOp INHERITED;
 };
 
 /**
@@ -99,8 +102,9 @@ protected:
     }
 
     void onDraw(SkCanvas* canvas) override {
-        GrDrawContext* drawContext = canvas->internal_private_accessTopLayerDrawContext();
-        if (!drawContext) {
+        GrRenderTargetContext* renderTargetContext =
+            canvas->internal_private_accessTopLayerRenderTargetContext();
+        if (!renderTargetContext) {
             skiagm::GM::DrawGpuOnlyMessage(canvas);
             return;
         }
@@ -121,8 +125,8 @@ protected:
         // Mult by 3 for each edge effect type
         int numCols = SkScalarCeilToInt(SkScalarSqrt(SkIntToScalar(kNumCubics*3)));
         int numRows = SkScalarCeilToInt(SkIntToScalar(kNumCubics*3) / numCols);
-        SkScalar w = SkIntToScalar(drawContext->width()) / numCols;
-        SkScalar h = SkIntToScalar(drawContext->height()) / numRows;
+        SkScalar w = SkIntToScalar(renderTargetContext->width()) / numCols;
+        SkScalar h = SkIntToScalar(renderTargetContext->height()) / numRows;
         int row = 0;
         int col = 0;
         constexpr GrColor color = 0xff000000;
@@ -189,12 +193,13 @@ protected:
                     canvas->drawRect(bounds, boundsPaint);
 
                     GrPaint grPaint;
-                    grPaint.setXPFactory(GrPorterDuffXPFactory::Make(SkXfermode::kSrc_Mode));
+                    grPaint.setXPFactory(GrPorterDuffXPFactory::Get(SkBlendMode::kSrc));
 
-                    SkAutoTUnref<GrDrawBatch> batch(
-                        new BezierCubicOrConicTestBatch(gp, bounds, color, klmEqs, klmSigns[c]));
+                    std::unique_ptr<GrDrawOp> op =
+                            BezierCubicOrConicTestOp::Make(gp, bounds, color, klmEqs, klmSigns[c]);
 
-                    drawContext->drawContextPriv().testingOnly_drawBatch(grPaint, batch);
+                    renderTargetContext->priv().testingOnly_addDrawOp(
+                            std::move(grPaint), GrAAType::kNone, std::move(op));
                 }
                 ++col;
                 if (numCols == col) {
@@ -231,8 +236,9 @@ protected:
 
 
     void onDraw(SkCanvas* canvas) override {
-        GrDrawContext* drawContext = canvas->internal_private_accessTopLayerDrawContext();
-        if (!drawContext) {
+        GrRenderTargetContext* renderTargetContext =
+            canvas->internal_private_accessTopLayerRenderTargetContext();
+        if (!renderTargetContext) {
             skiagm::GM::DrawGpuOnlyMessage(canvas);
             return;
         }
@@ -253,8 +259,8 @@ protected:
         // Mult by 3 for each edge effect type
         int numCols = SkScalarCeilToInt(SkScalarSqrt(SkIntToScalar(kNumConics*3)));
         int numRows = SkScalarCeilToInt(SkIntToScalar(kNumConics*3) / numCols);
-        SkScalar w = SkIntToScalar(drawContext->width()) / numCols;
-        SkScalar h = SkIntToScalar(drawContext->height()) / numRows;
+        SkScalar w = SkIntToScalar(renderTargetContext->width()) / numCols;
+        SkScalar h = SkIntToScalar(renderTargetContext->height()) / numRows;
         int row = 0;
         int col = 0;
         constexpr GrColor color = 0xff000000;
@@ -320,12 +326,13 @@ protected:
                     canvas->drawRect(bounds, boundsPaint);
 
                     GrPaint grPaint;
-                    grPaint.setXPFactory(GrPorterDuffXPFactory::Make(SkXfermode::kSrc_Mode));
+                    grPaint.setXPFactory(GrPorterDuffXPFactory::Get(SkBlendMode::kSrc));
 
-                    SkAutoTUnref<GrDrawBatch> batch(
-                        new BezierCubicOrConicTestBatch(gp, bounds, color, klmEqs, 1.f));
+                    std::unique_ptr<GrDrawOp> op =
+                            BezierCubicOrConicTestOp::Make(gp, bounds, color, klmEqs, 1.f);
 
-                    drawContext->drawContextPriv().testingOnly_drawBatch(grPaint, batch);
+                    renderTargetContext->priv().testingOnly_addDrawOp(
+                            std::move(grPaint), GrAAType::kNone, std::move(op));
                 }
                 ++col;
                 if (numCols == col) {
@@ -382,19 +389,22 @@ private:
 
 //////////////////////////////////////////////////////////////////////////////
 
-class BezierQuadTestBatch : public GrTestBatch {
+class BezierQuadTestOp : public GrTestMeshDrawOp {
 public:
-    DEFINE_BATCH_CLASS_ID
-    const char* name() const override { return "BezierQuadTestBatch"; }
+    DEFINE_OP_CLASS_ID
+    const char* name() const override { return "BezierQuadTestOp"; }
 
-    BezierQuadTestBatch(sk_sp<GrGeometryProcessor> gp, const SkRect& bounds, GrColor color,
-                        const GrPathUtils::QuadUVMatrix& devToUV)
-        : INHERITED(ClassID(), bounds, color)
-        , fDevToUV(devToUV)
-        , fGeometryProcessor(std::move(gp)) {
+    static std::unique_ptr<GrDrawOp> Make(sk_sp<GrGeometryProcessor> gp, const SkRect& bounds,
+                                          GrColor color, const GrPathUtils::QuadUVMatrix& devToUV) {
+        return std::unique_ptr<GrDrawOp>(new BezierQuadTestOp(gp, bounds, color, devToUV));
     }
 
 private:
+    BezierQuadTestOp(sk_sp<GrGeometryProcessor> gp, const SkRect& bounds, GrColor color,
+                     const GrPathUtils::QuadUVMatrix& devToUV)
+            : INHERITED(ClassID(), bounds, color)
+            , fDevToUV(devToUV)
+            , fGeometryProcessor(std::move(gp)) {}
 
     struct Vertex {
         SkPoint fPosition;
@@ -422,7 +432,7 @@ private:
     static constexpr int kVertsPerCubic = 4;
     static constexpr int kIndicesPerCubic = 6;
 
-    typedef GrTestBatch INHERITED;
+    typedef GrTestMeshDrawOp INHERITED;
 };
 
 /**
@@ -445,8 +455,9 @@ protected:
 
 
     void onDraw(SkCanvas* canvas) override {
-        GrDrawContext* drawContext = canvas->internal_private_accessTopLayerDrawContext();
-        if (!drawContext) {
+        GrRenderTargetContext* renderTargetContext =
+            canvas->internal_private_accessTopLayerRenderTargetContext();
+        if (!renderTargetContext) {
             skiagm::GM::DrawGpuOnlyMessage(canvas);
             return;
         }
@@ -466,8 +477,8 @@ protected:
 
         int numCols = SkScalarCeilToInt(SkScalarSqrt(SkIntToScalar(kNumQuads*3)));
         int numRows = SkScalarCeilToInt(SkIntToScalar(kNumQuads*3) / numCols);
-        SkScalar w = SkIntToScalar(drawContext->width()) / numCols;
-        SkScalar h = SkIntToScalar(drawContext->height()) / numRows;
+        SkScalar w = SkIntToScalar(renderTargetContext->width()) / numCols;
+        SkScalar h = SkIntToScalar(renderTargetContext->height()) / numRows;
         int row = 0;
         int col = 0;
         constexpr GrColor color = 0xff000000;
@@ -529,14 +540,15 @@ protected:
                     canvas->drawRect(bounds, boundsPaint);
 
                     GrPaint grPaint;
-                    grPaint.setXPFactory(GrPorterDuffXPFactory::Make(SkXfermode::kSrc_Mode));
+                    grPaint.setXPFactory(GrPorterDuffXPFactory::Get(SkBlendMode::kSrc));
 
                     GrPathUtils::QuadUVMatrix DevToUV(pts);
 
-                    SkAutoTUnref<GrDrawBatch> batch(
-                        new BezierQuadTestBatch(gp, bounds, color, DevToUV));
+                    std::unique_ptr<GrDrawOp> op =
+                            BezierQuadTestOp::Make(gp, bounds, color, DevToUV);
 
-                    drawContext->drawContextPriv().testingOnly_drawBatch(grPaint, batch);
+                    renderTargetContext->priv().testingOnly_addDrawOp(
+                            std::move(grPaint), GrAAType::kNone, std::move(op));
                 }
                 ++col;
                 if (numCols == col) {

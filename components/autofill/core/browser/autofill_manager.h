@@ -15,7 +15,6 @@
 #include "base/compiler_specific.h"
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
-#include "base/memory/scoped_vector.h"
 #include "base/memory/weak_ptr.h"
 #include "base/strings/string16.h"
 #include "base/time/time.h"
@@ -45,7 +44,6 @@
 #endif
 
 namespace gfx {
-class Rect;
 class RectF;
 }
 
@@ -98,6 +96,10 @@ class AutofillManager : public AutofillDownloadManager::Observer,
   virtual bool ShouldShowScanCreditCard(const FormData& form,
                                         const FormFieldData& field);
 
+  // Whether the |field| belongs to CREDIT_CARD |FieldTypeGroup|.
+  virtual bool IsCreditCardPopup(const FormData& form,
+                                 const FormFieldData& field);
+
   // Whether we should show the signin promo, based on the triggered |field|
   // inside the |form|.
   virtual bool ShouldShowCreditCardSigninPromo(const FormData& form,
@@ -141,7 +143,7 @@ class AutofillManager : public AutofillDownloadManager::Observer,
   bool IsShowingUnmaskPrompt();
 
   // Returns the present form structures seen by Autofill manager.
-  const std::vector<FormStructure*>& GetFormStructures();
+  const std::vector<std::unique_ptr<FormStructure>>& GetFormStructures();
 
   AutofillClient* client() { return client_; }
 
@@ -253,7 +255,9 @@ class AutofillManager : public AutofillDownloadManager::Observer,
                        std::string* cc_backend_id,
                        std::string* profile_backend_id) const;
 
-  ScopedVector<FormStructure>* form_structures() { return &form_structures_; }
+  std::vector<std::unique_ptr<FormStructure>>* form_structures() {
+    return &form_structures_;
+  }
 
   // Exposed for testing.
   AutofillExternalDelegate* external_delegate() {
@@ -498,7 +502,7 @@ class AutofillManager : public AutofillDownloadManager::Observer,
   base::TimeTicks initial_interaction_timestamp_;
 
   // Our copy of the form data.
-  ScopedVector<FormStructure> form_structures_;
+  std::vector<std::unique_ptr<FormStructure>> form_structures_;
 
   // A copy of the currently interacted form data.
   std::unique_ptr<FormData> pending_form_data_;

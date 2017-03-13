@@ -15,8 +15,8 @@ const char kGalleryUpdateHttpsUrl[] =
 
 }  // namespace
 
-GURL GetDefaultWebstoreUpdateUrl() {
-  return GURL(kGalleryUpdateHttpsUrl);
+const char* GetDefaultWebstoreUpdateUrl() {
+  return kGalleryUpdateHttpsUrl;
 }
 
 const char kWebstoreSourceField[] = "utm_source";
@@ -96,16 +96,4 @@ const char kAppStateCannotRun[] = "cannot_run";
 const char kAppStateReadyToRun[] = "ready_to_run";
 
 const char kMediaFileSystemPathPart[] = "_";
-
-#if defined(OS_CHROMEOS)
-bool IsImeMenuExtensionId(const std::string& extension_id) {
-  const char* const kImeMenuExtensionIds[] = {
-      "gjaehgfemfahhmlgpdfknkhdnemmolop", "jkghodnilhceideoidjikpgommlajknk"};
-  for (const char* id : kImeMenuExtensionIds) {
-    if (extension_id == id)
-      return true;
-  }
-  return false;
-}
-#endif
 }  // namespace extension_misc

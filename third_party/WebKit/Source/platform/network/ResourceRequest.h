@@ -45,14 +45,14 @@ namespace blink {
 
 enum class WebCachePolicy;
 
-enum ResourceRequestBlockedReason {
-  ResourceRequestBlockedReasonCSP,
-  ResourceRequestBlockedReasonMixedContent,
-  ResourceRequestBlockedReasonOrigin,
-  ResourceRequestBlockedReasonInspector,
-  ResourceRequestBlockedReasonSubresourceFilter,
-  ResourceRequestBlockedReasonOther,
-  ResourceRequestBlockedReasonNone
+enum class ResourceRequestBlockedReason {
+  CSP,
+  MixedContent,
+  Origin,
+  Inspector,
+  SubresourceFilter,
+  Other,
+  None
 };
 
 enum InputToLoadPerfMetricReportPolicy {
@@ -139,7 +139,9 @@ class PLATFORM_EXPORT ResourceRequest final {
   // Suborigin header, if appropriate.
   void setHTTPOrigin(const SecurityOrigin*);
   void clearHTTPOrigin();
+
   void addHTTPOriginIfNeeded(const SecurityOrigin*);
+  void addHTTPOriginIfNeeded(const String&);
 
   const AtomicString& httpUserAgent() const {
     return httpHeaderField(HTTPNames::User_Agent);
@@ -269,9 +271,9 @@ class PLATFORM_EXPORT ResourceRequest final {
     m_fetchRedirectMode = redirect;
   }
 
-  WebURLRequest::LoFiState loFiState() const { return m_loFiState; }
-  void setLoFiState(WebURLRequest::LoFiState loFiState) {
-    m_loFiState = loFiState;
+  WebURLRequest::PreviewsState previewsState() const { return m_previewsState; }
+  void setPreviewsState(WebURLRequest::PreviewsState previewsState) {
+    m_previewsState = previewsState;
   }
 
   bool cacheControlContainsNoCache() const;
@@ -309,9 +311,9 @@ class PLATFORM_EXPORT ResourceRequest final {
   double navigationStartTime() const { return m_navigationStart; }
 
  private:
-  void initialize(const KURL&);
-
   const CacheControlHeader& cacheControlHeader() const;
+
+  bool needsHTTPOrigin() const;
 
   KURL m_url;
   WebCachePolicy m_cachePolicy;
@@ -342,7 +344,7 @@ class PLATFORM_EXPORT ResourceRequest final {
   WebURLRequest::FetchRequestMode m_fetchRequestMode;
   WebURLRequest::FetchCredentialsMode m_fetchCredentialsMode;
   WebURLRequest::FetchRedirectMode m_fetchRedirectMode;
-  WebURLRequest::LoFiState m_loFiState;
+  WebURLRequest::PreviewsState m_previewsState;
   ReferrerPolicy m_referrerPolicy;
   bool m_didSetHTTPReferrer;
   bool m_checkForBrowserSideNavigation;
@@ -393,7 +395,7 @@ struct CrossThreadResourceRequestData {
   WebURLRequest::FetchRequestMode m_fetchRequestMode;
   WebURLRequest::FetchCredentialsMode m_fetchCredentialsMode;
   WebURLRequest::FetchRedirectMode m_fetchRedirectMode;
-  WebURLRequest::LoFiState m_loFiState;
+  WebURLRequest::PreviewsState m_previewsState;
   ReferrerPolicy m_referrerPolicy;
   bool m_didSetHTTPReferrer;
   bool m_checkForBrowserSideNavigation;

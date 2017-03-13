@@ -5,8 +5,14 @@
 #ifndef CHROME_BROWSER_UI_WEBUI_SETTINGS_CHROMEOS_CUPS_PRINTERS_HANDLER_H_
 #define CHROME_BROWSER_UI_WEBUI_SETTINGS_CHROMEOS_CUPS_PRINTERS_HANDLER_H_
 
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "base/files/file_path.h"
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/ui/webui/settings/settings_page_ui_handler.h"
+#include "chromeos/printing/ppd_provider.h"
 #include "chromeos/printing/printer_configuration.h"
 #include "chromeos/printing/printer_discoverer.h"
 #include "ui/shell_dialogs/select_file_dialog.h"
@@ -18,6 +24,9 @@ class ListValue;
 class Profile;
 
 namespace chromeos {
+namespace printing {
+class PpdProvider;
+}
 namespace settings {
 
 // Chrome OS CUPS printing settings page UI handler.
@@ -43,7 +52,30 @@ class CupsPrintersHandler : public ::settings::SettingsPageUIHandler,
   void OnAddedPrinter(std::unique_ptr<Printer> printer, bool success);
   void OnAddPrinterError();
 
+  // Get a list of all manufacturers for which we have at least one model of
+  // printer supported.  Takes one argument, the callback id for the result.
+  // The callback will be invoked with {success: <boolean>, models:
+  // <Array<string>>}.
+  void HandleGetCupsPrinterManufacturers(const base::ListValue* args);
+
+  // Given a manufacturer, get a list of all models of printers for which we can
+  // get drivers.  Takes two arguments - the callback id and the manufacturer
+  // name for which we want to list models.  The callback will be called with
+  // {success: <boolean>, models: Array<string>}.
+  void HandleGetCupsPrinterModels(const base::ListValue* args);
+
   void HandleSelectPPDFile(const base::ListValue* args);
+
+  // PpdProvider callback handlers.
+  void QueryAvailableManufacturersDone(
+      const std::string& js_callback,
+      chromeos::printing::PpdProvider::CallbackResultCode result_code,
+      const chromeos::printing::PpdProvider::AvailablePrintersMap& available);
+  void QueryAvailableModelsDone(
+      const std::string& js_callback,
+      const std::string& manufacturer,
+      chromeos::printing::PpdProvider::CallbackResultCode result_code,
+      const chromeos::printing::PpdProvider::AvailablePrintersMap& available);
 
   // ui::SelectFileDialog::Listener override:
   void FileSelected(const base::FilePath& path,
@@ -57,7 +89,22 @@ class CupsPrintersHandler : public ::settings::SettingsPageUIHandler,
   void OnPrintersFound(const std::vector<Printer>& printers) override;
   void OnDiscoveryDone() override;
 
+  // Invokes debugd to add the printer to CUPS.  If |ipp_everywhere| is true,
+  // automatic configuration will be attempted  and |ppd_path| is ignored.
+  // |ppd_path| is the path to a Postscript Printer Description file that will
+  // be used to configure the printer capabilities.  This file must be in
+  // Downloads or the PPD Cache.
+  void AddPrinterToCups(std::unique_ptr<Printer> printer,
+                        const base::FilePath& ppd_path,
+                        bool ipp_everywhere);
+
+  // Callback for PpdProvider::ResolveCallback.
+  void OnPPDResolved(std::unique_ptr<Printer> printer,
+                     printing::PpdProvider::CallbackResultCode result,
+                     base::FilePath ppd_path);
+
   std::unique_ptr<chromeos::PrinterDiscoverer> printer_discoverer_;
+  std::unique_ptr<chromeos::printing::PpdProvider> ppd_provider_;
 
   Profile* profile_;
   scoped_refptr<ui::SelectFileDialog> select_file_dialog_;

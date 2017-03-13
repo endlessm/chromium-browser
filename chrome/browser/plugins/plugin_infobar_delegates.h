@@ -8,22 +8,18 @@
 #include "base/callback.h"
 #include "base/macros.h"
 #include "build/build_config.h"
+#include "chrome/common/features.h"
 #include "components/infobars/core/confirm_infobar_delegate.h"
 #include "url/gurl.h"
 
-#if defined(ENABLE_PLUGIN_INSTALLATION)
+#if BUILDFLAG(ENABLE_PLUGIN_INSTALLATION)
 #include "chrome/browser/plugins/plugin_installer_observer.h"
 #endif
 
 class InfoBarService;
-class HostContentSettingsMap;
 class PluginMetadata;
 
-namespace content {
-class WebContents;
-}
-
-#if defined(ENABLE_PLUGIN_INSTALLATION)
+#if BUILDFLAG(ENABLE_PLUGIN_INSTALLATION)
 // Infobar that's shown when a plugin is out of date.
 class OutdatedPluginInfoBarDelegate : public ConfirmInfoBarDelegate,
                                       public WeakPluginInstallerObserver {
@@ -79,6 +75,6 @@ class OutdatedPluginInfoBarDelegate : public ConfirmInfoBarDelegate,
 
   DISALLOW_COPY_AND_ASSIGN(OutdatedPluginInfoBarDelegate);
 };
-#endif  // defined(ENABLE_PLUGIN_INSTALLATION)
+#endif  // BUILDFLAG(ENABLE_PLUGIN_INSTALLATION)
 
 #endif  // CHROME_BROWSER_PLUGINS_PLUGIN_INFOBAR_DELEGATES_H_

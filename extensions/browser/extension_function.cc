@@ -171,7 +171,7 @@ class UserGestureForTests {
   UserGestureForTests();
   friend struct base::DefaultSingletonTraits<UserGestureForTests>;
 
-  base::Lock lock_; // for protecting access to count_
+  base::Lock lock_;  // for protecting access to |count_|
   int count_;
 };
 
@@ -220,7 +220,7 @@ void ExtensionFunction::ResponseValueObject::SetFunctionError(
 bool ExtensionFunction::ignore_all_did_respond_for_testing_do_not_use = false;
 
 // static
-const char* ExtensionFunction::kUnknownErrorDoNotUse = "Unknown error.";
+const char ExtensionFunction::kUnknownErrorDoNotUse[] = "Unknown error.";
 
 // static
 void ExtensionFunctionDeleteTraits::Destruct(const ExtensionFunction* x) {
@@ -271,7 +271,6 @@ ExtensionFunction::ExtensionFunction()
       user_gesture_(false),
       bad_message_(false),
       histogram_value_(extensions::functions::UNKNOWN),
-      source_tab_id_(-1),
       source_context_type_(Feature::UNSPECIFIED_CONTEXT),
       source_process_id_(-1),
       did_respond_(false) {}
@@ -290,7 +289,8 @@ IOThreadExtensionFunction* ExtensionFunction::AsIOThreadExtensionFunction() {
 bool ExtensionFunction::HasPermission() {
   Feature::Availability availability =
       ExtensionAPI::GetSharedInstance()->IsAvailable(
-          name_, extension_.get(), source_context_type_, source_url());
+          name_, extension_.get(), source_context_type_, source_url(),
+          extensions::CheckAliasStatus::ALLOWED);
   return availability.is_available();
 }
 
@@ -422,7 +422,7 @@ bool ExtensionFunction::ShouldSkipQuotaLimiting() const {
 
 bool ExtensionFunction::HasOptionalArgument(size_t index) {
   base::Value* value;
-  return args_->Get(index, &value) && !value->IsType(base::Value::TYPE_NULL);
+  return args_->Get(index, &value) && !value->IsType(base::Value::Type::NONE);
 }
 
 void ExtensionFunction::SendResponseImpl(bool success) {
@@ -450,11 +450,14 @@ void ExtensionFunction::SendResponseImpl(bool success) {
 UIThreadExtensionFunction::UIThreadExtensionFunction()
     : context_(nullptr),
       render_frame_host_(nullptr),
-      is_from_service_worker_(false) {}
+      service_worker_version_id_(extensions::kInvalidServiceWorkerVersionId) {}
 
 UIThreadExtensionFunction::~UIThreadExtensionFunction() {
-  if (dispatcher() && render_frame_host())
-    dispatcher()->OnExtensionFunctionCompleted(extension());
+  if (dispatcher() && (render_frame_host() || is_from_service_worker())) {
+    dispatcher()->OnExtensionFunctionCompleted(extension(),
+                                               is_from_service_worker());
+  }
+
   // The extension function should always respond to avoid leaks in the
   // renderer, dangling callbacks, etc. The exception is if the system is
   // shutting down.
@@ -503,7 +506,7 @@ void UIThreadExtensionFunction::Destruct() const {
 void UIThreadExtensionFunction::SetRenderFrameHost(
     content::RenderFrameHost* render_frame_host) {
   // An extension function from Service Worker does not have a RenderFrameHost.
-  if (is_from_service_worker_) {
+  if (is_from_service_worker()) {
     DCHECK(!render_frame_host);
     return;
   }

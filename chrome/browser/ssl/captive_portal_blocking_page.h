@@ -10,15 +10,18 @@
 
 #include "base/callback.h"
 #include "base/macros.h"
-#include "chrome/browser/interstitials/security_interstitial_page.h"
+#include "chrome/common/features.h"
+#include "components/security_interstitials/content/security_interstitial_page.h"
 #include "content/public/browser/certificate_request_result_type.h"
+#include "net/ssl/ssl_info.h"
 #include "url/gurl.h"
 
-#if !defined(ENABLE_CAPTIVE_PORTAL_DETECTION)
+#if !BUILDFLAG(ENABLE_CAPTIVE_PORTAL_DETECTION)
 #error This file must be built with ENABLE_CAPTIVE_PORTAL_DETECTION flag.
 #endif
 
 namespace content {
+class NavigationEntry;
 class WebContents;
 }
 
@@ -36,7 +39,8 @@ class SSLCertReporter;
 // This class should only be used on the UI thread because its implementation
 // uses captive_portal::CaptivePortalService, which can only be accessed on the
 // UI thread. Only used when ENABLE_CAPTIVE_PORTAL_DETECTION is true.
-class CaptivePortalBlockingPage : public SecurityInterstitialPage {
+class CaptivePortalBlockingPage
+    : public security_interstitials::SecurityInterstitialPage {
  public:
   // Interstitial type, for testing.
   static const void* const kTypeForTesting;
@@ -67,6 +71,7 @@ class CaptivePortalBlockingPage : public SecurityInterstitialPage {
 
   // InterstitialPageDelegate method:
   void CommandReceived(const std::string& command) override;
+  void OverrideEntry(content::NavigationEntry* entry) override;
   void OnProceed() override;
   void OnDontProceed() override;
 
@@ -74,6 +79,7 @@ class CaptivePortalBlockingPage : public SecurityInterstitialPage {
   // URL of the login page, opened when the user clicks the "Connect" button.
   const GURL login_url_;
   std::unique_ptr<CertReportHelper> cert_report_helper_;
+  const net::SSLInfo ssl_info_;
   base::Callback<void(content::CertificateRequestResultType)> callback_;
 
   DISALLOW_COPY_AND_ASSIGN(CaptivePortalBlockingPage);

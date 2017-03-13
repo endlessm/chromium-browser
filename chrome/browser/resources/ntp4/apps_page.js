@@ -245,12 +245,7 @@ cr.define('ntp', function() {
 
       this.className = 'app focusable';
 
-      if (!this.appData_.icon_big_exists && this.appData_.icon_small_exists)
-        this.useSmallIcon_ = true;
-
-      this.appContents_ = this.useSmallIcon_ ?
-          $('app-small-icon-template').cloneNode(true) :
-          $('app-large-icon-template').cloneNode(true);
+      this.appContents_ = $('app-icon-template').cloneNode(true);
       this.appContents_.id = '';
       this.appendChild(this.appContents_);
 
@@ -259,16 +254,8 @@ cr.define('ntp', function() {
       this.appImg_ = this.appImgContainer_.querySelector('img');
       this.setIcon();
 
-      if (this.useSmallIcon_) {
-        this.imgDiv_ = /** @type {HTMLElement} */(
-            this.querySelector('.app-icon-div'));
-        this.addLaunchClickTarget_(this.imgDiv_);
-        this.imgDiv_.title = this.appData_.full_name;
-        chrome.send('getAppIconDominantColor', [this.id]);
-      } else {
-        this.addLaunchClickTarget_(this.appImgContainer_);
-        this.appImgContainer_.title = this.appData_.full_name;
-      }
+      this.addLaunchClickTarget_(this.appImgContainer_);
+      this.appImgContainer_.title = this.appData_.full_name;
 
       // The app's full name is shown in the tooltip, whereas the short name
       // is used for the label.
@@ -299,14 +286,6 @@ cr.define('ntp', function() {
     },
 
     /**
-     * Sets the color of the favicon dominant color bar.
-     * @param {string} color The css-parsable value for the color.
-     */
-    set stripeColor(color) {
-      this.querySelector('.color-stripe').style.backgroundColor = color;
-    },
-
-    /**
      * Removes the app tile from the page. Should be called after the app has
      * been uninstalled.
      *
@@ -328,8 +307,7 @@ cr.define('ntp', function() {
      * to load icons until we have to).
      */
     setIcon: function() {
-      var src = this.useSmallIcon_ ? this.appData_.icon_small :
-                                     this.appData_.icon_big;
+      var src = this.appData_.icon;
       if (!this.appData_.enabled ||
           (!this.appData_.offlineEnabled && !navigator.onLine)) {
         src += '?grayscale=true';
@@ -363,20 +341,7 @@ cr.define('ntp', function() {
     setBounds: function(size, x, y) {
       var imgSize = size * APP_IMG_SIZE_FRACTION;
       this.appImgContainer_.style.width = this.appImgContainer_.style.height =
-          toCssPx(this.useSmallIcon_ ? 16 : imgSize);
-      if (this.useSmallIcon_) {
-        // 3/4 is the ratio of 96px to 128px (the used height and full height
-        // of icons in apps).
-        var iconSize = imgSize * 3 / 4;
-        // The -2 is for the div border to improve the visual alignment for the
-        // icon div.
-        this.imgDiv_.style.width = this.imgDiv_.style.height =
-            toCssPx(iconSize - 2);
-        // Margins set to get the icon placement right and the text to line up.
-        this.imgDiv_.style.marginTop = this.imgDiv_.style.marginBottom =
-            toCssPx((imgSize - iconSize) / 2);
-      }
-
+          toCssPx(imgSize);
       this.style.width = this.style.height = toCssPx(size);
       this.style.left = toCssPx(x);
       this.style.right = toCssPx(x);
@@ -394,15 +359,11 @@ cr.define('ntp', function() {
      * @private
      */
     onClick_: function(e) {
-      if (/** @type {MouseEvent} */(e).button > 1) return;
-
-      var url = !this.appData_.is_webstore ? '' :
-          appendParam(this.appData_.url,
-                      'utm_source',
-                      'chrome-ntp-icon');
+      if (/** @type {MouseEvent} */(e).button > 1)
+        return;
 
       chrome.send('launchApp',
-                  [this.appId, APP_LAUNCH.NTP_APPS_MAXIMIZED, url,
+                  [this.appId, APP_LAUNCH.NTP_APPS_MAXIMIZED, 'chrome-ntp-icon',
                    e.button, e.altKey, e.ctrlKey, e.metaKey, e.shiftKey]);
 
       // Don't allow the click to trigger a link or anything
@@ -478,16 +439,10 @@ cr.define('ntp', function() {
      * The data and preferences for this app.
      * @type {Object}
      */
-    set appData(data) {
-      this.appData_ = data;
-    },
-    get appData() {
-      return this.appData_;
-    },
+    set appData(data) { this.appData_ = data; },
+    get appData() { return this.appData_; },
 
-    get appId() {
-      return this.appData_.id;
-    },
+    get appId() { return this.appData_.id; },
 
     /**
      * Returns a pointer to the context menu for this app. All apps share the
@@ -506,9 +461,7 @@ cr.define('ntp', function() {
      * the user can drag it onto the trash and expect something to happen).
      * @return {boolean} True if the app can be uninstalled.
      */
-    canBeRemoved: function() {
-      return this.appData_.mayDisable;
-    },
+    canBeRemoved: function() { return this.appData_.mayDisable; },
 
     /**
      * Uninstalls the app after it's been dropped on the trash.
@@ -709,9 +662,9 @@ cr.define('ntp', function() {
       if (html) {
         // It's important that we don't attach this node to the document
         // because it might contain scripts.
-        var node = this.ownerDocument.createElement('div');
-        node.innerHTML = html;
-        title = node.textContent;
+        var doc = document.implementation.createHTMLDocument();
+        doc.body.innerHTML = html;
+        title = doc.body.textContent;
       }
 
       // Make sure title is >=1 and <=45 characters for Chrome app limits.

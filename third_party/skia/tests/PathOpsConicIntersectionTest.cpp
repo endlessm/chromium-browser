@@ -16,7 +16,7 @@ manually compute the intersection of a pair of circles and see if the conic inte
 
  */
 
-static const SkDConic testSet[] = {
+static const ConicPts testSet[] = {
     {{{{306.588013,-227.983994}, {212.464996,-262.242004}, {95.5512009,58.9763985}}}, 0.707107008f},
     {{{{377.218994,-141.981003}, {40.578701,-201.339996}, {23.1854992,-102.697998}}}, 0.707107008f},
 
@@ -110,8 +110,8 @@ static void writePng(const SkConic& c, const SkConic ch[2], const char* name) {
     canvas.drawPath(path, paint);
     SkString filename("c:\\Users\\caryclark\\Documents\\");
     filename.appendf("%s.png", name);
-    SkImageEncoder::EncodeFile(filename.c_str(), bitmap,
-            SkImageEncoder::kPNG_Type, 100);
+    sk_tool_utils::EncodeImageToFile(filename.c_str(), bitmap,
+            SkEncodedImageFormat::kPNG, 100);
 }
 
 static void writeDPng(const SkDConic& dC, const char* name) {
@@ -152,8 +152,8 @@ static void writeDPng(const SkDConic& dC, const char* name) {
     canvas.drawPath(path, paint);
     SkString filename("c:\\Users\\caryclark\\Documents\\");
     filename.appendf("%s.png", name);
-    SkImageEncoder::EncodeFile(filename.c_str(), bitmap,
-            SkImageEncoder::kPNG_Type, 100);
+    sk_tool_utils::EncodeImageToFile(filename.c_str(), bitmap,
+            SkEncodedImageFormat::kPNG, 100);
 }
 #endif
 
@@ -290,16 +290,19 @@ static void writeFrames() {
         }
         SkString filename("c:\\Users\\caryclark\\Documents\\");
         filename.appendf("f%d.png", index);
-        SkImageEncoder::EncodeFile(filename.c_str(), bitmap, SkImageEncoder::kPNG_Type, 100);
+        sk_tool_utils::EncodeImageToFile(filename.c_str(), bitmap, SkEncodedImageFormat::kPNG, 100);
     }
 }
 #endif
 
-static void oneOff(skiatest::Reporter* reporter, const SkDConic& c1, const SkDConic& c2,
+static void oneOff(skiatest::Reporter* reporter, const ConicPts& conic1, const ConicPts& conic2,
         bool coin) {
 #if DEBUG_VISUALIZE_CONICS
     writeFrames();
 #endif
+    SkDConic c1, c2;
+    c1.debugSet(conic1.fPts.fPts, conic1.fWeight);
+    c2.debugSet(conic2.fPts.fPts, conic2.fWeight);
     chopBothWays(c1, 0.5, "c1");
     chopBothWays(c2, 0.5, "c2");
 #if DEBUG_VISUALIZE_CONICS
@@ -330,8 +333,8 @@ static void oneOff(skiatest::Reporter* reporter, const SkDConic& c1, const SkDCo
 }
 
 static void oneOff(skiatest::Reporter* reporter, int outer, int inner) {
-    const SkDConic& c1 = testSet[outer];
-    const SkDConic& c2 = testSet[inner];
+    const ConicPts& c1 = testSet[outer];
+    const ConicPts& c2 = testSet[inner];
     oneOff(reporter, c1, c2, false);
 }
 

@@ -12,9 +12,9 @@ import os
 from chromite.cbuildbot import afdo
 from chromite.cbuildbot import cbuildbot_run
 from chromite.cbuildbot import commands
-from chromite.cbuildbot import config_lib
-from chromite.cbuildbot import constants
-from chromite.cbuildbot import failures_lib
+from chromite.lib import config_lib
+from chromite.lib import constants
+from chromite.lib import failures_lib
 from chromite.cbuildbot import validation_pool
 from chromite.cbuildbot.stages import generic_stages
 from chromite.lib import cgroups
@@ -329,7 +329,8 @@ class HWTestStage(generic_stages.BoardSpecificBuilderStage,
     # Wait for UploadHWTestArtifacts to generate and upload the artifacts.
     if not self.GetParallel('test_artifacts_uploaded',
                             pretty_name='payloads and test artifacts'):
-      logging.PrintBuildbotStepWarnings('missing test artifacts')
+      logging.PrintBuildbotStepWarnings()
+      logging.warning('missing test artifacts')
       logging.warning('Cannot run %s because UploadTestArtifacts failed. '
                       'See UploadTestArtifacts for details.' % self.stage_name)
       return False
@@ -341,6 +342,7 @@ class HWTestStage(generic_stages.BoardSpecificBuilderStage,
       arch = self._GetPortageEnvVar('ARCH', self._current_board)
       cpv = portage_util.BestVisible(constants.CHROME_CP,
                                      buildroot=self._build_root)
+      afdo.InitGSUrls(self._current_board)
       if afdo.CheckAFDOPerfData(cpv, arch, gs.GSContext()):
         logging.info('AFDO profile already generated for arch %s '
                      'and Chrome %s. Not generating it again',
@@ -527,3 +529,14 @@ class BranchUtilTestStage(generic_stages.BuilderStage):
     commands.RunBranchUtilTest(
         self._build_root,
         manifest_manager.GetCurrentVersionInfo().VersionString())
+
+
+class CrosSigningTestStage(generic_stages.BuilderStage):
+  """Stage that verifies Chrome prebuilts.
+
+  This requires an internal source code checkouts.
+  """
+
+  def PerformStage(self):
+    """Run the cros-signing unittests."""
+    commands.RunCrosSigningTests(self._build_root)

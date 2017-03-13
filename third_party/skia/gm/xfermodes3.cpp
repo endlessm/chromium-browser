@@ -9,7 +9,7 @@
 #include "SkBitmap.h"
 #include "SkGradientShader.h"
 #include "SkSurface.h"
-#include "SkXfermode.h"
+#include "SkBlendModePriv.h"
 #include "SkColorPriv.h"
 
 #if SK_SUPPORT_GPU
@@ -68,10 +68,10 @@ protected:
             {SkPaint::kStroke_Style, SkIntToScalar(kSize) / 2},
         };
         for (size_t s = 0; s < SK_ARRAY_COUNT(kStrokes); ++s) {
-            for (size_t m = 0; m <= SkXfermode::kLastMode; ++m) {
+            for (size_t m = 0; m <= (size_t)SkBlendMode::kLastMode; ++m) {
                 SkBlendMode mode = static_cast<SkBlendMode>(m);
-                canvas->drawText(SkXfermode::ModeName(mode),
-                                 strlen(SkXfermode::ModeName(mode)),
+                canvas->drawText(SkBlendMode_Name(mode),
+                                 strlen(SkBlendMode_Name(mode)),
                                  SkIntToScalar(x),
                                  SkIntToScalar(y + kSize + 3) + labelP.getTextSize(),
                                  labelP);
@@ -126,7 +126,7 @@ private:
         GrContext* context = baseCanvas->getGrContext();
         SkImageInfo baseInfo = baseCanvas->imageInfo();
         SkImageInfo info = SkImageInfo::Make(w, h, baseInfo.colorType(), baseInfo.alphaType(),
-                                             sk_ref_sp(baseInfo.colorSpace()));
+                                             baseInfo.refColorSpace());
         SkSurfaceProps canvasProps(SkSurfaceProps::kLegacyFontHost_InitType);
         baseCanvas->getProps(&canvasProps);
         return SkSurface::MakeRenderTarget(context, SkBudgeted::kNo, info, 0, &canvasProps);

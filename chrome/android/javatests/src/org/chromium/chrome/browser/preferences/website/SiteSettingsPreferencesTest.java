@@ -6,8 +6,7 @@ package org.chromium.chrome.browser.preferences.website;
 
 import android.content.Intent;
 import android.os.Bundle;
-import android.os.Environment;
-import android.test.suitebuilder.annotation.SmallTest;
+import android.support.test.filters.SmallTest;
 
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.util.CommandLineFlags;
@@ -17,7 +16,6 @@ import org.chromium.chrome.browser.ChromeActivity;
 import org.chromium.chrome.browser.ChromeSwitches;
 import org.chromium.chrome.browser.infobar.InfoBarContainer;
 import org.chromium.chrome.browser.preferences.ChromeBaseCheckBoxPreference;
-import org.chromium.chrome.browser.preferences.ChromeBaseListPreference;
 import org.chromium.chrome.browser.preferences.ChromeSwitchPreference;
 import org.chromium.chrome.browser.preferences.LocationSettings;
 import org.chromium.chrome.browser.preferences.PrefServiceBridge;
@@ -45,8 +43,7 @@ public class SiteSettingsPreferencesTest extends ChromeActivityTestCaseBase<Chro
     @Override
     protected void setUp() throws Exception {
         super.setUp();
-        mTestServer = EmbeddedTestServer.createAndStartFileServer(
-                getInstrumentation().getContext(), Environment.getExternalStorageDirectory());
+        mTestServer = EmbeddedTestServer.createAndStartServer(getInstrumentation().getContext());
     }
 
     @Override
@@ -108,7 +105,7 @@ public class SiteSettingsPreferencesTest extends ChromeActivityTestCaseBase<Chro
         // Launch a page that uses geolocation and make sure an infobar shows up.
         loadUrl(mTestServer.getURL(
                 "/chrome/test/data/geolocation/geolocation_on_load.html"));
-        assertTrue("InfoBar not added.", listener.addInfoBarAnimationFinished());
+        listener.addInfoBarAnimationFinished("InfoBar not added.");
 
         assertEquals("Wrong infobar count", 1, getInfoBars().size());
     }
@@ -262,28 +259,6 @@ public class SiteSettingsPreferencesTest extends ChromeActivityTestCaseBase<Chro
         preferenceActivity.finish();
     }
 
-    private void setEnableKeygen(final String origin, final boolean enabled) {
-        WebsiteAddress address = WebsiteAddress.create(origin);
-        Website website = new Website(address, address);
-        website.setKeygenInfo(new KeygenInfo(origin, origin, false));
-        final Preferences preferenceActivity = startSingleWebsitePreferences(website);
-
-        ThreadUtils.runOnUiThreadBlocking(new Runnable() {
-            @Override
-            public void run() {
-                SingleWebsitePreferences websitePreferences =
-                        (SingleWebsitePreferences) preferenceActivity.getFragmentForTest();
-                ChromeBaseListPreference keygen =
-                        (ChromeBaseListPreference) websitePreferences.findPreference(
-                                SingleWebsitePreferences.PREF_KEYGEN_PERMISSION);
-                websitePreferences.onPreferenceChange(keygen, enabled
-                                ? ContentSetting.ALLOW.toString()
-                                : ContentSetting.BLOCK.toString());
-            }
-        });
-        preferenceActivity.finish();
-    }
-
     private void setEnableBackgroundSync(final boolean enabled) {
         final Preferences preferenceActivity =
                 startSiteSettingsCategory(SiteSettingsCategory.CATEGORY_BACKGROUND_SYNC);
@@ -397,48 +372,6 @@ public class SiteSettingsPreferencesTest extends ChromeActivityTestCaseBase<Chro
         getInstrumentation().waitForIdleSync();
 
         assertEquals(2, getTabCount());
-    }
-
-    /**
-     * Sets Allow Keygen Enabled to be false and make sure it is set correctly.
-     * @throws Exception
-     */
-    @SmallTest
-    @Feature({"Preferences"})
-    public void testKeygenBlocked() throws Exception {
-        final String origin = "http://example.com/";
-        setEnableKeygen(origin, false);
-
-        ThreadUtils.runOnUiThreadBlocking(new Runnable() {
-            @Override
-            public void run() {
-                WebsiteAddress address = WebsiteAddress.create(origin);
-                Website site = new Website(address, address);
-                site.setKeygenInfo(new KeygenInfo(origin, origin, false));
-                assertEquals(site.getKeygenPermission(), ContentSetting.BLOCK);
-            }
-        });
-    }
-
-    /**
-     * Sets Allow Keygen Enabled to be true and make sure it is set correctly.
-     * @throws Exception
-     */
-    @SmallTest
-    @Feature({"Preferences"})
-    public void testKeygenNotBlocked() throws Exception {
-        final String origin = "http://example.com/";
-        setEnableKeygen(origin, true);
-
-        ThreadUtils.runOnUiThreadBlocking(new Runnable() {
-            @Override
-            public void run() {
-                WebsiteAddress address = WebsiteAddress.create(origin);
-                Website site = new Website(address, address);
-                site.setKeygenInfo(new KeygenInfo(origin, origin, false));
-                assertEquals(site.getKeygenPermission(), ContentSetting.ALLOW);
-            }
-        });
     }
 
     /**
@@ -558,7 +491,7 @@ public class SiteSettingsPreferencesTest extends ChromeActivityTestCaseBase<Chro
         loadUrl(mTestServer.getURL("/content/test/data/media/getusermedia.html"));
         runJavaScriptCodeInCurrentTab("getUserMediaAndStop({video: true, audio: false});");
 
-        assertTrue("InfoBar not added.", listener.addInfoBarAnimationFinished());
+        listener.addInfoBarAnimationFinished("InfoBar not added.");
         assertEquals("Wrong infobar count", 1, getInfoBars().size());
     }
 
@@ -578,7 +511,7 @@ public class SiteSettingsPreferencesTest extends ChromeActivityTestCaseBase<Chro
         loadUrl(mTestServer.getURL("/content/test/data/media/getusermedia.html"));
         runJavaScriptCodeInCurrentTab("getUserMediaAndStop({video: false, audio: true});");
 
-        assertTrue("InfoBar not added.", listener.addInfoBarAnimationFinished());
+        listener.addInfoBarAnimationFinished("InfoBar not added.");
         assertEquals("Wrong infobar count", 1, getInfoBars().size());
     }
 

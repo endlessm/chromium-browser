@@ -24,18 +24,23 @@ static bool shouldApplyViewportClip(const LayoutReplaced& layoutReplaced) {
 
 void ReplacedPainter::paint(const PaintInfo& paintInfo,
                             const LayoutPoint& paintOffset) {
+  ObjectPainter(m_layoutReplaced).checkPaintOffset(paintInfo, paintOffset);
   LayoutPoint adjustedPaintOffset = paintOffset + m_layoutReplaced.location();
   if (!shouldPaint(paintInfo, adjustedPaintOffset))
     return;
 
   LayoutRect borderRect(adjustedPaintOffset, m_layoutReplaced.size());
 
-  if (m_layoutReplaced.style()->visibility() == EVisibility::Visible &&
-      m_layoutReplaced.hasBoxDecorationBackground() &&
-      (paintInfo.phase == PaintPhaseForeground ||
-       paintInfo.phase == PaintPhaseSelection))
-    m_layoutReplaced.paintBoxDecorationBackground(paintInfo,
-                                                  adjustedPaintOffset);
+  if (shouldPaintSelfBlockBackground(paintInfo.phase)) {
+    if (m_layoutReplaced.style()->visibility() == EVisibility::kVisible &&
+        m_layoutReplaced.hasBoxDecorationBackground()) {
+      m_layoutReplaced.paintBoxDecorationBackground(paintInfo,
+                                                    adjustedPaintOffset);
+    }
+    // We're done. We don't bother painting any children.
+    if (paintInfo.phase == PaintPhaseSelfBlockBackgroundOnly)
+      return;
+  }
 
   if (paintInfo.phase == PaintPhaseMask) {
     m_layoutReplaced.paintMask(paintInfo, adjustedPaintOffset);
@@ -129,14 +134,15 @@ bool ReplacedPainter::shouldPaint(
       !shouldPaintSelfOutline(paintInfo.phase) &&
       paintInfo.phase != PaintPhaseSelection &&
       paintInfo.phase != PaintPhaseMask &&
-      paintInfo.phase != PaintPhaseClippingMask)
+      paintInfo.phase != PaintPhaseClippingMask &&
+      !shouldPaintSelfBlockBackground(paintInfo.phase))
     return false;
 
   // If we're invisible or haven't received a layout yet, just bail.
   // But if it's an SVG root, there can be children, so we'll check visibility
   // later.
   if (!m_layoutReplaced.isSVGRoot() &&
-      m_layoutReplaced.style()->visibility() != EVisibility::Visible)
+      m_layoutReplaced.style()->visibility() != EVisibility::kVisible)
     return false;
 
   LayoutRect paintRect(m_layoutReplaced.visualOverflowRect());

@@ -150,7 +150,7 @@ bool AudioMessageFilter::OnMessageReceived(const IPC::Message& message) {
   IPC_BEGIN_MESSAGE_MAP(AudioMessageFilter, message)
     IPC_MESSAGE_HANDLER(AudioMsg_NotifyDeviceAuthorized, OnDeviceAuthorized)
     IPC_MESSAGE_HANDLER(AudioMsg_NotifyStreamCreated, OnStreamCreated)
-    IPC_MESSAGE_HANDLER(AudioMsg_NotifyStreamStateChanged, OnStreamStateChanged)
+    IPC_MESSAGE_HANDLER(AudioMsg_NotifyStreamError, OnStreamError)
     IPC_MESSAGE_UNHANDLED(handled = false)
   IPC_END_MESSAGE_MAP()
   return handled;
@@ -176,7 +176,7 @@ void AudioMessageFilter::OnChannelClosing() {
   DLOG_IF(WARNING, !delegates_.IsEmpty())
       << "Not all audio devices have been closed.";
 
-  IDMap<media::AudioOutputIPCDelegate>::iterator it(&delegates_);
+  IDMap<media::AudioOutputIPCDelegate*>::iterator it(&delegates_);
   while (!it.IsAtEnd()) {
     it.GetCurrentValue()->OnIPCClosed();
     delegates_.Remove(it.GetCurrentKey());
@@ -222,16 +222,15 @@ void AudioMessageFilter::OnStreamCreated(
   delegate->OnStreamCreated(handle, socket_handle, length);
 }
 
-void AudioMessageFilter::OnStreamStateChanged(
-    int stream_id, media::AudioOutputIPCDelegateState state) {
+void AudioMessageFilter::OnStreamError(int stream_id) {
   DCHECK(io_task_runner_->BelongsToCurrentThread());
   media::AudioOutputIPCDelegate* delegate = delegates_.Lookup(stream_id);
   if (!delegate) {
-    DLOG(WARNING) << "Got OnStreamStateChanged() event for a non-existent or"
-                  << " removed audio renderer.  State: " << state;
+    DLOG(WARNING) << "Got OnStreamError() event for a non-existent or"
+                  << " removed audio renderer.";
     return;
   }
-  delegate->OnStateChanged(state);
+  delegate->OnError();
 }
 
 }  // namespace content

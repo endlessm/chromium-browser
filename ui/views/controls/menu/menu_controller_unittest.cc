@@ -29,13 +29,14 @@
 #include "ui/views/controls/menu/menu_scroll_view_container.h"
 #include "ui/views/controls/menu/submenu_view.h"
 #include "ui/views/test/menu_test_utils.h"
+#include "ui/views/test/test_views_delegate.h"
 #include "ui/views/test/views_test_base.h"
 
 #if defined(USE_AURA)
+#include "ui/aura/client/drag_drop_client.h"
 #include "ui/aura/scoped_window_targeter.h"
 #include "ui/aura/window.h"
 #include "ui/views/controls/menu/menu_pre_target_handler.h"
-#include "ui/wm/public/drag_drop_client.h"
 #endif
 
 #if defined(USE_X11)
@@ -206,8 +207,6 @@ class TestDragDropClient : public aura::client::DragDropClient {
                        const gfx::Point& screen_location,
                        int operation,
                        ui::DragDropTypes::DragEventSource source) override;
-  void DragUpdate(aura::Window* target, const ui::LocatedEvent& event) override;
-  void Drop(aura::Window* target, const ui::LocatedEvent& event) override;
   void DragCancel() override;
   bool IsDragDropInProgress() override;
 
@@ -230,12 +229,6 @@ int TestDragDropClient::StartDragAndDrop(
   return 0;
 }
 
-void TestDragDropClient::DragUpdate(aura::Window* target,
-                                    const ui::LocatedEvent& event) {}
-void TestDragDropClient::Drop(aura::Window* target,
-                              const ui::LocatedEvent& event) {
-  drag_in_progress_ = false;
-}
 void TestDragDropClient::DragCancel() {
   drag_in_progress_ = false;
 }
@@ -244,6 +237,31 @@ bool TestDragDropClient::IsDragDropInProgress() {
 }
 
 #endif  // defined(USE_AURA)
+
+// Test implementation of TestViewsDelegate which overrides ReleaseRef in order
+// to test destruction order. This simulates Chrome shutting down upon the
+// release of the ref. Associated tests should not crash.
+class DestructingTestViewsDelegate : public TestViewsDelegate {
+ public:
+  DestructingTestViewsDelegate() {}
+  ~DestructingTestViewsDelegate() override {}
+
+  void set_release_ref_callback(const base::Closure& release_ref_callback) {
+    release_ref_callback_ = release_ref_callback;
+  }
+
+  // TestViewsDelegate:
+  void ReleaseRef() override;
+
+ private:
+  base::Closure release_ref_callback_;
+  DISALLOW_COPY_AND_ASSIGN(DestructingTestViewsDelegate);
+};
+
+void DestructingTestViewsDelegate::ReleaseRef() {
+  if (!release_ref_callback_.is_null())
+    release_ref_callback_.Run();
+}
 
 }  // namespace
 
@@ -271,6 +289,11 @@ class MenuControllerTest : public ViewsTestBase {
 
   // ViewsTestBase:
   void SetUp() override {
+    std::unique_ptr<DestructingTestViewsDelegate> views_delegate(
+        new DestructingTestViewsDelegate());
+    test_views_delegate_ = views_delegate.get();
+    // ViewsTestBase takes ownership, destroying during Teardown.
+    set_views_delegate(std::move(views_delegate));
     ViewsTestBase::SetUp();
     Init();
     ASSERT_TRUE(base::MessageLoopForUI::IsCurrent());
@@ -408,6 +431,16 @@ class MenuControllerTest : public ViewsTestBase {
   void TestCancelAllDuringDrag() {
     menu_controller_->CancelAll();
     EXPECT_EQ(0, menu_controller_delegate_->on_menu_closed_called());
+  }
+
+  // Tests that destroying the menu during ViewsDelegate::ReleaseRef does not
+  // cause a crash.
+  void TestDestroyedDuringViewsRelease() {
+    // |test_views_delegate_| is owned by views::ViewsTestBase and not deleted
+    // until TearDown. MenuControllerTest outlives it.
+    test_views_delegate_->set_release_ref_callback(base::Bind(
+        &MenuControllerTest::DestroyMenuController, base::Unretained(this)));
+    menu_controller_->ExitAsyncRun();
   }
 
  protected:
@@ -620,6 +653,9 @@ class MenuControllerTest : public ViewsTestBase {
         menu_item_.get(), MenuController::SELECTION_UPDATE_IMMEDIATELY);
     menu_item_->SetController(menu_controller_);
   }
+
+  // Not owned.
+  DestructingTestViewsDelegate* test_views_delegate_;
 
   std::unique_ptr<Widget> owner_;
   std::unique_ptr<ui::test::EventGenerator> event_generator_;
@@ -1434,9 +1470,7 @@ TEST_F(MenuControllerTest, RunWithoutWidgetDoesntCrash) {
 // MenuController becomes active, that the exiting of drag does not cause a
 // crash.
 TEST_F(MenuControllerTest, MenuControllerReplacedDuringDrag) {
-  // This test creates two native widgets, but expects the child native widget
-  // to be able to reach up and use the parent native widget's aura
-  // objects. https://crbug.com/614037
+  // TODO: this test wedges with aura-mus-client. http://crbug.com/664280.
   if (IsMus())
     return;
 
@@ -1453,9 +1487,7 @@ TEST_F(MenuControllerTest, MenuControllerReplacedDuringDrag) {
 // destroy the MenuController. On Windows and Linux this destruction also
 // destroys the Widget used for drag-and-drop, thereby ending the drag.
 TEST_F(MenuControllerTest, CancelAllDuringDrag) {
-  // This test creates two native widgets, but expects the child native widget
-  // to be able to reach up and use the parent native widget's aura
-  // objects. https://crbug.com/614037
+  // TODO: this test wedges with aura-mus-client. http://crbug.com/664280.
   if (IsMus())
     return;
 
@@ -1468,6 +1500,21 @@ TEST_F(MenuControllerTest, CancelAllDuringDrag) {
                                   &drag_drop_client);
   AddButtonMenuItems();
   StartDrag();
+}
+
+// Tests that when releasing the ref on ViewsDelegate and MenuController is
+// deleted, that shutdown occurs without crashing.
+TEST_F(MenuControllerTest, DestroyedDuringViewsRelease) {
+  ExitMenuRun();
+  MenuController* controller = menu_controller();
+  controller->SetAsyncRun(true);
+
+  int mouse_event_flags = 0;
+  MenuItemView* run_result =
+      controller->Run(owner(), nullptr, menu_item(), gfx::Rect(),
+                      MENU_ANCHOR_TOPLEFT, false, false, &mouse_event_flags);
+  EXPECT_EQ(run_result, nullptr);
+  TestDestroyedDuringViewsRelease();
 }
 
 #endif  // defined(USE_AURA)

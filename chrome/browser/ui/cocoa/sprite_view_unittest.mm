@@ -4,9 +4,10 @@
 
 #import <Cocoa/Cocoa.h>
 
+#include "base/mac/mac_util.h"
 #include "base/mac/scoped_nsobject.h"
-#import "chrome/browser/ui/cocoa/cocoa_test_helper.h"
 #import "chrome/browser/ui/cocoa/sprite_view.h"
+#import "chrome/browser/ui/cocoa/test/cocoa_test_helper.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "testing/platform_test.h"
 #include "ui/base/resource/resource_bundle.h"
@@ -56,6 +57,8 @@ TEST_F(SpriteViewTest, TestViewFrame) {
 }
 
 TEST_F(SpriteViewTest, StopAnimationOnMiniaturize) {
+  if (base::mac::IsOS10_10())
+    return;  // Fails when swarmed. http://crbug.com/660582
   EXPECT_TRUE([view_ isAnimating]);
 
   [test_window() miniaturize:nil];

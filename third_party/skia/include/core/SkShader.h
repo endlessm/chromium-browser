@@ -9,6 +9,7 @@
 #define SkShader_DEFINED
 
 #include "SkBitmap.h"
+#include "SkFilterQuality.h"
 #include "SkFlattenable.h"
 #include "SkImageInfo.h"
 #include "SkMask.h"
@@ -18,10 +19,11 @@
 
 class SkColorFilter;
 class SkColorSpace;
+class SkArenaAlloc;
 class SkImage;
 class SkPath;
 class SkPicture;
-class SkXfermode;
+class SkRasterPipeline;
 class GrContext;
 class GrFragmentProcessor;
 
@@ -99,6 +101,12 @@ public:
     virtual bool isOpaque() const { return false; }
 
     /**
+     *  Returns true if the shader is guaranteed to produce only a single color.
+     *  Subclasses can override this to allow loop-hoisting optimization.
+     */
+    virtual bool isConstant() const { return false; }
+
+    /**
      *  ContextRec acts as a parameter bundle for creating Contexts.
      */
     struct ContextRec {
@@ -108,16 +116,18 @@ public:
         };
 
         ContextRec(const SkPaint& paint, const SkMatrix& matrix, const SkMatrix* localM,
-                   DstType dstType)
+                   DstType dstType, SkColorSpace* dstColorSpace)
             : fPaint(&paint)
             , fMatrix(&matrix)
             , fLocalMatrix(localM)
-            , fPreferredDstType(dstType) {}
+            , fPreferredDstType(dstType)
+            , fDstColorSpace(dstColorSpace) {}
 
         const SkPaint*  fPaint;            // the current paint associated with the draw
         const SkMatrix* fMatrix;           // the current matrix in the canvas
         const SkMatrix* fLocalMatrix;      // optional local matrix
         const DstType   fPreferredDstType; // the "natural" client dest type
+        SkColorSpace*   fDstColorSpace;    // the color space of the dest surface (if any)
     };
 
     class Context : public ::SkNoncopyable {
@@ -153,7 +163,7 @@ public:
         struct BlitState {
             // inputs
             Context*    fCtx;
-            SkXfermode* fXfer;
+            SkBlendMode fMode;
 
             // outputs
             enum { N = 2 };
@@ -320,32 +330,30 @@ public:
     struct ComposeRec {
         const SkShader*     fShaderA;
         const SkShader*     fShaderB;
-        const SkXfermode*   fMode;
+        SkBlendMode         fBlendMode;
     };
 
     virtual bool asACompose(ComposeRec*) const { return false; }
 
 #if SK_SUPPORT_GPU
     struct AsFPArgs {
+        AsFPArgs() {}
         AsFPArgs(GrContext* context,
                  const SkMatrix* viewMatrix,
                  const SkMatrix* localMatrix,
                  SkFilterQuality filterQuality,
-                 SkColorSpace* dstColorSpace,
-                 SkSourceGammaTreatment gammaTreatment)
+                 SkColorSpace* dstColorSpace)
             : fContext(context)
             , fViewMatrix(viewMatrix)
             , fLocalMatrix(localMatrix)
             , fFilterQuality(filterQuality)
-            , fDstColorSpace(dstColorSpace)
-            , fGammaTreatment(gammaTreatment) {}
+            , fDstColorSpace(dstColorSpace) {}
 
-        GrContext*             fContext;
-        const SkMatrix*        fViewMatrix;
-        const SkMatrix*        fLocalMatrix;
-        SkFilterQuality        fFilterQuality;
-        SkColorSpace*          fDstColorSpace;
-        SkSourceGammaTreatment fGammaTreatment;
+        GrContext*                    fContext;
+        const SkMatrix*               fViewMatrix;
+        const SkMatrix*               fLocalMatrix;
+        SkFilterQuality               fFilterQuality;
+        SkColorSpace*                 fDstColorSpace;
     };
 
     /**
@@ -399,7 +407,7 @@ public:
 
     //////////////////////////////////////////////////////////////////////////
     //  Factory methods for stock shaders
-    
+
     /**
      *  Call this to create a new "empty" shader, that will not draw anything.
      */
@@ -419,40 +427,7 @@ public:
      */
     static sk_sp<SkShader> MakeColorShader(const SkColor4f&, sk_sp<SkColorSpace>);
 
-    static sk_sp<SkShader> MakeComposeShader(sk_sp<SkShader> dst, sk_sp<SkShader> src,
-                                             SkXfermode::Mode);
-
-#ifdef SK_SUPPORT_LEGACY_CREATESHADER_PTR
-    static SkShader* CreateEmptyShader() { return MakeEmptyShader().release(); }
-    static SkShader* CreateColorShader(SkColor c) { return MakeColorShader(c).release(); }
-    static SkShader* CreateBitmapShader(const SkBitmap& src, TileMode tmx, TileMode tmy,
-                                        const SkMatrix* localMatrix = nullptr) {
-        return MakeBitmapShader(src, tmx, tmy, localMatrix).release();
-    }
-    static SkShader* CreateComposeShader(SkShader* dst, SkShader* src, SkXfermode::Mode mode);
-    static SkShader* CreateComposeShader(SkShader* dst, SkShader* src, SkXfermode* xfer);
-    static SkShader* CreatePictureShader(const SkPicture* src, TileMode tmx, TileMode tmy,
-                                         const SkMatrix* localMatrix, const SkRect* tile);
-
-    SkShader* newWithLocalMatrix(const SkMatrix& matrix) const {
-        return this->makeWithLocalMatrix(matrix).release();
-    }
-    SkShader* newWithColorFilter(SkColorFilter* filter) const;
-#endif
-
-    /**
-     *  Create a new compose shader, given shaders dst, src, and a combining xfermode mode.
-     *  The xfermode is called with the output of the two shaders, and its output is returned.
-     *  If xfer is null, SkXfermode::kSrcOver_Mode is assumed.
-     *
-     *  The caller is responsible for managing its reference-count for the xfer (if not null).
-     */
-    static sk_sp<SkShader> MakeComposeShader(sk_sp<SkShader> dst, sk_sp<SkShader> src,
-                                             sk_sp<SkXfermode> xfer);
-#ifdef SK_SUPPORT_LEGACY_XFERMODE_PTR
-    static sk_sp<SkShader> MakeComposeShader(sk_sp<SkShader> dst, sk_sp<SkShader> src,
-                                             SkXfermode* xfer);
-#endif
+    static sk_sp<SkShader> MakeComposeShader(sk_sp<SkShader> dst, sk_sp<SkShader> src, SkBlendMode);
 
     /** Call this to create a new shader that will draw with the specified bitmap.
      *
@@ -491,17 +466,17 @@ public:
                                              const SkMatrix* localMatrix, const SkRect* tile);
 
     /**
-     *  If this shader can be represented by another shader + a localMatrix, return that shader
-     *  and, if not NULL, the localMatrix. If not, return NULL and ignore the localMatrix parameter.
-     *
-     *  Note: the returned shader (if not NULL) will have been ref'd, and it is the responsibility
-     *  of the caller to balance that with unref() when they are done.
+     *  If this shader can be represented by another shader + a localMatrix, return that shader and
+     *  the localMatrix. If not, return nullptr and ignore the localMatrix parameter.
      */
-    virtual SkShader* refAsALocalMatrixShader(SkMatrix* localMatrix) const;
+    virtual sk_sp<SkShader> makeAsALocalMatrixShader(SkMatrix* localMatrix) const;
 
     SK_TO_STRING_VIRT()
     SK_DEFINE_FLATTENABLE_TYPE(SkShader)
     SK_DECLARE_FLATTENABLE_REGISTRAR_GROUP()
+
+    bool appendStages(SkRasterPipeline*, SkColorSpace*, SkArenaAlloc*,
+                      const SkMatrix& ctm, const SkPaint&) const;
 
 protected:
     void flatten(SkWriteBuffer&) const override;
@@ -532,6 +507,11 @@ protected:
 
     virtual SkImage* onIsAImage(SkMatrix*, TileMode[2]) const {
         return nullptr;
+    }
+
+    virtual bool onAppendStages(SkRasterPipeline*, SkColorSpace*, SkArenaAlloc*,
+                                const SkMatrix&, const SkPaint&) const {
+        return false;
     }
 
 private:

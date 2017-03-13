@@ -39,6 +39,7 @@
 #include "core/css/MediaList.h"
 #include "core/css/MediaQuery.h"
 #include "core/css/MediaValuesDynamic.h"
+#include "core/css/MediaValuesInitialViewport.h"
 #include "core/css/resolver/MediaQueryResult.h"
 #include "core/dom/NodeComputedStyle.h"
 #include "core/frame/FrameHost.h"
@@ -51,6 +52,7 @@
 #include "platform/RuntimeEnabledFeatures.h"
 #include "platform/geometry/FloatRect.h"
 #include "public/platform/PointerProperties.h"
+#include "public/platform/ShapeProperties.h"
 #include "public/platform/WebDisplayMode.h"
 #include "wtf/HashMap.h"
 
@@ -66,21 +68,20 @@ using EvalFunc = bool (*)(const MediaQueryExpValue&,
 using FunctionMap = HashMap<StringImpl*, EvalFunc>;
 static FunctionMap* gFunctionMap;
 
-MediaQueryEvaluator::MediaQueryEvaluator(bool mediaFeatureResult)
-    : m_expectedResult(mediaFeatureResult) {}
-
-MediaQueryEvaluator::MediaQueryEvaluator(const char* acceptedMediaType,
-                                         bool mediaFeatureResult)
-    : m_mediaType(acceptedMediaType), m_expectedResult(mediaFeatureResult) {}
+MediaQueryEvaluator::MediaQueryEvaluator(const char* acceptedMediaType)
+    : m_mediaType(acceptedMediaType) {}
 
 MediaQueryEvaluator::MediaQueryEvaluator(LocalFrame* frame)
-    // Doesn't matter when we have m_frame and m_style.
-    : m_expectedResult(false),
-      m_mediaValues(MediaValues::createDynamicIfFrameExists(frame)) {}
+    : m_mediaValues(MediaValues::createDynamicIfFrameExists(frame)) {}
 
 MediaQueryEvaluator::MediaQueryEvaluator(const MediaValues& mediaValues)
-    : m_expectedResult(false),  // Doesn't matter when we have mediaValues.
-      m_mediaValues(mediaValues.copy()) {}
+    : m_mediaValues(mediaValues.copy()) {}
+
+MediaQueryEvaluator::MediaQueryEvaluator(
+    MediaValuesInitialViewport* mediaValues)
+    : m_mediaValues(mediaValues) {
+  DCHECK(mediaValues);
+}
 
 MediaQueryEvaluator::~MediaQueryEvaluator() {}
 
@@ -123,11 +124,11 @@ bool MediaQueryEvaluator::eval(
     bool exprResult = eval(expressions.at(i).get());
     if (viewportDependentMediaQueryResults &&
         expressions.at(i)->isViewportDependent())
-      viewportDependentMediaQueryResults->append(
+      viewportDependentMediaQueryResults->push_back(
           new MediaQueryResult(*expressions.at(i), exprResult));
     if (deviceDependentMediaQueryResults &&
         expressions.at(i)->isDeviceDependent())
-      deviceDependentMediaQueryResults->append(
+      deviceDependentMediaQueryResults->push_back(
           new MediaQueryResult(*expressions.at(i), exprResult));
     if (!exprResult)
       break;
@@ -642,6 +643,9 @@ static bool hoverMediaFeatureEval(const MediaQueryExpValue& value,
   if (!value.isID)
     return false;
 
+  if (value.id == CSSValueOnDemand)
+    UseCounter::count(mediaValues.document(), UseCounter::CSSValueOnDemand);
+
   return (hover == HoverTypeNone && value.id == CSSValueNone) ||
          (hover == HoverTypeOnDemand && value.id == CSSValueOnDemand) ||
          (hover == HoverTypeHover && value.id == CSSValueHover);
@@ -662,6 +666,7 @@ static bool anyHoverMediaFeatureEval(const MediaQueryExpValue& value,
     case CSSValueNone:
       return availableHoverTypes & HoverTypeNone;
     case CSSValueOnDemand:
+      UseCounter::count(mediaValues.document(), UseCounter::CSSValueOnDemand);
       return availableHoverTypes & HoverTypeOnDemand;
     case CSSValueHover:
       return availableHoverTypes & HoverTypeHover;
@@ -685,6 +690,28 @@ static bool pointerMediaFeatureEval(const MediaQueryExpValue& value,
   return (pointer == PointerTypeNone && value.id == CSSValueNone) ||
          (pointer == PointerTypeCoarse && value.id == CSSValueCoarse) ||
          (pointer == PointerTypeFine && value.id == CSSValueFine);
+}
+
+static bool shapeMediaFeatureEval(const MediaQueryExpValue& value,
+                                  MediaFeaturePrefix,
+                                  const MediaValues& mediaValues) {
+  if (!value.isValid())
+    return true;
+
+  if (!value.isID)
+    return false;
+
+  DisplayShape shape = mediaValues.displayShape();
+
+  switch (value.id) {
+    case CSSValueRect:
+      return shape == DisplayShapeRect;
+    case CSSValueRound:
+      return shape == DisplayShapeRound;
+    default:
+      NOTREACHED();
+      return false;
+  }
 }
 
 static bool anyPointerMediaFeatureEval(const MediaQueryExpValue& value,
@@ -741,7 +768,7 @@ void MediaQueryEvaluator::init() {
 
 bool MediaQueryEvaluator::eval(const MediaQueryExp* expr) const {
   if (!m_mediaValues || !m_mediaValues->hasValues())
-    return m_expectedResult;
+    return true;
 
   DCHECK(gFunctionMap);
 

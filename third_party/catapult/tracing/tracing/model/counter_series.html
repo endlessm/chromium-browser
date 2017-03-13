@@ -109,16 +109,16 @@ tr.exportTo('tr.model', function() {
       }
     },
 
-    childEvents: function*() {
-      yield * this.samples_;
+    childEvents: function* () {
+      yield* this.samples_;
     },
 
-    childEventContainers: function*() {
+    childEventContainers: function* () {
     }
   };
 
   return {
-    CounterSeries: CounterSeries
+    CounterSeries,
   };
 });
 </script>

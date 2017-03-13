@@ -18,7 +18,7 @@ class Range;
 
 class GURL;
 
-enum class PasswordTittleType {
+enum class PasswordTitleType {
   SAVE_PASSWORD,    // plain password
   SAVE_ACCOUNT,     // login via IDP
   UPDATE_PASSWORD,  // update plain password
@@ -28,6 +28,10 @@ class Profile;
 
 // The desired width and height in pixels for an account avatar.
 constexpr int kAvatarImageSize = 32;
+
+// The desired width and height for the 'i' icon used for the PSL matches in the
+// account chooser.
+constexpr int kInfoIconSize = 16;
 
 // Crops and scales |image_skia| to the desired size for an account avatar.
 gfx::ImageSkia ScaleImageForAccountAvatar(gfx::ImageSkia image_skia);
@@ -51,7 +55,7 @@ void GetSavePasswordDialogTitleTextAndLinkRange(
     const GURL& user_visible_url,
     const GURL& form_origin_url,
     bool is_smartlock_branding_enabled,
-    PasswordTittleType dialog_type,
+    PasswordTitleType dialog_type,
     base::string16* title,
     gfx::Range* title_link_range);
 

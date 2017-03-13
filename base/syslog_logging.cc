@@ -6,6 +6,10 @@
 #include "base/syslog_logging.h"
 
 #if defined(OS_WIN)
+#include "base/bind.h"
+#include "base/callback_helpers.h"
+#include "base/win/eventlog_messages.h"
+
 #include <windows.h>
 #elif defined(OS_LINUX)
 #include <syslog.h>
@@ -17,6 +21,18 @@
 
 namespace logging {
 
+#if defined(OS_WIN)
+
+namespace {
+std::string* g_event_source_name = nullptr;
+}
+
+void SetEventSourceName(const std::string& name) {
+  DCHECK_EQ(nullptr, g_event_source_name);
+  g_event_source_name = new std::string(name);
+}
+#endif  // defined(OS_WIN)
+
 EventLogMessage::EventLogMessage(const char* file,
                                  int line,
                                  LogSeverity severity)
@@ -25,15 +41,22 @@ EventLogMessage::EventLogMessage(const char* file,
 
 EventLogMessage::~EventLogMessage() {
 #if defined(OS_WIN)
-  const char kEventSource[] = "chrome";
-  HANDLE event_log_handle = RegisterEventSourceA(NULL, kEventSource);
+  // If g_event_source_name is nullptr (which it is per default) SYSLOG will
+  // degrade gracefully to regular LOG. If you see this happening most probably
+  // you are using SYSLOG before you called SetEventSourceName.
+  if (g_event_source_name == nullptr)
+    return;
+
+  HANDLE event_log_handle =
+      RegisterEventSourceA(NULL, g_event_source_name->c_str());
   if (event_log_handle == NULL) {
     stream() << " !!NOT ADDED TO EVENTLOG!!";
     return;
   }
 
+  base::ScopedClosureRunner auto_deregister(
+      base::Bind(base::IgnoreResult(&DeregisterEventSource), event_log_handle));
   std::string message(log_message_.str());
-  LPCSTR strings[1] = {message.data()};
   WORD log_type = EVENTLOG_ERROR_TYPE;
   switch (log_message_.severity()) {
     case LOG_INFO:
@@ -51,13 +74,11 @@ EventLogMessage::~EventLogMessage() {
       log_type = EVENTLOG_ERROR_TYPE;
       break;
   }
-  // TODO(pastarmovj): Register Chrome's event log resource types to make the
-  // entries nicer. 1337 is just a made up event id type.
-  if (!ReportEventA(event_log_handle, log_type, 0, 1337, NULL, 1, 0,
-                    strings, NULL)) {
+  LPCSTR strings[1] = {message.data()};
+  if (!ReportEventA(event_log_handle, log_type, BROWSER_CATEGORY,
+                    MSG_LOG_MESSAGE, NULL, 1, 0, strings, NULL)) {
     stream() << " !!NOT ADDED TO EVENTLOG!!";
   }
-  DeregisterEventSource(event_log_handle);
 #elif defined(OS_LINUX)
   const char kEventSource[] = "chrome";
   openlog(kEventSource, LOG_NOWAIT | LOG_PID, LOG_USER);

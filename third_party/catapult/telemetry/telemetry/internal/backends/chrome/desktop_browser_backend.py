@@ -16,12 +16,12 @@ import sys
 import tempfile
 import time
 
+import py_utils
 from py_utils import cloud_storage  # pylint: disable=import-error
 import dependency_manager  # pylint: disable=import-error
 
 from telemetry.internal.util import binary_manager
 from telemetry.core import exceptions
-from telemetry.core import util
 from telemetry.internal.backends import browser_backend
 from telemetry.internal.backends.chrome import chrome_browser_backend
 from telemetry.internal.util import path
@@ -115,6 +115,7 @@ class DesktopBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
     self._tmp_profile_dir = None
     self._tmp_output_file = None
     self._most_recent_symbolized_minidump_paths = set([])
+    self._minidump_path_crashpad_retrieval = {}
 
     self._executable = executable
     if not self._executable:
@@ -271,6 +272,12 @@ class DesktopBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
   def Start(self):
     assert not self._proc, 'Must call Close() before Start()'
 
+    # macOS displays a blocking crash resume dialog that we need to suppress.
+    if self.browser.platform.GetOSName() == 'mac':
+      subprocess.call(['defaults', 'write', '-app', self._executable,
+                       'NSQuitAlwaysKeepsWindows', '-bool', 'false'])
+
+
     args = [self._executable]
     args.extend(self.GetBrowserStartupArgs())
     if self.browser_options.startup_url:
@@ -335,6 +342,12 @@ class DesktopBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
         return f.read()
     except IOError:
       return ''
+
+  def _MinidumpObtainedFromCrashpad(self, minidump):
+    if minidump in self._minidump_path_crashpad_retrieval:
+      return self._minidump_path_crashpad_retrieval[minidump]
+    # Default to crashpad where we hope to be eventually
+    return True
 
   def _GetAllCrashpadMinidumps(self):
     if not self._tmp_minidump_dir:
@@ -416,10 +429,12 @@ class DesktopBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
 
   def _GetMostRecentMinidump(self):
     # Crashpad dump layout will be the standard eventually, check it first.
+    crashpad_dump = True
     most_recent_dump = self._GetMostRecentCrashpadMinidump()
 
     # Typical breakpad format is simply dump files in a folder.
     if not most_recent_dump:
+      crashpad_dump = False
       logging.info('No minidump found via crashpad_database_util')
       dumps = self._GetBreakPadMinidumpPaths()
       if dumps:
@@ -432,6 +447,7 @@ class DesktopBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
         os.path.getmtime(most_recent_dump) < (time.time() - (5 * 60))):
       logging.warning('Crash dump is older than 5 minutes. May not be correct.')
 
+    self._minidump_path_crashpad_retrieval[most_recent_dump] = crashpad_dump
     return most_recent_dump
 
   def _IsExecutableStripped(self):
@@ -458,25 +474,26 @@ class DesktopBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
       if not cdb:
         logging.warning('cdb.exe not found.')
         return None
-      # Include all the threads' stacks ("~*kb30") in addition to the
-      # ostensibly crashed stack associated with the exception context
-      # record (".ecxr;kb30"). Note that stack dumps, including that
-      # for the crashed thread, may not be as precise as the one
-      # starting from the exception context record.
+      # Move to the thread which triggered the exception (".ecxr"). Then include
+      # a description of the exception (".lastevent"). Also include all the
+      # threads' stacks ("~*kb30") as well as the ostensibly crashed stack
+      # associated with the exception context record ("kb30"). Note that stack
+      # dumps, including that for the crashed thread, may not be as precise as
+      # the one starting from the exception context record.
       # Specify kb instead of k in order to get four arguments listed, for
       # easier diagnosis from stacks.
       output = subprocess.check_output([cdb, '-y', self._browser_directory,
-                                        '-c', '.ecxr;kb30;~*kb30;q',
+                                        '-c', '.ecxr;.lastevent;kb30;~*kb30;q',
                                         '-z', minidump])
-      # cdb output can start the stack with "ChildEBP", "Child-SP", and possibly
+      # The output we care about starts with "Last event:" or possibly
       # other things we haven't seen yet. If we can't find the start of the
-      # stack, include output from the beginning.
-      stack_start = 0
-      stack_start_match = re.search("^Child(?:EBP|-SP)", output, re.MULTILINE)
-      if stack_start_match:
-        stack_start = stack_start_match.start()
-      stack_end = output.find('quit:')
-      return output[stack_start:stack_end]
+      # last event entry, include output from the beginning.
+      info_start = 0
+      info_start_match = re.search("Last event:", output, re.MULTILINE)
+      if info_start_match:
+        info_start = info_start_match.start()
+      info_end = output.find('quit:')
+      return output[info_start:info_end]
 
     arch_name = self.browser.platform.GetArchName()
     stackwalk = binary_manager.FetchPath(
@@ -484,11 +501,13 @@ class DesktopBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
     if not stackwalk:
       logging.warning('minidump_stackwalk binary not found.')
       return None
-
-    with open(minidump, 'rb') as infile:
-      minidump += '.stripped'
-      with open(minidump, 'wb') as outfile:
-        outfile.write(''.join(infile.read().partition('MDMP')[1:]))
+    # We only want this logic on linux platforms that are still using breakpad.
+    # See crbug.com/667475
+    if not self._MinidumpObtainedFromCrashpad(minidump):
+      with open(minidump, 'rb') as infile:
+        minidump += '.stripped'
+        with open(minidump, 'wb') as outfile:
+          outfile.write(''.join(infile.read().partition('MDMP')[1:]))
 
     symbols_path = os.path.join(self._tmp_minidump_dir, 'symbols')
     GenerateBreakpadSymbols(minidump, arch_name, os_name,
@@ -529,12 +548,16 @@ class DesktopBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
   def GetAllMinidumpPaths(self):
     reports_list = self._GetAllCrashpadMinidumps()
     if reports_list:
+      for report in reports_list:
+        self._minidump_path_crashpad_retrieval[report[1]] = True
       return [report[1] for report in reports_list]
     else:
       logging.info('No minidump found via crashpad_database_util')
       dumps = self._GetBreakPadMinidumpPaths()
       if dumps:
         logging.info('Found minidump via globbing in minidump dir')
+        for dump in dumps:
+          self._minidump_path_crashpad_retrieval[dump] = False
         return dumps
       return []
 
@@ -549,9 +572,10 @@ class DesktopBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
     return self._InternalSymbolizeMinidump(minidump_path)
 
   def _InternalSymbolizeMinidump(self, minidump_path):
+    cloud_storage_link = self._UploadMinidumpToCloudStorage(minidump_path)
+
     stack = self._GetStackFromMinidump(minidump_path)
     if not stack:
-      cloud_storage_link = self._UploadMinidumpToCloudStorage(minidump_path)
       error_message = ('Failed to symbolize minidump. Raw stack is uploaded to'
                        ' cloud storage: %s.' % cloud_storage_link)
       return (False, error_message)
@@ -572,9 +596,9 @@ class DesktopBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
       # now, just solve this particular problem. See Issue 424024.
       if self.browser.platform.CooperativelyShutdown(self._proc, "chrome"):
         try:
-          util.WaitFor(lambda: not self.IsBrowserRunning(), timeout=5)
+          py_utils.WaitFor(lambda: not self.IsBrowserRunning(), timeout=5)
           logging.info('Successfully shut down browser cooperatively')
-        except exceptions.TimeoutException as e:
+        except py_utils.TimeoutException as e:
           logging.warning('Failed to cooperatively shutdown. ' +
                           'Proceeding to terminate: ' + str(e))
 
@@ -592,9 +616,9 @@ class DesktopBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
     if self.IsBrowserRunning():
       self._proc.terminate()
       try:
-        util.WaitFor(lambda: not self.IsBrowserRunning(), timeout=5)
+        py_utils.WaitFor(lambda: not self.IsBrowserRunning(), timeout=5)
         self._proc = None
-      except exceptions.TimeoutException:
+      except py_utils.TimeoutException:
         logging.warning('Failed to gracefully shutdown.')
 
     # Shutdown aggressively if all above failed.

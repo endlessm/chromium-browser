@@ -69,6 +69,7 @@ var ProfileInfo;
  *   devicePath: (string|undefined),
  *   isParentDevice: (boolean|undefined),
  *   isReadOnly: boolean,
+ *   isReadOnlyRemovableDevice: boolean,
  *   hasMedia: boolean,
  *   configurable: boolean,
  *   watchable: boolean,
@@ -690,6 +691,9 @@ chrome.fileManagerPrivate.onDeviceChanged;
 
 /** @type {!ChromeEvent} */
 chrome.fileManagerPrivate.onDriveSyncError;
+
+/** @type {!ChromeEvent} */
+chrome.fileManagerPrivate.onAppsUpdated;
 
 /** @enum {string} */
 chrome.fileManagerPrivate.Verb = {

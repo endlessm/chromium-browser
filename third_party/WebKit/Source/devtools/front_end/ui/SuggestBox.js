@@ -27,520 +27,462 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-
 /**
  * @interface
  */
-WebInspector.SuggestBoxDelegate = function()
-{
-}
+UI.SuggestBoxDelegate = function() {};
 
-WebInspector.SuggestBoxDelegate.prototype = {
-    /**
-     * @param {string} suggestion
-     * @param {boolean=} isIntermediateSuggestion
-     */
-    applySuggestion: function(suggestion, isIntermediateSuggestion) { },
+UI.SuggestBoxDelegate.prototype = {
+  /**
+   * @param {string} suggestion
+   * @param {boolean=} isIntermediateSuggestion
+   */
+  applySuggestion(suggestion, isIntermediateSuggestion) {},
 
-    /**
-     * acceptSuggestion will be always called after call to applySuggestion with isIntermediateSuggestion being equal to false.
-     */
-    acceptSuggestion: function() { },
-}
+  /**
+   * acceptSuggestion will be always called after call to applySuggestion with isIntermediateSuggestion being equal to false.
+   */
+  acceptSuggestion() {},
+};
 
 /**
- * @constructor
- * @param {!WebInspector.SuggestBoxDelegate} suggestBoxDelegate
- * @param {number=} maxItemsHeight
- * @param {boolean=} captureEnter
+ * @unrestricted
+ * @implements {UI.ListDelegate}
  */
-WebInspector.SuggestBox = function(suggestBoxDelegate, maxItemsHeight, captureEnter)
-{
+UI.SuggestBox = class {
+  /**
+   * @param {!UI.SuggestBoxDelegate} suggestBoxDelegate
+   * @param {number=} maxItemsHeight
+   * @param {boolean=} captureEnter
+   */
+  constructor(suggestBoxDelegate, maxItemsHeight, captureEnter) {
     this._suggestBoxDelegate = suggestBoxDelegate;
-    this._length = 0;
-    this._selectedIndex = -1;
-    this._selectedElement = null;
     this._maxItemsHeight = maxItemsHeight;
     this._maybeHideBound = this._maybeHide.bind(this);
-    this._container = createElementWithClass("div", "suggest-box-container");
-    this._element = this._container.createChild("div", "suggest-box");
-    this._element.addEventListener("mousedown", this._onBoxMouseDown.bind(this), true);
-    this._detailsPopup = this._container.createChild("div", "suggest-box details-popup monospace");
-    this._detailsPopup.classList.add("hidden");
-    this._asyncDetailsCallback = null;
-    /** @type {!Map<number, !Promise<{detail: string, description: string}>>} */
-    this._asyncDetailsPromises = new Map();
+    this._hideBound = this.hide.bind(this);
+    this._container = createElementWithClass('div', 'suggest-box-container');
+    this._rowHeight = 17;
+    /** @type {!UI.ListControl<!UI.SuggestBox.Suggestion>} */
+    this._list = new UI.ListControl(this, UI.ListMode.EqualHeightItems);
+    this._element = this._list.element;
+    this._element.classList.add('suggest-box');
+    this._container.appendChild(this._element);
+    this._element.addEventListener('mousedown', this._onBoxMouseDown.bind(this), true);
     this._userInteracted = false;
     this._captureEnter = captureEnter;
-}
+    this._viewportWidth = '100vw';
+    this._hasVerticalScroll = false;
+    this._userEnteredText = '';
+  }
 
-/**
- * @typedef {!Array.<{title: string, className: (string|undefined)}>}
- */
-WebInspector.SuggestBox.Suggestions;
+  /**
+   * @return {boolean}
+   */
+  visible() {
+    return !!this._container.parentElement;
+  }
 
-WebInspector.SuggestBox.prototype = {
-    /**
-     * @return {boolean}
-     */
-    visible: function()
-    {
-        return !!this._container.parentElement;
-    },
+  /**
+   * @param {!AnchorBox} anchorBox
+   */
+  setPosition(anchorBox) {
+    this._updateBoxPosition(anchorBox, this._list.length());
+  }
 
-    /**
-     * @param {!AnchorBox} anchorBox
-     */
-    setPosition: function(anchorBox)
-    {
-        this._updateBoxPosition(anchorBox);
-    },
+  /**
+   * @param {!AnchorBox} anchorBox
+   * @param {number} length
+   */
+  _updateBoxPosition(anchorBox, length) {
+    console.assert(this._overlay);
+    if (this._lastAnchorBox && this._lastAnchorBox.equals(anchorBox) && this._lastItemCount === length)
+      return;
+    this._lastItemCount = length;
+    this._lastAnchorBox = anchorBox;
 
-    /**
-     * @param {!AnchorBox} anchorBox
-     */
-    _updateBoxPosition: function(anchorBox)
-    {
-        console.assert(this._overlay);
-        if (this._lastAnchorBox && this._lastAnchorBox.equals(anchorBox))
-            return;
-        this._lastAnchorBox = anchorBox;
+    // Position relative to main DevTools element.
+    var container = UI.Dialog.modalHostView().element;
+    anchorBox = anchorBox.relativeToElement(container);
+    var totalHeight = container.offsetHeight;
+    var aboveHeight = anchorBox.y;
+    var underHeight = totalHeight - anchorBox.y - anchorBox.height;
 
-        // Position relative to main DevTools element.
-        var container = WebInspector.Dialog.modalHostView().element;
-        anchorBox = anchorBox.relativeToElement(container);
-        var totalHeight = container.offsetHeight;
-        var aboveHeight = anchorBox.y;
-        var underHeight = totalHeight - anchorBox.y - anchorBox.height;
+    this._overlay.setLeftOffset(anchorBox.x);
 
-        this._overlay.setLeftOffset(anchorBox.x);
+    var under = underHeight >= aboveHeight;
+    if (under)
+      this._overlay.setVerticalOffset(anchorBox.y + anchorBox.height, true);
+    else
+      this._overlay.setVerticalOffset(totalHeight - anchorBox.y, false);
 
-        var under = underHeight >= aboveHeight;
-        if (under)
-            this._overlay.setVerticalOffset(anchorBox.y + anchorBox.height, true);
-        else
-            this._overlay.setVerticalOffset(totalHeight - anchorBox.y, false);
+    var spacer = 6;
+    var maxHeight = Math.min(
+        Math.max(underHeight, aboveHeight) - spacer,
+        this._maxItemsHeight ? this._maxItemsHeight * this._rowHeight : Infinity);
+    var height = this._rowHeight * length;
+    this._hasVerticalScroll = height > maxHeight;
+    this._element.style.height = Math.min(maxHeight, height) + 'px';
+  }
 
-        /** const */ var rowHeight = 17;
-        /** const */ var spacer = 6;
-        var maxHeight = this._maxItemsHeight ? this._maxItemsHeight * rowHeight : Math.max(underHeight, aboveHeight) - spacer;
-        this._element.style.maxHeight = maxHeight + "px";
-    },
-
-    /**
-     * @param {!Event} event
-     */
-    _onBoxMouseDown: function(event)
-    {
-        if (this._hideTimeoutId) {
-            window.clearTimeout(this._hideTimeoutId);
-            delete this._hideTimeoutId;
-        }
-        event.preventDefault();
-    },
-
-    _maybeHide: function()
-    {
-        if (!this._hideTimeoutId)
-            this._hideTimeoutId = window.setTimeout(this.hide.bind(this), 0);
-    },
-
-    /**
-     * // FIXME: make SuggestBox work for multiple documents.
-     * @suppressGlobalPropertiesCheck
-     */
-    _show: function()
-    {
-        if (this.visible())
-            return;
-        this._bodyElement = document.body;
-        this._bodyElement.addEventListener("mousedown", this._maybeHideBound, true);
-        this._overlay = new WebInspector.SuggestBox.Overlay();
-        this._overlay.setContentElement(this._container);
-    },
-
-    hide: function()
-    {
-        if (!this.visible())
-            return;
-
-        this._userInteracted = false;
-        this._bodyElement.removeEventListener("mousedown", this._maybeHideBound, true);
-        delete this._bodyElement;
-        this._container.remove();
-        this._overlay.dispose();
-        delete this._overlay;
-        delete this._selectedElement;
-        this._selectedIndex = -1;
-        delete this._lastAnchorBox;
-    },
-
-    removeFromElement: function()
-    {
-        this.hide();
-    },
-
-    /**
-     * @param {boolean=} isIntermediateSuggestion
-     */
-    _applySuggestion: function(isIntermediateSuggestion)
-    {
-        if (this._onlyCompletion) {
-            this._suggestBoxDelegate.applySuggestion(this._onlyCompletion, isIntermediateSuggestion);
-            return true;
-        }
-
-        if (!this.visible() || !this._selectedElement)
-            return false;
-
-        var suggestion = this._selectedElement.__fullValue;
-        if (!suggestion)
-            return false;
-
-        this._suggestBoxDelegate.applySuggestion(suggestion, isIntermediateSuggestion);
-        return true;
-    },
-
-    /**
-     * @return {boolean}
-     */
-    acceptSuggestion: function()
-    {
-        var result = this._applySuggestion();
-        this.hide();
-        if (!result)
-            return false;
-
-        this._suggestBoxDelegate.acceptSuggestion();
-
-        return true;
-    },
-
-    /**
-     * @param {number} shift
-     * @param {boolean=} isCircular
-     * @return {boolean} is changed
-     */
-    _selectClosest: function(shift, isCircular)
-    {
-        if (!this._length)
-            return false;
-
-        this._userInteracted = true;
-
-        if (this._selectedIndex === -1 && shift < 0)
-            shift += 1;
-
-        var index = this._selectedIndex + shift;
-
-        if (isCircular)
-            index = (this._length + index) % this._length;
-        else
-            index = Number.constrain(index, 0, this._length - 1);
-
-        this._selectItem(index, true);
-        this._applySuggestion(true);
-        return true;
-    },
-
-    /**
-     * @param {!Event} event
-     */
-    _onItemMouseDown: function(event)
-    {
-        this._selectedElement = event.currentTarget;
-        this.acceptSuggestion();
-        event.consume(true);
-    },
-
-    /**
-     * @param {string} prefix
-     * @param {string} text
-     * @param {string|undefined} className
-     * @param {number} index
-     */
-    _createItemElement: function(prefix, text, className, index)
-    {
-        var element = createElementWithClass("div", "suggest-box-content-item source-code " + (className || ""));
-        element.tabIndex = -1;
-        if (prefix && prefix.length && !text.indexOf(prefix)) {
-            element.createChild("span", "prefix").textContent = prefix;
-            element.createChild("span", "suffix").textContent = text.substring(prefix.length).trimEnd(50);
-        } else {
-            element.createChild("span", "suffix").textContent = text.trimEnd(50);
-        }
-        element.__fullValue = text;
-        element.createChild("span", "spacer");
-        element.addEventListener("mousedown", this._onItemMouseDown.bind(this), false);
-        return element;
-    },
-
-    /**
-     * @param {!WebInspector.SuggestBox.Suggestions} items
-     * @param {string} userEnteredText
-     * @param {function(number): !Promise<{detail:string, description:string}>=} asyncDetails
-     */
-    _updateItems: function(items, userEnteredText, asyncDetails)
-    {
-        this._length = items.length;
-        this._asyncDetailsPromises.clear();
-        this._asyncDetailsCallback = asyncDetails;
-        this._element.removeChildren();
-        delete this._selectedElement;
-
-        for (var i = 0; i < items.length; ++i) {
-            var item = items[i];
-            var currentItemElement = this._createItemElement(userEnteredText, item.title, item.className, i);
-            this._element.appendChild(currentItemElement);
-        }
-    },
-
-    /**
-     * @param {number} index
-     * @return {!Promise<?{detail: string, description: string}>}
-     */
-    _asyncDetails: function(index)
-    {
-        if (!this._asyncDetailsCallback)
-            return Promise.resolve(/** @type {?{description: string, detail: string}} */(null));
-        if (!this._asyncDetailsPromises.has(index))
-            this._asyncDetailsPromises.set(index, this._asyncDetailsCallback(index));
-        return /** @type {!Promise<?{detail: string, description: string}>} */(this._asyncDetailsPromises.get(index));
-    },
-
-    /**
-     * @param {?{detail: string, description: string}} details
-     */
-    _showDetailsPopup: function(details)
-    {
-        this._detailsPopup.removeChildren();
-        if (!details)
-            return;
-        this._detailsPopup.createChild("section", "detail").createTextChild(details.detail);
-        this._detailsPopup.createChild("section", "description").createTextChild(details.description);
-        this._detailsPopup.classList.remove("hidden");
-    },
-
-    /**
-     * @param {number} index
-     * @param {boolean} scrollIntoView
-     */
-    _selectItem: function(index, scrollIntoView)
-    {
-        if (this._selectedElement)
-            this._selectedElement.classList.remove("selected");
-
-        this._selectedIndex = index;
-        if (index < 0)
-            return;
-
-        this._selectedElement = this._element.children[index];
-        this._selectedElement.classList.add("selected");
-        this._detailsPopup.classList.add("hidden");
-        var elem = this._selectedElement;
-        this._asyncDetails(index).then(showDetails.bind(this), function(){});
-
-        if (scrollIntoView)
-            this._selectedElement.scrollIntoViewIfNeeded(false);
-
-        /**
-         * @param {?{detail: string, description: string}} details
-         * @this {WebInspector.SuggestBox}
-         */
-        function showDetails(details)
-        {
-            if (elem === this._selectedElement)
-                this._showDetailsPopup(details);
-        }
-    },
-
-    /**
-     * @param {!WebInspector.SuggestBox.Suggestions} completions
-     * @param {boolean} canShowForSingleItem
-     * @param {string} userEnteredText
-     */
-    _canShowBox: function(completions, canShowForSingleItem, userEnteredText)
-    {
-        if (!completions || !completions.length)
-            return false;
-
-        if (completions.length > 1)
-            return true;
-
-        // Do not show a single suggestion if it is the same as user-entered prefix, even if allowed to show single-item suggest boxes.
-        return canShowForSingleItem && completions[0].title !== userEnteredText;
-    },
-
-    _ensureRowCountPerViewport: function()
-    {
-        if (this._rowCountPerViewport)
-            return;
-        if (!this._element.firstChild)
-            return;
-
-        this._rowCountPerViewport = Math.floor(this._element.offsetHeight / this._element.firstChild.offsetHeight);
-    },
-
-    /**
-     * @param {!AnchorBox} anchorBox
-     * @param {!WebInspector.SuggestBox.Suggestions} completions
-     * @param {number} selectedIndex
-     * @param {boolean} canShowForSingleItem
-     * @param {string} userEnteredText
-     * @param {function(number): !Promise<{detail:string, description:string}>=} asyncDetails
-     */
-    updateSuggestions: function(anchorBox, completions, selectedIndex, canShowForSingleItem, userEnteredText, asyncDetails)
-    {
-        delete this._onlyCompletion;
-        if (this._canShowBox(completions, canShowForSingleItem, userEnteredText)) {
-            this._updateItems(completions, userEnteredText, asyncDetails);
-            this._show();
-            this._updateBoxPosition(anchorBox);
-            this._selectItem(selectedIndex, selectedIndex > 0);
-            delete this._rowCountPerViewport;
-        } else {
-            if (completions.length === 1)
-                this._onlyCompletion = completions[0].title;
-            this.hide();
-        }
-    },
-
-    /**
-     * @param {!KeyboardEvent} event
-     * @return {boolean}
-     */
-    keyPressed: function(event)
-    {
-        switch (event.key) {
-        case "ArrowUp":
-            return this.upKeyPressed();
-        case "ArrowDown":
-            return this.downKeyPressed();
-        case "PageUp":
-            return this.pageUpKeyPressed();
-        case "PageDown":
-            return this.pageDownKeyPressed();
-        case "Enter":
-            return this.enterKeyPressed();
-        }
-        return false;
-    },
-
-    /**
-     * @return {boolean}
-     */
-    upKeyPressed: function()
-    {
-        return this._selectClosest(-1, true);
-    },
-
-    /**
-     * @return {boolean}
-     */
-    downKeyPressed: function()
-    {
-        return this._selectClosest(1, true);
-    },
-
-    /**
-     * @return {boolean}
-     */
-    pageUpKeyPressed: function()
-    {
-        this._ensureRowCountPerViewport();
-        return this._selectClosest(-this._rowCountPerViewport, false);
-    },
-
-    /**
-     * @return {boolean}
-     */
-    pageDownKeyPressed: function()
-    {
-        this._ensureRowCountPerViewport();
-        return this._selectClosest(this._rowCountPerViewport, false);
-    },
-
-    /**
-     * @return {boolean}
-     */
-    enterKeyPressed: function()
-    {
-        if (!this._userInteracted && this._captureEnter)
-            return false;
-
-        var hasSelectedItem = !!this._selectedElement || this._onlyCompletion;
-        this.acceptSuggestion();
-
-        // Report the event as non-handled if there is no selected item,
-        // to commit the input or handle it otherwise.
-        return hasSelectedItem;
+  /**
+   * @param {!UI.SuggestBox.Suggestions} items
+   */
+  _updateWidth(items) {
+    if (this._hasVerticalScroll) {
+      this._element.style.width = '100vw';
+      return;
     }
-}
+    if (!items.length)
+      return;
+    // If there are no scrollbars, set the width to the width of the largest row.
+    var maxItem;
+    var maxLength = -Infinity;
+    for (var i = 0; i < items.length; i++) {
+      var length = items[i].title.length + (items[i].subtitle || '').length;
+      if (length > maxLength) {
+        maxLength = length;
+        maxItem = items[i];
+      }
+    }
+    this._element.style.width =
+        UI.measurePreferredSize(
+              this.createElementForItem(/** @type {!UI.SuggestBox.Suggestion} */ (maxItem)), this._element)
+            .width +
+        'px';
+  }
+
+  /**
+   * @param {!Event} event
+   */
+  _onBoxMouseDown(event) {
+    if (this._hideTimeoutId) {
+      window.clearTimeout(this._hideTimeoutId);
+      delete this._hideTimeoutId;
+    }
+    event.preventDefault();
+  }
+
+  _maybeHide() {
+    if (!this._hideTimeoutId)
+      this._hideTimeoutId = window.setTimeout(this._hideBound, 0);
+  }
+
+  /**
+   * // FIXME: make SuggestBox work for multiple documents.
+   * @suppressGlobalPropertiesCheck
+   */
+  _show() {
+    if (this.visible())
+      return;
+    this._bodyElement = document.body;
+    this._bodyElement.addEventListener('mousedown', this._maybeHideBound, true);
+    this._element.ownerDocument.defaultView.addEventListener('resize', this._hideBound, false);
+    this._overlay = new UI.SuggestBox.Overlay();
+    this._overlay.setContentElement(this._container);
+    this._rowHeight =
+        UI.measurePreferredSize(this.createElementForItem({title: '1', subtitle: '12'}), this._element).height;
+  }
+
+  hide() {
+    if (!this.visible())
+      return;
+
+    this._userInteracted = false;
+    this._bodyElement.removeEventListener('mousedown', this._maybeHideBound, true);
+    this._element.ownerDocument.defaultView.removeEventListener('resize', this._hideBound, false);
+    delete this._bodyElement;
+    this._container.remove();
+    this._overlay.dispose();
+    delete this._overlay;
+    delete this._lastAnchorBox;
+  }
+
+  /**
+   * @param {boolean=} isIntermediateSuggestion
+   * @return {boolean}
+   */
+  _applySuggestion(isIntermediateSuggestion) {
+    if (this._onlyCompletion) {
+      this._suggestBoxDelegate.applySuggestion(this._onlyCompletion, isIntermediateSuggestion);
+      return true;
+    }
+
+    if (!this.visible() || !this._list.selectedItem())
+      return false;
+
+    var suggestion = this._list.selectedItem().title;
+    if (!suggestion)
+      return false;
+
+    this._suggestBoxDelegate.applySuggestion(suggestion, isIntermediateSuggestion);
+    return true;
+  }
+
+  /**
+   * @return {boolean}
+   */
+  acceptSuggestion() {
+    var result = this._applySuggestion();
+    this.hide();
+    if (!result)
+      return false;
+
+    this._suggestBoxDelegate.acceptSuggestion();
+
+    return true;
+  }
+
+  /**
+   * @override
+   * @param {!UI.SuggestBox.Suggestion} item
+   * @return {!Element}
+   */
+  createElementForItem(item) {
+    var query = this._userEnteredText;
+    var element = createElementWithClass('div', 'suggest-box-content-item source-code');
+    if (item.iconType) {
+      var icon = UI.Icon.create(item.iconType, 'suggestion-icon');
+      element.appendChild(icon);
+    }
+    if (item.isSecondary)
+      element.classList.add('secondary');
+    element.tabIndex = -1;
+    var maxTextLength = 50 + query.length;
+    var displayText = item.title.trimEnd(maxTextLength);
+
+    var titleElement = element.createChild('span', 'suggestion-title');
+    var index = displayText.toLowerCase().indexOf(query.toLowerCase());
+    if (index > 0)
+      titleElement.createChild('span').textContent = displayText.substring(0, index);
+    if (index > -1)
+      titleElement.createChild('span', 'query').textContent = displayText.substring(index, index + query.length);
+    titleElement.createChild('span').textContent = displayText.substring(index > -1 ? index + query.length : 0);
+    titleElement.createChild('span', 'spacer');
+    if (item.subtitle) {
+      var subtitleElement = element.createChild('span', 'suggestion-subtitle');
+      subtitleElement.textContent = item.subtitle.trimEnd(maxTextLength - displayText.length);
+    }
+
+    element.addEventListener('click', event => {
+      this._list.selectItem(item);
+      this._userInteracted = true;
+      event.consume(true);
+      this.acceptSuggestion();
+    });
+    return element;
+  }
+
+  /**
+   * @override
+   * @param {!UI.SuggestBox.Suggestion} item
+   * @return {number}
+   */
+  heightForItem(item) {
+    return this._rowHeight;
+  }
+
+  /**
+   * @override
+   * @param {!UI.SuggestBox.Suggestion} item
+   * @return {boolean}
+   */
+  isItemSelectable(item) {
+    return true;
+  }
+
+  /**
+   * @override
+   * @param {?UI.SuggestBox.Suggestion} from
+   * @param {?UI.SuggestBox.Suggestion} to
+   * @param {?Element} fromElement
+   * @param {?Element} toElement
+   */
+  selectedItemChanged(from, to, fromElement, toElement) {
+    if (fromElement)
+      fromElement.classList.remove('selected', 'force-white-icons');
+    if (toElement)
+      toElement.classList.add('selected', 'force-white-icons');
+    if (!to)
+      return;
+    this._applySuggestion(true);
+  }
+
+  /**
+   * @param {!UI.SuggestBox.Suggestions} completions
+   * @param {boolean} canShowForSingleItem
+   * @param {string} userEnteredText
+   * @return {boolean}
+   */
+  _canShowBox(completions, canShowForSingleItem, userEnteredText) {
+    if (!completions || !completions.length)
+      return false;
+
+    if (completions.length > 1)
+      return true;
+
+    if (!completions[0].title.startsWith(userEnteredText))
+      return true;
+
+    // Do not show a single suggestion if it is the same as user-entered query, even if allowed to show single-item suggest boxes.
+    return canShowForSingleItem && completions[0].title !== userEnteredText;
+  }
+
+  /**
+   * @param {!AnchorBox} anchorBox
+   * @param {!UI.SuggestBox.Suggestions} completions
+   * @param {boolean} selectHighestPriority
+   * @param {boolean} canShowForSingleItem
+   * @param {string} userEnteredText
+   */
+  updateSuggestions(anchorBox, completions, selectHighestPriority, canShowForSingleItem, userEnteredText) {
+    delete this._onlyCompletion;
+    if (this._canShowBox(completions, canShowForSingleItem, userEnteredText)) {
+      this._userEnteredText = userEnteredText;
+
+      this._show();
+      this._updateBoxPosition(anchorBox, completions.length);
+      this._updateWidth(completions);
+      this._list.invalidateItemHeight();
+      this._list.replaceAllItems(completions);
+
+      if (selectHighestPriority) {
+        var highestPriorityItem = completions[0];
+        var highestPriority = completions[0].priority || 0;
+        for (var i = 0; i < completions.length; i++) {
+          var priority = completions[i].priority || 0;
+          if (highestPriority < priority) {
+            highestPriority = priority;
+            highestPriorityItem = completions[i];
+          }
+        }
+        this._list.selectItem(highestPriorityItem, true);
+      }
+    } else {
+      if (completions.length === 1) {
+        this._onlyCompletion = completions[0].title;
+        this._applySuggestion(true);
+      }
+      this.hide();
+    }
+  }
+
+  /**
+   * @param {!KeyboardEvent} event
+   * @return {boolean}
+   */
+  keyPressed(event) {
+    var selected = false;
+    switch (event.key) {
+      case 'Enter':
+        return this.enterKeyPressed();
+      case 'ArrowUp':
+        selected = this._list.selectPreviousItem(true, false);
+        break;
+      case 'ArrowDown':
+        selected = this._list.selectNextItem(true, false);
+        break;
+      case 'PageUp':
+        selected = this._list.selectItemPreviousPage(false);
+        break;
+      case 'PageDown':
+        selected = this._list.selectItemNextPage(false);
+        break;
+      default:
+        return false;
+    }
+    if (selected) {
+      this._userInteracted = true;
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * @return {boolean}
+   */
+  enterKeyPressed() {
+    if (!this._userInteracted && this._captureEnter)
+      return false;
+
+    var hasSelectedItem = !!this._list.selectedItem() || this._onlyCompletion;
+    this.acceptSuggestion();
+
+    // Report the event as non-handled if there is no selected item,
+    // to commit the input or handle it otherwise.
+    return hasSelectedItem;
+  }
+};
 
 /**
- * @constructor
- * // FIXME: make SuggestBox work for multiple documents.
- * @suppressGlobalPropertiesCheck
+ * @typedef {!{title: string, subtitle: (string|undefined), iconType: (string|undefined), priority: (number|undefined), isSecondary: (boolean|undefined)}}
  */
-WebInspector.SuggestBox.Overlay = function()
-{
-    this.element = createElementWithClass("div", "suggest-box-overlay");
-    var root = WebInspector.createShadowRootWithCoreStyles(this.element, "ui/suggestBox.css");
-    this._leftSpacerElement = root.createChild("div", "suggest-box-left-spacer");
-    this._horizontalElement = root.createChild("div", "suggest-box-horizontal");
-    this._topSpacerElement = this._horizontalElement.createChild("div", "suggest-box-top-spacer");
-    this._bottomSpacerElement = this._horizontalElement.createChild("div", "suggest-box-bottom-spacer");
+UI.SuggestBox.Suggestion;
+
+/**
+ * @typedef {!Array<!UI.SuggestBox.Suggestion>}
+ */
+UI.SuggestBox.Suggestions;
+
+/**
+ * @unrestricted
+ */
+UI.SuggestBox.Overlay = class {
+  /**
+   * // FIXME: make SuggestBox work for multiple documents.
+   * @suppressGlobalPropertiesCheck
+   */
+  constructor() {
+    this.element = createElementWithClass('div', 'suggest-box-overlay');
+    var root = UI.createShadowRootWithCoreStyles(this.element, 'ui/suggestBox.css');
+    this._leftSpacerElement = root.createChild('div', 'suggest-box-left-spacer');
+    this._horizontalElement = root.createChild('div', 'suggest-box-horizontal');
+    this._topSpacerElement = this._horizontalElement.createChild('div', 'suggest-box-top-spacer');
+    this._bottomSpacerElement = this._horizontalElement.createChild('div', 'suggest-box-bottom-spacer');
     this._resize();
     document.body.appendChild(this.element);
-}
+  }
 
-WebInspector.SuggestBox.Overlay.prototype = {
-    /**
-     * @param {number} offset
-     */
-    setLeftOffset: function(offset)
-    {
-        this._leftSpacerElement.style.flexBasis = offset + "px";
-    },
+  /**
+   * @param {number} offset
+   */
+  setLeftOffset(offset) {
+    this._leftSpacerElement.style.flexBasis = offset + 'px';
+  }
 
-    /**
-     * @param {number} offset
-     * @param {boolean} isTopOffset
-     */
-    setVerticalOffset: function(offset, isTopOffset)
-    {
-        this.element.classList.toggle("under-anchor", isTopOffset);
+  /**
+   * @param {number} offset
+   * @param {boolean} isTopOffset
+   */
+  setVerticalOffset(offset, isTopOffset) {
+    this.element.classList.toggle('under-anchor', isTopOffset);
 
-        if (isTopOffset) {
-            this._bottomSpacerElement.style.flexBasis = "auto";
-            this._topSpacerElement.style.flexBasis = offset + "px";
-        } else {
-            this._bottomSpacerElement.style.flexBasis = offset + "px";
-            this._topSpacerElement.style.flexBasis = "auto";
-        }
-    },
-
-    /**
-     * @param {!Element} element
-     */
-    setContentElement: function(element)
-    {
-        this._horizontalElement.insertBefore(element, this._bottomSpacerElement);
-    },
-
-    _resize: function()
-    {
-        var container = WebInspector.Dialog.modalHostView().element;
-        var containerBox = container.boxInWindow(container.ownerDocument.defaultView);
-
-        this.element.style.left = containerBox.x + "px";
-        this.element.style.top = containerBox.y + "px";
-        this.element.style.height = containerBox.height + "px";
-        this.element.style.width = containerBox.width + "px";
-    },
-
-    dispose: function()
-    {
-        this.element.remove();
+    if (isTopOffset) {
+      this._bottomSpacerElement.style.flexBasis = 'auto';
+      this._topSpacerElement.style.flexBasis = offset + 'px';
+    } else {
+      this._bottomSpacerElement.style.flexBasis = offset + 'px';
+      this._topSpacerElement.style.flexBasis = 'auto';
     }
-}
+  }
+
+  /**
+   * @param {!Element} element
+   */
+  setContentElement(element) {
+    this._horizontalElement.insertBefore(element, this._bottomSpacerElement);
+  }
+
+  _resize() {
+    var container = UI.Dialog.modalHostView().element;
+    var containerBox = container.boxInWindow(container.ownerDocument.defaultView);
+
+    this.element.style.left = containerBox.x + 'px';
+    this.element.style.top = containerBox.y + 'px';
+    this.element.style.height = containerBox.height + 'px';
+    this.element.style.width = containerBox.width + 'px';
+  }
+
+  dispose() {
+    this.element.remove();
+  }
+};

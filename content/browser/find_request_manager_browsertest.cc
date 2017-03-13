@@ -356,9 +356,8 @@ INSTANTIATE_TEST_CASE_P(
     FindRequestManagerTests, FindRequestManagerTest, testing::Bool());
 #endif
 
-// TODO(crbug.com/615291): These tests sometimes fail on the
-// linux_android_rel_ng trybot.
-#if defined(OS_ANDROID) && defined(NDEBUG)
+// TODO(crbug.com/615291): These tests frequently fail on Android.
+#if defined(OS_ANDROID)
 #define MAYBE(x) DISABLED_##x
 #else
 #define MAYBE(x) x
@@ -426,8 +425,16 @@ IN_PROC_BROWSER_TEST_P(FindRequestManagerTest, MAYBE(CharacterByCharacter)) {
   EXPECT_EQ(1, results.active_match_ordinal);
 }
 
+// TODO(crbug.com/615291): This test frequently fails on Android.
+// TODO(crbug.com/674742): This test is flaky on Win
+#if defined(OS_ANDROID) || defined(OS_WIN)
+#define MAYBE_RapidFire DISABLED_RapidFire
+#else
+#define MAYBE_RapidFire RapidFire
+#endif
+
 // Tests sending a large number of find requests subsequently.
-IN_PROC_BROWSER_TEST_P(FindRequestManagerTest, MAYBE(RapidFire)) {
+IN_PROC_BROWSER_TEST_P(FindRequestManagerTest, MAYBE_RapidFire) {
   LoadAndWait("/find_in_page.html");
   if (GetParam())
     MakeChildFrameCrossProcess();
@@ -448,7 +455,8 @@ IN_PROC_BROWSER_TEST_P(FindRequestManagerTest, MAYBE(RapidFire)) {
 }
 
 // Tests removing a frame during a find session.
-IN_PROC_BROWSER_TEST_P(FindRequestManagerTest, MAYBE(RemoveFrame)) {
+// TODO(crbug.com/657331): Test is flaky on all platforms.
+IN_PROC_BROWSER_TEST_P(FindRequestManagerTest, DISABLED_RemoveFrame) {
   LoadMultiFramePage(2 /* height */, GetParam() /* cross_process */);
 
   blink::WebFindOptions options;
@@ -480,7 +488,8 @@ IN_PROC_BROWSER_TEST_P(FindRequestManagerTest, MAYBE(RemoveFrame)) {
 }
 
 // Tests adding a frame during a find session.
-IN_PROC_BROWSER_TEST_P(FindRequestManagerTest, MAYBE(AddFrame)) {
+// TODO(crbug.com/657331): Test is flaky on all platforms.
+IN_PROC_BROWSER_TEST_P(FindRequestManagerTest, DISABLED_AddFrame) {
   LoadMultiFramePage(2 /* height */, GetParam() /* cross_process */);
 
   blink::WebFindOptions options;

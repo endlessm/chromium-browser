@@ -22,8 +22,8 @@ class BLINK_PLATFORM_EXPORT RendererWebSchedulerImpl : public WebSchedulerImpl {
   void suspendTimerQueue() override;
   void resumeTimerQueue() override;
   std::unique_ptr<WebViewScheduler> createWebViewScheduler(
-      InterventionReporter* intervention_reporter) override;
-  void onNavigationStarted() override;
+      InterventionReporter* intervention_reporter,
+      WebViewScheduler::WebViewSchedulerSettings* settings) override;
 
  private:
   RendererSchedulerImpl* renderer_scheduler_;  // NOT OWNED

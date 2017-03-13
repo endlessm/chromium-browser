@@ -9,11 +9,7 @@ from __future__ import print_function
 import collections
 
 from chromite.cbuildbot import afdo
-from chromite.cbuildbot import config_lib
-from chromite.cbuildbot import constants
 from chromite.cbuildbot import manifest_version
-from chromite.cbuildbot import results_lib
-from chromite.cbuildbot import failures_lib
 from chromite.cbuildbot.builders import generic_builders
 from chromite.cbuildbot.stages import afdo_stages
 from chromite.cbuildbot.stages import android_stages
@@ -24,11 +20,16 @@ from chromite.cbuildbot.stages import completion_stages
 from chromite.cbuildbot.stages import generic_stages
 from chromite.cbuildbot.stages import release_stages
 from chromite.cbuildbot.stages import report_stages
+from chromite.cbuildbot.stages import scheduler_stages
 from chromite.cbuildbot.stages import sync_stages
 from chromite.cbuildbot.stages import test_stages
+from chromite.lib import config_lib
+from chromite.lib import constants
 from chromite.lib import cros_logging as logging
 from chromite.lib import patch as cros_patch
 from chromite.lib import parallel
+from chromite.lib import results_lib
+from chromite.lib import failures_lib
 
 
 # TODO: SimpleBuilder needs to be broken up big time.
@@ -157,17 +158,18 @@ class SimpleBuilder(generic_builders.Builder):
                      update_metadata=True, builder_run=builder_run,
                      afdo_use=config.afdo_use)
 
+    changes = self._GetChangesUnderTest()
+    if changes:
+      self._RunStage(report_stages.DetectIrrelevantChangesStage, board,
+                     changes, builder_run=builder_run)
+
     # While this stage list is run in parallel, the order here dictates the
     # order that things will be shown in the log.  So group things together
     # that make sense when read in order.  Also keep in mind that, since we
     # gather output manually, early slow stages will prevent any output from
     # later stages showing up until it finishes.
     changes = self._GetChangesUnderTest()
-    stage_list = []
-    if changes:
-      stage_list += [[report_stages.DetectIrrelevantChangesStage, board,
-                      changes]]
-    stage_list += [[test_stages.UnitTestStage, board]]
+    stage_list = [[test_stages.UnitTestStage, board]]
 
     # Skip most steps if we're a compilecheck builder.
     if builder_run.config.compilecheck or builder_run.options.compilecheck:
@@ -229,6 +231,10 @@ class SimpleBuilder(generic_builders.Builder):
 
   def _RunMasterPaladinOrPFQBuild(self):
     """Runs through the stages of the paladin or chrome PFQ master build."""
+    # If this master build uses Buildbucket scheduler, run
+    # scheduler_stages.ScheduleSlavesStage to schedule slaves.
+    if config_lib.UseBuildbucketScheduler(self._run.config):
+      self._RunStage(scheduler_stages.ScheduleSlavesStage)
     self._RunStage(build_stages.UprevStage)
     self._RunStage(build_stages.InitSDKStage)
     # The CQ/Chrome PFQ master will not actually run the SyncChrome stage, but
@@ -243,6 +249,11 @@ class SimpleBuilder(generic_builders.Builder):
 
   def RunEarlySyncAndSetupStages(self):
     """Runs through the early sync and board setup stages."""
+    # If this build is master and uses Buildbucket scheduler, run
+    # scheduler_stages.ScheduleSlavesStage to schedule slaves.
+    if (config_lib.UseBuildbucketScheduler(self._run.config) and
+        config_lib.IsMasterBuild(self._run.config)):
+      self._RunStage(scheduler_stages.ScheduleSlavesStage)
     self._RunStage(build_stages.UprevStage)
     self._RunStage(build_stages.InitSDKStage)
     self._RunStage(build_stages.RegenPortageCacheStage)

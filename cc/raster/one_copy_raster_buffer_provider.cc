@@ -11,6 +11,7 @@
 #include <utility>
 
 #include "base/macros.h"
+#include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/trace_event/trace_event.h"
 #include "cc/base/histograms.h"
@@ -192,9 +193,13 @@ void OneCopyRasterBufferProvider::PlaybackAndCopyOnWorkerThread(
   std::unique_ptr<StagingBuffer> staging_buffer =
       staging_pool_.AcquireStagingBuffer(resource, previous_content_id);
 
+  sk_sp<SkColorSpace> raster_color_space =
+      raster_source->HasImpliedColorSpace() ? nullptr
+                                            : resource_lock->sk_color_space();
+
   PlaybackToStagingBuffer(staging_buffer.get(), resource, raster_source,
                           raster_full_rect, raster_dirty_rect, scale,
-                          resource_lock->sk_color_space(), playback_settings,
+                          raster_color_space, playback_settings,
                           previous_content_id, new_content_id);
 
   CopyOnWorkerThread(staging_buffer.get(), resource_lock, sync_token,
@@ -218,10 +223,9 @@ void OneCopyRasterBufferProvider::PlaybackToStagingBuffer(
   // must allocate a buffer with BufferUsage CPU_READ_WRITE_PERSISTENT.
   if (!staging_buffer->gpu_memory_buffer) {
     staging_buffer->gpu_memory_buffer =
-        resource_provider_->gpu_memory_buffer_manager()
-            ->AllocateGpuMemoryBuffer(
-                staging_buffer->size, BufferFormat(resource->format()),
-                StagingBufferUsage(), gpu::kNullSurfaceHandle);
+        resource_provider_->gpu_memory_buffer_manager()->CreateGpuMemoryBuffer(
+            staging_buffer->size, BufferFormat(resource->format()),
+            StagingBufferUsage(), gpu::kNullSurfaceHandle);
   }
 
   gfx::Rect playback_rect = raster_full_rect;
@@ -347,7 +351,7 @@ void OneCopyRasterBufferProvider::CopyOnWorkerThread(
       DCHECK_GT(rows_to_copy, 0);
 
       gl->CopySubTextureCHROMIUM(
-          staging_buffer->texture_id, resource_texture_id, 0, y, 0, y,
+          staging_buffer->texture_id, 0, resource_texture_id, 0, 0, y, 0, y,
           resource_lock->size().width(), rows_to_copy, false, false, false);
       y += rows_to_copy;
 

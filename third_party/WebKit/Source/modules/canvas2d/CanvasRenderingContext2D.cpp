@@ -35,7 +35,6 @@
 
 #include "bindings/core/v8/ExceptionMessages.h"
 #include "bindings/core/v8/ExceptionState.h"
-#include "bindings/core/v8/ExceptionStatePlaceholder.h"
 #include "bindings/modules/v8/RenderingContext.h"
 #include "core/CSSPropertyNames.h"
 #include "core/css/StylePropertySet.h"
@@ -70,9 +69,9 @@
 namespace blink {
 
 static const char defaultFont[] = "10px sans-serif";
-static const char inherit[] = "inherit";
-static const char rtl[] = "rtl";
-static const char ltr[] = "ltr";
+static const char inheritDirectionString[] = "inherit";
+static const char rtlDirectionString[] = "rtl";
+static const char ltrDirectionString[] = "ltr";
 static const double TryRestoreContextInterval = 0.5;
 static const unsigned MaxTryRestoreContextAttempts = 4;
 static const double cDeviceScaleFactor = 1.0;  // Canvas is device independent
@@ -91,7 +90,7 @@ class CanvasRenderingContext2DAutoRestoreSkCanvas {
   explicit CanvasRenderingContext2DAutoRestoreSkCanvas(
       CanvasRenderingContext2D* context)
       : m_context(context), m_saveCount(0) {
-    ASSERT(m_context);
+    DCHECK(m_context);
     SkCanvas* c = m_context->drawingCanvas();
     if (c) {
       m_saveCount = c->getSaveCount();
@@ -129,25 +128,15 @@ CanvasRenderingContext2D::CanvasRenderingContext2D(
           &CanvasRenderingContext2D::tryRestoreContextEvent),
       m_pruneLocalFontCacheScheduled(false) {
   if (document.settings() &&
-      document.settings()->antialiasedClips2dCanvasEnabled())
+      document.settings()->getAntialiasedClips2dCanvasEnabled())
     m_clipAntialiasing = AntiAliased;
   setShouldAntialias(true);
-  ThreadState::current()->registerPreFinalizer(this);
   validateStateStack();
 }
 
 void CanvasRenderingContext2D::setCanvasGetContextResult(
     RenderingContext& result) {
   result.setCanvasRenderingContext2D(this);
-}
-
-void CanvasRenderingContext2D::unwindStateStack() {
-  if (size_t stackSize = m_stateStack.size()) {
-    if (SkCanvas* skCanvas = canvas()->existingDrawingCanvas()) {
-      while (--stackSize)
-        skCanvas->restore();
-    }
-  }
 }
 
 CanvasRenderingContext2D::~CanvasRenderingContext2D() {}
@@ -170,7 +159,7 @@ void CanvasRenderingContext2D::validateStateStack() const {
     }
   }
 #endif
-  CHECK(m_stateStack.first()
+  CHECK(m_stateStack.front()
             .get());  // Temporary for investigating crbug.com/648510
 }
 
@@ -206,7 +195,7 @@ void CanvasRenderingContext2D::didSetSurfaceSize() {
     return;
   // This code path is for restoring from an eviction
   // Restoring from surface failure is handled internally
-  ASSERT(m_contextLostMode != NotLostContext && !canvas()->hasImageBuffer());
+  DCHECK(m_contextLostMode != NotLostContext && !canvas()->hasImageBuffer());
 
   if (canvas()->buffer()) {
     if (contextLostRestoredEventsEnabled()) {
@@ -221,6 +210,7 @@ void CanvasRenderingContext2D::didSetSurfaceSize() {
 
 DEFINE_TRACE(CanvasRenderingContext2D) {
   visitor->trace(m_hitRegionManager);
+  visitor->trace(m_filterOperations);
   CanvasRenderingContext::trace(visitor);
   BaseRenderingContext2D::trace(visitor);
   SVGResourceClient::trace(visitor);
@@ -278,26 +268,17 @@ void CanvasRenderingContext2D::dispatchContextRestoredEvent(TimerBase*) {
   }
 }
 
+void CanvasRenderingContext2D::willDrawImage(CanvasImageSource* source) const {
+  canvas()->willDrawImageTo2DContext(source);
+}
+
+ColorBehavior CanvasRenderingContext2D::drawImageColorBehavior() const {
+  return CanvasRenderingContext::colorBehaviorForMediaDrawnToCanvas();
+}
+
 void CanvasRenderingContext2D::reset() {
-  validateStateStack();
-  unwindStateStack();
-  m_stateStack.resize(1);
-  m_stateStack.first() = CanvasRenderingContext2DState::create();
-  m_path.clear();
-  if (SkCanvas* c = canvas()->existingDrawingCanvas()) {
-    // The canvas should always have an initial/unbalanced save frame, which
-    // we use to reset the top level matrix and clip here.
-    DCHECK_EQ(c->getSaveCount(), 2);
-    c->restore();
-    c->save();
-    DCHECK(c->getTotalMatrix().isIdentity());
-#if DCHECK_IS_ON()
-    SkIRect clipBounds;
-    DCHECK(c->getClipDeviceBounds(&clipBounds));
-    DCHECK(clipBounds == c->imageInfo().bounds());
-#endif
-  }
-  validateStateStack();
+  // This is a multiple inherritance bootstrap
+  BaseRenderingContext2D::reset();
 }
 
 void CanvasRenderingContext2D::restoreCanvasMatrixClipStack(SkCanvas* c) const {
@@ -379,7 +360,7 @@ bool CanvasRenderingContext2D::stateHasFilter() {
   return state().hasFilter(canvas(), canvas()->size(), this);
 }
 
-SkImageFilter* CanvasRenderingContext2D::stateGetFilter() {
+sk_sp<SkImageFilter> CanvasRenderingContext2D::stateGetFilter() {
   return state().getFilter(canvas(), canvas()->size(), this);
 }
 
@@ -475,7 +456,7 @@ void CanvasRenderingContext2D::setFont(const String& newFont) {
     HashMap<String, Font>::iterator i =
         m_fontsResolvedUsingCurrentStyle.find(newFont);
     if (i != m_fontsResolvedUsingCurrentStyle.end()) {
-      ASSERT(m_fontLRUList.contains(newFont));
+      DCHECK(m_fontLRUList.contains(newFont));
       m_fontLRUList.remove(newFont);
       m_fontLRUList.add(newFont);
       modifiableState().setFont(
@@ -497,7 +478,7 @@ void CanvasRenderingContext2D::setFont(const String& newFont) {
       canvas()->document().ensureStyleResolver().computeFont(fontStyle.get(),
                                                              *parsedStyle);
       m_fontsResolvedUsingCurrentStyle.add(newFont, fontStyle->font());
-      ASSERT(!m_fontLRUList.contains(newFont));
+      DCHECK(!m_fontLRUList.contains(newFont));
       m_fontLRUList.add(newFont);
       pruneLocalFontCache(canvasFontCache->hardMaxFonts());  // hard limit
       schedulePruneLocalFontCacheIfNeeded();                 // soft limit
@@ -565,7 +546,28 @@ void CanvasRenderingContext2D::styleDidChange(const ComputedStyle* oldStyle,
   pruneLocalFontCache(0);
 }
 
-void CanvasRenderingContext2D::filterNeedsInvalidation() {
+TreeScope* CanvasRenderingContext2D::treeScope() {
+  return &canvas()->treeScope();
+}
+
+void CanvasRenderingContext2D::clearFilterReferences() {
+  m_filterOperations.removeClient(this);
+  m_filterOperations.clear();
+}
+
+void CanvasRenderingContext2D::updateFilterReferences(
+    const FilterOperations& filters) {
+  clearFilterReferences();
+  filters.addClient(this);
+  m_filterOperations = filters;
+}
+
+void CanvasRenderingContext2D::resourceContentChanged() {
+  resourceElementChanged();
+}
+
+void CanvasRenderingContext2D::resourceElementChanged() {
+  clearFilterReferences();
   state().clearResolvedFilter();
 }
 
@@ -678,29 +680,32 @@ static inline TextDirection toTextDirection(
     *computedStyle = style;
   switch (direction) {
     case CanvasRenderingContext2DState::DirectionInherit:
-      return style ? style->direction() : LTR;
+      return style ? style->direction() : TextDirection::kLtr;
     case CanvasRenderingContext2DState::DirectionRTL:
-      return RTL;
+      return TextDirection::kRtl;
     case CanvasRenderingContext2DState::DirectionLTR:
-      return LTR;
+      return TextDirection::kLtr;
   }
-  ASSERT_NOT_REACHED();
-  return LTR;
+  NOTREACHED();
+  return TextDirection::kLtr;
 }
 
 String CanvasRenderingContext2D::direction() const {
   if (state().getDirection() == CanvasRenderingContext2DState::DirectionInherit)
     canvas()->document().updateStyleAndLayoutTreeForNode(canvas());
-  return toTextDirection(state().getDirection(), canvas()) == RTL ? rtl : ltr;
+  return toTextDirection(state().getDirection(), canvas()) ==
+                 TextDirection::kRtl
+             ? rtlDirectionString
+             : ltrDirectionString;
 }
 
 void CanvasRenderingContext2D::setDirection(const String& directionString) {
   CanvasRenderingContext2DState::Direction direction;
-  if (directionString == inherit)
+  if (directionString == inheritDirectionString)
     direction = CanvasRenderingContext2DState::DirectionInherit;
-  else if (directionString == rtl)
+  else if (directionString == rtlDirectionString)
     direction = CanvasRenderingContext2DState::DirectionRTL;
-  else if (directionString == ltr)
+  else if (directionString == ltrDirectionString)
     direction = CanvasRenderingContext2DState::DirectionLTR;
   else
     return;
@@ -753,6 +758,10 @@ TextMetrics* CanvasRenderingContext2D::measureText(const String& text) {
 
   canvas()->document().updateStyleAndLayoutTreeForNode(canvas());
   const Font& font = accessFont();
+  const SimpleFontData* fontData = font.primaryFont();
+  DCHECK(fontData);
+  if (!fontData)
+    return metrics;
 
   TextDirection direction;
   if (state().getDirection() == CanvasRenderingContext2DState::DirectionInherit)
@@ -773,7 +782,7 @@ TextMetrics* CanvasRenderingContext2D::measureText(const String& text) {
   metrics->setActualBoundingBoxRight(textBounds.maxX());
 
   // y direction
-  const FontMetrics& fontMetrics = font.getFontMetrics();
+  const FontMetrics& fontMetrics = fontData->getFontMetrics();
   const float ascent = fontMetrics.floatAscent();
   const float descent = fontMetrics.floatDescent();
   const float baselineY = getFontBaseline(fontMetrics);
@@ -824,24 +833,27 @@ void CanvasRenderingContext2D::drawTextInternal(
   // anti-aliasing, which is expected when !creationAttributes().alpha(), so we
   // need to fall out of display list mode when drawing text to an opaque
   // canvas. crbug.com/583809
-  if (!creationAttributes().alpha() && !isAccelerated())
+  if (!creationAttributes().alpha() && !isAccelerated()) {
     canvas()->disableDeferral(
         DisableDeferralReasonSubPixelTextAntiAliasingSupport);
+  }
 
   const Font& font = accessFont();
-  if (!font.primaryFont())
+  font.getFontDescription().setSubpixelAscentDescent(true);
+  const SimpleFontData* fontData = font.primaryFont();
+  DCHECK(fontData);
+  if (!fontData)
     return;
-
-  const FontMetrics& fontMetrics = font.getFontMetrics();
+  const FontMetrics& fontMetrics = fontData->getFontMetrics();
 
   // FIXME: Need to turn off font smoothing.
 
   const ComputedStyle* computedStyle = 0;
   TextDirection direction =
       toTextDirection(state().getDirection(), canvas(), &computedStyle);
-  bool isRTL = direction == RTL;
+  bool isRTL = direction == TextDirection::kRtl;
   bool override =
-      computedStyle ? isOverride(computedStyle->unicodeBidi()) : false;
+      computedStyle ? isOverride(computedStyle->getUnicodeBidi()) : false;
 
   TextRun textRun(text, 0, 0, TextRun::AllowTrailingExpansion, direction,
                   override);
@@ -891,7 +903,7 @@ void CanvasRenderingContext2D::drawTextInternal(
   }
 
   draw(
-      [&font, this, &textRunPaintInfo, &location](
+      [&font, &textRunPaintInfo, &location](
           SkCanvas* c, const SkPaint* paint)  // draw lambda
       {
         font.drawBidiText(c, textRunPaintInfo, location,
@@ -910,22 +922,34 @@ const Font& CanvasRenderingContext2D::accessFont() {
   return state().font();
 }
 
-int CanvasRenderingContext2D::getFontBaseline(
+float CanvasRenderingContext2D::getFontBaseline(
     const FontMetrics& fontMetrics) const {
+  // If the font is so tiny that the lroundf operations result in two
+  // different types of text baselines to return the same baseline, use
+  // floating point metrics (crbug.com/338908).
+  // If you changed the heuristic here, for consistency please also change it
+  // in SimpleFontData::platformInit().
+  bool useFloatAscentDescent =
+      fontMetrics.ascent() < 3 || fontMetrics.height() < 2;
   switch (state().getTextBaseline()) {
     case TopTextBaseline:
-      return fontMetrics.ascent();
+      return useFloatAscentDescent ? fontMetrics.floatAscent()
+                                   : fontMetrics.ascent();
     case HangingTextBaseline:
       // According to
       // http://wiki.apache.org/xmlgraphics-fop/LineLayout/AlignmentHandling
       // "FOP (Formatting Objects Processor) puts the hanging baseline at 80% of
       // the ascender height"
-      return (fontMetrics.ascent() * 4) / 5;
+      return useFloatAscentDescent ? (fontMetrics.floatAscent() * 4.0) / 5.0
+                                   : (fontMetrics.ascent() * 4) / 5;
     case BottomTextBaseline:
     case IdeographicTextBaseline:
-      return -fontMetrics.descent();
+      return useFloatAscentDescent ? -fontMetrics.floatDescent()
+                                   : -fontMetrics.descent();
     case MiddleTextBaseline:
-      return -fontMetrics.descent() + fontMetrics.height() / 2;
+      return useFloatAscentDescent
+                 ? -fontMetrics.floatDescent() + fontMetrics.floatHeight() / 2.0
+                 : -fontMetrics.descent() + fontMetrics.height() / 2;
     case AlphabeticTextBaseline:
     default:
       // Do nothing.
@@ -984,7 +1008,7 @@ void CanvasRenderingContext2D::drawFocusIfNeededInternal(const Path& path,
 
 bool CanvasRenderingContext2D::focusRingCallIsValid(const Path& path,
                                                     Element* element) {
-  ASSERT(element);
+  DCHECK(element);
   if (!state().isTransformInvertible())
     return false;
   if (path.isEmpty())
@@ -1071,9 +1095,10 @@ void CanvasRenderingContext2D::addHitRegion(const HitRegionOptions& options,
 
   if (state().hasClip()) {
     hitRegionPath.intersectPath(state().getCurrentClipPath());
-    if (hitRegionPath.isEmpty())
+    if (hitRegionPath.isEmpty()) {
       exceptionState.throwDOMException(NotSupportedError,
                                        "The specified path has no pixels.");
+    }
   }
 
   if (!m_hitRegionManager)

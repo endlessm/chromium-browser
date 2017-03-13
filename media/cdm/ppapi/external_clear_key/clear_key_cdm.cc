@@ -46,14 +46,6 @@ MSVC_POP_WARNING();
 #if !defined COMPONENT_BUILD
 static base::AtExitManager g_at_exit_manager;
 #endif
-
-// Prepare media library.
-static bool InitializeFFmpegLibraries() {
-  media::InitializeMediaLibrary();
-  return true;
-}
-static bool g_ffmpeg_lib_initialized = InitializeFFmpegLibraries();
-
 #endif  // CLEAR_KEY_CDM_USE_FFMPEG_DECODER
 
 const char kClearKeyCdmVersion[] = "0.1.0.1";
@@ -68,6 +60,8 @@ const char kExternalClearKeyFileIOTestKeySystem[] =
     "org.chromium.externalclearkey.fileiotest";
 const char kExternalClearKeyOutputProtectionTestKeySystem[] =
     "org.chromium.externalclearkey.outputprotectiontest";
+const char kExternalClearKeyPlatformVerificationTestKeySystem[] =
+    "org.chromium.externalclearkey.platformverificationtest";
 const char kExternalClearKeyCrashKeySystem[] =
     "org.chromium.externalclearkey.crash";
 
@@ -129,39 +123,39 @@ static std::string GetUnitTestResultMessage(bool success) {
   return message;
 }
 
-static cdm::Error ConvertException(media::MediaKeys::Exception exception_code) {
+static cdm::Error ConvertException(
+    media::CdmPromise::Exception exception_code) {
   switch (exception_code) {
-    case media::MediaKeys::NOT_SUPPORTED_ERROR:
+    case media::CdmPromise::NOT_SUPPORTED_ERROR:
       return cdm::kNotSupportedError;
-    case media::MediaKeys::INVALID_STATE_ERROR:
+    case media::CdmPromise::INVALID_STATE_ERROR:
       return cdm::kInvalidStateError;
-    case media::MediaKeys::INVALID_ACCESS_ERROR:
+    case media::CdmPromise::INVALID_ACCESS_ERROR:
       return cdm::kInvalidAccessError;
-    case media::MediaKeys::QUOTA_EXCEEDED_ERROR:
+    case media::CdmPromise::QUOTA_EXCEEDED_ERROR:
       return cdm::kQuotaExceededError;
-    case media::MediaKeys::UNKNOWN_ERROR:
+    case media::CdmPromise::UNKNOWN_ERROR:
       return cdm::kUnknownError;
-    case media::MediaKeys::CLIENT_ERROR:
+    case media::CdmPromise::CLIENT_ERROR:
       return cdm::kClientError;
-    case media::MediaKeys::OUTPUT_ERROR:
+    case media::CdmPromise::OUTPUT_ERROR:
       return cdm::kOutputError;
   }
   NOTREACHED();
   return cdm::kUnknownError;
 }
 
-static media::MediaKeys::SessionType ConvertSessionType(
-    cdm::SessionType session_type) {
+static media::CdmSessionType ConvertSessionType(cdm::SessionType session_type) {
   switch (session_type) {
     case cdm::kTemporary:
-      return media::MediaKeys::TEMPORARY_SESSION;
+      return media::CdmSessionType::TEMPORARY_SESSION;
     case cdm::kPersistentLicense:
-      return media::MediaKeys::PERSISTENT_LICENSE_SESSION;
+      return media::CdmSessionType::PERSISTENT_LICENSE_SESSION;
     case cdm::kPersistentKeyRelease:
-      return media::MediaKeys::PERSISTENT_RELEASE_MESSAGE_SESSION;
+      return media::CdmSessionType::PERSISTENT_RELEASE_MESSAGE_SESSION;
   }
   NOTREACHED();
-  return media::MediaKeys::TEMPORARY_SESSION;
+  return media::CdmSessionType::TEMPORARY_SESSION;
 }
 
 static media::EmeInitDataType ConvertInitDataType(
@@ -216,14 +210,15 @@ void ConvertCdmKeysInfo(const std::vector<media::CdmKeyInformation*>& keys_info,
 }
 
 void INITIALIZE_CDM_MODULE() {
-  DVLOG(1) << __FUNCTION__;
+  DVLOG(1) << __func__;
 #if defined(CLEAR_KEY_CDM_USE_FFMPEG_DECODER)
+  media::InitializeMediaLibrary();
   av_register_all();
 #endif  // CLEAR_KEY_CDM_USE_FFMPEG_DECODER
 }
 
 void DeinitializeCdmModule() {
-  DVLOG(1) << __FUNCTION__;
+  DVLOG(1) << __func__;
 }
 
 void* CreateCdmInstance(int cdm_interface_version,
@@ -238,6 +233,7 @@ void* CreateCdmInstance(int cdm_interface_version,
       key_system_string != kExternalClearKeyRenewalKeySystem &&
       key_system_string != kExternalClearKeyFileIOTestKeySystem &&
       key_system_string != kExternalClearKeyOutputProtectionTestKeySystem &&
+      key_system_string != kExternalClearKeyPlatformVerificationTestKeySystem &&
       key_system_string != kExternalClearKeyCrashKeySystem) {
     DVLOG(1) << "Unsupported key system:" << key_system_string;
     return NULL;
@@ -276,7 +272,8 @@ ClearKeyCdm::ClearKeyCdm(ClearKeyCdmHost* host,
       has_received_keys_change_event_for_emulated_loadsession_(false),
       timer_delay_ms_(kInitialTimerDelayMs),
       renewal_timer_set_(false),
-      is_running_output_protection_test_(false) {
+      is_running_output_protection_test_(false),
+      is_running_platform_verification_test_(false) {
 #if defined(CLEAR_KEY_CDM_USE_FAKE_AUDIO_DECODER)
   channel_count_ = 0;
   bits_per_channel_ = 0;
@@ -300,7 +297,7 @@ void ClearKeyCdm::CreateSessionAndGenerateRequest(
     cdm::InitDataType init_data_type,
     const uint8_t* init_data,
     uint32_t init_data_size) {
-  DVLOG(1) << __FUNCTION__;
+  DVLOG(1) << __func__;
 
   std::unique_ptr<media::NewSessionCdmPromise> promise(
       new media::CdmCallbackPromise<std::string>(
@@ -317,6 +314,9 @@ void ClearKeyCdm::CreateSessionAndGenerateRequest(
     StartFileIOTest();
   } else if (key_system_ == kExternalClearKeyOutputProtectionTestKeySystem) {
     StartOutputProtectionTest();
+  } else if (key_system_ ==
+             kExternalClearKeyPlatformVerificationTestKeySystem) {
+    StartPlatformVerificationTest();
   }
 }
 
@@ -327,7 +327,7 @@ void ClearKeyCdm::LoadSession(uint32_t promise_id,
                               cdm::SessionType session_type,
                               const char* session_id,
                               uint32_t session_id_length) {
-  DVLOG(1) << __FUNCTION__;
+  DVLOG(1) << __func__;
   DCHECK_EQ(session_type, cdm::kPersistentLicense);
 
   if (std::string(kLoadableSessionId) !=
@@ -350,7 +350,7 @@ void ClearKeyCdm::LoadSession(uint32_t promise_id,
   std::vector<uint8_t> key_id(
       kLoadableSessionKeyId,
       kLoadableSessionKeyId + arraysize(kLoadableSessionKeyId) - 1);
-  decryptor_->CreateSessionAndGenerateRequest(MediaKeys::TEMPORARY_SESSION,
+  decryptor_->CreateSessionAndGenerateRequest(CdmSessionType::TEMPORARY_SESSION,
                                               EmeInitDataType::WEBM, key_id,
                                               std::move(promise));
 }
@@ -360,7 +360,7 @@ void ClearKeyCdm::UpdateSession(uint32_t promise_id,
                                 uint32_t session_id_length,
                                 const uint8_t* response,
                                 uint32_t response_size) {
-  DVLOG(1) << __FUNCTION__;
+  DVLOG(1) << __func__;
   std::string web_session_str(session_id, session_id_length);
 
   // If updating the loadable session, use the actual session id generated.
@@ -386,7 +386,7 @@ void ClearKeyCdm::UpdateSession(uint32_t promise_id,
 void ClearKeyCdm::CloseSession(uint32_t promise_id,
                                const char* session_id,
                                uint32_t session_id_length) {
-  DVLOG(1) << __FUNCTION__;
+  DVLOG(1) << __func__;
   std::string web_session_str(session_id, session_id_length);
 
   // If closing the loadable session, use the actual session id generated.
@@ -405,7 +405,7 @@ void ClearKeyCdm::CloseSession(uint32_t promise_id,
 void ClearKeyCdm::RemoveSession(uint32_t promise_id,
                                 const char* session_id,
                                 uint32_t session_id_length) {
-  DVLOG(1) << __FUNCTION__;
+  DVLOG(1) << __func__;
   std::string web_session_str(session_id, session_id_length);
 
   // RemoveSession only allowed for the loadable session.
@@ -698,13 +698,27 @@ cdm::Status ClearKeyCdm::DecryptToMediaDecoderBuffer(
 
 void ClearKeyCdm::OnPlatformChallengeResponse(
     const cdm::PlatformChallengeResponse& response) {
-  NOTIMPLEMENTED();
+  DVLOG(1) << __func__;
+
+  if (!is_running_platform_verification_test_) {
+    NOTREACHED() << "OnPlatformChallengeResponse() called unexpectedly.";
+    return;
+  }
+
+  is_running_platform_verification_test_ = false;
+
+  // We are good as long as we get some response back. Ignore the challenge
+  // response for now.
+  // TODO(xhwang): Also test host challenge here.
+  OnUnitTestComplete(true);
 }
 
 void ClearKeyCdm::OnQueryOutputProtectionStatus(
     cdm::QueryResult result,
     uint32_t link_mask,
     uint32_t output_protection_mask) {
+  DVLOG(1) << __func__;
+
   if (!is_running_output_protection_test_) {
     NOTREACHED() << "OnQueryOutputProtectionStatus() called unexpectedly.";
     return;
@@ -742,9 +756,10 @@ void ClearKeyCdm::LoadLoadableSession() {
       std::vector<uint8_t>(jwk_set.begin(), jwk_set.end()), std::move(promise));
 }
 
-void ClearKeyCdm::OnSessionMessage(const std::string& session_id,
-                                   MediaKeys::MessageType message_type,
-                                   const std::vector<uint8_t>& message) {
+void ClearKeyCdm::OnSessionMessage(
+    const std::string& session_id,
+    ContentDecryptionModule::MessageType message_type,
+    const std::vector<uint8_t>& message) {
   DVLOG(1) << "OnSessionMessage: " << message.size();
 
   // Ignore the message when we are waiting to update the loadable session.
@@ -859,7 +874,7 @@ void ClearKeyCdm::OnPromiseResolved(uint32_t promise_id) {
 }
 
 void ClearKeyCdm::OnPromiseFailed(uint32_t promise_id,
-                                  MediaKeys::Exception exception_code,
+                                  CdmPromise::Exception exception_code,
                                   uint32_t system_code,
                                   const std::string& error_message) {
   host_->OnRejectPromise(promise_id,
@@ -945,14 +960,26 @@ void ClearKeyCdm::StartFileIOTest() {
 }
 
 void ClearKeyCdm::OnFileIOTestComplete(bool success) {
-  DVLOG(1) << __FUNCTION__ << ": " << success;
+  DVLOG(1) << __func__ << ": " << success;
   OnUnitTestComplete(success);
   file_io_test_runner_.reset();
 }
 
 void ClearKeyCdm::StartOutputProtectionTest() {
+  DVLOG(1) << __func__;
   is_running_output_protection_test_ = true;
   host_->QueryOutputProtectionStatus();
+}
+
+void ClearKeyCdm::StartPlatformVerificationTest() {
+  DVLOG(1) << __func__;
+  is_running_platform_verification_test_ = true;
+
+  std::string service_id = "test_service_id";
+  std::string challenge = "test_challenge";
+
+  host_->SendPlatformChallenge(service_id.data(), service_id.size(),
+                               challenge.data(), challenge.size());
 }
 
 }  // namespace media

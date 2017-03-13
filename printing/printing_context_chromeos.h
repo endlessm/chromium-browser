@@ -14,10 +14,6 @@
 #include "printing/backend/cups_printer.h"
 #include "printing/printing_context.h"
 
-namespace base {
-class DictionaryValue;
-}
-
 namespace printing {
 
 class PRINTING_EXPORT PrintingContextChromeos : public PrintingContext {
@@ -41,7 +37,7 @@ class PRINTING_EXPORT PrintingContextChromeos : public PrintingContext {
   Result DocumentDone() override;
   void Cancel() override;
   void ReleaseContext() override;
-  gfx::NativeDrawingContext context() const override;
+  skia::NativeDrawingContext context() const override;
 
   Result StreamData(const std::vector<char>& buffer);
 

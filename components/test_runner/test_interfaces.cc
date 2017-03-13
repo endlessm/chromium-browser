@@ -13,7 +13,6 @@
 #include "base/logging.h"
 #include "base/strings/stringprintf.h"
 #include "base/values.h"
-#include "components/test_runner/app_banner_client.h"
 #include "components/test_runner/gamepad_controller.h"
 #include "components/test_runner/gc_controller.h"
 #include "components/test_runner/test_runner.h"
@@ -29,7 +28,6 @@ namespace test_runner {
 TestInterfaces::TestInterfaces()
     : test_runner_(new TestRunner(this)),
       delegate_(nullptr),
-      app_banner_client_(nullptr),
       main_view_(nullptr) {
   blink::setLayoutTestMode(true);
   // NOTE: please don't put feature specific enable flags here,
@@ -96,9 +94,14 @@ void TestInterfaces::ConfigureForTestWithURL(const blink::WebURL& test_url,
     test_runner_->setShouldGeneratePixelResults(false);
   }
   if (spec.find("/inspector/") != std::string::npos ||
-      spec.find("/inspector-enabled/") != std::string::npos)
+      spec.find("/inspector-enabled/") != std::string::npos) {
     test_runner_->ClearDevToolsLocalStorage();
-  if (spec.find("/inspector/") != std::string::npos) {
+    test_runner_->SetV8CacheDisabled(true);
+  } else {
+    test_runner_->SetV8CacheDisabled(false);
+  }
+  if (spec.find("/inspector/") != std::string::npos &&
+      spec.find("unit_test_runner.html") == std::string::npos) {
     // Subfolder name determines default panel to open.
     std::string test_path = spec.substr(spec.find("/inspector/") + 11);
     base::DictionaryValue settings;
@@ -112,13 +115,10 @@ void TestInterfaces::ConfigureForTestWithURL(const blink::WebURL& test_url,
     test_runner_->setShouldGeneratePixelResults(false);
     test_runner_->setShouldDumpAsMarkup(true);
   }
-  if (spec.find("/imported/wpt/") != std::string::npos ||
-      spec.find("/imported/csswg-test/") != std::string::npos)
+  if (spec.find("/external/wpt/") != std::string::npos ||
+      spec.find("/external/csswg-test/") != std::string::npos ||
+      spec.find("://web-platform.test") != std::string::npos)
     test_runner_->set_is_web_platform_tests_mode();
-}
-
-void TestInterfaces::SetAppBannerClient(AppBannerClient* app_banner_client) {
-  app_banner_client_ = app_banner_client;
 }
 
 void TestInterfaces::WindowOpened(WebViewTestProxyBase* proxy) {
@@ -156,10 +156,6 @@ blink::WebThemeEngine* TestInterfaces::GetThemeEngine() {
   if (!theme_engine_.get())
     theme_engine_.reset(new MockWebThemeEngine());
   return theme_engine_.get();
-}
-
-AppBannerClient* TestInterfaces::GetAppBannerClient() {
-  return app_banner_client_;
 }
 
 }  // namespace test_runner

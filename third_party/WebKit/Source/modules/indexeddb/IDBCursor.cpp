@@ -38,7 +38,6 @@
 #include "modules/indexeddb/IDBObjectStore.h"
 #include "modules/indexeddb/IDBTracing.h"
 #include "modules/indexeddb/IDBTransaction.h"
-#include "modules/indexeddb/WebIDBCallbacksImpl.h"
 #include "public/platform/modules/indexeddb/WebIDBDatabase.h"
 #include "public/platform/modules/indexeddb/WebIDBKeyRange.h"
 #include <limits>
@@ -93,10 +92,11 @@ v8::Local<v8::Object> IDBCursor::associateWithWrapper(
     v8::Local<v8::Object> wrapper) {
   wrapper =
       ScriptWrappable::associateWithWrapper(isolate, wrapperType, wrapper);
-  if (!wrapper.IsEmpty())
+  if (!wrapper.IsEmpty()) {
     V8HiddenValue::setHiddenValue(ScriptState::current(isolate), wrapper,
                                   V8HiddenValue::idbCursorRequest(isolate),
-                                  toV8(m_request.get(), wrapper, isolate));
+                                  ToV8(m_request.get(), wrapper, isolate));
+  }
   return wrapper;
 }
 
@@ -174,7 +174,7 @@ void IDBCursor::advance(unsigned count, ExceptionState& exceptionState) {
 
   m_request->setPendingCursor(this);
   m_gotValue = false;
-  m_backend->advance(count, WebIDBCallbacksImpl::create(m_request).release());
+  m_backend->advance(count, m_request->createWebCallbacks().release());
 }
 
 void IDBCursor::continueFunction(ScriptState* scriptState,
@@ -233,11 +233,7 @@ void IDBCursor::continuePrimaryKey(ScriptState* scriptState,
         TransactionInactiveError, IDBDatabase::transactionInactiveErrorMessage);
     return;
   }
-  if (!m_gotValue) {
-    exceptionState.throwDOMException(InvalidStateError,
-                                     IDBDatabase::noValueErrorMessage);
-    return;
-  }
+
   if (isDeleted()) {
     exceptionState.throwDOMException(InvalidStateError,
                                      IDBDatabase::sourceDeletedErrorMessage);
@@ -249,10 +245,17 @@ void IDBCursor::continuePrimaryKey(ScriptState* scriptState,
                                      "The cursor's source is not an index.");
     return;
   }
+
   if (m_direction != WebIDBCursorDirectionNext &&
       m_direction != WebIDBCursorDirectionPrev) {
     exceptionState.throwDOMException(
         InvalidAccessError, "The cursor's direction is not 'next' or 'prev'.");
+    return;
+  }
+
+  if (!m_gotValue) {
+    exceptionState.throwDOMException(InvalidStateError,
+                                     IDBDatabase::noValueErrorMessage);
     return;
   }
 
@@ -320,7 +323,7 @@ void IDBCursor::continueFunction(IDBKey* key,
   m_request->setPendingCursor(this);
   m_gotValue = false;
   m_backend->continueFunction(key, primaryKey,
-                              WebIDBCallbacksImpl::create(m_request).release());
+                              m_request->createWebCallbacks().release());
 }
 
 IDBRequest* IDBCursor::deleteFunction(ScriptState* scriptState,
@@ -370,7 +373,7 @@ IDBRequest* IDBCursor::deleteFunction(ScriptState* scriptState,
                                            m_transaction.get());
   m_transaction->backendDB()->deleteRange(
       m_transaction->id(), effectiveObjectStore()->id(), keyRange,
-      WebIDBCallbacksImpl::create(request).release());
+      request->createWebCallbacks().release());
   return request;
 }
 

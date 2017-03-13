@@ -26,6 +26,8 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+# pylint: disable=relative-import
+
 """Functions for type handling and type conversion (Blink/C++ <-> V8/JS).
 
 Extends IdlType and IdlUnionType with V8-specific properties, methods, and
@@ -42,6 +44,7 @@ import posixpath
 from idl_types import IdlTypeBase, IdlType, IdlUnionType, IdlArrayOrSequenceType, IdlNullableType
 import v8_attributes  # for IdlType.constructor_type_name
 from v8_globals import includes
+from v8_utilities import extended_attribute_value_contains
 
 
 ################################################################################
@@ -143,14 +146,12 @@ def cpp_type(idl_type, extended_attributes=None, raw_type=False, used_as_rvalue_
             Containers can be an array, a sequence or a dictionary.
     """
     def string_mode():
+        if idl_type.is_nullable:
+            return 'TreatNullAndUndefinedAsNullString'
         if extended_attributes.get('TreatNullAs') == 'EmptyString':
             return 'TreatNullAsEmptyString'
         if extended_attributes.get('TreatNullAs') == 'NullString':
-            if extended_attributes.get('TreatUndefinedAs') == 'NullString':
-                return 'TreatNullAndUndefinedAsNullString'
             return 'TreatNullAsNullString'
-        if idl_type.is_nullable:
-            return 'TreatNullAndUndefinedAsNullString'
         return ''
 
     extended_attributes = extended_attributes or {}
@@ -212,7 +213,7 @@ def cpp_type(idl_type, extended_attributes=None, raw_type=False, used_as_rvalue_
         idl_type_name = "Or".join(member_cpp_name(member)
                                   for member in idl_type.member_types)
         return 'const %s&' % idl_type_name if used_as_rvalue_type else idl_type_name
-    if idl_type.is_experimental_callback_function:
+    if idl_type.is_callback_function and not idl_type.is_custom_callback_function:
         return base_idl_type + '*'
     if base_idl_type == 'void':
         return base_idl_type
@@ -384,8 +385,10 @@ def includes_for_type(idl_type, extended_attributes=None):
     if base_idl_type.endswith('Constructor'):
         # FIXME: replace with a [ConstructorAttribute] extended attribute
         base_idl_type = idl_type.constructor_type_name
-    if idl_type.is_experimental_callback_function:
-        component = IdlType.experimental_callback_functions[base_idl_type]['component_dir']
+    if idl_type.is_custom_callback_function:
+        return set()
+    if idl_type.is_callback_function:
+        component = IdlType.callback_functions[base_idl_type]['component_dir']
         return set(['bindings/%s/v8/%s.h' % (component, base_idl_type)])
     if base_idl_type not in component_dir:
         return set()
@@ -422,17 +425,8 @@ def add_includes_for_interface(interface_name):
     includes.update(includes_for_interface(interface_name))
 
 
-def impl_should_use_nullable_container(idl_type):
-    return not(idl_type.cpp_type_has_null_value)
-
-IdlTypeBase.impl_should_use_nullable_container = property(
-    impl_should_use_nullable_container)
-
-
 def impl_includes_for_type(idl_type, interfaces_info):
     includes_for_type = set()
-    if idl_type.impl_should_use_nullable_container:
-        includes_for_type.add('bindings/core/v8/Nullable.h')
 
     idl_type = idl_type.preprocessed_type
     native_array_element_type = idl_type.native_array_element_type
@@ -446,8 +440,7 @@ def impl_includes_for_type(idl_type, interfaces_info):
         includes_for_type.add('wtf/text/WTFString.h')
     if base_idl_type in interfaces_info:
         interface_info = interfaces_info[base_idl_type]
-        if interface_info['include_path']:
-            includes_for_type.add(interface_info['include_path'])
+        includes_for_type.add(interface_info['include_path'])
     if base_idl_type in INCLUDES_FOR_TYPE:
         includes_for_type.update(INCLUDES_FOR_TYPE[base_idl_type])
     if idl_type.is_typed_array:
@@ -463,6 +456,20 @@ def impl_includes_for_type_union(idl_type, interfaces_info):
 
 IdlTypeBase.impl_includes_for_type = impl_includes_for_type
 IdlUnionType.impl_includes_for_type = impl_includes_for_type_union
+
+
+def impl_forward_declaration_name(idl_type):
+    element_type = idl_type.native_array_element_type
+    if element_type:
+        return element_type.impl_forward_declaration_name
+
+    if idl_type.is_wrapper_type and not idl_type.is_typed_array:
+        return idl_type.implemented_as
+    return None
+
+
+IdlTypeBase.impl_forward_declaration_name = property(
+    impl_forward_declaration_name)
 
 
 component_dir = {}
@@ -496,7 +503,7 @@ V8_VALUE_TO_CPP_VALUE = {
     'long long': 'toInt64({isolate}, {arguments})',
     'unsigned long long': 'toUInt64({isolate}, {arguments})',
     # Interface types
-    'Dictionary': 'Dictionary({v8_value}, {isolate}, exceptionState)',
+    'Dictionary': 'Dictionary({isolate}, {v8_value}, exceptionState)',
     'EventTarget': 'toEventTarget({isolate}, {v8_value})',
     'FlexibleArrayBufferView': 'toFlexibleArrayBufferView({isolate}, {v8_value}, {variable_name}, allocateFlexibleArrayBufferViewStorage({v8_value}))',
     'NodeFilter': 'toNodeFilter({v8_value}, info.Holder(), ScriptState::current({isolate}))',
@@ -579,9 +586,9 @@ def v8_value_to_cpp_value(idl_type, extended_attributes, v8_value, variable_name
         cpp_expression_format = 'V8{idl_type}::toImpl({isolate}, {v8_value}, {variable_name}, %s, exceptionState)' % nullable
     elif idl_type.use_output_parameter_for_result:
         cpp_expression_format = 'V8{idl_type}::toImpl({isolate}, {v8_value}, {variable_name}, exceptionState)'
-    elif idl_type.is_experimental_callback_function:
+    elif idl_type.is_callback_function:
         cpp_expression_format = (
-            '{idl_type}::create({isolate}, v8::Local<v8::Function>::Cast({v8_value}))')
+            '{idl_type}::create(ScriptState::current({isolate}), {v8_value})')
     else:
         cpp_expression_format = (
             'V8{idl_type}::toImplWithTypeCheck({isolate}, {v8_value})')
@@ -697,10 +704,10 @@ def preprocess_idl_type(idl_type):
     if idl_type.is_enum:
         # Enumerations are internally DOMStrings
         return IdlType('DOMString')
-    if idl_type.is_experimental_callback_function:
-        return idl_type
-    if idl_type.base_type in ['any', 'object'] or idl_type.is_callback_function:
+    if idl_type.base_type in ['any', 'object'] or idl_type.is_custom_callback_function:
         return IdlType('ScriptValue')
+    if idl_type.is_callback_function:
+        return idl_type
     return idl_type
 
 IdlTypeBase.preprocessed_type = property(preprocess_idl_type)
@@ -806,6 +813,21 @@ V8_SET_RETURN_VALUE = {
     'DOMWrapperForMainWorld': 'v8SetReturnValueForMainWorld(info, {cpp_value})',
     'DOMWrapperFast': 'v8SetReturnValueFast(info, {cpp_value}, {script_wrappable})',
     'DOMWrapperDefault': 'v8SetReturnValue(info, {cpp_value})',
+    # If [CheckSecurity=ReturnValue] is specified, the returned object must be
+    # wrapped in its own realm, which can be different from the realm of the
+    # receiver object.
+    #
+    # [CheckSecurity=ReturnValue] is used only for contentDocument and
+    # getSVGDocument attributes of HTML{IFrame,Frame,Object,Embed}Element,
+    # and Window.frameElement.  Except for Window.frameElement, all interfaces
+    # support contentWindow(), so we create a new wrapper in the realm of
+    # contentWindow().  Note that DOMWindow* has its own realm and there is no
+    # need to pass |creationContext| in for ToV8(DOMWindow*).
+    # Window.frameElement is implemented with [Custom].
+    'DOMWrapperAcrossContext': (
+        'v8SetReturnValue(info, ToV8({cpp_value}, ' +
+        'ToV8(impl->contentWindow(), v8::Local<v8::Object>(), ' +
+        'info.GetIsolate()).As<v8::Object>(), info.GetIsolate()))'),
     # Note that static attributes and operations do not check whether |this| is
     # an instance of the interface nor |this|'s creation context is the same as
     # the current context.  So we must always use the current context as the
@@ -828,6 +850,10 @@ def v8_set_return_value(idl_type, cpp_value, extended_attributes=None, script_wr
 
     """
     def dom_wrapper_conversion_type():
+        if ('CheckSecurity' in extended_attributes and
+                extended_attribute_value_contains(
+                    extended_attributes['CheckSecurity'], 'ReturnValue')):
+            return 'DOMWrapperAcrossContext'
         if is_static:
             return 'DOMWrapperStatic'
         if not script_wrappable:
@@ -880,9 +906,9 @@ CPP_VALUE_TO_V8_VALUE = {
     'ScriptValue': '{cpp_value}.v8Value()',
     'SerializedScriptValue': 'v8Deserialize({isolate}, {cpp_value})',
     # General
-    'array': 'toV8({cpp_value}, {creation_context}, {isolate})',
-    'FrozenArray': 'freezeV8Object(toV8({cpp_value}, {creation_context}, {isolate}), {isolate})',
-    'DOMWrapper': 'toV8({cpp_value}, {creation_context}, {isolate})',
+    'array': 'ToV8({cpp_value}, {creation_context}, {isolate})',
+    'FrozenArray': 'freezeV8Object(ToV8({cpp_value}, {creation_context}, {isolate}), {isolate})',
+    'DOMWrapper': 'ToV8({cpp_value}, {creation_context}, {isolate})',
     # Passing nullable dictionaries isn't a pattern currently used
     # anywhere in the web platform, and more work would be needed in
     # the code generator to distinguish between passing null, and
@@ -893,7 +919,7 @@ CPP_VALUE_TO_V8_VALUE = {
     # nullable dictionary type.
     #
     # Union types or dictionaries
-    'DictionaryOrUnion': 'toV8({cpp_value}, {creation_context}, {isolate})',
+    'DictionaryOrUnion': 'ToV8({cpp_value}, {creation_context}, {isolate})',
 }
 
 
@@ -961,10 +987,14 @@ def cpp_type_has_null_value(idl_type):
     #   a null pointer.
     # - Union types, as thier container classes can represent null value.
     # - 'Object' and 'any' type. We use ScriptValue for object type.
-    return (idl_type.is_string_type or idl_type.is_interface_type or
-            idl_type.is_enum or idl_type.is_union_type
-            or idl_type.base_type == 'object' or idl_type.base_type == 'any'
-            or idl_type.is_callback_function or idl_type.is_callback_interface)
+    return (idl_type.is_string_type
+            or idl_type.is_enum
+            or idl_type.is_interface_type
+            or idl_type.is_callback_interface
+            or idl_type.is_callback_function
+            or idl_type.is_custom_callback_function
+            or idl_type.is_union_type
+            or idl_type.base_type == 'object' or idl_type.base_type == 'any')
 
 IdlTypeBase.cpp_type_has_null_value = property(cpp_type_has_null_value)
 

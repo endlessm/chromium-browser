@@ -31,6 +31,10 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
 
+namespace base {
+class Clock;
+}
+
 using testing::_;
 using testing::AnyNumber;
 using testing::Return;
@@ -57,15 +61,10 @@ class TestDataReductionProxySettingsAndroid
 
 template <class C>
 void data_reduction_proxy::DataReductionProxySettingsTestBase::ResetSettings(
-    bool allowed,
-    bool fallback_allowed,
+    std::unique_ptr<base::Clock> clock,
     bool promo_allowed,
     bool holdback) {
   int flags = 0;
-  if (allowed)
-    flags |= DataReductionProxyParams::kAllowed;
-  if (fallback_allowed)
-    flags |= DataReductionProxyParams::kFallbackAllowed;
   if (promo_allowed)
     flags |= DataReductionProxyParams::kPromoAllowed;
   if (holdback)
@@ -88,10 +87,9 @@ void data_reduction_proxy::DataReductionProxySettingsTestBase::ResetSettings(
 
 template void
 data_reduction_proxy::DataReductionProxySettingsTestBase::ResetSettings<
-    DataReductionProxyChromeSettings>(bool allowed,
-                                       bool fallback_allowed,
-                                       bool promo_allowed,
-                                       bool holdback);
+    DataReductionProxyChromeSettings>(std::unique_ptr<base::Clock> clock,
+                                      bool promo_allowed,
+                                      bool holdback);
 
 class DataReductionProxySettingsAndroidTest
     : public data_reduction_proxy::ConcreteDataReductionProxySettingsTest<

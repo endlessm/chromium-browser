@@ -25,7 +25,7 @@ class ContextMenuControllerTest : public testing::Test {
   Document& document() const { return m_pageHolder->document(); }
 
   void setBodyInnerHTML(const String& htmlContent) {
-    document().body()->setInnerHTML(htmlContent, ASSERT_NO_EXCEPTION);
+    document().body()->setInnerHTML(htmlContent);
     document().view()->updateAllLifecyclePhases();
   }
 
@@ -79,7 +79,7 @@ TEST_F(ContextMenuControllerTest, TestCustomMenu) {
   // Create right button click event and pass it to context menu controller.
   Event* event = MouseEvent::create(
       EventTypeNames::click, false, false, document().domWindow(), 50, 50, 0, 0,
-      0, 0, 0, PlatformEvent::NoModifiers, 1, 0, nullptr, 0,
+      0, 0, 0, PlatformEvent::NoModifiers, 1, 0, nullptr, TimeTicks(),
       PlatformMouseEvent::RealOrIndistinguishable, String(), nullptr);
   document().getElementById("button_id")->focus();
   event->setTarget(document().getElementById("button_id"));

@@ -8,17 +8,16 @@
 #include <map>
 #include <memory>
 #include <set>
+#include <vector>
 
 #include "base/compiler_specific.h"
 #include "base/macros.h"
-#include "base/memory/scoped_vector.h"
 #include "base/memory/weak_ptr.h"
 #include "content/public/browser/web_ui.h"
 #include "ipc/ipc_listener.h"
 
 namespace content {
 class RenderFrameHost;
-class RenderViewHost;
 
 class CONTENT_EXPORT WebUIImpl : public WebUI,
                                  public IPC::Listener,
@@ -27,14 +26,14 @@ class CONTENT_EXPORT WebUIImpl : public WebUI,
   WebUIImpl(WebContents* contents, const std::string& frame_name);
   ~WebUIImpl() override;
 
-  // Called when a RenderView is created for a WebUI (reload after a renderer
-  // crash) or when a WebUI is created for an RenderView (i.e. navigating from
+  // Called when a RenderFrame is created for a WebUI (reload after a renderer
+  // crash) or when a WebUI is created for a RenderFrame (i.e. navigating from
   // chrome://downloads to chrome://bookmarks) or when both are new (i.e.
   // opening a new tab).
-  void RenderViewCreated(RenderViewHost* render_view_host);
+  void RenderFrameCreated(RenderFrameHost* render_frame_host);
 
-  // Called when a RenderView is reused for the same WebUI type (i.e. reload).
-  void RenderViewReused(RenderViewHost* render_view_host, bool was_main_frame);
+  // Called when a RenderFrame is reused for the same WebUI type (i.e. reload).
+  void RenderFrameReused(RenderFrameHost* render_frame_host);
 
   // Called when the owning RenderFrameHost has started swapping out.
   void RenderFrameHostSwappingOut();
@@ -46,12 +45,10 @@ class CONTENT_EXPORT WebUIImpl : public WebUI,
   float GetDeviceScaleFactor() const override;
   const base::string16& GetOverriddenTitle() const override;
   void OverrideTitle(const base::string16& title) override;
-  ui::PageTransition GetLinkTransitionType() const override;
-  void SetLinkTransitionType(ui::PageTransition type) override;
   int GetBindings() const override;
   void SetBindings(int bindings) override;
   bool HasRenderFrame() override;
-  void AddMessageHandler(WebUIMessageHandler* handler) override;
+  void AddMessageHandler(std::unique_ptr<WebUIMessageHandler> handler) override;
   typedef base::Callback<void(const base::ListValue*)> MessageCallback;
   void RegisterMessageCallback(const std::string& message,
                                const MessageCallback& callback) override;
@@ -77,7 +74,8 @@ class CONTENT_EXPORT WebUIImpl : public WebUI,
   void CallJavascriptFunctionUnsafe(
       const std::string& function_name,
       const std::vector<const base::Value*>& args) override;
-  ScopedVector<WebUIMessageHandler>* GetHandlersForTesting() override;
+  std::vector<std::unique_ptr<WebUIMessageHandler>>* GetHandlersForTesting()
+      override;
 
   // IPC::Listener implementation:
   bool OnMessageReceived(const IPC::Message& message) override;
@@ -113,12 +111,11 @@ class CONTENT_EXPORT WebUIImpl : public WebUI,
   // Options that may be overridden by individual Web UI implementations. The
   // bool options default to false. See the public getters for more information.
   base::string16 overridden_title_;  // Defaults to empty string.
-  ui::PageTransition link_transition_type_;  // Defaults to LINK.
   int bindings_;  // The bindings from BindingsPolicy that should be enabled for
                   // this page.
 
   // The WebUIMessageHandlers we own.
-  ScopedVector<WebUIMessageHandler> handlers_;
+  std::vector<std::unique_ptr<WebUIMessageHandler>> handlers_;
 
   // Non-owning pointer to the WebContents this WebUI is associated with.
   WebContents* web_contents_;

@@ -20,10 +20,11 @@
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "net/url_request/test_url_fetcher_factory.h"
 #include "net/url_request/url_request_test_util.h"
+#include "printing/features/features.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
-#if defined(ENABLE_PRINT_PREVIEW)
+#if BUILDFLAG(ENABLE_PRINT_PREVIEW)
 #include "chrome/browser/printing/pwg_raster_converter.h"
 #include "printing/pwg_raster_settings.h"
 #endif  // ENABLE_PRINT_PREVIEW
@@ -138,7 +139,7 @@ const char kSampleCapabilitiesResponse[] = "{"
     "}"
     "}";
 
-#if defined(ENABLE_PRINT_PREVIEW)
+#if BUILDFLAG(ENABLE_PRINT_PREVIEW)
 const char kSampleInfoResponseWithCreatejob[] = "{"
     "       \"version\": \"1.0\","
     "       \"name\": \"Common printer\","
@@ -733,7 +734,7 @@ TEST_P(PrivetCapabilitiesTest, BadToken) {
                                       kSampleCapabilitiesResponse));
 }
 
-#if defined(ENABLE_PRINT_PREVIEW)
+#if BUILDFLAG(ENABLE_PRINT_PREVIEW)
 // A note on PWG raster conversion: The PWG raster converter used simply
 // converts strings to file paths based on them by appending "test.pdf", since
 // it's easier to test that way. Instead of using a mock, we simply check if the
@@ -1042,12 +1043,12 @@ class PrivetHttpWithServerTest : public ::testing::Test,
         BrowserThread::GetTaskRunnerForThread(BrowserThread::IO));
 
     server_.reset(new EmbeddedTestServer(EmbeddedTestServer::TYPE_HTTP));
-    ASSERT_TRUE(server_->Start());
 
     base::FilePath test_data_dir;
     ASSERT_TRUE(PathService::Get(base::DIR_SOURCE_ROOT, &test_data_dir));
     server_->ServeFilesFromDirectory(
         test_data_dir.Append(FILE_PATH_LITERAL("chrome/test/data")));
+    ASSERT_TRUE(server_->Start());
 
     client_.reset(new PrivetHTTPClientImpl("test", server_->host_port_pair(),
                                            context_getter_));

@@ -4,18 +4,17 @@
 
 #include "net/quic/core/quic_buffered_packet_store.h"
 
-#include <list>
-
 #include "base/stl_util.h"
-#include "net/quic/core/quic_bug_tracker.h"
+#include "net/quic/core/quic_flags.h"
+#include "net/quic/platform/api/quic_bug_tracker.h"
 
-using std::list;
+using base::ContainsKey;
 
 namespace net {
 
 typedef QuicBufferedPacketStore::BufferedPacket BufferedPacket;
-typedef QuicBufferedPacketStore::EnqueuePacketResult EnqueuePacketResult;
 typedef QuicBufferedPacketStore::BufferedPacketList BufferedPacketList;
+typedef QuicBufferedPacketStore::EnqueuePacketResult EnqueuePacketResult;
 
 // Max number of connections this store can keep track.
 static const size_t kDefaultMaxConnectionsInStore = 100;
@@ -44,8 +43,8 @@ class ConnectionExpireAlarm : public QuicAlarm::Delegate {
 }  // namespace
 
 BufferedPacket::BufferedPacket(std::unique_ptr<QuicReceivedPacket> packet,
-                               IPEndPoint server_address,
-                               IPEndPoint client_address)
+                               QuicSocketAddress server_address,
+                               QuicSocketAddress client_address)
     : packet(std::move(packet)),
       server_address(server_address),
       client_address(client_address) {}
@@ -81,23 +80,24 @@ QuicBufferedPacketStore::~QuicBufferedPacketStore() {}
 EnqueuePacketResult QuicBufferedPacketStore::EnqueuePacket(
     QuicConnectionId connection_id,
     const QuicReceivedPacket& packet,
-    IPEndPoint server_address,
-    IPEndPoint client_address,
+    QuicSocketAddress server_address,
+    QuicSocketAddress client_address,
     bool is_chlo) {
-  QUIC_BUG_IF(is_chlo &&
-              base::ContainsKey(connections_with_chlo_, connection_id))
+  QUIC_BUG_IF(!FLAGS_quic_allow_chlo_buffering)
+      << "Shouldn't buffer packets if disabled via flag.";
+  QUIC_BUG_IF(is_chlo && ContainsKey(connections_with_chlo_, connection_id))
       << "Shouldn't buffer duplicated CHLO on connection " << connection_id;
 
-  if (!base::ContainsKey(undecryptable_packets_, connection_id) &&
+  if (!ContainsKey(undecryptable_packets_, connection_id) &&
       ShouldBufferPacket(is_chlo)) {
     // Drop the packet if the upper limit of undecryptable packets has been
     // reached or the whole capacity of the store has been reached.
     return TOO_MANY_CONNECTIONS;
-  } else if (!base::ContainsKey(undecryptable_packets_, connection_id)) {
+  } else if (!ContainsKey(undecryptable_packets_, connection_id)) {
     undecryptable_packets_.emplace(
         std::make_pair(connection_id, BufferedPacketList()));
   }
-  CHECK(base::ContainsKey(undecryptable_packets_, connection_id));
+  CHECK(ContainsKey(undecryptable_packets_, connection_id));
   BufferedPacketList& queue =
       undecryptable_packets_.find(connection_id)->second;
 
@@ -105,7 +105,7 @@ EnqueuePacketResult QuicBufferedPacketStore::EnqueuePacket(
     // If current packet is not CHLO, it might not be buffered because store
     // only buffers certain number of undecryptable packets per connection.
     size_t num_non_chlo_packets =
-        base::ContainsKey(connections_with_chlo_, connection_id)
+        ContainsKey(connections_with_chlo_, connection_id)
             ? (queue.buffered_packets.size() - 1)
             : queue.buffered_packets.size();
     if (num_non_chlo_packets >= kDefaultMaxUndecryptablePackets) {
@@ -138,16 +138,16 @@ EnqueuePacketResult QuicBufferedPacketStore::EnqueuePacket(
 
 bool QuicBufferedPacketStore::HasBufferedPackets(
     QuicConnectionId connection_id) const {
-  return base::ContainsKey(undecryptable_packets_, connection_id);
+  return ContainsKey(undecryptable_packets_, connection_id);
 }
 
 bool QuicBufferedPacketStore::HasChlosBuffered() const {
   return !connections_with_chlo_.empty();
 }
 
-list<BufferedPacket> QuicBufferedPacketStore::DeliverPackets(
+std::list<BufferedPacket> QuicBufferedPacketStore::DeliverPackets(
     QuicConnectionId connection_id) {
-  list<BufferedPacket> packets_to_deliver;
+  std::list<BufferedPacket> packets_to_deliver;
   auto it = undecryptable_packets_.find(connection_id);
   if (it != undecryptable_packets_.end()) {
     packets_to_deliver = std::move(it->second.buffered_packets);
@@ -170,11 +170,11 @@ void QuicBufferedPacketStore::OnExpirationTimeout() {
     }
     QuicConnectionId connection_id = entry.first;
     visitor_->OnExpiredPackets(connection_id, std::move(entry.second));
-    undecryptable_packets_.erase(undecryptable_packets_.begin());
+    undecryptable_packets_.pop_front();
     connections_with_chlo_.erase(connection_id);
   }
   if (!undecryptable_packets_.empty()) {
-    expiration_alarm_->Set(clock_->ApproximateNow() + connection_life_span_);
+    MaybeSetExpirationAlarm();
   }
 }
 
@@ -195,29 +195,30 @@ bool QuicBufferedPacketStore::ShouldBufferPacket(bool is_chlo) {
   size_t num_connections_without_chlo =
       undecryptable_packets_.size() - connections_with_chlo_.size();
   bool reach_non_chlo_limit =
-      FLAGS_quic_limit_num_new_sessions_per_epoll_loop &&
+      FLAGS_quic_reloadable_flag_quic_limit_num_new_sessions_per_epoll_loop &&
       num_connections_without_chlo >= kMaxConnectionsWithoutCHLO;
 
   return is_store_full || reach_non_chlo_limit;
 }
 
-list<BufferedPacket> QuicBufferedPacketStore::DeliverPacketsForNextConnection(
+std::list<BufferedPacket>
+QuicBufferedPacketStore::DeliverPacketsForNextConnection(
     QuicConnectionId* connection_id) {
   if (connections_with_chlo_.empty()) {
     // Returns empty list if no CHLO has been buffered.
-    return list<BufferedPacket>();
+    return std::list<BufferedPacket>();
   }
   *connection_id = connections_with_chlo_.front().first;
-  connections_with_chlo_.erase(connections_with_chlo_.begin());
+  connections_with_chlo_.pop_front();
 
-  list<BufferedPacket> packets = DeliverPackets(*connection_id);
+  std::list<BufferedPacket> packets = DeliverPackets(*connection_id);
   DCHECK(!packets.empty()) << "Try to deliver connectons without CHLO";
   return packets;
 }
 
 bool QuicBufferedPacketStore::HasChloForConnection(
     QuicConnectionId connection_id) {
-  return base::ContainsKey(connections_with_chlo_, connection_id);
+  return ContainsKey(connections_with_chlo_, connection_id);
 }
 
 }  // namespace net

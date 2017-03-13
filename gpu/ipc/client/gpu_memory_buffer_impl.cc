@@ -30,7 +30,8 @@ GpuMemoryBufferImpl::GpuMemoryBufferImpl(gfx::GpuMemoryBufferId id,
 
 GpuMemoryBufferImpl::~GpuMemoryBufferImpl() {
   DCHECK(!mapped_);
-  callback_.Run(destruction_sync_token_);
+  if (!callback_.is_null())
+    callback_.Run(destruction_sync_token_);
 }
 
 // static
@@ -58,12 +59,6 @@ std::unique_ptr<GpuMemoryBufferImpl> GpuMemoryBufferImpl::CreateFromHandle(
       NOTREACHED();
       return nullptr;
   }
-}
-
-// static
-GpuMemoryBufferImpl* GpuMemoryBufferImpl::FromClientBuffer(
-    ClientBuffer buffer) {
-  return reinterpret_cast<GpuMemoryBufferImpl*>(buffer);
 }
 
 gfx::Size GpuMemoryBufferImpl::GetSize() const {

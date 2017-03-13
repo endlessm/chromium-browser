@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "base/macros.h"
+#include "base/memory/ptr_util.h"
 #include "base/test/simple_test_tick_clock.h"
 #include "base/time/time.h"
 #include "ui/aura/client/cursor_client.h"
@@ -185,6 +186,10 @@ class TouchExplorationControllerTestApi {
     touch_exploration_controller_->SetTouchAccessibilityAnchorPoint(location);
   }
 
+  void SetExcludeBounds(const gfx::Rect& bounds) {
+    touch_exploration_controller_->SetExcludeBounds(bounds);
+  }
+
  private:
   std::unique_ptr<TouchExplorationController> touch_exploration_controller_;
 
@@ -294,7 +299,8 @@ class TouchExplorationTest : public aura::test::AuraTestBase {
     } else if (on && !touch_exploration_controller_.get()) {
       touch_exploration_controller_.reset(
           new ui::TouchExplorationControllerTestApi(
-              new TouchExplorationController(root_window(), &delegate_)));
+              new TouchExplorationController(root_window(), &delegate_,
+                                             nullptr)));
       cursor_client()->ShowCursor();
       cursor_client()->DisableMouseEvents();
     }
@@ -396,6 +402,10 @@ class TouchExplorationTest : public aura::test::AuraTestBase {
 
   void SetTouchAccessibilityAnchorPoint(const gfx::Point& location) {
     touch_exploration_controller_->SetTouchAccessibilityAnchorPoint(location);
+  }
+
+  void SetExcludeBounds(const gfx::Rect& bounds) {
+    touch_exploration_controller_->SetExcludeBounds(bounds);
   }
 
   std::unique_ptr<test::EventGenerator> generator_;
@@ -1849,6 +1859,85 @@ TEST_F(TouchExplorationTest, ExitEarconPlays) {
     generator_->ReleaseTouch();
     ASSERT_EQ(1U, delegate_.NumExitScreenSounds());
     delegate_.ResetCountersToZero();
+  }
+}
+
+TEST_F(TouchExplorationTest, ExclusionArea) {
+  SwitchTouchExplorationMode(true);
+
+  gfx::Rect window = BoundsOfRootWindowInDIP();
+  gfx::Rect exclude = window;
+  exclude.Inset(0, 0, 0, 30);
+  SetExcludeBounds(exclude);
+
+  gfx::Point in_pt = exclude.CenterPoint();
+  gfx::Point in_mv_pt(in_pt.x(), (in_pt.y() + exclude.bottom()) / 2);
+  gfx::Point out_pt(in_pt.x(), exclude.bottom() + 20);
+  gfx::Point out_mv_pt(in_pt.x(), exclude.bottom() + 10);
+
+  // Motion starting in exclusion bounds is passed-through unchanged.
+  {
+    generator_->set_current_location(in_pt);
+    generator_->PressTouchId(0);
+    AdvanceSimulatedTimePastPotentialTapDelay();
+    generator_->MoveTouchId(out_mv_pt, 0);
+    generator_->ReleaseTouchId(0);
+    EXPECT_TRUE(IsInNoFingersDownState());
+    const EventList& captured_events = GetCapturedEvents();
+    ASSERT_EQ(3U, captured_events.size());
+    EXPECT_EQ(ui::ET_TOUCH_PRESSED, captured_events[0]->type());
+    EXPECT_EQ(ui::ET_TOUCH_MOVED, captured_events[1]->type());
+    EXPECT_EQ(ui::ET_TOUCH_RELEASED, captured_events[2]->type());
+    ClearCapturedEvents();
+  }
+
+  // Complete motion outside exclusion is rewritten.
+  {
+    generator_->set_current_location(out_pt);
+    generator_->PressTouchId(0);
+    AdvanceSimulatedTimePastTapDelay();
+    generator_->MoveTouchId(out_mv_pt, 0);
+    generator_->ReleaseTouchId(0);
+    AdvanceSimulatedTimePastTapDelay();
+    EXPECT_TRUE(IsInNoFingersDownState());
+    const EventList& captured_events = GetCapturedEvents();
+    ASSERT_EQ(3U, captured_events.size());
+    for (const std::unique_ptr<ui::Event>& e : captured_events) {
+      EXPECT_EQ(ui::ET_MOUSE_MOVED, e->type());
+    }
+    ClearCapturedEvents();
+  }
+
+  // For a motion starting outside: outside events are rewritten, inside
+  // events are discarded unless they end the motion.
+  {
+    // finger 0 down outside, moves inside.
+    generator_->set_current_location(out_pt);
+    generator_->PressTouchId(0);
+    AdvanceSimulatedTimePastTapDelay();
+    generator_->MoveTouchId(out_mv_pt, 0);
+    generator_->MoveTouchId(in_mv_pt, 0);
+    ASSERT_EQ(2U, GetCapturedEvents().size());
+    for (const std::unique_ptr<ui::Event>& e : GetCapturedEvents()) {
+      EXPECT_EQ(ui::ET_MOUSE_MOVED, e->type());
+    }
+    ClearCapturedEvents();
+
+    // finger 1 down inside, moves outside
+    generator_->set_current_location(in_pt);
+    generator_->PressTouchId(1);
+    generator_->MoveTouchId(out_mv_pt, 1);
+    generator_->ReleaseTouchId(1);
+    ASSERT_EQ(0U, GetCapturedEvents().size());
+    EXPECT_FALSE(IsInNoFingersDownState());
+
+    generator_->ReleaseTouchId(0);
+    AdvanceSimulatedTimePastTapDelay();
+    EXPECT_TRUE(IsInNoFingersDownState());
+
+    ASSERT_EQ(1U, GetCapturedEvents().size());
+    EXPECT_EQ(ui::ET_MOUSE_MOVED, GetCapturedEvents()[0]->type());
+    ClearCapturedEvents();
   }
 }
 

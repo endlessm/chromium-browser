@@ -92,7 +92,8 @@ void WebContentsViewGuest::GetContainerBounds(gfx::Rect* out) const {
   if (guest_->embedder_web_contents()) {
     // We need embedder container's bounds to calculate our bounds.
     guest_->embedder_web_contents()->GetView()->GetContainerBounds(out);
-    gfx::Point guest_coordinates = guest_->GetScreenCoordinates(gfx::Point());
+    gfx::Point guest_coordinates =
+        guest_->GetCoordinatesInEmbedderWebContents(gfx::Point());
     out->Offset(guest_coordinates.x(), guest_coordinates.y());
   } else {
     out->set_origin(gfx::Point());
@@ -229,7 +230,8 @@ void WebContentsViewGuest::StartDragging(
     WebDragOperationsMask ops,
     const gfx::ImageSkia& image,
     const gfx::Vector2d& image_offset,
-    const DragEventSourceInfo& event_info) {
+    const DragEventSourceInfo& event_info,
+    RenderWidgetHostImpl* source_rwh) {
   WebContentsImpl* embedder_web_contents = guest_->embedder_web_contents();
   embedder_web_contents->GetBrowserPluginEmbedder()->StartDrag(guest_);
   RenderViewHostImpl* embedder_render_view_host =
@@ -240,9 +242,10 @@ void WebContentsViewGuest::StartDragging(
       embedder_render_view_host->GetDelegate()->GetDelegateView();
   if (view) {
     RecordAction(base::UserMetricsAction("BrowserPlugin.Guest.StartDrag"));
-    view->StartDragging(drop_data, ops, image, image_offset, event_info);
+    view->StartDragging(
+        drop_data, ops, image, image_offset, event_info, source_rwh);
   } else {
-    embedder_web_contents->SystemDragEnded();
+    embedder_web_contents->SystemDragEnded(source_rwh);
   }
 }
 

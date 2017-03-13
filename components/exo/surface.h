@@ -16,11 +16,15 @@
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #include "cc/resources/transferable_resource.h"
-#include "cc/surfaces/surface_factory_client.h"
+#include "cc/scheduler/begin_frame_source.h"
+#include "cc/surfaces/surface_id_allocator.h"
+#include "components/exo/compositor_frame_sink.h"
+#include "components/exo/compositor_frame_sink_holder.h"
+#include "third_party/skia/include/core/SkBlendMode.h"
 #include "third_party/skia/include/core/SkRegion.h"
-#include "third_party/skia/include/core/SkXfermode.h"
 #include "ui/aura/window.h"
-#include "ui/compositor/compositor.h"
+#include "ui/aura/window_observer.h"
+#include "ui/compositor/compositor_vsync_manager.h"
 #include "ui/gfx/geometry/rect.h"
 
 namespace base {
@@ -30,7 +34,7 @@ class TracedValue;
 }
 
 namespace cc {
-class SurfaceFactory;
+class SurfaceIdAllocator;
 }
 
 namespace gfx {
@@ -55,40 +59,11 @@ class PropertyHelper;
 // change in the future when better hardware cursor support is added.
 using CursorProvider = Pointer;
 
-// This class owns the SurfaceFactory and keeps track of references to the
-// contents of Buffers. It's keeped alive by references from
-// release_callbacks_. It's destroyed when its owning Surface is destroyed and
-// the last outstanding release callback is called.
-class SurfaceFactoryOwner : public base::RefCounted<SurfaceFactoryOwner>,
-                            public cc::SurfaceFactoryClient {
- public:
-  SurfaceFactoryOwner();
-
-  // Overridden from cc::SurfaceFactoryClient:
-  void ReturnResources(const cc::ReturnedResourceArray& resources) override;
-  void WillDrawSurface(const cc::LocalFrameId& id,
-                       const gfx::Rect& damage_rect) override;
-  void SetBeginFrameSource(cc::BeginFrameSource* begin_frame_source) override;
-
- private:
-  friend class base::RefCounted<SurfaceFactoryOwner>;
-  friend class Surface;
-
-  ~SurfaceFactoryOwner() override;
-
-  std::map<int,
-           std::pair<scoped_refptr<SurfaceFactoryOwner>,
-                     std::unique_ptr<cc::SingleReleaseCallback>>>
-      release_callbacks_;
-  cc::FrameSinkId frame_sink_id_;
-  std::unique_ptr<cc::SurfaceIdAllocator> id_allocator_;
-  std::unique_ptr<cc::SurfaceFactory> surface_factory_;
-  Surface* surface_ = nullptr;
-};
-
 // This class represents a rectangular area that is displayed on the screen.
 // It has a location, size and pixel contents.
-class Surface : public ui::ContextFactoryObserver {
+class Surface : public ui::ContextFactoryObserver,
+                public aura::WindowObserver,
+                public ui::CompositorVSyncManager::Observer {
  public:
   using PropertyDeallocator = void (*)(int64_t value);
 
@@ -100,8 +75,11 @@ class Surface : public ui::ContextFactoryObserver {
 
   aura::Window* window() { return window_.get(); }
 
-  const cc::LocalFrameId& local_frame_id() const { return local_frame_id_; }
   cc::SurfaceId GetSurfaceId() const;
+
+  CompositorFrameSinkHolder* compositor_frame_sink_holder() {
+    return compositor_frame_sink_holder_.get();
+  }
 
   // Set a buffer as the content of this surface. A buffer can only be attached
   // to one surface at a time.
@@ -112,10 +90,17 @@ class Surface : public ui::ContextFactoryObserver {
   // repainted.
   void Damage(const gfx::Rect& rect);
 
-  // Request notification when the next frame is displayed. Useful for
-  // throttling redrawing operations, and driving animations.
+  // Request notification when it's a good time to produce a new frame. Useful
+  // for throttling redrawing operations, and driving animations.
   using FrameCallback = base::Callback<void(base::TimeTicks frame_time)>;
   void RequestFrameCallback(const FrameCallback& callback);
+
+  // Request notification when the next frame is displayed. Useful for
+  // throttling redrawing operations, and driving animations.
+  using PresentationCallback =
+      base::Callback<void(base::TimeTicks presentation_time,
+                          base::TimeDelta refresh)>;
+  void RequestPresentationCallback(const PresentationCallback& callback);
 
   // This sets the region of the surface that contains opaque content.
   void SetOpaqueRegion(const SkRegion& region);
@@ -149,7 +134,7 @@ class Surface : public ui::ContextFactoryObserver {
   void SetOnlyVisibleOnSecureOutput(bool only_visible_on_secure_output);
 
   // This sets the blend mode that will be used when drawing the surface.
-  void SetBlendMode(SkXfermode::Mode blend_mode);
+  void SetBlendMode(SkBlendMode blend_mode);
 
   // This sets the alpha value that will be applied to the whole surface.
   void SetAlpha(float alpha);
@@ -204,20 +189,34 @@ class Surface : public ui::ContextFactoryObserver {
   // Returns a trace value representing the state of the surface.
   std::unique_ptr<base::trace_event::TracedValue> AsTracedValue() const;
 
-  bool HasPendingDamageForTesting(const gfx::Rect& damage) const {
-    return pending_damage_.contains(gfx::RectToSkIRect(damage));
-  }
+  // Call this to indicate that surface is being scheduled for a draw.
+  void WillDraw();
 
-  // Overridden from ui::ContextFactoryObserver.
-  void OnLostResources() override;
+  // Returns true when there's an active frame callback that requires a
+  // BeginFrame() call.
+  bool NeedsBeginFrame() const;
 
-  void WillDraw(const cc::LocalFrameId& local_frame_id);
+  // Call this to indicate that it's a good time to start producing a new frame.
+  void BeginFrame(base::TimeTicks frame_time);
 
   // Check whether this Surface and its children need to create new cc::Surface
   // IDs for their contents next time they get new buffer contents.
   void CheckIfSurfaceHierarchyNeedsCommitToNewSurfaces();
 
+  // Returns the active contents size.
   gfx::Size content_size() const { return content_size_; }
+
+  // Overridden from ui::ContextFactoryObserver:
+  void OnLostResources() override;
+
+  // Overridden from aura::WindowObserver:
+  void OnWindowAddedToRootWindow(aura::Window* window) override;
+  void OnWindowRemovingFromRootWindow(aura::Window* window,
+                                      aura::Window* new_root) override;
+
+  // Overridden from ui::CompositorVSyncManager::Observer:
+  void OnUpdateVSyncParameters(base::TimeTicks timebase,
+                               base::TimeDelta interval) override;
 
   // Sets the |value| of the given surface |property|. Setting to the default
   // value (e.g., NULL) removes the property. The caller is responsible for the
@@ -235,6 +234,10 @@ class Surface : public ui::ContextFactoryObserver {
   template <typename T>
   void ClearProperty(const SurfaceProperty<T>* property);
 
+  bool HasPendingDamageForTesting(const gfx::Rect& damage) const {
+    return pending_damage_.contains(gfx::RectToSkIRect(damage));
+  }
+
  private:
   struct State {
     State();
@@ -249,7 +252,7 @@ class Surface : public ui::ContextFactoryObserver {
     gfx::Size viewport;
     gfx::RectF crop;
     bool only_visible_on_secure_output = false;
-    SkXfermode::Mode blend_mode = SkXfermode::kSrcOver_Mode;
+    SkBlendMode blend_mode = SkBlendMode::kSrcOver;
     float alpha = 1.0f;
   };
   class BufferAttachment {
@@ -328,12 +331,12 @@ class Surface : public ui::ContextFactoryObserver {
   // The buffer that will become the content of surface when Commit() is called.
   BufferAttachment pending_buffer_;
 
-  cc::SurfaceManager* surface_manager_;
-
-  scoped_refptr<SurfaceFactoryOwner> factory_owner_;
-
-  // The Surface Id currently attached to the window.
+  const cc::FrameSinkId frame_sink_id_;
   cc::LocalFrameId local_frame_id_;
+
+  scoped_refptr<CompositorFrameSinkHolder> compositor_frame_sink_holder_;
+
+  cc::SurfaceIdAllocator id_allocator_;
 
   // The next resource id the buffer will be attached to.
   int next_resource_id_ = 1;
@@ -344,12 +347,23 @@ class Surface : public ui::ContextFactoryObserver {
   // These lists contains the callbacks to notify the client when it is a good
   // time to start producing a new frame. These callbacks move to
   // |frame_callbacks_| when Commit() is called. Later they are moved to
-  // |active_frame_callbacks_| when the effect of the Commit() is reflected in
-  // the compositor's active layer tree. The callbacks fire once we're notified
-  // that the compositor started drawing that active layer tree.
+  // |active_frame_callbacks_| when the effect of the Commit() is scheduled to
+  // be drawn. They fire at the first begin frame notification after this.
   std::list<FrameCallback> pending_frame_callbacks_;
   std::list<FrameCallback> frame_callbacks_;
   std::list<FrameCallback> active_frame_callbacks_;
+
+  // These lists contains the callbacks to notify the client when surface
+  // contents have been presented. These callbacks move to
+  // |presentation_callbacks_| when Commit() is called. Later they are moved to
+  // |swapping_presentation_callbacks_| when the effect of the Commit() is
+  // scheduled to be drawn and then moved to |swapped_presentation_callbacks_|
+  // after receiving VSync parameters update for the previous frame. They fire
+  // at the next VSync parameters update after that.
+  std::list<PresentationCallback> pending_presentation_callbacks_;
+  std::list<PresentationCallback> presentation_callbacks_;
+  std::list<PresentationCallback> swapping_presentation_callbacks_;
+  std::list<PresentationCallback> swapped_presentation_callbacks_;
 
   // This is the state that has yet to be committed.
   State pending_state_;
@@ -396,6 +410,12 @@ class Surface : public ui::ContextFactoryObserver {
 
   // Surface observer list. Surface does not own the observers.
   base::ObserverList<SurfaceObserver, true> observers_;
+
+  // A reference factory that uses the compositor frame sink holder provided
+  // to this class to construct surface references. This object is passed to
+  // ui::Layer::SetShowSurface because the layer needs to know how to add
+  // references to surfaces.
+  scoped_refptr<cc::SurfaceReferenceFactory> surface_reference_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(Surface);
 };

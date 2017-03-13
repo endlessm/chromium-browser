@@ -30,8 +30,6 @@
 #include "extensions/common/stack_frame.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 
-class FaviconDownloader;
-
 namespace content {
 struct LoadCommittedDetails;
 class RenderFrameHost;
@@ -52,7 +50,6 @@ class WebstoreInlineInstallerFactory;
 class TabHelper : public content::WebContentsObserver,
                   public ExtensionFunctionDispatcher::Delegate,
                   public ExtensionRegistryObserver,
-                  public base::SupportsWeakPtr<TabHelper>,
                   public content::NotificationObserver,
                   public content::WebContentsUserData<TabHelper> {
  public:
@@ -177,7 +174,6 @@ class TabHelper : public content::WebContentsObserver,
                                int install_id,
                                int return_route_id,
                                const std::string& webstore_item_id,
-                               const GURL& requestor_url,
                                int listeners_mask);
   void OnGetAppInstallState(content::RenderFrameHost* host,
                             const GURL& requestor_url,

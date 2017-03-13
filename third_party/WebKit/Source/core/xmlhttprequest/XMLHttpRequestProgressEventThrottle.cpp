@@ -28,7 +28,6 @@
 #include "core/xmlhttprequest/XMLHttpRequestProgressEventThrottle.h"
 
 #include "core/EventTypeNames.h"
-#include "core/dom/TaskRunnerHelper.h"
 #include "core/events/ProgressEvent.h"
 #include "core/inspector/InspectorInstrumentation.h"
 #include "core/inspector/InspectorTraceEvents.h"
@@ -78,8 +77,8 @@ Event* XMLHttpRequestProgressEventThrottle::DeferredEvent::take() {
 
 XMLHttpRequestProgressEventThrottle::XMLHttpRequestProgressEventThrottle(
     XMLHttpRequest* target)
-    : TimerBase(TaskRunnerHelper::get(TaskType::Networking,
-                                      target->getExecutionContext())),
+    : TimerBase(
+          Platform::current()->currentThread()->scheduler()->timerTaskRunner()),
       m_target(target),
       m_hasDispatchedProgressProgressEvent(false) {
   DCHECK(target);
@@ -186,8 +185,8 @@ void XMLHttpRequestProgressEventThrottle::resume() {
     return;
 
   // Do not dispatch events inline here, since ExecutionContext is iterating
-  // over the list of active DOM objects to resume them, and any activated JS
-  // event-handler could insert new active DOM objects to the list.
+  // over the list of SuspendableObjects to resume them, and any activated JS
+  // event-handler could insert new SuspendableObjects to the list.
   startOneShot(0, BLINK_FROM_HERE);
 }
 

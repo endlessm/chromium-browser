@@ -6,21 +6,15 @@
 
 #include "xfa/fxfa/parser/cxfa_widetextread.h"
 
+#include <algorithm>
+
 #include "core/fxcrt/fx_ext.h"
 #include "xfa/fgas/crt/fgas_codepage.h"
 
 CXFA_WideTextRead::CXFA_WideTextRead(const CFX_WideString& wsBuffer)
-    : m_wsBuffer(wsBuffer), m_iPosition(0), m_iRefCount(1) {}
+    : m_wsBuffer(wsBuffer), m_iPosition(0) {}
 
-void CXFA_WideTextRead::Release() {
-  if (--m_iRefCount < 1)
-    delete this;
-}
-
-IFX_Stream* CXFA_WideTextRead::Retain() {
-  m_iRefCount++;
-  return this;
-}
+CXFA_WideTextRead::~CXFA_WideTextRead() {}
 
 uint32_t CXFA_WideTextRead::GetAccessModes() const {
   return FX_STREAMACCESS_Read | FX_STREAMACCESS_Text;
@@ -50,7 +44,7 @@ int32_t CXFA_WideTextRead::GetPosition() {
   return m_iPosition * sizeof(FX_WCHAR);
 }
 
-FX_BOOL CXFA_WideTextRead::IsEOF() const {
+bool CXFA_WideTextRead::IsEOF() const {
   return m_iPosition >= m_wsBuffer.GetLength();
 }
 
@@ -60,7 +54,7 @@ int32_t CXFA_WideTextRead::ReadData(uint8_t* pBuffer, int32_t iBufferSize) {
 
 int32_t CXFA_WideTextRead::ReadString(FX_WCHAR* pStr,
                                       int32_t iMaxLength,
-                                      FX_BOOL& bEOS) {
+                                      bool& bEOS) {
   iMaxLength = std::min(iMaxLength, m_wsBuffer.GetLength() - m_iPosition);
   if (iMaxLength == 0)
     return 0;
@@ -80,8 +74,8 @@ int32_t CXFA_WideTextRead::WriteString(const FX_WCHAR* pStr, int32_t iLength) {
   return 0;
 }
 
-FX_BOOL CXFA_WideTextRead::SetLength(int32_t iLength) {
-  return FALSE;
+bool CXFA_WideTextRead::SetLength(int32_t iLength) {
+  return false;
 }
 
 int32_t CXFA_WideTextRead::GetBOM(uint8_t bom[4]) const {
@@ -96,9 +90,10 @@ uint16_t CXFA_WideTextRead::SetCodePage(uint16_t wCodePage) {
   return GetCodePage();
 }
 
-IFX_Stream* CXFA_WideTextRead::CreateSharedStream(uint32_t dwAccess,
-                                                  int32_t iOffset,
-                                                  int32_t iLength) {
+CFX_RetainPtr<IFGAS_Stream> CXFA_WideTextRead::CreateSharedStream(
+    uint32_t dwAccess,
+    int32_t iOffset,
+    int32_t iLength) {
   return nullptr;
 }
 

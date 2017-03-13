@@ -19,7 +19,6 @@
 // needed just to know that these are all subclassed from SkFlattenable
 #include "SkShader.h"
 #include "SkPathEffect.h"
-#include "SkXfermode.h"
 #include "SkColorFilter.h"
 #include "SkPathEffect.h"
 #include "SkMaskFilter.h"
@@ -105,11 +104,11 @@ static void toString(const SkPath& path, SkString* str) {
     }
 }
 
-static const char* toString(SkCanvas::ClipOp op) {
+static const char* toString(SkClipOp op) {
     static const char* gOpNames[] = {
         "DIFF", "SECT", "UNION", "XOR", "RDIFF", "REPLACE"
     };
-    return gOpNames[op];
+    return gOpNames[static_cast<int>(op)];
 }
 
 static void toString(const SkRegion& rgn, SkString* str) {
@@ -258,7 +257,7 @@ const char* SkDumpCanvas::EdgeStyleToAAString(ClipEdgeStyle edgeStyle) {
     return kSoft_ClipEdgeStyle == edgeStyle ? "AA" : "BW";
 }
 
-void SkDumpCanvas::onClipRect(const SkRect& rect, ClipOp op, ClipEdgeStyle edgeStyle) {
+void SkDumpCanvas::onClipRect(const SkRect& rect, SkClipOp op, ClipEdgeStyle edgeStyle) {
     SkString str;
     toString(rect, &str);
     this->dump(kClip_Verb, nullptr, "clipRect(%s %s %s)", str.c_str(), toString(op),
@@ -266,7 +265,7 @@ void SkDumpCanvas::onClipRect(const SkRect& rect, ClipOp op, ClipEdgeStyle edgeS
     this->INHERITED::onClipRect(rect, op, edgeStyle);
 }
 
-void SkDumpCanvas::onClipRRect(const SkRRect& rrect, ClipOp op, ClipEdgeStyle edgeStyle) {
+void SkDumpCanvas::onClipRRect(const SkRRect& rrect, SkClipOp op, ClipEdgeStyle edgeStyle) {
     SkString str;
     toString(rrect, &str);
     this->dump(kClip_Verb, nullptr, "clipRRect(%s %s %s)", str.c_str(), toString(op),
@@ -274,7 +273,7 @@ void SkDumpCanvas::onClipRRect(const SkRRect& rrect, ClipOp op, ClipEdgeStyle ed
     this->INHERITED::onClipRRect(rrect, op, edgeStyle);
 }
 
-void SkDumpCanvas::onClipPath(const SkPath& path, ClipOp op, ClipEdgeStyle edgeStyle) {
+void SkDumpCanvas::onClipPath(const SkPath& path, SkClipOp op, ClipEdgeStyle edgeStyle) {
     SkString str;
     toString(path, &str);
     this->dump(kClip_Verb, nullptr, "clipPath(%s %s %s)", str.c_str(), toString(op),
@@ -282,11 +281,10 @@ void SkDumpCanvas::onClipPath(const SkPath& path, ClipOp op, ClipEdgeStyle edgeS
     this->INHERITED::onClipPath(path, op, edgeStyle);
 }
 
-void SkDumpCanvas::onClipRegion(const SkRegion& deviceRgn, ClipOp op) {
+void SkDumpCanvas::onClipRegion(const SkRegion& deviceRgn, SkClipOp op) {
     SkString str;
     toString(deviceRgn, &str);
-    this->dump(kClip_Verb, nullptr, "clipRegion(%s %s)", str.c_str(),
-               toString(op));
+    this->dump(kClip_Verb, nullptr, "clipRegion(%s %s)", str.c_str(), toString(op));
     this->INHERITED::onClipRegion(deviceRgn, op);
 }
 
@@ -468,7 +466,7 @@ void SkDumpCanvas::onDrawPicture(const SkPicture* picture, const SkMatrix* matri
 
 void SkDumpCanvas::onDrawVertices(VertexMode vmode, int vertexCount,
                                   const SkPoint vertices[], const SkPoint texs[],
-                                  const SkColor colors[], SkXfermode* xmode,
+                                  const SkColor colors[], SkBlendMode,
                                   const uint16_t indices[], int indexCount,
                                   const SkPaint& paint) {
     this->dump(kDrawVertices_Verb, &paint, "drawVertices(%s [%d] %g %g ...)",
@@ -477,7 +475,7 @@ void SkDumpCanvas::onDrawVertices(VertexMode vmode, int vertexCount,
 }
 
 void SkDumpCanvas::onDrawPatch(const SkPoint cubics[12], const SkColor colors[4],
-                               const SkPoint texCoords[4], SkXfermode* xmode,
+                               const SkPoint texCoords[4], SkBlendMode,
                                const SkPaint& paint) {
     //dumps corner points and colors in clockwise order starting on upper-left corner
     this->dump(kDrawPatch_Verb, &paint, "drawPatch(Vertices{[%f, %f], [%f, %f], [%f, %f], [%f, %f]}\
@@ -541,7 +539,7 @@ void SkFormatDumper::dump(SkDumpCanvas* canvas, SkDumpCanvas::Verb verb,
     if (p) {
         msg.appendf(" color:0x%08X flags:%X", p->getColor(), p->getFlags());
         if (!p->isSrcOver()) {
-            msg.appendf(" blendmode:%d", p->getBlendMode());
+            msg.appendf(" blendmode:%d", (int)p->getBlendMode());
         }
         appendFlattenable(&msg, p->getShader(), "shader");
         appendFlattenable(&msg, p->getPathEffect(), "pathEffect");

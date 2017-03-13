@@ -7,42 +7,29 @@
 #ifndef FPDFSDK_FPDFXFA_CXFA_FWLADAPTERTIMERMGR_H_
 #define FPDFSDK_FPDFXFA_CXFA_FWLADAPTERTIMERMGR_H_
 
+#include <memory>
 #include <vector>
 
-#include "fpdfsdk/fpdfxfa/cpdfxfa_document.h"
-#include "xfa/fwl/core/ifwl_adaptertimermgr.h"
-
-#define JS_STR_VIEWERTYPE_STANDARD L"Exchange"
-#define JS_STR_LANGUANGE L"ENU"
-#define JS_STR_VIEWERVARIATION L"Full"
-#define JS_STR_VIEWERVERSION_XFA L"11"
-
-struct CFWL_TimerInfo;
+#include "fpdfsdk/fpdfxfa/cpdfxfa_context.h"
+#include "xfa/fwl/cfwl_timerinfo.h"
+#include "xfa/fwl/ifwl_adaptertimermgr.h"
 
 class CXFA_FWLAdapterTimerMgr : public IFWL_AdapterTimerMgr {
  public:
-  CXFA_FWLAdapterTimerMgr(CPDFSDK_FormFillEnvironment* pEnv) : m_pEnv(pEnv) {}
+  explicit CXFA_FWLAdapterTimerMgr(CPDFSDK_FormFillEnvironment* pFormFillEnv)
+      : m_pFormFillEnv(pFormFillEnv) {}
 
-  FWL_Error Start(IFWL_Timer* pTimer,
-                  uint32_t dwElapse,
-                  bool bImmediately,
-                  IFWL_TimerInfo** pTimerInfo) override;
-  FWL_Error Stop(IFWL_TimerInfo* pTimerInfo) override;
+  void Start(CFWL_Timer* pTimer,
+             uint32_t dwElapse,
+             bool bImmediately,
+             CFWL_TimerInfo** pTimerInfo) override;
+  void Stop(CFWL_TimerInfo* pTimerInfo) override;
 
  protected:
   static void TimerProc(int32_t idEvent);
 
   static std::vector<CFWL_TimerInfo*>* s_TimerArray;
-  CPDFSDK_FormFillEnvironment* const m_pEnv;
-};
-
-struct CFWL_TimerInfo : public IFWL_TimerInfo {
-  CFWL_TimerInfo() : pTimer(nullptr) {}
-  CFWL_TimerInfo(int32_t event, IFWL_Timer* timer)
-      : idEvent(event), pTimer(timer) {}
-
-  int32_t idEvent;
-  IFWL_Timer* pTimer;
+  CPDFSDK_FormFillEnvironment* const m_pFormFillEnv;
 };
 
 #endif  // FPDFSDK_FPDFXFA_CXFA_FWLADAPTERTIMERMGR_H_

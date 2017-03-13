@@ -12,7 +12,6 @@ import org.chromium.base.ContextUtils;
 import org.chromium.base.Log;
 import org.chromium.base.VisibleForTesting;
 import org.chromium.base.annotations.JNINamespace;
-import org.chromium.net.CronetEngine;
 import org.chromium.net.NetworkChangeNotifier;
 
 /**
@@ -23,7 +22,8 @@ import org.chromium.net.NetworkChangeNotifier;
 public class CronetLibraryLoader {
     // Synchronize initialization.
     private static final Object sLoadLock = new Object();
-    private static final String TAG = "CronetLibraryLoader";
+    private static final String LIBRARY_NAME = "cronet";
+    private static final String TAG = CronetLibraryLoader.class.getSimpleName();
     // Has library loading commenced?  Setting guarded by sLoadLock.
     private static volatile boolean sInitStarted = false;
     // Has ensureMainThreadInitialized() completed?  Only accessed on main thread.
@@ -34,31 +34,31 @@ public class CronetLibraryLoader {
      * any thread, the load and initialization is performed on main thread.
      */
     public static void ensureInitialized(
-            final Context context, final CronetEngine.Builder builder) {
+            final Context applicationContext, final CronetEngineBuilderImpl builder) {
         synchronized (sLoadLock) {
             if (sInitStarted) {
                 return;
             }
             sInitStarted = true;
-            ContextUtils.initApplicationContext(context.getApplicationContext());
+            ContextUtils.initApplicationContext(applicationContext);
             if (builder.libraryLoader() != null) {
-                builder.libraryLoader().loadLibrary(builder.libraryName());
+                builder.libraryLoader().loadLibrary(LIBRARY_NAME);
             } else {
-                System.loadLibrary(builder.libraryName());
+                System.loadLibrary(LIBRARY_NAME);
             }
             ContextUtils.initApplicationContextForNative();
-            if (!ImplVersion.CRONET_VERSION.equals(nativeGetCronetVersion())) {
+            String implVersion = ImplVersion.getCronetVersion();
+            if (!implVersion.equals(nativeGetCronetVersion())) {
                 throw new RuntimeException(String.format("Expected Cronet version number %s, "
                                 + "actual version number %s.",
-                        ImplVersion.CRONET_VERSION, nativeGetCronetVersion()));
+                        implVersion, nativeGetCronetVersion()));
             }
-            Log.i(TAG, "Cronet version: %s, arch: %s", ImplVersion.CRONET_VERSION,
-                    System.getProperty("os.arch"));
+            Log.i(TAG, "Cronet version: %s, arch: %s", implVersion, System.getProperty("os.arch"));
             // Init native Chromium CronetEngine on Main UI thread.
             Runnable task = new Runnable() {
                 @Override
                 public void run() {
-                    ensureInitializedOnMainThread(context);
+                    ensureInitializedOnMainThread(applicationContext);
                 }
             };
             // Run task immediately or post it to the UI thread.

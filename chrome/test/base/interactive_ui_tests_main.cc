@@ -8,12 +8,13 @@
 #include "chrome/test/base/chrome_test_suite.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/interactive_test_utils.h"
+#include "gpu/ipc/service/image_transport_surface.h"
 #include "ui/base/test/ui_controls.h"
 
 #if defined(USE_AURA)
 #include "ui/aura/test/ui_controls_factory_aura.h"
 #include "ui/base/test/ui_controls_aura.h"
-#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
+#if defined(USE_X11) && !defined(OS_CHROMEOS)
 #include "ui/views/test/ui_controls_factory_desktop_aurax11.h"
 #endif
 #endif
@@ -37,6 +38,10 @@ class InteractiveUITestSuite : public ChromeTestSuite {
   void Initialize() override {
     ChromeTestSuite::Initialize();
 
+#if defined(OS_MACOSX)
+    gpu::ImageTransportSurface::SetAllowOSMesaForTesting(true);
+#endif
+
     // Only allow ui_controls to be used in interactive_ui_tests, since they
     // depend on focus and can't be sharded.
     ui_controls::EnableUIControls();
@@ -49,13 +54,17 @@ class InteractiveUITestSuite : public ChromeTestSuite {
 #endif
 
 #if defined(OS_LINUX)
+#if defined(USE_OZONE)
+    NOTIMPLEMENTED();
+#else
     ui_controls::InstallUIControlsAura(
         views::test::CreateUIControlsDesktopAura());
+#endif  // defined(USE_OZONE)
 #else
     // TODO(win_ash): when running interactive_ui_tests for Win Ash, use above.
     ui_controls::InstallUIControlsAura(aura::test::CreateUIControlsAura(NULL));
-#endif
-#endif
+#endif  // defined(OS_LINUX)
+#endif  // defined(USE_AURA)
   }
 
   void Shutdown() override {

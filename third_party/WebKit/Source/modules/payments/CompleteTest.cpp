@@ -17,12 +17,12 @@ TEST(CompleteTest, CannotCallCompleteTwice) {
   PaymentRequestMockFunctionScope funcs(scope.getScriptState());
   makePaymentRequestOriginSecure(scope.document());
   PaymentRequest* request = PaymentRequest::create(
-      scope.getScriptState(), buildPaymentMethodDataForTest(),
+      scope.document(), buildPaymentMethodDataForTest(),
       buildPaymentDetailsForTest(), scope.getExceptionState());
   EXPECT_FALSE(scope.getExceptionState().hadException());
   request->show(scope.getScriptState());
-  static_cast<mojom::blink::PaymentRequestClient*>(request)->OnPaymentResponse(
-      buildPaymentResponseForTest());
+  static_cast<payments::mojom::blink::PaymentRequestClient*>(request)
+      ->OnPaymentResponse(buildPaymentResponseForTest());
   request->complete(scope.getScriptState(), PaymentCompleter::Fail);
 
   request->complete(scope.getScriptState(), PaymentCompleter::Success)
@@ -34,19 +34,19 @@ TEST(CompleteTest, RejectCompletePromiseOnError) {
   PaymentRequestMockFunctionScope funcs(scope.getScriptState());
   makePaymentRequestOriginSecure(scope.document());
   PaymentRequest* request = PaymentRequest::create(
-      scope.getScriptState(), buildPaymentMethodDataForTest(),
+      scope.document(), buildPaymentMethodDataForTest(),
       buildPaymentDetailsForTest(), scope.getExceptionState());
   EXPECT_FALSE(scope.getExceptionState().hadException());
   request->show(scope.getScriptState());
-  static_cast<mojom::blink::PaymentRequestClient*>(request)->OnPaymentResponse(
-      buildPaymentResponseForTest());
+  static_cast<payments::mojom::blink::PaymentRequestClient*>(request)
+      ->OnPaymentResponse(buildPaymentResponseForTest());
 
   String errorMessage;
   request->complete(scope.getScriptState(), PaymentCompleter::Success)
       .then(funcs.expectNoCall(), funcs.expectCall(&errorMessage));
 
-  static_cast<mojom::blink::PaymentRequestClient*>(request)->OnError(
-      mojom::blink::PaymentErrorReason::UNKNOWN);
+  static_cast<payments::mojom::blink::PaymentRequestClient*>(request)->OnError(
+      payments::mojom::blink::PaymentErrorReason::UNKNOWN);
 
   v8::MicrotasksScope::PerformCheckpoint(scope.getScriptState()->isolate());
   EXPECT_EQ("UnknownError: Request failed", errorMessage);
@@ -59,14 +59,14 @@ TEST(CompleteTest, RejectCompletePromiseAfterError) {
   PaymentRequestMockFunctionScope funcs(scope.getScriptState());
   makePaymentRequestOriginSecure(scope.document());
   PaymentRequest* request = PaymentRequest::create(
-      scope.getScriptState(), buildPaymentMethodDataForTest(),
+      scope.document(), buildPaymentMethodDataForTest(),
       buildPaymentDetailsForTest(), scope.getExceptionState());
   EXPECT_FALSE(scope.getExceptionState().hadException());
   request->show(scope.getScriptState());
-  static_cast<mojom::blink::PaymentRequestClient*>(request)->OnPaymentResponse(
-      buildPaymentResponseForTest());
-  static_cast<mojom::blink::PaymentRequestClient*>(request)->OnError(
-      mojom::blink::PaymentErrorReason::USER_CANCEL);
+  static_cast<payments::mojom::blink::PaymentRequestClient*>(request)
+      ->OnPaymentResponse(buildPaymentResponseForTest());
+  static_cast<payments::mojom::blink::PaymentRequestClient*>(request)->OnError(
+      payments::mojom::blink::PaymentErrorReason::USER_CANCEL);
 
   request->complete(scope.getScriptState(), PaymentCompleter::Success)
       .then(funcs.expectNoCall(), funcs.expectCall());
@@ -77,17 +77,18 @@ TEST(CompleteTest, ResolvePromiseOnComplete) {
   PaymentRequestMockFunctionScope funcs(scope.getScriptState());
   makePaymentRequestOriginSecure(scope.document());
   PaymentRequest* request = PaymentRequest::create(
-      scope.getScriptState(), buildPaymentMethodDataForTest(),
+      scope.document(), buildPaymentMethodDataForTest(),
       buildPaymentDetailsForTest(), scope.getExceptionState());
   EXPECT_FALSE(scope.getExceptionState().hadException());
   request->show(scope.getScriptState());
-  static_cast<mojom::blink::PaymentRequestClient*>(request)->OnPaymentResponse(
-      buildPaymentResponseForTest());
+  static_cast<payments::mojom::blink::PaymentRequestClient*>(request)
+      ->OnPaymentResponse(buildPaymentResponseForTest());
 
   request->complete(scope.getScriptState(), PaymentCompleter::Success)
       .then(funcs.expectCall(), funcs.expectNoCall());
 
-  static_cast<mojom::blink::PaymentRequestClient*>(request)->OnComplete();
+  static_cast<payments::mojom::blink::PaymentRequestClient*>(request)
+      ->OnComplete();
 }
 
 TEST(CompleteTest, RejectCompletePromiseOnUpdateDetailsFailure) {
@@ -95,13 +96,13 @@ TEST(CompleteTest, RejectCompletePromiseOnUpdateDetailsFailure) {
   PaymentRequestMockFunctionScope funcs(scope.getScriptState());
   makePaymentRequestOriginSecure(scope.document());
   PaymentRequest* request = PaymentRequest::create(
-      scope.getScriptState(), buildPaymentMethodDataForTest(),
+      scope.document(), buildPaymentMethodDataForTest(),
       buildPaymentDetailsForTest(), scope.getExceptionState());
   EXPECT_FALSE(scope.getExceptionState().hadException());
   request->show(scope.getScriptState())
       .then(funcs.expectCall(), funcs.expectNoCall());
-  static_cast<mojom::blink::PaymentRequestClient*>(request)->OnPaymentResponse(
-      buildPaymentResponseForTest());
+  static_cast<payments::mojom::blink::PaymentRequestClient*>(request)
+      ->OnPaymentResponse(buildPaymentResponseForTest());
 
   String errorMessage;
   request->complete(scope.getScriptState(), PaymentCompleter::Success)
@@ -118,13 +119,13 @@ TEST(CompleteTest, RejectCompletePromiseAfterTimeout) {
   PaymentRequestMockFunctionScope funcs(scope.getScriptState());
   makePaymentRequestOriginSecure(scope.document());
   PaymentRequest* request = PaymentRequest::create(
-      scope.getScriptState(), buildPaymentMethodDataForTest(),
+      scope.document(), buildPaymentMethodDataForTest(),
       buildPaymentDetailsForTest(), scope.getExceptionState());
   EXPECT_FALSE(scope.getExceptionState().hadException());
   request->show(scope.getScriptState())
       .then(funcs.expectCall(), funcs.expectNoCall());
-  static_cast<mojom::blink::PaymentRequestClient*>(request)->OnPaymentResponse(
-      buildPaymentResponseForTest());
+  static_cast<payments::mojom::blink::PaymentRequestClient*>(request)
+      ->OnPaymentResponse(buildPaymentResponseForTest());
   request->onCompleteTimeoutForTesting();
 
   String errorMessage;

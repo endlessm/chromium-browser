@@ -25,8 +25,7 @@ foreach (VARNAME ${variables_to_filter})
 endforeach()
 
 # Enable the coverage instrumentation (it is disabled for the Fuzzer lib).
-#set(CMAKE_CXX_FLAGS "${LIBFUZZER_FLAGS_BASE} -fno-sanitize-coverage=8bit-counters  -fsanitize-coverage=edge,indirect-calls,trace-cmp,trace-div,trace-gep,trace-pc-guard -g")
-set(CMAKE_CXX_FLAGS "${LIBFUZZER_FLAGS_BASE} -fsanitize-coverage=edge,indirect-calls,trace-cmp,trace-div,trace-gep -g")
+set(CMAKE_CXX_FLAGS "${LIBFUZZER_FLAGS_BASE} -fsanitize-coverage=trace-pc-guard,indirect-calls,trace-cmp,trace-div,trace-gep -g")
 
 # add_libfuzzer_test(<name>
 #   SOURCES source0.cpp [source1.cpp ...]
@@ -73,6 +72,8 @@ set(Tests
   CustomMutatorTest
   DivTest
   EmptyTest
+  EquivalenceATest
+  EquivalenceBTest
   FourIndependentBranchesTest
   FullCoverageSetTest
   InitializeTest
@@ -80,31 +81,38 @@ set(Tests
   LeakTest
   LeakTimeoutTest
   LoadTest
-  MinimizeCorpusTest
   NullDerefTest
   NullDerefOnEmptyTest
   NthRunCrashTest
   OneHugeAllocTest
   OutOfMemoryTest
+  OutOfMemorySingleLargeMallocTest
   RepeatedMemcmp
   RepeatedBytesTest
   SimpleCmpTest
   SimpleDictionaryTest
-  SimpleFnAdapterTest
   SimpleHashTest
   SimpleTest
   SimpleThreadedTest
+  SingleByteInputTest
   SingleMemcmpTest
   SingleStrcmpTest
   SingleStrncmpTest
   SpamyTest
+  ShrinkControlFlowTest
+  ShrinkValueProfileTest
   StrcmpTest
+  StrncmpOOBTest
   StrncmpTest
   StrstrTest
+  SwapCmpTest
   SwitchTest
+  Switch2Test
   ThreadedLeakTest
   ThreadedTest
   TimeoutTest
+  TimeoutEmptyTest
+  TraceMallocTest
   )
 
 if(APPLE)
@@ -121,14 +129,17 @@ foreach(Test ${Tests})
   add_libfuzzer_test(${Test} SOURCES ${Test}.cpp)
 endforeach()
 
-
 ###############################################################################
 # Unit tests
 ###############################################################################
 
 add_executable(LLVMFuzzer-Unittest
   FuzzerUnittest.cpp
-  FuzzerFnAdapterUnittest.cpp
+  )
+
+add_executable(LLVMFuzzer-StandaloneInitializeTest
+  InitializeTest.cpp
+  ../standalone/StandaloneFuzzTargetMain.c
   )
 
 target_link_libraries(LLVMFuzzer-Unittest
@@ -146,27 +157,44 @@ set_target_properties(LLVMFuzzer-Unittest
   PROPERTIES RUNTIME_OUTPUT_DIRECTORY
   "${CMAKE_CURRENT_BINARY_DIR}"
 )
+
+set(TestBinaries ${TestBinaries} LLVMFuzzer-StandaloneInitializeTest)
+set_target_properties(LLVMFuzzer-StandaloneInitializeTest
+  PROPERTIES RUNTIME_OUTPUT_DIRECTORY
+  "${CMAKE_CURRENT_BINARY_DIR}"
+)
+
 ###############################################################################
 # Additional tests
 ###############################################################################
 
 include_directories(..)
 
-if(APPLE)
-  message(WARNING "DataflowSanitizer is not supported on Apple platforms."
-    " Building and running LibFuzzer DataflowSanitizer tests is disabled."
-    )
-  set(HAS_DFSAN 0)
-else()
-  set(HAS_DFSAN 1)
-  add_subdirectory(dfsan)
-endif()
-
-add_subdirectory(uninstrumented)
+# add_subdirectory(uninstrumented)
 add_subdirectory(no-coverage)
 add_subdirectory(ubsan)
-add_subdirectory(trace-bb)
-add_subdirectory(trace-pc)
+
+add_library(LLVMFuzzer-DSO1 SHARED DSO1.cpp)
+add_library(LLVMFuzzer-DSO2 SHARED DSO2.cpp)
+
+add_executable(LLVMFuzzer-DSOTest
+  DSOTestMain.cpp
+  DSOTestExtra.cpp)
+
+target_link_libraries(LLVMFuzzer-DSOTest
+  LLVMFuzzer-DSO1
+  LLVMFuzzer-DSO2
+  LLVMFuzzer
+  )
+
+set_target_properties(LLVMFuzzer-DSOTest PROPERTIES RUNTIME_OUTPUT_DIRECTORY
+  "${CMAKE_BINARY_DIR}/lib/Fuzzer/test")
+set_target_properties(LLVMFuzzer-DSO1 PROPERTIES LIBRARY_OUTPUT_DIRECTORY
+  "${CMAKE_BINARY_DIR}/lib/Fuzzer/lib")
+set_target_properties(LLVMFuzzer-DSO2 PROPERTIES LIBRARY_OUTPUT_DIRECTORY
+  "${CMAKE_BINARY_DIR}/lib/Fuzzer/lib")
+
+set(TestBinaries ${TestBinaries} LLVMFuzzer-DSOTest)
 
 ###############################################################################
 # Configure lit to run the tests
@@ -187,5 +215,5 @@ configure_lit_site_cfg(
 
 add_lit_testsuite(check-fuzzer "Running Fuzzer tests"
     ${CMAKE_CURRENT_BINARY_DIR}
-    DEPENDS ${TestBinaries} FileCheck not
+    DEPENDS ${TestBinaries} FileCheck sancov not
     )

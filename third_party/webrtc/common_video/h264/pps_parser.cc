@@ -22,6 +22,11 @@
     return rtc::Optional<PpsParser::PpsState>(); \
   }
 
+namespace {
+const int kMaxPicInitQpDeltaValue = 25;
+const int kMinPicInitQpDeltaValue = -26;
+}
+
 namespace webrtc {
 
 // General note: this is based off the 02/2014 version of the H.264 standard.
@@ -82,9 +87,7 @@ rtc::Optional<PpsParser::PpsState> PpsParser::ParseInternal(
   // entropy_coding_mode_flag: u(1)
   uint32_t entropy_coding_mode_flag;
   RETURN_EMPTY_ON_FAIL(bit_buffer->ReadBits(&entropy_coding_mode_flag, 1));
-  // TODO(pbos): Implement CABAC support if spotted in the wild.
-  RTC_CHECK(entropy_coding_mode_flag == 0)
-      << "Don't know how to parse CABAC streams.";
+  pps.entropy_coding_mode_flag = entropy_coding_mode_flag != 0;
   // bottom_field_pic_order_in_frame_present_flag: u(1)
   uint32_t bottom_field_pic_order_in_frame_present_flag;
   RETURN_EMPTY_ON_FAIL(
@@ -164,6 +167,11 @@ rtc::Optional<PpsParser::PpsState> PpsParser::ParseInternal(
   // pic_init_qp_minus26: se(v)
   RETURN_EMPTY_ON_FAIL(
       bit_buffer->ReadSignedExponentialGolomb(&pps.pic_init_qp_minus26));
+  // Sanity-check parsed value
+  if (pps.pic_init_qp_minus26 > kMaxPicInitQpDeltaValue ||
+      pps.pic_init_qp_minus26 < kMinPicInitQpDeltaValue) {
+    RETURN_EMPTY_ON_FAIL(false);
+  }
   // pic_init_qs_minus26: se(v)
   RETURN_EMPTY_ON_FAIL(bit_buffer->ReadExponentialGolomb(&golomb_ignored));
   // chroma_qp_index_offset: se(v)

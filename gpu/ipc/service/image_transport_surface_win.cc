@@ -19,22 +19,26 @@ namespace gpu {
 
 // static
 scoped_refptr<gl::GLSurface> ImageTransportSurface::CreateNativeSurface(
-    GpuChannelManager* manager,
-    GpuCommandBufferStub* stub,
+    base::WeakPtr<ImageTransportSurfaceDelegate> delegate,
     SurfaceHandle surface_handle,
-    gl::GLSurface::Format format) {
+    gl::GLSurfaceFormat format) {
   DCHECK_NE(surface_handle, kNullSurfaceHandle);
 
   scoped_refptr<gl::GLSurface> surface;
   if (gl::GetGLImplementation() == gl::kGLImplementationEGLGLES2 &&
       gl::GLSurfaceEGL::IsDirectCompositionSupported()) {
     scoped_refptr<ChildWindowSurfaceWin> egl_surface(
-        new ChildWindowSurfaceWin(manager, surface_handle));
+        new ChildWindowSurfaceWin(delegate, surface_handle));
     surface = egl_surface;
 
-    // TODO(jbauman): Get frame statistics from DirectComposition
+    // TODO(stanisc): http://crbug.com/659844:
+    // Force DWM based gl::VSyncProviderWin provider to avoid video playback
+    // smoothness issues. Once that issue is fixed, passing a nullptr
+    // vsync_provider would result in assigning a default VSyncProvider inside
+    // the Initialize call.
     std::unique_ptr<gfx::VSyncProvider> vsync_provider(
         new gl::VSyncProviderWin(surface_handle));
+
     if (!egl_surface->Initialize(std::move(vsync_provider)))
       return nullptr;
   } else {
@@ -44,7 +48,7 @@ scoped_refptr<gl::GLSurface> ImageTransportSurface::CreateNativeSurface(
   }
 
   return scoped_refptr<gl::GLSurface>(
-      new PassThroughImageTransportSurface(manager, stub, surface.get()));
+      new PassThroughImageTransportSurface(delegate, surface.get()));
 }
 
 }  // namespace gpu

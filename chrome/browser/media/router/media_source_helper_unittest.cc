@@ -5,17 +5,19 @@
 #include "chrome/browser/media/router/media_source.h"
 #include "chrome/browser/media/router/media_source_helper.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "url/gurl.h"
 
 namespace media_router {
+
+constexpr char kPresentationUrl[] = "http://www.example.com/presentation.html";
 
 TEST(MediaSourcesTest, IsMirroringMediaSource) {
   EXPECT_TRUE(IsTabMirroringMediaSource(MediaSourceForTab(123)));
   EXPECT_TRUE(IsDesktopMirroringMediaSource(MediaSourceForDesktop()));
   EXPECT_TRUE(IsMirroringMediaSource(MediaSourceForTab(123)));
   EXPECT_TRUE(IsMirroringMediaSource(MediaSourceForDesktop()));
-  EXPECT_FALSE(IsMirroringMediaSource(MediaSourceForCastApp("CastApp")));
-  EXPECT_FALSE(
-      IsMirroringMediaSource(MediaSourceForPresentationUrl("http://url")));
+  EXPECT_FALSE(IsMirroringMediaSource(
+      MediaSourceForPresentationUrl(GURL(kPresentationUrl))));
 }
 
 TEST(MediaSourcesTest, CreateMediaSource) {
@@ -23,35 +25,43 @@ TEST(MediaSourcesTest, CreateMediaSource) {
             MediaSourceForTab(123).id());
   EXPECT_EQ("urn:x-org.chromium.media:source:desktop",
             MediaSourceForDesktop().id());
-  EXPECT_EQ("urn:x-com.google.cast:application:DEADBEEF",
-            MediaSourceForCastApp("DEADBEEF").id());
-  EXPECT_EQ("http://example.com/",
-            MediaSourceForPresentationUrl("http://example.com/").id());
+  EXPECT_EQ(kPresentationUrl,
+            MediaSourceForPresentationUrl(GURL(kPresentationUrl)).id());
 }
 
 TEST(MediaSourcesTest, IsValidMediaSource) {
   EXPECT_TRUE(IsValidMediaSource(MediaSourceForTab(123)));
   EXPECT_TRUE(IsValidMediaSource(MediaSourceForDesktop()));
-  EXPECT_TRUE(IsValidMediaSource(MediaSourceForCastApp("DEADBEEF")));
-  EXPECT_TRUE(
-      IsValidMediaSource(MediaSourceForPresentationUrl("http://example.com/")));
   EXPECT_TRUE(IsValidMediaSource(
-      MediaSourceForPresentationUrl("https://example.com/")));
+      MediaSourceForPresentationUrl(GURL(kPresentationUrl))));
+  EXPECT_TRUE(IsValidMediaSource(
+      MediaSourceForPresentationUrl(GURL(kPresentationUrl))));
 
   // Disallowed scheme
   EXPECT_FALSE(IsValidMediaSource(
-      MediaSourceForPresentationUrl("file:///some/local/path")));
+      MediaSourceForPresentationUrl(GURL("file:///some/local/path"))));
   // Not a URL
-  EXPECT_FALSE(
-      IsValidMediaSource(MediaSourceForPresentationUrl("totally not a url")));
+  EXPECT_FALSE(IsValidMediaSource(
+      MediaSourceForPresentationUrl(GURL("totally not a url"))));
 }
 
-TEST(MediaSourcesTest, PresentationUrlFromMediaSource) {
-  EXPECT_EQ("", PresentationUrlFromMediaSource(MediaSourceForTab(123)));
-  EXPECT_EQ("", PresentationUrlFromMediaSource(MediaSourceForDesktop()));
-  EXPECT_EQ("http://example.com/",
-            PresentationUrlFromMediaSource(
-                MediaSourceForPresentationUrl("http://example.com/")));
+TEST(MediaSourcesTest, CanConnectToMediaSource) {
+  EXPECT_TRUE(CanConnectToMediaSource(
+      MediaSource(GURL("https://google.com/cast#__castAppId__=233637DE"))));
+  // false scheme
+  EXPECT_FALSE(CanConnectToMediaSource(
+      MediaSource(GURL("http://google.com/cast#__castAppId__=233637DE"))));
+  // false domain
+  EXPECT_FALSE(CanConnectToMediaSource(
+      MediaSource(GURL("https://google2.com/cast#__castAppId__=233637DE"))));
+  // empty path
+  EXPECT_FALSE(
+      CanConnectToMediaSource(MediaSource(GURL("https://www.google.com"))));
+  // false path
+  EXPECT_FALSE(CanConnectToMediaSource(
+      MediaSource(GURL("https://www.google.com/path"))));
+
+  EXPECT_FALSE(CanConnectToMediaSource(MediaSource(GURL(""))));
 }
 
 }  // namespace media_router

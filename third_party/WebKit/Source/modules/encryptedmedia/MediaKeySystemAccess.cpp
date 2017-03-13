@@ -46,9 +46,13 @@ class NewCdmResultPromise : public ContentDecryptionModuleResultPromise {
   void completeWithContentDecryptionModule(
       WebContentDecryptionModule* cdm) override {
     // NOTE: Continued from step 2.8 of createMediaKeys().
+
+    if (!isValidToFulfillPromise())
+      return;
+
     // 2.9. Let media keys be a new MediaKeys object.
     MediaKeys* mediaKeys = MediaKeys::create(
-        getExecutionContext(), m_supportedSessionTypes, wrapUnique(cdm));
+        getExecutionContext(), m_supportedSessionTypes, WTF::wrapUnique(cdm));
 
     // 2.10. Resolve promise with media keys.
     resolve(mediaKeys);

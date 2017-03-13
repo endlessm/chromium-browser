@@ -16,15 +16,7 @@ class SingleThreadTaskRunner;
 }
 
 namespace cc {
-class BeginFrameSource;
-class ContextProvider;
-class ImageSerializationProcessor;
-class SharedBitmapManager;
 class TaskGraphRunner;
-}
-
-namespace gpu {
-class GpuMemoryBufferManager;
 }
 
 namespace blink {
@@ -54,10 +46,7 @@ class CompositorDependencies {
   // compositor thread).
   virtual scoped_refptr<base::SingleThreadTaskRunner>
   GetCompositorImplThreadTaskRunner() = 0;
-  virtual cc::SharedBitmapManager* GetSharedBitmapManager() = 0;
-  virtual gpu::GpuMemoryBufferManager* GetGpuMemoryBufferManager() = 0;
   virtual blink::scheduler::RendererScheduler* GetRendererScheduler() = 0;
-  virtual cc::ImageSerializationProcessor* GetImageSerializationProcessor() = 0;
   virtual cc::TaskGraphRunner* GetTaskGraphRunner() = 0;
   virtual bool AreImageDecodeTasksEnabled() = 0;
   virtual bool IsThreadedAnimationEnabled() = 0;

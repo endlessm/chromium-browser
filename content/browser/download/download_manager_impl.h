@@ -78,7 +78,6 @@ class CONTENT_EXPORT DownloadManagerImpl : public DownloadManager,
       const base::Callback<bool(const GURL&)>& url_filter,
       base::Time remove_begin,
       base::Time remove_end) override;
-  int RemoveAllDownloads() override;
   void DownloadUrl(std::unique_ptr<DownloadUrlParameters> params) override;
   void AddObserver(Observer* observer) override;
   void RemoveObserver(Observer* observer) override;
@@ -138,10 +137,8 @@ class CONTENT_EXPORT DownloadManagerImpl : public DownloadManager,
 
  private:
   using DownloadSet = std::set<DownloadItem*>;
-  using DownloadMap = std::unordered_map<uint32_t, DownloadItemImpl*>;
   using DownloadGuidMap = std::unordered_map<std::string, DownloadItemImpl*>;
   using DownloadItemImplVector = std::vector<DownloadItemImpl*>;
-  using DownloadRemover = base::Callback<bool(const DownloadItemImpl*)>;
 
   // For testing.
   friend class DownloadManagerTest;
@@ -175,9 +172,6 @@ class CONTENT_EXPORT DownloadManagerImpl : public DownloadManager,
   // Updates the state of the file and then notifies this update to the file's
   // observer.
   void OnFileExistenceChecked(uint32_t download_id, bool result);
-
-  // Remove all downloads for which |remover| returns true.
-  int RemoveDownloads(const DownloadRemover& remover);
 
   // Overridden from DownloadItemImplDelegate
   // (Note that |GetBrowserContext| are present in both interfaces.)
@@ -213,7 +207,7 @@ class CONTENT_EXPORT DownloadManagerImpl : public DownloadManager,
   // "save page as" downloads.
   // TODO(asanka): Remove this container in favor of downloads_by_guid_ as a
   // part of http://crbug.com/593020.
-  DownloadMap downloads_;
+  std::unordered_map<uint32_t, std::unique_ptr<DownloadItemImpl>> downloads_;
 
   // Same as the above, but maps from GUID to download item. Note that the
   // container is case sensitive. Hence the key needs to be normalized to

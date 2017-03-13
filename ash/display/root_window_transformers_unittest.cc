@@ -7,7 +7,6 @@
 #include <memory>
 
 #include "ash/common/shelf/shelf_widget.h"
-#include "ash/display/display_manager.h"
 #include "ash/display/display_util.h"
 #include "ash/host/root_window_transformer.h"
 #include "ash/magnifier/magnification_controller.h"
@@ -15,16 +14,17 @@
 #include "ash/shell.h"
 #include "ash/test/ash_test_base.h"
 #include "ash/test/cursor_manager_test_api.h"
-#include "ash/test/display_manager_test_api.h"
 #include "ash/test/mirror_window_test_api.h"
 #include "base/synchronization/waitable_event.h"
 #include "ui/aura/env.h"
 #include "ui/aura/window_event_dispatcher.h"
 #include "ui/aura/window_tracker.h"
 #include "ui/display/display.h"
-#include "ui/display/manager/display_layout.h"
+#include "ui/display/display_layout.h"
+#include "ui/display/manager/display_manager.h"
 #include "ui/display/manager/managed_display_info.h"
 #include "ui/display/screen.h"
+#include "ui/display/test/display_manager_test_api.h"
 #include "ui/events/event_handler.h"
 #include "ui/events/test/event_generator.h"
 #include "ui/gfx/geometry/rect_conversions.h"
@@ -60,7 +60,7 @@ class TestEventHandler : public ui::EventHandler {
     aura::Window* target = static_cast<aura::Window*>(event->target());
     // Only record when the target is the wallpaper, which covers the entire
     // root window.
-    if (target->name() != kWallpaperView)
+    if (target->GetName() != kWallpaperView)
       return;
     touch_radius_x_ = event->pointer_details().radius_x;
     touch_radius_y_ = event->pointer_details().radius_y;
@@ -71,7 +71,7 @@ class TestEventHandler : public ui::EventHandler {
     aura::Window* target = static_cast<aura::Window*>(event->target());
     // Only record when the target is the wallpaper, which covers the entire
     // root window.
-    if (target->name() != kWallpaperView)
+    if (target->GetName() != kWallpaperView)
       return;
 
     if (event->type() == ui::ET_SCROLL) {
@@ -204,8 +204,9 @@ TEST_F(RootWindowTransformersTest, MAYBE_RotateAndMagnify) {
   EXPECT_EQ(display::Display::ROTATE_0, GetActiveDisplayRotation(display2_id));
   magnifier->SetEnabled(false);
 
-  display_manager()->SetLayoutForCurrentDisplays(test::CreateDisplayLayout(
-      display_manager(), display::DisplayPlacement::BOTTOM, 50));
+  display_manager()->SetLayoutForCurrentDisplays(
+      display::test::CreateDisplayLayout(
+          display_manager(), display::DisplayPlacement::BOTTOM, 50));
   EXPECT_EQ("50,120 150x200",
             display_manager()->GetSecondaryDisplay().bounds().ToString());
 
@@ -263,8 +264,8 @@ TEST_F(RootWindowTransformersTest, ScaleAndMagnify) {
   UpdateDisplay("600x400*2@1.5,500x300");
 
   display::Display display1 = display::Screen::GetScreen()->GetPrimaryDisplay();
-  test::ScopedSetInternalDisplayId set_internal(display_manager(),
-                                                display1.id());
+  display::test::ScopedSetInternalDisplayId set_internal(display_manager(),
+                                                         display1.id());
   display::Display display2 = display_manager()->GetSecondaryDisplay();
   aura::Window::Windows root_windows = Shell::GetAllRootWindows();
   MagnificationController* magnifier =
@@ -283,7 +284,8 @@ TEST_F(RootWindowTransformersTest, ScaleAndMagnify) {
   EXPECT_EQ("299,150", event_handler.GetLocationAndReset());
   magnifier->SetEnabled(false);
 
-  display_manager()->SetDisplayUIScale(display1.id(), 1.25f);
+  display::test::DisplayManagerTestApi(display_manager())
+      .SetDisplayUIScale(display1.id(), 1.25f);
   display1 = display::Screen::GetScreen()->GetPrimaryDisplay();
   display2 = display_manager()->GetSecondaryDisplay();
   magnifier->SetEnabled(true);
@@ -424,7 +426,7 @@ TEST_F(RootWindowTransformersTest, LetterBoxPillarBox) {
   if (!SupportsMultipleDisplays())
     return;
   test::MirrorWindowTestApi test_api;
-  display_manager()->SetMultiDisplayMode(DisplayManager::MIRRORING);
+  display_manager()->SetMultiDisplayMode(display::DisplayManager::MIRRORING);
   UpdateDisplay("400x200,500x500");
   std::unique_ptr<RootWindowTransformer> transformer(
       CreateCurrentRootWindowTransformerForMirroring());

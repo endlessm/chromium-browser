@@ -8,13 +8,13 @@
 #include "components/policy/core/common/policy_map.h"
 #include "components/policy/policy_constants.h"
 #include "components/prefs/pref_value_map.h"
-#include "components/sync/driver/pref_names.h"
+#include "components/sync/base/pref_names.h"
 
 namespace syncer {
 
 SyncPolicyHandler::SyncPolicyHandler()
     : policy::TypeCheckingPolicyHandler(policy::key::kSyncDisabled,
-                                        base::Value::TYPE_BOOLEAN) {}
+                                        base::Value::Type::BOOLEAN) {}
 
 SyncPolicyHandler::~SyncPolicyHandler() {}
 

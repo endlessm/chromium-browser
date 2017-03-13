@@ -7,17 +7,20 @@
 #include <stdint.h>
 
 #include "base/macros.h"
+#include "base/memory/ptr_util.h"
 #include "base/message_loop/message_loop.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/platform_thread.h"
-#include "mash/session/public/interfaces/session.mojom.h"
-#include "services/shell/public/c/main.h"
-#include "services/shell/public/cpp/connection.h"
-#include "services/shell/public/cpp/connector.h"
-#include "services/shell/public/cpp/service.h"
-#include "services/shell/public/cpp/service_runner.h"
+#include "services/service_manager/public/c/main.h"
+#include "services/service_manager/public/cpp/connection.h"
+#include "services/service_manager/public/cpp/connector.h"
+#include "services/service_manager/public/cpp/interface_registry.h"
+#include "services/service_manager/public/cpp/service.h"
+#include "services/service_manager/public/cpp/service_context.h"
+#include "services/service_manager/public/cpp/service_runner.h"
 #include "services/ui/public/cpp/property_type_converters.h"
+#include "services/ui/public/interfaces/window_manager.mojom.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_event_dispatcher.h"
 #include "ui/compositor/layer.h"
@@ -32,7 +35,6 @@
 #include "ui/views/controls/textfield/textfield.h"
 #include "ui/views/layout/grid_layout.h"
 #include "ui/views/mus/aura_init.h"
-#include "ui/views/mus/window_manager_connection.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_delegate.h"
 
@@ -70,7 +72,7 @@ class WindowDelegateView : public views::WidgetDelegateView {
         (traits & PANEL) != 0 ? views::Widget::InitParams::TYPE_PANEL
                               : views::Widget::InitParams::TYPE_WINDOW);
     if ((traits & PANEL) != 0) {
-      params.mus_properties[ui::mojom::WindowManager::kInitialBounds_Property] =
+      params.mus_properties[ui::mojom::WindowManager::kBounds_InitProperty] =
           mojo::TypeConverter<std::vector<uint8_t>, gfx::Rect>::Convert(
               gfx::Rect(100, 100, 300, 300));
     }
@@ -82,7 +84,10 @@ class WindowDelegateView : public views::WidgetDelegateView {
   }
 
   // WidgetDelegateView:
-  bool CanMaximize() const override { return true; }
+  bool CanMaximize() const override {
+    // Panels can't be maximized.
+    return (traits_ & PANEL) == 0;
+  }
   bool CanMinimize() const override { return true; }
   bool CanResize() const override { return (traits_ & RESIZABLE) != 0; }
   base::string16 GetWindowTitle() const override {
@@ -222,9 +227,8 @@ class WindowTypeLauncherView : public views::WidgetDelegateView,
                                public views::ContextMenuController {
  public:
   explicit WindowTypeLauncherView(WindowTypeLauncher* window_type_launcher,
-                                  shell::Connector* connector)
+                                  service_manager::Connector* connector)
       : window_type_launcher_(window_type_launcher),
-        connector_(connector),
         create_button_(
             MdTextButton::Create(this, base::ASCIIToUTF16("Create Window"))),
         always_on_top_button_(MdTextButton::Create(
@@ -238,12 +242,6 @@ class WindowTypeLauncherView : public views::WidgetDelegateView,
         bubble_button_(
             MdTextButton::Create(this,
                                  base::ASCIIToUTF16("Create Pointy Bubble"))),
-        lock_button_(
-            MdTextButton::Create(this, base::ASCIIToUTF16("Lock Screen"))),
-        logout_button_(
-            MdTextButton::Create(this, base::ASCIIToUTF16("Log Out"))),
-        switch_user_button_(
-            MdTextButton::Create(this, base::ASCIIToUTF16("Switch User"))),
         widgets_button_(
             MdTextButton::Create(this,
                                  base::ASCIIToUTF16("Show Example Widgets"))),
@@ -302,9 +300,6 @@ class WindowTypeLauncherView : public views::WidgetDelegateView,
     AddViewToLayout(layout, panel_button_);
     AddViewToLayout(layout, create_nonresizable_button_);
     AddViewToLayout(layout, bubble_button_);
-    AddViewToLayout(layout, lock_button_);
-    AddViewToLayout(layout, logout_button_);
-    AddViewToLayout(layout, switch_user_button_);
     AddViewToLayout(layout, widgets_button_);
     AddViewToLayout(layout, system_modal_button_);
     AddViewToLayout(layout, window_modal_button_);
@@ -363,18 +358,6 @@ class WindowTypeLauncherView : public views::WidgetDelegateView,
       WindowDelegateView::Create(0u);
     } else if (sender == bubble_button_) {
       NOTIMPLEMENTED();
-    } else if (sender == lock_button_) {
-      mash::session::mojom::SessionPtr session;
-      connector_->ConnectToInterface("service:mash_session", &session);
-      session->LockScreen();
-    } else if (sender == logout_button_) {
-      mash::session::mojom::SessionPtr session;
-      connector_->ConnectToInterface("service:mash_session", &session);
-      session->Logout();
-    } else if (sender == switch_user_button_) {
-      mash::session::mojom::SessionPtr session;
-      connector_->ConnectToInterface("service:mash_session", &session);
-      session->SwitchUser();
     } else if (sender == widgets_button_) {
       NOTIMPLEMENTED();
     }
@@ -429,15 +412,11 @@ class WindowTypeLauncherView : public views::WidgetDelegateView,
   }
 
   WindowTypeLauncher* window_type_launcher_;
-  shell::Connector* connector_;
   views::Button* create_button_;
   views::Button* always_on_top_button_;
   views::Button* panel_button_;
   views::Button* create_nonresizable_button_;
   views::Button* bubble_button_;
-  views::Button* lock_button_;
-  views::Button* logout_button_;
-  views::Button* switch_user_button_;
   views::Button* widgets_button_;
   views::Button* system_modal_button_;
   views::Button* window_modal_button_;
@@ -466,15 +445,15 @@ void WindowTypeLauncher::RemoveWindow(views::Widget* window) {
     base::MessageLoop::current()->QuitWhenIdle();
 }
 
-void WindowTypeLauncher::OnStart(const shell::Identity& identity) {
-  aura_init_.reset(
-      new views::AuraInit(connector(), "views_mus_resources.pak"));
-  window_manager_connection_ =
-      views::WindowManagerConnection::Create(connector(), identity);
+void WindowTypeLauncher::OnStart() {
+  aura_init_ = base::MakeUnique<views::AuraInit>(
+      context()->connector(), context()->identity(), "views_mus_resources.pak",
+      std::string(), nullptr, views::AuraInit::Mode::AURA_MUS);
 }
 
-bool WindowTypeLauncher::OnConnect(const shell::Identity& remote_identity,
-                                   shell::InterfaceRegistry* registry) {
+bool WindowTypeLauncher::OnConnect(
+    const service_manager::ServiceInfo& remote_info,
+    service_manager::InterfaceRegistry* registry) {
   registry->AddInterface<mash::mojom::Launchable>(this);
   return true;
 }
@@ -488,18 +467,19 @@ void WindowTypeLauncher::Launch(uint32_t what, mash::mojom::LaunchMode how) {
   }
   views::Widget* window = new views::Widget;
   views::Widget::InitParams params(views::Widget::InitParams::TYPE_WINDOW);
-  params.delegate = new WindowTypeLauncherView(this, connector());
+  params.delegate = new WindowTypeLauncherView(this, context()->connector());
   window->Init(params);
   window->Show();
   windows_.push_back(window);
 }
 
-void WindowTypeLauncher::Create(const shell::Identity& remote_identity,
-                                mash::mojom::LaunchableRequest request) {
+void WindowTypeLauncher::Create(
+    const service_manager::Identity& remote_identity,
+    mash::mojom::LaunchableRequest request) {
   bindings_.AddBinding(this, std::move(request));
 }
 
 MojoResult ServiceMain(MojoHandle service_request_handle) {
-  return shell::ServiceRunner(new WindowTypeLauncher)
+  return service_manager::ServiceRunner(new WindowTypeLauncher)
       .Run(service_request_handle);
 }

@@ -197,7 +197,7 @@ static void _png_get_row_func(png_structp png_ptr,
 }
 
 FXPNG_Context* CCodec_PngModule::Start(void* pModule) {
-  FXPNG_Context* p = (FXPNG_Context*)FX_Alloc(uint8_t, sizeof(FXPNG_Context));
+  FXPNG_Context* p = FX_Alloc(FXPNG_Context, 1);
   if (!p)
     return nullptr;
 
@@ -240,17 +240,17 @@ void CCodec_PngModule::Finish(FXPNG_Context* ctx) {
   }
 }
 
-FX_BOOL CCodec_PngModule::Input(FXPNG_Context* ctx,
-                                const uint8_t* src_buf,
-                                uint32_t src_size,
-                                CFX_DIBAttribute* pAttribute) {
+bool CCodec_PngModule::Input(FXPNG_Context* ctx,
+                             const uint8_t* src_buf,
+                             uint32_t src_size,
+                             CFX_DIBAttribute* pAttribute) {
   if (setjmp(png_jmpbuf(ctx->png_ptr))) {
     if (pAttribute &&
         0 == FXSYS_strcmp(m_szLastError, "Read Header Callback Error")) {
       _png_load_bmp_attribute(ctx->png_ptr, ctx->info_ptr, pAttribute);
     }
-    return FALSE;
+    return false;
   }
   png_process_data(ctx->png_ptr, ctx->info_ptr, (uint8_t*)src_buf, src_size);
-  return TRUE;
+  return true;
 }

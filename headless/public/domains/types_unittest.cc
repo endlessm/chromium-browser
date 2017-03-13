@@ -3,7 +3,11 @@
 // found in the LICENSE file.
 
 #include "base/json/json_reader.h"
-#include "headless/public/domains/types.h"
+#include "base/json/json_string_value_serializer.h"
+#include "headless/public/devtools/domains/accessibility.h"
+#include "headless/public/devtools/domains/dom.h"
+#include "headless/public/devtools/domains/memory.h"
+#include "headless/public/devtools/domains/page.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace headless {
@@ -24,9 +28,11 @@ TEST(TypesTest, IntegerPropertyParseError) {
   std::unique_ptr<base::Value> object = base::JSONReader::Read(json);
   EXPECT_TRUE(object);
 
+#if DCHECK_IS_ON()
   ErrorReporter errors;
   EXPECT_FALSE(page::NavigateToHistoryEntryParams::Parse(*object, &errors));
   EXPECT_TRUE(errors.HasErrors());
+#endif  // DCHECK_IS_ON()
 }
 
 TEST(TypesTest, BooleanProperty) {
@@ -48,10 +54,12 @@ TEST(TypesTest, BooleanPropertyParseError) {
   std::unique_ptr<base::Value> object = base::JSONReader::Read(json);
   EXPECT_TRUE(object);
 
+#if DCHECK_IS_ON()
   ErrorReporter errors;
   EXPECT_FALSE(memory::SetPressureNotificationsSuppressedParams::Parse(
       *object, &errors));
   EXPECT_TRUE(errors.HasErrors());
+#endif  // DCHECK_IS_ON()
 }
 
 TEST(TypesTest, DoubleProperty) {
@@ -70,9 +78,11 @@ TEST(TypesTest, DoublePropertyParseError) {
   std::unique_ptr<base::Value> object = base::JSONReader::Read(json);
   EXPECT_TRUE(object);
 
+#if DCHECK_IS_ON()
   ErrorReporter errors;
   EXPECT_FALSE(page::SetGeolocationOverrideParams::Parse(*object, &errors));
   EXPECT_TRUE(errors.HasErrors());
+#endif  // DCHECK_IS_ON()
 }
 
 TEST(TypesTest, StringProperty) {
@@ -91,9 +101,11 @@ TEST(TypesTest, StringPropertyParseError) {
   std::unique_ptr<base::Value> object = base::JSONReader::Read(json);
   EXPECT_TRUE(object);
 
+#if DCHECK_IS_ON()
   ErrorReporter errors;
   EXPECT_FALSE(page::NavigateParams::Parse(*object, &errors));
   EXPECT_TRUE(errors.HasErrors());
+#endif  // DCHECK_IS_ON()
 }
 
 TEST(TypesTest, EnumProperty) {
@@ -114,9 +126,11 @@ TEST(TypesTest, EnumPropertyParseError) {
   std::unique_ptr<base::Value> object = base::JSONReader::Read(json);
   EXPECT_TRUE(object);
 
+#if DCHECK_IS_ON()
   ErrorReporter errors;
   EXPECT_FALSE(runtime::RemoteObject::Parse(*object, &errors));
   EXPECT_TRUE(errors.HasErrors());
+#endif  // DCHECK_IS_ON()
 }
 
 TEST(TypesTest, ArrayProperty) {
@@ -146,9 +160,11 @@ TEST(TypesTest, ArrayPropertyParseError) {
   std::unique_ptr<base::Value> object = base::JSONReader::Read(json);
   EXPECT_TRUE(object);
 
+#if DCHECK_IS_ON()
   ErrorReporter errors;
   EXPECT_FALSE(dom::QuerySelectorAllResult::Parse(*object, &errors));
   EXPECT_TRUE(errors.HasErrors());
+#endif  // DCHECK_IS_ON()
 }
 
 TEST(TypesTest, ObjectProperty) {
@@ -173,9 +189,11 @@ TEST(TypesTest, ObjectPropertyParseError) {
   std::unique_ptr<base::Value> object = base::JSONReader::Read(json);
   EXPECT_TRUE(object);
 
+#if DCHECK_IS_ON()
   ErrorReporter errors;
   EXPECT_FALSE(runtime::EvaluateResult::Parse(*object, &errors));
   EXPECT_TRUE(errors.HasErrors());
+#endif  // DCHECK_IS_ON()
 }
 
 TEST(TypesTest, AnyProperty) {
@@ -186,15 +204,40 @@ TEST(TypesTest, AnyProperty) {
           .SetValue(std::move(value))
           .Build());
   EXPECT_TRUE(object);
-  EXPECT_EQ(base::Value::TYPE_INTEGER, object->GetValue()->GetType());
+  EXPECT_EQ(base::Value::Type::INTEGER, object->GetValue()->GetType());
 
   std::unique_ptr<accessibility::AXValue> clone(object->Clone());
   EXPECT_TRUE(clone);
-  EXPECT_EQ(base::Value::TYPE_INTEGER, clone->GetValue()->GetType());
+  EXPECT_EQ(base::Value::Type::INTEGER, clone->GetValue()->GetType());
 
   int clone_value;
   EXPECT_TRUE(clone->GetValue()->GetAsInteger(&clone_value));
   EXPECT_EQ(123, clone_value);
+}
+
+TEST(TypesTest, ComplexObjectClone) {
+  std::vector<std::unique_ptr<dom::Node>> child_nodes;
+  child_nodes.emplace_back(dom::Node::Builder()
+                               .SetNodeId(1)
+                               .SetBackendNodeId(2)
+                               .SetNodeType(3)
+                               .SetNodeName("-blink-blink")
+                               .SetLocalName("-blink-blink")
+                               .SetNodeValue("-blink-blink")
+                               .Build());
+  std::unique_ptr<dom::SetChildNodesParams> params =
+      dom::SetChildNodesParams::Builder()
+          .SetParentId(123)
+          .SetNodes(std::move(child_nodes))
+          .Build();
+  std::unique_ptr<dom::SetChildNodesParams> clone = params->Clone();
+  ASSERT_NE(nullptr, clone);
+
+  std::string orig;
+  JSONStringValueSerializer(&orig).Serialize(*params->Serialize());
+  std::string clone_value;
+  JSONStringValueSerializer(&clone_value).Serialize(*clone->Serialize());
+  EXPECT_EQ(orig, clone_value);
 }
 
 }  // namespace headless

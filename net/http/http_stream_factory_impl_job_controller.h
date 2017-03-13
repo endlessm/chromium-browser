@@ -6,6 +6,7 @@
 #define NET_HTTP_HTTP_STREAM_FACTORY_IMPL_JOB_CONTROLLER_H_
 
 #include "net/base/host_port_pair.h"
+#include "net/base/privacy_mode.h"
 #include "net/http/http_stream_factory_impl_job.h"
 #include "net/http/http_stream_factory_impl_request.h"
 
@@ -69,9 +70,7 @@ class HttpStreamFactoryImpl::JobController
 
   // From HttpStreamFactoryImpl::Job::Delegate.
   // Invoked when |job| has an HttpStream ready.
-  void OnStreamReady(Job* job,
-                     const SSLConfig& used_ssl_config,
-                     const ProxyInfo& used_proxy_info) override;
+  void OnStreamReady(Job* job, const SSLConfig& used_ssl_config) override;
 
   // Invoked when |job| has a BidirectionalStream ready.
   void OnBidirectionalStreamImplReady(
@@ -116,6 +115,8 @@ class HttpStreamFactoryImpl::JobController
                         const SSLConfig& used_ssl_config,
                         const ProxyInfo& used_proxy_info,
                         HttpAuthController* auth_controller) override;
+
+  bool OnInitConnection(const ProxyInfo& proxy_info) override;
 
   void OnResolveProxyComplete(
       Job* job,
@@ -167,6 +168,8 @@ class HttpStreamFactoryImpl::JobController
   WebSocketHandshakeStreamBase::CreateHelper*
   websocket_handshake_stream_create_helper() override;
 
+  bool is_preconnect() const { return is_preconnect_; }
+
  private:
   friend class JobControllerPeer;
 
@@ -212,7 +215,8 @@ class HttpStreamFactoryImpl::JobController
 
   void MaybeNotifyFactoryOfCompletion();
 
-  // Called to resume the main job with delay.
+  // Called to resume the main job with delay. Main job is resumed only when
+  // |alternative_job_| has failed or |main_job_wait_time_| elapsed.
   void MaybeResumeMainJob(Job* job, const base::TimeDelta& delay);
 
   void ResumeMainJob();
@@ -250,6 +254,9 @@ class HttpStreamFactoryImpl::JobController
   // Starts the |alternative_job_|.
   void StartAlternativeProxyServerJob();
 
+  // Returns whether |job| is an orphaned job.
+  bool IsJobOrphaned(Job* job) const;
+
   HttpStreamFactoryImpl* factory_;
   HttpNetworkSession* session_;
   JobFactory* job_factory_;
@@ -286,6 +293,10 @@ class HttpStreamFactoryImpl::JobController
   // True if the main job has to wait for the alternative job: i.e., the main
   // job must not create a connection until it is resumed.
   bool main_job_is_blocked_;
+
+  // True if the main job was blocked and has been resumed in ResumeMainJob().
+  bool main_job_is_resumed_;
+
   // Waiting time for the main job before it is resumed.
   base::TimeDelta main_job_wait_time_;
 
@@ -295,6 +306,9 @@ class HttpStreamFactoryImpl::JobController
 
   // True if an alternative proxy server job can be started to fetch |request_|.
   bool can_start_alternative_proxy_job_;
+
+  // Privacy mode that should be used for fetching the resource.
+  PrivacyMode privacy_mode_;
 
   base::WeakPtrFactory<JobController> ptr_factory_;
 };

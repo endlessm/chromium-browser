@@ -57,7 +57,7 @@ const char* InternalTypeToString(StatsReport::StatsType type) {
     case StatsReport::kStatsReportTypeDataChannel:
       return "datachannel";
   }
-  RTC_DCHECK(false);
+  RTC_NOTREACHED();
   return nullptr;
 }
 
@@ -276,7 +276,7 @@ bool StatsReport::Value::Equals(const Value& other) const {
     case kFloat:
       return value_.float_ == other.value_.float_;
     case kStaticString: {
-#if (!defined(NDEBUG) || defined(DCHECK_ALWAYS_ON))
+#if RTC_DCHECK_IS_ON
       if (value_.static_string_ != other.value_.static_string_) {
         RTC_DCHECK(strcmp(value_.static_string_, other.value_.static_string_) !=
                    0)
@@ -306,7 +306,7 @@ bool StatsReport::Value::operator==(const char* value) const {
     return value_.string_->compare(value) == 0;
   if (type_ != kStaticString)
     return false;
-#if (!defined(NDEBUG) || defined(DCHECK_ALWAYS_ON))
+#if RTC_DCHECK_IS_ON
   if (value_.static_string_ != value)
     RTC_DCHECK(strcmp(value_.static_string_, value) != 0)
         << "Duplicate global?";
@@ -393,10 +393,16 @@ const char* StatsReport::Value::display_name() const {
       return "state";
     case kStatsValueNameDataChannelId:
       return "datachannelid";
+    case kStatsValueNameFramesDecoded:
+      return "framesDecoded";
+    case kStatsValueNameFramesEncoded:
+      return "framesEncoded";
     case kStatsValueNameCodecImplementationName:
       return "codecImplementationName";
     case kStatsValueNameMediaType:
       return "mediaType";
+    case kStatsValueNameQpSum:
+      return "qpSum";
     // 'goog' prefixed constants.
     case kStatsValueNameAccelerateRate:
       return "googAccelerateRate";
@@ -568,6 +574,10 @@ const char* StatsReport::Value::display_name() const {
       return "googRemoteCandidateType";
     case kStatsValueNameRemoteCertificateId:
       return "remoteCertificateId";
+    case kStatsValueNameResidualEchoLikelihood:
+      return "googResidualEchoLikelihood";
+    case kStatsValueNameResidualEchoLikelihoodRecentMax:
+      return "googResidualEchoLikelihoodRecentMax";
     case kStatsValueNameRetransmitBitrate:
       return "googRetransmitBitrate";
     case kStatsValueNameRtt:
@@ -590,8 +600,6 @@ const char* StatsReport::Value::display_name() const {
       return "googTrackId";
     case kStatsValueNameTypingNoiseState:
       return "googTypingNoiseState";
-    case kStatsValueNameViewLimitedResolution:
-      return "googViewLimitedResolution";
     case kStatsValueNameWritable:
       return "googWritable";
   }

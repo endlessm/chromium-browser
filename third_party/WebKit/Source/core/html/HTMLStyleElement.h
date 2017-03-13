@@ -23,16 +23,12 @@
 #ifndef HTMLStyleElement_h
 #define HTMLStyleElement_h
 
+#include "core/dom/IncrementLoadEventDelayCount.h"
 #include "core/dom/StyleElement.h"
 #include "core/html/HTMLElement.h"
+#include <memory>
 
 namespace blink {
-
-class HTMLStyleElement;
-
-template <typename T>
-class EventSender;
-using StyleEventSender = EventSender<HTMLStyleElement>;
 
 class CORE_EXPORT HTMLStyleElement final : public HTMLElement,
                                            private StyleElement {
@@ -48,18 +44,17 @@ class CORE_EXPORT HTMLStyleElement final : public HTMLElement,
   bool disabled() const;
   void setDisabled(bool);
 
-  void dispatchPendingEvent(StyleEventSender*);
-  static void dispatchPendingLoadEvents();
-
   DECLARE_VIRTUAL_TRACE();
 
  private:
   HTMLStyleElement(Document&, bool createdByParser);
 
+  // Always call this asynchronously because this can cause synchronous
+  // Document load event and JavaScript execution.
+  void dispatchPendingEvent(std::unique_ptr<IncrementLoadEventDelayCount>);
+
   // overload from HTMLElement
-  void parseAttribute(const QualifiedName&,
-                      const AtomicString&,
-                      const AtomicString&) override;
+  void parseAttribute(const AttributeModificationParams&) override;
   InsertionNotificationRequest insertedInto(ContainerNode*) override;
   void didNotifySubtreeInsertionsToDocument() override;
   void removedFrom(ContainerNode*) override;

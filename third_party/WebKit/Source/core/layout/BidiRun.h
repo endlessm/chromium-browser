@@ -29,16 +29,28 @@
 
 namespace blink {
 
-class BidiContext;
 class InlineBox;
 
 struct BidiRun : BidiCharacterRun {
-  BidiRun(int start,
+  BidiRun(bool override,
+          unsigned char level,
+          int start,
           int stop,
           LineLayoutItem lineLayoutItem,
-          BidiContext* context,
-          WTF::Unicode::CharDirection dir)
-      : BidiCharacterRun(start, stop, context, dir),
+          WTF::Unicode::CharDirection dir,
+          WTF::Unicode::CharDirection overrideDir)
+      : BidiCharacterRun(override, level, start, stop, dir, overrideDir),
+        m_lineLayoutItem(lineLayoutItem),
+        m_box(nullptr) {
+    // Stored in base class to save space.
+    m_hasHyphen = false;
+  }
+
+  BidiRun(int start,
+          int stop,
+          unsigned char level,
+          LineLayoutItem lineLayoutItem)
+      : BidiCharacterRun(start, stop, level),
         m_lineLayoutItem(lineLayoutItem),
         m_box(nullptr) {
     // Stored in base class to save space.

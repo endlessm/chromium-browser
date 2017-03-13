@@ -40,7 +40,7 @@
 #include "chromecast/browser/pref_service_helper.h"
 #include "chromecast/browser/url_request_context_factory.h"
 #include "chromecast/chromecast_features.h"
-#include "chromecast/common/platform_client_auth.h"
+#include "chromecast/common/global_descriptors.h"
 #include "chromecast/media/base/key_systems_common.h"
 #include "chromecast/media/base/media_resource_tracker.h"
 #include "chromecast/media/base/video_plane_controller.h"
@@ -61,6 +61,7 @@
 #include "media/base/media.h"
 #include "media/base/media_switches.h"
 #include "ui/compositor/compositor_switches.h"
+#include "ui/gl/gl_switches.h"
 
 #if !defined(OS_ANDROID)
 #include <signal.h>
@@ -241,6 +242,9 @@ DefaultCommandLineSwitch g_default_switches[] = {
   // BrowserThreadsStarted).  The GPU process will be created as soon as a
   // renderer needs it, which always happens after main loop starts.
   { switches::kDisableGpuEarlyInit, "" },
+  // TODO(halliwell): Cast builds don't support ES3. Remove this switch when
+  // support is added (crbug.com/659395)
+  { switches::kDisableES3GLContext, "" },
   // Enable navigator.connection API.
   // TODO(derekjchow): Remove this switch when enabled by default.
   { switches::kEnableNetworkInformation, "" },
@@ -386,8 +390,10 @@ int CastBrowserMainParts::PreCreateThreads() {
   if (!chromecast::CrashHandler::GetCrashDumpLocation(&crash_dumps_dir)) {
     LOG(ERROR) << "Could not find crash dump location.";
   }
-  cast_browser_process_->SetCrashDumpManager(
-      base::MakeUnique<breakpad::CrashDumpManager>(crash_dumps_dir));
+  breakpad::CrashDumpObserver::Create();
+  breakpad::CrashDumpObserver::GetInstance()->RegisterClient(
+      base::MakeUnique<breakpad::CrashDumpManager>(crash_dumps_dir,
+                                                   kAndroidMinidumpDescriptor));
 #else
   base::FilePath home_dir;
   CHECK(PathService::Get(DIR_CAST_HOME, &home_dir));
@@ -444,9 +450,6 @@ void CastBrowserMainParts::PreMainMessageLoopRun() {
           content::BrowserContext::GetDefaultStoragePartition(
               cast_browser_process_->browser_context())->
                   GetURLRequestContext()));
-
-  if (!PlatformClientAuth::Initialize())
-    LOG(ERROR) << "PlatformClientAuth::Initialize failed.";
 
   cast_browser_process_->SetRemoteDebuggingServer(
       base::MakeUnique<RemoteDebuggingServer>(

@@ -12,6 +12,7 @@
 #include "SkFontStyle.h"
 #include "SkMakeUnique.h"
 #include "SkOSFile.h"
+#include "SkOSPath.h"
 #include "SkRefCnt.h"
 #include "SkStream.h"
 #include "SkString.h"
@@ -237,7 +238,7 @@ protected:
     SkTypeface* onMatchFamilyStyle(const char familyName[],
                                    const SkFontStyle& fontStyle) const override
     {
-        SkAutoTUnref<SkFontStyleSet> sset(this->matchFamily(familyName));
+        sk_sp<SkFontStyleSet> sset(this->matchFamily(familyName));
         return sset->matchStyle(fontStyle);
     }
 
@@ -419,8 +420,8 @@ private:
     SkString fBaseDirectory;
 };
 
-SK_API SkFontMgr* SkFontMgr_New_Custom_Directory(const char* dir) {
-    return new SkFontMgr_Custom(DirectorySystemFontLoader(dir));
+SK_API sk_sp<SkFontMgr> SkFontMgr_New_Custom_Directory(const char* dir) {
+    return sk_make_sp<SkFontMgr_Custom>(DirectorySystemFontLoader(dir));
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -497,8 +498,8 @@ private:
     const SkEmbeddedResourceHeader* fHeader;
 };
 
-SkFontMgr* SkFontMgr_New_Custom_Embedded(const SkEmbeddedResourceHeader* header) {
-    return new SkFontMgr_Custom(EmbeddedSystemFontLoader(header));
+sk_sp<SkFontMgr> SkFontMgr_New_Custom_Embedded(const SkEmbeddedResourceHeader* header) {
+    return sk_make_sp<SkFontMgr_Custom>(EmbeddedSystemFontLoader(header));
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -517,6 +518,6 @@ public:
 
 };
 
-SK_API SkFontMgr* SkFontMgr_New_Custom_Empty() {
-    return new SkFontMgr_Custom(EmptyFontLoader());
+SK_API sk_sp<SkFontMgr> SkFontMgr_New_Custom_Empty() {
+    return sk_make_sp<SkFontMgr_Custom>(EmptyFontLoader());
 }

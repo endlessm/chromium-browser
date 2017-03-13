@@ -25,7 +25,7 @@ tr.exportTo('tr.model', function() {
                  opt_cpuStart, opt_cpuDuration, opt_argsStripped,
                  opt_bindId) {
     if (new.target) {
-      throw new Error("Can't instantiate pure virtual class Slice");
+      throw new Error('Can\'t instantiate pure virtual class Slice');
     }
     tr.model.TimedEvent.call(this, start);
 
@@ -138,13 +138,13 @@ tr.exportTo('tr.model', function() {
      * [      D     ]
      *   [C1]  [C2]
      */
-    findTopmostSlicesRelativeToThisSlice: function*(eventPredicate) {
+    findTopmostSlicesRelativeToThisSlice: function* (eventPredicate) {
       if (eventPredicate(this)) {
         yield this;
         return;
       }
       for (var s of this.subSlices)
-        yield * s.findTopmostSlicesRelativeToThisSlice(eventPredicate);
+        yield* s.findTopmostSlicesRelativeToThisSlice(eventPredicate);
     },
 
     /**
@@ -211,7 +211,7 @@ tr.exportTo('tr.model', function() {
      *  [C] [E][F]  [H]
      * will yield D, then A, in the order from the leaves to the root.
      */
-    enumerateAllAncestors: function*() {
+    enumerateAllAncestors: function* () {
       var curSlice = this;
 
       while (curSlice.parentSlice) {
@@ -268,11 +268,11 @@ tr.exportTo('tr.model', function() {
       return res;
     },
 
-    enumerateAllDescendents: function*() {
+    enumerateAllDescendents: function* () {
       for (var slice of this.subSlices)
         yield slice;
       for (var slice of this.subSlices)
-        yield * slice.enumerateAllDescendents();
+        yield* slice.enumerateAllDescendents();
     },
 
     get descendentSlices() {
@@ -285,7 +285,7 @@ tr.exportTo('tr.model', function() {
   };
 
   return {
-    Slice: Slice
+    Slice,
   };
 });
 </script>

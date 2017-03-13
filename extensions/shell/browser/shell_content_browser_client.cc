@@ -10,6 +10,7 @@
 
 #include "base/command_line.h"
 #include "base/macros.h"
+#include "base/memory/ptr_util.h"
 #include "components/guest_view/browser/guest_view_message_filter.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_process_host.h"
@@ -21,6 +22,8 @@
 #include "content/shell/browser/shell_browser_context.h"
 #include "content/shell/browser/shell_devtools_manager_delegate.h"
 #include "extensions/browser/extension_message_filter.h"
+#include "extensions/browser/extension_navigation_throttle.h"
+#include "extensions/browser/extension_navigation_ui_data.h"
 #include "extensions/browser/extension_protocols.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/guest_view/extensions_guest_view_message_filter.h"
@@ -33,6 +36,7 @@
 #include "extensions/shell/browser/shell_browser_context.h"
 #include "extensions/shell/browser/shell_browser_main_parts.h"
 #include "extensions/shell/browser/shell_extension_system.h"
+#include "extensions/shell/browser/shell_navigation_ui_data.h"
 #include "extensions/shell/browser/shell_speech_recognition_manager_delegate.h"
 #include "url/gurl.h"
 
@@ -131,10 +135,9 @@ bool ShellContentBrowserClient::IsHandledURL(const GURL& url) {
       url::kFileScheme,
       url::kFileSystemScheme,
       kExtensionScheme,
-      kExtensionResourceScheme,
   };
-  for (size_t i = 0; i < arraysize(kProtocolList); ++i) {
-    if (url.scheme() == kProtocolList[i])
+  for (const char* scheme : kProtocolList) {
+    if (url.SchemeIs(scheme))
       return true;
   }
   return false;
@@ -226,6 +229,21 @@ void ShellContentBrowserClient::GetAdditionalAllowedSchemesForFileSystem(
 content::DevToolsManagerDelegate*
 ShellContentBrowserClient::GetDevToolsManagerDelegate() {
   return new content::ShellDevToolsManagerDelegate(GetBrowserContext());
+}
+
+std::vector<std::unique_ptr<content::NavigationThrottle>>
+ShellContentBrowserClient::CreateThrottlesForNavigation(
+    content::NavigationHandle* navigation_handle) {
+  std::vector<std::unique_ptr<content::NavigationThrottle>> throttles;
+  throttles.push_back(
+      base::MakeUnique<ExtensionNavigationThrottle>(navigation_handle));
+  return throttles;
+}
+
+std::unique_ptr<content::NavigationUIData>
+ShellContentBrowserClient::GetNavigationUIData(
+    content::NavigationHandle* navigation_handle) {
+  return base::MakeUnique<ShellNavigationUIData>(navigation_handle);
 }
 
 ShellBrowserMainParts* ShellContentBrowserClient::CreateShellBrowserMainParts(

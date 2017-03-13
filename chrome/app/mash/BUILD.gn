@@ -2,7 +2,7 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import("//services/shell/public/service_manifest.gni")
+import("//services/service_manager/public/service_manifest.gni")
 
 source_set("mash") {
   sources = [
@@ -10,38 +10,54 @@ source_set("mash") {
     "mash_runner.h",
   ]
   deps = [
-    "//ash/resources",
     "//base:i18n",
     "//components/tracing:startup_tracing",
     "//content/public/common",
     "//mash/package",
-    "//services/shell",
-    "//services/shell/background:lib",
-    "//services/shell/public/cpp",
-    "//services/shell/public/interfaces",
-    "//services/shell/runner/common",
-    "//services/shell/runner/host:child_process_base",
-    "//services/shell/runner/host:lib",
+    "//mash/session/public/interfaces:constants",
+    "//services/catalog/public/interfaces",
+    "//services/service_manager",
+    "//services/service_manager/background:lib",
+    "//services/service_manager/public/cpp",
+    "//services/service_manager/public/cpp/standalone_service",
+    "//services/service_manager/public/interfaces",
+    "//services/service_manager/runner:init",
+    "//services/service_manager/runner/common",
+    "//services/service_manager/runner/host:lib",
+    "//services/service_manager/standalone",
     "//url",
   ]
   data_deps = [
-    ":manifest",
+    ":mash_manifest",
+    "//chrome/app:service_manifests",
   ]
+
+  if (is_chromeos) {
+    sources += [
+      "mash_crash_reporter_client.cc",
+      "mash_crash_reporter_client.h",
+    ]
+    deps += [
+      "//ash/resources",
+      "//components/crash/content/app",
+      "//components/crash/core/common",
+      "//components/upload_list",
+      "//components/version_info:generate_version_info",
+    ]
+  }
 
   if (is_linux && !is_android) {
     deps += [ "//components/font_service:lib" ]
   }
 }
 
-service_manifest("manifest") {
-  type = "exe"
+service_manifest("mash_manifest") {
   name = "chrome_mash"
   source = "chrome_mash_manifest.json"
   deps = [
     "//ash/autoclick/mus:manifest",
-    "//ash/mus:manifest",
     "//ash/touch_hud/mus:manifest",
-    "//mash/app_driver:manifest",
+    "//mash/catalog_viewer:manifest",
     "//mash/quick_launch:manifest",
     "//mash/session:manifest",
     "//mash/task_viewer:manifest",
@@ -50,8 +66,7 @@ service_manifest("manifest") {
   ]
   packaged_services = [
     "accessibility_autoclick",
-    "app_driver",
-    "ash",
+    "catalog_viewer",
     "mash_session",
     "quick_launch",
     "task_viewer",
@@ -59,6 +74,11 @@ service_manifest("manifest") {
     "touch_hud",
     "ui",
   ]
+
+  if (is_chromeos) {
+    deps += [ "//ash/mus:manifest" ]
+    packaged_services += [ "ash" ]
+  }
 
   if (is_linux && !is_android) {
     deps += [ "//components/font_service:manifest" ]

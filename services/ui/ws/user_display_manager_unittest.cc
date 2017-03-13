@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "services/ui/ws/user_display_manager.h"
+
 #include <stdint.h>
 
 #include <string>
@@ -10,16 +12,14 @@
 #include "base/macros.h"
 #include "base/message_loop/message_loop.h"
 #include "base/strings/string_number_conversions.h"
+#include "mojo/public/cpp/bindings/binding.h"
+#include "mojo/public/cpp/bindings/interface_request.h"
+#include "services/ui/common/task_runner_test_base.h"
 #include "services/ui/common/types.h"
 #include "services/ui/common/util.h"
-#include "services/ui/public/interfaces/window_tree.mojom.h"
-#include "services/ui/surfaces/display_compositor.h"
-#include "services/ui/ws/display_binding.h"
+#include "services/ui/display/screen_manager.h"
 #include "services/ui/ws/display_manager.h"
 #include "services/ui/ws/ids.h"
-#include "services/ui/ws/platform_display.h"
-#include "services/ui/ws/platform_display_factory.h"
-#include "services/ui/ws/platform_display_init_params.h"
 #include "services/ui/ws/server_window.h"
 #include "services/ui/ws/test_utils.h"
 #include "services/ui/ws/window_manager_state.h"
@@ -27,7 +27,6 @@
 #include "services/ui/ws/window_server.h"
 #include "services/ui/ws/window_server_delegate.h"
 #include "services/ui/ws/window_tree.h"
-#include "services/ui/ws/window_tree_binding.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/gfx/geometry/rect.h"
 
@@ -36,10 +35,16 @@ namespace ws {
 namespace test {
 namespace {
 
+const char kUserId1[] = "123";
+
 class TestDisplayManagerObserver : public mojom::DisplayManagerObserver {
  public:
-  TestDisplayManagerObserver() {}
+  TestDisplayManagerObserver() : binding_(this) {}
   ~TestDisplayManagerObserver() override {}
+
+  mojom::DisplayManagerObserverPtr GetPtr() {
+    return binding_.CreateInterfacePtrAndBind();
+  }
 
   std::string GetAndClearObserverCalls() {
     std::string result;
@@ -55,7 +60,7 @@ class TestDisplayManagerObserver : public mojom::DisplayManagerObserver {
   }
 
   std::string DisplayIdsToString(
-      const mojo::Array<mojom::WsDisplayPtr>& wm_displays) {
+      const std::vector<mojom::WsDisplayPtr>& wm_displays) {
     std::string display_ids;
     for (const auto& wm_display : wm_displays) {
       if (!display_ids.empty())
@@ -66,16 +71,22 @@ class TestDisplayManagerObserver : public mojom::DisplayManagerObserver {
   }
 
   // mojom::DisplayManagerObserver:
-  void OnDisplays(mojo::Array<mojom::WsDisplayPtr> displays) override {
+  void OnDisplays(std::vector<mojom::WsDisplayPtr> displays,
+                  int64_t primary_display_id,
+                  int64_t internal_display_id) override {
     AddCall("OnDisplays " + DisplayIdsToString(displays));
   }
-  void OnDisplaysChanged(mojo::Array<mojom::WsDisplayPtr> displays) override {
+  void OnDisplaysChanged(std::vector<mojom::WsDisplayPtr> displays) override {
     AddCall("OnDisplaysChanged " + DisplayIdsToString(displays));
   }
   void OnDisplayRemoved(int64_t id) override {
     AddCall("OnDisplayRemoved " + base::Int64ToString(id));
   }
+  void OnPrimaryDisplayChanged(int64_t id) override {
+    AddCall("OnPrimaryDisplayChanged " + base::Int64ToString(id));
+  }
 
+  mojo::Binding<mojom::DisplayManagerObserver> binding_;
   std::string observer_calls_;
 
   DISALLOW_COPY_AND_ASSIGN(TestDisplayManagerObserver);
@@ -89,7 +100,7 @@ mojom::FrameDecorationValuesPtr CreateDefaultFrameDecorationValues() {
 
 // -----------------------------------------------------------------------------
 
-class UserDisplayManagerTest : public testing::Test {
+class UserDisplayManagerTest : public TaskRunnerTestBase {
  public:
   UserDisplayManagerTest() {}
   ~UserDisplayManagerTest() override {}
@@ -99,25 +110,32 @@ class UserDisplayManagerTest : public testing::Test {
     return ws_test_helper_.window_server_delegate();
   }
 
+  TestScreenManager& screen_manager() { return screen_manager_; }
+
  private:
+  // testing::Test:
+  void SetUp() override {
+    TaskRunnerTestBase::SetUp();
+    screen_manager_.Init(window_server()->display_manager());
+  }
+
   WindowServerTestHelper ws_test_helper_;
+  TestScreenManager screen_manager_;
   DISALLOW_COPY_AND_ASSIGN(UserDisplayManagerTest);
 };
 
 TEST_F(UserDisplayManagerTest, OnlyNotifyWhenFrameDecorationsSet) {
-  window_server_delegate()->set_num_displays_to_create(1);
+  screen_manager().AddDisplay();
 
-  const UserId kUserId1 = "2";
   TestDisplayManagerObserver display_manager_observer1;
   DisplayManager* display_manager = window_server()->display_manager();
-  WindowManagerWindowTreeFactorySetTestApi(
-      window_server()->window_manager_window_tree_factory_set())
-      .Add(kUserId1);
+  AddWindowManager(window_server(), kUserId1);
   UserDisplayManager* user_display_manager1 =
       display_manager->GetUserDisplayManager(kUserId1);
   ASSERT_TRUE(user_display_manager1);
-  UserDisplayManagerTestApi(user_display_manager1)
-      .SetTestObserver(&display_manager_observer1);
+  user_display_manager1->AddObserver(display_manager_observer1.GetPtr());
+  RunUntilIdle();
+
   // Observer should not have been notified yet.
   EXPECT_EQ(std::string(),
             display_manager_observer1.GetAndClearObserverCalls());
@@ -128,21 +146,18 @@ TEST_F(UserDisplayManagerTest, OnlyNotifyWhenFrameDecorationsSet) {
       ->window_manager_window_tree_factory_set()
       ->GetWindowManagerStateForUser(kUserId1)
       ->SetFrameDecorationValues(CreateDefaultFrameDecorationValues());
+  RunUntilIdle();
+
   EXPECT_EQ("OnDisplays 1",
             display_manager_observer1.GetAndClearObserverCalls());
-
-  UserDisplayManagerTestApi(user_display_manager1).SetTestObserver(nullptr);
 }
 
 TEST_F(UserDisplayManagerTest, AddObserverAfterFrameDecorationsSet) {
-  window_server_delegate()->set_num_displays_to_create(1);
+  screen_manager().AddDisplay();
 
-  const UserId kUserId1 = "2";
   TestDisplayManagerObserver display_manager_observer1;
   DisplayManager* display_manager = window_server()->display_manager();
-  WindowManagerWindowTreeFactorySetTestApi(
-      window_server()->window_manager_window_tree_factory_set())
-      .Add(kUserId1);
+  AddWindowManager(window_server(), kUserId1);
   UserDisplayManager* user_display_manager1 =
       display_manager->GetUserDisplayManager(kUserId1);
   ASSERT_TRUE(user_display_manager1);
@@ -152,23 +167,19 @@ TEST_F(UserDisplayManagerTest, AddObserverAfterFrameDecorationsSet) {
       ->GetWindowManagerStateForUser(kUserId1)
       ->SetFrameDecorationValues(CreateDefaultFrameDecorationValues());
 
-  UserDisplayManagerTestApi(user_display_manager1)
-      .SetTestObserver(&display_manager_observer1);
+  user_display_manager1->AddObserver(display_manager_observer1.GetPtr());
+  RunUntilIdle();
+
   EXPECT_EQ("OnDisplays 1",
             display_manager_observer1.GetAndClearObserverCalls());
-
-  UserDisplayManagerTestApi(user_display_manager1).SetTestObserver(nullptr);
 }
 
 TEST_F(UserDisplayManagerTest, AddRemoveDisplay) {
-  window_server_delegate()->set_num_displays_to_create(1);
+  screen_manager().AddDisplay();
 
-  const UserId kUserId1 = "2";
   TestDisplayManagerObserver display_manager_observer1;
   DisplayManager* display_manager = window_server()->display_manager();
-  WindowManagerWindowTreeFactorySetTestApi(
-      window_server()->window_manager_window_tree_factory_set())
-      .Add(kUserId1);
+  AddWindowManager(window_server(), kUserId1);
   UserDisplayManager* user_display_manager1 =
       display_manager->GetUserDisplayManager(kUserId1);
   ASSERT_TRUE(user_display_manager1);
@@ -177,37 +188,34 @@ TEST_F(UserDisplayManagerTest, AddRemoveDisplay) {
       ->window_manager_window_tree_factory_set()
       ->GetWindowManagerStateForUser(kUserId1)
       ->SetFrameDecorationValues(CreateDefaultFrameDecorationValues());
-  UserDisplayManagerTestApi(user_display_manager1)
-      .SetTestObserver(&display_manager_observer1);
+  user_display_manager1->AddObserver(display_manager_observer1.GetPtr());
+  RunUntilIdle();
+
   EXPECT_EQ("OnDisplays 1",
             display_manager_observer1.GetAndClearObserverCalls());
 
   // Add another display.
-  Display* display2 = new Display(window_server(), PlatformDisplayInitParams());
-  display2->Init(nullptr);
+  const int64_t second_display_id = screen_manager().AddDisplay();
+  RunUntilIdle();
 
   // Observer should be notified immediately as frame decorations were set.
   EXPECT_EQ("OnDisplaysChanged 2",
             display_manager_observer1.GetAndClearObserverCalls());
 
   // Remove the display and verify observer is notified.
-  display_manager->DestroyDisplay(display2);
-  display2 = nullptr;
+  screen_manager().RemoveDisplay(second_display_id);
+  RunUntilIdle();
+
   EXPECT_EQ("OnDisplayRemoved 2",
             display_manager_observer1.GetAndClearObserverCalls());
-
-  UserDisplayManagerTestApi(user_display_manager1).SetTestObserver(nullptr);
 }
 
 TEST_F(UserDisplayManagerTest, NegativeCoordinates) {
-  window_server_delegate()->set_num_displays_to_create(1);
+  screen_manager().AddDisplay();
 
-  const UserId kUserId1 = "2";
   TestDisplayManagerObserver display_manager_observer1;
   DisplayManager* display_manager = window_server()->display_manager();
-  WindowManagerWindowTreeFactorySetTestApi(
-      window_server()->window_manager_window_tree_factory_set())
-      .Add(kUserId1);
+  AddWindowManager(window_server(), kUserId1);
   UserDisplayManager* user_display_manager1 =
       display_manager->GetUserDisplayManager(kUserId1);
   ASSERT_TRUE(user_display_manager1);

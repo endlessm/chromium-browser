@@ -30,6 +30,7 @@
     ActiveScriptWrappable,
     DependentLifetime,
     Exposed=Worker,
+    ImmutablePrototype,
 ] interface WorkerGlobalScope : EventTarget {
     readonly attribute WorkerGlobalScope self;
     readonly attribute WorkerLocation location;
@@ -52,7 +53,7 @@
     // and is left commented here just for documentation.
 
     // CORS and RFC1918
-    // https://mikewest.github.io/cors-rfc1918/#feature-detect
+    // https://wicg.github.io/cors-rfc1918/#feature-detect
     [RuntimeEnabled=CorsRFC1918, ImplementedAs=addressSpaceForBindings] readonly attribute AddressSpace addressSpace;
 
     // Unhandled Promise Rejection Events

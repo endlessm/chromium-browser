@@ -37,9 +37,12 @@ class CompositorWorkerTaskRunnerWrapper : public TaskQueue {
     return task_runner_->PostNonNestableDelayedTask(from_here, task, delay);
   }
 
-  void SetQueueEnabled(bool enabled) override { NOTREACHED(); }
+  std::unique_ptr<QueueEnabledVoter> CreateQueueEnabledVoter() override {
+    NOTREACHED();
+    return nullptr;
+  }
 
-  void InsertFence() override { NOTREACHED(); }
+  void InsertFence(InsertFencePosition position) override { NOTREACHED(); }
 
   void RemoveFence() override { NOTREACHED(); }
 
@@ -58,6 +61,11 @@ class CompositorWorkerTaskRunnerWrapper : public TaskQueue {
     return false;
   };
 
+  size_t GetNumberOfPendingTasks() const override {
+    NOTREACHED();
+    return 0;
+  };
+
   bool HasPendingImmediateWork() const override {
     NOTREACHED();
     return false;
@@ -72,6 +80,11 @@ class CompositorWorkerTaskRunnerWrapper : public TaskQueue {
     NOTREACHED();
     return nullptr;
   };
+
+  QueueType GetQueueType() const override {
+    NOTREACHED();
+    return QueueType::DEFAULT;
+  }
 
   void SetQueuePriority(QueuePriority priority) override { NOTREACHED(); }
 
@@ -161,6 +174,10 @@ base::TimeTicks CompositorWorkerScheduler::WillProcessIdleTask() {
 }
 
 void CompositorWorkerScheduler::DidProcessIdleTask() {}
+
+base::TimeTicks CompositorWorkerScheduler::NowTicks() {
+  return base::TimeTicks::Now();
+}
 
 }  // namespace scheduler
 }  // namespace blink

@@ -28,7 +28,6 @@
 #include "core/layout/LayoutObject.h"
 #include "core/layout/TextRunConstructor.h"
 #include "platform/LengthFunctions.h"
-#include "platform/text/TextPath.h"
 #include "wtf/Forward.h"
 #include "wtf/PassRefPtr.h"
 
@@ -73,7 +72,7 @@ class CORE_EXPORT LayoutText : public LayoutObject {
   // not the content of the Text node, updating text-transform property
   // doesn't re-transform the string.
   LayoutText(Node*, PassRefPtr<StringImpl>);
-#if ENABLE(ASSERT)
+#if DCHECK_IS_ON()
   ~LayoutText() override;
 #endif
 
@@ -103,7 +102,8 @@ class CORE_EXPORT LayoutText : public LayoutObject {
                              unsigned endOffset = INT_MAX,
                              bool useSelectionHeight = false);
 
-  void absoluteQuads(Vector<FloatQuad>&) const final;
+  void absoluteQuads(Vector<FloatQuad>&,
+                     MapCoordinatesFlags mode = 0) const final;
   void absoluteQuadsForRange(Vector<FloatQuad>&,
                              unsigned startOffset = 0,
                              unsigned endOffset = INT_MAX,
@@ -114,7 +114,8 @@ class CORE_EXPORT LayoutText : public LayoutObject {
   enum LocalOrAbsoluteOption { LocalQuads, AbsoluteQuads };
   void quads(Vector<FloatQuad>&,
              ClippingOption = NoClipping,
-             LocalOrAbsoluteOption = AbsoluteQuads) const;
+             LocalOrAbsoluteOption = AbsoluteQuads,
+             MapCoordinatesFlags mode = 0) const;
 
   PositionWithAffinity positionForPoint(const LayoutPoint&) override;
 
@@ -129,6 +130,7 @@ class CORE_EXPORT LayoutText : public LayoutObject {
   unsigned textLength() const {
     return m_text.length();
   }  // non virtual implementation of length()
+  bool containsOnlyWhitespace(unsigned from, unsigned len) const;
   void positionLineBox(InlineBox*);
 
   virtual float width(unsigned from,
@@ -191,7 +193,8 @@ class CORE_EXPORT LayoutText : public LayoutObject {
   InlineTextBox* firstTextBox() const { return m_firstTextBox; }
   InlineTextBox* lastTextBox() const { return m_lastTextBox; }
 
-  // True if we have inline text box children which implies rendered text (or whitespace) output.
+  // True if we have inline text box children which implies rendered text (or
+  // whitespace) output.
   bool hasTextBoxes() const { return firstTextBox(); }
 
   int caretMinOffset() const override;
@@ -205,10 +208,6 @@ class CORE_EXPORT LayoutText : public LayoutObject {
 
   bool isAllCollapsibleWhitespace() const;
   bool isRenderedCharacter(int offsetInNode) const;
-
-  // TODO(eae): Rename and change to only handle the word measurements use
-  // case once the simple code path has been removed. crbug.com/404597
-  bool canUseSimpleFontCodePath() const { return m_canUseSimpleFontCodePath; }
 
   void removeAndDestroyTextBoxes();
 
@@ -245,28 +244,23 @@ class CORE_EXPORT LayoutText : public LayoutObject {
       HashSet<const SimpleFontData*>& fallbackFonts,
       FloatRect& glyphBounds);
 
-  bool computeCanUseSimpleFontCodePath() const;
-
   // Make length() private so that callers that have a LayoutText*
   // will use the more efficient textLength() instead, while
   // callers with a LayoutObject* can continue to use length().
   unsigned length() const final { return textLength(); }
 
   // See the class comment as to why we shouldn't call this function directly.
-  void paint(const PaintInfo&, const LayoutPoint&) const final {
-    ASSERT_NOT_REACHED();
-  }
-  void layout() final { ASSERT_NOT_REACHED(); }
+  void paint(const PaintInfo&, const LayoutPoint&) const final { NOTREACHED(); }
+  void layout() final { NOTREACHED(); }
   bool nodeAtPoint(HitTestResult&,
                    const HitTestLocation&,
                    const LayoutPoint&,
                    HitTestAction) final {
-    ASSERT_NOT_REACHED();
+    NOTREACHED();
     return false;
   }
 
   void deleteTextBoxes();
-  bool containsOnlyWhitespace(unsigned from, unsigned len) const;
   float widthFromFont(const Font&,
                       int start,
                       int len,
@@ -281,27 +275,28 @@ class CORE_EXPORT LayoutText : public LayoutObject {
   bool isText() const =
       delete;  // This will catch anyone doing an unnecessary check.
 
-  LayoutRect localOverflowRectForPaintInvalidation() const override;
+  LayoutRect localVisualRect() const override;
 
   void checkConsistency() const;
 
   // We put the bitfield first to minimize padding on 64-bit.
-  bool
-      m_hasBreakableChar : 1;  // Whether or not we can be broken into multiple lines.
-  bool
-      m_hasBreak : 1;  // Whether or not we have a hard break (e.g., <pre> with '\n').
-  bool
-      m_hasTab : 1;  // Whether or not we have a variable width tab character (e.g., <pre> with '\t').
+
+  // Whether or not we can be broken into multiple lines.
+  bool m_hasBreakableChar : 1;
+  // Whether or not we have a hard break (e.g., <pre> with '\n').
+  bool m_hasBreak : 1;
+  // Whether or not we have a variable width tab character (e.g., <pre> with
+  // '\t').
+  bool m_hasTab : 1;
   bool m_hasBreakableStart : 1;
   bool m_hasBreakableEnd : 1;
   bool m_hasEndWhiteSpace : 1;
-  // This bit indicates that the text run has already dirtied specific
-  // line boxes, and this hint will enable layoutInlineChildren to avoid
-  // just dirtying everything when character data is modified (e.g., appended/inserted
-  // or removed).
+  // This bit indicates that the text run has already dirtied specific line
+  // boxes, and this hint will enable layoutInlineChildren to avoid just
+  // dirtying everything when character data is modified (e.g., appended/
+  // inserted or removed).
   bool m_linesDirty : 1;
   bool m_containsReversedText : 1;
-  bool m_canUseSimpleFontCodePath : 1;
   mutable bool m_knownToHaveNoOverflowAndNoFallbackFonts : 1;
 
   float m_minWidth;
@@ -318,7 +313,7 @@ class CORE_EXPORT LayoutText : public LayoutObject {
 };
 
 inline UChar LayoutText::uncheckedCharacterAt(unsigned i) const {
-  ASSERT_WITH_SECURITY_IMPLICATION(i < textLength());
+  SECURITY_DCHECK(i < textLength());
   return is8Bit() ? characters8()[i] : characters16()[i];
 }
 
@@ -330,12 +325,13 @@ inline UChar LayoutText::characterAt(unsigned i) const {
 }
 
 inline UChar32 LayoutText::codepointAt(unsigned i) const {
-  UChar32 character = characterAt(i);
-  if (!U16_IS_LEAD(character))
-    return character;
-  UChar trail = characterAt(i + 1);
-  return U16_IS_TRAIL(trail) ? U16_GET_SUPPLEMENTARY(character, trail)
-                             : character;
+  if (i >= textLength())
+    return 0;
+  if (is8Bit())
+    return characters8()[i];
+  UChar32 c;
+  U16_GET(characters16(), 0, i, textLength(), c);
+  return c;
 }
 
 inline float LayoutText::hyphenWidth(const Font& font,
@@ -347,7 +343,7 @@ inline float LayoutText::hyphenWidth(const Font& font,
 
 DEFINE_LAYOUT_OBJECT_TYPE_CASTS(LayoutText, isText());
 
-#if !ENABLE(ASSERT)
+#if !DCHECK_IS_ON()
 inline void LayoutText::checkConsistency() const {}
 #endif
 

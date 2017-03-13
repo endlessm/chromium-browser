@@ -31,8 +31,6 @@ G*     * Redistributions in binary form must reproduce the above
 #ifndef SVGAnimatedProperty_h
 #define SVGAnimatedProperty_h
 
-#include "bindings/core/v8/ExceptionState.h"
-#include "core/dom/ExceptionCode.h"
 #include "core/svg/SVGParsingError.h"
 #include "core/svg/properties/SVGPropertyInfo.h"
 #include "core/svg/properties/SVGPropertyTearOff.h"
@@ -41,6 +39,7 @@ G*     * Redistributions in binary form must reproduce the above
 
 namespace blink {
 
+class ExceptionState;
 class SVGElement;
 
 class SVGAnimatedPropertyBase
@@ -62,15 +61,21 @@ class SVGAnimatedPropertyBase
   virtual bool needsSynchronizeAttribute() = 0;
   virtual void synchronizeAttribute();
 
-  AnimatedPropertyType type() const { return m_type; }
+  AnimatedPropertyType type() const {
+    return static_cast<AnimatedPropertyType>(m_type);
+  }
 
   SVGElement* contextElement() const { return m_contextElement; }
 
   const QualifiedName& attributeName() const { return m_attributeName; }
 
-  bool isReadOnly() const { return m_isReadOnly; }
+  CSSPropertyID cssPropertyId() const {
+    return static_cast<CSSPropertyID>(m_cssPropertyId);
+  }
 
-  void setReadOnly() { m_isReadOnly = true; }
+  bool hasPresentationAttributeMapping() const {
+    return cssPropertyId() != CSSPropertyInvalid;
+  }
 
   bool isSpecified() const;
 
@@ -79,11 +84,18 @@ class SVGAnimatedPropertyBase
  protected:
   SVGAnimatedPropertyBase(AnimatedPropertyType,
                           SVGElement*,
-                          const QualifiedName& attributeName);
+                          const QualifiedName& attributeName,
+                          CSSPropertyID = CSSPropertyInvalid);
 
  private:
-  const AnimatedPropertyType m_type;
-  bool m_isReadOnly;
+  static_assert(NumberOfAnimatedPropertyTypes <= (1u << 5),
+                "enough bits for AnimatedPropertyType (m_type)");
+  static constexpr int kCssPropertyBits = 9;
+  static_assert((1u << kCssPropertyBits) - 1 >= lastCSSProperty,
+                "enough bits for CSS property ids");
+
+  const unsigned m_type : 5;
+  const unsigned m_cssPropertyId : kCssPropertyBits;
 
   // This raw pointer is safe since the SVG element is guaranteed to be kept
   // alive by a V8 wrapper.
@@ -140,10 +152,12 @@ class SVGAnimatedPropertyCommon : public SVGAnimatedPropertyBase {
  protected:
   SVGAnimatedPropertyCommon(SVGElement* contextElement,
                             const QualifiedName& attributeName,
-                            Property* initialValue)
+                            Property* initialValue,
+                            CSSPropertyID cssPropertyId = CSSPropertyInvalid)
       : SVGAnimatedPropertyBase(Property::classType(),
                                 contextElement,
-                                attributeName),
+                                attributeName,
+                                cssPropertyId),
         m_baseValue(initialValue) {}
 
  private:
@@ -177,13 +191,7 @@ class SVGAnimatedProperty : public SVGAnimatedPropertyCommon<Property> {
   // implementation.  Use currentValue() from C++ code.
   PrimitiveType baseVal() { return this->baseValue()->value(); }
 
-  void setBaseVal(PrimitiveType value, ExceptionState& exceptionState) {
-    if (this->isReadOnly()) {
-      exceptionState.throwDOMException(NoModificationAllowedError,
-                                       "The attribute is read-only.");
-      return;
-    }
-
+  void setBaseVal(PrimitiveType value, ExceptionState&) {
     this->baseValue()->setValue(value);
     m_baseValueUpdated = true;
 
@@ -200,10 +208,12 @@ class SVGAnimatedProperty : public SVGAnimatedPropertyCommon<Property> {
  protected:
   SVGAnimatedProperty(SVGElement* contextElement,
                       const QualifiedName& attributeName,
-                      Property* initialValue)
+                      Property* initialValue,
+                      CSSPropertyID cssPropertyId = CSSPropertyInvalid)
       : SVGAnimatedPropertyCommon<Property>(contextElement,
                                             attributeName,
-                                            initialValue),
+                                            initialValue,
+                                            cssPropertyId),
         m_baseValueUpdated(false) {}
 
   bool m_baseValueUpdated;
@@ -220,9 +230,10 @@ class SVGAnimatedProperty<Property, TearOffType, void>
   static SVGAnimatedProperty<Property>* create(
       SVGElement* contextElement,
       const QualifiedName& attributeName,
-      Property* initialValue) {
+      Property* initialValue,
+      CSSPropertyID cssPropertyId = CSSPropertyInvalid) {
     return new SVGAnimatedProperty<Property>(contextElement, attributeName,
-                                             initialValue);
+                                             initialValue, cssPropertyId);
   }
 
   void setAnimatedValue(SVGPropertyBase* value) override {
@@ -251,20 +262,17 @@ class SVGAnimatedProperty<Property, TearOffType, void>
       m_baseValTearOff =
           TearOffType::create(this->baseValue(), this->contextElement(),
                               PropertyIsNotAnimVal, this->attributeName());
-      if (this->isReadOnly())
-        m_baseValTearOff->setIsReadOnlyProperty();
     }
-
-    return m_baseValTearOff.get();
+    return m_baseValTearOff;
   }
 
   TearOffType* animVal() {
-    if (!m_animValTearOff)
+    if (!m_animValTearOff) {
       m_animValTearOff =
           TearOffType::create(this->currentValue(), this->contextElement(),
                               PropertyIsAnimVal, this->attributeName());
-
-    return m_animValTearOff.get();
+    }
+    return m_animValTearOff;
   }
 
   DEFINE_INLINE_VIRTUAL_TRACE() {
@@ -276,10 +284,12 @@ class SVGAnimatedProperty<Property, TearOffType, void>
  protected:
   SVGAnimatedProperty(SVGElement* contextElement,
                       const QualifiedName& attributeName,
-                      Property* initialValue)
+                      Property* initialValue,
+                      CSSPropertyID cssPropertyId = CSSPropertyInvalid)
       : SVGAnimatedPropertyCommon<Property>(contextElement,
                                             attributeName,
-                                            initialValue) {}
+                                            initialValue,
+                                            cssPropertyId) {}
 
  private:
   void updateAnimValTearOffIfNeeded() {
@@ -306,9 +316,10 @@ class SVGAnimatedProperty<Property, void, void>
   static SVGAnimatedProperty<Property>* create(
       SVGElement* contextElement,
       const QualifiedName& attributeName,
-      Property* initialValue) {
+      Property* initialValue,
+      CSSPropertyID cssPropertyId = CSSPropertyInvalid) {
     return new SVGAnimatedProperty<Property>(contextElement, attributeName,
-                                             initialValue);
+                                             initialValue, cssPropertyId);
   }
 
   bool needsSynchronizeAttribute() override {
@@ -320,10 +331,12 @@ class SVGAnimatedProperty<Property, void, void>
  protected:
   SVGAnimatedProperty(SVGElement* contextElement,
                       const QualifiedName& attributeName,
-                      Property* initialValue)
+                      Property* initialValue,
+                      CSSPropertyID cssPropertyId = CSSPropertyInvalid)
       : SVGAnimatedPropertyCommon<Property>(contextElement,
                                             attributeName,
-                                            initialValue) {}
+                                            initialValue,
+                                            cssPropertyId) {}
 };
 
 }  // namespace blink

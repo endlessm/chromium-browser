@@ -6,6 +6,7 @@
 
 #include <utility>
 
+#include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
@@ -32,6 +33,8 @@
 #if defined(OS_ANDROID)
 #include "content/browser/renderer_host/context_provider_factory_impl_android.h"
 #include "content/test/mock_gpu_channel_establish_factory.h"
+#include "ui/android/dummy_screen_android.h"
+#include "ui/display/screen.h"
 #endif
 
 #if defined(OS_WIN)
@@ -85,21 +88,14 @@ void RenderFrameHostTester::CommitPendingLoad(
   RenderFrameHost* test_rfh = pending_rfh ? pending_rfh : old_rfh;
   RenderFrameHostTester* test_rfh_tester = For(test_rfh);
 
-  // For new navigations, we need to send a larger page ID. For renavigations,
-  // we need to send the preexisting page ID. We can tell these apart because
-  // renavigations will have a pending_entry_index while new ones won't (they'll
-  // just have a standalong pending_entry that isn't in the list already).
   if (controller->GetPendingEntryIndex() >= 0) {
     test_rfh_tester->SendNavigateWithTransition(
-        controller->GetPendingEntry()->GetPageID(),
         controller->GetPendingEntry()->GetUniqueID(),
         false,
         controller->GetPendingEntry()->GetURL(),
         controller->GetPendingEntry()->GetTransitionType());
   } else {
     test_rfh_tester->SendNavigateWithTransition(
-        controller->GetWebContents()->GetMaxPageIDForSiteInstance(
-            test_rfh->GetSiteInstance()) + 1,
         controller->GetPendingEntry()->GetUniqueID(),
         true,
         controller->GetPendingEntry()->GetURL(),
@@ -134,9 +130,39 @@ bool RenderViewHostTester::HasTouchEventHandler(RenderViewHost* rvh) {
 RenderViewHostTestEnabler::RenderViewHostTestEnabler()
     : rph_factory_(new MockRenderProcessHostFactory()),
       rvh_factory_(new TestRenderViewHostFactory(rph_factory_.get())),
-      rfh_factory_(new TestRenderFrameHostFactory()) {}
+      rfh_factory_(new TestRenderFrameHostFactory()) {
+#if !defined(OS_ANDROID)
+  ImageTransportFactory::InitializeForUnitTests(
+      base::WrapUnique(new NoTransportImageTransportFactory));
+#else
+  gpu_channel_factory_ = base::MakeUnique<MockGpuChannelEstablishFactory>();
+  ContextProviderFactoryImpl::Initialize(gpu_channel_factory_.get());
+  ui::ContextProviderFactory::SetInstance(
+      ContextProviderFactoryImpl::GetInstance());
+  if (!screen_)
+    screen_.reset(ui::CreateDummyScreenAndroid());
+  display::Screen::SetScreenInstance(screen_.get());
+#endif
+#if defined(OS_MACOSX)
+  if (base::ThreadTaskRunnerHandle::IsSet())
+    ui::WindowResizeHelperMac::Get()->Init(base::ThreadTaskRunnerHandle::Get());
+#endif  // OS_MACOSX
+}
 
 RenderViewHostTestEnabler::~RenderViewHostTestEnabler() {
+#if defined(OS_MACOSX)
+  ui::WindowResizeHelperMac::Get()->ShutdownForTests();
+#endif  // OS_MACOSX
+#if !defined(OS_ANDROID)
+  // RenderWidgetHostView holds on to a reference to SurfaceManager, so it
+  // must be shut down before the ImageTransportFactory.
+  ImageTransportFactory::Terminate();
+#else
+  display::Screen::SetScreenInstance(nullptr);
+  ui::ContextProviderFactory::SetInstance(nullptr);
+  ContextProviderFactoryImpl::Terminate();
+  gpu_channel_factory_.reset();
+#endif
 }
 
 
@@ -217,9 +243,9 @@ void RenderViewHostTestHarness::NavigateAndCommit(const GURL& url) {
 void RenderViewHostTestHarness::Reload() {
   NavigationEntry* entry = controller().GetLastCommittedEntry();
   DCHECK(entry);
-  controller().Reload(false);
+  controller().Reload(ReloadType::NORMAL, false);
   RenderFrameHostTester::For(main_rfh())
-      ->SendNavigateWithTransition(entry->GetPageID(), entry->GetUniqueID(),
+      ->SendNavigateWithTransition(entry->GetUniqueID(),
                                    false, entry->GetURL(),
                                    ui::PAGE_TRANSITION_RELOAD);
 }
@@ -227,10 +253,9 @@ void RenderViewHostTestHarness::Reload() {
 void RenderViewHostTestHarness::FailedReload() {
   NavigationEntry* entry = controller().GetLastCommittedEntry();
   DCHECK(entry);
-  controller().Reload(false);
+  controller().Reload(ReloadType::NORMAL, false);
   RenderFrameHostTester::For(main_rfh())
-      ->SendFailedNavigate(entry->GetPageID(), entry->GetUniqueID(), false,
-                           entry->GetURL());
+      ->SendFailedNavigate(entry->GetUniqueID(), false, entry->GetURL());
 }
 
 void RenderViewHostTestHarness::SetUp() {
@@ -240,25 +265,22 @@ void RenderViewHostTestHarness::SetUp() {
   ui::MaterialDesignController::Initialize();
   thread_bundle_.reset(new TestBrowserThreadBundle(thread_bundle_options_));
 
+  rvh_test_enabler_.reset(new RenderViewHostTestEnabler);
+  if (factory_)
+    rvh_test_enabler_->rvh_factory_->set_render_process_host_factory(factory_);
+
 #if defined(OS_WIN)
   ole_initializer_.reset(new ui::ScopedOleInitializer());
-#endif
-#if !defined(OS_ANDROID)
-  ImageTransportFactory::InitializeForUnitTests(
-      base::WrapUnique(new NoTransportImageTransportFactory));
-#else
-  gpu_channel_factory_ = base::MakeUnique<MockGpuChannelEstablishFactory>();
-  ContextProviderFactoryImpl::Initialize(gpu_channel_factory_.get());
-  ui::ContextProviderFactory::SetInstance(
-      ContextProviderFactoryImpl::GetInstance());
 #endif
 #if defined(USE_AURA)
   ui::ContextFactory* context_factory =
       ImageTransportFactory::GetInstance()->GetContextFactory();
+  ui::ContextFactoryPrivate* context_factory_private =
+      ImageTransportFactory::GetInstance()->GetContextFactoryPrivate();
 
   aura_test_helper_.reset(
       new aura::test::AuraTestHelper(base::MessageLoopForUI::current()));
-  aura_test_helper_->SetUp(context_factory);
+  aura_test_helper_->SetUp(context_factory, context_factory_private);
   new wm::DefaultActivationClient(aura_test_helper_->root_window());
 #endif
 
@@ -271,10 +293,6 @@ void RenderViewHostTestHarness::SetUp() {
 
   if (IsBrowserSideNavigationEnabled())
     BrowserSideNavigationSetUp();
-
-#if defined(OS_MACOSX)
-  ui::WindowResizeHelperMac::Get()->Init(base::ThreadTaskRunnerHandle::Get());
-#endif  // OS_MACOSX
 }
 
 void RenderViewHostTestHarness::TearDown() {
@@ -290,17 +308,15 @@ void RenderViewHostTestHarness::TearDown() {
   // before we destroy the browser context.
   base::RunLoop().RunUntilIdle();
 
-#if defined(OS_MACOSX)
-  ui::WindowResizeHelperMac::Get()->ShutdownForTests();
-#endif  // OS_MACOSX
-
 #if defined(OS_WIN)
   ole_initializer_.reset();
 #endif
 
   // Delete any RenderProcessHosts before the BrowserContext goes away.
-  if (rvh_test_enabler_.rph_factory_)
-    rvh_test_enabler_.rph_factory_.reset();
+  if (rvh_test_enabler_->rph_factory_)
+    rvh_test_enabler_->rph_factory_.reset();
+
+  rvh_test_enabler_.reset();
 
   // Release the browser context by posting itself on the end of the task
   // queue. This is preferable to immediate deletion because it will behave
@@ -310,16 +326,6 @@ void RenderViewHostTestHarness::TearDown() {
                             FROM_HERE,
                             browser_context_.release());
   thread_bundle_.reset();
-
-#if !defined(OS_ANDROID)
-    // RenderWidgetHostView holds on to a reference to SurfaceManager, so it
-    // must be shut down before the ImageTransportFactory.
-    ImageTransportFactory::Terminate();
-#else
-  ui::ContextProviderFactory::SetInstance(nullptr);
-  ContextProviderFactoryImpl::Terminate();
-  gpu_channel_factory_.reset();
-#endif
 }
 
 BrowserContext* RenderViewHostTestHarness::CreateBrowserContext() {
@@ -328,7 +334,10 @@ BrowserContext* RenderViewHostTestHarness::CreateBrowserContext() {
 
 void RenderViewHostTestHarness::SetRenderProcessHostFactory(
     RenderProcessHostFactory* factory) {
-  rvh_test_enabler_.rvh_factory_->set_render_process_host_factory(factory);
+  if (rvh_test_enabler_)
+    rvh_test_enabler_->rvh_factory_->set_render_process_host_factory(factory);
+  else
+    factory_ = factory;
 }
 
 }  // namespace content

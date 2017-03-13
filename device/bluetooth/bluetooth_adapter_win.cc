@@ -10,6 +10,7 @@
 
 #include "base/location.h"
 #include "base/logging.h"
+#include "base/memory/ptr_util.h"
 #include "base/sequenced_task_runner.h"
 #include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
@@ -128,8 +129,8 @@ void BluetoothAdapterWin::DiscoveryStarted(bool success) {
   on_start_discovery_callbacks_.clear();
 
   if (success) {
-    FOR_EACH_OBSERVER(BluetoothAdapter::Observer, observers_,
-                      AdapterDiscoveringChanged(this, true));
+    for (auto& observer : observers_)
+      observer.AdapterDiscoveringChanged(this, true);
 
     // If there are stop discovery requests, post the stop discovery again.
     MaybePostStopDiscoveryTask();
@@ -153,8 +154,8 @@ void BluetoothAdapterWin::DiscoveryStopped() {
   num_discovery_listeners_ = 0;
   on_stop_discovery_callbacks_.clear();
   if (was_discovering)
-    FOR_EACH_OBSERVER(BluetoothAdapter::Observer, observers_,
-                      AdapterDiscoveringChanged(this, false));
+    for (auto& observer : observers_)
+      observer.AdapterDiscoveringChanged(this, false);
 
   // If there are start discovery requests, post the start discovery again.
   MaybePostStartDiscoveryTask();
@@ -212,13 +213,13 @@ void BluetoothAdapterWin::AdapterStateChanged(
   bool is_present = !state.address.empty();
   address_ = BluetoothDevice::CanonicalizeAddress(state.address);
   if (was_present != is_present) {
-    FOR_EACH_OBSERVER(BluetoothAdapter::Observer, observers_,
-                      AdapterPresentChanged(this, is_present));
+    for (auto& observer : observers_)
+      observer.AdapterPresentChanged(this, is_present);
   }
   if (powered_ != state.powered) {
     powered_ = state.powered;
-    FOR_EACH_OBSERVER(BluetoothAdapter::Observer, observers_,
-                      AdapterPoweredChanged(this, powered_));
+    for (auto& observer : observers_)
+      observer.AdapterPoweredChanged(this, powered_);
   }
   if (!initialized_) {
     initialized_ = true;
@@ -227,70 +228,57 @@ void BluetoothAdapterWin::AdapterStateChanged(
 }
 
 void BluetoothAdapterWin::DevicesPolled(
-    const ScopedVector<BluetoothTaskManagerWin::DeviceState>& devices) {
+    const std::vector<std::unique_ptr<BluetoothTaskManagerWin::DeviceState>>&
+        devices) {
   DCHECK(thread_checker_.CalledOnValidThread());
 
   // We are receiving a new list of all devices known to the system. Merge this
   // new list with the list we know of (|devices_|) and raise corresponding
   // DeviceAdded, DeviceRemoved and DeviceChanged events.
 
-  typedef std::set<std::string> DeviceAddressSet;
+  using DeviceAddressSet = std::set<std::string>;
   DeviceAddressSet known_devices;
-  for (DevicesMap::const_iterator iter = devices_.begin();
-       iter != devices_.end();
-       ++iter) {
-    known_devices.insert((*iter).first);
-  }
+  for (const auto& device : devices_)
+    known_devices.insert(device.first);
 
   DeviceAddressSet new_devices;
-  for (ScopedVector<BluetoothTaskManagerWin::DeviceState>::const_iterator iter =
-           devices.begin();
-       iter != devices.end();
-       ++iter) {
-    new_devices.insert((*iter)->address);
-  }
+  for (const auto& device_state : devices)
+    new_devices.insert(device_state->address);
 
-  // Process device removal first
+  // Process device removal first.
   DeviceAddressSet removed_devices =
       base::STLSetDifference<DeviceAddressSet>(known_devices, new_devices);
-  for (DeviceAddressSet::const_iterator iter = removed_devices.begin();
-       iter != removed_devices.end();
-       ++iter) {
-    std::unique_ptr<BluetoothDevice> device_win =
-        devices_.take_and_erase(*iter);
-    FOR_EACH_OBSERVER(BluetoothAdapter::Observer, observers_,
-                      DeviceRemoved(this, device_win.get()));
+  for (const auto& device : removed_devices) {
+    auto it = devices_.find(device);
+    std::unique_ptr<BluetoothDevice> device_win = std::move(it->second);
+    devices_.erase(it);
+    for (auto& observer : observers_)
+      observer.DeviceRemoved(this, device_win.get());
   }
 
-  // Process added and (maybe) changed devices in one pass
+  // Process added and (maybe) changed devices in one pass.
   DeviceAddressSet added_devices =
       base::STLSetDifference<DeviceAddressSet>(new_devices, known_devices);
   DeviceAddressSet changed_devices =
       base::STLSetIntersection<DeviceAddressSet>(known_devices, new_devices);
-  for (ScopedVector<BluetoothTaskManagerWin::DeviceState>::const_iterator iter =
-           devices.begin();
-       iter != devices.end();
-       ++iter) {
-    BluetoothTaskManagerWin::DeviceState* device_state = (*iter);
+  for (const auto& device_state : devices) {
     if (added_devices.find(device_state->address) != added_devices.end()) {
       BluetoothDeviceWin* device_win =
           new BluetoothDeviceWin(this, *device_state, ui_task_runner_,
                                  socket_thread_, NULL, net::NetLogSource());
-      devices_.set(device_state->address,
-                   std::unique_ptr<BluetoothDevice>(device_win));
-      FOR_EACH_OBSERVER(BluetoothAdapter::Observer,
-                        observers_,
-                        DeviceAdded(this, device_win));
+      devices_[device_state->address] = base::WrapUnique(device_win);
+      for (auto& observer : observers_)
+        observer.DeviceAdded(this, device_win);
     } else if (changed_devices.find(device_state->address) !=
                changed_devices.end()) {
-      DevicesMap::const_iterator iter = devices_.find(device_state->address);
+      auto iter = devices_.find(device_state->address);
       DCHECK(iter != devices_.end());
       BluetoothDeviceWin* device_win =
-          static_cast<BluetoothDeviceWin*>(iter->second);
+          static_cast<BluetoothDeviceWin*>(iter->second.get());
       if (!device_win->IsEqual(*device_state)) {
         device_win->Update(*device_state);
-        FOR_EACH_OBSERVER(BluetoothAdapter::Observer, observers_,
-                          DeviceChanged(this, device_win));
+        for (auto& observer : observers_)
+          observer.DeviceChanged(this, device_win);
       }
       // Above IsEqual returns true if device name, address, status and services
       // (primary services of BLE device) are the same. However, in BLE tests,

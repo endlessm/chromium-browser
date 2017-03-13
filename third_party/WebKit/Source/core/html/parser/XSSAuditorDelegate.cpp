@@ -35,6 +35,7 @@
 #include "core/loader/PingLoader.h"
 #include "platform/json/JSONValues.h"
 #include "platform/network/EncodedFormData.h"
+#include "platform/network/ResourceError.h"
 #include "platform/weborigin/SecurityOrigin.h"
 #include "wtf/text/StringBuilder.h"
 
@@ -52,18 +53,14 @@ String XSSInfo::buildConsoleError() const {
                                       : "its source code");
   message.append(" was found within the request.");
 
-  if (m_didSendCSPHeader)
-    message.append(
-        " The server sent a 'Content-Security-Policy' header requesting this "
-        "behavior.");
-  else if (m_didSendXSSProtectionHeader)
+  if (m_didSendXSSProtectionHeader)
     message.append(
         " The server sent an 'X-XSS-Protection' header requesting this "
         "behavior.");
   else
     message.append(
-        " The auditor was enabled as the server sent neither an "
-        "'X-XSS-Protection' nor 'Content-Security-Policy' header.");
+        " The auditor was enabled as the server did not send an "
+        "'X-XSS-Protection' header.");
 
   return message.toString();
 }
@@ -118,7 +115,7 @@ void XSSAuditorDelegate::didBlockScript(const XSSInfo& xssInfo) {
   if (xssInfo.m_didBlockEntirePage)
     frameLoader.stopAllLoaders();
 
-  if (!m_didSendNotifications) {
+  if (!m_didSendNotifications && frameLoader.client()) {
     m_didSendNotifications = true;
 
     frameLoader.client()->didDetectXSS(m_document->url(),
@@ -130,8 +127,10 @@ void XSSAuditorDelegate::didBlockScript(const XSSInfo& xssInfo) {
                                       PingLoader::XSSAuditorViolationReport);
   }
 
-  if (xssInfo.m_didBlockEntirePage)
-    m_document->frame()->navigationScheduler().schedulePageBlock(m_document);
+  if (xssInfo.m_didBlockEntirePage) {
+    m_document->frame()->navigationScheduler().schedulePageBlock(
+        m_document, ResourceError::BLOCKED_BY_XSS_AUDITOR);
+  }
 }
 
 }  // namespace blink

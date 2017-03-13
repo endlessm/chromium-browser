@@ -44,7 +44,7 @@ const unsigned HRTFDatabase::NumberOfTotalElevations =
     NumberOfRawElevations * InterpolationFactor;
 
 std::unique_ptr<HRTFDatabase> HRTFDatabase::create(float sampleRate) {
-  return wrapUnique(new HRTFDatabase(sampleRate));
+  return WTF::wrapUnique(new HRTFDatabase(sampleRate));
 }
 
 HRTFDatabase::HRTFDatabase(float sampleRate)
@@ -90,8 +90,8 @@ void HRTFDatabase::getKernelsFromAzimuthElevation(double azimuthBlend,
                                                   double& frameDelayL,
                                                   double& frameDelayR) {
   unsigned elevationIndex = indexFromElevationAngle(elevationAngle);
-  ASSERT_WITH_SECURITY_IMPLICATION(elevationIndex < m_elevations.size() &&
-                                   m_elevations.size() > 0);
+  SECURITY_DCHECK(elevationIndex < m_elevations.size() &&
+                  m_elevations.size() > 0);
 
   if (!m_elevations.size()) {
     kernelL = 0;

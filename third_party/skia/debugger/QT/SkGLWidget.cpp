@@ -59,7 +59,7 @@ void SkGLWidget::createRenderTarget() {
     GrBackendRenderTargetDesc desc = this->getDesc(this->width(), this->height());
     desc.fOrigin = kBottomLeft_GrSurfaceOrigin;
 
-    fGpuSurface = SkSurface::MakeFromBackendRenderTarget(fCurContext, desc, nullptr);
+    fGpuSurface = SkSurface::MakeFromBackendRenderTarget(fCurContext.get(), desc, nullptr);
     fCanvas = fGpuSurface->getCanvas();
 }
 
@@ -83,10 +83,10 @@ GrBackendRenderTargetDesc SkGLWidget::getDesc(int w, int h) {
     desc.fWidth = SkScalarRoundToInt(this->width());
     desc.fHeight = SkScalarRoundToInt(this->height());
     desc.fConfig = kSkia8888_GrPixelConfig;
-    GR_GL_GetIntegerv(fCurIntf, GR_GL_SAMPLES, &desc.fSampleCnt);
-    GR_GL_GetIntegerv(fCurIntf, GR_GL_STENCIL_BITS, &desc.fStencilBits);
+    GR_GL_GetIntegerv(fCurIntf.get(), GR_GL_SAMPLES, &desc.fSampleCnt);
+    GR_GL_GetIntegerv(fCurIntf.get(), GR_GL_STENCIL_BITS, &desc.fStencilBits);
     GrGLint buffer;
-    GR_GL_GetIntegerv(fCurIntf, GR_GL_FRAMEBUFFER_BINDING, &buffer);
+    GR_GL_GetIntegerv(fCurIntf.get(), GR_GL_FRAMEBUFFER_BINDING, &buffer);
     desc.fRenderTargetHandle = buffer;
 
     return desc;

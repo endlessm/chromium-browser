@@ -101,6 +101,9 @@ class Platform(object):
   def tracing_controller(self):
     return self._tracing_controller
 
+  def Initialize(self):
+    pass
+
   def CanMonitorThermalThrottling(self):
     """Platforms may be able to detect thermal throttling.
 
@@ -109,6 +112,9 @@ class Platform(object):
     API to detect if this has happened and interpret results accordingly.
     """
     return self._platform_backend.CanMonitorThermalThrottling()
+
+  def GetSystemLog(self):
+    return self._platform_backend.GetSystemLog()
 
   def IsThermallyThrottled(self):
     """Returns True if the device is currently thermally throttled."""
@@ -414,3 +420,6 @@ class Platform(object):
 
   def HasBattOrConnected(self):
     return  self._platform_backend.HasBattOrConnected()
+
+  def WaitForTemperature(self, temp):
+    return self._platform_backend.WaitForTemperature(temp)

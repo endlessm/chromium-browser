@@ -10,8 +10,8 @@ import datetime
 import itertools
 import random
 
-from chromite.cbuildbot import constants
-from chromite.cbuildbot import metadata_lib
+from chromite.lib import constants
+from chromite.lib import metadata_lib
 from chromite.cbuildbot import validation_pool
 from chromite.lib import fake_cidb
 from chromite.lib import clactions
@@ -23,30 +23,6 @@ class CLActionTest(cros_test_lib.TestCase):
 
   def runTest(self):
     pass
-
-
-class IntervalsTest(cros_test_lib.TestCase):
-  """Placeholder for clactions unit tests."""
-  # pylint: disable=protected-access
-
-  def testIntervals(self):
-    self.assertEqual([], clactions._IntersectIntervals([]))
-    self.assertEqual([(1, 2)], clactions._IntersectIntervals([[(1, 2)]]))
-
-    test_group_0 = [(1, 10)]
-    test_group_1 = [(2, 5), (7, 10)]
-    test_group_2 = [(2, 8), (9, 12)]
-    self.assertEqual(
-        [(2, 5), (7, 8), (9, 10)],
-        clactions._IntersectIntervals([test_group_0, test_group_1,
-                                       test_group_2])
-    )
-
-    test_group_0 = [(1, 3), (10, 12)]
-    test_group_1 = [(2, 5)]
-    self.assertEqual(
-        [(2, 3)],
-        clactions._IntersectIntervals([test_group_0, test_group_1]))
 
 
 class TestCLActionHistory(cros_test_lib.TestCase):
@@ -849,3 +825,25 @@ class TestCLActionHistoryRejections(cros_test_lib.TestCase):
     self.assertEqual({}, self.cl_action_stats.GetTrueRejections())
     self.assertEqual({self.cl1_patch1: [reject_action1]},
                      self.cl_action_stats.GetFalseRejections())
+
+
+class TestGerritChangeTuple(cros_test_lib.TestCase):
+  """Tests of basic GerritChangeTuple functionality."""
+
+  def testUnknownHostRaises(self):
+    with self.assertRaises(clactions.UnknownGerritHostError):
+      clactions.GerritChangeTuple.FromHostAndNumber('foobar-host', 1234)
+
+  def testKnownHosts(self):
+    self.assertEqual((31415, True),
+                     clactions.GerritChangeTuple.FromHostAndNumber(
+                         'gerrit-int.chromium.org', 31415))
+    self.assertEqual((31415, True),
+                     clactions.GerritChangeTuple.FromHostAndNumber(
+                         constants.INTERNAL_GERRIT_HOST, 31415))
+    self.assertEqual((31415, False),
+                     clactions.GerritChangeTuple.FromHostAndNumber(
+                         'gerrit.chromium.org', 31415))
+    self.assertEqual((31415, False),
+                     clactions.GerritChangeTuple.FromHostAndNumber(
+                         constants.EXTERNAL_GERRIT_HOST, 31415))

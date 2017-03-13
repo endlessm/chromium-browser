@@ -6,7 +6,6 @@
 
 from __future__ import print_function
 
-import __main__
 import collections
 import contextlib
 from datetime import datetime
@@ -29,7 +28,7 @@ import time
 import traceback
 import types
 
-from chromite.cbuildbot import constants
+from chromite.lib import constants
 from chromite.lib import cros_logging as logging
 from chromite.lib import signals
 
@@ -616,7 +615,9 @@ def RunCommand(cmd, print_cmd=True, error_message=None, redirect_stdout=False,
         logging.log(debug_level, '(stderr):\n%s', cmd_result.error)
 
     if not error_code_ok and proc.returncode:
-      msg = 'cwd=%s' % cwd
+      msg = 'cmd=%s' % cmd
+      if cwd:
+        msg += ', cwd=%s' % cwd
       if extra_env:
         msg += ', extra env=%s' % extra_env
       if error_message:
@@ -789,47 +790,6 @@ def HostIsCIBuilder(fq_hostname=None, golo_only=False, gce_only=False):
     return in_golo or in_gce
 
 
-def TimedCommand(functor, *args, **kwargs):
-  """Wrapper for simple log timing of other python functions.
-
-  If you want to log info about how long it took to run an arbitrary command,
-  you would do something like:
-    TimedCommand(RunCommand, ['wget', 'http://foo'])
-
-  Args:
-    functor: The function to run.
-    args: The args to pass to the function.
-    kwargs: Optional args to pass to the function.
-    timed_log_level: The log level to use (defaults to logging.INFO).
-    timed_log_msg: The message to log after the command completes.  It may have
-      keywords: "name" (the function name), "args" (the args passed to the
-      func), "kwargs" (the kwargs passed to the func), "ret" (the return value
-      from the func), and "delta" (the timing delta).
-    timed_log_callback: Function to call upon completion (instead of logging).
-      Will be passed (log_level, log_msg, result, datetime.timedelta).
-  """
-  log_msg = kwargs.pop(
-      'timed_log_msg',
-      '%(name)s(*%(args)r, **%(kwargs)r)=%(ret)s took: %(delta)s')
-  log_level = kwargs.pop('timed_log_level', logging.INFO)
-  log_callback = kwargs.pop('timed_log_callback', None)
-  start = datetime.now()
-  ret = functor(*args, **kwargs)
-  delta = datetime.now() - start
-  log_msg %= {
-      'name': getattr(functor, '__name__', repr(functor)),
-      'args': args,
-      'kwargs': kwargs,
-      'ret': ret,
-      'delta': delta,
-  }
-  if log_callback is None:
-    logging.log(log_level, log_msg)
-  else:
-    log_callback(log_level, log_msg, ret, delta)
-  return ret
-
-
 COMP_NONE = 0
 COMP_GZIP = 1
 COMP_BZIP2 = 2
@@ -903,6 +863,27 @@ def CompressionStrToType(s):
     return COMP_NONE
 
 
+def CompressionExtToType(file_name):
+  """Retrieve a compression type constant from a compression file's name.
+
+  Args:
+    file_name: Name of a compression file.
+
+  Returns:
+    A constant, return COMP_NONE if the extension is unknown.
+  """
+  ext = os.path.splitext(file_name)[-1]
+  _COMP_EXT = {
+      '.tgz': COMP_GZIP,
+      '.gz': COMP_GZIP,
+      '.tbz2': COMP_BZIP2,
+      '.bz2': COMP_BZIP2,
+      '.txz': COMP_XZ,
+      '.xz': COMP_XZ,
+  }
+  return _COMP_EXT.get(ext, COMP_NONE)
+
+
 def CompressFile(infile, outfile):
   """Compress a file using compressor specified by |outfile| suffix.
 
@@ -911,8 +892,7 @@ def CompressFile(infile, outfile):
     outfile: Name of output file. Compression used is based on the
              type of suffix of the name specified (e.g.: .bz2).
   """
-  comp_str = outfile.rsplit('.', 1)[-1]
-  comp_type = CompressionStrToType(comp_str)
+  comp_type = CompressionExtToType(outfile)
   assert comp_type and comp_type != COMP_NONE
   comp = FindCompressor(comp_type)
   cmd = [comp, '-c', infile]
@@ -927,8 +907,7 @@ def UncompressFile(infile, outfile):
             type of suffix of the name specified (e.g.: .bz2).
     outfile: Name of output file.
   """
-  comp_str = infile.rsplit('.', 1)[-1]
-  comp_type = CompressionStrToType(comp_str)
+  comp_type = CompressionExtToType(infile)
   assert comp_type and comp_type != COMP_NONE
   comp = FindCompressor(comp_type)
   cmd = [comp, '-dc', infile]
@@ -1878,6 +1857,35 @@ def Collection(classname, **kwargs):
   return new_class
 
 
+# Structure to hold the values produced by TimedSection.
+#
+#  Attributes:
+#    start: The absolute start time as a datetime.
+#    finish: The absolute finish time as a datetime, or None if in progress.
+#    delta: The runtime as a timedelta, or None if in progress.
+TimedResults = Collection('TimedResults', start=None, finish=None, delta=None)
+
+
+@contextlib.contextmanager
+def TimedSection():
+  """Context manager to time how long a code block takes.
+
+  Example usage:
+    with cros_build_lib.TimedSection() as timer:
+      DoWork()
+    logging.info('DoWork took %s', timer.delta)
+
+  Context manager value will be a TimedResults instance.
+  """
+  # Create our context manager value.
+  times = TimedResults(start=datetime.now())
+  try:
+    yield times
+  finally:
+    times.finish = datetime.now()
+    times.delta = times.finish - times.start
+
+
 PartitionInfo = collections.namedtuple(
     'PartitionInfo',
     ['number', 'start', 'end', 'size', 'file_system', 'name', 'flags']
@@ -2015,7 +2023,7 @@ def MachineDetails():
     A string with content that helps identify this system/process/etc...
   """
   return '\n'.join((
-      'PROG=%s' % __main__.__file__,
+      'PROG=%s' % inspect.stack()[-1][1],
       'USER=%s' % getpass.getuser(),
       'HOSTNAME=%s' % GetHostName(fully_qualified=True),
       'PID=%s' % os.getpid(),

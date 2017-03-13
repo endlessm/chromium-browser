@@ -7,6 +7,8 @@
 #ifndef XFA_FXFA_PARSER_CXFA_LAYOUTPROCESSOR_H_
 #define XFA_FXFA_PARSER_CXFA_LAYOUTPROCESSOR_H_
 
+#include <memory>
+
 #include "core/fxcrt/fx_system.h"
 #include "xfa/fxfa/parser/xfa_object.h"
 
@@ -20,36 +22,35 @@ class IFX_Pause;
 
 class CXFA_LayoutProcessor {
  public:
-  CXFA_LayoutProcessor(CXFA_Document* pDocument);
+  explicit CXFA_LayoutProcessor(CXFA_Document* pDocument);
   ~CXFA_LayoutProcessor();
 
   CXFA_Document* GetDocument() const;
-  int32_t StartLayout(FX_BOOL bForceRestart = FALSE);
+  int32_t StartLayout(bool bForceRestart = false);
   int32_t DoLayout(IFX_Pause* pPause = nullptr);
-  FX_BOOL IncrementLayout();
+  bool IncrementLayout();
   int32_t CountPages() const;
   CXFA_ContainerLayoutItem* GetPage(int32_t index) const;
   CXFA_LayoutItem* GetLayoutItem(CXFA_Node* pFormItem);
-
   void AddChangedContainer(CXFA_Node* pContainer);
-  void SetForceReLayout(FX_BOOL bForceRestart) { m_bNeeLayout = bForceRestart; }
+  void SetForceReLayout(bool bForceRestart) { m_bNeeLayout = bForceRestart; }
   CXFA_ContainerLayoutItem* GetRootLayoutItem() const;
-  CXFA_ItemLayoutProcessor* GetRootRootItemLayoutProcessor() {
-    return m_pRootItemLayoutProcessor;
+  CXFA_ItemLayoutProcessor* GetRootRootItemLayoutProcessor() const {
+    return m_pRootItemLayoutProcessor.get();
   }
-  CXFA_LayoutPageMgr* GetLayoutPageMgr() { return m_pLayoutPageMgr; }
+  CXFA_LayoutPageMgr* GetLayoutPageMgr() const {
+    return m_pLayoutPageMgr.get();
+  }
 
  private:
-  void ClearLayoutData();
+  bool IsNeedLayout();
 
-  FX_BOOL IsNeedLayout();
-
-  CXFA_Document* m_pDocument;
-  CXFA_ItemLayoutProcessor* m_pRootItemLayoutProcessor;
-  CXFA_LayoutPageMgr* m_pLayoutPageMgr;
+  CXFA_Document* const m_pDocument;
+  std::unique_ptr<CXFA_ItemLayoutProcessor> m_pRootItemLayoutProcessor;
+  std::unique_ptr<CXFA_LayoutPageMgr> m_pLayoutPageMgr;
   CXFA_NodeArray m_rgChangedContainers;
   uint32_t m_nProgressCounter;
-  FX_BOOL m_bNeeLayout;
+  bool m_bNeeLayout;
 };
 
 #endif  // XFA_FXFA_PARSER_CXFA_LAYOUTPROCESSOR_H_

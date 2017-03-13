@@ -5,6 +5,7 @@
 #include "services/ui/ws/focus_controller.h"
 
 #include "base/macros.h"
+#include "base/memory/ptr_util.h"
 #include "services/ui/public/interfaces/window_manager.mojom.h"
 #include "services/ui/ws/focus_controller_delegate.h"
 #include "services/ui/ws/focus_controller_observer.h"
@@ -148,8 +149,8 @@ void FocusController::SetActiveWindow(ServerWindow* window,
   ServerWindow* old_active = active_window_;
   active_window_ = window;
   activation_reason_ = reason;
-  FOR_EACH_OBSERVER(FocusControllerObserver, observers_,
-                    OnActivationChanged(old_active, active_window_));
+  for (auto& observer : observers_)
+    observer.OnActivationChanged(old_active, active_window_);
   if (active_window_ && activation_reason_ == ActivationChangeReason::CYCLE)
     cycle_windows_->Add(active_window_);
 }
@@ -185,9 +186,10 @@ bool FocusController::CanBeActivated(ServerWindow* window) const {
     bool is_minimized = false;
     const ServerWindow::Properties& props = window->properties();
     if (props.count(mojom::WindowManager::kShowState_Property)) {
+      // The type must match that of PropertyConverter::PrimitiveType.
       is_minimized =
           props.find(mojom::WindowManager::kShowState_Property)->second[0] ==
-          static_cast<int>(ui::mojom::ShowState::MINIMIZED);
+          static_cast<int64_t>(ui::mojom::ShowState::MINIMIZED);
     }
     if (!is_minimized)
       return false;
@@ -223,8 +225,8 @@ bool FocusController::SetFocusedWindowImpl(
   SetActiveWindow(GetActivatableAncestorOf(window),
                   ActivationChangeReason::FOCUS);
 
-  FOR_EACH_OBSERVER(FocusControllerObserver, observers_,
-                    OnFocusChanged(change_source, old_focused, window));
+  for (auto& observer : observers_)
+    observer.OnFocusChanged(change_source, old_focused, window);
 
   focused_window_ = window;
   // We can currently use only a single ServerWindowDrawnTracker since focused

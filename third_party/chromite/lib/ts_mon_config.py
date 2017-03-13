@@ -41,7 +41,8 @@ def TrivialContextManager():
 def SetupTsMonGlobalState(service_name,
                           short_lived=False,
                           indirect=False,
-                          auto_flush=True):
+                          auto_flush=True,
+                          debug_file=None):
   """Uses a dummy argument parser to get the default behavior from ts-mon.
 
   Args:
@@ -53,13 +54,15 @@ def SetupTsMonGlobalState(service_name,
               because forking would normally create a duplicate ts_mon thread.
     auto_flush: Whether to create a thread to automatically flush metrics every
                 minute.
+    debug_file: If non-none, send metrics to this path instead of to PubSub.
   """
   if not config:
     return TrivialContextManager()
 
   if indirect:
     return _CreateTsMonFlushingProcess([service_name],
-                                       {'short_lived': short_lived})
+                                       {'short_lived': short_lived,
+                                        'debug_file': debug_file})
 
   # google-api-client has too much noisey logging.
   googleapiclient.discovery.logger.setLevel(logging.WARNING)
@@ -70,6 +73,9 @@ def SetupTsMonGlobalState(service_name,
       '--ts-mon-task-service-name', service_name,
       '--ts-mon-task-job-name', service_name,
   ]
+
+  if debug_file:
+    args.extend(['--ts-mon-endpoint', 'file://' + debug_file])
 
   # Short lived processes will have autogen: prepended to their hostname and
   # use task-number=PID to trigger shorter retention policies under
@@ -82,13 +88,14 @@ def SetupTsMonGlobalState(service_name,
     fqdn = socket.getfqdn().lower()
     host = fqdn.split('.')[0]
     args.extend(['--ts-mon-task-hostname', 'autogen:' + host,
-                 '--ts-mon-task-number', os.getpid()])
+                 '--ts-mon-task-number', str(os.getpid())])
 
   args.extend(['--ts-mon-flush', 'auto' if auto_flush else 'manual'])
 
   try:
     config.process_argparse_options(parser.parse_args(args=args))
     logging.notice('ts_mon was set up.')
+    global _WasSetup  # pylint: disable=global-statement
     _WasSetup = True
   except Exception as e:
     logging.warning('Failed to configure ts_mon, monitoring is disabled: %s', e,
@@ -148,18 +155,6 @@ def _CreateTsMonFlushingProcess(setup_args, setup_kwargs):
         logging.warning("ts_mon_config flushing process did not exit cleanly.")
 
 
-def _WaitToFlush(last_flush, reset_after=()):
-  """Sleeps until the next time we can call metrics.Flush(), then flushes.
-
-  Args:
-    last_flush: timestamp of the last flush
-    reset_after: A list of metrics to reset after the flush.
-  """
-  time_delta = time.time() - last_flush
-  time.sleep(max(0, FLUSH_INTERVAL - time_delta))
-  metrics.Flush(reset_after=reset_after)
-
-
 def _FlushIfReady(pending, last_flush, reset_after=()):
   """Call metrics.Flush() if we are ready and have pending metrics.
 
@@ -212,10 +207,9 @@ def _ConsumeMessages(message_q, setup_args, setup_kwargs):
 
   # If our parent dies, finish flushing before exiting.
   reset_after = []
-  parallel.ExitWithParent(signal.SIGHUP)
-  signal.signal(signal.SIGHUP,
-                lambda _sig, _stack: _WaitToFlush(last_flush,
-                                                  reset_after=reset_after))
+  if parallel.ExitWithParent(signal.SIGHUP):
+    signal.signal(signal.SIGHUP,
+                  lambda _sig, _stack: metrics.Flush(reset_after=reset_after))
 
   # Configure ts-mon, but don't start up a sending thread.
   setup_kwargs['auto_flush'] = False
@@ -254,4 +248,4 @@ def _ConsumeMessages(message_q, setup_args, setup_kwargs):
       message = message_q.get()
 
   if pending:
-    _WaitToFlush(last_flush, reset_after=reset_after)
+    metrics.Flush(reset_after=reset_after)

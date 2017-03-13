@@ -30,8 +30,8 @@ void BeginCompositingDisplayItem::appendToWebDisplayItemList(
 void BeginCompositingDisplayItem::dumpPropertiesAsDebugString(
     WTF::StringBuilder& stringBuilder) const {
   DisplayItem::dumpPropertiesAsDebugString(stringBuilder);
-  stringBuilder.append(WTF::String::format(", xferMode: %d, opacity: %f",
-                                           m_xferMode, m_opacity));
+  stringBuilder.append(WTF::String::format(
+      ", xferMode: %d, opacity: %f", static_cast<int>(m_xferMode), m_opacity));
   if (m_hasBounds)
     stringBuilder.append(
         WTF::String::format(", bounds: [%f, %f, %f, %f]",

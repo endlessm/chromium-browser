@@ -5,18 +5,12 @@
 #include "net/quic/core/congestion_control/tcp_cubic_sender_base.h"
 
 #include <algorithm>
-#include <string>
 
-#include "base/metrics/histogram_macros.h"
 #include "net/quic/core/congestion_control/prr_sender.h"
 #include "net/quic/core/congestion_control/rtt_stats.h"
 #include "net/quic/core/crypto/crypto_protocol.h"
 #include "net/quic/core/proto/cached_network_parameters.pb.h"
-#include "net/quic/core/quic_bug_tracker.h"
-#include "net/quic/core/quic_flags.h"
-
-using std::max;
-using std::min;
+#include "net/quic/platform/api/quic_bug_tracker.h"
 
 namespace net {
 
@@ -115,7 +109,7 @@ void TcpCubicSenderBase::ResumeConnectionState(
 }
 
 void TcpCubicSenderBase::SetNumEmulatedConnections(int num_connections) {
-  num_connections_ = max(1, num_connections);
+  num_connections_ = std::max(1, num_connections);
 }
 
 float TcpCubicSenderBase::RenoBeta() const {
@@ -128,7 +122,8 @@ float TcpCubicSenderBase::RenoBeta() const {
 
 void TcpCubicSenderBase::OnCongestionEvent(
     bool rtt_updated,
-    QuicByteCount bytes_in_flight,
+    QuicByteCount prior_in_flight,
+    QuicTime event_time,
     const CongestionVector& acked_packets,
     const CongestionVector& lost_packets) {
   if (rtt_updated && InSlowStart() &&
@@ -139,19 +134,20 @@ void TcpCubicSenderBase::OnCongestionEvent(
   }
   for (CongestionVector::const_iterator it = lost_packets.begin();
        it != lost_packets.end(); ++it) {
-    OnPacketLost(it->first, it->second, bytes_in_flight);
+    OnPacketLost(it->first, it->second, prior_in_flight);
   }
   for (CongestionVector::const_iterator it = acked_packets.begin();
        it != acked_packets.end(); ++it) {
-    OnPacketAcked(it->first, it->second, bytes_in_flight);
+    OnPacketAcked(it->first, it->second, prior_in_flight, event_time);
   }
 }
 
 void TcpCubicSenderBase::OnPacketAcked(QuicPacketNumber acked_packet_number,
                                        QuicByteCount acked_bytes,
-                                       QuicByteCount bytes_in_flight) {
+                                       QuicByteCount prior_in_flight,
+                                       QuicTime event_time) {
   largest_acked_packet_number_ =
-      max(acked_packet_number, largest_acked_packet_number_);
+      std::max(acked_packet_number, largest_acked_packet_number_);
   if (InRecovery()) {
     if (!no_prr_) {
       // PRR is used when in recovery.
@@ -159,7 +155,8 @@ void TcpCubicSenderBase::OnPacketAcked(QuicPacketNumber acked_packet_number,
     }
     return;
   }
-  MaybeIncreaseCwnd(acked_packet_number, acked_bytes, bytes_in_flight);
+  MaybeIncreaseCwnd(acked_packet_number, acked_bytes, prior_in_flight,
+                    event_time);
   if (InSlowStart()) {
     hybrid_slow_start_.OnPacketAcked(acked_packet_number);
   }

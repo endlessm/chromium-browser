@@ -1017,25 +1017,9 @@ interface ErrorEvent : Event
     method constructor
 interface Event
     attribute AT_TARGET
-    attribute BLUR
     attribute BUBBLING_PHASE
     attribute CAPTURING_PHASE
-    attribute CHANGE
-    attribute CLICK
-    attribute DBLCLICK
-    attribute DRAGDROP
-    attribute FOCUS
-    attribute KEYDOWN
-    attribute KEYPRESS
-    attribute KEYUP
-    attribute MOUSEDOWN
-    attribute MOUSEDRAG
-    attribute MOUSEMOVE
-    attribute MOUSEOUT
-    attribute MOUSEOVER
-    attribute MOUSEUP
     attribute NONE
-    attribute SELECT
     getter bubbles
     getter cancelBubble
     getter cancelable
@@ -2033,7 +2017,6 @@ interface HTMLMediaElement : HTMLElement
     getter currentTime
     getter defaultMuted
     getter defaultPlaybackRate
-    getter disableRemotePlayback
     getter duration
     getter ended
     getter error
@@ -2068,7 +2051,6 @@ interface HTMLMediaElement : HTMLElement
     setter currentTime
     setter defaultMuted
     setter defaultPlaybackRate
-    setter disableRemotePlayback
     setter loop
     setter muted
     setter onencrypted
@@ -3185,7 +3167,6 @@ interface Performance : EventTarget
     getter memory
     getter navigation
     getter onresourcetimingbufferfull
-    getter onwebkitresourcetimingbufferfull
     getter timing
     method clearMarks
     method clearMeasures
@@ -3198,10 +3179,7 @@ interface Performance : EventTarget
     method measure
     method now
     method setResourceTimingBufferSize
-    method webkitClearResourceTimings
-    method webkitSetResourceTimingBufferSize
     setter onresourcetimingbufferfull
-    setter onwebkitresourcetimingbufferfull
 interface PerformanceEntry
     getter duration
     getter entryType
@@ -3513,14 +3491,6 @@ interface SVGComponentTransferFunctionElement : SVGElement
     getter slope
     getter tableValues
     getter type
-    method constructor
-interface SVGCursorElement : SVGElement
-    getter href
-    getter requiredExtensions
-    getter requiredFeatures
-    getter systemLanguage
-    getter x
-    getter y
     method constructor
 interface SVGDefsElement : SVGGraphicsElement
     method constructor
@@ -3947,7 +3917,10 @@ interface SVGForeignObjectElement : SVGGraphicsElement
 interface SVGGElement : SVGGraphicsElement
     method constructor
 interface SVGGeometryElement : SVGGraphicsElement
+    getter pathLength
     method constructor
+    method getPointAtLength
+    method getTotalLength
     method isPointInFill
     method isPointInStroke
 interface SVGGradientElement : SVGElement
@@ -4100,11 +4073,8 @@ interface SVGNumberList
     method removeItem
     method replaceItem
 interface SVGPathElement : SVGGeometryElement
-    getter pathLength
     method constructor
     method getPathSegAtLength
-    method getPointAtLength
-    method getTotalLength
 interface SVGPatternElement : SVGElement
     getter height
     getter href
@@ -4198,10 +4168,8 @@ interface SVGSVGElement : SVGGraphicsElement
     attribute SVG_ZOOMANDPAN_UNKNOWN
     getter currentScale
     getter currentTranslate
-    getter currentView
     getter height
     getter preserveAspectRatio
-    getter useCurrentView
     getter viewBox
     getter width
     getter x
@@ -4361,22 +4329,6 @@ interface SVGViewElement : SVGElement
     attribute SVG_ZOOMANDPAN_UNKNOWN
     getter preserveAspectRatio
     getter viewBox
-    getter viewTarget
-    getter zoomAndPan
-    method constructor
-    setter zoomAndPan
-interface SVGViewSpec
-    attribute SVG_ZOOMANDPAN_DISABLE
-    attribute SVG_ZOOMANDPAN_MAGNIFY
-    attribute SVG_ZOOMANDPAN_UNKNOWN
-    getter preserveAspectRatio
-    getter preserveAspectRatioString
-    getter transform
-    getter transformString
-    getter viewBox
-    getter viewBoxString
-    getter viewTarget
-    getter viewTargetString
     getter zoomAndPan
     method constructor
     setter zoomAndPan
@@ -4407,6 +4359,7 @@ interface ScriptProcessorNode : AudioNode
 interface SecurityPolicyViolationEvent : Event
     getter blockedURI
     getter columnNumber
+    getter disposition
     getter documentURI
     getter effectiveDirective
     getter lineNumber
@@ -4463,13 +4416,6 @@ interface ServiceWorkerContainer : EventTarget
     method register
     setter oncontrollerchange
     setter onmessage
-interface ServiceWorkerMessageEvent : Event
-    getter data
-    getter lastEventId
-    getter origin
-    getter ports
-    getter source
-    method constructor
 interface ServiceWorkerRegistration : EventTarget
     getter onupdatefound
     getter scope

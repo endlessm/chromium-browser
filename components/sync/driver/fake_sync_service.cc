@@ -6,9 +6,9 @@
 
 #include "base/memory/ptr_util.h"
 #include "base/values.h"
-#include "components/sync/core/base_transaction.h"
-#include "components/sync/core/user_share.h"
 #include "components/sync/driver/data_type_controller.h"
+#include "components/sync/syncable/base_transaction.h"
+#include "components/sync/syncable/user_share.h"
 
 namespace syncer {
 
@@ -27,6 +27,10 @@ bool FakeSyncService::IsSyncAllowed() const {
 }
 
 bool FakeSyncService::IsSyncActive() const {
+  return false;
+}
+
+bool FakeSyncService::IsLocalSyncEnabled() const {
   return false;
 }
 
@@ -92,7 +96,7 @@ bool FakeSyncService::HasUnrecoverableError() const {
   return false;
 }
 
-bool FakeSyncService::IsBackendInitialized() const {
+bool FakeSyncService::IsEngineInitialized() const {
   return false;
 }
 
@@ -166,7 +170,7 @@ base::string16 FakeSyncService::GetLastSyncedTimeString() const {
   return base::string16();
 }
 
-std::string FakeSyncService::GetBackendInitializationStateString() const {
+std::string FakeSyncService::GetEngineInitializationStateString() const {
   return std::string();
 }
 
@@ -174,8 +178,8 @@ SyncCycleSnapshot FakeSyncService::GetLastCycleSnapshot() const {
   return SyncCycleSnapshot();
 }
 
-base::Value* FakeSyncService::GetTypeStatusMap() const {
-  return new base::ListValue();
+std::unique_ptr<base::Value> FakeSyncService::GetTypeStatusMap() {
+  return base::MakeUnique<base::ListValue>();
 }
 
 const GURL& FakeSyncService::sync_service_url() const {

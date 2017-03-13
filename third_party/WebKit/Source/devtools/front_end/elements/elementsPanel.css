@@ -226,7 +226,7 @@
     white-space: nowrap;
 }
 
-.styles-section .styles-section-subtitle a {
+.styles-section .styles-section-subtitle .devtools-link {
     color: inherit;
 }
 
@@ -238,13 +238,8 @@
     color: #222;
 }
 
-.styles-section a[data-uncopyable] {
-    display: inline-block;
-}
-
-.styles-section a[data-uncopyable]::before {
-    content: attr(data-uncopyable);
-    text-decoration: underline;
+.styles-section .devtools-link {
+    user-select: none;
 }
 
 .styles-section .style-properties {
@@ -331,11 +326,6 @@
     -webkit-user-modify: read-write-plaintext-only;
     background-color: #fff;
     cursor: text;
-}
-
-.styles-element-classes-pane .new-class-input:empty:before {
-    content: attr(placeholder);
-    color: darkgray;
 }
 
 .styles-element-state-pane > div {

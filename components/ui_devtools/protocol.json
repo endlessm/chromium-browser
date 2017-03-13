@@ -1,0 +1,380 @@
+{
+    "domains": [
+        {
+            "commands": [
+                {
+                    "description": "Enables DOM agent for the given page.",
+                    "name": "enable"
+                },
+                {
+                    "description": "Disables DOM agent for the given page.",
+                    "name": "disable"
+                },
+                {
+                    "description": "Returns the root DOM node to the caller.",
+                    "name": "getDocument",
+                    "returns": [
+                        {
+                            "$ref": "Node",
+                            "description": "Resulting node.",
+                            "name": "root"
+                        }
+                    ]
+                },
+                {
+                    "name": "highlightNode",
+                    "parameters": [
+                        { 
+                            "name": "highlightConfig", 
+                            "$ref": "HighlightConfig",  
+                            "description": "A descriptor for the highlight appearance."  
+                        },
+                        {
+                            "description": "Identifier of the node to highlight.",
+                            "optional": true,
+                            "name": "nodeId",
+                            "$ref": "NodeId"
+                        }
+                    ],
+                    "description": "Highlights DOM node with given id or with the given JavaScript object wrapper. Either nodeId or objectId must be specified."
+                },
+                {
+                    "name": "hideHighlight",
+                    "description": "Hides DOM node highlight."
+                }
+
+            ],
+            "events": [
+                {
+                    "name": "childNodeInserted",
+                    "parameters": [
+                        {
+                            "description": "Id of the node that has changed.",
+                            "name": "parentNodeId",
+                            "$ref": "NodeId"
+                        },
+                        {
+
+                            "description": "Id of the previous sibling (0 if this is at the beginning of the list).",
+                            "name": "previousNodeId",
+                            "$ref": "NodeId"
+                        },
+                        {
+                            "description": "Inserted node data.",
+                            "name": "node",
+                            "$ref": "Node"
+                        }
+                    ],
+                    "description": "Mirrors <code>DOMNodeInserted</code> event."
+                },
+                {
+                    "name": "childNodeRemoved",
+                    "parameters": [
+                        {
+                            "description": "Parent id.",
+                            "name": "parentNodeId",
+                            "$ref": "NodeId"
+                        },
+                        {
+                            "description": "Id of the node that has been removed.",
+                            "name": "nodeId",
+                            "$ref": "NodeId"
+                        }
+                    ],
+                    "description": "Mirrors <code>DOMNodeRemoved</code> event."
+                }
+            ],
+            "domain": "DOM",
+            "types": [
+                {
+                    "description": "Unique DOM node identifier.",
+                    "id": "NodeId",
+                    "type": "integer"
+                },
+                {
+                    "description": "DOM interaction is implemented in terms of mirror objects that represent the actual DOM nodes. DOMNode is a base node mirror type.",
+                    "id": "Node",
+                    "properties": [
+                        {
+                            "$ref": "NodeId",
+                            "description": "Node identifier that is passed into the rest of the DOM messages as the <code>nodeId</code>. Backend will only push node with given <code>id</code> once. It is aware of all requested nodes and will only fire DOM events for nodes known to the client.",
+                            "name": "nodeId"
+                        },
+                        {
+                            "description": "<code>Node</code>'s nodeType.",
+                            "name": "nodeType",
+                            "type": "integer"
+                        },
+                        {
+                            "description": "<code>Node</code>'s nodeName.",
+                            "name": "nodeName",
+                            "type": "string"
+                        },
+                        {
+                            "description": "Child count for <code>Container</code> nodes.",
+                            "name": "childNodeCount",
+                            "optional": true,
+                            "type": "integer"
+                        },
+                        {
+                            "description": "Child nodes of this node when requested with children.",
+                            "items": {
+                                "$ref": "Node"
+                            },
+                            "name": "children",
+                            "optional": true,
+                            "type": "array"
+                        },
+                        {
+                            "description": "Attributes of the <code>Element</code> node in the form of flat array <code>[name1, value1, name2, value2]</code>.",
+                            "items": {
+                                "type": "string"
+                            },
+                            "name": "attributes",
+                            "optional": true,
+                            "type": "array"
+                        },
+                        {
+                            "description": "<code>Attr</code>'s name.",
+                            "name": "name",
+                            "optional": true,
+                            "type": "string"
+                        },
+                        {
+                            "description": "<code>Attr</code>'s value.",
+                            "name": "value",
+                            "optional": true,
+                            "type": "string"
+                        }
+                    ],
+                    "type": "object"
+                },
+                {
+                    "id": "RGBA",
+                    "type": "object",
+                    "properties": [
+                        { 
+                            "name": "r",
+                            "type": "integer",
+                            "description": "The red component, in the [0-255] range."
+                        },
+                        { 
+                            "name": "g", 
+                            "type": "integer", 
+                            "description": "The green component, in the [0-255] range." 
+                        },
+                        {
+                            "name": "b", 
+                            "type": "integer", 
+                            "description": "The blue component, in the [0-255] range." 
+                        },
+                        { 
+                            "name": "a", 
+                            "type": "number", 
+                            "optional": true, 
+                            "description": "The alpha component, in the [0-1] range (default: 1)." 
+                        }
+                    ],
+                    "description": "A structure holding an RGBA color."
+                },
+                {
+                    "id": "HighlightConfig",
+                    "type": "object",
+                    "properties": [
+                        { 
+                            "name": "contentColor", 
+                            "$ref": "RGBA", 
+                            "optional": true, 
+                            "description": "The content box highlight fill color (default: transparent)." 
+                        },
+                        { 
+                            "name": "borderColor", 
+                            "$ref": "RGBA", 
+                            "optional": true, 
+                            "description": "The border highlight fill color (default: transparent)." 
+                        }
+                    ],
+                    "description": "Configuration data for the highlighting of page elements."
+                } 
+            ]
+        },
+        {
+            "commands": [
+                {
+                    "description": "Enables CSS agent for the given page.",
+                    "name": "enable"
+                },
+                {
+                    "description": "Disables CSS agent for the given page.",
+                    "name": "disable"
+                },
+                {
+                    "description": "Returns requested styles for a DOM node identified by <code>nodeId</code>.",
+                    "name": "getMatchedStylesForNode",
+                    "parameters": [
+                        {
+                            "$ref": "DOM.NodeId",
+                            "name": "nodeId"
+                        }
+                    ],
+                    "returns": [
+                        {
+                            "$ref": "CSSStyle",
+                            "description": "Inline style for the specified DOM node.",
+                            "name": "inlineStyle",
+                            "optional": true
+                        }
+
+                    ]
+                },
+                {
+                    "description": "Applies specified style edits one after another in the given order.",
+                    "name": "setStyleTexts",
+                    "parameters": [
+                        {
+                            "items": {
+                                "$ref": "StyleDeclarationEdit"
+                            },
+                            "type": "array",
+                            "name": "edits"
+                        }
+                    ],
+                    "returns": [
+                        {
+                            "items": {
+                                "$ref": "CSSStyle"
+                            },
+                            "type": "array",
+                            "name": "styles",
+                            "description": "The resulting styles after modification."
+                        }
+                    ]
+                }
+            ],
+            "events": [
+                {
+                    "name": "styleSheetChanged",
+                    "parameters": [
+                        {
+                            "name": "styleSheetId",
+                            "$ref": "StyleSheetId"
+                        }
+                    ],
+                    "description": "Fired whenever any bounds are updated for any object."
+                }
+            ],
+            "domain": "CSS",
+            "types": [
+                {
+                     "id": "StyleSheetId",
+                     "type": "string"
+                },
+                {
+                    "description": "Text range within a resource. All numbers are zero-based.",
+                    "type": "object",
+                    "id": "SourceRange",
+                    "properties": [
+                        {
+                            "type": "integer",
+                            "name": "startLine",
+                            "description": "Start line of range."
+                        },
+                        {
+                            "type": "integer",
+                            "name": "startColumn",
+                            "description": "Start column of range (inclusive)."
+                        },
+                        {
+                            "type": "integer",
+                            "name": "endLine",
+                            "description": "End line of range"
+                        },
+                        {
+                            "type": "integer",
+                            "name": "endColumn",
+                            "description": "End column of range (exclusive)."
+                        }
+                    ]
+                },
+                {
+                    "description": "A descriptor of operation to mutate style declaration text.",
+                    "type": "object",
+                    "id": "StyleDeclarationEdit",
+                    "properties": [
+                        {
+                            "description": "The css style sheet identifier (same as NodeId for UI DevTools).",
+                            "name": "styleSheetId",
+                            "$ref": "StyleSheetId"
+                        },
+                        {
+                            "type": "string",
+                            "name": "text",
+                            "description": "New style text."
+                        }
+                    ]
+                },
+                {
+                    "id": "CSSProperty",
+                    "properties": [
+                        {
+                            "description": "The property name.",
+                            "name": "name",
+                            "type": "string"
+                        },
+                        {
+                            "description": "The property value.",
+                            "name": "value",
+                            "type": "string"
+                        },
+                        { 
+                            "name": "range", 
+                            "$ref": "SourceRange", 
+                            "optional": true, 
+                            "description": "The entire property range in the enclosing style declaration (if available)."  
+                        }
+                    ],
+                    "type": "object"
+                },
+                {
+                    "description": "CSS style representation.",
+                    "id": "CSSStyle",
+                    "properties": [
+                        {
+                            "description": "The css style sheet identifier (absent for user agent stylesheet and user-specified stylesheet rules) this rule came from. For UI devtools, this is simply equivalent to the NodeId.",
+                            "optional": true,
+                            "name": "styleSheetId",
+                            "$ref": "StyleSheetId"
+                        },
+                        {
+                            "description": "CSS properties in the style.",
+                            "items": {
+                                "$ref": "CSSProperty"
+                            },
+                            "name": "cssProperties",
+                            "type": "array"
+                        },
+                        {
+                            "description": "Frontend requires us to pass this. We just pass an empty array.",
+                            "items": {
+                                "type": "string"
+                            },
+                            "name": "shorthandEntries",
+                            "type": "array"
+                        },
+                        {
+                            "description": "Style declaration range in the enclosing stylesheet (if available).",
+                            "optional": true,
+                            "name": "range",
+                            "$ref": "SourceRange"
+                        }
+                    ],
+                    "type": "object"
+                }
+            ]
+        }
+    ],
+    "version": {
+        "major": "1",
+        "minor": "0"
+    }
+}

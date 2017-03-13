@@ -28,7 +28,6 @@ extern "C" {
 #include "webrtc/common_audio/signal_processing/include/signal_processing_library.h"
 #include "webrtc/modules/audio_processing/aec/aec_common.h"
 #include "webrtc/modules/audio_processing/aec/aec_core_optimized_methods.h"
-#include "webrtc/modules/audio_processing/aec/aec_rdft.h"
 #include "webrtc/modules/audio_processing/logging/apm_data_dumper.h"
 #include "webrtc/modules/audio_processing/utility/delay_estimator_wrapper.h"
 #include "webrtc/system_wrappers/include/cpu_features_wrapper.h"
@@ -203,7 +202,7 @@ void BlockBuffer::Insert(const float block[PART_LEN]) {
 
 void BlockBuffer::ExtractExtendedBlock(float extended_block[PART_LEN2]) {
   float* block_ptr = NULL;
-  RTC_DCHECK_LT(0u, AvaliableSpace());
+  RTC_DCHECK_LT(0, AvaliableSpace());
 
   // Extract the previous block.
   WebRtc_MoveReadPtr(buffer_, -1);
@@ -337,6 +336,7 @@ static void ScaleErrorSignal(float mu,
 }
 
 static void FilterAdaptation(
+    const OouraFft& ooura_fft,
     int num_partitions,
     int x_fft_buf_block_pos,
     float x_fft_buf[2][kExtendedNumPartitions * PART_LEN1],
@@ -364,7 +364,7 @@ static void FilterAdaptation(
         MulRe(x_fft_buf[0][xPos + PART_LEN], -x_fft_buf[1][xPos + PART_LEN],
               e_fft[0][PART_LEN], e_fft[1][PART_LEN]);
 
-    aec_rdft_inverse_128(fft);
+    ooura_fft.InverseFft(fft);
     memset(fft + PART_LEN, 0, sizeof(float) * PART_LEN);
 
     // fft scaling
@@ -374,7 +374,7 @@ static void FilterAdaptation(
         fft[j] *= scale;
       }
     }
-    aec_rdft_forward_128(fft);
+    ooura_fft.Fft(fft);
 
     h_fft_buf[0][pos] += fft[0];
     h_fft_buf[0][pos + PART_LEN] += fft[1];
@@ -461,7 +461,7 @@ static void UpdateLogRatioMetric(Stats* metric, float numerator,
   // Average.
   metric->counter++;
   // This is to protect overflow, which should almost never happen.
-  RTC_CHECK_NE(0u, metric->counter);
+  RTC_CHECK_NE(0, metric->counter);
   metric->sum += metric->instant;
   metric->average = metric->sum / metric->counter;
 
@@ -469,7 +469,7 @@ static void UpdateLogRatioMetric(Stats* metric, float numerator,
   if (metric->instant > metric->average) {
     metric->hicounter++;
     // This is to protect overflow, which should almost never happen.
-    RTC_CHECK_NE(0u, metric->hicounter);
+    RTC_CHECK_NE(0, metric->hicounter);
     metric->hisum += metric->instant;
     metric->himean = metric->hisum / metric->hicounter;
   }
@@ -835,7 +835,8 @@ static void UpdateDelayMetrics(AecCore* self) {
   return;
 }
 
-static void ScaledInverseFft(float freq_data[2][PART_LEN1],
+static void ScaledInverseFft(const OouraFft& ooura_fft,
+                             float freq_data[2][PART_LEN1],
                              float time_data[PART_LEN2],
                              float scale,
                              int conjugate) {
@@ -848,12 +849,14 @@ static void ScaledInverseFft(float freq_data[2][PART_LEN1],
     time_data[2 * i] = freq_data[0][i] * normalization;
     time_data[2 * i + 1] = sign * freq_data[1][i] * normalization;
   }
-  aec_rdft_inverse_128(time_data);
+  ooura_fft.InverseFft(time_data);
 }
 
-static void Fft(float time_data[PART_LEN2], float freq_data[2][PART_LEN1]) {
+static void Fft(const OouraFft& ooura_fft,
+                float time_data[PART_LEN2],
+                float freq_data[2][PART_LEN1]) {
   int i;
-  aec_rdft_forward_128(time_data);
+  ooura_fft.Fft(time_data);
 
   // Reorder fft output data.
   freq_data[1][0] = 0;
@@ -970,7 +973,8 @@ static void RegressorPower(int num_partitions,
   }
 }
 
-static void EchoSubtraction(int num_partitions,
+static void EchoSubtraction(const OouraFft& ooura_fft,
+                            int num_partitions,
                             int extended_filter_enabled,
                             int* extreme_filter_divergence,
                             float filter_step_size,
@@ -1019,7 +1023,7 @@ static void EchoSubtraction(int num_partitions,
                       h_fft_buf, s_fft);
 
   // Compute the time-domain echo estimate s.
-  ScaledInverseFft(s_fft, s_extended, 2.0f, 0);
+  ScaledInverseFft(ooura_fft, s_fft, s_extended, 2.0f, 0);
   s = &s_extended[PART_LEN];
 
   // Compute the time-domain echo prediction error.
@@ -1030,12 +1034,12 @@ static void EchoSubtraction(int num_partitions,
   // Compute the frequency domain echo prediction error.
   memset(e_extended, 0, sizeof(float) * PART_LEN);
   memcpy(e_extended + PART_LEN, e, sizeof(float) * PART_LEN);
-  Fft(e_extended, e_fft);
+  Fft(ooura_fft, e_extended, e_fft);
 
   // Scale error signal inversely with far power.
   WebRtcAec_ScaleErrorSignal(filter_step_size, error_threshold, x_pow, e_fft);
-  WebRtcAec_FilterAdaptation(num_partitions, *x_fft_buf_block_pos, x_fft_buf,
-                             e_fft, h_fft_buf);
+  WebRtcAec_FilterAdaptation(ooura_fft, num_partitions, *x_fft_buf_block_pos,
+                             x_fft_buf, e_fft, h_fft_buf);
   memcpy(echo_subtractor_output, e, sizeof(float) * PART_LEN);
 }
 
@@ -1152,7 +1156,8 @@ static void FormSuppressionGain(AecCore* aec,
   WebRtcAec_Overdrive(aec->overdrive_scaling, hNlFb, hNl);
 }
 
-static void EchoSuppression(AecCore* aec,
+static void EchoSuppression(const OouraFft& ooura_fft,
+                            AecCore* aec,
                             float* nearend_extended_block_lowest_band,
                             float farend_extended_block[PART_LEN2],
                             float* echo_subtractor_output,
@@ -1182,19 +1187,19 @@ static void EchoSuppression(AecCore* aec,
   // Analysis filter banks for the echo suppressor.
   // Windowed near-end ffts.
   WindowData(fft, nearend_extended_block_lowest_band);
-  aec_rdft_forward_128(fft);
+  ooura_fft.Fft(fft);
   StoreAsComplex(fft, dfw);
 
   // Windowed echo suppressor output ffts.
   WindowData(fft, aec->eBuf);
-  aec_rdft_forward_128(fft);
+  ooura_fft.Fft(fft);
   StoreAsComplex(fft, efw);
 
   // NLP
 
   // Convert far-end partition to the frequency domain with windowing.
   WindowData(fft, farend_extended_block);
-  Fft(fft, xfw);
+  Fft(ooura_fft, fft, xfw);
   xfw_ptr = &xfw[0][0];
 
   // Buffer far.
@@ -1236,7 +1241,7 @@ static void EchoSuppression(AecCore* aec,
                aec->noisePow, hNl);
 
   // Inverse error fft.
-  ScaledInverseFft(efw, fft, 2.0f, 1);
+  ScaledInverseFft(ooura_fft, efw, fft, 2.0f, 1);
 
   // Overlap and add to obtain output.
   for (i = 0; i < PART_LEN; i++) {
@@ -1257,7 +1262,7 @@ static void EchoSuppression(AecCore* aec,
     GetHighbandGain(hNl, &nlpGainHband);
 
     // Inverse comfort_noise
-    ScaledInverseFft(comfortNoiseHband, fft, 2.0f, 0);
+    ScaledInverseFft(ooura_fft, comfortNoiseHband, fft, 2.0f, 0);
 
     // compute gain factor
     for (j = 1; j < aec->num_bands; ++j) {
@@ -1330,7 +1335,7 @@ static void ProcessNearendBlock(
 
   // Convert far-end signal to the frequency domain.
   memcpy(fft, farend_extended_block_lowest_band, sizeof(float) * PART_LEN2);
-  Fft(fft, farend_fft);
+  Fft(aec->ooura_fft, fft, farend_fft);
 
   // Form extended nearend frame.
   memcpy(&nearend_extended_block_lowest_band[0],
@@ -1340,7 +1345,7 @@ static void ProcessNearendBlock(
 
   // Convert near-end signal to the frequency domain.
   memcpy(fft, nearend_extended_block_lowest_band, sizeof(float) * PART_LEN2);
-  Fft(fft, nearend_fft);
+  Fft(aec->ooura_fft, fft, nearend_fft);
 
   // Power smoothing.
   if (aec->refined_adaptive_filter_enabled) {
@@ -1419,11 +1424,11 @@ static void ProcessNearendBlock(
   }
 
   // Perform echo subtraction.
-  EchoSubtraction(aec->num_partitions, aec->extended_filter_enabled,
-                  &aec->extreme_filter_divergence, aec->filter_step_size,
-                  aec->error_threshold, &farend_fft[0][0], &aec->xfBufBlockPos,
-                  aec->xfBuf, &nearend_block[0][0], aec->xPow, aec->wfBuf,
-                  echo_subtractor_output);
+  EchoSubtraction(
+      aec->ooura_fft, aec->num_partitions, aec->extended_filter_enabled,
+      &aec->extreme_filter_divergence, aec->filter_step_size,
+      aec->error_threshold, &farend_fft[0][0], &aec->xfBufBlockPos, aec->xfBuf,
+      &nearend_block[0][0], aec->xPow, aec->wfBuf, echo_subtractor_output);
   aec->data_dumper->DumpRaw("aec_h_fft", PART_LEN1 * aec->num_partitions,
                             &aec->wfBuf[0][0]);
   aec->data_dumper->DumpRaw("aec_h_fft", PART_LEN1 * aec->num_partitions,
@@ -1438,7 +1443,7 @@ static void ProcessNearendBlock(
   }
 
   // Perform echo suppression.
-  EchoSuppression(aec, nearend_extended_block_lowest_band,
+  EchoSuppression(aec->ooura_fft, aec, nearend_extended_block_lowest_band,
                   farend_extended_block_lowest_band, echo_subtractor_output,
                   output_block);
 
@@ -1495,7 +1500,6 @@ AecCore* WebRtcAec_CreateAec(int instance_count) {
   WebRtc_set_lookahead(aec->delay_estimator, kLookaheadBlocks);
 #endif
   aec->extended_filter_enabled = 0;
-  aec->aec3_enabled = 0;
   aec->refined_adaptive_filter_enabled = false;
 
   // Assembly optimization
@@ -1523,8 +1527,6 @@ AecCore* WebRtcAec_CreateAec(int instance_count) {
 #if defined(WEBRTC_HAS_NEON)
   WebRtcAec_InitAec_neon();
 #endif
-
-  aec_rdft_init();
 
   return aec;
 }
@@ -1741,7 +1743,7 @@ void FormNearendBlock(
     const float nearend_buffer[NUM_HIGH_BANDS_MAX + 1]
                               [PART_LEN - (FRAME_LEN - PART_LEN)],
     float nearend_block[NUM_HIGH_BANDS_MAX + 1][PART_LEN]) {
-  RTC_DCHECK_LE(num_samples_from_nearend_frame, static_cast<size_t>(PART_LEN));
+  RTC_DCHECK_LE(num_samples_from_nearend_frame, PART_LEN);
   const int num_samples_from_buffer = PART_LEN - num_samples_from_nearend_frame;
 
   if (num_samples_from_buffer > 0) {
@@ -1792,15 +1794,14 @@ void FormOutputFrame(size_t output_start_index,
                      size_t* output_buffer_size,
                      float output_buffer[NUM_HIGH_BANDS_MAX + 1][2 * PART_LEN],
                      float* const* output_frame) {
-  RTC_DCHECK_LE(static_cast<size_t>(FRAME_LEN), *output_buffer_size);
+  RTC_DCHECK_LE(FRAME_LEN, *output_buffer_size);
   for (size_t i = 0; i < num_bands; ++i) {
     memcpy(&output_frame[i][output_start_index], &output_buffer[i][0],
            FRAME_LEN * sizeof(float));
   }
   (*output_buffer_size) -= FRAME_LEN;
   if (*output_buffer_size > 0) {
-    RTC_DCHECK_GE(static_cast<size_t>(2 * PART_LEN - FRAME_LEN),
-                  (*output_buffer_size));
+    RTC_DCHECK_GE(2 * PART_LEN - FRAME_LEN, (*output_buffer_size));
     for (size_t i = 0; i < num_bands; ++i) {
       memcpy(&output_buffer[i][0], &output_buffer[i][FRAME_LEN],
              (*output_buffer_size) * sizeof(float));
@@ -2010,15 +2011,6 @@ void WebRtcAec_enable_delay_agnostic(AecCore* self, int enable) {
 
 int WebRtcAec_delay_agnostic_enabled(AecCore* self) {
   return self->delay_agnostic_enabled;
-}
-
-void WebRtcAec_enable_aec3(AecCore* self, int enable) {
-  self->aec3_enabled = (enable != 0);
-}
-
-int WebRtcAec_aec3_enabled(AecCore* self) {
-  RTC_DCHECK(self->aec3_enabled == 0 || self->aec3_enabled == 1);
-  return self->aec3_enabled;
 }
 
 void WebRtcAec_enable_refined_adaptive_filter(AecCore* self, bool enable) {

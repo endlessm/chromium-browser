@@ -117,7 +117,8 @@ found in the LICENSE file.
                     xsrf-token="{{xsrfToken}}"
                     alert-list="{{alertList}}"
                     extra-columns="{{extraColumns}}"
-                    on-changeselection="onAlertSelectionChange"></alerts-table>
+                    on-changeselection="onAlertSelectionChange"
+                    selected-keys="{{selectedKeys}}"></alerts-table>
     </div>
 
     <div id="bottom">
@@ -141,11 +142,7 @@ found in the LICENSE file.
       properties: {
         extraColumns: {
           type: Array,
-          value: () =>
-            [{
-              'key': 'percent_changed',
-              'label': 'Delta %'
-            }]
+          value: () => []
         },
         loading: {
           type: Boolean,
@@ -159,17 +156,12 @@ found in the LICENSE file.
 
         ownerInfo: {
           type: Object,
-          value: () => ({})
-        },
-
-        subtests: {
-          type: Object,
-          value: () => ({})
+          value: () => { return {}; }
         },
 
         revisionInfo: {
           type: Object,
-          value: () => ({})
+          value: () => { return {}; }
         },
 
         loginLink: {
@@ -182,9 +174,14 @@ found in the LICENSE file.
           value: false
         },
 
+        selectedKeys: {
+          type: Array,
+          value: () => []
+        },
+
         testSuites: {
           type: Object,
-          value: () => ({})
+          value: () => { return {}; }
         },
 
         xsrfToken: {
@@ -271,27 +268,6 @@ found in the LICENSE file.
         delete this.graphElements_[key];
       },
 
-      getSubtestsEntry: function(testPath) {
-        var testPathParts = testPath.split('/');
-        var botName = testPathParts[0] + '/' + testPathParts[1];
-        var subtestParts = testPathParts.splice(3);
-        var subtestDict = null;
-        if (this.subtests && this.subtests[botName]) {
-          subtestDict = this.subtests[botName][testPathParts[2]];
-        }
-        if (!subtestDict) {
-          return null;
-        }
-        for (var level = 0; level < subtestParts.length - 1; level++) {
-          var name = subtestParts[level];
-          if (!(name in subtestDict)) {
-            return null;
-          }
-          subtestDict = subtestDict[name]['sub_tests'];
-        }
-        return subtestDict[subtestParts[subtestParts.length - 1]];
-      },
-
       getTestPath: function(alert) {
         return [
           alert['master'],
@@ -303,34 +279,15 @@ found in the LICENSE file.
 
       getTestPathAndSelectedSeries: function(alert) {
         var testPath = this.getTestPath(alert);
-        var subtestsEntry = this.getSubtestsEntry(testPath);
         var traceName = testPath.split('/').pop();
-
-        // If the "subtests" property of |subtestsEntry| is an empty object,
-        // that implies that this test has no subtests. In this case, show a
-        // chart for the parent test, with this particular child selected.
-        if (subtestsEntry && subtestsEntry['sub_tests'] &&
-            Object.keys(subtestsEntry['sub_tests']).length == 0) {
-          testPath = testPath.split('/').slice(0, -1).join('/');
-          subtestsEntry = this.getSubtestsEntry(testPath);
-        }
 
         // Get a list of selected traces. This should include the series that
         // the alert was on, as well as any related reference build result
         // series.
         var selectedTraces = [traceName];
-        if (subtestsEntry && subtestsEntry['sub_tests']) {
-          if ('ref' in subtestsEntry['sub_tests']) {
-            selectedTraces.push('ref');
-          }
-          if (traceName + '_ref' in subtestsEntry['sub_tests']) {
-            selectedTraces.push(traceName + '_ref');
-          }
-        }
+        // TODO(sullivan): Add in ref trace when available.
+        // https://github.com/catapult-project/catapult/issues/2887
 
-        // Otherwise, the test is either not found in the SUBTESTS dict, or it
-        // is a test with children (e.g. a summary metric). In either of these
-        // cases, we want to return the test path and trace found on the alert.
         return [testPath, selectedTraces];
       },
 
@@ -400,9 +357,62 @@ found in the LICENSE file.
         }
       },
 
+      /**
+       * Sets the extra columns on the alerts table based on the type of alerts
+       * in the list for the table.
+       */
+      setExtraColumns: function(alertList) {
+        // Make a set of types in the table.
+        var types = new Set(alertList.map(item => item.type));
+
+        // Check if there is only one type.
+        if (types.size === 1) {
+          if (types.has('anomaly')) {
+            // Only anomalies in the table. Use anomaly extraColumns.
+            this.set('extraColumns', [
+              {
+                'key': 'percent_changed',
+                'label': 'Delta %'
+              },
+              {
+                'key': 'absolute_delta',
+                'label': 'Abs Delta'
+              },
+              {
+                'key': 'units',
+                'label': 'Units'
+              }
+            ]);
+          } else {
+            // Only stoppage alerts in the table. Use stoppage extraColumns.
+            this.set('extraColumns', [
+              {
+                'key': 'last_row_date',
+                'label': 'Date'
+              },
+              {
+                'key': 'debug_button',
+                'label': ''
+              }
+            ]);
+          }
+        } else {
+          // Either multiple or no types. Can't set extraColumns.
+          this.set('extraColumns', []);
+        }
+      },
+
+      /**
+       * The url params determine what data to request from
+       * /group_report. sid is a hash of a group of keys.
+       */
       ready: function() {
         this.graphElements_ = {};
         var params = {};
+        var sid = uri.getParameter('sid');
+        if (sid) {
+          params['sid'] = sid;
+        }
         var keys = uri.getParameter('keys');
         if (keys) {
           params['keys'] = keys;
@@ -417,7 +427,6 @@ found in the LICENSE file.
         }
         simple_xhr.send('/group_report', params,
           function(response) {
-            this.subtests = response['subtests'];
             this.revisionInfo = response['revision_info'];
             this.loginLink = response['login_url'];
             this.isInternalUser = response['is_internal_user'];
@@ -425,7 +434,9 @@ found in the LICENSE file.
             this.xsrfToken = response['xsrf_token'];
             this.warningBug = response['warning_bug'];
             this.warningMessage = response['warning_message'];
+            this.setExtraColumns(response['alert_list']);
             this.alertList = response['alert_list'];
+            this.selectedKeys = response['selected_keys'];
             if (this.warningMessage) {
               this.fire('display-toast', {
                   'content': this.$.warningtoast,

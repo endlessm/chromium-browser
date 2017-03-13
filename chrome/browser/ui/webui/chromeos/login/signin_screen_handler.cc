@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <vector>
 
+#include "ash/common/session/session_state_delegate.h"
 #include "ash/common/system/chromeos/devicetype_utils.h"
 #include "ash/common/wm_shell.h"
 #include "ash/shell.h"
@@ -37,6 +38,7 @@
 #include "chrome/browser/chromeos/login/error_screens_histogram_helper.h"
 #include "chrome/browser/chromeos/login/hwid_checker.h"
 #include "chrome/browser/chromeos/login/lock/screen_locker.h"
+#include "chrome/browser/chromeos/login/lock/webui_screen_locker.h"
 #include "chrome/browser/chromeos/login/quick_unlock/pin_storage.h"
 #include "chrome/browser/chromeos/login/quick_unlock/pin_storage_factory.h"
 #include "chrome/browser/chromeos/login/reauth_stats.h"
@@ -65,12 +67,15 @@
 #include "chrome/browser/ui/webui/chromeos/login/l10n_util.h"
 #include "chrome/browser/ui/webui/chromeos/login/native_window_delegate.h"
 #include "chrome/browser/ui/webui/chromeos/login/network_state_informer.h"
+#include "chrome/common/channel_info.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
+#include "chromeos/chromeos_switches.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/power_manager_client.h"
+#include "chromeos/dbus/upstart_client.h"
 #include "chromeos/login/auth/key.h"
 #include "chromeos/login/auth/user_context.h"
 #include "chromeos/network/network_state.h"
@@ -85,9 +90,12 @@
 #include "components/user_manager/user.h"
 #include "components/user_manager/user_manager.h"
 #include "components/user_manager/user_type.h"
+#include "components/version_info/version_info.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/common/service_manager_connection.h"
 #include "google_apis/gaia/gaia_auth_util.h"
+#include "services/service_manager/public/cpp/connector.h"
 #include "third_party/cros_system_api/dbus/service_constants.h"
 #include "ui/base/ime/chromeos/ime_keyboard.h"
 #include "ui/base/ime/chromeos/input_method_descriptor.h"
@@ -260,6 +268,7 @@ SigninScreenHandler::SigninScreenHandler(
                              ->CapsLockIsEnabled()),
       proxy_auth_dialog_reload_times_(kMaxGaiaReloadForProxyAuthDialog),
       gaia_screen_handler_(gaia_screen_handler),
+      touch_view_binding_(this),
       histogram_helper_(new ErrorScreensHistogramHelper("Signin")),
       weak_factory_(this) {
   DCHECK(network_state_informer_.get());
@@ -286,12 +295,11 @@ SigninScreenHandler::SigninScreenHandler(
   if (keyboard)
     keyboard->AddObserver(this);
 
-  if (!chrome::IsRunningInMash()) {
-    max_mode_delegate_.reset(new TouchViewControllerDelegate());
-    max_mode_delegate_->AddObserver(this);
-  } else {
-    NOTIMPLEMENTED();
-  }
+  content::ServiceManagerConnection::GetForProcess()
+      ->GetConnector()
+      ->BindInterface(ash_util::GetAshServiceName(), &touch_view_manager_ptr_);
+  touch_view_manager_ptr_->AddObserver(
+      touch_view_binding_.CreateInterfacePtrAndBind());
 }
 
 SigninScreenHandler::~SigninScreenHandler() {
@@ -308,10 +316,6 @@ SigninScreenHandler::~SigninScreenHandler() {
   if (delegate_)
     delegate_->SetWebUIHandler(nullptr);
   network_state_informer_->RemoveObserver(this);
-  if (max_mode_delegate_) {
-    max_mode_delegate_->RemoveObserver(this);
-    max_mode_delegate_.reset(nullptr);
-  }
   proximity_auth::ScreenlockBridge::Get()->SetLockHandler(nullptr);
   proximity_auth::ScreenlockBridge::Get()->SetFocusedUser(EmptyAccountId());
 }
@@ -377,6 +381,8 @@ void SigninScreenHandler::DeclareLocalizedValues(
                IDS_PIN_KEYBOARD_HINT_TEXT_PIN);
   builder->Add("pinKeyboardPlaceholderPinPassword",
                IDS_PIN_KEYBOARD_HINT_TEXT_PIN_PASSWORD);
+  builder->Add("pinKeyboardDeleteAccessibleName",
+               IDS_PIN_KEYBOARD_DELETE_ACCESSIBLE_NAME);
   builder->Add("signingIn", IDS_LOGIN_POD_SIGNING_IN);
   builder->Add("podMenuButtonAccessibleName",
                IDS_LOGIN_POD_MENU_BUTTON_ACCESSIBLE_NAME);
@@ -384,6 +390,8 @@ void SigninScreenHandler::DeclareLocalizedValues(
                IDS_LOGIN_POD_MENU_REMOVE_ITEM_ACCESSIBLE_NAME);
   builder->Add("passwordFieldAccessibleName",
                IDS_LOGIN_POD_PASSWORD_FIELD_ACCESSIBLE_NAME);
+  builder->Add("submitButtonAccessibleName",
+               IDS_LOGIN_POD_SUBMIT_BUTTON_ACCESSIBLE_NAME);
   builder->Add("signedIn", IDS_SCREEN_LOCK_ACTIVE_USER);
   builder->Add("launchAppButton", IDS_LAUNCH_APP_BUTTON);
   builder->Add("restart", IDS_RESTART_BUTTON);
@@ -446,6 +454,19 @@ void SigninScreenHandler::DeclareLocalizedValues(
   builder->Add("publicAccountEnter", IDS_LOGIN_PUBLIC_ACCOUNT_ENTER);
   builder->Add("publicAccountEnterAccessibleName",
                IDS_LOGIN_PUBLIC_ACCOUNT_ENTER_ACCESSIBLE_NAME);
+  builder->Add("publicAccountMonitoringWarning",
+               IDS_LOGIN_PUBLIC_ACCOUNT_MONITORING_WARNING);
+  builder->Add("publicAccountLearnMore", IDS_LOGIN_PUBLIC_ACCOUNT_LEARN_MORE);
+  builder->Add("publicAccountMonitoringInfo",
+               IDS_LOGIN_PUBLIC_ACCOUNT_MONITORING_INFO);
+  builder->Add("publicAccountMonitoringInfoItem1",
+               IDS_LOGIN_PUBLIC_ACCOUNT_MONITORING_INFO_ITEM_1);
+  builder->Add("publicAccountMonitoringInfoItem2",
+               IDS_LOGIN_PUBLIC_ACCOUNT_MONITORING_INFO_ITEM_2);
+  builder->Add("publicAccountMonitoringInfoItem3",
+               IDS_LOGIN_PUBLIC_ACCOUNT_MONITORING_INFO_ITEM_3);
+  builder->Add("publicAccountMonitoringInfoItem4",
+               IDS_LOGIN_PUBLIC_ACCOUNT_MONITORING_INFO_ITEM_4);
   builder->Add("publicSessionSelectLanguage", IDS_LANGUAGE_SELECTION_SELECT);
   builder->Add("publicSessionSelectKeyboard", IDS_KEYBOARD_SELECTION_SELECT);
   builder->Add("removeUserWarningTextNonSyncNoStats", base::string16());
@@ -497,6 +518,14 @@ void SigninScreenHandler::DeclareLocalizedValues(
                IDS_LOGIN_UNRECOVERABLE_CRYPTOHOME_ERROR_CONTINUE);
   builder->Add("unrecoverableCryptohomeErrorRecreatingProfile",
                IDS_LOGIN_UNRECOVERABLE_CRYPTOHOME_ERROR_WAIT_MESSAGE);
+
+  builder->Add("adEnterOldPasswordHint", IDS_AD_PASSWORD_CHANGE_OLD_PASSWORD);
+  builder->Add("adEnterNewPasswordHint", IDS_AD_PASSWORD_CHANGE_NEW_PASSWORD);
+  builder->Add("adRepeatNewPasswordHint",
+               IDS_AD_PASSWORD_CHANGE_REPEAT_NEW_PASSWORD);
+  builder->Add("adPasswordChangeMessage", IDS_AD_PASSWORD_CHANGE_MESSAGE);
+  builder->Add("adOldPasswordError", IDS_AD_PASSWORD_CHANGE_INVALID_PASSWORD);
+  builder->Add("adNewPasswordError", IDS_AD_PASSWORD_CHANGE_PASSWORDS_MISMATCH);
 }
 
 void SigninScreenHandler::RegisterMessages() {
@@ -514,6 +543,8 @@ void SigninScreenHandler::RegisterMessages() {
   AddCallback("removeUser", &SigninScreenHandler::HandleRemoveUser);
   AddCallback("toggleEnrollmentScreen",
               &SigninScreenHandler::HandleToggleEnrollmentScreen);
+  AddCallback("toggleEnrollmentAd",
+              &SigninScreenHandler::HandleToggleEnrollmentAd);
   AddCallback("toggleEnableDebuggingScreen",
               &SigninScreenHandler::HandleToggleEnableDebuggingScreen);
   AddCallback("toggleKioskEnableScreen",
@@ -553,6 +584,8 @@ void SigninScreenHandler::RegisterMessages() {
   // This message is sent by the kiosk app menu, but is handled here
   // so we can tell the delegate to launch the app.
   AddCallback("launchKioskApp", &SigninScreenHandler::HandleLaunchKioskApp);
+  AddCallback("launchArcKioskApp",
+              &SigninScreenHandler::HandleLaunchArcKioskApp);
 }
 
 void SigninScreenHandler::Show(const LoginScreenContext& context) {
@@ -868,12 +901,22 @@ void SigninScreenHandler::ReloadGaia(bool force_reload) {
 }
 
 void SigninScreenHandler::Initialize() {
-  // If delegate_ is nullptr here (e.g. WebUIScreenLocker has been destroyed),
-  // don't do anything, just return.
-  if (!delegate_)
-    return;
+  // Preload PIN keyboard if any of the users can authenticate via PIN.
+  if (user_manager::UserManager::IsInitialized()) {
+    for (user_manager::User* user :
+         user_manager::UserManager::Get()->GetLoggedInUsers()) {
 
-  if (show_on_init_) {
+      chromeos::PinStorage* pin_storage =
+          chromeos::PinStorageFactory::GetForUser(user);
+      if (pin_storage && pin_storage->IsPinAuthenticationAvailable()) {
+        CallJS("cr.ui.Oobe.preloadPinKeyboard");
+        break;
+      }
+    }
+  }
+
+  // |delegate_| is null when we are preloading the lock screen.
+  if (delegate_ && show_on_init_) {
     show_on_init_ = false;
     ShowImpl();
   }
@@ -1040,12 +1083,9 @@ void SigninScreenHandler::SuspendDone(const base::TimeDelta& sleep_duration) {
   }
 }
 
-void SigninScreenHandler::OnMaximizeModeStarted() {
-  CallJS("login.AccountPickerScreen.setTouchViewState", true);
-}
-
-void SigninScreenHandler::OnMaximizeModeEnded() {
-  CallJS("login.AccountPickerScreen.setTouchViewState", false);
+void SigninScreenHandler::OnTouchViewToggled(bool enabled) {
+  touch_view_enabled_ = enabled;
+  CallJS("login.AccountPickerScreen.setTouchViewState", enabled);
 }
 
 bool SigninScreenHandler::ShouldLoadGaia() const {
@@ -1094,7 +1134,7 @@ void SigninScreenHandler::HandleShowSupervisedUserCreationScreen() {
     return;
   }
   LoginDisplayHost::default_host()->StartWizard(
-      WizardController::kSupervisedUserCreationScreenName);
+      OobeScreen::SCREEN_CREATE_SUPERVISED_USER_FLOW);
 }
 
 void SigninScreenHandler::HandleLaunchPublicSession(
@@ -1171,6 +1211,20 @@ void SigninScreenHandler::HandleToggleEnrollmentScreen() {
     delegate_->ShowEnterpriseEnrollmentScreen();
 }
 
+void SigninScreenHandler::HandleToggleEnrollmentAd() {
+  // TODO(rsorokin): Cleanup enrollment flow for Active Directory. (see
+  // crbug.com/668491).
+  if (chrome::GetChannel() == version_info::Channel::BETA ||
+      chrome::GetChannel() == version_info::Channel::STABLE) {
+    return;
+  }
+  base::CommandLine::ForCurrentProcess()->AppendSwitch(
+      chromeos::switches::kEnableAd);
+  chromeos::DBusThreadManager::Get()
+      ->GetUpstartClient()
+      ->StartAuthPolicyService();
+}
+
 void SigninScreenHandler::HandleToggleEnableDebuggingScreen() {
   if (delegate_)
     delegate_->ShowEnableDebuggingScreen();
@@ -1180,6 +1234,7 @@ void SigninScreenHandler::HandleToggleKioskEnableScreen() {
   policy::BrowserPolicyConnectorChromeOS* connector =
       g_browser_process->platform_part()->browser_policy_connector_chromeos();
   if (delegate_ && !connector->IsEnterpriseManaged() &&
+      KioskAppManager::IsConsumerKioskEnabled() &&
       LoginDisplayHost::default_host()) {
     delegate_->ShowKioskEnableScreen();
   }
@@ -1230,8 +1285,9 @@ void SigninScreenHandler::HandleAccountPickerReady() {
 
 void SigninScreenHandler::HandleWallpaperReady() {
   if (ScreenLocker::default_screen_locker()) {
-    ScreenLocker::default_screen_locker()->delegate()->
-        OnLockBackgroundDisplayed();
+    ScreenLocker::default_screen_locker()
+        ->web_ui()
+        ->OnLockBackgroundDisplayed();
   }
 }
 
@@ -1378,11 +1434,15 @@ void SigninScreenHandler::HandleLaunchKioskApp(const AccountId& app_account_id,
     delegate_->Login(context, specifics);
 }
 
+void SigninScreenHandler::HandleLaunchArcKioskApp(
+    const AccountId& app_account_id) {
+  UserContext context(user_manager::USER_TYPE_ARC_KIOSK_APP, app_account_id);
+  if (delegate_)
+    delegate_->Login(context, SigninSpecifics());
+}
+
 void SigninScreenHandler::HandleGetTouchViewState() {
-  if (max_mode_delegate_) {
-    CallJS("login.AccountPickerScreen.setTouchViewState",
-           max_mode_delegate_->IsMaximizeModeEnabled());
-  }
+  CallJS("login.AccountPickerScreen.setTouchViewState", touch_view_enabled_);
 }
 
 void SigninScreenHandler::HandleLogRemoveUserWarningShown() {
@@ -1447,10 +1507,6 @@ void SigninScreenHandler::CancelPasswordChangedFlowInternal() {
     ShowImpl();
     delegate_->CancelPasswordChangedFlow();
   }
-}
-
-OobeUI* SigninScreenHandler::GetOobeUI() const {
-  return static_cast<OobeUI*>(web_ui()->GetController());
 }
 
 bool SigninScreenHandler::IsGaiaVisible() const {

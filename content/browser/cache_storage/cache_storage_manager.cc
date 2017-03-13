@@ -7,7 +7,7 @@
 #include <stdint.h>
 
 #include <map>
-#include <string>
+#include <set>
 #include <utility>
 
 #include "base/barrier_closure.h"
@@ -20,6 +20,7 @@
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
+#include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "content/browser/cache_storage/cache_storage.h"
 #include "content/browser/cache_storage/cache_storage.pb.h"
@@ -50,8 +51,21 @@ void DeleteOriginDidDeleteDir(
                                          : storage::kQuotaErrorAbort));
 }
 
-// Open the various cache directories' index files and extract their origins and
-// last modified times.
+// Calculate the sum of all cache sizes in this store, but only if all sizes are
+// known. If one or more sizes are not known then return kSizeUnknown.
+int64_t GetCacheStorageSize(const proto::CacheStorageIndex& index) {
+  int64_t storage_size = 0;
+  for (int i = 0, max = index.cache_size(); i < max; ++i) {
+    const proto::CacheStorageIndex::Cache& cache = index.cache(i);
+    if (!cache.has_size() || cache.size() == CacheStorage::kSizeUnknown)
+      return CacheStorage::kSizeUnknown;
+    storage_size += cache.size();
+  }
+  return storage_size;
+}
+
+// Open the various cache directories' index files and extract their origins,
+// sizes (if current), and last modified times.
 void ListOriginsAndLastModifiedOnTaskRunner(
     std::vector<CacheStorageUsageInfo>* usages,
     base::FilePath root_path) {
@@ -60,16 +74,23 @@ void ListOriginsAndLastModifiedOnTaskRunner(
 
   base::FilePath path;
   while (!(path = file_enum.Next()).empty()) {
+    base::FilePath index_path = path.AppendASCII(CacheStorage::kIndexFileName);
+    base::File::Info file_info;
+    base::Time index_last_modified;
+    if (GetFileInfo(index_path, &file_info))
+      index_last_modified = file_info.last_modified;
     std::string protobuf;
     base::ReadFileToString(path.AppendASCII(CacheStorage::kIndexFileName),
                            &protobuf);
-    CacheStorageIndex index;
+    proto::CacheStorageIndex index;
     if (index.ParseFromString(protobuf)) {
       if (index.has_origin()) {
-        base::File::Info file_info;
         if (base::GetFileInfo(path, &file_info)) {
+          int64_t storage_size = CacheStorage::kSizeUnknown;
+          if (file_info.last_modified < index_last_modified)
+            storage_size = GetCacheStorageSize(index);
           usages->push_back(CacheStorageUsageInfo(
-              GURL(index.origin()), 0 /* size */, file_info.last_modified));
+              GURL(index.origin()), storage_size, file_info.last_modified));
         }
       }
     }
@@ -116,6 +137,7 @@ void OneOriginSizeReported(const base::Closure& callback,
                            int64_t size) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
+  DCHECK_NE(size, CacheStorage::kSizeUnknown);
   usage->total_size_bytes = size;
   base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE, callback);
 }
@@ -185,7 +207,7 @@ void CacheStorageManager::DeleteCache(
 
 void CacheStorageManager::EnumerateCaches(
     const GURL& origin,
-    const CacheStorage::StringsAndErrorCallback& callback) {
+    const CacheStorage::IndexCallback& callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
   CacheStorage* cache_storage = FindOrCreateCacheStorage(origin);
@@ -275,6 +297,10 @@ void CacheStorageManager::GetAllOriginsUsageGetSizes(
                  callback));
 
   for (CacheStorageUsageInfo& usage : *usages_ptr) {
+    if (usage.total_size_bytes != CacheStorage::kSizeUnknown) {
+      base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE, barrier_closure);
+      continue;
+    }
     CacheStorage* cache_storage = FindOrCreateCacheStorage(usage.origin);
     cache_storage->Size(
         base::Bind(&OneOriginSizeReported, barrier_closure, &usage));
@@ -376,7 +402,6 @@ void CacheStorageManager::DeleteOriginDidClose(
     return;
   }
 
-  MigrateOrigin(origin);
   PostTaskAndReplyWithResult(
       cache_task_runner_.get(), FROM_HERE,
       base::Bind(&DeleteDir, ConstructOriginPath(root_path_, origin)),
@@ -403,7 +428,6 @@ CacheStorage* CacheStorageManager::FindOrCreateCacheStorage(
   DCHECK(request_context_getter_);
   CacheStorageMap::const_iterator it = cache_storage_map_.find(origin);
   if (it == cache_storage_map_.end()) {
-    MigrateOrigin(origin);
     CacheStorage* cache_storage = new CacheStorage(
         ConstructOriginPath(root_path_, origin), IsMemoryBacked(),
         cache_task_runner_.get(), request_context_getter_, quota_manager_proxy_,
@@ -416,16 +440,6 @@ CacheStorage* CacheStorageManager::FindOrCreateCacheStorage(
 }
 
 // static
-base::FilePath CacheStorageManager::ConstructLegacyOriginPath(
-    const base::FilePath& root_path,
-    const GURL& origin) {
-  const std::string origin_hash = base::SHA1HashString(origin.spec());
-  const std::string origin_hash_hex = base::ToLowerASCII(
-      base::HexEncode(origin_hash.c_str(), origin_hash.length()));
-  return root_path.AppendASCII(origin_hash_hex);
-}
-
-// static
 base::FilePath CacheStorageManager::ConstructOriginPath(
     const base::FilePath& root_path,
     const GURL& origin) {
@@ -434,28 +448,6 @@ base::FilePath CacheStorageManager::ConstructOriginPath(
   const std::string origin_hash_hex = base::ToLowerASCII(
       base::HexEncode(origin_hash.c_str(), origin_hash.length()));
   return root_path.AppendASCII(origin_hash_hex);
-}
-
-// Migrate from old origin-based path to storage identifier-based path.
-// TODO(jsbell); Remove after a few releases.
-void CacheStorageManager::MigrateOrigin(const GURL& origin) {
-  if (IsMemoryBacked())
-    return;
-  base::FilePath old_path = ConstructLegacyOriginPath(root_path_, origin);
-  base::FilePath new_path = ConstructOriginPath(root_path_, origin);
-  cache_task_runner_->PostTask(
-      FROM_HERE, base::Bind(&MigrateOriginOnTaskRunner, old_path, new_path));
-}
-
-// static
-void CacheStorageManager::MigrateOriginOnTaskRunner(
-    const base::FilePath& old_path,
-    const base::FilePath& new_path) {
-  if (base::PathExists(old_path)) {
-    if (!base::PathExists(new_path))
-      base::Move(old_path, new_path);
-    base::DeleteFile(old_path, /*recursive*/ true);
-  }
 }
 
 }  // namespace content

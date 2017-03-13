@@ -45,11 +45,11 @@ void CompositorMutableState::setTransform(const SkMatrix44& matrix) {
   m_mutation->setTransform(matrix);
 }
 
-double CompositorMutableState::scrollLeft() const {
+float CompositorMutableState::scrollLeft() const {
   return m_scrollLayer ? m_scrollLayer->CurrentScrollOffset().x() : 0.0;
 }
 
-void CompositorMutableState::setScrollLeft(double scrollLeft) {
+void CompositorMutableState::setScrollLeft(float scrollLeft) {
   if (!m_scrollLayer)
     return;
 
@@ -58,17 +58,16 @@ void CompositorMutableState::setScrollLeft(double scrollLeft) {
   m_scrollLayer->layer_tree_impl()
       ->property_trees()
       ->scroll_tree.OnScrollOffsetAnimated(
-          m_scrollLayer->id(), m_scrollLayer->transform_tree_index(),
-          m_scrollLayer->scroll_tree_index(), offset,
+          m_scrollLayer->id(), m_scrollLayer->scroll_tree_index(), offset,
           m_scrollLayer->layer_tree_impl());
   m_mutation->setScrollLeft(scrollLeft);
 }
 
-double CompositorMutableState::scrollTop() const {
+float CompositorMutableState::scrollTop() const {
   return m_scrollLayer ? m_scrollLayer->CurrentScrollOffset().y() : 0.0;
 }
 
-void CompositorMutableState::setScrollTop(double scrollTop) {
+void CompositorMutableState::setScrollTop(float scrollTop) {
   if (!m_scrollLayer)
     return;
   gfx::ScrollOffset offset = m_scrollLayer->CurrentScrollOffset();
@@ -76,8 +75,7 @@ void CompositorMutableState::setScrollTop(double scrollTop) {
   m_scrollLayer->layer_tree_impl()
       ->property_trees()
       ->scroll_tree.OnScrollOffsetAnimated(
-          m_scrollLayer->id(), m_scrollLayer->transform_tree_index(),
-          m_scrollLayer->scroll_tree_index(), offset,
+          m_scrollLayer->id(), m_scrollLayer->scroll_tree_index(), offset,
           m_scrollLayer->layer_tree_impl());
   m_mutation->setScrollTop(scrollTop);
 }

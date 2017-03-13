@@ -35,7 +35,8 @@ tr.exportTo('tr.b', function() {
 
     var low = 0;
     var high = ary.length - 1;
-    var i, comparison;
+    var i;
+    var comparison;
     var hitPos = -1;
     while (low <= high) {
       i = Math.floor((low + high) / 2);
@@ -321,14 +322,14 @@ tr.exportTo('tr.b', function() {
   }
 
   return {
-    findLowIndexInSortedArray: findLowIndexInSortedArray,
-    findHighIndexInSortedArray: findHighIndexInSortedArray,
-    findIndexInSortedIntervals: findIndexInSortedIntervals,
-    findIndexInSortedClosedIntervals: findIndexInSortedClosedIntervals,
-    iterateOverIntersectingIntervals: iterateOverIntersectingIntervals,
-    getIntersectingIntervals: getIntersectingIntervals,
-    findClosestElementInSortedArray: findClosestElementInSortedArray,
-    findClosestIntervalInSortedIntervals: findClosestIntervalInSortedIntervals
+    findLowIndexInSortedArray,
+    findHighIndexInSortedArray,
+    findIndexInSortedIntervals,
+    findIndexInSortedClosedIntervals,
+    iterateOverIntersectingIntervals,
+    getIntersectingIntervals,
+    findClosestElementInSortedArray,
+    findClosestIntervalInSortedIntervals,
   };
 });
 </script>

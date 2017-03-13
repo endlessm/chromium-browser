@@ -33,6 +33,7 @@
 #include "content/public/browser/render_widget_host_iterator.h"
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/test/browser_test_utils.h"
 #include "extensions/browser/api/extensions_api_client.h"
@@ -293,18 +294,18 @@ class WebViewInteractiveTestBase : public extensions::PlatformAppBrowserTest {
                              blink::WebMouseEvent::Button button,
                              int x,
                              int y) {
-    blink::WebMouseEvent mouse_event;
+    blink::WebMouseEvent mouse_event(blink::WebInputEvent::MouseDown,
+                                     blink::WebInputEvent::NoModifiers,
+                                     blink::WebInputEvent::TimeStampForTesting);
     mouse_event.button = button;
     mouse_event.x = mouse_event.windowX = x;
     mouse_event.y = mouse_event.windowY = y;
-    mouse_event.modifiers = 0;
     // Needed for the WebViewTest.ContextMenuPositionAfterCSSTransforms
     gfx::Rect rect = rwh->GetView()->GetViewBounds();
     mouse_event.globalX = x + rect.x();
     mouse_event.globalY = y + rect.y();
-    mouse_event.type = blink::WebInputEvent::MouseDown;
     rwh->ForwardMouseEvent(mouse_event);
-    mouse_event.type = blink::WebInputEvent::MouseUp;
+    mouse_event.setType(blink::WebInputEvent::MouseUp);
     rwh->ForwardMouseEvent(mouse_event);
   }
 
@@ -500,12 +501,21 @@ class WebViewInteractiveTest : public WebViewInteractiveTestBase,
     WebViewInteractiveTestBase::SetUpCommandLine(command_line);
 
     bool use_cross_process_frames_for_guests = GetParam();
-    if (use_cross_process_frames_for_guests)
-      command_line->AppendSwitch(switches::kUseCrossProcessFramesForGuests);
+    if (use_cross_process_frames_for_guests) {
+      command_line->AppendSwitchASCII(
+          switches::kEnableFeatures,
+          ::features::kGuestViewCrossProcessFrames.name);
+    } else {
+      command_line->AppendSwitchASCII(
+          switches::kDisableFeatures,
+          ::features::kGuestViewCrossProcessFrames.name);
+    }
   }
 };
 
+class WebViewDragDropInteractiveTest : public WebViewInteractiveTest {};
 class WebViewNewWindowInteractiveTest : public WebViewInteractiveTest {};
+class WebViewPointerLockInteractiveTest : public WebViewInteractiveTest {};
 
 // The tests below aren't needed in --use-cross-process-frames-for-guests.
 class WebViewContextMenuInteractiveTest : public WebViewInteractiveTestBase {};
@@ -515,15 +525,21 @@ class WebViewContextMenuInteractiveTest : public WebViewInteractiveTestBase {};
 // with WebViewInteractiveTest (see crbug.com/582562).
 class WebViewFocusInteractiveTest : public WebViewInteractiveTestBase {};
 class WebViewPopupInteractiveTest : public WebViewInteractiveTestBase {};
-class WebViewPointerLockInteractiveTest : public WebViewInteractiveTestBase {};
-class WebViewDragDropInteractiveTest : public WebViewInteractiveTestBase {};
 
 INSTANTIATE_TEST_CASE_P(WebViewInteractiveTests,
                         WebViewInteractiveTest,
                         testing::Bool());
 
 INSTANTIATE_TEST_CASE_P(WebViewInteractiveTests,
+                        WebViewDragDropInteractiveTest,
+                        testing::Bool());
+
+INSTANTIATE_TEST_CASE_P(WebViewInteractiveTests,
                         WebViewNewWindowInteractiveTest,
+                        testing::Bool());
+
+INSTANTIATE_TEST_CASE_P(WebViewInteractiveTests,
+                        WebViewPointerLockInteractiveTest,
                         testing::Bool());
 
 // ui_test_utils::SendMouseMoveSync doesn't seem to work on OS_MACOSX, and
@@ -536,7 +552,7 @@ INSTANTIATE_TEST_CASE_P(WebViewInteractiveTests,
 
 #if defined(OS_LINUX)
 // flaky http://crbug.com/412086
-IN_PROC_BROWSER_TEST_F(WebViewPointerLockInteractiveTest,
+IN_PROC_BROWSER_TEST_P(WebViewPointerLockInteractiveTest,
                        DISABLED_PointerLock) {
   SetupTest("web_view/pointer_lock",
             "/extensions/platform_apps/web_view/pointer_lock/guest.html");
@@ -610,7 +626,7 @@ IN_PROC_BROWSER_TEST_F(WebViewPointerLockInteractiveTest,
 }
 
 // flaky http://crbug.com/412086
-IN_PROC_BROWSER_TEST_F(WebViewPointerLockInteractiveTest,
+IN_PROC_BROWSER_TEST_P(WebViewPointerLockInteractiveTest,
                        DISABLED_PointerLockFocus) {
   SetupTest("web_view/pointer_lock_focus",
             "/extensions/platform_apps/web_view/pointer_lock_focus/guest.html");
@@ -1025,7 +1041,7 @@ IN_PROC_BROWSER_TEST_F(WebViewPopupInteractiveTest,
 // but the tests don't work on anything except chromeos for now. This is because
 // of simulating mouse drag code's dependency on platforms.
 #if defined(OS_CHROMEOS) && !defined(USE_OZONE)
-IN_PROC_BROWSER_TEST_F(WebViewDragDropInteractiveTest, DragDropWithinWebView) {
+IN_PROC_BROWSER_TEST_P(WebViewDragDropInteractiveTest, DragDropWithinWebView) {
   LoadAndLaunchPlatformApp("web_view/dnd_within_webview", "connected");
   ASSERT_TRUE(ui_test_utils::ShowAndFocusNativeWindow(GetPlatformAppWindow()));
 
@@ -1098,8 +1114,16 @@ IN_PROC_BROWSER_TEST_P(WebViewInteractiveTest, Navigation_BackForwardKeys) {
   ASSERT_TRUE(done_listener.WaitUntilSatisfied());
 }
 
-IN_PROC_BROWSER_TEST_F(WebViewPointerLockInteractiveTest,
-                       PointerLock_PointerLockLostWithFocus) {
+// Flaky on Linux: crbug.com/678267
+#if defined(OS_LINUX)
+#define MAYBE_PointerLock_PointerLockLostWithFocus \
+  DISABLED_PointerLock_PointerLockLostWithFocus
+#else
+#define MAYBE_PointerLock_PointerLockLostWithFocus \
+  PointerLock_PointerLockLostWithFocus
+#endif
+IN_PROC_BROWSER_TEST_P(WebViewPointerLockInteractiveTest,
+                       MAYBE_PointerLock_PointerLockLostWithFocus) {
   TestHelper("testPointerLockLostWithFocus",
              "web_view/pointerlock",
              NO_TEST_SERVER);
@@ -1317,7 +1341,14 @@ IN_PROC_BROWSER_TEST_P(WebViewInteractiveTest, TextSelection) {
 }
 #endif
 
-IN_PROC_BROWSER_TEST_F(WebViewFocusInteractiveTest, FocusAndVisibility) {
+// Flaky on MacOS builders. https://crbug.com/670008
+#if defined(OS_MACOSX)
+#define MAYBE_FocusAndVisibility DISABLED_FocusAndVisibility
+#else
+#define MAYBE_FocusAndVisibility FocusAndVisibility
+#endif
+
+IN_PROC_BROWSER_TEST_F(WebViewFocusInteractiveTest, MAYBE_FocusAndVisibility) {
   ASSERT_TRUE(StartEmbeddedTestServer());
   LoadAndLaunchPlatformApp("web_view/focus_visibility",
                            "WebViewInteractiveTest.LOADED");
@@ -1356,13 +1387,11 @@ IN_PROC_BROWSER_TEST_F(WebViewFocusInteractiveTest, FocusAndVisibility) {
   EXPECT_TRUE(webview_button_not_focused_listener.WaitUntilSatisfied());
 }
 
-IN_PROC_BROWSER_TEST_P(WebViewInteractiveTest, KeyboardFocus) {
-  TestHelper("testKeyboardFocus", "web_view/focus", NO_TEST_SERVER);
+IN_PROC_BROWSER_TEST_P(WebViewInteractiveTest, KeyboardFocusSimple) {
+  TestHelper("testKeyboardFocusSimple", "web_view/focus", NO_TEST_SERVER);
 
   EXPECT_EQ(embedder_web_contents()->GetFocusedFrame(),
             embedder_web_contents()->GetMainFrame());
-  content::FrameFocusedObserver focus_observer(
-      guest_web_contents()->GetMainFrame());
   ExtensionTestMessageListener next_step_listener("TEST_STEP_PASSED", false);
   next_step_listener.set_failure_message("TEST_STEP_FAILED");
   {
@@ -1375,10 +1404,6 @@ IN_PROC_BROWSER_TEST_P(WebViewInteractiveTest, KeyboardFocus) {
 
   // Waits for the renderer to know the input has focus.
   ASSERT_TRUE(next_step_listener.WaitUntilSatisfied());
-  // Wait for the browser to know which frame has focus.
-  focus_observer.Wait();
-  if (GetParam())
-    EXPECT_EQ(embedder_web_contents()->GetFocusedFrame(), nullptr);
 
   ASSERT_TRUE(ui_test_utils::SendKeyPressToWindowSync(
       GetPlatformAppWindow(), ui::VKEY_A, false, false, false, false));
@@ -1391,6 +1416,74 @@ IN_PROC_BROWSER_TEST_P(WebViewInteractiveTest, KeyboardFocus) {
   EXPECT_TRUE(content::ExecuteScript(
       embedder_web_contents(),
       "window.runCommand('testKeyboardFocusRunNextStep', 'aBc');"));
+
+  ASSERT_TRUE(next_step_listener.WaitUntilSatisfied());
+}
+
+// Ensures that input is routed to the webview after the containing window loses
+// and regains focus. Additionally, the webview does not process keypresses sent
+// while another window is focused.
+// http://crbug.com/660044.
+IN_PROC_BROWSER_TEST_P(WebViewInteractiveTest, KeyboardFocusWindowCycle) {
+  TestHelper("testKeyboardFocusWindowFocusCycle", "web_view/focus",
+             NO_TEST_SERVER);
+
+  EXPECT_EQ(embedder_web_contents()->GetFocusedFrame(),
+            embedder_web_contents()->GetMainFrame());
+  ExtensionTestMessageListener next_step_listener("TEST_STEP_PASSED", false);
+  next_step_listener.set_failure_message("TEST_STEP_FAILED");
+  {
+    gfx::Rect offset = embedder_web_contents()->GetContainerBounds();
+    // Click the <input> element inside the <webview>.
+    // If we wanted, we could ask the embedder to compute an appropriate point.
+    MoveMouseInsideWindow(gfx::Point(offset.x() + 40, offset.y() + 40));
+    SendMouseClick(ui_controls::LEFT);
+  }
+
+  // Waits for the renderer to know the input has focus.
+  ASSERT_TRUE(next_step_listener.WaitUntilSatisfied());
+
+  ASSERT_TRUE(ui_test_utils::SendKeyPressToWindowSync(
+      GetPlatformAppWindow(), ui::VKEY_A, false, false, false, false));
+  ASSERT_TRUE(ui_test_utils::SendKeyPressToWindowSync(
+      GetPlatformAppWindow(), ui::VKEY_B, false, true, false, false));
+  ASSERT_TRUE(ui_test_utils::SendKeyPressToWindowSync(
+      GetPlatformAppWindow(), ui::VKEY_C, false, false, false, false));
+
+  const extensions::Extension* extension =
+      LoadAndLaunchPlatformApp("minimal", "Launched");
+  extensions::AppWindow* window = GetFirstAppWindowForApp(extension->id());
+  EXPECT_TRUE(content::ExecuteScript(
+      embedder_web_contents(),
+      "window.runCommand('monitorGuestEvent', 'focus');"));
+
+  ASSERT_TRUE(ui_test_utils::SendKeyPressToWindowSync(
+      GetPlatformAppWindow(), ui::VKEY_F, false, false, false, false));
+  ASSERT_TRUE(ui_test_utils::SendKeyPressToWindowSync(
+      GetPlatformAppWindow(), ui::VKEY_O, false, true, false, false));
+  ASSERT_TRUE(ui_test_utils::SendKeyPressToWindowSync(
+      GetPlatformAppWindow(), ui::VKEY_O, false, true, false, false));
+
+  // Close the other window and wait for the webview to regain focus.
+  CloseAppWindow(window);
+  ASSERT_TRUE(ui_test_utils::ShowAndFocusNativeWindow(GetPlatformAppWindow()));
+  next_step_listener.Reset();
+  EXPECT_TRUE(
+      content::ExecuteScript(embedder_web_contents(),
+                             "window.runCommand('waitGuestEvent', 'focus');"));
+  ASSERT_TRUE(next_step_listener.WaitUntilSatisfied());
+
+  ASSERT_TRUE(ui_test_utils::SendKeyPressToWindowSync(
+      GetPlatformAppWindow(), ui::VKEY_X, false, false, false, false));
+  ASSERT_TRUE(ui_test_utils::SendKeyPressToWindowSync(
+      GetPlatformAppWindow(), ui::VKEY_Y, false, true, false, false));
+  ASSERT_TRUE(ui_test_utils::SendKeyPressToWindowSync(
+      GetPlatformAppWindow(), ui::VKEY_Z, false, false, false, false));
+
+  next_step_listener.Reset();
+  EXPECT_TRUE(content::ExecuteScript(
+      embedder_web_contents(),
+      "window.runCommand('testKeyboardFocusRunNextStep', 'aBcxYz');"));
 
   ASSERT_TRUE(next_step_listener.WaitUntilSatisfied());
 }

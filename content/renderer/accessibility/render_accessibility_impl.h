@@ -27,6 +27,10 @@ class WebDocument;
 class WebNode;
 };
 
+namespace ui {
+struct AXActionData;
+}
+
 namespace content {
 class RenderFrameImpl;
 
@@ -61,7 +65,8 @@ class CONTENT_EXPORT RenderAccessibilityImpl
       RenderFrameImpl* render_frame,
       AXContentTreeUpdate* response);
 
-  explicit RenderAccessibilityImpl(RenderFrameImpl* render_frame);
+  RenderAccessibilityImpl(RenderFrameImpl* render_frame,
+                          AccessibilityMode mode);
   ~RenderAccessibilityImpl() override;
 
   // RenderAccessibility implementation.
@@ -115,23 +120,14 @@ class CONTENT_EXPORT RenderAccessibilityImpl
   void OnDestruct() override;
 
   // Handlers for messages from the browser to the renderer.
-  void OnDoDefaultAction(int acc_obj_id);
+  void OnPerformAction(const ui::AXActionData& data);
   void OnEventsAck(int ack_token);
   void OnFatalError();
-  void OnHitTest(gfx::Point point);
-  void OnSetAccessibilityFocus(int acc_obj_id);
   void OnReset(int reset_token);
-  void OnScrollToMakeVisible(int acc_obj_id, gfx::Rect subfocus);
-  void OnScrollToPoint(int acc_obj_id, gfx::Point point);
-  void OnSetScrollOffset(int acc_obj_id, gfx::Point offset);
-  void OnSetFocus(int acc_obj_id);
-  void OnSetSelection(int anchor_acc_obj_id,
-                      int anchor_offset,
-                      int focus_acc_obj_id,
-                      int focus_offset);
-  void OnSetValue(int acc_obj_id, base::string16 value);
-  void OnShowContextMenu(int acc_obj_id);
 
+  void OnHitTest(const gfx::Point& point);
+  void OnSetAccessibilityFocus(const blink::WebAXObject& obj);
+  void OnGetImageData(const blink::WebAXObject& obj, const gfx::Size& max_size);
   void AddPluginTreeToUpdate(AXContentTreeUpdate* update);
   void ScrollPlugin(int id_to_make_visible);
 

@@ -58,7 +58,7 @@ events during the lifetime of a request. For example:
 
         @Override
         public void onFailed(UrlRequest request,
-                UrlResponseInfo responseInfo, UrlRequestException error) {
+                UrlResponseInfo responseInfo, CronetException error) {
              // Request has failed. responseInfo might be null.
              Log.e("MyCallback", "Request failed. " + error.getMessage());
              // Maybe handle error here. Typical errors include hostname
@@ -72,8 +72,8 @@ Make a request like this:
     CronetEngine engine = engineBuilder.build();
     Executor executor = Executors.newSingleThreadExecutor();
     MyCallback callback = new MyCallback();
-    UrlRequest.Builder requestBuilder = new UrlRequest.Builder(
-            "https://www.example.com", callback, executor, engine);
+    UrlRequest.Builder requestBuilder = engine.newUrlRequestBuilder(
+            "https://www.example.com", callback, executor);
     UrlRequest request = requestBuilder.build();
     request.start();
 

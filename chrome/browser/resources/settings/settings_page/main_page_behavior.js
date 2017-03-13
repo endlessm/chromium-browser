@@ -9,6 +9,19 @@
  * @polymerBehavior MainPageBehavior
  */
 var MainPageBehaviorImpl = {
+  properties: {
+    /**
+     * Whether a search operation is in progress or previous search results are
+     * being displayed.
+     * @private {boolean}
+     */
+    inSearchMode: {
+      type: Boolean,
+      value: false,
+      observer: 'inSearchModeChanged_',
+    },
+  },
+
   /** @type {?HTMLElement} The scrolling container. */
   scroller: null,
 
@@ -25,14 +38,44 @@ var MainPageBehaviorImpl = {
    * @param {settings.Route} oldRoute
    */
   currentRouteChanged: function(newRoute, oldRoute) {
-    // If this is the first route, or the page was hidden, allow the page to
-    // render before expanding the section.
-    if (!oldRoute && newRoute.contains(settings.getCurrentRoute()) ||
-        this.scrollHeight == 0) {
-      setTimeout(this.tryTransitionToSection_.bind(this));
-    } else {
-      this.tryTransitionToSection_();
+    var oldRouteWasSection =
+        !!oldRoute && !!oldRoute.parent && !!oldRoute.section &&
+        oldRoute.parent.section != oldRoute.section;
+
+    // Always scroll to the top if navigating from a section to the root route
+    // or when navigating to the About page.
+    if (this.scroller &&
+        ((oldRouteWasSection && newRoute == settings.Route.BASIC) ||
+         newRoute == settings.Route.ABOUT)) {
+      this.scroller.scrollTop = 0;
+      return;
     }
+
+    // Scroll to the section except for back/forward. Also scroll for any
+    // in-page back/forward navigations (from a section or the root page).
+    var scrollToSection =
+        !settings.lastRouteChangeWasPopstate() || oldRouteWasSection ||
+        oldRoute == settings.Route.BASIC;
+
+    // For previously uncreated pages (including on first load), allow the page
+    // to render before scrolling to or expanding the section.
+    if (!oldRoute || this.scrollHeight == 0)
+      setTimeout(this.tryTransitionToSection_.bind(this, scrollToSection));
+    else
+      this.tryTransitionToSection_(scrollToSection);
+  },
+
+  /**
+   * When exiting search mode, we need to make another attempt to scroll to
+   * the correct section, since it has just been re-rendered.
+   * @private
+   */
+  inSearchModeChanged_: function(inSearchMode) {
+    if (!this.isAttached)
+      return;
+
+    if (!inSearchMode)
+      this.tryTransitionToSection_(!settings.lastRouteChangeWasPopstate());
   },
 
   /**
@@ -41,9 +84,10 @@ var MainPageBehaviorImpl = {
    * that one, then schedules this function again. This ensures the current
    * section is quickly shown, without getting the page into a broken state --
    * if currentRoute changes in between calls, just transition to the new route.
+   * @param {boolean} scrollToSection
    * @private
    */
-  tryTransitionToSection_: function() {
+  tryTransitionToSection_: function(scrollToSection) {
     var currentRoute = settings.getCurrentRoute();
     var currentSection = this.getSection(currentRoute.section);
 
@@ -62,9 +106,6 @@ var MainPageBehaviorImpl = {
       // If the section shouldn't be expanded, collapse it.
       if (!currentRoute.isSubpage() || expandedSection != currentSection) {
         promise = this.collapseSection_(expandedSection);
-        // Scroll to the collapsed section.
-        if (currentSection && !settings.lastRouteChangeWasPopstate())
-          currentSection.scrollIntoView();
       } else {
         // Scroll to top while sliding to another subpage.
         this.scroller.scrollTop = 0;
@@ -73,14 +114,14 @@ var MainPageBehaviorImpl = {
       // Expand the section into a subpage or scroll to it on the main page.
       if (currentRoute.isSubpage())
         promise = this.expandSection_(currentSection);
-      else if (!settings.lastRouteChangeWasPopstate())
+      else if (scrollToSection)
         currentSection.scrollIntoView();
     }
 
     // When this animation ends, another may be necessary. Call this function
     // again after the promise resolves.
     if (promise)
-      promise.then(this.tryTransitionToSection_.bind(this));
+      promise.then(this.tryTransitionToSection_.bind(this, scrollToSection));
   },
 
   /**
@@ -214,7 +255,11 @@ var MainPageBehaviorImpl = {
         var newSection = settings.getCurrentRoute().section &&
             this.getSection(settings.getCurrentRoute().section);
 
-        this.scroller.scrollTop = this.origScrollTop_;
+        // Scroll to the new section or the original position.
+        if (newSection && !settings.lastRouteChangeWasPopstate())
+          newSection.scrollIntoView();
+        else
+          this.scroller.scrollTop = this.origScrollTop_;
 
         this.currentAnimation_ = section.animateCollapse(
             /** @type {!HTMLElement} */(this.scroller));

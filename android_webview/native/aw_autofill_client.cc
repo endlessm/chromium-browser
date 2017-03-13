@@ -79,7 +79,7 @@ IdentityProvider* AwAutofillClient::GetIdentityProvider() {
   return nullptr;
 }
 
-rappor::RapporService* AwAutofillClient::GetRapporService() {
+rappor::RapporServiceImpl* AwAutofillClient::GetRapporServiceImpl() {
   return nullptr;
 }
 
@@ -185,18 +185,21 @@ void AwAutofillClient::OnFirstUserGestureObserved() {
   NOTIMPLEMENTED();
 }
 
-bool AwAutofillClient::IsContextSecure(const GURL& form_origin) {
+bool AwAutofillClient::IsContextSecure() {
   content::SSLStatus ssl_status;
   content::NavigationEntry* navigation_entry =
       web_contents_->GetController().GetLastCommittedEntry();
   if (!navigation_entry)
-     return false;
+    return false;
 
   ssl_status = navigation_entry->GetSSL();
   // Note: The implementation below is a copy of the one in
   // ChromeAutofillClient::IsContextSecure, and should be kept in sync
   // until crbug.com/505388 gets implemented.
-  return ssl_status.security_style == content::SECURITY_STYLE_AUTHENTICATED &&
+  return navigation_entry->GetURL().SchemeIsCryptographic() &&
+         ssl_status.certificate &&
+         (!net::IsCertStatusError(ssl_status.cert_status) ||
+          net::IsCertStatusMinorError(ssl_status.cert_status)) &&
          !(ssl_status.content_status &
            content::SSLStatus::RAN_INSECURE_CONTENT);
 }
@@ -206,6 +209,8 @@ bool AwAutofillClient::ShouldShowSigninPromo() {
 }
 
 void AwAutofillClient::StartSigninFlow() {}
+
+void AwAutofillClient::ShowHttpNotSecureExplanation() {}
 
 void AwAutofillClient::Dismissed(JNIEnv* env,
                                  const JavaParamRef<jobject>& obj) {

@@ -10,6 +10,7 @@
 #include <memory>
 
 #include "base/macros.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/trace_event/trace_event.h"
 #include "base/trace_event/trace_event_argument.h"
 
@@ -17,27 +18,26 @@ namespace cc {
 namespace devtools_instrumentation {
 
 namespace internal {
-const char kCategory[] = TRACE_DISABLED_BY_DEFAULT("devtools.timeline");
-const char kCategoryFrame[] =
-    TRACE_DISABLED_BY_DEFAULT("devtools.timeline.frame");
-const char kData[] = "data";
-const char kFrameId[] = "frameId";
-const char kLayerId[] = "layerId";
-const char kLayerTreeId[] = "layerTreeId";
-const char kPixelRefId[] = "pixelRefId";
+extern const char kCategory[];
+extern const char kCategoryFrame[];
+extern const char kData[];
+extern const char kFrameId[];
+extern const char kLayerId[];
+extern const char kLayerTreeId[];
+extern const char kPixelRefId[];
 
-const char kImageDecodeTask[] = "ImageDecodeTask";
-const char kBeginFrame[] = "BeginFrame";
-const char kNeedsBeginFrameChanged[] = "NeedsBeginFrameChanged";
-const char kActivateLayerTree[] = "ActivateLayerTree";
-const char kRequestMainThreadFrame[] = "RequestMainThreadFrame";
-const char kBeginMainThreadFrame[] = "BeginMainThreadFrame";
-const char kDrawFrame[] = "DrawFrame";
-const char kCompositeLayers[] = "CompositeLayers";
+extern const char kImageDecodeTask[];
+extern const char kBeginFrame[];
+extern const char kNeedsBeginFrameChanged[];
+extern const char kActivateLayerTree[];
+extern const char kRequestMainThreadFrame[];
+extern const char kBeginMainThreadFrame[];
+extern const char kDrawFrame[];
+extern const char kCompositeLayers[];
 }  // namespace internal
 
-const char kPaintSetup[] = "PaintSetup";
-const char kUpdateLayer[] = "UpdateLayer";
+extern const char kPaintSetup[];
+extern const char kUpdateLayer[];
 
 class ScopedLayerTask {
  public:
@@ -57,15 +57,32 @@ class ScopedLayerTask {
 
 class ScopedImageDecodeTask {
  public:
-  explicit ScopedImageDecodeTask(const void* imagePtr) {
+  enum Type { SOFTWARE, GPU };
+
+  ScopedImageDecodeTask(const void* imagePtr, Type type)
+      : type_(type), start_time_(base::TimeTicks::Now()) {
     TRACE_EVENT_BEGIN1(internal::kCategory, internal::kImageDecodeTask,
                        internal::kPixelRefId,
                        reinterpret_cast<uint64_t>(imagePtr));
   }
   ~ScopedImageDecodeTask() {
     TRACE_EVENT_END0(internal::kCategory, internal::kImageDecodeTask);
+    base::TimeDelta duration = base::TimeTicks::Now() - start_time_;
+    switch (type_) {
+      case SOFTWARE:
+        UMA_HISTOGRAM_COUNTS_1M("Renderer4.ImageDecodeTaskDurationUs.Software",
+                                duration.InMicroseconds());
+        break;
+      case GPU:
+        UMA_HISTOGRAM_COUNTS_1M("Renderer4.ImageDecodeTaskDurationUs.Gpu",
+                                duration.InMicroseconds());
+        break;
+    }
   }
+
  private:
+  const Type type_;
+  const base::TimeTicks start_time_;
   DISALLOW_COPY_AND_ASSIGN(ScopedImageDecodeTask);
 };
 

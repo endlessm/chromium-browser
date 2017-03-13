@@ -41,6 +41,7 @@ class TestOptions(object):
     self.cpp = 'cpp'
     self.javap = 'javap'
     self.native_exports_optional = True
+    self.enable_profiling = False
 
 class TestGenerator(unittest.TestCase):
   def assertObjEquals(self, first, second):
@@ -833,7 +834,7 @@ public class java.util.HashSet {
     content = file(os.path.join(script_dir,
         'java/src/org/chromium/example/jni_generator/SampleForTests.java')
         ).read()
-    golden_file = os.path.join(script_dir, 'golden_sample_for_tests_jni.h')
+    golden_file = os.path.join(script_dir, 'SampleForTests_jni.golden')
     golden_content = file(golden_file).read()
     jni_from_java = jni_generator.JNIFromJavaSource(
         content, 'org/chromium/example/jni_generator/SampleForTests',

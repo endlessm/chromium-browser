@@ -6,13 +6,17 @@
 
 #include "xfa/fxfa/app/xfa_fffield.h"
 
-#include "xfa/fwl/basewidget/ifwl_edit.h"
-#include "xfa/fwl/core/cfwl_message.h"
-#include "xfa/fwl/core/cfwl_widgetmgr.h"
-#include "xfa/fwl/lightwidget/cfwl_edit.h"
-#include "xfa/fwl/lightwidget/cfwl_picturebox.h"
+#include "xfa/fwl/cfwl_edit.h"
+#include "xfa/fwl/cfwl_eventmouse.h"
+#include "xfa/fwl/cfwl_messagekey.h"
+#include "xfa/fwl/cfwl_messagekillfocus.h"
+#include "xfa/fwl/cfwl_messagemouse.h"
+#include "xfa/fwl/cfwl_messagemousewheel.h"
+#include "xfa/fwl/cfwl_messagesetfocus.h"
+#include "xfa/fwl/cfwl_picturebox.h"
+#include "xfa/fwl/cfwl_widgetmgr.h"
+#include "xfa/fxfa/app/cxfa_textlayout.h"
 #include "xfa/fxfa/app/xfa_fwltheme.h"
-#include "xfa/fxfa/app/xfa_textlayout.h"
 #include "xfa/fxfa/xfa_ffapp.h"
 #include "xfa/fxfa/xfa_ffdoc.h"
 #include "xfa/fxfa/xfa_ffdocview.h"
@@ -30,9 +34,9 @@ CXFA_FFField::~CXFA_FFField() {
   CXFA_FFField::UnloadWidget();
 }
 
-FX_BOOL CXFA_FFField::GetBBox(CFX_RectF& rtBox,
-                              uint32_t dwStatus,
-                              FX_BOOL bDrawFocus) {
+bool CXFA_FFField::GetBBox(CFX_RectF& rtBox,
+                           uint32_t dwStatus,
+                           bool bDrawFocus) {
   if (!bDrawFocus)
     return CXFA_FFWidget::GetBBox(rtBox, dwStatus);
 
@@ -44,9 +48,9 @@ FX_BOOL CXFA_FFField::GetBBox(CFX_RectF& rtBox,
     CFX_Matrix mt;
     GetRotateMatrix(mt);
     mt.TransformRect(rtBox);
-    return TRUE;
+    return true;
   }
-  return FALSE;
+  return false;
 }
 
 void CXFA_FFField::RenderWidget(CFX_Graphics* pGS,
@@ -64,19 +68,18 @@ void CXFA_FFField::RenderWidget(CFX_Graphics* pGS,
   CXFA_Border borderUI = m_pDataAcc->GetUIBorder();
   DrawBorder(pGS, borderUI, m_rtUI, &mtRotate);
   RenderCaption(pGS, &mtRotate);
-  DrawHighlight(pGS, &mtRotate, dwStatus, FALSE);
-  CFX_RectF rtWidget;
-  m_pNormalWidget->GetWidgetRect(rtWidget);
+  DrawHighlight(pGS, &mtRotate, dwStatus, false);
+
+  CFX_RectF rtWidget = m_pNormalWidget->GetWidgetRect();
   CFX_Matrix mt;
   mt.Set(1, 0, 0, 1, rtWidget.left, rtWidget.top);
   mt.Concat(mtRotate);
-  GetApp()->GetWidgetMgrDelegate()->OnDrawWidget(m_pNormalWidget->GetWidget(),
-                                                 pGS, &mt);
+  GetApp()->GetWidgetMgrDelegate()->OnDrawWidget(m_pNormalWidget, pGS, &mt);
 }
 void CXFA_FFField::DrawHighlight(CFX_Graphics* pGS,
                                  CFX_Matrix* pMatrix,
                                  uint32_t dwStatus,
-                                 FX_BOOL bEllipse) {
+                                 bool bEllipse) {
   if (m_rtUI.IsEmpty() || !m_pDataAcc->GetDoc()->GetXFADoc()->IsInteractive()) {
     return;
   }
@@ -101,7 +104,7 @@ void CXFA_FFField::DrawFocus(CFX_Graphics* pGS, CFX_Matrix* pMatrix) {
     pGS->SetStrokeColor(&cr);
     FX_FLOAT DashPattern[2] = {1, 1};
     pGS->SetLineDash(0.0f, DashPattern, 2);
-    pGS->SetLineWidth(0, FALSE);
+    pGS->SetLineWidth(0, false);
     CFX_Path path;
     path.Create();
     path.AddRectangle(m_rtUI.left, m_rtUI.top, m_rtUI.width, m_rtUI.height);
@@ -109,18 +112,17 @@ void CXFA_FFField::DrawFocus(CFX_Graphics* pGS, CFX_Matrix* pMatrix) {
   }
 }
 void CXFA_FFField::SetFWLThemeProvider() {
-  if (m_pNormalWidget) {
-    m_pNormalWidget->GetWidget()->SetThemeProvider(GetApp()->GetFWLTheme());
-  }
+  if (m_pNormalWidget)
+    m_pNormalWidget->SetThemeProvider(GetApp()->GetFWLTheme());
 }
-FX_BOOL CXFA_FFField::IsLoaded() {
+bool CXFA_FFField::IsLoaded() {
   return m_pNormalWidget && CXFA_FFWidget::IsLoaded();
 }
-FX_BOOL CXFA_FFField::LoadWidget() {
+bool CXFA_FFField::LoadWidget() {
   SetFWLThemeProvider();
   m_pDataAcc->LoadCaption();
   PerformLayout();
-  return TRUE;
+  return true;
 }
 void CXFA_FFField::UnloadWidget() {
   delete m_pNormalWidget;
@@ -133,8 +135,7 @@ void CXFA_FFField::SetEditScrollOffset() {
     FX_FLOAT fScrollOffset = 0;
     CXFA_FFField* pPrev = static_cast<CXFA_FFField*>(GetPrev());
     if (pPrev) {
-      CFX_RectF rtMargin;
-      m_pDataAcc->GetUIMargin(rtMargin);
+      CFX_RectF rtMargin = m_pDataAcc->GetUIMargin();
       fScrollOffset = -rtMargin.top;
     }
     while (pPrev) {
@@ -144,7 +145,7 @@ void CXFA_FFField::SetEditScrollOffset() {
     ((CFWL_Edit*)m_pNormalWidget)->SetScrollOffset(fScrollOffset);
   }
 }
-FX_BOOL CXFA_FFField::PerformLayout() {
+bool CXFA_FFField::PerformLayout() {
   CXFA_FFWidget::PerformLayout();
   CapPlacement();
   LayoutCaption();
@@ -153,7 +154,7 @@ FX_BOOL CXFA_FFField::PerformLayout() {
   if (m_pNormalWidget) {
     m_pNormalWidget->Update();
   }
-  return TRUE;
+  return true;
 }
 void CXFA_FFField::CapPlacement() {
   CFX_RectF rtWidget;
@@ -263,8 +264,7 @@ void CXFA_FFField::CapPlacement() {
 void CXFA_FFField::CapTopBottomPlacement(CXFA_Caption caption,
                                          const CFX_RectF& rtWidget,
                                          int32_t iCapPlacement) {
-  CFX_RectF rtUIMargin;
-  m_pDataAcc->GetUIMargin(rtUIMargin);
+  CFX_RectF rtUIMargin = m_pDataAcc->GetUIMargin();
   m_rtCaption.left += rtUIMargin.left;
   if (CXFA_Margin mgCap = caption.GetMargin()) {
     XFA_RectWidthoutMargin(m_rtCaption, mgCap);
@@ -290,8 +290,7 @@ void CXFA_FFField::CapTopBottomPlacement(CXFA_Caption caption,
 void CXFA_FFField::CapLeftRightPlacement(CXFA_Caption caption,
                                          const CFX_RectF& rtWidget,
                                          int32_t iCapPlacement) {
-  CFX_RectF rtUIMargin;
-  m_pDataAcc->GetUIMargin(rtUIMargin);
+  CFX_RectF rtUIMargin = m_pDataAcc->GetUIMargin();
   m_rtCaption.top += rtUIMargin.top;
   m_rtCaption.height -= rtUIMargin.top;
   if (CXFA_Margin mgCap = caption.GetMargin()) {
@@ -343,258 +342,231 @@ void CXFA_FFField::SetFWLRect() {
   }
   m_pNormalWidget->SetWidgetRect(rtUi);
 }
-FX_BOOL CXFA_FFField::OnMouseEnter() {
+bool CXFA_FFField::OnMouseEnter() {
   if (!m_pNormalWidget) {
-    return FALSE;
+    return false;
   }
-  CFWL_MsgMouse ms;
+  CFWL_MessageMouse ms(nullptr, m_pNormalWidget);
   ms.m_dwCmd = FWL_MouseCommand::Enter;
-  ms.m_pDstTarget = m_pNormalWidget->GetWidget();
-  ms.m_pSrcTarget = nullptr;
   TranslateFWLMessage(&ms);
-  return TRUE;
+  return true;
 }
-FX_BOOL CXFA_FFField::OnMouseExit() {
+bool CXFA_FFField::OnMouseExit() {
   if (!m_pNormalWidget) {
-    return FALSE;
+    return false;
   }
-  CFWL_MsgMouse ms;
+  CFWL_MessageMouse ms(nullptr, m_pNormalWidget);
   ms.m_dwCmd = FWL_MouseCommand::Leave;
-  ms.m_pDstTarget = m_pNormalWidget->GetWidget();
   TranslateFWLMessage(&ms);
-  return TRUE;
+  return true;
 }
+
 void CXFA_FFField::FWLToClient(FX_FLOAT& fx, FX_FLOAT& fy) {
-  if (!m_pNormalWidget) {
+  if (!m_pNormalWidget)
     return;
-  }
-  CFX_RectF rtWidget;
-  m_pNormalWidget->GetWidgetRect(rtWidget);
+
+  CFX_RectF rtWidget = m_pNormalWidget->GetWidgetRect();
   fx -= rtWidget.left;
   fy -= rtWidget.top;
 }
-FX_BOOL CXFA_FFField::OnLButtonDown(uint32_t dwFlags,
-                                    FX_FLOAT fx,
-                                    FX_FLOAT fy) {
+
+bool CXFA_FFField::OnLButtonDown(uint32_t dwFlags, FX_FLOAT fx, FX_FLOAT fy) {
   if (!m_pNormalWidget) {
-    return FALSE;
+    return false;
   }
   if (m_pDataAcc->GetAccess() != XFA_ATTRIBUTEENUM_Open ||
       !m_pDataAcc->GetDoc()->GetXFADoc()->IsInteractive()) {
-    return FALSE;
+    return false;
   }
   if (!PtInActiveRect(fx, fy)) {
-    return FALSE;
+    return false;
   }
-  SetButtonDown(TRUE);
-  CFWL_MsgMouse ms;
+  SetButtonDown(true);
+  CFWL_MessageMouse ms(nullptr, m_pNormalWidget);
   ms.m_dwCmd = FWL_MouseCommand::LeftButtonDown;
   ms.m_dwFlags = dwFlags;
   ms.m_fx = fx;
   ms.m_fy = fy;
   FWLToClient(ms.m_fx, ms.m_fy);
-  ms.m_pDstTarget = m_pNormalWidget->GetWidget();
   TranslateFWLMessage(&ms);
-  return TRUE;
+  return true;
 }
-FX_BOOL CXFA_FFField::OnLButtonUp(uint32_t dwFlags, FX_FLOAT fx, FX_FLOAT fy) {
+bool CXFA_FFField::OnLButtonUp(uint32_t dwFlags, FX_FLOAT fx, FX_FLOAT fy) {
   if (!m_pNormalWidget) {
-    return FALSE;
+    return false;
   }
   if (!IsButtonDown()) {
-    return FALSE;
+    return false;
   }
-  SetButtonDown(FALSE);
-  CFWL_MsgMouse ms;
+  SetButtonDown(false);
+  CFWL_MessageMouse ms(nullptr, m_pNormalWidget);
   ms.m_dwCmd = FWL_MouseCommand::LeftButtonUp;
   ms.m_dwFlags = dwFlags;
   ms.m_fx = fx;
   ms.m_fy = fy;
   FWLToClient(ms.m_fx, ms.m_fy);
-  ms.m_pDstTarget = m_pNormalWidget->GetWidget();
   TranslateFWLMessage(&ms);
-  return TRUE;
+  return true;
 }
-FX_BOOL CXFA_FFField::OnLButtonDblClk(uint32_t dwFlags,
-                                      FX_FLOAT fx,
-                                      FX_FLOAT fy) {
+bool CXFA_FFField::OnLButtonDblClk(uint32_t dwFlags, FX_FLOAT fx, FX_FLOAT fy) {
   if (!m_pNormalWidget) {
-    return FALSE;
+    return false;
   }
-  CFWL_MsgMouse ms;
+  CFWL_MessageMouse ms(nullptr, m_pNormalWidget);
   ms.m_dwCmd = FWL_MouseCommand::LeftButtonDblClk;
   ms.m_dwFlags = dwFlags;
   ms.m_fx = fx;
   ms.m_fy = fy;
   FWLToClient(ms.m_fx, ms.m_fy);
-  ms.m_pDstTarget = m_pNormalWidget->GetWidget();
   TranslateFWLMessage(&ms);
-  return TRUE;
+  return true;
 }
-FX_BOOL CXFA_FFField::OnMouseMove(uint32_t dwFlags, FX_FLOAT fx, FX_FLOAT fy) {
+bool CXFA_FFField::OnMouseMove(uint32_t dwFlags, FX_FLOAT fx, FX_FLOAT fy) {
   if (!m_pNormalWidget) {
-    return FALSE;
+    return false;
   }
-  CFWL_MsgMouse ms;
+  CFWL_MessageMouse ms(nullptr, m_pNormalWidget);
   ms.m_dwCmd = FWL_MouseCommand::Move;
   ms.m_dwFlags = dwFlags;
   ms.m_fx = fx;
   ms.m_fy = fy;
   FWLToClient(ms.m_fx, ms.m_fy);
-  ms.m_pDstTarget = m_pNormalWidget->GetWidget();
   TranslateFWLMessage(&ms);
-  return TRUE;
+  return true;
 }
-FX_BOOL CXFA_FFField::OnMouseWheel(uint32_t dwFlags,
-                                   int16_t zDelta,
-                                   FX_FLOAT fx,
-                                   FX_FLOAT fy) {
+bool CXFA_FFField::OnMouseWheel(uint32_t dwFlags,
+                                int16_t zDelta,
+                                FX_FLOAT fx,
+                                FX_FLOAT fy) {
   if (!m_pNormalWidget) {
-    return FALSE;
+    return false;
   }
-  CFWL_MsgMouseWheel ms;
+  CFWL_MessageMouseWheel ms(nullptr, m_pNormalWidget);
   ms.m_dwFlags = dwFlags;
   ms.m_fx = fx;
   ms.m_fy = fy;
   FWLToClient(ms.m_fx, ms.m_fy);
   ms.m_fDeltaX = zDelta;
   ms.m_fDeltaY = 0;
-  ms.m_pDstTarget = m_pNormalWidget->GetWidget();
   TranslateFWLMessage(&ms);
-  return TRUE;
+  return true;
 }
-FX_BOOL CXFA_FFField::OnRButtonDown(uint32_t dwFlags,
-                                    FX_FLOAT fx,
-                                    FX_FLOAT fy) {
+bool CXFA_FFField::OnRButtonDown(uint32_t dwFlags, FX_FLOAT fx, FX_FLOAT fy) {
   if (!m_pNormalWidget) {
-    return FALSE;
+    return false;
   }
   if (m_pDataAcc->GetAccess() != XFA_ATTRIBUTEENUM_Open ||
       !m_pDataAcc->GetDoc()->GetXFADoc()->IsInteractive()) {
-    return FALSE;
+    return false;
   }
   if (!PtInActiveRect(fx, fy)) {
-    return FALSE;
+    return false;
   }
-  SetButtonDown(TRUE);
-  CFWL_MsgMouse ms;
+  SetButtonDown(true);
+
+  CFWL_MessageMouse ms(nullptr, m_pNormalWidget);
   ms.m_dwCmd = FWL_MouseCommand::RightButtonDown;
   ms.m_dwFlags = dwFlags;
   ms.m_fx = fx;
   ms.m_fy = fy;
   FWLToClient(ms.m_fx, ms.m_fy);
-  ms.m_pDstTarget = m_pNormalWidget->GetWidget();
   TranslateFWLMessage(&ms);
-  return TRUE;
+  return true;
 }
-FX_BOOL CXFA_FFField::OnRButtonUp(uint32_t dwFlags, FX_FLOAT fx, FX_FLOAT fy) {
+bool CXFA_FFField::OnRButtonUp(uint32_t dwFlags, FX_FLOAT fx, FX_FLOAT fy) {
   if (!m_pNormalWidget) {
-    return FALSE;
+    return false;
   }
   if (!IsButtonDown()) {
-    return FALSE;
+    return false;
   }
-  SetButtonDown(FALSE);
-  CFWL_MsgMouse ms;
+  SetButtonDown(false);
+  CFWL_MessageMouse ms(nullptr, m_pNormalWidget);
   ms.m_dwCmd = FWL_MouseCommand::RightButtonUp;
   ms.m_dwFlags = dwFlags;
   ms.m_fx = fx;
   ms.m_fy = fy;
   FWLToClient(ms.m_fx, ms.m_fy);
-  ms.m_pDstTarget = m_pNormalWidget->GetWidget();
   TranslateFWLMessage(&ms);
-  return TRUE;
+  return true;
 }
-FX_BOOL CXFA_FFField::OnRButtonDblClk(uint32_t dwFlags,
-                                      FX_FLOAT fx,
-                                      FX_FLOAT fy) {
+bool CXFA_FFField::OnRButtonDblClk(uint32_t dwFlags, FX_FLOAT fx, FX_FLOAT fy) {
   if (!m_pNormalWidget) {
-    return FALSE;
+    return false;
   }
-  CFWL_MsgMouse ms;
+  CFWL_MessageMouse ms(nullptr, m_pNormalWidget);
   ms.m_dwCmd = FWL_MouseCommand::RightButtonDblClk;
   ms.m_dwFlags = dwFlags;
   ms.m_fx = fx;
   ms.m_fy = fy;
   FWLToClient(ms.m_fx, ms.m_fy);
-  ms.m_pDstTarget = m_pNormalWidget->GetWidget();
   TranslateFWLMessage(&ms);
-  return TRUE;
+  return true;
 }
 
-FX_BOOL CXFA_FFField::OnSetFocus(CXFA_FFWidget* pOldWidget) {
+bool CXFA_FFField::OnSetFocus(CXFA_FFWidget* pOldWidget) {
   CXFA_FFWidget::OnSetFocus(pOldWidget);
   if (!m_pNormalWidget) {
-    return FALSE;
+    return false;
   }
-  CFWL_MsgSetFocus ms;
-  ms.m_pDstTarget = m_pNormalWidget->GetWidget();
-  ms.m_pSrcTarget = nullptr;
+  CFWL_MessageSetFocus ms(nullptr, m_pNormalWidget);
   TranslateFWLMessage(&ms);
   m_dwStatus |= XFA_WidgetStatus_Focused;
   AddInvalidateRect();
-  return TRUE;
+  return true;
 }
-FX_BOOL CXFA_FFField::OnKillFocus(CXFA_FFWidget* pNewWidget) {
+bool CXFA_FFField::OnKillFocus(CXFA_FFWidget* pNewWidget) {
   if (!m_pNormalWidget) {
     return CXFA_FFWidget::OnKillFocus(pNewWidget);
   }
-  CFWL_MsgKillFocus ms;
-  ms.m_pDstTarget = m_pNormalWidget->GetWidget();
-  ms.m_pSrcTarget = nullptr;
+  CFWL_MessageKillFocus ms(nullptr, m_pNormalWidget);
   TranslateFWLMessage(&ms);
   m_dwStatus &= ~XFA_WidgetStatus_Focused;
   AddInvalidateRect();
   CXFA_FFWidget::OnKillFocus(pNewWidget);
-  return TRUE;
+  return true;
 }
-FX_BOOL CXFA_FFField::OnKeyDown(uint32_t dwKeyCode, uint32_t dwFlags) {
+bool CXFA_FFField::OnKeyDown(uint32_t dwKeyCode, uint32_t dwFlags) {
   if (!m_pNormalWidget || !m_pDataAcc->GetDoc()->GetXFADoc()->IsInteractive()) {
-    return FALSE;
+    return false;
   }
-  CFWL_MsgKey ms;
+  CFWL_MessageKey ms(nullptr, m_pNormalWidget);
   ms.m_dwCmd = FWL_KeyCommand::KeyDown;
   ms.m_dwFlags = dwFlags;
   ms.m_dwKeyCode = dwKeyCode;
-  ms.m_pDstTarget = m_pNormalWidget->GetWidget();
-  ms.m_pSrcTarget = nullptr;
   TranslateFWLMessage(&ms);
-  return TRUE;
+  return true;
 }
-FX_BOOL CXFA_FFField::OnKeyUp(uint32_t dwKeyCode, uint32_t dwFlags) {
+bool CXFA_FFField::OnKeyUp(uint32_t dwKeyCode, uint32_t dwFlags) {
   if (!m_pNormalWidget || !m_pDataAcc->GetDoc()->GetXFADoc()->IsInteractive()) {
-    return FALSE;
+    return false;
   }
-  CFWL_MsgKey ms;
+  CFWL_MessageKey ms(nullptr, m_pNormalWidget);
   ms.m_dwCmd = FWL_KeyCommand::KeyUp;
   ms.m_dwFlags = dwFlags;
   ms.m_dwKeyCode = dwKeyCode;
-  ms.m_pDstTarget = m_pNormalWidget->GetWidget();
-  ms.m_pSrcTarget = nullptr;
   TranslateFWLMessage(&ms);
-  return TRUE;
+  return true;
 }
-FX_BOOL CXFA_FFField::OnChar(uint32_t dwChar, uint32_t dwFlags) {
+bool CXFA_FFField::OnChar(uint32_t dwChar, uint32_t dwFlags) {
   if (!m_pDataAcc->GetDoc()->GetXFADoc()->IsInteractive()) {
-    return FALSE;
+    return false;
   }
   if (dwChar == FWL_VKEY_Tab) {
-    return TRUE;
+    return true;
   }
   if (!m_pNormalWidget) {
-    return FALSE;
+    return false;
   }
   if (m_pDataAcc->GetAccess() != XFA_ATTRIBUTEENUM_Open) {
-    return FALSE;
+    return false;
   }
-  CFWL_MsgKey ms;
+  CFWL_MessageKey ms(nullptr, m_pNormalWidget);
   ms.m_dwCmd = FWL_KeyCommand::Char;
   ms.m_dwFlags = dwFlags;
   ms.m_dwKeyCode = dwChar;
-  ms.m_pDstTarget = m_pNormalWidget->GetWidget();
-  ms.m_pSrcTarget = nullptr;
   TranslateFWLMessage(&ms);
-  return TRUE;
+  return true;
 }
 FWL_WidgetHit CXFA_FFField::OnHitTest(FX_FLOAT fx, FX_FLOAT fy) {
   if (m_pNormalWidget) {
@@ -611,20 +583,15 @@ FWL_WidgetHit CXFA_FFField::OnHitTest(FX_FLOAT fx, FX_FLOAT fy) {
     return FWL_WidgetHit::Titlebar;
   return FWL_WidgetHit::Border;
 }
-FX_BOOL CXFA_FFField::OnSetCursor(FX_FLOAT fx, FX_FLOAT fy) {
-  return TRUE;
+
+bool CXFA_FFField::OnSetCursor(FX_FLOAT fx, FX_FLOAT fy) {
+  return true;
 }
-FX_BOOL CXFA_FFField::PtInActiveRect(FX_FLOAT fx, FX_FLOAT fy) {
-  if (!m_pNormalWidget) {
-    return FALSE;
-  }
-  CFX_RectF rtWidget;
-  m_pNormalWidget->GetWidgetRect(rtWidget);
-  if (rtWidget.Contains(fx, fy)) {
-    return TRUE;
-  }
-  return FALSE;
+
+bool CXFA_FFField::PtInActiveRect(FX_FLOAT fx, FX_FLOAT fy) {
+  return m_pNormalWidget && m_pNormalWidget->GetWidgetRect().Contains(fx, fy);
 }
+
 void CXFA_FFField::LayoutCaption() {
   CXFA_TextLayout* pCapTextLayout = m_pDataAcc->GetCaptionTextLayout();
   if (!pCapTextLayout)
@@ -660,22 +627,22 @@ void CXFA_FFField::RenderCaption(CFX_Graphics* pGS, CFX_Matrix* pMatrix) {
     pCapTextLayout->DrawString(pRenderDevice, mt, rtClip);
   }
 }
-FX_BOOL CXFA_FFField::ProcessCommittedData() {
+bool CXFA_FFField::ProcessCommittedData() {
   if (m_pDataAcc->GetAccess() != XFA_ATTRIBUTEENUM_Open) {
-    return FALSE;
+    return false;
   }
   if (!IsDataChanged()) {
-    return FALSE;
+    return false;
   }
   if (CalculateOverride() != 1) {
-    return FALSE;
+    return false;
   }
   if (!CommitData()) {
-    return FALSE;
+    return false;
   }
   m_pDocView->SetChangeMark();
   m_pDocView->AddValidateWidget(m_pDataAcc);
-  return TRUE;
+  return true;
 }
 int32_t CXFA_FFField::CalculateOverride() {
   CXFA_WidgetAcc* pAcc = m_pDataAcc->GetExclGroup();
@@ -717,13 +684,8 @@ int32_t CXFA_FFField::CalculateWidgetAcc(CXFA_WidgetAcc* pAcc) {
         }
         IXFA_AppProvider* pAppProvider = GetApp()->GetAppProvider();
         if (pAppProvider) {
-          CFX_WideString wsMessage;
-          CFX_WideString wsWarning;
-          pAppProvider->LoadString(XFA_IDS_NotModifyField, wsWarning);
-          wsMessage += wsWarning;
-          CFX_WideString wsTitle;
-          pAppProvider->LoadString(XFA_IDS_CalcOverride, wsTitle);
-          pAppProvider->MsgBox(wsMessage, wsTitle, XFA_MBICON_Warning,
+          pAppProvider->MsgBox(L"You are not allowed to modify this field.",
+                               L"Calculate Override", XFA_MBICON_Warning,
                                XFA_MB_OK);
         }
       }
@@ -747,15 +709,11 @@ int32_t CXFA_FFField::CalculateWidgetAcc(CXFA_WidgetAcc* pAcc) {
         if (pAppProvider) {
           CFX_WideString wsMessage;
           calc.GetMessageText(wsMessage);
-          if (!wsMessage.IsEmpty()) {
+          if (!wsMessage.IsEmpty())
             wsMessage += L"\r\n";
-          }
-          CFX_WideString wsWarning;
-          pAppProvider->LoadString(XFA_IDS_ModifyField, wsWarning);
-          wsMessage += wsWarning;
-          CFX_WideString wsTitle;
-          pAppProvider->LoadString(XFA_IDS_CalcOverride, wsTitle);
-          if (pAppProvider->MsgBox(wsMessage, wsTitle, XFA_MBICON_Warning,
+          wsMessage += L"Are you sure you want to modify this field?";
+          if (pAppProvider->MsgBox(wsMessage, L"Calculate Override",
+                                   XFA_MBICON_Warning,
                                    XFA_MB_YesNo) == XFA_IDYes) {
             pAcc->GetNode()->SetFlag(XFA_NodeFlag_UserInteractive, false);
             return 1;
@@ -773,11 +731,11 @@ int32_t CXFA_FFField::CalculateWidgetAcc(CXFA_WidgetAcc* pAcc) {
   }
   return 1;
 }
-FX_BOOL CXFA_FFField::CommitData() {
-  return FALSE;
+bool CXFA_FFField::CommitData() {
+  return false;
 }
-FX_BOOL CXFA_FFField::IsDataChanged() {
-  return FALSE;
+bool CXFA_FFField::IsDataChanged() {
+  return false;
 }
 void CXFA_FFField::TranslateFWLMessage(CFWL_Message* pMessage) {
   GetApp()->GetWidgetMgrDelegate()->OnProcessMessageToForm(pMessage);
@@ -785,9 +743,9 @@ void CXFA_FFField::TranslateFWLMessage(CFWL_Message* pMessage) {
 void CXFA_FFField::OnProcessMessage(CFWL_Message* pMessage) {}
 
 void CXFA_FFField::OnProcessEvent(CFWL_Event* pEvent) {
-  switch (pEvent->GetClassID()) {
-    case CFWL_EventType::Mouse: {
-      CFWL_EvtMouse* event = (CFWL_EvtMouse*)pEvent;
+  switch (pEvent->GetType()) {
+    case CFWL_Event::Type::Mouse: {
+      CFWL_EventMouse* event = (CFWL_EventMouse*)pEvent;
       if (event->m_dwCmd == FWL_MouseCommand::Enter) {
         CXFA_EventParam eParam;
         eParam.m_eType = XFA_EVENT_MouseEnter;
@@ -811,7 +769,7 @@ void CXFA_FFField::OnProcessEvent(CFWL_Event* pEvent) {
       }
       break;
     }
-    case CFWL_EventType::Click: {
+    case CFWL_Event::Type::Click: {
       CXFA_EventParam eParam;
       eParam.m_eType = XFA_EVENT_Click;
       eParam.m_pTarget = m_pDataAcc;

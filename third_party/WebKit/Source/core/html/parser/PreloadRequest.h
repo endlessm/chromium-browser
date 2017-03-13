@@ -30,7 +30,9 @@ class PreloadRequest {
     RequestTypeLinkRelPreload
   };
 
-  static std::unique_ptr<PreloadRequest> create(
+  // TODO(csharrison): Move the implementation to the cpp file when core/html
+  // gets its own testing source set in html/BUILD.gn.
+  static std::unique_ptr<PreloadRequest> createIfNeeded(
       const String& initiatorName,
       const TextPosition& initiatorPosition,
       const String& resourceURL,
@@ -42,16 +44,23 @@ class PreloadRequest {
       const ClientHintsPreferences& clientHintsPreferences =
           ClientHintsPreferences(),
       RequestType requestType = RequestTypePreload) {
-    return wrapUnique(new PreloadRequest(
+    // Never preload data URLs. We also disallow relative ref URLs which become
+    // data URLs if the document's URL is a data URL. We don't want to create
+    // extra resource requests with data URLs to avoid copy / initialization
+    // overhead, which can be significant for large URLs.
+    if (resourceURL.isEmpty() || resourceURL.startsWith("#") ||
+        protocolIs(resourceURL, "data")) {
+      return nullptr;
+    }
+    return WTF::wrapUnique(new PreloadRequest(
         initiatorName, initiatorPosition, resourceURL, baseURL, resourceType,
         resourceWidth, clientHintsPreferences, requestType, referrerPolicy));
   }
 
   bool isSafeToSendToAnotherThread() const;
 
-  FetchRequest resourceRequest(Document*);
+  Resource* start(Document*);
 
-  const String& charset() const { return m_charset; }
   double discoveryTime() const { return m_discoveryTime; }
   void setDefer(FetchRequest::DeferOption defer) { m_defer = defer; }
   void setCharset(const String& charset) { m_charset = charset.isolatedCopy(); }
@@ -84,11 +93,6 @@ class PreloadRequest {
   const IntegrityMetadataSet& integrityMetadata() const {
     return m_integrityMetadata;
   }
-
-  void setScriptHasInvalidTypeOrLanguage() {
-    m_hasInvalidTypeOrLanguage = true;
-  }
-  bool scriptHasInvalidTypeOrLanguage() { return m_hasInvalidTypeOrLanguage; }
 
  private:
   PreloadRequest(const String& initiatorName,
@@ -130,9 +134,6 @@ class PreloadRequest {
   RequestType m_requestType;
   ReferrerPolicy m_referrerPolicy;
   IntegrityMetadataSet m_integrityMetadata;
-
-  // Used for deprecation warnings.
-  bool m_hasInvalidTypeOrLanguage = false;
 };
 
 typedef Vector<std::unique_ptr<PreloadRequest>> PreloadRequestStream;

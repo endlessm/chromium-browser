@@ -25,6 +25,7 @@
 #include "core/CSSPropertyNames.h"
 #include "core/CSSValueKeywords.h"
 #include "core/HTMLNames.h"
+#include "core/html/parser/HTMLParserIdioms.h"
 #include "core/layout/LayoutListItem.h"
 
 namespace blink {
@@ -73,26 +74,25 @@ void HTMLOListElement::collectStyleForPresentationAttribute(
   }
 }
 
-void HTMLOListElement::parseAttribute(const QualifiedName& name,
-                                      const AtomicString& oldValue,
-                                      const AtomicString& value) {
-  if (name == startAttr) {
+void HTMLOListElement::parseAttribute(
+    const AttributeModificationParams& params) {
+  if (params.name == startAttr) {
     int oldStart = start();
-    bool canParse;
-    int parsedStart = value.toInt(&canParse);
+    int parsedStart = 0;
+    bool canParse = parseHTMLInteger(params.newValue, parsedStart);
     m_hasExplicitStart = canParse;
     m_start = canParse ? parsedStart : 0xBADBEEF;
     if (oldStart == start())
       return;
     updateItemValues();
-  } else if (name == reversedAttr) {
-    bool reversed = !value.isNull();
+  } else if (params.name == reversedAttr) {
+    bool reversed = !params.newValue.isNull();
     if (reversed == m_isReversed)
       return;
     m_isReversed = reversed;
     updateItemValues();
   } else {
-    HTMLElement::parseAttribute(name, oldValue, value);
+    HTMLElement::parseAttribute(params);
   }
 }
 

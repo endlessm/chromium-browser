@@ -51,15 +51,26 @@ const char kSRTDownloadURL[] =
 // downloaded.
 const base::FilePath::CharType kExecutableExtension[] = L"exe";
 
-// A switch to add to the command line when executing the SRT.
+// Switches to add to the command line when executing the SRT.
 const char kChromePromptSwitch[] = "chrome-prompt";
 const char kChromeExePathSwitch[] = "chrome-exe-path";
 const char kChromeSystemInstallSwitch[] = "chrome-system-install";
 const char kUmaUserSwitch[] = "uma-user";
 
+// Values to be passed to the kChromePromptSwitch of the Chrome Cleanup Tool to
+// indicate how the user interacted with the accept button.
+enum class ChromePromptValue {
+  // The user accepted the prompt when the prompt was first shown.
+  kPrompted = 3,
+  // The user accepted the prompt after navigating to it from the menu.
+  kShownFromMenu = 4
+};
+
 void MaybeExecuteSRTFromBlockingPool(
     const base::FilePath& downloaded_path,
     bool metrics_enabled,
+    bool sber_enabled,
+    ChromePromptValue prompt_value,
     const scoped_refptr<SingleThreadTaskRunner>& task_runner,
     const base::Closure& success_callback,
     const base::Closure& failure_callback) {
@@ -70,7 +81,9 @@ void MaybeExecuteSRTFromBlockingPool(
         downloaded_path.ReplaceExtension(kExecutableExtension));
     if (base::ReplaceFile(downloaded_path, executable_path, nullptr)) {
       base::CommandLine srt_command_line(executable_path);
-      srt_command_line.AppendSwitch(kChromePromptSwitch);
+      srt_command_line.AppendSwitchASCII(
+          kChromePromptSwitch,
+          base::IntToString(static_cast<int>(prompt_value)));
       srt_command_line.AppendSwitchASCII(kChromeVersionSwitch,
                                          version_info::GetVersionNumber());
       srt_command_line.AppendSwitchASCII(kChromeChannelSwitch,
@@ -86,6 +99,9 @@ void MaybeExecuteSRTFromBlockingPool(
         srt_command_line.AppendSwitch(kUmaUserSwitch);
         srt_command_line.AppendSwitch(kEnableCrashReporting);
       }
+
+      if (sber_enabled)
+        srt_command_line.AppendSwitch(kExtendedSafeBrowsingEnabledSwitch);
 
       base::Process srt_process(
           base::LaunchProcess(srt_command_line, base::LaunchOptions()));
@@ -137,7 +153,7 @@ base::string16 SRTGlobalError::MenuItemLabel() {
 
 void SRTGlobalError::ExecuteMenuItem(Browser* browser) {
   RecordSRTPromptHistogram(SRT_PROMPT_SHOWN_FROM_MENU);
-  show_dismiss_button_ = true;
+  bubble_shown_from_menu_ = true;
   ShowBubbleView(browser);
 }
 
@@ -171,9 +187,10 @@ bool SRTGlobalError::ShouldAddElevationIconToAcceptButton() {
 }
 
 base::string16 SRTGlobalError::GetBubbleViewCancelButtonLabel() {
-  if (show_dismiss_button_)
-    return l10n_util::GetStringUTF16(IDS_SRT_BUBBLE_DISMISS);
-  return base::string16();
+  // Show the dismiss button only if the bubble was shown from the menu.
+  return bubble_shown_from_menu_
+             ? l10n_util::GetStringUTF16(IDS_SRT_BUBBLE_DISMISS)
+             : base::string16();
 }
 
 void SRTGlobalError::OnBubbleViewDidClose(Browser* browser) {
@@ -208,13 +225,16 @@ void SRTGlobalError::MaybeExecuteSRT() {
     return;
   }
   // At this point, this object owns itself, since ownership has been taken back
-  // from the global_error_service_ in the call to RemoveGlobalError. This means
-  // that it is safe to use base::Unretained here.
+  // from the global_error_service_ in the call to OnUserInteractionStarted.
+  // This means that it is safe to use base::Unretained here.
   BrowserThread::PostBlockingPoolTask(
       FROM_HERE,
       base::Bind(
           &MaybeExecuteSRTFromBlockingPool, downloaded_path_,
           ChromeMetricsServiceAccessor::IsMetricsAndCrashReportingEnabled(),
+          SafeBrowsingExtendedReportingEnabled(),
+          bubble_shown_from_menu_ ? ChromePromptValue::kShownFromMenu
+                                  : ChromePromptValue::kPrompted,
           base::ThreadTaskRunnerHandle::Get(),
           base::Bind(&SRTGlobalError::OnUserinteractionDone,
                      base::Unretained(this)),
@@ -247,7 +267,7 @@ void SRTGlobalError::OnUserinteractionStarted(
   RecordSRTPromptHistogram(histogram_value);
   interacted_ = true;
   if (global_error_service_) {
-    global_error_service_->RemoveGlobalError(this);
+    global_error_service_->RemoveGlobalError(this).release();
     global_error_service_ = nullptr;
   }
 }

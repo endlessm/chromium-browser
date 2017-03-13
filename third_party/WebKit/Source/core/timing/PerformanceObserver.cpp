@@ -17,18 +17,18 @@
 namespace blink {
 
 PerformanceObserver* PerformanceObserver::create(
-    ScriptState* scriptState,
+    ExecutionContext* executionContext,
     PerformanceBase* performance,
     PerformanceObserverCallback* callback) {
   ASSERT(isMainThread());
-  return new PerformanceObserver(scriptState, performance, callback);
+  return new PerformanceObserver(executionContext, performance, callback);
 }
 
-PerformanceObserver::PerformanceObserver(ScriptState* scriptState,
+PerformanceObserver::PerformanceObserver(ExecutionContext* executionContext,
                                          PerformanceBase* performance,
                                          PerformanceObserverCallback* callback)
-    : m_scriptState(scriptState),
-      m_callback(callback),
+    : m_executionContext(executionContext),
+      m_callback(this, callback),
       m_performance(performance),
       m_filterOptions(PerformanceEntry::Invalid),
       m_isRegistered(false) {}
@@ -49,7 +49,8 @@ void PerformanceObserver::observe(const PerformanceObserverInit& observerInit,
   }
   if (entryTypes == PerformanceEntry::Invalid) {
     exceptionState.throwTypeError(
-        "A Performance Observer MUST have a non-empty entryTypes attribute.");
+        "A Performance Observer MUST have at least one valid entryType in its "
+        "entryTypes attribute.");
     return;
   }
   m_filterOptions = entryTypes;
@@ -70,14 +71,13 @@ void PerformanceObserver::disconnect() {
 
 void PerformanceObserver::enqueuePerformanceEntry(PerformanceEntry& entry) {
   ASSERT(isMainThread());
-  m_performanceEntries.append(&entry);
+  m_performanceEntries.push_back(&entry);
   if (m_performance)
     m_performance->activateObserver(*this);
 }
 
 bool PerformanceObserver::shouldBeSuspended() const {
-  return m_scriptState->getExecutionContext() &&
-         m_scriptState->getExecutionContext()->activeDOMObjectsAreSuspended();
+  return m_executionContext->isContextSuspended();
 }
 
 void PerformanceObserver::deliver() {
@@ -90,16 +90,18 @@ void PerformanceObserver::deliver() {
   performanceEntries.swap(m_performanceEntries);
   PerformanceObserverEntryList* entryList =
       new PerformanceObserverEntryList(performanceEntries);
-  // TODO(bashi): Make sure that not throwing exception is OK.
-  TrackExceptionState exceptionState;
-
-  m_callback->call(m_scriptState.get(), this, exceptionState, entryList, this);
+  m_callback->call(this, entryList, this);
 }
 
 DEFINE_TRACE(PerformanceObserver) {
+  visitor->trace(m_executionContext);
   visitor->trace(m_callback);
   visitor->trace(m_performance);
   visitor->trace(m_performanceEntries);
+}
+
+DEFINE_TRACE_WRAPPERS(PerformanceObserver) {
+  visitor->traceWrappers(m_callback);
 }
 
 }  // namespace blink

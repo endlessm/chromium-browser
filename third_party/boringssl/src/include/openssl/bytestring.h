@@ -190,6 +190,14 @@ OPENSSL_EXPORT int CBS_get_asn1_element(CBS *cbs, CBS *out, unsigned tag_value);
  * element is malformed. */
 OPENSSL_EXPORT int CBS_peek_asn1_tag(const CBS *cbs, unsigned tag_value);
 
+/* CBS_get_any_asn1 sets |*out| to contain the next ASN.1 element from |*cbs|
+ * (not including tag and length bytes), sets |*out_tag| to the tag number, and
+ * advances |*cbs|. It returns one on success and zero on error. Either of |out|
+ * and |out_tag| may be NULL to ignore the value.
+ *
+ * Tag numbers greater than 30 are not supported (i.e. short form only). */
+OPENSSL_EXPORT int CBS_get_any_asn1(CBS *cbs, CBS *out, unsigned *out_tag);
+
 /* CBS_get_any_asn1_element sets |*out| to contain the next ASN.1 element from
  * |*cbs| (including header bytes) and advances |*cbs|. It sets |*out_tag| to
  * the tag number and |*out_header_len| to the length of the ASN.1 header. Each
@@ -248,6 +256,15 @@ OPENSSL_EXPORT int CBS_get_optional_asn1_uint64(CBS *cbs, uint64_t *out,
  * failure. */
 OPENSSL_EXPORT int CBS_get_optional_asn1_bool(CBS *cbs, int *out, unsigned tag,
                                               int default_value);
+
+/* CBS_is_valid_asn1_bitstring returns one if |cbs| is a valid ASN.1 BIT STRING
+ * and zero otherwise. */
+OPENSSL_EXPORT int CBS_is_valid_asn1_bitstring(const CBS *cbs);
+
+/* CBS_asn1_bitstring_has_bit returns one if |cbs| is a valid ASN.1 BIT STRING
+ * and the specified bit is present and set. Otherwise, it returns zero. |bit|
+ * is indexed starting from zero. */
+OPENSSL_EXPORT int CBS_asn1_bitstring_has_bit(const CBS *cbs, unsigned bit);
 
 
 /* CRYPTO ByteBuilder.

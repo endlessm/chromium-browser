@@ -10,14 +10,14 @@
 #if SK_SUPPORT_GPU
 #include "GrContext.h"
 #include "GrTest.h"
-#include "batches/GrAADistanceFieldPathRenderer.h"
 #include "SkPath.h"
+#include "ops/GrAADistanceFieldPathRenderer.h"
 
 // This test case including path coords and matrix taken from crbug.com/627443.
 // Because of inaccuracies in large floating point values this causes the
 // the path renderer to attempt to add a path DF to its atlas that is larger
 // than the plot size which used to crash rather than fail gracefully.
-static void test_far_from_origin(GrDrawContext* drawContext, GrPathRenderer* pr,
+static void test_far_from_origin(GrRenderTargetContext* renderTargetContext, GrPathRenderer* pr,
                                  GrResourceProvider* rp) {
     SkPath path;
     path.lineTo(49.0255089839f, 0.473541f);
@@ -42,19 +42,18 @@ static void test_far_from_origin(GrDrawContext* drawContext, GrPathRenderer* pr,
     shape = shape.applyStyle(GrStyle::Apply::kPathEffectAndStrokeRec, 1.f);
 
     GrPaint paint;
-    paint.setXPFactory(GrPorterDuffXPFactory::Make(SkXfermode::kSrc_Mode));
+    paint.setXPFactory(GrPorterDuffXPFactory::Get(SkBlendMode::kSrc));
 
     GrNoClip noClip;
-    GrPathRenderer::DrawPathArgs args;
-    args.fPaint = &paint;
-    args.fUserStencilSettings = &GrUserStencilSettings::kUnused;
-    args.fDrawContext = drawContext;
-    args.fClip = &noClip;
-    args.fResourceProvider = rp;
-    args.fViewMatrix = &matrix;
-    args.fShape = &shape;
-    args.fAntiAlias = true;
-    args.fGammaCorrect = false;
+    GrPathRenderer::DrawPathArgs args{rp,
+                                      std::move(paint),
+                                      &GrUserStencilSettings::kUnused,
+                                      renderTargetContext,
+                                      &noClip,
+                                      &matrix,
+                                      &shape,
+                                      GrAAType::kCoverage,
+                                      false};
     pr->drawPath(args);
 }
 
@@ -63,22 +62,23 @@ DEF_GPUTEST_FOR_ALL_GL_CONTEXTS(AADistanceFieldPathRenderer, reporter, ctxInfo) 
     if (!ctxInfo.grContext()->caps()->shaderCaps()->shaderDerivativeSupport()) {
         return;
     }
-    sk_sp<GrDrawContext> dc(ctxInfo.grContext()->makeDrawContext(SkBackingFit::kApprox,
-                                                                 800, 800,
-                                                                 kSkia8888_GrPixelConfig,
-                                                                 nullptr,
-                                                                 0,
-                                                                 kTopLeft_GrSurfaceOrigin));
-    if (!dc) {
+    sk_sp<GrRenderTargetContext> rtc(ctxInfo.grContext()->makeRenderTargetContext(
+                                                                         SkBackingFit::kApprox,
+                                                                         800, 800,
+                                                                         kRGBA_8888_GrPixelConfig,
+                                                                         nullptr,
+                                                                         0,
+                                                                         kTopLeft_GrSurfaceOrigin));
+    if (!rtc) {
         return;
     }
 
     GrAADistanceFieldPathRenderer dfpr;
     GrTestTarget tt;
-    ctxInfo.grContext()->getTestTarget(&tt, dc);
+    ctxInfo.grContext()->getTestTarget(&tt, rtc);
     GrResourceProvider* rp = tt.resourceProvider();
 
-    test_far_from_origin(dc.get(), &dfpr, rp);
+    test_far_from_origin(rtc.get(), &dfpr, rp);
     ctxInfo.grContext()->flush();
 }
 #endif

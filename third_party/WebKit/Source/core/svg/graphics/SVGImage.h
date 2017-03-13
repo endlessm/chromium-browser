@@ -38,6 +38,7 @@ namespace blink {
 
 class Document;
 class Page;
+class PaintController;
 class LayoutReplaced;
 class SVGImageChromeClient;
 class SVGImageForContainer;
@@ -64,7 +65,6 @@ class CORE_EXPORT SVGImage final : public Image {
   LayoutReplaced* embeddedReplacedContent() const;
 
   bool isSVGImage() const override { return true; }
-  bool isTextureBacked() override { return false; }
   IntSize size() const override { return m_intrinsicSize; }
 
   bool currentFrameHasSingleSecurityOrigin() const override;
@@ -77,7 +77,7 @@ class CORE_EXPORT SVGImage final : public Image {
   void advanceAnimationForTesting() override;
   SVGImageChromeClient& chromeClientForTesting();
 
-  sk_sp<SkImage> imageForCurrentFrame() override;
+  sk_sp<SkImage> imageForCurrentFrame(const ColorBehavior&) override;
 
   // Does the SVG image/document contain any animations?
   bool hasAnimations() const;
@@ -124,7 +124,8 @@ class CORE_EXPORT SVGImage final : public Image {
             const FloatRect& fromRect,
             const FloatRect& toRect,
             RespectImageOrientationEnum,
-            ImageClampingMode) override;
+            ImageClampingMode,
+            const ColorBehavior&) override;
   void drawForContainer(SkCanvas*,
                         const SkPaint&,
                         const FloatSize,
@@ -138,7 +139,7 @@ class CORE_EXPORT SVGImage final : public Image {
                                const FloatRect&,
                                const FloatSize&,
                                const FloatPoint&,
-                               SkXfermode::Mode,
+                               SkBlendMode,
                                const FloatRect&,
                                const FloatSize& repeatSpacing,
                                const KURL&);
@@ -158,6 +159,7 @@ class CORE_EXPORT SVGImage final : public Image {
 
   Persistent<SVGImageChromeClient> m_chromeClient;
   Persistent<Page> m_page;
+  std::unique_ptr<PaintController> m_paintController;
 
   // When an SVG image has no intrinsic size, the size depends on the default
   // object size, which in turn depends on the container. One SVGImage may

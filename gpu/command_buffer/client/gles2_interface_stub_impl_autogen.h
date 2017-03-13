@@ -916,7 +916,9 @@ void GLES2InterfaceStub::PostSubBufferCHROMIUM(GLint /* x */,
                                                GLint /* height */) {}
 void GLES2InterfaceStub::CopyTextureCHROMIUM(
     GLenum /* source_id */,
+    GLint /* source_level */,
     GLenum /* dest_id */,
+    GLint /* dest_level */,
     GLint /* internalformat */,
     GLenum /* dest_type */,
     GLboolean /* unpack_flip_y */,
@@ -924,7 +926,9 @@ void GLES2InterfaceStub::CopyTextureCHROMIUM(
     GLboolean /* unpack_unmultiply_alpha */) {}
 void GLES2InterfaceStub::CopySubTextureCHROMIUM(
     GLenum /* source_id */,
+    GLint /* source_level */,
     GLenum /* dest_id */,
+    GLint /* dest_level */,
     GLint /* xoffset */,
     GLint /* yoffset */,
     GLint /* x */,
@@ -1136,6 +1140,11 @@ void GLES2InterfaceStub::ProgramPathFragmentInputGenCHROMIUM(
     GLenum /* genMode */,
     GLint /* components */,
     const GLfloat* /* coeffs */) {}
+void* GLES2InterfaceStub::GetBufferSubDataAsyncCHROMIUM(GLenum /* target */,
+                                                        GLintptr /* offset */,
+                                                        GLsizeiptr /* size */) {
+  return 0;
+}
 void GLES2InterfaceStub::CoverageModulationCHROMIUM(GLenum /* components */) {}
 GLenum GLES2InterfaceStub::GetGraphicsResetStatusKHR() {
   return 0;
@@ -1158,6 +1167,11 @@ void GLES2InterfaceStub::UniformMatrix4fvStreamTextureMatrixCHROMIUM(
     GLint /* location */,
     GLboolean /* transpose */,
     const GLfloat* /* transform */) {}
+void GLES2InterfaceStub::OverlayPromotionHintCHROMIUM(
+    GLuint /* texture */,
+    GLboolean /* promotion_hint */,
+    GLint /* display_x */,
+    GLint /* display_y */) {}
 void GLES2InterfaceStub::SwapBuffersWithDamageCHROMIUM(GLint /* x */,
                                                        GLint /* y */,
                                                        GLint /* width */,

@@ -30,6 +30,27 @@ void DyadicBilinearDownsampler_ref (uint8_t* pDst, const int32_t kiDstStride,
   }
 }
 
+void DyadicBilinearDownsampler2_ref (uint8_t* pDst, const int32_t kiDstStride,
+                                     const uint8_t* pSrc, const int32_t kiSrcStride,
+                                     const int32_t kiSrcWidth, const int32_t kiSrcHeight) {
+  uint8_t* pDstLine = pDst;
+  const uint8_t* pSrcLine1 = pSrc;
+  const uint8_t* pSrcLine2 = pSrc + kiSrcStride;
+  const int32_t kiDstWidth  = kiSrcWidth >> 1;
+  const int32_t kiDstHeight = kiSrcHeight >> 1;
+
+  for (int32_t j = 0; j < kiDstHeight; j++) {
+    for (int32_t i = 0; i < kiDstWidth; i++) {
+      const int32_t kiTempCol1 = (pSrcLine1[2 * i + 0] + pSrcLine2[2 * i + 0] + 1) >> 1;
+      const int32_t kiTempCol2 = (pSrcLine1[2 * i + 1] + pSrcLine2[2 * i + 1] + 1) >> 1;
+      pDstLine[i] = (uint8_t) ((kiTempCol1 + kiTempCol2 + 1) >> 1);
+    }
+    pDstLine += kiDstStride;
+    pSrcLine1 += 2 * kiSrcStride;
+    pSrcLine2 += 2 * kiSrcStride;
+  }
+}
+
 void GeneralBilinearFastDownsampler_ref (uint8_t* pDst, const int32_t kiDstStride, const int32_t kiDstWidth,
     const int32_t kiDstHeight,
     uint8_t* pSrc, const int32_t kiSrcStride, const int32_t kiSrcWidth, const int32_t kiSrcHeight) {
@@ -162,7 +183,7 @@ void GeneralBilinearAccurateDownsampler_ref (uint8_t* pDst, const int32_t kiDstS
   }
 }
 
-#define GENERATE_DyadicBilinearDownsampler_UT(func, ASM, CPUFLAGS) \
+#define GENERATE_DyadicBilinearDownsampler_UT_with_ref(func, ASM, CPUFLAGS, ref_func) \
 TEST (DownSampleTest, func) { \
   if (ASM) {\
     int32_t iCpuCores = 0; \
@@ -190,7 +211,7 @@ TEST (DownSampleTest, func) { \
     dst_c[j] = dst_a[j] = rand() % 256; \
     src_c[j] = src_a[j] = rand() % 256; \
   } \
-  DyadicBilinearDownsampler_ref (dst_c, dst_stride_c, src_c, src_stride_c, src_width_c, src_height_c); \
+  ref_func (dst_c, dst_stride_c, src_c, src_stride_c, src_width_c, src_height_c); \
   func (dst_a, dst_stride_a, src_a, src_stride_a, src_width_a, src_height_a); \
   for (int j = 0; j < (src_height_c >> 1); j++) { \
     for (int m = 0; m < (src_width_c >> 1); m++) { \
@@ -198,6 +219,11 @@ TEST (DownSampleTest, func) { \
     } \
   } \
 }
+
+#define GENERATE_DyadicBilinearDownsampler_UT(func, ASM, CPUFLAGS) \
+  GENERATE_DyadicBilinearDownsampler_UT_with_ref(func, ASM, CPUFLAGS, DyadicBilinearDownsampler_ref)
+#define GENERATE_DyadicBilinearDownsampler2_UT(func, ASM, CPUFLAGS) \
+  GENERATE_DyadicBilinearDownsampler_UT_with_ref(func, ASM, CPUFLAGS, DyadicBilinearDownsampler2_ref)
 
 #define GENERATE_DyadicBilinearOneThirdDownsampler_UT(func, ASM, CPUFLAGS) \
 TEST (DownSampleTest, func) { \
@@ -296,21 +322,23 @@ TEST (DownSampleTest, func) { \
   int src_stride_a; \
   int src_width_a; \
   int src_height_a; \
-  dst_stride_c = dst_stride_a = 320; \
-  src_stride_c = src_stride_a = 320; \
-  src_width_c = src_width_a = 320; \
-  src_height_c = src_height_a = 180; \
-  dst_width_c = dst_width_a = 300; \
-  dst_height_c = dst_height_a = 160; \
-  for (int j = 0; j < 70000; j++) { \
-    dst_c[j] = dst_a[j] = rand() % 256; \
-    src_c[j] = src_a[j] = rand() % 256; \
-  } \
-  ref (dst_c, dst_stride_c, dst_width_c, dst_height_c, src_c, src_stride_c, src_width_c, src_height_c); \
-  func (dst_a, dst_stride_a, dst_width_a, dst_height_a, src_a, src_stride_a, src_width_a, src_height_a); \
-  for (int j = 0; j < dst_height_c; j++) { \
-    for (int m = 0; m < dst_width_c ; m++) { \
-      ASSERT_EQ (dst_c[m + j * dst_stride_c], dst_a[m + j * dst_stride_a]); \
+  for (int i = 0; i < 5; i++) { \
+    dst_stride_c = dst_stride_a = 320; \
+    src_stride_c = src_stride_a = 320; \
+    src_width_c = src_width_a = 320; \
+    src_height_c = src_height_a = 180; \
+    dst_width_c = dst_width_a = (src_width_c >> (i + 1)) + rand() % (src_width_c >> (i + 1)); \
+    dst_height_c = dst_height_a = (src_height_c >> (i + 1)) + rand() % (src_height_c >> (i + 1)); \
+    for (int j = 0; j < 70000; j++) { \
+      dst_c[j] = dst_a[j] = rand() % 256; \
+      src_c[j] = src_a[j] = rand() % 256; \
+    } \
+    ref (dst_c, dst_stride_c, dst_width_c, dst_height_c, src_c, src_stride_c, src_width_c, src_height_c); \
+    func (dst_a, dst_stride_a, dst_width_a, dst_height_a, src_a, src_stride_a, src_width_a, src_height_a); \
+    for (int j = 0; j < dst_height_c; j++) { \
+      for (int m = 0; m < dst_width_c ; m++) { \
+        ASSERT_EQ (dst_c[m + j * dst_stride_c], dst_a[m + j * dst_stride_a]); \
+      } \
     } \
   } \
 }
@@ -326,11 +354,8 @@ GENERATE_DyadicBilinearDownsampler_UT (DyadicBilinearDownsamplerWidthx32_sse, 1,
 GENERATE_DyadicBilinearDownsampler_UT (DyadicBilinearDownsamplerWidthx16_sse, 1, WELS_CPU_SSE)
 GENERATE_DyadicBilinearDownsampler_UT (DyadicBilinearDownsamplerWidthx8_sse, 1, WELS_CPU_SSE)
 
-GENERATE_DyadicBilinearDownsampler_UT (DyadicBilinearDownsamplerWidthx32_ssse3, 1, WELS_CPU_SSSE3)
-GENERATE_DyadicBilinearDownsampler_UT (DyadicBilinearDownsamplerWidthx16_ssse3, 1, WELS_CPU_SSSE3)
-
-GENERATE_DyadicBilinearDownsampler_UT (DyadicBilinearDownsamplerWidthx32_sse4, 1, WELS_CPU_SSE41)
-GENERATE_DyadicBilinearDownsampler_UT (DyadicBilinearDownsamplerWidthx16_sse4, 1, WELS_CPU_SSE41)
+GENERATE_DyadicBilinearDownsampler2_UT (DyadicBilinearDownsamplerWidthx32_ssse3, 1, WELS_CPU_SSSE3)
+GENERATE_DyadicBilinearDownsampler2_UT (DyadicBilinearDownsamplerWidthx16_ssse3, 1, WELS_CPU_SSSE3)
 
 GENERATE_DyadicBilinearOneThirdDownsampler_UT (DyadicBilinearOneThirdDownsampler_ssse3, 1, WELS_CPU_SSSE3)
 GENERATE_DyadicBilinearOneThirdDownsampler_UT (DyadicBilinearOneThirdDownsampler_sse4, 1, WELS_CPU_SSE41)
@@ -343,6 +368,17 @@ GENERATE_GeneralBilinearDownsampler_UT (GeneralBilinearFastDownsamplerWrap_sse2,
                                         WELS_CPU_SSE2)
 GENERATE_GeneralBilinearDownsampler_UT (GeneralBilinearAccurateDownsamplerWrap_sse2,
                                         GeneralBilinearAccurateDownsampler_ref, 1, WELS_CPU_SSE2)
+GENERATE_GeneralBilinearDownsampler_UT (GeneralBilinearFastDownsamplerWrap_ssse3, GeneralBilinearFastDownsampler_ref, 1,
+                                        WELS_CPU_SSSE3)
+GENERATE_GeneralBilinearDownsampler_UT (GeneralBilinearAccurateDownsamplerWrap_sse41,
+                                        GeneralBilinearAccurateDownsampler_ref, 1, WELS_CPU_SSE41)
+#ifdef HAVE_AVX2
+GENERATE_GeneralBilinearDownsampler_UT (GeneralBilinearFastDownsamplerWrap_avx2, GeneralBilinearFastDownsampler_ref, 1,
+                                        WELS_CPU_AVX2)
+GENERATE_GeneralBilinearDownsampler_UT (GeneralBilinearAccurateDownsamplerWrap_avx2,
+                                        GeneralBilinearAccurateDownsampler_ref, 1, WELS_CPU_AVX2)
+#endif
+
 #endif
 
 #if defined(HAVE_NEON)

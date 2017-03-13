@@ -26,12 +26,13 @@ class Checkbox;
 class ImageView;
 class Label;
 class Link;
+class Textfield;
 class Throbber;
 }
 
 namespace autofill {
 
-class DecoratedTextfield;
+class CardUnmaskPromptController;
 
 class CardUnmaskPromptViews : public CardUnmaskPromptView,
                               public views::ComboboxListener,
@@ -135,7 +136,7 @@ class CardUnmaskPromptViews : public CardUnmaskPromptView,
   // Holds the cvc and expiration inputs.
   View* input_row_;
 
-  DecoratedTextfield* cvc_input_;
+  views::Textfield* cvc_input_;
 
   views::Combobox* month_input_;
   views::Combobox* year_input_;

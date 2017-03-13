@@ -4,6 +4,8 @@
 
 #include "cc/test/test_layer_tree_host_base.h"
 
+#include "base/memory/ptr_util.h"
+#include "base/threading/thread_task_runner_handle.h"
 #include "cc/test/fake_compositor_frame_sink.h"
 #include "cc/test/fake_raster_source.h"
 #include "cc/trees/layer_tree_impl.h"
@@ -24,15 +26,13 @@ void TestLayerTreeHostBase::SetUp() {
   compositor_frame_sink_ = CreateCompositorFrameSink();
   task_graph_runner_ = CreateTaskGraphRunner();
   host_impl_ = CreateHostImpl(CreateSettings(), &task_runner_provider_,
-                              &shared_bitmap_manager_, task_graph_runner_.get(),
-                              &gpu_memory_buffer_manager_);
+                              task_graph_runner_.get());
   InitializeRenderer();
   SetInitialTreePriority();
 }
 
 LayerTreeSettings TestLayerTreeHostBase::CreateSettings() {
   LayerTreeSettings settings;
-  settings.verify_transform_tree_calculations = true;
   settings.verify_clip_tree_calculations = true;
   return settings;
 }
@@ -45,12 +45,9 @@ TestLayerTreeHostBase::CreateCompositorFrameSink() {
 std::unique_ptr<FakeLayerTreeHostImpl> TestLayerTreeHostBase::CreateHostImpl(
     const LayerTreeSettings& settings,
     TaskRunnerProvider* task_runner_provider,
-    SharedBitmapManager* shared_bitmap_manager,
-    TaskGraphRunner* task_graph_runner,
-    gpu::GpuMemoryBufferManager* gpu_memory_buffer_manager) {
-  return base::MakeUnique<FakeLayerTreeHostImpl>(
-      settings, task_runner_provider, shared_bitmap_manager, task_graph_runner,
-      gpu_memory_buffer_manager);
+    TaskGraphRunner* task_graph_runner) {
+  return base::MakeUnique<FakeLayerTreeHostImpl>(settings, task_runner_provider,
+                                                 task_graph_runner);
 }
 
 std::unique_ptr<TaskGraphRunner>

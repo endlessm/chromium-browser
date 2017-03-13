@@ -25,12 +25,7 @@
 
 namespace base {
 class ListValue;
-class Value;
 class DictionaryValue;
-}
-
-namespace content {
-class RenderProcessHost;
 }
 
 namespace extensions {
@@ -39,7 +34,6 @@ class Extension;
 
 namespace net {
 class NetLogWithSource;
-class URLRequest;
 }
 
 namespace extension_web_request_api_helpers {
@@ -328,17 +322,6 @@ bool MergeOnAuthRequiredResponses(
 
 // Triggers clearing each renderer's in-memory cache the next time it navigates.
 void ClearCacheOnNavigation();
-
-// Tells renderer processes that the web request or declarative web request
-// API has been used by the extension with the given |extension_id| in the
-// given |browser_context_id| to collect UMA statistics on Page Load Times.
-// Needs to be called on the UI thread.
-void NotifyWebRequestAPIUsed(void* browser_context_id,
-                             const std::string& extension_id);
-
-// Send updates to |host| with information about what webRequest-related
-// extensions are installed.
-void SendExtensionWebRequestStatusToHost(content::RenderProcessHost* host);
 
 // Converts the |name|, |value| pair of a http header to a HttpHeaders
 // dictionary.

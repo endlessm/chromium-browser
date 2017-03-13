@@ -135,7 +135,9 @@ bool VideoDecoderConfig::Matches(const VideoDecoderConfig& config) const {
           (visible_rect() == config.visible_rect()) &&
           (natural_size() == config.natural_size()) &&
           (extra_data() == config.extra_data()) &&
-          (encryption_scheme().Matches(config.encryption_scheme())));
+          (encryption_scheme().Matches(config.encryption_scheme())) &&
+          (color_space_info() == config.color_space_info()) &&
+          (hdr_metadata() == config.hdr_metadata()));
 }
 
 std::string VideoDecoderConfig::AsHumanReadableString() const {
@@ -150,6 +152,10 @@ std::string VideoDecoderConfig::AsHumanReadableString() const {
     << " has extra data? " << (extra_data().empty() ? "false" : "true")
     << " encrypted? " << (is_encrypted() ? "true" : "false");
   return s.str();
+}
+
+void VideoDecoderConfig::SetExtraData(const std::vector<uint8_t>& extra_data) {
+  extra_data_ = extra_data;
 }
 
 }  // namespace media

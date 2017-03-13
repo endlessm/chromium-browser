@@ -185,6 +185,7 @@ class FFmpegDemuxerStream : public DemuxerStream {
   VideoRotation video_rotation_;
   bool is_enabled_;
   bool waiting_for_keyframe_;
+  bool aborted_;
 
   DecoderBufferQueue buffer_queue_;
   ReadCB read_cb_;
@@ -233,6 +234,9 @@ class MEDIA_EXPORT FFmpegDemuxer : public Demuxer {
   // about capacity and what buffered data is available.
   void NotifyCapacityAvailable();
   void NotifyBufferingChanged();
+
+  // Allow FFmpegDemxuerStream to notify us about an error.
+  void NotifyDemuxerError(PipelineStatus error);
 
   void OnEnabledAudioTracksChanged(const std::vector<MediaTrack::Id>& track_ids,
                                    base::TimeDelta currTime) override;
@@ -328,10 +332,15 @@ class MEDIA_EXPORT FFmpegDemuxer : public Demuxer {
   // based timeline.
   base::TimeDelta start_time_;
 
+  // Finds the stream with the lowest known start time (i.e. not kNoTimestamp
+  // start time) with enabled status matching |enabled|.
+  FFmpegDemuxerStream* FindStreamWithLowestStartTimestamp(bool enabled);
+
   // Finds a preferred stream for seeking to |seek_time|. Preference is
   // typically given to video streams, unless the |seek_time| is earlier than
   // the start time of the video stream. In that case a stream with the earliest
-  // start time is preferred. Disabled streams are not considered.
+  // start time is preferred. Disabled streams are considered only as the last
+  // fallback option.
   FFmpegDemuxerStream* FindPreferredStreamForSeeking(base::TimeDelta seek_time);
 
   // The Time associated with timestamp 0. Set to a null

@@ -28,19 +28,22 @@
 namespace blink {
 
 struct BidiCharacterRun {
-  BidiCharacterRun(int start,
+  BidiCharacterRun(bool override,
+                   unsigned char level,
+                   int start,
                    int stop,
-                   BidiContext* context,
-                   WTF::Unicode::CharDirection dir)
-      : m_override(context->override()),
+                   WTF::Unicode::CharDirection dir,
+                   WTF::Unicode::CharDirection overrideDir)
+      : m_override(override),
+        m_level(level),
         m_next(0),
         m_start(start),
         m_stop(stop) {
     ASSERT(m_start <= m_stop);
     if (dir == WTF::Unicode::OtherNeutral)
-      dir = context->dir();
+      dir = overrideDir;
 
-    m_level = context->level();
+    m_level = level;
 
     // add level of run (cases I1 & I2)
     if (m_level % 2) {
@@ -57,6 +60,13 @@ struct BidiCharacterRun {
     }
   }
 
+  BidiCharacterRun(int start, int stop, unsigned char level)
+      : m_override(false),
+        m_level(level),
+        m_next(0),
+        m_start(start),
+        m_stop(stop) {}
+
   // BidiCharacterRun are allocated out of the rendering partition.
   PLATFORM_EXPORT void* operator new(size_t);
   PLATFORM_EXPORT void operator delete(void*);
@@ -70,7 +80,9 @@ struct BidiCharacterRun {
   bool dirOverride(bool visuallyOrdered) {
     return m_override || visuallyOrdered;
   }
-  TextDirection direction() const { return reversed(false) ? RTL : LTR; }
+  TextDirection direction() const {
+    return reversed(false) ? TextDirection::kRtl : TextDirection::kLtr;
+  }
 
   BidiCharacterRun* next() const { return m_next; }
   void setNext(BidiCharacterRun* next) { m_next = next; }

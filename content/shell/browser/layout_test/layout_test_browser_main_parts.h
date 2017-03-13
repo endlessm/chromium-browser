@@ -10,20 +10,7 @@
 #include "base/macros.h"
 #include "build/build_config.h"
 #include "content/shell/browser/shell_browser_main_parts.h"
-
-#if defined(OS_ANDROID)
-namespace breakpad {
-class CrashDumpManager;
-}
-#endif
-
-namespace base {
-class Thread;
-}
-
-namespace net {
-class NetLog;
-}
+#include "ppapi/features/features.h"
 
 namespace content {
 
@@ -38,7 +25,7 @@ class LayoutTestBrowserMainParts : public ShellBrowserMainParts {
   void InitializeBrowserContexts() override;
   void InitializeMessageLoopContext() override;
 
-#if defined(ENABLE_PLUGINS)
+#if BUILDFLAG(ENABLE_PLUGINS)
   std::unique_ptr<ShellPluginServiceFilter> plugin_service_filter_;
 #endif
 

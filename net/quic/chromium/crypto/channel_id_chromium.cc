@@ -7,7 +7,7 @@
 #include <utility>
 #include <vector>
 
-#include "base/stl_util.h"
+#include "base/memory/ptr_util.h"
 #include "base/strings/string_util.h"
 #include "crypto/ec_private_key.h"
 #include "crypto/ec_signature_creator.h"
@@ -128,7 +128,7 @@ QuicAsyncStatus ChannelIDSourceChromium::Job::GetChannelIDKey(
   next_state_ = STATE_GET_CHANNEL_ID_KEY;
   switch (DoLoop(OK)) {
     case OK:
-      channel_id_key->reset(channel_id_key_.release());
+      *channel_id_key = std::move(channel_id_key_);
       return QUIC_SUCCESS;
     case ERR_IO_PENDING:
       callback_.reset(callback);
@@ -200,25 +200,24 @@ ChannelIDSourceChromium::ChannelIDSourceChromium(
     : channel_id_service_(channel_id_service) {}
 
 ChannelIDSourceChromium::~ChannelIDSourceChromium() {
-  base::STLDeleteElements(&active_jobs_);
 }
 
 QuicAsyncStatus ChannelIDSourceChromium::GetChannelIDKey(
     const std::string& hostname,
     std::unique_ptr<ChannelIDKey>* channel_id_key,
     ChannelIDSourceCallback* callback) {
-  std::unique_ptr<Job> job(new Job(this, channel_id_service_));
+  std::unique_ptr<Job> job = base::MakeUnique<Job>(this, channel_id_service_);
   QuicAsyncStatus status =
       job->GetChannelIDKey(hostname, channel_id_key, callback);
   if (status == QUIC_PENDING) {
-    active_jobs_.insert(job.release());
+    Job* job_ptr = job.get();
+    active_jobs_[job_ptr] = std::move(job);
   }
   return status;
 }
 
 void ChannelIDSourceChromium::OnJobComplete(Job* job) {
   active_jobs_.erase(job);
-  delete job;
 }
 
 }  // namespace net

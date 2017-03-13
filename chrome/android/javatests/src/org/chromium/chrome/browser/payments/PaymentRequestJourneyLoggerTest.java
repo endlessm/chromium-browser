@@ -5,7 +5,7 @@
 package org.chromium.chrome.browser.payments;
 
 import android.content.DialogInterface;
-import android.test.suitebuilder.annotation.MediumTest;
+import android.support.test.filters.MediumTest;
 
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.test.util.Feature;
@@ -158,7 +158,8 @@ public class PaymentRequestJourneyLoggerTest extends PaymentRequestTestBase {
         clickInShippingAddressAndWait(R.id.payments_add_option_button, mReadyToEdit);
         setSpinnerSelectionInEditorAndWait(0 /* Afghanistan */, mReadyToEdit);
         setTextInEditorAndWait(
-                new String[] {"Alice", "Supreme Court", "Airport Road", "Kabul", "999-999-9999"},
+                new String[] {"Alice", "Supreme Court", "Airport Road", "Kabul", "1043",
+                        "999-999-9999"},
                 mEditorTextUpdate);
         clickInEditorAndWait(R.id.payments_edit_done_button, mReadyToPay);
 
@@ -253,7 +254,7 @@ public class PaymentRequestJourneyLoggerTest extends PaymentRequestTestBase {
         clickInPaymentMethodAndWait(R.id.payments_section, mReadyForInput);
         clickInPaymentMethodAndWait(R.id.payments_add_option_button, mReadyToEdit);
         setSpinnerSelectionsInCardEditorAndWait(
-                new int[] {11, 1, 1}, mBillingAddressChangeProcessed);
+                new int[] {11, 1, 0}, mBillingAddressChangeProcessed);
         setTextInCardEditorAndWait(new String[] {"4111111111111111", "Jon Doe"}, mEditorTextUpdate);
         clickInCardEditorAndWait(R.id.payments_edit_done_button, mReadyToPay);
 
@@ -350,5 +351,28 @@ public class PaymentRequestJourneyLoggerTest extends PaymentRequestTestBase {
         assertEquals(
                 2, RecordHistogram.getHistogramValueCountForTesting(
                            "PaymentRequest.NumberOfSelectionEdits.ShippingAddress.Completed", 0));
+    }
+
+    /**
+     * Expect that no journey metrics are logged if the payment request was not shown to the user.
+     */
+    @MediumTest
+    @Feature({"Payments"})
+    public void testNoShow() throws InterruptedException, ExecutionException, TimeoutException {
+        // Android Pay is supported but no instruments are present.
+        installPaymentApp("https://android.com/pay", NO_INSTRUMENTS, DELAYED_RESPONSE);
+        openPageAndClickNodeAndWait("androidPayBuy", mShowFailed);
+        expectResultContains(new String[] {"The payment method is not supported"});
+
+        // Make sure that no journey metrics were logged.
+        assertEquals(0,
+                RecordHistogram.getHistogramValueCountForTesting(
+                        "PaymentRequest.NumberOfSuggestionsShown.ShippingAddress.UserAborted", 2));
+        assertEquals(0,
+                RecordHistogram.getHistogramValueCountForTesting(
+                        "PaymentRequest.NumberOfSuggestionsShown.ShippingAddress.OtherAborted", 2));
+        assertEquals(
+                0, RecordHistogram.getHistogramValueCountForTesting(
+                           "PaymentRequest.NumberOfSuggestionsShown.ShippingAddress.Completed", 2));
     }
 }

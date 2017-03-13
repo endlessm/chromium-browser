@@ -10,13 +10,13 @@
 #include <memory>
 #include <numeric>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/command_line.h"
-#include "base/containers/scoped_ptr_hash_map.h"
 #include "base/cpu.h"
 #include "base/files/file.h"
 #include "base/json/json_reader.h"
@@ -63,12 +63,13 @@
 #include "ppapi/shared_impl/var_tracker.h"
 #include "ppapi/thunk/enter.h"
 #include "third_party/WebKit/public/platform/WebSecurityOrigin.h"
-#include "third_party/WebKit/public/platform/WebURLLoader.h"
+#include "third_party/WebKit/public/platform/WebURLRequest.h"
 #include "third_party/WebKit/public/platform/WebURLResponse.h"
+#include "third_party/WebKit/public/web/WebAssociatedURLLoader.h"
+#include "third_party/WebKit/public/web/WebAssociatedURLLoaderClient.h"
 #include "third_party/WebKit/public/web/WebDocument.h"
 #include "third_party/WebKit/public/web/WebLocalFrame.h"
 #include "third_party/WebKit/public/web/WebPluginContainer.h"
-#include "third_party/WebKit/public/web/WebURLLoaderOptions.h"
 
 #if defined(OS_WIN)
 #include "base/win/scoped_handle.h"
@@ -130,14 +131,11 @@ class NaClPluginInstance {
   explicit NaClPluginInstance(PP_Instance instance)
       : nexe_load_manager(instance), pexe_size(0) {}
   ~NaClPluginInstance() {
-    // Make sure that we do not leak a file descriptor if the NaCl loader
+    // Make sure that we do not leak a mojo handle if the NaCl loader
     // process never called ppapi_start() to initialize PPAPI.
     if (instance_info) {
-#if defined(OS_WIN)
-      base::win::ScopedHandle closer(instance_info->channel_handle.pipe.handle);
-#else
-      base::ScopedFD closer(instance_info->channel_handle.socket.fd);
-#endif
+      DCHECK(instance_info->channel_handle.is_mojo_channel_handle());
+      instance_info->channel_handle.mojo_handle.Close();
     }
   }
 
@@ -150,16 +148,16 @@ class NaClPluginInstance {
   uint64_t pexe_size;
 };
 
-typedef base::ScopedPtrHashMap<PP_Instance, std::unique_ptr<NaClPluginInstance>>
+typedef std::unordered_map<PP_Instance, std::unique_ptr<NaClPluginInstance>>
     InstanceMap;
 base::LazyInstance<InstanceMap> g_instance_map = LAZY_INSTANCE_INITIALIZER;
 
 NaClPluginInstance* GetNaClPluginInstance(PP_Instance instance) {
   InstanceMap& map = g_instance_map.Get();
-  InstanceMap::iterator iter = map.find(instance);
+  auto iter = map.find(instance);
   if (iter == map.end())
     return NULL;
-  return iter->second;
+  return iter->second.get();
 }
 
 NexeLoadManager* GetNexeLoadManager(PP_Instance instance) {
@@ -194,17 +192,8 @@ int GetRoutingID(PP_Instance instance) {
 
 // Returns whether the channel_handle is valid or not.
 bool IsValidChannelHandle(const IPC::ChannelHandle& channel_handle) {
-  if (channel_handle.name.empty()) {
-    return false;
-  }
-
-#if defined(OS_POSIX)
-  if (channel_handle.socket.fd == -1) {
-    return false;
-  }
-#endif
-
-  return true;
+  DCHECK(channel_handle.is_mojo_channel_handle());
+  return channel_handle.is_mojo_channel_handle();
 }
 
 void PostPPCompletionCallback(PP_CompletionCallback callback,
@@ -328,9 +317,10 @@ class ManifestServiceProxy : public ManifestServiceChannel::Delegate {
   DISALLOW_COPY_AND_ASSIGN(ManifestServiceProxy);
 };
 
-blink::WebURLLoader* CreateWebURLLoader(const blink::WebDocument& document,
-                                        const GURL& gurl) {
-  blink::WebURLLoaderOptions options;
+blink::WebAssociatedURLLoader* CreateAssociatedURLLoader(
+    const blink::WebDocument& document,
+    const GURL& gurl) {
+  blink::WebAssociatedURLLoaderOptions options;
   options.untrustedHTTP = true;
 
   // Options settings here follow the original behavior in the trusted
@@ -339,16 +329,15 @@ blink::WebURLLoader* CreateWebURLLoader(const blink::WebDocument& document,
     options.allowCredentials = true;
   } else {
     // Allow CORS.
-    options.crossOriginRequestPolicy =
-        blink::WebURLLoaderOptions::CrossOriginRequestPolicyUseAccessControl;
+    options.crossOriginRequestPolicy = blink::WebAssociatedURLLoaderOptions::
+        CrossOriginRequestPolicyUseAccessControl;
   }
   return document.frame()->createAssociatedURLLoader(options);
 }
 
 blink::WebURLRequest CreateWebURLRequest(const blink::WebDocument& document,
                                          const GURL& gurl) {
-  blink::WebURLRequest request;
-  request.setURL(gurl);
+  blink::WebURLRequest request(gurl);
   request.setFirstPartyForCookies(document.firstPartyForCookies());
   return request;
 }
@@ -505,7 +494,9 @@ void PPBNaClPrivate::LaunchSelLdr(
     // Even on error, some FDs/handles may be passed to here.
     // We must release those resources.
     // See also nacl_process_host.cc.
-    base::SharedMemory::CloseHandle(launch_result.crash_info_shmem_handle);
+    if (base::SharedMemory::IsHandleValid(
+            launch_result.crash_info_shmem_handle))
+      base::SharedMemory::CloseHandle(launch_result.crash_info_shmem_handle);
 
     if (PP_ToBool(main_service_runtime)) {
       load_manager->ReportLoadError(PP_NACL_ERROR_SEL_LDR_LAUNCH,
@@ -550,8 +541,11 @@ void PPBNaClPrivate::LaunchSelLdr(
     bool is_helper_nexe = !PP_ToBool(main_service_runtime);
     std::unique_ptr<TrustedPluginChannel> trusted_plugin_channel(
         new TrustedPluginChannel(
-            load_manager, launch_result.trusted_ipc_channel_handle,
-            content::RenderThread::Get()->GetShutdownEvent(), is_helper_nexe));
+            load_manager,
+            mojo::MakeRequest<mojom::NaClRendererHost>(
+                mojo::ScopedMessagePipeHandle(
+                    launch_result.trusted_ipc_channel_handle.mojo_handle)),
+            is_helper_nexe));
     load_manager->set_trusted_plugin_channel(std::move(trusted_plugin_channel));
   } else {
     PostPPCompletionCallback(callback, PP_ERROR_FAILED);
@@ -873,24 +867,31 @@ void PPBNaClPrivate::ReportLoadError(PP_Instance instance,
 // static
 void PPBNaClPrivate::InstanceCreated(PP_Instance instance) {
   InstanceMap& map = g_instance_map.Get();
-  CHECK(!ContainsKey(map, instance));  // Sanity check.
+  CHECK(map.find(instance) == map.end());  // Sanity check.
   std::unique_ptr<NaClPluginInstance> new_instance(
       new NaClPluginInstance(instance));
-  map.add(instance, std::move(new_instance));
+  map[instance] = std::move(new_instance);
 }
 
 // static
 void PPBNaClPrivate::InstanceDestroyed(PP_Instance instance) {
   InstanceMap& map = g_instance_map.Get();
-  InstanceMap::iterator iter = map.find(instance);
+  auto iter = map.find(instance);
   CHECK(iter != map.end());
   // The erase may call NexeLoadManager's destructor prior to removing it from
   // the map. In that case, it is possible for the trusted Plugin to re-enter
   // the NexeLoadManager (e.g., by calling ReportLoadError). Passing out the
   // NexeLoadManager to a local scoped_ptr just ensures that its entry is gone
   // from the map prior to the destructor being invoked.
-  std::unique_ptr<NaClPluginInstance> temp(map.take(instance));
+  std::unique_ptr<NaClPluginInstance> temp = std::move(iter->second);
   map.erase(iter);
+}
+
+// static
+void PPBNaClPrivate::TerminateNaClLoader(PP_Instance instance) {
+  auto* load_mgr = GetNexeLoadManager(instance);
+  if (load_mgr)
+    load_mgr->CloseTrustedPluginChannel();
 }
 
 namespace {
@@ -1025,8 +1026,8 @@ void DownloadManifestToBuffer(PP_Instance instance,
       plugin_instance->GetContainer()->document();
 
   const GURL& gurl = load_manager->manifest_base_url();
-  std::unique_ptr<blink::WebURLLoader> url_loader(
-      CreateWebURLLoader(document, gurl));
+  std::unique_ptr<blink::WebAssociatedURLLoader> url_loader(
+      CreateAssociatedURLLoader(document, gurl));
   blink::WebURLRequest request = CreateWebURLRequest(document, gurl);
 
   // ManifestDownloader deletes itself after invoking the callback.
@@ -1108,7 +1109,7 @@ bool CreateJsonManifest(PP_Instance instance,
       PP_ToBool(NaClDebugEnabledForURL(manifest_url.c_str()))));
   JsonManifest::ErrorInfo error_info;
   if (j->Init(manifest_data.c_str(), &error_info)) {
-    GetNaClPluginInstance(instance)->json_manifest.reset(j.release());
+    GetNaClPluginInstance(instance)->json_manifest = std::move(j);
     return true;
   }
   load_manager->ReportLoadError(error_info.error, error_info.string);
@@ -1378,8 +1379,8 @@ void PPBNaClPrivate::DownloadNexe(PP_Instance instance,
   }
   const blink::WebDocument& document =
       plugin_instance->GetContainer()->document();
-  std::unique_ptr<blink::WebURLLoader> url_loader(
-      CreateWebURLLoader(document, gurl));
+  std::unique_ptr<blink::WebAssociatedURLLoader> url_loader(
+      CreateAssociatedURLLoader(document, gurl));
   blink::WebURLRequest url_request = CreateWebURLRequest(document, gurl);
 
   ProgressEventRateLimiter* tracker = new ProgressEventRateLimiter(instance);
@@ -1530,8 +1531,8 @@ void DownloadFile(PP_Instance instance,
   }
   const blink::WebDocument& document =
       plugin_instance->GetContainer()->document();
-  std::unique_ptr<blink::WebURLLoader> url_loader(
-      CreateWebURLLoader(document, gurl));
+  std::unique_ptr<blink::WebAssociatedURLLoader> url_loader(
+      CreateAssociatedURLLoader(document, gurl));
   blink::WebURLRequest url_request = CreateWebURLRequest(document, gurl);
 
   ProgressEventRateLimiter* tracker = new ProgressEventRateLimiter(instance);
@@ -1582,10 +1583,10 @@ namespace {
 
 // PexeDownloader is responsible for deleting itself when the download
 // finishes.
-class PexeDownloader : public blink::WebURLLoaderClient {
+class PexeDownloader : public blink::WebAssociatedURLLoaderClient {
  public:
   PexeDownloader(PP_Instance instance,
-                 std::unique_ptr<blink::WebURLLoader> url_loader,
+                 std::unique_ptr<blink::WebAssociatedURLLoader> url_loader,
                  const std::string& pexe_url,
                  int32_t pexe_opt_level,
                  bool use_subzero,
@@ -1607,8 +1608,7 @@ class PexeDownloader : public blink::WebURLLoaderClient {
   }
 
  private:
-  void didReceiveResponse(blink::WebURLLoader* loader,
-                          const blink::WebURLResponse& response) override {
+  void didReceiveResponse(const blink::WebURLResponse& response) override {
     success_ = (response.httpStatusCode() == 200);
     if (!success_)
       return;
@@ -1620,10 +1620,16 @@ class PexeDownloader : public blink::WebURLLoaderClient {
     url_loader_->setDefersLoading(true);
 
     std::string etag = response.httpHeaderField("etag").utf8();
+
+    // Parse the "last-modified" date string. An invalid string will result
+    // in a base::Time value of 0, which is supported by the only user of
+    // the |CacheInfo::last_modified| field (see
+    // pnacl::PnaclTranslationCache::GetKey()).
     std::string last_modified =
         response.httpHeaderField("last-modified").utf8();
     base::Time last_modified_time;
-    base::Time::FromString(last_modified.c_str(), &last_modified_time);
+    ignore_result(
+        base::Time::FromString(last_modified.c_str(), &last_modified_time));
 
     bool has_no_store_header = false;
     std::string cache_control =
@@ -1670,11 +1676,7 @@ class PexeDownloader : public blink::WebURLLoaderClient {
     url_loader_->setDefersLoading(false);
   }
 
-  void didReceiveData(blink::WebURLLoader* loader,
-                      const char* data,
-                      int data_length,
-                      int encoded_data_length,
-                      int encoded_body_length) override {
+  void didReceiveData(const char* data, int data_length) override {
     if (content::PepperPluginInstance::Get(instance_)) {
       // Stream the data we received to the stream callback.
       stream_handler_->DidStreamData(stream_handler_user_data_,
@@ -1683,9 +1685,7 @@ class PexeDownloader : public blink::WebURLLoaderClient {
     }
   }
 
-  void didFinishLoading(blink::WebURLLoader* loader,
-                        double finish_time,
-                        int64_t total_encoded_data_length) override {
+  void didFinishLoading(double finish_time) override {
     int32_t result = success_ ? PP_OK : PP_ERROR_FAILED;
 
     if (content::PepperPluginInstance::Get(instance_))
@@ -1693,8 +1693,7 @@ class PexeDownloader : public blink::WebURLLoaderClient {
     delete this;
   }
 
-  void didFail(blink::WebURLLoader* loader,
-               const blink::WebURLError& error) override {
+  void didFail(const blink::WebURLError& error) override {
     if (content::PepperPluginInstance::Get(instance_))
       stream_handler_->DidFinishStream(stream_handler_user_data_,
                                        PP_ERROR_FAILED);
@@ -1702,7 +1701,7 @@ class PexeDownloader : public blink::WebURLLoaderClient {
   }
 
   PP_Instance instance_;
-  std::unique_ptr<blink::WebURLLoader> url_loader_;
+  std::unique_ptr<blink::WebAssociatedURLLoader> url_loader_;
   std::string pexe_url_;
   int32_t pexe_opt_level_;
   bool use_subzero_;
@@ -1734,8 +1733,8 @@ void PPBNaClPrivate::StreamPexe(PP_Instance instance,
   GURL gurl(pexe_url);
   const blink::WebDocument& document =
       plugin_instance->GetContainer()->document();
-  std::unique_ptr<blink::WebURLLoader> url_loader(
-      CreateWebURLLoader(document, gurl));
+  std::unique_ptr<blink::WebAssociatedURLLoader> url_loader(
+      CreateAssociatedURLLoader(document, gurl));
   PexeDownloader* downloader =
       new PexeDownloader(instance, std::move(url_loader), pexe_url, opt_level,
                          PP_ToBool(use_subzero), handler, handler_user_data);

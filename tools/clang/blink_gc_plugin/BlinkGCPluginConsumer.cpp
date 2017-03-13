@@ -75,6 +75,9 @@ BlinkGCPluginConsumer::BlinkGCPluginConsumer(
 
   // Ignore GC implementation files.
   options_.ignored_directories.push_back("/heap/");
+
+  if (!options_.use_chromium_style_naming)
+    Config::UseLegacyNames();
 }
 
 void BlinkGCPluginConsumer::HandleTranslationUnit(ASTContext& context) {
@@ -143,7 +146,7 @@ void BlinkGCPluginConsumer::ParseFunctionTemplates(TranslationUnitDecl* decl) {
 
     // Force parsing and AST building of the yet-uninstantiated function
     // template trace method bodies.
-    clang::LateParsedTemplate* lpt = sema.LateParsedTemplateMap[fd];
+    clang::LateParsedTemplate* lpt = sema.LateParsedTemplateMap[fd].get();
     sema.LateTemplateParser(sema.OpaqueParser, *lpt);
   }
 }

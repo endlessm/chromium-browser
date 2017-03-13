@@ -1,32 +1,65 @@
 {
-  "manifest_version":  1,
-  "name": "service:ui",
+  "name": "ui",
   "display_name": "UI Service",
-  "capabilities": {
-    "provided": {
-      // A collection of interfaces needed by a generic client of mus.
-      // Additional interfaces may be requested a-la-carte.
-      "app": [
-        "ui::mojom::Clipboard",
-        "ui::mojom::DisplayManager",
-        "ui::mojom::Gpu",
-        "ui::mojom::GpuService",
-        "ui::mojom::IMEServer",
-        "ui::mojom::InputDeviceServer",
-        "ui::mojom::WindowTreeFactory"
-      ],
-      // Interfaces provided by mus-gpu for mus-ws.
-      "ozone": [
-        "ui::ozone::mojom::DeviceCursor"
-      ],
-      "test": [
-        "ui::mojom::WindowServerTest"
-      ]
-    },
-    "required": {
-      "service:ui": { "classes": [ "ozone" ] },
-      "*": { "classes": [ "app" ] },
-      "service:shell": { "classes": [ "shell:all_users", "shell:explicit_class" ] }
+  "interface_provider_specs": {
+    "service_manager:connector": {
+      "provides": {
+        // A collection of interfaces needed by a generic client of mus.
+        // Additional interfaces may be requested a-la-carte.
+        // NOTE: when adding a new interface chances are you will want to add it
+        // to window_manager as well.
+        "app": [
+          "discardable_memory::mojom::DiscardableSharedMemoryManager",
+          "ui::mojom::Clipboard",
+          "ui::mojom::DisplayCompositor",
+          "ui::mojom::DisplayManager",
+          "ui::mojom::Gpu",
+          "ui::mojom::IMEServer",
+          "ui::mojom::InputDeviceServer",
+          "ui::mojom::WindowTreeFactory"
+        ],
+        // Interfaces provided by mus-gpu for mus-ws.
+        "ozone": [
+          "ui::ozone::mojom::DeviceCursor"
+        ],
+        "test": [
+          "ui::mojom::WindowServerTest"
+        ],
+        "discardable_memory": [
+          "discardable_memory::mojom::DiscardableSharedMemoryManager"
+        ],
+        "gpu_client": [
+          "ui::mojom::Gpu"
+        ],
+        "ime_registrar": [
+          "ui::mojom::IMERegistrar"
+        ],
+        "user_access_manager": [
+          "ui::mojom::UserAccessManager"
+        ],
+        "window_manager": [
+          "discardable_memory::mojom::DiscardableSharedMemoryManager",
+          "display::mojom::DisplayController",
+          "display::mojom::TestDisplayController",
+          "ui::mojom::AccessibilityManager",
+          "ui::mojom::Clipboard",
+          "ui::mojom::DisplayCompositor",
+          "ui::mojom::DisplayManager",
+          "ui::mojom::Gpu",
+          "ui::mojom::IMEServer",
+          "ui::mojom::InputDeviceServer",
+          "ui::mojom::WindowManagerWindowTreeFactory"
+        ],
+        "window_tree_host_factory": [
+          "ui::mojom::WindowTreeHostFactory"
+        ]
+      },
+      "requires": {
+        "*": [ "app" ],
+        "catalog": [ "catalog:catalog" ],
+        "service_manager": [ "service_manager:all_users" ],
+        "ui": [ "ozone" ]
+      }
     }
   }
 }

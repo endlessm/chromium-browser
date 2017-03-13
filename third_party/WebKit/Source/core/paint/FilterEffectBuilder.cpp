@@ -26,8 +26,8 @@
 
 #include "core/paint/FilterEffectBuilder.h"
 
-#include "core/layout/svg/ReferenceFilterBuilder.h"
 #include "core/style/FilterOperations.h"
+#include "core/svg/SVGElementProxy.h"
 #include "core/svg/SVGFilterElement.h"
 #include "core/svg/SVGLengthContext.h"
 #include "core/svg/graphics/filters/SVGFilterBuilder.h"
@@ -67,9 +67,8 @@ inline void lastMatrixRow(Vector<float>& matrix) {
 Vector<float> grayscaleMatrix(double amount) {
   double oneMinusAmount = clampTo(1 - amount, 0.0, 1.0);
 
-  // See
-  // https://dvcs.w3.org/hg/FXTF/raw-file/tip/filters/index.html#grayscaleEquivalent
-  // for information on parameters.
+  // See https://drafts.fxtf.org/filters/#grayscaleEquivalent for information on
+  // parameters.
   Vector<float> matrix;
   matrix.reserveInitialCapacity(20);
 
@@ -95,9 +94,8 @@ Vector<float> grayscaleMatrix(double amount) {
 Vector<float> sepiaMatrix(double amount) {
   double oneMinusAmount = clampTo(1 - amount, 0.0, 1.0);
 
-  // See
-  // https://dvcs.w3.org/hg/FXTF/raw-file/tip/filters/index.html#sepiaEquivalent
-  // for information on parameters.
+  // See https://drafts.fxtf.org/filters/#sepiaEquivalent for information on
+  // parameters.
   Vector<float> matrix;
   matrix.reserveInitialCapacity(20);
 
@@ -148,16 +146,17 @@ FilterEffect* FilterEffectBuilder::buildFilterEffect(
       case FilterOperation::REFERENCE: {
         ReferenceFilterOperation& referenceOperation =
             toReferenceFilterOperation(*filterOperation);
-        if (Filter* referenceFilter =
-                buildReferenceFilter(referenceOperation, previousEffect)) {
+        Filter* referenceFilter =
+            buildReferenceFilter(referenceOperation, previousEffect);
+        if (referenceFilter) {
+          effect = referenceFilter->lastEffect();
           // TODO(fs): This is essentially only needed for the
           // side-effects (mapRect). The filter differs from the one
           // computed just above in what the SourceGraphic is, and how
           // it's connected to the filter-chain.
-          referenceOperation.setFilter(
-              buildReferenceFilter(referenceOperation, nullptr));
-          effect = referenceFilter->lastEffect();
+          referenceFilter = buildReferenceFilter(referenceOperation, nullptr);
         }
+        referenceOperation.setFilter(referenceFilter);
         break;
       }
       case FilterOperation::GRAYSCALE: {
@@ -176,7 +175,7 @@ FilterEffect* FilterEffectBuilder::buildFilterEffect(
       }
       case FilterOperation::SATURATE: {
         Vector<float> inputParameters;
-        inputParameters.append(clampTo<float>(
+        inputParameters.push_back(clampTo<float>(
             toBasicColorMatrixFilterOperation(filterOperation)->amount()));
         effect = FEColorMatrix::create(
             parentFilter, FECOLORMATRIX_TYPE_SATURATE, inputParameters);
@@ -184,7 +183,7 @@ FilterEffect* FilterEffectBuilder::buildFilterEffect(
       }
       case FilterOperation::HUE_ROTATE: {
         Vector<float> inputParameters;
-        inputParameters.append(clampTo<float>(
+        inputParameters.push_back(clampTo<float>(
             toBasicColorMatrixFilterOperation(filterOperation)->amount()));
         effect = FEColorMatrix::create(
             parentFilter, FECOLORMATRIX_TYPE_HUEROTATE, inputParameters);
@@ -196,9 +195,9 @@ FilterEffect* FilterEffectBuilder::buildFilterEffect(
         ComponentTransferFunction transferFunction;
         transferFunction.type = FECOMPONENTTRANSFER_TYPE_TABLE;
         Vector<float> transferParameters;
-        transferParameters.append(
+        transferParameters.push_back(
             clampTo<float>(componentTransferOperation->amount()));
-        transferParameters.append(
+        transferParameters.push_back(
             clampTo<float>(1 - componentTransferOperation->amount()));
         transferFunction.tableValues = transferParameters;
 
@@ -212,8 +211,8 @@ FilterEffect* FilterEffectBuilder::buildFilterEffect(
         ComponentTransferFunction transferFunction;
         transferFunction.type = FECOMPONENTTRANSFER_TYPE_TABLE;
         Vector<float> transferParameters;
-        transferParameters.append(0);
-        transferParameters.append(clampTo<float>(
+        transferParameters.push_back(0);
+        transferParameters.push_back(clampTo<float>(
             toBasicComponentTransferFilterOperation(filterOperation)
                 ->amount()));
         transferFunction.tableValues = transferParameters;
@@ -259,13 +258,11 @@ FilterEffect* FilterEffectBuilder::buildFilterEffect(
         break;
       }
       case FilterOperation::DROP_SHADOW: {
-        DropShadowFilterOperation* dropShadowOperation =
-            toDropShadowFilterOperation(filterOperation);
-        float stdDeviation = dropShadowOperation->stdDeviation();
-        float x = dropShadowOperation->x();
-        float y = dropShadowOperation->y();
-        effect = FEDropShadow::create(parentFilter, stdDeviation, stdDeviation,
-                                      x, y, dropShadowOperation->getColor(), 1);
+        const ShadowData& shadow =
+            toDropShadowFilterOperation(*filterOperation).shadow();
+        effect = FEDropShadow::create(parentFilter, shadow.blur(),
+                                      shadow.blur(), shadow.x(), shadow.y(),
+                                      shadow.color().getColor(), 1);
         break;
       }
       case FilterOperation::BOX_REFLECT: {
@@ -285,7 +282,7 @@ FilterEffect* FilterEffectBuilder::buildFilterEffect(
         // subregions.
         effect->setClipsToBounds(false);
         effect->setOperatingColorSpace(ColorSpaceDeviceRGB);
-        effect->inputEffects().append(previousEffect);
+        effect->inputEffects().push_back(previousEffect);
       }
       if (previousEffect->originTainted())
         effect->setOriginTainted();
@@ -308,7 +305,6 @@ CompositorFilterOperations FilterEffectBuilder::buildFilterOperations(
         Filter* referenceFilter =
             buildReferenceFilter(referenceOperation, nullptr);
         if (referenceFilter && referenceFilter->lastEffect()) {
-          referenceOperation.setFilter(referenceFilter);
           SkiaImageFilterBuilder::populateSourceGraphicImageFilters(
               referenceFilter->getSourceGraphic(), nullptr, currentColorSpace);
 
@@ -317,6 +313,7 @@ CompositorFilterOperations FilterEffectBuilder::buildFilterOperations(
           filters.appendReferenceFilter(
               SkiaImageFilterBuilder::build(filterEffect, currentColorSpace));
         }
+        referenceOperation.setFilter(referenceFilter);
         break;
       }
       case FilterOperation::GRAYSCALE:
@@ -372,11 +369,10 @@ CompositorFilterOperations FilterEffectBuilder::buildFilterOperations(
         break;
       }
       case FilterOperation::DROP_SHADOW: {
-        const DropShadowFilterOperation& drop =
-            toDropShadowFilterOperation(*op);
-        filters.appendDropShadowFilter(WebPoint(drop.x(), drop.y()),
-                                       drop.stdDeviation(),
-                                       drop.getColor().rgb());
+        const ShadowData& shadow = toDropShadowFilterOperation(*op).shadow();
+        filters.appendDropShadowFilter(WebPoint(shadow.x(), shadow.y()),
+                                       shadow.blur(),
+                                       shadow.color().getColor());
         break;
       }
       case FilterOperation::BOX_REFLECT: {
@@ -403,13 +399,13 @@ CompositorFilterOperations FilterEffectBuilder::buildFilterOperations(
 Filter* FilterEffectBuilder::buildReferenceFilter(
     const ReferenceFilterOperation& referenceOperation,
     FilterEffect* previousEffect) const {
-  DCHECK(m_targetContext && m_targetContext->isElementNode());
-  SVGFilterElement* filterElement =
-      ReferenceFilterBuilder::resolveFilterReference(
-          referenceOperation, toElement(*m_targetContext));
-  if (!filterElement)
+  DCHECK(m_targetContext);
+  Element* filterElement = referenceOperation.elementProxy().findElement(
+      m_targetContext->treeScope());
+  if (!isSVGFilterElement(filterElement))
     return nullptr;
-  return buildReferenceFilter(*filterElement, previousEffect);
+  return buildReferenceFilter(toSVGFilterElement(*filterElement),
+                              previousEffect);
 }
 
 Filter* FilterEffectBuilder::buildReferenceFilter(

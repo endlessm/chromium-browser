@@ -9,21 +9,21 @@
 
 #include "core/fxcrt/fx_coordinates.h"
 #include "core/fxcrt/fx_system.h"
-#include "xfa/fwl/core/fwl_error.h"
+#include "xfa/fwl/fwl_error.h"
 
-class IFWL_Widget;
+class CFWL_Widget;
 
 class CXFA_FWLAdapterWidgetMgr {
  public:
   CXFA_FWLAdapterWidgetMgr();
   ~CXFA_FWLAdapterWidgetMgr();
 
-  FWL_Error RepaintWidget(IFWL_Widget* pWidget, const CFX_RectF* pRect);
-  FX_BOOL GetPopupPos(IFWL_Widget* pWidget,
-                      FX_FLOAT fMinHeight,
-                      FX_FLOAT fMaxHeight,
-                      const CFX_RectF& rtAnchor,
-                      CFX_RectF& rtPopup);
+  void RepaintWidget(CFWL_Widget* pWidget);
+  bool GetPopupPos(CFWL_Widget* pWidget,
+                   FX_FLOAT fMinHeight,
+                   FX_FLOAT fMaxHeight,
+                   const CFX_RectF& rtAnchor,
+                   CFX_RectF& rtPopup);
 };
 
 #endif  // XFA_FXFA_APP_XFA_FWLADAPTER_H_

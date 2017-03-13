@@ -26,7 +26,7 @@ public class ProgressIndicatorView extends ImageView {
     private final Runnable mShowSpinnerRunnable;
 
     private final MaterialProgressDrawable mProgressDrawable;
-    private boolean mPostedCallback = false;
+    private boolean mPostedCallback;
 
     /**
      * Constructor for use in layout files.
@@ -44,7 +44,7 @@ public class ProgressIndicatorView extends ImageView {
 
         mProgressDrawable = new MaterialProgressDrawable(getContext(), this);
 
-        mProgressDrawable.setBackgroundColor(getColorAsInt(R.color.ntp_material_design_bg));
+        mProgressDrawable.setBackgroundColor(getColorAsInt(R.color.ntp_bg));
         mProgressDrawable.setAlpha(255);
         mProgressDrawable.setColorSchemeColors(getColorAsInt(R.color.light_active_color));
         mProgressDrawable.updateSizes(MaterialProgressDrawable.LARGE);

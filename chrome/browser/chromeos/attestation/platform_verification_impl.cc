@@ -6,6 +6,7 @@
 
 #include <utility>
 
+#include "base/memory/ptr_util.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/web_contents.h"
 #include "mojo/public/cpp/bindings/strong_binding.h"
@@ -37,8 +38,8 @@ PlatformVerificationImpl::~PlatformVerificationImpl() {
 }
 
 void PlatformVerificationImpl::ChallengePlatform(
-    const mojo::String& service_id,
-    const mojo::String& challenge,
+    const std::string& service_id,
+    const std::string& challenge,
     const ChallengePlatformCallback& callback) {
   DVLOG(2) << __FUNCTION__;
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);

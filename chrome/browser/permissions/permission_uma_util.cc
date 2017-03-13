@@ -8,7 +8,6 @@
 
 #include "base/command_line.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/metrics/histogram_macros.h"
 #include "base/strings/stringprintf.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/permissions/permission_decision_auto_blocker.h"
@@ -23,8 +22,8 @@
 #include "chrome/common/pref_names.h"
 #include "components/browser_sync/profile_sync_service.h"
 #include "components/prefs/pref_service.h"
-#include "components/rappor/rappor_service.h"
-#include "components/rappor/rappor_utils.h"
+#include "components/rappor/public/rappor_utils.h"
+#include "components/rappor/rappor_service_impl.h"
 #include "content/public/browser/permission_type.h"
 #include "content/public/common/origin_util.h"
 #include "url/gurl.h"
@@ -98,14 +97,15 @@ void RecordPermissionRequest(PermissionType permission,
                              const GURL& requesting_origin,
                              const GURL& embedding_origin,
                              Profile* profile) {
-  rappor::RapporService* rappor_service = g_browser_process->rappor_service();
+  rappor::RapporServiceImpl* rappor_service =
+      g_browser_process->rappor_service();
   if (rappor_service) {
     if (permission == PermissionType::GEOLOCATION) {
       // TODO(dominickn): remove this deprecated metric - crbug.com/605836.
       rappor::SampleDomainAndRegistryFromGURL(
           rappor_service, "ContentSettings.PermissionRequested.Geolocation.Url",
           requesting_origin);
-      rappor_service->RecordSample(
+      rappor_service->RecordSampleString(
           "ContentSettings.PermissionRequested.Geolocation.Url2",
           rappor::LOW_FREQUENCY_ETLD_PLUS_ONE_RAPPOR_TYPE,
           rappor::GetDomainAndRegistrySampleFromGURL(requesting_origin));
@@ -115,7 +115,7 @@ void RecordPermissionRequest(PermissionType permission,
           rappor_service,
           "ContentSettings.PermissionRequested.Notifications.Url",
           requesting_origin);
-      rappor_service->RecordSample(
+      rappor_service->RecordSampleString(
           "ContentSettings.PermissionRequested.Notifications.Url2",
           rappor::LOW_FREQUENCY_ETLD_PLUS_ONE_RAPPOR_TYPE,
           rappor::GetDomainAndRegistrySampleFromGURL(requesting_origin));
@@ -125,8 +125,13 @@ void RecordPermissionRequest(PermissionType permission,
       rappor::SampleDomainAndRegistryFromGURL(
           rappor_service, "ContentSettings.PermissionRequested.Midi.Url",
           requesting_origin);
-      rappor_service->RecordSample(
+      rappor_service->RecordSampleString(
           "ContentSettings.PermissionRequested.Midi.Url2",
+          rappor::LOW_FREQUENCY_ETLD_PLUS_ONE_RAPPOR_TYPE,
+          rappor::GetDomainAndRegistrySampleFromGURL(requesting_origin));
+    } else if (permission == PermissionType::PROTECTED_MEDIA_IDENTIFIER) {
+      rappor_service->RecordSampleString(
+          "ContentSettings.PermissionRequested.ProtectedMedia.Url2",
           rappor::LOW_FREQUENCY_ETLD_PLUS_ONE_RAPPOR_TYPE,
           rappor::GetDomainAndRegistrySampleFromGURL(requesting_origin));
     }
@@ -366,10 +371,7 @@ void PermissionUmaUtil::PermissionPromptShown(
     permission_gesture_type = requests[0]->GetGestureType();
   }
 
-  PERMISSION_BUBBLE_TYPE_UMA(kPermissionsPromptShown, permission_prompt_type);
-  PERMISSION_BUBBLE_GESTURE_TYPE_UMA(
-      kPermissionsPromptShownGesture, kPermissionsPromptShownNoGesture,
-      permission_gesture_type, permission_prompt_type);
+  RecordPermissionPromptShown(permission_prompt_type, permission_gesture_type);
 
   UMA_HISTOGRAM_ENUMERATION(
       kPermissionsPromptRequestsPerPrompt,
@@ -412,17 +414,11 @@ void PermissionUmaUtil::PermissionPromptAccepted(
   }
 
   if (all_accepted) {
-    PERMISSION_BUBBLE_TYPE_UMA(kPermissionsPromptAccepted,
-                               permission_prompt_type);
-    PERMISSION_BUBBLE_GESTURE_TYPE_UMA(
-        kPermissionsPromptAcceptedGesture, kPermissionsPromptAcceptedNoGesture,
-        permission_gesture_type, permission_prompt_type);
+    RecordPermissionPromptAccepted(permission_prompt_type,
+                                   permission_gesture_type);
   } else {
-    PERMISSION_BUBBLE_TYPE_UMA(kPermissionsPromptDenied,
-                               permission_prompt_type);
-    PERMISSION_BUBBLE_GESTURE_TYPE_UMA(
-        kPermissionsPromptDeniedGesture, kPermissionsPromptDeniedNoGesture,
-        permission_gesture_type, permission_prompt_type);
+    RecordPermissionPromptDenied(permission_prompt_type,
+                                 permission_gesture_type);
   }
 }
 
@@ -431,11 +427,35 @@ void PermissionUmaUtil::PermissionPromptDenied(
   DCHECK(!requests.empty());
   DCHECK(requests.size() == 1);
 
-  PERMISSION_BUBBLE_TYPE_UMA(kPermissionsPromptDenied,
-                             requests[0]->GetPermissionRequestType());
+  RecordPermissionPromptDenied(requests[0]->GetPermissionRequestType(),
+                               requests[0]->GetGestureType());
+}
+
+void PermissionUmaUtil::RecordPermissionPromptShown(
+    PermissionRequestType request_type,
+    PermissionRequestGestureType gesture_type) {
+  PERMISSION_BUBBLE_TYPE_UMA(kPermissionsPromptShown, request_type);
   PERMISSION_BUBBLE_GESTURE_TYPE_UMA(
-      kPermissionsPromptDeniedGesture, kPermissionsPromptDeniedNoGesture,
-      requests[0]->GetGestureType(), requests[0]->GetPermissionRequestType());
+      kPermissionsPromptShownGesture, kPermissionsPromptShownNoGesture,
+      gesture_type, request_type);
+}
+
+void PermissionUmaUtil::RecordPermissionPromptAccepted(
+    PermissionRequestType request_type,
+    PermissionRequestGestureType gesture_type) {
+  PERMISSION_BUBBLE_TYPE_UMA(kPermissionsPromptAccepted, request_type);
+  PERMISSION_BUBBLE_GESTURE_TYPE_UMA(kPermissionsPromptAcceptedGesture,
+                                     kPermissionsPromptAcceptedNoGesture,
+                                     gesture_type, request_type);
+}
+
+void PermissionUmaUtil::RecordPermissionPromptDenied(
+    PermissionRequestType request_type,
+    PermissionRequestGestureType gesture_type) {
+  PERMISSION_BUBBLE_TYPE_UMA(kPermissionsPromptDenied, request_type);
+  PERMISSION_BUBBLE_GESTURE_TYPE_UMA(kPermissionsPromptDeniedGesture,
+                                     kPermissionsPromptDeniedNoGesture,
+                                     gesture_type, request_type);
 }
 
 void PermissionUmaUtil::RecordPermissionPromptPriorCount(
@@ -691,13 +711,14 @@ void PermissionUmaUtil::RecordPermissionAction(
   // TODO(dominickn): remove the deprecated metric and replace it solely with
   // the new one in GetRapporMetric - crbug.com/605836.
   const std::string deprecated_metric = GetRapporMetric(permission, action);
-  rappor::RapporService* rappor_service = g_browser_process->rappor_service();
+  rappor::RapporServiceImpl* rappor_service =
+      g_browser_process->rappor_service();
   if (!deprecated_metric.empty() && rappor_service) {
     rappor::SampleDomainAndRegistryFromGURL(rappor_service, deprecated_metric,
                                             requesting_origin);
 
     std::string rappor_metric = deprecated_metric + "2";
-    rappor_service->RecordSample(
+    rappor_service->RecordSampleString(
         rappor_metric, rappor::LOW_FREQUENCY_ETLD_PLUS_ONE_RAPPOR_TYPE,
         rappor::GetDomainAndRegistrySampleFromGURL(requesting_origin));
   }

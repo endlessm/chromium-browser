@@ -16,7 +16,6 @@
 #include "base/process/launch.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
-#include "base/strings/stringprintf.h"
 #include "base/sys_info.h"
 #include "base/timer/timer.h"
 #include "base/values.h"
@@ -32,17 +31,18 @@
 #include "chromeos/cryptohome/cryptohome_parameters.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/session_manager_client.h"
-#include "chromeos/login/user_names.h"
 #include "components/policy/core/common/policy_switches.h"
 #include "components/prefs/json_pref_store.h"
 #include "components/prefs/pref_service.h"
 #include "components/signin/core/account_id/account_id.h"
 #include "components/tracing/common/tracing_switches.h"
+#include "components/user_manager/user_names.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/common/content_switches.h"
 #include "gpu/command_buffer/service/gpu_switches.h"
 #include "gpu/ipc/service/switches.h"
 #include "media/base/media_switches.h"
+#include "media/media_features.h"
 #include "third_party/cros_system_api/switches/chrome_switches.h"
 #include "ui/app_list/app_list_switches.h"
 #include "ui/base/ui_base_switches.h"
@@ -99,6 +99,7 @@ void DeriveCommandLine(const GURL& start_url,
     ::switches::kDisableRGBA4444Textures,
     ::switches::kDisableSeccompFilterSandbox,
     ::switches::kDisableSetuidSandbox,
+    ::switches::kDisableSlimmingPaintInvalidation,
     ::switches::kDisableThreadedScrolling,
     ::switches::kDisableTouchDragDrop,
     ::switches::kDisableZeroCopy,
@@ -120,6 +121,7 @@ void DeriveCommandLine(const GURL& start_url,
     ::switches::kEnablePreferCompositingToLCDText,
     ::switches::kEnableRGBA4444Textures,
     ::switches::kEnableSlimmingPaintV2,
+    ::switches::kEnableSlimmingPaintInvalidation,
     ::switches::kEnableTouchDragDrop,
     ::switches::kEnableUnifiedDesktop,
     ::switches::kEnableUseZoomForDSF,
@@ -131,6 +133,7 @@ void DeriveCommandLine(const GURL& start_url,
     ::switches::kHostWindowBounds,
     ::switches::kMainFrameResizesAreOrientationChanges,
     ::switches::kForceDeviceScaleFactor,
+    ::switches::kForceGpuMemAvailableMb,
     ::switches::kForceGpuRasterization,
     ::switches::kGpuRasterizationMSAASampleCount,
     ::switches::kGpuStartupDialog,
@@ -146,12 +149,11 @@ void DeriveCommandLine(const GURL& start_url,
     ::switches::kRemoteDebuggingPort,
     ::switches::kRendererStartupDialog,
     ::switches::kRootLayerScrolls,
-    ::switches::kEnableShareGroupAsyncTextureUpload,
 #if defined(USE_X11) || defined(USE_OZONE)
     ::switches::kTouchCalibration,
 #endif
     ::switches::kTouchDevices,
-    ::switches::kTouchEvents,
+    ::switches::kTouchEventFeatureDetection,
     ::switches::kTopChromeMD,
     ::switches::kTraceToConsole,
     ::switches::kUIDisablePartialSwap,
@@ -167,21 +169,18 @@ void DeriveCommandLine(const GURL& start_url,
     ::switches::kDisableWebGLImageChromium,
     ::switches::kEnableWebGLImageChromium,
     ::switches::kEnableWebVR,
-#if defined(ENABLE_WEBRTC)
+#if BUILDFLAG(ENABLE_WEBRTC)
     ::switches::kDisableWebRtcHWDecoding,
     ::switches::kDisableWebRtcHWEncoding,
-    ::switches::kEnableWebRtcHWH264Encoding,
 #endif
     ::switches::kDisableVaapiAcceleratedVideoEncode,
 #if defined(USE_OZONE)
-    ::switches::kOzoneInitialDisplayBounds,
-    ::switches::kOzoneInitialDisplayPhysicalSizeMm,
     ::switches::kOzonePlatform,
 #endif
     app_list::switches::kDisableSyncAppList,
     app_list::switches::kEnableSyncAppList,
     ash::switches::kAshEnableTouchView,
-    ash::switches::kAshEnablePalette,
+    ash::switches::kAshForceEnablePalette,
     ash::switches::kAshEnablePaletteOnAllDisplays,
     ash::switches::kAshTouchHud,
     ash::switches::kAuraLegacyPowerButton,
@@ -192,6 +191,7 @@ void DeriveCommandLine(const GURL& start_url,
     // Please keep these in alphabetical order. Non-UI Compositor switches
     // here should also be added to
     // content/browser/renderer_host/render_process_host_impl.cc.
+    cc::switches::kCheckTilePriorityInversion,
     cc::switches::kDisableCachedPictureRaster,
     cc::switches::kDisableCompositedAntialiasing,
     cc::switches::kDisableMainFrameBeforeActivation,
@@ -200,6 +200,7 @@ void DeriveCommandLine(const GURL& start_url,
     cc::switches::kEnableGpuBenchmarking,
     cc::switches::kEnableLayerLists,
     cc::switches::kEnableMainFrameBeforeActivation,
+    cc::switches::kEnableTrueColorRendering,
     cc::switches::kShowCompositedLayerBorders,
     cc::switches::kShowFPSCounter,
     cc::switches::kShowLayerAnimationBounds,
@@ -362,7 +363,7 @@ void GetOffTheRecordCommandLine(const GURL& start_url,
   otr_switches.SetString(::switches::kLoggingLevel, kGuestModeLoggingLevel);
   otr_switches.SetString(
       switches::kLoginUser,
-      cryptohome::Identification(login::GuestAccountId()).id());
+      cryptohome::Identification(user_manager::GuestAccountId()).id());
 
   // Override the home page.
   otr_switches.SetString(::switches::kHomePage,

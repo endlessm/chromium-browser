@@ -21,7 +21,7 @@ SkColor NativeThemeDarkAura::GetSystemColor(ColorId color_id) const {
   static const SkColor kTextfieldDefaultColor = SK_ColorWHITE;
   static const SkColor kTextfieldDefaultBackground =
       SkColorSetRGB(0x62, 0x62, 0x62);
-  static const SkColor kTextfieldSelectionBackgroundFocused =
+  static const SkColor kTextSelectionBackgroundFocused =
       SkColorSetA(gfx::kGoogleBlue700, 0xCC);
 
   static const SkColor kResultsTableNormalBackground =
@@ -45,7 +45,10 @@ SkColor NativeThemeDarkAura::GetSystemColor(ColorId color_id) const {
 
     // Label
     case kColorId_LabelEnabledColor:
+    case kColorId_LabelTextSelectionColor:
       return kPrimaryTextColor;
+    case kColorId_LabelTextSelectionBackgroundFocused:
+      return kTextSelectionBackgroundFocused;
 
     // Link
     case kColorId_LinkEnabled:
@@ -59,7 +62,7 @@ SkColor NativeThemeDarkAura::GetSystemColor(ColorId color_id) const {
     case kColorId_TextfieldDefaultBackground:
       return kTextfieldDefaultBackground;
     case kColorId_TextfieldSelectionBackgroundFocused:
-      return kTextfieldSelectionBackgroundFocused;
+      return kTextSelectionBackgroundFocused;
 
     // Results Tables
     case kColorId_ResultsTableNormalBackground:
@@ -109,6 +112,7 @@ SkColor NativeThemeDarkAura::GetSystemColor(ColorId color_id) const {
     case kColorId_DisabledMenuItemForegroundColor:
     case kColorId_SelectedMenuItemForegroundColor:
     case kColorId_FocusedMenuItemBackgroundColor:
+    case kColorId_MenuItemSubtitleColor:
     case kColorId_MenuSeparatorColor:
     case kColorId_MenuBackgroundColor:
     case kColorId_MenuBorderColor:
@@ -140,6 +144,7 @@ SkColor NativeThemeDarkAura::GetSystemColor(ColorId color_id) const {
     case kColorId_ResultsTableNegativeText:
     case kColorId_ResultsTableNegativeHoveredText:
     case kColorId_ResultsTableNegativeSelectedText:
+    case kColorId_SeparatorColor:
     case kColorId_ThrobberSpinningColor:
     case kColorId_ThrobberWaitingColor:
     case kColorId_ThrobberLightColor:
@@ -151,7 +156,7 @@ SkColor NativeThemeDarkAura::GetSystemColor(ColorId color_id) const {
   return gfx::kPlaceholderColor;
 }
 
-NativeThemeDarkAura::NativeThemeDarkAura() {}
+NativeThemeDarkAura::NativeThemeDarkAura() : NativeThemeAura(false) {}
 
 NativeThemeDarkAura::~NativeThemeDarkAura() {}
 

@@ -15,6 +15,7 @@
 
 #if SK_SUPPORT_GPU
 #include "GrContext.h"
+#include "GrTextureProxy.h"
 #include "SkGr.h"
 #endif
 
@@ -29,14 +30,6 @@ public:
 
     SK_TO_STRING_OVERRIDE()
     SK_DECLARE_PUBLIC_FLATTENABLE_DESERIALIZATION_PROCS(SkBlurImageFilterImpl)
-
-#ifdef SK_SUPPORT_LEGACY_IMAGEFILTER_PTR
-    static SkImageFilter* Create(SkScalar sigmaX, SkScalar sigmaY, SkImageFilter* input = nullptr,
-                                 const CropRect* cropRect = nullptr) {
-        return SkImageFilter::MakeBlur(sigmaX, sigmaY, sk_ref_sp<SkImageFilter>(input),
-                                     cropRect).release();
-    }
-#endif
 
 protected:
     void flatten(SkWriteBuffer&) const override;
@@ -118,8 +111,8 @@ static void get_box3_params(SkScalar s, int *kernelSize, int* kernelSize3, int *
 }
 
 sk_sp<SkSpecialImage> SkBlurImageFilterImpl::onFilterImage(SkSpecialImage* source,
-                                                       const Context& ctx,
-                                                       SkIPoint* offset) const {
+                                                           const Context& ctx,
+                                                           SkIPoint* offset) const {
     SkIPoint inputOffset = SkIPoint::Make(0, 0);
 
     sk_sp<SkSpecialImage> input(this->filterInput(0, source, ctx, &inputOffset));
@@ -143,8 +136,15 @@ sk_sp<SkSpecialImage> SkBlurImageFilterImpl::onFilterImage(SkSpecialImage* sourc
 #if SK_SUPPORT_GPU
     if (source->isTextureBacked()) {
         GrContext* context = source->getContext();
+
+        // Ensure the input is in the destination's gamut. This saves us from having to do the
+        // xform during the filter itself.
+        input = ImageToColorSpace(input.get(), ctx.outputProperties());
+
         sk_sp<GrTexture> inputTexture(input->asTextureRef(context));
-        SkASSERT(inputTexture);
+        if (!inputTexture) {
+            return nullptr;
+        }
 
         if (0 == sigma.x() && 0 == sigma.y()) {
             offset->fX = inputBounds.x();
@@ -157,26 +157,27 @@ sk_sp<SkSpecialImage> SkBlurImageFilterImpl::onFilterImage(SkSpecialImage* sourc
         offset->fY = dstBounds.fTop;
         inputBounds.offset(-inputOffset);
         dstBounds.offset(-inputOffset);
-        // We intentionally use the source's color space, not the destination's (from ctx). We
-        // always blur in the source's config, so we need a compatible color space. We also want to
-        // avoid doing gamut conversion on every fetch of the texture.
-        sk_sp<GrDrawContext> drawContext(SkGpuBlurUtils::GaussianBlur(
+        // Typically, we would create the RTC with the output's color space (from ctx), but we
+        // always blur in the PixelConfig of the *input*. Those might not be compatible (if they
+        // have different transfer functions). We've already guaranteed that those color spaces
+        // have the same gamut, so in this case, we do everything in the input's color space.
+        sk_sp<GrRenderTargetContext> renderTargetContext(SkGpuBlurUtils::GaussianBlur(
                                                                 context,
                                                                 inputTexture.get(),
-                                                                sk_ref_sp(source->getColorSpace()),
+                                                                sk_ref_sp(input->getColorSpace()),
                                                                 dstBounds,
                                                                 &inputBounds,
                                                                 sigma.x(),
                                                                 sigma.y()));
-        if (!drawContext) {
+        if (!renderTargetContext) {
             return nullptr;
         }
 
-        // TODO: Get the colorSpace from the drawContext (once it has one)
         return SkSpecialImage::MakeFromGpu(SkIRect::MakeWH(dstBounds.width(), dstBounds.height()),
                                            kNeedNewImageUniqueID_SpecialImage,
-                                           drawContext->asTexture(),
-                                           sk_ref_sp(input->getColorSpace()), &source->props());
+                                           renderTargetContext->asTexture(),
+                                           renderTargetContext->refColorSpace(),
+                                           &source->props());
     }
 #endif
 

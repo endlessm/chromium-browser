@@ -15,6 +15,8 @@
 #include "chrome/browser/ui/bookmarks/bookmark_utils.h"
 #include "chrome/browser/ui/bookmarks/bookmark_utils_desktop.h"
 #include "chrome/browser/ui/browser_dialogs.h"
+#include "chrome/browser/ui/views/harmony/layout_delegate.h"
+#include "chrome/browser/ui/views/layout_utils.h"
 #include "chrome/grit/generated_resources.h"
 #include "chrome/grit/locale_settings.h"
 #include "components/bookmarks/browser/bookmark_model.h"
@@ -24,8 +26,9 @@
 #include "components/strings/grit/components_strings.h"
 #include "components/url_formatter/url_fixer.h"
 #include "components/user_prefs/user_prefs.h"
-#include "ui/accessibility/ax_view_state.h"
+#include "ui/accessibility/ax_node_data.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/material_design/material_design_controller.h"
 #include "ui/events/event.h"
 #include "ui/views/background.h"
 #include "ui/views/controls/button/md_text_button.h"
@@ -35,7 +38,6 @@
 #include "ui/views/controls/tree/tree_view.h"
 #include "ui/views/focus/focus_manager.h"
 #include "ui/views/layout/grid_layout.h"
-#include "ui/views/layout/layout_constants.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/window/dialog_client_view.h"
 #include "url/gurl.h"
@@ -160,10 +162,9 @@ bool BookmarkEditorView::HandleKeyEvent(views::Textfield* sender,
     return false;
 }
 
-void BookmarkEditorView::GetAccessibleState(ui::AXViewState* state) {
-  views::DialogDelegateView::GetAccessibleState(state);
-  state->name =
-      l10n_util::GetStringUTF16(IDS_BOOKMARK_EDITOR_TITLE);
+void BookmarkEditorView::GetAccessibleNodeData(ui::AXNodeData* node_data) {
+  views::DialogDelegateView::GetAccessibleNodeData(node_data);
+  node_data->SetName(l10n_util::GetStringUTF8(IDS_BOOKMARK_EDITOR_TITLE));
 }
 
 void BookmarkEditorView::ButtonPressed(views::Button* sender,
@@ -340,17 +341,19 @@ void BookmarkEditorView::Init() {
     new_folder_button_->SetEnabled(false);
   }
 
-  GridLayout* layout = GridLayout::CreatePanel(this);
-  SetLayoutManager(layout);
+  GridLayout* layout = layout_utils::CreatePanelLayout(this);
+  LayoutDelegate* delegate = LayoutDelegate::Get();
 
   const int labels_column_set_id = 0;
   const int single_column_view_set_id = 1;
   const int buttons_column_set_id = 2;
 
   views::ColumnSet* column_set = layout->AddColumnSet(labels_column_set_id);
-  column_set->AddColumn(views::kControlLabelGridAlignment, GridLayout::CENTER,
-                        0, GridLayout::USE_PREF, 0, 0);
-  column_set->AddPaddingColumn(0, views::kRelatedControlHorizontalSpacing);
+  column_set->AddColumn(delegate->GetControlLabelGridAlignment(),
+                        GridLayout::CENTER, 0, GridLayout::USE_PREF, 0, 0);
+  column_set->AddPaddingColumn(
+      0, delegate->GetLayoutDistance(LayoutDelegate::LayoutDistanceType::
+                                         RELATED_CONTROL_HORIZONTAL_SPACING));
   column_set->AddColumn(GridLayout::FILL, GridLayout::CENTER, 1,
                         GridLayout::USE_PREF, 0, 0);
 
@@ -361,10 +364,14 @@ void BookmarkEditorView::Init() {
   column_set = layout->AddColumnSet(buttons_column_set_id);
   column_set->AddColumn(GridLayout::FILL, GridLayout::LEADING, 0,
                         GridLayout::USE_PREF, 0, 0);
-  column_set->AddPaddingColumn(1, views::kRelatedControlHorizontalSpacing);
+  column_set->AddPaddingColumn(
+      1, delegate->GetLayoutDistance(LayoutDelegate::LayoutDistanceType::
+                                         RELATED_CONTROL_HORIZONTAL_SPACING));
   column_set->AddColumn(GridLayout::FILL, GridLayout::LEADING, 0,
                         GridLayout::USE_PREF, 0, 0);
-  column_set->AddPaddingColumn(0, views::kRelatedControlHorizontalSpacing);
+  column_set->AddPaddingColumn(
+      0, delegate->GetLayoutDistance(LayoutDelegate::LayoutDistanceType::
+                                         RELATED_CONTROL_HORIZONTAL_SPACING));
   column_set->AddColumn(GridLayout::FILL, GridLayout::LEADING, 0,
                         GridLayout::USE_PREF, 0, 0);
   column_set->LinkColumnSizes(0, 2, 4, -1);
@@ -383,7 +390,9 @@ void BookmarkEditorView::Init() {
     url_tf_->SetAccessibleName(
         l10n_util::GetStringUTF16(IDS_BOOKMARK_AX_EDITOR_URL_LABEL));
 
-    layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
+    layout->AddPaddingRow(
+        0, delegate->GetLayoutDistance(LayoutDelegate::LayoutDistanceType::
+                                           RELATED_CONTROL_VERTICAL_SPACING));
 
     layout->StartRow(0, labels_column_set_id);
     layout->AddView(url_label_);
@@ -391,12 +400,18 @@ void BookmarkEditorView::Init() {
   }
 
   if (show_tree_) {
-    layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
+    layout->AddPaddingRow(
+        0, delegate->GetLayoutDistance(LayoutDelegate::LayoutDistanceType::
+                                           RELATED_CONTROL_VERTICAL_SPACING));
     layout->StartRow(1, single_column_view_set_id);
     layout->AddView(tree_view_->CreateParentIfNecessary());
   }
 
-  layout->AddPaddingRow(0, views::kRelatedControlVerticalSpacing);
+  if (delegate->UseExtraDialogPadding()) {
+    layout->AddPaddingRow(
+        0, delegate->GetLayoutDistance(LayoutDelegate::LayoutDistanceType::
+                                           RELATED_CONTROL_VERTICAL_SPACING));
+  }
 
   if (!show_tree_ || bb_model_->loaded())
     Reset();
@@ -436,7 +451,9 @@ GURL BookmarkEditorView::GetInputURL() const {
 void BookmarkEditorView::UserInputChanged() {
   if (details_.GetNodeType() != BookmarkNode::FOLDER) {
     const GURL url(GetInputURL());
-    if (!url.is_valid())
+    if (ui::MaterialDesignController::IsSecondaryUiMaterial())
+      url_tf_->SetInvalid(!url.is_valid());
+    else if (!url.is_valid())
       url_tf_->SetBackgroundColor(kErrorColor);
     else
       url_tf_->UseDefaultBackgroundColor();

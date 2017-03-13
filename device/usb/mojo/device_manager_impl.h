@@ -16,25 +16,18 @@
 #include "base/scoped_observer.h"
 #include "device/usb/public/interfaces/device_manager.mojom.h"
 #include "device/usb/usb_service.h"
-#include "mojo/public/cpp/bindings/array.h"
 #include "mojo/public/cpp/bindings/interface_request.h"
-
-namespace base {
-class SequencedTaskRunner;
-}
 
 namespace device {
 
 class UsbDevice;
-class UsbDeviceFilter;
-class UsbDeviceHandle;
 
 namespace usb {
 
 class PermissionProvider;
 
 // Implementation of the public DeviceManager interface. This interface can be
-// requested from the devices app located at "service:devices", if available.
+// requested from the devices app located at "devices", if available.
 class DeviceManagerImpl : public DeviceManager, public UsbService::Observer {
  public:
   static void Create(base::WeakPtr<PermissionProvider> permission_provider,

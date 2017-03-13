@@ -7,17 +7,18 @@
 #include "ash/accelerators/accelerator_controller_delegate_aura.h"
 #include "ash/common/material_design/material_design_controller.h"
 #include "ash/common/test/material_design_controller_test_api.h"
+#include "ash/common/test/test_session_state_delegate.h"
+#include "ash/common/test/test_system_tray_delegate.h"
+#include "ash/common/test/wm_shell_test_api.h"
 #include "ash/common/wm_shell.h"
 #include "ash/shell.h"
 #include "ash/shell_init_params.h"
 #include "ash/test/ash_test_environment.h"
 #include "ash/test/ash_test_views_delegate.h"
-#include "ash/test/display_manager_test_api.h"
 #include "ash/test/shell_test_api.h"
 #include "ash/test/test_screenshot_delegate.h"
-#include "ash/test/test_session_state_delegate.h"
 #include "ash/test/test_shell_delegate.h"
-#include "ash/test/test_system_tray_delegate.h"
+#include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
 #include "ui/aura/env.h"
 #include "ui/aura/input_state_lookup.h"
@@ -29,11 +30,14 @@
 #include "ui/compositor/scoped_animation_duration_scale_mode.h"
 #include "ui/compositor/test/context_factories_for_test.h"
 #include "ui/display/manager/managed_display_info.h"
+#include "ui/display/test/display_manager_test_api.h"
 #include "ui/message_center/message_center.h"
 #include "ui/wm/core/capture_controller.h"
 #include "ui/wm/core/cursor_manager.h"
+#include "ui/wm/core/wm_state.h"
 
 #if defined(OS_CHROMEOS)
+#include "ash/system/chromeos/screen_layout_observer.h"
 #include "chromeos/audio/cras_audio_handler.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "device/bluetooth/bluetooth_adapter_factory.h"
@@ -70,6 +74,7 @@ AshTestHelper::~AshTestHelper() {}
 void AshTestHelper::SetUp(bool start_session,
                           MaterialDesignController::Mode material_mode) {
   display::ResetDisplayIdForTest();
+  wm_state_ = base::MakeUnique<::wm::WMState>();
   views_delegate_ = ash_test_environment_->CreateViewsDelegate();
 
   // Disable animations during tests.
@@ -78,8 +83,10 @@ void AshTestHelper::SetUp(bool start_session,
   ui::InitializeInputMethodForTesting();
 
   bool enable_pixel_output = false;
-  ui::ContextFactory* context_factory =
-      ui::InitializeContextFactoryForTests(enable_pixel_output);
+  ui::ContextFactory* context_factory = nullptr;
+  ui::ContextFactoryPrivate* context_factory_private = nullptr;
+  ui::InitializeContextFactoryForTests(enable_pixel_output, &context_factory,
+                                       &context_factory_private);
 
   // Creates Shell and hook with Desktop.
   if (!test_shell_delegate_)
@@ -126,6 +133,7 @@ void AshTestHelper::SetUp(bool start_session,
   ShellInitParams init_params;
   init_params.delegate = test_shell_delegate_;
   init_params.context_factory = context_factory;
+  init_params.context_factory_private = context_factory_private;
   init_params.blocking_pool = ash_test_environment_->GetBlockingPool();
   Shell::CreateInstance(init_params);
   aura::test::EnvTestHelper(aura::Env::GetInstance())
@@ -137,7 +145,13 @@ void AshTestHelper::SetUp(bool start_session,
     GetTestSessionStateDelegate()->SetHasActiveUser(true);
   }
 
-  test::DisplayManagerTestApi(Shell::GetInstance()->display_manager())
+#if defined(OS_CHROMEOS)
+  // Tests that change the display configuration generally don't care about the
+  // notifications and the popup UI can interfere with things like cursors.
+  shell->screen_layout_observer()->set_show_notifications_for_testing(false);
+#endif
+
+  display::test::DisplayManagerTestApi(Shell::GetInstance()->display_manager())
       .DisableChangeDisplayUponHostResize();
   ShellTestApi(shell).DisableDisplayAnimator();
 
@@ -149,6 +163,10 @@ void AshTestHelper::SetUp(bool start_session,
 void AshTestHelper::TearDown() {
   // Tear down the shell.
   Shell::DeleteInstance();
+
+  // Suspend the tear down until all resources are returned via
+  // MojoCompositorFrameSinkClient::ReclaimResources()
+  RunAllPendingInMessageLoop();
   material_design_state_.reset();
   test::MaterialDesignControllerTestAPI::Uninitialize();
   ash_test_environment_->TearDown();
@@ -173,16 +191,13 @@ void AshTestHelper::TearDown() {
 
   ui::TerminateContextFactoryForTests();
 
-  // Need to reset the initial login status.
-  TestSystemTrayDelegate::SetInitialLoginStatus(LoginStatus::USER);
-  TestSystemTrayDelegate::SetSystemUpdateRequired(false);
-
   ui::ShutdownInputMethodForTesting();
   zero_duration_mode_.reset();
 
-  CHECK(!::wm::ScopedCaptureClient::IsActive());
-
   views_delegate_.reset();
+  wm_state_.reset();
+
+  CHECK(!::wm::CaptureController::Get());
 }
 
 void AshTestHelper::RunAllPendingInMessageLoop() {

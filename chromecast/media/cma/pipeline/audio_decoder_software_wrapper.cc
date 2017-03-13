@@ -4,10 +4,13 @@
 
 #include "chromecast/media/cma/pipeline/audio_decoder_software_wrapper.h"
 
+#include <ostream>
+
 #include "base/bind.h"
 #include "base/logging.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "chromecast/media/cma/base/decoder_buffer_base.h"
+#include "chromecast/media/cma/base/decoder_config_logging.h"
 
 namespace chromecast {
 namespace media {
@@ -54,13 +57,18 @@ bool AudioDecoderSoftwareWrapper::SetConfig(const AudioConfig& config) {
   DCHECK(IsValidConfig(config));
 
   if (backend_decoder_->SetConfig(config)) {
+    LOG(INFO) << "Using backend decoder for " << config.codec;
     software_decoder_.reset();
     output_config_ = config;
     return true;
   }
 
-  if (!CreateSoftwareDecoder(config))
+  if (!CreateSoftwareDecoder(config)) {
+    LOG(INFO) << "Failed to create software decoder";
     return false;
+  }
+
+  LOG(INFO) << "Using software decoder for " << config.codec;
 
   output_config_.codec = media::kCodecPCM;
   output_config_.sample_format = media::kSampleFormatS16;

@@ -23,11 +23,10 @@
 #include "chrome/common/chrome_switches.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/interactive_test_utils.h"
-#include "chrome/test/base/tracing.h"
 #include "chromeos/chromeos_switches.h"
-#include "chromeos/login/user_names.h"
 #include "chromeos/settings/cros_settings_names.h"
 #include "components/signin/core/account_id/account_id.h"
+#include "components/user_manager/user_names.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/test_utils.h"
 #include "extensions/browser/extension_system.h"
@@ -59,8 +58,8 @@ class LoginGuestTest : public InProcessBrowserTest {
     command_line->AppendSwitch(switches::kGuestSession);
     command_line->AppendSwitch(::switches::kIncognito);
     command_line->AppendSwitchASCII(switches::kLoginProfile, "hash");
-    command_line->AppendSwitchASCII(switches::kLoginUser,
-                                    login::GuestAccountId().GetUserEmail());
+    command_line->AppendSwitchASCII(
+        switches::kLoginUser, user_manager::GuestAccountId().GetUserEmail());
   }
 };
 
@@ -86,9 +85,6 @@ class LoginSigninTest : public InProcessBrowserTest {
 
   void SetUpOnMainThread() override {
     LoginDisplayHostImpl::DisableRestrictiveProxyCheckForTest();
-
-    ASSERT_TRUE(tracing::BeginTracingWithWatch(
-        "ui", "ui", "ShowLoginWebUI", 1));
   }
 };
 
@@ -228,7 +224,7 @@ IN_PROC_BROWSER_TEST_F(LoginGuestTest, CursorShown) {
 // Verifies the cursor is hidden at startup on login screen.
 IN_PROC_BROWSER_TEST_F(LoginCursorTest, CursorHidden) {
   // Login screen needs to be shown explicitly when running test.
-  ShowLoginWizard(WizardController::kLoginScreenName);
+  ShowLoginWizard(OobeScreen::SCREEN_SPECIAL_LOGIN);
 
   // Cursor should be hidden at startup
   EXPECT_FALSE(ash::Shell::GetInstance()->cursor_manager()->IsCursorVisible());
@@ -245,10 +241,10 @@ IN_PROC_BROWSER_TEST_F(LoginCursorTest, CursorHidden) {
 
 // Verifies that the webui for login comes up successfully.
 IN_PROC_BROWSER_TEST_F(LoginSigninTest, WebUIVisible) {
-  base::TimeDelta no_timeout;
-  EXPECT_TRUE(tracing::WaitForWatchEvent(no_timeout));
-  std::string json_events;
-  ASSERT_TRUE(tracing::EndTracing(&json_events));
+  content::WindowedNotificationObserver(
+      chrome::NOTIFICATION_LOGIN_OR_LOCK_WEBUI_VISIBLE,
+      content::NotificationService::AllSources())
+      .Wait();
 }
 
 

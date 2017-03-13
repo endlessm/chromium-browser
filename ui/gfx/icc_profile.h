@@ -53,6 +53,7 @@ class GFX_EXPORT ICCProfile {
   // Internally, this will make an effort to create an identical ICCProfile
   // to the one that created |color_space|, but this is not guaranteed.
   static ICCProfile FromColorSpace(const gfx::ColorSpace& color_space);
+  static ICCProfile FromSkColorSpace(sk_sp<SkColorSpace> color_space);
 
   // Create directly from profile data.
   static ICCProfile FromData(const char* icc_profile, size_t size);
@@ -70,10 +71,22 @@ class GFX_EXPORT ICCProfile {
   static bool CachedProfilesNeedUpdate();
 #endif
 
+  enum class Type {
+    // This is not a valid profile.
+    INVALID,
+    // This is from a gfx::ColorSpace. This ensures that GetColorSpace returns
+    // the exact same object as was used to create this.
+    FROM_COLOR_SPACE,
+    // This was created from ICC profile data.
+    FROM_DATA,
+    LAST = FROM_DATA
+  };
+
  private:
   static bool IsValidProfileLength(size_t length);
 
-  bool valid_ = false;
+  Type type_ = Type::INVALID;
+  gfx::ColorSpace color_space_;
   std::vector<char> data_;
 
   // This globally identifies this ICC profile. It is used to look up this ICC
@@ -85,6 +98,7 @@ class GFX_EXPORT ICCProfile {
   friend int ::LLVMFuzzerTestOneInput(const uint8_t*, size_t);
   friend class ColorSpace;
   friend struct IPC::ParamTraits<gfx::ICCProfile>;
+  friend struct IPC::ParamTraits<gfx::ICCProfile::Type>;
   friend struct mojo::StructTraits<gfx::mojom::ICCProfileDataView,
                                    gfx::ICCProfile>;
 };

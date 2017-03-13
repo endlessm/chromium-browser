@@ -5,6 +5,7 @@
 #include "base/task_scheduler/task_tracker.h"
 
 #include <limits>
+#include <string>
 
 #include "base/callback.h"
 #include "base/debug/task_annotator.h"
@@ -14,9 +15,11 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/sequence_token.h"
 #include "base/synchronization/condition_variable.h"
+#include "base/task_scheduler/scoped_set_task_priority_for_current_thread.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/threading/thread_task_runner_handle.h"
+#include "base/time/time.h"
 #include "base/trace_event/trace_event.h"
 #include "base/values.h"
 
@@ -25,11 +28,15 @@ namespace internal {
 
 namespace {
 
+constexpr char kParallelExecutionMode[] = "parallel";
+constexpr char kSequencedExecutionMode[] = "sequenced";
+constexpr char kSingleThreadExecutionMode[] = "single thread";
+
 // An immutable copy of a scheduler task's info required by tracing.
 class TaskTracingInfo : public trace_event::ConvertableToTraceFormat {
  public:
   TaskTracingInfo(const TaskTraits& task_traits,
-                  ExecutionMode execution_mode,
+                  const char* execution_mode,
                   const SequenceToken& sequence_token)
       : task_traits_(task_traits),
         execution_mode_(execution_mode),
@@ -40,7 +47,7 @@ class TaskTracingInfo : public trace_event::ConvertableToTraceFormat {
 
  private:
   const TaskTraits task_traits_;
-  const ExecutionMode execution_mode_;
+  const char* const execution_mode_;
   const SequenceToken sequence_token_;
 
   DISALLOW_COPY_AND_ASSIGN(TaskTracingInfo);
@@ -51,9 +58,8 @@ void TaskTracingInfo::AppendAsTraceFormat(std::string* out) const {
 
   dict.SetString("task_priority",
                  base::TaskPriorityToString(task_traits_.priority()));
-  dict.SetString("execution_mode",
-                 base::ExecutionModeToString(execution_mode_));
-  if (execution_mode_ != ExecutionMode::PARALLEL)
+  dict.SetString("execution_mode", execution_mode_);
+  if (execution_mode_ != kParallelExecutionMode)
     dict.SetInteger("sequence_token", sequence_token_.ToInternalValue());
 
   std::string tmp;
@@ -66,6 +72,14 @@ const char kQueueFunctionName[] = "base::PostTask";
 // This name conveys that a Task is run by the task scheduler without revealing
 // its implementation details.
 const char kRunFunctionName[] = "TaskSchedulerRunTask";
+
+HistogramBase* GetTaskLatencyHistogram(const char* suffix) {
+  // Mimics the UMA_HISTOGRAM_TIMES macro.
+  return Histogram::FactoryTimeGet(
+      std::string("TaskScheduler.TaskLatency.") + suffix,
+      TimeDelta::FromMilliseconds(1), TimeDelta::FromSeconds(10), 50,
+      HistogramBase::kUmaTargetedHistogramFlag);
+}
 
 // Upper bound for the
 // TaskScheduler.BlockShutdownTasksPostedDuringShutdown histogram.
@@ -170,7 +184,20 @@ class TaskTracker::State {
 TaskTracker::TaskTracker()
     : state_(new State),
       flush_cv_(flush_lock_.CreateConditionVariable()),
-      shutdown_lock_(&flush_lock_) {}
+      shutdown_lock_(&flush_lock_),
+      task_latency_histograms_{
+          {GetTaskLatencyHistogram("BackgroundTaskPriority"),
+           GetTaskLatencyHistogram("BackgroundTaskPriority.MayBlock")},
+          {GetTaskLatencyHistogram("UserVisibleTaskPriority"),
+           GetTaskLatencyHistogram("UserVisibleTaskPriority.MayBlock")},
+          {GetTaskLatencyHistogram("UserBlockingTaskPriority"),
+           GetTaskLatencyHistogram("UserBlockingTaskPriority.MayBlock")}} {
+  // Confirm that all |task_latency_histograms_| have been initialized above.
+  DCHECK(*(&task_latency_histograms_[static_cast<int>(TaskPriority::HIGHEST) +
+                                     1][0] -
+           1));
+}
+
 TaskTracker::~TaskTracker() = default;
 
 void TaskTracker::Shutdown() {
@@ -205,7 +232,7 @@ bool TaskTracker::WillPostTask(const Task* task) {
   return true;
 }
 
-bool TaskTracker::RunTask(const Task* task,
+bool TaskTracker::RunTask(std::unique_ptr<Task> task,
                           const SequenceToken& sequence_token) {
   DCHECK(task);
   DCHECK(sequence_token.IsValid());
@@ -213,19 +240,25 @@ bool TaskTracker::RunTask(const Task* task,
   const TaskShutdownBehavior shutdown_behavior =
       task->traits.shutdown_behavior();
   const bool can_run_task = BeforeRunTask(shutdown_behavior);
+  const bool is_delayed = !task->delayed_run_time.is_null();
 
   if (can_run_task) {
-    // All tasks run through here and the scheduler itself doesn't use
-    // singletons. Therefore, it isn't necessary to reset the singleton allowed
-    // bit after running the task.
-    ThreadRestrictions::SetSingletonAllowed(
-        task->traits.shutdown_behavior() !=
-        TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN);
+    RecordTaskLatencyHistogram(task.get());
+
+    const bool previous_singleton_allowed =
+        ThreadRestrictions::SetSingletonAllowed(
+            task->traits.shutdown_behavior() !=
+            TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN);
+    const bool previous_io_allowed =
+        ThreadRestrictions::SetIOAllowed(task->traits.may_block());
+    const bool previous_wait_allowed = ThreadRestrictions::SetWaitAllowed(
+        task->traits.with_base_sync_primitives());
 
     {
-      // Set up SequenceToken as expected for the scope of the task.
       ScopedSetSequenceTokenForCurrentThread
           scoped_set_sequence_token_for_current_thread(sequence_token);
+      ScopedSetTaskPriorityForCurrentThread
+          scoped_set_task_priority_for_current_thread(task->traits.priority());
 
       // Set up TaskRunnerHandle as expected for the scope of the task.
       std::unique_ptr<SequencedTaskRunnerHandle> sequenced_task_runner_handle;
@@ -242,11 +275,11 @@ bool TaskTracker::RunTask(const Task* task,
 
       TRACE_TASK_EXECUTION(kRunFunctionName, *task);
 
-      const ExecutionMode execution_mode =
+      const char* const execution_mode =
           task->single_thread_task_runner_ref
-              ? ExecutionMode::SINGLE_THREADED
-              : (task->sequenced_task_runner_ref ? ExecutionMode::SEQUENCED
-                                                 : ExecutionMode::PARALLEL);
+              ? kSingleThreadExecutionMode
+              : (task->sequenced_task_runner_ref ? kSequencedExecutionMode
+                                                 : kParallelExecutionMode);
       // TODO(gab): In a better world this would be tacked on as an extra arg
       // to the trace event generated above. This is not possible however until
       // http://crbug.com/652692 is resolved.
@@ -254,14 +287,17 @@ bool TaskTracker::RunTask(const Task* task,
                    MakeUnique<TaskTracingInfo>(task->traits, execution_mode,
                                                sequence_token));
 
-      debug::TaskAnnotator task_annotator;
-      task_annotator.RunTask(kQueueFunctionName, *task);
+      PerformRunTask(std::move(task));
     }
+
+    ThreadRestrictions::SetWaitAllowed(previous_wait_allowed);
+    ThreadRestrictions::SetIOAllowed(previous_io_allowed);
+    ThreadRestrictions::SetSingletonAllowed(previous_singleton_allowed);
 
     AfterRunTask(shutdown_behavior);
   }
 
-  if (task->delayed_run_time.is_null())
+  if (!is_delayed)
     DecrementNumPendingUndelayedTasks();
 
   return can_run_task;
@@ -277,7 +313,19 @@ bool TaskTracker::IsShutdownComplete() const {
 }
 
 void TaskTracker::SetHasShutdownStartedForTesting() {
+  AutoSchedulerLock auto_lock(shutdown_lock_);
+
+  // Create a dummy |shutdown_event_| to satisfy TaskTracker's expectation of
+  // its existence during shutdown (e.g. in OnBlockingShutdownTasksComplete()).
+  shutdown_event_.reset(
+      new WaitableEvent(WaitableEvent::ResetPolicy::MANUAL,
+                        WaitableEvent::InitialState::NOT_SIGNALED));
+
   state_->StartShutdown();
+}
+
+void TaskTracker::PerformRunTask(std::unique_ptr<Task> task) {
+  debug::TaskAnnotator().RunTask(kQueueFunctionName, task.get());
 }
 
 void TaskTracker::PerformShutdown() {
@@ -438,6 +486,16 @@ void TaskTracker::DecrementNumPendingUndelayedTasks() {
     AutoSchedulerLock auto_lock(flush_lock_);
     flush_cv_->Signal();
   }
+}
+
+void TaskTracker::RecordTaskLatencyHistogram(Task* task) {
+  const TimeDelta task_latency = TimeTicks::Now() - task->sequenced_time;
+  task_latency_histograms_[static_cast<int>(task->traits.priority())]
+                          [task->traits.may_block() ||
+                                   task->traits.with_base_sync_primitives()
+                               ? 1
+                               : 0]
+                              ->AddTime(task_latency);
 }
 
 }  // namespace internal

@@ -13,15 +13,9 @@
 #include "ash/common/system/tray/system_tray_item.h"
 #include "base/macros.h"
 
-namespace views {
-class Label;
-}
-
 namespace ash {
 class DateDefaultView;
-#if defined(OS_CHROMEOS)
 class SystemClockObserver;
-#endif
 
 namespace tray {
 class TimeView;
@@ -68,15 +62,11 @@ class ASH_EXPORT TrayDate : public SystemTrayItem, public ClockObserver {
   void OnSystemClockCanSetTimeChanged(bool can_set_time) override;
   void Refresh() override;
 
-  void SetupLabelForTimeTray(views::Label* label);
-
   tray::TimeView* time_tray_;
   DateDefaultView* default_view_;
   LoginStatus login_status_;
 
-#if defined(OS_CHROMEOS)
   std::unique_ptr<SystemClockObserver> system_clock_observer_;
-#endif
 
   DISALLOW_COPY_AND_ASSIGN(TrayDate);
 };

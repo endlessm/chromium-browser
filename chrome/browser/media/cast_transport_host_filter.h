@@ -88,7 +88,12 @@ class CastTransportHostFilter : public content::BrowserMessageFilter {
              const base::DictionaryValue& options);
   void OnDelete(int32_t channel_id);
 
-  IDMap<media::cast::CastTransport, IDMapOwnPointer> id_map_;
+  // Sends frame events from CastRemotingSender to renderer process for logging.
+  void OnCastRemotingSenderEvents(
+      int32_t channel_id,
+      const std::vector<media::cast::FrameEvent>& events);
+
+  IDMap<std::unique_ptr<media::cast::CastTransport>> id_map_;
 
   // Clock used by Cast transport.
   base::DefaultTickClock clock_;
@@ -100,7 +105,7 @@ class CastTransportHostFilter : public content::BrowserMessageFilter {
 
   // This map records all active remoting senders. It uses the unique RTP
   // stream ID as the key.
-  IDMap<CastRemotingSender, IDMapOwnPointer> remoting_sender_map_;
+  IDMap<std::unique_ptr<CastRemotingSender>> remoting_sender_map_;
 
   // This map stores all active remoting streams for each channel. It uses the
   // channel ID as the key.

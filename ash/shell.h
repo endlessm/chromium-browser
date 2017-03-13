@@ -21,14 +21,13 @@
 #include "ui/aura/window.h"
 #include "ui/display/screen.h"
 #include "ui/events/event_target.h"
-#include "ui/gfx/geometry/insets.h"
-#include "ui/gfx/geometry/size.h"
 #include "ui/wm/core/cursor_manager.h"
 
 namespace aura {
-class EventFilter;
 class RootWindow;
 class Window;
+class WindowManagerClient;
+class WindowTreeClient;
 namespace client {
 class ActivationClient;
 class FocusClient;
@@ -39,17 +38,21 @@ namespace chromeos {
 class AudioA11yController;
 }
 
+namespace display {
+class DisplayChangeObserver;
+class DisplayConfigurator;
+class DisplayManager;
+}
+
 namespace gfx {
-class ImageSkia;
-class Rect;
+class Insets;
 }
 
 namespace ui {
-class DisplayConfigurator;
-class Layer;
 class UserActivityDetector;
 class UserActivityPowerManagerNotifier;
 }
+
 namespace views {
 class NonClientFrameView;
 class Widget;
@@ -72,14 +75,11 @@ class AcceleratorControllerDelegateAura;
 class AshNativeCursorManager;
 class AutoclickController;
 class BluetoothNotificationController;
-class DisplayChangeObserver;
 class DisplayColorManager;
 class DisplayConfigurationController;
 class DisplayErrorObserver;
-class DisplayManager;
 class DragDropController;
 class EventClientImpl;
-class EventRewriterEventFilter;
 class EventTransformationHandler;
 class FirstRunHelper;
 class GPUSupport;
@@ -87,7 +87,6 @@ class HighContrastController;
 class ImmersiveHandlerFactoryAsh;
 class LaserPointerController;
 class LinkHandlerModelFactory;
-class LocaleNotificationController;
 class LockStateController;
 enum class LoginStatus;
 class MagnificationController;
@@ -101,23 +100,19 @@ class ResizeShadowController;
 class ResolutionNotificationController;
 class RootWindowController;
 class ScopedOverviewAnimationSettingsFactoryAura;
-class ScreenAsh;
 class ScreenOrientationController;
 class ScreenshotController;
 class ScreenPinningController;
 class ScreenPositionController;
 class SessionStateDelegate;
-class ShellDelegate;
 struct ShellInitParams;
-class SlowAnimationEventFilter;
-class StatusAreaWidget;
+class ShutdownObserver;
 class StickyKeysController;
 class SystemGestureEventFilter;
 class SystemModalContainerEventFilter;
 class SystemTray;
 class ToplevelWindowEventHandler;
-class TouchTransformerController;
-class TouchObserverHUD;
+class AshTouchTransformController;
 class ScreenLayoutObserver;
 class VirtualKeyboardController;
 class VideoActivityNotifier;
@@ -125,7 +120,7 @@ class VideoDetector;
 class WebNotificationTray;
 class WindowPositioner;
 class WindowTreeHostManager;
-class WmShellAura;
+class WmShell;
 class WmWindow;
 
 namespace shell {
@@ -190,6 +185,23 @@ class ASH_EXPORT Shell : public SystemModalContainerEventFilterDelegate,
   static const aura::Window* GetContainer(const aura::Window* root_window,
                                           int container_id);
 
+  // TODO(sky): move this and WindowManagerClient into ShellMash that is owned
+  // by Shell. Doing the move is gated on having mash create Shell.
+  static void set_window_tree_client(aura::WindowTreeClient* client) {
+    window_tree_client_ = client;
+  }
+
+  static aura::WindowTreeClient* window_tree_client() {
+    return window_tree_client_;
+  }
+
+  static void set_window_manager_client(aura::WindowManagerClient* client) {
+    window_manager_client_ = client;
+  }
+  static aura::WindowManagerClient* window_manager_client() {
+    return window_manager_client_;
+  }
+
   // Creates a default views::NonClientFrameView for use by windows in the
   // Ash environment.
   views::NonClientFrameView* CreateDefaultNonClientFrameView(
@@ -201,13 +213,6 @@ class ASH_EXPORT Shell : public SystemModalContainerEventFilterDelegate,
 
   // Called when the user logs in.
   void OnLoginStateChanged(LoginStatus status);
-
-  // Called after the logged-in user's profile is ready.
-  void OnLoginUserProfilePrepared();
-
-  // Called when the login status changes.
-  // TODO(oshima): Investigate if we can merge this and |OnLoginStateChanged|.
-  void UpdateAfterLoginStatusChange(LoginStatus status);
 
   // Called when the application is exiting.
   void OnAppTerminating();
@@ -222,9 +227,6 @@ class ASH_EXPORT Shell : public SystemModalContainerEventFilterDelegate,
   // Called when a root window is created.
   void OnRootWindowAdded(WmWindow* root_window);
 
-  // Initializes |shelf_|.  Does nothing if it's already initialized.
-  void CreateShelf();
-
   // Creates a virtual keyboard. Deletes the old virtual keyboard if it already
   // exists.
   void CreateKeyboard();
@@ -232,22 +234,17 @@ class ASH_EXPORT Shell : public SystemModalContainerEventFilterDelegate,
   // Deactivates the virtual keyboard.
   void DeactivateKeyboard();
 
-  // Show shelf view if it was created hidden (before session has started).
-  void ShowShelf();
-
-#if defined(OS_CHROMEOS)
   // Test if MaximizeModeWindowManager is not enabled, and if
   // MaximizeModeController is not currently setting a display rotation. Or if
   // the |resolution_notification_controller_| is not showing its confirmation
   // dialog. If true then changes to display settings can be saved.
   bool ShouldSaveDisplaySettings();
-#endif
 
   AcceleratorControllerDelegateAura* accelerator_controller_delegate() {
     return accelerator_controller_delegate_.get();
   }
 
-  DisplayManager* display_manager() { return display_manager_.get(); }
+  display::DisplayManager* display_manager() { return display_manager_.get(); }
   DisplayConfigurationController* display_configuration_controller() {
     return display_configuration_controller_.get();
   }
@@ -273,11 +270,10 @@ class ASH_EXPORT Shell : public SystemModalContainerEventFilterDelegate,
   WindowTreeHostManager* window_tree_host_manager() {
     return window_tree_host_manager_.get();
   }
-#if defined(OS_CHROMEOS)
   PowerEventObserver* power_event_observer() {
     return power_event_observer_.get();
   }
-  TouchTransformerController* touch_transformer_controller() {
+  AshTouchTransformController* touch_transformer_controller() {
     return touch_transformer_controller_.get();
   }
   LaserPointerController* laser_pointer_controller() {
@@ -286,7 +282,6 @@ class ASH_EXPORT Shell : public SystemModalContainerEventFilterDelegate,
   PartialMagnificationController* partial_magnification_controller() {
     return partial_magnification_controller_.get();
   }
-#endif  // defined(OS_CHROMEOS)
   ScreenshotController* screenshot_controller() {
     return screenshot_controller_.get();
   }
@@ -347,9 +342,8 @@ class ASH_EXPORT Shell : public SystemModalContainerEventFilterDelegate,
   // Starts the animation that occurs on first login.
   void DoInitialWorkspaceAnimation();
 
-#if defined(OS_CHROMEOS)
   // TODO(oshima): Move these objects to WindowTreeHostManager.
-  ui::DisplayConfigurator* display_configurator() {
+  display::DisplayConfigurator* display_configurator() {
     return display_configurator_.get();
   }
   DisplayErrorObserver* display_error_observer() {
@@ -375,7 +369,6 @@ class ASH_EXPORT Shell : public SystemModalContainerEventFilterDelegate,
   chromeos::AudioA11yController* audio_a11y_controller() {
     return audio_a11y_controller_.get();
   }
-#endif  // defined(OS_CHROMEOS)
 
   WindowPositioner* window_positioner() { return window_positioner_.get(); }
 
@@ -387,7 +380,6 @@ class ASH_EXPORT Shell : public SystemModalContainerEventFilterDelegate,
     return is_touch_hud_projection_enabled_;
   }
 
-#if defined(OS_CHROMEOS)
   // Creates instance of FirstRunHelper. Caller is responsible for deleting
   // returned object.
   ash::FirstRunHelper* CreateFirstRunHelper();
@@ -399,8 +391,6 @@ class ASH_EXPORT Shell : public SystemModalContainerEventFilterDelegate,
   StickyKeysController* sticky_keys_controller() {
     return sticky_keys_controller_.get();
   }
-
-#endif  // defined(OS_CHROMEOS)
 
   ScreenPinningController* screen_pinning_controller() {
     return screen_pinning_controller_.get();
@@ -416,10 +406,7 @@ class ASH_EXPORT Shell : public SystemModalContainerEventFilterDelegate,
   friend class test::ShellTestApi;
   friend class shell::WindowWatcher;
 
-  typedef std::pair<aura::Window*, gfx::Rect> WindowAndBoundsPair;
-
-  // Takes ownership of |delegate|.
-  explicit Shell(ShellDelegate* delegate);
+  explicit Shell(std::unique_ptr<WmShell> wm_shell);
   ~Shell() override;
 
   void Init(const ShellInitParams& init_params);
@@ -429,6 +416,9 @@ class ASH_EXPORT Shell : public SystemModalContainerEventFilterDelegate,
 
   // Initializes the root window so that it can host browser windows.
   void InitRootWindow(aura::Window* root_window);
+
+  // Destroys all child windows including widgets across all roots.
+  void CloseAllRootWindowChildWindows();
 
   // SystemModalContainerEventFilterDelegate:
   bool CanWindowReceiveEvents(aura::Window* window) override;
@@ -441,18 +431,20 @@ class ASH_EXPORT Shell : public SystemModalContainerEventFilterDelegate,
 
   static Shell* instance_;
 
+  // Only valid in mash, for classic ash this is null.
+  static aura::WindowTreeClient* window_tree_client_;
+  static aura::WindowManagerClient* window_manager_client_;
+
   // If set before the Shell is initialized, the mouse cursor will be hidden
   // when the screen is initially created.
   static bool initially_hide_cursor_;
 
   std::unique_ptr<ScopedOverviewAnimationSettingsFactoryAura>
       scoped_overview_animation_settings_factory_;
-  std::unique_ptr<WmShellAura> wm_shell_;
+  std::unique_ptr<WmShell> wm_shell_;
 
   // The CompoundEventFilter owned by aura::Env object.
   std::unique_ptr<::wm::CompoundEventFilter> env_filter_;
-
-  std::vector<WindowAndBoundsPair> to_restore_;
 
   std::unique_ptr<UserMetricsRecorder> user_metrics_recorder_;
   std::unique_ptr<AcceleratorControllerDelegateAura>
@@ -500,14 +492,12 @@ class ASH_EXPORT Shell : public SystemModalContainerEventFilterDelegate,
   // An event filter that pre-handles global accelerators.
   std::unique_ptr<::wm::AcceleratorFilter> accelerator_filter_;
 
-  std::unique_ptr<DisplayManager> display_manager_;
+  std::unique_ptr<display::DisplayManager> display_manager_;
   std::unique_ptr<DisplayConfigurationController>
       display_configuration_controller_;
 
-  std::unique_ptr<LocaleNotificationController> locale_notification_controller_;
   std::unique_ptr<ScreenPinningController> screen_pinning_controller_;
 
-#if defined(OS_CHROMEOS)
   std::unique_ptr<PowerEventObserver> power_event_observer_;
   std::unique_ptr<ui::UserActivityPowerManagerNotifier> user_activity_notifier_;
   std::unique_ptr<VideoActivityNotifier> video_activity_notifier_;
@@ -519,26 +509,28 @@ class ASH_EXPORT Shell : public SystemModalContainerEventFilterDelegate,
   std::unique_ptr<VirtualKeyboardController> virtual_keyboard_controller_;
   std::unique_ptr<chromeos::AudioA11yController> audio_a11y_controller_;
   // Controls video output device state.
-  std::unique_ptr<ui::DisplayConfigurator> display_configurator_;
+  std::unique_ptr<display::DisplayConfigurator> display_configurator_;
   std::unique_ptr<DisplayColorManager> display_color_manager_;
   std::unique_ptr<DisplayErrorObserver> display_error_observer_;
   std::unique_ptr<ProjectingObserver> projecting_observer_;
 
   // Listens for output changes and updates the display manager.
-  std::unique_ptr<DisplayChangeObserver> display_change_observer_;
+  std::unique_ptr<display::DisplayChangeObserver> display_change_observer_;
+
+  // Listens for shutdown and updates DisplayConfigurator.
+  std::unique_ptr<ShutdownObserver> shutdown_observer_;
 
   // Implements content::ScreenOrientationController for ChromeOS
   std::unique_ptr<ScreenOrientationController> screen_orientation_controller_;
   std::unique_ptr<ScreenLayoutObserver> screen_layout_observer_;
 
-  std::unique_ptr<TouchTransformerController> touch_transformer_controller_;
+  std::unique_ptr<AshTouchTransformController> touch_transformer_controller_;
 
   std::unique_ptr<ui::EventHandler> magnifier_key_scroll_handler_;
   std::unique_ptr<ui::EventHandler> speech_feedback_handler_;
   std::unique_ptr<LaserPointerController> laser_pointer_controller_;
   std::unique_ptr<PartialMagnificationController>
       partial_magnification_controller_;
-#endif  // defined(OS_CHROMEOS)
 
   // |native_cursor_manager_| is owned by |cursor_manager_|, but we keep a
   // pointer to vend to test code.

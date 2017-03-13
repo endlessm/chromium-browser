@@ -13,10 +13,10 @@
 #include "base/trace_event/trace_event.h"
 #include "cc/output/context_cache_controller.h"
 #include "cc/output/managed_memory_policy.h"
-#include "gpu/command_buffer/client/gl_in_process_context.h"
 #include "gpu/command_buffer/client/gles2_implementation.h"
 #include "gpu/command_buffer/client/gles2_lib.h"
 #include "gpu/command_buffer/client/shared_memory_limits.h"
+#include "gpu/ipc/gl_in_process_context.h"
 #include "gpu/skia_bindings/grcontext_for_gles2_interface.h"
 #include "third_party/skia/include/gpu/GrContext.h"
 #include "third_party/skia/include/gpu/gl/GrGLInterface.h"
@@ -29,7 +29,7 @@ scoped_refptr<InProcessContextProvider> InProcessContextProvider::Create(
     InProcessContextProvider* shared_context,
     gpu::GpuMemoryBufferManager* gpu_memory_buffer_manager,
     gpu::ImageFactory* image_factory,
-    gfx::AcceleratedWidget window,
+    gpu::SurfaceHandle window,
     const std::string& debug_name) {
   return new InProcessContextProvider(attribs, shared_context,
                                       gpu_memory_buffer_manager, image_factory,
@@ -55,7 +55,7 @@ InProcessContextProvider::CreateOffscreen(
   attribs.bind_generates_resource = false;
   return new InProcessContextProvider(attribs, shared_context,
                                       gpu_memory_buffer_manager, image_factory,
-                                      gfx::kNullAcceleratedWidget, "Offscreen");
+                                      gpu::kNullSurfaceHandle, "Offscreen");
 }
 
 InProcessContextProvider::InProcessContextProvider(
@@ -63,7 +63,7 @@ InProcessContextProvider::InProcessContextProvider(
     InProcessContextProvider* shared_context,
     gpu::GpuMemoryBufferManager* gpu_memory_buffer_manager,
     gpu::ImageFactory* image_factory,
-    gfx::AcceleratedWidget window,
+    gpu::SurfaceHandle window,
     const std::string& debug_name)
     : attribs_(attribs),
       shared_context_(shared_context),

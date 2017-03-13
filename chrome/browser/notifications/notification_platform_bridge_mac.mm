@@ -12,6 +12,7 @@
 #include "base/mac/foundation_util.h"
 #include "base/mac/mac_util.h"
 #include "base/mac/scoped_nsobject.h"
+#include "base/strings/nullable_string16.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/sys_string_conversions.h"
 #include "chrome/browser/browser_process.h"
@@ -48,7 +49,6 @@
 // Site settings button is implemented as NSUserNotification's action button
 // Not easy to implement:
 // -notification.requireInteraction
-// -The event associated to the close button
 
 // TODO(miguelg) implement the following features
 // - Sound names can be implemented by setting soundName in NSUserNotification
@@ -76,7 +76,8 @@ void ProfileLoadedCallback(NotificationCommon::Operation operation,
 
   static_cast<NativeNotificationDisplayService*>(display_service)
       ->ProcessNotificationOperation(operation, notification_type, origin,
-                                     notification_id, action_index);
+                                     notification_id, action_index,
+                                     base::NullableString16() /* reply */);
 }
 
 // Loads the profile and process the Notification response
@@ -88,6 +89,7 @@ void DoProcessNotificationResponse(NotificationCommon::Operation operation,
                                    const std::string& notification_id,
                                    int32_t button_index) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+
   ProfileManager* profileManager = g_browser_process->profile_manager();
   DCHECK(profileManager);
 
@@ -98,12 +100,6 @@ void DoProcessNotificationResponse(NotificationCommon::Operation operation,
 
 }  // namespace
 
-// static
-NotificationPlatformBridge* NotificationPlatformBridge::Create() {
-  return new NotificationPlatformBridgeMac(
-      [NSUserNotificationCenter defaultUserNotificationCenter]);
-}
-
 // A Cocoa class that represents the delegate of NSUserNotificationCenter and
 // can forward commands to C++.
 @interface NotificationCenterDelegate
@@ -112,34 +108,52 @@ NotificationPlatformBridge* NotificationPlatformBridge::Create() {
 @end
 
 // Interface to communicate with the Alert XPC service.
-@interface NotificationRemoteDispatcher : NSObject
+@interface AlertDispatcherImpl : NSObject<AlertDispatcher>
 
+// Deliver a notification to the XPC service to be displayed as an alert.
 - (void)dispatchNotification:(NSDictionary*)data;
+
+// Close a notification for a given |notificationId| and |profileId|.
+- (void)closeNotificationWithId:(NSString*)notificationId
+                  withProfileId:(NSString*)profileId;
+
+// Close all notifications.
+- (void)closeAllNotifications;
 
 @end
 
 // /////////////////////////////////////////////////////////////////////////////
-
 NotificationPlatformBridgeMac::NotificationPlatformBridgeMac(
-    NSUserNotificationCenter* notification_center)
+    NSUserNotificationCenter* notification_center,
+    id<AlertDispatcher> alert_dispatcher)
     : delegate_([NotificationCenterDelegate alloc]),
-      notification_center_(notification_center),
-#if BUILDFLAG(ENABLE_XPC_NOTIFICATIONS)
-      notification_remote_dispatcher_(
-          [[NotificationRemoteDispatcher alloc] init])
-#else
-      notification_remote_dispatcher_(nullptr)
-#endif  // ENABLE_XPC_NOTIFICATIONS
-{
+      notification_center_([notification_center retain]),
+      alert_dispatcher_([alert_dispatcher retain]) {
   [notification_center_ setDelegate:delegate_.get()];
 }
 
 NotificationPlatformBridgeMac::~NotificationPlatformBridgeMac() {
   [notification_center_ setDelegate:nil];
 
-  // TODO(miguelg) remove only alerts shown by the XPC service.
   // TODO(miguelg) do not remove banners if possible.
   [notification_center_ removeAllDeliveredNotifications];
+#if BUILDFLAG(ENABLE_XPC_NOTIFICATIONS)
+  [alert_dispatcher_ closeAllNotifications];
+#endif  // BUILDFLAG(ENABLE_XPC_NOTIFICATIONS)
+}
+
+// static
+NotificationPlatformBridge* NotificationPlatformBridge::Create() {
+#if BUILDFLAG(ENABLE_XPC_NOTIFICATIONS)
+  base::scoped_nsobject<AlertDispatcherImpl> alert_dispatcher(
+      [[AlertDispatcherImpl alloc] init]);
+  return new NotificationPlatformBridgeMac(
+      [NSUserNotificationCenter defaultUserNotificationCenter],
+      alert_dispatcher.get());
+#else
+  return new NotificationPlatformBridgeMac(
+      [NSUserNotificationCenter defaultUserNotificationCenter], nil);
+#endif  // ENABLE_XPC_NOTIFICATIONS
 }
 
 void NotificationPlatformBridgeMac::Display(
@@ -217,7 +231,7 @@ void NotificationPlatformBridgeMac::Display(
   // banners.
   if (notification.never_timeout()) {
     NSDictionary* dict = [builder buildDictionary];
-    [notification_remote_dispatcher_ dispatchNotification:dict];
+    [alert_dispatcher_ dispatchNotification:dict];
   } else {
     NSUserNotification* toast = [builder buildUserNotification];
     [notification_center_ deliverNotification:toast];
@@ -231,8 +245,9 @@ void NotificationPlatformBridgeMac::Display(
 void NotificationPlatformBridgeMac::Close(const std::string& profile_id,
                                           const std::string& notification_id) {
   NSString* candidate_id = base::SysUTF8ToNSString(notification_id);
-
   NSString* current_profile_id = base::SysUTF8ToNSString(profile_id);
+
+  bool notification_removed = false;
   for (NSUserNotification* toast in
        [notification_center_ deliveredNotifications]) {
     NSString* toast_id =
@@ -244,8 +259,18 @@ void NotificationPlatformBridgeMac::Close(const std::string& profile_id,
     if ([toast_id isEqualToString:candidate_id] &&
         [persistent_profile_id isEqualToString:current_profile_id]) {
       [notification_center_ removeDeliveredNotification:toast];
+      notification_removed = true;
+      break;
     }
   }
+#if BUILDFLAG(ENABLE_XPC_NOTIFICATIONS)
+  // If no banner existed with that ID try to see if there is an alert
+  // in the xpc server.
+  if (!notification_removed) {
+    [alert_dispatcher_ closeNotificationWithId:candidate_id
+                                 withProfileId:current_profile_id];
+  }
+#endif  // ENABLE_XPC_NOTIFICATIONS
 }
 
 bool NotificationPlatformBridgeMac::GetDisplayed(
@@ -259,7 +284,7 @@ bool NotificationPlatformBridgeMac::GetDisplayed(
        [notification_center_ deliveredNotifications]) {
     NSString* toast_profile_id = [toast.userInfo
         objectForKey:notification_constants::kNotificationProfileId];
-    if (toast_profile_id == current_profile_id) {
+    if ([toast_profile_id isEqualToString:current_profile_id]) {
       notifications->insert(base::SysNSStringToUTF8([toast.userInfo
           objectForKey:notification_constants::kNotificationId]));
     }
@@ -378,6 +403,20 @@ bool NotificationPlatformBridgeMac::VerifyNotificationData(
       notificationResponse);
 }
 
+// Overriden from _NSUserNotificationCenterDelegatePrivate.
+// Emitted when a user clicks the "Close" button in the notification.
+// It not is emitted if the notification is closed from the notification
+// center or if the app is not running at the time the Close button is
+// pressed so it's essentially just a best effort way to detect
+// notifications closed by the user.
+- (void)userNotificationCenter:(NSUserNotificationCenter*)center
+               didDismissAlert:(NSUserNotification*)notification {
+  NSDictionary* notificationResponse =
+      [NotificationResponseBuilder buildDictionary:notification];
+  NotificationPlatformBridgeMac::ProcessNotificationResponse(
+      notificationResponse);
+}
+
 - (BOOL)userNotificationCenter:(NSUserNotificationCenter*)center
      shouldPresentNotification:(NSUserNotification*)nsNotification {
   // Always display notifications, regardless of whether the app is foreground.
@@ -386,7 +425,7 @@ bool NotificationPlatformBridgeMac::VerifyNotificationData(
 
 @end
 
-@implementation NotificationRemoteDispatcher {
+@implementation AlertDispatcherImpl {
   // The connection to the XPC server in charge of delivering alerts.
   base::scoped_nsobject<NSXPCConnection> xpcConnection_;
 }
@@ -425,6 +464,16 @@ bool NotificationPlatformBridgeMac::VerifyNotificationData(
 
 - (void)dispatchNotification:(NSDictionary*)data {
   [[xpcConnection_ remoteObjectProxy] deliverNotification:data];
+}
+
+- (void)closeNotificationWithId:(NSString*)notificationId
+                  withProfileId:(NSString*)profileId {
+  [[xpcConnection_ remoteObjectProxy] closeNotificationWithId:notificationId
+                                                withProfileId:profileId];
+}
+
+- (void)closeAllNotifications {
+  [[xpcConnection_ remoteObjectProxy] closeAllNotifications];
 }
 
 // NotificationReply implementation

@@ -32,7 +32,7 @@
 
 #include "platform/geometry/FloatRect.h"
 #include "platform/graphics/GraphicsContext.h"
-#include "platform/graphics/paint/SkPictureBuilder.h"
+#include "platform/graphics/paint/PaintController.h"
 #include "third_party/skia/include/core/SkImage.h"
 #include "third_party/skia/include/core/SkPicture.h"
 
@@ -42,16 +42,17 @@ void GeneratedImage::drawPattern(GraphicsContext& destContext,
                                  const FloatRect& srcRect,
                                  const FloatSize& scale,
                                  const FloatPoint& phase,
-                                 SkXfermode::Mode compositeOp,
+                                 SkBlendMode compositeOp,
                                  const FloatRect& destRect,
                                  const FloatSize& repeatSpacing) {
   FloatRect tileRect = srcRect;
   tileRect.expand(FloatSize(repeatSpacing));
 
-  SkPictureBuilder builder(tileRect, nullptr, &destContext);
-  builder.context().beginRecording(tileRect);
-  drawTile(builder.context(), srcRect);
-  sk_sp<SkPicture> tilePicture = builder.endRecording();
+  std::unique_ptr<PaintController> paintController = PaintController::create();
+  GraphicsContext context(*paintController);
+  context.beginRecording(tileRect);
+  drawTile(context, srcRect);
+  sk_sp<SkPicture> tilePicture = context.endRecording();
 
   SkMatrix patternMatrix = SkMatrix::MakeTrans(phase.x(), phase.y());
   patternMatrix.preScale(scale.width(), scale.height());
@@ -63,12 +64,13 @@ void GeneratedImage::drawPattern(GraphicsContext& destContext,
   SkPaint fillPaint = destContext.fillPaint();
   picturePattern->applyToPaint(fillPaint, patternMatrix);
   fillPaint.setColor(SK_ColorBLACK);
-  fillPaint.setXfermodeMode(compositeOp);
+  fillPaint.setBlendMode(compositeOp);
 
   destContext.drawRect(destRect, fillPaint);
 }
 
-sk_sp<SkImage> GeneratedImage::imageForCurrentFrame() {
+sk_sp<SkImage> GeneratedImage::imageForCurrentFrame(
+    const ColorBehavior& colorBehavior) {
   return nullptr;
 }
 

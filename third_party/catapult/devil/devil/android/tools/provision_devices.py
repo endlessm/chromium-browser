@@ -39,6 +39,7 @@ from devil.android import device_utils
 from devil.android import settings
 from devil.android.constants import chrome
 from devil.android.sdk import adb_wrapper
+from devil.android.sdk import intent
 from devil.android.sdk import keyevent
 from devil.android.sdk import version_codes
 from devil.android.tools import script_common
@@ -87,7 +88,13 @@ def ProvisionDevices(
   blacklist = (device_blacklist.Blacklist(blacklist_file)
                if blacklist_file
                else None)
-  devices = script_common.GetDevices(devices, blacklist)
+  try:
+    devices = script_common.GetDevices(devices, blacklist)
+  except device_errors.NoDevicesError:
+    logging.error('No available devices to provision.')
+    if blacklist:
+      logging.error('Local device blacklist: %s', blacklist.Read())
+    raise
   devices = [d for d in devices
              if not emulators or d.adb.is_emulator]
   parallel_devices = device_utils.DeviceUtils.parallel(devices)
@@ -449,6 +456,8 @@ def SetDate(device):
         _set_and_verify_date, wait_period=1, max_tries=2):
       raise device_errors.CommandFailedError(
           'Failed to set date & time.', device_serial=str(device))
+    device.BroadcastIntent(
+        intent.Intent(action='android.intent.action.TIME_SET'))
 
 
 def LogDeviceProperties(device):
@@ -490,25 +499,16 @@ def main(raw_args):
   parser = argparse.ArgumentParser(
       description='Provision Android devices with settings required for bots.')
   parser.add_argument(
-      '-d', '--device', metavar='SERIAL', action='append', dest='devices',
-      help='the serial number of the device to be provisioned '
-           '(the default is to provision all devices attached)')
+      '--adb-key-files', type=str, nargs='+',
+      help='list of adb keys to push to device')
   parser.add_argument(
       '--adb-path',
       help='Absolute path to the adb binary to use.')
   parser.add_argument('--blacklist-file', help='Device blacklist JSON file.')
   parser.add_argument(
-      '--skip-wipe', action='store_true', default=False,
-      help="don't wipe device data during provisioning")
-  parser.add_argument(
-      '--reboot-timeout', metavar='SECS', type=int,
-      help='when wiping the device, max number of seconds to'
-           ' wait after each reboot '
-           '(default: %s)' % _DEFAULT_TIMEOUTS.HELP_TEXT)
-  parser.add_argument(
-      '--min-battery-level', type=int, metavar='NUM',
-      help='wait for the device to reach this minimum battery'
-           ' level before trying to continue')
+      '-d', '--device', metavar='SERIAL', action='append', dest='devices',
+      help='the serial number of the device to be provisioned '
+           '(the default is to provision all devices attached)')
   parser.add_argument(
       '--disable-location', action='store_true',
       help='disable Google location services on devices')
@@ -526,23 +526,48 @@ def main(raw_args):
       '--disable-system-chrome', action='store_true',
       help='Disable the system chrome from devices.')
   parser.add_argument(
-      '--remove-system-webview', action='store_true',
-      help='Remove the system webview from devices.')
-  parser.add_argument(
-      '--adb-key-files', type=str, nargs='+',
-      help='list of adb keys to push to device')
-  parser.add_argument(
-      '-v', '--verbose', action='count', default=1,
-      help='Log more information.')
+      '--emulators', action='store_true',
+      help='provision only emulators and ignore usb devices')
   parser.add_argument(
       '--max-battery-temp', type=int, metavar='NUM',
       help='Wait for the battery to have this temp or lower.')
   parser.add_argument(
+      '--min-battery-level', type=int, metavar='NUM',
+      help='wait for the device to reach this minimum battery'
+           ' level before trying to continue')
+  parser.add_argument(
       '--output-device-blacklist',
       help='Json file to output the device blacklist.')
   parser.add_argument(
-      '--emulators', action='store_true',
-      help='provision only emulators and ignore usb devices')
+      '--reboot-timeout', metavar='SECS', type=int,
+      help='when wiping the device, max number of seconds to'
+           ' wait after each reboot '
+           '(default: %s)' % _DEFAULT_TIMEOUTS.HELP_TEXT)
+  parser.add_argument(
+      '--remove-system-webview', action='store_true',
+      help='Remove the system webview from devices.')
+  parser.add_argument(
+      '--skip-wipe', action='store_true', default=False,
+      help="don't wipe device data during provisioning")
+  parser.add_argument(
+      '-v', '--verbose', action='count', default=1,
+      help='Log more information.')
+
+  # No-op arguments for compatibility with build/android/provision_devices.py.
+  # TODO(jbudorick): Remove these once all callers have stopped using them.
+  parser.add_argument(
+      '--chrome-specific-wipe', action='store_true',
+      help=argparse.SUPPRESS)
+  parser.add_argument(
+      '--phase', action='append',
+      help=argparse.SUPPRESS)
+  parser.add_argument(
+      '-r', '--auto-reconnect', action='store_true',
+      help=argparse.SUPPRESS)
+  parser.add_argument(
+      '-t', '--target',
+      help=argparse.SUPPRESS)
+
   args = parser.parse_args(raw_args)
 
   run_tests_helper.SetLogLevel(args.verbose)
@@ -573,6 +598,7 @@ def main(raw_args):
         remove_system_webview=args.remove_system_webview,
         wipe=not args.skip_wipe)
   except (device_errors.DeviceUnreachableError, device_errors.NoDevicesError):
+    logging.exception('Unable to provision local devices.')
     return exit_codes.INFRA
 
 

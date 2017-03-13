@@ -7,6 +7,7 @@
 
 #include <stdint.h>
 
+#include <memory>
 #include <set>
 
 #include "base/callback_forward.h"
@@ -34,7 +35,6 @@
 #endif
 
 namespace base {
-class DictionaryValue;
 class TimeTicks;
 }
 
@@ -46,7 +46,7 @@ namespace net {
 struct LoadStateWithParam;
 }
 
-namespace shell {
+namespace service_manager {
 class InterfaceProvider;
 }
 
@@ -59,6 +59,7 @@ class PageState;
 class RenderFrameHost;
 class RenderProcessHost;
 class RenderViewHost;
+class RenderWidgetHost;
 class RenderWidgetHostView;
 class WebContentsDelegate;
 struct CustomContextMenuContext;
@@ -262,10 +263,6 @@ class WebContents : public PageNavigator,
   // Gets the current RenderViewHost for this tab.
   virtual RenderViewHost* GetRenderViewHost() const = 0;
 
-  // Gets the current RenderViewHost's routing id. Returns
-  // MSG_ROUTING_NONE when there is no RenderViewHost.
-  virtual int GetRoutingID() const = 0;
-
   // Returns the currently active RenderWidgetHostView. This may change over
   // time and can be nullptr (during setup and teardown).
   virtual RenderWidgetHostView* GetRenderWidgetHostView() const = 0;
@@ -293,8 +290,9 @@ class WebContents : public PageNavigator,
   // necessary. However if the embedder wants to create its own WebUI object and
   // keep track of it manually, it can use this. |frame_name| is used to
   // identify the frame and cannot be empty.
-  virtual WebUI* CreateSubframeWebUI(const GURL& url,
-                                     const std::string& frame_name) = 0;
+  virtual std::unique_ptr<WebUI> CreateSubframeWebUI(
+      const GURL& url,
+      const std::string& frame_name) = 0;
 
   // Returns the committed WebUI if one exists, otherwise the pending one.
   virtual WebUI* GetWebUI() const = 0;
@@ -304,13 +302,13 @@ class WebContents : public PageNavigator,
   virtual void SetUserAgentOverride(const std::string& override) = 0;
   virtual const std::string& GetUserAgentOverride() const = 0;
 
-  // Enable the accessibility tree for this WebContents in the renderer,
-  // but don't enable creating a native accessibility tree on the browser
-  // side.
-  virtual void EnableTreeOnlyAccessibilityMode() = 0;
+  // Set the accessibility mode so that accessibility events are forwarded
+  // to each WebContentsObserver.
+  virtual void EnableWebContentsOnlyAccessibilityMode() = 0;
 
-  // Returns true only if "tree only" accessibility mode is on.
-  virtual bool IsTreeOnlyAccessibilityModeForTesting() const = 0;
+  // Returns true only if the WebContentsObserver accessibility mode is
+  // enabled.
+  virtual bool IsWebContentsOnlyAccessibilityModeForTesting() const = 0;
 
   // Returns true only if complete accessibility mode is on, meaning there's
   // both renderer accessibility, and a native browser accessibility tree.
@@ -330,16 +328,6 @@ class WebContents : public PageNavigator,
   // titles for file URLs that have none. Thus |entry| must have a URL set.
   virtual void UpdateTitleForEntry(NavigationEntry* entry,
                                    const base::string16& title) = 0;
-
-  // The max page ID for any page that the current SiteInstance has loaded in
-  // this WebContents.  Page IDs are specific to a given SiteInstance and
-  // WebContents, corresponding to a specific RenderView in the renderer.
-  // Page IDs increase with each new page that is loaded by a tab.
-  virtual int32_t GetMaxPageID() = 0;
-
-  // The max page ID for any page that the given SiteInstance has loaded in
-  // this WebContents.
-  virtual int32_t GetMaxPageIDForSiteInstance(SiteInstance* site_instance) = 0;
 
   // Returns the SiteInstance associated with the current page.
   virtual SiteInstance* GetSiteInstance() const = 0;
@@ -407,10 +395,16 @@ class WebContents : public PageNavigator,
   // change.
   virtual void NotifyNavigationStateChanged(InvalidateTypes changed_flags) = 0;
 
+  // Notifies the WebContents that audio started or stopped being audible.
+  virtual void OnAudioStateChanged(bool is_audio_playing) = 0;
+
   // Get/Set the last time that the WebContents was made active (either when it
   // was created or shown with WasShown()).
   virtual base::TimeTicks GetLastActiveTime() const = 0;
   virtual void SetLastActiveTime(base::TimeTicks last_active_time) = 0;
+
+  // Get the last time that the WebContents was made hidden.
+  virtual base::TimeTicks GetLastHiddenTime() const = 0;
 
   // Invoked when the WebContents becomes shown/hidden.
   virtual void WasShown() = 0;
@@ -434,6 +428,9 @@ class WebContents : public PageNavigator,
   virtual void AttachToOuterWebContentsFrame(
       WebContents* outer_web_contents,
       RenderFrameHost* outer_contents_frame) = 0;
+
+  // Invoked when visible security state changes.
+  virtual void DidChangeVisibleSecurityState() = 0;
 
   // Commands ------------------------------------------------------------------
 
@@ -589,7 +586,7 @@ class WebContents : public PageNavigator,
 
   // A render view-originated drag has ended. Informs the render view host and
   // WebContentsDelegate.
-  virtual void SystemDragEnded() = 0;
+  virtual void SystemDragEnded(RenderWidgetHost* source_rwh) = 0;
 
   // Notification the user has made a gesture while focus was on the
   // page. This is used to avoid uninitiated user downloads (aka carpet
@@ -635,11 +632,22 @@ class WebContents : public PageNavigator,
   // to see what it should do.
   virtual bool FocusLocationBarByDefault() = 0;
 
-  // Does this have an opener associated with it?
+  // Does this have an opener (corresponding to window.opener in JavaScript)
+  // associated with it?
   virtual bool HasOpener() const = 0;
 
   // Returns the opener if HasOpener() is true, or nullptr otherwise.
   virtual WebContents* GetOpener() const = 0;
+
+  // Returns true if this WebContents was opened by another WebContents, even
+  // if the opener was suppressed. In contrast to HasOpener/GetOpener, the
+  // original opener doesn't reflect window.opener which can be suppressed or
+  // updated.
+  virtual bool HasOriginalOpener() const = 0;
+
+  // Returns the original opener if HasOriginalOpener() is true, or nullptr
+  // otherwise.
+  virtual WebContents* GetOriginalOpener() const = 0;
 
   typedef base::Callback<void(
       int, /* id */
@@ -710,12 +718,29 @@ class WebContents : public PageNavigator,
   // as soon as they are ready.
   virtual void ResumeLoadingCreatedWebContents() = 0;
 
-  // Requests to resume the current media session.
-  virtual void ResumeMediaSession() = 0;
-  // Requests to suspend the current media session.
-  virtual void SuspendMediaSession() = 0;
-  // Requests to stop the current media session.
-  virtual void StopMediaSession() = 0;
+  // Called when the WebContents has displayed a password field on an
+  // HTTP page. This method modifies the appropriate NavigationEntry's
+  // SSLStatus to record the sensitive input field, so that embedders
+  // can adjust the UI if desired.
+  virtual void OnPasswordInputShownOnHttp() = 0;
+
+  // Called when the WebContents has hidden all password fields on an
+  // HTTP page. This method modifies the appropriate NavigationEntry's
+  // SSLStatus to remove the presence of sensitive input fields, so that
+  // embedders can adjust the UI if desired.
+  virtual void OnAllPasswordInputsHiddenOnHttp() = 0;
+
+  // Called when the WebContents has displayed a credit card field on an
+  // HTTP page. This method modifies the appropriate NavigationEntry's
+  // SSLStatus to record the sensitive input field, so that embedders
+  // can adjust the UI if desired.
+  virtual void OnCreditCardInputShownOnHttp() = 0;
+
+  // Sets whether the WebContents is for overlaying content on a page.
+  virtual void SetIsOverlayContent(bool is_overlay_content) = 0;
+
+  virtual int GetCurrentlyPlayingVideoCount() = 0;
+  virtual bool IsFullscreen() = 0;
 
 #if defined(OS_ANDROID)
   CONTENT_EXPORT static WebContents* FromJavaWebContents(
@@ -739,7 +764,7 @@ class WebContents : public PageNavigator,
   // Returns an InterfaceProvider for Java-implemented interfaces that are
   // scoped to this WebContents. This provides access to interfaces implemented
   // in Java in the browser process to C++ code in the browser process.
-  virtual shell::InterfaceProvider* GetJavaInterfaces() = 0;
+  virtual service_manager::InterfaceProvider* GetJavaInterfaces() = 0;
 #elif defined(OS_MACOSX)
   // Allowing other views disables optimizations which assume that only a single
   // WebContents is present.

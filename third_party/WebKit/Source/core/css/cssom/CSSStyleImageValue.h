@@ -10,9 +10,9 @@
 #include "core/css/CSSImageValue.h"
 #include "core/css/cssom/CSSResourceValue.h"
 #include "core/css/cssom/CSSStyleValue.h"
-#include "core/fetch/ImageResource.h"
 #include "core/html/canvas/CanvasImageSource.h"
 #include "core/imagebitmap/ImageBitmapSource.h"
+#include "core/loader/resource/ImageResourceContent.h"
 #include "core/style/StyleImage.h"
 
 namespace blink {
@@ -24,8 +24,6 @@ class CORE_EXPORT CSSStyleImageValue : public CSSResourceValue,
 
  public:
   virtual ~CSSStyleImageValue() {}
-
-  StyleValueType type() const override { return ImageType; }
 
   double intrinsicWidth(bool& isNull) const;
   double intrinsicHeight(bool& isNull) const;
@@ -49,7 +47,6 @@ class CORE_EXPORT CSSStyleImageValue : public CSSResourceValue,
 
   DEFINE_INLINE_VIRTUAL_TRACE() {
     visitor->trace(m_imageValue);
-    CSSStyleValue::trace(visitor);
     CSSResourceValue::trace(visitor);
   }
 
@@ -57,12 +54,10 @@ class CORE_EXPORT CSSStyleImageValue : public CSSResourceValue,
   CSSStyleImageValue(const CSSImageValue* imageValue)
       : m_imageValue(imageValue) {}
 
-  Member<const CSSImageValue> m_imageValue;
-
   virtual LayoutSize imageLayoutSize() const {
-    DCHECK(!m_imageValue->isCachePending());
+    DCHECK(!isCachePending());
     return m_imageValue->cachedImage()->cachedImage()->imageSize(
-        DoNotRespectImageOrientation, 1, ImageResource::IntrinsicSize);
+        DoNotRespectImageOrientation, 1, ImageResourceContent::IntrinsicSize);
   }
 
   virtual bool isCachePending() const { return m_imageValue->isCachePending(); }
@@ -73,8 +68,12 @@ class CORE_EXPORT CSSStyleImageValue : public CSSResourceValue,
     return m_imageValue->cachedImage()->cachedImage()->getStatus();
   }
 
+  const CSSImageValue* cssImageValue() const { return m_imageValue.get(); };
+
  private:
   PassRefPtr<Image> image() const;
+
+  Member<const CSSImageValue> m_imageValue;
 };
 
 }  // namespace blink

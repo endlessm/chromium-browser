@@ -27,6 +27,7 @@
 #include "bindings/core/v8/ExceptionState.h"
 #include "core/dom/ExceptionCode.h"
 #include "core/dom/ExecutionContextTask.h"
+#include "core/dom/TaskRunnerHelper.h"
 #include "modules/EventModules.h"
 #include "modules/webaudio/BaseAudioContext.h"
 #include "platform/audio/AudioUtilities.h"
@@ -49,13 +50,15 @@ void AudioScheduledSourceHandler::updateSchedulingInfo(
     size_t quantumFrameSize,
     AudioBus* outputBus,
     size_t& quantumFrameOffset,
-    size_t& nonSilentFramesToProcess) {
+    size_t& nonSilentFramesToProcess,
+    double& startFrameOffset) {
   DCHECK(outputBus);
   if (!outputBus)
     return;
 
-  DCHECK_EQ(quantumFrameSize, static_cast<size_t>(ProcessingSizeInFrames));
-  if (quantumFrameSize != ProcessingSizeInFrames)
+  DCHECK_EQ(quantumFrameSize,
+            static_cast<size_t>(AudioUtilities::kRenderQuantumFrames));
+  if (quantumFrameSize != AudioUtilities::kRenderQuantumFrames)
     return;
 
   double sampleRate = this->sampleRate();
@@ -92,6 +95,10 @@ void AudioScheduledSourceHandler::updateSchedulingInfo(
     // Increment the active source count only if we're transitioning from
     // SCHEDULED_STATE to PLAYING_STATE.
     setPlaybackState(PLAYING_STATE);
+    // Determine the offset of the true start time from the starting frame.
+    startFrameOffset = m_startTime * sampleRate - startFrame;
+  } else {
+    startFrameOffset = 0;
   }
 
   quantumFrameOffset =
@@ -149,8 +156,7 @@ void AudioScheduledSourceHandler::start(double when,
                                         ExceptionState& exceptionState) {
   DCHECK(isMainThread());
 
-  // TODO(mlamouri): record when this is called with a user gesture and could
-  // have started the AudioContext if following Safari iOS rules.
+  context()->maybeRecordStartAttempt();
 
   if (playbackState() != UNSCHEDULED_STATE) {
     exceptionState.throwDOMException(InvalidStateError,
@@ -221,7 +227,7 @@ void AudioScheduledSourceHandler::finish() {
 
   if (context()->getExecutionContext()) {
     context()->getExecutionContext()->postTask(
-        BLINK_FROM_HERE,
+        TaskType::MediaElementEvent, BLINK_FROM_HERE,
         createCrossThreadTask(&AudioScheduledSourceHandler::notifyEnded,
                               PassRefPtr<AudioScheduledSourceHandler>(this)));
   }
@@ -236,7 +242,7 @@ void AudioScheduledSourceHandler::notifyEnded() {
 // ----------------------------------------------------------------
 
 AudioScheduledSourceNode::AudioScheduledSourceNode(BaseAudioContext& context)
-    : AudioSourceNode(context), ActiveScriptWrappable(this) {}
+    : AudioNode(context) {}
 
 AudioScheduledSourceHandler&
 AudioScheduledSourceNode::audioScheduledSourceHandler() const {

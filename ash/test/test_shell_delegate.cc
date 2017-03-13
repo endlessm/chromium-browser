@@ -6,118 +6,38 @@
 
 #include <limits>
 
-#include "ash/app_list/app_list_presenter_delegate.h"
-#include "ash/app_list/app_list_presenter_delegate_factory.h"
 #include "ash/common/default_accessibility_delegate.h"
 #include "ash/common/gpu_support_stub.h"
-#include "ash/common/media_delegate.h"
-#include "ash/common/new_window_delegate.h"
 #include "ash/common/palette_delegate.h"
 #include "ash/common/session/session_state_delegate.h"
-#include "ash/common/shell_window_ids.h"
+#include "ash/common/system/tray/system_tray_notifier.h"
+#include "ash/common/test/test_session_state_delegate.h"
+#include "ash/common/test/test_shelf_delegate.h"
+#include "ash/common/test/test_system_tray_delegate.h"
 #include "ash/common/wm/window_state.h"
 #include "ash/common/wm_shell.h"
+#include "ash/public/cpp/shell_window_ids.h"
 #include "ash/test/test_keyboard_ui.h"
-#include "ash/test/test_session_state_delegate.h"
-#include "ash/test/test_shelf_delegate.h"
-#include "ash/test/test_system_tray_delegate.h"
 #include "ash/test/test_wallpaper_delegate.h"
 #include "ash/wm/window_util.h"
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
-#include "ui/app_list/presenter/app_list_presenter_impl.h"
-#include "ui/app_list/presenter/app_list_view_delegate_factory.h"
-#include "ui/app_list/test/app_list_test_view_delegate.h"
 #include "ui/aura/window.h"
 #include "ui/gfx/image/image.h"
 
-#if defined(OS_CHROMEOS)
-#include "ash/common/system/tray/system_tray_notifier.h"
-#endif
-
 namespace ash {
 namespace test {
-namespace {
-
-class NewWindowDelegateImpl : public NewWindowDelegate {
- public:
-  NewWindowDelegateImpl() {}
-  ~NewWindowDelegateImpl() override {}
-
- private:
-  // NewWindowDelegate:
-  void NewTab() override {}
-  void NewWindow(bool incognito) override {}
-  void OpenFileManager() override {}
-  void OpenCrosh() override {}
-  void OpenGetHelp() override {}
-  void RestoreTab() override {}
-  void ShowKeyboardOverlay() override {}
-  void ShowTaskManager() override {}
-  void OpenFeedbackPage() override {}
-
-  DISALLOW_COPY_AND_ASSIGN(NewWindowDelegateImpl);
-};
-
-class MediaDelegateImpl : public MediaDelegate {
- public:
-  MediaDelegateImpl() : state_(MEDIA_CAPTURE_NONE) {}
-  ~MediaDelegateImpl() override {}
-
-  void set_media_capture_state(MediaCaptureState state) { state_ = state; }
-
- private:
-  // MediaDelegate:
-  void HandleMediaNextTrack() override {}
-  void HandleMediaPlayPause() override {}
-  void HandleMediaPrevTrack() override {}
-  MediaCaptureState GetMediaCaptureState(UserIndex index) override {
-    return state_;
-  }
-
-  MediaCaptureState state_;
-
-  DISALLOW_COPY_AND_ASSIGN(MediaDelegateImpl);
-};
-
-class AppListViewDelegateFactoryImpl
-    : public app_list::AppListViewDelegateFactory {
- public:
-  AppListViewDelegateFactoryImpl() {}
-  ~AppListViewDelegateFactoryImpl() override {}
-
-  // app_list::AppListViewDelegateFactory:
-  app_list::AppListViewDelegate* GetDelegate() override {
-    if (!app_list_view_delegate_.get()) {
-      app_list_view_delegate_.reset(
-          new app_list::test::AppListTestViewDelegate);
-    }
-    return app_list_view_delegate_.get();
-  }
-
- private:
-  std::unique_ptr<app_list::AppListViewDelegate> app_list_view_delegate_;
-
-  DISALLOW_COPY_AND_ASSIGN(AppListViewDelegateFactoryImpl);
-};
-
-}  // namespace
 
 TestShellDelegate::TestShellDelegate()
     : num_exit_requests_(0),
       multi_profiles_enabled_(false),
       force_maximize_on_first_run_(false),
-      app_list_presenter_delegate_factory_(new AppListPresenterDelegateFactory(
-          base::WrapUnique(new AppListViewDelegateFactoryImpl))) {}
+      touchscreen_enabled_in_local_pref_(true) {}
 
 TestShellDelegate::~TestShellDelegate() {}
 
-::shell::Connector* TestShellDelegate::GetShellConnector() const {
+::service_manager::Connector* TestShellDelegate::GetShellConnector() const {
   return nullptr;
-}
-
-bool TestShellDelegate::IsFirstRunAfterBoot() const {
-  return false;
 }
 
 bool TestShellDelegate::IsIncognitoAllowed() const {
@@ -154,14 +74,6 @@ keyboard::KeyboardUI* TestShellDelegate::CreateKeyboardUI() {
 
 void TestShellDelegate::OpenUrlFromArc(const GURL& url) {}
 
-app_list::AppListPresenter* TestShellDelegate::GetAppListPresenter() {
-  if (!app_list_presenter_) {
-    app_list_presenter_.reset(new app_list::AppListPresenterImpl(
-        app_list_presenter_delegate_factory_.get()));
-  }
-  return app_list_presenter_.get();
-}
-
 ShelfDelegate* TestShellDelegate::CreateShelfDelegate(ShelfModel* model) {
   return new TestShelfDelegate(model);
 }
@@ -181,14 +93,6 @@ TestSessionStateDelegate* TestShellDelegate::CreateSessionStateDelegate() {
 
 AccessibilityDelegate* TestShellDelegate::CreateAccessibilityDelegate() {
   return new DefaultAccessibilityDelegate();
-}
-
-NewWindowDelegate* TestShellDelegate::CreateNewWindowDelegate() {
-  return new NewWindowDelegateImpl;
-}
-
-MediaDelegate* TestShellDelegate::CreateMediaDelegate() {
-  return new MediaDelegateImpl;
 }
 
 std::unique_ptr<PaletteDelegate> TestShellDelegate::CreatePaletteDelegate() {
@@ -213,13 +117,18 @@ gfx::Image TestShellDelegate::GetDeprecatedAcceleratorImage() const {
   return gfx::Image();
 }
 
-void TestShellDelegate::SetMediaCaptureState(MediaCaptureState state) {
-#if defined(OS_CHROMEOS)
-  static_cast<MediaDelegateImpl*>(WmShell::Get()->media_delegate())
-      ->set_media_capture_state(state);
-  WmShell::Get()->system_tray_notifier()->NotifyMediaCaptureChanged();
-#endif
+bool TestShellDelegate::IsTouchscreenEnabledInPrefs(
+    bool use_local_state) const {
+  return use_local_state ? touchscreen_enabled_in_local_pref_ : true;
 }
+
+void TestShellDelegate::SetTouchscreenEnabledInPrefs(bool enabled,
+                                                     bool use_local_state) {
+  if (use_local_state)
+    touchscreen_enabled_in_local_pref_ = enabled;
+}
+
+void TestShellDelegate::UpdateTouchscreenStatusFromPrefs() {}
 
 }  // namespace test
 }  // namespace ash

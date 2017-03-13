@@ -82,8 +82,14 @@ struct ClientToServerMessage {
   enum Type : uint32_t {
     //! \brief For RegistrationRequest.
     kRegister,
+
     //! \brief For ShutdownRequest.
     kShutdown,
+
+    //! \brief An empty message sent by the initial client in asynchronous mode.
+    //!     No data is required, this just confirms that the server is ready to
+    //!     accept client registrations.
+    kPing,
   } type;
 
   union {
@@ -127,6 +133,29 @@ union ServerToClientMessage {
 bool SendToCrashHandlerServer(const base::string16& pipe_name,
                               const ClientToServerMessage& message,
                               ServerToClientMessage* response);
+
+//! \brief Wraps CreateNamedPipe() to create a single named pipe instance.
+//!
+//! \param[in] pipe_name The name to use for the pipe.
+//! \param[in] first_instance If `true`, the named pipe instance will be
+//!     created with `FILE_FLAG_FIRST_PIPE_INSTANCE`. This ensures that the the
+//!     pipe name is not already in use when created. The first instance will be
+//!     created with an untrusted integrity SACL so instances of this pipe can
+//!     be connected to by processes of any integrity level.
+HANDLE CreateNamedPipeInstance(const std::wstring& pipe_name,
+                               bool first_instance);
+
+//! \brief Returns the SECURITY_DESCRIPTOR blob that will be used for creating
+//!     the connection pipe in CreateNamedPipeInstance().
+//!
+//! This function is exposed for only for testing.
+//!
+//! \param[out] size The size of the returned blob. May be `nullptr` if not
+//!     required.
+//!
+//! \return A pointer to a self-relative `SECURITY_DESCRIPTOR`. Ownership is not
+//!     transferred to the caller.
+const void* GetSecurityDescriptorForNamedPipeInstance(size_t* size);
 
 }  // namespace crashpad
 

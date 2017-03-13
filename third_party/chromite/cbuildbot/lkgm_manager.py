@@ -13,8 +13,8 @@ import tempfile
 from xml.dom import minidom
 from xml.parsers import expat
 
-from chromite.cbuildbot import config_lib
-from chromite.cbuildbot import constants
+from chromite.lib import config_lib
+from chromite.lib import constants
 from chromite.cbuildbot import manifest_version
 from chromite.cbuildbot import repository
 from chromite.cbuildbot import trybot_patch_pool
@@ -118,8 +118,8 @@ class LKGMManager(manifest_version.BuildSpecsManager):
 
   def __init__(self, source_repo, manifest_repo, build_names, build_type,
                incr_type, force, branch, manifest=constants.DEFAULT_MANIFEST,
-               dry_run=True, master=False,
-               lkgm_path_rel=constants.LKGM_MANIFEST):
+               dry_run=True, lkgm_path_rel=constants.LKGM_MANIFEST,
+               config=None, metadata=None, buildbucket_client=None):
     """Initialize an LKGM Manager.
 
     Args:
@@ -136,11 +136,17 @@ class LKGMManager(manifest_version.BuildSpecsManager):
       dry_run: Whether we actually commit changes we make or not.
       master: Whether we are the master builder.
       lkgm_path_rel: Path to the LKGM symlink, relative to manifest dir.
+      config: Instance of config_lib.BuildConfig. Config dict of this builder.
+      metadata: Instance of metadata_lib.CBuildbotMetadata. Metadata of this
+                builder.
+      buildbucket_client: Instance of buildbucket_lib.buildbucket_client.
     """
     super(LKGMManager, self).__init__(
         source_repo=source_repo, manifest_repo=manifest_repo,
         manifest=manifest, build_names=build_names, incr_type=incr_type,
-        force=force, branch=branch, dry_run=dry_run, master=master)
+        force=force, branch=branch, dry_run=dry_run,
+        config=config, metadata=metadata,
+        buildbucket_client=buildbucket_client)
 
     self.lkgm_path = os.path.join(self.manifest_dir, lkgm_path_rel)
     self.compare_versions_fn = _LKGMCandidateInfo.VersionCompare
@@ -235,7 +241,7 @@ class LKGMManager(manifest_version.BuildSpecsManager):
     manifest_dom.documentElement.appendChild(chrome)
     self._WriteXml(manifest_dom, manifest)
 
-  def _AddPatchesToManifest(self, manifest, patches):
+  def _AddPatchesToManifest(self, manifest, validation_pool):
     """Adds list of |patches| to given |manifest|.
 
     The manifest should have sufficient information for the slave
@@ -244,15 +250,27 @@ class LKGMManager(manifest_version.BuildSpecsManager):
 
     Args:
       manifest: Path to the manifest.
-      patches: A list of cros_patch.GerritPatch objects.
+      validation_pool: Validation pool to apply to the manifest.
     """
     manifest_dom = minidom.parse(manifest)
-    for patch in patches:
+    for patch in validation_pool.applied:
       pending_commit = manifest_dom.createElement(PALADIN_COMMIT_ELEMENT)
       attr_dict = patch.GetAttributeDict()
       for k, v in attr_dict.iteritems():
         pending_commit.setAttribute(k, v)
-      manifest_dom.documentElement.appendChild(pending_commit)
+
+      try:
+        # A patch with unicode can be added to manifest,
+        # but not with invalid tokens.
+        pending_commit_xml = pending_commit.toxml(encoding='utf-8')
+        minidom.parseString(pending_commit_xml)
+        manifest_dom.documentElement.appendChild(pending_commit)
+      except expat.ExpatError:
+        logging.error('Got parsing error for: %s', pending_commit_xml)
+        msg = ('Failed to apply your change. Please check if there are '
+               'invalid tokens in your commit messages.')
+        validation_pool.SendNotification(patch, msg)
+        validation_pool.RemoveReady(patch)
 
     self._WriteXml(manifest_dom, manifest)
 
@@ -355,7 +373,7 @@ class LKGMManager(manifest_version.BuildSpecsManager):
           not config_lib.IsPFQType(self.build_type)):
         return None
 
-      self._AddPatchesToManifest(new_manifest, validation_pool.applied)
+      self._AddPatchesToManifest(new_manifest, validation_pool)
 
       # Add info about the last known good version to the manifest. This will
       # be used by slaves to calculate what artifacts from old builds are safe

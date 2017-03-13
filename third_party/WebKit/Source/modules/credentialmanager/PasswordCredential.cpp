@@ -9,9 +9,9 @@
 #include "core/HTMLNames.h"
 #include "core/dom/ExecutionContext.h"
 #include "core/dom/URLSearchParams.h"
-#include "core/html/FormAssociatedElement.h"
 #include "core/html/FormData.h"
 #include "core/html/HTMLFormElement.h"
+#include "core/html/ListedElement.h"
 #include "modules/credentialmanager/FormDataOptions.h"
 #include "modules/credentialmanager/PasswordCredentialData.h"
 #include "platform/credentialmanager/PlatformPasswordCredential.h"
@@ -56,7 +56,7 @@ PasswordCredential* PasswordCredential::create(HTMLFormElement* form,
 
   AtomicString idName;
   AtomicString passwordName;
-  for (FormAssociatedElement* element : form->associatedElements()) {
+  for (ListedElement* element : form->listedElements()) {
     // If |element| isn't a "submittable element" with string data, then it
     // won't have a matching value in |formData|, and we can safely skip it.
     FileOrUSVString result;
@@ -64,20 +64,24 @@ PasswordCredential* PasswordCredential::create(HTMLFormElement* form,
     if (!result.isUSVString())
       continue;
 
-    AtomicString autocomplete =
-        toHTMLElement(element)->fastGetAttribute(HTMLNames::autocompleteAttr);
-    if (equalIgnoringCase(autocomplete, "current-password") ||
-        equalIgnoringCase(autocomplete, "new-password")) {
-      data.setPassword(result.getAsUSVString());
-      passwordName = element->name();
-    } else if (equalIgnoringCase(autocomplete, "photo")) {
-      data.setIconURL(result.getAsUSVString());
-    } else if (equalIgnoringCase(autocomplete, "name") ||
-               equalIgnoringCase(autocomplete, "nickname")) {
-      data.setName(result.getAsUSVString());
-    } else if (equalIgnoringCase(autocomplete, "username")) {
-      data.setId(result.getAsUSVString());
-      idName = element->name();
+    Vector<String> autofillTokens;
+    toHTMLElement(element)
+        ->fastGetAttribute(HTMLNames::autocompleteAttr)
+        .getString()
+        .lower()  // Lowercase here once to avoid the case-folding logic below.
+        .split(' ', autofillTokens);
+    for (const auto& token : autofillTokens) {
+      if (token == "current-password" || token == "new-password") {
+        data.setPassword(result.getAsUSVString());
+        passwordName = element->name();
+      } else if (token == "photo") {
+        data.setIconURL(result.getAsUSVString());
+      } else if (token == "name" || token == "nickname") {
+        data.setName(result.getAsUSVString());
+      } else if (token == "username") {
+        data.setId(result.getAsUSVString());
+        idName = element->name();
+      }
     }
   }
 

@@ -9,9 +9,9 @@
 #include "ash/common/shelf/shelf_view.h"
 #include "ash/common/shelf/shelf_widget.h"
 #include "ash/common/shelf/wm_shelf.h"
+#include "ash/common/test/test_shelf_item_delegate.h"
 #include "ash/test/ash_test_base.h"
 #include "ash/test/shelf_view_test_api.h"
-#include "ash/test/test_shelf_item_delegate.h"
 
 namespace ash {
 
@@ -46,9 +46,9 @@ TEST_F(ShelfTest, StatusReflection) {
   // Initially we have the app list.
   int button_count = test_api()->GetButtonCount();
 
-  // Add running platform app.
+  // Add a running app.
   ShelfItem item;
-  item.type = TYPE_PLATFORM_APP;
+  item.type = TYPE_APP;
   item.status = STATUS_RUNNING;
   int index = shelf_model()->Add(item);
   ASSERT_EQ(++button_count, test_api()->GetButtonCount());
@@ -66,9 +66,9 @@ TEST_F(ShelfTest, CheckHoverAfterMenu) {
   // Initially we have the app list.
   int button_count = test_api()->GetButtonCount();
 
-  // Add running platform app.
+  // Add a running app.
   ShelfItem item;
-  item.type = TYPE_PLATFORM_APP;
+  item.type = TYPE_APP;
   item.status = STATUS_RUNNING;
   int index = shelf_model()->Add(item);
 
@@ -91,11 +91,11 @@ TEST_F(ShelfTest, ShowOverflowBubble) {
   ShelfWidget* shelf_widget = GetPrimaryShelf()->shelf_widget();
   ShelfID first_item_id = shelf_model()->next_id();
 
-  // Add platform app button until overflow.
+  // Add app buttons until overflow occurs.
   int items_added = 0;
   while (!test_api()->IsOverflowButtonVisible()) {
     ShelfItem item;
-    item.type = TYPE_PLATFORM_APP;
+    item.type = TYPE_APP;
     item.status = STATUS_RUNNING;
     shelf_model()->Add(item);
 

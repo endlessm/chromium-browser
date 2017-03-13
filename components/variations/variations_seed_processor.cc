@@ -54,14 +54,6 @@ void RegisterVariationIds(const Study_Experiment& experiment,
                                     experiment.name(),
                                     variation_id);
   }
-  if (experiment.has_google_update_experiment_id()) {
-    const VariationID variation_id =
-        static_cast<VariationID>(experiment.google_update_experiment_id());
-    AssociateGoogleVariationIDForce(GOOGLE_UPDATE_SERVICE,
-                                    trial_name,
-                                    experiment.name(),
-                                    variation_id);
-  }
   if (experiment.has_chrome_sync_experiment_id()) {
     const VariationID variation_id =
         static_cast<VariationID>(experiment.chrome_sync_experiment_id());
@@ -94,6 +86,9 @@ void ForceExperimentState(
   RegisterExperimentParams(study, experiment);
   RegisterVariationIds(experiment, study.name());
   if (study.activation_type() == Study_ActivationType_ACTIVATION_AUTO) {
+    // This call must happen after all params have been registered for the
+    // trial. Otherwise, since we look up params by trial and group name, the
+    // params won't be registered under the correct key.
     trial->group();
     // UI Strings can only be overridden from ACTIVATION_AUTO experiments.
     ApplyUIStringOverrides(experiment, override_callback);
@@ -206,7 +201,6 @@ bool VariationsSeedProcessor::ShouldStudyUseLowEntropy(const Study& study) {
     const Study_Experiment& experiment = study.experiment(i);
     if (experiment.has_google_web_experiment_id() ||
         experiment.has_google_web_trigger_experiment_id() ||
-        experiment.has_google_update_experiment_id() ||
         experiment.has_chrome_sync_experiment_id()) {
       return true;
     }
@@ -280,7 +274,7 @@ void VariationsSeedProcessor::CreateTrialFromStudy(
   scoped_refptr<base::FieldTrial> trial(
       base::FieldTrialList::FactoryGetFieldTrialWithRandomizationSeed(
           study.name(), processed_study.total_probability(),
-          study.default_experiment_name(),
+          processed_study.GetDefaultExperimentName(),
           base::FieldTrialList::kNoExpirationYear, 1, 1, randomization_type,
           randomization_seed, NULL,
           ShouldStudyUseLowEntropy(study) ? low_entropy_provider : NULL));
@@ -319,6 +313,9 @@ void VariationsSeedProcessor::CreateTrialFromStudy(
     RegisterFeatureOverrides(processed_study, trial.get(), feature_list);
 
   if (study.activation_type() == Study_ActivationType_ACTIVATION_AUTO) {
+    // This call must happen after all params have been registered for the
+    // trial. Otherwise, since we look up params by trial and group name, the
+    // params won't be registered under the correct key.
     const std::string& group_name = trial->group_name();
 
     // Don't try to apply overrides if none of the experiments in this study had

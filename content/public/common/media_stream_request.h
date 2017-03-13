@@ -15,6 +15,7 @@
 #include "base/callback_forward.h"
 #include "content/common/content_export.h"
 #include "media/base/audio_parameters.h"
+#include "media/base/video_facing.h"
 #include "ui/gfx/native_widget_types.h"
 #include "url/gurl.h"
 
@@ -38,11 +39,6 @@ enum MediaStreamType {
   // Capture system audio (post-mix loopback stream).
   MEDIA_DESKTOP_AUDIO_CAPTURE,
 
-  // TODO(guidou): This is used for device enumerations, but it is not a
-  // media stream type. Remove when handling of renderer-generated enumeration
-  // requests is removed from MediaStreamManager. See http://crbug.com/648183.
-  MEDIA_DEVICE_AUDIO_OUTPUT,
-
   NUM_MEDIA_TYPES
 };
 
@@ -50,17 +46,7 @@ enum MediaStreamType {
 enum MediaStreamRequestType {
   MEDIA_DEVICE_ACCESS = 0,
   MEDIA_GENERATE_STREAM,
-  MEDIA_ENUMERATE_DEVICES,
   MEDIA_OPEN_DEVICE_PEPPER_ONLY  // Only used in requests made by Pepper.
-};
-
-// Facing mode for video capture.
-enum VideoFacingMode {
-  MEDIA_VIDEO_FACING_NONE = 0,
-  MEDIA_VIDEO_FACING_USER,
-  MEDIA_VIDEO_FACING_ENVIRONMENT,
-
-  NUM_MEDIA_VIDEO_FACING_MODE
 };
 
 // Elements in this enum should not be deleted or rearranged; the only
@@ -101,12 +87,11 @@ struct CONTENT_EXPORT MediaStreamDevice {
   MediaStreamDevice(MediaStreamType type,
                     const std::string& id,
                     const std::string& name,
-                    const std::string& group_id);
+                    media::VideoFacingMode facing);
 
   MediaStreamDevice(MediaStreamType type,
                     const std::string& id,
                     const std::string& name,
-                    const std::string& group_id,
                     int sample_rate,
                     int channel_layout,
                     int frames_per_buffer);
@@ -124,7 +109,7 @@ struct CONTENT_EXPORT MediaStreamDevice {
   std::string id;
 
   // The facing mode for video capture device.
-  VideoFacingMode video_facing;
+  media::VideoFacingMode video_facing;
 
   // The device id of a matched output device if any (otherwise empty).
   // Only applicable to audio devices.
@@ -132,11 +117,6 @@ struct CONTENT_EXPORT MediaStreamDevice {
 
   // The device's "friendly" name. Not guaranteed to be unique.
   std::string name;
-
-  // A unique identifier for the physical device this device is part of.
-  // Will be hashed before being sent to renderer.
-  // TODO(maxmorin): Add support for video devices as well.
-  std::string group_id;
 
   // Contains properties that match directly with those with the same name
   // in media::AudioParameters.
@@ -204,17 +184,17 @@ typedef std::map<MediaStreamType, MediaStreamDevices> MediaStreamDeviceMap;
 // Tab-only stuff and Pepper-only stuff being passed around to all clients,
 // which is icky.
 struct CONTENT_EXPORT MediaStreamRequest {
-  MediaStreamRequest(
-      int render_process_id,
-      int render_frame_id,
-      int page_request_id,
-      const GURL& security_origin,
-      bool user_gesture,
-      MediaStreamRequestType request_type,
-      const std::string& requested_audio_device_id,
-      const std::string& requested_video_device_id,
-      MediaStreamType audio_type,
-      MediaStreamType video_type);
+  MediaStreamRequest(int render_process_id,
+                     int render_frame_id,
+                     int page_request_id,
+                     const GURL& security_origin,
+                     bool user_gesture,
+                     MediaStreamRequestType request_type,
+                     const std::string& requested_audio_device_id,
+                     const std::string& requested_video_device_id,
+                     MediaStreamType audio_type,
+                     MediaStreamType video_type,
+                     bool disable_local_echo);
 
   MediaStreamRequest(const MediaStreamRequest& other);
 
@@ -255,6 +235,10 @@ struct CONTENT_EXPORT MediaStreamRequest {
 
   // Flag to indicate if the request contains video.
   MediaStreamType video_type;
+
+  // Flag for desktop or tab share to indicate whether to prevent the captured
+  // audio being played out locally.
+  bool disable_local_echo;
 
   // True if all ancestors of the requesting frame have the same origin.
   bool all_ancestors_have_same_origin;

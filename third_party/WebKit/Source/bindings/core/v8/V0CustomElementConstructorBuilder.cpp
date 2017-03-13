@@ -32,6 +32,7 @@
 
 #include "bindings/core/v8/DOMWrapperWorld.h"
 #include "bindings/core/v8/ExceptionState.h"
+#include "bindings/core/v8/StringOrDictionary.h"
 #include "bindings/core/v8/V0CustomElementBinding.h"
 #include "bindings/core/v8/V8Binding.h"
 #include "bindings/core/v8/V8Document.h"
@@ -193,7 +194,7 @@ bool V0CustomElementConstructorBuilder::createConstructor(
   v8::Local<v8::Object> data = v8::Object::New(isolate);
   V8HiddenValue::setHiddenValue(m_scriptState.get(), data,
                                 V8HiddenValue::customElementDocument(isolate),
-                                toV8(document, context->Global(), isolate));
+                                ToV8(document, context->Global(), isolate));
   V8HiddenValue::setHiddenValue(
       m_scriptState.get(), data,
       V8HiddenValue::customElementNamespaceURI(isolate),
@@ -346,12 +347,12 @@ static void constructCustomElement(
       scriptState, data, V8HiddenValue::customElementType(isolate));
   TOSTRING_VOID(V8StringResource<>, type, maybeType);
 
-  ExceptionState exceptionState(ExceptionState::ConstructionContext,
-                                "CustomElement", info.Holder(),
-                                info.GetIsolate());
+  ExceptionState exceptionState(
+      info.GetIsolate(), ExceptionState::ConstructionContext, "CustomElement");
   V0CustomElementProcessingStack::CallbackDeliveryScope deliveryScope;
   Element* element = document->createElementNS(
-      namespaceURI, tagName, maybeType->IsNull() ? nullAtom : type,
+      namespaceURI, tagName,
+      StringOrDictionary::fromString(maybeType->IsNull() ? nullAtom : type),
       exceptionState);
   v8SetReturnValueFast(info, element, document);
 }

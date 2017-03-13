@@ -8,6 +8,7 @@
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/macros.h"
+#include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
@@ -32,7 +33,7 @@
 #include "mojo/public/cpp/bindings/binding.h"
 #include "mojo/public/cpp/bindings/interface_request.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
-#include "services/shell/public/cpp/interface_registry.h"
+#include "services/service_manager/public/cpp/interface_registry.h"
 
 namespace content {
 namespace {
@@ -127,8 +128,8 @@ class PingTestWebUIController : public TestWebUIController {
   ~PingTestWebUIController() override {}
 
   // WebUIController overrides:
-  void RenderViewCreated(RenderViewHost* render_view_host) override {
-    render_view_host->GetMainFrame()->GetInterfaceRegistry()->AddInterface(
+  void RenderFrameCreated(RenderFrameHost* render_frame_host) override {
+    render_frame_host->GetInterfaceRegistry()->AddInterface(
         base::Bind(&PingTestWebUIController::CreateHandler,
                    base::Unretained(this)));
   }

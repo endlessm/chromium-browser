@@ -34,17 +34,13 @@
 namespace blink {
 
 class AffineTransform;
-class CSSCursorImageValue;
 class Document;
 class SVGAnimatedPropertyBase;
 class SubtreeLayoutScope;
 class SVGAnimatedString;
-class SVGCursorElement;
-class SVGDocumentExtensions;
 class SVGElement;
+class SVGElementProxySet;
 class SVGElementRareData;
-class SVGFitToViewBox;
-class SVGLength;
 class SVGPropertyBase;
 class SVGSVGElement;
 class SVGUseElement;
@@ -59,7 +55,7 @@ class CORE_EXPORT SVGElement : public Element {
   void attachLayoutTree(const AttachContext&) override;
   void detachLayoutTree(const AttachContext&) override;
 
-  short tabIndex() const override;
+  int tabIndex() const override;
   bool supportsFocus() const override { return false; }
 
   bool isOutermostSVGSVGElement() const;
@@ -73,6 +69,10 @@ class CORE_EXPORT SVGElement : public Element {
     return !m_elementsWithRelativeLengths.isEmpty();
   }
   static bool isAnimatableCSSProperty(const QualifiedName&);
+
+  enum ApplyMotionTransform { ExcludeMotionTransform, IncludeMotionTransform };
+  bool hasTransform(ApplyMotionTransform) const;
+  AffineTransform calculateTransform(ApplyMotionTransform) const;
 
   enum CTMScope {
     NearestViewportScope,  // Used by SVGGraphicsElement::getCTM()
@@ -102,8 +102,6 @@ class CORE_EXPORT SVGElement : public Element {
 
   SVGSVGElement* ownerSVGElement() const;
   SVGElement* viewportElement() const;
-
-  SVGDocumentExtensions& accessDocumentSVGExtensions();
 
   virtual bool isSVGGeometryElement() const { return false; }
   virtual bool isSVGGraphicsElement() const { return false; }
@@ -139,9 +137,6 @@ class CORE_EXPORT SVGElement : public Element {
   void mapInstanceToElement(SVGElement*);
   void removeInstanceMapping(SVGElement*);
 
-  void setCursorElement(SVGCursorElement*);
-  void setCursorImageValue(const CSSCursorImageValue*);
-
   SVGElement* correspondingElement() const;
   void setCorrespondingElement(SVGElement*);
   SVGUseElement* correspondingUseElement() const;
@@ -167,6 +162,8 @@ class CORE_EXPORT SVGElement : public Element {
   SVGAnimatedString* className() { return m_className.get(); }
 
   bool inUseShadowTree() const;
+
+  SVGElementProxySet* elementProxySet();
 
   SVGElementSet* setOfIncomingReferences() const;
   void addReferenceTo(SVGElement*);
@@ -207,24 +204,15 @@ class CORE_EXPORT SVGElement : public Element {
   static const AtomicString& eventParameterName();
 
   bool isPresentationAttribute(const QualifiedName&) const override;
-  virtual bool isPresentationAttributeWithSVGDOM(const QualifiedName&) const {
-    return false;
-  }
+  virtual bool isPresentationAttributeWithSVGDOM(const QualifiedName&) const;
 
  protected:
   SVGElement(const QualifiedName&,
              Document&,
              ConstructionType = CreateSVGElement);
 
-  void parseAttribute(const QualifiedName&,
-                      const AtomicString&,
-                      const AtomicString&) override;
-
-  void attributeChanged(
-      const QualifiedName&,
-      const AtomicString&,
-      const AtomicString&,
-      AttributeModificationReason = ModifiedDirectly) override;
+  void parseAttribute(const AttributeModificationParams&) override;
+  void attributeChanged(const AttributeModificationParams&) override;
 
   void collectStyleForPresentationAttribute(const QualifiedName&,
                                             const AtomicString&,
@@ -250,8 +238,6 @@ class CORE_EXPORT SVGElement : public Element {
     return m_SVGRareData.get();
   }
 
-  // SVGFitToViewBox::parseAttribute uses reportAttributeParsingError.
-  friend class SVGFitToViewBox;
   void reportAttributeParsingError(SVGParsingError,
                                    const QualifiedName&,
                                    const AtomicString&);
@@ -283,8 +269,8 @@ class CORE_EXPORT SVGElement : public Element {
       AttributeToPropertyMap;
   AttributeToPropertyMap m_attributeToPropertyMap;
 
-#if ENABLE(ASSERT)
-  bool m_inRelativeLengthClientsInvalidation;
+#if DCHECK_IS_ON()
+  bool m_inRelativeLengthClientsInvalidation = false;
 #endif
 
   Member<SVGElementRareData> m_SVGRareData;

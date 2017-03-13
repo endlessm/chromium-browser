@@ -29,14 +29,14 @@ class TouchAccessibilityBrowserTest : public ContentBrowserTest {
  protected:
   void SetUpOnMainThread() override {
     host_resolver()->AddRule("*", "127.0.0.1");
-    ASSERT_TRUE(embedded_test_server()->Start());
     SetupCrossSiteRedirector(embedded_test_server());
+    ASSERT_TRUE(embedded_test_server()->Start());
   }
 
   void NavigateToUrlAndWaitForAccessibilityTree(const GURL& url) {
     AccessibilityNotificationWaiter waiter(
         shell()->web_contents(),
-        AccessibilityModeComplete,
+        ACCESSIBILITY_MODE_COMPLETE,
         ui::AX_EVENT_LOAD_COMPLETE);
     NavigateToURL(shell(), url);
     waiter.WaitForNotification();
@@ -93,7 +93,7 @@ IN_PROC_BROWSER_TEST_F(TouchAccessibilityBrowserTest,
   // touch exploration event in the center of that cell, and assert that we
   // get an accessibility hover event fired in the correct cell.
   AccessibilityNotificationWaiter waiter(
-      shell()->web_contents(), AccessibilityModeComplete, ui::AX_EVENT_HOVER);
+      shell()->web_contents(), ACCESSIBILITY_MODE_COMPLETE, ui::AX_EVENT_HOVER);
   for (int row = 0; row < 5; ++row) {
     for (int col = 0; col < 7; ++col) {
       std::string expected_cell_text = base::IntToString(row * 7 + col);

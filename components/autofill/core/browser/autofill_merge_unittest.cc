@@ -8,15 +8,14 @@
 #include <memory>
 #include <vector>
 
-#include "base/feature_list.h"
 #include "base/files/file_enumerator.h"
 #include "base/files/file_path.h"
 #include "base/macros.h"
+#include "base/memory/ptr_util.h"
 #include "base/path_service.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/test/scoped_feature_list.h"
 #include "components/autofill/core/browser/autofill_experiments.h"
 #include "components/autofill/core/browser/autofill_test_utils.h"
 #include "components/autofill/core/browser/autofill_type.h"
@@ -91,8 +90,7 @@ std::string SerializeProfiles(const std::vector<AutofillProfile*>& profiles) {
   for (size_t i = 0; i < profiles.size(); ++i) {
     result += kProfileSeparator;
     result += "\n";
-    for (size_t j = 0; j < arraysize(kProfileFieldTypes); ++j) {
-      ServerFieldType type = kProfileFieldTypes[j];
+    for (const ServerFieldType& type : kProfileFieldTypes) {
       base::string16 value = profiles[i]->GetRawInfo(type);
       result += AutofillType(type).ToString();
       result += kFieldSeparator;
@@ -119,10 +117,10 @@ class PersonalDataManagerMock : public PersonalDataManager {
 
   // PersonalDataManager:
   std::string SaveImportedProfile(const AutofillProfile& profile) override;
-  const std::vector<AutofillProfile*>& web_profiles() const override;
+  std::vector<AutofillProfile*> web_profiles() const override;
 
  private:
-  ScopedVector<AutofillProfile> profiles_;
+  std::vector<std::unique_ptr<AutofillProfile>> profiles_;
 
   DISALLOW_COPY_AND_ASSIGN(PersonalDataManagerMock);
 };
@@ -142,15 +140,17 @@ std::string PersonalDataManagerMock::SaveImportedProfile(
     const AutofillProfile& profile) {
   std::vector<AutofillProfile> profiles;
   std::string merged_guid =
-      MergeProfile(profile, profiles_.get(), "en-US", &profiles);
+      MergeProfile(profile, &profiles_, "en-US", &profiles);
   if (merged_guid == profile.guid())
-    profiles_.push_back(new AutofillProfile(profile));
+    profiles_.push_back(base::MakeUnique<AutofillProfile>(profile));
   return merged_guid;
 }
 
-const std::vector<AutofillProfile*>& PersonalDataManagerMock::web_profiles()
-    const {
-  return profiles_.get();
+std::vector<AutofillProfile*> PersonalDataManagerMock::web_profiles() const {
+  std::vector<AutofillProfile*> result;
+  for (const auto& profile : profiles_)
+    result.push_back(profile.get());
+  return result;
 }
 
 }  // namespace
@@ -184,7 +184,6 @@ class AutofillMergeTest : public DataDrivenTest,
   PersonalDataManagerMock personal_data_;
 
  private:
-  base::test::ScopedFeatureList scoped_feature_list_;
   std::map<std::string, ServerFieldType> string_to_field_type_map_;
 
   DISALLOW_COPY_AND_ASSIGN(AutofillMergeTest);
@@ -203,7 +202,6 @@ AutofillMergeTest::~AutofillMergeTest() {
 
 void AutofillMergeTest::SetUp() {
   test::DisableSystemServices(nullptr);
-  scoped_feature_list_.InitAndEnableFeature(kAutofillProfileCleanup);
 }
 
 void AutofillMergeTest::TearDown() {

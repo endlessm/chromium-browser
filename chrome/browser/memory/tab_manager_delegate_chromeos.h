@@ -16,12 +16,11 @@
 #include "base/memory/weak_ptr.h"
 #include "base/process/process.h"
 #include "base/timer/timer.h"
-#include "chrome/browser/chromeos/arc/arc_process.h"
+#include "chrome/browser/chromeos/arc/process/arc_process.h"
 #include "chrome/browser/memory/tab_manager.h"
 #include "chrome/browser/memory/tab_stats.h"
 #include "chrome/browser/ui/browser_list_observer.h"
 #include "chromeos/dbus/debug_daemon_client.h"
-#include "components/arc/arc_bridge_service.h"
 #include "components/arc/common/process.mojom.h"
 #include "components/arc/instance_holder.h"
 #include "content/public/browser/notification_observer.h"
@@ -98,7 +97,6 @@ class TabManagerDelegate : public aura::client::ActivationChangeObserver,
 
   class Candidate;
   class FocusedProcess;
-  class UmaReporter;
 
   friend std::ostream& operator<<(std::ostream& out,
                                   const Candidate& candidate);
@@ -169,9 +167,6 @@ class TabManagerDelegate : public aura::client::ActivationChangeObserver,
 
   // Util for getting system memory status.
   std::unique_ptr<TabManagerDelegate::MemoryStat> mem_stat_;
-
-  // Reports UMA histograms.
-  std::unique_ptr<UmaReporter> uma_;
 
   // Weak pointer factory used for posting tasks to other threads.
   base::WeakPtrFactory<TabManagerDelegate> weak_ptr_factory_;

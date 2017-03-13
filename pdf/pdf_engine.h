@@ -42,8 +42,6 @@ class VarDictionary;
 
 namespace chrome_pdf {
 
-class Stream;
-
 // Do one time initialization of the SDK.
 bool InitializeSDK();
 // Tells the SDK that we're shutting down.
@@ -164,6 +162,9 @@ class PDFEngine {
 
     // Notifies the client that the document has failed to load.
     virtual void DocumentLoadFailed() = 0;
+
+    // Notifies the client that the document has requested substitute fonts.
+    virtual void FontSubstituted() = 0;
 
     virtual pp::Instance* GetPluginInstance() = 0;
 
@@ -340,6 +341,8 @@ class PDFEngineExports {
       PDFEnsureTypefaceCharactersAccessible func) = 0;
 
   virtual void SetPDFUseGDIPrinting(bool enable) = 0;
+
+  virtual void SetPDFPostscriptPrintingLevel(int postscript_level) = 0;
 #endif  // defined(OS_WIN)
 
   // See the definition of RenderPDFPageToBitmap in pdf.cc for details.
@@ -356,8 +359,10 @@ class PDFEngineExports {
 
   // See the definition of GetPDFPageSizeByIndex in pdf.cc for details.
   virtual bool GetPDFPageSizeByIndex(const void* pdf_buffer,
-                                     int pdf_buffer_size, int page_number,
-                                     double* width, double* height) = 0;
+                                     int pdf_buffer_size,
+                                     int page_number,
+                                     double* width,
+                                     double* height) = 0;
 };
 
 }  // namespace chrome_pdf

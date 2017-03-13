@@ -2,10 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// https://www.khronos.org/registry/webgl/specs/latest/2.0/#3.7
+
 [
-    RuntimeEnabled=UnsafeES3APIs,
     DoNotCheckConstants,
     SetWrapperReferenceFrom=canvas,
+    Exposed(Worker ExperimentalCanvasFeatures, Window StableBlinkFeatures),
     Custom=VisitDOMWrapper,
 ] interface WebGL2RenderingContext { };
 WebGL2RenderingContext implements WebGLRenderingContextBase;

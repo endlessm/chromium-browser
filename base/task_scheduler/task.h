@@ -30,11 +30,14 @@ struct BASE_EXPORT Task : public PendingTask {
   Task(const tracked_objects::Location& posted_from,
        const Closure& task,
        const TaskTraits& traits,
-       const TimeDelta& delay);
+       TimeDelta delay);
   ~Task();
 
   // The TaskTraits of this task.
   const TaskTraits traits;
+
+  // The delay that must expire before the task runs.
+  const TimeDelta delay;
 
   // The time at which the task was inserted in its sequence. For an undelayed
   // task, this happens at post time. For a delayed task, this happens some

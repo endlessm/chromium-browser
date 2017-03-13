@@ -5,15 +5,15 @@
 package org.chromium.android_webview.test;
 
 import android.content.Context;
-import android.test.suitebuilder.annotation.SmallTest;
+import android.support.test.filters.SmallTest;
 import android.view.inputmethod.InputConnection;
 import android.view.inputmethod.InputMethodManager;
 import android.webkit.JavascriptInterface;
 import android.widget.EditText;
 
 import org.chromium.base.ThreadUtils;
+import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.Feature;
-import org.chromium.content.browser.test.util.CallbackHelper;
 import org.chromium.content.browser.test.util.Criteria;
 import org.chromium.content.browser.test.util.CriteriaHelper;
 import org.chromium.content.browser.test.util.TestInputMethodManagerWrapper;
@@ -111,7 +111,7 @@ public class AwImeTest extends AwTestBase {
         mTestJavascriptInterface.getFocusCallbackHelper().waitForCallback(0);
     }
 
-    private void waitForNonNullInputConnection() throws InterruptedException {
+    private void waitForNonNullInputConnection() {
         CriteriaHelper.pollUiThread(new Criteria() {
             @Override
             public boolean isSatisfied() {

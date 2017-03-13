@@ -14,6 +14,7 @@
 #include "public/platform/scheduler/renderer/render_widget_scheduling_state.h"
 #include "public/platform/WebCommon.h"
 #include "public/platform/WebInputEvent.h"
+#include "public/platform/WebInputEventResult.h"
 #include "public/platform/WebScheduler.h"
 #include "v8/include/v8.h"
 
@@ -28,7 +29,6 @@ struct BeginFrameArgs;
 }
 
 namespace blink {
-class WebLocalFrame;
 class WebThread;
 }
 
@@ -64,14 +64,16 @@ class BLINK_PLATFORM_EXPORT RendererScheduler : public ChildScheduler {
 
   // Returns a new loading task runner. This queue is intended for tasks related
   // to resource dispatch, foreground HTML parsing, etc...
-  virtual scoped_refptr<TaskQueue> NewLoadingTaskRunner(const char* name) = 0;
+  virtual scoped_refptr<TaskQueue> NewLoadingTaskRunner(
+      TaskQueue::QueueType queue_type) = 0;
 
   // Returns a new timer task runner. This queue is intended for DOM Timers.
-  virtual scoped_refptr<TaskQueue> NewTimerTaskRunner(const char* name) = 0;
+  virtual scoped_refptr<TaskQueue> NewTimerTaskRunner(
+      TaskQueue::QueueType queue_type) = 0;
 
   // Returns a task runner for tasks which should never get throttled.
   virtual scoped_refptr<TaskQueue> NewUnthrottledTaskRunner(
-      const char* name) = 0;
+      TaskQueue::QueueType queue_type) = 0;
 
   // Returns a new RenderWidgetSchedulingState.  The signals from this will be
   // used to make scheduling decisions.
@@ -109,7 +111,8 @@ class BLINK_PLATFORM_EXPORT RendererScheduler : public ChildScheduler {
   // Tells the scheduler that the system processed an input event. Must be
   // called from the main thread.
   virtual void DidHandleInputEventOnMainThread(
-      const WebInputEvent& web_input_event) = 0;
+      const WebInputEvent& web_input_event,
+      WebInputEventResult result) = 0;
 
   // Tells the scheduler that the system is displaying an input animation (e.g.
   // a fling). Called by the compositor (impl) thread.
@@ -131,6 +134,12 @@ class BLINK_PLATFORM_EXPORT RendererScheduler : public ChildScheduler {
   // only be done when the renderer is backgrounded. The renderer will be
   // automatically resumed when foregrounded.
   virtual void SuspendRenderer() = 0;
+
+  // Tells the scheduler that the render process should be resumed. This can
+  // only be done when the renderer is suspended. TabManager (in the future,
+  // MemoryCoordinator) will suspend the renderer again if continuously
+  // backgrounded.
+  virtual void ResumeRenderer() = 0;
 
   // Tells the scheduler that a navigation task is pending. While any main-frame
   // navigation tasks are pending, the scheduler will ensure that loading tasks
@@ -177,6 +186,11 @@ class BLINK_PLATFORM_EXPORT RendererScheduler : public ChildScheduler {
   // [1]
   // https://developers.google.com/web/tools/chrome-devtools/profile/evaluate-performance/rail
   virtual void SetRAILModeObserver(RAILModeObserver* observer) = 0;
+
+  // Returns whether or not the main thread appears unresponsive, based on the
+  // length and frequency of recent main thread tasks. To be called from the
+  // compositor thread.
+  virtual bool MainThreadSeemsUnresponsive() = 0;
 
  protected:
   RendererScheduler();

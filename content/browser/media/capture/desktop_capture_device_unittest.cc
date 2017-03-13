@@ -19,9 +19,9 @@
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/webrtc/modules/desktop_capture/desktop_capture_options.h"
+#include "third_party/webrtc/modules/desktop_capture/desktop_capturer.h"
 #include "third_party/webrtc/modules/desktop_capture/desktop_frame.h"
 #include "third_party/webrtc/modules/desktop_capture/desktop_geometry.h"
-#include "third_party/webrtc/modules/desktop_capture/screen_capturer.h"
 
 using ::testing::_;
 using ::testing::AnyNumber;
@@ -60,13 +60,14 @@ const uint8_t kFakePixelValueFirst = 2;
 
 class MockDeviceClient : public media::VideoCaptureDevice::Client {
  public:
-  MOCK_METHOD6(OnIncomingCapturedData,
+  MOCK_METHOD7(OnIncomingCapturedData,
                void(const uint8_t* data,
                     int length,
                     const media::VideoCaptureFormat& frame_format,
                     int rotation,
                     base::TimeTicks reference_time,
-                    base::TimeDelta timestamp));
+                    base::TimeDelta timestamp,
+                    int frame_feedback_id));
   MOCK_METHOD0(DoReserveOutputBuffer, void(void));
   MOCK_METHOD0(DoOnIncomingCapturedBuffer, void(void));
   MOCK_METHOD0(DoOnIncomingCapturedVideoFrame, void(void));
@@ -76,34 +77,38 @@ class MockDeviceClient : public media::VideoCaptureDevice::Client {
                     const std::string& reason));
 
   // Trampoline methods to workaround GMOCK problems with std::unique_ptr<>.
-  std::unique_ptr<Buffer> ReserveOutputBuffer(
-      const gfx::Size& dimensions,
-      media::VideoPixelFormat format,
-      media::VideoPixelStorage storage) override {
+  Buffer ReserveOutputBuffer(const gfx::Size& dimensions,
+                             media::VideoPixelFormat format,
+                             media::VideoPixelStorage storage,
+                             int frame_feedback_id) override {
     EXPECT_TRUE(format == media::PIXEL_FORMAT_I420 &&
                 storage == media::PIXEL_STORAGE_CPU);
     DoReserveOutputBuffer();
-    return std::unique_ptr<Buffer>();
+    return Buffer();
   }
-  void OnIncomingCapturedBuffer(std::unique_ptr<Buffer> buffer,
-                                const media::VideoCaptureFormat& frame_format,
+  void OnIncomingCapturedBuffer(Buffer buffer,
+                                const media::VideoCaptureFormat& format,
                                 base::TimeTicks reference_time,
                                 base::TimeDelta timestamp) override {
     DoOnIncomingCapturedBuffer();
   }
-  void OnIncomingCapturedVideoFrame(
-      std::unique_ptr<Buffer> buffer,
-      const scoped_refptr<media::VideoFrame>& frame) override {
+  void OnIncomingCapturedBufferExt(
+      Buffer buffer,
+      const media::VideoCaptureFormat& format,
+      base::TimeTicks reference_time,
+      base::TimeDelta timestamp,
+      gfx::Rect visible_rect,
+      const media::VideoFrameMetadata& additional_metadata) override {
     DoOnIncomingCapturedVideoFrame();
   }
-  std::unique_ptr<Buffer> ResurrectLastOutputBuffer(
-      const gfx::Size& dimensions,
-      media::VideoPixelFormat format,
-      media::VideoPixelStorage storage) override {
+  Buffer ResurrectLastOutputBuffer(const gfx::Size& dimensions,
+                                   media::VideoPixelFormat format,
+                                   media::VideoPixelStorage storage,
+                                   int frame_feedback_id) override {
     EXPECT_TRUE(format == media::PIXEL_FORMAT_I420 &&
                 storage == media::PIXEL_STORAGE_CPU);
     DoResurrectLastOutputBuffer();
-    return std::unique_ptr<Buffer>();
+    return Buffer();
   }
   double GetBufferPoolUtilization() const override { return 0.0; }
 };
@@ -171,7 +176,7 @@ class UnpackedDesktopFrame : public webrtc::DesktopFrame {
 };
 
 // TODO(sergeyu): Move this to a separate file where it can be reused.
-class FakeScreenCapturer : public webrtc::ScreenCapturer {
+class FakeScreenCapturer : public webrtc::DesktopCapturer {
  public:
   FakeScreenCapturer()
       : callback_(NULL),
@@ -192,7 +197,7 @@ class FakeScreenCapturer : public webrtc::ScreenCapturer {
   // VideoFrameCapturer interface.
   void Start(Callback* callback) override { callback_ = callback; }
 
-  void Capture(const webrtc::DesktopRegion& region) override {
+  void CaptureFrame() override {
     webrtc::DesktopSize size;
     if (frame_index_ % 2 == 0) {
       size = webrtc::DesktopSize(kTestFrameWidth1, kTestFrameHeight1);
@@ -212,9 +217,9 @@ class FakeScreenCapturer : public webrtc::ScreenCapturer {
                                std::move(frame));
   }
 
-  bool GetScreenList(ScreenList* screens) override { return false; }
+  bool GetSourceList(SourceList* screens) override { return false; }
 
-  bool SelectScreen(webrtc::ScreenId id) override { return false; }
+  bool SelectSource(SourceId id) override { return false; }
 
  private:
   Callback* callback_;
@@ -264,7 +269,8 @@ class DesktopCaptureDeviceTest : public testing::Test {
                  const media::VideoCaptureFormat&,
                  int,
                  base::TimeTicks,
-                 base::TimeDelta) {
+                 base::TimeDelta,
+                 int) {
     ASSERT_TRUE(output_frame_);
     ASSERT_EQ(output_frame_->stride() * output_frame_->size().height(), size);
     memcpy(output_frame_->data(), frame, size);
@@ -285,7 +291,7 @@ class DesktopCaptureDeviceTest : public testing::Test {
 #endif
 TEST_F(DesktopCaptureDeviceTest, MAYBE_Capture) {
   std::unique_ptr<webrtc::DesktopCapturer> capturer(
-      webrtc::ScreenCapturer::Create(
+      webrtc::DesktopCapturer::CreateScreenCapturer(
           webrtc::DesktopCaptureOptions::CreateDefault()));
   CreateScreenCaptureDevice(std::move(capturer));
 
@@ -297,7 +303,7 @@ TEST_F(DesktopCaptureDeviceTest, MAYBE_Capture) {
 
   std::unique_ptr<MockDeviceClient> client(new MockDeviceClient());
   EXPECT_CALL(*client, OnError(_, _)).Times(0);
-  EXPECT_CALL(*client, OnIncomingCapturedData(_, _, _, _, _, _))
+  EXPECT_CALL(*client, OnIncomingCapturedData(_, _, _, _, _, _, _))
       .WillRepeatedly(
           DoAll(SaveArg<1>(&frame_size), SaveArg<2>(&format),
                 InvokeWithoutArgs(&done_event, &base::WaitableEvent::Signal)));
@@ -334,7 +340,7 @@ TEST_F(DesktopCaptureDeviceTest, ScreenResolutionChangeConstantResolution) {
 
   std::unique_ptr<MockDeviceClient> client(new MockDeviceClient());
   EXPECT_CALL(*client, OnError(_, _)).Times(0);
-  EXPECT_CALL(*client, OnIncomingCapturedData(_, _, _, _, _, _))
+  EXPECT_CALL(*client, OnIncomingCapturedData(_, _, _, _, _, _, _))
       .WillRepeatedly(
           DoAll(WithArg<2>(Invoke(&format_checker,
                                   &FormatChecker::ExpectAcceptableSize)),
@@ -378,7 +384,7 @@ TEST_F(DesktopCaptureDeviceTest, ScreenResolutionChangeFixedAspectRatio) {
 
   std::unique_ptr<MockDeviceClient> client(new MockDeviceClient());
   EXPECT_CALL(*client, OnError(_,_)).Times(0);
-  EXPECT_CALL(*client, OnIncomingCapturedData(_, _, _, _, _, _))
+  EXPECT_CALL(*client, OnIncomingCapturedData(_, _, _, _, _, _, _))
       .WillRepeatedly(
           DoAll(WithArg<2>(Invoke(&format_checker,
                                   &FormatChecker::ExpectAcceptableSize)),
@@ -426,7 +432,7 @@ TEST_F(DesktopCaptureDeviceTest, ScreenResolutionChangeVariableResolution) {
 
   std::unique_ptr<MockDeviceClient> client(new MockDeviceClient());
   EXPECT_CALL(*client, OnError(_,_)).Times(0);
-  EXPECT_CALL(*client, OnIncomingCapturedData(_, _, _, _, _, _))
+  EXPECT_CALL(*client, OnIncomingCapturedData(_, _, _, _, _, _, _))
       .WillRepeatedly(
           DoAll(WithArg<2>(Invoke(&format_checker,
                                   &FormatChecker::ExpectAcceptableSize)),
@@ -476,7 +482,7 @@ TEST_F(DesktopCaptureDeviceTest, UnpackedFrame) {
 
   std::unique_ptr<MockDeviceClient> client(new MockDeviceClient());
   EXPECT_CALL(*client, OnError(_,_)).Times(0);
-  EXPECT_CALL(*client, OnIncomingCapturedData(_, _, _, _, _, _))
+  EXPECT_CALL(*client, OnIncomingCapturedData(_, _, _, _, _, _, _))
       .WillRepeatedly(
           DoAll(Invoke(this, &DesktopCaptureDeviceTest::CopyFrame),
                 SaveArg<1>(&frame_size),
@@ -523,7 +529,7 @@ TEST_F(DesktopCaptureDeviceTest, InvertedFrame) {
 
   std::unique_ptr<MockDeviceClient> client(new MockDeviceClient());
   EXPECT_CALL(*client, OnError(_,_)).Times(0);
-  EXPECT_CALL(*client, OnIncomingCapturedData(_, _, _, _, _, _))
+  EXPECT_CALL(*client, OnIncomingCapturedData(_, _, _, _, _, _, _))
       .WillRepeatedly(
           DoAll(Invoke(this, &DesktopCaptureDeviceTest::CopyFrame),
                 SaveArg<1>(&frame_size),

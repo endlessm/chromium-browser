@@ -21,8 +21,6 @@ class WebState;
 
 namespace autofill {
 
-class AutofillManagerDelegate;
-
 // Class that drives autofill flow on iOS. There is one instance per
 // WebContents.
 class AutofillDriverIOS : public AutofillDriver,
@@ -51,6 +49,7 @@ class AutofillDriverIOS : public AutofillDriver,
   void RendererShouldAcceptDataListSuggestion(
       const base::string16& value) override;
   base::SequencedWorkerPool* GetBlockingPool() override;
+  void DidInteractWithCreditCardForm() override;
 
   AutofillManager* autofill_manager() { return &autofill_manager_; }
 

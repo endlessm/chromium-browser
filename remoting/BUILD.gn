@@ -2,6 +2,7 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//media/media_options.gni")
 import("//remoting/build/config/remoting_build.gni")
 
 group("remoting_all") {
@@ -59,7 +60,7 @@ group("remoting_all") {
     }
 
     if (is_linux && !is_chromeos) {
-      deps += [ "//remoting/host:remoting_dev_me2me_host" ]
+      deps += [ "//remoting/host/linux:remoting_dev_me2me_host" ]
     }
   }
 
@@ -117,7 +118,7 @@ group("test_support") {
     "//testing/gtest",
   ]
 
-  if (enable_configuration_policy) {
+  if (!is_ios) {
     deps += [ "//components/policy/core/browser:test_support" ]
   }
 
@@ -140,15 +141,16 @@ test("remoting_unittests") {
   deps = [
     ":test_support",
     "//base",
+    "//base/test:test_support",
     "//google_apis",
     "//remoting/base:unit_tests",
     "//remoting/client:unit_tests",
+    "//remoting/client/display:unit_tests",
     "//remoting/protocol:unit_tests",
     "//remoting/signaling:unit_tests",
     "//remoting/test:unit_tests",
     "//testing/gmock",
     "//testing/gtest",
-    "//third_party/webrtc",
   ]
 
   if (enable_remoting_host) {
@@ -160,7 +162,7 @@ test("remoting_unittests") {
   }
 
   if (enable_webrtc) {
-    deps += [ "//third_party/libjingle:libjingle_webrtc" ]
+    deps += [ "//third_party/libjingle/webrtc:libjingle_webrtc" ]
   }
 
   if (is_android) {
@@ -175,10 +177,6 @@ test("remoting_unittests") {
       "rpcrt4.lib",
       "wtsapi32.lib",
     ]
-  }
-
-  if (enable_configuration_policy) {
-    #deps += [ "//components/policy/core/browser:test_support" ]
   }
 }
 
@@ -207,7 +205,7 @@ if (enable_remoting_host) {
     ]
 
     if (enable_webrtc) {
-      deps += [ "//third_party/libjingle:libjingle_webrtc" ]
+      deps += [ "//third_party/libjingle/webrtc:libjingle_webrtc" ]
     }
 
     if (is_win) {

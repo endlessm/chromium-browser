@@ -101,27 +101,55 @@ TEST_P(RendererTest, RequestedRendererCreated)
         ASSERT_TRUE(found);
     }
 
-    EGLint glesMajorVersion = GetParam().majorVersion;
+    if (platform.renderer == EGL_PLATFORM_ANGLE_TYPE_NULL_ANGLE)
+    {
+        ASSERT_TRUE(IsNULL());
+    }
 
-    // Ensure that the renderer string contains GL ES 3.0, if we requested a GL ES 3.0
-    if (glesMajorVersion == 3)
+    if (platform.renderer == EGL_PLATFORM_ANGLE_TYPE_VULKAN_ANGLE)
+    {
+        ASSERT_TRUE(IsVulkan());
+    }
+
+    EGLint glesMajorVersion = GetParam().majorVersion;
+    EGLint glesMinorVersion = GetParam().minorVersion;
+
+    // Ensure that the renderer string contains the requested version number
+    if (glesMajorVersion == 3 && glesMinorVersion == 1)
+    {
+        ASSERT_NE(versionString.find(std::string("es 3.1")), std::string::npos);
+    }
+    else if (glesMajorVersion == 3 && glesMinorVersion == 0)
     {
         ASSERT_NE(versionString.find(std::string("es 3.0")), std::string::npos);
     }
-
-    // Ensure that the version string contains GL ES 2.0, if we requested GL ES 2.0
-    if (glesMajorVersion == 2)
+    else if (glesMajorVersion == 2 && glesMinorVersion == 0)
     {
         ASSERT_NE(versionString.find(std::string("es 2.0")), std::string::npos);
     }
+    else
+    {
+        FAIL() << "Unhandled GL ES client version.";
+    }
+
+    ASSERT_GL_NO_ERROR();
+    ASSERT_EGL_SUCCESS();
 }
 
 // Perform a simple operation (clear and read pixels) to verify the device is working
 TEST_P(RendererTest, SimpleOperation)
 {
+    if (IsNULL())
+    {
+        std::cout << "ANGLE NULL backend clears are not functional" << std::endl;
+        return;
+    }
+
     glClearColor(0.0f, 1.0f, 0.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
     EXPECT_PIXEL_EQ(0, 0, 0, 255, 0, 255);
+
+    ASSERT_GL_NO_ERROR();
 }
 
 // Select configurations (e.g. which renderer, which GLES major version) these tests should be run against.
@@ -152,23 +180,20 @@ ANGLE_INSTANTIATE_TEST(RendererTest,
                        ES2_D3D11_FL10_0_REFERENCE(),
                        ES2_D3D11_FL9_3_REFERENCE(),
 
-                       // ES3 on top of D3D11 feature level 9.3 to 11.0
+                       // ES3 on top of D3D11.
                        ES3_D3D11(),
                        ES3_D3D11_FL11_0(),
                        ES3_D3D11_FL10_1(),
-                       ES3_D3D11_FL10_0(),
 
-                       // ES3 on top of D3D11 WARP feature level 9.3 to 11.0
+                       // ES3 on top of D3D11 WARP.
                        ES3_D3D11_WARP(),
                        ES3_D3D11_FL11_0_WARP(),
                        ES3_D3D11_FL10_1_WARP(),
-                       ES3_D3D11_FL10_0_WARP(),
 
-                       // ES3 on top of D3D11 reference feature level 9.3 to 11.0
+                       // ES3 on top of the D3D11 reference rasterizer.
                        ES3_D3D11_REFERENCE(),
                        ES3_D3D11_FL11_0_REFERENCE(),
                        ES3_D3D11_FL10_1_REFERENCE(),
-                       ES3_D3D11_FL10_0_REFERENCE(),
 
                        // ES2 on top of desktop OpenGL versions 2.1 to 4.5
                        ES2_OPENGL(),
@@ -206,5 +231,13 @@ ANGLE_INSTANTIATE_TEST(RendererTest,
                        ES3_OPENGLES(),
                        ES3_OPENGLES(3, 0),
                        ES3_OPENGLES(3, 1),
-                       ES3_OPENGLES(3, 2));
-}
+                       ES3_OPENGLES(3, 2),
+
+                       // All ES version on top of the NULL backend
+                       ES2_NULL(),
+                       ES3_NULL(),
+                       ES31_NULL(),
+
+                       // ES on top of Vulkan
+                       ES2_VULKAN());
+}  // anonymous namespace

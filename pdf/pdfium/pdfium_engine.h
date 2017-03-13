@@ -34,7 +34,6 @@
 namespace pp {
 class KeyboardInputEvent;
 class MouseInputEvent;
-class VarDictionary;
 }
 
 namespace chrome_pdf {
@@ -117,9 +116,11 @@ class PDFiumEngine : public PDFEngine,
   void OnPartialDocumentLoaded() override;
   void OnPendingRequestComplete() override;
   void OnNewDataAvailable() override;
+  void OnDocumentFailed() override;
   void OnDocumentComplete() override;
 
   void UnsupportedFeature(int type);
+  void FontSubstituted();
 
   std::string current_find_text() const { return current_find_text_; }
 
@@ -438,6 +439,8 @@ class PDFiumEngine : public PDFEngine,
   // Setting selection status of document.
   void SetSelecting(bool selecting);
 
+  bool PageIndexInBounds(int index) const;
+
   // FPDF_FORMFILLINFO callbacks.
   static void Form_Invalidate(FPDF_FORMFILLINFO* param,
                               FPDF_PAGE page,
@@ -617,10 +620,8 @@ class PDFiumEngine : public PDFEngine,
   // on the page.
   FPDF_FORMHANDLE form_;
 
-  // The page(s) of the document. Store a vector of pointers so that when the
-  // vector is resized we don't close the pages that are used in pending
-  // paints.
-  std::vector<PDFiumPage*> pages_;
+  // The page(s) of the document.
+  std::vector<std::unique_ptr<PDFiumPage>> pages_;
 
   // The indexes of the pages currently visible.
   std::vector<int> visible_pages_;
@@ -742,6 +743,21 @@ class ScopedUnsupportedFeature {
 
  private:
   PDFiumEngine* const old_engine_;
+
+  DISALLOW_COPY_AND_ASSIGN(ScopedUnsupportedFeature);
+};
+
+// Create a local variable of this when calling PDFium functions which can call
+// our global callback when a substitute font is mapped.
+class ScopedSubstFont {
+ public:
+  explicit ScopedSubstFont(PDFiumEngine* engine);
+  ~ScopedSubstFont();
+
+ private:
+  PDFiumEngine* const old_engine_;
+
+  DISALLOW_COPY_AND_ASSIGN(ScopedSubstFont);
 };
 
 class PDFiumEngineExports : public PDFEngineExports {
@@ -759,6 +775,8 @@ class PDFiumEngineExports : public PDFEngineExports {
       PDFEnsureTypefaceCharactersAccessible func) override;
 
   void SetPDFUseGDIPrinting(bool enable) override;
+
+  void SetPDFPostscriptPrintingLevel(int postscript_level) override;
 #endif  // defined(OS_WIN)
   bool RenderPDFPageToBitmap(const void* pdf_buffer,
                              int pdf_buffer_size,

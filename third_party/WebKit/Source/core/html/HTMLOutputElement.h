@@ -42,7 +42,7 @@ class CORE_EXPORT HTMLOutputElement final : public HTMLFormControlElement,
   USING_GARBAGE_COLLECTED_MIXIN(HTMLOutputElement);
 
  public:
-  static HTMLOutputElement* create(Document&, HTMLFormElement*);
+  static HTMLOutputElement* create(Document&);
   ~HTMLOutputElement() override;
 
   bool willValidate() const override { return false; }
@@ -59,11 +59,9 @@ class CORE_EXPORT HTMLOutputElement final : public HTMLFormControlElement,
   DECLARE_VIRTUAL_TRACE();
 
  private:
-  HTMLOutputElement(Document&, HTMLFormElement*);
+  explicit HTMLOutputElement(Document&);
 
-  void parseAttribute(const QualifiedName&,
-                      const AtomicString&,
-                      const AtomicString&) override;
+  void parseAttribute(const AttributeModificationParams&) override;
   const AtomicString& formControlType() const override;
   bool isDisabledFormControl() const override;
   bool matchesEnabledPseudoClass() const override;
@@ -72,7 +70,7 @@ class CORE_EXPORT HTMLOutputElement final : public HTMLFormControlElement,
   bool supportsFocus() const override;
   void childrenChanged(const ChildrenChange&) override;
   void resetImpl() override;
-  short tabIndex() const override;
+  int tabIndex() const override;
 
   void valueWasSet() final;
 

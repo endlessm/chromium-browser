@@ -32,13 +32,13 @@
 #import <AppKit/AppKit.h>
 #include "platform/LayoutTestSupport.h"
 #include "platform/RuntimeEnabledFeatures.h"
+#include "platform/WebTaskRunner.h"
 #include "platform/fonts/FontDescription.h"
 #include "platform/fonts/FontFaceCreationParams.h"
 #include "platform/fonts/FontPlatformData.h"
 #include "platform/fonts/SimpleFontData.h"
 #include "platform/fonts/mac/FontFamilyMatcherMac.h"
 #include "public/platform/Platform.h"
-#include "public/platform/WebTaskRunner.h"
 #include "public/platform/WebTraceLocation.h"
 #include "wtf/Functional.h"
 #include "wtf/PtrUtil.h"
@@ -60,6 +60,13 @@
 namespace blink {
 
 const char* kColorEmojiFontMac = "Apple Color Emoji";
+
+// static
+const AtomicString& FontCache::legacySystemFontFamily() {
+  DEFINE_STATIC_LOCAL(AtomicString, legacySystemFontFamily,
+                      ("BlinkMacSystemFont"));
+  return legacySystemFontFamily;
+}
 
 static void invalidateFontCache() {
   if (!isMainThread()) {
@@ -209,7 +216,8 @@ PassRefPtr<SimpleFontData> FontCache::fallbackFontForCharacter(
       substituteFont, platformData.size(), syntheticBold,
       (traits & NSFontItalicTrait) &&
           !(substituteFontTraits & NSFontItalicTrait),
-      platformData.orientation());
+      platformData.orientation(),
+      nullptr);  // No variation paramaters in fallback.
 
   return fontDataFromFontPlatformData(&alternateFont, DoNotRetain);
 }
@@ -274,9 +282,10 @@ std::unique_ptr<FontPlatformData> FontCache::createFontPlatformData(
   // font loading failing.  Out-of-process loading occurs for registered fonts
   // stored in non-system locations.  When loading fails, we do not want to use
   // the returned FontPlatformData since it will not have a valid SkTypeface.
-  std::unique_ptr<FontPlatformData> platformData = wrapUnique(
-      new FontPlatformData(platformFont, size, syntheticBold, syntheticItalic,
-                           fontDescription.orientation()));
+  std::unique_ptr<FontPlatformData> platformData =
+      WTF::makeUnique<FontPlatformData>(
+          platformFont, size, syntheticBold, syntheticItalic,
+          fontDescription.orientation(), fontDescription.variationSettings());
   if (!platformData->typeface()) {
     return nullptr;
   }

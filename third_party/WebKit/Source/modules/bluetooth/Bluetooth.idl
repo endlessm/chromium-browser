@@ -2,13 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// https://webbluetoothchrome.github.io/web-bluetooth/#idl-def-bluetooth
+// https://webbluetoothcg.github.io/web-bluetooth/#bluetooth
 
 [
-    NoInterfaceObject,
-    OriginTrialEnabled=WebBluetooth,
+    RuntimeEnabled=WebBluetooth,
 ] interface Bluetooth {
-    [CallWith=ScriptState, RaisesException] Promise<BluetoothDevice> requestDevice (
+    [CallWith=ScriptState, RaisesException, MeasureAs=WebBluetoothRequestDevice] Promise<BluetoothDevice> requestDevice (
         RequestDeviceOptions options
         );
 };

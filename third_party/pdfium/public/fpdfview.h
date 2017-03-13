@@ -39,6 +39,8 @@ typedef void* FPDF_PAGERANGE;
 typedef void* FPDF_PATH;
 typedef void* FPDF_RECORDER;
 typedef void* FPDF_SCHHANDLE;
+typedef void* FPDF_STRUCTELEMENT;
+typedef void* FPDF_STRUCTTREE;
 typedef void* FPDF_TEXTPAGE;
 
 #ifdef PDF_ENABLE_XFA
@@ -211,7 +213,8 @@ DLLEXPORT void STDCALL FPDF_DestroyLibrary();
 DLLEXPORT void STDCALL FPDF_SetSandBoxPolicy(FPDF_DWORD policy,
                                              FPDF_BOOL enable);
 
-#if defined(_WIN32) && defined(PDFIUM_PRINT_TEXT_WITH_GDI)
+#if defined(_WIN32)
+#if defined(PDFIUM_PRINT_TEXT_WITH_GDI)
 // Pointer to a helper function to make |font| with |text| of |text_length|
 // accessible when printing text with GDI. This is useful in sandboxed
 // environments where PDFium's access to GDI may be restricted.
@@ -237,7 +240,20 @@ FPDF_SetTypefaceAccessibleFunc(PDFiumEnsureTypefaceCharactersAccessible func);
 // Return value:
 //          None.
 DLLEXPORT void STDCALL FPDF_SetPrintTextWithGDI(FPDF_BOOL use_gdi);
-#endif
+#endif  // PDFIUM_PRINT_TEXT_WITH_GDI
+
+// Function: FPDF_SetPrintPostscriptLevel
+//          Set postscript printing level when printing on Windows.
+//          Experimental API.
+// Parameters:
+//          postscript_level -  0 to disable postscript printing,
+//                              2 to print with postscript level 2,
+//                              3 to print with postscript level 3.
+//                              All other values are invalid.
+// Return value:
+//          True if successful, false if unsucessful (typically invalid input).
+DLLEXPORT FPDF_BOOL STDCALL FPDF_SetPrintPostscriptLevel(FPDF_BOOL use_gdi);
+#endif  // defined(_WIN32)
 
 // Function: FPDF_LoadDocument
 //          Open and load a PDF document.
@@ -594,11 +610,11 @@ DLLEXPORT void STDCALL FPDF_RenderPage(HDC dc,
 //                            1 (rotated 90 degrees clockwise)
 //                            2 (rotated 180 degrees)
 //                            3 (rotated 90 degrees counter-clockwise)
-//          flags       -   0 for normal display, or combination of flags
-//                          defined above. With FPDF_ANNOT flag, it renders all
-//                          annotations that does not require user-interaction,
-//                          which are all annotations except widget and popup
-//                          annotations.
+//          flags       -   0 for normal display, or combination of the Page
+//                          Rendering flags defined above. With the FPDF_ANNOT
+//                          flag, it renders all annotations that do not require
+//                          user-interaction, which are all annotations except
+//                          widget and popup annotations.
 // Return value:
 //          None.
 DLLEXPORT void STDCALL FPDF_RenderPageBitmap(FPDF_BITMAP bitmap,
@@ -609,6 +625,28 @@ DLLEXPORT void STDCALL FPDF_RenderPageBitmap(FPDF_BITMAP bitmap,
                                              int size_y,
                                              int rotate,
                                              int flags);
+
+// Function: FPDF_RenderPageBitmapWithMatrix
+//          Render contents of a page to a device independent bitmap.
+// Parameters:
+//          bitmap      -   Handle to the device independent bitmap (as the
+//                          output buffer). The bitmap handle can be created
+//                          by FPDFBitmap_Create.
+//          page        -   Handle to the page. Returned by FPDF_LoadPage
+//          matrix      -   The transform matrix.
+//          clipping    -   The rect to clip to.
+//          flags       -   0 for normal display, or combination of the Page
+//                          Rendering flags defined above. With the FPDF_ANNOT
+//                          flag, it renders all annotations that do not require
+//                          user-interaction, which are all annotations except
+//                          widget and popup annotations.
+// Return value:
+//          None.
+DLLEXPORT void STDCALL FPDF_RenderPageBitmapWithMatrix(FPDF_BITMAP bitmap,
+                                                       FPDF_PAGE page,
+                                                       const FS_MATRIX* matrix,
+                                                       const FS_RECTF* clipping,
+                                                       int flags);
 
 #ifdef _SKIA_SUPPORT_
 DLLEXPORT FPDF_RECORDER STDCALL FPDF_RenderPageSkp(FPDF_PAGE page,
@@ -913,6 +951,25 @@ FPDF_VIEWERREF_GetPrintPageRange(FPDF_DOCUMENT document);
 //          The paper handling option to be used when printing.
 DLLEXPORT FPDF_DUPLEXTYPE STDCALL
 FPDF_VIEWERREF_GetDuplex(FPDF_DOCUMENT document);
+
+// Function: FPDF_VIEWERREF_GetName
+//          Gets the contents for a viewer ref, with a given key. The value must
+//          be of type "name".
+// Parameters:
+//          document    -   Handle to the loaded document.
+//          key         -   Name of the key in the viewer pref dictionary.
+//          buffer      -   A string to write the contents of the key to.
+//          length      -   Length of the buffer.
+// Return value:
+//          The number of bytes in the contents, including the NULL terminator.
+//          Thus if the return value is 0, then that indicates an error, such
+//          as when |document| is invalid or |buffer| is NULL. If |length| is
+//          less than the returned length, or |buffer| is NULL, |buffer| will
+//          not be modified.
+DLLEXPORT unsigned long STDCALL FPDF_VIEWERREF_GetName(FPDF_DOCUMENT document,
+                                                       FPDF_BYTESTRING key,
+                                                       char* buffer,
+                                                       unsigned long length);
 
 // Function: FPDF_CountNamedDests
 //          Get the count of named destinations in the PDF document.

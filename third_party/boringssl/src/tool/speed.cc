@@ -29,7 +29,6 @@
 #include <openssl/ec.h>
 #include <openssl/ecdsa.h>
 #include <openssl/ec_key.h>
-#include <openssl/newhope.h>
 #include <openssl/nid.h>
 #include <openssl/rand.h>
 #include <openssl/rsa.h>
@@ -44,6 +43,7 @@ OPENSSL_MSVC_PRAGMA(warning(pop))
 #include <time.h>
 #endif
 
+#include "../crypto/internal.h"
 #include "internal.h"
 
 
@@ -203,26 +203,26 @@ static bool SpeedAEADChunk(const EVP_AEAD *aead, const std::string &name,
                            size_t chunk_len, size_t ad_len) {
   static const unsigned kAlignment = 16;
 
-  EVP_AEAD_CTX ctx;
+  bssl::ScopedEVP_AEAD_CTX ctx;
   const size_t key_len = EVP_AEAD_key_length(aead);
   const size_t nonce_len = EVP_AEAD_nonce_length(aead);
   const size_t overhead_len = EVP_AEAD_max_overhead(aead);
 
   std::unique_ptr<uint8_t[]> key(new uint8_t[key_len]);
-  memset(key.get(), 0, key_len);
+  OPENSSL_memset(key.get(), 0, key_len);
   std::unique_ptr<uint8_t[]> nonce(new uint8_t[nonce_len]);
-  memset(nonce.get(), 0, nonce_len);
+  OPENSSL_memset(nonce.get(), 0, nonce_len);
   std::unique_ptr<uint8_t[]> in_storage(new uint8_t[chunk_len + kAlignment]);
   std::unique_ptr<uint8_t[]> out_storage(new uint8_t[chunk_len + overhead_len + kAlignment]);
   std::unique_ptr<uint8_t[]> ad(new uint8_t[ad_len]);
-  memset(ad.get(), 0, ad_len);
+  OPENSSL_memset(ad.get(), 0, ad_len);
 
   uint8_t *const in = align(in_storage.get(), kAlignment);
-  memset(in, 0, chunk_len);
+  OPENSSL_memset(in, 0, chunk_len);
   uint8_t *const out = align(out_storage.get(), kAlignment);
-  memset(out, 0, chunk_len + overhead_len);
+  OPENSSL_memset(out, 0, chunk_len + overhead_len);
 
-  if (!EVP_AEAD_CTX_init_with_direction(&ctx, aead, key.get(), key_len,
+  if (!EVP_AEAD_CTX_init_with_direction(ctx.get(), aead, key.get(), key_len,
                                         EVP_AEAD_DEFAULT_TAG_LENGTH,
                                         evp_aead_seal)) {
     fprintf(stderr, "Failed to create EVP_AEAD_CTX.\n");
@@ -234,10 +234,9 @@ static bool SpeedAEADChunk(const EVP_AEAD *aead, const std::string &name,
   if (!TimeFunction(&results, [chunk_len, overhead_len, nonce_len, ad_len, in,
                                out, &ctx, &nonce, &ad]() -> bool {
         size_t out_len;
-
-        return EVP_AEAD_CTX_seal(
-            &ctx, out, &out_len, chunk_len + overhead_len, nonce.get(),
-            nonce_len, in, chunk_len, ad.get(), ad_len);
+        return EVP_AEAD_CTX_seal(ctx.get(), out, &out_len,
+                                 chunk_len + overhead_len, nonce.get(),
+                                 nonce_len, in, chunk_len, ad.get(), ad_len);
       })) {
     fprintf(stderr, "EVP_AEAD_CTX_seal failed.\n");
     ERR_print_errors_fp(stderr);
@@ -245,9 +244,6 @@ static bool SpeedAEADChunk(const EVP_AEAD *aead, const std::string &name,
   }
 
   results.PrintWithBytes(name + " seal", chunk_len);
-
-  EVP_AEAD_CTX_cleanup(&ctx);
-
   return true;
 }
 
@@ -302,7 +298,7 @@ static bool SpeedHash(const EVP_MD *md, const std::string &name,
          SpeedHashChunk(md, name + " (8192 bytes)", 8192);
 }
 
-static bool SpeedRandomChunk(const std::string name, size_t chunk_len) {
+static bool SpeedRandomChunk(const std::string &name, size_t chunk_len) {
   uint8_t scratch[8192];
 
   if (chunk_len > sizeof(scratch)) {
@@ -386,7 +382,7 @@ static bool SpeedECDSACurve(const std::string &name, int nid,
     return false;
   }
   uint8_t digest[20];
-  memset(digest, 42, sizeof(digest));
+  OPENSSL_memset(digest, 42, sizeof(digest));
   unsigned sig_len;
 
   TimeResults results;
@@ -467,7 +463,7 @@ static bool Speed25519(const std::string &selected) {
 
   if (!TimeFunction(&results, []() -> bool {
         uint8_t out[32], in[32];
-        memset(in, 0, sizeof(in));
+        OPENSSL_memset(in, 0, sizeof(in));
         X25519_public_from_private(out, in);
         return true;
       })) {
@@ -479,8 +475,8 @@ static bool Speed25519(const std::string &selected) {
 
   if (!TimeFunction(&results, []() -> bool {
         uint8_t out[32], in1[32], in2[32];
-        memset(in1, 0, sizeof(in1));
-        memset(in2, 0, sizeof(in2));
+        OPENSSL_memset(in1, 0, sizeof(in1));
+        OPENSSL_memset(in2, 0, sizeof(in2));
         in1[0] = 1;
         in2[0] = 9;
         return X25519(out, in1, in2) == 1;
@@ -541,34 +537,6 @@ static bool SpeedSPAKE2(const std::string &selected) {
   return true;
 }
 
-static bool SpeedNewHope(const std::string &selected) {
-  if (!selected.empty() && selected.find("newhope") == std::string::npos) {
-    return true;
-  }
-
-  TimeResults results;
-  NEWHOPE_POLY *sk = NEWHOPE_POLY_new();
-  uint8_t acceptmsg[NEWHOPE_ACCEPTMSG_LENGTH];
-  RAND_bytes(acceptmsg, sizeof(acceptmsg));
-
-  if (!TimeFunction(&results, [sk, &acceptmsg]() -> bool {
-        uint8_t key[SHA256_DIGEST_LENGTH];
-        uint8_t offermsg[NEWHOPE_OFFERMSG_LENGTH];
-        NEWHOPE_offer(offermsg, sk);
-        if (!NEWHOPE_finish(key, sk, acceptmsg, NEWHOPE_ACCEPTMSG_LENGTH)) {
-          return false;
-        }
-        return true;
-      })) {
-    fprintf(stderr, "failed to exchange key.\n");
-    return false;
-  }
-
-  NEWHOPE_POLY_free(sk);
-  results.Print("newhope key exchange");
-  return true;
-}
-
 static const struct argument kArguments[] = {
     {
      "-filter", kOptionalArgument,
@@ -599,45 +567,43 @@ bool Speed(const std::vector<std::string> &args) {
     g_timeout_seconds = atoi(args_map["-timeout"].c_str());
   }
 
-  RSA *key = RSA_private_key_from_bytes(kDERRSAPrivate2048,
-                                        kDERRSAPrivate2048Len);
-  if (key == NULL) {
+  bssl::UniquePtr<RSA> key(
+      RSA_private_key_from_bytes(kDERRSAPrivate2048, kDERRSAPrivate2048Len));
+  if (key == nullptr) {
     fprintf(stderr, "Failed to parse RSA key.\n");
     ERR_print_errors_fp(stderr);
     return false;
   }
 
-  if (!SpeedRSA("RSA 2048", key, selected)) {
+  if (!SpeedRSA("RSA 2048", key.get(), selected)) {
     return false;
   }
 
-  RSA_free(key);
-  key = RSA_private_key_from_bytes(kDERRSAPrivate3Prime2048,
-                                   kDERRSAPrivate3Prime2048Len);
-  if (key == NULL) {
+  key.reset(RSA_private_key_from_bytes(kDERRSAPrivate3Prime2048,
+                                       kDERRSAPrivate3Prime2048Len));
+  if (key == nullptr) {
     fprintf(stderr, "Failed to parse RSA key.\n");
     ERR_print_errors_fp(stderr);
     return false;
   }
 
-  if (!SpeedRSA("RSA 2048 (3 prime, e=3)", key, selected)) {
+  if (!SpeedRSA("RSA 2048 (3 prime, e=3)", key.get(), selected)) {
     return false;
   }
 
-  RSA_free(key);
-  key = RSA_private_key_from_bytes(kDERRSAPrivate4096,
-                                   kDERRSAPrivate4096Len);
-  if (key == NULL) {
+  key.reset(
+      RSA_private_key_from_bytes(kDERRSAPrivate4096, kDERRSAPrivate4096Len));
+  if (key == nullptr) {
     fprintf(stderr, "Failed to parse 4096-bit RSA key.\n");
     ERR_print_errors_fp(stderr);
     return 1;
   }
 
-  if (!SpeedRSA("RSA 4096", key, selected)) {
+  if (!SpeedRSA("RSA 4096", key.get(), selected)) {
     return false;
   }
 
-  RSA_free(key);
+  key.reset();
 
   // kTLSADLen is the number of bytes of additional data that TLS passes to
   // AEADs.
@@ -660,6 +626,12 @@ bool Speed(const std::vector<std::string> &args) {
                  kLegacyADLen, selected) ||
       !SpeedAEAD(EVP_aead_aes_256_cbc_sha1_tls(), "AES-256-CBC-SHA1",
                  kLegacyADLen, selected) ||
+#if !defined(OPENSSL_SMALL)
+      !SpeedAEAD(EVP_aead_aes_128_gcm_siv(), "AES-128-GCM-SIV", kTLSADLen,
+                 selected) ||
+      !SpeedAEAD(EVP_aead_aes_256_gcm_siv(), "AES-256-GCM-SIV", kTLSADLen,
+                 selected) ||
+#endif
       !SpeedHash(EVP_sha1(), "SHA-1", selected) ||
       !SpeedHash(EVP_sha256(), "SHA-256", selected) ||
       !SpeedHash(EVP_sha512(), "SHA-512", selected) ||
@@ -667,8 +639,7 @@ bool Speed(const std::vector<std::string> &args) {
       !SpeedECDH(selected) ||
       !SpeedECDSA(selected) ||
       !Speed25519(selected) ||
-      !SpeedSPAKE2(selected) ||
-      !SpeedNewHope(selected)) {
+      !SpeedSPAKE2(selected)) {
     return false;
   }
 

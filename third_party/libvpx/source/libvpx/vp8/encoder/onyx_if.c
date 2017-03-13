@@ -446,6 +446,18 @@ static void dealloc_compressor_data(VP8_COMP *cpi) {
   cpi->mb.pip = 0;
 
 #if CONFIG_MULTITHREAD
+  /* De-allocate mutex */
+  if (cpi->pmutex != NULL) {
+    VP8_COMMON *const pc = &cpi->common;
+    int i;
+
+    for (i = 0; i < pc->mb_rows; ++i) {
+      pthread_mutex_destroy(&cpi->pmutex[i]);
+    }
+    vpx_free(cpi->pmutex);
+    cpi->pmutex = NULL;
+  }
+
   vpx_free(cpi->mt_current_mb_col);
   cpi->mt_current_mb_col = NULL;
 #endif
@@ -1075,6 +1087,9 @@ void vp8_alloc_compressor_data(VP8_COMP *cpi) {
 
   int width = cm->Width;
   int height = cm->Height;
+#if CONFIG_MULTITHREAD
+  int prev_mb_rows = cm->mb_rows;
+#endif
 
   if (vp8_alloc_frame_buffers(cm, width, height)) {
     vpx_internal_error(&cpi->common.error, VPX_CODEC_MEM_ERROR,
@@ -1164,6 +1179,25 @@ void vp8_alloc_compressor_data(VP8_COMP *cpi) {
   }
 
   if (cpi->oxcf.multi_threaded > 1) {
+    int i;
+
+    /* De-allocate and re-allocate mutex */
+    if (cpi->pmutex != NULL) {
+      for (i = 0; i < prev_mb_rows; ++i) {
+        pthread_mutex_destroy(&cpi->pmutex[i]);
+      }
+      vpx_free(cpi->pmutex);
+      cpi->pmutex = NULL;
+    }
+
+    CHECK_MEM_ERROR(cpi->pmutex,
+                    vpx_malloc(sizeof(*cpi->pmutex) * cm->mb_rows));
+    if (cpi->pmutex) {
+      for (i = 0; i < cm->mb_rows; ++i) {
+        pthread_mutex_init(&cpi->pmutex[i], NULL);
+      }
+    }
+
     vpx_free(cpi->mt_current_mb_col);
     CHECK_MEM_ERROR(cpi->mt_current_mb_col,
                     vpx_malloc(sizeof(*cpi->mt_current_mb_col) * cm->mb_rows));
@@ -1467,6 +1501,12 @@ void vp8_change_config(VP8_COMP *cpi, VP8_CONFIG *oxcf) {
   cpi->baseline_gf_interval =
       cpi->oxcf.alt_freq ? cpi->oxcf.alt_freq : DEFAULT_GF_INTERVAL;
 
+  // GF behavior for 1 pass CBR, used when error_resilience is off.
+  if (!cpi->oxcf.error_resilient_mode &&
+      cpi->oxcf.end_usage == USAGE_STREAM_FROM_SERVER &&
+      cpi->oxcf.Mode == MODE_REALTIME)
+    cpi->baseline_gf_interval = cpi->gf_interval_onepass_cbr;
+
 #if (CONFIG_REALTIME_ONLY & CONFIG_ONTHEFLY_BITPACKING)
   cpi->oxcf.token_partitions = 3;
 #endif
@@ -1766,9 +1806,13 @@ struct VP8_COMP *vp8_create_compressor(VP8_CONFIG *oxcf) {
   cpi->mse_source_denoised = 0;
 
   /* Should we use the cyclic refresh method.
-   * Currently this is tied to error resilliant mode
+   * Currently there is no external control for this.
+   * Enable it for error_resilient_mode, or for 1 pass CBR mode.
    */
-  cpi->cyclic_refresh_mode_enabled = cpi->oxcf.error_resilient_mode;
+  cpi->cyclic_refresh_mode_enabled =
+      (cpi->oxcf.error_resilient_mode ||
+       (cpi->oxcf.end_usage == USAGE_STREAM_FROM_SERVER &&
+        cpi->oxcf.Mode <= 2));
   cpi->cyclic_refresh_mode_max_mbs_perframe =
       (cpi->common.mb_rows * cpi->common.mb_cols) / 7;
   if (cpi->oxcf.number_of_layers == 1) {
@@ -1780,6 +1824,23 @@ struct VP8_COMP *vp8_create_compressor(VP8_CONFIG *oxcf) {
   }
   cpi->cyclic_refresh_mode_index = 0;
   cpi->cyclic_refresh_q = 32;
+
+  // GF behavior for 1 pass CBR, used when error_resilience is off.
+  cpi->gf_update_onepass_cbr = 0;
+  cpi->gf_noboost_onepass_cbr = 0;
+  if (!cpi->oxcf.error_resilient_mode &&
+      cpi->oxcf.end_usage == USAGE_STREAM_FROM_SERVER && cpi->oxcf.Mode <= 2) {
+    cpi->gf_update_onepass_cbr = 1;
+    cpi->gf_noboost_onepass_cbr = 1;
+    cpi->gf_interval_onepass_cbr =
+        cpi->cyclic_refresh_mode_max_mbs_perframe > 0
+            ? (2 * (cpi->common.mb_rows * cpi->common.mb_cols) /
+               cpi->cyclic_refresh_mode_max_mbs_perframe)
+            : 10;
+    cpi->gf_interval_onepass_cbr =
+        VPXMIN(40, VPXMAX(6, cpi->gf_interval_onepass_cbr));
+    cpi->baseline_gf_interval = cpi->gf_interval_onepass_cbr;
+  }
 
   if (cpi->cyclic_refresh_mode_enabled) {
     CHECK_MEM_ERROR(cpi->cyclic_refresh_map,
@@ -3925,7 +3986,6 @@ static void encode_frame_to_data_rate(VP8_COMP *cpi, size_t *size,
 #else
     /* transform / motion compensation build reconstruction frame */
     vp8_encode_frame(cpi);
-
     if (cpi->oxcf.screen_content_mode == 2) {
       if (vp8_drop_encodedframe_overshoot(cpi, Q)) return;
     }
@@ -4202,6 +4262,20 @@ static void encode_frame_to_data_rate(VP8_COMP *cpi, size_t *size,
 #endif
     }
   } while (Loop == 1);
+
+#if defined(DROP_UNCODED_FRAMES)
+  /* if there are no coded macroblocks at all drop this frame */
+  if (cpi->common.MBs == cpi->mb.skip_true_count &&
+      (cpi->drop_frame_count & 7) != 7 && cm->frame_type != KEY_FRAME) {
+    cpi->common.current_video_frame++;
+    cpi->frames_since_key++;
+    cpi->drop_frame_count++;
+    // We advance the temporal pattern for dropped frames.
+    cpi->temporal_pattern_counter++;
+    return;
+  }
+  cpi->drop_frame_count = 0;
+#endif
 
 #if 0
     /* Experimental code for lagged and one pass

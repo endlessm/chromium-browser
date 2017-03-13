@@ -8,6 +8,7 @@
 
 #include "core/fpdfapi/page/cpdf_pagemodule.h"
 #include "core/fxcodec/fx_codec.h"
+#include "third_party/base/ptr_util.h"
 
 namespace {
 
@@ -31,6 +32,10 @@ void CPDF_ModuleMgr::Destroy() {
 CPDF_ModuleMgr::CPDF_ModuleMgr() : m_pCodecModule(nullptr) {}
 
 CPDF_ModuleMgr::~CPDF_ModuleMgr() {}
+
+void CPDF_ModuleMgr::InitPageModule() {
+  m_pPageModule = pdfium::MakeUnique<CPDF_PageModule>();
+}
 
 CCodec_FaxModule* CPDF_ModuleMgr::GetFaxModule() {
   return m_pCodecModule ? m_pCodecModule->GetFaxModule() : nullptr;

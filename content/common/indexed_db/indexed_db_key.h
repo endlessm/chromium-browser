@@ -15,10 +15,6 @@
 #include "content/common/content_export.h"
 #include "third_party/WebKit/public/platform/modules/indexeddb/WebIDBTypes.h"
 
-namespace blink {
-class WebIDBKey;
-}
-
 namespace content {
 
 class CONTENT_EXPORT IndexedDBKey {
@@ -76,6 +72,9 @@ class CONTENT_EXPORT IndexedDBKey {
 
   size_t size_estimate_;
 };
+
+// An index id, and corresponding set of keys to insert.
+using IndexedDBIndexKeys = std::pair<int64_t, std::vector<IndexedDBKey>>;
 
 }  // namespace content
 

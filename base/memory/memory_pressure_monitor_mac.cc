@@ -8,6 +8,8 @@
 #include <stddef.h>
 #include <sys/sysctl.h>
 
+#include <cmath>
+
 #include "base/bind.h"
 #include "base/logging.h"
 #include "base/mac/mac_util.h"
@@ -15,6 +17,10 @@
 // Redeclare for partial 10.9 availability.
 DISPATCH_EXPORT const struct dispatch_source_type_s
     _dispatch_source_type_memorypressure;
+
+namespace {
+static const int kUMATickSize = 5;
+}  // namespace
 
 namespace base {
 namespace mac {
@@ -33,44 +39,84 @@ MemoryPressureMonitor::MemoryPressureLevelForMacMemoryPressure(
   return MemoryPressureListener::MEMORY_PRESSURE_LEVEL_NONE;
 }
 
-void MemoryPressureMonitor::NotifyMemoryPressureChanged(
+MemoryPressureMonitor::MemoryPressureMonitor()
+    : memory_level_event_source_(dispatch_source_create(
+          DISPATCH_SOURCE_TYPE_MEMORYPRESSURE,
+          0,
+          DISPATCH_MEMORYPRESSURE_WARN | DISPATCH_MEMORYPRESSURE_CRITICAL |
+              DISPATCH_MEMORYPRESSURE_NORMAL,
+          dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0))),
+      dispatch_callback_(
+          base::Bind(&MemoryPressureListener::NotifyMemoryPressure)),
+      last_statistic_report_(CFAbsoluteTimeGetCurrent()),
+      last_pressure_level_(MemoryPressureListener::MEMORY_PRESSURE_LEVEL_NONE),
+      reporting_error_(0) {
+  if (memory_level_event_source_.get() != nullptr) {
+    dispatch_source_set_event_handler(memory_level_event_source_, ^{
+      OnMemoryPressureChanged(memory_level_event_source_.get(),
+                              dispatch_callback_);
+    });
+    dispatch_resume(memory_level_event_source_);
+  }
+}
+
+MemoryPressureMonitor::~MemoryPressureMonitor() {
+  if (memory_level_event_source_.get() != nullptr)
+    dispatch_source_cancel(memory_level_event_source_);
+}
+
+MemoryPressureListener::MemoryPressureLevel
+MemoryPressureMonitor::GetCurrentPressureLevel() {
+  int mac_memory_pressure;
+  size_t length = sizeof(int);
+  sysctlbyname("kern.memorystatus_vm_pressure_level", &mac_memory_pressure,
+               &length, nullptr, 0);
+  MemoryPressureListener::MemoryPressureLevel memory_pressure_level =
+      MemoryPressureLevelForMacMemoryPressure(mac_memory_pressure);
+  bool pressure_level_changed = false;
+  if (last_pressure_level_ != memory_pressure_level) {
+    pressure_level_changed = true;
+  }
+  SendStatisticsIfNecessary(pressure_level_changed);
+  last_pressure_level_ = memory_pressure_level;
+  return memory_pressure_level;
+}
+
+void MemoryPressureMonitor::OnMemoryPressureChanged(
     dispatch_source_s* event_source,
     const MemoryPressureMonitor::DispatchCallback& dispatch_callback) {
   int mac_memory_pressure = dispatch_source_get_data(event_source);
   MemoryPressureListener::MemoryPressureLevel memory_pressure_level =
       MemoryPressureLevelForMacMemoryPressure(mac_memory_pressure);
-  dispatch_callback.Run(memory_pressure_level);
+  bool pressure_level_changed = false;
+  if (last_pressure_level_ != memory_pressure_level) {
+    pressure_level_changed = true;
+  }
+  SendStatisticsIfNecessary(pressure_level_changed);
+  last_pressure_level_ = memory_pressure_level;
+  if (memory_pressure_level !=
+      MemoryPressureListener::MEMORY_PRESSURE_LEVEL_NONE)
+    dispatch_callback.Run(memory_pressure_level);
 }
 
-MemoryPressureMonitor::MemoryPressureMonitor()
-    // The MemoryPressureListener doesn't want to know about transitions to
-    // MEMORY_PRESSURE_LEVEL_NONE so don't watch for
-    // DISPATCH_MEMORYPRESSURE_NORMAL notifications.
-    : memory_level_event_source_(dispatch_source_create(
-          DISPATCH_SOURCE_TYPE_MEMORYPRESSURE,
-          0,
-          DISPATCH_MEMORYPRESSURE_WARN | DISPATCH_MEMORYPRESSURE_CRITICAL,
-          dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0))),
-      dispatch_callback_(
-          base::Bind(&MemoryPressureListener::NotifyMemoryPressure)) {
-  dispatch_source_set_event_handler(memory_level_event_source_, ^{
-    NotifyMemoryPressureChanged(memory_level_event_source_.get(),
-                                dispatch_callback_);
-  });
-  dispatch_resume(memory_level_event_source_);
-}
+void MemoryPressureMonitor::SendStatisticsIfNecessary(
+    bool pressure_level_changed) {
+  CFTimeInterval now = CFAbsoluteTimeGetCurrent();
+  CFTimeInterval since_last_report = now - last_statistic_report_;
+  last_statistic_report_ = now;
 
-MemoryPressureMonitor::~MemoryPressureMonitor() {
-  dispatch_source_cancel(memory_level_event_source_);
-}
+  double accumulated_time = since_last_report + reporting_error_;
+  int ticks_to_report = static_cast<int>(accumulated_time / kUMATickSize);
+  reporting_error_ = std::fmod(accumulated_time, kUMATickSize);
 
-MemoryPressureListener::MemoryPressureLevel
-MemoryPressureMonitor::GetCurrentPressureLevel() const {
-  int mac_memory_pressure;
-  size_t length = sizeof(int);
-  sysctlbyname("kern.memorystatus_vm_pressure_level", &mac_memory_pressure,
-               &length, nullptr, 0);
-  return MemoryPressureLevelForMacMemoryPressure(mac_memory_pressure);
+  // Round up on change to ensure we capture it
+  if (pressure_level_changed && ticks_to_report < 1) {
+    ticks_to_report = 1;
+    reporting_error_ = 0;
+  }
+
+  if (ticks_to_report >= 1)
+    RecordMemoryPressure(last_pressure_level_, ticks_to_report);
 }
 
 void MemoryPressureMonitor::SetDispatchCallback(

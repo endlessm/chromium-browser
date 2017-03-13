@@ -6,7 +6,7 @@
 
 #include <stdint.h>
 
-#include "base/stl_util.h"
+#include "base/memory/ptr_util.h"
 #include "content/common/manifest_manager_messages.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
@@ -32,16 +32,13 @@ ManifestManagerHost::ManifestManagerHost(WebContents* web_contents)
   : WebContentsObserver(web_contents) {
 }
 
-ManifestManagerHost::~ManifestManagerHost() {
-  base::STLDeleteValues(&pending_get_callbacks_);
-}
+ManifestManagerHost::~ManifestManagerHost() {}
 
 ManifestManagerHost::GetCallbackMap*
 ManifestManagerHost::GetCallbackMapForFrame(
     RenderFrameHost* render_frame_host) {
-  FrameGetCallbackMap::iterator it =
-      pending_get_callbacks_.find(render_frame_host);
-  return it != pending_get_callbacks_.end() ? it->second : nullptr;
+  auto it = pending_get_callbacks_.find(render_frame_host);
+  return it != pending_get_callbacks_.end() ? it->second.get() : nullptr;
 }
 
 void ManifestManagerHost::RenderFrameDeleted(
@@ -58,7 +55,6 @@ void ManifestManagerHost::RenderFrameDeleted(
       it.GetCurrentValue()->Run(GURL(), Manifest());
   }
 
-  delete callbacks;
   pending_get_callbacks_.erase(render_frame_host);
 }
 
@@ -67,10 +63,11 @@ void ManifestManagerHost::GetManifest(RenderFrameHost* render_frame_host,
   GetCallbackMap* callbacks = GetCallbackMapForFrame(render_frame_host);
   if (!callbacks) {
     callbacks = new GetCallbackMap();
-    pending_get_callbacks_[render_frame_host] = callbacks;
+    pending_get_callbacks_[render_frame_host] = base::WrapUnique(callbacks);
   }
 
-  int request_id = callbacks->Add(new GetManifestCallback(callback));
+  int request_id =
+      callbacks->Add(base::MakeUnique<GetManifestCallback>(callback));
 
   render_frame_host->Send(new ManifestManagerMsg_RequestManifest(
       render_frame_host->GetRoutingID(), request_id));
@@ -151,10 +148,8 @@ void ManifestManagerHost::OnRequestManifestResponse(
 
   callback->Run(manifest_url, manifest);
   callbacks->Remove(request_id);
-  if (callbacks->IsEmpty()) {
-    delete callbacks;
+  if (callbacks->IsEmpty())
     pending_get_callbacks_.erase(render_frame_host);
-  }
 }
 
 } // namespace content

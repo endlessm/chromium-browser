@@ -5,7 +5,7 @@
 package org.chromium.android_webview.test;
 
 import android.graphics.Bitmap;
-import android.test.suitebuilder.annotation.SmallTest;
+import android.support.test.filters.SmallTest;
 
 import org.chromium.android_webview.AwContents;
 import org.chromium.android_webview.AwSettings;
@@ -301,8 +301,11 @@ public class LoadDataWithBaseUrlTest extends AwTestBase {
         File tempImage = File.createTempFile("test_image", ".png", cacheDir);
         Bitmap bitmap = Bitmap.createBitmap(1, 1, Bitmap.Config.RGB_565);
         FileOutputStream fos = new FileOutputStream(tempImage);
-        bitmap.compress(Bitmap.CompressFormat.PNG, 100, fos);
-        fos.close();
+        try {
+            bitmap.compress(Bitmap.CompressFormat.PNG, 100, fos);
+        } finally {
+            fos.close();
+        }
         String imagePath = tempImage.getAbsolutePath();
 
         AwSettings contentSettings = getAwSettingsOnUiThread(mAwContents);

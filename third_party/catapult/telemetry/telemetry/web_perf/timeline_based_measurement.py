@@ -85,9 +85,6 @@ class _TBMResultWrapper(ResultsWrapperInterface):
     if value.tir_label:
       assert value.tir_label == self._tir_label
     else:
-      logging.warning(
-          'TimelineBasedMetric should create the interaction record label '
-          'for %r values.' % value.name)
       value.tir_label = self._tir_label
     self._results.AddValue(value)
 
@@ -205,6 +202,12 @@ class Options(object):
   def config(self):
     return self._config
 
+  def AddTimelineBasedMetric(self, metric):
+    assert isinstance(metric, basestring)
+    if self._timeline_based_metrics is None:
+      self._timeline_based_metrics = []
+    self._timeline_based_metrics.append(metric)
+
   def SetTimelineBasedMetrics(self, metrics):
     """Sets the new-style (TBMv2) metrics to run.
 
@@ -283,7 +286,7 @@ class TimelineBasedMeasurement(story_test.StoryTest):
 
   def Measure(self, platform, results):
     """Collect all possible metrics and added them to results."""
-    platform.tracing_controller.iteration_info = results.iteration_info
+    platform.tracing_controller.telemetry_info = results.telemetry_info
     trace_result = platform.tracing_controller.StopTracing()
     trace_value = trace.TraceValue(results.current_page, trace_result)
     results.AddValue(trace_value)

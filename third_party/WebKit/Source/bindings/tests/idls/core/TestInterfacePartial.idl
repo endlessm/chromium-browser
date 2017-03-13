@@ -35,7 +35,7 @@ enum PartialEnumType {
 
 typedef DOMString PartialString;
 
-callback PartialCallbackType = void (PartialString value);
+[Custom] callback PartialCallbackType = void (PartialString value);
 [
     RuntimeEnabled=PartialFeatureName,
 ] partial interface TestInterface {
@@ -53,7 +53,4 @@ callback PartialCallbackType = void (PartialString value);
 
     attribute PartialEnumType partialPartialEnumTypeAttribute;
     void partialVoidMethodPartialCallbackTypeArg(PartialCallbackType partialCallbackTypeArg);
-
-    [ImplementedInPrivateScript] short shortMethodWithShortArgumentImplementedInPrivateScript(short value);
-    [ImplementedInPrivateScript] attribute DOMString stringAttribute;
 };

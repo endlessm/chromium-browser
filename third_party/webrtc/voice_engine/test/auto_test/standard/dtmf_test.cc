@@ -48,9 +48,7 @@ TEST_F(DtmfTest, ManualCanChangeDtmfPayloadType) {
       codec_instance.pltype = 88;  // Use 88 instead of default 106.
       EXPECT_EQ(0, voe_base_->StopSend(channel_));
       EXPECT_EQ(0, voe_base_->StopPlayout(channel_));
-      EXPECT_EQ(0, voe_base_->StopReceive(channel_));
       EXPECT_EQ(0, voe_codec_->SetRecPayloadType(channel_, codec_instance));
-      EXPECT_EQ(0, voe_base_->StartReceive(channel_));
       EXPECT_EQ(0, voe_base_->StartPlayout(channel_));
       EXPECT_EQ(0, voe_base_->StartSend(channel_));
       break;
@@ -61,7 +59,8 @@ TEST_F(DtmfTest, ManualCanChangeDtmfPayloadType) {
 
   // Next, we must modify the sending side as well.
   EXPECT_TRUE(
-      channel_proxy_->SetSendTelephoneEventPayloadType(codec_instance.pltype));
+      channel_proxy_->SetSendTelephoneEventPayloadType(codec_instance.pltype,
+                                                       codec_instance.plfreq));
 
   RunSixteenDtmfEvents();
 }

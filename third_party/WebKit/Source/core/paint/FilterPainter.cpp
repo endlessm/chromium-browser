@@ -36,8 +36,6 @@ FilterPainter::FilterPainter(PaintLayer& layer,
   if (!lastEffect)
     return;
 
-  DCHECK(layer.filterInfo());
-
   sk_sp<SkImageFilter> imageFilter =
       SkiaImageFilterBuilder::build(lastEffect, ColorSpaceDeviceRGB);
   if (!imageFilter)
@@ -55,10 +53,11 @@ FilterPainter::FilterPainter(PaintLayer& layer,
 
   DCHECK(m_layoutObject);
 
-  if (clipRect.rect() != paintingInfo.paintDirtyRect || clipRect.hasRadius())
-    m_clipRecorder = wrapUnique(new LayerClipRecorder(
+  if (clipRect.rect() != paintingInfo.paintDirtyRect || clipRect.hasRadius()) {
+    m_clipRecorder = WTF::wrapUnique(new LayerClipRecorder(
         context, *layer.layoutObject(), DisplayItem::kClipLayerFilter, clipRect,
-        &paintingInfo, LayoutPoint(), paintFlags));
+        paintingInfo.rootLayer, LayoutPoint(), paintFlags));
+  }
 
   if (!context.getPaintController().displayItemConstructionIsDisabled()) {
     CompositorFilterOperations compositorFilterOperations =

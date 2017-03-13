@@ -33,7 +33,7 @@ const int kRssiThreshold = -5;
 const double kRssiSampleWeight = 0.3;
 
 ProximityMonitorImpl::ProximityMonitorImpl(
-    const RemoteDevice& remote_device,
+    const cryptauth::RemoteDevice& remote_device,
     std::unique_ptr<base::TickClock> clock)
     : remote_device_(remote_device),
       strategy_(Strategy::NONE),
@@ -221,8 +221,8 @@ void ProximityMonitorImpl::OnConnectionInfo(
 
 void ProximityMonitorImpl::ClearProximityState() {
   if (is_active_ && remote_device_is_in_proximity_) {
-    FOR_EACH_OBSERVER(ProximityMonitorObserver, observers_,
-                      OnProximityStateChanged());
+    for (auto& observer : observers_)
+      observer.OnProximityStateChanged();
   }
 
   remote_device_is_in_proximity_ = false;
@@ -273,8 +273,8 @@ void ProximityMonitorImpl::CheckForProximityStateChange() {
     PA_LOG(INFO) << "[Proximity] Updated proximity state: "
                  << (is_now_in_proximity ? "proximate" : "distant");
     remote_device_is_in_proximity_ = is_now_in_proximity;
-    FOR_EACH_OBSERVER(ProximityMonitorObserver, observers_,
-                      OnProximityStateChanged());
+    for (auto& observer : observers_)
+      observer.OnProximityStateChanged();
   }
 }
 

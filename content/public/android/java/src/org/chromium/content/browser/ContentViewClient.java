@@ -8,7 +8,6 @@ import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.content.Intent;
 import android.view.KeyEvent;
-import android.view.View.MeasureSpec;
 
 import org.chromium.base.Log;
 import org.chromium.base.metrics.RecordUserAction;
@@ -21,24 +20,19 @@ import org.chromium.base.metrics.RecordUserAction;
  *  The memory and reference ownership of this class is unusual - see the .cc file and ContentView
  *  for more details.
  *
- *  TODO(mkosiba): Rid this guy of default implementations. This class is used by both WebView and
+ *  TODO(mkosiba): Rid this class of default implementations. This class is used by both WebView and
  *  the browser and we don't want a the browser-specific default implementation to accidentally leak
  *  over to WebView.
+ *
+ *  WARNING: ConteViewClient is going away. Do not add new stuff in this class.
  */
 public class ContentViewClient {
     // Tag used for logging.
     private static final String TAG = "cr_ContentViewClient";
 
-    // Default value to signal that the ContentView's size should not be overridden.
-    private static final int UNSPECIFIED_MEASURE_SPEC =
-            MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED);
-
     private static final String GEO_SCHEME = "geo";
     private static final String TEL_SCHEME = "tel";
     private static final String MAILTO_SCHEME = "mailto";
-
-    public void onUpdateTitle(String title) {
-    }
 
     /**
      * Called whenever the background color of the page changes as notified by WebKit.
@@ -52,7 +46,7 @@ public class ContentViewClient {
      * @param topControlsOffsetY The Y offset of the top controls in physical pixels.
      * @param topContentOffsetY The Y offset of the content in physical pixels.
      */
-    public void onTopControlsChanged(float topControlsOffsetY, float topContentOffsetY) { }
+    public void onTopControlsChanged(float browserControlsOffsetY, float topContentOffsetY) {}
 
     /**
      * Notifies the client of the position of the bottom controls.
@@ -85,60 +79,14 @@ public class ContentViewClient {
     }
 
     /**
-     * Called when the contextual ActionBar is shown.
+     * Check whether the given scheme is one of the acceptable schemes for onStartContentIntent.
+     *
+     * @param scheme The scheme to check.
+     * @return true if the scheme is okay, false if it should be blocked.
      */
-    public void onContextualActionBarShown() {
-    }
-
-    /**
-     * Called when the contextual ActionBar is hidden.
-     */
-    public void onContextualActionBarHidden() {
-    }
-
-    /**
-     * Perform a search on {@code searchQuery}.  This method is only called if
-     * {@link #doesPerformWebSearch()} returns {@code true}.
-     * @param searchQuery The string to search for.
-     */
-    public void performWebSearch(String searchQuery) {
-    }
-
-    /**
-     * If this returns {@code true} contextual web search attempts will be forwarded to
-     * {@link #performWebSearch(String)}.
-     * @return {@code true} iff this {@link ContentViewClient} wants to consume web search queries
-     *         and override the default intent behavior.
-     */
-    public boolean doesPerformWebSearch() {
-        return false;
-    }
-
-    /**
-     * If this returns {@code true} the text processing intents should be forwarded to {@link
-     * startProcessTextIntent(Intent)}, otherwise these intents should be sent by WindowAndroid by
-     * default.
-     * @return {@code true} iff this {@link ContentViewClient} wants to send the processing intents
-     * and override the default intent behavior.
-     */
-    public boolean doesPerformProcessText() {
-        return false;
-    }
-
-    /**
-     * Send the intent to process the current selected text.
-     */
-    public void startProcessTextIntent(Intent intent) {}
-
-    /**
-     * @param actionModeItem the flag for the action mode item in question. See
-     *        {@link WebActionModeCallback.ActionHandler} for a list of valid action
-     *        mode item flags.
-     * @return true if the action is allowed. Otherwise, the menu item
-     *         should be removed from the menu.
-     */
-    public boolean isSelectActionModeAllowed(int actionModeItem) {
-        return true;
+    protected boolean isAcceptableContentIntentScheme(String scheme) {
+        return GEO_SCHEME.equals(scheme) || TEL_SCHEME.equals(scheme)
+                || MAILTO_SCHEME.equals(scheme);
     }
 
     /**
@@ -151,8 +99,7 @@ public class ContentViewClient {
             intent = Intent.parseUri(intentUrl, Intent.URI_INTENT_SCHEME);
 
             String scheme = intent.getScheme();
-            if (!scheme.equals(GEO_SCHEME) && !scheme.equals(TEL_SCHEME)
-                    && !scheme.equals(MAILTO_SCHEME)) {
+            if (!isAcceptableContentIntentScheme(scheme)) {
                 Log.w(TAG, "Invalid scheme for URI %s", intentUrl);
                 return;
             }
@@ -197,28 +144,6 @@ public class ContentViewClient {
             return false;
         }
         return true;
-    }
-
-    /**
-     * ContentViewClient users can return a custom value to override the width of
-     * the ContentView. By default, this method returns MeasureSpec.UNSPECIFIED, which
-     * indicates that the value should not be overridden.
-     *
-     * @return The desired width of the ContentView.
-     */
-    public int getDesiredWidthMeasureSpec() {
-        return UNSPECIFIED_MEASURE_SPEC;
-    }
-
-    /**
-     * ContentViewClient users can return a custom value to override the height of
-     * the ContentView. By default, this method returns MeasureSpec.UNSPECIFIED, which
-     * indicates that the value should not be overridden.
-     *
-     * @return The desired height of the ContentView.
-     */
-    public int getDesiredHeightMeasureSpec() {
-        return UNSPECIFIED_MEASURE_SPEC;
     }
 
     /**

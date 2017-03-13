@@ -40,7 +40,6 @@
 #import "chrome/browser/ui/cocoa/location_bar/location_bar_view_mac.h"
 #import "chrome/browser/ui/cocoa/nsmenuitem_additions.h"
 #import "chrome/browser/ui/cocoa/profiles/avatar_base_controller.h"
-#import "chrome/browser/ui/cocoa/profiles/avatar_menu_bubble_controller.h"
 #include "chrome/browser/ui/cocoa/restart_browser.h"
 #include "chrome/browser/ui/cocoa/status_bubble_mac.h"
 #include "chrome/browser/ui/cocoa/task_manager_mac.h"
@@ -515,13 +514,6 @@ bool BrowserWindowCocoa::IsToolbarVisible() const {
          browser_->SupportsWindowFeature(Browser::FEATURE_LOCATIONBAR);
 }
 
-gfx::Rect BrowserWindowCocoa::GetRootWindowResizerRect() const {
-  if (IsDownloadShelfVisible())
-    return gfx::Rect();
-  NSRect tabRect = [controller_ selectedTabGrowBoxRect];
-  return gfx::Rect(NSRectToCGRect(tabRect));
-}
-
 void BrowserWindowCocoa::AddFindBar(
     FindBarCocoaController* find_bar_cocoa_controller) {
   [controller_ addFindBar:find_bar_cocoa_controller];
@@ -626,7 +618,7 @@ autofill::SaveCardBubbleView* BrowserWindowCocoa::ShowSaveCreditCardBubble(
   return new autofill::SaveCardBubbleViewBridge(controller, controller_);
 }
 
-void BrowserWindowCocoa::ShowTranslateBubble(
+ShowTranslateBubbleResult BrowserWindowCocoa::ShowTranslateBubble(
     content::WebContents* contents,
     translate::TranslateStep step,
     translate::TranslateErrors::Type error_type,
@@ -640,6 +632,8 @@ void BrowserWindowCocoa::ShowTranslateBubble(
   [controller_ showTranslateBubbleForWebContents:contents
                                             step:step
                                        errorType:error_type];
+
+  return ShowTranslateBubbleResult::SUCCESS;
 }
 
 #if BUILDFLAG(ENABLE_ONE_CLICK_SIGNIN)
@@ -685,7 +679,7 @@ void BrowserWindowCocoa::ShowWebsiteSettings(
     Profile* profile,
     content::WebContents* web_contents,
     const GURL& virtual_url,
-    const security_state::SecurityStateModel::SecurityInfo& security_info) {
+    const security_state::SecurityInfo& security_info) {
   WebsiteSettingsUIBridge::Show(window(), profile, web_contents, virtual_url,
                                 security_info);
 }
@@ -704,7 +698,7 @@ bool BrowserWindowCocoa::PreHandleKeyboardEvent(
   if (![BrowserWindowUtils shouldHandleKeyboardEvent:event])
     return false;
 
-  if (event.type == blink::WebInputEvent::RawKeyDown &&
+  if (event.type() == blink::WebInputEvent::RawKeyDown &&
       [controller_
           handledByExtensionCommand:event.os_event
                            priority:ui::AcceleratorManager::kHighPriority])

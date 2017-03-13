@@ -32,7 +32,6 @@
 #include "core/dom/Document.h"
 #include "core/frame/LocalFrame.h"
 #include "core/frame/Settings.h"
-#include "core/frame/csp/ContentSecurityPolicy.h"
 #include "core/html/HTMLParamElement.h"
 #include "core/html/LinkRelAttribute.h"
 #include "core/html/parser/HTMLDocumentParser.h"
@@ -95,6 +94,10 @@ static bool isRequiredForInjection(UChar c) {
 static bool isTerminatingCharacter(UChar c) {
   return (c == '&' || c == '/' || c == '"' || c == '\'' || c == '<' ||
           c == '>' || c == ',');
+}
+
+static bool isSlash(UChar c) {
+  return (c == '/' || c == '\\');
 }
 
 static bool isHTMLQuote(UChar c) {
@@ -204,30 +207,54 @@ static String fullyDecodeString(const String& string,
   return workingString;
 }
 
+// XSSAuditor's task is to determine how much of any given content came
+// from a reflection vs. what occurs normally on the page. It must do
+// this in face of an attacker avoiding detection by splicing on page
+// content in such a way as to remain syntactically valid. The next two
+// functions apply heurisitcs to get the longest possible fragment in
+// face of such trickery.
+
 static void truncateForSrcLikeAttribute(String& decodedSnippet) {
-  // In HTTP URLs, characters following the first ?, #, or third slash may come
-  // from the page itself and can be merely ignored by an attacker's server when
-  // a remote script or script-like resource is requested. In DATA URLS, the
-  // payload starts at the first comma, and the the first /*, //, or <!-- may
-  // introduce a comment.
+  // In HTTP URLs, characters in the query string (following the first ?),
+  // in the fragment (following the first #), or even in the path (typically
+  // following the third slash but subject to generous interpretation of a
+  // lack of leading slashes) may be merely ignored by an attacker's server
+  // when a remote script or script-like resource is requested. Hence these
+  // are places where organic page content may be spliced.
+  //
+  // In DATA URLS, the payload starts at the first comma, and the the first
+  //  "/*", "//", or "<!--" may introduce a comment, which can then be used
+  // to splice page data harmlessly onto the end of the payload.
   //
   // Also, DATA URLs may use the same string literal tricks as with script
   // content itself. In either case, content following this may come from the
   // page and may be ignored when the script is executed. Also, any of these
   // characters may now be represented by the (enlarged) set of html5 entities.
   //
-  // For simplicity, we don't differentiate based on URL scheme, and stop at the
-  // first & (since it might be part of an entity for any of the subsequent
-  // punctuation), the first # or ?, the third slash, or the first slash, <, ',
-  // or " once a comma is seen.
+  // For simplicity, we don't differentiate based on URL scheme, and stop at
+  // any of the following:
+  //   - the first &, since it might be part of an entity for any of the
+  //     subsequent punctuation.
+  //   - the first # or ?, since the query and fragment can be ignored.
+  //   - the third slash, since this typically starts the path, but account
+  //     for a possible lack of leading slashes following the scheme).
+  //   - the first slash, <, ', or " once a comma is seen, since we
+  //     may now be in a data URL payload.
   int slashCount = 0;
   bool commaSeen = false;
-  for (size_t currentLength = 0; currentLength < decodedSnippet.length();
-       ++currentLength) {
+  bool colonSeen = false;
+  for (size_t currentLength = 0, remainingLength = decodedSnippet.length();
+       remainingLength; ++currentLength, --remainingLength) {
     UChar currentChar = decodedSnippet[currentLength];
+    if (currentChar == ':' && !colonSeen) {
+      if (remainingLength > 1 && !isSlash(decodedSnippet[currentLength + 1]))
+        ++slashCount;
+      if (remainingLength > 2 && !isSlash(decodedSnippet[currentLength + 2]))
+        ++slashCount;
+      colonSeen = true;
+    }
     if (currentChar == '&' || currentChar == '?' || currentChar == '#' ||
-        ((currentChar == '/' || currentChar == '\\') &&
-         (commaSeen || ++slashCount > 2)) ||
+        (isSlash(currentChar) && (commaSeen || ++slashCount > 2)) ||
         (currentChar == '<' && commaSeen) ||
         (currentChar == '\'' && commaSeen) ||
         (currentChar == '"' && commaSeen)) {
@@ -270,18 +297,6 @@ static void truncateForScriptLikeAttribute(String& decodedSnippet) {
   }
 }
 
-static ReflectedXSSDisposition combineXSSProtectionHeaderAndCSP(
-    ReflectedXSSDisposition xssProtection,
-    ReflectedXSSDisposition reflectedXSS) {
-  ReflectedXSSDisposition result = std::max(xssProtection, reflectedXSS);
-
-  if (result == ReflectedXSSInvalid || result == FilterReflectedXSS ||
-      result == ReflectedXSSUnset)
-    return FilterReflectedXSS;
-
-  return result;
-}
-
 static bool isSemicolonSeparatedAttribute(
     const HTMLToken::Attribute& attribute) {
   return threadSafeMatch(attribute.nameAsVector(), SVGNames::valuesAttr);
@@ -302,7 +317,6 @@ static String semicolonSeparatedValueContainingJavaScriptURL(
 XSSAuditor::XSSAuditor()
     : m_isEnabled(false),
       m_xssProtection(FilterReflectedXSS),
-      m_didSendValidCSPHeader(false),
       m_didSendValidXSSProtectionHeader(false),
       m_state(Uninitialized),
       m_scriptTagFoundInRequest(false),
@@ -328,7 +342,7 @@ void XSSAuditor::init(Document* document, XSSAuditorDelegate* auditorDelegate) {
   m_state = FilteringTokens;
 
   if (Settings* settings = document->settings())
-    m_isEnabled = settings->xssAuditorEnabled();
+    m_isEnabled = settings->getXSSAuditorEnabled();
 
   if (!m_isEnabled)
     return;
@@ -366,7 +380,6 @@ void XSSAuditor::init(Document* document, XSSAuditorDelegate* auditorDelegate) {
     String reportURL;
     KURL xssProtectionReportURL;
 
-    // Process the X-XSS-Protection header, then mix in the CSP header's value.
     ReflectedXSSDisposition xssProtectionHeader = parseXSSProtectionHeader(
         headerValue, errorDetails, errorPosition, reportURL);
 
@@ -393,26 +406,25 @@ void XSSAuditor::init(Document* document, XSSAuditorDelegate* auditorDelegate) {
         xssProtectionReportURL = KURL();
       }
     }
-    if (xssProtectionHeader == ReflectedXSSInvalid)
+    if (xssProtectionHeader == ReflectedXSSInvalid) {
       document->addConsoleMessage(ConsoleMessage::create(
           SecurityMessageSource, ErrorMessageLevel,
           "Error parsing header X-XSS-Protection: " + headerValue + ": " +
               errorDetails + " at character position " +
               String::format("%u", errorPosition) +
               ". The default protections will be applied."));
+    }
 
-    ReflectedXSSDisposition cspHeader =
-        document->contentSecurityPolicy()->getReflectedXSSDisposition();
-    m_didSendValidCSPHeader =
-        cspHeader != ReflectedXSSUnset && cspHeader != ReflectedXSSInvalid;
+    m_xssProtection = xssProtectionHeader;
+    if (m_xssProtection == ReflectedXSSInvalid ||
+        m_xssProtection == ReflectedXSSUnset) {
+      m_xssProtection = BlockReflectedXSS;
+    }
 
-    m_xssProtection =
-        combineXSSProtectionHeaderAndCSP(xssProtectionHeader, cspHeader);
-    // FIXME: Combine the two report URLs in some reasonable way.
     if (auditorDelegate)
       auditorDelegate->setReportURL(xssProtectionReportURL.copy());
 
-    EncodedFormData* httpBody = documentLoader->request().httpBody();
+    EncodedFormData* httpBody = documentLoader->getRequest().httpBody();
     if (httpBody && !httpBody->isEmpty())
       m_httpBodyAsString = httpBody->flattenToString();
   }
@@ -439,7 +451,7 @@ void XSSAuditor::setEncoding(const WTF::TextEncoding& encoding) {
     if (m_decodedHTTPBody.find(isRequiredForInjection) == kNotFound)
       m_decodedHTTPBody = String();
     if (m_decodedHTTPBody.length() >= miniumLengthForSuffixTree)
-      m_decodedHTTPBodySuffixTree = wrapUnique(
+      m_decodedHTTPBodySuffixTree = WTF::wrapUnique(
           new SuffixTree<ASCIICodebook>(m_decodedHTTPBody, suffixTreeDepth));
   }
 
@@ -466,8 +478,7 @@ std::unique_ptr<XSSInfo> XSSAuditor::filterToken(
   if (didBlockScript) {
     bool didBlockEntirePage = (m_xssProtection == BlockReflectedXSS);
     std::unique_ptr<XSSInfo> xssInfo = XSSInfo::create(
-        m_documentURL, didBlockEntirePage, m_didSendValidXSSProtectionHeader,
-        m_didSendValidCSPHeader);
+        m_documentURL, didBlockEntirePage, m_didSendValidXSSProtectionHeader);
     return xssInfo;
   }
   return nullptr;
@@ -886,13 +897,14 @@ String XSSAuditor::canonicalizedSnippetForJavaScript(
 bool XSSAuditor::isContainedInRequest(const String& decodedSnippet) {
   if (decodedSnippet.isEmpty())
     return false;
-  if (m_decodedURL.find(decodedSnippet, 0, TextCaseInsensitive) != kNotFound)
+  if (m_decodedURL.find(decodedSnippet, 0, TextCaseUnicodeInsensitive) !=
+      kNotFound)
     return true;
   if (m_decodedHTTPBodySuffixTree &&
       !m_decodedHTTPBodySuffixTree->mightContain(decodedSnippet))
     return false;
-  return m_decodedHTTPBody.find(decodedSnippet, 0, TextCaseInsensitive) !=
-         kNotFound;
+  return m_decodedHTTPBody.find(decodedSnippet, 0,
+                                TextCaseUnicodeInsensitive) != kNotFound;
 }
 
 bool XSSAuditor::isLikelySafeResource(const String& url) {

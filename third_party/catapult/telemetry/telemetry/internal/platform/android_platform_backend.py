@@ -27,6 +27,7 @@ from telemetry.internal.platform.power_monitor import (
   android_power_monitor_controller)
 from telemetry.internal.platform.power_monitor import sysfs_power_monitor
 from telemetry.internal.platform.profiler import android_prebuilt_profiler_helper
+from telemetry.internal.util import binary_manager
 from telemetry.internal.util import external_modules
 
 psutil = external_modules.ImportOptionalModule('psutil')
@@ -41,6 +42,12 @@ from devil.android.perf import perf_control
 from devil.android.perf import thermal_throttle
 from devil.android.sdk import version_codes
 from devil.android.tools import video_recorder
+
+try:
+  # devil.android.forwarder uses fcntl, which doesn't exist on Windows.
+  from devil.android import forwarder
+except ImportError:
+  forwarder = None
 
 try:
   from devil.android.perf import surface_stats_collector
@@ -142,6 +149,9 @@ class AndroidPlatformBackend(
   def device(self):
     return self._device
 
+  def Initialize(self):
+    self.EnsureBackgroundApkInstalled()
+
   def GetSystemUi(self):
     if self._system_ui is None:
       self._system_ui = app_ui.AppUi(self.device, 'com.android.systemui')
@@ -153,6 +163,9 @@ class AndroidPlatformBackend(
       return 'svelte' in description
     else:
       return False
+
+  def GetRemotePort(self, port):
+    return forwarder.Forwarder.DevicePortForHostPort(port) or 0
 
   def IsDisplayTracingSupported(self):
     return bool(self.GetOSVersionName() >= 'J')
@@ -237,6 +250,14 @@ class AndroidPlatformBackend(
     self._device.RunShellCommand([
       android_prebuilt_profiler_helper.GetDevicePath('memtrack_helper'),
       '-d'], as_root=True, check_return=True)
+
+  def EnsureBackgroundApkInstalled(self):
+    app = 'push_apps_to_background_apk'
+    arch_name = self._device.GetABI()
+    host_path = binary_manager.FetchPath(app, arch_name, 'android')
+    if not host_path:
+      raise Exception('Error installing PushAppsToBackground.apk.')
+    self.InstallApplication(host_path)
 
   def PurgeUnpinnedMemory(self):
     """Purges the unpinned ashmem memory for the whole system.
@@ -482,14 +503,15 @@ class AndroidPlatformBackend(
     self._device.adb.Forward('tcp:%d' % host_port, device_port)
 
   def StopForwardingHost(self, host_port):
-    for line in self._device.adb.ForwardList().strip().splitlines():
-      line = line.split(' ')
-      if line[0] == self._device and line[1] == 'tcp:%s' % host_port:
-        self._device.adb.ForwardRemove('tcp:%d' % host_port)
-        break
-    else:
-      logging.warning('Port %s not found in adb forward --list for device %s',
-                      host_port, self._device)
+    # This used to run `adb forward --list` to check that the requested
+    # port was actually being forwarded to self._device. Unfortunately,
+    # starting in adb 1.0.36, a bug (b/31811775) keeps this from working.
+    # For now, try to remove the port forwarding and ignore failures.
+    try:
+      self._device.adb.ForwardRemove('tcp:%d' % host_port)
+    except device_errors.AdbCommandFailedError:
+      logging.critical(
+          'Attempted to unforward port tcp:%d but failed.', host_port)
 
   def DismissCrashDialogIfNeeded(self):
     """Dismiss any error dialogs.
@@ -710,9 +732,13 @@ class AndroidPlatformBackend(
     tombstones = os.path.join(util.GetChromiumSrcDir(), 'build', 'android',
                               'tombstones.py')
     if os.path.exists(tombstones):
+      tombstones_cmd = [
+          tombstones, '-w',
+          '--device', self._device.adb.GetDeviceSerial(),
+          '--adb-path', self._device.adb.GetAdbPath(),
+      ]
       ret += Decorate('Tombstones',
-                      subprocess.Popen([tombstones, '-w', '--device',
-                                        self._device.adb.GetDeviceSerial()],
+                      subprocess.Popen(tombstones_cmd,
                                        stdout=subprocess.PIPE).communicate()[0])
     return (True, ret)
 
@@ -764,6 +790,15 @@ class AndroidPlatformBackend(
     # devices.
     return battor_wrapper.IsBattOrConnected('linux')
 
+  def Log(self, message):
+    """Prints line to logcat."""
+    TELEMETRY_LOGCAT_TAG = 'Telemetry'
+    self._device.RunShellCommand(
+        ['log', '-p', 'i', '-t', TELEMETRY_LOGCAT_TAG, message])
+
+  def WaitForTemperature(self, temp):
+    # Temperature is in tenths of a degree C, so we convert to that scale.
+    self._battery.LetBatteryCoolToTemperature(temp * 10)
 
 def _FixPossibleAdbInstability():
   """Host side workaround for crbug.com/268450 (adb instability).

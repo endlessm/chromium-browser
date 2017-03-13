@@ -5,19 +5,26 @@
 #include "components/sync/driver/directory_data_type_controller.h"
 
 #include <utility>
+#include <vector>
 
-#include "components/sync/core/user_share.h"
-#include "components/sync/driver/backend_data_type_configurer.h"
+#include "base/memory/ptr_util.h"
+#include "base/threading/thread_task_runner_handle.h"
 #include "components/sync/driver/sync_service.h"
+#include "components/sync/engine/model_type_configurer.h"
 #include "components/sync/syncable/syncable_read_transaction.h"
+#include "components/sync/syncable/user_share.h"
 
 namespace syncer {
 
 DirectoryDataTypeController::DirectoryDataTypeController(
     ModelType type,
     const base::Closure& dump_stack,
-    SyncClient* sync_client)
-    : DataTypeController(type, dump_stack), sync_client_(sync_client) {}
+    SyncClient* sync_client,
+    ModelSafeGroup model_safe_group)
+    : DataTypeController(type),
+      dump_stack_(dump_stack),
+      sync_client_(sync_client),
+      model_safe_group_(model_safe_group) {}
 
 DirectoryDataTypeController::~DirectoryDataTypeController() {}
 
@@ -35,20 +42,37 @@ void DirectoryDataTypeController::GetAllNodes(
   callback.Run(type(), std::move(node_list));
 }
 
+void DirectoryDataTypeController::GetStatusCounters(
+    const StatusCountersCallback& callback) {
+  std::vector<int> num_entries_by_type(syncer::MODEL_TYPE_COUNT, 0);
+  std::vector<int> num_to_delete_entries_by_type(syncer::MODEL_TYPE_COUNT, 0);
+  sync_client_->GetSyncService()
+      ->GetUserShare()
+      ->directory->CollectMetaHandleCounts(&num_entries_by_type,
+                                           &num_to_delete_entries_by_type);
+  syncer::StatusCounters counters;
+  counters.num_entries_and_tombstones = num_entries_by_type[type()];
+  counters.num_entries =
+      num_entries_by_type[type()] - num_to_delete_entries_by_type[type()];
+
+  callback.Run(type(), counters);
+}
+
 void DirectoryDataTypeController::RegisterWithBackend(
-    BackendDataTypeConfigurer* configurer) {}
+    base::Callback<void(bool)> set_downloaded,
+    ModelTypeConfigurer* configurer) {}
 
 void DirectoryDataTypeController::ActivateDataType(
-    BackendDataTypeConfigurer* configurer) {
+    ModelTypeConfigurer* configurer) {
   DCHECK(CalledOnValidThread());
   // Tell the backend about the change processor for this type so it can
   // begin routing changes to it.
-  configurer->ActivateDirectoryDataType(type(), model_safe_group(),
+  configurer->ActivateDirectoryDataType(type(), model_safe_group_,
                                         GetChangeProcessor());
 }
 
 void DirectoryDataTypeController::DeactivateDataType(
-    BackendDataTypeConfigurer* configurer) {
+    ModelTypeConfigurer* configurer) {
   DCHECK(CalledOnValidThread());
   configurer->DeactivateDirectoryDataType(type());
 }

@@ -32,11 +32,13 @@
 #define ElementAnimation_h
 
 #include "bindings/core/v8/DictionarySequenceOrDictionary.h"
+#include "bindings/core/v8/ScriptState.h"
 #include "core/animation/DocumentTimeline.h"
 #include "core/animation/EffectInput.h"
 #include "core/animation/ElementAnimations.h"
 #include "core/animation/KeyframeEffect.h"
 #include "core/animation/KeyframeEffectOptions.h"
+#include "core/animation/KeyframeEffectReadOnly.h"
 #include "core/animation/TimingInput.h"
 #include "core/dom/Document.h"
 #include "core/dom/Element.h"
@@ -45,19 +47,18 @@
 
 namespace blink {
 
-class Dictionary;
-
 class ElementAnimation {
   STATIC_ONLY(ElementAnimation);
 
  public:
-  static Animation* animate(ExecutionContext* executionContext,
+  static Animation* animate(ScriptState* scriptState,
                             Element& element,
                             const DictionarySequenceOrDictionary& effectInput,
                             double duration,
                             ExceptionState& exceptionState) {
     EffectModel* effect = EffectInput::convert(
-        &element, effectInput, executionContext, exceptionState);
+        &element, effectInput, scriptState->getExecutionContext(),
+        exceptionState);
     if (exceptionState.hadException())
       return nullptr;
 
@@ -68,13 +69,14 @@ class ElementAnimation {
     return animateInternal(element, effect, timing);
   }
 
-  static Animation* animate(ExecutionContext* executionContext,
+  static Animation* animate(ScriptState* scriptState,
                             Element& element,
                             const DictionarySequenceOrDictionary& effectInput,
                             const KeyframeEffectOptions& options,
                             ExceptionState& exceptionState) {
     EffectModel* effect = EffectInput::convert(
-        &element, effectInput, executionContext, exceptionState);
+        &element, effectInput, scriptState->getExecutionContext(),
+        exceptionState);
     if (exceptionState.hadException())
       return nullptr;
 
@@ -88,12 +90,13 @@ class ElementAnimation {
     return animation;
   }
 
-  static Animation* animate(ExecutionContext* executionContext,
+  static Animation* animate(ScriptState* scriptState,
                             Element& element,
                             const DictionarySequenceOrDictionary& effectInput,
                             ExceptionState& exceptionState) {
     EffectModel* effect = EffectInput::convert(
-        &element, effectInput, executionContext, exceptionState);
+        &element, effectInput, scriptState->getExecutionContext(),
+        exceptionState);
     if (exceptionState.hadException())
       return nullptr;
     return animateInternal(element, effect, Timing());
@@ -108,10 +111,10 @@ class ElementAnimation {
     for (const auto& animation :
          element.document().timeline().getAnimations()) {
       DCHECK(animation->effect());
-      if (toKeyframeEffect(animation->effect())->target() == element &&
+      if (toKeyframeEffectReadOnly(animation->effect())->target() == element &&
           (animation->effect()->isCurrent() ||
            animation->effect()->isInEffect()))
-        animations.append(animation);
+        animations.push_back(animation);
     }
     return animations;
   }

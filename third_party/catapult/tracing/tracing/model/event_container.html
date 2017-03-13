@@ -75,39 +75,39 @@ tr.exportTo('tr.model', function() {
     /**
     * Returns an iterable of all child events.
     */
-    childEvents: function*() {
+    childEvents: function* () {
     },
 
     /**
      * Returns an iterable of all events in this and descendant
      * event containers.
      */
-    getDescendantEvents: function*() {
-      yield * this.childEvents();
+    getDescendantEvents: function* () {
+      yield* this.childEvents();
       for (var container of this.childEventContainers())
-        yield * container.getDescendantEvents();
+        yield* container.getDescendantEvents();
     },
 
     /**
      * Returns an iterable of all child event containers.
      */
-    childEventContainers: function*() {
+    childEventContainers: function* () {
     },
 
     /**
     * Returns an iterable containing this and all descendant event containers.
     */
-    getDescendantEventContainers: function*() {
+    getDescendantEventContainers: function* () {
       yield this;
       for (var container of this.childEventContainers())
-        yield * container.getDescendantEventContainers();
+        yield* container.getDescendantEventContainers();
     },
 
     /**
      * Finds topmost slices in this container (see docstring for
      * findTopmostSlices).
      */
-    findTopmostSlicesInThisContainer: function*(eventPredicate, opt_this) {
+    findTopmostSlicesInThisContainer: function* (eventPredicate, opt_this) {
     },
 
     /**
@@ -124,18 +124,18 @@ tr.exportTo('tr.model', function() {
      * the  left is not the topmost C, and the right one is, even though it is
      * not itself a top-level slice.
      */
-    findTopmostSlices: function*(eventPredicate) {
+    findTopmostSlices: function* (eventPredicate) {
       for (var ec of this.getDescendantEventContainers())
-        yield * ec.findTopmostSlicesInThisContainer(eventPredicate);
+        yield* ec.findTopmostSlicesInThisContainer(eventPredicate);
     },
 
-    findTopmostSlicesNamed: function*(name) {
-      yield * this.findTopmostSlices(e => e.title === name);
+    findTopmostSlicesNamed: function* (name) {
+      yield* this.findTopmostSlices(e => e.title === name);
     }
   };
 
   return {
-    EventContainer: EventContainer
+    EventContainer,
   };
 });
 </script>

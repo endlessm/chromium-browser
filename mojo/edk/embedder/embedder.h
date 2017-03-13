@@ -27,8 +27,6 @@ class PortProvider;
 namespace mojo {
 namespace edk {
 
-class ProcessDelegate;
-
 using ProcessErrorCallback = base::Callback<void(const std::string& error)>;
 
 // Basic configuration/initialization ------------------------------------------
@@ -76,6 +74,18 @@ MOJO_SYSTEM_IMPL_EXPORT void SetParentPipeHandleFromCommandLine();
 // channel. This returns one end of a message pipe to each process.
 MOJO_SYSTEM_IMPL_EXPORT ScopedMessagePipeHandle
 ConnectToPeerProcess(ScopedPlatformHandle pipe);
+
+// Called to connect to a peer process. This should be called only if there
+// is no common ancestor for the processes involved within this mojo system.
+// Both processes must call this function, each passing one end of a platform
+// channel. This returns one end of a message pipe to each process. |peer_token|
+// may be passed to ClosePeerConnection() to close the connection.
+MOJO_SYSTEM_IMPL_EXPORT ScopedMessagePipeHandle
+ConnectToPeerProcess(ScopedPlatformHandle pipe, const std::string& peer_token);
+
+// Closes a connection to a peer process created by ConnectToPeerProcess()
+// where the same |peer_token| was used.
+MOJO_SYSTEM_IMPL_EXPORT void ClosePeerConnection(const std::string& peer_token);
 
 // Must be called first, or just after setting configuration parameters, to
 // initialize the (global, singleton) system.
@@ -138,22 +148,20 @@ PassSharedMemoryHandle(MojoHandle mojo_handle,
 //
 // This subsystem may be shut down using |ShutdownIPCSupport()|. None of the IPC
 // functions may be called after this is called.
-
-// Initializes a process of the given type; to be called after |Init()|.
-//   - |process_delegate| must be a process delegate of the appropriate type
-//     corresponding to |process_type|; its methods will be called on the same
-//     thread as Shutdown.
-//   - |process_delegate|, and |io_thread_task_runner| should live at least
-//     until |ShutdownIPCSupport()|'s callback has been run.
+//
+// |io_thread_task_runner| should live at least until |ShutdownIPCSupport()|'s
+// callback has been run.
 MOJO_SYSTEM_IMPL_EXPORT void InitIPCSupport(
-    ProcessDelegate* process_delegate,
     scoped_refptr<base::TaskRunner> io_thread_task_runner);
+
+// Retrieves the TaskRunner used for IPC I/O, as set by InitIPCSupport.
+MOJO_SYSTEM_IMPL_EXPORT scoped_refptr<base::TaskRunner> GetIOTaskRunner();
 
 // Shuts down the subsystem initialized by |InitIPCSupport()|. It be called from
 // any thread and will attempt to complete shutdown on the I/O thread with which
-// the system was initialized. Upon completion the ProcessDelegate's
-// |OnShutdownComplete()| method is invoked.
-MOJO_SYSTEM_IMPL_EXPORT void ShutdownIPCSupport();
+// the system was initialized. Upon completion, |callback| is invoked on an
+// arbitrary thread.
+MOJO_SYSTEM_IMPL_EXPORT void ShutdownIPCSupport(const base::Closure& callback);
 
 #if defined(OS_MACOSX) && !defined(OS_IOS)
 // Set the |base::PortProvider| for this process. Can be called on any thread,

@@ -284,10 +284,19 @@ static void format_line(void *avcl, int level, const char *fmt, va_list vl,
 void av_log_format_line(void *ptr, int level, const char *fmt, va_list vl,
                         char *line, int line_size, int *print_prefix)
 {
+    av_log_format_line2(ptr, level, fmt, vl, line, line_size, print_prefix);
+}
+
+int av_log_format_line2(void *ptr, int level, const char *fmt, va_list vl,
+                        char *line, int line_size, int *print_prefix)
+{
     AVBPrint part[4];
+    int ret;
+
     format_line(ptr, level, fmt, vl, part, print_prefix, NULL);
-    snprintf(line, line_size, "%s%s%s%s", part[0].str, part[1].str, part[2].str, part[3].str);
+    ret = snprintf(line, line_size, "%s%s%s%s", part[0].str, part[1].str, part[2].str, part[3].str);
     av_bprint_finalize(part+3, NULL);
+    return ret;
 }
 
 void av_log_default_callback(void* ptr, int level, const char* fmt, va_list vl)
@@ -381,15 +390,6 @@ int av_log_get_level(void)
 
 void av_log_set_level(int level)
 {
-#if defined(_WIN32) && defined(_M_X64)
-    // VS2013 has a bug where FMA3 instructions will be executed on CPUs that
-    // support them despite them being disabled at the OS level, causing illegal
-    // instruction exceptions. av_log_set_level() is Chromium's first call into
-    // ffmpegsumo.dll, so disable FMA3 here until we're on VS2015.
-    // See http://crbug.com/440892 for details.
-    _set_FMA3_enable(0);
-#endif
-
     av_log_level = level;
 }
 
@@ -439,26 +439,3 @@ void avpriv_report_missing_feature(void *avc, const char *msg, ...)
     missing_feature_sample(0, avc, msg, argument_list);
     va_end(argument_list);
 }
-
-#ifdef TEST
-// LCOV_EXCL_START
-#include <string.h>
-
-int main(int argc, char **argv)
-{
-    int i;
-    av_log_set_level(AV_LOG_DEBUG);
-    for (use_color=0; use_color<=256; use_color = 255*use_color+1) {
-        av_log(NULL, AV_LOG_FATAL, "use_color: %d\n", use_color);
-        for (i = AV_LOG_DEBUG; i>=AV_LOG_QUIET; i-=8) {
-            av_log(NULL, i, " %d", i);
-            av_log(NULL, AV_LOG_INFO, "e ");
-            av_log(NULL, i + 256*123, "C%d", i);
-            av_log(NULL, AV_LOG_INFO, "e");
-        }
-        av_log(NULL, AV_LOG_PANIC, "\n");
-    }
-    return 0;
-}
-// LCOV_EXCL_STOP
-#endif

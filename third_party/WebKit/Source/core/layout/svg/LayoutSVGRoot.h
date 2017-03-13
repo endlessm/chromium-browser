@@ -28,6 +28,7 @@
 namespace blink {
 
 class SVGElement;
+enum class SVGTransformChange;
 
 class CORE_EXPORT LayoutSVGRoot final : public LayoutReplaced {
  public:
@@ -68,9 +69,10 @@ class CORE_EXPORT LayoutSVGRoot final : public LayoutReplaced {
     // SVGImage::draw() does a view layout prior to painting,
     // and we need that layout to know of the new size otherwise
     // the layout may be incorrectly using the old size.
-    if (m_containerSize != containerSize)
+    if (m_containerSize != containerSize) {
       setNeedsLayoutAndFullPaintInvalidation(
           LayoutInvalidationReason::SizeChanged);
+    }
     m_containerSize = containerSize;
   }
 
@@ -79,7 +81,11 @@ class CORE_EXPORT LayoutSVGRoot final : public LayoutReplaced {
   const AffineTransform& localToBorderBoxTransform() const {
     return m_localToBorderBoxTransform;
   }
+
   bool shouldApplyViewportClip() const;
+  bool shouldClipOverflow() const override {
+    return LayoutBox::shouldClipOverflow() || shouldApplyViewportClip();
+  }
 
   LayoutRect visualOverflowRect() const override;
   LayoutRect overflowClipRect(
@@ -121,12 +127,12 @@ class CORE_EXPORT LayoutSVGRoot final : public LayoutReplaced {
   void insertedIntoTree() override;
   void willBeRemovedFromTree() override;
 
-  const AffineTransform& localToSVGParentTransform() const override;
+  AffineTransform localToSVGParentTransform() const override;
 
   FloatRect objectBoundingBox() const override { return m_objectBoundingBox; }
   FloatRect strokeBoundingBox() const override { return m_strokeBoundingBox; }
-  FloatRect paintInvalidationRectInLocalSVGCoordinates() const override {
-    return m_paintInvalidationBoundingBox;
+  FloatRect visualRectInLocalSVGCoordinates() const override {
+    return m_visualRectInLocalSVGCoordinates;
   }
 
   bool nodeAtPoint(HitTestResult&,
@@ -134,7 +140,12 @@ class CORE_EXPORT LayoutSVGRoot final : public LayoutReplaced {
                    const LayoutPoint& accumulatedOffset,
                    HitTestAction) override;
 
-  LayoutRect localOverflowRectForPaintInvalidation() const override;
+  LayoutRect localVisualRect() const override;
+
+  bool paintedOutputOfObjectHasNoEffectRegardlessOfSize() const final {
+    // The rule is the same as LayoutBox's instead of LayoutReplaced's.
+    return LayoutBox::paintedOutputOfObjectHasNoEffectRegardlessOfSize();
+  }
 
   void mapLocalToAncestor(
       const LayoutBoxModelObject* ancestor,
@@ -150,7 +161,7 @@ class CORE_EXPORT LayoutSVGRoot final : public LayoutReplaced {
   void descendantIsolationRequirementsChanged(DescendantIsolationState) final;
 
   void updateCachedBoundaries();
-  void buildLocalToBorderBoxTransform();
+  SVGTransformChange buildLocalToBorderBoxTransform();
 
   PositionWithAffinity positionForPoint(const LayoutPoint&) final;
 
@@ -159,8 +170,7 @@ class CORE_EXPORT LayoutSVGRoot final : public LayoutReplaced {
   FloatRect m_objectBoundingBox;
   bool m_objectBoundingBoxValid;
   FloatRect m_strokeBoundingBox;
-  FloatRect m_paintInvalidationBoundingBox;
-  mutable AffineTransform m_localToParentTransform;
+  FloatRect m_visualRectInLocalSVGCoordinates;
   AffineTransform m_localToBorderBoxTransform;
   bool m_isLayoutSizeChanged : 1;
   bool m_didScreenScaleFactorChange : 1;

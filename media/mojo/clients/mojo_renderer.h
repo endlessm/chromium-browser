@@ -56,8 +56,6 @@ class MojoRenderer : public Renderer, public mojom::RendererClient {
   void SetPlaybackRate(double playback_rate) override;
   void SetVolume(float volume) override;
   base::TimeDelta GetMediaTime() override;
-  bool HasAudio() override;
-  bool HasVideo() override;
 
   using ReceiveSurfaceRequestTokenCB =
       base::Callback<void(const base::UnguessableToken&)>;
@@ -73,7 +71,7 @@ class MojoRenderer : public Renderer, public mojom::RendererClient {
   void OnTimeUpdate(base::TimeDelta time,
                     base::TimeDelta max_time,
                     base::TimeTicks capture_time) override;
-  void OnBufferingStateChange(mojom::BufferingState state) override;
+  void OnBufferingStateChange(BufferingState state) override;
   void OnEnded() override;
   void OnError() override;
   void OnVideoNaturalSizeChange(const gfx::Size& size) override;

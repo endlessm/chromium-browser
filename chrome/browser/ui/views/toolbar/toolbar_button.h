@@ -33,6 +33,9 @@ class MenuRunner;
 class ToolbarButton : public views::LabelButton,
                       public views::ContextMenuController {
  public:
+  // Padding inside the border (around the image).
+  static constexpr int kInteriorPadding = 6;
+
   // Takes ownership of the |model|, which can be null if no menu
   // is to be shown.
   ToolbarButton(Profile* profile,
@@ -57,7 +60,7 @@ class ToolbarButton : public views::LabelButton,
   void OnMouseCaptureLost() override;
   void OnMouseExited(const ui::MouseEvent& event) override;
   void OnGestureEvent(ui::GestureEvent* event) override;
-  void GetAccessibleState(ui::AXViewState* state) override;
+  void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
   std::unique_ptr<views::LabelButtonBorder> CreateDefaultBorder()
       const override;
 

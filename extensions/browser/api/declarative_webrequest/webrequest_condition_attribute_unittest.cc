@@ -11,10 +11,12 @@
 
 #include "base/files/file_path.h"
 #include "base/macros.h"
+#include "base/memory/ptr_util.h"
 #include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "base/values.h"
 #include "content/public/browser/resource_request_info.h"
+#include "content/public/common/previews_state.h"
 #include "extensions/browser/api/declarative_webrequest/webrequest_condition.h"
 #include "extensions/browser/api/declarative_webrequest/webrequest_constants.h"
 #include "net/base/request_priority.h"
@@ -28,7 +30,6 @@ using base::FundamentalValue;
 using base::ListValue;
 using base::StringValue;
 using base::Value;
-using content::ResourceType;
 
 namespace extensions {
 
@@ -106,31 +107,31 @@ TEST(WebRequestConditionAttributeTest, ResourceType) {
       GURL("http://www.example.com"), net::DEFAULT_PRIORITY, NULL));
   content::ResourceRequestInfo::AllocateForTesting(
       url_request_ok.get(), content::RESOURCE_TYPE_SUB_FRAME,
-      NULL,    // context
-      -1,      // render_process_id
-      -1,      // render_view_id
-      -1,      // render_frame_id
-      false,   // is_main_frame
-      false,   // parent_is_main_frame
-      true,    // allow_download
-      false,   // is_async
-      false);  // is_using_lofi
-  EXPECT_TRUE(attribute->IsFulfilled(WebRequestData(url_request_ok.get(),
-                                                    ON_BEFORE_REQUEST)));
+      NULL,   // context
+      -1,     // render_process_id
+      -1,     // render_view_id
+      -1,     // render_frame_id
+      false,  // is_main_frame
+      false,  // parent_is_main_frame
+      true,   // allow_download
+      false,  // is_async
+      content::PREVIEWS_OFF);
+  EXPECT_TRUE(attribute->IsFulfilled(
+      WebRequestData(url_request_ok.get(), ON_BEFORE_REQUEST)));
 
   std::unique_ptr<net::URLRequest> url_request_fail(context.CreateRequest(
       GURL("http://www.example.com"), net::DEFAULT_PRIORITY, NULL));
   content::ResourceRequestInfo::AllocateForTesting(
       url_request_fail.get(), content::RESOURCE_TYPE_MAIN_FRAME,
-      NULL,    // context
-      -1,      // render_process_id
-      -1,      // render_view_id
-      -1,      // render_frame_id
-      true,    // is_main_frame
-      false,   // parent_is_main_frame
-      true,    // allow_download
-      false,   // is_async
-      false);  // is_using_lofi
+      NULL,   // context
+      -1,     // render_process_id
+      -1,     // render_view_id
+      -1,     // render_frame_id
+      true,   // is_main_frame
+      false,  // parent_is_main_frame
+      true,   // allow_download
+      false,  // is_async
+      content::PREVIEWS_OFF);
   EXPECT_FALSE(attribute->IsFulfilled(WebRequestData(url_request_fail.get(),
                                                      ON_BEFORE_REQUEST)));
 }
@@ -162,10 +163,10 @@ TEST(WebRequestConditionAttributeTest, ContentType) {
   EXPECT_EQ("", error);
   ASSERT_TRUE(attribute_include.get());
   EXPECT_FALSE(attribute_include->IsFulfilled(
-      WebRequestData(url_request.get(), ON_BEFORE_REQUEST,
+      WebRequestData(url_request.get(), ON_BEFORE_REQUEST, nullptr,
                      url_request->response_headers())));
   EXPECT_TRUE(attribute_include->IsFulfilled(
-      WebRequestData(url_request.get(), ON_HEADERS_RECEIVED,
+      WebRequestData(url_request.get(), ON_HEADERS_RECEIVED, nullptr,
                      url_request->response_headers())));
   EXPECT_EQ(std::string(keys::kContentTypeKey), attribute_include->GetName());
 
@@ -175,7 +176,7 @@ TEST(WebRequestConditionAttributeTest, ContentType) {
   EXPECT_EQ("", error);
   ASSERT_TRUE(attribute_exclude.get());
   EXPECT_FALSE(attribute_exclude->IsFulfilled(
-      WebRequestData(url_request.get(), ON_HEADERS_RECEIVED,
+      WebRequestData(url_request.get(), ON_HEADERS_RECEIVED, nullptr,
                      url_request->response_headers())));
 
   content_types.Clear();
@@ -186,7 +187,7 @@ TEST(WebRequestConditionAttributeTest, ContentType) {
   EXPECT_EQ("", error);
   ASSERT_TRUE(attribute_unincluded.get());
   EXPECT_FALSE(attribute_unincluded->IsFulfilled(
-      WebRequestData(url_request.get(), ON_HEADERS_RECEIVED,
+      WebRequestData(url_request.get(), ON_HEADERS_RECEIVED, nullptr,
                      url_request->response_headers())));
 
   scoped_refptr<const WebRequestConditionAttribute> attribute_unexcluded =
@@ -195,7 +196,7 @@ TEST(WebRequestConditionAttributeTest, ContentType) {
   EXPECT_EQ("", error);
   ASSERT_TRUE(attribute_unexcluded.get());
   EXPECT_TRUE(attribute_unexcluded->IsFulfilled(
-      WebRequestData(url_request.get(), ON_HEADERS_RECEIVED,
+      WebRequestData(url_request.get(), ON_HEADERS_RECEIVED, nullptr,
                      url_request->response_headers())));
   EXPECT_EQ(std::string(keys::kExcludeContentTypeKey),
             attribute_unexcluded->GetName());
@@ -385,7 +386,7 @@ std::unique_ptr<base::DictionaryValue> GetDictionaryFromArray(
       if (!dictionary->GetWithoutPathExpansion(*name, &entry))
         return std::unique_ptr<base::DictionaryValue>();
       switch (entry->GetType()) {
-        case base::Value::TYPE_STRING:
+        case base::Value::Type::STRING:
           // Replace the present string with a list.
           list = new base::ListValue;
           // Ignoring return value, we already verified the entry is there.
@@ -394,7 +395,7 @@ std::unique_ptr<base::DictionaryValue> GetDictionaryFromArray(
           list->AppendString(*value);
           dictionary->SetWithoutPathExpansion(*name, base::WrapUnique(list));
           break;
-        case base::Value::TYPE_LIST:  // Just append to the list.
+        case base::Value::Type::LIST:  // Just append to the list.
           CHECK(entry->GetAsList(&list));
           list->AppendString(*value);
           break;
@@ -435,7 +436,7 @@ void MatchAndCheck(const std::vector< std::vector<const std::string*> >& tests,
   EXPECT_EQ(key, attribute->GetName());
 
   *result = attribute->IsFulfilled(WebRequestData(
-      url_request, stage, url_request->response_headers()));
+      url_request, stage, nullptr, url_request->response_headers()));
 }
 
 }  // namespace

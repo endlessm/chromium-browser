@@ -18,9 +18,9 @@ found in the LICENSE file.
 
 tr.exportTo('tr.importer', function() {
   // This is an intermediate data format between InputLatencyAsyncSlices and
-  // Response and Animation IRs.
-  function ProtoExpectation(irType, initiatorType) {
-    this.irType = irType;
+  // Responses and Animations.
+  function ProtoExpectation(type, initiatorType) {
+    this.type = type;
     this.initiatorType = initiatorType;
     this.start = Infinity;
     this.end = -Infinity;
@@ -59,7 +59,7 @@ tr.exportTo('tr.importer', function() {
   function combineInitiatorTypes(title1, title2) {
     for (var item of INITIATOR_HIERARCHY)
       if (title1 === item || title2 === item) return item;
-    console.error('Invalid titles in combineInitiatorTypes')
+    console.error('Invalid titles in combineInitiatorTypes');
     return undefined;
   }
 
@@ -79,7 +79,7 @@ tr.exportTo('tr.importer', function() {
     },
 
     createInteractionRecord: function(model) {
-      if (!this.isValid) {
+      if (this.type !== ProtoExpectation.IGNORED_TYPE && !this.isValid) {
         console.error('Invalid ProtoExpectation: ' + this.debug() +
                       ' File a bug with this trace!');
         return undefined;
@@ -88,7 +88,7 @@ tr.exportTo('tr.importer', function() {
       var duration = this.end - this.start;
 
       var ir = undefined;
-      switch (this.irType) {
+      switch (this.type) {
         case ProtoExpectation.RESPONSE_TYPE:
           ir = new tr.model.um.ResponseExpectation(
               model, this.initiatorType, this.start, duration,
@@ -126,12 +126,12 @@ tr.exportTo('tr.importer', function() {
     },
 
     // Merge the other ProtoExpectation into this one.
-    // The irTypes need not match: ignored ProtoExpectations might be merged
+    // The types need not match: ignored ProtoExpectations might be merged
     // into overlapping ProtoExpectations, and Touch-only Animations are merged
     // into Tap Responses.
     merge: function(other) {
       this.initiatorType = combineInitiatorTypes(
-          this.initiatorType, other.initiatorType)
+          this.initiatorType, other.initiatorType);
 
       // Don't use pushEvent(), which would lose special start, end.
       this.associatedEvents.addEventSet(other.associatedEvents);
@@ -171,7 +171,7 @@ tr.exportTo('tr.importer', function() {
 
     // Return a string describing this ProtoExpectation for debugging.
     debug: function() {
-      var debugString = this.irType + '(';
+      var debugString = this.type + '(';
       debugString += parseInt(this.start) + ' ';
       debugString += parseInt(this.end);
       this.associatedEvents.forEach(function(event) {
@@ -182,7 +182,7 @@ tr.exportTo('tr.importer', function() {
   };
 
   return {
-    ProtoExpectation: ProtoExpectation
+    ProtoExpectation,
   };
 });
 </script>

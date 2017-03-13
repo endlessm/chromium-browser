@@ -27,7 +27,7 @@ GrFragmentProcessor::~GrFragmentProcessor() {
 
 bool GrFragmentProcessor::isEqual(const GrFragmentProcessor& that) const {
     if (this->classID() != that.classID() ||
-        !this->hasSameSamplers(that)) {
+        !this->hasSameSamplersAndAccesses(that)) {
         return false;
     }
     if (!this->hasSameTransforms(that)) {
@@ -54,14 +54,6 @@ GrGLSLFragmentProcessor* GrFragmentProcessor::createGLSLInstance() const {
         glFragProc->fChildProcessors[i] = fChildProcessors[i]->createGLSLInstance();
     }
     return glFragProc;
-}
-
-void GrFragmentProcessor::addTextureAccess(const GrTextureAccess* textureAccess) {
-    INHERITED::addTextureAccess(textureAccess);
-}
-
-void GrFragmentProcessor::addBufferAccess(const GrBufferAccess* bufferAccess) {
-    INHERITED::addBufferAccess(bufferAccess);
 }
 
 void GrFragmentProcessor::addCoordTransform(const GrCoordTransform* transform) {
@@ -112,8 +104,7 @@ sk_sp<GrFragmentProcessor> GrFragmentProcessor::MulOutputByInputAlpha(
     if (!fp) {
         return nullptr;
     }
-    return GrXfermodeFragmentProcessor::MakeFromDstProcessor(std::move(fp),
-                                                             SkXfermode::kDstIn_Mode);
+    return GrXfermodeFragmentProcessor::MakeFromDstProcessor(std::move(fp), SkBlendMode::kDstIn);
 }
 
 sk_sp<GrFragmentProcessor> GrFragmentProcessor::PremulInput(sk_sp<GrFragmentProcessor> fp) {
@@ -141,7 +132,7 @@ sk_sp<GrFragmentProcessor> GrFragmentProcessor::PremulInput(sk_sp<GrFragmentProc
             return new GLFP;
         }
 
-        void onGetGLSLProcessorKey(const GrGLSLCaps&, GrProcessorKeyBuilder*) const override {}
+        void onGetGLSLProcessorKey(const GrShaderCaps&, GrProcessorKeyBuilder*) const override {}
 
         bool onIsEqual(const GrFragmentProcessor&) const override { return true; }
 
@@ -183,7 +174,7 @@ sk_sp<GrFragmentProcessor> GrFragmentProcessor::MulOutputByInputUnpremulColor(
             return new GLFP;
         }
 
-        void onGetGLSLProcessorKey(const GrGLSLCaps&, GrProcessorKeyBuilder*) const override {}
+        void onGetGLSLProcessorKey(const GrShaderCaps&, GrProcessorKeyBuilder*) const override {}
 
         bool onIsEqual(const GrFragmentProcessor&) const override { return true; }
 
@@ -194,7 +185,7 @@ sk_sp<GrFragmentProcessor> GrFragmentProcessor::MulOutputByInputUnpremulColor(
                 return;
             }
 
-            GrInvariantOutput childOutput(GrColor_WHITE, kRGBA_GrColorComponentFlags, false);
+            GrInvariantOutput childOutput(GrColor_WHITE, kRGBA_GrColorComponentFlags);
             this->childProcessor(0).computeInvariantOutput(&childOutput);
 
             if (0 == GrColorUnpackA(inout->color()) || 0 == GrColorUnpackA(childOutput.color())) {
@@ -273,7 +264,7 @@ sk_sp<GrFragmentProcessor> GrFragmentProcessor::OverrideInput(sk_sp<GrFragmentPr
         }
 
     private:
-        void onGetGLSLProcessorKey(const GrGLSLCaps& caps, GrProcessorKeyBuilder* b) const override
+        void onGetGLSLProcessorKey(const GrShaderCaps& caps, GrProcessorKeyBuilder* b) const override
         {}
 
         bool onIsEqual(const GrFragmentProcessor& that) const override {
@@ -289,7 +280,7 @@ sk_sp<GrFragmentProcessor> GrFragmentProcessor::OverrideInput(sk_sp<GrFragmentPr
         GrColor4f fColor;
     };
 
-    GrInvariantOutput childOut(0x0, kNone_GrColorComponentFlags, false);
+    GrInvariantOutput childOut(0x0, kNone_GrColorComponentFlags);
     fp->computeInvariantOutput(&childOut);
     if (childOut.willUseInputColor()) {
         return sk_sp<GrFragmentProcessor>(new ReplaceInputFragmentProcessor(std::move(fp), color));
@@ -333,14 +324,11 @@ sk_sp<GrFragmentProcessor> GrFragmentProcessor::RunInSeries(sk_sp<GrFragmentProc
         }
 
     private:
-        void onGetGLSLProcessorKey(const GrGLSLCaps&, GrProcessorKeyBuilder*) const override {}
+        void onGetGLSLProcessorKey(const GrShaderCaps&, GrProcessorKeyBuilder*) const override {}
 
         bool onIsEqual(const GrFragmentProcessor&) const override { return true; }
 
         void onComputeInvariantOutput(GrInvariantOutput* inout) const override {
-            GrProcOptInfo info;
-            info.calcWithInitialValues(fChildProcessors.begin(), fChildProcessors.count(),
-                                       inout->color(), inout->validFlags(), false, false);
             for (int i = 0; i < this->numChildProcessors(); ++i) {
                 this->childProcessor(i).computeInvariantOutput(inout);
             }
@@ -352,11 +340,14 @@ sk_sp<GrFragmentProcessor> GrFragmentProcessor::RunInSeries(sk_sp<GrFragmentProc
     }
 
     // Run the through the series, do the invariant output processing, and look for eliminations.
-    GrProcOptInfo info;
-    info.calcWithInitialValues(sk_sp_address_as_pointer_address(series), cnt,
-                               0x0, kNone_GrColorComponentFlags, false, false);
+    GrProcOptInfo info(0x0, kNone_GrColorComponentFlags);
+    info.analyzeProcessors(sk_sp_address_as_pointer_address(series), cnt);
     if (kRGBA_GrColorComponentFlags == info.validFlags()) {
-        return GrConstColorProcessor::Make(info.color(), GrConstColorProcessor::kIgnore_InputMode);
+        // TODO: We need to preserve 4f and color spaces during invariant processing. This color
+        // has definitely lost precision, and could easily be in the wrong gamut (or have been
+        // built from colors in multiple spaces).
+        return GrConstColorProcessor::Make(GrColor4f::FromGrColor(info.color()),
+                                           GrConstColorProcessor::kIgnore_InputMode);
     }
 
     SkTArray<sk_sp<GrFragmentProcessor>> replacementSeries;
@@ -364,8 +355,10 @@ sk_sp<GrFragmentProcessor> GrFragmentProcessor::RunInSeries(sk_sp<GrFragmentProc
     int firstIdx = info.firstEffectiveProcessorIndex();
     cnt -= firstIdx;
     if (firstIdx > 0 && info.inputColorIsUsed()) {
+        // See comment above - need to preserve 4f and color spaces during invariant processing.
         sk_sp<GrFragmentProcessor> colorFP(GrConstColorProcessor::Make(
-            info.inputColorToFirstEffectiveProccesor(), GrConstColorProcessor::kIgnore_InputMode));
+            GrColor4f::FromGrColor(info.inputColorToFirstEffectiveProccesor()),
+            GrConstColorProcessor::kIgnore_InputMode));
         cnt += 1;
         replacementSeries.reserve(cnt);
         replacementSeries.emplace_back(std::move(colorFP));

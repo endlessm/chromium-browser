@@ -34,7 +34,6 @@
 
 #include "core/CoreExport.h"
 #include "core/fetch/ResourceLoaderOptions.h"
-#include "core/frame/DOMWindowProperty.h"
 #include "platform/Timer.h"
 #include "platform/heap/Handle.h"
 #include "platform/heap/SelfKeepAlive.h"
@@ -51,8 +50,6 @@ class EncodedFormData;
 class FormData;
 class LocalFrame;
 class KURL;
-class ResourceRequest;
-class SecurityOrigin;
 
 // Issue an asynchronous, one-directional request at some resources, ignoring
 // any response. The request is made independent of any LocalFrame staying

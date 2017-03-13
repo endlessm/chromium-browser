@@ -13,7 +13,6 @@
 
 #include <assert.h>
 
-#include "webrtc/engine_configurations.h"
 #include "webrtc/base/constructormagic.h"
 #include "webrtc/modules/audio_coding/codecs/audio_decoder.h"
 #ifdef WEBRTC_CODEC_G722

@@ -9,6 +9,7 @@ import android.util.Base64;
 import android.util.Log;
 import android.util.Pair;
 
+import org.apache.http.Header;
 import org.apache.http.HttpException;
 import org.apache.http.HttpRequest;
 import org.apache.http.HttpResponse;
@@ -33,8 +34,10 @@ import java.net.Socket;
 import java.net.URI;
 import java.net.URL;
 import java.net.URLConnection;
+import java.nio.charset.Charset;
 import java.security.KeyManagementException;
 import java.security.KeyStore;
+import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
@@ -80,13 +83,17 @@ public class TestWebServer {
         final Runnable mResponseAction;
         final boolean mIsNotFound;
         final boolean mIsNoContent;
+        final boolean mForWebSocket;
+        final boolean mIsEmptyResponse;
 
         Response(byte[] responseData, List<Pair<String, String>> responseHeaders,
-                boolean isRedirect, boolean isNotFound, boolean isNoContent,
-                Runnable responseAction) {
+                boolean isRedirect, boolean isNotFound, boolean isNoContent, boolean forWebSocket,
+                boolean isEmptyResponse, Runnable responseAction) {
             mIsRedirect = isRedirect;
             mIsNotFound = isNotFound;
             mIsNoContent = isNoContent;
+            mForWebSocket = forWebSocket;
+            mIsEmptyResponse = isEmptyResponse;
             mResponseData = responseData;
             mResponseHeaders = responseHeaders == null
                     ? new ArrayList<Pair<String, String>>() : responseHeaders;
@@ -195,6 +202,8 @@ public class TestWebServer {
     private static final int RESPONSE_STATUS_MOVED_TEMPORARILY = 1;
     private static final int RESPONSE_STATUS_NOT_FOUND = 2;
     private static final int RESPONSE_STATUS_NO_CONTENT = 3;
+    private static final int RESPONSE_STATUS_FOR_WEBSOCKET = 4;
+    private static final int RESPONSE_STATUS_EMPTY_RESPONSE = 5;
 
     private String setResponseInternal(
             String requestPath, byte[] responseData,
@@ -203,11 +212,13 @@ public class TestWebServer {
         final boolean isRedirect = (status == RESPONSE_STATUS_MOVED_TEMPORARILY);
         final boolean isNotFound = (status == RESPONSE_STATUS_NOT_FOUND);
         final boolean isNoContent = (status == RESPONSE_STATUS_NO_CONTENT);
+        final boolean forWebSocket = (status == RESPONSE_STATUS_FOR_WEBSOCKET);
+        final boolean isEmptyResponse = (status == RESPONSE_STATUS_EMPTY_RESPONSE);
 
         synchronized (mLock) {
-            mResponseMap.put(requestPath, new Response(
-                    responseData, responseHeaders, isRedirect, isNotFound, isNoContent,
-                    responseAction));
+            mResponseMap.put(requestPath,
+                    new Response(responseData, responseHeaders, isRedirect, isNotFound, isNoContent,
+                            forWebSocket, isEmptyResponse, responseAction));
             mResponseCountMap.put(requestPath, Integer.valueOf(0));
             mLastRequestMap.put(requestPath, null);
         }
@@ -263,6 +274,18 @@ public class TestWebServer {
     public String setResponseWithNoContentStatus(String requestPath) {
         return setResponseInternal(
                 requestPath, "".getBytes(), null, null, RESPONSE_STATUS_NO_CONTENT);
+    }
+
+    /**
+     * Sets an empty response to be returned when a particular request path is passed in.
+     *
+     * @param requestPath The path to respond to.
+     * @return The full URL including the path that should be requested to get the expected
+     *         response.
+     */
+    public String setEmptyResponse(String requestPath) {
+        return setResponseInternal(
+                requestPath, "".getBytes(), null, null, RESPONSE_STATUS_EMPTY_RESPONSE);
     }
 
     /**
@@ -341,6 +364,28 @@ public class TestWebServer {
         return setResponseInternal(
                 requestPath, Base64.decode(base64EncodedResponse, Base64.DEFAULT),
                 responseHeaders, null, RESPONSE_STATUS_NORMAL);
+    }
+
+    /**
+     * Sets a response to a WebSocket handshake request.
+     *
+     * @param requestPath The path to respond to.
+     * @param responseHeaders Any additional headers that should be returned along with the
+     *                        response (null is acceptable).
+     * @return The full URL including the path that should be requested to get the expected
+     *         response.
+     */
+    public String setResponseForWebSocket(
+            String requestPath, List<Pair<String, String>> responseHeaders) {
+        if (responseHeaders == null) {
+            responseHeaders = new ArrayList<Pair<String, String>>();
+        } else {
+            responseHeaders = new ArrayList<Pair<String, String>>(responseHeaders);
+        }
+        responseHeaders.add(Pair.create("Connection", "Upgrade"));
+        responseHeaders.add(Pair.create("Upgrade", "websocket"));
+        return setResponseInternal(
+                requestPath, "".getBytes(), responseHeaders, null, RESPONSE_STATUS_FOR_WEBSOCKET);
     }
 
     /**
@@ -475,10 +520,31 @@ public class TestWebServer {
             httpResponse = createResponse(HttpStatus.SC_NO_CONTENT);
             httpResponse.setHeader("Content-Length", "0");
             servedResponseFor(path, request);
+        } else if (response.mIsEmptyResponse) {
+            httpResponse = createResponse(HttpStatus.SC_FORBIDDEN); // arbitrary failure status
+            httpResponse.setHeader("Content-Length", "0");
+            servedResponseFor(path, request);
         } else if (response.mIsRedirect) {
             httpResponse = createResponse(HttpStatus.SC_MOVED_TEMPORARILY);
             for (Pair<String, String> header : response.mResponseHeaders) {
                 httpResponse.addHeader(header.first, header.second);
+            }
+            servedResponseFor(path, request);
+        } else if (response.mForWebSocket) {
+            Header[] keys = request.getHeaders("Sec-WebSocket-Key");
+            try {
+                if (keys.length == 1) {
+                    final String key = keys[0].getValue();
+                    httpResponse = createResponse(HttpStatus.SC_SWITCHING_PROTOCOLS);
+                    for (Pair<String, String> header : response.mResponseHeaders) {
+                        httpResponse.addHeader(header.first, header.second);
+                    }
+                    httpResponse.addHeader("Sec-WebSocket-Accept", computeWebSocketAccept(key));
+                } else {
+                    httpResponse = createResponse(HttpStatus.SC_NOT_FOUND);
+                }
+            } catch (NoSuchAlgorithmException e) {
+                httpResponse = createResponse(HttpStatus.SC_NOT_FOUND);
             }
             servedResponseFor(path, request);
         } else {
@@ -550,6 +616,20 @@ public class TestWebServer {
         ByteArrayEntity entity = new ByteArrayEntity(data);
         entity.setContentType("text/html");
         return entity;
+    }
+
+    /**
+     * Return a response for WebSocket handshake challenge.
+     */
+    private static String computeWebSocketAccept(String keyString) throws NoSuchAlgorithmException {
+        byte[] key = keyString.getBytes(Charset.forName("US-ASCII"));
+        byte[] guid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11".getBytes(Charset.forName("US-ASCII"));
+
+        MessageDigest md = MessageDigest.getInstance("SHA");
+        md.update(key);
+        md.update(guid);
+        byte[] output = md.digest();
+        return Base64.encodeToString(output, Base64.DEFAULT);
     }
 
     private static class ServerThread extends Thread {

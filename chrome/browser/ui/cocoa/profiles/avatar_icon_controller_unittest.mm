@@ -18,15 +18,14 @@
 #import "chrome/browser/ui/cocoa/base_bubble_controller.h"
 #import "chrome/browser/ui/cocoa/browser_window_cocoa.h"
 #import "chrome/browser/ui/cocoa/browser_window_controller.h"
-#include "chrome/browser/ui/cocoa/cocoa_profile_test.h"
 #include "chrome/browser/ui/cocoa/info_bubble_window.h"
 #import "chrome/browser/ui/cocoa/profiles/avatar_button_controller.h"
-#import "chrome/browser/ui/cocoa/profiles/avatar_menu_bubble_controller.h"
+#include "chrome/browser/ui/cocoa/test/cocoa_profile_test.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/bookmarks/test/bookmark_test_helpers.h"
 #include "components/signin/core/common/profile_management_switches.h"
-#include "components/syncable_prefs/pref_service_syncable.h"
+#include "components/sync_preferences/pref_service_syncable.h"
 
 class AvatarIconControllerTest : public CocoaProfileTest {
  public:
@@ -57,7 +56,7 @@ TEST_F(AvatarIconControllerTest, ShowingAvatarIconInIncognito) {
   AvatarBaseController* icon_controller =
       [window->cocoa_controller() avatarButtonController];
   // In incognito, we should be using the AvatarIconController to show the
-  // incognito guy.
+  // incognito icon.
   EXPECT_TRUE([icon_controller isKindOfClass:[AvatarIconController class]]);
 
   browser->window()->Close();

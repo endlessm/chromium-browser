@@ -28,9 +28,9 @@
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
 #include "components/crx_file/id_util.h"
+#include "components/session_manager/core/session_manager.h"
 #include "components/signin/core/browser/profile_oauth2_token_service.h"
 #include "components/signin/core/browser/signin_manager.h"
-#include "components/user_manager/user_manager.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/notification_service.h"
 #include "extensions/browser/extension_system.h"
@@ -96,14 +96,21 @@ void StartupAppLauncher::Initialize() {
 }
 
 void StartupAppLauncher::ContinueWithNetworkReady() {
-  if (!network_ready_handled_) {
-    network_ready_handled_ = true;
-    // The network might not be ready when KioskAppManager tries to update
-    // external cache initially. Update the external cache now that the network
-    // is ready for sure.
-    wait_for_crx_update_ = true;
-    KioskAppManager::Get()->UpdateExternalCache();
+  if (network_ready_handled_)
+    return;
+
+  network_ready_handled_ = true;
+
+  if (delegate_->ShouldSkipAppInstallation()) {
+    MaybeLaunchApp();
+    return;
   }
+
+  // The network might not be ready when KioskAppManager tries to update
+  // external cache initially. Update the external cache now that the network
+  // is ready for sure.
+  wait_for_crx_update_ = true;
+  KioskAppManager::Get()->UpdateExternalCache();
 }
 
 void StartupAppLauncher::StartLoadingOAuthFile() {
@@ -188,6 +195,11 @@ void StartupAppLauncher::MaybeInitializeNetwork() {
     return;
   }
 
+  if (delegate_->ShouldSkipAppInstallation()) {
+    MaybeLaunchApp();
+    return;
+  }
+
   // Update the offline enabled crx cache if the network is ready;
   // or just install the app.
   if (delegate_->IsNetworkReady())
@@ -243,11 +255,20 @@ void StartupAppLauncher::OnRefreshTokensLoaded() {
 }
 
 void StartupAppLauncher::MaybeLaunchApp() {
-  // Check if the app is offline enabled.
   const Extension* extension = GetPrimaryAppExtension();
-  DCHECK(extension);
+  // Verify that requred apps are installed. While the apps should be
+  // present at this point, crash recovery flow skips app installation steps -
+  // this means that the kiosk app might not yet be downloaded. If that is
+  // the case, bail out from the app launch.
+  if (!extension || !AreSecondaryAppsInstalled()) {
+    OnLaunchFailure(KioskAppLaunchError::UNABLE_TO_LAUNCH);
+    return;
+  }
+
   const bool offline_enabled =
       extensions::OfflineEnabledInfo::IsOfflineEnabled(extension);
+  // If the app is not offline enabled, make sure the network is ready before
+  // launching.
   if (offline_enabled || delegate_->IsNetworkReady()) {
     BrowserThread::PostTask(
         BrowserThread::UI,
@@ -339,12 +360,18 @@ void StartupAppLauncher::OnFinishCrxInstall(const std::string& extension_id,
     return;
   }
 
+  const extensions::Extension* primary_app = GetPrimaryAppExtension();
+  if (primary_app && !extensions::KioskModeInfo::IsKioskEnabled(primary_app)) {
+    OnLaunchFailure(KioskAppLaunchError::NOT_KIOSK_ENABLED);
+    return;
+  }
+
   if (DidPrimaryOrSecondaryAppFailedToInstall(success, extension_id)) {
     OnLaunchFailure(KioskAppLaunchError::UNABLE_TO_INSTALL);
     return;
   }
 
-  if (GetPrimaryAppExtension()) {
+  if (primary_app) {
     if (!secondary_apps_installed_)
       MaybeInstallSecondaryApps();
     else
@@ -469,7 +496,7 @@ void StartupAppLauncher::LaunchApp() {
       WindowOpenDisposition::NEW_WINDOW, extensions::SOURCE_KIOSK));
   KioskAppManager::Get()->InitSession(profile_, app_id_);
 
-  user_manager::UserManager::Get()->SessionStarted();
+  session_manager::SessionManager::Get()->SessionStarted();
 
   content::NotificationService::current()->Notify(
       chrome::NOTIFICATION_KIOSK_APP_LAUNCHED,
@@ -508,13 +535,21 @@ void StartupAppLauncher::BeginInstall() {
     return;
   }
 
-  if (GetPrimaryAppExtension()) {
-    // Install secondary apps.
-    MaybeInstallSecondaryApps();
-  } else {
+  const extensions::Extension* primary_app = GetPrimaryAppExtension();
+  if (!primary_app) {
     // The extension is skipped for installation due to some error.
     OnLaunchFailure(KioskAppLaunchError::UNABLE_TO_INSTALL);
+    return;
   }
+
+  if (!extensions::KioskModeInfo::IsKioskEnabled(primary_app)) {
+    // The installed primary app is not kiosk enabled.
+    OnLaunchFailure(KioskAppLaunchError::NOT_KIOSK_ENABLED);
+    return;
+  }
+
+  // Install secondary apps.
+  MaybeInstallSecondaryApps();
 }
 
 void StartupAppLauncher::MaybeInstallSecondaryApps() {

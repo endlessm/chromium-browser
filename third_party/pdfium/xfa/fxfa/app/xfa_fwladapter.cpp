@@ -13,32 +13,28 @@ CXFA_FWLAdapterWidgetMgr::CXFA_FWLAdapterWidgetMgr() {}
 
 CXFA_FWLAdapterWidgetMgr::~CXFA_FWLAdapterWidgetMgr() {}
 
-FWL_Error CXFA_FWLAdapterWidgetMgr::RepaintWidget(IFWL_Widget* pWidget,
-                                                  const CFX_RectF* pRect) {
+void CXFA_FWLAdapterWidgetMgr::RepaintWidget(CFWL_Widget* pWidget) {
   if (!pWidget)
-    return FWL_Error::Indefinite;
+    return;
 
-  CXFA_FFWidget* pFFWidget =
-      static_cast<CXFA_FFWidget*>(pWidget->GetLayoutItem());
+  CXFA_FFWidget* pFFWidget = pWidget->GetLayoutItem();
   if (!pFFWidget)
-    return FWL_Error::Indefinite;
+    return;
 
   pFFWidget->AddInvalidateRect(nullptr);
-  return FWL_Error::Succeeded;
 }
 
-FX_BOOL CXFA_FWLAdapterWidgetMgr::GetPopupPos(IFWL_Widget* pWidget,
-                                              FX_FLOAT fMinHeight,
-                                              FX_FLOAT fMaxHeight,
-                                              const CFX_RectF& rtAnchor,
-                                              CFX_RectF& rtPopup) {
-  CXFA_FFWidget* pFFWidget =
-      static_cast<CXFA_FFWidget*>(pWidget->GetLayoutItem());
+bool CXFA_FWLAdapterWidgetMgr::GetPopupPos(CFWL_Widget* pWidget,
+                                           FX_FLOAT fMinHeight,
+                                           FX_FLOAT fMaxHeight,
+                                           const CFX_RectF& rtAnchor,
+                                           CFX_RectF& rtPopup) {
+  CXFA_FFWidget* pFFWidget = pWidget->GetLayoutItem();
   CFX_Matrix mt;
   pFFWidget->GetRotateMatrix(mt);
   CFX_RectF rtRotateAnchor(rtAnchor);
   mt.TransformRect(rtRotateAnchor);
   pFFWidget->GetDoc()->GetDocEnvironment()->GetPopupPos(
       pFFWidget, fMinHeight, fMaxHeight, rtRotateAnchor, rtPopup);
-  return TRUE;
+  return true;
 }

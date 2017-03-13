@@ -18,10 +18,14 @@ config("common_video_config") {
 rtc_static_library("common_video") {
   sources = [
     "bitrate_adjuster.cc",
+    "h264/h264_bitstream_parser.cc",
+    "h264/h264_bitstream_parser.h",
     "h264/h264_common.cc",
     "h264/h264_common.h",
     "h264/pps_parser.cc",
     "h264/pps_parser.h",
+    "h264/profile_level_id.cc",
+    "h264/profile_level_id.h",
     "h264/sps_parser.cc",
     "h264/sps_parser.h",
     "h264/sps_vui_rewriter.cc",
@@ -31,6 +35,7 @@ rtc_static_library("common_video") {
     "include/frame_callback.h",
     "include/i420_buffer_pool.h",
     "include/incoming_video_stream.h",
+    "include/video_bitrate_allocator.h",
     "include/video_frame_buffer.h",
     "incoming_video_stream.cc",
     "libyuv/include/webrtc_libyuv.h",
@@ -45,9 +50,8 @@ rtc_static_library("common_video") {
 
   public_configs = [ ":common_video_config" ]
 
-  if (is_clang) {
-    # Suppress warnings from Chrome's Clang plugins.
-    # See http://code.google.com/p/webrtc/issues/detail?id=163 for details.
+  if (!build_with_chromium && is_clang) {
+    # Suppress warnings from the Chromium Clang plugin (bugs.webrtc.org/163).
     suppressed_configs += [ "//build/config/clang:find_bad_constructs" ]
   }
 
@@ -56,12 +60,13 @@ rtc_static_library("common_video") {
     "../base:rtc_task_queue",
     "../system_wrappers",
   ]
+  public_deps = [
+    "../api:video_frame_api",
+  ]
 
   if (rtc_build_libyuv) {
     deps += [ "$rtc_libyuv_dir" ]
-    public_deps = [
-      "$rtc_libyuv_dir",
-    ]
+    public_deps += [ "$rtc_libyuv_dir" ]
   } else {
     # Need to add a directory normally exported by libyuv.
     include_dirs += [ "$rtc_libyuv_dir/include" ]
@@ -94,7 +99,9 @@ if (rtc_include_tests) {
 
     sources = [
       "bitrate_adjuster_unittest.cc",
+      "h264/h264_bitstream_parser_unittest.cc",
       "h264/pps_parser_unittest.cc",
+      "h264/profile_level_id_unittest.cc",
       "h264/sps_parser_unittest.cc",
       "h264/sps_vui_rewriter_unittest.cc",
       "i420_buffer_pool_unittest.cc",
@@ -105,16 +112,15 @@ if (rtc_include_tests) {
     # TODO(jschuh): Bug 1348: fix this warning.
     configs += [ "//build/config/compiler:no_size_t_to_int_warning" ]
 
-    if (is_clang) {
-      # Suppress warnings from the Chromium Clang plugin.
-      # See http://code.google.com/p/webrtc/issues/detail?id=163 for details.
+    if (!build_with_chromium && is_clang) {
+      # Suppress warnings from the Chromium Clang plugin (bugs.webrtc.org/163).
       suppressed_configs += [ "//build/config/clang:find_bad_constructs" ]
     }
 
     deps = [
       ":common_video",
       "../system_wrappers:system_wrappers",
-      "../test:test_support_main",
+      "../test:test_main",
       "../test:video_test_common",
       "//testing/gmock",
       "//testing/gtest",

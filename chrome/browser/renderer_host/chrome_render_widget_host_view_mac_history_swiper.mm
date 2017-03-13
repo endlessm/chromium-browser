@@ -10,7 +10,8 @@
 #include "chrome/browser/ui/browser_finder.h"
 #import "chrome/browser/ui/cocoa/history_overlay_controller.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
-#include "third_party/WebKit/public/web/WebInputEvent.h"
+#include "third_party/WebKit/public/platform/WebGestureEvent.h"
+#include "third_party/WebKit/public/platform/WebMouseWheelEvent.h"
 
 namespace {
 // The horizontal distance required to cause the browser to perform a history
@@ -123,7 +124,7 @@ BOOL forceMagicMouse = NO;
 
 - (void)rendererHandledGestureScrollEvent:(const blink::WebGestureEvent&)event
                                  consumed:(BOOL)consumed {
-  switch (event.type) {
+  switch (event.type()) {
     case blink::WebInputEvent::GestureScrollBegin:
       if (event.data.scrollBegin.synthetic ||
           event.data.scrollBegin.inertialPhase ==

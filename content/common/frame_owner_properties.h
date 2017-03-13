@@ -30,10 +30,12 @@ struct CONTENT_EXPORT FrameOwnerProperties {
     return !(*this == other);
   }
 
+  std::string name;  // browsing context container's name
   blink::WebFrameOwnerProperties::ScrollingMode scrolling_mode;
   int margin_width;
   int margin_height;
   bool allow_fullscreen;
+  bool allow_payment_request;
 
   // An experimental attribute to be used by a parent frame to enforce CSP on a
   // subframe. This is different from replicated CSP headers kept in

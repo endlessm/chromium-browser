@@ -93,8 +93,7 @@ DesktopSessionProxy::DesktopSessionProxy(
     scoped_refptr<base::SingleThreadTaskRunner> io_task_runner,
     base::WeakPtr<ClientSessionControl> client_session_control,
     base::WeakPtr<DesktopSessionConnector> desktop_session_connector,
-    bool virtual_terminal,
-    bool supports_touch_events)
+    const DesktopEnvironmentOptions& options)
     : audio_capture_task_runner_(audio_capture_task_runner),
       caller_task_runner_(caller_task_runner),
       io_task_runner_(io_task_runner),
@@ -102,8 +101,7 @@ DesktopSessionProxy::DesktopSessionProxy(
       desktop_session_connector_(desktop_session_connector),
       pending_capture_frame_requests_(0),
       is_desktop_session_connected_(false),
-      virtual_terminal_(virtual_terminal),
-      supports_touch_events_(supports_touch_events) {
+      options_(options) {
   DCHECK(caller_task_runner_->BelongsToCurrentThread());
 }
 
@@ -140,11 +138,15 @@ DesktopSessionProxy::CreateMouseCursorMonitor() {
 std::string DesktopSessionProxy::GetCapabilities() const {
   std::string result = protocol::kRateLimitResizeRequests;
   // Ask the client to send its resolution unconditionally.
-  if (virtual_terminal_)
-    result = result + " " + protocol::kSendInitialResolution;
+  if (options_.enable_curtaining()) {
+    result += " ";
+    result += protocol::kSendInitialResolution;
+  }
 
-  if (supports_touch_events_)
-    result = result + " "  + protocol::kTouchEventsCapability;
+  if (InputInjector::SupportsTouchEvents()) {
+    result += " ";
+    result += protocol::kTouchEventsCapability;
+  }
 
   return result;
 }
@@ -152,10 +154,10 @@ std::string DesktopSessionProxy::GetCapabilities() const {
 void DesktopSessionProxy::SetCapabilities(const std::string& capabilities) {
   // Delay creation of the desktop session until the client screen resolution is
   // received if the desktop session requires the initial screen resolution
-  // (when |virtual_terminal_| is true) and the client is expected to
+  // (when enable_curtaining() is true) and the client is expected to
   // sent its screen resolution (the 'sendInitialResolution' capability is
   // supported).
-  if (virtual_terminal_ &&
+  if (options_.enable_curtaining() &&
       HasCapability(capabilities, protocol::kSendInitialResolution)) {
     VLOG(1) << "Waiting for the client screen resolution.";
     return;
@@ -165,8 +167,8 @@ void DesktopSessionProxy::SetCapabilities(const std::string& capabilities) {
   if (!is_desktop_session_connected_) {
     is_desktop_session_connected_ = true;
     if (desktop_session_connector_.get()) {
-      desktop_session_connector_->ConnectTerminal(
-          this, screen_resolution_, virtual_terminal_);
+      desktop_session_connector_->ConnectTerminal(this, screen_resolution_,
+                                                  options_.enable_curtaining());
     }
   }
 }
@@ -200,13 +202,6 @@ void DesktopSessionProxy::OnChannelConnected(int32_t peer_pid) {
   DCHECK(caller_task_runner_->BelongsToCurrentThread());
 
   VLOG(1) << "IPC: network <- desktop (" << peer_pid << ")";
-
-#if defined(OS_WIN)
-  if (!ProcessIdToSessionId(peer_pid,
-                            reinterpret_cast<DWORD*>(&desktop_session_id_))) {
-    PLOG(ERROR) << "ProcessIdToSessionId() failed!";
-  }
-#endif  // defined(OS_WIN)
 }
 
 void DesktopSessionProxy::OnChannelError() {
@@ -216,42 +211,27 @@ void DesktopSessionProxy::OnChannelError() {
 }
 
 bool DesktopSessionProxy::AttachToDesktop(
-    base::Process desktop_process,
-    IPC::PlatformFileForTransit desktop_pipe) {
+    const IPC::ChannelHandle& desktop_pipe,
+    int session_id) {
   DCHECK(caller_task_runner_->BelongsToCurrentThread());
   DCHECK(!desktop_channel_);
-  DCHECK(!desktop_process_.IsValid());
 
   // Ignore the attach notification if the client session has been disconnected
   // already.
   if (!client_session_control_.get())
     return false;
 
-  desktop_process_ = std::move(desktop_process);
-
-#if defined(OS_WIN)
-  base::win::ScopedHandle pipe(desktop_pipe.GetHandle());
-  IPC::ChannelHandle desktop_channel_handle(pipe.Get());
-#elif defined(OS_POSIX)
-  // On posix: |desktop_pipe| is a valid file descriptor.
-  DCHECK(desktop_pipe.auto_close);
-
-  IPC::ChannelHandle desktop_channel_handle(std::string(), desktop_pipe);
-#else
-#error Unsupported platform.
-#endif
-
   // Connect to the desktop process.
-  desktop_channel_ = IPC::ChannelProxy::Create(desktop_channel_handle,
+  desktop_channel_ = IPC::ChannelProxy::Create(desktop_pipe,
                                                IPC::Channel::MODE_CLIENT, this,
                                                io_task_runner_.get());
 
   // Pass ID of the client (which is authenticated at this point) to the desktop
   // session agent and start the agent.
   SendToDesktop(new ChromotingNetworkDesktopMsg_StartSessionAgent(
-      client_session_control_->client_jid(),
-      screen_resolution_,
-      virtual_terminal_));
+      client_session_control_->client_jid(), screen_resolution_, options_));
+
+  desktop_session_id_ = session_id;
 
   return true;
 }
@@ -262,16 +242,13 @@ void DesktopSessionProxy::DetachFromDesktop() {
   desktop_channel_.reset();
   desktop_session_id_ = UINT32_MAX;
 
-  if (desktop_process_.IsValid())
-    desktop_process_.Close();
-
   shared_buffers_.clear();
 
   // Generate fake responses to keep the video capturer in sync.
   while (pending_capture_frame_requests_) {
     --pending_capture_frame_requests_;
     video_capturer_->OnCaptureResult(
-        webrtc::DesktopCapturer::Result::ERROR_PERMANENT, nullptr);
+        webrtc::DesktopCapturer::Result::ERROR_TEMPORARY, nullptr);
   }
 }
 
@@ -290,7 +267,7 @@ void DesktopSessionProxy::CaptureFrame() {
     SendToDesktop(new ChromotingNetworkDesktopMsg_CaptureFrame());
   } else {
     video_capturer_->OnCaptureResult(
-        webrtc::DesktopCapturer::Result::ERROR_PERMANENT, nullptr);
+        webrtc::DesktopCapturer::Result::ERROR_TEMPORARY, nullptr);
   }
 }
 
@@ -402,8 +379,8 @@ void DesktopSessionProxy::SetScreenResolution(
   if (!is_desktop_session_connected_) {
     is_desktop_session_connected_ = true;
     if (desktop_session_connector_.get()) {
-      desktop_session_connector_->ConnectTerminal(
-          this, screen_resolution_, virtual_terminal_);
+      desktop_session_connector_->ConnectTerminal(this, screen_resolution_,
+                                                  options_.enable_curtaining());
     }
     return;
   }

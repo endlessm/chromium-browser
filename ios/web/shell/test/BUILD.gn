@@ -5,7 +5,15 @@
 import("//ios/build/config.gni")
 import("//ios/third_party/earl_grey/ios_eg_test.gni")
 
-ios_eg_test("ios_web_shell_test") {
+group("all_tests") {
+  testonly = true
+  deps = [
+    ":ios_web_shell_egtests",
+  ]
+}
+
+ios_eg_test("ios_web_shell_egtests") {
+  info_plist = "//ios/web/shell/Info.plist"
   sources = [
     "context_menu_egtest.mm",
     "meta_tags_egtest.mm",
@@ -17,15 +25,16 @@ ios_eg_test("ios_web_shell_test") {
   ]
 
   deps = [
+    ":earl_grey_test_support",
     "//base",
     "//base/test:test_support",
+    "//ios/testing:ios_test_support",
     "//ios/testing/earl_grey:earl_grey_support",
     "//ios/web:earl_grey_test_support",
     "//ios/web:test_support",
     "//ios/web/shell",
-    "//ios/web/shell/test:earl_grey_test_support",
-    "//net:net",
-    "//url:url",
+    "//net",
+    "//url",
 
     # All shared libraries must have the sanitizer deps to properly link in
     # asan mode (this target will be empty in other cases).
@@ -45,6 +54,7 @@ source_set("earl_grey_test_support") {
   deps = [
     "//base",
     "//base/test:test_support",
+    "//ios/testing:ios_test_support",
     "//ios/testing/earl_grey:earl_grey_support",
     "//ios/third_party/earl_grey",
     "//ios/web",
@@ -74,10 +84,12 @@ source_set("earl_grey_test_support") {
     "earl_grey/shell_matchers.h",
     "earl_grey/shell_matchers.mm",
   ]
+
+  configs += [ "//build/config/compiler:enable_arc" ]
 }
 
 bundle_data("bundle") {
-  visibility = [ ":ios_web_shell_test_host" ]
+  visibility = [ ":ios_web_shell_egtests" ]
   sources = [
     "http_server_files/basic_navigation_test.html",
     "http_server_files/tall_page.html",

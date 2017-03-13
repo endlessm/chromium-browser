@@ -56,6 +56,7 @@ static bool isTableRowEmpty(Node* row) {
   if (!isHTMLTableRowElement(row))
     return false;
 
+  row->document().updateStyleAndLayoutIgnorePendingStylesheets();
   for (Node* child = row->firstChild(); child; child = child->nextSibling()) {
     if (isTableCell(child) && !isTableCellEmpty(child))
       return false;
@@ -194,10 +195,19 @@ void DeleteSelectionCommand::setStartingSelectionOnSmartDelete(
       document().lifecycle());
 
   bool isBaseFirst = startingSelection().isBaseFirst();
+  // TODO(yosin): We should not call |createVisiblePosition()| here and use
+  // |start| and |end| as base/extent since |VisibleSelection| also calls
+  // |createVisiblePosition()| during construction.
+  // Because of |newBase.affinity()| can be |Upstream|, we can't simply
+  // use |start| and |end| here.
   VisiblePosition newBase = createVisiblePosition(isBaseFirst ? start : end);
   VisiblePosition newExtent = createVisiblePosition(isBaseFirst ? end : start);
-  setStartingSelection(createVisibleSelection(
-      newBase, newExtent, startingSelection().isDirectional()));
+  SelectionInDOMTree::Builder builder;
+  builder.setAffinity(newBase.affinity())
+      .setBaseAndExtentDeprecated(newBase.deepEquivalent(),
+                                  newExtent.deepEquivalent())
+      .setIsDirectional(startingSelection().isDirectional());
+  setStartingSelection(createVisibleSelection(builder.build()));
 }
 
 void DeleteSelectionCommand::initializePositionData(
@@ -414,11 +424,13 @@ bool DeleteSelectionCommand::handleSpecialCaseBRDelete(
   // FIXME: This code doesn't belong in here.
   // We detect the case where the start is an empty line consisting of BR not
   // wrapped in a block element.
-  if (upstreamStartIsBR && downstreamStartIsBR &&
-      !(isStartOfBlock(VisiblePosition::beforeNode(nodeAfterUpstreamStart)) &&
-        isEndOfBlock(VisiblePosition::afterNode(nodeAfterUpstreamStart)))) {
-    m_startsAtEmptyLine = true;
-    m_endingPosition = m_downstreamEnd;
+  if (upstreamStartIsBR && downstreamStartIsBR) {
+    document().updateStyleAndLayoutIgnorePendingStylesheets();
+    if (!(isStartOfBlock(VisiblePosition::beforeNode(nodeAfterUpstreamStart)) &&
+          isEndOfBlock(VisiblePosition::afterNode(nodeAfterUpstreamStart)))) {
+      m_startsAtEmptyLine = true;
+      m_endingPosition = m_downstreamEnd;
+    }
   }
 
   return false;
@@ -490,6 +502,7 @@ void DeleteSelectionCommand::removeNode(
     return;
   }
 
+  document().updateStyleAndLayoutIgnorePendingStylesheets();
   if (node == m_startBlock) {
     VisiblePosition previous = previousPositionOf(
         VisiblePosition::firstPositionInNode(m_startBlock.get()));
@@ -805,6 +818,8 @@ void DeleteSelectionCommand::mergeParagraphs(EditingState* editingState) {
     return;
   }
 
+  RelocatablePosition relocatableStart(startOfParagraphToMove.deepEquivalent());
+
   // We need to merge into m_upstreamStart's block, but it's been emptied out
   // and collapsed by deletion.
   if (!mergeDestination.deepEquivalent().anchorNode() ||
@@ -815,16 +830,13 @@ void DeleteSelectionCommand::mergeParagraphs(EditingState* editingState) {
       (m_startsAtEmptyLine &&
        mergeDestination.deepEquivalent() !=
            startOfParagraphToMove.deepEquivalent())) {
-    PositionWithAffinity storedStartOfParagraphToMove =
-        startOfParagraphToMove.toPositionWithAffinity();
     insertNodeAt(HTMLBRElement::create(document()), m_upstreamStart,
                  editingState);
     if (editingState->isAborted())
       return;
     document().updateStyleAndLayoutIgnorePendingStylesheets();
     mergeDestination = createVisiblePosition(m_upstreamStart);
-    startOfParagraphToMove =
-        createVisiblePosition(storedStartOfParagraphToMove);
+    startOfParagraphToMove = createVisiblePosition(relocatableStart.position());
   }
 
   if (mergeDestination.deepEquivalent() ==
@@ -873,14 +885,14 @@ void DeleteSelectionCommand::mergeParagraphs(EditingState* editingState) {
           editingState);
       if (editingState->isAborted())
         return;
-      m_endingPosition = startOfParagraphToMove.deepEquivalent();
+      m_endingPosition = relocatableStart.position();
       return;
     }
   }
 
   // Block images, tables and horizontal rules cannot be made inline with
   // content at mergeDestination.  If there is any
-  // (!isStartOfParagraphDeprecated(mergeDestination)), don't merge, just move
+  // (!isStartOfParagraph(mergeDestination)), don't merge, just move
   // the caret to just before the selection we deleted. See
   // https://bugs.webkit.org/show_bug.cgi?id=25439
   if (isRenderedAsNonInlineTableImageOrHR(
@@ -1010,6 +1022,7 @@ void DeleteSelectionCommand::removeRedundantBlocks(EditingState* editingState) {
   Element* rootElement = rootEditableElement(*node);
 
   while (node != rootElement) {
+    ABORT_EDITING_COMMAND_IF(!node);
     if (isRemovableBlock(node)) {
       if (node == m_endingPosition.anchorNode())
         updatePositionForNodeRemovalPreservingChildren(m_endingPosition, *node);
@@ -1089,12 +1102,18 @@ void DeleteSelectionCommand::doApply(EditingState* editingState) {
   if (brResult) {
     calculateTypingStyleAfterDelete();
     document().updateStyleAndLayoutIgnorePendingStylesheets();
-    setEndingSelection(createVisibleSelection(
-        m_endingPosition, affinity, endingSelection().isDirectional()));
+    SelectionInDOMTree::Builder builder;
+    builder.setAffinity(affinity);
+    builder.setIsDirectional(endingSelection().isDirectional());
+    if (m_endingPosition.isNotNull())
+      builder.collapse(m_endingPosition);
+    setEndingSelection(builder.build());
     clearTransientState();
     rebalanceWhitespace();
     return;
   }
+
+  document().updateStyleAndLayoutIgnorePendingStylesheets();
 
   handleGeneralDelete(editingState);
   if (editingState->isAborted())
@@ -1144,8 +1163,12 @@ void DeleteSelectionCommand::doApply(EditingState* editingState) {
 
   document().updateStyleAndLayoutIgnorePendingStylesheets();
 
-  setEndingSelection(createVisibleSelection(m_endingPosition, affinity,
-                                            endingSelection().isDirectional()));
+  SelectionInDOMTree::Builder builder;
+  builder.setAffinity(affinity);
+  builder.setIsDirectional(endingSelection().isDirectional());
+  if (m_endingPosition.isNotNull())
+    builder.collapse(m_endingPosition);
+  setEndingSelection(builder.build());
 
   if (relocatableReferencePosition.position().isNull()) {
     clearTransientState();

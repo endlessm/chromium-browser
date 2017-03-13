@@ -187,8 +187,9 @@ class EXTBlendFuncExtendedDrawTest : public testing::TestWithParam<bool> {
                          GL_ONE_MINUS_SRC1_ALPHA_EXT>(kDst, kSrc, kSrc1, color);
 
     EXPECT_TRUE(GLTestHelper::CheckPixels(kWidth / 4, (3 * kHeight) / 4, 1, 1,
-                                          1, color));
-    EXPECT_TRUE(GLTestHelper::CheckPixels(kWidth - 1, 0, 1, 1, 1, color));
+                                          1, color, nullptr));
+    EXPECT_TRUE(
+        GLTestHelper::CheckPixels(kWidth - 1, 0, 1, 1, 1, color, nullptr));
   }
 
  protected:
@@ -254,7 +255,6 @@ class EXTBlendFuncExtendedES3DrawTest : public EXTBlendFuncExtendedDrawTest {
     options.context_type = gles2::CONTEXT_TYPE_OPENGLES3;
     options.force_shader_name_hashing = GetParam();
     base::CommandLine command_line(*base::CommandLine::ForCurrentProcess());
-    command_line.AppendSwitch(switches::kEnableUnsafeES3APIs);
     gl_.InitializeWithCommandLine(options, command_line);
   }
   bool IsApplicable() const {

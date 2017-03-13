@@ -4,8 +4,8 @@
 
 package org.chromium.android_webview.test;
 
-import android.test.suitebuilder.annotation.MediumTest;
-import android.test.suitebuilder.annotation.SmallTest;
+import android.support.test.filters.MediumTest;
+import android.support.test.filters.SmallTest;
 import android.util.Pair;
 
 import org.chromium.android_webview.AwContents;
@@ -90,6 +90,8 @@ public class PolicyUrlFilteringTest extends AwTestBase {
     @Policies.Add({
             @Policies.Item(key = sBlacklistPolicyName, stringArray = {"*"}),
             @Policies.Item(key = sWhitelistPolicyName, stringArray = {sFooWhitelistFilter})})
+    // Run in single process only. crbug.com/660517
+    @ParameterizedTest.Set
     public void testWhitelistedUrl() throws Throwable {
         navigateAndCheckOutcome(mFooTestUrl, 0 /* error count before */, 0 /* error count after */);
 

@@ -77,7 +77,7 @@ extern "C" {
  *   [section_name]
  *   key2=value2
  *
- * Config files are representated by a |CONF|. */
+ * Config files are represented by a |CONF|. */
 
 struct conf_value_st {
   char *section;
@@ -154,6 +154,9 @@ OPENSSL_EXPORT void CONF_modules_free(void);
 
 /* OPENSSL_config does nothing. */
 OPENSSL_EXPORT void OPENSSL_config(CONF_MUST_BE_NULL *config_name);
+
+/* OPENSSL_no_config does nothing. */
+OPENSSL_EXPORT void OPENSSL_no_config(void);
 
 
 #if defined(__cplusplus)

@@ -45,10 +45,6 @@
 #include "ui/gl/gl_image_shared_memory.h"
 #include "ui/gl/gl_surface.h"
 
-#if defined(OS_POSIX)
-#include "ipc/ipc_channel_posix.h"
-#endif
-
 namespace gpu {
 namespace {
 
@@ -461,7 +457,6 @@ void GpuChannelMessageFilter::OnFilterAdded(IPC::Channel* channel) {
 }
 
 void GpuChannelMessageFilter::OnFilterRemoved() {
-  DCHECK(channel_);
   for (scoped_refptr<IPC::MessageFilter>& filter : channel_filters_) {
     filter->OnFilterRemoved();
   }
@@ -628,19 +623,14 @@ IPC::ChannelHandle GpuChannel::Init(base::WaitableEvent* shutdown_event) {
   DCHECK(shutdown_event);
   DCHECK(!channel_);
 
-  IPC::ChannelHandle client_handle;
-  IPC::ChannelHandle server_handle;
-  IPC::Channel::GenerateMojoChannelHandlePair(
-      "gpu", &client_handle, &server_handle);
-  channel_id_ = client_handle.name;
-
-  channel_ =
-      IPC::SyncChannel::Create(server_handle, IPC::Channel::MODE_SERVER,
-                               this, io_task_runner_, false, shutdown_event);
+  mojo::MessagePipe pipe;
+  channel_ = IPC::SyncChannel::Create(pipe.handle0.release(),
+                                      IPC::Channel::MODE_SERVER, this,
+                                      io_task_runner_, false, shutdown_event);
 
   channel_->AddFilter(filter_.get());
 
-  return client_handle;
+  return pipe.handle1.release();
 }
 
 void GpuChannel::SetUnhandledMessageListener(IPC::Listener* listener) {
@@ -652,7 +642,8 @@ base::WeakPtr<GpuChannel> GpuChannel::AsWeakPtr() {
 }
 
 base::ProcessId GpuChannel::GetClientPID() const {
-  return channel_->GetPeerPID();
+  DCHECK_NE(peer_pid_, base::kNullProcessId);
+  return peer_pid_;
 }
 
 uint32_t GpuChannel::GetProcessedOrderNum() const {
@@ -677,6 +668,10 @@ bool GpuChannel::OnMessageReceived(const IPC::Message& msg) {
   // All messages should be pushed to channel_messages_ and handled separately.
   NOTREACHED();
   return false;
+}
+
+void GpuChannel::OnChannelConnected(int32_t peer_pid) {
+  peer_pid_ = peer_pid;
 }
 
 void GpuChannel::OnChannelError() {
@@ -706,7 +701,11 @@ void GpuChannel::OnStreamRescheduled(int32_t stream_id, bool scheduled) {
 }
 
 GpuCommandBufferStub* GpuChannel::LookupCommandBuffer(int32_t route_id) {
-  return stubs_.get(route_id);
+  auto it = stubs_.find(route_id);
+  if (it == stubs_.end())
+    return nullptr;
+
+  return it->second.get();
 }
 
 void GpuChannel::LoseAllContexts() {
@@ -777,7 +776,7 @@ void GpuChannel::HandleMessage(
 
   const IPC::Message& msg = channel_msg->message;
   int32_t routing_id = msg.routing_id();
-  GpuCommandBufferStub* stub = stubs_.get(routing_id);
+  GpuCommandBufferStub* stub = LookupCommandBuffer(routing_id);
 
   DCHECK(!stub || stub->IsScheduled());
 
@@ -878,7 +877,7 @@ void GpuChannel::RemoveRouteFromStream(int32_t route_id) {
 #if defined(OS_ANDROID)
 const GpuCommandBufferStub* GpuChannel::GetOneStub() const {
   for (const auto& kv : stubs_) {
-    const GpuCommandBufferStub* stub = kv.second;
+    const GpuCommandBufferStub* stub = kv.second.get();
     if (stub->decoder() && !stub->decoder()->WasContextLost())
       return stub;
   }
@@ -901,7 +900,7 @@ void GpuChannel::OnCreateCommandBuffer(
   if (stub) {
     *result = true;
     *capabilities = stub->decoder()->GetCapabilities();
-    stubs_.set(route_id, std::move(stub));
+    stubs_[route_id] = std::move(stub);
   } else {
     *result = false;
     *capabilities = gpu::Capabilities();
@@ -920,7 +919,7 @@ std::unique_ptr<GpuCommandBufferStub> GpuChannel::CreateCommandBuffer(
   }
 
   int32_t share_group_id = init_params.share_group_id;
-  GpuCommandBufferStub* share_group = stubs_.get(share_group_id);
+  GpuCommandBufferStub* share_group = LookupCommandBuffer(share_group_id);
 
   if (!share_group && share_group_id != MSG_ROUTING_NONE) {
     DLOG(ERROR)
@@ -982,7 +981,12 @@ void GpuChannel::OnDestroyCommandBuffer(int32_t route_id) {
   TRACE_EVENT1("gpu", "GpuChannel::OnDestroyCommandBuffer",
                "route_id", route_id);
 
-  std::unique_ptr<GpuCommandBufferStub> stub = stubs_.take_and_erase(route_id);
+  std::unique_ptr<GpuCommandBufferStub> stub;
+  auto it = stubs_.find(route_id);
+  if (it != stubs_.end()) {
+    stub = std::move(it->second);
+    stubs_.erase(it);
+  }
   // In case the renderer is currently blocked waiting for a sync reply from the
   // stub, we need to make sure to reschedule the correct stream here.
   if (stub && !stub->IsScheduled()) {

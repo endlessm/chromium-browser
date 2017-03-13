@@ -18,6 +18,7 @@
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/chrome_switches.h"
 #include "content/public/browser/notification_service.h"
+#include "content/public/browser/notification_types.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/test_utils.h"
 #include "net/dns/mock_host_resolver.h"
@@ -35,8 +36,12 @@ class ActivityLogPrerenderTest : public ExtensionApiTest {
   void SetUpCommandLine(base::CommandLine* command_line) override {
     ExtensionBrowserTest::SetUpCommandLine(command_line);
     command_line->AppendSwitch(switches::kEnableExtensionActivityLogging);
-    command_line->AppendSwitchASCII(switches::kPrerenderMode,
-                                    switches::kPrerenderModeSwitchValueEnabled);
+  }
+
+  void SetUpOnMainThread() override {
+    ExtensionApiTest::SetUpOnMainThread();
+    prerender::PrerenderManager::SetMode(
+        prerender::PrerenderManager::PRERENDER_MODE_ENABLED);
   }
 
   static void Prerender_Arguments(

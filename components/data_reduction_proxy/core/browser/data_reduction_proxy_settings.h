@@ -9,7 +9,6 @@
 
 #include <memory>
 #include <string>
-#include <vector>
 
 #include "base/callback.h"
 #include "base/compiler_specific.h"
@@ -23,6 +22,10 @@
 #include "url/gurl.h"
 
 class PrefService;
+
+namespace base {
+class Clock;
+}
 
 namespace data_reduction_proxy {
 
@@ -155,6 +158,10 @@ class DataReductionProxySettings : public DataReductionProxyServiceObserver,
   // daily original and received content lengths.
   int64_t GetDataReductionLastUpdateTime();
 
+  // Returns the difference between the total original size of all HTTP content
+  // received from the network and the actual size of the HTTP content received.
+  int64_t GetTotalHttpContentLengthSaved();
+
   // Returns aggregate received and original content lengths over the specified
   // number of days, as well as the time these stats were last updated.
   void GetContentLengths(unsigned int days,
@@ -179,11 +186,6 @@ class DataReductionProxySettings : public DataReductionProxyServiceObserver,
   // Returns the event store being used. May be null if
   // InitDataReductionProxySettings has not been called.
   DataReductionProxyEventStore* GetEventStore() const;
-
-  // Returns true if the data reduction proxy configuration may be used.
-  bool Allowed() const {
-    return allowed_;
-  }
 
   // Returns true if the data reduction proxy promo may be shown.
   // This is independent of whether the data reduction proxy is allowed.
@@ -217,12 +219,12 @@ class DataReductionProxySettings : public DataReductionProxyServiceObserver,
 
   // Metrics method. Subclasses should override if they wish to provide
   // alternatives.
-  virtual void RecordDataReductionInit();
+  virtual void RecordDataReductionInit() const;
 
   // Virtualized for mocking. Records UMA specifying whether the proxy was
   // enabled or disabled at startup.
   virtual void RecordStartupState(
-      data_reduction_proxy::ProxyStartupState state);
+      data_reduction_proxy::ProxyStartupState state) const;
 
  private:
   friend class DataReductionProxySettingsTestBase;
@@ -257,6 +259,14 @@ class DataReductionProxySettings : public DataReductionProxyServiceObserver,
                            TestLoFiSessionStateHistograms);
   FRIEND_TEST_ALL_PREFIXES(DataReductionProxySettingsTest,
                            TestSettingsEnabledStateHistograms);
+  FRIEND_TEST_ALL_PREFIXES(DataReductionProxySettingsTest,
+                           TestDaysSinceEnabled);
+  FRIEND_TEST_ALL_PREFIXES(DataReductionProxySettingsTest,
+                           TestDaysSinceEnabledWithTestClock);
+  FRIEND_TEST_ALL_PREFIXES(DataReductionProxySettingsTest,
+                           TestDaysSinceEnabledExistingUser);
+  FRIEND_TEST_ALL_PREFIXES(DataReductionProxySettingsTest,
+                           TestDaysSinceSavingsCleared);
 
   // Override of DataReductionProxyService::Observer.
   void OnServiceInitialized() override;
@@ -324,6 +334,9 @@ class DataReductionProxySettings : public DataReductionProxyServiceObserver,
   DataReductionProxyConfig* config_;
 
   SyntheticFieldTrialRegistrationCallback register_synthetic_field_trial_;
+
+  // Should not be null.
+  std::unique_ptr<base::Clock> clock_;
 
   base::ThreadChecker thread_checker_;
 

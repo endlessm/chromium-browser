@@ -12,12 +12,13 @@
 
 #import "webrtc/modules/audio_device/ios/objc/RTCAudioSession.h"
 
+#import "ARDAppClient.h"
+#import "ARDSettingsModel.h"
+#import "ARDVideoCallView.h"
 #import "WebRTC/RTCAVFoundationVideoSource.h"
 #import "WebRTC/RTCDispatcher.h"
 #import "WebRTC/RTCLogging.h"
-
-#import "ARDAppClient.h"
-#import "ARDVideoCallView.h"
+#import "WebRTC/RTCMediaConstraints.h"
 
 @interface ARDVideoCallViewController () <ARDAppClientDelegate,
     ARDVideoCallViewDelegate>
@@ -45,6 +46,13 @@
   if (self = [super init]) {
     _delegate = delegate;
     _client = [[ARDAppClient alloc] initWithDelegate:self];
+    ARDSettingsModel *settingsModel = [[ARDSettingsModel alloc] init];
+    RTCMediaConstraints *cameraConstraints = [[RTCMediaConstraints alloc]
+        initWithMandatoryConstraints:nil
+                 optionalConstraints:[settingsModel
+                                         currentMediaConstraintFromStoreAsRTCDictionary]];
+    [_client setMaxBitrate:[settingsModel currentMaxBitrateSettingFromStore]];
+    [_client setCameraConstraints:cameraConstraints];
     [_client connectToRoomWithId:room
                       isLoopback:isLoopback
                      isAudioOnly:isAudioOnly

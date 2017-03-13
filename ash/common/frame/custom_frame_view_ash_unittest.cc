@@ -9,10 +9,10 @@
 #include "ash/common/ash_layout_constants.h"
 #include "ash/common/frame/caption_buttons/frame_caption_button.h"
 #include "ash/common/frame/caption_buttons/frame_caption_button_container_view.h"
+#include "ash/common/test/test_session_state_delegate.h"
 #include "ash/common/wm/maximize_mode/maximize_mode_controller.h"
 #include "ash/common/wm_shell.h"
 #include "ash/test/ash_test_base.h"
-#include "ash/test/test_session_state_delegate.h"
 #include "grit/ash_resources.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/geometry/rect.h"
@@ -116,6 +116,13 @@ class CustomFrameViewAshTest : public test::AshTestBase {
  private:
   DISALLOW_COPY_AND_ASSIGN(CustomFrameViewAshTest);
 };
+
+// Verifies the client view is not placed at a y location of 0.
+TEST_F(CustomFrameViewAshTest, ClientViewCorrectlyPlaced) {
+  std::unique_ptr<views::Widget> widget(CreateWidget(new TestWidgetDelegate));
+  widget->Show();
+  EXPECT_NE(0, widget->client_view()->bounds().y());
+}
 
 // Test that the height of the header is correct upon initially displaying
 // the widget.

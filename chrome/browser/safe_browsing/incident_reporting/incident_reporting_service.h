@@ -55,7 +55,6 @@ class ClientIncidentReport;
 class ClientIncidentReport_DownloadDetails;
 class ClientIncidentReport_EnvironmentData;
 class ClientIncidentReport_ExtensionData;
-class ClientIncidentReport_IncidentData;
 class Incident;
 class IncidentReceiver;
 class SafeBrowsingDatabaseManager;
@@ -160,9 +159,6 @@ class IncidentReportingService : public content::NotificationObserver {
   struct ProfileContext;
   class UploadContext;
   class Receiver;
-
-  // A mapping of profiles to contexts holding state about received incidents.
-  typedef std::map<Profile*, ProfileContext*> ProfileContextCollection;
 
   // Returns the context for |profile|, creating it if it does not exist.
   ProfileContext* GetOrCreateProfileContext(Profile* profile);
@@ -333,8 +329,9 @@ class IncidentReportingService : public content::NotificationObserver {
   base::TimeTicks last_download_begin_;
 
   // Context data for all on-the-record profiles plus the process-wide (NULL)
-  // context.
-  ProfileContextCollection profiles_;
+  // context. A mapping of profiles to contexts holding state about received
+  // incidents.
+  std::map<Profile*, std::unique_ptr<ProfileContext>> profiles_;
 
   // Callbacks registered for performing delayed analysis.
   DelayedCallbackRunner delayed_analysis_callbacks_;

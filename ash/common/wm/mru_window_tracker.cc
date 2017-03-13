@@ -6,12 +6,12 @@
 
 #include <algorithm>
 
-#include "ash/common/shell_window_ids.h"
 #include "ash/common/wm/focus_rules.h"
 #include "ash/common/wm/switchable_windows.h"
 #include "ash/common/wm/window_state.h"
 #include "ash/common/wm_shell.h"
 #include "ash/common/wm_window.h"
+#include "ash/public/cpp/shell_window_ids.h"
 #include "base/bind.h"
 
 namespace ash {
@@ -59,8 +59,7 @@ MruWindowTracker::WindowList BuildWindowListInternal(
   // Removes unfocusable windows.
   std::vector<WmWindow*>::iterator itr = windows.begin();
   while (itr != windows.end()) {
-    if (!should_include_window_predicate.Run(*itr) ||
-        (*itr)->GetWindowState()->ShouldBeExcludedFromMru())
+    if (!should_include_window_predicate.Run(*itr))
       itr = windows.erase(itr);
     else
       ++itr;

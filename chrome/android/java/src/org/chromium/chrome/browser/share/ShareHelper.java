@@ -41,6 +41,7 @@ import org.chromium.base.ApplicationStatus;
 import org.chromium.base.Callback;
 import org.chromium.base.ContextUtils;
 import org.chromium.base.Log;
+import org.chromium.base.StreamUtil;
 import org.chromium.base.VisibleForTesting;
 import org.chromium.base.annotations.SuppressFBWarnings;
 import org.chromium.base.metrics.RecordHistogram;
@@ -98,7 +99,7 @@ public class ShareHelper {
     private static final String SHARE_IMAGES_DIRECTORY_NAME = "screenshot";
 
     /** Force the use of a Chrome-specific intent chooser, not the system chooser. */
-    private static boolean sForceCustomChooserForTesting = false;
+    private static boolean sForceCustomChooserForTesting;
 
     /** If non-null, will be used instead of the real activity. */
     private static FakeIntentReceiver sFakeIntentReceiverForTesting;
@@ -358,7 +359,8 @@ public class ShareHelper {
 
                 if (ApplicationStatus.getStateForApplication()
                         != ApplicationState.HAS_DESTROYED_ACTIVITIES) {
-                    Uri imageUri = UiUtils.getUriForImageCaptureFile(activity, saveFile);
+                    Uri imageUri = ApiCompatibilityUtils.getUriForImageCaptureFile(activity,
+                            saveFile);
 
                     Intent chooserIntent = Intent.createChooser(getShareImageIntent(imageUri),
                             activity.getString(R.string.share_link_chooser_title));
@@ -396,18 +398,12 @@ public class ShareHelper {
                         File saveFile = File.createTempFile(fileName, JPEG_EXTENSION, path);
                         fOut = new FileOutputStream(saveFile);
                         screenshot.compress(Bitmap.CompressFormat.JPEG, 85, fOut);
-                        fOut.flush();
-                        fOut.close();
                         return saveFile;
                     }
                 } catch (IOException ie) {
-                    if (fOut != null) {
-                        try {
-                            fOut.close();
-                        } catch (IOException e) {
-                            // Ignore exception.
-                        }
-                    }
+                    Log.w(TAG, "Ignoring IOException when saving screenshot.", ie);
+                } finally {
+                    StreamUtil.closeQuietly(fOut);
                 }
 
                 return null;
@@ -419,7 +415,7 @@ public class ShareHelper {
                 if (ApplicationStatus.getStateForApplication()
                         != ApplicationState.HAS_DESTROYED_ACTIVITIES
                         && savedFile != null) {
-                    fileUri = UiUtils.getUriForImageCaptureFile(context, savedFile);
+                    fileUri = ApiCompatibilityUtils.getUriForImageCaptureFile(context, savedFile);
                 }
                 callback.onResult(fileUri);
             }

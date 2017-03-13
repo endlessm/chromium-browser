@@ -9,7 +9,6 @@
 
 #include <map>
 #include <memory>
-#include <set>
 #include <string>
 #include <vector>
 
@@ -43,15 +42,17 @@
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
 #include "content/public/browser/page_navigator.h"
+#include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_delegate.h"
 #include "content/public/common/page_zoom.h"
+#include "extensions/features/features.h"
 #include "ui/base/page_transition_types.h"
 #include "ui/base/ui_base_types.h"
 #include "ui/base/window_open_disposition.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/shell_dialogs/select_file_dialog.h"
 
-#if defined(ENABLE_EXTENSIONS)
+#if BUILDFLAG(ENABLE_EXTENSIONS)
 #include "extensions/browser/extension_registry_observer.h"
 #endif
 
@@ -62,7 +63,6 @@ class BrowserToolbarModelDelegate;
 class BrowserLiveTabContext;
 class BrowserWindow;
 class FindBarController;
-class PrefService;
 class Profile;
 class ScopedKeepAlive;
 class SearchDelegate;
@@ -71,7 +71,6 @@ class StatusBubble;
 class TabStripModel;
 class TabStripModelDelegate;
 class ValidationMessageBubble;
-struct WebApplicationInfo;
 
 namespace chrome {
 class BrowserCommandController;
@@ -80,7 +79,6 @@ class UnloadController;
 }
 
 namespace content {
-class NavigationController;
 class PageState;
 class SessionStorageNamespace;
 }
@@ -99,7 +97,6 @@ class Point;
 
 namespace ui {
 struct SelectedFileInfo;
-class WebDialogDelegate;
 }
 
 namespace web_modal {
@@ -115,7 +112,7 @@ class Browser : public TabStripModelObserver,
                 public zoom::ZoomObserver,
                 public content::PageNavigator,
                 public content::NotificationObserver,
-#if defined(ENABLE_EXTENSIONS)
+#if BUILDFLAG(ENABLE_EXTENSIONS)
                 public extensions::ExtensionRegistryObserver,
 #endif
                 public translate::ContentTranslateDriver::Observer,
@@ -141,7 +138,6 @@ class Browser : public TabStripModelObserver,
     FEATURE_BOOKMARKBAR = 16,
     FEATURE_INFOBAR = 32,
     FEATURE_DOWNLOADSHELF = 64,
-    FEATURE_WEBAPPFRAME = 128
   };
 
   // The context for a download blocked notification from
@@ -303,6 +299,16 @@ class Browser : public TabStripModelObserver,
   // Gets the title of the window based on the selected tab's title.
   // Disables additional formatting when |include_app_name| is false.
   base::string16 GetWindowTitleForCurrentTab(bool include_app_name) const;
+
+  // Gets the window title of the tab at |index|.
+  // Disables additional formatting when |include_app_name| is false.
+  base::string16 GetWindowTitleForTab(bool include_app_name, int index) const;
+
+  // Gets the window title from the provided WebContents.
+  // Disables additional formatting when |include_app_name| is false.
+  base::string16 GetWindowTitleFromWebContents(
+      bool include_app_name,
+      content::WebContents* contents) const;
 
   // Prepares a title string for display (removes embedded newlines, etc).
   static void FormatTitleForDisplay(base::string16* title);
@@ -479,7 +485,7 @@ class Browser : public TabStripModelObserver,
   bool CanDragEnter(content::WebContents* source,
                     const content::DropData& data,
                     blink::WebDragOperationsMask operations_allowed) override;
-  content::SecurityStyle GetSecurityStyle(
+  blink::WebSecurityStyle GetSecurityStyle(
       content::WebContents* web_contents,
       content::SecurityStyleExplanations* security_style_explanations) override;
   void ShowCertificateViewerInDevTools(
@@ -578,7 +584,7 @@ class Browser : public TabStripModelObserver,
       const content::OpenURLParams& params) override;
   void NavigationStateChanged(content::WebContents* source,
                               content::InvalidateTypes changed_flags) override;
-  void VisibleSSLStateChanged(const content::WebContents* source) override;
+  void VisibleSecurityStateChanged(content::WebContents* source) override;
   void AddNewContents(content::WebContents* source,
                       content::WebContents* new_contents,
                       WindowOpenDisposition disposition,
@@ -599,7 +605,6 @@ class Browser : public TabStripModelObserver,
                           bool exited) override;
   void ContentsZoomChange(bool zoom_in) override;
   bool TakeFocus(content::WebContents* source, bool reverse) override;
-  gfx::Rect GetRootWindowResizerRect() const override;
   void BeforeUnloadFired(content::WebContents* source,
                          bool proceed,
                          bool* proceed_to_fire_unload) override;
@@ -612,10 +617,12 @@ class Browser : public TabStripModelObserver,
   void ShowRepostFormWarningDialog(content::WebContents* source) override;
   bool ShouldCreateWebContents(
       content::WebContents* web_contents,
+      content::SiteInstance* source_site_instance,
       int32_t route_id,
       int32_t main_frame_route_id,
       int32_t main_frame_widget_route_id,
       WindowContainerType window_container_type,
+      const GURL& opener_url,
       const std::string& frame_name,
       const GURL& target_url,
       const std::string& partition_id,
@@ -626,7 +633,9 @@ class Browser : public TabStripModelObserver,
                           const std::string& frame_name,
                           const GURL& target_url,
                           content::WebContents* new_contents) override;
-  void RendererUnresponsive(content::WebContents* source) override;
+  void RendererUnresponsive(
+      content::WebContents* source,
+      const content::WebContentsUnresponsiveState& unresponsive_state) override;
   void RendererResponsive(content::WebContents* source) override;
   void DidNavigateMainFramePostCommit(
       content::WebContents* web_contents) override;
@@ -699,7 +708,6 @@ class Browser : public TabStripModelObserver,
   void OnWebContentsInstantSupportDisabled(
       const content::WebContents* web_contents) override;
   OmniboxView* GetOmniboxView() override;
-  std::set<std::string> GetOpenUrls() override;
 
   // Overridden from WebContentsModalDialogManagerDelegate:
   void SetWebContentsBlocked(content::WebContents* web_contents,
@@ -728,7 +736,7 @@ class Browser : public TabStripModelObserver,
                const content::NotificationSource& source,
                const content::NotificationDetails& details) override;
 
-#if defined(ENABLE_EXTENSIONS)
+#if BUILDFLAG(ENABLE_EXTENSIONS)
   // Overridden from extensions::ExtensionRegistryObserver:
   void OnExtensionUninstalled(content::BrowserContext* browser_context,
                               const extensions::Extension* extension,
@@ -832,9 +840,6 @@ class Browser : public TabStripModelObserver,
   // Returns true if the Browser window should show the location bar.
   bool ShouldShowLocationBar() const;
 
-  // Returns true if the Browser window should use a web app style frame.
-  bool ShouldUseWebAppFrame() const;
-
   // Implementation of SupportsWindowFeature and CanSupportWindowFeature. If
   // |check_fullscreen| is true, the set of features reflect the actual state of
   // the browser, otherwise the set of features reflect the possible state of
@@ -855,10 +860,11 @@ class Browser : public TabStripModelObserver,
   // Creates a BackgroundContents if appropriate; return true if one was
   // created.
   bool MaybeCreateBackgroundContents(
+      content::SiteInstance* source_site_instance,
+      const GURL& opener_url,
       int32_t route_id,
       int32_t main_frame_route_id,
       int32_t main_frame_widget_route_id,
-      content::WebContents* opener_web_contents,
       const std::string& frame_name,
       const GURL& target_url,
       const std::string& partition_id,
@@ -870,7 +876,7 @@ class Browser : public TabStripModelObserver,
 
   content::NotificationRegistrar registrar_;
 
-#if defined(ENABLE_EXTENSIONS)
+#if BUILDFLAG(ENABLE_EXTENSIONS)
   ScopedObserver<extensions::ExtensionRegistry,
                  extensions::ExtensionRegistryObserver>
       extension_registry_observer_;

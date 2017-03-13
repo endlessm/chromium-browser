@@ -4,20 +4,19 @@
 
 package org.chromium.net;
 
-import android.os.ConditionVariable;
-
-import org.chromium.base.annotations.JNINamespace;
-import org.chromium.net.impl.CronetUrlRequest;
 import org.json.JSONException;
 import org.json.JSONObject;
+
+import org.chromium.base.annotations.JNINamespace;
+import org.chromium.net.impl.CronetEngineBuilderImpl;
+import org.chromium.net.impl.CronetUrlRequest;
+import org.chromium.net.impl.CronetUrlRequestContext;
 
 /**
  * Utilities for Cronet testing
  */
 @JNINamespace("cronet")
 public class CronetTestUtil {
-    private static final ConditionVariable sHostResolverBlock = new ConditionVariable();
-
     static final String SDCH_FAKE_HOST = "fake.sdch.domain";
     // QUIC test domain must match the certificate used
     // (quic_test.example.com.crt and quic_test.example.com.key.pkcs8), and
@@ -58,6 +57,22 @@ public class CronetTestUtil {
     }
 
     /**
+     * Prepare {@code cronetEngine}'s network thread so libcronet_test code can run on it.
+     */
+    public static class NetworkThreadTestConnector {
+        private final CronetUrlRequestContext mRequestContext;
+
+        public NetworkThreadTestConnector(CronetEngine cronetEngine) {
+            mRequestContext = (CronetUrlRequestContext) cronetEngine;
+            nativePrepareNetworkThread(mRequestContext.getUrlRequestContextAdapter());
+        }
+
+        public void shutdown() {
+            nativeCleanupNetworkThread(mRequestContext.getUrlRequestContextAdapter());
+        }
+    }
+
+    /**
      * Returns the value of load flags in |urlRequest|.
      * @param urlRequest is the UrlRequest object of interest.
      */
@@ -65,5 +80,18 @@ public class CronetTestUtil {
         return nativeGetLoadFlags(((CronetUrlRequest) urlRequest).getUrlRequestAdapterForTesting());
     }
 
-    private static native int nativeGetLoadFlags(long urlRequest);
+    public static void setMockCertVerifierForTesting(
+            ExperimentalCronetEngine.Builder builder, long mockCertVerifier) {
+        getCronetEngineBuilderImpl(builder).setMockCertVerifierForTesting(mockCertVerifier);
+    }
+
+    public static CronetEngineBuilderImpl getCronetEngineBuilderImpl(
+            ExperimentalCronetEngine.Builder builder) {
+        return (CronetEngineBuilderImpl) builder.getBuilderDelegate();
+    }
+
+    private static native int nativeGetLoadFlags(long urlRequestAdapter);
+
+    private static native void nativePrepareNetworkThread(long contextAdapter);
+    private static native void nativeCleanupNetworkThread(long contextAdapter);
 }

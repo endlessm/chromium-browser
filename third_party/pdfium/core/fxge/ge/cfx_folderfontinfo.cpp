@@ -6,6 +6,8 @@
 
 #include "core/fxge/ge/cfx_folderfontinfo.h"
 
+#include <limits>
+
 #include "core/fxge/cfx_fontmapper.h"
 #include "core/fxge/fx_font.h"
 
@@ -76,7 +78,7 @@ uint32_t GetCharset(int charset) {
 }
 
 int32_t GetSimilarValue(int weight,
-                        FX_BOOL bItalic,
+                        bool bItalic,
                         int pitch_family,
                         uint32_t style) {
   int32_t iSimilarValue = 0;
@@ -108,21 +110,21 @@ void CFX_FolderFontInfo::AddPath(const CFX_ByteStringC& path) {
   m_PathList.push_back(CFX_ByteString(path));
 }
 
-FX_BOOL CFX_FolderFontInfo::EnumFontList(CFX_FontMapper* pMapper) {
+bool CFX_FolderFontInfo::EnumFontList(CFX_FontMapper* pMapper) {
   m_pMapper = pMapper;
   for (const auto& path : m_PathList)
     ScanPath(path);
-  return TRUE;
+  return true;
 }
 
 void CFX_FolderFontInfo::ScanPath(const CFX_ByteString& path) {
-  void* handle = FX_OpenFolder(path.c_str());
+  FX_FileHandle* handle = FX_OpenFolder(path.c_str());
   if (!handle)
     return;
 
   CFX_ByteString filename;
-  FX_BOOL bFolder;
-  while (FX_GetNextFile(handle, filename, bFolder)) {
+  bool bFolder;
+  while (FX_GetNextFile(handle, &filename, &bFolder)) {
     if (bFolder) {
       if (filename == "." || filename == "..")
         continue;
@@ -270,11 +272,11 @@ void* CFX_FolderFontInfo::GetSubstFont(const CFX_ByteString& face) {
 }
 
 void* CFX_FolderFontInfo::FindFont(int weight,
-                                   FX_BOOL bItalic,
+                                   bool bItalic,
                                    int charset,
                                    int pitch_family,
                                    const FX_CHAR* family,
-                                   FX_BOOL bMatchName) {
+                                   bool bMatchName) {
   CFX_FontFaceInfo* pFind = nullptr;
   if (charset == FXFONT_ANSI_CHARSET && (pitch_family & FXFONT_FF_FIXEDPITCH))
     return GetFont("Courier New");
@@ -301,7 +303,7 @@ void* CFX_FolderFontInfo::FindFont(int weight,
 }
 
 void* CFX_FolderFontInfo::MapFont(int weight,
-                                  FX_BOOL bItalic,
+                                  bool bItalic,
                                   int charset,
                                   int pitch_family,
                                   const FX_CHAR* family,
@@ -312,7 +314,7 @@ void* CFX_FolderFontInfo::MapFont(int weight,
 #ifdef PDF_ENABLE_XFA
 void* CFX_FolderFontInfo::MapFontByUnicode(uint32_t dwUnicode,
                                            int weight,
-                                           FX_BOOL bItalic,
+                                           bool bItalic,
                                            int pitch_family) {
   return nullptr;
 }
@@ -364,14 +366,14 @@ uint32_t CFX_FolderFontInfo::GetFontData(void* hFont,
 }
 
 void CFX_FolderFontInfo::DeleteFont(void* hFont) {}
-FX_BOOL CFX_FolderFontInfo::GetFaceName(void* hFont, CFX_ByteString& name) {
+bool CFX_FolderFontInfo::GetFaceName(void* hFont, CFX_ByteString& name) {
   if (!hFont)
-    return FALSE;
+    return false;
   CFX_FontFaceInfo* pFont = (CFX_FontFaceInfo*)hFont;
   name = pFont->m_FaceName;
-  return TRUE;
+  return true;
 }
 
-FX_BOOL CFX_FolderFontInfo::GetFontCharset(void* hFont, int& charset) {
-  return FALSE;
+bool CFX_FolderFontInfo::GetFontCharset(void* hFont, int& charset) {
+  return false;
 }

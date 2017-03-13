@@ -27,16 +27,19 @@
 #include "core/fetch/CachedMetadata.h"
 #include "core/fetch/CrossOriginAccessControl.h"
 #include "core/fetch/FetchInitiatorTypeNames.h"
+#include "core/fetch/FetchRequest.h"
+#include "core/fetch/IntegrityMetadata.h"
 #include "core/fetch/MemoryCache.h"
 #include "core/fetch/ResourceClient.h"
 #include "core/fetch/ResourceClientWalker.h"
 #include "core/fetch/ResourceLoader.h"
-#include "core/inspector/InstanceCounters.h"
 #include "platform/Histogram.h"
+#include "platform/InstanceCounters.h"
 #include "platform/RuntimeEnabledFeatures.h"
 #include "platform/SharedBuffer.h"
+#include "platform/WebTaskRunner.h"
+#include "platform/instrumentation/tracing/TraceEvent.h"
 #include "platform/network/HTTPParsers.h"
-#include "platform/tracing/TraceEvent.h"
 #include "platform/weborigin/KURL.h"
 #include "public/platform/Platform.h"
 #include "public/platform/WebCachePolicy.h"
@@ -49,6 +52,7 @@
 #include "wtf/text/CString.h"
 #include "wtf/text/StringBuilder.h"
 #include <algorithm>
+#include <cassert>
 #include <memory>
 #include <stdint.h>
 
@@ -90,7 +94,7 @@ static inline bool shouldUpdateHeaderAfterRevalidation(
   for (size_t i = 0;
        i < WTF_ARRAY_LENGTH(headerPrefixesToIgnoreAfterRevalidation); i++) {
     if (header.startsWith(headerPrefixesToIgnoreAfterRevalidation[i],
-                          TextCaseInsensitive))
+                          TextCaseASCIIInsensitive))
       return false;
   }
   return true;
@@ -251,7 +255,7 @@ class Resource::ResourceCallback final {
   ResourceCallback();
 
   void runTask();
-  std::unique_ptr<CancellableTaskFactory> m_callbackTaskFactory;
+  TaskHandle m_taskHandle;
   HashSet<Persistent<Resource>> m_resourcesWithPendingClients;
 };
 
@@ -260,25 +264,28 @@ Resource::ResourceCallback& Resource::ResourceCallback::callbackHandler() {
   return callbackHandler;
 }
 
-Resource::ResourceCallback::ResourceCallback()
-    : m_callbackTaskFactory(
-          CancellableTaskFactory::create(this, &ResourceCallback::runTask)) {}
+Resource::ResourceCallback::ResourceCallback() {}
 
 void Resource::ResourceCallback::schedule(Resource* resource) {
-  if (!m_callbackTaskFactory->isPending())
-    Platform::current()
-        ->currentThread()
-        ->scheduler()
-        ->loadingTaskRunner()
-        ->postTask(BLINK_FROM_HERE, m_callbackTaskFactory->cancelAndCreate());
+  if (!m_taskHandle.isActive()) {
+    // WTF::unretained(this) is safe because a posted task is canceled when
+    // |m_taskHandle| is destroyed on the dtor of this ResourceCallback.
+    m_taskHandle =
+        Platform::current()
+            ->currentThread()
+            ->scheduler()
+            ->loadingTaskRunner()
+            ->postCancellableTask(
+                BLINK_FROM_HERE,
+                WTF::bind(&ResourceCallback::runTask, WTF::unretained(this)));
+  }
   m_resourcesWithPendingClients.add(resource);
 }
 
 void Resource::ResourceCallback::cancel(Resource* resource) {
   m_resourcesWithPendingClients.remove(resource);
-  if (m_callbackTaskFactory->isPending() &&
-      m_resourcesWithPendingClients.isEmpty())
-    m_callbackTaskFactory->cancel();
+  if (m_taskHandle.isActive() && m_resourcesWithPendingClients.isEmpty())
+    m_taskHandle.cancel();
 }
 
 bool Resource::ResourceCallback::isScheduled(Resource* resource) const {
@@ -288,12 +295,18 @@ bool Resource::ResourceCallback::isScheduled(Resource* resource) const {
 void Resource::ResourceCallback::runTask() {
   HeapVector<Member<Resource>> resources;
   for (const Member<Resource>& resource : m_resourcesWithPendingClients)
-    resources.append(resource.get());
+    resources.push_back(resource.get());
   m_resourcesWithPendingClients.clear();
 
   for (const auto& resource : resources)
     resource->finishPendingClients();
 }
+
+constexpr Resource::Status Resource::NotStarted;
+constexpr Resource::Status Resource::Pending;
+constexpr Resource::Status Resource::Cached;
+constexpr Resource::Status Resource::LoadError;
+constexpr Resource::Status Resource::DecodeError;
 
 Resource::Resource(const ResourceRequest& request,
                    Type type,
@@ -301,6 +314,7 @@ Resource::Resource(const ResourceRequest& request,
     : m_loadFinishTime(0),
       m_identifier(0),
       m_encodedSize(0),
+      m_encodedSizeMemoryUsage(0),
       m_decodedSize(0),
       m_overheadSize(calculateOverheadSize()),
       m_preloadCount(0),
@@ -313,12 +327,14 @@ Resource::Resource(const ResourceRequest& request,
       m_linkPreload(false),
       m_isRevalidating(false),
       m_isAlive(false),
+      m_isAddRemoveClientProhibited(false),
+      m_integrityDisposition(ResourceIntegrityDisposition::NotChecked),
       m_options(options),
       m_responseTimestamp(currentTime()),
-      m_cancelTimer(this, &Resource::cancelTimerFired),
+      m_cancelTimer(Platform::current()->mainThread()->getWebTaskRunner(),
+                    this,
+                    &Resource::cancelTimerFired),
       m_resourceRequest(request) {
-  // m_type is a bitfield, so this tests careless updates of the enum.
-  DCHECK_EQ(m_type, unsigned(type));
   InstanceCounters::incrementCounter(InstanceCounters::ResourceCounter);
 
   // Currently we support the metadata caching only for HTTP family.
@@ -348,17 +364,12 @@ void Resource::setLoader(ResourceLoader* loader) {
 }
 
 void Resource::checkNotify() {
-  notifyClientsInternal(MarkFinishedOption::ShouldMarkFinished);
-}
-
-void Resource::notifyClientsInternal(MarkFinishedOption markFinishedOption) {
   if (isLoading())
     return;
 
   ResourceClientWalker<ResourceClient> w(m_clients);
   while (ResourceClient* c = w.next()) {
-    if (markFinishedOption == MarkFinishedOption::ShouldMarkFinished)
-      markClientFinished(c);
+    markClientFinished(c);
     c->notifyFinished(this);
   }
 }
@@ -391,9 +402,14 @@ void Resource::setResourceBuffer(PassRefPtr<SharedBuffer> resourceBuffer) {
   setEncodedSize(m_data->size());
 }
 
+void Resource::clearData() {
+  m_data.clear();
+  m_encodedSizeMemoryUsage = 0;
+}
+
 void Resource::setDataBufferingPolicy(DataBufferingPolicy dataBufferingPolicy) {
   m_options.dataBufferingPolicy = dataBufferingPolicy;
-  m_data.clear();
+  clearData();
   setEncodedSize(0);
 }
 
@@ -408,7 +424,7 @@ void Resource::error(const ResourceError& error) {
   if (!errorOccurred())
     setStatus(LoadError);
   DCHECK(errorOccurred());
-  m_data.clear();
+  clearData();
   m_loader = nullptr;
   checkNotify();
 }
@@ -428,24 +444,37 @@ AtomicString Resource::httpContentType() const {
 }
 
 bool Resource::passesAccessControlCheck(SecurityOrigin* securityOrigin) const {
-  String ignoredErrorDescription;
-  return passesAccessControlCheck(securityOrigin, ignoredErrorDescription);
-}
+  StoredCredentials storedCredentials =
+      lastResourceRequest().allowStoredCredentials()
+          ? AllowStoredCredentials
+          : DoNotAllowStoredCredentials;
+  CrossOriginAccessControl::AccessStatus status =
+      CrossOriginAccessControl::checkAccess(m_response, storedCredentials,
+                                            securityOrigin);
 
-bool Resource::passesAccessControlCheck(SecurityOrigin* securityOrigin,
-                                        String& errorDescription) const {
-  return blink::passesAccessControlCheck(
-      m_response, lastResourceRequest().allowStoredCredentials()
-                      ? AllowStoredCredentials
-                      : DoNotAllowStoredCredentials,
-      securityOrigin, errorDescription, lastResourceRequest().requestContext());
+  return status == CrossOriginAccessControl::kAccessAllowed;
 }
 
 bool Resource::isEligibleForIntegrityCheck(
     SecurityOrigin* securityOrigin) const {
-  String ignoredErrorDescription;
   return securityOrigin->canRequest(resourceRequest().url()) ||
-         passesAccessControlCheck(securityOrigin, ignoredErrorDescription);
+         passesAccessControlCheck(securityOrigin);
+}
+
+void Resource::setIntegrityDisposition(
+    ResourceIntegrityDisposition disposition) {
+  DCHECK_NE(disposition, ResourceIntegrityDisposition::NotChecked);
+  DCHECK(m_type == Resource::Script || m_type == Resource::CSSStyleSheet);
+  m_integrityDisposition = disposition;
+}
+
+bool Resource::mustRefetchDueToIntegrityMetadata(
+    const FetchRequest& request) const {
+  if (request.integrityMetadata().isEmpty())
+    return false;
+
+  return !IntegrityMetadata::setsEqual(m_integrityMetadata,
+                                       request.integrityMetadata());
 }
 
 static double currentAge(const ResourceResponse& response,
@@ -538,12 +567,13 @@ static bool canUseResponse(ResourceResponse& response,
 const ResourceRequest& Resource::lastResourceRequest() const {
   if (!m_redirectChain.size())
     return m_resourceRequest;
-  return m_redirectChain.last().m_request;
+  return m_redirectChain.back().m_request;
 }
 
 void Resource::setRevalidatingRequest(const ResourceRequest& request) {
   SECURITY_CHECK(m_redirectChain.isEmpty());
   DCHECK(!request.isNull());
+  CHECK(!m_isRevalidationStartForbidden);
   m_isRevalidating = true;
   m_resourceRequest = request;
   m_status = NotStarted;
@@ -553,15 +583,16 @@ bool Resource::willFollowRedirect(const ResourceRequest& newRequest,
                                   const ResourceResponse& redirectResponse) {
   if (m_isRevalidating)
     revalidationFailed();
-  m_redirectChain.append(RedirectPair(newRequest, redirectResponse));
+  m_redirectChain.push_back(RedirectPair(newRequest, redirectResponse));
   return true;
 }
 
 void Resource::setResponse(const ResourceResponse& response) {
   m_response = response;
-  if (m_response.wasFetchedViaServiceWorker())
+  if (m_response.wasFetchedViaServiceWorker()) {
     m_cacheHandler = ServiceWorkerResponseCachedMetadataHandler::create(
         this, m_fetcherSecurityOrigin.get());
+  }
 }
 
 void Resource::responseReceived(const ResourceResponse& response,
@@ -645,7 +676,7 @@ void Resource::didAddClient(ResourceClient* c) {
   }
 }
 
-static bool shouldSendCachedDataSynchronouslyForType(Resource::Type type) {
+static bool typeNeedsSynchronousCacheHit(Resource::Type type) {
   // Some resources types default to return data synchronously. For most of
   // these, it's because there are layout tests that expect data to return
   // synchronously in case of cache hit. In the case of fonts, there was a
@@ -682,12 +713,13 @@ void Resource::willAddClientOrObserver(PreloadReferencePolicy policy) {
   }
   if (!hasClientsOrObservers()) {
     m_isAlive = true;
-    memoryCache()->makeLive(this);
   }
 }
 
 void Resource::addClient(ResourceClient* client,
                          PreloadReferencePolicy policy) {
+  CHECK(!m_isAddRemoveClientProhibited);
+
   willAddClientOrObserver(policy);
 
   if (m_isRevalidating) {
@@ -695,11 +727,10 @@ void Resource::addClient(ResourceClient* client,
     return;
   }
 
-  // If we have existing data to send to the new client and the resource type
-  // supprts it, send it asynchronously.
-  if (!m_response.isNull() &&
-      !shouldSendCachedDataSynchronouslyForType(getType()) &&
-      !m_needsSynchronousCacheHit) {
+  // If an error has occurred or we have existing data to send to the new client
+  // and the resource type supprts it, send it asynchronously.
+  if ((errorOccurred() || !m_response.isNull()) &&
+      !typeNeedsSynchronousCacheHit(getType()) && !m_needsSynchronousCacheHit) {
     m_clientsAwaitingCallback.add(client);
     ResourceCallback::callbackHandler().schedule(this);
     return;
@@ -711,6 +742,8 @@ void Resource::addClient(ResourceClient* client,
 }
 
 void Resource::removeClient(ResourceClient* client) {
+  CHECK(!m_isAddRemoveClientProhibited);
+
   // This code may be called in a pre-finalizer, where weak members in the
   // HashCountedSet are already swept out.
 
@@ -730,7 +763,6 @@ void Resource::removeClient(ResourceClient* client) {
 void Resource::didRemoveClientOrObserver() {
   if (!hasClientsOrObservers() && m_isAlive) {
     m_isAlive = false;
-    memoryCache()->makeDead(this);
     allClientsAndObserversRemoved();
 
     // RFC2616 14.9.2:
@@ -764,20 +796,15 @@ void Resource::setDecodedSize(size_t decodedSize) {
   size_t oldSize = size();
   m_decodedSize = decodedSize;
   memoryCache()->update(this, oldSize, size());
-  memoryCache()->updateDecodedResource(this, UpdateForPropertyChange);
 }
 
 void Resource::setEncodedSize(size_t encodedSize) {
-  if (encodedSize == m_encodedSize)
+  if (encodedSize == m_encodedSize && encodedSize == m_encodedSizeMemoryUsage)
     return;
   size_t oldSize = size();
   m_encodedSize = encodedSize;
+  m_encodedSizeMemoryUsage = encodedSize;
   memoryCache()->update(this, oldSize, size());
-}
-
-void Resource::didAccessDecodedData() {
-  memoryCache()->updateDecodedResource(this, UpdateForAccess);
-  memoryCache()->prune();
 }
 
 void Resource::finishPendingClients() {
@@ -821,7 +848,9 @@ void Resource::prune() {
   destroyDecodedDataIfPossible();
 }
 
-void Resource::prepareToSuspend() {
+void Resource::onMemoryStateChange(MemoryState state) {
+  if (state != MemoryState::SUSPENDED)
+    return;
   prune();
   if (!m_cacheHandler)
     return;
@@ -836,11 +865,11 @@ void Resource::onMemoryDump(WebMemoryDumpLevelOfDetail levelOfDetail,
   const String dumpName = getMemoryDumpName();
   WebMemoryAllocatorDump* dump =
       memoryDump->createMemoryAllocatorDump(dumpName);
-  dump->addScalar("encoded_size", "bytes", m_encodedSize);
+  dump->addScalar("encoded_size", "bytes", m_encodedSizeMemoryUsage);
   if (hasClientsOrObservers())
-    dump->addScalar("live_size", "bytes", m_encodedSize);
+    dump->addScalar("live_size", "bytes", m_encodedSizeMemoryUsage);
   else
-    dump->addScalar("dead_size", "bytes", m_encodedSize);
+    dump->addScalar("dead_size", "bytes", m_encodedSizeMemoryUsage);
 
   if (m_data)
     m_data->onMemoryDump(dumpName, memoryDump);
@@ -858,13 +887,13 @@ void Resource::onMemoryDump(WebMemoryDumpLevelOfDetail levelOfDetail,
     Vector<String> clientNames;
     ResourceClientWalker<ResourceClient> walker(m_clients);
     while (ResourceClient* client = walker.next())
-      clientNames.append(client->debugName());
+      clientNames.push_back(client->debugName());
     ResourceClientWalker<ResourceClient> walker2(m_clientsAwaitingCallback);
     while (ResourceClient* client = walker2.next())
-      clientNames.append("(awaiting) " + client->debugName());
+      clientNames.push_back("(awaiting) " + client->debugName());
     ResourceClientWalker<ResourceClient> walker3(m_finishedClients);
     while (ResourceClient* client = walker3.next())
-      clientNames.append("(finished) " + client->debugName());
+      clientNames.push_back("(finished) " + client->debugName());
     std::sort(clientNames.begin(), clientNames.end(),
               WTF::codePointCompareLessThan);
 
@@ -896,15 +925,20 @@ void Resource::onMemoryDump(WebMemoryDumpLevelOfDetail levelOfDetail,
 String Resource::getMemoryDumpName() const {
   return String::format(
       "web_cache/%s_resources/%ld",
-      resourceTypeToString(getType(), options().initiatorInfo), m_identifier);
+      resourceTypeToString(getType(), options().initiatorInfo.name),
+      m_identifier);
 }
 
 void Resource::setCachePolicyBypassingCache() {
   m_resourceRequest.setCachePolicy(WebCachePolicy::BypassingCache);
 }
 
-void Resource::setLoFiStateOff() {
-  m_resourceRequest.setLoFiState(WebURLRequest::LoFiOff);
+void Resource::setPreviewsStateNoTransform() {
+  m_resourceRequest.setPreviewsState(WebURLRequest::PreviewsNoTransform);
+}
+
+void Resource::clearRangeRequestHeader() {
+  m_resourceRequest.clearHTTPHeaderField("range");
 }
 
 void Resource::revalidationSucceeded(
@@ -933,7 +967,7 @@ void Resource::revalidationSucceeded(
 
 void Resource::revalidationFailed() {
   SECURITY_CHECK(m_redirectChain.isEmpty());
-  m_data.clear();
+  clearData();
   m_cacheHandler.clear();
   destroyDecodedDataForFailedRevalidation();
   m_isRevalidating = false;
@@ -994,7 +1028,8 @@ void Resource::didChangePriority(ResourceLoadPriority loadPriority,
     m_loader->didChangePriority(loadPriority, intraPriorityValue);
 }
 
-static const char* initatorTypeNameToString(
+// TODO(toyoshim): Consider to generate automatically. https://crbug.com/675515.
+static const char* initiatorTypeNameToString(
     const AtomicString& initiatorTypeName) {
   if (initiatorTypeName == FetchInitiatorTypeNames::css)
     return "CSS resource";
@@ -1015,12 +1050,16 @@ static const char* initatorTypeNameToString(
   if (initiatorTypeName == FetchInitiatorTypeNames::xmlhttprequest)
     return "XMLHttpRequest";
 
+  static_assert(
+      FetchInitiatorTypeNames::FetchInitiatorTypeNamesCount == 12,
+      "New FetchInitiatorTypeNames should be handled correctly here.");
+
   return "Resource";
 }
 
 const char* Resource::resourceTypeToString(
     Type type,
-    const FetchInitiatorInfo& initiatorInfo) {
+    const AtomicString& fetchInitiatorName) {
   switch (type) {
     case Resource::MainResource:
       return "Main resource";
@@ -1033,7 +1072,7 @@ const char* Resource::resourceTypeToString(
     case Resource::Font:
       return "Font";
     case Resource::Raw:
-      return initatorTypeNameToString(initiatorInfo.name);
+      return initiatorTypeNameToString(fetchInitiatorName);
     case Resource::SVGDocument:
       return "SVG document";
     case Resource::XSLStyleSheet:
@@ -1048,9 +1087,11 @@ const char* Resource::resourceTypeToString(
       return "Media";
     case Resource::Manifest:
       return "Manifest";
+    case Resource::Mock:
+      return "Mock";
   }
   NOTREACHED();
-  return initatorTypeNameToString(initiatorInfo.name);
+  return initiatorTypeNameToString(fetchInitiatorName);
 }
 
 bool Resource::shouldBlockLoadEvent() const {
@@ -1073,6 +1114,7 @@ bool Resource::isLoadEventBlockingResourceType() const {
     case Resource::TextTrack:
     case Resource::Media:
     case Resource::Manifest:
+    case Resource::Mock:
       return false;
   }
   NOTREACHED();

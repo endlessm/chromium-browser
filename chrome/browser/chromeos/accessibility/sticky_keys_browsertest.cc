@@ -56,7 +56,9 @@ class StickyKeysBrowserTest : public InProcessBrowserTest {
 
   void SendKeyPress(ui::KeyboardCode key) {
     event_generator_->PressKey(key, ui::EF_NONE);
+    content::RunAllPendingInMessageLoop();
     event_generator_->ReleaseKey(key, ui::EF_NONE);
+    content::RunAllPendingInMessageLoop();
   }
 
   content::NotificationRegistrar registrar_;

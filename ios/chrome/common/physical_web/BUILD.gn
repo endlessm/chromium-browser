@@ -3,9 +3,8 @@
 # found in the LICENSE file.
 
 source_set("physical_web") {
+  configs += [ "//build/config/compiler:enable_arc" ]
   sources = [
-    "ios_chrome_physical_web_data_source.h",
-    "ios_chrome_physical_web_data_source.mm",
     "physical_web_device.h",
     "physical_web_device.mm",
     "physical_web_request.h",

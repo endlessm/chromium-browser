@@ -10,26 +10,31 @@
 #include "components/dom_distiller/core/distilled_page_prefs.h"
 #include "components/flags_ui/pref_service_flags_storage.h"
 #include "components/gcm_driver/gcm_channel_status_syncer.h"
+#import "components/handoff/handoff_manager.h"
+#include "components/metrics/metrics_pref_names.h"
 #include "components/network_time/network_time_tracker.h"
-#include "components/ntp_snippets/remote/ntp_snippets_service.h"
+#include "components/ntp_snippets/bookmarks/bookmark_suggestions_provider.h"
+#include "components/ntp_snippets/content_suggestions_service.h"
+#include "components/ntp_snippets/remote/remote_suggestions_provider_impl.h"
+#include "components/ntp_snippets/remote/scheduling_remote_suggestions_provider.h"
 #include "components/ntp_tiles/most_visited_sites.h"
-#include "components/ntp_tiles/popular_sites.h"
+#include "components/ntp_tiles/popular_sites_impl.h"
 #include "components/omnibox/browser/zero_suggest_provider.h"
 #include "components/password_manager/core/browser/password_manager.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/prefs/pref_service.h"
 #include "components/proxy_config/pref_proxy_config_tracker_impl.h"
-#include "components/rappor/rappor_service.h"
+#include "components/rappor/rappor_service_impl.h"
 #include "components/search_engines/template_url_prepopulate_data.h"
 #include "components/signin/core/common/signin_pref_names.h"
 #include "components/ssl_config/ssl_config_service_manager.h"
 #include "components/strings/grit/components_locale_settings.h"
-#include "components/sync/driver/sync_prefs.h"
+#include "components/sync/base/sync_prefs.h"
 #include "components/translate/core/browser/translate_prefs.h"
 #include "components/translate/core/common/translate_pref_names.h"
 #include "components/update_client/update_client.h"
 #include "components/variations/service/variations_service.h"
-#include "ios/chrome/browser/application_context_impl.h"
+#include "components/web_resource/web_resource_pref_names.h"
 #include "ios/chrome/browser/browser_state/browser_state_info_cache.h"
 #include "ios/chrome/browser/first_run/first_run.h"
 #import "ios/chrome/browser/geolocation/omnibox_geolocation_local_state.h"
@@ -37,20 +42,14 @@
 #import "ios/chrome/browser/metrics/ios_chrome_metrics_service_client.h"
 #include "ios/chrome/browser/net/http_server_properties_manager_factory.h"
 #include "ios/chrome/browser/notification_promo.h"
+#include "ios/chrome/browser/physical_web/physical_web_prefs_registration.h"
 #include "ios/chrome/browser/pref_names.h"
 #include "ios/chrome/browser/signin/signin_manager_factory.h"
+#import "ios/chrome/browser/ui/bookmarks/bookmark_interaction_controller.h"
+#import "ios/chrome/browser/ui/bookmarks/bookmark_promo_controller.h"
+#include "ios/chrome/browser/voice/voice_search_prefs_registration.h"
 #include "ios/public/provider/chrome/browser/chrome_browser_provider.h"
 #include "ui/base/l10n/l10n_util.h"
-
-namespace {
-
-// TODO(crbug.com/525079): those preferences are not used on iOS but are
-// required to be able to run unit_tests until componentization of
-// chrome/browser/prefs is complete.
-const char kURLsToRestoreOnStartup[] = "session.startup_urls";
-const char kURLsToRestoreOnStartupOld[] = "session.urls_to_restore_on_startup";
-
-}  // namespace
 
 void RegisterLocalStatePrefs(PrefRegistrySimple* registry) {
   BrowserStateInfoCache::RegisterPrefs(registry);
@@ -61,10 +60,11 @@ void RegisterLocalStatePrefs(PrefRegistrySimple* registry) {
   network_time::NetworkTimeTracker::RegisterPrefs(registry);
   ios::NotificationPromo::RegisterPrefs(registry);
   PrefProxyConfigTrackerImpl::RegisterPrefs(registry);
-  rappor::RapporService::RegisterPrefs(registry);
+  rappor::RapporServiceImpl::RegisterPrefs(registry);
   ssl_config::SSLConfigServiceManager::RegisterPrefs(registry);
   update_client::RegisterPrefs(registry);
   variations::VariationsService::RegisterPrefs(registry);
+  RegisterPhysicalWebLocalStatePrefs(registry);
 
   // Preferences related to the browser state manager.
   registry->RegisterStringPref(prefs::kBrowserStateLastUsed, std::string());
@@ -77,7 +77,13 @@ void RegisterLocalStatePrefs(PrefRegistrySimple* registry) {
   registry->RegisterBooleanPref(prefs::kBrowsingDataMigrationHasBeenPossible,
                                 false);
 
-  ApplicationContextImpl::RegisterPrefs(registry);
+  // Preferences related to the application context.
+  registry->RegisterStringPref(prefs::kApplicationLocale, std::string());
+  registry->RegisterBooleanPref(prefs::kEulaAccepted, false);
+  registry->RegisterBooleanPref(metrics::prefs::kMetricsReportingEnabled,
+                                false);
+  registry->RegisterBooleanPref(prefs::kLastSessionExitedCleanly, true);
+  registry->RegisterBooleanPref(prefs::kMetricsReportingWifiOnly, true);
 }
 
 void RegisterBrowserStatePrefs(user_prefs::PrefRegistrySyncable* registry) {
@@ -87,9 +93,13 @@ void RegisterBrowserStatePrefs(user_prefs::PrefRegistrySyncable* registry) {
   gcm::GCMChannelStatusSyncer::RegisterProfilePrefs(registry);
   HostContentSettingsMap::RegisterProfilePrefs(registry);
   HttpServerPropertiesManagerFactory::RegisterProfilePrefs(registry);
-  ntp_snippets::NTPSnippetsService::RegisterProfilePrefs(registry);
+  ntp_snippets::BookmarkSuggestionsProvider::RegisterProfilePrefs(registry);
+  ntp_snippets::ContentSuggestionsService::RegisterProfilePrefs(registry);
+  ntp_snippets::RemoteSuggestionsProviderImpl::RegisterProfilePrefs(registry);
+  ntp_snippets::SchedulingRemoteSuggestionsProvider::RegisterProfilePrefs(
+      registry);
   ntp_tiles::MostVisitedSites::RegisterProfilePrefs(registry);
-  ntp_tiles::PopularSites::RegisterProfilePrefs(registry);
+  ntp_tiles::PopularSitesImpl::RegisterProfilePrefs(registry);
   ios::NotificationPromo::RegisterProfilePrefs(registry);
   password_manager::PasswordManager::RegisterProfilePrefs(registry);
   PrefProxyConfigTrackerImpl::RegisterProfilePrefs(registry);
@@ -98,6 +108,11 @@ void RegisterBrowserStatePrefs(user_prefs::PrefRegistrySyncable* registry) {
   translate::TranslatePrefs::RegisterProfilePrefs(registry);
   variations::VariationsService::RegisterProfilePrefs(registry);
   ZeroSuggestProvider::RegisterProfilePrefs(registry);
+  RegisterVoiceSearchBrowserStatePrefs(registry);
+
+  [BookmarkInteractionController registerBrowserStatePrefs:registry];
+  [BookmarkPromoController registerBrowserStatePrefs:registry];
+  [HandoffManager registerBrowserStatePrefs:registry];
 
   registry->RegisterBooleanPref(prefs::kDataSaverEnabled, false);
   registry->RegisterBooleanPref(
@@ -131,17 +146,8 @@ void RegisterBrowserStatePrefs(user_prefs::PrefRegistrySyncable* registry) {
   // Defaults to 3, which is the id of bookmarkModel_->mobile_node()
   registry->RegisterInt64Pref(prefs::kNtpShownBookmarksFolder, 3);
 
-  // TODO(crbug.com/525079): those preferences are not used on iOS but are
-  // required to be able to run unit_tests until componentization of
-  // chrome/browser/prefs is complete.
-  registry->RegisterListPref(kURLsToRestoreOnStartup,
-                             user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
-  registry->RegisterListPref(kURLsToRestoreOnStartupOld);
-
   // Register prefs used by Clear Browsing Data UI.
   browsing_data::prefs::RegisterBrowserUserPrefs(registry);
-
-  ios::GetChromeBrowserProvider()->RegisterProfilePrefs(registry);
 }
 
 // This method should be periodically pruned of year+ old migrations.

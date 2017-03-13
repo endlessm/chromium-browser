@@ -49,7 +49,7 @@ public:
     sk_sp<SkColorFilter> makeComposed(sk_sp<SkColorFilter> inner) const override;
 
 #if SK_SUPPORT_GPU
-    sk_sp<GrFragmentProcessor> asFragmentProcessor(GrContext*) const override;
+    sk_sp<GrFragmentProcessor> asFragmentProcessor(GrContext*, SkColorSpace*) const override;
 #endif
 
     void filterSpan(const SkPMColor src[], int count, SkPMColor dst[]) const override;
@@ -355,7 +355,7 @@ public:
 private:
     GrGLSLFragmentProcessor* onCreateGLSLInstance() const override;
 
-    void onGetGLSLProcessorKey(const GrGLSLCaps&, GrProcessorKeyBuilder*) const override;
+    void onGetGLSLProcessorKey(const GrShaderCaps&, GrProcessorKeyBuilder*) const override;
 
     bool onIsEqual(const GrFragmentProcessor&) const override;
 
@@ -365,7 +365,7 @@ private:
 
     GR_DECLARE_FRAGMENT_PROCESSOR_TEST;
 
-    GrTextureAccess         fTextureAccess;
+    TextureSampler          fTextureSampler;
 
     // currently not used in shader code, just to assist onComputeInvariantOutput().
     unsigned                fFlags;
@@ -380,7 +380,7 @@ class GLColorTableEffect : public GrGLSLFragmentProcessor {
 public:
     void emitCode(EmitArgs&) override;
 
-    static void GenKey(const GrProcessor&, const GrGLSLCaps&, GrProcessorKeyBuilder*) {}
+    static void GenKey(const GrProcessor&, const GrShaderCaps&, GrProcessorKeyBuilder*) {}
 
 protected:
     void onSetData(const GrGLSLProgramDataManager&, const GrProcessor&) override;
@@ -470,26 +470,26 @@ sk_sp<GrFragmentProcessor> ColorTableEffect::Make(GrContext* context, SkBitmap b
     desc.fConfig = SkImageInfo2GrPixelConfig(bitmap.info(), *context->caps());
     GrTextureStripAtlas* atlas = GrTextureStripAtlas::GetAtlas(desc);
     int row = atlas->lockRow(bitmap);
-    SkAutoTUnref<GrTexture> texture;
+    sk_sp<GrTexture> texture;
     if (-1 == row) {
         atlas = nullptr;
-        texture.reset(GrRefCachedBitmapTexture(context, bitmap, GrTextureParams::ClampNoFilter(),
-                                               SkSourceGammaTreatment::kRespect));
+        texture.reset(
+            GrRefCachedBitmapTexture(context, bitmap, GrSamplerParams::ClampNoFilter()));
     } else {
         texture.reset(SkRef(atlas->getTexture()));
     }
 
-    return sk_sp<GrFragmentProcessor>(new ColorTableEffect(texture, atlas, row, flags));
+    return sk_sp<GrFragmentProcessor>(new ColorTableEffect(texture.get(), atlas, row, flags));
 }
 
 ColorTableEffect::ColorTableEffect(GrTexture* texture, GrTextureStripAtlas* atlas, int row,
                                    unsigned flags)
-    : fTextureAccess(texture)
+    : fTextureSampler(texture)
     , fFlags(flags)
     , fAtlas(atlas)
     , fRow(row) {
     this->initClassID<ColorTableEffect>();
-    this->addTextureAccess(&fTextureAccess);
+    this->addTextureSampler(&fTextureSampler);
 }
 
 ColorTableEffect::~ColorTableEffect() {
@@ -498,7 +498,7 @@ ColorTableEffect::~ColorTableEffect() {
     }
 }
 
-void ColorTableEffect::onGetGLSLProcessorKey(const GrGLSLCaps& caps,
+void ColorTableEffect::onGetGLSLProcessorKey(const GrShaderCaps& caps,
                                              GrProcessorKeyBuilder* b) const {
     GLColorTableEffect::GenKey(*this, caps, b);
 }
@@ -561,13 +561,14 @@ sk_sp<GrFragmentProcessor> ColorTableEffect::TestCreate(GrProcessorTestData* d) 
         (flags & (1 << 2)) ? luts[2] : nullptr,
         (flags & (1 << 3)) ? luts[3] : nullptr
     ));
-
-    sk_sp<GrFragmentProcessor> fp = filter->asFragmentProcessor(d->fContext);
+    sk_sp<SkColorSpace> colorSpace = GrTest::TestColorSpace(d->fRandom);
+    sk_sp<GrFragmentProcessor> fp = filter->asFragmentProcessor(d->fContext, colorSpace.get());
     SkASSERT(fp);
     return fp;
 }
 
-sk_sp<GrFragmentProcessor> SkTable_ColorFilter::asFragmentProcessor(GrContext* context) const {
+sk_sp<GrFragmentProcessor> SkTable_ColorFilter::asFragmentProcessor(GrContext* context,
+                                                                    SkColorSpace*) const {
     SkBitmap bitmap;
     this->asComponentTable(&bitmap);
 

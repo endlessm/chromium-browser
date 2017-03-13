@@ -212,8 +212,7 @@ void WebContentsObserverSanityChecker::DidFinishNavigation(
 void WebContentsObserverSanityChecker::DidStartProvisionalLoadForFrame(
     RenderFrameHost* render_frame_host,
     const GURL& validated_url,
-    bool is_error_page,
-    bool is_iframe_srcdoc) {
+    bool is_error_page) {
   AssertRenderFrameExists(render_frame_host);
 }
 
@@ -285,6 +284,7 @@ void WebContentsObserverSanityChecker::DidOpenRequestedURL(
 }
 
 void WebContentsObserverSanityChecker::MediaStartedPlaying(
+    const MediaPlayerInfo& media_info,
     const MediaPlayerId& id) {
   CHECK(!web_contents_destroyed_);
   CHECK(std::find(active_media_players_.begin(), active_media_players_.end(),
@@ -293,6 +293,7 @@ void WebContentsObserverSanityChecker::MediaStartedPlaying(
 }
 
 void WebContentsObserverSanityChecker::MediaStoppedPlaying(
+    const MediaPlayerInfo& media_info,
     const MediaPlayerId& id) {
   CHECK(!web_contents_destroyed_);
   CHECK(std::find(active_media_players_.begin(), active_media_players_.end(),

@@ -4,20 +4,29 @@
 
 #include "services/navigation/public/cpp/view.h"
 
+#include "base/bind.h"
+#include "base/memory/ptr_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "services/navigation/public/cpp/view_delegate.h"
 #include "services/navigation/public/cpp/view_observer.h"
-#include "services/ui/public/cpp/window.h"
+#include "ui/aura/mus/window_port_mus.h"
+#include "ui/aura/window.h"
 
 namespace navigation {
+namespace {
+
+// Callback with result of Embed().
+void EmbedCallback(bool result) {}
+
+}  // namespace
 
 ////////////////////////////////////////////////////////////////////////////////
 // View, public:
 
 View::View(mojom::ViewFactoryPtr factory) : binding_(this) {
   mojom::ViewClientPtr client;
-  binding_.Bind(GetProxy(&client));
-  factory->CreateView(std::move(client), GetProxy(&view_));
+  binding_.Bind(MakeRequest(&client));
+  factory->CreateView(std::move(client), MakeRequest(&view_));
 }
 
 View::View(mojom::ViewPtr view, mojom::ViewClientRequest request)
@@ -55,8 +64,8 @@ void View::GetBackMenuItems(std::vector<NavigationListItem>* items) {
   DCHECK(items);
   for (int i = navigation_list_cursor_ - 1, offset = -1; i >= 0;
        --i, --offset) {
-    std::string title = navigation_list_[i]->title;
-    items->push_back(NavigationListItem(base::UTF8ToUTF16(title), offset));
+    items->push_back(NavigationListItem(
+        base::UTF8ToUTF16(navigation_list_[i]->title), offset));
   }
 }
 
@@ -64,8 +73,8 @@ void View::GetForwardMenuItems(std::vector<NavigationListItem>* items) {
   DCHECK(items);
   for (int i = navigation_list_cursor_ + 1, offset = 1;
        i < static_cast<int>(navigation_list_.size()); ++i, ++offset) {
-    std::string title = navigation_list_[i]->title;
-    items->push_back(NavigationListItem(base::UTF8ToUTF16(title), offset));
+    items->push_back(NavigationListItem(
+        base::UTF8ToUTF16(navigation_list_[i]->title), offset));
   }
 }
 
@@ -85,14 +94,12 @@ void View::HideInterstitial() {
   view_->HideInterstitial();
 }
 
-void View::SetResizerSize(const gfx::Size& size) {
-  view_->SetResizerSize(size);
-}
-
-void View::EmbedInWindow(ui::Window* parent) {
+void View::EmbedInWindow(aura::Window* parent) {
   ui::mojom::WindowTreeClientPtr client;
-  view_->GetWindowTreeClient(GetProxy(&client));
-  parent->Embed(std::move(client));
+  view_->GetWindowTreeClient(MakeRequest(&client));
+  const uint32_t embed_flags = 0u;  // Nothing special.
+  aura::WindowPortMus::Get(parent)->Embed(std::move(client), embed_flags,
+                                          base::Bind(&EmbedCallback));
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -105,27 +112,30 @@ void View::OpenURL(mojom::OpenURLParamsPtr params) {
 
 void View::LoadingStateChanged(bool is_loading) {
   is_loading_ = is_loading;
-  FOR_EACH_OBSERVER(ViewObserver, observers_, LoadingStateChanged(this));
+  for (auto& observer : observers_)
+    observer.LoadingStateChanged(this);
 }
 
 void View::NavigationStateChanged(const GURL& url,
-                                  const mojo::String& title,
+                                  const std::string& title,
                                   bool can_go_back,
                                   bool can_go_forward) {
   url_ = url;
-  title_ = base::UTF8ToUTF16(title.get());
+  title_ = base::UTF8ToUTF16(title);
   can_go_back_ = can_go_back;
   can_go_forward_ = can_go_forward;
-  FOR_EACH_OBSERVER(ViewObserver, observers_, NavigationStateChanged(this));
+  for (auto& observer : observers_)
+    observer.NavigationStateChanged(this);
 }
 
 void View::LoadProgressChanged(double progress) {
-  FOR_EACH_OBSERVER(ViewObserver, observers_,
-                    LoadProgressChanged(this, progress));
+  for (auto& observer : observers_)
+    observer.LoadProgressChanged(this, progress);
 }
 
 void View::UpdateHoverURL(const GURL& url) {
-  FOR_EACH_OBSERVER(ViewObserver, observers_, HoverTargetURLChanged(this, url));
+  for (auto& observer : observers_)
+    observer.HoverTargetURLChanged(this, url);
 }
 
 void View::ViewCreated(mojom::ViewPtr view,

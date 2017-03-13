@@ -32,6 +32,7 @@
 
 #include "bindings/core/v8/ScriptValue.h"
 #include "bindings/core/v8/V8ObjectBuilder.h"
+#include "core/css/CSSTiming.h"
 #include "core/dom/Document.h"
 #include "core/dom/DocumentParserTiming.h"
 #include "core/dom/DocumentTiming.h"
@@ -44,6 +45,7 @@
 #include "platform/network/ResourceLoadTiming.h"
 #include "platform/network/ResourceResponse.h"
 
+// Legacy support for NT1(https://www.w3.org/TR/navigation-timing/).
 namespace blink {
 
 static unsigned long long toIntegerMilliseconds(double seconds) {
@@ -57,7 +59,7 @@ static double toDoubleSeconds(unsigned long long integerMilliseconds) {
 }
 
 PerformanceTiming::PerformanceTiming(LocalFrame* frame)
-    : DOMWindowProperty(frame) {}
+    : ContextClient(frame) {}
 
 unsigned long long PerformanceTiming::navigationStart() const {
   DocumentLoadTiming* timing = documentLoadTiming();
@@ -402,6 +404,24 @@ PerformanceTiming::parseBlockedOnScriptExecutionFromDocumentWriteDuration()
       timing->parserBlockedOnScriptExecutionFromDocumentWriteDuration());
 }
 
+unsigned long long PerformanceTiming::authorStyleSheetParseDurationBeforeFCP()
+    const {
+  const CSSTiming* timing = cssTiming();
+  if (!timing)
+    return 0;
+
+  return toIntegerMilliseconds(
+      timing->authorStyleSheetParseDurationBeforeFCP());
+}
+
+unsigned long long PerformanceTiming::updateStyleDurationBeforeFCP() const {
+  const CSSTiming* timing = cssTiming();
+  if (!timing)
+    return 0;
+
+  return toIntegerMilliseconds(timing->updateDurationBeforeFCP());
+}
+
 DocumentLoader* PerformanceTiming::documentLoader() const {
   if (!frame())
     return nullptr;
@@ -429,6 +449,17 @@ const PaintTiming* PerformanceTiming::paintTiming() const {
     return nullptr;
 
   return &PaintTiming::from(*document);
+}
+
+const CSSTiming* PerformanceTiming::cssTiming() const {
+  if (!frame())
+    return nullptr;
+
+  Document* document = frame()->document();
+  if (!document)
+    return nullptr;
+
+  return &CSSTiming::from(*document);
 }
 
 const DocumentParserTiming* PerformanceTiming::documentParserTiming() const {
@@ -507,7 +538,7 @@ double PerformanceTiming::integerMillisecondsToMonotonicTime(
 }
 
 DEFINE_TRACE(PerformanceTiming) {
-  DOMWindowProperty::trace(visitor);
+  ContextClient::trace(visitor);
 }
 
 }  // namespace blink

@@ -19,7 +19,6 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/path_service.h"
 #include "base/strings/string_util.h"
-#include "base/strings/stringprintf.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/version.h"
@@ -28,7 +27,15 @@
 #include "chrome/common/mac/launchd.h"
 #include "chrome/common/service_process_util_posix.h"
 #include "components/version_info/version_info.h"
-#include "ipc/unix_domain_socket_util.h"
+#include "mojo/edk/embedder/named_platform_handle_utils.h"
+
+@interface NSFileManager (YosemiteSDK)
+- (BOOL)getRelationship:(NSURLRelationship*)outRelationship
+            ofDirectory:(NSSearchPathDirectory)directory
+               inDomain:(NSSearchPathDomainMask)domainMask
+            toItemAtURL:(NSURL*)url
+                  error:(NSError**)error;
+@end
 
 using ::base::FilePathWatcher;
 
@@ -61,10 +68,6 @@ NSString* GetServiceProcessLaunchDSocketKey() {
   return @"ServiceProcessSocket";
 }
 
-bool GetParentFSRef(const FSRef& child, FSRef* parent) {
-  return FSGetCatalogInfo(&child, 0, NULL, NULL, NULL, parent) == noErr;
-}
-
 bool RemoveFromLaunchd() {
   // We're killing a file.
   base::ThreadRestrictions::AssertIOAllowed();
@@ -83,7 +86,7 @@ class ExecFilePathWatcherCallback {
   void NotifyPathChanged(const base::FilePath& path, bool error);
 
  private:
-  FSRef executable_fsref_;
+  base::scoped_nsobject<NSURL> executable_fsref_;
 };
 
 base::FilePath GetServiceProcessSocketName() {
@@ -91,16 +94,16 @@ base::FilePath GetServiceProcessSocketName() {
   PathService::Get(base::DIR_TEMP, &socket_name);
   std::string pipe_name = GetServiceProcessScopedName("srv");
   socket_name = socket_name.Append(pipe_name);
-  CHECK_LT(socket_name.value().size(), IPC::kMaxSocketNameLength);
+  CHECK_LT(socket_name.value().size(), mojo::edk::kMaxSocketNameLength);
   return socket_name;
 }
 
 }  // namespace
 
-IPC::ChannelHandle GetServiceProcessChannel() {
+mojo::edk::NamedPlatformHandle GetServiceProcessChannel() {
   base::FilePath socket_name = GetServiceProcessSocketName();
   VLOG(1) << "ServiceProcessChannel: " << socket_name.value();
-  return IPC::ChannelHandle(socket_name.value());
+  return mojo::edk::NamedPlatformHandle(socket_name.value());
 }
 
 bool ForceServiceProcessShutdown(const std::string& /* version */,
@@ -178,7 +181,8 @@ bool ServiceProcessState::Initialize() {
   return true;
 }
 
-IPC::ChannelHandle ServiceProcessState::GetServiceProcessChannel() {
+mojo::edk::ScopedPlatformHandle
+ServiceProcessState::GetServiceProcessChannel() {
   DCHECK(state_);
   NSDictionary* ns_launchd_conf = base::mac::CFToNSCast(state_->launchd_conf);
   NSDictionary* socket_dict =
@@ -187,8 +191,7 @@ IPC::ChannelHandle ServiceProcessState::GetServiceProcessChannel() {
       [socket_dict objectForKey:GetServiceProcessLaunchDSocketKey()];
   DCHECK_EQ([sockets count], 1U);
   int socket = [[sockets objectAtIndex:0] intValue];
-  base::FileDescriptor fd(socket, false);
-  return IPC::ChannelHandle(std::string(), fd);
+  return mojo::edk::ScopedPlatformHandle(mojo::edk::PlatformHandle(socket));
 }
 
 bool CheckServiceProcessReady() {
@@ -324,7 +327,10 @@ bool ServiceProcessState::StateData::WatchExecutable() {
 }
 
 bool ExecFilePathWatcherCallback::Init(const base::FilePath& path) {
-  return base::mac::FSRefFromPath(path.value(), &executable_fsref_);
+  NSString* path_string = base::mac::FilePathToNSString(path);
+  NSURL* path_url = [NSURL fileURLWithPath:path_string isDirectory:NO];
+  executable_fsref_.reset([[path_url fileReferenceURL] retain]);
+  return executable_fsref_.get() != nil;
 }
 
 void ExecFilePathWatcherCallback::NotifyPathChanged(const base::FilePath& path,
@@ -339,38 +345,62 @@ void ExecFilePathWatcherCallback::NotifyPathChanged(const base::FilePath& path,
   bool needs_restart = false;
   bool good_bundle = false;
 
-  FSRef macos_fsref;
-  if (GetParentFSRef(executable_fsref_, &macos_fsref)) {
-    FSRef contents_fsref;
-    if (GetParentFSRef(macos_fsref, &contents_fsref)) {
-      FSRef bundle_fsref;
-      if (GetParentFSRef(contents_fsref, &bundle_fsref)) {
-        base::ScopedCFTypeRef<CFURLRef> bundle_url(
-            CFURLCreateFromFSRef(kCFAllocatorDefault, &bundle_fsref));
-        if (bundle_url.get()) {
-          base::ScopedCFTypeRef<CFBundleRef> bundle(
-              CFBundleCreate(kCFAllocatorDefault, bundle_url));
-          // Check to see if the bundle still has a minimal structure.
-          good_bundle = CFBundleGetIdentifier(bundle) != NULL;
-        }
-      }
-    }
+  // Go from bundle/Contents/MacOS/executable to bundle.
+  NSURL* bundle_url = [[[executable_fsref_ URLByDeletingLastPathComponent]
+      URLByDeletingLastPathComponent] URLByDeletingLastPathComponent];
+  if (bundle_url) {
+    base::ScopedCFTypeRef<CFBundleRef> bundle(
+        CFBundleCreate(kCFAllocatorDefault, base::mac::NSToCFCast(bundle_url)));
+    good_bundle = CFBundleGetIdentifier(bundle) != NULL;
   }
+
   if (!good_bundle) {
     needs_shutdown = true;
   } else {
-    Boolean in_trash;
-    OSErr err = FSDetermineIfRefIsEnclosedByFolder(kOnAppropriateDisk,
-                                                   kTrashFolderType,
-                                                   &executable_fsref_,
-                                                   &in_trash);
-    if (err == noErr && in_trash) {
+    bool in_trash = false;
+    NSFileManager* file_manager = [NSFileManager defaultManager];
+    // Apple deprecated FSDetermineIfRefIsEnclosedByFolder() when deploying to
+    // 10.8, but didn't add getRelationship:... until 10.10.  So fall back to
+    // the deprecated function while running on 10.9 (and delete the else block
+    // when Chromium requires OS X 10.10+).
+    if ([file_manager respondsToSelector:@selector(getRelationship:
+                                                       ofDirectory:
+                                                          inDomain:
+                                                       toItemAtURL:
+                                                             error:)]) {
+      NSURLRelationship relationship;
+      if ([file_manager getRelationship:&relationship
+                            ofDirectory:NSTrashDirectory
+                               inDomain:0
+                            toItemAtURL:executable_fsref_
+                                  error:nil]) {
+        in_trash = relationship == NSURLRelationshipContains;
+      }
+    } else {
+      DCHECK(base::mac::IsAtMostOS10_9());
+      Boolean fs_in_trash;
+      FSRef ref;
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+      if (CFURLGetFSRef(base::mac::NSToCFCast(executable_fsref_.get()), &ref)) {
+        // This is ok because it only happens on 10.9 and won't be needed once
+        // we stop supporting that.
+        OSErr err = FSDetermineIfRefIsEnclosedByFolder(
+            kOnAppropriateDisk, kTrashFolderType, &ref, &fs_in_trash);
+#pragma clang diagnostic pop
+        if (err == noErr && fs_in_trash)
+          in_trash = true;
+      }
+    }
+    if (in_trash) {
       needs_shutdown = true;
     } else {
       bool was_moved = true;
-      FSRef path_ref;
-      if (base::mac::FSRefFromPath(path.value(), &path_ref)) {
-        if (FSCompareFSRefs(&path_ref, &executable_fsref_) == noErr) {
+      NSString* path_string = base::mac::FilePathToNSString(path);
+      NSURL* path_url = [NSURL fileURLWithPath:path_string isDirectory:NO];
+      NSURL* path_ref = [path_url fileReferenceURL];
+      if (path_ref != nil) {
+        if ([path_ref isEqual:executable_fsref_]) {
           was_moved = false;
         }
       }
@@ -388,8 +418,9 @@ void ExecFilePathWatcherCallback::NotifyPathChanged(const base::FilePath& path,
               Launchd::User, Launchd::Agent, name));
       if (plist.get()) {
         NSMutableDictionary* ns_plist = base::mac::CFToNSCast(plist);
-        std::string new_path = base::mac::PathFromFSRef(executable_fsref_);
-        NSString* ns_new_path = base::SysUTF8ToNSString(new_path);
+        NSURL* new_path = [executable_fsref_ filePathURL];
+        DCHECK([new_path isFileURL]);
+        NSString* ns_new_path = [new_path path];
         [ns_plist setObject:ns_new_path forKey:@ LAUNCH_JOBKEY_PROGRAM];
         base::scoped_nsobject<NSMutableArray> args([[ns_plist
             objectForKey:@LAUNCH_JOBKEY_PROGRAMARGUMENTS] mutableCopy]);

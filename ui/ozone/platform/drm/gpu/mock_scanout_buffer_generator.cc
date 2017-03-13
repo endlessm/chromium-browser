@@ -15,10 +15,12 @@ MockScanoutBufferGenerator::~MockScanoutBufferGenerator() {}
 
 scoped_refptr<ScanoutBuffer> MockScanoutBufferGenerator::Create(
     const scoped_refptr<DrmDevice>& drm,
-    gfx::BufferFormat format,
+    uint32_t format,
     const gfx::Size& size) {
-  scoped_refptr<MockScanoutBuffer> buffer(
-      new MockScanoutBuffer(size, GetFourCCFormatForFramebuffer(format)));
+  if (allocation_failure_)
+    return nullptr;
+
+  scoped_refptr<MockScanoutBuffer> buffer(new MockScanoutBuffer(size, format));
 
   return buffer;
 }

@@ -31,6 +31,26 @@ var CrPolicyNetworkBehavior = {
 
   /**
    * @param {!CrOnc.ManagedProperty|undefined} property
+   * @return {boolean} True if the network property is controlled by an
+   *     extension.
+   */
+  isExtensionControlled: function(property) {
+    return typeof property == 'object' &&
+        property.Effective == 'ActiveExtension';
+  },
+
+  /**
+   * @param {!CrOnc.ManagedProperty|undefined} property
+   * @return {boolean} True if the network property is controlled by a policy
+   *     or an extension.
+   */
+  isControlled: function(property) {
+    return this.isNetworkPolicyControlled(property) ||
+        this.isExtensionControlled(property);
+  },
+
+  /**
+   * @param {!CrOnc.ManagedProperty|undefined} property
    * @return {boolean} True if the network property is enforced by a policy.
    */
   isNetworkPolicyEnforced: function(property) {
@@ -47,5 +67,28 @@ var CrPolicyNetworkBehavior = {
 
     // If no 'Editable' sub-property exists, the policy value is enforced.
     return true;
+  },
+
+  /**
+   * @param {string|undefined} source
+   * @return {boolean}
+   * @private
+   */
+  isPolicySource: function(source) {
+    return !!source && (source == CrOnc.Source.DEVICE_POLICY ||
+                        source == CrOnc.Source.USER_POLICY);
+  },
+
+  /**
+   * @param {String} source
+   * @return {!CrPolicyIndicatorType}
+   * @private
+   */
+  getIndicatorTypeForSource: function(source) {
+    if (source == CrOnc.Source.DEVICE_POLICY)
+      return CrPolicyIndicatorType.DEVICE_POLICY;
+    if (source == CrOnc.Source.USER_POLICY)
+      return CrPolicyIndicatorType.USER_POLICY;
+    return CrPolicyIndicatorType.NONE;
   },
 };

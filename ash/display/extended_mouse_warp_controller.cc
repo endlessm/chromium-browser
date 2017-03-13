@@ -6,7 +6,6 @@
 
 #include <cmath>
 
-#include "ash/display/display_manager.h"
 #include "ash/display/display_util.h"
 #include "ash/display/shared_display_edge_indicator.h"
 #include "ash/display/window_tree_host_manager.h"
@@ -14,9 +13,11 @@
 #include "ash/shell.h"
 #include "base/memory/ptr_util.h"
 #include "ui/aura/window.h"
-#include "ui/display/manager/display_layout.h"
+#include "ui/display/display_layout.h"
+#include "ui/display/manager/display_manager.h"
 #include "ui/display/manager/display_manager_utilities.h"
 #include "ui/display/screen.h"
+#include "ui/display/types/display_constants.h"
 #include "ui/events/event_utils.h"
 #include "ui/wm/core/coordinate_conversion.h"
 
@@ -100,10 +101,10 @@ ExtendedMouseWarpController::WarpRegion::GetIndicatorBoundsForTest(
 ExtendedMouseWarpController::ExtendedMouseWarpController(
     aura::Window* drag_source)
     : drag_source_root_(drag_source), allow_non_native_event_(false) {
-  ash::DisplayManager* display_manager =
+  display::DisplayManager* display_manager =
       Shell::GetInstance()->display_manager();
   int64_t drag_source_id = drag_source ? GetDisplayIdFromWindow(drag_source)
-                                       : display::Display::kInvalidDisplayID;
+                                       : display::kInvalidDisplayId;
   display::Displays display_list = display_manager->active_display_list();
   // Try to create a Warp region for all possible two displays combination.
   // The following code does it by poping the last element in the list
@@ -139,7 +140,7 @@ bool ExtendedMouseWarpController::WarpMouseCursor(ui::MouseEvent* event) {
     aura::Window* target_root = target->GetRootWindow();
     gfx::Point point_in_native = point_in_screen;
     ::wm::ConvertPointFromScreen(target_root, &point_in_native);
-    target_root->GetHost()->ConvertPointToNativeScreen(&point_in_native);
+    target_root->GetHost()->ConvertDIPToScreenInPixels(&point_in_native);
     return WarpMouseCursorInNativeCoords(point_in_native, point_in_screen,
                                          true);
   }
@@ -152,8 +153,8 @@ bool ExtendedMouseWarpController::WarpMouseCursor(ui::MouseEvent* event) {
   // has access to the logical display layout.
   // Native events in Ozone are in the native window coordinate system. We need
   // to translate them to get the global position.
-  point_in_native.Offset(target->GetHost()->GetBounds().x(),
-                         target->GetHost()->GetBounds().y());
+  point_in_native.Offset(target->GetHost()->GetBoundsInPixels().x(),
+                         target->GetHost()->GetBoundsInPixels().y());
 #endif
 
   return WarpMouseCursorInNativeCoords(point_in_native, point_in_screen, false);
@@ -205,9 +206,8 @@ ExtendedMouseWarpController::CreateWarpRegion(const display::Display& a,
                                               int64_t drag_source_id) {
   gfx::Rect a_edge;
   gfx::Rect b_edge;
-  int snap_barrier = drag_source_id == display::Display::kInvalidDisplayID
-                         ? 0
-                         : kMaximumSnapHeight;
+  int snap_barrier =
+      drag_source_id == display::kInvalidDisplayId ? 0 : kMaximumSnapHeight;
 
   if (!display::ComputeBoundary(a, b, &a_edge, &b_edge))
     return nullptr;

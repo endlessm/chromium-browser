@@ -72,22 +72,14 @@ void AppWindowContentsImpl::NativeWindowChanged(
   args.Append(std::move(dictionary));
 
   content::RenderFrameHost* rfh = web_contents_->GetMainFrame();
-  rfh->Send(new ExtensionMsg_MessageInvoke(
-      rfh->GetRoutingID(), host_->extension_id(), "app.window",
-      "updateAppWindowProperties", args, false));
+  rfh->Send(new ExtensionMsg_MessageInvoke(rfh->GetRoutingID(),
+                                           host_->extension_id(), "app.window",
+                                           "updateAppWindowProperties", args));
 }
 
 void AppWindowContentsImpl::NativeWindowClosed() {
   content::RenderViewHost* rvh = web_contents_->GetRenderViewHost();
   rvh->Send(new ExtensionMsg_AppWindowClosed(rvh->GetRoutingID()));
-}
-
-void AppWindowContentsImpl::DispatchWindowShownForTests() const {
-  base::ListValue args;
-  content::RenderFrameHost* rfh = web_contents_->GetMainFrame();
-  rfh->Send(new ExtensionMsg_MessageInvoke(
-      rfh->GetRoutingID(), host_->extension_id(), "app.window",
-      "appWindowShownForTests", args, false));
 }
 
 void AppWindowContentsImpl::OnWindowReady() {

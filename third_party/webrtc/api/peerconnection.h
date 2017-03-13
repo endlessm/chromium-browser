@@ -29,6 +29,7 @@ namespace webrtc {
 
 class MediaStreamObserver;
 class VideoRtpReceiver;
+class RtcEventLog;
 
 // Populates |session_options| from |rtc_options|, and returns true if options
 // are valid.
@@ -53,10 +54,12 @@ bool ParseConstraintsForAnswer(const MediaConstraintsInterface* constraints,
                                cricket::MediaSessionOptions* session_options);
 
 // Parses the URLs for each server in |servers| to build |stun_servers| and
-// |turn_servers|.
-bool ParseIceServers(const PeerConnectionInterface::IceServers& servers,
-                     cricket::ServerAddresses* stun_servers,
-                     std::vector<cricket::RelayServerConfig>* turn_servers);
+// |turn_servers|. Can return SYNTAX_ERROR if the URL is malformed, or
+// INVALID_PARAMETER if a TURN server is missing |username| or |password|.
+RTCErrorType ParseIceServers(
+    const PeerConnectionInterface::IceServers& servers,
+    cricket::ServerAddresses* stun_servers,
+    std::vector<cricket::RelayServerConfig>* turn_servers);
 
 // PeerConnection implements the PeerConnectionInterface interface.
 // It uses WebRtcSession to implement the PeerConnection functionality.
@@ -107,13 +110,17 @@ class PeerConnection : public PeerConnectionInterface,
 
   SignalingState signaling_state() override;
 
-  // TODO(bemasc): Remove ice_state() when callers are removed.
-  IceState ice_state() override;
   IceConnectionState ice_connection_state() override;
   IceGatheringState ice_gathering_state() override;
 
   const SessionDescriptionInterface* local_description() const override;
   const SessionDescriptionInterface* remote_description() const override;
+  const SessionDescriptionInterface* current_local_description() const override;
+  const SessionDescriptionInterface* current_remote_description()
+      const override;
+  const SessionDescriptionInterface* pending_local_description() const override;
+  const SessionDescriptionInterface* pending_remote_description()
+      const override;
 
   // JSEP01
   // Deprecated, use version without constraints.
@@ -130,8 +137,14 @@ class PeerConnection : public PeerConnectionInterface,
                            SessionDescriptionInterface* desc) override;
   void SetRemoteDescription(SetSessionDescriptionObserver* observer,
                             SessionDescriptionInterface* desc) override;
+  PeerConnectionInterface::RTCConfiguration GetConfiguration() override;
   bool SetConfiguration(
-      const PeerConnectionInterface::RTCConfiguration& configuration) override;
+      const PeerConnectionInterface::RTCConfiguration& configuration,
+      RTCError* error) override;
+  bool SetConfiguration(
+      const PeerConnectionInterface::RTCConfiguration& configuration) override {
+    return SetConfiguration(configuration, nullptr);
+  }
   bool AddIceCandidate(const IceCandidateInterface* candidate) override;
   bool RemoveIceCandidates(
       const std::vector<cricket::Candidate>& candidates) override;
@@ -143,6 +156,8 @@ class PeerConnection : public PeerConnectionInterface,
   void StopRtcEventLog() override;
 
   void Close() override;
+
+  sigslot::signal1<DataChannel*> SignalDataChannelCreated;
 
   // Virtual for unit tests.
   virtual const std::vector<rtc::scoped_refptr<DataChannel>>&
@@ -365,9 +380,14 @@ class PeerConnection : public PeerConnectionInterface,
 
   // Called when first configuring the port allocator.
   bool InitializePortAllocator_n(const RTCConfiguration& configuration);
-  // Called when SetConfiguration is called. Only a subset of the configuration
-  // is applied.
-  bool ReconfigurePortAllocator_n(const RTCConfiguration& configuration);
+  // Called when SetConfiguration is called to apply the supported subset
+  // of the configuration on the network thread.
+  bool ReconfigurePortAllocator_n(
+      const cricket::ServerAddresses& stun_servers,
+      const std::vector<cricket::RelayServerConfig>& turn_servers,
+      IceTransportsType type,
+      int candidate_pool_size,
+      bool prune_turn_ports);
 
   // Starts recording an Rtc EventLog using the supplied platform file.
   // This function should only be called from the worker thread.
@@ -386,12 +406,13 @@ class PeerConnection : public PeerConnectionInterface,
   PeerConnectionObserver* observer_;
   UMAObserver* uma_observer_;
   SignalingState signaling_state_;
-  // TODO(bemasc): Remove ice_state_.
-  IceState ice_state_;
   IceConnectionState ice_connection_state_;
   IceGatheringState ice_gathering_state_;
+  PeerConnectionInterface::RTCConfiguration configuration_;
 
   std::unique_ptr<cricket::PortAllocator> port_allocator_;
+  // The EventLog needs to outlive the media controller.
+  std::unique_ptr<RtcEventLog> event_log_;
   std::unique_ptr<MediaControllerInterface> media_controller_;
 
   // One PeerConnection has only one RTCP CNAME.
@@ -419,14 +440,11 @@ class PeerConnection : public PeerConnectionInterface,
 
   bool remote_peer_supports_msid_ = false;
 
-  bool enable_ice_renomination_ = false;
-
   std::vector<rtc::scoped_refptr<RtpSenderProxyWithInternal<RtpSenderInternal>>>
       senders_;
   std::vector<
       rtc::scoped_refptr<RtpReceiverProxyWithInternal<RtpReceiverInternal>>>
       receivers_;
-
   std::unique_ptr<WebRtcSession> session_;
   std::unique_ptr<StatsCollector> stats_;
   rtc::scoped_refptr<RTCStatsCollector> stats_collector_;

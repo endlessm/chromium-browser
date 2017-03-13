@@ -35,16 +35,11 @@ namespace {
 const double kNextFireIntervalInvalid = -1.0;
 }
 
-SuspendableTimer::SuspendableTimer(ExecutionContext* context)
-    : TimerBase(TaskRunnerHelper::get(TaskType::Timer, context)),
-      ActiveDOMObject(context),
+SuspendableTimer::SuspendableTimer(ExecutionContext* context, TaskType taskType)
+    : TimerBase(TaskRunnerHelper::get(taskType, context)),
+      SuspendableObject(context),
       m_nextFireInterval(kNextFireIntervalInvalid),
-      m_repeatInterval(0)
-#if ENABLE(ASSERT)
-      ,
-      m_suspended(false)
-#endif
-{
+      m_repeatInterval(0) {
   DCHECK(context);
 }
 
@@ -55,12 +50,12 @@ void SuspendableTimer::stop() {
   TimerBase::stop();
 }
 
-void SuspendableTimer::contextDestroyed() {
+void SuspendableTimer::contextDestroyed(ExecutionContext*) {
   stop();
 }
 
 void SuspendableTimer::suspend() {
-#if ENABLE(ASSERT)
+#if DCHECK_IS_ON()
   ASSERT(!m_suspended);
   m_suspended = true;
 #endif
@@ -73,7 +68,7 @@ void SuspendableTimer::suspend() {
 }
 
 void SuspendableTimer::resume() {
-#if ENABLE(ASSERT)
+#if DCHECK_IS_ON()
   ASSERT(m_suspended);
   m_suspended = false;
 #endif

@@ -19,6 +19,7 @@ import android.widget.TextView;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.autofill.PersonalDataManager;
 import org.chromium.chrome.browser.autofill.PersonalDataManager.AutofillProfile;
+import org.chromium.chrome.browser.payments.ui.DropdownFieldAdapter;
 import org.chromium.chrome.browser.preferences.autofill.AutofillProfileBridge.AddressField;
 import org.chromium.chrome.browser.preferences.autofill.AutofillProfileBridge.AddressUiComponent;
 import org.chromium.chrome.browser.preferences.autofill.AutofillProfileBridge.DropdownKeyValue;
@@ -124,8 +125,9 @@ public class AutofillProfileEditor extends AutofillEditorBase {
             mCountryCodes.add(country.getKey());
         }
 
-        ArrayAdapter<DropdownKeyValue> countriesAdapter = new ArrayAdapter<DropdownKeyValue>(
-                getActivity(), android.R.layout.simple_spinner_item, countries);
+        ArrayAdapter<DropdownKeyValue> countriesAdapter =
+                new DropdownFieldAdapter<DropdownKeyValue>(
+                        getActivity(), android.R.layout.simple_spinner_item, countries);
         countriesAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         mCountriesDropdown.setAdapter(countriesAdapter);
     }
@@ -238,7 +240,7 @@ public class AutofillProfileEditor extends AutofillEditorBase {
     // Read edited data; save in the associated Chrome profile.
     // Ignore empty fields.
     @Override
-    protected void saveEntry() {
+    protected boolean saveEntry() {
         AutofillProfile profile = new PersonalDataManager.AutofillProfile(mGUID,
                 AutofillPreferences.SETTINGS_ORIGIN, true /* isLocal */,
                 getFieldText(AddressField.RECIPIENT), getFieldText(AddressField.ORGANIZATION),
@@ -248,6 +250,7 @@ public class AutofillProfileEditor extends AutofillEditorBase {
                 mCountryCodes.get(mCurrentCountryPos), mPhoneText.getText().toString(),
                 mEmailText.getText().toString(), mLanguageCodeString);
         PersonalDataManager.getInstance().setProfile(profile);
+        return true;
     }
 
     private String getFieldText(int fieldId) {
@@ -279,6 +282,10 @@ public class AutofillProfileEditor extends AutofillEditorBase {
         mEmailText.addTextChangedListener(this);
         mCountriesDropdown.setOnItemSelectedListener(this);
         mNoCountryItemIsSelected = true;
+
+        // Listen for touch events on country field. We clear the keyboard when user touches
+        // the country field because it is a drop down menu.
+        mCountriesDropdown.setOnTouchListener(this);
     }
 
     private void setSaveButtonEnabled(boolean enabled) {

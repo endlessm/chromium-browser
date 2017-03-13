@@ -20,17 +20,23 @@ import android.os.Looper;
 import android.os.SystemClock;
 import android.support.v4.app.NotificationCompat;
 
+import org.json.JSONException;
+import org.json.JSONObject;
+
 import org.chromium.base.ContextUtils;
 import org.chromium.base.Log;
 import org.chromium.base.ObserverList;
+import org.chromium.base.ThreadUtils;
 import org.chromium.base.VisibleForTesting;
+import org.chromium.base.annotations.CalledByNative;
+import org.chromium.base.library_loader.LibraryProcessType;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ChromeApplication;
 import org.chromium.chrome.browser.notifications.NotificationConstants;
 import org.chromium.chrome.browser.notifications.NotificationManagerProxy;
 import org.chromium.chrome.browser.notifications.NotificationManagerProxyImpl;
-import org.json.JSONException;
-import org.json.JSONObject;
+import org.chromium.content.browser.BrowserStartupController;
+import org.chromium.content.browser.BrowserStartupController.StartupCallback;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -60,7 +66,6 @@ class UrlManager {
     private static final String TAG = "PhysicalWeb";
     private static final String PREFS_VERSION_KEY = "physicalweb_version";
     private static final String PREFS_ALL_URLS_KEY = "physicalweb_all_urls";
-    private static final String PREFS_NEARBY_URLS_KEY = "physicalweb_nearby_urls";
     private static final String PREFS_PWS_RESULTS_KEY = "physicalweb_pws_results";
     private static final String PREFS_NOTIFICATION_UPDATE_TIMESTAMP =
             "physicalweb_notification_update_timestamp";
@@ -68,8 +73,6 @@ class UrlManager {
     private static final long STALE_NOTIFICATION_TIMEOUT_MILLIS = 30 * 60 * 1000;  // 30 Minutes
     private static final long MAX_CACHE_TIME = 24 * 60 * 60 * 1000;  // 1 Day
     private static final int MAX_CACHE_SIZE = 100;
-    private static UrlManager sInstance = null;
-    private final Context mContext;
     private final ObserverList<Listener> mObservers;
     private final Set<String> mNearbyUrls;
     private final Map<String, UrlInfo> mUrlInfoMap;
@@ -77,6 +80,7 @@ class UrlManager {
     private final PriorityQueue<String> mUrlsSortedByTimestamp;
     private NotificationManagerProxy mNotificationManager;
     private PwsClient mPwsClient;
+    private long mNativePhysicalWebDataSourceAndroid;
 
     /**
      * Interface for observers that should be notified when the nearby URL list changes.
@@ -95,8 +99,8 @@ class UrlManager {
      * @param context An instance of android.content.Context
      */
     @VisibleForTesting
-    public UrlManager(Context context) {
-        mContext = context;
+    public UrlManager() {
+        Context context = ContextUtils.getApplicationContext();
         mNotificationManager = new NotificationManagerProxyImpl(
                 (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE));
         mPwsClient = new PwsClientImpl(context);
@@ -113,26 +117,22 @@ class UrlManager {
             }
         });
         initSharedPreferences();
+        registerNativeInitStartupCallback();
     }
+
+    // "Initialization on demand holder idiom"
+    private static class LazyHolder {
+        private static final UrlManager INSTANCE = new UrlManager();
+    }
+
 
     /**
      * Get a singleton instance of this class.
      * @return A singleton instance of this class.
      */
+    @CalledByNative
     public static UrlManager getInstance() {
-        if (sInstance == null) {
-            sInstance = new UrlManager(ContextUtils.getApplicationContext());
-        }
-        return sInstance;
-    }
-
-    /**
-     * Get a singleton instance of this class.
-     * @param context unused
-     * @return A singleton instance of this class.
-     */
-    public static UrlManager getInstance(Context context) {
-        return getInstance();
+        return LazyHolder.INSTANCE;
     }
 
     /**
@@ -164,34 +164,53 @@ class UrlManager {
         putCachedUrlInfoMap();
 
         recordUpdate();
-        if (mNearbyUrls.contains(urlInfo.getUrl())
-                // In the rare event that our entry is immediately garbage collected from the cache,
-                // we should stop here.
-                || !mUrlInfoMap.containsKey(urlInfo.getUrl())) {
+
+        // In the rare event that our entry is immediately garbage collected from the cache, we
+        // should stop here.
+        if (!mUrlInfoMap.containsKey(urlInfo.getUrl())) {
             return;
         }
-        mNearbyUrls.add(urlInfo.getUrl());
-        putCachedNearbyUrls();
 
-        if (!PhysicalWeb.isOnboarding() && !mPwsResultMap.keySet().contains(urlInfo.getUrl())) {
+        if (mNearbyUrls.contains(urlInfo.getUrl())) {
+            // The URL has been seen before. Notify listeners with the new distance estimate.
+            if (urlInfo.getDistance() >= 0.0 && mPwsResultMap.containsKey(urlInfo.getUrl())) {
+                safeNotifyNativeListenersOnDistanceChanged(urlInfo.getUrl(), urlInfo.getDistance());
+            }
+            return;
+        }
+
+        // This is a new URL. Add it to the nearby set.
+        mNearbyUrls.add(urlInfo.getUrl());
+
+        if (!PhysicalWeb.isOnboarding() && !mPwsResultMap.containsKey(urlInfo.getUrl())) {
             // We need to resolve the URL.
             resolveUrl(urlInfo);
             return;
         }
+
         registerNewDisplayableUrl(urlInfo);
     }
 
     /**
-     * Remove a URL to the store of URLs.
+     * Remove a URL from the store of URLs.
      * This method additionally updates the Physical Web notification.
      * @param urlInfo The URL to remove.
      */
-    @VisibleForTesting
     public void removeUrl(UrlInfo urlInfo) {
         Log.d(TAG, "URL lost: %s", urlInfo);
         recordUpdate();
+
+        if (!mNearbyUrls.contains(urlInfo.getUrl())) {
+            return;
+        }
+
         mNearbyUrls.remove(urlInfo.getUrl());
-        putCachedNearbyUrls();
+
+        // If the URL was previously displayable (both nearby and resolved) and is now no longer
+        // nearby, notify listeners that the URL is lost.
+        if (mPwsResultMap.containsKey(urlInfo.getUrl())) {
+            safeNotifyNativeListenersOnLost(urlInfo.getUrl());
+        }
 
         // If there are no URLs nearby to display, clear the notification.
         if (getUrls(PhysicalWeb.isOnboarding()).isEmpty()) {
@@ -252,14 +271,23 @@ class UrlManager {
     }
 
     /**
-     * Gets all UrlInfos and PwsResults for resolved URLs.
+     * Gets all UrlInfos and PwsResults for URLs that are nearby and resolved.
+     * @param nativePhysicalWebCollection A pointer to the native PhysicalWebCollection container
+     *                                    which will receive the list of nearby URL metadata.
      */
-    public PwCollection getPwCollection() {
-        List<PwsResult> nearbyPwsResults = new ArrayList<>();
-        for (String url : mNearbyUrls) {
-            nearbyPwsResults.add(mPwsResultMap.get(url));
+    @CalledByNative
+    public void getPwCollection(long nativePhysicalWebCollection) {
+        List<UrlInfo> nearbyUrlInfos = getUrlInfoList(mNearbyUrls);
+        for (UrlInfo urlInfo : nearbyUrlInfos) {
+            String requestUrl = urlInfo.getUrl();
+            PwsResult pwsResult = mPwsResultMap.get(requestUrl);
+            if (pwsResult != null) {
+                nativeAppendMetadataItem(nativePhysicalWebCollection, requestUrl,
+                        urlInfo.getDistance(), urlInfo.getScanTimestamp(), pwsResult.siteUrl,
+                        pwsResult.iconUrl, pwsResult.title, pwsResult.description,
+                        pwsResult.groupId);
+            }
         }
-        return new PwCollection(getUrlInfoList(mNearbyUrls), nearbyPwsResults);
     }
 
     /**
@@ -278,8 +306,17 @@ class UrlManager {
      * Forget all nearby URLs and clear the notification.
      */
     public void clearNearbyUrls() {
+        HashSet<String> intersection = new HashSet<>(mNearbyUrls);
+        intersection.retainAll(mPwsResultMap.keySet());
+
         mNearbyUrls.clear();
-        putCachedNearbyUrls();
+
+        // Only notify listeners for URLs that were previously displayable (both nearby and
+        // resolved).
+        for (String url : intersection) {
+            safeNotifyNativeListenersOnLost(url);
+        }
+
         clearNotification();
         cancelClearNotificationAlarm();
     }
@@ -342,8 +379,11 @@ class UrlManager {
                 protected Void doInBackground(Void... params) {
                     prefs.edit()
                             .putInt(PREFS_VERSION_KEY, PREFS_VERSION)
-                            // This clean up code can be deleted in m57.
-                            .remove("physicalweb_resolved_urls")
+                            // This clean up code can be deleted in m59.
+                            .remove("physicalweb_nearby_urls")
+                            .remove("org.chromium.chrome.browser.physicalweb.VERSION")
+                            .remove("org.chromium.chrome.browser.physicalweb"
+                                    + ".BOTTOM_BAR_DISPLAY_COUNT")
                             .apply();
                     return null;
                 }
@@ -352,7 +392,6 @@ class UrlManager {
         }
 
         // Read the cache.
-        mNearbyUrls.addAll(prefs.getStringSet(PREFS_NEARBY_URLS_KEY, new HashSet<String>()));
         for (String serializedUrl : prefs.getStringSet(PREFS_ALL_URLS_KEY, new HashSet<String>())) {
             try {
                 JSONObject jsonObject = new JSONObject(serializedUrl);
@@ -395,10 +434,6 @@ class UrlManager {
         setStringSetInSharedPreferences(PREFS_ALL_URLS_KEY, serializedUrls);
     }
 
-    private void putCachedNearbyUrls() {
-        setStringSetInSharedPreferences(PREFS_NEARBY_URLS_KEY, mNearbyUrls);
-    }
-
     private void putCachedPwsResultMap() {
         Set<String> serializedPwsResults = new HashSet<>();
         for (PwsResult pwsResult : mPwsResultMap.values()) {
@@ -413,15 +448,17 @@ class UrlManager {
     }
 
     private PendingIntent createListUrlsIntent() {
-        Intent intent = new Intent(mContext, ListUrlsActivity.class);
+        Context appContext = ContextUtils.getApplicationContext();
+        Intent intent = new Intent(appContext, ListUrlsActivity.class);
         intent.putExtra(ListUrlsActivity.REFERER_KEY, ListUrlsActivity.NOTIFICATION_REFERER);
-        PendingIntent pendingIntent = PendingIntent.getActivity(mContext, 0, intent, 0);
+        PendingIntent pendingIntent = PendingIntent.getActivity(appContext, 0, intent, 0);
         return pendingIntent;
     }
 
     private PendingIntent createOptInIntent() {
-        Intent intent = new Intent(mContext, PhysicalWebOptInActivity.class);
-        PendingIntent pendingIntent = PendingIntent.getActivity(mContext, 0, intent, 0);
+        Context appContext = ContextUtils.getApplicationContext();
+        Intent intent = new Intent(appContext, PhysicalWebOptInActivity.class);
+        PendingIntent pendingIntent = PendingIntent.getActivity(appContext, 0, intent, 0);
         return pendingIntent;
     }
 
@@ -441,7 +478,12 @@ class UrlManager {
         } else {
             mUrlsSortedByTimestamp.remove(urlInfo.getUrl());
             currentUrlInfo.setScanTimestamp(urlInfo.getScanTimestamp());
-            currentUrlInfo.setDistance(urlInfo.getDistance());
+            if (urlInfo.getDistance() > 0.0) {
+                currentUrlInfo.setDistance(urlInfo.getDistance());
+            }
+            if (urlInfo.getDeviceAddress() != null) {
+                currentUrlInfo.setDeviceAddress(urlInfo.getDeviceAddress());
+            }
         }
         mUrlsSortedByTimestamp.add(urlInfo.getUrl());
         return currentUrlInfo;
@@ -454,7 +496,7 @@ class UrlManager {
             @Override
             public void onPwsResults(final Collection<PwsResult> pwsResults) {
                 long duration = SystemClock.elapsedRealtime() - timestamp;
-                PhysicalWebUma.onBackgroundPwsResolution(mContext, duration);
+                PhysicalWebUma.onBackgroundPwsResolution(duration);
                 new Handler(Looper.getMainLooper()).post(new Runnable() {
                     @Override
                     public void run() {
@@ -496,7 +538,7 @@ class UrlManager {
         // We should only show notifications if there's no other notification-based client.
         if (!PhysicalWeb.shouldIgnoreOtherClients()
                 && PhysicalWebEnvironment
-                        .getInstance((ChromeApplication) mContext.getApplicationContext())
+                        .getInstance((ChromeApplication) ContextUtils.getApplicationContext())
                         .hasNotificationBasedClient()) {
             return;
         }
@@ -506,11 +548,11 @@ class UrlManager {
                 // high priority notification
                 createOptInNotification(true);
                 PhysicalWeb.recordOptInNotification();
-                PhysicalWebUma.onOptInHighPriorityNotificationShown(mContext);
+                PhysicalWebUma.onOptInHighPriorityNotificationShown();
             } else {
                 // min priority notification
                 createOptInNotification(false);
-                PhysicalWebUma.onOptInMinPriorityNotificationShown(mContext);
+                PhysicalWebUma.onOptInMinPriorityNotificationShown();
             }
         } else if (PhysicalWeb.isPhysicalWebPreferenceEnabled()) {
             createNotification();
@@ -521,13 +563,14 @@ class UrlManager {
         PendingIntent pendingIntent = createListUrlsIntent();
 
         // Get values to display.
-        Resources resources = mContext.getResources();
+        Context appContext = ContextUtils.getApplicationContext();
+        Resources resources = appContext.getResources();
         String title = resources.getString(R.string.physical_web_notification_title);
         Bitmap largeIcon = BitmapFactory.decodeResource(resources,
                 R.drawable.physical_web_notification_large);
 
         // Create the notification.
-        Notification notification = new NotificationCompat.Builder(mContext)
+        Notification notification = new NotificationCompat.Builder(appContext)
                 .setLargeIcon(largeIcon)
                 .setSmallIcon(R.drawable.ic_chrome)
                 .setContentTitle(title)
@@ -547,13 +590,14 @@ class UrlManager {
                 : NotificationCompat.PRIORITY_MIN;
 
         // Get values to display.
-        Resources resources = mContext.getResources();
+        Context appContext = ContextUtils.getApplicationContext();
+        Resources resources = appContext.getResources();
         String title = resources.getString(R.string.physical_web_optin_notification_title);
         String text = resources.getString(R.string.physical_web_optin_notification_text);
         Bitmap largeIcon = BitmapFactory.decodeResource(resources, R.mipmap.app_icon);
 
         // Create the notification.
-        Notification notification = new NotificationCompat.Builder(mContext)
+        Notification notification = new NotificationCompat.Builder(appContext)
                 .setLargeIcon(largeIcon)
                 .setSmallIcon(R.drawable.ic_physical_web_notification)
                 .setContentTitle(title)
@@ -569,20 +613,25 @@ class UrlManager {
     }
 
     private PendingIntent createClearNotificationAlarmIntent() {
-        Intent intent = new Intent(mContext, ClearNotificationAlarmReceiver.class);
-        return PendingIntent.getBroadcast(mContext, 0, intent, PendingIntent.FLAG_CANCEL_CURRENT);
+        Context appContext = ContextUtils.getApplicationContext();
+        Intent intent = new Intent(appContext, ClearNotificationAlarmReceiver.class);
+        return PendingIntent.getBroadcast(appContext, 0, intent, PendingIntent.FLAG_CANCEL_CURRENT);
     }
 
     private void scheduleClearNotificationAlarm() {
         PendingIntent pendingIntent = createClearNotificationAlarmIntent();
-        AlarmManager alarmManager = (AlarmManager) mContext.getSystemService(Context.ALARM_SERVICE);
+        Context appContext = ContextUtils.getApplicationContext();
+        AlarmManager alarmManager =
+                (AlarmManager) appContext.getSystemService(Context.ALARM_SERVICE);
         long time = SystemClock.elapsedRealtime() + STALE_NOTIFICATION_TIMEOUT_MILLIS;
         alarmManager.set(AlarmManager.ELAPSED_REALTIME, time, pendingIntent);
     }
 
     private void cancelClearNotificationAlarm() {
         PendingIntent pendingIntent = createClearNotificationAlarmIntent();
-        AlarmManager alarmManager = (AlarmManager) mContext.getSystemService(Context.ALARM_SERVICE);
+        Context appContext = ContextUtils.getApplicationContext();
+        AlarmManager alarmManager =
+                (AlarmManager) appContext.getSystemService(Context.ALARM_SERVICE);
         alarmManager.cancel(pendingIntent);
     }
 
@@ -593,6 +642,11 @@ class UrlManager {
         Collection<UrlInfo> wrappedUrlInfos = Collections.unmodifiableCollection(urlInfos);
         for (Listener observer : mObservers) {
             observer.onDisplayableUrlsAdded(wrappedUrlInfos);
+        }
+
+        safeNotifyNativeListenersOnFound(urlInfo.getUrl());
+        if (urlInfo.getDistance() >= 0.0) {
+            safeNotifyNativeListenersOnDistanceChanged(urlInfo.getUrl(), urlInfo.getDistance());
         }
 
         // Only trigger the notification if we know we didn't have a notification up already
@@ -627,6 +681,104 @@ class UrlManager {
         }
     }
 
+    /**
+     * Register a StartupCallback to initialize the native portion of the JNI bridge.
+     */
+    private void registerNativeInitStartupCallback() {
+        ThreadUtils.postOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                Context appContext = ContextUtils.getApplicationContext();
+                BrowserStartupController.get(appContext, LibraryProcessType.PROCESS_BROWSER)
+                        .addStartupCompletedObserver(new StartupCallback() {
+                            @Override
+                            public void onSuccess(boolean alreadyStarted) {
+                                mNativePhysicalWebDataSourceAndroid = nativeInit();
+                                for (UrlInfo urlInfo : getUrls()) {
+                                    safeNotifyNativeListenersOnFound(urlInfo.getUrl());
+                                }
+                            }
+
+                            @Override
+                            public void onFailure() {
+                                // Startup failed.
+                            }
+                        });
+            }
+        });
+    }
+
+    /**
+     * Checks if we have initialized the native library and received a handle to the data source.
+     * @return true if the data source handle is non-null.
+     */
+    private boolean isNativeInitialized() {
+        return mNativePhysicalWebDataSourceAndroid != 0;
+    }
+
+    /**
+     * Notify native listeners that a new Physical Web URL was discovered.
+     * No notification will be sent if the feature is in the Onboarding state.
+     * @param url The Physical Web URL.
+     */
+    private void safeNotifyNativeListenersOnFound(final String url) {
+        if (!isNativeInitialized() || PhysicalWeb.isOnboarding()) {
+            return;
+        }
+
+        ThreadUtils.postOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                if (isNativeInitialized()) {
+                    nativeOnFound(mNativePhysicalWebDataSourceAndroid, url);
+                }
+            }
+        });
+    }
+
+    /**
+     * Notify native listeners that a previously-discovered Physical Web URL is no longer nearby.
+     * No notification will be sent if the feature is in the Onboarding state.
+     * @param url The Physical Web URL.
+     */
+    private void safeNotifyNativeListenersOnLost(final String url) {
+        if (!isNativeInitialized() || PhysicalWeb.isOnboarding()) {
+            return;
+        }
+
+        ThreadUtils.postOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                if (isNativeInitialized()) {
+                    nativeOnLost(mNativePhysicalWebDataSourceAndroid, url);
+                }
+            }
+        });
+    }
+
+    /**
+     * Notify native listeners with an updated estimate of the distance to the broadcasting device.
+     * No notification will be sent if the feature is in the Onboarding state.
+     * @param url The Physical Web URL.
+     * @param distanceEstimate The updated distance estimate.
+     */
+    private void safeNotifyNativeListenersOnDistanceChanged(
+            final String url, final double distanceEstimate) {
+        if (!isNativeInitialized() || PhysicalWeb.isOnboarding()) {
+            return;
+        }
+
+        ThreadUtils.postOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                if (isNativeInitialized()) {
+                    nativeOnDistanceChanged(mNativePhysicalWebDataSourceAndroid, url,
+                            distanceEstimate);
+                }
+            }
+        });
+    }
+
     @VisibleForTesting
     void overridePwsClientForTesting(PwsClient pwsClient) {
         mPwsClient = pwsClient;
@@ -639,10 +791,10 @@ class UrlManager {
     }
 
     @VisibleForTesting
-    static void clearPrefsForTesting(Context context) {
+    static void clearPrefsForTesting() {
         ContextUtils.getAppSharedPreferences().edit()
                 .remove(PREFS_VERSION_KEY)
-                .remove(PREFS_NEARBY_URLS_KEY)
+                .remove(PREFS_ALL_URLS_KEY)
                 .remove(PREFS_NOTIFICATION_UPDATE_TIMESTAMP)
                 .remove(PREFS_PWS_RESULTS_KEY)
                 .apply();
@@ -670,4 +822,13 @@ class UrlManager {
     int getMaxCacheSize() {
         return MAX_CACHE_SIZE;
     }
+
+    private native long nativeInit();
+    private native void nativeAppendMetadataItem(long nativePhysicalWebCollection,
+            String requestUrl, double distanceEstimate, long scanTimestamp, String siteUrl,
+            String iconUrl, String title, String description, String groupId);
+    private native void nativeOnFound(long nativePhysicalWebDataSourceAndroid, String url);
+    private native void nativeOnLost(long nativePhysicalWebDataSourceAndroid, String url);
+    private native void nativeOnDistanceChanged(
+            long nativePhysicalWebDataSourceAndroid, String url, double distanceChanged);
 }

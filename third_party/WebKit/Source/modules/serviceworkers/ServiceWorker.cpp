@@ -34,7 +34,6 @@
 #include "core/dom/ExceptionCode.h"
 #include "core/dom/MessagePort.h"
 #include "core/events/Event.h"
-#include "core/inspector/ConsoleMessage.h"
 #include "modules/EventTargetModules.h"
 #include "modules/serviceworkers/ServiceWorkerContainerClient.h"
 #include "public/platform/WebMessagePortChannel.h"
@@ -72,12 +71,6 @@ void ServiceWorker::postMessage(ExecutionContext* context,
                                      "ServiceWorker is in redundant state.");
     return;
   }
-
-  if (message->containsTransferableArrayBuffer())
-    context->addConsoleMessage(ConsoleMessage::create(
-        JSMessageSource, WarningMessageLevel,
-        "ServiceWorker cannot send an ArrayBuffer as a transferable object "
-        "yet. See http://crbug.com/511119"));
 
   WebString messageString = message->toWireString();
   std::unique_ptr<WebMessagePortChannelArray> webChannels =
@@ -134,7 +127,7 @@ bool ServiceWorker::hasPendingActivity() const {
   return m_handle->serviceWorker()->state() != WebServiceWorkerStateRedundant;
 }
 
-void ServiceWorker::contextDestroyed() {
+void ServiceWorker::contextDestroyed(ExecutionContext*) {
   m_wasStopped = true;
 }
 
@@ -151,16 +144,12 @@ ServiceWorker* ServiceWorker::getOrCreate(
     return existingWorker;
   }
 
-  ServiceWorker* newWorker =
-      new ServiceWorker(executionContext, std::move(handle));
-  newWorker->suspendIfNeeded();
-  return newWorker;
+  return new ServiceWorker(executionContext, std::move(handle));
 }
 
 ServiceWorker::ServiceWorker(ExecutionContext* executionContext,
                              std::unique_ptr<WebServiceWorker::Handle> handle)
     : AbstractWorker(executionContext),
-      ActiveScriptWrappable(this),
       m_handle(std::move(handle)),
       m_wasStopped(false) {
   ASSERT(m_handle);

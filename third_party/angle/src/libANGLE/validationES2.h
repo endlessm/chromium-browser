@@ -170,6 +170,17 @@ bool ValidateTexSubImage2D(Context *context,
                            GLenum format,
                            GLenum type,
                            const GLvoid *pixels);
+bool ValidateTexSubImage2DRobustANGLE(Context *context,
+                                      GLenum target,
+                                      GLint level,
+                                      GLint xoffset,
+                                      GLint yoffset,
+                                      GLsizei width,
+                                      GLsizei height,
+                                      GLenum format,
+                                      GLenum type,
+                                      GLsizei bufSize,
+                                      const GLvoid *pixels);
 bool ValidateCompressedTexImage2D(Context *context,
                                   GLenum target,
                                   GLint level,
@@ -325,6 +336,7 @@ bool ValidateCopySubTextureCHROMIUM(Context *context,
                                     GLboolean unpackFlipY,
                                     GLboolean unpackPremultiplyAlpha,
                                     GLboolean unpackUnmultiplyAlpha);
+bool ValidateCompressedCopyTextureCHROMIUM(Context *context, GLuint sourceId, GLuint destId);
 
 bool ValidateCreateShader(Context *context, GLenum type);
 bool ValidateBufferData(ValidationContext *context,
@@ -338,7 +350,35 @@ bool ValidateBufferSubData(ValidationContext *context,
                            GLsizeiptr size,
                            const GLvoid *data);
 
-bool ValidateEnableExtensionANGLE(ValidationContext *context, const GLchar *name);
+bool ValidateRequestExtensionANGLE(ValidationContext *context, const GLchar *name);
+
+bool ValidateActiveTexture(ValidationContext *context, GLenum texture);
+bool ValidateAttachShader(ValidationContext *context, GLuint program, GLuint shader);
+bool ValidateBindAttribLocation(ValidationContext *context,
+                                GLuint program,
+                                GLuint index,
+                                const GLchar *name);
+bool ValidateBindBuffer(ValidationContext *context, GLenum target, GLuint buffer);
+bool ValidateBindFramebuffer(ValidationContext *context, GLenum target, GLuint framebuffer);
+bool ValidateBindRenderbuffer(ValidationContext *context, GLenum target, GLuint renderbuffer);
+bool ValidateBlendEquation(ValidationContext *context, GLenum mode);
+bool ValidateBlendEquationSeparate(ValidationContext *context, GLenum modeRGB, GLenum modeAlpha);
+bool ValidateBlendFunc(ValidationContext *context, GLenum sfactor, GLenum dfactor);
+bool ValidateBlendFuncSeparate(ValidationContext *context,
+                               GLenum srcRGB,
+                               GLenum dstRGB,
+                               GLenum srcAlpha,
+                               GLenum dstAlpha);
+
+bool ValidateGetString(Context *context, GLenum name);
+bool ValidateLineWidth(ValidationContext *context, GLfloat width);
+bool ValidateVertexAttribPointer(ValidationContext *context,
+                                 GLuint index,
+                                 GLint size,
+                                 GLenum type,
+                                 GLboolean normalized,
+                                 GLsizei stride,
+                                 const GLvoid *ptr);
 
 }  // namespace gl
 

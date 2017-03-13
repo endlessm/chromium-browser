@@ -20,18 +20,9 @@
 #include "build/build_config.h"
 #include "content/public/common/child_process_host.h"
 #include "ipc/ipc_listener.h"
-#include "ui/gfx/gpu_memory_buffer.h"
-
-namespace base {
-class FilePath;
-}
 
 namespace IPC {
 class MessageFilter;
-}
-
-namespace gpu {
-struct SyncToken;
 }
 
 namespace content {
@@ -44,11 +35,6 @@ class CONTENT_EXPORT ChildProcessHostImpl : public ChildProcessHost,
                                             public IPC::Listener {
  public:
   ~ChildProcessHostImpl() override;
-
-  // Public and static for reuse by RenderMessageFilter.
-  static void AllocateSharedMemory(
-      size_t buffer_size, base::ProcessHandle child_process,
-      base::SharedMemoryHandle* handle);
 
   // Returns a unique ID to identify a child process. On construction, this
   // function will be used to generate the id_, but it is also used to generate
@@ -82,10 +68,7 @@ class CONTENT_EXPORT ChildProcessHostImpl : public ChildProcessHost,
   void CreateChannelMojo() override;
   bool IsChannelOpening() override;
   void AddFilter(IPC::MessageFilter* filter) override;
-  shell::InterfaceProvider* GetRemoteInterfaces() override;
-#if defined(OS_POSIX)
-  base::ScopedFD TakeClientFileDescriptor() override;
-#endif
+  service_manager::InterfaceProvider* GetRemoteInterfaces() override;
 
  private:
   friend class ChildProcessHost;
@@ -100,16 +83,6 @@ class CONTENT_EXPORT ChildProcessHostImpl : public ChildProcessHost,
 
   // Message handlers:
   void OnShutdownRequest();
-  void OnAllocateSharedMemory(uint32_t buffer_size,
-                              base::SharedMemoryHandle* handle);
-  void OnAllocateGpuMemoryBuffer(gfx::GpuMemoryBufferId id,
-                                 uint32_t width,
-                                 uint32_t height,
-                                 gfx::BufferFormat format,
-                                 gfx::BufferUsage usage,
-                                 gfx::GpuMemoryBufferHandle* handle);
-  void OnDeletedGpuMemoryBuffer(gfx::GpuMemoryBufferId id,
-                                const gpu::SyncToken& sync_token);
 
   // Initializes the IPC channel and returns true on success. |channel_| must be
   // non-null.

@@ -13,6 +13,8 @@
 #include "components/web_modal/web_contents_modal_dialog_host.h"
 #include "components/web_modal/web_contents_modal_dialog_manager.h"
 #include "components/web_modal/web_contents_modal_dialog_manager_delegate.h"
+#include "ui/display/display.h"
+#include "ui/display/screen.h"
 #include "ui/views/border.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_observer.h"
@@ -28,7 +30,7 @@ using web_modal::ModalDialogHostObserver;
 namespace constrained_window {
 namespace {
 
-ConstrainedWindowViewsClient* constrained_window_views_client = NULL;
+ConstrainedWindowViewsClient* constrained_window_views_client = nullptr;
 
 // The name of a key to store on the window handle to associate
 // WidgetModalDialogHostObserverViews with the Widget.
@@ -56,11 +58,11 @@ class WidgetModalDialogHostObserverViews
     if (host_)
       host_->RemoveObserver(this);
     target_widget_->RemoveObserver(this);
-    target_widget_->SetNativeWindowProperty(native_window_property_, NULL);
+    target_widget_->SetNativeWindowProperty(native_window_property_, nullptr);
   }
 
   // WidgetObserver overrides
-  void OnWidgetClosing(views::Widget* widget) override { delete this; }
+  void OnWidgetDestroying(views::Widget* widget) override { delete this; }
 
   // WebContentsModalDialogHostObserver overrides
   void OnPositionRequiresUpdate() override {
@@ -69,7 +71,7 @@ class WidgetModalDialogHostObserverViews
 
   void OnHostDestroying() override {
     host_->RemoveObserver(this);
-    host_ = NULL;
+    host_ = nullptr;
   }
 
  private:
@@ -108,8 +110,20 @@ void UpdateModalDialogPosition(views::Widget* widget,
     position.set_y(position.y() - border->GetInsets().top());
   }
 
-  if (widget->is_top_level())
+  if (widget->is_top_level()) {
     position += host_widget->GetClientAreaBoundsInScreen().OffsetFromOrigin();
+    // If the dialog extends partially off any display, clamp its position to
+    // be fully visible within that display. If the dialog doesn't intersect
+    // with any display clamp its position to be fully on the nearest display.
+    gfx::Rect display_rect = gfx::Rect(position, size);
+    const display::Display display =
+        display::Screen::GetScreen()->GetDisplayNearestWindow(
+            dialog_host->GetHostView());
+    const gfx::Rect work_area = display.work_area();
+    if (!work_area.Contains(display_rect))
+      display_rect.AdjustToFit(work_area);
+    position = display_rect.origin();
+  }
 
   widget->SetBounds(gfx::Rect(position, size));
 }
@@ -200,13 +214,13 @@ views::Widget* CreateBrowserModalDialogViews(views::DialogDelegate* dialog,
                                              gfx::NativeWindow parent) {
   DCHECK_NE(ui::MODAL_TYPE_CHILD, dialog->GetModalType());
   DCHECK_NE(ui::MODAL_TYPE_NONE, dialog->GetModalType());
+  DCHECK(!parent || constrained_window_views_client);
 
-  DCHECK(constrained_window_views_client);
   gfx::NativeView parent_view =
       parent ? constrained_window_views_client->GetDialogHostView(parent)
              : nullptr;
   views::Widget* widget =
-      views::DialogDelegate::CreateDialogWidget(dialog, NULL, parent_view);
+      views::DialogDelegate::CreateDialogWidget(dialog, nullptr, parent_view);
 
   bool requires_positioning = dialog->ShouldUseCustomFrame();
 
@@ -219,8 +233,9 @@ views::Widget* CreateBrowserModalDialogViews(views::DialogDelegate* dialog,
   if (!requires_positioning)
     return widget;
 
-  ModalDialogHost* host = constrained_window_views_client->
-      GetModalDialogHost(parent);
+  ModalDialogHost* host =
+      parent ? constrained_window_views_client->GetModalDialogHost(parent)
+             : nullptr;
   if (host) {
     DCHECK_EQ(parent_view, host->GetHostView());
     ModalDialogHostObserver* dialog_host_observer =

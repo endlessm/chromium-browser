@@ -32,7 +32,6 @@ modules/presentation/PresentationConnection
 modules/presentation/PresentationConnectionList
 modules/presentation/PresentationRequest
 modules/remoteplayback/RemotePlayback
-modules/remoteplayback/RemotePlaybackAvailability
 modules/screen_orientation/ScreenOrientation
 modules/sensor/Sensor
 modules/serviceworkers/ServiceWorker
@@ -42,6 +41,7 @@ modules/serviceworkers/ServiceWorkerRegistration
 modules/speech/SpeechRecognition
 modules/speech/SpeechSynthesis
 modules/speech/SpeechSynthesisUtterance
+modules/vr/VRDisplay
 modules/webaudio/AudioContext
 modules/webaudio/AudioNode
 modules/webmidi/MIDIAccess

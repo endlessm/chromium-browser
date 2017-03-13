@@ -60,7 +60,6 @@ void DomAutomationController::OnDestruct() {}
 
 void DomAutomationController::DidCreateScriptContext(
     v8::Local<v8::Context> context,
-    int extension_group,
     int world_id) {
   // Add the domAutomationController to isolated worlds as well.
   v8::Isolate* isolate = blink::mainThreadIsolate();
@@ -98,17 +97,16 @@ bool DomAutomationController::SendMsg(const gin::Arguments& args) {
   // writer is lenient, and (b) on the receiving side we wrap the JSON string
   // in square brackets, converting it to an array, then parsing it and
   // grabbing the 0th element to get the value out.
-  if (!args.PeekNext().IsEmpty() &&
-      (args.PeekNext()->IsString() || args.PeekNext()->IsBoolean() ||
-       args.PeekNext()->IsNumber())) {
+  if (!args.PeekNext().IsEmpty()) {
     V8ValueConverterImpl conv;
     value =
         conv.FromV8Value(args.PeekNext(), args.isolate()->GetCurrentContext());
   } else {
+    NOTREACHED() << "No arguments passed to domAutomationController.send";
     return false;
   }
 
-  if (!serializer.Serialize(*value))
+  if (!value || !serializer.Serialize(*value))
     return false;
 
   bool succeeded = Send(new FrameHostMsg_DomOperationResponse(

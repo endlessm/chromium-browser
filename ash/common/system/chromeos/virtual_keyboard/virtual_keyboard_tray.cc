@@ -9,30 +9,38 @@
 #include "ash/common/keyboard/keyboard_ui.h"
 #include "ash/common/material_design/material_design_controller.h"
 #include "ash/common/shelf/shelf_constants.h"
+#include "ash/common/shelf/wm_shelf.h"
 #include "ash/common/shelf/wm_shelf_util.h"
 #include "ash/common/system/tray/tray_constants.h"
 #include "ash/common/system/tray/tray_utils.h"
 #include "ash/common/wm_shell.h"
+#include "ash/common/wm_window.h"
+#include "ash/resources/vector_icons/vector_icons.h"
 #include "grit/ash_resources.h"
 #include "grit/ash_strings.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
+#include "ui/display/display.h"
 #include "ui/events/event.h"
 #include "ui/gfx/image/image_skia.h"
 #include "ui/gfx/paint_vector_icon.h"
-#include "ui/gfx/vector_icons_public.h"
 #include "ui/keyboard/keyboard_controller.h"
 #include "ui/views/controls/image_view.h"
 
 namespace ash {
 
 VirtualKeyboardTray::VirtualKeyboardTray(WmShelf* wm_shelf)
-    : TrayBackgroundView(wm_shelf), icon_(new views::ImageView) {
+    : TrayBackgroundView(wm_shelf),
+      icon_(new views::ImageView),
+      wm_shelf_(wm_shelf) {
   if (MaterialDesignController::IsShelfMaterial()) {
+    SetInkDropMode(InkDropMode::ON);
+    SetContentsBackground(false);
     gfx::ImageSkia image_md =
-        CreateVectorIcon(gfx::VectorIconId::SHELF_KEYBOARD, kShelfIconColor);
+        CreateVectorIcon(kShelfKeyboardIcon, kShelfIconColor);
     icon_->SetImage(image_md);
   } else {
+    SetContentsBackground(true);
     gfx::ImageSkia* image_non_md =
         ui::ResourceBundle::GetSharedInstance().GetImageSkiaNamed(
             IDR_AURA_UBER_TRAY_VIRTUAL_KEYBOARD);
@@ -41,7 +49,6 @@ VirtualKeyboardTray::VirtualKeyboardTray(WmShelf* wm_shelf)
 
   SetIconBorderForShelfAlignment();
   tray_container()->AddChildView(icon_);
-  SetContentsBackground();
   // The Shell may not exist in some unit tests.
   if (WmShell::HasInstance())
     WmShell::Get()->keyboard_ui()->AddObserver(this);
@@ -76,7 +83,15 @@ void VirtualKeyboardTray::HideBubbleWithView(
 void VirtualKeyboardTray::ClickedOutsideBubble() {}
 
 bool VirtualKeyboardTray::PerformAction(const ui::Event& event) {
-  WmShell::Get()->keyboard_ui()->Show();
+  const int64_t display_id =
+      wm_shelf_->GetWindow()->GetDisplayNearestWindow().id();
+  WmShell::Get()->keyboard_ui()->ShowInDisplay(display_id);
+  // Normally, active status is set when virtual keyboard is shown/hidden,
+  // however, showing virtual keyboard happens asynchronously and, especially
+  // the first time, takes some time. We need to set active status here to
+  // prevent bad things happening if user clicked the button before keyboard is
+  // shown.
+  SetIsActive(true);
   return true;
 }
 
@@ -94,7 +109,7 @@ void VirtualKeyboardTray::OnKeyboardEnabledStateChanged(bool new_enabled) {
 
 void VirtualKeyboardTray::OnKeyboardBoundsChanging(
     const gfx::Rect& new_bounds) {
-  SetDrawBackgroundAsActive(!new_bounds.IsEmpty());
+  SetIsActive(!new_bounds.IsEmpty());
 }
 
 void VirtualKeyboardTray::OnKeyboardClosed() {}
@@ -103,7 +118,7 @@ void VirtualKeyboardTray::SetIconBorderForShelfAlignment() {
   // Every time shelf alignment is updated, StatusAreaWidgetDelegate resets the
   // border to a non-null border. So, we need to remove it.
   if (!ash::MaterialDesignController::IsShelfMaterial())
-    tray_container()->SetBorder(views::Border::NullBorder());
+    tray_container()->SetBorder(views::NullBorder());
   const gfx::ImageSkia& image = icon_->GetImage();
   const int size = GetTrayConstant(VIRTUAL_KEYBOARD_BUTTON_SIZE);
   const int vertical_padding = (size - image.height()) / 2;
@@ -115,7 +130,7 @@ void VirtualKeyboardTray::SetIconBorderForShelfAlignment() {
     // the shelf.
     horizontal_padding += std::max(0, vertical_padding - horizontal_padding);
   }
-  icon_->SetBorder(views::Border::CreateEmptyBorder(
+  icon_->SetBorder(views::CreateEmptyBorder(
       gfx::Insets(vertical_padding, horizontal_padding)));
 }
 

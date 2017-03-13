@@ -1,4 +1,3 @@
-
 // Copyright 2016 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
@@ -19,7 +18,7 @@ class LayoutViewItem : public LayoutBlockItem {
       : LayoutBlockItem(layoutView) {}
 
   explicit LayoutViewItem(const LayoutBlockItem& item) : LayoutBlockItem(item) {
-    ASSERT_WITH_SECURITY_IMPLICATION(!item || item.isLayoutView());
+    SECURITY_DCHECK(!item || item.isLayoutView());
   }
 
   explicit LayoutViewItem(std::nullptr_t) : LayoutBlockItem(nullptr) {}
@@ -70,10 +69,6 @@ class LayoutViewItem : public LayoutBlockItem {
 
   void invalidatePaintForViewAndCompositedLayers() {
     toView()->invalidatePaintForViewAndCompositedLayers();
-  }
-
-  void sendMediaPositionChangeNotifications(const IntRect& visibleRect) {
-    toView()->sendMediaPositionChangeNotifications(visibleRect);
   }
 
   int viewHeight(

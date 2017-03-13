@@ -7,7 +7,6 @@
 
 #include "WebCommon.h"
 #include "WebString.h"
-#include "public/platform/WebTaskRunner.h"
 #include "public/platform/WebThread.h"
 #include "public/platform/WebTraceLocation.h"
 #include "public/platform/WebViewScheduler.h"
@@ -16,7 +15,7 @@
 
 namespace blink {
 
-class WebView;
+class WebTaskRunner;
 
 // This class is used to submit tasks and pass other information from Blink to
 // the platform's scheduler.
@@ -76,7 +75,8 @@ class BLINK_PLATFORM_EXPORT WebScheduler {
   // Creates a new WebViewScheduler for a given WebView. Must be called from
   // the associated WebThread.
   virtual std::unique_ptr<WebViewScheduler> createWebViewScheduler(
-      InterventionReporter*) = 0;
+      InterventionReporter*,
+      WebViewScheduler::WebViewSchedulerSettings*) = 0;
 
   // Suspends the timer queue and increments the timer queue suspension count.
   // May only be called from the main thread.
@@ -94,9 +94,6 @@ class BLINK_PLATFORM_EXPORT WebScheduler {
 
   // Tells the scheduler that a navigation task is no longer pending.
   virtual void removePendingNavigation(NavigatingFrameType) = 0;
-
-  // Tells the scheduler that an expected navigation was started.
-  virtual void onNavigationStarted() = 0;
 
 #ifdef INSIDE_BLINK
   // Helpers for posting bound functions as tasks.

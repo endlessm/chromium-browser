@@ -12,12 +12,12 @@ namespace blink {
 enum class BoundAdjust { CurrentPosIfOnBound, NextBoundIfOnBound };
 enum class SearchDirection { SearchBackwards, SearchForward };
 
-// We use the bottom-left corner of the caret rect to represent the
+// We use the bottom-left corner of the selection rect to represent the
 // location of a VisiblePosition. This way locations corresponding to
 // VisiblePositions on the same line will all have the same y coordinate
 // unless the text is transformed.
 static IntPoint positionLocation(const VisiblePosition& vp) {
-  return absoluteCaretBoundsOf(vp).minXMaxYCorner();
+  return absoluteSelectionBoundsOf(vp).minXMaxYCorner();
 }
 
 // Order is specified using the same contract as comparePositions.
@@ -71,7 +71,11 @@ VisibleSelection CharacterGranularityStrategy::updateExtent(
   if (selection.visibleBase().deepEquivalent() ==
       extentPosition.deepEquivalent())
     return selection;
-  return createVisibleSelection(selection.visibleBase(), extentPosition);
+  return createVisibleSelection(SelectionInDOMTree::Builder()
+                                    .collapse(selection.base())
+                                    .extend(extentPosition.deepEquivalent())
+                                    .setAffinity(selection.affinity())
+                                    .build());
 }
 
 DirectionGranularityStrategy::DirectionGranularityStrategy()
@@ -147,8 +151,12 @@ VisibleSelection DirectionGranularityStrategy::updateExtent(
   // without a line change.
   if (verticalChange &&
       inSameLine(newOffsetExtentPosition, oldOffsetExtentPosition)) {
-    return createVisibleSelection(selection.visibleBase(),
-                                  newOffsetExtentPosition);
+    return createVisibleSelection(
+        SelectionInDOMTree::Builder()
+            .collapse(selection.base())
+            .extend(newOffsetExtentPosition.deepEquivalent())
+            .setAffinity(selection.affinity())
+            .build());
   }
 
   int oldExtentBaseOrder = selection.isBaseFirst() ? 1 : -1;
@@ -260,9 +268,11 @@ VisibleSelection DirectionGranularityStrategy::updateExtent(
 
   m_diffExtentPointFromExtentPosition =
       extentPoint + IntSize(m_offset, 0) - positionLocation(newSelectionExtent);
-  VisibleSelection newSelection = selection;
-  newSelection.setExtent(newSelectionExtent);
-  return newSelection;
+  return createVisibleSelection(
+      SelectionInDOMTree::Builder(selection.asSelection())
+          .collapse(selection.base())
+          .extend(newSelectionExtent.deepEquivalent())
+          .build());
 }
 
 }  // namespace blink

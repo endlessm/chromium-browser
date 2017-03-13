@@ -19,7 +19,7 @@
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_delegate.h"
-#include "services/shell/public/cpp/interface_provider.h"
+#include "services/service_manager/public/cpp/interface_provider.h"
 #include "ui/base/l10n/l10n_util.h"
 
 namespace task_manager {
@@ -31,7 +31,7 @@ namespace {
 // |render_process_host|.
 ProcessResourceUsage* CreateRendererResourcesSampler(
     content::RenderProcessHost* render_process_host) {
-  mojom::ResourceUsageReporterPtr service;
+  chrome::mojom::ResourceUsageReporterPtr service;
   render_process_host->GetRemoteInterfaces()->GetInterface(&service);
   return new ProcessResourceUsage(std::move(service));
 }

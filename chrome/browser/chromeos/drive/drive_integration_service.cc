@@ -10,6 +10,7 @@
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/strings/stringprintf.h"
+#include "base/sys_info.h"
 #include "base/threading/sequenced_worker_pool.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
@@ -117,7 +118,8 @@ FileError InitializeMetadata(
     const base::FilePath& downloads_directory) {
   if (!base::DirectoryExists(
           cache_root_directory.Append(kTemporaryFileDirectory))) {
-    LOG(ERROR) << "/tmp should have been created as clear.";
+    if (base::SysInfo::IsRunningOnChromeOS())
+      LOG(ERROR) << "/tmp should have been created as clear.";
     // Create /tmp directory as encrypted. Cryptohome will re-create /tmp
     // direcotry at the next login.
     if (!base::CreateDirectory(
@@ -465,8 +467,8 @@ void DriveIntegrationService::AddDriveMountPoint() {
 
   if (success) {
     logger_->Log(logging::LOG_INFO, "Drive mount point is added");
-    FOR_EACH_OBSERVER(DriveIntegrationServiceObserver, observers_,
-                      OnFileSystemMounted());
+    for (auto& observer : observers_)
+      observer.OnFileSystemMounted();
   }
 }
 
@@ -476,8 +478,8 @@ void DriveIntegrationService::RemoveDriveMountPoint() {
   if (!mount_point_name_.empty()) {
     job_list()->CancelAllJobs();
 
-    FOR_EACH_OBSERVER(DriveIntegrationServiceObserver, observers_,
-                      OnFileSystemBeingUnmounted());
+    for (auto& observer : observers_)
+      observer.OnFileSystemBeingUnmounted();
 
     storage::ExternalMountPoints* const mount_points =
         storage::ExternalMountPoints::GetSystemInstance();

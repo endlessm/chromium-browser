@@ -21,12 +21,12 @@
 #include "chrome/browser/ui/webui/media_router/media_cast_mode.h"
 #include "chrome/browser/ui/webui/media_router/media_sink_with_cast_modes.h"
 
+class GURL;
+
 namespace media_router {
 
 class MediaRouter;
 class MediaSinksObserver;
-struct RoutesQueryResult;
-struct SinksQueryResult;
 
 // The Media Router dialog allows the user to initiate casting using one of
 // several actions (each represented by a cast mode).  Each cast mode is

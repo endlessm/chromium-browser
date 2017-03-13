@@ -6,7 +6,6 @@
 
 #include <string>
 
-#include "ash/display/display_manager.h"
 #include "ash/display/window_tree_host_manager.h"
 #include "ash/shell.h"
 #include "base/bind.h"
@@ -18,7 +17,9 @@
 #include "content/public/browser/web_ui.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/display/display.h"
+#include "ui/display/manager/display_manager.h"
 #include "ui/display/screen.h"
+#include "ui/display/types/display_constants.h"
 
 namespace chromeos {
 namespace options {
@@ -103,7 +104,7 @@ void DisplayOverscanHandler::OnDisplayMetricsChanged(const display::Display&,
                                                      uint32_t) {}
 
 void DisplayOverscanHandler::HandleStart(const base::ListValue* args) {
-  int64_t display_id = display::Display::kInvalidDisplayID;
+  int64_t display_id = display::kInvalidDisplayId;
   std::string id_value;
   if (!args->GetString(0, &id_value)) {
     LOG(ERROR) << "Can't find ID";
@@ -111,7 +112,7 @@ void DisplayOverscanHandler::HandleStart(const base::ListValue* args) {
   }
 
   if (!base::StringToInt64(id_value, &display_id) ||
-      display_id == display::Display::kInvalidDisplayID) {
+      display_id == display::kInvalidDisplayId) {
     LOG(ERROR) << "Invalid parameter: " << id_value;
     return;
   }

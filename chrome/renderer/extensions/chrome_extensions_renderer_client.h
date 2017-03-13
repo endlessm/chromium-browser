@@ -16,9 +16,9 @@ class ChromeExtensionsDispatcherDelegate;
 class GURL;
 
 namespace blink {
-class WebFrame;
 class WebLocalFrame;
 struct WebPluginParams;
+class WebURL;
 }
 
 namespace content {
@@ -54,9 +54,9 @@ class ChromeExtensionsRendererClient
   bool OverrideCreatePlugin(content::RenderFrame* render_frame,
                             const blink::WebPluginParams& params);
   bool AllowPopup();
-  bool WillSendRequest(blink::WebFrame* frame,
+  bool WillSendRequest(blink::WebLocalFrame* frame,
                        ui::PageTransition transition_type,
-                       const GURL& url,
+                       const blink::WebURL& url,
                        GURL* new_url);
   void SetExtensionDispatcherForTest(
       std::unique_ptr<extensions::Dispatcher> extension_dispatcher);

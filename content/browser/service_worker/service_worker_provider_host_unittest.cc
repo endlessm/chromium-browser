@@ -12,9 +12,12 @@
 #include "content/browser/service_worker/service_worker_context_core.h"
 #include "content/browser/service_worker/service_worker_register_job.h"
 #include "content/browser/service_worker/service_worker_registration.h"
+#include "content/browser/service_worker/service_worker_test_utils.h"
 #include "content/browser/service_worker/service_worker_version.h"
+#include "content/common/url_schemes.h"
 #include "content/public/common/origin_util.h"
 #include "content/public/test/test_browser_thread_bundle.h"
+#include "content/public/test/test_utils.h"
 #include "content/test/test_content_browser_client.h"
 #include "content/test/test_content_client.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -25,8 +28,8 @@ const char kServiceWorkerScheme[] = "i-can-use-service-worker";
 
 class ServiceWorkerTestContentClient : public TestContentClient {
  public:
-  void AddServiceWorkerSchemes(std::set<std::string>* schemes) override {
-    schemes->insert(kServiceWorkerScheme);
+  void AddAdditionalSchemes(Schemes* schemes) override {
+    schemes->service_worker_schemes.push_back(kServiceWorkerScheme);
   }
 };
 
@@ -41,6 +44,7 @@ class ServiceWorkerProviderHostTest : public testing::Test {
   void SetUp() override {
     old_content_browser_client_ =
         SetBrowserClientForTesting(&test_content_browser_client_);
+    ResetSchemesAndOriginsWhitelist();
 
     helper_.reset(new EmbeddedWorkerTestHelper(base::FilePath()));
     context_ = helper_->context();
@@ -78,13 +82,15 @@ class ServiceWorkerProviderHostTest : public testing::Test {
     registration2_ = 0;
     helper_.reset();
     SetBrowserClientForTesting(old_content_browser_client_);
+    // Reset cached security schemes so we don't affect other tests.
+    ResetSchemesAndOriginsWhitelist();
   }
 
   bool PatternHasProcessToRun(const GURL& pattern) const {
     return context_->process_manager()->PatternHasProcessToRun(pattern);
   }
 
-  content::TestBrowserThreadBundle thread_bundle_;
+  TestBrowserThreadBundle thread_bundle_;
   std::unique_ptr<EmbeddedWorkerTestHelper> helper_;
   ServiceWorkerContextCore* context_;
   scoped_refptr<ServiceWorkerRegistration> registration1_;
@@ -168,7 +174,6 @@ TEST_F(ServiceWorkerProviderHostTest, MatchRegistration) {
 
 TEST_F(ServiceWorkerProviderHostTest, ContextSecurity) {
   using FrameSecurityLevel = ServiceWorkerProviderHost::FrameSecurityLevel;
-  content::ResetSchemesAndOriginsWhitelistForTesting();
 
   // Insecure document URL.
   provider_host1_->SetDocumentUrl(GURL("http://host"));

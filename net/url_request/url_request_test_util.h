@@ -165,6 +165,7 @@ class TestDelegate : public URLRequest::Delegate {
   const std::string& data_received() const { return data_received_; }
   int bytes_received() const { return static_cast<int>(data_received_.size()); }
   int response_started_count() const { return response_started_count_; }
+  int received_bytes_count() const { return received_bytes_count_; }
   int received_redirect_count() const { return received_redirect_count_; }
   bool received_data_before_response() const {
     return received_data_before_response_;
@@ -176,6 +177,7 @@ class TestDelegate : public URLRequest::Delegate {
   }
   bool auth_required_called() const { return auth_required_; }
   bool have_full_request_headers() const { return have_full_request_headers_; }
+  bool response_completed() const { return response_completed_; }
   const HttpRequestHeaders& full_request_headers() const {
     return full_request_headers_;
   }
@@ -225,6 +227,7 @@ class TestDelegate : public URLRequest::Delegate {
   std::string data_received_;
   bool have_full_request_headers_;
   HttpRequestHeaders full_request_headers_;
+  bool response_completed_;
 
   // tracks status of request
   int request_status_;
@@ -308,6 +311,10 @@ class TestNetworkDelegate : public NetworkDelegateImpl {
 
   void set_can_be_intercepted_on_error(bool can_be_intercepted_on_error) {
     will_be_intercepted_on_next_error_ = can_be_intercepted_on_error;
+  }
+
+  void set_before_start_transaction_fails() {
+    before_start_transaction_fails_ = true;
   }
 
  protected:
@@ -401,6 +408,7 @@ class TestNetworkDelegate : public NetworkDelegateImpl {
   bool experimental_cookie_features_enabled_;           // false by default
   bool cancel_request_with_policy_violating_referrer_;  // false by default
   bool will_be_intercepted_on_next_error_;
+  bool before_start_transaction_fails_;
 };
 
 //-----------------------------------------------------------------------------

@@ -35,7 +35,6 @@
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/chrome_pages.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
-#include "chrome/browser/ui/tabs/tab_strip_model_utils.h"
 #include "chrome/browser/ui/webui/inspect_ui.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/common/content_restriction.h"
@@ -57,7 +56,8 @@
 #include "content/public/common/url_constants.h"
 #include "extensions/browser/extension_system.h"
 #include "mash/public/interfaces/launchable.mojom.h"
-#include "services/shell/public/cpp/connector.h"
+#include "printing/features/features.h"
+#include "services/service_manager/public/cpp/connector.h"
 #include "ui/events/keycodes/keyboard_codes.h"
 
 #if defined(OS_MACOSX)
@@ -443,7 +443,7 @@ void BrowserCommandController::ExecuteCommandWithDisposition(
       Print(browser_);
       break;
 
-#if defined(ENABLE_BASIC_PRINTING)
+#if BUILDFLAG(ENABLE_BASIC_PRINTING)
     case IDC_BASIC_PRINT:
       content::RecordAction(base::UserMetricsAction("Accel_Advanced_Print"));
       BasicPrint(browser_);
@@ -534,7 +534,7 @@ void BrowserCommandController::ExecuteCommandWithDisposition(
       ToggleDevToolsWindow(browser_, DevToolsToggleAction::Show());
       break;
     case IDC_DEV_TOOLS_CONSOLE:
-      ToggleDevToolsWindow(browser_, DevToolsToggleAction::ShowConsole());
+      ToggleDevToolsWindow(browser_, DevToolsToggleAction::ShowConsolePanel());
       break;
     case IDC_DEV_TOOLS_DEVICES:
       InspectUI::InspectDevices(browser_);
@@ -630,10 +630,10 @@ void BrowserCommandController::ExecuteCommandWithDisposition(
 #if defined(OS_CHROMEOS)
     case IDC_TOUCH_HUD_PROJECTION_TOGGLE:
       if (chrome::IsRunningInMash()) {
-        shell::Connector* connector =
+        service_manager::Connector* connector =
             content::ServiceManagerConnection::GetForProcess()->GetConnector();
         mash::mojom::LaunchablePtr launchable;
-        connector->ConnectToInterface("service:touch_hud", &launchable);
+        connector->BindInterface("touch_hud", &launchable);
         launchable->Launch(mash::mojom::kWindow,
                            mash::mojom::LaunchMode::DEFAULT);
       } else {
@@ -1096,7 +1096,7 @@ void BrowserCommandController::UpdateCommandsForFullscreenMode() {
 void BrowserCommandController::UpdatePrintingState() {
   bool print_enabled = CanPrint(browser_);
   command_updater_.UpdateCommandEnabled(IDC_PRINT, print_enabled);
-#if defined(ENABLE_BASIC_PRINTING)
+#if BUILDFLAG(ENABLE_BASIC_PRINTING)
   command_updater_.UpdateCommandEnabled(IDC_BASIC_PRINT,
                                         CanBasicPrint(browser_));
 #endif  // ENABLE_BASIC_PRINTING

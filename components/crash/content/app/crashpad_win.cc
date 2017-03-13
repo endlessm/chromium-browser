@@ -58,7 +58,6 @@ base::FilePath PlatformCrashpadInitialization(bool initial_client,
                                               bool embedded_handler) {
   base::FilePath database_path;  // Only valid in the browser process.
   base::FilePath metrics_path;  // Only valid in the browser process.
-  bool result = false;
 
   const char kPipeNameVar[] = "CHROME_CRASHPAD_PIPE_NAME";
   const char kServerUrlVar[] = "CHROME_CRASHPAD_SERVER_URL";
@@ -119,9 +118,15 @@ base::FilePath PlatformCrashpadInitialization(bool initial_client,
       exe_file = exe_dir.Append(FILE_PATH_LITERAL("crashpad_handler.exe"));
     }
 
-    result = g_crashpad_client.Get().StartHandler(
-        exe_file, database_path, metrics_path, url, process_annotations,
-        arguments, false);
+    if (!g_crashpad_client.Get().StartHandler(
+            exe_file, database_path, metrics_path, url, process_annotations,
+            arguments, false, true)) {
+      // This means that CreateThread() failed, so this process is very messed
+      // up. This should be effectively unreachable. It is unlikely that there
+      // is any utility to ever making this non-fatal, however, if this is done,
+      // calls to BlockUntilHandlerStarted() will have to be amended.
+      LOG(FATAL) << "synchronous part of handler startup failed";
+    }
 
     // If we're the browser, push the pipe name into the environment so child
     // processes can connect to it. If we inherited another crashpad_handler's
@@ -130,16 +135,12 @@ base::FilePath PlatformCrashpadInitialization(bool initial_client,
                 base::UTF16ToUTF8(g_crashpad_client.Get().GetHandlerIPCPipe()));
   } else {
     std::string pipe_name_utf8;
-    result = env->GetVar(kPipeNameVar, &pipe_name_utf8);
-    if (result) {
-      result = g_crashpad_client.Get().SetHandlerIPCPipe(
+    if (env->GetVar(kPipeNameVar, &pipe_name_utf8)) {
+      g_crashpad_client.Get().SetHandlerIPCPipe(
           base::UTF8ToUTF16(pipe_name_utf8));
     }
   }
 
-  if (result) {
-    result = g_crashpad_client.Get().UseHandler();
-  }
   return database_path;
 }
 
@@ -156,8 +157,9 @@ extern "C" void __declspec(dllexport) __cdecl DumpProcessWithoutCrash() {
 
 namespace {
 
-// We need to prevent ICF from folding DumpForHangDebuggingThread() and
-// DumpProcessWithoutCrashThread() together, since that makes them
+// We need to prevent ICF from folding DumpForHangDebuggingThread(),
+// DumpProcessForHungInputThread(), DumpProcessForHungInputNoCrashKeysThread()
+// and DumpProcessWithoutCrashThread() together, since that makes them
 // indistinguishable in crash dumps. We do this by making the function
 // bodies unique, and prevent optimization from shuffling things around.
 MSVC_DISABLE_OPTIMIZE()
@@ -165,7 +167,14 @@ MSVC_PUSH_DISABLE_WARNING(4748)
 
 // Note that this function must be in a namespace for the [Renderer hang]
 // annotations to work on the crash server.
-DWORD WINAPI DumpProcessWithoutCrashThread(void* crash_keys_str) {
+DWORD WINAPI DumpProcessWithoutCrashThread(void*) {
+  DumpProcessWithoutCrash();
+  return 0;
+}
+
+// TODO(dtapuska): Remove when enough information is gathered where the crash
+// reports without crash keys come from.
+DWORD WINAPI DumpProcessForHungInputThread(void* crash_keys_str) {
   base::StringPairs crash_keys;
   if (crash_keys_str && base::SplitStringIntoKeyValuePairs(
                             reinterpret_cast<const char*>(crash_keys_str), ':',
@@ -178,9 +187,19 @@ DWORD WINAPI DumpProcessWithoutCrashThread(void* crash_keys_str) {
   return 0;
 }
 
-// The following two functions do exactly the same thing as the two above. But
-// we want the signatures to be different so that we can easily track them in
-// crash reports.
+// TODO(dtapuska): Remove when enough information is gathered where the crash
+// reports without crash keys come from.
+DWORD WINAPI DumpProcessForHungInputNoCrashKeysThread(void* reason) {
+#pragma warning(push)
+#pragma warning(disable : 4311 4302)
+  base::debug::SetCrashKeyValue(
+      "hung-reason", base::IntToString(reinterpret_cast<int>(reason)));
+#pragma warning(pop)
+
+  DumpProcessWithoutCrash();
+  return 0;
+}
+
 // TODO(yzshen): Remove when enough information is collected and the hang rate
 // of pepper/renderer processes is reduced.
 DWORD WINAPI DumpForHangDebuggingThread(void*) {
@@ -195,6 +214,16 @@ MSVC_ENABLE_OPTIMIZE()
 }  // namespace
 
 }  // namespace internal
+
+void BlockUntilHandlerStarted() {
+  // We know that the StartHandler() at least started asynchronous startup if
+  // we're here, as if it doesn't, we abort.
+  const unsigned int kTimeoutMS = 5000;
+  if (!internal::g_crashpad_client.Get().WaitForHandlerStart(kTimeoutMS)) {
+    LOG(ERROR) << "Crashpad handler failed to start, crash reporting disabled";
+  }
+}
+
 }  // namespace crash_reporter
 
 extern "C" {
@@ -212,17 +241,38 @@ int __declspec(dllexport) CrashForException(
 }
 
 // Injects a thread into a remote process to dump state when there is no crash.
+HANDLE __declspec(dllexport) __cdecl InjectDumpProcessWithoutCrash(
+    HANDLE process) {
+  return CreateRemoteThread(
+      process, nullptr, 0,
+      crash_reporter::internal::DumpProcessWithoutCrashThread, nullptr, 0,
+      nullptr);
+}
+
+// Injects a thread into a remote process to dump state when there is no crash.
 // |serialized_crash_keys| is a nul terminated string that represents serialized
 // crash keys sent from the browser. Keys and values are separated by ':', and
 // key/value pairs are separated by ','. All keys should be previously
-// registered as crash keys.
-HANDLE __declspec(dllexport) __cdecl InjectDumpProcessWithoutCrash(
+// registered as crash keys. This method is used solely to classify hung input.
+HANDLE __declspec(dllexport) __cdecl InjectDumpForHungInput(
     HANDLE process,
     void* serialized_crash_keys) {
   return CreateRemoteThread(
       process, nullptr, 0,
-      crash_reporter::internal::DumpProcessWithoutCrashThread,
+      crash_reporter::internal::DumpProcessForHungInputThread,
       serialized_crash_keys, 0, nullptr);
+}
+
+// Injects a thread into a remote process to dump state when there is no crash.
+// This method provides |reason| which will interpreted as an integer and logged
+// as a crash key.
+HANDLE __declspec(dllexport) __cdecl InjectDumpForHungInputNoCrashKeys(
+    HANDLE process,
+    int reason) {
+  return CreateRemoteThread(
+      process, nullptr, 0,
+      crash_reporter::internal::DumpProcessForHungInputNoCrashKeysThread,
+      reinterpret_cast<void*>(reason), 0, nullptr);
 }
 
 HANDLE __declspec(dllexport) __cdecl InjectDumpForHangDebugging(

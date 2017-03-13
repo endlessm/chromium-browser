@@ -25,6 +25,15 @@ data_use_measurement::ChromeDataUseAscriber* InitOnIOThread(
   return io_thread->globals()->data_use_ascriber.get();
 }
 
+// Returns the top most parent of |render_frame_host|.
+content::RenderFrameHost* GetMainFrame(
+    content::RenderFrameHost* render_frame_host) {
+  content::RenderFrameHost* render_main_frame_host = render_frame_host;
+  while (render_main_frame_host->GetParent())
+    render_main_frame_host = render_main_frame_host->GetParent();
+  return render_main_frame_host;
+}
+
 }  // namespace
 
 namespace data_use_measurement {
@@ -64,20 +73,21 @@ void ChromeDataUseAscriberService::RenderFrameCreated(
   if (!ascriber_)
     return;
 
-  int parent_render_process_id = -1;
-  int parent_render_frame_id = -1;
-  if (render_frame_host->GetParent()) {
-    parent_render_process_id =
-        render_frame_host->GetParent()->GetProcess()->GetID();
-    parent_render_frame_id = render_frame_host->GetParent()->GetRoutingID();
+  int main_render_process_id = -1;
+  int main_render_frame_id = -1;
+  content::RenderFrameHost* main_frame = GetMainFrame(render_frame_host);
+  if (main_frame != render_frame_host) {
+    main_render_process_id = main_frame->GetProcess()->GetID();
+    main_render_frame_id = main_frame->GetRoutingID();
   }
+
   content::BrowserThread::PostTask(
       content::BrowserThread::IO, FROM_HERE,
       base::Bind(&ChromeDataUseAscriber::RenderFrameCreated,
                  base::Unretained(ascriber_),
                  render_frame_host->GetProcess()->GetID(),
-                 render_frame_host->GetRoutingID(), parent_render_process_id,
-                 parent_render_frame_id));
+                 render_frame_host->GetRoutingID(), main_render_process_id,
+                 main_render_frame_id));
 }
 
 void ChromeDataUseAscriberService::RenderFrameDeleted(
@@ -95,38 +105,31 @@ void ChromeDataUseAscriberService::RenderFrameDeleted(
   if (!ascriber_)
     return;
 
-  int parent_render_frame_id = -1;
-  int parent_render_process_id = -1;
-
-  if (render_frame_host->GetParent()) {
-    parent_render_process_id =
-        render_frame_host->GetParent()->GetProcess()->GetID();
-    parent_render_frame_id = render_frame_host->GetParent()->GetRoutingID();
+  int main_render_process_id = -1;
+  int main_render_frame_id = -1;
+  content::RenderFrameHost* main_frame = GetMainFrame(render_frame_host);
+  if (main_frame != render_frame_host) {
+    main_render_process_id = main_frame->GetProcess()->GetID();
+    main_render_frame_id = main_frame->GetRoutingID();
   }
+
   content::BrowserThread::PostTask(
       content::BrowserThread::IO, FROM_HERE,
       base::Bind(&ChromeDataUseAscriber::RenderFrameDeleted,
                  base::Unretained(ascriber_),
                  render_frame_host->GetProcess()->GetID(),
-                 render_frame_host->GetRoutingID(), parent_render_process_id,
-                 parent_render_frame_id));
+                 render_frame_host->GetRoutingID(), main_render_process_id,
+                 main_render_frame_id));
 }
 
 void ChromeDataUseAscriberService::DidStartNavigation(
     content::NavigationHandle* navigation_handle) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-
   if (!navigation_handle->IsInMainFrame())
     return;
 
-  if (!is_initialized_) {
-    pending_navigations_queue_.push_back(navigation_handle);
-    return;
-  }
-
   if (!ascriber_)
     return;
-
   content::WebContents* web_contents = navigation_handle->GetWebContents();
   content::BrowserThread::PostTask(
       content::BrowserThread::IO, FROM_HERE,
@@ -137,20 +140,12 @@ void ChromeDataUseAscriberService::DidStartNavigation(
                  navigation_handle));
 }
 
-void ChromeDataUseAscriberService::DidFinishNavigation(
+void ChromeDataUseAscriberService::ReadyToCommitNavigation(
     content::NavigationHandle* navigation_handle) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
   if (!navigation_handle->IsInMainFrame())
     return;
-
-  if (!is_initialized_) {
-    // While remove() is a O(n) operation, the pending queue is not expected
-    // to have a significant number of elements.
-    DCHECK_GE(50u, pending_navigations_queue_.size());
-    pending_navigations_queue_.remove(navigation_handle);
-    return;
-  }
 
   if (!ascriber_)
     return;
@@ -159,32 +154,13 @@ void ChromeDataUseAscriberService::DidFinishNavigation(
   content::BrowserThread::PostTask(
       content::BrowserThread::IO, FROM_HERE,
       base::Bind(
-          &ChromeDataUseAscriber::DidFinishMainFrameNavigation,
+          &ChromeDataUseAscriber::ReadyToCommitMainFrameNavigation,
           base::Unretained(ascriber_), navigation_handle->GetURL(),
+          navigation_handle->GetGlobalRequestID(),
           web_contents->GetRenderProcessHost()->GetID(),
           web_contents->GetMainFrame()->GetRoutingID(),
           !navigation_handle->HasCommitted() || navigation_handle->IsSamePage(),
           navigation_handle));
-}
-
-void ChromeDataUseAscriberService::DidRedirectNavigation(
-    content::NavigationHandle* navigation_handle) {
-  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-
-  if (!is_initialized_ || !navigation_handle->IsInMainFrame())
-    return;
-
-  if (!ascriber_)
-    return;
-
-  content::WebContents* web_contents = navigation_handle->GetWebContents();
-  content::BrowserThread::PostTask(
-      content::BrowserThread::IO, FROM_HERE,
-      base::Bind(&ChromeDataUseAscriber::DidRedirectMainFrameNavigation,
-                 base::Unretained(ascriber_), navigation_handle->GetURL(),
-                 web_contents->GetRenderProcessHost()->GetID(),
-                 web_contents->GetMainFrame()->GetRoutingID(),
-                 navigation_handle));
 }
 
 void ChromeDataUseAscriberService::SetDataUseAscriber(
@@ -197,13 +173,50 @@ void ChromeDataUseAscriberService::SetDataUseAscriber(
 
   for (auto& it : pending_frames_queue_) {
     RenderFrameCreated(it);
+    if (pending_visible_main_frames_.find(it) !=
+        pending_visible_main_frames_.end()) {
+      WasShownOrHidden(it, true);
+    }
   }
   pending_frames_queue_.clear();
+  pending_visible_main_frames_.clear();
+}
 
-  for (auto& it : pending_navigations_queue_) {
-    DidStartNavigation(it);
+void ChromeDataUseAscriberService::WasShownOrHidden(
+    content::RenderFrameHost* main_render_frame_host,
+    bool visible) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+
+  if (!ascriber_) {
+    if (visible)
+      pending_visible_main_frames_.insert(main_render_frame_host);
+    else
+      pending_visible_main_frames_.erase(main_render_frame_host);
+    return;
   }
-  pending_navigations_queue_.clear();
+
+  content::BrowserThread::PostTask(
+      content::BrowserThread::IO, FROM_HERE,
+      base::Bind(&ChromeDataUseAscriber::WasShownOrHidden,
+                 base::Unretained(ascriber_),
+                 main_render_frame_host->GetProcess()->GetID(),
+                 main_render_frame_host->GetRoutingID(), visible));
+}
+
+void ChromeDataUseAscriberService::RenderFrameHostChanged(
+    content::RenderFrameHost* old_host,
+    content::RenderFrameHost* new_host) {
+  if (!ascriber_)
+    return;
+
+  if (old_host) {
+    content::BrowserThread::PostTask(
+        content::BrowserThread::IO, FROM_HERE,
+        base::Bind(&ChromeDataUseAscriber::RenderFrameHostChanged,
+                   base::Unretained(ascriber_), old_host->GetProcess()->GetID(),
+                   old_host->GetRoutingID(), new_host->GetProcess()->GetID(),
+                   new_host->GetRoutingID()));
+  }
 }
 
 }  // namespace data_use_measurement

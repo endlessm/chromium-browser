@@ -10,23 +10,24 @@
 #include <utility>
 
 #include "base/location.h"
+#include "base/memory/ptr_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/threading/thread_task_runner_handle.h"
-#include "components/sync/api/local_change_observer.h"
-#include "components/sync/api/sync_change.h"
-#include "components/sync/api/sync_error.h"
-#include "components/sync/api/syncable_service.h"
+#include "base/threading/sequenced_task_runner_handle.h"
 #include "components/sync/base/unrecoverable_error_handler.h"
-#include "components/sync/core/base_node.h"
-#include "components/sync/core/change_record.h"
-#include "components/sync/core/read_node.h"
-#include "components/sync/core/read_transaction.h"
-#include "components/sync/core/write_node.h"
-#include "components/sync/core/write_transaction.h"
 #include "components/sync/driver/sync_api_component_factory.h"
 #include "components/sync/driver/sync_client.h"
+#include "components/sync/model/local_change_observer.h"
+#include "components/sync/model/sync_change.h"
+#include "components/sync/model/sync_error.h"
+#include "components/sync/model/syncable_service.h"
+#include "components/sync/syncable/base_node.h"
+#include "components/sync/syncable/change_record.h"
 #include "components/sync/syncable/entry.h"  // TODO(tim): Bug 123674.
+#include "components/sync/syncable/read_node.h"
+#include "components/sync/syncable/read_transaction.h"
+#include "components/sync/syncable/write_node.h"
+#include "components/sync/syncable/write_transaction.h"
 
 namespace syncer {
 
@@ -118,7 +119,7 @@ GenericChangeProcessor::GenericChangeProcessor(
       merge_result_(merge_result),
       share_handle_(user_share),
       weak_ptr_factory_(this) {
-  DCHECK(CalledOnValidThread());
+  DCHECK(sequence_checker_.CalledOnValidSequence());
   DCHECK_NE(type_, UNSPECIFIED);
   if (attachment_store) {
     std::string store_birthday;
@@ -130,28 +131,29 @@ GenericChangeProcessor::GenericChangeProcessor(
         sync_client->GetSyncApiComponentFactory()->CreateAttachmentService(
             std::move(attachment_store), *user_share, store_birthday, type,
             this);
-    attachment_service_weak_ptr_factory_.reset(
-        new base::WeakPtrFactory<AttachmentService>(attachment_service_.get()));
+    attachment_service_weak_ptr_factory_ =
+        base::MakeUnique<base::WeakPtrFactory<AttachmentService>>(
+            attachment_service_.get());
     attachment_service_proxy_ = AttachmentServiceProxy(
-        base::ThreadTaskRunnerHandle::Get(),
+        base::SequencedTaskRunnerHandle::Get(),
         attachment_service_weak_ptr_factory_->GetWeakPtr());
     UploadAllAttachmentsNotOnServer();
   } else {
     attachment_service_proxy_ =
-        AttachmentServiceProxy(base::ThreadTaskRunnerHandle::Get(),
+        AttachmentServiceProxy(base::SequencedTaskRunnerHandle::Get(),
                                base::WeakPtr<AttachmentService>());
   }
 }
 
 GenericChangeProcessor::~GenericChangeProcessor() {
-  DCHECK(CalledOnValidThread());
+  DCHECK(sequence_checker_.CalledOnValidSequence());
 }
 
 void GenericChangeProcessor::ApplyChangesFromSyncModel(
     const BaseTransaction* trans,
     int64_t model_version,
     const ImmutableChangeRecordList& changes) {
-  DCHECK(CalledOnValidThread());
+  DCHECK(sequence_checker_.CalledOnValidSequence());
   DCHECK(syncer_changes_.empty());
   for (ChangeRecordList::const_iterator it = changes.Get().begin();
        it != changes.Get().end(); ++it) {
@@ -159,7 +161,7 @@ void GenericChangeProcessor::ApplyChangesFromSyncModel(
       std::unique_ptr<sync_pb::EntitySpecifics> specifics;
       if (it->specifics.has_password()) {
         DCHECK(it->extra.get());
-        specifics.reset(new sync_pb::EntitySpecifics(it->specifics));
+        specifics = base::MakeUnique<sync_pb::EntitySpecifics>(it->specifics);
         specifics->mutable_password()
             ->mutable_client_only_encrypted_data()
             ->CopyFrom(it->extra->unencrypted());
@@ -192,7 +194,7 @@ void GenericChangeProcessor::ApplyChangesFromSyncModel(
 }
 
 void GenericChangeProcessor::CommitChangesFromSyncModel() {
-  DCHECK(CalledOnValidThread());
+  DCHECK(sequence_checker_.CalledOnValidSequence());
   if (syncer_changes_.empty())
     return;
   if (!local_service_.get()) {
@@ -256,7 +258,7 @@ void GenericChangeProcessor::OnAttachmentUploaded(
 
 SyncError GenericChangeProcessor::GetAllSyncDataReturnError(
     SyncDataList* current_sync_data) const {
-  DCHECK(CalledOnValidThread());
+  DCHECK(sequence_checker_.CalledOnValidSequence());
   std::string type_name = ModelTypeToString(type_);
   ReadTransaction trans(FROM_HERE, share_handle());
   ReadNode root(&trans);
@@ -422,7 +424,7 @@ SyncError GenericChangeProcessor::AttemptDelete(
 SyncError GenericChangeProcessor::ProcessSyncChanges(
     const tracked_objects::Location& from_here,
     const SyncChangeList& list_of_changes) {
-  DCHECK(CalledOnValidThread());
+  DCHECK(sequence_checker_.CalledOnValidSequence());
 
   if (list_of_changes.empty()) {
     // No work. Exit without entering WriteTransaction.
@@ -642,7 +644,7 @@ SyncError GenericChangeProcessor::HandleActionUpdate(
 }
 
 bool GenericChangeProcessor::SyncModelHasUserCreatedNodes(bool* has_nodes) {
-  DCHECK(CalledOnValidThread());
+  DCHECK(sequence_checker_.CalledOnValidSequence());
   DCHECK(has_nodes);
   std::string type_name = ModelTypeToString(type_);
   std::string err_str =
@@ -663,7 +665,7 @@ bool GenericChangeProcessor::SyncModelHasUserCreatedNodes(bool* has_nodes) {
 }
 
 bool GenericChangeProcessor::CryptoReadyIfNecessary() {
-  DCHECK(CalledOnValidThread());
+  DCHECK(sequence_checker_.CalledOnValidSequence());
   // We only access the cryptographer while holding a transaction.
   ReadTransaction trans(FROM_HERE, share_handle());
   const ModelTypeSet encrypted_types = trans.GetEncryptedTypes();
@@ -673,12 +675,12 @@ bool GenericChangeProcessor::CryptoReadyIfNecessary() {
 void GenericChangeProcessor::StartImpl() {}
 
 UserShare* GenericChangeProcessor::share_handle() const {
-  DCHECK(CalledOnValidThread());
+  DCHECK(sequence_checker_.CalledOnValidSequence());
   return share_handle_;
 }
 
 void GenericChangeProcessor::UploadAllAttachmentsNotOnServer() {
-  DCHECK(CalledOnValidThread());
+  DCHECK(sequence_checker_.CalledOnValidSequence());
   DCHECK(attachment_service_.get());
   AttachmentIdList ids;
   {
@@ -693,8 +695,8 @@ void GenericChangeProcessor::UploadAllAttachmentsNotOnServer() {
 void GenericChangeProcessor::NotifyLocalChangeObservers(
     const syncable::Entry* current_entry,
     const SyncChange& change) {
-  FOR_EACH_OBSERVER(LocalChangeObserver, local_change_observers_,
-                    OnLocalChange(current_entry, change));
+  for (auto& observer : local_change_observers_)
+    observer.OnLocalChange(current_entry, change);
 }
 
 std::unique_ptr<AttachmentService>

@@ -57,8 +57,9 @@ String contentAfterPastingHTML(DummyPageHolder* pageHolder,
 
   // Make the body editable, and put the caret in it.
   body->setAttribute(HTMLNames::contenteditableAttr, "true");
+  frame.document()->updateStyleAndLayout();
   frame.selection().setSelection(
-      VisibleSelection::selectionFromContentsOfNode(body));
+      SelectionInDOMTree::Builder().selectAllChildren(*body).build());
   EXPECT_EQ(CaretSelection, frame.selection().getSelectionType());
   EXPECT_TRUE(frame.selection().isContentEditable())
       << "We should be pasting into something editable.";
@@ -286,10 +287,10 @@ TEST(UnsafeSVGAttributeSanitizationTest, stringsShouldNotSupportAddition) {
 TEST(UnsafeSVGAttributeSanitizationTest,
      stripScriptingAttributes_animateElement) {
   Vector<Attribute> attributes;
-  attributes.append(Attribute(XLinkNames::hrefAttr, "javascript:alert()"));
-  attributes.append(Attribute(SVGNames::hrefAttr, "javascript:alert()"));
-  attributes.append(Attribute(SVGNames::fromAttr, "/home"));
-  attributes.append(Attribute(SVGNames::toAttr, "javascript:own3d()"));
+  attributes.push_back(Attribute(XLinkNames::hrefAttr, "javascript:alert()"));
+  attributes.push_back(Attribute(SVGNames::hrefAttr, "javascript:alert()"));
+  attributes.push_back(Attribute(SVGNames::fromAttr, "/home"));
+  attributes.push_back(Attribute(SVGNames::toAttr, "javascript:own3d()"));
 
   Document* document = Document::create();
   Element* element = SVGAnimateElement::create(*document);

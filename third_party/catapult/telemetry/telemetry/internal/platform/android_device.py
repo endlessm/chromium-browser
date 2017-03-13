@@ -5,7 +5,6 @@
 import logging
 import os
 
-from telemetry.core import util
 from telemetry.internal.platform import cros_device
 from telemetry.internal.platform import device
 from telemetry.internal.platform.profiler import monsoon
@@ -15,6 +14,7 @@ from devil.android import device_errors
 from devil.android import device_utils
 from devil.android.sdk import adb_wrapper
 
+import py_utils
 
 class AndroidDevice(device.Device):
   """ Class represents information for connecting to an android device.
@@ -48,8 +48,7 @@ class AndroidDevice(device.Device):
 
 def _ListSerialsOfHealthyOnlineDevices(blacklist):
   return [d.adb.GetDeviceSerial()
-          for d in device_utils.DeviceUtils.HealthyDevices(blacklist)
-          if d.IsOnline()]
+          for d in device_utils.DeviceUtils.HealthyDevices(blacklist)]
 
 
 def GetDeviceSerials(blacklist):
@@ -81,7 +80,7 @@ The Monsoon's power output has been enabled. Please now ensure that:
 
 Waiting for device...
 """)
-      util.WaitFor(_ListSerialsOfHealthyOnlineDevices(blacklist), 600)
+      py_utils.WaitFor(_ListSerialsOfHealthyOnlineDevices(blacklist), 600)
       device_serials = _ListSerialsOfHealthyOnlineDevices(blacklist)
     except IOError:
       return []

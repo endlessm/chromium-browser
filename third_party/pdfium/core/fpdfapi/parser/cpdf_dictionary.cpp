@@ -26,12 +26,12 @@ CPDF_Dictionary::CPDF_Dictionary(const CFX_WeakPtr<CFX_ByteStringPool>& pPool)
     : m_pPool(pPool) {}
 
 CPDF_Dictionary::~CPDF_Dictionary() {
-  // Mark the object as deleted so that it will not be deleted again
-  // in case of cyclic references.
+  // Mark the object as deleted so that it will not be deleted again,
+  // and break cyclic references.
   m_ObjNum = kInvalidObjNum;
-  for (const auto& it : m_Map) {
-    if (it.second)
-      it.second->Release();
+  for (auto& it : m_Map) {
+    if (it.second && it.second->GetObjNum() == kInvalidObjNum)
+      it.second.release();
   }
 }
 
@@ -57,28 +57,27 @@ const CPDF_Dictionary* CPDF_Dictionary::AsDictionary() const {
   return this;
 }
 
-CPDF_Object* CPDF_Dictionary::Clone() const {
+std::unique_ptr<CPDF_Object> CPDF_Dictionary::Clone() const {
   return CloneObjectNonCyclic(false);
 }
 
-CPDF_Object* CPDF_Dictionary::CloneNonCyclic(
+std::unique_ptr<CPDF_Object> CPDF_Dictionary::CloneNonCyclic(
     bool bDirect,
     std::set<const CPDF_Object*>* pVisited) const {
   pVisited->insert(this);
-  CPDF_Dictionary* pCopy = new CPDF_Dictionary(m_pPool);
+  auto pCopy = pdfium::MakeUnique<CPDF_Dictionary>(m_pPool);
   for (const auto& it : *this) {
-    CPDF_Object* value = it.second;
-    if (!pdfium::ContainsKey(*pVisited, value)) {
-      pCopy->m_Map.insert(
-          std::make_pair(it.first, value->CloneNonCyclic(bDirect, pVisited)));
+    if (!pdfium::ContainsKey(*pVisited, it.second.get())) {
+      pCopy->m_Map.insert(std::make_pair(
+          it.first, it.second->CloneNonCyclic(bDirect, pVisited)));
     }
   }
-  return pCopy;
+  return std::move(pCopy);
 }
 
 CPDF_Object* CPDF_Dictionary::GetObjectFor(const CFX_ByteString& key) const {
   auto it = m_Map.find(key);
-  return it != m_Map.end() ? it->second : nullptr;
+  return it != m_Map.end() ? it->second.get() : nullptr;
 }
 
 CPDF_Object* CPDF_Dictionary::GetDirectObjectFor(
@@ -173,32 +172,31 @@ bool CPDF_Dictionary::IsSignatureDict() const {
   return pType && pType->GetString() == "Sig";
 }
 
-void CPDF_Dictionary::SetFor(const CFX_ByteString& key, CPDF_Object* pObj) {
-  CHECK(!pObj || pObj->GetObjNum() == 0);
-  auto it = m_Map.find(key);
-  if (it == m_Map.end()) {
-    if (pObj)
-      m_Map.insert(std::make_pair(MaybeIntern(key), pObj));
-    return;
+CPDF_Object* CPDF_Dictionary::SetFor(const CFX_ByteString& key,
+                                     std::unique_ptr<CPDF_Object> pObj) {
+  if (!pObj) {
+    m_Map.erase(key);
+    return nullptr;
   }
+  ASSERT(pObj->IsInline());
+  CPDF_Object* pRet = pObj.get();
+  m_Map[MaybeIntern(key)] = std::move(pObj);
+  return pRet;
+}
 
-  if (it->second == pObj)
+void CPDF_Dictionary::ConvertToIndirectObjectFor(
+    const CFX_ByteString& key,
+    CPDF_IndirectObjectHolder* pHolder) {
+  auto it = m_Map.find(key);
+  if (it == m_Map.end() || it->second->IsReference())
     return;
-  it->second->Release();
 
-  if (pObj)
-    it->second = pObj;
-  else
-    m_Map.erase(it);
+  CPDF_Object* pObj = pHolder->AddIndirectObject(std::move(it->second));
+  it->second = pdfium::MakeUnique<CPDF_Reference>(pHolder, pObj->GetObjNum());
 }
 
 void CPDF_Dictionary::RemoveFor(const CFX_ByteString& key) {
-  auto it = m_Map.find(key);
-  if (it == m_Map.end())
-    return;
-
-  it->second->Release();
-  m_Map.erase(it);
+  m_Map.erase(key);
 }
 
 void CPDF_Dictionary::ReplaceKey(const CFX_ByteString& oldkey,
@@ -211,63 +209,28 @@ void CPDF_Dictionary::ReplaceKey(const CFX_ByteString& oldkey,
   if (new_it == old_it)
     return;
 
-  if (new_it != m_Map.end()) {
-    new_it->second->Release();
-    new_it->second = old_it->second;
-  } else {
-    m_Map.insert(std::make_pair(MaybeIntern(newkey), old_it->second));
-  }
+  m_Map[MaybeIntern(newkey)] = std::move(old_it->second);
   m_Map.erase(old_it);
-}
-
-void CPDF_Dictionary::SetIntegerFor(const CFX_ByteString& key, int i) {
-  SetFor(key, new CPDF_Number(i));
-}
-
-void CPDF_Dictionary::SetNameFor(const CFX_ByteString& key,
-                                 const CFX_ByteString& name) {
-  SetFor(key, new CPDF_Name(MaybeIntern(name)));
-}
-
-void CPDF_Dictionary::SetStringFor(const CFX_ByteString& key,
-                                   const CFX_ByteString& str) {
-  SetFor(key, new CPDF_String(MaybeIntern(str), FALSE));
-}
-
-void CPDF_Dictionary::SetReferenceFor(const CFX_ByteString& key,
-                                      CPDF_IndirectObjectHolder* pDoc,
-                                      uint32_t objnum) {
-  SetFor(key, new CPDF_Reference(pDoc, objnum));
-}
-
-void CPDF_Dictionary::SetNumberFor(const CFX_ByteString& key, FX_FLOAT f) {
-  SetFor(key, new CPDF_Number(f));
-}
-
-void CPDF_Dictionary::SetBooleanFor(const CFX_ByteString& key, bool bValue) {
-  SetFor(key, new CPDF_Boolean(bValue));
 }
 
 void CPDF_Dictionary::SetRectFor(const CFX_ByteString& key,
                                  const CFX_FloatRect& rect) {
-  CPDF_Array* pArray = new CPDF_Array;
-  pArray->AddNumber(rect.left);
-  pArray->AddNumber(rect.bottom);
-  pArray->AddNumber(rect.right);
-  pArray->AddNumber(rect.top);
-  SetFor(key, pArray);
+  CPDF_Array* pArray = SetNewFor<CPDF_Array>(key);
+  pArray->AddNew<CPDF_Number>(rect.left);
+  pArray->AddNew<CPDF_Number>(rect.bottom);
+  pArray->AddNew<CPDF_Number>(rect.right);
+  pArray->AddNew<CPDF_Number>(rect.top);
 }
 
 void CPDF_Dictionary::SetMatrixFor(const CFX_ByteString& key,
                                    const CFX_Matrix& matrix) {
-  CPDF_Array* pArray = new CPDF_Array;
-  pArray->AddNumber(matrix.a);
-  pArray->AddNumber(matrix.b);
-  pArray->AddNumber(matrix.c);
-  pArray->AddNumber(matrix.d);
-  pArray->AddNumber(matrix.e);
-  pArray->AddNumber(matrix.f);
-  SetFor(key, pArray);
+  CPDF_Array* pArray = SetNewFor<CPDF_Array>(key);
+  pArray->AddNew<CPDF_Number>(matrix.a);
+  pArray->AddNew<CPDF_Number>(matrix.b);
+  pArray->AddNew<CPDF_Number>(matrix.c);
+  pArray->AddNew<CPDF_Number>(matrix.d);
+  pArray->AddNew<CPDF_Number>(matrix.e);
+  pArray->AddNew<CPDF_Number>(matrix.f);
 }
 
 CFX_ByteString CPDF_Dictionary::MaybeIntern(const CFX_ByteString& str) {

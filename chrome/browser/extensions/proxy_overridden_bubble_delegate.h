@@ -12,8 +12,6 @@
 #include "base/macros.h"
 #include "chrome/browser/extensions/extension_message_bubble_controller.h"
 
-class Browser;
-
 namespace extensions {
 
 class ProxyOverriddenBubbleDelegate
@@ -43,6 +41,7 @@ class ProxyOverriddenBubbleDelegate
   void LogExtensionCount(size_t count) override;
   void LogAction(ExtensionMessageBubbleController::BubbleAction) override;
   const char* GetKey() override;
+  bool SupportsPolicyIndicator() override;
 
  private:
   // The ID of the extension we are showing the bubble for.

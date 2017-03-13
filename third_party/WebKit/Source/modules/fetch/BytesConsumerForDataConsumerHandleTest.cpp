@@ -19,6 +19,7 @@ using Command = DataConsumerHandleTestUtil::Command;
 using Checkpoint = ::testing::StrictMock<::testing::MockFunction<void(int)>>;
 using ReplayingHandle = DataConsumerHandleTestUtil::ReplayingHandle;
 using Result = BytesConsumer::Result;
+using ::testing::ByMove;
 using ::testing::InSequence;
 using ::testing::Return;
 
@@ -85,7 +86,7 @@ class MockDataConsumerHandle final : public WebDataConsumerHandle {
 
   std::unique_ptr<WebDataConsumerHandle::Reader> obtainReader(
       Client*) override {
-    return wrapUnique(new Reader(m_proxy));
+    return WTF::makeUnique<Reader>(m_proxy);
   }
   Persistent<MockReaderProxy> m_proxy;
 };
@@ -256,7 +257,7 @@ TEST_F(BytesConsumerForDataConsumerHandleTest, drainAsBlobDataHandle) {
   // WebDataConsumerHandle::Reader::drainAsBlobDataHandle should return
   // nullptr from the second time, but we don't care that here.
   std::unique_ptr<MockDataConsumerHandle> handle =
-      wrapUnique(new MockDataConsumerHandle);
+      WTF::wrapUnique(new MockDataConsumerHandle);
   Persistent<MockDataConsumerHandle::MockReaderProxy> proxy = handle->proxy();
   Persistent<BytesConsumer> consumer =
       new BytesConsumerForDataConsumerHandle(document(), std::move(handle));
@@ -275,7 +276,7 @@ TEST_F(BytesConsumerForDataConsumerHandleTest, drainAsBlobDataHandle) {
 
 TEST_F(BytesConsumerForDataConsumerHandleTest, drainAsFormData) {
   std::unique_ptr<MockDataConsumerHandle> handle =
-      wrapUnique(new MockDataConsumerHandle);
+      WTF::wrapUnique(new MockDataConsumerHandle);
   Persistent<MockDataConsumerHandle::MockReaderProxy> proxy = handle->proxy();
   Persistent<BytesConsumer> consumer =
       new BytesConsumerForDataConsumerHandle(document(), std::move(handle));

@@ -36,11 +36,12 @@
 #include "core/fetch/ResourceClient.h"
 #include "core/fetch/ResourceOwner.h"
 #include "core/loader/LinkLoaderClient.h"
-#include "core/loader/LinkPreloadResourceClients.h"
+#include "core/loader/resource/LinkPreloadResourceClients.h"
 #include "platform/CrossOriginAttributeValue.h"
 #include "platform/PrerenderClient.h"
 #include "platform/Timer.h"
 #include "platform/heap/Handle.h"
+#include "wtf/Optional.h"
 
 namespace blink {
 
@@ -82,6 +83,7 @@ class CORE_EXPORT LinkLoader final
                 const String& type,
                 const String& as,
                 const String& media,
+                ReferrerPolicy,
                 const KURL&,
                 Document&,
                 const NetworkHintsInterface&);
@@ -100,7 +102,8 @@ class CORE_EXPORT LinkLoader final
                                   CanLoadResources,
                                   MediaPreloadPolicy,
                                   ViewportDescriptionWrapper*);
-  static bool getResourceTypeFromAsAttribute(const String& as, Resource::Type&);
+  static WTF::Optional<Resource::Type> getResourceTypeFromAsAttribute(
+      const String& as);
 
   DECLARE_TRACE();
 

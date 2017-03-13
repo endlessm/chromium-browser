@@ -1,13 +1,17 @@
 include_rules = [
   "+cc",
+  "+chromeos/system",
+  "+components/discardable_memory/service",
+  "+components/discardable_memory/public",
   "+ipc",
   "+mojo/common",
   "+mojo/converters",
   "+mojo/public",
   "+services/catalog/public",
-  "+services/shell",
+  "+services/service_manager",
   "+services/tracing/public",
   "-services/ui/gpu",
+  "-services/ui/surfaces",
   "+third_party/skia/include",
   "+ui",
 ]

@@ -5,8 +5,10 @@
 #ifndef COMPONENTS_NTP_SNIPPETS_CONTENT_SUGGESTION_H_
 #define COMPONENTS_NTP_SNIPPETS_CONTENT_SUGGESTION_H_
 
+#include <memory>
 #include <string>
 
+#include "base/files/file_path.h"
 #include "base/macros.h"
 #include "base/strings/string16.h"
 #include "base/time/time.h"
@@ -14,6 +16,40 @@
 #include "url/gurl.h"
 
 namespace ntp_snippets {
+
+// DownloadSuggestionExtra contains additional data which is only available for
+// download suggestions.
+struct DownloadSuggestionExtra {
+  DownloadSuggestionExtra();
+  ~DownloadSuggestionExtra();
+
+  // The file path of the downloaded file once download completes.
+  base::FilePath target_file_path;
+  // The effective MIME type of downloaded content.
+  std::string mime_type;
+  // Underlying offline page identifier.
+  int64_t offline_page_id = 0;
+  // Whether or not the download suggestion is a downloaded asset.
+  // When this is true, |offline_page_id| is ignored, otherwise
+  // |target_file_path| and |mime_type| are ignored.
+  bool is_download_asset = false;
+};
+
+// Contains additional data which is only available for recent tab suggestions.
+struct RecentTabSuggestionExtra {
+  // Corresponding tab identifier.
+  std::string tab_id;
+  // Underlying offline page identifier.
+  int64_t offline_page_id = 0;
+};
+
+// Contains additional data for notification-worthy suggestions.
+struct NotificationExtra {
+  // Deadline for showing notification. If the deadline is past, the
+  // notification is no longer fresh and no notification should be sent. If the
+  // deadline passes while a notification is up, it should be canceled.
+  base::Time deadline;
+};
 
 // A content suggestion for the new tab page, which can be an article or an
 // offline page, for example.
@@ -42,7 +78,7 @@ class ContentSuggestion {
 
   // Creates a new ContentSuggestion. The caller must ensure that the |id|
   // passed in here is unique application-wide.
-  ContentSuggestion(ID id, const GURL& url);
+  ContentSuggestion(const ID& id, const GURL& url);
   ContentSuggestion(Category category,
                     const std::string& id_within_category,
                     const GURL& url);
@@ -54,14 +90,9 @@ class ContentSuggestion {
   // An ID for identifying the suggestion. The ID is unique application-wide.
   const ID& id() const { return id_; }
 
-  // The normal content URL where the content referenced by the suggestion can
-  // be accessed.
+  // The URL where the content referenced by the suggestion can be accessed.
+  // This may be an AMP URL.
   const GURL& url() const { return url_; }
-
-  // If available, this contains an URL to an AMP version of the same content.
-  // Otherwise, this is an empty GURL().
-  const GURL& amp_url() const { return amp_url_; }
-  void set_amp_url(const GURL& amp_url) { amp_url_ = amp_url; }
 
   // Title of the suggestion.
   const base::string16& title() const { return title_; }
@@ -93,20 +124,49 @@ class ContentSuggestion {
   float score() const { return score_; }
   void set_score(float score) { score_ = score; }
 
+  // Extra information for download suggestions. Only available for DOWNLOADS
+  // suggestions (i.e., if the associated category has the
+  // KnownCategories::DOWNLOADS id).
+  DownloadSuggestionExtra* download_suggestion_extra() const {
+    return download_suggestion_extra_.get();
+  }
+  void set_download_suggestion_extra(
+      std::unique_ptr<DownloadSuggestionExtra> download_suggestion_extra);
+
+  // Extra information for recent tab suggestions. Only available for
+  // KnownCategories::RECENT_TABS suggestions.
+  RecentTabSuggestionExtra* recent_tab_suggestion_extra() const {
+    return recent_tab_suggestion_extra_.get();
+  }
+  void set_recent_tab_suggestion_extra(
+      std::unique_ptr<RecentTabSuggestionExtra> recent_tab_suggestion_extra);
+
+  // Extra information for notifications. When absent, no notification should be
+  // sent for this suggestion. When present, a notification should be sent,
+  // unless other factors disallow it (examples: the extra parameters say to;
+  // notifications are disabled; Chrome is in the foreground).
+  NotificationExtra* notification_extra() const {
+    return notification_extra_.get();
+  }
+  void set_notification_extra(
+      std::unique_ptr<NotificationExtra> notification_extra);
+
  private:
   ID id_;
   GURL url_;
-  GURL amp_url_;
   base::string16 title_;
   base::string16 snippet_text_;
   base::Time publish_date_;
   base::string16 publisher_name_;
   float score_;
+  std::unique_ptr<DownloadSuggestionExtra> download_suggestion_extra_;
+  std::unique_ptr<RecentTabSuggestionExtra> recent_tab_suggestion_extra_;
+  std::unique_ptr<NotificationExtra> notification_extra_;
 
   DISALLOW_COPY_AND_ASSIGN(ContentSuggestion);
 };
 
-std::ostream& operator<<(std::ostream& os, ContentSuggestion::ID id);
+std::ostream& operator<<(std::ostream& os, const ContentSuggestion::ID& id);
 
 }  // namespace ntp_snippets
 

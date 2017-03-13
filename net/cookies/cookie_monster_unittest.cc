@@ -23,6 +23,7 @@
 #include "base/strings/string_tokenizer.h"
 #include "base/strings/stringprintf.h"
 #include "base/test/histogram_tester.h"
+#include "base/test/mock_callback.h"
 #include "base/threading/thread.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
@@ -809,46 +810,14 @@ using CookieMonsterStrictSecureTest =
 
 // TODO(erikwright): Replace the other callbacks and synchronous helper methods
 // in this test suite with these Mocks.
-template <typename T, typename C>
-class MockCookieCallback {
- public:
-  C AsCallback() {
-    return base::Bind(&T::Invoke, base::Unretained(static_cast<T*>(this)));
-  }
-};
-
-class MockGetCookiesCallback
-    : public MockCookieCallback<MockGetCookiesCallback,
-                                CookieStore::GetCookiesCallback> {
- public:
-  MOCK_METHOD1(Invoke, void(const std::string& cookies));
-};
-
-class MockSetCookiesCallback
-    : public MockCookieCallback<MockSetCookiesCallback,
-                                CookieStore::SetCookiesCallback> {
- public:
-  MOCK_METHOD1(Invoke, void(bool success));
-};
-
-class MockClosure : public MockCookieCallback<MockClosure, base::Closure> {
- public:
-  MOCK_METHOD0(Invoke, void(void));
-};
-
-class MockGetCookieListCallback
-    : public MockCookieCallback<MockGetCookieListCallback,
-                                CookieMonster::GetCookieListCallback> {
- public:
-  MOCK_METHOD1(Invoke, void(const CookieList& cookies));
-};
-
-class MockDeleteCallback
-    : public MockCookieCallback<MockDeleteCallback,
-                                CookieMonster::DeleteCallback> {
- public:
-  MOCK_METHOD1(Invoke, void(int num_deleted));
-};
+using MockClosure = base::MockCallback<base::Closure>;
+using MockGetCookiesCallback =
+    base::MockCallback<CookieStore::GetCookiesCallback>;
+using MockSetCookiesCallback =
+    base::MockCallback<CookieStore::SetCookiesCallback>;
+using MockGetCookieListCallback =
+    base::MockCallback<CookieMonster::GetCookieListCallback>;
+using MockDeleteCallback = base::MockCallback<CookieMonster::DeleteCallback>;
 
 struct CookiesInputInfo {
   const GURL url;
@@ -870,18 +839,18 @@ ACTION_P(QuitRunLoop, run_loop) {
 // TODO(erikwright): When the synchronous helpers 'GetCookies' etc. are removed,
 // rename these, removing the 'Action' suffix.
 ACTION_P4(DeleteCookieAction, cookie_monster, url, name, callback) {
-  cookie_monster->DeleteCookieAsync(url, name, callback->AsCallback());
+  cookie_monster->DeleteCookieAsync(url, name, callback->Get());
 }
 ACTION_P3(GetCookiesAction, cookie_monster, url, callback) {
   cookie_monster->GetCookiesWithOptionsAsync(url, CookieOptions(),
-                                             callback->AsCallback());
+                                             callback->Get());
 }
 ACTION_P4(SetCookieAction, cookie_monster, url, cookie_line, callback) {
   cookie_monster->SetCookieWithOptionsAsync(url, cookie_line, CookieOptions(),
-                                            callback->AsCallback());
+                                            callback->Get());
 }
 ACTION_P3(SetAllCookiesAction, cookie_monster, list, callback) {
-  cookie_monster->SetAllCookiesAsync(list, callback->AsCallback());
+  cookie_monster->SetAllCookiesAsync(list, callback->Get());
 }
 ACTION_P4(DeleteAllCreatedBetweenAction,
           cookie_monster,
@@ -889,18 +858,17 @@ ACTION_P4(DeleteAllCreatedBetweenAction,
           delete_end,
           callback) {
   cookie_monster->DeleteAllCreatedBetweenAsync(delete_begin, delete_end,
-                                               callback->AsCallback());
+                                               callback->Get());
 }
 ACTION_P3(SetCookieWithDetailsAction, cookie_monster, cc, callback) {
   cookie_monster->SetCookieWithDetailsAsync(
       cc.url, cc.name, cc.value, cc.domain, cc.path, base::Time(),
       cc.expiration_time, base::Time(), cc.secure, cc.http_only, cc.same_site,
-      false /* enforces strict secure cookies */, cc.priority,
-      callback->AsCallback());
+      false /* enforces strict secure cookies */, cc.priority, callback->Get());
 }
 
 ACTION_P2(GetAllCookiesAction, cookie_monster, callback) {
-  cookie_monster->GetAllCookiesAsync(callback->AsCallback());
+  cookie_monster->GetAllCookiesAsync(callback->Get());
 }
 
 ACTION_P5(DeleteAllCreatedBetweenWithPredicateAction,
@@ -910,24 +878,24 @@ ACTION_P5(DeleteAllCreatedBetweenWithPredicateAction,
           predicate,
           callback) {
   cookie_monster->DeleteAllCreatedBetweenWithPredicateAsync(
-      delete_begin, delete_end, predicate, callback->AsCallback());
+      delete_begin, delete_end, predicate, callback->Get());
 }
 
 ACTION_P3(DeleteCanonicalCookieAction, cookie_monster, cookie, callback) {
-  cookie_monster->DeleteCanonicalCookieAsync(cookie, callback->AsCallback());
+  cookie_monster->DeleteCanonicalCookieAsync(cookie, callback->Get());
 }
 
 ACTION_P2(DeleteAllAction, cookie_monster, callback) {
-  cookie_monster->DeleteAllAsync(callback->AsCallback());
+  cookie_monster->DeleteAllAsync(callback->Get());
 }
 
 ACTION_P3(GetCookieListForUrlWithOptionsAction, cookie_monster, url, callback) {
   cookie_monster->GetCookieListWithOptionsAsync(url, CookieOptions(),
-                                                callback->AsCallback());
+                                                callback->Get());
 }
 
 ACTION_P3(GetAllCookiesForUrlAction, cookie_monster, url, callback) {
-  cookie_monster->GetAllCookiesForURLAsync(url, callback->AsCallback());
+  cookie_monster->GetAllCookiesForURLAsync(url, callback->Get());
 }
 
 ACTION_P(PushCallbackAction, callback_vector) {
@@ -935,7 +903,7 @@ ACTION_P(PushCallbackAction, callback_vector) {
 }
 
 ACTION_P2(DeleteSessionCookiesAction, cookie_monster, callback) {
-  cookie_monster->DeleteSessionCookiesAsync(callback->AsCallback());
+  cookie_monster->DeleteSessionCookiesAsync(callback->Get());
 }
 
 }  // namespace
@@ -974,11 +942,11 @@ class DeferredCookieTaskTest : public CookieMonsterTest {
   // and PersistentCookieStore::Load completion callback.
   void CompleteLoading() {
     while (!loaded_for_key_callbacks_.empty()) {
-      loaded_for_key_callbacks_.front().Run(loaded_cookies_);
+      loaded_for_key_callbacks_.front().Run(std::move(loaded_cookies_));
       loaded_cookies_.clear();
       loaded_for_key_callbacks_.pop();
     }
-    loaded_callback_.Run(loaded_cookies_);
+    loaded_callback_.Run(std::move(loaded_cookies_));
   }
 
   // Performs the provided action, expecting it to cause a call to
@@ -1027,7 +995,7 @@ class DeferredCookieTaskTest : public CookieMonsterTest {
   testing::InSequence in_sequence_;
   // Holds cookies to be returned from PersistentCookieStore::Load or
   // PersistentCookieStore::LoadCookiesForKey.
-  std::vector<CanonicalCookie*> loaded_cookies_;
+  std::vector<std::unique_ptr<CanonicalCookie>> loaded_cookies_;
   // Stores the callback passed from the CookieMonster to the
   // PersistentCookieStore::Load
   CookieMonster::PersistentCookieStore::LoadedCallback loaded_callback_;
@@ -1059,11 +1027,11 @@ TEST_F(DeferredCookieTaskTest, DeferredGetCookies) {
 
   WaitForLoadCall();
 
-  EXPECT_CALL(get_cookies_callback, Invoke("X=1"))
+  EXPECT_CALL(get_cookies_callback, Run("X=1"))
       .WillOnce(GetCookiesAction(&cookie_monster(), http_www_google_.url(),
                                  &get_cookies_callback));
   base::RunLoop loop;
-  EXPECT_CALL(get_cookies_callback, Invoke("X=1")).WillOnce(QuitRunLoop(&loop));
+  EXPECT_CALL(get_cookies_callback, Run("X=1")).WillOnce(QuitRunLoop(&loop));
 
   CompleteLoading();
   loop.Run();
@@ -1079,11 +1047,11 @@ TEST_F(DeferredCookieTaskTest, DeferredSetCookie) {
 
   WaitForLoadCall();
 
-  EXPECT_CALL(set_cookies_callback, Invoke(true))
+  EXPECT_CALL(set_cookies_callback, Run(true))
       .WillOnce(SetCookieAction(&cookie_monster(), http_www_google_.url(),
                                 "X=Y", &set_cookies_callback));
   base::RunLoop loop;
-  EXPECT_CALL(set_cookies_callback, Invoke(true)).WillOnce(QuitRunLoop(&loop));
+  EXPECT_CALL(set_cookies_callback, Run(true)).WillOnce(QuitRunLoop(&loop));
 
   CompleteLoading();
   loop.Run();
@@ -1106,11 +1074,11 @@ TEST_F(DeferredCookieTaskTest, DeferredSetAllCookies) {
 
   WaitForLoadCall();
 
-  EXPECT_CALL(set_cookies_callback, Invoke(true))
+  EXPECT_CALL(set_cookies_callback, Run(true))
       .WillOnce(
           SetAllCookiesAction(&cookie_monster(), list, &set_cookies_callback));
   base::RunLoop loop;
-  EXPECT_CALL(set_cookies_callback, Invoke(true)).WillOnce(QuitRunLoop(&loop));
+  EXPECT_CALL(set_cookies_callback, Run(true)).WillOnce(QuitRunLoop(&loop));
 
   CompleteLoading();
   loop.Run();
@@ -1126,11 +1094,11 @@ TEST_F(DeferredCookieTaskTest, DeferredDeleteCookie) {
 
   WaitForLoadCall();
 
-  EXPECT_CALL(delete_cookie_callback, Invoke())
+  EXPECT_CALL(delete_cookie_callback, Run())
       .WillOnce(DeleteCookieAction(&cookie_monster(), http_www_google_.url(),
                                    "X", &delete_cookie_callback));
   base::RunLoop loop;
-  EXPECT_CALL(delete_cookie_callback, Invoke()).WillOnce(QuitRunLoop(&loop));
+  EXPECT_CALL(delete_cookie_callback, Run()).WillOnce(QuitRunLoop(&loop));
 
   CompleteLoading();
   loop.Run();
@@ -1166,11 +1134,11 @@ TEST_F(DeferredCookieTaskTest, DeferredSetCookieWithDetails) {
                                       false,
                                       CookieSameSite::DEFAULT_MODE,
                                       COOKIE_PRIORITY_DEFAULT};
-  EXPECT_CALL(set_cookies_callback, Invoke(true))
+  EXPECT_CALL(set_cookies_callback, Run(true))
       .WillOnce(SetCookieWithDetailsAction(&cookie_monster(), cookie_info_exp,
                                            &set_cookies_callback));
   base::RunLoop loop;
-  EXPECT_CALL(set_cookies_callback, Invoke(true)).WillOnce(QuitRunLoop(&loop));
+  EXPECT_CALL(set_cookies_callback, Run(true)).WillOnce(QuitRunLoop(&loop));
 
   CompleteLoading();
   loop.Run();
@@ -1187,11 +1155,11 @@ TEST_F(DeferredCookieTaskTest, DeferredGetAllCookies) {
 
   WaitForLoadCall();
 
-  EXPECT_CALL(get_cookie_list_callback, Invoke(testing::_))
+  EXPECT_CALL(get_cookie_list_callback, Run(testing::_))
       .WillOnce(
           GetAllCookiesAction(&cookie_monster(), &get_cookie_list_callback));
   base::RunLoop loop;
-  EXPECT_CALL(get_cookie_list_callback, Invoke(testing::_))
+  EXPECT_CALL(get_cookie_list_callback, Run(testing::_))
       .WillOnce(QuitRunLoop(&loop));
 
   CompleteLoading();
@@ -1212,12 +1180,12 @@ TEST_F(DeferredCookieTaskTest, DeferredGetAllForUrlCookies) {
 
   WaitForLoadCall();
 
-  EXPECT_CALL(get_cookie_list_callback, Invoke(testing::_))
+  EXPECT_CALL(get_cookie_list_callback, Run(testing::_))
       .WillOnce(GetAllCookiesForUrlAction(&cookie_monster(),
                                           http_www_google_.url(),
                                           &get_cookie_list_callback));
   base::RunLoop loop;
-  EXPECT_CALL(get_cookie_list_callback, Invoke(testing::_))
+  EXPECT_CALL(get_cookie_list_callback, Run(testing::_))
       .WillOnce(QuitRunLoop(&loop));
 
   CompleteLoading();
@@ -1238,12 +1206,12 @@ TEST_F(DeferredCookieTaskTest, DeferredGetAllForUrlWithOptionsCookies) {
 
   WaitForLoadCall();
 
-  EXPECT_CALL(get_cookie_list_callback, Invoke(testing::_))
+  EXPECT_CALL(get_cookie_list_callback, Run(testing::_))
       .WillOnce(GetCookieListForUrlWithOptionsAction(
           &cookie_monster(), http_www_google_.url(),
           &get_cookie_list_callback));
   base::RunLoop loop;
-  EXPECT_CALL(get_cookie_list_callback, Invoke(testing::_))
+  EXPECT_CALL(get_cookie_list_callback, Run(testing::_))
       .WillOnce(QuitRunLoop(&loop));
 
   CompleteLoading();
@@ -1257,11 +1225,11 @@ TEST_F(DeferredCookieTaskTest, DeferredDeleteAllCookies) {
 
   WaitForLoadCall();
 
-  EXPECT_CALL(delete_callback, Invoke(false))
+  EXPECT_CALL(delete_callback, Run(false))
       .WillOnce(DeleteAllAction(&cookie_monster(), &delete_callback));
 
   base::RunLoop loop;
-  EXPECT_CALL(delete_callback, Invoke(false)).WillOnce(QuitRunLoop(&loop));
+  EXPECT_CALL(delete_callback, Run(false)).WillOnce(QuitRunLoop(&loop));
 
   CompleteLoading();
   loop.Run();
@@ -1275,12 +1243,12 @@ TEST_F(DeferredCookieTaskTest, DeferredDeleteAllCreatedBetweenCookies) {
 
   WaitForLoadCall();
 
-  EXPECT_CALL(delete_callback, Invoke(false))
+  EXPECT_CALL(delete_callback, Run(false))
       .WillOnce(DeleteAllCreatedBetweenAction(&cookie_monster(), base::Time(),
                                               base::Time::Now(),
                                               &delete_callback));
   base::RunLoop loop;
-  EXPECT_CALL(delete_callback, Invoke(false)).WillOnce(QuitRunLoop(&loop));
+  EXPECT_CALL(delete_callback, Run(false)).WillOnce(QuitRunLoop(&loop));
 
   CompleteLoading();
   loop.Run();
@@ -1298,19 +1266,19 @@ TEST_F(DeferredCookieTaskTest,
 
   WaitForLoadCall();
 
-  EXPECT_CALL(delete_callback, Invoke(false))
+  EXPECT_CALL(delete_callback, Run(false))
       .WillOnce(DeleteAllCreatedBetweenWithPredicateAction(
           &cookie_monster(), base::Time(), base::Time::Now(), predicate,
           &delete_callback));
   base::RunLoop loop;
-  EXPECT_CALL(delete_callback, Invoke(false)).WillOnce(QuitRunLoop(&loop));
+  EXPECT_CALL(delete_callback, Run(false)).WillOnce(QuitRunLoop(&loop));
 
   CompleteLoading();
   loop.Run();
 }
 
 TEST_F(DeferredCookieTaskTest, DeferredDeleteCanonicalCookie) {
-  std::vector<CanonicalCookie*> cookies;
+  std::vector<std::unique_ptr<CanonicalCookie>> cookies;
   std::unique_ptr<CanonicalCookie> cookie = BuildCanonicalCookie(
       http_www_google_.url(), "X=1; path=/", base::Time::Now());
 
@@ -1321,11 +1289,11 @@ TEST_F(DeferredCookieTaskTest, DeferredDeleteCanonicalCookie) {
 
   WaitForLoadCall();
 
-  EXPECT_CALL(delete_cookie_callback, Invoke(0))
+  EXPECT_CALL(delete_cookie_callback, Run(0))
       .WillOnce(DeleteCanonicalCookieAction(&cookie_monster(), *cookie,
                                             &delete_cookie_callback));
   base::RunLoop loop;
-  EXPECT_CALL(delete_cookie_callback, Invoke(0)).WillOnce(QuitRunLoop(&loop));
+  EXPECT_CALL(delete_cookie_callback, Run(0)).WillOnce(QuitRunLoop(&loop));
 
   CompleteLoading();
   loop.Run();
@@ -1338,11 +1306,11 @@ TEST_F(DeferredCookieTaskTest, DeferredDeleteSessionCookies) {
 
   WaitForLoadCall();
 
-  EXPECT_CALL(delete_callback, Invoke(false))
+  EXPECT_CALL(delete_callback, Run(false))
       .WillOnce(
           DeleteSessionCookiesAction(&cookie_monster(), &delete_callback));
   base::RunLoop loop;
-  EXPECT_CALL(delete_callback, Invoke(false)).WillOnce(QuitRunLoop(&loop));
+  EXPECT_CALL(delete_callback, Run(false)).WillOnce(QuitRunLoop(&loop));
 
   CompleteLoading();
   loop.Run();
@@ -1371,12 +1339,12 @@ TEST_F(DeferredCookieTaskTest, DeferredTaskOrder) {
   Begin();
 
   WaitForLoadCall();
-  EXPECT_CALL(get_cookies_callback, Invoke("X=1"))
+  EXPECT_CALL(get_cookies_callback, Run("X=1"))
       .WillOnce(GetCookiesAction(&cookie_monster(), http_www_google_.url(),
                                  &get_cookies_callback_deferred));
-  EXPECT_CALL(set_cookies_callback, Invoke(true));
+  EXPECT_CALL(set_cookies_callback, Run(true));
   base::RunLoop loop;
-  EXPECT_CALL(get_cookies_callback_deferred, Invoke("A=B; X=1"))
+  EXPECT_CALL(get_cookies_callback_deferred, Run("A=B; X=1"))
       .WillOnce(QuitRunLoop(&loop));
 
   CompleteLoading();
@@ -1789,7 +1757,7 @@ TEST_F(CookieMonsterTest, DontImportDuplicateCookies) {
   // be careful not to have any duplicate creation times at all (as it's a
   // violation of a CookieMonster invariant) even if Time::Now() doesn't
   // move between calls.
-  std::vector<CanonicalCookie*> initial_cookies;
+  std::vector<std::unique_ptr<CanonicalCookie>> initial_cookies;
 
   // Insert 4 cookies with name "X" on path "/", with varying creation
   // dates. We expect only the most recent one to be preserved following
@@ -1830,7 +1798,7 @@ TEST_F(CookieMonsterTest, DontImportDuplicateCookies) {
                   Time::Now() + TimeDelta::FromDays(10), &initial_cookies);
 
   // Inject our initial cookies into the mock PersistentCookieStore.
-  store->SetLoadExpectation(true, initial_cookies);
+  store->SetLoadExpectation(true, std::move(initial_cookies));
 
   std::unique_ptr<CookieMonster> cm(new CookieMonster(store.get(), nullptr));
 
@@ -1866,7 +1834,7 @@ TEST_F(CookieMonsterTest, DontImportDuplicateCreationTimes) {
   // four with the earlier time as creation times.  We should only get
   // two cookies remaining, but which two (other than that there should
   // be one from each set) will be random.
-  std::vector<CanonicalCookie*> initial_cookies;
+  std::vector<std::unique_ptr<CanonicalCookie>> initial_cookies;
   AddCookieToList(GURL("http://www.google.com"), "X=1; path=/", now,
                   &initial_cookies);
   AddCookieToList(GURL("http://www.google.com"), "X=2; path=/", now,
@@ -1886,7 +1854,7 @@ TEST_F(CookieMonsterTest, DontImportDuplicateCreationTimes) {
                   &initial_cookies);
 
   // Inject our initial cookies into the mock PersistentCookieStore.
-  store->SetLoadExpectation(true, initial_cookies);
+  store->SetLoadExpectation(true, std::move(initial_cookies));
 
   std::unique_ptr<CookieMonster> cm(new CookieMonster(store.get(), nullptr));
 
@@ -2301,7 +2269,8 @@ TEST_F(CookieMonsterTest, WhileLoadingLoadCompletesBeforeKeyLoadCompletes) {
             store->commands()[1].type);
 
   // The main load completes first (With no cookies).
-  store->commands()[0].loaded_callback.Run(std::vector<CanonicalCookie*>());
+  store->commands()[0].loaded_callback.Run(
+      std::vector<std::unique_ptr<CanonicalCookie>>());
 
   // The tasks should run in order, and the get should see the cookies.
 
@@ -2313,7 +2282,8 @@ TEST_F(CookieMonsterTest, WhileLoadingLoadCompletesBeforeKeyLoadCompletes) {
 
   // The loaded for key event completes late, with not cookies (Since they
   // were already loaded).
-  store->commands()[1].loaded_callback.Run(std::vector<CanonicalCookie*>());
+  store->commands()[1].loaded_callback.Run(
+      std::vector<std::unique_ptr<CanonicalCookie>>());
 
   // The just set cookie should still be in the store.
   GetCookieListCallback get_cookie_list_callback2;
@@ -2348,14 +2318,13 @@ TEST_F(CookieMonsterTest, WhileLoadingDeleteAllGetForURL) {
   ASSERT_EQ(1u, store->commands().size());
   ASSERT_EQ(CookieStoreCommand::LOAD, store->commands()[0].type);
 
-  std::vector<CanonicalCookie*> cookies;
+  std::vector<std::unique_ptr<CanonicalCookie>> cookies;
   // When passed to the CookieMonster, it takes ownership of the pointed to
   // cookies.
   cookies.push_back(
-      CanonicalCookie::Create(kUrl, "a=b", base::Time(), CookieOptions())
-          .release());
+      CanonicalCookie::Create(kUrl, "a=b", base::Time(), CookieOptions()));
   ASSERT_TRUE(cookies[0]);
-  store->commands()[0].loaded_callback.Run(cookies);
+  store->commands()[0].loaded_callback.Run(std::move(cookies));
 
   delete_callback.WaitUntilDone();
   EXPECT_EQ(1, delete_callback.result());
@@ -2396,7 +2365,8 @@ TEST_F(CookieMonsterTest, WhileLoadingGetAllSetGetAll) {
   ASSERT_EQ(CookieStoreCommand::LOAD, store->commands()[0].type);
 
   // The load completes (With no cookies).
-  store->commands()[0].loaded_callback.Run(std::vector<CanonicalCookie*>());
+  store->commands()[0].loaded_callback.Run(
+      std::vector<std::unique_ptr<CanonicalCookie>>());
 
   get_cookie_list_callback1.WaitUntilDone();
   EXPECT_EQ(0u, get_cookie_list_callback1.cookies().size());
@@ -2448,7 +2418,8 @@ TEST_F(CookieMonsterTest, CheckOrderOfCookieTaskQueueWhenLoadingCompletes) {
   ASSERT_EQ(CookieStoreCommand::LOAD, store->commands()[0].type);
 
   // The load completes.
-  store->commands()[0].loaded_callback.Run(std::vector<CanonicalCookie*>());
+  store->commands()[0].loaded_callback.Run(
+      std::vector<std::unique_ptr<CanonicalCookie>>());
 
   // The get cookies call should see no cookies set.
   get_cookie_list_callback1.WaitUntilDone();
@@ -2474,11 +2445,9 @@ class FlushablePersistentStore : public CookieMonster::PersistentCookieStore {
   FlushablePersistentStore() : flush_count_(0) {}
 
   void Load(const LoadedCallback& loaded_callback) override {
-    std::vector<CanonicalCookie*> out_cookies;
+    std::vector<std::unique_ptr<CanonicalCookie>> out_cookies;
     base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE,
-        base::Bind(&LoadedCallbackTask::Run,
-                   new LoadedCallbackTask(loaded_callback, out_cookies)));
+        FROM_HERE, base::Bind(loaded_callback, base::Passed(&out_cookies)));
   }
 
   void LoadCookiesForKey(const std::string& key,
@@ -2881,7 +2850,7 @@ TEST_F(CookieMonsterTest, ControlCharacterPurge) {
 
   scoped_refptr<MockPersistentCookieStore> store(new MockPersistentCookieStore);
 
-  std::vector<CanonicalCookie*> initial_cookies;
+  std::vector<std::unique_ptr<CanonicalCookie>> initial_cookies;
 
   AddCookieToList(url, "foo=bar; path=" + path, now1, &initial_cookies);
 
@@ -2893,12 +2862,12 @@ TEST_F(CookieMonsterTest, ControlCharacterPurge) {
       "boo",
       domain, path, now2, later, false, false, CookieSameSite::DEFAULT_MODE,
       false, COOKIE_PRIORITY_DEFAULT);
-  initial_cookies.push_back(cc.release());
+  initial_cookies.push_back(std::move(cc));
 
   AddCookieToList(url, "hello=world; path=" + path, now3, &initial_cookies);
 
   // Inject our initial cookies into the mock PersistentCookieStore.
-  store->SetLoadExpectation(true, initial_cookies);
+  store->SetLoadExpectation(true, std::move(initial_cookies));
 
   std::unique_ptr<CookieMonster> cm(new CookieMonster(store.get(), nullptr));
 
@@ -3429,7 +3398,7 @@ TEST_F(CookieMonsterNotificationTest, NotifyOnDelete) {
 
   EXPECT_EQ("abc", cookies[1].Name());
   EXPECT_EQ("def", cookies[1].Value());
-  EXPECT_EQ(CookieStore::ChangeCause::EXPLICIT, causes[1]);
+  EXPECT_EQ(CookieStore::ChangeCause::EXPLICIT_DELETE, causes[1]);
 }
 
 TEST_F(CookieMonsterNotificationTest, NotifyOnUpdate) {

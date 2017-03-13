@@ -82,9 +82,9 @@ RenderbufferImpl *Context9::createRenderbuffer()
     return new RenderbufferD3D(mRenderer);
 }
 
-BufferImpl *Context9::createBuffer()
+BufferImpl *Context9::createBuffer(const gl::BufferState &state)
 {
-    return new Buffer9(mRenderer);
+    return new Buffer9(state, mRenderer);
 }
 
 VertexArrayImpl *Context9::createVertexArray(const gl::VertexArrayState &data)
@@ -176,6 +176,18 @@ gl::Error Context9::drawRangeElements(GLenum mode,
                                       const gl::IndexRange &indexRange)
 {
     return mRenderer->genericDrawElements(this, mode, count, type, indices, 0, indexRange);
+}
+
+gl::Error Context9::drawArraysIndirect(GLenum mode, const GLvoid *indirect)
+{
+    UNREACHABLE();
+    return gl::InternalError() << "D3D9 doesn't support ES 3.1 DrawArraysIndirect API";
+}
+
+gl::Error Context9::drawElementsIndirect(GLenum mode, GLenum type, const GLvoid *indirect)
+{
+    UNREACHABLE();
+    return gl::InternalError() << "D3D9 doesn't support ES 3.1 DrawElementsIndirect API";
 }
 
 GLenum Context9::getResetStatus()

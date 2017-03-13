@@ -9,6 +9,8 @@
 
 #include "chrome/browser/media/router/media_source.h"
 
+class GURL;
+
 namespace content {
 class WebContents;
 }
@@ -20,13 +22,16 @@ namespace media_router {
 MediaSource MediaSourceForTab(int tab_id);
 MediaSource MediaSourceForTabContentRemoting(content::WebContents* contents);
 MediaSource MediaSourceForDesktop();
-MediaSource MediaSourceForCastApp(const std::string& app_id);
-MediaSource MediaSourceForPresentationUrl(const std::string& presentation_url);
+MediaSource MediaSourceForPresentationUrl(const GURL& presentation_url);
 
 // Returns true if |source| outputs its content via mirroring.
 bool IsDesktopMirroringMediaSource(const MediaSource& source);
 bool IsTabMirroringMediaSource(const MediaSource& source);
 bool IsMirroringMediaSource(const MediaSource& source);
+
+// Returns true if |source| is a media source type that can be connected to the
+// Presentation API by from a request initiated by the browser.
+bool CanConnectToMediaSource(const MediaSource& source);
 
 // Parses the |source| and returns the SessionTabHelper tab ID referencing a
 // source tab. Returns a non-positive value on error.
@@ -36,12 +41,11 @@ int TabIdFromMediaSource(const MediaSource& source);
 // Does not deeper protocol-level syntax checks.
 bool IsValidMediaSource(const MediaSource& source);
 
-// Extracts the presentation URL from |source|.
-// If |source| is invalid, an empty string is returned.
-std::string PresentationUrlFromMediaSource(const MediaSource& source);
+// Returns true if |url| is a valid presentation URL.
+bool IsValidPresentationUrl(const GURL& url);
 
-// Returns true if |source| is a valid presentation URL.
-bool IsValidPresentationUrl(const std::string& url);
+// Returns true if |presentation_id| is an ID used by auto-join requests.
+bool IsAutoJoinPresentationId(const std::string& presentation_id);
 
 }  // namespace media_router
 

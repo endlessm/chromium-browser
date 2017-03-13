@@ -6,10 +6,10 @@
 
 #include <string>
 #include <utility>
-#include <vector>
 
 #include "base/bind.h"
 #include "components/arc/arc_bridge_service.h"
+#include "components/arc/arc_service_manager.h"
 #include "components/arc/intent_helper/arc_intent_helper_bridge.h"
 #include "components/google/core/browser/google_util.h"
 #include "url/gurl.h"
@@ -19,7 +19,6 @@ namespace arc {
 
 namespace {
 
-constexpr int kMinInstanceVersion = 2;  // see intent_helper.mojom
 constexpr int kMaxValueLen = 2048;
 
 bool GetQueryValue(const GURL& url,
@@ -56,8 +55,12 @@ LinkHandlerModelImpl::LinkHandlerModelImpl(
 LinkHandlerModelImpl::~LinkHandlerModelImpl() {}
 
 bool LinkHandlerModelImpl::Init(const GURL& url) {
-  auto* instance = ArcIntentHelperBridge::GetIntentHelperInstance(
-      "RequestUrlHandlerList", kMinInstanceVersion);
+  auto* arc_service_manager = ArcServiceManager::Get();
+  if (!arc_service_manager)
+    return false;
+  auto* instance = ARC_GET_INSTANCE_FOR_METHOD(
+      arc_service_manager->arc_bridge_service()->intent_helper(),
+      RequestUrlHandlerList);
   if (!instance)
     return false;
 
@@ -78,8 +81,11 @@ void LinkHandlerModelImpl::AddObserver(Observer* observer) {
 
 void LinkHandlerModelImpl::OpenLinkWithHandler(const GURL& url,
                                                uint32_t handler_id) {
-  auto* instance = ArcIntentHelperBridge::GetIntentHelperInstance(
-      "HandleUrl", kMinInstanceVersion);
+  auto* arc_service_manager = ArcServiceManager::Get();
+  if (!arc_service_manager)
+    return;
+  auto* instance = ARC_GET_INSTANCE_FOR_METHOD(
+      arc_service_manager->arc_bridge_service()->intent_helper(), HandleUrl);
   if (!instance)
     return;
   if (handler_id >= handlers_.size())
@@ -89,7 +95,7 @@ void LinkHandlerModelImpl::OpenLinkWithHandler(const GURL& url,
 }
 
 void LinkHandlerModelImpl::OnUrlHandlerList(
-    mojo::Array<mojom::IntentHandlerInfoPtr> handlers) {
+    std::vector<mojom::IntentHandlerInfoPtr> handlers) {
   handlers_ = ArcIntentHelperBridge::FilterOutIntentHelper(std::move(handlers));
 
   bool icon_info_notified = false;
@@ -129,10 +135,11 @@ void LinkHandlerModelImpl::NotifyObserver(
     if (it != icons_.end())
       icon = it->second.icon16;
     // Use the handler's index as an ID.
-    ash::LinkHandlerInfo handler = {handlers_[i]->name.get(), icon, i};
+    ash::LinkHandlerInfo handler = {handlers_[i]->name, icon, i};
     handlers.push_back(handler);
   }
-  FOR_EACH_OBSERVER(Observer, observer_list_, ModelChanged(handlers));
+  for (auto& observer : observer_list_)
+    observer.ModelChanged(handlers);
 }
 
 // static

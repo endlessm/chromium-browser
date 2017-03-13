@@ -6,11 +6,12 @@
 
 #include "base/bind.h"
 #include "base/macros.h"
+#include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
+#include "chrome/browser/chromeos/login/oobe_screen.h"
 #include "chrome/browser/chromeos/login/test/oobe_base_test.h"
 #include "chrome/browser/chromeos/login/test/oobe_screen_waiter.h"
-#include "chrome/browser/ui/webui/chromeos/login/oobe_screen.h"
 #include "content/public/browser/browser_thread.h"
 #include "device/bluetooth/bluetooth_adapter_factory.h"
 #include "device/bluetooth/test/mock_bluetooth_adapter.h"
@@ -57,8 +58,8 @@ class HidDetectionTest : public OobeBaseTest {
   ~HidDetectionTest() override {}
 
   void InitInputService() {
-    input_service_linux_.reset(new device::FakeInputServiceLinux);
-    InputServiceLinux::SetForTesting(input_service_linux_.get());
+    InputServiceLinux::SetForTesting(
+        base::MakeUnique<device::FakeInputServiceLinux>());
   }
 
   void SetUpOnMainThread() override {
@@ -78,8 +79,7 @@ class HidDetectionTest : public OobeBaseTest {
     mouse.subsystem = InputDeviceInfo::SUBSYSTEM_INPUT;
     mouse.type = InputDeviceInfo::TYPE_USB;
     mouse.is_mouse = true;
-    LOG(ERROR) << input_service_linux_.get();
-    input_service_linux_->AddDeviceForTesting(mouse);
+    AddDeviceForTesting(mouse);
   }
 
   void AddUsbKeyboard(const std::string& keyboard_id) {
@@ -88,14 +88,18 @@ class HidDetectionTest : public OobeBaseTest {
     keyboard.subsystem = InputDeviceInfo::SUBSYSTEM_INPUT;
     keyboard.type = InputDeviceInfo::TYPE_USB;
     keyboard.is_keyboard = true;
-    input_service_linux_->AddDeviceForTesting(keyboard);
+    AddDeviceForTesting(keyboard);
   }
 
  private:
+  void AddDeviceForTesting(const InputDeviceInfo& info) {
+    static_cast<device::FakeInputServiceLinux*>(
+        device::InputServiceLinux::GetInstance())
+        ->AddDeviceForTesting(info);
+  }
+
   scoped_refptr<
       testing::NiceMock<device::MockBluetoothAdapter> > mock_adapter_;
-
-  std::unique_ptr<device::FakeInputServiceLinux> input_service_linux_;
 
   base::WeakPtrFactory<HidDetectionTest> weak_ptr_factory_;
 

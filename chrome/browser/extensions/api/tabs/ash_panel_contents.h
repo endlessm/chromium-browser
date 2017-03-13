@@ -16,14 +16,6 @@
 
 class GURL;
 
-namespace content {
-class RenderViewHost;
-}
-
-namespace extensions {
-struct DraggableRegion;
-}
-
 // extensions::AppWindowContents class specific to panel windows created by v1
 // extenstions. This class maintains a WebContents instance and observes it for
 // the purpose of passing messages to the extensions system. It also creates
@@ -44,7 +36,6 @@ class AshPanelContents
   void NativeWindowChanged(
       extensions::NativeAppWindow* native_app_window) override;
   void NativeWindowClosed() override;
-  void DispatchWindowShownForTests() const override;
   void OnWindowReady() override;
   content::WebContents* GetWebContents() const override;
   extensions::WindowController* GetWindowController() const override;

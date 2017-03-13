@@ -10,6 +10,7 @@
 
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
+#include "base/optional.h"
 #include "base/time/time.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_config.h"
 #include "net/base/network_interfaces.h"
@@ -73,10 +74,6 @@ class TestDataReductionProxyConfig : public DataReductionProxyConfig {
   // TODO(jeremyim): Rationalize with test_params().
   DataReductionProxyConfigValues* config_values();
 
-  // Allows tests to set the internal state.
-  void SetStateForTest(bool enabled_by_user,
-                       bool secure_proxy_enabled);
-
   // Resets the Lo-Fi status to default state.
   void ResetLoFiStatusForTest();
 
@@ -102,8 +99,34 @@ class TestDataReductionProxyConfig : public DataReductionProxyConfig {
 
   base::TimeTicks GetTicksNow() const override;
 
+  bool WasDataReductionProxyUsed(
+      const net::URLRequest* request,
+      DataReductionProxyTypeInfo* proxy_info) const override;
+
+  // Sets the data reduction proxy as not used. Subsequent calls to
+  // WasDataReductionProxyUsed() would return false.
+  void SetWasDataReductionProxyNotUsed();
+
+  // Sets the proxy index of the data reduction proxy. Subsequent calls to
+  // WasDataReductionProxyUsed are affected.
+  void SetWasDataReductionProxyUsedProxyIndex(int proxy_index);
+
+  // Resets the behavior of WasDataReductionProxyUsed() calls.
+  void ResetWasDataReductionProxyUsed();
+
+  // Sets if the captive portal probe has been blocked for the current network.
+  void SetIsCaptivePortal(bool is_captive_portal);
+
+  using DataReductionProxyConfig::UpdateConfigForTesting;
+  using DataReductionProxyConfig::SetWarmupURLFetcherCallbackForTesting;
+
  private:
+  bool GetIsCaptivePortal() const override;
+
   base::TickClock* tick_clock_;
+
+  base::Optional<bool> was_data_reduction_proxy_used_;
+  base::Optional<int> proxy_index_;
 
   std::unique_ptr<net::NetworkInterfaceList> network_interfaces_;
 
@@ -113,6 +136,10 @@ class TestDataReductionProxyConfig : public DataReductionProxyConfig {
 
   bool lofi_accuracy_recording_intervals_set_;
   std::vector<base::TimeDelta> lofi_accuracy_recording_intervals_;
+
+  // Set to true if the captive portal probe for the current network has been
+  // blocked.
+  bool is_captive_portal_;
 
   DISALLOW_COPY_AND_ASSIGN(TestDataReductionProxyConfig);
 };
@@ -130,8 +157,6 @@ class MockDataReductionProxyConfig : public TestDataReductionProxyConfig {
       DataReductionProxyEventCreator* event_creator);
   ~MockDataReductionProxyConfig();
 
-  MOCK_METHOD1(RecordSecureProxyCheckFetchResult,
-               void(SecureProxyCheckFetchResult result));
   MOCK_METHOD2(SetProxyPrefs, void(bool enabled, bool at_startup));
   MOCK_CONST_METHOD2(IsDataReductionProxy,
                      bool(const net::ProxyServer& proxy_server,
@@ -155,7 +180,7 @@ class MockDataReductionProxyConfig : public TestDataReductionProxyConfig {
       IsNetworkQualityProhibitivelySlow,
       bool(const net::NetworkQualityEstimator* network_quality_estimator));
 
-  void UpdateConfigurator(bool enabled, bool restricted) override;
+  using DataReductionProxyConfig::UpdateConfigForTesting;
 
   // Resets the Lo-Fi status to default state.
   void ResetLoFiStatusForTest();

@@ -66,7 +66,7 @@
 #include "extensions/browser/extension_registry.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/extension_set.h"
-#include "ui/accessibility/ax_view_state.h"
+#include "ui/accessibility/ax_node_data.h"
 #include "ui/base/dragdrop/drag_utils.h"
 #include "ui/base/dragdrop/os_exchange_data.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -79,6 +79,7 @@
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/color_utils.h"
 #include "ui/gfx/favicon_size.h"
+#include "ui/gfx/geometry/insets.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/image/image_skia_operations.h"
 #include "ui/gfx/paint_vector_icon.h"
@@ -89,6 +90,7 @@
 #include "ui/resources/grit/ui_resources.h"
 #include "ui/views/animation/flood_fill_ink_drop_ripple.h"
 #include "ui/views/animation/ink_drop_highlight.h"
+#include "ui/views/animation/ink_drop_impl.h"
 #include "ui/views/button_drag_utils.h"
 #include "ui/views/controls/button/label_button.h"
 #include "ui/views/controls/button/label_button_border.h"
@@ -164,9 +166,13 @@ gfx::ImageSkia* GetImageSkiaNamed(int id) {
   return ui::ResourceBundle::GetSharedInstance().GetImageSkiaNamed(id);
 }
 
+// Ink drop ripple/highlight for bookmark buttons should be inset 1px vertically
+// so that they do not touch the bookmark bar borders.
+constexpr gfx::Insets kInkDropInsets(1, 0);
+
 gfx::Rect CalculateInkDropBounds(const gfx::Size& size) {
   gfx::Rect ink_drop_bounds(size);
-  ink_drop_bounds.Inset(0, 1);
+  ink_drop_bounds.Inset(kInkDropInsets);
   return ink_drop_bounds;
 }
 
@@ -214,17 +220,22 @@ class BookmarkButtonBase : public views::LabelButton {
            event_utils::IsPossibleDispositionEvent(e);
   }
 
+  // LabelButton:
+  std::unique_ptr<views::InkDrop> CreateInkDrop() override {
+    std::unique_ptr<views::InkDropImpl> ink_drop =
+        CreateDefaultFloodFillInkDropImpl();
+    ink_drop->SetShowHighlightOnFocus(true);
+    return std::move(ink_drop);
+  }
+
   std::unique_ptr<views::InkDropRipple> CreateInkDropRipple() const override {
     return base::MakeUnique<views::FloodFillInkDropRipple>(
-        CalculateInkDropBounds(size()), GetInkDropCenterBasedOnLastEvent(),
+        size(), kInkDropInsets, GetInkDropCenterBasedOnLastEvent(),
         GetInkDropBaseColor(), ink_drop_visible_opacity());
   }
 
   std::unique_ptr<views::InkDropHighlight> CreateInkDropHighlight()
       const override {
-    if (!ShouldShowInkDropHighlight())
-      return nullptr;
-
     const gfx::Rect bounds = CalculateInkDropBounds(size());
     return base::MakeUnique<views::InkDropHighlight>(
         bounds.size(), 0, gfx::RectF(bounds).CenterPoint(),
@@ -238,7 +249,6 @@ class BookmarkButtonBase : public views::LabelButton {
 
  private:
   std::unique_ptr<gfx::SlideAnimation> show_animation_;
-
 
   DISALLOW_COPY_AND_ASSIGN(BookmarkButtonBase);
 };
@@ -278,7 +288,7 @@ class BookmarkButton : public BookmarkButtonBase {
 
   void SetText(const base::string16& text) override {
     BookmarkButtonBase::SetText(text);
-    tooltip_text_.empty();
+    tooltip_text_.clear();
   }
 
   const char* GetClassName() const override { return kViewClassName; }
@@ -332,17 +342,22 @@ class BookmarkMenuButtonBase : public views::MenuButton {
     SetFocusPainter(nullptr);
   }
 
+  // MenuButton:
+  std::unique_ptr<views::InkDrop> CreateInkDrop() override {
+    std::unique_ptr<views::InkDropImpl> ink_drop =
+        CreateDefaultFloodFillInkDropImpl();
+    ink_drop->SetShowHighlightOnFocus(true);
+    return std::move(ink_drop);
+  }
+
   std::unique_ptr<views::InkDropRipple> CreateInkDropRipple() const override {
     return base::MakeUnique<views::FloodFillInkDropRipple>(
-        CalculateInkDropBounds(size()), GetInkDropCenterBasedOnLastEvent(),
+        size(), kInkDropInsets, GetInkDropCenterBasedOnLastEvent(),
         GetInkDropBaseColor(), ink_drop_visible_opacity());
   }
 
   std::unique_ptr<views::InkDropHighlight> CreateInkDropHighlight()
       const override {
-    if (!ShouldShowInkDropHighlight())
-      return nullptr;
-
     const gfx::Rect bounds = CalculateInkDropBounds(size());
     return base::MakeUnique<views::InkDropHighlight>(
         bounds.size(), 0, gfx::RectF(bounds).CenterPoint(),
@@ -533,9 +548,9 @@ class BookmarkBarView::ButtonSeparatorView : public views::View {
     return gfx::Size(kSeparatorWidth, 1);
   }
 
-  void GetAccessibleState(ui::AXViewState* state) override {
-    state->name = l10n_util::GetStringUTF16(IDS_ACCNAME_SEPARATOR);
-    state->role = ui::AX_ROLE_SPLITTER;
+  void GetAccessibleNodeData(ui::AXNodeData* node_data) override {
+    node_data->SetName(l10n_util::GetStringUTF8(IDS_ACCNAME_SEPARATOR));
+    node_data->role = ui::AX_ROLE_SPLITTER;
   }
 
  private:
@@ -1191,6 +1206,8 @@ int BookmarkBarView::OnPerformDrop(const DropTargetEvent& event) {
   DCHECK(data.is_valid());
   bool copy = drop_info_->location.operation == ui::DragDropTypes::DRAG_COPY;
   drop_info_.reset();
+
+  content::RecordAction(base::UserMetricsAction("BookmarkBar_DragEnd"));
   return chrome::DropBookmarks(
       browser_->profile(), data, parent_node, index, copy);
 }
@@ -1207,14 +1224,14 @@ void BookmarkBarView::VisibilityChanged(View* starting_from, bool is_visible) {
   AccessiblePaneView::VisibilityChanged(starting_from, is_visible);
 
   if (starting_from == this) {
-    FOR_EACH_OBSERVER(BookmarkBarViewObserver, observers_,
-                      OnBookmarkBarVisibilityChanged());
+    for (BookmarkBarViewObserver& observer : observers_)
+      observer.OnBookmarkBarVisibilityChanged();
   }
 }
 
-void BookmarkBarView::GetAccessibleState(ui::AXViewState* state) {
-  state->role = ui::AX_ROLE_TOOLBAR;
-  state->name = l10n_util::GetStringUTF16(IDS_ACCNAME_BOOKMARKS);
+void BookmarkBarView::GetAccessibleNodeData(ui::AXNodeData* node_data) {
+  node_data->role = ui::AX_ROLE_TOOLBAR;
+  node_data->SetName(l10n_util::GetStringUTF8(IDS_ACCNAME_BOOKMARKS));
 }
 
 void BookmarkBarView::AnimationProgressed(const gfx::Animation* animation) {
@@ -1611,8 +1628,8 @@ void BookmarkBarView::Init() {
   UpdateBookmarksSeparatorVisibility();
 
   instructions_ = new BookmarkBarInstructionsView(this);
-  instructions_->SetBorder(views::Border::CreateEmptyBorder(
-      kButtonPaddingVertical, 0, kButtonPaddingVertical, 0));
+  instructions_->SetBorder(views::CreateEmptyBorder(kButtonPaddingVertical, 0,
+                                                    kButtonPaddingVertical, 0));
   AddChildView(instructions_);
 
   set_context_menu_controller(this);

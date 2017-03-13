@@ -41,23 +41,27 @@ class LauncherControllerHelper : public ExtensionEnableFlowDelegate {
   // Note that already running applications are ignored by the restore process.
   virtual bool IsValidIDForCurrentUser(const std::string& id) const;
 
-  // Sets the currently active profile for the usage of |GetAppID|.
-  virtual void SetCurrentUser(Profile* profile);
-
   void LaunchApp(const std::string& app_id,
                  ash::LaunchSource source,
                  int event_flags);
+
+  void LaunchAppWithLaunchId(const std::string& app_id,
+                             const std::string& launch_id,
+                             ash::LaunchSource source,
+                             int event_flags);
 
   virtual ArcAppListPrefs* GetArcAppListPrefs() const;
 
   Profile* profile() { return profile_; }
   const Profile* profile() const { return profile_; }
+  void set_profile(Profile* profile) { profile_ = profile; }
 
  private:
   // ExtensionEnableFlowDelegate:
   void ExtensionEnableFlowFinished() override;
   void ExtensionEnableFlowAborted(bool user_initiated) override;
 
+  // The currently active profile for the usage of |GetAppID|.
   Profile* profile_;
   std::unique_ptr<ExtensionEnableFlow> extension_enable_flow_;
 

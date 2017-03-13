@@ -24,6 +24,8 @@
 
 #include "bindings/core/v8/DOMWrapperWorld.h"
 #include "bindings/core/v8/ScriptState.h"
+#include "core/editing/InputMethodController.h"
+#include "core/input/InputDeviceCapabilities.h"
 #include "platform/WindowsKeyboardCodes.h"
 #include "public/platform/Platform.h"
 #include "public/platform/WebInputEvent.h"
@@ -31,8 +33,9 @@
 
 namespace blink {
 
-static inline const AtomicString& eventTypeForKeyboardEventType(
-    WebInputEvent::Type type) {
+namespace {
+
+const AtomicString& eventTypeForKeyboardEventType(WebInputEvent::Type type) {
   switch (type) {
     case WebInputEvent::KeyUp:
       return EventTypeNames::keyup;
@@ -51,16 +54,26 @@ static inline const AtomicString& eventTypeForKeyboardEventType(
   return EventTypeNames::keydown;
 }
 
-static inline KeyboardEvent::KeyLocationCode keyLocationCode(
-    const WebInputEvent& key) {
-  if (key.modifiers & WebInputEvent::IsKeyPad)
+KeyboardEvent::KeyLocationCode keyLocationCode(const WebInputEvent& key) {
+  if (key.modifiers() & WebInputEvent::IsKeyPad)
     return KeyboardEvent::kDomKeyLocationNumpad;
-  if (key.modifiers & WebInputEvent::IsLeft)
+  if (key.modifiers() & WebInputEvent::IsLeft)
     return KeyboardEvent::kDomKeyLocationLeft;
-  if (key.modifiers & WebInputEvent::IsRight)
+  if (key.modifiers() & WebInputEvent::IsRight)
     return KeyboardEvent::kDomKeyLocationRight;
   return KeyboardEvent::kDomKeyLocationStandard;
 }
+
+bool hasCurrentComposition(LocalDOMWindow* domWindow) {
+  if (!domWindow)
+    return false;
+  LocalFrame* localFrame = domWindow->frame();
+  if (!localFrame)
+    return false;
+  return localFrame->inputMethodController().hasComposition();
+}
+
+}  // namespace
 
 KeyboardEvent* KeyboardEvent::create(ScriptState* scriptState,
                                      const AtomicString& type,
@@ -74,21 +87,25 @@ KeyboardEvent* KeyboardEvent::create(ScriptState* scriptState,
 
 KeyboardEvent::KeyboardEvent() : m_location(kDomKeyLocationStandard) {}
 
-KeyboardEvent::KeyboardEvent(const WebKeyboardEvent& key, AbstractView* view)
+KeyboardEvent::KeyboardEvent(const WebKeyboardEvent& key,
+                             LocalDOMWindow* domWindow)
     : UIEventWithKeyState(
-          eventTypeForKeyboardEventType(key.type),
+          eventTypeForKeyboardEventType(key.type()),
           true,
           true,
-          view,
+          domWindow,
           0,
-          static_cast<PlatformEvent::Modifiers>(key.modifiers),
-          key.timeStampSeconds,
-          InputDeviceCapabilities::doesntFireTouchEventsSourceCapabilities()),
-      m_keyEvent(wrapUnique(new WebKeyboardEvent(key))),
+          static_cast<PlatformEvent::Modifiers>(key.modifiers()),
+          TimeTicks::FromSeconds(key.timeStampSeconds()),
+          domWindow
+              ? domWindow->getInputDeviceCapabilities()->firesTouchEvents(false)
+              : nullptr),
+      m_keyEvent(WTF::makeUnique<WebKeyboardEvent>(key)),
       // TODO(crbug.com/482880): Fix this initialization to lazy initialization.
       m_code(Platform::current()->domCodeStringFromEnum(key.domCode)),
       m_key(Platform::current()->domKeyStringFromEnum(key.domKey)),
-      m_location(keyLocationCode(key)) {
+      m_location(keyLocationCode(key)),
+      m_isComposing(hasCurrentComposition(domWindow)) {
   initLocationModifiers(m_location);
 }
 
@@ -97,34 +114,11 @@ KeyboardEvent::KeyboardEvent(const AtomicString& eventType,
     : UIEventWithKeyState(eventType, initializer),
       m_code(initializer.code()),
       m_key(initializer.key()),
-      m_location(initializer.location()) {
+      m_location(initializer.location()),
+      m_isComposing(initializer.isComposing()) {
   if (initializer.repeat())
     m_modifiers |= PlatformEvent::IsAutoRepeat;
   initLocationModifiers(initializer.location());
-}
-
-KeyboardEvent::KeyboardEvent(const AtomicString& eventType,
-                             bool canBubble,
-                             bool cancelable,
-                             AbstractView* view,
-                             const String& code,
-                             const String& key,
-                             unsigned location,
-                             PlatformEvent::Modifiers modifiers,
-                             double plaformTimeStamp)
-    : UIEventWithKeyState(
-          eventType,
-          canBubble,
-          cancelable,
-          view,
-          0,
-          modifiers,
-          plaformTimeStamp,
-          InputDeviceCapabilities::doesntFireTouchEventsSourceCapabilities()),
-      m_code(code),
-      m_key(key),
-      m_location(location) {
-  initLocationModifiers(location);
 }
 
 KeyboardEvent::~KeyboardEvent() {}

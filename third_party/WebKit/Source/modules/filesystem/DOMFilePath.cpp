@@ -71,7 +71,7 @@ bool DOMFilePath::isParentOf(const String& parent, const String& mayBeChild) {
   if (parent == DOMFilePath::root && mayBeChild != DOMFilePath::root)
     return true;
   if (parent.length() >= mayBeChild.length() ||
-      !mayBeChild.startsWith(parent, TextCaseInsensitive))
+      !mayBeChild.startsWith(parent, TextCaseUnicodeInsensitive))
     return false;
   if (mayBeChild[parent.length()] != DOMFilePath::separator)
     return false;
@@ -88,10 +88,10 @@ String DOMFilePath::removeExtraParentReferences(const String& path) {
       continue;
     if (components[i] == "..") {
       if (canonicalized.size() > 0)
-        canonicalized.removeLast();
+        canonicalized.pop_back();
       continue;
     }
-    canonicalized.append(components[i]);
+    canonicalized.push_back(components[i]);
   }
   if (canonicalized.isEmpty())
     return DOMFilePath::root;

@@ -21,8 +21,10 @@
 namespace blink {
 
 static bool supportsCachedOffsets(const LayoutObject& object) {
-  // Can't compute paint offsets across objects with transforms, but if they are paint invalidation containers, we don't actually need
-  // to compute *across* the container, just up to it. (Also, such objects are the containing block for all children.)
+  // Can't compute paint offsets across objects with transforms, but if they are
+  // paint invalidation containers, we don't actually need to compute *across*
+  // the container, just up to it. (Also, such objects are the containing block
+  // for all children.)
   return !(object.hasTransformRelatedProperty() &&
            !object.isPaintInvalidationContainer()) &&
          !object.hasFilterInducingProperty() && !object.isLayoutFlowThread() &&
@@ -46,10 +48,6 @@ PaintInvalidationState::PaintInvalidationState(
       m_containerForAbsolutePosition(layoutView),
       m_pendingDelayedPaintInvalidations(pendingDelayedPaintInvalidations),
       m_paintingLayer(*layoutView.layer())
-#if ENABLE(ASSERT)
-      ,
-      m_didUpdateForChildren(false)
-#endif
 #ifdef CHECK_FAST_PATH_SLOW_PATH_EQUALITY
       ,
       m_canCheckFastPathSlowPathEquality(layoutView ==
@@ -96,15 +94,7 @@ PaintInvalidationState::PaintInvalidationState(
       m_svgTransform(parentState.m_svgTransform),
       m_pendingDelayedPaintInvalidations(
           parentState.m_pendingDelayedPaintInvalidations),
-      m_paintingLayer(
-          currentObject.hasLayer() &&
-                  toLayoutBoxModelObject(currentObject).hasSelfPaintingLayer()
-              ? *toLayoutBoxModelObject(currentObject).layer()
-              : parentState.m_paintingLayer)
-#if ENABLE(ASSERT)
-      ,
-      m_didUpdateForChildren(false)
-#endif
+      m_paintingLayer(parentState.childPaintingLayer(currentObject))
 #ifdef CHECK_FAST_PATH_SLOW_PATH_EQUALITY
       ,
       m_canCheckFastPathSlowPathEquality(
@@ -115,16 +105,18 @@ PaintInvalidationState::PaintInvalidationState(
   DCHECK(&m_paintingLayer == currentObject.paintingLayer());
 
   if (currentObject == parentState.m_currentObject) {
-// Sometimes we create a new PaintInvalidationState from parentState on the same object
-// (e.g. LayoutView, and the HorriblySlowRectMapping cases in LayoutBlock::invalidatePaintOfSubtreesIfNeeded()).
-// TODO(wangxianzhu): Avoid this for RuntimeEnabledFeatures::slimmingPaintInvalidationEnabled().
-#if ENABLE(ASSERT)
+// Sometimes we create a new PaintInvalidationState from parentState on the same
+// object (e.g. LayoutView, and the HorriblySlowRectMapping cases in
+// LayoutBlock::invalidatePaintOfSubtreesIfNeeded()).
+// TODO(wangxianzhu): Avoid this for
+// RuntimeEnabledFeatures::slimmingPaintInvalidationEnabled().
+#if DCHECK_IS_ON()
     m_didUpdateForChildren = parentState.m_didUpdateForChildren;
 #endif
     return;
   }
 
-#if ENABLE(ASSERT)
+#if DCHECK_IS_ON()
   DCHECK(parentState.m_didUpdateForChildren);
 #endif
 
@@ -134,26 +126,37 @@ PaintInvalidationState::PaintInvalidationState(
       m_paintInvalidationContainerForStackedContents =
           toLayoutBoxModelObject(&currentObject);
   } else if (currentObject.isLayoutView()) {
-    // m_paintInvalidationContainerForStackedContents is only for stacked descendants in its own frame,
-    // because it doesn't establish stacking context for stacked contents in sub-frames.
-    // Contents stacked in the root stacking context in this frame should use this frame's paintInvalidationContainer.
+    // m_paintInvalidationContainerForStackedContents is only for stacked
+    // descendants in its own frame, because it doesn't establish stacking
+    // context for stacked contents in sub-frames. Contents stacked in the root
+    // stacking context in this frame should use this frame's
+    // paintInvalidationContainer.
     m_paintInvalidationContainerForStackedContents =
         m_paintInvalidationContainer;
-  } else if (
-      currentObject.styleRef().isStacked()
-      // This is to exclude some objects (e.g. LayoutText) inheriting stacked style from parent but aren't actually stacked.
-      && currentObject.hasLayer() &&
-      m_paintInvalidationContainer !=
-          m_paintInvalidationContainerForStackedContents) {
-    // The current object is stacked, so we should use m_paintInvalidationContainerForStackedContents as its
-    // paint invalidation container on which the current object is painted.
+  } else if (currentObject.isFloating() &&
+             !currentObject.parent()->isLayoutBlock()) {
+    // See LayoutObject::paintingLayer() for specialty of floating objects.
+    m_paintInvalidationContainer =
+        &currentObject.containerForPaintInvalidation();
+    m_cachedOffsetsEnabled = false;
+  } else if (currentObject.styleRef().isStacked() &&
+             // This is to exclude some objects (e.g. LayoutText) inheriting
+             // stacked style from parent but aren't actually stacked.
+             currentObject.hasLayer() &&
+             m_paintInvalidationContainer !=
+                 m_paintInvalidationContainerForStackedContents) {
+    // The current object is stacked, so we should use
+    // m_paintInvalidationContainerForStackedContents as its paint invalidation
+    // container on which the current object is painted.
     m_paintInvalidationContainer =
         m_paintInvalidationContainerForStackedContents;
-    // We are changing paintInvalidationContainer to m_paintInvalidationContainerForStackedContents. Must disable
-    // cached offsets because we didn't track paint offset from m_paintInvalidationContainerForStackedContents.
+    // We are changing paintInvalidationContainer to
+    // m_paintInvalidationContainerForStackedContents. Must disable cached
+    // offsets because we didn't track paint offset from
+    // m_paintInvalidationContainerForStackedContents.
     // TODO(wangxianzhu): There are optimization opportunities:
-    // - Like what we do for fixed-position, calculate the paint offset in slow path and enable fast path for
-    //   descendants if possible; or
+    // - Like what we do for fixed-position, calculate the paint offset in slow
+    //   path and enable fast path for descendants if possible; or
     // - Track offset between the two paintInvalidationContainers.
     m_cachedOffsetsEnabled = false;
     if (m_forcedSubtreeInvalidationFlags &
@@ -173,8 +176,8 @@ PaintInvalidationState::PaintInvalidationState(
     if (currentObject.isSVGRoot()) {
       m_svgTransform =
           toLayoutSVGRoot(currentObject).localToBorderBoxTransform();
-      // Don't early return here, because the SVGRoot object needs to execute the later code
-      // as a normal LayoutBox.
+      // Don't early return here, because the SVGRoot object needs to execute
+      // the later code as a normal LayoutBox.
     } else {
       DCHECK(currentObject != m_paintInvalidationContainer);
       m_svgTransform *= currentObject.localToSVGParentTransform();
@@ -197,10 +200,12 @@ PaintInvalidationState::PaintInvalidationState(
       m_forcedSubtreeInvalidationFlags = 0;
       if (currentObject != m_containerForAbsolutePosition &&
           m_cachedOffsetsForAbsolutePositionEnabled && m_cachedOffsetsEnabled) {
-        // The current object is the new paintInvalidationContainer for absolute-position descendants but is not their container.
-        // Call updateForCurrentObject() before resetting m_paintOffset to get paint offset of the current object
-        // from the original paintInvalidationContainerForStackingContents, then use this paint offset to adjust
-        // m_paintOffsetForAbsolutePosition.
+        // The current object is the new paintInvalidationContainer for
+        // absolute-position descendants but is not their container.
+        // Call updateForCurrentObject() before resetting m_paintOffset to get
+        // paint offset of the current object from the original
+        // paintInvalidationContainerForStackingContents, then use this paint
+        // offset to adjust m_paintOffsetForAbsolutePosition.
         updateForCurrentObject(parentState);
         m_paintOffsetForAbsolutePosition -= m_paintOffset;
         if (m_clippedForAbsolutePosition)
@@ -217,6 +222,18 @@ PaintInvalidationState::PaintInvalidationState(
   }
 
   updateForCurrentObject(parentState);
+}
+
+PaintLayer& PaintInvalidationState::childPaintingLayer(
+    const LayoutObject& child) const {
+  if (child.hasLayer() && toLayoutBoxModelObject(child).hasSelfPaintingLayer())
+    return *toLayoutBoxModelObject(child).layer();
+  // See LayoutObject::paintingLayer() for the special-cases of floating under
+  // inline and multicolumn.
+  if (child.isColumnSpanAll() ||
+      (child.isFloating() && !m_currentObject.isLayoutBlock()))
+    return *child.paintingLayer();
+  return m_paintingLayer;
 }
 
 void PaintInvalidationState::updateForCurrentObject(
@@ -238,14 +255,8 @@ void PaintInvalidationState::updateForCurrentObject(
   EPosition position = m_currentObject.styleRef().position();
 
   if (position == FixedPosition) {
-    if (m_paintInvalidationContainer != m_currentObject.view() &&
-        m_paintInvalidationContainer->view() == m_currentObject.view()) {
-      // TODO(crbug.com/598762): localToAncestorPoint() is incorrect for fixed-position when paintInvalidationContainer
-      // is under the containing LayoutView.
-      m_cachedOffsetsEnabled = false;
-      return;
-    }
-    // Use slow path to get the offset of the fixed-position, and enable fast path for descendants.
+    // Use slow path to get the offset of the fixed-position, and enable fast
+    // path for descendants.
     FloatPoint fixedOffset = m_currentObject.localToAncestorPoint(
         FloatPoint(), m_paintInvalidationContainer, TraverseDocumentBoundaries);
     if (m_paintInvalidationContainer->isBox()) {
@@ -254,9 +265,10 @@ void PaintInvalidationState::updateForCurrentObject(
         fixedOffset.move(box->scrolledContentOffset());
     }
     m_paintOffset = LayoutSize(fixedOffset.x(), fixedOffset.y());
-    // In the above way to get paint offset, we can't get accurate clip rect, so just assume no clip.
-    // Clip on fixed-position is rare, in case that paintInvalidationContainer crosses frame boundary
-    // and the LayoutView is clipped by something in owner document.
+    // In the above way to get paint offset, we can't get accurate clip rect, so
+    // just assume no clip. Clip on fixed-position is rare, in case that
+    // paintInvalidationContainer crosses frame boundary and the LayoutView is
+    // clipped by something in owner document.
     if (m_clipped) {
       m_clipped = false;
 #ifdef CHECK_FAST_PATH_SLOW_PATH_EQUALITY
@@ -293,14 +305,14 @@ void PaintInvalidationState::updateForCurrentObject(
 }
 
 void PaintInvalidationState::updateForChildren(PaintInvalidationReason reason) {
-#if ENABLE(ASSERT)
+#if DCHECK_IS_ON()
   DCHECK(!m_didUpdateForChildren);
   m_didUpdateForChildren = true;
 #endif
 
   switch (reason) {
     case PaintInvalidationDelayedFull:
-      m_pendingDelayedPaintInvalidations.append(&m_currentObject);
+      m_pendingDelayedPaintInvalidations.push_back(&m_currentObject);
       break;
     case PaintInvalidationSubtree:
       m_forcedSubtreeInvalidationFlags |=
@@ -309,7 +321,8 @@ void PaintInvalidationState::updateForChildren(PaintInvalidationReason reason) {
                ForcedSubtreeFullInvalidationForStackedContents);
       break;
     case PaintInvalidationSVGResourceChange:
-      setForceSubtreeInvalidationCheckingWithinContainer();
+      m_forcedSubtreeInvalidationFlags |=
+          PaintInvalidatorContext::ForcedSubtreeSVGResourceChange;
       break;
     default:
       break;
@@ -327,11 +340,13 @@ void PaintInvalidationState::updateForChildren(PaintInvalidationReason reason) {
         m_clipRectForAbsolutePosition = m_clipRect;
       }
     } else {
-      // Cached offsets for absolute-position are from m_paintInvalidationContainer,
-      // which can't be used if the absolute-position descendants will use a different
+      // Cached offsets for absolute-position are from
+      // m_paintInvalidationContainer, which can't be used if the
+      // absolute-position descendants will use a different
       // paintInvalidationContainer.
-      // TODO(wangxianzhu): Same optimization opportunities as under isStacked() condition
-      // in the PaintInvalidationState::PaintInvalidationState(... LayoutObject&...).
+      // TODO(wangxianzhu): Same optimization opportunities as under isStacked()
+      // condition in the PaintInvalidationState::PaintInvalidationState(...
+      // LayoutObject&...).
       m_cachedOffsetsForAbsolutePositionEnabled = false;
     }
   }
@@ -348,7 +363,8 @@ void PaintInvalidationState::updateForNormalChildren() {
   if (box.isLayoutView()) {
     if (!RuntimeEnabledFeatures::rootLayerScrollingEnabled()) {
       if (box != m_paintInvalidationContainer) {
-        m_paintOffset -= toLayoutView(box).frameView()->scrollOffset();
+        m_paintOffset -=
+            LayoutSize(toLayoutView(box).frameView()->getScrollOffset());
         addClipRectRelativeToPaintOffset(toLayoutView(box).viewRect());
       }
       return;
@@ -366,17 +382,20 @@ void PaintInvalidationState::updateForNormalChildren() {
   if (!box.hasClipRelatedProperty())
     return;
 
-  // Do not clip or scroll for the paint invalidation container, because the semantics of visual rects do not include clipping or
-  // scrolling on that object.
+  // Do not clip or scroll for the paint invalidation container, because the
+  // semantics of visual rects do not include clipping or scrolling on that
+  // object.
   if (box != m_paintInvalidationContainer) {
-    // This won't work fully correctly for fixed-position elements, who should receive CSS clip but for whom the current object
-    // is not in the containing block chain.
+    // This won't work fully correctly for fixed-position elements, who should
+    // receive CSS clip but for whom the current object is not in the containing
+    // block chain.
     addClipRectRelativeToPaintOffset(box.clippingRect());
     if (box.hasOverflowClip())
       m_paintOffset -= box.scrolledContentOffset();
   }
 
-  // FIXME: <http://bugs.webkit.org/show_bug.cgi?id=13443> Apply control clip if present.
+  // FIXME: <http://bugs.webkit.org/show_bug.cgi?id=13443> Apply control clip if
+  // present.
 }
 
 static FloatPoint slowLocalToAncestorPoint(const LayoutObject& object,
@@ -397,20 +416,27 @@ static FloatPoint slowLocalToAncestorPoint(const LayoutObject& object,
   return result;
 }
 
-LayoutPoint
-PaintInvalidationState::computePositionFromPaintInvalidationBacking() const {
-#if ENABLE(ASSERT)
+LayoutPoint PaintInvalidationState::computeLocationInBacking(
+    const LayoutPoint& visualRectLocation) const {
+#if DCHECK_IS_ON()
   DCHECK(!m_didUpdateForChildren);
 #endif
+
+  // Use visual rect location for LayoutTexts because it suffices to check
+  // visual rect change for layout caused invalidation.
+  if (m_currentObject.isText())
+    return visualRectLocation;
 
   FloatPoint point;
   if (m_paintInvalidationContainer != &m_currentObject) {
     if (m_cachedOffsetsEnabled) {
-      if (m_currentObject.isSVG() && !m_currentObject.isSVGRoot())
+      if (m_currentObject.isSVGChild())
         point = m_svgTransform.mapPoint(point);
       point += FloatPoint(m_paintOffset);
 #ifdef CHECK_FAST_PATH_SLOW_PATH_EQUALITY
-            DCHECK(point == slowLocalOriginToAncestorPoint(m_currentObject, m_paintInvalidationContainer, FloatPoint());
+      DCHECK(point ==
+             slowLocalOriginToAncestorPoint(
+                 m_currentObject, m_paintInvalidationContainer, FloatPoint()));
 #endif
     } else {
       point = slowLocalToAncestorPoint(
@@ -418,54 +444,50 @@ PaintInvalidationState::computePositionFromPaintInvalidationBacking() const {
     }
   }
 
-  if (m_paintInvalidationContainer->layer()->groupedMapping())
-    PaintLayer::mapPointInPaintInvalidationContainerToBacking(
-        *m_paintInvalidationContainer, point);
+  PaintLayer::mapPointInPaintInvalidationContainerToBacking(
+      *m_paintInvalidationContainer, point);
 
   return LayoutPoint(point);
 }
 
-LayoutRect PaintInvalidationState::computePaintInvalidationRectInBacking()
-    const {
-#if ENABLE(ASSERT)
+LayoutRect PaintInvalidationState::computeVisualRectInBacking() const {
+#if DCHECK_IS_ON()
   DCHECK(!m_didUpdateForChildren);
 #endif
 
-  if (m_currentObject.isSVG() && !m_currentObject.isSVGRoot())
-    return computePaintInvalidationRectInBackingForSVG();
+  if (m_currentObject.isSVGChild())
+    return computeVisualRectInBackingForSVG();
 
-  LayoutRect rect = m_currentObject.localOverflowRectForPaintInvalidation();
+  LayoutRect rect = m_currentObject.localVisualRect();
   mapLocalRectToPaintInvalidationBacking(rect);
   return rect;
 }
 
-LayoutRect PaintInvalidationState::computePaintInvalidationRectInBackingForSVG()
-    const {
+LayoutRect PaintInvalidationState::computeVisualRectInBackingForSVG() const {
   LayoutRect rect;
   if (m_cachedOffsetsEnabled) {
-    FloatRect svgRect = SVGLayoutSupport::localOverflowRectForPaintInvalidation(
-        m_currentObject);
-    rect = SVGLayoutSupport::transformPaintInvalidationRect(
-        m_currentObject, m_svgTransform, svgRect);
+    FloatRect svgRect = SVGLayoutSupport::localVisualRect(m_currentObject);
+    rect = SVGLayoutSupport::transformVisualRect(m_currentObject,
+                                                 m_svgTransform, svgRect);
     rect.move(m_paintOffset);
     if (m_clipped)
       rect.intersect(m_clipRect);
 #ifdef CHECK_FAST_PATH_SLOW_PATH_EQUALITY
-    LayoutRect slowPathRect =
-        SVGLayoutSupport::clippedOverflowRectForPaintInvalidation(
-            m_currentObject, *m_paintInvalidationContainer);
+    LayoutRect slowPathRect = SVGLayoutSupport::visualRectInAncestorSpace(
+        m_currentObject, *m_paintInvalidationContainer);
     assertFastPathAndSlowPathRectsEqual(rect, slowPathRect);
 #endif
   } else {
-    // TODO(wangxianzhu): Sometimes m_cachedOffsetsEnabled==false doesn't mean we can't use cached
-    // m_svgTransform. We can use hybrid fast path (for SVG) and slow path (for things above the SVGRoot).
-    rect = SVGLayoutSupport::clippedOverflowRectForPaintInvalidation(
+    // TODO(wangxianzhu): Sometimes m_cachedOffsetsEnabled==false doesn't mean
+    // we can't use cached m_svgTransform. We can use hybrid fast path (for SVG)
+    // and slow path (for things above the SVGRoot).
+    rect = SVGLayoutSupport::visualRectInAncestorSpace(
         m_currentObject, *m_paintInvalidationContainer);
   }
 
-  if (m_paintInvalidationContainer->layer()->groupedMapping())
-    PaintLayer::mapRectInPaintInvalidationContainerToBacking(
-        *m_paintInvalidationContainer, rect);
+  PaintLayer::mapRectInPaintInvalidationContainerToBacking(
+      *m_paintInvalidationContainer, rect);
+
   return rect;
 }
 
@@ -489,7 +511,7 @@ static void slowMapToVisualRectInAncestorSpace(
 
 void PaintInvalidationState::mapLocalRectToPaintInvalidationContainer(
     LayoutRect& rect) const {
-#if ENABLE(ASSERT)
+#if DCHECK_IS_ON()
   DCHECK(!m_didUpdateForChildren);
 #endif
 
@@ -515,9 +537,8 @@ void PaintInvalidationState::mapLocalRectToPaintInvalidationBacking(
     LayoutRect& rect) const {
   mapLocalRectToPaintInvalidationContainer(rect);
 
-  if (m_paintInvalidationContainer->layer()->groupedMapping())
-    PaintLayer::mapRectInPaintInvalidationContainerToBacking(
-        *m_paintInvalidationContainer, rect);
+  PaintLayer::mapRectInPaintInvalidationContainerToBacking(
+      *m_paintInvalidationContainer, rect);
 }
 
 void PaintInvalidationState::addClipRectRelativeToPaintOffset(
@@ -556,20 +577,23 @@ void PaintInvalidationState::assertFastPathAndSlowPathRectsEqual(
   if (!m_canCheckFastPathSlowPathEquality)
     return;
 
-  // TODO(crbug.com/597903): Fast path and slow path should generate equal empty rects.
+  // TODO(crbug.com/597903): Fast path and slow path should generate equal empty
+  // rects.
   if (fastPathRect.isEmpty() && slowPathRect.isEmpty())
     return;
 
   if (fastPathRect == slowPathRect)
     return;
 
-  // LayoutUnit uses saturated arithmetic operations. If any interim or final result is saturated,
-  // the same operations in different order produce different results. Don't compare results
-  // if any of them may have been saturated.
+  // LayoutUnit uses saturated arithmetic operations. If any interim or final
+  // result is saturated, the same operations in different order produce
+  // different results. Don't compare results if any of them may have been
+  // saturated.
   if (mayHaveBeenSaturated(fastPathRect) || mayHaveBeenSaturated(slowPathRect))
     return;
 
-  // Tolerate the difference between the two paths when crossing frame boundaries.
+  // Tolerate the difference between the two paths when crossing frame
+  // boundaries.
   if (m_currentObject.view() != m_paintInvalidationContainer->view()) {
     LayoutRect inflatedFastPathRect = fastPathRect;
     inflatedFastPathRect.inflate(1);
@@ -581,11 +605,9 @@ void PaintInvalidationState::assertFastPathAndSlowPathRectsEqual(
       return;
   }
 
-  WTFLogAlways(
-      "Fast path paint invalidation rect differs from slow path: fast: %s vs "
-      "slow: %s",
-      fastPathRect.toString().ascii().data(),
-      slowPathRect.toString().ascii().data());
+  LOG(ERROR) << "Fast path visual rect differs from slow path: fast: "
+             << fastPathRect.toString()
+             << " vs slow: " << slowPathRect.toString();
   showLayoutTree(&m_currentObject);
 
   ASSERT_NOT_REACHED();

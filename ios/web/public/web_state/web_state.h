@@ -35,7 +35,7 @@ class DictionaryValue;
 class Value;
 }
 
-namespace shell {
+namespace service_manager {
 class InterfaceRegistry;
 }
 
@@ -127,6 +127,9 @@ class WebState : public base::SupportsUserData {
   // navigation should be recorded in the history system (for example, typed).
   virtual void OpenURL(const OpenURLParams& params) = 0;
 
+  // Stops any pending navigation.
+  virtual void Stop() = 0;
+
   // Gets the NavigationManager associated with this WebState. Can never return
   // null.
   virtual const NavigationManager* GetNavigationManager() const = 0;
@@ -138,7 +141,7 @@ class WebState : public base::SupportsUserData {
   // Runs JavaScript in the main frame's context. If a callback is provided, it
   // will be used to return the result, when the result is available or script
   // execution has failed due to an error.
-  // NOTE: Integer values will be returned as TYPE_DOUBLE because of underlying
+  // NOTE: Integer values will be returned as Type::DOUBLE because of underlying
   // library limitation.
   typedef base::Callback<void(const base::Value*)> JavaScriptResultCallback;
   virtual void ExecuteJavaScript(const base::string16& javascript) = 0;
@@ -197,6 +200,10 @@ class WebState : public base::SupportsUserData {
   // Returns the currently visible WebInterstitial if one is shown.
   virtual WebInterstitial* GetWebInterstitial() const = 0;
 
+  // Tells the WebState that the current page is an HTTP page
+  // containing a password field.
+  virtual void OnPasswordInputShownOnHttp() = 0;
+
   // Callback used to handle script commands.
   // The callback must return true if the command was handled, and false
   // otherwise.
@@ -238,7 +245,7 @@ class WebState : public base::SupportsUserData {
                             const ImageDownloadCallback& callback) = 0;
 
   // Returns Mojo interface registry for this WebState.
-  virtual shell::InterfaceRegistry* GetMojoInterfaceRegistry() = 0;
+  virtual service_manager::InterfaceRegistry* GetMojoInterfaceRegistry() = 0;
 
  protected:
   friend class WebStateObserver;

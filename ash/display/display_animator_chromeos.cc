@@ -4,7 +4,7 @@
 
 #include "ash/display/display_animator_chromeos.h"
 
-#include "ash/common/shell_window_ids.h"
+#include "ash/public/cpp/shell_window_ids.h"
 #include "ash/shell.h"
 #include "base/bind.h"
 #include "base/memory/ptr_util.h"
@@ -32,9 +32,9 @@ class CallbackRunningObserver {
       : completed_counter_(0), animation_aborted_(false), callback_(callback) {}
 
   void AddNewAnimator(ui::LayerAnimator* animator) {
-    Observer* observer = new Observer(animator, this);
-    animator->AddObserver(observer);
-    observer_list_.push_back(observer);
+    auto observer = base::MakeUnique<Observer>(animator, this);
+    animator->AddObserver(observer.get());
+    observer_list_.push_back(std::move(observer));
   }
 
  private:
@@ -84,7 +84,7 @@ class CallbackRunningObserver {
 
   size_t completed_counter_;
   bool animation_aborted_;
-  ScopedVector<Observer> observer_list_;
+  std::vector<std::unique_ptr<Observer>> observer_list_;
   base::Closure callback_;
 
   DISALLOW_COPY_AND_ASSIGN(CallbackRunningObserver);
@@ -190,14 +190,14 @@ void DisplayAnimatorChromeOS::StartFadeInAnimation() {
 }
 
 void DisplayAnimatorChromeOS::OnDisplayModeChanged(
-    const ui::DisplayConfigurator::DisplayStateList& displays) {
+    const display::DisplayConfigurator::DisplayStateList& displays) {
   if (!hiding_layers_.empty())
     StartFadeInAnimation();
 }
 
 void DisplayAnimatorChromeOS::OnDisplayModeChangeFailed(
-    const ui::DisplayConfigurator::DisplayStateList& displays,
-    ui::MultipleDisplayState failed_new_state) {
+    const display::DisplayConfigurator::DisplayStateList& displays,
+    display::MultipleDisplayState failed_new_state) {
   if (!hiding_layers_.empty())
     StartFadeInAnimation();
 }

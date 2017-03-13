@@ -7,26 +7,28 @@
 #ifndef CORE_FXCODEC_CODEC_CCODEC_FLATEMODULE_H_
 #define CORE_FXCODEC_CODEC_CCODEC_FLATEMODULE_H_
 
+#include <memory>
+
 #include "core/fxcrt/fx_system.h"
 
 class CCodec_ScanlineDecoder;
 
 class CCodec_FlateModule {
  public:
-  CCodec_ScanlineDecoder* CreateDecoder(const uint8_t* src_buf,
-                                        uint32_t src_size,
-                                        int width,
-                                        int height,
-                                        int nComps,
-                                        int bpc,
-                                        int predictor,
-                                        int Colors,
-                                        int BitsPerComponent,
-                                        int Columns);
-  uint32_t FlateOrLZWDecode(FX_BOOL bLZW,
+  std::unique_ptr<CCodec_ScanlineDecoder> CreateDecoder(const uint8_t* src_buf,
+                                                        uint32_t src_size,
+                                                        int width,
+                                                        int height,
+                                                        int nComps,
+                                                        int bpc,
+                                                        int predictor,
+                                                        int Colors,
+                                                        int BitsPerComponent,
+                                                        int Columns);
+  uint32_t FlateOrLZWDecode(bool bLZW,
                             const uint8_t* src_buf,
                             uint32_t src_size,
-                            FX_BOOL bEarlyChange,
+                            bool bEarlyChange,
                             int predictor,
                             int Colors,
                             int BitsPerComponent,

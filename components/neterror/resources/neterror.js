@@ -22,17 +22,17 @@ function toggleHelpBox() {
 }
 
 function diagnoseErrors() {
-<if expr="not chromeos">
+// <if expr="not chromeos">
     if (window.errorPageController)
       errorPageController.diagnoseErrorsButtonClick();
-</if>
-<if expr="chromeos">
+// </if>
+// <if expr="chromeos">
   var extensionId = 'idddmepepmjcgiedknnmlbadcokidhoa';
   var diagnoseFrame = document.getElementById('diagnose-frame');
   diagnoseFrame.innerHTML =
       '<iframe src="chrome-extension://' + extensionId +
       '/index.html"></iframe>';
-</if>
+// </if>
 }
 
 // Subframes use a different layout but the same html file.  This is to make it
@@ -114,9 +114,12 @@ function showSavedCopyButtonClick() {
   }
 }
 
-function showOfflinePagesButtonClick() {
+function downloadButtonClick() {
   if (window.errorPageController) {
-    errorPageController.showOfflinePagesButtonClick();
+    errorPageController.downloadButtonClick();
+    var downloadButton = document.getElementById('download-button');
+    downloadButton.disabled = true;
+    downloadButton.textContent = downloadButton.disabledText;
   }
 }
 
@@ -147,26 +150,25 @@ function setUpCachedButton(buttonStrings) {
 }
 
 var primaryControlOnLeft = true;
-<if expr="is_macosx or is_ios or is_linux or is_android">
+// <if expr="is_macosx or is_ios or is_linux or is_android">
 primaryControlOnLeft = false;
-</if>
+// </if>
 
 function onDocumentLoad() {
   var controlButtonDiv = document.getElementById('control-buttons');
   var reloadButton = document.getElementById('reload-button');
   var detailsButton = document.getElementById('details-button');
   var showSavedCopyButton = document.getElementById('show-saved-copy-button');
-  var showOfflinePagesButton =
-      document.getElementById('show-offline-pages-button');
+  var downloadButton = document.getElementById('download-button');
 
   var reloadButtonVisible = loadTimeData.valueExists('reloadButton') &&
       loadTimeData.getValue('reloadButton').msg;
   var showSavedCopyButtonVisible =
       loadTimeData.valueExists('showSavedCopyButton') &&
       loadTimeData.getValue('showSavedCopyButton').msg;
-  var showOfflinePagesButtonVisible =
-      loadTimeData.valueExists('showOfflinePagesButton') &&
-      loadTimeData.getValue('showOfflinePagesButton').msg;
+  var downloadButtonVisible =
+      loadTimeData.valueExists('downloadButton') &&
+      loadTimeData.getValue('downloadButton').msg;
 
   var primaryButton, secondaryButton;
   if (showSavedCopyButton.primary) {
@@ -193,17 +195,17 @@ function onDocumentLoad() {
 
   if (reloadButton.style.display == 'none' &&
       showSavedCopyButton.style.display == 'none' &&
-      showOfflinePagesButton.style.display == 'none') {
+      downloadButton.style.display == 'none') {
     detailsButton.classList.add('singular');
   }
 
   // Show control buttons.
   if (reloadButtonVisible || showSavedCopyButtonVisible ||
-      showOfflinePagesButtonVisible) {
+      downloadButtonVisible) {
     controlButtonDiv.hidden = false;
 
     // Set the secondary button state in the cases of two call to actions.
-    if ((reloadButtonVisible || showOfflinePagesButtonVisible) &&
+    if ((reloadButtonVisible || downloadButtonVisible) &&
         showSavedCopyButtonVisible) {
       secondaryButton.classList.add('secondary-button');
     }

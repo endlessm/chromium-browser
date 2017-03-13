@@ -52,7 +52,7 @@ namespace es2
 		setDestBlendFactor(BLEND_ZERO);
 		setCullMode(CULL_COUNTERCLOCKWISE);
 		setDepthCompare(DEPTH_LESSEQUAL);
-		setAlphaReference(0.0f);
+		setAlphaReference(127.5f);
 		setAlphaCompare(ALPHA_ALWAYS);
 		setAlphaBlendEnable(false);
 		setFogEnable(false);
@@ -460,9 +460,6 @@ namespace es2
 
 	void Device::copyBuffer(sw::byte *sourceBuffer, sw::byte *destBuffer, unsigned int width, unsigned int height, unsigned int sourcePitch, unsigned int destPitch, unsigned int bytes, bool flipX, bool flipY)
 	{
-		unsigned int widthB = width * bytes;
-		unsigned int widthMaxB = widthB - 1;
-
 		if(flipX)
 		{
 			if(flipY)
@@ -470,9 +467,11 @@ namespace es2
 				sourceBuffer += (height - 1) * sourcePitch;
 				for(unsigned int y = 0; y < height; ++y, sourceBuffer -= sourcePitch, destBuffer += destPitch)
 				{
-					for(unsigned int x = 0; x < widthB; ++x)
+					sw::byte *srcX = sourceBuffer + (width - 1) * bytes;
+					sw::byte *dstX = destBuffer;
+					for(unsigned int x = 0; x < width; ++x, dstX += bytes, srcX -= bytes)
 					{
-						destBuffer[x] = sourceBuffer[widthMaxB - x];
+						memcpy(dstX, srcX, bytes);
 					}
 				}
 			}
@@ -480,15 +479,19 @@ namespace es2
 			{
 				for(unsigned int y = 0; y < height; ++y, sourceBuffer += sourcePitch, destBuffer += destPitch)
 				{
-					for(unsigned int x = 0; x < widthB; ++x)
+					sw::byte *srcX = sourceBuffer + (width - 1) * bytes;
+					sw::byte *dstX = destBuffer;
+					for(unsigned int x = 0; x < width; ++x, dstX += bytes, srcX -= bytes)
 					{
-						destBuffer[x] = sourceBuffer[widthMaxB - x];
+						memcpy(dstX, srcX, bytes);
 					}
 				}
 			}
 		}
 		else
 		{
+			unsigned int widthB = width * bytes;
+
 			if(flipY)
 			{
 				sourceBuffer += (height - 1) * sourcePitch;
@@ -507,7 +510,7 @@ namespace es2
 		}
 	}
 
-	bool Device::stretchRect(sw::Surface *source, const sw::SliceRect *sourceRect, sw::Surface *dest, const sw::SliceRect *destRect, bool filter)
+	bool Device::stretchRect(sw::Surface *source, const sw::SliceRect *sourceRect, sw::Surface *dest, const sw::SliceRect *destRect, unsigned char flags)
 	{
 		if(!source || !dest)
 		{
@@ -593,7 +596,12 @@ namespace es2
 
 		bool scaling = (sRect.x1 - sRect.x0 != dRect.x1 - dRect.x0) || (sRect.y1 - sRect.y0 != dRect.y1 - dRect.y0);
 		bool equalFormats = source->getInternalFormat() == dest->getInternalFormat();
-		bool depthStencil = egl::Image::isDepth(source->getInternalFormat()) || egl::Image::isStencil(source->getInternalFormat());
+		bool hasQuadLayout = Surface::hasQuadLayout(source->getInternalFormat()) || Surface::hasQuadLayout(dest->getInternalFormat());
+		bool fullCopy = (sRect.x0 == 0) && (sRect.y0 == 0) && (dRect.x0 == 0) && (dRect.y0 == 0) &&
+		                (sRect.x1 == sWidth) && (sRect.y1 == sHeight) && (dRect.x1 == dWidth) && (dRect.y0 == dHeight);
+		bool isDepth = (flags & Device::DEPTH_BUFFER) && egl::Image::isDepth(source->getInternalFormat());
+		bool isStencil = (flags & Device::STENCIL_BUFFER) && (egl::Image::isDepth(source->getInternalFormat()) || egl::Image::isStencil(source->getInternalFormat()));
+		bool isColor = (flags & Device::COLOR_BUFFER) == Device::COLOR_BUFFER;
 		bool alpha0xFF = false;
 
 		if((source->getInternalFormat() == FORMAT_A8R8G8B8 && dest->getInternalFormat() == FORMAT_X8R8G8B8) ||
@@ -603,31 +611,31 @@ namespace es2
 			alpha0xFF = true;
 		}
 
-		if(depthStencil)   // Copy entirely, internally   // FIXME: Check
+		if((isDepth || isStencil) && !scaling && equalFormats && (!hasQuadLayout || fullCopy))
 		{
-			if(source->hasDepth())
+			if(source->hasDepth() && isDepth)
 			{
-				sw::byte *sourceBuffer = (sw::byte*)source->lockInternal(0, 0, sourceRect->slice, LOCK_READONLY, PUBLIC);
-				sw::byte *destBuffer = (sw::byte*)dest->lockInternal(0, 0, destRect->slice, LOCK_DISCARD, PUBLIC);
+				sw::byte *sourceBuffer = (sw::byte*)source->lockInternal(sRect.x0, sRect.y0, 0, LOCK_READONLY, PUBLIC);
+				sw::byte *destBuffer = (sw::byte*)dest->lockInternal(dRect.x0, dRect.y0, 0, LOCK_DISCARD, PUBLIC);
 
-				copyBuffer(sourceBuffer, destBuffer, source->getWidth(), source->getHeight(), source->getInternalPitchB(), dest->getInternalPitchB(), egl::Image::bytes(source->getInternalFormat()), flipX, flipY);
+				copyBuffer(sourceBuffer, destBuffer, dRect.width(), dRect.height(), source->getInternalPitchB(), dest->getInternalPitchB(), egl::Image::bytes(source->getInternalFormat()), flipX, flipY);
 
 				source->unlockInternal();
 				dest->unlockInternal();
 			}
 
-			if(source->hasStencil())
+			if(source->hasStencil() && isStencil)
 			{
-				sw::byte *sourceBuffer = (sw::byte*)source->lockStencil(0, PUBLIC);
-				sw::byte *destBuffer = (sw::byte*)dest->lockStencil(0, PUBLIC);
+				sw::byte *sourceBuffer = (sw::byte*)source->lockStencil(sRect.x0, sRect.y0, 0, PUBLIC);
+				sw::byte *destBuffer = (sw::byte*)dest->lockStencil(dRect.x0, dRect.y0, 0, PUBLIC);
 
-				copyBuffer(sourceBuffer, destBuffer, source->getWidth(), source->getHeight(), source->getInternalPitchB(), dest->getInternalPitchB(), egl::Image::bytes(source->getInternalFormat()), flipX, flipY);
+				copyBuffer(sourceBuffer, destBuffer, source->getWidth(), source->getHeight(), source->getStencilPitchB(), dest->getStencilPitchB(), egl::Image::bytes(source->getStencilFormat()), flipX, flipY);
 
 				source->unlockStencil();
 				dest->unlockStencil();
 			}
 		}
-		else if(!scaling && equalFormats)
+		else if((flags & Device::COLOR_BUFFER) && !scaling && equalFormats && (!hasQuadLayout || fullCopy))
 		{
 			unsigned char *sourceBytes = (unsigned char*)source->lockInternal(sRect.x0, sRect.y0, sourceRect->slice, LOCK_READONLY, PUBLIC);
 			unsigned char *destBytes = (unsigned char*)dest->lockInternal(dRect.x0, dRect.y0, destRect->slice, LOCK_READWRITE, PUBLIC);
@@ -653,7 +661,7 @@ namespace es2
 			source->unlockInternal();
 			dest->unlockInternal();
 		}
-		else
+		else if(isColor || isDepth || isStencil)
 		{
 			if(flipX)
 			{
@@ -663,7 +671,11 @@ namespace es2
 			{
 				swap(dRect.y0, dRect.y1);
 			}
-			blit(source, sRect, dest, dRect, scaling && filter);
+			blit(source, sRect, dest, dRect, scaling && (flags & Device::USE_FILTER), isStencil);
+		}
+		else
+		{
+			UNREACHABLE(false);
 		}
 
 		return true;

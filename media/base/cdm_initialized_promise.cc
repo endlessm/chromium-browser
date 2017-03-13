@@ -8,7 +8,7 @@ namespace media {
 
 CdmInitializedPromise::CdmInitializedPromise(
     const CdmCreatedCB& cdm_created_cb,
-    const scoped_refptr<MediaKeys>& cdm)
+    const scoped_refptr<ContentDecryptionModule>& cdm)
     : cdm_created_cb_(cdm_created_cb), cdm_(cdm) {}
 
 CdmInitializedPromise::~CdmInitializedPromise() {
@@ -19,7 +19,7 @@ void CdmInitializedPromise::resolve() {
   cdm_created_cb_.Run(cdm_, "");
 }
 
-void CdmInitializedPromise::reject(MediaKeys::Exception exception_code,
+void CdmInitializedPromise::reject(CdmPromise::Exception exception_code,
                                    uint32_t system_code,
                                    const std::string& error_message) {
   MarkPromiseSettled();

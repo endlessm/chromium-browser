@@ -15,6 +15,7 @@ import uuid
 
 from py_trace_event import trace_event
 from telemetry.core import discover
+from telemetry.core import exceptions
 from telemetry.core import util
 from telemetry.internal.platform import tracing_agent
 from telemetry.internal.platform.tracing_agent import chrome_tracing_agent
@@ -28,10 +29,6 @@ def _IterAllTracingAgentClasses():
   return discover.DiscoverClasses(
       tracing_agent_dir, util.GetTelemetryDir(),
       tracing_agent.TracingAgent).itervalues()
-
-
-class TracingControllerStoppedError(Exception):
-  pass
 
 
 class _TracingState(object):
@@ -64,7 +61,7 @@ class TracingControllerBackend(object):
     self._active_agents_instances = []
     self._trace_log = None
     self._is_tracing_controllable = True
-    self._iteration_info = None
+    self._telemetry_info = None
 
   def StartTracing(self, config, timeout):
     if self.is_tracing_running:
@@ -123,12 +120,12 @@ class TracingControllerBackend(object):
         raised_exception_messages.append(
             ''.join(traceback.format_exception(*sys.exc_info())))
 
-    self._iteration_info = None
+    self._telemetry_info = None
     self._active_agents_instances = []
     self._current_state = None
 
     if raised_exception_messages:
-      raise TracingControllerStoppedError(
+      raise exceptions.Error(
           'Exceptions raised when trying to stop tracing:\n' +
           '\n'.join(raised_exception_messages))
 
@@ -151,7 +148,7 @@ class TracingControllerBackend(object):
             ''.join(traceback.format_exception(*sys.exc_info())))
 
     if raised_exception_messages:
-      raise TracingControllerStoppedError(
+      raise exceptions.Error(
           'Exceptions raised when trying to flush tracing:\n' +
           '\n'.join(raised_exception_messages))
 
@@ -239,12 +236,12 @@ class TracingControllerBackend(object):
     chrome_tracing_agent.ClearStarupTracingStateIfNeeded(self._platform_backend)
 
   @property
-  def iteration_info(self):
-    return self._iteration_info
+  def telemetry_info(self):
+    return self._telemetry_info
 
-  @iteration_info.setter
-  def iteration_info(self, ii):
-    self._iteration_info = ii
+  @telemetry_info.setter
+  def telemetry_info(self, ii):
+    self._telemetry_info = ii
 
   def CollectAgentTraceData(self, trace_data_builder):
     if not self._is_tracing_controllable:
@@ -252,7 +249,7 @@ class TracingControllerBackend(object):
     assert not trace_event.trace_is_enabled(), 'Stop tracing before collection.'
     with open(self._trace_log, 'r') as fp:
       data = ast.literal_eval(fp.read() + ']')
-    trace_data_builder.SetTraceFor(trace_data_module.TELEMETRY_PART, {
+    trace_data_builder.AddTraceFor(trace_data_module.TELEMETRY_PART, {
         "traceEvents": data,
         "metadata": {
             # TODO(charliea): For right now, we use "TELEMETRY" as the clock
@@ -267,8 +264,8 @@ class TracingControllerBackend(object):
             # collapse based on some (device ID, clock domain ID) tuple. Giving
             # Telemetry its own clock domain is a work-around for this.
             "clock-domain": "TELEMETRY",
-            "iteration-info": (self._iteration_info.AsDict()
-                if self._iteration_info else {}),
+            "telemetry": (self._telemetry_info.AsDict()
+                if self._telemetry_info else {}),
         }
     })
     try:

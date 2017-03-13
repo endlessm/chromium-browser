@@ -15,7 +15,7 @@ SizesAttributeParser::SizesAttributeParser(MediaValues* mediaValues,
                                            const String& attribute)
     : m_mediaValues(mediaValues), m_length(0), m_lengthWasSet(false) {
   ASSERT(m_mediaValues.get());
-  m_isValid = parse(CSSTokenizer::Scope(attribute).tokenRange());
+  m_isValid = parse(CSSTokenizer(attribute).tokenRange());
 }
 
 float SizesAttributeParser::length() {
@@ -97,9 +97,9 @@ float SizesAttributeParser::effectiveSize() {
   return effectiveSizeDefaultValue();
 }
 
-unsigned SizesAttributeParser::effectiveSizeDefaultValue() {
+float SizesAttributeParser::effectiveSizeDefaultValue() {
   // Returning the equivalent of "100vw"
-  return m_mediaValues->viewportWidth();
+  return clampTo<float>(m_mediaValues->viewportWidth());
 }
 
 }  // namespace blink

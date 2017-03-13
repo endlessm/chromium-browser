@@ -38,7 +38,6 @@ namespace blink {
 class AXObjectCacheImpl;
 class Element;
 class HTMLLabelElement;
-class LayoutRect;
 class Node;
 
 class MODULES_EXPORT AXNodeObject : public AXObject {
@@ -56,8 +55,8 @@ class MODULES_EXPORT AXNodeObject : public AXObject {
   // Protected data.
   AccessibilityRole m_ariaRole;
   bool m_childrenDirty;
-#if ENABLE(ASSERT)
-  bool m_initialized;
+#if DCHECK_IS_ON()
+  bool m_initialized = false;
 #endif
 
   bool computeAccessibilityIsIgnored(IgnoredReasons* = nullptr) const override;
@@ -160,8 +159,6 @@ class MODULES_EXPORT AXNodeObject : public AXObject {
   String stringValue() const override;
 
   // ARIA attributes.
-  String ariaDescribedByAttribute() const final;
-  String ariaLabelledbyAttribute() const final;
   AccessibilityRole ariaRoleAttribute() const final;
 
   // AX name calculation.
@@ -178,7 +175,7 @@ class MODULES_EXPORT AXNodeObject : public AXObject {
                      AXDescriptionFrom&,
                      DescriptionSources*,
                      AXRelatedObjectVector*) const override;
-  String placeholder(AXNameFrom, AXDescriptionFrom) const override;
+  String placeholder(AXNameFrom) const override;
   bool nameFromLabelElement() const override;
 
   // Location
@@ -208,6 +205,7 @@ class MODULES_EXPORT AXNodeObject : public AXObject {
   void setFocused(bool) final;
   void increment() final;
   void decrement() final;
+  void setSequentialFocusNavigationStartingPoint() final;
 
   // Notifications that this object may have changed.
   void childrenChanged() override;
@@ -236,6 +234,7 @@ class MODULES_EXPORT AXNodeObject : public AXObject {
                                bool* foundTextAlternative) const;
   float stepValueForRange() const;
   bool isDescendantOfElementType(const HTMLQualifiedName& tagName) const;
+  String placeholderFromNativeAttribute() const;
 };
 
 }  // namespace blink

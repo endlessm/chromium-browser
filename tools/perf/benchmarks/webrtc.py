@@ -50,6 +50,21 @@ class WebrtcDataChannel(_Webrtc):
     return 'webrtc.datachannel'
 
 
+@benchmark.Disabled('android')  # http://crbug.com/663802
+class WebrtcStressTest(perf_benchmark.PerfBenchmark):
+  """Measures WebRtc CPU and GPU usage with multiple peer connections."""
+  page_set = page_sets.WebrtcStresstestPageSet
+
+  @classmethod
+  def Name(cls):
+    return 'webrtc.stress'
+
+  def CreatePageTest(self, options):
+    # Exclude all stats.
+    return webrtc.WebRTC(particular_metrics=['googAvgEncodeMs',
+                                             'googFrameRateReceived'])
+
+
 # WebrtcRendering must be a PerfBenchmark, and not a _Webrtc, because it is a
 # timeline-based.
 # Disabled on reference builds because they crash and don't support tab

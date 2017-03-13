@@ -12,6 +12,7 @@
 
 #include "base/id_map.h"
 #include "base/macros.h"
+#include "base/strings/string16.h"
 
 class CookieTreeNode;
 
@@ -28,10 +29,18 @@ class CookiesTreeModelUtil {
   // Finds or creates an ID for given |node| and returns it as string.
   std::string GetTreeNodeId(const CookieTreeNode* node);
 
+  // Append the details of the child nodes of |parent| in specified range.
+  void GetChildNodeDetails(const CookieTreeNode* parent,
+                           int start,
+                           int count,
+                           bool include_quota_nodes,
+                           base::ListValue* list);
+
   // Append the children nodes of |parent| in specified range to |nodes| list.
   void GetChildNodeList(const CookieTreeNode* parent,
                         int start,
                         int count,
+                        bool include_quota_nodes,
                         base::ListValue* nodes);
 
   // Gets tree node from |path| under |root|. |path| is comma separated list of
@@ -40,14 +49,20 @@ class CookiesTreeModelUtil {
   const CookieTreeNode* GetTreeNodeFromPath(const CookieTreeNode* root,
                                             const std::string& path);
 
+  // Gets tree node from |title| under |root|. |title| is a node title. Return
+  // NULL if |title| is not found.
+  const CookieTreeNode* GetTreeNodeFromTitle(const CookieTreeNode* root,
+                                             const base::string16& title);
+
  private:
-  typedef IDMap<const CookieTreeNode> CookiesTreeNodeIdMap;
-  typedef std::map<const CookieTreeNode*, int32_t> CookieTreeNodeMap;
+  using CookiesTreeNodeIdMap = IDMap<const CookieTreeNode*>;
+  using CookieTreeNodeMap = std::map<const CookieTreeNode*, int32_t>;
 
   // Populate given |dict| with cookie tree node properties. |id_map| maps
   // a CookieTreeNode to an ID and creates a new ID if |node| is not in the
   // maps. Returns false if the |node| does not need to be shown.
   bool GetCookieTreeNodeDictionary(const CookieTreeNode& node,
+                                   bool include_quota_nodes,
                                    base::DictionaryValue* dict);
 
   // IDMap to create unique ID and look up the object for an ID.

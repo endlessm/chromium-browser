@@ -7,17 +7,18 @@
 #include <memory>
 
 #include "base/command_line.h"
+#include "base/memory/ptr_util.h"
 #include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
+#include "components/sync/base/sync_prefs.h"
 #include "components/sync/driver/sync_driver_switches.h"
-#include "components/sync/driver/sync_prefs.h"
-#include "components/syncable_prefs/testing_pref_service_syncable.h"
+#include "components/sync_preferences/testing_pref_service_syncable.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace syncer {
 
 // These are coupled to the implementation of StartupController's
-// GetBackendInitializationStateString which is used by about:sync. We use it
+// GetEngineInitializationStateString which is used by about:sync. We use it
 // as a convenient way to verify internal state and that the class is
 // outputting the correct values for the debug string.
 static const char kStateStringStarted[] = "Started";
@@ -30,12 +31,12 @@ class StartupControllerTest : public testing::Test {
 
   void SetUp() override {
     SyncPrefs::RegisterProfilePrefs(pref_service_.registry());
-    sync_prefs_.reset(new SyncPrefs(&pref_service_));
-    controller_.reset(new StartupController(
+    sync_prefs_ = base::MakeUnique<SyncPrefs>(&pref_service_);
+    controller_ = base::MakeUnique<StartupController>(
         sync_prefs_.get(),
         base::Bind(&StartupControllerTest::CanStart, base::Unretained(this)),
         base::Bind(&StartupControllerTest::FakeStartBackend,
-                   base::Unretained(this))));
+                   base::Unretained(this)));
     controller_->Reset(UserTypes());
     controller_->OverrideFallbackTimeoutForTest(
         base::TimeDelta::FromSeconds(0));
@@ -53,7 +54,7 @@ class StartupControllerTest : public testing::Test {
   void ExpectStarted() {
     EXPECT_TRUE(started());
     EXPECT_EQ(kStateStringStarted,
-              controller()->GetBackendInitializationStateString());
+              controller()->GetEngineInitializationStateString());
   }
 
   void ExpectStartDeferred() {
@@ -62,13 +63,13 @@ class StartupControllerTest : public testing::Test {
             switches::kSyncDisableDeferredStartup);
     EXPECT_EQ(!deferred_start, started());
     EXPECT_EQ(deferred_start ? kStateStringDeferred : kStateStringStarted,
-              controller()->GetBackendInitializationStateString());
+              controller()->GetEngineInitializationStateString());
   }
 
   void ExpectNotStarted() {
     EXPECT_FALSE(started());
     EXPECT_EQ(kStateStringNotStarted,
-              controller()->GetBackendInitializationStateString());
+              controller()->GetEngineInitializationStateString());
   }
 
   bool started() const { return started_; }
@@ -80,7 +81,7 @@ class StartupControllerTest : public testing::Test {
   bool can_start_;
   bool started_;
   base::MessageLoop message_loop_;
-  syncable_prefs::TestingPrefServiceSyncable pref_service_;
+  sync_preferences::TestingPrefServiceSyncable pref_service_;
   std::unique_ptr<SyncPrefs> sync_prefs_;
   std::unique_ptr<StartupController> controller_;
 };

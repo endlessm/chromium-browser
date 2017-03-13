@@ -7,7 +7,6 @@
 
 #include "DMJsonWriter.h"
 #include "DMSrcSink.h"
-#include "DMSrcSinkAndroid.h"
 #include "ProcStats.h"
 #include "Resources.h"
 #include "SkBBHFactory.h"
@@ -25,6 +24,7 @@
 #include "SkMD5.h"
 #include "SkMutex.h"
 #include "SkOSFile.h"
+#include "SkOSPath.h"
 #include "SkPM4fPriv.h"
 #include "SkSpinlock.h"
 #include "SkTHash.h"
@@ -34,6 +34,9 @@
 #include "Timer.h"
 #include "picture_utils.h"
 #include "sk_tool_utils.h"
+#include "SkScan.h"
+
+#include <vector>
 
 #ifdef SK_PDF_IMAGE_STATS
 extern void SkPDFImageDumpStats();
@@ -170,18 +173,16 @@ static void print_status() {
     }
 }
 
-#if !defined(SK_BUILD_FOR_ANDROID)
-    static void find_culprit() {
-        // Assumes gMutex is locked.
-        SkThreadID thisThread = SkGetThreadID();
-        for (auto& task : gRunning) {
-            if (task.thread == thisThread) {
-                info("Likely culprit:\n");
-                task.dump();
-            }
+static void find_culprit() {
+    // Assumes gMutex is locked.
+    SkThreadID thisThread = SkGetThreadID();
+    for (auto& task : gRunning) {
+        if (task.thread == thisThread) {
+            info("Likely culprit:\n");
+            task.dump();
         }
     }
-#endif
+}
 
 #if defined(SK_BUILD_FOR_WIN32)
     static LONG WINAPI crash_handler(EXCEPTION_POINTERS* e) {
@@ -217,12 +218,23 @@ static void print_status() {
         // Execute default exception handler... hopefully, exit.
         return EXCEPTION_EXECUTE_HANDLER;
     }
-    static void setup_crash_handler() { SetUnhandledExceptionFilter(crash_handler); }
 
-#elif !defined(SK_BUILD_FOR_ANDROID)
-    #include <execinfo.h>
+    static void setup_crash_handler() {
+        SetUnhandledExceptionFilter(crash_handler);
+    }
+#else
     #include <signal.h>
-    #include <stdlib.h>
+    #if !defined(SK_BUILD_FOR_ANDROID)
+        #include <execinfo.h>
+    #endif
+
+    static constexpr int max_of() { return 0; }
+    template <typename... Rest>
+    static constexpr int max_of(int x, Rest... rest) {
+        return x > max_of(rest...) ? x : max_of(rest...);
+    }
+
+    static void (*previous_handler[max_of(SIGABRT,SIGBUS,SIGFPE,SIGILL,SIGSEGV)+1])(int);
 
     static void crash_handler(int sig) {
         SkAutoMutexAcquire lock(gMutex);
@@ -233,6 +245,7 @@ static void print_status() {
         }
         find_culprit();
 
+    #if !defined(SK_BUILD_FOR_ANDROID)
         void* stack[64];
         int count = backtrace(stack, SK_ARRAY_COUNT(stack));
         char** symbols = backtrace_symbols(stack, count);
@@ -240,20 +253,19 @@ static void print_status() {
         for (int i = 0; i < count; i++) {
             info("    %s\n", symbols[i]);
         }
+    #endif
         fflush(stdout);
 
-        _Exit(sig);
+        signal(sig, previous_handler[sig]);
+        raise(sig);
     }
 
     static void setup_crash_handler() {
         const int kSignals[] = { SIGABRT, SIGBUS, SIGFPE, SIGILL, SIGSEGV };
         for (int sig : kSignals) {
-            signal(sig, crash_handler);
+            previous_handler[sig] = signal(sig, crash_handler);
         }
     }
-
-#else  // Android
-    static void setup_crash_handler() {}
 #endif
 
 /*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
@@ -322,12 +334,12 @@ static void gather_uninteresting_hashes() {
 
 /*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~*/
 
-struct TaggedSrc : public SkAutoTDelete<Src> {
+struct TaggedSrc : public std::unique_ptr<Src> {
     SkString tag;
     SkString options;
 };
 
-struct TaggedSink : public SkAutoTDelete<Sink> {
+struct TaggedSink : public std::unique_ptr<Sink> {
     SkString tag;
 };
 
@@ -342,7 +354,7 @@ static bool in_shard() {
 }
 
 static void push_src(const char* tag, ImplicitString options, Src* s) {
-    SkAutoTDelete<Src> src(s);
+    std::unique_ptr<Src> src(s);
     if (in_shard() &&
         FLAGS_src.contains(tag) &&
         !SkCommandLineFlags::ShouldSkip(FLAGS_match, src->name().c_str())) {
@@ -356,10 +368,11 @@ static void push_src(const char* tag, ImplicitString options, Src* s) {
 static void push_codec_src(Path path, CodecSrc::Mode mode, CodecSrc::DstColorType dstColorType,
         SkAlphaType dstAlphaType, float scale) {
     if (FLAGS_simpleCodec) {
-        if (mode != CodecSrc::kCodec_Mode || dstColorType != CodecSrc::kGetFromCanvas_DstColorType
-                || scale != 1.0f)
+        const bool simple = CodecSrc::kCodec_Mode == mode || CodecSrc::kAnimated_Mode == mode;
+        if (!simple || dstColorType != CodecSrc::kGetFromCanvas_DstColorType || scale != 1.0f) {
             // Only decode in the simple case.
             return;
+        }
     }
     SkString folder;
     switch (mode) {
@@ -380,6 +393,9 @@ static void push_codec_src(Path path, CodecSrc::Mode mode, CodecSrc::DstColorTyp
             break;
         case CodecSrc::kSubset_Mode:
             folder.append("codec_subset");
+            break;
+        case CodecSrc::kAnimated_Mode:
+            folder.append("codec_animated");
             break;
     }
 
@@ -494,7 +510,7 @@ static void push_codec_srcs(Path path) {
         info("Couldn't read %s.", path.c_str());
         return;
     }
-    SkAutoTDelete<SkCodec> codec(SkCodec::NewFromData(encoded));
+    std::unique_ptr<SkCodec> codec(SkCodec::NewFromData(encoded));
     if (nullptr == codec.get()) {
         info("Couldn't create codec for %s.", path.c_str());
         return;
@@ -507,17 +523,17 @@ static void push_codec_srcs(Path path) {
     nativeModes.push_back(CodecSrc::kCodec_Mode);
     nativeModes.push_back(CodecSrc::kCodecZeroInit_Mode);
     switch (codec->getEncodedFormat()) {
-        case SkEncodedFormat::kJPEG_SkEncodedFormat:
+        case SkEncodedImageFormat::kJPEG:
             nativeModes.push_back(CodecSrc::kScanline_Mode);
             nativeModes.push_back(CodecSrc::kStripe_Mode);
             nativeModes.push_back(CodecSrc::kCroppedScanline_Mode);
             supportsNativeScaling = true;
             break;
-        case SkEncodedFormat::kWEBP_SkEncodedFormat:
+        case SkEncodedImageFormat::kWEBP:
             nativeModes.push_back(CodecSrc::kSubset_Mode);
             supportsNativeScaling = true;
             break;
-        case SkEncodedFormat::kDNG_SkEncodedFormat:
+        case SkEncodedImageFormat::kDNG:
             break;
         default:
             nativeModes.push_back(CodecSrc::kScanline_Mode);
@@ -530,7 +546,7 @@ static void push_codec_srcs(Path path) {
     switch (codec->getInfo().colorType()) {
         case kGray_8_SkColorType:
             colorTypes.push_back(CodecSrc::kGrayscale_Always_DstColorType);
-            if (kWBMP_SkEncodedFormat == codec->getEncodedFormat()) {
+            if (SkEncodedImageFormat::kWBMP == codec->getEncodedFormat()) {
                 colorTypes.push_back(CodecSrc::kIndex8_Always_DstColorType);
             }
             break;
@@ -571,6 +587,15 @@ static void push_codec_srcs(Path path) {
                 }
             }
         }
+    }
+
+    {
+        std::vector<SkCodec::FrameInfo> frameInfos = codec->getFrameInfo();
+        if (frameInfos.size() > 1) {
+            push_codec_src(path, CodecSrc::kAnimated_Mode, CodecSrc::kGetFromCanvas_DstColorType,
+                           kPremul_SkAlphaType, 1.0f);
+        }
+
     }
 
     if (FLAGS_simpleCodec) {
@@ -614,15 +639,15 @@ static void push_codec_srcs(Path path) {
         push_image_gen_src(path, ImageGenSrc::kCodec_Mode, alphaType, false);
 
 #if defined(SK_BUILD_FOR_MAC) || defined(SK_BUILD_FOR_IOS)
-        if (kWEBP_SkEncodedFormat != codec->getEncodedFormat() &&
-            kWBMP_SkEncodedFormat != codec->getEncodedFormat() &&
+        if (SkEncodedImageFormat::kWEBP != codec->getEncodedFormat() &&
+            SkEncodedImageFormat::kWBMP != codec->getEncodedFormat() &&
             kUnpremul_SkAlphaType != alphaType)
         {
             push_image_gen_src(path, ImageGenSrc::kPlatform_Mode, alphaType, false);
         }
 #elif defined(SK_BUILD_FOR_WIN)
-        if (kWEBP_SkEncodedFormat != codec->getEncodedFormat() &&
-            kWBMP_SkEncodedFormat != codec->getEncodedFormat())
+        if (SkEncodedImageFormat::kWEBP != codec->getEncodedFormat() &&
+            SkEncodedImageFormat::kWBMP != codec->getEncodedFormat())
         {
             push_image_gen_src(path, ImageGenSrc::kPlatform_Mode, alphaType, false);
         }
@@ -772,19 +797,13 @@ static bool gather_srcs() {
         push_src("colorImage", "color_codec_sRGB_kN32", src);
         src = new ColorCodecSrc(colorImage, ColorCodecSrc::kDst_sRGB_Mode, kRGBA_F16_SkColorType);
         push_src("colorImage", "color_codec_sRGB_kF16", src);
-
-#if defined(SK_TEST_QCMS)
-        src = new ColorCodecSrc(colorImage, ColorCodecSrc::kQCMS_HPZR30w_Mode,
-                                kRGBA_8888_SkColorType);
-        push_src("colorImage", "color_codec_QCMS_HPZR30w", src);
-#endif
     }
 
     return true;
 }
 
 static void push_sink(const SkCommandLineConfig& config, Sink* s) {
-    SkAutoTDelete<Sink> sink(s);
+    std::unique_ptr<Sink> sink(s);
 
     // Try a simple Src as a canary.  If it fails, skip this sink.
     struct : public Src {
@@ -839,17 +858,14 @@ static Sink* create_sink(const SkCommandLineConfig* config) {
 
 #define SINK(t, sink, ...) if (config->getBackend().equals(t)) { return new sink(__VA_ARGS__); }
 
-#ifdef SK_BUILD_FOR_ANDROID_FRAMEWORK
-    SINK("hwui",           HWUISink);
-#endif
-
     if (FLAGS_cpu) {
-        auto srgbColorSpace = SkColorSpace::NewNamed(SkColorSpace::kSRGB_Named);
+        auto srgbColorSpace = SkColorSpace::MakeNamed(SkColorSpace::kSRGB_Named);
+        auto srgbLinearColorSpace = SkColorSpace::MakeNamed(SkColorSpace::kSRGBLinear_Named);
 
         SINK("565",  RasterSink, kRGB_565_SkColorType);
         SINK("8888", RasterSink, kN32_SkColorType);
         SINK("srgb", RasterSink, kN32_SkColorType, srgbColorSpace);
-        SINK("f16",  RasterSink, kRGBA_F16_SkColorType, srgbColorSpace->makeLinearGamma());
+        SINK("f16",  RasterSink, kRGBA_F16_SkColorType, srgbLinearColorSpace);
         SINK("pdf",  PDFSink);
         SINK("skp",  SKPSink);
         SINK("pipe", PipeSink);
@@ -857,6 +873,7 @@ static Sink* create_sink(const SkCommandLineConfig* config) {
         SINK("null", NullSink);
         SINK("xps",  XPSSink);
         SINK("pdfa", PDFSink, true);
+        SINK("jsdebug", DebugSink);
     }
 #undef SINK
     return nullptr;
@@ -885,10 +902,6 @@ static Sink* create_via(const SkString& tag, Sink* wrapped) {
         VIA("matrix",  ViaMatrix,  m, wrapped);
         VIA("upright", ViaUpright, m, wrapped);
     }
-
-#ifdef SK_BUILD_FOR_ANDROID_FRAMEWORK
-    VIA("androidsdk", ViaAndroidSDK, wrapped);
-#endif
 
 #undef VIA
     return nullptr;
@@ -1058,7 +1071,7 @@ struct Task {
             // We're likely switching threads here, so we must capture by value, [=] or [foo,bar].
             SkStreamAsset* data = stream.detachAsStream();
             gDefinitelyThreadSafeWork.add([task,name,bitmap,data]{
-                SkAutoTDelete<SkStreamAsset> ownedData(data);
+                std::unique_ptr<SkStreamAsset> ownedData(data);
 
                 // Why doesn't the copy constructor do this when we have pre-locked pixels?
                 bitmap.lockPixels();
@@ -1122,7 +1135,7 @@ struct Task {
                             const SkBitmap* bitmap) {
         bool gammaCorrect = false;
         if (bitmap) {
-            gammaCorrect = SkImageInfoIsGammaCorrect(bitmap->info());
+            gammaCorrect = SkToBool(bitmap->info().colorSpace());
         }
 
         JsonWriter::BitmapResult result;
@@ -1274,6 +1287,12 @@ int dm_main() {
     setbuf(stdout, nullptr);
     setup_crash_handler();
 
+    gSkUseAnalyticAA = FLAGS_analyticAA;
+
+    if (FLAGS_forceAnalyticAA) {
+        gSkForceAnalyticAA = true;
+    }
+
     if (FLAGS_verbose) {
         gVLog = stderr;
     } else if (!FLAGS_writePath.isEmpty()) {
@@ -1306,7 +1325,7 @@ int dm_main() {
     gPending = gSrcs.count() * gSinks.count() + gParallelTests.count() + gSerialTests.count();
     info("%d srcs * %d sinks + %d tests == %d tasks",
          gSrcs.count(), gSinks.count(), gParallelTests.count() + gSerialTests.count(), gPending);
-    SkAutoTDelete<SkThread> statusThread(start_status_thread());
+    std::unique_ptr<SkThread> statusThread(start_status_thread());
 
     // Kick off as much parallel work as we can, making note of any serial work we'll need to do.
     SkTaskGroup parallel;
@@ -1384,6 +1403,36 @@ bool IsRenderingGLContextType(sk_gpu_test::GrContextFactory::ContextType type) {
 bool IsNullGLContextType(sk_gpu_test::GrContextFactory::ContextType type) {
     return type == GrContextFactory::kNullGL_ContextType;
 }
+const char* ContextTypeName(GrContextFactory::ContextType contextType) {
+    switch (contextType) {
+        case GrContextFactory::kGL_ContextType:
+            return "OpenGL";
+        case GrContextFactory::kGLES_ContextType:
+            return "OpenGLES";
+        case GrContextFactory::kANGLE_D3D9_ES2_ContextType:
+            return "ANGLE D3D9 ES2";
+        case GrContextFactory::kANGLE_D3D11_ES2_ContextType:
+            return "ANGLE D3D11 ES2";
+        case GrContextFactory::kANGLE_D3D11_ES3_ContextType:
+            return "ANGLE D3D11 ES3";
+        case GrContextFactory::kANGLE_GL_ES2_ContextType:
+            return "ANGLE GL ES2";
+        case GrContextFactory::kANGLE_GL_ES3_ContextType:
+            return "ANGLE GL ES3";
+        case GrContextFactory::kCommandBuffer_ContextType:
+            return "Command Buffer";
+        case GrContextFactory::kMESA_ContextType:
+            return "Mesa";
+        case GrContextFactory::kNullGL_ContextType:
+            return "Null GL";
+        case GrContextFactory::kDebugGL_ContextType:
+            return "Debug GL";
+        case GrContextFactory::kVulkan_ContextType:
+            return "Vulkan";
+    }
+    SkDEBUGFAIL("Unreachable");
+    return "Unknown";
+}
 #else
 bool IsGLContextType(int) { return false; }
 bool IsVulkanContextType(int) { return false; }
@@ -1397,11 +1446,7 @@ void RunWithGPUTestContexts(GrContextTestFn* test, GrContextTypeFilterFn* contex
 
     for (int typeInt = 0; typeInt < GrContextFactory::kContextTypeCnt; ++typeInt) {
         GrContextFactory::ContextType contextType = (GrContextFactory::ContextType) typeInt;
-        ContextInfo ctxInfo = factory->getContextInfo(contextType);
-        if (contextTypeFilter && !(*contextTypeFilter)(contextType)) {
-            continue;
-        }
-        // Use "native" instead of explicitly trying OpenGL and OpenGL ES. Do not use GLES on,
+        // Use "native" instead of explicitly trying OpenGL and OpenGL ES. Do not use GLES on
         // desktop since tests do not account for not fixing http://skbug.com/2809
         if (contextType == GrContextFactory::kGL_ContextType ||
             contextType == GrContextFactory::kGLES_ContextType) {
@@ -1409,6 +1454,11 @@ void RunWithGPUTestContexts(GrContextTestFn* test, GrContextTypeFilterFn* contex
                 continue;
             }
         }
+        ContextInfo ctxInfo = factory->getContextInfo(contextType);
+        if (contextTypeFilter && !(*contextTypeFilter)(contextType)) {
+            continue;
+        }
+        ReporterContext ctx(reporter, SkString(ContextTypeName(contextType)));
         if (ctxInfo.grContext()) {
             (*test)(reporter, ctxInfo);
         }

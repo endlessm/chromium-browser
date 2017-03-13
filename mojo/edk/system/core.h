@@ -6,6 +6,7 @@
 #define MOJO_EDK_SYSTEM_CORE_H_
 
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "base/callback.h"
@@ -39,7 +40,7 @@ namespace edk {
 // are thread-safe.
 class MOJO_SYSTEM_IMPL_EXPORT Core {
  public:
-  explicit Core();
+  Core();
   virtual ~Core();
 
   // Called exactly once, shortly after construction, and before any other
@@ -66,8 +67,9 @@ class MOJO_SYSTEM_IMPL_EXPORT Core {
   // is no common ancestor for the processes involved within this mojo system.
   // Both processes must call this function, each passing one end of a platform
   // channel. This returns one end of a message pipe to each process.
-  ScopedMessagePipeHandle ConnectToPeerProcess(
-      ScopedPlatformHandle pipe_handle);
+  ScopedMessagePipeHandle ConnectToPeerProcess(ScopedPlatformHandle pipe_handle,
+                                               const std::string& peer_token);
+  void ClosePeerConnection(const std::string& peer_token);
 
   // Called in a child process exactly once during early initialization.
   void InitChild(ScopedPlatformHandle platform_handle);
@@ -277,7 +279,7 @@ class MOJO_SYSTEM_IMPL_EXPORT Core {
                               const MojoHandleSignals* signals,
                               uint32_t num_handles,
                               MojoDeadline deadline,
-                              uint32_t *result_index,
+                              uint32_t* result_index,
                               HandleSignalsState* signals_states);
 
   // Used to pass ownership of our NodeController over to the IO thread in the

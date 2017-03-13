@@ -6,8 +6,10 @@
 
 #include <stddef.h>
 
+#include <memory>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "base/files/file_util.h"
 #include "base/json/json_string_value_serializer.h"
@@ -132,7 +134,8 @@ void FileListCallbackAdapter(const FileListCallback& callback,
   for (size_t i = 0; i < change_list->items().size(); ++i) {
     const ChangeResource& entry = *change_list->items()[i];
     if (entry.file())
-      file_list->mutable_items()->push_back(new FileResource(*entry.file()));
+      file_list->mutable_items()->push_back(
+          base::MakeUnique<FileResource>(*entry.file()));
   }
   callback.Run(error, std::move(file_list));
 }
@@ -252,7 +255,6 @@ FakeDriveService::FakeDriveService()
 
 FakeDriveService::~FakeDriveService() {
   DCHECK(thread_checker_.CalledOnValidThread());
-  base::STLDeleteValues(&entries_);
 }
 
 bool FakeDriveService::LoadAppListForDriveApi(
@@ -261,7 +263,7 @@ bool FakeDriveService::LoadAppListForDriveApi(
 
   // Load JSON data, which must be a dictionary.
   std::unique_ptr<base::Value> value = test_util::LoadJSONFile(relative_path);
-  CHECK_EQ(base::Value::TYPE_DICTIONARY, value->GetType());
+  CHECK_EQ(base::Value::Type::DICTIONARY, value->GetType());
   app_info_value_.reset(
       static_cast<base::DictionaryValue*>(value.release()));
   return !!app_info_value_;
@@ -289,7 +291,7 @@ void FakeDriveService::AddApp(const std::string& app_id,
   JSONStringValueDeserializer json(app_json);
   std::string error_message;
   std::unique_ptr<base::Value> value(json.Deserialize(NULL, &error_message));
-  CHECK_EQ(base::Value::TYPE_DICTIONARY, value->GetType());
+  CHECK_EQ(base::Value::Type::DICTIONARY, value->GetType());
 
   base::ListValue* item_list;
   CHECK(app_info_value_->GetListWithoutPathExpansion("items", &item_list));
@@ -858,7 +860,7 @@ CancelCallback FakeDriveService::CopyResource(
   UpdateETag(new_file);
 
   // Add the new entry to the map.
-  entries_[new_resource_id] = copied_entry.release();
+  entries_[new_resource_id] = std::move(copied_entry);
 
   base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE,
@@ -1545,10 +1547,11 @@ FakeDriveService::EntryInfo* FakeDriveService::FindEntryByResourceId(
     const std::string& resource_id) {
   DCHECK(thread_checker_.CalledOnValidThread());
 
-  EntryInfoMap::iterator it = entries_.find(resource_id);
+  auto it = entries_.find(resource_id);
   // Deleted entries don't have FileResource.
-  return it != entries_.end() && it->second->change_resource.file() ?
-      it->second : NULL;
+  return it != entries_.end() && it->second->change_resource.file()
+             ? it->second.get()
+             : NULL;
 }
 
 std::string FakeDriveService::GetNewResourceId() {
@@ -1640,8 +1643,8 @@ const FakeDriveService::EntryInfo* FakeDriveService::AddNewEntry(
       base::Time() + base::TimeDelta::FromMilliseconds(++published_date_seq_);
   new_file->set_created_date(published_date);
 
-  EntryInfo* raw_new_entry = new_entry.release();
-  entries_[resource_id] = raw_new_entry;
+  EntryInfo* raw_new_entry = new_entry.get();
+  entries_[resource_id] = std::move(new_entry);
   return raw_new_entry;
 }
 
@@ -1662,10 +1665,9 @@ void FakeDriveService::GetChangeListInternal(
 
   // Filter out entries per parameters like |directory_resource_id| and
   // |search_query|.
-  ScopedVector<ChangeResource> entries;
+  std::vector<std::unique_ptr<ChangeResource>> entries;
   int num_entries_matched = 0;
-  for (EntryInfoMap::iterator it = entries_.begin(); it != entries_.end();
-       ++it) {
+  for (auto it = entries_.begin(); it != entries_.end(); ++it) {
     const ChangeResource& entry = it->second->change_resource;
     bool should_exclude = false;
 
@@ -1721,7 +1723,7 @@ void FakeDriveService::GetChangeListInternal(
         entry_copied->set_file(base::MakeUnique<FileResource>(*entry.file()));
       }
       entry_copied->set_modification_date(entry.modification_date());
-      entries.push_back(entry_copied.release());
+      entries.push_back(std::move(entry_copied));
     }
   }
 
@@ -1793,7 +1795,8 @@ FakeDriveService::StartBatchRequest() {
 }
 
 void FakeDriveService::NotifyObservers() {
-  FOR_EACH_OBSERVER(ChangeObserver, change_observers_, OnNewChangeAvailable());
+  for (auto& observer : change_observers_)
+    observer.OnNewChangeAvailable();
 }
 
 }  // namespace drive

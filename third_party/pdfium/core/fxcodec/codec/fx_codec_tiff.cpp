@@ -4,9 +4,14 @@
 
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
+#include <limits>
+
 #include "core/fxcodec/codec/codec_int.h"
 #include "core/fxcodec/fx_codec.h"
+#include "core/fxcrt/cfx_retain_ptr.h"
+#include "core/fxcrt/fx_safe_types.h"
 #include "core/fxge/fx_dib.h"
+#include "third_party/base/ptr_util.h"
 
 extern "C" {
 #include "third_party/libtiff/tiffiop.h"
@@ -17,7 +22,7 @@ class CCodec_TiffContext {
   CCodec_TiffContext();
   ~CCodec_TiffContext();
 
-  bool InitDecoder(IFX_FileRead* file_ptr);
+  bool InitDecoder(const CFX_RetainPtr<IFX_SeekableReadStream>& file_ptr);
   bool LoadFrameInfo(int32_t frame,
                      int32_t* width,
                      int32_t* height,
@@ -26,10 +31,9 @@ class CCodec_TiffContext {
                      CFX_DIBAttribute* pAttribute);
   bool Decode(CFX_DIBitmap* pDIBitmap);
 
-  IFX_FileRead* io_in() const { return m_io_in; }
+  CFX_RetainPtr<IFX_SeekableReadStream> io_in() const { return m_io_in; }
   uint32_t offset() const { return m_offset; }
   void set_offset(uint32_t offset) { m_offset = offset; }
-  void increment_offset(uint32_t offset) { m_offset += offset; }
 
  private:
   bool IsSupport(const CFX_DIBitmap* pDIBitmap) const;
@@ -50,7 +54,7 @@ class CCodec_TiffContext {
                       uint16_t bps,
                       uint16_t spp);
 
-  IFX_FileRead* m_io_in;
+  CFX_RetainPtr<IFX_SeekableReadStream> m_io_in;
   uint32_t m_offset;
   TIFF* m_tif_ctx;
 };
@@ -89,11 +93,21 @@ TIFFErrorHandler _TIFFerrorHandler = nullptr;
 namespace {
 
 tsize_t tiff_read(thandle_t context, tdata_t buf, tsize_t length) {
-  CCodec_TiffContext* pTiffContext = (CCodec_TiffContext*)context;
-  if (!pTiffContext->io_in()->ReadBlock(buf, pTiffContext->offset(), length))
+  CCodec_TiffContext* pTiffContext =
+      reinterpret_cast<CCodec_TiffContext*>(context);
+  FX_SAFE_UINT32 increment = pTiffContext->offset();
+  increment += length;
+  if (!increment.IsValid())
     return 0;
 
-  pTiffContext->increment_offset(length);
+  FX_FILESIZE offset = pTiffContext->offset();
+  if (!pTiffContext->io_in()->ReadBlock(buf, offset, length))
+    return 0;
+
+  pTiffContext->set_offset(increment.ValueOrDie());
+  if (offset + length > pTiffContext->io_in()->GetSize())
+    return pTiffContext->io_in()->GetSize() - offset;
+
   return length;
 }
 
@@ -103,24 +117,37 @@ tsize_t tiff_write(thandle_t context, tdata_t buf, tsize_t length) {
 }
 
 toff_t tiff_seek(thandle_t context, toff_t offset, int whence) {
-  CCodec_TiffContext* pTiffContext = (CCodec_TiffContext*)context;
+  CCodec_TiffContext* pTiffContext =
+      reinterpret_cast<CCodec_TiffContext*>(context);
+  FX_SAFE_FILESIZE safe_offset = offset;
+  if (!safe_offset.IsValid())
+    return static_cast<toff_t>(-1);
+  FX_FILESIZE file_offset = safe_offset.ValueOrDie();
+
   switch (whence) {
-    case 0:
-      pTiffContext->set_offset(offset);
-      break;
-    case 1:
-      pTiffContext->increment_offset(offset);
-      break;
-    case 2:
-      if (pTiffContext->io_in()->GetSize() < (FX_FILESIZE)offset)
+    case 0: {
+      if (file_offset > pTiffContext->io_in()->GetSize())
         return static_cast<toff_t>(-1);
-      pTiffContext->set_offset(pTiffContext->io_in()->GetSize() - offset);
-      break;
+      pTiffContext->set_offset(file_offset);
+      return pTiffContext->offset();
+    }
+    case 1: {
+      FX_SAFE_UINT32 new_increment = pTiffContext->offset();
+      new_increment += file_offset;
+      if (!new_increment.IsValid())
+        return static_cast<toff_t>(-1);
+      pTiffContext->set_offset(new_increment.ValueOrDie());
+      return pTiffContext->offset();
+    }
+    case 2: {
+      if (pTiffContext->io_in()->GetSize() < file_offset)
+        return static_cast<toff_t>(-1);
+      pTiffContext->set_offset(pTiffContext->io_in()->GetSize() - file_offset);
+      return pTiffContext->offset();
+    }
     default:
       return static_cast<toff_t>(-1);
   }
-  ASSERT(pTiffContext->offset() <= (uint32_t)pTiffContext->io_in()->GetSize());
-  return pTiffContext->offset();
 }
 
 int tiff_close(thandle_t context) {
@@ -128,8 +155,9 @@ int tiff_close(thandle_t context) {
 }
 
 toff_t tiff_get_size(thandle_t context) {
-  CCodec_TiffContext* pTiffContext = (CCodec_TiffContext*)context;
-  return (toff_t)pTiffContext->io_in()->GetSize();
+  CCodec_TiffContext* pTiffContext =
+      reinterpret_cast<CCodec_TiffContext*>(context);
+  return static_cast<toff_t>(pTiffContext->io_in()->GetSize());
 }
 
 int tiff_map(thandle_t context, tdata_t*, toff_t*) {
@@ -193,7 +221,8 @@ CCodec_TiffContext::~CCodec_TiffContext() {
     TIFFClose(m_tif_ctx);
 }
 
-bool CCodec_TiffContext::InitDecoder(IFX_FileRead* file_ptr) {
+bool CCodec_TiffContext::InitDecoder(
+    const CFX_RetainPtr<IFX_SeekableReadStream>& file_ptr) {
   m_io_in = file_ptr;
   m_tif_ctx = tiff_open(this, "r");
   return !!m_tif_ctx;
@@ -242,8 +271,13 @@ bool CCodec_TiffContext::LoadFrameInfo(int32_t frame,
     Tiff_Exif_GetStringInfo(m_tif_ctx, TIFFTAG_MAKE, pAttribute);
     Tiff_Exif_GetStringInfo(m_tif_ctx, TIFFTAG_MODEL, pAttribute);
   }
-  *width = pdfium::base::checked_cast<int32_t>(tif_width);
-  *height = pdfium::base::checked_cast<int32_t>(tif_height);
+  pdfium::base::CheckedNumeric<int32_t> checked_width = tif_width;
+  pdfium::base::CheckedNumeric<int32_t> checked_height = tif_height;
+  if (!checked_width.IsValid() || !checked_height.IsValid())
+    return false;
+
+  *width = checked_width.ValueOrDie();
+  *height = checked_height.ValueOrDie();
   *comps = tif_comps;
   *bpc = tif_bpc;
   if (tif_rps > tif_height) {
@@ -425,7 +459,11 @@ bool CCodec_TiffContext::Decode(CFX_DIBitmap* pDIBitmap) {
   uint16_t bps = 0;
   TIFFGetField(m_tif_ctx, TIFFTAG_SAMPLESPERPIXEL, &spp);
   TIFFGetField(m_tif_ctx, TIFFTAG_BITSPERSAMPLE, &bps);
-  uint32_t bpp = bps * spp;
+  FX_SAFE_UINT32 safe_bpp = bps;
+  safe_bpp *= spp;
+  if (!safe_bpp.IsValid())
+    return false;
+  uint32_t bpp = safe_bpp.ValueOrDie();
   if (bpp == 1)
     return Decode1bppRGB(pDIBitmap, height, width, bps, spp);
   if (bpp <= 8)
@@ -435,13 +473,13 @@ bool CCodec_TiffContext::Decode(CFX_DIBitmap* pDIBitmap) {
   return false;
 }
 
-CCodec_TiffContext* CCodec_TiffModule::CreateDecoder(IFX_FileRead* file_ptr) {
-  CCodec_TiffContext* pDecoder = new CCodec_TiffContext;
-  if (!pDecoder->InitDecoder(file_ptr)) {
-    delete pDecoder;
+CCodec_TiffContext* CCodec_TiffModule::CreateDecoder(
+    const CFX_RetainPtr<IFX_SeekableReadStream>& file_ptr) {
+  auto pDecoder = pdfium::MakeUnique<CCodec_TiffContext>();
+  if (!pDecoder->InitDecoder(file_ptr))
     return nullptr;
-  }
-  return pDecoder;
+
+  return pDecoder.release();
 }
 
 bool CCodec_TiffModule::LoadFrameInfo(CCodec_TiffContext* ctx,

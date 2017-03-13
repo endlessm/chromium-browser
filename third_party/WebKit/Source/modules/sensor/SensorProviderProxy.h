@@ -13,7 +13,9 @@
 
 namespace blink {
 
+class Document;
 class SensorProxy;
+class SensorReadingFactory;
 
 // This class wraps 'SensorProvider' mojo interface and it manages
 // 'SensorProxy' instances.
@@ -28,24 +30,30 @@ class SensorProviderProxy final
 
   ~SensorProviderProxy();
 
-  SensorProxy* getOrCreateSensor(device::mojom::blink::SensorType);
+  SensorProxy* createSensorProxy(device::mojom::blink::SensorType,
+                                 Document*,
+                                 std::unique_ptr<SensorReadingFactory>);
+
+  SensorProxy* getSensorProxy(device::mojom::blink::SensorType);
 
   DECLARE_VIRTUAL_TRACE();
 
  private:
-  friend class SensorProxy;  // To call sensorProvider().
+  friend class SensorProxy;  // To call getSensorProvider().
 
-  explicit SensorProviderProxy(LocalFrame*);
+  explicit SensorProviderProxy(LocalFrame&);
   static const char* supplementName();
+  void initializeIfNeeded(LocalFrame*);
+  bool isInitialized() const { return m_sensorProvider; }
 
-  device::mojom::blink::SensorProvider* sensorProvider() const {
+  device::mojom::blink::SensorProvider* getSensorProvider() const {
     return m_sensorProvider.get();
   }
 
   void onSensorProviderConnectionError();
 
   using SensorsSet = HeapHashSet<WeakMember<SensorProxy>>;
-  SensorsSet m_sensors;
+  SensorsSet m_sensorProxies;
 
   device::mojom::blink::SensorProviderPtr m_sensorProvider;
 };

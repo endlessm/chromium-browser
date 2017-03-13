@@ -80,10 +80,6 @@ class TestingOmniboxView : public OmniboxView {
   }
   gfx::NativeView GetNativeView() const override { return nullptr; }
   gfx::NativeView GetRelativeWindowForPopup() const override { return nullptr; }
-  void SetGrayTextAutocompletion(const base::string16& input) override {}
-  base::string16 GetGrayTextAutocompletion() const override {
-    return base::string16();
-  }
   int GetTextWidth() const override { return 0; }
   int GetWidth() const override { return 0; }
   bool IsImeComposing() const override { return false; }
@@ -378,16 +374,16 @@ TEST_F(OmniboxEditTest, AlternateNavHasHTTP) {
   const AutocompleteMatch match(
       model()->autocomplete_controller()->search_provider(), 0, false,
       AutocompleteMatchType::SEARCH_WHAT_YOU_TYPED);
-  const GURL alternate_nav_url("http://ab%20cd/");
+  const GURL alternate_nav_url("http://abcd/");
 
   model()->OnSetFocus(false);  // Avoids DCHECK in OpenMatch().
-  model()->SetUserText(base::ASCIIToUTF16("http://ab cd"));
+  model()->SetUserText(base::ASCIIToUTF16("http://abcd"));
   model()->OpenMatch(match, WindowOpenDisposition::CURRENT_TAB,
                      alternate_nav_url, base::string16(), 0);
   EXPECT_TRUE(AutocompleteInput::HasHTTPScheme(
       client->alternate_nav_match().fill_into_edit));
 
-  model()->SetUserText(base::ASCIIToUTF16("ab cd"));
+  model()->SetUserText(base::ASCIIToUTF16("abcd"));
   model()->OpenMatch(match, WindowOpenDisposition::CURRENT_TAB,
                      alternate_nav_url, base::string16(), 0);
   EXPECT_TRUE(AutocompleteInput::HasHTTPScheme(

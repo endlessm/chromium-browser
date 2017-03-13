@@ -25,12 +25,7 @@ class Widget;
 }
 
 namespace content {
-class RenderViewHost;
 class WebContents;
-}
-
-namespace user_prefs {
-class PrefRegistrySyncable;
 }
 
 // Manages protected media identifier permissions flow, and delegates UI
@@ -50,7 +45,7 @@ class ProtectedMediaIdentifierPermissionContext
                         bool user_gesture,
                         const BrowserPermissionCallback& callback) override;
 #endif  // defined(OS_CHROMEOS)
-  ContentSetting GetPermissionStatus(
+  ContentSetting GetPermissionStatusInternal(
       const GURL& requesting_origin,
       const GURL& embedding_origin) const override;
   void CancelPermissionRequest(content::WebContents* web_contents,

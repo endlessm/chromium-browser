@@ -7,7 +7,6 @@ package org.chromium.chrome.browser.notifications;
 import static org.chromium.base.test.util.ScalableTimeout.scaleTimeout;
 
 import android.app.Notification;
-import android.os.Environment;
 
 import org.chromium.base.ThreadUtils;
 import org.chromium.chrome.browser.preferences.website.ContentSetting;
@@ -40,8 +39,7 @@ public class NotificationTestBase extends ChromeTabbedActivityTestBase {
     @Override
     protected void setUp() throws Exception {
         super.setUp();
-        mTestServer = EmbeddedTestServer.createAndStartFileServer(
-                getInstrumentation().getContext(), Environment.getExternalStorageDirectory());
+        mTestServer = EmbeddedTestServer.createAndStartServer(getInstrumentation().getContext());
     }
 
     /** Returns the test server. */
@@ -118,7 +116,7 @@ public class NotificationTestBase extends ChromeTabbedActivityTestBase {
      * Waits for a mutation to occur in the mocked notification manager. This indicates that Chrome
      * called into Android to notify or cancel a notification.
      */
-    protected void waitForNotificationManagerMutation() throws InterruptedException {
+    protected void waitForNotificationManagerMutation() {
         CriteriaHelper.pollUiThread(new Criteria() {
             @Override
             public boolean isSatisfied() {

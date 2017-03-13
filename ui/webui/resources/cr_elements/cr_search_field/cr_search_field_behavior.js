@@ -3,8 +3,8 @@
 // found in the LICENSE file.
 
 /**
- * Implements an incremental search field which can be shown and hidden.
- * Canonical implementation is <cr-search-field>.
+ * Helper functions for implementing an incremental search field. See
+ * <settings-subpage-search> for a simple implementation.
  * @polymerBehavior
  */
 var CrSearchFieldBehavior = {
@@ -19,12 +19,10 @@ var CrSearchFieldBehavior = {
       value: '',
     },
 
-    showingSearch: {
+    hasSearchText: {
       type: Boolean,
+      reflectToAttribute: true,
       value: false,
-      notify: true,
-      observer: 'showingSearchChanged_',
-      reflectToAttribute: true
     },
 
     /** @private */
@@ -51,55 +49,45 @@ var CrSearchFieldBehavior = {
   /**
    * Sets the value of the search field.
    * @param {string} value
+   * @param {boolean=} opt_noEvent Whether to prevent a 'search-changed' event
+   *     firing for this change.
    */
-  setValue: function(value) {
-    // Use bindValue when setting the input value so that changes propagate
-    // correctly.
-    this.getSearchInput().bindValue = value;
-    this.onValueChanged_(value);
-  },
+  setValue: function(value, opt_noEvent) {
+    var searchInput = this.getSearchInput();
+    searchInput.value = value;
 
-  showAndFocus: function() {
-    this.showingSearch = true;
-    this.focus_();
-  },
-
-  /** @private */
-  focus_: function() {
-    this.getSearchInput().focus();
+    this.onSearchTermInput();
+    this.onValueChanged_(value, !!opt_noEvent);
   },
 
   onSearchTermSearch: function() {
-    this.onValueChanged_(this.getValue());
+    this.onValueChanged_(this.getValue(), false);
+  },
+
+  /**
+   * Update the state of the search field whenever the underlying input value
+   * changes. Unlike onsearch or onkeypress, this is reliably called immediately
+   * after any change, whether the result of user input or JS modification.
+   */
+  onSearchTermInput: function() {
+    this.hasSearchText = this.$.searchInput.value != '';
   },
 
   /**
    * Updates the internal state of the search field based on a change that has
    * already happened.
    * @param {string} newValue
+   * @param {boolean} noEvent Whether to prevent a 'search-changed' event firing
+   *     for this change.
    * @private
    */
-  onValueChanged_: function(newValue) {
+  onValueChanged_: function(newValue, noEvent) {
     if (newValue == this.lastValue_)
       return;
 
-    this.fire('search-changed', newValue);
     this.lastValue_ = newValue;
+
+    if (!noEvent)
+      this.fire('search-changed', newValue);
   },
-
-  onSearchTermKeydown: function(e) {
-    if (e.key == 'Escape')
-      this.showingSearch = false;
-  },
-
-  /** @private */
-  showingSearchChanged_: function() {
-    if (this.showingSearch) {
-      this.focus_();
-      return;
-    }
-
-    this.setValue('');
-    this.getSearchInput().blur();
-  }
 };

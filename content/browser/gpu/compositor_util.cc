@@ -26,6 +26,9 @@
 #include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
 #include "gpu/config/gpu_feature_type.h"
+#include "gpu/ipc/host/gpu_memory_buffer_support.h"
+#include "media/media_features.h"
+#include "ui/gl/gl_switches.h"
 
 namespace content {
 
@@ -42,6 +45,7 @@ const char kWebGLFeatureName[] = "webgl";
 const char kRasterizationFeatureName[] = "rasterization";
 const char kMultipleRasterThreadsFeatureName[] = "multiple_raster_threads";
 const char kNativeGpuMemoryBuffersFeatureName[] = "native_gpu_memory_buffers";
+const char kWebGL2FeatureName[] = "webgl2";
 
 const int kMinRasterThreads = 1;
 const int kMaxRasterThreads = 4;
@@ -111,7 +115,7 @@ const GpuFeatureInfo GetGpuFeatureInfo(size_t index, bool* eof) {
      "Accelerated video decode has been disabled, either via blacklist,"
      " about:flags or the command line.",
      true},
-#if defined(ENABLE_WEBRTC)
+#if BUILDFLAG(ENABLE_WEBRTC)
     {"video_encode", manager->IsFeatureBlacklisted(
                          gpu::GPU_FEATURE_TYPE_ACCELERATED_VIDEO_ENCODE),
      command_line.HasSwitch(switches::kDisableWebRtcHWEncoding),
@@ -139,7 +143,7 @@ const GpuFeatureInfo GetGpuFeatureInfo(size_t index, bool* eof) {
      NumberOfRendererRasterThreads() == 1, "Raster is using a single thread.",
      false},
     {kNativeGpuMemoryBuffersFeatureName, false,
-     !BrowserGpuMemoryBufferManager::IsNativeGpuMemoryBuffersEnabled(),
+     !gpu::AreNativeGpuMemoryBuffersEnabled(),
      "Native GpuMemoryBuffers have been disabled, either via about:flags"
      " or command line.",
      true},
@@ -151,6 +155,10 @@ const GpuFeatureInfo GetGpuFeatureInfo(size_t index, bool* eof) {
      "Accelerated VPx video decode has been disabled, either via blacklist"
      " or the command line.",
      true},
+    {kWebGL2FeatureName,
+     manager->IsFeatureBlacklisted(gpu::GPU_FEATURE_TYPE_WEBGL2),
+     command_line.HasSwitch(switches::kDisableES3APIs),
+     "WebGL2 has been disabled via blacklist or the command line.", false},
   };
   DCHECK(index < arraysize(kGpuFeatureInfo));
   *eof = (index == arraysize(kGpuFeatureInfo) - 1);
@@ -223,7 +231,7 @@ bool IsGpuMemoryBufferCompositorResourcesEnabled() {
   }
 
   // Native GPU memory buffers are required.
-  if (!BrowserGpuMemoryBufferManager::IsNativeGpuMemoryBuffersEnabled())
+  if (!gpu::AreNativeGpuMemoryBuffersEnabled())
     return false;
 
 #if defined(OS_MACOSX)
@@ -245,10 +253,6 @@ bool IsGpuRasterizationEnabled() {
   if (IsGpuRasterizationBlacklisted()) {
     return false;
   }
-
-#if defined(OS_ANDROID)
-  return true;
-#endif
 
   // Gpu Rasterization on platforms that are not fully enabled is controlled by
   // a finch experiment.

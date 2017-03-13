@@ -31,11 +31,12 @@
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/trace_event/memory_dump_manager.h"
 #include "platform/Histogram.h"
+#include "platform/MemoryCoordinator.h"
 #include "platform/PartitionAllocMemoryDumpProvider.h"
 #include "platform/fonts/FontCacheMemoryDumpProvider.h"
 #include "platform/heap/BlinkGCMemoryDumpProvider.h"
 #include "platform/heap/GCTaskRunner.h"
-#include "platform/tracing/MemoryCacheDumpProvider.h"
+#include "platform/instrumentation/tracing/MemoryCacheDumpProvider.h"
 #include "public/platform/InterfaceProvider.h"
 #include "public/platform/Platform.h"
 #include "public/platform/WebPrerenderingSupport.h"
@@ -46,8 +47,6 @@ namespace blink {
 static Platform* s_platform = nullptr;
 
 static GCTaskRunner* s_gcTaskRunner = nullptr;
-
-Platform::Platform() : m_mainThread(0) {}
 
 static void maxObservedSizeFunction(size_t sizeInMB) {
   const size_t supportedMaxSizeInMB = 4 * 1024;
@@ -68,16 +67,20 @@ static void callOnMainThreadFunction(WTF::MainThreadFunction function,
       crossThreadBind(function, crossThreadUnretained(context)));
 }
 
+Platform::Platform() : m_mainThread(0) {
+  WTF::Partitions::initialize(maxObservedSizeFunction);
+}
+
 void Platform::initialize(Platform* platform) {
   ASSERT(!s_platform);
   ASSERT(platform);
   s_platform = platform;
   s_platform->m_mainThread = platform->currentThread();
 
-  WTF::Partitions::initialize(maxObservedSizeFunction);
   WTF::initialize(callOnMainThreadFunction);
 
   ProcessHeap::init();
+  MemoryCoordinator::initialize();
   if (base::ThreadTaskRunnerHandle::IsSet())
     base::trace_event::MemoryDumpManager::GetInstance()->RegisterDumpProvider(
         BlinkGCMemoryDumpProvider::instance(), "BlinkGC",
@@ -125,7 +128,6 @@ void Platform::shutdown() {
   ProcessHeap::shutdown();
 
   WTF::shutdown();
-  WTF::Partitions::shutdown();
 
   s_platform->m_mainThread = nullptr;
   s_platform = nullptr;
@@ -148,5 +150,8 @@ WebThread* Platform::mainThread() const {
 InterfaceProvider* Platform::interfaceProvider() {
   return InterfaceProvider::getEmptyInterfaceProvider();
 }
+
+void Platform::bindServiceConnector(
+    mojo::ScopedMessagePipeHandle remoteHandle) {}
 
 }  // namespace blink

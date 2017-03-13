@@ -10,6 +10,7 @@
 #import "base/mac/sdk_forward_declarations.h"
 #include "base/strings/sys_string_conversions.h"
 #include "skia/ext/skia_utils_mac.h"
+#import "ui/base/cocoa/appkit_utils.h"
 #include "ui/base/cocoa/cocoa_base_utils.h"
 #include "ui/base/dragdrop/drag_drop_types.h"
 #include "ui/base/dragdrop/os_exchange_data_provider_mac.h"
@@ -30,6 +31,7 @@
 #include "ui/gfx/scoped_ns_graphics_context_save_gstate_mac.h"
 #import "ui/views/cocoa/bridged_native_widget.h"
 #import "ui/views/cocoa/drag_drop_client_mac.h"
+#include "ui/views/controls/label.h"
 #include "ui/views/controls/menu/menu_config.h"
 #include "ui/views/controls/menu/menu_controller.h"
 #include "ui/views/view.h"
@@ -198,19 +200,6 @@ base::string16 AttributedSubstringForRangeHelper(
   return substring;
 }
 
-// Returns a character event corresponding to |event|. |event| must be a
-// character event itself.
-ui::KeyEvent GetCharacterEventFromNSEvent(NSEvent* event) {
-  DCHECK([event type] == NSKeyDown || [event type] == NSKeyUp);
-  DCHECK_EQ(1u, [[event characters] length]);
-
-  // [NSEvent characters] already considers the pressed key modifiers. Hence
-  // send ui::EF_NONE as the key modifier to the KeyEvent constructor.
-  // E.g. For Alt+S, [NSEvent characters] is 'ß' and not 'S'.
-  return ui::KeyEvent([[event characters] characterAtIndex:0],
-                      ui::KeyboardCodeFromNSEvent(event), ui::EF_NONE);
-}
-
 NSAttributedString* GetAttributedString(
     const gfx::DecoratedText& decorated_text) {
   base::scoped_nsobject<NSMutableAttributedString> str(
@@ -247,6 +236,22 @@ NSAttributedString* GetAttributedString(
   return str.autorelease();
 }
 
+ui::TextEditCommand GetTextEditCommandForMenuAction(SEL action) {
+  if (action == @selector(undo:))
+    return ui::TextEditCommand::UNDO;
+  if (action == @selector(redo:))
+    return ui::TextEditCommand::REDO;
+  if (action == @selector(cut:))
+    return ui::TextEditCommand::CUT;
+  if (action == @selector(copy:))
+    return ui::TextEditCommand::COPY;
+  if (action == @selector(paste:))
+    return ui::TextEditCommand::PASTE;
+  if (action == @selector(selectAll:))
+    return ui::TextEditCommand::SELECT_ALL;
+  return ui::TextEditCommand::INVALID_COMMAND;
+}
+
 }  // namespace
 
 @interface BridgedContentView ()
@@ -257,6 +262,11 @@ NSAttributedString* GetAttributedString(
 
 // Passes |event| to the InputMethod for dispatch.
 - (void)handleKeyEvent:(ui::KeyEvent*)event;
+
+// Allows accelerators to be handled at different points in AppKit key event
+// dispatch. Checks for an unhandled event passed in to -keyDown: and passes it
+// to the Widget for processing. Returns YES if the Widget handles it.
+- (BOOL)handleUnhandledKeyDownAsKeyEvent;
 
 // Handles an NSResponder Action Message by mapping it to a corresponding text
 // editing command from ui_strings.grd and, when not being sent to a
@@ -316,7 +326,8 @@ NSAttributedString* GetAttributedString(
     cursorTrackingArea_.reset([[CrTrackingArea alloc]
         initWithRect:NSZeroRect
              options:NSTrackingMouseMoved | NSTrackingCursorUpdate |
-                     NSTrackingActiveInActiveApp | NSTrackingInVisibleRect
+                     NSTrackingActiveInActiveApp | NSTrackingInVisibleRect |
+                     NSTrackingMouseEnteredAndExited
                owner:self
             userInfo:nil]);
     [self addTrackingArea:cursorTrackingArea_.get()];
@@ -437,6 +448,16 @@ NSAttributedString* GetAttributedString(
   hostedView_->GetWidget()->GetInputMethod()->DispatchKeyEvent(event);
 }
 
+- (BOOL)handleUnhandledKeyDownAsKeyEvent {
+  if (!hasUnhandledKeyDownEvent_)
+    return NO;
+
+  ui::KeyEvent event(keyDownEvent_);
+  [self handleKeyEvent:&event];
+  hasUnhandledKeyDownEvent_ = NO;
+  return event.handled();
+}
+
 - (void)handleAction:(ui::TextEditCommand)command
              keyCode:(ui::KeyboardCode)keyCode
              domCode:(ui::DomCode)domCode
@@ -472,6 +493,42 @@ NSAttributedString* GetAttributedString(
     text = [text string];
 
   bool isCharacterEvent = keyDownEvent_ && [text length] == 1;
+  // Pass the character event to the View hierarchy. Cases this handles (non-
+  // exhaustive)-
+  //    - Space key press on controls. Unlike Tab and newline which have
+  //      corresponding action messages, an insertText: message is generated for
+  //      the Space key (insertText:replacementRange: when there's an active
+  //      input context).
+  //    - Menu mnemonic selection.
+  // Note we create a custom character ui::KeyEvent (and not use the
+  // ui::KeyEvent(NSEvent*) constructor) since we can't just rely on the event
+  // key code to get the actual characters from the ui::KeyEvent. This for
+  // example is necessary for menu mnemonic selection of non-latin text.
+
+  // Don't generate a key event when there is active composition text. These key
+  // down events should be consumed by the IME and not reach the Views layer.
+  // For example, on pressing Return to commit composition text, if we passed a
+  // synthetic key event to the View hierarchy, it will have the effect of
+  // performing the default action on the current dialog. We do not want this.
+
+  // Also note that a single key down event can cause multiple
+  // insertText:replacementRange: action messages. Example, on pressing Alt+e,
+  // the accent (´) character is composed via setMarkedText:. Now on pressing
+  // the character 'r', two insertText:replacementRange: action messages are
+  // generated with the text value of accent (´) and 'r' respectively. The key
+  // down event will have characters field of length 2. The first of these
+  // insertText messages won't generate a KeyEvent since there'll be active
+  // marked text. However, a KeyEvent will be generated corresponding to 'r'.
+
+  // Currently there seems to be no use case to pass non-character events routed
+  // from insertText: handlers to the View hierarchy.
+  if (isCharacterEvent && ![self hasMarkedText]) {
+    ui::KeyEvent charEvent([text characterAtIndex:0],
+                           ui::KeyboardCodeFromNSEvent(keyDownEvent_),
+                           ui::EF_NONE);
+    [self handleKeyEvent:&charEvent];
+    hasUnhandledKeyDownEvent_ = NO;
+  }
 
   // Forward the |text| to |textInputClient_| if no menu is active.
   if (textInputClient_ && ![self activeMenuController]) {
@@ -484,31 +541,17 @@ NSAttributedString* GetAttributedString(
     // modifiers.
 
     // Also, note we don't use |keyDownEvent_| to generate the synthetic
-    // ui::KeyEvent since for text inserted using an IME, [keyDownEvent_
-    // characters] might not be the same as |text|. This is because
-    // |keyDownEvent_| will correspond to the event that caused the composition
-    // text to be confirmed, say, Return key press.
+    // ui::KeyEvent since for composed text, [keyDownEvent_ characters] might
+    // not be the same as |text|. This is because |keyDownEvent_| will
+    // correspond to the event that caused the composition text to be confirmed,
+    // say, Return key press.
     if (isCharacterEvent) {
       textInputClient_->InsertChar(ui::KeyEvent([text characterAtIndex:0],
                                                 ui::VKEY_UNKNOWN, ui::EF_NONE));
     } else {
       textInputClient_->InsertText(base::SysNSStringToUTF16(text));
     }
-    return;
-  }
-
-  // Only handle the case where no. of characters is 1. Cases not handled (not
-  // an exhaustive list):
-  // - |text| contains a unicode surrogate pair, i.e. a single grapheme which
-  //   requires two 16 bit characters. Currently Views menu only supports
-  //   mnemonics using a single 16 bit character, so it is ok to ignore this
-  //   case.
-  // - Programmatically created events.
-  // - Input from IME. But this case should not occur since inputContext is
-  //   nil.
-  if (isCharacterEvent) {
-    ui::KeyEvent charEvent = GetCharacterEventFromNSEvent(keyDownEvent_);
-    [self handleKeyEvent:&charEvent];
+    hasUnhandledKeyDownEvent_ = NO;
   }
 }
 
@@ -519,12 +562,6 @@ NSAttributedString* GetAttributedString(
 }
 
 - (void)undo:(id)sender {
-  // This DCHECK is more strict than a similar check in handleAction:. It can be
-  // done here because the actors sending these actions should be calling
-  // validateUserInterfaceItem: before enabling UI that allows these messages to
-  // be sent. Checking it here would be too late to provide correct UI feedback
-  // (e.g. there will be no "beep").
-  DCHECK(textInputClient_->IsTextEditCommandEnabled(ui::TextEditCommand::UNDO));
   [self handleAction:ui::TextEditCommand::UNDO
              keyCode:ui::VKEY_Z
              domCode:ui::DomCode::US_Z
@@ -532,7 +569,6 @@ NSAttributedString* GetAttributedString(
 }
 
 - (void)redo:(id)sender {
-  DCHECK(textInputClient_->IsTextEditCommandEnabled(ui::TextEditCommand::REDO));
   [self handleAction:ui::TextEditCommand::REDO
              keyCode:ui::VKEY_Z
              domCode:ui::DomCode::US_Z
@@ -540,7 +576,6 @@ NSAttributedString* GetAttributedString(
 }
 
 - (void)cut:(id)sender {
-  DCHECK(textInputClient_->IsTextEditCommandEnabled(ui::TextEditCommand::CUT));
   [self handleAction:ui::TextEditCommand::CUT
              keyCode:ui::VKEY_X
              domCode:ui::DomCode::US_X
@@ -548,7 +583,6 @@ NSAttributedString* GetAttributedString(
 }
 
 - (void)copy:(id)sender {
-  DCHECK(textInputClient_->IsTextEditCommandEnabled(ui::TextEditCommand::COPY));
   [self handleAction:ui::TextEditCommand::COPY
              keyCode:ui::VKEY_C
              domCode:ui::DomCode::US_C
@@ -556,8 +590,6 @@ NSAttributedString* GetAttributedString(
 }
 
 - (void)paste:(id)sender {
-  DCHECK(
-      textInputClient_->IsTextEditCommandEnabled(ui::TextEditCommand::PASTE));
   [self handleAction:ui::TextEditCommand::PASTE
              keyCode:ui::VKEY_V
              domCode:ui::DomCode::US_V
@@ -565,8 +597,6 @@ NSAttributedString* GetAttributedString(
 }
 
 - (void)selectAll:(id)sender {
-  DCHECK(textInputClient_->IsTextEditCommandEnabled(
-      ui::TextEditCommand::SELECT_ALL));
   [self handleAction:ui::TextEditCommand::SELECT_ALL
              keyCode:ui::VKEY_A
              domCode:ui::DomCode::US_A
@@ -593,6 +623,11 @@ NSAttributedString* GetAttributedString(
   [self updateTooltipIfRequiredAt:event.location()];
 
   hostedView_->GetWidget()->OnMouseEvent(&event);
+}
+
+- (void)forceTouchEvent:(NSEvent*)theEvent {
+  if (ui::ForceClickInvokesQuickLook())
+    [self quickLookWithEvent:theEvent];
 }
 
 // NSView implementation.
@@ -760,10 +795,28 @@ NSAttributedString* GetAttributedString(
 
 // NSResponder implementation.
 
+- (BOOL)_wantsKeyDownForEvent:(NSEvent*)event {
+  // This is a SPI that AppKit apparently calls after |performKeyEquivalent:|
+  // returned NO. If this function returns |YES|, Cocoa sends the event to
+  // |keyDown:| instead of doing other things with it. Ctrl-tab will be sent
+  // to us instead of doing key view loop control, ctrl-left/right get handled
+  // correctly, etc.
+  // (However, there are still some keys that Cocoa swallows, e.g. the key
+  // equivalent that Cocoa uses for toggling the input language. In this case,
+  // that's actually a good thing, though -- see http://crbug.com/26115 .)
+  return YES;
+}
+
 - (void)keyDown:(NSEvent*)theEvent {
   // Convert the event into an action message, according to OSX key mappings.
   keyDownEvent_ = theEvent;
+  hasUnhandledKeyDownEvent_ = YES;
   [self interpretKeyEvents:@[ theEvent ]];
+
+  // If |keyDownEvent_| wasn't cleared during -interpretKeyEvents:, it wasn't
+  // handled. Give Widget accelerators a chance to handle it.
+  [self handleUnhandledKeyDownAsKeyEvent];
+  DCHECK(!hasUnhandledKeyDownEvent_);
   keyDownEvent_ = nil;
 }
 
@@ -1283,15 +1336,19 @@ NSAttributedString* GetAttributedString(
 - (void)doCommandBySelector:(SEL)selector {
   // Like the renderer, handle insert action messages as a regular key dispatch.
   // This ensures, e.g., insertTab correctly changes focus between fields.
-  if (keyDownEvent_ && [NSStringFromSelector(selector) hasPrefix:@"insert"]) {
-    ui::KeyEvent event(keyDownEvent_);
-    [self handleKeyEvent:&event];
+  if (keyDownEvent_ && [NSStringFromSelector(selector) hasPrefix:@"insert"])
+    return;  // Handle in -keyDown:.
+
+  if ([self respondsToSelector:selector]) {
+    [self performSelector:selector withObject:nil];
+    hasUnhandledKeyDownEvent_ = NO;
     return;
   }
 
-  if ([self respondsToSelector:selector])
-    [self performSelector:selector withObject:nil];
-  else
+  // For events that AppKit sends via doCommandBySelector:, first attempt to
+  // handle as a Widget accelerator. Forward along the responder chain only if
+  // the Widget doesn't handle it.
+  if (![self handleUnhandledKeyDownAsKeyEvent])
     [[self nextResponder] doCommandBySelector:selector];
 }
 
@@ -1363,11 +1420,15 @@ NSAttributedString* GetAttributedString(
   composition.underlines.push_back(ui::CompositionUnderline(
       0, [text length], SK_ColorBLACK, false, SK_ColorTRANSPARENT));
   textInputClient_->SetCompositionText(composition);
+  hasUnhandledKeyDownEvent_ = NO;
 }
 
 - (void)unmarkText {
-  if (textInputClient_)
-    textInputClient_->ConfirmCompositionText();
+  if (!textInputClient_)
+    return;
+
+  textInputClient_->ConfirmCompositionText();
+  hasUnhandledKeyDownEvent_ = NO;
 }
 
 - (NSArray*)validAttributesForMarkedText {
@@ -1377,30 +1438,25 @@ NSAttributedString* GetAttributedString(
 // NSUserInterfaceValidations protocol implementation.
 
 - (BOOL)validateUserInterfaceItem:(id<NSValidatedUserInterfaceItem>)item {
-  if (!textInputClient_)
+  ui::TextEditCommand command = GetTextEditCommandForMenuAction([item action]);
+
+  if (command == ui::TextEditCommand::INVALID_COMMAND)
     return NO;
 
-  SEL action = [item action];
+  if (textInputClient_)
+    return textInputClient_->IsTextEditCommandEnabled(command);
 
-  if (action == @selector(undo:))
-    return textInputClient_->IsTextEditCommandEnabled(
-        ui::TextEditCommand::UNDO);
-  if (action == @selector(redo:))
-    return textInputClient_->IsTextEditCommandEnabled(
-        ui::TextEditCommand::REDO);
-  if (action == @selector(cut:))
-    return textInputClient_->IsTextEditCommandEnabled(ui::TextEditCommand::CUT);
-  if (action == @selector(copy:))
-    return textInputClient_->IsTextEditCommandEnabled(
-        ui::TextEditCommand::COPY);
-  if (action == @selector(paste:))
-    return textInputClient_->IsTextEditCommandEnabled(
-        ui::TextEditCommand::PASTE);
-  if (action == @selector(selectAll:))
-    return textInputClient_->IsTextEditCommandEnabled(
-        ui::TextEditCommand::SELECT_ALL);
+  // views::Label does not implement the TextInputClient interface but still
+  // needs to intercept the Copy and Select All menu actions.
+  if (command != ui::TextEditCommand::COPY &&
+      command != ui::TextEditCommand::SELECT_ALL)
+    return NO;
 
-  return NO;
+  views::FocusManager* focus_manager =
+      hostedView_->GetWidget()->GetFocusManager();
+  return focus_manager && focus_manager->GetFocusedView() &&
+         focus_manager->GetFocusedView()->GetClassName() ==
+             views::Label::kViewClassName;
 }
 
 // NSDraggingSource protocol implementation.

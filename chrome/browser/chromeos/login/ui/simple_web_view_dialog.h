@@ -12,7 +12,6 @@
 #include "chrome/browser/command_updater_delegate.h"
 #include "chrome/browser/ui/toolbar/chrome_toolbar_model_delegate.h"
 #include "chrome/browser/ui/views/location_bar/location_bar_view.h"
-#include "components/security_state/security_state_model.h"
 #include "content/public/browser/page_navigator.h"
 #include "content/public/browser/web_contents_delegate.h"
 #include "ui/views/controls/button/image_button.h"
@@ -82,11 +81,7 @@ class SimpleWebViewDialog : public views::ButtonListener,
       ExtensionAction* action) override;
   ContentSettingBubbleModelDelegate* GetContentSettingBubbleModelDelegate()
       override;
-  void ShowWebsiteSettings(
-      content::WebContents* web_contents,
-      const GURL& virtual_url,
-      const security_state::SecurityStateModel::SecurityInfo& security_info)
-      override;
+  void ShowWebsiteSettings(content::WebContents* web_contents) override;
 
   // Implements ChromeToolbarModelDelegate:
   content::WebContents* GetActiveWebContents() const override;

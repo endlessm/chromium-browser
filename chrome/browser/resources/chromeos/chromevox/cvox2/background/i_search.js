@@ -45,15 +45,18 @@ ISearchHandler.prototype = {
 
 /**
  * Controls an incremental search.
- * @param {!AutomationNode} initialNode
+ * @param {!cursors.Cursor} cursor
  * @constructor
  */
-ISearch = function(initialNode) {
-  var leaf = AutomationUtil.findNodePre(
-      initialNode, Dir.FORWARD, AutomationPredicate.leaf) || initialNode;
+ISearch = function(cursor) {
+  if (!cursor.node)
+    throw 'Incremental search started from invalid range.';
 
-  /** @type {!AutomationNode} @private */
-  this.node_ = leaf;
+  var leaf = AutomationUtil.findNodePre(
+      cursor.node, Dir.FORWARD, AutomationPredicate.leaf) || cursor.node;
+
+  /** @type {!cursors.Cursor} */
+  this.cursor = cursors.Cursor.fromNode(leaf);
 
   /**
    * This tracks the id of a search that is in progress.
@@ -90,19 +93,19 @@ ISearch.prototype = {
       cur =
           cur.move(cursors.Unit.NODE, cursors.Movement.DIRECTIONAL, dir);
       if (prev.equals(cur)) {
-        this.handler_.onSearchReachedBoundary(this.node_);
+        this.handler_.onSearchReachedBoundary(this.cursor.node);
         return;
       }
 
       if (cur.getText().toLocaleLowerCase().indexOf(searchStr) != -1) {
-        this.node_ = cur.node;
-        this.handler_.onSearchResultChanged(this.node_);
+        this.cursor = cur;
+        this.handler_.onSearchResultChanged(this.cursor.node);
         return;
       }
       if (this.pendingSearchId_ == currentSearchId)
         window.setTimeout(move.bind(this, cur.node), 0);
     };
-    window.setTimeout(move.bind(this, this.node_), 0);
+    window.setTimeout(move.bind(this, this.cursor.node), 0);
   }
 };
 
@@ -115,7 +118,7 @@ ISearchUI = function(input) {
   /** @type {ChromeVoxState} @private */
   this.background_ =
       chrome.extension.getBackgroundPage()['ChromeVoxState']['instance'];
-  this.iSearch_ = new ISearch(this.background_.currentRange.start.node);
+  this.iSearch_ = new ISearch(this.background_.currentRange.start);
   this.input_ = input;
   this.dir_ = Dir.FORWARD;
   this.iSearch_.handler = this;
@@ -123,7 +126,6 @@ ISearchUI = function(input) {
   this.onKeyDown = this.onKeyDown.bind(this);
   this.onTextInput = this.onTextInput.bind(this);
 
-  this.background_['startExcursion']();
   input.addEventListener('keydown', this.onKeyDown, true);
   input.addEventListener('textInput', this.onTextInput, true);
 };
@@ -132,11 +134,16 @@ ISearchUI = function(input) {
  * @param {Element} input
  * @return {ISearchUI}
  */
-ISearchUI.get = function(input) {
+ISearchUI.init = function(input) {
   if (ISearchUI.instance_)
     ISearchUI.instance_.destroy();
+
+  if (!input)
+    return null;
+
   ISearchUI.instance_ = new ISearchUI(input);
   input.focus();
+  input.select();
   return ISearchUI.instance_;
 };
 
@@ -156,12 +163,18 @@ ISearchUI.prototype = {
         break;
       case 'Escape':
         this.pendingSearchId_ = 0;
-        this.background_['endExcursion']();
         Panel.closeMenusAndRestoreFocus();
         return false;
       case 'Enter':
         this.pendingSearchId_ = 0;
-        this.background_['saveExcursion']();
+        Panel.setPendingCallback(function() {
+          var node = this.iSearch_.cursor.node;
+          if (!node)
+            return;
+          chrome.extension.getBackgroundPage().ChromeVoxState.instance[
+            'navigateToRange'](
+                cursors.Range.fromNode(node));
+        }.bind(this));
         Panel.closeMenusAndRestoreFocus();
         return false;
       default:

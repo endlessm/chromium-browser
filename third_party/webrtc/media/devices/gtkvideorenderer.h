@@ -14,24 +14,26 @@
 #ifndef WEBRTC_MEDIA_DEVICES_GTKVIDEORENDERER_H_
 #define WEBRTC_MEDIA_DEVICES_GTKVIDEORENDERER_H_
 
+#include <stdint.h>
+
 #include <memory>
 
-#include "webrtc/base/basictypes.h"
 #include "webrtc/media/base/videosinkinterface.h"
 
 typedef struct _GtkWidget GtkWidget;  // forward declaration, defined in gtk.h
+namespace webrtc {
+class VideoFrame;
+}
 
 namespace cricket {
 
-class VideoFrame;
-
-class GtkVideoRenderer : public rtc::VideoSinkInterface<VideoFrame> {
+class GtkVideoRenderer : public rtc::VideoSinkInterface<webrtc::VideoFrame> {
  public:
   GtkVideoRenderer(int x, int y);
   virtual ~GtkVideoRenderer();
 
   // Implementation of VideoSinkInterface.
-  void OnFrame(const VideoFrame& frame) override;
+  void OnFrame(const webrtc::VideoFrame& frame) override;
 
  private:
   bool SetSize(int width, int height);

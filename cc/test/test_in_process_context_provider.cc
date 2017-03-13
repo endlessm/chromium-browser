@@ -13,11 +13,11 @@
 #include "cc/output/context_cache_controller.h"
 #include "cc/resources/platform_color.h"
 #include "gpu/GLES2/gl2extchromium.h"
-#include "gpu/command_buffer/client/gl_in_process_context.h"
 #include "gpu/command_buffer/client/gles2_implementation.h"
 #include "gpu/command_buffer/client/gles2_lib.h"
 #include "gpu/command_buffer/client/shared_memory_limits.h"
 #include "gpu/command_buffer/common/gles2_cmd_utils.h"
+#include "gpu/ipc/gl_in_process_context.h"
 #include "gpu/skia_bindings/grcontext_for_gles2_interface.h"
 #include "third_party/khronos/GLES2/gl2.h"
 #include "third_party/khronos/GLES2/gl2ext.h"
@@ -45,7 +45,7 @@ std::unique_ptr<gpu::GLInProcessContext> CreateTestInProcessContext(
 
   std::unique_ptr<gpu::GLInProcessContext> context =
       base::WrapUnique(gpu::GLInProcessContext::Create(
-          nullptr, nullptr, is_offscreen, gfx::kNullAcceleratedWidget,
+          nullptr, nullptr, is_offscreen, gpu::kNullSurfaceHandle,
           shared_context, attribs, gpu::SharedMemoryLimits(),
           gpu_memory_buffer_manager, image_factory, std::move(task_runner)));
 

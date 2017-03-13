@@ -207,9 +207,9 @@ namespace sw
 		blitter.clear(pixel, format, dest, dRect, rgbaMask);
 	}
 
-	void Renderer::blit(Surface *source, const SliceRect &sRect, Surface *dest, const SliceRect &dRect, bool filter)
+	void Renderer::blit(Surface *source, const SliceRect &sRect, Surface *dest, const SliceRect &dRect, bool filter, bool isStencil)
 	{
-		blitter.blit(source, sRect, dest, dRect, filter);
+		blitter.blit(source, sRect, dest, dRect, filter, isStencil);
 	}
 
 	void Renderer::blit3D(Surface *source, Surface *dest)
@@ -634,7 +634,7 @@ namespace sw
 
 				if(draw->stencilBuffer)
 				{
-					data->stencilBuffer = (unsigned char*)context->stencilBuffer->lockStencil(q * ms, MANAGED);
+					data->stencilBuffer = (unsigned char*)context->stencilBuffer->lockStencil(0, 0, q * ms, MANAGED);
 					data->stencilPitchB = context->stencilBuffer->getStencilPitchB();
 					data->stencilSliceB = context->stencilBuffer->getStencilSliceB();
 				}

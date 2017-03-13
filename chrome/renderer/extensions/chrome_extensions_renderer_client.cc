@@ -208,21 +208,14 @@ bool ChromeExtensionsRendererClient::AllowPopup() {
 }
 
 bool ChromeExtensionsRendererClient::WillSendRequest(
-    blink::WebFrame* frame,
+    blink::WebLocalFrame* frame,
     ui::PageTransition transition_type,
-    const GURL& url,
+    const blink::WebURL& url,
     GURL* new_url) {
-  if (url.SchemeIs(extensions::kExtensionScheme) &&
-      !resource_request_policy_->CanRequestResource(url, frame,
+  if (url.protocolIs(extensions::kExtensionScheme) &&
+      !resource_request_policy_->CanRequestResource(GURL(url), frame,
                                                     transition_type)) {
     *new_url = GURL(chrome::kExtensionInvalidRequestURL);
-    return true;
-  }
-
-  if (url.SchemeIs(extensions::kExtensionResourceScheme) &&
-      !resource_request_policy_->CanRequestExtensionResourceScheme(url,
-                                                                   frame)) {
-    *new_url = GURL(chrome::kExtensionResourceInvalidRequestURL);
     return true;
   }
 
@@ -287,7 +280,7 @@ bool ChromeExtensionsRendererClient::ShouldFork(blink::WebLocalFrame* frame,
   // subframes, so this check only makes sense for top-level frames.
   // TODO(alexmos,nasko): Figure out how this check should work when reloading
   // subframes in --site-per-process mode.
-  if (!frame->parent() && frame->document().url() == url) {
+  if (!frame->parent() && GURL(frame->document().url()) == url) {
     if (is_extension_url != IsStandaloneExtensionProcess())
       return true;
   }

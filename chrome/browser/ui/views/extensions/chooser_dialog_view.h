@@ -11,8 +11,8 @@
 #include "ui/views/controls/table/table_view_observer.h"
 #include "ui/views/window/dialog_delegate.h"
 
-class ChooserContentView;
 class ChooserController;
+class DeviceChooserContentView;
 
 // Displays a chooser view as a modal dialog constrained
 // to the window/tab displaying the given web contents.
@@ -31,8 +31,10 @@ class ChooserDialogView : public views::DialogDelegateView,
   // views::DialogDelegate:
   base::string16 GetDialogButtonLabel(ui::DialogButton button) const override;
   bool IsDialogButtonEnabled(ui::DialogButton button) const override;
-  views::View* CreateExtraView() override;
   views::View* CreateFootnoteView() override;
+  views::ClientView* CreateClientView(views::Widget* widget) override;
+  views::NonClientFrameView* CreateNonClientFrameView(
+      views::Widget* widget) override;
   bool Accept() override;
   bool Cancel() override;
   bool Close() override;
@@ -45,10 +47,10 @@ class ChooserDialogView : public views::DialogDelegateView,
   // views::TableViewObserver:
   void OnSelectionChanged() override;
 
-  ChooserContentView* chooser_content_view_for_test() const;
+  DeviceChooserContentView* device_chooser_content_view_for_test() const;
 
  private:
-  ChooserContentView* chooser_content_view_;
+  DeviceChooserContentView* device_chooser_content_view_;
 
   DISALLOW_COPY_AND_ASSIGN(ChooserDialogView);
 };

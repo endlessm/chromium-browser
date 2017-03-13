@@ -16,6 +16,7 @@ namespace blink {
 
 void TableRowPainter::paint(const PaintInfo& paintInfo,
                             const LayoutPoint& paintOffset) {
+  ObjectPainter(m_layoutTableRow).checkPaintOffset(paintInfo, paintOffset);
   DCHECK(m_layoutTableRow.hasSelfPaintingLayer());
 
   // TODO(crbug.com/577282): This painting order is inconsistent with other
@@ -76,9 +77,16 @@ void TableRowPainter::paintBoxShadow(const PaintInfo& paintInfo,
           .boundsForDrawingRecorder(paintInfo, adjustedPaintOffset);
   LayoutObjectDrawingRecorder recorder(paintInfo.context, m_layoutTableRow,
                                        type, bounds);
-  BoxPainter::paintBoxShadow(
-      paintInfo, LayoutRect(adjustedPaintOffset, m_layoutTableRow.size()),
-      m_layoutTableRow.styleRef(), shadowStyle);
+  LayoutRect paintRect(adjustedPaintOffset, m_layoutTableRow.size());
+  if (shadowStyle == Normal) {
+    BoxPainter::paintNormalBoxShadow(paintInfo, paintRect,
+                                     m_layoutTableRow.styleRef());
+  } else {
+    // TODO(wangxianzhu): Calculate the inset shadow bounds by insetting
+    // paintRect by half widths of collapsed borders.
+    BoxPainter::paintInsetBoxShadow(paintInfo, paintRect,
+                                    m_layoutTableRow.styleRef());
+  }
 }
 
 void TableRowPainter::paintBackgroundBehindCell(

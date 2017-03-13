@@ -261,7 +261,7 @@ bool ComputeFramesOfKeyboardParts(UIView* inputAccessoryView,
   // There is no defined relation on the timing of JavaScript events and
   // keyboard showing up. So it is necessary to listen to the keyboard
   // notification to make sure the keyboard is updated.
-  if (base::ios::IsRunningOnIOS9OrLater() && IsIPadIdiom()) {
+  if (IsIPadIdiom()) {
     [[NSNotificationCenter defaultCenter]
         addObserver:self
            selector:@selector(keyboardWillOrDidChangeFrame:)
@@ -320,7 +320,7 @@ bool ComputeFramesOfKeyboardParts(UIView* inputAccessoryView,
 
 - (void)showCustomInputAccessoryView:(UIView*)view {
   DCHECK(view);
-  if (base::ios::IsRunningOnIOS9OrLater() && IsIPadIdiom()) {
+  if (IsIPadIdiom()) {
     // On iPads running iOS 9 or later, there's no inputAccessoryView available
     // so we attach the custom view directly to the keyboard view instead.
     [_customAccessoryView removeFromSuperview];
@@ -404,15 +404,13 @@ bool ComputeFramesOfKeyboardParts(UIView* inputAccessoryView,
 
 - (BOOL)executeFormAssistAction:(NSString*)actionName {
   NSArray* descendants = nil;
-  if (base::ios::IsRunningOnIOS9OrLater() && IsIPadIdiom()) {
-#if defined(__IPHONE_9_0) && __IPHONE_OS_VERSION_MAX_ALLOWED >= __IPHONE_9_0
+  if (IsIPadIdiom()) {
     UITextInputAssistantItem* inputAssistantItem =
         [self.webViewProxy inputAssistantItem];
     if (!inputAssistantItem)
       return NO;
     descendants =
         FindDescendantToolbarItemsForActionName(inputAssistantItem, actionName);
-#endif
   } else {
     UIView* inputAccessoryView = [self.webViewProxy keyboardAccessory];
     if (!inputAccessoryView)
@@ -477,7 +475,7 @@ bool ComputeFramesOfKeyboardParts(UIView* inputAccessoryView,
 #pragma mark -
 #pragma mark CRWWebStateObserver
 
-- (void)webStateDidLoadPage:(web::WebState*)webState {
+- (void)webState:(web::WebState*)webState didLoadPageWithSuccess:(BOOL)success {
   [self reset];
 }
 
@@ -486,7 +484,6 @@ bool ComputeFramesOfKeyboardParts(UIView* inputAccessoryView,
                                fieldName:(const std::string&)fieldName
                                     type:(const std::string&)type
                                    value:(const std::string&)value
-                                 keyCode:(int)keyCode
                             inputMissing:(BOOL)inputMissing {
   web::URLVerificationTrustLevel trustLevel;
   const GURL pageURL(webState->GetCurrentURL(&trustLevel));

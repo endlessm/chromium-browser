@@ -18,11 +18,13 @@
 #include "extensions/renderer/renderer_extension_registry.h"
 #include "third_party/WebKit/public/platform/URLConversion.h"
 #include "third_party/WebKit/public/platform/WebString.h"
+#include "third_party/WebKit/public/platform/WebURL.h"
 #include "third_party/WebKit/public/web/WebConsoleMessage.h"
 #include "third_party/WebKit/public/web/WebDocument.h"
-#include "third_party/WebKit/public/web/WebFrame.h"
+#include "third_party/WebKit/public/web/WebLocalFrame.h"
 #include "ui/base/page_transition_types.h"
 #include "url/gurl.h"
+#include "url/origin.h"
 
 namespace extensions {
 
@@ -36,7 +38,7 @@ ResourceRequestPolicy::ResourceRequestPolicy(Dispatcher* dispatcher)
 // extension_protocols.cc's AllowExtensionResourceLoad.
 bool ResourceRequestPolicy::CanRequestResource(
     const GURL& resource_url,
-    blink::WebFrame* frame,
+    blink::WebLocalFrame* frame,
     ui::PageTransition transition_type) {
   CHECK(resource_url.SchemeIs(kExtensionScheme));
 
@@ -52,9 +54,9 @@ bool ResourceRequestPolicy::CanRequestResource(
   // hybrid hosted/packaged apps. The one exception is access to icons, since
   // some extensions want to be able to do things like create their own
   // launchers.
-  std::string resource_root_relative_path =
-      resource_url.path().empty() ? std::string()
-      : resource_url.path().substr(1);
+  base::StringPiece resource_root_relative_path =
+      resource_url.path_piece().empty() ? base::StringPiece()
+                                        : resource_url.path_piece().substr(1);
   if (extension->is_hosted_app() &&
       !IconsInfo::GetIcons(extension)
           .ContainsPath(resource_root_relative_path)) {
@@ -75,8 +77,7 @@ bool ResourceRequestPolicy::CanRequestResource(
     // The page_origin may be GURL("null") for unique origins like data URLs,
     // but this is ok for the checks below.  We only care if it matches the
     // current extension or has a devtools scheme.
-    GURL page_origin =
-        blink::WebStringToGURL(frame->top()->getSecurityOrigin().toString());
+    GURL page_origin = url::Origin(frame->top()->getSecurityOrigin()).GetURL();
 
     // Exceptions are:
     // - empty origin (needed for some edge cases when we have empty origins)
@@ -94,7 +95,7 @@ bool ResourceRequestPolicy::CanRequestResource(
         !ui::PageTransitionIsWebTriggerable(transition_type);
     // - unreachable web page error page (to allow showing the icon of the
     //   unreachable app on this page)
-    bool is_error_page = frame_url == GURL(content::kUnreachableWebDataURL);
+    bool is_error_page = frame_url == content::kUnreachableWebDataURL;
 
     if (!is_empty_origin && !is_own_resource &&
         !is_dev_tools && !transition_allowed && !is_error_page) {
@@ -108,26 +109,6 @@ bool ResourceRequestPolicy::CanRequestResource(
                                     blink::WebString::fromUTF8(message)));
       return false;
     }
-  }
-
-  return true;
-}
-
-bool ResourceRequestPolicy::CanRequestExtensionResourceScheme(
-    const GURL& resource_url,
-    blink::WebFrame* frame) {
-  CHECK(resource_url.SchemeIs(kExtensionResourceScheme));
-
-  GURL frame_url = frame->document().url();
-  if (!frame_url.is_empty() && !frame_url.SchemeIs(kExtensionScheme)) {
-    std::string message = base::StringPrintf(
-        "Denying load of %s. chrome-extension-resources:// can only be "
-        "loaded from extensions.",
-      resource_url.spec().c_str());
-    frame->addMessageToConsole(
-        blink::WebConsoleMessage(blink::WebConsoleMessage::LevelError,
-                                  blink::WebString::fromUTF8(message)));
-    return false;
   }
 
   return true;

@@ -67,7 +67,7 @@ Routine *routine = function(L"one");
 Finally, we can obtain the function pointer to the entry point of the routine, and call it:
 
 ```C++
-int (*callable)() = (int(*)())function.getEntry();
+int (*callable)() = (int(*)())routine->getEntry();
 
 int result = callable();
 assert(result == 1);
@@ -109,7 +109,7 @@ Note that bytes are unsigned unless prefixed with S, while larger integers are s
 
 These scalar types support all of the C++ arithmetic operations.
 
-Reactor also supports several vector types. For example ```Float4``` is a vector of four floats. They support a select number of C++ operators, and several "intrinsic" functions such as ```Max()``` to compute the element-wise maximum and return a bit mask. Check [Nucleus.hpp](../src/Reactor/Nucleus.hpp) for all the types, operators and intrinsics.
+Reactor also supports several vector types. For example ```Float4``` is a vector of four floats. They support a select number of C++ operators, and several "intrinsic" functions such as ```Max()``` to compute the element-wise maximum and return a bit mask. Check [Reactor.hpp](../src/Reactor/Reactor.hpp) for all the types, operators and intrinsics.
 
 ### Casting and Reinterpreting
 
@@ -149,20 +149,20 @@ Pointers also use a template class:
 Function<Int(Pointer<Int>)> function;
 {
     Pointer<Int> x = function.Arg<0>();
-   
+
     Int dereference = *x;
-   
+
     Return(dereference);
 }
 ```
 
-Pointer arithmetic is only supported on Pointer<Byte>, and can be used to address structure fields:
+Pointer arithmetic is only supported on ```Pointer<Byte>```, and can be used to access structure fields:
 
 ```C++
 struct S
 {
     int x;
-    int y;    
+    int y;
 };
 
 Function<Int(Pointer<Byte>)> function;

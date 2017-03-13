@@ -11,6 +11,8 @@ from telemetry.internal.browser import browser_finder
 from telemetry.internal.browser import extension_to_load
 from telemetry.testing import options_for_unittests
 
+import py_utils
+
 
 class CrOSTestCase(unittest.TestCase):
   def setUp(self):
@@ -36,8 +38,7 @@ class CrOSTestCase(unittest.TestCase):
       assert os.path.isdir(extension_path)
       self._load_extension = extension_to_load.ExtensionToLoad(
           path=extension_path,
-          browser_type=options.browser_type,
-          is_component=True)
+          browser_type=options.browser_type)
       options.browser_options.extensions_to_load = [self._load_extension]
 
     browser_to_create = browser_finder.FindBrowser(options)
@@ -78,5 +79,5 @@ class CrOSTestCase(unittest.TestCase):
           window.__login_status = s;
         });
     ''')
-    return util.WaitFor(
+    return py_utils.WaitFor(
         lambda: extension.EvaluateJavaScript('window.__login_status'), 10)

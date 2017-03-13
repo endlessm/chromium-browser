@@ -14,19 +14,21 @@ AutoAdvancingVirtualTimeDomain::AutoAdvancingVirtualTimeDomain(
 
 AutoAdvancingVirtualTimeDomain::~AutoAdvancingVirtualTimeDomain() {}
 
-bool AutoAdvancingVirtualTimeDomain::MaybeAdvanceTime() {
+base::Optional<base::TimeDelta>
+AutoAdvancingVirtualTimeDomain::DelayTillNextTask(LazyNow* lazy_now) {
   base::TimeTicks run_time;
-  if (!can_advance_virtual_time_ || !NextScheduledRunTime(&run_time)) {
-    return false;
-  }
+  if (!can_advance_virtual_time_ || !NextScheduledRunTime(&run_time))
+    return base::Optional<base::TimeDelta>();
+
   AdvanceTo(run_time);
-  return true;
+  return base::TimeDelta();  // Makes DoWork post an immediate continuation.
 }
 
 void AutoAdvancingVirtualTimeDomain::RequestWakeup(base::TimeTicks now,
                                                    base::TimeDelta delay) {
-  base::TimeTicks dummy;
-  if (can_advance_virtual_time_ && !NextScheduledRunTime(&dummy))
+  // Avoid posting pointless DoWorks.  I.e. if the time domain has more then one
+  // scheduled wake up then we don't need to do anything.
+  if (can_advance_virtual_time_ && NumberOfScheduledWakeups() == 1u)
     RequestDoWork();
 }
 

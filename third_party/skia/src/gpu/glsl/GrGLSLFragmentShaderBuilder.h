@@ -8,8 +8,8 @@
 #ifndef GrGLSLFragmentShaderBuilder_DEFINED
 #define GrGLSLFragmentShaderBuilder_DEFINED
 
+#include "GrBlend.h"
 #include "GrGLSLShaderBuilder.h"
-
 #include "GrProcessor.h"
 
 class GrRenderTarget;
@@ -29,8 +29,7 @@ public:
      * if code is added that uses one of these features without calling enableFeature()
      */
     enum GLSLFeature {
-        kStandardDerivatives_GLSLFeature = kLastGLSLPrivateFeature + 1,
-        kPixelLocalStorage_GLSLFeature,
+        kPixelLocalStorage_GLSLFeature = kLastGLSLPrivateFeature + 1,
         kMultisampleInterpolation_GLSLFeature
     };
 
@@ -203,7 +202,7 @@ private:
     }
 #endif
 
-    static const char* DeclaredColorOutputName() { return "fsColorOut"; }
+    static const char* DeclaredColorOutputName() { return "sk_FragColor"; }
     static const char* DeclaredSecondaryColorOutputName() { return "fsSecondaryColorOut"; }
 
     GrSurfaceOrigin getSurfaceOrigin() const;

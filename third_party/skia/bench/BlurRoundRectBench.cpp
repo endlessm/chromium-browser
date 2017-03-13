@@ -17,7 +17,6 @@
 #include "SkRRect.h"
 #include "SkRect.h"
 #include "SkString.h"
-#include "SkXfermode.h"
 
 // Large blurred RR appear frequently on web pages. This benchmark measures our
 // performance in this case.
@@ -45,7 +44,7 @@ public:
             SkLayerDrawLooper::LayerInfo info;
             info.fPaintBits = SkLayerDrawLooper::kMaskFilter_Bit
                               | SkLayerDrawLooper::kColorFilter_Bit;
-            info.fColorMode = SkXfermode::kSrc_Mode;
+            info.fColorMode = SkBlendMode::kSrc;
             info.fOffset = SkPoint::Make(SkIntToScalar(-1), SkIntToScalar(0));
             info.fPostTranslate = false;
             SkPaint* paint = looperBuilder.addLayerOnTop(info);
@@ -53,7 +52,7 @@ public:
                                                         SkBlurMask::ConvertRadiusToSigma(0.5),
                                                         SkBlurMaskFilter::kHighQuality_BlurFlag));
             paint->setColorFilter(SkColorFilter::MakeModeFilter(SK_ColorLTGRAY,
-                                                                SkXfermode::kSrcIn_Mode));
+                                                                SkBlendMode::kSrcIn));
             paint->setColor(SK_ColorGRAY);
         }
         {

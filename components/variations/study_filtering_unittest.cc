@@ -130,17 +130,27 @@ TEST(VariationsStudyFilteringTest, CheckStudyFormFactor) {
 TEST(VariationsStudyFilteringTest, CheckStudyLocale) {
   struct {
     const char* filter_locales;
+    const char* exclude_locales;
     bool en_us_result;
     bool en_ca_result;
     bool fr_result;
   } test_cases[] = {
-    {"en-US", true, false, false},
-    {"en-US,en-CA,fr", true, true, true},
-    {"en-US,en-CA,en-GB", true, true, false},
-    {"en-GB,en-CA,en-US", true, true, false},
-    {"ja,kr,vi", false, false, false},
-    {"fr-CA", false, false, false},
-    {"", true, true, true},
+      {"en-US", "", true, false, false},
+      // Tests that locale overrides exclude_locale, when both are given. This
+      // should not occur in practice though.
+      {"en-US", "en-US", true, false, false},
+      {"en-US,en-CA,fr", "", true, true, true},
+      {"en-US,en-CA,en-GB", "", true, true, false},
+      {"en-GB,en-CA,en-US", "", true, true, false},
+      {"ja,kr,vi", "", false, false, false},
+      {"fr-CA", "", false, false, false},
+      {"", "", true, true, true},
+      {"", "en-US", false, true, true},
+      {"", "en-US,en-CA,fr", false, false, false},
+      {"", "en-US,en-CA,en-GB", false, false, true},
+      {"", "en-GB,en-CA,en-US", false, false, true},
+      {"", "ja,kr,vi", true, true, true},
+      {"", "fr-CA", true, true, true},
   };
 
   for (size_t i = 0; i < arraysize(test_cases); ++i) {
@@ -149,6 +159,10 @@ TEST(VariationsStudyFilteringTest, CheckStudyLocale) {
              test_cases[i].filter_locales, ",",
              base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL))
       filter.add_locale(locale);
+    for (const std::string& exclude_locale :
+         base::SplitString(test_cases[i].exclude_locales, ",",
+                           base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL))
+      filter.add_exclude_locale(exclude_locale);
     EXPECT_EQ(test_cases[i].en_us_result,
               internal::CheckStudyLocale(filter, "en-US"));
     EXPECT_EQ(test_cases[i].en_ca_result,
@@ -213,9 +227,11 @@ TEST(VariationsStudyFilteringTest, CheckStudyStartDate) {
     const base::Time start_date;
     bool expected_result;
   } start_test_cases[] = {
-    { now - delta, true },
-    { now, true },
-    { now + delta, false },
+      {now - delta, true},
+      // Note, the proto start_date is truncated to seconds, but the reference
+      // date isn't.
+      {now, true},
+      {now + delta, false},
   };
 
   Study_Filter filter;
@@ -228,6 +244,29 @@ TEST(VariationsStudyFilteringTest, CheckStudyStartDate) {
     const bool result = internal::CheckStudyStartDate(filter, now);
     EXPECT_EQ(start_test_cases[i].expected_result, result)
         << "Case " << i << " failed!";
+  }
+}
+
+TEST(VariationsStudyFilteringTest, CheckStudyEndDate) {
+  const base::Time now = base::Time::Now();
+  const base::TimeDelta delta = base::TimeDelta::FromHours(1);
+  const struct {
+    const base::Time end_date;
+    bool expected_result;
+  } start_test_cases[] = {
+      {now - delta, false}, {now + delta, true},
+  };
+
+  Study_Filter filter;
+
+  // End date not set should result in true.
+  EXPECT_TRUE(internal::CheckStudyEndDate(filter, now));
+
+  for (size_t i = 0; i < arraysize(start_test_cases); ++i) {
+    filter.set_end_date(TimeToProtoTime(start_test_cases[i].end_date));
+    const bool result = internal::CheckStudyEndDate(filter, now);
+    EXPECT_EQ(start_test_cases[i].expected_result, result) << "Case " << i
+                                                           << " failed!";
   }
 }
 
@@ -559,8 +598,9 @@ TEST(VariationsStudyFilteringTest, ValidateStudy) {
   study.mutable_filter()->set_max_version("2.3.4");
   EXPECT_TRUE(processed_study.Init(&study, false));
 
+  // A blank default study is allowed.
   study.clear_default_experiment_name();
-  EXPECT_FALSE(processed_study.Init(&study, false));
+  EXPECT_TRUE(processed_study.Init(&study, false));
 
   study.set_default_experiment_name("xyz");
   EXPECT_FALSE(processed_study.Init(&study, false));

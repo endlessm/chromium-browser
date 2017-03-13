@@ -232,13 +232,26 @@ void Range::collapse(bool toStart) {
 bool Range::isNodeFullyContained(Node& node) const {
   ContainerNode* parentNode = node.parentNode();
   int nodeIndex = node.nodeIndex();
-  return isPointInRange(parentNode, nodeIndex,
-                        IGNORE_EXCEPTION)  // starts in the middle of this
-                                           // range, or on the boundary points.
-         && isPointInRange(parentNode, nodeIndex + 1,
-                           IGNORE_EXCEPTION);  // ends in the middle of this
-                                               // range, or on the boundary
-                                               // points.
+  return isPointInRange(
+             parentNode, nodeIndex,
+             IGNORE_EXCEPTION_FOR_TESTING)  // starts in the middle of this
+                                            // range, or on the boundary points.
+         && isPointInRange(
+                parentNode, nodeIndex + 1,
+                IGNORE_EXCEPTION_FOR_TESTING);  // ends in the middle of this
+                                                // range, or on the boundary
+                                                // points.
+}
+
+bool Range::hasSameRoot(const Node& node) const {
+  if (node.document() != m_ownerDocument)
+    return false;
+  // commonAncestorContainer() is O(depth). We should avoid to call it in common
+  // cases.
+  if (node.isInTreeScope() && m_start.container()->isInTreeScope() &&
+      &node.treeScope() == &m_start.container()->treeScope())
+    return true;
+  return node.commonAncestor(*m_start.container(), NodeTraversal::parent);
 }
 
 bool Range::isPointInRange(Node* refNode,
@@ -250,10 +263,8 @@ bool Range::isPointInRange(Node* refNode,
     exceptionState.throwTypeError("The node provided is null.");
     return false;
   }
-
-  if (!refNode->inActiveDocument() || refNode->document() != m_ownerDocument) {
+  if (!hasSameRoot(*refNode))
     return false;
-  }
 
   checkNodeWOffset(refNode, offset, exceptionState);
   if (exceptionState.hadException())
@@ -275,16 +286,10 @@ short Range::comparePoint(Node* refNode,
   // refNode node and an offset within the node is before, same as, or after the
   // range respectively.
 
-  if (!refNode->inActiveDocument()) {
-    exceptionState.throwDOMException(
-        WrongDocumentError, "The node provided is not in an active document.");
-    return 0;
-  }
-
-  if (refNode->document() != m_ownerDocument) {
+  if (!hasSameRoot(*refNode)) {
     exceptionState.throwDOMException(
         WrongDocumentError,
-        "The node provided is not in this Range's Document.");
+        "The node provided and the Range are not in the same tree.");
     return 0;
   }
 
@@ -385,7 +390,7 @@ short Range::compareBoundaryPoints(const RangeBoundaryPoint& boundaryA,
 }
 
 bool Range::boundaryPointsValid() const {
-  TrackExceptionState exceptionState;
+  DummyExceptionStateForTesting exceptionState;
   return compareBoundaryPoints(m_start, m_end, exceptionState) <= 0 &&
          !exceptionState.hadException();
 }
@@ -399,28 +404,16 @@ void Range::deleteContents(ExceptionState& exceptionState) {
   }
 }
 
-static bool nodeValidForIntersects(Node* refNode,
-                                   Document* expectedDocument,
-                                   ExceptionState& exceptionState) {
+bool Range::intersectsNode(Node* refNode, ExceptionState& exceptionState) {
+  // http://developer.mozilla.org/en/docs/DOM:range.intersectsNode
+  // Returns a bool if the node intersects the range.
   if (!refNode) {
     // FIXME: Generated bindings code never calls with null, and neither should
     // other callers!
     exceptionState.throwTypeError("The node provided is null.");
     return false;
   }
-
-  if (!refNode->inActiveDocument() || refNode->document() != expectedDocument) {
-    // Firefox doesn't throw an exception for these cases; it returns false.
-    return false;
-  }
-
-  return true;
-}
-
-bool Range::intersectsNode(Node* refNode, ExceptionState& exceptionState) {
-  // http://developer.mozilla.org/en/docs/DOM:range.intersectsNode
-  // Returns a bool if the node intersects the range.
-  if (!nodeValidForIntersects(refNode, m_ownerDocument.get(), exceptionState))
+  if (!hasSameRoot(*refNode))
     return false;
 
   ContainerNode* parentNode = refNode->parentNode();
@@ -442,50 +435,6 @@ bool Range::intersectsNode(Node* refNode, ExceptionState& exceptionState) {
       &&
       comparePoint(parentNode, nodeIndex + 1, exceptionState) >
           0) {  // ends after end
-    return false;
-  }
-
-  return true;  // all other cases
-}
-
-bool Range::intersectsNode(Node* refNode,
-                           const Position& start,
-                           const Position& end,
-                           ExceptionState& exceptionState) {
-  // http://developer.mozilla.org/en/docs/DOM:range.intersectsNode
-  // Returns a bool if the node intersects the range.
-  if (!nodeValidForIntersects(refNode, start.document(), exceptionState))
-    return false;
-
-  ContainerNode* parentNode = refNode->parentNode();
-  if (!parentNode)
-    return true;
-
-  int nodeIndex = refNode->nodeIndex();
-
-  Node* startContainerNode = start.computeContainerNode();
-  int startOffset = start.computeOffsetInContainerNode();
-
-  if (compareBoundaryPoints(parentNode, nodeIndex, startContainerNode,
-                            startOffset,
-                            exceptionState) < 0  // starts before start
-      &&
-      compareBoundaryPoints(parentNode, nodeIndex + 1, startContainerNode,
-                            startOffset,
-                            exceptionState) < 0) {  // ends before start
-    DCHECK(!exceptionState.hadException());
-    return false;
-  }
-
-  Node* endContainerNode = end.computeContainerNode();
-  int endOffset = end.computeOffsetInContainerNode();
-
-  if (compareBoundaryPoints(parentNode, nodeIndex, endContainerNode, endOffset,
-                            exceptionState) > 0  // starts after end
-      &&
-      compareBoundaryPoints(parentNode, nodeIndex + 1, endContainerNode,
-                            endOffset, exceptionState) > 0) {  // ends after end
-    DCHECK(!exceptionState.hadException());
     return false;
   }
 
@@ -643,7 +592,7 @@ DocumentFragment* Range::processContents(ActionType action,
   if (processStart) {
     NodeVector nodes;
     for (Node* n = processStart; n && n != processEnd; n = n->nextSibling())
-      nodes.append(n);
+      nodes.push_back(n);
     processNodes(action, nodes, commonRoot, fragment, exceptionState);
   }
 
@@ -715,7 +664,7 @@ Node* Range::processContentsBetweenOffsets(ActionType action,
         n = n->nextSibling();
       for (unsigned i = startOffset; n && i < endOffset;
            i++, n = n->nextSibling())
-        nodes.append(n);
+        nodes.push_back(n);
 
       processNodes(action, nodes, container, result, exceptionState);
       break;
@@ -758,7 +707,7 @@ Node* Range::processAncestorsAndTheirSiblings(
   for (Node& runner : NodeTraversal::ancestorsOf(*container)) {
     if (runner == commonRoot)
       break;
-    ancestors.append(runner);
+    ancestors.push_back(runner);
   }
 
   Node* firstChildInAncestorToProcess = direction == ProcessContentsForward
@@ -784,7 +733,7 @@ Node* Range::processAncestorsAndTheirSiblings(
          child = (direction == ProcessContentsForward)
                      ? child->nextSibling()
                      : child->previousSibling())
-      nodes.append(child);
+      nodes.push_back(child);
 
     for (const auto& node : nodes) {
       Node* child = node.get();
@@ -827,6 +776,7 @@ DocumentFragment* Range::extractContents(ExceptionState& exceptionState) {
   if (exceptionState.hadException())
     return nullptr;
 
+  EventQueueScope scope;
   return processContents(EXTRACT_CONTENTS, exceptionState);
 }
 
@@ -1005,10 +955,7 @@ String Range::toString() const {
 }
 
 String Range::text() const {
-  // TODO(xiaochengh): The use of updateStyleAndLayoutIgnorePendingStylesheets
-  // needs to be audited.  see http://crbug.com/590369 for more details.
-  ownerDocument().updateStyleAndLayoutIgnorePendingStylesheets();
-
+  DCHECK(!m_ownerDocument->needsLayoutTreeUpdate());
   return plainText(EphemeralRange(this),
                    TextIteratorEmitsObjectReplacementCharacter);
 }
@@ -1625,7 +1572,7 @@ void Range::updateOwnerDocumentIfNeeded() {
 }
 
 static inline void boundaryTextNodeSplit(RangeBoundaryPoint& boundary,
-                                         Text& oldNode) {
+                                         const Text& oldNode) {
   Node* boundaryContainer = boundary.container();
   unsigned boundaryOffset = boundary.offset();
   if (boundary.childBefore() == &oldNode)
@@ -1635,7 +1582,7 @@ static inline void boundaryTextNodeSplit(RangeBoundaryPoint& boundary,
     boundary.set(oldNode.nextSibling(), boundaryOffset - oldNode.length(), 0);
 }
 
-void Range::didSplitTextNode(Text& oldNode) {
+void Range::didSplitTextNode(const Text& oldNode) {
   DCHECK_EQ(oldNode.document(), m_ownerDocument);
   DCHECK(oldNode.parentNode());
   DCHECK(oldNode.nextSibling());
@@ -1646,8 +1593,10 @@ void Range::didSplitTextNode(Text& oldNode) {
 }
 
 void Range::expand(const String& unit, ExceptionState& exceptionState) {
-  VisiblePosition start = createVisiblePositionDeprecated(startPosition());
-  VisiblePosition end = createVisiblePositionDeprecated(endPosition());
+  m_ownerDocument->updateStyleAndLayoutIgnorePendingStylesheets();
+
+  VisiblePosition start = createVisiblePosition(startPosition());
+  VisiblePosition end = createVisiblePosition(endPosition());
   if (unit == "word") {
     start = startOfWord(start);
     end = endOfWord(end);
@@ -1740,7 +1689,7 @@ FloatRect Range::boundingRect() const {
 
   // If all rects are empty, return the first rect.
   if (result.isEmpty() && !quads.isEmpty())
-    return quads.first().boundingBox();
+    return quads.front().boundingBox();
 
   return result;
 }

@@ -66,18 +66,31 @@ void MockBluetoothAdapter::AddMockDevice(
   mock_devices_.push_back(std::move(mock_device));
 }
 
+std::unique_ptr<MockBluetoothDevice> MockBluetoothAdapter::RemoveMockDevice(
+    const std::string& address) {
+  for (auto it = mock_devices_.begin(); it != mock_devices_.end(); ++it) {
+    if ((*it)->GetAddress() != address) {
+      continue;
+    }
+    std::unique_ptr<MockBluetoothDevice> removed_device = std::move(*it);
+    mock_devices_.erase(it);
+    return removed_device;
+  }
+  return nullptr;
+}
+
 BluetoothAdapter::ConstDeviceList MockBluetoothAdapter::GetConstMockDevices() {
   BluetoothAdapter::ConstDeviceList devices;
-  for (auto* it : mock_devices_) {
-    devices.push_back(it);
+  for (const auto& it : mock_devices_) {
+    devices.push_back(it.get());
   }
   return devices;
 }
 
 BluetoothAdapter::DeviceList MockBluetoothAdapter::GetMockDevices() {
   BluetoothAdapter::DeviceList devices;
-  for (auto* it : mock_devices_) {
-    devices.push_back(it);
+  for (const auto& it : mock_devices_) {
+    devices.push_back(it.get());
   }
   return devices;
 }

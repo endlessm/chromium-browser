@@ -7,7 +7,9 @@
 #include <memory>
 #include <string>
 
+#include "base/memory/ptr_util.h"
 #include "base/strings/stringprintf.h"
+#include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/infobars/infobar_service.h"
 #include "chrome/browser/net/spdyproxy/data_reduction_proxy_chrome_settings.h"
 #include "chrome/browser/net/spdyproxy/data_reduction_proxy_chrome_settings_factory.h"
@@ -16,11 +18,17 @@
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_test_utils.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_headers.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_pref_names.h"
+#include "components/offline_pages/core/offline_page_item.h"
+#include "components/offline_pages/core/request_header/offline_page_header.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/proxy_config/proxy_config_pref_names.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/test/web_contents_tester.h"
 #include "net/http/http_util.h"
+
+#if defined(OS_ANDROID)
+#include "chrome/browser/android/offline_pages/offline_page_tab_helper.h"
+#endif  // defined(OS_ANDROID)
 
 namespace {
 const char kTestUrl[] = "http://www.test.com/";
@@ -31,10 +39,16 @@ class PreviewsInfoBarTabHelperUnitTest
  protected:
   void SetUp() override {
     ChromeRenderViewHostTestHarness::SetUp();
+// Insert an OfflinePageTabHelper before PreviewsInfoBarTabHelper.
+#if defined(OS_ANDROID)
+    offline_pages::OfflinePageTabHelper::CreateForWebContents(web_contents());
+#endif  // defined(OS_ANDROID)
     InfoBarService::CreateForWebContents(web_contents());
     PreviewsInfoBarTabHelper::CreateForWebContents(web_contents());
     test_handle_ = content::NavigationHandle::CreateNavigationHandleForTesting(
         GURL(kTestUrl), main_rfh());
+    content::RenderFrameHostTester::For(main_rfh())
+        ->InitializeRenderFrameIfNeeded();
 
     drp_test_context_ =
         data_reduction_proxy::DataReductionProxyTestContext::Builder()
@@ -68,11 +82,15 @@ class PreviewsInfoBarTabHelperUnitTest
   void SimulateWillProcessResponse() {
     std::string headers = base::StringPrintf(
         "HTTP/1.1 200 OK\n%s: %s\n\n",
-        data_reduction_proxy::chrome_proxy_header(),
-        data_reduction_proxy::chrome_proxy_lite_page_directive());
+        data_reduction_proxy::chrome_proxy_content_transform_header(),
+        data_reduction_proxy::lite_page_directive());
     test_handle_->CallWillProcessResponseForTesting(
         main_rfh(),
         net::HttpUtil::AssembleRawHeaders(headers.c_str(), headers.size()));
+    SimulateCommit();
+  }
+
+  void SimulateCommit() {
     test_handle_->CallDidCommitNavigationForTesting(GURL(kTestUrl));
   }
 
@@ -103,3 +121,30 @@ TEST_F(PreviewsInfoBarTabHelperUnitTest, CreateLitePageInfoBar) {
 
   EXPECT_FALSE(infobar_tab_helper->displayed_preview_infobar());
 }
+
+#if defined(OS_ANDROID)
+TEST_F(PreviewsInfoBarTabHelperUnitTest, CreateOfflineInfoBar) {
+  PreviewsInfoBarTabHelper* infobar_tab_helper =
+      PreviewsInfoBarTabHelper::FromWebContents(web_contents());
+  EXPECT_FALSE(infobar_tab_helper->displayed_preview_infobar());
+
+  SimulateCommit();
+  offline_pages::OfflinePageItem item;
+  item.url = GURL(kTestUrl);
+  offline_pages::OfflinePageHeader header;
+  offline_pages::OfflinePageTabHelper::FromWebContents(web_contents())
+      ->SetOfflinePage(item, header, true);
+  CallDidFinishNavigation();
+
+  InfoBarService* infobar_service =
+      InfoBarService::FromWebContents(web_contents());
+  EXPECT_EQ(1U, infobar_service->infobar_count());
+  EXPECT_TRUE(infobar_tab_helper->displayed_preview_infobar());
+
+  // Navigate to reset the displayed state.
+  content::WebContentsTester::For(web_contents())
+      ->NavigateAndCommit(GURL(kTestUrl));
+
+  EXPECT_FALSE(infobar_tab_helper->displayed_preview_infobar());
+}
+#endif  // defined(OS_ANDROID)

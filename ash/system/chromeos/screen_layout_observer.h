@@ -17,8 +17,6 @@
 
 namespace ash {
 
-class DisplayView;
-
 // ScreenLayoutObserver is responsible to send notification to users when screen
 // resolution changes or screen rotation changes.
 class ASH_EXPORT ScreenLayoutObserver : public WmDisplayObserver {
@@ -28,6 +26,12 @@ class ASH_EXPORT ScreenLayoutObserver : public WmDisplayObserver {
 
   // Overridden from WmDisplayObserver:
   void OnDisplayConfigurationChanged() override;
+
+  // Notifications are shown in production and are not shown in unit tests.
+  // Allow individual unit tests to show notifications.
+  void set_show_notifications_for_testing(bool show) {
+    show_notifications_for_testing = show;
+  }
 
  private:
   friend class ScreenLayoutObserverTest;
@@ -55,6 +59,8 @@ class ASH_EXPORT ScreenLayoutObserver : public WmDisplayObserver {
                                   const base::string16& additional_message);
 
   DisplayInfoMap display_info_;
+
+  bool show_notifications_for_testing = true;
 
   DISALLOW_COPY_AND_ASSIGN(ScreenLayoutObserver);
 };

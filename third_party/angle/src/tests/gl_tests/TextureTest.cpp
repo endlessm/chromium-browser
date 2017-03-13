@@ -29,7 +29,7 @@ GLColor SliceFormatColor(GLenum format, GLColor full)
         case GL_RGBA:
             return full;
         default:
-            UNREACHABLE();
+            EXPECT_TRUE(false);
             return GLColor::white;
     }
 }
@@ -1194,6 +1194,16 @@ TEST_P(Texture2DTest, NegativeAPISubImage)
     const GLubyte *pixels[20] = { 0 };
     glTexSubImage2D(GL_TEXTURE_2D, 0, 1, 1, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
     EXPECT_GL_ERROR(GL_INVALID_VALUE);
+
+    if (extensionEnabled("GL_EXT_texture_storage"))
+    {
+        // Create a 1-level immutable texture.
+        glTexStorage2DEXT(GL_TEXTURE_2D, 1, GL_RGBA8, 2, 2);
+
+        // Try calling sub image on the second level.
+        glTexSubImage2D(GL_TEXTURE_2D, 1, 1, 1, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+        EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+    }
 }
 
 // Test that querying GL_TEXTURE_BINDING* doesn't cause an unexpected error.
@@ -2741,6 +2751,13 @@ TEST_P(Texture2DTestES3, TextureRGB9E5ImplicitAlpha1)
 // ES 3.0.4 table 3.24
 TEST_P(Texture2DTestES3, TextureCOMPRESSEDRGB8ETC2ImplicitAlpha1)
 {
+    if (IsOSX() && IsIntel() && IsOpenGL())
+    {
+        // Seems to fail on OSX 10.12 Intel.
+        std::cout << "Test skipped on OSX Intel." << std::endl;
+        return;
+    }
+
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, mTexture2D);
     glCompressedTexImage2D(GL_TEXTURE_2D, 0, GL_COMPRESSED_RGB8_ETC2, 1, 1, 0, 8, nullptr);
@@ -2755,10 +2772,11 @@ TEST_P(Texture2DTestES3, TextureCOMPRESSEDRGB8ETC2ImplicitAlpha1)
 // ES 3.0.4 table 3.24
 TEST_P(Texture2DTestES3, TextureCOMPRESSEDSRGB8ETC2ImplicitAlpha1)
 {
-    if (IsIntel() && IsLinux())
+    if (IsIntel() && IsOpenGL() && (IsLinux() || IsOSX()))
     {
         // TODO(cwallez): Fix on Linux Intel drivers (http://anglebug.com/1346)
-        std::cout << "Test disabled on Linux Intel OpenGL." << std::endl;
+        // Also seems to fail on OSX 10.12 Intel.
+        std::cout << "Test disabled on Linux and OSX Intel OpenGL." << std::endl;
         return;
     }
 
@@ -3520,10 +3538,12 @@ T UNorm(double value)
 // Test rendering a depth texture with mipmaps.
 TEST_P(Texture2DTestES3, DepthTexturesWithMipmaps)
 {
-    //TODO(cwallez) this is failing on Intel Win7 OpenGL
-    if (IsIntel() && IsWindows() && IsOpenGL())
+    // TODO(cwallez) this is failing on Intel Win7 OpenGL.
+    // TODO(zmo) this is faling on Win Intel HD 530 Debug.
+    // http://anglebugs.com/1706
+    if (IsIntel() && IsWindows())
     {
-        std::cout << "Test skipped on Intel OpenGL." << std::endl;
+        std::cout << "Test skipped on Win Intel." << std::endl;
         return;
     }
 
@@ -3647,6 +3667,31 @@ TEST_P(Texture2DTestES3, StaleUnpackData)
 
     ASSERT_GL_NO_ERROR();
     EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::green);
+}
+
+// This test covers a D3D format redefinition bug for 3D textures. The base level format was not
+// being properly checked, and the texture storage of the previous texture format was persisting.
+// This would result in an ASSERT in debug and incorrect rendering in release.
+// See http://anglebug.com/1609 and WebGL 2 test conformance2/misc/views-with-offsets.html.
+TEST_P(Texture3DTestES3, FormatRedefinitionBug)
+{
+    GLTexture tex;
+    glBindTexture(GL_TEXTURE_3D, tex.get());
+    glTexImage3D(GL_TEXTURE_3D, 0, GL_RGBA8, 1, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+
+    GLFramebuffer framebuffer;
+    glBindFramebuffer(GL_FRAMEBUFFER, framebuffer.get());
+    glFramebufferTextureLayer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, tex.get(), 0, 0);
+
+    glCheckFramebufferStatus(GL_FRAMEBUFFER);
+
+    std::vector<uint8_t> pixelData(100, 0);
+
+    glTexImage3D(GL_TEXTURE_3D, 0, GL_RGB565, 1, 1, 1, 0, GL_RGB, GL_UNSIGNED_SHORT_5_6_5, nullptr);
+    glTexSubImage3D(GL_TEXTURE_3D, 0, 0, 0, 0, 1, 1, 1, GL_RGB, GL_UNSIGNED_SHORT_5_6_5,
+                    pixelData.data());
+
+    ASSERT_GL_NO_ERROR();
 }
 
 // Use this to select which configurations (e.g. which renderer, which GLES major version) these tests should be run against.

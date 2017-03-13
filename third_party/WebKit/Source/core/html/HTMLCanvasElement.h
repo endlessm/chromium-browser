@@ -29,6 +29,7 @@
 #define HTMLCanvasElement_h
 
 #include "bindings/core/v8/ScriptValue.h"
+#include "bindings/core/v8/ScriptWrappableVisitor.h"
 #include "core/CoreExport.h"
 #include "core/dom/ContextLifecycleObserver.h"
 #include "core/dom/DOMTypedArray.h"
@@ -45,12 +46,11 @@
 #include "platform/graphics/GraphicsTypes.h"
 #include "platform/graphics/GraphicsTypes3D.h"
 #include "platform/graphics/ImageBufferClient.h"
+#include "platform/graphics/OffscreenCanvasPlaceholder.h"
 #include "platform/heap/Handle.h"
 #include <memory>
 
 #define CanvasDefaultInterpolationQuality InterpolationLow
-
-class SkColorSpace;
 
 namespace blink {
 
@@ -67,19 +67,21 @@ class ImageBuffer;
 class ImageBufferSurface;
 class ImageData;
 class IntSize;
-class WebGraphicsContext3DProvider;
 
 class
     CanvasRenderingContext2DOrWebGLRenderingContextOrWebGL2RenderingContextOrImageBitmapRenderingContext;
 typedef CanvasRenderingContext2DOrWebGLRenderingContextOrWebGL2RenderingContextOrImageBitmapRenderingContext
     RenderingContext;
 
-class CORE_EXPORT HTMLCanvasElement final : public HTMLElement,
-                                            public ContextLifecycleObserver,
-                                            public PageVisibilityObserver,
-                                            public CanvasImageSource,
-                                            public ImageBufferClient,
-                                            public ImageBitmapSource {
+class CORE_EXPORT HTMLCanvasElement final
+    : public HTMLElement,
+      public ContextLifecycleObserver,
+      public PageVisibilityObserver,
+      public CanvasImageSource,
+      public CanvasSurfaceLayerBridgeObserver,
+      public ImageBufferClient,
+      public ImageBitmapSource,
+      public OffscreenCanvasPlaceholder {
   DEFINE_WRAPPERTYPEINFO();
   USING_GARBAGE_COLLECTED_MIXIN(HTMLCanvasElement);
   USING_PRE_FINALIZER(HTMLCanvasElement, dispose);
@@ -108,12 +110,6 @@ class CORE_EXPORT HTMLCanvasElement final : public HTMLElement,
 
   bool isPaintable() const;
 
-  enum EncodeReason {
-    EncodeReasonToDataURL = 0,
-    EncodeReasonToBlobCallback = 1,
-    NumberOfEncodeReasons
-  };
-  static String toEncodingMimeType(const String& mimeType, const EncodeReason);
   String toDataURL(const String& mimeType,
                    const ScriptValue& qualityArgument,
                    ExceptionState&) const;
@@ -149,7 +145,9 @@ class CORE_EXPORT HTMLCanvasElement final : public HTMLElement,
 
   void ensureUnacceleratedImageBuffer();
   ImageBuffer* buffer() const;
-  PassRefPtr<Image> copiedImage(SourceDrawingBuffer, AccelerationHint) const;
+  PassRefPtr<Image> copiedImage(SourceDrawingBuffer,
+                                AccelerationHint,
+                                SnapshotReason) const;
   void clearCopiedImage();
 
   SecurityOrigin* getSecurityOrigin() const;
@@ -172,8 +170,8 @@ class CORE_EXPORT HTMLCanvasElement final : public HTMLElement,
 
   InsertionNotificationRequest insertedInto(ContainerNode*) override;
 
-  // ContextLifecycleObserver (and PageVisibilityObserver!!!) implementation
-  void contextDestroyed() override;
+  // ContextLifecycleObserver and PageVisibilityObserver implementation
+  void contextDestroyed(ExecutionContext*) override;
 
   // PageVisibilityObserver implementation
   void pageVisibilityChanged() override;
@@ -190,6 +188,9 @@ class CORE_EXPORT HTMLCanvasElement final : public HTMLElement,
   bool isAccelerated() const override;
   int sourceWidth() override { return m_size.width(); }
   int sourceHeight() override { return m_size.height(); }
+
+  // CanvasSurfaceLayerBridgeObserver implementation
+  void OnWebLayerReplaced() override;
 
   // ImageBufferClient implementation
   void notifySurfaceInvalid() override;
@@ -233,9 +234,11 @@ class CORE_EXPORT HTMLCanvasElement final : public HTMLElement,
   CanvasSurfaceLayerBridge* surfaceLayerBridge() const {
     return m_surfaceLayerBridge.get();
   }
-  bool createSurfaceLayer();
+  void createLayer();
 
   void detachContext() { m_context = nullptr; }
+
+  void willDrawImageTo2DContext(CanvasImageSource*);
 
  protected:
   void didMoveToNewDocument(Document& oldDocument) override;
@@ -249,33 +252,29 @@ class CORE_EXPORT HTMLCanvasElement final : public HTMLElement,
   static ContextFactoryVector& renderingContextFactories();
   static CanvasRenderingContextFactory* getRenderingContextFactory(int);
 
-  bool shouldAccelerate(const IntSize&) const;
+  enum AccelerationCriteria {
+    NormalAccelerationCriteria,
+    IgnoreResourceLimitCriteria,
+  };
+  bool shouldAccelerate(AccelerationCriteria) const;
 
-  void parseAttribute(const QualifiedName&,
-                      const AtomicString&,
-                      const AtomicString&) override;
+  void parseAttribute(const AttributeModificationParams&) override;
   LayoutObject* createLayoutObject(const ComputedStyle&) override;
   bool areAuthorShadowsAllowed() const override { return false; }
 
   void reset();
 
   std::unique_ptr<ImageBufferSurface> createWebGLImageBufferSurface(
-      const IntSize& deviceSize,
-      OpacityMode,
-      sk_sp<SkColorSpace>);
+      OpacityMode);
   std::unique_ptr<ImageBufferSurface> createAcceleratedImageBufferSurface(
-      const IntSize& deviceSize,
       OpacityMode,
-      sk_sp<SkColorSpace>,
       int* msaaSampleCount);
   std::unique_ptr<ImageBufferSurface> createUnacceleratedImageBufferSurface(
-      const IntSize& deviceSize,
-      OpacityMode,
-      sk_sp<SkColorSpace>);
+      OpacityMode);
   void createImageBuffer();
   void createImageBufferInternal(
       std::unique_ptr<ImageBufferSurface> externalSurface);
-  bool shouldUseDisplayList(const IntSize& deviceSize);
+  bool shouldUseDisplayList();
 
   void setSurfaceSize(const IntSize&);
 
@@ -291,7 +290,7 @@ class CORE_EXPORT HTMLCanvasElement final : public HTMLElement,
 
   IntSize m_size;
 
-  Member<CanvasRenderingContext> m_context;
+  TraceWrapperMember<CanvasRenderingContext> m_context;
 
   bool m_ignoreReset;
   FloatRect m_dirtyRect;

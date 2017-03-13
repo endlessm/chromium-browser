@@ -33,6 +33,7 @@
 
 #include "core/workers/WorkerReportingProxy.h"
 #include "platform/heap/Handle.h"
+#include "platform/heap/HeapAllocator.h"
 #include "platform/weborigin/KURL.h"
 #include "public/platform/WebString.h"
 #include "public/web/modules/serviceworker/WebServiceWorkerContextProxy.h"
@@ -41,12 +42,15 @@
 
 namespace blink {
 
-class ConsoleMessage;
 class Document;
+class FetchEvent;
 class ServiceWorkerGlobalScope;
+class WebDataConsumerHandle;
 class WebEmbeddedWorkerImpl;
 class WebServiceWorkerContextClient;
+struct WebServiceWorkerError;
 class WebServiceWorkerRequest;
+class WebURLResponse;
 
 // This class is created and destructed on the main thread, but live most
 // of its time as a resident of the worker thread.
@@ -88,25 +92,36 @@ class ServiceWorkerGlobalScopeProxy final
       const WebSecurityOrigin& sourceOrigin,
       const WebMessagePortChannelArray&,
       std::unique_ptr<WebServiceWorker::Handle>) override;
-  void dispatchFetchEvent(int responseID,
-                          int eventFinishID,
-                          const WebServiceWorkerRequest&) override;
-  void dispatchForeignFetchEvent(int responseID,
-                                 int eventFinishID,
+  void dispatchFetchEvent(int fetchEventID,
+                          const WebServiceWorkerRequest&,
+                          bool navigationPreloadSent) override;
+  void dispatchForeignFetchEvent(int fetchEventID,
                                  const WebServiceWorkerRequest&) override;
   void dispatchInstallEvent(int) override;
   void dispatchNotificationClickEvent(int,
                                       const WebString& notificationID,
                                       const WebNotificationData&,
-                                      int actionIndex) override;
+                                      int actionIndex,
+                                      const WebString& reply) override;
   void dispatchNotificationCloseEvent(int,
                                       const WebString& notificationID,
                                       const WebNotificationData&) override;
   void dispatchPushEvent(int, const WebString& data) override;
   void dispatchSyncEvent(int, const WebString& tag, LastChanceOption) override;
+  void dispatchPaymentRequestEvent(int,
+                                   const WebPaymentAppRequestData&) override;
   bool hasFetchEventHandler() override;
+  void onNavigationPreloadResponse(
+      int fetchEventID,
+      std::unique_ptr<WebURLResponse>,
+      std::unique_ptr<WebDataConsumerHandle>) override;
+  void onNavigationPreloadError(
+      int fetchEventID,
+      std::unique_ptr<WebServiceWorkerError>) override;
 
   // WorkerReportingProxy overrides:
+  void countFeature(UseCounter::Feature) override;
+  void countDeprecation(UseCounter::Feature) override;
   void reportException(const String& errorMessage,
                        std::unique_ptr<SourceLocation>,
                        int exceptionId) override;
@@ -115,6 +130,7 @@ class ServiceWorkerGlobalScopeProxy final
                             const String& message,
                             SourceLocation*) override;
   void postMessageToPageInspector(const String&) override;
+  ParentFrameTaskRunners* getParentFrameTaskRunners() override;
   void didCreateWorkerGlobalScope(WorkerOrWorkletGlobalScope*) override;
   void didInitializeWorkerContext() override;
   void willEvaluateWorkerScript(size_t scriptSize,
@@ -148,6 +164,10 @@ class ServiceWorkerGlobalScopeProxy final
   // as part of its finalization.
   WebEmbeddedWorkerImpl* m_embeddedWorker;
   Member<Document> m_document;
+
+  Member<ParentFrameTaskRunners> m_parentFrameTaskRunners;
+
+  HeapHashMap<int, Member<FetchEvent>> m_pendingPreloadFetchEvents;
 
   WebServiceWorkerContextClient* m_client;
 

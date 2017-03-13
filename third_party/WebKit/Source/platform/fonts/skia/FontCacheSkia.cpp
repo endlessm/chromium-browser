@@ -1,3 +1,4 @@
+
 /*
  * Copyright (c) 2006, 2007, 2008, 2009 Google Inc. All rights reserved.
  *
@@ -53,7 +54,7 @@
 static sk_sp<SkTypeface> typefaceForFontconfigInterfaceIdAndTtcIndex(
     int fontconfigInterfaceId,
     int ttcIndex) {
-  SkAutoTUnref<SkFontConfigInterface> fci(SkFontConfigInterface::RefGlobal());
+  sk_sp<SkFontConfigInterface> fci(SkFontConfigInterface::RefGlobal());
   SkFontConfigInterface::FontIdentity fontIdentity;
   fontIdentity.fID = fontconfigInterfaceId;
   fontIdentity.fTTCIndex = ttcIndex;
@@ -62,6 +63,10 @@ static sk_sp<SkTypeface> typefaceForFontconfigInterfaceIdAndTtcIndex(
 #endif
 
 namespace blink {
+
+AtomicString toAtomicString(const SkString& str) {
+  return AtomicString::fromUTF8(str.c_str(), str.size());
+}
 
 #if OS(ANDROID) || OS(LINUX)
 // Android special locale for retrieving the color emoji font
@@ -103,7 +108,7 @@ AtomicString FontCache::getFamilyNameForCharacter(
 
   SkString skiaFamilyName;
   typeface->getFamilyName(&skiaFamilyName);
-  return skiaFamilyName.c_str();
+  return toAtomicString(skiaFamilyName);
 }
 #endif
 
@@ -211,6 +216,7 @@ sk_sp<SkTypeface> FontCache::createTypeface(
 #endif
 
   AtomicString family = creationParams.family();
+  DCHECK_NE(family, FontFamilyNames::system_ui);
   // If we're creating a fallback font (e.g. "-webkit-monospace"), convert the
   // name into the fallback name (like "monospace") that fontconfig understands.
   if (!family.length() || family.startsWith("-webkit-")) {
@@ -256,7 +262,7 @@ std::unique_ptr<FontPlatformData> FontCache::createFontPlatformData(
   if (!tf)
     return nullptr;
 
-  return wrapUnique(new FontPlatformData(
+  return WTF::wrapUnique(new FontPlatformData(
       tf, name.data(), fontSize, (numericFontWeight(fontDescription.weight()) >
                                   200 + tf->fontStyle().weight()) ||
                                      fontDescription.isSyntheticBold(),

@@ -53,7 +53,8 @@ CSSVariableData* CSSVariableResolver::valueForCustomProperty(
     if (m_inheritedVariables)
       variableData = m_inheritedVariables->getVariable(name);
   } else {
-    variableData = m_nonInheritedVariables->getVariable(name);
+    if (m_nonInheritedVariables)
+      variableData = m_nonInheritedVariables->getVariable(name);
   }
   if (!variableData)
     return registration ? registration->initialVariableData() : nullptr;
@@ -70,10 +71,7 @@ CSSVariableData* CSSVariableResolver::valueForCustomProperty(
   const CSSValue* parsedValue = nullptr;
   if (newVariableData) {
     parsedValue = newVariableData->parseForSyntax(registration->syntax());
-    if (parsedValue)
-      parsedValue = &StyleBuilderConverter::convertRegisteredPropertyValue(
-          m_styleResolverState, *parsedValue);
-    else
+    if (!parsedValue)
       newVariableData = nullptr;
   }
   if (registration->inherits()) {
@@ -187,7 +185,7 @@ bool CSSVariableResolver::resolveTokenRange(CSSParserTokenRange range,
                RuntimeEnabledFeatures::cssApplyAtRulesEnabled()) {
       resolveApplyAtRule(range, result);
     } else {
-      result.append(range.consume());
+      result.push_back(range.consume());
     }
   }
   return success;
@@ -258,7 +256,7 @@ const CSSValue* CSSVariableResolver::resolvePendingSubstitutions(
     if (resolver.resolveTokenRange(
             shorthandValue->variableDataValue()->tokens(),
             disallowAnimationTainted, tokens, isAnimationTainted)) {
-      CSSParserContext context(HTMLStandardMode, 0);
+      CSSParserContext* context = CSSParserContext::create(HTMLStandardMode);
 
       HeapVector<CSSProperty, 256> parsedProperties;
 
@@ -301,9 +299,37 @@ void CSSVariableResolver::resolveVariableDefinitions(
   }
 }
 
+void CSSVariableResolver::computeRegisteredVariables(
+    const StyleResolverState& state) {
+  // const_cast is needed because Persistent<const ...> doesn't work properly.
+
+  StyleInheritedVariables* inheritedVariables =
+      state.style()->inheritedVariables();
+  if (inheritedVariables) {
+    for (auto& variable : inheritedVariables->m_registeredData) {
+      if (variable.value) {
+        variable.value = const_cast<CSSValue*>(
+            &StyleBuilderConverter::convertRegisteredPropertyValue(
+                state, *variable.value));
+      }
+    }
+  }
+
+  StyleNonInheritedVariables* nonInheritedVariables =
+      state.style()->nonInheritedVariables();
+  if (nonInheritedVariables) {
+    for (auto& variable : nonInheritedVariables->m_registeredData) {
+      if (variable.value) {
+        variable.value = const_cast<CSSValue*>(
+            &StyleBuilderConverter::convertRegisteredPropertyValue(
+                state, *variable.value));
+      }
+    }
+  }
+}
+
 CSSVariableResolver::CSSVariableResolver(const StyleResolverState& state)
-    : m_styleResolverState(state),
-      m_inheritedVariables(state.style()->inheritedVariables()),
+    : m_inheritedVariables(state.style()->inheritedVariables()),
       m_nonInheritedVariables(state.style()->nonInheritedVariables()),
       m_registry(state.document().propertyRegistry()) {}
 

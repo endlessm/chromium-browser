@@ -108,7 +108,7 @@ void LayoutTextFragment::transformText() {
   // version we will, potentially, screw up the first-letter settings where
   // we only use portions of the string.
   if (RefPtr<StringImpl> textToTransform = originalText())
-    LayoutText::setText(textToTransform.release(), true);
+    LayoutText::setText(std::move(textToTransform), true);
 }
 
 UChar LayoutTextFragment::previousCharacter() const {
@@ -121,8 +121,8 @@ UChar LayoutTextFragment::previousCharacter() const {
   return LayoutText::previousCharacter();
 }
 
-// If this is the layoutObject for a first-letter pseudoNode then we have to look
-// at the node for the remaining text to find our content.
+// If this is the layoutObject for a first-letter pseudoNode then we have to
+// look at the node for the remaining text to find our content.
 Text* LayoutTextFragment::associatedTextNode() const {
   Node* node = this->firstLetterPseudoElement();
   if (m_isRemainingTextLayoutObject || !node) {

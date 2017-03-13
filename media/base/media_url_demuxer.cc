@@ -5,13 +5,15 @@
 #include "media/base/media_url_demuxer.h"
 
 #include "base/bind.h"
+#include "base/single_thread_task_runner.h"
 
 namespace media {
 
 MediaUrlDemuxer::MediaUrlDemuxer(
     const scoped_refptr<base::SingleThreadTaskRunner>& task_runner,
-    const GURL& url)
-    : url_(url), task_runner_(task_runner) {}
+    const GURL& media_url,
+    const GURL& first_party_for_cookies)
+    : params_{media_url, first_party_for_cookies}, task_runner_(task_runner) {}
 
 MediaUrlDemuxer::~MediaUrlDemuxer() {}
 
@@ -21,8 +23,8 @@ DemuxerStream* MediaUrlDemuxer::GetStream(DemuxerStream::Type type) {
   return nullptr;
 }
 
-GURL MediaUrlDemuxer::GetUrl() const {
-  return url_;
+MediaUrlParams MediaUrlDemuxer::GetMediaUrlParams() const {
+  return params_;
 }
 
 DemuxerStreamProvider::Type MediaUrlDemuxer::GetType() const {
@@ -36,7 +38,7 @@ std::string MediaUrlDemuxer::GetDisplayName() const {
 void MediaUrlDemuxer::Initialize(DemuxerHost* host,
                                  const PipelineStatusCB& status_cb,
                                  bool enable_text_tracks) {
-  DVLOG(1) << __FUNCTION__;
+  DVLOG(1) << __func__;
   task_runner_->PostTask(FROM_HERE, base::Bind(status_cb, PIPELINE_OK));
 }
 

@@ -4,8 +4,9 @@
 
 #include "ash/wm/window_mirror_view.h"
 
-#include "ash/aura/wm_window_aura.h"
 #include "ash/common/wm/window_state.h"
+#include "ash/common/wm_window.h"
+#include "ash/common/wm_window_property.h"
 #include "ash/wm/window_state_aura.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/window.h"
@@ -31,11 +32,13 @@ void EnsureAllChildrenAreVisible(ui::Layer* layer) {
 
 }  // namespace
 
-WindowMirrorView::WindowMirrorView(WmWindowAura* window) : target_(window) {
+WindowMirrorView::WindowMirrorView(WmWindow* window) : target_(window) {
   DCHECK(window);
 }
 
 WindowMirrorView::~WindowMirrorView() {
+  // Make sure |target_| has outlived |this|. See crbug.com/681207
+  DCHECK(target_->aura_window()->layer());
   if (layer_owner_)
     target_->aura_window()->ClearProperty(aura::client::kMirroringEnabledKey);
 }
@@ -102,6 +105,12 @@ ui::Layer* WindowMirrorView::GetMirrorLayer() {
 }
 
 gfx::Rect WindowMirrorView::GetClientAreaBounds() const {
+  int insets = target_->GetIntProperty(WmWindowProperty::TOP_VIEW_INSET);
+  if (insets > 0) {
+    gfx::Rect bounds(target_->GetBounds().size());
+    bounds.Inset(0, insets, 0, 0);
+    return bounds;
+  }
   // The target window may not have a widget in unit tests.
   if (!target_->GetInternalWidget())
     return gfx::Rect();

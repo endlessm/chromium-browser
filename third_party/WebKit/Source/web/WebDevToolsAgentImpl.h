@@ -51,17 +51,10 @@ class InspectorOverlay;
 class InspectorResourceContainer;
 class InspectorResourceContentLoader;
 class LocalFrame;
-class Page;
-class PlatformGestureEvent;
-class PlatformMouseEvent;
-class PlatformTouchEvent;
 class WebDevToolsAgentClient;
-class WebFrameWidgetImpl;
-class WebInputEvent;
 class WebLayerTreeView;
 class WebLocalFrameImpl;
 class WebString;
-class WebViewImpl;
 
 class WebDevToolsAgentImpl final
     : public GarbageCollectedFinalized<WebDevToolsAgentImpl>,
@@ -81,8 +74,6 @@ class WebDevToolsAgentImpl final
   WebDevToolsAgentClient* client() { return m_client; }
   InspectorOverlay* overlay() const { return m_overlay.get(); }
   void flushProtocolNotifications();
-  static void webViewImplClosed(WebViewImpl*);
-  static void webFrameWidgetImplClosed(WebFrameWidgetImpl*);
 
   // Instrumentation from web/ layer.
   void didCommitLoadForLocalFrame(LocalFrame*);
@@ -107,6 +98,7 @@ class WebDevToolsAgentImpl final
   void inspectElementAt(int sessionId, const WebPoint&) override;
   void failedToRequestDevTools() override;
   WebString evaluateInWebInspectorOverlay(const WebString& script) override;
+  bool cacheDisabled() override;
 
  private:
   WebDevToolsAgentImpl(WebLocalFrameImpl*,

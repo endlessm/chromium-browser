@@ -13,33 +13,32 @@
 #include "GLSLANG/ShaderLang.h"
 #include "compiler/translator/TranslatorESSL.h"
 
+using namespace sh;
+
 class TypeTrackingTest : public testing::Test
 {
   public:
     TypeTrackingTest() {}
 
   protected:
-    virtual void SetUp()
+    void SetUp() override
     {
         ShBuiltInResources resources;
-        ShInitBuiltInResources(&resources);
+        InitBuiltInResources(&resources);
         resources.FragmentPrecisionHigh = 1;
 
         mTranslator = new TranslatorESSL(GL_FRAGMENT_SHADER, SH_GLES3_SPEC);
         ASSERT_TRUE(mTranslator->Init(resources));
     }
 
-    virtual void TearDown()
-    {
-        delete mTranslator;
-    }
+    void TearDown() override { delete mTranslator; }
 
     void compile(const std::string& shaderString)
     {
         const char *shaderStrings[] = { shaderString.c_str() };
         bool compilationSuccess = mTranslator->compile(shaderStrings, 1, SH_INTERMEDIATE_TREE);
         TInfoSink &infoSink = mTranslator->getInfoSink();
-        mInfoLog = infoSink.info.c_str();
+        mInfoLog                    = RemoveSymbolIdsFromInfoLog(infoSink.info.c_str());
         if (!compilationSuccess)
             FAIL() << "Shader compilation failed " << mInfoLog;
     }
@@ -55,6 +54,23 @@ class TypeTrackingTest : public testing::Test
     }
 
   private:
+    // Remove symbol ids from info log - the tests don't care about them.
+    static std::string RemoveSymbolIdsFromInfoLog(const char *infoLog)
+    {
+        std::string filteredLog(infoLog);
+        size_t idPrefixPos = 0u;
+        do
+        {
+            idPrefixPos = filteredLog.find(" (symbol id");
+            if (idPrefixPos != std::string::npos)
+            {
+                size_t idSuffixPos = filteredLog.find(")", idPrefixPos);
+                filteredLog.erase(idPrefixPos, idSuffixPos - idPrefixPos + 1u);
+            }
+        } while (idPrefixPos != std::string::npos);
+        return filteredLog;
+    }
+
     TranslatorESSL *mTranslator;
     std::string mInfoLog;
 };
@@ -75,7 +91,6 @@ TEST_F(TypeTrackingTest, FunctionPrototypeMangling)
     compile(shaderString);
     ASSERT_FALSE(foundErrorInIntermediateTree());
     ASSERT_TRUE(foundInIntermediateTree("Function Prototype: fun(f1;"));
-    ASSERT_TRUE(foundInIntermediateTree("Function Definition: fun(f1;"));
 }
 
 TEST_F(TypeTrackingTest, BuiltInFunctionResultPrecision)
@@ -181,7 +196,7 @@ TEST_F(TypeTrackingTest, BuiltInBoolFunctionResultType)
     ASSERT_FALSE(foundErrorInIntermediateTree());
     ASSERT_TRUE(foundInIntermediateTree("any (bool)"));
     ASSERT_TRUE(foundInIntermediateTree("all (bool)"));
-    ASSERT_TRUE(foundInIntermediateTree("Negate conditional (4-component vector of bool)"));
+    ASSERT_TRUE(foundInIntermediateTree("component-wise not (4-component vector of bool)"));
 }
 
 TEST_F(TypeTrackingTest, BuiltInVecToBoolFunctionResultType)
@@ -199,8 +214,9 @@ TEST_F(TypeTrackingTest, BuiltInVecToBoolFunctionResultType)
         "}\n";
     compile(shaderString);
     ASSERT_FALSE(foundErrorInIntermediateTree());
-    ASSERT_TRUE(foundInIntermediateTree("Less Than (2-component vector of bool)"));
-    ASSERT_TRUE(foundInIntermediateTree("Greater Than (2-component vector of bool)"));
+    ASSERT_TRUE(foundInIntermediateTree("component-wise less than (2-component vector of bool)"));
+    ASSERT_TRUE(
+        foundInIntermediateTree("component-wise greater than (2-component vector of bool)"));
 }
 
 TEST_F(TypeTrackingTest, Texture2DResultTypeAndPrecision)

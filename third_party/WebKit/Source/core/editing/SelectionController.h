@@ -28,6 +28,7 @@
 #define SelectionController_h
 
 #include "core/CoreExport.h"
+#include "core/dom/SynchronousMutationObserver.h"
 #include "core/editing/TextGranularity.h"
 #include "core/editing/VisibleSelection.h"
 #include "core/page/EventWithHitTestResults.h"
@@ -39,11 +40,15 @@ class FrameSelection;
 class HitTestResult;
 class LocalFrame;
 
-class SelectionController final : public GarbageCollected<SelectionController> {
+class CORE_EXPORT SelectionController final
+    : public GarbageCollectedFinalized<SelectionController>,
+      public SynchronousMutationObserver {
   WTF_MAKE_NONCOPYABLE(SelectionController);
+  USING_GARBAGE_COLLECTED_MIXIN(SelectionController);
 
  public:
   static SelectionController* create(LocalFrame&);
+  virtual ~SelectionController();
   DECLARE_TRACE();
 
   void handleMousePressEvent(const MouseEventWithHitTestResults&);
@@ -58,8 +63,9 @@ class SelectionController final : public GarbageCollected<SelectionController> {
   bool handleMouseReleaseEvent(const MouseEventWithHitTestResults&,
                                const LayoutPoint&);
   bool handlePasteGlobalSelection(const PlatformMouseEvent&);
-  bool handleGestureLongPress(const PlatformGestureEvent&,
-                              const HitTestResult&);
+  bool handleGestureLongPress(const WebGestureEvent&, const HitTestResult&);
+  void handleGestureTwoFingerTap(const GestureEventWithHitTestResults&);
+  void handleGestureLongTap(const GestureEventWithHitTestResults&);
 
   void updateSelectionForMouseDrag(Node*, const LayoutPoint&, const IntPoint&);
   void updateSelectionForMouseDrag(const HitTestResult&,
@@ -80,12 +86,21 @@ class SelectionController final : public GarbageCollected<SelectionController> {
   }
 
  private:
+  friend class SelectionControllerTest;
+
   explicit SelectionController(LocalFrame&);
 
   enum class AppendTrailingWhitespace { ShouldAppend, DontAppend };
   enum class SelectInputEventType { Touch, Mouse };
+  enum EndPointsAdjustmentMode {
+    AdjustEndpointsAtBidiBoundary,
+    DoNotAdjustEndpoints
+  };
 
-  void selectClosestWordFromHitTestResult(const HitTestResult&,
+  Document& document() const;
+
+  // Returns |true| if a word was selected.
+  bool selectClosestWordFromHitTestResult(const HitTestResult&,
                                           AppendTrailingWhitespace,
                                           SelectInputEventType);
   void selectClosestMisspellingFromHitTestResult(const HitTestResult&,
@@ -95,6 +110,10 @@ class SelectionController final : public GarbageCollected<SelectionController> {
       const MouseEventWithHitTestResults&);
   void selectClosestWordOrLinkFromMouseEvent(
       const MouseEventWithHitTestResults&);
+  void setNonDirectionalSelectionIfNeeded(const VisibleSelectionInFlatTree&,
+                                          TextGranularity,
+                                          EndPointsAdjustmentMode);
+  void setCaretAtHitTestResult(const HitTestResult&);
   bool updateSelectionForMouseDownDispatchingSelectStart(
       Node*,
       const VisibleSelectionInFlatTree&,
@@ -102,7 +121,16 @@ class SelectionController final : public GarbageCollected<SelectionController> {
 
   FrameSelection& selection() const;
 
+  // Implements |SynchronousMutationObserver|.
+  // TODO(yosin): We should relocate |m_originalBaseInFlatTree| when DOM tree
+  // changed.
+  void contextDestroyed(Document*) final;
+
   Member<LocalFrame> const m_frame;
+  // TODO(yosin): We should use |PositionWIthAffinityInFlatTree| since we
+  // should reduce usage of |VisibleSelectionInFlatTree|.
+  // Used to store base before the adjustment at bidi boundary
+  VisiblePositionInFlatTree m_originalBaseInFlatTree;
   bool m_mouseDownMayStartSelect;
   bool m_mouseDownWasSingleClickInSelection;
   bool m_mouseDownAllowsMultiClick;

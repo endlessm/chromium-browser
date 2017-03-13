@@ -41,10 +41,10 @@
 #include "core/css/StylePropertySet.h"
 #include "core/css/resolver/StyleResolver.h"
 #include "core/css/resolver/StyleResolverStats.h"
+#include "core/css/resolver/StyleRuleUsageTracker.h"
 #include "core/dom/StyleEngine.h"
 #include "core/dom/shadow/ShadowRoot.h"
-#include "core/style/StyleInheritedData.h"
-#include <algorithm>
+#include "core/style/ComputedStyle.h"
 
 namespace blink {
 
@@ -153,8 +153,7 @@ void ElementRuleCollector::collectMatchingRulesForList(
 
     // If the rule has no properties to apply, then ignore it in the non-debug
     // mode.
-    const StylePropertySet& properties = rule->properties();
-    if (properties.isEmpty() && !m_includeEmptyRules)
+    if (!rule->shouldConsiderForMatchingRules(m_includeEmptyRules))
       continue;
 
     SelectorChecker::MatchResult result;
@@ -197,6 +196,11 @@ void ElementRuleCollector::collectMatchingRules(
     collectMatchingRulesForList(
         matchRequest.ruleSet->shadowPseudoElementRules(pseudoId), cascadeOrder,
         matchRequest);
+    if (pseudoId == "-webkit-input-placeholder") {
+      collectMatchingRulesForList(
+          matchRequest.ruleSet->placeholderPseudoRules(), cascadeOrder,
+          matchRequest);
+    }
   }
 
   if (element.isVTTElement())
@@ -282,7 +286,7 @@ void ElementRuleCollector::appendCSSOMWrapperForRule(
   else
     cssRule = rule->createCSSOMWrapper();
   ASSERT(!parentStyleSheet || cssRule);
-  ensureRuleList()->rules().append(cssRule);
+  ensureRuleList()->rules().push_back(cssRule);
 }
 
 void ElementRuleCollector::sortAndTransferMatchedRules() {
@@ -293,7 +297,7 @@ void ElementRuleCollector::sortAndTransferMatchedRules() {
 
   if (m_mode == SelectorChecker::CollectingStyleRules) {
     for (unsigned i = 0; i < m_matchedRules.size(); ++i)
-      ensureStyleRuleList()->append(m_matchedRules[i].ruleData()->rule());
+      ensureStyleRuleList()->push_back(m_matchedRules[i].ruleData()->rule());
     return;
   }
 
@@ -338,7 +342,7 @@ void ElementRuleCollector::didMatchRule(
     if (m_style && ruleData.containsUncommonAttributeSelector())
       m_style->setUnique();
 
-    m_matchedRules.append(
+    m_matchedRules.push_back(
         MatchedRule(&ruleData, result.specificity, cascadeOrder,
                     matchRequest.styleSheetIndex, matchRequest.styleSheet));
   }
@@ -370,6 +374,12 @@ bool ElementRuleCollector::hasAnyMatchingRules(RuleSet* ruleSet) {
   collectMatchingShadowHostRules(matchRequest);
 
   return !m_matchedRules.isEmpty();
+}
+
+void ElementRuleCollector::addMatchedRulesToTracker(
+    StyleRuleUsageTracker* tracker) const {
+  for (auto matchedRule : m_matchedRules)
+    tracker->track(matchedRule.ruleData()->rule());
 }
 
 }  // namespace blink

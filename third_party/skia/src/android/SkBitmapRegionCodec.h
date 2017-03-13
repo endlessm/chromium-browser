@@ -26,11 +26,11 @@ public:
 
     bool conversionSupported(SkColorType colorType) override;
 
-    SkEncodedFormat getEncodedFormat() override { return fCodec->getEncodedFormat(); }
+    SkEncodedImageFormat getEncodedFormat() override { return fCodec->getEncodedFormat(); }
 
 private:
 
-    SkAutoTDelete<SkAndroidCodec> fCodec;
+    std::unique_ptr<SkAndroidCodec> fCodec;
 
     typedef SkBitmapRegionDecoder INHERITED;
 

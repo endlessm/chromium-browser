@@ -13,20 +13,16 @@
 #include "ui/views/widget/widget.h"
 
 namespace ash {
+class ImeMenuTray;
+class LogoutButtonTray;
 class OverviewButtonTray;
-class ShellDelegate;
+class PaletteTray;
 class StatusAreaWidgetDelegate;
 class SystemTray;
-class TrayBackgroundView;
+class VirtualKeyboardTray;
 class WebNotificationTray;
 class WmShelf;
 class WmWindow;
-#if defined(OS_CHROMEOS)
-class ImeMenuTray;
-class LogoutButtonTray;
-class PaletteTray;
-class VirtualKeyboardTray;
-#endif
 
 class ASH_EXPORT StatusAreaWidget : public views::Widget,
                                     public ShelfBackgroundAnimatorObserver {
@@ -49,12 +45,6 @@ class ASH_EXPORT StatusAreaWidget : public views::Widget,
   // notification tray.
   void UpdateAfterLoginStatusChange(LoginStatus login_status);
 
-  // Based on visibility of |tray| and a tray item on its right, sets |tray|'s
-  // separator visibility either to true or false. Note that no leading
-  // separator is required before the logout_button_tray because that
-  // button's red background is distinctive on its own.
-  void OnTrayVisibilityChanged(TrayBackgroundView* tray);
-
   StatusAreaWidgetDelegate* status_area_widget_delegate() {
     return status_area_widget_delegate_;
   }
@@ -64,11 +54,9 @@ class ASH_EXPORT StatusAreaWidget : public views::Widget,
   }
   OverviewButtonTray* overview_button_tray() { return overview_button_tray_; }
 
-#if defined(OS_CHROMEOS)
   PaletteTray* palette_tray() { return palette_tray_; }
 
   ImeMenuTray* ime_menu_tray() { return ime_menu_tray_; }
-#endif
 
   WmShelf* wm_shelf() { return wm_shelf_; }
 
@@ -96,16 +84,10 @@ class ASH_EXPORT StatusAreaWidget : public views::Widget,
  private:
   void AddSystemTray();
   void AddWebNotificationTray();
-#if defined(OS_CHROMEOS)
   void AddLogoutButtonTray();
   void AddPaletteTray();
   void AddVirtualKeyboardTray();
   void AddImeMenuTray();
-
-  // Checks if |tray| is the next visible tray to the left of
-  // |logout_button_tray_|. Returns true if both are visible, false otherwise.
-  bool IsNextVisibleTrayToLogout(TrayBackgroundView* tray) const;
-#endif
   void AddOverviewButtonTray();
 
   // Weak pointers to View classes that are parented to StatusAreaWidget:
@@ -113,12 +95,10 @@ class ASH_EXPORT StatusAreaWidget : public views::Widget,
   OverviewButtonTray* overview_button_tray_;
   SystemTray* system_tray_;
   WebNotificationTray* web_notification_tray_;
-#if defined(OS_CHROMEOS)
   LogoutButtonTray* logout_button_tray_;
   PaletteTray* palette_tray_;
   VirtualKeyboardTray* virtual_keyboard_tray_;
   ImeMenuTray* ime_menu_tray_;
-#endif
   LoginStatus login_status_;
 
   WmShelf* wm_shelf_;

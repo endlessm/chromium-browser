@@ -6,17 +6,19 @@
 
 #include <stddef.h>
 
+#include <memory>
 #include <utility>
+#include <vector>
 
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
-#include "base/memory/scoped_vector.h"
 #include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "remoting/codec/audio_encoder.h"
 #include "remoting/proto/audio.pb.h"
 #include "remoting/protocol/audio_source.h"
 #include "remoting/protocol/audio_stub.h"
+#include "remoting/protocol/fake_audio_source.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace remoting {
@@ -32,24 +34,6 @@ std::unique_ptr<AudioPacket> MakeAudioPacket() {
 }
 
 }  // namespace
-
-class FakeAudioSource : public AudioSource {
- public:
-  FakeAudioSource() {}
-  ~FakeAudioSource() override {}
-
-  bool Start(const PacketCapturedCallback& callback) override {
-    callback_ = callback;
-    return true;
-  }
-
-  const PacketCapturedCallback& callback() { return callback_; }
-
- private:
-  PacketCapturedCallback callback_;
-
-  DISALLOW_COPY_AND_ASSIGN(FakeAudioSource);
-};
 
 class FakeAudioEncoder : public AudioEncoder {
  public:
@@ -86,7 +70,7 @@ class AudioPumpTest : public testing::Test, public protocol::AudioStub {
 
   std::unique_ptr<AudioPump> pump_;
 
-  ScopedVector<AudioPacket> sent_packets_;
+  std::vector<std::unique_ptr<AudioPacket>> sent_packets_;
   std::vector<base::Closure> done_closures_;
 
  private:

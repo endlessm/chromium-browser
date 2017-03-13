@@ -8,6 +8,9 @@
 #include "compiler/translator/InfoSink.h"
 #include "compiler/translator/SymbolTable.h"
 
+namespace sh
+{
+
 void TIntermSymbol::traverse(TIntermTraverser *it)
 {
     it->traverseSymbol(this);
@@ -58,6 +61,31 @@ void TIntermCase::traverse(TIntermTraverser *it)
     it->traverseCase(this);
 }
 
+void TIntermFunctionDefinition::traverse(TIntermTraverser *it)
+{
+    it->traverseFunctionDefinition(this);
+}
+
+void TIntermBlock::traverse(TIntermTraverser *it)
+{
+    it->traverseBlock(this);
+}
+
+void TIntermInvariantDeclaration::traverse(TIntermTraverser *it)
+{
+    it->traverseInvariantDeclaration(this);
+}
+
+void TIntermDeclaration::traverse(TIntermTraverser *it)
+{
+    it->traverseDeclaration(this);
+}
+
+void TIntermFunctionPrototype::traverse(TIntermTraverser *it)
+{
+    it->traverseFunctionPrototype(this);
+}
+
 void TIntermAggregate::traverse(TIntermTraverser *it)
 {
     it->traverseAggregate(this);
@@ -88,7 +116,7 @@ TIntermTraverser::~TIntermTraverser()
 {
 }
 
-void TIntermTraverser::pushParentBlock(TIntermAggregate *node)
+void TIntermTraverser::pushParentBlock(TIntermBlock *node)
 {
     mParentBlockStack.push_back(ParentBlock(node, 0));
 }
@@ -128,7 +156,8 @@ void TIntermTraverser::insertStatementInParentBlock(TIntermNode *statement)
 
 TIntermSymbol *TIntermTraverser::createTempSymbol(const TType &type, TQualifier qualifier)
 {
-    // Each traversal uses at most one temporary variable, so the index stays the same within a single traversal.
+    // Each traversal uses at most one temporary variable, so the index stays the same within a
+    // single traversal.
     TInfoSinkBase symbolNameOut;
     ASSERT(mTemporaryIndex != nullptr);
     symbolNameOut << "s" << (*mTemporaryIndex);
@@ -136,7 +165,11 @@ TIntermSymbol *TIntermTraverser::createTempSymbol(const TType &type, TQualifier 
 
     TIntermSymbol *node = new TIntermSymbol(0, symbolName, type);
     node->setInternal(true);
+
+    ASSERT(qualifier == EvqTemporary || qualifier == EvqConst || qualifier == EvqGlobal);
     node->getTypePointer()->setQualifier(qualifier);
+    // TODO(oetuaho): Might be useful to sanitize layout qualifier etc. on the type of the created
+    // symbol. This might need to be done in other places as well.
     return node;
 }
 
@@ -145,24 +178,25 @@ TIntermSymbol *TIntermTraverser::createTempSymbol(const TType &type)
     return createTempSymbol(type, EvqTemporary);
 }
 
-TIntermAggregate *TIntermTraverser::createTempDeclaration(const TType &type)
+TIntermDeclaration *TIntermTraverser::createTempDeclaration(const TType &type)
 {
-    TIntermAggregate *tempDeclaration = new TIntermAggregate(EOpDeclaration);
-    tempDeclaration->getSequence()->push_back(createTempSymbol(type));
+    TIntermDeclaration *tempDeclaration = new TIntermDeclaration();
+    tempDeclaration->appendDeclarator(createTempSymbol(type));
     return tempDeclaration;
 }
 
-TIntermAggregate *TIntermTraverser::createTempInitDeclaration(TIntermTyped *initializer, TQualifier qualifier)
+TIntermDeclaration *TIntermTraverser::createTempInitDeclaration(TIntermTyped *initializer,
+                                                                TQualifier qualifier)
 {
     ASSERT(initializer != nullptr);
-    TIntermSymbol *tempSymbol = createTempSymbol(initializer->getType(), qualifier);
-    TIntermAggregate *tempDeclaration = new TIntermAggregate(EOpDeclaration);
-    TIntermBinary *tempInit           = new TIntermBinary(EOpInitialize, tempSymbol, initializer);
-    tempDeclaration->getSequence()->push_back(tempInit);
+    TIntermSymbol *tempSymbol           = createTempSymbol(initializer->getType(), qualifier);
+    TIntermDeclaration *tempDeclaration = new TIntermDeclaration();
+    TIntermBinary *tempInit             = new TIntermBinary(EOpInitialize, tempSymbol, initializer);
+    tempDeclaration->appendDeclarator(tempInit);
     return tempDeclaration;
 }
 
-TIntermAggregate *TIntermTraverser::createTempInitDeclaration(TIntermTyped *initializer)
+TIntermDeclaration *TIntermTraverser::createTempInitDeclaration(TIntermTyped *initializer)
 {
     return createTempInitDeclaration(initializer, EvqTemporary);
 }
@@ -194,13 +228,14 @@ void TLValueTrackingTraverser::addToFunctionMap(const TName &name, TIntermSequen
 bool TLValueTrackingTraverser::isInFunctionMap(const TIntermAggregate *callNode) const
 {
     ASSERT(callNode->getOp() == EOpFunctionCall);
-    return (mFunctionMap.find(callNode->getNameObj()) != mFunctionMap.end());
+    return (mFunctionMap.find(callNode->getFunctionSymbolInfo()->getNameObj()) !=
+            mFunctionMap.end());
 }
 
 TIntermSequence *TLValueTrackingTraverser::getFunctionParameters(const TIntermAggregate *callNode)
 {
     ASSERT(isInFunctionMap(callNode));
-    return mFunctionMap[callNode->getNameObj()];
+    return mFunctionMap[callNode->getFunctionSymbolInfo()->getNameObj()];
 }
 
 void TLValueTrackingTraverser::setInFunctionCallOutParameter(bool inOutParameter)
@@ -418,9 +453,148 @@ void TLValueTrackingTraverser::traverseUnary(TIntermUnary *node)
         visitUnary(PostVisit, node);
 }
 
-//
+// Traverse a function definition node.
+void TIntermTraverser::traverseFunctionDefinition(TIntermFunctionDefinition *node)
+{
+    bool visit = true;
+
+    if (preVisit)
+        visit = visitFunctionDefinition(PreVisit, node);
+
+    if (visit)
+    {
+        incrementDepth(node);
+        mInGlobalScope = false;
+
+        node->getFunctionPrototype()->traverse(this);
+        if (inVisit)
+            visit = visitFunctionDefinition(InVisit, node);
+        node->getBody()->traverse(this);
+
+        mInGlobalScope = true;
+        decrementDepth();
+    }
+
+    if (visit && postVisit)
+        visitFunctionDefinition(PostVisit, node);
+}
+
+// Traverse a block node.
+void TIntermTraverser::traverseBlock(TIntermBlock *node)
+{
+    bool visit = true;
+
+    TIntermSequence *sequence = node->getSequence();
+
+    if (preVisit)
+        visit = visitBlock(PreVisit, node);
+
+    if (visit)
+    {
+        incrementDepth(node);
+        pushParentBlock(node);
+
+        for (auto *child : *sequence)
+        {
+            child->traverse(this);
+            if (visit && inVisit)
+            {
+                if (child != sequence->back())
+                    visit = visitBlock(InVisit, node);
+            }
+
+            incrementParentBlockPos();
+        }
+
+        popParentBlock();
+        decrementDepth();
+    }
+
+    if (visit && postVisit)
+        visitBlock(PostVisit, node);
+}
+
+void TIntermTraverser::traverseInvariantDeclaration(TIntermInvariantDeclaration *node)
+{
+    bool visit = true;
+
+    if (preVisit)
+    {
+        visit = visitInvariantDeclaration(PreVisit, node);
+    }
+
+    if (visit)
+    {
+        node->getSymbol()->traverse(this);
+        if (postVisit)
+        {
+            visitInvariantDeclaration(PostVisit, node);
+        }
+    }
+}
+
+// Traverse a declaration node.
+void TIntermTraverser::traverseDeclaration(TIntermDeclaration *node)
+{
+    bool visit = true;
+
+    TIntermSequence *sequence = node->getSequence();
+
+    if (preVisit)
+        visit = visitDeclaration(PreVisit, node);
+
+    if (visit)
+    {
+        incrementDepth(node);
+
+        for (auto *child : *sequence)
+        {
+            child->traverse(this);
+            if (visit && inVisit)
+            {
+                if (child != sequence->back())
+                    visit = visitDeclaration(InVisit, node);
+            }
+        }
+
+        decrementDepth();
+    }
+
+    if (visit && postVisit)
+        visitDeclaration(PostVisit, node);
+}
+
+void TIntermTraverser::traverseFunctionPrototype(TIntermFunctionPrototype *node)
+{
+    bool visit = true;
+
+    TIntermSequence *sequence = node->getSequence();
+
+    if (preVisit)
+        visit = visitFunctionPrototype(PreVisit, node);
+
+    if (visit)
+    {
+        incrementDepth(node);
+
+        for (auto *child : *sequence)
+        {
+            child->traverse(this);
+            if (visit && inVisit)
+            {
+                if (child != sequence->back())
+                    visit = visitFunctionPrototype(InVisit, node);
+            }
+        }
+
+        decrementDepth();
+    }
+
+    if (visit && postVisit)
+        visitFunctionPrototype(PostVisit, node);
+}
+
 // Traverse an aggregate node.  Same comments in binary node apply here.
-//
 void TIntermTraverser::traverseAggregate(TIntermAggregate *node)
 {
     bool visit = true;
@@ -434,11 +608,6 @@ void TIntermTraverser::traverseAggregate(TIntermAggregate *node)
     {
         incrementDepth(node);
 
-        if (node->getOp() == EOpSequence)
-            pushParentBlock(node);
-        else if (node->getOp() == EOpFunction)
-            mInGlobalScope = false;
-
         for (auto *child : *sequence)
         {
             child->traverse(this);
@@ -447,15 +616,7 @@ void TIntermTraverser::traverseAggregate(TIntermAggregate *node)
                 if (child != sequence->back())
                     visit = visitAggregate(InVisit, node);
             }
-
-            if (node->getOp() == EOpSequence)
-                incrementParentBlockPos();
         }
-
-        if (node->getOp() == EOpSequence)
-            popParentBlock();
-        else if (node->getOp() == EOpFunction)
-            mInGlobalScope = true;
 
         decrementDepth();
     }
@@ -464,27 +625,19 @@ void TIntermTraverser::traverseAggregate(TIntermAggregate *node)
         visitAggregate(PostVisit, node);
 }
 
+void TLValueTrackingTraverser::traverseFunctionPrototype(TIntermFunctionPrototype *node)
+{
+    TIntermSequence *sequence = node->getSequence();
+    addToFunctionMap(node->getFunctionSymbolInfo()->getNameObj(), sequence);
+
+    TIntermTraverser::traverseFunctionPrototype(node);
+}
+
 void TLValueTrackingTraverser::traverseAggregate(TIntermAggregate *node)
 {
     bool visit = true;
 
     TIntermSequence *sequence = node->getSequence();
-    switch (node->getOp())
-    {
-        case EOpFunction:
-        {
-            TIntermAggregate *params = sequence->front()->getAsAggregate();
-            ASSERT(params != nullptr);
-            ASSERT(params->getOp() == EOpParameters);
-            addToFunctionMap(node->getNameObj(), params->getSequence());
-            break;
-        }
-        case EOpPrototype:
-            addToFunctionMap(node->getNameObj(), sequence);
-            break;
-        default:
-            break;
-    }
 
     if (preVisit)
         visit = visitAggregate(PreVisit, node);
@@ -529,15 +682,10 @@ void TLValueTrackingTraverser::traverseAggregate(TIntermAggregate *node)
         }
         else
         {
-            if (node->getOp() == EOpSequence)
-                pushParentBlock(node);
-            else if (node->getOp() == EOpFunction)
-                mInGlobalScope = false;
-
             // Find the built-in function corresponding to this op so that we can determine the
             // in/out qualifiers of its parameters.
             TFunction *builtInFunc = nullptr;
-            TString opString = GetOperatorString(node->getOp());
+            TString opString       = GetOperatorString(node->getOp());
             if (!node->isConstructor() && !opString.empty())
             {
                 // The return type doesn't affect the mangled name of the function, which is used
@@ -575,18 +723,10 @@ void TLValueTrackingTraverser::traverseAggregate(TIntermAggregate *node)
                         visit = visitAggregate(InVisit, node);
                 }
 
-                if (node->getOp() == EOpSequence)
-                    incrementParentBlockPos();
-
                 ++paramIndex;
             }
 
             setInFunctionCallOutParameter(false);
-
-            if (node->getOp() == EOpSequence)
-                popParentBlock();
-            else if (node->getOp() == EOpFunction)
-                mInGlobalScope = true;
         }
 
         decrementDepth();
@@ -680,7 +820,11 @@ void TIntermTraverser::traverseCase(TIntermCase *node)
         visit = visitCase(PreVisit, node);
 
     if (visit && node->getCondition())
+    {
+        incrementDepth(node);
         node->getCondition()->traverse(this);
+        decrementDepth();
+    }
 
     if (visit && postVisit)
         visitCase(PostVisit, node);
@@ -744,3 +888,5 @@ void TIntermTraverser::traverseRaw(TIntermRaw *node)
 {
     visitRaw(node);
 }
+
+}  // namespace sh

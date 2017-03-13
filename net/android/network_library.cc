@@ -11,6 +11,7 @@
 #include "base/android/scoped_java_ref.h"
 #include "base/logging.h"
 #include "jni/AndroidNetworkLibrary_jni.h"
+#include "net/dns/dns_protocol.h"
 
 using base::android::AttachCurrentThread;
 using base::android::ConvertJavaStringToUTF8;
@@ -79,20 +80,10 @@ bool StoreKeyPair(const uint8_t* public_key,
   return ret;
 }
 
-void StoreCertificate(net::CertificateMimeType cert_type,
-                      const void* data,
-                      size_t data_len) {
+bool IsCleartextPermitted(const std::string& host) {
   JNIEnv* env = AttachCurrentThread();
-  ScopedJavaLocalRef<jbyteArray> data_array =
-      ToJavaByteArray(env, reinterpret_cast<const uint8_t*>(data), data_len);
-  jboolean ret = Java_AndroidNetworkLibrary_storeCertificate(
-      env, GetApplicationContext(), cert_type, data_array);
-  LOG_IF(WARNING, !ret) <<
-      "Call to Java_AndroidNetworkLibrary_storeCertificate"
-      " failed";
-  // Intentionally do not return 'ret', there is little the caller can
-  // do in case of failure (the CertInstaller itself will deal with
-  // incorrect data and display the appropriate toast).
+  ScopedJavaLocalRef<jstring> host_string = ConvertUTF8ToJavaString(env, host);
+  return Java_AndroidNetworkLibrary_isCleartextPermitted(env, host_string);
 }
 
 bool HaveOnlyLoopbackAddresses() {
@@ -143,11 +134,34 @@ bool GetIsRoaming() {
       base::android::GetApplicationContext());
 }
 
+bool GetIsCaptivePortal() {
+  return Java_AndroidNetworkLibrary_getIsCaptivePortal(
+      base::android::AttachCurrentThread(),
+      base::android::GetApplicationContext());
+}
+
 std::string GetWifiSSID() {
   return base::android::ConvertJavaStringToUTF8(
       Java_AndroidNetworkLibrary_getWifiSSID(
           base::android::AttachCurrentThread(),
           base::android::GetApplicationContext()));
+}
+
+void GetDnsServers(std::vector<IPEndPoint>* dns_servers) {
+  JNIEnv* env = AttachCurrentThread();
+  std::vector<std::string> dns_servers_strings;
+  base::android::JavaArrayOfByteArrayToStringVector(
+      env, Java_AndroidNetworkLibrary_getDnsServers(
+               env, base::android::GetApplicationContext())
+               .obj(),
+      &dns_servers_strings);
+  for (const std::string& dns_address_string : dns_servers_strings) {
+    IPAddress dns_address(
+        reinterpret_cast<const uint8_t*>(dns_address_string.c_str()),
+        dns_address_string.size());
+    IPEndPoint dns_server(dns_address, dns_protocol::kDefaultPort);
+    dns_servers->push_back(dns_server);
+  }
 }
 
 }  // namespace android

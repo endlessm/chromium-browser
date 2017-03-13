@@ -43,71 +43,32 @@ namespace blink {
 
 namespace {
 
-const char decodersTestingDir[] = "Source/platform/image-decoders/testing";
-const char layoutTestResourcesDir[] = "LayoutTests/fast/images/resources";
+const char layoutTestResourcesDir[] = "LayoutTests/images/resources";
 
 std::unique_ptr<ImageDecoder> createDecoder() {
-  return wrapUnique(
+  return WTF::wrapUnique(
       new GIFImageDecoder(ImageDecoder::AlphaNotPremultiplied,
-                          ImageDecoder::GammaAndColorProfileApplied,
+                          ColorBehavior::transformToTargetForTesting(),
                           ImageDecoder::noDecodedImageByteLimit));
 }
 
-void testRandomFrameDecode(const char* dir, const char* gifFile) {
-  SCOPED_TRACE(gifFile);
-
-  RefPtr<SharedBuffer> fullData = readFile(dir, gifFile);
-  ASSERT_TRUE(fullData.get());
-  Vector<unsigned> baselineHashes;
-  createDecodingBaseline(&createDecoder, fullData.get(), &baselineHashes);
-  size_t frameCount = baselineHashes.size();
-
-  // Random decoding should get the same results as sequential decoding.
+void testRepetitionCount(const char* dir,
+                         const char* file,
+                         int expectedRepetitionCount) {
   std::unique_ptr<ImageDecoder> decoder = createDecoder();
-  decoder->setData(fullData.get(), true);
-  const size_t skippingStep = 5;
-  for (size_t i = 0; i < skippingStep; ++i) {
-    for (size_t j = i; j < frameCount; j += skippingStep) {
-      SCOPED_TRACE(testing::Message() << "Random i:" << i << " j:" << j);
-      ImageFrame* frame = decoder->frameBufferAtIndex(j);
-      EXPECT_EQ(baselineHashes[j], hashBitmap(frame->bitmap()));
-    }
-  }
-
-  // Decoding in reverse order.
-  decoder = createDecoder();
-  decoder->setData(fullData.get(), true);
-  for (size_t i = frameCount; i; --i) {
-    SCOPED_TRACE(testing::Message() << "Reverse i:" << i);
-    ImageFrame* frame = decoder->frameBufferAtIndex(i - 1);
-    EXPECT_EQ(baselineHashes[i - 1], hashBitmap(frame->bitmap()));
-  }
-}
-
-void testRandomDecodeAfterClearFrameBufferCache(const char* dir,
-                                                const char* gifFile) {
-  SCOPED_TRACE(gifFile);
-
-  RefPtr<SharedBuffer> data = readFile(dir, gifFile);
+  RefPtr<SharedBuffer> data = readFile(dir, file);
   ASSERT_TRUE(data.get());
-  Vector<unsigned> baselineHashes;
-  createDecodingBaseline(&createDecoder, data.get(), &baselineHashes);
-  size_t frameCount = baselineHashes.size();
-
-  std::unique_ptr<ImageDecoder> decoder = createDecoder();
   decoder->setData(data.get(), true);
-  for (size_t clearExceptFrame = 0; clearExceptFrame < frameCount;
-       ++clearExceptFrame) {
-    decoder->clearCacheExceptFrame(clearExceptFrame);
-    const size_t skippingStep = 5;
-    for (size_t i = 0; i < skippingStep; ++i) {
-      for (size_t j = 0; j < frameCount; j += skippingStep) {
-        SCOPED_TRACE(testing::Message() << "Random i:" << i << " j:" << j);
-        ImageFrame* frame = decoder->frameBufferAtIndex(j);
-        EXPECT_EQ(baselineHashes[j], hashBitmap(frame->bitmap()));
-      }
-    }
+  EXPECT_EQ(cAnimationLoopOnce,
+            decoder->repetitionCount());  // Default value before decode.
+
+  for (size_t i = 0; i < decoder->frameCount(); ++i) {
+    ImageFrame* frame = decoder->frameBufferAtIndex(i);
+    EXPECT_EQ(ImageFrame::FrameComplete, frame->getStatus());
   }
+
+  EXPECT_EQ(expectedRepetitionCount,
+            decoder->repetitionCount());  // Expected value after decode.
 }
 
 }  // anonymous namespace
@@ -185,32 +146,9 @@ TEST(GIFImageDecoderTest, parseByteByByte) {
 }
 
 TEST(GIFImageDecoderTest, parseAndDecodeByteByByte) {
-  std::unique_ptr<ImageDecoder> decoder = createDecoder();
-
-  RefPtr<SharedBuffer> data =
-      readFile(layoutTestResourcesDir, "animated-gif-with-offsets.gif");
-  ASSERT_TRUE(data.get());
-
-  size_t frameCount = 0;
-  size_t framesDecoded = 0;
-
-  // Pass data to decoder byte by byte.
-  for (size_t length = 1; length <= data->size(); ++length) {
-    RefPtr<SharedBuffer> tempData = SharedBuffer::create(data->data(), length);
-    decoder->setData(tempData.get(), length == data->size());
-
-    EXPECT_LE(frameCount, decoder->frameCount());
-    frameCount = decoder->frameCount();
-
-    ImageFrame* frame = decoder->frameBufferAtIndex(frameCount - 1);
-    if (frame && frame->getStatus() == ImageFrame::FrameComplete &&
-        framesDecoded < frameCount)
-      ++framesDecoded;
-  }
-
-  EXPECT_EQ(5u, decoder->frameCount());
-  EXPECT_EQ(5u, framesDecoded);
-  EXPECT_EQ(cAnimationLoopInfinite, decoder->repetitionCount());
+  testByteByByteDecode(&createDecoder, layoutTestResourcesDir,
+                       "animated-gif-with-offsets.gif", 5u,
+                       cAnimationLoopInfinite);
 }
 
 TEST(GIFImageDecoderTest, brokenSecondFrame) {
@@ -227,53 +165,7 @@ TEST(GIFImageDecoderTest, brokenSecondFrame) {
 }
 
 TEST(GIFImageDecoderTest, progressiveDecode) {
-  RefPtr<SharedBuffer> fullData = readFile(decodersTestingDir, "radient.gif");
-  ASSERT_TRUE(fullData.get());
-  const size_t fullLength = fullData->size();
-
-  std::unique_ptr<ImageDecoder> decoder;
-  ImageFrame* frame;
-
-  Vector<unsigned> truncatedHashes;
-  Vector<unsigned> progressiveHashes;
-
-  // Compute hashes when the file is truncated.
-  const size_t increment = 1;
-  for (size_t i = 1; i <= fullLength; i += increment) {
-    decoder = createDecoder();
-    RefPtr<SharedBuffer> data = SharedBuffer::create(fullData->data(), i);
-    decoder->setData(data.get(), i == fullLength);
-    frame = decoder->frameBufferAtIndex(0);
-    if (!frame) {
-      truncatedHashes.append(0);
-      continue;
-    }
-    truncatedHashes.append(hashBitmap(frame->bitmap()));
-  }
-
-  // Compute hashes when the file is progressively decoded.
-  decoder = createDecoder();
-  EXPECT_EQ(cAnimationLoopOnce, decoder->repetitionCount());
-  for (size_t i = 1; i <= fullLength; i += increment) {
-    RefPtr<SharedBuffer> data = SharedBuffer::create(fullData->data(), i);
-    decoder->setData(data.get(), i == fullLength);
-    frame = decoder->frameBufferAtIndex(0);
-    if (!frame) {
-      progressiveHashes.append(0);
-      continue;
-    }
-    progressiveHashes.append(hashBitmap(frame->bitmap()));
-  }
-  EXPECT_EQ(cAnimationNone, decoder->repetitionCount());
-
-  bool match = true;
-  for (size_t i = 0; i < truncatedHashes.size(); ++i) {
-    if (truncatedHashes[i] != progressiveHashes[i]) {
-      match = false;
-      break;
-    }
-  }
-  EXPECT_TRUE(match);
+  testProgressiveDecoding(&createDecoder, decodersTestingDir, "radient.gif");
 }
 
 TEST(GIFImageDecoderTest, allDataReceivedTruncation) {
@@ -357,89 +249,34 @@ TEST(GIFImageDecoderTest, badTerminator) {
 }
 
 TEST(GIFImageDecoderTest, updateRequiredPreviousFrameAfterFirstDecode) {
-  std::unique_ptr<ImageDecoder> decoder = createDecoder();
-
-  RefPtr<SharedBuffer> fullData =
-      readFile(layoutTestResourcesDir, "animated-10color.gif");
-  ASSERT_TRUE(fullData.get());
-
-  // Give it data that is enough to parse but not decode in order to check the
-  // status.
-  // of requiredPreviousFrameIndex before decoding.
-  size_t partialSize = 1;
-  do {
-    RefPtr<SharedBuffer> data =
-        SharedBuffer::create(fullData->data(), partialSize);
-    decoder->setData(data.get(), false);
-    ++partialSize;
-  } while (!decoder->frameCount() ||
-           decoder->frameBufferAtIndex(0)->getStatus() ==
-               ImageFrame::FrameEmpty);
-
-  EXPECT_EQ(kNotFound,
-            decoder->frameBufferAtIndex(0)->requiredPreviousFrameIndex());
-  unsigned frameCount = decoder->frameCount();
-  for (size_t i = 1; i < frameCount; ++i)
-    EXPECT_EQ(i - 1,
-              decoder->frameBufferAtIndex(i)->requiredPreviousFrameIndex());
-
-  decoder->setData(fullData.get(), true);
-  for (size_t i = 0; i < frameCount; ++i)
-    EXPECT_EQ(kNotFound,
-              decoder->frameBufferAtIndex(i)->requiredPreviousFrameIndex());
+  testUpdateRequiredPreviousFrameAfterFirstDecode(
+      &createDecoder, layoutTestResourcesDir, "animated-10color.gif");
 }
 
 TEST(GIFImageDecoderTest, randomFrameDecode) {
   // Single frame image.
-  testRandomFrameDecode(decodersTestingDir, "radient.gif");
+  testRandomFrameDecode(&createDecoder, decodersTestingDir, "radient.gif");
   // Multiple frame images.
-  testRandomFrameDecode(layoutTestResourcesDir,
+  testRandomFrameDecode(&createDecoder, layoutTestResourcesDir,
                         "animated-gif-with-offsets.gif");
-  testRandomFrameDecode(layoutTestResourcesDir, "animated-10color.gif");
+  testRandomFrameDecode(&createDecoder, layoutTestResourcesDir,
+                        "animated-10color.gif");
 }
 
 TEST(GIFImageDecoderTest, randomDecodeAfterClearFrameBufferCache) {
   // Single frame image.
-  testRandomDecodeAfterClearFrameBufferCache(decodersTestingDir, "radient.gif");
+  testRandomDecodeAfterClearFrameBufferCache(&createDecoder, decodersTestingDir,
+                                             "radient.gif");
   // Multiple frame images.
-  testRandomDecodeAfterClearFrameBufferCache(layoutTestResourcesDir,
-                                             "animated-gif-with-offsets.gif");
-  testRandomDecodeAfterClearFrameBufferCache(layoutTestResourcesDir,
-                                             "animated-10color.gif");
+  testRandomDecodeAfterClearFrameBufferCache(
+      &createDecoder, layoutTestResourcesDir, "animated-gif-with-offsets.gif");
+  testRandomDecodeAfterClearFrameBufferCache(
+      &createDecoder, layoutTestResourcesDir, "animated-10color.gif");
 }
 
 TEST(GIFImageDecoderTest, resumePartialDecodeAfterClearFrameBufferCache) {
-  RefPtr<SharedBuffer> fullData =
-      readFile(layoutTestResourcesDir, "animated-10color.gif");
-  ASSERT_TRUE(fullData.get());
-  Vector<unsigned> baselineHashes;
-  createDecodingBaseline(&createDecoder, fullData.get(), &baselineHashes);
-  size_t frameCount = baselineHashes.size();
-
-  std::unique_ptr<ImageDecoder> decoder = createDecoder();
-
-  // Let frame 0 be partially decoded.
-  size_t partialSize = 1;
-  do {
-    RefPtr<SharedBuffer> data =
-        SharedBuffer::create(fullData->data(), partialSize);
-    decoder->setData(data.get(), false);
-    ++partialSize;
-  } while (!decoder->frameCount() ||
-           decoder->frameBufferAtIndex(0)->getStatus() ==
-               ImageFrame::FrameEmpty);
-
-  // Skip to the last frame and clear.
-  decoder->setData(fullData.get(), true);
-  EXPECT_EQ(frameCount, decoder->frameCount());
-  ImageFrame* lastFrame = decoder->frameBufferAtIndex(frameCount - 1);
-  EXPECT_EQ(baselineHashes[frameCount - 1], hashBitmap(lastFrame->bitmap()));
-  decoder->clearCacheExceptFrame(kNotFound);
-
-  // Resume decoding of the first frame.
-  ImageFrame* firstFrame = decoder->frameBufferAtIndex(0);
-  EXPECT_EQ(ImageFrame::FrameComplete, firstFrame->getStatus());
-  EXPECT_EQ(baselineHashes[0], hashBitmap(firstFrame->bitmap()));
+  testResumePartialDecodeAfterClearFrameBufferCache(
+      &createDecoder, layoutTestResourcesDir, "animated-10color.gif");
 }
 
 // The first LZW codes in the image are invalid values that try to create a loop
@@ -514,21 +351,8 @@ TEST(GIFImageDecoderTest, firstFrameHasGreaterSizeThanScreenSize) {
 }
 
 TEST(GIFImageDecoderTest, verifyRepetitionCount) {
-  const int expectedRepetitionCount = 2;
-  std::unique_ptr<ImageDecoder> decoder = createDecoder();
-  RefPtr<SharedBuffer> data = readFile(layoutTestResourcesDir, "full2loop.gif");
-  ASSERT_TRUE(data.get());
-  decoder->setData(data.get(), true);
-  EXPECT_EQ(cAnimationLoopOnce,
-            decoder->repetitionCount());  // Default value before decode.
-
-  for (size_t i = 0; i < decoder->frameCount(); ++i) {
-    ImageFrame* frame = decoder->frameBufferAtIndex(i);
-    EXPECT_EQ(ImageFrame::FrameComplete, frame->getStatus());
-  }
-
-  EXPECT_EQ(expectedRepetitionCount,
-            decoder->repetitionCount());  // Expected value after decode.
+  testRepetitionCount(layoutTestResourcesDir, "full2loop.gif", 2);
+  testRepetitionCount(decodersTestingDir, "radient.gif", cAnimationNone);
 }
 
 TEST(GIFImageDecoderTest, bitmapAlphaType) {
@@ -543,14 +367,14 @@ TEST(GIFImageDecoderTest, bitmapAlphaType) {
   RefPtr<SharedBuffer> partialData =
       SharedBuffer::create(fullData->data(), kTruncateSize);
 
-  std::unique_ptr<ImageDecoder> premulDecoder =
-      wrapUnique(new GIFImageDecoder(ImageDecoder::AlphaPremultiplied,
-                                     ImageDecoder::GammaAndColorProfileApplied,
-                                     ImageDecoder::noDecodedImageByteLimit));
-  std::unique_ptr<ImageDecoder> unpremulDecoder =
-      wrapUnique(new GIFImageDecoder(ImageDecoder::AlphaNotPremultiplied,
-                                     ImageDecoder::GammaAndColorProfileApplied,
-                                     ImageDecoder::noDecodedImageByteLimit));
+  std::unique_ptr<ImageDecoder> premulDecoder = WTF::wrapUnique(
+      new GIFImageDecoder(ImageDecoder::AlphaPremultiplied,
+                          ColorBehavior::transformToTargetForTesting(),
+                          ImageDecoder::noDecodedImageByteLimit));
+  std::unique_ptr<ImageDecoder> unpremulDecoder = WTF::wrapUnique(
+      new GIFImageDecoder(ImageDecoder::AlphaNotPremultiplied,
+                          ColorBehavior::transformToTargetForTesting(),
+                          ImageDecoder::noDecodedImageByteLimit));
 
   // Partially decoded frame => the frame alpha type is unknown and should
   // reflect the requested format.

@@ -204,7 +204,7 @@ inline void* emit_vertex(Vertex* v, const AAParams* aaParams, void* data) {
     if (aaParams->fTweakAlpha) {
         auto d = static_cast<GrDefaultGeoProcFactory::PositionColorAttr*>(data);
         d->fPosition = v->fPoint;
-        d->fColor = SkAlphaMulQ(aaParams->fColor, v->fAlpha);
+        d->fColor = SkAlphaMulQ(aaParams->fColor, SkAlpha255To256(v->fAlpha));
         d++;
         return d;
     }
@@ -245,6 +245,9 @@ struct VertexList {
     void prepend(Vertex* v) {
         insert(v, nullptr, fHead);
     }
+    void remove(Vertex* v) {
+        list_remove<Vertex, &Vertex::fPrev, &Vertex::fNext>(v, &fHead, &fTail);
+    }
     void close() {
         if (fHead && fTail) {
             fTail->fNext = fHead;
@@ -259,6 +262,36 @@ inline void round(SkPoint* p) {
     p->fX = SkScalarRoundToScalar(p->fX * SkFloatToScalar(4.0f)) * SkFloatToScalar(0.25f);
     p->fY = SkScalarRoundToScalar(p->fY * SkFloatToScalar(4.0f)) * SkFloatToScalar(0.25f);
 }
+
+// A line equation in implicit form. fA * x + fB * y + fC = 0, for all points (x, y) on the line.
+struct Line {
+    Line(Vertex* p, Vertex* q) : Line(p->fPoint, q->fPoint) {}
+    Line(const SkPoint& p, const SkPoint& q)
+        : fA(static_cast<double>(q.fY) - p.fY)      // a = dY
+        , fB(static_cast<double>(p.fX) - q.fX)      // b = -dX
+        , fC(static_cast<double>(p.fY) * q.fX -     // c = cross(q, p)
+             static_cast<double>(p.fX) * q.fY) {}
+    double dist(const SkPoint& p) const {
+        return fA * p.fX + fB * p.fY + fC;
+    }
+    double magSq() const {
+        return fA * fA + fB * fB;
+    }
+
+    // Compute the intersection of two (infinite) Lines.
+    bool intersect(const Line& other, SkPoint* point) {
+        double denom = fA * other.fB - fB * other.fA;
+        if (denom == 0.0) {
+            return false;
+        }
+        double scale = 1.0f / denom;
+        point->fX = SkDoubleToScalar((fB * other.fC - other.fB * fC) * scale);
+        point->fY = SkDoubleToScalar((other.fA * fC - fA * other.fC) * scale);
+        round(point);
+        return true;
+    }
+    double fA, fB, fC;
+};
 
 /**
  * An Edge joins a top Vertex to a bottom Vertex. Edge ordering for the list of "edges above" and
@@ -279,10 +312,12 @@ inline void round(SkPoint* p) {
  */
 
 struct Edge {
-    Edge(Vertex* top, Vertex* bottom, int winding)
+    enum class Type { kInner, kOuter, kConnector };
+    Edge(Vertex* top, Vertex* bottom, int winding, Type type)
         : fWinding(winding)
         , fTop(top)
         , fBottom(bottom)
+        , fType(type)
         , fLeft(nullptr)
         , fRight(nullptr)
         , fPrevEdgeAbove(nullptr)
@@ -296,12 +331,13 @@ struct Edge {
         , fRightPolyPrev(nullptr)
         , fRightPolyNext(nullptr)
         , fUsedInLeftPoly(false)
-        , fUsedInRightPoly(false) {
-            recompute();
+        , fUsedInRightPoly(false)
+        , fLine(top, bottom) {
         }
     int      fWinding;          // 1 == edge goes downward; -1 = edge goes upward.
     Vertex*  fTop;              // The top vertex in vertex-sort-order (sweep_lt).
     Vertex*  fBottom;           // The bottom vertex in vertex-sort-order.
+    Type     fType;
     Edge*    fLeft;             // The linked list of edges in the active edge list.
     Edge*    fRight;            // "
     Edge*    fPrevEdgeAbove;    // The linked list of edges in the bottom Vertex's "edges above".
@@ -316,23 +352,18 @@ struct Edge {
     Edge*    fRightPolyNext;
     bool     fUsedInLeftPoly;
     bool     fUsedInRightPoly;
-    double   fDX;               // The line equation for this edge, in implicit form.
-    double   fDY;               // fDY * x + fDX * y + fC = 0, for point (x, y) on the line.
-    double   fC;
+    Line     fLine;
     double dist(const SkPoint& p) const {
-        return fDY * p.fX - fDX * p.fY + fC;
+        return fLine.dist(p);
     }
     bool isRightOf(Vertex* v) const {
-        return dist(v->fPoint) < 0.0;
+        return fLine.dist(v->fPoint) < 0.0;
     }
     bool isLeftOf(Vertex* v) const {
-        return dist(v->fPoint) > 0.0;
+        return fLine.dist(v->fPoint) > 0.0;
     }
     void recompute() {
-        fDX = static_cast<double>(fBottom->fPoint.fX) - fTop->fPoint.fX;
-        fDY = static_cast<double>(fBottom->fPoint.fY) - fTop->fPoint.fY;
-        fC = static_cast<double>(fTop->fPoint.fY) * fBottom->fPoint.fX -
-             static_cast<double>(fTop->fPoint.fX) * fBottom->fPoint.fY;
+        fLine = Line(fTop, fBottom);
     }
     bool intersect(const Edge& other, SkPoint* p) {
         LOG("intersecting %g -> %g with %g -> %g\n",
@@ -341,14 +372,14 @@ struct Edge {
         if (fTop == other.fTop || fBottom == other.fBottom) {
             return false;
         }
-        double denom = fDX * other.fDY - fDY * other.fDX;
+        double denom = fLine.fA * other.fLine.fB - fLine.fB * other.fLine.fA;
         if (denom == 0.0) {
             return false;
         }
         double dx = static_cast<double>(fTop->fPoint.fX) - other.fTop->fPoint.fX;
         double dy = static_cast<double>(fTop->fPoint.fY) - other.fTop->fPoint.fY;
-        double sNumer = dy * other.fDX - dx * other.fDY;
-        double tNumer = dy * fDX - dx * fDY;
+        double sNumer = -dy * other.fLine.fB - dx * other.fLine.fA;
+        double tNumer = -dy * fLine.fB - dx * fLine.fA;
         // If (sNumer / denom) or (tNumer / denom) is not in [0..1], exit early.
         // This saves us doing the divide below unless absolutely necessary.
         if (denom > 0.0 ? (sNumer < 0.0 || sNumer > denom || tNumer < 0.0 || tNumer > denom)
@@ -357,8 +388,8 @@ struct Edge {
         }
         double s = sNumer / denom;
         SkASSERT(s >= 0.0 && s <= 1.0);
-        p->fX = SkDoubleToScalar(fTop->fPoint.fX + s * fDX);
-        p->fY = SkDoubleToScalar(fTop->fPoint.fY + s * fDY);
+        p->fX = SkDoubleToScalar(fTop->fPoint.fX - s * fLine.fB);
+        p->fY = SkDoubleToScalar(fTop->fPoint.fY + s * fLine.fA);
         return true;
     }
 };
@@ -506,7 +537,8 @@ struct Poly {
             fTail->addEdge(e);
             fCount++;
         } else {
-            e = ALLOC_NEW(Edge, (fTail->fLastEdge->fBottom, e->fBottom, 1), alloc);
+            e = ALLOC_NEW(Edge, (fTail->fLastEdge->fBottom, e->fBottom, 1, Edge::Type::kInner),
+                          alloc);
             fTail->addEdge(e);
             fCount++;
             if (partner) {
@@ -651,7 +683,7 @@ void path_to_contours(const SkPath& path, SkScalar tolerance, const SkRect& clip
     if (path.isInverseFillType()) {
         SkPoint quad[4];
         clipBounds.toQuad(quad);
-        for (int i = 0; i < 4; i++) {
+        for (int i = 3; i >= 0; i--) {
             prev = append_point_to_contour(quad[i], prev, &head, alloc);
         }
         head->fPrev = prev;
@@ -733,7 +765,7 @@ inline bool apply_fill_type(SkPath::FillType fillType, Poly* poly) {
         case SkPath::kEvenOdd_FillType:
             return (winding & 1) != 0;
         case SkPath::kInverseWinding_FillType:
-            return winding == -1;
+            return winding == 1;
         case SkPath::kInverseEvenOdd_FillType:
             return (winding & 1) == 1;
         default:
@@ -742,12 +774,11 @@ inline bool apply_fill_type(SkPath::FillType fillType, Poly* poly) {
     }
 }
 
-Edge* new_edge(Vertex* prev, Vertex* next, SkChunkAlloc& alloc, Comparator& c,
-               int winding_scale = 1) {
-    int winding = c.sweep_lt(prev->fPoint, next->fPoint) ? winding_scale : -winding_scale;
+Edge* new_edge(Vertex* prev, Vertex* next, Edge::Type type, Comparator& c, SkChunkAlloc& alloc) {
+    int winding = c.sweep_lt(prev->fPoint, next->fPoint) ? 1 : -1;
     Vertex* top = winding < 0 ? next : prev;
     Vertex* bottom = winding < 0 ? prev : next;
-    return ALLOC_NEW(Edge, (top, bottom, winding), alloc);
+    return ALLOC_NEW(Edge, (top, bottom, winding, type), alloc);
 }
 
 void remove_edge(Edge* edge, EdgeList* edges) {
@@ -800,7 +831,10 @@ void find_enclosing_edges(Edge* edge, EdgeList* edges, Comparator& c, Edge** lef
 }
 
 void fix_active_state(Edge* edge, EdgeList* activeEdges, Comparator& c) {
-    if (activeEdges && activeEdges->contains(edge)) {
+    if (!activeEdges) {
+        return;
+    }
+    if (activeEdges->contains(edge)) {
         if (edge->fBottom->fProcessed || !edge->fTop->fProcessed) {
             remove_edge(edge, activeEdges);
         }
@@ -862,13 +896,15 @@ void remove_edge_below(Edge* edge) {
         edge, &edge->fTop->fFirstEdgeBelow, &edge->fTop->fLastEdgeBelow);
 }
 
-void erase_edge_if_zero_winding(Edge* edge, EdgeList* edges) {
-    if (edge->fWinding != 0) {
-        return;
-    }
-    LOG("erasing edge (%g -> %g)\n", edge->fTop->fID, edge->fBottom->fID);
+void disconnect(Edge* edge)
+{
     remove_edge_above(edge);
     remove_edge_below(edge);
+}
+
+void erase_edge(Edge* edge, EdgeList* edges) {
+    LOG("erasing edge (%g -> %g)\n", edge->fTop->fID, edge->fBottom->fID);
+    disconnect(edge);
     if (edges && edges->contains(edge)) {
         remove_edge(edge, edges);
     }
@@ -900,16 +936,12 @@ void merge_edges_above(Edge* edge, Edge* other, EdgeList* activeEdges, Comparato
             edge->fTop->fPoint.fX, edge->fTop->fPoint.fY,
             edge->fBottom->fPoint.fX, edge->fBottom->fPoint.fY);
         other->fWinding += edge->fWinding;
-        erase_edge_if_zero_winding(other, activeEdges);
-        edge->fWinding = 0;
-        erase_edge_if_zero_winding(edge, activeEdges);
+        erase_edge(edge, activeEdges);
     } else if (c.sweep_lt(edge->fTop->fPoint, other->fTop->fPoint)) {
         other->fWinding += edge->fWinding;
-        erase_edge_if_zero_winding(other, activeEdges);
         set_bottom(edge, other->fTop, activeEdges, c);
     } else {
         edge->fWinding += other->fWinding;
-        erase_edge_if_zero_winding(edge, activeEdges);
         set_bottom(other, edge->fTop, activeEdges, c);
     }
 }
@@ -920,16 +952,12 @@ void merge_edges_below(Edge* edge, Edge* other, EdgeList* activeEdges, Comparato
             edge->fTop->fPoint.fX, edge->fTop->fPoint.fY,
             edge->fBottom->fPoint.fX, edge->fBottom->fPoint.fY);
         other->fWinding += edge->fWinding;
-        erase_edge_if_zero_winding(other, activeEdges);
-        edge->fWinding = 0;
-        erase_edge_if_zero_winding(edge, activeEdges);
+        erase_edge(edge, activeEdges);
     } else if (c.sweep_lt(edge->fBottom->fPoint, other->fBottom->fPoint)) {
         edge->fWinding += other->fWinding;
-        erase_edge_if_zero_winding(edge, activeEdges);
         set_top(other, edge->fBottom, activeEdges, c);
     } else {
         other->fWinding += edge->fWinding;
-        erase_edge_if_zero_winding(other, activeEdges);
         set_top(edge, other->fBottom, activeEdges, c);
     }
 }
@@ -996,7 +1024,7 @@ void split_edge(Edge* edge, Vertex* v, EdgeList* activeEdges, Comparator& c, SkC
     } else if (c.sweep_gt(v->fPoint, edge->fBottom->fPoint)) {
         set_bottom(edge, v, activeEdges, c);
     } else {
-        Edge* newEdge = ALLOC_NEW(Edge, (v, edge->fBottom, edge->fWinding), alloc);
+        Edge* newEdge = ALLOC_NEW(Edge, (v, edge->fBottom, edge->fWinding, edge->fType), alloc);
         insert_edge_below(newEdge, v, c);
         insert_edge_above(newEdge, edge->fBottom, c);
         set_bottom(edge, v, activeEdges, c);
@@ -1006,9 +1034,8 @@ void split_edge(Edge* edge, Vertex* v, EdgeList* activeEdges, Comparator& c, SkC
     }
 }
 
-Edge* connect(Vertex* prev, Vertex* next, SkChunkAlloc& alloc, Comparator c,
-              int winding_scale = 1) {
-    Edge* edge = new_edge(prev, next, alloc, c, winding_scale);
+Edge* connect(Vertex* prev, Vertex* next, Edge::Type type, Comparator& c, SkChunkAlloc& alloc) {
+    Edge* edge = new_edge(prev, next, type, c, alloc);
     if (edge->fWinding > 0) {
         insert_edge_below(edge, prev, c);
         insert_edge_above(edge, next, c);
@@ -1020,7 +1047,8 @@ Edge* connect(Vertex* prev, Vertex* next, SkChunkAlloc& alloc, Comparator c,
     return edge;
 }
 
-void merge_vertices(Vertex* src, Vertex* dst, Vertex** head, Comparator& c, SkChunkAlloc& alloc) {
+void merge_vertices(Vertex* src, Vertex* dst, VertexList* mesh, Comparator& c,
+                    SkChunkAlloc& alloc) {
     LOG("found coincident verts at %g, %g; merging %g into %g\n", src->fPoint.fX, src->fPoint.fY,
         src->fID, dst->fID);
     dst->fAlpha = SkTMax(src->fAlpha, dst->fAlpha);
@@ -1034,12 +1062,18 @@ void merge_vertices(Vertex* src, Vertex* dst, Vertex** head, Comparator& c, SkCh
         set_top(edge, dst, nullptr, c);
         edge = next;
     }
-    list_remove<Vertex, &Vertex::fPrev, &Vertex::fNext>(src, head, nullptr);
+    mesh->remove(src);
 }
 
 uint8_t max_edge_alpha(Edge* a, Edge* b) {
-    return SkTMax(SkTMax(a->fTop->fAlpha, a->fBottom->fAlpha),
-                  SkTMax(b->fTop->fAlpha, b->fBottom->fAlpha));
+    if (a->fType == Edge::Type::kInner && b->fType == Edge::Type::kInner) {
+        return 255;
+    } else if (a->fType == Edge::Type::kOuter && b->fType == Edge::Type::kOuter) {
+        return 0;
+    } else {
+        return SkTMax(SkTMax(a->fTop->fAlpha, a->fBottom->fAlpha),
+                      SkTMax(b->fTop->fAlpha, b->fBottom->fAlpha));
+    }
 }
 
 Vertex* check_for_intersection(Edge* edge, Edge* other, EdgeList* activeEdges, Comparator& c,
@@ -1125,31 +1159,31 @@ void sanitize_contours(Vertex** contours, int contourCnt, bool approximate) {
     }
 }
 
-void merge_coincident_vertices(Vertex** vertices, Comparator& c, SkChunkAlloc& alloc) {
-    for (Vertex* v = (*vertices)->fNext; v != nullptr; v = v->fNext) {
+void merge_coincident_vertices(VertexList* mesh, Comparator& c, SkChunkAlloc& alloc) {
+    for (Vertex* v = mesh->fHead->fNext; v != nullptr; v = v->fNext) {
         if (c.sweep_lt(v->fPoint, v->fPrev->fPoint)) {
             v->fPoint = v->fPrev->fPoint;
         }
         if (coincident(v->fPrev->fPoint, v->fPoint)) {
-            merge_vertices(v->fPrev, v, vertices, c, alloc);
+            merge_vertices(v->fPrev, v, mesh, c, alloc);
         }
     }
 }
 
 // Stage 2: convert the contours to a mesh of edges connecting the vertices.
 
-Vertex* build_edges(Vertex** contours, int contourCnt, Comparator& c, SkChunkAlloc& alloc) {
-    Vertex* vertices = nullptr;
+void build_edges(Vertex** contours, int contourCnt, VertexList* mesh, Comparator& c,
+                 SkChunkAlloc& alloc) {
     Vertex* prev = nullptr;
     for (int i = 0; i < contourCnt; ++i) {
         for (Vertex* v = contours[i]; v != nullptr;) {
             Vertex* vNext = v->fNext;
-            connect(v->fPrev, v, alloc, c);
+            connect(v->fPrev, v, Edge::Type::kInner, c, alloc);
             if (prev) {
                 prev->fNext = v;
                 v->fPrev = prev;
             } else {
-                vertices = v;
+                mesh->fHead = v;
             }
             prev = v;
             v = vNext;
@@ -1157,24 +1191,23 @@ Vertex* build_edges(Vertex** contours, int contourCnt, Comparator& c, SkChunkAll
         }
     }
     if (prev) {
-        prev->fNext = vertices->fPrev = nullptr;
+        prev->fNext = mesh->fHead->fPrev = nullptr;
     }
-    return vertices;
+    mesh->fTail = prev;
 }
 
 // Stage 3: sort the vertices by increasing sweep direction.
 
-Vertex* sorted_merge(Vertex* a, Vertex* b, Comparator& c);
+void sorted_merge(Vertex* a, Vertex* b, VertexList* result, Comparator& c);
 
-void front_back_split(Vertex* v, Vertex** pFront, Vertex** pBack) {
+void front_back_split(VertexList* v, VertexList* front, VertexList* back) {
     Vertex* fast;
     Vertex* slow;
-    if (!v || !v->fNext) {
-        *pFront = v;
-        *pBack = nullptr;
+    if (!v->fHead || !v->fHead->fNext) {
+        *front = *v;
     } else {
-        slow = v;
-        fast = v->fNext;
+        slow = v->fHead;
+        fast = v->fHead->fNext;
 
         while (fast != nullptr) {
             fast = fast->fNext;
@@ -1183,32 +1216,33 @@ void front_back_split(Vertex* v, Vertex** pFront, Vertex** pBack) {
                 fast = fast->fNext;
             }
         }
-
-        *pFront = v;
-        *pBack = slow->fNext;
+        front->fHead = v->fHead;
+        front->fTail = slow;
+        back->fHead = slow->fNext;
+        back->fTail = v->fTail;
         slow->fNext->fPrev = nullptr;
         slow->fNext = nullptr;
     }
+    v->fHead = v->fTail = nullptr;
 }
 
-void merge_sort(Vertex** head, Comparator& c) {
-    if (!*head || !(*head)->fNext) {
+void merge_sort(VertexList* mesh, Comparator& c) {
+    if (!mesh->fHead || !mesh->fHead->fNext) {
         return;
     }
 
-    Vertex* a;
-    Vertex* b;
-    front_back_split(*head, &a, &b);
+    VertexList a;
+    VertexList b;
+    front_back_split(mesh, &a, &b);
 
     merge_sort(&a, c);
     merge_sort(&b, c);
 
-    *head = sorted_merge(a, b, c);
+    sorted_merge(a.fHead, b.fHead, mesh, c);
 }
 
-Vertex* sorted_merge(Vertex* a, Vertex* b, Comparator& c) {
+void sorted_merge(Vertex* a, Vertex* b, VertexList* result, Comparator& c) {
     VertexList vertices;
-
     while (a && b) {
         if (c.sweep_lt(a->fPoint, b->fPoint)) {
             Vertex* next = a->fNext;
@@ -1226,15 +1260,15 @@ Vertex* sorted_merge(Vertex* a, Vertex* b, Comparator& c) {
     if (b) {
         vertices.insert(b, vertices.fTail, b->fNext);
     }
-    return vertices.fHead;
+    *result = vertices;
 }
 
 // Stage 4: Simplify the mesh by inserting new vertices at intersecting edges.
 
-void simplify(Vertex* vertices, Comparator& c, SkChunkAlloc& alloc) {
+void simplify(const VertexList& vertices, Comparator& c, SkChunkAlloc& alloc) {
     LOG("simplifying complex polygons\n");
     EdgeList activeEdges;
-    for (Vertex* v = vertices; v != nullptr; v = v->fNext) {
+    for (Vertex* v = vertices.fHead; v != nullptr; v = v->fNext) {
         if (!v->fFirstEdgeAbove && !v->fFirstEdgeBelow) {
             continue;
         }
@@ -1248,7 +1282,7 @@ void simplify(Vertex* vertices, Comparator& c, SkChunkAlloc& alloc) {
             restartChecks = false;
             find_enclosing_edges(v, &activeEdges, &leftEnclosingEdge, &rightEnclosingEdge);
             if (v->fFirstEdgeBelow) {
-                for (Edge* edge = v->fFirstEdgeBelow; edge != nullptr; edge = edge->fNextEdgeBelow) {
+                for (Edge* edge = v->fFirstEdgeBelow; edge; edge = edge->fNextEdgeBelow) {
                     if (check_for_intersection(edge, leftEnclosingEdge, &activeEdges, c, alloc)) {
                         restartChecks = true;
                         break;
@@ -1270,8 +1304,8 @@ void simplify(Vertex* vertices, Comparator& c, SkChunkAlloc& alloc) {
             }
         } while (restartChecks);
         if (v->fAlpha == 0) {
-            if ((leftEnclosingEdge && leftEnclosingEdge->fWinding < 0) &&
-                (rightEnclosingEdge && rightEnclosingEdge->fWinding > 0)) {
+            if ((leftEnclosingEdge && leftEnclosingEdge->fWinding > 0) &&
+                (rightEnclosingEdge && rightEnclosingEdge->fWinding < 0)) {
                 v->fAlpha = max_edge_alpha(leftEnclosingEdge, rightEnclosingEdge);
             }
         }
@@ -1289,11 +1323,11 @@ void simplify(Vertex* vertices, Comparator& c, SkChunkAlloc& alloc) {
 
 // Stage 5: Tessellate the simplified mesh into monotone polygons.
 
-Poly* tessellate(Vertex* vertices, SkChunkAlloc& alloc) {
+Poly* tessellate(const VertexList& vertices, SkChunkAlloc& alloc) {
     LOG("tessellating simple polygons\n");
     EdgeList activeEdges;
     Poly* polys = nullptr;
-    for (Vertex* v = vertices; v != nullptr; v = v->fNext) {
+    for (Vertex* v = vertices.fHead; v != nullptr; v = v->fNext) {
         if (!v->fFirstEdgeAbove && !v->fFirstEdgeBelow) {
             continue;
         }
@@ -1366,7 +1400,8 @@ Poly* tessellate(Vertex* vertices, SkChunkAlloc& alloc) {
                             rightEnclosingEdge->fLeftPoly = rightPoly;
                         }
                     }
-                    Edge* join = ALLOC_NEW(Edge, (leftPoly->lastVertex(), v, 1), alloc);
+                    Edge* join = ALLOC_NEW(Edge,
+                        (leftPoly->lastVertex(), v, 1, Edge::Type::kInner), alloc);
                     leftPoly = leftPoly->addEdge(join, Poly::kRight_Side, alloc);
                     rightPoly = rightPoly->addEdge(join, Poly::kLeft_Side, alloc);
                 }
@@ -1408,37 +1443,22 @@ bool is_boundary_start(Edge* edge, SkPath::FillType fillType) {
             apply_fill_type(fillType, edge->fRightPoly);
 }
 
-Vertex* remove_non_boundary_edges(Vertex* vertices, SkPath::FillType fillType,
-                                  SkChunkAlloc& alloc) {
-    for (Vertex* v = vertices; v != nullptr; v = v->fNext) {
+void remove_non_boundary_edges(const VertexList& mesh, SkPath::FillType fillType,
+                               SkChunkAlloc& alloc) {
+    for (Vertex* v = mesh.fHead; v != nullptr; v = v->fNext) {
         for (Edge* e = v->fFirstEdgeBelow; e != nullptr;) {
             Edge* next = e->fNextEdgeBelow;
             if (!is_boundary_edge(e, fillType)) {
-                remove_edge_above(e);
-                remove_edge_below(e);
+                disconnect(e);
             }
             e = next;
         }
     }
-    return vertices;
-}
-
-// This is different from Edge::intersect, in that it intersects lines, not line segments.
-bool intersect(const Edge& a, const Edge& b, SkPoint* point) {
-    double denom = a.fDX * b.fDY - a.fDY * b.fDX;
-    if (denom == 0.0) {
-        return false;
-    }
-    double scale = 1.0f / denom;
-    point->fX = SkDoubleToScalar((b.fDX * a.fC - a.fDX * b.fC) * scale);
-    point->fY = SkDoubleToScalar((b.fDY * a.fC - a.fDY * b.fC) * scale);
-    round(point);
-    return true;
 }
 
 void get_edge_normal(const Edge* e, SkVector* normal) {
-    normal->setNormalize(SkDoubleToScalar(e->fDX) * e->fWinding,
-                         SkDoubleToScalar(e->fDY) * e->fWinding);
+    normal->setNormalize(SkDoubleToScalar(e->fLine.fA) * e->fWinding,
+                         SkDoubleToScalar(e->fLine.fB) * e->fWinding);
 }
 
 // Stage 5c: detect and remove "pointy" vertices whose edge normals point in opposite directions
@@ -1455,9 +1475,9 @@ void simplify_boundary(EdgeList* boundary, Comparator& c, SkChunkAlloc& alloc) {
         double dist = e->dist(prev->fPoint);
         SkVector normal;
         get_edge_normal(e, &normal);
-        float denom = 0.25f * static_cast<float>(e->fDX * e->fDX + e->fDY * e->fDY);
+        float denom = 0.0625f * static_cast<float>(e->fLine.magSq());
         if (prevNormal.dot(normal) < 0.0 && (dist * dist) <= denom) {
-            Edge* join = new_edge(prev, next, alloc, c);
+            Edge* join = new_edge(prev, next, Edge::Type::kInner, c, alloc);
             insert_edge(join, e, boundary);
             remove_edge(prevEdge, boundary);
             remove_edge(e, boundary);
@@ -1485,29 +1505,28 @@ void boundary_to_aa_mesh(EdgeList* boundary, VertexList* mesh, Comparator& c, Sk
     EdgeList outerContour;
     Edge* prevEdge = boundary->fTail;
     float radius = 0.5f;
-    double offset = radius * sqrt(prevEdge->fDX * prevEdge->fDX + prevEdge->fDY * prevEdge->fDY)
-                           * prevEdge->fWinding;
-    Edge prevInner(prevEdge->fTop, prevEdge->fBottom, prevEdge->fWinding);
+    double offset = radius * sqrt(prevEdge->fLine.magSq()) * prevEdge->fWinding;
+    Line prevInner(prevEdge->fTop, prevEdge->fBottom);
     prevInner.fC -= offset;
-    Edge prevOuter(prevEdge->fTop, prevEdge->fBottom, prevEdge->fWinding);
+    Line prevOuter(prevEdge->fTop, prevEdge->fBottom);
     prevOuter.fC += offset;
     VertexList innerVertices;
     VertexList outerVertices;
     SkScalar innerCount = SK_Scalar1, outerCount = SK_Scalar1;
     for (Edge* e = boundary->fHead; e != nullptr; e = e->fRight) {
-        double offset = radius * sqrt(e->fDX * e->fDX + e->fDY * e->fDY) * e->fWinding;
-        Edge inner(e->fTop, e->fBottom, e->fWinding);
+        double offset = radius * sqrt(e->fLine.magSq()) * e->fWinding;
+        Line inner(e->fTop, e->fBottom);
         inner.fC -= offset;
-        Edge outer(e->fTop, e->fBottom, e->fWinding);
+        Line outer(e->fTop, e->fBottom);
         outer.fC += offset;
         SkPoint innerPoint, outerPoint;
-        if (intersect(prevInner, inner, &innerPoint) &&
-            intersect(prevOuter, outer, &outerPoint)) {
+        if (prevInner.intersect(inner, &innerPoint) &&
+            prevOuter.intersect(outer, &outerPoint)) {
             Vertex* innerVertex = ALLOC_NEW(Vertex, (innerPoint, 255), alloc);
             Vertex* outerVertex = ALLOC_NEW(Vertex, (outerPoint, 0), alloc);
             if (innerVertices.fTail && outerVertices.fTail) {
-                Edge innerEdge(innerVertices.fTail, innerVertex, 1);
-                Edge outerEdge(outerVertices.fTail, outerVertex, 1);
+                Edge innerEdge(innerVertices.fTail, innerVertex, 1, Edge::Type::kInner);
+                Edge outerEdge(outerVertices.fTail, outerVertex, 1, Edge::Type::kInner);
                 SkVector innerNormal;
                 get_edge_normal(&innerEdge, &innerNormal);
                 SkVector outerNormal;
@@ -1549,10 +1568,9 @@ void boundary_to_aa_mesh(EdgeList* boundary, VertexList* mesh, Comparator& c, Sk
         return;
     }
     do {
-        connect(outerVertex->fNext, outerVertex, alloc, c);
-        connect(innerVertex->fNext, innerVertex, alloc, c, 2);
-        connect(innerVertex, outerVertex->fNext, alloc, c, 2);
-        connect(outerVertex, innerVertex, alloc, c, 2);
+        connect(outerVertex->fPrev, outerVertex, Edge::Type::kOuter, c, alloc);
+        connect(innerVertex->fPrev, innerVertex, Edge::Type::kInner, c, alloc);
+        connect(outerVertex, innerVertex, Edge::Type::kConnector, c, alloc)->fWinding = 0;
         Vertex* innerNext = innerVertex->fNext;
         Vertex* outerNext = outerVertex->fNext;
         mesh->append(innerVertex);
@@ -1587,19 +1605,19 @@ void extract_boundary(EdgeList* boundary, Edge* e, SkPath::FillType fillType, Sk
                 down = true;
             }
         }
-        remove_edge_above(e);
-        remove_edge_below(e);
+        disconnect(e);
         e = next;
     }
 }
 
 // Stage 5b: Extract boundary edges.
 
-EdgeList* extract_boundaries(Vertex* vertices, SkPath::FillType fillType, SkChunkAlloc& alloc) {
+EdgeList* extract_boundaries(const VertexList& mesh, SkPath::FillType fillType,
+                             SkChunkAlloc& alloc) {
     LOG("extracting boundaries\n");
-    vertices = remove_non_boundary_edges(vertices, fillType, alloc);
+    remove_non_boundary_edges(mesh, fillType, alloc);
     EdgeList* boundaries = nullptr;
-    for (Vertex* v = vertices; v != nullptr; v = v->fNext) {
+    for (Vertex* v = mesh.fHead; v != nullptr; v = v->fNext) {
         while (v->fFirstEdgeBelow) {
             EdgeList* boundary = new_contour(&boundaries, alloc);
             extract_boundary(boundary, v->fFirstEdgeBelow, fillType, alloc);
@@ -1610,8 +1628,8 @@ EdgeList* extract_boundaries(Vertex* vertices, SkPath::FillType fillType, SkChun
 
 // This is a driver function which calls stages 2-5 in turn.
 
-Vertex* contours_to_mesh(Vertex** contours, int contourCnt, bool antialias,
-                         Comparator& c, SkChunkAlloc& alloc) {
+void contours_to_mesh(Vertex** contours, int contourCnt, bool antialias,
+                      VertexList* mesh, Comparator& c, SkChunkAlloc& alloc) {
 #if LOGGING_ENABLED
     for (int i = 0; i < contourCnt; ++i) {
         Vertex* v = contours[i];
@@ -1623,25 +1641,28 @@ Vertex* contours_to_mesh(Vertex** contours, int contourCnt, bool antialias,
     }
 #endif
     sanitize_contours(contours, contourCnt, antialias);
-    return build_edges(contours, contourCnt, c, alloc);
+    build_edges(contours, contourCnt, mesh, c, alloc);
 }
 
-Poly* mesh_to_polys(Vertex** vertices, SkPath::FillType fillType, Comparator& c,
-                    SkChunkAlloc& alloc) {
-    if (!vertices || !*vertices) {
-        return nullptr;
+void sort_and_simplify(VertexList* vertices, Comparator& c, SkChunkAlloc& alloc) {
+    if (!vertices || !vertices->fHead) {
+        return;
     }
 
     // Sort vertices in Y (secondarily in X).
     merge_sort(vertices, c);
     merge_coincident_vertices(vertices, c, alloc);
 #if LOGGING_ENABLED
-    for (Vertex* v = *vertices; v != nullptr; v = v->fNext) {
+    for (Vertex* v = vertices->fHead; v != nullptr; v = v->fNext) {
         static float gID = 0.0f;
         v->fID = gID++;
     }
 #endif
     simplify(*vertices, c, alloc);
+}
+
+Poly* mesh_to_polys(VertexList* vertices, Comparator& c, SkChunkAlloc& alloc) {
+    sort_and_simplify(vertices, c, alloc);
     return tessellate(*vertices, alloc);
 }
 
@@ -1656,8 +1677,9 @@ Poly* contours_to_polys(Vertex** contours, int contourCnt, SkPath::FillType fill
         c.sweep_lt = sweep_lt_vert;
         c.sweep_gt = sweep_gt_vert;
     }
-    Vertex* mesh = contours_to_mesh(contours, contourCnt, antialias, c, alloc);
-    Poly* polys = mesh_to_polys(&mesh, fillType, c, alloc);
+    VertexList mesh;
+    contours_to_mesh(contours, contourCnt, antialias, &mesh, c, alloc);
+    Poly* polys = mesh_to_polys(&mesh, c, alloc);
     if (antialias) {
         EdgeList* boundaries = extract_boundaries(mesh, fillType, alloc);
         VertexList aaMesh;
@@ -1667,7 +1689,8 @@ Poly* contours_to_polys(Vertex** contours, int contourCnt, SkPath::FillType fill
                 boundary_to_aa_mesh(boundary, &aaMesh, c, alloc);
             }
         }
-        return mesh_to_polys(&aaMesh.fHead, SkPath::kWinding_FillType, c, alloc);
+        sort_and_simplify(&aaMesh, c, alloc);
+        return tessellate(aaMesh, alloc);
     }
     return polys;
 }
@@ -1689,7 +1712,7 @@ Poly* path_to_polys(const SkPath& path, SkScalar tolerance, const SkRect& clipBo
     if (SkPath::IsInverseFillType(fillType)) {
         contourCnt++;
     }
-    SkAutoTDeleteArray<Vertex*> contours(new Vertex* [contourCnt]);
+    std::unique_ptr<Vertex*[]> contours(new Vertex* [contourCnt]);
 
     path_to_contours(path, tolerance, clipBounds, contours.get(), alloc, isLinear);
     return contours_to_polys(contours.get(), contourCnt, path.getFillType(), path.getBounds(),
@@ -1744,7 +1767,7 @@ int PathToTriangles(const SkPath& path, SkScalar tolerance, const SkRect& clipBo
     SkChunkAlloc alloc(sizeEstimate);
     Poly* polys = path_to_polys(path, tolerance, clipBounds, contourCnt, alloc, antialias,
                                 isLinear);
-    SkPath::FillType fillType = path.getFillType();
+    SkPath::FillType fillType = antialias ? SkPath::kWinding_FillType : path.getFillType();
     int count = count_points(polys, fillType);
     if (0 == count) {
         return 0;

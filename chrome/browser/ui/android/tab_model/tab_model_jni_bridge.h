@@ -15,7 +15,6 @@
 #include "base/macros.h"
 #include "chrome/browser/ui/android/tab_model/tab_model.h"
 
-class Profile;
 class TabAndroid;
 
 namespace content {
@@ -27,7 +26,10 @@ class WebContents;
 // is what actually stores Tabs.
 class TabModelJniBridge : public TabModel {
  public:
-  TabModelJniBridge(JNIEnv* env, jobject obj, bool is_incognito);
+  TabModelJniBridge(JNIEnv* env,
+                    jobject obj,
+                    bool is_incognito,
+                    bool is_tabbed_activity);
   void Destroy(JNIEnv* env, const base::android::JavaParamRef<jobject>& obj);
   ~TabModelJniBridge() override;
 

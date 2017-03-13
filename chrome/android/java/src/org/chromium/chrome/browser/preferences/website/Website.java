@@ -30,10 +30,8 @@ public class Website implements Serializable {
     private ContentSettingException mBackgroundSyncExceptionInfo;
     private CameraInfo mCameraInfo;
     private ContentSettingException mCookieException;
-    private FullscreenInfo mFullscreenInfo;
     private GeolocationInfo mGeolocationInfo;
     private ContentSettingException mJavaScriptException;
-    private KeygenInfo mKeygenInfo;
     private LocalStorageInfo mLocalStorageInfo;
     private MicrophoneInfo mMicrophoneInfo;
     private MidiInfo mMidiInfo;
@@ -187,40 +185,6 @@ public class Website implements Serializable {
     }
 
     /**
-     * Set fullscreen permission information class.
-     *
-     * @param info Fullscreen information about the website.
-     */
-    public void setFullscreenInfo(FullscreenInfo info) {
-        mFullscreenInfo = info;
-    }
-
-    /**
-     * @return fullscreen information of the site.
-     */
-    public FullscreenInfo getFullscreenInfo() {
-        return mFullscreenInfo;
-    }
-
-    /**
-     * @return what permission governs fullscreen access.
-     */
-    public ContentSetting getFullscreenPermission() {
-        return mFullscreenInfo != null ? mFullscreenInfo.getContentSetting() : null;
-    }
-
-    /**
-     * Configure fullscreen setting for this site.
-     *
-     * @param value Content setting for fullscreen permission.
-     */
-    public void setFullscreenPermission(ContentSetting value) {
-        if (mFullscreenInfo != null) {
-            mFullscreenInfo.setContentSetting(value);
-        }
-    }
-
-    /**
      * Sets the GeoLocationInfo object for this Website.
      */
     public void setGeolocationInfo(GeolocationInfo info) {
@@ -242,8 +206,13 @@ public class Website implements Serializable {
      * Configure geolocation access setting for this site.
      */
     public void setGeolocationPermission(ContentSetting value) {
-        if (mGeolocationInfo != null) {
-            mGeolocationInfo.setContentSetting(value);
+        if (WebsitePreferenceBridge.shouldUseDSEGeolocationSetting(
+                    mOrigin.getOrigin(), false)) {
+            WebsitePreferenceBridge.setDSEGeolocationSetting(value != ContentSetting.BLOCK);
+        } else {
+            if (mGeolocationInfo != null) {
+                mGeolocationInfo.setContentSetting(value);
+            }
         }
     }
 
@@ -268,33 +237,6 @@ public class Website implements Serializable {
      */
     public void setJavaScriptException(ContentSettingException exception) {
         mJavaScriptException = exception;
-    }
-
-    /**
-     * Sets the KeygenInfo object for this Website.
-     */
-    public void setKeygenInfo(KeygenInfo info) {
-        mKeygenInfo = info;
-    }
-
-    public KeygenInfo getKeygenInfo() {
-        return mKeygenInfo;
-    }
-
-    /**
-     * Returns what permission governs keygen access.
-     */
-    public ContentSetting getKeygenPermission() {
-        return mKeygenInfo != null ? mKeygenInfo.getContentSetting() : null;
-    }
-
-    /**
-     * Configure keygen access setting for this site.
-     */
-    public void setKeygenPermission(ContentSetting value) {
-        if (mKeygenInfo != null) {
-            mKeygenInfo.setContentSetting(value);
-        }
     }
 
     /**

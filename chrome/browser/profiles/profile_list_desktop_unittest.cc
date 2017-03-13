@@ -24,7 +24,7 @@
 #include "chrome/test/base/testing_profile.h"
 #include "chrome/test/base/testing_profile_manager.h"
 #include "components/signin/core/common/profile_management_switches.h"
-#include "components/syncable_prefs/pref_service_syncable.h"
+#include "components/sync_preferences/pref_service_syncable.h"
 #include "content/public/test/test_browser_thread_bundle.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -88,10 +88,10 @@ class ProfileListDesktopTest : public testing::Test {
   int change_count() const { return mock_observer_->change_count(); }
 
  private:
+  content::TestBrowserThreadBundle thread_bundle_;
   TestingProfileManager manager_;
   std::unique_ptr<MockObserver> mock_observer_;
   std::unique_ptr<AvatarMenu> avatar_menu_;
-  content::TestBrowserThreadBundle thread_bundle_;
 
   DISALLOW_COPY_AND_ASSIGN(ProfileListDesktopTest);
 };

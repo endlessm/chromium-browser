@@ -5,14 +5,14 @@
 package org.chromium.android_webview.test;
 
 import android.os.Build;
-import android.test.suitebuilder.annotation.SmallTest;
+import android.support.test.filters.SmallTest;
 import android.view.KeyEvent;
 
+import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
 import org.chromium.base.test.util.MinAndroidSdkLevel;
 import org.chromium.content.browser.input.ImeAdapter;
-import org.chromium.content.browser.test.util.CallbackHelper;
 
 import java.util.ArrayList;
 import java.util.Arrays;

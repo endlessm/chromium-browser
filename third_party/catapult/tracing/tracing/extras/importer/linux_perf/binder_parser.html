@@ -167,8 +167,10 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
 
     binderLocked: function(eventName, cpuNumber, pid, ts, eventBase) {
       var binderThread = isBinderThread(eventBase.threadName);
-      var tgid, name;
-      var kthread, rthread;
+      var tgid;
+      var name;
+      var kthread;
+      var rthread;
 
       tgid = parseInt(eventBase.tgid);
       name = eventBase.threadName;
@@ -491,7 +493,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
          *  it can either be a async or a normal sync transaction.
          */
         var slice = kthread.thread.sliceGroup.pushCompleteSlice('binder',
-            '' , ts, .03, 0,
+            '', ts, .03, 0,
             0, args);
 
         trans.slice = slice;
@@ -557,7 +559,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
              *
              * This is commented out because AIDL tracing doesn't exit yet.
              */
-            //slice.start += .15;
+            // slice.start += .15;
           }
           trans1.slice = slice;
           this.addRecursiveSyncTransNeedingCompletion(pid,
@@ -686,7 +688,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
 
   Parser.register(BinderParser);
   return {
-    BinderParser: BinderParser
+    BinderParser,
   };
 });
 </script>

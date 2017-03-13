@@ -32,7 +32,6 @@
 #define WebInputEvent_h
 
 #include "WebCommon.h"
-#include "WebGestureDevice.h"
 #include "WebPointerProperties.h"
 #include "WebRect.h"
 #include "WebTouchPoint.h"
@@ -195,10 +194,11 @@ class WebInputEvent {
     // and don't indicate explicit depressed state.
     KeyModifiers =
         SymbolKey | FnKey | AltGrKey | MetaKey | AltKey | ControlKey | ShiftKey,
+    NoModifiers = 0,
   };
 
   // Indicates whether the browser needs to block on the ACK result for
-  // this event, and if not why note (for metrics/diagnostics purposes).
+  // this event, and if not, why (for metrics/diagnostics purposes).
   // These values are direct mappings of the values in PlatformEvent
   // so the values can be cast between the enumerations. static_asserts
   // checking this are in web/WebInputEventConversion.cpp.
@@ -212,6 +212,10 @@ class WebInputEvent {
     // This value represents a state which would have normally blocking
     // but was forced to be non-blocking during fling; not cancelable.
     ListenersForcedNonBlockingDueToFling,
+    // This value represents a state which would have normally blocking but
+    // was forced to be non-blocking due to the main thread being
+    // unresponsive.
+    ListenersForcedNonBlockingDueToMainThreadResponsiveness,
   };
 
   // The rail mode for a wheel event specifies the axis on which scrolling is
@@ -225,11 +229,7 @@ class WebInputEvent {
 
   static const int InputModifiers = ShiftKey | ControlKey | AltKey | MetaKey;
 
-  double timeStampSeconds;  // Seconds since platform start with microsecond
-                            // resolution.
-  unsigned size;            // The size of this structure, for serialization.
-  Type type;
-  int modifiers;
+  static constexpr double TimeStampForTesting = 123.0;
 
   // Returns true if the WebInputEvent |type| is a mouse event.
   static bool isMouseEventType(int type) {
@@ -252,27 +252,86 @@ class WebInputEvent {
   }
 
   bool isSameEventClass(const WebInputEvent& other) const {
-    if (isMouseEventType(type))
-      return isMouseEventType(other.type);
-    if (isGestureEventType(type))
-      return isGestureEventType(other.type);
-    if (isTouchEventType(type))
-      return isTouchEventType(other.type);
-    if (isKeyboardEventType(type))
-      return isKeyboardEventType(other.type);
-    return type == other.type;
+    if (isMouseEventType(m_type))
+      return isMouseEventType(other.m_type);
+    if (isGestureEventType(m_type))
+      return isGestureEventType(other.m_type);
+    if (isTouchEventType(m_type))
+      return isTouchEventType(other.m_type);
+    if (isKeyboardEventType(m_type))
+      return isKeyboardEventType(other.m_type);
+    return m_type == other.m_type;
   }
 
   BLINK_COMMON_EXPORT static const char* GetName(WebInputEvent::Type);
 
- protected:
-  explicit WebInputEvent(unsigned sizeParam) {
-    memset(this, 0, sizeParam);
-    timeStampSeconds = 0.0;
-    size = sizeParam;
-    type = Undefined;
-    modifiers = 0;
+  float frameScale() const { return m_frameScale; }
+  void setFrameScale(float scale) { m_frameScale = scale; }
+
+  WebFloatPoint frameTranslate() const { return m_frameTranslate; }
+  void setFrameTranslate(WebFloatPoint translate) {
+    m_frameTranslate = translate;
   }
+
+  Type type() const { return m_type; }
+  void setType(Type typeParam) { m_type = typeParam; }
+
+  int modifiers() const { return m_modifiers; }
+  void setModifiers(int modifiersParam) { m_modifiers = modifiersParam; }
+
+  double timeStampSeconds() const { return m_timeStampSeconds; }
+  void setTimeStampSeconds(double seconds) { m_timeStampSeconds = seconds; }
+
+  unsigned size() const { return m_size; }
+
+ protected:
+  // The root frame scale.
+  float m_frameScale;
+
+  // The root frame translation (applied post scale).
+  WebFloatPoint m_frameTranslate;
+
+  WebInputEvent(unsigned sizeParam,
+                Type typeParam,
+                int modifiersParam,
+                double timeStampSecondsParam) {
+    // TODO(dtapuska): Remove this memset when we remove the chrome IPC of this
+    // struct.
+    memset(this, 0, sizeParam);
+    m_timeStampSeconds = timeStampSecondsParam;
+    m_size = sizeParam;
+    m_type = typeParam;
+    m_modifiers = modifiersParam;
+#if DCHECK_IS_ON()
+    // If dcheck is on force failures if frame scale is not initialized
+    // correctly by causing DIV0.
+    m_frameScale = 0;
+#else
+    m_frameScale = 1;
+#endif
+  }
+
+  WebInputEvent(unsigned sizeParam) {
+    // TODO(dtapuska): Remove this memset when we remove the chrome IPC of this
+    // struct.
+    memset(this, 0, sizeParam);
+    m_timeStampSeconds = 0.0;
+    m_size = sizeParam;
+    m_type = Undefined;
+#if DCHECK_IS_ON()
+    // If dcheck is on force failures if frame scale is not initialized
+    // correctly by causing DIV0.
+    m_frameScale = 0;
+#else
+    m_frameScale = 1;
+#endif
+  }
+
+  double m_timeStampSeconds;  // Seconds since platform start with microsecond
+                              // resolution.
+  unsigned m_size;            // The size of this structure, for serialization.
+  Type m_type;
+  int m_modifiers;
 };
 
 // WebKeyboardEvent -----------------------------------------------------------
@@ -327,15 +386,13 @@ class WebKeyboardEvent : public WebInputEvent {
   WebUChar text[textLengthCap];
   WebUChar unmodifiedText[textLengthCap];
 
-  WebKeyboardEvent()
-      : WebInputEvent(sizeof(WebKeyboardEvent)),
-        windowsKeyCode(0),
-        nativeKeyCode(0),
-        isSystemKey(false),
-        isBrowserShortcut(false) {
-    memset(&text, 0, sizeof(text));
-    memset(&unmodifiedText, 0, sizeof(unmodifiedText));
-  }
+  WebKeyboardEvent(Type type, int modifiers, double timeStampSeconds)
+      : WebInputEvent(sizeof(WebKeyboardEvent),
+                      type,
+                      modifiers,
+                      timeStampSeconds) {}
+
+  WebKeyboardEvent() : WebInputEvent(sizeof(WebKeyboardEvent)) {}
 
   // Please refer to bug http://b/issue?id=961192, which talks about Webkit
   // keyboard event handling changes. It also mentions the list of keys
@@ -349,267 +406,6 @@ class WebKeyboardEvent : public WebInputEvent {
         return false;
     }
     return true;
-  }
-};
-
-// WebMouseEvent --------------------------------------------------------------
-
-class WebMouseEvent : public WebInputEvent, public WebPointerProperties {
- public:
-  // Renderer coordinates. Similar to viewport coordinates but without
-  // DevTools emulation transform or overscroll applied. i.e. the coordinates
-  // in Chromium's RenderView bounds.
-  int x;
-  int y;
-
-  // DEPRECATED (crbug.com/507787)
-  int windowX;
-  int windowY;
-
-  // Screen coordinate
-  int globalX;
-  int globalY;
-
-  int movementX;
-  int movementY;
-  int clickCount;
-
-  WebMouseEvent()
-      : WebInputEvent(sizeof(WebMouseEvent)),
-        WebPointerProperties(),
-        x(0),
-        y(0),
-        windowX(0),
-        windowY(0),
-        globalX(0),
-        globalY(0),
-        movementX(0),
-        movementY(0),
-        clickCount(0) {}
-
- protected:
-  explicit WebMouseEvent(unsigned sizeParam)
-      : WebInputEvent(sizeParam),
-        WebPointerProperties(),
-        x(0),
-        y(0),
-        windowX(0),
-        windowY(0),
-        globalX(0),
-        globalY(0),
-        movementX(0),
-        movementY(0),
-        clickCount(0) {}
-};
-
-// WebMouseWheelEvent ---------------------------------------------------------
-
-class WebMouseWheelEvent : public WebMouseEvent {
- public:
-  enum Phase {
-    PhaseNone = 0,
-    PhaseBegan = 1 << 0,
-    PhaseStationary = 1 << 1,
-    PhaseChanged = 1 << 2,
-    PhaseEnded = 1 << 3,
-    PhaseCancelled = 1 << 4,
-    PhaseMayBegin = 1 << 5,
-  };
-
-  float deltaX;
-  float deltaY;
-  float wheelTicksX;
-  float wheelTicksY;
-
-  float accelerationRatioX;
-  float accelerationRatioY;
-
-  // This field exists to allow BrowserPlugin to mark MouseWheel events as
-  // 'resent' to handle the case where an event is not consumed when first
-  // encountered; it should be handled differently by the plugin when it is
-  // sent for thesecond time. No code within Blink touches this, other than to
-  // plumb it through event conversions.
-  int resendingPluginId;
-
-  Phase phase;
-  Phase momentumPhase;
-
-  bool scrollByPage;
-  bool hasPreciseScrollingDeltas;
-
-  RailsMode railsMode;
-
-  // Whether the event is blocking, non-blocking, all event
-  // listeners were passive or was forced to be non-blocking.
-  DispatchType dispatchType;
-
-  WebMouseWheelEvent()
-      : WebMouseEvent(sizeof(WebMouseWheelEvent)),
-        deltaX(0.0f),
-        deltaY(0.0f),
-        wheelTicksX(0.0f),
-        wheelTicksY(0.0f),
-        accelerationRatioX(1.0f),
-        accelerationRatioY(1.0f),
-        resendingPluginId(-1),
-        phase(PhaseNone),
-        momentumPhase(PhaseNone),
-        scrollByPage(false),
-        hasPreciseScrollingDeltas(false),
-        railsMode(RailsModeFree),
-        dispatchType(Blocking) {}
-};
-
-// WebGestureEvent ---------------------------------------------------------
-
-class WebGestureEvent : public WebInputEvent {
- public:
-  enum ScrollUnits {
-    PrecisePixels = 0,  // generated by high precision devices.
-    Pixels,             // large pixel jump duration; should animate to delta.
-    Page                // page (visible viewport) based scrolling.
-  };
-
-  enum InertialPhaseState {
-    UnknownMomentumPhase = 0,  // No phase information.
-    NonMomentumPhase,          // Regular scrolling phase.
-    MomentumPhase,             // Momentum phase.
-  };
-
-  int x;
-  int y;
-  int globalX;
-  int globalY;
-  WebGestureDevice sourceDevice;
-
-  // If the WebGestureEvent has sourceDevice=WebGestureDeviceTouchscreen, this
-  // field contains the unique identifier for the touch event that released
-  // this event at TouchDispositionGestureFilter. If the WebGestureEvents was
-  // not released through a touch event (e.g. timer-released gesture events or
-  // gesture events with sourceDevice!=WebGestureDeviceTouchscreen), the field
-  // contains 0. See crbug.com/618738.
-  uint32_t uniqueTouchEventId;
-
-  // This field exists to allow BrowserPlugin to mark GestureScroll events as
-  // 'resent' to handle the case where an event is not consumed when first
-  // encountered; it should be handled differently by the plugin when it is
-  // sent for thesecond time. No code within Blink touches this, other than to
-  // plumb it through event conversions.
-  int resendingPluginId;
-
-  union {
-    // Tap information must be set for GestureTap, GestureTapUnconfirmed,
-    // and GestureDoubleTap events.
-    struct {
-      int tapCount;
-      float width;
-      float height;
-    } tap;
-
-    struct {
-      float width;
-      float height;
-    } tapDown;
-
-    struct {
-      float width;
-      float height;
-    } showPress;
-
-    struct {
-      float width;
-      float height;
-    } longPress;
-
-    struct {
-      float firstFingerWidth;
-      float firstFingerHeight;
-    } twoFingerTap;
-
-    struct {
-      // Initial motion that triggered the scroll.
-      // May be redundant with deltaX/deltaY in the first scrollUpdate.
-      float deltaXHint;
-      float deltaYHint;
-      // Default initialized to ScrollUnits::PrecisePixels.
-      ScrollUnits deltaHintUnits;
-      // If true, this event will skip hit testing to find a scroll
-      // target and instead just scroll the viewport.
-      bool targetViewport;
-      // The state of inertial phase scrolling. OSX has unique phases for normal
-      // and momentum scroll events. Should always be UnknownMomentumPhase for
-      // touch based input as it generates GestureFlingStart instead.
-      InertialPhaseState inertialPhase;
-      // True if this event was synthesized in order to force a hit test;
-      // avoiding scroll latching behavior until crbug.com/526463 is fully
-      // implemented.
-      bool synthetic;
-
-      // number of pointers down.
-      int pointerCount;
-    } scrollBegin;
-
-    struct {
-      float deltaX;
-      float deltaY;
-      float velocityX;
-      float velocityY;
-      // Whether any previous GestureScrollUpdate in the current scroll
-      // sequence was suppressed (e.g., the causal touchmove was
-      // preventDefault'ed). This bit is particularly useful for
-      // determining whether the observed scroll update sequence captures
-      // the entirety of the generative motion.
-      bool previousUpdateInSequencePrevented;
-      bool preventPropagation;
-      InertialPhaseState inertialPhase;
-      // Default initialized to ScrollUnits::PrecisePixels.
-      ScrollUnits deltaUnits;
-    } scrollUpdate;
-
-    struct {
-      // The original delta units the scrollBegin and scrollUpdates
-      // were sent as.
-      ScrollUnits deltaUnits;
-      // The state of inertial phase scrolling. OSX has unique phases for normal
-      // and momentum scroll events. Should always be UnknownMomentumPhase for
-      // touch based input as it generates GestureFlingStart instead.
-      InertialPhaseState inertialPhase;
-      // True if this event was synthesized in order to generate the proper
-      // GSB/GSU/GSE matching sequences. This is a temporary so that a future
-      // GSB will generate a hit test so latching behavior is avoided
-      // until crbug.com/526463 is fully implemented.
-      bool synthetic;
-    } scrollEnd;
-
-    struct {
-      float velocityX;
-      float velocityY;
-      // If true, this event will skip hit testing to find a scroll
-      // target and instead just scroll the viewport.
-      bool targetViewport;
-    } flingStart;
-
-    struct {
-      // If set to true, don't treat flingCancel
-      // as a part of fling boost events sequence.
-      bool preventBoosting;
-    } flingCancel;
-
-    struct {
-      bool zoomDisabled;
-      float scale;
-    } pinchUpdate;
-  } data;
-
-  WebGestureEvent()
-      : WebInputEvent(sizeof(WebGestureEvent)),
-        x(0),
-        y(0),
-        globalX(0),
-        globalY(0),
-        sourceDevice(WebGestureDeviceUninitialized),
-        resendingPluginId(-1) {
-    memset(&data, 0, sizeof(data));
   }
 };
 
@@ -635,10 +431,6 @@ class WebTouchEvent : public WebInputEvent {
   // touch-point has moved (by whatever amount).
   bool movedBeyondSlopRegion;
 
-  // Whether there was an active fling animation when the event was
-  // dispatched.
-  bool dispatchedDuringFling;
-
   // Whether this touch event is a touchstart or a first touchmove event per
   // scroll.
   bool touchStartOrFirstTouchMove;
@@ -648,13 +440,11 @@ class WebTouchEvent : public WebInputEvent {
   uint32_t uniqueTouchEventId;
 
   WebTouchEvent()
-      : WebInputEvent(sizeof(WebTouchEvent)),
-        touchesLength(0),
-        dispatchType(Blocking),
-        movedBeyondSlopRegion(false),
-        dispatchedDuringFling(false),
-        touchStartOrFirstTouchMove(false),
-        uniqueTouchEventId(0) {}
+      : WebInputEvent(sizeof(WebTouchEvent)), dispatchType(Blocking) {}
+
+  WebTouchEvent(Type type, int modifiers, double timeStampSeconds)
+      : WebInputEvent(sizeof(WebTouchEvent), type, modifiers, timeStampSeconds),
+        dispatchType(Blocking) {}
 };
 
 #pragma pack(pop)

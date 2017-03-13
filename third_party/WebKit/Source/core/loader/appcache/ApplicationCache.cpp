@@ -38,8 +38,7 @@
 
 namespace blink {
 
-ApplicationCache::ApplicationCache(LocalFrame* frame)
-    : DOMWindowProperty(frame) {
+ApplicationCache::ApplicationCache(LocalFrame* frame) : DOMWindowClient(frame) {
   ApplicationCacheHost* cacheHost = applicationCacheHost();
   if (cacheHost)
     cacheHost->setApplicationCache(this);
@@ -47,13 +46,7 @@ ApplicationCache::ApplicationCache(LocalFrame* frame)
 
 DEFINE_TRACE(ApplicationCache) {
   EventTargetWithInlineData::trace(visitor);
-  DOMWindowProperty::trace(visitor);
-}
-
-void ApplicationCache::frameDestroyed() {
-  if (ApplicationCacheHost* cacheHost = applicationCacheHost())
-    cacheHost->setApplicationCache(0);
-  DOMWindowProperty::frameDestroyed();
+  DOMWindowClient::trace(visitor);
 }
 
 ApplicationCacheHost* ApplicationCache::applicationCacheHost() const {
@@ -73,17 +66,19 @@ unsigned short ApplicationCache::status() const {
 void ApplicationCache::update(ExceptionState& exceptionState) {
   recordAPIUseType();
   ApplicationCacheHost* cacheHost = applicationCacheHost();
-  if (!cacheHost || !cacheHost->update())
+  if (!cacheHost || !cacheHost->update()) {
     exceptionState.throwDOMException(
         InvalidStateError, "there is no application cache to update.");
+  }
 }
 
 void ApplicationCache::swapCache(ExceptionState& exceptionState) {
   recordAPIUseType();
   ApplicationCacheHost* cacheHost = applicationCacheHost();
-  if (!cacheHost || !cacheHost->swapCache())
+  if (!cacheHost || !cacheHost->swapCache()) {
     exceptionState.throwDOMException(
         InvalidStateError, "there is no newer application cache to swap to.");
+  }
 }
 
 void ApplicationCache::abort() {
@@ -97,9 +92,7 @@ const AtomicString& ApplicationCache::interfaceName() const {
 }
 
 ExecutionContext* ApplicationCache::getExecutionContext() const {
-  if (frame())
-    return frame()->document();
-  return 0;
+  return frame() ? frame()->document() : nullptr;
 }
 
 const AtomicString& ApplicationCache::toEventType(

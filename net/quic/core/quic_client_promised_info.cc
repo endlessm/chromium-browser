@@ -4,8 +4,8 @@
 
 #include "net/quic/core/quic_client_promised_info.h"
 
-#include "base/logging.h"
 #include "net/quic/core/spdy_utils.h"
+#include "net/quic/platform/api/quic_logging.h"
 
 using net::SpdyHeaderBlock;
 using net::kPushPromiseTimeoutSecs;
@@ -24,8 +24,9 @@ QuicClientPromisedInfo::QuicClientPromisedInfo(QuicClientSessionBase* session,
 QuicClientPromisedInfo::~QuicClientPromisedInfo() {}
 
 void QuicClientPromisedInfo::CleanupAlarm::OnAlarm() {
-  DVLOG(1) << "self GC alarm for stream " << promised_->id_;
-  promised_->Reset(QUIC_STREAM_CANCELLED);
+  QUIC_DVLOG(1) << "self GC alarm for stream " << promised_->id_;
+  promised_->session()->OnPushStreamTimedOut(promised_->id_);
+  promised_->Reset(QUIC_PUSH_STREAM_TIMED_OUT);
 }
 
 void QuicClientPromisedInfo::Init() {
@@ -42,13 +43,14 @@ void QuicClientPromisedInfo::OnPromiseHeaders(const SpdyHeaderBlock& headers) {
   SpdyHeaderBlock::const_iterator it = headers.find(":method");
   DCHECK(it != headers.end());
   if (!(it->second == "GET" || it->second == "HEAD")) {
-    DVLOG(1) << "Promise for stream " << id_ << " has invalid method "
-             << it->second;
+    QUIC_DVLOG(1) << "Promise for stream " << id_ << " has invalid method "
+                  << it->second;
     Reset(QUIC_INVALID_PROMISE_METHOD);
     return;
   }
   if (!SpdyUtils::UrlIsValid(headers)) {
-    DVLOG(1) << "Promise for stream " << id_ << " has invalid URL " << url_;
+    QUIC_DVLOG(1) << "Promise for stream " << id_ << " has invalid URL "
+                  << url_;
     Reset(QUIC_INVALID_PROMISE_URL);
     return;
   }
@@ -106,6 +108,15 @@ QuicAsyncStatus QuicClientPromisedInfo::HandleClientRequest(
     session_->DeletePromised(this);
     return QUIC_FAILURE;
   }
+
+  if (is_validating()) {
+    // The push promise has already been matched to another request though
+    // pending for validation. Returns QUIC_FAILURE to the caller as it couldn't
+    // match a new request any more. This will not affect the validation of the
+    // other request.
+    return QUIC_FAILURE;
+  }
+
   client_request_delegate_ = delegate;
   client_request_headers_.reset(new SpdyHeaderBlock(request_headers.Clone()));
   if (!response_headers_) {

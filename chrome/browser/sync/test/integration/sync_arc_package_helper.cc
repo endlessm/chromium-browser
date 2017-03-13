@@ -7,9 +7,10 @@
 #include <vector>
 
 #include "base/command_line.h"
+#include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
-#include "chrome/browser/chromeos/arc/arc_auth_service.h"
+#include "chrome/browser/chromeos/arc/arc_session_manager.h"
 #include "chrome/browser/chromeos/login/users/fake_chrome_user_manager.h"
 #include "chrome/browser/chromeos/login/users/scoped_user_manager_enabler.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
@@ -22,7 +23,6 @@
 #include "chromeos/chromeos_switches.h"
 #include "components/arc/arc_bridge_service.h"
 #include "components/arc/test/fake_app_instance.h"
-#include "components/arc/test/fake_arc_bridge_service.h"
 
 namespace arc {
 
@@ -56,7 +56,7 @@ SyncArcPackageHelper* SyncArcPackageHelper::GetInstance() {
 }
 
 SyncArcPackageHelper::SyncArcPackageHelper()
-    : test_(NULL), setup_completed_(false), user_manager_enabler_(nullptr) {}
+    : test_(nullptr), setup_completed_(false), user_manager_enabler_(nullptr) {}
 
 SyncArcPackageHelper::~SyncArcPackageHelper() {}
 
@@ -67,8 +67,8 @@ void SyncArcPackageHelper::SetupTest(SyncTest* test) {
   }
   test_ = test;
 
-  user_manager_enabler_.reset(new chromeos::ScopedUserManagerEnabler(
-      new chromeos::FakeChromeUserManager()));
+  user_manager_enabler_ = base::MakeUnique<chromeos::ScopedUserManagerEnabler>(
+      new chromeos::FakeChromeUserManager());
   base::CommandLine::ForCurrentProcess()->AppendSwitch(
       chromeos::switches::kEnableArc);
   ArcAppListPrefsFactory::SetFactoryForSyncTest();
@@ -79,7 +79,7 @@ void SyncArcPackageHelper::SetupTest(SyncTest* test) {
 }
 
 void SyncArcPackageHelper::CleanUp() {
-  ArcAuthService::Get()->Shutdown();
+  ArcSessionManager::Get()->Shutdown();
   user_manager_enabler_.reset();
 }
 
@@ -153,11 +153,11 @@ void SyncArcPackageHelper::SetupArcService(Profile* profile, size_t id) {
   chromeos::ProfileHelper::Get()->SetUserToProfileMappingForTesting(user,
                                                                     profile);
 
-  ArcAuthService* auth_service = ArcAuthService::Get();
-  DCHECK(auth_service);
-  ArcAuthService::DisableUIForTesting();
-  auth_service->OnPrimaryUserProfilePrepared(profile);
-  auth_service->EnableArc();
+  ArcSessionManager* arc_session_manager = ArcSessionManager::Get();
+  DCHECK(arc_session_manager);
+  ArcSessionManager::DisableUIForTesting();
+  arc_session_manager->OnPrimaryUserProfilePrepared(profile);
+  arc_session_manager->EnableArc();
 
   ArcAppListPrefs* arc_app_list_prefs = ArcAppListPrefs::Get(profile);
   DCHECK(arc_app_list_prefs);
@@ -166,7 +166,8 @@ void SyncArcPackageHelper::SetupArcService(Profile* profile, size_t id) {
   arc_app_list_prefs->SetDefaltAppsReadyCallback(run_loop.QuitClosure());
   run_loop.Run();
 
-  instance_map_[profile].reset(new FakeAppInstance(arc_app_list_prefs));
+  instance_map_[profile] =
+      base::MakeUnique<FakeAppInstance>(arc_app_list_prefs);
   DCHECK(instance_map_[profile].get());
   arc_app_list_prefs->app_instance_holder()->SetInstance(
       instance_map_[profile].get());
@@ -182,27 +183,25 @@ void SyncArcPackageHelper::InstallPackage(
     const mojom::ArcPackageInfo& package) {
   ArcAppListPrefs* arc_app_list_prefs = ArcAppListPrefs::Get(profile);
   DCHECK(arc_app_list_prefs);
-  FakeAppInstance* fake_app_instance = static_cast<FakeAppInstance*>(
-      arc_app_list_prefs->app_instance_holder()->GetInstanceForMethod(
-          "InstallPackage"));
+  mojom::AppInstance* app_instance = ARC_GET_INSTANCE_FOR_METHOD(
+      arc_app_list_prefs->app_instance_holder(), InstallPackage);
 
-  DCHECK(fake_app_instance);
+  DCHECK(app_instance);
   // After this function, new package should be added to local sync service
   // and install event should be sent to sync server.
-  fake_app_instance->InstallPackage(package.Clone());
+  app_instance->InstallPackage(package.Clone());
 }
 
 void SyncArcPackageHelper::UninstallPackage(Profile* profile,
                                             const std::string& package_name) {
   ArcAppListPrefs* arc_app_list_prefs = ArcAppListPrefs::Get(profile);
   DCHECK(arc_app_list_prefs);
-  FakeAppInstance* fake_app_instance = static_cast<FakeAppInstance*>(
-      arc_app_list_prefs->app_instance_holder()->GetInstanceForMethod(
-          "UninstallPackage"));
-  DCHECK(fake_app_instance);
+  mojom::AppInstance* app_instance = ARC_GET_INSTANCE_FOR_METHOD(
+      arc_app_list_prefs->app_instance_holder(), UninstallPackage);
+  DCHECK(app_instance);
   // After this function, package should be removed from local sync service
   // and uninstall event should be sent to sync server.
-  fake_app_instance->UninstallPackage(package_name);
+  app_instance->UninstallPackage(package_name);
 }
 
 // Packages from local pref are used for these test functions. Packages in local

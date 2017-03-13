@@ -17,8 +17,8 @@
 #include "base/time/time.h"
 #include "remoting/signaling/jid_util.h"
 #include "remoting/signaling/signal_strategy.h"
-#include "third_party/webrtc/libjingle/xmllite/xmlelement.h"
-#include "third_party/webrtc/libjingle/xmpp/constants.h"
+#include "third_party/libjingle_xmpp/xmllite/xmlelement.h"
+#include "third_party/libjingle_xmpp/xmpp/constants.h"
 
 namespace remoting {
 
@@ -48,8 +48,11 @@ std::unique_ptr<IqRequest> IqSender::SendIq(
     std::unique_ptr<buzz::XmlElement> stanza,
     const ReplyCallback& callback) {
   std::string addressee = stanza->Attr(buzz::QN_TO);
-  std::string id = signal_strategy_->GetNextId();
-  stanza->AddAttr(buzz::QN_ID, id);
+  std::string id = stanza->Attr(buzz::QN_ID);
+  if (id.empty()) {
+    id = signal_strategy_->GetNextId();
+    stanza->AddAttr(buzz::QN_ID, id);
+  }
   if (!signal_strategy_->SendStanza(std::move(stanza))) {
     return nullptr;
   }

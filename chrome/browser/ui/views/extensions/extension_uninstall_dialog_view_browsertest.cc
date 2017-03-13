@@ -4,11 +4,13 @@
 
 #include "base/macros.h"
 #include "base/run_loop.h"
+#include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_uninstall_dialog.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "content/public/test/test_utils.h"
+#include "extensions/browser/extension_system.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/extension_builder.h"
 #include "extensions/common/value_builder.h"
@@ -52,15 +54,14 @@ class TestExtensionUninstallDialogDelegate
 
 typedef InProcessBrowserTest ExtensionUninstallDialogViewBrowserTest;
 
-// Test that ExtensionUninstallDialog cancels the uninstall if the aura::Window
-// which is passed to ExtensionUninstallDialog::Create() is destroyed.
+// Test that ExtensionUninstallDialog cancels the uninstall if the Window which
+// is passed to ExtensionUninstallDialog::Create() is destroyed before
+// ExtensionUninstallDialogDelegateView is created.
 IN_PROC_BROWSER_TEST_F(ExtensionUninstallDialogViewBrowserTest,
                        TrackParentWindowDestruction) {
-  // Create a second browser to prevent the app from exiting when the browser is
-  // closed.
-  CreateBrowser(browser()->profile());
-
   scoped_refptr<extensions::Extension> extension(BuildTestExtension());
+  extensions::ExtensionSystem::Get(browser()->profile())->extension_service()
+      ->AddExtension(extension.get());
 
   base::RunLoop run_loop;
   TestExtensionUninstallDialogDelegate delegate(run_loop.QuitClosure());
@@ -74,6 +75,35 @@ IN_PROC_BROWSER_TEST_F(ExtensionUninstallDialogViewBrowserTest,
   dialog->ConfirmUninstall(extension.get(),
                            extensions::UNINSTALL_REASON_FOR_TESTING,
                            extensions::UNINSTALL_SOURCE_FOR_TESTING);
+  run_loop.Run();
+  EXPECT_TRUE(delegate.canceled());
+}
+
+// Test that ExtensionUninstallDialog cancels the uninstall if the Window which
+// is passed to ExtensionUninstallDialog::Create() is destroyed after
+// ExtensionUninstallDialogDelegateView is created.
+IN_PROC_BROWSER_TEST_F(ExtensionUninstallDialogViewBrowserTest,
+                       TrackParentWindowDestructionAfterViewCreation) {
+  scoped_refptr<extensions::Extension> extension(BuildTestExtension());
+  extensions::ExtensionSystem::Get(browser()->profile())->extension_service()
+      ->AddExtension(extension.get());
+
+  base::RunLoop run_loop;
+  TestExtensionUninstallDialogDelegate delegate(run_loop.QuitClosure());
+  std::unique_ptr<extensions::ExtensionUninstallDialog> dialog(
+      extensions::ExtensionUninstallDialog::Create(
+          browser()->profile(), browser()->window()->GetNativeWindow(),
+          &delegate));
+  content::RunAllPendingInMessageLoop();
+
+  dialog->ConfirmUninstall(extension.get(),
+                           extensions::UNINSTALL_REASON_FOR_TESTING,
+                           extensions::UNINSTALL_SOURCE_FOR_TESTING);
+
+  content::RunAllPendingInMessageLoop();
+
+  // Kill parent window.
+  browser()->window()->Close();
   run_loop.Run();
   EXPECT_TRUE(delegate.canceled());
 }

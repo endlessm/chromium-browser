@@ -123,12 +123,12 @@ def AddWebProxy(server_manager, options, host, real_dns_lookup, http_archive):
     logging.info('Parsed %s rules:\n%s', options.rules_path, rules)
   else:
     rules = rules_parser.Rules()
-  inject_script = script_injector.GetInjectScript(options.inject_scripts)
+  injector = script_injector.GetScriptInjector(options.inject_scripts)
   custom_handlers = customhandlers.CustomHandlers(options, http_archive)
   custom_handlers.add_server_manager_handler(server_manager)
   archive_fetch = httpclient.ControllableHttpArchiveFetch(
       http_archive, real_dns_lookup,
-      inject_script,
+      injector,
       options.diff_unknown_requests, options.record,
       use_closest_match=options.use_closest_match,
       scramble_images=options.scramble_images)
@@ -304,6 +304,10 @@ class OptionsWrapper(object):
 
 
 def replay(options, replay_filename):
+  if options.record and sys.version_info < (2, 7, 9):
+    print ('Need Python 2.7.9 or greater for recording mode.\n'
+           'For instructions on how to upgrade Python on Ubuntu 14.04, see:\n'
+           'http://mbless.de/blog/2016/01/09/upgrade-to-python-2711-on-ubuntu-1404-lts.html\n')
   if options.admin_check and options.IsRootRequired():
     platformsettings.rerun_as_administrator()
   configure_logging(options.log_level, options.log_file)

@@ -6,19 +6,23 @@ package org.chromium.content_shell_apk;
 
 import static org.chromium.base.test.util.ScalableTimeout.scaleTimeout;
 
+import android.annotation.TargetApi;
 import android.content.ComponentName;
+import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
+import android.os.Build;
+import android.os.PowerManager;
 import android.text.TextUtils;
 import android.view.ViewGroup;
 
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.BaseActivityInstrumentationTestCase;
+import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.UrlUtils;
 import org.chromium.content.browser.ContentView;
 import org.chromium.content.browser.ContentViewCore;
-import org.chromium.content.browser.test.util.CallbackHelper;
 import org.chromium.content.browser.test.util.Criteria;
 import org.chromium.content.browser.test.util.CriteriaHelper;
 import org.chromium.content.browser.test.util.TestCallbackHelperContainer;
@@ -52,6 +56,25 @@ public class ContentShellTestBase
         super(ContentShellActivity.class);
     }
 
+    @Override
+    protected void setUp() throws Exception {
+        super.setUp();
+        assertScreenIsOn();
+    }
+
+    @TargetApi(Build.VERSION_CODES.KITKAT_WATCH)
+    @SuppressWarnings("deprecation")
+    private void assertScreenIsOn() {
+        PowerManager pm = (PowerManager) getInstrumentation().getContext().getSystemService(
+                Context.POWER_SERVICE);
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT_WATCH) {
+            assertTrue("Many tests will fail if the screen is not on.", pm.isInteractive());
+        } else {
+            assertTrue("Many tests will fail if the screen is not on.", pm.isScreenOn());
+        }
+    }
+
     /**
      * Starts the ContentShell activity and loads the given URL.
      * The URL can be null, in which case will default to ContentShellActivity.DEFAULT_SHELL_URL.
@@ -74,9 +97,8 @@ public class ContentShellTestBase
      * Starts the content shell activity with the provided test url.
      * The url is synchronously loaded.
      * @param url Test url to load.
-     * @throws InterruptedException
      */
-    protected void startActivityWithTestUrl(String url) throws InterruptedException {
+    protected void startActivityWithTestUrl(String url) {
         launchContentShellWithUrl(UrlUtils.getIsolatedTestFileUrl(url));
         assertNotNull(getActivity());
         waitForActiveShellToBeDoneLoading();
@@ -103,9 +125,8 @@ public class ContentShellTestBase
      * WAIT_FOR_ACTIVE_SHELL_LOADING_TIMEOUT milliseconds and it shouldn't be used for long
      * loading pages. Instead it should be used more for test initialization. The proper way
      * to wait is to use a TestCallbackHelperContainer after the initial load is completed.
-     * @throws InterruptedException
      */
-    protected void waitForActiveShellToBeDoneLoading() throws InterruptedException {
+    protected void waitForActiveShellToBeDoneLoading() {
         final ContentShellActivity activity = getActivity();
 
         // Wait for the Content Shell to be initialized.
@@ -139,9 +160,8 @@ public class ContentShellTestBase
      * @param url The URL to create the new {@link Shell} with.
      * @return A new instance of a {@link Shell}.
      * @throws ExecutionException
-     * @throws InterruptedException
      */
-    protected Shell loadNewShell(final String url) throws ExecutionException, InterruptedException {
+    protected Shell loadNewShell(final String url) throws ExecutionException {
         Shell shell = ThreadUtils.runOnUiThreadBlocking(new Callable<Shell>() {
             @Override
             public Shell call() {
@@ -199,8 +219,7 @@ public class ContentShellTestBase
      * Waits till the ContentViewCore receives the expected page scale factor
      * from the compositor and asserts that this happens.
      */
-    protected void assertWaitForPageScaleFactorMatch(float expectedScale)
-            throws InterruptedException {
+    protected void assertWaitForPageScaleFactorMatch(float expectedScale) {
         CriteriaHelper.pollInstrumentationThread(
                 Criteria.equals(expectedScale, new Callable<Float>() {
                     @Override

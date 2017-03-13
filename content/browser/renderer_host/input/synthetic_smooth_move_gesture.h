@@ -11,11 +11,11 @@
 #include "base/time/time.h"
 #include "content/browser/renderer_host/input/synthetic_gesture.h"
 #include "content/browser/renderer_host/input/synthetic_gesture_target.h"
-#include "content/browser/renderer_host/input/synthetic_pointer.h"
+#include "content/browser/renderer_host/input/synthetic_pointer_driver.h"
 #include "content/common/content_export.h"
 #include "content/common/input/synthetic_smooth_drag_gesture_params.h"
 #include "content/common/input/synthetic_smooth_scroll_gesture_params.h"
-#include "third_party/WebKit/public/web/WebInputEvent.h"
+#include "third_party/WebKit/public/platform/WebInputEvent.h"
 #include "ui/gfx/geometry/vector2d.h"
 #include "ui/gfx/geometry/vector2d_f.h"
 
@@ -93,7 +93,7 @@ class CONTENT_EXPORT SyntheticSmoothMoveGesture : public SyntheticGesture {
   bool MoveIsNoOp() const;
 
   SyntheticSmoothMoveGestureParams params_;
-  std::unique_ptr<SyntheticPointer> synthetic_pointer_;
+  std::unique_ptr<SyntheticPointerDriver> synthetic_pointer_driver_;
   // Used for mouse input.
   gfx::Vector2d current_move_segment_total_delta_discrete_;
   // Used for touch input.

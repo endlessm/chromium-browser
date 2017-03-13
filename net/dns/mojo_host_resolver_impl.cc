@@ -6,12 +6,10 @@
 
 #include <utility>
 
-#include "base/stl_util.h"
 #include "net/base/address_list.h"
 #include "net/base/net_errors.h"
 #include "net/base/network_interfaces.h"
 #include "net/dns/host_resolver.h"
-#include "net/dns/mojo_host_type_converters.h"
 
 namespace net {
 
@@ -27,6 +25,8 @@ class MojoHostResolverImpl::Job {
       interfaces::HostResolverRequestClientPtr client);
   ~Job();
 
+  void set_iter(std::list<Job>::iterator iter) { iter_ = iter; }
+
   void Start();
 
  private:
@@ -37,6 +37,9 @@ class MojoHostResolverImpl::Job {
   void OnConnectionError();
 
   MojoHostResolverImpl* resolver_service_;
+  // This Job's iterator in |resolver_service_|, so the Job may be removed on
+  // completion.
+  std::list<Job>::iterator iter_;
   net::HostResolver* resolver_;
   net::HostResolver::RequestInfo request_info_;
   const NetLogWithSource net_log_;
@@ -52,32 +55,29 @@ MojoHostResolverImpl::MojoHostResolverImpl(net::HostResolver* resolver,
 
 MojoHostResolverImpl::~MojoHostResolverImpl() {
   DCHECK(thread_checker_.CalledOnValidThread());
-  base::STLDeleteElements(&pending_jobs_);
 }
 
 void MojoHostResolverImpl::Resolve(
-    interfaces::HostResolverRequestInfoPtr request_info,
+    std::unique_ptr<HostResolver::RequestInfo> request_info,
     interfaces::HostResolverRequestClientPtr client) {
   DCHECK(thread_checker_.CalledOnValidThread());
-  HostResolver::RequestInfo host_request_info =
-      request_info->To<net::HostResolver::RequestInfo>();
-  if (host_request_info.is_my_ip_address()) {
+  if (request_info->is_my_ip_address()) {
     // The proxy resolver running inside a sandbox may not be able to get the
     // correct host name. Instead, fill it ourself if the request is for our own
     // IP address.
-    host_request_info.set_host_port_pair(HostPortPair(GetHostName(), 80));
+    request_info->set_host_port_pair(HostPortPair(GetHostName(), 80));
   }
-  Job* job = new Job(this, resolver_, host_request_info, net_log_,
-                     std::move(client));
-  pending_jobs_.insert(job);
+
+  pending_jobs_.emplace_front(this, resolver_, *request_info, net_log_,
+                              std::move(client));
+  auto job = pending_jobs_.begin();
+  job->set_iter(job);
   job->Start();
 }
 
-void MojoHostResolverImpl::DeleteJob(Job* job) {
+void MojoHostResolverImpl::DeleteJob(std::list<Job>::iterator job) {
   DCHECK(thread_checker_.CalledOnValidThread());
-  size_t num_erased = pending_jobs_.erase(job);
-  DCHECK(num_erased);
-  delete job;
+  pending_jobs_.erase(job);
 }
 
 MojoHostResolverImpl::Job::Job(
@@ -96,6 +96,9 @@ MojoHostResolverImpl::Job::Job(
 }
 
 void MojoHostResolverImpl::Job::Start() {
+  // The caller is responsible for setting up |iter_|.
+  DCHECK_EQ(this, &*iter_);
+
   DVLOG(1) << "Resolve " << request_info_.host_port_pair().ToString();
   int result =
       resolver_->Resolve(request_info_, DEFAULT_PRIORITY, &result_,
@@ -119,12 +122,8 @@ void MojoHostResolverImpl::Job::OnResolveDone(int result) {
   for (const auto& address : result_) {
     DVLOG(1) << address.ToString();
   }
-  if (result == OK)
-    client_->ReportResult(result, interfaces::AddressList::From(result_));
-  else
-    client_->ReportResult(result, nullptr);
-
-  resolver_service_->DeleteJob(this);
+  client_->ReportResult(result, result_);
+  resolver_service_->DeleteJob(iter_);
 }
 
 void MojoHostResolverImpl::Job::OnConnectionError() {
@@ -133,7 +132,7 @@ void MojoHostResolverImpl::Job::OnConnectionError() {
   DCHECK(resolver_service_);
   DVLOG(1) << "Connection error on request for "
            << request_info_.host_port_pair().ToString();
-  resolver_service_->DeleteJob(this);
+  resolver_service_->DeleteJob(iter_);
 }
 
 }  // namespace net

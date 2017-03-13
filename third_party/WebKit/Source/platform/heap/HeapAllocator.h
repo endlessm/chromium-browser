@@ -180,13 +180,27 @@ class PLATFORM_EXPORT HeapAllocator {
                                iterationDoneCallback);
   }
 
-#if ENABLE(ASSERT)
+#if DCHECK_IS_ON()
   template <typename VisitorDispatcher>
   static bool weakTableRegistered(VisitorDispatcher visitor,
                                   const void* closure) {
     return visitor->weakTableRegistered(closure);
   }
 #endif
+
+  template <typename T, typename VisitorDispatcher>
+  static void registerBackingStoreReference(VisitorDispatcher visitor,
+                                            T** slot) {
+    visitor->registerBackingStoreReference(slot);
+  }
+
+  template <typename T, typename VisitorDispatcher>
+  static void registerBackingStoreCallback(VisitorDispatcher visitor,
+                                           T* backingStore,
+                                           MovingObjectCallback callback,
+                                           void* callbackData) {
+    visitor->registerBackingStoreCallback(backingStore, callback, callbackData);
+  }
 
   static void enterGCForbiddenScope() {
     ThreadState::current()->enterGCForbiddenScope();
@@ -306,9 +320,11 @@ void HeapVectorBacking<T, Traits>::finalize(void* pointer) {
   ANNOTATE_CHANGE_SIZE(buffer, length, 0, length);
 #endif
   if (std::is_polymorphic<T>::value) {
+    char* pointer = reinterpret_cast<char*>(buffer);
     for (unsigned i = 0; i < length; ++i) {
-      if (blink::vTableInitialized(&buffer[i]))
-        buffer[i].~T();
+      char* element = pointer + i * sizeof(T);
+      if (blink::vTableInitialized(element))
+        reinterpret_cast<T*>(element)->~T();
     }
   } else {
     for (unsigned i = 0; i < length; ++i) {
@@ -463,6 +479,28 @@ struct VectorTraits<blink::Member<T>> : VectorTraitsBase<blink::Member<T>> {
 };
 
 template <typename T>
+struct VectorTraits<blink::SameThreadCheckedMember<T>>
+    : VectorTraitsBase<blink::SameThreadCheckedMember<T>> {
+  STATIC_ONLY(VectorTraits);
+  static const bool needsDestruction = false;
+  static const bool canInitializeWithMemset = true;
+  static const bool canClearUnusedSlotsWithMemset = true;
+  static const bool canMoveWithMemcpy = true;
+  static const bool canSwapUsingCopyOrMove = false;
+};
+
+template <typename T>
+struct VectorTraits<blink::TraceWrapperMember<T>>
+    : VectorTraitsBase<blink::TraceWrapperMember<T>> {
+  STATIC_ONLY(VectorTraits);
+  static const bool needsDestruction = false;
+  static const bool canInitializeWithMemset = true;
+  static const bool canClearUnusedSlotsWithMemset = true;
+  static const bool canMoveWithMemcpy = true;
+  static const bool canSwapUsingCopyOrMove = false;
+};
+
+template <typename T>
 struct VectorTraits<blink::WeakMember<T>>
     : VectorTraitsBase<blink::WeakMember<T>> {
   STATIC_ONLY(VectorTraits);
@@ -546,13 +584,9 @@ struct VectorTraits<blink::HeapDeque<T, inlineCapacity>>
 template <typename T>
 struct HashTraits<blink::Member<T>> : SimpleClassHashTraits<blink::Member<T>> {
   STATIC_ONLY(HashTraits);
-  // FIXME: The distinction between PeekInType and PassInType is there for
-  // the sake of the reference counting handles. When they are gone the two
-  // types can be merged into PassInType.
   // FIXME: Implement proper const'ness for iterator types. Requires support
   // in the marking Visitor.
   using PeekInType = T*;
-  using PassInType = T*;
   using IteratorGetType = blink::Member<T>*;
   using IteratorConstGetType = const blink::Member<T>*;
   using IteratorReferenceType = blink::Member<T>&;
@@ -576,17 +610,84 @@ struct HashTraits<blink::Member<T>> : SimpleClassHashTraits<blink::Member<T>> {
 };
 
 template <typename T>
+struct HashTraits<blink::SameThreadCheckedMember<T>>
+    : SimpleClassHashTraits<blink::SameThreadCheckedMember<T>> {
+  STATIC_ONLY(HashTraits);
+  // FIXME: Implement proper const'ness for iterator types. Requires support
+  // in the marking Visitor.
+  using PeekInType = T*;
+  using IteratorGetType = blink::SameThreadCheckedMember<T>*;
+  using IteratorConstGetType = const blink::SameThreadCheckedMember<T>*;
+  using IteratorReferenceType = blink::SameThreadCheckedMember<T>&;
+  using IteratorConstReferenceType = const blink::SameThreadCheckedMember<T>&;
+  static IteratorReferenceType getToReferenceConversion(IteratorGetType x) {
+    return *x;
+  }
+  static IteratorConstReferenceType getToReferenceConstConversion(
+      IteratorConstGetType x) {
+    return *x;
+  }
+
+  using PeekOutType = T*;
+
+  template <typename U>
+  static void store(const U& value,
+                    blink::SameThreadCheckedMember<T>& storage) {
+    storage = value;
+  }
+
+  static PeekOutType peek(const blink::SameThreadCheckedMember<T>& value) {
+    return value;
+  }
+
+  static blink::SameThreadCheckedMember<T> emptyValue() {
+    return blink::SameThreadCheckedMember<T>(nullptr, nullptr);
+  }
+};
+
+template <typename T>
+struct HashTraits<blink::TraceWrapperMember<T>>
+    : SimpleClassHashTraits<blink::TraceWrapperMember<T>> {
+  STATIC_ONLY(HashTraits);
+  // FIXME: Implement proper const'ness for iterator types. Requires support
+  // in the marking Visitor.
+  using PeekInType = T*;
+  using IteratorGetType = blink::TraceWrapperMember<T>*;
+  using IteratorConstGetType = const blink::TraceWrapperMember<T>*;
+  using IteratorReferenceType = blink::TraceWrapperMember<T>&;
+  using IteratorConstReferenceType = const blink::TraceWrapperMember<T>&;
+  static IteratorReferenceType getToReferenceConversion(IteratorGetType x) {
+    return *x;
+  }
+  static IteratorConstReferenceType getToReferenceConstConversion(
+      IteratorConstGetType x) {
+    return *x;
+  }
+
+  using PeekOutType = T*;
+
+  template <typename U>
+  static void store(const U& value, blink::TraceWrapperMember<T>& storage) {
+    storage = value;
+  }
+
+  static PeekOutType peek(const blink::TraceWrapperMember<T>& value) {
+    return value;
+  }
+
+  static blink::TraceWrapperMember<T> emptyValue() {
+    return blink::TraceWrapperMember<T>(nullptr, nullptr);
+  }
+};
+
+template <typename T>
 struct HashTraits<blink::WeakMember<T>>
     : SimpleClassHashTraits<blink::WeakMember<T>> {
   STATIC_ONLY(HashTraits);
   static const bool needsDestruction = false;
-  // FIXME: The distinction between PeekInType and PassInType is there for
-  // the sake of the reference counting handles. When they are gone the two
-  // types can be merged into PassInType.
   // FIXME: Implement proper const'ness for iterator types. Requires support
   // in the marking Visitor.
   using PeekInType = T*;
-  using PassInType = T*;
   using IteratorGetType = blink::WeakMember<T>*;
   using IteratorConstGetType = const blink::WeakMember<T>*;
   using IteratorReferenceType = blink::WeakMember<T>&;
@@ -625,12 +726,8 @@ struct HashTraits<blink::UntracedMember<T>>
     : SimpleClassHashTraits<blink::UntracedMember<T>> {
   STATIC_ONLY(HashTraits);
   static const bool needsDestruction = false;
-  // FIXME: The distinction between PeekInType and PassInType is there for
-  // the sake of the reference counting handles. When they are gone the two
-  // types can be merged into PassInType.
   // FIXME: Implement proper const'ness for iterator types.
   using PeekInType = T*;
-  using PassInType = T*;
   using IteratorGetType = blink::UntracedMember<T>*;
   using IteratorConstGetType = const blink::UntracedMember<T>*;
   using IteratorReferenceType = blink::UntracedMember<T>&;
@@ -671,16 +768,32 @@ struct IsGarbageCollectedType<
   static const bool value = true;
 };
 
+template <typename Set>
+struct IsGarbageCollectedType<ListHashSetIterator<Set>> {
+  static const bool value = IsGarbageCollectedType<Set>::value;
+};
+
+template <typename Set>
+struct IsGarbageCollectedType<ListHashSetConstIterator<Set>> {
+  static const bool value = IsGarbageCollectedType<Set>::value;
+};
+
+template <typename Set>
+struct IsGarbageCollectedType<ListHashSetReverseIterator<Set>> {
+  static const bool value = IsGarbageCollectedType<Set>::value;
+};
+
+template <typename Set>
+struct IsGarbageCollectedType<ListHashSetConstReverseIterator<Set>> {
+  static const bool value = IsGarbageCollectedType<Set>::value;
+};
+
 template <typename T, typename H>
 struct HandleHashTraits : SimpleClassHashTraits<H> {
   STATIC_ONLY(HandleHashTraits);
-  // TODO: The distinction between PeekInType and PassInType is there for
-  // the sake of the reference counting handles. When they are gone the two
-  // types can be merged into PassInType.
   // TODO: Implement proper const'ness for iterator types. Requires support
   // in the marking Visitor.
   using PeekInType = T*;
-  using PassInType = T*;
   using IteratorGetType = H*;
   using IteratorConstGetType = const H*;
   using IteratorReferenceType = H&;

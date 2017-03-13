@@ -6,7 +6,8 @@
 #define CONTENT_BROWSER_DEVTOOLS_PROTOCOL_EMULATION_HANDLER_H_
 
 #include "base/macros.h"
-#include "content/browser/devtools/protocol/devtools_protocol_dispatcher.h"
+#include "content/browser/devtools/protocol/devtools_domain_handler.h"
+#include "content/browser/devtools/protocol/emulation.h"
 #include "third_party/WebKit/public/web/WebDeviceEmulationParams.h"
 
 namespace content {
@@ -14,48 +15,44 @@ namespace content {
 class RenderFrameHostImpl;
 class WebContentsImpl;
 
-namespace devtools {
+namespace protocol {
 
-namespace page { class PageHandler; }
-
-namespace emulation {
-
-class EmulationHandler {
+class EmulationHandler : public DevToolsDomainHandler,
+                         public Emulation::Backend {
  public:
-  using Response = DevToolsProtocolClient::Response;
-
   EmulationHandler();
-  ~EmulationHandler();
+  ~EmulationHandler() override;
 
-  void SetRenderFrameHost(RenderFrameHostImpl* host);
-  void Detached();
+  void Wire(UberDispatcher* dispatcher) override;
+  void SetRenderFrameHost(RenderFrameHostImpl* host) override;
+  Response Disable() override;
 
-  Response SetGeolocationOverride(double* latitude,
-                                  double* longitude,
-                                  double* accuracy);
-  Response ClearGeolocationOverride();
+  Response SetGeolocationOverride(Maybe<double> latitude,
+                                  Maybe<double> longitude,
+                                  Maybe<double> accuracy) override;
+  Response ClearGeolocationOverride() override;
 
   Response SetTouchEmulationEnabled(bool enabled,
-                                    const std::string* configuration);
+                                    Maybe<std::string> configuration) override;
 
-  Response CanEmulate(bool* result);
+  Response CanEmulate(bool* result) override;
   Response SetDeviceMetricsOverride(
       int width,
       int height,
       double device_scale_factor,
       bool mobile,
       bool fit_window,
-      const double* optional_scale,
-      const double* optional_offset_x,
-      const double* optional_offset_y,
-      const int* screen_widget,
-      const int* screen_height,
-      const int* position_x,
-      const int* position_y,
-      const std::unique_ptr<base::DictionaryValue>& screen_orientation);
-  Response ClearDeviceMetricsOverride();
+      Maybe<double> scale,
+      Maybe<double> offset_x,
+      Maybe<double> offset_y,
+      Maybe<int> screen_widget,
+      Maybe<int> screen_height,
+      Maybe<int> position_x,
+      Maybe<int> position_y,
+      Maybe<Emulation::ScreenOrientation> screen_orientation) override;
+  Response ClearDeviceMetricsOverride() override;
 
-  Response SetVisibleSize(int width, int height);
+  Response SetVisibleSize(int width, int height) override;
 
  private:
   WebContentsImpl* GetWebContents();
@@ -73,8 +70,7 @@ class EmulationHandler {
   DISALLOW_COPY_AND_ASSIGN(EmulationHandler);
 };
 
-}  // namespace emulation
-}  // namespace devtools
+}  // namespace protocol
 }  // namespace content
 
 #endif  // CONTENT_BROWSER_DEVTOOLS_PROTOCOL_EMULATION_HANDLER_H_

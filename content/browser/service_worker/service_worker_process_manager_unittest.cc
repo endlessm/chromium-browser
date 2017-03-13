@@ -8,6 +8,7 @@
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
+#include "content/browser/service_worker/service_worker_test_utils.h"
 #include "content/common/service_worker/embedded_worker_settings.h"
 #include "content/public/common/child_process_host.h"
 #include "content/public/test/mock_render_process_host.h"
@@ -134,8 +135,8 @@ TEST_F(ServiceWorkerProcessManagerTest,
   std::unique_ptr<MockRenderProcessHost> host2(CreateRenderProcessHost());
   process_manager_->AddProcessReferenceToPattern(scope1, host1->GetID());
   process_manager_->AddProcessReferenceToPattern(scope2, host2->GetID());
-  ASSERT_EQ(0, host1->worker_ref_count());
-  ASSERT_EQ(0, host2->worker_ref_count());
+  ASSERT_EQ(0u, host1->GetWorkerRefCount());
+  ASSERT_EQ(0u, host2->GetWorkerRefCount());
 
   std::map<int, ServiceWorkerProcessManager::ProcessInfo>& instance_info =
       process_manager_->instance_info_;
@@ -156,8 +157,8 @@ TEST_F(ServiceWorkerProcessManagerTest,
   EXPECT_EQ(SERVICE_WORKER_OK, status);
   EXPECT_EQ(host1->GetID(), process_id);
   EXPECT_FALSE(is_new_process);
-  EXPECT_EQ(1, host1->worker_ref_count());
-  EXPECT_EQ(0, host2->worker_ref_count());
+  EXPECT_EQ(1u, host1->GetWorkerRefCount());
+  EXPECT_EQ(0u, host2->GetWorkerRefCount());
   EXPECT_EQ(1u, instance_info.size());
   std::map<int, ServiceWorkerProcessManager::ProcessInfo>::iterator found =
       instance_info.find(kEmbeddedWorkerId1);
@@ -181,8 +182,8 @@ TEST_F(ServiceWorkerProcessManagerTest,
   EXPECT_EQ(SERVICE_WORKER_OK, status);
   EXPECT_EQ(host1->GetID(), process_id);
   EXPECT_FALSE(is_new_process);
-  EXPECT_EQ(2, host1->worker_ref_count());
-  EXPECT_EQ(0, host2->worker_ref_count());
+  EXPECT_EQ(2u, host1->GetWorkerRefCount());
+  EXPECT_EQ(0u, host2->GetWorkerRefCount());
   EXPECT_EQ(2u, instance_info.size());
   found = instance_info.find(kEmbeddedWorkerId2);
   ASSERT_TRUE(found != instance_info.end());
@@ -205,8 +206,8 @@ TEST_F(ServiceWorkerProcessManagerTest,
   EXPECT_EQ(SERVICE_WORKER_OK, status);
   EXPECT_EQ(host2->GetID(), process_id);
   EXPECT_FALSE(is_new_process);
-  EXPECT_EQ(2, host1->worker_ref_count());
-  EXPECT_EQ(1, host2->worker_ref_count());
+  EXPECT_EQ(2u, host1->GetWorkerRefCount());
+  EXPECT_EQ(1u, host2->GetWorkerRefCount());
   EXPECT_EQ(3u, instance_info.size());
   found = instance_info.find(kEmbeddedWorkerId3);
   ASSERT_TRUE(found != instance_info.end());
@@ -214,21 +215,21 @@ TEST_F(ServiceWorkerProcessManagerTest,
 
   // The instance map should be updated by process release.
   process_manager_->ReleaseWorkerProcess(kEmbeddedWorkerId3);
-  EXPECT_EQ(2, host1->worker_ref_count());
-  EXPECT_EQ(0, host2->worker_ref_count());
+  EXPECT_EQ(2u, host1->GetWorkerRefCount());
+  EXPECT_EQ(0u, host2->GetWorkerRefCount());
   EXPECT_EQ(2u, instance_info.size());
   EXPECT_TRUE(base::ContainsKey(instance_info, kEmbeddedWorkerId1));
   EXPECT_TRUE(base::ContainsKey(instance_info, kEmbeddedWorkerId2));
 
   process_manager_->ReleaseWorkerProcess(kEmbeddedWorkerId1);
-  EXPECT_EQ(1, host1->worker_ref_count());
-  EXPECT_EQ(0, host2->worker_ref_count());
+  EXPECT_EQ(1u, host1->GetWorkerRefCount());
+  EXPECT_EQ(0u, host2->GetWorkerRefCount());
   EXPECT_EQ(1u, instance_info.size());
   EXPECT_TRUE(base::ContainsKey(instance_info, kEmbeddedWorkerId2));
 
   process_manager_->ReleaseWorkerProcess(kEmbeddedWorkerId2);
-  EXPECT_EQ(0, host1->worker_ref_count());
-  EXPECT_EQ(0, host2->worker_ref_count());
+  EXPECT_EQ(0u, host1->GetWorkerRefCount());
+  EXPECT_EQ(0u, host2->GetWorkerRefCount());
   EXPECT_TRUE(instance_info.empty());
 }
 

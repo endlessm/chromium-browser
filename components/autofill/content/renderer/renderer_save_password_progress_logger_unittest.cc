@@ -4,7 +4,7 @@
 
 #include "base/optional.h"
 #include "base/run_loop.h"
-#include "components/autofill/content/public/interfaces/autofill_driver.mojom.h"
+#include "components/autofill/content/common/autofill_driver.mojom.h"
 #include "components/autofill/content/renderer/renderer_save_password_progress_logger.h"
 #include "mojo/public/cpp/bindings/binding.h"
 
@@ -61,7 +61,8 @@ class FakeContentPasswordManagerDriver : public mojom::PasswordManagerDriver {
                                int options,
                                const gfx::RectF& bounds) override {}
 
-  void PasswordAutofillAgentConstructed() override {}
+  void ShowNotSecureWarning(base::i18n::TextDirection text_direction,
+                            const gfx::RectF& bounds) override {}
 
   void RecordSavePasswordProgress(const std::string& log) override {
     called_record_save_ = true;

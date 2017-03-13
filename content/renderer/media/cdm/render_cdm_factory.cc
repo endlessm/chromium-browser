@@ -13,23 +13,25 @@
 #include "base/threading/thread_task_runner_handle.h"
 #include "media/base/cdm_config.h"
 #include "media/base/cdm_promise.h"
+#include "media/base/content_decryption_module.h"
 #include "media/base/key_systems.h"
-#include "media/base/media_keys.h"
 #include "media/cdm/aes_decryptor.h"
+#include "ppapi/features/features.h"
 #include "url/gurl.h"
-#if defined(ENABLE_PEPPER_CDMS)
+
+#if BUILDFLAG(ENABLE_PEPPER_CDMS)
 #include "content/renderer/media/cdm/ppapi_decryptor.h"
-#endif  // defined(ENABLE_PEPPER_CDMS)
+#endif  // BUILDFLAG(ENABLE_PEPPER_CDMS)
 
 namespace content {
 
-#if defined(ENABLE_PEPPER_CDMS)
+#if BUILDFLAG(ENABLE_PEPPER_CDMS)
 RenderCdmFactory::RenderCdmFactory(
     const CreatePepperCdmCB& create_pepper_cdm_cb)
     : create_pepper_cdm_cb_(create_pepper_cdm_cb) {}
 #else
 RenderCdmFactory::RenderCdmFactory() {}
-#endif  // defined(ENABLE_PEPPER_CDMS)
+#endif  // BUILDFLAG(ENABLE_PEPPER_CDMS)
 
 RenderCdmFactory::~RenderCdmFactory() {
   DCHECK(thread_checker_.CalledOnValidThread());
@@ -55,7 +57,7 @@ void RenderCdmFactory::Create(
   if (media::CanUseAesDecryptor(key_system)) {
     DCHECK(!cdm_config.allow_distinctive_identifier);
     DCHECK(!cdm_config.allow_persistent_state);
-    scoped_refptr<media::MediaKeys> cdm(
+    scoped_refptr<media::ContentDecryptionModule> cdm(
         new media::AesDecryptor(security_origin, session_message_cb,
                                 session_closed_cb, session_keys_change_cb));
     base::ThreadTaskRunnerHandle::Get()->PostTask(
@@ -63,7 +65,7 @@ void RenderCdmFactory::Create(
     return;
   }
 
-#if defined(ENABLE_PEPPER_CDMS)
+#if BUILDFLAG(ENABLE_PEPPER_CDMS)
   DCHECK(!cdm_config.use_hw_secure_codecs);
   PpapiDecryptor::Create(
       key_system, security_origin, cdm_config.allow_distinctive_identifier,
@@ -75,7 +77,7 @@ void RenderCdmFactory::Create(
   base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE,
       base::Bind(cdm_created_cb, nullptr, "Key system not supported."));
-#endif  // defined(ENABLE_PEPPER_CDMS)
+#endif  // BUILDFLAG(ENABLE_PEPPER_CDMS)
 }
 
 }  // namespace content

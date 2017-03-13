@@ -1,8 +1,9 @@
 {
-  "manifest_version": 1,
-  "name": "service:mash_session",
+  "name": "mash_session",
   "display_name": "User Session",
-  "capabilities": {
-    "required": { "*": { "classes": [ "app" ] } }
+  "interface_provider_specs": {
+    "service_manager:connector": {
+      "requires": { "*": [ "app" ] }
+    }
   }
 }

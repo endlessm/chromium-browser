@@ -30,7 +30,6 @@ namespace extensions {
 class ChromeComponentExtensionResourceManager;
 class ChromeExtensionsAPIClient;
 class ChromeProcessManagerDelegate;
-class ContentSettingsPrefsObserver;
 
 // Implementation of BrowserClient for Chrome, which includes
 // knowledge of Profiles, BrowserContexts and incognito.
@@ -122,6 +121,8 @@ class ChromeExtensionsBrowserClient : public ExtensionsBrowserClient {
       content::RenderFrameHost* frame,
       const content::BluetoothChooser::EventHandler& event_handler) override;
   bool IsActivityLoggingEnabled(content::BrowserContext* context) override;
+  extensions::ExtensionNavigationUIData* GetExtensionNavigationUIData(
+      net::URLRequest* request) override;
   KioskDelegate* GetKioskDelegate() override;
 
  private:

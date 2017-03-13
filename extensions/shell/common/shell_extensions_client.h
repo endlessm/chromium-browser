@@ -9,6 +9,7 @@
 #include "base/macros.h"
 #include "extensions/common/extensions_client.h"
 #include "extensions/common/permissions/extensions_api_permissions.h"
+#include "url/gurl.h"
 
 namespace extensions {
 
@@ -40,14 +41,17 @@ class ShellExtensionsClient : public ExtensionsClient {
   base::StringPiece GetAPISchema(const std::string& name) const override;
   bool ShouldSuppressFatalErrors() const override;
   void RecordDidSuppressFatalError() override;
-  std::string GetWebstoreBaseURL() const override;
-  std::string GetWebstoreUpdateURL() const override;
+  const GURL& GetWebstoreBaseURL() const override;
+  const GURL& GetWebstoreUpdateURL() const override;
   bool IsBlacklistUpdateURL(const GURL& url) const override;
 
  private:
   const ExtensionsAPIPermissions extensions_api_permissions_;
 
   ScriptingWhitelist scripting_whitelist_;
+
+  const GURL webstore_base_url_;
+  const GURL webstore_update_url_;
 
   DISALLOW_COPY_AND_ASSIGN(ShellExtensionsClient);
 };

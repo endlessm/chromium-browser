@@ -16,7 +16,7 @@
 #include "chrome/common/pref_names.h"
 #include "components/prefs/pref_change_registrar.h"
 #include "components/prefs/scoped_user_pref_update.h"
-#include "components/syncable_prefs/pref_service_syncable.h"
+#include "components/sync_preferences/pref_service_syncable.h"
 #include "components/user_manager/user.h"
 #include "components/user_manager/user_manager.h"
 #include "content/public/browser/notification_registrar.h"
@@ -45,10 +45,9 @@ UserImageSyncObserver::UserImageSyncObserver(const user_manager::User* user)
       prefs_(NULL),
       is_synced_(false),
       local_image_changed_(false) {
+  user_manager::UserManager::Get()->AddObserver(this);
+
   notification_registrar_.reset(new content::NotificationRegistrar);
-  notification_registrar_->Add(this,
-      chrome::NOTIFICATION_LOGIN_USER_IMAGE_CHANGED,
-      content::NotificationService::AllSources());
   if (Profile* profile = ProfileHelper::Get()->GetProfileByUser(user)) {
     OnProfileGained(profile);
   } else {
@@ -63,6 +62,8 @@ UserImageSyncObserver::~UserImageSyncObserver() {
     prefs_->RemoveObserver(this);
   if (pref_change_registrar_)
     pref_change_registrar_->RemoveAll();
+
+  user_manager::UserManager::Get()->RemoveObserver(this);
 }
 
 // static
@@ -105,8 +106,8 @@ void UserImageSyncObserver::OnInitialSync() {
     UpdateLocalImageFromSynced();
     local_image_updated = true;
   }
-  FOR_EACH_OBSERVER(UserImageSyncObserver::Observer, observer_list_,
-      OnInitialSync(local_image_updated));
+  for (auto& observer : observer_list_)
+    observer.OnInitialSync(local_image_updated);
 }
 
 void UserImageSyncObserver::OnPreferenceChanged(const std::string& pref_name) {
@@ -124,22 +125,21 @@ void UserImageSyncObserver::Observe(
     int type,
     const content::NotificationSource& source,
     const content::NotificationDetails& details) {
-  if (type == chrome::NOTIFICATION_LOGIN_USER_PROFILE_PREPARED) {
-    if (Profile* profile = ProfileHelper::Get()->GetProfileByUser(user_)) {
-      notification_registrar_->Remove(
-          this,
-          chrome::NOTIFICATION_LOGIN_USER_PROFILE_PREPARED,
-          content::NotificationService::AllSources());
-      OnProfileGained(profile);
-    }
-  } else if (type == chrome::NOTIFICATION_LOGIN_USER_IMAGE_CHANGED) {
-    if (is_synced_)
-      UpdateSyncedImageFromLocal();
-    else
-      local_image_changed_ = true;
-  } else {
-    NOTREACHED();
+  DCHECK_EQ(chrome::NOTIFICATION_LOGIN_USER_PROFILE_PREPARED, type);
+
+  if (Profile* profile = ProfileHelper::Get()->GetProfileByUser(user_)) {
+    notification_registrar_->Remove(
+        this, chrome::NOTIFICATION_LOGIN_USER_PROFILE_PREPARED,
+        content::NotificationService::AllSources());
+    OnProfileGained(profile);
   }
+}
+
+void UserImageSyncObserver::OnUserImageChanged(const user_manager::User& user) {
+  if (is_synced_)
+    UpdateSyncedImageFromLocal();
+  else
+    local_image_changed_ = true;
 }
 
 void UserImageSyncObserver::OnIsSyncingChanged() {
@@ -199,4 +199,3 @@ bool UserImageSyncObserver::CanUpdateLocalImageNow() {
 }
 
 }  // namespace chromeos
-

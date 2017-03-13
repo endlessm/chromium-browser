@@ -14,7 +14,6 @@
 #include "third_party/WebKit/public/platform/WebMediaStream.h"
 #include "third_party/WebKit/public/platform/WebMediaStreamCenter.h"
 #include "third_party/WebKit/public/platform/WebMediaStreamTrack.h"
-#include "third_party/WebKit/public/platform/WebMediaStreamTrackSourcesRequest.h"
 
 namespace blink {
 class WebAudioSourceProvider;
@@ -36,6 +35,8 @@ class CONTENT_EXPORT MediaStreamCenter
  private:
   void didCreateMediaStreamTrack(
       const blink::WebMediaStreamTrack& track) override;
+
+  void didSetContentHint(const blink::WebMediaStreamTrack& track) override;
 
   void didEnableMediaStreamTrack(
       const blink::WebMediaStreamTrack& track) override;

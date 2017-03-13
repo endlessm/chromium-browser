@@ -39,10 +39,14 @@
 
 namespace blink {
 
+class WebDataConsumerHandle;
 class WebServiceWorkerRequest;
 class WebString;
 struct WebNotificationData;
+struct WebPaymentAppRequestData;
 struct WebServiceWorkerClientInfo;
+struct WebServiceWorkerError;
+class WebURLResponse;
 
 // A proxy interface to talk to the worker's GlobalScope implementation.
 // All methods of this class must be called on the worker thread.
@@ -67,18 +71,17 @@ class WebServiceWorkerContextProxy {
       const WebMessagePortChannelArray&,
       std::unique_ptr<WebServiceWorker::Handle>) = 0;
   virtual void dispatchInstallEvent(int eventID) = 0;
-  virtual void dispatchFetchEvent(
-      int responseID,
-      int eventFinishID,
-      const WebServiceWorkerRequest& webRequest) = 0;
+  virtual void dispatchFetchEvent(int fetchEventID,
+                                  const WebServiceWorkerRequest& webRequest,
+                                  bool navigationPreloadSent) = 0;
   virtual void dispatchForeignFetchEvent(
-      int responseID,
-      int eventFinishID,
+      int fetchEventID,
       const WebServiceWorkerRequest& webRequest) = 0;
   virtual void dispatchNotificationClickEvent(int eventID,
                                               const WebString& notificationID,
                                               const WebNotificationData&,
-                                              int actionIndex) = 0;
+                                              int actionIndex,
+                                              const WebString& reply) = 0;
   virtual void dispatchNotificationCloseEvent(int eventID,
                                               const WebString& notificationID,
                                               const WebNotificationData&) = 0;
@@ -93,6 +96,17 @@ class WebServiceWorkerContextProxy {
   virtual void dispatchSyncEvent(int syncEventID,
                                  const WebString& tag,
                                  LastChanceOption) = 0;
+
+  virtual void dispatchPaymentRequestEvent(int eventID,
+                                           const WebPaymentAppRequestData&) = 0;
+
+  virtual void onNavigationPreloadResponse(
+      int fetchEventID,
+      std::unique_ptr<WebURLResponse>,
+      std::unique_ptr<WebDataConsumerHandle>) = 0;
+  virtual void onNavigationPreloadError(
+      int fetchEventID,
+      std::unique_ptr<WebServiceWorkerError>) = 0;
 };
 
 }  // namespace blink

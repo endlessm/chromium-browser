@@ -9,9 +9,12 @@
 #include "base/memory/weak_ptr.h"
 #include "components/filesystem/lock_table.h"
 #include "components/leveldb/leveldb_service_impl.h"
+#include "mojo/public/cpp/bindings/strong_binding.h"
 #include "services/file/file_system.h"
 #include "services/file/user_id_map.h"
-#include "services/shell/public/cpp/connection.h"
+#include "services/service_manager/public/cpp/connection.h"
+#include "services/service_manager/public/cpp/interface_registry.h"
+#include "services/service_manager/public/cpp/service_context.h"
 
 namespace file {
 
@@ -25,16 +28,16 @@ class FileService::FileSystemObjects
   ~FileSystemObjects() {}
 
   // Called on the |file_service_runner_|.
-  void OnFileSystemRequest(const shell::Identity& remote_identity,
+  void OnFileSystemRequest(const service_manager::Identity& remote_identity,
                            mojom::FileSystemRequest request) {
     if (!lock_table_)
       lock_table_ = new filesystem::LockTable;
-    file_system_bindings_.AddBinding(new FileSystem(user_dir_, lock_table_),
-                                     std::move(request));
+    mojo::MakeStrongBinding(
+        base::MakeUnique<FileSystem>(user_dir_, lock_table_),
+        std::move(request));
   }
 
  private:
-  mojo::BindingSet<mojom::FileSystem> file_system_bindings_;
   scoped_refptr<filesystem::LockTable> lock_table_;
   base::FilePath user_dir_;
 
@@ -52,7 +55,7 @@ class FileService::LevelDBServiceObjects
   ~LevelDBServiceObjects() {}
 
   // Called on the |leveldb_service_runner_|.
-  void OnLevelDBServiceRequest(const shell::Identity& remote_identity,
+  void OnLevelDBServiceRequest(const service_manager::Identity& remote_identity,
                                leveldb::mojom::LevelDBServiceRequest request) {
     if (!leveldb_service_)
       leveldb_service_.reset(new leveldb::LevelDBServiceImpl(task_runner_));
@@ -69,10 +72,9 @@ class FileService::LevelDBServiceObjects
   DISALLOW_COPY_AND_ASSIGN(LevelDBServiceObjects);
 };
 
-std::unique_ptr<shell::Service> CreateFileService(
+std::unique_ptr<service_manager::Service> CreateFileService(
     scoped_refptr<base::SingleThreadTaskRunner> file_service_runner,
-    scoped_refptr<base::SingleThreadTaskRunner> leveldb_service_runner,
-    const base::Closure& quit_closure) {
+    scoped_refptr<base::SingleThreadTaskRunner> leveldb_service_runner) {
   return base::MakeUnique<FileService>(std::move(file_service_runner),
                                        std::move(leveldb_service_runner));
 }
@@ -88,22 +90,22 @@ FileService::~FileService() {
   leveldb_service_runner_->DeleteSoon(FROM_HERE, leveldb_objects_.release());
 }
 
-void FileService::OnStart(const shell::Identity& identity) {
+void FileService::OnStart() {
   file_system_objects_.reset(new FileService::FileSystemObjects(
-      GetUserDirForUserId(identity.user_id())));
+      GetUserDirForUserId(context()->identity().user_id())));
   leveldb_objects_.reset(
       new FileService::LevelDBServiceObjects(leveldb_service_runner_));
 }
 
-bool FileService::OnConnect(const shell::Identity& remote_identity,
-                                shell::InterfaceRegistry* registry) {
+bool FileService::OnConnect(const service_manager::ServiceInfo& remote_info,
+                            service_manager::InterfaceRegistry* registry) {
   registry->AddInterface<leveldb::mojom::LevelDBService>(this);
   registry->AddInterface<mojom::FileSystem>(this);
   return true;
 }
 
-void FileService::Create(const shell::Identity& remote_identity,
-                             mojom::FileSystemRequest request) {
+void FileService::Create(const service_manager::Identity& remote_identity,
+                         mojom::FileSystemRequest request) {
   file_service_runner_->PostTask(
       FROM_HERE,
       base::Bind(&FileService::FileSystemObjects::OnFileSystemRequest,
@@ -111,8 +113,8 @@ void FileService::Create(const shell::Identity& remote_identity,
                  base::Passed(&request)));
 }
 
-void FileService::Create(const shell::Identity& remote_identity,
-                             leveldb::mojom::LevelDBServiceRequest request) {
+void FileService::Create(const service_manager::Identity& remote_identity,
+                         leveldb::mojom::LevelDBServiceRequest request) {
   leveldb_service_runner_->PostTask(
       FROM_HERE,
       base::Bind(

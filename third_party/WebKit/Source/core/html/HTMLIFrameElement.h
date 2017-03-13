@@ -28,13 +28,17 @@
 #include "core/html/HTMLFrameElementBase.h"
 #include "core/html/HTMLIFrameElementPermissions.h"
 #include "core/html/HTMLIFrameElementSandbox.h"
+#include "platform/Supplementable.h"
 #include "public/platform/WebVector.h"
 #include "public/platform/modules/permissions/WebPermissionType.h"
 
 namespace blink {
 
-class CORE_EXPORT HTMLIFrameElement final : public HTMLFrameElementBase {
+class CORE_EXPORT HTMLIFrameElement final
+    : public HTMLFrameElementBase,
+      public Supplementable<HTMLIFrameElement> {
   DEFINE_WRAPPERTYPEINFO();
+  USING_GARBAGE_COLLECTED_MIXIN(HTMLIFrameElement);
 
  public:
   DECLARE_NODE_FACTORY(HTMLIFrameElement);
@@ -49,9 +53,7 @@ class CORE_EXPORT HTMLIFrameElement final : public HTMLFrameElementBase {
  private:
   explicit HTMLIFrameElement(Document&);
 
-  void parseAttribute(const QualifiedName&,
-                      const AtomicString&,
-                      const AtomicString&) override;
+  void parseAttribute(const AttributeModificationParams&) override;
   bool isPresentationAttribute(const QualifiedName&) const override;
   void collectStyleForPresentationAttribute(const QualifiedName&,
                                             const AtomicString&,
@@ -71,10 +73,10 @@ class CORE_EXPORT HTMLIFrameElement final : public HTMLFrameElementBase {
 
   ReferrerPolicy referrerPolicyAttribute() override;
 
+  // FrameOwner overrides:
   bool allowFullscreen() const override { return m_allowFullscreen; }
-
+  bool allowPaymentRequest() const override { return m_allowPaymentRequest; }
   AtomicString csp() const override { return m_csp; }
-
   const WebVector<WebPermissionType>& delegatedPermissions() const override {
     return m_delegatedPermissions;
   }
@@ -85,6 +87,7 @@ class CORE_EXPORT HTMLIFrameElement final : public HTMLFrameElementBase {
   AtomicString m_csp;
   bool m_didLoadNonEmptyDocument;
   bool m_allowFullscreen;
+  bool m_allowPaymentRequest;
   Member<HTMLIFrameElementSandbox> m_sandbox;
   Member<HTMLIFrameElementPermissions> m_permissions;
 

@@ -10,12 +10,10 @@
 #include <string>
 
 #include "base/macros.h"
-#include "components/sync/api/string_ordinal.h"
+#include "components/sync/model/string_ordinal.h"
 #include "extensions/common/extension.h"
 
 namespace extensions {
-
-class ExtensionScopedPrefs;
 
 // An interface that provides a fixed ordering for a set of apps.
 class AppSorting {

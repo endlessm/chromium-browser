@@ -12,18 +12,24 @@ cr.define('settings', function() {
   function PrivacyPageBrowserProxy() {}
 
   PrivacyPageBrowserProxy.prototype = {
-<if expr="_google_chrome and not chromeos">
+// <if expr="_google_chrome and not chromeos">
     /** @return {!Promise<!MetricsReporting>} */
     getMetricsReporting: assertNotReached,
 
     /** @param {boolean} enabled */
     setMetricsReportingEnabled: assertNotReached,
-</if>
+// </if>
 
-<if expr="is_win or is_macosx">
+// <if expr="is_win or is_macosx">
     /** Invokes the native certificate manager (used by win and mac). */
     showManageSSLCertificates: function() {},
-</if>
+// </if>
+
+    /** @return {!Promise<boolean>} */
+    getSafeBrowsingExtendedReporting: assertNotReached,
+
+    /** @param {boolean} enabled */
+    setSafeBrowsingExtendedReportingEnabled: assertNotReached,
   };
 
   /**
@@ -34,7 +40,7 @@ cr.define('settings', function() {
   cr.addSingletonGetter(PrivacyPageBrowserProxyImpl);
 
   PrivacyPageBrowserProxyImpl.prototype = {
-<if expr="_google_chrome and not chromeos">
+// <if expr="_google_chrome and not chromeos">
     /** @override */
     getMetricsReporting: function() {
       return cr.sendWithPromise('getMetricsReporting');
@@ -44,14 +50,24 @@ cr.define('settings', function() {
     setMetricsReportingEnabled: function(enabled) {
       chrome.send('setMetricsReportingEnabled', [enabled]);
     },
-</if>
+// </if>
 
-<if expr="is_win or is_macosx">
+    /** @override */
+    getSafeBrowsingExtendedReporting: function() {
+      return cr.sendWithPromise('getSafeBrowsingExtendedReporting');
+    },
+
+    /** @override */
+    setSafeBrowsingExtendedReportingEnabled: function(enabled) {
+      chrome.send('setSafeBrowsingExtendedReportingEnabled', [enabled]);
+    },
+
+// <if expr="is_win or is_macosx">
     /** @override */
     showManageSSLCertificates: function() {
       chrome.send('showManageSSLCertificates');
     },
-</if>
+// </if>
   };
 
   return {

@@ -9,24 +9,28 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/memory/singleton.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/printing/print_job_manager.h"
 #include "chrome/browser/printing/printer_query.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/pref_names.h"
+#include "components/keyed_service/content/browser_context_keyed_service_shutdown_notifier_factory.h"
 #include "components/printing/browser/print_manager_utils.h"
 #include "components/printing/common/print_messages.h"
 #include "content/public/browser/browser_thread.h"
-#include "content/public/browser/render_view_host.h"
+#include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/child_process_host.h"
+#include "printing/features/features.h"
 
-#if defined(ENABLE_PRINT_PREVIEW)
+#if BUILDFLAG(ENABLE_PRINT_PREVIEW)
 #include "chrome/browser/ui/webui/print_preview/print_preview_ui.h"
 #endif
 
 #if defined(OS_ANDROID)
+#include "base/file_descriptor_posix.h"
 #include "base/strings/string_number_conversions.h"
 #include "chrome/browser/printing/print_view_manager_basic.h"
 #endif
@@ -37,20 +41,39 @@ namespace printing {
 
 namespace {
 
+class ShutdownNotifierFactory
+    : public BrowserContextKeyedServiceShutdownNotifierFactory {
+ public:
+  static ShutdownNotifierFactory* GetInstance() {
+    return base::Singleton<ShutdownNotifierFactory>::get();
+  }
+
+ private:
+  friend struct base::DefaultSingletonTraits<ShutdownNotifierFactory>;
+
+  ShutdownNotifierFactory()
+      : BrowserContextKeyedServiceShutdownNotifierFactory(
+          "PrintingMessageFilter") {}
+
+  ~ShutdownNotifierFactory() override {}
+
+  DISALLOW_COPY_AND_ASSIGN(ShutdownNotifierFactory);
+};
+
 #if defined(OS_ANDROID)
-content::WebContents* GetWebContentsForRenderView(int render_process_id,
-                                                  int render_view_id) {
+content::WebContents* GetWebContentsForRenderFrame(int render_process_id,
+                                                   int render_frame_id) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  content::RenderViewHost* view = content::RenderViewHost::FromID(
-      render_process_id, render_view_id);
-  return view ? content::WebContents::FromRenderViewHost(view) : nullptr;
+  content::RenderFrameHost* frame =
+      content::RenderFrameHost::FromID(render_process_id, render_frame_id);
+  return frame ? content::WebContents::FromRenderFrameHost(frame) : nullptr;
 }
 
 PrintViewManagerBasic* GetPrintManager(int render_process_id,
-                                       int render_view_id) {
+                                       int render_frame_id) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   content::WebContents* web_contents =
-      GetWebContentsForRenderView(render_process_id, render_view_id);
+      GetWebContentsForRenderFrame(render_process_id, render_frame_id);
   return web_contents ? PrintViewManagerBasic::FromWebContents(web_contents)
                       : nullptr;
 }
@@ -61,16 +84,26 @@ PrintViewManagerBasic* GetPrintManager(int render_process_id,
 PrintingMessageFilter::PrintingMessageFilter(int render_process_id,
                                              Profile* profile)
     : BrowserMessageFilter(PrintMsgStart),
-      is_printing_enabled_(new BooleanPrefMember),
       render_process_id_(render_process_id),
       queue_(g_browser_process->print_job_manager()->queue()) {
   DCHECK(queue_.get());
-  is_printing_enabled_->Init(prefs::kPrintingEnabled, profile->GetPrefs());
-  is_printing_enabled_->MoveToThread(
+  printing_shutdown_notifier_ =
+      ShutdownNotifierFactory::GetInstance()->Get(profile)->Subscribe(
+          base::Bind(&PrintingMessageFilter::ShutdownOnUIThread,
+                     base::Unretained(this)));
+  is_printing_enabled_.Init(prefs::kPrintingEnabled, profile->GetPrefs());
+  is_printing_enabled_.MoveToThread(
       BrowserThread::GetTaskRunnerForThread(BrowserThread::IO));
 }
 
 PrintingMessageFilter::~PrintingMessageFilter() {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+}
+
+void PrintingMessageFilter::ShutdownOnUIThread() {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  is_printing_enabled_.Destroy();
+  printing_shutdown_notifier_.reset();
 }
 
 void PrintingMessageFilter::OverrideThreadForMessage(
@@ -83,6 +116,10 @@ void PrintingMessageFilter::OverrideThreadForMessage(
 #endif
 }
 
+void PrintingMessageFilter::OnDestruct() const {
+  BrowserThread::DeleteOnUIThread::Destruct(this);
+}
+
 bool PrintingMessageFilter::OnMessageReceived(const IPC::Message& message) {
   bool handled = true;
   IPC_BEGIN_MESSAGE_MAP(PrintingMessageFilter, message)
@@ -92,13 +129,12 @@ bool PrintingMessageFilter::OnMessageReceived(const IPC::Message& message) {
     IPC_MESSAGE_HANDLER(PrintHostMsg_TempFileForPrintingWritten,
                         OnTempFileForPrintingWritten)
 #endif
-    IPC_MESSAGE_HANDLER(PrintHostMsg_IsPrintingEnabled, OnIsPrintingEnabled)
     IPC_MESSAGE_HANDLER_DELAY_REPLY(PrintHostMsg_GetDefaultPrintSettings,
                                     OnGetDefaultPrintSettings)
     IPC_MESSAGE_HANDLER_DELAY_REPLY(PrintHostMsg_ScriptedPrint, OnScriptedPrint)
     IPC_MESSAGE_HANDLER_DELAY_REPLY(PrintHostMsg_UpdatePrintSettings,
                                     OnUpdatePrintSettings)
-#if defined(ENABLE_PRINT_PREVIEW)
+#if BUILDFLAG(ENABLE_PRINT_PREVIEW)
     IPC_MESSAGE_HANDLER(PrintHostMsg_CheckForCancel, OnCheckForCancel)
 #endif
     IPC_MESSAGE_UNHANDLED(handled = false)
@@ -108,39 +144,35 @@ bool PrintingMessageFilter::OnMessageReceived(const IPC::Message& message) {
 
 #if defined(OS_ANDROID)
 void PrintingMessageFilter::OnAllocateTempFileForPrinting(
-    int render_view_id,
+    int render_frame_id,
     base::FileDescriptor* temp_file_fd,
     int* sequence_number) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   PrintViewManagerBasic* print_view_manager =
-      GetPrintManager(render_process_id_, render_view_id);
+      GetPrintManager(render_process_id_, render_frame_id);
   if (!print_view_manager)
     return;
+
   // The file descriptor is originally created in & passed from the Android
   // side, and it will handle the closing.
   temp_file_fd->fd = print_view_manager->file_descriptor().fd;
   temp_file_fd->auto_close = false;
 }
 
-void PrintingMessageFilter::OnTempFileForPrintingWritten(int render_view_id,
+void PrintingMessageFilter::OnTempFileForPrintingWritten(int render_frame_id,
                                                          int sequence_number) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   PrintViewManagerBasic* print_view_manager =
-      GetPrintManager(render_process_id_, render_view_id);
+      GetPrintManager(render_process_id_, render_frame_id);
   if (print_view_manager)
     print_view_manager->PdfWritingDone(true);
 }
 #endif  // defined(OS_ANDROID)
 
-void PrintingMessageFilter::OnIsPrintingEnabled(bool* is_enabled) {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  *is_enabled = is_printing_enabled_->GetValue();
-}
-
 void PrintingMessageFilter::OnGetDefaultPrintSettings(IPC::Message* reply_msg) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
   scoped_refptr<PrinterQuery> printer_query;
-  if (!is_printing_enabled_->GetValue()) {
+  if (!is_printing_enabled_.GetValue()) {
     // Reply with NULL query.
     OnGetDefaultPrintSettingsReply(printer_query, reply_msg);
     return;
@@ -238,10 +270,10 @@ void PrintingMessageFilter::OnScriptedPrintReply(
 }
 
 #if defined(OS_ANDROID)
-void PrintingMessageFilter::UpdateFileDescriptor(int render_view_id, int fd) {
+void PrintingMessageFilter::UpdateFileDescriptor(int render_frame_id, int fd) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   PrintViewManagerBasic* print_view_manager =
-      GetPrintManager(render_process_id_, render_view_id);
+      GetPrintManager(render_process_id_, render_frame_id);
   if (print_view_manager)
     print_view_manager->set_file_descriptor(base::FileDescriptor(fd, false));
 }
@@ -253,21 +285,19 @@ void PrintingMessageFilter::OnUpdatePrintSettings(
   std::unique_ptr<base::DictionaryValue> new_settings(job_settings.DeepCopy());
 
   scoped_refptr<PrinterQuery> printer_query;
-  if (!is_printing_enabled_->GetValue()) {
+  if (!is_printing_enabled_.GetValue()) {
     // Reply with NULL query.
     OnUpdatePrintSettingsReply(printer_query, reply_msg);
     return;
   }
   printer_query = queue_->PopPrinterQuery(document_cookie);
   if (!printer_query.get()) {
-    int host_id = render_process_id_;
-    int routing_id = reply_msg->routing_id();
-    if (!new_settings->GetInteger(printing::kPreviewInitiatorHostId,
-                                  &host_id) ||
-        !new_settings->GetInteger(printing::kPreviewInitiatorRoutingId,
-                                  &routing_id)) {
+    int host_id;
+    int routing_id;
+    if (!new_settings->GetInteger(kPreviewInitiatorHostId, &host_id) ||
+        !new_settings->GetInteger(kPreviewInitiatorRoutingId, &routing_id)) {
       host_id = content::ChildProcessHost::kInvalidUniqueID;
-      routing_id = content::ChildProcessHost::kInvalidUniqueID;
+      routing_id = MSG_ROUTING_NONE;
     }
     printer_query = queue_->CreatePrinterQuery(host_id, routing_id);
   }
@@ -289,11 +319,10 @@ void PrintingMessageFilter::OnUpdatePrintSettingsReply(
     params.params.document_cookie = printer_query->cookie();
     params.pages = PageRange::GetPages(printer_query->settings().ranges());
   }
-  PrintHostMsg_UpdatePrintSettings::WriteReplyParams(
-      reply_msg,
-      params,
-      printer_query.get() &&
-          (printer_query->last_status() == printing::PrintingContext::CANCEL));
+  bool canceled = printer_query.get() &&
+                  (printer_query->last_status() == PrintingContext::CANCEL);
+  PrintHostMsg_UpdatePrintSettings::WriteReplyParams(reply_msg, params,
+                                                     canceled);
   Send(reply_msg);
   // If user hasn't cancelled.
   if (printer_query.get()) {
@@ -305,7 +334,7 @@ void PrintingMessageFilter::OnUpdatePrintSettingsReply(
   }
 }
 
-#if defined(ENABLE_PRINT_PREVIEW)
+#if BUILDFLAG(ENABLE_PRINT_PREVIEW)
 void PrintingMessageFilter::OnCheckForCancel(int32_t preview_ui_id,
                                              int preview_request_id,
                                              bool* cancel) {

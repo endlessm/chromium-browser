@@ -47,10 +47,7 @@
 
 namespace blink {
 
-class LayoutInline;
 class LayoutBoxModelObject;
-class LayoutObject;
-class PaintInvalidationState;
 
 struct CORE_EXPORT PaintInfo {
   PaintInfo(GraphicsContext& newContext,
@@ -87,6 +84,9 @@ struct CORE_EXPORT PaintInfo {
 
   bool isRenderingClipPathAsMaskImage() const {
     return m_paintFlags & PaintLayerPaintingRenderingClipPathAsMask;
+  }
+  bool isRenderingResourceSubtree() const {
+    return m_paintFlags & PaintLayerPaintingRenderingResourceSubtree;
   }
 
   bool skipRootBackground() const {

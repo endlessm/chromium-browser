@@ -54,7 +54,7 @@ tr.exportTo('tr.model', function() {
   ];
   SelectionState.getFromBrighteningLevel = function(level) {
     return brighteningLevels[level];
-  }
+  };
 
   var dimmingLevels = [
     SelectionState.DIMMED0,
@@ -63,10 +63,10 @@ tr.exportTo('tr.model', function() {
   ];
   SelectionState.getFromDimmingLevel = function(level) {
     return dimmingLevels[level];
-  }
+  };
 
   return {
-    SelectionState: SelectionState
+    SelectionState,
   };
 });
 </script>

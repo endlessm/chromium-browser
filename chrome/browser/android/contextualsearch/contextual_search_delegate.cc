@@ -13,6 +13,7 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "chrome/browser/android/chrome_feature_list.h"
 #include "chrome/browser/android/contextualsearch/contextual_search_field_trial.h"
 #include "chrome/browser/android/contextualsearch/resolved_search_term.h"
 #include "chrome/browser/android/proto/client_discourse_context.pb.h"
@@ -48,6 +49,14 @@ const char kContextualSearchPreventPreload[] = "prevent_preload";
 const char kContextualSearchMentions[] = "mentions";
 const char kContextualSearchCaption[] = "caption";
 const char kContextualSearchThumbnail[] = "thumbnail";
+const char kContextualSearchAction[] = "action";
+const char kContextualSearchCategory[] = "category";
+
+const char kActionCategoryAddress[] = "ADDRESS";
+const char kActionCategoryEmail[] = "EMAIL";
+const char kActionCategoryEvent[] = "EVENT";
+const char kActionCategoryPhone[] = "PHONE";
+
 const char kContextualSearchServerEndpoint[] = "_/contextualsearch?";
 const int kContextualSearchRequestVersion = 2;
 const int kContextualSearchMaxSelection = 100;
@@ -59,7 +68,9 @@ const char kDoPreventPreloadValue[] = "1";
 const int kSurroundingSizeForUI = 60;
 
 // The version of the Contextual Cards API that we want to invoke.
-const int kContextualCardsVersion = 1;
+const int kContextualCardsNoIntegration = 0;
+const int kContextualCardsBarIntegration = 1;
+const int kContextualCardsSingleAction = 2;
 
 }  // namespace
 
@@ -88,22 +99,22 @@ ContextualSearchDelegate::~ContextualSearchDelegate() {
 
 void ContextualSearchDelegate::StartSearchTermResolutionRequest(
     const std::string& selection,
-    bool use_resolved_search_term,
+    const std::string& home_country,
     content::WebContents* web_contents,
     bool may_send_base_page_url) {
   GatherSurroundingTextWithCallback(
-      selection, use_resolved_search_term, web_contents, may_send_base_page_url,
+      selection, home_country, web_contents, may_send_base_page_url,
       base::Bind(&ContextualSearchDelegate::StartSearchTermRequestFromSelection,
                  AsWeakPtr()));
 }
 
 void ContextualSearchDelegate::GatherAndSaveSurroundingText(
     const std::string& selection,
-    bool use_resolved_search_term,
+    const std::string& home_country,
     content::WebContents* web_contents,
     bool may_send_base_page_url) {
   GatherSurroundingTextWithCallback(
-      selection, use_resolved_search_term, web_contents, may_send_base_page_url,
+      selection, home_country, web_contents, may_send_base_page_url,
       base::Bind(&ContextualSearchDelegate::SaveSurroundingText, AsWeakPtr()));
   // TODO(donnd): clear the context here, since we're done with it (but risky).
 }
@@ -112,7 +123,7 @@ void ContextualSearchDelegate::ContinueSearchTermResolutionRequest() {
   DCHECK(context_.get());
   if (!context_.get())
     return;
-  GURL request_url(BuildRequestUrl(context_->selected_text));
+  GURL request_url(BuildRequestUrl(context_->home_country));
   DCHECK(request_url.is_valid());
 
   // Reset will delete any previous fetcher, and we won't get any callback.
@@ -123,10 +134,13 @@ void ContextualSearchDelegate::ContinueSearchTermResolutionRequest() {
 
   // Add Chrome experiment state to the request headers.
   net::HttpRequestHeaders headers;
+  // Note: It's OK to pass |is_signed_in| false if it's unknown, as it does
+  // not affect transmission of experiments coming from the variations server.
+  bool is_signed_in = false;
   variations::AppendVariationHeaders(
       search_term_fetcher_->GetOriginalURL(),
       false,  // Impossible to be incognito at this point.
-      false, &headers);
+      false, is_signed_in, &headers);
   search_term_fetcher_->SetExtraRequestHeaders(headers.ToString());
 
   SetDiscourseContextAndAddToHeader(*context_);
@@ -172,11 +186,13 @@ ContextualSearchDelegate::GetResolvedSearchTermFromJson(
   std::string context_language;
   std::string thumbnail_url = "";
   std::string caption = "";
+  std::string quick_action_uri = "";
+  QuickActionCategory quick_action_category = QUICK_ACTION_CATEGORY_NONE;
 
   DecodeSearchTermFromJsonResponse(
       json_string, &search_term, &display_text, &alternate_term, &mid,
       &prevent_preload, &mention_start, &mention_end, &context_language,
-      &thumbnail_url, &caption);
+      &thumbnail_url, &caption, &quick_action_uri, &quick_action_category);
   if (mention_start != 0 || mention_end != 0) {
     // Sanity check that our selection is non-zero and it is less than
     // 100 characters as that would make contextual search bar hide.
@@ -197,29 +213,37 @@ ContextualSearchDelegate::GetResolvedSearchTermFromJson(
   return std::unique_ptr<ResolvedSearchTerm>(new ResolvedSearchTerm(
       is_invalid, response_code, search_term, display_text, alternate_term, mid,
       prevent_preload == kDoPreventPreloadValue, start_adjust, end_adjust,
-      context_language, thumbnail_url, caption));
+      context_language, thumbnail_url, caption, quick_action_uri,
+      quick_action_category));
 }
 
-std::string ContextualSearchDelegate::BuildRequestUrl(std::string selection) {
+std::string ContextualSearchDelegate::BuildRequestUrl(
+    std::string home_country) {
   // TODO(donnd): Confirm this is the right way to handle TemplateURL fails.
   if (!template_url_service_ ||
       !template_url_service_->GetDefaultSearchProvider()) {
     return std::string();
   }
 
-  std::string selected_text(net::EscapeQueryParamValue(selection, true));
   TemplateURL* template_url = template_url_service_->GetDefaultSearchProvider();
 
   TemplateURLRef::SearchTermsArgs search_terms_args =
       TemplateURLRef::SearchTermsArgs(base::string16());
 
-  int contextual_cards_version =
-      field_trial_->IsContextualCardsBarIntegrationEnabled()
-      ? kContextualCardsVersion : 0;
+  int contextual_cards_version = kContextualCardsNoIntegration;
+  if (field_trial_->IsContextualCardsBarIntegrationEnabled())
+    contextual_cards_version = kContextualCardsBarIntegration;
+  if (base::FeatureList::IsEnabled(
+          chrome::android::kContextualSearchSingleActions)) {
+    contextual_cards_version = kContextualCardsSingleAction;
+  }
+
+  if (field_trial_->GetContextualCardsVersion() != 0) {
+    contextual_cards_version = field_trial_->GetContextualCardsVersion();
+  }
 
   TemplateURLRef::SearchTermsArgs::ContextualSearchParams params(
-      kContextualSearchRequestVersion, selected_text, std::string(),
-      contextual_cards_version);
+      kContextualSearchRequestVersion, contextual_cards_version, home_country);
 
   search_terms_args.contextual_search_params = params;
 
@@ -245,15 +269,14 @@ std::string ContextualSearchDelegate::BuildRequestUrl(std::string selection) {
 
 void ContextualSearchDelegate::GatherSurroundingTextWithCallback(
     const std::string& selection,
-    bool use_resolved_search_term,
+    const std::string& home_country,
     content::WebContents* web_contents,
     bool may_send_base_page_url,
     HandleSurroundingsCallback callback) {
   // Immediately cancel any request that's in flight, since we're building a new
   // context (and the response disposes of any existing context).
   search_term_fetcher_.reset();
-  BuildContext(selection, use_resolved_search_term, web_contents,
-               may_send_base_page_url);
+  BuildContext(selection, home_country, web_contents, may_send_base_page_url);
   DCHECK(web_contents);
   RenderFrameHost* focused_frame = web_contents->GetFocusedFrame();
   if (focused_frame) {
@@ -264,11 +287,10 @@ void ContextualSearchDelegate::GatherSurroundingTextWithCallback(
   }
 }
 
-void ContextualSearchDelegate::BuildContext(
-    const std::string& selection,
-    bool use_resolved_search_term,
-    content::WebContents* web_contents,
-    bool may_send_base_page_url) {
+void ContextualSearchDelegate::BuildContext(const std::string& selection,
+                                            const std::string& home_country,
+                                            content::WebContents* web_contents,
+                                            bool may_send_base_page_url) {
   // Decide if the URL should be sent with the context.
   GURL page_url(web_contents->GetURL());
   GURL url_to_send;
@@ -278,8 +300,8 @@ void ContextualSearchDelegate::BuildContext(
     url_to_send = page_url;
   }
   std::string encoding(web_contents->GetEncoding());
-  context_.reset(new ContextualSearchContext(
-      selection, use_resolved_search_term, url_to_send, encoding));
+  context_.reset(new ContextualSearchContext(selection, home_country,
+                                             url_to_send, encoding));
 }
 
 void ContextualSearchDelegate::StartSearchTermRequestFromSelection(
@@ -450,7 +472,9 @@ void ContextualSearchDelegate::DecodeSearchTermFromJsonResponse(
     int* mention_end,
     std::string* lang,
     std::string* thumbnail_url,
-    std::string* caption) {
+    std::string* caption,
+    std::string* quick_action_uri,
+    QuickActionCategory* quick_action_category) {
   bool contains_xssi_escape =
       base::StartsWith(response, kXssiEscape, base::CompareCase::SENSITIVE);
   const std::string& proper_json =
@@ -498,22 +522,47 @@ void ContextualSearchDelegate::DecodeSearchTermFromJsonResponse(
   }
 
   if (field_trial_->IsContextualCardsBarIntegrationEnabled()) {
+    // Contextual Cards V1 Integration.
     // Get the basic Bar data for Contextual Cards integration directly
     // from the root.
     dict->GetString(kContextualSearchCaption, caption);
     dict->GetString(kContextualSearchThumbnail, thumbnail_url);
-    // For testing purposes check if there was a coca backend failure and
-    // flag that in the log.
-    // TODO(donnd): remove after full Coca integration.
-    bool contextual_cards_backend_responded = true;
-    dict->GetBoolean("coca_responded", &contextual_cards_backend_responded);
-    if (!contextual_cards_backend_responded) {
-      DVLOG(0) << "";
-      DVLOG(0) << "!!! CONTEXTUAL SEARCH WARNING !!!";
-      DVLOG(0)
-          << "The Contextual Cards backend did not respond to this "
-             "request!!! The backend server may not be configured or is down.";
-      DVLOG(0) << "";
+  }
+
+  if (base::FeatureList::IsEnabled(
+          chrome::android::kContextualSearchSingleActions)) {
+    // Contextual Cards V2 Integration.
+    // Get the Single Action data.
+    dict->GetString(kContextualSearchAction, quick_action_uri);
+    std::string quick_action_category_string;
+    dict->GetString(kContextualSearchCategory, &quick_action_category_string);
+    if (!quick_action_category_string.empty()) {
+      if (quick_action_category_string == kActionCategoryAddress) {
+        *quick_action_category = QUICK_ACTION_CATEGORY_ADDRESS;
+      } else if (quick_action_category_string == kActionCategoryEmail) {
+        *quick_action_category = QUICK_ACTION_CATEGORY_EMAIL;
+      } else if (quick_action_category_string == kActionCategoryEvent) {
+        *quick_action_category = QUICK_ACTION_CATEGORY_EVENT;
+      } else if (quick_action_category_string == kActionCategoryPhone) {
+        *quick_action_category = QUICK_ACTION_CATEGORY_PHONE;
+      }
+    }
+  }
+
+  if (field_trial_->IsContextualCardsBarIntegrationEnabled() ||
+      base::FeatureList::IsEnabled(
+          chrome::android::kContextualSearchSingleActions)) {
+    // Any Contextual Cards integration.
+    // For testing purposes check if there was a diagnostic from Contextual
+    // Cards and output that into the log.
+    // TODO(donnd): remove after full Contextual Cards integration.
+    std::string contextual_cards_diagnostic;
+    dict->GetString("diagnostic", &contextual_cards_diagnostic);
+    if (contextual_cards_diagnostic.empty()) {
+      DVLOG(0) << "No diagnostic data in the response.";
+    } else {
+      DVLOG(0) << "The Contextual Cards backend response: ";
+      DVLOG(0) << contextual_cards_diagnostic;
     }
   }
 }

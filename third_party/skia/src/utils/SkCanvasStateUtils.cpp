@@ -10,9 +10,9 @@
 #include "SkCanvas.h"
 #include "SkCanvasStack.h"
 #include "SkDevice.h"
-#include "SkErrorInternals.h"
 #include "SkRasterClip.h"
 #include "SkWriter32.h"
+#include "SkClipOpPriv.h"
 
 /*
  * WARNING: The structs below are part of a stable ABI and as such we explicitly
@@ -101,14 +101,12 @@ class SkCanvasState_v1 : public SkCanvasState {
 public:
     static const int32_t kVersion = 1;
 
-    SkCanvasState_v1(SkCanvas* canvas)
-    : INHERITED(kVersion, canvas)
-    {
+    SkCanvasState_v1(SkCanvas* canvas) : INHERITED(kVersion, canvas) {
         layerCount = 0;
         layers = nullptr;
         mcState.clipRectCount = 0;
         mcState.clipRects = nullptr;
-        originalCanvas = SkRef(canvas);
+        originalCanvas = canvas;
     }
 
     ~SkCanvasState_v1() {
@@ -119,10 +117,6 @@ public:
 
         sk_free(mcState.clipRects);
         sk_free(layers);
-
-        // it is now safe to free the canvas since there should be no remaining
-        // references to the content that is referenced by this canvas (e.g. pixels)
-        originalCanvas->unref();
     }
 
     SkMCState mcState;
@@ -142,15 +136,15 @@ public:
     bool failed() { return fFailed; }
 
     // ClipVisitor
-    void clipRect(const SkRect& rect, SkCanvas::ClipOp op, bool antialias) override {
+    void clipRect(const SkRect& rect, SkClipOp op, bool antialias) override {
         fFailed |= antialias;
     }
 
-    void clipRRect(const SkRRect& rrect, SkCanvas::ClipOp op, bool antialias) override {
+    void clipRRect(const SkRRect& rrect, SkClipOp op, bool antialias) override {
         fFailed |= antialias;
     }
 
-    void clipPath(const SkPath&, SkCanvas::ClipOp, bool antialias) override {
+    void clipPath(const SkPath&, SkClipOp, bool antialias) override {
         fFailed |= antialias;
     }
 
@@ -202,12 +196,10 @@ SkCanvasState* SkCanvasStateUtils::CaptureCanvasState(SkCanvas* canvas) {
     ClipValidator validator;
     canvas->replayClips(&validator);
     if (validator.failed()) {
-        SkErrorInternals::SetError(kInvalidOperation_SkError,
-                "CaptureCanvasState does not support canvases with antialiased clips.\n");
         return nullptr;
     }
 
-    SkAutoTDelete<SkCanvasState_v1> canvasState(new SkCanvasState_v1(canvas));
+    std::unique_ptr<SkCanvasState_v1> canvasState(new SkCanvasState_v1(canvas));
 
     // decompose the total matrix and clip
     setup_MC_state(&canvasState->mcState, canvas->getTotalMatrix(),
@@ -284,10 +276,11 @@ static void setup_canvas_from_MC_state(const SkMCState& state, SkCanvas* canvas)
     }
 
     canvas->setMatrix(matrix);
-    canvas->clipRegion(clip, SkCanvas::kReplace_Op);
+    canvas->clipRegion(clip, kReplace_SkClipOp);
 }
 
-static SkCanvas* create_canvas_from_canvas_layer(const SkCanvasLayerState& layerState) {
+static std::unique_ptr<SkCanvas>
+make_canvas_from_canvas_layer(const SkCanvasLayerState& layerState) {
     SkASSERT(kRaster_CanvasBackend == layerState.type);
 
     SkBitmap bitmap;
@@ -307,15 +300,15 @@ static SkCanvas* create_canvas_from_canvas_layer(const SkCanvasLayerState& layer
     SkASSERT(!bitmap.empty());
     SkASSERT(!bitmap.isNull());
 
-    SkAutoTUnref<SkCanvas> canvas(new SkCanvas(bitmap));
+    std::unique_ptr<SkCanvas> canvas(new SkCanvas(bitmap));
 
     // setup the matrix and clip
     setup_canvas_from_MC_state(layerState.mcState, canvas.get());
 
-    return canvas.release();
+    return canvas;
 }
 
-SkCanvas* SkCanvasStateUtils::CreateFromCanvasState(const SkCanvasState* state) {
+std::unique_ptr<SkCanvas> SkCanvasStateUtils::MakeFromCanvasState(const SkCanvasState* state) {
     SkASSERT(state);
     // Currently there is only one possible version.
     SkASSERT(SkCanvasState_v1::kVersion == state->version);
@@ -326,22 +319,22 @@ SkCanvas* SkCanvasStateUtils::CreateFromCanvasState(const SkCanvasState* state) 
         return nullptr;
     }
 
-    SkAutoTUnref<SkCanvasStack> canvas(new SkCanvasStack(state->width, state->height));
+    std::unique_ptr<SkCanvasStack> canvas(new SkCanvasStack(state->width, state->height));
 
     // setup the matrix and clip on the n-way canvas
-    setup_canvas_from_MC_state(state_v1->mcState, canvas);
+    setup_canvas_from_MC_state(state_v1->mcState, canvas.get());
 
     // Iterate over the layers and add them to the n-way canvas
     for (int i = state_v1->layerCount - 1; i >= 0; --i) {
-        SkAutoTUnref<SkCanvas> canvasLayer(create_canvas_from_canvas_layer(state_v1->layers[i]));
+        std::unique_ptr<SkCanvas> canvasLayer = make_canvas_from_canvas_layer(state_v1->layers[i]);
         if (!canvasLayer.get()) {
             return nullptr;
         }
-        canvas->pushCanvas(canvasLayer.get(), SkIPoint::Make(state_v1->layers[i].x,
-                                                             state_v1->layers[i].y));
+        canvas->pushCanvas(std::move(canvasLayer), SkIPoint::Make(state_v1->layers[i].x,
+                                                                  state_v1->layers[i].y));
     }
 
-    return canvas.release();
+    return std::move(canvas);
 }
 
 ////////////////////////////////////////////////////////////////////////////////

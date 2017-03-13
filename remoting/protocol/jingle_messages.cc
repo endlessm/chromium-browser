@@ -9,7 +9,10 @@
 #include "remoting/base/constants.h"
 #include "remoting/protocol/content_description.h"
 #include "remoting/protocol/name_value_map.h"
-#include "third_party/webrtc/libjingle/xmllite/xmlelement.h"
+#include "remoting/protocol/session_plugin.h"
+#include "remoting/signaling/jid_util.h"
+#include "remoting/signaling/remoting_bot.h"
+#include "third_party/libjingle_xmpp/xmllite/xmlelement.h"
 
 using buzz::QName;
 using buzz::XmlElement;
@@ -172,9 +175,10 @@ buzz::QName GetQNameByField(Field attr, bool from) {
 
 SignalingAddress ParseAddress(
     const buzz::XmlElement* iq, bool from, std::string* error) {
-  SignalingAddress empty_instance;
-
   std::string jid(iq->Attr(GetQNameByField(Field::JID, from)));
+  if (jid.empty()) {
+    return SignalingAddress();
+  }
 
   const XmlElement* jingle = iq->FirstNamed(QName(kJingleNamespace, "jingle"));
 
@@ -198,15 +202,20 @@ SignalingAddress ParseAddress(
     channel = SignalingAddress::Channel::XMPP;
   } else if (!NameToValue(kChannelTypes, channel_str, &channel)) {
     *error = "Unknown channel: " + channel_str;
-    return empty_instance;
+    return SignalingAddress();
   }
 
-  bool isLcs = (channel == SignalingAddress::Channel::LCS);
+  bool is_lcs = (channel == SignalingAddress::Channel::LCS);
 
-  if (isLcs == endpoint_id.empty()) {
-    *error = (isLcs ? "Missing |endpoint-id| for LCS channel"
+  if (is_lcs == endpoint_id.empty()) {
+    *error = (is_lcs ? "Missing |endpoint-id| for LCS channel"
                     : "|endpoint_id| should be empty for XMPP channel");
-    return empty_instance;
+    return SignalingAddress();
+  }
+
+  if (from && is_lcs && !IsValidBotJid(jid)) {
+    *error = "Reject LCS message from untrusted sender: " + jid;
+    return SignalingAddress();
   }
 
   return SignalingAddress(jid, endpoint_id, channel);
@@ -221,7 +230,7 @@ void SetAddress(buzz::XmlElement* iq,
   }
 
   // Always set the JID.
-  iq->SetAttr(GetQNameByField(Field::JID, from), address.jid);
+  iq->SetAttr(GetQNameByField(Field::JID, from), address.jid());
 
   // Do not tamper the routing-info in the jingle tag for error IQ's, as
   // it corresponds to the original message.
@@ -235,47 +244,39 @@ void SetAddress(buzz::XmlElement* iq,
   jingle->ClearAttr(GetQNameByField(Field::ENDPOINT_ID, from));
 
   // Only set the channel and endpoint_id in the LCS channel.
-  if (address.channel == SignalingAddress::Channel::LCS) {
-    jingle->AddAttr(
-        GetQNameByField(Field::ENDPOINT_ID, from), address.endpoint_id);
-    jingle->AddAttr(
-        GetQNameByField(Field::CHANNEL, from),
-        ValueToName(kChannelTypes, address.channel));
+  if (address.channel() == SignalingAddress::Channel::LCS) {
+    jingle->AddAttr(GetQNameByField(Field::ENDPOINT_ID, from),
+                    address.endpoint_id());
+    jingle->AddAttr(GetQNameByField(Field::CHANNEL, from),
+                    ValueToName(kChannelTypes, address.channel()));
   }
 }
 
 }  // namespace
 
-IceTransportInfo::NamedCandidate::NamedCandidate(
-    const std::string& name,
-    const cricket::Candidate& candidate)
-    : name(name),
-      candidate(candidate) {
-}
-
-IceTransportInfo::IceCredentials::IceCredentials(std::string channel,
-                                              std::string ufrag,
-                                              std::string password)
-    : channel(channel), ufrag(ufrag), password(password) {
-}
-
 SignalingAddress::SignalingAddress()
-    : channel(SignalingAddress::Channel::XMPP) {}
+    : channel_(SignalingAddress::Channel::XMPP) {}
 
 SignalingAddress::SignalingAddress(const std::string& jid)
-    : jid(jid), channel(SignalingAddress::Channel::XMPP) {}
+    : jid_(NormalizeJid(jid)), channel_(SignalingAddress::Channel::XMPP) {
+  DCHECK(!jid.empty());
+}
 
 SignalingAddress::SignalingAddress(const std::string& jid,
                                    const std::string& endpoint_id,
                                    Channel channel)
-    : jid(jid), endpoint_id(endpoint_id), channel(channel) {}
-
-bool SignalingAddress::operator==(const SignalingAddress& other) {
-  return (other.endpoint_id == endpoint_id) && (other.jid == jid) &&
-         (other.channel == channel);
+    : jid_(NormalizeJid(jid)),
+      endpoint_id_(NormalizeJid(endpoint_id)),
+      channel_(channel) {
+  DCHECK(!jid.empty());
 }
 
-bool SignalingAddress::operator!=(const SignalingAddress& other) {
+bool SignalingAddress::operator==(const SignalingAddress& other) const {
+  return (other.jid_ == jid_) && (other.endpoint_id_ == endpoint_id_) &&
+         (other.channel_ == channel_);
+}
+
+bool SignalingAddress::operator!=(const SignalingAddress& other) const {
   return !(*this == other);
 }
 
@@ -342,15 +343,28 @@ bool JingleMessage::ParseXml(const buzz::XmlElement* stanza,
     return false;
   }
 
+  const XmlElement* attachments_tag =
+      jingle_tag->FirstNamed(QName(kChromotingXmlNamespace, "attachments"));
+  if (attachments_tag) {
+    attachments.reset(new XmlElement(*attachments_tag));
+  } else {
+    attachments.reset();
+  }
+
   if (action == SESSION_INFO) {
     // session-info messages may contain arbitrary information not
     // defined by the Jingle protocol. We don't need to parse it.
     const XmlElement* child = jingle_tag->FirstElement();
+    // Plugin messages are action independent, which should not be considered as
+    // session-info.
+    if (child == attachments_tag) {
+      child = child->NextElement();
+    }
     if (child) {
       // session-info is allowed to be empty.
       info.reset(new XmlElement(*child));
     } else {
-      info.reset(nullptr);
+      info.reset();
     }
     return true;
   }
@@ -374,8 +388,9 @@ bool JingleMessage::ParseXml(const buzz::XmlElement* stanza,
     }
   }
 
-  if (action == SESSION_TERMINATE)
+  if (action == SESSION_TERMINATE) {
     return true;
+  }
 
   const XmlElement* content_tag =
       jingle_tag->FirstNamed(QName(kJingleNamespace, "content"));
@@ -396,7 +411,7 @@ bool JingleMessage::ParseXml(const buzz::XmlElement* stanza,
     transport_info.reset(new buzz::XmlElement(*webrtc_transport_tag));
   }
 
-  description.reset(nullptr);
+  description.reset();
   if (action == SESSION_INITIATE || action == SESSION_ACCEPT) {
     const XmlElement* description_tag = content_tag->FirstNamed(
         QName(kChromotingXmlNamespace, "description"));
@@ -439,18 +454,25 @@ std::unique_ptr<buzz::XmlElement> JingleMessage::ToXml() const {
   SetAddress(root.get(), jingle_tag, from, true);
 
   const char* action_attr = ValueToName(kActionTypes, action);
-  if (!action_attr)
+  if (!action_attr) {
     LOG(FATAL) << "Invalid action value " << action;
+  }
   jingle_tag->AddAttr(QName(kEmptyNamespace, "action"), action_attr);
 
+  if (attachments) {
+    jingle_tag->AddElement(new XmlElement(*attachments));
+  }
+
   if (action == SESSION_INFO) {
-    if (info.get())
+    if (info.get()) {
       jingle_tag->AddElement(new XmlElement(*info.get()));
+    }
     return root;
   }
 
-  if (action == SESSION_INITIATE)
+  if (action == SESSION_INITIATE) {
     jingle_tag->AddAttr(QName(kEmptyNamespace, "initiator"), initiator);
+  }
 
   if (reason != UNKNOWN_REASON) {
     XmlElement* reason_tag = new XmlElement(QName(kJingleNamespace, "reason"));
@@ -475,8 +497,9 @@ std::unique_ptr<buzz::XmlElement> JingleMessage::ToXml() const {
                          ContentDescription::kChromotingContentName);
     content_tag->AddAttr(QName(kEmptyNamespace, "creator"), "initiator");
 
-    if (description)
+    if (description) {
       content_tag->AddElement(description->ToXml());
+    }
 
     if (transport_info) {
       content_tag->AddElement(new XmlElement(*transport_info));
@@ -487,6 +510,15 @@ std::unique_ptr<buzz::XmlElement> JingleMessage::ToXml() const {
   }
 
   return root;
+}
+
+void JingleMessage::AddAttachment(std::unique_ptr<XmlElement> attachment) {
+  DCHECK(attachment);
+  if (!attachments) {
+    attachments.reset(new XmlElement(
+        QName(kChromotingXmlNamespace, "attachments")));
+  }
+  attachments->AddElement(attachment.release());
 }
 
 JingleMessageReply::JingleMessageReply()
@@ -573,8 +605,9 @@ std::unique_ptr<buzz::XmlElement> JingleMessageReply::ToXml(
       NOTREACHED();
   }
 
-  if (!text.empty())
+  if (!text.empty()) {
     error_text = text;
+  }
 
   error->SetAttr(QName(kEmptyNamespace, "type"), type);
 
@@ -599,13 +632,24 @@ std::unique_ptr<buzz::XmlElement> JingleMessageReply::ToXml(
   return iq;
 }
 
+IceTransportInfo::NamedCandidate::NamedCandidate(
+    const std::string& name,
+    const cricket::Candidate& candidate)
+    : name(name), candidate(candidate) {}
+
+IceTransportInfo::IceCredentials::IceCredentials(std::string channel,
+                                                 std::string ufrag,
+                                                 std::string password)
+    : channel(channel), ufrag(ufrag), password(password) {}
+
 IceTransportInfo::IceTransportInfo() {}
 IceTransportInfo::~IceTransportInfo() {}
 
 bool IceTransportInfo::ParseXml(
     const buzz::XmlElement* element) {
-  if (element->Name() != QName(kIceTransportNamespace, "transport"))
+  if (element->Name() != QName(kIceTransportNamespace, "transport")) {
     return false;
+  }
 
   ice_credentials.clear();
   candidates.clear();
@@ -615,8 +659,9 @@ bool IceTransportInfo::ParseXml(
        credentials_tag;
        credentials_tag = credentials_tag->NextNamed(qn_credentials)) {
     IceTransportInfo::IceCredentials credentials;
-    if (!ParseIceCredentials(credentials_tag, &credentials))
+    if (!ParseIceCredentials(credentials_tag, &credentials)) {
       return false;
+    }
     ice_credentials.push_back(credentials);
   }
 
@@ -624,8 +669,9 @@ bool IceTransportInfo::ParseXml(
   for (const XmlElement* candidate_tag = element->FirstNamed(qn_candidate);
        candidate_tag; candidate_tag = candidate_tag->NextNamed(qn_candidate)) {
     IceTransportInfo::NamedCandidate candidate;
-    if (!ParseIceCandidate(candidate_tag, &candidate))
+    if (!ParseIceCandidate(candidate_tag, &candidate)) {
       return false;
+    }
     candidates.push_back(candidate);
   }
 

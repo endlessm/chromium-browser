@@ -60,7 +60,10 @@ cvox.ChromeVoxPrefs = function() {
  */
 cvox.ChromeVoxPrefs.DEFAULT_PREFS = {
   'active': true,
+  'audioStrategy': 'audioNormal',
+  'autoRead': false,
   'brailleCaptions': false,
+  'brailleSideBySide': true,
   // TODO(dtseng): Leaking state about multiple key maps here until we have a
   // class to manage multiple key maps. Also, this doesn't belong as a pref;
   // should just store in local storage.
@@ -69,8 +72,8 @@ cvox.ChromeVoxPrefs.DEFAULT_PREFS = {
   'earcons': true,
   'focusFollowsMouse': false,
   'granularity': undefined,
-  'outputContextFirst': false,
   'position': '{}',
+  'siteSpecificEnhancements': true,
   'siteSpecificScriptBase':
       'https://ssl.gstatic.com/accessibility/javascript/ext/',
   'siteSpecificScriptLoader':
@@ -78,9 +81,8 @@ cvox.ChromeVoxPrefs.DEFAULT_PREFS = {
   'sticky': false,
   'typingEcho': 0,
   'useIBeamCursor': cvox.ChromeVox.isMac,
+  'useClassic': false,
   'useVerboseMode': true,
-  'siteSpecificEnhancements': true,
-  'useNext': false
 };
 
 

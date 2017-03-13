@@ -9,6 +9,7 @@ import("//build/config/win/console_app.gni")
 import("//build/config/win/manifest.gni")
 import("//media/media_options.gni")
 import("//mojo/public/tools/bindings/mojom.gni")
+import("//ppapi/features/features.gni")
 import("//tools/grit/repack.gni")
 import("//tools/grit/grit_rule.gni")
 if (is_android) {
@@ -57,8 +58,6 @@ static_library("content_shell_lib") {
     "app/shell_main_delegate_mac.mm",
     "browser/layout_test/blink_test_controller.cc",
     "browser/layout_test/blink_test_controller.h",
-    "browser/layout_test/layout_test_android.cc",
-    "browser/layout_test/layout_test_android.h",
     "browser/layout_test/layout_test_bluetooth_adapter_provider.cc",
     "browser/layout_test/layout_test_bluetooth_adapter_provider.h",
     "browser/layout_test/layout_test_bluetooth_chooser_factory.cc",
@@ -171,6 +170,8 @@ static_library("content_shell_lib") {
     "renderer/layout_test/blink_test_helpers.h",
     "renderer/layout_test/blink_test_runner.cc",
     "renderer/layout_test/blink_test_runner.h",
+    "renderer/layout_test/interface_registry_js_wrapper.cc",
+    "renderer/layout_test/interface_registry_js_wrapper.h",
     "renderer/layout_test/layout_test_content_renderer_client.cc",
     "renderer/layout_test/layout_test_content_renderer_client.h",
     "renderer/layout_test/layout_test_render_frame_observer.cc",
@@ -197,9 +198,11 @@ static_library("content_shell_lib") {
 
     # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
     "//build/config/compiler:no_size_t_to_int_warning",
-
-    "//third_party/WebKit/public:debug_devtools",
   ]
+
+  if (enable_mojo_media) {
+    configs += [ "//media/mojo/services:mojo_media_config" ]
+  }
 
   defines = [ "CONTENT_SHELL_VERSION=\"$content_shell_version\"" ]
 
@@ -220,6 +223,7 @@ static_library("content_shell_lib") {
     "//cc",
     "//components/cdm/renderer",
     "//components/crash/content/app:app_breakpad_mac_win_to_be_deleted",
+    "//components/keyed_service/content",
     "//components/plugins/renderer",
     "//components/test_runner:test_runner",
     "//components/url_formatter",
@@ -228,6 +232,7 @@ static_library("content_shell_lib") {
     "//content/app/resources",
     "//content/app/strings",
     "//content/gpu",
+    "//content/public/common:service_names",
     "//content/test:content_test_mojo_bindings",
     "//content/test:layouttest_support",
     "//content/test:test_support",
@@ -238,15 +243,19 @@ static_library("content_shell_lib") {
     "//gpu",
     "//ipc",
     "//media",
+    "//media/capture",
+    "//mojo/edk/js",
     "//net",
     "//net:net_resources",
+    "//ppapi/features",
     "//sandbox",
-    "//services/shell/public/cpp",
+    "//services/service_manager/public/cpp",
     "//skia",
     "//storage/browser",
     "//testing/gmock",
     "//testing/gtest",
     "//third_party/WebKit/public:blink",
+    "//third_party/WebKit/public:features",
     "//third_party/WebKit/public:image_resources",
     "//third_party/WebKit/public:resources",
     "//third_party/WebKit/public:test_support",
@@ -297,15 +306,18 @@ static_library("content_shell_lib") {
   if (use_x11) {
     # Some tests rely on this tool at runtime. Note: it might be better if
     # the tests that needed it had this as a dep instead of adding it here.
-    data_deps = [
-      "//tools/xdisplaycheck",
-    ]
-
     deps += [ "//ui/events/devices/x11" ]
   }
 
   if (is_android) {
-    deps += [ "//content/shell/android:content_shell_jni_headers" ]
+    sources += [
+      "browser/layout_test/scoped_android_configuration.cc",
+      "browser/layout_test/scoped_android_configuration.h",
+    ]
+    deps += [
+      "//base/test:test_support",
+      "//content/shell/android:content_shell_jni_headers",
+    ]
   }
 
   if (is_posix && !is_mac) {
@@ -317,6 +329,7 @@ static_library("content_shell_lib") {
 
   if (use_aura) {
     deps += [
+      "//services/navigation",
       "//ui/aura",
       "//ui/aura:test_support",
       "//ui/events",
@@ -396,6 +409,9 @@ group("resources") {
     ":copy_shell_resources",
   ]
   deps = [
+    "//components/test_runner:resources",
+  ]
+  data_deps = [
     "//components/test_runner:resources",
   ]
 }
@@ -486,7 +502,6 @@ if (is_android) {
   executable("content_shell") {
     testonly = true
 
-    # TODO(GYP) mac resource bundle stuff for this target.
     sources = [
       "app/shell_main.cc",
     ]
@@ -502,6 +517,10 @@ if (is_android) {
       ":pak",
       "//build/config/sanitizers:deps",
       "//build/win:default_exe_manifest",
+    ]
+
+    data_deps = [
+      ":pak",
     ]
 
     if (is_win) {

@@ -8,58 +8,51 @@
 #define XFA_FXFA_XFA_FFAPP_H_
 
 #include <memory>
+#include <vector>
 
 #include "core/fpdfapi/parser/cpdf_stream.h"
 #include "core/fpdfapi/parser/cpdf_stream_acc.h"
-#include "xfa/fgas/font/fgas_font.h"
-#include "xfa/fwl/core/ifwl_app.h"
+#include "core/fxcrt/cfx_retain_ptr.h"
+#include "xfa/fgas/font/cfgas_fontmgr.h"
+#include "xfa/fwl/cfwl_app.h"
 #include "xfa/fxfa/fxfa.h"
 
-class CFWL_WidgetMgrDelegate;
 class CXFA_DefFontMgr;
 class CXFA_FWLAdapterWidgetMgr;
 class CXFA_FWLTheme;
 class CXFA_FFDocHandler;
 class CXFA_FontMgr;
 class IFWL_AdapterTimerMgr;
+class CFWL_WidgetMgrDelegate;
 
-class CXFA_FileRead : public IFX_FileRead {
- public:
-  explicit CXFA_FileRead(const CFX_ArrayTemplate<CPDF_Stream*>& streams);
-  ~CXFA_FileRead() override;
-
-  // IFX_FileRead
-  FX_FILESIZE GetSize() override;
-  FX_BOOL ReadBlock(void* buffer, FX_FILESIZE offset, size_t size) override;
-  void Release() override;
-
- protected:
-  CFX_ObjectArray<CPDF_StreamAcc> m_Data;
-};
+// Layering prevents fxcrt from knowing about CPDF_Streams; this could go
+// in fpdfsdk, but it is XFA-Only.
+CFX_RetainPtr<IFX_SeekableReadStream> MakeSeekableReadStream(
+    const std::vector<CPDF_Stream*>& streams);
 
 class CXFA_FFApp {
  public:
   explicit CXFA_FFApp(IXFA_AppProvider* pProvider);
   ~CXFA_FFApp();
 
-  CXFA_FFDoc* CreateDoc(IXFA_DocEnvironment* pDocEnvironment,
-                        IFX_FileRead* pStream,
-                        FX_BOOL bTakeOverFile);
-  CXFA_FFDoc* CreateDoc(IXFA_DocEnvironment* pDocEnvironment,
-                        CPDF_Document* pPDFDoc);
+  std::unique_ptr<CXFA_FFDoc> CreateDoc(IXFA_DocEnvironment* pDocEnvironment,
+                                        CPDF_Document* pPDFDoc);
   void SetDefaultFontMgr(std::unique_ptr<CXFA_DefFontMgr> pFontMgr);
 
   CXFA_FFDocHandler* GetDocHandler();
   CXFA_FWLAdapterWidgetMgr* GetWidgetMgr(CFWL_WidgetMgrDelegate* pDelegate);
-  IFGAS_FontMgr* GetFDEFontMgr();
+  CFGAS_FontMgr* GetFDEFontMgr();
   CXFA_FWLTheme* GetFWLTheme();
 
   IXFA_AppProvider* GetAppProvider() const { return m_pProvider; }
+  const CFWL_App* GetFWLApp() const { return m_pFWLApp.get(); }
   IFWL_AdapterTimerMgr* GetTimerMgr() const;
   CXFA_FontMgr* GetXFAFontMgr() const;
   CFWL_WidgetMgrDelegate* GetWidgetMgrDelegate() const {
     return m_pWidgetMgrDelegate;
   }
+
+  void ClearEventTargets();
 
  protected:
   std::unique_ptr<CXFA_FFDocHandler> m_pDocHandler;
@@ -75,7 +68,7 @@ class CXFA_FFApp {
   //
   // TODO(dsinclair): The GEFont should have the FontMgr as the pointer instead
   // of the DEFFontMgr so this goes away. Bug 561.
-  std::unique_ptr<IFGAS_FontMgr> m_pFDEFontMgr;
+  std::unique_ptr<CFGAS_FontMgr> m_pFDEFontMgr;
   std::unique_ptr<CXFA_FontMgr> m_pFontMgr;
 
 #if _FXM_PLATFORM_ != _FXM_PLATFORM_WINDOWS_
@@ -87,7 +80,7 @@ class CXFA_FFApp {
   // |m_pFWLApp| has to be released first, then |m_pFWLTheme| since the former
   // may refers to theme manager and the latter refers to font manager.
   std::unique_ptr<CXFA_FWLTheme> m_pFWLTheme;
-  std::unique_ptr<IFWL_App> m_pFWLApp;
+  std::unique_ptr<CFWL_App> m_pFWLApp;
 };
 
 #endif  // XFA_FXFA_XFA_FFAPP_H_

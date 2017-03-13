@@ -5,13 +5,16 @@
 /* #undef HAVE_ANSIDECL_H */
 
 /* Define to 1 if you have the `asctime' function. */
-#define HAVE_ASCTIME 1
+
 
 /* Define to 1 if you have the `clock_gettime' function. */
 
 
 /* Define to 1 if you have the <dlfcn.h> header file. */
 #define HAVE_DLFCN_H 1
+
+/* Define to 1 if you have the <errno.h> header file. */
+#define HAVE_ERRNO_H 1
 
 /* Define if fabs is there */
 #define HAVE_FABS /**/
@@ -56,7 +59,7 @@
 #define HAVE_LOCALE_H 1
 
 /* Define to 1 if you have the `localtime' function. */
-#define HAVE_LOCALTIME 1
+
 
 /* Define to 1 if you have the `localtime_r' function. */
 #define HAVE_LOCALTIME_R 1
@@ -68,7 +71,7 @@
 #define HAVE_MEMORY_H 1
 
 /* Define to 1 if you have the `mktime' function. */
-#define HAVE_MKTIME 1
+
 
 /* Define to 1 if you have the <nan.h> header file. */
 /* #undef HAVE_NAN_H */
@@ -148,8 +151,7 @@
 /* Define to 1 if you have the `_stat' function. */
 /* #undef HAVE__STAT */
 
-/* Define to the sub-directory in which libtool stores uninstalled libraries.
-   */
+/* Define to the sub-directory where libtool stores uninstalled libraries. */
 #define LT_OBJDIR ".libs/"
 
 /* Name of package */
@@ -199,7 +201,7 @@
 
 
 /* Version number of package */
-#define VERSION "1.1.28"
+#define VERSION "1.1.29"
 
 /* Define if debugging support is enabled */
 /* #undef WITH_DEBUGGER */

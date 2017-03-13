@@ -9,7 +9,7 @@ from __future__ import print_function
 import datetime
 import itertools
 
-from chromite.cbuildbot import constants
+from chromite.lib import constants
 from chromite.lib import cidb
 from chromite.lib import clactions
 
@@ -79,6 +79,19 @@ class FakeCIDBConnection(object):
            'buildbucket_id': buildbucket_id}
     self.buildTable.append(row)
     return build_id
+
+  def FinishBuild(self, build_id, status=None, summary=None):
+    """Update the build with finished status."""
+    build = self.buildTable[build_id]
+
+    values = {}
+    if status is not None:
+      values.update(status=status)
+    if summary is not None:
+      values.update(summary=summary)
+
+    if values:
+      build.update(values)
 
   def UpdateMetadata(self, build_id, metadata):
     """See cidb.UpdateMetadata.
@@ -229,10 +242,15 @@ class FakeCIDBConnection(object):
     """Gets the status of the builds."""
     return [self._TrimStatus(self.buildTable[x]) for x in build_ids]
 
-  def GetSlaveStatuses(self, master_build_id):
+  def GetSlaveStatuses(self, master_build_id, buildbucket_ids=None):
     """Gets the slaves of given build."""
-    return [self._TrimStatus(b) for b in self.buildTable
-            if b['master_build_id'] == master_build_id]
+    if buildbucket_ids is None:
+      return [self._TrimStatus(b) for b in self.buildTable
+              if b['master_build_id'] == master_build_id]
+    else:
+      return [self._TrimStatus(b) for b in self.buildTable
+              if b['master_build_id'] == master_build_id and
+              b['buildbucket_id'] in buildbucket_ids]
 
   def GetBuildStages(self, build_id):
     """Gets build stages given the build_id"""
@@ -278,3 +296,10 @@ class FakeCIDBConnection(object):
   def GetKeyVals(self):
     """Gets contents of keyvalTable."""
     return self.fake_keyvals
+
+  def GetBuildStatusWithBuildbucketId(self, buildbucket_id):
+    for row in self.buildTable:
+      if row['buildbucket_id'] == buildbucket_id:
+        return self._TrimStatus(row)
+
+    return None

@@ -183,8 +183,9 @@ TEST_P(TimerQueriesTest, TimeElapsed)
     EXPECT_LT(0ul, result1);
     EXPECT_LT(0ul, result2);
 
+    // TODO(geofflang): Re-enable this check when it is non-flaky
     // The costly quad should take longer than the cheap quad
-    EXPECT_LT(result1, result2);
+    // EXPECT_LT(result1, result2);
 }
 
 // Tests time elapsed for a non draw call (texture upload)
@@ -311,9 +312,10 @@ TEST_P(TimerQueriesTest, TimeElapsedValidationTest)
 // Tests timer queries operating under multiple EGL contexts with mid-query switching
 TEST_P(TimerQueriesTest, TimeElapsedMulticontextTest)
 {
-    if (IsAMD() && IsOpenGL() && IsWindows() && IsDebug())
+    if (IsAMD() && IsOpenGL() && IsWindows())
     {
-        // TODO(jmadill): Figure out why this test is flaky on Win/AMD/OpenGL/Debug.
+        // TODO(jmadill): Figure out why this test is flaky on Win/AMD/OpenGL.
+        // http://anglebug.com/1541
         std::cout << "Test skipped on Windows AMD OpenGL Debug." << std::endl;
         return;
     }

@@ -12,6 +12,7 @@
 
 namespace ui {
 
+struct AXActionData;
 struct AXNodeData;
 class AXPlatformNode;
 
@@ -80,15 +81,13 @@ class AX_EXPORT AXPlatformNodeDelegate {
   // Actions.
   //
 
+  // Calls one of the methods below to perform an accessibility action,
+  // switching on the ui::AXAction provided in |data|.
+  virtual bool AccessibilityPerformAction(const ui::AXActionData& data) = 0;
+
   // Perform the default action, e.g. click a button, follow a link, or
   // toggle a checkbox.
   virtual void DoDefaultAction() = 0;
-
-  // Change the value of a control, such as the text content of a text field.
-  virtual bool SetStringValue(const base::string16& new_value) = 0;
-
-  // Whether the string value is settable.
-  virtual bool CanSetStringValue() = 0;
 };
 
 }  // namespace ui

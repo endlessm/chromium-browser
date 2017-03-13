@@ -8,6 +8,7 @@ import sys
 
 from google.appengine.ext import ndb
 
+from dashboard.common import utils
 from dashboard.models import alert
 
 # A string to describe the magnitude of a change from zero to non-zero.
@@ -55,6 +56,12 @@ class Anomaly(alert.Alert):
   # is a corresponding step up later on, or vice versa.)
   recovered = ndb.BooleanProperty(indexed=True, default=False)
 
+  # If the TestMetadata alerted upon has a ref build, store the ref build.
+  ref_test = ndb.KeyProperty(indexed=False)
+
+  # The corresponding units from the TestMetaData entity.
+  units = ndb.StringProperty(indexed=False)
+
   @property
   def percent_changed(self):
     """The percent change from before the anomaly to after."""
@@ -62,6 +69,11 @@ class Anomaly(alert.Alert):
       return sys.float_info.max
     difference = self.median_after_anomaly - self.median_before_anomaly
     return 100 * difference / self.median_before_anomaly
+
+  @property
+  def absolute_delta(self):
+    """The absolute change from before the anomaly to after."""
+    return self.median_after_anomaly - self.median_before_anomaly
 
   @property
   def direction(self):
@@ -75,7 +87,19 @@ class Anomaly(alert.Alert):
     if abs(self.percent_changed) == sys.float_info.max:
       return FREAKIN_HUGE
     else:
-      return str('%.1f%%' % abs(self.percent_changed))
+      return '%.1f%%' % abs(self.percent_changed)
+
+  def GetDisplayAbsoluteChanged(self):
+    """Gets a string showing the absolute change."""
+    if abs(self.absolute_delta) == sys.float_info.max:
+      return FREAKIN_HUGE
+    else:
+      return '%f' % abs(self.absolute_delta)
+
+  def GetRefTestPath(self):
+    if not self.ref_test:
+      return None
+    return utils.TestPath(self.ref_test)
 
   def SetIsImprovement(self, test=None):
     """Sets whether the alert is an improvement for the given test."""

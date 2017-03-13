@@ -67,6 +67,8 @@ found in the LICENSE file.
 'use strict';
 
 tr.exportTo('tr.ui.analysis', function() {
+  // Link to docs.
+  var URL_TO_SIZE_VS_EFFECTIVE_SIZE = 'https://chromium.googlesource.com/chromium/src/+/master/docs/memory-infra/README.md#effective_size-vs_size';
 
   // Constant representing the context in suballocation rows.
   var SUBALLOCATION_CONTEXT = true;
@@ -232,6 +234,14 @@ tr.exportTo('tr.ui.analysis', function() {
   EffectiveSizeColumn.prototype = {
     __proto__: tr.ui.analysis.DetailsNumericMemoryColumn.prototype,
 
+    get title() {
+      return tr.ui.b.createLink({
+        textContent: this.name,
+        tooltip: 'Memory used by this component',
+        href: URL_TO_SIZE_VS_EFFECTIVE_SIZE
+      });
+    },
+
     addInfos: function(numerics, memoryAllocatorDumps, infos) {
       if (memoryAllocatorDumps === undefined)
         return;
@@ -356,6 +366,14 @@ tr.exportTo('tr.ui.analysis', function() {
 
   SizeColumn.prototype = {
     __proto__: tr.ui.analysis.DetailsNumericMemoryColumn.prototype,
+
+    get title() {
+      return tr.ui.b.createLink({
+        textContent: this.name,
+        tooltip: 'Memory requested by this component',
+        href: URL_TO_SIZE_VS_EFFECTIVE_SIZE
+      });
+    },
 
     addInfos: function(numerics, memoryAllocatorDumps, infos) {
       if (memoryAllocatorDumps === undefined)
@@ -677,7 +695,7 @@ tr.exportTo('tr.ui.analysis', function() {
       // Recursively create sub-rows for children (if applicable).
       var subRows = [];
       var suballocationClassificationRootNode = undefined;
-      tr.b.iterItems(childDumpNameToDumps, function(childName, childDumps) {
+      for (var childDumps of Object.values(childDumpNameToDumps)) {
         var childRow = this.createAllocatorRowRecursively_(childDumps);
         if (childRow.suballocatedBy === undefined) {
           // Not a suballocation row: just append it.
@@ -688,7 +706,7 @@ tr.exportTo('tr.ui.analysis', function() {
               this.classifySuballocationRow_(
                   childRow, suballocationClassificationRootNode);
         }
-      }, this);
+      }
 
       // Build the tree of suballocations (if applicable).
       if (suballocationClassificationRootNode !== undefined) {
@@ -743,17 +761,13 @@ tr.exportTo('tr.ui.analysis', function() {
           existingRow.contexts[i] = newContext;
           ['numericCells', 'diagnosticCells'].forEach(function(cellKey) {
             var suballocationCells = suballocationRow[cellKey];
-            if (suballocationCells === undefined)
-              return;
-            tr.b.iterItems(suballocationCells, function(cellName, cell) {
-              if (cell === undefined)
-                return;
+            if (suballocationCells === undefined) return;
+            for (var [cellName, cell] of Object.entries(suballocationCells)) {
+              if (cell === undefined) continue;
               var fields = cell.fields;
-              if (fields === undefined)
-                return;
+              if (fields === undefined) continue;
               var field = fields[i];
-              if (field === undefined)
-                return;
+              if (field === undefined) continue;
               var existingCells = existingRow[cellKey];
               if (existingCells === undefined) {
                 existingCells = {};
@@ -766,7 +780,7 @@ tr.exportTo('tr.ui.analysis', function() {
                 existingCells[cellName] = existingCell;
               }
               existingCell.fields[i] = field;
-            });
+            }
           });
         }
         existingRow.fullNames.push.apply(
@@ -853,10 +867,10 @@ tr.exportTo('tr.ui.analysis', function() {
 
   return {
     // All exports are for testing only.
-    SUBALLOCATION_CONTEXT: SUBALLOCATION_CONTEXT,
-    AllocatorDumpNameColumn: AllocatorDumpNameColumn,
-    EffectiveSizeColumn: EffectiveSizeColumn,
-    SizeColumn: SizeColumn
+    SUBALLOCATION_CONTEXT,
+    AllocatorDumpNameColumn,
+    EffectiveSizeColumn,
+    SizeColumn,
   };
 });
 </script>

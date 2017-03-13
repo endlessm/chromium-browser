@@ -6,15 +6,26 @@
 
 #include "core/fpdfapi/parser/cpdf_string.h"
 
+#include <utility>
+
 #include "core/fpdfapi/parser/fpdf_parser_decode.h"
+#include "third_party/base/ptr_util.h"
 
-CPDF_String::CPDF_String() : m_bHex(FALSE) {}
+CPDF_String::CPDF_String() : m_bHex(false) {}
 
-CPDF_String::CPDF_String(const CFX_ByteString& str, FX_BOOL bHex)
-    : m_String(str), m_bHex(bHex) {}
+CPDF_String::CPDF_String(CFX_WeakPtr<CFX_ByteStringPool> pPool,
+                         const CFX_ByteString& str,
+                         bool bHex)
+    : m_String(str), m_bHex(bHex) {
+  if (pPool)
+    m_String = pPool->Intern(m_String);
+}
 
-CPDF_String::CPDF_String(const CFX_WideString& str) : m_bHex(FALSE) {
-  m_String = PDF_EncodeText(str);
+CPDF_String::CPDF_String(CFX_WeakPtr<CFX_ByteStringPool> pPool,
+                         const CFX_WideString& str)
+    : m_String(PDF_EncodeText(str)), m_bHex(false) {
+  if (pPool)
+    m_String = pPool->Intern(m_String);
 }
 
 CPDF_String::~CPDF_String() {}
@@ -23,8 +34,11 @@ CPDF_Object::Type CPDF_String::GetType() const {
   return STRING;
 }
 
-CPDF_Object* CPDF_String::Clone() const {
-  return new CPDF_String(m_String, m_bHex);
+std::unique_ptr<CPDF_Object> CPDF_String::Clone() const {
+  auto pRet = pdfium::MakeUnique<CPDF_String>();
+  pRet->m_String = m_String;
+  pRet->m_bHex = m_bHex;
+  return std::move(pRet);
 }
 
 CFX_ByteString CPDF_String::GetString() const {

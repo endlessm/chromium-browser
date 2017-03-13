@@ -30,8 +30,9 @@
 #ifndef Document_h
 #define Document_h
 
-#include "bindings/core/v8/ExceptionStatePlaceholder.h"
+#include "bindings/core/v8/ExceptionState.h"
 #include "bindings/core/v8/ScriptValue.h"
+#include "bindings/core/v8/TraceWrapperMember.h"
 #include "core/CoreExport.h"
 #include "core/dom/ContainerNode.h"
 #include "core/dom/DocumentEncodingData.h"
@@ -40,6 +41,10 @@
 #include "core/dom/DocumentTiming.h"
 #include "core/dom/ExecutionContext.h"
 #include "core/dom/MutationObserver.h"
+#include "core/dom/StyleReattachData.h"
+#include "core/dom/SynchronousMutationNotifier.h"
+#include "core/dom/SynchronousMutationObserver.h"
+#include "core/dom/Text.h"
 #include "core/dom/TextLinkColors.h"
 #include "core/dom/TreeScope.h"
 #include "core/dom/UserActionElementSet.h"
@@ -52,31 +57,35 @@
 #include "core/page/PageVisibilityState.h"
 #include "platform/Length.h"
 #include "platform/Timer.h"
+#include "platform/WebTaskRunner.h"
+#include "platform/scroll/ScrollTypes.h"
 #include "platform/weborigin/KURL.h"
 #include "platform/weborigin/ReferrerPolicy.h"
 #include "public/platform/WebFocusType.h"
 #include "public/platform/WebInsecureRequestPolicy.h"
+#include "wtf/Compiler.h"
 #include "wtf/HashSet.h"
 #include "wtf/PassRefPtr.h"
 #include <memory>
 
 namespace blink {
 
+namespace mojom {
+enum class EngagementLevel : int32_t;
+}
+
 class AnimationClock;
 class DocumentTimeline;
 class AXObjectCache;
 class Attr;
 class CDATASection;
-class CSSStyleDeclaration;
 class CSSStyleSheet;
-class CancellableTaskFactory;
 class CanvasFontCache;
-class CanvasRenderingContext2D;
-class CanvasRenderingContext2DOrWebGLRenderingContext;
 class CharacterData;
 class ChromeClient;
 class CompositorPendingAnimations;
 class Comment;
+class ComputedStyle;
 class ConsoleMessage;
 class ContextFeatures;
 class V0CustomElementMicrotaskRunQueue;
@@ -102,13 +111,11 @@ class ExceptionState;
 class FloatQuad;
 class FloatRect;
 class FormController;
-class Frame;
 class FrameHost;
 class FrameRequestCallback;
 class FrameView;
 class HTMLAllCollection;
 class HTMLBodyElement;
-class HTMLCanvasElement;
 class HTMLCollection;
 class HTMLDialogElement;
 class HTMLElement;
@@ -121,7 +128,6 @@ class HTMLScriptElementOrSVGScriptElement;
 class HitTestRequest;
 class IdleRequestCallback;
 class IdleRequestOptions;
-class InputDeviceCapabilities;
 class IntersectionObserverController;
 class LayoutPoint;
 class LayoutView;
@@ -131,11 +137,9 @@ class LocalDOMWindow;
 class Locale;
 class LocalFrame;
 class Location;
-class MainThreadTaskRunner;
 class MediaQueryListListener;
 class MediaQueryMatcher;
 class NodeFilter;
-class NodeIntersectionObserverData;
 class NodeIterator;
 class NthIndexCache;
 class OriginAccessEntry;
@@ -154,27 +158,23 @@ class ScriptRunner;
 class ScriptableDocumentParser;
 class ScriptedAnimationController;
 class ScriptedIdleTaskController;
-class ScrollStateCallback;
+class Scrollbar;
 class SecurityOrigin;
 class SegmentedString;
 class SelectorQueryCache;
 class SerializedScriptValue;
 class Settings;
 class SnapCoordinator;
+class StringOrDictionary;
 class StyleEngine;
 class StyleResolver;
-class StyleSheet;
 class StyleSheetList;
-class Text;
 class TextAutosizer;
 class Touch;
 class TouchList;
 class TransformSource;
 class TreeWalker;
 class VisitedLinkState;
-class VisualViewport;
-class WebGLRenderingContext;
-enum class SelectionBehaviorOnFocus;
 struct AnnotatedRegionValue;
 struct FocusParams;
 struct IconURL;
@@ -182,14 +182,6 @@ struct IconURL;
 using MouseEventWithHitTestResults =
     EventWithHitTestResults<PlatformMouseEvent>;
 using ExceptionCode = int;
-
-enum StyleResolverUpdateMode {
-  // Discards the StyleResolver and rebuilds it.
-  FullStyleUpdate,
-  // Attempts to use StyleInvalidationAnalysis to avoid discarding the entire
-  // StyleResolver.
-  AnalyzedStyleUpdate
-};
 
 enum NodeListInvalidationType {
   DoNotInvalidateOnAttributeChanges = 0,
@@ -246,10 +238,11 @@ enum WouldLoadReason {
   // if the inner frame is visible, so just load it.
   // TODO(dgrogan): Revisit after https://crbug.com/650433 is fixed.
   WouldLoadOutOfProcess,
-  // The next four indicate frames that are probably used for cross-origin
+  // The next five indicate frames that are probably used for cross-origin
   // communication.
   WouldLoadDisplayNone,
   WouldLoadZeroByZero,
+  WouldLoadAboveAndLeft,
   WouldLoadAbove,
   WouldLoadLeft,
   // We have to load documents in visible frames.
@@ -264,6 +257,7 @@ class CORE_EXPORT Document : public ContainerNode,
                              public TreeScope,
                              public SecurityContext,
                              public ExecutionContext,
+                             public SynchronousMutationNotifier,
                              public Supplementable<Document> {
   DEFINE_WRAPPERTYPEINFO();
   USING_GARBAGE_COLLECTED_MIXIN(Document);
@@ -328,7 +322,8 @@ class CORE_EXPORT Document : public ContainerNode,
 
   Location* location() const;
 
-  Element* createElement(const AtomicString& name, ExceptionState&);
+  Element* createElement(const AtomicString& name,
+                         ExceptionState& = ASSERT_NO_EXCEPTION);
   DocumentFragment* createDocumentFragment();
   Text* createTextNode(const String& data);
   Comment* createComment(const String& data);
@@ -351,9 +346,12 @@ class CORE_EXPORT Document : public ContainerNode,
   HeapVector<Member<Element>> elementsFromPoint(int x, int y) const;
   Range* caretRangeFromPoint(int x, int y);
   Element* scrollingElement();
+  // When calling from C++ code, use this method. scrollingElement() is
+  // just for the web IDL implementation.
+  Element* scrollingElementNoLayout();
 
-  void addNonAttachedStyle(Element&, RefPtr<ComputedStyle>);
-  ComputedStyle* getNonAttachedStyle(Element&);
+  void addStyleReattachData(const Node&, StyleReattachData&);
+  StyleReattachData getStyleReattachData(const Node&) const;
 
   String readyState() const;
 
@@ -414,7 +412,6 @@ class CORE_EXPORT Document : public ContainerNode,
   HTMLCollection* forms();
   HTMLCollection* anchors();
   HTMLCollection* scripts();
-  HTMLAllCollection* allForBinding();
   HTMLAllCollection* all();
 
   HTMLCollection* windowNamedItems(const AtomicString& name);
@@ -477,11 +474,6 @@ class CORE_EXPORT Document : public ContainerNode,
 
   void scheduleUseShadowTreeUpdate(SVGUseElement&);
   void unscheduleUseShadowTreeUpdate(SVGUseElement&);
-
-  // FIXME: SVG filters should change to store the filter on the ComputedStyle
-  // instead of the LayoutObject so we can get rid of this hack.
-  void scheduleSVGFilterLayerUpdateHack(Element&);
-  void unscheduleSVGFilterLayerUpdateHack(Element&);
 
   void evaluateMediaQueryList();
 
@@ -651,9 +643,14 @@ class CORE_EXPORT Document : public ContainerNode,
   DocumentParser* parser() const { return m_parser.get(); }
   ScriptableDocumentParser* scriptableDocumentParser() const;
 
-  bool printing() const { return m_printing; }
-  void setPrinting(bool isPrinting) { m_printing = isPrinting; }
-  bool wasPrinting() const { return m_wasPrinting; }
+  // FinishingPrinting denotes that the non-printing layout state is being
+  // restored.
+  enum PrintingState { NotPrinting, Printing, FinishingPrinting };
+  bool printing() const { return m_printing == Printing; }
+  bool finishingOrIsPrinting() {
+    return m_printing == Printing || m_printing == FinishingPrinting;
+  }
+  void setPrinting(PrintingState state) { m_printing = state; }
 
   bool paginatedForScreen() const { return m_paginatedForScreen; }
   void setPaginatedForScreen(bool p) { m_paginatedForScreen = p; }
@@ -673,8 +670,10 @@ class CORE_EXPORT Document : public ContainerNode,
   }
   bool inNoQuirksMode() const { return m_compatibilityMode == NoQuirksMode; }
 
-  enum ReadyState { Loading, Interactive, Complete };
-  void setReadyState(ReadyState);
+  // https://html.spec.whatwg.org/multipage/dom.html#documentreadystate
+  enum DocumentReadyState { Loading, Interactive, Complete };
+
+  void setReadyState(DocumentReadyState);
   bool isLoadCompleted();
 
   enum ParsingState { Parsing, InDOMContentLoaded, FinishedParsing };
@@ -711,7 +710,6 @@ class CORE_EXPORT Document : public ContainerNode,
   const UserActionElementSet& userActionElements() const {
     return m_userActionElements;
   }
-  void setNeedsFocusedElementCheck();
   void setAutofocusElement(Element*);
   Element* autofocusElement() const { return m_autofocusElement.get(); }
   void setSequentialFocusNavigationStartingPoint(Node*);
@@ -726,7 +724,7 @@ class CORE_EXPORT Document : public ContainerNode,
   void hoveredNodeDetached(Element&);
   void activeChainNodeDetached(Element&);
 
-  void updateHoverActiveState(const HitTestRequest&, Element*);
+  void updateHoverActiveState(const HitTestRequest&, Element*, Scrollbar*);
 
   // Updates for :target (CSS3 selector).
   void setCSSTarget(Element*);
@@ -763,8 +761,10 @@ class CORE_EXPORT Document : public ContainerNode,
 
   void didInsertText(Node*, unsigned offset, unsigned length);
   void didRemoveText(Node*, unsigned offset, unsigned length);
-  void didMergeTextNodes(Text& oldNode, unsigned offset);
-  void didSplitTextNode(Text& oldNode);
+  void didMergeTextNodes(const Text& mergedNode,
+                         const Text& nodeToBeRemoved,
+                         unsigned oldLength);
+  void didSplitTextNode(const Text& oldNode);
 
   void clearDOMWindow() { m_domWindow = nullptr; }
   LocalDOMWindow* domWindow() const { return m_domWindow; }
@@ -812,7 +812,6 @@ class CORE_EXPORT Document : public ContainerNode,
 
   IntersectionObserverController* intersectionObserverController();
   IntersectionObserverController& ensureIntersectionObserverController();
-  NodeIntersectionObserverData& ensureIntersectionObserverData();
 
   ResizeObserverController* resizeObserverController() const {
     return m_resizeObserverController;
@@ -824,6 +823,10 @@ class CORE_EXPORT Document : public ContainerNode,
   // Returns the owning element in the parent document. Returns nullptr if
   // this is the top level document or the owner is remote.
   HTMLFrameOwnerElement* localOwner() const;
+
+  void willChangeFrameOwnerProperties(int marginWidth,
+                                      int marginHeight,
+                                      ScrollbarMode);
 
   // Returns true if this document belongs to a frame that the parent document
   // made invisible (for instance by setting as style display:none).
@@ -907,6 +910,8 @@ class CORE_EXPORT Document : public ContainerNode,
 
   DocumentMarkerController& markers() const { return *m_markers; }
 
+  // Support for Javascript execCommand, and related methods
+  // See "core/editing/commands/DocumentExecCommand.cpp" for implementations.
   bool execCommand(const String& command,
                    bool showUI,
                    const String& value,
@@ -932,7 +937,7 @@ class CORE_EXPORT Document : public ContainerNode,
   ScriptRunner* scriptRunner() { return m_scriptRunner.get(); }
 
   Element* currentScript() const {
-    return !m_currentScriptStack.isEmpty() ? m_currentScriptStack.last().get()
+    return !m_currentScriptStack.isEmpty() ? m_currentScriptStack.back().get()
                                            : nullptr;
   }
   void currentScriptForBinding(HTMLScriptElementOrSVGScriptElement&) const;
@@ -978,28 +983,20 @@ class CORE_EXPORT Document : public ContainerNode,
   // Returns null if there is no such element.
   HTMLLinkElement* linkManifest() const;
 
-  void setUseSecureKeyboardEntryWhenActive(bool);
-  bool useSecureKeyboardEntryWhenActive() const;
-
-  void updateFocusAppearanceSoon(SelectionBehaviorOnFocus);
+  void updateFocusAppearanceLater();
   void cancelFocusAppearanceUpdate();
 
   bool isDNSPrefetchEnabled() const { return m_isDNSPrefetchEnabled; }
   void parseDNSPrefetchControlHeader(const String&);
 
-  // FIXME(crbug.com/305497): This should be removed once LocalDOMWindow is an
-  // ExecutionContext.
-  void postTask(const WebTraceLocation&,
+  void postTask(TaskType,
+                const WebTraceLocation&,
                 std::unique_ptr<ExecutionContextTask>,
                 const String& taskNameForInstrumentation = emptyString())
       override;  // Executes the task on context's thread asynchronously.
-  void postInspectorTask(const WebTraceLocation&,
-                         std::unique_ptr<ExecutionContextTask>);
 
   void tasksWereSuspended() final;
   void tasksWereResumed() final;
-  void suspendScheduledTasks() final;
-  void resumeScheduledTasks() final;
   bool tasksNeedSuspension() final;
 
   void finishedParsing();
@@ -1081,6 +1078,7 @@ class CORE_EXPORT Document : public ContainerNode,
 
   void enqueueResizeEvent();
   void enqueueScrollEventForNode(Node*);
+  void enqueueAnimationFrameTask(std::unique_ptr<WTF::Closure>);
   void enqueueAnimationFrameEvent(Event*);
   // Only one event for a target/event type combination will be dispatched per
   // frame.
@@ -1105,6 +1103,8 @@ class CORE_EXPORT Document : public ContainerNode,
   void checkLoadEventSoon();
   bool isDelayingLoadEvent();
   void loadPluginsSoon();
+  // This calls checkCompleted() sync and thus can cause JavaScript execution.
+  void decrementLoadEventDelayCountAndCheckLoadEvent();
 
   Touch* createTouch(DOMWindow*,
                      EventTarget*,
@@ -1138,11 +1138,11 @@ class CORE_EXPORT Document : public ContainerNode,
   TextAutosizer* textAutosizer();
 
   Element* createElement(const AtomicString& localName,
-                         const AtomicString& typeExtension,
-                         ExceptionState&);
+                         const StringOrDictionary&,
+                         ExceptionState& = ASSERT_NO_EXCEPTION);
   Element* createElementNS(const AtomicString& namespaceURI,
                            const AtomicString& qualifiedName,
-                           const AtomicString& typeExtension,
+                           const StringOrDictionary&,
                            ExceptionState&);
   ScriptValue registerElement(
       ScriptState*,
@@ -1155,7 +1155,8 @@ class CORE_EXPORT Document : public ContainerNode,
   }
   V0CustomElementMicrotaskRunQueue* customElementMicrotaskRunQueue();
 
-  void setImportsController(HTMLImportsController*);
+  void clearImportsController();
+  void createImportsController();
   HTMLImportsController* importsController() const {
     return m_importsController;
   }
@@ -1202,6 +1203,13 @@ class CORE_EXPORT Document : public ContainerNode,
   Document& ensureTemplateDocument();
   Document* templateDocumentHost() { return m_templateDocumentHost; }
 
+  mojom::EngagementLevel getEngagementLevel() const {
+    return m_engagementLevel;
+  }
+  void setEngagementLevel(mojom::EngagementLevel level) {
+    m_engagementLevel = level;
+  }
+
   // TODO(thestig): Rename these and related functions, since we can call them
   // for controls outside of forms as well.
   void didAssociateFormControl(Element*);
@@ -1227,30 +1235,20 @@ class CORE_EXPORT Document : public ContainerNode,
 
   void setHasViewportUnits() { m_hasViewportUnits = true; }
   bool hasViewportUnits() const { return m_hasViewportUnits; }
-  void notifyResizeForViewportUnits();
+  void setResizedForViewportUnits();
+  void clearResizedForViewportUnits();
 
-  void updateStyleInvalidationIfNeeded();
+  void updateActiveStyle();
 
   DECLARE_VIRTUAL_TRACE();
 
   DECLARE_VIRTUAL_TRACE_WRAPPERS();
-
-  bool hasSVGFilterElementsRequiringLayerUpdate() const {
-    return m_layerUpdateSVGFilterElements.size();
-  }
 
   AtomicString convertLocalName(const AtomicString&);
 
   void platformColorsChanged();
 
   DOMTimerCoordinator* timers() final;
-
-  v8::Local<v8::Object> wrap(v8::Isolate*,
-                             v8::Local<v8::Object> creationContext) override;
-  v8::Local<v8::Object> associateWithWrapper(
-      v8::Isolate*,
-      const WrapperTypeInfo*,
-      v8::Local<v8::Object> wrapper) override WARN_UNUSED_RETURN;
 
   HostsUsingFeatures::Value& HostsUsingFeaturesValue() {
     return m_hostsUsingFeaturesValue;
@@ -1297,8 +1295,9 @@ class CORE_EXPORT Document : public ContainerNode,
 
   Element* rootScroller() const;
   void setRootScroller(Element*, ExceptionState&);
-  RootScrollerController* rootScrollerController() const {
-    return m_rootScrollerController.get();
+  RootScrollerController& rootScrollerController() const {
+    DCHECK(m_rootScrollerController);
+    return *m_rootScrollerController;
   }
 
   bool isInMainFrame() const;
@@ -1306,7 +1305,14 @@ class CORE_EXPORT Document : public ContainerNode,
   void maybeRecordLoadReason(WouldLoadReason);
   WouldLoadReason wouldLoadReason() { return m_wouldLoadReason; }
 
+  const PropertyRegistry* propertyRegistry() const;
   PropertyRegistry* propertyRegistry();
+
+  // Document maintains a counter of visible non-secure password
+  // fields in the page. Used to notify the embedder when all visible
+  // non-secure passwords fields are no longer visible.
+  void incrementPasswordCount();
+  void decrementPasswordCount();
 
  protected:
   Document(const DocumentInit&, DocumentClassFlags = DefaultDocumentClass);
@@ -1354,11 +1360,10 @@ class CORE_EXPORT Document : public ContainerNode,
 
   void inheritHtmlAndBodyElementStyles(StyleRecalcChange);
 
-  bool dirtyElementsForLayerUpdate();
-
   void updateUseShadowTreesIfNeeded();
   void evaluateMediaQueryListIfNeeded();
 
+  void updateStyleInvalidationIfNeeded();
   void updateStyle();
   void notifyLayoutTreeOfSubtreeChanges();
 
@@ -1421,6 +1426,12 @@ class CORE_EXPORT Document : public ContainerNode,
 
   const OriginAccessEntry& accessEntryFromURL();
 
+  void sendSensitiveInputVisibility();
+  void sendSensitiveInputVisibilityInternal();
+
+  void runExecutionContextTask(std::unique_ptr<ExecutionContextTask>,
+                               bool instrumenting);
+
   DocumentLifecycle m_lifecycle;
 
   bool m_hasNodesWithPlaceholderStyle;
@@ -1433,13 +1444,16 @@ class CORE_EXPORT Document : public ContainerNode,
 
   Member<LocalFrame> m_frame;
   Member<LocalDOMWindow> m_domWindow;
-  Member<HTMLImportsController> m_importsController;
+  TraceWrapperMember<HTMLImportsController> m_importsController;
 
   Member<ResourceFetcher> m_fetcher;
   Member<DocumentParser> m_parser;
   Member<ContextFeatures> m_contextFeatures;
 
-  HeapHashMap<Member<Element>, RefPtr<ComputedStyle>> m_nonAttachedStyle;
+  // This HashMap is used to stash information (ComputedStyle, nextTextSibling)
+  // generated in the Style Resolution phase that is required in the
+  // Layout Tree construction phase.
+  HeapHashMap<Member<const Node>, StyleReattachData> m_styleReattachDataMap;
 
   bool m_wellFormed;
 
@@ -1458,23 +1472,21 @@ class CORE_EXPORT Document : public ContainerNode,
   AtomicString m_mimeType;
 
   Member<DocumentType> m_docType;
-  Member<DOMImplementation> m_implementation;
+  TraceWrapperMember<DOMImplementation> m_implementation;
 
   Member<CSSStyleSheet> m_elemSheet;
 
-  bool m_printing;
-  bool m_wasPrinting;
+  PrintingState m_printing;
   bool m_paginatedForScreen;
 
   CompatibilityMode m_compatibilityMode;
   // This is cheaper than making setCompatibilityMode virtual.
   bool m_compatibilityModeLocked;
 
-  std::unique_ptr<CancellableTaskFactory>
-      m_executeScriptsWaitingForResourcesTask;
+  TaskHandle m_executeScriptsWaitingForResourcesTaskHandle;
 
   bool m_hasAutofocused;
-  Timer<Document> m_clearFocusedElementTimer;
+  TaskRunnerTimer<Document> m_clearFocusedElementTimer;
   Member<Element> m_autofocusElement;
   Member<Element> m_focusedElement;
   Member<Range> m_sequentialFocusNavigationStartingPoint;
@@ -1497,8 +1509,8 @@ class CORE_EXPORT Document : public ContainerNode,
 
   MutationObserverOptions m_mutationObserverTypes;
 
-  Member<StyleEngine> m_styleEngine;
-  Member<StyleSheetList> m_styleSheetList;
+  TraceWrapperMember<StyleEngine> m_styleEngine;
+  TraceWrapperMember<StyleSheetList> m_styleSheetList;
 
   Member<FormController> m_formController;
 
@@ -1506,7 +1518,8 @@ class CORE_EXPORT Document : public ContainerNode,
   const Member<VisitedLinkState> m_visitedLinkState;
 
   bool m_visuallyOrdered;
-  ReadyState m_readyState;
+
+  DocumentReadyState m_readyState;
   ParsingState m_parsingState;
 
   bool m_gotoAnchorNeededAfterStylesheetsLoad;
@@ -1514,7 +1527,6 @@ class CORE_EXPORT Document : public ContainerNode,
   bool m_haveExplicitlyDisabledDNSPrefetch;
   bool m_containsValidityStyleRules;
   bool m_containsPlugins;
-  SelectionBehaviorOnFocus m_updateFocusAppearanceSelectionBahavior;
 
   // http://www.whatwg.org/specs/web-apps/current-work/#ignore-destructive-writes-counter
   unsigned m_ignoreDestructiveWriteCount;
@@ -1528,7 +1540,7 @@ class CORE_EXPORT Document : public ContainerNode,
   Member<AXObjectCache> m_axObjectCache;
   Member<DocumentMarkerController> m_markers;
 
-  Timer<Document> m_updateFocusAppearanceTimer;
+  TaskRunnerTimer<Document> m_updateFocusAppearanceTimer;
 
   Member<Element> m_cssTarget;
 
@@ -1577,8 +1589,6 @@ class CORE_EXPORT Document : public ContainerNode,
   GC_PLUGIN_IGNORE("461878")
   NthIndexCache* m_nthIndexCache = nullptr;
 
-  bool m_useSecureKeyboardEntryWhenActive;
-
   DocumentClassFlags m_documentClasses;
 
   bool m_isViewSource;
@@ -1596,8 +1606,8 @@ class CORE_EXPORT Document : public ContainerNode,
   HeapVector<Member<Element>> m_topLayerElements;
 
   int m_loadEventDelayCount;
-  Timer<Document> m_loadEventDelayTimer;
-  Timer<Document> m_pluginLoadingTimer;
+  TaskRunnerTimer<Document> m_loadEventDelayTimer;
+  TaskRunnerTimer<Document> m_pluginLoadingTimer;
 
   ViewportDescription m_viewportDescription;
   ViewportDescription m_legacyViewportDescription;
@@ -1612,14 +1622,13 @@ class CORE_EXPORT Document : public ContainerNode,
 
   Member<ScriptedAnimationController> m_scriptedAnimationController;
   Member<ScriptedIdleTaskController> m_scriptedIdleTaskController;
-  std::unique_ptr<MainThreadTaskRunner> m_taskRunner;
   Member<TextAutosizer> m_textAutosizer;
 
   Member<V0CustomElementRegistrationContext> m_registrationContext;
   Member<V0CustomElementMicrotaskRunQueue> m_customElementMicrotaskRunQueue;
 
   void elementDataCacheClearTimerFired(TimerBase*);
-  Timer<Document> m_elementDataCacheClearTimer;
+  TaskRunnerTimer<Document> m_elementDataCacheClearTimer;
 
   Member<ElementDataCache> m_elementDataCache;
 
@@ -1633,10 +1642,9 @@ class CORE_EXPORT Document : public ContainerNode,
   Member<Document> m_templateDocument;
   Member<Document> m_templateDocumentHost;
 
-  Timer<Document> m_didAssociateFormControlsTimer;
+  TaskRunnerTimer<Document> m_didAssociateFormControlsTimer;
 
   HeapHashSet<Member<SVGUseElement>> m_useElementsNeedingUpdate;
-  HeapHashSet<Member<Element>> m_layerUpdateSVGFilterElements;
 
   DOMTimerCoordinator m_timers;
 
@@ -1651,7 +1659,6 @@ class CORE_EXPORT Document : public ContainerNode,
   Member<CanvasFontCache> m_canvasFontCache;
 
   Member<IntersectionObserverController> m_intersectionObserverController;
-  Member<NodeIntersectionObserverData> m_intersectionObserverData;
   Member<ResizeObserverController> m_resizeObserverController;
 
   int m_nodeCount;
@@ -1663,6 +1670,12 @@ class CORE_EXPORT Document : public ContainerNode,
   WouldLoadReason m_wouldLoadReason;
 
   Member<PropertyRegistry> m_propertyRegistry;
+
+  unsigned m_passwordCount;
+
+  TaskHandle m_sensitiveInputVisibilityTask;
+
+  mojom::EngagementLevel m_engagementLevel;
 };
 
 extern template class CORE_EXTERN_TEMPLATE_EXPORT Supplement<Document>;

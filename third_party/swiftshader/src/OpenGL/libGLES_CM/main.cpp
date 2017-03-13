@@ -18,7 +18,7 @@
 
 #include "libGLES_CM.hpp"
 #include "Framebuffer.h"
-#include "libEGL/Surface.h"
+#include "libEGL/EGLSurface.h"
 #include "Common/Thread.hpp"
 #include "Common/SharedLibrary.hpp"
 #include "common/debug.h"
@@ -1412,6 +1412,10 @@ GL_API void GL_APIENTRY glDrawTexfvOES(const GLfloat *coords)
 	return es1::DrawTexfvOES(coords);
 }
 
+void GL_APIENTRY Register(const char *licenseKey)
+{
+	// Nothing to do, SwiftShader is open-source
+}
 }
 
 LibGLES_CMexports::LibGLES_CMexports()

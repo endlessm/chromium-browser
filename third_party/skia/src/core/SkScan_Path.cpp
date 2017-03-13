@@ -421,21 +421,24 @@ static SkEdge* sort_edges(SkEdge* list[], int count, SkEdge** last) {
     return list[0];
 }
 
-// clipRect may be null, even though we always have a clip. This indicates that
-// the path is contained in the clip, and so we can ignore it during the blit
-//
-// clipRect (if no null) has already been shifted up
-//
-void sk_fill_path(const SkPath& path, const SkIRect* clipRect, SkBlitter* blitter,
-                  int start_y, int stop_y, int shiftEdgesUp, const SkRegion& clipRgn) {
+// clipRect has not been shifted up
+void sk_fill_path(const SkPath& path, const SkIRect& clipRect, SkBlitter* blitter,
+                  int start_y, int stop_y, int shiftEdgesUp, bool pathContainedInClip) {
     SkASSERT(blitter);
+
+    SkIRect shiftedClip = clipRect;
+    shiftedClip.fLeft <<= shiftEdgesUp;
+    shiftedClip.fRight <<= shiftEdgesUp;
+    shiftedClip.fTop <<= shiftEdgesUp;
+    shiftedClip.fBottom <<= shiftEdgesUp;
 
     SkEdgeBuilder   builder;
 
     // If we're convex, then we need both edges, even the right edge is past the clip
     const bool canCullToTheRight = !path.isConvex();
 
-    int count = builder.build(path, clipRect, shiftEdgesUp, canCullToTheRight);
+    SkIRect* builderClip = pathContainedInClip ? nullptr : &shiftedClip;
+    int count = builder.build(path, builderClip, shiftEdgesUp, canCullToTheRight);
     SkASSERT(count >= 0);
 
     SkEdge**    list = builder.edgeList();
@@ -448,7 +451,7 @@ void sk_fill_path(const SkPath& path, const SkIRect* clipRect, SkBlitter* blitte
              *  we need to restrict our drawing to the intersection of the clip
              *  and those two limits.
              */
-            SkIRect rect = clipRgn.getBounds();
+            SkIRect rect = clipRect;
             if (rect.fTop < start_y) {
                 rect.fTop = start_y;
             }
@@ -484,18 +487,18 @@ void sk_fill_path(const SkPath& path, const SkIRect* clipRect, SkBlitter* blitte
 
     start_y = SkLeftShift(start_y, shiftEdgesUp);
     stop_y = SkLeftShift(stop_y, shiftEdgesUp);
-    if (clipRect && start_y < clipRect->fTop) {
-        start_y = clipRect->fTop;
+    if (!pathContainedInClip && start_y < shiftedClip.fTop) {
+        start_y = shiftedClip.fTop;
     }
-    if (clipRect && stop_y > clipRect->fBottom) {
-        stop_y = clipRect->fBottom;
+    if (!pathContainedInClip && stop_y > shiftedClip.fBottom) {
+        stop_y = shiftedClip.fBottom;
     }
 
     InverseBlitter  ib;
     PrePostProc     proc = nullptr;
 
     if (path.isInverseFillType()) {
-        ib.setBlitter(blitter, clipRgn.getBounds(), shiftEdgesUp);
+        ib.setBlitter(blitter, clipRect, shiftEdgesUp);
         blitter = &ib;
         proc = PrePostInverseBlitterProc;
     }
@@ -504,14 +507,8 @@ void sk_fill_path(const SkPath& path, const SkIRect* clipRect, SkBlitter* blitte
         SkASSERT(count >= 2);   // convex walker does not handle missing right edges
         walk_convex_edges(&headEdge, path.getFillType(), blitter, start_y, stop_y, nullptr);
     } else {
-        int rightEdge;
-        if (clipRect) {
-            rightEdge = clipRect->right();
-        } else {
-            rightEdge = SkScalarRoundToInt(path.getBounds().right()) << shiftEdgesUp;
-        }
-
-        walk_edges(&headEdge, path.getFillType(), blitter, start_y, stop_y, proc, rightEdge);
+        walk_edges(&headEdge, path.getFillType(), blitter, start_y, stop_y, proc,
+                shiftedClip.right());
     }
 }
 
@@ -561,12 +558,21 @@ SkScanClipper::SkScanClipper(SkBlitter* blitter, const SkRegion* clip,
 
         if (clip->isRect()) {
             if (fClipRect->contains(ir)) {
+#ifdef SK_DEBUG
+                fRectClipCheckBlitter.init(blitter, *fClipRect);
+                blitter = &fRectClipCheckBlitter;
+#endif
                 fClipRect = nullptr;
             } else {
                 // only need a wrapper blitter if we're horizontally clipped
                 if (fClipRect->fLeft > ir.fLeft || fClipRect->fRight < ir.fRight) {
                     fRectBlitter.init(blitter, *fClipRect);
                     blitter = &fRectBlitter;
+                } else {
+#ifdef SK_DEBUG
+                    fRectClipCheckBlitter.init(blitter, *fClipRect);
+                    blitter = &fRectClipCheckBlitter;
+#endif
                 }
             }
         } else {
@@ -598,10 +604,22 @@ static bool clip_to_limit(const SkRegion& orig, SkRegion* reduced) {
   */
 static inline int round_down_to_int(SkScalar x) {
     double xx = x;
-    xx += 0.5;
-    double floorXX = floor(xx);
-    return (int)floorXX - (xx == floorXX);
+    xx -= 0.5;
+    return (int)ceil(xx);
 }
+
+#ifdef SK_RASTERIZE_EVEN_ROUNDING
+/**
+  * Variant of SkDScalarRoundToInt that biases the input up by a half an FDot6 unit to account
+  * for potential FDot6 rounding in downstream FDot6 calculations.
+  */
+static inline int round_biased_to_int(SkScalar x) {
+    const double bias = 0.5 / SK_FDot6One;
+    double xx = x;
+    xx += 0.5 + bias;
+    return (int)floor(xx);
+}
+#endif
 
 /**
   *  Variant of SkRect::round() that explicitly performs the rounding step (i.e. floor(x + 0.5))
@@ -620,11 +638,28 @@ static inline int round_down_to_int(SkScalar x) {
   *      SkASSERT(0 == iright);  // <--- fails
   *      iright = SkDScalarRoundToInt(right);
   *      SkASSERT(0 == iright);  // <--- succeeds
+  *
+  *
+  *  If using SK_RASTERIZE_EVEN_ROUNDING, we need to ensure that bottom and right account for
+  *  edges bounded by this rect being rounded to FDot6 format before being later rounded to an
+  *  integer. For example, a value like 0.499 can be below 0.5, but round to 0.5 as FDot6, which
+  *  would finally round to the integer 1, instead of just rounding to 0.
+  *
+  *  To handle this, a small bias of half an FDot6 increment is added before actually rounding to
+  *  an integer value. This simulates the rounding of SkScalarRoundToFDot6 without incurring the
+  *  range loss of converting to FDot6 format first, preserving the integer range for the SkIRect.
+  *  Thus, bottom and right are rounded in this manner (biased up), ensuring the rect is large
+  *  enough. Top and left can round as normal since they will round (biased down) to values less
+  *  or equal to the desired rect origin.
   */
 static void round_asymmetric_to_int(const SkRect& src, SkIRect* dst) {
     SkASSERT(dst);
     dst->set(round_down_to_int(src.fLeft), round_down_to_int(src.fTop),
+#ifdef SK_RASTERIZE_EVEN_ROUNDING
+             round_biased_to_int(src.fRight), round_biased_to_int(src.fBottom));
+#else
              SkDScalarRoundToInt(src.fRight), SkDScalarRoundToInt(src.fBottom));
+#endif
 }
 
 void SkScan::FillPath(const SkPath& path, const SkRegion& origClip,
@@ -667,8 +702,10 @@ void SkScan::FillPath(const SkPath& path, const SkRegion& origClip,
         if (path.isInverseFillType()) {
             sk_blit_above(blitter, ir, *clipPtr);
         }
-        sk_fill_path(path, clipper.getClipRect(), blitter, ir.fTop, ir.fBottom,
-                     0, *clipPtr);
+        SkASSERT(clipper.getClipRect() == nullptr ||
+                *clipper.getClipRect() == clipPtr->getBounds());
+        sk_fill_path(path, clipPtr->getBounds(), blitter, ir.fTop, ir.fBottom,
+                     0, clipper.getClipRect() == nullptr);
         if (path.isInverseFillType()) {
             sk_blit_below(blitter, ir, *clipPtr);
         }

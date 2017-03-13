@@ -11,13 +11,12 @@
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/logging.h"
+#include "base/memory/ptr_util.h"
 #include "build/build_config.h"
 #include "components/filesystem/file_impl.h"
 #include "components/filesystem/lock_table.h"
 #include "components/filesystem/util.h"
-#include "mojo/common/common_type_converters.h"
 #include "mojo/public/cpp/bindings/strong_binding.h"
-#include "mojo/public/cpp/system/platform_handle.h"
 
 namespace filesystem {
 
@@ -31,7 +30,7 @@ DirectoryImpl::DirectoryImpl(base::FilePath directory_path,
 DirectoryImpl::~DirectoryImpl() {}
 
 void DirectoryImpl::Read(const ReadCallback& callback) {
-  mojo::Array<mojom::DirectoryEntryPtr> entries;
+  std::vector<mojom::DirectoryEntryPtr> entries;
   base::FileEnumerator directory_enumerator(
       directory_path_, false,
       base::FileEnumerator::DIRECTORIES | base::FileEnumerator::FILES);
@@ -45,7 +44,9 @@ void DirectoryImpl::Read(const ReadCallback& callback) {
     entries.push_back(std::move(entry));
   }
 
-  callback.Run(mojom::FileError::OK, std::move(entries));
+  callback.Run(mojom::FileError::OK,
+               entries.empty() ? base::nullopt
+                               : base::make_optional(std::move(entries)));
 }
 
 // TODO(erg): Consider adding an implementation of Stat()/Touch() to the
@@ -53,7 +54,7 @@ void DirectoryImpl::Read(const ReadCallback& callback) {
 // with directories properly, so these are broken for now.
 
 // TODO(vtl): Move the implementation to a thread pool.
-void DirectoryImpl::OpenFile(const mojo::String& raw_path,
+void DirectoryImpl::OpenFile(const std::string& raw_path,
                              mojom::FileRequest file,
                              uint32_t open_flags,
                              const OpenFileCallback& callback) {
@@ -87,31 +88,30 @@ void DirectoryImpl::OpenFile(const mojo::String& raw_path,
   callback.Run(mojom::FileError::OK);
 }
 
-void DirectoryImpl::OpenFileHandle(const mojo::String& raw_path,
+void DirectoryImpl::OpenFileHandle(const std::string& raw_path,
                                    uint32_t open_flags,
                                    const OpenFileHandleCallback& callback) {
-  mojom::FileError error = mojom::FileError::OK;
-  mojo::ScopedHandle handle = OpenFileHandleImpl(raw_path, open_flags, &error);
-  callback.Run(error, std::move(handle));
+  base::File file = OpenFileHandleImpl(raw_path, open_flags);
+  mojom::FileError error = GetError(file);
+  callback.Run(error, std::move(file));
 }
 
 void DirectoryImpl::OpenFileHandles(
-    mojo::Array<mojom::FileOpenDetailsPtr> details,
+    std::vector<mojom::FileOpenDetailsPtr> details,
     const OpenFileHandlesCallback& callback) {
-  mojo::Array<mojom::FileOpenResultPtr> results(
-      mojo::Array<mojom::FileOpenResultPtr>::New(details.size()));
+  std::vector<mojom::FileOpenResultPtr> results(details.size());
   size_t i = 0;
   for (const auto& detail : details) {
     mojom::FileOpenResultPtr result(mojom::FileOpenResult::New());
     result->path = detail->path;
-    result->file_handle =
-        OpenFileHandleImpl(detail->path, detail->open_flags, &result->error);
+    result->file_handle = OpenFileHandleImpl(detail->path, detail->open_flags);
+    result->error = GetError(result->file_handle);
     results[i++] = std::move(result);
   }
   callback.Run(std::move(results));
 }
 
-void DirectoryImpl::OpenDirectory(const mojo::String& raw_path,
+void DirectoryImpl::OpenDirectory(const std::string& raw_path,
                                   mojom::DirectoryRequest directory,
                                   uint32_t open_flags,
                                   const OpenDirectoryCallback& callback) {
@@ -152,8 +152,8 @@ void DirectoryImpl::OpenDirectory(const mojo::String& raw_path,
   callback.Run(mojom::FileError::OK);
 }
 
-void DirectoryImpl::Rename(const mojo::String& raw_old_path,
-                           const mojo::String& raw_new_path,
+void DirectoryImpl::Rename(const std::string& raw_old_path,
+                           const std::string& raw_new_path,
                            const RenameCallback& callback) {
   base::FilePath old_path;
   mojom::FileError error =
@@ -178,7 +178,7 @@ void DirectoryImpl::Rename(const mojo::String& raw_old_path,
   callback.Run(mojom::FileError::OK);
 }
 
-void DirectoryImpl::Delete(const mojo::String& raw_path,
+void DirectoryImpl::Delete(const std::string& raw_path,
                            uint32_t delete_flags,
                            const DeleteCallback& callback) {
   base::FilePath path;
@@ -197,7 +197,7 @@ void DirectoryImpl::Delete(const mojo::String& raw_path,
   callback.Run(mojom::FileError::OK);
 }
 
-void DirectoryImpl::Exists(const mojo::String& raw_path,
+void DirectoryImpl::Exists(const std::string& raw_path,
                            const ExistsCallback& callback) {
   base::FilePath path;
   mojom::FileError error = ValidatePath(raw_path, directory_path_, &path);
@@ -210,7 +210,7 @@ void DirectoryImpl::Exists(const mojo::String& raw_path,
   callback.Run(mojom::FileError::OK, exists);
 }
 
-void DirectoryImpl::IsWritable(const mojo::String& raw_path,
+void DirectoryImpl::IsWritable(const std::string& raw_path,
                                const IsWritableCallback& callback) {
   base::FilePath path;
   mojom::FileError error = ValidatePath(raw_path, directory_path_, &path);
@@ -223,7 +223,8 @@ void DirectoryImpl::IsWritable(const mojo::String& raw_path,
 }
 
 void DirectoryImpl::Flush(const FlushCallback& callback) {
-  base::File file(directory_path_, base::File::FLAG_READ);
+  base::File file(directory_path_,
+                  base::File::FLAG_OPEN | base::File::FLAG_READ);
   if (!file.IsValid()) {
     callback.Run(GetError(file));
     return;
@@ -237,7 +238,7 @@ void DirectoryImpl::Flush(const FlushCallback& callback) {
   callback.Run(mojom::FileError::OK);
 }
 
-void DirectoryImpl::StatFile(const mojo::String& raw_path,
+void DirectoryImpl::StatFile(const std::string& raw_path,
                              const StatFileCallback& callback) {
   base::FilePath path;
   mojom::FileError error = ValidatePath(raw_path, directory_path_, &path);
@@ -269,38 +270,38 @@ void DirectoryImpl::Clone(mojom::DirectoryRequest directory) {
   }
 }
 
-void DirectoryImpl::ReadEntireFile(const mojo::String& raw_path,
+void DirectoryImpl::ReadEntireFile(const std::string& raw_path,
                                    const ReadEntireFileCallback& callback) {
   base::FilePath path;
   mojom::FileError error = ValidatePath(raw_path, directory_path_, &path);
   if (error != mojom::FileError::OK) {
-    callback.Run(error, mojo::Array<uint8_t>());
+    callback.Run(error, std::vector<uint8_t>());
     return;
   }
 
   if (base::DirectoryExists(path)) {
-    callback.Run(mojom::FileError::NOT_A_FILE, mojo::Array<uint8_t>());
+    callback.Run(mojom::FileError::NOT_A_FILE, std::vector<uint8_t>());
     return;
   }
 
   base::File base_file(path, base::File::FLAG_OPEN | base::File::FLAG_READ);
   if (!base_file.IsValid()) {
-    callback.Run(GetError(base_file), mojo::Array<uint8_t>());
+    callback.Run(GetError(base_file), std::vector<uint8_t>());
     return;
   }
 
-  std::string contents;
+  std::vector<uint8_t> contents;
   const int kBufferSize = 1 << 16;
   std::unique_ptr<char[]> buf(new char[kBufferSize]);
   int len;
   while ((len = base_file.ReadAtCurrentPos(buf.get(), kBufferSize)) > 0)
-    contents.append(buf.get(), len);
+    contents.insert(contents.end(), buf.get(), buf.get() + len);
 
-  callback.Run(mojom::FileError::OK, mojo::Array<uint8_t>::From(contents));
+  callback.Run(mojom::FileError::OK, contents);
 }
 
-void DirectoryImpl::WriteFile(const mojo::String& raw_path,
-                              mojo::Array<uint8_t> data,
+void DirectoryImpl::WriteFile(const std::string& raw_path,
+                              const std::vector<uint8_t>& data,
                               const WriteFileCallback& callback) {
   base::FilePath path;
   mojom::FileError error = ValidatePath(raw_path, directory_path_, &path);
@@ -324,7 +325,7 @@ void DirectoryImpl::WriteFile(const mojo::String& raw_path,
   // If we're given empty data, we don't write and just truncate the file.
   if (data.size()) {
     const int data_size = static_cast<int>(data.size());
-    if (base_file.Write(0, reinterpret_cast<char*>(&data.front()),
+    if (base_file.Write(0, reinterpret_cast<const char*>(&data.front()),
                         data_size) == -1) {
       callback.Run(GetError(base_file));
       return;
@@ -334,31 +335,21 @@ void DirectoryImpl::WriteFile(const mojo::String& raw_path,
   callback.Run(mojom::FileError::OK);
 }
 
-mojo::ScopedHandle DirectoryImpl::OpenFileHandleImpl(
-    const mojo::String& raw_path,
-    uint32_t open_flags,
-    mojom::FileError* error) {
+base::File DirectoryImpl::OpenFileHandleImpl(const std::string& raw_path,
+                                             uint32_t open_flags) {
   base::FilePath path;
-  *error = ValidatePath(raw_path, directory_path_, &path);
-  if (*error != mojom::FileError::OK)
-    return mojo::ScopedHandle();
+  mojom::FileError error = ValidatePath(raw_path, directory_path_, &path);
+  if (error != mojom::FileError::OK)
+    return base::File(static_cast<base::File::Error>(error));
 
   if (base::DirectoryExists(path)) {
     // We must not return directories as files. In the file abstraction, we
     // can fetch raw file descriptors over mojo pipes, and passing a file
     // descriptor to a directory is a sandbox escape on Windows.
-    *error = mojom::FileError::NOT_A_FILE;
-    return mojo::ScopedHandle();
+    return base::File(base::File::FILE_ERROR_NOT_A_FILE);
   }
 
-  base::File base_file(path, open_flags);
-  if (!base_file.IsValid()) {
-    *error = GetError(base_file);
-    return mojo::ScopedHandle();
-  }
-
-  *error = mojom::FileError::OK;
-  return mojo::WrapPlatformFile(base_file.TakePlatformFile());
+  return base::File(path, open_flags);
 }
 
 }  // namespace filesystem

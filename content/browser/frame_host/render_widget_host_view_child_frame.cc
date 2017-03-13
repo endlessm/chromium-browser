@@ -33,7 +33,7 @@
 #include "content/public/browser/guest_mode.h"
 #include "content/public/browser/render_process_host.h"
 #include "gpu/ipc/common/gpu_messages.h"
-#include "third_party/WebKit/public/web/WebInputEvent.h"
+#include "third_party/WebKit/public/platform/WebInputEvent.h"
 #include "ui/gfx/geometry/size_conversions.h"
 #include "ui/gfx/geometry/size_f.h"
 
@@ -62,13 +62,14 @@ RenderWidgetHostViewChildFrame::RenderWidgetHostViewChildFrame(
       begin_frame_source_(nullptr),
       weak_factory_(this) {
   id_allocator_.reset(new cc::SurfaceIdAllocator());
-  GetSurfaceManager()->RegisterFrameSinkId(frame_sink_id_);
+  auto* manager = GetSurfaceManager();
+  manager->RegisterFrameSinkId(frame_sink_id_);
+  surface_factory_ =
+      base::MakeUnique<cc::SurfaceFactory>(frame_sink_id_, manager, this);
 }
 
 RenderWidgetHostViewChildFrame::~RenderWidgetHostViewChildFrame() {
-  if (!local_frame_id_.is_null())
-    surface_factory_->Destroy(local_frame_id_);
-
+  surface_factory_->EvictSurface();
   if (GetSurfaceManager())
     GetSurfaceManager()->InvalidateFrameSinkId(frame_sink_id_);
 }
@@ -85,7 +86,7 @@ void RenderWidgetHostViewChildFrame::SetCrossProcessFrameConnector(
     return;
 
   if (frame_connector_) {
-    if (!parent_frame_sink_id_.is_null()) {
+    if (parent_frame_sink_id_.is_valid()) {
       GetSurfaceManager()->UnregisterFrameSinkHierarchy(parent_frame_sink_id_,
                                                         frame_sink_id_);
     }
@@ -109,7 +110,7 @@ void RenderWidgetHostViewChildFrame::SetCrossProcessFrameConnector(
         frame_connector_->GetParentRenderWidgetHostView();
     if (parent_view) {
       parent_frame_sink_id_ = parent_view->GetFrameSinkId();
-      DCHECK(!parent_frame_sink_id_.is_null());
+      DCHECK(parent_frame_sink_id_.is_valid());
       GetSurfaceManager()->RegisterFrameSinkHierarchy(parent_frame_sink_id_,
                                                       frame_sink_id_);
     }
@@ -148,7 +149,7 @@ bool RenderWidgetHostViewChildFrame::HasFocus() const {
 }
 
 bool RenderWidgetHostViewChildFrame::IsSurfaceAvailableForCopy() const {
-  return surface_factory_ && !local_frame_id_.is_null();
+  return local_frame_id_.is_valid();
 }
 
 void RenderWidgetHostViewChildFrame::Show() {
@@ -335,6 +336,13 @@ void RenderWidgetHostViewChildFrame::UnregisterFrameSinkId() {
   }
 }
 
+void RenderWidgetHostViewChildFrame::UpdateViewportIntersection(
+    const gfx::Rect& viewport_intersection) {
+  if (host_)
+    host_->Send(new ViewMsg_SetViewportIntersection(host_->GetRoutingID(),
+                                                    viewport_intersection));
+}
+
 void RenderWidgetHostViewChildFrame::GestureEventAck(
     const blink::WebGestureEvent& event,
     InputEventAckState ack_result) {
@@ -348,9 +356,9 @@ void RenderWidgetHostViewChildFrame::GestureEventAck(
   // RenderWidgetHostInputEventRouter.
   if (!frame_connector_)
     return;
-  if ((event.type == blink::WebInputEvent::GestureScrollUpdate &&
+  if ((event.type() == blink::WebInputEvent::GestureScrollUpdate &&
        not_consumed) ||
-      event.type == blink::WebInputEvent::GestureScrollEnd)
+      event.type() == blink::WebInputEvent::GestureScrollEnd)
     frame_connector_->BubbleScrollEvent(event);
 }
 
@@ -377,48 +385,30 @@ void RenderWidgetHostViewChildFrame::OnSwapCompositorFrame(
   if (!frame_connector_)
     return;
 
-  cc::RenderPass* root_pass =
-      frame.delegated_frame_data->render_pass_list.back().get();
+  cc::RenderPass* root_pass = frame.render_pass_list.back().get();
 
   gfx::Size frame_size = root_pass->output_rect.size();
   float scale_factor = frame.metadata.device_scale_factor;
 
   // Check whether we need to recreate the cc::Surface, which means the child
-  // frame renderer has changed its output surface, or size, or scale factor.
-  if (compositor_frame_sink_id != last_compositor_frame_sink_id_ &&
-      surface_factory_) {
-    surface_factory_->Destroy(local_frame_id_);
-    surface_factory_.reset();
-  }
+  // frame renderer has changed its frame sink, or size, or scale factor.
   if (compositor_frame_sink_id != last_compositor_frame_sink_id_ ||
       frame_size != current_surface_size_ ||
       scale_factor != current_surface_scale_factor_) {
     ClearCompositorSurfaceIfNecessary();
+    // If the renderer changed its frame sink, reset the surface factory to
+    // avoid returning stale resources.
+    if (compositor_frame_sink_id != last_compositor_frame_sink_id_)
+      surface_factory_->Reset();
     last_compositor_frame_sink_id_ = compositor_frame_sink_id;
     current_surface_size_ = frame_size;
     current_surface_scale_factor_ = scale_factor;
   }
 
-  if (!surface_factory_) {
-    cc::SurfaceManager* manager = GetSurfaceManager();
-    surface_factory_ =
-        base::MakeUnique<cc::SurfaceFactory>(frame_sink_id_, manager, this);
-  }
-
-  if (local_frame_id_.is_null()) {
+  bool allocated_new_local_frame_id = false;
+  if (!local_frame_id_.is_valid()) {
     local_frame_id_ = id_allocator_->GenerateId();
-    surface_factory_->Create(local_frame_id_);
-
-    cc::SurfaceSequence sequence =
-        cc::SurfaceSequence(frame_sink_id_, next_surface_sequence_++);
-    // The renderer process will satisfy this dependency when it creates a
-    // SurfaceLayer.
-    cc::SurfaceManager* manager = GetSurfaceManager();
-    manager->GetSurfaceForId(cc::SurfaceId(frame_sink_id_, local_frame_id_))
-        ->AddDestructionDependency(sequence);
-    frame_connector_->SetChildFrameSurface(
-        cc::SurfaceId(frame_sink_id_, local_frame_id_), frame_size,
-        scale_factor, sequence);
+    allocated_new_local_frame_id = true;
   }
 
   cc::SurfaceFactory::DrawCallback ack_callback =
@@ -430,6 +420,18 @@ void RenderWidgetHostViewChildFrame::OnSwapCompositorFrame(
   surface_factory_->SubmitCompositorFrame(local_frame_id_, std::move(frame),
                                           ack_callback);
 
+  if (allocated_new_local_frame_id) {
+    cc::SurfaceSequence sequence =
+        cc::SurfaceSequence(frame_sink_id_, next_surface_sequence_++);
+    // The renderer process will satisfy this dependency when it creates a
+    // SurfaceLayer.
+    cc::SurfaceManager* manager = GetSurfaceManager();
+    manager->GetSurfaceForId(cc::SurfaceId(frame_sink_id_, local_frame_id_))
+        ->AddDestructionDependency(sequence);
+    frame_connector_->SetChildFrameSurface(
+        cc::SurfaceId(frame_sink_id_, local_frame_id_), frame_size,
+        scale_factor, sequence);
+  }
   ProcessFrameSwappedCallbacks();
 }
 
@@ -508,8 +510,8 @@ void RenderWidgetHostViewChildFrame::ProcessMouseWheelEvent(
 void RenderWidgetHostViewChildFrame::ProcessTouchEvent(
     const blink::WebTouchEvent& event,
     const ui::LatencyInfo& latency) {
-  if (event.type == blink::WebInputEvent::TouchStart &&
-   frame_connector_ && !frame_connector_->HasFocus()) {
+  if (event.type() == blink::WebInputEvent::TouchStart && frame_connector_ &&
+      !frame_connector_->HasFocus()) {
     frame_connector_->FocusRootView();
   }
 
@@ -524,31 +526,41 @@ void RenderWidgetHostViewChildFrame::ProcessGestureEvent(
 
 gfx::Point RenderWidgetHostViewChildFrame::TransformPointToRootCoordSpace(
     const gfx::Point& point) {
-  if (!frame_connector_)
+  if (!frame_connector_ || !local_frame_id_.is_valid())
     return point;
 
   return frame_connector_->TransformPointToRootCoordSpace(
       point, cc::SurfaceId(frame_sink_id_, local_frame_id_));
 }
 
-gfx::Point RenderWidgetHostViewChildFrame::TransformPointToLocalCoordSpace(
+bool RenderWidgetHostViewChildFrame::TransformPointToLocalCoordSpace(
     const gfx::Point& point,
-    const cc::SurfaceId& original_surface) {
-  if (!frame_connector_ || local_frame_id_.is_null())
-    return point;
+    const cc::SurfaceId& original_surface,
+    gfx::Point* transformed_point) {
+  *transformed_point = point;
+  if (!frame_connector_ || !local_frame_id_.is_valid())
+    return false;
 
   return frame_connector_->TransformPointToLocalCoordSpace(
-      point, original_surface, cc::SurfaceId(frame_sink_id_, local_frame_id_));
+      point, original_surface, cc::SurfaceId(frame_sink_id_, local_frame_id_),
+      transformed_point);
 }
 
-gfx::Point RenderWidgetHostViewChildFrame::TransformPointToCoordSpaceForView(
+bool RenderWidgetHostViewChildFrame::TransformPointToCoordSpaceForView(
     const gfx::Point& point,
-    RenderWidgetHostViewBase* target_view) {
-  if (!frame_connector_ || local_frame_id_.is_null() || target_view == this)
-    return point;
+    RenderWidgetHostViewBase* target_view,
+    gfx::Point* transformed_point) {
+  if (!frame_connector_ || !local_frame_id_.is_valid())
+    return false;
+
+  if (target_view == this) {
+    *transformed_point = point;
+    return true;
+  }
 
   return frame_connector_->TransformPointToCoordSpaceForView(
-      point, target_view, cc::SurfaceId(frame_sink_id_, local_frame_id_));
+      point, target_view, cc::SurfaceId(frame_sink_id_, local_frame_id_),
+      transformed_point);
 }
 
 bool RenderWidgetHostViewChildFrame::IsRenderWidgetHostViewChildFrame() {
@@ -619,7 +631,7 @@ void RenderWidgetHostViewChildFrame::SubmitSurfaceCopyRequest(
   if (!src_subrect.IsEmpty())
     request->set_area(src_subrect);
 
-  surface_factory_->RequestCopyOfSurface(local_frame_id_, std::move(request));
+  surface_factory_->RequestCopyOfSurface(std::move(request));
 }
 
 void RenderWidgetHostViewChildFrame::CopyFromCompositingSurfaceToVideoFrame(
@@ -695,7 +707,7 @@ void RenderWidgetHostViewChildFrame::SetNeedsBeginFrames(
 
 InputEventAckState RenderWidgetHostViewChildFrame::FilterInputEvent(
     const blink::WebInputEvent& input_event) {
-  if (input_event.type == blink::WebInputEvent::GestureFlingStart) {
+  if (input_event.type() == blink::WebInputEvent::GestureFlingStart) {
     const blink::WebGestureEvent& gesture_event =
         static_cast<const blink::WebGestureEvent&>(input_event);
     // Zero-velocity touchpad flings are an Aura-specific signal that the
@@ -726,8 +738,7 @@ RenderWidgetHostViewChildFrame::CreateBrowserAccessibilityManager(
 }
 
 void RenderWidgetHostViewChildFrame::ClearCompositorSurfaceIfNecessary() {
-  if (surface_factory_ && !local_frame_id_.is_null())
-    surface_factory_->Destroy(local_frame_id_);
+  surface_factory_->EvictSurface();
   local_frame_id_ = cc::LocalFrameId();
 }
 

@@ -83,6 +83,8 @@ class InspectUI : public content::WebUIController,
   void PopulateTargets(const std::string& source_id,
                        const base::ListValue& targets);
 
+  void PopulateAdditionalTargets(const base::ListValue& targets);
+
   void ForceUpdateIfNeeded(const std::string& source_id,
                            const std::string& target_type);
 
@@ -96,8 +98,8 @@ class InspectUI : public content::WebUIController,
   // A scoped container for preference change registries.
   PrefChangeRegistrar pref_change_registrar_;
 
-  typedef std::map<std::string, DevToolsTargetsUIHandler*> TargetHandlerMap;
-  TargetHandlerMap target_handlers_;
+  std::map<std::string, std::unique_ptr<DevToolsTargetsUIHandler>>
+      target_handlers_;
 
   std::unique_ptr<PortForwardingStatusSerializer> port_status_serializer_;
 

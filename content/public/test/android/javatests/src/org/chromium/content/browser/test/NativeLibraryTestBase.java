@@ -39,14 +39,9 @@ public class NativeLibraryTestBase extends InstrumentationTestCase {
     private void handleNativeInitialization(final boolean initBrowserProcess) {
         assertFalse(ThreadUtils.runningOnUiThread());
 
-        PathUtils.setPrivateDataDirectorySuffix(PRIVATE_DATA_DIRECTORY_SUFFIX,
-                ContextUtils.getApplicationContext());
+        PathUtils.setPrivateDataDirectorySuffix(PRIVATE_DATA_DIRECTORY_SUFFIX);
 
-        try {
-            ApplicationUtils.waitForLibraryDependencies(getInstrumentation());
-        } catch (InterruptedException e) {
-            fail("Library dependencies were never initialized.");
-        }
+        ApplicationUtils.waitForLibraryDependencies(getInstrumentation());
 
         // LibraryLoader is not in general multithreaded; as other InstrumentationTestCase code
         // (specifically, ChromeBrowserProvider) uses it from the main thread we must do

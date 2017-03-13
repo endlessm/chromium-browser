@@ -20,11 +20,14 @@ GpuVideoDecodeAcceleratorHost::GpuVideoDecodeAcceleratorHost(
     gpu::CommandBufferProxyImpl* impl)
     : channel_(impl->channel()),
       decoder_route_id_(MSG_ROUTING_NONE),
-      client_(NULL),
+      client_(nullptr),
       impl_(impl),
+      media_task_runner_(base::ThreadTaskRunnerHandle::Get()),
       weak_this_factory_(this) {
   DCHECK(channel_);
   DCHECK(impl_);
+
+  weak_this_ = weak_this_factory_.GetWeakPtr();
   impl_->AddDeletionObserver(this);
 }
 
@@ -33,6 +36,8 @@ GpuVideoDecodeAcceleratorHost::~GpuVideoDecodeAcceleratorHost() {
 
   if (channel_ && decoder_route_id_ != MSG_ROUTING_NONE)
     channel_->RemoveRoute(decoder_route_id_);
+
+  base::AutoLock lock(impl_lock_);
   if (impl_)
     impl_->RemoveDeletionObserver(this);
 }
@@ -68,7 +73,7 @@ void GpuVideoDecodeAcceleratorHost::OnChannelError() {
   if (channel_) {
     if (decoder_route_id_ != MSG_ROUTING_NONE)
       channel_->RemoveRoute(decoder_route_id_);
-    channel_ = NULL;
+    channel_ = nullptr;
   }
   DLOG(ERROR) << "OnChannelError()";
   PostNotifyError(PLATFORM_FAILURE);
@@ -79,11 +84,12 @@ bool GpuVideoDecodeAcceleratorHost::Initialize(const Config& config,
   DCHECK(CalledOnValidThread());
   client_ = client;
 
+  base::AutoLock lock(impl_lock_);
   if (!impl_)
     return false;
 
   int32_t route_id = channel_->GenerateRouteID();
-  channel_->AddRoute(route_id, weak_this_factory_.GetWeakPtr());
+  channel_->AddRoute(route_id, weak_this_);
 
   bool succeeded = false;
   Send(new GpuCommandBufferMsg_CreateVideoDecoder(impl_->route_id(), config,
@@ -133,7 +139,7 @@ void GpuVideoDecodeAcceleratorHost::AssignPictureBuffers(
       PostNotifyError(INVALID_ARGUMENT);
       return;
     }
-    texture_ids.push_back(buffer.texture_ids());
+    texture_ids.push_back(buffer.client_texture_ids());
     buffer_ids.push_back(buffer.id());
   }
   Send(new AcceleratedVideoDecoderMsg_AssignPictureBuffers(
@@ -163,28 +169,38 @@ void GpuVideoDecodeAcceleratorHost::Reset() {
   Send(new AcceleratedVideoDecoderMsg_Reset(decoder_route_id_));
 }
 
+void GpuVideoDecodeAcceleratorHost::SetSurface(int32_t surface_id) {
+  DCHECK(CalledOnValidThread());
+  if (!channel_)
+    return;
+  Send(
+      new AcceleratedVideoDecoderMsg_SetSurface(decoder_route_id_, surface_id));
+}
+
 void GpuVideoDecodeAcceleratorHost::Destroy() {
   DCHECK(CalledOnValidThread());
   if (channel_)
     Send(new AcceleratedVideoDecoderMsg_Destroy(decoder_route_id_));
-  client_ = NULL;
+  client_ = nullptr;
   delete this;
 }
 
 void GpuVideoDecodeAcceleratorHost::OnWillDeleteImpl() {
-  DCHECK(CalledOnValidThread());
-  impl_ = NULL;
+  base::AutoLock lock(impl_lock_);
+  impl_ = nullptr;
 
   // The gpu::CommandBufferProxyImpl is going away; error out this VDA.
-  OnChannelError();
+  media_task_runner_->PostTask(
+      FROM_HERE,
+      base::Bind(&GpuVideoDecodeAcceleratorHost::OnChannelError, weak_this_));
 }
 
 void GpuVideoDecodeAcceleratorHost::PostNotifyError(Error error) {
   DCHECK(CalledOnValidThread());
   DVLOG(2) << "PostNotifyError(): error=" << error;
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  media_task_runner_->PostTask(
       FROM_HERE, base::Bind(&GpuVideoDecodeAcceleratorHost::OnNotifyError,
-                            weak_this_factory_.GetWeakPtr(), error));
+                            weak_this_, error));
 }
 
 void GpuVideoDecodeAcceleratorHost::Send(IPC::Message* message) {
@@ -239,17 +255,16 @@ void GpuVideoDecodeAcceleratorHost::OnDismissPictureBuffer(
 }
 
 void GpuVideoDecodeAcceleratorHost::OnPictureReady(
-    int32_t picture_buffer_id,
-    int32_t bitstream_buffer_id,
-    const gfx::Rect& visible_rect,
-    bool allow_overlay,
-    bool size_changed) {
+    const AcceleratedVideoDecoderHostMsg_PictureReady_Params& params) {
   DCHECK(CalledOnValidThread());
   if (!client_)
     return;
-  Picture picture(picture_buffer_id, bitstream_buffer_id, visible_rect,
-                  allow_overlay);
-  picture.set_size_changed(size_changed);
+  Picture picture(params.picture_buffer_id, params.bitstream_buffer_id,
+                  params.visible_rect, params.color_space,
+                  params.allow_overlay);
+  picture.set_size_changed(params.size_changed);
+  picture.set_surface_texture(params.surface_texture);
+  picture.set_wants_promotion_hint(params.wants_promotion_hint);
   client_->PictureReady(picture);
 }
 
@@ -273,7 +288,7 @@ void GpuVideoDecodeAcceleratorHost::OnNotifyError(uint32_t error) {
 
   // Client::NotifyError() may Destroy() |this|, so calling it needs to be the
   // last thing done on this stack!
-  VideoDecodeAccelerator::Client* client = NULL;
+  VideoDecodeAccelerator::Client* client = nullptr;
   std::swap(client, client_);
   client->NotifyError(static_cast<VideoDecodeAccelerator::Error>(error));
 }

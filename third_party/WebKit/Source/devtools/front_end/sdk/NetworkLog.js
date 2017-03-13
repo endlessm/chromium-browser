@@ -29,165 +29,298 @@
  */
 
 /**
- * @constructor
- * @extends {WebInspector.SDKModel}
- * @param {!WebInspector.Target} target
- * @param {!WebInspector.ResourceTreeModel} resourceTreeModel
- * @param {!WebInspector.NetworkManager} networkManager
+ * @unrestricted
  */
-WebInspector.NetworkLog = function(target, resourceTreeModel, networkManager)
-{
-    WebInspector.SDKModel.call(this, WebInspector.NetworkLog, target);
+SDK.NetworkLog = class extends SDK.SDKModel {
+  /**
+   * @param {!SDK.Target} target
+   * @param {!SDK.ResourceTreeModel} resourceTreeModel
+   * @param {!SDK.NetworkManager} networkManager
+   */
+  constructor(target, resourceTreeModel, networkManager) {
+    super(SDK.NetworkLog, target);
 
+    /** @type {!Array<!SDK.NetworkRequest>} */
     this._requests = [];
+    /** @type {!Object<string, !SDK.NetworkRequest>} */
     this._requestForId = {};
-    networkManager.addEventListener(WebInspector.NetworkManager.Events.RequestStarted, this._onRequestStarted, this);
-    resourceTreeModel.addEventListener(WebInspector.ResourceTreeModel.Events.MainFrameNavigated, this._onMainFrameNavigated, this);
-    resourceTreeModel.addEventListener(WebInspector.ResourceTreeModel.Events.Load, this._onLoad, this);
-    resourceTreeModel.addEventListener(WebInspector.ResourceTreeModel.Events.DOMContentLoaded, this._onDOMContentLoaded, this);
-}
+    networkManager.addEventListener(SDK.NetworkManager.Events.RequestStarted, this._onRequestStarted, this);
+    resourceTreeModel.addEventListener(
+        SDK.ResourceTreeModel.Events.MainFrameNavigated, this._onMainFrameNavigated, this);
+    resourceTreeModel.addEventListener(SDK.ResourceTreeModel.Events.Load, this._onLoad, this);
+    resourceTreeModel.addEventListener(SDK.ResourceTreeModel.Events.DOMContentLoaded, this._onDOMContentLoaded, this);
+    networkManager.on(SDK.NetworkManager.RequestRedirectEvent, this._onRequestRedirect, this);
+  }
 
-/**
- * @param {!WebInspector.Target} target
- * @return {?WebInspector.NetworkLog}
- */
-WebInspector.NetworkLog.fromTarget = function(target)
-{
-    return /** @type {?WebInspector.NetworkLog} */ (target.model(WebInspector.NetworkLog));
-}
+  /**
+   * @param {!SDK.Target} target
+   * @return {?SDK.NetworkLog}
+   */
+  static fromTarget(target) {
+    return target.model(SDK.NetworkLog);
+  }
 
-/**
- * @param {string} url
- * @return {?WebInspector.NetworkRequest}
- */
-WebInspector.NetworkLog.requestForURL = function(url)
-{
-    for (var target of WebInspector.targetManager.targets()) {
-        var networkLog = WebInspector.NetworkLog.fromTarget(target);
-        var result = networkLog && networkLog.requestForURL(url);
-        if (result)
-            return result;
+  /**
+   * @param {string} url
+   * @return {?SDK.NetworkRequest}
+   */
+  static requestForURL(url) {
+    for (var target of SDK.targetManager.targets()) {
+      var networkLog = SDK.NetworkLog.fromTarget(target);
+      var result = networkLog && networkLog.requestForURL(url);
+      if (result)
+        return result;
     }
     return null;
-}
+  }
 
-/**
- * @return {!Array.<!WebInspector.NetworkRequest>}
- */
-WebInspector.NetworkLog.requests = function()
-{
+  /**
+   * @return {!Array.<!SDK.NetworkRequest>}
+   */
+  static requests() {
     var result = [];
-    for (var target of WebInspector.targetManager.targets()) {
-        var networkLog = WebInspector.NetworkLog.fromTarget(target);
-        if (networkLog)
-            result = result.concat(networkLog.requests());
+    for (var target of SDK.targetManager.targets()) {
+      var networkLog = SDK.NetworkLog.fromTarget(target);
+      if (networkLog)
+        result = result.concat(networkLog.requests());
     }
     return result;
-}
+  }
 
-WebInspector.NetworkLog.prototype = {
-    /**
-     * @return {!Array.<!WebInspector.NetworkRequest>}
-     */
-    requests: function()
-    {
-        return this._requests;
-    },
+  /**
+   * @param {!SDK.NetworkRequest} request
+   * @return {?SDK.NetworkLog}
+   */
+  static fromRequest(request) {
+    return SDK.NetworkLog.fromTarget(request.target());
+  }
 
-    /**
-     * @param {string} url
-     * @return {?WebInspector.NetworkRequest}
-     */
-    requestForURL: function(url)
-    {
-        for (var i = 0; i < this._requests.length; ++i) {
-            if (this._requests[i].url === url)
-                return this._requests[i];
+  /**
+   * @param {!SDK.NetworkRequest} request
+   */
+  static _initializeInitiatorSymbolIfNeeded(request) {
+    if (!request[SDK.NetworkLog._initiatorDataSymbol]) {
+      /** @type {!{info: ?SDK.NetworkLog._InitiatorInfo, chain: !Set<!SDK.NetworkRequest>, request: (?SDK.NetworkRequest|undefined)}} */
+      request[SDK.NetworkLog._initiatorDataSymbol] = {
+        info: null,
+        chain: null,
+        request: undefined,
+      };
+    }
+  }
+
+  /**
+   * @param {!SDK.NetworkRequest} request
+   * @return {!SDK.NetworkLog._InitiatorInfo}
+   */
+  static initiatorInfoForRequest(request) {
+    SDK.NetworkLog._initializeInitiatorSymbolIfNeeded(request);
+    if (request[SDK.NetworkLog._initiatorDataSymbol].info)
+      return request[SDK.NetworkLog._initiatorDataSymbol].info;
+
+    var type = SDK.NetworkRequest.InitiatorType.Other;
+    var url = '';
+    var lineNumber = -Infinity;
+    var columnNumber = -Infinity;
+    var scriptId = null;
+    var initiator = request.initiator();
+
+    if (request.redirectSource) {
+      type = SDK.NetworkRequest.InitiatorType.Redirect;
+      url = request.redirectSource.url();
+    } else if (initiator) {
+      if (initiator.type === Protocol.Network.InitiatorType.Parser) {
+        type = SDK.NetworkRequest.InitiatorType.Parser;
+        url = initiator.url ? initiator.url : url;
+        lineNumber = initiator.lineNumber ? initiator.lineNumber : lineNumber;
+      } else if (initiator.type === Protocol.Network.InitiatorType.Script) {
+        for (var stack = initiator.stack; stack; stack = stack.parent) {
+          var topFrame = stack.callFrames.length ? stack.callFrames[0] : null;
+          if (!topFrame)
+            continue;
+          type = SDK.NetworkRequest.InitiatorType.Script;
+          url = topFrame.url || Common.UIString('<anonymous>');
+          lineNumber = topFrame.lineNumber;
+          columnNumber = topFrame.columnNumber;
+          scriptId = topFrame.scriptId;
+          break;
         }
-        return null;
-    },
+      }
+    }
+
+    request[SDK.NetworkLog._initiatorDataSymbol].info =
+        {type: type, url: url, lineNumber: lineNumber, columnNumber: columnNumber, scriptId: scriptId};
+    return request[SDK.NetworkLog._initiatorDataSymbol].info;
+  }
+
+  /**
+   * @param {!SDK.NetworkRequest} request
+   * @return {!SDK.NetworkLog.InitiatorGraph}
+   */
+  static initiatorGraphForRequest(request) {
+    /** @type {!Set<!SDK.NetworkRequest>} */
+    var initiated = new Set();
+    var networkLog = SDK.NetworkLog.fromRequest(request);
+    if (!networkLog)
+      return {initiators: new Set(), initiated: new Set()};
+
+    var requests = networkLog.requests();
+    for (var logRequest of requests) {
+      var localInitiators = initiatorChain(logRequest);
+      if (localInitiators.has(request))
+        initiated.add(logRequest);
+    }
+    return {initiators: initiatorChain(request), initiated: initiated};
 
     /**
-     * @param {!WebInspector.NetworkRequest} request
-     * @return {!WebInspector.PageLoad}
+     * @param {!SDK.NetworkRequest} request
+     * @return {!Set<!SDK.NetworkRequest>}
      */
-    pageLoadForRequest: function(request)
-    {
-        return request.__page;
-    },
+    function initiatorChain(request) {
+      SDK.NetworkLog._initializeInitiatorSymbolIfNeeded(request);
+      var initiatorChainCache =
+          /** @type {?Set<!SDK.NetworkRequest>} */ (request[SDK.NetworkLog._initiatorDataSymbol].chain);
+      if (initiatorChainCache)
+        return initiatorChainCache;
+
+      initiatorChainCache = new Set();
+
+      var checkRequest = request;
+      while (checkRequest) {
+        initiatorChainCache.add(checkRequest);
+        checkRequest = initiatorRequest(checkRequest);
+      }
+      request[SDK.NetworkLog._initiatorDataSymbol].chain = initiatorChainCache;
+      return initiatorChainCache;
+    }
 
     /**
-     * @param {!WebInspector.Event} event
+     * @param {!SDK.NetworkRequest} request
+     * @return {?SDK.NetworkRequest}
      */
-    _onMainFrameNavigated: function(event)
-    {
-        var mainFrame = /** type {WebInspector.ResourceTreeFrame} */ event.data;
-        // Preserve requests from the new session.
-        this._currentPageLoad = null;
-        var oldRequests = this._requests.splice(0, this._requests.length);
-        this._requestForId = {};
-        for (var i = 0; i < oldRequests.length; ++i) {
-            var request = oldRequests[i];
-            if (request.loaderId === mainFrame.loaderId) {
-                if (!this._currentPageLoad)
-                    this._currentPageLoad = new WebInspector.PageLoad(request);
-                this._requests.push(request);
-                this._requestForId[request.requestId] = request;
-                request.__page = this._currentPageLoad;
-            }
-        }
-    },
+    function initiatorRequest(request) {
+      SDK.NetworkLog._initializeInitiatorSymbolIfNeeded(request);
+      if (request[SDK.NetworkLog._initiatorDataSymbol].request !== undefined)
+        return request[SDK.NetworkLog._initiatorDataSymbol].request;
+      var networkLog = SDK.NetworkLog.fromRequest(request);
+      var url = SDK.NetworkLog.initiatorInfoForRequest(request).url;
+      request[SDK.NetworkLog._initiatorDataSymbol].request = networkLog.requestForURL(url);
+      return request[SDK.NetworkLog._initiatorDataSymbol].request;
+    }
+  }
 
-    /**
-     * @param {!WebInspector.Event} event
-     */
-    _onRequestStarted: function(event)
-    {
-        var request = /** @type {!WebInspector.NetworkRequest} */ (event.data);
+  /**
+   * @param {!SDK.NetworkRequest} request
+   * @return {?SDK.PageLoad}
+   */
+  static pageLoadForRequest(request) {
+    return request[SDK.NetworkLog._pageLoadForRequestSymbol];
+  }
+
+  /**
+   * @return {!Array.<!SDK.NetworkRequest>}
+   */
+  requests() {
+    return this._requests;
+  }
+
+  /**
+   * @param {string} url
+   * @return {?SDK.NetworkRequest}
+   */
+  requestForURL(url) {
+    for (var i = 0; i < this._requests.length; ++i) {
+      if (this._requests[i].url() === url)
+        return this._requests[i];
+    }
+    return null;
+  }
+
+  /**
+   * @param {!Common.Event} event
+   */
+  _onMainFrameNavigated(event) {
+    var mainFrame = /** type {SDK.ResourceTreeFrame} */ event.data;
+    // Preserve requests from the new session.
+    this._currentPageLoad = null;
+    var oldRequests = this._requests.splice(0, this._requests.length);
+    this._requestForId = {};
+    for (var i = 0; i < oldRequests.length; ++i) {
+      var request = oldRequests[i];
+      if (request.loaderId === mainFrame.loaderId) {
+        if (!this._currentPageLoad)
+          this._currentPageLoad = new SDK.PageLoad(request);
         this._requests.push(request);
-        this._requestForId[request.requestId] = request;
-        request.__page = this._currentPageLoad;
-    },
+        this._requestForId[request.requestId()] = request;
+        request[SDK.NetworkLog._pageLoadForRequestSymbol] = this._currentPageLoad;
+      }
+    }
+  }
 
-    /**
-     * @param {!WebInspector.Event} event
-     */
-    _onDOMContentLoaded: function(event)
-    {
-        if (this._currentPageLoad)
-            this._currentPageLoad.contentLoadTime = event.data;
-    },
+  /**
+   * @param {!Common.Event} event
+   */
+  _onRequestStarted(event) {
+    var request = /** @type {!SDK.NetworkRequest} */ (event.data);
+    this._requests.push(request);
+    this._requestForId[request.requestId()] = request;
+    request[SDK.NetworkLog._pageLoadForRequestSymbol] = this._currentPageLoad;
+  }
 
-    /**
-     * @param {!WebInspector.Event} event
-     */
-    _onLoad: function(event)
-    {
-        if (this._currentPageLoad)
-            this._currentPageLoad.loadTime = event.data;
-    },
+  /**
+   * @param {!SDK.NetworkManager.RequestRedirectEvent} event
+   */
+  _onRequestRedirect(event) {
+    var request = event.request;
+    delete request[SDK.NetworkLog._initiatorDataSymbol];
+  }
 
-    /**
-     * @param {!NetworkAgent.RequestId} requestId
-     * @return {?WebInspector.NetworkRequest}
-     */
-    requestForId: function(requestId)
-    {
-        return this._requestForId[requestId];
-    },
+  /**
+   * @param {!Common.Event} event
+   */
+  _onDOMContentLoaded(event) {
+    if (this._currentPageLoad)
+      this._currentPageLoad.contentLoadTime = event.data;
+  }
 
-    __proto__: WebInspector.SDKModel.prototype
-}
+  /**
+   * @param {!Common.Event} event
+   */
+  _onLoad(event) {
+    if (this._currentPageLoad)
+      this._currentPageLoad.loadTime = event.data;
+  }
+
+  /**
+   * @param {!Protocol.Network.RequestId} requestId
+   * @return {?SDK.NetworkRequest}
+   */
+  requestForId(requestId) {
+    return this._requestForId[requestId];
+  }
+};
 
 /**
- * @constructor
- * @param {!WebInspector.NetworkRequest} mainRequest
+ * @unrestricted
  */
-WebInspector.PageLoad = function(mainRequest)
-{
-    this.id = ++WebInspector.PageLoad._lastIdentifier;
-    this.url = mainRequest.url;
+SDK.PageLoad = class {
+  /**
+   * @param {!SDK.NetworkRequest} mainRequest
+   */
+  constructor(mainRequest) {
+    this.id = ++SDK.PageLoad._lastIdentifier;
+    this.url = mainRequest.url();
     this.startTime = mainRequest.startTime;
-}
+  }
+};
 
-WebInspector.PageLoad._lastIdentifier = 0;
+SDK.PageLoad._lastIdentifier = 0;
+
+/** @typedef {!{initiators: !Set<!SDK.NetworkRequest>, initiated: !Set<!SDK.NetworkRequest>}} */
+SDK.NetworkLog.InitiatorGraph;
+
+/** @typedef {!{type: !SDK.NetworkRequest.InitiatorType, url: string, lineNumber: number, columnNumber: number, scriptId: ?string}} */
+SDK.NetworkLog._InitiatorInfo;
+
+SDK.NetworkLog._initiatorDataSymbol = Symbol('InitiatorData');
+SDK.NetworkLog._pageLoadForRequestSymbol = Symbol('PageLoadForRequest');

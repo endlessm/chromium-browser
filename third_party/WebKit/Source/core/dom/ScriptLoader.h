@@ -26,7 +26,7 @@
 #include "core/dom/ScriptRunner.h"
 #include "core/fetch/FetchRequest.h"
 #include "core/fetch/ResourceClient.h"
-#include "core/fetch/ScriptResource.h"
+#include "core/loader/resource/ScriptResource.h"
 #include "wtf/text/TextPosition.h"
 #include "wtf/text/WTFString.h"
 
@@ -38,7 +38,7 @@ class ScriptSourceCode;
 class LocalFrame;
 
 class CORE_EXPORT ScriptLoader : public GarbageCollectedFinalized<ScriptLoader>,
-                                 public ScriptResourceClient {
+                                 public PendingScriptClient {
   USING_GARBAGE_COLLECTED_MIXIN(ScriptLoader);
 
  public:
@@ -127,16 +127,15 @@ class CORE_EXPORT ScriptLoader : public GarbageCollectedFinalized<ScriptLoader>,
  private:
   bool ignoresLoadRequest() const;
   bool isScriptForEventSupported() const;
-  void logScriptMimetype(ScriptResource*, LocalFrame*, String);
+  void logScriptMIMEType(LocalFrame*, ScriptResource*, const String&);
 
   bool fetchScript(const String& sourceUrl, FetchRequest::DeferOption);
   bool doExecuteScript(const ScriptSourceCode&);
 
   ScriptLoaderClient* client() const;
 
-  // ResourceClient
-  void notifyFinished(Resource*) override;
-  String debugName() const override { return "ScriptLoader"; }
+  // PendingScriptClient
+  void pendingScriptFinished(PendingScript*) override;
 
   Member<Element> m_element;
   Member<ScriptResource> m_resource;

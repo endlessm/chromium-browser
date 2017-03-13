@@ -18,6 +18,7 @@
 # chrome's build dependencies are changed.
 
 import hashlib
+import json
 import platform
 import optparse
 import os
@@ -25,6 +26,7 @@ import re
 import shutil
 import subprocess
 import sys
+import urllib2
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.dirname(os.path.dirname(SCRIPT_DIR)))
@@ -36,46 +38,7 @@ import gyp_environment
 URL_PREFIX = 'https://commondatastorage.googleapis.com'
 URL_PATH = 'chrome-linux-sysroot/toolchain'
 
-SYSROOTS = {
-    ('Wheezy', 'amd64'): {
-        'Revision' : '76b5bff8f195819fe17b2e0f773d0a5b427c75f5',
-        'Tarball' : 'debian_wheezy_amd64_sysroot.tgz',
-        'Sha1Sum' : '9fdebab9633a0337a5b0e6d1c01ab15e25a5dbc7',
-        'SysrootDir' : 'debian_wheezy_amd64-sysroot'
-    },
-    ('Wheezy', 'arm'): {
-        'Revision' : '76b5bff8f195819fe17b2e0f773d0a5b427c75f5',
-        'Tarball' : 'debian_wheezy_arm_sysroot.tgz',
-        'Sha1Sum' : '0abadf3af78ce18147426bd017933899bae3f0ad',
-        'SysrootDir' : 'debian_wheezy_arm-sysroot'
-    },
-    ('Wheezy', 'i386'): {
-        'Revision' : '76b5bff8f195819fe17b2e0f773d0a5b427c75f5',
-        'Tarball' : 'debian_wheezy_i386_sysroot.tgz',
-        'Sha1Sum' : '970d5e7eb9c43f20f862690fc88577aacaada27e',
-        'SysrootDir' : 'debian_wheezy_i386-sysroot'
-    },
-    ('Wheezy', 'mips'): {
-        'Revision' : '76b5bff8f195819fe17b2e0f773d0a5b427c75f5',
-        'Tarball' : 'debian_wheezy_mips_sysroot.tgz',
-        'Sha1Sum' : 'df5adf99d64a65eec7e93c4ea2bfec21aab3ae63',
-        'SysrootDir' : 'debian_wheezy_mips-sysroot'
-    },
-    ('Jessie', 'arm64'): {
-        'Revision' : '76b5bff8f195819fe17b2e0f773d0a5b427c75f5',
-        'Tarball' : 'debian_jessie_arm64_sysroot.tgz',
-        'Sha1Sum' : 'a485259703842bf24c81b05e94f7d09e5dd3a8a2',
-        'SysrootDir' : 'debian_jessie_arm64-sysroot'
-    },
-    ('Precise', 'amd64'): {
-        'Revision' : '76b5bff8f195819fe17b2e0f773d0a5b427c75f5',
-        'Tarball' : 'ubuntu_precise_amd64_sysroot.tgz',
-        'Sha1Sum' : 'a3dba43c6be4410df7bd0e251fe7483936c62e32',
-        'SysrootDir' : 'ubuntu_precise_amd64-sysroot'
-    }
-}
-
-valid_archs = ('arm', 'arm64', 'i386', 'amd64', 'mips')
+VALID_ARCHS = ('arm', 'arm64', 'i386', 'amd64', 'mips')
 
 
 class Error(Exception):
@@ -178,8 +141,8 @@ def main(args):
   parser.add_option('--running-as-hook', action='store_true',
                     default=False, help='Used when running from gclient hooks.'
                                         ' Installs default sysroot images.')
-  parser.add_option('--arch', type='choice', choices=valid_archs,
-                    help='Sysroot architecture: %s' % ', '.join(valid_archs))
+  parser.add_option('--arch', type='choice', choices=VALID_ARCHS,
+                    help='Sysroot architecture: %s' % ', '.join(VALID_ARCHS))
   options, _ = parser.parse_args(args)
   if options.running_as_hook and not sys.platform.startswith('linux'):
     return 0
@@ -214,13 +177,16 @@ def InstallDefaultSysrootForArch(target_arch):
 
 def InstallSysroot(target_platform, target_arch):
   # The sysroot directory should match the one specified in build/common.gypi.
-  # TODO(thestig) Consider putting this else where to avoid having to recreate
+  # TODO(thestig) Consider putting this elsewhere to avoid having to recreate
   # it on every build.
   linux_dir = os.path.dirname(SCRIPT_DIR)
 
-  if (target_platform, target_arch) not in SYSROOTS:
+  sysroots_file = os.path.join(SCRIPT_DIR, 'sysroots.json')
+  sysroots = json.load(open(sysroots_file))
+  sysroot_key = '%s_%s' % (target_platform.lower(), target_arch)
+  if sysroot_key not in sysroots:
     raise Error('No sysroot for: %s %s' % (target_platform, target_arch))
-  sysroot_dict = SYSROOTS[(target_platform, target_arch)]
+  sysroot_dict = sysroots[sysroot_key]
   revision = sysroot_dict['Revision']
   tarball_filename = sysroot_dict['Tarball']
   tarball_sha1sum = sysroot_dict['Sha1Sum']
@@ -245,8 +211,16 @@ def InstallSysroot(target_platform, target_arch):
   print 'Downloading %s' % url
   sys.stdout.flush()
   sys.stderr.flush()
-  subprocess.check_call(
-      ['wget', '--quiet', '-t', '3', '-O', tarball, url])
+  for _ in range(3):
+    try:
+      response = urllib2.urlopen(url)
+      with open(tarball, "wb") as f:
+        f.write(response.read())
+      break
+    except:
+      pass
+  else:
+    raise Error('Failed to download %s' % url)
   sha1sum = GetSha1(tarball)
   if sha1sum != tarball_sha1sum:
     raise Error('Tarball sha1sum is wrong.'

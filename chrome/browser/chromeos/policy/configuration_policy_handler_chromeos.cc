@@ -27,6 +27,7 @@
 #include "chromeos/network/onc/onc_utils.h"
 #include "chromeos/network/onc/onc_validator.h"
 #include "components/onc/onc_constants.h"
+#include "components/onc/onc_pref_names.h"
 #include "components/policy/core/browser/policy_error_map.h"
 #include "components/policy/core/common/external_data_fetcher.h"
 #include "components/policy/core/common/policy_map.h"
@@ -123,8 +124,7 @@ std::unique_ptr<base::Value> GetAction(const base::DictionaryValue* dict,
 }  // namespace
 
 ExternalDataPolicyHandler::ExternalDataPolicyHandler(const char* policy_name)
-    : TypeCheckingPolicyHandler(policy_name, base::Value::TYPE_DICTIONARY) {
-}
+    : TypeCheckingPolicyHandler(policy_name, base::Value::Type::DICTIONARY) {}
 
 ExternalDataPolicyHandler::~ExternalDataPolicyHandler() {
 }
@@ -176,18 +176,16 @@ void ExternalDataPolicyHandler::ApplyPolicySettings(const PolicyMap& policies,
 NetworkConfigurationPolicyHandler*
 NetworkConfigurationPolicyHandler::CreateForUserPolicy() {
   return new NetworkConfigurationPolicyHandler(
-      key::kOpenNetworkConfiguration,
-      onc::ONC_SOURCE_USER_POLICY,
-      prefs::kOpenNetworkConfiguration);
+      key::kOpenNetworkConfiguration, onc::ONC_SOURCE_USER_POLICY,
+      onc::prefs::kOpenNetworkConfiguration);
 }
 
 // static
 NetworkConfigurationPolicyHandler*
 NetworkConfigurationPolicyHandler::CreateForDevicePolicy() {
   return new NetworkConfigurationPolicyHandler(
-      key::kDeviceOpenNetworkConfiguration,
-      onc::ONC_SOURCE_DEVICE_POLICY,
-      prefs::kDeviceOpenNetworkConfiguration);
+      key::kDeviceOpenNetworkConfiguration, onc::ONC_SOURCE_DEVICE_POLICY,
+      onc::prefs::kDeviceOpenNetworkConfiguration);
 }
 
 NetworkConfigurationPolicyHandler::~NetworkConfigurationPolicyHandler() {}
@@ -278,10 +276,9 @@ NetworkConfigurationPolicyHandler::NetworkConfigurationPolicyHandler(
     const char* policy_name,
     onc::ONCSource onc_source,
     const char* pref_path)
-    : TypeCheckingPolicyHandler(policy_name, base::Value::TYPE_STRING),
+    : TypeCheckingPolicyHandler(policy_name, base::Value::Type::STRING),
       onc_source_(onc_source),
-      pref_path_(pref_path) {
-}
+      pref_path_(pref_path) {}
 
 // static
 std::unique_ptr<base::Value>

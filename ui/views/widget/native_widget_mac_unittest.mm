@@ -7,6 +7,7 @@
 #import <Cocoa/Cocoa.h>
 
 #import "base/mac/foundation_util.h"
+#include "base/mac/mac_util.h"
 #import "base/mac/scoped_nsautorelease_pool.h"
 #import "base/mac/scoped_nsobject.h"
 #import "base/mac/scoped_objc_class_swizzler.h"
@@ -457,6 +458,8 @@ TEST_F(NativeWidgetMacTest, DISABLED_OrderFrontAfterMiniaturize) {
 // Test minimized states triggered externally, implied visibility and restored
 // bounds whilst minimized.
 TEST_F(NativeWidgetMacTest, MiniaturizeExternally) {
+  if (base::mac::IsOS10_10())
+    return;  // Fails when swarmed. http://crbug.com/660582
   Widget* widget = new Widget;
   Widget::InitParams init_params(Widget::InitParams::TYPE_WINDOW);
   widget->Init(init_params);
@@ -666,10 +669,9 @@ TEST_F(NativeWidgetMacTest, AccessibilityIntegration) {
   widget->CloseNow();
 }
 
-// Tests creating a views::Widget parented off a native NSWindow.
-TEST_F(NativeWidgetMacTest, NonWidgetParent) {
-  NSWindow* native_parent = MakeNativeParent();
+namespace {
 
+Widget* AttachPopupToNativeParent(NSWindow* native_parent) {
   base::scoped_nsobject<NSView> anchor_view(
       [[NSView alloc] initWithFrame:[[native_parent contentView] bounds]]);
   [[native_parent contentView] addSubview:anchor_view];
@@ -682,7 +684,20 @@ TEST_F(NativeWidgetMacTest, NonWidgetParent) {
   init_params.parent = anchor_view;
   init_params.type = Widget::InitParams::TYPE_POPUP;
   child->Init(init_params);
+  return child;
+}
 
+}  // namespace
+
+// Tests creating a views::Widget parented off a native NSWindow.
+TEST_F(NativeWidgetMacTest, NonWidgetParent) {
+  NSWindow* native_parent = MakeNativeParent();
+
+  Widget::Widgets children;
+  Widget::GetAllChildWidgets([native_parent contentView], &children);
+  EXPECT_TRUE(children.empty());
+
+  Widget* child = AttachPopupToNativeParent(native_parent);
   TestWidgetObserver child_observer(child);
 
   // GetTopLevelNativeWidget() only goes as far as there exists a Widget (i.e.
@@ -709,14 +724,19 @@ TEST_F(NativeWidgetMacTest, NonWidgetParent) {
             [[native_parent childWindows] objectAtIndex:0]);
   EXPECT_EQ(native_parent, [child->GetNativeWindow() parentWindow]);
 
+  Widget::GetAllChildWidgets([native_parent contentView], &children);
+  ASSERT_EQ(1u, children.size());
+  EXPECT_EQ(child, *children.begin());
+
   // Only non-toplevel Widgets are positioned relative to the parent, so the
   // bounds set above should be in screen coordinates.
   EXPECT_EQ(child_bounds, child->GetWindowBoundsInScreen());
 
-  // Removing the anchor_view from its view hierarchy is permitted. This should
+  // Removing the anchor view from its view hierarchy is permitted. This should
   // not break the relationship between the two windows.
+  NSView* anchor_view = [[native_parent contentView] subviews][0];
+  EXPECT_TRUE(anchor_view);
   [anchor_view removeFromSuperview];
-  anchor_view.reset();
   EXPECT_EQ(native_parent, bridged_native_widget->parent()->GetNSWindow());
 
   // Closing the parent should close and destroy the child.
@@ -756,6 +776,25 @@ TEST_F(NativeWidgetMacTest, NonWidgetParentLastReference) {
     EXPECT_TRUE(child_dealloced);
   }
   EXPECT_TRUE(native_parent_dealloced);
+}
+
+// Tests visibility for child of native NSWindow, reshowing after -[NSApp hide].
+TEST_F(NativeWidgetMacTest, VisibleAfterNativeParentShow) {
+  NSWindow* native_parent = MakeNativeParent();
+  Widget* child = AttachPopupToNativeParent(native_parent);
+  child->Show();
+  EXPECT_TRUE(child->IsVisible());
+
+  WidgetChangeObserver child_observer(child);
+  [NSApp hide:nil];
+  child_observer.WaitForVisibleCounts(0, 1);
+  EXPECT_FALSE(child->IsVisible());
+
+  [native_parent makeKeyAndOrderFront:nil];
+  child_observer.WaitForVisibleCounts(1, 1);
+  EXPECT_TRUE(child->IsVisible());
+
+  [native_parent close];
 }
 
 // Use Native APIs to query the tooltip text that would be shown once the
@@ -959,6 +998,16 @@ Widget* ShowChildModalWidgetAndWait(NSWindow* native_parent) {
   return modal_dialog_widget;
 }
 
+// Shows a window-modal Widget (as a sheet). No need to wait since the native
+// sheet animation is blocking.
+Widget* ShowWindowModalWidget(NSWindow* native_parent) {
+  Widget* sheet_widget = views::DialogDelegate::CreateDialogWidget(
+      new ModalDialogDelegate(ui::MODAL_TYPE_WINDOW), nullptr,
+      [native_parent contentView]);
+  sheet_widget->Show();
+  return sheet_widget;
+}
+
 }  // namespace
 
 // Tests object lifetime for the show/hide animations used for child-modal
@@ -1023,6 +1072,8 @@ TEST_F(NativeWidgetMacTest, WindowModalSheet) {
       new ModalDialogDelegate(ui::MODAL_TYPE_WINDOW), nullptr,
       [native_parent contentView]);
 
+  WidgetChangeObserver widget_observer(sheet_widget);
+
   // Retain, to run checks after the Widget is torn down.
   base::scoped_nsobject<NSWindow> sheet_window(
       [sheet_widget->GetNativeWindow() retain]);
@@ -1054,12 +1105,42 @@ TEST_F(NativeWidgetMacTest, WindowModalSheet) {
                 *did_observe_ptr = true;
               }];
 
+  Widget::Widgets children;
+  Widget::GetAllChildWidgets([native_parent contentView], &children);
+  EXPECT_TRUE(children.empty());
+
   sheet_widget->Show();  // Should run the above block, then animate the sheet.
   EXPECT_TRUE(did_observe);
   [[NSNotificationCenter defaultCenter] removeObserver:observer];
 
+  // Ensure sheets are included as a child.
+  Widget::GetAllChildWidgets([native_parent contentView], &children);
+  ASSERT_EQ(1u, children.size());
+  EXPECT_EQ(sheet_widget, *children.begin());
+
   // Modal, so the close button in the parent window should get disabled.
   EXPECT_FALSE([parent_close_button isEnabled]);
+
+  // The sheet should be hidden and shown in step with the parent.
+  widget_observer.WaitForVisibleCounts(1, 0);
+  EXPECT_TRUE(sheet_widget->IsVisible());
+
+  // TODO(tapted): Ideally [native_parent orderOut:nil] would also work here.
+  // But it does not. AppKit's childWindow management breaks down after an
+  // -orderOut: (see BridgedNativeWidget::OnVisibilityChanged()). For regular
+  // child windows, BridgedNativeWidget fixes the behavior with its own
+  // management. However, it can't do that for sheets without encountering
+  // http://crbug.com/605098 and http://crbug.com/667602. -[NSApp hide:] makes
+  // the NSWindow hidden in a different way, which does not break like
+  // -orderOut: does. Which is good, because a user can always do -[NSApp
+  // hide:], e.g., with Cmd+h, and that needs to work correctly.
+  [NSApp hide:nil];
+
+  widget_observer.WaitForVisibleCounts(1, 1);
+  EXPECT_FALSE(sheet_widget->IsVisible());
+  [native_parent makeKeyAndOrderFront:nil];
+  widget_observer.WaitForVisibleCounts(2, 1);
+  EXPECT_TRUE(sheet_widget->IsVisible());
 
   // Trigger the close. Don't use CloseNow, since that tears down the UI before
   // the close sheet animation gets a chance to run (so it's banned).
@@ -1084,7 +1165,6 @@ TEST_F(NativeWidgetMacTest, WindowModalSheet) {
 
   // Pump in order to trigger -[NSWindow endSheet:..], which will block while
   // the animation runs, then delete |sheet_widget|.
-  TestWidgetObserver widget_observer(sheet_widget);
   EXPECT_TRUE([sheet_window delegate]);
   base::RunLoop().RunUntilIdle();
   EXPECT_FALSE([sheet_window delegate]);
@@ -1094,6 +1174,53 @@ TEST_F(NativeWidgetMacTest, WindowModalSheet) {
 
   EXPECT_TRUE(widget_observer.widget_closed());
   EXPECT_TRUE([parent_close_button isEnabled]);
+}
+
+// Tests behavior when closing a window that is a sheet, or that hosts a sheet,
+// and reshowing a sheet on a window after the sheet was closed with -[NSWindow
+// close].
+TEST_F(NativeWidgetMacTest, CloseWithWindowModalSheet) {
+  NSWindow* native_parent =
+      MakeNativeParentWithStyle(NSClosableWindowMask | NSTitledWindowMask);
+  {
+    Widget* sheet_widget = ShowWindowModalWidget(native_parent);
+    EXPECT_TRUE([sheet_widget->GetNativeWindow() isVisible]);
+
+    WidgetChangeObserver widget_observer(sheet_widget);
+
+    // Test synchronous close (asynchronous close is tested above).
+    sheet_widget->CloseNow();
+    EXPECT_TRUE(widget_observer.widget_closed());
+
+    // Spin the RunLoop to ensure the task that ends the modal session on
+    // |native_parent| is executed. Otherwise |native_parent| will refuse to
+    // show another sheet.
+    base::RunLoop().RunUntilIdle();
+  }
+
+  {
+    Widget* sheet_widget = ShowWindowModalWidget(native_parent);
+
+    // Ensure the sheet wasn't blocked by a previous modal session.
+    EXPECT_TRUE([sheet_widget->GetNativeWindow() isVisible]);
+
+    WidgetChangeObserver widget_observer(sheet_widget);
+
+    // Test native -[NSWindow close] on the sheet. Does not animate.
+    [sheet_widget->GetNativeWindow() close];
+    EXPECT_TRUE(widget_observer.widget_closed());
+    base::RunLoop().RunUntilIdle();
+  }
+
+  {
+    Widget* sheet_widget = ShowWindowModalWidget(native_parent);
+    EXPECT_TRUE([sheet_widget->GetNativeWindow() isVisible]);
+    WidgetChangeObserver widget_observer(sheet_widget);
+
+    // Test -[NSWindow close] on the parent window.
+    [native_parent close];
+    EXPECT_TRUE(widget_observer.widget_closed());
+  }
 }
 
 // Test calls to Widget::ReparentNativeView() that result in a no-op on Mac.
@@ -1135,9 +1262,8 @@ class ParentCloseMonitor : public WidgetObserver {
     Widget::InitParams init_params(Widget::InitParams::TYPE_WINDOW_FRAMELESS);
     init_params.parent = parent->GetNativeView();
     init_params.bounds = gfx::Rect(100, 100, 100, 100);
-    init_params.native_widget =
-        CreatePlatformNativeWidgetImpl(init_params, child, kStubCapture,
-                                       nullptr);
+    init_params.native_widget = CreatePlatformNativeWidgetImpl(
+        init_params, child, kStubCapture, nullptr);
     child->Init(init_params);
     child->Show();
 
@@ -1154,9 +1280,18 @@ class ParentCloseMonitor : public WidgetObserver {
   }
 
   void OnWidgetDestroying(Widget* child) override {
-    // Upon a parent-triggered close, the NSWindow relationship will already be
-    // removed. The parent should still be open (children are always closed
-    // first), but not have a delegate (since it is being torn down).
+    // Upon a parent-triggered close, the NSWindow relationship will still exist
+    // (it's removed just after OnWidgetDestroying() returns). The parent should
+    // still be open (children are always closed first), but not have a delegate
+    // (since it is being torn down).
+    EXPECT_TRUE([child->GetNativeWindow() parentWindow]);
+    EXPECT_TRUE([parent_nswindow_ isVisible]);
+    EXPECT_FALSE([parent_nswindow_ delegate]);
+
+    EXPECT_FALSE(child_closed_);
+  }
+
+  void OnWidgetDestroyed(Widget* child) override {
     EXPECT_FALSE([child->GetNativeWindow() parentWindow]);
     EXPECT_TRUE([parent_nswindow_ isVisible]);
     EXPECT_FALSE([parent_nswindow_ delegate]);
@@ -1302,7 +1437,7 @@ TEST_F(NativeWidgetMacTest, DoesHideTitle) {
   Widget::InitParams params = CreateParams(Widget::InitParams::TYPE_WINDOW);
   Widget* widget = new Widget;
   params.native_widget =
-        CreatePlatformNativeWidgetImpl(params, widget, kStubCapture, nullptr);
+      CreatePlatformNativeWidgetImpl(params, widget, kStubCapture, nullptr);
   CustomTitleWidgetDelegate delegate(widget);
   params.delegate = &delegate;
   params.bounds = gfx::Rect(0, 0, 800, 600);

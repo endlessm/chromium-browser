@@ -13,38 +13,36 @@ using device::mojom::blink::SensorType;
 namespace blink {
 
 // static
-AmbientLightSensor* AmbientLightSensor::create(ScriptState* scriptState,
-                                               const SensorOptions& options,
-                                               ExceptionState& exceptionState) {
-  return new AmbientLightSensor(scriptState, options, exceptionState);
+AmbientLightSensor* AmbientLightSensor::create(
+    ExecutionContext* executionContext,
+    const SensorOptions& options,
+    ExceptionState& exceptionState) {
+  return new AmbientLightSensor(executionContext, options, exceptionState);
 }
 
 // static
-AmbientLightSensor* AmbientLightSensor::create(ScriptState* scriptState,
-                                               ExceptionState& exceptionState) {
-  return create(scriptState, SensorOptions(), exceptionState);
+AmbientLightSensor* AmbientLightSensor::create(
+    ExecutionContext* executionContext,
+    ExceptionState& exceptionState) {
+  return create(executionContext, SensorOptions(), exceptionState);
 }
 
-AmbientLightSensor::AmbientLightSensor(ScriptState* scriptState,
+AmbientLightSensor::AmbientLightSensor(ExecutionContext* executionContext,
                                        const SensorOptions& options,
                                        ExceptionState& exceptionState)
-    : Sensor(scriptState, options, exceptionState, SensorType::AMBIENT_LIGHT) {}
+    : Sensor(executionContext,
+             options,
+             exceptionState,
+             SensorType::AMBIENT_LIGHT) {}
 
 AmbientLightSensorReading* AmbientLightSensor::reading() const {
   return static_cast<AmbientLightSensorReading*>(Sensor::reading());
 }
 
-SensorReading* AmbientLightSensor::createSensorReading(SensorProxy* proxy) {
-  return AmbientLightSensorReading::create(proxy);
-}
-
-auto AmbientLightSensor::createSensorConfig(
-    const SensorOptions& options,
-    const SensorConfiguration& defaultConfig) -> SensorConfigurationPtr {
-  auto result = device::mojom::blink::SensorConfiguration::New();
-  result->frequency =
-      options.hasFrequency() ? options.frequency() : defaultConfig.frequency;
-  return result;
+std::unique_ptr<SensorReadingFactory>
+AmbientLightSensor::createSensorReadingFactory() {
+  return std::unique_ptr<SensorReadingFactory>(
+      new SensorReadingFactoryImpl<AmbientLightSensorReading>());
 }
 
 DEFINE_TRACE(AmbientLightSensor) {

@@ -28,7 +28,7 @@ tr.exportTo('tr.model', function() {
 
     this.cpus = {};
     this.softwareMeasuredCpuCount_ = undefined;
-  };
+  }
 
   /**
    * Comparison between kernels is pretty meaningless.
@@ -121,14 +121,14 @@ tr.exportTo('tr.model', function() {
       return 'kernel';
     },
 
-    childEventContainers: function*() {
-      yield * ProcessBase.prototype.childEventContainers.call(this);
-      yield * tr.b.dictionaryValues(this.cpus);
+    childEventContainers: function* () {
+      yield* ProcessBase.prototype.childEventContainers.call(this);
+      yield* tr.b.dictionaryValues(this.cpus);
     },
   };
 
   return {
-    Kernel: Kernel
+    Kernel,
   };
 });
 </script>

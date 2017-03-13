@@ -38,7 +38,6 @@ namespace blink {
 class CullRect;
 class GraphicsContext;
 class PlatformMouseEvent;
-class ScrollbarThemePaintParams;
 
 class PLATFORM_EXPORT ScrollbarTheme {
   WTF_MAKE_NONCOPYABLE(ScrollbarTheme);
@@ -59,6 +58,10 @@ class PLATFORM_EXPORT ScrollbarTheme {
 
   virtual ScrollbarPart hitTest(const ScrollbarThemeClient&, const IntPoint&);
 
+  // This returns a fixed value regardless of device-scale-factor.
+  // This returns thickness when scrollbar is painted.  i.e. It's not 0 even in
+  // overlay scrollbar mode.
+  // See also Scrollbar::scrollbarThickness().
   virtual int scrollbarThickness(ScrollbarControlSize = RegularScrollbar) {
     return 0;
   }
@@ -70,7 +73,14 @@ class PLATFORM_EXPORT ScrollbarTheme {
 
   virtual bool supportsControlTints() const { return false; }
   virtual bool usesOverlayScrollbars() const { return false; }
-  virtual void updateScrollbarOverlayStyle(const ScrollbarThemeClient&) {}
+  virtual void updateScrollbarOverlayColorTheme(const ScrollbarThemeClient&) {}
+
+  // If true, scrollbars that become invisible (i.e. overlay scrollbars that
+  // fade out) should be marked as disabled. This option exists since Mac and
+  // Aura overlays implement the fade out differently, with Mac painting code
+  // fading out the scrollbars. Aura scrollbars require disabling the scrollbar
+  // to prevent painting it.
+  virtual bool shouldDisableInvisibleScrollbars() const { return true; }
 
   virtual bool invalidateOnMouseEnterExit() { return false; }
   virtual bool invalidateOnWindowActiveChange() const { return false; }
@@ -84,12 +94,16 @@ class PLATFORM_EXPORT ScrollbarTheme {
     return AllParts;
   }
 
+  // Returns parts of the scrollbar which must be repainted following a change
+  // in enabled state.
+  virtual ScrollbarPart invalidateOnEnabledChange() const { return AllParts; }
+
   virtual void paintScrollCorner(GraphicsContext&,
                                  const DisplayItemClient&,
                                  const IntRect& cornerRect);
   virtual void paintTickmarks(GraphicsContext&,
                               const Scrollbar&,
-                              const IntRect&) {}
+                              const IntRect&);
 
   virtual bool shouldCenterOnThumb(const ScrollbarThemeClient&,
                                    const PlatformMouseEvent&);
@@ -104,6 +118,8 @@ class PLATFORM_EXPORT ScrollbarTheme {
   int thumbPosition(const ScrollbarThemeClient& scrollbar) {
     return thumbPosition(scrollbar, scrollbar.currentPos());
   }
+  virtual double overlayScrollbarFadeOutDelaySeconds() const;
+  virtual double overlayScrollbarFadeOutDurationSeconds() const;
   // The position the thumb would have, relative to the track, at the specified
   // scroll position.
   virtual int thumbPosition(const ScrollbarThemeClient&, float scrollPosition);
@@ -175,6 +191,7 @@ class PLATFORM_EXPORT ScrollbarTheme {
   static bool mockScrollbarsEnabled();
 
  protected:
+  virtual int tickmarkBorderWidth() { return 0; }
   static DisplayItem::Type buttonPartToDisplayItemType(ScrollbarPart);
   static DisplayItem::Type trackPiecePartToDisplayItemType(ScrollbarPart);
 

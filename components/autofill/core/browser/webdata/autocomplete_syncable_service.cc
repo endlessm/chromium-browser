@@ -13,8 +13,8 @@
 #include "base/strings/utf_string_conversions.h"
 #include "components/autofill/core/browser/webdata/autofill_table.h"
 #include "components/autofill/core/browser/webdata/autofill_webdata_service.h"
-#include "components/sync/api/sync_error.h"
-#include "components/sync/api/sync_error_factory.h"
+#include "components/sync/model/sync_error.h"
+#include "components/sync/model/sync_error_factory.h"
 #include "components/sync/protocol/autofill_specifics.pb.h"
 #include "components/sync/protocol/sync.pb.h"
 #include "components/webdata/common/web_database.h"
@@ -317,7 +317,7 @@ void AutocompleteSyncableService::CreateOrUpdateEntry(
   if (it == loaded_data->end()) {
     // New entry.
     base::Time date_created, date_last_used;
-    if (timestamps.size() > 0) {
+    if (!timestamps.empty()) {
       date_created = base::Time::FromInternalValue(*timestamps.begin());
       date_last_used = base::Time::FromInternalValue(*timestamps.rbegin());
     }

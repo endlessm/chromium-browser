@@ -4,9 +4,11 @@
 
 #include "ui/base/ime/input_method_factory.h"
 
+#include "base/command_line.h"
 #include "base/memory/ptr_util.h"
 #include "build/build_config.h"
 #include "ui/base/ime/mock_input_method.h"
+#include "ui/gfx/switches.h"
 
 #if defined(OS_CHROMEOS)
 #include "ui/base/ime/input_method_chromeos.h"
@@ -14,8 +16,7 @@
 #include "ui/base/ime/input_method_win.h"
 #elif defined(OS_MACOSX)
 #include "ui/base/ime/input_method_mac.h"
-#elif defined(USE_AURA) && defined(OS_LINUX) && defined(USE_X11) && \
-      !defined(OS_CHROMEOS)
+#elif defined(USE_AURA) && defined(OS_LINUX) && defined(USE_X11)
 #include "ui/base/ime/input_method_auralinux.h"
 #elif defined(OS_ANDROID)
 #include "ui/base/ime/input_method_android.h"
@@ -50,14 +51,16 @@ std::unique_ptr<InputMethod> CreateInputMethod(
   if (g_input_method_set_for_testing)
     return base::MakeUnique<MockInputMethod>(delegate);
 
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(switches::kHeadless))
+    return base::WrapUnique(new MockInputMethod(delegate));
+
 #if defined(OS_CHROMEOS)
   return base::MakeUnique<InputMethodChromeOS>(delegate);
 #elif defined(OS_WIN)
   return base::MakeUnique<InputMethodWin>(delegate, widget);
 #elif defined(OS_MACOSX)
   return base::MakeUnique<InputMethodMac>(delegate);
-#elif defined(USE_AURA) && defined(OS_LINUX) && defined(USE_X11) && \
-      !defined(OS_CHROMEOS)
+#elif defined(USE_AURA) && defined(OS_LINUX) && defined(USE_X11)
   return base::MakeUnique<InputMethodAuraLinux>(delegate);
 #elif defined(OS_ANDROID)
   return base::MakeUnique<InputMethodAndroid>(delegate);

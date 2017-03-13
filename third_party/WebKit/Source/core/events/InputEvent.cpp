@@ -18,7 +18,6 @@ const struct {
 } kInputTypeStringNameMap[] = {
     {InputEvent::InputType::None, ""},
     {InputEvent::InputType::InsertText, "insertText"},
-    {InputEvent::InputType::InsertNonText, "insertNonText"},
     {InputEvent::InputType::InsertLineBreak, "insertLineBreak"},
     {InputEvent::InputType::InsertParagraph, "insertParagraph"},
     {InputEvent::InputType::InsertOrderedList, "insertOrderedList"},
@@ -26,6 +25,7 @@ const struct {
     {InputEvent::InputType::InsertHorizontalRule, "insertHorizontalRule"},
     {InputEvent::InputType::InsertFromPaste, "insertFromPaste"},
     {InputEvent::InputType::InsertFromDrop, "insertFromDrop"},
+    {InputEvent::InputType::InsertReplacementText, "insertReplacementText"},
     {InputEvent::InputType::DeleteComposedCharacterForward,
      "deleteComposedCharacterForward"},
     {InputEvent::InputType::DeleteComposedCharacterBackward,
@@ -38,30 +38,23 @@ const struct {
     {InputEvent::InputType::DeleteContentForward, "deleteContentForward"},
     {InputEvent::InputType::DeleteByCut, "deleteByCut"},
     {InputEvent::InputType::DeleteByDrag, "deleteByDrag"},
-    {InputEvent::InputType::Undo, "undo"},
-    {InputEvent::InputType::Redo, "redo"},
-    {InputEvent::InputType::Bold, "bold"},
-    {InputEvent::InputType::Italic, "italic"},
-    {InputEvent::InputType::Underline, "underline"},
-    {InputEvent::InputType::StrikeThrough, "strikeThrough"},
-    {InputEvent::InputType::Superscript, "superscript"},
-    {InputEvent::InputType::Subscript, "subscript"},
-    {InputEvent::InputType::JustifyCenter, "justifyCenter"},
-    {InputEvent::InputType::JustifyRight, "justifyRight"},
-    {InputEvent::InputType::JustifyLeft, "justifyLeft"},
-    {InputEvent::InputType::Indent, "indent"},
-    {InputEvent::InputType::Outdent, "outdent"},
-    {InputEvent::InputType::RemoveFormat, "removeFormat"},
-    {InputEvent::InputType::JustifyFull, "justifyFull"},
-    {InputEvent::InputType::SetColor, "setColor"},
-    {InputEvent::InputType::SetBackgroundColor, "setBackgroundColor"},
-    {InputEvent::InputType::SetFont, "setFont"},
-    {InputEvent::InputType::ChangeAttributes, "changeAttributes"},
-    {InputEvent::InputType::SetWritingDirection, "setWritingDirection"},
-    {InputEvent::InputType::Unscript, "unscript"},
-    {InputEvent::InputType::CreateLink, "createLink"},
-    {InputEvent::InputType::Unlink, "unlink"},
-    {InputEvent::InputType::FormatBlock, "formatBlock"},
+    {InputEvent::InputType::HistoryUndo, "historyUndo"},
+    {InputEvent::InputType::HistoryRedo, "historyRedo"},
+    {InputEvent::InputType::FormatBold, "formatBold"},
+    {InputEvent::InputType::FormatItalic, "formatItalic"},
+    {InputEvent::InputType::FormatUnderline, "formatUnderline"},
+    {InputEvent::InputType::FormatStrikeThrough, "formatStrikeThrough"},
+    {InputEvent::InputType::FormatSuperscript, "formatSuperscript"},
+    {InputEvent::InputType::FormatSubscript, "formatSubscript"},
+    {InputEvent::InputType::FormatJustifyCenter, "formatJustifyCenter"},
+    {InputEvent::InputType::FormatJustifyFull, "formatJustifyFull"},
+    {InputEvent::InputType::FormatJustifyRight, "formatJustifyRight"},
+    {InputEvent::InputType::FormatJustifyLeft, "formatJustifyLeft"},
+    {InputEvent::InputType::FormatIndent, "formatIndent"},
+    {InputEvent::InputType::FormatOutdent, "formatOutdent"},
+    {InputEvent::InputType::FormatRemove, "formatRemove"},
+    {InputEvent::InputType::FormatSetBlockTextDirection,
+     "formatSetBlockTextDirection"},
 };
 
 static_assert(
@@ -125,7 +118,7 @@ InputEvent* InputEvent::createBeforeInput(InputType inputType,
   inputEventInit.setIsComposing(isComposing == IsComposing);
   if (ranges)
     inputEventInit.setRanges(*ranges);
-
+  inputEventInit.setComposed(true);
   return InputEvent::create(EventTypeNames::beforeinput, inputEventInit);
 }
 
@@ -144,7 +137,7 @@ InputEvent* InputEvent::createBeforeInput(InputType inputType,
   inputEventInit.setIsComposing(isComposing == IsComposing);
   if (ranges)
     inputEventInit.setRanges(*ranges);
-
+  inputEventInit.setComposed(true);
   return InputEvent::create(EventTypeNames::beforeinput, inputEventInit);
 }
 
@@ -165,7 +158,7 @@ InputEvent* InputEvent::createInput(InputType inputType,
   inputEventInit.setIsComposing(isComposing == IsComposing);
   if (ranges)
     inputEventInit.setRanges(*ranges);
-
+  inputEventInit.setComposed(true);
   return InputEvent::create(EventTypeNames::input, inputEventInit);
 }
 
@@ -176,7 +169,7 @@ String InputEvent::inputType() const {
 StaticRangeVector InputEvent::getTargetRanges() const {
   StaticRangeVector staticRanges;
   for (const auto& range : m_ranges)
-    staticRanges.append(StaticRange::create(
+    staticRanges.push_back(StaticRange::create(
         range->ownerDocument(), range->startContainer(), range->startOffset(),
         range->endContainer(), range->endOffset()));
   return staticRanges;

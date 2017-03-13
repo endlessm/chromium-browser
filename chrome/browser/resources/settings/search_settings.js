@@ -149,7 +149,13 @@ cr.define('settings', function() {
         if (request.regExp.test(textContent)) {
           foundMatches = true;
           revealParentSection_(node, request.rawQuery_);
-          highlight_(node, textContent.split(request.regExp));
+
+          // Don't highlight <select> nodes, yellow rectangles can't be
+          // displayed within an <option>.
+          // TODO(dpapad): highlight <select> controls with a search bubble
+          // instead.
+          if (node.parentNode.nodeName != 'OPTION')
+            highlight_(node, textContent.split(request.regExp));
         }
         // Returning early since TEXT_NODE nodes never have children.
         return;
@@ -356,8 +362,8 @@ cr.define('settings', function() {
      * @private
      */
     setSectionsVisibility_: function(visible) {
-      var sections = Polymer.dom(
-          this.node.root).querySelectorAll('settings-section');
+      var sections = this.node.querySelectorAll('settings-section');
+
       for (var i = 0; i < sections.length; i++)
         sections[i].hiddenBySearch = !visible;
     },

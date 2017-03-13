@@ -26,7 +26,7 @@
 
 #include "platform/SharedBuffer.h"
 
-#include "platform/tracing/web_process_memory_dump.h"
+#include "platform/instrumentation/tracing/web_process_memory_dump.h"
 #include "wtf/text/UTF8.h"
 #include "wtf/text/Unicode.h"
 
@@ -107,9 +107,9 @@ void SharedBuffer::appendInternal(const char* data, size_t length) {
   char* segment;
   if (!positionInSegment) {
     segment = allocateSegment();
-    m_segments.append(segment);
+    m_segments.push_back(segment);
   } else
-    segment = m_segments.last() + positionInSegment;
+    segment = m_segments.back() + positionInSegment;
 
   size_t segmentFreeSpace = kSegmentSize - positionInSegment;
   size_t bytesToCopy = std::min(length, segmentFreeSpace);
@@ -122,7 +122,7 @@ void SharedBuffer::appendInternal(const char* data, size_t length) {
     length -= bytesToCopy;
     data += bytesToCopy;
     segment = allocateSegment();
-    m_segments.append(segment);
+    m_segments.push_back(segment);
     bytesToCopy = std::min(length, static_cast<size_t>(kSegmentSize));
   }
 }
@@ -180,7 +180,7 @@ size_t SharedBuffer::getSomeDataInternal(const char*& someData,
     return 0;
   }
 
-  ASSERT_WITH_SECURITY_IMPLICATION(position < m_size);
+  SECURITY_DCHECK(position < m_size);
   size_t consecutiveSize = m_buffer.size();
   if (position < consecutiveSize) {
     someData = m_buffer.data() + position;
@@ -255,13 +255,12 @@ void SharedBuffer::onMemoryDump(const String& dumpPrefix,
     dump->addScalar("size", "bytes", m_buffer.size());
     memoryDump->addSuballocation(
         dump->guid(), String(WTF::Partitions::kAllocatedObjectPoolName));
-  }
-  if (m_segments.size()) {
+  } else {
     // If there is data in the segments, then it should have been allocated
     // using fastMalloc.
     const String dataDumpName = dumpPrefix + "/segments";
     auto dump = memoryDump->createMemoryAllocatorDump(dataDumpName);
-    dump->addScalar("size", "bytes", m_size - m_buffer.size());
+    dump->addScalar("size", "bytes", m_size);
     memoryDump->addSuballocation(
         dump->guid(), String(WTF::Partitions::kAllocatedObjectPoolName));
   }

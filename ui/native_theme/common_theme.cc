@@ -36,7 +36,7 @@ SkColor GetAuraColor(NativeTheme::ColorId color_id,
 
       // FocusableBorder
       case NativeTheme::kColorId_UnfocusedBorderColor:
-        return SkColorSetA(SK_ColorBLACK, 0x24);
+        return SkColorSetA(SK_ColorBLACK, 0x33);
 
       // Textfields
       case NativeTheme::kColorId_TextfieldDefaultColor:
@@ -76,23 +76,26 @@ SkColor GetAuraColor(NativeTheme::ColorId color_id,
       SkColorSetA(SK_ColorBLACK, 0x48);
   static const SkColor kMenuSeparatorColor = SkColorSetRGB(0xE9, 0xE9, 0xE9);
   static const SkColor kEnabledMenuItemForegroundColor = SK_ColorBLACK;
+  // Separator:
+  static const SkColor kSeparatorColor = SkColorSetRGB(0xE9, 0xE9, 0xE9);
   // Link:
   static const SkColor kLinkEnabledColor = gfx::kGoogleBlue700;
+  // Text selection colors:
+  static const SkColor kTextSelectionBackgroundFocused =
+      SkColorSetARGB(0x54, 0x60, 0xA8, 0xEB);
+  static const SkColor kTextSelectionColor = color_utils::AlphaBlend(
+      SK_ColorBLACK, kTextSelectionBackgroundFocused, 0xdd);
   // Textfield:
   static const SkColor kTextfieldDefaultColor = SK_ColorBLACK;
   static const SkColor kTextfieldDefaultBackground = SK_ColorWHITE;
   static const SkColor kTextfieldReadOnlyColor = SK_ColorDKGRAY;
   static const SkColor kTextfieldReadOnlyBackground = SK_ColorWHITE;
-  static const SkColor kTextfieldSelectionBackgroundFocused =
-      SkColorSetARGB(0x54, 0x60, 0xA8, 0xEB);
-  static const SkColor kTextfieldSelectionColor = color_utils::AlphaBlend(
-      SK_ColorBLACK, kTextfieldSelectionBackgroundFocused, 0xdd);
   // Results tables:
   static const SkColor kResultsTableText = SK_ColorBLACK;
   static const SkColor kResultsTableDimmedText =
       SkColorSetRGB(0x64, 0x64, 0x64);
   static const SkColor kResultsTableHoveredBackground = color_utils::AlphaBlend(
-      kTextfieldSelectionBackgroundFocused, kTextfieldDefaultBackground, 0x40);
+      kTextSelectionBackgroundFocused, kTextfieldDefaultBackground, 0x40);
   const SkColor kPositiveTextColor = SkColorSetRGB(0x0b, 0x80, 0x43);
   const SkColor kNegativeTextColor = SkColorSetRGB(0xc5, 0x39, 0x29);
   static const SkColor kResultsTablePositiveText = color_utils::AlphaBlend(
@@ -102,7 +105,7 @@ SkColor GetAuraColor(NativeTheme::ColorId color_id,
                               kResultsTableHoveredBackground, 0xDD);
   static const SkColor kResultsTablePositiveSelectedText =
       color_utils::AlphaBlend(kPositiveTextColor,
-                              kTextfieldSelectionBackgroundFocused, 0xDD);
+                              kTextSelectionBackgroundFocused, 0xDD);
   static const SkColor kResultsTableNegativeText = color_utils::AlphaBlend(
       kNegativeTextColor, kTextfieldDefaultBackground, 0xDD);
   static const SkColor kResultsTableNegativeHoveredText =
@@ -110,7 +113,7 @@ SkColor GetAuraColor(NativeTheme::ColorId color_id,
                               kResultsTableHoveredBackground, 0xDD);
   static const SkColor kResultsTableNegativeSelectedText =
       color_utils::AlphaBlend(kNegativeTextColor,
-                              kTextfieldSelectionBackgroundFocused, 0xDD);
+                              kTextSelectionBackgroundFocused, 0xDD);
   // Tooltip:
   static const SkColor kTooltipBackground = SkColorSetA(SK_ColorBLACK, 0xCC);
   static const SkColor kTooltipTextColor = SkColorSetA(SK_ColorWHITE, 0xDE);
@@ -182,6 +185,9 @@ SkColor GetAuraColor(NativeTheme::ColorId color_id,
       return kEnabledMenuItemForegroundColor;
     case NativeTheme::kColorId_DisabledMenuItemForegroundColor:
       return kDisabledMenuItemForegroundColor;
+    case NativeTheme::kColorId_MenuItemSubtitleColor:
+      return base_theme->GetSystemColor(
+          NativeTheme::kColorId_DisabledMenuItemForegroundColor);
 
     // Label
     case NativeTheme::kColorId_LabelEnabledColor:
@@ -189,6 +195,10 @@ SkColor GetAuraColor(NativeTheme::ColorId color_id,
     case NativeTheme::kColorId_LabelDisabledColor:
       return base_theme->GetSystemColor(
           NativeTheme::kColorId_ButtonDisabledColor);
+    case NativeTheme::kColorId_LabelTextSelectionColor:
+      return kTextSelectionColor;
+    case NativeTheme::kColorId_LabelTextSelectionBackgroundFocused:
+      return kTextSelectionBackgroundFocused;
 
     // Link
     // TODO(estade): where, if anywhere, do we use disabled links in Chrome?
@@ -198,6 +208,10 @@ SkColor GetAuraColor(NativeTheme::ColorId color_id,
     case NativeTheme::kColorId_LinkEnabled:
     case NativeTheme::kColorId_LinkPressed:
       return kLinkEnabledColor;
+
+    // Separator
+    case NativeTheme::kColorId_SeparatorColor:
+      return kSeparatorColor;
 
     // Textfield
     case NativeTheme::kColorId_TextfieldDefaultColor:
@@ -209,9 +223,9 @@ SkColor GetAuraColor(NativeTheme::ColorId color_id,
     case NativeTheme::kColorId_TextfieldReadOnlyBackground:
       return kTextfieldReadOnlyBackground;
     case NativeTheme::kColorId_TextfieldSelectionColor:
-      return kTextfieldSelectionColor;
+      return kTextSelectionColor;
     case NativeTheme::kColorId_TextfieldSelectionBackgroundFocused:
-      return kTextfieldSelectionBackgroundFocused;
+      return kTextSelectionBackgroundFocused;
 
     // Tooltip
     case NativeTheme::kColorId_TooltipBackground:

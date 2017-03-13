@@ -14,6 +14,7 @@ import android.view.View;
 
 import org.chromium.base.ContextUtils;
 import org.chromium.chrome.R;
+import org.chromium.chrome.browser.ChromeFeatureList;
 import org.chromium.chrome.browser.device.DeviceClassManager;
 import org.chromium.chrome.browser.preferences.PreferencesLauncher;
 import org.chromium.chrome.browser.preferences.SearchEnginePreference;
@@ -61,6 +62,7 @@ public class GeolocationSnackbarController implements SnackbarController {
     public static void maybeShowSnackbar(final SnackbarManager snackbarManager, View view,
             boolean isIncognito, int delayMs) {
         final Context context = view.getContext();
+        if (ChromeFeatureList.isEnabled(ChromeFeatureList.CONSISTENT_OMNIBOX_GEOLOCATION)) return;
         if (getGeolocationSnackbarShown(context)) return;
 
         // If in incognito mode, don't show the snackbar now, but maybe show it later.
@@ -104,7 +106,7 @@ public class GeolocationSnackbarController implements SnackbarController {
 
         // Don't show the snackbar if Chrome doesn't have location permission since X-Geo won't be
         // sent unless the user explicitly grants this permission.
-        if (!GeolocationHeader.hasGeolocationPermission(context)) return true;
+        if (!GeolocationHeader.hasGeolocationPermission()) return true;
 
         // Don't show the snackbar if Google isn't the default search engine since X-Geo won't be
         // sent unless the user explicitly sets Google as their default search engine and sees that

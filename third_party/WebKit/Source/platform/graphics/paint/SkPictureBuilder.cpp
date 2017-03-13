@@ -13,15 +13,34 @@ namespace blink {
 
 SkPictureBuilder::SkPictureBuilder(const FloatRect& bounds,
                                    SkMetaData* metaData,
-                                   GraphicsContext* containingContext)
-    : m_bounds(bounds) {
+                                   GraphicsContext* containingContext,
+                                   PaintController* paintController)
+    : m_paintController(nullptr), m_bounds(bounds) {
   GraphicsContext::DisabledMode disabledMode = GraphicsContext::NothingDisabled;
   if (containingContext && containingContext->contextDisabled())
     disabledMode = GraphicsContext::FullyDisabled;
 
-  m_paintController = PaintController::create();
-  m_paintController->beginSkippingCache();
-  m_context = wrapUnique(
+  if (paintController) {
+    m_paintController = paintController;
+  } else {
+    m_paintControllerPtr = PaintController::create();
+    m_paintController = m_paintControllerPtr.get();
+
+    // Content painted with a new paint controller in SPv2 will have an
+    // independent property tree set.
+    if (RuntimeEnabledFeatures::slimmingPaintV2Enabled()) {
+      PaintChunk::Id id(*this, DisplayItem::kSVGImage);
+      PropertyTreeState state(
+          TransformPaintPropertyNode::root(), ClipPaintPropertyNode::root(),
+          EffectPaintPropertyNode::root(), ScrollPaintPropertyNode::root());
+      m_paintController->updateCurrentPaintChunkProperties(&id, state);
+    }
+  }
+#if DCHECK_IS_ON()
+  m_paintController->setUsage(PaintController::ForSkPictureBuilder);
+#endif
+
+  m_context = WTF::wrapUnique(
       new GraphicsContext(*m_paintController, disabledMode, metaData));
 
   if (containingContext) {
@@ -30,11 +49,14 @@ SkPictureBuilder::SkPictureBuilder(const FloatRect& bounds,
   }
 }
 
-SkPictureBuilder::~SkPictureBuilder() {}
+SkPictureBuilder::~SkPictureBuilder() {
+#if DCHECK_IS_ON()
+  m_paintController->setUsage(PaintController::ForNormalUsage);
+#endif
+}
 
 sk_sp<SkPicture> SkPictureBuilder::endRecording() {
   m_context->beginRecording(m_bounds);
-  m_paintController->endSkippingCache();
   m_paintController->commitNewDisplayItems();
   m_paintController->paintArtifact().replay(*m_context);
   return m_context->endRecording();

@@ -9,10 +9,6 @@
 
 #include <utility>
 
-#include <openssl/bio.h>
-#include <openssl/evp.h>
-#include <openssl/pem.h>
-
 #include "base/callback_helpers.h"
 #include "base/files/file_util.h"
 #include "base/location.h"
@@ -22,7 +18,7 @@
 #include "base/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
-#include "crypto/scoped_openssl_types.h"
+#include "base/values.h"
 #include "net/base/address_list.h"
 #include "net/base/io_buffer.h"
 #include "net/base/net_errors.h"
@@ -31,7 +27,9 @@
 #include "net/cert/ct_policy_enforcer.h"
 #include "net/cert/ct_policy_status.h"
 #include "net/cert/ct_verifier.h"
+#include "net/cert/do_nothing_ct_verifier.h"
 #include "net/cert/mock_cert_verifier.h"
+#include "net/cert/signed_certificate_timestamp_and_status.h"
 #include "net/cert/test_root_certs.h"
 #include "net/der/input.h"
 #include "net/der/parser.h"
@@ -46,6 +44,7 @@
 #include "net/socket/client_socket_factory.h"
 #include "net/socket/client_socket_handle.h"
 #include "net/socket/socket_test_util.h"
+#include "net/socket/stream_socket.h"
 #include "net/socket/tcp_client_socket.h"
 #include "net/ssl/channel_id_service.h"
 #include "net/ssl/default_channel_id_store.h"
@@ -61,6 +60,9 @@
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "testing/platform_test.h"
+#include "third_party/boringssl/src/include/openssl/bio.h"
+#include "third_party/boringssl/src/include/openssl/evp.h"
+#include "third_party/boringssl/src/include/openssl/pem.h"
 
 using net::test::IsError;
 using net::test::IsOk;
@@ -110,8 +112,8 @@ class WrappedStreamSocket : public StreamSocket {
   }
   void SetOmniboxSpeculation() override { transport_->SetOmniboxSpeculation(); }
   bool WasEverUsed() const override { return transport_->WasEverUsed(); }
-  bool WasNpnNegotiated() const override {
-    return transport_->WasNpnNegotiated();
+  bool WasAlpnNegotiated() const override {
+    return transport_->WasAlpnNegotiated();
   }
   NextProto GetNegotiatedProtocol() const override {
     return transport_->GetNegotiatedProtocol();
@@ -703,11 +705,11 @@ class AsyncFailingChannelIDStore : public ChannelIDStore {
 class MockCTVerifier : public CTVerifier {
  public:
   MOCK_METHOD5(Verify,
-               int(X509Certificate*,
-                   const std::string&,
-                   const std::string&,
-                   ct::CTVerifyResult*,
-                   const NetLogWithSource&));
+               void(X509Certificate*,
+                    base::StringPiece,
+                    base::StringPiece,
+                    SignedCertificateTimestampAndStatusList*,
+                    const NetLogWithSource&));
   MOCK_METHOD1(SetObserver, void(CTVerifier::Observer*));
 };
 
@@ -737,7 +739,7 @@ class SSLClientSocketTest : public PlatformTest {
       : socket_factory_(ClientSocketFactory::GetDefaultFactory()),
         cert_verifier_(new MockCertVerifier),
         transport_security_state_(new TransportSecurityState),
-        ct_verifier_(new MockCTVerifier),
+        ct_verifier_(new DoNothingCTVerifier),
         ct_policy_enforcer_(new MockCTPolicyEnforcer) {
     cert_verifier_->set_default_result(OK);
     context_.cert_verifier = cert_verifier_.get();
@@ -745,8 +747,6 @@ class SSLClientSocketTest : public PlatformTest {
     context_.cert_transparency_verifier = ct_verifier_.get();
     context_.ct_policy_enforcer = ct_policy_enforcer_.get();
 
-    EXPECT_CALL(*ct_verifier_, Verify(_, _, _, _, _))
-        .WillRepeatedly(Return(OK));
     EXPECT_CALL(*ct_policy_enforcer_, DoesConformToCertPolicy(_, _, _))
         .WillRepeatedly(
             Return(ct::CertPolicyCompliance::CERT_POLICY_COMPLIES_VIA_SCTS));
@@ -844,7 +844,7 @@ class SSLClientSocketTest : public PlatformTest {
   ClientSocketFactory* socket_factory_;
   std::unique_ptr<MockCertVerifier> cert_verifier_;
   std::unique_ptr<TransportSecurityState> transport_security_state_;
-  std::unique_ptr<MockCTVerifier> ct_verifier_;
+  std::unique_ptr<DoNothingCTVerifier> ct_verifier_;
   std::unique_ptr<MockCTPolicyEnforcer> ct_policy_enforcer_;
   SSLClientSocketContext context_;
   std::unique_ptr<SSLClientSocket> sock_;
@@ -1255,7 +1255,7 @@ TEST_F(SSLClientSocketTest, Read) {
 }
 
 // Tests that SSLClientSocket properly handles when the underlying transport
-// synchronously fails a transport read in during the handshake.
+// synchronously fails a transport write in during the handshake.
 TEST_F(SSLClientSocketTest, Connect_WithSynchronousError) {
   ASSERT_TRUE(StartTestServer(SpawnedTestServer::SSLOptions()));
 
@@ -1643,32 +1643,29 @@ TEST_F(SSLClientSocketTest, Read_WithWriteError) {
 
   raw_error_socket->SetNextWriteError(ERR_CONNECTION_RESET);
 
-  // Write as much data as possible until hitting an error. This is necessary
-  // for NSS. PR_Write will only consume as much data as it can encode into
-  // application data records before the internal memio buffer is full, which
-  // should only fill if writing a large amount of data and the underlying
-  // transport is blocked. Once this happens, NSS will return (total size of all
-  // application data records it wrote) - 1, with the caller expected to resume
-  // with the remaining unsent data.
+  // Write as much data as possible until hitting an error.
   do {
     rv = callback.GetResult(sock->Write(long_request_buffer.get(),
                                         long_request_buffer->BytesRemaining(),
                                         callback.callback()));
     if (rv > 0) {
       long_request_buffer->DidConsume(rv);
-      // Abort if the entire buffer is ever consumed.
+      // Abort if the entire input is ever consumed. The input is larger than
+      // the SSLClientSocket's write buffers.
       ASSERT_LT(0, long_request_buffer->BytesRemaining());
     }
   } while (rv > 0);
 
   EXPECT_THAT(rv, IsError(ERR_CONNECTION_RESET));
 
-  // Release the read.
-  raw_transport->UnblockReadResult();
+  // At this point the Read result is available. Transport write errors are
+  // surfaced through Writes. See https://crbug.com/249848.
   rv = read_callback.WaitForResult();
+  EXPECT_THAT(rv, IsError(ERR_CONNECTION_RESET));
 
-  // Should still read bytes despite the write error.
-  EXPECT_LT(0, rv);
+  // Release the read. This does not cause a crash.
+  raw_transport->UnblockReadResult();
+  base::RunLoop().RunUntilIdle();
 }
 
 // Tests that SSLClientSocket fails the handshake if the underlying
@@ -2302,9 +2299,11 @@ TEST_F(SSLClientSocketCertRequestInfoTest, CertKeyTypes) {
 }
 
 TEST_F(SSLClientSocketTest, ConnectSignedCertTimestampsEnabledTLSExtension) {
-  SpawnedTestServer::SSLOptions ssl_options;
-  ssl_options.signed_cert_timestamps_tls_ext = "test";
+  // Encoding of SCT List containing 'test'.
+  base::StringPiece sct_ext("\x00\x06\x00\x04test", 8);
 
+  SpawnedTestServer::SSLOptions ssl_options;
+  ssl_options.signed_cert_timestamps_tls_ext = sct_ext.as_string();
   ASSERT_TRUE(StartTestServer(ssl_options));
 
   SSLConfig ssl_config;
@@ -2313,36 +2312,17 @@ TEST_F(SSLClientSocketTest, ConnectSignedCertTimestampsEnabledTLSExtension) {
   MockCTVerifier ct_verifier;
   SetCTVerifier(&ct_verifier);
 
-  // Check that the SCT list is extracted as expected.
-  EXPECT_CALL(ct_verifier, Verify(_, "", "test", _, _)).WillRepeatedly(
-      Return(ERR_CT_NO_SCTS_VERIFIED_OK));
+  // Check that the SCT list is extracted from the TLS extension as expected,
+  // while also simulating that it was an unparsable response.
+  SignedCertificateTimestampAndStatusList sct_list;
+  EXPECT_CALL(ct_verifier, Verify(_, _, sct_ext, _, _))
+      .WillOnce(testing::SetArgPointee<3>(sct_list));
 
   int rv;
   ASSERT_TRUE(CreateAndConnectSSLClientSocket(ssl_config, &rv));
   EXPECT_THAT(rv, IsOk());
 
   EXPECT_TRUE(sock_->signed_cert_timestamps_received_);
-}
-
-// Test that when an EV certificate is received, but no CT verifier
-// or certificate policy enforcer are defined, then the EV status
-// of the certificate is maintained.
-TEST_F(SSLClientSocketTest, EVCertStatusMaintainedNoCTVerifier) {
-  SpawnedTestServer::SSLOptions ssl_options;
-  ASSERT_TRUE(StartTestServer(ssl_options));
-
-  SSLConfig ssl_config;
-  AddServerCertStatusToSSLConfig(CERT_STATUS_IS_EV, &ssl_config);
-
-  // No verifier to skip CT and policy checks.
-  int rv;
-  ASSERT_TRUE(CreateAndConnectSSLClientSocket(ssl_config, &rv));
-  EXPECT_THAT(rv, IsOk());
-
-  SSLInfo result;
-  ASSERT_TRUE(sock_->GetSSLInfo(&result));
-
-  EXPECT_TRUE(result.cert_status & CERT_STATUS_IS_EV);
 }
 
 // Test that when a CT verifier and a CTPolicyEnforcer are defined, and
@@ -2354,12 +2334,6 @@ TEST_F(SSLClientSocketTest, EVCertStatusMaintainedForCompliantCert) {
 
   SSLConfig ssl_config;
   AddServerCertStatusToSSLConfig(CERT_STATUS_IS_EV, &ssl_config);
-
-  // To activate the CT/EV policy enforcement non-null CTVerifier and
-  // CTPolicyEnforcer are needed.
-  MockCTVerifier ct_verifier;
-  SetCTVerifier(&ct_verifier);
-  EXPECT_CALL(ct_verifier, Verify(_, "", "", _, _)).WillRepeatedly(Return(OK));
 
   // Emulate compliance of the certificate to the policy.
   MockCTPolicyEnforcer policy_enforcer;
@@ -2391,12 +2365,6 @@ TEST_F(SSLClientSocketTest, EVCertStatusRemovedForNonCompliantCert) {
   SSLConfig ssl_config;
   AddServerCertStatusToSSLConfig(CERT_STATUS_IS_EV, &ssl_config);
 
-  // To activate the CT/EV policy enforcement non-null CTVerifier and
-  // CTPolicyEnforcer are needed.
-  MockCTVerifier ct_verifier;
-  SetCTVerifier(&ct_verifier);
-  EXPECT_CALL(ct_verifier, Verify(_, "", "", _, _)).WillRepeatedly(Return(OK));
-
   // Emulate non-compliance of the certificate to the policy.
   MockCTPolicyEnforcer policy_enforcer;
   SetCTPolicyEnforcer(&policy_enforcer);
@@ -2418,20 +2386,6 @@ TEST_F(SSLClientSocketTest, EVCertStatusRemovedForNonCompliantCert) {
   EXPECT_TRUE(result.cert_status & CERT_STATUS_CT_COMPLIANCE_FAILED);
 }
 
-namespace {
-
-bool IsValidOCSPResponse(const base::StringPiece& input) {
-  der::Parser parser((der::Input(input)));
-  der::Parser sequence;
-  return parser.ReadSequence(&sequence) && !parser.HasMore() &&
-         sequence.SkipTag(der::kEnumerated) &&
-         sequence.SkipTag(der::kTagContextSpecific | der::kTagConstructed |
-                          0) &&
-         !sequence.HasMore();
-}
-
-}  // namespace
-
 // Test that enabling Signed Certificate Timestamps enables OCSP stapling.
 TEST_F(SSLClientSocketTest, ConnectSignedCertTimestampsEnabledOCSP) {
   SpawnedTestServer::SSLOptions ssl_options;
@@ -2447,18 +2401,6 @@ TEST_F(SSLClientSocketTest, ConnectSignedCertTimestampsEnabledOCSP) {
   // Certificate Transparency verification regardless of whether the platform
   // is able to process the OCSP status itself.
   ssl_config.signed_cert_timestamps_enabled = true;
-
-  MockCTVerifier ct_verifier;
-  SetCTVerifier(&ct_verifier);
-
-  // Check that the OCSP response is extracted and well-formed. It should be the
-  // DER encoding of an OCSPResponse (RFC 2560), so check that it consists of a
-  // SEQUENCE of an ENUMERATED type and an element tagged with [0] EXPLICIT. In
-  // particular, it should not include the overall two-byte length prefix from
-  // TLS.
-  EXPECT_CALL(ct_verifier,
-              Verify(_, Truly(IsValidOCSPResponse), "", _, _)).WillRepeatedly(
-                  Return(ERR_CT_NO_SCTS_VERIFIED_OK));
 
   int rv;
   ASSERT_TRUE(CreateAndConnectSSLClientSocket(ssl_config, &rv));
@@ -3140,13 +3082,13 @@ scoped_refptr<SSLPrivateKey> LoadPrivateKeyOpenSSL(
     LOG(ERROR) << "Could not read private key file: " << filepath.value();
     return nullptr;
   }
-  crypto::ScopedBIO bio(BIO_new_mem_buf(const_cast<char*>(data.data()),
-                                        static_cast<int>(data.size())));
+  bssl::UniquePtr<BIO> bio(BIO_new_mem_buf(const_cast<char*>(data.data()),
+                                           static_cast<int>(data.size())));
   if (!bio) {
     LOG(ERROR) << "Could not allocate BIO for buffer?";
     return nullptr;
   }
-  crypto::ScopedEVP_PKEY result(
+  bssl::UniquePtr<EVP_PKEY> result(
       PEM_read_bio_PrivateKey(bio.get(), nullptr, nullptr, nullptr));
   if (!result) {
     LOG(ERROR) << "Could not decode private key file: " << filepath.value();
@@ -3674,6 +3616,35 @@ TEST_F(SSLClientSocketTest, AccessDeniedClientCerts) {
 
   rv = callback.GetResult(rv);
   EXPECT_THAT(rv, IsError(ERR_BAD_SSL_CLIENT_AUTH_CERT));
+}
+
+// Basic test for dumping memory stats.
+TEST_F(SSLClientSocketTest, DumpMemoryStats) {
+  ASSERT_TRUE(StartTestServer(SpawnedTestServer::SSLOptions()));
+
+  int rv;
+  ASSERT_TRUE(CreateAndConnectSSLClientSocket(SSLConfig(), &rv));
+  EXPECT_THAT(rv, IsOk());
+  StreamSocket::SocketMemoryStats stats;
+  sock_->DumpMemoryStats(&stats);
+  EXPECT_EQ(0u, stats.buffer_size);
+  EXPECT_EQ(1u, stats.cert_count);
+  EXPECT_LT(0u, stats.serialized_cert_size);
+  EXPECT_EQ(stats.serialized_cert_size, stats.total_size);
+
+  // Read the response without writing a request, so the read will be pending.
+  TestCompletionCallback read_callback;
+  scoped_refptr<IOBuffer> buf(new IOBuffer(4096));
+  rv = sock_->Read(buf.get(), 4096, read_callback.callback());
+  EXPECT_EQ(ERR_IO_PENDING, rv);
+
+  // Dump memory again and check that |buffer_size| contain the read buffer.
+  StreamSocket::SocketMemoryStats stats2;
+  sock_->DumpMemoryStats(&stats2);
+  EXPECT_EQ(17 * 1024u, stats2.buffer_size);
+  EXPECT_EQ(1u, stats2.cert_count);
+  EXPECT_LT(0u, stats2.serialized_cert_size);
+  EXPECT_LT(17 * 1024u, stats2.total_size);
 }
 
 }  // namespace net

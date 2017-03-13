@@ -17,6 +17,7 @@
 #include "content/browser/service_worker/service_worker_version.h"
 #include "content/common/service_worker/embedded_worker_messages.h"
 #include "content/common/service_worker/service_worker_messages.h"
+#include "content/common/service_worker/service_worker_types.h"
 #include "content/public/test/mock_resource_context.h"
 #include "content/public/test/test_browser_thread_bundle.h"
 #include "ipc/ipc_message.h"
@@ -93,6 +94,7 @@ class ServiceWorkerHandleTest : public testing::Test {
     records.push_back(
         ServiceWorkerDatabase::ResourceRecord(10, version_->script_url(), 100));
     version_->script_cache_map()->SetResources(records);
+    version_->SetMainScriptHttpResponseInfo(net::HttpResponseInfo());
     version_->set_fetch_handler_existence(
         ServiceWorkerVersion::FetchHandlerExistence::EXISTS);
     version_->SetStatus(ServiceWorkerVersion::INSTALLING);
@@ -156,16 +158,16 @@ TEST_F(ServiceWorkerHandleTest, OnVersionStateChanged) {
   // ...update state to installed.
   version_->SetStatus(ServiceWorkerVersion::INSTALLED);
 
-  ASSERT_EQ(2UL, ipc_sink()->message_count());
   ASSERT_EQ(0L, dispatcher_host_->bad_message_received_count_);
 
-  // We should be sending 1. StartWorker,
-  EXPECT_EQ(EmbeddedWorkerMsg_StartWorker::ID,
-            ipc_sink()->GetMessageAt(0)->type());
-  // 2. StateChanged (state == Installed).
+  const IPC::Message* message = nullptr;
+  // StartWorker shouldn't be recorded here.
+  ASSERT_EQ(1UL, ipc_sink()->message_count());
+  message = ipc_sink()->GetMessageAt(0);
+
+  // StateChanged (state == Installed).
   VerifyStateChangedMessage(handle->handle_id(),
-                            blink::WebServiceWorkerStateInstalled,
-                            ipc_sink()->GetMessageAt(1));
+                            blink::WebServiceWorkerStateInstalled, message);
 }
 
 }  // namespace content

@@ -21,6 +21,8 @@ ContextState::EnableFlags::EnableFlags()
       cached_depth_test(false),
       dither(true),
       cached_dither(true),
+      framebuffer_srgb_ext(true),
+      cached_framebuffer_srgb_ext(true),
       polygon_offset_fill(false),
       cached_polygon_offset_fill(false),
       sample_alpha_to_coverage(false),
@@ -301,7 +303,7 @@ void ContextState::InitState(const ContextState* prev_state) const {
       }
     }
     if ((line_width != prev_state->line_width))
-      glLineWidth(line_width);
+      DoLineWidth(line_width);
     if (feature_info_->feature_flags().chromium_path_rendering) {
       if (memcmp(prev_state->modelview_matrix, modelview_matrix,
                  sizeof(GLfloat) * 16)) {
@@ -394,7 +396,7 @@ void ContextState::InitState(const ContextState* prev_state) const {
       glHint(GL_FRAGMENT_SHADER_DERIVATIVE_HINT_OES,
              hint_fragment_shader_derivative);
     }
-    glLineWidth(line_width);
+    DoLineWidth(line_width);
     if (feature_info_->feature_flags().chromium_path_rendering) {
       glMatrixLoadfEXT(GL_PATH_MODELVIEW_CHROMIUM, modelview_matrix);
     }
@@ -433,6 +435,8 @@ bool ContextState::GetEnabled(GLenum cap) const {
       return enable_flags.depth_test;
     case GL_DITHER:
       return enable_flags.dither;
+    case GL_FRAMEBUFFER_SRGB_EXT:
+      return enable_flags.framebuffer_srgb_ext;
     case GL_POLYGON_OFFSET_FILL:
       return enable_flags.polygon_offset_fill;
     case GL_SAMPLE_ALPHA_TO_COVERAGE:
@@ -833,6 +837,12 @@ bool ContextState::GetStateAsGLint(GLenum pname,
       *num_written = 1;
       if (params) {
         params[0] = static_cast<GLint>(enable_flags.dither);
+      }
+      return true;
+    case GL_FRAMEBUFFER_SRGB_EXT:
+      *num_written = 1;
+      if (params) {
+        params[0] = static_cast<GLint>(enable_flags.framebuffer_srgb_ext);
       }
       return true;
     case GL_POLYGON_OFFSET_FILL:
@@ -1267,6 +1277,12 @@ bool ContextState::GetStateAsGLfloat(GLenum pname,
       *num_written = 1;
       if (params) {
         params[0] = static_cast<GLfloat>(enable_flags.dither);
+      }
+      return true;
+    case GL_FRAMEBUFFER_SRGB_EXT:
+      *num_written = 1;
+      if (params) {
+        params[0] = static_cast<GLfloat>(enable_flags.framebuffer_srgb_ext);
       }
       return true;
     case GL_POLYGON_OFFSET_FILL:

@@ -30,6 +30,8 @@ LETTER [a-zA-Z_$]
 
 {DIGIT}+ { return SkSL::Token::INT_LITERAL; }
 
+"0x"[0-9a-fA-F]+ { return SkSL::Token::INT_LITERAL; }
+
 true { return SkSL::Token::TRUE_LITERAL; }
 
 false { return SkSL::Token::FALSE_LITERAL; }
@@ -71,6 +73,16 @@ highp { return SkSL::Token::HIGHP; }
 flat { return SkSL::Token::FLAT; }
 
 noperspective { return SkSL::Token::NOPERSPECTIVE; }
+
+readonly { return SkSL::Token::READONLY; }
+
+writeonly { return SkSL::Token::WRITEONLY; }
+
+coherent { return SkSL::Token::COHERENT; }
+
+volatile { return SkSL::Token::VOLATILE; }
+
+restrict { return SkSL::Token::RESTRICT; }
 
 struct { return SkSL::Token::STRUCT; }
 
@@ -122,13 +134,15 @@ precision { return SkSL::Token::PRECISION; }
 
 "&" { return SkSL::Token::BITWISEAND; }
 
+"~" { return SkSL::Token::BITWISENOT; }
+
 "||" { return SkSL::Token::LOGICALOR; }
 
 "^^" { return SkSL::Token::LOGICALXOR; }
 
 "&&" { return SkSL::Token::LOGICALAND; }
 
-"!" { return SkSL::Token::NOT; }
+"!" { return SkSL::Token::LOGICALNOT; }
 
 "?" { return SkSL::Token::QUESTION; }
 

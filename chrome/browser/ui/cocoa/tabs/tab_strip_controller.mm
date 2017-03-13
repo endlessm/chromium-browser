@@ -142,7 +142,20 @@ CGFloat FlipXInView(NSView* view, CGFloat width, CGFloat x) {
   return x;
 }
 
+NSRect FlipRectInView(NSView* view, NSRect rect) {
+  rect.origin.x = FlipXInView(view, NSWidth(rect), NSMinX(rect));
+  return rect;
+}
+
 }  // namespace
+
+@interface NSView (PrivateAPI)
+// Called by AppKit to check if dragging this view should move the window.
+// NSButton overrides this method in the same way so dragging window buttons
+// has no effect. NSView implementation returns NSZeroRect so the whole view
+// area can be dragged.
+- (NSRect)_opaqueRectForWindowMoveWhenInTitlebar;
+@end
 
 @interface TabStripController (Private)
 - (void)addSubviewToPermanentList:(NSView*)aView;
@@ -166,7 +179,8 @@ CGFloat FlipXInView(NSView* view, CGFloat width, CGFloat x) {
 - (void)setTabTrackingAreasEnabled:(BOOL)enabled;
 - (void)droppingURLsAt:(NSPoint)point
             givesIndex:(NSInteger*)index
-           disposition:(WindowOpenDisposition*)disposition;
+           disposition:(WindowOpenDisposition*)disposition
+           activateTab:(BOOL)activateTab;
 - (void)setNewTabButtonHoverState:(BOOL)showHover;
 - (void)themeDidChangeNotification:(NSNotification*)notification;
 - (BOOL)doesAnyOtherWebContents:(content::WebContents*)selected
@@ -227,6 +241,10 @@ CGFloat FlipXInView(NSView* view, CGFloat width, CGFloat x) {
 @implementation TabStripControllerDragBlockingView
 - (BOOL)mouseDownCanMoveWindow {
   return NO;
+}
+
+- (NSRect)_opaqueRectForWindowMoveWhenInTitlebar {
+ return [self bounds];
 }
 
 - (id)initWithFrame:(NSRect)frameRect
@@ -389,8 +407,8 @@ CGFloat FlipXInView(NSView* view, CGFloat width, CGFloat x) {
 
 @implementation TabStripController
 
-@synthesize leftIndentForControls = leftIndentForControls_;
-@synthesize rightIndentForControls = rightIndentForControls_;
+@synthesize leadingIndentForControls = leadingIndentForControls_;
+@synthesize trailingIndentForControls = trailingIndentForControls_;
 
 - (id)initWithView:(TabStripView*)view
         switchView:(NSView*)switchView
@@ -420,8 +438,9 @@ CGFloat FlipXInView(NSView* view, CGFloat width, CGFloat x) {
     defaultFavicon_.reset(
         rb.GetNativeImageNamed(IDR_DEFAULT_FAVICON).CopyNSImage());
 
-    [self setLeftIndentForControls:[[self class] defaultLeftIndentForControls]];
-    [self setRightIndentForControls:0];
+    [self setLeadingIndentForControls:[[self class]
+                                          defaultLeadingIndentForControls]];
+    [self setTrailingIndentForControls:0];
 
     // Add this invisible view first so that it is ordered below other views.
     dragBlockingView_.reset(
@@ -557,7 +576,7 @@ CGFloat FlipXInView(NSView* view, CGFloat width, CGFloat x) {
   return [TabController defaultTabHeight];
 }
 
-+ (CGFloat)defaultLeftIndentForControls {
++ (CGFloat)defaultLeadingIndentForControls {
   // Default indentation leaves enough room so tabs don't overlap with the
   // window controls.
   return 70.0;
@@ -811,14 +830,20 @@ CGFloat FlipXInView(NSView* view, CGFloat width, CGFloat x) {
         availableResizeWidth_ = kUseFullAvailableWidth;
       } else {
         NSView* penultimateTab = [self viewAtIndex:numberOfOpenTabs - 2];
-        availableResizeWidth_ = NSMaxX([penultimateTab frame]);
+        availableResizeWidth_ =
+            cocoa_l10n_util::ShouldDoExperimentalRTLLayout()
+                ? FlipXInView(tabStripView_, 0, NSMinX([penultimateTab frame]))
+                : NSMaxX([penultimateTab frame]);
       }
     } else {
-      // If the rightmost tab is closed, change the available width so that
+      // If the trailing tab is closed, change the available width so that
       // another tab's close button lands below the cursor (assuming the tabs
       // are currently below their maximum width and can grow).
       NSView* lastTab = [self viewAtIndex:numberOfOpenTabs - 1];
-      availableResizeWidth_ = NSMaxX([lastTab frame]);
+      availableResizeWidth_ =
+          cocoa_l10n_util::ShouldDoExperimentalRTLLayout()
+              ? FlipXInView(tabStripView_, 0, NSMinX([lastTab frame]))
+              : NSMaxX([lastTab frame]);
     }
     tabStripModel_->CloseWebContentsAt(
         index,
@@ -874,12 +899,20 @@ CGFloat FlipXInView(NSView* view, CGFloat width, CGFloat x) {
 
 - (BOOL)isTabFullyVisible:(TabView*)tab {
   NSRect frame = [tab frame];
-  return NSMinX(frame) >= [self leftIndentForControls] &&
-      NSMaxX(frame) <= [self tabAreaRightEdge];
+  if (cocoa_l10n_util::ShouldDoExperimentalRTLLayout()) {
+    return NSMinX(frame) >= [self trailingIndentForControls] &&
+           NSMaxX(frame) <= [self tabAreaRightEdge];
+  } else {
+    return NSMinX(frame) >= [self leadingIndentForControls] &&
+           NSMaxX(frame) <= [self tabAreaRightEdge];
+  }
 }
 
 - (CGFloat)tabAreaRightEdge {
-  return NSMaxX([tabStripView_ frame]) - [self rightIndentForControls];
+  CGFloat rightEdge = cocoa_l10n_util::ShouldDoExperimentalRTLLayout()
+                          ? [self leadingIndentForControls]
+                          : [self trailingIndentForControls];
+  return NSMaxX([tabStripView_ frame]) - rightEdge;
 }
 
 - (void)showNewTabButton:(BOOL)show {
@@ -927,15 +960,15 @@ CGFloat FlipXInView(NSView* view, CGFloat width, CGFloat x) {
     // Account for the width of the new tab button.
     availableSpace -=
         NSWidth([newTabButton_ frame]) + kNewTabButtonOffset - kTabOverlap;
-    // Account for the right-side controls if not in rapid closure mode.
+    // Account for the trailing controls if not in rapid closure mode.
     // (In rapid closure mode, the available width is set based on the
-    // position of the rightmost tab, not based on the width of the tab strip,
-    // so the right controls have already been accounted for.)
-    availableSpace -= [self rightIndentForControls];
+    // position of the trailing tab, not based on the width of the tab strip,
+    // so the trailing controls have already been accounted for.)
+    availableSpace -= [self trailingIndentForControls];
   }
 
-  // Need to leave room for the left-side controls even in rapid closure mode.
-  availableSpace -= [self leftIndentForControls];
+  // Need to leave room for the leading controls even in rapid closure mode.
+  availableSpace -= [self leadingIndentForControls];
 
   // This may be negative, but that's okay (taken care of by |MAX()| when
   // calculating tab sizes). "pinned" tabs in horizontal mode just get a special
@@ -994,16 +1027,15 @@ CGFloat FlipXInView(NSView* view, CGFloat width, CGFloat x) {
 
   BOOL visible = [[tabStripView_ window] isVisible];
 
-  CGFloat offset =
-      cocoa_l10n_util::ShouldDoExperimentalRTLLayout()
-          ? [self rightIndentForControls]
-          : [self leftIndentForControls];
+  CGFloat offset = [self leadingIndentForControls];
   bool hasPlaceholderGap = false;
   // Whether or not the last tab processed by the loop was a pinned tab.
   BOOL isLastTabPinned = NO;
   CGFloat tabWidthAccumulatedFraction = 0;
   NSInteger laidOutNonPinnedTabs = 0;
 
+  // Lay everything out as if it was LTR and flip at the end
+  // for RTL, if necessary.
   for (TabController* tab in tabArray_.get()) {
     // Ignore a tab that is going through a close animation.
     if ([closingControllers_ containsObject:tab])
@@ -1038,10 +1070,17 @@ CGFloat FlipXInView(NSView* view, CGFloat width, CGFloat x) {
     }
 
     if (placeholderTab_ && !hasPlaceholderGap) {
-      const CGFloat placeholderMin = NSMinX(placeholderFrame_);
-      // If the left edge is to the left of the placeholder's left, but the
-      // mid is to the right of it slide over to make space for it.
-      if (NSMidX(tabFrame) > placeholderMin) {
+      // If the back edge is behind the placeholder's back edge, but the
+      // mid is in front of it of it, slide over to make space for it.
+      bool shouldLeaveGap;
+      if (cocoa_l10n_util::ShouldDoExperimentalRTLLayout()) {
+        const CGFloat tabMidpoint =
+            NSMidX(FlipRectInView(tabStripView_, tabFrame));
+        shouldLeaveGap = tabMidpoint < NSMaxX(placeholderFrame_);
+      } else {
+        shouldLeaveGap = NSMidX(tabFrame) > NSMinX(placeholderFrame_);
+      }
+      if (shouldLeaveGap) {
         hasPlaceholderGap = true;
         offset += NSWidth(placeholderFrame_);
         offset -= kTabOverlap;
@@ -1168,14 +1207,17 @@ CGFloat FlipXInView(NSView* view, CGFloat width, CGFloat x) {
       [self setNewTabButtonHoverState:shouldShowHover];
 
       // Move the new tab button into place. We want to animate the new tab
-      // button if it's moving to the left (closing a tab), but not when it's
-      // moving to the right (inserting a new tab). If moving right, we need
+      // button if it's moving back (closing a tab), but not when it's
+      // moving forward (inserting a new tab). If moving forward, we need
       // to use a very small duration to make sure we cancel any in-flight
       // animation to the left.
       if (visible && animate) {
         ScopedNSAnimationContextGroup localAnimationGroup(true);
-        BOOL movingLeft = NSMinX(newTabNewFrame) < NSMinX(newTabTargetFrame_);
-        if (!movingLeft) {
+        BOOL movingBack = NSMinX(newTabNewFrame) < NSMinX(newTabTargetFrame_);
+        if (cocoa_l10n_util::ShouldDoExperimentalRTLLayout())
+          movingBack = !movingBack;
+
+        if (!movingBack) {
           localAnimationGroup.SetCurrentContextShortestDuration();
         }
         [[newTabButton_ animator] setFrame:newTabNewFrame];
@@ -1715,8 +1757,9 @@ CGFloat FlipXInView(NSView* view, CGFloat width, CGFloat x) {
   // No placeholder, return the end of the strip.
   if (placeholderTab_ == nil)
     return count;
-
-  double placeholderX = placeholderFrame_.origin.x;
+  BOOL isRTL = cocoa_l10n_util::ShouldDoExperimentalRTLLayout();
+  double placeholderX =
+      isRTL ? NSMaxX(placeholderFrame_) : placeholderFrame_.origin.x;
   int index = 0;
   int location = 0;
   while (index < count) {
@@ -1737,7 +1780,8 @@ CGFloat FlipXInView(NSView* view, CGFloat width, CGFloat x) {
       index++;
       continue;
     }
-    if (placeholderX <= NSMinX([curr frame]))
+    if (isRTL ? placeholderX >= NSMaxX([curr frame])
+              : placeholderX <= NSMinX([curr frame]))
       break;
     index++;
     location++;
@@ -1995,7 +2039,8 @@ CGFloat FlipXInView(NSView* view, CGFloat width, CGFloat x) {
 // to the left, it inserts to the left, and similarly for the right.
 - (void)droppingURLsAt:(NSPoint)point
             givesIndex:(NSInteger*)index
-           disposition:(WindowOpenDisposition*)disposition {
+           disposition:(WindowOpenDisposition*)disposition
+           activateTab:(BOOL)activateTab {
   // Proportion of the tab which is considered the "middle" (and causes things
   // to drop on that tab).
   const double kMiddleProportion = 0.5;
@@ -2004,6 +2049,7 @@ CGFloat FlipXInView(NSView* view, CGFloat width, CGFloat x) {
 
   DCHECK(index && disposition);
   NSInteger i = 0;
+  BOOL isRTL = cocoa_l10n_util::ShouldDoExperimentalRTLLayout();
   for (TabController* tab in tabArray_.get()) {
     NSView* view = [tab view];
     DCHECK([view isKindOfClass:[TabView class]]);
@@ -2019,16 +2065,22 @@ CGFloat FlipXInView(NSView* view, CGFloat width, CGFloat x) {
     if (frame.size.width < 1.0)
       frame.size.width = 1.0;  // try to avoid complete failure
 
-    // Drop in a new tab to the left of tab |i|?
-    if (point.x < (frame.origin.x + kLRProportion * frame.size.width)) {
+    CGFloat rightEdge = NSMaxX(frame) - kLRProportion * frame.size.width;
+    CGFloat leftEdge = frame.origin.x + kLRProportion * frame.size.width;
+
+    // Drop in a new tab before  tab |i|?
+    if (isRTL ? point.x > rightEdge : point.x < leftEdge) {
       *index = i;
-      *disposition = WindowOpenDisposition::NEW_FOREGROUND_TAB;
+      if (activateTab) {
+        *disposition = WindowOpenDisposition::NEW_FOREGROUND_TAB;
+      } else {
+        *disposition = WindowOpenDisposition::NEW_BACKGROUND_TAB;
+      }
       return;
     }
 
     // Drop on tab |i|?
-    if (point.x <= (frame.origin.x +
-                       (1.0 - kLRProportion) * frame.size.width)) {
+    if (isRTL ? point.x >= leftEdge : point.x <= rightEdge) {
       *index = i;
       *disposition = WindowOpenDisposition::CURRENT_TAB;
       return;
@@ -2041,10 +2093,17 @@ CGFloat FlipXInView(NSView* view, CGFloat width, CGFloat x) {
 
   // If we've made it here, we want to append a new tab to the end.
   *index = -1;
-  *disposition = WindowOpenDisposition::NEW_FOREGROUND_TAB;
+  if (activateTab) {
+    *disposition = WindowOpenDisposition::NEW_FOREGROUND_TAB;
+  } else {
+    *disposition = WindowOpenDisposition::NEW_BACKGROUND_TAB;
+  }
 }
 
-- (void)openURL:(GURL*)url inView:(NSView*)view at:(NSPoint)point {
+- (void)openURL:(GURL*)url
+         inView:(NSView*)view
+             at:(NSPoint)point
+    activateTab:(BOOL)activateTab {
   // Security: Block JavaScript to prevent self-XSS.
   if (url->SchemeIs(url::kJavaScriptScheme))
     return;
@@ -2054,11 +2113,13 @@ CGFloat FlipXInView(NSView* view, CGFloat width, CGFloat x) {
   WindowOpenDisposition disposition;
   [self droppingURLsAt:point
             givesIndex:&index
-           disposition:&disposition];
+           disposition:&disposition
+           activateTab:activateTab];
 
   // Either insert a new tab or open in a current tab.
   switch (disposition) {
-    case WindowOpenDisposition::NEW_FOREGROUND_TAB: {
+    case WindowOpenDisposition::NEW_FOREGROUND_TAB:
+    case WindowOpenDisposition::NEW_BACKGROUND_TAB: {
       content::RecordAction(UserMetricsAction("Tab_DropURLBetweenTabs"));
       chrome::NavigateParams params(browser_, *url,
                                     ui::PAGE_TRANSITION_TYPED);
@@ -2091,19 +2152,22 @@ CGFloat FlipXInView(NSView* view, CGFloat width, CGFloat x) {
     return;
   }
 
-  //TODO(viettrungluu): dropping multiple URLs.
-  if ([urls count] > 1)
-    NOTIMPLEMENTED();
+  for (NSInteger index = [urls count] - 1; index >= 0; index--) {
+    // Refactor this code.
+    // https://crbug.com/665261.
+    GURL url = url_formatter::FixupURL(
+        base::SysNSStringToUTF8([urls objectAtIndex:index]), std::string());
 
-  // Get the first URL and fix it up.
-  GURL url(GURL(url_formatter::FixupURL(
-      base::SysNSStringToUTF8([urls objectAtIndex:0]), std::string())));
+    // If the URL isn't valid, don't bother.
+    if (!url.is_valid())
+      continue;
 
-  // If the URL isn't valid, don't bother.
-  if (!url.is_valid())
-    return;
-
-  [self openURL:&url inView:view at:point];
+    if (index == static_cast<NSInteger>([urls count]) - 1) {
+      [self openURL:&url inView:view at:point activateTab:YES];
+    } else {
+      [self openURL:&url inView:view at:point activateTab:NO];
+    }
+  }
 }
 
 // (URLDropTargetController protocol)
@@ -2117,7 +2181,7 @@ CGFloat FlipXInView(NSView* view, CGFloat width, CGFloat x) {
       metrics::OmniboxEventProto::BLANK, &match, NULL);
   GURL url(match.destination_url);
 
-  [self openURL:&url inView:view at:point];
+  [self openURL:&url inView:view at:point activateTab:YES];
 }
 
 // (URLDropTargetController protocol)
@@ -2132,7 +2196,8 @@ CGFloat FlipXInView(NSView* view, CGFloat width, CGFloat x) {
   WindowOpenDisposition disposition;
   [self droppingURLsAt:point
             givesIndex:&index
-           disposition:&disposition];
+           disposition:&disposition
+           activateTab:YES];
 
   NSPoint arrowPos = NSMakePoint(0, arrowBaseY);
   if (index == -1) {
@@ -2205,20 +2270,34 @@ CGFloat FlipXInView(NSView* view, CGFloat width, CGFloat x) {
 }
 
 - (void)addCustomWindowControls {
+  BOOL shouldFlipWindowControls =
+      cocoa_l10n_util::ShouldFlipWindowControlsInRTL();
   if (!customWindowControls_) {
     // Make the container view.
     CGFloat height = NSHeight([tabStripView_ frame]);
-    NSRect frame = NSMakeRect(0, 0, [self leftIndentForControls], height);
+    CGFloat width = [self leadingIndentForControls];
+    if (cocoa_l10n_util::ShouldDoExperimentalRTLLayout() &&
+        !shouldFlipWindowControls)
+      // The trailing indent is correct in this case, since the controls should
+      // stay on the left.
+      width = [self trailingIndentForControls];
+    CGFloat xOrigin =
+        shouldFlipWindowControls ? NSWidth([tabStripView_ frame]) - width : 0;
+    NSRect frame = NSMakeRect(xOrigin, 0, width, height);
     customWindowControls_.reset(
         [[CustomWindowControlsView alloc] initWithFrame:frame]);
     [customWindowControls_
-        setAutoresizingMask:NSViewMaxXMargin | NSViewHeightSizable];
+        setAutoresizingMask:shouldFlipWindowControls
+                                ? NSViewMinXMargin | NSViewHeightSizable
+                                : NSViewMaxXMargin | NSViewHeightSizable];
 
     // Add the traffic light buttons. The horizontal layout was determined by
     // manual inspection on Yosemite.
     CGFloat closeButtonX = 11;
     CGFloat pinnedButtonX = 31;
     CGFloat zoomButtonX = 51;
+    if (shouldFlipWindowControls)
+      std::swap(closeButtonX, zoomButtonX);
 
     NSUInteger styleMask = [[tabStripView_ window] styleMask];
     NSButton* closeButton = [NSWindow standardWindowButton:NSWindowCloseButton
@@ -2250,7 +2329,13 @@ CGFloat FlipXInView(NSView* view, CGFloat width, CGFloat x) {
     [customWindowControls_
         addTrackingArea:customWindowControlsTrackingArea_.get()];
   }
-
+  if (shouldFlipWindowControls &&
+      NSMaxX([customWindowControls_ frame]) != NSMaxX([tabStripView_ frame])) {
+    NSRect frame = [customWindowControls_ frame];
+    frame.origin.x =
+        NSMaxX([tabStripView_ frame]) - [self leadingIndentForControls];
+    [customWindowControls_ setFrame:frame];
+  }
   if (![permanentSubviews_ containsObject:customWindowControls_]) {
     [self addSubviewToPermanentList:customWindowControls_];
     [self regenerateSubviewList];

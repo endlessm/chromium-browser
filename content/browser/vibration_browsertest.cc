@@ -7,6 +7,7 @@
 
 #include "base/bind.h"
 #include "base/macros.h"
+#include "base/memory/ptr_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "build/build_config.h"
 #include "content/public/browser/render_frame_host.h"
@@ -18,7 +19,7 @@
 #include "content/shell/browser/shell.h"
 #include "device/vibration/vibration_manager.mojom.h"
 #include "mojo/public/cpp/bindings/strong_binding.h"
-#include "services/shell/public/cpp/interface_registry.h"
+#include "services/service_manager/public/cpp/interface_registry.h"
 
 // These tests run against a dummy implementation of the VibrationManager
 // service. That is, they verify that the service implementation is correctly

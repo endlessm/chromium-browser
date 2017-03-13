@@ -39,6 +39,7 @@
 #include "content/public/test/content_browser_test_utils.h"
 #include "content/public/test/test_navigation_observer.h"
 #include "content/shell/browser/shell.h"
+#include "content/test/content_browser_test_utils_internal.h"
 #include "net/dns/mock_host_resolver.h"
 #include "net/test/cert_test_util.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
@@ -117,9 +118,9 @@ class TestJavaScriptDialogManager : public JavaScriptDialogManager,
     return true;
   }
 
-  void CancelActiveAndPendingDialogs(WebContents* web_contents) override {}
-
-  void ResetDialogState(WebContents* web_contents) override {}
+  void CancelDialogs(WebContents* web_contents,
+                     bool suppress_callbacks,
+                     bool reset_state) override {}
 
  private:
   DialogClosedCallback callback_;
@@ -150,11 +151,11 @@ class DevToolsProtocolTest : public ContentBrowserTest,
 
  protected:
   // WebContentsDelegate method:
-  bool AddMessageToConsole(WebContents* source,
-                           int32_t level,
-                           const base::string16& message,
-                           int32_t line_no,
-                           const base::string16& source_id) override {
+  bool DidAddMessageToConsole(WebContents* source,
+                              int32_t level,
+                              const base::string16& message,
+                              int32_t line_no,
+                              const base::string16& source_id) override {
     console_messages_.push_back(base::UTF16ToUTF8(message));
     return true;
   }
@@ -185,11 +186,14 @@ class DevToolsProtocolTest : public ContentBrowserTest,
     agent_host_->DispatchProtocolMessage(this, json_command);
     // Some messages are dispatched synchronously.
     // Only run loop if we are not finished yet.
-    if (in_dispatch_ && wait) {
-      waiting_for_command_result_id_ = last_sent_id_;
-      base::RunLoop().Run();
-    }
+    if (in_dispatch_ && wait)
+      WaitForResponse();
     in_dispatch_ = false;
+  }
+
+  void WaitForResponse() {
+    waiting_for_command_result_id_ = last_sent_id_;
+    base::RunLoop().Run();
   }
 
   bool HasValue(const std::string& path) {
@@ -230,9 +234,34 @@ class DevToolsProtocolTest : public ContentBrowserTest,
     }
   }
 
-  void WaitForNotification(const std::string& notification) {
+  std::unique_ptr<base::DictionaryValue> WaitForNotification(
+      const std::string& notification) {
+    return WaitForNotification(notification, false);
+  }
+
+  std::unique_ptr<base::DictionaryValue> WaitForNotification(
+      const std::string& notification,
+      bool allow_existing) {
+    if (allow_existing) {
+      for (size_t i = 0; i < notifications_.size(); i++) {
+        if (notifications_[i] == notification) {
+          std::unique_ptr<base::DictionaryValue> result =
+              std::move(notification_params_[i]);
+          notifications_.erase(notifications_.begin() + i);
+          notification_params_.erase(notification_params_.begin() + i);
+          return result;
+        }
+      }
+    }
+
     waiting_for_notification_ = notification;
     RunMessageLoop();
+    return std::move(waiting_for_notification_params_);
+  }
+
+  void ClearNotifications() {
+    notifications_.clear();
+    notification_params_.clear();
   }
 
   struct ExpectedNavigation {
@@ -254,24 +283,21 @@ class DevToolsProtocolTest : public ContentBrowserTest,
   void ProcessNavigationsAnyOrder(
       std::vector<ExpectedNavigation> expected_navigations) {
     while (!expected_navigations.empty()) {
-      WaitForNotification("Page.navigationRequested");
-      ASSERT_TRUE(requested_notification_params_.get());
+      std::unique_ptr<base::DictionaryValue> params =
+          WaitForNotification("Page.navigationRequested");
 
       std::string url;
-      ASSERT_TRUE(requested_notification_params_->GetString("url", &url));
+      ASSERT_TRUE(params->GetString("url", &url));
 
       // The url will typically have a random port which we want to remove.
       url = RemovePort(GURL(url));
 
       int navigation_id;
-      ASSERT_TRUE(requested_notification_params_->GetInteger("navigationId",
-                                                             &navigation_id));
+      ASSERT_TRUE(params->GetInteger("navigationId", &navigation_id));
       bool is_in_main_frame;
-      ASSERT_TRUE(requested_notification_params_->GetBoolean(
-          "isInMainFrame", &is_in_main_frame));
+      ASSERT_TRUE(params->GetBoolean( "isInMainFrame", &is_in_main_frame));
       bool is_redirect;
-      ASSERT_TRUE(requested_notification_params_->GetBoolean("isRedirect",
-                                                             &is_redirect));
+      ASSERT_TRUE(params->GetBoolean("isRedirect", &is_redirect));
 
       bool navigation_was_expected;
       for (auto it = expected_navigations.begin();
@@ -281,11 +307,11 @@ class DevToolsProtocolTest : public ContentBrowserTest,
           continue;
         }
 
-        std::unique_ptr<base::DictionaryValue> params(
+        std::unique_ptr<base::DictionaryValue> process_params(
             new base::DictionaryValue());
-        params->SetString("response", it->navigation_response);
-        params->SetInteger("navigationId", navigation_id);
-        SendCommand("Page.processNavigation", std::move(params), false);
+        process_params->SetString("response", it->navigation_response);
+        process_params->SetInteger("navigationId", navigation_id);
+        SendCommand("Page.processNavigation", std::move(process_params), false);
 
         navigation_was_expected = true;
         expected_navigations.erase(it);
@@ -322,7 +348,7 @@ class DevToolsProtocolTest : public ContentBrowserTest,
   std::vector<int> result_ids_;
   std::vector<std::string> notifications_;
   std::vector<std::string> console_messages_;
-  std::unique_ptr<base::DictionaryValue> requested_notification_params_;
+  std::vector<std::unique_ptr<base::DictionaryValue>> notification_params_;
 
  private:
   void DispatchProtocolMessage(DevToolsAgentHost* agent_host,
@@ -345,14 +371,17 @@ class DevToolsProtocolTest : public ContentBrowserTest,
       std::string notification;
       EXPECT_TRUE(root->GetString("method", &notification));
       notifications_.push_back(notification);
+      base::DictionaryValue* params;
+      if (root->GetDictionary("params", &params)) {
+        notification_params_.push_back(params->CreateDeepCopy());
+      } else {
+        notification_params_.push_back(
+            base::WrapUnique(new base::DictionaryValue()));
+      }
       if (waiting_for_notification_ == notification) {
-        base::DictionaryValue* params;
-        if (root->GetDictionary("params", &params)) {
-          requested_notification_params_ = params->CreateDeepCopy();
-        } else {
-          requested_notification_params_.reset();
-        }
         waiting_for_notification_ = std::string();
+        waiting_for_notification_params_ = base::WrapUnique(
+            notification_params_[notification_params_.size() - 1]->DeepCopy());
         base::MessageLoop::current()->QuitNow();
       }
     }
@@ -363,6 +392,7 @@ class DevToolsProtocolTest : public ContentBrowserTest,
   }
 
   std::string waiting_for_notification_;
+  std::unique_ptr<base::DictionaryValue> waiting_for_notification_params_;
   int waiting_for_command_result_id_;
   bool in_dispatch_;
   scoped_refptr<net::X509Certificate> last_shown_certificate_;
@@ -382,14 +412,26 @@ class SyntheticKeyEventTest : public DevToolsProtocolTest {
                     int modifier,
                     int windowsKeyCode,
                     int nativeKeyCode,
-                    const std::string& key) {
+                    const std::string& key,
+                    bool wait) {
     std::unique_ptr<base::DictionaryValue> params(new base::DictionaryValue());
     params->SetString("type", type);
     params->SetInteger("modifiers", modifier);
     params->SetInteger("windowsVirtualKeyCode", windowsKeyCode);
     params->SetInteger("nativeVirtualKeyCode", nativeKeyCode);
     params->SetString("key", key);
-    SendCommand("Input.dispatchKeyEvent", std::move(params));
+    SendCommand("Input.dispatchKeyEvent", std::move(params), wait);
+  }
+};
+
+class SyntheticMouseEventTest : public DevToolsProtocolTest {
+ protected:
+  void SendMouseEvent(const std::string& type, int x, int y, bool wait) {
+    std::unique_ptr<base::DictionaryValue> params(new base::DictionaryValue());
+    params->SetString("type", type);
+    params->SetInteger("x", x);
+    params->SetInteger("y", y);
+    SendCommand("Input.dispatchMouseEvent", std::move(params), wait);
   }
 };
 
@@ -408,8 +450,8 @@ IN_PROC_BROWSER_TEST_F(SyntheticKeyEventTest, KeyEventSynthesizeKey) {
   DOMMessageQueue dom_message_queue;
 
   // Send enter (keycode 13).
-  SendKeyEvent("rawKeyDown", 0, 13, 13, "Enter");
-  SendKeyEvent("keyUp", 0, 13, 13, "Enter");
+  SendKeyEvent("rawKeyDown", 0, 13, 13, "Enter", true);
+  SendKeyEvent("keyUp", 0, 13, 13, "Enter", true);
 
   std::string key;
   ASSERT_TRUE(dom_message_queue.WaitForMessage(&key));
@@ -418,13 +460,66 @@ IN_PROC_BROWSER_TEST_F(SyntheticKeyEventTest, KeyEventSynthesizeKey) {
   EXPECT_EQ("\"Enter\"", key);
 
   // Send escape (keycode 27).
-  SendKeyEvent("rawKeyDown", 0, 27, 27, "Escape");
-  SendKeyEvent("keyUp", 0, 27, 27, "Escape");
+  SendKeyEvent("rawKeyDown", 0, 27, 27, "Escape", true);
+  SendKeyEvent("keyUp", 0, 27, 27, "Escape", true);
 
   ASSERT_TRUE(dom_message_queue.WaitForMessage(&key));
   EXPECT_EQ("\"Escape\"", key);
   ASSERT_TRUE(dom_message_queue.WaitForMessage(&key));
   EXPECT_EQ("\"Escape\"", key);
+}
+
+IN_PROC_BROWSER_TEST_F(SyntheticKeyEventTest, KeyboardEventAck) {
+  NavigateToURLBlockUntilNavigationsComplete(shell(), GURL("about:blank"), 1);
+  Attach();
+  ASSERT_TRUE(content::ExecuteScript(
+      shell()->web_contents()->GetRenderViewHost(),
+      "document.body.addEventListener('keydown', () => console.log('x'));"));
+
+  scoped_refptr<InputMsgWatcher> filter = new InputMsgWatcher(
+      RenderWidgetHostImpl::From(
+          shell()->web_contents()->GetRenderViewHost()->GetWidget()),
+      blink::WebInputEvent::MouseMove);
+
+  SendCommand("Runtime.enable", nullptr);
+  SendKeyEvent("rawKeyDown", 0, 13, 13, "Enter", false);
+
+  // We expect that the console log message event arrives *before* the input
+  // event ack, and the subsequent command response for Input.dispatchKeyEvent.
+  WaitForNotification("Runtime.consoleAPICalled");
+  EXPECT_THAT(console_messages_, ElementsAre("x"));
+  EXPECT_FALSE(filter->HasReceivedAck());
+  EXPECT_EQ(1u, result_ids_.size());
+
+  WaitForResponse();
+  EXPECT_EQ(2u, result_ids_.size());
+}
+
+IN_PROC_BROWSER_TEST_F(SyntheticMouseEventTest, MouseEventAck) {
+  NavigateToURLBlockUntilNavigationsComplete(shell(), GURL("about:blank"), 1);
+  Attach();
+  ASSERT_TRUE(content::ExecuteScript(
+      shell()->web_contents()->GetRenderViewHost(),
+      "document.body.addEventListener('mousemove', () => console.log('x'));"));
+
+  scoped_refptr<InputMsgWatcher> filter = new InputMsgWatcher(
+      RenderWidgetHostImpl::From(
+          shell()->web_contents()->GetRenderViewHost()->GetWidget()),
+      blink::WebInputEvent::MouseMove);
+
+  SendCommand("Runtime.enable", nullptr);
+  SendMouseEvent("mouseMoved", 15, 15, false);
+
+  // We expect that the console log message event arrives *before* the input
+  // event ack, and the subsequent command response for
+  // Input.dispatchMouseEvent.
+  WaitForNotification("Runtime.consoleAPICalled");
+  EXPECT_THAT(console_messages_, ElementsAre("x"));
+  EXPECT_FALSE(filter->HasReceivedAck());
+  EXPECT_EQ(1u, result_ids_.size());
+
+  WaitForResponse();
+  EXPECT_EQ(2u, result_ids_.size());
 }
 
 namespace {
@@ -735,8 +830,8 @@ IN_PROC_BROWSER_TEST_F(DevToolsProtocolTest, NavigationPreservesMessages) {
 
 IN_PROC_BROWSER_TEST_F(DevToolsProtocolTest, CrossSiteNoDetach) {
   host_resolver()->AddRule("*", "127.0.0.1");
-  ASSERT_TRUE(embedded_test_server()->Start());
   content::SetupCrossSiteRedirector(embedded_test_server());
+  ASSERT_TRUE(embedded_test_server()->Start());
 
   GURL test_url1 = embedded_test_server()->GetURL(
       "A.com", "/devtools/navigation.html");
@@ -768,8 +863,8 @@ IN_PROC_BROWSER_TEST_F(DevToolsProtocolTest, ReconnectPreservesState) {
 
 IN_PROC_BROWSER_TEST_F(DevToolsProtocolTest, CrossSitePauseInBeforeUnload) {
   host_resolver()->AddRule("*", "127.0.0.1");
-  ASSERT_TRUE(embedded_test_server()->Start());
   content::SetupCrossSiteRedirector(embedded_test_server());
+  ASSERT_TRUE(embedded_test_server()->Start());
 
   NavigateToURLBlockUntilNavigationsComplete(shell(),
       embedded_test_server()->GetURL("A.com", "/devtools/navigation.html"), 1);
@@ -790,8 +885,8 @@ IN_PROC_BROWSER_TEST_F(DevToolsProtocolTest, CrossSitePauseInBeforeUnload) {
 
 IN_PROC_BROWSER_TEST_F(DevToolsProtocolTest, InspectDuringFrameSwap) {
   host_resolver()->AddRule("*", "127.0.0.1");
-  ASSERT_TRUE(embedded_test_server()->Start());
   content::SetupCrossSiteRedirector(embedded_test_server());
+  ASSERT_TRUE(embedded_test_server()->Start());
 
   GURL test_url1 =
       embedded_test_server()->GetURL("A.com", "/devtools/navigation.html");
@@ -917,7 +1012,7 @@ IN_PROC_BROWSER_TEST_F(DevToolsProtocolTest, BrowserCreateAndCloseTarget) {
   EXPECT_EQ(1u, shell()->windows().size());
   std::unique_ptr<base::DictionaryValue> params(new base::DictionaryValue());
   params->SetString("url", "about:blank");
-  SendCommand("Browser.createTarget", std::move(params), true);
+  SendCommand("Target.createTarget", std::move(params), true);
   std::string target_id;
   EXPECT_TRUE(result_->GetString("targetId", &target_id));
   EXPECT_EQ(2u, shell()->windows().size());
@@ -927,7 +1022,7 @@ IN_PROC_BROWSER_TEST_F(DevToolsProtocolTest, BrowserCreateAndCloseTarget) {
   bool success;
   params.reset(new base::DictionaryValue());
   params->SetString("targetId", target_id);
-  SendCommand("Browser.closeTarget", std::move(params), true);
+  SendCommand("Target.closeTarget", std::move(params), true);
   EXPECT_TRUE(result_->GetBoolean("success", &success));
   EXPECT_TRUE(success);
 }
@@ -935,9 +1030,9 @@ IN_PROC_BROWSER_TEST_F(DevToolsProtocolTest, BrowserCreateAndCloseTarget) {
 IN_PROC_BROWSER_TEST_F(DevToolsProtocolTest, BrowserGetTargets) {
   NavigateToURLBlockUntilNavigationsComplete(shell(), GURL("about:blank"), 1);
   Attach();
-  SendCommand("Browser.getTargets", nullptr, true);
+  SendCommand("Target.getTargets", nullptr, true);
   base::ListValue* target_infos;
-  EXPECT_TRUE(result_->GetList("targetInfo", &target_infos));
+  EXPECT_TRUE(result_->GetList("targetInfos", &target_infos));
   EXPECT_EQ(1u, target_infos->GetSize());
   base::DictionaryValue* target_info;
   EXPECT_TRUE(target_infos->GetDictionary(0u, &target_info));
@@ -946,9 +1041,9 @@ IN_PROC_BROWSER_TEST_F(DevToolsProtocolTest, BrowserGetTargets) {
   EXPECT_TRUE(target_info->GetString("type", &type));
   EXPECT_TRUE(target_info->GetString("title", &title));
   EXPECT_TRUE(target_info->GetString("url", &url));
-  EXPECT_EQ(type, "page");
-  EXPECT_EQ(title, "about:blank");
-  EXPECT_EQ(url, "about:blank");
+  EXPECT_EQ("page", type);
+  EXPECT_EQ("about:blank", title);
+  EXPECT_EQ("about:blank", url);
 }
 
 namespace {
@@ -985,6 +1080,36 @@ class NavigationFinishedObserver : public content::WebContentsObserver {
   int num_to_wait_for_;
 };
 }  // namespace
+
+IN_PROC_BROWSER_TEST_F(DevToolsProtocolTest, PageStopLoading) {
+  ASSERT_TRUE(embedded_test_server()->Start());
+
+  // Navigate to about:blank first so we can make sure there is a target page we
+  // can attach to, and have Page.setControlNavigations complete before we start
+  // the navigations we're interested in.
+  NavigateToURLBlockUntilNavigationsComplete(shell(), GURL("about:blank"), 1);
+  Attach();
+
+  std::unique_ptr<base::DictionaryValue> params(new base::DictionaryValue());
+  params->SetBoolean("enabled", true);
+  SendCommand("Page.setControlNavigations", std::move(params), true);
+
+  NavigationFinishedObserver navigation_finished_observer(
+      shell()->web_contents());
+
+  // The page will try to navigate twice, however since
+  // Page.setControlNavigations is true, it'll wait for confirmation before
+  // committing to the navigation.
+  GURL test_url = embedded_test_server()->GetURL(
+      "/devtools/control_navigations/meta_tag.html");
+  shell()->LoadURL(test_url);
+
+  // Stop all navigations.
+  SendCommand("Page.stopLoading", nullptr);
+
+  // Wait for the initial navigation to finish.
+  navigation_finished_observer.WaitForNavigationsToFinish(1);
+}
 
 IN_PROC_BROWSER_TEST_F(DevToolsProtocolTest, ControlNavigationsMainFrame) {
   ASSERT_TRUE(embedded_test_server()->Start());
@@ -1039,8 +1164,8 @@ class IsolatedDevToolsProtocolTest : public DevToolsProtocolTest {
 IN_PROC_BROWSER_TEST_F(IsolatedDevToolsProtocolTest,
                        ControlNavigationsChildFrames) {
   host_resolver()->AddRule("*", "127.0.0.1");
-  ASSERT_TRUE(embedded_test_server()->Start());
   content::SetupCrossSiteRedirector(embedded_test_server());
+  ASSERT_TRUE(embedded_test_server()->Start());
 
   // Navigate to about:blank first so we can make sure there is a target page we
   // can attach to, and have Page.setControlNavigations complete before we start
@@ -1215,6 +1340,245 @@ IN_PROC_BROWSER_TEST_F(DevToolsProtocolTest, ShowCertificateViewer) {
   std::unique_ptr<base::DictionaryValue> params2(new base::DictionaryValue());
   SendCommand("Security.showCertificateViewer", std::move(params2), true);
   EXPECT_EQ(transient_entry->GetSSL().certificate, last_shown_certificate());
+}
+
+IN_PROC_BROWSER_TEST_F(DevToolsProtocolTest, TargetDiscovery) {
+  std::string temp;
+  std::set<std::string> ids;
+  std::unique_ptr<base::DictionaryValue> command_params;
+  std::unique_ptr<base::DictionaryValue> params;
+
+  ASSERT_TRUE(embedded_test_server()->Start());
+  GURL first_url = embedded_test_server()->GetURL("/devtools/navigation.html");
+  NavigateToURLBlockUntilNavigationsComplete(shell(), first_url, 1);
+
+  GURL second_url = embedded_test_server()->GetURL("/devtools/navigation.html");
+  Shell* second = CreateBrowser();
+  NavigateToURLBlockUntilNavigationsComplete(second, second_url, 1);
+
+  Attach();
+  command_params.reset(new base::DictionaryValue());
+  command_params->SetBoolean("discover", true);
+  SendCommand("Target.setDiscoverTargets", std::move(command_params), true);
+  params = WaitForNotification("Target.targetCreated", true);
+  EXPECT_TRUE(params->GetString("targetInfo.type", &temp));
+  EXPECT_EQ("page", temp);
+  EXPECT_TRUE(params->GetString("targetInfo.targetId", &temp));
+  EXPECT_TRUE(ids.find(temp) == ids.end());
+  ids.insert(temp);
+  params = WaitForNotification("Target.targetCreated", true);
+  EXPECT_TRUE(params->GetString("targetInfo.type", &temp));
+  EXPECT_EQ("page", temp);
+  EXPECT_TRUE(params->GetString("targetInfo.targetId", &temp));
+  EXPECT_TRUE(ids.find(temp) == ids.end());
+  ids.insert(temp);
+  EXPECT_TRUE(notifications_.empty());
+
+  GURL third_url = embedded_test_server()->GetURL("/devtools/navigation.html");
+  Shell* third = CreateBrowser();
+  NavigateToURLBlockUntilNavigationsComplete(third, third_url, 1);
+  params = WaitForNotification("Target.targetCreated", true);
+  EXPECT_TRUE(params->GetString("targetInfo.type", &temp));
+  EXPECT_EQ("page", temp);
+  EXPECT_TRUE(params->GetString("targetInfo.targetId", &temp));
+  EXPECT_TRUE(ids.find(temp) == ids.end());
+  std::string attached_id = temp;
+  ids.insert(temp);
+  EXPECT_TRUE(notifications_.empty());
+
+  second->Close();
+  second = nullptr;
+  params = WaitForNotification("Target.targetDestroyed", true);
+  EXPECT_TRUE(params->GetString("targetId", &temp));
+  EXPECT_TRUE(ids.find(temp) != ids.end());
+  ids.erase(temp);
+  EXPECT_TRUE(notifications_.empty());
+
+  command_params.reset(new base::DictionaryValue());
+  command_params->SetString("targetId", attached_id);
+  SendCommand("Target.attachToTarget", std::move(command_params), true);
+  params = WaitForNotification("Target.attachedToTarget", true);
+  EXPECT_TRUE(params->GetString("targetInfo.targetId", &temp));
+  EXPECT_EQ(attached_id, temp);
+  EXPECT_TRUE(notifications_.empty());
+
+  command_params.reset(new base::DictionaryValue());
+  command_params->SetBoolean("discover", false);
+  SendCommand("Target.setDiscoverTargets", std::move(command_params), true);
+  params = WaitForNotification("Target.targetDestroyed", true);
+  EXPECT_TRUE(params->GetString("targetId", &temp));
+  EXPECT_TRUE(ids.find(temp) != ids.end());
+  ids.erase(temp);
+  params = WaitForNotification("Target.targetDestroyed", true);
+  EXPECT_TRUE(params->GetString("targetId", &temp));
+  EXPECT_TRUE(ids.find(temp) != ids.end());
+  ids.erase(temp);
+  EXPECT_TRUE(notifications_.empty());
+
+  command_params.reset(new base::DictionaryValue());
+  command_params->SetString("targetId", attached_id);
+  SendCommand("Target.detachFromTarget", std::move(command_params), true);
+  params = WaitForNotification("Target.detachedFromTarget", true);
+  EXPECT_TRUE(params->GetString("targetId", &temp));
+  EXPECT_EQ(attached_id, temp);
+  EXPECT_TRUE(notifications_.empty());
+}
+
+// Tests that an interstitialShown event is sent when an interstitial is showing
+// on attach.
+IN_PROC_BROWSER_TEST_F(DevToolsProtocolTest, InterstitialShownOnAttach) {
+  TestInterstitialDelegate* delegate = new TestInterstitialDelegate;
+  WebContentsImpl* web_contents =
+      static_cast<WebContentsImpl*>(shell()->web_contents());
+  GURL interstitial_url("https://example.test");
+  InterstitialPageImpl* interstitial = new InterstitialPageImpl(
+      web_contents, static_cast<RenderWidgetHostDelegate*>(web_contents), true,
+      interstitial_url, delegate);
+  interstitial->Show();
+  WaitForInterstitialAttach(web_contents);
+  Attach();
+  SendCommand("Page.enable", nullptr, false);
+  WaitForNotification("Page.interstitialShown", true);
+}
+
+class SitePerProcessDevToolsProtocolTest : public DevToolsProtocolTest {
+ public:
+  void SetUpCommandLine(base::CommandLine* command_line) override {
+    DevToolsProtocolTest::SetUpCommandLine(command_line);
+    IsolateAllSitesForTesting(command_line);
+  };
+
+  void SetUpOnMainThread() override {
+    DevToolsProtocolTest::SetUpOnMainThread();
+    host_resolver()->AddRule("*", "127.0.0.1");
+    content::SetupCrossSiteRedirector(embedded_test_server());
+    ASSERT_TRUE(embedded_test_server()->Start());
+  }
+};
+
+IN_PROC_BROWSER_TEST_F(SitePerProcessDevToolsProtocolTest, TargetNoDiscovery) {
+  std::string temp;
+  std::string target_id;
+  std::unique_ptr<base::DictionaryValue> command_params;
+  std::unique_ptr<base::DictionaryValue> params;
+
+  GURL main_url(embedded_test_server()->GetURL("/site_per_process_main.html"));
+  NavigateToURLBlockUntilNavigationsComplete(shell(), main_url, 1);
+  // It is safe to obtain the root frame tree node here, as it doesn't change.
+  FrameTreeNode* root =
+      static_cast<WebContentsImpl*>(shell()->web_contents())->
+          GetFrameTree()->root();
+
+  // Load cross-site page into iframe.
+  GURL::Replacements replace_host;
+  GURL cross_site_url(embedded_test_server()->GetURL("/title1.html"));
+  replace_host.SetHostStr("foo.com");
+  cross_site_url = cross_site_url.ReplaceComponents(replace_host);
+  NavigateFrameToURL(root->child_at(0), cross_site_url);
+
+  // Enable auto-attach.
+  Attach();
+  command_params.reset(new base::DictionaryValue());
+  command_params->SetBoolean("autoAttach", true);
+  command_params->SetBoolean("waitForDebuggerOnStart", true);
+  SendCommand("Target.setAutoAttach", std::move(command_params), true);
+  EXPECT_TRUE(notifications_.empty());
+  command_params.reset(new base::DictionaryValue());
+  command_params->SetBoolean("value", true);
+  SendCommand("Target.setAttachToFrames", std::move(command_params), false);
+  params = WaitForNotification("Target.attachedToTarget", true);
+  EXPECT_TRUE(params->GetString("targetInfo.targetId", &target_id));
+  EXPECT_TRUE(params->GetString("targetInfo.type", &temp));
+  EXPECT_EQ("iframe", temp);
+
+  // Load same-site page into iframe.
+  FrameTreeNode* child = root->child_at(0);
+  GURL http_url(embedded_test_server()->GetURL("/title1.html"));
+  NavigateFrameToURL(child, http_url);
+  params = WaitForNotification("Target.detachedFromTarget", true);
+  EXPECT_TRUE(params->GetString("targetId", &temp));
+  EXPECT_EQ(target_id, temp);
+
+  // Navigate back to cross-site iframe.
+  NavigateFrameToURL(root->child_at(0), cross_site_url);
+  params = WaitForNotification("Target.attachedToTarget", true);
+  EXPECT_TRUE(params->GetString("targetInfo.targetId", &target_id));
+  EXPECT_TRUE(params->GetString("targetInfo.type", &temp));
+  EXPECT_EQ("iframe", temp);
+
+  // Disable auto-attach.
+  command_params.reset(new base::DictionaryValue());
+  command_params->SetBoolean("autoAttach", false);
+  command_params->SetBoolean("waitForDebuggerOnStart", false);
+  SendCommand("Target.setAutoAttach", std::move(command_params), false);
+  params = WaitForNotification("Target.detachedFromTarget", true);
+  EXPECT_TRUE(params->GetString("targetId", &temp));
+  EXPECT_EQ(target_id, temp);
+}
+
+IN_PROC_BROWSER_TEST_F(DevToolsProtocolTest, SetAndGetCookies) {
+  ASSERT_TRUE(embedded_test_server()->Start());
+  GURL test_url = embedded_test_server()->GetURL("/title1.html");
+  NavigateToURLBlockUntilNavigationsComplete(shell(), test_url, 1);
+  Attach();
+
+  // Set two cookies, one of which matches the loaded URL and another that
+  // doesn't.
+  std::unique_ptr<base::DictionaryValue> command_params;
+  command_params.reset(new base::DictionaryValue());
+  command_params->SetString("url", test_url.spec());
+  command_params->SetString("name", "cookie_for_this_url");
+  command_params->SetString("value", "mendacious");
+  SendCommand("Network.setCookie", std::move(command_params), false);
+
+  command_params.reset(new base::DictionaryValue());
+  command_params->SetString("url", "https://www.chromium.org");
+  command_params->SetString("name", "cookie_for_another_url");
+  command_params->SetString("value", "polyglottal");
+  SendCommand("Network.setCookie", std::move(command_params), false);
+
+  // First get the cookies for just the loaded URL.
+  SendCommand("Network.getCookies", nullptr, true);
+
+  base::ListValue* cookies;
+  EXPECT_TRUE(result_->HasKey("cookies"));
+  EXPECT_TRUE(result_->GetList("cookies", &cookies));
+  EXPECT_EQ(1u, cookies->GetSize());
+
+  base::DictionaryValue* cookie;
+  std::string name;
+  std::string value;
+  EXPECT_TRUE(cookies->GetDictionary(0, &cookie));
+  EXPECT_TRUE(cookie->GetString("name", &name));
+  EXPECT_TRUE(cookie->GetString("value", &value));
+  EXPECT_EQ("cookie_for_this_url", name);
+  EXPECT_EQ("mendacious", value);
+
+  // Then get all the cookies in the cookie jar.
+  SendCommand("Network.getAllCookies", nullptr, true);
+
+  EXPECT_TRUE(result_->HasKey("cookies"));
+  EXPECT_TRUE(result_->GetList("cookies", &cookies));
+  EXPECT_EQ(2u, cookies->GetSize());
+
+  // Note: the cookies will be returned in unspecified order.
+  size_t found = 0;
+  for (size_t i = 0; i < cookies->GetSize(); i++) {
+    EXPECT_TRUE(cookies->GetDictionary(i, &cookie));
+    EXPECT_TRUE(cookie->GetString("name", &name));
+    if (name == "cookie_for_this_url") {
+      EXPECT_TRUE(cookie->GetString("value", &value));
+      EXPECT_EQ("mendacious", value);
+      found++;
+    } else if (name == "cookie_for_another_url") {
+      EXPECT_TRUE(cookie->GetString("value", &value));
+      EXPECT_EQ("polyglottal", value);
+      found++;
+    } else {
+      FAIL();
+    }
+  }
+  EXPECT_EQ(2u, found);
 }
 
 }  // namespace content

@@ -31,7 +31,6 @@
 #ifndef DOMWindowQuota_h
 #define DOMWindowQuota_h
 
-#include "core/frame/DOMWindowProperty.h"
 #include "platform/Supplementable.h"
 #include "platform/heap/Handle.h"
 
@@ -39,10 +38,10 @@ namespace blink {
 
 class DeprecatedStorageInfo;
 class DOMWindow;
+class LocalDOMWindow;
 
 class DOMWindowQuota final : public GarbageCollected<DOMWindowQuota>,
-                             public Supplement<LocalDOMWindow>,
-                             public DOMWindowProperty {
+                             public Supplement<LocalDOMWindow> {
   USING_GARBAGE_COLLECTED_MIXIN(DOMWindowQuota);
 
  public:

@@ -46,16 +46,19 @@ class CORE_EXPORT HTMLSlotElement final : public HTMLElement {
 
   const HeapVector<Member<Node>>& assignedNodes();
   const HeapVector<Member<Node>>& getDistributedNodes();
+  const HeapVector<Member<Node>> getDistributedNodesForBinding();
   const HeapVector<Member<Node>> assignedNodesForBinding(
       const AssignedNodesOptions&);
 
   Node* firstDistributedNode() const {
+    DCHECK(supportsDistribution());
     return m_distributedNodes.isEmpty() ? nullptr
-                                        : m_distributedNodes.first().get();
+                                        : m_distributedNodes.front().get();
   }
   Node* lastDistributedNode() const {
+    DCHECK(supportsDistribution());
     return m_distributedNodes.isEmpty() ? nullptr
-                                        : m_distributedNodes.last().get();
+                                        : m_distributedNodes.back().get();
   }
 
   Node* distributedNodeNextTo(const Node&) const;
@@ -74,12 +77,9 @@ class CORE_EXPORT HTMLSlotElement final : public HTMLElement {
   void attachLayoutTree(const AttachContext& = AttachContext()) final;
   void detachLayoutTree(const AttachContext& = AttachContext()) final;
 
-  void attributeChanged(const QualifiedName&,
-                        const AtomicString& oldValue,
-                        const AtomicString& newValue,
-                        AttributeModificationReason = ModifiedDirectly) final;
+  void attributeChanged(const AttributeModificationParams&) final;
 
-  short tabIndex() const override;
+  int tabIndex() const override;
   AtomicString name() const;
 
   // This method can be slow because this has to traverse the children of a
@@ -88,10 +88,13 @@ class CORE_EXPORT HTMLSlotElement final : public HTMLElement {
   bool hasAssignedNodesSlow() const;
   bool findHostChildWithSameSlotName() const;
 
-  void enqueueSlotChangeEvent();
-
   void clearDistribution();
   void saveAndClearDistribution();
+
+  bool supportsDistribution() const { return isInV1ShadowTree(); }
+  void didSlotChange(SlotChangeType);
+  void dispatchSlotChangeEvent();
+  void clearSlotChangeEventEnqueued() { m_slotchangeEventEnqueued = false; }
 
   static AtomicString normalizeSlotName(const AtomicString&);
 
@@ -104,7 +107,7 @@ class CORE_EXPORT HTMLSlotElement final : public HTMLElement {
   void removedFrom(ContainerNode*) final;
   void willRecalcStyle(StyleRecalcChange) final;
 
-  void dispatchSlotChangeEvent();
+  void enqueueSlotChangeEvent();
 
   HeapVector<Member<Node>> m_assignedNodes;
   HeapVector<Member<Node>> m_distributedNodes;

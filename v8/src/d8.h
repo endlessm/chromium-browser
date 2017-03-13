@@ -5,13 +5,13 @@
 #ifndef V8_D8_H_
 #define V8_D8_H_
 
-#include <map>
 #include <string>
 
 #include "src/allocation.h"
 #include "src/base/hashmap.h"
 #include "src/base/platform/time.h"
 #include "src/list.h"
+#include "src/utils.h"
 
 #include "src/base/once.h"
 
@@ -275,6 +275,7 @@ class ShellOptions {
         dump_heap_constants(false),
         expected_to_throw(false),
         mock_arraybuffer_allocator(false),
+        enable_inspector(false),
         num_isolates(1),
         compile_options(v8::ScriptCompiler::kNoCompileOptions),
         isolate_sources(NULL),
@@ -304,6 +305,7 @@ class ShellOptions {
   bool dump_heap_constants;
   bool expected_to_throw;
   bool mock_arraybuffer_allocator;
+  bool enable_inspector;
   int num_isolates;
   v8::ScriptCompiler::CompileOptions compile_options;
   SourceGroup* isolate_sources;
@@ -323,7 +325,6 @@ class Shell : public i::AllStatic {
                             Local<Value> name, bool print_result,
                             bool report_exceptions);
   static bool ExecuteModule(Isolate* isolate, const char* file_name);
-  static const char* ToCString(const v8::String::Utf8Value& value);
   static void ReportException(Isolate* isolate, TryCatch* try_catch);
   static Local<String> ReadFile(Isolate* isolate, const char* name);
   static Local<Context> CreateEvaluationContext(Isolate* isolate);
@@ -359,6 +360,7 @@ class Shell : public i::AllStatic {
   static void RealmOwner(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void RealmGlobal(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void RealmCreate(const v8::FunctionCallbackInfo<v8::Value>& args);
+  static void RealmNavigate(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void RealmCreateAllowCrossRealmAccess(
       const v8::FunctionCallbackInfo<v8::Value>& args);
   static void RealmDispose(const v8::FunctionCallbackInfo<v8::Value>& args);
@@ -371,6 +373,7 @@ class Shell : public i::AllStatic {
                              const  PropertyCallbackInfo<void>& info);
 
   static void Print(const v8::FunctionCallbackInfo<v8::Value>& args);
+  static void PrintErr(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void Write(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void QuitOnce(v8::FunctionCallbackInfo<v8::Value>* args);
   static void Quit(const v8::FunctionCallbackInfo<v8::Value>& args);
@@ -454,10 +457,12 @@ class Shell : public i::AllStatic {
   static bool SetOptions(int argc, char* argv[]);
   static Local<ObjectTemplate> CreateGlobalTemplate(Isolate* isolate);
   static MaybeLocal<Context> CreateRealm(
-      const v8::FunctionCallbackInfo<v8::Value>& args);
-  static MaybeLocal<Module> FetchModuleTree(
-      Isolate* isolate, const std::string& file_name,
-      std::map<std::string, Global<Module>>* module_map);
+      const v8::FunctionCallbackInfo<v8::Value>& args, int index,
+      v8::MaybeLocal<Value> global_object);
+  static void DisposeRealm(const v8::FunctionCallbackInfo<v8::Value>& args,
+                           int index);
+  static MaybeLocal<Module> FetchModuleTree(v8::Local<v8::Context> context,
+                                            const std::string& file_name);
 };
 
 

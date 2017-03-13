@@ -11,16 +11,11 @@
 #include "base/callback.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
+#include "base/strings/string16.h"
 #include "ui/message_center/message_center_export.h"
 
-namespace content {
-class RenderViewHost;
-}
-
 #if defined(TOOLKIT_VIEWS) && !defined(OS_MACOSX)
-namespace views {
-class View;
-}
+#include "ui/message_center/views/custom_notification_content_view_delegate.h"
 #endif
 
 namespace message_center {
@@ -47,6 +42,12 @@ class MESSAGE_CENTER_EXPORT NotificationDelegate
   // To be called when the user clicks a button in a notification.
   virtual void ButtonClick(int button_index);
 
+  // To be called when the user types a reply to a notification.
+  // TODO(crbug.com/599859) Support this feature in the message center -
+  // currently it is only supported on Android.
+  virtual void ButtonClickWithReply(int button_index,
+                                    const base::string16& reply);
+
   // To be called when the user clicks the settings button in a notification.
   virtual void SettingsClick();
 
@@ -56,7 +57,7 @@ class MESSAGE_CENTER_EXPORT NotificationDelegate
 #if defined(TOOLKIT_VIEWS) && !defined(OS_MACOSX)
   // To be called to construct the contents view of a popup for notifications
   // whose type is NOTIFICATION_TYPE_CUSTOM.
-  virtual std::unique_ptr<views::View> CreateCustomContent();
+  virtual std::unique_ptr<CustomContent> CreateCustomContent();
 #endif
 
   // Indicates whether this notification should be displayed when there is

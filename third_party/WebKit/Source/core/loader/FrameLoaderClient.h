@@ -36,6 +36,7 @@
 #include "core/dom/IconURL.h"
 #include "core/fetch/ResourceLoaderOptions.h"
 #include "core/frame/FrameClient.h"
+#include "core/frame/FrameTypes.h"
 #include "core/html/LinkResource.h"
 #include "core/loader/FrameLoadRequest.h"
 #include "core/loader/FrameLoaderTypes.h"
@@ -45,6 +46,7 @@
 #include "platform/network/ResourceLoadPriority.h"
 #include "platform/weborigin/Referrer.h"
 #include "public/platform/WebEffectiveConnectionType.h"
+#include "public/platform/WebFeaturePolicy.h"
 #include "public/platform/WebInsecureRequestPolicy.h"
 #include "public/platform/WebLoadingBehaviorFlag.h"
 #include "wtf/Forward.h"
@@ -56,7 +58,6 @@ namespace blink {
 
 class Document;
 class DocumentLoader;
-class FetchRequest;
 struct FrameLoadRequest;
 class HTMLFormElement;
 class HTMLFrameElementBase;
@@ -78,10 +79,9 @@ class WebCookieJar;
 class WebMediaPlayer;
 class WebMediaPlayerClient;
 class WebMediaPlayerSource;
-class WebMediaStream;
+class WebRemotePlaybackClient;
 class WebRTCPeerConnectionHandler;
 class WebServiceWorkerProvider;
-class WebSocketHandle;
 class Widget;
 
 class CORE_EXPORT FrameLoaderClient : public FrameClient {
@@ -102,7 +102,7 @@ class CORE_EXPORT FrameLoaderClient : public FrameClient {
                                              HistoryCommitType,
                                              bool contentInitiated) {}
   virtual void dispatchWillCommitProvisionalLoad() = 0;
-  virtual void dispatchDidStartProvisionalLoad(double triggeringEventTime) = 0;
+  virtual void dispatchDidStartProvisionalLoad() = 0;
   virtual void dispatchDidReceiveTitle(const String&) = 0;
   virtual void dispatchDidChangeIcons(IconType) = 0;
   virtual void dispatchDidCommitLoad(HistoryItem*, HistoryCommitType) = 0;
@@ -119,7 +119,8 @@ class CORE_EXPORT FrameLoaderClient : public FrameClient {
       NavigationType,
       NavigationPolicy,
       bool shouldReplaceCurrentEntry,
-      bool isClientRedirect) = 0;
+      bool isClientRedirect,
+      HTMLFormElement*) = 0;
 
   virtual void dispatchWillSendSubmitEvent(HTMLFormElement*) = 0;
   virtual void dispatchWillSubmitForm(HTMLFormElement*) = 0;
@@ -132,6 +133,7 @@ class CORE_EXPORT FrameLoaderClient : public FrameClient {
                                  NavigationPolicy,
                                  const String& suggestedName,
                                  bool replacesCurrentHistoryItem) = 0;
+  virtual void loadErrorPage(int reason) = 0;
 
   virtual bool navigateBackForward(int offset) const = 0;
 
@@ -170,7 +172,8 @@ class CORE_EXPORT FrameLoaderClient : public FrameClient {
 
   virtual DocumentLoader* createDocumentLoader(LocalFrame*,
                                                const ResourceRequest&,
-                                               const SubstituteData&) = 0;
+                                               const SubstituteData&,
+                                               ClientRedirectPolicy) = 0;
 
   virtual String userAgent() = 0;
 
@@ -200,6 +203,8 @@ class CORE_EXPORT FrameLoaderClient : public FrameClient {
       HTMLMediaElement&,
       const WebMediaPlayerSource&,
       WebMediaPlayerClient*) = 0;
+  virtual WebRemotePlaybackClient* createWebRemotePlaybackClient(
+      HTMLMediaElement&) = 0;
 
   virtual ObjectContentType getObjectContentType(
       const KURL&,
@@ -213,13 +218,10 @@ class CORE_EXPORT FrameLoaderClient : public FrameClient {
   virtual void runScriptsAtDocumentReady(bool documentIsEmpty) = 0;
 
   virtual void didCreateScriptContext(v8::Local<v8::Context>,
-                                      int extensionGroup,
                                       int worldId) = 0;
   virtual void willReleaseScriptContext(v8::Local<v8::Context>,
                                         int worldId) = 0;
-  virtual bool allowScriptExtension(const String& extensionName,
-                                    int extensionGroup,
-                                    int worldId) = 0;
+  virtual bool allowScriptExtensions() = 0;
 
   virtual void didChangeScrollOffset() {}
   virtual void didUpdateCurrentHistoryItem() {}
@@ -258,9 +260,6 @@ class CORE_EXPORT FrameLoaderClient : public FrameClient {
   // This callback is similar, but for plugins.
   virtual void didNotAllowPlugins() {}
 
-  // This callback notifies the client that the frame created a Keygen element.
-  virtual void didUseKeygen() {}
-
   virtual WebCookieJar* cookieJar() const = 0;
 
   virtual void didChangeName(const String& name, const String& uniqueName) {}
@@ -270,6 +269,9 @@ class CORE_EXPORT FrameLoaderClient : public FrameClient {
   virtual void didUpdateToUniqueOrigin() {}
 
   virtual void didChangeSandboxFlags(Frame* childFrame, SandboxFlags) {}
+
+  virtual void didSetFeaturePolicyHeader(
+      const WebParsedFeaturePolicy& parsedHeader) {}
 
   // Called when a new Content Security Policy is added to the frame's document.
   // This can be triggered by handling of HTTP headers, handling of <meta>
@@ -334,6 +336,10 @@ class CORE_EXPORT FrameLoaderClient : public FrameClient {
   // Overwrites the given URL to use an HTML5 embed if possible. An empty URL is
   // returned if the URL is not overriden.
   virtual KURL overrideFlashEmbedWithHTML(const KURL&) { return KURL(); }
+
+  virtual BlameContext* frameBlameContext() { return nullptr; }
+
+  virtual void setHasReceivedUserGesture() {}
 };
 
 }  // namespace blink

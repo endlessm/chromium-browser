@@ -25,6 +25,7 @@
 #include "base/strings/string_util.h"
 #include "base/synchronization/lock.h"
 #include "base/time/time.h"
+#include "base/trace_event/trace_event.h"
 #include "crypto/secure_hash.h"
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
 #include "net/base/url_util.h"
@@ -235,6 +236,8 @@ scoped_refptr<X509Certificate> X509Certificate::CreateFromHandle(
 // static
 scoped_refptr<X509Certificate> X509Certificate::CreateFromDERCertChain(
     const std::vector<base::StringPiece>& der_certs) {
+  TRACE_EVENT0("io", "X509Certificate::CreateFromDERCertChain");
+
   // TODO(cbentzel): Remove ScopedTracker below once crbug.com/424386 is fixed.
   tracked_objects::ScopedTracker tracking_profile(
       FROM_HERE_WITH_EXPLICIT_FUNCTION(
@@ -551,7 +554,7 @@ bool X509Certificate::VerifyHostname(
     // is not registry controlled, this ensures that all reference domains
     // contain at least three domain components when using wildcards.
     size_t registry_length =
-        registry_controlled_domains::GetRegistryLength(
+        registry_controlled_domains::GetCanonicalHostRegistryLength(
             reference_name,
             registry_controlled_domains::INCLUDE_UNKNOWN_REGISTRIES,
             registry_controlled_domains::EXCLUDE_PRIVATE_REGISTRIES);

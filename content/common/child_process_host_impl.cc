@@ -26,16 +26,13 @@
 #include "content/public/common/child_process_host_delegate.h"
 #include "content/public/common/content_paths.h"
 #include "content/public/common/content_switches.h"
-#include "gpu/ipc/client/gpu_memory_buffer_impl_shared_memory.h"
-#include "ipc/attachment_broker.h"
-#include "ipc/attachment_broker_privileged.h"
 #include "ipc/ipc.mojom.h"
 #include "ipc/ipc_channel.h"
 #include "ipc/ipc_channel_mojo.h"
 #include "ipc/ipc_logging.h"
 #include "ipc/message_filter.h"
 #include "mojo/edk/embedder/embedder.h"
-#include "services/shell/public/cpp/interface_provider.h"
+#include "services/service_manager/public/cpp/interface_provider.h"
 
 #if defined(OS_LINUX)
 #include "base/linux_util.h"
@@ -92,19 +89,6 @@ ChildProcessHostImpl::ChildProcessHostImpl(ChildProcessHostDelegate* delegate)
 #if defined(OS_WIN)
   AddFilter(new FontCacheDispatcher());
 #endif
-
-#if USE_ATTACHMENT_BROKER
-#if defined(OS_MACOSX)
-  // On Mac, the privileged AttachmentBroker needs a reference to the Mach port
-  // Provider, which is only available in the chrome/ module. The attachment
-  // broker must already be created.
-  DCHECK(IPC::AttachmentBroker::GetGlobal());
-#else
-  // Construct the privileged attachment broker early in the life cycle of a
-  // child process.
-  IPC::AttachmentBrokerPrivileged::CreateBrokerIfNeeded();
-#endif  // defined(OS_MACOSX)
-#endif  // USE_ATTACHMENT_BROKER
 }
 
 ChildProcessHostImpl::~ChildProcessHostImpl() {
@@ -114,10 +98,6 @@ ChildProcessHostImpl::~ChildProcessHostImpl() {
   if (!channel_)
     return;
 
-#if USE_ATTACHMENT_BROKER
-  IPC::AttachmentBroker::GetGlobal()->DeregisterCommunicationChannel(
-      channel_.get());
-#endif
   for (size_t i = 0; i < filters_.size(); ++i) {
     filters_[i]->OnChannelClosing();
     filters_[i]->OnFilterRemoved();
@@ -131,7 +111,8 @@ void ChildProcessHostImpl::AddFilter(IPC::MessageFilter* filter) {
     filter->OnFilterAdded(channel_.get());
 }
 
-shell::InterfaceProvider* ChildProcessHostImpl::GetRemoteInterfaces() {
+service_manager::InterfaceProvider*
+ChildProcessHostImpl::GetRemoteInterfaces() {
   return delegate_->GetRemoteInterfaces();
 }
 
@@ -160,7 +141,7 @@ void ChildProcessHostImpl::CreateChannelMojo() {
   DCHECK(channel_id_.empty());
   channel_id_ = "ChannelMojo";
 
-  shell::InterfaceProvider* remote_interfaces = GetRemoteInterfaces();
+  service_manager::InterfaceProvider* remote_interfaces = GetRemoteInterfaces();
   DCHECK(remote_interfaces);
 
   IPC::mojom::ChannelBootstrapPtr bootstrap;
@@ -174,21 +155,12 @@ void ChildProcessHostImpl::CreateChannelMojo() {
 }
 
 bool ChildProcessHostImpl::InitChannel() {
-#if USE_ATTACHMENT_BROKER
-  DCHECK(base::MessageLoopForIO::IsCurrent());
-  IPC::AttachmentBroker::GetGlobal()->RegisterCommunicationChannel(
-      channel_.get(), base::ThreadTaskRunnerHandle::Get());
-#endif
-  if (!channel_->Connect()) {
-#if USE_ATTACHMENT_BROKER
-    IPC::AttachmentBroker::GetGlobal()->DeregisterCommunicationChannel(
-        channel_.get());
-#endif
+  if (!channel_->Connect())
     return false;
-  }
 
   for (size_t i = 0; i < filters_.size(); ++i)
     filters_[i]->OnFilterAdded(channel_.get());
+  delegate_->OnChannelInitialized(channel_.get());
 
   // Make sure these messages get sent first.
 #if defined(IPC_MESSAGE_LOG_ENABLED)
@@ -205,30 +177,12 @@ bool ChildProcessHostImpl::IsChannelOpening() {
   return opening_channel_;
 }
 
-#if defined(OS_POSIX)
-base::ScopedFD ChildProcessHostImpl::TakeClientFileDescriptor() {
-  return channel_->TakeClientFileDescriptor();
-}
-#endif
-
 bool ChildProcessHostImpl::Send(IPC::Message* message) {
   if (!channel_) {
     delete message;
     return false;
   }
   return channel_->Send(message);
-}
-
-void ChildProcessHostImpl::AllocateSharedMemory(
-      size_t buffer_size, base::ProcessHandle child_process_handle,
-      base::SharedMemoryHandle* shared_memory_handle) {
-  base::SharedMemory shared_buf;
-  if (!shared_buf.CreateAnonymous(buffer_size)) {
-    *shared_memory_handle = base::SharedMemory::NULLHandle();
-    NOTREACHED() << "Cannot create shared memory buffer";
-    return;
-  }
-  shared_buf.GiveToProcess(child_process_handle, shared_memory_handle);
 }
 
 int ChildProcessHostImpl::GenerateChildProcessUniqueId() {
@@ -289,16 +243,6 @@ bool ChildProcessHostImpl::OnMessageReceived(const IPC::Message& msg) {
     IPC_BEGIN_MESSAGE_MAP(ChildProcessHostImpl, msg)
       IPC_MESSAGE_HANDLER(ChildProcessHostMsg_ShutdownRequest,
                           OnShutdownRequest)
-      // NB: The SyncAllocateSharedMemory, SyncAllocateGpuMemoryBuffer, and
-      // DeletedGpuMemoryBuffer IPCs are handled here for non-renderer child
-      // processes. For renderer processes, they are handled in
-      // RenderMessageFilter.
-      IPC_MESSAGE_HANDLER(ChildProcessHostMsg_SyncAllocateSharedMemory,
-                          OnAllocateSharedMemory)
-      IPC_MESSAGE_HANDLER(ChildProcessHostMsg_SyncAllocateGpuMemoryBuffer,
-                          OnAllocateGpuMemoryBuffer)
-      IPC_MESSAGE_HANDLER(ChildProcessHostMsg_DeletedGpuMemoryBuffer,
-                          OnDeletedGpuMemoryBuffer)
       IPC_MESSAGE_UNHANDLED(handled = false)
     IPC_END_MESSAGE_MAP()
 
@@ -308,7 +252,7 @@ bool ChildProcessHostImpl::OnMessageReceived(const IPC::Message& msg) {
 
 #ifdef IPC_MESSAGE_LOG_ENABLED
   if (logger->Enabled())
-    logger->OnPostDispatchMessage(msg, channel_id_);
+    logger->OnPostDispatchMessage(msg);
 #endif
   return handled;
 }
@@ -341,40 +285,9 @@ void ChildProcessHostImpl::OnBadMessageReceived(const IPC::Message& message) {
   delegate_->OnBadMessageReceived(message);
 }
 
-void ChildProcessHostImpl::OnAllocateSharedMemory(
-    uint32_t buffer_size,
-    base::SharedMemoryHandle* handle) {
-  AllocateSharedMemory(buffer_size, peer_process_.Handle(), handle);
-}
-
 void ChildProcessHostImpl::OnShutdownRequest() {
   if (delegate_->CanShutdown())
     Send(new ChildProcessMsg_Shutdown());
-}
-
-void ChildProcessHostImpl::OnAllocateGpuMemoryBuffer(
-    gfx::GpuMemoryBufferId id,
-    uint32_t width,
-    uint32_t height,
-    gfx::BufferFormat format,
-    gfx::BufferUsage usage,
-    gfx::GpuMemoryBufferHandle* handle) {
-  // TODO(reveman): Add support for other types of GpuMemoryBuffers.
-
-  // AllocateForChildProcess() will check if |width| and |height| are valid
-  // and handle failure in a controlled way when not. We just need to make
-  // sure |usage| is supported here.
-  if (gpu::GpuMemoryBufferImplSharedMemory::IsUsageSupported(usage)) {
-    *handle = gpu::GpuMemoryBufferImplSharedMemory::AllocateForChildProcess(
-        id, gfx::Size(width, height), format, peer_process_.Handle());
-  }
-}
-
-void ChildProcessHostImpl::OnDeletedGpuMemoryBuffer(
-    gfx::GpuMemoryBufferId id,
-    const gpu::SyncToken& sync_token) {
-  // Note: Nothing to do here as ownership of shared memory backed
-  // GpuMemoryBuffers is passed with IPC.
 }
 
 }  // namespace content

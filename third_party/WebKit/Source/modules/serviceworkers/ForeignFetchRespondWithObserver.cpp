@@ -5,6 +5,7 @@
 #include "modules/serviceworkers/ForeignFetchRespondWithObserver.h"
 
 #include "core/fetch/CrossOriginAccessControl.h"
+#include "modules/fetch/Response.h"
 #include "modules/serviceworkers/ForeignFetchResponse.h"
 
 namespace blink {
@@ -14,23 +15,26 @@ ForeignFetchRespondWithObserver* ForeignFetchRespondWithObserver::create(
     int eventID,
     const KURL& requestURL,
     WebURLRequest::FetchRequestMode requestMode,
+    WebURLRequest::FetchRedirectMode redirectMode,
     WebURLRequest::FrameType frameType,
     WebURLRequest::RequestContext requestContext,
     PassRefPtr<SecurityOrigin> requestOrigin,
     WaitUntilObserver* observer) {
   return new ForeignFetchRespondWithObserver(
-      context, eventID, requestURL, requestMode, frameType, requestContext,
-      std::move(requestOrigin), observer);
+      context, eventID, requestURL, requestMode, redirectMode, frameType,
+      requestContext, std::move(requestOrigin), observer);
 }
 
 void ForeignFetchRespondWithObserver::responseWasFulfilled(
     const ScriptValue& value) {
   ASSERT(getExecutionContext());
-  TrackExceptionState exceptionState;
+  ExceptionState exceptionState(value.isolate(), ExceptionState::UnknownContext,
+                                "ForeignFetchEvent", "respondWith");
   ForeignFetchResponse foreignFetchResponse =
       ScriptValue::to<ForeignFetchResponse>(toIsolate(getExecutionContext()),
                                             value, exceptionState);
   if (exceptionState.hadException()) {
+    exceptionState.clearException();
     responseWasRejected(WebServiceWorkerResponseErrorNoForeignFetchResponse);
     return;
   }
@@ -92,6 +96,7 @@ ForeignFetchRespondWithObserver::ForeignFetchRespondWithObserver(
     int eventID,
     const KURL& requestURL,
     WebURLRequest::FetchRequestMode requestMode,
+    WebURLRequest::FetchRedirectMode redirectMode,
     WebURLRequest::FrameType frameType,
     WebURLRequest::RequestContext requestContext,
     PassRefPtr<SecurityOrigin> requestOrigin,
@@ -100,6 +105,7 @@ ForeignFetchRespondWithObserver::ForeignFetchRespondWithObserver(
                           eventID,
                           requestURL,
                           requestMode,
+                          redirectMode,
                           frameType,
                           requestContext,
                           observer),

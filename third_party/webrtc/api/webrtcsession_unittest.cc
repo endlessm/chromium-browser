@@ -23,6 +23,7 @@
 #include "webrtc/api/videotrack.h"
 #include "webrtc/api/webrtcsession.h"
 #include "webrtc/api/webrtcsessiondescriptionfactory.h"
+#include "webrtc/base/checks.h"
 #include "webrtc/base/fakenetwork.h"
 #include "webrtc/base/firewallsocketserver.h"
 #include "webrtc/base/gunit.h"
@@ -35,10 +36,13 @@
 #include "webrtc/base/stringutils.h"
 #include "webrtc/base/thread.h"
 #include "webrtc/base/virtualsocketserver.h"
+#include "webrtc/logging/rtc_event_log/rtc_event_log.h"
 #include "webrtc/media/base/fakemediaengine.h"
 #include "webrtc/media/base/fakevideorenderer.h"
 #include "webrtc/media/base/mediachannel.h"
 #include "webrtc/media/engine/fakewebrtccall.h"
+#include "webrtc/media/sctp/sctptransportinternal.h"
+#include "webrtc/p2p/base/packettransportinterface.h"
 #include "webrtc/p2p/base/stunserver.h"
 #include "webrtc/p2p/base/teststunserver.h"
 #include "webrtc/p2p/base/testturnserver.h"
@@ -107,6 +111,7 @@ static const char kMediaContentName0[] = "audio";
 static const int kMediaContentIndex1 = 1;
 static const char kMediaContentName1[] = "video";
 
+static const int kDefaultTimeout = 10000;  // 10 seconds.
 static const int kIceCandidatesTimeout = 10000;
 // STUN timeout with all retransmissions is a total of 9500ms.
 static const int kStunTimeout = 9500;
@@ -185,7 +190,7 @@ class MockIceObserver : public webrtc::IceObserver {
         mline_1_candidates_.push_back(candidate->candidate());
         break;
       default:
-        ASSERT(false);
+        RTC_NOTREACHED();
     }
 
     // The ICE gathering state should always be Gathering when a candidate is
@@ -209,6 +214,52 @@ class MockIceObserver : public webrtc::IceObserver {
   size_t num_candidates_removed_ = 0;
 };
 
+// Used for tests in this file to verify that WebRtcSession responds to signals
+// from the SctpTransport correctly, and calls Start with the correct
+// local/remote ports.
+class FakeSctpTransport : public cricket::SctpTransportInternal {
+ public:
+  void SetTransportChannel(cricket::TransportChannel* channel) override {}
+  bool Start(int local_port, int remote_port) override {
+    local_port_ = local_port;
+    remote_port_ = remote_port;
+    return true;
+  }
+  bool OpenStream(int sid) override { return true; }
+  bool ResetStream(int sid) override { return true; }
+  bool SendData(const cricket::SendDataParams& params,
+                const rtc::CopyOnWriteBuffer& payload,
+                cricket::SendDataResult* result = nullptr) override {
+    return true;
+  }
+  bool ReadyToSendData() override { return true; }
+  void set_debug_name_for_testing(const char* debug_name) override {}
+
+  int local_port() const { return local_port_; }
+  int remote_port() const { return remote_port_; }
+
+ private:
+  int local_port_ = -1;
+  int remote_port_ = -1;
+};
+
+class FakeSctpTransportFactory : public cricket::SctpTransportInternalFactory {
+ public:
+  std::unique_ptr<cricket::SctpTransportInternal> CreateSctpTransport(
+      cricket::TransportChannel*) override {
+    last_fake_sctp_transport_ = new FakeSctpTransport();
+    return std::unique_ptr<cricket::SctpTransportInternal>(
+        last_fake_sctp_transport_);
+  }
+
+  FakeSctpTransport* last_fake_sctp_transport() {
+    return last_fake_sctp_transport_;
+  }
+
+ private:
+  FakeSctpTransport* last_fake_sctp_transport_ = nullptr;
+};
+
 class WebRtcSessionForTest : public webrtc::WebRtcSession {
  public:
   WebRtcSessionForTest(
@@ -218,56 +269,52 @@ class WebRtcSessionForTest : public webrtc::WebRtcSession {
       rtc::Thread* signaling_thread,
       cricket::PortAllocator* port_allocator,
       webrtc::IceObserver* ice_observer,
-      std::unique_ptr<cricket::TransportController> transport_controller)
+      std::unique_ptr<cricket::TransportController> transport_controller,
+      std::unique_ptr<FakeSctpTransportFactory> sctp_factory)
       : WebRtcSession(media_controller,
                       network_thread,
                       worker_thread,
                       signaling_thread,
                       port_allocator,
-                      std::move(transport_controller)) {
+                      std::move(transport_controller),
+                      std::move(sctp_factory)) {
     RegisterIceObserver(ice_observer);
   }
   virtual ~WebRtcSessionForTest() {}
 
   // Note that these methods are only safe to use if the signaling thread
   // is the same as the worker thread
-  cricket::TransportChannel* voice_rtp_transport_channel() {
+  rtc::PacketTransportInterface* voice_rtp_transport_channel() {
     return rtp_transport_channel(voice_channel());
   }
 
-  cricket::TransportChannel* voice_rtcp_transport_channel() {
+  rtc::PacketTransportInterface* voice_rtcp_transport_channel() {
     return rtcp_transport_channel(voice_channel());
   }
 
-  cricket::TransportChannel* video_rtp_transport_channel() {
+  rtc::PacketTransportInterface* video_rtp_transport_channel() {
     return rtp_transport_channel(video_channel());
   }
 
-  cricket::TransportChannel* video_rtcp_transport_channel() {
+  rtc::PacketTransportInterface* video_rtcp_transport_channel() {
     return rtcp_transport_channel(video_channel());
   }
 
-  cricket::TransportChannel* data_rtp_transport_channel() {
-    return rtp_transport_channel(data_channel());
-  }
-
-  cricket::TransportChannel* data_rtcp_transport_channel() {
-    return rtcp_transport_channel(data_channel());
-  }
-
  private:
-  cricket::TransportChannel* rtp_transport_channel(cricket::BaseChannel* ch) {
+  rtc::PacketTransportInterface* rtp_transport_channel(
+      cricket::BaseChannel* ch) {
     if (!ch) {
       return nullptr;
     }
-    return ch->transport_channel();
+    return ch->rtp_transport();
   }
 
-  cricket::TransportChannel* rtcp_transport_channel(cricket::BaseChannel* ch) {
+  rtc::PacketTransportInterface* rtcp_transport_channel(
+      cricket::BaseChannel* ch) {
     if (!ch) {
       return nullptr;
     }
-    return ch->rtcp_transport_channel();
+    return ch->rtcp_transport();
   }
 };
 
@@ -331,15 +378,15 @@ class WebRtcSessionTest
   WebRtcSessionTest()
       : media_engine_(new cricket::FakeMediaEngine()),
         data_engine_(new cricket::FakeDataEngine()),
-        channel_manager_(
-            new cricket::ChannelManager(media_engine_,
-                                        data_engine_,
-                                        rtc::Thread::Current())),
-        fake_call_(webrtc::Call::Config()),
+        channel_manager_(new cricket::ChannelManager(media_engine_,
+                                                     data_engine_,
+                                                     rtc::Thread::Current())),
+        fake_call_(webrtc::Call::Config(&event_log_)),
         media_controller_(
             webrtc::MediaControllerInterface::Create(cricket::MediaConfig(),
                                                      rtc::Thread::Current(),
-                                                     channel_manager_.get())),
+                                                     channel_manager_.get(),
+                                                     &event_log_)),
         tdesc_factory_(new cricket::TransportDescriptionFactory()),
         desc_factory_(
             new cricket::MediaSessionDescriptionFactory(channel_manager_.get(),
@@ -379,20 +426,25 @@ class WebRtcSessionTest
   // options. When DTLS is enabled a certificate will be used if provided,
   // otherwise one will be generated using the |cert_generator|.
   void Init(
-      std::unique_ptr<rtc::RTCCertificateGeneratorInterface> cert_generator) {
+      std::unique_ptr<rtc::RTCCertificateGeneratorInterface> cert_generator,
+      PeerConnectionInterface::RtcpMuxPolicy rtcp_mux_policy) {
     ASSERT_TRUE(session_.get() == NULL);
+    fake_sctp_transport_factory_ = new FakeSctpTransportFactory();
     session_.reset(new WebRtcSessionForTest(
         media_controller_.get(), rtc::Thread::Current(), rtc::Thread::Current(),
         rtc::Thread::Current(), allocator_.get(), &observer_,
         std::unique_ptr<cricket::TransportController>(
             new cricket::TransportController(rtc::Thread::Current(),
                                              rtc::Thread::Current(),
-                                             allocator_.get()))));
+                                             allocator_.get())),
+        std::unique_ptr<FakeSctpTransportFactory>(
+            fake_sctp_transport_factory_)));
     session_->SignalDataChannelOpenMessage.connect(
         this, &WebRtcSessionTest::OnDataChannelOpenMessage);
     session_->GetOnDestroyedSignal()->connect(
         this, &WebRtcSessionTest::OnSessionDestroyed);
 
+    configuration_.rtcp_mux_policy = rtcp_mux_policy;
     EXPECT_EQ(PeerConnectionInterface::kIceConnectionNew,
         observer_.ice_connection_state_);
     EXPECT_EQ(PeerConnectionInterface::kIceGatheringNew,
@@ -411,7 +463,13 @@ class WebRtcSessionTest
 
   void OnSessionDestroyed() { session_destroyed_ = true; }
 
-  void Init() { Init(nullptr); }
+  void Init() {
+    Init(nullptr, PeerConnectionInterface::kRtcpMuxPolicyNegotiate);
+  }
+
+  void Init(PeerConnectionInterface::RtcpMuxPolicy rtcp_mux_policy) {
+    Init(nullptr, rtcp_mux_policy);
+  }
 
   void InitWithBundlePolicy(
       PeerConnectionInterface::BundlePolicy bundle_policy) {
@@ -422,8 +480,7 @@ class WebRtcSessionTest
   void InitWithRtcpMuxPolicy(
       PeerConnectionInterface::RtcpMuxPolicy rtcp_mux_policy) {
     PeerConnectionInterface::RTCConfiguration configuration;
-    configuration_.rtcp_mux_policy = rtcp_mux_policy;
-    Init();
+    Init(rtcp_mux_policy);
   }
 
   // Successfully init with DTLS; with a certificate generated and supplied or
@@ -439,7 +496,8 @@ class WebRtcSessionTest
     } else {
       RTC_CHECK(false);
     }
-    Init(std::move(cert_generator));
+    Init(std::move(cert_generator),
+         PeerConnectionInterface::kRtcpMuxPolicyNegotiate);
   }
 
   // Init with DTLS with a store that will fail to generate a certificate.
@@ -447,7 +505,8 @@ class WebRtcSessionTest
     std::unique_ptr<FakeRTCCertificateGenerator> cert_generator(
         new FakeRTCCertificateGenerator());
     cert_generator->set_should_fail(true);
-    Init(std::move(cert_generator));
+    Init(std::move(cert_generator),
+         PeerConnectionInterface::kRtcpMuxPolicyNegotiate);
   }
 
   void InitWithDtmfCodec() {
@@ -1474,14 +1533,17 @@ class WebRtcSessionTest
     cricket::RelayCredentials credentials(kTurnUsername, kTurnPassword);
     turn_server.credentials = credentials;
     turn_server.ports.push_back(
-        cricket::ProtocolAddress(kTurnUdpIntAddr, cricket::PROTO_UDP, false));
+        cricket::ProtocolAddress(kTurnUdpIntAddr, cricket::PROTO_UDP));
     allocator_->AddTurnServer(turn_server);
     allocator_->set_step_delay(cricket::kMinimumStepDelay);
     allocator_->set_flags(cricket::PORTALLOCATOR_DISABLE_TCP);
   }
 
+  webrtc::RtcEventLogNullImpl event_log_;
   cricket::FakeMediaEngine* media_engine_;
   cricket::FakeDataEngine* data_engine_;
+  // Actually owned by session_.
+  FakeSctpTransportFactory* fake_sctp_transport_factory_ = nullptr;
   std::unique_ptr<cricket::ChannelManager> channel_manager_;
   cricket::FakeCall fake_call_;
   std::unique_ptr<webrtc::MediaControllerInterface> media_controller_;
@@ -2423,14 +2485,18 @@ TEST_F(WebRtcSessionTest, TestChannelCreationsWithContentNames) {
   SessionDescriptionInterface* answer = CreateAnswer();
   SetLocalDescriptionWithoutError(answer);
 
-  cricket::TransportChannel* voice_transport_channel =
+  rtc::PacketTransportInterface* voice_transport_channel =
       session_->voice_rtp_transport_channel();
   EXPECT_TRUE(voice_transport_channel != NULL);
-  EXPECT_EQ(voice_transport_channel->transport_name(), "audio_content_name");
-  cricket::TransportChannel* video_transport_channel =
+  EXPECT_EQ(voice_transport_channel->debug_name(),
+            "audio_content_name " +
+                std::to_string(cricket::ICE_CANDIDATE_COMPONENT_RTP));
+  rtc::PacketTransportInterface* video_transport_channel =
       session_->video_rtp_transport_channel();
   ASSERT_TRUE(video_transport_channel != NULL);
-  EXPECT_EQ(video_transport_channel->transport_name(), "video_content_name");
+  EXPECT_EQ(video_transport_channel->debug_name(),
+            "video_content_name " +
+                std::to_string(cricket::ICE_CANDIDATE_COMPONENT_RTP));
   EXPECT_TRUE((video_channel_ = media_engine_->GetVideoChannel(0)) != NULL);
   EXPECT_TRUE((voice_channel_ = media_engine_->GetVoiceChannel(0)) != NULL);
 }
@@ -3021,9 +3087,8 @@ TEST_F(WebRtcSessionTest, TestIgnoreCandidatesForUnusedTransportWhenBundling) {
   // Checks if one of the transport channels contains a connection using a given
   // port.
   auto connection_with_remote_port = [this, voice_channel](int port) {
-    SessionStats stats;
-    session_->GetChannelTransportStats(voice_channel, &stats);
-    for (auto& kv : stats.transport_stats) {
+    std::unique_ptr<webrtc::SessionStats> stats = session_->GetStats_s();
+    for (auto& kv : stats->transport_stats) {
       for (auto& chan_stat : kv.second.channel_stats) {
         for (auto& conn_info : chan_stat.connection_infos) {
           if (conn_info.remote_candidate.address().port() == port) {
@@ -3338,10 +3403,8 @@ TEST_F(WebRtcSessionTest, TestAddChannelToConnectedBundle) {
   // answer to find out if more transports are needed.
   configuration_.bundle_policy =
       PeerConnectionInterface::kBundlePolicyMaxBundle;
-  configuration_.rtcp_mux_policy =
-      PeerConnectionInterface::kRtcpMuxPolicyRequire;
   options_.disable_encryption = true;
-  Init();
+  Init(PeerConnectionInterface::kRtcpMuxPolicyRequire);
 
   // Negotiate an audio channel with MAX_BUNDLE enabled.
   SendAudioOnlyStream2();
@@ -3628,8 +3691,8 @@ TEST_F(WebRtcSessionTest, TestCryptoAfterSetLocalDescription) {
   SessionDescriptionInterface* jsep_offer_str =
       CreateSessionDescription(JsepSessionDescription::kOffer, offer_str, NULL);
   SetLocalDescriptionWithoutError(jsep_offer_str);
-  EXPECT_TRUE(session_->voice_channel()->secure_required());
-  EXPECT_TRUE(session_->video_channel()->secure_required());
+  EXPECT_TRUE(session_->voice_channel()->srtp_required_for_testing());
+  EXPECT_TRUE(session_->video_channel()->srtp_required_for_testing());
 }
 
 // This test verifies the crypto parameter when security is disabled.
@@ -3647,8 +3710,8 @@ TEST_F(WebRtcSessionTest, TestCryptoAfterSetLocalDescriptionWithDisabled) {
   SessionDescriptionInterface* jsep_offer_str =
       CreateSessionDescription(JsepSessionDescription::kOffer, offer_str, NULL);
   SetLocalDescriptionWithoutError(jsep_offer_str);
-  EXPECT_FALSE(session_->voice_channel()->secure_required());
-  EXPECT_FALSE(session_->video_channel()->secure_required());
+  EXPECT_FALSE(session_->voice_channel()->srtp_required_for_testing());
+  EXPECT_FALSE(session_->video_channel()->srtp_required_for_testing());
 }
 
 // This test verifies that an answer contains new ufrag and password if an offer
@@ -3860,7 +3923,7 @@ TEST_F(WebRtcSessionTest, TestRtpDataChannel) {
   Init();
   SetLocalDescriptionWithDataChannel();
   ASSERT_TRUE(data_engine_);
-  EXPECT_EQ(cricket::DCT_RTP, data_engine_->last_channel_type());
+  EXPECT_NE(nullptr, data_engine_->GetChannel(0));
 }
 
 TEST_P(WebRtcSessionTest, TestRtpDataChannelConstraintTakesPrecedence) {
@@ -3872,7 +3935,43 @@ TEST_P(WebRtcSessionTest, TestRtpDataChannelConstraintTakesPrecedence) {
   InitWithDtls(GetParam());
 
   SetLocalDescriptionWithDataChannel();
-  EXPECT_EQ(cricket::DCT_RTP, data_engine_->last_channel_type());
+  EXPECT_NE(nullptr, data_engine_->GetChannel(0));
+}
+
+// Test that sctp_content_name/sctp_transport_name (used for stats) are correct
+// before and after BUNDLE is negotiated.
+TEST_P(WebRtcSessionTest, SctpContentAndTransportName) {
+  MAYBE_SKIP_TEST(rtc::SSLStreamAdapter::HaveDtlsSrtp);
+  SetFactoryDtlsSrtp();
+  InitWithDtls(GetParam());
+
+  // Initially these fields should be empty.
+  EXPECT_FALSE(session_->sctp_content_name());
+  EXPECT_FALSE(session_->sctp_transport_name());
+
+  // Create offer with audio/video/data.
+  // Default bundle policy is "balanced", so data should be using its own
+  // transport.
+  SendAudioVideoStream1();
+  CreateDataChannel();
+  InitiateCall();
+  ASSERT_TRUE(session_->sctp_content_name());
+  ASSERT_TRUE(session_->sctp_transport_name());
+  EXPECT_EQ("data", *session_->sctp_content_name());
+  EXPECT_EQ("data", *session_->sctp_transport_name());
+
+  // Create answer that finishes BUNDLE negotiation, which means everything
+  // should be bundled on the first transport (audio).
+  cricket::MediaSessionOptions answer_options;
+  answer_options.recv_video = true;
+  answer_options.bundle_enabled = true;
+  answer_options.data_channel_type = cricket::DCT_SCTP;
+  SetRemoteDescriptionWithoutError(CreateRemoteAnswer(
+      session_->local_description(), answer_options, cricket::SEC_DISABLED));
+  ASSERT_TRUE(session_->sctp_content_name());
+  ASSERT_TRUE(session_->sctp_transport_name());
+  EXPECT_EQ("data", *session_->sctp_content_name());
+  EXPECT_EQ("audio", *session_->sctp_transport_name());
 }
 
 TEST_P(WebRtcSessionTest, TestCreateOfferWithSctpEnabledWithoutStreams) {
@@ -3904,30 +4003,39 @@ TEST_P(WebRtcSessionTest, TestCreateAnswerWithSctpInOfferAndNoStreams) {
   EXPECT_TRUE(answer->description()->GetTransportInfoByName("data") != NULL);
 }
 
+// Test that if DTLS is disabled, we don't end up with an SctpTransport
+// created (or an RtpDataChannel).
 TEST_P(WebRtcSessionTest, TestSctpDataChannelWithoutDtls) {
   configuration_.enable_dtls_srtp = rtc::Optional<bool>(false);
   InitWithDtls(GetParam());
 
   SetLocalDescriptionWithDataChannel();
-  EXPECT_EQ(cricket::DCT_NONE, data_engine_->last_channel_type());
+  EXPECT_EQ(nullptr, data_engine_->GetChannel(0));
+  EXPECT_EQ(nullptr, fake_sctp_transport_factory_->last_fake_sctp_transport());
 }
 
+// Test that if DTLS is enabled, we end up with an SctpTransport created
+// (and not an RtpDataChannel).
 TEST_P(WebRtcSessionTest, TestSctpDataChannelWithDtls) {
   MAYBE_SKIP_TEST(rtc::SSLStreamAdapter::HaveDtlsSrtp);
 
   InitWithDtls(GetParam());
 
   SetLocalDescriptionWithDataChannel();
-  EXPECT_EQ(cricket::DCT_SCTP, data_engine_->last_channel_type());
+  EXPECT_EQ(nullptr, data_engine_->GetChannel(0));
+  EXPECT_NE(nullptr, fake_sctp_transport_factory_->last_fake_sctp_transport());
 }
 
+// Test that if SCTP is disabled, we don't end up with an SctpTransport
+// created (or an RtpDataChannel).
 TEST_P(WebRtcSessionTest, TestDisableSctpDataChannels) {
   MAYBE_SKIP_TEST(rtc::SSLStreamAdapter::HaveDtlsSrtp);
   options_.disable_sctp_data_channels = true;
   InitWithDtls(GetParam());
 
   SetLocalDescriptionWithDataChannel();
-  EXPECT_EQ(cricket::DCT_NONE, data_engine_->last_channel_type());
+  EXPECT_EQ(nullptr, data_engine_->GetChannel(0));
+  EXPECT_EQ(nullptr, fake_sctp_transport_factory_->last_fake_sctp_transport());
 }
 
 TEST_P(WebRtcSessionTest, TestSctpDataChannelSendPortParsing) {
@@ -3958,31 +4066,19 @@ TEST_P(WebRtcSessionTest, TestSctpDataChannelSendPortParsing) {
 
   // TEST PLAN: Set the port number to something new, set it in the SDP,
   // and pass it all the way down.
-  EXPECT_EQ(cricket::DCT_SCTP, data_engine_->last_channel_type());
+  EXPECT_EQ(nullptr, data_engine_->GetChannel(0));
   CreateDataChannel();
-
-  cricket::FakeDataMediaChannel* ch = data_engine_->GetChannel(0);
-  int portnum = -1;
-  ASSERT_TRUE(ch != NULL);
-  ASSERT_EQ(1UL, ch->send_codecs().size());
-  EXPECT_EQ(cricket::kGoogleSctpDataCodecId, ch->send_codecs()[0].id);
-  EXPECT_EQ(0, strcmp(cricket::kGoogleSctpDataCodecName,
-                      ch->send_codecs()[0].name.c_str()));
-  EXPECT_TRUE(ch->send_codecs()[0].GetParam(cricket::kCodecParamPort,
-                                            &portnum));
-  EXPECT_EQ(new_send_port, portnum);
-
-  ASSERT_EQ(1UL, ch->recv_codecs().size());
-  EXPECT_EQ(cricket::kGoogleSctpDataCodecId, ch->recv_codecs()[0].id);
-  EXPECT_EQ(0, strcmp(cricket::kGoogleSctpDataCodecName,
-                      ch->recv_codecs()[0].name.c_str()));
-  EXPECT_TRUE(ch->recv_codecs()[0].GetParam(cricket::kCodecParamPort,
-                                            &portnum));
-  EXPECT_EQ(new_recv_port, portnum);
+  ASSERT_NE(nullptr, fake_sctp_transport_factory_->last_fake_sctp_transport());
+  EXPECT_EQ(
+      new_recv_port,
+      fake_sctp_transport_factory_->last_fake_sctp_transport()->local_port());
+  EXPECT_EQ(
+      new_send_port,
+      fake_sctp_transport_factory_->last_fake_sctp_transport()->remote_port());
 }
 
-// Verifies that when a session's DataChannel receives an OPEN message,
-// WebRtcSession signals the DataChannel creation request with the expected
+// Verifies that when a session's SctpTransport receives an OPEN message,
+// WebRtcSession signals the SctpTransport creation request with the expected
 // config.
 TEST_P(WebRtcSessionTest, TestSctpDataChannelOpenMessage) {
   MAYBE_SKIP_TEST(rtc::SSLStreamAdapter::HaveDtlsSrtp);
@@ -3990,8 +4086,10 @@ TEST_P(WebRtcSessionTest, TestSctpDataChannelOpenMessage) {
   InitWithDtls(GetParam());
 
   SetLocalDescriptionWithDataChannel();
-  EXPECT_EQ(cricket::DCT_SCTP, data_engine_->last_channel_type());
+  EXPECT_EQ(nullptr, data_engine_->GetChannel(0));
+  ASSERT_NE(nullptr, fake_sctp_transport_factory_->last_fake_sctp_transport());
 
+  // Make the fake SCTP transport pretend it received an OPEN message.
   webrtc::DataChannelInit config;
   config.id = 1;
   rtc::CopyOnWriteBuffer payload;
@@ -3999,11 +4097,10 @@ TEST_P(WebRtcSessionTest, TestSctpDataChannelOpenMessage) {
   cricket::ReceiveDataParams params;
   params.ssrc = config.id;
   params.type = cricket::DMT_CONTROL;
+  fake_sctp_transport_factory_->last_fake_sctp_transport()->SignalDataReceived(
+      params, payload);
 
-  cricket::DataChannel* data_channel = session_->data_channel();
-  data_channel->SignalDataReceived(data_channel, params, payload);
-
-  EXPECT_EQ("a", last_data_channel_label_);
+  EXPECT_EQ_WAIT("a", last_data_channel_label_, kDefaultTimeout);
   EXPECT_EQ(config.id, last_data_channel_config_.id);
   EXPECT_FALSE(last_data_channel_config_.negotiated);
   EXPECT_EQ(webrtc::InternalDataChannelInit::kAcker,

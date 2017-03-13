@@ -40,8 +40,9 @@
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/download_item.h"
 #include "content/public/browser/download_manager.h"
+#include "extensions/features/features.h"
 
-#if defined(ENABLE_EXTENSIONS)
+#if BUILDFLAG(ENABLE_EXTENSIONS)
 #include "chrome/browser/extensions/api/downloads/downloads_api.h"
 #endif
 
@@ -117,7 +118,7 @@ const char DownloadHistoryData::kKey[] =
 history::DownloadRow GetDownloadRow(
     content::DownloadItem* item) {
   std::string by_ext_id, by_ext_name;
-#if defined(ENABLE_EXTENSIONS)
+#if BUILDFLAG(ENABLE_EXTENSIONS)
   extensions::DownloadedByExtension* by_ext =
       extensions::DownloadedByExtension::Get(item);
   if (by_ext) {
@@ -142,25 +143,45 @@ history::DownloadRow GetDownloadRow(
       item->GetOpened(), by_ext_id, by_ext_name);
 }
 
-bool ShouldUpdateHistory(const history::DownloadRow* previous,
-                         const history::DownloadRow& current) {
+enum class ShouldUpdateHistoryResult {
+    NO,
+    UPDATE,
+    UPDATE_IMMEDIATELY,
+};
+
+ShouldUpdateHistoryResult ShouldUpdateHistory(
+    const history::DownloadRow* previous,
+    const history::DownloadRow& current) {
+  // When download path is determined, Chrome should commit the history
+  // immediately. Otherwise the file will be left permanently on the external
+  // storage if Chrome crashes right away.
+  // TODO(qinmin): this doesn't solve all the issues. When download starts,
+  // Chrome will write the http response data to a temporary file, and later
+  // rename it. If Chrome is killed before committing the history here,
+  // that temporary file will still get permanently left.
+  // See http://crbug.com/664677.
+  if (previous == nullptr || previous->current_path != current.current_path)
+    return ShouldUpdateHistoryResult::UPDATE_IMMEDIATELY;
+
   // Ignore url_chain, referrer, site_url, http_method, mime_type,
   // original_mime_type, start_time, id, and guid. These fields don't change.
-  return ((previous == NULL) ||
-          (previous->current_path != current.current_path) ||
-          (previous->target_path != current.target_path) ||
-          (previous->end_time != current.end_time) ||
-          (previous->received_bytes != current.received_bytes) ||
-          (previous->total_bytes != current.total_bytes) ||
-          (previous->etag != current.etag) ||
-          (previous->last_modified != current.last_modified) ||
-          (previous->state != current.state) ||
-          (previous->danger_type != current.danger_type) ||
-          (previous->interrupt_reason != current.interrupt_reason) ||
-          (previous->hash != current.hash) ||
-          (previous->opened != current.opened) ||
-          (previous->by_ext_id != current.by_ext_id) ||
-          (previous->by_ext_name != current.by_ext_name));
+  if ((previous->target_path != current.target_path) ||
+      (previous->end_time != current.end_time) ||
+      (previous->received_bytes != current.received_bytes) ||
+      (previous->total_bytes != current.total_bytes) ||
+      (previous->etag != current.etag) ||
+      (previous->last_modified != current.last_modified) ||
+      (previous->state != current.state) ||
+      (previous->danger_type != current.danger_type) ||
+      (previous->interrupt_reason != current.interrupt_reason) ||
+      (previous->hash != current.hash) ||
+      (previous->opened != current.opened) ||
+      (previous->by_ext_id != current.by_ext_id) ||
+      (previous->by_ext_name != current.by_ext_name)) {
+    return ShouldUpdateHistoryResult::UPDATE;
+  }
+
+  return ShouldUpdateHistoryResult::NO;
 }
 
 typedef std::vector<history::DownloadRow> InfoVector;
@@ -185,8 +206,8 @@ void DownloadHistory::HistoryAdapter::CreateDownload(
 }
 
 void DownloadHistory::HistoryAdapter::UpdateDownload(
-    const history::DownloadRow& data) {
-  history_->UpdateDownload(data);
+    const history::DownloadRow& data, bool should_commit_immediately) {
+  history_->UpdateDownload(data, should_commit_immediately);
 }
 
 void DownloadHistory::HistoryAdapter::RemoveDownloads(
@@ -224,7 +245,8 @@ DownloadHistory::DownloadHistory(content::DownloadManager* manager,
 
 DownloadHistory::~DownloadHistory() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  FOR_EACH_OBSERVER(Observer, observers_, OnDownloadHistoryDestroyed());
+  for (Observer& observer : observers_)
+    observer.OnDownloadHistoryDestroyed();
   observers_.Clear();
 }
 
@@ -274,7 +296,7 @@ void DownloadHistory::QueryCallback(std::unique_ptr<InfoVector> infos) {
         history::ToContentDownloadDangerType(it->danger_type),
         history::ToContentDownloadInterruptReason(it->interrupt_reason),
         it->opened);
-#if defined(ENABLE_EXTENSIONS)
+#if BUILDFLAG(ENABLE_EXTENSIONS)
     if (!it->by_ext_id.empty() && !it->by_ext_name.empty()) {
       new extensions::DownloadedByExtension(
           item, it->by_ext_id, it->by_ext_name);
@@ -288,7 +310,8 @@ void DownloadHistory::QueryCallback(std::unique_ptr<InfoVector> infos) {
   notifier_.GetManager()->CheckForHistoryFilesRemoval();
 
   initial_history_query_complete_ = true;
-  FOR_EACH_OBSERVER(Observer, observers_, OnHistoryQueryComplete());
+  for (Observer& observer : observers_)
+    observer.OnHistoryQueryComplete();
 }
 
 void DownloadHistory::MaybeAddToHistory(content::DownloadItem* item) {
@@ -316,8 +339,8 @@ void DownloadHistory::MaybeAddToHistory(content::DownloadItem* item) {
   history_->CreateDownload(*data->info(), base::Bind(
       &DownloadHistory::ItemAdded, weak_ptr_factory_.GetWeakPtr(),
       download_id));
-  FOR_EACH_OBSERVER(Observer, observers_, OnDownloadStored(
-      item, *data->info()));
+  for (Observer& observer : observers_)
+    observer.OnDownloadStored(item, *data->info());
 }
 
 void DownloadHistory::ItemAdded(uint32_t download_id, bool success) {
@@ -364,8 +387,8 @@ void DownloadHistory::ItemAdded(uint32_t download_id, bool success) {
 
   // Notify the observer about the change in the persistence state.
   if (was_persisted != IsPersisted(item)) {
-    FOR_EACH_OBSERVER(Observer, observers_, OnDownloadStored(
-        item, *data->info()));
+    for (Observer& observer : observers_)
+      observer.OnDownloadStored(item, *data->info());
   }
 
   // In case the item changed or became temporary while it was being added.
@@ -405,13 +428,17 @@ void DownloadHistory::OnDownloadUpdated(
   }
 
   history::DownloadRow current_info(GetDownloadRow(item));
-  bool should_update = ShouldUpdateHistory(data->info(), current_info);
+  ShouldUpdateHistoryResult should_update_result =
+      ShouldUpdateHistory(data->info(), current_info);
+  bool should_update = (should_update_result != ShouldUpdateHistoryResult::NO);
   UMA_HISTOGRAM_ENUMERATION("Download.HistoryPropagatedUpdate",
                             should_update, 2);
   if (should_update) {
-    history_->UpdateDownload(current_info);
-    FOR_EACH_OBSERVER(Observer, observers_, OnDownloadStored(
-        item, current_info));
+    history_->UpdateDownload(
+        current_info,
+        should_update_result == ShouldUpdateHistoryResult::UPDATE_IMMEDIATELY);
+    for (Observer& observer : observers_)
+      observer.OnDownloadStored(item, current_info);
   }
   if (item->GetState() == content::DownloadItem::IN_PROGRESS) {
     data->set_info(current_info);
@@ -465,5 +492,6 @@ void DownloadHistory::RemoveDownloadsBatch() {
   IdSet remove_ids;
   removing_ids_.swap(remove_ids);
   history_->RemoveDownloads(remove_ids);
-  FOR_EACH_OBSERVER(Observer, observers_, OnDownloadsRemoved(remove_ids));
+  for (Observer& observer : observers_)
+    observer.OnDownloadsRemoved(remove_ids);
 }

@@ -27,7 +27,7 @@
 #include "chromeos/dbus/fake_power_manager_client.h"
 #include "components/signin/core/account_id/account_id.h"
 #include "components/signin/core/browser/signin_manager_base.h"
-#include "components/syncable_prefs/testing_pref_service_syncable.h"
+#include "components/sync_preferences/testing_pref_service_syncable.h"
 #include "content/public/test/test_browser_thread_bundle.h"
 #include "device/bluetooth/bluetooth_adapter_factory.h"
 #include "device/bluetooth/test/mock_bluetooth_adapter.h"
@@ -296,14 +296,16 @@ class EasyUnlockServiceTest : public testing::Test {
                                                 account_id.GetUserEmail());
   }
 
+ private:
+  // Must outlive TestingProfiles.
+  content::TestBrowserThreadBundle thread_bundle_;
+
  protected:
   std::unique_ptr<TestingProfile> profile_;
   std::unique_ptr<TestingProfile> secondary_profile_;
   chromeos::MockUserManager* mock_user_manager_;
 
  private:
-  content::TestBrowserThreadBundle thread_bundle_;
-
   chromeos::ScopedUserManagerEnabler scoped_user_manager_;
 
   FakePowerManagerClient* power_manager_client_;

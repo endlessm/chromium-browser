@@ -4,7 +4,11 @@
 
 #include "core/dom/StyleEngine.h"
 
+#include "core/css/CSSRuleList.h"
+#include "core/css/CSSStyleRule.h"
+#include "core/css/CSSStyleSheet.h"
 #include "core/css/StyleSheetContents.h"
+#include "core/css/parser/CSSParserContext.h"
 #include "core/dom/Document.h"
 #include "core/dom/NodeComputedStyle.h"
 #include "core/dom/shadow/ShadowRootInit.h"
@@ -26,8 +30,7 @@ class StyleEngineTest : public ::testing::Test {
   StyleEngine& styleEngine() { return document().styleEngine(); }
 
   bool isDocumentStyleSheetCollectionClean() {
-    return !styleEngine().shouldUpdateDocumentStyleSheetCollection(
-        AnalyzedStyleUpdate);
+    return !styleEngine().shouldUpdateDocumentStyleSheetCollection();
   }
 
   enum RuleSetInvalidation {
@@ -49,22 +52,22 @@ StyleEngineTest::RuleSetInvalidation
 StyleEngineTest::scheduleInvalidationsForRules(TreeScope& treeScope,
                                                const String& cssText) {
   StyleSheetContents* sheet =
-      StyleSheetContents::create(CSSParserContext(HTMLStandardMode, nullptr));
+      StyleSheetContents::create(CSSParserContext::create(HTMLStandardMode));
   sheet->parseString(cssText);
-  HeapVector<Member<const RuleSet>> ruleSets;
+  HeapHashSet<Member<RuleSet>> ruleSets;
   RuleSet& ruleSet = sheet->ensureRuleSet(MediaQueryEvaluator(),
                                           RuleHasDocumentSecurityOrigin);
   ruleSet.compactRulesIfNeeded();
   if (ruleSet.needsFullRecalcForRuleSetInvalidation())
     return RuleSetInvalidationFullRecalc;
-  ruleSets.append(&ruleSet);
+  ruleSets.add(&ruleSet);
   styleEngine().scheduleInvalidationsForRuleSets(treeScope, ruleSets);
   return RuleSetInvalidationsScheduled;
 }
 
 TEST_F(StyleEngineTest, DocumentDirtyAfterInject) {
   StyleSheetContents* parsedSheet =
-      StyleSheetContents::create(CSSParserContext(document(), nullptr));
+      StyleSheetContents::create(CSSParserContext::create(document()));
   parsedSheet->parseString("div {}");
   styleEngine().injectAuthorSheet(parsedSheet);
   document().view()->updateAllLifecyclePhases();
@@ -74,8 +77,7 @@ TEST_F(StyleEngineTest, DocumentDirtyAfterInject) {
 
 TEST_F(StyleEngineTest, AnalyzedInject) {
   document().body()->setInnerHTML(
-      "<style>div { color: red }</style><div id='t1'>Green</div><div></div>",
-      ASSERT_NO_EXCEPTION);
+      "<style>div { color: red }</style><div id='t1'>Green</div><div></div>");
   document().view()->updateAllLifecyclePhases();
 
   Element* t1 = document().getElementById("t1");
@@ -87,7 +89,7 @@ TEST_F(StyleEngineTest, AnalyzedInject) {
   unsigned beforeCount = styleEngine().styleForElementCount();
 
   StyleSheetContents* parsedSheet =
-      StyleSheetContents::create(CSSParserContext(document(), nullptr));
+      StyleSheetContents::create(CSSParserContext::create(document()));
   parsedSheet->parseString("#t1 { color: green }");
   styleEngine().injectAuthorSheet(parsedSheet);
   document().view()->updateAllLifecyclePhases();
@@ -142,8 +144,7 @@ TEST_F(StyleEngineTest, RuleSetInvalidationTypeSelectors) {
       "<div>"
       "  <span></span>"
       "  <div></div>"
-      "</div>",
-      ASSERT_NO_EXCEPTION);
+      "</div>");
 
   document().view()->updateAllLifecyclePhases();
 
@@ -169,8 +170,7 @@ TEST_F(StyleEngineTest, RuleSetInvalidationTypeSelectors) {
 }
 
 TEST_F(StyleEngineTest, RuleSetInvalidationHost) {
-  document().body()->setInnerHTML("<div id=nohost></div><div id=host></div>",
-                                  ASSERT_NO_EXCEPTION);
+  document().body()->setInnerHTML("<div id=nohost></div><div id=host></div>");
   Element* host = document().getElementById("host");
   ASSERT_TRUE(host);
 
@@ -180,8 +180,7 @@ TEST_F(StyleEngineTest, RuleSetInvalidationHost) {
       ScriptState::forMainWorld(document().frame()), init, ASSERT_NO_EXCEPTION);
   ASSERT_TRUE(shadowRoot);
 
-  shadowRoot->setInnerHTML("<div></div><div></div><div></div>",
-                           ASSERT_NO_EXCEPTION);
+  shadowRoot->setInnerHTML("<div></div><div></div><div></div>");
   document().view()->updateAllLifecyclePhases();
 
   unsigned beforeCount = styleEngine().styleForElementCount();
@@ -215,8 +214,7 @@ TEST_F(StyleEngineTest, RuleSetInvalidationSlotted) {
       "  <span class=s2></span>"
       "  <span class=s1></span>"
       "  <span></span>"
-      "</div>",
-      ASSERT_NO_EXCEPTION);
+      "</div>");
 
   Element* host = document().getElementById("host");
   ASSERT_TRUE(host);
@@ -227,8 +225,7 @@ TEST_F(StyleEngineTest, RuleSetInvalidationSlotted) {
       ScriptState::forMainWorld(document().frame()), init, ASSERT_NO_EXCEPTION);
   ASSERT_TRUE(shadowRoot);
 
-  shadowRoot->setInnerHTML("<slot name=other></slot><slot></slot>",
-                           ASSERT_NO_EXCEPTION);
+  shadowRoot->setInnerHTML("<slot name=other></slot><slot></slot>");
   document().view()->updateAllLifecyclePhases();
 
   unsigned beforeCount = styleEngine().styleForElementCount();
@@ -249,7 +246,7 @@ TEST_F(StyleEngineTest, RuleSetInvalidationSlotted) {
 }
 
 TEST_F(StyleEngineTest, RuleSetInvalidationHostContext) {
-  document().body()->setInnerHTML("<div id=host></div>", ASSERT_NO_EXCEPTION);
+  document().body()->setInnerHTML("<div id=host></div>");
   Element* host = document().getElementById("host");
   ASSERT_TRUE(host);
 
@@ -259,8 +256,7 @@ TEST_F(StyleEngineTest, RuleSetInvalidationHostContext) {
       ScriptState::forMainWorld(document().frame()), init, ASSERT_NO_EXCEPTION);
   ASSERT_TRUE(shadowRoot);
 
-  shadowRoot->setInnerHTML("<div></div><div class=a></div><div></div>",
-                           ASSERT_NO_EXCEPTION);
+  shadowRoot->setInnerHTML("<div></div><div class=a></div><div></div>");
   document().view()->updateAllLifecyclePhases();
 
   unsigned beforeCount = styleEngine().styleForElementCount();
@@ -280,7 +276,7 @@ TEST_F(StyleEngineTest, RuleSetInvalidationHostContext) {
 }
 
 TEST_F(StyleEngineTest, RuleSetInvalidationV0BoundaryCrossing) {
-  document().body()->setInnerHTML("<div id=host></div>", ASSERT_NO_EXCEPTION);
+  document().body()->setInnerHTML("<div id=host></div>");
   Element* host = document().getElementById("host");
   ASSERT_TRUE(host);
 
@@ -290,8 +286,7 @@ TEST_F(StyleEngineTest, RuleSetInvalidationV0BoundaryCrossing) {
       ScriptState::forMainWorld(document().frame()), init, ASSERT_NO_EXCEPTION);
   ASSERT_TRUE(shadowRoot);
 
-  shadowRoot->setInnerHTML("<div></div><div class=a></div><div></div>",
-                           ASSERT_NO_EXCEPTION);
+  shadowRoot->setInnerHTML("<div></div><div class=a></div><div></div>");
   document().view()->updateAllLifecyclePhases();
 
   EXPECT_EQ(scheduleInvalidationsForRules(
@@ -303,6 +298,124 @@ TEST_F(StyleEngineTest, RuleSetInvalidationV0BoundaryCrossing) {
   EXPECT_EQ(scheduleInvalidationsForRules(
                 *shadowRoot, ".a::shadow span { background: green}"),
             RuleSetInvalidationFullRecalc);
+}
+
+TEST_F(StyleEngineTest, HasViewportDependentMediaQueries) {
+  document().body()->setInnerHTML(
+      "<style>div {}</style>"
+      "<style id='sheet' media='(min-width: 200px)'>"
+      "  div {}"
+      "</style>");
+
+  Element* styleElement = document().getElementById("sheet");
+
+  for (unsigned i = 0; i < 10; i++) {
+    document().body()->removeChild(styleElement);
+    document().view()->updateAllLifecyclePhases();
+    document().body()->appendChild(styleElement);
+    document().view()->updateAllLifecyclePhases();
+  }
+
+  EXPECT_TRUE(document().styleEngine().hasViewportDependentMediaQueries());
+
+  document().body()->removeChild(styleElement);
+  document().view()->updateAllLifecyclePhases();
+
+  EXPECT_FALSE(document().styleEngine().hasViewportDependentMediaQueries());
+}
+
+TEST_F(StyleEngineTest, StyleMediaAttributeStyleChange) {
+  document().body()->setInnerHTML(
+      "<style id='s1' media='(max-width: 1px)'>#t1 { color: green }</style>"
+      "<div id='t1'>Green</div><div></div>");
+  document().view()->updateAllLifecyclePhases();
+
+  Element* t1 = document().getElementById("t1");
+  ASSERT_TRUE(t1);
+  ASSERT_TRUE(t1->computedStyle());
+  EXPECT_EQ(makeRGB(0, 0, 0),
+            t1->computedStyle()->visitedDependentColor(CSSPropertyColor));
+
+  unsigned beforeCount = styleEngine().styleForElementCount();
+
+  Element* s1 = document().getElementById("s1");
+  s1->setAttribute(blink::HTMLNames::mediaAttr, "(max-width: 2000px)");
+  document().view()->updateAllLifecyclePhases();
+
+  unsigned afterCount = styleEngine().styleForElementCount();
+  EXPECT_EQ(1u, afterCount - beforeCount);
+
+  ASSERT_TRUE(t1->computedStyle());
+  EXPECT_EQ(makeRGB(0, 128, 0),
+            t1->computedStyle()->visitedDependentColor(CSSPropertyColor));
+}
+
+TEST_F(StyleEngineTest, StyleMediaAttributeNoStyleChange) {
+  document().body()->setInnerHTML(
+      "<style id='s1' media='(max-width: 1000px)'>#t1 { color: green }</style>"
+      "<div id='t1'>Green</div><div></div>");
+  document().view()->updateAllLifecyclePhases();
+
+  Element* t1 = document().getElementById("t1");
+  ASSERT_TRUE(t1);
+  ASSERT_TRUE(t1->computedStyle());
+  EXPECT_EQ(makeRGB(0, 128, 0),
+            t1->computedStyle()->visitedDependentColor(CSSPropertyColor));
+
+  unsigned beforeCount = styleEngine().styleForElementCount();
+
+  Element* s1 = document().getElementById("s1");
+  s1->setAttribute(blink::HTMLNames::mediaAttr, "(max-width: 2000px)");
+  document().view()->updateAllLifecyclePhases();
+
+  unsigned afterCount = styleEngine().styleForElementCount();
+  EXPECT_EQ(0u, afterCount - beforeCount);
+
+  ASSERT_TRUE(t1->computedStyle());
+  EXPECT_EQ(makeRGB(0, 128, 0),
+            t1->computedStyle()->visitedDependentColor(CSSPropertyColor));
+}
+
+TEST_F(StyleEngineTest, ModifyStyleRuleMatchedPropertiesCache) {
+  // Test that the MatchedPropertiesCache is cleared when a StyleRule is
+  // modified. The MatchedPropertiesCache caches results based on
+  // StylePropertySet pointers. When a mutable StylePropertySet is modified,
+  // the pointer doesn't change, yet the declarations do.
+
+  document().body()->setInnerHTML(
+      "<style id='s1'>#t1 { color: blue }</style>"
+      "<div id='t1'>Green</div>");
+  document().view()->updateAllLifecyclePhases();
+
+  Element* t1 = document().getElementById("t1");
+  ASSERT_TRUE(t1);
+  ASSERT_TRUE(t1->computedStyle());
+  EXPECT_EQ(makeRGB(0, 0, 255),
+            t1->computedStyle()->visitedDependentColor(CSSPropertyColor));
+
+  CSSStyleSheet* sheet = toCSSStyleSheet(document().styleSheets().item(0));
+  ASSERT_TRUE(sheet);
+  ASSERT_TRUE(sheet->cssRules());
+  CSSStyleRule* styleRule = toCSSStyleRule(sheet->cssRules()->item(0));
+  ASSERT_TRUE(styleRule);
+  ASSERT_TRUE(styleRule->style());
+
+  // Modify the StylePropertySet once to make it a mutable set. Subsequent
+  // modifications will not change the StylePropertySet pointer and cache hash
+  // value will be the same.
+  styleRule->style()->setProperty("color", "red", "", ASSERT_NO_EXCEPTION);
+  document().view()->updateAllLifecyclePhases();
+
+  ASSERT_TRUE(t1->computedStyle());
+  EXPECT_EQ(makeRGB(255, 0, 0),
+            t1->computedStyle()->visitedDependentColor(CSSPropertyColor));
+
+  styleRule->style()->setProperty("color", "green", "", ASSERT_NO_EXCEPTION);
+  document().view()->updateAllLifecyclePhases();
+
+  ASSERT_TRUE(t1->computedStyle());
+  EXPECT_EQ(makeRGB(0, 128, 0),
+            t1->computedStyle()->visitedDependentColor(CSSPropertyColor));
 }
 
 }  // namespace blink

@@ -12,10 +12,6 @@
 #include "chromeos/chromeos_export.h"
 #include "chromeos/dbus/shill_manager_client.h"
 
-namespace net {
-class IPEndPoint;
-}
-
 namespace chromeos {
 
 // A fake implementation of ShillManagerClient. This works in close coordination
@@ -101,6 +97,11 @@ class CHROMEOS_EXPORT FakeShillManagerClient
   void SetupDefaultEnvironment() override;
   int GetInteractiveDelay() const override;
   void SetBestServiceToConnect(const std::string& service_path) override;
+  void SetNetworkThrottlingStatus(bool enabled,
+                                  uint32_t upload_rate_kbits,
+                                  uint32_t download_rate_kbits,
+                                  const base::Closure& callback,
+                                  const ErrorCallback& error_callback) override;
 
   // Constants used for testing.
   static const char kFakeEthernetNetworkGuid[];

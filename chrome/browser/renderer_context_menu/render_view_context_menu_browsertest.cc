@@ -53,8 +53,8 @@
 #include "net/url_request/url_request.h"
 #include "net/url_request/url_request_filter.h"
 #include "net/url_request/url_request_interceptor.h"
+#include "third_party/WebKit/public/platform/WebInputEvent.h"
 #include "third_party/WebKit/public/web/WebContextMenuData.h"
-#include "third_party/WebKit/public/web/WebInputEvent.h"
 #include "ui/base/models/menu_model.h"
 
 using content::WebContents;
@@ -206,8 +206,9 @@ IN_PROC_BROWSER_TEST_F(ContextMenuBrowserTest, RealMenu) {
       browser(), GURL("data:text/html,<a href='about:blank'>link</a>"));
 
   // Open a context menu.
-  blink::WebMouseEvent mouse_event;
-  mouse_event.type = blink::WebInputEvent::MouseDown;
+  blink::WebMouseEvent mouse_event(blink::WebInputEvent::MouseDown,
+                                   blink::WebInputEvent::NoModifiers,
+                                   blink::WebInputEvent::TimeStampForTesting);
   mouse_event.button = blink::WebMouseEvent::Button::Right;
   mouse_event.x = 15;
   mouse_event.y = 15;
@@ -218,7 +219,7 @@ IN_PROC_BROWSER_TEST_F(ContextMenuBrowserTest, RealMenu) {
   mouse_event.globalY = 15 + offset.y();
   mouse_event.clickCount = 1;
   tab->GetRenderViewHost()->GetWidget()->ForwardMouseEvent(mouse_event);
-  mouse_event.type = blink::WebInputEvent::MouseUp;
+  mouse_event.setType(blink::WebInputEvent::MouseUp);
   tab->GetRenderViewHost()->GetWidget()->ForwardMouseEvent(mouse_event);
 
   // The menu_observer will select "Open in new tab", wait for the new tab to
@@ -347,15 +348,16 @@ IN_PROC_BROWSER_TEST_F(ContextMenuBrowserTest, SuggestedFileName) {
            kSuggestedFilename + "'>link</a>"));
 
   // Open a context menu.
-  blink::WebMouseEvent mouse_event;
-  mouse_event.type = blink::WebInputEvent::MouseDown;
+  blink::WebMouseEvent mouse_event(blink::WebInputEvent::MouseDown,
+                                   blink::WebInputEvent::NoModifiers,
+                                   blink::WebInputEvent::TimeStampForTesting);
   mouse_event.button = blink::WebMouseEvent::Button::Right;
   mouse_event.x = 15;
   mouse_event.y = 15;
   content::WebContents* tab =
       browser()->tab_strip_model()->GetActiveWebContents();
   tab->GetRenderViewHost()->GetWidget()->ForwardMouseEvent(mouse_event);
-  mouse_event.type = blink::WebInputEvent::MouseUp;
+  mouse_event.setType(blink::WebInputEvent::MouseUp);
   tab->GetRenderViewHost()->GetWidget()->ForwardMouseEvent(mouse_event);
 
   // Wait for context menu to be visible.

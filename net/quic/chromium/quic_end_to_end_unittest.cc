@@ -10,8 +10,8 @@
 #include "base/compiler_specific.h"
 #include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
-#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/threading/thread_task_runner_handle.h"
 #include "net/base/elements_upload_data_stream.h"
 #include "net/base/ip_address.h"
 #include "net/base/test_completion_callback.h"
@@ -37,9 +37,8 @@
 #include "net/test/cert_test_util.h"
 #include "net/test/gtest_util.h"
 #include "net/test/test_data_directory.h"
-#include "net/tools/quic/quic_in_memory_cache.h"
+#include "net/tools/quic/quic_http_response_cache.h"
 #include "net/tools/quic/quic_simple_server.h"
-#include "net/tools/quic/test_tools/quic_in_memory_cache_peer.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "testing/platform_test.h"
@@ -49,7 +48,6 @@ using base::StringPiece;
 namespace net {
 
 using test::IsOk;
-using test::QuicInMemoryCachePeer;
 
 namespace test {
 
@@ -154,7 +152,6 @@ class QuicEndToEndTest : public ::testing::TestWithParam<TestParams> {
   }
 
   void SetUp() override {
-    QuicInMemoryCachePeer::ResetForTests();
     StartServer();
 
     // Use a mapped host resolver so that request for test.example.com (port 80)
@@ -171,7 +168,7 @@ class QuicEndToEndTest : public ::testing::TestWithParam<TestParams> {
     transaction_factory_.reset(new TestTransactionFactory(params_));
   }
 
-  void TearDown() override { QuicInMemoryCachePeer::ResetForTests(); }
+  void TearDown() override {}
 
   // Starts the QUIC server listening on a random port.
   void StartServer() {
@@ -181,9 +178,9 @@ class QuicEndToEndTest : public ::testing::TestWithParam<TestParams> {
     server_config_.SetInitialSessionFlowControlWindowToSend(
         kInitialSessionFlowControlWindowForTest);
     server_config_options_.token_binding_params = QuicTagVector{kTB10, kP256};
-    server_.reset(new QuicSimpleServer(CryptoTestUtils::ProofSourceForTesting(),
-                                       server_config_, server_config_options_,
-                                       AllSupportedVersions()));
+    server_.reset(new QuicSimpleServer(
+        CryptoTestUtils::ProofSourceForTesting(), server_config_,
+        server_config_options_, AllSupportedVersions(), &response_cache_));
     server_->Listen(server_address_);
     server_address_ = server_->server_address();
     server_->StartReading();
@@ -196,8 +193,8 @@ class QuicEndToEndTest : public ::testing::TestWithParam<TestParams> {
                   int response_code,
                   StringPiece response_detail,
                   StringPiece body) {
-    QuicInMemoryCache::GetInstance()->AddSimpleResponse(
-        "test.example.com", path, response_code, body);
+    response_cache_.AddSimpleResponse("test.example.com", path, response_code,
+                                      body);
   }
 
   // Populates |request_body_| with |length_| ASCII bytes.
@@ -252,6 +249,7 @@ class QuicEndToEndTest : public ::testing::TestWithParam<TestParams> {
   std::string request_body_;
   std::unique_ptr<UploadDataStream> upload_data_stream_;
   std::unique_ptr<QuicSimpleServer> server_;
+  QuicHttpResponseCache response_cache_;
   IPEndPoint server_address_;
   std::string server_hostname_;
   QuicConfig server_config_;
@@ -352,22 +350,19 @@ TEST_P(QuicEndToEndTest, UberTest) {
   const char kResponseBody[] = "some really big response body";
   AddToCache(request_.url.PathForRequest(), 200, "OK", kResponseBody);
 
-  std::vector<TestTransactionConsumer*> consumers;
-  size_t num_requests = 100;
-  for (size_t i = 0; i < num_requests; ++i) {
+  std::vector<std::unique_ptr<TestTransactionConsumer>> consumers;
+  for (size_t i = 0; i < 100; ++i) {
     TestTransactionConsumer* consumer = new TestTransactionConsumer(
         DEFAULT_PRIORITY, transaction_factory_.get());
-    consumers.push_back(consumer);
+    consumers.push_back(base::WrapUnique(consumer));
     consumer->Start(&request_, NetLogWithSource());
   }
 
   // Will terminate when the last consumer completes.
   base::RunLoop().Run();
 
-  for (size_t i = 0; i < num_requests; ++i) {
-    CheckResponse(*consumers[i], "HTTP/1.1 200", kResponseBody);
-  }
-  base::STLDeleteElements(&consumers);
+  for (const auto& consumer : consumers)
+    CheckResponse(*consumer.get(), "HTTP/1.1 200", kResponseBody);
 }
 
 }  // namespace test

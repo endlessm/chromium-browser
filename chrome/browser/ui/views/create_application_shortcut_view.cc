@@ -12,7 +12,6 @@
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/win/windows_version.h"
 #include "build/build_config.h"
 #include "chrome/browser/extensions/tab_helper.h"
 #include "chrome/browser/profiles/profile.h"
@@ -56,6 +55,7 @@
 
 #if defined(OS_WIN)
 #include "base/win/shortcut.h"
+#include "base/win/windows_version.h"
 #endif  // defined(OS_WIN)
 
 namespace {
@@ -68,10 +68,6 @@ class AppInfoView : public views::View {
   AppInfoView(const base::string16& title,
               const base::string16& description,
               const gfx::ImageFamily& icon);
-
-  // Updates the title/description of the web app.
-  void UpdateText(const base::string16& title,
-                  const base::string16& description);
 
   // Updates the icon of the web app.
   void UpdateIcon(const gfx::ImageFamily& image);
@@ -168,14 +164,6 @@ void AppInfoView::SetupLayout() {
     layout->SkipColumns(1);
     layout->AddView(description_);
   }
-}
-
-void AppInfoView::UpdateText(const base::string16& title,
-                             const base::string16& description) {
-  title_->SetText(title);
-  PrepareDescriptionLabel(description);
-
-  SetupLayout();
 }
 
 void AppInfoView::UpdateIcon(const gfx::ImageFamily& image) {

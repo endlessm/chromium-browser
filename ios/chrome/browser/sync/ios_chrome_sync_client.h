@@ -42,6 +42,7 @@ class IOSChromeSyncClient : public syncer::SyncClient {
   bookmarks::BookmarkModel* GetBookmarkModel() override;
   favicon::FaviconService* GetFaviconService() override;
   history::HistoryService* GetHistoryService() override;
+  bool HasPasswordStore() override;
   base::Closure GetPasswordStateChangedCallback() override;
   syncer::SyncApiComponentFactory::RegisterDataTypesMethod
   GetRegisterPlatformTypesCallback() override;
@@ -52,11 +53,10 @@ class IOSChromeSyncClient : public syncer::SyncClient {
   sync_sessions::SyncSessionsClient* GetSyncSessionsClient() override;
   base::WeakPtr<syncer::SyncableService> GetSyncableServiceForType(
       syncer::ModelType type) override;
-  base::WeakPtr<syncer::ModelTypeService> GetModelTypeServiceForType(
+  base::WeakPtr<syncer::ModelTypeSyncBridge> GetSyncBridgeForModelType(
       syncer::ModelType type) override;
   scoped_refptr<syncer::ModelSafeWorker> CreateModelWorkerForGroup(
-      syncer::ModelSafeGroup group,
-      syncer::WorkerLoopDestructionObserver* observer) override;
+      syncer::ModelSafeGroup group) override;
   syncer::SyncApiComponentFactory* GetSyncApiComponentFactory() override;
 
   void SetSyncApiComponentFactoryForTesting(
@@ -78,8 +78,6 @@ class IOSChromeSyncClient : public syncer::SyncClient {
   scoped_refptr<password_manager::PasswordStore> password_store_;
 
   std::unique_ptr<sync_sessions::SyncSessionsClient> sync_sessions_client_;
-
-  const scoped_refptr<syncer::ExtensionsActivity> dummy_extensions_activity_;
 
   base::WeakPtrFactory<IOSChromeSyncClient> weak_ptr_factory_;
 

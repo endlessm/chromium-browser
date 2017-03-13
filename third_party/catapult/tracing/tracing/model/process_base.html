@@ -39,7 +39,7 @@ tr.exportTo('tr.model', function() {
     this.counters = {};
     this.objects = new tr.model.ObjectCollection(this);
     this.sortIndex = 0;
-  };
+  }
 
   ProcessBase.compare = function(x, y) {
     return x.sortIndex - y.sortIndex;
@@ -52,9 +52,9 @@ tr.exportTo('tr.model', function() {
       throw new Error('Not implemented');
     },
 
-    childEventContainers: function*() {
-      yield * tr.b.dictionaryValues(this.threads);
-      yield * tr.b.dictionaryValues(this.counters);
+    childEventContainers: function* () {
+      yield* tr.b.dictionaryValues(this.threads);
+      yield* tr.b.dictionaryValues(this.counters);
       yield this.objects;
     },
 
@@ -230,7 +230,7 @@ tr.exportTo('tr.model', function() {
   };
 
   return {
-    ProcessBase: ProcessBase
+    ProcessBase,
   };
 });
 </script>

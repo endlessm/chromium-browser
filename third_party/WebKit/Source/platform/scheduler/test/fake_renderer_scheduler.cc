@@ -39,17 +39,17 @@ scoped_refptr<TaskQueue> FakeRendererScheduler::TimerTaskRunner() {
 }
 
 scoped_refptr<TaskQueue> FakeRendererScheduler::NewLoadingTaskRunner(
-    const char* name) {
+    TaskQueue::QueueType queue_type) {
   return nullptr;
 }
 
 scoped_refptr<TaskQueue> FakeRendererScheduler::NewTimerTaskRunner(
-    const char* name) {
+    TaskQueue::QueueType queue_type) {
   return nullptr;
 }
 
 scoped_refptr<TaskQueue> FakeRendererScheduler::NewUnthrottledTaskRunner(
-    const char* name) {
+    TaskQueue::QueueType queue_type) {
   return nullptr;
 }
 
@@ -69,7 +69,8 @@ void FakeRendererScheduler::DidHandleInputEventOnCompositorThread(
     InputEventState event_state) {}
 
 void FakeRendererScheduler::DidHandleInputEventOnMainThread(
-    const blink::WebInputEvent& web_input_event) {}
+    const blink::WebInputEvent& web_input_event,
+    WebInputEventResult result) {}
 
 void FakeRendererScheduler::DidAnimateForInputOnCompositorThread() {}
 
@@ -82,6 +83,8 @@ void FakeRendererScheduler::OnRendererBackgrounded() {}
 void FakeRendererScheduler::OnRendererForegrounded() {}
 
 void FakeRendererScheduler::SuspendRenderer() {}
+
+void FakeRendererScheduler::ResumeRenderer() {}
 
 void FakeRendererScheduler::AddPendingNavigation(
     blink::WebScheduler::NavigatingFrameType type) {}
@@ -118,6 +121,10 @@ void FakeRendererScheduler::SetTopLevelBlameContext(
     base::trace_event::BlameContext* blame_context) {}
 
 void FakeRendererScheduler::SetRAILModeObserver(RAILModeObserver* observer) {}
+
+bool FakeRendererScheduler::MainThreadSeemsUnresponsive() {
+  return false;
+}
 
 }  // namespace scheduler
 }  // namespace blink

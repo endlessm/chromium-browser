@@ -21,12 +21,14 @@
 
 #include "core/layout/svg/LayoutSVGBlock.h"
 
+#include "core/layout/LayoutGeometryMap.h"
 #include "core/layout/LayoutView.h"
 #include "core/layout/svg/LayoutSVGRoot.h"
 #include "core/layout/svg/SVGLayoutSupport.h"
 #include "core/layout/svg/SVGResourcesCache.h"
 #include "core/style/ShadowList.h"
 #include "core/svg/SVGElement.h"
+#include "platform/geometry/TransformState.h"
 
 namespace blink {
 
@@ -68,6 +70,11 @@ void LayoutSVGBlock::willBeDestroyed() {
   LayoutBlockFlow::willBeDestroyed();
 }
 
+void LayoutSVGBlock::updateFromStyle() {
+  LayoutBlockFlow::updateFromStyle();
+  setFloating(false);
+}
+
 void LayoutSVGBlock::styleDidChange(StyleDifference diff,
                                     const ComputedStyle* oldStyle) {
   if (diff.needsFullLayout()) {
@@ -92,33 +99,45 @@ void LayoutSVGBlock::styleDidChange(StyleDifference diff,
 void LayoutSVGBlock::mapLocalToAncestor(const LayoutBoxModelObject* ancestor,
                                         TransformState& transformState,
                                         MapCoordinatesFlags flags) const {
+  // Convert from local HTML coordinates to local SVG coordinates.
+  transformState.move(locationOffset());
+  // Apply other mappings on local SVG coordinates.
   SVGLayoutSupport::mapLocalToAncestor(this, ancestor, transformState, flags);
 }
 
 void LayoutSVGBlock::mapAncestorToLocal(const LayoutBoxModelObject* ancestor,
                                         TransformState& transformState,
-                                        MapCoordinatesFlags) const {
+                                        MapCoordinatesFlags flags) const {
   if (this == ancestor)
     return;
-  SVGLayoutSupport::mapAncestorToLocal(*this, ancestor, transformState);
+
+  // Map to local SVG coordinates.
+  SVGLayoutSupport::mapAncestorToLocal(*this, ancestor, transformState, flags);
+  // Convert from local SVG coordinates to local HTML coordinates.
+  transformState.move(-locationOffset());
 }
 
 const LayoutObject* LayoutSVGBlock::pushMappingToContainer(
     const LayoutBoxModelObject* ancestorToStopAt,
     LayoutGeometryMap& geometryMap) const {
+  // Convert from local HTML coordinates to local SVG coordinates.
+  geometryMap.push(this, locationOffset());
+  // Apply other mappings on local SVG coordinates.
   return SVGLayoutSupport::pushMappingToContainer(this, ancestorToStopAt,
                                                   geometryMap);
 }
 
-LayoutRect LayoutSVGBlock::absoluteClippedOverflowRect() const {
-  return SVGLayoutSupport::clippedOverflowRectForPaintInvalidation(*this,
-                                                                   *view());
+LayoutRect LayoutSVGBlock::absoluteVisualRect() const {
+  return SVGLayoutSupport::visualRectInAncestorSpace(*this, *view());
 }
 
 bool LayoutSVGBlock::mapToVisualRectInAncestorSpace(
     const LayoutBoxModelObject* ancestor,
     LayoutRect& rect,
     VisualRectFlags) const {
+  // Convert from local HTML coordinates to local SVG coordinates.
+  rect.moveBy(location());
+  // Apply other mappings on local SVG coordinates.
   return SVGLayoutSupport::mapToVisualRectInAncestorSpace(
       *this, ancestor, FloatRect(rect), rect);
 }

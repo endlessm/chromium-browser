@@ -6,12 +6,16 @@
 
 #include <string>
 
+#include "base/memory/ptr_util.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/profiles/profile_shortcut_manager.h"
 #include "chrome/browser/ui/webui/signin/signin_create_profile_handler.h"
+#include "chrome/browser/ui/webui/signin/signin_utils.h"
 #include "chrome/browser/ui/webui/signin/user_manager_screen_handler.h"
 #include "chrome/browser/ui/webui/theme_source.h"
+#include "chrome/common/features.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/browser_resources.h"
 #include "chrome/grit/settings_resources.h"
@@ -20,22 +24,26 @@
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/base/webui/web_ui_util.h"
 
-#if defined(ENABLE_SUPERVISED_USERS)
+#if BUILDFLAG(ENABLE_SUPERVISED_USERS)
 #include "chrome/browser/ui/webui/signin/signin_supervised_user_import_handler.h"
 #endif
 
 MDUserManagerUI::MDUserManagerUI(content::WebUI* web_ui)
-    : WebUIController(web_ui),
-      signin_create_profile_handler_(new SigninCreateProfileHandler()),
-      user_manager_screen_handler_(new UserManagerScreenHandler()) {
-  // The web_ui object takes ownership of these handlers, and will
-  // destroy them when it (the WebUI) is destroyed.
-  web_ui->AddMessageHandler(signin_create_profile_handler_);
-  web_ui->AddMessageHandler(user_manager_screen_handler_);
-#if defined(ENABLE_SUPERVISED_USERS)
+    : WebUIController(web_ui) {
+  auto signin_create_profile_handler =
+      base::MakeUnique<SigninCreateProfileHandler>();
+  signin_create_profile_handler_ = signin_create_profile_handler.get();
+  web_ui->AddMessageHandler(std::move(signin_create_profile_handler));
+  auto user_manager_screen_handler =
+      base::MakeUnique<UserManagerScreenHandler>();
+  user_manager_screen_handler_ = user_manager_screen_handler.get();
+  web_ui->AddMessageHandler(std::move(user_manager_screen_handler));
+#if BUILDFLAG(ENABLE_SUPERVISED_USERS)
+  auto signin_supervised_user_import_handler =
+      base::MakeUnique<SigninSupervisedUserImportHandler>();
   signin_supervised_user_import_handler_ =
-      new SigninSupervisedUserImportHandler();
-  web_ui->AddMessageHandler(signin_supervised_user_import_handler_);
+      signin_supervised_user_import_handler.get();
+  web_ui->AddMessageHandler(std::move(signin_supervised_user_import_handler));
 #endif
 
   base::DictionaryValue localized_strings;
@@ -45,11 +53,9 @@ MDUserManagerUI::MDUserManagerUI(content::WebUI* web_ui)
   // Set up the chrome://md-user-manager/ source.
   content::WebUIDataSource::Add(profile, CreateUIDataSource(localized_strings));
 
-#if defined(ENABLE_THEMES)
   // Set up the chrome://theme/ source
   ThemeSource* theme = new ThemeSource(profile);
   content::URLDataSource::Add(profile, theme);
-#endif
 }
 
 MDUserManagerUI::~MDUserManagerUI() {}
@@ -59,6 +65,10 @@ content::WebUIDataSource* MDUserManagerUI::CreateUIDataSource(
   content::WebUIDataSource* source =
       content::WebUIDataSource::Create(chrome::kChromeUIMdUserManagerHost);
   source->AddLocalizedStrings(localized_strings);
+  source->AddBoolean("profileShortcutsEnabled",
+                     ProfileShortcutManager::IsFeatureEnabled());
+  source->AddBoolean("isForceSigninEnabled", signin::IsForceSigninEnabled());
+
   source->SetJsonPath("strings.js");
 
   source->AddResourcePath("control_bar.html", IDR_MD_CONTROL_BAR_HTML);
@@ -110,7 +120,7 @@ void MDUserManagerUI::GetLocalizedStrings(
     base::DictionaryValue* localized_strings) {
   user_manager_screen_handler_->GetLocalizedValues(localized_strings);
   signin_create_profile_handler_->GetLocalizedValues(localized_strings);
-#if defined(ENABLE_SUPERVISED_USERS)
+#if BUILDFLAG(ENABLE_SUPERVISED_USERS)
   signin_supervised_user_import_handler_->GetLocalizedValues(localized_strings);
 #endif
   const std::string& app_locale = g_browser_process->GetApplicationLocale();

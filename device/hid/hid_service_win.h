@@ -19,15 +19,9 @@ extern "C" {
 #include "base/memory/weak_ptr.h"
 #include "base/scoped_observer.h"
 #include "base/win/scoped_handle.h"
-#include "device/core/device_monitor_win.h"
+#include "device/base/device_monitor_win.h"
 #include "device/hid/hid_device_info.h"
 #include "device/hid/hid_service.h"
-
-namespace base {
-namespace win {
-class MessageWindow;
-}
-}
 
 namespace device {
 

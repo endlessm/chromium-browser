@@ -39,11 +39,13 @@ tr.b.unittest.testSuite(function() {
       all_bots: ['bot1', 'bot2'],
       default_metric: 'defaultMetric',
       all_metrics: ['defaultMetric', 'otherMetric1', 'otherMetric2'],
+      story_filter: 'defaultMetric',
       use_archive: true,
       email: 'fake1@gmail.com',
       suite: 'suite1',
       master: 'master1',
-      internal_only: true
+      internal_only: true,
+      is_admin: true
     };
     var query = '/start_try_job?' +
         testing_common.paramString(requestParams);

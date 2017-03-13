@@ -32,6 +32,14 @@ std::string SigninClient::GetOrCreateScopedDeviceIdPref(PrefService* prefs) {
   return signin_scoped_device_id;
 }
 
+void SigninClient::PreSignOut(const base::Callback<void()>& sign_out) {
+  sign_out.Run();
+}
+
+int SigninClient::number_of_request_context_pointer_changes() const {
+  return 0;
+}
+
 void SigninClient::SignOut() {
   GetPrefs()->ClearPref(prefs::kGoogleServicesSigninScopedDeviceId);
   OnSignedOut();

@@ -1,5 +1,16 @@
 # Atom
 
+[Atom](https://atom.io/)
+([Wikipedia](https://en.wikipedia.org/wiki/Atom_(text_editor))) is a
+multi-platform code editor that is itself based on Chromium.
+[Turtles aside](https://en.wikipedia.org/wiki/Turtles_all_the_way_down), Atom
+has a growing community and base of installable plugins and themes.
+
+You can download and install via links from the
+[main Atom site](https://atom.io/). If you're interested in checking out the
+code and contributing, see the
+[developer page](https://github.com/atom/atom/blob/master/docs/build-instructions/linux.md).
+
 [TOC]
 
 ## Workflow
@@ -8,7 +19,7 @@ A typical Atom workflow consists of the following.
 
 1. Use `Ctrl-Shift-R` to find a symbol in the `.tags` file or `Ctrl-P` to find
    a file by name.
-2. Switch between the header and the source using `Alt-O`.
+2. Switch between the header and the source using `Alt-O`(`Ctrl-Opt-S` on OSX).
 3. While editing, `you-complete-me` package helps with C++ auto-completion and
    shows compile errors through `lint` package.
 4. Press `Ctrl-Shift-P` and type `format<Enter>` to format the code.
@@ -21,8 +32,8 @@ A typical Atom workflow consists of the following.
 To setup this workflow, install Atom packages for Chrome development.
 
 ```
-$ apm install build-ninja clang-format \
-    linter linter-eslint switch-header-source you-complete-me
+$ apm install build build-ninja clang-format \
+    linter linter-cpplint linter-eslint switch-header-source you-complete-me
 ```
 
 ## Autocomplete

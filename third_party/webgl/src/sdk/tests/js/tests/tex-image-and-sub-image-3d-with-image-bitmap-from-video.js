@@ -49,12 +49,14 @@ function generateTest(internalFormat, pixelFormat, pixelType, prologue, resource
         gl.clearDepth(1);
 
         video = document.createElement("video");
-        video.oncanplaythrough = function() {
-            runImageBitmapTest(video, 1, internalFormat, pixelFormat, pixelType, gl, tiu, wtu, true);
-            finishTest();
-        }
         video.src = resourcePath + "red-green.theora.ogv";
         document.body.appendChild(video);
+        wtu.startPlayingAndWaitForVideo(video, function() {
+            runImageBitmapTest(video, 1, internalFormat, pixelFormat, pixelType, gl, tiu, wtu, true)
+            .then(() => {
+                finishTest();
+            });
+        });
     }
 
     return init;

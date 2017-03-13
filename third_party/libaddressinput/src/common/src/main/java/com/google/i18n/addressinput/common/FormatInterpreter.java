@@ -16,6 +16,7 @@
 
 package com.google.i18n.addressinput.common;
 
+import com.google.i18n.addressinput.common.AddressField.WidthType;
 import com.google.i18n.addressinput.common.LookupKey.ScriptType;
 
 import org.json.JSONException;
@@ -26,6 +27,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -62,12 +64,12 @@ public final class FormatInterpreter {
     EnumSet<AddressField> visibleFields = EnumSet.noneOf(AddressField.class);
     List<AddressField> fieldOrder = new ArrayList<AddressField>();
     // TODO: Change this to just enumerate the address fields directly.
-    for (String substring : getFormatSubStrings(scriptType, regionCode)) {
+    for (String substring : getFormatSubstrings(scriptType, regionCode)) {
       // Skips un-escaped characters and new lines.
       if (!substring.matches("%.") || substring.equals(NEW_LINE)) {
         continue;
       }
-      AddressField field = AddressField.of(substring.charAt(1));
+      AddressField field = getFieldForFormatSubstring(substring);
       // Accept only the first instance for any duplicate fields (which can occur because the
       // string we start with defines format order, which can contain duplicate fields).
       if (!visibleFields.contains(field)) {
@@ -86,6 +88,34 @@ public final class FormatInterpreter {
       }
     }
     return Collections.unmodifiableList(fieldOrder);
+  }
+
+  /**
+   * Returns true if this format substring (e.g. %C) represents an address field. Returns false if
+   * it is a literal or newline.
+   */
+  private static boolean formatSubstringRepresentsField(String formatSubstring) {
+    return !formatSubstring.equals(NEW_LINE) && formatSubstring.startsWith("%");
+  }
+
+  /**
+   * Gets data from the address represented by a format substring such as %C. Will throw an
+   * exception if no field can be found.
+   */
+  private static AddressField getFieldForFormatSubstring(String formatSubstring) {
+    return AddressField.of(formatSubstring.charAt(1));
+  }
+
+  /**
+   * Returns true if the address has any data for this address field.
+   */
+  private static boolean addressHasValueForField(AddressData address, AddressField field) {
+    if (field == AddressField.STREET_ADDRESS) {
+      return address.getAddressLines().size() > 0;
+    } else {
+      String value = address.getFieldValue(field);
+      return (value != null && !value.isEmpty());
+    }
   }
 
   private void applyFieldOrderOverrides(String regionCode, List<AddressField> fieldOrder) {
@@ -140,9 +170,62 @@ public final class FormatInterpreter {
   }
 
   /**
+   * Returns the field width override for the specified country, or null if there's none. This is
+   * based upon the "width_overrides" field in RegionDataConstants for {@code regionCode}.
+   */
+  static WidthType getWidthOverride(AddressField field, String regionCode) {
+    return getWidthOverride(field, regionCode, RegionDataConstants.getCountryFormatMap());
+  }
+
+  /**
+   * Visible for Testing - same as {@link #getWidthOverride(AddressField, String)} but testable with
+   * fake data.
+   */
+  static WidthType getWidthOverride(
+      AddressField field, String regionCode, Map<String, String> regionDataMap) {
+    Util.checkNotNull(regionCode);
+    String overridesString =
+        getJsonValue(regionCode, AddressDataKey.WIDTH_OVERRIDES, regionDataMap);
+    if (overridesString == null || overridesString.isEmpty()) {
+      return null;
+    }
+
+    // The field width overrides string starts with a %, so we skip the first one.
+    // Example string: "%C:L%S:S" which is a repeated string of
+    // '<%> field_character <:> width_character'.
+    for (int pos = 0; pos != -1;) {
+      int keyStartIndex = pos + 1;
+      int valueStartIndex = overridesString.indexOf(':', keyStartIndex + 1) + 1;
+      if (valueStartIndex == 0 || valueStartIndex == overridesString.length()) {
+        // Malformed string -- % not followed by ':' or trailing ':'
+        return null;
+      }
+      // Prepare for next iteration.
+      pos = overridesString.indexOf('%', valueStartIndex + 1);
+      if (valueStartIndex != keyStartIndex + 2 ||
+          overridesString.charAt(keyStartIndex) != field.getChar()) {
+        // Key is not a high level field (unhandled by this code) or does not match.
+        // Also catches malformed string where key is of zero length (skip, not error).
+        continue;
+      }
+      int valueLength = (pos != -1 ? pos : overridesString.length()) - valueStartIndex;
+      if (valueLength != 1) {
+        // Malformed string -- value has length other than 1
+        return null;
+      }
+      return WidthType.of(overridesString.charAt(valueStartIndex));
+    }
+
+    return null;
+  }
+
+  /**
    * Gets formatted address. For example,
    *
-   * <p> John Doe<br> Dnar Corp<br> 5th St<br> Santa Monica CA 90123 </p>
+   * <p> John Doe</br>
+   * Dnar Corp</br>
+   * 5th St</br>
+   * Santa Monica CA 90123 </p>
    *
    * This method does not validate addresses. Also, it will "normalize" the result strings by
    * removing redundant spaces and empty lines.
@@ -157,100 +240,125 @@ public final class FormatInterpreter {
       scriptType = Util.isExplicitLatinScript(lc) ? ScriptType.LATIN : ScriptType.LOCAL;
     }
 
-    List<String> lines = new ArrayList<String>();
+    List<String> prunedFormat = new ArrayList<String>();
+    List<String> formatSubstrings = getFormatSubstrings(scriptType, regionCode);
+    for (int i = 0; i < formatSubstrings.size(); i++) {
+      String formatSubstring = formatSubstrings.get(i);
+      // Always keep the newlines.
+      if (formatSubstring.equals(NEW_LINE)) {
+        prunedFormat.add(NEW_LINE);
+      } else if (formatSubstringRepresentsField(formatSubstring)) {
+        // Always keep the non-empty address fields.
+        if (addressHasValueForField(address, getFieldForFormatSubstring(formatSubstring))) {
+          prunedFormat.add(formatSubstring);
+        }
+      } else if (
+          // Only keep literals that satisfy these 2 conditions:
+          // (1) Not preceding an empty field.
+          (i == formatSubstrings.size() - 1 || formatSubstrings.get(i + 1).equals(NEW_LINE)
+           || addressHasValueForField(address, getFieldForFormatSubstring(
+               formatSubstrings.get(i + 1))))
+          // (2) Not following a removed field.
+          && (i == 0 || !formatSubstringRepresentsField(formatSubstrings.get(i - 1))
+              || (!prunedFormat.isEmpty()
+                  && formatSubstringRepresentsField(prunedFormat.get(prunedFormat.size() - 1))))) {
+        prunedFormat.add(formatSubstring);
+      }
+    }
+
+    List<String> lines = new ArrayList<>();
     StringBuilder currentLine = new StringBuilder();
-    for (String formatSymbol : getFormatSubStrings(scriptType, regionCode)) {
-      if (formatSymbol.equals(NEW_LINE)) {
-        String normalizedStr = removeRedundantSpacesAndLeadingPunctuation(currentLine.toString());
-        if (normalizedStr.length() > 0) {
-          lines.add(normalizedStr);
+    for (String formatSubstring : prunedFormat) {
+      if (formatSubstring.equals(NEW_LINE)) {
+        if (currentLine.length() > 0) {
+          lines.add(currentLine.toString());
           currentLine.setLength(0);
         }
-      } else if (formatSymbol.startsWith("%")) {
-        String value = null;
-        switch (AddressField.of(formatSymbol.charAt(1))) {
+      } else if (formatSubstringRepresentsField(formatSubstring)) {
+        switch (getFieldForFormatSubstring(formatSubstring)) {
           case STREET_ADDRESS:
-            value =
-                Util.joinAndSkipNulls("\n", address.getAddressLine1(), address.getAddressLine2());
+            // The field "street address" represents the street address lines of an address, so
+            // there can be multiple values.
+            List<String> addressLines = address.getAddressLines();
+            if (addressLines.size() > 0) {
+              currentLine.append(addressLines.get(0));
+              if (addressLines.size() > 1) {
+                lines.add(currentLine.toString());
+                currentLine.setLength(0);
+                lines.addAll(addressLines.subList(1, addressLines.size()));
+              }
+            }
             break;
           case COUNTRY:
             // Country name is treated separately.
             break;
           case ADMIN_AREA:
-            value = address.getAdministrativeArea();
+            currentLine.append(address.getAdministrativeArea());
             break;
           case LOCALITY:
-            value = address.getLocality();
+            currentLine.append(address.getLocality());
             break;
           case DEPENDENT_LOCALITY:
-            value = address.getDependentLocality();
+            currentLine.append(address.getDependentLocality());
             break;
           case RECIPIENT:
-            value = address.getRecipient();
+            currentLine.append(address.getRecipient());
             break;
           case ORGANIZATION:
-            value = address.getOrganization();
+            currentLine.append(address.getOrganization());
             break;
           case POSTAL_CODE:
-            value = address.getPostalCode();
+            currentLine.append(address.getPostalCode());
+            break;
+          case SORTING_CODE:
+            currentLine.append(address.getSortingCode());
             break;
           default:
             break;
         }
-
-        if (value != null) {
-          currentLine.append(value);
-        }
       } else {
-        currentLine.append(formatSymbol);
+        // Not a symbol we recognise, so must be a literal. We append it unchanged.
+        currentLine.append(formatSubstring);
       }
     }
-    String normalizedStr = removeRedundantSpacesAndLeadingPunctuation(currentLine.toString());
-    if (normalizedStr.length() > 0) {
-      lines.add(normalizedStr);
+    if (currentLine.length() > 0) {
+      lines.add(currentLine.toString());
     }
     return lines;
   }
 
   /**
    * Tokenizes the format string and returns the token string list. "%" is treated as an escape
-   * character. So for example "%n%a%nxyz" will be split into "%n", "%a", "%n", "x", "y", and "z".
+   * character. For example, "%n%a%nxyz" will be split into "%n", "%a", "%n", "xyz".
    * Escaped tokens correspond to either new line or address fields. The output of this method
    * may contain duplicates.
    */
   // TODO: Create a common method which does field parsing in one place (there are about 4 other
   // places in this library where format strings are parsed).
-  private List<String> getFormatSubStrings(ScriptType scriptType, String regionCode) {
+  private List<String> getFormatSubstrings(ScriptType scriptType, String regionCode) {
     String formatString = getFormatString(scriptType, regionCode);
     List<String> parts = new ArrayList<String>();
 
     boolean escaped = false;
+    StringBuilder currentLiteral = new StringBuilder();
     for (char c : formatString.toCharArray()) {
       if (escaped) {
         escaped = false;
-        if (NEW_LINE.equals("%" + c)) {
-          parts.add(NEW_LINE);
-        } else {
-          // Checks that the character is valid.
-          AddressField.of(c);
-          parts.add("%" + c);
-        }
+        parts.add("%" + c);
       } else if (c == '%') {
+        if (currentLiteral.length() > 0) {
+          parts.add(currentLiteral.toString());
+          currentLiteral.setLength(0);
+        }
         escaped = true;
       } else {
-        parts.add(c + "");
+        currentLiteral.append(c);
       }
     }
+    if (currentLiteral.length() > 0) {
+      parts.add(currentLiteral.toString());
+    }
     return parts;
-  }
-
-  private static String removeRedundantSpacesAndLeadingPunctuation(String str) {
-    // Remove leading commas and other punctuation that might have been added by the formatter
-    // in the case of missing data.
-    str = str.replaceFirst("^[-,\\s]+", "");
-    str = str.trim();
-    str = str.replaceAll(" +", " ");
-    return str;
   }
 
   private static String getFormatString(ScriptType scriptType, String regionCode) {
@@ -264,8 +372,16 @@ public final class FormatInterpreter {
   }
 
   private static String getJsonValue(String regionCode, AddressDataKey key) {
+    return getJsonValue(regionCode, key, RegionDataConstants.getCountryFormatMap());
+  }
+
+  /**
+   * Visible for testing only.
+   */
+  static String getJsonValue(
+      String regionCode, AddressDataKey key, Map<String, String> regionDataMap) {
     Util.checkNotNull(regionCode);
-    String jsonString = RegionDataConstants.getCountryFormatMap().get(regionCode);
+    String jsonString = regionDataMap.get(regionCode);
     Util.checkNotNull(jsonString, "no json data for region code " + regionCode);
 
     try {

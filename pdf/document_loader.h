@@ -37,6 +37,8 @@ class DocumentLoader {
     virtual void OnPendingRequestComplete() = 0;
     // Notification called when new data is available.
     virtual void OnNewDataAvailable() = 0;
+    // Notification called if document failed to load.
+    virtual void OnDocumentFailed() = 0;
     // Notification called when document is fully loaded.
     virtual void OnDocumentComplete() = 0;
   };

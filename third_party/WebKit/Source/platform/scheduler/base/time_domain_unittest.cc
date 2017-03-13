@@ -35,7 +35,7 @@ class MockTimeDomain : public TimeDomain {
   using TimeDomain::ScheduleDelayedWork;
   using TimeDomain::UnregisterQueue;
   using TimeDomain::UpdateWorkQueues;
-  using TimeDomain::RegisterAsUpdatableTaskQueue;
+  using TimeDomain::OnQueueHasIncomingImmediateWork;
 
   // TimeSource implementation:
   LazyNow CreateLazyNow() const override { return LazyNow(now_); }
@@ -44,7 +44,10 @@ class MockTimeDomain : public TimeDomain {
   void AsValueIntoInternal(
       base::trace_event::TracedValue* state) const override {}
 
-  bool MaybeAdvanceTime() override { return false; }
+  base::Optional<base::TimeDelta> DelayTillNextTask(
+      LazyNow* lazy_now) override {
+    return base::Optional<base::TimeDelta>();
+  }
   const char* GetName() const override { return "Test"; }
   void OnRegisterWithTaskQueueManager(
       TaskQueueManager* task_queue_manager) override {}
@@ -63,9 +66,10 @@ class TimeDomainTest : public testing::Test {
  public:
   void SetUp() final {
     time_domain_ = base::WrapUnique(CreateMockTimeDomain());
-    task_queue_ = make_scoped_refptr(new internal::TaskQueueImpl(
-        nullptr, time_domain_.get(), TaskQueue::Spec("test_queue"),
-        "test.category", "test.category"));
+    task_queue_ = make_scoped_refptr(
+        new internal::TaskQueueImpl(nullptr, time_domain_.get(),
+                                    TaskQueue::Spec(TaskQueue::QueueType::TEST),
+                                    "test.category", "test.category"));
   }
 
   void TearDown() final {
@@ -122,20 +126,20 @@ TEST_F(TimeDomainTest, ScheduleDelayedWorkSupersedesPreviousWakeup) {
 }
 
 TEST_F(TimeDomainTest, RequestWakeup_OnlyCalledForEarlierTasks) {
-  scoped_refptr<internal::TaskQueueImpl> task_queue2 =
-      make_scoped_refptr(new internal::TaskQueueImpl(
-          nullptr, time_domain_.get(), TaskQueue::Spec("test_queue2"),
-          "test.category", "test.category"));
+  scoped_refptr<internal::TaskQueueImpl> task_queue2 = make_scoped_refptr(
+      new internal::TaskQueueImpl(nullptr, time_domain_.get(),
+                                  TaskQueue::Spec(TaskQueue::QueueType::TEST),
+                                  "test.category", "test.category"));
 
-  scoped_refptr<internal::TaskQueueImpl> task_queue3 =
-      make_scoped_refptr(new internal::TaskQueueImpl(
-          nullptr, time_domain_.get(), TaskQueue::Spec("test_queue3"),
-          "test.category", "test.category"));
+  scoped_refptr<internal::TaskQueueImpl> task_queue3 = make_scoped_refptr(
+      new internal::TaskQueueImpl(nullptr, time_domain_.get(),
+                                  TaskQueue::Spec(TaskQueue::QueueType::TEST),
+                                  "test.category", "test.category"));
 
-  scoped_refptr<internal::TaskQueueImpl> task_queue4 =
-      make_scoped_refptr(new internal::TaskQueueImpl(
-          nullptr, time_domain_.get(), TaskQueue::Spec("test_queue4"),
-          "test.category", "test.category"));
+  scoped_refptr<internal::TaskQueueImpl> task_queue4 = make_scoped_refptr(
+      new internal::TaskQueueImpl(nullptr, time_domain_.get(),
+                                  TaskQueue::Spec(TaskQueue::QueueType::TEST),
+                                  "test.category", "test.category"));
 
   base::TimeDelta delay1 = base::TimeDelta::FromMilliseconds(10);
   base::TimeDelta delay2 = base::TimeDelta::FromMilliseconds(20);
@@ -158,13 +162,17 @@ TEST_F(TimeDomainTest, RequestWakeup_OnlyCalledForEarlierTasks) {
   Mock::VerifyAndClearExpectations(time_domain_.get());
   EXPECT_CALL(*time_domain_.get(), RequestWakeup(_, delay4));
   time_domain_->ScheduleDelayedWork(task_queue4.get(), now + delay4, now);
+
+  task_queue2->UnregisterTaskQueue();
+  task_queue3->UnregisterTaskQueue();
+  task_queue4->UnregisterTaskQueue();
 }
 
 TEST_F(TimeDomainTest, UnregisterQueue) {
-  scoped_refptr<internal::TaskQueueImpl> task_queue2_ =
-      make_scoped_refptr(new internal::TaskQueueImpl(
-          nullptr, time_domain_.get(), TaskQueue::Spec("test_queue2"),
-          "test.category", "test.category"));
+  scoped_refptr<internal::TaskQueueImpl> task_queue2_ = make_scoped_refptr(
+      new internal::TaskQueueImpl(nullptr, time_domain_.get(),
+                                  TaskQueue::Spec(TaskQueue::QueueType::TEST),
+                                  "test.category", "test.category"));
 
   EXPECT_CALL(*time_domain_.get(), RequestWakeup(_, _)).Times(1);
   base::TimeTicks now = time_domain_->Now();
@@ -198,13 +206,13 @@ TEST_F(TimeDomainTest, UpdateWorkQueues) {
   EXPECT_EQ(delayed_runtime, next_run_time);
 
   LazyNow lazy_now = time_domain_->CreateLazyNow();
-  time_domain_->UpdateWorkQueues(lazy_now);
+  time_domain_->UpdateWorkQueues(&lazy_now);
   ASSERT_TRUE(time_domain_->NextScheduledRunTime(&next_run_time));
   EXPECT_EQ(delayed_runtime, next_run_time);
 
   time_domain_->SetNow(delayed_runtime);
   lazy_now = time_domain_->CreateLazyNow();
-  time_domain_->UpdateWorkQueues(lazy_now);
+  time_domain_->UpdateWorkQueues(&lazy_now);
   ASSERT_FALSE(time_domain_->NextScheduledRunTime(&next_run_time));
 }
 
@@ -230,7 +238,7 @@ class TimeDomainWithObserverTest : public TimeDomainTest {
 
 TEST_F(TimeDomainWithObserverTest, OnTimeDomainHasImmediateWork) {
   EXPECT_CALL(*observer_, OnTimeDomainHasImmediateWork(task_queue_.get()));
-  time_domain_->RegisterAsUpdatableTaskQueue(task_queue_.get());
+  time_domain_->OnQueueHasIncomingImmediateWork(task_queue_.get());
 }
 
 TEST_F(TimeDomainWithObserverTest, OnTimeDomainHasDelayedWork) {

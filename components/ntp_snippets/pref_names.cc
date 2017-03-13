@@ -9,14 +9,18 @@ namespace prefs {
 
 const char kEnableSnippets[] = "ntp_snippets.enable";
 
-const char kSnippetHosts[] = "ntp_snippets.hosts";
-
 const char kRemoteSuggestionCategories[] = "ntp_snippets.remote_categories";
 
-const char kSnippetBackgroundFetchingIntervalWifi[] =
+const char kSnippetLastFetchAttempt[] =
+    "ntp_snippets.last_fetch_attempt";
+
+const char kSnippetSoftFetchingIntervalOnUsageEvent[] =
+    "ntp_snippets.soft_fetching_interval_on_usage_event";
+
+const char kSnippetPersistentFetchingIntervalWifi[] =
     "ntp_snippets.fetching_interval_wifi";
 
-const char kSnippetBackgroundFetchingIntervalFallback[] =
+const char kSnippetPersistentFetchingIntervalFallback[] =
     "ntp_snippets.fetching_interval_fallback";
 
 const char kSnippetFetcherRequestCount[] =
@@ -33,15 +37,21 @@ const char kSnippetThumbnailsInteractiveRequestCount[] =
 const char kSnippetThumbnailsRequestsDay[] =
     "ntp.request_throttler.suggestion_thumbnails.day";
 
-const char kDismissedRecentOfflineTabSuggestions[] =
-    "ntp_suggestions.offline_pages.recent_tabs.dismissed_ids";
-const char kDismissedDownloadSuggestions[] =
-    "ntp_suggestions.offline_pages.downloads.dismissed_ids";
+const char kDismissedAssetDownloadSuggestions[] =
+    "ntp_suggestions.downloads.assets.dismissed_ids";
 const char kDismissedForeignSessionsSuggestions[] =
     "ntp_suggestions.foreign_sessions.dismissed_ids";
+const char kDismissedOfflinePageDownloadSuggestions[] =
+    "ntp_suggestions.downloads.offline_pages.dismissed_ids";
+const char kDismissedPhysicalWebPageSuggestions[] =
+    "ntp_suggestions.physical_web.dismissed_ids";
+const char kDismissedRecentOfflineTabSuggestions[] =
+    "ntp_suggestions.offline_pages.recent_tabs.dismissed_ids";
 
-const char kBookmarksFirstM54Start[] =
-    "ntp_suggestions.bookmarks.first_M54_start";
+const char kDismissedCategories[] = "ntp_suggestions.dismissed_categories";
+
+const char kLastSuccessfulBackgroundFetchTime[] =
+    "ntp_suggestions.remote.last_successful_background_fetch_time";
 
 const char kUserClassifierAverageNTPOpenedPerHour[] =
     "ntp_suggestions.user_classifier.average_ntp_opened_per_hour";
@@ -56,6 +66,11 @@ const char kUserClassifierLastTimeToShowSuggestions[] =
     "ntp_suggestions.user_classifier.last_time_to_show_suggestions";
 const char kUserClassifierLastTimeToUseSuggestions[] =
     "ntp_suggestions.user_classifier.last_time_to_use_suggestions";
+
+const char kClickBasedCategoryRankerOrderWithClicks[] =
+    "ntp_suggestions.click_based_category_ranker.category_order_with_clicks";
+const char kClickBasedCategoryRankerLastDecayTime[] =
+    "ntp_suggestions.click_based_category_ranker.last_decay_time";
 
 }  // namespace prefs
 }  // namespace ntp_snippets

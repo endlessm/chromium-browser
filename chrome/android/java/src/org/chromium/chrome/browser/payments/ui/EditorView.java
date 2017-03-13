@@ -33,7 +33,7 @@ import android.widget.TextView;
 import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.base.VisibleForTesting;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.EmbedContentViewActivity;
+import org.chromium.chrome.browser.customtabs.CustomTabActivity;
 import org.chromium.chrome.browser.payments.ui.PaymentRequestUI.PaymentRequestObserverForTest;
 import org.chromium.chrome.browser.preferences.autofill.CreditCardNumberFormattingTextWatcher;
 import org.chromium.chrome.browser.widget.AlwaysDismissedDialog;
@@ -86,7 +86,7 @@ public class EditorView extends AlwaysDismissedDialog
      * @param observerForTest Optional event observer for testing.
      */
     public EditorView(Activity activity, PaymentRequestObserverForTest observerForTest) {
-        super(activity, R.style.FullscreenWhiteDialog);
+        super(activity, R.style.FullscreenWhite);
         mContext = activity;
         mObserverForTest = observerForTest;
         mHandler = new Handler();
@@ -150,8 +150,7 @@ public class EditorView extends AlwaysDismissedDialog
 
     /** Launches the Autofill help page on top of the current Context. */
     public static void launchAutofillHelpPage(Context context) {
-        EmbedContentViewActivity.show(
-                context, context.getString(R.string.help), HELP_URL);
+        CustomTabActivity.showInfoPage(context, HELP_URL);
     }
 
     /**
@@ -427,6 +426,9 @@ public class EditorView extends AlwaysDismissedDialog
                     if (mObserverForTest != null) mObserverForTest.onPaymentRequestReadyToEdit();
                 }
             });
+        } else {
+            // The first field will be focused, we are ready to edit.
+            if (mObserverForTest != null) mObserverForTest.onPaymentRequestReadyToEdit();
         }
     }
 

@@ -118,6 +118,7 @@ def StartNewBisectForBug(bug_id):
   try:
     bisect_job = _MakeBisectTryJob(bug_id)
   except NotBisectableError as e:
+    logging.info('New bisect errored out with message: ' + e.message)
     return {'error': e.message}
   bisect_job_key = bisect_job.put()
 
@@ -149,33 +150,40 @@ def _MakeBisectTryJob(bug_id, run_count=0):
   if not anomalies:
     raise NotBisectableError('No Anomaly alerts found for this bug.')
 
-  good_revision, bad_revision = _ChooseRevisionRange(anomalies)
+  test_anomaly = _ChooseTest(anomalies, run_count)
+  test = None
+  if test_anomaly:
+    test = test_anomaly.GetTestMetadataKey().get()
+  if not test or not can_bisect.IsValidTestForBisect(test.test_path):
+    raise NotBisectableError('Could not select a test.')
+
+  good_revision = _GetRevisionForBisect(test_anomaly.start_revision - 1, test)
+  bad_revision = _GetRevisionForBisect(test_anomaly.end_revision, test)
   if not can_bisect.IsValidRevisionForBisect(good_revision):
     raise NotBisectableError('Invalid "good" revision: %s.' % good_revision)
   if not can_bisect.IsValidRevisionForBisect(bad_revision):
     raise NotBisectableError('Invalid "bad" revision: %s.' % bad_revision)
 
-  test = _ChooseTest(anomalies, run_count)
-  if not test or not can_bisect.IsValidTestForBisect(test.test_path):
-    raise NotBisectableError('Could not select a test.')
-
   metric = start_try_job.GuessMetric(test.test_path)
+  story_filter = start_try_job.GuessStoryFilter(test.test_path)
 
   bisect_bot = start_try_job.GuessBisectBot(test.master_name, test.bot_name)
-  if not bisect_bot or '_' not in bisect_bot:
-    raise NotBisectableError('Could not select a bisect bot.')
+  if not bisect_bot:
+    raise NotBisectableError(
+        'Could not select a bisect bot: %s for (%s, %s)' % (
+            bisect_bot, test.master_name, test.bot_name))
 
   new_bisect_config = start_try_job.GetBisectConfig(
       bisect_bot=bisect_bot,
       master_name=test.master_name,
       suite=test.suite_name,
       metric=metric,
+      story_filter=story_filter,
       good_revision=good_revision,
       bad_revision=bad_revision,
       repeat_count=10,
       max_time_minutes=20,
-      bug_id=bug_id,
-      use_archive='true')
+      bug_id=bug_id)
 
   if 'error' in new_bisect_config:
     raise NotBisectableError('Could not make a valid config.')
@@ -224,7 +232,7 @@ def _ChooseTest(anomalies, index=0):
         the same list of alerts.
 
   Returns:
-    A TestMetadata entity, or None if no valid TestMetadata could be chosen.
+    An Anomaly entity, or None if no valid entity could be chosen.
   """
   if not anomalies:
     return None
@@ -233,7 +241,7 @@ def _ChooseTest(anomalies, index=0):
   for anomaly_entity in anomalies[index:]:
     if can_bisect.IsValidTestForBisect(
         utils.TestPath(anomaly_entity.GetTestMetadataKey())):
-      return anomaly_entity.GetTestMetadataKey().get()
+      return anomaly_entity
   return None
 
 
@@ -266,38 +274,6 @@ def _CompareAnomalyBisectability(a1, a2):
   elif a1.percent_changed < a2.percent_changed:
     return 1
   return 0
-
-
-def _ChooseRevisionRange(anomalies):
-  """Chooses a revision range to use for a bisect job.
-
-  Note that the first number in the chosen revision range is the "last known
-  good" revision, whereas the start_revision property of an Anomaly is the
-  "first possible bad" revision.
-
-  If the given set of anomalies is non-overlapping, the revision range chosen
-  should be the intersection of the ranges.
-
-  Args:
-    anomalies: A non-empty list of Anomaly entities.
-
-  Returns:
-    A pair of revision numbers (good, bad), or (None, None) if no valid
-    revision range can be chosen.
-
-  Raises:
-    NotBisectableError: A valid revision range could not be returned.
-  """
-  good_rev, good_test = max(
-      (a.start_revision - 1, a.GetTestMetadataKey()) for a in anomalies)
-  bad_rev, bad_test = min(
-      (a.end_revision, a.GetTestMetadataKey()) for a in anomalies)
-  if good_rev < bad_rev:
-    good_rev = _GetRevisionForBisect(good_rev, good_test)
-    bad_rev = _GetRevisionForBisect(bad_rev, bad_test)
-    return (good_rev, bad_rev)
-  raise NotBisectableError(
-      'Good rev %s not smaller than bad rev %s.' % (good_rev, bad_rev))
 
 
 def _GetRevisionForBisect(revision, test_key):

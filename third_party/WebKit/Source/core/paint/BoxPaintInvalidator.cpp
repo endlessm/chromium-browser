@@ -6,6 +6,7 @@
 
 #include "core/frame/Settings.h"
 #include "core/layout/LayoutView.h"
+#include "core/layout/compositing/CompositedLayerMapping.h"
 #include "core/paint/ObjectPaintInvalidator.h"
 #include "core/paint/PaintInvalidator.h"
 #include "core/paint/PaintLayer.h"
@@ -14,121 +15,81 @@
 
 namespace blink {
 
-struct PreviousBoxSizes {
+struct PreviousBoxGeometries {
   LayoutSize borderBoxSize;
   LayoutRect contentBoxRect;
   LayoutRect layoutOverflowRect;
 };
 
-typedef HashMap<const LayoutBox*, PreviousBoxSizes> PreviousBoxSizesMap;
-static PreviousBoxSizesMap& previousBoxSizesMap() {
-  DEFINE_STATIC_LOCAL(PreviousBoxSizesMap, map, ());
+typedef HashMap<const LayoutBox*, PreviousBoxGeometries>
+    PreviousBoxGeometriesMap;
+static PreviousBoxGeometriesMap& previousBoxGeometriesMap() {
+  DEFINE_STATIC_LOCAL(PreviousBoxGeometriesMap, map, ());
   return map;
 }
 
 void BoxPaintInvalidator::boxWillBeDestroyed(const LayoutBox& box) {
-  previousBoxSizesMap().remove(&box);
+  DCHECK(box.hasPreviousBoxGeometries() ==
+         previousBoxGeometriesMap().contains(&box));
+  if (box.hasPreviousBoxGeometries())
+    previousBoxGeometriesMap().remove(&box);
 }
 
-bool BoxPaintInvalidator::incrementallyInvalidatePaint() {
-  bool result = ObjectPaintInvalidatorWithContext(m_box, m_context)
-                    .incrementallyInvalidatePaint();
-
-  bool hasBoxDecorations = m_box.styleRef().hasBoxDecorations();
-  if (!m_box.styleRef().hasBackground() && !hasBoxDecorations)
-    return result;
-
-  const LayoutRect& oldBounds = m_context.oldBounds;
-  const LayoutRect& newBounds = m_context.newBounds;
-
-  LayoutSize oldBorderBoxSize = computePreviousBorderBoxSize(oldBounds.size());
-  LayoutSize newBorderBoxSize = m_box.size();
-
-  // If border m_box size didn't change,
-  // ObjectPaintInvalidatorWithContext::incrementallyInvalidatePaint() is good.
-  if (oldBorderBoxSize == newBorderBoxSize)
-    return result;
-
-  // If size of the paint invalidation rect equals to size of border box,
-  // ObjectPaintInvalidatorWithContext::incrementallyInvalidatePaint()
-  // is good for boxes having background without box decorations.
-  DCHECK(
-      oldBounds.location() ==
-      newBounds.location());  // Otherwise we won't do incremental invalidation.
-  if (!hasBoxDecorations && m_context.newLocation == newBounds.location() &&
-      oldBorderBoxSize == oldBounds.size() &&
-      newBorderBoxSize == newBounds.size())
-    return result;
-
-  // Invalidate the right delta part and the right border of the old or new
-  // m_box which has smaller width.
-  if (LayoutUnit deltaWidth =
-          (oldBorderBoxSize.width() - newBorderBoxSize.width()).abs()) {
-    LayoutUnit smallerWidth =
-        std::min(oldBorderBoxSize.width(), newBorderBoxSize.width());
-    LayoutUnit borderTopRightRadiusWidth = valueForLength(
-        m_box.styleRef().borderTopRightRadius().width(), smallerWidth);
-    LayoutUnit borderBottomRightRadiusWidth = valueForLength(
-        m_box.styleRef().borderBottomRightRadius().width(), smallerWidth);
-    LayoutUnit borderWidth = std::max(
-        LayoutUnit(m_box.borderRight()),
-        std::max(borderTopRightRadiusWidth, borderBottomRightRadiusWidth));
-    LayoutRect rightDeltaRect(
-        m_context.newLocation.x() + smallerWidth - borderWidth,
-        m_context.newLocation.y(), deltaWidth + borderWidth,
-        std::max(oldBorderBoxSize.height(), newBorderBoxSize.height()));
-    invalidatePaintRectClippedByOldAndNewBounds(rightDeltaRect);
+static LayoutRect computeRightDelta(const LayoutPoint& location,
+                                    const LayoutSize& oldSize,
+                                    const LayoutSize& newSize,
+                                    int extraWidth) {
+  LayoutUnit delta = newSize.width() - oldSize.width();
+  if (delta > 0) {
+    return LayoutRect(location.x() + oldSize.width() - extraWidth, location.y(),
+                      delta + extraWidth, newSize.height());
   }
-
-  // Invalidate the bottom delta part and the bottom border of the old or new
-  // m_box which has smaller height.
-  if (LayoutUnit deltaHeight =
-          (oldBorderBoxSize.height() - newBorderBoxSize.height()).abs()) {
-    LayoutUnit smallerHeight =
-        std::min(oldBorderBoxSize.height(), newBorderBoxSize.height());
-    LayoutUnit borderBottomLeftRadiusHeight = valueForLength(
-        m_box.styleRef().borderBottomLeftRadius().height(), smallerHeight);
-    LayoutUnit borderBottomRightRadiusHeight = valueForLength(
-        m_box.styleRef().borderBottomRightRadius().height(), smallerHeight);
-    LayoutUnit borderHeight = std::max(
-        LayoutUnit(m_box.borderBottom()),
-        std::max(borderBottomLeftRadiusHeight, borderBottomRightRadiusHeight));
-    LayoutRect bottomDeltaRect(
-        m_context.newLocation.x(),
-        m_context.newLocation.y() + smallerHeight - borderHeight,
-        std::max(oldBorderBoxSize.width(), newBorderBoxSize.width()),
-        deltaHeight + borderHeight);
-    invalidatePaintRectClippedByOldAndNewBounds(bottomDeltaRect);
+  if (delta < 0) {
+    return LayoutRect(location.x() + newSize.width() - extraWidth, location.y(),
+                      -delta + extraWidth, oldSize.height());
   }
-
-  return true;
+  return LayoutRect();
 }
 
-void BoxPaintInvalidator::invalidatePaintRectClippedByOldAndNewBounds(
-    const LayoutRect& rect) {
-  if (rect.isEmpty())
-    return;
+static LayoutRect computeBottomDelta(const LayoutPoint& location,
+                                     const LayoutSize& oldSize,
+                                     const LayoutSize& newSize,
+                                     int extraHeight) {
+  LayoutUnit delta = newSize.height() - oldSize.height();
+  if (delta > 0) {
+    return LayoutRect(location.x(),
+                      location.y() + oldSize.height() - extraHeight,
+                      newSize.width(), delta + extraHeight);
+  }
+  if (delta < 0) {
+    return LayoutRect(location.x(),
+                      location.y() + newSize.height() - extraHeight,
+                      oldSize.width(), -delta + extraHeight);
+  }
+  return LayoutRect();
+}
+
+bool BoxPaintInvalidator::incrementallyInvalidatePaint(
+    PaintInvalidationReason reason,
+    const LayoutRect& oldRect,
+    const LayoutRect& newRect) {
+  DCHECK(oldRect.location() == newRect.location());
+  LayoutRect rightDelta = computeRightDelta(
+      newRect.location(), oldRect.size(), newRect.size(),
+      reason == PaintInvalidationIncremental ? m_box.borderRight() : 0);
+  LayoutRect bottomDelta = computeBottomDelta(
+      newRect.location(), oldRect.size(), newRect.size(),
+      reason == PaintInvalidationIncremental ? m_box.borderBottom() : 0);
+
+  if (rightDelta.isEmpty() && bottomDelta.isEmpty())
+    return false;
 
   ObjectPaintInvalidator objectPaintInvalidator(m_box);
-  LayoutRect rectClippedByOldBounds = intersection(rect, m_context.oldBounds);
-  LayoutRect rectClippedByNewBounds = intersection(rect, m_context.newBounds);
-  // Invalidate only once if the clipped rects equal.
-  if (rectClippedByOldBounds == rectClippedByNewBounds) {
-    objectPaintInvalidator.invalidatePaintUsingContainer(
-        *m_context.paintInvalidationContainer, rectClippedByOldBounds,
-        PaintInvalidationIncremental);
-    return;
-  }
-  // Invalidate the bigger one if one contains another. Otherwise invalidate
-  // both.
-  if (!rectClippedByNewBounds.contains(rectClippedByOldBounds))
-    objectPaintInvalidator.invalidatePaintUsingContainer(
-        *m_context.paintInvalidationContainer, rectClippedByOldBounds,
-        PaintInvalidationIncremental);
-  if (!rectClippedByOldBounds.contains(rectClippedByNewBounds))
-    objectPaintInvalidator.invalidatePaintUsingContainer(
-        *m_context.paintInvalidationContainer, rectClippedByNewBounds,
-        PaintInvalidationIncremental);
+  objectPaintInvalidator.invalidatePaintUsingContainer(
+      *m_context.paintInvalidationContainer, rightDelta, reason);
+  objectPaintInvalidator.invalidatePaintUsingContainer(
+      *m_context.paintInvalidationContainer, bottomDelta, reason);
+  return true;
 }
 
 PaintInvalidationReason BoxPaintInvalidator::computePaintInvalidationReason() {
@@ -136,24 +97,8 @@ PaintInvalidationReason BoxPaintInvalidator::computePaintInvalidationReason() {
       ObjectPaintInvalidatorWithContext(m_box, m_context)
           .computePaintInvalidationReason();
 
-  if (isImmediateFullPaintInvalidationReason(reason) ||
-      reason == PaintInvalidationNone)
+  if (reason != PaintInvalidationIncremental)
     return reason;
-
-  if (m_box.mayNeedPaintInvalidationAnimatedBackgroundImage() &&
-      !m_box.backgroundIsKnownToBeObscured())
-    reason = PaintInvalidationDelayedFull;
-
-  // If the current paint invalidation reason is PaintInvalidationDelayedFull,
-  // then this paint invalidation can delayed if the LayoutBox in question is
-  // not on-screen. The logic to decide whether this is appropriate exists at
-  // the site of the original paint invalidation that chose
-  // PaintInvalidationDelayedFull.
-  if (reason == PaintInvalidationDelayedFull) {
-    // Do regular full paint invalidation if the object is onscreen.
-    return m_box.intersectsVisibleViewport() ? PaintInvalidationFull
-                                             : PaintInvalidationDelayedFull;
-  }
 
   if (m_box.isLayoutView()) {
     const LayoutView& layoutView = toLayoutView(m_box);
@@ -168,69 +113,43 @@ PaintInvalidationReason BoxPaintInvalidator::computePaintInvalidationReason() {
       return reason;
   }
 
-  // If the transform is not identity or translation, incremental invalidation
-  // is not applicable because the difference between oldBounds and newBounds
-  // doesn't cover all area needing invalidation.
-  // FIXME: Should also consider ancestor transforms since
-  // paintInvalidationContainer. crbug.com/426111.
-  if (reason == PaintInvalidationIncremental &&
-      m_context.oldBounds != m_context.newBounds &&
-      m_context.paintInvalidationContainer != m_box && m_box.hasLayer() &&
-      m_box.layer()->transform() &&
-      !m_box.layer()->transform()->isIdentityOrTranslation())
-    return PaintInvalidationBoundsChange;
-
   const ComputedStyle& style = m_box.styleRef();
-  if (style.backgroundLayers().thisOrNextLayersUseContentBox() ||
-      style.maskLayers().thisOrNextLayersUseContentBox() ||
-      style.boxSizing() == BoxSizingBorderBox) {
-    if (previousBoxSizesMap().get(&m_box).contentBoxRect !=
-        m_box.contentBoxRect())
-      return PaintInvalidationContentBoxChange;
-  }
 
-  if (!style.hasBackground() && !style.hasBoxDecorations()) {
-    // We could let incremental invalidation cover non-composited scrollbars,
-    // but just do a full invalidation because incremental invalidation will go
-    // away with slimming paint.
-    if (reason == PaintInvalidationIncremental &&
-        m_context.oldBounds != m_context.newBounds &&
-        m_box.hasNonCompositedScrollbars())
-      return PaintInvalidationBorderBoxChange;
-    return reason;
-  }
+  if ((style.backgroundLayers().thisOrNextLayersUseContentBox() ||
+       style.maskLayers().thisOrNextLayersUseContentBox() ||
+       style.boxSizing() == EBoxSizing::kBorderBox) &&
+      previousContentBoxRect() != m_box.contentBoxRect())
+    return PaintInvalidationContentBoxChange;
 
-  if (style.backgroundLayers().thisOrNextLayersHaveLocalAttachment()) {
-    if (previousBoxSizesMap().get(&m_box).layoutOverflowRect !=
-        m_box.layoutOverflowRect())
-      return PaintInvalidationLayoutOverflowBoxChange;
-  }
-
-  LayoutSize oldBorderBoxSize =
-      computePreviousBorderBoxSize(m_context.oldBounds.size());
+  LayoutSize oldBorderBoxSize = previousBorderBoxSize();
   LayoutSize newBorderBoxSize = m_box.size();
+  bool borderBoxChanged = oldBorderBoxSize != newBorderBoxSize;
+  if (!borderBoxChanged && m_context.oldVisualRect == m_context.newVisualRect)
+    return PaintInvalidationNone;
 
-  if (oldBorderBoxSize == newBorderBoxSize)
-    return reason;
+  // If either border box changed or bounds changed, and old or new border box
+  // doesn't equal old or new bounds, incremental invalidation is not
+  // applicable. This captures the following cases:
+  // - pixel snapping of paint invalidation bounds,
+  // - scale, rotate, skew etc. transforms,
+  // - visual overflows.
+  if (m_context.oldVisualRect !=
+          LayoutRect(m_context.oldLocation, oldBorderBoxSize) ||
+      m_context.newVisualRect !=
+          LayoutRect(m_context.newLocation, newBorderBoxSize)) {
+    return borderBoxChanged ? PaintInvalidationBorderBoxChange
+                            : PaintInvalidationBoundsChange;
+  }
 
-  // See another hasNonCompositedScrollbars() callsite above.
-  if (m_box.hasNonCompositedScrollbars())
-    return PaintInvalidationBorderBoxChange;
+  DCHECK(borderBoxChanged);
 
   if (style.hasVisualOverflowingEffect() || style.hasAppearance() ||
-      style.hasFilterInducingProperty() || style.resize() != RESIZE_NONE)
+      style.hasFilterInducingProperty() || style.resize() != RESIZE_NONE ||
+      style.hasMask())
     return PaintInvalidationBorderBoxChange;
 
-  if (style.hasBorderRadius()) {
-    // If a border-radius exists and width/height is smaller than radius
-    // width/height, we need to fully invalidate to cover the changed radius.
-    FloatRoundedRect oldRoundedRect = style.getRoundedBorderFor(
-        LayoutRect(LayoutPoint(0, 0), oldBorderBoxSize));
-    FloatRoundedRect newRoundedRect = style.getRoundedBorderFor(
-        LayoutRect(LayoutPoint(0, 0), newBorderBoxSize));
-    if (oldRoundedRect.getRadii() != newRoundedRect.getRadii())
-      return PaintInvalidationBorderBoxChange;
-  }
+  if (style.hasBorderRadius())
+    return PaintInvalidationBorderBoxChange;
 
   if (oldBorderBoxSize.width() != newBorderBoxSize.width() &&
       m_box.mustInvalidateBackgroundOrBorderPaintOnWidthChange())
@@ -239,21 +158,138 @@ PaintInvalidationReason BoxPaintInvalidator::computePaintInvalidationReason() {
       m_box.mustInvalidateBackgroundOrBorderPaintOnHeightChange())
     return PaintInvalidationBorderBoxChange;
 
-  return reason;
+  // Needs to repaint frame boundaries.
+  if (m_box.isFrameSet())
+    return PaintInvalidationBorderBoxChange;
+
+  // Needs to repaint column rules.
+  if (m_box.isLayoutMultiColumnSet())
+    return PaintInvalidationBorderBoxChange;
+
+  return PaintInvalidationIncremental;
+}
+
+bool BoxPaintInvalidator::backgroundGeometryDependsOnLayoutOverflowRect() {
+  return !m_box.isDocumentElement() && !m_box.backgroundStolenForBeingBody() &&
+         m_box.styleRef()
+             .backgroundLayers()
+             .thisOrNextLayersHaveLocalAttachment();
+}
+
+// Background positioning in layout overflow rect doesn't mean it will
+// paint onto the scrolling contents layer because some conditions prevent
+// it from that. We may also treat non-local solid color backgrounds as local
+// and paint onto the scrolling contents layer.
+// See PaintLayer::canPaintBackgroundOntoScrollingContentsLayer().
+bool BoxPaintInvalidator::backgroundPaintsOntoScrollingContentsLayer() {
+  if (m_box.isDocumentElement() || m_box.backgroundStolenForBeingBody())
+    return false;
+  if (!m_box.hasLayer())
+    return false;
+  if (auto* mapping = m_box.layer()->compositedLayerMapping())
+    return mapping->backgroundPaintsOntoScrollingContentsLayer();
+  return false;
+}
+
+bool BoxPaintInvalidator::shouldFullyInvalidateBackgroundOnLayoutOverflowChange(
+    const LayoutRect& oldLayoutOverflow,
+    const LayoutRect& newLayoutOverflow) {
+  DCHECK(oldLayoutOverflow != newLayoutOverflow);
+  if (newLayoutOverflow.isEmpty() || oldLayoutOverflow.isEmpty())
+    return true;
+  if (newLayoutOverflow.location() != oldLayoutOverflow.location())
+    return true;
+  if (newLayoutOverflow.width() != oldLayoutOverflow.width() &&
+      m_box.mustInvalidateFillLayersPaintOnHeightChange(
+          m_box.styleRef().backgroundLayers()))
+    return true;
+  if (newLayoutOverflow.height() != oldLayoutOverflow.height() &&
+      m_box.mustInvalidateFillLayersPaintOnHeightChange(
+          m_box.styleRef().backgroundLayers()))
+    return true;
+  return false;
+}
+
+void BoxPaintInvalidator::invalidateScrollingContentsBackgroundIfNeeded() {
+  bool paintsOntoScrollingContentsLayer =
+      backgroundPaintsOntoScrollingContentsLayer();
+  if (!paintsOntoScrollingContentsLayer &&
+      !backgroundGeometryDependsOnLayoutOverflowRect())
+    return;
+
+  const LayoutRect& oldLayoutOverflow = previousLayoutOverflowRect();
+  LayoutRect newLayoutOverflow = m_box.layoutOverflowRect();
+
+  bool shouldFullyInvalidateOnScrollingContentsLayer = false;
+  if (m_box.backgroundChangedSinceLastPaintInvalidation()) {
+    if (!paintsOntoScrollingContentsLayer) {
+      // The box should have been set needing full invalidation on style change.
+      DCHECK(m_box.shouldDoFullPaintInvalidation());
+      return;
+    }
+    shouldFullyInvalidateOnScrollingContentsLayer = true;
+  } else {
+    // Check change of layout overflow for incremental invalidation.
+    if (!m_box.hasPreviousBoxGeometries() ||
+        newLayoutOverflow == oldLayoutOverflow)
+      return;
+    if (!paintsOntoScrollingContentsLayer) {
+      if (shouldFullyInvalidateBackgroundOnLayoutOverflowChange(
+              oldLayoutOverflow, newLayoutOverflow)) {
+        m_box.getMutableForPainting().setShouldDoFullPaintInvalidation(
+            PaintInvalidationLayoutOverflowBoxChange);
+      }
+      return;
+    }
+    shouldFullyInvalidateOnScrollingContentsLayer =
+        shouldFullyInvalidateBackgroundOnLayoutOverflowChange(
+            oldLayoutOverflow, newLayoutOverflow);
+  }
+
+  if (shouldFullyInvalidateOnScrollingContentsLayer) {
+    ObjectPaintInvalidatorWithContext(m_box, m_context)
+        .fullyInvalidatePaint(
+            PaintInvalidationBackgroundOnScrollingContentsLayer,
+            oldLayoutOverflow, newLayoutOverflow);
+  } else {
+    incrementallyInvalidatePaint(
+        PaintInvalidationBackgroundOnScrollingContentsLayer, oldLayoutOverflow,
+        newLayoutOverflow);
+  }
+
+  m_context.paintingLayer->setNeedsRepaint();
+  // Currently we use CompositedLayerMapping as the DisplayItemClient to paint
+  // background on the scrolling contents layer.
+  ObjectPaintInvalidator(m_box).invalidateDisplayItemClient(
+      *m_box.layer()->compositedLayerMapping()->scrollingContentsLayer(),
+      PaintInvalidationBackgroundOnScrollingContentsLayer);
 }
 
 PaintInvalidationReason BoxPaintInvalidator::invalidatePaintIfNeeded() {
+  invalidateScrollingContentsBackgroundIfNeeded();
+
   PaintInvalidationReason reason = computePaintInvalidationReason();
   if (reason == PaintInvalidationIncremental) {
-    if (incrementallyInvalidatePaint()) {
+    bool invalidated;
+    if (m_box.isLayoutView() &&
+        !RuntimeEnabledFeatures::rootLayerScrollingEnabled()) {
+      invalidated = incrementallyInvalidatePaint(
+          reason, m_context.oldVisualRect, m_context.newVisualRect);
+    } else {
+      invalidated = incrementallyInvalidatePaint(
+          reason, LayoutRect(m_context.oldLocation, previousBorderBoxSize()),
+          LayoutRect(m_context.newLocation, m_box.size()));
+    }
+    if (invalidated) {
       m_context.paintingLayer->setNeedsRepaint();
       m_box.invalidateDisplayItemClients(reason);
     } else {
       reason = PaintInvalidationNone;
     }
-    // Though we have done our own version of incremental invalidation, we still
-    // need to call ObjectPaintInvalidator with PaintInvalidationNone to do any
-    // other required operations.
+
+    // Though we have done incremental invalidation, we still need to call
+    // ObjectPaintInvalidator with PaintInvalidationNone to do any other
+    // required operations.
     reason = std::max(
         reason,
         ObjectPaintInvalidatorWithContext(m_box, m_context)
@@ -267,31 +303,27 @@ PaintInvalidationReason BoxPaintInvalidator::invalidatePaintIfNeeded() {
     area->invalidatePaintOfScrollControlsIfNeeded(m_context);
 
   // This is for the next invalidatePaintIfNeeded so must be at the end.
-  savePreviousBoxSizesIfNeeded();
+  savePreviousBoxGeometriesIfNeeded();
 
   return reason;
 }
 
-bool BoxPaintInvalidator::needsToSavePreviousBoxSizes() {
-  LayoutSize paintInvalidationSize = m_context.newBounds.size();
-  // Don't save old box sizes if the paint rect is empty because we'll
+bool BoxPaintInvalidator::needsToSavePreviousBoxGeometries() {
+  LayoutSize paintInvalidationSize = m_context.newVisualRect.size();
+  // Don't save old box Geometries if the paint rect is empty because we'll
   // full invalidate once the paint rect becomes non-empty.
   if (paintInvalidationSize.isEmpty())
+    return false;
+
+  if (m_box.paintedOutputOfObjectHasNoEffectRegardlessOfSize())
     return false;
 
   const ComputedStyle& style = m_box.styleRef();
 
   // If we use border-box sizing we need to track changes in the size of the
   // content box.
-  if (style.boxSizing() == BoxSizingBorderBox)
+  if (style.boxSizing() == EBoxSizing::kBorderBox)
     return true;
-
-  // We need the old box sizes only when the box has background, decorations, or
-  // masks.
-  // Main LayoutView paints base background, thus interested in box size.
-  if (!m_box.isLayoutView() && !style.hasBackground() &&
-      !style.hasBoxDecorations() && !style.hasMask())
-    return false;
 
   // No need to save old border box size if we can use size of the old paint
   // rect as the old border box size in the next invalidation.
@@ -301,38 +333,56 @@ bool BoxPaintInvalidator::needsToSavePreviousBoxSizes() {
   // Background and mask layers can depend on other boxes than border box. See
   // crbug.com/490533
   if (style.backgroundLayers().thisOrNextLayersUseContentBox() ||
-      style.backgroundLayers().thisOrNextLayersHaveLocalAttachment() ||
-      style.maskLayers().thisOrNextLayersUseContentBox())
+      style.maskLayers().thisOrNextLayersUseContentBox() ||
+      backgroundGeometryDependsOnLayoutOverflowRect() ||
+      backgroundPaintsOntoScrollingContentsLayer())
     return true;
 
   return false;
 }
 
-void BoxPaintInvalidator::savePreviousBoxSizesIfNeeded() {
-  if (!needsToSavePreviousBoxSizes()) {
-    previousBoxSizesMap().remove(&m_box);
+void BoxPaintInvalidator::savePreviousBoxGeometriesIfNeeded() {
+  DCHECK(m_box.hasPreviousBoxGeometries() ==
+         previousBoxGeometriesMap().contains(&m_box));
+  if (!needsToSavePreviousBoxGeometries()) {
+    if (m_box.hasPreviousBoxGeometries()) {
+      previousBoxGeometriesMap().remove(&m_box);
+      m_box.getMutableForPainting().setHasPreviousBoxGeometries(false);
+    }
     return;
   }
 
-  PreviousBoxSizes sizes = {m_box.size(), m_box.contentBoxRect(),
-                            m_box.layoutOverflowRect()};
-  previousBoxSizesMap().set(&m_box, sizes);
+  PreviousBoxGeometries geometries = {m_box.size(), m_box.contentBoxRect(),
+                                      m_box.layoutOverflowRect()};
+  previousBoxGeometriesMap().set(&m_box, geometries);
+  m_box.getMutableForPainting().setHasPreviousBoxGeometries(true);
 }
 
-LayoutSize BoxPaintInvalidator::computePreviousBorderBoxSize(
-    const LayoutSize& previousBoundsSize) {
-  // PreviousBorderBoxSize is only valid when there is background or box
-  // decorations.
-  DCHECK(m_box.styleRef().hasBackground() ||
-         m_box.styleRef().hasBoxDecorations());
-
-  auto it = previousBoxSizesMap().find(&m_box);
-  if (it != previousBoxSizesMap().end())
-    return it->value.borderBoxSize;
+LayoutSize BoxPaintInvalidator::previousBorderBoxSize() {
+  DCHECK(m_box.hasPreviousBoxGeometries() ==
+         previousBoxGeometriesMap().contains(&m_box));
+  if (m_box.hasPreviousBoxGeometries())
+    return previousBoxGeometriesMap().get(&m_box).borderBoxSize;
 
   // We didn't save the old border box size because it was the same as the size
-  // of oldBounds.
-  return previousBoundsSize;
+  // of oldVisualRect.
+  return m_context.oldVisualRect.size();
+}
+
+LayoutRect BoxPaintInvalidator::previousContentBoxRect() {
+  DCHECK(m_box.hasPreviousBoxGeometries() ==
+         previousBoxGeometriesMap().contains(&m_box));
+  return m_box.hasPreviousBoxGeometries()
+             ? previousBoxGeometriesMap().get(&m_box).contentBoxRect
+             : LayoutRect();
+}
+
+LayoutRect BoxPaintInvalidator::previousLayoutOverflowRect() {
+  DCHECK(m_box.hasPreviousBoxGeometries() ==
+         previousBoxGeometriesMap().contains(&m_box));
+  return m_box.hasPreviousBoxGeometries()
+             ? previousBoxGeometriesMap().get(&m_box).layoutOverflowRect
+             : LayoutRect();
 }
 
 }  // namespace blink

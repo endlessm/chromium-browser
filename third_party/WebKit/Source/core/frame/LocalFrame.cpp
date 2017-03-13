@@ -40,6 +40,7 @@
 #include "core/editing/FrameSelection.h"
 #include "core/editing/InputMethodController.h"
 #include "core/editing/serializers/Serialization.h"
+#include "core/editing/spellcheck/IdleSpellCheckCallback.h"
 #include "core/editing/spellcheck/SpellChecker.h"
 #include "core/events/Event.h"
 #include "core/fetch/ResourceFetcher.h"
@@ -48,11 +49,13 @@
 #include "core/frame/FrameHost.h"
 #include "core/frame/FrameView.h"
 #include "core/frame/LocalDOMWindow.h"
+#include "core/frame/PerformanceMonitor.h"
 #include "core/frame/Settings.h"
 #include "core/frame/VisualViewport.h"
 #include "core/html/HTMLFrameElementBase.h"
 #include "core/html/HTMLPlugInElement.h"
 #include "core/input/EventHandler.h"
+#include "core/inspector/ConsoleMessage.h"
 #include "core/inspector/InspectorInstrumentation.h"
 #include "core/layout/HitTestResult.h"
 #include "core/layout/LayoutView.h"
@@ -69,12 +72,15 @@
 #include "core/paint/ObjectPainter.h"
 #include "core/paint/PaintInfo.h"
 #include "core/paint/PaintLayer.h"
+#include "core/paint/PaintLayerPainter.h"
 #include "core/paint/TransformRecorder.h"
 #include "core/svg/SVGDocumentExtensions.h"
+#include "core/timing/Performance.h"
 #include "platform/DragImage.h"
 #include "platform/PluginScriptForbiddenScope.h"
 #include "platform/RuntimeEnabledFeatures.h"
 #include "platform/ScriptForbiddenScope.h"
+#include "platform/WebFrameScheduler.h"
 #include "platform/graphics/GraphicsContext.h"
 #include "platform/graphics/StaticBitmapImage.h"
 #include "platform/graphics/paint/ClipRecorder.h"
@@ -85,10 +91,11 @@
 #include "platform/plugins/PluginData.h"
 #include "platform/text/TextStream.h"
 #include "public/platform/InterfaceProvider.h"
-#include "public/platform/WebFrameScheduler.h"
+#include "public/platform/InterfaceRegistry.h"
 #include "public/platform/WebScreenInfo.h"
 #include "public/platform/WebViewScheduler.h"
 #include "third_party/skia/include/core/SkImage.h"
+#include "third_party/skia/include/core/SkSurface.h"
 #include "wtf/PtrUtil.h"
 #include "wtf/StdLibExtras.h"
 #include <memory>
@@ -116,7 +123,7 @@ class DragImageBuilder {
     float pageScaleFactor = m_localFrame->host()->visualViewport().scale();
     m_bounds.setWidth(m_bounds.width() * deviceScaleFactor * pageScaleFactor);
     m_bounds.setHeight(m_bounds.height() * deviceScaleFactor * pageScaleFactor);
-    m_pictureBuilder = wrapUnique(new SkPictureBuilder(
+    m_pictureBuilder = WTF::wrapUnique(new SkPictureBuilder(
         SkRect::MakeIWH(m_bounds.width(), m_bounds.height())));
 
     AffineTransform transform;
@@ -138,10 +145,19 @@ class DragImageBuilder {
     // TODO(fmalita): endRecording() should return a non-const SKP.
     sk_sp<SkPicture> recording(
         const_cast<SkPicture*>(m_pictureBuilder->endRecording().release()));
-    sk_sp<SkImage> skImage = SkImage::MakeFromPicture(
-        std::move(recording),
-        SkISize::Make(m_bounds.width(), m_bounds.height()), nullptr, nullptr);
-    RefPtr<Image> image = StaticBitmapImage::create(std::move(skImage));
+
+    // Rasterize upfront, since DragImage::create() is going to do it anyway
+    // (SkImage::asLegacyBitmap).
+    SkSurfaceProps surfaceProps(0, kUnknown_SkPixelGeometry);
+    sk_sp<SkSurface> surface = SkSurface::MakeRasterN32Premul(
+        m_bounds.width(), m_bounds.height(), &surfaceProps);
+    if (!surface)
+      return nullptr;
+
+    surface->getCanvas()->drawPicture(recording);
+    RefPtr<Image> image =
+        StaticBitmapImage::create(surface->makeImageSnapshot());
+
     float screenDeviceScaleFactor =
         m_localFrame->page()->chromeClient().screenInfo().deviceScaleFactor;
 
@@ -163,7 +179,7 @@ class DraggedNodeImageBuilder {
   DraggedNodeImageBuilder(const LocalFrame& localFrame, Node& node)
       : m_localFrame(&localFrame),
         m_node(&node)
-#if ENABLE(ASSERT)
+#if DCHECK_IS_ON()
         ,
         m_domTreeVersion(node.document().domTreeVersion())
 #endif
@@ -173,7 +189,7 @@ class DraggedNodeImageBuilder {
   }
 
   ~DraggedNodeImageBuilder() {
-#if ENABLE(ASSERT)
+#if DCHECK_IS_ON()
     DCHECK_EQ(m_domTreeVersion, m_node->document().domTreeVersion());
 #endif
     for (Node& descendant : NodeTraversal::inclusiveDescendantsOf(*m_node))
@@ -181,7 +197,7 @@ class DraggedNodeImageBuilder {
   }
 
   std::unique_ptr<DragImage> createImage() {
-#if ENABLE(ASSERT)
+#if DCHECK_IS_ON()
     DCHECK_EQ(m_domTreeVersion, m_node->document().domTreeVersion());
 #endif
     // Construct layout object for |m_node| with pseudo class "-webkit-drag"
@@ -210,8 +226,8 @@ class DraggedNodeImageBuilder {
       PaintLayerFlags flags = PaintLayerHaveTransparency |
                               PaintLayerAppliedTransform |
                               PaintLayerUncachedClipRects;
-      PaintLayerPainter(*layer).paintLayer(dragImageBuilder.context(),
-                                           paintingInfo, flags);
+      PaintLayerPainter(*layer).paint(dragImageBuilder.context(), paintingInfo,
+                                      flags);
     }
     return dragImageBuilder.createImage(
         1.0f, LayoutObject::shouldRespectImageOrientation(draggedLayoutObject));
@@ -220,7 +236,7 @@ class DraggedNodeImageBuilder {
  private:
   const Member<const LocalFrame> m_localFrame;
   const Member<Node> m_node;
-#if ENABLE(ASSERT)
+#if DCHECK_IS_ON()
   const uint64_t m_domTreeVersion;
 #endif
 };
@@ -246,11 +262,14 @@ template class CORE_TEMPLATE_EXPORT Supplement<LocalFrame>;
 LocalFrame* LocalFrame::create(FrameLoaderClient* client,
                                FrameHost* host,
                                FrameOwner* owner,
-                               InterfaceProvider* interfaceProvider) {
+                               InterfaceProvider* interfaceProvider,
+                               InterfaceRegistry* interfaceRegistry) {
   LocalFrame* frame = new LocalFrame(
       client, host, owner,
       interfaceProvider ? interfaceProvider
-                        : InterfaceProvider::getEmptyInterfaceProvider());
+                        : InterfaceProvider::getEmptyInterfaceProvider(),
+      interfaceRegistry ? interfaceRegistry
+                        : InterfaceRegistry::getEmptyInterfaceRegistry());
   InspectorInstrumentation::frameAttachedToParent(frame);
   return frame;
 }
@@ -283,12 +302,12 @@ void LocalFrame::createView(const IntSize& viewportSize,
 
   FrameView* frameView = nullptr;
   if (isLocalRoot) {
-    frameView = FrameView::create(this, viewportSize);
+    frameView = FrameView::create(*this, viewportSize);
 
     // The layout size is set by WebViewImpl to support @viewport
     frameView->setLayoutSizeFixedToFrameSize(false);
   } else {
-    frameView = FrameView::create(this);
+    frameView = FrameView::create(*this);
   }
 
   frameView->setScrollbarModes(horizontalScrollbarMode, verticalScrollbarMode,
@@ -325,6 +344,7 @@ LocalFrame::~LocalFrame() {
 
 DEFINE_TRACE(LocalFrame) {
   visitor->trace(m_instrumentingAgents);
+  visitor->trace(m_performanceMonitor);
   visitor->trace(m_loader);
   visitor->trace(m_navigationScheduler);
   visitor->trace(m_view);
@@ -337,12 +357,9 @@ DEFINE_TRACE(LocalFrame) {
   visitor->trace(m_eventHandler);
   visitor->trace(m_console);
   visitor->trace(m_inputMethodController);
+  visitor->trace(m_idleSpellCheckCallback);
   Frame::trace(visitor);
   Supplementable<LocalFrame>::trace(visitor);
-}
-
-DOMWindow* LocalFrame::domWindow() const {
-  return m_domWindow.get();
 }
 
 WindowProxy* LocalFrame::windowProxy(DOMWrapperWorld& world) {
@@ -373,7 +390,10 @@ void LocalFrame::reload(FrameLoadType loadType,
     request.setClientRedirect(clientRedirectPolicy);
     m_loader.load(request, loadType);
   } else {
-    DCHECK_EQ(FrameLoadTypeReload, loadType);
+    if (RuntimeEnabledFeatures::fasterLocationReloadEnabled())
+      DCHECK_EQ(FrameLoadTypeReloadMainResource, loadType);
+    else
+      DCHECK_EQ(FrameLoadTypeReload, loadType);
     m_navigationScheduler->scheduleReload();
   }
 }
@@ -382,6 +402,9 @@ void LocalFrame::detach(FrameDetachType type) {
   // Note that detach() can be re-entered, so it's not possible to
   // DCHECK(!m_isDetaching) here.
   m_isDetaching = true;
+
+  if (isLocalRoot())
+    m_performanceMonitor->shutdown();
 
   PluginScriptForbiddenScope forbidPluginDestructorScripting;
   m_loader.stopAllLoaders();
@@ -418,9 +441,9 @@ void LocalFrame::detach(FrameDetachType type) {
   script().clearForClose();
   setView(nullptr);
 
-  m_host->eventHandlerRegistry().didRemoveAllEventHandlers(*localDOMWindow());
+  m_host->eventHandlerRegistry().didRemoveAllEventHandlers(*domWindow());
 
-  localDOMWindow()->frameDestroyed();
+  domWindow()->frameDestroyed();
 
   // TODO: Page should take care of updating focus/scrolling instead of Frame.
   // TODO: It's unclear as to why this is called more than once, but it is,
@@ -463,10 +486,15 @@ void LocalFrame::printNavigationErrorMessage(const Frame& targetFrame,
       targetFrameDescription + " from frame with URL '" +
       document()->url().getString() + "'. " + reason + "\n";
 
-  localDOMWindow()->printErrorMessage(message);
+  domWindow()->printErrorMessage(message);
 }
 
-WindowProxyManager* LocalFrame::getWindowProxyManager() const {
+void LocalFrame::printNavigationWarning(const String& message) {
+  m_console->addMessage(
+      ConsoleMessage::create(JSMessageSource, WarningMessageLevel, message));
+}
+
+WindowProxyManagerBase* LocalFrame::getWindowProxyManager() const {
   return m_script->getWindowProxyManager();
 }
 
@@ -483,27 +511,22 @@ void LocalFrame::detachChildren() {
     ChildFrameDisconnector(*document).disconnect();
 }
 
+void LocalFrame::documentAttached() {
+  DCHECK(document());
+  selection().documentAttached(document());
+  inputMethodController().documentAttached(document());
+}
+
+LocalDOMWindow* LocalFrame::domWindow() const {
+  return toLocalDOMWindow(m_domWindow);
+}
+
 void LocalFrame::setDOMWindow(LocalDOMWindow* domWindow) {
-  // TODO(haraken): Update this comment.
-  // Oilpan: setDOMWindow() cannot be used when finalizing. Which
-  // is acceptable as its actions are either not needed or handled
-  // by other means --
-  //
-  //  - LocalFrameLifecycleObserver::willDetachFrameHost() will have
-  //    signalled the Inspector frameWindowDiscarded() notifications.
-  //    We assume that all LocalFrames are detached, where that notification
-  //    will have been done.
-  //
-  //  - Calling LocalDOMWindow::reset() is not needed (called from
-  //    Frame::setDOMWindow().) The Member references it clears will now
-  //    die with the window. And the registered DOMWindowProperty instances that
-  //    don't, only keep a weak reference to this frame, so there's no need to
-  //    be explicitly notified that this frame is going away.
   if (domWindow)
     script().clearWindowProxy();
 
-  if (m_domWindow)
-    m_domWindow->reset();
+  if (this->domWindow())
+    this->domWindow()->reset();
   m_domWindow = domWindow;
 }
 
@@ -555,7 +578,8 @@ void LocalFrame::setPrinting(bool printing,
   // the document.  See https://bugs.webkit.org/show_bug.cgi?id=43704
   ResourceCacheValidationSuppressor validationSuppressor(document()->fetcher());
 
-  document()->setPrinting(printing);
+  document()->setPrinting(printing ? Document::Printing
+                                   : Document::FinishingPrinting);
   view()->adjustMediaTypeForPrinting(printing);
 
   if (shouldUsePrintingLayout()) {
@@ -565,7 +589,8 @@ void LocalFrame::setPrinting(bool printing,
     if (LayoutView* layoutView = view()->layoutView()) {
       layoutView->setPreferredLogicalWidthsDirty();
       layoutView->setNeedsLayout(LayoutInvalidationReason::PrintingChanged);
-      layoutView->setShouldDoFullPaintInvalidationForViewAndAllDescendants();
+      if (!RuntimeEnabledFeatures::slimmingPaintInvalidationEnabled())
+        layoutView->setShouldDoFullPaintInvalidationForViewAndAllDescendants();
     }
     view()->layout();
     view()->adjustViewSize();
@@ -577,6 +602,12 @@ void LocalFrame::setPrinting(bool printing,
     if (child->isLocalFrame())
       toLocalFrame(child)->setPrinting(printing, FloatSize(), FloatSize(), 0);
   }
+
+  if (RuntimeEnabledFeatures::slimmingPaintInvalidationEnabled())
+    view()->setSubtreeNeedsPaintPropertyUpdate();
+
+  if (!printing)
+    document()->setPrinting(Document::NotPrinting);
 }
 
 bool LocalFrame::shouldUsePrintingLayout() const {
@@ -641,11 +672,11 @@ void LocalFrame::setPageAndTextZoomFactors(float pageZoomFactor,
     if (FrameView* view = this->view()) {
       // Update the scroll position when doing a full page zoom, so the content
       // stays in relatively the same position.
-      LayoutPoint scrollPosition = view->scrollPosition();
+      ScrollOffset scrollOffset = view->getScrollOffset();
       float percentDifference = (pageZoomFactor / m_pageZoomFactor);
-      view->setScrollPosition(
-          DoublePoint(scrollPosition.x() * percentDifference,
-                      scrollPosition.y() * percentDifference),
+      view->setScrollOffset(
+          ScrollOffset(scrollOffset.width() * percentDifference,
+                       scrollOffset.height() * percentDifference),
           ProgrammaticScroll);
     }
   }
@@ -669,6 +700,9 @@ void LocalFrame::setPageAndTextZoomFactors(float pageZoomFactor,
 
 void LocalFrame::deviceScaleFactorChanged() {
   document()->mediaQueryAffectingValueChanged();
+  document()->setNeedsStyleRecalc(
+      SubtreeStyleChange,
+      StyleChangeReasonForTracing::create(StyleChangeReason::Zoom));
   for (Frame* child = tree().firstChild(); child;
        child = child->tree().nextSibling()) {
     if (child->isLocalFrame())
@@ -713,11 +747,7 @@ String LocalFrame::selectedText() const {
 String LocalFrame::selectedTextForClipboard() const {
   if (!document())
     return emptyString();
-
-  // TODO(xiaochengh): The use of updateStyleAndLayoutIgnorePendingStylesheets
-  // needs to be audited.  See http://crbug.com/590369 for more details.
-  document()->updateStyleAndLayoutIgnorePendingStylesheets();
-
+  DCHECK(!document()->needsLayoutTreeUpdate());
   return selection().selectedTextForClipboard();
 }
 
@@ -842,7 +872,8 @@ bool LocalFrame::shouldThrottleRendering() const {
 inline LocalFrame::LocalFrame(FrameLoaderClient* client,
                               FrameHost* host,
                               FrameOwner* owner,
-                              InterfaceProvider* interfaceProvider)
+                              InterfaceProvider* interfaceProvider,
+                              InterfaceRegistry* interfaceRegistry)
     : Frame(client, host, owner),
       m_frameScheduler(page()->chromeClient().createFrameScheduler(
           client->frameBlameContext())),
@@ -851,19 +882,24 @@ inline LocalFrame::LocalFrame(FrameLoaderClient* client,
       m_script(ScriptController::create(this)),
       m_editor(Editor::create(*this)),
       m_spellChecker(SpellChecker::create(*this)),
-      m_selection(FrameSelection::create(this)),
-      m_eventHandler(new EventHandler(this)),
+      m_selection(FrameSelection::create(*this)),
+      m_eventHandler(new EventHandler(*this)),
       m_console(FrameConsole::create(*this)),
       m_inputMethodController(InputMethodController::create(*this)),
+      m_idleSpellCheckCallback(IdleSpellCheckCallback::create(*this)),
       m_navigationDisableCount(0),
       m_pageZoomFactor(parentPageZoomFactor(this)),
       m_textZoomFactor(parentTextZoomFactor(this)),
       m_inViewSourceMode(false),
-      m_interfaceProvider(interfaceProvider) {
-  if (isLocalRoot())
+      m_interfaceProvider(interfaceProvider),
+      m_interfaceRegistry(interfaceRegistry) {
+  if (isLocalRoot()) {
     m_instrumentingAgents = new InstrumentingAgents();
-  else
+    m_performanceMonitor = new PerformanceMonitor(this);
+  } else {
     m_instrumentingAgents = localFrameRoot()->m_instrumentingAgents;
+    m_performanceMonitor = localFrameRoot()->m_performanceMonitor;
+  }
 }
 
 WebFrameScheduler* LocalFrame::frameScheduler() {

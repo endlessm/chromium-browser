@@ -10,8 +10,8 @@ import os
 import time
 
 from chromite.cbuildbot import commands
-from chromite.cbuildbot import config_lib
-from chromite.cbuildbot import constants
+from chromite.lib import config_lib
+from chromite.lib import constants
 from chromite.cbuildbot import repository
 from chromite.lib import cros_build_lib_unittest
 from chromite.lib import cros_test_lib
@@ -19,6 +19,7 @@ from chromite.lib import git
 from chromite.lib import osutils
 from chromite.lib import cros_build_lib
 
+# pylint: disable=protected-access
 
 site_config = config_lib.GetConfig()
 
@@ -49,6 +50,15 @@ class RepositoryTests(cros_build_lib_unittest.RunCommandTestCase):
     for test in tests:
       self.rc.SetDefaultCmdResult(output=test)
       self.assertTrue(repository.IsInternalRepoCheckout('.'))
+
+  def testIsLocalPath(self):
+    """test IsLocalPath."""
+    self.assertTrue(repository._IsLocalPath('/tmp/chromiumos/'))
+    self.assertTrue(repository._IsLocalPath('file:///chromiumos/'))
+    self.assertFalse(repository._IsLocalPath('https://chromiumos/'))
+    self.assertFalse(repository._IsLocalPath('http://chromiumos/'))
+    self.assertFalse(repository._IsLocalPath('ssh://chromiumos/'))
+    self.assertFalse(repository._IsLocalPath('git://chromiumos/'))
 
 
 class RepoInitTests(cros_test_lib.TempDirTestCase, cros_test_lib.MockTestCase):
@@ -143,6 +153,10 @@ class RepoSyncTests(cros_test_lib.TempDirTestCase, cros_test_lib.MockTestCase):
 
   def testSyncWithException(self):
     """Test Sync retry on repo network sync failure"""
+    # Return value here isn't super important.
+    self.PatchObject(repository.RepoRepository, '_ForceSyncSupported',
+                     return_value=True)
+
     result = cros_build_lib.CommandResult(
         cmd=['cmd'], returncode=0, error='error')
     ex = cros_build_lib.RunCommandError('msg', result)
@@ -161,8 +175,30 @@ class RepoSyncTests(cros_test_lib.TempDirTestCase, cros_test_lib.MockTestCase):
 
   def testSyncWithoutException(self):
     """Test successful repo sync without exception and retry"""
+    # Return value here isn't super important.
+    self.PatchObject(repository.RepoRepository, '_ForceSyncSupported',
+                     return_value=False)
+
     run_cmd_mock = self.PatchObject(cros_build_lib, 'RunCommand')
     self.repo.Sync(local_manifest='local_manifest', network_only=True)
 
     # RunCommand should be called once.
     self.assertEqual(run_cmd_mock.call_count, 1)
+
+  def testForceSyncWorks(self):
+    """Test the --force-sync probe logic"""
+    # pylint: disable=protected-access
+
+    m = self.PatchObject(cros_build_lib, 'RunCommand')
+
+    m.return_value = cros_build_lib.CommandResult(output='Nope!')
+    self.assertFalse(self.repo._ForceSyncSupported())
+
+    help_fragment = """
+  -f, --force-broken    continue sync even if a project fails to sync
+  --force-sync          overwrite an existing git directory if it needs to
+                        point to a different object directory. WARNING: this
+                        may cause loss of data
+"""
+    m.return_value = cros_build_lib.CommandResult(output=help_fragment)
+    self.assertTrue(self.repo._ForceSyncSupported())

@@ -24,7 +24,6 @@
 #include "chrome/browser/supervised_user/supervised_user_settings_service_factory.h"
 #include "chrome/browser/sync/profile_sync_service_factory.h"
 #include "chrome/common/chrome_features.h"
-#include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "components/browser_sync/profile_sync_service.h"
 #include "components/pref_registry/pref_registry_syncable.h"
@@ -38,7 +37,9 @@
 #include "components/user_manager/user_manager.h"
 #endif
 
+#if !defined(OS_ANDROID)
 const char kChildAccountDetectionFieldTrialName[] = "ChildAccountDetection";
+#endif
 
 // Normally, re-check the family info once per day.
 const int kUpdateIntervalSeconds = 60 * 60 * 24;
@@ -80,19 +81,14 @@ ChildAccountService::~ChildAccountService() {}
 
 // static
 bool ChildAccountService::IsChildAccountDetectionEnabled() {
-  // Note: It's important to query the field trial state first, to ensure that
-  // UMA reports the correct group.
+  // Child account detection is always enabled on Android.
+#if !defined(OS_ANDROID)
   const std::string group_name =
       base::FieldTrialList::FindFullName(kChildAccountDetectionFieldTrialName);
-
-  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
-  if (command_line->HasSwitch(switches::kDisableChildAccountDetection))
-    return false;
-  if (command_line->HasSwitch(switches::kEnableChildAccountDetection))
-    return true;
-
   if (group_name == "Disabled")
     return false;
+#endif
+
   return true;
 }
 
@@ -156,6 +152,11 @@ bool ChildAccountService::SetActive(bool active) {
         supervised_users::kSigninAllowed,
         base::MakeUnique<base::FundamentalValue>(true));
 
+    // Always allow cookies, to avoid website compatibility issues.
+    settings_service->SetLocalSetting(
+        supervised_users::kCookiesAlwaysAllowed,
+        base::MakeUnique<base::FundamentalValue>(true));
+
     // SafeSearch is controlled at the account level, so don't override it
     // client-side.
     settings_service->SetLocalSetting(
@@ -184,8 +185,15 @@ bool ChildAccountService::SetActive(bool active) {
   } else {
     SupervisedUserSettingsService* settings_service =
         SupervisedUserSettingsServiceFactory::GetForProfile(profile_);
+    settings_service->SetLocalSetting(
+        supervised_users::kRecordHistoryIncludesSessionSync, nullptr);
     settings_service->SetLocalSetting(supervised_users::kSigninAllowed,
-                                      std::unique_ptr<base::Value>());
+                                      nullptr);
+    settings_service->SetLocalSetting(supervised_users::kCookiesAlwaysAllowed,
+                                      nullptr);
+    settings_service->SetLocalSetting(supervised_users::kForceSafeSearch,
+                                      nullptr);
+
 #if !defined(OS_CHROMEOS)
     SigninManagerFactory::GetForProfile(profile_)->ProhibitSignout(false);
 #endif
@@ -235,6 +243,10 @@ void ChildAccountService::OnAccountUpdated(const AccountInfo& info) {
     return;
 
   SetIsChildAccount(info.is_child_account);
+}
+
+void ChildAccountService::OnAccountRemoved(const AccountInfo& info) {
+  SetIsChildAccount(false);
 }
 
 void ChildAccountService::OnGetFamilyMembersSuccess(

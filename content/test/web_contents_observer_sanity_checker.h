@@ -48,8 +48,7 @@ class WebContentsObserverSanityChecker : public WebContentsObserver,
   void DidFinishNavigation(NavigationHandle* navigation_handle) override;
   void DidStartProvisionalLoadForFrame(RenderFrameHost* render_frame_host,
                                        const GURL& validated_url,
-                                       bool is_error_page,
-                                       bool is_iframe_srcdoc) override;
+                                       bool is_error_page) override;
   void DidCommitProvisionalLoadForFrame(
       RenderFrameHost* render_frame_host,
       const GURL& url,
@@ -80,8 +79,10 @@ class WebContentsObserverSanityChecker : public WebContentsObserver,
                            const Referrer& referrer,
                            WindowOpenDisposition disposition,
                            ui::PageTransition transition) override;
-  void MediaStartedPlaying(const MediaPlayerId& id) override;
-  void MediaStoppedPlaying(const MediaPlayerId& id) override;
+  void MediaStartedPlaying(const MediaPlayerInfo& media_info,
+                           const MediaPlayerId& id) override;
+  void MediaStoppedPlaying(const MediaPlayerInfo& media_info,
+                           const MediaPlayerId& id) override;
   bool OnMessageReceived(const IPC::Message& message,
                          RenderFrameHost* render_frame_host) override;
   void WebContentsDestroyed() override;

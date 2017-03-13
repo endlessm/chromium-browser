@@ -369,6 +369,8 @@
   GLES2_GET_FUN(BindFragmentInputLocationCHROMIUM)
 #define glProgramPathFragmentInputGenCHROMIUM \
   GLES2_GET_FUN(ProgramPathFragmentInputGenCHROMIUM)
+#define glGetBufferSubDataAsyncCHROMIUM \
+  GLES2_GET_FUN(GetBufferSubDataAsyncCHROMIUM)
 #define glCoverageModulationCHROMIUM GLES2_GET_FUN(CoverageModulationCHROMIUM)
 #define glGetGraphicsResetStatusKHR GLES2_GET_FUN(GetGraphicsResetStatusKHR)
 #define glBlendBarrierKHR GLES2_GET_FUN(BlendBarrierKHR)
@@ -380,6 +382,8 @@
 #define glGetFragDataIndexEXT GLES2_GET_FUN(GetFragDataIndexEXT)
 #define glUniformMatrix4fvStreamTextureMatrixCHROMIUM \
   GLES2_GET_FUN(UniformMatrix4fvStreamTextureMatrixCHROMIUM)
+#define glOverlayPromotionHintCHROMIUM \
+  GLES2_GET_FUN(OverlayPromotionHintCHROMIUM)
 #define glSwapBuffersWithDamageCHROMIUM \
   GLES2_GET_FUN(SwapBuffersWithDamageCHROMIUM)
 

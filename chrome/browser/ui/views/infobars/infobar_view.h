@@ -16,17 +16,11 @@
 #include "ui/views/focus/external_focus_tracker.h"
 #include "ui/views/view_targeter_delegate.h"
 
-namespace ui {
-class MenuModel;
-}
-
 namespace views {
 class ImageView;
 class Label;
-class LabelButton;
 class Link;
 class LinkListener;
-class MenuButton;
 class MenuRunner;
 class VectorIconButton;
 }  // namespace views
@@ -106,7 +100,7 @@ class InfoBarView : public infobars::InfoBar,
   void PlatformSpecificOnHeightsRecalculated() override;
 
   // views::View:
-  void GetAccessibleState(ui::AXViewState* state) override;
+  void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
   gfx::Size GetPreferredSize() const override;
 
   // views::ExternalFocusTracker:

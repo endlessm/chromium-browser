@@ -9,8 +9,8 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
-#include "base/memory/scoped_vector.h"
 #include "base/optional.h"
 #include "base/strings/string16.h"
 #include "device/bluetooth/bluetooth_common.h"
@@ -116,6 +116,14 @@ class MockBluetoothDevice : public BluetoothDevice {
 
   void AddUUID(const BluetoothUUID& uuid) { uuids_.insert(uuid); }
 
+  // Functions to save and run callbacks from this device. Useful when
+  // trying to run callbacks in response to other actions e.g. run a read
+  // value callback in response to a connection request.
+  // Appends callback to the end of the callbacks queue.
+  void PushPendingCallback(const base::Closure& callback);
+  // Runs all pending callbacks.
+  void RunPendingCallbacks();
+
   void SetConnected(bool connected) { connected_ = connected; }
 
  private:
@@ -125,7 +133,10 @@ class MockBluetoothDevice : public BluetoothDevice {
   BluetoothDevice::UUIDSet uuids_;
   bool connected_;
 
-  ScopedVector<MockBluetoothGattService> mock_services_;
+  // Used by tests to save callbacks that will be run in the future.
+  std::queue<base::Closure> pending_callbacks_;
+
+  std::vector<std::unique_ptr<MockBluetoothGattService>> mock_services_;
 };
 
 }  // namespace device

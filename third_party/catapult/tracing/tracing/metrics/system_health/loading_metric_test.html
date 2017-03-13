@@ -7,7 +7,7 @@ found in the LICENSE file.
 
 <link rel="import" href="/tracing/core/test_utils.html">
 <link rel="import" href="/tracing/metrics/system_health/loading_metric.html">
-<link rel="import" href="/tracing/value/value_set.html">
+<link rel="import" href="/tracing/value/histogram_set.html">
 
 <script>
 'use strict';
@@ -36,7 +36,7 @@ tr.b.unittest.testSuite(function() {
         args: {frame: '0xdeadbeef'}
       }));
     });
-    var values = new tr.v.ValueSet();
+    var values = new tr.v.HistogramSet();
     tr.metrics.sh.loadingMetric(values, model);
     var numeric = tr.b.getOnlyElement(values.getValuesNamed(
         'timeToFirstContentfulPaint'));
@@ -100,7 +100,7 @@ tr.b.unittest.testSuite(function() {
         args: {frame: '0xdeadbeef'}
       }));
     });
-    var values = new tr.v.ValueSet();
+    var values = new tr.v.HistogramSet();
     tr.metrics.sh.loadingMetric(values, model);
     var numeric = tr.b.getOnlyElement(values.getValuesNamed(
         'timeToFirstContentfulPaint'));
@@ -138,7 +138,7 @@ tr.b.unittest.testSuite(function() {
         args: {frame: '0xdeadbeef'}
       }));
     });
-    var values = new tr.v.ValueSet();
+    var values = new tr.v.HistogramSet();
     tr.metrics.sh.loadingMetric(values, model);
     var numeric = tr.b.getOnlyElement(values.getValuesNamed(
         'timeToFirstMeaningfulPaint'));
@@ -221,7 +221,7 @@ tr.b.unittest.testSuite(function() {
         duration: 10,
       }));
     });
-    var values = new tr.v.ValueSet();
+    var values = new tr.v.HistogramSet();
     tr.metrics.sh.loadingMetric(values, model);
     var numeric = tr.b.getOnlyElement(values.getValuesNamed(
         'timeToFirstInteractive'));
@@ -326,13 +326,60 @@ tr.b.unittest.testSuite(function() {
         duration: 10,
       }));
     });
-    var values = new tr.v.ValueSet();
+    var values = new tr.v.HistogramSet();
     tr.metrics.sh.loadingMetric(values, model);
     var numeric = tr.b.getOnlyElement(values.getValuesNamed(
         'timeToFirstInteractive'));
     assert.equal(2, numeric.running.count);
     assert.equal(4000, numeric.running.min);
     assert.equal(15200, numeric.running.max);
-});
+  });
+
+  test('webView', function() {
+    var model = tr.c.TestUtils.newModel(function(model) {
+      var process = model.getOrCreateProcess(1);
+      var rendererThread = process.getOrCreateThread(2);
+      rendererThread.name = 'Chrome_InProcRendererThread';
+      rendererThread.sliceGroup.pushSlice(tr.c.TestUtils.newSliceEx({
+        cat: 'blink.user_timing',
+        title: 'navigationStart',
+        start: 200,
+        duration: 0.0,
+        args: {frame: '0xdeadbeef'}
+      }));
+      process.objects.addSnapshot('ptr', 'loading', 'FrameLoader', 300,
+          {isLoadingMainFrame: true, frame: {id_ref: '0xdeadbeef'},
+            documentLoaderURL: 'http://example.com'});
+      rendererThread.sliceGroup.pushSlice(tr.c.TestUtils.newSliceEx({
+        cat: 'blink.user_timing,rail',
+        title: 'firstContentfulPaint',
+        start: 600,
+        duration: 0.0,
+        args: {frame: '0xdeadbeef'}
+      }));
+      rendererThread.sliceGroup.pushSlice(tr.c.TestUtils.newSliceEx({
+        cat: 'loading',
+        title: 'firstMeaningfulPaintCandidate',
+        start: 1000,
+        duration: 0.0,
+        args: {frame: '0xdeadbeef'}
+      }));
+      // This lets ChromeModelHelper recognize this process as a renderer
+      // process.
+      var compositorThread = process.getOrCreateThread(3);
+      compositorThread.name = 'Compositor';
+    });
+    var values = new tr.v.HistogramSet();
+    tr.metrics.sh.loadingMetric(values, model);
+    var fcp = tr.b.getOnlyElement(values.getValuesNamed(
+        'timeToFirstContentfulPaint'));
+    assert.equal(1, fcp.running.count);
+    assert.equal(400, fcp.running.mean);
+    var fmp = tr.b.getOnlyElement(values.getValuesNamed(
+        'timeToFirstMeaningfulPaint'));
+    assert.equal(1, fmp.running.count);
+    assert.equal(800, fmp.running.mean);
+  });
+
 });
 </script>

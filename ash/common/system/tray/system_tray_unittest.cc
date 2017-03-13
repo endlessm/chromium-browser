@@ -9,20 +9,22 @@
 
 #include "ash/common/accelerators/accelerator_controller.h"
 #include "ash/common/accessibility_delegate.h"
+#include "ash/common/material_design/material_design_controller.h"
 #include "ash/common/shelf/wm_shelf.h"
-#include "ash/common/shell_window_ids.h"
 #include "ash/common/system/status_area_widget.h"
 #include "ash/common/system/tray/system_tray_bubble.h"
 #include "ash/common/system/tray/system_tray_item.h"
 #include "ash/common/system/tray/tray_constants.h"
 #include "ash/common/system/tray/tray_popup_item_container.h"
 #include "ash/common/system/web_notification/web_notification_tray.h"
-#include "ash/common/wm_root_window_controller.h"
 #include "ash/common/wm_shell.h"
 #include "ash/common/wm_window.h"
+#include "ash/public/cpp/shell_window_ids.h"
+#include "ash/root_window_controller.h"
 #include "ash/test/ash_test_base.h"
 #include "ash/test/status_area_widget_test_helper.h"
 #include "ash/test/test_system_tray_item.h"
+#include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
 #include "base/test/histogram_tester.h"
 #include "ui/base/ui_base_types.h"
@@ -33,10 +35,6 @@
 #include "ui/views/view.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_delegate.h"
-
-#if defined(OS_WIN)
-#include "base/win/windows_version.h"
-#endif
 
 namespace ash {
 namespace test {
@@ -68,7 +66,7 @@ TEST_F(SystemTrayTest, OnlyVisibleItemsRecorded) {
   ASSERT_TRUE(tray->GetWidget());
 
   TestSystemTrayItem* test_item = new TestSystemTrayItem();
-  tray->AddTrayItem(test_item);
+  tray->AddTrayItem(base::WrapUnique(test_item));
 
   base::HistogramTester histogram_tester;
 
@@ -107,7 +105,7 @@ TEST_F(SystemTrayTest, NotRecordedtemsAreNotRecorded) {
 
   TestSystemTrayItem* test_item =
       new TestSystemTrayItem(SystemTrayItem::UMA_NOT_RECORDED);
-  tray->AddTrayItem(test_item);
+  tray->AddTrayItem(base::WrapUnique(test_item));
 
   base::HistogramTester histogram_tester;
 
@@ -128,7 +126,7 @@ TEST_F(SystemTrayTest, NullDefaultViewIsNotRecorded) {
 
   TestSystemTrayItem* test_item = new TestSystemTrayItem();
   test_item->set_has_views(false);
-  tray->AddTrayItem(test_item);
+  tray->AddTrayItem(base::WrapUnique(test_item));
 
   base::HistogramTester histogram_tester;
 
@@ -148,7 +146,7 @@ TEST_F(SystemTrayTest, VisibleDetailedViewsIsNotRecorded) {
   ASSERT_TRUE(tray->GetWidget());
 
   TestSystemTrayItem* test_item = new TestSystemTrayItem();
-  tray->AddTrayItem(test_item);
+  tray->AddTrayItem(base::WrapUnique(test_item));
 
   base::HistogramTester histogram_tester;
 
@@ -168,7 +166,7 @@ TEST_F(SystemTrayTest, VisibleDefaultViewIsNotRecordedOnReshow) {
   ASSERT_TRUE(tray->GetWidget());
 
   TestSystemTrayItem* test_item = new TestSystemTrayItem();
-  tray->AddTrayItem(test_item);
+  tray->AddTrayItem(base::WrapUnique(test_item));
 
   base::HistogramTester histogram_tester;
 
@@ -235,16 +233,16 @@ TEST_F(SystemTrayTest, SystemTrayColoring) {
   SystemTray* tray = GetPrimarySystemTray();
   ASSERT_TRUE(tray->GetWidget());
   // At the beginning the tray coloring is not active.
-  ASSERT_FALSE(tray->draw_background_as_active());
+  ASSERT_FALSE(tray->is_active());
 
   // Showing the system bubble should show the background as active.
   tray->ShowDefaultView(BUBBLE_CREATE_NEW);
-  ASSERT_TRUE(tray->draw_background_as_active());
+  ASSERT_TRUE(tray->is_active());
 
   // Closing the system menu should change the coloring back to normal.
   ASSERT_TRUE(tray->CloseSystemBubble());
   RunAllPendingInMessageLoop();
-  ASSERT_FALSE(tray->draw_background_as_active());
+  ASSERT_FALSE(tray->is_active());
 }
 
 // Closing the system bubble through an alignment change should change the
@@ -255,16 +253,16 @@ TEST_F(SystemTrayTest, SystemTrayColoringAfterAlignmentChange) {
   WmShelf* shelf = GetPrimaryShelf();
   shelf->SetAlignment(SHELF_ALIGNMENT_BOTTOM);
   // At the beginning the tray coloring is not active.
-  ASSERT_FALSE(tray->draw_background_as_active());
+  ASSERT_FALSE(tray->is_active());
 
   // Showing the system bubble should show the background as active.
   tray->ShowDefaultView(BUBBLE_CREATE_NEW);
-  ASSERT_TRUE(tray->draw_background_as_active());
+  ASSERT_TRUE(tray->is_active());
 
   // Changing the alignment should close the system bubble and change the
   // background color.
   shelf->SetAlignment(SHELF_ALIGNMENT_LEFT);
-  ASSERT_FALSE(tray->draw_background_as_active());
+  ASSERT_FALSE(tray->is_active());
   RunAllPendingInMessageLoop();
   // The bubble should already be closed by now.
   ASSERT_FALSE(tray->CloseSystemBubble());
@@ -276,11 +274,11 @@ TEST_F(SystemTrayTest, SystemTrayTestItems) {
 
   TestSystemTrayItem* test_item = new TestSystemTrayItem();
   TestSystemTrayItem* detailed_item = new TestSystemTrayItem();
-  tray->AddTrayItem(test_item);
-  tray->AddTrayItem(detailed_item);
+  tray->AddTrayItem(base::WrapUnique(test_item));
+  tray->AddTrayItem(base::WrapUnique(detailed_item));
 
-  // Check items have been added
-  const std::vector<SystemTrayItem*>& items = tray->GetTrayItems();
+  // Check items have been added.
+  std::vector<SystemTrayItem*> items = tray->GetTrayItems();
   ASSERT_TRUE(std::find(items.begin(), items.end(), test_item) != items.end());
   ASSERT_TRUE(std::find(items.begin(), items.end(), detailed_item) !=
               items.end());
@@ -314,7 +312,7 @@ TEST_F(SystemTrayTest, SystemTrayNoViewItems) {
   // Verify that no crashes occur on items lacking some views.
   TestSystemTrayItem* no_view_item = new TestSystemTrayItem();
   no_view_item->set_has_views(false);
-  tray->AddTrayItem(no_view_item);
+  tray->AddTrayItem(base::WrapUnique(no_view_item));
   tray->ShowDefaultView(BUBBLE_CREATE_NEW);
   tray->ShowDetailedView(no_view_item, 0, false, BUBBLE_USE_EXISTING);
   RunAllPendingInMessageLoop();
@@ -326,12 +324,12 @@ TEST_F(SystemTrayTest, TrayWidgetAutoResizes) {
 
   // Add an initial tray item so that the tray gets laid out correctly.
   TestSystemTrayItem* initial_item = new TestSystemTrayItem();
-  tray->AddTrayItem(initial_item);
+  tray->AddTrayItem(base::WrapUnique(initial_item));
 
   gfx::Size initial_size = tray->GetWidget()->GetWindowBoundsInScreen().size();
 
   TestSystemTrayItem* new_item = new TestSystemTrayItem();
-  tray->AddTrayItem(new_item);
+  tray->AddTrayItem(base::WrapUnique(new_item));
 
   gfx::Size new_size = tray->GetWidget()->GetWindowBoundsInScreen().size();
 
@@ -355,8 +353,8 @@ TEST_F(SystemTrayTest, SystemTrayNotifications) {
 
   TestSystemTrayItem* test_item = new TestSystemTrayItem();
   TestSystemTrayItem* detailed_item = new TestSystemTrayItem();
-  tray->AddTrayItem(test_item);
-  tray->AddTrayItem(detailed_item);
+  tray->AddTrayItem(base::WrapUnique(test_item));
+  tray->AddTrayItem(base::WrapUnique(detailed_item));
 
   // Ensure the tray views are created.
   ASSERT_TRUE(test_item->tray_view() != NULL);
@@ -384,18 +382,13 @@ TEST_F(SystemTrayTest, SystemTrayNotifications) {
   ASSERT_TRUE(test_item->notification_view() != NULL);
 }
 
-// Test is flaky on Win7 and Cros (crbug.com/637978).
-#if defined(OS_CHROMEOS) || defined(OS_WIN)
-#define MAYBE_BubbleCreationTypesTest DISABLED_BubbleCreationTypesTest
-#else
-#define MAYBE_BubbleCreationTypesTest BubbleCreationTypesTest
-#endif
-TEST_F(SystemTrayTest, MAYBE_BubbleCreationTypesTest) {
+// Test is flaky. http://crbug.com/637978
+TEST_F(SystemTrayTest, DISABLED_BubbleCreationTypesTest) {
   SystemTray* tray = GetPrimarySystemTray();
   ASSERT_TRUE(tray->GetWidget());
 
   TestSystemTrayItem* test_item = new TestSystemTrayItem();
-  tray->AddTrayItem(test_item);
+  tray->AddTrayItem(base::WrapUnique(test_item));
 
   // Ensure the tray views are created.
   ASSERT_TRUE(test_item->tray_view() != NULL);
@@ -451,13 +444,15 @@ TEST_F(SystemTrayTest, TrayBoundsInWidget) {
   shelf->SetAlignment(SHELF_ALIGNMENT_LEFT);
   window_bounds = widget->GetWindowBoundsInScreen();
   tray_bounds = tray->GetBoundsInScreen();
-  EXPECT_TRUE(window_bounds.Contains(tray_bounds));
+  // TODO(estade): Re-enable this check. See crbug.com/660928.
+  // EXPECT_TRUE(window_bounds.Contains(tray_bounds));
 
   // Test in the right alignment.
   shelf->SetAlignment(SHELF_ALIGNMENT_LEFT);
   window_bounds = widget->GetWindowBoundsInScreen();
   tray_bounds = tray->GetBoundsInScreen();
-  EXPECT_TRUE(window_bounds.Contains(tray_bounds));
+  // TODO(estade): Re-enable this check. See crbug.com/660928.
+  // EXPECT_TRUE(window_bounds.Contains(tray_bounds));
 }
 
 TEST_F(SystemTrayTest, PersistentBubble) {
@@ -465,7 +460,7 @@ TEST_F(SystemTrayTest, PersistentBubble) {
   ASSERT_TRUE(tray->GetWidget());
 
   TestSystemTrayItem* test_item = new TestSystemTrayItem();
-  tray->AddTrayItem(test_item);
+  tray->AddTrayItem(base::WrapUnique(test_item));
 
   std::unique_ptr<views::Widget> widget(CreateTestWidget(
       nullptr, kShellWindowId_DefaultContainer, gfx::Rect(0, 0, 100, 100)));
@@ -514,13 +509,7 @@ TEST_F(SystemTrayTest, PersistentBubble) {
   EXPECT_TRUE(tray->HasSystemBubble());
 }
 
-#if defined(OS_CHROMEOS)
-// Accessibility/Settings tray items are available only on cros.
-#define MAYBE_WithSystemModal WithSystemModal
-#else
-#define MAYBE_WithSystemModal DISABLED_WithSystemModal
-#endif
-TEST_F(SystemTrayTest, MAYBE_WithSystemModal) {
+TEST_F(SystemTrayTest, WithSystemModal) {
   // Check if the accessibility item is created even with system modal dialog.
   WmShell::Get()->accessibility_delegate()->SetVirtualKeyboardEnabled(true);
   std::unique_ptr<views::Widget> widget(CreateTestWidget(
@@ -550,11 +539,14 @@ TEST_F(SystemTrayTest, MAYBE_WithSystemModal) {
   ASSERT_TRUE(accessibility);
   EXPECT_TRUE(accessibility->visible());
 
-  const views::View* settings =
-      tray->GetSystemBubble()->bubble_view()->GetViewByID(
-          test::kSettingsTrayItemViewId);
-  ASSERT_TRUE(settings);
-  EXPECT_TRUE(settings->visible());
+  // Settings row is not present in material design.
+  if (!MaterialDesignController::IsSystemTrayMenuMaterial()) {
+    const views::View* settings =
+        tray->GetSystemBubble()->bubble_view()->GetViewByID(
+            test::kSettingsTrayItemViewId);
+    ASSERT_TRUE(settings);
+    EXPECT_TRUE(settings->visible());
+  }
 }
 
 // Tests that if SetVisible(true) is called while animating to hidden that the
@@ -577,10 +569,14 @@ TEST_F(SystemTrayTest, SetVisibleDuringHideAnimation) {
   EXPECT_EQ(1.0f, tray->layer()->GetTargetOpacity());
 }
 
-#if defined(OS_CHROMEOS)
 // Tests that touch on an item in the system bubble triggers it to become
 // active.
 TEST_F(SystemTrayTest, TrayPopupItemContainerTouchFeedback) {
+  // Material design will use the ink drop ripple framework to show
+  // active states.
+  if (MaterialDesignController::IsSystemTrayMenuMaterial())
+    return;
+
   SystemTray* tray = GetPrimarySystemTray();
   tray->ShowDefaultView(BUBBLE_CREATE_NEW);
 
@@ -600,6 +596,11 @@ TEST_F(SystemTrayTest, TrayPopupItemContainerTouchFeedback) {
 // Tests that touch events on an item in the system bubble cause it to stop
 // being active.
 TEST_F(SystemTrayTest, TrayPopupItemContainerTouchFeedbackCancellation) {
+  // Material design will use the ink drop ripple framework to show
+  // active states.
+  if (MaterialDesignController::IsSystemTrayMenuMaterial())
+    return;
+
   SystemTray* tray = GetPrimarySystemTray();
   tray->ShowDefaultView(BUBBLE_CREATE_NEW);
 
@@ -642,7 +643,6 @@ TEST_F(SystemTrayTest, SystemTrayHeightWithBubble) {
 
   EXPECT_EQ(0, notification_tray->tray_bubble_height_for_test());
 }
-#endif  // OS_CHROMEOS
 
 }  // namespace test
 }  // namespace ash

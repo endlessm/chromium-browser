@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "bindings/core/v8/ExceptionStatePlaceholder.h"
+#include "bindings/core/v8/ExceptionState.h"
 #include "core/dom/Document.h"
 #include "core/dom/Element.h"
 #include "core/dom/Text.h"
@@ -25,7 +25,7 @@ namespace blink {
   EXPECT_EQ(text, WebString(selection().selectedText()).utf8())
 
 IntPoint visiblePositionToContentsPoint(const VisiblePosition& pos) {
-  IntPoint result = absoluteCaretBoundsOf(pos).minXMaxYCorner();
+  IntPoint result = absoluteSelectionBoundsOf(pos).minXMaxYCorner();
   // Need to move the point at least by 1 - caret's minXMaxYCorner is not
   // evaluated to the same line as the text by hit testing.
   result.move(0, -1);
@@ -115,14 +115,13 @@ Text* GranularityStrategyTest::appendTextNode(const String& data) {
 }
 
 void GranularityStrategyTest::setInnerHTML(const char* htmlContent) {
-  document().documentElement()->setInnerHTML(String::fromUTF8(htmlContent),
-                                             ASSERT_NO_EXCEPTION);
+  document().documentElement()->setInnerHTML(String::fromUTF8(htmlContent));
   document().view()->updateAllLifecyclePhases();
 }
 
 void GranularityStrategyTest::parseText(Text* text) {
   TextNodeVector textNodes;
-  textNodes.append(text);
+  textNodes.push_back(text);
   parseText(textNodes);
 }
 
@@ -133,7 +132,7 @@ void GranularityStrategyTest::parseText(const TextNodeVector& textNodes) {
     int wordStartIndexOffset = m_letterPos.size();
     String str = text->wholeText();
     for (size_t i = 0; i < str.length(); i++) {
-      m_letterPos.append(visiblePositionToContentsPoint(
+      m_letterPos.push_back(visiblePositionToContentsPoint(
           createVisiblePosition(Position(text, i))));
       char c = str[i];
       if (isASCIIAlphanumeric(c) && !wordStarted) {
@@ -144,20 +143,20 @@ void GranularityStrategyTest::parseText(const TextNodeVector& textNodes) {
                              m_letterPos[i + wordStartIndexOffset].x()) /
                                 2,
                             m_letterPos[wordStartIndex].y());
-        m_wordMiddles.append(wordMiddle);
+        m_wordMiddles.push_back(wordMiddle);
         wordStarted = false;
       }
     }
   }
   if (wordStarted) {
-    const auto& lastNode = textNodes.last();
+    const auto& lastNode = textNodes.back();
     int xEnd = visiblePositionToContentsPoint(
                    createVisiblePosition(
                        Position(lastNode, lastNode->wholeText().length())))
                    .x();
     IntPoint wordMiddle((m_letterPos[wordStartIndex].x() + xEnd) / 2,
                         m_letterPos[wordStartIndex].y());
-    m_wordMiddles.append(wordMiddle);
+    m_wordMiddles.push_back(wordMiddle);
   }
 }
 
@@ -257,9 +256,9 @@ void GranularityStrategyTest::setupTextSpan(String str1,
   Vector<IntPoint> wordMiddlePos;
 
   TextNodeVector textNodes;
-  textNodes.append(text1);
-  textNodes.append(text2);
-  textNodes.append(text3);
+  textNodes.push_back(text1);
+  textNodes.push_back(text2);
+  textNodes.push_back(text3);
   parseText(textNodes);
 
   Position p1;
@@ -277,7 +276,8 @@ void GranularityStrategyTest::setupTextSpan(String str1,
   else
     p2 = Position(text3, selEnd - str1.length() - str2.length());
 
-  selection().setSelection(createVisibleSelection(p1, p2));
+  selection().setSelection(
+      SelectionInDOMTree::Builder().setBaseAndExtent(p1, p2).build());
 }
 
 void GranularityStrategyTest::setupVerticalAlign(String str1,
@@ -504,7 +504,9 @@ TEST_F(GranularityStrategyTest, Character) {
   // "Foo B^a|>r Baz," (^ means base, | means extent, , < means start, and >
   // means end).
   selection().setSelection(
-      createVisibleSelection(Position(text, 5), Position(text, 6)));
+      SelectionInDOMTree::Builder()
+          .setBaseAndExtent(Position(text, 5), Position(text, 6))
+          .build());
   EXPECT_EQ_SELECTED_TEXT("a");
   // "Foo B^ar B|>az,"
   selection().moveRangeSelectionExtent(
@@ -523,7 +525,9 @@ TEST_F(GranularityStrategyTest, DirectionRotate) {
   // "Foo B^a|>r Baz," (^ means base, | means extent, , < means start, and >
   // means end).
   selection().setSelection(
-      createVisibleSelection(Position(text, 5), Position(text, 6)));
+      SelectionInDOMTree::Builder()
+          .setBaseAndExtent(Position(text, 5), Position(text, 6))
+          .build());
   EXPECT_EQ_SELECTED_TEXT("a");
   IntPoint p = m_letterPos[9];
   // Need to move by one pixel, otherwise this point is not evaluated
@@ -544,7 +548,9 @@ TEST_F(GranularityStrategyTest, DirectionExpandTranslateZ) {
   // "abcdef ghij kl mno^p|>qr stuvwi inm  mnii," (^ means base, | means extent,
   // < means start, and > means end).
   selection().setSelection(
-      createVisibleSelection(Position(text, 18), Position(text, 19)));
+      SelectionInDOMTree::Builder()
+          .setBaseAndExtent(Position(text, 18), Position(text, 19))
+          .build());
   EXPECT_EQ_SELECTED_TEXT("p");
   testDirectionExpand();
 }
@@ -554,7 +560,9 @@ TEST_F(GranularityStrategyTest, DirectionExpandTransform) {
   // "abcdef ghij kl mno^p|>qr stuvwi inm  mnii," (^ means base, | means extent,
   // < means start, and > means end).
   selection().setSelection(
-      createVisibleSelection(Position(text, 18), Position(text, 19)));
+      SelectionInDOMTree::Builder()
+          .setBaseAndExtent(Position(text, 18), Position(text, 19))
+          .build());
   EXPECT_EQ_SELECTED_TEXT("p");
   testDirectionExpand();
 }
@@ -576,7 +584,9 @@ TEST_F(GranularityStrategyTest, DirectionExpandFontSizes) {
 TEST_F(GranularityStrategyTest, DirectionShrinkTranslateZ) {
   Text* text = setupTranslateZ("abcdef ghij kl mnopqr iiinmni, abc");
   selection().setSelection(
-      createVisibleSelection(Position(text, 18), Position(text, 21)));
+      SelectionInDOMTree::Builder()
+          .setBaseAndExtent(Position(text, 18), Position(text, 21))
+          .build());
   EXPECT_EQ_SELECTED_TEXT("pqr");
   testDirectionShrink();
 }
@@ -584,7 +594,9 @@ TEST_F(GranularityStrategyTest, DirectionShrinkTranslateZ) {
 TEST_F(GranularityStrategyTest, DirectionShrinkTransform) {
   Text* text = setupTransform("abcdef ghij kl mnopqr iiinmni, abc");
   selection().setSelection(
-      createVisibleSelection(Position(text, 18), Position(text, 21)));
+      SelectionInDOMTree::Builder()
+          .setBaseAndExtent(Position(text, 18), Position(text, 21))
+          .build());
   EXPECT_EQ_SELECTED_TEXT("pqr");
   testDirectionShrink();
 }
@@ -604,7 +616,9 @@ TEST_F(GranularityStrategyTest, DirectionShrinkFontSizes) {
 TEST_F(GranularityStrategyTest, DirectionSwitchSideTranslateZ) {
   Text* text = setupTranslateZ("abcd efgh ijkl mnopqr iiinmni, abc");
   selection().setSelection(
-      createVisibleSelection(Position(text, 18), Position(text, 21)));
+      SelectionInDOMTree::Builder()
+          .setBaseAndExtent(Position(text, 18), Position(text, 21))
+          .build());
   EXPECT_EQ_SELECTED_TEXT("pqr");
   testDirectionSwitchSide();
 }
@@ -612,7 +626,9 @@ TEST_F(GranularityStrategyTest, DirectionSwitchSideTranslateZ) {
 TEST_F(GranularityStrategyTest, DirectionSwitchSideTransform) {
   Text* text = setupTransform("abcd efgh ijkl mnopqr iiinmni, abc");
   selection().setSelection(
-      createVisibleSelection(Position(text, 18), Position(text, 21)));
+      SelectionInDOMTree::Builder()
+          .setBaseAndExtent(Position(text, 18), Position(text, 21))
+          .build());
   EXPECT_EQ_SELECTED_TEXT("pqr");
   testDirectionSwitchSide();
 }
@@ -645,7 +661,9 @@ TEST_F(GranularityStrategyTest, DirectionSwitchSideWordGranularityThenShrink) {
   // "abcd efgh ijkl mno^pqr|> iiin, abc" (^ means base, | means extent, < means
   // start, and > means end).
   selection().setSelection(
-      createVisibleSelection(Position(text, 18), Position(text, 21)));
+      SelectionInDOMTree::Builder()
+          .setBaseAndExtent(Position(text, 18), Position(text, 21))
+          .build());
   EXPECT_EQ_SELECTED_TEXT("pqr");
   // Move to the middle of word #4 selecting it - this will set the offset to
   // be half the width of "iiin".
@@ -681,7 +699,9 @@ TEST_F(GranularityStrategyTest, DirectionSwitchStartOnBoundary) {
   // "ab cd efghijkl ^mnopqr |>stuvwi inm," (^ means base and | means extent,
   // > means end).
   selection().setSelection(
-      createVisibleSelection(Position(text, 15), Position(text, 22)));
+      SelectionInDOMTree::Builder()
+          .setBaseAndExtent(Position(text, 15), Position(text, 22))
+          .build());
   EXPECT_EQ_SELECTED_TEXT("mnopqr ");
   selection().moveRangeSelectionExtent(m_wordMiddles[4]);
   EXPECT_EQ_SELECTED_TEXT("mnopqr iiin");

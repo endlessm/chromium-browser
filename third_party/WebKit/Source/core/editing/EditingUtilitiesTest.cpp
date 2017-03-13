@@ -21,8 +21,9 @@ TEST_F(EditingUtilitiesTest, directionOfEnclosingBlock) {
   setShadowContent(shadowContent, "host");
   Node* one = document().getElementById("one");
 
-  EXPECT_EQ(LTR, directionOfEnclosingBlock(Position(one, 0)));
-  EXPECT_EQ(RTL, directionOfEnclosingBlock(PositionInFlatTree(one, 0)));
+  EXPECT_EQ(TextDirection::kLtr, directionOfEnclosingBlock(Position(one, 0)));
+  EXPECT_EQ(TextDirection::kRtl,
+            directionOfEnclosingBlock(PositionInFlatTree(one, 0)));
 }
 
 TEST_F(EditingUtilitiesTest, firstEditablePositionAfterPositionInRoot) {
@@ -107,8 +108,8 @@ TEST_F(EditingUtilitiesTest, isEditablePositionWithTable) {
   // However, |setBodyContent()| automatically creates HTML, HEAD and BODY
   // element. So, we build DOM tree manually.
   // Note: This is unusual HTML taken from http://crbug.com/574230
-  Element* table = document().createElement("table", ASSERT_NO_EXCEPTION);
-  table->setInnerHTML("<caption>foo</caption>", ASSERT_NO_EXCEPTION);
+  Element* table = document().createElement("table");
+  table->setInnerHTML("<caption>foo</caption>");
   while (document().firstChild())
     document().firstChild()->remove();
   document().appendChild(table);

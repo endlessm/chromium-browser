@@ -23,8 +23,8 @@
 #include "net/log/net_log_source_type.h"
 #include "net/log/net_log_with_source.h"
 #include "net/socket/client_socket_handle.h"
+#include "net/socket/datagram_client_socket.h"
 #include "net/socket/ssl_client_socket.h"
-#include "net/udp/datagram_client_socket.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace net {
@@ -73,7 +73,7 @@ class MockConnectClientSocket : public StreamSocket {
   void SetOmniboxSpeculation() override {}
   bool WasEverUsed() const override { return false; }
   void EnableTCPFastOpenIfSupported() override {}
-  bool WasNpnNegotiated() const override { return false; }
+  bool WasAlpnNegotiated() const override { return false; }
   NextProto GetNegotiatedProtocol() const override { return kProtoUnknown; }
   bool GetSSLInfo(SSLInfo* ssl_info) override { return false; }
   void GetConnectionAttempts(ConnectionAttempts* out) const override {
@@ -135,7 +135,7 @@ class MockFailingClientSocket : public StreamSocket {
   void SetOmniboxSpeculation() override {}
   bool WasEverUsed() const override { return false; }
   void EnableTCPFastOpenIfSupported() override {}
-  bool WasNpnNegotiated() const override { return false; }
+  bool WasAlpnNegotiated() const override { return false; }
   NextProto GetNegotiatedProtocol() const override { return kProtoUnknown; }
   bool GetSSLInfo(SSLInfo* ssl_info) override { return false; }
   void GetConnectionAttempts(ConnectionAttempts* out) const override {
@@ -261,7 +261,7 @@ class MockTriggerableClientSocket : public StreamSocket {
   void SetOmniboxSpeculation() override {}
   bool WasEverUsed() const override { return false; }
   void EnableTCPFastOpenIfSupported() override {}
-  bool WasNpnNegotiated() const override { return false; }
+  bool WasAlpnNegotiated() const override { return false; }
   NextProto GetNegotiatedProtocol() const override { return kProtoUnknown; }
   bool GetSSLInfo(SSLInfo* ssl_info) override { return false; }
   void GetConnectionAttempts(ConnectionAttempts* out) const override {

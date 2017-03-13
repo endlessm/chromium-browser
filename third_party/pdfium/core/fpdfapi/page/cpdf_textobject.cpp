@@ -8,6 +8,7 @@
 
 #include "core/fpdfapi/font/cpdf_cidfont.h"
 #include "core/fpdfapi/font/cpdf_font.h"
+#include "third_party/base/ptr_util.h"
 
 CPDF_TextObject::CPDF_TextObject()
     : m_PosX(0),
@@ -109,8 +110,8 @@ void CPDF_TextObject::GetCharInfo(int index, CPDF_TextObjectItem* pInfo) const {
   }
 }
 
-CPDF_TextObject* CPDF_TextObject::Clone() const {
-  CPDF_TextObject* obj = new CPDF_TextObject;
+std::unique_ptr<CPDF_TextObject> CPDF_TextObject::Clone() const {
+  auto obj = pdfium::MakeUnique<CPDF_TextObject>();
   obj->CopyData(this);
 
   obj->m_nChars = m_nChars;
@@ -211,7 +212,7 @@ void CPDF_TextObject::SetText(const CFX_ByteString& str) {
 FX_FLOAT CPDF_TextObject::GetCharWidth(uint32_t charcode) const {
   FX_FLOAT fontsize = m_TextState.GetFontSize() / 1000;
   CPDF_Font* pFont = m_TextState.GetFont();
-  FX_BOOL bVertWriting = FALSE;
+  bool bVertWriting = false;
   CPDF_CIDFont* pCIDFont = pFont->AsCIDFont();
   if (pCIDFont) {
     bVertWriting = pCIDFont->IsVertWriting();
@@ -248,7 +249,7 @@ void CPDF_TextObject::CalcPositionData(FX_FLOAT* pTextAdvanceX,
   FX_FLOAT min_y = 10000 * 1.0f;
   FX_FLOAT max_y = -10000 * 1.0f;
   CPDF_Font* pFont = m_TextState.GetFont();
-  FX_BOOL bVertWriting = FALSE;
+  bool bVertWriting = false;
   CPDF_CIDFont* pCIDFont = pFont->AsCIDFont();
   if (pCIDFont) {
     bVertWriting = pCIDFont->IsVertWriting();

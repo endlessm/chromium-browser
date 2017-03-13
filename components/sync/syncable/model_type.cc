@@ -9,6 +9,7 @@
 #include "base/macros.h"
 #include "base/strings/string_split.h"
 #include "base/values.h"
+#include "components/reading_list/core/reading_list_enable_flags.h"
 #include "components/sync/protocol/app_notification_specifics.pb.h"
 #include "components/sync/protocol/app_setting_specifics.pb.h"
 #include "components/sync/protocol/app_specifics.pb.h"
@@ -30,23 +31,23 @@
 namespace syncer {
 
 struct ModelTypeInfo {
-  const ModelType model_type;
+  ModelType model_type;
   // Model Type notification string.
   // This needs to match the corresponding proto message name in sync.proto
-  const char* const notification_type;
+  const char* notification_type;
   // Root tag for Model Type
   // This should be the same as the model type but all lowercase.
-  const char* const root_tag;
+  const char* root_tag;
   // String value for Model Type
   // This should be the same as the model type but space separated and the
   // first letter of every word capitalized.
-  const char* const model_type_string;
+  const char* model_type_string;
   // SpecificsFieldNumber for Model Type
-  const int specifics_field_number;
+  int specifics_field_number;
   // Histogram value should be unique for the Model Type, Existing histogram
   // values should never be modified without updating "SyncModelTypes" enum in
   // histograms.xml to maintain backward compatibility.
-  const int model_type_histogram_val;
+  int model_type_histogram_val;
 };
 
 // Below struct entries are in the same order as their definition in the
@@ -139,7 +140,7 @@ const ModelTypeInfo kModelTypeInfoMap[] = {
     {READING_LIST, "READING_LIST", "reading_list", "Reading List",
      sync_pb::EntitySpecifics::kReadingListFieldNumber, 38},
     {PROXY_TABS, "", "", "Tabs", -1, 25},
-    {NIGORI, "NIGORI", "nigori", "Encryption keys",
+    {NIGORI, "NIGORI", "nigori", "Encryption Keys",
      sync_pb::EntitySpecifics::kNigoriFieldNumber, 17},
     {EXPERIMENTS, "EXPERIMENTS", "experiments", "Experiments",
      sync_pb::EntitySpecifics::kExperimentsFieldNumber, 19},
@@ -154,8 +155,12 @@ static_assert(arraysize(kModelTypeInfoMap) == MODEL_TYPE_COUNT,
 // 2) This list must be in the same order as the respective values in the
 //    ModelType enum.
 const char* kUserSelectableDataTypeNames[] = {
-    "bookmarks", "preferences", "passwords", "autofill", "themes",
-    "typedUrls", "extensions",  "apps",      "tabs",
+    "bookmarks",   "preferences", "passwords",  "autofill",
+    "themes",      "typedUrls",   "extensions", "apps",
+#if BUILDFLAG(ENABLE_READING_LIST)
+    "readingList",
+#endif
+    "tabs",
 };
 
 static_assert(
@@ -476,6 +481,9 @@ ModelTypeSet UserSelectableTypes() {
   set.Put(TYPED_URLS);
   set.Put(EXTENSIONS);
   set.Put(APPS);
+#if BUILDFLAG(ENABLE_READING_LIST)
+  set.Put(READING_LIST);
+#endif
   set.Put(PROXY_TABS);
   return set;
 }
@@ -615,11 +623,11 @@ base::StringValue* ModelTypeToValue(ModelType model_type) {
 }
 
 ModelType ModelTypeFromValue(const base::Value& value) {
-  if (value.IsType(base::Value::TYPE_STRING)) {
+  if (value.IsType(base::Value::Type::STRING)) {
     std::string result;
     CHECK(value.GetAsString(&result));
     return ModelTypeFromString(result);
-  } else if (value.IsType(base::Value::TYPE_INTEGER)) {
+  } else if (value.IsType(base::Value::Type::INTEGER)) {
     int result;
     CHECK(value.GetAsInteger(&result));
     return ModelTypeFromInt(result);

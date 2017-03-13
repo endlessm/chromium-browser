@@ -68,9 +68,12 @@ class FakeSessionManagerClient : public SessionManagerClient {
   void CheckArcAvailability(const ArcCallback& callback) override;
   void StartArcInstance(const cryptohome::Identification& cryptohome_id,
                         bool disable_boot_completed_broadcast,
-                        const ArcCallback& callback) override;
+                        const StartArcInstanceCallback& callback) override;
   void StopArcInstance(const ArcCallback& callback) override;
   void PrioritizeArcInstance(const ArcCallback& callback) override;
+  void SetArcCpuRestriction(
+      login_manager::ContainerCpuRestrictionState restriction_state,
+      const ArcCallback& callback) override;
   void EmitArcBooted() override;
   void GetArcStartTime(const GetArcStartTimeCallback& callback) override;
   void RemoveArcData(const cryptohome::Identification& cryptohome_id,

@@ -43,6 +43,14 @@
 
 namespace settings {
 
+namespace {
+
+const char kProfileShortcutSettingHidden[] = "profileShortcutSettingHidden";
+const char kProfileShortcutFound[] = "profileShortcutFound";
+const char kProfileShortcutNotFound[] = "profileShortcutNotFound";
+
+}  // namespace
+
 ManageProfileHandler::ManageProfileHandler(Profile* profile)
     : profile_(profile), observer_(this), weak_factory_(this) {}
 
@@ -58,8 +66,8 @@ void ManageProfileHandler::RegisterMessages() {
       base::Bind(&ManageProfileHandler::HandleSetProfileIconAndName,
                  base::Unretained(this)));
   web_ui()->RegisterMessageCallback(
-      "requestHasProfileShortcuts",
-      base::Bind(&ManageProfileHandler::HandleRequestHasProfileShortcuts,
+      "requestProfileShortcutStatus",
+      base::Bind(&ManageProfileHandler::HandleRequestProfileShortcutStatus,
                  base::Unretained(this)));
   web_ui()->RegisterMessageCallback(
       "addProfileShortcut",
@@ -172,35 +180,41 @@ void ManageProfileHandler::HandleSetProfileIconAndName(
   profiles::UpdateProfileName(profile_, new_profile_name);
 }
 
-void ManageProfileHandler::HandleRequestHasProfileShortcuts(
+void ManageProfileHandler::HandleRequestProfileShortcutStatus(
     const base::ListValue* args) {
+  AllowJavascript();
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   DCHECK(ProfileShortcutManager::IsFeatureEnabled());
 
-  ProfileAttributesStorage& storage =
-      g_browser_process->profile_manager()->GetProfileAttributesStorage();
-  ProfileAttributesEntry* entry;
-  if (!storage.GetProfileAttributesWithPath(profile_->GetPath(), &entry))
-    return;
+  CHECK_EQ(1U, args->GetSize());
+  std::string callback_id;
+  CHECK(args->GetString(0, &callback_id));
 
   // Don't show the add/remove desktop shortcut button in the single user case.
-  if (storage.GetNumberOfProfiles() <= 1u)
+  ProfileAttributesStorage& storage =
+      g_browser_process->profile_manager()->GetProfileAttributesStorage();
+  if (storage.GetNumberOfProfiles() <= 1u) {
+    ResolveJavascriptCallback(base::StringValue(callback_id),
+                              base::StringValue(kProfileShortcutSettingHidden));
     return;
+  }
 
   ProfileShortcutManager* shortcut_manager =
       g_browser_process->profile_manager()->profile_shortcut_manager();
+  DCHECK(shortcut_manager);
   shortcut_manager->HasProfileShortcuts(
       profile_->GetPath(),
       base::Bind(&ManageProfileHandler::OnHasProfileShortcuts,
-                 weak_factory_.GetWeakPtr()));
+                 weak_factory_.GetWeakPtr(), callback_id));
 }
 
-void ManageProfileHandler::OnHasProfileShortcuts(bool has_shortcuts) {
+void ManageProfileHandler::OnHasProfileShortcuts(
+    const std::string& callback_id, bool has_shortcuts) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-
-  const base::FundamentalValue has_shortcuts_value(has_shortcuts);
-  CallJavascriptFunction("settings.SyncPrivateApi.receiveHasProfileShortcuts",
-                         has_shortcuts_value);
+  ResolveJavascriptCallback(
+      base::StringValue(callback_id),
+      base::StringValue(has_shortcuts ? kProfileShortcutFound
+                                      : kProfileShortcutNotFound));
 }
 
 void ManageProfileHandler::HandleAddProfileShortcut(
@@ -211,9 +225,6 @@ void ManageProfileHandler::HandleAddProfileShortcut(
   DCHECK(shortcut_manager);
 
   shortcut_manager->CreateProfileShortcut(profile_->GetPath());
-
-  // Update the UI buttons.
-  OnHasProfileShortcuts(true);
 }
 
 void ManageProfileHandler::HandleRemoveProfileShortcut(
@@ -224,9 +235,6 @@ void ManageProfileHandler::HandleRemoveProfileShortcut(
   DCHECK(shortcut_manager);
 
   shortcut_manager->RemoveProfileShortcuts(profile_->GetPath());
-
-  // Update the UI buttons.
-  OnHasProfileShortcuts(false);
 }
 
 }  // namespace settings

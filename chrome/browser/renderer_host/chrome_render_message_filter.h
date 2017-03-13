@@ -12,6 +12,8 @@
 #include "base/macros.h"
 #include "base/sequenced_task_runner_helpers.h"
 #include "content/public/browser/browser_message_filter.h"
+#include "extensions/features/features.h"
+#include "ppapi/features/features.h"
 
 class GURL;
 class Profile;
@@ -34,10 +36,6 @@ class CookieSettings;
 
 namespace network_hints {
 struct LookupRequest;
-}
-
-namespace extensions {
-class InfoMap;
 }
 
 // This class filters out incoming Chrome-specific IPC messages for the renderer
@@ -63,11 +61,7 @@ class ChromeRenderMessageFilter : public content::BrowserMessageFilter {
   void OnDnsPrefetch(const network_hints::LookupRequest& request);
   void OnPreconnect(const GURL& url, bool allow_credentials, int count);
   void OnNavigationHint(const GURL& url, blink::WebNavigationHintType type);
-  void OnUpdatedCacheStats(uint64_t min_capacity,
-                           uint64_t max_capacity,
-                           uint64_t capacity,
-                           uint64_t live_size,
-                           uint64_t dead_size);
+  void OnUpdatedCacheStats(uint64_t capacity, uint64_t size);
 
   void OnAllowDatabase(int render_frame_id,
                        const GURL& origin_url,
@@ -84,7 +78,7 @@ class ChromeRenderMessageFilter : public content::BrowserMessageFilter {
                                      const GURL& origin_url,
                                      const GURL& top_origin_url,
                                      IPC::Message* message);
-#if defined(ENABLE_EXTENSIONS)
+#if BUILDFLAG(ENABLE_EXTENSIONS)
   static void FileSystemAccessedSyncOnUIThread(
       int render_process_id,
       int render_frame_id,
@@ -105,7 +99,7 @@ class ChromeRenderMessageFilter : public content::BrowserMessageFilter {
                                  const GURL& origin_url,
                                  const GURL& top_origin_url,
                                  base::Callback<void(bool)> callback);
-#if defined(ENABLE_EXTENSIONS)
+#if BUILDFLAG(ENABLE_EXTENSIONS)
   static void FileSystemAccessedOnUIThread(int render_process_id,
                                            int render_frame_id,
                                            const GURL& url,
@@ -122,15 +116,9 @@ class ChromeRenderMessageFilter : public content::BrowserMessageFilter {
                         const GURL& top_origin_url,
                         const base::string16& name,
                         bool* allowed);
-#if defined(ENABLE_PLUGINS)
+#if BUILDFLAG(ENABLE_PLUGINS)
   void OnIsCrashReportingEnabled(bool* enabled);
 #endif
-
-  // Called when a message is received from a renderer that a trial has been
-  // activated (ChromeViewHostMsg_FieldTrialActivated).
-  void OnFieldTrialActivated(const std::string& trial_name);
-  void OnRecordRappor(const std::string& metric, const std::string& sample);
-  void OnRecordRapporURL(const std::string& metric, const GURL& sample);
 
   const int render_process_id_;
 

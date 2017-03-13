@@ -21,26 +21,20 @@
 #include "content/common/fileapi/file_system_messages.h"
 #include "content/common/fileapi/webblob_messages.h"
 #include "content/common/frame_messages.h"
-#include "content/common/gamepad_messages.h"
 #include "content/common/gpu_host_messages.h"
-#include "content/common/indexed_db/indexed_db_messages.h"
 #include "content/common/input_messages.h"
 #include "content/common/manifest_manager_messages.h"
 #include "content/common/media/aec_dump_messages.h"
 #include "content/common/media/audio_messages.h"
-// TODO(xhwang): Move this to a new ifdef block.
-#include "content/common/media/cdm_messages.h"
 #include "content/common/media/media_player_delegate_messages.h"
 #include "content/common/media/media_stream_messages.h"
 #include "content/common/media/media_stream_track_metrics_host_messages.h"
 #include "content/common/media/midi_messages.h"
 #include "content/common/media/peer_connection_tracker_messages.h"
-#include "content/common/media/video_capture_messages.h"
 #include "content/common/memory_messages.h"
 #include "content/common/message_port_messages.h"
 #include "content/common/page_messages.h"
 #include "content/common/platform_notification_messages.h"
-#include "content/common/power_monitor_messages.h"
 #include "content/common/push_messaging_messages.h"
 #include "content/common/quota_messages.h"
 #include "content/common/render_process_messages.h"
@@ -53,13 +47,15 @@
 #include "content/common/utility_messages.h"
 #include "content/common/view_messages.h"
 #include "content/common/worker_messages.h"
+#include "media/media_features.h"
 
-#if defined(ENABLE_WEBRTC)
+#if BUILDFLAG(ENABLE_WEBRTC)
 #include "content/common/p2p_messages.h"
 #endif
 
 #if defined(OS_ANDROID)
 #include "content/common/android/sync_compositor_messages.h"
+#include "content/common/app_web_message_port_messages.h"
 #include "content/common/gin_java_bridge_messages.h"
 #include "content/common/media/media_player_messages_android.h"
 #include "content/common/media/surface_view_manager_messages_android.h"

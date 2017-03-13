@@ -9,12 +9,6 @@
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/browser/web_contents_user_data.h"
 
-class GURL;
-
-namespace content {
-class RenderFrameHost;
-}
-
 // Tracks whether a previews infobar has been shown for a page. Handles showing
 // the infobar when the main frame response indicates a Lite Page.
 class PreviewsInfoBarTabHelper
@@ -42,11 +36,6 @@ class PreviewsInfoBarTabHelper
   explicit PreviewsInfoBarTabHelper(content::WebContents* web_contents);
 
   // Overridden from content::WebContentsObserver:
-  void DidStartProvisionalLoadForFrame(
-      content::RenderFrameHost* render_frame_host,
-      const GURL& validated_url,
-      bool is_error_page,
-      bool is_iframe_srcdoc) override;
   void DidFinishNavigation(
       content::NavigationHandle* navigation_handle) override;
 

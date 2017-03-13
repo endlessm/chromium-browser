@@ -33,7 +33,7 @@ const GrBuffer* GrResourceProvider::createInstancedIndexBuffer(const uint16_t* p
                                                                const GrUniqueKey& key) {
     size_t bufferSize = patternSize * reps * sizeof(uint16_t);
 
-    // This is typically used in GrBatchs, so we assume kNoPendingIO.
+    // This is typically used in GrMeshDrawOps, so we assume kNoPendingIO.
     GrBuffer* buffer = this->createBuffer(bufferSize, kIndex_GrBufferType, kStatic_GrAccessPattern,
                                           kNoPendingIO_Flag);
     if (!buffer) {
@@ -109,8 +109,8 @@ GrBuffer* GrResourceProvider::createBuffer(size_t size, GrBufferType intendedTyp
     }
 
     // bin by pow2 with a reasonable min
-    static const uint32_t MIN_SIZE = 1 << 12;
-    size_t allocSize = SkTMax(MIN_SIZE, GrNextPow2(SkToUInt(size)));
+    static const size_t MIN_SIZE = 1 << 12;
+    size_t allocSize = SkTMax(MIN_SIZE, GrNextSizePow2(size));
 
     GrScratchKey key;
     GrBuffer::ComputeScratchKeyForDynamicVBO(allocSize, intendedType, &key);
@@ -135,10 +135,11 @@ GrBuffer* GrResourceProvider::createBuffer(size_t size, GrBufferType intendedTyp
     return buffer;
 }
 
-GrBatchAtlas* GrResourceProvider::createAtlas(GrPixelConfig config,
-                                              int width, int height,
-                                              int numPlotsX, int numPlotsY,
-                                              GrBatchAtlas::EvictionFunc func, void* data) {
+std::unique_ptr<GrDrawOpAtlas> GrResourceProvider::makeAtlas(GrPixelConfig config, int width,
+                                                             int height, int numPlotsX,
+                                                             int numPlotsY,
+                                                             GrDrawOpAtlas::EvictionFunc func,
+                                                             void* data) {
     GrSurfaceDesc desc;
     desc.fFlags = kNone_GrSurfaceFlags;
     desc.fWidth = width;
@@ -149,11 +150,12 @@ GrBatchAtlas* GrResourceProvider::createAtlas(GrPixelConfig config,
     // guarantee we do not recieve a texture with pending IO
     // TODO: Determine how to avoid having to do this. (https://bug.skia.org/4156)
     static const uint32_t kFlags = GrResourceProvider::kNoPendingIO_Flag;
-    GrTexture* texture = this->createApproxTexture(desc, kFlags);
+    sk_sp<GrTexture> texture(this->createApproxTexture(desc, kFlags));
     if (!texture) {
         return nullptr;
     }
-    GrBatchAtlas* atlas = new GrBatchAtlas(texture, numPlotsX, numPlotsY);
+    std::unique_ptr<GrDrawOpAtlas> atlas(
+            new GrDrawOpAtlas(std::move(texture), numPlotsX, numPlotsY));
     atlas->registerEvictionCallback(func, data);
     return atlas;
 }
@@ -205,8 +207,9 @@ GrStencilAttachment* GrResourceProvider::attachStencilAttachment(GrRenderTarget*
     return rt->renderTargetPriv().getStencilAttachment();
 }
 
-GrRenderTarget* GrResourceProvider::wrapBackendTextureAsRenderTarget(
-        const GrBackendTextureDesc& desc) {
+sk_sp<GrRenderTarget> GrResourceProvider::wrapBackendTextureAsRenderTarget(
+        const GrBackendTextureDesc& desc)
+{
     if (this->isAbandoned()) {
         return nullptr;
     }

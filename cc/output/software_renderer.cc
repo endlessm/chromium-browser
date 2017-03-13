@@ -82,7 +82,7 @@ void SoftwareRenderer::FinishDrawingFrame(DrawingFrame* frame) {
 
 void SoftwareRenderer::SwapBuffers(std::vector<ui::LatencyInfo> latency_info) {
   DCHECK(visible_);
-  TRACE_EVENT0("cc,benchmark", "SoftwareRenderer::SwapBuffers");
+  TRACE_EVENT0("cc", "SoftwareRenderer::SwapBuffers");
   OutputSurfaceFrame output_frame;
   output_frame.latency_info = std::move(latency_info);
   output_surface_->SwapBuffers(std::move(output_frame));
@@ -128,7 +128,7 @@ bool SoftwareRenderer::BindFramebufferToTexture(
       base::MakeUnique<ResourceProvider::ScopedWriteLockSoftware>(
           resource_provider_, texture->id());
   current_framebuffer_canvas_ =
-      sk_make_sp<SkCanvas>(current_framebuffer_lock_->sk_bitmap());
+      base::MakeUnique<SkCanvas>(current_framebuffer_lock_->sk_bitmap());
   current_canvas_ = current_framebuffer_canvas_.get();
   return true;
 }
@@ -145,19 +145,16 @@ void SoftwareRenderer::SetClipRect(const gfx::Rect& rect) {
   // Skia applies the current matrix to clip rects so we reset it temporary.
   SkMatrix current_matrix = current_canvas_->getTotalMatrix();
   current_canvas_->resetMatrix();
-  current_canvas_->clipRect(gfx::RectToSkRect(rect), SkRegion::kReplace_Op);
+  // TODO(fmalita) stop using kReplace (see crbug.com/673851)
+  current_canvas_->clipRect(gfx::RectToSkRect(rect),
+                            SkClipOp::kReplace_private_internal_do_not_use);
   current_canvas_->setMatrix(current_matrix);
 }
 
 void SoftwareRenderer::ClearCanvas(SkColor color) {
   if (!current_canvas_)
     return;
-  // SkCanvas::clear doesn't respect the current clipping region
-  // so we SkCanvas::drawColor instead if scissoring is active.
-  if (is_scissor_enabled_)
-    current_canvas_->drawColor(color, SkXfermode::kSrc_Mode);
-  else
-    current_canvas_->clear(color);
+  current_canvas_->clear(color);
 }
 
 void SoftwareRenderer::ClearFramebuffer(DrawingFrame* frame) {
@@ -242,11 +239,11 @@ void SoftwareRenderer::DoDrawQuad(DrawingFrame* frame,
   }
 
   if (quad->ShouldDrawWithBlending() ||
-      quad->shared_quad_state->blend_mode != SkXfermode::kSrcOver_Mode) {
+      quad->shared_quad_state->blend_mode != SkBlendMode::kSrcOver) {
     current_paint_.setAlpha(quad->shared_quad_state->opacity * 255);
-    current_paint_.setXfermodeMode(quad->shared_quad_state->blend_mode);
+    current_paint_.setBlendMode(quad->shared_quad_state->blend_mode);
   } else {
-    current_paint_.setXfermodeMode(SkXfermode::kSrc_Mode);
+    current_paint_.setBlendMode(SkBlendMode::kSrc);
   }
 
   if (draw_region) {
@@ -262,8 +259,7 @@ void SoftwareRenderer::DoDrawQuad(DrawingFrame* frame,
     QuadFToSkPoints(local_draw_region, clip_points);
     draw_region_clip_path.addPoly(clip_points, 4, true);
 
-    current_canvas_->clipPath(draw_region_clip_path, SkRegion::kIntersect_Op,
-                              false);
+    current_canvas_->clipPath(draw_region_clip_path);
   }
 
   switch (quad->material) {
@@ -344,10 +340,10 @@ void SoftwareRenderer::DrawPictureQuad(const DrawingFrame* frame,
   playback_settings.playback_to_shared_canvas = true;
   // Indicates whether content rasterization should happen through an
   // ImageHijackCanvas, which causes image decodes to be managed by an
-  // ImageDecodeController. PictureDrawQuads are used for resourceless software
-  // draws, while a GPU ImageDecodeController may be in use by the compositor
+  // ImageDecodeCache. PictureDrawQuads are used for resourceless software
+  // draws, while a GPU ImageDecodeCache may be in use by the compositor
   // providing the RasterSource. So we disable the image hijack canvas to avoid
-  // trying to use the GPU ImageDecodeController while doing a software draw.
+  // trying to use the GPU ImageDecodeCache while doing a software draw.
   playback_settings.use_image_hijack_canvas = false;
   if (needs_transparency || disable_image_filtering) {
     // TODO(aelias): This isn't correct in all cases. We should detect these
@@ -473,15 +469,17 @@ void SoftwareRenderer::DrawRenderPassQuad(const DrawingFrame* frame,
   const SkBitmap* content = lock.sk_bitmap();
 
   sk_sp<SkImage> filter_image;
-  if (!quad->filters.IsEmpty()) {
-    sk_sp<SkImageFilter> filter = RenderSurfaceFilters::BuildImageFilter(
-        quad->filters, gfx::SizeF(content_texture->size()));
-    if (filter) {
+  const FilterOperations* filters = FiltersForPass(quad->render_pass_id);
+  if (filters) {
+    DCHECK(!filters->IsEmpty());
+    sk_sp<SkImageFilter> image_filter = RenderSurfaceFilters::BuildImageFilter(
+        *filters, gfx::SizeF(content_texture->size()));
+    if (image_filter) {
       SkIRect result_rect;
       // TODO(ajuma): Apply the filter in the same pass as the content where
       // possible (e.g. when there's no origin offset). See crbug.com/308201.
       filter_image =
-          ApplyImageFilter(filter.get(), quad, *content, &result_rect);
+          ApplyImageFilter(image_filter.get(), quad, *content, &result_rect);
       if (result_rect.isEmpty()) {
         return;
       }
@@ -547,7 +545,7 @@ void SoftwareRenderer::DrawRenderPassQuad(const DrawingFrame* frame,
   if (background_filter_shader) {
     SkPaint paint;
     paint.setShader(std::move(background_filter_shader));
-    paint.setRasterizer(sk_ref_sp(current_paint_.getRasterizer()));
+    paint.setRasterizer(current_paint_.refRasterizer());
     current_canvas_->drawRect(dest_visible_rect, paint);
   }
   current_paint_.setShader(std::move(shader));
@@ -591,9 +589,11 @@ void SoftwareRenderer::DidChangeVisibility() {
 }
 
 bool SoftwareRenderer::ShouldApplyBackgroundFilters(
-    const RenderPassDrawQuad* quad) const {
-  if (quad->background_filters.IsEmpty())
+    const RenderPassDrawQuad* quad,
+    const FilterOperations* background_filters) const {
+  if (!background_filters)
     return false;
+  DCHECK(!background_filters->IsEmpty());
 
   // TODO(hendrikw): Look into allowing background filters to see pixels from
   // other render targets.  See crbug.com/314867.
@@ -657,15 +657,15 @@ gfx::Rect SoftwareRenderer::GetBackdropBoundingBoxForRenderPassQuad(
     const DrawingFrame* frame,
     const RenderPassDrawQuad* quad,
     const gfx::Transform& contents_device_transform,
+    const FilterOperations* background_filters,
     gfx::Rect* unclipped_rect) const {
-  DCHECK(ShouldApplyBackgroundFilters(quad));
+  DCHECK(ShouldApplyBackgroundFilters(quad, background_filters));
   gfx::Rect backdrop_rect = gfx::ToEnclosingRect(
       MathUtil::MapClippedRect(contents_device_transform, QuadVertexRect()));
 
   SkMatrix matrix;
   matrix.setScale(quad->filters_scale.x(), quad->filters_scale.y());
-  backdrop_rect =
-      quad->background_filters.MapRectReverse(backdrop_rect, matrix);
+  backdrop_rect = background_filters->MapRectReverse(backdrop_rect, matrix);
 
   *unclipped_rect = backdrop_rect;
   backdrop_rect.Intersect(MoveFromDrawToWindowSpace(
@@ -678,7 +678,9 @@ sk_sp<SkShader> SoftwareRenderer::GetBackgroundFilterShader(
     const DrawingFrame* frame,
     const RenderPassDrawQuad* quad,
     SkShader::TileMode content_tile_mode) const {
-  if (!ShouldApplyBackgroundFilters(quad))
+  const FilterOperations* background_filters =
+      BackgroundFiltersForPass(quad->render_pass_id);
+  if (!ShouldApplyBackgroundFilters(quad, background_filters))
     return nullptr;
 
   gfx::Transform quad_rect_matrix;
@@ -691,7 +693,8 @@ sk_sp<SkShader> SoftwareRenderer::GetBackgroundFilterShader(
 
   gfx::Rect unclipped_rect;
   gfx::Rect backdrop_rect = GetBackdropBoundingBoxForRenderPassQuad(
-      frame, quad, contents_device_transform, &unclipped_rect);
+      frame, quad, contents_device_transform, background_filters,
+      &unclipped_rect);
 
   // Figure out the transformations to move it back to pixel space.
   gfx::Transform contents_device_transform_inverse;
@@ -709,7 +712,7 @@ sk_sp<SkShader> SoftwareRenderer::GetBackgroundFilterShader(
       (unclipped_rect.top_right() - backdrop_rect.top_right()) +
       (backdrop_rect.bottom_left() - unclipped_rect.bottom_left());
   sk_sp<SkImageFilter> filter = RenderSurfaceFilters::BuildImageFilter(
-      quad->background_filters,
+      *background_filters,
       gfx::SizeF(backdrop_bitmap.width(), backdrop_bitmap.height()),
       clipping_offset);
   sk_sp<SkImage> filter_backdrop_image =

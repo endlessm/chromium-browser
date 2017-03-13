@@ -46,12 +46,6 @@ static_assert(
         chromeos::arc::ArcVideoAccelerator::INSUFFICIENT_RESOURCES,
     "enum mismatch");
 
-namespace {
-void OnConnectionError() {
-  DVLOG(2) << "OnConnectionError";
-}
-}  // namespace
-
 namespace mojo {
 
 template <>
@@ -111,24 +105,6 @@ struct TypeConverter<chromeos::arc::ArcVideoAccelerator::Config,
   }
 };
 
-template <>
-struct TypeConverter<chromeos::arc::ArcVideoAccelerator::DmabufPlane,
-                     arc::mojom::ArcVideoAcceleratorDmabufPlanePtr> {
-  static chromeos::arc::ArcVideoAccelerator::DmabufPlane Convert(
-      const arc::mojom::ArcVideoAcceleratorDmabufPlanePtr& input) {
-    chromeos::arc::ArcVideoAccelerator::DmabufPlane result = {0};
-    if (input->offset < 0 || input->stride < 0) {
-      DVLOG(1) << "Invalid offset/stride: " << input->offset << "/"
-               << input->stride;
-      return result;
-    }
-
-    result.offset = input->offset;
-    result.stride = input->stride;
-    return result;
-  }
-};
-
 }  // namespace mojo
 
 namespace chromeos {
@@ -141,26 +117,6 @@ GpuArcVideoService::GpuArcVideoService(
 
 GpuArcVideoService::~GpuArcVideoService() {
   DCHECK(thread_checker_.CalledOnValidThread());
-}
-
-// static
-void GpuArcVideoService::DeprecatedConnect(
-    std::unique_ptr<GpuArcVideoService> service,
-    ::arc::mojom::VideoAcceleratorServiceClientRequest client_request) {
-  DVLOG(2) << "Connect";
-
-  service->client_.Bind(::arc::mojom::VideoAcceleratorServiceClientPtrInfo(
-      client_request.PassMessagePipe(), 0u));
-  service->client_.set_connection_error_handler(base::Bind(&OnConnectionError));
-
-  ::arc::mojom::VideoAcceleratorServicePtr service_proxy;
-  ::arc::mojom::VideoAcceleratorServiceRequest request =
-      mojo::GetProxy(&service_proxy);
-  service->client_->DeprecatedInit(std::move(service_proxy));
-
-  auto binding = mojo::MakeStrongBinding(std::move(service),
-                                         mojo::GetProxy(&service_proxy));
-  binding->set_connection_error_handler(base::Bind(&OnConnectionError));
 }
 
 void GpuArcVideoService::OnError(ArcVideoAccelerator::Result error) {
@@ -211,16 +167,6 @@ void GpuArcVideoService::Initialize(
       static_cast<::arc::mojom::VideoAcceleratorService::Result>(result));
 }
 
-void GpuArcVideoService::DeprecatedInitialize(
-    ::arc::mojom::ArcVideoAcceleratorConfigPtr config,
-    const DeprecatedInitializeCallback& callback) {
-  DVLOG(2) << "DeprecatedInitialize";
-  ArcVideoAccelerator::Result result =
-      accelerator_->Initialize(config.To<ArcVideoAccelerator::Config>(), this);
-  callback.Run(
-      static_cast<::arc::mojom::VideoAcceleratorService::Result>(result));
-}
-
 base::ScopedFD GpuArcVideoService::UnwrapFdFromMojoHandle(
     mojo::ScopedHandle handle) {
   DCHECK(client_);
@@ -259,34 +205,19 @@ void GpuArcVideoService::BindSharedMemory(::arc::mojom::PortType port,
                                  std::move(fd), offset, length);
 }
 
-void GpuArcVideoService::DeprecatedBindDmabuf(::arc::mojom::PortType port,
-                                              uint32_t index,
-                                              mojo::ScopedHandle dmabuf_handle,
-                                              int32_t stride) {
-  mojo::Array<::arc::mojom::ArcVideoAcceleratorDmabufPlanePtr> planes(1);
-  planes[0]->offset = 0;
-  planes[0]->stride = stride;
-
-  BindDmabuf(port, index, std::move(dmabuf_handle), std::move(planes));
-}
-
 void GpuArcVideoService::BindDmabuf(
     ::arc::mojom::PortType port,
     uint32_t index,
     mojo::ScopedHandle dmabuf_handle,
-    mojo::Array<::arc::mojom::ArcVideoAcceleratorDmabufPlanePtr>
-        dmabuf_planes) {
+    std::vector<::arc::ArcVideoAcceleratorDmabufPlane> dmabuf_planes) {
   DVLOG(2) << "BindDmabuf port=" << port << ", index=" << index;
 
   base::ScopedFD fd = UnwrapFdFromMojoHandle(std::move(dmabuf_handle));
   if (!fd.is_valid())
     return;
 
-  std::vector<ArcVideoAccelerator::DmabufPlane> converted_planes =
-      dmabuf_planes.To<std::vector<ArcVideoAccelerator::DmabufPlane>>();
-
   accelerator_->BindDmabuf(static_cast<PortType>(port), index, std::move(fd),
-                           std::move(converted_planes));
+                           std::move(dmabuf_planes));
 }
 
 void GpuArcVideoService::UseBuffer(::arc::mojom::PortType port,

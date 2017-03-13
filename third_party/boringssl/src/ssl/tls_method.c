@@ -61,6 +61,7 @@
 
 #include <openssl/buf.h>
 
+#include "../crypto/internal.h"
 #include "internal.h"
 
 
@@ -97,6 +98,12 @@ static uint16_t ssl3_version_to_wire(uint16_t version) {
   return 0;
 }
 
+static int ssl3_supports_cipher(const SSL_CIPHER *cipher) { return 1; }
+
+static void ssl3_expect_flight(SSL *ssl) {}
+
+static void ssl3_received_flight(SSL *ssl) {}
+
 static int ssl3_set_read_state(SSL *ssl, SSL_AEAD_CTX *aead_ctx) {
   if (ssl->s3->rrec.length != 0) {
     /* There may not be unprocessed record data at a cipher change. */
@@ -106,7 +113,7 @@ static int ssl3_set_read_state(SSL *ssl, SSL_AEAD_CTX *aead_ctx) {
     return 0;
   }
 
-  memset(ssl->s3->read_sequence, 0, sizeof(ssl->s3->read_sequence));
+  OPENSSL_memset(ssl->s3->read_sequence, 0, sizeof(ssl->s3->read_sequence));
 
   SSL_AEAD_CTX_free(ssl->s3->aead_read_ctx);
   ssl->s3->aead_read_ctx = aead_ctx;
@@ -114,7 +121,7 @@ static int ssl3_set_read_state(SSL *ssl, SSL_AEAD_CTX *aead_ctx) {
 }
 
 static int ssl3_set_write_state(SSL *ssl, SSL_AEAD_CTX *aead_ctx) {
-  memset(ssl->s3->write_sequence, 0, sizeof(ssl->s3->write_sequence));
+  OPENSSL_memset(ssl->s3->write_sequence, 0, sizeof(ssl->s3->write_sequence));
 
   SSL_AEAD_CTX_free(ssl->s3->aead_write_ctx);
   ssl->s3->aead_write_ctx = aead_ctx;
@@ -130,7 +137,7 @@ static const SSL_PROTOCOL_METHOD kTLSProtocolMethod = {
     ssl3_new,
     ssl3_free,
     ssl3_get_message,
-    ssl3_hash_current_message,
+    ssl3_get_current_message,
     ssl3_release_current_message,
     ssl3_read_app_data,
     ssl3_read_change_cipher_spec,
@@ -140,6 +147,7 @@ static const SSL_PROTOCOL_METHOD kTLSProtocolMethod = {
     ssl3_supports_cipher,
     ssl3_init_message,
     ssl3_finish_message,
+    ssl3_queue_message,
     ssl3_write_message,
     ssl3_send_change_cipher_spec,
     ssl3_expect_flight,

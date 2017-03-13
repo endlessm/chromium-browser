@@ -11,15 +11,16 @@ import static org.chromium.chrome.browser.widget.DualControlLayout.ALIGN_START;
 import android.annotation.TargetApi;
 import android.content.Context;
 import android.os.Build;
+import android.support.test.filters.SmallTest;
 import android.test.InstrumentationTestCase;
 import android.test.MoreAsserts;
 import android.test.UiThreadTest;
-import android.test.suitebuilder.annotation.SmallTest;
 import android.view.View;
 import android.view.View.MeasureSpec;
 import android.view.ViewGroup.LayoutParams;
 import android.widget.Space;
 
+import org.chromium.base.test.util.MinAndroidSdkLevel;
 import org.chromium.chrome.R;
 
 /**
@@ -50,6 +51,7 @@ public class DualControlLayoutTest extends InstrumentationTestCase {
     @SmallTest
     @UiThreadTest
     @TargetApi(Build.VERSION_CODES.JELLY_BEAN_MR1)
+    @MinAndroidSdkLevel(Build.VERSION_CODES.JELLY_BEAN_MR1)
     public void testAlignSideBySide() {
         runLayoutTest(ALIGN_START, false, false, false);
         runLayoutTest(ALIGN_START, false, true, false);

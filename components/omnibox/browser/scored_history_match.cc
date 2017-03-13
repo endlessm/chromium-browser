@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "base/logging.h"
+#include "base/macros.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
@@ -20,7 +21,6 @@
 #include "components/omnibox/browser/history_url_provider.h"
 #include "components/omnibox/browser/omnibox_field_trial.h"
 #include "components/omnibox/browser/url_prefix.h"
-#include "components/search_engines/template_url_service.h"
 
 namespace {
 
@@ -105,21 +105,20 @@ void InitDaysAgoToRecencyScoreArray() {
 }  // namespace
 
 // static
-const size_t ScoredHistoryMatch::kMaxVisitsToScore = 10;
-bool ScoredHistoryMatch::also_do_hup_like_scoring_ = false;
-int ScoredHistoryMatch::bookmark_value_ = 1;
-bool ScoredHistoryMatch::fix_few_visits_bug_ = false;
-bool ScoredHistoryMatch::allow_tld_matches_ = false;
-bool ScoredHistoryMatch::allow_scheme_matches_ = false;
-size_t ScoredHistoryMatch::num_title_words_to_allow_ = 10u;
-bool ScoredHistoryMatch::hqp_experimental_scoring_enabled_ = false;
-float ScoredHistoryMatch::topicality_threshold_ = 0.8f;
-// Default HQP relevance buckets. See GetFinalRelevancyScore()
-// for more details on these numbers.
-char ScoredHistoryMatch::hqp_relevance_buckets_str_[] =
-    "0.0:400,1.5:600,5.0:900,10.5:1203,15.0:1300,20.0:1399";
-std::vector<ScoredHistoryMatch::ScoreMaxRelevance>*
-    ScoredHistoryMatch::hqp_relevance_buckets_ = nullptr;
+bool ScoredHistoryMatch::also_do_hup_like_scoring_;
+float ScoredHistoryMatch::bookmark_value_;
+float ScoredHistoryMatch::typed_value_;
+bool ScoredHistoryMatch::fix_few_visits_bug_;
+bool ScoredHistoryMatch::frequency_uses_sum_;
+size_t ScoredHistoryMatch::max_visits_to_score_;
+bool ScoredHistoryMatch::allow_tld_matches_;
+bool ScoredHistoryMatch::allow_scheme_matches_;
+size_t ScoredHistoryMatch::num_title_words_to_allow_;
+float ScoredHistoryMatch::topicality_threshold_;
+ScoredHistoryMatch::ScoreMaxRelevances*
+    ScoredHistoryMatch::relevance_buckets_override_ = nullptr;
+OmniboxFieldTrial::NumMatchesScores*
+    ScoredHistoryMatch::matches_to_specificity_override_ = nullptr;
 
 ScoredHistoryMatch::ScoredHistoryMatch()
     : ScoredHistoryMatch(history::URLRow(),
@@ -129,9 +128,8 @@ ScoredHistoryMatch::ScoredHistoryMatch()
                          WordStarts(),
                          RowWordStarts(),
                          false,
-                         nullptr,
-                         base::Time::Max()) {
-}
+                         1,
+                         base::Time::Max()) {}
 
 ScoredHistoryMatch::ScoredHistoryMatch(
     const history::URLRow& row,
@@ -141,7 +139,7 @@ ScoredHistoryMatch::ScoredHistoryMatch(
     const WordStarts& terms_to_word_starts_offsets,
     const RowWordStarts& word_starts,
     bool is_url_bookmarked,
-    TemplateURLService* template_url_service,
+    size_t num_matching_pages,
     base::Time now)
     : HistoryMatch(row, 0, false, false), raw_score(0) {
   // NOTE: Call Init() before doing any validity checking to ensure that the
@@ -150,23 +148,10 @@ ScoredHistoryMatch::ScoredHistoryMatch(
   // has been constructed via the no-args constructor.
   ScoredHistoryMatch::Init();
 
-  GURL gurl = row.url();
-  if (!gurl.is_valid())
-    return;
-
-  // Skip results corresponding to queries from the default search engine.
-  // These are low-quality, difficult-to-understand matches for users.
-  // SearchProvider should surface past queries in a better way.
-  TemplateURL* template_url = template_url_service ?
-      template_url_service->GetDefaultSearchProvider() : nullptr;
-  if (template_url &&
-      template_url->IsSearchURL(gurl,
-                                template_url_service->search_terms_data()))
-    return;
-
   // Figure out where each search term appears in the URL and/or page title
   // so that we can score as well as provide autocomplete highlighting.
   base::OffsetAdjuster::Adjustments adjustments;
+  GURL gurl = row.url();
   base::string16 url =
       bookmarks::CleanUpUrlForMatching(gurl, &adjustments);
   base::string16 title = bookmarks::CleanUpTitleForMatching(row.title());
@@ -272,8 +257,10 @@ ScoredHistoryMatch::ScoredHistoryMatch(
   const float topicality_score = GetTopicalityScore(
       terms_vector.size(), url, terms_to_word_starts_offsets, word_starts);
   const float frequency_score = GetFrequency(now, is_url_bookmarked, visits);
+  const float specificity_score =
+      GetDocumentSpecificityScore(num_matching_pages);
   raw_score = base::saturated_cast<int>(GetFinalRelevancyScore(
-      topicality_score, frequency_score, *hqp_relevance_buckets_));
+      topicality_score, frequency_score, specificity_score));
 
   if (also_do_hup_like_scoring_ && likely_can_inline) {
     // HistoryURL-provider-like scoring gives any match that is
@@ -419,14 +406,18 @@ void ScoredHistoryMatch::Init() {
   initialized = true;
   also_do_hup_like_scoring_ = OmniboxFieldTrial::HQPAlsoDoHUPLikeScoring();
   bookmark_value_ = OmniboxFieldTrial::HQPBookmarkValue();
+  typed_value_ = OmniboxFieldTrial::HQPTypedValue();
+  max_visits_to_score_ = OmniboxFieldTrial::HQPMaxVisitsToScore();
+  frequency_uses_sum_ = OmniboxFieldTrial::HQPFreqencyUsesSum();
   fix_few_visits_bug_ = OmniboxFieldTrial::HQPFixFewVisitsBug();
   allow_tld_matches_ = OmniboxFieldTrial::HQPAllowMatchInTLDValue();
   allow_scheme_matches_ = OmniboxFieldTrial::HQPAllowMatchInSchemeValue();
   num_title_words_to_allow_ = OmniboxFieldTrial::HQPNumTitleWordsToAllow();
+  topicality_threshold_ =
+      OmniboxFieldTrial::HQPExperimentalTopicalityThreshold();
 
   InitRawTermScoreToTopicalityScoreArray();
   InitDaysAgoToRecencyScoreArray();
-  InitHQPExperimentalParams();
 }
 
 float ScoredHistoryMatch::GetTopicalityScore(
@@ -473,31 +464,34 @@ float ScoredHistoryMatch::GetTopicalityScore(
         0, colon_pos);
   }
   for (const auto& url_match : url_matches) {
-    const size_t term_offset = terms_to_word_starts_offsets[url_match.term_num];
+    // Calculate the offset in the URL string where the meaningful (word) part
+    // of the term starts.  This takes into account times when a term starts
+    // with punctuation such as "/foo".
+    const size_t term_word_offset =
+        url_match.offset + terms_to_word_starts_offsets[url_match.term_num];
     // Advance next_word_starts until it's >= the position of the term we're
     // considering (adjusted for where the word begins within the term).
     while ((next_word_starts != end_word_starts) &&
-           (*next_word_starts < (url_match.offset + term_offset))) {
+           (*next_word_starts < term_word_offset)) {
       ++next_word_starts;
     }
-    const bool at_word_boundary =
-        (next_word_starts != end_word_starts) &&
-        (*next_word_starts == url_match.offset + term_offset);
+    const bool at_word_boundary = (next_word_starts != end_word_starts) &&
+                                  (*next_word_starts == term_word_offset);
     if ((question_mark_pos != std::string::npos) &&
-        (url_match.offset > question_mark_pos)) {
+        (term_word_offset >= question_mark_pos)) {
       // The match is in a CGI ?... fragment.
       DCHECK(at_word_boundary);
       term_scores[url_match.term_num] += 5;
     } else if ((end_of_hostname_pos != std::string::npos) &&
-               (url_match.offset > end_of_hostname_pos)) {
+               (term_word_offset >= end_of_hostname_pos)) {
       // The match is in the path.
       DCHECK(at_word_boundary);
       term_scores[url_match.term_num] += 8;
     } else if ((colon_pos == std::string::npos) ||
-               (url_match.offset > colon_pos)) {
+               (term_word_offset >= colon_pos)) {
       // The match is in the hostname.
       if ((last_part_of_hostname_pos == std::string::npos) ||
-          (url_match.offset < last_part_of_hostname_pos)) {
+          (term_word_offset < last_part_of_hostname_pos)) {
         // Either there are no dots in the hostname or this match isn't
         // the last dotted component.
         term_scores[url_match.term_num] += at_word_boundary ? 10 : 2;
@@ -524,20 +518,22 @@ float ScoredHistoryMatch::GetTopicalityScore(
       title_matches, terms_to_word_starts_offsets,
       word_starts.title_word_starts_, 0, std::string::npos);
   for (const auto& title_match : title_matches) {
-    const size_t term_offset =
-        terms_to_word_starts_offsets[title_match.term_num];
+    // Calculate the offset in the title string where the meaningful (word) part
+    // of the term starts.  This takes into account times when a term starts
+    // with punctuation such as "/foo".
+    const size_t term_word_offset =
+        title_match.offset + terms_to_word_starts_offsets[title_match.term_num];
     // Advance next_word_starts until it's >= the position of the term we're
     // considering (adjusted for where the word begins within the term).
     while ((next_word_starts != end_word_starts) &&
-           (*next_word_starts < (title_match.offset + term_offset))) {
+           (*next_word_starts < term_word_offset)) {
       ++next_word_starts;
       ++word_num;
     }
     if (word_num >= num_title_words_to_allow_)
       break;  // only count the first ten words
     DCHECK(next_word_starts != end_word_starts);
-    DCHECK_EQ(*next_word_starts, title_match.offset + term_offset)
-        << "not at word boundary";
+    DCHECK_EQ(*next_word_starts, term_word_offset) << "not at word boundary";
     term_scores[title_match.term_num] += 8;
   }
   // TODO(mpearson): Restore logic for penalizing out-of-order matches.
@@ -585,43 +581,78 @@ float ScoredHistoryMatch::GetRecencyScore(int last_visit_days_ago) const {
 float ScoredHistoryMatch::GetFrequency(const base::Time& now,
                                        const bool bookmarked,
                                        const VisitInfoVector& visits) const {
-  // Compute the weighted average |value_of_transition| over the last at
-  // most kMaxVisitsToScore visits, where each visit is weighted using
-  // GetRecencyScore() based on how many days ago it happened.  Use
-  // kMaxVisitsToScore as the denominator for the average regardless of
-  // how many visits there were in order to penalize a match that has
-  // fewer visits than kMaxVisitsToScore.
+  // Compute the weighted sum of |value_of_transition| over the last at most
+  // |max_visits_to_score_| visits, where each visit is weighted using
+  // GetRecencyScore() based on how many days ago it happened.
   float summed_visit_points = 0;
-  const size_t max_visit_to_score =
-      std::min(visits.size(), ScoredHistoryMatch::kMaxVisitsToScore);
-  for (size_t i = 0; i < max_visit_to_score; ++i) {
-    const bool is_page_transition_typed = ui::PageTransitionCoreTypeIs(
-        visits[i].second, ui::PAGE_TRANSITION_TYPED);
-    int value_of_transition = is_page_transition_typed ? 20 : 1;
+  auto visits_end =
+      visits.begin() + std::min(visits.size(), max_visits_to_score_);
+  // Visits should be in newest to oldest order.
+  DCHECK(std::adjacent_find(
+             visits.begin(), visits_end,
+             [](const history::VisitInfo& a, const history::VisitInfo& b) {
+               return a.first < b.first;
+             }) == visits_end);
+  for (auto i = visits.begin(); i != visits_end; ++i) {
+    const bool is_page_transition_typed =
+        ui::PageTransitionCoreTypeIs(i->second, ui::PAGE_TRANSITION_TYPED);
+    float value_of_transition = is_page_transition_typed ? typed_value_ : 1;
     if (bookmarked)
       value_of_transition = std::max(value_of_transition, bookmark_value_);
-    const float bucket_weight =
-        GetRecencyScore((now - visits[i].first).InDays());
+    const float bucket_weight = GetRecencyScore((now - i->first).InDays());
     summed_visit_points += (value_of_transition * bucket_weight);
   }
+  if (frequency_uses_sum_)
+    return summed_visit_points;
+
+  // Compute the average weighted value_of_transition and return it.
+  // Use |max_visits_to_score_| as the denominator for the average regardless of
+  // how many visits there were in order to penalize a match that has
+  // fewer visits than kMaxVisitsToScore.
   if (fix_few_visits_bug_)
-    return summed_visit_points / ScoredHistoryMatch::kMaxVisitsToScore;
+    return summed_visit_points / ScoredHistoryMatch::max_visits_to_score_;
   return visits.size() * summed_visit_points /
-      ScoredHistoryMatch::kMaxVisitsToScore;
+         ScoredHistoryMatch::max_visits_to_score_;
 }
 
+float ScoredHistoryMatch::GetDocumentSpecificityScore(
+    size_t num_matching_pages) const {
+  // A mapping from the number of matching pages to their associated document
+  // specificity scores.  See omnibox_field_trial.h for more details.
+  CR_DEFINE_STATIC_LOCAL(OmniboxFieldTrial::NumMatchesScores,
+                         default_matches_to_specificity,
+                         (OmniboxFieldTrial::HQPNumMatchesScores()));
+  OmniboxFieldTrial::NumMatchesScores* matches_to_specificity =
+      matches_to_specificity_override_ ? matches_to_specificity_override_
+                                       : &default_matches_to_specificity;
+
+  // The floating point value below must be less than the lowest score the
+  // server would send down.
+  OmniboxFieldTrial::NumMatchesScores::const_iterator it = std::upper_bound(
+      matches_to_specificity->begin(), matches_to_specificity->end(),
+      std::pair<size_t, double>{num_matching_pages, -1});
+  return (it != matches_to_specificity->end()) ? it->second : 1.0;
+};
+
 // static
-float ScoredHistoryMatch::GetFinalRelevancyScore(
-    float topicality_score,
-    float frequency_score,
-    const std::vector<ScoreMaxRelevance>& hqp_relevance_buckets) {
-  DCHECK(hqp_relevance_buckets.size() > 0);
-  DCHECK_EQ(hqp_relevance_buckets[0].first, 0.0);
+float ScoredHistoryMatch::GetFinalRelevancyScore(float topicality_score,
+                                                 float frequency_score,
+                                                 float specificity_score) {
+  // |relevance_buckets| gives a mapping from intemerdiate score to the final
+  // relevance score.
+  CR_DEFINE_STATIC_LOCAL(ScoreMaxRelevances, default_relevance_buckets,
+                         (GetHQPBuckets()));
+  ScoreMaxRelevances* relevance_buckets = relevance_buckets_override_
+                                              ? relevance_buckets_override_
+                                              : &default_relevance_buckets;
+  DCHECK(!relevance_buckets->empty());
+  DCHECK_EQ(0.0, (*relevance_buckets)[0].first);
 
   if (topicality_score == 0)
     return 0;
-  // Here's how to interpret intermediate_score: Suppose the omnibox
-  // has one input term.  Suppose we have a URL for which the omnibox
+  // Here's how to interpret intermediate_score: Suppose the omnibox has one
+  // input term.  Suppose the input matches many documents.  (This implies
+  // specificity_score == 1.0.)  Suppose we have a URL for which the omnibox
   // input term has a single URL hostname hit at a word boundary.  (This
   // implies topicality_score = 1.0.).  Then the intermediate_score for
   // this URL will depend entirely on the frequency_score with
@@ -636,7 +667,7 @@ float ScoredHistoryMatch::GetFinalRelevancyScore(
   //
   // The below code maps intermediate_score to the range [0, 1399].
   // For example:
-  // HQP default scoring buckets: "0.0:400,1.5:600,12.0:1300,20.0:1399"
+  // The default scoring buckets: "0.0:400,1.5:600,12.0:1300,20.0:1399"
   // We will linearly interpolate the scores between:
   //      0 to 1.5    --> 400 to 600
   //    1.5 to 12.0   --> 600 to 1300
@@ -645,80 +676,57 @@ float ScoredHistoryMatch::GetFinalRelevancyScore(
   //
   // The score maxes out at 1399 (i.e., cannot beat a good inlineable result
   // from HistoryURL provider).
-  const float intermediate_score = topicality_score * frequency_score;
+  const float intermediate_score =
+      topicality_score * frequency_score * specificity_score;
 
   // Find the threshold where intermediate score is greater than bucket.
   size_t i = 1;
-  for (; i < hqp_relevance_buckets.size(); ++i) {
-    const ScoreMaxRelevance& hqp_bucket = hqp_relevance_buckets[i];
-    if (intermediate_score >= hqp_bucket.first) {
+  for (; i < relevance_buckets->size(); ++i) {
+    const ScoreMaxRelevance& bucket = (*relevance_buckets)[i];
+    if (intermediate_score >= bucket.first) {
       continue;
     }
-    const ScoreMaxRelevance& previous_bucket = hqp_relevance_buckets[i - 1];
-    const float slope = ((hqp_bucket.second - previous_bucket.second) /
-                         (hqp_bucket.first - previous_bucket.first));
+    const ScoreMaxRelevance& previous_bucket = (*relevance_buckets)[i - 1];
+    const float slope = ((bucket.second - previous_bucket.second) /
+                         (bucket.first - previous_bucket.first));
     return (previous_bucket.second +
             (slope * (intermediate_score - previous_bucket.first)));
   }
   // It will reach this stage when the score is > highest bucket score.
   // Return the highest bucket score.
-  return hqp_relevance_buckets[i - 1].second;
+  return (*relevance_buckets)[i - 1].second;
 }
 
 // static
-void ScoredHistoryMatch::InitHQPExperimentalParams() {
-  // These are default HQP relevance scoring buckets.
-  // See GetFinalRelevancyScore() for details.
-  std::string hqp_relevance_buckets_str = std::string(
-      hqp_relevance_buckets_str_);
-
-  // Fetch the experiment params if they are any.
-  hqp_experimental_scoring_enabled_ =
-      OmniboxFieldTrial::HQPExperimentalScoringEnabled();
-
-  if (hqp_experimental_scoring_enabled_) {
-    // Add the topicality threshold from experiment params.
-    float hqp_experimental_topicality_threhold =
-        OmniboxFieldTrial::HQPExperimentalTopicalityThreshold();
-    topicality_threshold_ = hqp_experimental_topicality_threhold;
-
-    // Add the HQP experimental scoring buckets.
-    std::string hqp_experimental_scoring_buckets =
-        OmniboxFieldTrial::HQPExperimentalScoringBuckets();
-    if (!hqp_experimental_scoring_buckets.empty())
-      hqp_relevance_buckets_str = hqp_experimental_scoring_buckets;
-  }
-
-  // Parse the hqp_relevance_buckets_str string once and store them in vector
-  // which is easy to access.
-  hqp_relevance_buckets_ =
-      new std::vector<ScoredHistoryMatch::ScoreMaxRelevance>();
-
-  bool is_valid_bucket_str = GetHQPBucketsFromString(hqp_relevance_buckets_str,
-                                                     hqp_relevance_buckets_);
-  DCHECK(is_valid_bucket_str);
+std::vector<ScoredHistoryMatch::ScoreMaxRelevance>
+ScoredHistoryMatch::GetHQPBuckets() {
+  // Start with the default buckets and override them if appropriate.
+  std::string relevance_buckets_str =
+      "0.0:400,1.5:600,5.0:900,10.5:1203,15.0:1300,20.0:1399";
+  std::string experimental_scoring_buckets =
+      OmniboxFieldTrial::HQPExperimentalScoringBuckets();
+  if (!experimental_scoring_buckets.empty())
+    relevance_buckets_str = experimental_scoring_buckets;
+  return GetHQPBucketsFromString(relevance_buckets_str);
 }
 
 // static
-bool ScoredHistoryMatch::GetHQPBucketsFromString(
-    const std::string& buckets_str,
-    std::vector<ScoreMaxRelevance>* hqp_buckets) {
-  DCHECK(hqp_buckets != NULL);
+ScoredHistoryMatch::ScoreMaxRelevances
+ScoredHistoryMatch::GetHQPBucketsFromString(const std::string& buckets_str) {
   DCHECK(!buckets_str.empty());
-
   base::StringPairs kv_pairs;
-  if (base::SplitStringIntoKeyValuePairs(buckets_str, ':', ',', &kv_pairs)) {
-    for (base::StringPairs::const_iterator it = kv_pairs.begin();
-         it != kv_pairs.end(); ++it) {
-      ScoreMaxRelevance bucket;
-      bool is_valid_intermediate_score =
-          base::StringToDouble(it->first, &bucket.first);
-      DCHECK(is_valid_intermediate_score);
-      bool is_valid_hqp_score = base::StringToInt(it->second, &bucket.second);
-      DCHECK(is_valid_hqp_score);
-      hqp_buckets->push_back(bucket);
-    }
-    return true;
+  if (!base::SplitStringIntoKeyValuePairs(buckets_str, ':', ',', &kv_pairs))
+    return ScoreMaxRelevances();
+  ScoreMaxRelevances hqp_buckets;
+  for (base::StringPairs::const_iterator it = kv_pairs.begin();
+       it != kv_pairs.end(); ++it) {
+    ScoreMaxRelevance bucket;
+    bool is_valid_intermediate_score =
+        base::StringToDouble(it->first, &bucket.first);
+    DCHECK(is_valid_intermediate_score);
+    bool is_valid_hqp_score = base::StringToInt(it->second, &bucket.second);
+    DCHECK(is_valid_hqp_score);
+    hqp_buckets.push_back(bucket);
   }
-  return false;
+  return hqp_buckets;
 }

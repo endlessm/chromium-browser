@@ -8,10 +8,13 @@
 
 namespace blink {
 
-using protocol::parseJSON;
 using protocol::DictionaryValue;
 using protocol::ListValue;
 using protocol::Value;
+
+static std::unique_ptr<protocol::Value> parseJSON(const String& string) {
+  return protocol::StringUtil::parseJSON(string);
+}
 
 TEST(ProtocolParserTest, Reading) {
   Value* tmpValue;
@@ -329,7 +332,7 @@ TEST(ProtocolParserTest, Reading) {
       "  \"S\":\"str\"\n"
       "}\n");
   ASSERT_TRUE(root2.get());
-  EXPECT_EQ(root->toJSONString(), root2->toJSONString());
+  EXPECT_EQ(root->serialize(), root2->serialize());
 
   root2 = parseJSON(
       "{\r\n"
@@ -338,7 +341,7 @@ TEST(ProtocolParserTest, Reading) {
       "  \"S\":\"str\"\r\n"
       "}\r\n");
   ASSERT_TRUE(root2.get());
-  EXPECT_EQ(root->toJSONString(), root2->toJSONString());
+  EXPECT_EQ(root->serialize(), root2->serialize());
 
   // Test nesting
   root = parseJSON("{\"inner\":{\"array\":[true]},\"false\":false,\"d\":{}}");

@@ -50,17 +50,15 @@
 #include "extensions/common/extension_set.h"
 #include "extensions/common/manifest_handlers/background_info.h"
 #include "extensions/common/manifest_handlers/icons_handler.h"
+#include "extensions/common/one_shot_event.h"
 #include "extensions/grit/extensions_browser_resources.h"
 #include "ipc/ipc_message.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/image/image.h"
-
-#if defined(ENABLE_NOTIFICATIONS)
 #include "ui/message_center/message_center.h"
 #include "ui/message_center/notification_types.h"
 #include "ui/message_center/notifier_settings.h"
-#endif
 
 using content::SiteInstance;
 using content::WebContents;
@@ -79,12 +77,10 @@ void CloseBalloon(const std::string& balloon_id, ProfileID profile_id) {
       g_browser_process->notification_ui_manager();
   bool cancelled = notification_ui_manager->CancelById(balloon_id, profile_id);
   if (cancelled) {
-#if defined(ENABLE_NOTIFICATIONS)
     // TODO(dewittj): Add this functionality to the notification UI manager's
     // API.
     g_browser_process->message_center()->SetVisibility(
         message_center::VISIBILITY_TRANSIENT);
-#endif
   }
 }
 
@@ -157,7 +153,6 @@ class CrashNotificationDelegate : public NotificationDelegate {
   DISALLOW_COPY_AND_ASSIGN(CrashNotificationDelegate);
 };
 
-#if defined(ENABLE_NOTIFICATIONS)
 void NotificationImageReady(
     const std::string extension_name,
     const base::string16 message,
@@ -191,12 +186,10 @@ void NotificationImageReady(
 
   g_browser_process->notification_ui_manager()->Add(notification, profile);
 }
-#endif
 
 // Show a popup notification balloon with a crash message for a given app/
 // extension.
 void ShowBalloon(const Extension* extension, Profile* profile) {
-#if defined(ENABLE_NOTIFICATIONS)
   const base::string16 message = l10n_util::GetStringFUTF16(
       extension->is_app() ? IDS_BACKGROUND_CRASHED_APP_BALLOON_MESSAGE :
                             IDS_BACKGROUND_CRASHED_EXTENSION_BALLOON_MESSAGE,
@@ -219,7 +212,6 @@ void ShowBalloon(const Extension* extension, Profile* profile) {
           message,
           make_scoped_refptr(new CrashNotificationDelegate(profile, extension)),
           profile));
-#endif
 }
 
 void ReloadExtension(const std::string& extension_id, Profile* profile) {
@@ -280,7 +272,7 @@ int BackgroundContentsService::restart_delay_in_ms_ = 3000;  // 3 seconds.
 BackgroundContentsService::BackgroundContentsService(
     Profile* profile,
     const base::CommandLine* command_line)
-    : prefs_(NULL),
+    : prefs_(nullptr),
       extension_registry_observer_(this),
       weak_ptr_factory_(this) {
   // Don't load/store preferences if the parent profile is incognito.
@@ -337,9 +329,9 @@ BackgroundContentsService::GetBackgroundContents() const
 
 void BackgroundContentsService::StartObserving(Profile* profile) {
   // On startup, load our background pages after extension-apps have loaded.
-  registrar_.Add(this,
-                 extensions::NOTIFICATION_EXTENSIONS_READY_DEPRECATED,
-                 content::Source<Profile>(profile));
+  extensions::ExtensionSystem::Get(profile)->ready().Post(
+      FROM_HERE, base::Bind(&BackgroundContentsService::OnExtensionSystemReady,
+                            weak_ptr_factory_.GetWeakPtr(), profile));
 
   // Track the lifecycle of all BackgroundContents in the system to allow us
   // to store an up-to-date list of the urls. Start tracking contents when they
@@ -370,21 +362,19 @@ void BackgroundContentsService::StartObserving(Profile* profile) {
   extension_registry_observer_.Add(extensions::ExtensionRegistry::Get(profile));
 }
 
+void BackgroundContentsService::OnExtensionSystemReady(Profile* profile) {
+  SCOPED_UMA_HISTOGRAM_TIMER("Extensions.BackgroundContentsServiceStartupTime");
+  LoadBackgroundContentsFromManifests(profile);
+  LoadBackgroundContentsFromPrefs(profile);
+  SendChangeNotification(profile);
+}
+
 void BackgroundContentsService::Observe(
     int type,
     const content::NotificationSource& source,
     const content::NotificationDetails& details) {
   TRACE_EVENT0("browser,startup", "BackgroundContentsService::Observe");
   switch (type) {
-    case extensions::NOTIFICATION_EXTENSIONS_READY_DEPRECATED: {
-      SCOPED_UMA_HISTOGRAM_TIMER(
-          "Extensions.BackgroundContentsServiceStartupTime");
-      Profile* profile = content::Source<Profile>(source).ptr();
-      LoadBackgroundContentsFromManifests(profile);
-      LoadBackgroundContentsFromPrefs(profile);
-      SendChangeNotification(profile);
-      break;
-    }
     case chrome::NOTIFICATION_BACKGROUND_CONTENTS_DELETED:
       BackgroundContentsShutdown(
           content::Details<BackgroundContents>(details).ptr());

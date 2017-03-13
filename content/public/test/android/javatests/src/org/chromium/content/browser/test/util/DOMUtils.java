@@ -100,8 +100,7 @@ public class DOMUtils {
      * @param webContents The WebContents in which the media element lives.
      * @param id The element's id to check.
      */
-    public static void waitForMediaPlay(final WebContents webContents, final String id)
-            throws InterruptedException {
+    public static void waitForMediaPlay(final WebContents webContents, final String id) {
         CriteriaHelper.pollInstrumentationThread(new Criteria() {
             @Override
             public boolean isSatisfied() {
@@ -125,8 +124,7 @@ public class DOMUtils {
      * @param webContents The WebContents in which the media element lives.
      * @param id The element's id to check.
      */
-    public static void waitForMediaPauseBeforeEnd(final WebContents webContents, final String id)
-            throws InterruptedException {
+    public static void waitForMediaPauseBeforeEnd(final WebContents webContents, final String id) {
         CriteriaHelper.pollInstrumentationThread(new Criteria() {
             @Override
             public boolean isSatisfied() {
@@ -231,12 +229,13 @@ public class DOMUtils {
      * @param viewCore The ContentViewCore in which the node lives.
      * @param nodeId The id of the node.
      */
-    public static void clickNode(ActivityInstrumentationTestCase2 activityTestCase,
+    public static boolean clickNode(ActivityInstrumentationTestCase2 activityTestCase,
             final ContentViewCore viewCore, String nodeId)
             throws InterruptedException, TimeoutException {
         scrollNodeIntoView(viewCore.getWebContents(), nodeId);
         int[] clickTarget = getClickTargetForNode(viewCore, nodeId);
-        TouchCommon.singleClickView(viewCore.getContainerView(), clickTarget[0], clickTarget[1]);
+        return TouchCommon.singleClickView(
+                viewCore.getContainerView(), clickTarget[0], clickTarget[1]);
     }
 
     /**
@@ -251,6 +250,18 @@ public class DOMUtils {
         scrollNodeIntoViewByJs(viewCore.getWebContents(), jsCode);
         int[] clickTarget = getClickTargetForNodeByJs(viewCore, jsCode);
         TouchCommon.singleClickView(viewCore.getContainerView(), clickTarget[0], clickTarget[1]);
+    }
+
+    /**
+     * Click a given rect in the page. Does not move the rect into view.
+     * @param viewCore The ContentViewCore in which the node lives.
+     * @param rect The rect to click.
+     */
+    public static boolean clickRect(final ContentViewCore viewCore, Rect rect)
+            throws InterruptedException, TimeoutException {
+        int[] clickTarget = getClickTargetForBounds(viewCore, rect);
+        return TouchCommon.singleClickView(
+                viewCore.getContainerView(), clickTarget[0], clickTarget[1]);
     }
 
     /**
@@ -344,8 +355,7 @@ public class DOMUtils {
      * @param nodeId The id of the node.
      */
     public static void waitForNonZeroNodeBounds(final WebContents webContents,
-            final String nodeId)
-            throws InterruptedException {
+            final String nodeId) {
         CriteriaHelper.pollInstrumentationThread(new Criteria() {
             @Override
             public boolean isSatisfied() {
@@ -462,11 +472,12 @@ public class DOMUtils {
      * @return the click target of the node in the form of a [ x, y ] array.
      */
     private static int[] getClickTargetForBounds(ContentViewCore viewCore, Rect bounds) {
-        int topControlsLayoutHeight = viewCore.doTopControlsShrinkBlinkSize()
-                ? viewCore.getTopControlsHeightPix() : 0;
+        int browserControlsLayoutHeight = viewCore.doBrowserControlsShrinkBlinkSize()
+                ? viewCore.getTopControlsHeightPix()
+                : 0;
         int clickX = (int) viewCore.getRenderCoordinates().fromLocalCssToPix(bounds.exactCenterX());
         int clickY = (int) viewCore.getRenderCoordinates().fromLocalCssToPix(bounds.exactCenterY())
-                + topControlsLayoutHeight;
+                + browserControlsLayoutHeight;
         return new int[] { clickX, clickY };
     }
 

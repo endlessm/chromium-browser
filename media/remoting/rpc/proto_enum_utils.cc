@@ -101,6 +101,8 @@ base::Optional<::media::SampleFormat> ToMediaSampleFormat(
     CASE_RETURN_OTHER(kSampleFormatPlanarF32);
     CASE_RETURN_OTHER(kSampleFormatPlanarS32);
     CASE_RETURN_OTHER(kSampleFormatS24);
+    CASE_RETURN_OTHER(kSampleFormatAc3);
+    CASE_RETURN_OTHER(kSampleFormatEac3);
   }
   return base::nullopt;  // Not a 'default' to ensure compile-time checks.
 }
@@ -119,6 +121,8 @@ ToProtoAudioDecoderConfigSampleFormat(::media::SampleFormat value) {
     CASE_RETURN_OTHER(kSampleFormatPlanarF32);
     CASE_RETURN_OTHER(kSampleFormatPlanarS32);
     CASE_RETURN_OTHER(kSampleFormatS24);
+    CASE_RETURN_OTHER(kSampleFormatAc3);
+    CASE_RETURN_OTHER(kSampleFormatEac3);
   }
   return base::nullopt;  // Not a 'default' to ensure compile-time checks.
 }
@@ -331,6 +335,7 @@ base::Optional<::media::VideoPixelFormat> ToMediaVideoPixelFormat(
     CASE_RETURN_OTHER(PIXEL_FORMAT_YUV444P12);
     CASE_RETURN_OTHER(PIXEL_FORMAT_Y8);
     CASE_RETURN_OTHER(PIXEL_FORMAT_Y16);
+    CASE_RETURN_OTHER(PIXEL_FORMAT_I422);
   }
   return base::nullopt;  // Not a 'default' to ensure compile-time checks.
 }
@@ -367,6 +372,7 @@ base::Optional<pb::VideoDecoderConfig::Format> ToProtoVideoDecoderConfigFormat(
     CASE_RETURN_OTHER(PIXEL_FORMAT_YUV444P12);
     CASE_RETURN_OTHER(PIXEL_FORMAT_Y8);
     CASE_RETURN_OTHER(PIXEL_FORMAT_Y16);
+    CASE_RETURN_OTHER(PIXEL_FORMAT_I422);
   }
   return base::nullopt;  // Not a 'default' to ensure compile-time checks.
 }
@@ -393,6 +399,28 @@ ToProtoVideoDecoderConfigColorSpace(::media::ColorSpace value) {
     CASE_RETURN_OTHER(COLOR_SPACE_JPEG);
     CASE_RETURN_OTHER(COLOR_SPACE_HD_REC709);
     CASE_RETURN_OTHER(COLOR_SPACE_SD_REC601);
+  }
+  return base::nullopt;  // Not a 'default' to ensure compile-time checks.
+}
+
+base::Optional<::media::BufferingState> ToMediaBufferingState(
+    pb::RendererClientOnBufferingStateChange::State value) {
+  using OriginType = pb::RendererClientOnBufferingStateChange;
+  using OtherType = ::media::BufferingState;
+  switch (value) {
+    CASE_RETURN_OTHER(BUFFERING_HAVE_NOTHING);
+    CASE_RETURN_OTHER(BUFFERING_HAVE_ENOUGH);
+  }
+  return base::nullopt;  // Not a 'default' to ensure compile-time checks.
+}
+
+base::Optional<pb::RendererClientOnBufferingStateChange::State>
+ToProtoMediaBufferingState(::media::BufferingState value) {
+  using OriginType = ::media::BufferingState;
+  using OtherType = pb::RendererClientOnBufferingStateChange;
+  switch (value) {
+    CASE_RETURN_OTHER(BUFFERING_HAVE_NOTHING);
+    CASE_RETURN_OTHER(BUFFERING_HAVE_ENOUGH);
   }
   return base::nullopt;  // Not a 'default' to ensure compile-time checks.
 }
@@ -429,10 +457,10 @@ base::Optional<pb::CdmKeyInformation::KeyStatus> ToProtoCdmKeyInformation(
   return base::nullopt;  // Not a 'default' to ensure compile-time checks.
 }
 
-base::Optional<::media::MediaKeys::Exception> ToMediaMediaKeysException(
-    pb::MediaKeysException value) {
-  using OriginType = pb::MediaKeysException;
-  using OtherType = ::media::MediaKeys;
+base::Optional<::media::CdmPromise::Exception> ToCdmPromiseException(
+    pb::CdmException value) {
+  using OriginType = pb::CdmException;
+  using OtherType = ::media::CdmPromise;
   switch (value) {
     CASE_RETURN_OTHER(NOT_SUPPORTED_ERROR);
     CASE_RETURN_OTHER(INVALID_STATE_ERROR);
@@ -445,10 +473,10 @@ base::Optional<::media::MediaKeys::Exception> ToMediaMediaKeysException(
   return base::nullopt;  // Not a 'default' to ensure compile-time checks.
 }
 
-base::Optional<pb::MediaKeysException> ToProtoMediaKeysException(
-    ::media::MediaKeys::Exception value) {
-  using OriginType = ::media::MediaKeys;
-  using OtherType = pb::MediaKeysException;
+base::Optional<pb::CdmException> ToProtoCdmException(
+    ::media::CdmPromise::Exception value) {
+  using OriginType = ::media::CdmPromise;
+  using OtherType = pb::CdmException;
   switch (value) {
     CASE_RETURN_OTHER(NOT_SUPPORTED_ERROR);
     CASE_RETURN_OTHER(INVALID_STATE_ERROR);
@@ -461,10 +489,10 @@ base::Optional<pb::MediaKeysException> ToProtoMediaKeysException(
   return base::nullopt;  // Not a 'default' to ensure compile-time checks.
 }
 
-base::Optional<::media::MediaKeys::MessageType> ToMediaMediaKeysMessageType(
-    pb::MediaKeysMessageType value) {
-  using OriginType = pb::MediaKeysMessageType;
-  using OtherType = ::media::MediaKeys;
+base::Optional<::media::ContentDecryptionModule::MessageType>
+ToMediaCdmMessageType(pb::CdmMessageType value) {
+  using OriginType = pb::CdmMessageType;
+  using OtherType = ::media::ContentDecryptionModule;
   switch (value) {
     CASE_RETURN_OTHER(LICENSE_REQUEST);
     CASE_RETURN_OTHER(LICENSE_RENEWAL);
@@ -473,10 +501,10 @@ base::Optional<::media::MediaKeys::MessageType> ToMediaMediaKeysMessageType(
   return base::nullopt;  // Not a 'default' to ensure compile-time checks.
 }
 
-base::Optional<pb::MediaKeysMessageType> ToProtoMediaKeysMessageType(
-    ::media::MediaKeys::MessageType value) {
-  using OriginType = ::media::MediaKeys;
-  using OtherType = pb::MediaKeysMessageType;
+base::Optional<pb::CdmMessageType> ToProtoCdmMessageType(
+    ::media::ContentDecryptionModule::MessageType value) {
+  using OriginType = ::media::ContentDecryptionModule;
+  using OtherType = pb::CdmMessageType;
   switch (value) {
     CASE_RETURN_OTHER(LICENSE_REQUEST);
     CASE_RETURN_OTHER(LICENSE_RENEWAL);
@@ -485,10 +513,10 @@ base::Optional<pb::MediaKeysMessageType> ToProtoMediaKeysMessageType(
   return base::nullopt;  // Not a 'default' to ensure compile-time checks.
 }
 
-base::Optional<::media::MediaKeys::SessionType> ToMediaKeysSessionType(
-    pb::MediaKeysSessionType value) {
-  using OriginType = pb::MediaKeysSessionType;
-  using OtherType = ::media::MediaKeys;
+base::Optional<::media::CdmSessionType> ToCdmSessionType(
+    pb::CdmSessionType value) {
+  using OriginType = pb::CdmSessionType;
+  using OtherType = ::media::CdmSessionType;
   switch (value) {
     CASE_RETURN_OTHER(TEMPORARY_SESSION);
     CASE_RETURN_OTHER(PERSISTENT_LICENSE_SESSION);
@@ -497,10 +525,10 @@ base::Optional<::media::MediaKeys::SessionType> ToMediaKeysSessionType(
   return base::nullopt;  // Not a 'default' to ensure compile-time checks.
 }
 
-base::Optional<pb::MediaKeysSessionType> ToProtoMediaKeysSessionType(
-    ::media::MediaKeys::SessionType value) {
-  using OriginType = ::media::MediaKeys;
-  using OtherType = pb::MediaKeysSessionType;
+base::Optional<pb::CdmSessionType> ToProtoCdmSessionType(
+    ::media::CdmSessionType value) {
+  using OriginType = ::media::CdmSessionType;
+  using OtherType = pb::CdmSessionType;
   switch (value) {
     CASE_RETURN_OTHER(TEMPORARY_SESSION);
     CASE_RETURN_OTHER(PERSISTENT_LICENSE_SESSION);
@@ -548,7 +576,7 @@ base::Optional<::media::DemuxerStream::Status> ToDemuxerStreamStatus(
 }
 
 base::Optional<pb::DemuxerStreamReadUntilCallback::Status>
-ToProtoToDemuxerStreamStatus(::media::DemuxerStream::Status value) {
+ToProtoDemuxerStreamStatus(::media::DemuxerStream::Status value) {
   using OriginType = ::media::DemuxerStream;
   using OtherType = pb::DemuxerStreamReadUntilCallback;
   switch (value) {

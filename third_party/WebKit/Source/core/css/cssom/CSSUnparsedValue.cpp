@@ -50,6 +50,7 @@ StringOrCSSVariableReferenceValue variableReferenceValue(
     unparsedValue = nullptr;
   else
     unparsedValue = CSSUnparsedValue::create(fragments);
+
   CSSStyleVariableReferenceValue* variableReference =
       CSSStyleVariableReferenceValue::create(variableName.toString(),
                                              unparsedValue);
@@ -64,7 +65,7 @@ HeapVector<StringOrCSSVariableReferenceValue> parserTokenRangeToFragments(
   while (!range.atEnd()) {
     if (range.peek().functionId() == CSSValueVar) {
       if (!builder.isEmpty()) {
-        fragments.append(
+        fragments.push_back(
             StringOrCSSVariableReferenceValue::fromString(builder.toString()));
         builder.clear();
       }
@@ -73,15 +74,16 @@ HeapVector<StringOrCSSVariableReferenceValue> parserTokenRangeToFragments(
       block.consumeWhitespace();
       if (block.peek().type() == CSSParserTokenType::CommaToken)
         block.consume();
-      fragments.append(variableReferenceValue(
+      fragments.push_back(variableReferenceValue(
           variableName, parserTokenRangeToFragments(block)));
     } else {
       range.consume().serialize(builder);
     }
   }
-  if (!builder.isEmpty())
-    fragments.append(
+  if (!builder.isEmpty()) {
+    fragments.push_back(
         StringOrCSSVariableReferenceValue::fromString(builder.toString()));
+  }
   return fragments;
 }
 
@@ -102,22 +104,23 @@ CSSValue* CSSUnparsedValue::toCSSValue() const {
   StringBuilder tokens;
 
   for (unsigned i = 0; i < m_fragments.size(); i++) {
-    if (i)
+    if (i) {
       tokens.append("/**/");
-    if (m_fragments[i].isString())
+    }
+    if (m_fragments[i].isString()) {
       tokens.append(m_fragments[i].getAsString());
-    else if (m_fragments[i].isCSSVariableReferenceValue())
+    } else if (m_fragments[i].isCSSVariableReferenceValue()) {
       tokens.append(
           m_fragments[i].getAsCSSVariableReferenceValue()->variable());
-    else
+    } else {
       NOTREACHED();
+    }
   }
 
-  CSSTokenizer::Scope scope(tokens.toString());
-
-  bool isAnimationTainted = false;
-  return CSSVariableReferenceValue::create(
-      CSSVariableData::create(scope.tokenRange(), isAnimationTainted, true));
+  CSSTokenizer tokenizer(tokens.toString());
+  return CSSVariableReferenceValue::create(CSSVariableData::create(
+      tokenizer.tokenRange(), false /* isAnimationTainted */,
+      true /* needsVariableResolution */));
 }
 
 }  // namespace blink

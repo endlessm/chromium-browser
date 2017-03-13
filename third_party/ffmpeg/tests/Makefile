@@ -12,12 +12,12 @@ FFMPEG=ffmpeg$(PROGSSUF)$(EXESUF)
 $(AREF): CMP=
 
 ffservertest: export PROGSUF = $(PROGSSUF)
-ffservertest: ffserver$(PROGSSUF)$(EXESUF) tests/vsynth1/00.pgm tests/data/asynth1.sw
+ffservertest: ffserver$(PROGSSUF)$(EXESUF) ffmpeg$(PROGSSUF)$(EXESUF) tests/vsynth1/00.pgm tests/data/asynth1.sw
 	@echo
 	@echo "Unfortunately ffserver is broken and therefore its regression"
 	@echo "test fails randomly. Treat the results accordingly."
 	@echo
-	$(SRC_PATH)/tests/ffserver-regression.sh $(FFSERVER_REFFILE) $(SRC_PATH)/tests/ffserver.conf
+	$(SRC_PATH)/tests/ffserver-regression.sh $(FFSERVER_REFFILE) $(SRC_PATH)/tests/ffserver.conf "$(TARGET_SAMPLES)" "$(TARGET_EXEC)" "$(TARGET_PATH)"
 
 APITESTSDIR := tests/api
 OBJDIRS += tests/data tests/vsynth1 tests/data/filtergraphs $(APITESTSDIR)/
@@ -97,6 +97,7 @@ include $(SRC_PATH)/$(APITESTSDIR)/Makefile
 
 include $(SRC_PATH)/tests/fate/acodec.mak
 include $(SRC_PATH)/tests/fate/vcodec.mak
+
 include $(SRC_PATH)/tests/fate/avformat.mak
 include $(SRC_PATH)/tests/fate/seek.mak
 
@@ -108,9 +109,11 @@ include $(SRC_PATH)/tests/fate/als.mak
 include $(SRC_PATH)/tests/fate/amrnb.mak
 include $(SRC_PATH)/tests/fate/amrwb.mak
 include $(SRC_PATH)/tests/fate/api.mak
+include $(SRC_PATH)/tests/fate/apng.mak
 include $(SRC_PATH)/tests/fate/atrac.mak
 include $(SRC_PATH)/tests/fate/audio.mak
 include $(SRC_PATH)/tests/fate/bmp.mak
+include $(SRC_PATH)/tests/fate/canopus.mak
 include $(SRC_PATH)/tests/fate/cdxl.mak
 include $(SRC_PATH)/tests/fate/checkasm.mak
 include $(SRC_PATH)/tests/fate/concatdec.mak
@@ -124,10 +127,12 @@ include $(SRC_PATH)/tests/fate/ea.mak
 include $(SRC_PATH)/tests/fate/exif.mak
 include $(SRC_PATH)/tests/fate/ffmpeg.mak
 include $(SRC_PATH)/tests/fate/ffprobe.mak
+include $(SRC_PATH)/tests/fate/fft.mak
+include $(SRC_PATH)/tests/fate/fifo-muxer.mak
 include $(SRC_PATH)/tests/fate/filter-audio.mak
 include $(SRC_PATH)/tests/fate/filter-video.mak
 include $(SRC_PATH)/tests/fate/flac.mak
-include $(SRC_PATH)/tests/fate/fft.mak
+include $(SRC_PATH)/tests/fate/flvenc.mak
 include $(SRC_PATH)/tests/fate/gapless.mak
 include $(SRC_PATH)/tests/fate/gif.mak
 include $(SRC_PATH)/tests/fate/h264.mak
@@ -142,8 +147,10 @@ include $(SRC_PATH)/tests/fate/libavutil.mak
 include $(SRC_PATH)/tests/fate/libswresample.mak
 include $(SRC_PATH)/tests/fate/lossless-audio.mak
 include $(SRC_PATH)/tests/fate/lossless-video.mak
+include $(SRC_PATH)/tests/fate/matroska.mak
 include $(SRC_PATH)/tests/fate/microsoft.mak
 include $(SRC_PATH)/tests/fate/monkeysaudio.mak
+include $(SRC_PATH)/tests/fate/mov.mak
 include $(SRC_PATH)/tests/fate/mp3.mak
 include $(SRC_PATH)/tests/fate/mpc.mak
 include $(SRC_PATH)/tests/fate/mpeg4.mak
@@ -200,7 +207,7 @@ $(FATE_EXTERN):
 	@echo "$@ requires external samples and SAMPLES not specified"; false
 endif
 
-FATE_UTILS = base64 tiny_psnr tiny_ssim
+FATE_UTILS = base64 tiny_psnr tiny_ssim audiomatch
 
 TOOL = ffmpeg
 
@@ -227,7 +234,7 @@ lcov: coverage.info
 
 lcov-reset: TAG = LCOV
 lcov-reset:
-	$(M)lcov -d $(CURDIR) --zerocounters
+	$(M)lcov -q -d $(CURDIR) --zerocounters
 	$(Q)$(RM) -f coverage.info
 
 clean:: testclean

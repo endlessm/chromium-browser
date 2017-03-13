@@ -35,17 +35,17 @@ namespace media {
 
 namespace {
 
-cdm::SessionType ToCdmSessionType(MediaKeys::SessionType session_type) {
+cdm::SessionType ToCdmSessionType(CdmSessionType session_type) {
   switch (session_type) {
-    case MediaKeys::TEMPORARY_SESSION:
+    case CdmSessionType::TEMPORARY_SESSION:
       return cdm::kTemporary;
-    case MediaKeys::PERSISTENT_LICENSE_SESSION:
+    case CdmSessionType::PERSISTENT_LICENSE_SESSION:
       return cdm::kPersistentLicense;
-    case MediaKeys::PERSISTENT_RELEASE_MESSAGE_SESSION:
+    case CdmSessionType::PERSISTENT_RELEASE_MESSAGE_SESSION:
       return cdm::kPersistentKeyRelease;
   }
 
-  NOTREACHED() << "Unexpected SessionType " << session_type;
+  NOTREACHED() << "Unexpected session type: " << static_cast<int>(session_type);
   return cdm::kTemporary;
 }
 
@@ -65,40 +65,41 @@ cdm::InitDataType ToCdmInitDataType(EmeInitDataType init_data_type) {
   return cdm::kKeyIds;
 }
 
-MediaKeys::Exception ToMediaExceptionType(cdm::Error error) {
+CdmPromise::Exception ToMediaExceptionType(cdm::Error error) {
   switch (error) {
     case cdm::kNotSupportedError:
-      return MediaKeys::NOT_SUPPORTED_ERROR;
+      return CdmPromise::NOT_SUPPORTED_ERROR;
     case cdm::kInvalidStateError:
-      return MediaKeys::INVALID_STATE_ERROR;
+      return CdmPromise::INVALID_STATE_ERROR;
     case cdm::kInvalidAccessError:
-      return MediaKeys::INVALID_ACCESS_ERROR;
+      return CdmPromise::INVALID_ACCESS_ERROR;
     case cdm::kQuotaExceededError:
-      return MediaKeys::QUOTA_EXCEEDED_ERROR;
+      return CdmPromise::QUOTA_EXCEEDED_ERROR;
     case cdm::kUnknownError:
-      return MediaKeys::UNKNOWN_ERROR;
+      return CdmPromise::UNKNOWN_ERROR;
     case cdm::kClientError:
-      return MediaKeys::CLIENT_ERROR;
+      return CdmPromise::CLIENT_ERROR;
     case cdm::kOutputError:
-      return MediaKeys::OUTPUT_ERROR;
+      return CdmPromise::OUTPUT_ERROR;
   }
 
   NOTREACHED() << "Unexpected cdm::Error " << error;
-  return MediaKeys::UNKNOWN_ERROR;
+  return CdmPromise::UNKNOWN_ERROR;
 }
 
-MediaKeys::MessageType ToMediaMessageType(cdm::MessageType message_type) {
+ContentDecryptionModule::MessageType ToMediaMessageType(
+    cdm::MessageType message_type) {
   switch (message_type) {
     case cdm::kLicenseRequest:
-      return MediaKeys::LICENSE_REQUEST;
+      return ContentDecryptionModule::LICENSE_REQUEST;
     case cdm::kLicenseRenewal:
-      return MediaKeys::LICENSE_RENEWAL;
+      return ContentDecryptionModule::LICENSE_RENEWAL;
     case cdm::kLicenseRelease:
-      return MediaKeys::LICENSE_RELEASE;
+      return ContentDecryptionModule::LICENSE_RELEASE;
   }
 
   NOTREACHED() << "Unexpected cdm::MessageType " << message_type;
-  return MediaKeys::LICENSE_REQUEST;
+  return ContentDecryptionModule::LICENSE_REQUEST;
 }
 
 CdmKeyInformation::KeyStatus ToCdmKeyInformationKeyStatus(
@@ -420,7 +421,7 @@ void CdmAdapter::Initialize(const base::FilePath& cdm_path,
                             std::unique_ptr<media::SimpleCdmPromise> promise) {
   cdm_.reset(CreateCdmInstance(key_system_, cdm_path));
   if (!cdm_) {
-    promise->reject(MediaKeys::INVALID_ACCESS_ERROR, 0,
+    promise->reject(CdmPromise::INVALID_ACCESS_ERROR, 0,
                     "Unable to create CDM.");
     return;
   }
@@ -437,7 +438,7 @@ void CdmAdapter::SetServerCertificate(
 
   if (certificate.size() < limits::kMinCertificateLength ||
       certificate.size() > limits::kMaxCertificateLength) {
-    promise->reject(MediaKeys::INVALID_ACCESS_ERROR, 0,
+    promise->reject(CdmPromise::INVALID_ACCESS_ERROR, 0,
                     "Incorrect certificate.");
     return;
   }
@@ -448,7 +449,7 @@ void CdmAdapter::SetServerCertificate(
 }
 
 void CdmAdapter::CreateSessionAndGenerateRequest(
-    SessionType session_type,
+    CdmSessionType session_type,
     EmeInitDataType init_data_type,
     const std::vector<uint8_t>& init_data,
     std::unique_ptr<NewSessionCdmPromise> promise) {
@@ -460,7 +461,7 @@ void CdmAdapter::CreateSessionAndGenerateRequest(
       ToCdmInitDataType(init_data_type), init_data.data(), init_data.size());
 }
 
-void CdmAdapter::LoadSession(SessionType session_type,
+void CdmAdapter::LoadSession(CdmSessionType session_type,
                              const std::string& session_id,
                              std::unique_ptr<NewSessionCdmPromise> promise) {
   DCHECK(task_runner_->BelongsToCurrentThread());

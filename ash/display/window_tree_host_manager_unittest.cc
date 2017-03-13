@@ -6,14 +6,13 @@
 
 #include <memory>
 
-#include "ash/aura/wm_window_aura.h"
 #include "ash/common/material_design/material_design_controller.h"
 #include "ash/common/shelf/shelf_widget.h"
 #include "ash/common/shelf/wm_shelf.h"
 #include "ash/common/wm/window_state.h"
 #include "ash/common/wm/wm_event.h"
 #include "ash/common/wm/wm_screen_util.h"
-#include "ash/display/display_manager.h"
+#include "ash/common/wm_window.h"
 #include "ash/display/display_util.h"
 #include "ash/screen_util.h"
 #include "ash/shell.h"
@@ -21,7 +20,6 @@
 #include "ash/test/ash_test_base.h"
 #include "ash/test/ash_test_helper.h"
 #include "ash/test/cursor_manager_test_api.h"
-#include "ash/test/display_manager_test_api.h"
 #include "ash/test/test_shell_delegate.h"
 #include "ash/wm/window_state_aura.h"
 #include "base/command_line.h"
@@ -32,11 +30,14 @@
 #include "ui/aura/window_tracker.h"
 #include "ui/aura/window_tree_host.h"
 #include "ui/display/display.h"
+#include "ui/display/display_layout.h"
+#include "ui/display/display_layout_builder.h"
 #include "ui/display/display_observer.h"
-#include "ui/display/manager/display_layout.h"
 #include "ui/display/manager/display_layout_store.h"
+#include "ui/display/manager/display_manager.h"
 #include "ui/display/manager/managed_display_info.h"
 #include "ui/display/screen.h"
+#include "ui/display/test/display_manager_test_api.h"
 #include "ui/events/event_handler.h"
 #include "ui/events/test/event_generator.h"
 #include "ui/views/mouse_watcher.h"
@@ -217,8 +218,9 @@ TestHelper::~TestHelper() {}
 void TestHelper::SetSecondaryDisplayLayoutAndOffset(
     display::DisplayPlacement::Position position,
     int offset) {
-  std::unique_ptr<display::DisplayLayout> layout(test::CreateDisplayLayout(
-      delegate_->display_manager(), position, offset));
+  std::unique_ptr<display::DisplayLayout> layout(
+      display::test::CreateDisplayLayout(delegate_->display_manager(), position,
+                                         offset));
   ASSERT_GT(display::Screen::GetScreen()->GetNumDisplays(), 1);
   delegate_->display_manager()->SetLayoutForCurrentDisplays(std::move(layout));
 }
@@ -340,7 +342,7 @@ class TestEventHandler : public ui::EventHandler {
     aura::Window* target = static_cast<aura::Window*>(event->target());
     // Only record when the target is the wallpaper, which covers the entire
     // root window.
-    if (target->name() != kWallpaperView)
+    if (target->GetName() != kWallpaperView)
       return;
     touch_radius_x_ = event->pointer_details().radius_x;
     touch_radius_y_ = event->pointer_details().radius_y;
@@ -351,7 +353,7 @@ class TestEventHandler : public ui::EventHandler {
     aura::Window* target = static_cast<aura::Window*>(event->target());
     // Only record when the target is the wallpaper, which covers the entire
     // root window.
-    if (target->name() != kWallpaperView)
+    if (target->GetName() != kWallpaperView)
       return;
 
     if (event->type() == ui::ET_SCROLL) {
@@ -622,7 +624,7 @@ TEST_P(WindowTreeHostManagerTest, MirrorToDockedWithFullscreen) {
   display_info_list.push_back(external_display_info);
   display_manager()->OnNativeDisplaysChanged(display_info_list);
   const int64_t internal_display_id =
-      test::DisplayManagerTestApi(display_manager())
+      display::test::DisplayManagerTestApi(display_manager())
           .SetFirstDisplayAsInternalDisplay();
   EXPECT_EQ(1, internal_display_id);
   EXPECT_EQ(2U, display_manager()->num_connected_displays());
@@ -732,8 +734,8 @@ TEST_P(WindowTreeHostManagerTest, BoundsUpdated) {
 
   // UI scale is eanbled only on internal display.
   int64_t secondary_id = GetSecondaryDisplay().id();
-  test::ScopedSetInternalDisplayId set_internal(display_manager(),
-                                                secondary_id);
+  display::test::ScopedSetInternalDisplayId set_internal(display_manager(),
+                                                         secondary_id);
   // Changing internal ID display changes the DisplayIdPair (it comes
   // first), which also changes the primary display candidate.  Update
   // the primary display manually to update the primary display to
@@ -744,19 +746,23 @@ TEST_P(WindowTreeHostManagerTest, BoundsUpdated) {
       secondary_id);
   EXPECT_EQ(1, observer.CountAndReset());
 
-  display_manager()->SetDisplayUIScale(secondary_id, 1.125f);
+  display::test::DisplayManagerTestApi(display_manager())
+      .SetDisplayUIScale(secondary_id, 1.125f);
   EXPECT_EQ(1, observer.CountAndReset());
   EXPECT_EQ(0, observer.GetFocusChangedCountAndReset());
   EXPECT_EQ(0, observer.GetActivationChangedCountAndReset());
-  display_manager()->SetDisplayUIScale(secondary_id, 1.125f);
+  display::test::DisplayManagerTestApi(display_manager())
+      .SetDisplayUIScale(secondary_id, 1.125f);
   EXPECT_EQ(0, observer.CountAndReset());
   EXPECT_EQ(0, observer.GetFocusChangedCountAndReset());
   EXPECT_EQ(0, observer.GetActivationChangedCountAndReset());
-  display_manager()->SetDisplayUIScale(primary_id, 1.125f);
+  display::test::DisplayManagerTestApi(display_manager())
+      .SetDisplayUIScale(primary_id, 1.125f);
   EXPECT_EQ(0, observer.CountAndReset());
   EXPECT_EQ(0, observer.GetFocusChangedCountAndReset());
   EXPECT_EQ(0, observer.GetActivationChangedCountAndReset());
-  display_manager()->SetDisplayUIScale(primary_id, 1.125f);
+  display::test::DisplayManagerTestApi(display_manager())
+      .SetDisplayUIScale(primary_id, 1.125f);
   EXPECT_EQ(0, observer.CountAndReset());
   EXPECT_EQ(0, observer.GetFocusChangedCountAndReset());
   EXPECT_EQ(0, observer.GetActivationChangedCountAndReset());
@@ -770,8 +776,9 @@ TEST_P(WindowTreeHostManagerTest, FindNearestDisplay) {
       Shell::GetInstance()->window_tree_host_manager();
 
   UpdateDisplay("200x200,300x300");
-  display_manager()->SetLayoutForCurrentDisplays(test::CreateDisplayLayout(
-      display_manager(), display::DisplayPlacement::RIGHT, 50));
+  display_manager()->SetLayoutForCurrentDisplays(
+      display::test::CreateDisplayLayout(display_manager(),
+                                         display::DisplayPlacement::RIGHT, 50));
 
   display::Display primary_display =
       display::Screen::GetScreen()->GetPrimaryDisplay();
@@ -836,8 +843,9 @@ TEST_P(WindowTreeHostManagerTest, SwapPrimaryById) {
       display::Screen::GetScreen()->GetPrimaryDisplay();
   display::Display secondary_display = display_manager()->GetSecondaryDisplay();
 
-  display_manager()->SetLayoutForCurrentDisplays(test::CreateDisplayLayout(
-      display_manager(), display::DisplayPlacement::RIGHT, 50));
+  display_manager()->SetLayoutForCurrentDisplays(
+      display::test::CreateDisplayLayout(display_manager(),
+                                         display::DisplayPlacement::RIGHT, 50));
 
   EXPECT_NE(primary_display.id(), secondary_display.id());
   aura::Window* primary_root =
@@ -974,15 +982,237 @@ TEST_P(WindowTreeHostManagerTest, SwapPrimaryById) {
   EXPECT_TRUE(primary_root->Contains(shelf_window));
 }
 
-TEST_P(WindowTreeHostManagerTest, NoSwapPrimaryWithThreeDisplays) {
+TEST_P(WindowTreeHostManagerTest, SetPrimaryWithThreeDisplays) {
   if (!SupportsMultipleDisplays())
     return;
-  int64_t primary = display::Screen::GetScreen()->GetPrimaryDisplay().id();
   UpdateDisplay("500x400,400x300,300x200");
-  EXPECT_EQ(primary, display::Screen::GetScreen()->GetPrimaryDisplay().id());
-  Shell::GetInstance()->window_tree_host_manager()->SetPrimaryDisplayId(
-      display_manager()->GetSecondaryDisplay().id());
-  EXPECT_EQ(primary, display::Screen::GetScreen()->GetPrimaryDisplay().id());
+  int64_t primary_id = display::Screen::GetScreen()->GetPrimaryDisplay().id();
+  display::DisplayIdList non_primary_ids =
+      display_manager()->GetCurrentDisplayIdList();
+  auto itr =
+      std::remove(non_primary_ids.begin(), non_primary_ids.end(), primary_id);
+  ASSERT_TRUE(itr != non_primary_ids.end());
+  non_primary_ids.erase(itr, non_primary_ids.end());
+  ASSERT_EQ(2u, non_primary_ids.size());
+
+  // Build the following layout:
+  //
+  // +----------------+       +--------------------+
+  // | primary_id (P) | <---- | non_primary_ids[0] |
+  // +----------------+       +--------------------+
+  //      ^
+  //      |
+  // +--------------------+
+  // | non_primary_ids[1] |
+  // +--------------------+
+  display::DisplayLayoutBuilder builder(primary_id);
+  builder.AddDisplayPlacement(non_primary_ids[0], primary_id,
+                              display::DisplayPlacement::RIGHT, 0);
+  builder.AddDisplayPlacement(non_primary_ids[1], primary_id,
+                              display::DisplayPlacement::BOTTOM, 0);
+  display_manager()->SetLayoutForCurrentDisplays(builder.Build());
+
+  EXPECT_EQ(primary_id, display::Screen::GetScreen()->GetPrimaryDisplay().id());
+  WindowTreeHostManager* window_tree_host_manager =
+      Shell::GetInstance()->window_tree_host_manager();
+
+  aura::Window* primary_root =
+      window_tree_host_manager->GetRootWindowForDisplayId(primary_id);
+  aura::Window* non_primary_root_0 =
+      window_tree_host_manager->GetRootWindowForDisplayId(non_primary_ids[0]);
+  aura::Window* non_primary_root_1 =
+      window_tree_host_manager->GetRootWindowForDisplayId(non_primary_ids[1]);
+
+  // Make non_primary_ids[0] primary.
+  window_tree_host_manager->SetPrimaryDisplayId(non_primary_ids[0]);
+  EXPECT_EQ(non_primary_ids[0],
+            display::Screen::GetScreen()->GetPrimaryDisplay().id());
+
+  // Expect the root windows to be swapped.
+  EXPECT_EQ(primary_root, window_tree_host_manager->GetRootWindowForDisplayId(
+                              non_primary_ids[0]));
+  EXPECT_EQ(non_primary_root_0,
+            window_tree_host_manager->GetRootWindowForDisplayId(primary_id));
+  EXPECT_EQ(
+      non_primary_root_1,
+      window_tree_host_manager->GetRootWindowForDisplayId(non_primary_ids[1]));
+
+  // Expect that the layout will be changed to:
+  //
+  // +----------------+       +-----------------------+
+  // | primary_id     | ----> | non_primary_ids[0] (P)|
+  // +----------------+       +-----------------------+
+  //      ^
+  //      |
+  // +--------------------+
+  // | non_primary_ids[1] |
+  // +--------------------+
+  {
+    const display::DisplayLayout& current_layout =
+        display_manager()->GetCurrentDisplayLayout();
+    EXPECT_EQ(non_primary_ids[0], current_layout.primary_id);
+    ASSERT_EQ(2u, current_layout.placement_list.size());
+    EXPECT_EQ(primary_id, current_layout.placement_list[0].display_id);
+    EXPECT_EQ(non_primary_ids[0],
+              current_layout.placement_list[0].parent_display_id);
+    EXPECT_EQ(display::DisplayPlacement::LEFT,
+              current_layout.placement_list[0].position);
+    EXPECT_EQ(non_primary_ids[1], current_layout.placement_list[1].display_id);
+    EXPECT_EQ(primary_id, current_layout.placement_list[1].parent_display_id);
+    EXPECT_EQ(display::DisplayPlacement::BOTTOM,
+              current_layout.placement_list[1].position);
+  }
+
+  // Make non_primary_ids[1] primary.
+  window_tree_host_manager->SetPrimaryDisplayId(non_primary_ids[1]);
+  EXPECT_EQ(non_primary_ids[1],
+            display::Screen::GetScreen()->GetPrimaryDisplay().id());
+
+  // Expect the root windows to be swapped.
+  EXPECT_EQ(primary_root, window_tree_host_manager->GetRootWindowForDisplayId(
+                              non_primary_ids[1]));
+  EXPECT_EQ(
+      non_primary_root_1,
+      window_tree_host_manager->GetRootWindowForDisplayId(non_primary_ids[0]));
+  EXPECT_EQ(non_primary_root_0,
+            window_tree_host_manager->GetRootWindowForDisplayId(primary_id));
+
+  // Expect that the layout will be changed to:
+  //
+  // +----------------+       +--------------------+
+  // | primary_id     | <---- | non_primary_ids[0] |
+  // +----------------+       +--------------------+
+  //      |
+  //      V
+  // +------------------------+
+  // | non_primary_ids[1] (P) |
+  // +------------------------+
+  {
+    const display::DisplayLayout& current_layout =
+        display_manager()->GetCurrentDisplayLayout();
+    EXPECT_EQ(non_primary_ids[1], current_layout.primary_id);
+    ASSERT_EQ(2u, current_layout.placement_list.size());
+    EXPECT_EQ(primary_id, current_layout.placement_list[0].display_id);
+    EXPECT_EQ(non_primary_ids[1],
+              current_layout.placement_list[0].parent_display_id);
+    EXPECT_EQ(display::DisplayPlacement::TOP,
+              current_layout.placement_list[0].position);
+    EXPECT_EQ(non_primary_ids[0], current_layout.placement_list[1].display_id);
+    EXPECT_EQ(primary_id, current_layout.placement_list[1].parent_display_id);
+    EXPECT_EQ(display::DisplayPlacement::RIGHT,
+              current_layout.placement_list[1].position);
+  }
+}
+
+TEST_P(WindowTreeHostManagerTest, SetPrimaryWithFourDisplays) {
+  if (!SupportsMultipleDisplays())
+    return;
+  UpdateDisplay("600x500,500x400,400x300,300x200");
+  int64_t primary_id = display::Screen::GetScreen()->GetPrimaryDisplay().id();
+  display::DisplayIdList non_primary_ids =
+      display_manager()->GetCurrentDisplayIdList();
+  auto itr =
+      std::remove(non_primary_ids.begin(), non_primary_ids.end(), primary_id);
+  ASSERT_TRUE(itr != non_primary_ids.end());
+  non_primary_ids.erase(itr, non_primary_ids.end());
+  ASSERT_EQ(3u, non_primary_ids.size());
+
+  // Build the following layout:
+  //
+  // +--------------------+   +--------------------+   +--------------------+
+  // |                    |   | primary_id (P)     |   |                    |
+  // |                    |   +--------------------+   |                    |
+  // |                    |             ^              |                    |
+  // | non_primary_ids[1] |             |              | non_primary_ids[2] |
+  // |                    |   +--------------------+   |                    |
+  // |                    |-->| non_primary_ids[0] |<--|                    |
+  // +--------------------+   +--------------------+   +--------------------+
+  display::DisplayLayoutBuilder builder(primary_id);
+  builder.AddDisplayPlacement(non_primary_ids[0], primary_id,
+                              display::DisplayPlacement::BOTTOM, 0);
+  builder.AddDisplayPlacement(non_primary_ids[1], non_primary_ids[0],
+                              display::DisplayPlacement::LEFT, 0);
+  builder.AddDisplayPlacement(non_primary_ids[2], non_primary_ids[0],
+                              display::DisplayPlacement::RIGHT, 0);
+  display_manager()->SetLayoutForCurrentDisplays(builder.Build());
+
+  EXPECT_EQ(primary_id, display::Screen::GetScreen()->GetPrimaryDisplay().id());
+  WindowTreeHostManager* window_tree_host_manager =
+      Shell::GetInstance()->window_tree_host_manager();
+
+  // Make non_primary_ids[2] primary.
+  window_tree_host_manager->SetPrimaryDisplayId(non_primary_ids[2]);
+  EXPECT_EQ(non_primary_ids[2],
+            display::Screen::GetScreen()->GetPrimaryDisplay().id());
+
+  // Expect that the layout will be changed to:
+  //
+  // +--------------------+   +--------------------+   +--------------------+
+  // |                    |   | primary_id         |   |                    |
+  // |                    |   +--------------------+   |                    |
+  // |                    |             |              |                    |
+  // | non_primary_ids[1] |             V              | non_primary_ids[2] |
+  // |                    |   +--------------------+   |        (P)         |
+  // |                    |-->| non_primary_ids[0] |-->|                    |
+  // +--------------------+   +--------------------+   +--------------------+
+  {
+    const display::DisplayLayout& current_layout =
+        display_manager()->GetCurrentDisplayLayout();
+    EXPECT_EQ(non_primary_ids[2], current_layout.primary_id);
+    ASSERT_EQ(3u, current_layout.placement_list.size());
+    EXPECT_EQ(primary_id, current_layout.placement_list[0].display_id);
+    EXPECT_EQ(non_primary_ids[0],
+              current_layout.placement_list[0].parent_display_id);
+    EXPECT_EQ(display::DisplayPlacement::TOP,
+              current_layout.placement_list[0].position);
+    EXPECT_EQ(non_primary_ids[0], current_layout.placement_list[1].display_id);
+    EXPECT_EQ(non_primary_ids[2],
+              current_layout.placement_list[1].parent_display_id);
+    EXPECT_EQ(display::DisplayPlacement::LEFT,
+              current_layout.placement_list[1].position);
+    EXPECT_EQ(non_primary_ids[1], current_layout.placement_list[2].display_id);
+    EXPECT_EQ(non_primary_ids[0],
+              current_layout.placement_list[2].parent_display_id);
+    EXPECT_EQ(display::DisplayPlacement::LEFT,
+              current_layout.placement_list[2].position);
+  }
+
+  // Make non_primary_ids[1] primary.
+  window_tree_host_manager->SetPrimaryDisplayId(non_primary_ids[1]);
+  EXPECT_EQ(non_primary_ids[1],
+            display::Screen::GetScreen()->GetPrimaryDisplay().id());
+
+  // Expect that the layout will be changed to:
+  //
+  // +--------------------+   +--------------------+   +--------------------+
+  // |                    |   | primary_id         |   |                    |
+  // |                    |   +--------------------+   |                    |
+  // |                    |             |              |                    |
+  // | non_primary_ids[1] |             V              | non_primary_ids[2] |
+  // |       (P)          |   +--------------------+   |                    |
+  // |                    |<--| non_primary_ids[0] |<--|                    |
+  // +--------------------+   +--------------------+   +--------------------+
+  {
+    const display::DisplayLayout& current_layout =
+        display_manager()->GetCurrentDisplayLayout();
+    EXPECT_EQ(non_primary_ids[1], current_layout.primary_id);
+    ASSERT_EQ(3u, current_layout.placement_list.size());
+    EXPECT_EQ(primary_id, current_layout.placement_list[0].display_id);
+    EXPECT_EQ(non_primary_ids[0],
+              current_layout.placement_list[0].parent_display_id);
+    EXPECT_EQ(display::DisplayPlacement::TOP,
+              current_layout.placement_list[0].position);
+    EXPECT_EQ(non_primary_ids[0], current_layout.placement_list[1].display_id);
+    EXPECT_EQ(non_primary_ids[1],
+              current_layout.placement_list[1].parent_display_id);
+    EXPECT_EQ(display::DisplayPlacement::RIGHT,
+              current_layout.placement_list[1].position);
+    EXPECT_EQ(non_primary_ids[2], current_layout.placement_list[2].display_id);
+    EXPECT_EQ(non_primary_ids[0],
+              current_layout.placement_list[2].parent_display_id);
+    EXPECT_EQ(display::DisplayPlacement::RIGHT,
+              current_layout.placement_list[2].position);
+  }
 }
 
 TEST_P(WindowTreeHostManagerTest, OverscanInsets) {
@@ -1074,8 +1304,9 @@ TEST_P(WindowTreeHostManagerTest, Rotate) {
   EXPECT_EQ(display::Display::ROTATE_0, GetActiveDisplayRotation(display2_id));
   EXPECT_EQ(1, observer.GetRotationChangedCountAndReset());
 
-  display_manager()->SetLayoutForCurrentDisplays(test::CreateDisplayLayout(
-      display_manager(), display::DisplayPlacement::BOTTOM, 50));
+  display_manager()->SetLayoutForCurrentDisplays(
+      display::test::CreateDisplayLayout(
+          display_manager(), display::DisplayPlacement::BOTTOM, 50));
   EXPECT_EQ("50,120 150x200",
             display_manager()->GetSecondaryDisplay().bounds().ToString());
 
@@ -1128,8 +1359,8 @@ TEST_P(WindowTreeHostManagerTest, ScaleRootWindow) {
   UpdateDisplay("600x400*2@1.5,500x300");
 
   display::Display display1 = display::Screen::GetScreen()->GetPrimaryDisplay();
-  test::ScopedSetInternalDisplayId set_internal(display_manager(),
-                                                display1.id());
+  display::test::ScopedSetInternalDisplayId set_internal(display_manager(),
+                                                         display1.id());
 
   display::Display display2 = display_manager()->GetSecondaryDisplay();
   aura::Window::Windows root_windows = Shell::GetAllRootWindows();
@@ -1143,7 +1374,8 @@ TEST_P(WindowTreeHostManagerTest, ScaleRootWindow) {
   generator.MoveMouseToInHost(599, 200);
   EXPECT_EQ("449,150", event_handler.GetLocationAndReset());
 
-  display_manager()->SetDisplayUIScale(display1.id(), 1.25f);
+  display::test::DisplayManagerTestApi(display_manager())
+      .SetDisplayUIScale(display1.id(), 1.25f);
   display1 = display::Screen::GetScreen()->GetPrimaryDisplay();
   display2 = display_manager()->GetSecondaryDisplay();
   EXPECT_EQ("0,0 375x250", display1.bounds().ToString());
@@ -1266,7 +1498,7 @@ TEST_P(WindowTreeHostManagerTest, DockToSingle) {
   display_info_list.push_back(external_display_info);
   display_manager()->OnNativeDisplaysChanged(display_info_list);
   const int64_t internal_display_id =
-      test::DisplayManagerTestApi(display_manager())
+      display::test::DisplayManagerTestApi(display_manager())
           .SetFirstDisplayAsInternalDisplay();
   EXPECT_EQ(internal_id, internal_display_id);
   EXPECT_EQ(2U, display_manager()->GetNumDisplays());
@@ -1336,7 +1568,7 @@ class RootWindowTestObserver : public aura::WindowObserver {
                              const gfx::Rect& old_bounds,
                              const gfx::Rect& new_bounds) override {
     shelf_display_bounds_ =
-        wm::GetDisplayBoundsWithShelf(WmWindowAura::Get(window));
+        wm::GetDisplayBoundsWithShelf(WmWindow::Get(window));
   }
 
   const gfx::Rect& shelf_display_bounds() const {

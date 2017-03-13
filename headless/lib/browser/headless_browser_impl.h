@@ -20,7 +20,7 @@ namespace aura {
 class WindowTreeHost;
 
 namespace client {
-class WindowTreeClient;
+class WindowParentingClient;
 }
 }
 
@@ -51,6 +51,9 @@ class HeadlessBrowserImpl : public HeadlessBrowser {
       const std::string& devtools_agent_host_id) override;
   HeadlessBrowserContext* GetBrowserContextForId(
       const std::string& id) override;
+  void SetDefaultBrowserContext(
+      HeadlessBrowserContext* browser_context) override;
+  HeadlessBrowserContext* GetDefaultBrowserContext() override;
 
   void set_browser_main_parts(HeadlessBrowserMainParts* browser_main_parts);
   HeadlessBrowserMainParts* browser_main_parts() const;
@@ -78,10 +81,11 @@ class HeadlessBrowserImpl : public HeadlessBrowser {
   // is used for all web contents. We should probably use one
   // window per web contents, but additional investigation is needed.
   std::unique_ptr<aura::WindowTreeHost> window_tree_host_;
-  std::unique_ptr<aura::client::WindowTreeClient> window_tree_client_;
+  std::unique_ptr<aura::client::WindowParentingClient> window_parenting_client_;
 
   std::unordered_map<std::string, std::unique_ptr<HeadlessBrowserContextImpl>>
       browser_contexts_;
+  HeadlessBrowserContext* default_browser_context_;  // Not owned.
 
   base::WeakPtrFactory<HeadlessBrowserImpl> weak_ptr_factory_;
 

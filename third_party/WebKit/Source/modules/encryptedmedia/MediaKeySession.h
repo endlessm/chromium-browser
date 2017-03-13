@@ -28,7 +28,7 @@
 
 #include "bindings/core/v8/ActiveScriptWrappable.h"
 #include "bindings/core/v8/ScriptPromiseProperty.h"
-#include "core/dom/ActiveDOMObject.h"
+#include "core/dom/ContextLifecycleObserver.h"
 #include "core/dom/DOMArrayPiece.h"
 #include "modules/EventTargetModules.h"
 #include "modules/encryptedmedia/MediaKeyStatusMap.h"
@@ -63,8 +63,8 @@ class MediaKeys;
 // The WebContentDecryptionModuleSession has the same lifetime as this object.
 class MediaKeySession final
     : public EventTargetWithInlineData,
-      public ActiveScriptWrappable,
-      public ActiveDOMObject,
+      public ActiveScriptWrappable<MediaKeySession>,
+      public ContextLifecycleObserver,
       private WebContentDecryptionModuleSession::Client {
   DEFINE_WRAPPERTYPEINFO();
   USING_GARBAGE_COLLECTED_MIXIN(MediaKeySession);
@@ -88,7 +88,6 @@ class MediaKeySession final
                                 const String& initDataType,
                                 const DOMArrayPiece& initData);
   ScriptPromise load(ScriptState*, const String& sessionId);
-
   ScriptPromise update(ScriptState*, const DOMArrayPiece& response);
   ScriptPromise close(ScriptState*);
   ScriptPromise remove(ScriptState*);
@@ -100,8 +99,8 @@ class MediaKeySession final
   // ScriptWrappable
   bool hasPendingActivity() const final;
 
-  // ActiveDOMObject
-  void contextDestroyed() override;
+  // ContextLifecycleObserver
+  void contextDestroyed(ExecutionContext*) override;
 
   DECLARE_VIRTUAL_TRACE();
 
@@ -115,6 +114,18 @@ class MediaKeySession final
 
   void actionTimerFired(TimerBase*);
 
+  // The following perform the asynchronous part of the command referenced.
+  void generateRequestTask(ContentDecryptionModuleResult*,
+                           WebEncryptedMediaInitDataType,
+                           DOMArrayBuffer* initDataBuffer);
+  void finishGenerateRequest();
+  void loadTask(ContentDecryptionModuleResult*, const String& sessionId);
+  void finishLoad();
+  void updateTask(ContentDecryptionModuleResult*,
+                  DOMArrayBuffer* sanitizedResponse);
+  void closeTask(ContentDecryptionModuleResult*);
+  void removeTask(ContentDecryptionModuleResult*);
+
   // WebContentDecryptionModuleSession::Client
   void message(MessageType,
                const unsigned char* message,
@@ -123,12 +134,6 @@ class MediaKeySession final
   void expirationChanged(double updatedExpiryTimeInMS) override;
   void keysStatusesChange(const WebVector<WebEncryptedMediaKeyInformation>&,
                           bool hasAdditionalUsableKey) override;
-
-  // Called by NewSessionResult when the new session has been created.
-  void finishGenerateRequest();
-
-  // Called by LoadSessionResult when the session has been loaded.
-  void finishLoad();
 
   Member<GenericEventQueue> m_asyncEventQueue;
   std::unique_ptr<WebContentDecryptionModuleSession> m_session;

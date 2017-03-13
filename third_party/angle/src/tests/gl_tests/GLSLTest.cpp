@@ -6,8 +6,6 @@
 
 #include "test_utils/ANGLETest.h"
 
-#include "libANGLE/Context.h"
-#include "libANGLE/Program.h"
 #include "test_utils/gl_raii.h"
 
 using namespace angle;
@@ -436,6 +434,12 @@ class GLSLTest : public ANGLETest
     }
 
     std::string mSimpleVSSource;
+};
+
+class GLSLTestNoValidation : public GLSLTest
+{
+  public:
+    GLSLTestNoValidation() { setNoErrorEnabled(true); }
 };
 
 class GLSLTest_ES3 : public GLSLTest
@@ -1246,30 +1250,6 @@ TEST_P(GLSLTest, MaxMinusTwoVaryingVec4PlusThreeSpecialVariables)
     VaryingTestBase(0, 0, 0, 0, 0, 0, maxVaryings - 2, 0, true, true, true, true);
 }
 
-// Disabled because drivers are allowed to successfully compile shaders that have more than the
-// maximum number of varyings. (http://anglebug.com/1296)
-TEST_P(GLSLTest, DISABLED_MaxVaryingVec4PlusFragCoord)
-{
-    GLint maxVaryings = 0;
-    glGetIntegerv(GL_MAX_VARYING_VECTORS, &maxVaryings);
-
-    // Generate shader code that uses gl_FragCoord, a special fragment shader variables.
-    // This test should fail, since we are really using (maxVaryings + 1) varyings.
-    VaryingTestBase(0, 0, 0, 0, 0, 0, maxVaryings, 0, true, false, false, false);
-}
-
-// Disabled because drivers are allowed to successfully compile shaders that have more than the
-// maximum number of varyings. (http://anglebug.com/1296)
-TEST_P(GLSLTest, DISABLED_MaxVaryingVec4PlusPointCoord)
-{
-    GLint maxVaryings = 0;
-    glGetIntegerv(GL_MAX_VARYING_VECTORS, &maxVaryings);
-
-    // Generate shader code that uses gl_FragCoord, a special fragment shader variables.
-    // This test should fail, since we are really using (maxVaryings + 1) varyings.
-    VaryingTestBase(0, 0, 0, 0, 0, 0, maxVaryings, 0, false, true, false, false);
-}
-
 TEST_P(GLSLTest, MaxVaryingVec3)
 {
     GLint maxVaryings = 0;
@@ -1377,57 +1357,12 @@ TEST_P(GLSLTest, MaxVaryingVec2Arrays)
     GLint maxVaryings = 0;
     glGetIntegerv(GL_MAX_VARYING_VECTORS, &maxVaryings);
 
-    VaryingTestBase(0, 0, 0, maxVaryings, 0, 0, 0, 0, false, false, false, true);
-}
+    // Special case: because arrays of mat2 are packed as small grids of two rows by two columns,
+    // we should be aware that when we're packing into an odd number of varying registers the
+    // last row will be empty and can not fit the final vec2 arrary.
+    GLint maxVec2Arrays = (maxVaryings >> 1) << 1;
 
-// Disabled because drivers are allowed to successfully compile shaders that have more than the
-// maximum number of varyings. (http://anglebug.com/1296)
-TEST_P(GLSLTest, DISABLED_MaxPlusOneVaryingVec3)
-{
-    GLint maxVaryings = 0;
-    glGetIntegerv(GL_MAX_VARYING_VECTORS, &maxVaryings);
-
-    VaryingTestBase(0, 0, 0, 0, maxVaryings + 1, 0, 0, 0, false, false, false, false);
-}
-
-// Disabled because drivers are allowed to successfully compile shaders that have more than the
-// maximum number of varyings. (http://anglebug.com/1296)
-TEST_P(GLSLTest, DISABLED_MaxPlusOneVaryingVec3Array)
-{
-    GLint maxVaryings = 0;
-    glGetIntegerv(GL_MAX_VARYING_VECTORS, &maxVaryings);
-
-    VaryingTestBase(0, 0, 0, 0, 0, maxVaryings / 2 + 1, 0, 0, false, false, false, false);
-}
-
-// Disabled because drivers are allowed to successfully compile shaders that have more than the
-// maximum number of varyings. (http://anglebug.com/1296)
-TEST_P(GLSLTest, DISABLED_MaxVaryingVec3AndOneVec2)
-{
-    GLint maxVaryings = 0;
-    glGetIntegerv(GL_MAX_VARYING_VECTORS, &maxVaryings);
-
-    VaryingTestBase(0, 0, 1, 0, maxVaryings, 0, 0, 0, false, false, false, false);
-}
-
-// Disabled because drivers are allowed to successfully compile shaders that have more than the
-// maximum number of varyings. (http://anglebug.com/1296)
-TEST_P(GLSLTest, DISABLED_MaxPlusOneVaryingVec2)
-{
-    GLint maxVaryings = 0;
-    glGetIntegerv(GL_MAX_VARYING_VECTORS, &maxVaryings);
-
-    VaryingTestBase(0, 0, 2 * maxVaryings + 1, 0, 0, 0, 0, 0, false, false, false, false);
-}
-
-// Disabled because drivers are allowed to successfully compile shaders that have more than the
-// maximum number of varyings. (http://anglebug.com/1296)
-TEST_P(GLSLTest, DISABLED_MaxVaryingVec3ArrayAndMaxPlusOneFloatArray)
-{
-    GLint maxVaryings = 0;
-    glGetIntegerv(GL_MAX_VARYING_VECTORS, &maxVaryings);
-
-    VaryingTestBase(0, maxVaryings / 2 + 1, 0, 0, 0, 0, 0, maxVaryings / 2, false, false, false, false);
+    VaryingTestBase(0, 0, 0, maxVec2Arrays, 0, 0, 0, 0, false, false, false, true);
 }
 
 // Verify shader source with a fixed length that is less than the null-terminated length will compile.
@@ -1612,7 +1547,7 @@ TEST_P(GLSLTest, StructSpecifiersUniforms)
 // beginning with "gl_" are filtered out by our validation logic, we must
 // bypass the validation to test the behaviour of the implementation.
 // (note this test is still Impl-independent)
-TEST_P(GLSLTest, DepthRangeUniforms)
+TEST_P(GLSLTestNoValidation, DepthRangeUniforms)
 {
     const std::string fragmentShaderSource = SHADER_SOURCE
     (
@@ -1624,21 +1559,16 @@ TEST_P(GLSLTest, DepthRangeUniforms)
         }
     );
 
-    GLuint program = CompileProgram(mSimpleVSSource, fragmentShaderSource);
-    EXPECT_NE(0u, program);
+    ANGLE_GL_PROGRAM(program, mSimpleVSSource, fragmentShaderSource);
 
-    // dive into the ANGLE internals, so we can bypass validation.
-    gl::Context *context = reinterpret_cast<gl::Context *>(getEGLWindow()->getContext());
-    gl::Program *glProgram = context->getProgram(program);
-    GLint nearIndex = glProgram->getUniformLocation("gl_DepthRange.near");
+    // We need to bypass validation for this call.
+    GLint nearIndex = glGetUniformLocation(program.get(), "gl_DepthRange.near");
     EXPECT_EQ(-1, nearIndex);
 
     // Test drawing does not throw an exception.
-    drawQuad(program, "inputAttribute", 0.5f);
+    drawQuad(program.get(), "inputAttribute", 0.5f);
 
     EXPECT_GL_NO_ERROR();
-
-    glDeleteProgram(program);
 }
 
 std::string GenerateSmallPowShader(double base, double exponent)
@@ -1777,6 +1707,12 @@ TEST_P(GLSLTest, LoopIndexingValidation)
 // can actually be used.
 TEST_P(GLSLTest, VerifyMaxVertexUniformVectors)
 {
+    if (IsLinux() && IsIntel())
+    {
+        std::cout << "Test timed out on Linux Intel. See crbug.com/680631." << std::endl;
+        return;
+    }
+
     int maxUniforms = 10000;
     glGetIntegerv(GL_MAX_VERTEX_UNIFORM_VECTORS, &maxUniforms);
     EXPECT_GL_NO_ERROR();
@@ -1823,6 +1759,12 @@ TEST_P(GLSLTest, VerifyMaxVertexUniformVectorsExceeded)
 // can actually be used.
 TEST_P(GLSLTest, VerifyMaxFragmentUniformVectors)
 {
+    if (IsLinux() && IsIntel())
+    {
+        std::cout << "Test timed out on Linux Intel. See crbug.com/680631." << std::endl;
+        return;
+    }
+
     int maxUniforms = 10000;
     glGetIntegerv(GL_MAX_FRAGMENT_UNIFORM_VECTORS, &maxUniforms);
     EXPECT_GL_NO_ERROR();
@@ -2241,6 +2183,55 @@ TEST_P(GLSLTest, NestedPowStatements)
     EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::green);
 }
 
+// Test that -float calculation is correct.
+TEST_P(GLSLTest_ES3, UnaryMinusOperatorFloat)
+{
+    const std::string &vert =
+        "#version 300 es\n"
+        "in highp vec4 position;\n"
+        "void main() {\n"
+        "    gl_Position = position;\n"
+        "}\n";
+    const std::string &frag =
+        "#version 300 es\n"
+        "out highp vec4 o_color;\n"
+        "void main() {\n"
+        "    highp float f = -1.0;\n"
+        "    // atan(tan(0.5), -f) should be 0.5.\n"
+        "    highp float v = atan(tan(0.5), -f);\n"
+        "    o_color = abs(v - 0.5) < 0.001 ? vec4(0, 1, 0, 1) : vec4(1, 0, 0, 1);\n"
+        "}\n";
+
+    ANGLE_GL_PROGRAM(prog, vert, frag);
+    drawQuad(prog.get(), "position", 0.5f);
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::green);
+}
+
+// Test that atan(vec2, vec2) calculation is correct.
+TEST_P(GLSLTest_ES3, AtanVec2)
+{
+    const std::string &vert =
+        "#version 300 es\n"
+        "in highp vec4 position;\n"
+        "void main() {\n"
+        "    gl_Position = position;\n"
+        "}\n";
+    const std::string &frag =
+        "#version 300 es\n"
+        "out highp vec4 o_color;\n"
+        "void main() {\n"
+        "    highp float f = 1.0;\n"
+        "    // atan(tan(0.5), f) should be 0.5.\n"
+        "    highp vec2 v = atan(vec2(tan(0.5)), vec2(f));\n"
+        "    o_color = (abs(v[0] - 0.5) < 0.001 && abs(v[1] - 0.5) < 0.001) ? vec4(0, 1, 0, 1) : "
+        "vec4(1, 0, 0, 1);\n"
+        "}\n";
+
+    ANGLE_GL_PROGRAM(prog, vert, frag);
+    drawQuad(prog.get(), "position", 0.5f);
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::green);
+}
+
 // Convers a bug with the unary minus operator on signed integer workaround.
 TEST_P(GLSLTest_ES3, UnaryMinusOperatorSignedInt)
 {
@@ -2273,13 +2264,11 @@ TEST_P(GLSLTest_ES3, UnaryMinusOperatorSignedInt)
 
     ANGLE_GL_PROGRAM(prog, vert, frag);
 
-    gl::Context *context   = reinterpret_cast<gl::Context *>(getEGLWindow()->getContext());
-    gl::Program *glProgram = context->getProgram(prog.get());
-    GLint oneIndex         = glProgram->getUniformLocation("ui_one");
+    GLint oneIndex = glGetUniformLocation(prog.get(), "ui_one");
     ASSERT_NE(-1, oneIndex);
-    GLint twoIndex = glProgram->getUniformLocation("ui_two");
+    GLint twoIndex = glGetUniformLocation(prog.get(), "ui_two");
     ASSERT_NE(-1, twoIndex);
-    GLint threeIndex = glProgram->getUniformLocation("ui_three");
+    GLint threeIndex = glGetUniformLocation(prog.get(), "ui_three");
     ASSERT_NE(-1, threeIndex);
     glUseProgram(prog.get());
     glUniform1i(oneIndex, 1);
@@ -2322,13 +2311,11 @@ TEST_P(GLSLTest_ES3, UnaryMinusOperatorUnsignedInt)
 
     ANGLE_GL_PROGRAM(prog, vert, frag);
 
-    gl::Context *context   = reinterpret_cast<gl::Context *>(getEGLWindow()->getContext());
-    gl::Program *glProgram = context->getProgram(prog.get());
-    GLint oneIndex         = glProgram->getUniformLocation("ui_one");
+    GLint oneIndex = glGetUniformLocation(prog.get(), "ui_one");
     ASSERT_NE(-1, oneIndex);
-    GLint twoIndex = glProgram->getUniformLocation("ui_two");
+    GLint twoIndex = glGetUniformLocation(prog.get(), "ui_two");
     ASSERT_NE(-1, twoIndex);
-    GLint threeIndex = glProgram->getUniformLocation("ui_three");
+    GLint threeIndex = glGetUniformLocation(prog.get(), "ui_three");
     ASSERT_NE(-1, threeIndex);
     glUseProgram(prog.get());
     glUniform1ui(oneIndex, 1u);
@@ -2391,26 +2378,55 @@ TEST_P(GLSLTest, ExternalAnd2DSampler)
     ANGLE_GL_PROGRAM(program, mSimpleVSSource, fragmentShader);
 }
 
-// Test that using an invalid constant right-shift produces an error.
-TEST_P(GLSLTest_ES3, FoldedInvalidRightShift)
+// Test that literal infinity can be written out from the shader translator.
+// A similar test can't be made for NaNs, since ESSL 3.00.6 requirements for NaNs are very loose.
+TEST_P(GLSLTest_ES3, LiteralInfinityOutput)
 {
     const std::string &fragmentShader =
         "#version 300 es\n"
-        "precision mediump float;\n"
-        "out vec4 color;\n"
-        "void main(void)\n"
+        "precision highp float;\n"
+        "out vec4 out_color;\n"
+        "uniform float u;\n"
+        "void main()\n"
         "{\n"
-        " int diff = -100 >> -100;\n"
-        " color = vec4(float(diff));\n"
+        "   float infVar = 1.0e40 - u;\n"
+        "   bool correct = isinf(infVar) && infVar > 0.0;\n"
+        "   out_color = correct ? vec4(0.0, 1.0, 0.0, 1.0) : vec4(1.0, 0.0, 0.0, 1.0);\n"
         "}\n";
 
-    GLuint program = CompileProgram(mSimpleVSSource, fragmentShader);
-    EXPECT_EQ(0u, program);
-    glDeleteProgram(program);
+    ANGLE_GL_PROGRAM(program, mSimpleVSSource, fragmentShader);
+    drawQuad(program.get(), "inputAttribute", 0.5f);
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::green);
 }
 
-// Test that using an invalid constant left-shift produces an error.
-TEST_P(GLSLTest_ES3, FoldedInvalidLeftShift)
+// Test that literal negative infinity can be written out from the shader translator.
+// A similar test can't be made for NaNs, since ESSL 3.00.6 requirements for NaNs are very loose.
+TEST_P(GLSLTest_ES3, LiteralNegativeInfinityOutput)
+{
+    const std::string &fragmentShader =
+        "#version 300 es\n"
+        "precision highp float;\n"
+        "out vec4 out_color;\n"
+        "uniform float u;\n"
+        "void main()\n"
+        "{\n"
+        "   float infVar = -1.0e40 + u;\n"
+        "   bool correct = isinf(infVar) && infVar < 0.0;\n"
+        "   out_color = correct ? vec4(0.0, 1.0, 0.0, 1.0) : vec4(1.0, 0.0, 0.0, 1.0);\n"
+        "}\n";
+
+    ANGLE_GL_PROGRAM(program, mSimpleVSSource, fragmentShader);
+    drawQuad(program.get(), "inputAttribute", 0.5f);
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::green);
+}
+
+// The following MultipleDeclaration* tests are testing TranslatorHLSL specific simplification
+// passes. Because the interaction of multiple passes must be tested, it is difficult to write
+// a unittest for them. Instead we add the tests as end2end so will in particular test
+// TranslatorHLSL when run on Windows.
+
+// Test that passes splitting multiple declarations and comma operators are correctly ordered.
+TEST_P(GLSLTest_ES3, MultipleDeclarationWithCommaOperator)
 {
     const std::string &fragmentShader =
         "#version 300 es\n"
@@ -2418,13 +2434,159 @@ TEST_P(GLSLTest_ES3, FoldedInvalidLeftShift)
         "out vec4 color;\n"
         "void main(void)\n"
         "{\n"
-        " int diff = -100 << -100;\n"
-        " color = vec4(float(diff));\n"
+        " float a = 0.0, b = ((gl_FragCoord.x < 0.5 ? a : 0.0), 1.0);\n"
+        " color = vec4(b);\n"
         "}\n";
 
-    GLuint program = CompileProgram(mSimpleVSSource, fragmentShader);
-    EXPECT_EQ(0u, program);
-    glDeleteProgram(program);
+    ANGLE_GL_PROGRAM(program, mSimpleVSSource, fragmentShader);
+}
+
+// Test that passes splitting multiple declarations and comma operators and for loops are
+// correctly ordered.
+TEST_P(GLSLTest_ES3, MultipleDeclarationWithCommaOperatorInForLoop)
+{
+    const std::string &fragmentShader =
+        "#version 300 es\n"
+        "precision mediump float;\n"
+        "out vec4 color;\n"
+        "void main(void)\n"
+        "{\n"
+        " for(float a = 0.0, b = ((gl_FragCoord.x < 0.5 ? a : 0.0), 1.0); a < 10.0; a++)\n"
+        " {\n"
+        "  b += 1.0;\n"
+        "  color = vec4(b);\n"
+        " }\n"
+        "}\n";
+
+    ANGLE_GL_PROGRAM(program, mSimpleVSSource, fragmentShader);
+}
+
+// Test that splitting multiple declaration in for loops works with no loop condition
+TEST_P(GLSLTest_ES3, MultipleDeclarationInForLoopEmptyCondition)
+{
+    const std::string &fragmentShader =
+        "#version 300 es\n"
+        "precision mediump float;\n"
+        "out vec4 color;\n"
+        "void main(void)\n"
+        "{\n"
+        " for(float a = 0.0, b = 1.0;; a++)\n"
+        " {\n"
+        "  b += 1.0;\n"
+        "  if (a > 10.0) {break;}\n"
+        "  color = vec4(b);\n"
+        " }\n"
+        "}\n";
+
+    ANGLE_GL_PROGRAM(program, mSimpleVSSource, fragmentShader);
+}
+
+// Test that splitting multiple declaration in for loops works with no loop expression
+TEST_P(GLSLTest_ES3, MultipleDeclarationInForLoopEmptyExpression)
+{
+    const std::string &fragmentShader =
+        "#version 300 es\n"
+        "precision mediump float;\n"
+        "out vec4 color;\n"
+        "void main(void)\n"
+        "{\n"
+        " for(float a = 0.0, b = 1.0; a < 10.0;)\n"
+        " {\n"
+        "  b += 1.0;\n"
+        "  a += 1.0;\n"
+        "  color = vec4(b);\n"
+        " }\n"
+        "}\n";
+
+    ANGLE_GL_PROGRAM(program, mSimpleVSSource, fragmentShader);
+}
+
+// Test that dynamic indexing of a matrix inside a dynamic indexing of a vector in an l-value works
+// correctly.
+TEST_P(GLSLTest_ES3, NestedDynamicIndexingInLValue)
+{
+    const std::string &fragmentShader =
+        "#version 300 es\n"
+        "precision mediump float;\n"
+        "out vec4 my_FragColor;\n"
+        "uniform int u_zero;\n"
+        "void main() {\n"
+        "    mat2 m = mat2(0.0, 0.0, 0.0, 0.0);\n"
+        "    m[u_zero + 1][u_zero + 1] = float(u_zero + 1);\n"
+        "    float f = m[1][1];\n"
+        "    my_FragColor = vec4(1.0 - f, f, 0.0, 1.0);\n"
+        "}\n";
+
+    ANGLE_GL_PROGRAM(program, mSimpleVSSource, fragmentShader);
+    drawQuad(program.get(), "inputAttribute", 0.5f);
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::green);
+}
+
+class WebGLGLSLTest : public GLSLTest
+{
+  protected:
+    WebGLGLSLTest() { setWebGLCompatibilityEnabled(true); }
+};
+
+TEST_P(WebGLGLSLTest, MaxVaryingVec4PlusFragCoord)
+{
+    GLint maxVaryings = 0;
+    glGetIntegerv(GL_MAX_VARYING_VECTORS, &maxVaryings);
+
+    // Generate shader code that uses gl_FragCoord, a special fragment shader variables.
+    // This test should fail, since we are really using (maxVaryings + 1) varyings.
+    VaryingTestBase(0, 0, 0, 0, 0, 0, maxVaryings, 0, true, false, false, false);
+}
+
+TEST_P(WebGLGLSLTest, MaxVaryingVec4PlusPointCoord)
+{
+    GLint maxVaryings = 0;
+    glGetIntegerv(GL_MAX_VARYING_VECTORS, &maxVaryings);
+
+    // Generate shader code that uses gl_FragCoord, a special fragment shader variables.
+    // This test should fail, since we are really using (maxVaryings + 1) varyings.
+    VaryingTestBase(0, 0, 0, 0, 0, 0, maxVaryings, 0, false, true, false, false);
+}
+
+TEST_P(WebGLGLSLTest, MaxPlusOneVaryingVec3)
+{
+    GLint maxVaryings = 0;
+    glGetIntegerv(GL_MAX_VARYING_VECTORS, &maxVaryings);
+
+    VaryingTestBase(0, 0, 0, 0, maxVaryings + 1, 0, 0, 0, false, false, false, false);
+}
+
+TEST_P(WebGLGLSLTest, MaxPlusOneVaryingVec3Array)
+{
+    GLint maxVaryings = 0;
+    glGetIntegerv(GL_MAX_VARYING_VECTORS, &maxVaryings);
+
+    VaryingTestBase(0, 0, 0, 0, 0, maxVaryings / 2 + 1, 0, 0, false, false, false, false);
+}
+
+TEST_P(WebGLGLSLTest, MaxVaryingVec3AndOneVec2)
+{
+    GLint maxVaryings = 0;
+    glGetIntegerv(GL_MAX_VARYING_VECTORS, &maxVaryings);
+
+    VaryingTestBase(0, 0, 1, 0, maxVaryings, 0, 0, 0, false, false, false, false);
+}
+
+TEST_P(WebGLGLSLTest, MaxPlusOneVaryingVec2)
+{
+    GLint maxVaryings = 0;
+    glGetIntegerv(GL_MAX_VARYING_VECTORS, &maxVaryings);
+
+    VaryingTestBase(0, 0, 2 * maxVaryings + 1, 0, 0, 0, 0, 0, false, false, false, false);
+}
+
+TEST_P(WebGLGLSLTest, MaxVaryingVec3ArrayAndMaxPlusOneFloatArray)
+{
+    GLint maxVaryings = 0;
+    glGetIntegerv(GL_MAX_VARYING_VECTORS, &maxVaryings);
+
+    VaryingTestBase(0, maxVaryings / 2 + 1, 0, 0, 0, 0, 0, maxVaryings / 2, false, false, false,
+                    false);
 }
 
 }  // anonymous namespace
@@ -2441,3 +2603,5 @@ ANGLE_INSTANTIATE_TEST(GLSLTest,
 
 // Use this to select which configurations (e.g. which renderer, which GLES major version) these tests should be run against.
 ANGLE_INSTANTIATE_TEST(GLSLTest_ES3, ES3_D3D11(), ES3_OPENGL(), ES3_OPENGLES());
+
+ANGLE_INSTANTIATE_TEST(WebGLGLSLTest, ES2_D3D11(), ES2_OPENGL(), ES2_OPENGLES());

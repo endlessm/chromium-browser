@@ -6,11 +6,15 @@
 
 #include "core/fpdfapi/page/cpdf_shadingpattern.h"
 
+#include <algorithm>
+
+#include "core/fpdfapi/page/cpdf_docpagedata.h"
 #include "core/fpdfapi/page/pageint.h"
 #include "core/fpdfapi/parser/cpdf_array.h"
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/parser/cpdf_document.h"
 #include "core/fpdfapi/parser/cpdf_object.h"
+#include "core/fpdfapi/parser/cpdf_stream.h"
 
 namespace {
 
@@ -60,12 +64,12 @@ CPDF_ShadingPattern* CPDF_ShadingPattern::AsShadingPattern() {
 
 bool CPDF_ShadingPattern::Load() {
   if (m_ShadingType != kInvalidShading)
-    return TRUE;
+    return true;
 
   CPDF_Dictionary* pShadingDict =
       m_pShadingObj ? m_pShadingObj->GetDict() : nullptr;
   if (!pShadingDict)
-    return FALSE;
+    return false;
 
   m_pFunctions.clear();
   CPDF_Object* pFunc = pShadingDict->GetDirectObjectFor("Function");
@@ -80,7 +84,7 @@ bool CPDF_ShadingPattern::Load() {
   }
   CPDF_Object* pCSObj = pShadingDict->GetDirectObjectFor("ColorSpace");
   if (!pCSObj)
-    return FALSE;
+    return false;
 
   CPDF_DocPageData* pDocPageData = m_pDocument->GetPageData();
   m_pCS = pDocPageData->GetColorSpace(pCSObj, nullptr);
@@ -91,7 +95,7 @@ bool CPDF_ShadingPattern::Load() {
 
   // We expect to have a stream if our shading type is a mesh.
   if (IsMeshShading() && !ToStream(m_pShadingObj))
-    return FALSE;
+    return false;
 
-  return TRUE;
+  return true;
 }

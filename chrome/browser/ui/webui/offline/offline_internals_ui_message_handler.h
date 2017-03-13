@@ -7,11 +7,15 @@
 
 #include "base/memory/weak_ptr.h"
 #include "base/values.h"
-#include "components/offline_pages/background/request_coordinator.h"
-#include "components/offline_pages/background/save_page_request.h"
-#include "components/offline_pages/offline_page_model.h"
-#include "components/offline_pages/offline_store_types.h"
+#include "components/offline_pages/core/background/request_coordinator.h"
+#include "components/offline_pages/core/background/save_page_request.h"
+#include "components/offline_pages/core/offline_page_model.h"
+#include "components/offline_pages/core/offline_store_types.h"
 #include "content/public/browser/web_ui_message_handler.h"
+
+namespace offline_pages {
+enum class GetRequestsResult;
+}
 
 namespace offline_internals {
 
@@ -63,7 +67,7 @@ class OfflineInternalsUIMessageHandler : public content::WebUIMessageHandler {
   // Callback for async GetRequests calls.
   void HandleRequestQueueCallback(
       std::string callback_id,
-      offline_pages::RequestQueue::GetRequestsResult result,
+      offline_pages::GetRequestsResult result,
       std::vector<std::unique_ptr<offline_pages::SavePageRequest>> requests);
 
   // Callback for DeletePage/DeleteAllPages calls.

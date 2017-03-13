@@ -17,8 +17,9 @@
 #include "base/threading/thread_checker.h"
 #include "media/base/cdm_context.h"
 #include "media/base/cdm_initialized_promise.h"
-#include "media/base/media_keys.h"
-#include "media/mojo/common/mojo_type_trait.h"
+#include "media/base/cdm_promise_adapter.h"
+#include "media/base/cdm_session_tracker.h"
+#include "media/base/content_decryption_module.h"
 #include "media/mojo/interfaces/content_decryption_module.mojom.h"
 #include "mojo/public/cpp/bindings/binding.h"
 
@@ -30,33 +31,35 @@ namespace media {
 
 class MojoDecryptor;
 
-// A MediaKeys that proxies to a mojom::ContentDecryptionModule. That
-// mojom::ContentDecryptionModule proxies back to the MojoCdm via the
+// A ContentDecryptionModule that proxies to a mojom::ContentDecryptionModule.
+// That mojom::ContentDecryptionModule proxies back to the MojoCdm via the
 // mojom::ContentDecryptionModuleClient interface.
-class MojoCdm : public MediaKeys,
+class MojoCdm : public ContentDecryptionModule,
                 public CdmContext,
                 public mojom::ContentDecryptionModuleClient {
  public:
+  using MessageType = ContentDecryptionModule::MessageType;
+
   static void Create(
       const std::string& key_system,
       const GURL& security_origin,
-      const media::CdmConfig& cdm_config,
+      const CdmConfig& cdm_config,
       mojom::ContentDecryptionModulePtr remote_cdm,
-      const media::SessionMessageCB& session_message_cb,
-      const media::SessionClosedCB& session_closed_cb,
-      const media::SessionKeysChangeCB& session_keys_change_cb,
-      const media::SessionExpirationUpdateCB& session_expiration_update_cb,
-      const media::CdmCreatedCB& cdm_created_cb);
+      const SessionMessageCB& session_message_cb,
+      const SessionClosedCB& session_closed_cb,
+      const SessionKeysChangeCB& session_keys_change_cb,
+      const SessionExpirationUpdateCB& session_expiration_update_cb,
+      const CdmCreatedCB& cdm_created_cb);
 
-  // MediaKeys implementation.
+  // ContentDecryptionModule implementation.
   void SetServerCertificate(const std::vector<uint8_t>& certificate,
                             std::unique_ptr<SimpleCdmPromise> promise) final;
   void CreateSessionAndGenerateRequest(
-      SessionType session_type,
+      CdmSessionType session_type,
       EmeInitDataType init_data_type,
       const std::vector<uint8_t>& init_data,
       std::unique_ptr<NewSessionCdmPromise> promise) final;
-  void LoadSession(SessionType session_type,
+  void LoadSession(CdmSessionType session_type,
                    const std::string& session_id,
                    std::unique_ptr<NewSessionCdmPromise> promise) final;
   void UpdateSession(const std::string& session_id,
@@ -70,7 +73,7 @@ class MojoCdm : public MediaKeys,
 
   // CdmContext implementation. Can be called on a different thread.
   // All GetDecryptor() calls must be made on the same thread.
-  media::Decryptor* GetDecryptor() final;
+  Decryptor* GetDecryptor() final;
   int GetCdmId() const final;
 
  private:
@@ -84,27 +87,25 @@ class MojoCdm : public MediaKeys,
 
   void InitializeCdm(const std::string& key_system,
                      const GURL& security_origin,
-                     const media::CdmConfig& cdm_config,
+                     const CdmConfig& cdm_config,
                      std::unique_ptr<CdmInitializedPromise> promise);
 
-  void OnConnectionError();
+  void OnConnectionError(uint32_t custom_reason,
+                         const std::string& description);
 
   // mojom::ContentDecryptionModuleClient implementation.
-  void OnSessionMessage(const mojo::String& session_id,
-                        mojom::CdmMessageType message_type,
-                        mojo::Array<uint8_t> message) final;
-  void OnSessionClosed(const mojo::String& session_id) final;
+  void OnSessionMessage(const std::string& session_id,
+                        MessageType message_type,
+                        const std::vector<uint8_t>& message) final;
+  void OnSessionClosed(const std::string& session_id) final;
   void OnSessionKeysChange(
-      const mojo::String& session_id,
+      const std::string& session_id,
       bool has_additional_usable_key,
-      mojo::Array<mojom::CdmKeyInformationPtr> keys_info) final;
-  void OnSessionExpirationUpdate(const mojo::String& session_id,
+      std::vector<mojom::CdmKeyInformationPtr> keys_info) final;
+  void OnSessionExpirationUpdate(const std::string& session_id,
                                  double new_expiry_time_sec) final;
 
   // Callback for InitializeCdm.
-  // Note: Cannot use OnPromiseResult() below since we need to handle connection
-  // error. Also we have extra parameters |cdm_id| and |decryptor|, which aren't
-  // needed in CdmInitializedPromise.
   void OnCdmInitialized(mojom::CdmPromiseResultPtr result,
                         int cdm_id,
                         mojom::DecryptorPtr decryptor);
@@ -113,18 +114,11 @@ class MojoCdm : public MediaKeys,
   void OnKeyAdded();
 
   // Callbacks to handle CDM promises.
-  // We have to inline this method, since MS VS 2013 compiler fails to compile
-  // it when this method is not inlined. It fails with error C2244
-  // "unable to match function definition to an existing declaration".
-  template <typename... T>
-  void OnPromiseResult(std::unique_ptr<CdmPromiseTemplate<T...>> promise,
-                       mojom::CdmPromiseResultPtr result,
-                       typename MojoTypeTrait<T>::MojoType... args) {
-    if (result->success)
-      promise->resolve(args.template To<T>()...);  // See ISO C++03 14.2/4.
-    else
-      RejectPromise(std::move(promise), std::move(result));
-  }
+  void OnSimpleCdmPromiseResult(uint32_t promise_id,
+                                mojom::CdmPromiseResultPtr result);
+  void OnNewSessionCdmPromiseResult(uint32_t promise_id,
+                                    mojom::CdmPromiseResultPtr result,
+                                    const std::string& session_id);
 
   base::ThreadChecker thread_checker_;
 
@@ -159,6 +153,12 @@ class MojoCdm : public MediaKeys,
 
   // Pending promise for InitializeCdm().
   std::unique_ptr<CdmInitializedPromise> pending_init_promise_;
+
+  // Keep track of current sessions.
+  CdmSessionTracker cdm_session_tracker_;
+
+  // Keep track of outstanding promises.
+  CdmPromiseAdapter cdm_promise_adapter_;
 
   // This must be the last member.
   base::WeakPtrFactory<MojoCdm> weak_factory_;

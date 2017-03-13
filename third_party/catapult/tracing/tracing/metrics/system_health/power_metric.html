@@ -5,6 +5,7 @@ Use of this source code is governed by a BSD-style license that can be
 found in the LICENSE file.
 -->
 
+<link rel="import" href="/tracing/base/range.html">
 <link rel="import" href="/tracing/base/statistics.html">
 <link rel="import" href="/tracing/importer/find_input_expectations.html">
 <link rel="import" href="/tracing/metrics/metric_registry.html">
@@ -15,14 +16,6 @@ found in the LICENSE file.
 'use strict';
 
 tr.exportTo('tr.metrics.sh', function() {
-
-  // TODO(alexandermont): Per-frame power metric will be deprecated once
-  // newer metrics come online.
-  // Frame rate, used to divide power sample interval into frames
-  // for purposes of per-frame power metric.
-  var FRAMES_PER_SEC = 60;
-  var FRAME_MS = tr.b.convertUnit(1.0 / FRAMES_PER_SEC,
-      tr.b.UnitScale.Metric.NONE, tr.b.UnitScale.Metric.MILLI);
 
   /**
    * Returns power data for the specified interval in the form:
@@ -35,34 +28,32 @@ tr.exportTo('tr.metrics.sh', function() {
   function getPowerData_(model, start, end) {
     var durationInMs = end - start;
     var durationInS = tr.b.convertUnit(durationInMs,
-        tr.b.UnitScale.Metric.MILLI, tr.b.UnitScale.Metric.NONE);
+        tr.b.UnitPrefixScale.METRIC.MILLI,
+        tr.b.UnitPrefixScale.METRIC.NONE);
+    var samples = model.device.powerSeries.getSamplesWithinRange(start, end);
     var energyInJ = model.device.powerSeries.getEnergyConsumedInJ(start, end);
     var powerInW = energyInJ / durationInS;
-    return {duration: durationInMs, energy: energyInJ, power: powerInW};
+    return {samples: samples, time: durationInS,
+        energy: energyInJ, power: powerInW};
   }
 
-  // TODO(alexandermont): When LoadExpectation v1.0 is released,
-  // update this function to use the new LoadExpectation rather
-  // than calling loading_metric.html. If we set the end of the loading
-  // RAIL stage to be the TTI, then we may not even need to treat the loading
-  // events separately; we can just treat them like any other RAIL stage
-  // (and the RAIL stage boundaries will be the intervals that we want.)
   /**
    * Returns the intervals of time between navigation event and time to
    * interactive.
    */
   function getNavigationTTIIntervals_(model) {
-    var values = new tr.v.ValueSet();
-    tr.metrics.sh.loadingMetric(values, model);
-    var ttiValues = values.getValuesNamed('timeToFirstInteractive');
+    var chromeHelper = model.getOrCreateHelper(
+        tr.model.helpers.ChromeModelHelper);
     var intervals = [];
-    for (var bin of tr.b.getOnlyElement(ttiValues).allBins) {
-      for (var diagnostics of bin.diagnosticMaps) {
-        var breakdown = diagnostics.get('Navigation infos');
+    tr.b.iterItems(chromeHelper.rendererHelpers, (pid, rendererHelper) => {
+      var samples = tr.metrics.sh.collectLoadingMetricsForRenderer(
+          rendererHelper).firstInteractiveSamples;
+      for (var sample of samples) {
+        var info = sample.diagnostics['Navigation infos'].value;
         intervals.push(tr.b.Range.fromExplicitRange(
-            breakdown.value.start, breakdown.value.interactive));
+            info.start, info.interactive));
       }
-    }
+    });
     return intervals.sort((x, y) => x.min - y.min);
   }
 
@@ -118,28 +109,9 @@ tr.exportTo('tr.metrics.sh', function() {
       std: false,
       sum: false,
     });
-    hist.description = 'Energy consumption rate in ' + description;
+    hist.description = 'Energy consumption rate for ' + description;
     values.addHistogram(hist);
     return hist;
-  }
-
-  /**
-   * Stores the power data in data into the given histograms for time, energy,
-   * and power. If a histogram is undefined then the corresponding type of
-   * data is not stored.
-   *
-   * @param {!Object} data - Power data (obtained from getPowerData_)
-   * @param {tr.v.Histogram} timeHist - Histogram to store time data.
-   * @param {tr.v.Histogram} energyHist - Histogram to store energy data.
-   * @param {tr.v.Histogram} powerHist - Histogram to store power data.
-   */
-  function storePowerData_(data, timeHist, energyHist, powerHist) {
-    if (timeHist !== undefined)
-      timeHist.addSample(data.duration);
-    if (energyHist !== undefined)
-      energyHist.addSample(data.energy);
-    if (powerHist !== undefined)
-      powerHist.addSample(data.power);
   }
 
   function createHistograms_(model, values) {
@@ -147,59 +119,53 @@ tr.exportTo('tr.metrics.sh', function() {
 
     // "Generic" RAIL stage metrics. These give time, energy, and power
     // for each RAIL stage, indexed by name. For instance, "Tap Animation"
-    // is different from "Tap, Touch Animation". There is one histogram
+    // is different from "Scroll Animation". There is one histogram
     // for each RAIL stage name; if there are multiple RAIL stages with
     // the same name, these are different samples in the histogram.
-    hists.railStageToTimeHist = new Map();
     hists.railStageToEnergyHist = new Map();
     hists.railStageToPowerHist = new Map();
-
-    // Metrics for scrolling. A scroll stage is any stage with the
-    // string "Scroll" in its name. For instance, "Scroll Response",
-    // "Scroll Animation", and "Scroll, Touch Animation" are all
-    // scroll stages. Histograms for scroll metrics contain one
-    // sample for each scroll stage.
-    hists.scrollTimeHist = makeTimeHistogram_(values, 'scroll','scrolling');
-    hists.scrollEnergyHist = makeEnergyHistogram_(values, 'scroll','scrolling');
-    hists.scrollPowerHist = makePowerHistogram_(values, 'scroll','scrolling');
 
     // Metrics for loading. Loading intervals are defined by the intervals
     // between navigation and TTI (time-to-interactive) given by
     // getNavigationTTIIntervals_. We also have a metric for the energy
     // consumed after load.
-    hists.loadTimeHist = makeTimeHistogram_(values, 'load', 'page loads');
     hists.loadEnergyHist = makeEnergyHistogram_(values, 'load', 'page loads');
-    hists.afterLoadTimeHist = makeTimeHistogram_(values, 'after_load',
-        'period after load');
     hists.afterLoadPowerHist = makePowerHistogram_(values, 'after_load',
         'period after load');
 
-    // Metrics for video. A video stage is any stage with the string "Video"
-    // in its name. Histograms for video metrics contain one sample for each
-    // video stage. Only power metrics are available for video stages.
-    hists.videoPowerHist = makePowerHistogram_(values, 'video',
-        'video playback')
-
-    // Frame based power metric.
-    hists.frameEnergyHist = makeEnergyHistogram_(values, 'per_frame',
-        'each frame');
+    // Whole trace average power metric.
+    hists.wholeTracePowerHist = makePowerHistogram_(values, 'story',
+        'user story');
 
     for (var exp of model.userModel.expectations) {
       var currTitle = exp.title.toLowerCase().replace(' ', '_');
       // If we haven't seen a RAIL stage with this title before,
       // we have to create a new set of histograms for the "generic"
       // RAIL stage metrics.
-      if (!hists.railStageToTimeHist.has(currTitle)) {
-        var timeHist = makeTimeHistogram_(values, currTitle,
-            'RAIL stage ' + currTitle);
+      if (!hists.railStageToEnergyHist.has(currTitle)) {
+        var energyHist = undefined;
+        // Response stages keep track of energy, since response stages
+        // represent a particular event that happens at a specific time.
+        // If a change causes a response to take longer to process, then
+        // we want to count that as taking the energy over a longer
+        // period of time.
+        if (currTitle.indexOf('response') !== -1) {
+          var energyHist = makeEnergyHistogram_(values, currTitle,
+              'RAIL stage ' + currTitle);
+        }
 
-        var energyHist = makeEnergyHistogram_(values, currTitle,
-            'RAIL stage ' + currTitle);
+        var powerHist = undefined;
+        // Animation and idle stages keep track of power, since these
+        // types of stages represents events that occur over a period
+        // of time. For instance, "the energy it takes to play a video"
+        // does not have meaning because it depends on how long the video
+        // is; thus a more meaningful metric is power.
+        if (currTitle.indexOf('animation') !== -1 ||
+            currTitle.indexOf('idle') !== -1) {
+          var powerHist = makePowerHistogram_(values, currTitle,
+              'RAIL stage ' + currTitle);
+        }
 
-        var powerHist = makePowerHistogram_(values, currTitle,
-            'RAIL stage ' + currTitle);
-
-        hists.railStageToTimeHist.set(currTitle, timeHist);
         hists.railStageToEnergyHist.set(currTitle, energyHist);
         hists.railStageToPowerHist.set(currTitle, powerHist);
       }
@@ -212,26 +178,25 @@ tr.exportTo('tr.metrics.sh', function() {
    * purposes. This function only keeps track of metrics that are based
    * on the start and end time of the RAIL stages.
    */
-  function processInteractionRecord_(exp, model, hists) {
-    var currTitle = exp.title.toLowerCase().replace(' ', '_');
-    var data = getPowerData_(model, exp.start, exp.end);
-
-    // Add the samples for the "generic" RAIL stage metrics.
-    storePowerData_(data, hists.railStageToTimeHist.get(currTitle),
-        hists.railStageToEnergyHist.get(currTitle),
-        hists.railStageToPowerHist.get(currTitle));
-
-    // If this is a scroll stage, add the sample for the scroll metrics.
-    // TODO(alexandermont): Treat scroll responses different from
-    // scroll animations?
-    if (exp.initiatorType === tr.importer.INITIATOR_TYPE.SCROLL) {
-      storePowerData_(data, hists.scrollTimeHist,
-          hists.scrollEnergyHist, hists.scrollPowerHist);
+  function computeRailStageMetrics_(model, hists, chromeBounds) {
+    for (var exp of model.userModel.expectations) {
+      var currTitle = exp.title.toLowerCase().replace(' ', '_');
+      var interval = tr.b.Range.fromExplicitRange(exp.start, exp.end)
+          .findIntersection(chromeBounds);
+      if (!interval.isEmpty) {
+        var data = getPowerData_(model, interval.min, interval.max);
+        var energyHist = hists.railStageToEnergyHist.get(currTitle);
+        var powerHist = hists.railStageToPowerHist.get(currTitle);
+        if (powerHist !== undefined) {
+          for (var sample of data.samples) {
+            powerHist.addSample(sample.powerInW);
+          }
+        }
+        if (energyHist !== undefined) {
+          energyHist.addSample(data.energy);
+        }
+      }
     }
-
-    // If this is a video stage, add the sample for the video metrics.
-    if (exp.initiatorType === tr.importer.INITIATOR_TYPE.VIDEO)
-      storePowerData_(data, undefined, undefined, hists.videoPowerHist)
   }
 
   /**
@@ -239,55 +204,85 @@ tr.exportTo('tr.metrics.sh', function() {
    * in |hists|. Note that this is not in processInteractionRecord_ because
    * the loading metric intervals don't correspond exactly to the RAIL stages.
    */
-  function computeLoadingMetric_(model, hists) {
-    var intervals = getNavigationTTIIntervals_(model);
+  function computeLoadingMetric_(model, hists, chromeBounds) {
+    var ttiIntervals = getNavigationTTIIntervals_(model);
     var lastLoadTime = undefined;
-    for (var interval of intervals) {
+    for (var ttiInterval of ttiIntervals) {
+      var interval = ttiInterval.findIntersection(chromeBounds);
       var loadData = getPowerData_(model, interval.min, interval.max);
-      storePowerData_(loadData, hists.loadTimeHist, hists.loadEnergyHist,
-          undefined);
       lastLoadTime = (lastLoadTime === undefined ? interval.max :
           Math.max(lastLoadTime, interval.max));
+      hists.loadEnergyHist.addSample(loadData.energy);
     }
     if (lastLoadTime !== undefined) {
-      var afterLoadData = getPowerData_(model, lastLoadTime, model.bounds.max);
-      storePowerData_(afterLoadData, hists.afterLoadTimeHist,
-          undefined, hists.afterLoadPowerHist);
+      var afterLoadData = getPowerData_(model, lastLoadTime, chromeBounds.max);
+      for (var sample of afterLoadData.samples) {
+        hists.afterLoadPowerHist.addSample(sample.powerInW);
+      }
     }
   }
 
-  /**
-   * Compute the per-frame power metrics and put the results in |hists|.
-   */
-  function computeFrameBasedPowerMetric_(model, hists) {
-    model.device.powerSeries.updateBounds();
-    var currentTime = model.device.powerSeries.bounds.min;
-    while (currentTime < model.device.powerSeries.bounds.max) {
-      var frameData = getPowerData_(model, currentTime, currentTime + FRAME_MS);
-      hists.frameEnergyHist.addSample(frameData.energy);
-      currentTime += FRAME_MS;
+  function computeWholeTracePowerMetric_(model, hists, chromeBounds) {
+    var traceData = getPowerData_(model, chromeBounds.min, chromeBounds.max);
+    for (var sample of traceData.samples) {
+      hists.wholeTracePowerHist.addSample(sample.powerInW);
     }
   }
 
+  function computeChromeBounds(model) {
+    var chromeBounds = new tr.b.Range();
+    var chromeHelper = model.getOrCreateHelper(
+        tr.model.helpers.ChromeModelHelper);
+    for (var pid in chromeHelper.browserHelpers) {
+      if (chromeHelper.browserHelpers[pid].mainThread) {
+        chromeBounds.addRange(
+            chromeHelper.browserHelpers[pid].mainThread.bounds);
+      }
+    }
+    for (var pid in chromeHelper.rendererHelpers) {
+      if (chromeHelper.rendererHelpers[pid].mainThread) {
+        chromeBounds.addRange(
+            chromeHelper.rendererHelpers[pid].mainThread.bounds);
+      }
+    }
+    return chromeBounds;
+  }
 
   function powerMetric(values, model) {
-    if (!model.device.powerSeries)
+    var chromeHelper = model.getOrCreateHelper(
+        tr.model.helpers.ChromeModelHelper);
+    var powerSeries = model.device.powerSeries;
+    if (chromeHelper === undefined || powerSeries === undefined ||
+        powerSeries.samples.length === 0) {
+      // There's no Chrome trace or no power trace.
       return;
+    }
+
+    var chromeBounds = computeChromeBounds(model);
+    if (chromeBounds.isEmpty) {
+      // There are no events in the Chrome trace.
+      return;
+    }
+
+    var powerSeriesBoundsWithGracePeriod = tr.b.Range.fromExplicitRange(
+        powerSeries.bounds.min - 1, powerSeries.bounds.max + 1);
+    if (!powerSeriesBoundsWithGracePeriod.containsRangeExclusive(
+        chromeBounds)) {
+      // The power series doesn't cover the entire Chrome trace.
+      return;
+    }
 
     var hists = createHistograms_(model, values);
-    for (var exp of model.userModel.expectations)
-      processInteractionRecord_(exp, model, hists);
 
-    // The following two metrics aren't based directly on the IR intervals,
-    // and so need to be computed outside the processInteractionRecord_ loop.
-    computeLoadingMetric_(model, hists);
-    computeFrameBasedPowerMetric_(model, hists);
+    computeRailStageMetrics_(model, hists, chromeBounds);
+    computeLoadingMetric_(model, hists, chromeBounds);
+    computeWholeTracePowerMetric_(model, hists, chromeBounds);
   }
 
   tr.metrics.MetricRegistry.register(powerMetric);
 
   return {
-    powerMetric: powerMetric
+    powerMetric,
   };
 });
 </script>

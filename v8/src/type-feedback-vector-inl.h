@@ -27,7 +27,7 @@ FeedbackVectorSlot FeedbackVectorSpecBase<Derived>::AddSlot(
 
 // static
 TypeFeedbackMetadata* TypeFeedbackMetadata::cast(Object* obj) {
-  DCHECK(obj->IsTypeFeedbackVector());
+  DCHECK(obj->IsTypeFeedbackMetadata());
   return reinterpret_cast<TypeFeedbackMetadata*>(obj);
 }
 
@@ -55,25 +55,28 @@ int TypeFeedbackMetadata::GetSlotSize(FeedbackVectorSlotKind kind) {
   DCHECK_NE(FeedbackVectorSlotKind::KINDS_NUMBER, kind);
   if (kind == FeedbackVectorSlotKind::GENERAL ||
       kind == FeedbackVectorSlotKind::INTERPRETER_BINARYOP_IC ||
-      kind == FeedbackVectorSlotKind::INTERPRETER_COMPARE_IC) {
+      kind == FeedbackVectorSlotKind::INTERPRETER_COMPARE_IC ||
+      kind == FeedbackVectorSlotKind::CREATE_CLOSURE) {
     return 1;
   }
 
   return 2;
 }
 
-bool TypeFeedbackMetadata::SlotRequiresName(FeedbackVectorSlotKind kind) {
+bool TypeFeedbackMetadata::SlotRequiresParameter(FeedbackVectorSlotKind kind) {
   switch (kind) {
-    case FeedbackVectorSlotKind::LOAD_GLOBAL_IC:
+    case FeedbackVectorSlotKind::CREATE_CLOSURE:
       return true;
 
     case FeedbackVectorSlotKind::CALL_IC:
     case FeedbackVectorSlotKind::LOAD_IC:
+    case FeedbackVectorSlotKind::LOAD_GLOBAL_IC:
     case FeedbackVectorSlotKind::KEYED_LOAD_IC:
     case FeedbackVectorSlotKind::STORE_IC:
     case FeedbackVectorSlotKind::KEYED_STORE_IC:
     case FeedbackVectorSlotKind::INTERPRETER_BINARYOP_IC:
     case FeedbackVectorSlotKind::INTERPRETER_COMPARE_IC:
+    case FeedbackVectorSlotKind::STORE_DATA_PROPERTY_IN_LITERAL_IC:
     case FeedbackVectorSlotKind::GENERAL:
     case FeedbackVectorSlotKind::INVALID:
       return false;
@@ -105,7 +108,7 @@ int TypeFeedbackVector::invocation_count() const {
 // Conversion from an integer index to either a slot or an ic slot.
 // static
 FeedbackVectorSlot TypeFeedbackVector::ToSlot(int index) {
-  DCHECK(index >= kReservedIndexCount);
+  DCHECK_GE(index, kReservedIndexCount);
   return FeedbackVectorSlot(index - kReservedIndexCount);
 }
 
@@ -128,6 +131,7 @@ BinaryOperationHint BinaryOperationHintFromFeedback(int type_feedback) {
     case BinaryOperationFeedback::kSignedSmall:
       return BinaryOperationHint::kSignedSmall;
     case BinaryOperationFeedback::kNumber:
+    case BinaryOperationFeedback::kNumberOrOddball:
       return BinaryOperationHint::kNumberOrOddball;
     case BinaryOperationFeedback::kString:
       return BinaryOperationHint::kString;
@@ -148,6 +152,12 @@ CompareOperationHint CompareOperationHintFromFeedback(int type_feedback) {
       return CompareOperationHint::kSignedSmall;
     case CompareOperationFeedback::kNumber:
       return CompareOperationHint::kNumber;
+    case CompareOperationFeedback::kNumberOrOddball:
+      return CompareOperationHint::kNumberOrOddball;
+    case CompareOperationFeedback::kInternalizedString:
+      return CompareOperationHint::kInternalizedString;
+    case CompareOperationFeedback::kString:
+      return CompareOperationHint::kString;
     default:
       return CompareOperationHint::kAny;
   }
@@ -158,8 +168,6 @@ CompareOperationHint CompareOperationHintFromFeedback(int type_feedback) {
 void TypeFeedbackVector::ComputeCounts(int* with_type_info, int* generic,
                                        int* vector_ic_count,
                                        bool code_is_interpreted) {
-  Object* uninitialized_sentinel =
-      TypeFeedbackVector::RawUninitializedSentinel(GetIsolate());
   Object* megamorphic_sentinel =
       *TypeFeedbackVector::MegamorphicSentinel(GetIsolate());
   int with = 0;
@@ -170,47 +178,60 @@ void TypeFeedbackVector::ComputeCounts(int* with_type_info, int* generic,
     FeedbackVectorSlot slot = iter.Next();
     FeedbackVectorSlotKind kind = iter.kind();
 
-    Object* obj = Get(slot);
-    if (kind == FeedbackVectorSlotKind::GENERAL) {
-      continue;
-    }
-    total++;
-
-    if (obj != uninitialized_sentinel) {
-      if (kind == FeedbackVectorSlotKind::INTERPRETER_COMPARE_IC ||
-          kind == FeedbackVectorSlotKind::INTERPRETER_BINARYOP_IC) {
-        // If we are not running interpreted code, we need to ignore
-        // the special ic slots for binaryop/compare used by the
-        // interpreter.
-        // TODO(mvstanton): Remove code_is_interpreted when full code
-        // is retired from service.
-        if (!code_is_interpreted) continue;
-
-        DCHECK(obj->IsSmi());
-        int op_feedback = static_cast<int>(Smi::cast(obj)->value());
-        if (kind == FeedbackVectorSlotKind::INTERPRETER_COMPARE_IC) {
-          CompareOperationHint hint =
-              CompareOperationHintFromFeedback(op_feedback);
-          if (hint == CompareOperationHint::kAny) {
-            gen++;
-          } else if (hint != CompareOperationHint::kNone) {
-            with++;
-          }
-        } else {
-          DCHECK(kind == FeedbackVectorSlotKind::INTERPRETER_BINARYOP_IC);
-          BinaryOperationHint hint =
-              BinaryOperationHintFromFeedback(op_feedback);
-          if (hint == BinaryOperationHint::kAny) {
-            gen++;
-          } else if (hint != BinaryOperationHint::kNone) {
-            with++;
-          }
+    Object* const obj = Get(slot);
+    switch (kind) {
+      case FeedbackVectorSlotKind::CALL_IC:
+      case FeedbackVectorSlotKind::LOAD_IC:
+      case FeedbackVectorSlotKind::LOAD_GLOBAL_IC:
+      case FeedbackVectorSlotKind::KEYED_LOAD_IC:
+      case FeedbackVectorSlotKind::STORE_IC:
+      case FeedbackVectorSlotKind::KEYED_STORE_IC:
+      case FeedbackVectorSlotKind::STORE_DATA_PROPERTY_IN_LITERAL_IC: {
+        if (obj->IsWeakCell() || obj->IsFixedArray() || obj->IsString()) {
+          with++;
+        } else if (obj == megamorphic_sentinel) {
+          gen++;
         }
-      } else if (obj->IsWeakCell() || obj->IsFixedArray() || obj->IsString()) {
-        with++;
-      } else if (obj == megamorphic_sentinel) {
-        gen++;
+        total++;
+        break;
       }
+      case FeedbackVectorSlotKind::INTERPRETER_BINARYOP_IC:
+      case FeedbackVectorSlotKind::INTERPRETER_COMPARE_IC: {
+        // If we are not running interpreted code, we need to ignore the special
+        // IC slots for binaryop/compare used by the interpreter.
+        // TODO(mvstanton): Remove code_is_interpreted when full code is retired
+        // from service.
+        if (code_is_interpreted) {
+          int const feedback = Smi::cast(obj)->value();
+          if (kind == FeedbackVectorSlotKind::INTERPRETER_COMPARE_IC) {
+            CompareOperationHint hint =
+                CompareOperationHintFromFeedback(feedback);
+            if (hint == CompareOperationHint::kAny) {
+              gen++;
+            } else if (hint != CompareOperationHint::kNone) {
+              with++;
+            }
+          } else {
+            DCHECK_EQ(FeedbackVectorSlotKind::INTERPRETER_BINARYOP_IC, kind);
+            BinaryOperationHint hint =
+                BinaryOperationHintFromFeedback(feedback);
+            if (hint == BinaryOperationHint::kAny) {
+              gen++;
+            } else if (hint != BinaryOperationHint::kNone) {
+              with++;
+            }
+          }
+          total++;
+        }
+        break;
+      }
+      case FeedbackVectorSlotKind::CREATE_CLOSURE:
+      case FeedbackVectorSlotKind::GENERAL:
+        break;
+      case FeedbackVectorSlotKind::INVALID:
+      case FeedbackVectorSlotKind::KINDS_NUMBER:
+        UNREACHABLE();
+        break;
     }
   }
 

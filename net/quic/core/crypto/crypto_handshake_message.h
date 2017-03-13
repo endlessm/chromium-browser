@@ -2,26 +2,24 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef NET_QUIC_CRYPTO_CRYPTO_HANDSHAKE_MESSAGE_H_
-#define NET_QUIC_CRYPTO_CRYPTO_HANDSHAKE_MESSAGE_H_
+#ifndef NET_QUIC_CORE_CRYPTO_CRYPTO_HANDSHAKE_MESSAGE_H_
+#define NET_QUIC_CORE_CRYPTO_CRYPTO_HANDSHAKE_MESSAGE_H_
 
-#include <stddef.h>
-#include <stdint.h>
-
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "base/strings/string_piece.h"
-#include "net/base/net_export.h"
-#include "net/quic/core/quic_protocol.h"
+#include "net/quic/core/quic_packets.h"
+#include "net/quic/platform/api/quic_export.h"
 
 namespace net {
 
 // An intermediate format of a handshake message that's convenient for a
 // CryptoFramer to serialize from or parse into.
-class NET_EXPORT_PRIVATE CryptoHandshakeMessage {
+class QUIC_EXPORT_PRIVATE CryptoHandshakeMessage {
  public:
   CryptoHandshakeMessage();
   CryptoHandshakeMessage(const CryptoHandshakeMessage& other);
@@ -74,10 +72,11 @@ class NET_EXPORT_PRIVATE CryptoHandshakeMessage {
   void Erase(QuicTag tag);
 
   // GetTaglist finds an element with the given tag containing zero or more
-  // tags. If such a tag doesn't exist, it returns false. Otherwise it sets
-  // |out_tags| and |out_len| to point to the array of tags and returns true.
-  // The array points into the CryptoHandshakeMessage and is valid only for as
-  // long as the CryptoHandshakeMessage exists and is not modified.
+  // tags. If such a tag doesn't exist, it returns an error code. Otherwise it
+  // sets |out_tags| and |out_len| to point to the array of tags and returns
+  // QUIC_NO_ERROR.  The array points into the CryptoHandshakeMessage and is
+  // valid only for as long as the CryptoHandshakeMessage exists and is not
+  // modified.
   QuicErrorCode GetTaglist(QuicTag tag,
                            const QuicTag** out_tags,
                            size_t* out_len) const;
@@ -137,4 +136,4 @@ class NET_EXPORT_PRIVATE CryptoHandshakeMessage {
 
 }  // namespace net
 
-#endif  // NET_QUIC_CRYPTO_CRYPTO_HANDSHAKE_MESSAGE_H_
+#endif  // NET_QUIC_CORE_CRYPTO_CRYPTO_HANDSHAKE_MESSAGE_H_

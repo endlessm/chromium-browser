@@ -48,12 +48,13 @@ class WebURLLoaderMock : public WebURLLoader {
                          WebURLResponse& response,
                          WebURLError& error,
                          WebData& data,
-                         int64_t& encoded_data_length) override;
+                         int64_t& encoded_data_length,
+                         int64_t& encoded_body_length) override;
   void loadAsynchronously(const WebURLRequest& request,
                           WebURLLoaderClient* client) override;
   void cancel() override;
   void setDefersLoading(bool defer) override;
-  void setLoadingTaskRunner(WebTaskRunner*) override;
+  void setLoadingTaskRunner(base::SingleThreadTaskRunner*) override;
 
   bool is_deferred() { return is_deferred_; }
   bool is_cancelled() { return !client_; }

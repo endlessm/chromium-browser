@@ -2,11 +2,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifndef IOS_WEB_PUBLIC_TEST_WEB_VIEW_INTERACTION_TEST_UTIL_H_
+#define IOS_WEB_PUBLIC_TEST_WEB_VIEW_INTERACTION_TEST_UTIL_H_
+
 #import <UIKit/UIKit.h>
 
 #include <string>
 
-#include "base/ios/block_types.h"
+#import "base/ios/block_types.h"
 #include "base/values.h"
 
 #import "ios/web/public/web_state/web_state.h"
@@ -14,7 +17,8 @@
 namespace web {
 namespace test {
 
-// Synchronously returns the result of executed JavaScript.
+// Synchronously returns the result of executed JavaScript, returning nullptr
+// if the JavaScript does not complete.
 std::unique_ptr<base::Value> ExecuteJavaScript(web::WebState* web_state,
                                                const std::string& script);
 
@@ -42,3 +46,5 @@ bool SubmitWebViewFormWithId(web::WebState* web_state,
                              const std::string& form_id);
 }  // namespace test
 }  // namespace web
+
+#endif  // IOS_WEB_PUBLIC_TEST_WEB_VIEW_INTERACTION_TEST_UTIL_H_

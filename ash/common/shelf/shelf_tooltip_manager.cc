@@ -6,12 +6,12 @@
 
 #include "ash/common/shelf/shelf_view.h"
 #include "ash/common/shelf/wm_shelf.h"
-#include "ash/common/shell_window_ids.h"
 #include "ash/common/system/tray/tray_constants.h"
 #include "ash/common/wm_lookup.h"
-#include "ash/common/wm_root_window_controller.h"
 #include "ash/common/wm_shell.h"
 #include "ash/common/wm_window.h"
+#include "ash/public/cpp/shell_window_ids.h"
+#include "ash/root_window_controller.h"
 #include "base/bind.h"
 #include "base/strings/string16.h"
 #include "base/threading/thread_task_runner_handle.h"
@@ -77,10 +77,9 @@ class ShelfTooltipManager::ShelfTooltipBubble
         theme->GetSystemColor(ui::NativeTheme::kColorId_TooltipBackground);
     set_color(background_color);
     label->SetBackgroundColor(background_color);
+    // The background is not opaque, so we can't do subpixel rendering.
+    label->SetSubpixelRenderingEnabled(false);
     AddChildView(label);
-    // The bubble border has its own background so the background created by the
-    // BubbleDialogDelegateView is redundant and would cause extra opacity.
-    set_background(nullptr);
 
     gfx::Insets insets(kArrowTopBottomOffset, kArrowLeftRightOffset);
     // Adjust the anchor location for asymmetrical borders of shelf item.

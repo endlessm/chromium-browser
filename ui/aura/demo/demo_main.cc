@@ -15,9 +15,9 @@
 #include "base/run_loop.h"
 #include "build/build_config.h"
 #include "cc/surfaces/surface_manager.h"
-#include "third_party/skia/include/core/SkXfermode.h"
+#include "third_party/skia/include/core/SkBlendMode.h"
 #include "ui/aura/client/default_capture_client.h"
-#include "ui/aura/client/window_tree_client.h"
+#include "ui/aura/client/window_parenting_client.h"
 #include "ui/aura/env.h"
 #include "ui/aura/test/test_focus_client.h"
 #include "ui/aura/test/test_screen.h"
@@ -72,14 +72,14 @@ class DemoWindowDelegate : public aura::WindowDelegate {
   void OnCaptureLost() override {}
   void OnPaint(const ui::PaintContext& context) override {
     ui::PaintRecorder recorder(context, window_bounds_.size());
-    recorder.canvas()->DrawColor(color_, SkXfermode::kSrc_Mode);
+    recorder.canvas()->DrawColor(color_, SkBlendMode::kSrc);
     gfx::Rect r;
     recorder.canvas()->GetClipBounds(&r);
     // Fill with a non-solid color so that the compositor will exercise its
     // texture upload path.
     while (!r.IsEmpty()) {
       r.Inset(2, 2);
-      recorder.canvas()->FillRect(r, color_, SkXfermode::kXor_Mode);
+      recorder.canvas()->FillRect(r, color_, SkBlendMode::kXor);
     }
   }
   void OnDeviceScaleFactorChanged(float device_scale_factor) override {}
@@ -96,17 +96,17 @@ class DemoWindowDelegate : public aura::WindowDelegate {
   DISALLOW_COPY_AND_ASSIGN(DemoWindowDelegate);
 };
 
-class DemoWindowTreeClient : public aura::client::WindowTreeClient {
+class DemoWindowParentingClient : public aura::client::WindowParentingClient {
  public:
-  explicit DemoWindowTreeClient(aura::Window* window) : window_(window) {
-    aura::client::SetWindowTreeClient(window_, this);
+  explicit DemoWindowParentingClient(aura::Window* window) : window_(window) {
+    aura::client::SetWindowParentingClient(window_, this);
   }
 
-  ~DemoWindowTreeClient() override {
-    aura::client::SetWindowTreeClient(window_, nullptr);
+  ~DemoWindowParentingClient() override {
+    aura::client::SetWindowParentingClient(window_, nullptr);
   }
 
-  // Overridden from aura::client::WindowTreeClient:
+  // Overridden from aura::client::WindowParentingClient:
   aura::Window* GetDefaultParent(aura::Window* context,
                                  aura::Window* window,
                                  const gfx::Rect& bounds) override {
@@ -122,7 +122,7 @@ class DemoWindowTreeClient : public aura::client::WindowTreeClient {
 
   std::unique_ptr<aura::client::DefaultCaptureClient> capture_client_;
 
-  DISALLOW_COPY_AND_ASSIGN(DemoWindowTreeClient);
+  DISALLOW_COPY_AND_ASSIGN(DemoWindowParentingClient);
 };
 
 int DemoMain() {
@@ -159,8 +159,8 @@ int DemoMain() {
   display::Screen::SetScreenInstance(test_screen.get());
   std::unique_ptr<aura::WindowTreeHost> host(
       test_screen->CreateHostForPrimaryDisplay());
-  std::unique_ptr<DemoWindowTreeClient> window_tree_client(
-      new DemoWindowTreeClient(host->window()));
+  std::unique_ptr<DemoWindowParentingClient> window_parenting_client(
+      new DemoWindowParentingClient(host->window()));
   aura::test::TestFocusClient focus_client;
   aura::client::SetFocusClient(host->window(), &focus_client);
 

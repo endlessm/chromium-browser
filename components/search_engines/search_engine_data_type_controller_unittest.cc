@@ -16,11 +16,11 @@
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/tracked_objects.h"
 #include "components/search_engines/template_url_service.h"
-#include "components/sync/api/fake_syncable_service.h"
 #include "components/sync/driver/data_type_controller_mock.h"
 #include "components/sync/driver/fake_generic_change_processor.h"
 #include "components/sync/driver/fake_sync_client.h"
 #include "components/sync/driver/sync_api_component_factory_mock.h"
+#include "components/sync/model/fake_syncable_service.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 using testing::_;
@@ -157,6 +157,9 @@ TEST_F(SyncSearchEngineDataTypeControllerTest, Stop) {
   search_engine_dtc_.Stop();
   EXPECT_EQ(syncer::DataTypeController::NOT_RUNNING,
             search_engine_dtc_.state());
+  // AsyncDirectoryTypeController::Stop posts call to StopLocalService to model
+  // thread. We run message loop for this call to take effect.
+  base::RunLoop().RunUntilIdle();
   EXPECT_FALSE(syncable_service_.syncing());
 }
 

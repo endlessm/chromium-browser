@@ -379,7 +379,12 @@ IN_PROC_BROWSER_TEST_F(HotwordPrivateApiTest, OnHotwordTriggered) {
   EXPECT_TRUE(listenerNotification.WaitUntilSatisfied());
 }
 
-IN_PROC_BROWSER_TEST_F(HotwordPrivateApiTest, OnDeleteSpeakerModel) {
+#if defined(OS_LINUX)
+#define MAYBE_OnDeleteSpeakerModel DISABLED_OnDeleteSpeakerModel
+#else
+#define MAYBE_OnDeleteSpeakerModel OnDeleteSpeakerModel
+#endif
+IN_PROC_BROWSER_TEST_F(HotwordPrivateApiTest, MAYBE_OnDeleteSpeakerModel) {
   MockWebHistoryService* web_history = new MockWebHistoryService(profile());
   MockAudioHistoryHandler* handler =
       new MockAudioHistoryHandler(profile(), web_history);
@@ -448,7 +453,14 @@ IN_PROC_BROWSER_TEST_F(HotwordPrivateApiTest, Training) {
   EXPECT_FALSE(service()->IsTraining());
 }
 
-IN_PROC_BROWSER_TEST_F(HotwordPrivateApiTest, OnSpeakerModelSaved) {
+// Flaky on ChromeOS (https://crbug.com/668335)
+#if defined(OS_CHROMEOS)
+#define MAYBE_OnSpeakerModelSaved DISABLED_OnSpeakerModelSaved
+#else
+#define MAYBE_OnSpeakerModelSaved OnSpeakerModelSaved
+#endif
+
+IN_PROC_BROWSER_TEST_F(HotwordPrivateApiTest, MAYBE_OnSpeakerModelSaved) {
   extensions::HotwordPrivateEventService::GetFactoryInstance();
   ExtensionTestMessageListener listener("ready", false);
   ASSERT_TRUE(

@@ -41,7 +41,6 @@ struct FrameDecorationValues {
 
 struct WsDisplay {
   display.mojom.Display display;
-  bool is_primary;
   FrameDecorationValues frame_decoration_values;
 };
 
@@ -65,4 +64,5 @@ enum WindowType {
   TOOLTIP,
   BUBBLE,
   DRAG,
+  UNKNOWN,
 };

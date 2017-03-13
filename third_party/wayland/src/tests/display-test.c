@@ -28,6 +28,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
+#include <stdint.h>
 #include <string.h>
 #include <assert.h>
 #include <sys/socket.h>
@@ -37,7 +38,6 @@
 #include <sys/stat.h>
 #include <pthread.h>
 #include <poll.h>
-#include <stdbool.h>
 
 #include "wayland-private.h"
 #include "wayland-server.h"

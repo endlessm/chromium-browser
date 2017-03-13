@@ -20,10 +20,12 @@ import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
 import android.os.StrictMode;
 import android.os.SystemClock;
 import android.support.v7.app.AlertDialog;
 import android.util.DisplayMetrics;
+import android.util.Pair;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
@@ -42,7 +44,6 @@ import org.chromium.base.ApplicationStatus;
 import org.chromium.base.BaseSwitches;
 import org.chromium.base.Callback;
 import org.chromium.base.CommandLine;
-import org.chromium.base.ObserverList;
 import org.chromium.base.SysUtils;
 import org.chromium.base.TraceEvent;
 import org.chromium.base.VisibleForTesting;
@@ -55,7 +56,6 @@ import org.chromium.chrome.browser.appmenu.AppMenu;
 import org.chromium.chrome.browser.appmenu.AppMenuHandler;
 import org.chromium.chrome.browser.appmenu.AppMenuObserver;
 import org.chromium.chrome.browser.appmenu.AppMenuPropertiesDelegate;
-import org.chromium.chrome.browser.blimp.ChromeBlimpClientContextDelegate;
 import org.chromium.chrome.browser.bookmarks.BookmarkModel;
 import org.chromium.chrome.browser.bookmarks.BookmarkUtils;
 import org.chromium.chrome.browser.compositor.CompositorViewHolder;
@@ -74,11 +74,13 @@ import org.chromium.chrome.browser.dom_distiller.DistilledPagePrefsView;
 import org.chromium.chrome.browser.dom_distiller.ReaderModeManager;
 import org.chromium.chrome.browser.download.DownloadManagerService;
 import org.chromium.chrome.browser.download.DownloadUtils;
+import org.chromium.chrome.browser.firstrun.ForcedSigninProcessor;
 import org.chromium.chrome.browser.fullscreen.ChromeFullscreenManager;
 import org.chromium.chrome.browser.gsa.ContextReporter;
-import org.chromium.chrome.browser.gsa.GSAServiceClient;
+import org.chromium.chrome.browser.gsa.GSAAccountChangeListener;
 import org.chromium.chrome.browser.gsa.GSAState;
 import org.chromium.chrome.browser.help.HelpAndFeedback;
+import org.chromium.chrome.browser.history.HistoryManagerUtils;
 import org.chromium.chrome.browser.infobar.InfoBarContainer;
 import org.chromium.chrome.browser.init.AsyncInitializationActivity;
 import org.chromium.chrome.browser.metrics.LaunchMetrics;
@@ -86,8 +88,11 @@ import org.chromium.chrome.browser.metrics.StartupMetrics;
 import org.chromium.chrome.browser.metrics.UmaSessionStats;
 import org.chromium.chrome.browser.metrics.UmaUtils;
 import org.chromium.chrome.browser.multiwindow.MultiWindowUtils;
+import org.chromium.chrome.browser.net.spdyproxy.DataReductionProxySettings;
 import org.chromium.chrome.browser.nfc.BeamController;
 import org.chromium.chrome.browser.nfc.BeamProvider;
+import org.chromium.chrome.browser.ntp.NewTabPage;
+import org.chromium.chrome.browser.ntp.NewTabPageUma;
 import org.chromium.chrome.browser.offlinepages.OfflinePageBridge;
 import org.chromium.chrome.browser.offlinepages.OfflinePageUtils;
 import org.chromium.chrome.browser.omaha.UpdateMenuItemHelper;
@@ -98,8 +103,8 @@ import org.chromium.chrome.browser.preferences.PrefServiceBridge;
 import org.chromium.chrome.browser.preferences.PreferencesLauncher;
 import org.chromium.chrome.browser.printing.PrintShareActivity;
 import org.chromium.chrome.browser.printing.TabPrinter;
-import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.share.ShareHelper;
+import org.chromium.chrome.browser.snackbar.DataReductionPromoSnackbarController;
 import org.chromium.chrome.browser.snackbar.DataUseSnackbarController;
 import org.chromium.chrome.browser.snackbar.SnackbarManager;
 import org.chromium.chrome.browser.snackbar.SnackbarManager.SnackbarManageable;
@@ -121,6 +126,7 @@ import org.chromium.chrome.browser.util.ChromeFileProvider;
 import org.chromium.chrome.browser.util.ColorUtils;
 import org.chromium.chrome.browser.util.FeatureUtilities;
 import org.chromium.chrome.browser.webapps.AddToHomescreenManager;
+import org.chromium.chrome.browser.widget.BottomSheet;
 import org.chromium.chrome.browser.widget.ControlContainer;
 import org.chromium.components.bookmarks.BookmarkId;
 import org.chromium.content.browser.ContentVideoView;
@@ -167,6 +173,11 @@ public abstract class ChromeActivity extends AsyncInitializationActivity
      */
     static final int NO_CONTROL_CONTAINER = -1;
 
+    /**
+     * No toolbar layout to inflate during initialization.
+     */
+    static final int NO_TOOLBAR_LAYOUT = -1;
+
     private static final int RECORD_MULTI_WINDOW_SCREEN_WIDTH_DELAY_MS = 5000;
 
     /**
@@ -176,6 +187,14 @@ public abstract class ChromeActivity extends AsyncInitializationActivity
     private static final String TAG = "ChromeActivity";
     private static final Rect EMPTY_RECT = new Rect();
 
+    private static AppMenuHandlerFactory sAppMenuHandlerFactory = new AppMenuHandlerFactory() {
+        @Override
+        public AppMenuHandler get(
+                Activity activity, AppMenuPropertiesDelegate delegate, int menuResourceId) {
+            return new AppMenuHandler(activity, delegate, menuResourceId);
+        }
+    };
+
     private TabModelSelector mTabModelSelector;
     private TabModelSelectorTabObserver mTabModelSelectorTabObserver;
     private TabCreatorManager.TabCreator mRegularTabCreator;
@@ -183,13 +202,15 @@ public abstract class ChromeActivity extends AsyncInitializationActivity
     private TabContentManager mTabContentManager;
     private UmaSessionStats mUmaSessionStats;
     private ContextReporter mContextReporter;
-    protected GSAServiceClient mGSAServiceClient;
 
     private boolean mPartnerBrowserRefreshNeeded;
 
     protected IntentHandler mIntentHandler;
 
     private boolean mDeferredStartupPosted;
+    private boolean mTabModelsInitialized;
+    private boolean mNativeInitialized;
+    private boolean mRemoveWindowBackgroundDone;
 
     // The class cannot implement TouchExplorationStateChangeListener,
     // because it is only available for Build.VERSION_CODES.KITKAT and later.
@@ -201,13 +222,17 @@ public abstract class ChromeActivity extends AsyncInitializationActivity
     private ProfileSyncService.SyncStateChangedListener mSyncStateChangedListener;
 
     private ActivityWindowAndroid mWindowAndroid;
+
     private ChromeFullscreenManager mFullscreenManager;
+    private boolean mCreatedFullscreenManager;
+
     private CompositorViewHolder mCompositorViewHolder;
     private InsetObserverView mInsetObserverView;
     private ContextualSearchManager mContextualSearchManager;
     private ReaderModeManager mReaderModeManager;
     private SnackbarManager mSnackbarManager;
     private DataUseSnackbarController mDataUseSnackbarController;
+    private DataReductionPromoSnackbarController mDataReductionPromoSnackbarController;
     private AppMenuPropertiesDelegate mAppMenuPropertiesDelegate;
     private AppMenuHandler mAppMenuHandler;
     private ToolbarManager mToolbarManager;
@@ -224,28 +249,14 @@ public abstract class ChromeActivity extends AsyncInitializationActivity
     // all tab content will be hidden from the accessibility tree.
     private List<View> mViewsObscuringAllTabs = new ArrayList<>();
 
-    // Callbacks to be called when a context menu is closed.
-    private final ObserverList<Callback<Menu>> mContextMenuCloseObservers = new ObserverList<>();
-
-    private static AppMenuHandlerFactory sAppMenuHandlerFactory = new AppMenuHandlerFactory() {
-        @Override
-        public AppMenuHandler get(
-                Activity activity, AppMenuPropertiesDelegate delegate, int menuResourceId) {
-            return new AppMenuHandler(activity, delegate, menuResourceId);
-        }
-    };
-
     // See enableHardwareAcceleration()
     private boolean mSetWindowHWA;
-
-    // Chrome delegate that includes functionalities needed by Blimp client.
-    private ChromeBlimpClientContextDelegate mBlimpClientContextDelegate;
 
     // Skips capturing screenshot for testing purpose.
     private boolean mScreenshotCaptureSkippedForTesting;
 
     /**
-     * @param The {@link AppMenuHandlerFactory} for creating {@link mAppMenuHandler}
+     * @param factory The {@link AppMenuHandlerFactory} for creating {@link mAppMenuHandler}
      */
     @VisibleForTesting
     public static void setAppMenuHandlerFactoryForTesting(AppMenuHandlerFactory factory) {
@@ -266,6 +277,9 @@ public abstract class ChromeActivity extends AsyncInitializationActivity
         getWindow().setBackgroundDrawable(getBackgroundDrawable());
         mWindowAndroid = new ChromeWindow(this);
         mWindowAndroid.restoreInstanceState(getSavedInstanceState());
+
+        mFullscreenManager = createFullscreenManager();
+        mCreatedFullscreenManager = true;
     }
 
     @SuppressLint("NewApi")
@@ -315,6 +329,13 @@ public abstract class ChromeActivity extends AsyncInitializationActivity
         // Inform the WindowAndroid of the keyboard accessory view.
         mWindowAndroid.setKeyboardAccessoryView((ViewGroup) findViewById(R.id.keyboard_accessory));
         initializeToolbar();
+        initializeTabModels();
+        if (!isFinishing() && getFullscreenManager() != null) {
+            getFullscreenManager().initialize(
+                    (ControlContainer) findViewById(R.id.control_container),
+                    getTabModelSelector(),
+                    getControlContainerHeightResource());
+        }
     }
 
     @Override
@@ -338,13 +359,15 @@ public abstract class ChromeActivity extends AsyncInitializationActivity
         setLowEndTheme();
         int controlContainerLayoutId = getControlContainerLayoutId();
         WarmupManager warmupManager = WarmupManager.getInstance();
-        if (warmupManager.hasBuiltOrClearViewHierarchyWithToolbar(controlContainerLayoutId)) {
+        if (warmupManager.hasViewHierarchyWithToolbar(controlContainerLayoutId)) {
             View placeHolderView = new View(this);
             setContentView(placeHolderView);
             ViewGroup contentParent = (ViewGroup) placeHolderView.getParent();
-            WarmupManager.getInstance().transferViewHierarchyTo(contentParent);
+            warmupManager.transferViewHierarchyTo(contentParent);
             contentParent.removeView(placeHolderView);
         } else {
+            warmupManager.clearViewHierarchy();
+
             // Allow disk access for the content view and toolbar container setup.
             // On certain android devices this setup sequence results in disk writes outside
             // of our control, so we have to disable StrictMode to work. See crbug.com/639352.
@@ -354,8 +377,27 @@ public abstract class ChromeActivity extends AsyncInitializationActivity
                 if (controlContainerLayoutId != NO_CONTROL_CONTAINER) {
                     ViewStub toolbarContainerStub =
                             ((ViewStub) findViewById(R.id.control_container_stub));
+
                     toolbarContainerStub.setLayoutResource(controlContainerLayoutId);
-                    toolbarContainerStub.inflate();
+                    View container = toolbarContainerStub.inflate();
+                }
+
+                // It cannot be assumed that the result of toolbarContainerStub.inflate() will be
+                // the control container since it may be wrapped in another view.
+                ControlContainer controlContainer =
+                        (ControlContainer) findViewById(R.id.control_container);
+
+                // Get a handle to the bottom sheet if using the bottom control container.
+                if (controlContainerLayoutId == R.layout.bottom_control_container) {
+                    View coordinator = findViewById(R.id.coordinator);
+                    BottomSheet bottomSheet = (BottomSheet) findViewById(R.id.bottom_sheet);
+                    bottomSheet.init(coordinator, controlContainer.getView());
+                }
+
+                // Inflate the correct toolbar layout for the device.
+                int toolbarLayoutId = getToolbarLayoutId();
+                if (toolbarLayoutId != NO_TOOLBAR_LAYOUT && controlContainer != null) {
+                    controlContainer.initWithToolbar(toolbarLayoutId);
                 }
             } finally {
                 StrictMode.setThreadPolicy(oldPolicy);
@@ -419,101 +461,27 @@ public abstract class ChromeActivity extends AsyncInitializationActivity
     }
 
     /**
-     * @return {@link ToolbarManager} that belongs to this activity.
+     * Initialize the {@link TabModelSelector}, {@link TabModel}s, and
+     * {@link org.chromium.chrome.browser.tabmodel.TabCreatorManager.TabCreator} needed by
+     * this activity.
      */
-    @VisibleForTesting
-    public ToolbarManager getToolbarManager() {
-        return mToolbarManager;
-    }
+    protected final void initializeTabModels() {
+        if (mTabModelsInitialized) return;
 
-    /**
-     * @return The resource id for the menu to use in {@link AppMenu}. Default is R.menu.main_menu.
-     */
-    protected int getAppMenuLayoutId() {
-        return R.menu.main_menu;
-    }
-
-    /**
-     * @return {@link AppMenuPropertiesDelegate} instance that the {@link AppMenuHandler}
-     *         should be using in this activity.
-     */
-    protected AppMenuPropertiesDelegate createAppMenuPropertiesDelegate() {
-        return new AppMenuPropertiesDelegate(this);
-    }
-
-    /**
-     * @return The assist handler for this activity.
-     */
-    protected AssistStatusHandler getAssistStatusHandler() {
-        return mAssistStatusHandler;
-    }
-
-    /**
-     * @return A newly constructed assist handler for this given activity type.
-     */
-    protected AssistStatusHandler createAssistStatusHandler() {
-        return new AssistStatusHandler(this);
-    }
-
-    /**
-     * @return The resource id for the layout to use for {@link ControlContainer}. 0 by default.
-     */
-    protected int getControlContainerLayoutId() {
-        return NO_CONTROL_CONTAINER;
-    }
-
-    /**
-     * @return Whether contextual search is allowed for this activity or not.
-     */
-    protected boolean isContextualSearchAllowed() {
-        return true;
-    }
-
-    @Override
-    public void initializeState() {
-        super.initializeState();
-        mBlimpClientContextDelegate =
-                ChromeBlimpClientContextDelegate.createAndSetDelegateForContext(
-                        Profile.getLastUsedProfile().getOriginalProfile());
-
-        IntentHandler.setTestIntentsEnabled(
-                CommandLine.getInstance().hasSwitch(ContentSwitches.ENABLE_TEST_INTENTS));
-        mIntentHandler = new IntentHandler(createIntentHandlerDelegate(), getPackageName());
-    }
-
-    @Override
-    public void initializeCompositor() {
-        TraceEvent.begin("ChromeActivity:CompositorInitialization");
-        super.initializeCompositor();
-
-        setTabContentManager(new TabContentManager(this, getContentOffsetProvider(),
-                DeviceClassManager.enableSnapshots()));
-        mCompositorViewHolder.onNativeLibraryReady(mWindowAndroid, getTabContentManager());
-
-        if (isContextualSearchAllowed() && ContextualSearchFieldTrial.isEnabled()) {
-            mContextualSearchManager = new ContextualSearchManager(this, mWindowAndroid, this);
+        mTabModelSelector = createTabModelSelector();
+        if (mTabModelSelector == null) {
+            assert isFinishing();
+            mTabModelsInitialized = true;
+            return;
         }
 
-        if (ReaderModeManager.isEnabled(this)) {
-            mReaderModeManager = new ReaderModeManager(getTabModelSelector(), this);
-            if (mToolbarManager != null) {
-                mToolbarManager.addFindToolbarObserver(
-                        mReaderModeManager.getFindToolbarObserver());
-            }
-        }
-
-        TraceEvent.end("ChromeActivity:CompositorInitialization");
-    }
-
-    /**
-     * Sets the {@link TabModelSelector} owned by this {@link ChromeActivity}.
-     * @param tabModelSelector A {@link TabModelSelector} instance.
-     */
-    protected void setTabModelSelector(TabModelSelector tabModelSelector) {
-        mTabModelSelector = tabModelSelector;
+        Pair<? extends TabCreator, ? extends TabCreator> tabCreators = createTabCreators();
+        mRegularTabCreator = tabCreators.first;
+        mIncognitoTabCreator = tabCreators.second;
 
         if (mTabModelSelectorTabObserver != null) mTabModelSelectorTabObserver.destroy();
-        mTabModelSelectorTabObserver = new TabModelSelectorTabObserver(tabModelSelector) {
+
+        mTabModelSelectorTabObserver = new TabModelSelectorTabObserver(mTabModelSelector) {
             @Override
             public void didFirstVisuallyNonEmptyPaint(Tab tab) {
                 if (DataUseTabUIManager.checkAndResetDataUseTrackingStarted(tab)
@@ -524,6 +492,19 @@ public abstract class ChromeActivity extends AsyncInitializationActivity
                                    getApplicationContext())
                         && DataUseTabUIManager.checkAndResetDataUseTrackingEnded(tab)) {
                     mDataUseSnackbarController.showDataUseTrackingEndedBar();
+                }
+
+                // Only alert about data savings once the first paint has happened. It doesn't make
+                // sense to show a snackbar about savings when nothing has been displayed yet.
+                if (DataReductionProxySettings.getInstance().isSnackbarPromoAllowed(tab.getUrl())) {
+                    if (mDataReductionPromoSnackbarController == null) {
+                        mDataReductionPromoSnackbarController =
+                                new DataReductionPromoSnackbarController(
+                                        getApplicationContext(), getSnackbarManager());
+                    }
+                    mDataReductionPromoSnackbarController.maybeShowDataReductionPromoSnackbar(
+                            DataReductionProxySettings.getInstance()
+                                    .getTotalHttpContentLengthSaved());
                 }
             }
 
@@ -573,8 +554,113 @@ public abstract class ChromeActivity extends AsyncInitializationActivity
         };
 
         if (mAssistStatusHandler != null) {
-            mAssistStatusHandler.setTabModelSelector(tabModelSelector);
+            mAssistStatusHandler.setTabModelSelector(mTabModelSelector);
         }
+
+        mTabModelsInitialized = true;
+    }
+
+    /**
+     * @return The {@link TabModelSelector} owned by this {@link ChromeActivity}.
+     */
+    protected abstract TabModelSelector createTabModelSelector();
+
+    /**
+     * @return The {@link org.chromium.chrome.browser.tabmodel.TabCreatorManager.TabCreator}s owned
+     *         by this {@link ChromeActivity}.  The first item in the Pair is the normal model tab
+     *         creator, and the second is the tab creator for incognito tabs.
+     */
+    protected abstract Pair<? extends TabCreator, ? extends TabCreator> createTabCreators();
+
+    /**
+     * @return {@link ToolbarManager} that belongs to this activity.
+     */
+    @VisibleForTesting
+    public ToolbarManager getToolbarManager() {
+        return mToolbarManager;
+    }
+
+    /**
+     * @return The resource id for the menu to use in {@link AppMenu}. Default is R.menu.main_menu.
+     */
+    protected int getAppMenuLayoutId() {
+        return R.menu.main_menu;
+    }
+
+    /**
+     * @return {@link AppMenuPropertiesDelegate} instance that the {@link AppMenuHandler}
+     *         should be using in this activity.
+     */
+    protected AppMenuPropertiesDelegate createAppMenuPropertiesDelegate() {
+        return new AppMenuPropertiesDelegate(this);
+    }
+
+    /**
+     * @return The assist handler for this activity.
+     */
+    protected AssistStatusHandler getAssistStatusHandler() {
+        return mAssistStatusHandler;
+    }
+
+    /**
+     * @return A newly constructed assist handler for this given activity type.
+     */
+    protected AssistStatusHandler createAssistStatusHandler() {
+        return new AssistStatusHandler(this);
+    }
+
+    /**
+     * @return The resource id for the layout to use for {@link ControlContainer}. 0 by default.
+     */
+    protected int getControlContainerLayoutId() {
+        return NO_CONTROL_CONTAINER;
+    }
+
+    /**
+     * @return The layout ID for the toolbar to use.
+     */
+    protected int getToolbarLayoutId() {
+        return NO_TOOLBAR_LAYOUT;
+    }
+
+    /**
+     * @return Whether contextual search is allowed for this activity or not.
+     */
+    protected boolean isContextualSearchAllowed() {
+        return true;
+    }
+
+    @Override
+    public void initializeState() {
+        super.initializeState();
+
+        IntentHandler.setTestIntentsEnabled(
+                CommandLine.getInstance().hasSwitch(ContentSwitches.ENABLE_TEST_INTENTS));
+        mIntentHandler = new IntentHandler(createIntentHandlerDelegate(), getPackageName());
+    }
+
+    @Override
+    public void initializeCompositor() {
+        TraceEvent.begin("ChromeActivity:CompositorInitialization");
+        super.initializeCompositor();
+
+        setTabContentManager(new TabContentManager(this, getContentOffsetProvider(),
+                DeviceClassManager.enableSnapshots()));
+        mCompositorViewHolder.onNativeLibraryReady(mWindowAndroid, getTabContentManager());
+
+        if (isContextualSearchAllowed() && ContextualSearchFieldTrial.isEnabled()) {
+            mContextualSearchManager = new ContextualSearchManager(this, mWindowAndroid, this);
+        }
+
+        if (ReaderModeManager.isEnabled(this)) {
+            mReaderModeManager = new ReaderModeManager(getTabModelSelector(), this);
+            if (mToolbarManager != null) {
+                mToolbarManager.addFindToolbarObserver(
+                        mReaderModeManager.getFindToolbarObserver());
+            }
+        }
+
+        TraceEvent.end("ChromeActivity:CompositorInitialization");
     }
 
     @Override
@@ -584,8 +670,7 @@ public abstract class ChromeActivity extends AsyncInitializationActivity
         ChromeActivitySessionTracker.getInstance().onStartWithNative();
 
         if (GSAState.getInstance(this).isGsaAvailable()) {
-            mGSAServiceClient = new GSAServiceClient(this);
-            mGSAServiceClient.connect();
+            GSAAccountChangeListener.getInstance().connect();
             createContextReporterIfNeeded();
         } else {
             ContextReporter.reportStatus(ContextReporter.STATUS_GSA_NOT_AVAILABLE);
@@ -604,6 +689,9 @@ public abstract class ChromeActivity extends AsyncInitializationActivity
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
+
+        maybeRemoveWindowBackground();
+
         Tab tab = getActivityTab();
         if (tab == null) return;
         if (hasFocus) {
@@ -687,9 +775,9 @@ public abstract class ChromeActivity extends AsyncInitializationActivity
         Tab tab = getActivityTab();
         if (tab != null && !hasWindowFocus()) tab.onActivityHidden();
         if (mAppMenuHandler != null) mAppMenuHandler.hideAppMenu();
-        if (mGSAServiceClient != null) {
-            mGSAServiceClient.disconnect();
-            mGSAServiceClient = null;
+
+        if (GSAState.getInstance(this).isGsaAvailable()) {
+            GSAAccountChangeListener.getInstance().disconnect();
             if (mSyncStateChangedListener != null) {
                 ProfileSyncService syncService = ProfileSyncService.get();
                 if (syncService != null) {
@@ -704,9 +792,9 @@ public abstract class ChromeActivity extends AsyncInitializationActivity
     @Override
     public void onNewIntentWithNative(Intent intent) {
         super.onNewIntentWithNative(intent);
-        if (mIntentHandler.shouldIgnoreIntent(this, intent)) return;
+        if (mIntentHandler.shouldIgnoreIntent(intent)) return;
 
-        mIntentHandler.onNewIntent(this, intent);
+        mIntentHandler.onNewIntent(intent);
     }
 
     /**
@@ -750,12 +838,12 @@ public abstract class ChromeActivity extends AsyncInitializationActivity
             }
         });
 
+        final String simpleName = getClass().getSimpleName();
         DeferredStartupHandler.getInstance().addDeferredTask(new Runnable() {
             @Override
             public void run() {
                 if (isActivityDestroyed()) return;
                 if (mToolbarManager != null) {
-                    String simpleName = getClass().getSimpleName();
                     RecordHistogram.recordTimesHistogram(
                             "MobileStartup.ToolbarInflationTime." + simpleName,
                             mInflateInitialLayoutDurationMs, TimeUnit.MILLISECONDS);
@@ -765,6 +853,14 @@ public abstract class ChromeActivity extends AsyncInitializationActivity
                 if (MultiWindowUtils.getInstance().isInMultiWindowMode(ChromeActivity.this)) {
                     onDeferredStartupForMultiWindowMode();
                 }
+            }
+        });
+
+        DeferredStartupHandler.getInstance().addDeferredTask(new Runnable() {
+            @Override
+            public void run() {
+                if (isActivityDestroyed()) return;
+                ForcedSigninProcessor.checkCanSignIn(ChromeActivity.this);
             }
         });
     }
@@ -878,8 +974,10 @@ public abstract class ChromeActivity extends AsyncInitializationActivity
             mToolbarManager = null;
         }
 
-        TabModelSelector selector = getTabModelSelector();
-        if (selector != null) selector.destroy();
+        if (mTabModelsInitialized) {
+            TabModelSelector selector = getTabModelSelector();
+            if (selector != null) selector.destroy();
+        }
 
         if (mWindowAndroid != null) {
             mWindowAndroid.destroy();
@@ -898,11 +996,6 @@ public abstract class ChromeActivity extends AsyncInitializationActivity
         manager.removeAccessibilityStateChangeListener(this);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
             manager.removeTouchExplorationStateChangeListener(mTouchExplorationStateChangeListener);
-        }
-
-        if (mBlimpClientContextDelegate != null) {
-            mBlimpClientContextDelegate.destroy();
-            mBlimpClientContextDelegate = null;
         }
 
         super.onDestroy();
@@ -959,8 +1052,15 @@ public abstract class ChromeActivity extends AsyncInitializationActivity
                 ApiCompatibilityUtils.getColor(getResources(), R.color.light_background_color));
     }
 
-    @Override
-    public void finishNativeInitialization() {
+    private void maybeRemoveWindowBackground() {
+        // Only need to do this logic once.
+        if (mRemoveWindowBackgroundDone) return;
+
+        // Remove the window background only after native init and window getting focus. It's done
+        // after native init because before native init, a fake background gets shown. The window
+        // focus dependency is because doing it earlier can cause drawing bugs, e.g. crbug/673831.
+        if (!mNativeInitialized || !hasWindowFocus()) return;
+
         // The window background color is used as the resizing background color in Android N+
         // multi-window mode. See crbug.com/602366.
         if (Build.VERSION.CODENAME.equals("N") || Build.VERSION.SDK_INT > Build.VERSION_CODES.M) {
@@ -968,8 +1068,24 @@ public abstract class ChromeActivity extends AsyncInitializationActivity
                     ApiCompatibilityUtils.getColor(getResources(),
                             R.color.resizing_background_color)));
         } else {
-            removeWindowBackground();
+            // Post the removeWindowBackground() call as a separate task, as doing it synchronously
+            // here can cause redrawing glitches. See crbug.com/686662 for an example problem.
+            Handler handler = new Handler();
+            handler.post(new Runnable() {
+                @Override
+                public void run() {
+                    removeWindowBackground();
+                }
+            });
         }
+
+        mRemoveWindowBackgroundDone = true;
+    }
+
+    @Override
+    public void finishNativeInitialization() {
+        mNativeInitialized = true;
+        maybeRemoveWindowBackground();
         DownloadManagerService.getDownloadManagerService(
                 getApplicationContext()).onActivityLaunched();
 
@@ -1141,7 +1257,7 @@ public abstract class ChromeActivity extends AsyncInitializationActivity
     }
 
     /**
-     * @return The resource id that contains how large the top controls are.
+     * @return The resource id that contains how large the browser controls are.
      */
     public int getControlContainerHeightResource() {
         return R.dimen.control_container_height;
@@ -1193,9 +1309,9 @@ public abstract class ChromeActivity extends AsyncInitializationActivity
                 if (!tabToBookmark.isClosing() && tabToBookmark.isInitialized()) {
                     // The BookmarkModel will be destroyed by BookmarkUtils#addOrEditBookmark() when
                     // done.
-                    BookmarkId newBookmarkId =
-                            BookmarkUtils.addOrEditBookmark(bookmarkId, bookmarkModel,
-                                    tabToBookmark, getSnackbarManager(), ChromeActivity.this);
+                    BookmarkId newBookmarkId = BookmarkUtils.addOrEditBookmark(bookmarkId,
+                            bookmarkModel, tabToBookmark, getSnackbarManager(), ChromeActivity.this,
+                            isCustomTab());
                     // If a new bookmark was created, try to save an offline page for it.
                     if (newBookmarkId != null && newBookmarkId.getId() != bookmarkId) {
                         OfflinePageUtils.saveBookmarkOffline(newBookmarkId, tabToBookmark);
@@ -1213,6 +1329,10 @@ public abstract class ChromeActivity extends AsyncInitializationActivity
      * @return The {@link TabModelSelector}, possibly null.
      */
     public TabModelSelector getTabModelSelector() {
+        if (!mTabModelsInitialized) {
+            throw new IllegalStateException(
+                    "Attempting to access TabModelSelector before initialization");
+        }
         return mTabModelSelector;
     }
 
@@ -1227,19 +1347,11 @@ public abstract class ChromeActivity extends AsyncInitializationActivity
 
     @Override
     public TabCreatorManager.TabCreator getTabCreator(boolean incognito) {
+        if (!mTabModelsInitialized) {
+            throw new IllegalStateException(
+                    "Attempting to access TabCreator before initialization");
+        }
         return incognito ? mIncognitoTabCreator : mRegularTabCreator;
-    }
-
-    /**
-     * Sets the {@link org.chromium.chrome.browser.tabmodel.TabCreatorManager.TabCreator}s owned by
-     * this {@link ChromeActivity}.
-     * @param regularTabCreator The creator for normal tabs.
-     * @param incognitoTabCreator The creator for incognito tabs.
-     */
-    protected void setTabCreators(TabCreatorManager.TabCreator regularTabCreator,
-            TabCreatorManager.TabCreator incognitoTabCreator) {
-        mRegularTabCreator = regularTabCreator;
-        mIncognitoTabCreator = incognitoTabCreator;
     }
 
     /**
@@ -1317,6 +1429,10 @@ public abstract class ChromeActivity extends AsyncInitializationActivity
      * @return The fullscreen manager, possibly null
      */
     public ChromeFullscreenManager getFullscreenManager() {
+        if (!mCreatedFullscreenManager) {
+            throw new IllegalStateException(
+                    "Attempting to access FullscreenManager before it has been created.");
+        }
         return mFullscreenManager;
     }
 
@@ -1324,7 +1440,7 @@ public abstract class ChromeActivity extends AsyncInitializationActivity
      * @return The content offset provider, may be null.
      */
     public ContentOffsetProvider getContentOffsetProvider() {
-        return mCompositorViewHolder.getContentOffsetProvider();
+        return mCompositorViewHolder;
     }
 
     /**
@@ -1344,13 +1460,12 @@ public abstract class ChromeActivity extends AsyncInitializationActivity
 
     /**
      * Create a full-screen manager to be used by this activity.
-     * @param controlContainer The control container that will be controlled by the full-screen
-     *                         manager.
+     * Note: This is called during {@link #postInflationStartup}, so native code may not have been
+     * initialized, but Android Views will have been.
      * @return A {@link ChromeFullscreenManager} instance that's been created.
      */
-    protected ChromeFullscreenManager createFullscreenManager(ControlContainer controlContainer) {
-        return new ChromeFullscreenManager(this, controlContainer, getTabModelSelector(),
-                getControlContainerHeightResource(), true);
+    protected ChromeFullscreenManager createFullscreenManager() {
+        return new ChromeFullscreenManager(this, false);
     }
 
     /**
@@ -1386,10 +1501,6 @@ public abstract class ChromeActivity extends AsyncInitializationActivity
     protected void initializeCompositorContent(
             LayoutManagerDocument layoutManager, View urlBar, ViewGroup contentContainer,
             ControlContainer controlContainer) {
-        if (controlContainer != null) {
-            mFullscreenManager = createFullscreenManager(controlContainer);
-        }
-
         if (mContextualSearchManager != null) {
             mContextualSearchManager.initialize(contentContainer);
             mContextualSearchManager.setSearchContentViewDelegate(layoutManager);
@@ -1399,7 +1510,7 @@ public abstract class ChromeActivity extends AsyncInitializationActivity
         mCompositorViewHolder.setLayoutManager(layoutManager);
         mCompositorViewHolder.setFocusable(false);
         mCompositorViewHolder.setControlContainer(controlContainer);
-        mCompositorViewHolder.setFullscreenHandler(mFullscreenManager);
+        mCompositorViewHolder.setFullscreenHandler(getFullscreenManager());
         mCompositorViewHolder.setUrlBar(urlBar);
         mCompositorViewHolder.onFinishNativeInitialization(getTabModelSelector(), this,
                 getTabContentManager(), contentContainer, mContextualSearchManager,
@@ -1608,9 +1719,14 @@ public abstract class ChromeActivity extends AsyncInitializationActivity
             WebsiteSettingsPopup.show(
                     this, currentTab, null, WebsiteSettingsPopup.OPENED_FROM_MENU);
         } else if (id == R.id.open_history_menu_id) {
-            currentTab.loadUrl(
-                    new LoadUrlParams(UrlConstants.HISTORY_URL, PageTransition.AUTO_TOPLEVEL));
+            if (NewTabPage.isNTPUrl(currentTab.getUrl())) {
+                NewTabPageUma.recordAction(NewTabPageUma.ACTION_OPENED_HISTORY_MANAGER);
+            }
             RecordUserAction.record("MobileMenuHistory");
+            if (!HistoryManagerUtils.showHistoryManager(this, currentTab)) {
+                currentTab.loadUrl(
+                        new LoadUrlParams(UrlConstants.HISTORY_URL, PageTransition.AUTO_TOPLEVEL));
+            }
             StartupMetrics.getInstance().recordOpenedHistory();
         } else if (id == R.id.share_menu_id || id == R.id.direct_share_menu_id) {
             onShareMenuItemSelected(id == R.id.direct_share_menu_id,
@@ -1642,13 +1758,7 @@ public abstract class ChromeActivity extends AsyncInitializationActivity
                 builder.show();
             }
         } else if (id == R.id.help_id) {
-            // Since reading back the compositor is asynchronous, we need to do the readback
-            // before starting the GoogleHelp.
-            String helpContextId = HelpAndFeedback.getHelpContextIdFromUrl(
-                    this, currentTab.getUrl(), getCurrentTabModel().isIncognito());
-            HelpAndFeedback.getInstance(this)
-                    .show(this, helpContextId, currentTab.getProfile(), currentTab.getUrl());
-            RecordUserAction.record("MobileMenuFeedback");
+            startHelpAndFeedback(currentTab, "MobileMenuFeedback");
         } else {
             return false;
         }
@@ -1656,11 +1766,18 @@ public abstract class ChromeActivity extends AsyncInitializationActivity
     }
 
     /**
-     * Tests if VR Shell (the mode displaying browser UI and tab contents in VR) is currently
-     * enabled.
+     * Shows HelpAndFeedback and records the user action as well.
+     * @param currentTab The tab that the user is currently on.
+     * @param recordAction The user action to record.
      */
-    public boolean isVrShellEnabled() {
-        return false;
+    public void startHelpAndFeedback(Tab currentTab, String recordAction) {
+        // Since reading back the compositor is asynchronous, we need to do the readback
+        // before starting the GoogleHelp.
+        String helpContextId = HelpAndFeedback.getHelpContextIdFromUrl(
+                this, currentTab.getUrl(), getCurrentTabModel().isIncognito());
+        HelpAndFeedback.getInstance(this)
+                .show(this, helpContextId, currentTab.getProfile(), currentTab.getUrl());
+        RecordUserAction.record(recordAction);
     }
 
     /**
@@ -1781,26 +1898,11 @@ public abstract class ChromeActivity extends AsyncInitializationActivity
         }
     }
 
-    /**
-     * Adds a {@link Callback} that will be triggered whenever a ContextMenu is closed.
-     */
-    public void addContextMenuCloseCallback(Callback<Menu> callback) {
-        mContextMenuCloseObservers.addObserver(callback);
-    }
-
     @Override
     public void onContextMenuClosed(Menu menu) {
-        for (Callback<Menu> callback : mContextMenuCloseObservers) {
-            callback.onResult(menu);
-        }
-    }
+        if (mWindowAndroid == null) return;
 
-    /**
-     * Removes a {@link Callback} from the list of callbacks that will be triggered when a
-     * ContextMenu is closed.
-     */
-    public void removeContextMenuCloseCallback(Callback<Menu> callback) {
-        mContextMenuCloseObservers.removeObserver(callback);
+        mWindowAndroid.onContextMenuClosed();
     }
 
     private boolean shouldDisableHardwareAcceleration() {

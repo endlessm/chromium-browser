@@ -12,7 +12,10 @@
 #include "content/browser/service_worker/service_worker_context_wrapper.h"
 #include "content/browser/service_worker/service_worker_registration.h"
 #include "content/browser/service_worker/service_worker_request_handler.h"
+#include "content/browser/service_worker/service_worker_test_utils.h"
+#include "content/common/service_worker/service_worker_utils.h"
 #include "content/public/common/content_switches.h"
+#include "content/public/common/previews_state.h"
 #include "content/public/test/mock_resource_context.h"
 #include "content/public/test/test_browser_thread_bundle.h"
 #include "net/http/http_response_headers.h"
@@ -48,6 +51,8 @@ SaveFoundRegistrations(
                     registrations);
 }
 
+}  // namespace
+
 class LinkHeaderServiceWorkerTest : public ::testing::Test {
  public:
   LinkHeaderServiceWorkerTest()
@@ -64,8 +69,8 @@ class LinkHeaderServiceWorkerTest : public ::testing::Test {
     // An empty host.
     std::unique_ptr<ServiceWorkerProviderHost> host(
         new ServiceWorkerProviderHost(
-            helper_->mock_render_process_id(), MSG_ROUTING_NONE,
-            kMockProviderId, SERVICE_WORKER_PROVIDER_FOR_WINDOW,
+            render_process_id(), MSG_ROUTING_NONE, kMockProviderId,
+            SERVICE_WORKER_PROVIDER_FOR_WINDOW,
             ServiceWorkerProviderHost::FrameSecurityLevel::UNINITIALIZED,
             context()->AsWeakPtr(), nullptr));
     provider_host_ = host->AsWeakPtr();
@@ -79,6 +84,28 @@ class LinkHeaderServiceWorkerTest : public ::testing::Test {
     return helper_->context_wrapper();
   }
   ServiceWorkerProviderHost* provider_host() { return provider_host_.get(); }
+  int render_process_id() const { return helper_->mock_render_process_id(); }
+
+  void CreateServiceWorkerProviderHost() {
+    std::unique_ptr<ServiceWorkerProviderHost> host(
+        new ServiceWorkerProviderHost(
+            render_process_id(), MSG_ROUTING_NONE, kMockProviderId,
+            SERVICE_WORKER_PROVIDER_FOR_CONTROLLER,
+            ServiceWorkerProviderHost::FrameSecurityLevel::UNINITIALIZED,
+            context()->AsWeakPtr(), nullptr));
+    provider_host_ = host->AsWeakPtr();
+    context()->RemoveProviderHost(host->process_id(), host->provider_id());
+    context()->AddProviderHost(std::move(host));
+
+    scoped_refptr<ServiceWorkerRegistration> registration =
+        new ServiceWorkerRegistration(GURL("https://host/scope"), 1L,
+                                      context()->AsWeakPtr());
+    scoped_refptr<ServiceWorkerVersion> version = new ServiceWorkerVersion(
+        registration.get(), GURL("https://host/script.js"), 1L,
+        context()->AsWeakPtr());
+
+    provider_host_->running_hosted_version_ = version;
+  }
 
   std::unique_ptr<net::URLRequest> CreateRequest(const GURL& request_url,
                                                  ResourceType resource_type) {
@@ -89,17 +116,17 @@ class LinkHeaderServiceWorkerTest : public ::testing::Test {
         -1 /* render_process_id */, -1 /* render_view_id */,
         -1 /* render_frame_id */, resource_type == RESOURCE_TYPE_MAIN_FRAME,
         false /* parent_is_main_frame */, true /* allow_download */,
-        true /* is_async */, false /* is_using_lofi */);
+        true /* is_async */, PREVIEWS_OFF /* previews_state */);
     ResourceRequestInfoImpl::ForRequest(request.get())
         ->set_initiated_in_secure_context_for_testing(true);
 
     ServiceWorkerRequestHandler::InitializeHandler(
         request.get(), context_wrapper(), &blob_storage_context_,
-        helper_->mock_render_process_id(), kMockProviderId,
-        false /* skip_service_worker */, FETCH_REQUEST_MODE_NO_CORS,
-        FETCH_CREDENTIALS_MODE_OMIT, FetchRedirectMode::FOLLOW_MODE,
-        resource_type, REQUEST_CONTEXT_TYPE_HYPERLINK,
-        REQUEST_CONTEXT_FRAME_TYPE_TOP_LEVEL, nullptr);
+        render_process_id(), kMockProviderId, false /* skip_service_worker */,
+        FETCH_REQUEST_MODE_NO_CORS, FETCH_CREDENTIALS_MODE_OMIT,
+        FetchRedirectMode::FOLLOW_MODE, resource_type,
+        REQUEST_CONTEXT_TYPE_HYPERLINK, REQUEST_CONTEXT_FRAME_TYPE_TOP_LEVEL,
+        nullptr);
 
     return request;
   }
@@ -328,6 +355,37 @@ TEST_F(LinkHeaderServiceWorkerTest,
   ASSERT_EQ(0u, registrations.size());
 }
 
-}  // namespace
+TEST_F(LinkHeaderServiceWorkerTest,
+       InstallServiceWorker_FromWorkerWithoutControllees) {
+  CreateServiceWorkerProviderHost();
+  ProcessLinkHeaderForRequest(
+      CreateSubresourceRequest(GURL("https://example.com/foo/bar/")).get(),
+      "<../foo.js>; rel=serviceworker", context_wrapper());
+  base::RunLoop().RunUntilIdle();
+
+  std::vector<ServiceWorkerRegistrationInfo> registrations = GetRegistrations();
+  ASSERT_EQ(0u, registrations.size());
+}
+
+TEST_F(LinkHeaderServiceWorkerTest,
+       InstallServiceWorker_FromWorkerWithControllees) {
+  CreateServiceWorkerProviderHost();
+
+  std::unique_ptr<ServiceWorkerProviderHost> controllee(
+      new ServiceWorkerProviderHost(
+          render_process_id(), MSG_ROUTING_NONE, kMockProviderId,
+          SERVICE_WORKER_PROVIDER_FOR_WINDOW,
+          ServiceWorkerProviderHost::FrameSecurityLevel::UNINITIALIZED,
+          context()->AsWeakPtr(), nullptr));
+  provider_host()->running_hosted_version()->AddControllee(controllee.get());
+
+  ProcessLinkHeaderForRequest(
+      CreateSubresourceRequest(GURL("https://example.com/foo/bar/")).get(),
+      "<../foo.js>; rel=serviceworker", context_wrapper());
+  base::RunLoop().RunUntilIdle();
+
+  std::vector<ServiceWorkerRegistrationInfo> registrations = GetRegistrations();
+  ASSERT_EQ(1u, registrations.size());
+}
 
 }  // namespace content

@@ -5,16 +5,20 @@
 #include "components/exo/keyboard.h"
 
 #include "components/exo/keyboard_delegate.h"
+#include "components/exo/keyboard_device_configuration_delegate.h"
 #include "components/exo/shell_surface.h"
 #include "components/exo/surface.h"
 #include "ui/aura/client/focus_client.h"
 #include "ui/aura/window.h"
 #include "ui/base/ime/input_method.h"
 #include "ui/events/base_event_utils.h"
+#include "ui/events/devices/input_device.h"
+#include "ui/events/devices/input_device_manager.h"
 #include "ui/events/event.h"
 #include "ui/views/widget/widget.h"
 
 namespace exo {
+namespace {
 
 bool ConsumedByIme(Surface* focus, const ui::KeyEvent* event) {
   // Check if IME consumed the event, to avoid it to be doubly processed.
@@ -42,14 +46,15 @@ bool ConsumedByIme(Surface* focus, const ui::KeyEvent* event) {
   // because key-down events do not mean any character inputs there.
   // (InsertChar issues a DOM "keypress" event, which is distinct from keydown.)
   // Unfortunately, this is not necessary the case for our clients that may
-  // treat a key event as a trigger of text inputs. We need suppression.
-
-  // Same condition as components/arc/ime/arc_ime_service.cc#InsertChar.
-  const base::char16 ch = event->GetCharacter();
-  const bool is_control_char =
-      (0x00 <= ch && ch <= 0x1f) || (0x7f <= ch && ch <= 0x9f);
-  if (!is_control_char && !ui::IsSystemKeyModifier(event->flags()))
-    return true;
+  // treat keydown as a trigger of text inputs. We need suppression for keydown.
+  if (event->type() == ui::ET_KEY_PRESSED) {
+    // Same condition as components/arc/ime/arc_ime_service.cc#InsertChar.
+    const base::char16 ch = event->GetCharacter();
+    const bool is_control_char =
+        (0x00 <= ch && ch <= 0x1f) || (0x7f <= ch && ch <= 0x9f);
+    if (!is_control_char && !ui::IsSystemKeyModifier(event->flags()))
+      return true;
+  }
 
   // Case 3:
   // Workaround for apps that doesn't handle hardware keyboard events well.
@@ -69,6 +74,21 @@ bool ConsumedByIme(Surface* focus, const ui::KeyEvent* event) {
   return false;
 }
 
+bool IsPhysicalKeyboardEnabled() {
+  // The internal keyboard is enabled if maximize mode is not enabled.
+  if (!WMHelper::GetInstance()->IsMaximizeModeWindowManagerEnabled())
+    return true;
+
+  for (auto& keyboard :
+       ui::InputDeviceManager::GetInstance()->GetKeyboardDevices()) {
+    if (keyboard.type != ui::InputDeviceType::INPUT_DEVICE_INTERNAL)
+      return true;
+  }
+  return false;
+}
+
+}  // namespace
+
 ////////////////////////////////////////////////////////////////////////////////
 // Keyboard, public:
 
@@ -76,16 +96,32 @@ Keyboard::Keyboard(KeyboardDelegate* delegate) : delegate_(delegate) {
   auto* helper = WMHelper::GetInstance();
   helper->AddPostTargetHandler(this);
   helper->AddFocusObserver(this);
+  helper->AddMaximizeModeObserver(this);
+  helper->AddInputDeviceEventObserver(this);
   OnWindowFocused(helper->GetFocusedWindow(), nullptr);
 }
 
 Keyboard::~Keyboard() {
   delegate_->OnKeyboardDestroying(this);
+  if (device_configuration_delegate_)
+    device_configuration_delegate_->OnKeyboardDestroying(this);
   if (focus_)
     focus_->RemoveSurfaceObserver(this);
   auto* helper = WMHelper::GetInstance();
   helper->RemoveFocusObserver(this);
   helper->RemovePostTargetHandler(this);
+  helper->RemoveMaximizeModeObserver(this);
+  helper->RemoveInputDeviceEventObserver(this);
+}
+
+bool Keyboard::HasDeviceConfigurationDelegate() const {
+  return !!device_configuration_delegate_;
+}
+
+void Keyboard::SetDeviceConfigurationDelegate(
+    KeyboardDeviceConfigurationDelegate* delegate) {
+  device_configuration_delegate_ = delegate;
+  OnKeyboardDeviceConfigurationChanged();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -166,6 +202,27 @@ void Keyboard::OnSurfaceDestroying(Surface* surface) {
   DCHECK(surface == focus_);
   focus_ = nullptr;
   surface->RemoveSurfaceObserver(this);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// ui::InputDeviceEventObserver overrides:
+
+void Keyboard::OnKeyboardDeviceConfigurationChanged() {
+  if (device_configuration_delegate_) {
+    device_configuration_delegate_->OnKeyboardTypeChanged(
+        IsPhysicalKeyboardEnabled());
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// WMHelper::MaximizeModeObserver overrides:
+
+void Keyboard::OnMaximizeModeStarted() {
+  OnKeyboardDeviceConfigurationChanged();
+}
+
+void Keyboard::OnMaximizeModeEnded() {
+  OnKeyboardDeviceConfigurationChanged();
 }
 
 ////////////////////////////////////////////////////////////////////////////////

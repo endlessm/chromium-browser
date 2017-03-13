@@ -46,7 +46,6 @@ class MediaStreamComponent;
 class MediaStreamDescriptor;
 class WebMediaStream;
 class WebMediaStreamCenter;
-class WebMediaStreamTrack;
 
 class PLATFORM_EXPORT MediaStreamCenter final
     : public WebMediaStreamCenterClient {
@@ -60,6 +59,7 @@ class PLATFORM_EXPORT MediaStreamCenter final
 
   void didCreateMediaStreamTrack(MediaStreamComponent*);
   void didSetMediaStreamTrackEnabled(MediaStreamComponent*);
+  void didSetContentHint(MediaStreamComponent*);
   bool didStopMediaStreamTrack(MediaStreamComponent*);
   std::unique_ptr<AudioSourceProvider> createWebAudioSourceFromMediaStreamTrack(
       MediaStreamComponent*);

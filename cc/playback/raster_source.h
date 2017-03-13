@@ -17,10 +17,14 @@
 #include "skia/ext/analysis_canvas.h"
 #include "third_party/skia/include/core/SkPicture.h"
 
+namespace gfx {
+class ColorSpace;
+}
+
 namespace cc {
 class DisplayItemList;
 class DrawImage;
-class ImageDecodeController;
+class ImageDecodeCache;
 
 class CC_EXPORT RasterSource : public base::RefCountedThreadSafe<RasterSource> {
  public:
@@ -78,11 +82,19 @@ class CC_EXPORT RasterSource : public base::RefCountedThreadSafe<RasterSource> {
   // Returns the size of this raster source.
   gfx::Size GetSize() const;
 
+  // Returns whether or not there was a color space implied by the raster source
+  // when it was created. If this returns true then no color correction is
+  // to be applied at rasterization time, and the result of rasterization is to
+  // be interpreted as being in this color space. If this returns falce, then
+  // then a destination color space must be specified at raster time.
+  bool HasImpliedColorSpace() const;
+  const gfx::ColorSpace& GetImpliedColorSpace() const;
+
   // Populate the given list with all images that may overlap the given
   // rect in layer space. The returned draw images' matrices are modified as if
   // they were being using during raster at scale |raster_scale|.
   void GetDiscardableImagesInRect(const gfx::Rect& layer_rect,
-                                  float raster_scale,
+                                  float contents_scale,
                                   std::vector<DrawImage>* images) const;
 
   // Return true iff this raster source can raster the given rect in layer
@@ -94,14 +106,6 @@ class CC_EXPORT RasterSource : public base::RefCountedThreadSafe<RasterSource> {
 
   // Valid rectangle in which everything is recorded and can be rastered from.
   virtual gfx::Rect RecordedViewport() const;
-
-  // Informs the raster source that it should attempt to use distance field text
-  // during rasterization.
-  virtual void SetShouldAttemptToUseDistanceFieldText();
-
-  // Return true iff this raster source would benefit from using distance
-  // field text.
-  virtual bool ShouldAttemptToUseDistanceFieldText() const;
 
   // Tracing functionality.
   virtual void DidBeginTracing();
@@ -116,21 +120,9 @@ class CC_EXPORT RasterSource : public base::RefCountedThreadSafe<RasterSource> {
 
   // Image decode controller should be set once. Its lifetime has to exceed that
   // of the raster source, since the raster source will access it during raster.
-  void set_image_decode_controller(
-      ImageDecodeController* image_decode_controller) {
-    DCHECK(image_decode_controller);
-    image_decode_controller_ = image_decode_controller;
-  }
-
-  // Returns the ImageDecodeController, currently only used by
-  // GpuRasterBufferProvider in order to create its own ImageHijackCanvas.
-  // Because of the MultiPictureDraw approach used by GPU raster, it does not
-  // integrate well with the use of the ImageHijackCanvas internal to this
-  // class. See gpu_raster_buffer_provider.cc for more information.
-  // TODO(crbug.com/628394): Redesign this to avoid exposing
-  // ImageDecodeController from the raster source.
-  ImageDecodeController* image_decode_controller() const {
-    return image_decode_controller_;
+  void set_image_decode_cache(ImageDecodeCache* image_decode_cache) {
+    DCHECK(image_decode_cache);
+    image_decode_cache_ = image_decode_cache;
   }
 
  protected:
@@ -153,13 +145,10 @@ class CC_EXPORT RasterSource : public base::RefCountedThreadSafe<RasterSource> {
   const gfx::Size size_;
   const bool clear_canvas_with_debug_color_;
   const int slow_down_raster_scale_factor_for_debug_;
-  // TODO(enne/vmiura): this has a read/write race between raster and compositor
-  // threads with multi-threaded Ganesh.  Make this const or remove it.
-  bool should_attempt_to_use_distance_field_text_;
 
   // In practice, this is only set once before raster begins, so it's ok with
   // respect to threading.
-  ImageDecodeController* image_decode_controller_;
+  ImageDecodeCache* image_decode_cache_;
 
  private:
   void RasterCommon(SkCanvas* canvas, SkPicture::AbortCallback* callback) const;

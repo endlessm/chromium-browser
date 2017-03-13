@@ -343,50 +343,39 @@ static const SSL_CIPHER kCiphers[] = {
      SSL_HANDSHAKE_MAC_SHA384,
     },
 
-    /* CECPQ1 (combined elliptic curve + post-quantum) suites. */
+    /* TLS 1.3 suites. */
 
-    /* Cipher 16B7 */
+    /* Cipher 1301 */
     {
-     TLS1_TXT_CECPQ1_RSA_WITH_CHACHA20_POLY1305_SHA256,
-     TLS1_CK_CECPQ1_RSA_WITH_CHACHA20_POLY1305_SHA256,
-     SSL_kCECPQ1,
-     SSL_aRSA,
-     SSL_CHACHA20POLY1305,
-     SSL_AEAD,
-     SSL_HANDSHAKE_MAC_SHA256,
+      TLS1_TXT_AES_128_GCM_SHA256,
+      TLS1_CK_AES_128_GCM_SHA256,
+      SSL_kGENERIC,
+      SSL_aGENERIC,
+      SSL_AES128GCM,
+      SSL_AEAD,
+      SSL_HANDSHAKE_MAC_SHA256,
     },
 
-    /* Cipher 16B8 */
+    /* Cipher 1302 */
     {
-     TLS1_TXT_CECPQ1_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
-     TLS1_CK_CECPQ1_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
-     SSL_kCECPQ1,
-     SSL_aECDSA,
-     SSL_CHACHA20POLY1305,
-     SSL_AEAD,
-     SSL_HANDSHAKE_MAC_SHA256,
+      TLS1_TXT_AES_256_GCM_SHA384,
+      TLS1_CK_AES_256_GCM_SHA384,
+      SSL_kGENERIC,
+      SSL_aGENERIC,
+      SSL_AES256GCM,
+      SSL_AEAD,
+      SSL_HANDSHAKE_MAC_SHA384,
     },
 
-    /* Cipher 16B9 */
+    /* Cipher 1303 */
     {
-     TLS1_TXT_CECPQ1_RSA_WITH_AES_256_GCM_SHA384,
-     TLS1_CK_CECPQ1_RSA_WITH_AES_256_GCM_SHA384,
-     SSL_kCECPQ1,
-     SSL_aRSA,
-     SSL_AES256GCM,
-     SSL_AEAD,
-     SSL_HANDSHAKE_MAC_SHA384,
-    },
-
-    /* Cipher 16BA */
-    {
-     TLS1_TXT_CECPQ1_ECDSA_WITH_AES_256_GCM_SHA384,
-     TLS1_CK_CECPQ1_ECDSA_WITH_AES_256_GCM_SHA384,
-     SSL_kCECPQ1,
-     SSL_aECDSA,
-     SSL_AES256GCM,
-     SSL_AEAD,
-     SSL_HANDSHAKE_MAC_SHA384,
+      TLS1_TXT_CHACHA20_POLY1305_SHA256,
+      TLS1_CK_CHACHA20_POLY1305_SHA256,
+      SSL_kGENERIC,
+      SSL_aGENERIC,
+      SSL_CHACHA20POLY1305,
+      SSL_AEAD,
+      SSL_HANDSHAKE_MAC_SHA256,
     },
 
     /* Cipher C009 */
@@ -608,28 +597,6 @@ static const SSL_CIPHER kCiphers[] = {
      SSL_HANDSHAKE_MAC_SHA256,
     },
 
-    /* Cipher D001 */
-    {
-     TLS1_TXT_ECDHE_PSK_WITH_AES_128_GCM_SHA256,
-     TLS1_CK_ECDHE_PSK_WITH_AES_128_GCM_SHA256,
-     SSL_kECDHE,
-     SSL_aPSK,
-     SSL_AES128GCM,
-     SSL_AEAD,
-     SSL_HANDSHAKE_MAC_SHA256,
-    },
-
-    /* Cipher D002 */
-    {
-     TLS1_TXT_ECDHE_PSK_WITH_AES_256_GCM_SHA384,
-     TLS1_CK_ECDHE_PSK_WITH_AES_256_GCM_SHA384,
-     SSL_kECDHE,
-     SSL_aPSK,
-     SSL_AES256GCM,
-     SSL_AEAD,
-     SSL_HANDSHAKE_MAC_SHA384,
-    },
-
 };
 
 static const size_t kCiphersLen = OPENSSL_ARRAY_SIZE(kCiphers);
@@ -666,9 +633,8 @@ typedef struct cipher_alias_st {
 } CIPHER_ALIAS;
 
 static const CIPHER_ALIAS kCipherAliases[] = {
-    /* "ALL" doesn't include eNULL nor kCECPQ1. These must be explicitly
-     * enabled. */
-    {"ALL", ~SSL_kCECPQ1, ~0u, ~SSL_eNULL, ~0u, 0},
+    /* "ALL" doesn't include eNULL. It must be explicitly enabled. */
+    {"ALL", ~0u, ~0u, ~SSL_eNULL, ~0u, 0},
 
     /* The "COMPLEMENTOFDEFAULT" rule is omitted. It matches nothing. */
 
@@ -683,16 +649,15 @@ static const CIPHER_ALIAS kCipherAliases[] = {
     {"DH", SSL_kDHE, ~0u, ~0u, ~0u, 0},
 
     {"kECDHE", SSL_kECDHE, ~0u, ~0u, ~0u, 0},
-    {"kCECPQ1", SSL_kCECPQ1, ~0u, ~0u, ~0u, 0},
     {"kEECDH", SSL_kECDHE, ~0u, ~0u, ~0u, 0},
     {"ECDH", SSL_kECDHE, ~0u, ~0u, ~0u, 0},
 
     {"kPSK", SSL_kPSK, ~0u, ~0u, ~0u, 0},
 
     /* server authentication aliases */
-    {"aRSA", ~SSL_kCECPQ1, SSL_aRSA, ~SSL_eNULL, ~0u, 0},
-    {"aECDSA", ~SSL_kCECPQ1, SSL_aECDSA, ~0u, ~0u, 0},
-    {"ECDSA", ~SSL_kCECPQ1, SSL_aECDSA, ~0u, ~0u, 0},
+    {"aRSA", ~0u, SSL_aRSA, ~SSL_eNULL, ~0u, 0},
+    {"aECDSA", ~0u, SSL_aECDSA, ~0u, ~0u, 0},
+    {"ECDSA", ~0u, SSL_aECDSA, ~0u, ~0u, 0},
     {"aPSK", ~0u, SSL_aPSK, ~0u, ~0u, 0},
 
     /* aliases combining key exchange and server authentication */
@@ -706,28 +671,27 @@ static const CIPHER_ALIAS kCipherAliases[] = {
     /* symmetric encryption aliases */
     {"3DES", ~0u, ~0u, SSL_3DES, ~0u, 0},
     {"AES128", ~0u, ~0u, SSL_AES128 | SSL_AES128GCM, ~0u, 0},
-    {"AES256", ~SSL_kCECPQ1, ~0u, SSL_AES256 | SSL_AES256GCM, ~0u, 0},
-    {"AES", ~SSL_kCECPQ1, ~0u, SSL_AES, ~0u, 0},
-    {"AESGCM", ~SSL_kCECPQ1, ~0u, SSL_AES128GCM | SSL_AES256GCM, ~0u, 0},
-    {"CHACHA20", ~SSL_kCECPQ1, ~0u, SSL_CHACHA20POLY1305 | SSL_CHACHA20POLY1305_OLD, ~0u,
+    {"AES256", ~0u, ~0u, SSL_AES256 | SSL_AES256GCM, ~0u, 0},
+    {"AES", ~0u, ~0u, SSL_AES, ~0u, 0},
+    {"AESGCM", ~0u, ~0u, SSL_AES128GCM | SSL_AES256GCM, ~0u, 0},
+    {"CHACHA20", ~0u, ~0u, SSL_CHACHA20POLY1305 | SSL_CHACHA20POLY1305_OLD, ~0u,
      0},
 
     /* MAC aliases */
-    {"MD5", ~0u, ~0u, ~0u, SSL_MD5, 0},
     {"SHA1", ~0u, ~0u, ~SSL_eNULL, SSL_SHA1, 0},
     {"SHA", ~0u, ~0u, ~SSL_eNULL, SSL_SHA1, 0},
-    {"SHA256", ~SSL_kCECPQ1, ~0u, ~0u, SSL_SHA256, 0},
-    {"SHA384", ~SSL_kCECPQ1, ~0u, ~0u, SSL_SHA384, 0},
+    {"SHA256", ~0u, ~0u, ~0u, SSL_SHA256, 0},
+    {"SHA384", ~0u, ~0u, ~0u, SSL_SHA384, 0},
 
     /* Legacy protocol minimum version aliases. "TLSv1" is intentionally the
      * same as "SSLv3". */
-    {"SSLv3", ~SSL_kCECPQ1, ~0u, ~SSL_eNULL, ~0u, SSL3_VERSION},
-    {"TLSv1", ~SSL_kCECPQ1, ~0u, ~SSL_eNULL, ~0u, SSL3_VERSION},
-    {"TLSv1.2", ~SSL_kCECPQ1, ~0u, ~SSL_eNULL, ~0u, TLS1_2_VERSION},
+    {"SSLv3", ~0u, ~0u, ~SSL_eNULL, ~0u, SSL3_VERSION},
+    {"TLSv1", ~0u, ~0u, ~SSL_eNULL, ~0u, SSL3_VERSION},
+    {"TLSv1.2", ~0u, ~0u, ~SSL_eNULL, ~0u, TLS1_2_VERSION},
 
     /* Legacy strength classes. */
-    {"HIGH", ~SSL_kCECPQ1, ~0u, ~SSL_eNULL, ~0u, 0},
-    {"FIPS", ~SSL_kCECPQ1, ~0u, ~SSL_eNULL, ~0u, 0},
+    {"HIGH", ~0u, ~0u, ~SSL_eNULL, ~0u, 0},
+    {"FIPS", ~0u, ~0u, ~SSL_eNULL, ~0u, 0},
 };
 
 static const size_t kCipherAliasesLen = OPENSSL_ARRAY_SIZE(kCipherAliases);
@@ -743,10 +707,6 @@ static int ssl_cipher_id_cmp(const void *in_a, const void *in_b) {
   } else {
     return 0;
   }
-}
-
-static int ssl_cipher_ptr_id_cmp(const SSL_CIPHER **a, const SSL_CIPHER **b) {
-  return ssl_cipher_id_cmp(*a, *b);
 }
 
 const SSL_CIPHER *SSL_get_cipher_by_value(uint16_t value) {
@@ -765,125 +725,93 @@ int ssl_cipher_get_evp_aead(const EVP_AEAD **out_aead,
   *out_mac_secret_len = 0;
   *out_fixed_iv_len = 0;
 
-  switch (cipher->algorithm_enc) {
-    case SSL_AES128GCM:
+  if (cipher->algorithm_mac == SSL_AEAD) {
+    if (cipher->algorithm_enc == SSL_AES128GCM) {
       *out_aead = EVP_aead_aes_128_gcm();
       *out_fixed_iv_len = 4;
-      break;
-
-    case SSL_AES256GCM:
+    } else if (cipher->algorithm_enc == SSL_AES256GCM) {
       *out_aead = EVP_aead_aes_256_gcm();
       *out_fixed_iv_len = 4;
-      break;
-
 #if !defined(BORINGSSL_ANDROID_SYSTEM)
-    case SSL_CHACHA20POLY1305_OLD:
+    } else if (cipher->algorithm_enc == SSL_CHACHA20POLY1305_OLD) {
       *out_aead = EVP_aead_chacha20_poly1305_old();
       *out_fixed_iv_len = 0;
-      break;
 #endif
-
-    case SSL_CHACHA20POLY1305:
+    } else if (cipher->algorithm_enc == SSL_CHACHA20POLY1305) {
       *out_aead = EVP_aead_chacha20_poly1305();
       *out_fixed_iv_len = 12;
-      break;
-
-    case SSL_AES128:
-      switch (cipher->algorithm_mac) {
-        case SSL_SHA1:
-          if (version == SSL3_VERSION) {
-            *out_aead = EVP_aead_aes_128_cbc_sha1_ssl3();
-            *out_fixed_iv_len = 16;
-          } else if (version == TLS1_VERSION) {
-            *out_aead = EVP_aead_aes_128_cbc_sha1_tls_implicit_iv();
-            *out_fixed_iv_len = 16;
-          } else {
-            *out_aead = EVP_aead_aes_128_cbc_sha1_tls();
-          }
-          *out_mac_secret_len = SHA_DIGEST_LENGTH;
-          break;
-        case SSL_SHA256:
-          *out_aead = EVP_aead_aes_128_cbc_sha256_tls();
-          *out_mac_secret_len = SHA256_DIGEST_LENGTH;
-          break;
-        default:
-          return 0;
-      }
-      break;
-
-    case SSL_AES256:
-      switch (cipher->algorithm_mac) {
-        case SSL_SHA1:
-          if (version == SSL3_VERSION) {
-            *out_aead = EVP_aead_aes_256_cbc_sha1_ssl3();
-            *out_fixed_iv_len = 16;
-          } else if (version == TLS1_VERSION) {
-            *out_aead = EVP_aead_aes_256_cbc_sha1_tls_implicit_iv();
-            *out_fixed_iv_len = 16;
-          } else {
-            *out_aead = EVP_aead_aes_256_cbc_sha1_tls();
-          }
-          *out_mac_secret_len = SHA_DIGEST_LENGTH;
-          break;
-        case SSL_SHA256:
-          *out_aead = EVP_aead_aes_256_cbc_sha256_tls();
-          *out_mac_secret_len = SHA256_DIGEST_LENGTH;
-          break;
-        case SSL_SHA384:
-          *out_aead = EVP_aead_aes_256_cbc_sha384_tls();
-          *out_mac_secret_len = SHA384_DIGEST_LENGTH;
-          break;
-        default:
-          return 0;
-      }
-      break;
-
-    case SSL_3DES:
-      switch (cipher->algorithm_mac) {
-        case SSL_SHA1:
-          if (version == SSL3_VERSION) {
-            *out_aead = EVP_aead_des_ede3_cbc_sha1_ssl3();
-            *out_fixed_iv_len = 8;
-          } else if (version == TLS1_VERSION) {
-            *out_aead = EVP_aead_des_ede3_cbc_sha1_tls_implicit_iv();
-            *out_fixed_iv_len = 8;
-          } else {
-            *out_aead = EVP_aead_des_ede3_cbc_sha1_tls();
-          }
-          *out_mac_secret_len = SHA_DIGEST_LENGTH;
-          break;
-        default:
-          return 0;
-      }
-      break;
-
-    case SSL_eNULL:
-      switch (cipher->algorithm_mac) {
-        case SSL_SHA1:
-          if (version == SSL3_VERSION) {
-            *out_aead = EVP_aead_null_sha1_ssl3();
-          } else {
-            *out_aead = EVP_aead_null_sha1_tls();
-          }
-          *out_mac_secret_len = SHA_DIGEST_LENGTH;
-          break;
-        default:
-          return 0;
-      }
-      break;
-
-    default:
+    } else {
       return 0;
+    }
+
+    /* In TLS 1.3, the iv_len is equal to the AEAD nonce length whereas the code
+     * above computes the TLS 1.2 construction. */
+    if (version >= TLS1_3_VERSION) {
+      *out_fixed_iv_len = EVP_AEAD_nonce_length(*out_aead);
+    }
+  } else if (cipher->algorithm_mac == SSL_SHA1) {
+    if (cipher->algorithm_enc == SSL_eNULL) {
+      if (version == SSL3_VERSION) {
+        *out_aead = EVP_aead_null_sha1_ssl3();
+      } else {
+        *out_aead = EVP_aead_null_sha1_tls();
+      }
+    } else if (cipher->algorithm_enc == SSL_3DES) {
+      if (version == SSL3_VERSION) {
+        *out_aead = EVP_aead_des_ede3_cbc_sha1_ssl3();
+        *out_fixed_iv_len = 8;
+      } else if (version == TLS1_VERSION) {
+        *out_aead = EVP_aead_des_ede3_cbc_sha1_tls_implicit_iv();
+        *out_fixed_iv_len = 8;
+      } else {
+        *out_aead = EVP_aead_des_ede3_cbc_sha1_tls();
+      }
+    } else if (cipher->algorithm_enc == SSL_AES128) {
+      if (version == SSL3_VERSION) {
+        *out_aead = EVP_aead_aes_128_cbc_sha1_ssl3();
+        *out_fixed_iv_len = 16;
+      } else if (version == TLS1_VERSION) {
+        *out_aead = EVP_aead_aes_128_cbc_sha1_tls_implicit_iv();
+        *out_fixed_iv_len = 16;
+      } else {
+        *out_aead = EVP_aead_aes_128_cbc_sha1_tls();
+      }
+    } else if (cipher->algorithm_enc == SSL_AES256) {
+      if (version == SSL3_VERSION) {
+        *out_aead = EVP_aead_aes_256_cbc_sha1_ssl3();
+        *out_fixed_iv_len = 16;
+      } else if (version == TLS1_VERSION) {
+        *out_aead = EVP_aead_aes_256_cbc_sha1_tls_implicit_iv();
+        *out_fixed_iv_len = 16;
+      } else {
+        *out_aead = EVP_aead_aes_256_cbc_sha1_tls();
+      }
+    } else {
+      return 0;
+    }
+
+    *out_mac_secret_len = SHA_DIGEST_LENGTH;
+  } else if (cipher->algorithm_mac == SSL_SHA256) {
+    if (cipher->algorithm_enc == SSL_AES128) {
+      *out_aead = EVP_aead_aes_128_cbc_sha256_tls();
+    } else if (cipher->algorithm_enc == SSL_AES256) {
+      *out_aead = EVP_aead_aes_256_cbc_sha256_tls();
+    } else {
+      return 0;
+    }
+
+    *out_mac_secret_len = SHA256_DIGEST_LENGTH;
+  } else if (cipher->algorithm_mac == SSL_SHA384) {
+      if (cipher->algorithm_enc != SSL_AES256) {
+        return 0;
+      }
+
+      *out_aead = EVP_aead_aes_256_cbc_sha384_tls();
+      *out_mac_secret_len = SHA384_DIGEST_LENGTH;
+  } else {
+    return 0;
   }
 
-  /* In TLS 1.3, the iv_len is equal to the AEAD nonce length whereas the code
-   * above computes the TLS 1.2 construction.
-   *
-   * TODO(davidben,svaldez): Avoid computing the wrong value and fixing it. */
-  if (version >= TLS1_3_VERSION) {
-    *out_fixed_iv_len = EVP_AEAD_nonce_length(*out_aead);
-    assert(*out_fixed_iv_len >= 8);
-  }
   return 1;
 }
 
@@ -959,7 +887,9 @@ static void ssl_cipher_collect_ciphers(const SSL_PROTOCOL_METHOD *ssl_method,
   size_t co_list_num = 0;
   for (size_t i = 0; i < kCiphersLen; i++) {
     const SSL_CIPHER *cipher = &kCiphers[i];
-    if (ssl_method->supports_cipher(cipher)) {
+    if (ssl_method->supports_cipher(cipher) &&
+        /* TLS 1.3 ciphers do not participate in this mechanism. */
+        cipher->algorithm_mkey != SSL_kGENERIC) {
       co_list[co_list_num].cipher = cipher;
       co_list[co_list_num].next = NULL;
       co_list[co_list_num].prev = NULL;
@@ -1063,14 +993,6 @@ static void ssl_cipher_apply_rule(
           (min_version != 0 && SSL_CIPHER_get_min_version(cp) != min_version)) {
         continue;
       }
-
-      /* The following ciphers are internal implementation details of TLS 1.3
-       * resumption but are not yet finalized. Disable them by default until
-       * then. */
-      if (cp->id == TLS1_CK_ECDHE_PSK_WITH_AES_128_GCM_SHA256 ||
-          cp->id == TLS1_CK_ECDHE_PSK_WITH_AES_256_GCM_SHA384) {
-        continue;
-      }
     }
 
     /* add the cipher if it has not been added yet. */
@@ -1150,7 +1072,7 @@ static int ssl_cipher_strength_sort(CIPHER_ORDER **head_p,
     OPENSSL_PUT_ERROR(SSL, ERR_R_MALLOC_FAILURE);
     return 0;
   }
-  memset(number_uses, 0, (max_strength_bits + 1) * sizeof(int));
+  OPENSSL_memset(number_uses, 0, (max_strength_bits + 1) * sizeof(int));
 
   /* Now find the strength_bits values actually used. */
   curr = *head_p;
@@ -1179,12 +1101,11 @@ static int ssl_cipher_process_rulestr(const SSL_PROTOCOL_METHOD *ssl_method,
   uint32_t alg_mkey, alg_auth, alg_enc, alg_mac;
   uint16_t min_version;
   const char *l, *buf;
-  int multi, skip_rule, rule, retval, ok, in_group = 0, has_group = 0;
+  int multi, skip_rule, rule, ok, in_group = 0, has_group = 0;
   size_t j, buf_len;
   uint32_t cipher_id;
   char ch;
 
-  retval = 1;
   l = rule_str;
   for (;;) {
     ch = *l;
@@ -1210,8 +1131,7 @@ static int ssl_cipher_process_rulestr(const SSL_PROTOCOL_METHOD *ssl_method,
       } else if (!(ch >= 'a' && ch <= 'z') && !(ch >= 'A' && ch <= 'Z') &&
                  !(ch >= '0' && ch <= '9')) {
         OPENSSL_PUT_ERROR(SSL, SSL_R_UNEXPECTED_OPERATOR_IN_GROUP);
-        retval = in_group = 0;
-        break;
+        return 0;
       } else {
         rule = CIPHER_ADD;
       }
@@ -1230,8 +1150,7 @@ static int ssl_cipher_process_rulestr(const SSL_PROTOCOL_METHOD *ssl_method,
     } else if (ch == '[') {
       if (in_group) {
         OPENSSL_PUT_ERROR(SSL, SSL_R_NESTED_GROUP);
-        retval = in_group = 0;
-        break;
+        return 0;
       }
       in_group = 1;
       has_group = 1;
@@ -1245,8 +1164,7 @@ static int ssl_cipher_process_rulestr(const SSL_PROTOCOL_METHOD *ssl_method,
      * Otherwise the in_group bits will get mixed up. */
     if (has_group && rule != CIPHER_ADD) {
       OPENSSL_PUT_ERROR(SSL, SSL_R_MIXED_SPECIAL_OPERATOR_WITH_GROUPS);
-      retval = in_group = 0;
-      break;
+      return 0;
     }
 
     if (ITEM_SEP(ch)) {
@@ -1277,9 +1195,7 @@ static int ssl_cipher_process_rulestr(const SSL_PROTOCOL_METHOD *ssl_method,
         /* We hit something we cannot deal with, it is no command or separator
          * nor alphanumeric, so we call this an error. */
         OPENSSL_PUT_ERROR(SSL, SSL_R_INVALID_COMMAND);
-        retval = in_group = 0;
-        l++;
-        break;
+        return 0;
       }
 
       if (rule == CIPHER_SPECIAL) {
@@ -1362,7 +1278,7 @@ static int ssl_cipher_process_rulestr(const SSL_PROTOCOL_METHOD *ssl_method,
       }
 
       if (ok == 0) {
-        retval = 0;
+        return 0;
       }
 
       /* We do not support any "multi" options together with "@", so throw away
@@ -1378,20 +1294,17 @@ static int ssl_cipher_process_rulestr(const SSL_PROTOCOL_METHOD *ssl_method,
 
   if (in_group) {
     OPENSSL_PUT_ERROR(SSL, SSL_R_INVALID_COMMAND);
-    retval = 0;
+    return 0;
   }
 
-  return retval;
+  return 1;
 }
 
 STACK_OF(SSL_CIPHER) *
 ssl_create_cipher_list(const SSL_PROTOCOL_METHOD *ssl_method,
                        struct ssl_cipher_preference_list_st **out_cipher_list,
-                       STACK_OF(SSL_CIPHER) **out_cipher_list_by_id,
                        const char *rule_str) {
-  int ok;
-  STACK_OF(SSL_CIPHER) *cipherstack = NULL, *tmp_cipher_list = NULL;
-  const char *rule_p;
+  STACK_OF(SSL_CIPHER) *cipherstack = NULL;
   CIPHER_ORDER *co_list = NULL, *head = NULL, *tail = NULL, *curr;
   uint8_t *in_group_flags = NULL;
   unsigned int num_in_group_flags = 0;
@@ -1416,15 +1329,14 @@ ssl_create_cipher_list(const SSL_PROTOCOL_METHOD *ssl_method,
   /* Now arrange all ciphers by preference:
    * TODO(davidben): Compute this order once and copy it. */
 
-  /* Everything else being equal, prefer ECDHE_ECDSA then ECDHE_RSA over other
+  /* Everything else being equal, prefer ECDHE_ECDSA and ECDHE_RSA over other
    * key exchange mechanisms */
-
   ssl_cipher_apply_rule(0, SSL_kECDHE, SSL_aECDSA, ~0u, ~0u, 0, CIPHER_ADD, -1,
                         0, &head, &tail);
   ssl_cipher_apply_rule(0, SSL_kECDHE, ~0u, ~0u, ~0u, 0, CIPHER_ADD, -1, 0,
                         &head, &tail);
-  ssl_cipher_apply_rule(0, SSL_kECDHE, ~0u, ~0u, ~0u, 0, CIPHER_DEL, -1, 0,
-                        &head, &tail);
+  ssl_cipher_apply_rule(0, ~0u, ~0u, ~0u, ~0u, 0, CIPHER_DEL, -1, 0, &head,
+                        &tail);
 
   /* Order the bulk ciphers. First the preferred AEAD ciphers. We prefer
    * CHACHA20 unless there is hardware support for fast and constant-time
@@ -1464,7 +1376,7 @@ ssl_create_cipher_list(const SSL_PROTOCOL_METHOD *ssl_method,
                         &tail);
 
   /* Move ciphers without forward secrecy to the end. */
-  ssl_cipher_apply_rule(0, ~(SSL_kDHE | SSL_kECDHE), ~0u, ~0u, ~0u, 0,
+  ssl_cipher_apply_rule(0, (SSL_kRSA | SSL_kPSK), ~0u, ~0u, ~0u, 0,
                         CIPHER_ORD, -1, 0, &head, &tail);
 
   /* Now disable everything (maintaining the ordering!) */
@@ -1473,22 +1385,20 @@ ssl_create_cipher_list(const SSL_PROTOCOL_METHOD *ssl_method,
 
   /* If the rule_string begins with DEFAULT, apply the default rule before
    * using the (possibly available) additional rules. */
-  ok = 1;
-  rule_p = rule_str;
+  const char *rule_p = rule_str;
   if (strncmp(rule_str, "DEFAULT", 7) == 0) {
-    ok = ssl_cipher_process_rulestr(ssl_method, SSL_DEFAULT_CIPHER_LIST, &head,
-                                    &tail);
+    if (!ssl_cipher_process_rulestr(ssl_method, SSL_DEFAULT_CIPHER_LIST, &head,
+                                    &tail)) {
+      goto err;
+    }
     rule_p += 7;
     if (*rule_p == ':') {
       rule_p++;
     }
   }
 
-  if (ok && strlen(rule_p) > 0) {
-    ok = ssl_cipher_process_rulestr(ssl_method, rule_p, &head, &tail);
-  }
-
-  if (!ok) {
+  if (*rule_p != '\0' &&
+      !ssl_cipher_process_rulestr(ssl_method, rule_p, &head, &tail)) {
     goto err;
   }
 
@@ -1517,10 +1427,6 @@ ssl_create_cipher_list(const SSL_PROTOCOL_METHOD *ssl_method,
   OPENSSL_free(co_list); /* Not needed any longer */
   co_list = NULL;
 
-  tmp_cipher_list = sk_SSL_CIPHER_dup(cipherstack);
-  if (tmp_cipher_list == NULL) {
-    goto err;
-  }
   pref_list = OPENSSL_malloc(sizeof(struct ssl_cipher_preference_list_st));
   if (!pref_list) {
     goto err;
@@ -1530,7 +1436,7 @@ ssl_create_cipher_list(const SSL_PROTOCOL_METHOD *ssl_method,
   if (!pref_list->in_group_flags) {
     goto err;
   }
-  memcpy(pref_list->in_group_flags, in_group_flags, num_in_group_flags);
+  OPENSSL_memcpy(pref_list->in_group_flags, in_group_flags, num_in_group_flags);
   OPENSSL_free(in_group_flags);
   in_group_flags = NULL;
   if (*out_cipher_list != NULL) {
@@ -1539,26 +1445,12 @@ ssl_create_cipher_list(const SSL_PROTOCOL_METHOD *ssl_method,
   *out_cipher_list = pref_list;
   pref_list = NULL;
 
-  if (out_cipher_list_by_id != NULL) {
-    sk_SSL_CIPHER_free(*out_cipher_list_by_id);
-    *out_cipher_list_by_id = tmp_cipher_list;
-    tmp_cipher_list = NULL;
-    (void) sk_SSL_CIPHER_set_cmp_func(*out_cipher_list_by_id,
-                                      ssl_cipher_ptr_id_cmp);
-
-    sk_SSL_CIPHER_sort(*out_cipher_list_by_id);
-  } else {
-    sk_SSL_CIPHER_free(tmp_cipher_list);
-    tmp_cipher_list = NULL;
-  }
-
   return cipherstack;
 
 err:
   OPENSSL_free(co_list);
   OPENSSL_free(in_group_flags);
   sk_SSL_CIPHER_free(cipherstack);
-  sk_SSL_CIPHER_free(tmp_cipher_list);
   if (pref_list) {
     OPENSSL_free(pref_list->in_group_flags);
   }
@@ -1575,36 +1467,12 @@ uint16_t ssl_cipher_get_value(const SSL_CIPHER *cipher) {
   return id & 0xffff;
 }
 
-int ssl_cipher_get_ecdhe_psk_cipher(const SSL_CIPHER *cipher,
-                                    uint16_t *out_cipher) {
-  switch (cipher->id) {
-    case TLS1_CK_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256:
-    case TLS1_CK_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256:
-    case TLS1_CK_ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256:
-      *out_cipher = TLS1_CK_ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256 & 0xffff;
-      return 1;
-
-    case TLS1_CK_ECDHE_RSA_WITH_AES_128_GCM_SHA256:
-    case TLS1_CK_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256:
-    case TLS1_CK_ECDHE_PSK_WITH_AES_128_GCM_SHA256:
-      *out_cipher = TLS1_CK_ECDHE_PSK_WITH_AES_128_GCM_SHA256 & 0xffff;
-      return 1;
-
-    case TLS1_CK_ECDHE_RSA_WITH_AES_256_GCM_SHA384:
-    case TLS1_CK_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384:
-    case TLS1_CK_ECDHE_PSK_WITH_AES_256_GCM_SHA384:
-      *out_cipher = TLS1_CK_ECDHE_PSK_WITH_AES_256_GCM_SHA384 & 0xffff;
-      return 1;
-  }
-  return 0;
-}
-
 int SSL_CIPHER_is_AES(const SSL_CIPHER *cipher) {
   return (cipher->algorithm_enc & SSL_AES) != 0;
 }
 
 int SSL_CIPHER_has_MD5_HMAC(const SSL_CIPHER *cipher) {
-  return (cipher->algorithm_mac & SSL_MD5) != 0;
+  return 0;
 }
 
 int SSL_CIPHER_has_SHA1_HMAC(const SSL_CIPHER *cipher) {
@@ -1613,6 +1481,10 @@ int SSL_CIPHER_has_SHA1_HMAC(const SSL_CIPHER *cipher) {
 
 int SSL_CIPHER_has_SHA256_HMAC(const SSL_CIPHER *cipher) {
   return (cipher->algorithm_mac & SSL_SHA256) != 0;
+}
+
+int SSL_CIPHER_is_AEAD(const SSL_CIPHER *cipher) {
+  return (cipher->algorithm_mac & SSL_AEAD) != 0;
 }
 
 int SSL_CIPHER_is_AESGCM(const SSL_CIPHER *cipher) {
@@ -1657,11 +1529,16 @@ int SSL_CIPHER_is_ECDHE(const SSL_CIPHER *cipher) {
   return (cipher->algorithm_mkey & SSL_kECDHE) != 0;
 }
 
-int SSL_CIPHER_is_CECPQ1(const SSL_CIPHER *cipher) {
-  return (cipher->algorithm_mkey & SSL_kCECPQ1) != 0;
+int SSL_CIPHER_is_static_RSA(const SSL_CIPHER *cipher) {
+  return (cipher->algorithm_mkey & SSL_kRSA) != 0;
 }
 
 uint16_t SSL_CIPHER_get_min_version(const SSL_CIPHER *cipher) {
+  if (cipher->algorithm_mkey == SSL_kGENERIC ||
+      cipher->algorithm_auth == SSL_aGENERIC) {
+    return TLS1_3_VERSION;
+  }
+
   if (cipher->algorithm_prf != SSL_HANDSHAKE_MAC_DEFAULT) {
     /* Cipher suites before TLS 1.2 use the default PRF, while all those added
      * afterwards specify a particular hash. */
@@ -1671,11 +1548,8 @@ uint16_t SSL_CIPHER_get_min_version(const SSL_CIPHER *cipher) {
 }
 
 uint16_t SSL_CIPHER_get_max_version(const SSL_CIPHER *cipher) {
-  if (cipher->algorithm_mac == SSL_AEAD &&
-      (cipher->algorithm_enc & SSL_CHACHA20POLY1305_OLD) == 0 &&
-      (cipher->algorithm_mkey & SSL_kECDHE) != 0 &&
-      /* TODO(davidben,svaldez): Support PSK-based ciphers in TLS 1.3. */
-      (cipher->algorithm_auth & SSL_aCERT) != 0) {
+  if (cipher->algorithm_mkey == SSL_kGENERIC ||
+      cipher->algorithm_auth == SSL_aGENERIC) {
     return TLS1_3_VERSION;
   }
   return TLS1_2_VERSION;
@@ -1721,20 +1595,13 @@ const char *SSL_CIPHER_get_kx_name(const SSL_CIPHER *cipher) {
           return "UNKNOWN";
       }
 
-    case SSL_kCECPQ1:
-      switch (cipher->algorithm_auth) {
-        case SSL_aECDSA:
-          return "CECPQ1_ECDSA";
-        case SSL_aRSA:
-          return "CECPQ1_RSA";
-        default:
-          assert(0);
-          return "UNKNOWN";
-      }
-
     case SSL_kPSK:
       assert(cipher->algorithm_auth == SSL_aPSK);
       return "PSK";
+
+    case SSL_kGENERIC:
+      assert(cipher->algorithm_auth == SSL_aGENERIC);
+      return "GENERIC";
 
     default:
       assert(0);
@@ -1767,15 +1634,10 @@ static const char *ssl_cipher_get_enc_name(const SSL_CIPHER *cipher) {
 static const char *ssl_cipher_get_prf_name(const SSL_CIPHER *cipher) {
   switch (cipher->algorithm_prf) {
     case SSL_HANDSHAKE_MAC_DEFAULT:
-      /* Before TLS 1.2, the PRF component is the hash used in the HMAC, which is
-       * only ever MD5 or SHA-1. */
-      switch (cipher->algorithm_mac) {
-        case SSL_MD5:
-          return "MD5";
-        case SSL_SHA1:
-          return "SHA";
-      }
-      break;
+      /* Before TLS 1.2, the PRF component is the hash used in the HMAC, which
+       * is SHA-1 for all supported ciphers. */
+      assert(cipher->algorithm_mac == SSL_SHA1);
+      return "SHA";
     case SSL_HANDSHAKE_MAC_SHA256:
       return "SHA256";
     case SSL_HANDSHAKE_MAC_SHA384:
@@ -1794,16 +1656,23 @@ char *SSL_CIPHER_get_rfc_name(const SSL_CIPHER *cipher) {
   const char *enc_name = ssl_cipher_get_enc_name(cipher);
   const char *prf_name = ssl_cipher_get_prf_name(cipher);
 
-  /* The final name is TLS_{kx_name}_WITH_{enc_name}_{prf_name}. */
-  size_t len = 4 + strlen(kx_name) + 6 + strlen(enc_name) + 1 +
-      strlen(prf_name) + 1;
+  /* The final name is TLS_{kx_name}_WITH_{enc_name}_{prf_name} or
+   * TLS_{enc_name}_{prf_name} depending on whether the cipher is AEAD-only. */
+  size_t len = 4 + strlen(enc_name) + 1 + strlen(prf_name) + 1;
+
+  if (cipher->algorithm_mkey != SSL_kGENERIC) {
+    len += strlen(kx_name) + 6;
+  }
+
   char *ret = OPENSSL_malloc(len);
   if (ret == NULL) {
     return NULL;
   }
+
   if (BUF_strlcpy(ret, "TLS_", len) >= len ||
-      BUF_strlcat(ret, kx_name, len) >= len ||
-      BUF_strlcat(ret, "_WITH_", len) >= len ||
+      (cipher->algorithm_mkey != SSL_kGENERIC &&
+       (BUF_strlcat(ret, kx_name, len) >= len ||
+        BUF_strlcat(ret, "_WITH_", len) >= len)) ||
       BUF_strlcat(ret, enc_name, len) >= len ||
       BUF_strlcat(ret, "_", len) >= len ||
       BUF_strlcat(ret, prf_name, len) >= len) {
@@ -1811,6 +1680,7 @@ char *SSL_CIPHER_get_rfc_name(const SSL_CIPHER *cipher) {
     OPENSSL_free(ret);
     return NULL;
   }
+
   assert(strlen(ret) + 1 == len);
   return ret;
 }
@@ -1883,12 +1753,12 @@ const char *SSL_CIPHER_description(const SSL_CIPHER *cipher, char *buf,
       kx = "ECDH";
       break;
 
-    case SSL_kCECPQ1:
-      kx = "CECPQ1";
-      break;
-
     case SSL_kPSK:
       kx = "PSK";
+      break;
+
+    case SSL_kGENERIC:
+      kx = "GENERIC";
       break;
 
     default:
@@ -1906,6 +1776,10 @@ const char *SSL_CIPHER_description(const SSL_CIPHER *cipher, char *buf,
 
     case SSL_aPSK:
       au = "PSK";
+      break;
+
+    case SSL_aGENERIC:
+      au = "GENERIC";
       break;
 
     default:
@@ -1952,10 +1826,6 @@ const char *SSL_CIPHER_description(const SSL_CIPHER *cipher, char *buf,
   }
 
   switch (alg_mac) {
-    case SSL_MD5:
-      mac = "MD5";
-      break;
-
     case SSL_SHA1:
       mac = "SHA1";
       break;
@@ -2002,6 +1872,8 @@ int SSL_COMP_add_compression_method(int id, COMP_METHOD *cm) { return 1; }
 
 const char *SSL_COMP_get_name(const COMP_METHOD *comp) { return NULL; }
 
+void SSL_COMP_free_compression_methods(void) {}
+
 int ssl_cipher_get_key_type(const SSL_CIPHER *cipher) {
   uint32_t alg_a = cipher->algorithm_auth;
 
@@ -2021,8 +1893,7 @@ int ssl_cipher_uses_certificate_auth(const SSL_CIPHER *cipher) {
 int ssl_cipher_requires_server_key_exchange(const SSL_CIPHER *cipher) {
   /* Ephemeral Diffie-Hellman key exchanges require a ServerKeyExchange. */
   if (cipher->algorithm_mkey & SSL_kDHE ||
-      cipher->algorithm_mkey & SSL_kECDHE ||
-      cipher->algorithm_mkey & SSL_kCECPQ1) {
+      cipher->algorithm_mkey & SSL_kECDHE) {
     return 1;
   }
 
@@ -2044,19 +1915,9 @@ size_t ssl_cipher_get_record_split_len(const SSL_CIPHER *cipher) {
       return 0;
   }
 
-  size_t mac_len;
-  switch (cipher->algorithm_mac) {
-    case SSL_MD5:
-      mac_len = MD5_DIGEST_LENGTH;
-      break;
-    case SSL_SHA1:
-      mac_len = SHA_DIGEST_LENGTH;
-      break;
-    default:
-      return 0;
-  }
-
-  size_t ret = 1 + mac_len;
+  /* All supported TLS 1.0 ciphers use SHA-1. */
+  assert(cipher->algorithm_mac == SSL_SHA1);
+  size_t ret = 1 + SHA_DIGEST_LENGTH;
   ret += block_size - (ret % block_size);
   return ret;
 }

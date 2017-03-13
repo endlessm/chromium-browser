@@ -11,7 +11,6 @@
 
 namespace content {
 
-class RenderViewHost;
 class Shell;
 class WebContents;
 
@@ -22,6 +21,8 @@ class LayoutTestDevToolsFrontend : public ShellDevToolsFrontend {
                                           const std::string& frontend_url);
 
   static GURL GetDevToolsPathAsURL(const std::string& frontend_url);
+
+  static GURL MapJSTestURL(const GURL& test_url);
 
   void ReuseFrontend(const std::string& settings,
                      const std::string frontend_url);

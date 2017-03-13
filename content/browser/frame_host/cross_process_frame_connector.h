@@ -29,7 +29,6 @@ class Message;
 
 namespace content {
 class RenderFrameProxyHost;
-class RenderWidgetHostImpl;
 class RenderWidgetHostViewBase;
 class RenderWidgetHostViewChildFrame;
 class WebCursor;
@@ -97,16 +96,19 @@ class CONTENT_EXPORT CrossProcessFrameConnector {
                                             const cc::SurfaceId& surface_id);
   // TransformPointToLocalCoordSpace() can only transform points between
   // surfaces where one is embedded (not necessarily directly) within the
-  // other. For points that can be in sibling surfaces, they must first be
-  // converted to the root surface's coordinate space.
-  gfx::Point TransformPointToLocalCoordSpace(
-      const gfx::Point& point,
-      const cc::SurfaceId& original_surface,
-      const cc::SurfaceId& local_surface_id);
-  gfx::Point TransformPointToCoordSpaceForView(
-      const gfx::Point& point,
-      RenderWidgetHostViewBase* target_view,
-      const cc::SurfaceId& local_surface_id);
+  // other, and will return false if this is not the case. For points that can
+  // be in sibling surfaces, they must first be converted to the root
+  // surface's coordinate space.
+  bool TransformPointToLocalCoordSpace(const gfx::Point& point,
+                                       const cc::SurfaceId& original_surface,
+                                       const cc::SurfaceId& local_surface_id,
+                                       gfx::Point* transformed_point);
+  // Returns false if |target_view| and |view_| do not have the same root
+  // RenderWidgetHostView.
+  bool TransformPointToCoordSpaceForView(const gfx::Point& point,
+                                         RenderWidgetHostViewBase* target_view,
+                                         const cc::SurfaceId& local_surface_id,
+                                         gfx::Point* transformed_point);
 
   // Pass acked touch events to the root view for gesture processing.
   void ForwardProcessAckedTouchEvent(const TouchEventWithLatencyInfo& touch,
@@ -142,6 +144,7 @@ class CONTENT_EXPORT CrossProcessFrameConnector {
   // Handlers for messages received from the parent frame.
   void OnForwardInputEvent(const blink::WebInputEvent* event);
   void OnFrameRectChanged(const gfx::Rect& frame_rect);
+  void OnUpdateViewportIntersection(const gfx::Rect& viewport_intersection);
   void OnVisibilityChanged(bool visible);
   void OnSatisfySequence(const cc::SurfaceSequence& sequence);
   void OnRequireSequence(const cc::SurfaceId& id,

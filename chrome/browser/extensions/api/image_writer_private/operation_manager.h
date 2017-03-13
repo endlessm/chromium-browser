@@ -19,11 +19,10 @@
 #include "content/public/browser/notification_registrar.h"
 #include "extensions/browser/browser_context_keyed_api_factory.h"
 #include "extensions/browser/extension_registry_observer.h"
+#include "extensions/common/extension_id.h"
 #include "url/gurl.h"
 
 namespace image_writer_api = extensions::api::image_writer_private;
-
-class Profile;
 
 namespace content {
 class BrowserContext;
@@ -43,8 +42,6 @@ class OperationManager : public BrowserContextKeyedAPI,
                          public extensions::ExtensionRegistryObserver,
                          public base::SupportsWeakPtr<OperationManager> {
  public:
-  typedef std::string ExtensionId;
-
   explicit OperationManager(content::BrowserContext* context);
   ~OperationManager() override;
 
@@ -106,6 +103,9 @@ class OperationManager : public BrowserContextKeyedAPI,
 
   Operation* GetOperation(const ExtensionId& extension_id);
   void DeleteOperation(const ExtensionId& extension_id);
+
+  // Accessor to the associated profile download folder
+  base::FilePath GetAssociatedDownloadFolder();
 
   friend class BrowserContextKeyedAPIFactory<OperationManager>;
   typedef std::map<ExtensionId, scoped_refptr<Operation> > OperationMap;

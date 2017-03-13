@@ -2,8 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include <openssl/err.h>
-#include <openssl/hkdf.h>
 #include <stdint.h>
 
 #include "base/logging.h"
@@ -17,6 +15,8 @@
 #include "crypto/openssl_util.h"
 #include "third_party/WebKit/public/platform/WebCryptoAlgorithmParams.h"
 #include "third_party/WebKit/public/platform/WebCryptoKeyAlgorithm.h"
+#include "third_party/boringssl/src/include/openssl/err.h"
+#include "third_party/boringssl/src/include/openssl/hkdf.h"
 
 namespace webcrypto {
 
@@ -105,6 +105,10 @@ class HkdfImplementation : public AlgorithmImplementation {
                                 blink::WebCryptoKeyUsageMask usages,
                                 const CryptoData& key_data,
                                 blink::WebCryptoKey* key) const override {
+    if (algorithm.paramsType() != blink::WebCryptoKeyAlgorithmParamsTypeNone ||
+        type != blink::WebCryptoKeyTypeSecret)
+      return Status::ErrorUnexpected();
+
     // NOTE: Unlike ImportKeyRaw(), this does not enforce extractable==false.
     // This is intentional. Although keys cannot currently be created with
     // extractable==true, earlier implementations permitted this, so

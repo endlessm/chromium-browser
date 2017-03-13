@@ -9,5 +9,7 @@ mojom("interfaces") {
     "font_service.mojom",
   ]
 
-  use_new_wrapper_types = false
+  public_deps = [
+    "//mojo/common:common_custom_types",
+  ]
 }

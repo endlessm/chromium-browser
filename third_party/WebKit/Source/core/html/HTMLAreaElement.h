@@ -30,7 +30,6 @@
 
 namespace blink {
 
-class HitTestResult;
 class HTMLImageElement;
 class Path;
 
@@ -61,9 +60,7 @@ class CORE_EXPORT HTMLAreaElement final : public HTMLAnchorElement {
   explicit HTMLAreaElement(Document&);
   ~HTMLAreaElement();
 
-  void parseAttribute(const QualifiedName&,
-                      const AtomicString&,
-                      const AtomicString&) override;
+  void parseAttribute(const AttributeModificationParams&) override;
   bool isKeyboardFocusable() const override;
   bool isMouseFocusable() const override;
   bool layoutObjectIsFocusable() const override;

@@ -25,7 +25,7 @@
 
 #include "modules/accessibility/AXSpinButton.h"
 
-#include "core/layout/LayoutObject.h"
+#include "SkMatrix44.h"
 #include "modules/accessibility/AXObjectCacheImpl.h"
 
 namespace blink {
@@ -75,13 +75,13 @@ void AXSpinButton::addChildren() {
       toAXSpinButtonPart(axObjectCache().getOrCreate(SpinButtonPartRole));
   incrementor->setIsIncrementor(true);
   incrementor->setParent(this);
-  m_children.append(incrementor);
+  m_children.push_back(incrementor);
 
   AXSpinButtonPart* decrementor =
       toAXSpinButtonPart(axObjectCache().getOrCreate(SpinButtonPartRole));
   decrementor->setIsIncrementor(false);
   decrementor->setParent(this);
-  m_children.append(decrementor);
+  m_children.push_back(decrementor);
 }
 
 void AXSpinButton::step(int amount) {

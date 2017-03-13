@@ -8,8 +8,8 @@
 
 #include <memory>
 
+#include "core/fpdfapi/page/cpdf_docpagedata.h"
 #include "core/fpdfapi/page/cpdf_image.h"
-#include "core/fpdfapi/page/pageint.h"
 #include "core/fpdfapi/parser/cpdf_document.h"
 
 CPDF_ImageObject::CPDF_ImageObject()
@@ -17,15 +17,6 @@ CPDF_ImageObject::CPDF_ImageObject()
 
 CPDF_ImageObject::~CPDF_ImageObject() {
   Release();
-}
-
-CPDF_ImageObject* CPDF_ImageObject::Clone() const {
-  CPDF_ImageObject* obj = new CPDF_ImageObject;
-  obj->CopyData(this);
-
-  obj->m_pImage = m_pImage->Clone();
-  obj->m_Matrix = m_Matrix;
-  return obj;
 }
 
 CPDF_PageObject::Type CPDF_ImageObject::GetType() const {
@@ -79,6 +70,6 @@ void CPDF_ImageObject::Release() {
     return;
 
   CPDF_DocPageData* pPageData = m_pImage->GetDocument()->GetPageData();
-  pPageData->ReleaseImage(m_pImage->GetStream());
+  pPageData->ReleaseImage(m_pImage->GetStream()->GetObjNum());
   m_pImage = nullptr;
 }

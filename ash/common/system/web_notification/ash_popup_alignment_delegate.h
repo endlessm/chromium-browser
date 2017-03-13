@@ -23,7 +23,6 @@ class Screen;
 namespace ash {
 
 class AshPopupAlignmentDelegateTest;
-class ShelfLayoutManager;
 class WebNotificationTrayTest;
 class WmShelf;
 
@@ -51,7 +50,7 @@ class ASH_EXPORT AshPopupAlignmentDelegate
   // Overridden from message_center::PopupAlignmentDelegate:
   int GetToastOriginX(const gfx::Rect& toast_bounds) const override;
   int GetBaseLine() const override;
-  int GetWorkAreaBottom() const override;
+  gfx::Rect GetWorkArea() const override;
   bool IsTopDown() const override;
   bool IsFromLeft() const override;
   void RecomputeAlignment(const display::Display& display) override;

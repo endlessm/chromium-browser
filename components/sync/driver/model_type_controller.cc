@@ -12,25 +12,71 @@
 #include "base/memory/ptr_util.h"
 #include "base/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
-#include "components/sync/api/data_type_error_handler_impl.h"
-#include "components/sync/api/model_type_change_processor.h"
-#include "components/sync/api/model_type_service.h"
-#include "components/sync/api/sync_error.h"
-#include "components/sync/api/sync_merge_result.h"
 #include "components/sync/base/bind_to_task_runner.h"
 #include "components/sync/base/data_type_histogram.h"
-#include "components/sync/core/activation_context.h"
-#include "components/sync/driver/backend_data_type_configurer.h"
 #include "components/sync/driver/sync_client.h"
+#include "components/sync/engine/activation_context.h"
+#include "components/sync/engine/model_type_configurer.h"
+#include "components/sync/model/data_type_error_handler_impl.h"
+#include "components/sync/model/model_type_change_processor.h"
+#include "components/sync/model/model_type_debug_info.h"
+#include "components/sync/model/model_type_sync_bridge.h"
+#include "components/sync/model/sync_merge_result.h"
 
 namespace syncer {
 
+namespace {
+
+void CallOnSyncStartingHelper(
+    SyncClient* sync_client,
+    ModelType type,
+    const ModelErrorHandler& error_handler,
+    ModelTypeChangeProcessor::StartCallback callback) {
+  base::WeakPtr<ModelTypeSyncBridge> bridge =
+      sync_client->GetSyncBridgeForModelType(type);
+  if (bridge) {
+    bridge->OnSyncStarting(std::move(error_handler), callback);
+  }
+}
+
+void CallGetAllNodesHelper(SyncClient* sync_client,
+                           ModelType type,
+                           DataTypeController::AllNodesCallback callback) {
+  base::WeakPtr<ModelTypeSyncBridge> bridge =
+      sync_client->GetSyncBridgeForModelType(type);
+  if (bridge) {
+    ModelTypeDebugInfo::GetAllNodes(bridge, callback);
+  }
+}
+
+void CallGetStatusCountersHelper(
+    SyncClient* sync_client,
+    ModelType type,
+    const DataTypeController::StatusCountersCallback& callback) {
+  base::WeakPtr<ModelTypeSyncBridge> bridge =
+      sync_client->GetSyncBridgeForModelType(type);
+  if (bridge) {
+    ModelTypeDebugInfo::GetStatusCounters(bridge, callback);
+  }
+}
+
+void ReportError(ModelType model_type,
+                 scoped_refptr<base::SingleThreadTaskRunner> ui_thread,
+                 const ModelErrorHandler& error_handler,
+                 const ModelError& error) {
+  UMA_HISTOGRAM_ENUMERATION("Sync.DataTypeRunFailures",
+                            ModelTypeToHistogramInt(model_type),
+                            MODEL_TYPE_COUNT);
+  ui_thread->PostTask(error.location(), base::Bind(error_handler, error));
+}
+
+}  // namespace
+
 ModelTypeController::ModelTypeController(
     ModelType type,
-    const base::Closure& dump_stack,
     SyncClient* sync_client,
     const scoped_refptr<base::SingleThreadTaskRunner>& model_thread)
-    : DataTypeController(type, dump_stack),
+    : DataTypeController(type),
       sync_client_(sync_client),
       model_thread_(model_thread),
       sync_prefs_(sync_client->GetPrefService()),
@@ -66,24 +112,28 @@ void ModelTypeController::LoadModels(
       BindToCurrentThread(base::Bind(&ModelTypeController::OnProcessorStarted,
                                      base::AsWeakPtr(this)));
 
+  ModelErrorHandler error_handler = base::BindRepeating(
+      &ReportError, type(), base::ThreadTaskRunnerHandle::Get(),
+      base::Bind(&ModelTypeController::ReportModelError,
+                 base::AsWeakPtr(this)));
+
   // Start the type processor on the model thread.
   model_thread_->PostTask(
-      FROM_HERE, base::Bind(&ModelTypeService::OnSyncStarting,
-                            sync_client_->GetModelTypeServiceForType(type()),
-                            base::Passed(CreateErrorHandler()), callback));
+      FROM_HERE, base::Bind(&CallOnSyncStartingHelper, sync_client_, type(),
+                            std::move(error_handler), std::move(callback)));
 }
 
 void ModelTypeController::GetAllNodes(const AllNodesCallback& callback) {
-  base::WeakPtr<ModelTypeService> service =
-      sync_client_->GetModelTypeServiceForType(type());
-  // TODO(gangwu): Casting should happen "near" where the processor factory has
-  // code that instantiates a new processor.
-  SharedModelTypeProcessor* processor =
-      static_cast<SharedModelTypeProcessor*>(service->change_processor());
   model_thread_->PostTask(
-      FROM_HERE, base::Bind(&SharedModelTypeProcessor::GetAllNodes,
-                            base::Unretained(processor),
-                            base::ThreadTaskRunnerHandle::Get(), callback));
+      FROM_HERE, base::Bind(&CallGetAllNodesHelper, sync_client_, type(),
+                            BindToCurrentThread(callback)));
+}
+
+void ModelTypeController::GetStatusCounters(
+    const StatusCountersCallback& callback) {
+  model_thread_->PostTask(
+      FROM_HERE,
+      base::Bind(&CallGetStatusCountersHelper, sync_client_, type(), callback));
 }
 
 void ModelTypeController::LoadModelsDone(ConfigureResult result,
@@ -110,26 +160,28 @@ void ModelTypeController::LoadModelsDone(ConfigureResult result,
 }
 
 void ModelTypeController::OnProcessorStarted(
-    SyncError error,
     std::unique_ptr<ActivationContext> activation_context) {
   DCHECK(CalledOnValidThread());
   // Hold on to the activation context until ActivateDataType is called.
   if (state_ == MODEL_STARTING) {
     activation_context_ = std::move(activation_context);
   }
-  // TODO(stanisc): Figure out if UNRECOVERABLE_ERROR is OK in this case.
-  ConfigureResult result = error.IsSet() ? UNRECOVERABLE_ERROR : OK;
-  LoadModelsDone(result, error);
+  LoadModelsDone(OK, SyncError());
 }
 
 void ModelTypeController::RegisterWithBackend(
-    BackendDataTypeConfigurer* configurer) {
+    base::Callback<void(bool)> set_downloaded,
+    ModelTypeConfigurer* configurer) {
   DCHECK(CalledOnValidThread());
   if (activated_)
     return;
   DCHECK(configurer);
   DCHECK(activation_context_);
   DCHECK_EQ(MODEL_LOADED, state_);
+  // Inform the DataTypeManager whether our initial download is complete.
+  set_downloaded.Run(activation_context_->model_type_state.initial_sync_done());
+  // Pass activation context to ModelTypeRegistry, where ModelTypeWorker gets
+  // created and connected with ModelTypeProcessor.
   configurer->ActivateNonBlockingDataType(type(),
                                           std::move(activation_context_));
   activated_ = true;
@@ -148,8 +200,7 @@ void ModelTypeController::StartAssociating(
   start_callback.Run(OK, merge_result, merge_result);
 }
 
-void ModelTypeController::ActivateDataType(
-    BackendDataTypeConfigurer* configurer) {
+void ModelTypeController::ActivateDataType(ModelTypeConfigurer* configurer) {
   DCHECK(CalledOnValidThread());
   DCHECK(configurer);
   DCHECK_EQ(RUNNING, state_);
@@ -159,13 +210,13 @@ void ModelTypeController::ActivateDataType(
   DCHECK(!activation_context_);
 }
 
-void ModelTypeController::DeactivateDataType(
-    BackendDataTypeConfigurer* configurer) {
+void ModelTypeController::DeactivateDataType(ModelTypeConfigurer* configurer) {
   DCHECK(CalledOnValidThread());
   DCHECK(configurer);
-  DCHECK(activated_);
-  configurer->DeactivateNonBlockingDataType(type());
-  activated_ = false;
+  if (activated_) {
+    configurer->DeactivateNonBlockingDataType(type());
+    activated_ = false;
+  }
 }
 
 void ModelTypeController::Stop() {
@@ -175,16 +226,15 @@ void ModelTypeController::Stop() {
     return;
 
   // Check preferences if datatype is not in preferred datatypes. Only call
-  // DisableSync if service is ready to handle it (controller is in loaded
+  // DisableSync if the bridge is ready to handle it (controller is in loaded
   // state).
   ModelTypeSet preferred_types =
       sync_prefs_.GetPreferredDataTypes(ModelTypeSet(type()));
   if ((state() == MODEL_LOADED || state() == RUNNING) &&
       (!sync_prefs_.IsFirstSetupComplete() || !preferred_types.Has(type()))) {
     model_thread_->PostTask(
-        FROM_HERE,
-        base::Bind(&ModelTypeService::DisableSync,
-                   sync_client_->GetModelTypeServiceForType(type())));
+        FROM_HERE, base::Bind(&ModelTypeSyncBridge::DisableSync,
+                              sync_client_->GetSyncBridgeForModelType(type())));
   }
 
   state_ = NOT_RUNNING;
@@ -199,18 +249,11 @@ DataTypeController::State ModelTypeController::state() const {
   return state_;
 }
 
-std::unique_ptr<DataTypeErrorHandler>
-ModelTypeController::CreateErrorHandler() {
+void ModelTypeController::ReportModelError(const ModelError& error) {
   DCHECK(CalledOnValidThread());
-  return base::MakeUnique<DataTypeErrorHandlerImpl>(
-      base::ThreadTaskRunnerHandle::Get(), dump_stack_,
-      base::Bind(&ModelTypeController::ReportLoadModelError,
-                 base::AsWeakPtr(this)));
-}
-
-void ModelTypeController::ReportLoadModelError(const SyncError& error) {
-  DCHECK(CalledOnValidThread());
-  LoadModelsDone(UNRECOVERABLE_ERROR, error);
+  LoadModelsDone(UNRECOVERABLE_ERROR,
+                 SyncError(error.location(), SyncError::DATATYPE_ERROR,
+                           error.message(), type()));
 }
 
 void ModelTypeController::RecordStartFailure(ConfigureResult result) const {

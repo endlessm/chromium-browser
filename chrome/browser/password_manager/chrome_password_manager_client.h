@@ -10,13 +10,16 @@
 
 #include "base/compiler_specific.h"
 #include "base/macros.h"
-#include "base/memory/scoped_vector.h"
+#include "components/autofill/content/common/autofill_driver.mojom.h"
 #include "components/password_manager/content/browser/content_password_manager_driver_factory.h"
 #include "components/password_manager/content/browser/credential_manager_impl.h"
 #include "components/password_manager/core/browser/password_manager.h"
 #include "components/password_manager/core/browser/password_manager_client.h"
+#include "components/password_manager/core/browser/password_reuse_detection_manager.h"
 #include "components/password_manager/sync/browser/sync_credentials_filter.h"
 #include "components/prefs/pref_member.h"
+#include "content/public/browser/render_widget_host.h"
+#include "content/public/browser/web_contents_binding_set.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/browser/web_contents_user_data.h"
 #include "ui/gfx/geometry/rect.h"
@@ -32,17 +35,13 @@ namespace content {
 class WebContents;
 }
 
-namespace password_manager {
-struct CredentialInfo;
-class PasswordGenerationManager;
-class PasswordManagerDriver;
-}
-
 // ChromePasswordManagerClient implements the PasswordManagerClient interface.
 class ChromePasswordManagerClient
     : public password_manager::PasswordManagerClient,
       public content::WebContentsObserver,
-      public content::WebContentsUserData<ChromePasswordManagerClient> {
+      public content::WebContentsUserData<ChromePasswordManagerClient>,
+      public autofill::mojom::PasswordManagerClient,
+      public content::RenderWidgetHost::InputEventObserver {
  public:
   ~ChromePasswordManagerClient() override;
 
@@ -50,19 +49,19 @@ class ChromePasswordManagerClient
   bool IsAutomaticPasswordSavingEnabled() const override;
   bool IsSavingAndFillingEnabledForCurrentPage() const override;
   bool IsFillingEnabledForCurrentPage() const override;
+  bool OnCredentialManagerUsed() override;
   bool PromptUserToSaveOrUpdatePassword(
       std::unique_ptr<password_manager::PasswordFormManager> form_to_save,
       password_manager::CredentialSourceType type,
       bool update_password) override;
   bool PromptUserToChooseCredentials(
-      ScopedVector<autofill::PasswordForm> local_forms,
-      ScopedVector<autofill::PasswordForm> federated_forms,
+      std::vector<std::unique_ptr<autofill::PasswordForm>> local_forms,
       const GURL& origin,
       const CredentialsCallback& callback) override;
   void ForceSavePassword() override;
   void GeneratePassword() override;
   void NotifyUserAutoSignin(
-      ScopedVector<autofill::PasswordForm> local_forms,
+      std::vector<std::unique_ptr<autofill::PasswordForm>> local_forms,
       const GURL& origin) override;
   void NotifyUserCouldBeAutoSignedIn(
       std::unique_ptr<autofill::PasswordForm> form) override;
@@ -87,15 +86,23 @@ class ChromePasswordManagerClient
   const password_manager::PasswordManager* GetPasswordManager() const override;
   autofill::AutofillManager* GetAutofillManagerForMainFrame() override;
   const GURL& GetMainFrameURL() const override;
-  bool IsUpdatePasswordUIEnabled() const override;
+  bool IsMainFrameSecure() const override;
   const GURL& GetLastCommittedEntryURL() const override;
   void AnnotateNavigationEntry(bool has_password_field) override;
   const password_manager::CredentialsFilter* GetStoreResultFilter()
       const override;
   const password_manager::LogManager* GetLogManager() const override;
 
-  // Hides any visible generation UI.
-  void HidePasswordGenerationPopup();
+  // autofill::mojom::PasswordManagerClient overrides.
+  void ShowPasswordGenerationPopup(const gfx::RectF& bounds,
+                                   int max_length,
+                                   const base::string16& generation_element,
+                                   bool is_manually_triggered,
+                                   const autofill::PasswordForm& form) override;
+  void ShowPasswordEditingPopup(const gfx::RectF& bounds,
+                                const autofill::PasswordForm& form) override;
+  void GenerationAvailableForForm(const autofill::PasswordForm& form) override;
+  void HidePasswordGenerationPopup() override;
 
   static void CreateForWebContentsWithAutofillClient(
       content::WebContents* contents,
@@ -117,10 +124,14 @@ class ChromePasswordManagerClient
   friend class content::WebContentsUserData<ChromePasswordManagerClient>;
 
   // content::WebContentsObserver overrides.
-  bool OnMessageReceived(const IPC::Message& message,
-                         content::RenderFrameHost* render_frame_host) override;
   void DidStartNavigation(
       content::NavigationHandle* navigation_handle) override;
+  void DidNavigateMainFrame(
+      const content::LoadCommittedDetails& details,
+      const content::FrameNavigateParams& params) override;
+
+  // content::RenderWidgetHost::InputEventObserver overrides.
+  void OnInputEvent(const blink::WebInputEvent&) override;
 
   // Given |bounds| in the renderers coordinate system, return the same bounds
   // in the screens coordinate system.
@@ -131,32 +142,10 @@ class ChromePasswordManagerClient
   // filled.
   bool IsPasswordManagementEnabledForCurrentPage() const;
 
-  // Causes the password generation UI to be shown for the specified form.
-  // The popup will be anchored at |element_bounds|. The generated password
-  // will be no longer than |max_length|. |generation_element| should contain a
-  // name of a password field at which generation popup is attached.
-  // |is_manually_triggered| informs whether it is automatically or manually
-  // triggered generation.
-  void ShowPasswordGenerationPopup(content::RenderFrameHost* render_frame_host,
-                                   const gfx::RectF& bounds,
-                                   int max_length,
-                                   const base::string16& generation_element,
-                                   bool is_manually_triggered,
-                                   const autofill::PasswordForm& form);
-
-  // Causes the password editing UI to be shown anchored at |element_bounds|.
-  void ShowPasswordEditingPopup(content::RenderFrameHost* render_frame_host,
-                                const gfx::RectF& bounds,
-                                const autofill::PasswordForm& form);
-
   // Shows the dialog where the user can accept or decline the global autosignin
   // setting as a first run experience. The dialog won't appear in Incognito or
   // when the autosign-in is off.
   void PromptUserToEnableAutosigninIfNecessary();
-
-  // Notify the PasswordManager that generation is available for |form|. Used
-  // for UMA stats.
-  void GenerationAvailableForForm(const autofill::PasswordForm& form);
 
   // Called as a response to PromptUserToChooseCredentials. nullptr in |form|
   // means that nothing was chosen. |one_local_credential| is true if there was
@@ -173,12 +162,18 @@ class ChromePasswordManagerClient
 
   password_manager::PasswordManager password_manager_;
 
+  password_manager::PasswordReuseDetectionManager
+      password_reuse_detection_manager_;
+
   password_manager::ContentPasswordManagerDriverFactory* driver_factory_;
 
   // As a mojo service, will be registered into service registry
   // of the main frame host by ChromeContentBrowserClient
   // once main frame host was created.
   password_manager::CredentialManagerImpl credential_manager_impl_;
+
+  content::WebContentsFrameBindingSet<autofill::mojom::PasswordManagerClient>
+      password_manager_client_bindings_;
 
   // Observer for password generation popup.
   autofill::PasswordGenerationPopupObserver* observer_;

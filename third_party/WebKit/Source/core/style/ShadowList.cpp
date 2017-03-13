@@ -60,9 +60,8 @@ PassRefPtr<ShadowList> ShadowList::blend(const ShadowList* from,
 
   ShadowDataVector shadows;
 
-  DEFINE_STATIC_LOCAL(
-      ShadowData, defaultShadowData,
-      (FloatPoint(), 0, 0, Normal, StyleColor(Color::transparent)));
+  DEFINE_STATIC_LOCAL(ShadowData, defaultShadowData,
+                      (ShadowData::neutralValue()));
   DEFINE_STATIC_LOCAL(
       ShadowData, defaultInsetShadowData,
       (FloatPoint(), 0, 0, Inset, StyleColor(Color::transparent)));
@@ -77,29 +76,28 @@ PassRefPtr<ShadowList> ShadowList::blend(const ShadowList* from,
     else if (!toShadow)
       toShadow = fromShadow->style() == Inset ? &defaultInsetShadowData
                                               : &defaultShadowData;
-    shadows.append(toShadow->blend(*fromShadow, progress, currentColor));
+    shadows.push_back(toShadow->blend(*fromShadow, progress, currentColor));
   }
 
   return ShadowList::adopt(shadows);
 }
 
-std::unique_ptr<DrawLooperBuilder> ShadowList::createDrawLooper(
+sk_sp<SkDrawLooper> ShadowList::createDrawLooper(
     DrawLooperBuilder::ShadowAlphaMode alphaMode,
     const Color& currentColor,
     bool isHorizontal) const {
-  std::unique_ptr<DrawLooperBuilder> drawLooperBuilder =
-      DrawLooperBuilder::create();
+  DrawLooperBuilder drawLooperBuilder;
   for (size_t i = shadows().size(); i--;) {
     const ShadowData& shadow = shadows()[i];
     float shadowX = isHorizontal ? shadow.x() : shadow.y();
     float shadowY = isHorizontal ? shadow.y() : -shadow.x();
-    drawLooperBuilder->addShadow(FloatSize(shadowX, shadowY), shadow.blur(),
-                                 shadow.color().resolve(currentColor),
-                                 DrawLooperBuilder::ShadowRespectsTransforms,
-                                 alphaMode);
+    drawLooperBuilder.addShadow(FloatSize(shadowX, shadowY), shadow.blur(),
+                                shadow.color().resolve(currentColor),
+                                DrawLooperBuilder::ShadowRespectsTransforms,
+                                alphaMode);
   }
-  drawLooperBuilder->addUnmodifiedContent();
-  return drawLooperBuilder;
+  drawLooperBuilder.addUnmodifiedContent();
+  return drawLooperBuilder.detachDrawLooper();
 }
 
 }  // namespace blink

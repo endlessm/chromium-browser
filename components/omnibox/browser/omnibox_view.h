@@ -28,7 +28,6 @@ class GURL;
 class OmniboxClient;
 class OmniboxEditController;
 class OmniboxViewMacTest;
-class ToolbarModel;
 class OmniboxEditModel;
 
 namespace gfx {
@@ -89,9 +88,6 @@ class OmniboxView {
   // |true| if the user is in the process of editing the field, or if
   // the field is empty.
   bool IsEditingOrEmpty() const;
-
-  // Returns the resource ID of the icon to show for the current text.
-  int GetIcon() const;
 
   // Like GetIcon(), but returns a vector icon identifier.
   gfx::VectorIconId GetVectorIcon() const;
@@ -191,12 +187,6 @@ class OmniboxView {
   // to the rich edit control, the IME window is the relative window. Otherwise,
   // the top-most window is the relative window.
   virtual gfx::NativeView GetRelativeWindowForPopup() const = 0;
-
-  // Shows |input| as gray suggested text after what the user has typed.
-  virtual void SetGrayTextAutocompletion(const base::string16& input) = 0;
-
-  // Returns the current gray suggested text.
-  virtual base::string16 GetGrayTextAutocompletion() const = 0;
 
   // Returns the width in pixels needed to display the current text. The
   // returned value includes margins.

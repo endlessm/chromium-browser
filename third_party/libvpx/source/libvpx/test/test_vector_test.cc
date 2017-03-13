@@ -156,6 +156,20 @@ VP8_INSTANTIATE_TEST_CASE(
         ::testing::ValuesIn(libvpx_test::kVP8TestVectors,
                             libvpx_test::kVP8TestVectors +
                                 libvpx_test::kNumVP8TestVectors)));
+
+// Test VP8 decode in with different numbers of threads.
+INSTANTIATE_TEST_CASE_P(
+    VP8MultiThreaded, TestVectorTest,
+    ::testing::Combine(
+        ::testing::Values(
+            static_cast<const libvpx_test::CodecFactory *>(&libvpx_test::kVP8)),
+        ::testing::Combine(
+            ::testing::Values(0),    // Serial Mode.
+            ::testing::Range(1, 8),  // With 1 ~ 8 threads.
+            ::testing::ValuesIn(libvpx_test::kVP8TestVectors,
+                                libvpx_test::kVP8TestVectors +
+                                    libvpx_test::kNumVP8TestVectors))));
+
 #endif  // CONFIG_VP8_DECODER
 
 // Test VP9 decode in serial mode with single thread.

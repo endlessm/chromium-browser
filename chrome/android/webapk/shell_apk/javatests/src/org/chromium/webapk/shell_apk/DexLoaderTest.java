@@ -13,14 +13,14 @@ import android.os.Build;
 import android.os.FileObserver;
 import android.os.IBinder;
 import android.os.RemoteException;
+import android.support.test.filters.MediumTest;
 import android.test.InstrumentationTestCase;
-import android.test.suitebuilder.annotation.MediumTest;
 
 import dalvik.system.DexFile;
 
 import org.chromium.base.FileUtils;
+import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.MinAndroidSdkLevel;
-import org.chromium.content.browser.test.util.CallbackHelper;
 import org.chromium.webapk.shell_apk.test.dex_optimizer.IDexOptimizerService;
 
 import java.io.File;

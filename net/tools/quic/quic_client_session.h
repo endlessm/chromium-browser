@@ -13,14 +13,13 @@
 #include "base/macros.h"
 #include "net/quic/core/quic_client_session_base.h"
 #include "net/quic/core/quic_crypto_client_stream.h"
-#include "net/quic/core/quic_protocol.h"
+#include "net/quic/core/quic_packets.h"
 #include "net/tools/quic/quic_spdy_client_stream.h"
 
 namespace net {
 
 class QuicConnection;
 class QuicServerId;
-class ReliableQuicStream;
 
 class QuicClientSession : public QuicClientSessionBase {
  public:
@@ -48,7 +47,7 @@ class QuicClientSession : public QuicClientSessionBase {
       const ProofVerifyDetails& verify_details) override;
 
   // Performs a crypto handshake with the server.
-  void CryptoConnect();
+  virtual void CryptoConnect();
 
   // Returns the number of client hello messages that have been sent on the
   // crypto stream. If the handshake has completed then this is one greater
@@ -70,14 +69,14 @@ class QuicClientSession : public QuicClientSessionBase {
   // If an incoming stream can be created, return true.
   bool ShouldCreateIncomingDynamicStream(QuicStreamId id) override;
 
-  // Create the crypto stream. Called by Initialize()
-  virtual QuicCryptoClientStreamBase* CreateQuicCryptoStream();
+  // Create the crypto stream. Called by Initialize().
+  virtual std::unique_ptr<QuicCryptoClientStreamBase> CreateQuicCryptoStream();
 
   // Unlike CreateOutgoingDynamicStream, which applies a bunch of sanity checks,
   // this simply returns a new QuicSpdyClientStream. This may be used by
   // subclasses which want to use a subclass of QuicSpdyClientStream for streams
   // but wish to use the sanity checks in CreateOutgoingDynamicStream.
-  virtual QuicSpdyClientStream* CreateClientStream();
+  virtual std::unique_ptr<QuicSpdyClientStream> CreateClientStream();
 
   const QuicServerId& server_id() { return server_id_; }
   QuicCryptoClientConfig* crypto_config() { return crypto_config_; }

@@ -31,13 +31,15 @@ public:
     : fParent(parent)
     , fErrorReporter(errorReporter) {}
 
-    const Symbol* operator[](const std::string& name);
+    const Symbol* operator[](const SkString& name);
 
-    void add(const std::string& name, std::unique_ptr<Symbol> symbol);
+    void add(const SkString& name, std::unique_ptr<Symbol> symbol);
 
-    void addWithoutOwnership(const std::string& name, const Symbol* symbol);
+    void addWithoutOwnership(const SkString& name, const Symbol* symbol);
 
     Symbol* takeOwnership(Symbol* s);
+
+    void markAllFunctionsBuiltin();
 
     const std::shared_ptr<SymbolTable> fParent;
 
@@ -46,7 +48,7 @@ private:
 
     std::vector<std::unique_ptr<Symbol>> fOwnedPointers;
 
-    std::unordered_map<std::string, const Symbol*> fSymbols;
+    std::unordered_map<SkString, const Symbol*> fSymbols;
 
     ErrorReporter& fErrorReporter;
 };

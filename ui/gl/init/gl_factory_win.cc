@@ -47,18 +47,18 @@ bool GetGLWindowSystemBindingInfo(GLWindowSystemBindingInfo* info) {
 
 scoped_refptr<GLContext> CreateGLContext(GLShareGroup* share_group,
                                          GLSurface* compatible_surface,
-                                         GpuPreference gpu_preference) {
+                                         const GLContextAttribs& attribs) {
   TRACE_EVENT0("gpu", "gl::init::CreateGLContext");
   switch (GetGLImplementation()) {
     case kGLImplementationOSMesaGL:
       return InitializeGLContext(new GLContextOSMesa(share_group),
-                                 compatible_surface, gpu_preference);
+                                 compatible_surface, attribs);
     case kGLImplementationEGLGLES2:
       return InitializeGLContext(new GLContextEGL(share_group),
-                                 compatible_surface, gpu_preference);
+                                 compatible_surface, attribs);
     case kGLImplementationDesktopGL:
       return InitializeGLContext(new GLContextWGL(share_group),
-                                 compatible_surface, gpu_preference);
+                                 compatible_surface, attribs);
     case kGLImplementationMockGL:
       return new GLContextStub(share_group);
     default:
@@ -93,16 +93,20 @@ scoped_refptr<GLSurface> CreateViewGLSurface(gfx::AcceleratedWidget window) {
   }
 }
 
-scoped_refptr<GLSurface> CreateOffscreenGLSurface(const gfx::Size& size) {
+scoped_refptr<GLSurface> CreateOffscreenGLSurfaceWithFormat(
+    const gfx::Size& size, GLSurfaceFormat format) {
   TRACE_EVENT0("gpu", "gl::init::CreateOffscreenGLSurface");
   switch (GetGLImplementation()) {
     case kGLImplementationOSMesaGL:
-      return InitializeGLSurface(
-          new GLSurfaceOSMesa(GLSurface::SURFACE_OSMESA_RGBA, size));
+      format.SetDefaultPixelLayout(GLSurfaceFormat::PIXEL_LAYOUT_RGBA);
+      return InitializeGLSurfaceWithFormat(
+          new GLSurfaceOSMesa(format, size), format);
     case kGLImplementationEGLGLES2:
-      return InitializeGLSurface(new PbufferGLSurfaceEGL(size));
+      return InitializeGLSurfaceWithFormat(
+          new PbufferGLSurfaceEGL(size), format);
     case kGLImplementationDesktopGL:
-      return InitializeGLSurface(new PbufferGLSurfaceWGL(size));
+      return InitializeGLSurfaceWithFormat(
+          new PbufferGLSurfaceWGL(size), format);
     case kGLImplementationMockGL:
       return new GLSurfaceStub;
     default:

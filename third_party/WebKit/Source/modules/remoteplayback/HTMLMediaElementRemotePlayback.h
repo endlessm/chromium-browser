@@ -5,6 +5,7 @@
 #ifndef HTMLMediaElementRemotePlayback_h
 #define HTMLMediaElementRemotePlayback_h
 
+#include "core/html/HTMLMediaElement.h"
 #include "modules/ModulesExport.h"
 #include "platform/Supplementable.h"
 #include "platform/heap/Handle.h"
@@ -17,7 +18,7 @@ class RemotePlayback;
 
 // Class used to implement the Remote Playback API. It is a supplement to
 // HTMLMediaElement.
-class HTMLMediaElementRemotePlayback final
+class MODULES_EXPORT HTMLMediaElementRemotePlayback final
     : public GarbageCollected<HTMLMediaElementRemotePlayback>,
       public Supplement<HTMLMediaElement> {
   USING_GARBAGE_COLLECTED_MIXIN(HTMLMediaElementRemotePlayback);

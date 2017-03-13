@@ -10,7 +10,6 @@
 #include "ui/base/models/simple_menu_model.h"
 
 class Browser;
-class ToolbarActionsModel;
 
 namespace extensions {
 class ComponentMigrationHelper;
@@ -25,10 +24,8 @@ class MediaRouterContextualMenu : public ui::SimpleMenuModel::Delegate {
   ui::MenuModel* menu_model() { return &menu_model_; }
 
  private:
-#if defined(GOOGLE_CHROME_BUILD)
   FRIEND_TEST_ALL_PREFIXES(MediaRouterContextualMenuUnitTest,
                            ToggleCloudServicesItem);
-#endif  // GOOGLE_CHROME_BUILD
   FRIEND_TEST_ALL_PREFIXES(MediaRouterContextualMenuUnitTest,
                            ToggleAlwaysShowIconItem);
 

@@ -63,6 +63,7 @@ static_library("core") {
   ]
   deps = [
     "//base",
+    "//components/data_use_measurement/core",
     "//components/leveldb_proto",
     "//components/pref_registry",
     "//components/prefs",
@@ -149,10 +150,10 @@ source_set("unit_tests") {
     ":unit_tests_bundle_data",
     "//base",
     "//components/leveldb_proto:test_support",
-    "//components/pref_registry:test_support",
     "//components/resources",
     "//components/strings",
     "//components/sync",
+    "//components/sync_preferences:test_support",
     "//net:test_support",
     "//testing/gmock",
     "//testing/gtest",

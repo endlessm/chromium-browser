@@ -7,6 +7,7 @@ package org.chromium.media;
 import android.annotation.TargetApi;
 import android.media.AudioFormat;
 import android.media.MediaCodec;
+import android.media.MediaCodec.CryptoInfo;
 import android.media.MediaCrypto;
 import android.media.MediaFormat;
 import android.os.Build;
@@ -17,6 +18,7 @@ import org.chromium.base.Log;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.JNINamespace;
 import org.chromium.base.annotations.MainDex;
+import org.chromium.media.MediaCodecUtil.BitrateAdjustmentTypes;
 import org.chromium.media.MediaCodecUtil.MimeTypes;
 
 import java.nio.ByteBuffer;
@@ -27,7 +29,7 @@ import java.nio.ByteBuffer;
  */
 @JNINamespace("media")
 class MediaCodecBridge {
-    private static final String TAG = "cr_media";
+    private static final String TAG = "cr_MediaCodecBridge";
 
     // Error code for MediaCodecBridge. Keep this value in sync with
     // MediaCodecStatus in media_codec_bridge.h.
@@ -53,11 +55,22 @@ class MediaCodecBridge {
     // We use only one output audio format (PCM16) that has 2 bytes per sample
     private static final int PCM16_BYTES_PER_SAMPLE = 2;
 
+    // The following values should be kept in sync with the media::EncryptionScheme::CipherMode
+    // enum in media/base/encryption_scheme.h
+    private static final int MEDIA_ENCRYPTION_SCHEME_CIPHER_MODE_UNENCRYPTED = 0;
+    private static final int MEDIA_ENCRYPTION_SCHEME_CIPHER_MODE_AES_CTR = 1;
+    private static final int MEDIA_ENCRYPTION_SCHEME_CIPHER_MODE_AES_CBC = 2;
+
+    private static final int MEDIA_CODEC_UNKNOWN_CIPHER_MODE = -1;
+
     // TODO(qinmin): Use MediaFormat constants when part of the public API.
     private static final String KEY_CROP_LEFT = "crop-left";
     private static final String KEY_CROP_RIGHT = "crop-right";
     private static final String KEY_CROP_BOTTOM = "crop-bottom";
     private static final String KEY_CROP_TOP = "crop-top";
+
+    private static final int BITRATE_ADJUSTMENT_FPS = 30;
+    private static final int MAXIMUM_INITIAL_FPS = 30;
 
     private ByteBuffer[] mInputBuffers;
     private ByteBuffer[] mOutputBuffers;
@@ -67,6 +80,8 @@ class MediaCodecBridge {
     private long mLastPresentationTimeUs;
     private String mMime;
     private boolean mAdaptivePlaybackSupported;
+
+    private BitrateAdjustmentTypes mBitrateAdjustmentType = BitrateAdjustmentTypes.NO_ADJUSTMENT;
 
     @MainDex
     private static class DequeueInputResult {
@@ -186,14 +201,15 @@ class MediaCodecBridge {
         }
     }
 
-    private MediaCodecBridge(
-            MediaCodec mediaCodec, String mime, boolean adaptivePlaybackSupported) {
+    private MediaCodecBridge(MediaCodec mediaCodec, String mime, boolean adaptivePlaybackSupported,
+            BitrateAdjustmentTypes bitrateAdjustmentType) {
         assert mediaCodec != null;
         mMediaCodec = mediaCodec;
         mMime = mime;
         mLastPresentationTimeUs = 0;
         mFlushed = true;
         mAdaptivePlaybackSupported = adaptivePlaybackSupported;
+        mBitrateAdjustmentType = bitrateAdjustmentType;
     }
 
     @CalledByNative
@@ -202,8 +218,7 @@ class MediaCodecBridge {
         MediaCodecUtil.CodecCreationInfo info = new MediaCodecUtil.CodecCreationInfo();
         try {
             if (direction == MediaCodecUtil.MEDIA_CODEC_ENCODER) {
-                info.mediaCodec = MediaCodec.createEncoderByType(mime);
-                info.supportsAdaptivePlayback = false;
+                info = MediaCodecUtil.createEncoder(mime);
             } else {
                 // |isSecure| only applies to video decoders.
                 info = MediaCodecUtil.createDecoder(mime, isSecure, requireSoftwareCodec);
@@ -215,7 +230,8 @@ class MediaCodecBridge {
 
         if (info.mediaCodec == null) return null;
 
-        return new MediaCodecBridge(info.mediaCodec, mime, info.supportsAdaptivePlayback);
+        return new MediaCodecBridge(
+                info.mediaCodec, mime, info.supportsAdaptivePlayback, info.bitrateAdjustmentType);
     }
 
     @CalledByNative
@@ -364,15 +380,22 @@ class MediaCodecBridge {
 
     @TargetApi(Build.VERSION_CODES.KITKAT)
     @CalledByNative
-    private void setVideoBitrate(int bps) {
+    private void setVideoBitrate(int bps, int frameRate) {
+        int targetBps = bps;
+        if (mBitrateAdjustmentType == BitrateAdjustmentTypes.FRAMERATE_ADJUSTMENT
+                && frameRate > 0) {
+            targetBps = BITRATE_ADJUSTMENT_FPS * bps / frameRate;
+        }
+
         Bundle b = new Bundle();
-        b.putInt(MediaCodec.PARAMETER_KEY_VIDEO_BITRATE, bps);
+        b.putInt(MediaCodec.PARAMETER_KEY_VIDEO_BITRATE, targetBps);
         try {
             mMediaCodec.setParameters(b);
         } catch (IllegalStateException e) {
             Log.e(TAG, "Failed to set MediaCodec parameters", e);
         }
-        Log.v(TAG, "setVideoBitrate " + bps);
+        Log.v(TAG,
+                "setVideoBitrate: input " + bps + "bps@" + frameRate + ", targetBps " + targetBps);
     }
 
     @TargetApi(Build.VERSION_CODES.KITKAT)
@@ -387,15 +410,50 @@ class MediaCodecBridge {
         }
     }
 
+    // Incoming |native| values are as defined in media/base/encryption_scheme.h. Translated values
+    // are from MediaCodec. At present, these values are in sync. Returns
+    // MEDIA_CODEC_UNKNOWN_CIPHER_MODE in the case of unknown incoming value.
+    private int translateCipherModeValue(int nativeValue) {
+        switch (nativeValue) {
+            case MEDIA_ENCRYPTION_SCHEME_CIPHER_MODE_UNENCRYPTED:
+                return MediaCodec.CRYPTO_MODE_UNENCRYPTED;
+            case MEDIA_ENCRYPTION_SCHEME_CIPHER_MODE_AES_CTR:
+                return MediaCodec.CRYPTO_MODE_AES_CTR;
+            case MEDIA_ENCRYPTION_SCHEME_CIPHER_MODE_AES_CBC:
+                return MediaCodec.CRYPTO_MODE_AES_CBC;
+            default:
+                Log.e(TAG, "Unsupported cipher mode: " + nativeValue);
+                return MEDIA_CODEC_UNKNOWN_CIPHER_MODE;
+        }
+    }
+
     @CalledByNative
-    private int queueSecureInputBuffer(
-            int index, int offset, byte[] iv, byte[] keyId, int[] numBytesOfClearData,
-            int[] numBytesOfEncryptedData, int numSubSamples, long presentationTimeUs) {
+    private int queueSecureInputBuffer(int index, int offset, byte[] iv, byte[] keyId,
+            int[] numBytesOfClearData, int[] numBytesOfEncryptedData, int numSubSamples,
+            int cipherMode, int patternEncrypt, int patternSkip, long presentationTimeUs) {
         resetLastPresentationTimeIfNeeded(presentationTimeUs);
         try {
-            MediaCodec.CryptoInfo cryptoInfo = new MediaCodec.CryptoInfo();
-            cryptoInfo.set(numSubSamples, numBytesOfClearData, numBytesOfEncryptedData,
-                    keyId, iv, MediaCodec.CRYPTO_MODE_AES_CTR);
+            cipherMode = translateCipherModeValue(cipherMode);
+            if (cipherMode == MEDIA_CODEC_UNKNOWN_CIPHER_MODE) {
+                return MEDIA_CODEC_ERROR;
+            }
+            boolean usesCbcs = cipherMode == MediaCodec.CRYPTO_MODE_AES_CBC;
+            if (usesCbcs && !MediaCodecUtil.platformSupportsCbcsEncryption()) {
+                Log.e(TAG, "Encryption scheme 'cbcs' not supported on this platform.");
+                return MEDIA_CODEC_ERROR;
+            }
+            CryptoInfo cryptoInfo = new CryptoInfo();
+            cryptoInfo.set(numSubSamples, numBytesOfClearData, numBytesOfEncryptedData, keyId, iv,
+                    cipherMode);
+            if (patternEncrypt != 0 && patternSkip != 0) {
+                if (usesCbcs) {
+                    // Above platform check ensured that setting the pattern is indeed supported.
+                    MediaCodecUtil.setPatternIfSupported(cryptoInfo, patternEncrypt, patternSkip);
+                } else {
+                    Log.e(TAG, "Pattern encryption only supported for 'cbcs' scheme (CBC mode).");
+                    return MEDIA_CODEC_ERROR;
+                }
+            }
             mMediaCodec.queueSecureInputBuffer(index, offset, cryptoInfo, presentationTimeUs, 0);
         } catch (MediaCodec.CryptoException e) {
             if (e.getErrorCode() == MediaCodec.CryptoException.ERROR_NO_KEY) {
@@ -442,7 +500,6 @@ class MediaCodecBridge {
                 status = MEDIA_CODEC_OK;
                 index = indexOrStatus;
             } else if (indexOrStatus == MediaCodec.INFO_OUTPUT_BUFFERS_CHANGED) {
-                assert Build.VERSION.SDK_INT <= Build.VERSION_CODES.KITKAT;
                 mOutputBuffers = mMediaCodec.getOutputBuffers();
                 status = MEDIA_CODEC_OUTPUT_BUFFERS_CHANGED;
             } else if (indexOrStatus == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
@@ -557,13 +614,20 @@ class MediaCodecBridge {
     }
 
     @CalledByNative
-    private static MediaFormat createVideoEncoderFormat(String mime, int width, int height,
-            int bitRate, int frameRate, int iFrameInterval, int colorFormat) {
+    private MediaFormat createVideoEncoderFormat(String mime, int width, int height, int bitRate,
+            int frameRate, int iFrameInterval, int colorFormat) {
+        if (mBitrateAdjustmentType == BitrateAdjustmentTypes.FRAMERATE_ADJUSTMENT) {
+            frameRate = BITRATE_ADJUSTMENT_FPS;
+        } else {
+            frameRate = Math.min(frameRate, MAXIMUM_INITIAL_FPS);
+        }
+
         MediaFormat format = MediaFormat.createVideoFormat(mime, width, height);
         format.setInteger(MediaFormat.KEY_BIT_RATE, bitRate);
         format.setInteger(MediaFormat.KEY_FRAME_RATE, frameRate);
         format.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, iFrameInterval);
         format.setInteger(MediaFormat.KEY_COLOR_FORMAT, colorFormat);
+        Log.d(TAG, "video encoder format: " + format);
         return format;
     }
 
@@ -597,6 +661,18 @@ class MediaCodecBridge {
         if (name != null) {
             format.setByteBuffer(name, ByteBuffer.wrap(bytes));
         }
+    }
+
+    @TargetApi(Build.VERSION_CODES.M)
+    @CalledByNative
+    private boolean setSurface(Surface surface) {
+        try {
+            mMediaCodec.setOutputSurface(surface);
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            Log.e(TAG, "Cannot set output surface", e);
+            return false;
+        }
+        return true;
     }
 
     @CalledByNative

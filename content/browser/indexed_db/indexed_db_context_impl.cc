@@ -12,6 +12,7 @@
 #include "base/files/file_enumerator.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
+#include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/sequenced_task_runner.h"
 #include "base/strings/string_util.h"
@@ -149,9 +150,9 @@ std::vector<IndexedDBInfo> IndexedDBContextImpl::GetAllOriginsInfo() {
   std::vector<IndexedDBInfo> result;
   for (const auto& origin : origins) {
     size_t connection_count = GetConnectionCount(origin);
-    result.push_back(
-        IndexedDBInfo(GURL(origin.Serialize()), GetOriginDiskUsage(origin),
-                      GetOriginLastModified(origin), connection_count));
+    result.push_back(IndexedDBInfo(origin.GetURL(), GetOriginDiskUsage(origin),
+                                   GetOriginLastModified(origin),
+                                   connection_count));
   }
   return result;
 }
@@ -236,13 +237,8 @@ base::ListValue* IndexedDBContextImpl::GetAllOriginsDetails() {
           }
 
           transaction_info->SetDouble(
-              "pid",
-              IndexedDBDispatcherHost::TransactionIdToProcessId(
-                  transaction->id()));
-          transaction_info->SetDouble(
-              "tid",
-              IndexedDBDispatcherHost::TransactionIdToRendererTransactionId(
-                  transaction->id()));
+              "pid", transaction->connection()->child_process_id());
+          transaction_info->SetDouble("tid", transaction->id());
           transaction_info->SetDouble(
               "age",
               (base::Time::Now() - transaction->diagnostics().creation_time)
@@ -335,7 +331,7 @@ void IndexedDBContextImpl::DeleteForOrigin(const Origin& origin) {
   } else {
     // LevelDB does not delete empty directories; work around this.
     // TODO(jsbell): Remove when upstream bug is fixed.
-    // https://code.google.com/p/leveldb/issues/detail?id=209
+    // https://github.com/google/leveldb/issues/215
     const bool kNonRecursive = false;
     base::DeleteFile(idb_directory, kNonRecursive);
   }
@@ -439,7 +435,7 @@ void IndexedDBContextImpl::ConnectionOpened(const Origin& origin,
                                             IndexedDBConnection* connection) {
   DCHECK(TaskRunner()->RunsTasksOnCurrentThread());
   quota_manager_proxy()->NotifyStorageAccessed(
-      storage::QuotaClient::kIndexedDatabase, GURL(origin.Serialize()),
+      storage::QuotaClient::kIndexedDatabase, origin.GetURL(),
       storage::kStorageTypeTemporary);
   if (AddToOriginSet(origin)) {
     // A newly created db, notify the quota system.
@@ -453,7 +449,7 @@ void IndexedDBContextImpl::ConnectionClosed(const Origin& origin,
                                             IndexedDBConnection* connection) {
   DCHECK(TaskRunner()->RunsTasksOnCurrentThread());
   quota_manager_proxy()->NotifyStorageAccessed(
-      storage::QuotaClient::kIndexedDatabase, GURL(origin.Serialize()),
+      storage::QuotaClient::kIndexedDatabase, origin.GetURL(),
       storage::kStorageTypeTemporary);
   if (factory_.get() && factory_->GetConnectionCount(origin) == 0)
     QueryDiskAndUpdateQuotaUsage(origin);
@@ -499,8 +495,7 @@ IndexedDBContextImpl::~IndexedDBContextImpl() {
 // static
 base::FilePath IndexedDBContextImpl::GetBlobStoreFileName(
     const Origin& origin) {
-  std::string origin_id =
-      storage::GetIdentifierFromOrigin(GURL(origin.Serialize()));
+  std::string origin_id = storage::GetIdentifierFromOrigin(origin.GetURL());
   return base::FilePath()
       .AppendASCII(origin_id)
       .AddExtension(kIndexedDBExtension)
@@ -509,8 +504,7 @@ base::FilePath IndexedDBContextImpl::GetBlobStoreFileName(
 
 // static
 base::FilePath IndexedDBContextImpl::GetLevelDBFileName(const Origin& origin) {
-  std::string origin_id =
-      storage::GetIdentifierFromOrigin(GURL(origin.Serialize()));
+  std::string origin_id = storage::GetIdentifierFromOrigin(origin.GetURL());
   return base::FilePath()
       .AppendASCII(origin_id)
       .AddExtension(kIndexedDBExtension)
@@ -551,7 +545,7 @@ void IndexedDBContextImpl::QueryDiskAndUpdateQuotaUsage(const Origin& origin) {
   if (difference) {
     origin_size_map_[origin] = current_disk_usage;
     quota_manager_proxy()->NotifyStorageModified(
-        storage::QuotaClient::kIndexedDatabase, GURL(origin.Serialize()),
+        storage::QuotaClient::kIndexedDatabase, origin.GetURL(),
         storage::kStorageTypeTemporary, difference);
   }
 }

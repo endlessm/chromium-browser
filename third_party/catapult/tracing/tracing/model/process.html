@@ -38,7 +38,7 @@ tr.exportTo('tr.model', function() {
     this.memoryDumps = [];
     this.frames = [];
     this.activities = [];
-  };
+  }
 
   /**
    * Comparison between processes that orders by pid.
@@ -73,11 +73,11 @@ tr.exportTo('tr.model', function() {
       return Process.compare(this, that);
     },
 
-    childEvents: function*() {
-      yield * ProcessBase.prototype.childEvents.call(this);
-      yield * this.instantEvents;
-      yield * this.frames;
-      yield * this.memoryDumps;
+    childEvents: function* () {
+      yield* ProcessBase.prototype.childEvents.call(this);
+      yield* this.instantEvents;
+      yield* this.frames;
+      yield* this.memoryDumps;
     },
 
     addLabelIfNeeded: function(labelName) {
@@ -153,7 +153,7 @@ tr.exportTo('tr.model', function() {
   };
 
   return {
-    Process: Process
+    Process,
   };
 });
 </script>

@@ -22,7 +22,6 @@
 #include "bindings/modules/v8/UnsignedLongOrUnsignedLongSequence.h"
 #include "core/dom/Document.h"
 #include "core/frame/Navigator.h"
-#include "core/frame/UseCounter.h"
 #include "core/page/Page.h"
 #include "platform/mojo/MojoHelper.h"
 #include "public/platform/InterfaceProvider.h"
@@ -52,7 +51,7 @@ blink::VibrationController::VibrationPattern sanitizeVibrationPatternInternal(
 
   // If the last item in the pattern is a pause then discard it.
   if (length && !(length % 2))
-    sanitized.removeLast();
+    sanitized.pop_back();
 
   return sanitized;
 }
@@ -66,7 +65,7 @@ VibrationController::sanitizeVibrationPattern(
   VibrationPattern sanitized;
 
   if (pattern.isUnsignedLong())
-    sanitized.append(pattern.getAsUnsignedLong());
+    sanitized.push_back(pattern.getAsUnsignedLong());
   else if (pattern.isUnsignedLongSequence())
     sanitized = pattern.getAsUnsignedLongSequence();
 
@@ -81,7 +80,7 @@ VibrationController::VibrationController(Document& document)
       m_isCallingCancel(false),
       m_isCallingVibrate(false) {
   document.frame()->interfaceProvider()->getInterface(
-      mojo::GetProxy(&m_service));
+      mojo::MakeRequest(&m_service));
 }
 
 VibrationController::~VibrationController() {}
@@ -152,9 +151,7 @@ void VibrationController::didVibrate() {
 
 void VibrationController::cancel() {
   m_pattern.clear();
-
-  if (m_timerDoVibrate.isActive())
-    m_timerDoVibrate.stop();
+  m_timerDoVibrate.stop();
 
   if (m_isRunning && !m_isCallingCancel && m_service) {
     m_isCallingCancel = true;
@@ -174,18 +171,11 @@ void VibrationController::didCancel() {
   m_timerDoVibrate.startOneShot(0, BLINK_FROM_HERE);
 }
 
-void VibrationController::contextDestroyed() {
+void VibrationController::contextDestroyed(ExecutionContext*) {
   cancel();
 
   // If the document context was destroyed, never call the mojo service again.
   m_service.reset();
-
-  // The context is not automatically cleared, so do it manually.
-  ContextLifecycleObserver::clearContext();
-
-  // Page outlives ExecutionContext so stop observing it to avoid having
-  // |pageVisibilityChanged| or |contextDestroyed| called again.
-  PageVisibilityObserver::clearContext();
 }
 
 void VibrationController::pageVisibilityChanged() {

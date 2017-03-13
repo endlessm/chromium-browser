@@ -89,7 +89,9 @@ tr.exportTo('tr.b', function() {
    * |a| Alpha in [0, 1]
    */
   Color.fromHSLExplicit = function(h, s, l, a) {
-    var r, g, b;
+    var r;
+    var g;
+    var b;
     function hue2rgb(p, q, t) {
       if (t < 0) t += 1;
       if (t > 1) t -= 1;
@@ -112,11 +114,11 @@ tr.exportTo('tr.b', function() {
     return new Color(Math.floor(r * 255),
                      Math.floor(g * 255),
                      Math.floor(b * 255), a);
-  }
+  };
 
   Color.fromHSL = function(hsl) {
     return Color.fromHSLExplicit(hsl.h, hsl.s, hsl.l, hsl.a);
-  }
+  };
 
   Color.prototype = {
     clone: function() {
@@ -153,7 +155,7 @@ tr.exportTo('tr.b', function() {
     lighten: function(k, opt_maxL) {
       var maxL = opt_maxL !== undefined ? opt_maxL : 1.0;
       var hsl = this.toHSL();
-      hsl.l = clamp01(hsl.l + k);
+      hsl.l = Math.min(hsl.l + k, maxL);
       return Color.fromHSL(hsl);
     },
 
@@ -211,7 +213,8 @@ tr.exportTo('tr.b', function() {
       var max = Math.max(r, g, b);
       var min = Math.min(r, g, b);
 
-      var h, s;
+      var h;
+      var s;
       var l = (max + min) / 2;
       if (min === max) {
         h = 0;
@@ -246,7 +249,7 @@ tr.exportTo('tr.b', function() {
   };
 
   return {
-    Color: Color
+    Color,
   };
 });
 </script>

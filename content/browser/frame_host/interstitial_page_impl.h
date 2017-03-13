@@ -26,7 +26,6 @@
 #include "url/gurl.h"
 
 namespace content {
-class NavigationEntry;
 class NavigationControllerImpl;
 class RenderViewHostImpl;
 class RenderWidgetHostView;
@@ -88,12 +87,6 @@ class CONTENT_EXPORT InterstitialPageImpl
 
   RenderWidgetHostView* GetView();
 
-  // See description above field.
-  void set_reload_on_dont_proceed(bool value) {
-    reload_on_dont_proceed_ = value;
-  }
-  bool reload_on_dont_proceed() const { return reload_on_dont_proceed_; }
-
   bool pause_throbber() const { return pause_throbber_; }
 
   // TODO(nasko): This should move to InterstitialPageNavigatorImpl, but in
@@ -109,11 +102,10 @@ class CONTENT_EXPORT InterstitialPageImpl
                const NotificationDetails& details) override;
 
   // RenderFrameHostDelegate implementation:
-  bool OnMessageReceived(RenderFrameHost* render_frame_host,
+  bool OnMessageReceived(RenderFrameHostImpl* render_frame_host,
                          const IPC::Message& message) override;
   void RenderFrameCreated(RenderFrameHost* render_frame_host) override;
   void UpdateTitle(RenderFrameHost* render_frame_host,
-                   int32_t page_id,
                    const base::string16& title,
                    base::i18n::TextDirection title_direction) override;
   InterstitialPage* GetAsInterstitialPage() override;
@@ -122,10 +114,22 @@ class CONTENT_EXPORT InterstitialPageImpl
   void Copy() override;
   void Paste() override;
   void SelectAll() override;
+  void CreateNewWindow(
+      SiteInstance* source_site_instance,
+      int32_t render_view_route_id,
+      int32_t main_frame_route_id,
+      int32_t main_frame_widget_route_id,
+      const mojom::CreateNewWindowParams& params,
+      SessionStorageNamespace* session_storage_namespace) override;
+  void ShowCreatedWindow(int process_id,
+                         int main_frame_widget_route_id,
+                         WindowOpenDisposition disposition,
+                         const gfx::Rect& initial_rect,
+                         bool user_gesture) override;
 
   // RenderViewHostDelegate implementation:
   RenderViewHostDelegateView* GetDelegateView() override;
-  bool OnMessageReceived(RenderViewHost* render_view_host,
+  bool OnMessageReceived(RenderViewHostImpl* render_view_host,
                          const IPC::Message& message) override;
   const GURL& GetMainFrameLastCommittedURL() const override;
   void RenderViewTerminated(RenderViewHost* render_view_host,
@@ -133,23 +137,11 @@ class CONTENT_EXPORT InterstitialPageImpl
                             int error_code) override;
   RendererPreferences GetRendererPrefs(
       BrowserContext* browser_context) const override;
-  void CreateNewWindow(
-      SiteInstance* source_site_instance,
-      int32_t route_id,
-      int32_t main_frame_route_id,
-      int32_t main_frame_widget_route_id,
-      const mojom::CreateNewWindowParams& params,
-      SessionStorageNamespace* session_storage_namespace) override;
   void CreateNewWidget(int32_t render_process_id,
                        int32_t route_id,
                        blink::WebPopupType popup_type) override;
   void CreateNewFullscreenWidget(int32_t render_process_id,
                                  int32_t route_id) override;
-  void ShowCreatedWindow(int process_id,
-                         int route_id,
-                         WindowOpenDisposition disposition,
-                         const gfx::Rect& initial_rect,
-                         bool user_gesture) override;
   void ShowCreatedWidget(int process_id,
                          int route_id,
                          const gfx::Rect& initial_rect) override;
@@ -220,7 +212,8 @@ class CONTENT_EXPORT InterstitialPageImpl
   void TakeActionOnResourceDispatcher(ResourceRequestAction action);
 
   // IPC message handlers.
-  void OnDomOperationResponse(const std::string& json_string);
+  void OnDomOperationResponse(RenderFrameHostImpl* source,
+                              const std::string& json_string);
 
   // Creates the RenderViewHost containing the interstitial content.
   RenderViewHostImpl* CreateRenderViewHost();
@@ -251,12 +244,6 @@ class CONTENT_EXPORT InterstitialPageImpl
   // pending entry was created since this interstitial was shown and we should
   // not discard it.
   bool should_discard_pending_nav_entry_;
-
-  // If true and the user chooses not to proceed the target NavigationController
-  // is reloaded. This is used when two NavigationControllers are merged
-  // (CopyStateFromAndPrune).
-  // The default is false.
-  bool reload_on_dont_proceed_;
 
   // Whether this interstitial is enabled.  See Disable() for more info.
   bool enabled_;

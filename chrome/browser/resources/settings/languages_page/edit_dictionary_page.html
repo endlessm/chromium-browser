@@ -1,7 +1,6 @@
 <link rel="import" href="chrome://resources/cr_elements/icons.html">
 <link rel="import" href="chrome://resources/html/polymer.html">
 <link rel="import" href="chrome://resources/polymer/v1_0/iron-a11y-keys/iron-a11y-keys.html">
-<link rel="import" href="chrome://resources/polymer/v1_0/iron-icon/iron-icon.html">
 <link rel="import" href="chrome://resources/polymer/v1_0/iron-list/iron-list.html">
 <link rel="import" href="chrome://resources/polymer/v1_0/paper-button/paper-button.html">
 <link rel="import" href="chrome://resources/polymer/v1_0/paper-icon-button/paper-icon-button.html">
@@ -16,12 +15,11 @@
         flex-direction: column;
       }
 
-      #addWordRow {
-        display: flex;
-      }
-
       #newWord {
-        flex: .5;
+        width: var(--paper-input-max-width);
+        --paper-input-container-label: {
+          font-size: inherit;
+        };
       }
 
       iron-list {
@@ -32,17 +30,21 @@
       iron-list .word {
         flex: 1;
       }
+
+      paper-button {
+        -webkit-margin-start: 16px;
+      }
     </style>
-    <div class="settings-box block">
-      <div id="addWordRow">
-        <iron-a11y-keys id="keys" keys="enter esc"
-            on-keys-pressed="onKeysPress_"></iron-a11y-keys>
+    <div class="settings-box first">
+      <iron-a11y-keys id="keys" keys="enter esc"
+          on-keys-pressed="onKeysPress_"></iron-a11y-keys>
+      <div class="start">
         <paper-input id="newWord" no-label-float
             label="$i18n{addDictionaryWordLabel}"></paper-input>
-        <paper-button on-tap="onAddWordTap_">
-          $i18n{addDictionaryWordButton}
-        </paper-button>
       </div>
+      <paper-button on-tap="onAddWordTap_">
+        $i18n{addDictionaryWordButton}
+      </paper-button>
     </div>
     <div class="settings-box block">
       <h2>$i18n{customDictionaryWords}</h2>
@@ -50,8 +52,9 @@
         <iron-list id="list" items="{{words_}}">
           <template>
             <div class="list-item">
-              <div class="word">[[item]]</div>
-              <paper-icon-button icon="cr:clear" on-tap="onRemoveWordTap_">
+              <div class="word text-elide">[[item]]</div>
+              <paper-icon-button icon="cr:clear" on-tap="onRemoveWordTap_"
+                  tabindex$="[[tabIndex]]">
               </paper-icon-button>
             </div>
           </template>

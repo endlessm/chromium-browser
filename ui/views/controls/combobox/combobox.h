@@ -28,7 +28,6 @@ class ComboboxTestApi;
 
 class ComboboxListener;
 class CustomButton;
-class MenuModelAdapter;
 class MenuRunner;
 class Painter;
 class PrefixSelector;
@@ -37,11 +36,13 @@ class PrefixSelector;
 // Combobox has two distinct parts, the drop down arrow and the text. Combobox
 // offers two distinct behaviors:
 // * STYLE_NORMAL: typical combobox, clicking on the text and/or button shows
-// the drop down, arrow keys change selection, selected index can be changed by
-// the user to something other than the first item.
+//   the drop down, arrow keys change selection or show the menu depending on
+//   the platform, selected index can be changed by the user to something other
+//   than the first item.
 // * STYLE_ACTION: clicking on the text notifies the listener. The menu can be
-// shown only by clicking on the arrow. The selected index is always reverted to
-// 0 after the listener is notified.
+//   shown only by clicking on the arrow, except on Mac where it can be shown
+//   through the keyboard. The selected index is always reverted to 0 after the
+//   listener is notified.
 class VIEWS_EXPORT Combobox : public View,
                               public PrefixDelegate,
                               public ButtonListener {
@@ -95,7 +96,7 @@ class VIEWS_EXPORT Combobox : public View,
   void OnPaint(gfx::Canvas* canvas) override;
   void OnFocus() override;
   void OnBlur() override;
-  void GetAccessibleState(ui::AXViewState* state) override;
+  void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
   void Layout() override;
   void OnEnabledChanged() override;
   void OnNativeThemeChanged(const ui::NativeTheme* theme) override;
@@ -119,7 +120,7 @@ class VIEWS_EXPORT Combobox : public View,
 
   class ComboboxMenuModel;
 
-  // Updates the border according to the current state.
+  // Updates the border according to the current node_data.
   void UpdateBorder();
 
   // Given bounds within our View, this helper mirrors the bounds if necessary.
@@ -211,7 +212,6 @@ class VIEWS_EXPORT Combobox : public View,
 
   // Set while the dropdown is showing. Ensures the menu is closed if |this| is
   // destroyed.
-  std::unique_ptr<MenuModelAdapter> menu_model_adapter_;
   std::unique_ptr<MenuRunner> menu_runner_;
 
   // The image to be drawn for this combobox's arrow.

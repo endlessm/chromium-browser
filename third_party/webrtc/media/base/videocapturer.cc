@@ -14,11 +14,10 @@
 
 #include <algorithm>
 
-#include "libyuv/scale_argb.h"
+#include "webrtc/api/video/i420_buffer.h"
+#include "webrtc/api/video/video_frame.h"
 #include "webrtc/base/common.h"
 #include "webrtc/base/logging.h"
-#include "webrtc/base/systeminfo.h"
-#include "webrtc/media/engine/webrtcvideoframe.h"
 
 namespace cricket {
 
@@ -132,14 +131,14 @@ bool VideoCapturer::GetInputSize(int* width, int* height) {
 }
 
 void VideoCapturer::RemoveSink(
-    rtc::VideoSinkInterface<cricket::VideoFrame>* sink) {
+    rtc::VideoSinkInterface<webrtc::VideoFrame>* sink) {
   RTC_DCHECK(thread_checker_.CalledOnValidThread());
   broadcaster_.RemoveSink(sink);
   OnSinkWantsChanged(broadcaster_.wants());
 }
 
 void VideoCapturer::AddOrUpdateSink(
-    rtc::VideoSinkInterface<cricket::VideoFrame>* sink,
+    rtc::VideoSinkInterface<webrtc::VideoFrame>* sink,
     const rtc::VideoSinkWants& wants) {
   RTC_DCHECK(thread_checker_.CalledOnValidThread());
   broadcaster_.AddOrUpdateSink(sink, wants);
@@ -196,7 +195,7 @@ bool VideoCapturer::AdaptFrame(int width,
   return true;
 }
 
-void VideoCapturer::OnFrame(const VideoFrame& frame,
+void VideoCapturer::OnFrame(const webrtc::VideoFrame& frame,
                             int orig_width,
                             int orig_height) {
   // For a child class which implements rotation itself, we should
@@ -215,8 +214,8 @@ void VideoCapturer::OnFrame(const VideoFrame& frame,
       LOG(LS_WARNING) << "Native frame requiring rotation. Discarding.";
       return;
     }
-    broadcaster_.OnFrame(WebRtcVideoFrame(
-        webrtc::I420Buffer::Rotate(buffer, frame.rotation()),
+    broadcaster_.OnFrame(webrtc::VideoFrame(
+        webrtc::I420Buffer::Rotate(*buffer, frame.rotation()),
         webrtc::kVideoRotation_0, frame.timestamp_us()));
   } else {
     broadcaster_.OnFrame(frame);

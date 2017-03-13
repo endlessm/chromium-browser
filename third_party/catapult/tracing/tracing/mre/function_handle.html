@@ -67,7 +67,7 @@ tr.exportTo('tr.mre', function() {
     this.modulesToLoad = modulesToLoad;
     this.functionName = functionName;
     this.options_ = opt_options;
-  };
+  }
 
   FunctionHandle.prototype = {
     get options() {
@@ -84,7 +84,7 @@ tr.exportTo('tr.mre', function() {
     },
 
     asUserFriendlyString: function() {
-      var parts = this.modulesToLoad.map(function(mtl) {return mtl.filename});
+      var parts = this.modulesToLoad.map(function(mtl) {return mtl.filename;});
       parts.push(this.functionName);
       parts.push(JSON.stringify(this.options_));
       return parts.join(',');
@@ -151,7 +151,7 @@ tr.exportTo('tr.mre', function() {
     // Verify a new function was registered.
     var numFunctionsNow = FunctionRegistry.allFunctions.length;
     if (numFunctionsNow !== (numFunctionsBefore + 1)) {
-      var err = new Error(filename + " didn't call FunctionRegistry.register");
+      var err = new Error(filename + ' didn\'t call FunctionRegistry.register');
       err.name = 'FunctionNotDefinedError';
       throw err;
     }
@@ -170,9 +170,9 @@ tr.exportTo('tr.mre', function() {
   };
 
   return {
-    FunctionHandle: FunctionHandle,
-    ModuleToLoad: ModuleToLoad,
-    FunctionRegistry: FunctionRegistry
+    FunctionHandle,
+    ModuleToLoad,
+    FunctionRegistry,
   };
 });
 </script>

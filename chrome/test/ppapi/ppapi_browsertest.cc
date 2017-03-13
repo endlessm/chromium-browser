@@ -7,7 +7,6 @@
 #include "base/macros.h"
 #include "base/path_service.h"
 #include "base/test/test_timeouts.h"
-#include "base/win/windows_version.h"
 #include "build/build_config.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/extensions/extension_browsertest.h"
@@ -31,6 +30,15 @@
 #include "extensions/common/constants.h"
 #include "extensions/test/extension_test_message_listener.h"
 #include "ppapi/shared_impl/test_utils.h"
+#include "rlz/features/features.h"
+
+#if defined(OS_MACOSX)
+#include "base/mac/mac_util.h"
+#endif
+
+#if defined(OS_WIN)
+#include "base/win/windows_version.h"
+#endif
 
 using content::RenderViewHost;
 
@@ -78,7 +86,7 @@ using content::RenderViewHost;
 #else
 
 #define MAYBE_PPAPI_NACL(test_name) test_name
-#if defined (OS_WIN)
+#if defined (OS_WIN) || defined(ADDRESS_SANITIZER)
 // http://crbug.com/633067
 #define MAYBE_PPAPI_PNACL(test_name) DISABLED_##test_name
 #else
@@ -243,7 +251,8 @@ TEST_PPAPI_NACL(Graphics2D_Paint)
 TEST_PPAPI_NACL(Graphics2D_Scroll)
 TEST_PPAPI_NACL(Graphics2D_Replace)
 TEST_PPAPI_NACL(Graphics2D_Flush)
-TEST_PPAPI_NACL(Graphics2D_FlushOffscreenUpdate)
+// TODO(crbug.com/682275): Flaky on Ubuntu.
+// TEST_PPAPI_NACL(Graphics2D_FlushOffscreenUpdate)
 TEST_PPAPI_NACL(Graphics2D_BindNull)
 
 #if defined(OS_WIN)
@@ -1229,7 +1238,7 @@ TEST_PPAPI_OUT_OF_PROCESS(PDF)
 
 IN_PROC_BROWSER_TEST_F(OutOfProcessPPAPITest, FlashDRM) {
   RunTest(
-#if (defined(OS_WIN) && defined(ENABLE_RLZ)) || defined(OS_CHROMEOS)
+#if (defined(OS_WIN) && BUILDFLAG(ENABLE_RLZ)) || defined(OS_CHROMEOS)
           // Only implemented on Windows and ChromeOS currently.
           LIST_TEST(FlashDRM_GetDeviceID)
 #endif

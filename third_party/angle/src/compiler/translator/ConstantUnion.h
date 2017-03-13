@@ -12,6 +12,9 @@
 #include "compiler/translator/Common.h"
 #include "compiler/translator/BaseTypes.h"
 
+namespace sh
+{
+
 class TDiagnostics;
 
 class TConstantUnion
@@ -22,10 +25,26 @@ class TConstantUnion
 
     bool cast(TBasicType newType, const TConstantUnion &constant);
 
-    void setIConst(int i) {iConst = i; type = EbtInt; }
-    void setUConst(unsigned int u) { uConst = u; type = EbtUInt; }
-    void setFConst(float f) {fConst = f; type = EbtFloat; }
-    void setBConst(bool b) {bConst = b; type = EbtBool; }
+    void setIConst(int i)
+    {
+        iConst = i;
+        type   = EbtInt;
+    }
+    void setUConst(unsigned int u)
+    {
+        uConst = u;
+        type   = EbtUInt;
+    }
+    void setFConst(float f)
+    {
+        fConst = f;
+        type   = EbtFloat;
+    }
+    void setBConst(bool b)
+    {
+        bConst = b;
+        type   = EbtBool;
+    }
 
     int getIConst() const { return iConst; }
     unsigned int getUConst() const { return uConst; }
@@ -83,4 +102,6 @@ class TConstantUnion
     TBasicType type;
 };
 
-#endif // COMPILER_TRANSLATOR_CONSTANTUNION_H_
+}  // namespace sh
+
+#endif  // COMPILER_TRANSLATOR_CONSTANTUNION_H_

@@ -4,8 +4,8 @@
 //
 // NOTE: This code is not shared between Google and Chrome.
 
-#ifndef NET_QUIC_QUIC_CHROMIUM_CLIENT_STREAM_H_
-#define NET_QUIC_QUIC_CHROMIUM_CLIENT_STREAM_H_
+#ifndef NET_QUIC_CHROMIUM_QUIC_CHROMIUM_CLIENT_STREAM_H_
+#define NET_QUIC_CHROMIUM_QUIC_CHROMIUM_CLIENT_STREAM_H_
 
 #include <stddef.h>
 
@@ -66,15 +66,12 @@ class NET_EXPORT_PRIVATE QuicChromiumClientStream : public QuicSpdyStream {
   ~QuicChromiumClientStream() override;
 
   // QuicSpdyStream
-  void OnStreamHeadersComplete(bool fin, size_t frame_len) override;
   void OnInitialHeadersComplete(bool fin,
                                 size_t frame_len,
                                 const QuicHeaderList& header_list) override;
   void OnTrailingHeadersComplete(bool fin,
                                  size_t frame_len,
                                  const QuicHeaderList& header_list) override;
-  void OnPromiseHeadersComplete(QuicStreamId promised_stream_id,
-                                size_t frame_len) override;
   void OnPromiseHeaderList(QuicStreamId promised_id,
                            size_t frame_len,
                            const QuicHeaderList& header_list) override;
@@ -83,7 +80,8 @@ class NET_EXPORT_PRIVATE QuicChromiumClientStream : public QuicSpdyStream {
   void OnCanWrite() override;
   size_t WriteHeaders(SpdyHeaderBlock header_block,
                       bool fin,
-                      QuicAckListenerInterface* ack_notifier_delegate) override;
+                      QuicReferenceCountedPointer<QuicAckListenerInterface>
+                          ack_listener) override;
   SpdyPriority priority() const override;
 
   // While the server's set_priority shouldn't be called externally, the creator
@@ -159,4 +157,4 @@ class NET_EXPORT_PRIVATE QuicChromiumClientStream : public QuicSpdyStream {
 
 }  // namespace net
 
-#endif  // NET_QUIC_QUIC_CHROMIUM_CLIENT_STREAM_H_
+#endif  // NET_QUIC_CHROMIUM_QUIC_CHROMIUM_CLIENT_STREAM_H_

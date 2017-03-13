@@ -22,12 +22,14 @@ class StringKeyframe : public Keyframe {
     return adoptRef(new StringKeyframe);
   }
 
-  void setCSSPropertyValue(const AtomicString& propertyName,
-                           const String& value,
-                           StyleSheetContents*);
-  void setCSSPropertyValue(CSSPropertyID,
-                           const String& value,
-                           StyleSheetContents*);
+  MutableStylePropertySet::SetResult setCSSPropertyValue(
+      const AtomicString& propertyName,
+      const PropertyRegistry*,
+      const String& value,
+      StyleSheetContents*);
+  MutableStylePropertySet::SetResult setCSSPropertyValue(CSSPropertyID,
+                                                         const String& value,
+                                                         StyleSheetContents*);
   void setCSSPropertyValue(CSSPropertyID, const CSSValue&);
   void setPresentationAttributeValue(CSSPropertyID,
                                      const String& value,
@@ -79,9 +81,6 @@ class StringKeyframe : public Keyframe {
     PassRefPtr<AnimatableValue> getAnimatableValue() const final {
       return m_animatableValueCache.get();
     }
-    void setAnimatableValue(PassRefPtr<AnimatableValue> value) {
-      m_animatableValueCache = value;
-    }
 
     bool isNeutral() const final { return !m_value; }
     PassRefPtr<Keyframe::PropertySpecificKeyframe> neutralKeyframe(
@@ -101,12 +100,6 @@ class StringKeyframe : public Keyframe {
     virtual PassRefPtr<Keyframe::PropertySpecificKeyframe> cloneWithOffset(
         double offset) const;
     bool isCSSPropertySpecificKeyframe() const override { return true; }
-
-    void populateAnimatableValueCaches(CSSPropertyID,
-                                       Keyframe::PropertySpecificKeyframe&,
-                                       Element*,
-                                       CSSValue& fromCSSValue,
-                                       CSSValue& toCSSValue) const;
 
     // TODO(sashab): Make this a const CSSValue.
     Persistent<CSSValue> m_value;

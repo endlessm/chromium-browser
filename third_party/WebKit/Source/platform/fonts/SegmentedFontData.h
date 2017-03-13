@@ -29,7 +29,8 @@
 #include "platform/PlatformExport.h"
 #include "platform/fonts/FontData.h"
 #include "platform/fonts/FontDataForRangeSet.h"
-#include "platform/fonts/SimpleFontData.h"
+
+class SimpleFontData;
 
 namespace blink {
 
@@ -39,10 +40,8 @@ class PLATFORM_EXPORT SegmentedFontData : public FontData {
     return adoptRef(new SegmentedFontData);
   }
 
-  ~SegmentedFontData() override;
-
-  void appendFace(PassRefPtr<FontDataForRangeSet> fontDataForRangeSet) {
-    m_faces.append(fontDataForRangeSet);
+  void appendFace(const PassRefPtr<FontDataForRangeSet> fontDataForRangeSet) {
+    m_faces.push_back(fontDataForRangeSet);
   }
   unsigned numFaces() const { return m_faces.size(); }
   PassRefPtr<FontDataForRangeSet> faceAt(unsigned i) const {

@@ -4,13 +4,13 @@
 
 #include "platform/graphics/RecordingImageBufferSurface.h"
 
+#include "platform/WebTaskRunner.h"
 #include "platform/graphics/GraphicsContext.h"
 #include "platform/graphics/ImageBuffer.h"
 #include "platform/graphics/ImageBufferClient.h"
 #include "platform/graphics/UnacceleratedImageBufferSurface.h"
 #include "platform/testing/TestingPlatformSupport.h"
 #include "public/platform/Platform.h"
-#include "public/platform/WebTaskRunner.h"
 #include "public/platform/WebThread.h"
 #include "public/platform/WebTraceLocation.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -77,10 +77,12 @@ class MockSurfaceFactory : public RecordingImageBufferFallbackSurfaceFactory {
   virtual std::unique_ptr<ImageBufferSurface> createSurface(
       const IntSize& size,
       OpacityMode opacityMode,
-      sk_sp<SkColorSpace> colorSpace) {
+      sk_sp<SkColorSpace> colorSpace,
+      SkColorType colorType) {
     m_createSurfaceCount++;
-    return wrapUnique(new UnacceleratedImageBufferSurface(
-        size, opacityMode, InitializeImagePixels, std::move(colorSpace)));
+    return WTF::wrapUnique(new UnacceleratedImageBufferSurface(
+        size, opacityMode, InitializeImagePixels, std::move(colorSpace),
+        colorType));
   }
 
   virtual ~MockSurfaceFactory() {}
@@ -95,10 +97,10 @@ class RecordingImageBufferSurfaceTest : public Test {
  protected:
   RecordingImageBufferSurfaceTest() {
     std::unique_ptr<MockSurfaceFactory> surfaceFactory =
-        wrapUnique(new MockSurfaceFactory());
+        WTF::makeUnique<MockSurfaceFactory>();
     m_surfaceFactory = surfaceFactory.get();
     std::unique_ptr<RecordingImageBufferSurface> testSurface =
-        wrapUnique(new RecordingImageBufferSurface(
+        WTF::wrapUnique(new RecordingImageBufferSurface(
             IntSize(10, 10), std::move(surfaceFactory), NonOpaque, nullptr));
     m_testSurface = testSurface.get();
     // We create an ImageBuffer in order for the testSurface to be
@@ -106,7 +108,7 @@ class RecordingImageBufferSurfaceTest : public Test {
     m_imageBuffer = ImageBuffer::create(std::move(testSurface));
     EXPECT_FALSE(!m_imageBuffer);
     m_fakeImageBufferClient =
-        wrapUnique(new FakeImageBufferClient(m_imageBuffer.get()));
+        WTF::wrapUnique(new FakeImageBufferClient(m_imageBuffer.get()));
     m_imageBuffer->setClient(m_fakeImageBufferClient.get());
   }
 
@@ -201,7 +203,7 @@ class RecordingImageBufferSurfaceTest : public Test {
     m_testSurface->initializeCurrentFrame();
     m_testSurface->getPicture();
     SkPaint clearPaint;
-    clearPaint.setXfermodeMode(SkXfermode::kClear_Mode);
+    clearPaint.setBlendMode(SkBlendMode::kClear);
     m_imageBuffer->canvas()->drawRect(
         SkRect::MakeWH(m_testSurface->size().width(),
                        m_testSurface->size().height()),
@@ -229,14 +231,15 @@ class RecordingImageBufferSurfaceTest : public Test {
   std::unique_ptr<ImageBuffer> m_imageBuffer;
 };
 
-#define CALL_TEST_TASK_WRAPPER(TEST_METHOD)                             \
-  {                                                                     \
-    TestingPlatformSupportWithMockScheduler testingPlatform;            \
-    Platform::current()->currentThread()->getWebTaskRunner()->postTask( \
-        BLINK_FROM_HERE,                                                \
-        WTF::bind(&RecordingImageBufferSurfaceTest::TEST_METHOD,        \
-                  WTF::unretained(this)));                              \
-    testingPlatform.runUntilIdle();                                     \
+#define CALL_TEST_TASK_WRAPPER(TEST_METHOD)                               \
+  {                                                                       \
+    ScopedTestingPlatformSupport<TestingPlatformSupportWithMockScheduler> \
+        platform;                                                         \
+    Platform::current()->currentThread()->getWebTaskRunner()->postTask(   \
+        BLINK_FROM_HERE,                                                  \
+        WTF::bind(&RecordingImageBufferSurfaceTest::TEST_METHOD,          \
+                  WTF::unretained(this)));                                \
+    platform->runUntilIdle();                                             \
   }
 
 TEST_F(RecordingImageBufferSurfaceTest, testEmptyPicture) {

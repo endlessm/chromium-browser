@@ -28,7 +28,6 @@ class Sender;
 namespace content {
 
 class EmbeddedWorkerInstance;
-struct EmbeddedWorkerStartParams;
 class MessagePortMessageFilter;
 class ServiceWorkerContextCore;
 
@@ -58,9 +57,6 @@ class CONTENT_EXPORT EmbeddedWorkerRegistry
   std::unique_ptr<EmbeddedWorkerInstance> CreateWorker();
 
   // Called from EmbeddedWorkerInstance, relayed to the child process.
-  ServiceWorkerStatusCode SendStartWorker(
-      std::unique_ptr<EmbeddedWorkerStartParams> params,
-      int process_id);
   ServiceWorkerStatusCode StopWorker(int process_id,
                                      int embedded_worker_id);
 
@@ -109,6 +105,7 @@ class CONTENT_EXPORT EmbeddedWorkerRegistry
 
  private:
   friend class base::RefCounted<EmbeddedWorkerRegistry>;
+  friend class MojoEmbeddedWorkerInstanceTest;
   friend class EmbeddedWorkerInstance;
   friend class EmbeddedWorkerInstanceTest;
   FRIEND_TEST_ALL_PREFIXES(EmbeddedWorkerInstanceTest,
@@ -135,6 +132,10 @@ class CONTENT_EXPORT EmbeddedWorkerRegistry
   // |process_id| could be invalid (i.e. ChildProcessHost::kInvalidUniqueID)
   // if it's not running.
   void RemoveWorker(int process_id, int embedded_worker_id);
+  // DetachWorker is called when EmbeddedWorkerInstance releases a process.
+  // |process_id| could be invalid (i.e. ChildProcessHost::kInvalidUniqueID)
+  // if it's not running.
+  void DetachWorker(int process_id, int embedded_worker_id);
 
   EmbeddedWorkerInstance* GetWorkerForMessage(int process_id,
                                               int embedded_worker_id);

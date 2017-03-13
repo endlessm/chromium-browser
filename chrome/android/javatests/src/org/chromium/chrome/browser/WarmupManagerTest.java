@@ -7,11 +7,13 @@ package org.chromium.chrome.browser;
 import static org.chromium.base.test.util.Restriction.RESTRICTION_TYPE_LOW_END_DEVICE;
 import static org.chromium.base.test.util.Restriction.RESTRICTION_TYPE_NON_LOW_END_DEVICE;
 
+import android.content.Context;
+import android.support.test.filters.SmallTest;
 import android.test.UiThreadTest;
-import android.test.suitebuilder.annotation.SmallTest;
 
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.util.Restriction;
+import org.chromium.chrome.R;
 import org.chromium.content.browser.test.NativeLibraryTestBase;
 import org.chromium.content.browser.test.util.Criteria;
 import org.chromium.content.browser.test.util.CriteriaHelper;
@@ -58,7 +60,7 @@ public class WarmupManagerTest extends NativeLibraryTestBase {
 
     @SmallTest
     @Restriction(RESTRICTION_TYPE_NON_LOW_END_DEVICE)
-    public void testCreateAndTakeSpareRenderer() throws Exception {
+    public void testCreateAndTakeSpareRenderer() {
         final AtomicBoolean isRenderViewReady = new AtomicBoolean();
         final AtomicReference<WebContents> webContentsReference = new AtomicReference<>();
 
@@ -118,5 +120,16 @@ public class WarmupManagerTest extends NativeLibraryTestBase {
         assertNull(mWarmupManager.takeSpareWebContents(false, true));
         assertNull(mWarmupManager.takeSpareWebContents(true, true));
         assertTrue(mWarmupManager.hasSpareWebContents());
+    }
+
+    /** Checks that the View inflation works. */
+    @SmallTest
+    @UiThreadTest
+    public void testInflateLayout() throws Exception {
+        int layoutId = R.layout.custom_tabs_control_container;
+        int toolbarId = R.layout.custom_tabs_toolbar;
+        Context context = getInstrumentation().getTargetContext();
+        mWarmupManager.initializeViewHierarchy(context, layoutId, toolbarId);
+        assertTrue(mWarmupManager.hasViewHierarchyWithToolbar(layoutId));
     }
 }

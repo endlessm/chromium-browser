@@ -12,6 +12,9 @@
 
 namespace views {
 
+class ViewsTestHelper;
+class Widget;
+
 class PlatformTestHelper {
  public:
   using Factory = base::Callback<std::unique_ptr<PlatformTestHelper>(void)>;
@@ -21,10 +24,15 @@ class PlatformTestHelper {
   static void set_factory(const Factory& factory);
   static std::unique_ptr<PlatformTestHelper> Create();
 
-  // Whether we are running under the mus environment. Methods are static so
-  // that they can be called before Create().
   static void SetIsMus();
   static bool IsMus();
+
+  // Called once the ViewsTestHelper has been created, but before SetUp() is
+  // called.
+  virtual void OnTestHelperCreated(ViewsTestHelper* helper) {}
+
+  // Simulate an OS-level destruction of the native window held by |widget|.
+  virtual void SimulateNativeDestroy(Widget* widget);
 
  private:
   DISALLOW_COPY_AND_ASSIGN(PlatformTestHelper);

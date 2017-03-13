@@ -5,21 +5,15 @@
 #ifndef CHROME_BROWSER_CHROMEOS_LOGIN_USERS_WALLPAPER_WALLPAPER_MANAGER_H_
 #define CHROME_BROWSER_CHROMEOS_LOGIN_USERS_WALLPAPER_WALLPAPER_MANAGER_H_
 
-#include <stddef.h>
-
-#include <deque>
 #include <memory>
 #include <string>
 #include <vector>
 
-#include "base/files/file_path.h"
+#include "ash/public/interfaces/wallpaper.mojom.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/memory/weak_ptr.h"
-#include "base/observer_list.h"
-#include "base/threading/sequenced_worker_pool.h"
-#include "base/time/time.h"
-#include "chrome/browser/chromeos/login/users/avatar/user_image_loader.h"
+#include "chrome/browser/chromeos/customization/customization_wallpaper_downloader.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
 #include "components/user_manager/user.h"
 #include "components/user_manager/user_image/user_image.h"
@@ -28,12 +22,14 @@
 #include "components/wallpaper/wallpaper_manager_base.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
+#include "mojo/public/cpp/bindings/binding.h"
 #include "ui/gfx/image/image_skia.h"
 
 namespace chromeos {
 
 class WallpaperManager
     : public wallpaper::WallpaperManagerBase,
+      public ash::mojom::WallpaperPicker,
       public content::NotificationObserver,
       public user_manager::UserManager::UserSessionStateObserver {
  public:
@@ -52,38 +48,15 @@ class WallpaperManager
   // WallpaperManager to remove any observers it has registered.
   static void Shutdown();
 
-  // Returns the appropriate wallpaper resolution for all root windows.
+  // wallpaper::WallpaperManagerBase:
   WallpaperResolution GetAppropriateResolution() override;
-
-  // Adds PowerManagerClient, TimeZoneSettings and CrosSettings observers.
   void AddObservers() override;
-
-  // Loads wallpaper asynchronously if the current wallpaper is not the
-  // wallpaper of logged in user.
   void EnsureLoggedInUserWallpaperLoaded() override;
-
-  // Initializes wallpaper. If logged in, loads user's wallpaper. If not logged
-  // in, uses a solid color wallpaper. If logged in as a stub user, uses an
-  // empty wallpaper.
   void InitializeWallpaper() override;
-
-  // NotificationObserver overrides:
-  void Observe(int type,
-               const content::NotificationSource& source,
-               const content::NotificationDetails& details) override;
-
-  // Removes all |account_id| related wallpaper info and saved wallpapers.
   void RemoveUserWallpaperInfo(const AccountId& account_id) override;
-
-  // Called when the policy-set wallpaper has been fetched.  Initiates decoding
-  // of the JPEG |data| with a callback to SetPolicyControlledWallpaper().
   void OnPolicyFetched(const std::string& policy,
                        const AccountId& account_id,
                        std::unique_ptr<std::string> data) override;
-
-  // Saves custom wallpaper to file, post task to generate thumbnail and updates
-  // local state preferences. If |update_wallpaper| is false, don't change
-  // wallpaper but only update cache.
   void SetCustomWallpaper(const AccountId& account_id,
                           const wallpaper::WallpaperFilesId& wallpaper_files_id,
                           const std::string& file,
@@ -91,47 +64,35 @@ class WallpaperManager
                           user_manager::User::WallpaperType type,
                           const gfx::ImageSkia& image,
                           bool update_wallpaper) override;
-
-  // Sets wallpaper to default wallpaper (asynchronously with zero delay).
   void SetDefaultWallpaperNow(const AccountId& account_id) override;
-
-  // Sets wallpaper to default wallpaper (asynchronously with default delay).
   void SetDefaultWallpaperDelayed(const AccountId& account_id) override;
-
-  // Sets wallpaper to default.
   void DoSetDefaultWallpaper(
       const AccountId& account_id,
       wallpaper::MovableOnDestroyCallbackHolder on_finish) override;
-
-  // Sets selected wallpaper information for |account_id| and saves it to Local
-  // State if |is_persistent| is true.
   void SetUserWallpaperInfo(const AccountId& account_id,
                             const wallpaper::WallpaperInfo& info,
                             bool is_persistent) override;
-
-  // Creates new PendingWallpaper request (or updates currently pending).
   void ScheduleSetUserWallpaper(const AccountId& account_id,
                                 bool delayed) override;
-
-  // Sets wallpaper to |image| (asynchronously with zero delay). If
-  // |update_wallpaper| is false, skip change wallpaper but only update cache.
   void SetWallpaperFromImageSkia(const AccountId& account_id,
                                  const gfx::ImageSkia& image,
                                  wallpaper::WallpaperLayout layout,
                                  bool update_wallpaper) override;
-
-  // Updates current wallpaper. It may switch the size of wallpaper based on the
-  // current display's resolution. (asynchronously with zero delay)
   void UpdateWallpaper(bool clear_cache) override;
-
-  // Returns queue size.
   size_t GetPendingListSizeForTesting() const override;
-
-  // Returns wallpaper files id for the |account_id|.
   wallpaper::WallpaperFilesId GetFilesId(
       const AccountId& account_id) const override;
+  bool SetDeviceWallpaperIfApplicable(const AccountId& account_id) override;
 
-  // Overridden from user_manager::UserManager::UserSessionStateObserver:
+  // ash::mojom::WallpaperPicker:
+  void Open() override;
+
+  // content::NotificationObserver:
+  void Observe(int type,
+               const content::NotificationSource& source,
+               const content::NotificationDetails& details) override;
+
+  // user_manager::UserManager::UserSessionStateObserver:
   void UserChangedChildStatus(user_manager::User* user) override;
 
  private:
@@ -156,10 +117,40 @@ class WallpaperManager
       const AccountId& account_id,
       std::unique_ptr<user_manager::UserImage> user_image);
 
-  // WallpaperManagerBase overrides:
+  // This is called when the device wallpaper policy changes.
+  void OnDeviceWallpaperPolicyChanged();
+  // This is call after checking if the device wallpaper exists.
+  void OnDeviceWallpaperExists(const AccountId& account_id,
+                               const std::string& url,
+                               const std::string& hash,
+                               bool exist);
+  // This is called after the device wallpaper is download (either successful or
+  // failed).
+  void OnDeviceWallpaperDownloaded(const AccountId& account_id,
+                                   const std::string& hash,
+                                   bool success,
+                                   const GURL& url);
+  // Check if the device wallpaper matches the hash that's provided in the
+  // device wallpaper policy setting.
+  void OnCheckDeviceWallpaperMatchHash(const AccountId& account_id,
+                                       const std::string& url,
+                                       const std::string& hash,
+                                       bool match);
+  // This is called when the device wallpaper is decoded successfully.
+  void OnDeviceWallpaperDecoded(
+      const AccountId& account_id,
+      std::unique_ptr<user_manager::UserImage> user_image);
+
+  // wallpaper::WallpaperManagerBase:
   void InitializeRegisteredDeviceWallpaper() override;
   bool GetUserWallpaperInfo(const AccountId& account_id,
                             wallpaper::WallpaperInfo* info) const override;
+  // Returns true if the device wallpaper should be set for the account.
+  bool ShouldSetDeviceWallpaper(const AccountId& account_id,
+                                std::string* url,
+                                std::string* hash) override;
+  base::FilePath GetDeviceWallpaperDir() override;
+  base::FilePath GetDeviceWallpaperFilePath() override;
   void OnWallpaperDecoded(
       const AccountId& account_id,
       wallpaper::WallpaperLayout layout,
@@ -200,9 +191,18 @@ class WallpaperManager
       std::unique_ptr<gfx::ImageSkia> small_wallpaper_image,
       const base::FilePath& customized_default_wallpaper_file_large,
       std::unique_ptr<gfx::ImageSkia> large_wallpaper_image) override;
+  void RecordWallpaperAppType() override;
+
+  mojo::Binding<ash::mojom::WallpaperPicker> binding_;
 
   std::unique_ptr<CrosSettings::ObserverSubscription>
       show_user_name_on_signin_subscription_;
+
+  std::unique_ptr<CrosSettings::ObserverSubscription>
+      device_wallpaper_image_subscription_;
+  std::unique_ptr<CustomizationWallpaperDownloader>
+      device_wallpaper_downloader_;
+  bool retry_download_if_failed_ = true;
 
   // Pointer to last inactive (waiting) entry of 'loading_' list.
   // NULL when there is no inactive request.
@@ -211,12 +211,13 @@ class WallpaperManager
   // Owns PendingWallpaper.
   // PendingWallpaper deletes itself from here on load complete.
   // All pending will be finally deleted on destroy.
-  typedef std::vector<scoped_refptr<PendingWallpaper> > PendingList;
+  typedef std::vector<scoped_refptr<PendingWallpaper>> PendingList;
   PendingList loading_;
 
   content::NotificationRegistrar registrar_;
 
   base::WeakPtrFactory<WallpaperManager> weak_factory_;
+
   DISALLOW_COPY_AND_ASSIGN(WallpaperManager);
 };
 

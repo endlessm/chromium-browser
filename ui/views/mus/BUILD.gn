@@ -4,8 +4,8 @@
 
 import("//build/config/features.gni")
 import("//build/config/ui.gni")
-import("//services/shell/public/cpp/service.gni")
-import("//services/shell/public/service_manifest.gni")
+import("//services/service_manager/public/cpp/service.gni")
+import("//services/service_manager/public/service_manifest.gni")
 import("//testing/test.gni")
 import("//tools/grit/repack.gni")
 
@@ -17,34 +17,21 @@ component("mus") {
     "aura_init.h",
     "clipboard_mus.cc",
     "clipboard_mus.h",
-    "drag_drop_client_mus.cc",
-    "drag_drop_client_mus.h",
-    "drop_target_mus.cc",
-    "drop_target_mus.h",
-    "input_method_mus.cc",
-    "input_method_mus.h",
+    "desktop_window_tree_host_mus.cc",
+    "desktop_window_tree_host_mus.h",
+    "mus_client.cc",
+    "mus_client.h",
+    "mus_client_observer.h",
     "mus_export.h",
-    "native_widget_mus.cc",
-    "native_widget_mus.h",
-    "os_exchange_data_provider_mus.cc",
-    "os_exchange_data_provider_mus.h",
     "pointer_watcher_event_router.cc",
     "pointer_watcher_event_router.h",
     "screen_mus.cc",
     "screen_mus.h",
     "screen_mus_delegate.h",
-    "surface_context_factory.cc",
-    "surface_context_factory.h",
-    "text_input_client_impl.cc",
-    "text_input_client_impl.h",
-    "window_manager_connection.cc",
-    "window_manager_connection.h",
     "window_manager_constants_converters.cc",
     "window_manager_constants_converters.h",
     "window_manager_frame_values.cc",
     "window_manager_frame_values.h",
-    "window_tree_host_mus.cc",
-    "window_tree_host_mus.h",
   ]
 
   defines = [ "VIEWS_MUS_IMPLEMENTATION" ]
@@ -60,12 +47,15 @@ component("mus") {
     "//base/third_party/dynamic_annotations",
     "//cc",
     "//cc/surfaces",
+    "//components/discardable_memory/client",
+    "//components/discardable_memory/public/interfaces",
     "//mojo/common",
     "//mojo/public/cpp/bindings",
     "//net",
     "//services/catalog/public/cpp",
-    "//services/shell/public/cpp",
-    "//services/shell/public/interfaces",
+    "//services/catalog/public/interfaces:constants",
+    "//services/service_manager/public/cpp",
+    "//services/service_manager/public/interfaces",
     "//services/ui/public/cpp",
     "//services/ui/public/interfaces",
     "//skia",
@@ -82,7 +72,7 @@ component("mus") {
     "//ui/native_theme",
     "//ui/platform_window",
     "//ui/platform_window/mojo",
-    "//ui/platform_window/mojo:interfaces_cpp_sources",
+    "//ui/platform_window/mojo:interfaces",
     "//ui/platform_window/stub",
     "//ui/views",
     "//ui/wm",
@@ -121,7 +111,8 @@ static_library("test_support") {
   testonly = true
 
   sources = [
-    "../test/native_widget_factory_mus.cc",
+    "../test/native_widget_factory_aura_mus.cc",
+    "test_utils.h",
     "views_mus_test_suite.cc",
     "views_mus_test_suite.h",
   ]
@@ -130,12 +121,12 @@ static_library("test_support") {
     ":mus",
     "//base",
     "//base/test:test_support",
-    "//services/shell/background:lib",
-    "//services/shell/background/tests:test_support",
-    "//services/shell/public/cpp:sources",
+    "//services/service_manager/background:lib",
+    "//services/service_manager/public/cpp:sources",
     "//services/ui/common:mus_common",
     "//testing/gtest",
     "//ui/aura",
+    "//ui/aura:test_support",
     "//ui/gl:test_support",
     "//ui/resources",
     "//ui/resources:ui_test_pak",
@@ -152,9 +143,7 @@ test("views_mus_unittests") {
   testonly = true
 
   sources = [
-    "input_method_mus_unittest.cc",
-    "native_widget_mus_unittest.cc",
-    "os_exchange_data_provider_mus_unittest.cc",
+    "desktop_window_tree_host_mus_unittest.cc",
     "pointer_watcher_event_router_unittest.cc",
     "run_all_unittests_mus.cc",
     "screen_mus_unittest.cc",
@@ -170,9 +159,7 @@ test("views_mus_unittests") {
     "//base/test:test_support",
     "//cc",
     "//net",
-    "//services/shell/background:main",  # Provides main().
-    "//services/ui/public/cpp",
-    "//services/ui/public/cpp/tests:unittest_support",
+    "//services/service_manager/background:main",  # Provides main().
     "//services/ui/public/interfaces",
     "//skia",
     "//testing/gtest",
@@ -247,7 +234,7 @@ test("views_mus_interactive_ui_tests") {
     ":mus",
     ":test_support",
     "//base",
-    "//services/shell/background:main",  # Provides main().
+    "//services/service_manager/background:main",  # Provides main().
     "//testing/gmock",
     "//testing/gtest",
     "//ui/aura",
@@ -282,13 +269,11 @@ test("views_mus_interactive_ui_tests") {
 }
 
 service_manifest("unittests_manifest") {
-  type = "exe"
   name = "views_mus_unittests"
   source = "unittests_manifest.json"
 }
 
 service_manifest("interactive_ui_tests_manifest") {
-  type = "exe"
   name = "views_mus_interactive_ui_tests"
   source = "interactive_ui_tests_manifest.json"
 }

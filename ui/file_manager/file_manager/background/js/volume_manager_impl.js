@@ -95,8 +95,9 @@ VolumeManagerImpl.prototype.addVolumeMetadata_ = function(volumeMetadata) {
             shouldShow = !!volumeInfo.fileSystem;
             break;
         }
-        if (shouldShow &&
-            this.volumeInfoList.findIndex(volumeInfo.volumeId) === -1) {
+        if (!shouldShow)
+            return volumeInfo;
+        if (this.volumeInfoList.findIndex(volumeInfo.volumeId) === -1) {
           this.volumeInfoList.add(volumeInfo);
 
           // Update the network connection status, because until the drive is
@@ -107,6 +108,11 @@ VolumeManagerImpl.prototype.addVolumeMetadata_ = function(volumeMetadata) {
               VolumeManagerCommon.VolumeType.DRIVE) {
             this.onDriveConnectionStatusChanged_();
           }
+        } else if (volumeMetadata.volumeType ===
+            VolumeManagerCommon.VolumeType.REMOVABLE) {
+          // Update for remounted USB external storage, because they were
+          // remounted to switch read-only policy.
+          this.volumeInfoList.add(volumeInfo);
         }
         return volumeInfo;
       }.bind(this));
@@ -324,6 +330,9 @@ VolumeManagerImpl.prototype.getLocationInfo = function(entry) {
         break;
       case VolumeManagerCommon.VolumeType.PROVIDED:
         rootType = VolumeManagerCommon.RootType.PROVIDED;
+        break;
+      case VolumeManagerCommon.VolumeType.MEDIA_VIEW:
+        rootType = VolumeManagerCommon.RootType.MEDIA_VIEW;
         break;
       default:
         // Programming error, throw an exception.

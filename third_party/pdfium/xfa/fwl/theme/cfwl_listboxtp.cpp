@@ -6,9 +6,9 @@
 
 #include "xfa/fwl/theme/cfwl_listboxtp.h"
 
-#include "xfa/fwl/basewidget/ifwl_listbox.h"
-#include "xfa/fwl/core/cfwl_themebackground.h"
-#include "xfa/fwl/core/ifwl_widget.h"
+#include "xfa/fwl/cfwl_listbox.h"
+#include "xfa/fwl/cfwl_themebackground.h"
+#include "xfa/fwl/cfwl_widget.h"
 #include "xfa/fxgraphics/cfx_color.h"
 #include "xfa/fxgraphics/cfx_path.h"
 
@@ -16,21 +16,13 @@ CFWL_ListBoxTP::CFWL_ListBoxTP() {}
 
 CFWL_ListBoxTP::~CFWL_ListBoxTP() {}
 
-bool CFWL_ListBoxTP::IsValidWidget(IFWL_Widget* pWidget) {
-  return pWidget && pWidget->GetClassID() == FWL_Type::ListBox;
-}
-
-FX_BOOL CFWL_ListBoxTP::DrawBackground(CFWL_ThemeBackground* pParams) {
+void CFWL_ListBoxTP::DrawBackground(CFWL_ThemeBackground* pParams) {
   if (!pParams)
-    return FALSE;
+    return;
+
   switch (pParams->m_iPart) {
     case CFWL_Part::Border: {
       DrawBorder(pParams->m_pGraphics, &pParams->m_rtPart, &pParams->m_matrix);
-      break;
-    }
-    case CFWL_Part::Edge: {
-      DrawEdge(pParams->m_pGraphics, pParams->m_pWidget->GetStyles(),
-               &pParams->m_rtPart, &pParams->m_matrix);
       break;
     }
     case CFWL_Part::Background: {
@@ -62,18 +54,11 @@ FX_BOOL CFWL_ListBoxTP::DrawBackground(CFWL_ThemeBackground* pParams) {
       FillSoildRect(pParams->m_pGraphics, color, &pParams->m_rtPart,
                     &pParams->m_matrix);
     }
-    default: {}
+    default:
+      break;
   }
-  return TRUE;
 }
-FWL_Error CFWL_ListBoxTP::Initialize() {
-  InitTTO();
-  return CFWL_WidgetTP::Initialize();
-}
-FWL_Error CFWL_ListBoxTP::Finalize() {
-  FinalizeTTO();
-  return CFWL_WidgetTP::Finalize();
-}
+
 void CFWL_ListBoxTP::DrawListBoxItem(CFX_Graphics* pGraphics,
                                      uint32_t dwStates,
                                      const CFX_RectF* prtItem,
@@ -81,9 +66,7 @@ void CFWL_ListBoxTP::DrawListBoxItem(CFX_Graphics* pGraphics,
                                      CFX_Matrix* pMatrix) {
   if (dwStates & CFWL_PartState_Selected) {
     pGraphics->SaveGraphState();
-    CFX_Color crFill(FWL_GetThemeColor(m_dwThemeID) == 0
-                         ? FWLTHEME_COLOR_BKSelected
-                         : FWLTHEME_COLOR_Green_BKSelected);
+    CFX_Color crFill(FWLTHEME_COLOR_BKSelected);
     pGraphics->SetFillColor(&crFill);
     CFX_RectF rt(*prtItem);
     CFX_Path path;
@@ -96,9 +79,6 @@ void CFWL_ListBoxTP::DrawListBoxItem(CFX_Graphics* pGraphics,
     pGraphics->FillPath(&path, FXFILL_WINDING, pMatrix);
     pGraphics->RestoreGraphState();
   }
-  if (dwStates & CFWL_PartState_Focused) {
-    if (pData) {
-      DrawFocus(pGraphics, (CFX_RectF*)pData, pMatrix);
-    }
-  }
+  if (dwStates & CFWL_PartState_Focused && pData)
+    DrawFocus(pGraphics, (CFX_RectF*)pData, pMatrix);
 }

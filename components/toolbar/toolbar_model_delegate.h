@@ -9,9 +9,13 @@
 
 #include "base/memory/ref_counted.h"
 #include "base/strings/string16.h"
-#include "components/security_state/security_state_model.h"
+#include "components/security_state/core/security_state.h"
 
 class GURL;
+
+namespace gfx {
+enum class VectorIconId;
+}
 
 namespace net {
 class X509Certificate;
@@ -20,7 +24,7 @@ class X509Certificate;
 // Delegate which is used by ToolbarModel class.
 class ToolbarModelDelegate {
  public:
-  using SecurityLevel = security_state::SecurityStateModel::SecurityLevel;
+  using SecurityLevel = security_state::SecurityLevel;
 
   // Formats |url| using AutocompleteInput::FormattedStringWithEquivalentMeaning
   // providing an appropriate AutocompleteSchemeClassifier for the embedder.
@@ -45,6 +49,12 @@ class ToolbarModelDelegate {
 
   // Returns true if the current page fails the malware check.
   virtual bool FailsMalwareCheck() const = 0;
+
+  // Returns the id of the icon to show to the left of the address, or
+  // gfx::VectorIconId::VECTOR_ICON_NONE if the icon should be selected by the
+  // caller. This is useful for associating particular URLs with particular
+  // schemes without importing knowledge of those schemes into this component.
+  virtual gfx::VectorIconId GetVectorIconOverride() const = 0;
 
  protected:
   virtual ~ToolbarModelDelegate() {}

@@ -7,7 +7,7 @@
 #include <utility>
 
 #include "base/compiler_specific.h"
-#include "base/stl_util.h"
+#include "base/memory/ptr_util.h"
 #include "chrome/browser/extensions/extension_message_bubble_controller.h"
 #include "chrome/browser/extensions/tab_helper.h"
 #include "chrome/browser/profiles/profile.h"
@@ -28,7 +28,7 @@
 #include "chrome/grit/theme_resources.h"
 #include "extensions/common/feature_switch.h"
 #include "third_party/skia/include/core/SkColor.h"
-#include "ui/accessibility/ax_view_state.h"
+#include "ui/accessibility/ax_node_data.h"
 #include "ui/base/dragdrop/drag_utils.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/nine_image_painter_factory.h"
@@ -94,12 +94,9 @@ BrowserActionsContainer::BrowserActionsContainer(
     resize_area_ = new views::ResizeArea(this);
     AddChildView(resize_area_);
 
-    const int kInfoImages[] = IMAGE_GRID(IDR_TOOLBAR_ACTION_HIGHLIGHT);
-    info_highlight_painter_.reset(
-        views::Painter::CreateImageGridPainter(kInfoImages));
     const int kWarningImages[] = IMAGE_GRID(IDR_DEVELOPER_MODE_HIGHLIGHT);
-    warning_highlight_painter_.reset(
-        views::Painter::CreateImageGridPainter(kWarningImages));
+    warning_highlight_painter_ =
+        views::Painter::CreateImageGridPainter(kWarningImages);
   }
 }
 
@@ -121,9 +118,9 @@ std::string BrowserActionsContainer::GetIdAt(size_t index) const {
 
 ToolbarActionView* BrowserActionsContainer::GetViewForId(
     const std::string& id) {
-  for (ToolbarActionView* view : toolbar_action_views_) {
+  for (const auto& view : toolbar_action_views_) {
     if (view->view_controller()->GetId() == id)
-      return view;
+      return view.get();
   }
   return nullptr;
 }
@@ -134,7 +131,7 @@ void BrowserActionsContainer::RefreshToolbarActionViews() {
 
 size_t BrowserActionsContainer::VisibleBrowserActions() const {
   size_t visible_actions = 0;
-  for (const ToolbarActionView* view : toolbar_action_views_) {
+  for (const auto& view : toolbar_action_views_) {
     if (view->visible())
       ++visible_actions;
   }
@@ -165,7 +162,8 @@ void BrowserActionsContainer::AddViewForAction(
    ToolbarActionViewController* view_controller,
    size_t index) {
   ToolbarActionView* view = new ToolbarActionView(view_controller, this);
-  toolbar_action_views_.insert(toolbar_action_views_.begin() + index, view);
+  toolbar_action_views_.insert(toolbar_action_views_.begin() + index,
+                               base::WrapUnique(view));
   AddChildViewAt(view, index);
 }
 
@@ -174,7 +172,6 @@ void BrowserActionsContainer::RemoveViewForAction(
   for (ToolbarActionViews::iterator iter = toolbar_action_views_.begin();
        iter != toolbar_action_views_.end(); ++iter) {
     if ((*iter)->view_controller() == action) {
-      delete *iter;
       toolbar_action_views_.erase(iter);
       break;
     }
@@ -182,7 +179,7 @@ void BrowserActionsContainer::RemoveViewForAction(
 }
 
 void BrowserActionsContainer::RemoveAllViews() {
-  base::STLDeleteElements(&toolbar_action_views_);
+  toolbar_action_views_.clear();
 }
 
 void BrowserActionsContainer::Redraw(bool order_changed) {
@@ -210,7 +207,7 @@ void BrowserActionsContainer::Redraw(bool order_changed) {
           ++j;
         std::swap(toolbar_action_views_[i], toolbar_action_views_[j]);
         // Also move the view in the child views vector.
-        ReorderChildView(toolbar_action_views_[i], i);
+        ReorderChildView(toolbar_action_views_[i].get(), i);
       }
     }
   }
@@ -360,7 +357,7 @@ void BrowserActionsContainer::Layout() {
   // variables are in place, the layout works equally well for the main and
   // overflow container.
   for (size_t i = 0u; i < toolbar_action_views_.size(); ++i) {
-    ToolbarActionView* view = toolbar_action_views_[i];
+    ToolbarActionView* view = toolbar_action_views_[i].get();
     if (i < start_index || i >= end_index) {
       view->SetVisible(false);
     } else {
@@ -502,10 +499,9 @@ int BrowserActionsContainer::OnPerformDrop(
   return ui::DragDropTypes::DRAG_MOVE;
 }
 
-void BrowserActionsContainer::GetAccessibleState(
-    ui::AXViewState* state) {
-  state->role = ui::AX_ROLE_GROUP;
-  state->name = l10n_util::GetStringUTF16(IDS_ACCNAME_EXTENSIONS);
+void BrowserActionsContainer::GetAccessibleNodeData(ui::AXNodeData* node_data) {
+  node_data->role = ui::AX_ROLE_GROUP;
+  node_data->SetName(l10n_util::GetStringUTF8(IDS_ACCNAME_EXTENSIONS));
 }
 
 void BrowserActionsContainer::WriteDragDataForView(View* sender,
@@ -514,8 +510,11 @@ void BrowserActionsContainer::WriteDragDataForView(View* sender,
   toolbar_actions_bar_->OnDragStarted();
   DCHECK(data);
 
-  auto it = std::find(toolbar_action_views_.cbegin(),
-                      toolbar_action_views_.cend(), sender);
+  auto it =
+      std::find_if(toolbar_action_views_.cbegin(), toolbar_action_views_.cend(),
+                   [sender](const std::unique_ptr<ToolbarActionView>& ptr) {
+                     return ptr.get() == sender;
+                   });
   DCHECK(it != toolbar_action_views_.cend());
   ToolbarActionViewController* view_controller = (*it)->view_controller();
   gfx::Size size(ToolbarActionsBar::IconWidth(false),
@@ -604,13 +603,8 @@ void BrowserActionsContainer::OnPaint(gfx::Canvas* canvas) {
   // paint (one will be triggered by entering highlight mode).
   if (toolbar_actions_bar_->is_highlighting() &&
       !toolbar_action_views_.empty() && !ShownInsideMenu()) {
-    ToolbarActionsModel::HighlightType highlight_type =
-        toolbar_actions_bar_->highlight_type();
-    views::Painter* painter =
-        highlight_type == ToolbarActionsModel::HIGHLIGHT_INFO
-            ? info_highlight_painter_.get()
-            : warning_highlight_painter_.get();
-    views::Painter::PaintPainterAt(canvas, painter, GetLocalBounds());
+    views::Painter::PaintPainterAt(canvas, warning_highlight_painter_.get(),
+                                   GetLocalBounds());
   }
 
   // TODO(sky/glen): Instead of using a drop indicator, animate the icons while

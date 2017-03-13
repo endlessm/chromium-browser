@@ -170,7 +170,8 @@ UserScriptLoader::UserScriptLoader(BrowserContext* browser_context,
 }
 
 UserScriptLoader::~UserScriptLoader() {
-  FOR_EACH_OBSERVER(Observer, observers_, OnUserScriptLoaderDestroyed(this));
+  for (auto& observer : observers_)
+    observer.OnUserScriptLoaderDestroyed(this);
 }
 
 void UserScriptLoader::AddScripts(std::unique_ptr<UserScriptList> scripts) {
@@ -358,7 +359,7 @@ void UserScriptLoader::SetReady(bool ready) {
 void UserScriptLoader::OnScriptsLoaded(
     std::unique_ptr<UserScriptList> user_scripts,
     std::unique_ptr<base::SharedMemory> shared_memory) {
-  user_scripts_.reset(user_scripts.release());
+  user_scripts_ = std::move(user_scripts);
   if (pending_load_) {
     // While we were loading, there were further changes. Don't bother
     // notifying about these scripts and instead just immediately reload.
@@ -380,7 +381,7 @@ void UserScriptLoader::OnScriptsLoaded(
   }
 
   // We've got scripts ready to go.
-  shared_memory_.reset(shared_memory.release());
+  shared_memory_ = std::move(shared_memory);
 
   for (content::RenderProcessHost::iterator i(
            content::RenderProcessHost::AllHostsIterator());
@@ -394,7 +395,8 @@ void UserScriptLoader::OnScriptsLoaded(
       extensions::NOTIFICATION_USER_SCRIPTS_UPDATED,
       content::Source<BrowserContext>(browser_context_),
       content::Details<base::SharedMemory>(shared_memory_.get()));
-  FOR_EACH_OBSERVER(Observer, observers_, OnScriptsLoaded(this));
+  for (auto& observer : observers_)
+    observer.OnScriptsLoaded(this);
 }
 
 void UserScriptLoader::SendUpdate(content::RenderProcessHost* process,

@@ -17,6 +17,7 @@
 #include "crypto/ec_private_key.h"
 #include "net/base/net_error_details.h"
 #include "net/base/net_export.h"
+#include "net/base/network_throttle_manager.h"
 #include "net/base/request_priority.h"
 #include "net/http/http_auth.h"
 #include "net/http/http_request_headers.h"
@@ -37,20 +38,19 @@ class ECPrivateKey;
 namespace net {
 
 class BidirectionalStreamImpl;
-class ClientSocketHandle;
 class HttpAuthController;
 class HttpNetworkSession;
 class HttpStream;
 class HttpStreamRequest;
 class IOBuffer;
 class ProxyInfo;
-class SpdySession;
 class SSLPrivateKey;
 struct HttpRequestInfo;
 
 class NET_EXPORT_PRIVATE HttpNetworkTransaction
     : public HttpTransaction,
-      public HttpStreamRequest::Delegate {
+      public HttpStreamRequest::Delegate,
+      public NetworkThrottleManager::ThrottleDelegate {
  public:
   HttpNetworkTransaction(RequestPriority priority,
                          HttpNetworkSession* session);
@@ -121,27 +121,23 @@ class NET_EXPORT_PRIVATE HttpNetworkTransaction
   void OnQuicBroken() override;
   void GetConnectionAttempts(ConnectionAttempts* out) const override;
 
- private:
-  friend class HttpNetworkTransactionSSLTest;
+  // NetworkThrottleManager::Delegate methods:
+  void OnThrottleUnblocked(NetworkThrottleManager::Throttle* throttle) override;
 
-  FRIEND_TEST_ALL_PREFIXES(HttpNetworkTransactionTest,
-                           ResetStateForRestart);
-  FRIEND_TEST_ALL_PREFIXES(HttpNetworkTransactionTest, EnableNPN);
-  FRIEND_TEST_ALL_PREFIXES(HttpNetworkTransactionTest, DisableNPN);
-  FRIEND_TEST_ALL_PREFIXES(SpdyNetworkTransactionTest,
-                           WindowUpdateReceived);
-  FRIEND_TEST_ALL_PREFIXES(SpdyNetworkTransactionTest,
-                           WindowUpdateSent);
-  FRIEND_TEST_ALL_PREFIXES(SpdyNetworkTransactionTest,
-                           WindowUpdateOverflow);
-  FRIEND_TEST_ALL_PREFIXES(SpdyNetworkTransactionTest,
-                           FlowControlStallResume);
+ private:
+  FRIEND_TEST_ALL_PREFIXES(HttpNetworkTransactionTest, ResetStateForRestart);
+  FRIEND_TEST_ALL_PREFIXES(SpdyNetworkTransactionTest, WindowUpdateReceived);
+  FRIEND_TEST_ALL_PREFIXES(SpdyNetworkTransactionTest, WindowUpdateSent);
+  FRIEND_TEST_ALL_PREFIXES(SpdyNetworkTransactionTest, WindowUpdateOverflow);
+  FRIEND_TEST_ALL_PREFIXES(SpdyNetworkTransactionTest, FlowControlStallResume);
   FRIEND_TEST_ALL_PREFIXES(SpdyNetworkTransactionTest,
                            FlowControlStallResumeAfterSettings);
   FRIEND_TEST_ALL_PREFIXES(SpdyNetworkTransactionTest,
                            FlowControlNegativeSendWindowSize);
 
   enum State {
+    STATE_THROTTLE,
+    STATE_THROTTLE_COMPLETE,
     STATE_NOTIFY_BEFORE_CREATE_STREAM,
     STATE_CREATE_STREAM,
     STATE_CREATE_STREAM_COMPLETE,
@@ -188,6 +184,8 @@ class NET_EXPORT_PRIVATE HttpNetworkTransaction
   // argument receive the result from the previous state.  If a method returns
   // ERR_IO_PENDING, then the result from OnIOComplete will be passed to the
   // next state method as the result arg.
+  int DoThrottle();
+  int DoThrottleComplete();
   int DoNotifyBeforeCreateStream();
   int DoCreateStream();
   int DoCreateStreamComplete(int result);
@@ -312,7 +310,12 @@ class NET_EXPORT_PRIVATE HttpNetworkTransaction
   HttpNetworkSession* session_;
 
   NetLogWithSource net_log_;
+
+  // Reset to null at the start of the Read state machine.
   const HttpRequestInfo* request_;
+
+  // The requested URL.
+  GURL url_;
   RequestPriority priority_;
   HttpResponseInfo response_;
 
@@ -378,6 +381,11 @@ class NET_EXPORT_PRIVATE HttpNetworkTransaction
   IPEndPoint remote_endpoint_;
   // Network error details for this transaction.
   NetErrorDetails net_error_details_;
+
+  // Communicate lifetime of transaction to the throttler, and
+  // throttled state to the transaction.
+  std::unique_ptr<NetworkThrottleManager::Throttle> throttle_;
+
   DISALLOW_COPY_AND_ASSIGN(HttpNetworkTransaction);
 };
 

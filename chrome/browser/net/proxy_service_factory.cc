@@ -28,8 +28,8 @@
 #include "net/url_request/url_request_context.h"
 
 #if defined(OS_CHROMEOS)
-#include "chrome/browser/chromeos/proxy_config_service_impl.h"
 #include "chromeos/network/dhcp_proxy_script_fetcher_chromeos.h"
+#include "chromeos/network/proxy/proxy_config_service_impl.h"
 #endif  // defined(OS_CHROMEOS)
 
 #if !defined(OS_ANDROID)
@@ -38,20 +38,6 @@
 #endif
 
 using content::BrowserThread;
-
-namespace {
-
-#if !defined(OS_ANDROID)
-bool EnableOutOfProcessV8Pac(const base::CommandLine& command_line) {
-  if (command_line.HasSwitch(switches::kDisableOutOfProcessPac))
-    return false;
-  if (command_line.HasSwitch(switches::kV8PacMojoOutOfProcess))
-    return true;
-  return true;
-}
-#endif  // !defined(OS_ANDROID)
-
-}  // namespace
 
 // static
 std::unique_ptr<net::ProxyConfigService>
@@ -88,7 +74,9 @@ ProxyServiceFactory::CreatePrefProxyConfigTrackerOfProfile(
     PrefService* profile_prefs,
     PrefService* local_state_prefs) {
 #if defined(OS_CHROMEOS)
-  return new chromeos::ProxyConfigServiceImpl(profile_prefs, local_state_prefs);
+  return new chromeos::ProxyConfigServiceImpl(
+      profile_prefs, local_state_prefs,
+      BrowserThread::GetTaskRunnerForThread(BrowserThread::IO));
 #else
   return new PrefProxyConfigTrackerImpl(
       profile_prefs, BrowserThread::GetTaskRunnerForThread(BrowserThread::IO));
@@ -100,7 +88,9 @@ PrefProxyConfigTracker*
 ProxyServiceFactory::CreatePrefProxyConfigTrackerOfLocalState(
     PrefService* local_state_prefs) {
 #if defined(OS_CHROMEOS)
-  return new chromeos::ProxyConfigServiceImpl(NULL, local_state_prefs);
+  return new chromeos::ProxyConfigServiceImpl(
+      nullptr, local_state_prefs,
+      BrowserThread::GetTaskRunnerForThread(BrowserThread::IO));
 #else
   return new PrefProxyConfigTrackerImpl(
       local_state_prefs,
@@ -155,31 +145,19 @@ std::unique_ptr<net::ProxyService> ProxyServiceFactory::CreateProxyService(
 #endif
 
 #if !defined(OS_ANDROID)
-    // In-process Mojo PAC can only be set on the command line, so its presence
-    // should override other options.
-    if (command_line.HasSwitch(switches::kV8PacMojoInProcess)) {
-      proxy_service = net::CreateProxyServiceUsingMojoInProcess(
-          std::move(proxy_config_service),
-          new net::ProxyScriptFetcherImpl(context),
-          std::move(dhcp_proxy_script_fetcher), context->host_resolver(),
-          net_log, network_delegate);
-    } else if (EnableOutOfProcessV8Pac(command_line)) {
-      proxy_service = net::CreateProxyServiceUsingMojoFactory(
-          UtilityProcessMojoProxyResolverFactory::GetInstance(),
-          std::move(proxy_config_service),
-          new net::ProxyScriptFetcherImpl(context),
-          std::move(dhcp_proxy_script_fetcher), context->host_resolver(),
-          net_log, network_delegate);
-    }
+    proxy_service = net::CreateProxyServiceUsingMojoFactory(
+        UtilityProcessMojoProxyResolverFactory::GetInstance(),
+        std::move(proxy_config_service),
+        new net::ProxyScriptFetcherImpl(context),
+        std::move(dhcp_proxy_script_fetcher), context->host_resolver(), net_log,
+        network_delegate);
+#else
+    proxy_service = net::CreateProxyServiceUsingV8ProxyResolver(
+        std::move(proxy_config_service),
+        new net::ProxyScriptFetcherImpl(context),
+        std::move(dhcp_proxy_script_fetcher), context->host_resolver(), net_log,
+        network_delegate);
 #endif  // !defined(OS_ANDROID)
-
-    if (!proxy_service) {
-      proxy_service = net::CreateProxyServiceUsingV8ProxyResolver(
-          std::move(proxy_config_service),
-          new net::ProxyScriptFetcherImpl(context),
-          std::move(dhcp_proxy_script_fetcher), context->host_resolver(),
-          net_log, network_delegate);
-    }
   } else {
     proxy_service = net::ProxyService::CreateUsingSystemProxyResolver(
         std::move(proxy_config_service), num_pac_threads, net_log);

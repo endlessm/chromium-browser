@@ -10,64 +10,95 @@
 Polymer({
   is: 'settings-site-settings-page',
 
-  behaviors: [SiteSettingsBehavior],
+  behaviors: [SiteSettingsBehavior, WebUIListenerBehavior],
 
   properties: {
     /**
-     * The category selected by the user.
+     * An object to bind default value labels to (so they are not in the |this|
+     * scope). The keys of this object are the values of the
+     * settings.ContentSettingsTypes enum.
+     * @private
      */
-    categorySelected: {
-      type: String,
-      notify: true,
+    default_: {
+      type: Object,
+      value: function() {
+        return {};
+      },
+    },
+
+    /** @private */
+    enableSiteSettings_: {
+      type: Boolean,
+      value: function() {
+        return loadTimeData.getBoolean('enableSiteSettings');
+      },
     },
   },
 
+  /** @override */
   ready: function() {
     this.ContentSettingsTypes = settings.ContentSettingsTypes;
     this.ALL_SITES = settings.ALL_SITES;
 
-    // Look up the default value for each category and show it.
-    this.setDefaultValue_(this.ContentSettingsTypes.AUTOMATIC_DOWNLOADS,
-        '#automaticDownloads');
-    this.setDefaultValue_(this.ContentSettingsTypes.BACKGROUND_SYNC,
-        '#backgroundSync');
-    this.setDefaultValue_(this.ContentSettingsTypes.CAMERA, '#camera');
-    this.setDefaultValue_(this.ContentSettingsTypes.COOKIES, '#cookies');
-    this.setDefaultValue_(this.ContentSettingsTypes.GEOLOCATION,
-        '#geolocation');
-    this.setDefaultValue_(this.ContentSettingsTypes.IMAGES, '#images');
-    this.setDefaultValue_(this.ContentSettingsTypes.JAVASCRIPT,
-        '#javascript');
-    this.setDefaultValue_(this.ContentSettingsTypes.KEYGEN, '#keygen');
-    this.setDefaultValue_(this.ContentSettingsTypes.MIC, '#mic');
-    this.setDefaultValue_(this.ContentSettingsTypes.NOTIFICATIONS,
-        '#notifications');
-    this.setDefaultValue_(this.ContentSettingsTypes.PLUGINS, '#plugins');
-    this.setDefaultValue_(this.ContentSettingsTypes.POPUPS, '#popups');
-    this.setDefaultValue_(this.ContentSettingsTypes.PROTOCOL_HANDLERS,
-        '#handlers');
-    this.setDefaultValue_(this.ContentSettingsTypes.UNSANDBOXED_PLUGINS,
-        '#unsandboxedPlugins');
+    var keys = Object.keys(settings.ContentSettingsTypes);
+    for (var i = 0; i < keys.length; ++i) {
+      var key = settings.ContentSettingsTypes[keys[i]];
+      // Default labels are not applicable to USB and ZOOM.
+      if (key == settings.ContentSettingsTypes.USB_DEVICES ||
+          key == settings.ContentSettingsTypes.ZOOM_LEVELS)
+        continue;
+      this.updateDefaultValueLabel_(key);
+    }
+
+    this.addWebUIListener(
+        'contentSettingCategoryChanged',
+        this.updateDefaultValueLabel_.bind(this));
+    this.addWebUIListener(
+        'setHandlersEnabled',
+        this.updateHandlersEnabled_.bind(this));
+    this.browserProxy.observeProtocolHandlersEnabledState();
   },
 
-  setDefaultValue_: function(category, id) {
+  /**
+   * @param {string} category The category to update.
+   * @private
+   */
+  updateDefaultValueLabel_: function(category) {
     this.browserProxy.getDefaultValueForContentType(
-        category).then(function(setting) {
-          var description = this.computeCategoryDesc(category, setting, false);
-          this.$$(id).innerText = description;
+        category).then(function(defaultValue) {
+          this.set(
+              'default_.' + Polymer.CaseMap.dashToCamelCase(category),
+              this.computeCategoryDesc(
+                  category,
+                  defaultValue.setting,
+                  /*showRecommendation=*/false));
         }.bind(this));
   },
 
   /**
-   * Handles selection of a single category and navigates to the details for
-   * that category.
-   * @param {!Event} event The tap event.
+   * The protocol handlers have a separate enabled/disabled notifier.
+   * @param {boolean} enabled
+   * @private
    */
-  onTapCategory: function(event) {
-    var category = event.currentTarget.getAttribute('category');
-    if (category == settings.ALL_SITES)
-      settings.navigateTo(settings.Route.SITE_SETTINGS_ALL);
-    else
-      settings.navigateTo(this.computeCategoryRoute(category));
+  updateHandlersEnabled_: function(enabled) {
+    var category = settings.ContentSettingsTypes.PROTOCOL_HANDLERS;
+    this.set(
+        'default_.' + Polymer.CaseMap.dashToCamelCase(category),
+        this.computeCategoryDesc(
+            category,
+            enabled ?
+                settings.PermissionValues.ALLOW :
+                settings.PermissionValues.BLOCK,
+            /*showRecommendation=*/false));
+  },
+
+  /**
+   * Navigate to the route specified in the event dataset.
+   * @param {!Event} event The tap event.
+   * @private
+   */
+  onTapNavigate_: function(event) {
+    var dataSet = /** @type {{route: string}} */(event.currentTarget.dataset);
+    settings.navigateTo(settings.Route[dataSet.route]);
   },
 });

@@ -39,6 +39,7 @@
 #include "core/layout/LayoutTheme.h"
 #include "core/page/Page.h"
 #include "core/page/ValidationMessageClient.h"
+#include "platform/EventDispatchForbiddenScope.h"
 #include "platform/text/BidiTextRun.h"
 #include "wtf/Vector.h"
 
@@ -47,8 +48,7 @@ namespace blink {
 using namespace HTMLNames;
 
 HTMLFormControlElement::HTMLFormControlElement(const QualifiedName& tagName,
-                                               Document& document,
-                                               HTMLFormElement* form)
+                                               Document& document)
     : LabelableElement(tagName, document),
       m_ancestorDisabledState(AncestorDisabledStateUnknown),
       m_dataListAncestorState(Unknown),
@@ -58,16 +58,15 @@ HTMLFormControlElement::HTMLFormControlElement(const QualifiedName& tagName,
       m_willValidate(true),
       m_isValid(true),
       m_validityIsDirty(false),
-      m_wasChangedSinceLastFormControlChangeEvent(false),
-      m_wasFocusedByMouse(false) {
+      m_wasFocusedByMouse(false),
+      m_blocksFormSubmission(false) {
   setHasCustomStyleCallbacks();
-  associateByParser(form);
 }
 
 HTMLFormControlElement::~HTMLFormControlElement() {}
 
 DEFINE_TRACE(HTMLFormControlElement) {
-  FormAssociatedElement::trace(visitor);
+  ListedElement::trace(visitor);
   LabelableElement::trace(visitor);
 }
 
@@ -138,17 +137,26 @@ void HTMLFormControlElement::reset() {
   resetImpl();
 }
 
-void HTMLFormControlElement::parseAttribute(const QualifiedName& name,
-                                            const AtomicString& oldValue,
-                                            const AtomicString& value) {
+void HTMLFormControlElement::attributeChanged(
+    const AttributeModificationParams& params) {
+  HTMLElement::attributeChanged(params);
+  if (params.name == disabledAttr &&
+      params.oldValue.isNull() != params.newValue.isNull()) {
+    disabledAttributeChanged();
+    if (params.reason == AttributeModificationReason::kDirectly &&
+        isDisabledFormControl() && adjustedFocusedElementInTreeScope() == this)
+      blur();
+  }
+}
+
+void HTMLFormControlElement::parseAttribute(
+    const AttributeModificationParams& params) {
+  const QualifiedName& name = params.name;
   if (name == formAttr) {
     formAttributeChanged();
     UseCounter::count(document(), UseCounter::FormAttribute);
-  } else if (name == disabledAttr) {
-    if (oldValue.isNull() != value.isNull())
-      disabledAttributeChanged();
   } else if (name == readonlyAttr) {
-    if (oldValue.isNull() != value.isNull()) {
+    if (params.oldValue.isNull() != params.newValue.isNull()) {
       setNeedsWillValidateCheck();
       pseudoStateChanged(CSSSelector::PseudoReadOnly);
       pseudoStateChanged(CSSSelector::PseudoReadWrite);
@@ -157,29 +165,28 @@ void HTMLFormControlElement::parseAttribute(const QualifiedName& name,
                                                  ReadOnlyControlState);
     }
   } else if (name == requiredAttr) {
-    if (oldValue.isNull() != value.isNull())
+    if (params.oldValue.isNull() != params.newValue.isNull())
       requiredAttributeChanged();
     UseCounter::count(document(), UseCounter::RequiredAttribute);
   } else if (name == autofocusAttr) {
-    HTMLElement::parseAttribute(name, oldValue, value);
+    HTMLElement::parseAttribute(params);
     UseCounter::count(document(), UseCounter::AutoFocusAttribute);
   } else {
-    HTMLElement::parseAttribute(name, oldValue, value);
+    HTMLElement::parseAttribute(params);
   }
 }
 
 void HTMLFormControlElement::disabledAttributeChanged() {
+  // Don't blur in this function because this is called for descendants of
+  // <fieldset> while tree traversal.
+  EventDispatchForbiddenScope eventForbidden;
+
   setNeedsWillValidateCheck();
   pseudoStateChanged(CSSSelector::PseudoDisabled);
   pseudoStateChanged(CSSSelector::PseudoEnabled);
   if (layoutObject())
     LayoutTheme::theme().controlStateChanged(*layoutObject(),
                                              EnabledControlState);
-  if (isDisabledFormControl() && adjustedFocusedElementInTreeScope() == this) {
-    // We might want to call blur(), but it's dangerous to dispatch events
-    // here.
-    document().setNeedsFocusedElementCheck();
-  }
 }
 
 void HTMLFormControlElement::requiredAttributeChanged() {
@@ -246,7 +253,7 @@ void HTMLFormControlElement::attachLayoutTree(const AttachContext& context) {
 }
 
 void HTMLFormControlElement::didMoveToNewDocument(Document& oldDocument) {
-  FormAssociatedElement::didMoveToNewDocument(oldDocument);
+  ListedElement::didMoveToNewDocument(oldDocument);
   HTMLElement::didMoveToNewDocument(oldDocument);
 }
 
@@ -256,7 +263,7 @@ Node::InsertionNotificationRequest HTMLFormControlElement::insertedInto(
   m_dataListAncestorState = Unknown;
   setNeedsWillValidateCheck();
   HTMLElement::insertedInto(insertionPoint);
-  FormAssociatedElement::insertedInto(insertionPoint);
+  ListedElement::insertedInto(insertionPoint);
   fieldSetAncestorsSetNeedsValidityCheck(insertionPoint);
 
   // Trigger for elements outside of forms.
@@ -274,18 +281,18 @@ void HTMLFormControlElement::removedFrom(ContainerNode* insertionPoint) {
   m_dataListAncestorState = Unknown;
   setNeedsWillValidateCheck();
   HTMLElement::removedFrom(insertionPoint);
-  FormAssociatedElement::removedFrom(insertionPoint);
+  ListedElement::removedFrom(insertionPoint);
 }
 
 void HTMLFormControlElement::willChangeForm() {
-  FormAssociatedElement::willChangeForm();
+  ListedElement::willChangeForm();
   formOwnerSetNeedsValidityCheck();
   if (formOwner() && canBeSuccessfulSubmitButton())
     formOwner()->invalidateDefaultButtonStyle();
 }
 
 void HTMLFormControlElement::didChangeForm() {
-  FormAssociatedElement::didChangeForm();
+  ListedElement::didChangeForm();
   formOwnerSetNeedsValidityCheck();
   if (formOwner() && isConnected() && canBeSuccessfulSubmitButton())
     formOwner()->invalidateDefaultButtonStyle();
@@ -311,27 +318,12 @@ void HTMLFormControlElement::fieldSetAncestorsSetNeedsValidityCheck(
   }
 }
 
-void HTMLFormControlElement::setChangedSinceLastFormControlChangeEvent(
-    bool changed) {
-  m_wasChangedSinceLastFormControlChangeEvent = changed;
-}
-
 void HTMLFormControlElement::dispatchChangeEvent() {
   dispatchScopedEvent(Event::createBubble(EventTypeNames::change));
 }
 
-void HTMLFormControlElement::dispatchFormControlChangeEvent() {
-  dispatchChangeEvent();
-  setChangedSinceLastFormControlChangeEvent(false);
-}
-
-void HTMLFormControlElement::dispatchFormControlInputEvent() {
-  setChangedSinceLastFormControlChangeEvent(true);
-  HTMLElement::dispatchInputEvent();
-}
-
 HTMLFormElement* HTMLFormControlElement::formOwner() const {
-  return FormAssociatedElement::form();
+  return ListedElement::form();
 }
 
 bool HTMLFormControlElement::isDisabledFormControl() const {
@@ -406,7 +398,7 @@ void HTMLFormControlElement::willCallDefaultEventHandler(const Event& event) {
                                              FocusControlState);
 }
 
-short HTMLFormControlElement::tabIndex() const {
+int HTMLFormControlElement::tabIndex() const {
   // Skip the supportsFocus check in HTMLElement.
   return Element::tabIndex();
 }
@@ -470,7 +462,7 @@ void HTMLFormControlElement::findCustomValidationMessageTextDirection(
 
 void HTMLFormControlElement::updateVisibleValidationMessage() {
   Page* page = document().page();
-  if (!page)
+  if (!page || !page->isPageVisible())
     return;
   String message;
   if (layoutObject() && willValidate())
@@ -478,8 +470,8 @@ void HTMLFormControlElement::updateVisibleValidationMessage() {
 
   m_hasValidationMessage = true;
   ValidationMessageClient* client = &page->validationMessageClient();
-  TextDirection messageDir = LTR;
-  TextDirection subMessageDir = LTR;
+  TextDirection messageDir = TextDirection::kLtr;
+  TextDirection subMessageDir = TextDirection::kLtr;
   String subMessage = validationSubMessage().stripWhiteSpace();
   if (message.isEmpty())
     client->hideValidationMessage(*this);
@@ -533,7 +525,7 @@ bool HTMLFormControlElement::checkValidity(
   if (dispatchResult == DispatchEventResult::NotCanceled &&
       unhandledInvalidControls && isConnected() &&
       originalDocument == document())
-    unhandledInvalidControls->append(this);
+    unhandledInvalidControls->push_back(this);
   return false;
 }
 
@@ -591,6 +583,8 @@ void HTMLFormControlElement::setNeedsValidityCheck() {
     fieldSetAncestorsSetNeedsValidityCheck(parentNode());
     pseudoStateChanged(CSSSelector::PseudoValid);
     pseudoStateChanged(CSSSelector::PseudoInvalid);
+    pseudoStateChanged(CSSSelector::PseudoInRange);
+    pseudoStateChanged(CSSSelector::PseudoOutOfRange);
   }
 
   // Updates only if this control already has a validation message.
@@ -602,7 +596,7 @@ void HTMLFormControlElement::setNeedsValidityCheck() {
 }
 
 void HTMLFormControlElement::setCustomValidity(const String& error) {
-  FormAssociatedElement::setCustomValidity(error);
+  ListedElement::setCustomValidity(error);
   setNeedsValidityCheck();
 }
 
@@ -637,17 +631,14 @@ String HTMLFormControlElement::nameForAutofill() const {
   return trimmedName;
 }
 
-void HTMLFormControlElement::setFocused(bool flag) {
-  LabelableElement::setFocused(flag);
-
-  if (!flag && wasChangedSinceLastFormControlChangeEvent())
-    dispatchFormControlChangeEvent();
-}
-
 void HTMLFormControlElement::copyNonAttributePropertiesFromElement(
     const Element& source) {
   HTMLElement::copyNonAttributePropertiesFromElement(source);
   setNeedsValidityCheck();
 }
+
+void HTMLFormControlElement::associateWith(HTMLFormElement* form) {
+  associateByParser(form);
+};
 
 }  // namespace blink

@@ -9,6 +9,7 @@
 
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
+#include "ui/aura/client/drag_drop_delegate.h"
 #include "ui/aura/client/focus_change_observer.h"
 #include "ui/aura/window_delegate.h"
 #include "ui/aura/window_observer.h"
@@ -18,13 +19,9 @@
 #include "ui/views/widget/native_widget_private.h"
 #include "ui/wm/public/activation_change_observer.h"
 #include "ui/wm/public/activation_delegate.h"
-#include "ui/wm/public/drag_drop_delegate.h"
 
 namespace aura {
 class Window;
-}
-namespace gfx {
-class FontList;
 }
 
 namespace views {
@@ -43,7 +40,8 @@ class VIEWS_EXPORT NativeWidgetAura
       public aura::client::FocusChangeObserver,
       public aura::client::DragDropDelegate {
  public:
-  explicit NativeWidgetAura(internal::NativeWidgetDelegate* delegate);
+  explicit NativeWidgetAura(internal::NativeWidgetDelegate* delegate,
+                            bool is_parallel_widget_in_window_manager = false);
 
   // Called internally by NativeWidgetAura and DesktopNativeWidgetAura to
   // associate |native_widget| with |window|.
@@ -137,8 +135,6 @@ class VIEWS_EXPORT NativeWidgetAura
   void SetVisibilityAnimationDuration(const base::TimeDelta& duration) override;
   void SetVisibilityAnimationTransition(
       Widget::VisibilityTransition transition) override;
-  ui::NativeTheme* GetNativeTheme() const override;
-  void OnRootViewLayout() override;
   bool IsTranslucentWindowOpacitySupported() const override;
   void OnSizeConstraintsChanged() override;
   void RepostNativeEvent(gfx::NativeEvent native_event) override;
@@ -204,6 +200,10 @@ class VIEWS_EXPORT NativeWidgetAura
   void SetInitialFocus(ui::WindowShowState show_state);
 
   internal::NativeWidgetDelegate* delegate_;
+
+  // True if the Widget is created in the window-manager and another client is
+  // embedded in it. When true certain operations are not performed.
+  const bool is_parallel_widget_in_window_manager_;
 
   // WARNING: set to NULL when destroyed. As the Widget is not necessarily
   // destroyed along with |window_| all usage of |window_| should first verify

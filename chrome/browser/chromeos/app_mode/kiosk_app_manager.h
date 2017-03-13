@@ -26,10 +26,6 @@ class GURL;
 class PrefRegistrySimple;
 class Profile;
 
-namespace base {
-class RefCountedString;
-}
-
 namespace extensions {
 class Extension;
 class ExternalLoader;
@@ -111,6 +107,8 @@ class KioskAppManager : public KioskAppDataDelegate,
 
   // Removes cryptohomes which could not be removed during the previous session.
   static void RemoveObsoleteCryptohomes();
+
+  static bool IsConsumerKioskEnabled();
 
   // Initiates reading of consumer kiosk mode auto-launch status.
   void GetConsumerKioskAutoLaunchStatus(

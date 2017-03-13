@@ -922,7 +922,8 @@ static int decode_fctl_chunk(AVCodecContext *avctx, PNGDecContext *s,
         return AVERROR_INVALIDDATA;
     }
 
-    if (sequence_number == 0 && dispose_op == APNG_DISPOSE_OP_PREVIOUS) {
+    if ((sequence_number == 0 || !s->previous_picture.f->data[0]) &&
+        dispose_op == APNG_DISPOSE_OP_PREVIOUS) {
         // No previous frame to revert to for the first frame
         // Spec says to just treat it as a APNG_DISPOSE_OP_BACKGROUND
         dispose_op = APNG_DISPOSE_OP_BACKGROUND;
@@ -1136,6 +1137,7 @@ static int decode_frame_common(AVCodecContext *avctx, PNGDecContext *s,
             case MKTAG('p', 'H', 'Y', 's'):
             case MKTAG('t', 'E', 'X', 't'):
             case MKTAG('I', 'D', 'A', 'T'):
+            case MKTAG('t', 'R', 'N', 'S'):
                 break;
             default:
                 goto skip_tag;
@@ -1257,7 +1259,7 @@ exit_loop:
         }
     }
 
-    /* handle p-frames only if a predecessor frame is available */
+    /* handle P-frames only if a predecessor frame is available */
     if (s->last_picture.f->data[0]) {
         if (   !(avpkt->flags & AV_PKT_FLAG_KEY) && avctx->codec_tag != AV_RL32("MPNG")
             && s->last_picture.f->width == p->width

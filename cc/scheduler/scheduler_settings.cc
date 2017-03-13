@@ -18,8 +18,8 @@ std::unique_ptr<base::trace_event::ConvertableToTraceFormat>
 SchedulerSettings::AsValue() const {
   std::unique_ptr<base::trace_event::TracedValue> state(
       new base::trace_event::TracedValue());
-  state->SetBoolean("main_frame_while_swap_throttled_enabled",
-                    main_frame_while_swap_throttled_enabled);
+  state->SetBoolean("main_frame_while_submit_frame_throttled_enabled",
+                    main_frame_while_submit_frame_throttled_enabled);
   state->SetBoolean("main_frame_before_activation_enabled",
                     main_frame_before_activation_enabled);
   state->SetBoolean("commit_to_active_tree", commit_to_active_tree);
@@ -31,8 +31,6 @@ SchedulerSettings::AsValue() const {
                     using_synchronous_renderer_compositor);
   state->SetInteger("background_frame_interval",
                     background_frame_interval.InMicroseconds());
-  state->SetBoolean("abort_commit_before_compositor_frame_sink_creation",
-                    abort_commit_before_compositor_frame_sink_creation);
   state->SetBoolean("enable_latency_recovery", enable_latency_recovery);
   return std::move(state);
 }

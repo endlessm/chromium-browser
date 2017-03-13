@@ -10,16 +10,34 @@ import("//third_party/protobuf/proto_library.gni")
 import("../build/webrtc.gni")
 
 group("tools") {
-  deps = [
-    ":command_line_parser",
-  ]
+  # This target shall build all targets in tools/.
+  testonly = true
 
-  if (!build_with_chromium) {
-    # TODO(kjellander): Enable these when webrtc:5970 is fixed.
-    deps += [
-      ":frame_analyzer",
-      ":rgba_to_i420_converter",
+  public_deps = [
+    ":command_line_parser",
+    ":frame_analyzer",
+    ":frame_editor",
+    ":psnr_ssim_analyzer",
+    ":rgba_to_i420_converter",
+  ]
+  if (rtc_include_internal_audio_device) {
+    public_deps += [ ":force_mic_volume_max" ]
+  }
+  if (rtc_enable_protobuf) {
+    public_deps += [ ":chart_proto" ]
+  }
+
+  if (rtc_include_tests) {
+    public_deps += [
+      ":activity_metric",
+      ":tools_unittests",
     ]
+    if (rtc_enable_protobuf) {
+      public_deps += [
+        ":event_log_visualizer",
+        ":rtp_analyzer",
+      ]
+    }
   }
 }
 
@@ -71,6 +89,29 @@ rtc_executable("psnr_ssim_analyzer") {
   ]
 }
 
+rtc_static_library("reference_less_video_analysis_lib") {
+  sources = [
+    "frame_analyzer/reference_less_video_analysis_lib.cc",
+    "frame_analyzer/reference_less_video_analysis_lib.h",
+  ]
+
+  deps = [
+    ":video_quality_analysis",
+  ]
+}
+
+rtc_executable("reference_less_video_analysis") {
+  sources = [
+    "frame_analyzer/reference_less_video_analysis.cc",
+  ]
+
+  deps = [
+    ":command_line_parser",
+    ":reference_less_video_analysis_lib",
+    "//build/win:default_exe_manifest",
+  ]
+}
+
 rtc_executable("rgba_to_i420_converter") {
   sources = [
     "converter/converter.cc",
@@ -94,9 +135,8 @@ rtc_static_library("frame_editing_lib") {
   # TODO(jschuh): Bug 1348: fix this warning.
   configs += [ "//build/config/compiler:no_size_t_to_int_warning" ]
 
-  if (is_clang) {
-    # Suppress warnings from the Chromium Clang plugin.
-    # See http://code.google.com/p/webrtc/issues/detail?id=163 for details.
+  if (!build_with_chromium && is_clang) {
+    # Suppress warnings from the Chromium Clang plugin (bugs.webrtc.org/163).
     suppressed_configs += [ "//build/config/clang:find_bad_constructs" ]
   }
 
@@ -124,14 +164,13 @@ if (rtc_include_internal_audio_device) {
       "force_mic_volume_max/force_mic_volume_max.cc",
     ]
 
-    if (is_clang) {
-      # Suppress warnings from the Chromium Clang plugin.
-      # See http://code.google.com/p/webrtc/issues/detail?id=163 for details.
+    if (!build_with_chromium && is_clang) {
+      # Suppress warnings from the Chromium Clang plugin (bugs.webrtc.org/163).
       suppressed_configs += [ "//build/config/clang:find_bad_constructs" ]
     }
 
     deps = [
-      "../modules/audio_device:audio_device",
+      "../modules/audio_device",
       "../system_wrappers:system_wrappers_default",
       "//build/win:default_exe_manifest",
     ]
@@ -157,17 +196,17 @@ if (rtc_enable_protobuf) {
       "event_log_visualizer/plot_python.cc",
       "event_log_visualizer/plot_python.h",
     ]
-    if (is_clang && !is_nacl) {
-      # Suppress warnings from the Chromium Clang plugin.
-      # See http://code.google.com/p/webrtc/issues/detail?id=163 for details.
+    if (!build_with_chromium && is_clang) {
+      # Suppress warnings from the Chromium Clang plugin (bugs.webrtc.org/163).
       suppressed_configs += [ "//build/config/clang:find_bad_constructs" ]
     }
     defines = [ "ENABLE_RTC_EVENT_LOG" ]
     deps = [
+      "../call:call_interfaces",
       "../logging:rtc_event_log_impl",
       "../logging:rtc_event_log_parser",
-      "../modules/congestion_controller:congestion_controller",
-      "../modules/rtp_rtcp:rtp_rtcp",
+      "../modules/congestion_controller",
+      "../modules/rtp_rtcp",
       "../system_wrappers:system_wrappers_default",
       "//build/config/sanitizers:deps",
     ]
@@ -187,15 +226,15 @@ if (rtc_include_tests) {
         "event_log_visualizer/main.cc",
       ]
 
-      if (is_clang && !is_nacl) {
-        # Suppress warnings from the Chromium Clang plugin.
-        # See http://code.google.com/p/webrtc/issues/detail?id=163 for details.
+      if (!build_with_chromium && is_clang) {
+        # Suppress warnings from the Chromium Clang plugin (bugs.webrtc.org/163).
         suppressed_configs += [ "//build/config/clang:find_bad_constructs" ]
       }
 
       defines = [ "ENABLE_RTC_EVENT_LOG" ]
       deps = [
         ":event_log_visualizer_utils",
+        "../test:field_trial",
         "//third_party/gflags",
       ]
     }
@@ -207,9 +246,8 @@ if (rtc_include_tests) {
       "agc/activity_metric.cc",
     ]
 
-    if (is_clang) {
-      # Suppress warnings from the Chromium Clang plugin.
-      # See http://code.google.com/p/webrtc/issues/detail?id=163 for details.
+    if (!build_with_chromium && is_clang) {
+      # Suppress warnings from the Chromium Clang plugin (bugs.webrtc.org/163).
       suppressed_configs += [ "//build/config/clang:find_bad_constructs" ]
     }
 
@@ -222,7 +260,11 @@ if (rtc_include_tests) {
     ]
   }
 
-  tools_unittests_resources = [ "//resources/foreman_cif.yuv" ]
+  tools_unittests_resources = [
+    "//resources/foreman_cif.yuv",
+    "//resources/reference_less_video_test_file.y4m",
+    "//resources/video_quality_analysis_frame.txt",
+  ]
 
   if (is_ios) {
     bundle_data("tools_unittests_bundle_data") {
@@ -238,6 +280,7 @@ if (rtc_include_tests) {
     testonly = true
 
     sources = [
+      "frame_analyzer/reference_less_video_analysis_unittest.cc",
       "frame_analyzer/video_quality_analysis_unittest.cc",
       "frame_editing/frame_editing_unittest.cc",
       "simple_command_line_parser_unittest.cc",
@@ -246,17 +289,17 @@ if (rtc_include_tests) {
     # TODO(jschuh): Bug 1348: fix this warning.
     configs += [ "//build/config/compiler:no_size_t_to_int_warning" ]
 
-    if (is_clang) {
-      # Suppress warnings from the Chromium Clang plugin.
-      # See http://code.google.com/p/webrtc/issues/detail?id=163 for details.
+    if (!build_with_chromium && is_clang) {
+      # Suppress warnings from the Chromium Clang plugin (bugs.webrtc.org/163).
       suppressed_configs += [ "//build/config/clang:find_bad_constructs" ]
     }
 
     deps = [
       ":command_line_parser",
       ":frame_editing_lib",
+      ":reference_less_video_analysis_lib",
       ":video_quality_analysis",
-      "../test:test_support_main",
+      "../test:test_main",
       "//testing/gtest",
     ]
 

@@ -8,6 +8,7 @@
 #define CORE_FXGE_FX_FONT_H_
 
 #include <memory>
+#include <utility>
 #include <vector>
 
 #include "core/fxcrt/fx_system.h"
@@ -23,7 +24,7 @@ class CFX_GlyphBitmap;
 class CFX_PathData;
 class CFX_SizeGlyphCache;
 
-#ifdef _SKIA_SUPPORT_
+#if defined _SKIA_SUPPORT_ || defined _SKIA_SUPPORT_PATHS_
 class SkTypeface;
 
 using CFX_TypeFace = SkTypeface;
@@ -98,23 +99,23 @@ class CFX_Font {
   ~CFX_Font();
 
   void LoadSubst(const CFX_ByteString& face_name,
-                 FX_BOOL bTrueType,
+                 bool bTrueType,
                  uint32_t flags,
                  int weight,
                  int italic_angle,
                  int CharsetCP,
                  bool bVertical);
 
-  FX_BOOL LoadEmbedded(const uint8_t* data, uint32_t size);
+  bool LoadEmbedded(const uint8_t* data, uint32_t size);
   FXFT_Face GetFace() const { return m_Face; }
   CFX_SubstFont* GetSubstFont() const { return m_pSubstFont.get(); }
 
 #ifdef PDF_ENABLE_XFA
-  FX_BOOL LoadFile(IFX_FileRead* pFile,
-                   int nFaceIndex = 0,
-                   int* pFaceCount = nullptr);
+  bool LoadFile(const CFX_RetainPtr<IFX_SeekableReadStream>& pFile,
+                int nFaceIndex = 0,
+                int* pFaceCount = nullptr);
 
-  FX_BOOL LoadClone(const CFX_Font* pFont);
+  bool LoadClone(const CFX_Font* pFont);
   void SetFace(FXFT_Face face);
   void SetSubstFont(std::unique_ptr<CFX_SubstFont> subst) {
     m_pSubstFont = std::move(subst);
@@ -122,21 +123,21 @@ class CFX_Font {
 #endif  // PDF_ENABLE_XFA
 
   const CFX_GlyphBitmap* LoadGlyphBitmap(uint32_t glyph_index,
-                                         FX_BOOL bFontStyle,
+                                         bool bFontStyle,
                                          const CFX_Matrix* pMatrix,
                                          int dest_width,
                                          int anti_alias,
                                          int& text_flags) const;
   const CFX_PathData* LoadGlyphPath(uint32_t glyph_index, int dest_width) const;
 
-#ifdef _SKIA_SUPPORT_
+#if defined _SKIA_SUPPORT_ || defined _SKIA_SUPPORT_PATHS_
   CFX_TypeFace* GetDeviceCache() const;
 #endif
 
   int GetGlyphWidth(uint32_t glyph_index);
   int GetAscent() const;
   int GetDescent() const;
-  FX_BOOL GetGlyphBBox(uint32_t glyph_index, FX_RECT& bbox);
+  bool GetGlyphBBox(uint32_t glyph_index, FX_RECT& bbox);
   bool IsItalic() const;
   bool IsBold() const;
   bool IsFixedWidth() const;
@@ -145,12 +146,12 @@ class CFX_Font {
   CFX_ByteString GetFamilyName() const;
   CFX_ByteString GetFaceName() const;
   bool IsTTFont() const;
-  FX_BOOL GetBBox(FX_RECT& bbox);
+  bool GetBBox(FX_RECT& bbox);
   int GetHeight() const;
   int GetULPos() const;
   int GetULthickness() const;
   int GetMaxAdvanceWidth() const;
-  FX_BOOL IsEmbedded() const { return m_bEmbedded; }
+  bool IsEmbedded() const { return m_bEmbedded; }
   uint8_t* GetSubData() const { return m_pGsubData; }
   void SetSubData(uint8_t* data) { m_pGsubData = data; }
 #if _FXM_PLATFORM_ == _FXM_PLATFORM_APPLE_
@@ -170,7 +171,6 @@ class CFX_Font {
 
 #ifdef PDF_ENABLE_XFA
  protected:
-  CFX_BinaryBuf m_OtfFontData;
   bool m_bShallowCopy;
   FXFT_StreamRec* m_pOwnedStream;
 #endif  // PDF_ENABLE_XFA
@@ -179,13 +179,9 @@ class CFX_Font {
   friend class CFX_FaceCache;
   CFX_PathData* LoadGlyphPathImpl(uint32_t glyph_index,
                                   int dest_width = 0) const;
-
- private:
   CFX_FaceCache* GetFaceCache() const;
-
   void ReleasePlatformResource();
   void DeleteFace();
-
   void ClearFaceCache();
 
   FXFT_Face m_Face;

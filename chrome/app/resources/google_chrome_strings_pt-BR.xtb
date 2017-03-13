@@ -2,11 +2,10 @@
 <!DOCTYPE translationbundle>
 <translationbundle lang="pt-BR">
 <translation id="1001534784610492198">O arquivo do instalador está corrompido ou é inválido. Baixe o Google Chrome novamente.</translation>
-<translation id="1013290471399003443">O Chrome verificou que <ph name="ISSUER" /> emitiu o certificado deste website. O servidor forneceu informações de Transparência de certificado válidas.</translation>
-<translation id="103396972844768118">Informação importante sobre seus dados do Google Chrome</translation>
 <translation id="1035334672863811645">fazer login no Chrome</translation>
 <translation id="1061441684050139317">O Chrome precisa ter acesso ao microfone para compartilhá-lo com este site.</translation>
 <translation id="1065672644894730302">Não foi possível ler suas preferências. Alguns recursos podem não estar disponíveis e as alterações nas preferências não serão salvas.</translation>
+<translation id="1088300314857992706"><ph name="USER_EMAIL_ADDRESS" /> estava usando o Chrome anteriormente</translation>
 <translation id="1104959162601287462">Sobre o Chrome OS</translation>
 <translation id="110877069173485804">Este é seu Chrome</translation>
 <translation id="123620459398936149">O Google Chrome não pôde sincronizar seus dados. Atualize sua senha de sincronização.</translation>
@@ -18,10 +17,10 @@
 <translation id="1434626383986940139">Aplicativos Canary do Google Chrome</translation>
 <translation id="1457721931618994305">Atualizando o Google Chrome...</translation>
 <translation id="1469002951682717133">Inicializador de aplicativos do Google Chrome</translation>
-<translation id="1475773083554142432">O Chrome armazenará essa senha com <ph name="SAVED_PASSWORD_LINK" /> e lembrará dela na próxima vez que você precisar.</translation>
 <translation id="1480489203462860648">Experimente, já está instalado</translation>
 <translation id="1553358976309200471">Atualizar o Google Chrome</translation>
 <translation id="1587223624401073077">O Google Chrome está usando sua câmera.</translation>
+<translation id="1587325591171447154">O arquivo <ph name="FILE_NAME" /> é perigoso. Por isso ele foi bloqueado pelo Chrome.</translation>
 <translation id="1619887657840448962">Para tornar o Chrome mais seguro, desativamos a extensão a seguir, que não está listada na <ph name="IDS_EXTENSION_WEB_STORE_TITLE" /> e pode ter sido adicionada sem seu conhecimento.</translation>
 <translation id="1628000112320670027">Ajuda com o Chrome</translation>
 <translation id="163860049029591106">Primeiros passos com o Chrome OS</translation>
@@ -38,9 +37,10 @@
 <translation id="2063848847527508675">É necessário reiniciar o Chrome OS para aplicar a atualização.</translation>
 <translation id="2077129598763517140">Usar aceleração de hardware quando disponível</translation>
 <translation id="2084710999043359739">Adicionar ao Google Chrome</translation>
+<translation id="2120620239521071941">Essa ação excluirá <ph name="ITEMS_COUNT" /> itens desse dispositivo. Para recuperar seus dados mais tarde, faça login no Chrome como <ph name="USER_EMAIL" />.</translation>
+<translation id="2147651015520127414">O Chrome verificou que <ph name="ISSUER" /> emitiu o certificado desse website.</translation>
 <translation id="2246246234298806438">O Google Chrome não consegue mostrar a visualização de impressão quando não há visualizador de PDF integrado.</translation>
 <translation id="2252923619938421629">Ajude a melhorar o Google Chrome informando as configurações atuais</translation>
-<translation id="225614027745146050">Bem-vindo</translation>
 <translation id="2286950485307333924">Você está conectado ao Chrome no momento</translation>
 <translation id="2290014774651636340">As chaves da API do Google não foram encontradas. Algumas funcionalidades do Google Chrome serão desativadas.</translation>
 <translation id="2290095356545025170">Tem certeza de que deseja desinstalar o Google Chrome?</translation>
@@ -56,13 +56,11 @@ Se você decidir fazer login assim mesmo, as informações do Google Chrome, com
 <translation id="2485422356828889247">Desinstalar</translation>
 <translation id="2580411288591421699">Não é possível instalar a mesma versão do Google Chrome que está em execução. Feche o Google Chrome e tente novamente.</translation>
 <translation id="2582790009689336987">Em breve, este computador parará de receber atualizações do Google Chrome, porque este sistema Linux não será mais compatível.</translation>
+<translation id="2586406160782125153">Essa ação excluirá seus dados de navegação desse dispositivo. Para recuperar seus dados mais tarde, faça login no Chrome como <ph name="USER_EMAIL" />.</translation>
 <translation id="2588322182880276190">Logotipo do Google Chrome</translation>
 <translation id="2664962310688259219">Licenças de código aberto do Chrome OS</translation>
 <translation id="2665296953892887393">Ajude a melhorar o Google Chrome. Envie relatórios de erros e  <ph name="UMA_LINK" /> para o Google</translation>
-<translation id="2669824781555328029">O Google Chrome bloqueou o arquivo <ph name="FILE_NAME" />, porque ele pode prejudicar sua experiência de navegação.</translation>
-<translation id="2681064822612051220">Foi encontrada uma instalação conflituosa do Google Chrome no sistema. Desinstale-o e tente novamente.</translation>
 <translation id="2689103672227170538">Esta extensão alterou a página que é exibida quando você inicia o Chrome.</translation>
-<translation id="2704356438731803243">Se você preferir manter seus dados existentes do Google Chrome separadamente, pode criar um novo usuário do Chrome para <ph name="USER_NAME" /> .</translation>
 <translation id="2748463065602559597">Você está em uma página segura do Google Chrome.</translation>
 <translation id="2769762047821873045">O Google Chrome não é o seu navegador padrão.</translation>
 <translation id="2770231113462710648">Alterar navegador padrão para:</translation>
@@ -71,7 +69,6 @@ Se você decidir fazer login assim mesmo, as informações do Google Chrome, com
 <translation id="2871893339301912279">Você fez login no Google Chrome.</translation>
 <translation id="2888126860611144412">Sobre o Google Chrome</translation>
 <translation id="2900322993655997287">O Google Chrome não pode determinar ou definir o navegador padrão.</translation>
-<translation id="2997147809295888909">O Chrome verificou que <ph name="ISSUER" /> emitiu o certificado deste website. O servidor não forneceu nenhuma informação de Transparência de certificado.</translation>
 <translation id="3037838751736561277">O Google Chrome está em modo de segundo plano.</translation>
 <translation id="3047079729301751317">Ao desconectar <ph name="USERNAME" />, o histórico, os favoritos, as configurações e outros dados do Google Chrome armazenados neste dispositivo serão excluídos. Os dados armazenados na sua Conta do Google não serão excluídos e poderão ser gerenciados no <ph name="GOOGLE_DASHBOARD_LINK" />Painel de Controle do Google<ph name="END_GOOGLE_DASHBOARD_LINK" />.</translation>
 <translation id="3065168410429928842">Guia do Chrome</translation>
@@ -95,6 +92,7 @@ Verifique seu e-mail em <ph name="ACCOUNT_EMAIL" /> para ver mais instruções.<
 <translation id="345171907106878721">Cadastrar-se no Chrome</translation>
 <translation id="3612333635265770873">Um módulo com o mesmo nome é conhecido por entrar em conflito com o Google Chrome.</translation>
 <translation id="3622797965165704966">Agora ficou mais fácil usar o Chrome com sua Conta do Google e em computadores compartilhados.</translation>
+<translation id="3718181793972440140">Essa ação excluirá 1 item desse dispositivo. Para recuperar seus dados mais tarde, faça login no Chrome como <ph name="USER_EMAIL" />.</translation>
 <translation id="3735758079232443276">A extensão "<ph name="EXTENSION_NAME" />" alterou a página que é exibida quando você inicia o Chrome.</translation>
 <translation id="3738139272394829648">Tocar para pesquisar</translation>
 <translation id="3780814664026482060">Chrome - <ph name="PAGE_TITLE" /></translation>
@@ -102,7 +100,6 @@ Verifique seu e-mail em <ph name="ACCOUNT_EMAIL" /> para ver mais instruções.<
 <translation id="3847841918622877581">O Google Chrome pode usar serviços da web  para melhorar sua experiência de navegação.</translation>
 <translation id="386202838227397562">Feche todas as janelas do Google Chrome e tente novamente.</translation>
 <translation id="3870154837782082782">Google Inc.</translation>
-<translation id="3881912906674381083">O Chrome verificou que <ph name="ISSUER" /> emitiu o certificado deste website. O servidor forneceu informações de Transparência de certificado, mas o Chrome não reconheceu nenhum dos registros de Transparência de certificado.</translation>
 <translation id="3889417619312448367">Desinstalar o Google Chrome</translation>
 <translation id="4028693306634653894">Acesse o Chrome mais rapidamente</translation>
 <translation id="4042449298237264661">Este computador não receberá mais atualizações do Google Chrome porque o Windows XP e o Windows Vista não são mais compatíveis.</translation>
@@ -129,14 +126,13 @@ Verifique seu e-mail em <ph name="ACCOUNT_EMAIL" /> para ver mais instruções.<
 <translation id="4700157086864140907">O Google Chrome pode oferecer verificação ortográfica mais inteligente, enviando as informações que você digita no navegador para os servidores do Google. Isto permite que você utilize a mesma tecnologia de verificação ortográfica utilizada pela pesquisa do Google.</translation>
 <translation id="4728575227883772061">Houve uma falha na instalação devido a um erro não-especificado. Se o Google Chrome estiver em execução no momento, feche-o e tente novamente.</translation>
 <translation id="4743926867934016338">Aceitar e pesquisar</translation>
+<translation id="4750550185319565338">Reiniciar o Chrome para ativar o plug-in <ph name="PLUGIN_NAME" /></translation>
 <translation id="4751441238232965030">Em breve, este computador não receberá mais atualizações do Google Chrome de 32 bits. Faça upgrade para o Google Chrome de 64 bits.</translation>
 <translation id="4754614261631455953">Google Chrome Canary (mDNS-In)</translation>
 <translation id="4771048833395599659">Esse arquivo pode ser perigoso, por isso ele foi bloqueado pelo Chrome.</translation>
 <translation id="4794050651896644714">Salvar detalhes no Google Chrome</translation>
 <translation id="4891791193823137474">Executar o Google Chrome em segundo plano</translation>
-<translation id="4901390485477164536">Parabéns! O Google Chrome é seu navegador padrão.</translation>
 <translation id="4921569541910214635">Você compartilha um computador? Agora é possível configurar o Google Chrome do jeito que você gosta.</translation>
-<translation id="4925019873400497719">O Chrome verificou que <ph name="ISSUER" /> emitiu o certificado deste website. O servidor forneceu informações de Transparência de certificado, mas elas eram inválidas.</translation>
 <translation id="4953650215774548573">Definir o Google Chrome como seu navegador padrão</translation>
 <translation id="495931528404527476">No Google Chrome</translation>
 <translation id="4987308747895123092">Feche todas as janelas do Google Chrome, (incluindo as que estejam no modo Windows 8) e tente novamente.</translation>
@@ -147,12 +143,12 @@ Verifique seu e-mail em <ph name="ACCOUNT_EMAIL" /> para ver mais instruções.<
 <translation id="5148419164691878332">O Chrome armazenará essa senha na sua <ph name="SAVED_PASSWORDS_LINK" /> e lembrará dela na próxima vez que você precisar.</translation>
 <translation id="5170938038195470297">Seu perfil não pode ser utilizado pois foi criado em uma versão mais recente do Google Chrome. Alguns recursos podem não estar disponíveis. Especifique um diretório de perfil diferente ou utilize uma versão mais recente do Google Chrome.</translation>
 <translation id="5176234269072261959">Ajude a melhorar o Google Chrome informando as configurações atuais.</translation>
+<translation id="5193136243808726294">O Google Chrome OS não pode abrir essa página.</translation>
 <translation id="5204098752394657250"><ph name="TERMS_OF_SERVICE_LINK" />Termos de Serviço<ph name="END_TERMS_OF_SERVICE_LINK" /> do Google Chrome</translation>
 <translation id="5243785881901838525">Google Payments (copiado para o Chrome)</translation>
 <translation id="5251420635869119124">Convidados podem usar o Google Chrome sem deixar nada para trás.</translation>
 <translation id="5253588388888612165">Se você compartilha este computador com <ph name="PROFILE_NAME" />, adicione seu perfil ao Chrome para navegar separadamente. Caso contrário, desconecte sua Conta do Google.</translation>
 <translation id="5284703908158630707">{SECONDS,plural, =1{O Google Chrome será reiniciado em 1 segundo.}one{O Google Chrome será reiniciado em # segundos.}other{O Google Chrome será reiniciado em # segundos.}}</translation>
-<translation id="5328989068199000832">Google Chrome Binaries</translation>
 <translation id="5334545119300433702">Este módulo é conhecido por entrar em conflito com o Google Chrome.</translation>
 <translation id="5386244825306882791">Controla também qual página deve ser exibida quando você inicia o Chrome ou faz uma pesquisa na Omnibox.</translation>
 <translation id="5430073640787465221">Seu arquivo de preferências está corrompido ou é inválido. O Google Chrome não foi capaz de recuperar suas configurações.</translation>
@@ -162,6 +158,7 @@ Verifique seu e-mail em <ph name="ACCOUNT_EMAIL" /> para ver mais instruções.<
 <translation id="5563479599352954471">Pesquisar com um toque</translation>
 <translation id="5566025111015594046">Google Chrome (mDNS-In)</translation>
 <translation id="5620765574781326016">Saiba mais sobre tópicos em websites sem sair da página.</translation>
+<translation id="565744775970812598">O arquivo <ph name="FILE_NAME" /> pode ser perigoso. Por isso, ele foi bloqueado pelo Chrome.</translation>
 <translation id="568643307450491754">Encontre seus favoritos no menu do Google Chrome ou na barra de favoritos.</translation>
 <translation id="573759479754913123">Sobre o Chrome OS</translation>
 <translation id="5749068826913805084">O Chrome precisa de acesso de armazenamento para fazer o download de arquivos.</translation>
@@ -183,9 +180,11 @@ Verifique seu e-mail em <ph name="ACCOUNT_EMAIL" /> para ver mais instruções.<
 <translation id="6236285698028833233">O Google Chrome parou de ser atualizado e não oferece mais suporte para esta versão de seu sistema operacional.</translation>
 <translation id="6291549208091401781">O Google Chrome já está instalado para todos os usuários do seu computador.</translation>
 <translation id="629218512217695915">Usar senha gerada pelo Chrome</translation>
+<translation id="6338556085225130112">Atualizando o Google Chrome</translation>
 <translation id="6368805772029492593">Para maior segurança, o Google Chrome criptografará seus dados.</translation>
 <translation id="6368958679917195344">O sistema operacional do Chrome tornou-se possível graças a um <ph name="BEGIN_LINK_CROS_OSS" />software de código aberto<ph name="END_LINK_CROS_OSS" /> adicional.</translation>
 <translation id="6400076122676892962">Este computador em breve parará de receber atualizações do Google Chrome porque o Mac OS X 10.6, 10.7 e 10.8 não serão mais compatíveis.</translation>
+<translation id="6410540444482791104">Você pode ajudar a tornar o Chrome mais seguro e mais fácil de usar, enviando automaticamente algumas informações do sistema e conteúdos de página ao Google para ajudar a detectar apps e sites perigosos.</translation>
 <translation id="6470176598693778404">Este computador não receberá mais atualizações do Google Chrome porque o Mac OS X 10.6, 10.7 e 10.8 não são mais compatíveis.</translation>
 <translation id="6477562832195530369">{NUM_DOWNLOAD,plural, =1{Um download está em andamento. Deseja cancelar o download e sair do Google Chrome?}one{# downloads estão em andamento. Deseja cancelar os downloads e sair do Google Chrome?}other{# downloads estão em andamento. Deseja cancelar os downloads e sair do Google Chrome?}}</translation>
 <translation id="6566149418543181476">Atualizando o Google Chrome (<ph name="PROGRESS_PERCENT" />)</translation>
@@ -198,14 +197,10 @@ Verifique seu e-mail em <ph name="ACCOUNT_EMAIL" /> para ver mais instruções.<
 <translation id="683440813066116847">Regra interna do Google Chrome Canary para permitir tráfego mDNS.</translation>
 <translation id="686561893457936865">Leve o Chrome para todos os lugares</translation>
 <translation id="6883876366448858277">envia uma palavra e o contexto relacionado para a Pesquisa Google, retornando definições, imagens e outros resultados de pesquisa.</translation>
-<translation id="6930860321615955692">https://support.google.com/chrome/?p=ib_chromeframe</translation>
 <translation id="6970811910055250180">Atualizando o dispositivo...</translation>
 <translation id="6982337800632491844"><ph name="DOMAIN" /> requer que você leia e aceite os Termos de Serviço a seguir antes de utilizar o serviço. Esses termos não ampliam, modificam nem limitam os Termos do Google Chrome OS.</translation>
 <translation id="6989339256997917931">O Google Chrome foi atualizado, mas ele não é utilizado há pelo menos trinta dias.</translation>
-<translation id="699076943483372849">Este site está usando o plug-in Chrome Frame, que não recebe mais atualizações de segurança e de estabilidade. Desinstale o plug-in e faça upgrade para um navegador moderno.</translation>
-<translation id="6991142834212251086">Vincular meus dados do Google Chrome a esta conta</translation>
-<translation id="7060865993964054389">Iniciador de aplicativos do Google Chrome</translation>
-<translation id="7084448929020576097"><ph name="FILE_NAME" /> é um arquivo malicioso e foi bloqueado pelo Google Chrome.</translation>
+<translation id="7048801529101012374">Parabéns! O Google Chrome é seu navegador padrão.</translation>
 <translation id="7098166902387133879">O Google Chrome está usando seu microfone.</translation>
 <translation id="7106741999175697885">Gerenciador de tarefas - Google Chrome</translation>
 <translation id="7125719106133729027">Não foi possível atualizar o Google Chrome para a versão mais recente. Com isso, você está perdendo novos recursos e correções de segurança incríveis. Reinstale o Chrome manualmente.</translation>
@@ -241,6 +236,7 @@ Verifique seu e-mail em <ph name="ACCOUNT_EMAIL" /> para ver mais instruções.<
 <translation id="7825851276765848807">Houve uma falha na instalação devido a um erro não-especificado. Faça o download do Google Chrome novamente.</translation>
 <translation id="7888186132678118370">Fixe o Chrome na sua barra de tarefas</translation>
 <translation id="7890208801193284374">Se você usa um computador compartilhado, seus amigos e familiares podem navegar separadamente e configurar o Google Chrome da maneira que desejarem.</translation>
+<translation id="7896673875602241923">Anteriormente, alguém fez login no Chrome neste computador como <ph name="ACCOUNT_EMAIL_LAST" />. Crie um novo usuário do Chrome para manter suas informações separadas.</translation>
 <translation id="7908168227788431038">Atualização quase concluída. Reinicie o Google Chrome para concluí-la.</translation>
 <translation id="795025003224538582">Não reiniciar</translation>
 <translation id="7964230182933713106">O Chrome OS é exibido neste idioma.</translation>
@@ -248,7 +244,6 @@ Verifique seu e-mail em <ph name="ACCOUNT_EMAIL" /> para ver mais instruções.<
 <translation id="8008534537613507642">Reinstalar o Google Chrome</translation>
 <translation id="8030318113982266900">Atualizando seu dispositivo para o canal <ph name="CHANNEL_NAME" />...</translation>
 <translation id="8032142183999901390">Depois de remover sua conta do Google Chrome, pode ser necessário recarregar as guias abertas para que a alteração entre em vigor.</translation>
-<translation id="8037887340639533879">Nenhuma instalação do Google Chrome foi encontrada para atualização.</translation>
 <translation id="8129812357326543296">Sobre o Google Chrome</translation>
 <translation id="8183957050892517584">O Chrome armazenará seus dados pessoais com segurança para que não seja necessário digitá-los novamente.</translation>
 <translation id="8211929904040702368">Essa ação excluirá permanentemente pelo menos <ph name="TOTAL_COUNT" /> itens deste dispositivo. Para recuperar seus dados mais tarde, faça login no Chrome como $2.</translation>
@@ -257,9 +252,7 @@ Verifique seu e-mail em <ph name="ACCOUNT_EMAIL" /> para ver mais instruções.<
 <translation id="8290100596633877290">Nossa! Houve uma falha no Google Chrome. Reiniciar agora?</translation>
 <translation id="8342675569599923794">Esse arquivo é perigoso, por isso ele foi bloqueado pelo Chrome.</translation>
 <translation id="8406086379114794905">Ajudar a melhorar o Google Chrome</translation>
-<translation id="8410645163819739900">O Google Chrome OS não pode abrir esta página.</translation>
 <translation id="8455999171311319804">Opcional: Ajude a melhorar o Chrome OS enviando automaticamente dados de uso e diagnóstico ao Google.</translation>
-<translation id="853189717709780425">Você está fazendo login com uma conta gerenciada e concedendo ao administrador da conta o controle sobre seu perfil do Google Chrome. Seus dados do Google Chrome, como aplicativos, favoritos, histórico, senhas e outras configurações serão permanentemente vinculados a <ph name="USER_NAME" />. Você pode excluir esses dados pelo painel das Contas do Google, mas não pode associar esses dados a outra conta.</translation>
 <translation id="8540666473246803645">Google Chrome</translation>
 <translation id="8547799825197623713">Iniciador de aplicativos do Google Chrome no Canary</translation>
 <translation id="8556340503434111824">Há uma nova versão ainda mais rápida do Google Chrome disponível.</translation>
@@ -269,7 +262,6 @@ Verifique seu e-mail em <ph name="ACCOUNT_EMAIL" /> para ver mais instruções.<
 <translation id="8669527147644353129">Auxiliar do Google Chrome</translation>
 <translation id="8679801911857917785">Controla também qual página deve ser exibida quando você inicia o Chrome.</translation>
 <translation id="870251953148363156">Atualizar o Google Chrome</translation>
-<translation id="8793772303278047003">O Chrome está desatualizado.</translation>
 <translation id="8796108026289707191">Você deve reiniciar o Google Chrome agora.</translation>
 <translation id="8823341990149967727">O Google Chrome está desatualizado</translation>
 <translation id="884296878221830158">Controla também qual página deve ser exibida quando você inicia o Chrome ou clica no botão "Página inicial".</translation>
@@ -278,8 +270,8 @@ Verifique seu e-mail em <ph name="ACCOUNT_EMAIL" /> para ver mais instruções.<
 <translation id="8914504000324227558">Reiniciar o Google Chrome</translation>
 <translation id="9026991721384951619">O Chrome OS não pôde sincronizar seus dados porque os detalhes de login da sua conta estão desatualizados.</translation>
 <translation id="9067395829937117663">O Google Chrome requer o Windows 7 ou versão superior.</translation>
-<translation id="9102715433345326100">Este arquivo é malicioso e foi bloqueado pelo Google Chrome.</translation>
 <translation id="9107728822479888688"><ph name="BEGIN_BOLD" />Aviso:<ph name="END_BOLD" /> O Google Chrome não impede que as extensões gravem seu histórico de navegação. Para desativar esta extensão no modo anônimo, desmarque esta opção.</translation>
 <translation id="911206726377975832">Excluir também dados de navegação?</translation>
+<translation id="919706545465235479">Atualize o Chrome para iniciar a sincronização</translation>
 <translation id="924447568950697217">Definir o Google Chrome como o navegador padrão</translation>
 </translationbundle>

@@ -4,26 +4,27 @@
 
 #include "extensions/browser/api/mime_handler_private/mime_handler_private.h"
 
+#include <unordered_map>
 #include <utility>
 
+#include "base/memory/ptr_util.h"
 #include "base/strings/string_util.h"
 #include "content/public/browser/stream_handle.h"
 #include "content/public/browser/stream_info.h"
 #include "content/public/common/content_constants.h"
 #include "extensions/browser/guest_view/mime_handler_view/mime_handler_view_guest.h"
 #include "extensions/common/constants.h"
-#include "mojo/public/cpp/bindings/map.h"
 #include "mojo/public/cpp/bindings/strong_binding.h"
 #include "net/http/http_response_headers.h"
 
 namespace extensions {
 namespace {
 
-mojo::Map<mojo::String, mojo::String> CreateResponseHeadersMap(
+std::unordered_map<std::string, std::string> CreateResponseHeadersMap(
     const net::HttpResponseHeaders* headers) {
-  std::map<std::string, std::string> result;
+  std::unordered_map<std::string, std::string> result;
   if (!headers)
-    return mojo::Map<mojo::String, mojo::String>::From(result);
+    return result;
 
   size_t iter = 0;
   std::string header_name;
@@ -43,7 +44,7 @@ mojo::Map<mojo::String, mojo::String> CreateResponseHeadersMap(
       current_value += ", ";
     current_value += header_value;
   }
-  return mojo::Map<mojo::String, mojo::String>::From(result);
+  return result;
 }
 
 }  // namespace

@@ -10,7 +10,6 @@
 #include "core/layout/LayoutTextCombine.h"
 #include "core/layout/api/LineLayoutAPIShim.h"
 #include "core/layout/api/LineLayoutItem.h"
-#include "core/layout/line/InlineTextBox.h"
 #include "core/paint/BoxPainter.h"
 #include "core/paint/PaintInfo.h"
 #include "core/style/ComputedStyle.h"
@@ -37,22 +36,25 @@ TextPainter::TextPainter(GraphicsContext& context,
       m_textBounds(textBounds),
       m_horizontal(horizontal),
       m_emphasisMarkOffset(0),
-      m_combinedText(0) {}
+      m_combinedText(0),
+      m_ellipsisOffset(0) {}
 
 TextPainter::~TextPainter() {}
 
 void TextPainter::setEmphasisMark(const AtomicString& emphasisMark,
                                   TextEmphasisPosition position) {
   m_emphasisMark = emphasisMark;
+  const SimpleFontData* fontData = m_font.primaryFont();
+  DCHECK(fontData);
 
-  if (emphasisMark.isNull()) {
+  if (!fontData || emphasisMark.isNull()) {
     m_emphasisMarkOffset = 0;
   } else if (position == TextEmphasisPositionOver) {
-    m_emphasisMarkOffset = -m_font.getFontMetrics().ascent() -
+    m_emphasisMarkOffset = -fontData->getFontMetrics().ascent() -
                            m_font.emphasisMarkDescent(emphasisMark);
   } else {
-    ASSERT(position == TextEmphasisPositionUnder);
-    m_emphasisMarkOffset = m_font.getFontMetrics().descent() +
+    DCHECK(position == TextEmphasisPositionUnder);
+    m_emphasisMarkOffset = fontData->getFontMetrics().descent() +
                            m_font.emphasisMarkAscent(emphasisMark);
   }
 }
@@ -154,7 +156,7 @@ TextPainter::Style TextPainter::textPaintingStyle(LineLayoutItem lineLayoutItem,
     textStyle.shadow = style.textShadow();
 
     // Adjust text color when printing with a white background.
-    ASSERT(lineLayoutItem.document().printing() == isPrinting);
+    DCHECK(lineLayoutItem.document().printing() == isPrinting);
     bool forceBackgroundToWhite =
         BoxPainter::shouldForceWhiteBackgroundForPrintEconomy(
             style, lineLayoutItem.document());
@@ -216,8 +218,8 @@ template <TextPainter::PaintInternalStep step>
 void TextPainter::paintInternalRun(TextRunPaintInfo& textRunPaintInfo,
                                    unsigned from,
                                    unsigned to) {
-  ASSERT(from <= textRunPaintInfo.run.length());
-  ASSERT(to <= textRunPaintInfo.run.length());
+  DCHECK(from <= textRunPaintInfo.run.length());
+  DCHECK(to <= textRunPaintInfo.run.length());
 
   textRunPaintInfo.from = from;
   textRunPaintInfo.to = to;
@@ -227,7 +229,7 @@ void TextPainter::paintInternalRun(TextRunPaintInfo& textRunPaintInfo,
         m_font, textRunPaintInfo, m_emphasisMark,
         FloatPoint(m_textOrigin) + IntSize(0, m_emphasisMarkOffset));
   } else {
-    ASSERT(step == PaintText);
+    DCHECK(step == PaintText);
     m_graphicsContext.drawText(m_font, textRunPaintInfo,
                                FloatPoint(m_textOrigin));
   }
@@ -246,18 +248,55 @@ void TextPainter::paintInternal(unsigned startOffset,
     paintInternalRun<Step>(textRunPaintInfo, startOffset, endOffset);
   } else {
     if (endOffset > 0)
-      paintInternalRun<Step>(textRunPaintInfo, 0, endOffset);
+      paintInternalRun<Step>(textRunPaintInfo, m_ellipsisOffset, endOffset);
     if (startOffset < truncationPoint)
       paintInternalRun<Step>(textRunPaintInfo, startOffset, truncationPoint);
   }
 }
 
+void TextPainter::clipDecorationsStripe(float upper,
+                                        float stripeWidth,
+                                        float dilation) {
+  TextRunPaintInfo textRunPaintInfo(m_run);
+
+  if (!m_run.length())
+    return;
+
+  Vector<Font::TextIntercept> textIntercepts;
+  m_font.getTextIntercepts(
+      textRunPaintInfo, m_graphicsContext.deviceScaleFactor(),
+      m_graphicsContext.fillPaint(),
+      std::make_tuple(upper, upper + stripeWidth), textIntercepts);
+
+  for (auto intercept : textIntercepts) {
+    FloatPoint clipOrigin(m_textOrigin);
+    FloatRect clipRect(
+        clipOrigin + FloatPoint(intercept.m_begin, upper),
+        FloatSize(intercept.m_end - intercept.m_begin, stripeWidth));
+    clipRect.inflateX(dilation);
+    // We need to ensure the clip rectangle is covering the full underline
+    // extent. For horizontal drawing, using enclosingIntRect would be
+    // sufficient, since we can clamp to full device pixels that way. However,
+    // for vertical drawing, we have a transformation applied, which breaks the
+    // integers-equal-device pixels assumption, so vertically inflating by 1
+    // pixel makes sure we're always covering. This should only be done on the
+    // clipping rectangle, not when computing the glyph intersects.
+    clipRect.inflateY(1.0);
+    m_graphicsContext.clipOut(clipRect);
+  }
+}
+
 void TextPainter::paintEmphasisMarkForCombinedText() {
-  ASSERT(m_combinedText);
+  const SimpleFontData* fontData = m_font.primaryFont();
+  DCHECK(fontData);
+  if (!fontData)
+    return;
+
+  DCHECK(m_combinedText);
   TextRun placeholderTextRun(&ideographicFullStopCharacter, 1);
   FloatPoint emphasisMarkTextOrigin(m_textBounds.x().toFloat(),
                                     m_textBounds.y().toFloat() +
-                                        m_font.getFontMetrics().ascent() +
+                                        fontData->getFontMetrics().ascent() +
                                         m_emphasisMarkOffset);
   TextRunPaintInfo textRunPaintInfo(placeholderTextRun);
   textRunPaintInfo.bounds = FloatRect(m_textBounds);

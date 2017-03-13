@@ -281,8 +281,10 @@ class CORE_EXPORT LayoutBlock : public LayoutBox {
   LayoutUnit collapsedMarginBeforeForChild(const LayoutBox& child) const;
   LayoutUnit collapsedMarginAfterForChild(const LayoutBox& child) const;
 
-  virtual void scrollbarsChanged(bool /*horizontalScrollbarChanged*/,
-                                 bool /*verticalScrollbarChanged*/);
+  enum ScrollbarChangeContext { StyleChange, Layout };
+  virtual void scrollbarsChanged(bool horizontalScrollbarChanged,
+                                 bool verticalScrollbarChanged,
+                                 ScrollbarChangeContext = Layout);
 
   LayoutUnit availableLogicalWidthForContent() const {
     return (logicalRightOffsetForContent() - logicalLeftOffsetForContent())
@@ -311,7 +313,7 @@ class CORE_EXPORT LayoutBlock : public LayoutBox {
   virtual LayoutUnit logicalRightSelectionOffset(const LayoutBlock* rootBlock,
                                                  LayoutUnit position) const;
 
-#if ENABLE(ASSERT)
+#if DCHECK_IS_ON()
   void checkPositionedObjectsNeedLayout();
 #endif
 
@@ -358,8 +360,12 @@ class CORE_EXPORT LayoutBlock : public LayoutBox {
     ForcedLayoutAfterContainingBlockMoved
   };
 
-  void layoutPositionedObjects(bool relayoutChildren,
-                               PositionedLayoutBehavior = DefaultLayout);
+  virtual void layoutPositionedObjects(
+      bool relayoutChildren,
+      PositionedLayoutBehavior = DefaultLayout);
+  void layoutPositionedObject(LayoutBox*,
+                              bool relayoutChildren,
+                              PositionedLayoutBehavior info);
   void markFixedPositionObjectForLayoutIfNeeded(LayoutObject* child,
                                                 SubtreeLayoutScope&);
 
@@ -504,13 +510,6 @@ class CORE_EXPORT LayoutBlock : public LayoutBox {
   bool widthAvailableToChildrenHasChanged();
 
  protected:
-  bool isPageLogicalHeightKnown(LayoutUnit logicalOffset) const {
-    return pageLogicalHeightForOffset(logicalOffset);
-  }
-
-  // Returns the logical offset at the top of the next page, for a given offset.
-  LayoutUnit nextPageLogicalTop(LayoutUnit logicalOffset) const;
-
   // Paginated content inside this block was laid out.
   // |logicalBottomOffsetAfterPagination| is the logical bottom offset of the
   // child content after applying any forced or unforced breaks as needed.
@@ -545,13 +544,21 @@ class CORE_EXPORT LayoutBlock : public LayoutBox {
   unsigned m_hasPositionedObjects : 1;
   unsigned m_hasPercentHeightDescendants : 1;
 
+  // When an object ceases to establish a fragmentation context (e.g. the
+  // LayoutView when we're no longer printing), we need a deep layout
+  // afterwards, to clear all pagination struts. Likewise, when an object
+  // becomes fragmented, we need to re-lay out the entire subtree. There might
+  // be forced breaks somewhere in there that we suddenly have to pay attention
+  // to, for all we know.
+  unsigned m_paginationStateChanged : 1;
+
   // FIXME: This is temporary as we move code that accesses block flow
   // member variables out of LayoutBlock and into LayoutBlockFlow.
   friend class LayoutBlockFlow;
 
   // This is necessary for now for interoperability between the old and new
   // layout code. Primarily for calling layoutPositionedObjects at the moment.
-  friend class NGBox;
+  friend class NGBlockNode;
 
  public:
   // TODO(lunalu): Temporary in order to ensure compatibility with existing

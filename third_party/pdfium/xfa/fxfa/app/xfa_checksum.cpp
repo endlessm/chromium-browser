@@ -7,6 +7,7 @@
 #include "xfa/fxfa/xfa_checksum.h"
 
 #include "core/fdrm/crypto/fx_crypt.h"
+#include "third_party/base/ptr_util.h"
 
 namespace {
 
@@ -100,7 +101,7 @@ CXFA_SAXContext* CXFA_SAXReaderHandler::OnTagEnter(
     const CFX_ByteStringC& bsTagName,
     CFX_SAXItem::Type eType,
     uint32_t dwStartPos) {
-  UpdateChecksum(TRUE);
+  UpdateChecksum(true);
   if (eType != CFX_SAXItem::Type::Tag &&
       eType != CFX_SAXItem::Type::Instruction) {
     return nullptr;
@@ -130,7 +131,7 @@ void CXFA_SAXReaderHandler::OnTagBreak(CXFA_SAXContext* pTag) {
     return;
 
   pTag->m_TextBuf << ">";
-  UpdateChecksum(FALSE);
+  UpdateChecksum(false);
 }
 
 void CXFA_SAXReaderHandler::OnTagData(CXFA_SAXContext* pTag,
@@ -160,7 +161,7 @@ void CXFA_SAXReaderHandler::OnTagClose(CXFA_SAXContext* pTag,
   else if (pTag->m_eNode == CFX_SAXItem::Type::Tag)
     textBuf << "></" << pTag->m_bsTagName.AsStringC() << ">";
 
-  UpdateChecksum(FALSE);
+  UpdateChecksum(false);
 }
 
 void CXFA_SAXReaderHandler::OnTagEnd(CXFA_SAXContext* pTag,
@@ -170,7 +171,7 @@ void CXFA_SAXReaderHandler::OnTagEnd(CXFA_SAXContext* pTag,
     return;
 
   pTag->m_TextBuf << "</" << bsTagName << ">";
-  UpdateChecksum(FALSE);
+  UpdateChecksum(false);
 }
 
 void CXFA_SAXReaderHandler::OnTargetData(CXFA_SAXContext* pTag,
@@ -182,21 +183,21 @@ void CXFA_SAXReaderHandler::OnTargetData(CXFA_SAXContext* pTag,
 
   if (eType == CFX_SAXItem::Type::Comment) {
     m_SAXContext.m_TextBuf << "<!--" << bsData << "-->";
-    UpdateChecksum(FALSE);
+    UpdateChecksum(false);
   } else {
     pTag->m_TextBuf << " " << bsData;
   }
 }
 
-void CXFA_SAXReaderHandler::UpdateChecksum(FX_BOOL bCheckSpace) {
+void CXFA_SAXReaderHandler::UpdateChecksum(bool bCheckSpace) {
   int32_t iLength = m_SAXContext.m_TextBuf.GetLength();
   if (iLength < 1) {
     return;
   }
   uint8_t* pBuffer = m_SAXContext.m_TextBuf.GetBuffer();
-  FX_BOOL bUpdata = TRUE;
+  bool bUpdata = true;
   if (bCheckSpace) {
-    bUpdata = FALSE;
+    bUpdata = false;
     for (int32_t i = 0; i < iLength; i++) {
       bUpdata = (pBuffer[i] > 0x20);
       if (bUpdata) {
@@ -210,26 +211,25 @@ void CXFA_SAXReaderHandler::UpdateChecksum(FX_BOOL bCheckSpace) {
   m_SAXContext.m_TextBuf.Clear();
 }
 
-CXFA_ChecksumContext::CXFA_ChecksumContext()
-    : m_pSAXReader(nullptr), m_pByteContext(nullptr) {}
+CXFA_ChecksumContext::CXFA_ChecksumContext() {}
 
-CXFA_ChecksumContext::~CXFA_ChecksumContext() {
-  FinishChecksum();
-}
+CXFA_ChecksumContext::~CXFA_ChecksumContext() {}
 
 void CXFA_ChecksumContext::StartChecksum() {
   FinishChecksum();
-  m_pByteContext = FX_Alloc(uint8_t, 128);
-  CRYPT_SHA1Start(m_pByteContext);
+  m_pByteContext = pdfium::MakeUnique<CRYPT_sha1_context>();
+  CRYPT_SHA1Start(m_pByteContext.get());
   m_bsChecksum.clear();
-  m_pSAXReader = new CFX_SAXReader;
+  m_pSAXReader = pdfium::MakeUnique<CFX_SAXReader>();
 }
 
-FX_BOOL CXFA_ChecksumContext::UpdateChecksum(IFX_FileRead* pSrcFile,
-                                             FX_FILESIZE offset,
-                                             size_t size) {
+bool CXFA_ChecksumContext::UpdateChecksum(
+    const CFX_RetainPtr<IFX_SeekableReadStream>& pSrcFile,
+    FX_FILESIZE offset,
+    size_t size) {
   if (!m_pSAXReader || !pSrcFile)
-    return FALSE;
+    return false;
+
   if (size < 1)
     size = pSrcFile->GetSize();
 
@@ -240,24 +240,22 @@ FX_BOOL CXFA_ChecksumContext::UpdateChecksum(IFX_FileRead* pSrcFile,
           CFX_SaxParseMode_NotSkipSpace | CFX_SaxParseMode_NotConvert_amp |
               CFX_SaxParseMode_NotConvert_lt | CFX_SaxParseMode_NotConvert_gt |
               CFX_SaxParseMode_NotConvert_sharp) < 0) {
-    return FALSE;
+    return false;
   }
   return m_pSAXReader->ContinueParse(nullptr) > 99;
 }
 
 void CXFA_ChecksumContext::FinishChecksum() {
-  delete m_pSAXReader;
-  m_pSAXReader = nullptr;
+  m_pSAXReader.reset();
   if (m_pByteContext) {
     uint8_t digest[20];
     FXSYS_memset(digest, 0, 20);
-    CRYPT_SHA1Finish(m_pByteContext, digest);
+    CRYPT_SHA1Finish(m_pByteContext.get(), digest);
     int32_t nLen = Base64EncodeA(digest, 20, nullptr);
     FX_CHAR* pBuffer = m_bsChecksum.GetBuffer(nLen);
     Base64EncodeA(digest, 20, pBuffer);
     m_bsChecksum.ReleaseBuffer(nLen);
-    FX_Free(m_pByteContext);
-    m_pByteContext = nullptr;
+    m_pByteContext.reset();
   }
 }
 
@@ -266,7 +264,8 @@ CFX_ByteString CXFA_ChecksumContext::GetChecksum() const {
 }
 
 void CXFA_ChecksumContext::Update(const CFX_ByteStringC& bsText) {
-  if (m_pByteContext) {
-    CRYPT_SHA1Update(m_pByteContext, bsText.raw_str(), bsText.GetLength());
-  }
+  if (!m_pByteContext)
+    return;
+
+  CRYPT_SHA1Update(m_pByteContext.get(), bsText.raw_str(), bsText.GetLength());
 }

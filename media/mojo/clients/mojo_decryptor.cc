@@ -18,13 +18,13 @@
 #include "media/mojo/common/mojo_decoder_buffer_converter.h"
 #include "media/mojo/common/mojo_shared_buffer_video_frame.h"
 #include "media/mojo/interfaces/decryptor.mojom.h"
-#include "services/shell/public/cpp/connect.h"
+#include "services/service_manager/public/cpp/connect.h"
 
 namespace media {
 
 MojoDecryptor::MojoDecryptor(mojom::DecryptorPtr remote_decryptor)
     : remote_decryptor_(std::move(remote_decryptor)), weak_factory_(this) {
-  DVLOG(1) << __FUNCTION__;
+  DVLOG(1) << __func__;
 
   // Allocate DataPipe size based on video content.
 
@@ -42,7 +42,7 @@ MojoDecryptor::MojoDecryptor(mojom::DecryptorPtr remote_decryptor)
 }
 
 MojoDecryptor::~MojoDecryptor() {
-  DVLOG(1) << __FUNCTION__;
+  DVLOG(1) << __func__;
   DCHECK(thread_checker_.CalledOnValidThread());
 }
 
@@ -64,7 +64,7 @@ void MojoDecryptor::RegisterNewKeyCB(StreamType stream_type,
 void MojoDecryptor::Decrypt(StreamType stream_type,
                             const scoped_refptr<DecoderBuffer>& encrypted,
                             const DecryptCB& decrypt_cb) {
-  DVLOG(3) << __FUNCTION__;
+  DVLOG(3) << __func__;
   DCHECK(thread_checker_.CalledOnValidThread());
 
   mojom::DecoderBufferPtr mojo_buffer =
@@ -75,23 +75,21 @@ void MojoDecryptor::Decrypt(StreamType stream_type,
   }
 
   remote_decryptor_->Decrypt(
-      static_cast<mojom::DemuxerStream::Type>(stream_type),
-      std::move(mojo_buffer),
+      stream_type, std::move(mojo_buffer),
       base::Bind(&MojoDecryptor::OnBufferDecrypted, weak_factory_.GetWeakPtr(),
                  decrypt_cb));
 }
 
 void MojoDecryptor::CancelDecrypt(StreamType stream_type) {
-  DVLOG(1) << __FUNCTION__;
+  DVLOG(1) << __func__;
   DCHECK(thread_checker_.CalledOnValidThread());
 
-  remote_decryptor_->CancelDecrypt(
-      static_cast<mojom::DemuxerStream::Type>(stream_type));
+  remote_decryptor_->CancelDecrypt(stream_type);
 }
 
 void MojoDecryptor::InitializeAudioDecoder(const AudioDecoderConfig& config,
                                            const DecoderInitCB& init_cb) {
-  DVLOG(1) << __FUNCTION__;
+  DVLOG(1) << __func__;
   DCHECK(thread_checker_.CalledOnValidThread());
 
   remote_decryptor_->InitializeAudioDecoder(
@@ -100,7 +98,7 @@ void MojoDecryptor::InitializeAudioDecoder(const AudioDecoderConfig& config,
 
 void MojoDecryptor::InitializeVideoDecoder(const VideoDecoderConfig& config,
                                            const DecoderInitCB& init_cb) {
-  DVLOG(1) << __FUNCTION__;
+  DVLOG(1) << __func__;
   DCHECK(thread_checker_.CalledOnValidThread());
 
   remote_decryptor_->InitializeVideoDecoder(
@@ -110,7 +108,7 @@ void MojoDecryptor::InitializeVideoDecoder(const VideoDecoderConfig& config,
 void MojoDecryptor::DecryptAndDecodeAudio(
     const scoped_refptr<DecoderBuffer>& encrypted,
     const AudioDecodeCB& audio_decode_cb) {
-  DVLOG(3) << __FUNCTION__;
+  DVLOG(3) << __func__;
   DCHECK(thread_checker_.CalledOnValidThread());
 
   mojom::DecoderBufferPtr mojo_buffer =
@@ -129,7 +127,7 @@ void MojoDecryptor::DecryptAndDecodeAudio(
 void MojoDecryptor::DecryptAndDecodeVideo(
     const scoped_refptr<DecoderBuffer>& encrypted,
     const VideoDecodeCB& video_decode_cb) {
-  DVLOG(3) << __FUNCTION__;
+  DVLOG(3) << __func__;
   DCHECK(thread_checker_.CalledOnValidThread());
 
   mojom::DecoderBufferPtr mojo_buffer =
@@ -146,23 +144,21 @@ void MojoDecryptor::DecryptAndDecodeVideo(
 }
 
 void MojoDecryptor::ResetDecoder(StreamType stream_type) {
-  DVLOG(1) << __FUNCTION__;
+  DVLOG(1) << __func__;
   DCHECK(thread_checker_.CalledOnValidThread());
 
-  remote_decryptor_->ResetDecoder(
-      static_cast<mojom::DemuxerStream::Type>(stream_type));
+  remote_decryptor_->ResetDecoder(stream_type);
 }
 
 void MojoDecryptor::DeinitializeDecoder(StreamType stream_type) {
-  DVLOG(1) << __FUNCTION__;
+  DVLOG(1) << __func__;
   DCHECK(thread_checker_.CalledOnValidThread());
 
-  remote_decryptor_->DeinitializeDecoder(
-      static_cast<mojom::DemuxerStream::Type>(stream_type));
+  remote_decryptor_->DeinitializeDecoder(stream_type);
 }
 
 void MojoDecryptor::OnKeyAdded() {
-  DVLOG(1) << __FUNCTION__;
+  DVLOG(1) << __func__;
   DCHECK(thread_checker_.CalledOnValidThread());
 
   if (!new_audio_key_cb_.is_null())
@@ -173,54 +169,58 @@ void MojoDecryptor::OnKeyAdded() {
 }
 
 void MojoDecryptor::OnBufferDecrypted(const DecryptCB& decrypt_cb,
-                                      mojom::Decryptor::Status status,
+                                      Status status,
                                       mojom::DecoderBufferPtr buffer) {
-  DVLOG_IF(1, status != mojom::Decryptor::Status::SUCCESS)
-      << __FUNCTION__ << "(" << status << ")";
-  DVLOG_IF(3, status == mojom::Decryptor::Status::SUCCESS) << __FUNCTION__;
+  DVLOG_IF(1, status != kSuccess) << __func__ << "(" << status << ")";
+  DVLOG_IF(3, status == kSuccess) << __func__;
   DCHECK(thread_checker_.CalledOnValidThread());
 
   if (buffer.is_null()) {
-    decrypt_cb.Run(static_cast<Decryptor::Status>(status), nullptr);
+    decrypt_cb.Run(status, nullptr);
     return;
   }
 
-  scoped_refptr<DecoderBuffer> media_buffer =
-      mojo_decoder_buffer_reader_->ReadDecoderBuffer(buffer);
-  if (!media_buffer) {
+  mojo_decoder_buffer_reader_->ReadDecoderBuffer(
+      std::move(buffer),
+      base::BindOnce(&MojoDecryptor::OnBufferRead, weak_factory_.GetWeakPtr(),
+                     decrypt_cb, status));
+}
+
+void MojoDecryptor::OnBufferRead(const DecryptCB& decrypt_cb,
+                                 Status status,
+                                 scoped_refptr<DecoderBuffer> buffer) {
+  if (!buffer) {
     decrypt_cb.Run(kError, nullptr);
     return;
   }
 
-  decrypt_cb.Run(static_cast<Decryptor::Status>(status), media_buffer);
+  decrypt_cb.Run(status, buffer);
 }
 
 void MojoDecryptor::OnAudioDecoded(
     const AudioDecodeCB& audio_decode_cb,
-    mojom::Decryptor::Status status,
-    mojo::Array<mojom::AudioBufferPtr> audio_buffers) {
-  DVLOG_IF(1, status != mojom::Decryptor::Status::SUCCESS)
-      << __FUNCTION__ << "(" << status << ")";
-  DVLOG_IF(3, status == mojom::Decryptor::Status::SUCCESS) << __FUNCTION__;
+    Status status,
+    std::vector<mojom::AudioBufferPtr> audio_buffers) {
+  DVLOG_IF(1, status != kSuccess) << __func__ << "(" << status << ")";
+  DVLOG_IF(3, status == kSuccess) << __func__;
   DCHECK(thread_checker_.CalledOnValidThread());
 
   Decryptor::AudioFrames audio_frames;
   for (size_t i = 0; i < audio_buffers.size(); ++i)
     audio_frames.push_back(audio_buffers[i].To<scoped_refptr<AudioBuffer>>());
 
-  audio_decode_cb.Run(static_cast<Decryptor::Status>(status), audio_frames);
+  audio_decode_cb.Run(status, audio_frames);
 }
 
 void MojoDecryptor::OnVideoDecoded(const VideoDecodeCB& video_decode_cb,
-                                   mojom::Decryptor::Status status,
+                                   Status status,
                                    mojom::VideoFramePtr video_frame) {
-  DVLOG_IF(1, status != mojom::Decryptor::Status::SUCCESS)
-      << __FUNCTION__ << "(" << status << ")";
-  DVLOG_IF(3, status == mojom::Decryptor::Status::SUCCESS) << __FUNCTION__;
+  DVLOG_IF(1, status != kSuccess) << __func__ << "(" << status << ")";
+  DVLOG_IF(3, status == kSuccess) << __func__;
   DCHECK(thread_checker_.CalledOnValidThread());
 
   if (video_frame.is_null()) {
-    video_decode_cb.Run(static_cast<Decryptor::Status>(status), nullptr);
+    video_decode_cb.Run(status, nullptr);
     return;
   }
 
@@ -235,12 +235,12 @@ void MojoDecryptor::OnVideoDecoded(const VideoDecodeCB& video_decode_cb,
         &MojoDecryptor::ReleaseSharedBuffer, weak_factory_.GetWeakPtr()));
   }
 
-  video_decode_cb.Run(static_cast<Decryptor::Status>(status), frame);
+  video_decode_cb.Run(status, frame);
 }
 
 void MojoDecryptor::ReleaseSharedBuffer(mojo::ScopedSharedBufferHandle buffer,
                                         size_t buffer_size) {
-  DVLOG(1) << __FUNCTION__;
+  DVLOG(1) << __func__;
   DCHECK(thread_checker_.CalledOnValidThread());
 
   remote_decryptor_->ReleaseSharedBuffer(std::move(buffer), buffer_size);

@@ -28,7 +28,8 @@ class MojoVideoDecoderService : public mojom::VideoDecoder {
 
   // mojom::VideoDecoder implementation
   void Construct(mojom::VideoDecoderClientAssociatedPtrInfo client,
-                 mojo::ScopedDataPipeConsumerHandle decoder_buffer_pipe) final;
+                 mojo::ScopedDataPipeConsumerHandle decoder_buffer_pipe,
+                 mojom::CommandBufferIdPtr command_buffer_id) final;
   void Initialize(mojom::VideoDecoderConfigPtr config,
                   bool low_delay,
                   const InitializeCallback& callback) final;
@@ -37,10 +38,17 @@ class MojoVideoDecoderService : public mojom::VideoDecoder {
   void Reset(const ResetCallback& callback) final;
 
  private:
+  // Helper methods so that we can bind them with a weak pointer to avoid
+  // running mojom::VideoDecoder callbacks after connection error happens and
+  // |this| is deleted. It's not safe to run the callbacks after a connection
+  // error.
   void OnDecoderInitialized(const InitializeCallback& callback, bool success);
+  void OnDecoderRead(const DecodeCallback& callback,
+                     scoped_refptr<DecoderBuffer> buffer);
   void OnDecoderDecoded(const DecodeCallback& callback, DecodeStatus status);
-  void OnDecoderOutput(const scoped_refptr<VideoFrame>& frame);
   void OnDecoderReset(const ResetCallback& callback);
+
+  void OnDecoderOutput(const scoped_refptr<VideoFrame>& frame);
 
   mojom::VideoDecoderClientAssociatedPtr client_;
   std::unique_ptr<MojoDecoderBufferReader> mojo_decoder_buffer_reader_;

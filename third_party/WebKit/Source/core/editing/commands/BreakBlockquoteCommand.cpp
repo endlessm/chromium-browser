@@ -121,10 +121,10 @@ void BreakBlockquoteCommand::doApply(EditingState* editingState) {
     insertNodeBefore(breakElement, topBlockquote, editingState);
     if (editingState->isAborted())
       return;
-    document().updateStyleAndLayoutIgnorePendingStylesheets();
-    setEndingSelection(createVisibleSelection(
-        Position::beforeNode(breakElement), TextAffinity::Downstream,
-        endingSelection().isDirectional()));
+    setEndingSelection(SelectionInDOMTree::Builder()
+                           .collapse(Position::beforeNode(breakElement))
+                           .setIsDirectional(endingSelection().isDirectional())
+                           .build());
     rebalanceWhitespace();
     return;
   }
@@ -139,9 +139,10 @@ void BreakBlockquoteCommand::doApply(EditingState* editingState) {
   // If we're inserting the break at the end of the quoted content, we don't
   // need to break the quote.
   if (isLastVisPosInNode) {
-    setEndingSelection(createVisibleSelection(
-        Position::beforeNode(breakElement), TextAffinity::Downstream,
-        endingSelection().isDirectional()));
+    setEndingSelection(SelectionInDOMTree::Builder()
+                           .collapse(Position::beforeNode(breakElement))
+                           .setIsDirectional(endingSelection().isDirectional())
+                           .build());
     rebalanceWhitespace();
     return;
   }
@@ -182,10 +183,10 @@ void BreakBlockquoteCommand::doApply(EditingState* editingState) {
 
   // If there's nothing inside topBlockquote to move, we're finished.
   if (!startNode->isDescendantOf(topBlockquote)) {
-    document().updateStyleAndLayoutIgnorePendingStylesheets();
-    setEndingSelection(createVisibleSelection(
-        createVisiblePosition(firstPositionInOrBeforeNode(startNode)),
-        endingSelection().isDirectional()));
+    setEndingSelection(SelectionInDOMTree::Builder()
+                           .collapse(firstPositionInOrBeforeNode(startNode))
+                           .setIsDirectional(endingSelection().isDirectional())
+                           .build());
     return;
   }
 
@@ -194,7 +195,7 @@ void BreakBlockquoteCommand::doApply(EditingState* editingState) {
   HeapVector<Member<Element>> ancestors;
   for (Element* node = startNode->parentElement();
        node && node != topBlockquote; node = node->parentElement())
-    ancestors.append(node);
+    ancestors.push_back(node);
 
   // Insert a clone of the top blockquote after the break.
   Element* clonedBlockquote = topBlockquote->cloneElementWithoutChildren();
@@ -240,7 +241,7 @@ void BreakBlockquoteCommand::doApply(EditingState* editingState) {
     // into the clone corresponding to the ancestor's parent.
     Element* ancestor = nullptr;
     Element* clonedParent = nullptr;
-    for (ancestor = ancestors.first(),
+    for (ancestor = ancestors.front(),
         clonedParent = clonedAncestor->parentElement();
          ancestor && ancestor != topBlockquote;
          ancestor = ancestor->parentElement(),
@@ -252,7 +253,7 @@ void BreakBlockquoteCommand::doApply(EditingState* editingState) {
     }
 
     // If the startNode's original parent is now empty, remove it
-    Element* originalParent = ancestors.first().get();
+    Element* originalParent = ancestors.front().get();
     if (!originalParent->hasChildren()) {
       removeNode(originalParent, editingState);
       if (editingState->isAborted())
@@ -265,12 +266,11 @@ void BreakBlockquoteCommand::doApply(EditingState* editingState) {
   if (editingState->isAborted())
     return;
 
-  document().updateStyleAndLayoutIgnorePendingStylesheets();
-
   // Put the selection right before the break.
-  setEndingSelection(createVisibleSelection(Position::beforeNode(breakElement),
-                                            TextAffinity::Downstream,
-                                            endingSelection().isDirectional()));
+  setEndingSelection(SelectionInDOMTree::Builder()
+                         .collapse(Position::beforeNode(breakElement))
+                         .setIsDirectional(endingSelection().isDirectional())
+                         .build());
   rebalanceWhitespace();
 }
 

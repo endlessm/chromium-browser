@@ -8,15 +8,13 @@
 
 #include "base/memory/ptr_util.h"
 #include "base/message_loop/message_loop.h"
+#include "ui/base/clipboard/clipboard.h"
 #include "ui/base/ime/input_method_initializer.h"
+#include "ui/base/test/test_clipboard.h"
 #include "ui/compositor/test/context_factories_for_test.h"
 #include "ui/views/test/platform_test_helper.h"
 #include "ui/views/test/test_views_delegate.h"
 #include "ui/views/test/views_test_helper.h"
-
-#if defined(USE_AURA)
-#include "ui/aura/env.h"
-#endif
 
 namespace views {
 
@@ -29,37 +27,26 @@ ScopedViewsTestHelper::ScopedViewsTestHelper(
       platform_test_helper_(PlatformTestHelper::Create()) {
   // The ContextFactory must exist before any Compositors are created.
   bool enable_pixel_output = false;
-#if defined(USE_AURA)
-  ui::ContextFactory* old_context_factory = nullptr;
-  if (PlatformTestHelper::IsMus()) {
-    old_context_factory = aura::Env::GetInstance()->context_factory();
-    DCHECK(old_context_factory);
-  }
-#endif
-  ui::ContextFactory* context_factory =
-      ui::InitializeContextFactoryForTests(enable_pixel_output);
+  ui::ContextFactory* context_factory = nullptr;
+  ui::ContextFactoryPrivate* context_factory_private = nullptr;
+  ui::InitializeContextFactoryForTests(enable_pixel_output, &context_factory,
+                                       &context_factory_private);
+
   views_delegate_->set_context_factory(context_factory);
+  views_delegate_->set_context_factory_private(context_factory_private);
 
   test_helper_.reset(ViewsTestHelper::Create(base::MessageLoopForUI::current(),
-                                             context_factory));
+                                             context_factory,
+                                             context_factory_private));
+  platform_test_helper_->OnTestHelperCreated(test_helper_.get());
   test_helper_->SetUp();
 
-#if defined(USE_AURA)
-  // When running inside mus, the context-factory from
-  // ui::InitializeContextFactoryForTests() is only needed for the default
-  // WindowTreeHost instance created by TestScreen. After that, the
-  // context-factory is used when creating Widgets (to set-up the compositor for
-  // the corresponding ui::Windows). So restore the context-factory (which
-  // WindowManagerConnection would have set up), so that NativeWidgetMus
-  // installs the correct context-factory that can talk to mus.
-  if (PlatformTestHelper::IsMus())
-    aura::Env::GetInstance()->set_context_factory(old_context_factory);
-#endif
-
   ui::InitializeInputMethodForTesting();
+  ui::TestClipboard::CreateForCurrentThread();
 }
 
 ScopedViewsTestHelper::~ScopedViewsTestHelper() {
+  ui::Clipboard::DestroyClipboardForCurrentThread();
   ui::ShutdownInputMethodForTesting();
   test_helper_->TearDown();
   test_helper_.reset();

@@ -1,35 +1,34 @@
 {
-  "manifest_version":  1,
-  "name": "service:ash",
+  "name": "ash",
   "display_name": "Ash Window Manager and Shell",
-  "capabilities": {
-    "provided": {
-      "mus:window_manager" : [ "ui::mojom::AcceleratorRegistrar" ]
-    },
-    "required": {
-      "*": { "classes": [ "accessibility", "app" ] },
-      "exe:chrome" : {
-        "interfaces": [
-          "ash::mojom::SystemTrayClient",
-          "ash::mojom::WallpaperManager",
-          "app_list::mojom::AppListPresenter",
-          "keyboard::mojom::Keyboard"
-        ]
+  "interface_provider_specs": {
+    "service_manager:connector": {
+      "provides": {
+        // Modifications here should correspond with changes to
+        // chrome_content_browser_manifest_overlay.json.
+        "ash": [
+          "app_list::mojom::AppList",
+          "ash::mojom::AcceleratorController",
+          "ash::mojom::CastConfig",
+          "ash::mojom::LocaleNotificationController",
+          "ash::mojom::MediaController",
+          "ash::mojom::NewWindowController",
+          "ash::mojom::SessionController",
+          "ash::mojom::ShelfController",
+          "ash::mojom::ShutdownController",
+          "ash::mojom::SystemTray",
+          "ash::mojom::TouchViewManager",
+          "ash::mojom::VpnList",
+          "ash::mojom::WallpaperController"
+        ],
+        "mus:window_manager": [ "ui::mojom::AcceleratorRegistrar" ]
       },
-      "service:mash_session": {
-        "interfaces": [ "mash::session::mojom::Session" ]
-      },
-      "service:ui": {
-        "interfaces": [
-          "display::mojom::DisplayController",
-          "ui::mojom::AccessibilityManager",
-          "ui::mojom::WindowManagerWindowTreeFactory"
-        ]
-      },
-      "service:touch_hud": {
-        "interfaces": [
-          "mash::mojom::Launchable"
-        ]
+      "requires": {
+        "*": [ "accessibility", "app" ],
+        "content_browser": [ "ash" ],
+        "preferences": [ "preferences_manager" ],
+        "ui": [ "window_manager" ],
+        "touch_hud": [ "mash:launchable" ]
       }
     }
   }

@@ -7,7 +7,6 @@
 namespace extensions {
 
 const char kExtensionScheme[] = "chrome-extension";
-const char kExtensionResourceScheme[] = "chrome-extension-resource";
 
 const base::FilePath::CharType kManifestFilename[] =
     FILE_PATH_LITERAL("manifest.json");
@@ -86,6 +85,8 @@ const int kWebstoreSignaturesPublicKeySize =
 
 const char kMimeTypeJpeg[] = "image/jpeg";
 const char kMimeTypePng[] = "image/png";
+
+const int64_t kInvalidServiceWorkerVersionId = -1;
 
 }  // namespace extensions
 

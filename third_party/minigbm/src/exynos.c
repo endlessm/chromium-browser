@@ -1,10 +1,10 @@
 /*
- * Copyright (c) 2014 The Chromium OS Authors. All rights reserved.
+ * Copyright 2014 The Chromium OS Authors. All rights reserved.
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
  */
 
-#ifdef GBM_EXYNOS
+#ifdef DRV_EXYNOS
 
 #include <assert.h>
 #include <errno.h>
@@ -13,17 +13,34 @@
 #include <xf86drm.h>
 #include <exynos_drm.h>
 
-#include "gbm_priv.h"
+#include "drv_priv.h"
 #include "helpers.h"
 #include "util.h"
 
-static int gbm_exynos_bo_create(struct gbm_bo *bo,
-				uint32_t width, uint32_t height,
-				uint32_t format, uint32_t flags)
+static struct supported_combination combos[3] = {
+	{DRM_FORMAT_ARGB8888, DRM_FORMAT_MOD_NONE,
+		BO_USE_CURSOR | BO_USE_LINEAR | BO_USE_RENDERING | BO_USE_SW_READ_OFTEN |
+		BO_USE_SW_WRITE_OFTEN | BO_USE_SW_READ_RARELY | BO_USE_SW_WRITE_RARELY},
+	{DRM_FORMAT_NV12, DRM_FORMAT_MOD_NONE,
+		BO_USE_LINEAR | BO_USE_RENDERING | BO_USE_SW_READ_OFTEN | BO_USE_SW_WRITE_OFTEN |
+		BO_USE_SW_READ_RARELY | BO_USE_SW_WRITE_RARELY},
+	{DRM_FORMAT_XRGB8888, DRM_FORMAT_MOD_NONE,
+		BO_USE_CURSOR | BO_USE_LINEAR | BO_USE_RENDERING | BO_USE_SW_READ_OFTEN |
+		BO_USE_SW_WRITE_OFTEN | BO_USE_SW_READ_RARELY | BO_USE_SW_WRITE_RARELY},
+};
+
+static int exynos_init(struct driver *drv)
+{
+	drv_insert_combinations(drv, combos, ARRAY_SIZE(combos));
+	return drv_add_kms_flags(drv);
+}
+
+static int exynos_bo_create(struct bo *bo, uint32_t width, uint32_t height,
+			    uint32_t format, uint32_t flags)
 {
 	size_t plane;
 
-	if (format == GBM_FORMAT_NV12) {
+	if (format == DRM_FORMAT_NV12) {
 		uint32_t chroma_height;
 		/* V4L2 s5p-mfc requires width to be 16 byte aligned and height 32. */
 		width = ALIGN(width, 16);
@@ -34,12 +51,13 @@ static int gbm_exynos_bo_create(struct gbm_bo *bo,
 		bo->sizes[0] = bo->strides[0] * height + 64;
 		bo->sizes[1] = bo->strides[1] * chroma_height + 64;
 		bo->offsets[0] = bo->offsets[1] = 0;
-	} else if (format == GBM_FORMAT_XRGB8888 || format == GBM_FORMAT_ARGB8888) {
-		bo->strides[0] = gbm_stride_from_format(format, width);
-		bo->sizes[0] = height * bo->strides[0];
+		bo->total_size = bo->sizes[0] + bo->sizes[1];
+	} else if (format == DRM_FORMAT_XRGB8888 || format == DRM_FORMAT_ARGB8888) {
+		bo->strides[0] = drv_stride_from_format(format, width, 0);
+		bo->total_size = bo->sizes[0] = height * bo->strides[0];
 		bo->offsets[0] = 0;
 	} else {
-		fprintf(stderr, "minigbm: unsupported format %X\n", format);
+		fprintf(stderr, "drv: unsupported format %X\n", format);
 		assert(0);
 		return -EINVAL;
 	}
@@ -53,9 +71,9 @@ static int gbm_exynos_bo_create(struct gbm_bo *bo,
 		gem_create.size = size;
 		gem_create.flags = EXYNOS_BO_NONCONTIG;
 
-		ret = drmIoctl(bo->gbm->fd, DRM_IOCTL_EXYNOS_GEM_CREATE, &gem_create);
+		ret = drmIoctl(bo->drv->fd, DRM_IOCTL_EXYNOS_GEM_CREATE, &gem_create);
 		if (ret) {
-			fprintf(stderr, "minigbm: DRM_IOCTL_EXYNOS_GEM_CREATE failed "
+			fprintf(stderr, "drv: DRM_IOCTL_EXYNOS_GEM_CREATE failed "
 					"(size=%zu)\n", size);
 			goto cleanup_planes;
 		}
@@ -70,11 +88,11 @@ cleanup_planes:
 		struct drm_gem_close gem_close;
 		memset(&gem_close, 0, sizeof(gem_close));
 		gem_close.handle = bo->handles[plane - 1].u32;
-		int gem_close_ret = drmIoctl(bo->gbm->fd, DRM_IOCTL_GEM_CLOSE,
+		int gem_close_ret = drmIoctl(bo->drv->fd, DRM_IOCTL_GEM_CLOSE,
 					     &gem_close);
 		if (gem_close_ret) {
 			fprintf(stderr,
-				"minigbm: DRM_IOCTL_GEM_CLOSE failed: %d\n",
+				"drv: DRM_IOCTL_GEM_CLOSE failed: %d\n",
 				gem_close_ret);
 		}
 	}
@@ -82,18 +100,17 @@ cleanup_planes:
 	return ret;
 }
 
-const struct gbm_driver gbm_driver_exynos =
+/*
+ * Use dumb mapping with exynos even though a GEM buffer is created.
+ * libdrm does the same thing in exynos_drm.c
+ */
+struct backend backend_exynos =
 {
 	.name = "exynos",
-	.bo_create = gbm_exynos_bo_create,
-	.bo_destroy = gbm_gem_bo_destroy,
-	.format_list = {
-		{GBM_FORMAT_XRGB8888, GBM_BO_USE_SCANOUT | GBM_BO_USE_CURSOR | GBM_BO_USE_RENDERING},
-		{GBM_FORMAT_XRGB8888, GBM_BO_USE_SCANOUT | GBM_BO_USE_CURSOR | GBM_BO_USE_LINEAR},
-		{GBM_FORMAT_ARGB8888, GBM_BO_USE_SCANOUT | GBM_BO_USE_CURSOR | GBM_BO_USE_RENDERING},
-		{GBM_FORMAT_ARGB8888, GBM_BO_USE_SCANOUT | GBM_BO_USE_CURSOR | GBM_BO_USE_LINEAR},
-		{GBM_FORMAT_NV12, GBM_BO_USE_SCANOUT | GBM_BO_USE_RENDERING},
-	}
+	.init = exynos_init,
+	.bo_create = exynos_bo_create,
+	.bo_destroy = drv_gem_bo_destroy,
+	.bo_map = drv_dumb_bo_map,
 };
 
 #endif

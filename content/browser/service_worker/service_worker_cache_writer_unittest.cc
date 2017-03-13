@@ -13,6 +13,7 @@
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "content/browser/service_worker/service_worker_disk_cache.h"
+#include "content/browser/service_worker/service_worker_test_utils.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace content {

@@ -4,25 +4,19 @@
 
 #include "chrome/browser/ui/views/chrome_browser_main_extra_parts_views_linux.h"
 
-#include "base/command_line.h"
 #include "base/run_loop.h"
 #include "chrome/browser/chrome_browser_main.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/themes/theme_service.h"
 #include "chrome/browser/themes/theme_service_factory.h"
 #include "chrome/browser/ui/browser_list.h"
-#include "chrome/browser/ui/libgtk2ui/gtk2_ui.h"
-#include "chrome/browser/ui/simple_message_box.h"
+#include "chrome/browser/ui/libgtkui/gtk_ui.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
-#include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
-#include "chrome/grit/chromium_strings.h"
-#include "chrome/grit/generated_resources.h"
 #include "components/prefs/pref_service.h"
 #include "ui/aura/env.h"
 #include "ui/aura/window.h"
 #include "ui/base/ime/input_method_initializer.h"
-#include "ui/base/l10n/l10n_util.h"
 #include "ui/base/ui_base_switches.h"
 #include "ui/display/display.h"
 #include "ui/display/screen.h"
@@ -62,7 +56,7 @@ ui::NativeTheme* GetNativeThemeForWindow(aura::Window* window) {
     return ui::NativeThemeDarkAura::instance();
   }
 
-  return ui::NativeThemeAura::instance();
+  return ui::NativeTheme::GetInstanceForNativeUi();
 }
 
 }  // namespace
@@ -72,14 +66,12 @@ ChromeBrowserMainExtraPartsViewsLinux::ChromeBrowserMainExtraPartsViewsLinux() {
 
 ChromeBrowserMainExtraPartsViewsLinux::
     ~ChromeBrowserMainExtraPartsViewsLinux() {
-  // X11DesktopHandler is destructed at this point, so we don't need to remove
-  // ourselves as an X11DesktopHandlerObserver
-  DCHECK(!aura::Env::GetInstanceDontCreate());
+  views::X11DesktopHandler::get()->RemoveObserver(this);
 }
 
 void ChromeBrowserMainExtraPartsViewsLinux::PreEarlyInitialization() {
   // TODO(erg): Refactor this into a dlopen call when we add a GTK3 port.
-  views::LinuxUI* gtk2_ui = BuildGtk2UI();
+  views::LinuxUI* gtk2_ui = BuildGtkUi();
   gtk2_ui->SetNativeThemeOverride(base::Bind(&GetNativeThemeForWindow));
   views::LinuxUI::SetInstance(gtk2_ui);
 }
@@ -90,41 +82,11 @@ void ChromeBrowserMainExtraPartsViewsLinux::ToolkitInitialized() {
 }
 
 void ChromeBrowserMainExtraPartsViewsLinux::PreCreateThreads() {
+  // Update the device scale factor before initializing views
+  // because its display::Screen instance depends on it.
+  views::LinuxUI::instance()->UpdateDeviceScaleFactor();
   ChromeBrowserMainExtraPartsViews::PreCreateThreads();
-  // TODO(varkha): The next call should not be necessary once Material Design is
-  // on unconditionally.
-  views::LinuxUI::instance()->MaterialDesignControllerReady();
-  views::LinuxUI::instance()->UpdateDeviceScaleFactor(
-      display::Screen::GetScreen()->GetPrimaryDisplay().device_scale_factor());
-
   views::X11DesktopHandler::get()->AddObserver(this);
-}
-
-void ChromeBrowserMainExtraPartsViewsLinux::PreProfileInit() {
-  ChromeBrowserMainExtraPartsViews::PreProfileInit();
-  // On the Linux desktop, we want to prevent the user from logging in as root,
-  // so that we don't destroy the profile. Now that we have some minimal ui
-  // initialized, check to see if we're running as root and bail if we are.
-  if (getuid() != 0)
-    return;
-
-  const base::CommandLine& command_line =
-      *base::CommandLine::ForCurrentProcess();
-  if (command_line.HasSwitch(switches::kUserDataDir))
-    return;
-
-  base::string16 title = l10n_util::GetStringFUTF16(
-      IDS_REFUSE_TO_RUN_AS_ROOT, l10n_util::GetStringUTF16(IDS_PRODUCT_NAME));
-  base::string16 message = l10n_util::GetStringFUTF16(
-      IDS_REFUSE_TO_RUN_AS_ROOT_2, l10n_util::GetStringUTF16(IDS_PRODUCT_NAME));
-
-  chrome::ShowWarningMessageBox(NULL, title, message);
-
-  // Avoids gpu_process_transport_factory.cc(153)] Check failed:
-  // per_compositor_data_.empty() when quit is chosen.
-  base::RunLoop().RunUntilIdle();
-
-  exit(EXIT_FAILURE);
 }
 
 void ChromeBrowserMainExtraPartsViewsLinux::OnWorkspaceChanged(

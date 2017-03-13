@@ -8,9 +8,10 @@
 #include "base/macros.h"
 #include "base/run_loop.h"
 #include "mojo/public/cpp/bindings/interface_request.h"
-#include "services/shell/public/cpp/service_context.h"
-#include "services/shell/public/cpp/service_test.h"
-#include "services/ui/public/interfaces/ime.mojom.h"
+#include "services/service_manager/public/cpp/service_context.h"
+#include "services/service_manager/public/cpp/service_test.h"
+#include "services/ui/public/interfaces/constants.mojom.h"
+#include "services/ui/public/interfaces/ime/ime.mojom.h"
 #include "ui/events/event.h"
 
 class TestTextInputClient : public ui::mojom::TextInputClient {
@@ -18,56 +19,70 @@ class TestTextInputClient : public ui::mojom::TextInputClient {
   explicit TestTextInputClient(ui::mojom::TextInputClientRequest request)
       : binding_(this, std::move(request)) {}
 
-  ui::mojom::CompositionEventPtr WaitUntilCompositionEvent() {
-    run_loop_.reset(new base::RunLoop);
-    run_loop_->Run();
-    run_loop_.reset();
+  std::unique_ptr<ui::Event> WaitUntilInsertChar() {
+    if (!receieved_event_) {
+      run_loop_.reset(new base::RunLoop);
+      run_loop_->Run();
+      run_loop_.reset();
+    }
 
-    return std::move(receieved_composition_event_);
-  }
-
-  ui::Event* WaitUntilUnhandledEvent() {
-    run_loop_.reset(new base::RunLoop);
-    run_loop_->Run();
-    run_loop_.reset();
-
-    return unhandled_event_.get();
+    return std::move(receieved_event_);
   }
 
  private:
-  void OnCompositionEvent(ui::mojom::CompositionEventPtr event) override {
-    receieved_composition_event_ = std::move(event);
-    run_loop_->Quit();
-  }
-  void OnUnhandledEvent(std::unique_ptr<ui::Event> char_event) override {
-    unhandled_event_ = std::move(char_event);
-    run_loop_->Quit();
+  void SetCompositionText(const ui::CompositionText& composition) override {}
+  void ConfirmCompositionText() override {}
+  void ClearCompositionText() override {}
+  void InsertText(const std::string& text) override {}
+  void InsertChar(std::unique_ptr<ui::Event> event) override {
+    receieved_event_ = std::move(event);
+    if (run_loop_)
+      run_loop_->Quit();
   }
 
   mojo::Binding<ui::mojom::TextInputClient> binding_;
   std::unique_ptr<base::RunLoop> run_loop_;
-  ui::mojom::CompositionEventPtr receieved_composition_event_;
-  std::unique_ptr<ui::Event> unhandled_event_;
+  std::unique_ptr<ui::Event> receieved_event_;
 
   DISALLOW_COPY_AND_ASSIGN(TestTextInputClient);
 };
 
-class IMEAppTest : public shell::test::ServiceTest {
+class IMEAppTest : public service_manager::test::ServiceTest {
  public:
-  IMEAppTest() : ServiceTest("exe:mus_ime_unittests") {}
+  IMEAppTest() : ServiceTest("mus_ime_unittests") {}
   ~IMEAppTest() override {}
 
-  // shell::test::ServiceTest:
+  // service_manager::test::ServiceTest:
   void SetUp() override {
     ServiceTest::SetUp();
     // test_ime_driver will register itself as the current IMEDriver.
-    connector()->Connect("service:test_ime_driver");
-    connector()->ConnectToInterface("service:ui", &ime_server_);
+    connector()->Connect("test_ime_driver");
+    connector()->BindInterface(ui::mojom::kServiceName, &ime_server_);
+  }
+
+  bool ProcessKeyEvent(ui::mojom::InputMethodPtr* input_method,
+                       std::unique_ptr<ui::Event> event) {
+    (*input_method)
+        ->ProcessKeyEvent(std::move(event),
+                          base::Bind(&IMEAppTest::ProcessKeyEventCallback,
+                                     base::Unretained(this)));
+
+    run_loop_.reset(new base::RunLoop);
+    run_loop_->Run();
+    run_loop_.reset();
+
+    return handled_;
   }
 
  protected:
+  void ProcessKeyEventCallback(bool handled) {
+    handled_ = handled;
+    run_loop_->Quit();
+  }
+
   ui::mojom::IMEServerPtr ime_server_;
   std::unique_ptr<base::RunLoop> run_loop_;
+  bool handled_;
 
   DISALLOW_COPY_AND_ASSIGN(IMEAppTest);
 };
@@ -75,37 +90,28 @@ class IMEAppTest : public shell::test::ServiceTest {
 // Tests sending a KeyEvent to the IMEDriver through the Mus IMEServer.
 TEST_F(IMEAppTest, ProcessKeyEvent) {
   ui::mojom::TextInputClientPtr client_ptr;
-  TestTextInputClient client(GetProxy(&client_ptr));
+  TestTextInputClient client(MakeRequest(&client_ptr));
 
   ui::mojom::InputMethodPtr input_method;
-  ime_server_->StartSession(std::move(client_ptr), GetProxy(&input_method));
+  ui::mojom::StartSessionDetailsPtr details =
+      ui::mojom::StartSessionDetails::New();
+  details->client = std::move(client_ptr);
+  details->input_method_request = MakeRequest(&input_method);
+  ime_server_->StartSession(std::move(details));
 
   // Send character key event.
   ui::KeyEvent char_event('A', ui::VKEY_A, 0);
-  input_method->ProcessKeyEvent(ui::Event::Clone(char_event));
+  EXPECT_TRUE(ProcessKeyEvent(&input_method, ui::Event::Clone(char_event)));
 
-  ui::mojom::CompositionEventPtr composition_event =
-      client.WaitUntilCompositionEvent();
-  EXPECT_EQ(ui::mojom::CompositionEventType::INSERT_CHAR,
-            composition_event->type);
-  EXPECT_TRUE(composition_event->key_event);
-  EXPECT_TRUE(composition_event->key_event.value()->IsKeyEvent());
+  std::unique_ptr<ui::Event> received_event = client.WaitUntilInsertChar();
+  ASSERT_TRUE(received_event && received_event->IsKeyEvent());
 
-  ui::KeyEvent* received_key_event =
-      composition_event->key_event.value()->AsKeyEvent();
+  ui::KeyEvent* received_key_event = received_event->AsKeyEvent();
   EXPECT_EQ(ui::ET_KEY_PRESSED, received_key_event->type());
   EXPECT_TRUE(received_key_event->is_char());
   EXPECT_EQ(char_event.GetCharacter(), received_key_event->GetCharacter());
 
   // Send non-character key event.
   ui::KeyEvent nonchar_event(ui::ET_KEY_PRESSED, ui::VKEY_LEFT, 0);
-  input_method->ProcessKeyEvent(ui::Event::Clone(nonchar_event));
-
-  ui::Event* unhandled_event = client.WaitUntilUnhandledEvent();
-  EXPECT_TRUE(unhandled_event);
-  EXPECT_TRUE(unhandled_event->IsKeyEvent());
-  EXPECT_FALSE(unhandled_event->AsKeyEvent()->is_char());
-  EXPECT_EQ(ui::ET_KEY_PRESSED, unhandled_event->type());
-  EXPECT_EQ(nonchar_event.key_code(),
-            unhandled_event->AsKeyEvent()->key_code());
+  EXPECT_FALSE(ProcessKeyEvent(&input_method, ui::Event::Clone(nonchar_event)));
 }

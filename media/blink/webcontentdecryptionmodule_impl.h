@@ -18,9 +18,6 @@
 #include "third_party/WebKit/public/platform/WebContentDecryptionModuleResult.h"
 
 namespace blink {
-#if defined(ENABLE_PEPPER_CDMS)
-class WebLocalFrame;
-#endif
 class WebSecurityOrigin;
 }
 
@@ -29,8 +26,7 @@ namespace media {
 struct CdmConfig;
 class CdmFactory;
 class CdmSessionAdapter;
-class MediaKeys;
-class WebContentDecryptionModuleSessionImpl;
+class ContentDecryptionModule;
 
 class MEDIA_BLINK_EXPORT WebContentDecryptionModuleImpl
     : public blink::WebContentDecryptionModule {
@@ -53,7 +49,7 @@ class MEDIA_BLINK_EXPORT WebContentDecryptionModuleImpl
       blink::WebContentDecryptionModuleResult result) override;
 
   // Returns a reference to the CDM used by |adapter_|.
-  scoped_refptr<MediaKeys> GetCdm();
+  scoped_refptr<ContentDecryptionModule> GetCdm();
 
  private:
   friend CdmSessionAdapter;

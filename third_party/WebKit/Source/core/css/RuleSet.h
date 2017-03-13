@@ -188,6 +188,10 @@ class CORE_EXPORT RuleSet : public GarbageCollectedFinalized<RuleSet> {
     ASSERT(!m_pendingRules);
     return &m_focusPseudoClassRules;
   }
+  const HeapVector<RuleData>* placeholderPseudoRules() const {
+    DCHECK(!m_pendingRules);
+    return &m_placeholderPseudoRules;
+  }
   const HeapVector<RuleData>* universalRules() const {
     ASSERT(!m_pendingRules);
     return &m_universalRules;
@@ -199,10 +203,6 @@ class CORE_EXPORT RuleSet : public GarbageCollectedFinalized<RuleSet> {
   const HeapVector<Member<StyleRulePage>>& pageRules() const {
     ASSERT(!m_pendingRules);
     return m_pageRules;
-  }
-  const HeapVector<Member<StyleRuleViewport>>& viewportRules() const {
-    ASSERT(!m_pendingRules);
-    return m_viewportRules;
   }
   const HeapVector<Member<StyleRuleFontFace>>& fontFaceRules() const {
     return m_fontFaceRules;
@@ -218,12 +218,6 @@ class CORE_EXPORT RuleSet : public GarbageCollectedFinalized<RuleSet> {
   }
   const HeapVector<MinimalRuleData>& slottedPseudoElementRules() const {
     return m_slottedPseudoElementRules;
-  }
-  const MediaQueryResultList& viewportDependentMediaQueryResults() const {
-    return m_viewportDependentMediaQueryResults;
-  }
-  const MediaQueryResultList& deviceDependentMediaQueryResults() const {
-    return m_deviceDependentMediaQueryResults;
   }
 
   unsigned ruleCount() const { return m_ruleCount; }
@@ -304,19 +298,16 @@ class CORE_EXPORT RuleSet : public GarbageCollectedFinalized<RuleSet> {
   HeapVector<RuleData> m_linkPseudoClassRules;
   HeapVector<RuleData> m_cuePseudoRules;
   HeapVector<RuleData> m_focusPseudoClassRules;
+  HeapVector<RuleData> m_placeholderPseudoRules;
   HeapVector<RuleData> m_universalRules;
   HeapVector<RuleData> m_shadowHostRules;
   RuleFeatureSet m_features;
   HeapVector<Member<StyleRulePage>> m_pageRules;
-  HeapVector<Member<StyleRuleViewport>> m_viewportRules;
   HeapVector<Member<StyleRuleFontFace>> m_fontFaceRules;
   HeapVector<Member<StyleRuleKeyframes>> m_keyframesRules;
   HeapVector<MinimalRuleData> m_deepCombinatorOrShadowPseudoRules;
   HeapVector<MinimalRuleData> m_contentPseudoElementRules;
   HeapVector<MinimalRuleData> m_slottedPseudoElementRules;
-
-  MediaQueryResultList m_viewportDependentMediaQueryResults;
-  MediaQueryResultList m_deviceDependentMediaQueryResults;
 
   unsigned m_ruleCount;
   Member<PendingRuleMaps> m_pendingRules;

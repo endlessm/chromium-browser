@@ -26,16 +26,17 @@ namespace vcm {
 VideoReceiver::VideoReceiver(Clock* clock,
                              EventFactory* event_factory,
                              EncodedImageCallback* pre_decode_image_callback,
+                             VCMTiming* timing,
                              NackSender* nack_sender,
                              KeyFrameRequestSender* keyframe_request_sender)
     : clock_(clock),
-      _timing(clock_),
-      _receiver(&_timing,
+      _timing(timing),
+      _receiver(_timing,
                 clock_,
                 event_factory,
                 nack_sender,
                 keyframe_request_sender),
-      _decodedFrameCallback(&_timing, clock_),
+      _decodedFrameCallback(_timing, clock_),
       _frameTypeCallback(nullptr),
       _receiveStatsCallback(nullptr),
       _decoderTimingCallback(nullptr),
@@ -73,12 +74,13 @@ void VideoReceiver::Process() {
       int jitter_buffer_ms;
       int min_playout_delay_ms;
       int render_delay_ms;
-      _timing.GetTimings(&decode_ms, &max_decode_ms, &current_delay_ms,
-                         &target_delay_ms, &jitter_buffer_ms,
-                         &min_playout_delay_ms, &render_delay_ms);
-      _decoderTimingCallback->OnDecoderTiming(
-          decode_ms, max_decode_ms, current_delay_ms, target_delay_ms,
-          jitter_buffer_ms, min_playout_delay_ms, render_delay_ms);
+      if (_timing->GetTimings(&decode_ms, &max_decode_ms, &current_delay_ms,
+                              &target_delay_ms, &jitter_buffer_ms,
+                              &min_playout_delay_ms, &render_delay_ms)) {
+        _decoderTimingCallback->OnDecoderTiming(
+            decode_ms, max_decode_ms, current_delay_ms, target_delay_ms,
+            jitter_buffer_ms, min_playout_delay_ms, render_delay_ms);
+      }
     }
   }
 
@@ -270,14 +272,14 @@ int32_t VideoReceiver::Decode(uint16_t maxWaitTimeMs) {
     if (qp_parser_.GetQp(*frame, &qp)) {
       encoded_image.qp_ = qp;
     }
-    pre_decode_image_callback_->Encoded(encoded_image, frame->CodecSpecific(),
-                                        nullptr);
+    pre_decode_image_callback_->OnEncodedImage(encoded_image,
+                                               frame->CodecSpecific(), nullptr);
   }
 
   rtc::CritScope cs(&receive_crit_);
   // If this frame was too late, we should adjust the delay accordingly
-  _timing.UpdateCurrentDelay(frame->RenderTimeMs(),
-                             clock_->TimeInMilliseconds());
+  _timing->UpdateCurrentDelay(frame->RenderTimeMs(),
+                              clock_->TimeInMilliseconds());
 
   if (first_frame_received_()) {
     LOG(LS_INFO) << "Received first "
@@ -288,6 +290,23 @@ int32_t VideoReceiver::Decode(uint16_t maxWaitTimeMs) {
   const int32_t ret = Decode(*frame);
   _receiver.ReleaseFrame(frame);
   return ret;
+}
+
+// Used for the WebRTC-NewVideoJitterBuffer experiment.
+// TODO(philipel): Clean up among the Decode functions as we replace
+//                 VCMEncodedFrame with FrameObject.
+int32_t VideoReceiver::Decode(const webrtc::VCMEncodedFrame* frame) {
+  rtc::CritScope lock(&receive_crit_);
+  if (pre_decode_image_callback_) {
+    EncodedImage encoded_image(frame->EncodedImage());
+    int qp = -1;
+    if (qp_parser_.GetQp(*frame, &qp)) {
+      encoded_image.qp_ = qp;
+    }
+    pre_decode_image_callback_->OnEncodedImage(encoded_image,
+                                               frame->CodecSpecific(), nullptr);
+  }
+  return Decode(*frame);
 }
 
 int32_t VideoReceiver::RequestSliceLossIndication(
@@ -423,20 +442,20 @@ int32_t VideoReceiver::IncomingPacket(const uint8_t* incomingPayload,
 // to sync with audio. Not included in  VideoCodingModule::Delay()
 // Defaults to 0 ms.
 int32_t VideoReceiver::SetMinimumPlayoutDelay(uint32_t minPlayoutDelayMs) {
-  _timing.set_min_playout_delay(minPlayoutDelayMs);
+  _timing->set_min_playout_delay(minPlayoutDelayMs);
   return VCM_OK;
 }
 
 // The estimated delay caused by rendering, defaults to
 // kDefaultRenderDelayMs = 10 ms
 int32_t VideoReceiver::SetRenderDelay(uint32_t timeMS) {
-  _timing.set_render_delay(timeMS);
+  _timing->set_render_delay(timeMS);
   return VCM_OK;
 }
 
 // Current video delay
 int32_t VideoReceiver::Delay() const {
-  return _timing.TargetVideoDelay();
+  return _timing->TargetVideoDelay();
 }
 
 uint32_t VideoReceiver::DiscardedPackets() const {

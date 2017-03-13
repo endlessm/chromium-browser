@@ -9,25 +9,22 @@ package main
 */
 
 import (
-	"bytes"
 	"encoding/json"
-	"flag"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path"
-	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/skia-dev/glog"
-	"go.skia.org/infra/go/common"
 	"go.skia.org/infra/go/util"
 	"go.skia.org/infra/task_scheduler/go/specs"
 )
 
 const (
-	DEFAULT_OS = "Ubuntu"
+	DEFAULT_OS       = DEFAULT_OS_LINUX
+	DEFAULT_OS_LINUX = "Ubuntu-14.04"
 
 	// Pool for Skia bots.
 	POOL_SKIA = "Skia"
@@ -41,31 +38,283 @@ var (
 
 	// Top-level list of all jobs to run at each commit.
 	JOBS = []string{
-		"Build-Ubuntu-GCC-x86_64-Release-GN",
-		"Perf-Ubuntu-GCC-GCE-CPU-AVX2-x86_64-Release-GN",
-		"Test-Ubuntu-GCC-GCE-CPU-AVX2-x86_64-Release-GN",
+		"Build-Mac-Clang-Arm7-Debug-iOS",
+		"Build-Mac-Clang-Arm7-Release-iOS",
+		"Build-Mac-Clang-arm64-Debug-Android",
+		"Build-Mac-Clang-arm64-Debug-GN_iOS",
+		"Build-Mac-Clang-x86_64-Debug",
+		"Build-Mac-Clang-x86_64-Debug-CommandBuffer",
+		"Build-Mac-Clang-x86_64-Release",
+		"Build-Mac-Clang-x86_64-Release-CommandBuffer",
+		"Build-Ubuntu-Clang-arm-Debug-Android",
+		"Build-Ubuntu-Clang-arm-Release-Android",
+		"Build-Ubuntu-Clang-arm64-Debug-Android",
+		"Build-Ubuntu-Clang-arm64-Debug-Android_FrameworkDefs",
+		"Build-Ubuntu-Clang-arm64-Debug-Android_Vulkan",
+		"Build-Ubuntu-Clang-arm64-Release-Android",
+		"Build-Ubuntu-Clang-arm64-Release-Android_Vulkan",
+		"Build-Ubuntu-Clang-mips64el-Debug-Android",
+		"Build-Ubuntu-Clang-mips64el-Release-Android",
+		"Build-Ubuntu-Clang-mipsel-Debug-Android",
+		"Build-Ubuntu-Clang-mipsel-Release-Android",
+		"Build-Ubuntu-Clang-x64-Debug-Android",
+		"Build-Ubuntu-Clang-x64-Release-Android",
+		"Build-Ubuntu-Clang-x86-Debug-Android",
+		"Build-Ubuntu-Clang-x86-Debug-Android_Vulkan",
+		"Build-Ubuntu-Clang-x86-Release-Android",
+		"Build-Ubuntu-Clang-x86-Release-Android_Vulkan",
+		"Build-Ubuntu-Clang-x86_64-Debug",
+		"Build-Ubuntu-Clang-x86_64-Debug-ASAN",
+		"Build-Ubuntu-Clang-x86_64-Debug-MSAN",
+		"Build-Ubuntu-Clang-x86_64-Debug-Vulkan",
+		"Build-Ubuntu-Clang-x86_64-Release",
+		"Build-Ubuntu-Clang-x86_64-Release-Fast",
+		"Build-Ubuntu-Clang-x86_64-Release-TSAN",
+		"Build-Ubuntu-Clang-x86_64-Release-Vulkan",
+		"Build-Ubuntu-GCC-x86-Debug",
+		"Build-Ubuntu-GCC-x86-Release",
+		"Build-Ubuntu-GCC-x86_64-Debug",
+		"Build-Ubuntu-GCC-x86_64-Debug-NoGPU",
+		"Build-Ubuntu-GCC-x86_64-Debug-SK_USE_DISCARDABLE_SCALEDIMAGECACHE",
+		"Build-Ubuntu-GCC-x86_64-Release",
+		"Build-Ubuntu-GCC-x86_64-Release-ANGLE",
+		"Build-Ubuntu-GCC-x86_64-Release-Mesa",
+		"Build-Ubuntu-GCC-x86_64-Release-NoGPU",
+		"Build-Ubuntu-GCC-x86_64-Release-PDFium",
+		"Build-Ubuntu-GCC-x86_64-Release-PDFium_SkiaPaths",
+		"Build-Ubuntu-GCC-x86_64-Release-SKNX_NO_SIMD",
+		"Build-Ubuntu-GCC-x86_64-Release-Shared",
+		"Build-Ubuntu-GCC-x86_64-Release-Valgrind",
+		"Build-Win-Clang-arm64-Release-Android",
+		"Build-Win-MSVC-x86-Debug",
+		"Build-Win-MSVC-x86-Debug-ANGLE",
+		"Build-Win-MSVC-x86-Debug-Exceptions",
+		"Build-Win-MSVC-x86-Debug-GDI",
+		"Build-Win-MSVC-x86-Release",
+		"Build-Win-MSVC-x86-Release-ANGLE",
+		"Build-Win-MSVC-x86-Release-GDI",
+		"Build-Win-MSVC-x86_64-Debug",
+		"Build-Win-MSVC-x86_64-Debug-ANGLE",
+		"Build-Win-MSVC-x86_64-Debug-GDI",
+		"Build-Win-MSVC-x86_64-Debug-Vulkan",
+		"Build-Win-MSVC-x86_64-Release",
+		"Build-Win-MSVC-x86_64-Release-ANGLE",
+		"Build-Win-MSVC-x86_64-Release-GDI",
+		"Build-Win-MSVC-x86_64-Release-Vulkan",
+		"Housekeeper-Nightly-RecreateSKPs_Canary",
+		"Housekeeper-PerCommit",
+		"Housekeeper-PerCommit-InfraTests",
+		"Housekeeper-Weekly-RecreateSKPs",
+		"Perf-Android-Clang-AndroidOne-CPU-MT6582-arm-Debug-Android",
+		"Perf-Android-Clang-AndroidOne-CPU-MT6582-arm-Release-Android",
+		"Perf-Android-Clang-AndroidOne-GPU-Mali400MP2-arm-Debug-Android",
+		"Perf-Android-Clang-AndroidOne-GPU-Mali400MP2-arm-Release-Android",
+		"Perf-Android-Clang-GalaxyS7-GPU-Adreno530-arm64-Debug-Android",
+		"Perf-Android-Clang-GalaxyS7-GPU-Adreno530-arm64-Debug-Android_Vulkan",
+		"Perf-Android-Clang-GalaxyS7-GPU-Adreno530-arm64-Release-Android",
+		"Perf-Android-Clang-GalaxyS7-GPU-Adreno530-arm64-Release-Android_Vulkan",
+		"Perf-Android-Clang-NVIDIA_Shield-GPU-TegraX1-arm64-Debug-Android",
+		"Perf-Android-Clang-NVIDIA_Shield-GPU-TegraX1-arm64-Debug-Android_Vulkan",
+		"Perf-Android-Clang-NVIDIA_Shield-GPU-TegraX1-arm64-Release-Android",
+		"Perf-Android-Clang-NVIDIA_Shield-GPU-TegraX1-arm64-Release-Android_Vulkan",
+		"Perf-Android-Clang-Nexus10-GPU-MaliT604-arm-Debug-Android",
+		"Perf-Android-Clang-Nexus10-GPU-MaliT604-arm-Release-Android",
+		"Perf-Android-Clang-Nexus5-GPU-Adreno330-arm-Debug-Android",
+		"Perf-Android-Clang-Nexus5-GPU-Adreno330-arm-Release-Android",
+		"Perf-Android-Clang-Nexus6p-GPU-Adreno430-arm64-Debug-Android",
+		"Perf-Android-Clang-Nexus6p-GPU-Adreno430-arm64-Debug-Android_Vulkan",
+		"Perf-Android-Clang-Nexus6p-GPU-Adreno430-arm64-Release-Android",
+		"Perf-Android-Clang-Nexus6p-GPU-Adreno430-arm64-Release-Android_Vulkan",
+		"Perf-Android-Clang-Nexus7-GPU-Tegra3-arm-Debug-Android",
+		"Perf-Android-Clang-Nexus7-GPU-Tegra3-arm-Release-Android",
+		"Perf-Android-Clang-NexusPlayer-CPU-Moorefield-x86-Debug-Android",
+		"Perf-Android-Clang-NexusPlayer-GPU-PowerVR-x86-Debug-Android",
+		// "Perf-Android-Clang-NexusPlayer-GPU-PowerVR-x86-Debug-Android_Vulkan",
+		"Perf-Android-Clang-NexusPlayer-GPU-PowerVR-x86-Release-Android",
+		// "Perf-Android-Clang-NexusPlayer-GPU-PowerVR-x86-Release-Android_Vulkan",
+		"Perf-Android-Clang-Pixel-GPU-Adreno530-arm64-Debug-Android",
+		"Perf-Android-Clang-Pixel-GPU-Adreno530-arm64-Debug-Android_Vulkan",
+		"Perf-Android-Clang-Pixel-GPU-Adreno530-arm64-Release-Android",
+		"Perf-Android-Clang-Pixel-GPU-Adreno530-arm64-Release-Android_Vulkan",
+		"Perf-Android-Clang-PixelC-CPU-TegraX1-arm64-Debug-Android",
+		"Perf-Android-Clang-PixelC-CPU-TegraX1-arm64-Release-Android",
+		"Perf-Android-Clang-PixelC-GPU-TegraX1-arm64-Release-Android_Skpbench",
+		"Perf-Android-Clang-PixelC-GPU-TegraX1-arm64-Release-Android_Vulkan_Skpbench",
+		"Perf-Mac-Clang-MacMini4.1-GPU-GeForce320M-x86_64-Debug",
+		"Perf-Mac-Clang-MacMini4.1-GPU-GeForce320M-x86_64-Release",
+		"Perf-Mac-Clang-MacMini6.2-CPU-AVX-x86_64-Debug",
+		"Perf-Mac-Clang-MacMini6.2-CPU-AVX-x86_64-Release",
+		"Perf-Mac-Clang-MacMini6.2-GPU-HD4000-x86_64-Debug",
+		"Perf-Mac-Clang-MacMini6.2-GPU-HD4000-x86_64-Release",
+		"Perf-Mac-Clang-MacMini6.2-GPU-HD4000-x86_64-Release-CommandBuffer",
+		"Perf-Ubuntu-Clang-GCE-CPU-AVX2-x86_64-Debug",
+		"Perf-Ubuntu-Clang-GCE-CPU-AVX2-x86_64-Debug-ASAN",
+		"Perf-Ubuntu-Clang-GCE-CPU-AVX2-x86_64-Debug-MSAN",
+		"Perf-Ubuntu-Clang-GCE-CPU-AVX2-x86_64-Release",
+		"Perf-Ubuntu-Clang-GCE-CPU-AVX2-x86_64-Release-Fast",
+		"Perf-Ubuntu-Clang-Golo-GPU-GT610-x86_64-Debug-ASAN",
+		"Perf-Ubuntu-GCC-GCE-CPU-AVX2-x86-Debug",
+		"Perf-Ubuntu-GCC-GCE-CPU-AVX2-x86_64-Debug",
+		"Perf-Ubuntu-GCC-GCE-CPU-AVX2-x86_64-Debug-SK_USE_DISCARDABLE_SCALEDIMAGECACHE",
+		"Perf-Ubuntu-GCC-GCE-CPU-AVX2-x86_64-Release",
+		"Perf-Ubuntu-GCC-GCE-CPU-AVX2-x86_64-Release-CT_BENCH_1k_SKPs",
+		"Perf-Ubuntu-GCC-Golo-GPU-GT610-x86_64-Release-CT_BENCH_1k_SKPs",
+		"Perf-Ubuntu-GCC-ShuttleA-GPU-GTX550Ti-x86_64-Release-Valgrind",
+		"Perf-Ubuntu-GCC-ShuttleA-GPU-GTX660-x86_64-Debug",
+		"Perf-Ubuntu-GCC-ShuttleA-GPU-GTX660-x86_64-Release",
+		"Perf-Ubuntu16-Clang-NUC-GPU-IntelIris540-x86_64-Debug",
+		"Perf-Ubuntu16-Clang-NUC-GPU-IntelIris540-x86_64-Release",
+		"Perf-Ubuntu16-Clang-NUC-GPU-IntelIris540-x86_64-Debug-Vulkan",
+		"Perf-Ubuntu16-Clang-NUC-GPU-IntelIris540-x86_64-Release-Vulkan",
+		"Perf-Win10-MSVC-Golo-GPU-GT610-x86_64-Release",
+		"Perf-Win10-MSVC-NUC-GPU-IntelIris540-x86_64-Debug",
+		"Perf-Win10-MSVC-NUC-GPU-IntelIris540-x86_64-Debug-ANGLE",
+		"Perf-Win10-MSVC-NUC-GPU-IntelIris540-x86_64-Debug-Vulkan",
+		"Perf-Win10-MSVC-NUC-GPU-IntelIris540-x86_64-Release",
+		"Perf-Win10-MSVC-NUC-GPU-IntelIris540-x86_64-Release-ANGLE",
+		"Perf-Win10-MSVC-NUC-GPU-IntelIris540-x86_64-Release-Vulkan",
+		"Perf-Win10-MSVC-NUC-GPU-IntelIris6100-x86_64-Debug-ANGLE",
+		"Perf-Win10-MSVC-NUC-GPU-IntelIris6100-x86_64-Release-ANGLE",
+		"Perf-Win10-MSVC-ShuttleA-GPU-AMDHD7770-x86_64-Debug",
+		"Perf-Win10-MSVC-ShuttleA-GPU-AMDHD7770-x86_64-Release",
+		"Perf-Win10-MSVC-ShuttleA-GPU-GTX660-x86_64-Debug",
+		"Perf-Win10-MSVC-ShuttleA-GPU-GTX660-x86_64-Debug-Vulkan",
+		"Perf-Win10-MSVC-ShuttleA-GPU-GTX660-x86_64-Release",
+		"Perf-Win10-MSVC-ShuttleA-GPU-GTX660-x86_64-Release-Vulkan",
+		"Perf-Win10-MSVC-ShuttleB-GPU-IntelHD4600-x86_64-Debug",
+		"Perf-Win10-MSVC-ShuttleB-GPU-IntelHD4600-x86_64-Release",
+		"Perf-Win10-MSVC-ShuttleC-GPU-GTX960-x86_64-Debug",
+		"Perf-Win10-MSVC-ShuttleC-GPU-GTX960-x86_64-Debug-ANGLE",
+		"Perf-Win10-MSVC-ShuttleC-GPU-GTX960-x86_64-Release",
+		"Perf-Win10-MSVC-ShuttleC-GPU-GTX960-x86_64-Release-ANGLE",
+		"Perf-Win10-MSVC-ShuttleC-GPU-iHD530-x86_64-Debug",
+		"Perf-Win10-MSVC-ShuttleC-GPU-iHD530-x86_64-Release",
+		"Perf-Win10-MSVC-ZBOX-GPU-GTX1070-x86_64-Debug",
+		"Perf-Win10-MSVC-ZBOX-GPU-GTX1070-x86_64-Debug-ANGLE",
+		"Perf-Win10-MSVC-ZBOX-GPU-GTX1070-x86_64-Debug-Vulkan",
+		"Perf-Win10-MSVC-ZBOX-GPU-GTX1070-x86_64-Release",
+		"Perf-Win10-MSVC-ZBOX-GPU-GTX1070-x86_64-Release-ANGLE",
+		"Perf-Win10-MSVC-ZBOX-GPU-GTX1070-x86_64-Release-Vulkan",
+		"Perf-Win2k8-MSVC-GCE-CPU-AVX2-x86-Debug",
+		"Perf-Win2k8-MSVC-GCE-CPU-AVX2-x86_64-Debug",
+		"Perf-Win2k8-MSVC-GCE-CPU-AVX2-x86_64-Debug-GDI",
+		"Perf-Win2k8-MSVC-GCE-CPU-AVX2-x86_64-Release",
+		"Perf-iOS-Clang-iPadMini4-GPU-GX6450-Arm7-Debug",
+		"Perf-iOS-Clang-iPadMini4-GPU-GX6450-Arm7-Release",
+		"Test-Android-Clang-AndroidOne-CPU-MT6582-arm-Debug-Android",
+		"Test-Android-Clang-AndroidOne-CPU-MT6582-arm-Release-Android",
+		"Test-Android-Clang-AndroidOne-GPU-Mali400MP2-arm-Debug-Android",
+		"Test-Android-Clang-AndroidOne-GPU-Mali400MP2-arm-Release-Android",
+		"Test-Android-Clang-GalaxyS7-GPU-Adreno530-arm64-Debug-Android",
+		"Test-Android-Clang-GalaxyS7-GPU-Adreno530-arm64-Debug-Android_Vulkan",
+		"Test-Android-Clang-GalaxyS7-GPU-Adreno530-arm64-Release-Android",
+		"Test-Android-Clang-GalaxyS7-GPU-Adreno530-arm64-Release-Android_Vulkan",
+		"Test-Android-Clang-GalaxyTab3-GPU-Vivante-arm-Debug-Android",
+		"Test-Android-Clang-NVIDIA_Shield-GPU-TegraX1-arm64-Debug-Android",
+		"Test-Android-Clang-NVIDIA_Shield-GPU-TegraX1-arm64-Debug-Android_Vulkan",
+		"Test-Android-Clang-NVIDIA_Shield-GPU-TegraX1-arm64-Release-Android",
+		"Test-Android-Clang-NVIDIA_Shield-GPU-TegraX1-arm64-Release-Android_Vulkan",
+		"Test-Android-Clang-Nexus10-GPU-MaliT604-arm-Debug-Android",
+		"Test-Android-Clang-Nexus10-GPU-MaliT604-arm-Release-Android",
+		"Test-Android-Clang-Nexus5-GPU-Adreno330-arm-Debug-Android",
+		"Test-Android-Clang-Nexus5-GPU-Adreno330-arm-Release-Android",
+		"Test-Android-Clang-Nexus6p-GPU-Adreno430-arm64-Debug-Android",
+		"Test-Android-Clang-Nexus6p-GPU-Adreno430-arm64-Debug-Android_Vulkan",
+		"Test-Android-Clang-Nexus6p-GPU-Adreno430-arm64-Release-Android",
+		"Test-Android-Clang-Nexus6p-GPU-Adreno430-arm64-Release-Android_Vulkan",
+		"Test-Android-Clang-Nexus7-GPU-Tegra3-arm-Debug-Android",
+		"Test-Android-Clang-Nexus7-GPU-Tegra3-arm-Release-Android",
+		"Test-Android-Clang-NexusPlayer-CPU-Moorefield-x86-Debug-Android",
+		"Test-Android-Clang-NexusPlayer-CPU-Moorefield-x86-Release-Android",
+		"Test-Android-Clang-NexusPlayer-GPU-PowerVR-x86-Debug-Android",
+		// "Test-Android-Clang-NexusPlayer-GPU-PowerVR-x86-Debug-Android_Vulkan",
+		"Test-Android-Clang-NexusPlayer-GPU-PowerVR-x86-Release-Android",
+		// "Test-Android-Clang-NexusPlayer-GPU-PowerVR-x86-Release-Android_Vulkan",
+		"Test-Android-Clang-PixelC-CPU-TegraX1-arm64-Debug-Android",
+		"Test-Android-Clang-PixelC-CPU-TegraX1-arm64-Release-Android",
+		"Test-Android-Clang-PixelXL-GPU-Adreno530-arm64-Debug-Android",
+		"Test-Android-Clang-PixelXL-GPU-Adreno530-arm64-Debug-Android_Vulkan",
+		"Test-Android-Clang-PixelXL-GPU-Adreno530-arm64-Release-Android",
+		"Test-Android-Clang-PixelXL-GPU-Adreno530-arm64-Release-Android_Vulkan",
+		"Test-Mac-Clang-MacMini4.1-GPU-GeForce320M-x86_64-Debug",
+		"Test-Mac-Clang-MacMini4.1-GPU-GeForce320M-x86_64-Release",
+		"Test-Mac-Clang-MacMini6.2-CPU-AVX-x86_64-Debug",
+		"Test-Mac-Clang-MacMini6.2-CPU-AVX-x86_64-Release",
+		"Test-Mac-Clang-MacMini6.2-GPU-HD4000-x86_64-Debug",
+		"Test-Mac-Clang-MacMini6.2-GPU-HD4000-x86_64-Debug-CommandBuffer",
+		"Test-Mac-Clang-MacMini6.2-GPU-HD4000-x86_64-Release",
+		"Test-Ubuntu-Clang-GCE-CPU-AVX2-x86_64-Debug",
+		"Test-Ubuntu-Clang-GCE-CPU-AVX2-x86_64-Debug-ASAN",
+		"Test-Ubuntu-Clang-GCE-CPU-AVX2-x86_64-Debug-MSAN",
+		"Test-Ubuntu-Clang-GCE-CPU-AVX2-x86_64-Release",
+		"Test-Ubuntu-Clang-GCE-CPU-AVX2-x86_64-Release-Fast",
+		"Test-Ubuntu-Clang-GCE-CPU-AVX2-x86_64-Release-TSAN",
+		"Test-Ubuntu-Clang-Golo-GPU-GT610-x86_64-Debug-ASAN",
+		"Test-Ubuntu-Clang-Golo-GPU-GT610-x86_64-Release-TSAN",
+		"Test-Ubuntu-GCC-GCE-CPU-AVX2-x86-Debug",
+		"Test-Ubuntu-GCC-GCE-CPU-AVX2-x86_64-Debug",
+		"Test-Ubuntu-GCC-GCE-CPU-AVX2-x86_64-Debug-CT_DM_100k_SKPs",
+		"Test-Ubuntu-GCC-GCE-CPU-AVX2-x86_64-Debug-CT_DM_1m_SKPs",
+		"Test-Ubuntu-GCC-GCE-CPU-AVX2-x86_64-Debug-CT_IMG_DECODE_100k_SKPs",
+		"Test-Ubuntu-GCC-GCE-CPU-AVX2-x86_64-Debug-SK_USE_DISCARDABLE_SCALEDIMAGECACHE",
+		"Test-Ubuntu-GCC-GCE-CPU-AVX2-x86_64-Release",
+		"Test-Ubuntu-GCC-GCE-CPU-AVX2-x86_64-Release-SKNX_NO_SIMD",
+		"Test-Ubuntu-GCC-ShuttleA-GPU-GTX550Ti-x86_64-Release-Valgrind",
+		"Test-Ubuntu-GCC-ShuttleA-GPU-GTX660-x86_64-Debug",
+		"Test-Ubuntu-GCC-ShuttleA-GPU-GTX660-x86_64-Release",
+		"Test-Ubuntu16-Clang-NUC-GPU-IntelIris540-x86_64-Debug",
+		"Test-Ubuntu16-Clang-NUC-GPU-IntelIris540-x86_64-Release",
+		"Test-Ubuntu16-Clang-NUC-GPU-IntelIris540-x86_64-Debug-Vulkan",
+		"Test-Ubuntu16-Clang-NUC-GPU-IntelIris540-x86_64-Release-Vulkan",
+		"Test-Win10-MSVC-Golo-GPU-GT610-x86_64-Release",
+		"Test-Win10-MSVC-NUC-GPU-IntelIris540-x86_64-Debug",
+		"Test-Win10-MSVC-NUC-GPU-IntelIris540-x86_64-Debug-ANGLE",
+		"Test-Win10-MSVC-NUC-GPU-IntelIris540-x86_64-Debug-Vulkan",
+		"Test-Win10-MSVC-NUC-GPU-IntelIris540-x86_64-Release",
+		"Test-Win10-MSVC-NUC-GPU-IntelIris540-x86_64-Release-ANGLE",
+		"Test-Win10-MSVC-NUC-GPU-IntelIris540-x86_64-Release-Vulkan",
+		"Test-Win10-MSVC-NUC-GPU-IntelIris6100-x86_64-Debug-ANGLE",
+		"Test-Win10-MSVC-NUC-GPU-IntelIris6100-x86_64-Release-ANGLE",
+		"Test-Win10-MSVC-ShuttleA-GPU-AMDHD7770-x86_64-Debug",
+		"Test-Win10-MSVC-ShuttleA-GPU-AMDHD7770-x86_64-Release",
+		"Test-Win10-MSVC-ShuttleA-GPU-GTX660-x86_64-Debug",
+		"Test-Win10-MSVC-ShuttleA-GPU-GTX660-x86_64-Debug-Vulkan",
+		"Test-Win10-MSVC-ShuttleA-GPU-GTX660-x86_64-Release",
+		"Test-Win10-MSVC-ShuttleB-GPU-IntelHD4600-x86_64-Debug",
+		"Test-Win10-MSVC-ShuttleB-GPU-IntelHD4600-x86_64-Release",
+		"Test-Win10-MSVC-ShuttleC-GPU-GTX960-x86_64-Debug",
+		"Test-Win10-MSVC-ShuttleC-GPU-GTX960-x86_64-Debug-ANGLE",
+		"Test-Win10-MSVC-ShuttleC-GPU-GTX960-x86_64-Release",
+		"Test-Win10-MSVC-ShuttleC-GPU-GTX960-x86_64-Release-ANGLE",
+		"Test-Win10-MSVC-ShuttleC-GPU-iHD530-x86_64-Debug",
+		"Test-Win10-MSVC-ShuttleC-GPU-iHD530-x86_64-Release",
+		"Test-Win10-MSVC-ZBOX-GPU-GTX1070-x86_64-Debug",
+		"Test-Win10-MSVC-ZBOX-GPU-GTX1070-x86_64-Debug-ANGLE",
+		"Test-Win10-MSVC-ZBOX-GPU-GTX1070-x86_64-Debug-Vulkan",
+		"Test-Win10-MSVC-ZBOX-GPU-GTX1070-x86_64-Release",
+		"Test-Win10-MSVC-ZBOX-GPU-GTX1070-x86_64-Release-ANGLE",
+		"Test-Win10-MSVC-ZBOX-GPU-GTX1070-x86_64-Release-Vulkan",
+		"Test-Win2k8-MSVC-GCE-CPU-AVX2-x86-Debug",
+		"Test-Win2k8-MSVC-GCE-CPU-AVX2-x86-Release",
+		"Test-Win2k8-MSVC-GCE-CPU-AVX2-x86_64-Debug",
+		"Test-Win2k8-MSVC-GCE-CPU-AVX2-x86_64-Debug-GDI",
+		"Test-Win2k8-MSVC-GCE-CPU-AVX2-x86_64-Release",
+		"Test-Win2k8-MSVC-GCE-CPU-AVX2-x86_64-Release-GDI",
+		"Test-iOS-Clang-iPadMini4-GPU-GX6450-Arm7-Debug",
+		"Test-iOS-Clang-iPadMini4-GPU-GX6450-Arm7-Release",
 	}
 
-	// UPLOAD_DIMENSIONS are the Swarming dimensions for upload tasks.
-	UPLOAD_DIMENSIONS = []string{
+	// LINUX_GCE_DIMENSIONS are the Swarming dimensions for Linux GCE
+	// instances.
+	LINUX_GCE_DIMENSIONS = []string{
 		"cpu:x86-64-avx2",
 		"gpu:none",
-		"os:Ubuntu",
+		fmt.Sprintf("os:%s", DEFAULT_OS_LINUX),
 		fmt.Sprintf("pool:%s", POOL_SKIA),
 	}
 
 	// Defines the structure of job names.
 	jobNameSchema *JobNameSchema
-
-	// Caches CIPD package info so that we don't have to re-read VERSION
-	// files.
-	cipdPackages = map[string]*specs.CipdPackage{}
-
-	// Path to the infra/bots directory.
-	infrabotsDir = ""
-
-	// Flags.
-	testing = flag.Bool("test", false, "Run in test mode: verify that the output hasn't changed.")
 )
 
 // deriveCompileTaskName returns the name of a compile task based on the given
@@ -76,27 +325,31 @@ func deriveCompileTaskName(jobName string, parts map[string]string) string {
 	} else if parts["role"] == "Test" || parts["role"] == "Perf" {
 		task_os := parts["os"]
 		ec := parts["extra_config"]
+		ec = strings.TrimSuffix(ec, "_Skpbench")
 		if task_os == "Android" {
 			if ec == "Vulkan" {
 				ec = "Android_Vulkan"
-			} else if !strings.Contains(ec, "GN_Android") {
-				ec = task_os
 			}
-			task_os = "Android"
+			task_os = "Ubuntu"
 		} else if task_os == "iOS" {
 			ec = task_os
 			task_os = "Mac"
 		} else if strings.Contains(task_os, "Win") {
 			task_os = "Win"
+		} else if strings.Contains(task_os, "Ubuntu") {
+			task_os = "Ubuntu"
 		}
-		name, err := jobNameSchema.MakeJobName(map[string]string{
+		jobNameMap := map[string]string{
 			"role":          "Build",
 			"os":            task_os,
 			"compiler":      parts["compiler"],
 			"target_arch":   parts["arch"],
 			"configuration": parts["configuration"],
-			"extra_config":  ec,
-		})
+		}
+		if ec != "" {
+			jobNameMap["extra_config"] = ec
+		}
+		name, err := jobNameSchema.MakeJobName(jobNameMap)
 		if err != nil {
 			glog.Fatal(err)
 		}
@@ -108,48 +361,54 @@ func deriveCompileTaskName(jobName string, parts map[string]string) string {
 
 // swarmDimensions generates swarming bot dimensions for the given task.
 func swarmDimensions(parts map[string]string) []string {
-	if parts["extra_config"] == "SkiaCT" {
-		return []string{
-			"pool:SkiaCT",
-		}
-	}
 	d := map[string]string{
 		"pool": POOL_SKIA,
 	}
 	if os, ok := parts["os"]; ok {
-		d["os"] = os
+		d["os"] = map[string]string{
+			"Android":  "Android",
+			"Mac":      "Mac-10.11",
+			"Ubuntu":   DEFAULT_OS_LINUX,
+			"Ubuntu16": "Ubuntu-16.04",
+			"Win":      "Windows-2008ServerR2-SP1",
+			"Win10":    "Windows-10-14393",
+			"Win2k8":   "Windows-2008ServerR2-SP1",
+			"Win8":     "Windows-8.1-SP0",
+			"iOS":      "iOS-9.3.1",
+		}[os]
+		// Chrome Golo has a different Windows image.
+		if parts["model"] == "Golo" && os == "Win10" {
+			d["os"] = "Windows-10-10586"
+		}
 	} else {
 		d["os"] = DEFAULT_OS
-	}
-	if strings.Contains(d["os"], "Win") {
-		d["os"] = "Windows"
 	}
 	if parts["role"] == "Test" || parts["role"] == "Perf" {
 		if strings.Contains(parts["os"], "Android") {
 			// For Android, the device type is a better dimension
 			// than CPU or GPU.
-			d["device_type"] = map[string]string{
-				"AndroidOne":    "sprout",
-				"GalaxyS3":      "m0", // "smdk4x12", Detected incorrectly by swarming?
-				"GalaxyS4":      "",   // TODO(borenet,kjlubick)
-				"GalaxyS7":      "heroqlteatt",
-				"NVIDIA_Shield": "foster",
-				"Nexus10":       "manta",
-				"Nexus5":        "hammerhead",
-				"Nexus6":        "shamu",
-				"Nexus6p":       "angler",
-				"Nexus7":        "grouper",
-				"Nexus7v2":      "flo",
-				"Nexus9":        "flounder",
-				"NexusPlayer":   "fugu",
+			deviceInfo := map[string][]string{
+				"AndroidOne":    {"sprout", "MOB30Q"},
+				"GalaxyS7":      {"heroqlteatt", "MMB29M"},
+				"GalaxyTab3":    {"goyawifi", "JDQ39"},
+				"NVIDIA_Shield": {"foster", "MRA58K"},
+				"Nexus10":       {"manta", "LMY49J"},
+				"Nexus5":        {"hammerhead", "M4B30Z"},
+				"Nexus6":        {"shamu", "M"},
+				"Nexus6p":       {"angler", "NMF26C"},
+				"Nexus7":        {"grouper", "LMY47V"},
+				"Nexus7v2":      {"flo", "M"},
+				"NexusPlayer":   {"fugu", "N2G10B"},
+				"Pixel":         {"sailfish", "NMF26Q"},
+				"PixelC":        {"dragon", "NMF26H"},
+				"PixelXL":       {"marlin", "NMF26Q"},
 			}[parts["model"]]
+			d["device_type"] = deviceInfo[0]
+			d["device_os"] = deviceInfo[1]
 		} else if strings.Contains(parts["os"], "iOS") {
 			d["device"] = map[string]string{
-				"iPad4": "iPad4,1",
+				"iPadMini4": "iPad5,1",
 			}[parts["model"]]
-			// TODO(borenet): Replace this hack with something
-			// better.
-			d["os"] = "iOS-9.2"
 		} else if parts["cpu_or_gpu"] == "CPU" {
 			d["gpu"] = "none"
 			d["cpu"] = map[string]string{
@@ -166,15 +425,22 @@ func swarmDimensions(parts map[string]string) []string {
 			}
 		} else {
 			d["gpu"] = map[string]string{
+				"AMDHD7770":   "1002:683d",
 				"GeForce320M": "10de:08a4",
 				"GT610":       "10de:104a",
+				"GTX1070":     "10de:1ba1",
 				"GTX550Ti":    "10de:1244",
 				"GTX660":      "10de:11c0",
 				"GTX960":      "10de:1401",
-				"HD4000":      "8086:0a2e",
-				"HD4600":      "8086:0412",
-				"HD7770":      "1002:683d",
-				"iHD530":      "8086:1912",
+				// TODO(benjaminwagner): This device ID doesn't
+				// match HD4000.
+				"HD4000": "8086:0a2e",
+				// This bot will eventually go away, so I'm not
+				// going to bother renaming it.
+				"iHD530":        "8086:1912",
+				"IntelHD4600":   "8086:0412",
+				"IntelIris540":  "8086:1926",
+				"IntelIris6100": "8086:162b",
 			}[parts["cpu_or_gpu_value"]]
 		}
 	} else {
@@ -188,73 +454,62 @@ func swarmDimensions(parts map[string]string) []string {
 	return rv
 }
 
-// getCipdPackage finds and returns the given CIPD package and version.
-func getCipdPackage(assetName string) *specs.CipdPackage {
-	if pkg, ok := cipdPackages[assetName]; ok {
-		return pkg
-	}
-	versionFile := path.Join(infrabotsDir, "assets", assetName, "VERSION")
-	contents, err := ioutil.ReadFile(versionFile)
-	if err != nil {
-		glog.Fatal(err)
-	}
-	version := strings.TrimSpace(string(contents))
-	pkg := &specs.CipdPackage{
-		Name:    fmt.Sprintf("skia/bots/%s", assetName),
-		Path:    assetName,
-		Version: fmt.Sprintf("version:%s", version),
-	}
-	if assetName == "win_toolchain" {
-		pkg.Path = "t" // Workaround for path length limit on Windows.
-	}
-	cipdPackages[assetName] = pkg
-	return pkg
-}
-
 // compile generates a compile task. Returns the name of the last task in the
 // generated chain of tasks, which the Job should add as a dependency.
-func compile(cfg *specs.TasksCfg, name string, parts map[string]string) string {
+func compile(b *specs.TasksCfgBuilder, name string, parts map[string]string) string {
 	// Collect the necessary CIPD packages.
 	pkgs := []*specs.CipdPackage{}
 
 	// Android bots require a toolchain.
 	if strings.Contains(name, "Android") {
-		pkgs = append(pkgs, getCipdPackage("android_sdk"))
 		if strings.Contains(name, "Mac") {
-			pkgs = append(pkgs, getCipdPackage("android_ndk_darwin"))
+			pkgs = append(pkgs, b.MustGetCipdPackageFromAsset("android_ndk_darwin"))
+		} else if strings.Contains(name, "Win") {
+			pkg := b.MustGetCipdPackageFromAsset("android_ndk_windows")
+			pkg.Path = "n"
+			pkgs = append(pkgs, pkg)
 		} else {
-			pkgs = append(pkgs, getCipdPackage("android_ndk_linux"))
+			pkgs = append(pkgs, b.MustGetCipdPackageFromAsset("android_ndk_linux"))
 		}
-	}
-
-	// Clang on Linux.
-	if strings.Contains(name, "Ubuntu") && strings.Contains(name, "Clang") {
-		pkgs = append(pkgs, getCipdPackage("clang_linux"))
-	}
-
-	// Windows toolchain.
-	if strings.Contains(name, "Win") {
-		pkgs = append(pkgs, getCipdPackage("win_toolchain"))
+	} else if strings.Contains(name, "Ubuntu") {
+		if strings.Contains(name, "Clang") {
+			pkgs = append(pkgs, b.MustGetCipdPackageFromAsset("clang_linux"))
+		}
 		if strings.Contains(name, "Vulkan") {
-			pkgs = append(pkgs, getCipdPackage("win_vulkan_sdk"))
+			pkgs = append(pkgs, b.MustGetCipdPackageFromAsset("linux_vulkan_sdk"))
+		}
+	} else if strings.Contains(name, "Win") {
+		pkgs = append(pkgs, b.MustGetCipdPackageFromAsset("win_toolchain"))
+		if strings.Contains(name, "Vulkan") {
+			pkgs = append(pkgs, b.MustGetCipdPackageFromAsset("win_vulkan_sdk"))
 		}
 	}
 
 	// Add the task.
-	cfg.Tasks[name] = &specs.TaskSpec{
+	b.MustAddTask(name, &specs.TaskSpec{
 		CipdPackages: pkgs,
 		Dimensions:   swarmDimensions(parts),
 		ExtraArgs: []string{
 			"--workdir", "../../..", "swarm_compile",
+			fmt.Sprintf("repository=%s", specs.PLACEHOLDER_REPO),
 			fmt.Sprintf("buildername=%s", name),
 			"mastername=fake-master",
 			"buildnumber=2",
 			"slavename=fake-buildslave",
+			"nobuildbot=True",
 			fmt.Sprintf("swarm_out_dir=%s", specs.PLACEHOLDER_ISOLATED_OUTDIR),
 			fmt.Sprintf("revision=%s", specs.PLACEHOLDER_REVISION),
+			fmt.Sprintf("patch_storage=%s", specs.PLACEHOLDER_PATCH_STORAGE),
+			fmt.Sprintf("patch_issue=%s", specs.PLACEHOLDER_ISSUE),
+			fmt.Sprintf("patch_set=%s", specs.PLACEHOLDER_PATCHSET),
 		},
 		Isolate:  "compile_skia.isolate",
 		Priority: 0.8,
+	})
+	// All compile tasks are runnable as their own Job. Assert that the Job
+	// is listed in JOBS.
+	if !util.In(name, JOBS) {
+		glog.Fatalf("Job %q is missing from the JOBS list!", name)
 	}
 	return name
 }
@@ -262,22 +517,110 @@ func compile(cfg *specs.TasksCfg, name string, parts map[string]string) string {
 // recreateSKPs generates a RecreateSKPs task. Returns the name of the last
 // task in the generated chain of tasks, which the Job should add as a
 // dependency.
-func recreateSKPs(cfg *specs.TasksCfg, name string) string {
-	// TODO
+func recreateSKPs(b *specs.TasksCfgBuilder, name string) string {
+	b.MustAddTask(name, &specs.TaskSpec{
+		CipdPackages:     []*specs.CipdPackage{},
+		Dimensions:       LINUX_GCE_DIMENSIONS,
+		ExecutionTimeout: 4 * time.Hour,
+		ExtraArgs: []string{
+			"--workdir", "../../..", "swarm_RecreateSKPs",
+			fmt.Sprintf("repository=%s", specs.PLACEHOLDER_REPO),
+			fmt.Sprintf("buildername=%s", name),
+			"mastername=fake-master",
+			"buildnumber=2",
+			"slavename=fake-buildslave",
+			"nobuildbot=True",
+			fmt.Sprintf("swarm_out_dir=%s", specs.PLACEHOLDER_ISOLATED_OUTDIR),
+			fmt.Sprintf("revision=%s", specs.PLACEHOLDER_REVISION),
+			fmt.Sprintf("patch_storage=%s", specs.PLACEHOLDER_PATCH_STORAGE),
+			fmt.Sprintf("patch_issue=%s", specs.PLACEHOLDER_ISSUE),
+			fmt.Sprintf("patch_set=%s", specs.PLACEHOLDER_PATCHSET),
+		},
+		IoTimeout: 40 * time.Minute,
+		Isolate:   "compile_skia.isolate",
+		Priority:  0.8,
+	})
 	return name
 }
 
 // ctSKPs generates a CT SKPs task. Returns the name of the last task in the
 // generated chain of tasks, which the Job should add as a dependency.
-func ctSKPs(cfg *specs.TasksCfg, name string) string {
-	// TODO
+func ctSKPs(b *specs.TasksCfgBuilder, name string) string {
+	b.MustAddTask(name, &specs.TaskSpec{
+		CipdPackages:     []*specs.CipdPackage{},
+		Dimensions:       []string{"pool:SkiaCT"},
+		ExecutionTimeout: 24 * time.Hour,
+		ExtraArgs: []string{
+			"--workdir", "../../..", "swarm_ct_skps",
+			fmt.Sprintf("repository=%s", specs.PLACEHOLDER_REPO),
+			fmt.Sprintf("buildername=%s", name),
+			"mastername=fake-master",
+			"buildnumber=2",
+			"slavename=fake-buildslave",
+			"nobuildbot=True",
+			fmt.Sprintf("swarm_out_dir=%s", specs.PLACEHOLDER_ISOLATED_OUTDIR),
+			fmt.Sprintf("revision=%s", specs.PLACEHOLDER_REVISION),
+			fmt.Sprintf("patch_storage=%s", specs.PLACEHOLDER_PATCH_STORAGE),
+			fmt.Sprintf("patch_issue=%s", specs.PLACEHOLDER_ISSUE),
+			fmt.Sprintf("patch_set=%s", specs.PLACEHOLDER_PATCHSET),
+		},
+		IoTimeout: time.Hour,
+		Isolate:   "ct_skps_skia.isolate",
+		Priority:  0.8,
+	})
 	return name
 }
 
 // housekeeper generates a Housekeeper task. Returns the name of the last task
 // in the generated chain of tasks, which the Job should add as a dependency.
-func housekeeper(cfg *specs.TasksCfg, name, compileTaskName string) string {
-	// TODO
+func housekeeper(b *specs.TasksCfgBuilder, name, compileTaskName string) string {
+	b.MustAddTask(name, &specs.TaskSpec{
+		CipdPackages: []*specs.CipdPackage{b.MustGetCipdPackageFromAsset("go")},
+		Dependencies: []string{compileTaskName},
+		Dimensions:   LINUX_GCE_DIMENSIONS,
+		ExtraArgs: []string{
+			"--workdir", "../../..", "swarm_housekeeper",
+			fmt.Sprintf("repository=%s", specs.PLACEHOLDER_REPO),
+			fmt.Sprintf("buildername=%s", name),
+			"mastername=fake-master",
+			"buildnumber=2",
+			"slavename=fake-buildslave",
+			"nobuildbot=True",
+			fmt.Sprintf("swarm_out_dir=%s", specs.PLACEHOLDER_ISOLATED_OUTDIR),
+			fmt.Sprintf("revision=%s", specs.PLACEHOLDER_REVISION),
+			fmt.Sprintf("patch_storage=%s", specs.PLACEHOLDER_PATCH_STORAGE),
+			fmt.Sprintf("patch_issue=%s", specs.PLACEHOLDER_ISSUE),
+			fmt.Sprintf("patch_set=%s", specs.PLACEHOLDER_PATCHSET),
+		},
+		Isolate:  "housekeeper_skia.isolate",
+		Priority: 0.8,
+	})
+	return name
+}
+
+// infra generates an infra_tests task. Returns the name of the last task in the
+// generated chain of tasks, which the Job should add as a dependency.
+func infra(b *specs.TasksCfgBuilder, name string) string {
+	b.MustAddTask(name, &specs.TaskSpec{
+		CipdPackages: []*specs.CipdPackage{},
+		Dimensions:   LINUX_GCE_DIMENSIONS,
+		ExtraArgs: []string{
+			"--workdir", "../../..", "swarm_infra",
+			fmt.Sprintf("repository=%s", specs.PLACEHOLDER_REPO),
+			fmt.Sprintf("buildername=%s", name),
+			"mastername=fake-master",
+			"buildnumber=2",
+			"slavename=fake-buildslave",
+			"nobuildbot=True",
+			fmt.Sprintf("swarm_out_dir=%s", specs.PLACEHOLDER_ISOLATED_OUTDIR),
+			fmt.Sprintf("revision=%s", specs.PLACEHOLDER_REVISION),
+			fmt.Sprintf("patch_storage=%s", specs.PLACEHOLDER_PATCH_STORAGE),
+			fmt.Sprintf("patch_issue=%s", specs.PLACEHOLDER_ISSUE),
+			fmt.Sprintf("patch_set=%s", specs.PLACEHOLDER_PATCHSET),
+		},
+		Isolate:  "infra_skia.isolate",
+		Priority: 0.8,
+	})
 	return name
 }
 
@@ -301,41 +644,63 @@ func doUpload(name string) bool {
 
 // test generates a Test task. Returns the name of the last task in the
 // generated chain of tasks, which the Job should add as a dependency.
-func test(cfg *specs.TasksCfg, name string, parts map[string]string, compileTaskName string, pkgs []*specs.CipdPackage) string {
-	cfg.Tasks[name] = &specs.TaskSpec{
-		CipdPackages: pkgs,
-		Dependencies: []string{compileTaskName},
-		Dimensions:   swarmDimensions(parts),
+func test(b *specs.TasksCfgBuilder, name string, parts map[string]string, compileTaskName string, pkgs []*specs.CipdPackage) string {
+	s := &specs.TaskSpec{
+		CipdPackages:     pkgs,
+		Dependencies:     []string{compileTaskName},
+		Dimensions:       swarmDimensions(parts),
+		ExecutionTimeout: 4 * time.Hour,
+		Expiration:       20 * time.Hour,
 		ExtraArgs: []string{
 			"--workdir", "../../..", "swarm_test",
+			fmt.Sprintf("repository=%s", specs.PLACEHOLDER_REPO),
 			fmt.Sprintf("buildername=%s", name),
 			"mastername=fake-master",
 			"buildnumber=2",
 			"slavename=fake-buildslave",
+			"nobuildbot=True",
 			fmt.Sprintf("swarm_out_dir=%s", specs.PLACEHOLDER_ISOLATED_OUTDIR),
 			fmt.Sprintf("revision=%s", specs.PLACEHOLDER_REVISION),
+			fmt.Sprintf("patch_storage=%s", specs.PLACEHOLDER_PATCH_STORAGE),
+			fmt.Sprintf("patch_issue=%s", specs.PLACEHOLDER_ISSUE),
+			fmt.Sprintf("patch_set=%s", specs.PLACEHOLDER_PATCHSET),
 		},
-		Isolate:  "test_skia.isolate",
-		Priority: 0.8,
+		IoTimeout: 40 * time.Minute,
+		Isolate:   "test_skia.isolate",
+		Priority:  0.8,
 	}
+	if strings.Contains(parts["extra_config"], "Valgrind") {
+		s.ExecutionTimeout = 9 * time.Hour
+		s.Expiration = 48 * time.Hour
+		s.IoTimeout = time.Hour
+	} else if strings.Contains(parts["extra_config"], "MSAN") {
+		s.ExecutionTimeout = 9 * time.Hour
+	}
+	b.MustAddTask(name, s)
+
 	// Upload results if necessary.
 	if doUpload(name) {
 		uploadName := fmt.Sprintf("%s%s%s", PREFIX_UPLOAD, jobNameSchema.Sep, name)
-		cfg.Tasks[uploadName] = &specs.TaskSpec{
+		b.MustAddTask(uploadName, &specs.TaskSpec{
 			Dependencies: []string{name},
-			Dimensions:   UPLOAD_DIMENSIONS,
+			Dimensions:   LINUX_GCE_DIMENSIONS,
 			ExtraArgs: []string{
 				"--workdir", "../../..", "upload_dm_results",
+				fmt.Sprintf("repository=%s", specs.PLACEHOLDER_REPO),
 				fmt.Sprintf("buildername=%s", name),
 				"mastername=fake-master",
 				"buildnumber=2",
 				"slavename=fake-buildslave",
+				"nobuildbot=True",
 				fmt.Sprintf("swarm_out_dir=%s", specs.PLACEHOLDER_ISOLATED_OUTDIR),
 				fmt.Sprintf("revision=%s", specs.PLACEHOLDER_REVISION),
+				fmt.Sprintf("patch_storage=%s", specs.PLACEHOLDER_PATCH_STORAGE),
+				fmt.Sprintf("patch_issue=%s", specs.PLACEHOLDER_ISSUE),
+				fmt.Sprintf("patch_set=%s", specs.PLACEHOLDER_PATCHSET),
 			},
 			Isolate:  "upload_dm_results.isolate",
 			Priority: 0.8,
-		}
+		})
 		return uploadName
 	}
 	return name
@@ -343,51 +708,76 @@ func test(cfg *specs.TasksCfg, name string, parts map[string]string, compileTask
 
 // perf generates a Perf task. Returns the name of the last task in the
 // generated chain of tasks, which the Job should add as a dependency.
-func perf(cfg *specs.TasksCfg, name string, parts map[string]string, compileTaskName string, pkgs []*specs.CipdPackage) string {
-	cfg.Tasks[name] = &specs.TaskSpec{
-		CipdPackages: pkgs,
-		Dependencies: []string{compileTaskName},
-		Dimensions:   swarmDimensions(parts),
+func perf(b *specs.TasksCfgBuilder, name string, parts map[string]string, compileTaskName string, pkgs []*specs.CipdPackage) string {
+	recipe := "swarm_perf"
+	isolate := "perf_skia.isolate"
+	if strings.Contains(parts["extra_config"], "Skpbench") {
+		recipe = "swarm_skpbench"
+		isolate = "skpbench_skia.isolate"
+	}
+	s := &specs.TaskSpec{
+		CipdPackages:     pkgs,
+		Dependencies:     []string{compileTaskName},
+		Dimensions:       swarmDimensions(parts),
+		ExecutionTimeout: 4 * time.Hour,
+		Expiration:       20 * time.Hour,
 		ExtraArgs: []string{
-			"--workdir", "../../..", "swarm_perf",
+			"--workdir", "../../..", recipe,
+			fmt.Sprintf("repository=%s", specs.PLACEHOLDER_REPO),
 			fmt.Sprintf("buildername=%s", name),
 			"mastername=fake-master",
 			"buildnumber=2",
 			"slavename=fake-buildslave",
+			"nobuildbot=True",
 			fmt.Sprintf("swarm_out_dir=%s", specs.PLACEHOLDER_ISOLATED_OUTDIR),
 			fmt.Sprintf("revision=%s", specs.PLACEHOLDER_REVISION),
+			fmt.Sprintf("patch_storage=%s", specs.PLACEHOLDER_PATCH_STORAGE),
+			fmt.Sprintf("patch_issue=%s", specs.PLACEHOLDER_ISSUE),
+			fmt.Sprintf("patch_set=%s", specs.PLACEHOLDER_PATCHSET),
 		},
-		Isolate:  "perf_skia.isolate",
-		Priority: 0.8,
+		IoTimeout: 40 * time.Minute,
+		Isolate:   isolate,
+		Priority:  0.8,
 	}
+	if strings.Contains(parts["extra_config"], "Valgrind") {
+		s.ExecutionTimeout = 9 * time.Hour
+		s.Expiration = 48 * time.Hour
+		s.IoTimeout = time.Hour
+	} else if strings.Contains(parts["extra_config"], "MSAN") {
+		s.ExecutionTimeout = 9 * time.Hour
+	}
+	b.MustAddTask(name, s)
+
 	// Upload results if necessary.
 	if strings.Contains(name, "Release") && doUpload(name) {
 		uploadName := fmt.Sprintf("%s%s%s", PREFIX_UPLOAD, jobNameSchema.Sep, name)
-		cfg.Tasks[uploadName] = &specs.TaskSpec{
+		b.MustAddTask(uploadName, &specs.TaskSpec{
 			Dependencies: []string{name},
-			Dimensions:   UPLOAD_DIMENSIONS,
+			Dimensions:   LINUX_GCE_DIMENSIONS,
 			ExtraArgs: []string{
 				"--workdir", "../../..", "upload_nano_results",
+				fmt.Sprintf("repository=%s", specs.PLACEHOLDER_REPO),
 				fmt.Sprintf("buildername=%s", name),
 				"mastername=fake-master",
 				"buildnumber=2",
 				"slavename=fake-buildslave",
+				"nobuildbot=True",
 				fmt.Sprintf("swarm_out_dir=%s", specs.PLACEHOLDER_ISOLATED_OUTDIR),
 				fmt.Sprintf("revision=%s", specs.PLACEHOLDER_REVISION),
+				fmt.Sprintf("patch_storage=%s", specs.PLACEHOLDER_PATCH_STORAGE),
+				fmt.Sprintf("patch_issue=%s", specs.PLACEHOLDER_ISSUE),
+				fmt.Sprintf("patch_set=%s", specs.PLACEHOLDER_PATCHSET),
 			},
 			Isolate:  "upload_nano_results.isolate",
 			Priority: 0.8,
-		}
+		})
 		return uploadName
 	}
 	return name
 }
 
 // process generates tasks and jobs for the given job name.
-func process(cfg *specs.TasksCfg, name string) {
-	if _, ok := cfg.Jobs[name]; ok {
-		glog.Fatalf("Duplicate job %q", name)
-	}
+func process(b *specs.TasksCfgBuilder, name string) {
 	deps := []string{}
 
 	parts, err := jobNameSchema.ParseJobName(name)
@@ -397,129 +787,102 @@ func process(cfg *specs.TasksCfg, name string) {
 
 	// RecreateSKPs.
 	if strings.Contains(name, "RecreateSKPs") {
-		deps = append(deps, recreateSKPs(cfg, name))
+		deps = append(deps, recreateSKPs(b, name))
 	}
 
 	// CT bots.
 	if strings.Contains(name, "-CT_") {
-		deps = append(deps, ctSKPs(cfg, name))
+		deps = append(deps, ctSKPs(b, name))
+	}
+
+	// Infra tests.
+	if name == "Housekeeper-PerCommit-InfraTests" {
+		deps = append(deps, infra(b, name))
 	}
 
 	// Compile bots.
 	if parts["role"] == "Build" {
-		deps = append(deps, compile(cfg, name, parts))
+		deps = append(deps, compile(b, name, parts))
 	}
 
-	// Any remaining bots need a compile task.
+	// Most remaining bots need a compile task.
 	compileTaskName := deriveCompileTaskName(name, parts)
+	compileTaskParts, err := jobNameSchema.ParseJobName(compileTaskName)
+	if err != nil {
+		glog.Fatal(err)
+	}
+	// These bots do not need a compile task.
+	if parts["role"] != "Build" &&
+		name != "Housekeeper-PerCommit-InfraTests" &&
+		!strings.Contains(name, "RecreateSKPs") &&
+		!strings.Contains(name, "-CT_") {
+		compile(b, compileTaskName, compileTaskParts)
+	}
 
 	// Housekeeper.
-	if parts["role"] == "Housekeeper" {
-		deps = append(deps, housekeeper(cfg, name, compileTaskName))
+	if name == "Housekeeper-PerCommit" {
+		deps = append(deps, housekeeper(b, name, compileTaskName))
 	}
 
 	// Common assets needed by the remaining bots.
 	pkgs := []*specs.CipdPackage{
-		getCipdPackage("skimage"),
-		getCipdPackage("skp"),
-		getCipdPackage("svg"),
+		b.MustGetCipdPackageFromAsset("skimage"),
+		b.MustGetCipdPackageFromAsset("skp"),
+		b.MustGetCipdPackageFromAsset("svg"),
+	}
+	if strings.Contains(name, "Ubuntu") && strings.Contains(name, "SAN") {
+		pkgs = append(pkgs, b.MustGetCipdPackageFromAsset("clang_linux"))
+	}
+	// Skpbench only needs skps
+	if strings.Contains(name, "Skpbench") {
+		pkgs = []*specs.CipdPackage{
+			b.MustGetCipdPackageFromAsset("skp"),
+		}
 	}
 
 	// Test bots.
-	if parts["role"] == "Test" {
-		deps = append(deps, test(cfg, name, parts, compileTaskName, pkgs))
+	if parts["role"] == "Test" && !strings.Contains(name, "-CT_") {
+		deps = append(deps, test(b, name, parts, compileTaskName, pkgs))
 	}
 
 	// Perf bots.
-	if parts["role"] == "Perf" {
-		deps = append(deps, perf(cfg, name, parts, compileTaskName, pkgs))
+	if parts["role"] == "Perf" && !strings.Contains(name, "-CT_") {
+		deps = append(deps, perf(b, name, parts, compileTaskName, pkgs))
 	}
 
 	// Add the Job spec.
-	cfg.Jobs[name] = &specs.JobSpec{
+	j := &specs.JobSpec{
 		Priority:  0.8,
 		TaskSpecs: deps,
 	}
-}
-
-// getCheckoutRoot returns the path of the root of the Skia checkout, or an
-// error if it cannot be found.
-func getCheckoutRoot() string {
-	cwd, err := os.Getwd()
-	if err != nil {
-		glog.Fatal(err)
+	if name == "Housekeeper-Nightly-RecreateSKPs_Canary" {
+		j.Trigger = "nightly"
 	}
-	for {
-		if _, err := os.Stat(cwd); err != nil {
-			glog.Fatal(err)
-		}
-		s, err := os.Stat(path.Join(cwd, ".git"))
-		if err == nil && s.IsDir() {
-			// TODO(borenet): Should we verify that this is a Skia
-			// checkout and not something else?
-			return cwd
-		}
-		cwd = filepath.Clean(path.Join(cwd, ".."))
+	if name == "Housekeeper-Weekly-RecreateSKPs" {
+		j.Trigger = "weekly"
 	}
+	if name == "Test-Ubuntu-GCC-GCE-CPU-AVX2-x86_64-Debug-CT_DM_1m_SKPs" {
+		j.Trigger = "weekly"
+	}
+	b.MustAddJob(name, j)
 }
 
 // Regenerate the tasks.json file.
 func main() {
-	common.Init()
-	defer common.LogPanic()
-
-	// Where are we?
-	root := getCheckoutRoot()
-	infrabotsDir = path.Join(root, "infra", "bots")
-
+	b := specs.MustNewTasksCfgBuilder()
 	// Create the JobNameSchema.
-	schema, err := NewJobNameSchema(path.Join(infrabotsDir, "recipe_modules", "builder_name_schema", "builder_name_schema.json"))
+	schema, err := NewJobNameSchema(path.Join(b.CheckoutRoot(), "infra", "bots", ".recipe_deps", "skia-recipes", "recipe_modules", "builder_name_schema", "builder_name_schema.json"))
 	if err != nil {
 		glog.Fatal(err)
 	}
 	jobNameSchema = schema
 
-	// Create the config.
-	cfg := &specs.TasksCfg{
-		Jobs:  map[string]*specs.JobSpec{},
-		Tasks: map[string]*specs.TaskSpec{},
-	}
-
 	// Create Tasks and Jobs.
-	for _, j := range JOBS {
-		process(cfg, j)
+	for _, name := range JOBS {
+		process(b, name)
 	}
 
-	// Validate the config.
-	if err := cfg.Validate(); err != nil {
-		glog.Fatal(err)
-	}
-
-	// Write the tasks.json file.
-	b, err := json.MarshalIndent(cfg, "", "  ")
-	if err != nil {
-		glog.Fatal(err)
-	}
-	// The json package escapes HTML characters, which makes our output
-	// much less readable. Replace the escape characters with the real
-	// character.
-	b = bytes.Replace(b, []byte("\\u003c"), []byte("<"), -1)
-
-	outFile := path.Join(root, specs.TASKS_CFG_FILE)
-	if *testing {
-		// Don't write the file; read it and compare.
-		expect, err := ioutil.ReadFile(outFile)
-		if err != nil {
-			glog.Fatal(err)
-		}
-		if !bytes.Equal(expect, b) {
-			glog.Fatalf("Expected no changes, but changes were found!")
-		}
-	} else {
-		if err := ioutil.WriteFile(outFile, b, os.ModePerm); err != nil {
-			glog.Fatal(err)
-		}
-	}
+	b.MustFinish()
 }
 
 // TODO(borenet): The below really belongs in its own file, probably next to the

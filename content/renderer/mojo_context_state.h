@@ -19,11 +19,6 @@ class WebFrame;
 class WebURLResponse;
 }
 
-namespace gin {
-class ContextHolder;
-struct PendingModule;
-}
-
 namespace content {
 
 class ResourceFetcher;

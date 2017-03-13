@@ -4,10 +4,9 @@
 
 #include "ash/display/cursor_window_controller.h"
 
-#include "ash/common/shell_window_ids.h"
-#include "ash/display/display_manager.h"
 #include "ash/display/mirror_window_controller.h"
 #include "ash/display/window_tree_host_manager.h"
+#include "ash/public/cpp/shell_window_ids.h"
 #include "ash/root_window_controller.h"
 #include "ash/shell.h"
 #include "ui/aura/env.h"
@@ -19,6 +18,7 @@
 #include "ui/compositor/dip_util.h"
 #include "ui/compositor/paint_recorder.h"
 #include "ui/display/display.h"
+#include "ui/display/manager/display_manager.h"
 #include "ui/display/screen.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/geometry/dip_util.h"
@@ -127,7 +127,7 @@ void CursorWindowController::SetDisplay(const display::Display& display) {
   // TODO(oshima): Do not updatethe composition cursor when crossing
   // display in unified desktop mode for now. crbug.com/517222.
   if (Shell::GetInstance()->display_manager()->IsInUnifiedMode() &&
-      display.id() != DisplayManager::kUnifiedDisplayId) {
+      display.id() != display::DisplayManager::kUnifiedDisplayId) {
     return;
   }
 
@@ -150,7 +150,7 @@ void CursorWindowController::UpdateLocation() {
     return;
   gfx::Point point = aura::Env::GetInstance()->last_mouse_location();
   if (!is_cursor_compositing_enabled_) {
-    Shell::GetPrimaryRootWindow()->GetHost()->ConvertPointToHost(&point);
+    Shell::GetPrimaryRootWindow()->GetHost()->ConvertDIPToPixels(&point);
   } else {
     point.Offset(-bounds_in_screen_.x(), -bounds_in_screen_.y());
   }

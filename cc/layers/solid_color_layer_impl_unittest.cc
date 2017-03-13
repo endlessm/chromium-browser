@@ -8,6 +8,7 @@
 
 #include <vector>
 
+#include "cc/animation/animation_host.h"
 #include "cc/layers/append_quads_data.h"
 #include "cc/layers/solid_color_layer.h"
 #include "cc/quads/solid_color_draw_quad.h"
@@ -31,16 +32,17 @@ TEST(SolidColorLayerImplTest, VerifyTilingCompleteAndNoOverlap) {
 
   FakeImplTaskRunnerProvider task_runner_provider;
   TestTaskGraphRunner task_graph_runner;
-  FakeLayerTreeHostImpl host_impl(&task_runner_provider, nullptr,
-                                  &task_graph_runner);
+  FakeLayerTreeHostImpl host_impl(&task_runner_provider, &task_graph_runner);
   std::unique_ptr<SolidColorLayerImpl> layer =
       SolidColorLayerImpl::Create(host_impl.active_tree(), 1);
   layer->draw_properties().visible_layer_rect = visible_layer_rect;
   layer->SetBounds(layer_size);
   layer->test_properties()->force_render_surface = true;
-
+  host_impl.active_tree()->SetRootLayerForTesting(std::move(layer));
+  host_impl.active_tree()->BuildPropertyTreesForTesting();
   AppendQuadsData data;
-  layer->AppendQuads(render_pass.get(), &data);
+  host_impl.active_tree()->root_layer_for_testing()->AppendQuads(
+      render_pass.get(), &data);
 
   LayerTestCommon::VerifyQuadsExactlyCoverRect(render_pass->quad_list,
                                                visible_layer_rect);
@@ -56,17 +58,18 @@ TEST(SolidColorLayerImplTest, VerifyCorrectBackgroundColorInQuad) {
 
   FakeImplTaskRunnerProvider task_runner_provider;
   TestTaskGraphRunner task_graph_runner;
-  FakeLayerTreeHostImpl host_impl(&task_runner_provider, nullptr,
-                                  &task_graph_runner);
+  FakeLayerTreeHostImpl host_impl(&task_runner_provider, &task_graph_runner);
   std::unique_ptr<SolidColorLayerImpl> layer =
       SolidColorLayerImpl::Create(host_impl.active_tree(), 1);
   layer->draw_properties().visible_layer_rect = visible_layer_rect;
   layer->SetBounds(layer_size);
   layer->SetBackgroundColor(test_color);
   layer->test_properties()->force_render_surface = true;
-
+  host_impl.active_tree()->SetRootLayerForTesting(std::move(layer));
+  host_impl.active_tree()->BuildPropertyTreesForTesting();
   AppendQuadsData data;
-  layer->AppendQuads(render_pass.get(), &data);
+  host_impl.active_tree()->root_layer_for_testing()->AppendQuads(
+      render_pass.get(), &data);
 
   ASSERT_EQ(render_pass->quad_list.size(), 1U);
   EXPECT_EQ(
@@ -84,46 +87,23 @@ TEST(SolidColorLayerImplTest, VerifyCorrectOpacityInQuad) {
 
   FakeImplTaskRunnerProvider task_runner_provider;
   TestTaskGraphRunner task_graph_runner;
-  FakeLayerTreeHostImpl host_impl(&task_runner_provider, nullptr,
-                                  &task_graph_runner);
+  FakeLayerTreeHostImpl host_impl(&task_runner_provider, &task_graph_runner);
   std::unique_ptr<SolidColorLayerImpl> layer =
       SolidColorLayerImpl::Create(host_impl.active_tree(), 1);
   layer->draw_properties().visible_layer_rect = visible_layer_rect;
   layer->SetBounds(layer_size);
   layer->draw_properties().opacity = opacity;
   layer->test_properties()->force_render_surface = true;
-
+  host_impl.active_tree()->SetRootLayerForTesting(std::move(layer));
+  host_impl.active_tree()->BuildPropertyTreesForTesting();
   AppendQuadsData data;
-  layer->AppendQuads(render_pass.get(), &data);
+  host_impl.active_tree()->root_layer_for_testing()->AppendQuads(
+      render_pass.get(), &data);
 
   ASSERT_EQ(render_pass->quad_list.size(), 1U);
   EXPECT_EQ(opacity,
             SolidColorDrawQuad::MaterialCast(render_pass->quad_list.front())
                 ->shared_quad_state->opacity);
-}
-
-TEST(SolidColorLayerImplTest, VerifyCorrectBlendModeInQuad) {
-  const SkXfermode::Mode blend_mode = SkXfermode::kMultiply_Mode;
-
-  std::unique_ptr<RenderPass> render_pass = RenderPass::Create();
-
-  gfx::Size layer_size = gfx::Size(100, 100);
-
-  FakeImplTaskRunnerProvider task_runner_provider;
-  TestTaskGraphRunner task_graph_runner;
-  FakeLayerTreeHostImpl host_impl(&task_runner_provider, nullptr,
-                                  &task_graph_runner);
-  std::unique_ptr<SolidColorLayerImpl> layer =
-      SolidColorLayerImpl::Create(host_impl.active_tree(), 1);
-  layer->SetBounds(layer_size);
-  layer->set_draw_blend_mode(blend_mode);
-
-  AppendQuadsData data;
-  layer->AppendQuads(render_pass.get(), &data);
-
-  ASSERT_EQ(render_pass->quad_list.size(), 1U);
-  EXPECT_EQ(blend_mode,
-            render_pass->quad_list.front()->shared_quad_state->blend_mode);
 }
 
 TEST(SolidColorLayerImplTest, VerifyOpaqueRect) {
@@ -139,8 +119,9 @@ TEST(SolidColorLayerImplTest, VerifyOpaqueRect) {
 
   FakeLayerTreeHostClient client;
   TestTaskGraphRunner task_graph_runner;
-  std::unique_ptr<FakeLayerTreeHost> host =
-      FakeLayerTreeHost::Create(&client, &task_graph_runner);
+  auto animation_host = AnimationHost::CreateForTesting(ThreadInstance::MAIN);
+  std::unique_ptr<FakeLayerTreeHost> host = FakeLayerTreeHost::Create(
+      &client, &task_graph_runner, animation_host.get());
   host->SetRootLayer(root);
 
   LayerTreeHostCommon::CalcDrawPropsMainInputsForTesting inputs(
@@ -151,10 +132,10 @@ TEST(SolidColorLayerImplTest, VerifyOpaqueRect) {
   layer->SetBackgroundColor(SkColorSetARGBInline(255, 10, 20, 30));
   EXPECT_TRUE(layer->contents_opaque());
   {
-    std::unique_ptr<SolidColorLayerImpl> layer_impl =
-        SolidColorLayerImpl::Create(host->host_impl()->active_tree(),
-                                    layer->id());
-    layer->PushPropertiesTo(layer_impl.get());
+    DebugScopedSetImplThread scoped_impl_thread(host->GetTaskRunnerProvider());
+    host->FinishCommitOnImplThread(host->host_impl());
+    LayerImpl* layer_impl =
+        host->host_impl()->active_tree()->LayerById(layer->id());
 
     // The impl layer should call itself opaque as well.
     EXPECT_TRUE(layer_impl->contents_opaque());
@@ -177,12 +158,12 @@ TEST(SolidColorLayerImplTest, VerifyOpaqueRect) {
   layer->SetBackgroundColor(SkColorSetARGBInline(254, 10, 20, 30));
   EXPECT_FALSE(layer->contents_opaque());
   {
-    std::unique_ptr<SolidColorLayerImpl> layer_impl =
-        SolidColorLayerImpl::Create(host->host_impl()->active_tree(),
-                                    layer->id());
-    layer->PushPropertiesTo(layer_impl.get());
+    DebugScopedSetImplThread scoped_impl_thread(host->GetTaskRunnerProvider());
+    host->FinishCommitOnImplThread(host->host_impl());
+    LayerImpl* layer_impl =
+        host->host_impl()->active_tree()->LayerById(layer->id());
 
-    // The impl layer should callnot itself opaque anymore.
+    // The impl layer should not call itself opaque anymore.
     EXPECT_FALSE(layer_impl->contents_opaque());
 
     // Impl layer has 1 opacity, but the color is not opaque, so the opaque_rect

@@ -48,8 +48,9 @@ public class SelectionToolbar<E> extends Toolbar implements SelectionObserver<E>
     private ActionBarDrawerToggle mActionBarDrawerToggle;
     private int mNavigationButton;
     private int mTitleResId;
-    private int mNormalGroupResId;
-    private int mSelectedGroupResId;
+    private int mNormalBackgroundColor;
+    protected int mNormalGroupResId;
+    protected int mSelectedGroupResId;
 
     /**
      * Constructor for inflating from XML.
@@ -78,9 +79,13 @@ public class SelectionToolbar<E> extends Toolbar implements SelectionObserver<E>
      *                         established.
      * @param selectedGroupResId The resource id of the menu item to show when a selection is
      *                           established.
+     * @param normalBackgroundColorResId The resource id of the color to use as the background color
+     *                                   when selection is not enabled. If null the default appbar
+     *                                   background color will be used.
      */
     public void initialize(SelectionDelegate<E> delegate, int titleResId,
-            @Nullable DrawerLayout drawerLayout, int normalGroupResId, int selectedGroupResId) {
+            @Nullable DrawerLayout drawerLayout, int normalGroupResId, int selectedGroupResId,
+            @Nullable Integer normalBackgroundColorResId) {
         mTitleResId = titleResId;
         mDrawerLayout = drawerLayout;
         mNormalGroupResId = normalGroupResId;
@@ -90,12 +95,20 @@ public class SelectionToolbar<E> extends Toolbar implements SelectionObserver<E>
         mSelectionDelegate.addObserver(this);
 
         if (mDrawerLayout != null) initActionBarDrawerToggle();
+
+        normalBackgroundColorResId = normalBackgroundColorResId != null ? normalBackgroundColorResId
+                : R.color.appbar_background;
+        mNormalBackgroundColor =
+                ApiCompatibilityUtils.getColor(getResources(), normalBackgroundColorResId);
+        setBackgroundColor(mNormalBackgroundColor);
+        if (mTitleResId != 0) setTitle(mTitleResId);
     }
 
     @Override
     protected void onFinishInflate() {
         super.onFinishInflate();
         mNumberRollView = (NumberRollView) findViewById(R.id.selection_mode_number);
+        mNumberRollView.setContentDescriptionString(R.plurals.accessibility_selected_items);
     }
 
     @Override
@@ -132,8 +145,7 @@ public class SelectionToolbar<E> extends Toolbar implements SelectionObserver<E>
                     R.drawable.btn_menu));
             getMenu().setGroupVisible(mNormalGroupResId, true);
             getMenu().setGroupVisible(mSelectedGroupResId, false);
-            setBackgroundColor(ApiCompatibilityUtils.getColor(getResources(),
-                    R.color.appbar_background));
+            setBackgroundColor(mNormalBackgroundColor);
 
             if (mTitleResId != 0) setTitle(mTitleResId);
             setNavigationButton(NAVIGATION_BUTTON_MENU);
@@ -224,6 +236,12 @@ public class SelectionToolbar<E> extends Toolbar implements SelectionObserver<E>
         }
         setNavigationContentDescription(contentDescriptionId);
     }
+
+    /**
+     * Called when the data in the selectable list this toolbar is associated with changes.
+     * @param numItems The number of items in the selectable list.
+     */
+    protected void onDataChanged(int numItems) {}
 
     /**
      * Set up ActionBarDrawerToggle, a.k.a. hamburger button.

@@ -36,11 +36,13 @@ class UserManagerBase;
 class FakeUserManager;
 
 // A class representing information about a previously logged in user.
-// Each user has a canonical email (username), returned by |email()| and
-// may have a different displayed email (in the raw form as entered by user),
-// returned by |displayed_email()|.
-// Displayed emails are for use in UI only, anywhere else users must be referred
-// to by |email()|.
+//   Each user has an |AccountId| containing canonical email (username),
+// returned by |GetAccountId().GetUserEmail()| and may have a different
+// displayed email (in the raw form as entered by user), returned by
+// |displayed_email()|.
+//   Displayed emails are for use in UI only, anywhere else users must be
+// referred to by |GetAccountId()|. Internal details of AccountId should not
+// be relied on unless you have special knowledge of the account type.
 class USER_MANAGER_EXPORT User : public UserInfo {
  public:
   // User OAuth token status according to the last check.
@@ -76,7 +78,10 @@ class USER_MANAGER_EXPORT User : public UserInfo {
     ONLINE = 4,        // WallpaperInfo.location denotes an URL.
     POLICY = 5,        // Controlled by policy, can't be changed by the user.
     THIRDPARTY = 6,    // Current wallpaper is set by a third party app.
-    WALLPAPER_TYPE_COUNT = 7
+    DEVICE = 7,        // Current wallpaper is the device policy controlled
+                       // wallpaper. It shows on the login screen if the device
+                       // is an enterprise managed device.
+    WALLPAPER_TYPE_COUNT = 8
   };
 
   // Returns true if user type has gaia account.
@@ -86,7 +91,7 @@ class USER_MANAGER_EXPORT User : public UserInfo {
   ~User() override;
 
   // UserInfo
-  std::string GetEmail() const override;
+  std::string GetDisplayEmail() const override;
   base::string16 GetDisplayName() const override;
   base::string16 GetGivenName() const override;
   const gfx::ImageSkia& GetImage() const override;
@@ -102,6 +107,9 @@ class USER_MANAGER_EXPORT User : public UserInfo {
   // USER_TYPE_REGULAR and USER_TYPE_CHILD.
   virtual bool HasGaiaAccount() const;
 
+  // Returns true if it's Active Directory user.
+  virtual bool IsActiveDirectoryUser() const;
+
   // Returns true if user is supervised.
   virtual bool IsSupervised() const;
 
@@ -116,10 +124,6 @@ class USER_MANAGER_EXPORT User : public UserInfo {
 
   // True if the user is a device local account user.
   virtual bool IsDeviceLocalAccount() const;
-
-  // The email the user used to log in.
-  // TODO(alemate): rename this to GetUserEmail() (see crbug.com/548923)
-  const std::string& email() const;
 
   // The displayed user name.
   base::string16 display_name() const { return display_name_; }
@@ -137,8 +141,13 @@ class USER_MANAGER_EXPORT User : public UserInfo {
   int image_index() const { return image_index_; }
   bool has_image_bytes() const { return user_image_->has_image_bytes(); }
   // Returns bytes representation of static user image for WebUI.
-  const UserImage::Bytes& image_bytes() const {
+  scoped_refptr<base::RefCountedBytes> image_bytes() const {
     return user_image_->image_bytes();
+  }
+  // Returns image format of the bytes representation of static user image
+  // for WebUI.
+  UserImage::ImageFormat image_format() const {
+    return user_image_->image_format();
   }
 
   // Whether |user_image_| contains data in format that is considered safe to
@@ -196,6 +205,7 @@ class USER_MANAGER_EXPORT User : public UserInfo {
   static User* CreateRegularUser(const AccountId& account_id);
   static User* CreateGuestUser(const AccountId& guest_account_id);
   static User* CreateKioskAppUser(const AccountId& kiosk_app_account_id);
+  static User* CreateArcKioskAppUser(const AccountId& arc_kiosk_account_id);
   static User* CreateSupervisedUser(const AccountId& account_id);
   static User* CreatePublicAccountUser(const AccountId& account_id);
 

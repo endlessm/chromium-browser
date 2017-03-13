@@ -21,13 +21,15 @@
 namespace base {
 
 class ConditionVariable;
+class HistogramBase;
 class SequenceToken;
 
 namespace internal {
 
 // All tasks go through the scheduler's TaskTracker when they are posted and
-// when they are executed. The TaskTracker enforces shutdown semantics and takes
-// care of tracing and profiling. This class is thread-safe.
+// when they are executed. The TaskTracker sets up the environment to run tasks,
+// enforces shutdown semantics, records metrics, and takes care of tracing and
+// profiling. This class is thread-safe.
 class BASE_EXPORT TaskTracker {
  public:
   TaskTracker();
@@ -57,7 +59,7 @@ class BASE_EXPORT TaskTracker {
   // |sequence_token| is the token identifying the sequence from which |task|
   // was extracted. Returns true if |task| ran. WillPostTask() must have allowed
   // |task| to be posted before this is called.
-  bool RunTask(const Task* task, const SequenceToken& sequence_token);
+  bool RunTask(std::unique_ptr<Task> task, const SequenceToken& sequence_token);
 
   // Returns true once shutdown has started (Shutdown() has been called but
   // might not have returned). Note: sequential consistency with the thread
@@ -72,6 +74,11 @@ class BASE_EXPORT TaskTracker {
   // IsShutdownComplete() won't return true after this returns. Shutdown()
   // cannot be called after this.
   void SetHasShutdownStartedForTesting();
+
+ protected:
+  // Runs |task|. An override is expected to call its parent's implementation
+  // but is free to perform extra work before and after doing so.
+  virtual void PerformRunTask(std::unique_ptr<Task> task);
 
  private:
   class State;
@@ -101,6 +108,10 @@ class BASE_EXPORT TaskTracker {
   // it reaches zero.
   void DecrementNumPendingUndelayedTasks();
 
+  // Records the TaskScheduler.TaskLatency.[task priority].[may block] histogram
+  // for |task|.
+  void RecordTaskLatencyHistogram(Task* task);
+
   // Number of tasks blocking shutdown and boolean indicating whether shutdown
   // has started.
   const std::unique_ptr<State> state_;
@@ -127,6 +138,12 @@ class BASE_EXPORT TaskTracker {
   // Event instantiated when shutdown starts and signaled when shutdown
   // completes.
   std::unique_ptr<WaitableEvent> shutdown_event_;
+
+  // TaskScheduler.TaskLatency.[task priority].[may block] histograms. The first
+  // index is a TaskPriority. The second index is 0 for non-blocking tasks, 1
+  // for blocking tasks. Intentionally leaked.
+  HistogramBase* const
+      task_latency_histograms_[static_cast<int>(TaskPriority::HIGHEST) + 1][2];
 
   // Number of BLOCK_SHUTDOWN tasks posted during shutdown.
   HistogramBase::Sample num_block_shutdown_tasks_posted_during_shutdown_ = 0;

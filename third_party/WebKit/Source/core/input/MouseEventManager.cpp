@@ -8,6 +8,7 @@
 #include "core/clipboard/DataTransfer.h"
 #include "core/dom/Element.h"
 #include "core/dom/ElementTraversal.h"
+#include "core/dom/TaskRunnerHelper.h"
 #include "core/editing/FrameSelection.h"
 #include "core/editing/SelectionController.h"
 #include "core/events/DragEvent.h"
@@ -59,29 +60,27 @@ PlatformMouseEvent mouseEventWithRegion(Node* node,
 // during a scroll.
 const double kFakeMouseMoveInterval = 0.1;
 
+// TODO(crbug.com/653490): Read these values from the OS.
 #if OS(MACOSX)
-const double kTextDragDelay = 0.15;
+const int kDragThresholdX = 3;
+const int kDragThresholdY = 3;
+const TimeDelta kTextDragDelay = TimeDelta::FromSecondsD(0.15);
 #else
-const double kTextDragDelay = 0.0;
+const int kDragThresholdX = 4;
+const int kDragThresholdY = 4;
+const TimeDelta kTextDragDelay = TimeDelta::FromSecondsD(0.0);
 #endif
-
-// The link drag hysteresis is much larger than the others because there
-// needs to be enough space to cancel the link press without starting a link
-// drag, and because dragging links is rare.
-const int kLinkDragHysteresis = 40;
-const int kImageDragHysteresis = 5;
-const int kTextDragHysteresis = 3;
-const int kGeneralDragHysteresis = 3;
 
 }  // namespace
 
 enum class DragInitiator { Mouse, Touch };
 
-MouseEventManager::MouseEventManager(LocalFrame* frame,
-                                     ScrollManager* scrollManager)
+MouseEventManager::MouseEventManager(LocalFrame& frame,
+                                     ScrollManager& scrollManager)
     : m_frame(frame),
       m_scrollManager(scrollManager),
       m_fakeMouseMoveEventTimer(
+          TaskRunnerHelper::get(TaskType::UserInteraction, &frame),
           this,
           &MouseEventManager::fakeMouseMoveEventTimerFired) {
   clear();
@@ -100,12 +99,14 @@ void MouseEventManager::clear() {
   m_clickCount = 0;
   m_clickNode = nullptr;
   m_mouseDownPos = IntPoint();
-  m_mouseDownTimestamp = 0;
+  m_mouseDownTimestamp = TimeTicks();
   m_mouseDown = PlatformMouseEvent();
   m_svgPan = false;
   m_dragStartPos = LayoutPoint();
   m_fakeMouseMoveEventTimer.stop();
 }
+
+MouseEventManager::~MouseEventManager() = default;
 
 DEFINE_TRACE(MouseEventManager) {
   visitor->trace(m_frame);
@@ -113,6 +114,7 @@ DEFINE_TRACE(MouseEventManager) {
   visitor->trace(m_nodeUnderMouse);
   visitor->trace(m_mousePressNode);
   visitor->trace(m_clickNode);
+  SynchronousMutationObserver::trace(visitor);
 }
 
 MouseEventManager::MouseEventBoundaryEventDispatcher::
@@ -283,8 +285,7 @@ void MouseEventManager::fakeMouseMoveEventTimerFired(TimerBase* timer) {
   DCHECK(timer == &m_fakeMouseMoveEventTimer);
   DCHECK(!m_mousePressed);
 
-  Settings* settings = m_frame->settings();
-  if (settings && !settings->deviceSupportsMouse())
+  if (m_isMousePositionUnknown)
     return;
 
   FrameView* view = m_frame->view();
@@ -304,9 +305,11 @@ void MouseEventManager::fakeMouseMoveEventTimerFired(TimerBase* timer) {
       WebPointerProperties::Button::NoButton, PlatformEvent::MouseMoved, 0,
       static_cast<PlatformEvent::Modifiers>(
           KeyboardEventManager::getCurrentModifierState()),
-      PlatformMouseEvent::RealOrIndistinguishable,
-      monotonicallyIncreasingTime(), WebPointerProperties::PointerType::Mouse);
-  m_frame->eventHandler().handleMouseMoveEvent(fakeMouseMoveEvent);
+      PlatformMouseEvent::RealOrIndistinguishable, TimeTicks::Now(),
+      WebPointerProperties::PointerType::Mouse);
+  Vector<PlatformMouseEvent> coalescedEvents;
+  m_frame->eventHandler().handleMouseMoveEvent(fakeMouseMoveEvent,
+                                               coalescedEvents);
 }
 
 void MouseEventManager::cancelFakeMouseMoveEvent() {
@@ -365,6 +368,14 @@ void MouseEventManager::setNodeUnderMouse(
   }
 
   sendBoundaryEvents(lastNodeUnderMouse, m_nodeUnderMouse, platformMouseEvent);
+}
+
+void MouseEventManager::nodeChildrenWillBeRemoved(ContainerNode& container) {
+  if (container == m_clickNode)
+    return;
+  if (!container.isShadowIncludingInclusiveAncestorOf(m_clickNode.get()))
+    return;
+  m_clickNode = nullptr;
 }
 
 void MouseEventManager::nodeWillBeRemoved(Node& nodeToBeRemoved) {
@@ -520,14 +531,8 @@ void MouseEventManager::dispatchFakeMouseMoveEventSoon() {
   if (m_isMousePositionUnknown)
     return;
 
-  Settings* settings = m_frame->settings();
-  if (settings && !settings->deviceSupportsMouse())
-    return;
-
   // Reschedule the timer, to prevent dispatching mouse move events
   // during a scroll. This avoids a potential source of scroll jank.
-  if (m_fakeMouseMoveEventTimer.isActive())
-    m_fakeMouseMoveEventTimer.stop();
   m_fakeMouseMoveEventTimer.startOneShot(kFakeMouseMoveInterval,
                                          BLINK_FROM_HERE);
 }
@@ -635,29 +640,28 @@ void MouseEventManager::updateSelectionForMouseDrag() {
 
 bool MouseEventManager::handleDragDropIfPossible(
     const GestureEventWithHitTestResults& targetedEvent) {
-  if (m_frame->settings() && m_frame->settings()->touchDragDropEnabled() &&
+  if (m_frame->settings() && m_frame->settings()->getTouchDragDropEnabled() &&
       m_frame->view()) {
-    const PlatformGestureEvent& gestureEvent = targetedEvent.event();
-    IntPoint adjustedPoint = gestureEvent.position();
-    unsigned modifiers = gestureEvent.getModifiers();
+    const WebGestureEvent& gestureEvent = targetedEvent.event();
+    unsigned modifiers = gestureEvent.modifiers();
 
     // TODO(mustaq): Suppressing long-tap MouseEvents could break
     // drag-drop. Will do separately because of the risk. crbug.com/606938.
     PlatformMouseEvent mouseDownEvent(
-        adjustedPoint, gestureEvent.globalPosition(),
-        WebPointerProperties::Button::Left, PlatformEvent::MousePressed, 1,
+        gestureEvent, WebPointerProperties::Button::Left,
+        PlatformEvent::MousePressed, 1,
         static_cast<PlatformEvent::Modifiers>(modifiers |
                                               PlatformEvent::LeftButtonDown),
-        PlatformMouseEvent::FromTouch, WTF::monotonicallyIncreasingTime(),
+        PlatformMouseEvent::FromTouch, TimeTicks::Now(),
         WebPointerProperties::PointerType::Mouse);
     m_mouseDown = mouseDownEvent;
 
     PlatformMouseEvent mouseDragEvent(
-        adjustedPoint, gestureEvent.globalPosition(),
-        WebPointerProperties::Button::Left, PlatformEvent::MouseMoved, 1,
+        gestureEvent, WebPointerProperties::Button::Left,
+        PlatformEvent::MouseMoved, 1,
         static_cast<PlatformEvent::Modifiers>(modifiers |
                                               PlatformEvent::LeftButtonDown),
-        PlatformMouseEvent::FromTouch, WTF::monotonicallyIncreasingTime(),
+        PlatformMouseEvent::FromTouch, TimeTicks::Now(),
         WebPointerProperties::PointerType::Mouse);
     HitTestRequest request(HitTestRequest::ReadOnly);
     MouseEventWithHitTestResults mev =
@@ -724,8 +728,17 @@ WebInputEventResult MouseEventManager::handleMouseDraggedEvent(
 
   m_mouseDownMayStartDrag = false;
 
-  if (m_mouseDownMayStartAutoscroll &&
-      !m_scrollManager->middleClickAutoscrollInProgress()) {
+  m_frame->eventHandler().selectionController().handleMouseDraggedEvent(
+      event, m_mouseDownPos, m_dragStartPos, m_mousePressNode.get(),
+      m_lastKnownMousePosition);
+
+  // The call into handleMouseDraggedEvent may have caused a re-layout,
+  // so get the LayoutObject again.
+  layoutObject = targetNode->layoutObject();
+
+  if (layoutObject && m_mouseDownMayStartAutoscroll &&
+      !m_scrollManager->middleClickAutoscrollInProgress() &&
+      !m_frame->selection().selectedHTMLForClipboard().isEmpty()) {
     if (AutoscrollController* controller =
             m_scrollManager->autoscrollController()) {
       controller->startAutoscrollForSelection(layoutObject);
@@ -733,9 +746,6 @@ WebInputEventResult MouseEventManager::handleMouseDraggedEvent(
     }
   }
 
-  m_frame->eventHandler().selectionController().handleMouseDraggedEvent(
-      event, m_mouseDownPos, m_dragStartPos, m_mousePressNode.get(),
-      m_lastKnownMousePosition);
   return WebInputEventResult::HandledSystem;
 }
 
@@ -784,11 +794,13 @@ bool MouseEventManager::handleDrag(const MouseEventWithHitTestResults& event,
   m_frame->view()->setCursor(pointerCursor());
 
   if (initiator == DragInitiator::Mouse &&
-      !dragHysteresisExceeded(event.event().position()))
+      !dragThresholdExceeded(event.event().position())) {
+    dragState().m_dragSrc = nullptr;
     return true;
+  }
 
-  // Once we're past the hysteresis point, we don't want to treat this gesture
-  // as a click
+  // Once we're past the drag threshold, we don't want to treat this gesture as
+  // a click.
   invalidateClick();
 
   if (!tryStartDrag(event)) {
@@ -815,23 +827,6 @@ bool MouseEventManager::tryStartDrag(
   clearDragDataTransfer();
 
   dragState().m_dragDataTransfer = createDraggingDataTransfer();
-
-  // Check to see if this a DOM based drag, if it is get the DOM specified drag
-  // image and offset
-  if (dragState().m_dragType == DragSourceActionDHTML) {
-    if (LayoutObject* layoutObject = dragState().m_dragSrc->layoutObject()) {
-      IntRect boundingIncludingDescendants =
-          layoutObject->absoluteBoundingBoxRectIncludingDescendants();
-      IntSize delta = m_mouseDownPos - boundingIncludingDescendants.location();
-      dragState().m_dragDataTransfer->setDragImageElement(
-          dragState().m_dragSrc.get(), IntPoint(delta));
-    } else {
-      // The layoutObject has disappeared, this can happen if the onStartDrag
-      // handler has hidden the element in some way. In this case we just kill
-      // the drag.
-      return false;
-    }
-  }
 
   DragController& dragController = m_frame->page()->dragController();
   if (!dragController.populateDragDataTransfer(m_frame, dragState(),
@@ -888,8 +883,11 @@ WebInputEventResult MouseEventManager::dispatchDragEvent(
   if (!view)
     return WebInputEventResult::NotHandled;
 
+  const bool cancelable = eventType != EventTypeNames::dragleave &&
+                          eventType != EventTypeNames::dragend;
+
   DragEvent* me = DragEvent::create(
-      eventType, true, true, m_frame->document()->domWindow(), 0,
+      eventType, true, cancelable, m_frame->document()->domWindow(), 0,
       event.globalPosition().x(), event.globalPosition().y(),
       event.position().x(), event.position().y(), event.movementDelta().x(),
       event.movementDelta().y(), event.getModifiers(), 0,
@@ -909,15 +907,9 @@ void MouseEventManager::clearDragDataTransfer() {
 
 void MouseEventManager::dragSourceEndedAt(const PlatformMouseEvent& event,
                                           DragOperation operation) {
-  // Send a hit test request so that Layer gets a chance to update the :hover
-  // and :active pseudoclasses..
-  HitTestRequest request(HitTestRequest::Release);
-  EventHandlingUtil::performMouseEventHitTest(m_frame, request, event);
-
   if (dragState().m_dragSrc) {
     dragState().m_dragDataTransfer->setDestinationOperation(operation);
-    // For now we don't care if event handler cancels default behavior, since
-    // there is none.
+    // The return value is ignored because dragend is not cancelable.
     dispatchDragSrcEvent(EventTypeNames::dragend, event);
   }
   clearDragDataTransfer();
@@ -932,7 +924,7 @@ DragState& MouseEventManager::dragState() {
   return state;
 }
 
-bool MouseEventManager::dragHysteresisExceeded(
+bool MouseEventManager::dragThresholdExceeded(
     const IntPoint& dragLocationInRootFrame) const {
   FrameView* view = m_frame->view();
   if (!view)
@@ -940,24 +932,12 @@ bool MouseEventManager::dragHysteresisExceeded(
   IntPoint dragLocation = view->rootFrameToContents(dragLocationInRootFrame);
   IntSize delta = dragLocation - m_mouseDownPos;
 
-  int threshold = kGeneralDragHysteresis;
-  switch (dragState().m_dragType) {
-    case DragSourceActionSelection:
-      threshold = kTextDragHysteresis;
-      break;
-    case DragSourceActionImage:
-      threshold = kImageDragHysteresis;
-      break;
-    case DragSourceActionLink:
-      threshold = kLinkDragHysteresis;
-      break;
-    case DragSourceActionDHTML:
-      break;
-    case DragSourceActionNone:
-      NOTREACHED();
-  }
+  // WebKit's drag thresholds depend on the type of object being dragged. If we
+  // want to revive that behavior, we can multiply the threshold constants with
+  // a number based on dragState().m_dragType.
 
-  return abs(delta.width()) >= threshold || abs(delta.height()) >= threshold;
+  return abs(delta.width()) >= kDragThresholdX ||
+         abs(delta.height()) >= kDragThresholdY;
 }
 
 void MouseEventManager::clearDragHeuristicState() {
@@ -1008,6 +988,7 @@ void MouseEventManager::setMousePressNode(Node* node) {
 }
 
 void MouseEventManager::setClickNode(Node* node) {
+  setContext(node ? node->ownerDocument() : nullptr);
   m_clickNode = node;
 }
 

@@ -33,7 +33,8 @@
 #define Performance_h
 
 #include "core/CoreExport.h"
-#include "core/frame/DOMWindowProperty.h"
+#include "core/dom/ContextLifecycleObserver.h"
+#include "core/frame/PerformanceMonitor.h"
 #include "core/timing/MemoryInfo.h"
 #include "core/timing/PerformanceBase.h"
 #include "core/timing/PerformanceNavigation.h"
@@ -41,10 +42,12 @@
 
 namespace blink {
 
-class InspectorWebPerfAgent;
+class ScriptState;
+class ScriptValue;
 
 class CORE_EXPORT Performance final : public PerformanceBase,
-                                      public DOMWindowProperty {
+                                      public ContextLifecycleObserver,
+                                      public PerformanceMonitor::Client {
   DEFINE_WRAPPERTYPEINFO();
   USING_GARBAGE_COLLECTED_MIXIN(Performance);
   friend class PerformanceTest;
@@ -63,14 +66,29 @@ class CORE_EXPORT Performance final : public PerformanceBase,
 
   void updateLongTaskInstrumentation() override;
 
+  ScriptValue toJSONForBinding(ScriptState*) const;
+
   DECLARE_VIRTUAL_TRACE();
 
  private:
   explicit Performance(LocalFrame*);
 
+  // ContextLifecycleObserver overrides.
+  void contextDestroyed(ExecutionContext*) override;
+
+  static std::pair<String, DOMWindow*> sanitizedAttribution(
+      ExecutionContext*,
+      bool hasMultipleContexts,
+      Frame* observerFrame);
+
+  // PerformanceMonitor::Client implementation.
+  void reportLongTask(double startTime,
+                      double endTime,
+                      ExecutionContext* taskContext,
+                      bool hasMultipleContexts) override;
+
   mutable Member<PerformanceNavigation> m_navigation;
   mutable Member<PerformanceTiming> m_timing;
-  mutable Member<InspectorWebPerfAgent> m_longTaskInspectorAgent;
 };
 
 }  // namespace blink

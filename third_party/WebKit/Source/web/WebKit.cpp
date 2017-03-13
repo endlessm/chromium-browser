@@ -35,6 +35,7 @@
 #include "bindings/core/v8/V8GCController.h"
 #include "bindings/core/v8/V8Initializer.h"
 #include "core/animation/AnimationClock.h"
+#include "core/layout/LayoutTheme.h"
 #include "core/page/Page.h"
 #include "core/workers/WorkerBackingThread.h"
 #include "gin/public/v8_platform.h"
@@ -71,7 +72,7 @@ static WebThread::TaskObserver* s_endOfTaskRunner = nullptr;
 
 static ModulesInitializer& modulesInitializer() {
   DEFINE_STATIC_LOCAL(std::unique_ptr<ModulesInitializer>, initializer,
-                      (wrapUnique(new ModulesInitializer)));
+                      (WTF::wrapUnique(new ModulesInitializer)));
   return *initializer;
 }
 
@@ -124,6 +125,7 @@ bool layoutTestMode() {
 
 void setMockThemeEnabledForTest(bool value) {
   LayoutTestSupport::setMockThemeEnabledForTest(value);
+  LayoutTheme::theme().didChangeThemeEngine();
 }
 
 void setFontAntialiasingEnabledForTest(bool value) {
@@ -132,14 +134,6 @@ void setFontAntialiasingEnabledForTest(bool value) {
 
 bool fontAntialiasingEnabledForTest() {
   return LayoutTestSupport::isFontAntialiasingEnabledForTest();
-}
-
-void setAlwaysUseComplexTextForTest(bool value) {
-  LayoutTestSupport::setAlwaysUseComplexTextForTest(value);
-}
-
-bool alwaysUseComplexTextForTest() {
-  return LayoutTestSupport::alwaysUseComplexTextForTest();
 }
 
 void resetPluginCache(bool reloadPages) {

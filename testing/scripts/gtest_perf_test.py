@@ -48,6 +48,7 @@ def main_run(args):
               'run_%s' % test_suite),
           '--verbose',
       ])
+      gtest_args.extend(script_args[1:])
     else:
       gtest_args.extend(['--xvfb'])
       gtest_args.extend(script_args)
@@ -66,10 +67,7 @@ def main_run(args):
 
 
 def main_compile_targets(args):
-  if 'android' == args.properties.get('target_platform'):
-    json.dump(['${name}_apk'], args.output)
-  else:
-    json.dump(['$name'], args.output)
+  json.dump(['$name'], args.output)
 
 
 if __name__ == '__main__':

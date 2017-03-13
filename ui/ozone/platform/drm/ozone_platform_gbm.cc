@@ -17,9 +17,10 @@
 #include "base/command_line.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
-#include "services/shell/public/cpp/interface_factory.h"
-#include "services/shell/public/cpp/interface_registry.h"
+#include "services/service_manager/public/cpp/interface_factory.h"
+#include "services/service_manager/public/cpp/interface_registry.h"
 #include "ui/base/cursor/ozone/bitmap_cursor_factory_ozone.h"
+#include "ui/base/ui_features.h"
 #include "ui/events/ozone/device/device_manager.h"
 #include "ui/events/ozone/evdev/event_factory_evdev.h"
 #include "ui/events/ozone/layout/keyboard_layout_engine_manager.h"
@@ -47,7 +48,7 @@
 #include "ui/ozone/public/ozone_platform.h"
 #include "ui/ozone/public/ozone_switches.h"
 
-#if defined(USE_XKBCOMMON)
+#if BUILDFLAG(USE_XKBCOMMON)
 #include "ui/events/ozone/layout/xkb/xkb_evdev_codes.h"
 #include "ui/events/ozone/layout/xkb/xkb_keyboard_layout_engine.h"
 #else
@@ -80,7 +81,7 @@ class GlApiLoader {
 
 class OzonePlatformGbm
     : public OzonePlatform,
-      public shell::InterfaceFactory<ozone::mojom::DeviceCursor> {
+      public service_manager::InterfaceFactory<ozone::mojom::DeviceCursor> {
  public:
   OzonePlatformGbm() : using_mojo_(false), single_process_(false) {}
   ~OzonePlatformGbm() override {}
@@ -107,11 +108,11 @@ class OzonePlatformGbm
   std::unique_ptr<SystemInputInjector> CreateSystemInputInjector() override {
     return event_factory_ozone_->CreateSystemInputInjector();
   }
-  void AddInterfaces(shell::InterfaceRegistry* registry) override {
+  void AddInterfaces(service_manager::InterfaceRegistry* registry) override {
     registry->AddInterface<ozone::mojom::DeviceCursor>(this);
   }
-  // shell::InterfaceFactory<ozone::mojom::DeviceCursor> implementation.
-  void Create(const shell::Identity& remote_identity,
+  // service_manager::InterfaceFactory<ozone::mojom::DeviceCursor>:
+  void Create(const service_manager::Identity& remote_identity,
               ozone::mojom::DeviceCursorRequest request) override {
     if (drm_thread_proxy_)
       drm_thread_proxy_->AddBinding(std::move(request));
@@ -134,7 +135,7 @@ class OzonePlatformGbm
     platform_window->Initialize();
     return std::move(platform_window);
   }
-  std::unique_ptr<NativeDisplayDelegate> CreateNativeDisplayDelegate()
+  std::unique_ptr<display::NativeDisplayDelegate> CreateNativeDisplayDelegate()
       override {
     return base::MakeUnique<DrmNativeDisplayDelegate>(display_manager_.get());
   }
@@ -160,7 +161,7 @@ class OzonePlatformGbm
     device_manager_ = CreateDeviceManager();
     window_manager_.reset(new DrmWindowHostManager());
     cursor_.reset(new DrmCursor(window_manager_.get()));
-#if defined(USE_XKBCOMMON)
+#if BUILDFLAG(USE_XKBCOMMON)
     KeyboardLayoutEngineManager::SetKeyboardLayoutEngine(
         base::MakeUnique<XkbKeyboardLayoutEngine>(xkb_evdev_code_converter_));
 #else
@@ -267,7 +268,7 @@ class OzonePlatformGbm
   // Bridges the DRM, GPU and main threads in mus.
   std::unique_ptr<MusThreadProxy> mus_thread_proxy_;
 
-#if defined(USE_XKBCOMMON)
+#if BUILDFLAG(USE_XKBCOMMON)
   XkbEvdevCodes xkb_evdev_code_converter_;
 #endif
 

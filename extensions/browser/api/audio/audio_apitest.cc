@@ -9,13 +9,15 @@
 #include "base/run_loop.h"
 #include "build/build_config.h"
 #include "extensions/shell/test/shell_apitest.h"
+#include "extensions/test/extension_test_message_listener.h"
+#include "extensions/test/result_catcher.h"
+
 #if defined(OS_CHROMEOS)
 #include "chromeos/audio/audio_devices_pref_handler_stub.h"
 #include "chromeos/audio/cras_audio_handler.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/fake_cras_audio_client.h"
 #endif
-#include "extensions/test/extension_test_message_listener.h"
 
 namespace extensions {
 
@@ -38,59 +40,47 @@ const uint64_t kJabraMic2StableDeviceId = 90002;
 const uint64_t kWebcamMicId = 40003;
 const uint64_t kWebcamMicStableDeviceId = 90003;
 
-const AudioNode kJabraSpeaker1(false,
-                               kJabraSpeaker1Id,
-                               kJabraSpeaker1StableDeviceId,
-                               "Jabra Speaker",
-                               "USB",
-                               "Jabra Speaker 1",
-                               false,
-                               0);
+struct AudioNodeInfo {
+  bool is_input;
+  uint64_t id;
+  uint64_t stable_id;
+  const char* const device_name;
+  const char* const type;
+  const char* const name;
+};
 
-const AudioNode kJabraSpeaker2(false,
-                               kJabraSpeaker2Id,
-                               kJabraSpeaker2StableDeviceId,
-                               "Jabra Speaker",
-                               "USB",
-                               "Jabra Speaker 2",
-                               false,
-                               0);
+const AudioNodeInfo kJabraSpeaker1 = {
+    false, kJabraSpeaker1Id, kJabraSpeaker1StableDeviceId, "Jabra Speaker",
+    "USB", "Jabra Speaker 1"};
 
-const AudioNode kHDMIOutput(false,
-                            kHDMIOutputId,
-                            kHDMIOutputStabeDevicelId,
-                            "HDMI output",
-                            "HDMI",
-                            "HDA Intel MID",
-                            false,
-                            0);
+const AudioNodeInfo kJabraSpeaker2 = {
+    false, kJabraSpeaker2Id, kJabraSpeaker2StableDeviceId, "Jabra Speaker",
+    "USB", "Jabra Speaker 2"};
 
-const AudioNode kJabraMic1(true,
-                           kJabraMic1Id,
-                           kJabraMic1StableDeviceId,
-                           "Jabra Mic",
-                           "USB",
-                           "Jabra Mic 1",
-                           false,
-                           0);
+const AudioNodeInfo kHDMIOutput = {
+    false,         kHDMIOutputId, kHDMIOutputStabeDevicelId,
+    "HDMI output", "HDMI",        "HDA Intel MID"};
 
-const AudioNode kJabraMic2(true,
-                           kJabraMic2Id,
-                           kJabraMic2StableDeviceId,
-                           "Jabra Mic",
-                           "USB",
-                           "Jabra Mic 2",
-                           false,
-                           0);
+const AudioNodeInfo kJabraMic1 = {
+    true,        kJabraMic1Id, kJabraMic1StableDeviceId,
+    "Jabra Mic", "USB",        "Jabra Mic 1"};
 
-const AudioNode kUSBCameraMic(true,
-                              kWebcamMicId,
-                              kWebcamMicStableDeviceId,
-                              "Webcam Mic",
-                              "USB",
-                              "Logitech Webcam",
-                              false,
-                              0);
+const AudioNodeInfo kJabraMic2 = {
+    true,        kJabraMic2Id, kJabraMic2StableDeviceId,
+    "Jabra Mic", "USB",        "Jabra Mic 2"};
+
+const AudioNodeInfo kUSBCameraMic = {
+    true,         kWebcamMicId, kWebcamMicStableDeviceId,
+    "Webcam Mic", "USB",        "Logitech Webcam"};
+
+AudioNode CreateAudioNode(const AudioNodeInfo& info, int version) {
+  return AudioNode(info.is_input, info.id, version == 2,
+                   // stable_device_id_v1:
+                   info.stable_id,
+                   // stable_device_id_v2:
+                   version == 2 ? info.stable_id ^ 0xFFFF : 0, info.device_name,
+                   info.type, info.name, false, 0);
+}
 
 class AudioApiTest : public ShellApiTest {
  public:
@@ -123,24 +113,33 @@ class AudioApiTest : public ShellApiTest {
   chromeos::FakeCrasAudioClient* fake_cras_audio_client_;  // Not owned.
 };
 
-IN_PROC_BROWSER_TEST_F(AudioApiTest, Audio) {
+IN_PROC_BROWSER_TEST_F(AudioApiTest, AudioV1StableId) {
   // Set up the audio nodes for testing.
-  AudioNodeList audio_nodes;
-  audio_nodes.push_back(kJabraSpeaker1);
-  audio_nodes.push_back(kJabraSpeaker2);
-  audio_nodes.push_back(kHDMIOutput);
-  audio_nodes.push_back(kJabraMic1);
-  audio_nodes.push_back(kJabraMic2);
-  audio_nodes.push_back(kUSBCameraMic);
+  AudioNodeList audio_nodes = {
+      CreateAudioNode(kJabraSpeaker1, 1), CreateAudioNode(kJabraSpeaker2, 1),
+      CreateAudioNode(kHDMIOutput, 1),    CreateAudioNode(kJabraMic1, 1),
+      CreateAudioNode(kJabraMic2, 1),     CreateAudioNode(kUSBCameraMic, 1)};
+
+  SetUpCrasAudioHandlerWithTestingNodes(audio_nodes);
+
+  EXPECT_TRUE(RunAppTest("api_test/audio")) << message_;
+}
+
+IN_PROC_BROWSER_TEST_F(AudioApiTest, AudioV2StableId) {
+  // Set up the audio nodes for testing.
+  AudioNodeList audio_nodes = {
+      CreateAudioNode(kJabraSpeaker1, 2), CreateAudioNode(kJabraSpeaker2, 2),
+      CreateAudioNode(kHDMIOutput, 2),    CreateAudioNode(kJabraMic1, 2),
+      CreateAudioNode(kJabraMic2, 2),     CreateAudioNode(kUSBCameraMic, 2)};
+
   SetUpCrasAudioHandlerWithTestingNodes(audio_nodes);
 
   EXPECT_TRUE(RunAppTest("api_test/audio")) << message_;
 }
 
 IN_PROC_BROWSER_TEST_F(AudioApiTest, OnLevelChangedOutputDevice) {
-  AudioNodeList audio_nodes;
-  audio_nodes.push_back(kJabraSpeaker1);
-  audio_nodes.push_back(kHDMIOutput);
+  AudioNodeList audio_nodes = {CreateAudioNode(kJabraSpeaker1, 2),
+                               CreateAudioNode(kHDMIOutput, 2)};
   SetUpCrasAudioHandlerWithTestingNodes(audio_nodes);
 
   // Verify the jabra speaker is the active output device.
@@ -149,9 +148,8 @@ IN_PROC_BROWSER_TEST_F(AudioApiTest, OnLevelChangedOutputDevice) {
   EXPECT_EQ(device.id, kJabraSpeaker1.id);
 
   // Loads background app.
+  ResultCatcher result_catcher;
   ExtensionTestMessageListener load_listener("loaded", false);
-  ExtensionTestMessageListener result_listener("success", false);
-  result_listener.set_failure_message("failure");
   ASSERT_TRUE(LoadApp("api_test/audio/volume_change"));
   ASSERT_TRUE(load_listener.WaitUntilSatisfied());
 
@@ -166,14 +164,12 @@ IN_PROC_BROWSER_TEST_F(AudioApiTest, OnLevelChangedOutputDevice) {
 
   // Verify the background app got the OnOutputNodeVolumeChanged event
   // with the expected node id and volume value.
-  ASSERT_TRUE(result_listener.WaitUntilSatisfied());
-  EXPECT_EQ("success", result_listener.message());
+  ASSERT_TRUE(result_catcher.GetNextResult()) << result_catcher.message();
 }
 
 IN_PROC_BROWSER_TEST_F(AudioApiTest, OnOutputMuteChanged) {
-  AudioNodeList audio_nodes;
-  audio_nodes.push_back(kJabraSpeaker1);
-  audio_nodes.push_back(kHDMIOutput);
+  AudioNodeList audio_nodes = {CreateAudioNode(kJabraSpeaker1, 2),
+                               CreateAudioNode(kHDMIOutput, 2)};
   SetUpCrasAudioHandlerWithTestingNodes(audio_nodes);
 
   // Verify the jabra speaker is the active output device.
@@ -186,9 +182,8 @@ IN_PROC_BROWSER_TEST_F(AudioApiTest, OnOutputMuteChanged) {
   EXPECT_TRUE(cras_audio_handler_->IsOutputMuted());
 
   // Loads background app.
+  ResultCatcher result_catcher;
   ExtensionTestMessageListener load_listener("loaded", false);
-  ExtensionTestMessageListener result_listener("success", false);
-  result_listener.set_failure_message("failure");
   ASSERT_TRUE(LoadApp("api_test/audio/output_mute_change"));
   ASSERT_TRUE(load_listener.WaitUntilSatisfied());
 
@@ -198,18 +193,16 @@ IN_PROC_BROWSER_TEST_F(AudioApiTest, OnOutputMuteChanged) {
 
   // Verify the background app got the OnMuteChanged event
   // with the expected output un-muted state.
-  ASSERT_TRUE(result_listener.WaitUntilSatisfied());
-  EXPECT_EQ("success", result_listener.message());
+  EXPECT_TRUE(result_catcher.GetNextResult()) << result_catcher.message();
 }
 
 IN_PROC_BROWSER_TEST_F(AudioApiTest, OnInputMuteChanged) {
-  AudioNodeList audio_nodes;
-  audio_nodes.push_back(kJabraMic1);
-  audio_nodes.push_back(kUSBCameraMic);
+  AudioNodeList audio_nodes = {CreateAudioNode(kJabraMic1, 2),
+                               CreateAudioNode(kUSBCameraMic, 2)};
   SetUpCrasAudioHandlerWithTestingNodes(audio_nodes);
 
   // Set the jabra mic to be the active input device.
-  AudioDevice jabra_mic(kJabraMic1);
+  AudioDevice jabra_mic(CreateAudioNode(kJabraMic1, 2));
   cras_audio_handler_->SwitchToDevice(
       jabra_mic, true, chromeos::CrasAudioHandler::ACTIVATE_BY_USER);
   EXPECT_EQ(kJabraMic1.id, cras_audio_handler_->GetPrimaryActiveInputNode());
@@ -219,9 +212,8 @@ IN_PROC_BROWSER_TEST_F(AudioApiTest, OnInputMuteChanged) {
   EXPECT_FALSE(cras_audio_handler_->IsInputMuted());
 
   // Loads background app.
+  ResultCatcher result_catcher;
   ExtensionTestMessageListener load_listener("loaded", false);
-  ExtensionTestMessageListener result_listener("success", false);
-  result_listener.set_failure_message("failure");
   ASSERT_TRUE(LoadApp("api_test/audio/input_mute_change"));
   ASSERT_TRUE(load_listener.WaitUntilSatisfied());
 
@@ -231,14 +223,12 @@ IN_PROC_BROWSER_TEST_F(AudioApiTest, OnInputMuteChanged) {
 
   // Verify the background app got the OnMuteChanged event
   // with the expected input muted state.
-  ASSERT_TRUE(result_listener.WaitUntilSatisfied());
-  EXPECT_EQ("success", result_listener.message());
+  EXPECT_TRUE(result_catcher.GetNextResult()) << result_catcher.message();
 }
 
 IN_PROC_BROWSER_TEST_F(AudioApiTest, OnNodesChangedAddNodes) {
-  AudioNodeList audio_nodes;
-  audio_nodes.push_back(kJabraSpeaker1);
-  audio_nodes.push_back(kJabraSpeaker2);
+  AudioNodeList audio_nodes = {CreateAudioNode(kJabraSpeaker1, 2),
+                               CreateAudioNode(kJabraSpeaker2, 2)};
   SetUpCrasAudioHandlerWithTestingNodes(audio_nodes);
   const size_t init_device_size = audio_nodes.size();
 
@@ -247,29 +237,26 @@ IN_PROC_BROWSER_TEST_F(AudioApiTest, OnNodesChangedAddNodes) {
   EXPECT_EQ(init_device_size, audio_devices.size());
 
   // Load background app.
+  ResultCatcher result_catcher;
   ExtensionTestMessageListener load_listener("loaded", false);
-  ExtensionTestMessageListener result_listener("success", false);
-  result_listener.set_failure_message("failure");
   ASSERT_TRUE(LoadApp("api_test/audio/add_nodes"));
   ASSERT_TRUE(load_listener.WaitUntilSatisfied());
 
   // Plug in HDMI output.
-  audio_nodes.push_back(kHDMIOutput);
+  audio_nodes.push_back(CreateAudioNode(kHDMIOutput, 2));
   ChangeAudioNodes(audio_nodes);
   cras_audio_handler_->GetAudioDevices(&audio_devices);
   EXPECT_EQ(init_device_size + 1, audio_devices.size());
 
   // Verify the background app got the OnNodesChanged event
   // with the new node added.
-  ASSERT_TRUE(result_listener.WaitUntilSatisfied());
-  EXPECT_EQ("success", result_listener.message());
+  EXPECT_TRUE(result_catcher.GetNextResult()) << result_catcher.message();
 }
 
 IN_PROC_BROWSER_TEST_F(AudioApiTest, OnNodesChangedRemoveNodes) {
-  AudioNodeList audio_nodes;
-  audio_nodes.push_back(kJabraMic1);
-  audio_nodes.push_back(kJabraMic2);
-  audio_nodes.push_back(kUSBCameraMic);
+  AudioNodeList audio_nodes = {CreateAudioNode(kJabraMic1, 2),
+                               CreateAudioNode(kJabraMic2, 2),
+                               CreateAudioNode(kUSBCameraMic, 2)};
   SetUpCrasAudioHandlerWithTestingNodes(audio_nodes);
   const size_t init_device_size = audio_nodes.size();
 
@@ -278,9 +265,8 @@ IN_PROC_BROWSER_TEST_F(AudioApiTest, OnNodesChangedRemoveNodes) {
   EXPECT_EQ(init_device_size, audio_devices.size());
 
   // Load background app.
+  ResultCatcher result_catcher;
   ExtensionTestMessageListener load_listener("loaded", false);
-  ExtensionTestMessageListener result_listener("success", false);
-  result_listener.set_failure_message("failure");
   ASSERT_TRUE(LoadApp("api_test/audio/remove_nodes"));
   ASSERT_TRUE(load_listener.WaitUntilSatisfied());
 
@@ -292,8 +278,7 @@ IN_PROC_BROWSER_TEST_F(AudioApiTest, OnNodesChangedRemoveNodes) {
 
   // Verify the background app got the onNodesChanged event
   // with the last node removed.
-  ASSERT_TRUE(result_listener.WaitUntilSatisfied());
-  EXPECT_EQ("success", result_listener.message());
+  EXPECT_TRUE(result_catcher.GetNextResult()) << result_catcher.message();
 }
 
 #endif  // OS_CHROMEOS

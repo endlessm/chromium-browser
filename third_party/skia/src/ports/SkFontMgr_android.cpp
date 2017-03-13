@@ -237,7 +237,7 @@ public:
     }
 
 private:
-    SkTArray<SkAutoTUnref<SkTypeface_AndroidSystem>, true> fStyles;
+    SkTArray<sk_sp<SkTypeface_AndroidSystem>, true> fStyles;
 
     friend struct NameToFamily;
     friend class SkFontMgr_Android;
@@ -323,7 +323,7 @@ protected:
 
     virtual SkTypeface* onMatchFamilyStyle(const char familyName[],
                                            const SkFontStyle& style) const override {
-        SkAutoTUnref<SkFontStyleSet> sset(this->matchFamily(familyName));
+        sk_sp<SkFontStyleSet> sset(this->matchFamily(familyName));
         return sset->matchStyle(style);
     }
 
@@ -331,7 +331,7 @@ protected:
                                          const SkFontStyle& style) const override {
         for (int i = 0; i < fStyleSets.count(); ++i) {
             for (int j = 0; j < fStyleSets[i]->fStyles.count(); ++j) {
-                if (fStyleSets[i]->fStyles[j] == typeface) {
+                if (fStyleSets[i]->fStyles[j].get() == typeface) {
                     return fStyleSets[i]->matchStyle(style);
                 }
             }
@@ -535,7 +535,8 @@ static char const * const gSystemFontUseStrings[] = {
     "OnlyCustom", "PreferCustom", "PreferSystem"
 };
 #endif
-SkFontMgr* SkFontMgr_New_Android(const SkFontMgr_Android_CustomFonts* custom) {
+
+sk_sp<SkFontMgr> SkFontMgr_New_Android(const SkFontMgr_Android_CustomFonts* custom) {
     if (custom) {
         SkASSERT(0 <= custom->fSystemFontUse);
         SkASSERT(custom->fSystemFontUse < SK_ARRAY_COUNT(gSystemFontUseStrings));
@@ -545,6 +546,5 @@ SkFontMgr* SkFontMgr_New_Android(const SkFontMgr_Android_CustomFonts* custom) {
                   custom->fFontsXml,
                   custom->fFallbackFontsXml));
     }
-
-    return new SkFontMgr_Android(custom);
+    return sk_make_sp<SkFontMgr_Android>(custom);
 }

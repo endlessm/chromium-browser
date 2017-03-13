@@ -48,11 +48,12 @@ class LayoutSVGHiddenContainer : public LayoutSVGContainer {
   bool paintedOutputOfObjectHasNoEffectRegardlessOfSize() const final {
     return true;
   }
-  LayoutRect absoluteClippedOverflowRect() const final { return LayoutRect(); }
-  FloatRect paintInvalidationRectInLocalSVGCoordinates() const final {
+  LayoutRect absoluteVisualRect() const final { return LayoutRect(); }
+  FloatRect visualRectInLocalSVGCoordinates() const final {
     return FloatRect();
   }
-  void absoluteQuads(Vector<FloatQuad>&) const final {}
+  void absoluteQuads(Vector<FloatQuad>&,
+                     MapCoordinatesFlags mode = 0) const final {}
 
   bool nodeAtFloatPoint(HitTestResult&,
                         const FloatPoint& pointInParent,

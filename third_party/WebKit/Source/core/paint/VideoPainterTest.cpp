@@ -10,6 +10,7 @@
 #include "core/loader/EmptyClients.h"
 #include "core/paint/StubChromeClientForSPv2.h"
 #include "core/testing/DummyPageHolder.h"
+#include "platform/testing/RuntimeEnabledFeaturesTestHelpers.h"
 #include "platform/testing/UnitTestHelpers.h"
 #include "public/platform/Platform.h"
 #include "public/platform/WebCompositorSupport.h"
@@ -35,8 +36,7 @@ class StubWebMediaPlayer : public WebMediaPlayer {
     m_client->networkStateChanged();
     m_readyState = ReadyStateHaveEnoughData;
     m_client->readyStateChanged();
-    m_webLayer =
-        wrapUnique(Platform::current()->compositorSupport()->createLayer());
+    m_webLayer = Platform::current()->compositorSupport()->createLayer();
     m_client->setWebLayer(m_webLayer.get());
   }
   void play() override {}
@@ -86,14 +86,17 @@ class StubFrameLoaderClient : public EmptyFrameLoaderClient {
       HTMLMediaElement&,
       const WebMediaPlayerSource&,
       WebMediaPlayerClient* client) override {
-    return wrapUnique(new StubWebMediaPlayer(client));
+    return WTF::makeUnique<StubWebMediaPlayer>(client);
   }
 };
 
-class VideoPainterTestForSPv2 : public ::testing::Test {
+class VideoPainterTestForSPv2 : public ::testing::Test,
+                                private ScopedSlimmingPaintV2ForTest {
+ public:
+  VideoPainterTestForSPv2() : ScopedSlimmingPaintV2ForTest(true) {}
+
  protected:
   void SetUp() override {
-    RuntimeEnabledFeatures::setSlimmingPaintV2Enabled(true);
     m_chromeClient = new StubChromeClientForSPv2();
     m_frameLoaderClient = new StubFrameLoaderClient;
     Page::PageClients clients;
@@ -109,15 +112,12 @@ class VideoPainterTestForSPv2 : public ::testing::Test {
     document().setURL(KURL(KURL(), "https://example.com/"));
   }
 
-  void TearDown() override { m_featuresBackup.restore(); }
-
   Document& document() { return m_pageHolder->document(); }
   bool hasLayerAttached(const WebLayer& layer) {
     return m_chromeClient->hasLayer(layer);
   }
 
  private:
-  RuntimeEnabledFeatures::Backup m_featuresBackup;
   Persistent<StubChromeClientForSPv2> m_chromeClient;
   Persistent<StubFrameLoaderClient> m_frameLoaderClient;
   std::unique_ptr<DummyPageHolder> m_pageHolder;
@@ -125,8 +125,7 @@ class VideoPainterTestForSPv2 : public ::testing::Test {
 
 TEST_F(VideoPainterTestForSPv2, VideoLayerAppearsInLayerTree) {
   // Insert a <video> and allow it to begin loading.
-  document().body()->setInnerHTML("<video width=300 height=200 src=test.ogv>",
-                                  ASSERT_NO_EXCEPTION);
+  document().body()->setInnerHTML("<video width=300 height=200 src=test.ogv>");
   testing::runPendingTasks();
 
   // Force the page to paint.

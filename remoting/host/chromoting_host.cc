@@ -68,7 +68,8 @@ ChromotingHost::ChromotingHost(
     std::unique_ptr<protocol::SessionManager> session_manager,
     scoped_refptr<protocol::TransportContext> transport_context,
     scoped_refptr<base::SingleThreadTaskRunner> audio_task_runner,
-    scoped_refptr<base::SingleThreadTaskRunner> video_encode_task_runner)
+    scoped_refptr<base::SingleThreadTaskRunner> video_encode_task_runner,
+    const DesktopEnvironmentOptions& options)
     : desktop_environment_factory_(desktop_environment_factory),
       session_manager_(std::move(session_manager)),
       transport_context_(transport_context),
@@ -76,7 +77,7 @@ ChromotingHost::ChromotingHost(
       video_encode_task_runner_(video_encode_task_runner),
       started_(false),
       login_backoff_(&kDefaultBackoffPolicy),
-      enable_curtaining_(false),
+      desktop_environment_options_(options),
       weak_factory_(this) {
   jingle_glue::JingleThreadWrapper::EnsureForCurrentMessageLoop();
 }
@@ -94,8 +95,10 @@ ChromotingHost::~ChromotingHost() {
   session_manager_.reset();
 
   // Notify observers.
-  if (started_)
-    FOR_EACH_OBSERVER(HostStatusObserver, status_observers_, OnShutdown());
+  if (started_) {
+    for (auto& observer : status_observers_)
+      observer.OnShutdown();
+  }
 }
 
 void ChromotingHost::Start(const std::string& host_owner_email) {
@@ -104,8 +107,8 @@ void ChromotingHost::Start(const std::string& host_owner_email) {
 
   HOST_LOG << "Starting host";
   started_ = true;
-  FOR_EACH_OBSERVER(HostStatusObserver, status_observers_,
-                    OnStart(host_owner_email));
+  for (auto& observer : status_observers_)
+    observer.OnStart(host_owner_email);
 
   session_manager_->AcceptIncoming(
       base::Bind(&ChromotingHost::OnIncomingSession, base::Unretained(this)));
@@ -122,31 +125,13 @@ void ChromotingHost::RemoveStatusObserver(HostStatusObserver* observer) {
 }
 
 void ChromotingHost::AddExtension(std::unique_ptr<HostExtension> extension) {
-  extensions_.push_back(extension.release());
+  extensions_.push_back(std::move(extension));
 }
 
 void ChromotingHost::SetAuthenticatorFactory(
     std::unique_ptr<protocol::AuthenticatorFactory> authenticator_factory) {
   DCHECK(CalledOnValidThread());
   session_manager_->set_authenticator_factory(std::move(authenticator_factory));
-}
-
-void ChromotingHost::SetEnableCurtaining(bool enable) {
-  DCHECK(CalledOnValidThread());
-
-  if (enable_curtaining_ == enable)
-    return;
-
-  enable_curtaining_ = enable;
-  desktop_environment_factory_->SetEnableCurtaining(enable_curtaining_);
-
-  // Disconnect all existing clients because they might be running not
-  // curtained.
-  // TODO(alexeypa): fix this such that the curtain is applied to the not
-  // curtained sessions or disconnect only the client connected to not
-  // curtained sessions.
-  if (enable_curtaining_)
-    DisconnectAllClients();
 }
 
 void ChromotingHost::SetMaximumSessionDuration(
@@ -175,62 +160,59 @@ void ChromotingHost::OnSessionAuthenticated(ClientSession* client) {
 
   login_backoff_.Reset();
 
-  // Disconnect all other clients. |it| should be advanced before Disconnect()
-  // is called to avoid it becoming invalid when the client is removed from
-  // the list.
-  ClientList::iterator it = clients_.begin();
+  // Disconnect all clients, except |client|.
   base::WeakPtr<ChromotingHost> self = weak_factory_.GetWeakPtr();
-  while (it != clients_.end()) {
-    ClientSession* other_client = *it++;
-    if (other_client != client) {
-      other_client->DisconnectSession(protocol::OK);
+  while (clients_.size() > 1) {
+    clients_[(clients_.front().get() == client) ? 1 : 0]->DisconnectSession(
+        protocol::OK);
 
-      // Quit if the host was destroyed.
-      if (!self)
-        return;
-    }
+    // Quit if the host was destroyed.
+    if (!self)
+      return;
   }
 
   // Disconnects above must have destroyed all other clients.
   DCHECK_EQ(clients_.size(), 1U);
+  DCHECK(clients_.front().get() == client);
 
   // Notify observers that there is at least one authenticated client.
-  const std::string& jid = client->client_jid();
-
-  FOR_EACH_OBSERVER(HostStatusObserver, status_observers_,
-                    OnClientAuthenticated(jid));
+  for (auto& observer : status_observers_)
+    observer.OnClientAuthenticated(client->client_jid());
 }
 
 void ChromotingHost::OnSessionChannelsConnected(ClientSession* client) {
   DCHECK(CalledOnValidThread());
 
   // Notify observers.
-  FOR_EACH_OBSERVER(HostStatusObserver, status_observers_,
-                    OnClientConnected(client->client_jid()));
+  for (auto& observer : status_observers_)
+    observer.OnClientConnected(client->client_jid());
 }
 
 void ChromotingHost::OnSessionAuthenticationFailed(ClientSession* client) {
   DCHECK(CalledOnValidThread());
 
   // Notify observers.
-  FOR_EACH_OBSERVER(HostStatusObserver, status_observers_,
-                    OnAccessDenied(client->client_jid()));
+  for (auto& observer : status_observers_)
+    observer.OnAccessDenied(client->client_jid());
 }
 
 void ChromotingHost::OnSessionClosed(ClientSession* client) {
   DCHECK(CalledOnValidThread());
 
-  ClientList::iterator it = std::find(clients_.begin(), clients_.end(), client);
+  ClientSessions::iterator it =
+      std::find_if(clients_.begin(), clients_.end(),
+                   [client](const std::unique_ptr<ClientSession>& item) {
+                     return item.get() == client;
+                   });
   CHECK(it != clients_.end());
 
   bool was_authenticated = client->is_authenticated();
   std::string jid = client->client_jid();
   clients_.erase(it);
-  delete client;
 
   if (was_authenticated) {
-    FOR_EACH_OBSERVER(HostStatusObserver, status_observers_,
-                      OnClientDisconnected(jid));
+    for (auto& observer : status_observers_)
+      observer.OnClientDisconnected(jid);
   }
 }
 
@@ -239,9 +221,8 @@ void ChromotingHost::OnSessionRouteChange(
     const std::string& channel_name,
     const protocol::TransportRoute& route) {
   DCHECK(CalledOnValidThread());
-  FOR_EACH_OBSERVER(HostStatusObserver, status_observers_,
-                    OnClientRouteChange(session->client_jid(), channel_name,
-                                        route));
+  for (auto& observer : status_observers_)
+    observer.OnClientRouteChange(session->client_jid(), channel_name, route);
 }
 
 void ChromotingHost::OnIncomingSession(
@@ -268,29 +249,22 @@ void ChromotingHost::OnIncomingSession(
       protocol::SessionConfig::Protocol::WEBRTC) {
     connection.reset(new protocol::WebrtcConnectionToClient(
         base::WrapUnique(session), transport_context_,
-        video_encode_task_runner_));
+        video_encode_task_runner_, audio_task_runner_));
   } else {
     connection.reset(new protocol::IceConnectionToClient(
         base::WrapUnique(session), transport_context_,
         video_encode_task_runner_, audio_task_runner_));
   }
 
+  DesktopEnvironmentOptions options = desktop_environment_options_;
+  // TODO(zijiehe): Apply HostSessionOptions to options.
   // Create a ClientSession object.
-  ClientSession* client = new ClientSession(
-      this, std::move(connection), desktop_environment_factory_,
-      max_session_duration_, pairing_registry_, extensions_.get());
-
-  clients_.push_back(client);
-}
-
-void ChromotingHost::DisconnectAllClients() {
-  DCHECK(CalledOnValidThread());
-
-  while (!clients_.empty()) {
-    size_t size = clients_.size();
-    clients_.front()->DisconnectSession(protocol::OK);
-    CHECK_EQ(clients_.size(), size - 1);
-  }
+  std::vector<HostExtension*> extension_ptrs;
+  for (const auto& extension : extensions_)
+    extension_ptrs.push_back(extension.get());
+  clients_.push_back(base::MakeUnique<ClientSession>(
+      this, std::move(connection), desktop_environment_factory_, options,
+      max_session_duration_, pairing_registry_, extension_ptrs));
 }
 
 }  // namespace remoting

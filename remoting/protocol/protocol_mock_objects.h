@@ -31,9 +31,12 @@
 #include "remoting/protocol/transport.h"
 #include "remoting/protocol/video_stub.h"
 #include "testing/gmock/include/gmock/gmock.h"
-#include "third_party/webrtc/libjingle/xmllite/xmlelement.h"
+#include "third_party/libjingle_xmpp/xmllite/xmlelement.h"
 
 namespace remoting {
+
+class VideoEncoder;
+
 namespace protocol {
 
 class MockAuthenticator : public Authenticator {
@@ -77,7 +80,6 @@ class MockConnectionToClientEventHandler
   MOCK_METHOD1(OnConnectionClosed, void(ErrorCode error));
   MOCK_METHOD1(OnCreateVideoEncoder,
                void(std::unique_ptr<VideoEncoder>* encoder));
-  MOCK_METHOD1(OnInputEventReceived, void(int64_t timestamp));
   MOCK_METHOD2(OnRouteChange,
                void(const std::string& channel_name,
                     const TransportRoute& route));
@@ -201,6 +203,7 @@ class MockSession : public Session {
   MOCK_METHOD0(jid, const std::string&());
   MOCK_METHOD0(config, const SessionConfig&());
   MOCK_METHOD1(Close, void(ErrorCode error));
+  MOCK_METHOD1(AddPlugin, void(SessionPlugin* plugin));
 
  private:
   DISALLOW_COPY_AND_ASSIGN(MockSession);

@@ -33,7 +33,6 @@
 #include "SkTLazy.h"
 #include "SkUtils.h"
 #include "SkVertState.h"
-#include "SkXfermode.h"
 
 #include "SkBitmapProcShader.h"
 #include "SkDrawProcs.h"
@@ -1342,7 +1341,7 @@ void SkDraw::drawBitmap(const SkBitmap& bitmap, const SkMatrix& prematrix,
     SkDraw draw(*this);
     draw.fMatrix = &matrix;
 
-    if (bitmap.colorType() == kAlpha_8_SkColorType) {
+    if (bitmap.colorType() == kAlpha_8_SkColorType && !paint->getColorFilter()) {
         draw.drawBitmapAsMask(bitmap, *paint);
     } else {
         SkAutoBitmapShaderInstall install(bitmap, *paint);
@@ -1586,7 +1585,7 @@ private:
 
 uint32_t SkDraw::scalerContextFlags() const {
     uint32_t flags = SkPaint::kBoostContrast_ScalerContextFlag;
-    if (!SkImageInfoIsGammaCorrect(fDevice->imageInfo())) {
+    if (!fDevice->imageInfo().colorSpace()) {
         flags |= SkPaint::kFakeGamma_ScalerContextFlag;
     }
     return flags;
@@ -1649,7 +1648,7 @@ void SkDraw::drawPosText_asPaths(const char text[], size_t byteLength,
 
     // Now restore the original settings, so we "draw" with whatever style/stroking.
     paint.setStyle(origPaint.getStyle());
-    paint.setPathEffect(sk_ref_sp(origPaint.getPathEffect()));
+    paint.setPathEffect(origPaint.refPathEffect());
 
     while (text < stop) {
         const SkGlyph& glyph = glyphCacheProc(cache.get(), &text);
@@ -1888,7 +1887,7 @@ void SkTriColorShader::toString(SkString* str) const {
 
 void SkDraw::drawVertices(SkCanvas::VertexMode vmode, int count,
                           const SkPoint vertices[], const SkPoint textures[],
-                          const SkColor colors[], SkXfermode* xmode,
+                          const SkColor colors[], SkBlendMode bmode,
                           const uint16_t indices[], int indexCount,
                           const SkPaint& paint) const {
     SkASSERT(0 == count || vertices);
@@ -1935,9 +1934,7 @@ void SkDraw::drawVertices(SkCanvas::VertexMode vmode, int count,
         } else {
             // colors * texture
             SkASSERT(shader);
-            sk_sp<SkXfermode> xfer = xmode ? sk_ref_sp(xmode)
-                                           : SkXfermode::Make(SkXfermode::kModulate_Mode);
-            p.setShader(SkShader::MakeComposeShader(triShader, sk_ref_sp(shader), std::move(xfer)));
+            p.setShader(SkShader::MakeComposeShader(triShader, sk_ref_sp(shader), bmode));
         }
     }
 
@@ -1959,7 +1956,8 @@ void SkDraw::drawVertices(SkCanvas::VertexMode vmode, int count,
                 SkMatrix tempM;
                 if (texture_to_matrix(state, vertices, textures, &tempM)) {
                     SkShader::ContextRec rec(p, *fMatrix, &tempM,
-                                             SkBlitter::PreferredShaderDest(fDst.info()));
+                                             SkBlitter::PreferredShaderDest(fDst.info()),
+                                             fDst.colorSpace());
                     if (!blitter->resetShaderContext(rec)) {
                         continue;
                     }

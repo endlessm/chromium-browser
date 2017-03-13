@@ -494,6 +494,12 @@ bool UDIFParser::ParseBlkx() {
   for (CFIndex i = 0; i < CFArrayGetCount(blkx); ++i) {
     auto* block_dictionary =
         base::mac::CFCast<CFDictionaryRef>(CFArrayGetValueAtIndex(blkx, i));
+    if (!block_dictionary) {
+      DLOG(ERROR) << "Skipping block " << i
+                  << " because it is not a CFDictionary";
+      continue;
+    }
+
     auto* data = base::mac::GetValueFromDictionary<CFDataRef>(block_dictionary,
                                                               CFSTR("Data"));
     if (!data) {
@@ -675,7 +681,9 @@ off_t UDIFPartitionReadStream::Seek(off_t offset, int whence) {
         new UDIFBlockChunkReadStream(stream_, block_size_, chunk));
   }
   current_chunk_ = chunk_number;
-  if (chunk_stream_->Seek(decompress_read_offset.ValueOrDie(), SEEK_SET) == -1)
+  if (chunk_stream_->Seek(
+          base::ValueOrDieForType<off_t>(decompress_read_offset), SEEK_SET) ==
+      -1)
     return -1;
 
   return offset;

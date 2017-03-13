@@ -6,11 +6,9 @@
 
 #include <utility>
 
-#include "base/debug/dump_without_crashing.h"
 #include "base/feature_list.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "components/autofill/core/browser/autofill_wallet_data_type_controller.h"
 #include "components/autofill/core/browser/webdata/autofill_data_type_controller.h"
@@ -26,21 +24,21 @@
 #include "components/password_manager/core/browser/password_store.h"
 #include "components/password_manager/sync/browser/password_data_type_controller.h"
 #include "components/prefs/pref_service.h"
-#include "components/sync/core/attachments/attachment_downloader.h"
-#include "components/sync/core/attachments/attachment_service.h"
-#include "components/sync/core/attachments/attachment_service_impl.h"
-#include "components/sync/core/attachments/attachment_uploader_impl.h"
+#include "components/reading_list/core/reading_list_switches.h"
+#include "components/sync/base/report_unrecoverable_error.h"
 #include "components/sync/device_info/device_info_data_type_controller.h"
 #include "components/sync/device_info/local_device_info_provider_impl.h"
+#include "components/sync/driver/async_directory_type_controller.h"
 #include "components/sync/driver/data_type_manager_impl.h"
-#include "components/sync/driver/glue/chrome_report_unrecoverable_error.h"
-#include "components/sync/driver/glue/sync_backend_host.h"
 #include "components/sync/driver/glue/sync_backend_host_impl.h"
 #include "components/sync/driver/model_type_controller.h"
 #include "components/sync/driver/proxy_data_type_controller.h"
 #include "components/sync/driver/sync_client.h"
 #include "components/sync/driver/sync_driver_switches.h"
-#include "components/sync/driver/ui_data_type_controller.h"
+#include "components/sync/engine/attachments/attachment_downloader.h"
+#include "components/sync/engine/attachments/attachment_uploader.h"
+#include "components/sync/engine/sync_engine.h"
+#include "components/sync/model/attachments/attachment_service.h"
 #include "components/sync_bookmarks/bookmark_change_processor.h"
 #include "components/sync_bookmarks/bookmark_data_type_controller.h"
 #include "components/sync_bookmarks/bookmark_model_associator.h"
@@ -53,15 +51,15 @@ using bookmarks::BookmarkModel;
 using sync_bookmarks::BookmarkChangeProcessor;
 using sync_bookmarks::BookmarkDataTypeController;
 using sync_bookmarks::BookmarkModelAssociator;
+using sync_sessions::SessionDataTypeController;
+using syncer::AsyncDirectoryTypeController;
 using syncer::DataTypeController;
 using syncer::DataTypeManager;
 using syncer::DataTypeManagerImpl;
 using syncer::DataTypeManagerObserver;
 using syncer::DeviceInfoDataTypeController;
-using syncer::ProxyDataTypeController;
-using syncer::UIDataTypeController;
 using syncer::ModelTypeController;
-using sync_sessions::SessionDataTypeController;
+using syncer::ProxyDataTypeController;
 
 namespace browser_sync {
 
@@ -81,13 +79,6 @@ syncer::ModelTypeSet GetEnabledTypesFromCommandLine(
     const base::CommandLine& command_line) {
   return syncer::ModelTypeSet();
 }
-
-// Used to gate syncing preferences, see crbug.com/374865 for more information.
-// Has always been on for desktop/ChromeOS, so default to on. This feature is
-// mainly to give us a kill switch should something go wrong with starting to
-// sync prefs on mobile.
-const base::Feature kSyncPreferencesFeature{"SyncPreferences",
-                                            base::FEATURE_ENABLED_BY_DEFAULT};
 
 }  // namespace
 
@@ -143,16 +134,15 @@ void ProfileSyncComponentsFactoryImpl::RegisterCommonDataTypes(
     syncer::ModelTypeSet disabled_types,
     syncer::ModelTypeSet enabled_types) {
   base::Closure error_callback =
-      base::Bind(&syncer::ChromeReportUnrecoverableError, channel_);
+      base::Bind(&syncer::ReportUnrecoverableError, channel_);
 
   // TODO(stanisc): can DEVICE_INFO be one of disabled datatypes?
   if (base::FeatureList::IsEnabled(switches::kSyncUSSDeviceInfo)) {
     // Use an error callback that always uploads a stacktrace if it can to help
     // get USS as stable as possible.
     sync_service->RegisterDataTypeController(
-        base::MakeUnique<ModelTypeController>(
-            syncer::DEVICE_INFO, base::Bind(&base::debug::DumpWithoutCrashing),
-            sync_client_, base::ThreadTaskRunnerHandle::Get()));
+        base::MakeUnique<ModelTypeController>(syncer::DEVICE_INFO, sync_client_,
+                                              ui_thread_));
   } else {
     sync_service->RegisterDataTypeController(
         base::MakeUnique<DeviceInfoDataTypeController>(
@@ -160,15 +150,21 @@ void ProfileSyncComponentsFactoryImpl::RegisterCommonDataTypes(
             sync_service->GetLocalDeviceInfoProvider()));
   }
 
-  // Autofill sync is enabled by default.  Register unless explicitly
+  // Autocomplete sync is enabled by default.  Register unless explicitly
   // disabled.
   if (!disabled_types.Has(syncer::AUTOFILL)) {
-    sync_service->RegisterDataTypeController(
-        base::MakeUnique<AutofillDataTypeController>(
-            db_thread_, error_callback, sync_client_, web_data_service_));
+    if (base::FeatureList::IsEnabled(switches::kSyncUSSAutocomplete)) {
+      sync_service->RegisterDataTypeController(
+          base::MakeUnique<ModelTypeController>(syncer::AUTOFILL, sync_client_,
+                                                db_thread_));
+    } else {
+      sync_service->RegisterDataTypeController(
+          base::MakeUnique<AutofillDataTypeController>(
+              db_thread_, error_callback, sync_client_, web_data_service_));
+    }
   }
 
-  // Autofill profile sync is enabled by default.  Register unless explicitly
+  // Autofill sync is enabled by default.  Register unless explicitly
   // disabled.
   if (!disabled_types.Has(syncer::AUTOFILL_PROFILE)) {
     sync_service->RegisterDataTypeController(
@@ -241,11 +237,13 @@ void ProfileSyncComponentsFactoryImpl::RegisterCommonDataTypes(
       !disabled_types.Has(syncer::FAVICON_TRACKING) && !history_disabled) {
     // crbug/384552. We disable error uploading for this data types for now.
     sync_service->RegisterDataTypeController(
-        base::MakeUnique<UIDataTypeController>(syncer::FAVICON_IMAGES,
-                                               base::Closure(), sync_client_));
+        base::MakeUnique<AsyncDirectoryTypeController>(
+            syncer::FAVICON_IMAGES, base::Closure(), sync_client_,
+            syncer::GROUP_UI, ui_thread_));
     sync_service->RegisterDataTypeController(
-        base::MakeUnique<UIDataTypeController>(syncer::FAVICON_TRACKING,
-                                               base::Closure(), sync_client_));
+        base::MakeUnique<AsyncDirectoryTypeController>(
+            syncer::FAVICON_TRACKING, base::Closure(), sync_client_,
+            syncer::GROUP_UI, ui_thread_));
   }
 
   // Password sync is enabled by default.  Register unless explicitly
@@ -257,53 +255,64 @@ void ProfileSyncComponentsFactoryImpl::RegisterCommonDataTypes(
             sync_client_->GetPasswordStateChangedCallback(), password_store_));
   }
 
-  if (!disabled_types.Has(syncer::PREFERENCES) &&
-      base::FeatureList::IsEnabled(kSyncPreferencesFeature)) {
+  if (!disabled_types.Has(syncer::PREFERENCES)) {
     if (!override_prefs_controller_to_uss_for_test_) {
       sync_service->RegisterDataTypeController(
-          base::MakeUnique<UIDataTypeController>(syncer::PREFERENCES,
-                                                 error_callback, sync_client_));
+          base::MakeUnique<AsyncDirectoryTypeController>(
+              syncer::PREFERENCES, error_callback, sync_client_,
+              syncer::GROUP_UI, ui_thread_));
     } else {
       sync_service->RegisterDataTypeController(
-          base::MakeUnique<ModelTypeController>(
-              syncer::PREFERENCES, error_callback, sync_client_,
-              base::ThreadTaskRunnerHandle::Get()));
+          base::MakeUnique<ModelTypeController>(syncer::PREFERENCES,
+                                                sync_client_, ui_thread_));
     }
   }
 
   if (!disabled_types.Has(syncer::PRIORITY_PREFERENCES)) {
     sync_service->RegisterDataTypeController(
-        base::MakeUnique<UIDataTypeController>(syncer::PRIORITY_PREFERENCES,
-                                               error_callback, sync_client_));
+        base::MakeUnique<AsyncDirectoryTypeController>(
+            syncer::PRIORITY_PREFERENCES, error_callback, sync_client_,
+            syncer::GROUP_UI, ui_thread_));
   }
 
   // Article sync is disabled by default.  Register only if explicitly enabled.
   if (dom_distiller::IsEnableSyncArticlesSet()) {
     sync_service->RegisterDataTypeController(
-        base::MakeUnique<UIDataTypeController>(syncer::ARTICLES, error_callback,
-                                               sync_client_));
+        base::MakeUnique<AsyncDirectoryTypeController>(
+            syncer::ARTICLES, error_callback, sync_client_, syncer::GROUP_UI,
+            ui_thread_));
+  }
+
+  // Reading list sync is enabled by default only on iOS. Register unless
+  // Reading List or Reading List Sync is explicitly disabled.
+  if (!disabled_types.Has(syncer::READING_LIST) &&
+      reading_list::switches::IsReadingListEnabled()) {
+    sync_service->RegisterDataTypeController(
+        base::MakeUnique<ModelTypeController>(syncer::READING_LIST,
+                                              sync_client_, ui_thread_));
   }
 }
 
 DataTypeManager* ProfileSyncComponentsFactoryImpl::CreateDataTypeManager(
+    syncer::ModelTypeSet initial_types,
     const syncer::WeakHandle<syncer::DataTypeDebugInfoListener>&
         debug_info_listener,
     const DataTypeController::TypeMap* controllers,
     const syncer::DataTypeEncryptionHandler* encryption_handler,
-    syncer::SyncBackendHost* backend,
+    syncer::ModelTypeConfigurer* configurer,
     DataTypeManagerObserver* observer) {
-  return new DataTypeManagerImpl(debug_info_listener, controllers,
-                                 encryption_handler, backend, observer);
+  return new DataTypeManagerImpl(sync_client_, initial_types,
+                                 debug_info_listener, controllers,
+                                 encryption_handler, configurer, observer);
 }
 
-syncer::SyncBackendHost*
-ProfileSyncComponentsFactoryImpl::CreateSyncBackendHost(
+syncer::SyncEngine* ProfileSyncComponentsFactoryImpl::CreateSyncEngine(
     const std::string& name,
     invalidation::InvalidationService* invalidator,
     const base::WeakPtr<syncer::SyncPrefs>& sync_prefs,
-    const base::FilePath& sync_folder) {
-  return new syncer::SyncBackendHostImpl(name, sync_client_, ui_thread_,
-                                         invalidator, sync_prefs, sync_folder);
+    const base::FilePath& sync_data_folder) {
+  return new syncer::SyncBackendHostImpl(name, sync_client_, invalidator,
+                                         sync_prefs, sync_data_folder);
 }
 
 std::unique_ptr<syncer::LocalDeviceInfoProvider>
@@ -367,11 +376,11 @@ ProfileSyncComponentsFactoryImpl::CreateAttachmentService(
     // TODO(maniscalco): Use shared (one per profile) thread-safe instances of
     // AttachmentUploader and AttachmentDownloader instead of creating a new one
     // per AttachmentService (bug 369536).
-    attachment_uploader.reset(new syncer::AttachmentUploaderImpl(
+    attachment_uploader = syncer::AttachmentUploader::Create(
         sync_service_url_, url_request_context_getter_,
         user_share.sync_credentials.account_id,
         user_share.sync_credentials.scope_set, token_service_provider,
-        store_birthday, model_type));
+        store_birthday, model_type);
 
     token_service_provider =
         new TokenServiceProvider(ui_thread_, token_service_);
@@ -389,12 +398,10 @@ ProfileSyncComponentsFactoryImpl::CreateAttachmentService(
   const base::TimeDelta initial_backoff_delay =
       base::TimeDelta::FromMinutes(30);
   const base::TimeDelta max_backoff_delay = base::TimeDelta::FromHours(4);
-  std::unique_ptr<syncer::AttachmentService> attachment_service(
-      new syncer::AttachmentServiceImpl(
-          std::move(attachment_store), std::move(attachment_uploader),
-          std::move(attachment_downloader), delegate, initial_backoff_delay,
-          max_backoff_delay));
-  return attachment_service;
+  return syncer::AttachmentService::Create(
+      std::move(attachment_store), std::move(attachment_uploader),
+      std::move(attachment_downloader), delegate, initial_backoff_delay,
+      max_backoff_delay);
 }
 
 syncer::SyncApiComponentFactory::SyncComponents

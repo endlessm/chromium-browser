@@ -2,12 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef NET_QUIC_CRYPTO_SCOPED_EVP_AEAD_CTX_H_
-#define NET_QUIC_CRYPTO_SCOPED_EVP_AEAD_CTX_H_
-
-#include <openssl/evp.h>
+#ifndef NET_QUIC_CORE_CRYPTO_SCOPED_EVP_AEAD_CTX_H_
+#define NET_QUIC_CORE_CRYPTO_SCOPED_EVP_AEAD_CTX_H_
 
 #include "base/macros.h"
+#include "third_party/boringssl/src/include/openssl/evp.h"
 
 namespace net {
 
@@ -28,4 +27,4 @@ class ScopedEVPAEADCtx {
 
 }  // namespace net
 
-#endif  // NET_QUIC_CRYPTO_SCOPED_EVP_AEAD_CTX_H_
+#endif  // NET_QUIC_CORE_CRYPTO_SCOPED_EVP_AEAD_CTX_H_

@@ -3,7 +3,8 @@
  * Copyright (C) 1999 Antti Koivisto <koivisto@kde.org>
  * Copyright (C) 2006 Allan Sandfeld Jensen <kde@carewolf.com>
  * Copyright (C) 2006 Samuel Weinig <sam.weinig@gmail.com>
- * Copyright (C) 2004, 2005, 2006, 2007, 2009, 2010 Apple Inc. All rights reserved.
+ * Copyright (C) 2004, 2005, 2006, 2007, 2009, 2010 Apple Inc.
+ *               All rights reserved.
  * Copyright (C) 2010 Patrick Gansterer <paroga@paroga.com>
  *
  * This library is free software; you can redistribute it and/or
@@ -26,7 +27,7 @@
 #ifndef LayoutImageResource_h
 #define LayoutImageResource_h
 
-#include "core/fetch/ImageResource.h"
+#include "core/loader/resource/ImageResourceContent.h"
 #include "core/style/StyleImage.h"
 
 namespace blink {
@@ -45,8 +46,8 @@ class LayoutImageResource
   virtual void initialize(LayoutObject*);
   virtual void shutdown();
 
-  void setImageResource(ImageResource*);
-  ImageResource* cachedImage() const { return m_cachedImage.get(); }
+  void setImageResource(ImageResourceContent*);
+  ImageResourceContent* cachedImage() const { return m_cachedImage.get(); }
   virtual bool hasImage() const { return m_cachedImage; }
 
   void resetAnimation();
@@ -70,7 +71,7 @@ class LayoutImageResource
  protected:
   LayoutImageResource();
   LayoutObject* m_layoutObject;
-  Member<ImageResource> m_cachedImage;
+  Member<ImageResourceContent> m_cachedImage;
 };
 
 }  // namespace blink

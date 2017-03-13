@@ -9,6 +9,9 @@
 #include <set>
 
 #include "base/command_line.h"
+#include "base/debug/alias.h"
+#include "base/debug/dump_without_crashing.h"
+#include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/extensions/extension_service.h"
@@ -22,15 +25,18 @@
 #include "chrome/browser/sync_file_system/local/sync_file_system_backend.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_switches.h"
+#include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/extensions/extension_process_policy.h"
 #include "chrome/common/url_constants.h"
 #include "components/guest_view/browser/guest_view_message_filter.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/browser_url_handler.h"
+#include "content/public/browser/page_navigator.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/resource_dispatcher_host.h"
 #include "content/public/browser/site_instance.h"
+#include "content/public/browser/storage_partition.h"
 #include "content/public/browser/vpn_service_proxy.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/content_switches.h"
@@ -300,16 +306,10 @@ bool ChromeContentBrowserClientExtensionsPart::DoesSiteRequireDedicatedProcess(
       if (extension->id() == kWebStoreAppId)
         return true;
 
-      // --isolate-extensions should isolate extensions, except for a) hosted
-      // apps, b) platform apps.
-      // a) Isolating hosted apps is a good idea, but ought to be a separate
-      //    knob.
-      // b) Sandbox pages in platform app can load web content in iframes;
-      //    isolating the app and the iframe leads to StoragePartition mismatch
-      //    in the two processes.
-      //    TODO(lazyboy): We should deprecate this behaviour and not let web
-      //    content load in platform app's process; see http://crbug.com/615585.
-      if (extension->is_hosted_app() || extension->is_platform_app())
+      // --isolate-extensions should isolate extensions, except for hosted
+      // apps. Isolating hosted apps is a good idea, but ought to be a separate
+      // knob.
+      if (extension->is_hosted_app())
         return false;
 
       // Isolate all extensions.
@@ -485,12 +485,11 @@ bool ChromeContentBrowserClientExtensionsPart::
 
 // static
 bool ChromeContentBrowserClientExtensionsPart::ShouldSwapProcessesForRedirect(
-    content::ResourceContext* resource_context,
+    content::BrowserContext* browser_context,
     const GURL& current_url,
     const GURL& new_url) {
-  ProfileIOData* io_data = ProfileIOData::FromResourceContext(resource_context);
   return CrossesExtensionProcessBoundary(
-      io_data->GetExtensionInfoMap()->extensions(),
+      ExtensionRegistry::Get(browser_context)->enabled_extensions(),
       current_url, new_url, false);
 }
 
@@ -498,11 +497,8 @@ bool ChromeContentBrowserClientExtensionsPart::ShouldSwapProcessesForRedirect(
 bool ChromeContentBrowserClientExtensionsPart::AllowServiceWorker(
     const GURL& scope,
     const GURL& first_party_url,
-    content::ResourceContext* context,
-    int render_process_id,
-    int render_frame_id) {
+    content::ResourceContext* context) {
   // We only care about extension urls.
-  // TODO(devlin): Also address chrome-extension-resource.
   if (!first_party_url.SchemeIs(kExtensionScheme))
     return true;
 
@@ -513,6 +509,33 @@ bool ChromeContentBrowserClientExtensionsPart::AllowServiceWorker(
   // Don't allow a service worker for an extension url with no extension (this
   // could happen in the case of, e.g., an unloaded extension).
   return extension != nullptr;
+}
+
+// static
+void ChromeContentBrowserClientExtensionsPart::OverrideNavigationParams(
+    content::SiteInstance* site_instance,
+    ui::PageTransition* transition,
+    bool* is_renderer_initiated,
+    content::Referrer* referrer) {
+  const Extension* extension =
+      ExtensionRegistry::Get(site_instance->GetBrowserContext())
+          ->enabled_extensions()
+          .GetExtensionOrAppByURL(site_instance->GetSiteURL());
+  if (!extension)
+    return;
+
+  if (extension->id() == extension_misc::kBookmarkManagerId &&
+      ui::PageTransitionCoreTypeIs(*transition, ui::PAGE_TRANSITION_LINK)) {
+    // Link clicks in the bookmark manager count as bookmarks and as browser-
+    // initiated navigations.
+    *transition = ui::PAGE_TRANSITION_AUTO_BOOKMARK;
+    *is_renderer_initiated = false;
+  }
+
+  // Hide the referrer for extension pages. We don't want sites to see a
+  // referrer of chrome-extension://<...>.
+  if (extension->is_extension())
+    *referrer = content::Referrer();
 }
 
 // static
@@ -559,6 +582,19 @@ bool ChromeContentBrowserClientExtensionsPart::ShouldAllowOpenURL(
     else
       RecordShowAllowOpenURLFailure(FAILURE_BLOB_URL);
 
+    // TODO(alexmos): Temporary instrumentation to find any regressions for
+    // this blocking.  Remove after verifying that this is not breaking any
+    // legitimate use cases.
+    char site_url_copy[256];
+    base::strlcpy(site_url_copy, site_url.spec().c_str(),
+                  arraysize(site_url_copy));
+    base::debug::Alias(&site_url_copy);
+    char to_origin_copy[256];
+    base::strlcpy(to_origin_copy, to_origin.Serialize().c_str(),
+                  arraysize(to_origin_copy));
+    base::debug::Alias(&to_origin_copy);
+    base::debug::DumpWithoutCrashing();
+
     *result = false;
     return true;
   }
@@ -583,11 +619,21 @@ bool ChromeContentBrowserClientExtensionsPart::ShouldAllowOpenURL(
   }
 
   if (!site_url.SchemeIsHTTPOrHTTPS() && !site_url.SchemeIs(kExtensionScheme)) {
-    // Previous version of this function skipped the web-accessible
-    // resource checks in this case.  Collect data to see how often this
-    // happened.
     RecordShowAllowOpenURLFailure(
         FAILURE_SCHEME_NOT_HTTP_OR_HTTPS_OR_EXTENSION);
+
+    // TODO(alexmos): Previous version of this function skipped the
+    // web-accessible resource checks in this case.  Collect data to catch
+    // any regressions, and then remove this.
+    char site_url_copy[256];
+    base::strlcpy(site_url_copy, site_url.spec().c_str(),
+                  arraysize(site_url_copy));
+    base::debug::Alias(&site_url_copy);
+    char to_origin_copy[256];
+    base::strlcpy(to_origin_copy, to_origin.Serialize().c_str(),
+                  arraysize(to_origin_copy));
+    base::debug::Alias(&to_origin_copy);
+    base::debug::DumpWithoutCrashing();
   } else {
     RecordShowAllowOpenURLFailure(FAILURE_RESOURCE_NOT_WEB_ACCESSIBLE);
   }
@@ -622,9 +668,9 @@ void ChromeContentBrowserClientExtensionsPart::RenderProcessWillLaunch(
   host->AddFilter(new ExtensionsGuestViewMessageFilter(id, profile));
   if (extensions::ExtensionsClient::Get()
           ->ExtensionAPIEnabledInExtensionServiceWorkers()) {
-    host->AddFilter(new ExtensionServiceWorkerMessageFilter(id, profile));
+    host->AddFilter(new ExtensionServiceWorkerMessageFilter(
+        id, profile, host->GetStoragePartition()->GetServiceWorkerContext()));
   }
-  extension_web_request_api_helpers::SendExtensionWebRequestStatusToHost(host);
 }
 
 void ChromeContentBrowserClientExtensionsPart::SiteInstanceGotProcess(
@@ -724,16 +770,18 @@ void ChromeContentBrowserClientExtensionsPart::GetURLRequestAutoMountHandlers(
 void ChromeContentBrowserClientExtensionsPart::GetAdditionalFileSystemBackends(
     content::BrowserContext* browser_context,
     const base::FilePath& storage_partition_path,
-    ScopedVector<storage::FileSystemBackend>* additional_backends) {
+    std::vector<std::unique_ptr<storage::FileSystemBackend>>*
+        additional_backends) {
   base::SequencedWorkerPool* pool = content::BrowserThread::GetBlockingPool();
-  additional_backends->push_back(new MediaFileSystemBackend(
+  auto sequence_token =
+      pool->GetNamedSequenceToken(MediaFileSystemBackend::kMediaTaskRunnerName);
+  additional_backends->push_back(base::MakeUnique<MediaFileSystemBackend>(
       storage_partition_path,
-      pool->GetSequencedTaskRunner(
-                pool->GetNamedSequenceToken(
-                    MediaFileSystemBackend::kMediaTaskRunnerName)).get()));
+      pool->GetSequencedTaskRunner(sequence_token).get()));
 
-  additional_backends->push_back(new sync_file_system::SyncFileSystemBackend(
-      Profile::FromBrowserContext(browser_context)));
+  additional_backends->push_back(
+      base::MakeUnique<sync_file_system::SyncFileSystemBackend>(
+          Profile::FromBrowserContext(browser_context)));
 }
 
 void ChromeContentBrowserClientExtensionsPart::
@@ -745,13 +793,6 @@ void ChromeContentBrowserClientExtensionsPart::
   DCHECK(profile);
   if (ProcessMap::Get(profile)->Contains(process->GetID())) {
     command_line->AppendSwitch(switches::kExtensionProcess);
-#if defined(ENABLE_WEBRTC)
-    command_line->AppendSwitch(::switches::kEnableWebRtcHWH264Encoding);
-#endif
-    if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-            switches::kEnableMojoSerialService)) {
-      command_line->AppendSwitch(switches::kEnableMojoSerialService);
-    }
   }
 }
 

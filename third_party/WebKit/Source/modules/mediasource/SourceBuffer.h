@@ -32,8 +32,7 @@
 #define SourceBuffer_h
 
 #include "bindings/core/v8/ActiveScriptWrappable.h"
-#include "core/dom/ActiveDOMObject.h"
-#include "core/fileapi/FileReaderLoaderClient.h"
+#include "core/dom/SuspendableObject.h"
 #include "modules/EventTargetModules.h"
 #include "modules/mediasource/TrackDefaultList.h"
 #include "platform/AsyncMethodRunner.h"
@@ -48,18 +47,15 @@ class AudioTrackList;
 class DOMArrayBuffer;
 class DOMArrayBufferView;
 class ExceptionState;
-class FileReaderLoader;
 class GenericEventQueue;
 class MediaSource;
-class Stream;
 class TimeRanges;
 class VideoTrackList;
 class WebSourceBuffer;
 
 class SourceBuffer final : public EventTargetWithInlineData,
-                           public ActiveScriptWrappable,
-                           public ActiveDOMObject,
-                           public FileReaderLoaderClient,
+                           public ActiveScriptWrappable<SourceBuffer>,
+                           public SuspendableObject,
                            public WebSourceBufferClient {
   USING_GARBAGE_COLLECTED_MIXIN(SourceBuffer);
   DEFINE_WRAPPERTYPEINFO();
@@ -83,8 +79,6 @@ class SourceBuffer final : public EventTargetWithInlineData,
   void setTimestampOffset(double, ExceptionState&);
   void appendBuffer(DOMArrayBuffer* data, ExceptionState&);
   void appendBuffer(DOMArrayBufferView* data, ExceptionState&);
-  void appendStream(Stream*, ExceptionState&);
-  void appendStream(Stream*, unsigned long long maxSize, ExceptionState&);
   void abort(ExceptionState&);
   void remove(double start, double end, ExceptionState&);
   double appendWindowStart() const;
@@ -108,10 +102,10 @@ class SourceBuffer final : public EventTargetWithInlineData,
   // ScriptWrappable
   bool hasPendingActivity() const final;
 
-  // ActiveDOMObject
+  // SuspendableObject
   void suspend() override;
   void resume() override;
-  void contextDestroyed() override;
+  void contextDestroyed(ExecutionContext*) override;
 
   // EventTarget interface
   ExecutionContext* getExecutionContext() const override;
@@ -123,14 +117,6 @@ class SourceBuffer final : public EventTargetWithInlineData,
   DECLARE_VIRTUAL_TRACE();
 
  private:
-  enum AppendStreamDoneAction {
-    NoError,
-    RunAppendErrorWithNoDecodeError,
-    RunAppendErrorWithDecodeError
-  };
-
-  enum AppendError { NoDecodeError, DecodeError };
-
   SourceBuffer(std::unique_ptr<WebSourceBuffer>,
                MediaSource*,
                GenericEventQueue*);
@@ -143,14 +129,9 @@ class SourceBuffer final : public EventTargetWithInlineData,
   bool evictCodedFrames(size_t newDataSize);
   void appendBufferInternal(const unsigned char*, unsigned, ExceptionState&);
   void appendBufferAsyncPart();
-  void appendError(AppendError);
+  void appendError();
 
   void removeAsyncPart();
-
-  void appendStreamInternal(Stream*, ExceptionState&);
-  void appendStreamAsyncPart();
-  void appendStreamDone(AppendStreamDoneAction);
-  void clearAppendStreamState();
 
   void cancelRemove();
   void abortIfUpdating();
@@ -165,12 +146,6 @@ class SourceBuffer final : public EventTargetWithInlineData,
   AtomicString defaultTrackLanguage(
       const AtomicString& trackType,
       const AtomicString& byteStreamTrackID) const;
-
-  // FileReaderLoaderClient interface
-  void didStartLoading() override;
-  void didReceiveDataForClient(const char* data, unsigned dataLength) override;
-  void didFinishLoading() override;
-  void didFail(FileError::ErrorCode) override;
 
   std::unique_ptr<WebSourceBuffer> m_webSourceBuffer;
   Member<MediaSource> m_source;
@@ -193,12 +168,6 @@ class SourceBuffer final : public EventTargetWithInlineData,
   double m_pendingRemoveStart;
   double m_pendingRemoveEnd;
   Member<AsyncMethodRunner<SourceBuffer>> m_removeAsyncPartRunner;
-
-  bool m_streamMaxSizeValid;
-  unsigned long long m_streamMaxSize;
-  Member<AsyncMethodRunner<SourceBuffer>> m_appendStreamAsyncPartRunner;
-  Member<Stream> m_stream;
-  std::unique_ptr<FileReaderLoader> m_loader;
 };
 
 }  // namespace blink

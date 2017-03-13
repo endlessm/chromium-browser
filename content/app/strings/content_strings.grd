@@ -511,31 +511,7 @@ below:
           tree item
         </message>
       </if>
-      <message name="IDS_AX_BUTTON_ACTION_VERB" desc="Verb stating the action that will occur when a button is pressed, as used by accessibility.">
-        press
-      </message>
-      <message name="IDS_AX_RADIO_BUTTON_ACTION_VERB" desc="Verb stating the action that will occur when a radio button is clicked, as used by accessibility.">
-        select
-      </message>
-      <message name="IDS_AX_TEXT_FIELD_ACTION_VERB" desc="Verb stating the action that will occur when a text field is selected, as used by accessibility.">
-        activate
-      </message>
-      <message name="IDS_AX_CHECKED_CHECK_BOX_ACTION_VERB" desc="Verb stating the action that will occur when a checked checkbox is clicked, as used by accessibility.">
-        uncheck
-      </message>
-      <message name="IDS_AX_UNCHECKED_CHECK_BOX_ACTION_VERB" desc="Verb stating the action that will occur when an unchecked checkbox is clicked, as used by accessibility.">
-        check
-      </message>
-      <message name="IDS_AX_LINK_ACTION_VERB" desc="Verb stating the action that will occur when a link is clicked, as used by accessibility.">
-        jump
-      </message>
-      <message name="IDS_AX_POP_UP_BUTTON_ACTION_VERB" desc="Verb stating the action that will occur when a pop-up button is clicked, as used by accessibility.">
-        open
-      </message>
-      <message name="IDS_AX_DEFAULT_ACTION_VERB" desc="Verb stating the action that will occur when clicking on a generic clickable object, when we don't know what that action is, as used by accessibility.">
-        click
-      </message>
-
+      
       <message name="IDS_AX_AM_PM_FIELD_TEXT" desc="Accessible description of the AM/PM field in a date/time control">
         AM/PM
       </message>
@@ -728,13 +704,6 @@ below:
         Year
       </message>
 
-      <message name="IDS_KEYGEN_HIGH_GRADE_KEY" desc="High-grade cryptographic key size menu item">
-        2048 (High Grade)
-      </message>
-      <message name="IDS_KEYGEN_MED_GRADE_KEY" desc="Medium-grade cryptographic key size menu item">
-        1024 (Medium Grade)
-      </message>
-
       <message name="IDS_FORM_INPUT_WEEK_TEMPLATE" desc="A specfic week (1-53) in a specific year shown in a form control">
         Week <ph name="WEEKNUMBER">$2<ex>51</ex></ph>, <ph name="YEAR">$1<ex>2012</ex></ph>
       </message>
@@ -894,8 +863,8 @@ below:
       <message name="IDS_MEDIA_OVERFLOW_MENU_DOWNLOAD" desc="Media controls overflow menu item label for a download button.">
        Download
       </message>
-      <message name="IDS_MEDIA_TRACKS_NO_LABEL" desc="Menu item label for a text track that has no name specified">
-        Unknown
+      <message name="IDS_MEDIA_TRACKS_NO_LABEL" desc="Menu item label for a text track that has no name specified. The number represents the track number in the list of tracks.">
+        Track <ph name="NUMBER">$1<ex>1</ex></ph>
       </message>
 
       <message name="IDS_MEDIA_TRACKS_OFF" desc="Menu item label for a text track that represents disabling closed captions">

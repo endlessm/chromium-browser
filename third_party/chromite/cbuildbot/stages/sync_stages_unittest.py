@@ -17,12 +17,10 @@ import tempfile
 
 from chromite.cbuildbot import buildbucket_lib
 from chromite.cbuildbot import chromeos_config
-from chromite.cbuildbot import constants
-from chromite.cbuildbot import failures_lib
 from chromite.cbuildbot import lkgm_manager
 from chromite.cbuildbot import manifest_version
 from chromite.cbuildbot import manifest_version_unittest
-from chromite.cbuildbot import metadata_lib
+from chromite.cbuildbot import patch_series
 from chromite.cbuildbot import repository
 from chromite.cbuildbot import remote_try
 from chromite.cbuildbot import tree_status
@@ -31,15 +29,20 @@ from chromite.cbuildbot import trybot_patch_pool
 from chromite.cbuildbot import validation_pool
 from chromite.cbuildbot.stages import generic_stages_unittest
 from chromite.cbuildbot.stages import sync_stages
+from chromite.lib import auth
 from chromite.lib import cidb
 from chromite.lib import clactions
+from chromite.lib import cl_messages
+from chromite.lib import constants
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_build_lib_unittest
 from chromite.lib import fake_cidb
+from chromite.lib import failures_lib
 from chromite.lib import gerrit
 from chromite.lib import git
 from chromite.lib import git_unittest
 from chromite.lib import gob_util
+from chromite.lib import metadata_lib
 from chromite.lib import osutils
 from chromite.lib import patch as cros_patch
 from chromite.lib import timeout_util
@@ -248,10 +251,10 @@ class ManifestVersionedSyncStageTest(
     self.sync_stage = None
     self.PatchObject(manifest_version.BuildSpecsManager, 'SetInFlight')
 
-    repo = repository.RepoRepository(
+    self.repo = repository.RepoRepository(
         self.source_repo, self.tempdir, self.branch)
     self.manager = manifest_version.BuildSpecsManager(
-        repo, self.manifest_version_url, [self.build_name], self.incr_type,
+        self.repo, self.manifest_version_url, [self.build_name], self.incr_type,
         force=False, branch=self.branch, dry_run=True)
 
     self._Prepare()
@@ -284,6 +287,11 @@ class ManifestVersionedSyncStageTest(
     self.PatchObject(repository.RepoRepository, 'Sync', autospec=True)
 
     self.sync_stage.Run()
+
+  def testInitialize(self):
+    self.PatchObject(sync_stages.SyncStage, '_InitializeRepo')
+    self.sync_stage.repo = self.repo
+    self.sync_stage.Initialize()
 
 
 class MockPatch(mock.MagicMock):
@@ -350,11 +358,20 @@ class MockPatch(mock.MagicMock):
 class SyncStageTest(generic_stages_unittest.AbstractStageTestCase):
   """Tests the SyncStage."""
 
+  BOT_ID = 'master-paladin'
+
   def setUp(self):
     self.PatchObject(buildbucket_lib, 'GetServiceAccount',
-                     return_value=True)
-    self.PatchObject(buildbucket_lib, 'BuildBucketAuth',
-                     return_value=mock.Mock())
+                     return_value='server_account')
+    self.PatchObject(auth.AuthorizedHttp, '__init__',
+                     return_value=None)
+    self.PatchObject(buildbucket_lib.BuildbucketClient,
+                     '_GetHost',
+                     return_value=buildbucket_lib.BUILDBUCKET_TEST_HOST)
+    # Create and set up a fake cidb instance.
+    self.fake_db = fake_cidb.FakeCIDBConnection()
+    cidb.CIDBConnectionFactory.SetupMockCidb(self.fake_db)
+
     self._Prepare()
 
   def ConstructStage(self):
@@ -397,6 +414,7 @@ class SyncStageTest(generic_stages_unittest.AbstractStageTestCase):
     result = self._run.attrs.metadata.GetValue('changes')
     self.assertEqual(expected, result)
 
+
 class BaseCQTestCase(generic_stages_unittest.StageTestCase):
   """Helper class for testing the CommitQueueSync stage"""
   MANIFEST_CONTENTS = '<manifest/>'
@@ -418,7 +436,7 @@ class BaseCQTestCase(generic_stages_unittest.StageTestCase):
 
     # Block the CQ from contacting GoB.
     self.PatchObject(gerrit.GerritHelper, 'RemoveReady')
-    self.PatchObject(validation_pool.PaladinMessage, 'Send')
+    self.PatchObject(cl_messages.PaladinMessage, 'Send')
     self.PatchObject(validation_pool.ValidationPool, 'SubmitChanges',
                      return_value=({}, {}))
 
@@ -429,9 +447,15 @@ class BaseCQTestCase(generic_stages_unittest.StageTestCase):
                      side_effect=AssertionError('Test should not push.'))
 
     self.PatchObject(buildbucket_lib, 'GetServiceAccount',
-                     return_value=True)
-    self.PatchObject(buildbucket_lib, 'BuildBucketAuth',
-                     return_value=mock.Mock())
+                     return_value='server_account')
+    self.PatchObject(auth.AuthorizedHttp, '__init__',
+                     return_value=None)
+    self.PatchObject(buildbucket_lib.BuildbucketClient,
+                     'SendBuildbucketRequest',
+                     return_value=None)
+    self.PatchObject(buildbucket_lib.BuildbucketClient,
+                     '_GetHost',
+                     return_value=buildbucket_lib.BUILDBUCKET_TEST_HOST)
 
     # Create a fake repo / manifest on disk that is used by subclasses.
     for subdir in ('repo', 'manifests'):
@@ -884,7 +908,7 @@ pre-cq-configs: link-pre-cq
 
     # Change should throw a DependencyError when trying to create a transaction
     e = cros_patch.DependencyError(change, cros_patch.PatchException(change))
-    self.PatchObject(validation_pool.PatchSeries, 'CreateTransaction',
+    self.PatchObject(patch_series.PatchSeries, 'CreateTransaction',
                      side_effect=e)
     self.PerformSync(pre_cq_status=None, changes=[change], patch_objects=False)
     # Change should be marked as pre-cq passed, rather than being submitted.
@@ -967,7 +991,8 @@ pre-cq-configs: link-pre-cq
 
   def testRetryInPreCQ(self):
     # Create a change that is ready to be tested.
-    change = self._PrepareChangesWithPendingVerifications([['orange']])[0]
+    change = (
+        self._PrepareChangesWithPendingVerifications([['mixed-a-pre-cq']])[0])
     change.approval_timestamp = 0
 
     # Change should be launched now.
@@ -984,7 +1009,7 @@ pre-cq-configs: link-pre-cq
     # Pretend that the build failed with an infrastructure failure so the change
     # should be retried.
     self.fake_db.InsertCLActions(
-        build_ids['orange'],
+        build_ids['mixed-a-pre-cq'],
         [clactions.CLAction.FromGerritPatchAndAction(
             change, constants.CL_ACTION_FORGIVEN)])
 
@@ -995,7 +1020,8 @@ pre-cq-configs: link-pre-cq
 
   def testPreCQ(self):
     changes = self._PrepareChangesWithPendingVerifications(
-        [['orange', 'apple'], ['banana'], ['banana'], ['banana'], ['banana']])
+        [['mixed-a-pre-cq', 'mixed-b-pre-cq'], ['rambi-pre-cq'],
+         ['rambi-pre-cq'], ['rambi-pre-cq'], ['rambi-pre-cq']])
     # After 2 runs, the changes should be screened but not
     # yet launched (due to pre-launch timeout).
     for c in changes:
@@ -1033,19 +1059,19 @@ pre-cq-configs: link-pre-cq
     self.PerformSync(pre_cq_status=None, changes=changes, patch_objects=False)
     self.assertAllStatuses(changes, constants.CL_PRECQ_CONFIG_STATUS_INFLIGHT)
 
-    # Fake INFLIGHT_TIMEOUT+1 passing with banana and orange config succeeding,
-    # and apple never launching. The first change should pass the pre-cq, the
-    # second should fail due to inflight timeout.
+    # Fake INFLIGHT_TIMEOUT+1 passing with rambi-pre-cq and mixed-a-pre-cq
+    # config succeeding, and mixed-b-pre-cq never launching. The first change
+    # should pass the pre-cq, the second should fail due to inflight timeout.
     fake_time = datetime.datetime.now() + datetime.timedelta(
         minutes=sync_stages.PreCQLauncherStage.INFLIGHT_TIMEOUT + 1)
     self.fake_db.SetTime(fake_time)
     self.fake_db.InsertCLActions(
-        build_ids['orange'],
+        build_ids['mixed-a-pre-cq'],
         [clactions.CLAction.FromGerritPatchAndAction(
             changes[0], constants.CL_ACTION_VERIFIED)])
     for change in changes[1:3]:
       self.fake_db.InsertCLActions(
-          build_ids['banana'],
+          build_ids['rambi-pre-cq'],
           [clactions.CLAction.FromGerritPatchAndAction(
               change, constants.CL_ACTION_VERIFIED)])
 
@@ -1069,15 +1095,15 @@ pre-cq-configs: link-pre-cq
                      runs=3)
     action_history = self.fake_db.GetActionsForChanges(changes)
     progress_map = clactions.GetPreCQProgressMap(changes, action_history)
-    self.assertEqual(progress_map[changes[0]]['apple'][0],
+    self.assertEqual(progress_map[changes[0]]['mixed-b-pre-cq'][0],
                      constants.CL_PRECQ_CONFIG_STATUS_LAUNCHED)
-    self.assertEqual(progress_map[changes[1]]['banana'][0],
+    self.assertEqual(progress_map[changes[1]]['rambi-pre-cq'][0],
                      constants.CL_PRECQ_CONFIG_STATUS_VERIFIED)
-    self.assertEqual(progress_map[changes[2]]['banana'][0],
+    self.assertEqual(progress_map[changes[2]]['rambi-pre-cq'][0],
                      constants.CL_PRECQ_CONFIG_STATUS_VERIFIED)
-    self.assertEqual(progress_map[changes[3]]['banana'][0],
+    self.assertEqual(progress_map[changes[3]]['rambi-pre-cq'][0],
                      constants.CL_PRECQ_CONFIG_STATUS_LAUNCHED)
-    self.assertEqual(progress_map[changes[4]]['banana'][0],
+    self.assertEqual(progress_map[changes[4]]['rambi-pre-cq'][0],
                      constants.CL_PRECQ_CONFIG_STATUS_FAILED)
 
     # These actions should only be recorded at most once for every
@@ -1271,9 +1297,10 @@ pre-cq-configs: link-pre-cq
     completed_content = {'build': {'status': 'COMPLETED'}}
     cancel_content = {'build': {'status': 'COMPLETED'}}
     self.PatchObject(cidb.CIDBConnection, 'InsertCLActions')
-    self.PatchObject(buildbucket_lib, 'GetBuildBucket',
+    self.PatchObject(buildbucket_lib.BuildbucketClient, 'GetBuildRequest',
                      return_value=stated_content)
-    mock_cancel = self.PatchObject(buildbucket_lib, 'CancelBuildBucket',
+    mock_cancel = self.PatchObject(buildbucket_lib.BuildbucketClient,
+                                   'CancelBuildRequest',
                                    return_value=cancel_content)
     old_build_action = clactions.CLAction(
         0, 1, constants.CL_ACTION_TRYBOT_LAUNCHING,
@@ -1281,19 +1308,21 @@ pre-cq-configs: link-pre-cq
         datetime.datetime.now() - datetime.timedelta(hours=1), '100')
     self.sync_stage._CancelPreCQIfNeeded(db, old_build_action)
     mock_cancel.assert_called_once_with(
-        '100', mock.ANY, False, dryrun=self.sync_stage._run.options.debug)
+        '100', dryrun=self.sync_stage._run.options.debug)
 
-    self.PatchObject(buildbucket_lib, 'GetBuildBucket',
+    mock_cancel.reset_mock()
+    self.PatchObject(buildbucket_lib.BuildbucketClient, 'GetBuildRequest',
                      return_value=scheduled_content)
     self.sync_stage._CancelPreCQIfNeeded(db, old_build_action)
     mock_cancel.assert_called_twice_with(
-        '100', mock.ANY, False, dryrun=self.sync_stage._run.options.debug)
+        '100', dryrun=self.sync_stage._run.options.debug)
 
-    self.PatchObject(buildbucket_lib, 'GetBuildBucket',
+    mock_cancel.reset_mock()
+    self.PatchObject(buildbucket_lib.BuildbucketClient, 'GetBuildRequest',
                      return_value=completed_content)
     self.sync_stage._CancelPreCQIfNeeded(db, old_build_action)
     mock_cancel.assert_called_twice_with(
-        '100', mock.ANY, False, dryrun=self.sync_stage._run.options.debug)
+        '100', dryrun=self.sync_stage._run.options.debug)
 
   def test_ProcessOldPatchPreCQRuns(self):
     """Test _ProcessOldPatchPreCQRuns."""
@@ -1319,7 +1348,7 @@ pre-cq-configs: link-pre-cq
     mock_cancel = self.PatchObject(sync_stages.PreCQLauncherStage,
                                    '_CancelPreCQIfNeeded')
     self.sync_stage._ProcessOldPatchPreCQRuns(db, change, action_history)
-    mock_cancel.assert_called_once_with(db, c2, testjob=False)
+    mock_cancel.assert_called_once_with(db, c2)
 
 class MasterSlaveLKGMSyncTest(generic_stages_unittest.StageTestCase):
   """Unit tests for MasterSlaveLKGMSyncStage"""
@@ -1336,10 +1365,10 @@ class MasterSlaveLKGMSyncTest(generic_stages_unittest.StageTestCase):
     self.next_version = 'next_version'
     self.sync_stage = None
 
-    repo = repository.RepoRepository(
+    self.repo = repository.RepoRepository(
         self.source_repo, self.tempdir, self.branch)
     self.manager = lkgm_manager.LKGMManager(
-        source_repo=repo, manifest_repo=self.manifest_version_url,
+        source_repo=self.repo, manifest_repo=self.manifest_version_url,
         build_names=[self.build_name],
         build_type=constants.CHROME_PFQ_TYPE,
         incr_type=self.incr_type,
@@ -1351,8 +1380,11 @@ class MasterSlaveLKGMSyncTest(generic_stages_unittest.StageTestCase):
 
     self.PatchObject(buildbucket_lib, 'GetServiceAccount',
                      return_value=True)
-    self.PatchObject(buildbucket_lib, 'BuildBucketAuth',
-                     return_value=mock.Mock())
+    self.PatchObject(auth.AuthorizedHttp, '__init__',
+                     return_value=None)
+    self.PatchObject(buildbucket_lib.BuildbucketClient,
+                     '_GetHost',
+                     return_value=buildbucket_lib.BUILDBUCKET_TEST_HOST)
 
     self._Prepare()
 
@@ -1391,3 +1423,7 @@ class MasterSlaveLKGMSyncTest(generic_stages_unittest.StageTestCase):
     v = self.sync_stage.GetLastChromeOSVersion()
     self.assertEqual(v.milestone, '43')
     self.assertEqual(v.platform, '7141.0.0-rc1')
+
+  def testGetInitializedManager(self):
+    self.sync_stage.repo = self.repo
+    self.sync_stage._GetInitializedManager(True)

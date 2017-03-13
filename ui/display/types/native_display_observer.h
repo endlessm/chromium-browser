@@ -7,7 +7,7 @@
 
 #include "ui/display/types/display_types_export.h"
 
-namespace ui {
+namespace display {
 
 // Observer class used by NativeDisplayDelegate to announce when the display
 // configuration changes.
@@ -16,8 +16,12 @@ class DISPLAY_TYPES_EXPORT NativeDisplayObserver {
   virtual ~NativeDisplayObserver() {}
 
   virtual void OnConfigurationChanged() = 0;
+
+  // DisplaySnapshots owned by NativeDisplayDelegate are about to be
+  // invalidated and any stored pointers to them should be deleted.
+  virtual void OnDisplaySnapshotsInvalidated() = 0;
 };
 
-}  //  namespace ui
+}  // namespace display
 
 #endif  // UI_DISPLAY_TYPES_NATIVE_DISPLAY_OBSERVER_H_

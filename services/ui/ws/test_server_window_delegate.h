@@ -8,34 +8,33 @@
 #include "base/macros.h"
 #include "services/ui/ws/server_window_delegate.h"
 
+namespace cc {
+namespace mojom {
+class DisplayCompositor;
+}
+}
+
 namespace ui {
-
 namespace ws {
-
-struct WindowId;
 
 class TestServerWindowDelegate : public ServerWindowDelegate {
  public:
   TestServerWindowDelegate();
   ~TestServerWindowDelegate() override;
 
-  void set_root_window(const ServerWindow* window) { root_window_ = window; }
+  void set_root_window(ServerWindow* window) { root_window_ = window; }
 
  private:
   // ServerWindowDelegate:
-  ui::DisplayCompositor* GetDisplayCompositor() override;
-  void OnScheduleWindowPaint(ServerWindow* window) override;
-  const ServerWindow* GetRootWindow(const ServerWindow* window) const override;
-  void ScheduleSurfaceDestruction(ServerWindow* window) override;
+  cc::mojom::DisplayCompositor* GetDisplayCompositor() override;
+  ServerWindow* GetRootWindow(const ServerWindow* window) override;
 
-  const ServerWindow* root_window_;
-  scoped_refptr<ui::DisplayCompositor> display_compositor_;
+  ServerWindow* root_window_ = nullptr;
 
   DISALLOW_COPY_AND_ASSIGN(TestServerWindowDelegate);
 };
 
 }  // namespace ws
-
 }  // namespace ui
 
 #endif  // SERVICES_UI_WS_TEST_SERVER_WINDOW_DELEGATE_H_

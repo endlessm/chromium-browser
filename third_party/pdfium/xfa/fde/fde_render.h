@@ -24,14 +24,14 @@ enum FDE_RENDERSTATUS {
   FDE_RENDERSTATUS_Failed,
 };
 
-class CFDE_RenderContext : public CFX_Target {
+class CFDE_RenderContext {
  public:
   CFDE_RenderContext();
-  ~CFDE_RenderContext() override;
+  ~CFDE_RenderContext();
 
-  FX_BOOL StartRender(CFDE_RenderDevice* pRenderDevice,
-                      IFDE_CanvasSet* pCanvasSet,
-                      const CFX_Matrix& tmDoc2Device);
+  bool StartRender(CFDE_RenderDevice* pRenderDevice,
+                   IFDE_CanvasSet* pCanvasSet,
+                   const CFX_Matrix& tmDoc2Device);
   FDE_RENDERSTATUS GetStatus() const { return m_eStatus; }
   FDE_RENDERSTATUS DoRender(IFX_Pause* pPause = nullptr);
   void StopRender();

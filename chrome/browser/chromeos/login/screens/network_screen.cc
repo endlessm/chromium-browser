@@ -20,6 +20,7 @@
 #include "chrome/browser/chromeos/login/screens/network_view.h"
 #include "chrome/browser/chromeos/login/ui/input_events_blocker.h"
 #include "chrome/browser/chromeos/login/wizard_controller.h"
+#include "chrome/browser/chromeos/policy/device_cloud_policy_manager_chromeos.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/webui/chromeos/login/l10n_util.h"
 #include "chrome/common/pref_names.h"
@@ -46,7 +47,7 @@ namespace chromeos {
 // static
 NetworkScreen* NetworkScreen::Get(ScreenManager* manager) {
   return static_cast<NetworkScreen*>(
-      manager->GetScreen(WizardController::kNetworkScreenName));
+      manager->GetScreen(OobeScreen::SCREEN_OOBE_NETWORK));
 }
 
 NetworkScreen::NetworkScreen(BaseScreenDelegate* base_screen_delegate,
@@ -64,6 +65,8 @@ NetworkScreen::NetworkScreen(BaseScreenDelegate* base_screen_delegate,
 
   input_method::InputMethodManager::Get()->AddObserver(this);
   InitializeTimezoneObserver();
+  OnSystemTimezoneChanged();
+  UpdateLanguageList();
 }
 
 NetworkScreen::~NetworkScreen() {
@@ -77,11 +80,6 @@ NetworkScreen::~NetworkScreen() {
 
 ////////////////////////////////////////////////////////////////////////////////
 // NetworkScreen, NetworkModel implementation:
-
-void NetworkScreen::PrepareToShow() {
-  if (view_)
-    view_->PrepareToShow();
-}
 
 void NetworkScreen::Show() {
   Refresh();
@@ -106,12 +104,6 @@ void NetworkScreen::Hide() {
   timezone_subscription_.reset();
   if (view_)
     view_->Hide();
-}
-
-void NetworkScreen::Initialize(::login::ScreenContext* context) {
-  NetworkModel::Initialize(context);
-  OnSystemTimezoneChanged();
-  UpdateLanguageList();
 }
 
 void NetworkScreen::OnViewDestroyed(NetworkView* view) {
@@ -368,6 +360,11 @@ void NetworkScreen::StopWaitingForConnection(const base::string16& network_id) {
     view_->ShowConnectingStatus(false, network_id_);
 
   GetContextEditor().SetBoolean(kContextKeyContinueButtonEnabled, is_connected);
+  if (is_connected &&
+      policy::DeviceCloudPolicyManagerChromeOS::GetZeroTouchEnrollmentMode() ==
+          policy::ZeroTouchEnrollmentMode::HANDS_OFF) {
+    OnContinueButtonPressed();
+  }
 }
 
 void NetworkScreen::WaitForConnection(const base::string16& network_id) {
@@ -439,7 +436,8 @@ void NetworkScreen::OnLanguageListResolved(
                                               selected_language_code_);
   if (view_)
     view_->ReloadLocalizedContent();
-  FOR_EACH_OBSERVER(Observer, observers_, OnLanguageListReloaded());
+  for (auto& observer : observers_)
+    observer.OnLanguageListReloaded();
 }
 
 void NetworkScreen::OnSystemTimezoneChanged() {

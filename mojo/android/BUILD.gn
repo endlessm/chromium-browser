@@ -68,7 +68,7 @@ android_library("system_java") {
 
   deps = [
     "//base:base_java",
-    "//mojo/public/java:system",
+    "//mojo/public/java:system_java",
   ]
 }
 
@@ -105,8 +105,9 @@ android_library("mojo_javatests") {
     "//mojo/public/interfaces/bindings/tests:test_interfaces_java",
     "//mojo/public/interfaces/bindings/tests:test_mojom_import2_java",
     "//mojo/public/interfaces/bindings/tests:test_mojom_import_java",
-    "//mojo/public/java:bindings",
-    "//mojo/public/java:system",
+    "//mojo/public/java:bindings_java",
+    "//mojo/public/java:system_java",
+    "//third_party/android_support_test_runner:runner_java",
   ]
 
   data = [
@@ -130,7 +131,7 @@ shared_library("mojo_java_unittests") {
     ":libsystem_java",
     ":system_java_jni_headers",
     "//base",
-    "//base/test/:test_support",
+    "//base/test:test_support",
     "//build/config/sanitizers:deps",
     "//mojo/edk/system",
     "//mojo/public/cpp/bindings/tests:mojo_public_bindings_test_utils",
@@ -145,7 +146,8 @@ instrumentation_test_apk("mojo_test_apk") {
     ":system_java",
     "//base:base_java",
     "//mojo/public/interfaces/bindings/tests:test_interfaces",
-    "//mojo/public/java:bindings",
+    "//mojo/public/java:bindings_java",
+    "//third_party/android_support_test_runner:runner_java",
   ]
   shared_libraries = [ ":mojo_java_unittests" ]
   apk_name = "MojoTest"

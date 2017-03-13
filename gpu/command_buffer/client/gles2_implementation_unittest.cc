@@ -404,6 +404,8 @@ class GLES2ImplementationTest : public testing::Test {
   static const GLint kMaxVertexAttribs = 8;
   static const GLint kMaxVertexTextureImageUnits = 0;
   static const GLint kMaxVertexUniformVectors = 128;
+  static const GLint kMaxViewportWidth = 8192;
+  static const GLint kMaxViewportHeight = 6144;
   static const GLint kNumCompressedTextureFormats = 0;
   static const GLint kNumShaderBinaryFormats = 0;
   static const GLuint kMaxTransformFeedbackSeparateAttribs = 4;
@@ -467,6 +469,8 @@ class GLES2ImplementationTest : public testing::Test {
       capabilities.max_vertex_attribs = kMaxVertexAttribs;
       capabilities.max_vertex_texture_image_units = kMaxVertexTextureImageUnits;
       capabilities.max_vertex_uniform_vectors = kMaxVertexUniformVectors;
+      capabilities.max_viewport_width = kMaxViewportWidth;
+      capabilities.max_viewport_height = kMaxViewportHeight;
       capabilities.num_compressed_texture_formats =
           kNumCompressedTextureFormats;
       capabilities.num_shader_binary_formats = kNumShaderBinaryFormats;
@@ -3721,7 +3725,7 @@ TEST_F(GLES2ImplementationTest, Enable) {
 TEST_F(GLES2ImplementationTest, ConsumeTextureCHROMIUM) {
   struct Cmds {
     cmds::ConsumeTextureCHROMIUMImmediate cmd;
-    GLbyte data[64];
+    GLbyte data[GL_MAILBOX_SIZE_CHROMIUM];
   };
 
   Mailbox mailbox = Mailbox::Generate();
@@ -3734,7 +3738,7 @@ TEST_F(GLES2ImplementationTest, ConsumeTextureCHROMIUM) {
 TEST_F(GLES2ImplementationTest, CreateAndConsumeTextureCHROMIUM) {
   struct Cmds {
     cmds::CreateAndConsumeTextureINTERNALImmediate cmd;
-    GLbyte data[64];
+    GLbyte data[GL_MAILBOX_SIZE_CHROMIUM];
   };
 
   Mailbox mailbox = Mailbox::Generate();
@@ -3748,7 +3752,7 @@ TEST_F(GLES2ImplementationTest, CreateAndConsumeTextureCHROMIUM) {
 TEST_F(GLES2ImplementationTest, ProduceTextureCHROMIUM) {
   struct Cmds {
     cmds::ProduceTextureCHROMIUMImmediate cmd;
-    GLbyte data[64];
+    GLbyte data[GL_MAILBOX_SIZE_CHROMIUM];
   };
 
   Mailbox mailbox = Mailbox::Generate();
@@ -3761,7 +3765,7 @@ TEST_F(GLES2ImplementationTest, ProduceTextureCHROMIUM) {
 TEST_F(GLES2ImplementationTest, ProduceTextureDirectCHROMIUM) {
   struct Cmds {
     cmds::ProduceTextureDirectCHROMIUMImmediate cmd;
-    GLbyte data[64];
+    GLbyte data[GL_MAILBOX_SIZE_CHROMIUM];
   };
 
   Mailbox mailbox = Mailbox::Generate();
@@ -4428,6 +4432,59 @@ TEST_F(GLES2ImplementationTest, DeleteBuffersUnmapsDataStore) {
 
   EXPECT_FALSE(gl_->UnmapBuffer(GL_ARRAY_BUFFER));
   EXPECT_EQ(GL_INVALID_OPERATION, CheckError());
+}
+
+TEST_F(GLES3ImplementationTest, GetBufferSubDataAsyncCHROMIUM) {
+  const GLuint kBufferId = 123;
+  void* mem;
+
+  const int TARGET_COUNT = 8;
+  GLenum targets[TARGET_COUNT] = {
+    GL_ARRAY_BUFFER,
+    GL_ELEMENT_ARRAY_BUFFER,
+    GL_COPY_READ_BUFFER,
+    GL_COPY_WRITE_BUFFER,
+    GL_TRANSFORM_FEEDBACK_BUFFER,
+    GL_UNIFORM_BUFFER,
+    GL_PIXEL_PACK_BUFFER,
+    GL_PIXEL_UNPACK_BUFFER,
+  };
+
+  // Positive tests
+  for (int i = 0; i < TARGET_COUNT; i++) {
+    gl_->BindBuffer(targets[i], kBufferId);
+    mem = gl_->GetBufferSubDataAsyncCHROMIUM(targets[i], 10, 64);
+    EXPECT_TRUE(mem != nullptr);
+    EXPECT_EQ(GL_NO_ERROR, CheckError());
+    gl_->FreeSharedMemory(mem);
+    EXPECT_EQ(GL_NO_ERROR, CheckError());
+    gl_->BindBuffer(targets[i], 0);
+  }
+
+  // Negative tests: invalid target
+  for (int i = 0; i < TARGET_COUNT; i++) {
+    GLenum wrong_target = targets[(i + 1) % TARGET_COUNT];
+    gl_->BindBuffer(targets[i], kBufferId);
+    mem = gl_->GetBufferSubDataAsyncCHROMIUM(wrong_target, 10, 64);
+    EXPECT_TRUE(mem == nullptr);
+    EXPECT_EQ(GL_INVALID_OPERATION, CheckError());
+    gl_->BindBuffer(targets[i], 0);
+  }
+}
+
+TEST_F(GLES3ImplementationTest, GetBufferSubDataAsyncCHROMIUMInvalidValue) {
+  const GLuint kBufferId = 123;
+  void* mem;
+
+  gl_->BindBuffer(GL_ARRAY_BUFFER, kBufferId);
+
+  mem = gl_->GetBufferSubDataAsyncCHROMIUM(GL_ARRAY_BUFFER, -1, 64);
+  EXPECT_TRUE(mem == nullptr);
+  EXPECT_EQ(GL_INVALID_VALUE, CheckError());
+
+  mem = gl_->GetBufferSubDataAsyncCHROMIUM(GL_ARRAY_BUFFER, 0, -1);
+  EXPECT_TRUE(mem == nullptr);
+  EXPECT_EQ(GL_INVALID_VALUE, CheckError());
 }
 
 TEST_F(GLES2ImplementationTest, GetInternalformativ) {

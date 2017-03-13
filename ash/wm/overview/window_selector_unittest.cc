@@ -5,14 +5,13 @@
 #include <algorithm>
 #include <vector>
 
-#include "ash/aura/wm_window_aura.h"
 #include "ash/common/accessibility_delegate.h"
 #include "ash/common/accessibility_types.h"
 #include "ash/common/ash_switches.h"
 #include "ash/common/shelf/shelf_widget.h"
 #include "ash/common/shelf/wm_shelf.h"
-#include "ash/common/shell_window_ids.h"
 #include "ash/common/system/tray/system_tray.h"
+#include "ash/common/test/test_shelf_delegate.h"
 #include "ash/common/wm/dock/docked_window_layout_manager.h"
 #include "ash/common/wm/maximize_mode/maximize_mode_controller.h"
 #include "ash/common/wm/mru_window_tracker.h"
@@ -24,24 +23,25 @@
 #include "ash/common/wm/panels/panel_layout_manager.h"
 #include "ash/common/wm/window_state.h"
 #include "ash/common/wm/wm_event.h"
+#include "ash/common/wm/workspace/workspace_window_resizer.h"
 #include "ash/common/wm_lookup.h"
 #include "ash/common/wm_shell.h"
+#include "ash/common/wm_window.h"
 #include "ash/common/wm_window_property.h"
-#include "ash/display/display_manager.h"
 #include "ash/drag_drop/drag_drop_controller.h"
+#include "ash/public/cpp/shell_window_ids.h"
 #include "ash/root_window_controller.h"
 #include "ash/screen_util.h"
 #include "ash/shell.h"
 #include "ash/test/ash_test_base.h"
-#include "ash/test/display_manager_test_api.h"
 #include "ash/test/shelf_view_test_api.h"
 #include "ash/test/shell_test_api.h"
-#include "ash/test/test_shelf_delegate.h"
+#include "ash/test/test_app_list_view_presenter_impl.h"
 #include "ash/wm/window_state_aura.h"
 #include "ash/wm/window_util.h"
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
-#include "base/memory/scoped_vector.h"
+#include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/utf_string_conversions.h"
@@ -54,8 +54,11 @@
 #include "ui/aura/test/test_windows.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_event_dispatcher.h"
+#include "ui/base/hit_test.h"
 #include "ui/compositor/scoped_animation_duration_scale_mode.h"
-#include "ui/display/manager/display_layout.h"
+#include "ui/display/display_layout.h"
+#include "ui/display/manager/display_manager.h"
+#include "ui/display/test/display_manager_test_api.h"
 #include "ui/events/event_utils.h"
 #include "ui/events/test/event_generator.h"
 #include "ui/gfx/animation/slide_animation.h"
@@ -65,7 +68,7 @@
 #include "ui/gfx/transform.h"
 #include "ui/gfx/transform_util.h"
 #include "ui/views/controls/button/image_button.h"
-#include "ui/views/controls/button/label_button.h"
+#include "ui/views/controls/label.h"
 #include "ui/views/widget/native_widget_aura.h"
 #include "ui/views/widget/widget_delegate.h"
 #include "ui/wm/core/window_util.h"
@@ -117,7 +120,6 @@ class WindowSelectorTest : public test::AshTestBase {
 
   void SetUp() override {
     test::AshTestBase::SetUp();
-    ASSERT_TRUE(test::TestShelfDelegate::instance());
 
     shelf_view_test_.reset(new test::ShelfViewTestAPI(
         GetPrimaryShelf()->GetShelfViewForTesting()));
@@ -168,14 +170,14 @@ class WindowSelectorTest : public test::AshTestBase {
     aura::Window* window = CreateTestWindowInShellWithDelegateAndType(
         nullptr, ui::wm::WINDOW_TYPE_PANEL, 0, bounds);
     window->SetProperty(aura::client::kTopViewInset, kHeaderHeight);
-    test::TestShelfDelegate::instance()->AddShelfItem(window);
+    test::TestShelfDelegate::instance()->AddShelfItem(WmWindow::Get(window));
     shelf_view_test()->RunMessageLoopUntilAnimationsDone();
     return window;
   }
 
   bool WindowsOverlapping(aura::Window* window1, aura::Window* window2) {
-    gfx::RectF window1_bounds = GetTransformedTargetBounds(window1);
-    gfx::RectF window2_bounds = GetTransformedTargetBounds(window2);
+    gfx::Rect window1_bounds = GetTransformedTargetBounds(window1);
+    gfx::Rect window2_bounds = GetTransformedTargetBounds(window2);
     return window1_bounds.Intersects(window2_bounds);
   }
 
@@ -189,26 +191,33 @@ class WindowSelectorTest : public test::AshTestBase {
 
   void ToggleOverview() { window_selector_controller()->ToggleOverview(); }
 
-  gfx::RectF GetTransformedBounds(aura::Window* window) {
+  aura::Window* GetOverviewWindowForMinimizedState(int index,
+                                                   aura::Window* window) {
+    WindowSelectorItem* selector = GetWindowItemForWindow(index, window);
+    return WmWindow::GetAuraWindow(
+        selector->GetOverviewWindowForMinimizedStateForTest());
+  }
+
+  gfx::Rect GetTransformedBounds(aura::Window* window) {
     gfx::RectF bounds(ScreenUtil::ConvertRectToScreen(
         window->parent(), window->layer()->bounds()));
     gfx::Transform transform(gfx::TransformAboutPivot(
         gfx::ToFlooredPoint(bounds.origin()), window->layer()->transform()));
     transform.TransformRect(&bounds);
-    return bounds;
+    return gfx::ToEnclosingRect(bounds);
   }
 
-  gfx::RectF GetTransformedTargetBounds(aura::Window* window) {
+  gfx::Rect GetTransformedTargetBounds(aura::Window* window) {
     gfx::RectF bounds(ScreenUtil::ConvertRectToScreen(
         window->parent(), window->layer()->GetTargetBounds()));
     gfx::Transform transform(
         gfx::TransformAboutPivot(gfx::ToFlooredPoint(bounds.origin()),
                                  window->layer()->GetTargetTransform()));
     transform.TransformRect(&bounds);
-    return bounds;
+    return gfx::ToEnclosingRect(bounds);
   }
 
-  gfx::RectF GetTransformedBoundsInRootWindow(aura::Window* window) {
+  gfx::Rect GetTransformedBoundsInRootWindow(aura::Window* window) {
     gfx::RectF bounds = gfx::RectF(gfx::SizeF(window->bounds().size()));
     aura::Window* root = window->GetRootWindow();
     CHECK(window->layer());
@@ -216,10 +225,10 @@ class WindowSelectorTest : public test::AshTestBase {
     gfx::Transform transform;
     if (!window->layer()->GetTargetTransformRelativeTo(root->layer(),
                                                        &transform)) {
-      return gfx::RectF();
+      return gfx::Rect();
     }
     transform.TransformRect(&bounds);
-    return bounds;
+    return gfx::ToEnclosingRect(bounds);
   }
 
   void ClickWindow(aura::Window* window) {
@@ -248,21 +257,23 @@ class WindowSelectorTest : public test::AshTestBase {
         ->GetFocusedWindow();
   }
 
-  const std::vector<WindowSelectorItem*>& GetWindowItemsForRoot(int index) {
-    return window_selector()->grid_list_[index]->window_list_.get();
+  const std::vector<std::unique_ptr<WindowSelectorItem>>& GetWindowItemsForRoot(
+      int index) {
+    return window_selector()->grid_list_[index]->window_list();
   }
 
   WindowSelectorItem* GetWindowItemForWindow(int grid_index,
                                              aura::Window* window) {
-    const std::vector<WindowSelectorItem*>& windows =
+    const std::vector<std::unique_ptr<WindowSelectorItem>>& windows =
         GetWindowItemsForRoot(grid_index);
-    auto iter = std::find_if(windows.cbegin(), windows.cend(),
-                             [window](const WindowSelectorItem* item) {
-                               return item->Contains(WmWindowAura::Get(window));
-                             });
+    auto iter =
+        std::find_if(windows.cbegin(), windows.cend(),
+                     [window](const std::unique_ptr<WindowSelectorItem>& item) {
+                       return item->Contains(WmWindow::Get(window));
+                     });
     if (iter == windows.end())
       return nullptr;
-    return *iter;
+    return iter->get();
   }
 
   gfx::SlideAnimation* GetBackgroundViewAnimationForWindow(
@@ -294,7 +305,7 @@ class WindowSelectorTest : public test::AshTestBase {
         ws->grid_list_[ws->selected_grid_index_]->SelectedWindow();
     if (!item)
       return nullptr;
-    return WmWindowAura::GetAuraWindow(item->GetWindow());
+    return WmWindow::GetAuraWindow(item->GetWindow());
   }
 
   bool selection_widget_active() {
@@ -314,8 +325,8 @@ class WindowSelectorTest : public test::AshTestBase {
     return window->close_button_->GetWidget();
   }
 
-  views::LabelButton* GetLabelButtonView(WindowSelectorItem* window) {
-    return window->window_label_button_view_;
+  views::Label* GetLabelView(WindowSelectorItem* window) {
+    return window->label_view_;
   }
 
   // Tests that a window is contained within a given WindowSelectorItem, and
@@ -324,13 +335,13 @@ class WindowSelectorTest : public test::AshTestBase {
   void IsWindowAndCloseButtonInScreen(aura::Window* window,
                                       WindowSelectorItem* window_item) {
     aura::Window* root_window =
-        WmWindowAura::GetAuraWindow(window_item->root_window());
-    EXPECT_TRUE(window_item->Contains(WmWindowAura::Get(window)));
+        WmWindow::GetAuraWindow(window_item->root_window());
+    EXPECT_TRUE(window_item->Contains(WmWindow::Get(window)));
     EXPECT_TRUE(root_window->GetBoundsInScreen().Contains(
-        ToEnclosingRect(GetTransformedTargetBounds(window))));
-    EXPECT_TRUE(root_window->GetBoundsInScreen().Contains(
-        ToEnclosingRect(GetTransformedTargetBounds(
-            GetCloseButton(window_item)->GetNativeView()))));
+        GetTransformedTargetBounds(window)));
+    EXPECT_TRUE(
+        root_window->GetBoundsInScreen().Contains(GetTransformedTargetBounds(
+            GetCloseButton(window_item)->GetNativeView())));
   }
 
   void FilterItems(const base::StringPiece& pattern) {
@@ -351,8 +362,6 @@ class WindowSelectorTest : public test::AshTestBase {
   DISALLOW_COPY_AND_ASSIGN(WindowSelectorTest);
 };
 
-#if !defined(OS_WIN) || defined(USE_ASH)
-// TODO(msw): Broken on Windows. http://crbug.com/584038
 // Tests that the text field in the overview menu is repositioned and resized
 // after a screen rotation.
 TEST_F(WindowSelectorTest, OverviewScreenRotation) {
@@ -370,10 +379,10 @@ TEST_F(WindowSelectorTest, OverviewScreenRotation) {
   // The text filter position is calculated as:
   // x: 0.5 * (total_bounds.width() -
   //           std::min(kTextFilterWidth, total_bounds.width())).
-  // y: -kTextFilterHeight (since there's no text in the filter).
+  // y: -kTextFilterHeight (since there's no text in the filter) - 2.
   // w: std::min(kTextFilterWidth, total_bounds.width()).
   // h: kTextFilterHeight.
-  gfx::Rect expected_bounds(60, -40, 280, 40);
+  gfx::Rect expected_bounds(60, -42, 280, 40);
   EXPECT_EQ(expected_bounds.ToString(),
             text_filter->GetClientAreaBoundsInScreen().ToString());
 
@@ -382,11 +391,10 @@ TEST_F(WindowSelectorTest, OverviewScreenRotation) {
   UpdateDisplay("400x300/r");
 
   // Uses the same formulas as above using width = 300, height = 400.
-  expected_bounds = gfx::Rect(10, -40, 280, 40);
+  expected_bounds = gfx::Rect(10, -42, 280, 40);
   EXPECT_EQ(expected_bounds.ToString(),
             text_filter->GetClientAreaBoundsInScreen().ToString());
 }
-#endif
 
 // Tests that an a11y alert is sent on entering overview mode.
 TEST_F(WindowSelectorTest, A11yAlertOnOverviewMode) {
@@ -452,6 +460,43 @@ TEST_F(WindowSelectorTest, Basic) {
   EXPECT_FALSE(aura::client::GetCursorClient(root_window)->IsCursorLocked());
 }
 
+// Tests activating minimized window.
+TEST_F(WindowSelectorTest, ActivateMinimized) {
+  gfx::Rect bounds(0, 0, 400, 400);
+  std::unique_ptr<aura::Window> window(CreateWindow(bounds));
+
+  wm::WindowState* window_state = wm::GetWindowState(window.get());
+  wm::WMEvent minimize_event(wm::WM_EVENT_MINIMIZE);
+  window_state->OnWMEvent(&minimize_event);
+  EXPECT_FALSE(window->IsVisible());
+  EXPECT_EQ(0.f, window->layer()->GetTargetOpacity());
+  EXPECT_EQ(wm::WINDOW_STATE_TYPE_MINIMIZED,
+            wm::GetWindowState(window.get())->GetStateType());
+
+  ToggleOverview();
+
+  EXPECT_FALSE(window->IsVisible());
+  EXPECT_EQ(0.f, window->layer()->GetTargetOpacity());
+  EXPECT_EQ(wm::WINDOW_STATE_TYPE_MINIMIZED,
+            wm::GetWindowState(window.get())->GetStateType());
+  aura::Window* window_for_minimized_window =
+      GetOverviewWindowForMinimizedState(0, window.get());
+  EXPECT_TRUE(window_for_minimized_window);
+
+  const gfx::Point point =
+      GetTransformedBoundsInRootWindow(window_for_minimized_window)
+          .CenterPoint();
+  ui::test::EventGenerator event_generator(window->GetRootWindow(), point);
+  event_generator.ClickLeftButton();
+
+  EXPECT_FALSE(IsSelecting());
+
+  EXPECT_TRUE(window->IsVisible());
+  EXPECT_EQ(1.f, window->layer()->GetTargetOpacity());
+  EXPECT_EQ(wm::WINDOW_STATE_TYPE_NORMAL,
+            wm::GetWindowState(window.get())->GetStateType());
+}
+
 // Tests that entering overview mode with an App-list active properly focuses
 // and activates the overview text filter window.
 TEST_F(WindowSelectorTest, TextFilterActive) {
@@ -484,7 +529,8 @@ TEST_F(WindowSelectorTest, WindowsOrder) {
   // The order of windows in overview mode is MRU.
   wm::GetWindowState(window1.get())->Activate();
   ToggleOverview();
-  const std::vector<WindowSelectorItem*>& overview1(GetWindowItemsForRoot(0));
+  const std::vector<std::unique_ptr<WindowSelectorItem>>& overview1 =
+      GetWindowItemsForRoot(0);
   EXPECT_EQ(1, overview1[0]->GetWindow()->GetShellWindowId());
   EXPECT_EQ(3, overview1[1]->GetWindow()->GetShellWindowId());
   EXPECT_EQ(2, overview1[2]->GetWindow()->GetShellWindowId());
@@ -493,7 +539,8 @@ TEST_F(WindowSelectorTest, WindowsOrder) {
   // Activate the second window.
   wm::GetWindowState(window2.get())->Activate();
   ToggleOverview();
-  const std::vector<WindowSelectorItem*>& overview2(GetWindowItemsForRoot(0));
+  const std::vector<std::unique_ptr<WindowSelectorItem>>& overview2 =
+      GetWindowItemsForRoot(0);
 
   // The order should be MRU.
   EXPECT_EQ(2, overview2[0]->GetWindow()->GetShellWindowId());
@@ -502,8 +549,24 @@ TEST_F(WindowSelectorTest, WindowsOrder) {
   ToggleOverview();
 }
 
+// Test class used for tests that need docked windows enabled.
+class EnabledDockedWindowsWindowSelectorTest : public WindowSelectorTest {
+ public:
+  EnabledDockedWindowsWindowSelectorTest() = default;
+  ~EnabledDockedWindowsWindowSelectorTest() override = default;
+
+  void SetUp() override {
+    base::CommandLine::ForCurrentProcess()->AppendSwitch(
+        ash::switches::kAshEnableDockedWindows);
+    WindowSelectorTest::SetUp();
+  }
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(EnabledDockedWindowsWindowSelectorTest);
+};
+
 // Tests entering overview mode with docked windows
-TEST_F(WindowSelectorTest, BasicWithDocked) {
+TEST_F(EnabledDockedWindowsWindowSelectorTest, BasicWithDocked) {
   // aura::Window* root_window = Shell::GetPrimaryRootWindow();
   gfx::Rect bounds(300, 0, 200, 200);
   std::unique_ptr<aura::Window> window1(CreateWindow(bounds));
@@ -539,10 +602,11 @@ TEST_F(WindowSelectorTest, BasicWithDocked) {
   gfx::Rect container_bounds = docked1->parent()->bounds();
   ShelfWidget* shelf = GetPrimaryShelf()->shelf_widget();
   DockedWindowLayoutManager* manager =
-      DockedWindowLayoutManager::Get(WmWindowAura::Get(docked1.get()));
+      DockedWindowLayoutManager::Get(WmWindow::Get(docked1.get()));
 
-  // Docked windows get shown and transformed.
-  EXPECT_TRUE(docked2->IsVisible());
+  // Minimized docked windows stays invisible.
+  EXPECT_FALSE(docked2->IsVisible());
+  EXPECT_TRUE(GetOverviewWindowForMinimizedState(0, docked2.get()));
 
   // Docked area shrinks.
   EXPECT_EQ(0, manager->docked_bounds().width());
@@ -576,7 +640,7 @@ TEST_F(WindowSelectorTest, BasicWithDocked) {
 
 // Tests that selecting a docked window updates docked layout pushing another
 // window to get docked-minimized.
-TEST_F(WindowSelectorTest, ActivateDockedWindow) {
+TEST_F(EnabledDockedWindowsWindowSelectorTest, ActivateDockedWindow) {
   // aura::Window* root_window = Shell::GetPrimaryRootWindow();
   gfx::Rect bounds(300, 0, 200, 200);
   std::unique_ptr<views::Widget> widget1 = CreateWindowWidget(bounds);
@@ -611,13 +675,23 @@ TEST_F(WindowSelectorTest, ActivateDockedWindow) {
 
   ToggleOverview();
 
+  // Minimized should stay minimized.
+  EXPECT_FALSE(docked_window2->IsVisible());
+  EXPECT_EQ(wm::WINDOW_STATE_TYPE_DOCKED_MINIMIZED, state2->GetStateType());
+
+  aura::Window* window_for_minimized_docked_window2 =
+      GetOverviewWindowForMinimizedState(0, docked_window2.get());
+  ASSERT_TRUE(window_for_minimized_docked_window2);
+
   // Activate |docked_window2| leaving the overview.
-  const gfx::RectF rect =
-      GetTransformedBoundsInRootWindow(docked_window2.get());
+  const gfx::Rect rect =
+      GetTransformedBoundsInRootWindow(window_for_minimized_docked_window2);
   gfx::Point point(rect.top_right().x() - 50, rect.top_right().y() + 50);
   ui::test::EventGenerator event_generator(docked_window2->GetRootWindow(),
                                            point);
   event_generator.ClickLeftButton();
+
+  EXPECT_FALSE(IsSelecting());
 
   // Windows' bounds are still the same.
   EXPECT_EQ(expected_bounds.ToString(), docked_window1->bounds().ToString());
@@ -632,7 +706,7 @@ TEST_F(WindowSelectorTest, ActivateDockedWindow) {
 }
 
 // Tests that clicking on the close button closes the docked window.
-TEST_F(WindowSelectorTest, CloseDockedWindow) {
+TEST_F(EnabledDockedWindowsWindowSelectorTest, CloseDockedWindow) {
   // aura::Window* root_window = Shell::GetPrimaryRootWindow();
   gfx::Rect bounds(300, 0, 200, 200);
   std::unique_ptr<views::Widget> widget1 = CreateWindowWidget(bounds);
@@ -665,15 +739,19 @@ TEST_F(WindowSelectorTest, CloseDockedWindow) {
   ToggleOverview();
 
   // Close |docked_window2| (staying in overview).
-  const gfx::RectF rect = GetTransformedBoundsInRootWindow(docked_window2);
+  const gfx::Rect rect = GetTransformedBoundsInRootWindow(docked_window2);
   gfx::Point point(rect.top_right().x() - 5, rect.top_right().y() + 5);
   ui::test::EventGenerator event_generator(docked_window2->GetRootWindow(),
                                            point);
-  // Both windows are visible while in overview.
-  EXPECT_TRUE(docked_window1->IsVisible());
-  EXPECT_EQ(wm::WINDOW_STATE_TYPE_DOCKED, state1->GetStateType());
+
+  // Minimized window stays invisible and in the minimized state while in
+  // overview.
+  EXPECT_FALSE(docked_window1->IsVisible());
+  EXPECT_EQ(wm::WINDOW_STATE_TYPE_DOCKED_MINIMIZED, state1->GetStateType());
   EXPECT_TRUE(docked_window2->IsVisible());
   EXPECT_EQ(wm::WINDOW_STATE_TYPE_DOCKED, state2->GetStateType());
+
+  EXPECT_TRUE(GetOverviewWindowForMinimizedState(0, docked_window1.get()));
 
   event_generator.ClickLeftButton();
   // |docked2| widget is closed.
@@ -691,7 +769,7 @@ TEST_F(WindowSelectorTest, CloseDockedWindow) {
 }
 
 // Tests that clicking on the close button closes the docked-minimized window.
-TEST_F(WindowSelectorTest, CloseDockedMinimizedWindow) {
+TEST_F(EnabledDockedWindowsWindowSelectorTest, CloseDockedMinimizedWindow) {
   // aura::Window* root_window = Shell::GetPrimaryRootWindow();
   gfx::Rect bounds(300, 0, 200, 200);
   std::unique_ptr<views::Widget> widget1 = CreateWindowWidget(bounds);
@@ -723,17 +801,21 @@ TEST_F(WindowSelectorTest, CloseDockedMinimizedWindow) {
 
   ToggleOverview();
 
-  // Close |docked_window2| (staying in overview).
-  const gfx::RectF rect = GetTransformedBoundsInRootWindow(docked_window2);
-  gfx::Point point(rect.top_right().x() - 5, rect.top_right().y() + 5);
-  ui::test::EventGenerator event_generator(docked_window2->GetRootWindow(),
-                                           point);
   // Both windows are visible while in overview.
   EXPECT_TRUE(docked_window1->IsVisible());
   EXPECT_EQ(wm::WINDOW_STATE_TYPE_DOCKED, state1->GetStateType());
-  EXPECT_TRUE(docked_window2->IsVisible());
-  EXPECT_EQ(wm::WINDOW_STATE_TYPE_DOCKED, state2->GetStateType());
+  EXPECT_FALSE(docked_window2->IsVisible());
+  EXPECT_EQ(wm::WINDOW_STATE_TYPE_DOCKED_MINIMIZED, state2->GetStateType());
 
+  // Close |docked_window2| (staying in overview).
+  aura::Window* window_for_minimized_docked_window2 =
+      GetOverviewWindowForMinimizedState(0, docked_window2);
+  ASSERT_TRUE(window_for_minimized_docked_window2);
+  const gfx::Rect rect =
+      GetTransformedBoundsInRootWindow(window_for_minimized_docked_window2);
+  gfx::Point point(rect.top_right().x() - 10, rect.top_right().y() - 10);
+  ui::test::EventGenerator event_generator(docked_window2->GetRootWindow(),
+                                           point);
   event_generator.ClickLeftButton();
   // |docked2| widget is closed.
   EXPECT_TRUE(docked2->IsClosed());
@@ -762,8 +844,7 @@ TEST_F(WindowSelectorTest, BasicGesture) {
   ui::test::EventGenerator generator(Shell::GetPrimaryRootWindow(),
                                      window2.get());
   generator.GestureTapAt(
-      gfx::ToEnclosingRect(GetTransformedTargetBounds(window2.get()))
-          .CenterPoint());
+      GetTransformedTargetBounds(window2.get()).CenterPoint());
   EXPECT_EQ(window2.get(), GetFocusedWindow());
 }
 
@@ -782,8 +863,7 @@ TEST_F(WindowSelectorTest, ActiveWindowChangedUserActionRecorded) {
   ui::test::EventGenerator generator(Shell::GetPrimaryRootWindow(),
                                      window2.get());
   generator.GestureTapAt(
-      gfx::ToEnclosingRect(GetTransformedTargetBounds(window2.get()))
-          .CenterPoint());
+      GetTransformedTargetBounds(window2.get()).CenterPoint());
   EXPECT_EQ(
       1, user_action_tester.GetActionCount(kActiveWindowChangedFromOverview));
 
@@ -822,8 +902,7 @@ TEST_F(WindowSelectorTest, ActiveWindowChangedUserActionNotRecorded) {
   ui::test::EventGenerator generator(Shell::GetPrimaryRootWindow(),
                                      window1.get());
   generator.GestureTapAt(
-      gfx::ToEnclosingRect(GetTransformedTargetBounds(window1.get()))
-          .CenterPoint());
+      GetTransformedTargetBounds(window1.get()).CenterPoint());
   EXPECT_EQ(
       0, user_action_tester.GetActionCount(kActiveWindowChangedFromOverview));
 
@@ -860,7 +939,7 @@ TEST_F(WindowSelectorTest, ActiveWindowChangedUserActionWindowClose) {
   ToggleOverview();
 
   aura::Window* window = widget->GetNativeWindow();
-  gfx::RectF bounds = GetTransformedBoundsInRootWindow(window);
+  gfx::Rect bounds = GetTransformedBoundsInRootWindow(window);
   gfx::Point point(bounds.top_right().x() - 1, bounds.top_right().y() + 5);
   ui::test::EventGenerator event_generator(window->GetRootWindow(), point);
 
@@ -879,8 +958,7 @@ TEST_F(WindowSelectorTest, NoCrashWithDesktopTap) {
 
   ToggleOverview();
 
-  gfx::Rect bounds =
-      gfx::ToEnclosingRect(GetTransformedBoundsInRootWindow(window.get()));
+  gfx::Rect bounds = GetTransformedBoundsInRootWindow(window.get());
   ui::test::EventGenerator event_generator(window->GetRootWindow(),
                                            bounds.CenterPoint());
 
@@ -908,8 +986,7 @@ TEST_F(WindowSelectorTest, ClickOnWindowDuringTouch) {
 
   ToggleOverview();
 
-  gfx::Rect window1_bounds =
-      gfx::ToEnclosingRect(GetTransformedBoundsInRootWindow(window1.get()));
+  gfx::Rect window1_bounds = GetTransformedBoundsInRootWindow(window1.get());
   ui::test::EventGenerator event_generator(window1->GetRootWindow(),
                                            window1_bounds.CenterPoint());
 
@@ -958,7 +1035,7 @@ TEST_F(WindowSelectorTest, WindowDoesNotReceiveEvents) {
   ToggleOverview();
 
   // The bounds have changed, take that into account.
-  gfx::RectF bounds = GetTransformedBoundsInRootWindow(window.get());
+  gfx::Rect bounds = GetTransformedBoundsInRootWindow(window.get());
   gfx::Point point2(bounds.x() + 10, bounds.y() + 10);
   ui::MouseEvent event2(ui::ET_MOUSE_PRESSED, point2, point2,
                         ui::EventTimeForNow(), ui::EF_NONE, ui::EF_NONE);
@@ -972,16 +1049,62 @@ TEST_F(WindowSelectorTest, CloseButton) {
   std::unique_ptr<views::Widget> widget =
       CreateWindowWidget(gfx::Rect(0, 0, 400, 400));
 
+  std::unique_ptr<views::Widget> minimized_widget =
+      CreateWindowWidget(gfx::Rect(400, 0, 400, 400));
+  minimized_widget->Minimize();
+
   ToggleOverview();
 
   aura::Window* window = widget->GetNativeWindow();
-  gfx::RectF bounds = GetTransformedBoundsInRootWindow(window);
+  gfx::Rect bounds = GetTransformedBoundsInRootWindow(window);
   gfx::Point point(bounds.top_right().x() - 1, bounds.top_right().y() + 5);
   ui::test::EventGenerator event_generator(window->GetRootWindow(), point);
 
   EXPECT_FALSE(widget->IsClosed());
   event_generator.ClickLeftButton();
   EXPECT_TRUE(widget->IsClosed());
+
+  EXPECT_TRUE(IsSelecting());
+
+  aura::Window* window_for_minimized_window =
+      GetOverviewWindowForMinimizedState(0,
+                                         minimized_widget->GetNativeWindow());
+  ASSERT_TRUE(window_for_minimized_window);
+  const gfx::Rect rect =
+      GetTransformedBoundsInRootWindow(window_for_minimized_window);
+
+  event_generator.MoveMouseTo(
+      gfx::Point(rect.top_right().x() - 10, rect.top_right().y() - 10));
+
+  EXPECT_FALSE(minimized_widget->IsClosed());
+  event_generator.ClickLeftButton();
+  EXPECT_TRUE(minimized_widget->IsClosed());
+
+  // All minimized windows are closed, so it should exit overview mode.
+  RunAllPendingInMessageLoop();
+  EXPECT_FALSE(IsSelecting());
+}
+
+// Tests minimizing/unminimizing in overview mode.
+TEST_F(WindowSelectorTest, MinimizeUnminimizei) {
+  std::unique_ptr<views::Widget> widget =
+      CreateWindowWidget(gfx::Rect(0, 0, 400, 400));
+  aura::Window* window = widget->GetNativeWindow();
+
+  ToggleOverview();
+
+  EXPECT_FALSE(GetOverviewWindowForMinimizedState(0, window));
+  widget->Minimize();
+  EXPECT_TRUE(widget->IsMinimized());
+  EXPECT_TRUE(IsSelecting());
+
+  EXPECT_TRUE(GetOverviewWindowForMinimizedState(0, window));
+
+  widget->Restore();
+  EXPECT_FALSE(widget->IsMinimized());
+
+  EXPECT_FALSE(GetOverviewWindowForMinimizedState(0, window));
+  EXPECT_TRUE(IsSelecting());
 }
 
 // Tests that clicking on the close button on a secondary display effectively
@@ -1015,7 +1138,7 @@ TEST_F(WindowSelectorTest, CloseButtonOnMultipleDisplay) {
   ToggleOverview();
 
   aura::Window* window2 = widget->GetNativeWindow();
-  gfx::RectF bounds = GetTransformedBoundsInRootWindow(window2);
+  gfx::Rect bounds = GetTransformedBoundsInRootWindow(window2);
   gfx::Point point(bounds.top_right().x() - 1, bounds.top_right().y() + 5);
   ui::test::EventGenerator event_generator(window2->GetRootWindow(), point);
 
@@ -1057,21 +1180,6 @@ TEST_F(WindowSelectorTest, FullscreenWindow) {
   ToggleOverview();
   ClickWindow(window2.get());
   EXPECT_TRUE(wm::GetWindowState(window1.get())->IsFullscreen());
-}
-
-// Tests that the shelf dimming state is removed while in overview and restored
-// on exiting overview.
-TEST_F(WindowSelectorTest, OverviewUndimsShelf) {
-  gfx::Rect bounds(0, 0, 400, 400);
-  std::unique_ptr<aura::Window> window1(CreateWindow(bounds));
-  wm::WindowState* window_state = wm::GetWindowState(window1.get());
-  window_state->Maximize();
-  ShelfWidget* shelf = GetPrimaryShelf()->shelf_widget();
-  EXPECT_TRUE(shelf->GetDimsShelf());
-  ToggleOverview();
-  EXPECT_FALSE(shelf->GetDimsShelf());
-  ToggleOverview();
-  EXPECT_TRUE(shelf->GetDimsShelf());
 }
 
 // Tests that entering overview when a fullscreen window is active in maximized
@@ -1119,10 +1227,15 @@ TEST_F(WindowSelectorTest, SelectingHidesAppList) {
   gfx::Rect bounds(0, 0, 400, 400);
   std::unique_ptr<aura::Window> window1(CreateWindow(bounds));
   std::unique_ptr<aura::Window> window2(CreateWindow(bounds));
-  WmShell::Get()->ShowAppList();
-  EXPECT_TRUE(WmShell::Get()->GetAppListTargetVisibility());
+
+  // The tested behavior relies on the app list presenter delegate.
+  test::TestAppListViewPresenterImpl app_list_presenter_impl;
+
+  app_list_presenter_impl.Show(display_manager()->first_display_id());
+  EXPECT_TRUE(app_list_presenter_impl.IsVisible());
+
   ToggleOverview();
-  EXPECT_FALSE(WmShell::Get()->GetAppListTargetVisibility());
+  EXPECT_FALSE(app_list_presenter_impl.IsVisible());
   ToggleOverview();
 }
 
@@ -1190,11 +1303,9 @@ TEST_F(WindowSelectorTest, BoundsChangeDuringOverview) {
   // Use overview headers above the window in this test.
   window->SetProperty(aura::client::kTopViewInset, 0);
   ToggleOverview();
-  gfx::Rect overview_bounds =
-      ToEnclosingRect(GetTransformedTargetBounds(window.get()));
+  gfx::Rect overview_bounds = GetTransformedTargetBounds(window.get());
   window->SetBounds(gfx::Rect(200, 0, 200, 200));
-  gfx::Rect new_overview_bounds =
-      ToEnclosingRect(GetTransformedTargetBounds(window.get()));
+  gfx::Rect new_overview_bounds = GetTransformedTargetBounds(window.get());
   EXPECT_EQ(overview_bounds.x(), new_overview_bounds.x());
   EXPECT_EQ(overview_bounds.y(), new_overview_bounds.y());
   EXPECT_EQ(overview_bounds.width(), new_overview_bounds.width());
@@ -1267,8 +1378,7 @@ TEST_F(WindowSelectorTest, LastWindowDestroyed) {
 TEST_F(WindowSelectorTest, QuickReentryRestoresInitialTransform) {
   gfx::Rect bounds(0, 0, 400, 400);
   std::unique_ptr<aura::Window> window(CreateWindow(bounds));
-  gfx::Rect initial_bounds =
-      ToEnclosingRect(GetTransformedBounds(window.get()));
+  gfx::Rect initial_bounds = GetTransformedBounds(window.get());
   ToggleOverview();
   // Quickly exit and reenter overview mode. The window should still be
   // animating when we reenter. We cannot short circuit animations for this but
@@ -1279,12 +1389,10 @@ TEST_F(WindowSelectorTest, QuickReentryRestoresInitialTransform) {
     ToggleOverview();
     ToggleOverview();
   }
-  EXPECT_NE(initial_bounds,
-            ToEnclosingRect(GetTransformedTargetBounds(window.get())));
+  EXPECT_NE(initial_bounds, GetTransformedTargetBounds(window.get()));
   ToggleOverview();
   EXPECT_FALSE(IsSelecting());
-  EXPECT_EQ(initial_bounds,
-            ToEnclosingRect(GetTransformedTargetBounds(window.get())));
+  EXPECT_EQ(initial_bounds, GetTransformedTargetBounds(window.get()));
 }
 
 // Tests that windows with modal child windows are transformed with the modal
@@ -1299,8 +1407,8 @@ TEST_F(WindowSelectorTest, ModalChild) {
   ToggleOverview();
   EXPECT_TRUE(window1->IsVisible());
   EXPECT_TRUE(child1->IsVisible());
-  EXPECT_EQ(ToEnclosingRect(GetTransformedTargetBounds(child1.get())),
-            ToEnclosingRect(GetTransformedTargetBounds(window1.get())));
+  EXPECT_EQ(GetTransformedTargetBounds(child1.get()),
+            GetTransformedTargetBounds(window1.get()));
   ToggleOverview();
 }
 
@@ -1467,18 +1575,18 @@ TEST_F(WindowSelectorTest, CreateLabelUnderWindow) {
   base::string16 window_title = base::UTF8ToUTF16("My window");
   window->SetTitle(window_title);
   ToggleOverview();
-  WindowSelectorItem* window_item = GetWindowItemsForRoot(0).back();
-  views::LabelButton* label = GetLabelButtonView(window_item);
+  WindowSelectorItem* window_item = GetWindowItemsForRoot(0).back().get();
+  views::Label* label = GetLabelView(window_item);
   // Has the label view been created?
   ASSERT_TRUE(label);
 
   // Verify the label matches the window title.
-  EXPECT_EQ(label->GetText(), window_title);
+  EXPECT_EQ(label->text(), window_title);
 
   // Update the window title and check that the label is updated, too.
   base::string16 updated_title = base::UTF8ToUTF16("Updated title");
   window->SetTitle(updated_title);
-  EXPECT_EQ(label->GetText(), updated_title);
+  EXPECT_EQ(label->text(), updated_title);
 
   // Labels are located based on target_bounds, not the actual window item
   // bounds.
@@ -1494,26 +1602,23 @@ TEST_F(WindowSelectorTest, DisplayOrientationChanged) {
   UpdateDisplay("600x200");
   EXPECT_EQ("0,0 600x200", root_window->bounds().ToString());
   gfx::Rect window_bounds(0, 0, 150, 150);
-  ScopedVector<aura::Window> windows;
-  for (int i = 0; i < 3; i++) {
-    windows.push_back(CreateWindow(window_bounds));
-  }
+  std::vector<std::unique_ptr<aura::Window>> windows;
+  for (int i = 0; i < 3; i++)
+    windows.push_back(base::WrapUnique(CreateWindow(window_bounds)));
 
   ToggleOverview();
-  for (ScopedVector<aura::Window>::iterator iter = windows.begin();
-       iter != windows.end(); ++iter) {
+  for (const auto& window : windows) {
     EXPECT_TRUE(root_window->bounds().Contains(
-        ToEnclosingRect(GetTransformedTargetBounds(*iter))));
+        GetTransformedTargetBounds(window.get())));
   }
 
   // Rotate the display, windows should be repositioned to be within the screen
   // bounds.
   UpdateDisplay("600x200/r");
   EXPECT_EQ("0,0 200x600", root_window->bounds().ToString());
-  for (ScopedVector<aura::Window>::iterator iter = windows.begin();
-       iter != windows.end(); ++iter) {
+  for (const auto& window : windows) {
     EXPECT_TRUE(root_window->bounds().Contains(
-        ToEnclosingRect(GetTransformedTargetBounds(*iter))));
+        GetTransformedTargetBounds(window.get())));
   }
 }
 
@@ -1524,17 +1629,17 @@ TEST_F(WindowSelectorTest, BasicTabKeyNavigation) {
   std::unique_ptr<aura::Window> window1(CreateWindow(bounds));
   ToggleOverview();
 
-  const std::vector<WindowSelectorItem*>& overview_windows =
+  const std::vector<std::unique_ptr<WindowSelectorItem>>& overview_windows =
       GetWindowItemsForRoot(0);
   SendKey(ui::VKEY_TAB);
   EXPECT_EQ(GetSelectedWindow(),
-            WmWindowAura::GetAuraWindow(overview_windows[0]->GetWindow()));
+            WmWindow::GetAuraWindow(overview_windows[0]->GetWindow()));
   SendKey(ui::VKEY_TAB);
   EXPECT_EQ(GetSelectedWindow(),
-            WmWindowAura::GetAuraWindow(overview_windows[1]->GetWindow()));
+            WmWindow::GetAuraWindow(overview_windows[1]->GetWindow()));
   SendKey(ui::VKEY_TAB);
   EXPECT_EQ(GetSelectedWindow(),
-            WmWindowAura::GetAuraWindow(overview_windows[0]->GetWindow()));
+            WmWindow::GetAuraWindow(overview_windows[0]->GetWindow()));
 }
 
 // Tests that pressing Ctrl+W while a window is selected in overview closes it.
@@ -1557,9 +1662,11 @@ TEST_F(WindowSelectorTest, CloseWindowWithKey) {
 TEST_F(WindowSelectorTest, BasicArrowKeyNavigation) {
   const size_t test_windows = 9;
   UpdateDisplay("800x600");
-  ScopedVector<aura::Window> windows;
-  for (size_t i = test_windows; i > 0; i--)
-    windows.push_back(CreateWindowWithId(gfx::Rect(0, 0, 100, 100), i));
+  std::vector<std::unique_ptr<aura::Window>> windows;
+  for (size_t i = test_windows; i > 0; i--) {
+    windows.push_back(
+        base::WrapUnique(CreateWindowWithId(gfx::Rect(0, 0, 100, 100), i)));
+  }
 
   ui::KeyboardCode arrow_keys[] = {ui::VKEY_RIGHT, ui::VKEY_DOWN, ui::VKEY_LEFT,
                                    ui::VKEY_UP};
@@ -1574,7 +1681,7 @@ TEST_F(WindowSelectorTest, BasicArrowKeyNavigation) {
 
   for (size_t key_index = 0; key_index < arraysize(arrow_keys); key_index++) {
     ToggleOverview();
-    const std::vector<WindowSelectorItem*>& overview_windows =
+    const std::vector<std::unique_ptr<WindowSelectorItem>>& overview_windows =
         GetWindowItemsForRoot(0);
     for (size_t i = 0; i < test_windows + 1; i++) {
       SendKey(arrow_keys[key_index]);
@@ -1603,22 +1710,22 @@ TEST_F(WindowSelectorTest, BasicMultiMonitorArrowKeyNavigation) {
 
   ToggleOverview();
 
-  const std::vector<WindowSelectorItem*>& overview_root1 =
+  const std::vector<std::unique_ptr<WindowSelectorItem>>& overview_root1 =
       GetWindowItemsForRoot(0);
-  const std::vector<WindowSelectorItem*>& overview_root2 =
+  const std::vector<std::unique_ptr<WindowSelectorItem>>& overview_root2 =
       GetWindowItemsForRoot(1);
   SendKey(ui::VKEY_RIGHT);
   EXPECT_EQ(GetSelectedWindow(),
-            WmWindowAura::GetAuraWindow(overview_root1[0]->GetWindow()));
+            WmWindow::GetAuraWindow(overview_root1[0]->GetWindow()));
   SendKey(ui::VKEY_RIGHT);
   EXPECT_EQ(GetSelectedWindow(),
-            WmWindowAura::GetAuraWindow(overview_root1[1]->GetWindow()));
+            WmWindow::GetAuraWindow(overview_root1[1]->GetWindow()));
   SendKey(ui::VKEY_RIGHT);
   EXPECT_EQ(GetSelectedWindow(),
-            WmWindowAura::GetAuraWindow(overview_root2[0]->GetWindow()));
+            WmWindow::GetAuraWindow(overview_root2[0]->GetWindow()));
   SendKey(ui::VKEY_RIGHT);
   EXPECT_EQ(GetSelectedWindow(),
-            WmWindowAura::GetAuraWindow(overview_root2[1]->GetWindow()));
+            WmWindow::GetAuraWindow(overview_root2[1]->GetWindow()));
 }
 
 // Tests first monitor when display order doesn't match left to right screen
@@ -1629,8 +1736,8 @@ TEST_F(WindowSelectorTest, MultiMonitorReversedOrder) {
 
   UpdateDisplay("400x400,400x400");
   Shell::GetInstance()->display_manager()->SetLayoutForCurrentDisplays(
-      test::CreateDisplayLayout(display_manager(),
-                                display::DisplayPlacement::LEFT, 0));
+      display::test::CreateDisplayLayout(display_manager(),
+                                         display::DisplayPlacement::LEFT, 0));
   aura::Window::Windows root_windows = Shell::GetAllRootWindows();
   gfx::Rect bounds1(-350, 0, 100, 100);
   gfx::Rect bounds2(0, 0, 100, 100);
@@ -1727,10 +1834,10 @@ TEST_F(WindowSelectorTest, SelectWindowWithReturnKey) {
 TEST_F(WindowSelectorTest, WindowOverviewHidesCalloutWidgets) {
   std::unique_ptr<aura::Window> panel1(
       CreatePanelWindow(gfx::Rect(0, 0, 100, 100)));
-  WmWindow* wm_panel1 = WmWindowAura::Get(panel1.get());
+  WmWindow* wm_panel1 = WmWindow::Get(panel1.get());
   std::unique_ptr<aura::Window> panel2(
       CreatePanelWindow(gfx::Rect(0, 0, 100, 100)));
-  WmWindow* wm_panel2 = WmWindowAura::Get(panel2.get());
+  WmWindow* wm_panel2 = WmWindow::Get(panel2.get());
   PanelLayoutManager* panel_manager = PanelLayoutManager::Get(wm_panel1);
 
   // By default, panel callout widgets are visible.
@@ -1775,7 +1882,6 @@ TEST_F(WindowSelectorTest, BasicTextFiltering) {
 
   // Window 0 has no "test" on it so it should be the only dimmed item.
   const int grid_index = 0;
-  std::vector<WindowSelectorItem*> items = GetWindowItemsForRoot(0);
   EXPECT_TRUE(GetWindowItemForWindow(grid_index, window0.get())->dimmed());
   EXPECT_FALSE(GetWindowItemForWindow(grid_index, window1.get())->dimmed());
   EXPECT_FALSE(GetWindowItemForWindow(grid_index, window2.get())->dimmed());
@@ -1793,6 +1899,18 @@ TEST_F(WindowSelectorTest, BasicTextFiltering) {
   EXPECT_FALSE(GetWindowItemForWindow(grid_index, window0.get())->dimmed());
   EXPECT_FALSE(GetWindowItemForWindow(grid_index, window1.get())->dimmed());
   EXPECT_FALSE(GetWindowItemForWindow(grid_index, window2.get())->dimmed());
+
+  FilterItems("Foo");
+
+  EXPECT_NE(1.0f, window0->layer()->GetTargetOpacity());
+  EXPECT_NE(1.0f, window1->layer()->GetTargetOpacity());
+  EXPECT_NE(1.0f, window2->layer()->GetTargetOpacity());
+
+  ToggleOverview();
+
+  EXPECT_EQ(1.0f, window0->layer()->GetTargetOpacity());
+  EXPECT_EQ(1.0f, window1->layer()->GetTargetOpacity());
+  EXPECT_EQ(1.0f, window2->layer()->GetTargetOpacity());
 }
 
 // Tests selecting in the overview with dimmed and undimmed items.
@@ -1812,7 +1930,6 @@ TEST_F(WindowSelectorTest, TextFilteringSelection) {
   EXPECT_TRUE(selection_widget_active());
 
   // Dim the first item, the selection should jump to the next item.
-  std::vector<WindowSelectorItem*> items = GetWindowItemsForRoot(0);
   FilterItems("Rock and");
   EXPECT_NE(GetSelectedWindow(), window0.get());
 
@@ -2015,6 +2132,22 @@ TEST_F(WindowSelectorTest, TransformedRectIsCenteredWithInset) {
   EXPECT_NEAR(
       transformed_rect.y() + (int)(scale * inset) - header_height - bounds.y(),
       bounds.bottom() - transformed_rect.bottom(), 1);
+}
+
+// Start dragging a window and activate overview mode. This test should not
+// crash or DCHECK inside aura::Window::StackChildRelativeTo().
+TEST_F(WindowSelectorTest, OverviewWhileDragging) {
+  const gfx::Rect bounds(10, 10, 100, 100);
+  std::unique_ptr<aura::Window> window(CreateWindow(bounds));
+  std::unique_ptr<WindowResizer> resizer(
+      CreateWindowResizer(WmWindow::Get(window.get()), gfx::Point(), HTCAPTION,
+                          aura::client::WINDOW_MOVE_SOURCE_MOUSE));
+  ASSERT_TRUE(resizer.get());
+  gfx::Point location = resizer->GetInitialLocation();
+  location.Offset(20, 20);
+  resizer->Drag(location, 0);
+  ToggleOverview();
+  resizer->RevertDrag();
 }
 
 }  // namespace ash

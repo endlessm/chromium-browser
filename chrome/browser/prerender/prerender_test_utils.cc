@@ -4,7 +4,17 @@
 
 #include "chrome/browser/prerender/prerender_test_utils.h"
 
+#include <memory>
+#include <set>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include "base/callback.h"
 #include "base/command_line.h"
+#include "base/memory/ptr_util.h"
+#include "base/run_loop.h"
+#include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/loader/chrome_resource_dispatcher_host_delegate.h"
 #include "chrome/browser/prerender/prerender_manager.h"
 #include "chrome/browser/prerender/prerender_manager_factory.h"
@@ -13,6 +23,8 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/pref_names.h"
+#include "chrome/grit/generated_resources.h"
+#include "chrome/test/base/ui_test_utils.h"
 #include "components/prefs/pref_service.h"
 #include "content/public/browser/notification_details.h"
 #include "content/public/browser/notification_source.h"
@@ -21,9 +33,12 @@
 #include "content/public/common/content_switches.h"
 #include "content/public/common/url_constants.h"
 #include "content/public/test/ppapi_test_utils.h"
+#include "net/base/load_flags.h"
+#include "net/test/embedded_test_server/request_handler_util.h"
 #include "net/url_request/url_request_filter.h"
 #include "ppapi/shared_impl/ppapi_switches.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "ui/base/l10n/l10n_util.h"
 
 using content::BrowserThread;
 using content::RenderViewHost;
@@ -63,7 +78,7 @@ class MockHTTPJob : public net::URLRequestMockHTTPJob {
   base::Closure start_callback_;
 };
 
-// Protocol handler which counts the number of requests that start.
+// URLRequestInterceptor which counts the number of requests that start.
 class CountingInterceptor : public net::URLRequestInterceptor {
  public:
   CountingInterceptor(const base::FilePath& file,
@@ -92,6 +107,108 @@ class CountingInterceptor : public net::URLRequestInterceptor {
   mutable base::WeakPtrFactory<CountingInterceptor> weak_factory_;
 };
 
+class CountingInterceptorWithCallback : public net::URLRequestInterceptor {
+ public:
+  // Inserts the interceptor object to intercept requests to |url|.  Can be
+  // called on any thread. Assumes that |counter| lives on the UI thread.  The
+  // |callback_io| will be called on IO thread with the net::URLrequest
+  // provided.
+  static void Initialize(const GURL& url,
+                         RequestCounter* counter,
+                         base::Callback<void(net::URLRequest*)> callback_io) {
+    content::BrowserThread::PostTask(
+        content::BrowserThread::IO, FROM_HERE,
+        base::Bind(&CountingInterceptorWithCallback::CreateAndAddOnIO, url,
+                   counter->AsWeakPtr(), callback_io));
+  }
+
+  // net::URLRequestInterceptor:
+  net::URLRequestJob* MaybeInterceptRequest(
+      net::URLRequest* request,
+      net::NetworkDelegate* network_delegate) const override {
+    // Run the callback.
+    callback_.Run(request);
+
+    // Ping the request counter.
+    content::BrowserThread::PostTask(
+        content::BrowserThread::UI, FROM_HERE,
+        base::Bind(&RequestCounter::RequestStarted, counter_));
+    return nullptr;
+  }
+
+ private:
+  CountingInterceptorWithCallback(
+      const base::WeakPtr<RequestCounter>& counter,
+      base::Callback<void(net::URLRequest*)> callback)
+      : callback_(callback), counter_(counter) {}
+
+  static void CreateAndAddOnIO(
+      const GURL& url,
+      const base::WeakPtr<RequestCounter>& counter,
+      base::Callback<void(net::URLRequest*)> callback_io) {
+    DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
+    // Create the object with base::WrapUnique to restrict access to the
+    // constructor.
+    net::URLRequestFilter::GetInstance()->AddUrlInterceptor(
+        url, base::WrapUnique(
+                 new CountingInterceptorWithCallback(counter, callback_io)));
+  }
+
+  base::Callback<void(net::URLRequest*)> callback_;
+  base::WeakPtr<RequestCounter> counter_;
+
+  DISALLOW_COPY_AND_ASSIGN(CountingInterceptorWithCallback);
+};
+
+// URLRequestJob (and associated handler) which hangs.
+class HangingURLRequestJob : public net::URLRequestJob {
+ public:
+  HangingURLRequestJob(net::URLRequest* request,
+                          net::NetworkDelegate* network_delegate)
+      : net::URLRequestJob(request, network_delegate) {
+  }
+
+  void Start() override {}
+
+ private:
+  ~HangingURLRequestJob() override {}
+};
+
+class HangingFirstRequestInterceptor : public net::URLRequestInterceptor {
+ public:
+  HangingFirstRequestInterceptor(const base::FilePath& file,
+                                 base::Closure callback)
+      : file_(file),
+        callback_(callback),
+        first_run_(true) {
+  }
+  ~HangingFirstRequestInterceptor() override {}
+
+  net::URLRequestJob* MaybeInterceptRequest(
+      net::URLRequest* request,
+      net::NetworkDelegate* network_delegate) const override {
+    if (first_run_) {
+      first_run_ = false;
+      if (!callback_.is_null()) {
+        BrowserThread::PostTask(
+            BrowserThread::UI, FROM_HERE, callback_);
+      }
+      return new HangingURLRequestJob(request, network_delegate);
+    }
+    return new net::URLRequestMockHTTPJob(
+        request,
+        network_delegate,
+        file_,
+        BrowserThread::GetBlockingPool()->GetTaskRunnerWithShutdownBehavior(
+            base::SequencedWorkerPool::SKIP_ON_SHUTDOWN));
+  }
+
+ private:
+  base::FilePath file_;
+  base::Closure callback_;
+  mutable bool first_run_;
+};
+
 // An ExternalProtocolHandler that blocks everything and asserts it never is
 // called.
 class NeverRunsExternalProtocolHandlerDelegate
@@ -107,8 +224,8 @@ class NeverRunsExternalProtocolHandlerDelegate
     return nullptr;
   }
 
-  ExternalProtocolHandler::BlockState GetBlockState(
-      const std::string& scheme) override {
+  ExternalProtocolHandler::BlockState GetBlockState(const std::string& scheme,
+                                                    Profile* profile) override {
     // Block everything and fail the test.
     ADD_FAILURE();
     return ExternalProtocolHandler::BLOCK;
@@ -124,7 +241,11 @@ class NeverRunsExternalProtocolHandlerDelegate
     NOTREACHED();
   }
 
-  void LaunchUrlWithoutSecurityCheck(const GURL& url) override { NOTREACHED(); }
+  void LaunchUrlWithoutSecurityCheck(
+      const GURL& url,
+      content::WebContents* web_contents) override {
+    NOTREACHED();
+  }
 
   void FinishedProcessingCheck() override { NOTREACHED(); }
 };
@@ -246,23 +367,6 @@ TestPrerenderContents::~TestPrerenderContents() {
   EXPECT_EQ(should_be_shown_, was_shown_);
 }
 
-void TestPrerenderContents::RenderProcessGone(base::TerminationStatus status) {
-  // On quit, it's possible to end up here when render processes are closed
-  // before the PrerenderManager is destroyed.  As a result, it's possible to
-  // get either FINAL_STATUS_APP_TERMINATING or FINAL_STATUS_RENDERER_CRASHED
-  // on quit.
-  //
-  // It's also possible for this to be called after we've been notified of
-  // app termination, but before we've been deleted, which is why the second
-  // check is needed.
-  if (expected_final_status_ == FINAL_STATUS_APP_TERMINATING &&
-      final_status() != expected_final_status_) {
-    expected_final_status_ = FINAL_STATUS_RENDERER_CRASHED;
-  }
-
-  PrerenderContents::RenderProcessGone(status);
-}
-
 bool TestPrerenderContents::CheckURL(const GURL& url) {
   // Prevent FINAL_STATUS_UNSUPPORTED_SCHEME when navigating to about:crash in
   // the PrerenderRendererCrash test.
@@ -307,12 +411,86 @@ void TestPrerenderContents::Observe(
   PrerenderContents::Observe(type, source, details);
 }
 
+DestructionWaiter::DestructionWaiter(TestPrerenderContents* prerender_contents,
+                                     FinalStatus expected_final_status)
+    : expected_final_status_(expected_final_status),
+      saw_correct_status_(false) {
+  if (!prerender_contents) {
+    // TODO(mattcary): It is not correct to assume the contents were destroyed
+    // correctly, but until the prefetch renderer destruction race can be fixed
+    // there's no other way to keep tests from flaking.
+    saw_correct_status_ = true;
+    return;
+  }
+  if (prerender_contents->final_status() != FINAL_STATUS_MAX) {
+    // The contents was already destroyed by the time this was called.
+    MarkDestruction(prerender_contents->final_status());
+  } else {
+    marker_ = base::MakeUnique<DestructionMarker>(this);
+    prerender_contents->AddObserver(marker_.get());
+  }
+}
+
+DestructionWaiter::~DestructionWaiter() {}
+
+bool DestructionWaiter::WaitForDestroy() {
+  if (!saw_correct_status_) {
+    wait_loop_.Run();
+  }
+  return saw_correct_status_;
+}
+
+void DestructionWaiter::MarkDestruction(FinalStatus reason) {
+  saw_correct_status_ = (reason == expected_final_status_);
+  wait_loop_.Quit();
+}
+
+DestructionWaiter::DestructionMarker::DestructionMarker(
+    DestructionWaiter* waiter)
+    : waiter_(waiter) {}
+
+DestructionWaiter::DestructionMarker::~DestructionMarker() {}
+
+void DestructionWaiter::DestructionMarker::OnPrerenderStop(
+    PrerenderContents* contents) {
+  waiter_->MarkDestruction(contents->final_status());
+}
+
 TestPrerender::TestPrerender()
-    : contents_(nullptr), number_of_loads_(0), expected_number_of_loads_(0) {}
+    : contents_(nullptr),
+      final_status_(FINAL_STATUS_MAX),
+      number_of_loads_(0),
+      expected_number_of_loads_(0),
+      started_(false),
+      stopped_(false) {}
 
 TestPrerender::~TestPrerender() {
   if (contents_)
     contents_->RemoveObserver(this);
+}
+
+FinalStatus TestPrerender::GetFinalStatus() const {
+  if (contents_)
+    return contents_->final_status();
+  return final_status_;
+}
+
+void TestPrerender::WaitForCreate() {
+  if (contents_)
+    return;
+  create_loop_.Run();
+}
+
+void TestPrerender::WaitForStart() {
+  if (started_)
+    return;
+  start_loop_.Run();
+}
+
+void TestPrerender::WaitForStop() {
+  if (stopped_)
+    return;
+  stop_loop_.Run();
 }
 
 void TestPrerender::WaitForLoads(int expected_number_of_loads) {
@@ -336,6 +514,7 @@ void TestPrerender::OnPrerenderCreated(TestPrerenderContents* contents) {
 }
 
 void TestPrerender::OnPrerenderStart(PrerenderContents* contents) {
+  started_ = true;
   start_loop_.Quit();
 }
 
@@ -348,11 +527,41 @@ void TestPrerender::OnPrerenderStopLoading(PrerenderContents* contents) {
 void TestPrerender::OnPrerenderStop(PrerenderContents* contents) {
   DCHECK(contents_);
   contents_ = nullptr;
+  final_status_ = contents->final_status();
+  stopped_ = true;
   stop_loop_.Quit();
   // If there is a WaitForLoads call and it has yet to see the expected number
   // of loads, stop the loop so the test fails instead of timing out.
   if (load_waiter_)
     load_waiter_->Quit();
+}
+
+// static
+FirstContentfulPaintManagerWaiter* FirstContentfulPaintManagerWaiter::Create(
+    PrerenderManager* manager) {
+  auto fcp_waiter = base::WrapUnique(new FirstContentfulPaintManagerWaiter());
+  auto fcp_waiter_ptr = fcp_waiter.get();
+  manager->AddObserver(std::move(fcp_waiter));
+  return fcp_waiter_ptr;
+}
+
+FirstContentfulPaintManagerWaiter::FirstContentfulPaintManagerWaiter()
+    : saw_fcp_(false) {}
+
+FirstContentfulPaintManagerWaiter::~FirstContentfulPaintManagerWaiter() {}
+
+void FirstContentfulPaintManagerWaiter::OnFirstContentfulPaint() {
+  saw_fcp_ = true;
+  if (waiter_)
+    waiter_->Quit();
+}
+
+void FirstContentfulPaintManagerWaiter::Wait() {
+  if (saw_fcp_)
+    return;
+  waiter_ = base::MakeUnique<base::RunLoop>();
+  waiter_->Run();
+  waiter_.reset();
 }
 
 TestPrerenderContentsFactory::TestPrerenderContentsFactory() {}
@@ -429,6 +638,15 @@ PrerenderInProcessBrowserTest::GetSessionStorageNamespace() const {
   return web_contents->GetController().GetDefaultSessionStorageNamespace();
 }
 
+std::string PrerenderInProcessBrowserTest::MakeAbsolute(
+    const std::string& path) {
+  CHECK(!path.empty());
+  if (path.front() == '/') {
+    return path;
+  }
+  return "/" + path;
+}
+
 bool PrerenderInProcessBrowserTest::UrlIsInPrerenderManager(
     const std::string& html_file) const {
   return UrlIsInPrerenderManager(embedded_test_server()->GetURL(html_file));
@@ -458,35 +676,19 @@ TestPrerenderContents* PrerenderInProcessBrowserTest::GetPrerenderContentsFor(
       prerender_data ? prerender_data->contents() : nullptr);
 }
 
-std::unique_ptr<TestPrerender> PrerenderInProcessBrowserTest::PrerenderTestURL(
-    const std::string& html_file,
-    FinalStatus expected_final_status,
-    int expected_number_of_loads) {
-  GURL url = embedded_test_server()->GetURL(html_file);
-  return PrerenderTestURL(url, expected_final_status, expected_number_of_loads);
+net::EmbeddedTestServer* PrerenderInProcessBrowserTest::src_server() {
+  if (https_src_server_)
+    return https_src_server_.get();
+  return embedded_test_server();
 }
 
-ScopedVector<TestPrerender> PrerenderInProcessBrowserTest::PrerenderTestURL(
-    const std::string& html_file,
-    const std::vector<FinalStatus>& expected_final_status_queue,
-    int expected_number_of_loads) {
-  GURL url = embedded_test_server()->GetURL(html_file);
-  return PrerenderTestURLImpl(url, expected_final_status_queue,
-                              expected_number_of_loads);
-}
-
-std::unique_ptr<TestPrerender> PrerenderInProcessBrowserTest::PrerenderTestURL(
-    const GURL& url,
-    FinalStatus expected_final_status,
-    int expected_number_of_loads) {
-  std::vector<FinalStatus> expected_final_status_queue(1,
-                                                       expected_final_status);
-  std::vector<TestPrerender*> prerenders;
-  PrerenderTestURLImpl(url, expected_final_status_queue,
-                       expected_number_of_loads)
-      .release(&prerenders);
-  CHECK_EQ(1u, prerenders.size());
-  return std::unique_ptr<TestPrerender>(prerenders[0]);
+test_utils::FakeSafeBrowsingDatabaseManager*
+PrerenderInProcessBrowserTest::GetFakeSafeBrowsingDatabaseManager() {
+  return static_cast<test_utils::FakeSafeBrowsingDatabaseManager*>(
+      safe_browsing_factory()
+          ->test_safe_browsing_service()
+          ->database_manager()
+          .get());
 }
 
 void PrerenderInProcessBrowserTest::SetUpInProcessBrowserTestFixture() {
@@ -521,15 +723,74 @@ void PrerenderInProcessBrowserTest::SetUpOnMainThread() {
   ASSERT_TRUE(safe_browsing_factory_->test_safe_browsing_service());
 }
 
+void PrerenderInProcessBrowserTest::UseHttpsSrcServer() {
+  if (https_src_server_)
+    return;
+  https_src_server_.reset(
+      new net::EmbeddedTestServer(net::EmbeddedTestServer::TYPE_HTTPS));
+  https_src_server_->ServeFilesFromSourceDirectory("chrome/test/data");
+  CHECK(https_src_server_->Start());
+}
+
+base::string16 PrerenderInProcessBrowserTest::MatchTaskManagerTab(
+    const char* page_title) {
+  return l10n_util::GetStringFUTF16(IDS_TASK_MANAGER_TAB_PREFIX,
+                                    base::ASCIIToUTF16(page_title));
+}
+
+base::string16 PrerenderInProcessBrowserTest::MatchTaskManagerPrerender(
+    const char* page_title) {
+  return l10n_util::GetStringFUTF16(IDS_TASK_MANAGER_PRERENDER_PREFIX,
+                                    base::ASCIIToUTF16(page_title));
+}
+
+std::vector<std::unique_ptr<TestPrerender>>
+PrerenderInProcessBrowserTest::NavigateWithPrerenders(
+    const GURL& loader_url,
+    const std::vector<FinalStatus>& expected_final_status_queue) {
+  CHECK(!expected_final_status_queue.empty());
+  std::vector<std::unique_ptr<TestPrerender>> prerenders;
+  for (size_t i = 0; i < expected_final_status_queue.size(); i++) {
+    prerenders.push_back(prerender_contents_factory()
+        ->ExpectPrerenderContents(expected_final_status_queue[i]));
+  }
+
+  // Navigate to the loader URL and then wait for the first prerender to be
+  // created.
+  ui_test_utils::NavigateToURL(current_browser(), loader_url);
+  prerenders[0]->WaitForCreate();
+
+  return prerenders;
+}
+
+GURL PrerenderInProcessBrowserTest::ServeLoaderURL(
+    const std::string& loader_path,
+    const std::string& replacement_variable,
+    const GURL& url_to_prerender,
+    const std::string& loader_query) {
+  base::StringPairs replacement_text;
+  replacement_text.push_back(
+      make_pair(replacement_variable, url_to_prerender.spec()));
+  std::string replacement_path;
+  net::test_server::GetFilePathWithReplacements(loader_path, replacement_text,
+                                                &replacement_path);
+  return src_server()->GetURL(replacement_path + loader_query);
+}
+
 void CreateCountingInterceptorOnIO(
     const GURL& url,
     const base::FilePath& file,
     const base::WeakPtr<RequestCounter>& counter) {
   CHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::IO));
-  std::unique_ptr<net::URLRequestInterceptor> request_interceptor(
-      new CountingInterceptor(file, counter));
   net::URLRequestFilter::GetInstance()->AddUrlInterceptor(
-      url, std::move(request_interceptor));
+      url, base::MakeUnique<CountingInterceptor>(file, counter));
+}
+
+void InterceptRequestAndCount(
+    const GURL& url,
+    RequestCounter* counter,
+    base::Callback<void(net::URLRequest*)> callback_io) {
+  CountingInterceptorWithCallback::Initialize(url, counter, callback_io);
 }
 
 void CreateMockInterceptorOnIO(const GURL& url, const base::FilePath& file) {
@@ -537,6 +798,15 @@ void CreateMockInterceptorOnIO(const GURL& url, const base::FilePath& file) {
   net::URLRequestFilter::GetInstance()->AddUrlInterceptor(
       url, net::URLRequestMockHTTPJob::CreateInterceptorForSingleFile(
                file, content::BrowserThread::GetBlockingPool()));
+}
+
+void CreateHangingFirstRequestInterceptorOnIO(
+    const GURL& url, const base::FilePath& file, base::Closure callback) {
+  CHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  std::unique_ptr<net::URLRequestInterceptor> interceptor(
+      new HangingFirstRequestInterceptor(file, callback));
+  net::URLRequestFilter::GetInstance()->AddUrlInterceptor(
+      url, std::move(interceptor));
 }
 
 }  // namespace test_utils

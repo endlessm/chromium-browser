@@ -20,7 +20,7 @@ namespace gl {
 class GLContextFake : public GLContext {
  public:
   bool Initialize(GLSurface* compatible_surface,
-                  GpuPreference gpu_preference) override {
+                  const GLContextAttribs& attribs) override {
     return true;
   }
   bool MakeCurrent(GLSurface* surface) override { return true; }
@@ -51,8 +51,9 @@ class GLApiTest : public testing::Test {
         static_cast<GLGetProcAddressProc>(&FakeGLGetProcAddress));
   }
 
-  static void* GL_BINDING_CALL FakeGLGetProcAddress(const char *proc) {
-    return reinterpret_cast<void*>(0x1);
+  static GLFunctionPointerType GL_BINDING_CALL
+  FakeGLGetProcAddress(const char* proc) {
+    return reinterpret_cast<GLFunctionPointerType>(0x1);
   }
 
   void TearDown() override {

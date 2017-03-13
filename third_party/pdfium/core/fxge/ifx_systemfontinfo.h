@@ -7,6 +7,8 @@
 #ifndef CORE_FXGE_IFX_SYSTEMFONTINFO_H_
 #define CORE_FXGE_IFX_SYSTEMFONTINFO_H_
 
+#include <memory>
+
 #include "core/fxge/cfx_fontmapper.h"
 #include "core/fxge/fx_font.h"
 
@@ -20,9 +22,9 @@ class IFX_SystemFontInfo {
 
   virtual ~IFX_SystemFontInfo() {}
 
-  virtual FX_BOOL EnumFontList(CFX_FontMapper* pMapper) = 0;
+  virtual bool EnumFontList(CFX_FontMapper* pMapper) = 0;
   virtual void* MapFont(int weight,
-                        FX_BOOL bItalic,
+                        bool bItalic,
                         int charset,
                         int pitch_family,
                         const FX_CHAR* face,
@@ -31,7 +33,7 @@ class IFX_SystemFontInfo {
 #ifdef PDF_ENABLE_XFA
   virtual void* MapFontByUnicode(uint32_t dwUnicode,
                                  int weight,
-                                 FX_BOOL bItalic,
+                                 bool bItalic,
                                  int pitch_family);
 #endif  // PDF_ENABLE_XFA
 
@@ -40,8 +42,8 @@ class IFX_SystemFontInfo {
                                uint32_t table,
                                uint8_t* buffer,
                                uint32_t size) = 0;
-  virtual FX_BOOL GetFaceName(void* hFont, CFX_ByteString& name) = 0;
-  virtual FX_BOOL GetFontCharset(void* hFont, int& charset) = 0;
+  virtual bool GetFaceName(void* hFont, CFX_ByteString& name) = 0;
+  virtual bool GetFontCharset(void* hFont, int& charset) = 0;
   virtual int GetFaceIndex(void* hFont);
   virtual void DeleteFont(void* hFont) = 0;
 };

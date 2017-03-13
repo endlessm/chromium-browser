@@ -23,6 +23,7 @@
 #include "components/test_runner/web_test_delegate.h"
 #include "components/test_runner/web_view_test_proxy.h"
 #include "components/test_runner/web_widget_test_proxy.h"
+#include "net/base/net_errors.h"
 #include "third_party/WebKit/public/platform/WebString.h"
 #include "third_party/WebKit/public/platform/WebURL.h"
 #include "third_party/WebKit/public/platform/WebURLRequest.h"
@@ -188,12 +189,16 @@ blink::WebColorChooser* WebFrameTestClient::createColorChooser(
 }
 
 void WebFrameTestClient::runModalAlertDialog(const blink::WebString& message) {
+  if (!test_runner()->ShouldDumpJavaScriptDialogs())
+    return;
   delegate_->PrintMessage(std::string("ALERT: ") + message.utf8().data() +
                           "\n");
 }
 
 bool WebFrameTestClient::runModalConfirmDialog(
     const blink::WebString& message) {
+  if (!test_runner()->ShouldDumpJavaScriptDialogs())
+    return true;
   delegate_->PrintMessage(std::string("CONFIRM: ") + message.utf8().data() +
                           "\n");
   return true;
@@ -203,6 +208,8 @@ bool WebFrameTestClient::runModalPromptDialog(
     const blink::WebString& message,
     const blink::WebString& default_value,
     blink::WebString* actual_value) {
+  if (!test_runner()->ShouldDumpJavaScriptDialogs())
+    return true;
   delegate_->PrintMessage(std::string("PROMPT: ") + message.utf8().data() +
                           ", default text: " + default_value.utf8().data() +
                           "\n");
@@ -210,7 +217,8 @@ bool WebFrameTestClient::runModalPromptDialog(
 }
 
 bool WebFrameTestClient::runModalBeforeUnloadDialog(bool is_reload) {
-  delegate_->PrintMessage(std::string("CONFIRM NAVIGATION\n"));
+  if (test_runner()->ShouldDumpJavaScriptDialogs())
+    delegate_->PrintMessage(std::string("CONFIRM NAVIGATION\n"));
   return !test_runner()->shouldStayOnPageAfterHandlingBeforeUnload();
 }
 
@@ -397,8 +405,14 @@ void WebFrameTestClient::loadURLExternally(
   }
 }
 
-void WebFrameTestClient::didStartProvisionalLoad(blink::WebLocalFrame* frame,
-                                                 double trigering_event_time) {
+void WebFrameTestClient::loadErrorPage(int reason) {
+  if (test_runner()->shouldDumpFrameLoadCallbacks()) {
+    delegate_->PrintMessage(base::StringPrintf(
+        "- loadErrorPage: %s\n", net::ErrorToString(reason).c_str()));
+  }
+}
+
+void WebFrameTestClient::didStartProvisionalLoad(blink::WebLocalFrame* frame) {
   test_runner()->tryToSetTopLoadingFrame(frame);
 
   if (test_runner()->shouldDumpFrameLoadCallbacks()) {

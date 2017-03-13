@@ -45,8 +45,8 @@
 #include "core/loader/NavigationPolicy.h"
 #include "platform/Timer.h"
 #include "platform/heap/Handle.h"
+#include "platform/instrumentation/tracing/TracedValue.h"
 #include "platform/network/ResourceRequest.h"
-#include "platform/tracing/TracedValue.h"
 #include "public/platform/WebInsecureRequestPolicy.h"
 #include "wtf/Forward.h"
 #include "wtf/HashSet.h"
@@ -159,17 +159,18 @@ class CORE_EXPORT FrameLoader final {
 
   WebInsecureRequestPolicy getInsecureRequestPolicy() const;
   SecurityContext::InsecureNavigationsSet* insecureNavigationsToUpgrade() const;
-  void upgradeInsecureRequest(ResourceRequest&, Document*) const;
+  void modifyRequestForCSP(ResourceRequest&, Document*) const;
 
   Frame* opener();
   void setOpener(LocalFrame*);
+
+  const AtomicString& requiredCSP() const { return m_requiredCSP; }
+  void recordLatestRequiredCSP();
 
   void detach();
 
   void finishedParsing();
   void checkCompleted();
-
-  void receivedMainResourceRedirect(const KURL& newURL);
 
   void clearProvisionalHistoryItem();
 
@@ -183,10 +184,6 @@ class CORE_EXPORT FrameLoader final {
   FrameLoaderStateMachine* stateMachine() const { return &m_stateMachine; }
 
   void applyUserAgent(ResourceRequest&);
-
-  bool shouldInterruptLoadForXFrameOptions(const String&,
-                                           const KURL&,
-                                           unsigned long requestIdentifier);
 
   bool allAncestorsAreComplete() const;  // including this
 
@@ -217,13 +214,18 @@ class CORE_EXPORT FrameLoader final {
                                          bool isClientRedirect,
                                          HTMLFormElement*);
 
+  // PlzNavigate: Navigations handled by the client are treated as
+  // provisional navigations.
+  bool hasProvisionalNavigation() const {
+    return provisionalDocumentLoader() || m_isNavigationHandledByClient;
+  }
+
   DECLARE_TRACE();
 
   static void setReferrerForFrameRequest(FrameLoadRequest&);
 
  private:
   void checkTimerFired(TimerBase*);
-  void didAccessInitialDocumentTimerFired(TimerBase*);
 
   bool prepareRequestForThisFrame(FrameLoadRequest&);
   FrameLoadType determineFrameLoadType(const FrameLoadRequest&);
@@ -254,10 +256,13 @@ class CORE_EXPORT FrameLoader final {
 
   void detachDocumentLoader(Member<DocumentLoader>&);
 
+  void upgradeInsecureRequest(ResourceRequest&, Document*) const;
+
   std::unique_ptr<TracedValue> toTracedValue() const;
   void takeObjectSnapshot() const;
 
   Member<LocalFrame> m_frame;
+  AtomicString m_requiredCSP;
 
   // FIXME: These should be std::unique_ptr<T> to reduce build times and
   // simplify header dependencies unless performance testing proves otherwise.

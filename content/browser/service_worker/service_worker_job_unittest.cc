@@ -8,6 +8,7 @@
 #include "base/files/scoped_temp_dir.h"
 #include "base/logging.h"
 #include "base/macros.h"
+#include "base/optional.h"
 #include "base/run_loop.h"
 #include "base/test/test_simple_task_runner.h"
 #include "base/time/time.h"
@@ -369,11 +370,13 @@ class FailToStartWorkerTestHelper : public EmbeddedWorkerTestHelper {
  public:
   FailToStartWorkerTestHelper() : EmbeddedWorkerTestHelper(base::FilePath()) {}
 
-  void OnStartWorker(int embedded_worker_id,
-                     int64_t service_worker_version_id,
-                     const GURL& scope,
-                     const GURL& script_url,
-                     bool pause_after_download) override {
+  void OnStartWorker(
+      int embedded_worker_id,
+      int64_t service_worker_version_id,
+      const GURL& scope,
+      const GURL& script_url,
+      bool pause_after_download,
+      mojom::ServiceWorkerEventDispatcherRequest request) override {
     EmbeddedWorkerInstance* worker = registry()->GetWorker(embedded_worker_id);
     registry()->OnWorkerStopped(worker->process_id(), embedded_worker_id);
   }
@@ -828,11 +831,13 @@ class UpdateJobTestHelper
   }
 
   // EmbeddedWorkerTestHelper overrides
-  void OnStartWorker(int embedded_worker_id,
-                     int64_t version_id,
-                     const GURL& scope,
-                     const GURL& script,
-                     bool pause_after_download) override {
+  void OnStartWorker(
+      int embedded_worker_id,
+      int64_t version_id,
+      const GURL& scope,
+      const GURL& script,
+      bool pause_after_download,
+      mojom::ServiceWorkerEventDispatcherRequest request) override {
     const std::string kMockScriptBody = "mock_script";
     const uint64_t kMockScriptSize = 19284;
     ServiceWorkerVersion* version = context()->GetLiveVersion(version_id);
@@ -860,12 +865,16 @@ class UpdateJobTestHelper
       WriteStringResponse(storage(), resource_id, kMockScriptBody);
       version->script_cache_map()->NotifyFinishedCaching(
           script, kMockScriptSize, net::OK, std::string());
+      version->SetMainScriptHttpResponseInfo(
+          EmbeddedWorkerTestHelper::CreateHttpResponseInfo());
     } else {
       if (script.GetOrigin() == kNoChangeOrigin) {
         // Simulate fetching the updated script and finding it's identical to
         // the incumbent.
         version->script_cache_map()->NotifyFinishedCaching(
             script, kMockScriptSize, net::ERR_FILE_EXISTS, std::string());
+        version->SetMainScriptHttpResponseInfo(
+            EmbeddedWorkerTestHelper::CreateHttpResponseInfo());
         SimulateWorkerScriptLoaded(embedded_worker_id);
         return;
       }
@@ -874,10 +883,13 @@ class UpdateJobTestHelper
       WriteStringResponse(storage(), resource_id, "mock_different_script");
       version->script_cache_map()->NotifyFinishedCaching(
           script, kMockScriptSize, net::OK, std::string());
+      version->SetMainScriptHttpResponseInfo(
+          EmbeddedWorkerTestHelper::CreateHttpResponseInfo());
     }
 
-    EmbeddedWorkerTestHelper::OnStartWorker(
-        embedded_worker_id, version_id, scope, script, pause_after_download);
+    EmbeddedWorkerTestHelper::OnStartWorker(embedded_worker_id, version_id,
+                                            scope, script, pause_after_download,
+                                            std::move(request));
   }
 
   void OnResumeAfterDownload(int embedded_worker_id) override {
@@ -932,11 +944,13 @@ class EvictIncumbentVersionHelper : public UpdateJobTestHelper {
   EvictIncumbentVersionHelper() {}
   ~EvictIncumbentVersionHelper() override {}
 
-  void OnStartWorker(int embedded_worker_id,
-                     int64_t version_id,
-                     const GURL& scope,
-                     const GURL& script,
-                     bool pause_after_download) override {
+  void OnStartWorker(
+      int embedded_worker_id,
+      int64_t version_id,
+      const GURL& scope,
+      const GURL& script,
+      bool pause_after_download,
+      mojom::ServiceWorkerEventDispatcherRequest request) override {
     ServiceWorkerVersion* version = context()->GetLiveVersion(version_id);
     ServiceWorkerRegistration* registration =
         context()->GetLiveRegistration(version->registration_id());
@@ -949,7 +963,8 @@ class EvictIncumbentVersionHelper : public UpdateJobTestHelper {
           make_scoped_refptr(registration->active_version()));
     }
     UpdateJobTestHelper::OnStartWorker(embedded_worker_id, version_id, scope,
-                                       script, pause_after_download);
+                                       script, pause_after_download,
+                                       std::move(request));
   }
 
   void OnRegistrationFailed(ServiceWorkerRegistration* registration) override {
@@ -1606,39 +1621,58 @@ TEST_F(ServiceWorkerJobTest, HasFetchHandler) {
   RunUnregisterJob(pattern);
 }
 
+class CheckPauseAfterDownloadEmbeddedWorkerInstanceClient
+    : public EmbeddedWorkerTestHelper::MockEmbeddedWorkerInstanceClient {
+ public:
+  explicit CheckPauseAfterDownloadEmbeddedWorkerInstanceClient(
+      base::WeakPtr<EmbeddedWorkerTestHelper> helper)
+      : EmbeddedWorkerTestHelper::MockEmbeddedWorkerInstanceClient(helper) {}
+  int num_of_startworker() const { return num_of_startworker_; }
+  void set_next_pause_after_download(bool expectation) {
+    next_pause_after_download_ = expectation;
+  }
+
+ protected:
+  void StartWorker(
+      const EmbeddedWorkerStartParams& params,
+      mojom::ServiceWorkerEventDispatcherRequest request) override {
+    ASSERT_TRUE(next_pause_after_download_.has_value());
+    EXPECT_EQ(next_pause_after_download_.value(), params.pause_after_download);
+    num_of_startworker_++;
+    EmbeddedWorkerTestHelper::MockEmbeddedWorkerInstanceClient::StartWorker(
+        params, std::move(request));
+  }
+
+ private:
+  base::Optional<bool> next_pause_after_download_;
+  int num_of_startworker_ = 0;
+  DISALLOW_COPY_AND_ASSIGN(CheckPauseAfterDownloadEmbeddedWorkerInstanceClient);
+};
+
 TEST_F(ServiceWorkerJobTest, Update_PauseAfterDownload) {
   UpdateJobTestHelper* update_helper = new UpdateJobTestHelper;
   helper_.reset(update_helper);
-  IPC::TestSink* sink = update_helper->ipc_sink();
+
+  std::vector<CheckPauseAfterDownloadEmbeddedWorkerInstanceClient*> clients;
+  clients.push_back(helper_->CreateAndRegisterMockInstanceClient<
+                    CheckPauseAfterDownloadEmbeddedWorkerInstanceClient>(
+      helper_->AsWeakPtr()));
+  clients.push_back(helper_->CreateAndRegisterMockInstanceClient<
+                    CheckPauseAfterDownloadEmbeddedWorkerInstanceClient>(
+      helper_->AsWeakPtr()));
 
   // The initial version should not pause after download.
+  clients[0]->set_next_pause_after_download(false);
   scoped_refptr<ServiceWorkerRegistration> registration =
       update_helper->SetupInitialRegistration(kNewVersionOrigin);
-  {
-    const IPC::Message* start_msg =
-        sink->GetUniqueMessageMatching(EmbeddedWorkerMsg_StartWorker::ID);
-    ASSERT_TRUE(start_msg);
-    EmbeddedWorkerMsg_StartWorker::Param param;
-    EmbeddedWorkerMsg_StartWorker::Read(start_msg, &param);
-    const EmbeddedWorkerStartParams& start_params = std::get<0>(param);
-    EXPECT_FALSE(start_params.pause_after_download);
-    sink->ClearMessages();
-  }
+  ASSERT_EQ(1, clients[0]->num_of_startworker());
 
   // The updated version should pause after download.
+  clients[1]->set_next_pause_after_download(true);
   registration->AddListener(update_helper);
   registration->active_version()->StartUpdate();
   base::RunLoop().RunUntilIdle();
-  {
-    const IPC::Message* start_msg =
-        sink->GetUniqueMessageMatching(EmbeddedWorkerMsg_StartWorker::ID);
-    ASSERT_TRUE(start_msg);
-    EmbeddedWorkerMsg_StartWorker::Param param;
-    EmbeddedWorkerMsg_StartWorker::Read(start_msg, &param);
-    const EmbeddedWorkerStartParams& start_params = std::get<0>(param);
-    EXPECT_TRUE(start_params.pause_after_download);
-    sink->ClearMessages();
-  }
+  ASSERT_EQ(1, clients[1]->num_of_startworker());
 }
 
 // Test that activation doesn't complete if it's triggered by removing a

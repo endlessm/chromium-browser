@@ -4,9 +4,9 @@
 
 #include "ui/views/widget/desktop_aura/desktop_drag_drop_client_aurax11.h"
 
-#include <X11/Xatom.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <X11/Xatom.h>
 
 #include "base/event_types.h"
 #include "base/lazy_instance.h"
@@ -16,6 +16,8 @@
 #include "base/metrics/histogram_macros.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/aura/client/capture_client.h"
+#include "ui/aura/client/drag_drop_client.h"
+#include "ui/aura/client/drag_drop_delegate.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_tree_host.h"
 #include "ui/base/clipboard/clipboard.h"
@@ -35,8 +37,6 @@
 #include "ui/views/widget/desktop_aura/x11_topmost_window_finder.h"
 #include "ui/views/widget/desktop_aura/x11_whole_screen_move_loop.h"
 #include "ui/views/widget/widget.h"
-#include "ui/wm/public/drag_drop_client.h"
-#include "ui/wm/public/drag_drop_delegate.h"
 
 // Reading recommended for understanding the implementation in this file:
 //
@@ -681,14 +681,17 @@ void DesktopDragDropClientAuraX11::OnXdndStatus(
 
   int cursor_type = ui::kCursorNull;
   switch (negotiated_operation_) {
-    case ui::DragDropTypes::DRAG_COPY:
-      cursor_type = ui::kCursorCopy;
+    case ui::DragDropTypes::DRAG_NONE:
+      cursor_type = ui::kCursorDndNone;
       break;
     case ui::DragDropTypes::DRAG_MOVE:
-      cursor_type = ui::kCursorMove;
+      cursor_type = ui::kCursorDndMove;
       break;
-    default:
-      cursor_type = ui::kCursorGrabbing;
+    case ui::DragDropTypes::DRAG_COPY:
+      cursor_type = ui::kCursorDndCopy;
+      break;
+    case ui::DragDropTypes::DRAG_LINK:
+      cursor_type = ui::kCursorDndLink;
       break;
   }
   move_loop_->UpdateCursor(cursor_manager_->GetInitializedCursor(cursor_type));
@@ -870,16 +873,6 @@ int DesktopDragDropClientAuraX11::StartDragAndDrop(
   UMA_HISTOGRAM_ENUMERATION("Event.DragDrop.Cancel", source,
                             ui::DragDropTypes::DRAG_EVENT_SOURCE_COUNT);
   return ui::DragDropTypes::DRAG_NONE;
-}
-
-void DesktopDragDropClientAuraX11::DragUpdate(aura::Window* target,
-                                              const ui::LocatedEvent& event) {
-  NOTIMPLEMENTED();
-}
-
-void DesktopDragDropClientAuraX11::Drop(aura::Window* target,
-                                        const ui::LocatedEvent& event) {
-  NOTIMPLEMENTED();
 }
 
 void DesktopDragDropClientAuraX11::DragCancel() {
@@ -1099,7 +1092,7 @@ void DesktopDragDropClientAuraX11::DragTranslate(
     std::unique_ptr<ui::DropTargetEvent>* event,
     aura::client::DragDropDelegate** delegate) {
   gfx::Point root_location = root_window_location;
-  root_window_->GetHost()->ConvertPointFromNativeScreen(&root_location);
+  root_window_->GetHost()->ConvertScreenInPixelsToDIP(&root_location);
   aura::Window* target_window =
       root_window_->GetEventHandlerForPoint(root_location);
   bool target_window_changed = false;

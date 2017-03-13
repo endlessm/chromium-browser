@@ -8,19 +8,21 @@
 
 #include "ash/common/wm/maximize_mode/maximize_mode_controller.h"
 #include "ash/common/wm_shell.h"
-#include "ash/display/display_manager.h"
 #include "ash/display/screen_orientation_controller_chromeos.h"
 #include "ash/shell.h"
 #include "ash/test/ash_test_base.h"
-#include "ash/test/display_manager_test_api.h"
 #include "base/command_line.h"
 #include "base/macros.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
+#include "chrome/browser/extensions/display_info_provider_chromeos.h"
 #include "extensions/common/api/system_display.h"
 #include "ui/display/display.h"
+#include "ui/display/display_layout.h"
 #include "ui/display/display_switches.h"
-#include "ui/display/manager/display_layout.h"
+#include "ui/display/manager/display_manager.h"
+#include "ui/display/test/display_manager_test_api.h"
+#include "ui/display/types/display_constants.h"
 #include "ui/gfx/geometry/rect.h"
 
 namespace extensions {
@@ -55,10 +57,10 @@ class DisplayInfoProviderChromeosTest : public ash::test::AshTestBase {
   bool DisplayExists(int64_t display_id) const {
     const display::Display& display =
         GetDisplayManager()->GetDisplayForId(display_id);
-    return display.id() != display::Display::kInvalidDisplayID;
+    return display.id() != display::kInvalidDisplayId;
   }
 
-  ash::DisplayManager* GetDisplayManager() const {
+  display::DisplayManager* GetDisplayManager() const {
     return ash::Shell::GetInstance()->display_manager();
   }
 
@@ -408,8 +410,8 @@ TEST_F(DisplayInfoProviderChromeosTest, GetMirroring) {
 TEST_F(DisplayInfoProviderChromeosTest, GetBounds) {
   UpdateDisplay("600x600, 400x520");
   GetDisplayManager()->SetLayoutForCurrentDisplays(
-      ash::test::CreateDisplayLayout(display_manager(),
-                                     display::DisplayPlacement::LEFT, -40));
+      display::test::CreateDisplayLayout(display_manager(),
+                                         display::DisplayPlacement::LEFT, -40));
 
   DisplayUnitInfoList result = DisplayInfoProvider::Get()->GetAllDisplaysInfo();
 
@@ -419,8 +421,8 @@ TEST_F(DisplayInfoProviderChromeosTest, GetBounds) {
             SystemInfoDisplayBoundsToString(result[1].bounds));
 
   GetDisplayManager()->SetLayoutForCurrentDisplays(
-      ash::test::CreateDisplayLayout(display_manager(),
-                                     display::DisplayPlacement::TOP, 40));
+      display::test::CreateDisplayLayout(display_manager(),
+                                         display::DisplayPlacement::TOP, 40));
 
   result = DisplayInfoProvider::Get()->GetAllDisplaysInfo();
 
@@ -430,8 +432,8 @@ TEST_F(DisplayInfoProviderChromeosTest, GetBounds) {
             SystemInfoDisplayBoundsToString(result[1].bounds));
 
   GetDisplayManager()->SetLayoutForCurrentDisplays(
-      ash::test::CreateDisplayLayout(display_manager(),
-                                     display::DisplayPlacement::BOTTOM, 80));
+      display::test::CreateDisplayLayout(
+          display_manager(), display::DisplayPlacement::BOTTOM, 80));
 
   result = DisplayInfoProvider::Get()->GetAllDisplaysInfo();
   ASSERT_EQ(2u, result.size());
@@ -1120,7 +1122,7 @@ TEST_F(DisplayInfoProviderChromeosTest, SetOverscan) {
 TEST_F(DisplayInfoProviderChromeosTest, SetOverscanForInternal) {
   UpdateDisplay("1200x600,600x1000*2");
   const int64_t internal_display_id =
-      ash::test::DisplayManagerTestApi(
+      display::test::DisplayManagerTestApi(
           ash::Shell::GetInstance()->display_manager())
           .SetFirstDisplayAsInternalDisplay();
 
@@ -1195,5 +1197,254 @@ TEST_F(DisplayInfoProviderChromeosTest, DisplayMode) {
   EXPECT_TRUE(active_mode->IsEquivalent(other_mode_ash));
 }
 
+TEST_F(DisplayInfoProviderChromeosTest, CustomTouchCalibrationInternal) {
+  UpdateDisplay("1200x600,600x1000*2");
+  const int64_t internal_display_id =
+      display::test::DisplayManagerTestApi(
+          ash::Shell::GetInstance()->display_manager())
+          .SetFirstDisplayAsInternalDisplay();
+
+  std::string id = base::Int64ToString(internal_display_id);
+
+  std::string error;
+  std::string expected_err =
+      "Display Id(" + id + ") is an internal display." +
+      " Internal displays cannot be calibrated for touch.";
+  bool success = DisplayInfoProvider::Get()->StartCustomTouchCalibration(
+      id, &error);
+
+  ASSERT_FALSE(success);
+  EXPECT_EQ(expected_err, error);
+}
+
+TEST_F(DisplayInfoProviderChromeosTest, CustomTouchCalibrationWithoutStart) {
+  UpdateDisplay("1200x600,600x1000*2");
+
+  api::system_display::TouchCalibrationPairQuad pairs;
+  api::system_display::Bounds bounds;
+
+  std::string error;
+  std::string expected_err =
+      DisplayInfoProviderChromeOS::kCompleteCalibrationCalledBeforeStartError;
+  bool success = DisplayInfoProvider::Get()->CompleteCustomTouchCalibration(
+      pairs, bounds, &error);
+
+  ASSERT_FALSE(success);
+  EXPECT_EQ(expected_err, error);
+}
+
+
+TEST_F(DisplayInfoProviderChromeosTest, CustomTouchCalibrationNonTouchDisplay) {
+  UpdateDisplay("1200x600,600x1000*2");
+
+  const int64_t internal_display_id =
+      display::test::DisplayManagerTestApi(
+          ash::Shell::GetInstance()->display_manager())
+          .SetFirstDisplayAsInternalDisplay();
+
+  display::DisplayIdList display_id_list =
+      display_manager()->GetCurrentDisplayIdList();
+
+  // Pick the non internal display Id.
+  const int64_t display_id = display_id_list[0] == internal_display_id
+                                 ? display_id_list[1]
+                                 : display_id_list[0];
+
+  display::test::DisplayManagerTestApi(
+      ash::Shell::GetInstance()->display_manager())
+      .SetTouchSupport(display_id, display::Display::TOUCH_SUPPORT_UNAVAILABLE);
+
+  std::string id = base::Int64ToString(display_id);
+
+  std::string error;
+  std::string expected_err = "Display Id(" + id + ") does not support touch.";
+
+  bool success = DisplayInfoProvider::Get()->StartCustomTouchCalibration(
+      id, &error);
+
+  ASSERT_FALSE(success);
+  EXPECT_EQ(expected_err, error);
+}
+
+TEST_F(DisplayInfoProviderChromeosTest, CustomTouchCalibrationNegativeBounds) {
+  UpdateDisplay("1200x600,600x1000*2");
+
+  const int64_t internal_display_id =
+      display::test::DisplayManagerTestApi(display_manager())
+          .SetFirstDisplayAsInternalDisplay();
+
+  display::DisplayIdList display_id_list =
+      display_manager()->GetCurrentDisplayIdList();
+
+  // Pick the non internal display Id.
+  const int64_t display_id = display_id_list[0] == internal_display_id
+                                 ? display_id_list[1]
+                                 : display_id_list[0];
+
+  display::test::DisplayManagerTestApi(display_manager())
+      .SetTouchSupport(display_id, display::Display::TOUCH_SUPPORT_AVAILABLE);
+
+  std::string id = base::Int64ToString(display_id);
+
+  api::system_display::TouchCalibrationPairQuad pairs;
+  api::system_display::Bounds bounds;
+  bounds.width = -1;
+
+  std::string error;
+  DisplayInfoProvider::Get()->StartCustomTouchCalibration(id, &error);
+  error.clear();
+  bool success = DisplayInfoProvider::Get()->CompleteCustomTouchCalibration(
+      pairs, bounds, &error);
+
+  std::string expected_err =
+      DisplayInfoProviderChromeOS::kTouchBoundsNegativeError;
+
+  ASSERT_FALSE(success);
+  EXPECT_EQ(expected_err, error);
+
+  error.clear();
+  bounds.width = 0;
+  bounds.height = -1;
+
+  DisplayInfoProvider::Get()->StartCustomTouchCalibration(id, &error);
+  error.clear();
+  success = DisplayInfoProvider::Get()->CompleteCustomTouchCalibration(
+      pairs, bounds, &error);
+  ASSERT_FALSE(success);
+  EXPECT_EQ(expected_err, error);
+}
+
+TEST_F(DisplayInfoProviderChromeosTest, CustomTouchCalibrationInvalidPoints) {
+  UpdateDisplay("1200x600,600x1000*2");
+
+  const int64_t internal_display_id =
+      display::test::DisplayManagerTestApi(display_manager())
+          .SetFirstDisplayAsInternalDisplay();
+
+  display::DisplayIdList display_id_list =
+      display_manager()->GetCurrentDisplayIdList();
+
+  // Pick the non internal display Id.
+  const int64_t display_id = display_id_list[0] == internal_display_id
+                                 ? display_id_list[1]
+                                 : display_id_list[0];
+
+  display::test::DisplayManagerTestApi(display_manager())
+      .SetTouchSupport(display_id, display::Display::TOUCH_SUPPORT_AVAILABLE);
+
+  std::string id = base::Int64ToString(display_id);
+
+  api::system_display::TouchCalibrationPairQuad pairs;
+  api::system_display::Bounds bounds;
+
+  pairs.pair1.display_point.x = -1;
+  std::string error;
+  DisplayInfoProvider::Get()->StartCustomTouchCalibration(id, &error);
+  error.clear();
+  bool success = DisplayInfoProvider::Get()->CompleteCustomTouchCalibration(
+      pairs, bounds, &error);
+
+  std::string expected_err =
+      DisplayInfoProviderChromeOS::kTouchCalibrationPointsNegativeError;
+
+  ASSERT_FALSE(success);
+  EXPECT_EQ(expected_err, error);
+
+  error.clear();
+  bounds.width = 1;
+  pairs.pair1.display_point.x = 2;
+  expected_err =
+      DisplayInfoProviderChromeOS::kTouchCalibrationPointsTooLargeError;
+
+  DisplayInfoProvider::Get()->StartCustomTouchCalibration(id, &error);
+  error.clear();
+  success = DisplayInfoProvider::Get()->CompleteCustomTouchCalibration(
+      pairs, bounds, &error);
+  ASSERT_FALSE(success);
+  EXPECT_EQ(expected_err, error);
+}
+
+TEST_F(DisplayInfoProviderChromeosTest, CustomTouchCalibrationSuccess) {
+  UpdateDisplay("1200x600,600x1000*2");
+
+  const int64_t internal_display_id =
+      display::test::DisplayManagerTestApi(display_manager())
+          .SetFirstDisplayAsInternalDisplay();
+
+  display::DisplayIdList display_id_list =
+      display_manager()->GetCurrentDisplayIdList();
+
+  // Pick the non internal display Id.
+  const int64_t display_id = display_id_list[0] == internal_display_id
+                                 ? display_id_list[1]
+                                 : display_id_list[0];
+
+  display::test::DisplayManagerTestApi(display_manager())
+      .SetTouchSupport(display_id, display::Display::TOUCH_SUPPORT_AVAILABLE);
+
+  std::string id = base::Int64ToString(display_id);
+
+  api::system_display::TouchCalibrationPairQuad pairs;
+  api::system_display::Bounds bounds;
+
+  pairs.pair1.display_point.x = 10;
+  pairs.pair1.display_point.y = 11;
+  pairs.pair2.display_point.x = 12;
+  pairs.pair2.display_point.y = 13;
+  pairs.pair3.display_point.x = 14;
+  pairs.pair3.display_point.y = 15;
+  pairs.pair4.display_point.x = 16;
+  pairs.pair4.display_point.y = 17;
+
+  pairs.pair1.touch_point.x = 20;
+  pairs.pair1.touch_point.y = 21;
+  pairs.pair2.touch_point.x = 22;
+  pairs.pair2.touch_point.y = 23;
+  pairs.pair3.touch_point.x = 24;
+  pairs.pair3.touch_point.y = 25;
+  pairs.pair4.touch_point.x = 26;
+  pairs.pair4.touch_point.y = 27;
+
+  bounds.width = 600;
+  bounds.height = 1000;
+
+  std::string error;
+  DisplayInfoProvider::Get()->StartCustomTouchCalibration(id, &error);
+  error.clear();
+  bool success = DisplayInfoProvider::Get()->CompleteCustomTouchCalibration(
+      pairs, bounds, &error);
+
+  ASSERT_TRUE(success);
+  EXPECT_EQ(error, "");
+
+  const display::ManagedDisplayInfo& info =
+      display_manager()->GetDisplayInfo(display_id);
+
+  ASSERT_TRUE(info.has_touch_calibration_data());
+  const display::TouchCalibrationData& data = info.GetTouchCalibrationData();
+
+  EXPECT_EQ(pairs.pair1.display_point.x, data.point_pairs[0].first.x());
+  EXPECT_EQ(pairs.pair2.display_point.x, data.point_pairs[1].first.x());
+  EXPECT_EQ(pairs.pair3.display_point.x, data.point_pairs[2].first.x());
+  EXPECT_EQ(pairs.pair4.display_point.x, data.point_pairs[3].first.x());
+
+  EXPECT_EQ(pairs.pair1.display_point.y, data.point_pairs[0].first.y());
+  EXPECT_EQ(pairs.pair2.display_point.y, data.point_pairs[1].first.y());
+  EXPECT_EQ(pairs.pair3.display_point.y, data.point_pairs[2].first.y());
+  EXPECT_EQ(pairs.pair4.display_point.y, data.point_pairs[3].first.y());
+
+  EXPECT_EQ(pairs.pair1.touch_point.x, data.point_pairs[0].second.x());
+  EXPECT_EQ(pairs.pair2.touch_point.x, data.point_pairs[1].second.x());
+  EXPECT_EQ(pairs.pair3.touch_point.x, data.point_pairs[2].second.x());
+  EXPECT_EQ(pairs.pair4.touch_point.x, data.point_pairs[3].second.x());
+
+  EXPECT_EQ(pairs.pair1.touch_point.y, data.point_pairs[0].second.y());
+  EXPECT_EQ(pairs.pair2.touch_point.y, data.point_pairs[1].second.y());
+  EXPECT_EQ(pairs.pair3.touch_point.y, data.point_pairs[2].second.y());
+  EXPECT_EQ(pairs.pair4.touch_point.y, data.point_pairs[3].second.y());
+
+  EXPECT_EQ(bounds.width, data.bounds.width());
+  EXPECT_EQ(bounds.height, data.bounds.height());
+}
 }  // namespace
 }  // namespace extensions

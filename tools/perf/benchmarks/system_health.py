@@ -4,9 +4,13 @@
 
 import re
 
+from benchmarks import page_cycler_v2
+
 from core import perf_benchmark
+
 from telemetry import benchmark
 from telemetry.timeline import chrome_trace_category_filter
+from telemetry.timeline import chrome_trace_config
 from telemetry.web_perf import timeline_based_measurement
 import page_sets
 
@@ -35,6 +39,8 @@ class _CommonSystemHealthBenchmark(perf_benchmark.PerfBenchmark):
     options.config.chrome_trace_config.category_filter.AddFilterString('rail')
     options.config.enable_battor_trace = True
     options.config.enable_chrome_trace = True
+    options.SetTimelineBasedMetrics(['clockSyncLatencyMetric', 'powerMetric'])
+    page_cycler_v2.AugmentOptionsForLoadingMetrics(options)
     return options
 
   def CreateStorySet(self, options):
@@ -82,13 +88,7 @@ class _MemorySystemHealthBenchmark(perf_benchmark.PerfBenchmark):
 
   https://goo.gl/Jek2NL.
   """
-
-  def SetExtraBrowserOptions(self, options):
-    options.AppendExtraBrowserArgs([
-        # TODO(perezju): Temporary workaround to disable periodic memory dumps.
-        # See: http://crbug.com/513692
-        '--enable-memory-benchmarking',
-    ])
+  options = {'pageset_repeat': 3}
 
   def CreateTimelineBasedMeasurementOptions(self):
     options = timeline_based_measurement.Options(
@@ -96,11 +96,23 @@ class _MemorySystemHealthBenchmark(perf_benchmark.PerfBenchmark):
             '-*,disabled-by-default-memory-infra'))
     options.config.enable_android_graphics_memtrack = True
     options.SetTimelineBasedMetrics(['memoryMetric'])
+    # Setting an empty memory dump config disables periodic dumps.
+    options.config.chrome_trace_config.SetMemoryDumpConfig(
+        chrome_trace_config.MemoryDumpConfig())
     return options
 
   def CreateStorySet(self, options):
     return page_sets.SystemHealthStorySet(platform=self.PLATFORM,
                                           take_memory_measurement=True)
+
+  def SetExtraBrowserOptions(self, options):
+    # Just before we measure memory we flush the system caches
+    # unfortunately this doesn't immediately take effect, instead
+    # the next story run is effected. Due to this the first story run
+    # has anomalous results. This option causes us to flush caches
+    # each time before Chrome starts so we effect even the first story
+    # - avoiding the bug.
+    options.clear_sytem_cache_for_browser_and_profile_on_start = True
 
   @classmethod
   def ShouldTearDownStateAfterEachStoryRun(cls):

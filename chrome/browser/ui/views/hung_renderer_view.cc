@@ -5,6 +5,8 @@
 #include "chrome/browser/ui/views/hung_renderer_view.h"
 
 #include "base/i18n/rtl.h"
+#include "base/memory/ptr_util.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "chrome/browser/platform_util.h"
@@ -13,6 +15,7 @@
 #include "chrome/browser/ui/tab_contents/core_tab_helper.h"
 #include "chrome/browser/ui/tab_contents/tab_contents_iterator.h"
 #include "chrome/common/chrome_constants.h"
+#include "chrome/common/crash_keys.h"
 #include "chrome/common/logging_chrome.h"
 #include "chrome/grit/generated_resources.h"
 #include "chrome/grit/theme_resources.h"
@@ -48,6 +51,7 @@
 #endif
 
 using content::WebContents;
+using content::WebContentsUnresponsiveState;
 
 HungRendererDialogView* HungRendererDialogView::g_instance_ = NULL;
 
@@ -77,13 +81,14 @@ void HungPagesTableModel::InitForWebContents(WebContents* hung_contents) {
   if (hung_contents) {
     // Force hung_contents to be first.
     if (hung_contents) {
-      tab_observers_.push_back(new WebContentsObserverImpl(this,
-                                                           hung_contents));
+      tab_observers_.push_back(
+          base::MakeUnique<WebContentsObserverImpl>(this, hung_contents));
     }
     for (TabContentsIterator it; !it.done(); it.Next()) {
       if (*it != hung_contents &&
           it->GetRenderProcessHost() == hung_contents->GetRenderProcessHost())
-        tab_observers_.push_back(new WebContentsObserverImpl(this, *it));
+        tab_observers_.push_back(
+            base::MakeUnique<WebContentsObserverImpl>(this, *it));
     }
   }
   // The world is different.
@@ -131,13 +136,15 @@ void HungPagesTableModel::GetGroupRange(int model_index,
 
 void HungPagesTableModel::TabDestroyed(WebContentsObserverImpl* tab) {
   // Clean up tab_observers_ and notify our observer.
-  TabObservers::iterator i = std::find(
-      tab_observers_.begin(), tab_observers_.end(), tab);
-  DCHECK(i != tab_observers_.end());
-  int index = static_cast<int>(i - tab_observers_.begin());
-  tab_observers_.erase(i);
+  size_t index = 0;
+  for (; index < tab_observers_.size(); ++index) {
+    if (tab_observers_[index].get() == tab)
+      break;
+  }
+  DCHECK(index < tab_observers_.size());
+  tab_observers_.erase(tab_observers_.begin() + index);
   if (observer_)
-    observer_->OnItemsRemoved(index, 1);
+    observer_->OnItemsRemoved(static_cast<int>(index), 1);
 
   // Notify the delegate.
   delegate_->TabDestroyed();
@@ -193,7 +200,9 @@ HungRendererDialogView* HungRendererDialogView::GetInstance() {
 }
 
 // static
-void HungRendererDialogView::Show(WebContents* contents) {
+void HungRendererDialogView::Show(
+    WebContents* contents,
+    const WebContentsUnresponsiveState& unresponsive_state) {
   if (logging::DialogsAreSuppressed())
     return;
 
@@ -207,7 +216,7 @@ void HungRendererDialogView::Show(WebContents* contents) {
     return;
 #endif
   HungRendererDialogView* view = HungRendererDialogView::Create(window);
-  view->ShowForWebContents(contents);
+  view->ShowForWebContents(contents, unresponsive_state);
 }
 
 // static
@@ -236,7 +245,9 @@ HungRendererDialogView::~HungRendererDialogView() {
   hung_pages_table_->SetModel(NULL);
 }
 
-void HungRendererDialogView::ShowForWebContents(WebContents* contents) {
+void HungRendererDialogView::ShowForWebContents(
+    WebContents* contents,
+    const content::WebContentsUnresponsiveState& unresponsive_state) {
   DCHECK(contents && GetWidget());
 
   // Don't show the warning unless the foreground window is the frame, or this
@@ -285,6 +296,7 @@ void HungRendererDialogView::ShowForWebContents(WebContents* contents) {
                                          hung_pages_table_model_->RowCount()));
     Layout();
 
+    unresponsive_state_ = unresponsive_state;
     // Make Widget ask for the window title again.
     GetWidget()->UpdateWindowTitle();
 
@@ -344,7 +356,7 @@ bool HungRendererDialogView::Cancel() {
       hung_pages_table_model_->GetRenderViewHost()) {
     hung_pages_table_model_->GetRenderViewHost()
         ->GetWidget()
-        ->RestartHangMonitorTimeout();
+        ->RestartHangMonitorTimeoutIfNecessary();
   }
   return true;
 }
@@ -372,6 +384,19 @@ void HungRendererDialogView::ButtonPressed(
     return;
 #if defined(OS_WIN)
   base::StringPairs crash_keys;
+
+  crash_keys.push_back(std::make_pair(
+      crash_keys::kHungRendererOutstandingAckCount,
+      base::IntToString(unresponsive_state_.outstanding_ack_count)));
+  crash_keys.push_back(std::make_pair(
+      crash_keys::kHungRendererOutstandingEventType,
+      base::IntToString(unresponsive_state_.outstanding_event_type)));
+  crash_keys.push_back(
+      std::make_pair(crash_keys::kHungRendererLastEventType,
+                     base::IntToString(unresponsive_state_.last_event_type)));
+  crash_keys.push_back(
+      std::make_pair(crash_keys::kHungRendererReason,
+                     base::IntToString(unresponsive_state_.reason)));
 
   // Try to generate a crash report for the hung process.
   CrashDumpAndTerminateHungChildProcess(rph->GetHandle(), crash_keys);

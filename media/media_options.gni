@@ -41,10 +41,24 @@ declare_args() {
   enable_mse_mpeg2ts_stream_parser =
       (proprietary_codecs && is_chromecast) || use_libfuzzer || use_afl
 
+  # Enable support for the 'cbcs' encryption scheme added by MPEG Common
+  # Encryption 3rd Edition (ISO/IEC 23001-7), published 02/15/2016.
+  enable_cbcs_encryption_scheme = is_chromecast
+
   # Enable HEVC/H265 demuxing. Actual decoding must be provided by the
   # platform. Enable by default for Chromecast.
   enable_hevc_demuxing = proprietary_codecs && is_chromecast
+
+  enable_webrtc = !is_ios
+
+  # Enable HLS with SAMPLE-AES decryption.
+  # Enabled by default on the cast desktop implementation to allow unit tests of
+  # MP2TS parsing support.
+  enable_hls_sample_aes = proprietary_codecs && is_cast_desktop_build
 }
+
+# enable_hls_sample_aes can only be true if enable_mse_mpeg2ts_stream_parser is.
+assert(enable_mse_mpeg2ts_stream_parser || !enable_hls_sample_aes)
 
 # Use a second declare_args() to pick up possible overrides of |use_cras|.
 declare_args() {
@@ -73,6 +87,10 @@ declare_args() {
   # the media pipeline and corresponding services will hosted in the selected
   # remote process (e.g. "utility" process, see |mojo_media_host|).
   enable_mojo_media = is_android || is_chromecast
+
+  # Enable the TestMojoMediaClient to be used in mojo MediaService. This is for
+  # testing only and will override the default platform MojoMediaClient, if any.
+  enable_test_mojo_media_client = false
 }
 
 # Use a second declare_args() to pick up possible overrides of enable_mojo_media
@@ -89,12 +107,12 @@ declare_args() {
   #                    Renderer. Cannot be used with the mojo Renderer above.
   mojo_media_services = []
 
-  # The process to host the mojo media application.
+  # The process to host the mojo media service.
   # Valid options are:
-  # - "none": Do not use mojo media application.
-  # - "browser": Use mojo media application hosted in the browser process.
-  # - "gpu": Use mojo media application hosted in the gpu process.
-  # - "utility": Use mojo media application hosted in the utility process.
+  # - "none": Do not use mojo media service.
+  # - "browser": Use mojo media service hosted in the browser process.
+  # - "gpu": Use mojo media service hosted in the gpu process.
+  # - "utility": Use mojo media service hosted in the utility process.
   mojo_media_host = "none"
 
   # Default mojo_media_services and mojo_media_host on various platforms.
@@ -118,4 +136,11 @@ declare_args() {
       mojo_media_host = "gpu"
     }
   }
+}
+
+declare_args() {
+  # This switch defines whether the Media Remoting implementation will be built.
+  # When enabled, media is allowed to be renderer and played back on remote
+  # devices when the tab is being casted and other conditions are met.
+  enable_media_remoting = !is_chromecast && !is_ios && !is_android
 }

@@ -34,20 +34,12 @@ class AwContentBrowserClient : public content::ContentBrowserClient {
   // moment during startup. AwContentBrowserClient owns the result.
   AwBrowserContext* InitBrowserContext();
 
-  // Overriden methods from ContentBrowserClient.
-  void AddCertificate(net::CertificateMimeType cert_type,
-                      const void* cert_data,
-                      size_t cert_size,
-                      int render_process_id,
-                      int render_frame_id) override;
   content::BrowserMainParts* CreateBrowserMainParts(
       const content::MainFunctionParams& parameters) override;
   content::WebContentsViewDelegate* GetWebContentsViewDelegate(
       content::WebContents* web_contents) override;
   void RenderProcessWillLaunch(content::RenderProcessHost* host) override;
   bool IsHandledURL(const GURL& url) override;
-  std::string GetCanonicalEncodingNameByAliasName(
-      const std::string& alias_name) override;
   void AppendExtraCommandLineSwitches(base::CommandLine* command_line,
                                       int child_process_id) override;
   std::string GetApplicationLocale() override;
@@ -95,7 +87,9 @@ class AwContentBrowserClient : public content::ContentBrowserClient {
       content::WebContents* web_contents,
       net::SSLCertRequestInfo* cert_request_info,
       std::unique_ptr<content::ClientCertificateDelegate> delegate) override;
-  bool CanCreateWindow(const GURL& opener_url,
+  bool CanCreateWindow(int opener_render_process_id,
+                       int opener_render_frame_id,
+                       const GURL& opener_url,
                        const GURL& opener_top_level_frame_url,
                        const GURL& source_origin,
                        WindowContainerType container_type,
@@ -107,9 +101,6 @@ class AwContentBrowserClient : public content::ContentBrowserClient {
                        bool user_gesture,
                        bool opener_suppressed,
                        content::ResourceContext* context,
-                       int render_process_id,
-                       int opener_render_view_id,
-                       int opener_render_frame_id,
                        bool* no_javascript_access) override;
   void ResourceDispatcherHostCreated() override;
   net::NetLog* GetNetLog() override;
@@ -129,15 +120,17 @@ class AwContentBrowserClient : public content::ContentBrowserClient {
   void GetAdditionalMappedFilesForChildProcess(
       const base::CommandLine& command_line,
       int child_process_id,
-      content::FileDescriptorInfo* mappings,
-      std::map<int, base::MemoryMappedFile::Region>* regions) override;
+      content::FileDescriptorInfo* mappings) override;
   void OverrideWebkitPrefs(content::RenderViewHost* rvh,
                            content::WebPreferences* web_prefs) override;
-  ScopedVector<content::NavigationThrottle> CreateThrottlesForNavigation(
+  std::vector<std::unique_ptr<content::NavigationThrottle>>
+  CreateThrottlesForNavigation(
       content::NavigationHandle* navigation_handle) override;
   content::DevToolsManagerDelegate* GetDevToolsManagerDelegate() override;
+  std::unique_ptr<base::Value> GetServiceManifestOverlay(
+      base::StringPiece name) override;
   void RegisterRenderFrameMojoInterfaces(
-      shell::InterfaceRegistry* registry,
+      service_manager::InterfaceRegistry* registry,
       content::RenderFrameHost* render_frame_host) override;
 
  private:

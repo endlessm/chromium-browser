@@ -11,12 +11,12 @@
 #include "base/location.h"
 #include "base/macros.h"
 #include "base/synchronization/waitable_event.h"
-#include "content/browser/browser_thread_impl.h"
 #include "content/public/browser/desktop_media_id.h"
-#include "media/base/video_capture_types.h"
+#include "content/public/test/test_browser_thread_bundle.h"
+#include "media/capture/video_capture_types.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "ui/aura/client/window_tree_client.h"
+#include "ui/aura/client/window_parenting_client.h"
 #include "ui/aura/test/aura_test_helper.h"
 #include "ui/aura/test/test_window_delegate.h"
 #include "ui/aura/window.h"
@@ -41,13 +41,14 @@ const int kFrameRate = 30;
 
 class MockDeviceClient : public media::VideoCaptureDevice::Client {
  public:
-  MOCK_METHOD6(OnIncomingCapturedData,
+  MOCK_METHOD7(OnIncomingCapturedData,
                void(const uint8_t* data,
                     int length,
                     const media::VideoCaptureFormat& frame_format,
                     int rotation,
                     base::TimeTicks reference_time,
-                    base::TimeDelta tiemstamp));
+                    base::TimeDelta tiemstamp,
+                    int frame_feedback_id));
   MOCK_METHOD0(DoReserveOutputBuffer, void(void));
   MOCK_METHOD0(DoOnIncomingCapturedBuffer, void(void));
   MOCK_METHOD0(DoOnIncomingCapturedVideoFrame, void(void));
@@ -57,34 +58,38 @@ class MockDeviceClient : public media::VideoCaptureDevice::Client {
                     const std::string& reason));
 
   // Trampoline methods to workaround GMOCK problems with std::unique_ptr<>.
-  std::unique_ptr<Buffer> ReserveOutputBuffer(
-      const gfx::Size& dimensions,
-      media::VideoPixelFormat format,
-      media::VideoPixelStorage storage) override {
+  Buffer ReserveOutputBuffer(const gfx::Size& dimensions,
+                             media::VideoPixelFormat format,
+                             media::VideoPixelStorage storage,
+                             int frame_feedback_id) override {
     EXPECT_EQ(media::PIXEL_FORMAT_I420, format);
     EXPECT_EQ(media::PIXEL_STORAGE_CPU, storage);
     DoReserveOutputBuffer();
-    return std::unique_ptr<Buffer>();
+    return Buffer();
   }
-  void OnIncomingCapturedBuffer(std::unique_ptr<Buffer> buffer,
+  void OnIncomingCapturedBuffer(Buffer buffer,
                                 const media::VideoCaptureFormat& frame_format,
                                 base::TimeTicks reference_time,
                                 base::TimeDelta timestamp) override {
     DoOnIncomingCapturedBuffer();
   }
-  void OnIncomingCapturedVideoFrame(
-      std::unique_ptr<Buffer> buffer,
-      const scoped_refptr<media::VideoFrame>& frame) override {
+  void OnIncomingCapturedBufferExt(
+      Buffer buffer,
+      const media::VideoCaptureFormat& format,
+      base::TimeTicks reference_time,
+      base::TimeDelta timestamp,
+      gfx::Rect visible_rect,
+      const media::VideoFrameMetadata& additional_metadata) override {
     DoOnIncomingCapturedVideoFrame();
   }
-  std::unique_ptr<Buffer> ResurrectLastOutputBuffer(
-      const gfx::Size& dimensions,
-      media::VideoPixelFormat format,
-      media::VideoPixelStorage storage) override {
+  Buffer ResurrectLastOutputBuffer(const gfx::Size& dimensions,
+                                   media::VideoPixelFormat format,
+                                   media::VideoPixelStorage storage,
+                                   int frame_feedback_id) override {
     EXPECT_EQ(media::PIXEL_FORMAT_I420, format);
     EXPECT_EQ(media::PIXEL_STORAGE_CPU, storage);
     DoResurrectLastOutputBuffer();
-    return std::unique_ptr<Buffer>();
+    return Buffer();
   }
   double GetBufferPoolUtilization() const override { return 0.0; }
 };
@@ -92,20 +97,22 @@ class MockDeviceClient : public media::VideoCaptureDevice::Client {
 // Test harness that sets up a minimal environment with necessary stubs.
 class DesktopCaptureDeviceAuraTest : public testing::Test {
  public:
-  DesktopCaptureDeviceAuraTest()
-      : browser_thread_for_ui_(BrowserThread::UI, &message_loop_) {}
-  ~DesktopCaptureDeviceAuraTest() override {}
+  DesktopCaptureDeviceAuraTest() = default;
+  ~DesktopCaptureDeviceAuraTest() override = default;
 
  protected:
   void SetUp() override {
     // The ContextFactory must exist before any Compositors are created.
-    bool enable_pixel_output = false;
-    ui::ContextFactory* context_factory =
-        ui::InitializeContextFactoryForTests(enable_pixel_output);
-    helper_.reset(new aura::test::AuraTestHelper(&message_loop_));
-    helper_->SetUp(context_factory);
-    new wm::DefaultActivationClient(helper_->root_window());
 
+    bool enable_pixel_output = false;
+    ui::ContextFactory* context_factory = nullptr;
+    ui::ContextFactoryPrivate* context_factory_private = nullptr;
+    ui::InitializeContextFactoryForTests(enable_pixel_output, &context_factory,
+                                         &context_factory_private);
+    helper_.reset(
+        new aura::test::AuraTestHelper(base::MessageLoopForUI::current()));
+    helper_->SetUp(context_factory, context_factory_private);
+    new wm::DefaultActivationClient(helper_->root_window());
     // We need a window to cover desktop area so that DesktopCaptureDeviceAura
     // can use gfx::NativeWindow::GetWindowAtScreenPoint() to locate the
     // root window associated with the primary display.
@@ -131,8 +138,7 @@ class DesktopCaptureDeviceAuraTest : public testing::Test {
   aura::Window* root_window() { return helper_->root_window(); }
 
  private:
-  base::MessageLoopForUI message_loop_;
-  BrowserThreadImpl browser_thread_for_ui_;
+  TestBrowserThreadBundle thread_bundle_;
   std::unique_ptr<aura::test::AuraTestHelper> helper_;
   std::unique_ptr<aura::Window> desktop_window_;
   std::unique_ptr<aura::test::TestWindowDelegate> window_delegate_;

@@ -9,6 +9,7 @@
 #define COMPONENTS_CONTENT_SETTINGS_CORE_BROWSER_HOST_CONTENT_SETTINGS_MAP_H_
 
 #include <map>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -25,7 +26,6 @@
 #include "components/keyed_service/core/refcounted_keyed_service.h"
 #include "components/prefs/pref_change_registrar.h"
 
-class ExtensionService;
 class GURL;
 class PrefService;
 
@@ -38,6 +38,7 @@ namespace content_settings {
 class ObservableProvider;
 class ProviderInterface;
 class PrefProvider;
+class RuleIterator;
 class TestUtils;
 }
 
@@ -195,6 +196,13 @@ class HostContentSettingsMap : public content_settings::Observer,
       const std::string& resource_identifier,
       std::unique_ptr<base::Value> value);
 
+  // Check if a call to SetNarrowestContentSetting would succeed or if it would
+  // fail because of an invalid pattern.
+  bool CanSetNarrowestContentSetting(
+      const GURL& primary_url,
+      const GURL& secondary_url,
+      ContentSettingsType type) const;
+
   // Sets the most specific rule that currently defines the setting for the
   // given content type. TODO(raymes): Remove this once all content settings
   // are scoped to origin scope. There is no scope more narrow than origin
@@ -236,8 +244,8 @@ class HostContentSettingsMap : public content_settings::Observer,
   // to convert backwards.
   static ProviderType GetProviderTypeFromSource(const std::string& source);
 
-  bool is_off_the_record() const {
-    return is_off_the_record_;
+  bool is_incognito() const {
+    return is_incognito_;
   }
 
   // Returns a single |ContentSetting| which applies to the given URLs, just as
@@ -306,14 +314,8 @@ class HostContentSettingsMap : public content_settings::Observer,
                            DomainToOriginMigrationStatus);
   FRIEND_TEST_ALL_PREFIXES(HostContentSettingsMapTest,
                            MigrateDomainScopedSettings);
-  FRIEND_TEST_ALL_PREFIXES(HostContentSettingsMapTest, MigrateKeygenSettings);
 
   friend class content_settings::TestUtils;
-
-  typedef std::map<ProviderType, content_settings::ProviderInterface*>
-      ProviderMap;
-  typedef ProviderMap::iterator ProviderIterator;
-  typedef ProviderMap::const_iterator ConstProviderIterator;
 
   ~HostContentSettingsMap() override;
 
@@ -326,16 +328,6 @@ class HostContentSettingsMap : public content_settings::Observer,
   ContentSetting GetDefaultContentSettingInternal(
       ContentSettingsType content_type,
       ProviderType* provider_type) const;
-
-  // Migrate Keygen settings which only use a primary pattern. Settings which
-  // only used a primary pattern were inconsistent in what they did with the
-  // secondary pattern. Some stored a ContentSettingsPattern::Wildcard() whereas
-  // others stored the same pattern twice. This function migrates all such
-  // settings to use ContentSettingsPattern::Wildcard(). This allows us to make
-  // the scoping code consistent across different settings.
-  // TODO(lshang): Remove this when clients have migrated (~M53). We should
-  // leave in some code to remove old-format settings for a long time.
-  void MigrateKeygenSettings();
 
   // Collect UMA data of exceptions.
   void RecordExceptionMetrics();
@@ -368,6 +360,11 @@ class HostContentSettingsMap : public content_settings::Observer,
       const std::string& resource_identifier,
       content_settings::SettingInfo* info) const;
 
+  content_settings::PatternPair GetNarrowestPatterns(
+      const GURL& primary_url,
+      const GURL& secondary_url,
+      ContentSettingsType type) const;
+
   static std::unique_ptr<base::Value> GetContentSettingValueAndPatterns(
       const content_settings::ProviderInterface* provider,
       const GURL& primary_url,
@@ -398,13 +395,14 @@ class HostContentSettingsMap : public content_settings::Observer,
   // Weak; owned by the Profile.
   PrefService* prefs_;
 
-  // Whether this settings map is for an OTR session.
-  bool is_off_the_record_;
+  // Whether this settings map is for an incognito session.
+  bool is_incognito_;
 
   // Content setting providers. This is only modified at construction
   // time and by RegisterExtensionService, both of which should happen
   // before any other uses of it.
-  ProviderMap content_settings_providers_;
+  std::map<ProviderType, std::unique_ptr<content_settings::ProviderInterface>>
+      content_settings_providers_;
 
   // content_settings_providers_[PREF_PROVIDER] but specialized.
   content_settings::PrefProvider* pref_provider_ = nullptr;

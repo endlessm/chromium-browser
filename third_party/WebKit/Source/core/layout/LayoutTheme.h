@@ -41,6 +41,7 @@ namespace blink {
 class ComputedStyle;
 class Element;
 class FileList;
+class HostWindow;
 class HTMLInputElement;
 class LayoutObject;
 class Theme;
@@ -57,49 +58,60 @@ class CORE_EXPORT LayoutTheme : public RefCounted<LayoutTheme> {
 
   virtual ThemePainter& painter() = 0;
 
+  // This function is called after associated WebThemeEngine instance
+  // was replaced. This is called only in tests.
+  virtual void didChangeThemeEngine() {}
+
   static void setSizeIfAuto(ComputedStyle&, const IntSize&);
 
-  // This method is called whenever style has been computed for an element and the appearance
-  // property has been set to a value other than "none".  The theme should map in all of the appropriate
-  // metrics and defaults given the contents of the style.  This includes sophisticated operations like
-  // selection of control size based off the font, the disabling of appearance when certain other properties like
-  // "border" are set, or if the appearance is not supported by the theme.
+  // This method is called whenever style has been computed for an element and
+  // the appearance property has been set to a value other than "none".
+  // The theme should map in all of the appropriate metrics and defaults given
+  // the contents of the style. This includes sophisticated operations like
+  // selection of control size based off the font, the disabling of appearance
+  // when certain other properties like "border" are set, or if the appearance
+  // is not supported by the theme.
   void adjustStyle(ComputedStyle&, Element*);
 
-  // The remaining methods should be implemented by the platform-specific portion of the theme, e.g.,
-  // LayoutThemeMac.cpp for Mac OS X.
+  // The remaining methods should be implemented by the platform-specific
+  // portion of the theme, e.g., LayoutThemeMac.cpp for Mac OS X.
 
-  // These methods return the theme's extra style sheets rules, to let each platform
-  // adjust the default CSS rules in html.css, quirks.css or mediaControls.css.
+  // These methods return the theme's extra style sheets rules, to let each
+  // platform adjust the default CSS rules in html.css, quirks.css or
+  // mediaControls.css.
   virtual String extraDefaultStyleSheet();
   virtual String extraQuirksStyleSheet() { return String(); }
   virtual String extraMediaControlsStyleSheet() { return String(); }
   virtual String extraFullscreenStyleSheet() { return String(); }
 
-  // A method to obtain the baseline position for a "leaf" control.  This will only be used if a baseline
-  // position cannot be determined by examining child content. Checkboxes and radio buttons are examples of
-  // controls that need to do this.
+  // A method to obtain the baseline position for a "leaf" control. This will
+  // only be used if a baseline position cannot be determined by examining child
+  // content. Checkboxes and radio buttons are examples of controls that need to
+  // do this.
   virtual int baselinePosition(const LayoutObject*) const;
 
-  // A method for asking if a control is a container or not.  Leaf controls have to have some special behavior (like
-  // the baseline position API above).
+  // A method for asking if a control is a container or not.  Leaf controls have
+  // to have some special behavior (like the baseline position API above).
   bool isControlContainer(ControlPart) const;
 
-  // Whether or not the control has been styled enough by the author to disable the native appearance.
+  // Whether or not the control has been styled enough by the author to disable
+  // the native appearance.
   virtual bool isControlStyled(const ComputedStyle&) const;
 
-  // Some controls may spill out of their containers (e.g., the check on an OSX 10.9 checkbox). Add this
-  // "visual overflow" to the object's border box rect.
+  // Some controls may spill out of their containers (e.g., the check on an OSX
+  // 10.9 checkbox). Add this "visual overflow" to the object's border box rect.
   virtual void addVisualOverflow(const LayoutObject&, IntRect& borderBox);
 
-  // This method is called whenever a control state changes on a particular themed object, e.g., the mouse becomes pressed
-  // or a control becomes disabled. The ControlState parameter indicates which state has changed (from having to not having,
-  // or vice versa).
+  // This method is called whenever a control state changes on a particular
+  // themed object, e.g., the mouse becomes pressed or a control becomes
+  // disabled. The ControlState parameter indicates which state has changed
+  // (from having to not having, or vice versa).
   bool controlStateChanged(LayoutObject&, ControlState) const;
 
   bool shouldDrawDefaultFocusRing(const LayoutObject&) const;
 
-  // A method asking if the theme's controls actually care about redrawing when hovered.
+  // A method asking if the theme's controls actually care about redrawing when
+  // hovered.
   virtual bool supportsHover(const ComputedStyle&) const { return false; }
 
   // A method asking if the platform is able to show a calendar picker for a
@@ -160,7 +172,10 @@ class CORE_EXPORT LayoutTheme : public RefCounted<LayoutTheme> {
   virtual int popupInternalPaddingStart(const ComputedStyle&) const {
     return 0;
   }
-  virtual int popupInternalPaddingEnd(const ComputedStyle&) const { return 0; }
+  virtual int popupInternalPaddingEnd(const HostWindow*,
+                                      const ComputedStyle&) const {
+    return 0;
+  }
   virtual int popupInternalPaddingTop(const ComputedStyle&) const { return 0; }
   virtual int popupInternalPaddingBottom(const ComputedStyle&) const {
     return 0;
@@ -183,7 +198,8 @@ class CORE_EXPORT LayoutTheme : public RefCounted<LayoutTheme> {
                                         float duration) const;
 
   // Returns size of one slider tick mark for a horizontal track.
-  // For vertical tracks we rotate it and use it. i.e. Width is always length along the track.
+  // For vertical tracks we rotate it and use it. i.e. Width is always length
+  // along the track.
   virtual IntSize sliderTickSize() const = 0;
   // Returns the distance of slider tick origin from the slider track center.
   virtual int sliderTickOffsetFromTrackCenter() const = 0;
@@ -261,8 +277,8 @@ class CORE_EXPORT LayoutTheme : public RefCounted<LayoutTheme> {
   static bool isReadOnlyControl(const LayoutObject&);
 
  private:
-  // This function is to be implemented in your platform-specific theme implementation to hand back the
-  // appropriate platform theme.
+  // This function is to be implemented in your platform-specific theme
+  // implementation to hand back the appropriate platform theme.
   static LayoutTheme& nativeTheme();
 
   Color m_customFocusRingColor;

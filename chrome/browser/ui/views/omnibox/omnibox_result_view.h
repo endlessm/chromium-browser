@@ -20,7 +20,6 @@
 #include "ui/views/controls/image_view.h"
 #include "ui/views/view.h"
 
-class LocationBarView;
 class OmniboxPopupContentsView;
 
 namespace gfx {
@@ -50,7 +49,6 @@ class OmniboxResultView : public views::View,
 
   OmniboxResultView(OmniboxPopupContentsView* model,
                     int model_index,
-                    LocationBarView* location_bar_view,
                     const gfx::FontList& font_list);
   ~OmniboxResultView() override;
 
@@ -70,7 +68,8 @@ class OmniboxResultView : public views::View,
 
   // views::View:
   gfx::Size GetPreferredSize() const override;
-  void GetAccessibleState(ui::AXViewState* state) override;
+  void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
+  void OnNativeThemeChanged(const ui::NativeTheme* theme) override;
 
   ResultViewState GetState() const;
 
@@ -133,8 +132,6 @@ class OmniboxResultView : public views::View,
 
   gfx::ImageSkia GetIcon() const;
 
-  gfx::ImageSkia GetKeywordIcon() const;
-
   // Utility function for creating vector icons.
   gfx::ImageSkia GetVectorIcon(gfx::VectorIconId icon_id) const;
 
@@ -161,13 +158,19 @@ class OmniboxResultView : public views::View,
                        bool is_ui_rtl,
                        bool is_match_contents_rtl) const;
 
+  // Returns the font to use for the description line of answer suggestions.
+  const gfx::FontList& GetAnswerLineFont() const;
+
+  // Returns the height of the the description line of answer suggestions.
   int GetAnswerLineHeight() const;
+
+  // Returns the height of the content line.
   int GetContentLineHeight() const;
 
   // Creates a RenderText with text and styling from the image line.
   std::unique_ptr<gfx::RenderText> CreateAnswerLine(
       const SuggestionAnswer::ImageLine& line,
-      gfx::FontList font_list) const;
+      const gfx::FontList& font_list) const;
 
   // Adds |text| to |destination|.  |text_type| is an index into the
   // kTextStyles constant defined in the .cc file and is used to style the text,
@@ -184,13 +187,9 @@ class OmniboxResultView : public views::View,
                               int text_type,
                               bool is_bold) const;
 
-  static int default_icon_size_;
-
   // This row's model and model index.
   OmniboxPopupContentsView* model_;
   size_t model_index_;
-
-  LocationBarView* location_bar_view_;
 
   const gfx::FontList font_list_;
   int font_height_;

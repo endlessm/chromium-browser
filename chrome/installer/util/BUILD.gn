@@ -53,14 +53,10 @@ static_library("with_no_strings") {
 
   if (is_win) {
     sources = [
-      "chrome_binaries_operations.cc",
-      "chrome_binaries_operations.h",
       "chrome_browser_operations.cc",
       "chrome_browser_operations.h",
       "chrome_browser_sxs_operations.cc",
       "chrome_browser_sxs_operations.h",
-      "chrome_frame_operations.cc",
-      "chrome_frame_operations.h",
       "compat_checks.cc",
       "compat_checks.h",
       "delete_after_reboot_helper.cc",
@@ -69,8 +65,6 @@ static_library("with_no_strings") {
       "google_chrome_distribution.h",
       "html_dialog.h",
       "html_dialog_impl.cc",
-      "installation_validator.cc",
-      "installation_validator.h",
       "logging_installer.cc",
       "logging_installer.h",
       "lzma_file_allocator.cc",
@@ -82,8 +76,6 @@ static_library("with_no_strings") {
       "product.cc",
       "product.h",
       "product_operations.h",
-      "progress_calculator.cc",
-      "progress_calculator.h",
       "registry_entry.cc",
       "registry_entry.h",
       "scoped_user_protocol_entry.cc",
@@ -147,10 +139,6 @@ static_library("with_no_strings") {
       "callback_work_item.h",
       "channel_info.cc",
       "channel_info.h",
-      "chrome_frame_distribution.cc",
-      "chrome_frame_distribution.h",
-      "chromium_binaries_distribution.cc",
-      "chromium_binaries_distribution.h",
       "conditional_work_item_list.cc",
       "conditional_work_item_list.h",
       "copy_tree_work_item.cc",
@@ -171,8 +159,6 @@ static_library("with_no_strings") {
       "duplicate_tree_detector.h",
       "firewall_manager_win.cc",
       "firewall_manager_win.h",
-      "google_chrome_binaries_distribution.cc",
-      "google_chrome_binaries_distribution.h",
       "google_chrome_sxs_distribution.cc",
       "google_chrome_sxs_distribution.h",
       "google_update_constants.cc",
@@ -187,8 +173,6 @@ static_library("with_no_strings") {
       "install_util.h",
       "installation_state.cc",
       "installation_state.h",
-      "installer_state.cc",
-      "installer_state.h",
       "l10n_string_util.cc",
       "l10n_string_util.h",
       "language_selector.cc",
@@ -197,8 +181,6 @@ static_library("with_no_strings") {
       "legacy_firewall_manager_win.h",
       "master_preferences_constants.cc",
       "master_preferences_constants.h",
-      "module_util_win.cc",
-      "module_util_win.h",
       "move_tree_work_item.cc",
       "move_tree_work_item.h",
       "non_updating_app_registration_data.cc",
@@ -282,6 +264,18 @@ source_set("strings") {
 }
 
 if (is_win) {
+  source_set("test_support") {
+    testonly = true
+    sources = [
+      "fake_installation_state.h",
+      "fake_product_state.h",
+    ]
+    deps = [
+      ":with_no_strings",
+      "//base",
+    ]
+  }
+
   test("installer_util_unittests") {
     sources = [
       "../setup/compat_checks_unittest.cc",
@@ -299,14 +293,8 @@ if (is_win) {
       "delete_reg_value_work_item_unittest.cc",
       "delete_tree_work_item_unittest.cc",
       "duplicate_tree_detector_unittest.cc",
-      "fake_installation_state.h",
-      "fake_product_state.h",
       "google_update_settings_unittest.cc",
       "install_util_unittest.cc",
-      "installation_validation_helper.cc",
-      "installation_validation_helper.h",
-      "installation_validator_unittest.cc",
-      "installer_state_unittest.cc",
       "installer_util_test_common.cc",
       "installer_util_test_common.h",
       "language_selector_unittest.cc",
@@ -318,7 +306,6 @@ if (is_win) {
       "move_tree_work_item_unittest.cc",
       "product_state_unittest.cc",
       "product_unittest.cc",
-      "progress_calculator_unittest.cc",
       "registry_key_backup_unittest.cc",
       "registry_test_data.cc",
       "registry_test_data.h",
@@ -338,6 +325,7 @@ if (is_win) {
     ]
 
     deps = [
+      ":test_support",
       ":with_rc_strings",
       "//base",
       "//base:i18n",

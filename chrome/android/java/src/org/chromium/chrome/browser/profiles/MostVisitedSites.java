@@ -31,15 +31,13 @@ public class MostVisitedSites {
                 String[] whitelistIconPaths, int[] sources);
 
         /**
-         * This is called when the list of popular URLs is initially available or updated.
+         * This is called when a previously uncached icon has been fetched.
          * Parameters guaranteed to be non-null.
          *
-         * @param urls Array of popular URLs.
-         * @param faviconUrls Array of URLs for the corresponding favicons (if known).
+         * @param siteUrl URL of site with newly-cached icon.
          */
         @CalledByNative("MostVisitedURLsObserver")
-        public void onPopularURLsAvailable(
-                String[] urls, String[] faviconUrls, String[] largeIconUrls);
+        public void onIconMadeAvailable(String siteUrl);
     }
 
     /**
@@ -80,11 +78,10 @@ public class MostVisitedSites {
                 }
             }
             @Override
-            public void onPopularURLsAvailable(
-                    String[] urls, String[] faviconUrls, String[] largeIconUrls) {
+            public void onIconMadeAvailable(String siteUrl) {
                 // Don't notify observer if we've already been destroyed.
                 if (mNativeMostVisitedSitesBridge != 0) {
-                    observer.onPopularURLsAvailable(urls, faviconUrls, largeIconUrls);
+                    observer.onIconMadeAvailable(siteUrl);
                 }
             }
         };
@@ -107,12 +104,16 @@ public class MostVisitedSites {
     }
 
     /**
-     * Records metrics about which types of tiles are displayed.
+     * Records metrics about an impression, including the sources (local, server, ...) and visual
+     * types of the tiles that are shown.
      * @param tileTypes An array of values from MostVisitedTileType indicating the type of each
      *                  tile that's currently showing.
+     * @param sources An array of values from NTPTileSource indicating the source of each tile
+     *                that's currently showing.
+     * @param tileUrls An array of strings indicating the URL of each tile.
      */
-    public void recordTileTypeMetrics(int[] tileTypes, int[] sources) {
-        nativeRecordTileTypeMetrics(mNativeMostVisitedSitesBridge, tileTypes, sources);
+    public void recordPageImpression(int[] tileTypes, int[] sources, String[] tileUrls) {
+        nativeRecordPageImpression(mNativeMostVisitedSitesBridge, tileTypes, sources, tileUrls);
     }
 
     /**
@@ -131,8 +132,8 @@ public class MostVisitedSites {
     private native void nativeAddOrRemoveBlacklistedUrl(
             long nativeMostVisitedSitesBridge, String url,
             boolean addUrl);
-    private native void nativeRecordTileTypeMetrics(long nativeMostVisitedSitesBridge,
-            int[] tileTypes, int[] sources);
+    private native void nativeRecordPageImpression(
+            long nativeMostVisitedSitesBridge, int[] tileTypes, int[] sources, String[] tileUrls);
     private native void nativeRecordOpenedMostVisitedItem(
             long nativeMostVisitedSitesBridge, int index, int tileType, int source);
 }

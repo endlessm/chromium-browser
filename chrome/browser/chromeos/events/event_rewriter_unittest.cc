@@ -16,14 +16,14 @@
 #include "base/macros.h"
 #include "base/strings/stringprintf.h"
 #include "chrome/browser/chromeos/input_method/input_method_configuration.h"
-#include "chrome/browser/chromeos/input_method/mock_input_method_manager.h"
+#include "chrome/browser/chromeos/input_method/mock_input_method_manager_impl.h"
+#include "chrome/browser/chromeos/login/users/fake_chrome_user_manager.h"
 #include "chrome/browser/chromeos/login/users/scoped_user_manager_enabler.h"
 #include "chrome/browser/chromeos/preferences.h"
 #include "chrome/common/pref_names.h"
 #include "chromeos/chromeos_switches.h"
 #include "components/prefs/pref_member.h"
-#include "components/syncable_prefs/testing_pref_service_syncable.h"
-#include "components/user_manager/fake_user_manager.h"
+#include "components/sync_preferences/testing_pref_service_syncable.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_tree_host.h"
@@ -120,14 +120,12 @@ namespace chromeos {
 class EventRewriterTest : public ash::test::AshTestBase {
  public:
   EventRewriterTest()
-      : fake_user_manager_(new user_manager::FakeUserManager),
-        user_manager_enabler_(fake_user_manager_),
-        input_method_manager_mock_(NULL) {}
+      : fake_user_manager_(new chromeos::FakeChromeUserManager),
+        user_manager_enabler_(fake_user_manager_) {}
   ~EventRewriterTest() override {}
 
   void SetUp() override {
-    input_method_manager_mock_ =
-        new chromeos::input_method::MockInputMethodManager;
+    input_method_manager_mock_ = new input_method::MockInputMethodManagerImpl;
     chromeos::input_method::InitializeForTesting(
         input_method_manager_mock_);  // pass ownership
 
@@ -152,14 +150,14 @@ class EventRewriterTest : public ash::test::AshTestBase {
     return *new_event ? new_event->get()->AsMouseEvent() : &event;
   }
 
-  user_manager::FakeUserManager* fake_user_manager_;  // Not owned.
-  chromeos::ScopedUserManagerEnabler user_manager_enabler_;
-  chromeos::input_method::MockInputMethodManager* input_method_manager_mock_;
+  FakeChromeUserManager* fake_user_manager_;  // Not owned.
+  ScopedUserManagerEnabler user_manager_enabler_;
+  input_method::MockInputMethodManagerImpl* input_method_manager_mock_;
 };
 
 TEST_F(EventRewriterTest, TestRewriteCommandToControl) {
   // First, test with a PC keyboard.
-  syncable_prefs::TestingPrefServiceSyncable prefs;
+  sync_preferences::TestingPrefServiceSyncable prefs;
   EventRewriter rewriter(NULL);
   rewriter.KeyboardDeviceAddedForTesting(kKeyboardDeviceId, "PC Keyboard");
   rewriter.set_last_keyboard_device_id_for_testing(kKeyboardDeviceId);
@@ -255,7 +253,7 @@ TEST_F(EventRewriterTest, TestRewriteCommandToControl) {
 // For crbug.com/133896.
 TEST_F(EventRewriterTest, TestRewriteCommandToControlWithControlRemapped) {
   // Remap Control to Alt.
-  syncable_prefs::TestingPrefServiceSyncable prefs;
+  sync_preferences::TestingPrefServiceSyncable prefs;
   chromeos::Preferences::RegisterProfilePrefs(prefs.registry());
   IntegerPrefMember control;
   control.Init(prefs::kLanguageRemapControlKeyTo, &prefs);
@@ -307,7 +305,7 @@ TEST_F(EventRewriterTest, TestRewriteCommandToControlWithControlRemapped) {
 }
 
 void EventRewriterTest::TestRewriteNumPadKeys() {
-  syncable_prefs::TestingPrefServiceSyncable prefs;
+  sync_preferences::TestingPrefServiceSyncable prefs;
   EventRewriter rewriter(NULL);
   rewriter.KeyboardDeviceAddedForTesting(kKeyboardDeviceId, "PC Keyboard");
   rewriter.set_last_keyboard_device_id_for_testing(kKeyboardDeviceId);
@@ -496,7 +494,7 @@ TEST_F(EventRewriterTest, TestRewriteNumPadKeysWithDiamondKeyFlag) {
 
 // Tests if the rewriter can handle a Command + Num Pad event.
 void EventRewriterTest::TestRewriteNumPadKeysOnAppleKeyboard() {
-  syncable_prefs::TestingPrefServiceSyncable prefs;
+  sync_preferences::TestingPrefServiceSyncable prefs;
   EventRewriter rewriter(NULL);
   rewriter.KeyboardDeviceAddedForTesting(kKeyboardDeviceId, "Apple Keyboard");
   rewriter.set_last_keyboard_device_id_for_testing(kKeyboardDeviceId);
@@ -541,7 +539,7 @@ TEST_F(EventRewriterTest,
 }
 
 TEST_F(EventRewriterTest, TestRewriteModifiersNoRemap) {
-  syncable_prefs::TestingPrefServiceSyncable prefs;
+  sync_preferences::TestingPrefServiceSyncable prefs;
   EventRewriter rewriter(NULL);
   rewriter.KeyboardDeviceAddedForTesting(kKeyboardDeviceId, "PC Keyboard");
   rewriter.set_pref_service_for_testing(&prefs);
@@ -592,7 +590,7 @@ TEST_F(EventRewriterTest, TestRewriteModifiersNoRemap) {
 }
 
 TEST_F(EventRewriterTest, TestRewriteModifiersNoRemapMultipleKeys) {
-  syncable_prefs::TestingPrefServiceSyncable prefs;
+  sync_preferences::TestingPrefServiceSyncable prefs;
   EventRewriter rewriter(NULL);
   rewriter.KeyboardDeviceAddedForTesting(kKeyboardDeviceId, "PC Keyboard");
   rewriter.set_pref_service_for_testing(&prefs);
@@ -656,7 +654,7 @@ TEST_F(EventRewriterTest, TestRewriteModifiersNoRemapMultipleKeys) {
 
 TEST_F(EventRewriterTest, TestRewriteModifiersDisableSome) {
   // Disable Search, Control and Escape keys.
-  syncable_prefs::TestingPrefServiceSyncable prefs;
+  sync_preferences::TestingPrefServiceSyncable prefs;
   chromeos::Preferences::RegisterProfilePrefs(prefs.registry());
   IntegerPrefMember search;
   search.Init(prefs::kLanguageRemapSearchKeyTo, &prefs);
@@ -758,7 +756,7 @@ TEST_F(EventRewriterTest, TestRewriteModifiersDisableSome) {
 
 TEST_F(EventRewriterTest, TestRewriteModifiersRemapToControl) {
   // Remap Search to Control.
-  syncable_prefs::TestingPrefServiceSyncable prefs;
+  sync_preferences::TestingPrefServiceSyncable prefs;
   chromeos::Preferences::RegisterProfilePrefs(prefs.registry());
   IntegerPrefMember search;
   search.Init(prefs::kLanguageRemapSearchKeyTo, &prefs);
@@ -836,7 +834,7 @@ TEST_F(EventRewriterTest, TestRewriteModifiersRemapToControl) {
 
 TEST_F(EventRewriterTest, TestRewriteModifiersRemapToEscape) {
   // Remap Search to Escape.
-  syncable_prefs::TestingPrefServiceSyncable prefs;
+  sync_preferences::TestingPrefServiceSyncable prefs;
   chromeos::Preferences::RegisterProfilePrefs(prefs.registry());
   IntegerPrefMember search;
   search.Init(prefs::kLanguageRemapSearchKeyTo, &prefs);
@@ -861,7 +859,7 @@ TEST_F(EventRewriterTest, TestRewriteModifiersRemapToEscape) {
 
 TEST_F(EventRewriterTest, TestRewriteModifiersRemapMany) {
   // Remap Escape to Alt.
-  syncable_prefs::TestingPrefServiceSyncable prefs;
+  sync_preferences::TestingPrefServiceSyncable prefs;
   chromeos::Preferences::RegisterProfilePrefs(prefs.registry());
   IntegerPrefMember escape;
   escape.Init(prefs::kLanguageRemapEscapeKeyTo, &prefs);
@@ -1012,7 +1010,7 @@ TEST_F(EventRewriterTest, TestRewriteModifiersRemapMany) {
 
 TEST_F(EventRewriterTest, TestRewriteModifiersRemapToCapsLock) {
   // Remap Search to Caps Lock.
-  syncable_prefs::TestingPrefServiceSyncable prefs;
+  sync_preferences::TestingPrefServiceSyncable prefs;
   chromeos::Preferences::RegisterProfilePrefs(prefs.registry());
   IntegerPrefMember search;
   search.Init(prefs::kLanguageRemapSearchKeyTo, &prefs);
@@ -1102,7 +1100,7 @@ TEST_F(EventRewriterTest, TestRewriteModifiersRemapToCapsLock) {
 }
 
 TEST_F(EventRewriterTest, TestRewriteCapsLock) {
-  syncable_prefs::TestingPrefServiceSyncable prefs;
+  sync_preferences::TestingPrefServiceSyncable prefs;
   chromeos::Preferences::RegisterProfilePrefs(prefs.registry());
 
   chromeos::input_method::FakeImeKeyboard ime_keyboard;
@@ -1123,7 +1121,7 @@ TEST_F(EventRewriterTest, TestRewriteCapsLock) {
 }
 
 TEST_F(EventRewriterTest, TestRewriteDiamondKey) {
-  syncable_prefs::TestingPrefServiceSyncable prefs;
+  sync_preferences::TestingPrefServiceSyncable prefs;
   chromeos::Preferences::RegisterProfilePrefs(prefs.registry());
 
   chromeos::input_method::FakeImeKeyboard ime_keyboard;
@@ -1164,7 +1162,7 @@ TEST_F(EventRewriterTest, TestRewriteDiamondKeyWithFlag) {
   base::CommandLine::ForCurrentProcess()->AppendSwitchASCII(
       chromeos::switches::kHasChromeOSDiamondKey, "");
 
-  syncable_prefs::TestingPrefServiceSyncable prefs;
+  sync_preferences::TestingPrefServiceSyncable prefs;
   chromeos::Preferences::RegisterProfilePrefs(prefs.registry());
 
   chromeos::input_method::FakeImeKeyboard ime_keyboard;
@@ -1316,7 +1314,7 @@ TEST_F(EventRewriterTest, TestRewriteDiamondKeyWithFlag) {
 
 TEST_F(EventRewriterTest, TestRewriteCapsLockToControl) {
   // Remap CapsLock to Control.
-  syncable_prefs::TestingPrefServiceSyncable prefs;
+  sync_preferences::TestingPrefServiceSyncable prefs;
   chromeos::Preferences::RegisterProfilePrefs(prefs.registry());
   IntegerPrefMember control;
   control.Init(prefs::kLanguageRemapCapsLockKeyTo, &prefs);
@@ -1359,7 +1357,7 @@ TEST_F(EventRewriterTest, TestRewriteCapsLockToControl) {
 
 TEST_F(EventRewriterTest, TestRewriteCapsLockMod3InUse) {
   // Remap CapsLock to Control.
-  syncable_prefs::TestingPrefServiceSyncable prefs;
+  sync_preferences::TestingPrefServiceSyncable prefs;
   chromeos::Preferences::RegisterProfilePrefs(prefs.registry());
   IntegerPrefMember control;
   control.Init(prefs::kLanguageRemapCapsLockKeyTo, &prefs);
@@ -1383,7 +1381,7 @@ TEST_F(EventRewriterTest, TestRewriteCapsLockMod3InUse) {
 }
 
 TEST_F(EventRewriterTest, TestRewriteExtendedKeys) {
-  syncable_prefs::TestingPrefServiceSyncable prefs;
+  sync_preferences::TestingPrefServiceSyncable prefs;
   chromeos::Preferences::RegisterProfilePrefs(prefs.registry());
   EventRewriter rewriter(NULL);
   rewriter.KeyboardDeviceAddedForTesting(kKeyboardDeviceId, "PC Keyboard");
@@ -1529,7 +1527,7 @@ TEST_F(EventRewriterTest, TestRewriteExtendedKeys) {
 }
 
 TEST_F(EventRewriterTest, TestRewriteFunctionKeys) {
-  syncable_prefs::TestingPrefServiceSyncable prefs;
+  sync_preferences::TestingPrefServiceSyncable prefs;
   chromeos::Preferences::RegisterProfilePrefs(prefs.registry());
   EventRewriter rewriter(NULL);
   rewriter.KeyboardDeviceAddedForTesting(kKeyboardDeviceId, "PC Keyboard");
@@ -1845,7 +1843,7 @@ TEST_F(EventRewriterTest, TestRewriteFunctionKeys) {
 
 TEST_F(EventRewriterTest, TestRewriteExtendedKeysWithSearchRemapped) {
   // Remap Search to Control.
-  syncable_prefs::TestingPrefServiceSyncable prefs;
+  sync_preferences::TestingPrefServiceSyncable prefs;
   chromeos::Preferences::RegisterProfilePrefs(prefs.registry());
   IntegerPrefMember search;
   search.Init(prefs::kLanguageRemapSearchKeyTo, &prefs);
@@ -1877,7 +1875,7 @@ TEST_F(EventRewriterTest, TestRewriteExtendedKeysWithSearchRemapped) {
 
 TEST_F(EventRewriterTest, TestRewriteKeyEventSentByXSendEvent) {
   // Remap Control to Alt.
-  syncable_prefs::TestingPrefServiceSyncable prefs;
+  sync_preferences::TestingPrefServiceSyncable prefs;
   chromeos::Preferences::RegisterProfilePrefs(prefs.registry());
   IntegerPrefMember control;
   control.Init(prefs::kLanguageRemapControlKeyTo, &prefs);
@@ -1919,7 +1917,7 @@ TEST_F(EventRewriterTest, TestRewriteKeyEventSentByXSendEvent) {
 
 TEST_F(EventRewriterTest, TestRewriteNonNativeEvent) {
   // Remap Control to Alt.
-  syncable_prefs::TestingPrefServiceSyncable prefs;
+  sync_preferences::TestingPrefServiceSyncable prefs;
   chromeos::Preferences::RegisterProfilePrefs(prefs.registry());
   IntegerPrefMember control;
   control.Init(prefs::kLanguageRemapControlKeyTo, &prefs);
@@ -1988,7 +1986,7 @@ class EventRewriterAshTest : public ash::test::AshTestBase {
  public:
   EventRewriterAshTest()
       : source_(&buffer_),
-        fake_user_manager_(new user_manager::FakeUserManager),
+        fake_user_manager_(new chromeos::FakeChromeUserManager),
         user_manager_enabler_(fake_user_manager_) {}
   ~EventRewriterAshTest() override {}
 
@@ -2019,7 +2017,7 @@ class EventRewriterAshTest : public ash::test::AshTestBase {
   }
 
  protected:
-  syncable_prefs::TestingPrefServiceSyncable* prefs() { return &prefs_; }
+  sync_preferences::TestingPrefServiceSyncable* prefs() { return &prefs_; }
 
   void PopEvents(ScopedVector<ui::Event>* events) { buffer_.PopEvents(events); }
 
@@ -2051,9 +2049,9 @@ class EventRewriterAshTest : public ash::test::AshTestBase {
   EventBuffer buffer_;
   TestEventSource source_;
 
-  user_manager::FakeUserManager* fake_user_manager_;  // Not owned.
+  chromeos::FakeChromeUserManager* fake_user_manager_;  // Not owned.
   chromeos::ScopedUserManagerEnabler user_manager_enabler_;
-  syncable_prefs::TestingPrefServiceSyncable prefs_;
+  sync_preferences::TestingPrefServiceSyncable prefs_;
 
   DISALLOW_COPY_AND_ASSIGN(EventRewriterAshTest);
 };
@@ -2102,7 +2100,7 @@ TEST_F(EventRewriterTest, TestRewrittenModifierClick) {
   ui::TouchFactory::GetInstance()->SetPointerDeviceForTest(device_list);
 
   // Remap Control to Alt.
-  syncable_prefs::TestingPrefServiceSyncable prefs;
+  sync_preferences::TestingPrefServiceSyncable prefs;
   chromeos::Preferences::RegisterProfilePrefs(prefs.registry());
   IntegerPrefMember control;
   control.Init(prefs::kLanguageRemapControlKeyTo, &prefs);
@@ -2141,7 +2139,7 @@ TEST_F(EventRewriterTest, DontRewriteIfNotRewritten) {
   device_list.push_back(11);
   ui::TouchFactory::GetInstance()->SetPointerDeviceForTest(device_list);
 #endif
-  syncable_prefs::TestingPrefServiceSyncable prefs;
+  sync_preferences::TestingPrefServiceSyncable prefs;
   EventRewriter rewriter(NULL);
   rewriter.set_pref_service_for_testing(&prefs);
   const int kLeftAndAltFlag = ui::EF_LEFT_MOUSE_BUTTON | ui::EF_ALT_DOWN;

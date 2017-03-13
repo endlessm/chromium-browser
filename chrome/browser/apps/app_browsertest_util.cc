@@ -4,6 +4,9 @@
 
 #include "chrome/browser/apps/app_browsertest_util.h"
 
+#include <memory>
+#include <string>
+
 #include "base/command_line.h"
 #include "base/strings/stringprintf.h"
 #include "chrome/browser/extensions/api/tabs/tabs_api.h"
@@ -13,6 +16,7 @@
 #include "chrome/browser/ui/extensions/app_launch_params.h"
 #include "chrome/browser/ui/extensions/application_launch.h"
 #include "content/public/browser/notification_service.h"
+#include "content/public/browser/notification_types.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/test_utils.h"
 #include "extensions/browser/app_window/app_window_contents.h"
@@ -22,6 +26,12 @@
 #include "extensions/common/constants.h"
 #include "extensions/common/switches.h"
 #include "extensions/test/extension_test_message_listener.h"
+
+#if defined(OS_CHROMEOS)
+#include "chrome/browser/media/router/media_routes_observer.h"
+#include "chrome/browser/ui/ash/cast_config_client_media_router.h"
+#include "testing/gmock/include/gmock/gmock.h"
+#endif
 
 using content::WebContents;
 
@@ -46,6 +56,27 @@ void PlatformAppBrowserTest::SetUpCommandLine(base::CommandLine* command_line) {
   // Make event pages get suspended quicker.
   ProcessManager::SetEventPageIdleTimeForTesting(1000);
   ProcessManager::SetEventPageSuspendingTimeForTesting(1000);
+}
+
+void PlatformAppBrowserTest::SetUpInProcessBrowserTestFixture() {
+  ExtensionApiTest::SetUpInProcessBrowserTestFixture();
+#if defined(OS_CHROMEOS)
+  // Mock the Media Router in extension api tests. Several of the
+  // PlatformAppBrowserTest suites call RunAllPendingInMessageLoop() when there
+  // are mojo messages that will call back into Profile creation through the
+  // media router.
+  ON_CALL(media_router_, RegisterMediaSinksObserver(testing::_))
+      .WillByDefault(testing::Return(true));
+
+  CastConfigClientMediaRouter::SetMediaRouterForTest(&media_router_);
+#endif
+}
+
+void PlatformAppBrowserTest::TearDownInProcessBrowserTestFixture() {
+#if defined(OS_CHROMEOS)
+  CastConfigClientMediaRouter::SetMediaRouterForTest(nullptr);
+#endif
+  ExtensionApiTest::TearDownInProcessBrowserTestFixture();
 }
 
 // static

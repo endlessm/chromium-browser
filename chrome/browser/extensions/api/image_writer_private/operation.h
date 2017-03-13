@@ -19,7 +19,7 @@
 #include "build/build_config.h"
 #include "chrome/browser/extensions/api/image_writer_private/image_writer_utility_client.h"
 #include "chrome/common/extensions/api/image_writer_private.h"
-
+#include "extensions/common/extension_id.h"
 
 namespace image_writer_api = extensions::api::image_writer_private;
 
@@ -59,11 +59,11 @@ class Operation : public base::RefCountedThreadSafe<Operation> {
  public:
   typedef base::Callback<void(bool, const std::string&)> StartWriteCallback;
   typedef base::Callback<void(bool, const std::string&)> CancelWriteCallback;
-  typedef std::string ExtensionId;
 
   Operation(base::WeakPtr<OperationManager> manager,
             const ExtensionId& extension_id,
-            const std::string& device_path);
+            const std::string& device_path,
+            const base::FilePath& download_folder);
 
   // Starts the operation.
   void Start();
@@ -224,6 +224,11 @@ class Operation : public base::RefCountedThreadSafe<Operation> {
   // CleanUp operations that must be run.  All these functions are run on the
   // FILE thread.
   std::vector<base::Closure> cleanup_functions_;
+
+  // The download folder on Chrome OS.
+  const base::FilePath download_folder_;
+
+  DISALLOW_COPY_AND_ASSIGN(Operation);
 };
 
 }  // namespace image_writer

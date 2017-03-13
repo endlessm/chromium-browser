@@ -15,10 +15,6 @@ include_rules = [
 
   "+cc",
   "-cc/blink",
-  # If you want to use any of these files, move them to src/base first.
-  "-cc/base/scoped_ptr_algorithm.h",
-  "-cc/base/scoped_ptr_deque.h",
-  "-cc/base/scoped_ptr_vector.h",
 
   "-components",
   # Content can depend on components that are:
@@ -40,7 +36,6 @@ include_rules = [
   "+mojo/common",
   "+mojo/edk/embedder",
   "+mojo/edk/js",
-  "+mojo/edk/test",
   "+mojo/message_pump",
   "+mojo/public",
   "+net",
@@ -66,6 +61,7 @@ include_rules = [
 
   # Allow inclusion of third-party code:
   "+third_party/angle",
+  "+third_party/boringssl/src/include",
   "+third_party/flac",
   "+third_party/libjingle",
   "+third_party/mozilla",
@@ -77,8 +73,7 @@ include_rules = [
   "+third_party/webrtc",
   "+third_party/webrtc_overrides",
   "+third_party/zlib/google",
-  "+third_party/WebKit/public/platform",
-  "+third_party/WebKit/public/web",
+  "+third_party/WebKit/public",
 
   "+ui/accelerated_widget_mac",
   "+ui/accessibility",

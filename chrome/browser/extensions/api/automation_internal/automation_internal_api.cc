@@ -28,6 +28,7 @@
 #include "content/public/browser/browser_accessibility_state.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_plugin_guest_manager.h"
+#include "content/public/browser/media_session.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/render_widget_host.h"
@@ -37,6 +38,7 @@
 #include "content/public/browser/web_contents_user_data.h"
 #include "extensions/common/extension_messages.h"
 #include "extensions/common/permissions/permissions_data.h"
+#include "ui/accessibility/ax_action_data.h"
 
 #if defined(USE_AURA)
 #include "chrome/browser/ui/aura/accessibility/automation_manager_aura.h"
@@ -162,26 +164,8 @@ class RenderFrameHostActionAdapter : public AutomationActionAdapter {
   virtual ~RenderFrameHostActionAdapter() {}
 
   // AutomationActionAdapter implementation.
-  void DoDefault(int32_t id) override {
-    rfh_->AccessibilityDoDefaultAction(id);
-  }
-
-  void Focus(int32_t id) override { rfh_->AccessibilitySetFocus(id); }
-
-  void MakeVisible(int32_t id) override {
-    rfh_->AccessibilityScrollToMakeVisible(id, gfx::Rect());
-  }
-
-  void SetSelection(int32_t anchor_id,
-                    int32_t anchor_offset,
-                    int32_t focus_id,
-                    int32_t focus_offset) override {
-    rfh_->AccessibilitySetSelection(anchor_id, anchor_offset, focus_id,
-                                    focus_offset);
-  }
-
-  void ShowContextMenu(int32_t id) override {
-    rfh_->AccessibilityShowContextMenu(id);
+  void PerformAction(const ui::AXActionData& data) override {
+    rfh_->AccessibilityPerformAction(data);
   }
 
  private:
@@ -239,12 +223,45 @@ class AutomationWebContentsObserver
         browser_context_);
   }
 
+  void MediaStartedPlaying(const MediaPlayerInfo& video_type,
+                           const MediaPlayerId& id) override {
+    std::vector<content::AXEventNotificationDetails> details;
+    content::AXEventNotificationDetails detail;
+    detail.ax_tree_id = id.first->GetAXTreeID();
+    detail.event_type = ui::AX_EVENT_MEDIA_STARTED_PLAYING;
+    details.push_back(detail);
+    AccessibilityEventReceived(details);
+  }
+
+  void MediaStoppedPlaying(const MediaPlayerInfo& video_type,
+                           const MediaPlayerId& id) override {
+    std::vector<content::AXEventNotificationDetails> details;
+    content::AXEventNotificationDetails detail;
+    detail.ax_tree_id = id.first->GetAXTreeID();
+    detail.event_type = ui::AX_EVENT_MEDIA_STOPPED_PLAYING;
+    details.push_back(detail);
+    AccessibilityEventReceived(details);
+  }
+
  private:
   friend class content::WebContentsUserData<AutomationWebContentsObserver>;
 
   explicit AutomationWebContentsObserver(content::WebContents* web_contents)
       : content::WebContentsObserver(web_contents),
-        browser_context_(web_contents->GetBrowserContext()) {}
+        browser_context_(web_contents->GetBrowserContext()) {
+    if (web_contents->WasRecentlyAudible()) {
+      std::vector<content::AXEventNotificationDetails> details;
+      content::RenderFrameHost* rfh = web_contents->GetMainFrame();
+      if (!rfh)
+        return;
+
+      content::AXEventNotificationDetails detail;
+      detail.ax_tree_id = rfh->GetAXTreeID();
+      detail.event_type = ui::AX_EVENT_MEDIA_STARTED_PLAYING;
+      details.push_back(detail);
+      AccessibilityEventReceived(details);
+    }
+  }
 
   content::BrowserContext* browser_context_;
 
@@ -288,7 +305,7 @@ AutomationInternalEnableTabFunction::Run() {
   }
 
   AutomationWebContentsObserver::CreateForWebContents(contents);
-  contents->EnableTreeOnlyAccessibilityMode();
+  contents->EnableWebContentsOnlyAccessibilityMode();
 
   int ax_tree_id = rfh->GetAXTreeID();
 
@@ -322,7 +339,7 @@ ExtensionFunction::ResponseAction AutomationInternalEnableFrameFunction::Run() {
   // Only call this if this is the root of a frame tree, to avoid resetting
   // the accessibility state multiple times.
   if (!rfh->GetParent())
-    contents->EnableTreeOnlyAccessibilityMode();
+    contents->EnableWebContentsOnlyAccessibilityMode();
 
   return RespondNow(NoArguments());
 }
@@ -351,11 +368,34 @@ AutomationInternalPerformActionFunction::Run() {
   if (!rfh)
     return RespondNow(Error("Ignoring action on destroyed node"));
 
-  const content::WebContents* contents =
+  content::WebContents* contents =
       content::WebContents::FromRenderFrameHost(rfh);
   if (!CanRequestAutomation(extension(), automation_info, contents)) {
     return RespondNow(
         Error(kCannotRequestAutomationOnPage, contents->GetURL().spec()));
+  }
+
+  // These actions are handled directly for the WebContents.
+  if (params->args.action_type ==
+      api::automation_internal::ACTION_TYPE_STARTDUCKINGMEDIA) {
+    content::MediaSession* session = content::MediaSession::Get(contents);
+    session->StartDucking();
+    return RespondNow(NoArguments());
+  } else if (params->args.action_type ==
+             api::automation_internal::ACTION_TYPE_STOPDUCKINGMEDIA) {
+    content::MediaSession* session = content::MediaSession::Get(contents);
+    session->StopDucking();
+    return RespondNow(NoArguments());
+  } else if (params->args.action_type ==
+             api::automation_internal::ACTION_TYPE_RESUMEMEDIA) {
+    content::MediaSession* session = content::MediaSession::Get(contents);
+    session->Resume(content::MediaSession::SuspendType::SYSTEM);
+    return RespondNow(NoArguments());
+  } else if (params->args.action_type ==
+             api::automation_internal::ACTION_TYPE_SUSPENDMEDIA) {
+    content::MediaSession* session = content::MediaSession::Get(contents);
+    session->Suspend(content::MediaSession::SuspendType::SYSTEM);
+    return RespondNow(NoArguments());
   }
 
   RenderFrameHostActionAdapter adapter(rfh);
@@ -366,29 +406,61 @@ ExtensionFunction::ResponseAction
 AutomationInternalPerformActionFunction::RouteActionToAdapter(
     api::automation_internal::PerformAction::Params* params,
     AutomationActionAdapter* adapter) {
-  int32_t automation_id = params->args.automation_node_id;
+  ui::AXActionData action;
+  action.target_node_id = params->args.automation_node_id;
   switch (params->args.action_type) {
     case api::automation_internal::ACTION_TYPE_DODEFAULT:
-      adapter->DoDefault(automation_id);
+      action.action = ui::AX_ACTION_DO_DEFAULT;
+      adapter->PerformAction(action);
       break;
     case api::automation_internal::ACTION_TYPE_FOCUS:
-      adapter->Focus(automation_id);
+      action.action = ui::AX_ACTION_FOCUS;
+      adapter->PerformAction(action);
       break;
+    case api::automation_internal::ACTION_TYPE_GETIMAGEDATA: {
+      api::automation_internal::GetImageDataParams get_image_data_params;
+      EXTENSION_FUNCTION_VALIDATE(
+          api::automation_internal::GetImageDataParams::Populate(
+              params->opt_args.additional_properties, &get_image_data_params));
+      action.action = ui::AX_ACTION_GET_IMAGE_DATA;
+      action.target_rect = gfx::Rect(
+          0, 0, get_image_data_params.max_width,
+          get_image_data_params.max_height);
+      adapter->PerformAction(action);
+      break;
+    }
     case api::automation_internal::ACTION_TYPE_MAKEVISIBLE:
-      adapter->MakeVisible(automation_id);
+      action.action = ui::AX_ACTION_SCROLL_TO_MAKE_VISIBLE;
+      adapter->PerformAction(action);
       break;
     case api::automation_internal::ACTION_TYPE_SETSELECTION: {
       api::automation_internal::SetSelectionParams selection_params;
       EXTENSION_FUNCTION_VALIDATE(
           api::automation_internal::SetSelectionParams::Populate(
               params->opt_args.additional_properties, &selection_params));
-      adapter->SetSelection(automation_id, selection_params.anchor_offset,
-                            selection_params.focus_node_id,
-                            selection_params.focus_offset);
+      action.anchor_node_id = params->args.automation_node_id;
+      action.anchor_offset = selection_params.anchor_offset;
+      action.focus_node_id = selection_params.focus_node_id;
+      action.focus_offset = selection_params.focus_offset;
+      action.action = ui::AX_ACTION_SET_SELECTION;
+      adapter->PerformAction(action);
       break;
     }
     case api::automation_internal::ACTION_TYPE_SHOWCONTEXTMENU: {
-      adapter->ShowContextMenu(automation_id);
+      action.action = ui::AX_ACTION_SHOW_CONTEXT_MENU;
+      adapter->PerformAction(action);
+      break;
+    }
+    case api::automation_internal::ACTION_TYPE_SETACCESSIBILITYFOCUS: {
+      action.action = ui::AX_ACTION_SET_ACCESSIBILITY_FOCUS;
+      adapter->PerformAction(action);
+      break;
+    }
+    case api::automation_internal::
+        ACTION_TYPE_SETSEQUENTIALFOCUSNAVIGATIONSTARTINGPOINT: {
+      action.action =
+          ui::AX_ACTION_SET_SEQUENTIAL_FOCUS_NAVIGATION_STARTING_POINT;
+      adapter->PerformAction(action);
       break;
     }
     default:

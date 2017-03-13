@@ -730,7 +730,7 @@ static int config_input(AVFilterLink *inlink)
     DrawTextContext *s = ctx->priv;
     int ret;
 
-    ff_draw_init(&s->dc, inlink->format, 0);
+    ff_draw_init(&s->dc, inlink->format, FF_DRAW_PROCESS_ALPHA);
     ff_draw_color(&s->dc, &s->fontcolor,   s->fontcolor.rgba);
     ff_draw_color(&s->dc, &s->shadowcolor, s->shadowcolor.rgba);
     ff_draw_color(&s->dc, &s->bordercolor, s->bordercolor.rgba);
@@ -809,7 +809,7 @@ static int func_pts(AVFilterContext *ctx, AVBPrint *bp,
         pts += (double)delta / AV_TIME_BASE;
     }
     if (!strcmp(fmt, "flt")) {
-        av_bprintf(bp, "%.6f", s->var_values[VAR_T]);
+        av_bprintf(bp, "%.6f", pts);
     } else if (!strcmp(fmt, "hms")) {
         if (isnan(pts)) {
             av_bprintf(bp, " ??:??:??.???");
@@ -860,6 +860,8 @@ static int func_metadata(AVFilterContext *ctx, AVBPrint *bp,
 
     if (e && e->value)
         av_bprintf(bp, "%s", e->value);
+    else if (argc >= 2)
+        av_bprintf(bp, "%s", argv[1]);
     return 0;
 }
 
@@ -975,7 +977,7 @@ static const struct drawtext_function {
     { "localtime", 0, 1, 'L', func_strftime },
     { "frame_num", 0, 0, 0,   func_frame_num },
     { "n",         0, 0, 0,   func_frame_num },
-    { "metadata",  1, 1, 0,   func_metadata },
+    { "metadata",  1, 2, 0,   func_metadata },
 };
 
 static int eval_function(AVFilterContext *ctx, AVBPrint *bp, char *fct,
@@ -1182,7 +1184,7 @@ static int draw_text(AVFilterContext *ctx, AVFrame *frame,
 
     if (s->tc_opt_string) {
         char tcbuf[AV_TIMECODE_STR_SIZE];
-        av_timecode_make_string(&s->tc, tcbuf, inlink->frame_count);
+        av_timecode_make_string(&s->tc, tcbuf, inlink->frame_count_out);
         av_bprint_clear(bp);
         av_bprintf(bp, "%s%s", s->text, tcbuf);
     }
@@ -1222,7 +1224,9 @@ static int draw_text(AVFilterContext *ctx, AVFrame *frame,
         dummy.code = code;
         glyph = av_tree_find(s->glyphs, &dummy, glyph_cmp, NULL);
         if (!glyph) {
-            load_glyph(ctx, &glyph, code);
+            ret = load_glyph(ctx, &glyph, code);
+            if (ret < 0)
+                return ret;
         }
 
         y_min = FFMIN(glyph->bbox.yMin, y_min);
@@ -1341,7 +1345,7 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *frame)
 #endif
     }
 
-    s->var_values[VAR_N] = inlink->frame_count+s->start_number;
+    s->var_values[VAR_N] = inlink->frame_count_out + s->start_number;
     s->var_values[VAR_T] = frame->pts == AV_NOPTS_VALUE ?
         NAN : frame->pts * av_q2d(inlink->time_base);
 

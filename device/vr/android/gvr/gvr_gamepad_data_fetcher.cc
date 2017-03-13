@@ -4,6 +4,7 @@
 
 #include "device/vr/android/gvr/gvr_gamepad_data_fetcher.h"
 
+#include "base/memory/ptr_util.h"
 #include "base/strings/utf_string_conversions.h"
 
 #include "device/vr/android/gvr/gvr_delegate.h"
@@ -36,8 +37,9 @@ GvrGamepadDataFetcher::Factory::~Factory() {}
 
 std::unique_ptr<GamepadDataFetcher>
 GvrGamepadDataFetcher::Factory::CreateDataFetcher() {
-  return std::unique_ptr<GamepadDataFetcher>(
-      new GvrGamepadDataFetcher(delegate_, display_id_));
+  if (!delegate_)
+    return nullptr;
+  return base::MakeUnique<GvrGamepadDataFetcher>(delegate_, display_id_);
 }
 
 GamepadSource GvrGamepadDataFetcher::Factory::source() {
@@ -55,7 +57,8 @@ GvrGamepadDataFetcher::GvrGamepadDataFetcher(GvrDelegate* delegate,
   if (!success)
     controller_api_.reset(nullptr);
 
-  user_prefs_.reset(new gvr::UserPrefs(gvr_api->GetUserPrefs().cobj()));
+  // TODO(bajones): Monitor changes to the controller handedness.
+  handedness_ = gvr_api->GetUserPrefs().GetControllerHandedness();
 }
 
 GvrGamepadDataFetcher::~GvrGamepadDataFetcher() {}
@@ -89,16 +92,14 @@ void GvrGamepadDataFetcher::GetGamepadData(bool devices_changed_hint) {
     pad.axesLength = 2;
 
     pad.displayId = display_id_;
+
+    pad.hand = (handedness_ == GVR_CONTROLLER_RIGHT_HANDED) ? GamepadHandRight
+                                                            : GamepadHandLeft;
   }
 
   controller_state_.Update(*controller_api_);
 
   pad.timestamp = controller_state_.GetLastOrientationTimestamp();
-
-  // TODO: Query from API if avaialable.
-  gvr::ControllerHandedness handedness = user_prefs_->GetControllerHandedness();
-  pad.hand = (handedness == GVR_CONTROLLER_RIGHT_HANDED) ? GamepadHandRight
-                                                         : GamepadHandLeft;
 
   if (controller_state_.IsTouching()) {
     gvr_vec2f touch_position = controller_state_.GetTouchPos();

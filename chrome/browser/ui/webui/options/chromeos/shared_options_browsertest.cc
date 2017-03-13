@@ -6,13 +6,16 @@
 
 #include "base/compiler_specific.h"
 #include "base/macros.h"
+#include "base/memory/ptr_util.h"
 #include "base/strings/stringprintf.h"
+#include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/chromeos/login/login_manager_test.h"
 #include "chrome/browser/chromeos/login/startup_utils.h"
 #include "chrome/browser/chromeos/login/ui/user_adding_screen.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
 #include "chrome/browser/chromeos/settings/stub_cros_settings_provider.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/signin/signin_manager_factory.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
@@ -26,6 +29,8 @@
 #include "components/prefs/pref_service.h"
 #include "components/signin/core/browser/signin_manager.h"
 #include "components/user_manager/user_manager.h"
+#include "content/public/browser/notification_service.h"
+#include "content/public/browser/notification_source.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/test_utils.h"
@@ -92,10 +97,12 @@ class SharedOptionsTest : public LoginManagerTest {
  public:
   SharedOptionsTest()
       : LoginManagerTest(false),
-        device_settings_provider_(NULL),
+        stub_settings_provider_(base::MakeUnique<StubCrosSettingsProvider>()),
+        stub_settings_provider_ptr_(static_cast<StubCrosSettingsProvider*>(
+            stub_settings_provider_.get())),
         test_owner_account_id_(AccountId::FromUserEmail(kTestOwner)),
         test_non_owner_account_id_(AccountId::FromUserEmail(kTestNonOwner)) {
-    stub_settings_provider_.Set(kDeviceOwner, base::StringValue(kTestOwner));
+    stub_settings_provider_->Set(kDeviceOwner, base::StringValue(kTestOwner));
   }
 
   ~SharedOptionsTest() override {}
@@ -107,15 +114,21 @@ class SharedOptionsTest : public LoginManagerTest {
 
     // Add the stub settings provider, moving the device settings provider
     // behind it so our stub takes precedence.
-    device_settings_provider_ = settings->GetProvider(kDeviceOwner);
-    settings->RemoveSettingsProvider(device_settings_provider_);
-    settings->AddSettingsProvider(&stub_settings_provider_);
-    settings->AddSettingsProvider(device_settings_provider_);
+    std::unique_ptr<CrosSettingsProvider> device_settings_provider =
+        settings->RemoveSettingsProvider(settings->GetProvider(kDeviceOwner));
+    settings->AddSettingsProvider(std::move(stub_settings_provider_));
+    settings->AddSettingsProvider(std::move(device_settings_provider));
+
+    // Notify ChromeUserManager of ownership change.
+    content::NotificationService::current()->Notify(
+        chrome::NOTIFICATION_OWNERSHIP_STATUS_CHANGED,
+        content::Source<SharedOptionsTest>(this),
+        content::NotificationService::NoDetails());
   }
 
   void TearDownOnMainThread() override {
     CrosSettings* settings = CrosSettings::Get();
-    settings->RemoveSettingsProvider(&stub_settings_provider_);
+    settings->RemoveSettingsProvider(stub_settings_provider_ptr_);
     LoginManagerTest::TearDownOnMainThread();
   }
 
@@ -123,6 +136,7 @@ class SharedOptionsTest : public LoginManagerTest {
   void CheckOptionsUI(const user_manager::User* user,
                       bool is_owner,
                       bool is_primary) {
+    ASSERT_NE(nullptr, user);
     Browser* browser = CreateBrowserForUser(user);
     content::WebContents* contents =
         browser->tab_strip_model()->GetActiveWebContents();
@@ -131,7 +145,7 @@ class SharedOptionsTest : public LoginManagerTest {
       bool disabled = !is_owner && kPrefTests[i].owner_only;
       if (strcmp(kPrefTests[i].pref_name, kSystemTimezone) == 0) {
         disabled = ProfileHelper::Get()
-                       ->GetProfileByUserUnsafe(user)
+                       ->GetProfileByUser(user)
                        ->GetPrefs()
                        ->GetBoolean(prefs::kResolveTimezoneByGeolocation);
       }
@@ -147,10 +161,10 @@ class SharedOptionsTest : public LoginManagerTest {
 
   // Creates a browser and navigates to the Settings page.
   Browser* CreateBrowserForUser(const user_manager::User* user) {
-    Profile* profile = ProfileHelper::Get()->GetProfileByUserUnsafe(user);
-    SigninManagerFactory::GetForProfile(profile)->
-        SetAuthenticatedAccountInfo(GetGaiaIDForUserID(user->email()),
-                                    user->email());
+    Profile* profile = ProfileHelper::Get()->GetProfileByUser(user);
+    SigninManagerFactory::GetForProfile(profile)->SetAuthenticatedAccountInfo(
+        GetGaiaIDForUserID(user->GetAccountId().GetUserEmail()),
+        user->GetAccountId().GetUserEmail());
 
     ui_test_utils::BrowserAddedObserver observer;
     Browser* browser = CreateBrowser(profile);
@@ -246,8 +260,8 @@ class SharedOptionsTest : public LoginManagerTest {
   void CheckAccountsOverlay(content::WebContents* contents, bool is_owner) {
     // Set cros.accounts.allowGuest to false so we can test the accounts list.
     // This has to be done after the PRE_* test or we can't add the owner.
-    stub_settings_provider_.Set(
-        kAccountsPrefAllowNewUser, base::FundamentalValue(false));
+    stub_settings_provider_ptr_->Set(kAccountsPrefAllowNewUser,
+                                     base::FundamentalValue(false));
 
     bool success;
     std::string js_expression = base::StringPrintf(
@@ -270,8 +284,8 @@ class SharedOptionsTest : public LoginManagerTest {
         (is_owner ? "owner." : "non-owner.");
   }
 
-  StubAccountSettingsProvider stub_settings_provider_;
-  CrosSettingsProvider* device_settings_provider_;
+  std::unique_ptr<CrosSettingsProvider> stub_settings_provider_;
+  StubCrosSettingsProvider* stub_settings_provider_ptr_;
 
   const AccountId test_owner_account_id_;
   const AccountId test_non_owner_account_id_;
@@ -330,9 +344,9 @@ IN_PROC_BROWSER_TEST_F(SharedOptionsTest, ScreenLockPreferencePrimary) {
       manager->FindUser(test_non_owner_account_id_);
 
   PrefService* prefs1 =
-      ProfileHelper::Get()->GetProfileByUserUnsafe(user1)->GetPrefs();
+      ProfileHelper::Get()->GetProfileByUser(user1)->GetPrefs();
   PrefService* prefs2 =
-      ProfileHelper::Get()->GetProfileByUserUnsafe(user2)->GetPrefs();
+      ProfileHelper::Get()->GetProfileByUser(user2)->GetPrefs();
 
   // Set both users' preference to false, then change the secondary user's to
   // true. We'll do the opposite in the next test. Doesn't provide 100% coverage
@@ -402,9 +416,9 @@ IN_PROC_BROWSER_TEST_F(SharedOptionsTest, ScreenLockPreferenceSecondary) {
       manager->FindUser(test_non_owner_account_id_);
 
   PrefService* prefs1 =
-      ProfileHelper::Get()->GetProfileByUserUnsafe(user1)->GetPrefs();
+      ProfileHelper::Get()->GetProfileByUser(user1)->GetPrefs();
   PrefService* prefs2 =
-      ProfileHelper::Get()->GetProfileByUserUnsafe(user2)->GetPrefs();
+      ProfileHelper::Get()->GetProfileByUser(user2)->GetPrefs();
 
   // Set both users' preference to true, then change the secondary user's to
   // false.

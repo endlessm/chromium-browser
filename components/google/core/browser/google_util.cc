@@ -17,6 +17,7 @@
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/google/core/browser/google_switches.h"
+#include "components/google/core/browser/google_tld_list.h"
 #include "components/google/core/browser/google_url_tracker.h"
 #include "components/url_formatter/url_fixer.h"
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
@@ -32,6 +33,7 @@
 #define LINKDOCTOR_SERVER_REQUEST_URL ""
 #endif
 
+namespace google_util {
 
 // Helpers --------------------------------------------------------------------
 
@@ -43,26 +45,36 @@ bool IsPathHomePageBase(base::StringPiece path) {
   return (path == "/") || (path == "/webhp");
 }
 
-// True if |host| is "[www.]<domain_in_lower_case>.<TLD>" with a valid TLD. If
-// |subdomain_permission| is ALLOW_SUBDOMAIN, we check against host
-// "*.<domain_in_lower_case>.<TLD>" instead.
+// True if the given canonical |host| is "[www.]<domain_in_lower_case>.<TLD>"
+// with a valid TLD. If |subdomain_permission| is ALLOW_SUBDOMAIN, we check
+// against host "*.<domain_in_lower_case>.<TLD>" instead. Will return the TLD
+// string in |tld|, if specified and the |host| can be parsed.
 bool IsValidHostName(base::StringPiece host,
                      base::StringPiece domain_in_lower_case,
-                     google_util::SubdomainPermission subdomain_permission) {
-  size_t tld_length = net::registry_controlled_domains::GetRegistryLength(
-      host,
-      net::registry_controlled_domains::EXCLUDE_UNKNOWN_REGISTRIES,
-      net::registry_controlled_domains::EXCLUDE_PRIVATE_REGISTRIES);
+                     SubdomainPermission subdomain_permission,
+                     base::StringPiece* tld) {
+  // Fast path to avoid searching the registry set.
+  if (host.find(domain_in_lower_case) == base::StringPiece::npos)
+    return false;
+
+  size_t tld_length =
+      net::registry_controlled_domains::GetCanonicalHostRegistryLength(
+          host, net::registry_controlled_domains::EXCLUDE_UNKNOWN_REGISTRIES,
+          net::registry_controlled_domains::EXCLUDE_PRIVATE_REGISTRIES);
   if ((tld_length == 0) || (tld_length == std::string::npos))
     return false;
 
   // Removes the tld and the preceding dot.
   base::StringPiece host_minus_tld =
       host.substr(0, host.length() - tld_length - 1);
+
+  if (tld)
+    *tld = host.substr(host.length() - tld_length);
+
   if (base::LowerCaseEqualsASCII(host_minus_tld, domain_in_lower_case))
     return true;
 
-  if (subdomain_permission == google_util::ALLOW_SUBDOMAIN) {
+  if (subdomain_permission == ALLOW_SUBDOMAIN) {
     std::string dot_domain(".");
     domain_in_lower_case.AppendToString(&dot_domain);
     return base::EndsWith(host_minus_tld, dot_domain,
@@ -77,16 +89,27 @@ bool IsValidHostName(base::StringPiece host,
 // True if |url| is a valid URL with HTTP or HTTPS scheme. If |port_permission|
 // is DISALLOW_NON_STANDARD_PORTS, this also requires |url| to use the standard
 // port for its scheme (80 for HTTP, 443 for HTTPS).
-bool IsValidURL(const GURL& url, google_util::PortPermission port_permission) {
+bool IsValidURL(const GURL& url, PortPermission port_permission) {
   return url.is_valid() && url.SchemeIsHTTPOrHTTPS() &&
-      (url.port().empty() ||
-       (port_permission == google_util::ALLOW_NON_STANDARD_PORTS));
+         (url.port().empty() || (port_permission == ALLOW_NON_STANDARD_PORTS));
+}
+
+bool IsCanonicalHostGoogleHostname(base::StringPiece canonical_host,
+                                   SubdomainPermission subdomain_permission) {
+  const GURL& base_url(CommandLineGoogleBaseURL());
+  if (base_url.is_valid() && (canonical_host == base_url.host_piece()))
+    return true;
+
+  base::StringPiece tld;
+  if (!IsValidHostName(canonical_host, "google", subdomain_permission, &tld))
+    return false;
+
+  CR_DEFINE_STATIC_LOCAL(std::set<std::string>, google_tlds,
+                         ({GOOGLE_TLD_LIST}));
+  return base::ContainsKey(google_tlds, tld.as_string());
 }
 
 }  // namespace
-
-
-namespace google_util {
 
 // Global functions -----------------------------------------------------------
 
@@ -180,18 +203,16 @@ bool StartsWithCommandLineGoogleBaseURL(const GURL& url) {
 
 bool IsGoogleHostname(base::StringPiece host,
                       SubdomainPermission subdomain_permission) {
-  const GURL& base_url(CommandLineGoogleBaseURL());
-  if (base_url.is_valid() && (host == base_url.host_piece()))
-    return true;
-
-  return IsValidHostName(host, "google", subdomain_permission);
+  url::CanonHostInfo host_info;
+  return IsCanonicalHostGoogleHostname(net::CanonicalizeHost(host, &host_info),
+                                       subdomain_permission);
 }
 
 bool IsGoogleDomainUrl(const GURL& url,
                        SubdomainPermission subdomain_permission,
                        PortPermission port_permission) {
   return IsValidURL(url, port_permission) &&
-      IsGoogleHostname(url.host(), subdomain_permission);
+         IsCanonicalHostGoogleHostname(url.host_piece(), subdomain_permission);
 }
 
 bool IsGoogleHomePageUrl(const GURL& url) {
@@ -226,7 +247,8 @@ bool IsYoutubeDomainUrl(const GURL& url,
                         SubdomainPermission subdomain_permission,
                         PortPermission port_permission) {
   return IsValidURL(url, port_permission) &&
-      IsValidHostName(url.host_piece(), "youtube", subdomain_permission);
+      IsValidHostName(url.host_piece(), "youtube", subdomain_permission,
+                      nullptr);
 }
 
 }  // namespace google_util

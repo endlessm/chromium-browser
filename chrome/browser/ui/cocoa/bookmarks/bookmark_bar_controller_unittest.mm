@@ -24,7 +24,7 @@
 #import "chrome/browser/ui/cocoa/bookmarks/bookmark_bar_view_cocoa.h"
 #import "chrome/browser/ui/cocoa/bookmarks/bookmark_button.h"
 #import "chrome/browser/ui/cocoa/bookmarks/bookmark_button_cell.h"
-#include "chrome/browser/ui/cocoa/cocoa_profile_test.h"
+#include "chrome/browser/ui/cocoa/test/cocoa_profile_test.h"
 #import "chrome/browser/ui/cocoa/view_resizer_pong.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/test/base/testing_profile.h"
@@ -32,7 +32,7 @@
 #include "components/bookmarks/browser/bookmark_utils.h"
 #include "components/bookmarks/common/bookmark_pref_names.h"
 #include "components/bookmarks/test/bookmark_test_helpers.h"
-#include "components/syncable_prefs/testing_pref_service_syncable.h"
+#include "components/sync_preferences/testing_pref_service_syncable.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #import "testing/gtest_mac.h"
 #include "testing/platform_test.h"
@@ -1568,6 +1568,46 @@ TEST_F(BookmarkBarControllerTest, ShrinkOrHideView) {
   EXPECT_TRUE([view isHidden]);
 }
 
+// Simulate coarse browser window width change and ensure that the bookmark
+// buttons that should be visible are visible.
+TEST_F(BookmarkBarControllerTest, RedistributeButtonsOnBarAsNeeded) {
+  // Hide the apps shortcut.
+  profile()->GetPrefs()->SetBoolean(
+      bookmarks::prefs::kShowAppsShortcutInBookmarkBar, false);
+  ASSERT_TRUE([bar_ appsPageShortcutButtonIsHidden]);
+
+  // Add three buttons to the bookmark bar.
+  BookmarkModel* model = BookmarkModelFactory::GetForBrowserContext(profile());
+  const BookmarkNode* root = model->bookmark_bar_node();
+  // Make long labels to test coarse resizes. After 16 digits, text eliding
+  // starts.
+  const std::string model_string(
+      "0000000000000000 1111111111111111 2222222222222222 ");
+  bookmarks::test::AddNodesFromModelString(model, root, model_string);
+  NSRect frame = [[bar_ view] frame];
+  frame.size.width = 400;  // Typical minimum browser size.
+  [[bar_ view] setFrame:frame];
+  EXPECT_EQ(2, [bar_ displayedButtonCount]);
+
+  {
+    base::mac::ScopedNSAutoreleasePool pool;
+    frame.size.width = 800;
+    [[bar_ view] setFrame:frame];
+    EXPECT_EQ(3, [bar_ displayedButtonCount]);
+
+    const BookmarkNode* last = model->bookmark_bar_node()->GetChild(2);
+    EXPECT_TRUE(last);
+    [bar_ startPulsingBookmarkNode:last];
+
+    frame.size.width = 400;
+    [[bar_ view] setFrame:frame];
+    EXPECT_EQ(2, [bar_ displayedButtonCount]);
+  }
+
+  // Regression test for http://crbug.com/616051.
+  [bar_ stopPulsingBookmarkNode];
+}
+
 // Simiulate browser window width change and ensure that the bookmark buttons
 // that should be visible are visible.
 // Appears to fail on Mac 10.11 bot on the waterfall; http://crbug.com/612640.
@@ -1690,7 +1730,7 @@ TEST_F(BookmarkBarControllerTest, BookmarksWithoutAppsPageShortcut) {
 
 TEST_F(BookmarkBarControllerTest, ManagedShowAppsShortcutInBookmarksBar) {
   // By default the pref is not managed and the apps shortcut is shown.
-  syncable_prefs::TestingPrefServiceSyncable* prefs =
+  sync_preferences::TestingPrefServiceSyncable* prefs =
       profile()->GetTestingPrefService();
   EXPECT_FALSE(prefs->IsManagedPreference(
       bookmarks::prefs::kShowAppsShortcutInBookmarkBar));
@@ -2117,11 +2157,11 @@ TEST_F(BookmarkBarControllerDragDropTest, PulseButton) {
                                            ASCIIToUTF16("title"), gurl);
 
   BookmarkButton* button = [[bar_ buttons] objectAtIndex:0];
-  EXPECT_FALSE([button isContinuousPulsing]);
+  EXPECT_FALSE([button isPulseStuckOn]);
   [bar_ startPulsingBookmarkNode:node];
-  EXPECT_TRUE([button isContinuousPulsing]);
+  EXPECT_TRUE([button isPulseStuckOn]);
   [bar_ stopPulsingBookmarkNode];
-  EXPECT_FALSE([button isContinuousPulsing]);
+  EXPECT_FALSE([button isPulseStuckOn]);
 
   // Pulsing a node within a folder should pulse the folder button.
   const BookmarkNode* folder =
@@ -2130,26 +2170,26 @@ TEST_F(BookmarkBarControllerDragDropTest, PulseButton) {
       model->AddURL(folder, folder->child_count(), ASCIIToUTF16("inner"), gurl);
 
   BookmarkButton* folder_button = [[bar_ buttons] objectAtIndex:1];
-  EXPECT_FALSE([folder_button isContinuousPulsing]);
+  EXPECT_FALSE([folder_button isPulseStuckOn]);
   [bar_ startPulsingBookmarkNode:inner];
-  EXPECT_TRUE([folder_button isContinuousPulsing]);
+  EXPECT_TRUE([folder_button isPulseStuckOn]);
   [bar_ stopPulsingBookmarkNode];
-  EXPECT_FALSE([folder_button isContinuousPulsing]);
+  EXPECT_FALSE([folder_button isPulseStuckOn]);
 
   // Stop pulsing if the node moved.
   [bar_ startPulsingBookmarkNode:inner];
-  EXPECT_TRUE([folder_button isContinuousPulsing]);
+  EXPECT_TRUE([folder_button isPulseStuckOn]);
   const BookmarkNode* folder2 =
       model->AddFolder(root, root->child_count(), ASCIIToUTF16("folder2"));
   model->Move(inner, folder2, 0);
-  EXPECT_FALSE([folder_button isContinuousPulsing]);
+  EXPECT_FALSE([folder_button isPulseStuckOn]);
 
   // Removing a pulsing folder is allowed.
   [bar_ startPulsingBookmarkNode:inner];
   BookmarkButton* folder2_button = [[bar_ buttons] objectAtIndex:2];
-  EXPECT_TRUE([folder2_button isContinuousPulsing]);
+  EXPECT_TRUE([folder2_button isPulseStuckOn]);
   model->Remove(folder2);
-  EXPECT_FALSE([folder2_button isContinuousPulsing]);
+  EXPECT_FALSE([folder2_button isPulseStuckOn]);
   [bar_ stopPulsingBookmarkNode];  // Should not crash.
 }
 

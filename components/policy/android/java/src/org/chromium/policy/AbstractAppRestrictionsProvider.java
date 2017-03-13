@@ -25,7 +25,7 @@ public abstract class AbstractAppRestrictionsProvider extends PolicyProvider {
     private static final String TAG = "policy";
 
     /** {@link Bundle} holding the restrictions to be used during tests. */
-    private static Bundle sTestRestrictions = null;
+    private static Bundle sTestRestrictions;
 
     private final Context mContext;
     private final BroadcastReceiver mAppRestrictionsChangedReceiver = new BroadcastReceiver() {
@@ -124,7 +124,8 @@ public abstract class AbstractAppRestrictionsProvider extends PolicyProvider {
      */
     @VisibleForTesting
     public static void setTestRestrictions(Bundle policies) {
-        Log.d(TAG, "Test Restrictions: %s", policies.keySet().toArray());
+        Log.d(TAG, "Test Restrictions: %s",
+                (policies == null ? null : policies.keySet().toArray()));
         sTestRestrictions = policies;
     }
 }

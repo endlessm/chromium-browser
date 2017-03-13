@@ -21,14 +21,20 @@
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "base/values.h"
-#include "components/sync/api/attachments/attachment_id.h"
 #include "components/sync/base/weak_handle.h"
+#include "components/sync/model/attachments/attachment_id.h"
 #include "components/sync/syncable/dir_open_result.h"
 #include "components/sync/syncable/entry.h"
 #include "components/sync/syncable/entry_kernel.h"
 #include "components/sync/syncable/metahandle_set.h"
 #include "components/sync/syncable/parent_child_index.h"
 #include "components/sync/syncable/syncable_delete_journal.h"
+
+namespace base {
+namespace trace_event {
+class ProcessMemoryDump;
+}
+}
 
 namespace syncer {
 
@@ -95,6 +101,8 @@ class Directory {
     // Whether a valid progress marker exists for |model_type|.
     bool HasEmptyDownloadProgress(ModelType model_type);
 
+    size_t EstimateMemoryUsage() const;
+
     // Last sync timestamp fetched from the server.
     sync_pb::DataTypeProgressMarker download_progress[MODEL_TYPE_COUNT];
     // Sync-side transaction version per data type. Monotonically incremented
@@ -109,7 +117,7 @@ class Directory {
     std::string store_birthday;
     // The serialized bag of chips we were given by the server. Contents are
     // opaque to the client. This is the serialization of a message of type
-    // ChipBag defined in sync.proto. It can contains NULL characters.
+    // ChipBag defined in sync.proto. It can contains null characters.
     std::string bag_of_chips;
     // The per-datatype context.
     sync_pb::DataTypeContext datatype_context[MODEL_TYPE_COUNT];
@@ -143,7 +151,7 @@ class Directory {
   };
 
   struct Kernel {
-    // |delegate| must not be NULL.  |transaction_observer| must be
+    // |delegate| must not be null.  |transaction_observer| must be
     // initialized.
     Kernel(const std::string& name,
            const KernelLoadInfo& info,
@@ -235,7 +243,7 @@ class Directory {
     // The next metahandle is protected by kernel mutex.
     int64_t next_metahandle;
 
-    // The delegate for directory change events.  Must not be NULL.
+    // The delegate for directory change events.  Must not be null.
     DirectoryChangeDelegate* const delegate;
 
     // The transaction observer.
@@ -243,7 +251,7 @@ class Directory {
   };
 
   // Does not take ownership of |encryptor|.
-  // |report_unrecoverable_error_function| may be NULL.
+  // |report_unrecoverable_error_function| may be null.
   // Takes ownership of |store|.
   Directory(
       DirectoryBackingStore* store,
@@ -253,7 +261,7 @@ class Directory {
       Cryptographer* cryptographer);
   virtual ~Directory();
 
-  // Does not take ownership of |delegate|, which must not be NULL.
+  // Does not take ownership of |delegate|, which must not be null.
   // Starts sending events to |delegate| if the returned result is
   // OPENED.  Note that events to |delegate| may be sent from *any*
   // thread.  |transaction_observer| must be initialized.
@@ -266,7 +274,7 @@ class Directory {
   // Generates next client ID based on a randomly generated GUID.
   syncable::Id NextId();
 
-  bool good() const { return NULL != kernel_; }
+  bool good() const { return nullptr != kernel_; }
 
   // The download progress is an opaque token provided by the sync server
   // to indicate the continuation state of the next GetUpdates operation.
@@ -280,6 +288,9 @@ class Directory {
 
   // Gets the total number of entries in the directory.
   size_t GetEntriesCount() const;
+
+  // Adds memory statistics to |pmd| for chrome://tracing.
+  void OnMemoryDump(base::trace_event::ProcessMemoryDump* pmd);
 
   // Gets/Increments transaction version of a model type. Must be called when
   // holding kernel mutex.
@@ -370,7 +381,7 @@ class Directory {
   syncable::Id GetPredecessorId(EntryKernel* e);
   syncable::Id GetSuccessorId(EntryKernel* e);
 
-  // Places |e| as a successor to |predecessor|.  If |predecessor| is NULL,
+  // Places |e| as a successor to |predecessor|.  If |predecessor| is null,
   // |e| will be placed as the left-most item in its folder.
   //
   // Both |e| and |predecessor| must be valid entries under the same parent.
@@ -453,11 +464,9 @@ class Directory {
   // Note: "Purge" is just meant to distinguish from "deleting" entries, which
   // means something different in the syncable namespace.
   // WARNING! This can be real slow, as it iterates over all entries.
-  // WARNING! Performs synchronous I/O.
-  // Returns: true on success, false if an error was encountered.
-  virtual bool PurgeEntriesWithTypeIn(ModelTypeSet disabled_types,
-                                      ModelTypeSet types_to_journal,
-                                      ModelTypeSet types_to_unapply);
+  void PurgeEntriesWithTypeIn(ModelTypeSet disabled_types,
+                              ModelTypeSet types_to_journal,
+                              ModelTypeSet types_to_unapply);
 
   // Resets the base_versions and server_versions of all synced entities
   // associated with |type| to 1.
@@ -517,6 +526,12 @@ class Directory {
   // number of classes that call these should be limited.
   Kernel* kernel();
   const Kernel* kernel() const;
+
+  // Delete the directory database files from the sync data folder to cleanup
+  // backend data. This should happen the first time sync is enabled for a user,
+  // to prevent accidentally reusing old sync data, as well as shutdown when the
+  // user is no longer syncing.
+  static void DeleteDirectoryFiles(const base::FilePath& directory_path);
 
  private:
   friend class SyncableDirectoryTest;

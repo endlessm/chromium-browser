@@ -4,10 +4,12 @@
 
 #include "core/dom/Range.h"
 
-#include "bindings/core/v8/ExceptionStatePlaceholder.h"
+#include "bindings/core/v8/ExceptionState.h"
 #include "core/dom/Element.h"
 #include "core/dom/NodeList.h"
 #include "core/dom/Text.h"
+#include "core/editing/EditingTestBase.h"
+#include "core/frame/Settings.h"
 #include "core/html/HTMLBodyElement.h"
 #include "core/html/HTMLDocument.h"
 #include "core/html/HTMLElement.h"
@@ -20,30 +22,10 @@
 
 namespace blink {
 
-class RangeTest : public ::testing::Test {
- protected:
-  void SetUp() override;
-
-  HTMLDocument& document() const;
-
- private:
-  Persistent<HTMLDocument> m_document;
-};
-
-void RangeTest::SetUp() {
-  m_document = HTMLDocument::create();
-  HTMLHtmlElement* html = HTMLHtmlElement::create(*m_document);
-  html->appendChild(HTMLBodyElement::create(*m_document));
-  m_document->appendChild(html);
-}
-
-HTMLDocument& RangeTest::document() const {
-  return *m_document;
-}
+class RangeTest : public EditingTestBase {};
 
 TEST_F(RangeTest, createAdjustedToTreeScopeWithPositionInShadowTree) {
-  document().body()->setInnerHTML("<div><select><option>012</option></div>",
-                                  ASSERT_NO_EXCEPTION);
+  document().body()->setInnerHTML("<div><select><option>012</option></div>");
   Element* const selectElement = document().querySelector("select");
   const Position& position =
       Position::afterNode(selectElement->userAgentShadowRoot());
@@ -54,8 +36,34 @@ TEST_F(RangeTest, createAdjustedToTreeScopeWithPositionInShadowTree) {
   EXPECT_TRUE(range->collapsed());
 }
 
+TEST_F(RangeTest, extractContentsWithDOMMutationEvent) {
+  document().body()->setInnerHTML("<span><b>abc</b>def</span>");
+  document().settings()->setScriptEnabled(true);
+  Element* const scriptElement = document().createElement("script");
+  scriptElement->setTextContent(
+      "let count = 0;"
+      "const span = document.querySelector('span');"
+      "span.addEventListener('DOMSubtreeModified', () => {"
+      "  if (++count > 1) return;"
+      "  span.firstChild.textContent = 'ABC';"
+      "  span.lastChild.textContent = 'DEF';"
+      "});");
+  document().body()->appendChild(scriptElement);
+
+  Element* const spanElement = document().querySelector("span");
+  Range* const range =
+      Range::create(document(), spanElement, 0, spanElement, 1);
+  Element* const result = document().createElement("div");
+  result->appendChild(range->extractContents(ASSERT_NO_EXCEPTION));
+
+  EXPECT_EQ("<b>abc</b>", result->innerHTML())
+      << "DOM mutation event handler should not affect result.";
+  EXPECT_EQ("<span>DEF</span>", spanElement->outerHTML())
+      << "DOM mutation event handler should be executed.";
+}
+
 TEST_F(RangeTest, SplitTextNodeRangeWithinText) {
-  document().body()->setInnerHTML("1234", ASSERT_NO_EXCEPTION);
+  document().body()->setInnerHTML("1234");
   Text* oldText = toText(document().body()->firstChild());
 
   Range* range04 = Range::create(document(), oldText, 0, oldText, 4);
@@ -96,8 +104,7 @@ TEST_F(RangeTest, SplitTextNodeRangeWithinText) {
 TEST_F(RangeTest, SplitTextNodeRangeOutsideText) {
   document().body()->setInnerHTML(
       "<span id=\"outer\">0<span id=\"inner-left\">1</span>SPLITME<span "
-      "id=\"inner-right\">2</span>3</span>",
-      ASSERT_NO_EXCEPTION);
+      "id=\"inner-right\">2</span>3</span>");
 
   Element* outer = document().getElementById(AtomicString::fromUTF8("outer"));
   Element* innerLeft =
@@ -159,8 +166,8 @@ TEST_F(RangeTest, SplitTextNodeRangeOutsideText) {
 }
 
 TEST_F(RangeTest, updateOwnerDocumentIfNeeded) {
-  Element* foo = document().createElement("foo", ASSERT_NO_EXCEPTION);
-  Element* bar = document().createElement("bar", ASSERT_NO_EXCEPTION);
+  Element* foo = document().createElement("foo");
+  Element* bar = document().createElement("bar");
   foo->appendChild(bar);
 
   Range* range = Range::create(document(), Position(bar, 0), Position(foo, 1));
@@ -177,8 +184,7 @@ TEST_F(RangeTest, updateOwnerDocumentIfNeeded) {
 // Regression test for crbug.com/639184
 TEST_F(RangeTest, NotMarkedValidByIrrelevantTextInsert) {
   document().body()->setInnerHTML(
-      "<div><span id=span1>foo</span>bar<span id=span2>baz</span></div>",
-      ASSERT_NO_EXCEPTION);
+      "<div><span id=span1>foo</span>bar<span id=span2>baz</span></div>");
 
   Element* div = document().querySelector("div");
   Element* span1 = document().getElementById("span1");
@@ -187,7 +193,7 @@ TEST_F(RangeTest, NotMarkedValidByIrrelevantTextInsert) {
 
   Range* range = Range::create(document(), span2, 0, div, 3);
 
-  div->removeChild(span1, ASSERT_NO_EXCEPTION);
+  div->removeChild(span1);
   text->insertData(0, "bar", ASSERT_NO_EXCEPTION);
 
   EXPECT_TRUE(range->boundaryPointsValid());
@@ -200,8 +206,7 @@ TEST_F(RangeTest, NotMarkedValidByIrrelevantTextInsert) {
 // Regression test for crbug.com/639184
 TEST_F(RangeTest, NotMarkedValidByIrrelevantTextRemove) {
   document().body()->setInnerHTML(
-      "<div><span id=span1>foofoo</span>bar<span id=span2>baz</span></div>",
-      ASSERT_NO_EXCEPTION);
+      "<div><span id=span1>foofoo</span>bar<span id=span2>baz</span></div>");
 
   Element* div = document().querySelector("div");
   Element* span1 = document().getElementById("span1");
@@ -210,7 +215,7 @@ TEST_F(RangeTest, NotMarkedValidByIrrelevantTextRemove) {
 
   Range* range = Range::create(document(), span2, 0, div, 3);
 
-  div->removeChild(span1, ASSERT_NO_EXCEPTION);
+  div->removeChild(span1);
   text->deleteData(0, 3, ASSERT_NO_EXCEPTION);
 
   EXPECT_TRUE(range->boundaryPointsValid());

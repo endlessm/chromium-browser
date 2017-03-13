@@ -24,20 +24,20 @@ Polymer({
 
   behaviors: [
     Polymer.IronScrollTargetBehavior,
-    WebUIListenerBehavior,
   ],
 
   properties: {
-    // Used to display notices for profile sign-in status.
-    showSidebarFooter: Boolean,
-
-    hasSyncedResults: Boolean,
-
     // The id of the currently selected page.
-    selectedPage_: {type: String, observer: 'selectedPageChanged_'},
+    selectedPage_: {
+      type: String,
+      observer: 'selectedPageChanged_',
+    },
 
     // Whether domain-grouped history is enabled.
-    grouped_: {type: Boolean, reflectToAttribute: true},
+    grouped_: {
+      type: Boolean,
+      reflectToAttribute: true,
+    },
 
     /** @type {!QueryState} */
     queryState_: {
@@ -51,11 +51,14 @@ Polymer({
           queryingDisabled: false,
           _range: HistoryRange.ALL_TIME,
           searchTerm: '',
-          // TODO(calamity): Make history toolbar buttons change the offset
           groupedOffset: 0,
 
-          set range(val) { this._range = Number(val); },
-          get range() { return this._range; },
+          set range(val) {
+            this._range = Number(val);
+          },
+          get range() {
+            return this._range;
+          },
         };
       }
     },
@@ -72,9 +75,6 @@ Polymer({
       }
     },
 
-    // True if the window is narrow enough for the page to have a drawer.
-    hasDrawer_: Boolean,
-
     isUserSignedIn_: {
       type: Boolean,
       // Updated on synced-device-manager attach by chrome.sending
@@ -86,32 +86,61 @@ Polymer({
       type: Boolean,
       reflectToAttribute: true,
       notify: true,
-    }
+    },
+
+    showMenuPromo_: {
+      type: Boolean,
+      value: function() {
+        return loadTimeData.getBoolean('showMenuPromo');
+      },
+    },
+
+    // True if the window is narrow enough for the page to have a drawer.
+    hasDrawer_: {
+      type: Boolean,
+      observer: 'hasDrawerChanged_',
+    },
+
+    // Used to display notices for profile sign-in status.
+    showSidebarFooter: Boolean,
+
+    hasSyncedResults: Boolean,
   },
 
-  // TODO(calamity): Replace these event listeners with data bound properties.
   listeners: {
-    'cr-menu-tap': 'onMenuTap_',
-    'history-checkbox-select': 'checkboxSelected',
-    'unselect-all': 'unselectAll',
+    'cr-toolbar-menu-promo-close': 'onCrToolbarMenuPromoClose_',
+    'cr-toolbar-menu-promo-shown': 'onCrToolbarMenuPromoShown_',
+    'cr-toolbar-menu-tap': 'onCrToolbarMenuTap_',
     'delete-selected': 'deleteSelected',
+    'history-checkbox-select': 'checkboxSelected',
     'history-close-drawer': 'closeDrawer_',
     'history-view-changed': 'historyViewChanged_',
+    'opened-changed': 'onOpenedChanged_',
+    'unselect-all': 'unselectAll',
   },
 
-  /** @override */
-  ready: function() {
-    this.grouped_ = loadTimeData.getBoolean('groupByDomain');
+  /** @private {?function(!Event)} */
+  boundOnCanExecute_: null,
 
-    cr.ui.decorate('command', cr.ui.Command);
-    document.addEventListener('canExecute', this.onCanExecute_.bind(this));
-    document.addEventListener('command', this.onCommand_.bind(this));
-  },
+  /** @private {?function(!Event)} */
+  boundOnCommand_: null,
 
   /** @override */
   attached: function() {
-    this.addWebUIListener('sign-in-state-updated',
-                          this.updateSignInState.bind(this));
+    this.grouped_ = loadTimeData.getBoolean('groupByDomain');
+
+    cr.ui.decorate('command', cr.ui.Command);
+    this.boundOnCanExecute_ = this.onCanExecute_.bind(this);
+    this.boundOnCommand_ = this.onCommand_.bind(this);
+
+    document.addEventListener('canExecute', this.boundOnCanExecute_);
+    document.addEventListener('command', this.boundOnCommand_);
+  },
+
+  /** @override */
+  detached: function() {
+    document.removeEventListener('canExecute', this.boundOnCanExecute_);
+    document.removeEventListener('command', this.boundOnCommand_);
   },
 
   onFirstRender: function() {
@@ -130,7 +159,11 @@ Polymer({
     }
 
     // Lazily load the remainder of the UI.
-    md_history.ensureLazyLoaded();
+    md_history.ensureLazyLoaded().then(function() {
+      window.requestIdleCallback(function() {
+        document.fonts.load('bold 12px Roboto');
+      });
+    });
   },
 
   /** Overridden from IronScrollTargetBehavior */
@@ -140,10 +173,29 @@ Polymer({
   },
 
   /** @private */
-  onMenuTap_: function() {
-    var drawer = this.$$('#drawer');
-    if (drawer)
-      drawer.toggle();
+  onCrToolbarMenuPromoClose_: function() {
+    this.showMenuPromo_ = false;
+  },
+
+  /** @private */
+  onCrToolbarMenuPromoShown_: function() {
+    md_history.BrowserService.getInstance().menuPromoShown();
+  },
+
+  /** @private */
+  onCrToolbarMenuTap_: function() {
+    var drawer = /** @type {!CrDrawerElement} */ (this.$.drawer.get());
+    drawer.align = document.documentElement.dir == 'ltr' ? 'left' : 'right';
+    drawer.toggle();
+  },
+
+  /**
+   * @param {!CustomEvent} e
+   * @private
+   */
+  onOpenedChanged_: function(e) {
+    if (e.detail.value)
+      this.showMenuPromo_ = false;
   },
 
   /**
@@ -170,7 +222,9 @@ Polymer({
     toolbar.count = 0;
   },
 
-  deleteSelected: function() { this.$.history.deleteSelectedWithPrompt(); },
+  deleteSelected: function() {
+    this.$.history.deleteSelectedWithPrompt();
+  },
 
   /**
    * @param {HistoryQuery} info An object containing information about the
@@ -189,16 +243,19 @@ Polymer({
   /**
    * Shows and focuses the search bar in the toolbar.
    */
-  focusToolbarSearchField: function() { this.$.toolbar.showSearchField(); },
+  focusToolbarSearchField: function() {
+    this.$.toolbar.showSearchField();
+  },
 
   /**
    * @param {Event} e
    * @private
    */
   onCanExecute_: function(e) {
-    e = /** @type {cr.ui.CanExecuteEvent} */(e);
+    e = /** @type {cr.ui.CanExecuteEvent} */ (e);
     switch (e.command.id) {
       case 'find-command':
+      case 'toggle-grouped':
         e.canExecute = true;
         break;
       case 'slash-command':
@@ -219,23 +276,15 @@ Polymer({
       this.focusToolbarSearchField();
     if (e.command.id == 'delete-command')
       this.deleteSelected();
+    if (e.command.id == 'toggle-grouped')
+      this.grouped_ = !this.grouped_;
   },
 
   /**
    * @param {!Array<!ForeignSession>} sessionList Array of objects describing
    *     the sessions from other devices.
-   * @param {boolean} isTabSyncEnabled Is tab sync enabled for this profile?
    */
-  setForeignSessions: function(sessionList, isTabSyncEnabled) {
-    if (!isTabSyncEnabled) {
-      var syncedDeviceManagerElem =
-      /** @type {HistorySyncedDeviceManagerElement} */this
-          .$$('history-synced-device-manager');
-      if (syncedDeviceManagerElem)
-        syncedDeviceManagerElem.tabSyncDisabled();
-      return;
-    }
-
+  setForeignSessions: function(sessionList) {
     this.set('queryResult_.sessionList', sessionList);
   },
 
@@ -298,15 +347,24 @@ Polymer({
     // This allows the synced-device-manager to render so that it can be set as
     // the scroll target.
     requestAnimationFrame(function() {
-      // <iron-pages> can occasionally end up with no item selected during
-      // tests.
-      if (!this.$.content.selectedItem)
-        return;
-      this.scrollTarget =
-          this.$.content.selectedItem.getContentScrollTarget();
-      this._scrollHandler();
+      md_history.ensureLazyLoaded().then(function() {
+        // <iron-pages> can occasionally end up with no item selected during
+        // tests.
+        if (!this.$.content.selectedItem)
+          return;
+        this.scrollTarget =
+            this.$.content.selectedItem.getContentScrollTarget();
+        this._scrollHandler();
+      }.bind(this));
     }.bind(this));
     this.recordHistoryPageView_();
+  },
+
+  /** @private */
+  hasDrawerChanged_: function() {
+    var drawer = /** @type {?CrDrawerElement} */ (this.$.drawer.getIfExists());
+    if (!this.hasDrawer_ && drawer && drawer.open)
+      drawer.closeDrawer();
   },
 
   /**
@@ -319,13 +377,15 @@ Polymer({
    * @return {string}
    * @private
    */
-  getSelectedPage_: function(selectedPage, items) { return selectedPage; },
+  getSelectedPage_: function(selectedPage, items) {
+    return selectedPage;
+  },
 
   /** @private */
   closeDrawer_: function() {
-    var drawer = this.$$('#drawer');
-    if (drawer)
-      drawer.close();
+    var drawer = this.$.drawer.get();
+    if (drawer && drawer.open)
+      drawer.closeDrawer();
   },
 
   /** @private */
@@ -353,7 +413,7 @@ Polymer({
     }
 
     md_history.BrowserService.getInstance().recordHistogram(
-      'History.HistoryPageView', histogramValue, HistoryPageViewHistogram.END
-    );
+        'History.HistoryPageView', histogramValue,
+        HistoryPageViewHistogram.END);
   },
 });

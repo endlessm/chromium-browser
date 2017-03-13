@@ -46,23 +46,32 @@ class RTCVideoEncoderTest
         idle_waiter_(base::WaitableEvent::ResetPolicy::AUTOMATIC,
                      base::WaitableEvent::InitialState::NOT_SIGNALED) {}
 
+  media::MockVideoEncodeAccelerator* ExpectCreateInitAndDestroyVEA() {
+    // The VEA will be owned by the RTCVideoEncoder once
+    // factory.CreateVideoEncodeAccelerator() is called.
+    media::MockVideoEncodeAccelerator* mock_vea =
+        new media::MockVideoEncodeAccelerator();
+
+    EXPECT_CALL(*mock_gpu_factories_.get(), DoCreateVideoEncodeAccelerator())
+        .WillRepeatedly(Return(mock_vea));
+    EXPECT_CALL(*mock_vea, Initialize(_, _, _, _, _))
+        .WillOnce(Invoke(this, &RTCVideoEncoderTest::Initialize));
+    EXPECT_CALL(*mock_vea, UseOutputBitstreamBuffer(_)).Times(3);
+    EXPECT_CALL(*mock_vea, Destroy()).Times(1);
+    return mock_vea;
+  }
+
   void SetUp() override {
-    DVLOG(3) << __FUNCTION__;
+    DVLOG(3) << __func__;
     ASSERT_TRUE(encoder_thread_.Start());
-    mock_vea_ = new media::MockVideoEncodeAccelerator();
 
     EXPECT_CALL(*mock_gpu_factories_.get(), GetTaskRunner())
         .WillRepeatedly(Return(encoder_thread_.task_runner()));
-    EXPECT_CALL(*mock_gpu_factories_.get(), DoCreateVideoEncodeAccelerator())
-        .WillRepeatedly(Return(mock_vea_));
-    EXPECT_CALL(*mock_vea_, Initialize(_, _, _, _, _))
-        .WillOnce(Invoke(this, &RTCVideoEncoderTest::Initialize));
-    EXPECT_CALL(*mock_vea_, UseOutputBitstreamBuffer(_)).Times(3);
-    EXPECT_CALL(*mock_vea_, Destroy()).Times(1);
+    mock_vea_ = ExpectCreateInitAndDestroyVEA();
   }
 
   void TearDown() override {
-    DVLOG(3) << __FUNCTION__;
+    DVLOG(3) << __func__;
     EXPECT_TRUE(encoder_thread_.IsRunning());
     RunUntilIdle();
     rtc_encoder_->Release();
@@ -71,7 +80,7 @@ class RTCVideoEncoderTest
   }
 
   void RunUntilIdle() {
-    DVLOG(3) << __FUNCTION__;
+    DVLOG(3) << __func__;
     encoder_thread_.task_runner()->PostTask(
         FROM_HERE, base::Bind(&base::WaitableEvent::Signal,
                               base::Unretained(&idle_waiter_)));
@@ -79,7 +88,7 @@ class RTCVideoEncoderTest
   }
 
   void CreateEncoder(webrtc::VideoCodecType codec_type) {
-    DVLOG(3) << __FUNCTION__;
+    DVLOG(3) << __func__;
     rtc_encoder_ = base::MakeUnique<RTCVideoEncoder>(codec_type,
                                                      mock_gpu_factories_.get());
   }
@@ -90,7 +99,7 @@ class RTCVideoEncoderTest
                   media::VideoCodecProfile output_profile,
                   uint32_t initial_bitrate,
                   media::VideoEncodeAccelerator::Client* client) {
-    DVLOG(3) << __FUNCTION__;
+    DVLOG(3) << __func__;
     client->RequireBitstreamBuffers(0, input_visible_size,
                                     input_visible_size.GetArea());
     return true;
@@ -116,7 +125,7 @@ class RTCVideoEncoderTest
 
   void VerifyEncodedFrame(const scoped_refptr<media::VideoFrame>& frame,
                           bool force_keyframe) {
-    DVLOG(3) << __FUNCTION__;
+    DVLOG(3) << __func__;
     EXPECT_EQ(kInputFrameWidth, frame->visible_rect().width());
     EXPECT_EQ(kInputFrameHeight, frame->visible_rect().height());
     EXPECT_EQ(kInputFrameFillY,
@@ -142,6 +151,17 @@ TEST_P(RTCVideoEncoderTest, CreateAndInitSucceeds) {
   CreateEncoder(codec_type);
   webrtc::VideoCodec codec = GetDefaultCodec();
   codec.codecType = codec_type;
+  EXPECT_EQ(WEBRTC_VIDEO_CODEC_OK, rtc_encoder_->InitEncode(&codec, 1, 12345));
+}
+
+TEST_P(RTCVideoEncoderTest, RepeatedInitSucceeds) {
+  const webrtc::VideoCodecType codec_type = GetParam();
+  CreateEncoder(codec_type);
+  webrtc::VideoCodec codec = GetDefaultCodec();
+  codec.codecType = codec_type;
+  EXPECT_EQ(WEBRTC_VIDEO_CODEC_OK, rtc_encoder_->InitEncode(&codec, 1, 12345));
+
+  ExpectCreateInitAndDestroyVEA();
   EXPECT_EQ(WEBRTC_VIDEO_CODEC_OK, rtc_encoder_->InitEncode(&codec, 1, 12345));
 }
 

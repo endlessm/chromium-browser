@@ -8,6 +8,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <memory>
+
 #include "base/strings/string_piece.h"
 #include "net/spdy/spdy_framer.h"
 #include "net/spdy/spdy_test_utils.h"
@@ -32,20 +34,10 @@ class MockSpdyFramerVisitor : public SpdyFramerVisitorInterface {
   MOCK_METHOD1(OnHeaderFrameStart,
                SpdyHeadersHandlerInterface*(SpdyStreamId stream_id));
   MOCK_METHOD2(OnHeaderFrameEnd, void(SpdyStreamId stream_id, bool end));
-  MOCK_METHOD3(OnControlFrameHeaderData, bool(SpdyStreamId stream_id,
-                                              const char* header_data,
-                                              size_t len));
-  MOCK_METHOD5(OnSynStream, void(SpdyStreamId stream_id,
-                                 SpdyStreamId associated_stream_id,
-                                 SpdyPriority priority,
-                                 bool fin,
-                                 bool unidirectional));
-  MOCK_METHOD2(OnSynReply, void(SpdyStreamId stream_id, bool fin));
   MOCK_METHOD2(OnRstStream, void(SpdyStreamId stream_id,
                                  SpdyRstStreamStatus status));
   MOCK_METHOD1(OnSettings, void(bool clear_persisted));
-  MOCK_METHOD3(OnSetting,
-               void(SpdySettingsIds id, uint8_t flags, uint32_t value));
+  MOCK_METHOD2(OnSetting, void(SpdySettingsIds id, uint32_t value));
   MOCK_METHOD2(OnPing, void(SpdyPingId unique_id, bool is_ack));
   MOCK_METHOD0(OnSettingsEnd, void());
   MOCK_METHOD2(OnGoAway, void(SpdyStreamId last_accepted_stream_id,
@@ -78,7 +70,7 @@ class MockSpdyFramerVisitor : public SpdyFramerVisitorInterface {
                     bool exclusive));
   MOCK_METHOD2(OnUnknownFrame, bool(SpdyStreamId stream_id, int frame_type));
 
-  void DelegateNewHeaderHandling() {
+  void DelegateHeaderHandling() {
     ON_CALL(*this, OnHeaderFrameStart(testing::_))
         .WillByDefault(testing::Invoke(
             this, &MockSpdyFramerVisitor::ReturnTestHeadersHandler));

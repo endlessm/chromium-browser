@@ -18,24 +18,25 @@
                 description:(NSString*)description
               transmitPower:(int)transmitPower
                        rssi:(int)rssi
-                       rank:(double)rank NS_DESIGNATED_INITIALIZER;
+                       rank:(double)rank
+              scanTimestamp:(NSDate*)scanTimestamp NS_DESIGNATED_INITIALIZER;
 
 - (instancetype)init NS_UNAVAILABLE;
 
 // |url| is the expanded URL.
-@property(nonatomic, readonly, retain) NSURL* url;
+@property(nonatomic, readonly, strong) NSURL* url;
 
 // |requestUrl| is the broadcast URL.
-@property(nonatomic, readonly, retain) NSURL* requestURL;
+@property(nonatomic, readonly, strong) NSURL* requestURL;
 
 // |icon| is the URL of the favicon.
-@property(nonatomic, readonly, retain) NSURL* icon;
+@property(nonatomic, readonly, strong) NSURL* icon;
 
 // |title| is the title of the webpage.
-@property(nonatomic, readonly, retain) NSString* title;
+@property(nonatomic, readonly, strong) NSString* title;
 
 // |description| is a short text description of the webpage content.
-@property(nonatomic, readonly, retain) NSString* description;
+@property(nonatomic, readonly, strong) NSString* description;
 
 // |transmitPower| is the UriBeacon Tx Power Level.
 @property(nonatomic, readonly) int transmitPower;
@@ -46,6 +47,9 @@
 
 // |rank| of the physical web device returned by the server.
 @property(nonatomic, readonly) double rank;
+
+// |scanTimestamp| is the time the URL was most recently seen.
+@property(nonatomic, strong) NSDate* scanTimestamp;
 
 @end
 

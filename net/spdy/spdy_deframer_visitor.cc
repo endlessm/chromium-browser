@@ -145,9 +145,6 @@ class SpdyTestDeframerImpl : public SpdyTestDeframer,
   SpdyHeadersHandlerInterface* OnHeaderFrameStart(
       SpdyStreamId stream_id) override;
   void OnHeaderFrameEnd(SpdyStreamId stream_id, bool end_headers) override;
-  bool OnControlFrameHeaderData(SpdyStreamId stream_id,
-                                const char* header_data,
-                                size_t header_data_len) override;
   void OnDataFrameHeader(SpdyStreamId stream_id,
                          size_t length,
                          bool fin) override;
@@ -172,7 +169,7 @@ class SpdyTestDeframerImpl : public SpdyTestDeframer,
                      bool end) override;
   void OnRstStream(SpdyStreamId stream_id, SpdyRstStreamStatus status) override;
   bool OnRstStreamFrameData(const char* rst_stream_data, size_t len) override;
-  void OnSetting(SpdySettingsIds id, uint8_t flags, uint32_t value) override;
+  void OnSetting(SpdySettingsIds id, uint32_t value) override;
   void OnSettings(bool clear_persisted) override;
   void OnSettingsAck() override;
   void OnSettingsEnd() override;
@@ -181,12 +178,6 @@ class SpdyTestDeframerImpl : public SpdyTestDeframer,
                          size_t len) override;
   void OnStreamEnd(SpdyStreamId stream_id) override;
   void OnStreamPadding(SpdyStreamId stream_id, size_t len) override;
-  void OnSynReply(SpdyStreamId stream_id, bool fin) override;
-  void OnSynStream(SpdyStreamId stream_id,
-                   SpdyStreamId associated_stream_id,
-                   SpdyPriority priority,
-                   bool fin,
-                   bool unidirectional) override;
   bool OnUnknownFrame(SpdyStreamId stream_id, int frame_type) override;
   void OnWindowUpdate(SpdyStreamId stream_id, int delta_window_size) override;
 
@@ -468,25 +459,6 @@ void SpdyTestDeframerImpl::OnContinuation(SpdyStreamId stream_id, bool end) {
   end_ = end;
 }
 
-// Called with the decompressed contents of headers, in zero or more pieces
-// (i.e. an empty headers frame doesn't have any non-zero length data).
-// Note that the end of the headers is indicated by header_data==nullptr
-// AND header_data_len==0, even if there were no non-zero pieces.
-// SpdyHeadersBlockParser decodes these.
-// Returning false kills the connection (SpdyFramer enters state SPDY_ERROR).
-bool SpdyTestDeframerImpl::OnControlFrameHeaderData(SpdyStreamId stream_id,
-                                                    const char* header_data,
-                                                    size_t header_data_len) {
-  DVLOG(1) << "OnControlFrameHeaderData stream_id: " << stream_id
-           << "      len: " << header_data_len;
-  CHECK(frame_type_ == HEADERS || frame_type_ == CONTINUATION ||
-        frame_type_ == PUSH_PROMISE)
-      << "   frame_type_=" << Http2FrameTypeToString(frame_type_);
-  CHECK_EQ(stream_id_, stream_id);
-  LOG(FATAL) << "Must call SpdyFramer::set_use_new_methods_for_test(true)";
-  return true;
-}
-
 // Note that length includes the padding length (0 to 256, when the optional
 // padding length field is counted). Padding comes after the payload, both
 // for DATA frames and for control frames.
@@ -664,16 +636,13 @@ bool SpdyTestDeframerImpl::OnRstStreamFrameData(const char* rst_stream_data,
 
 // Called for an individual setting. There is no negotiation, the sender is
 // stating the value that the sender is using.
-void SpdyTestDeframerImpl::OnSetting(SpdySettingsIds id,
-                                     uint8_t flags,
-                                     uint32_t value) {
-  DVLOG(1) << "OnSetting id: " << id << std::hex << "   flags: " << flags
-           << "    value: " << value;
+void SpdyTestDeframerImpl::OnSetting(SpdySettingsIds id, uint32_t value) {
+  DVLOG(1) << "OnSetting id: " << id << std::hex << "    value: " << value;
   CHECK_EQ(frame_type_, SETTINGS) << "   frame_type_="
                                   << Http2FrameTypeToString(frame_type_);
   CHECK(settings_);
   settings_->push_back(std::make_pair(id, value));
-  settings_ir_->AddSetting(id, true, true, value);
+  settings_ir_->AddSetting(id, value);
 }
 
 // Called at the start of a SETTINGS frame with setting entries, but not the
@@ -754,32 +723,6 @@ void SpdyTestDeframerImpl::OnStreamPadding(SpdyStreamId stream_id, size_t len) {
   CHECK_GE(255u, len);
   padding_len_ += len;
   CHECK_LE(padding_len_, 256u) << "len=" << len;
-}
-
-// Obsolete.
-void SpdyTestDeframerImpl::OnSynStream(SpdyStreamId stream_id,
-                                       SpdyStreamId associated_stream_id,
-                                       SpdyPriority priority,
-                                       bool fin,
-                                       bool unidirectional) {
-  DVLOG(1) << "OnSynStream stream_id: " << stream_id;
-  CHECK_EQ(frame_type_, UNSET) << "   frame_type_="
-                               << Http2FrameTypeToString(frame_type_);
-  frame_type_ = UNKNOWN;
-  stream_id_ = stream_id;
-  fin_ = fin;
-  LOG(DFATAL) << "SYN_STREAM is not a valid HTTP/2 frame type.";
-}
-
-// Obsolete.
-void SpdyTestDeframerImpl::OnSynReply(SpdyStreamId stream_id, bool fin) {
-  DVLOG(1) << "OnSynReply stream_id: " << stream_id;
-  CHECK_EQ(frame_type_, UNSET) << "   frame_type_="
-                               << Http2FrameTypeToString(frame_type_);
-  frame_type_ = UNKNOWN;
-  stream_id_ = stream_id;
-  fin_ = fin;
-  LOG(DFATAL) << "SYN_REPLY is not a valid HTTP/2 frame type.";
 }
 
 // WINDOW_UPDATE is supposed to be hop-by-hop, according to the spec.

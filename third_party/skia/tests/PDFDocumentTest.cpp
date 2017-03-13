@@ -10,8 +10,11 @@
 #include "SkCanvas.h"
 #include "SkDocument.h"
 #include "SkOSFile.h"
+#include "SkOSPath.h"
 #include "SkStream.h"
 #include "SkPixelSerializer.h"
+
+#include "sk_tool_utils.h"
 
 static void test_empty(skiatest::Reporter* reporter) {
     SkDynamicMemoryWStream stream;
@@ -60,9 +63,9 @@ static void test_abortWithFile(skiatest::Reporter* reporter) {
     }
 
     FILE* file = fopen(path.c_str(), "r");
-    // The created file should be empty.
-    char buffer[100];
-    REPORTER_ASSERT(reporter, fread(buffer, 1, 1, file) == 0);
+    // Test that only the header is written, not the full document.
+    char buffer[256];
+    REPORTER_ASSERT(reporter, fread(buffer, 1, sizeof(buffer), file) < sizeof(buffer));
     fclose(file);
 }
 
@@ -118,14 +121,7 @@ namespace {
 class JPEGSerializer final : public SkPixelSerializer {
     bool onUseEncodedData(const void*, size_t) override { return true; }
     SkData* onEncode(const SkPixmap& pixmap) override {
-        SkBitmap bm;
-        return bm.installPixels(pixmap.info(),
-                                pixmap.writable_addr(),
-                                pixmap.rowBytes(),
-                                pixmap.ctable(),
-                                nullptr, nullptr)
-            ? SkImageEncoder::EncodeData(bm, SkImageEncoder::kJPEG_Type, 85)
-            : nullptr;
+        return sk_tool_utils::EncodeImageToData(pixmap, SkEncodedImageFormat::kJPEG, 85).release();
     }
 };
 }  // namespace

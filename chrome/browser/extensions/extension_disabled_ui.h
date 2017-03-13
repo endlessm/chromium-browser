@@ -6,9 +6,6 @@
 #define CHROME_BROWSER_EXTENSIONS_EXTENSION_DISABLED_UI_H_
 
 class ExtensionService;
-namespace content {
-class WebContents;
-}
 
 namespace extensions {
 
@@ -21,11 +18,6 @@ class Extension;
 void AddExtensionDisabledError(ExtensionService* service,
                                const Extension* extension,
                                bool is_remote_install);
-
-// Shows the extension install dialog.
-void ShowExtensionDisabledDialog(ExtensionService* service,
-                                 content::WebContents* web_contents,
-                                 const Extension* extension);
 
 }  // namespace extensions
 

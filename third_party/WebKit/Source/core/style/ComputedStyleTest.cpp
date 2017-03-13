@@ -43,4 +43,39 @@ TEST(ComputedStyleTest, ClipPathEqual) {
   ASSERT_EQ(*style1, *style2);
 }
 
+TEST(ComputedStyleTest, FocusRingWidth) {
+  RefPtr<ComputedStyle> style = ComputedStyle::create();
+  style->setEffectiveZoom(3.5);
+#if OS(MACOSX)
+  style->setOutlineStyle(BorderStyleSolid);
+  ASSERT_EQ(3, style->getOutlineStrokeWidthForFocusRing());
+#else
+  ASSERT_EQ(3.5, style->getOutlineStrokeWidthForFocusRing());
+  style->setEffectiveZoom(0.5);
+  ASSERT_EQ(1, style->getOutlineStrokeWidthForFocusRing());
+#endif
+}
+
+TEST(ComputedStyleTest, FocusRingOutset) {
+  RefPtr<ComputedStyle> style = ComputedStyle::create();
+  style->setOutlineStyle(BorderStyleSolid);
+  style->setOutlineStyleIsAuto(OutlineIsAutoOn);
+  style->setEffectiveZoom(4.75);
+#if OS(MACOSX)
+  ASSERT_EQ(4, style->outlineOutsetExtent());
+#else
+  ASSERT_EQ(3, style->outlineOutsetExtent());
+#endif
+}
+
+TEST(ComputedStyleTest, Preserve3dForceStackingContext) {
+  RefPtr<ComputedStyle> style = ComputedStyle::create();
+  style->setTransformStyle3D(TransformStyle3DPreserve3D);
+  style->setOverflowX(EOverflow::Hidden);
+  style->setOverflowY(EOverflow::Hidden);
+  style->updateIsStackingContext(false, false);
+  EXPECT_EQ(TransformStyle3DFlat, style->usedTransformStyle3D());
+  EXPECT_TRUE(style->isStackingContext());
+}
+
 }  // namespace blink

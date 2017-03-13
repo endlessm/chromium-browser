@@ -4,7 +4,9 @@
 
 module content.mojom;
 
-import "services/shell/public/interfaces/interface_provider.mojom";
+import "content/common/service_worker/service_worker_event_dispatcher.mojom";
+import "services/service_manager/public/interfaces/interface_provider.mojom";
+import "third_party/WebKit/public/web/console_message.mojom";
 import "url/mojo/url.mojom";
 
 [Native]
@@ -12,5 +14,10 @@ struct EmbeddedWorkerStartParams;
 
 // Interface to control a renderer-side worker's environment.
 interface EmbeddedWorkerInstanceClient {
-  StartWorker(EmbeddedWorkerStartParams params);
+  StartWorker(EmbeddedWorkerStartParams params,
+              ServiceWorkerEventDispatcher& dispatcher_request);
+  StopWorker() => ();
+  ResumeAfterDownload();
+  AddMessageToConsole(blink.mojom.ConsoleMessageLevel level,
+                      string message);
 };

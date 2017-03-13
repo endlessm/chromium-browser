@@ -142,4 +142,19 @@ gl::Error TextureVk::getAttachmentRenderTarget(const gl::FramebufferAttachment::
     return gl::Error(GL_INVALID_OPERATION);
 }
 
+void TextureVk::syncState(const gl::Texture::DirtyBits &dirtyBits)
+{
+    UNIMPLEMENTED();
+}
+
+gl::Error TextureVk::setStorageMultisample(GLenum target,
+                                           GLsizei samples,
+                                           GLint internalformat,
+                                           const gl::Extents &size,
+                                           GLboolean fixedSampleLocations)
+{
+    UNIMPLEMENTED();
+    return gl::InternalError() << "setStorageMultisample is unimplemented.";
+}
+
 }  // namespace rx

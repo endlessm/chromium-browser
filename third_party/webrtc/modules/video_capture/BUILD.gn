@@ -28,14 +28,14 @@ rtc_static_library("video_capture_module") {
 
   deps = [
     "../..:webrtc_common",
+    "../../base:rtc_base_approved",
     "../../common_video",
     "../../system_wrappers",
     "../utility",
   ]
 
-  if (is_clang) {
-    # Suppress warnings from Chrome's Clang plugins.
-    # See http://code.google.com/p/webrtc/issues/detail?id=163 for details.
+  if (!build_with_chromium && is_clang) {
+    # Suppress warnings from the Chromium Clang plugin (bugs.webrtc.org/163).
     suppressed_configs += [ "//build/config/clang:find_bad_constructs" ]
   }
 }
@@ -48,12 +48,12 @@ rtc_static_library("video_capture") {
 
   deps = [
     ":video_capture_module",
+    "../../base:rtc_base_approved",
     "../../system_wrappers",
   ]
 
-  if (is_clang) {
-    # Suppress warnings from Chrome's Clang plugins.
-    # See http://code.google.com/p/webrtc/issues/detail?id=163 for details.
+  if (!build_with_chromium && is_clang) {
+    # Suppress warnings from the Chromium Clang plugin (bugs.webrtc.org/163).
     suppressed_configs += [ "//build/config/clang:find_bad_constructs" ]
   }
 }
@@ -92,6 +92,7 @@ if (!build_with_chromium) {
 
     deps = [
       ":video_capture_module",
+      "../../base:rtc_base_approved",
       "../../system_wrappers",
     ]
 
@@ -149,9 +150,8 @@ if (!build_with_chromium) {
 
     all_dependent_configs = [ ":video_capture_internal_impl_config" ]
 
-    if (is_clang) {
-      # Suppress warnings from Chrome's Clang plugins.
-      # See http://code.google.com/p/webrtc/issues/detail?id=163 for details.
+    if (!build_with_chromium && is_clang) {
+      # Suppress warnings from the Chromium Clang plugin (bugs.webrtc.org/163).
       suppressed_configs += [ "//build/config/clang:find_bad_constructs" ]
     }
   }
@@ -185,16 +185,18 @@ if (!build_with_chromium) {
       deps = [
         ":video_capture_internal_impl",
         ":video_capture_module",
+        "../../base:rtc_base_approved",
+        "../../common_video:common_video",
+        "../../system_wrappers:system_wrappers",
         "../../system_wrappers:system_wrappers_default",
         "../../test:video_test_common",
         "../utility",
         "//testing/gtest",
       ]
-      deps += [ "//webrtc/test:test_support_main" ]
+      deps += [ "//webrtc/test:test_main" ]
 
-      if (is_clang) {
-        # Suppress warnings from Chrome's Clang plugins.
-        # See http://code.google.com/p/webrtc/issues/detail?id=163 for details.
+      if (!build_with_chromium && is_clang) {
+        # Suppress warnings from the Chromium Clang plugin (bugs.webrtc.org/163).
         suppressed_configs += [ "//build/config/clang:find_bad_constructs" ]
       }
     }

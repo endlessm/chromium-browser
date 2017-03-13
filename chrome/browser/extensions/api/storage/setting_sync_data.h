@@ -10,14 +10,10 @@
 
 #include "base/macros.h"
 #include "base/values.h"
-#include "components/sync/api/sync_change.h"
+#include "components/sync/model/sync_change.h"
 
 namespace syncer {
 class SyncData;
-}
-
-namespace sync_pb {
-class ExtensionSettingSpecifics;
 }
 
 namespace extensions {

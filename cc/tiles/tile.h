@@ -17,31 +17,28 @@
 
 namespace cc {
 
-class PrioritizedTile;
+class PictureLayerTiling;
 class TileManager;
-struct TilePriority;
 
 class CC_EXPORT Tile {
  public:
-  class CC_EXPORT Deleter {
-   public:
-    void operator()(Tile* tile) const;
-  };
-
   class CC_EXPORT CreateInfo {
    public:
+    const PictureLayerTiling* tiling;
     int tiling_i_index;
     int tiling_j_index;
     gfx::Rect enclosing_layer_rect;
     gfx::Rect content_rect;
     float contents_scale;
 
-    CreateInfo(int tiling_i_index,
+    CreateInfo(const PictureLayerTiling* tiling,
+               int tiling_i_index,
                int tiling_j_index,
                const gfx::Rect& enclosing_layer_rect,
                const gfx::Rect& content_rect,
                float contents_scale)
-        : tiling_i_index(tiling_i_index),
+        : tiling(tiling),
+          tiling_i_index(tiling_i_index),
           tiling_j_index(tiling_j_index),
           enclosing_layer_rect(enclosing_layer_rect),
           content_rect(content_rect),
@@ -51,6 +48,8 @@ class CC_EXPORT Tile {
   enum TileRasterFlags { USE_PICTURE_ANALYSIS = 1 << 0, IS_OPAQUE = 1 << 1 };
 
   typedef uint64_t Id;
+
+  ~Tile();
 
   Id id() const {
     return id_;
@@ -114,6 +113,9 @@ class CC_EXPORT Tile {
     return is_solid_color_analysis_performed_;
   }
 
+  const PictureLayerTiling* tiling() const { return tiling_; }
+  void set_tiling(const PictureLayerTiling* tiling) { tiling_ = tiling; }
+
  private:
   friend class TileManager;
   friend class FakeTileManager;
@@ -125,9 +127,9 @@ class CC_EXPORT Tile {
        int layer_id,
        int source_frame_number,
        int flags);
-  ~Tile();
 
   TileManager* const tile_manager_;
+  const PictureLayerTiling* tiling_;
   const gfx::Rect content_rect_;
   const gfx::Rect enclosing_layer_rect_;
   const float contents_scale_;
@@ -156,8 +158,6 @@ class CC_EXPORT Tile {
 
   DISALLOW_COPY_AND_ASSIGN(Tile);
 };
-
-using ScopedTilePtr = std::unique_ptr<Tile, Tile::Deleter>;
 
 }  // namespace cc
 

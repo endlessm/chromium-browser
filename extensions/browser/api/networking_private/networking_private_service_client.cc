@@ -4,8 +4,11 @@
 
 #include "extensions/browser/api/networking_private/networking_private_service_client.h"
 
+#include <utility>
+
 #include "base/base64.h"
 #include "base/bind.h"
+#include "base/memory/ptr_util.h"
 #include "base/sequenced_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/threading/worker_pool.h"
@@ -106,7 +109,8 @@ void NetworkingPrivateServiceClient::OnNetworkChanged(
 NetworkingPrivateServiceClient::ServiceCallbacks*
 NetworkingPrivateServiceClient::AddServiceCallbacks() {
   ServiceCallbacks* service_callbacks = new ServiceCallbacks();
-  service_callbacks->id = callbacks_map_.Add(service_callbacks);
+  service_callbacks->id =
+      callbacks_map_.Add(base::WrapUnique(service_callbacks));
   return service_callbacks;
 }
 
@@ -349,6 +353,11 @@ NetworkingPrivateServiceClient::GetDeviceStateList() {
   return device_state_list;
 }
 
+std::unique_ptr<base::DictionaryValue>
+NetworkingPrivateServiceClient::GetGlobalPolicy() {
+  return base::MakeUnique<base::DictionaryValue>();
+}
+
 bool NetworkingPrivateServiceClient::EnableNetworkType(
     const std::string& type) {
   return false;
@@ -459,17 +468,15 @@ void NetworkingPrivateServiceClient::AfterStartDisconnect(
 void NetworkingPrivateServiceClient::OnNetworksChangedEventOnUIThread(
     const std::vector<std::string>& network_guids) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  FOR_EACH_OBSERVER(NetworkingPrivateDelegateObserver,
-                    network_events_observers_,
-                    OnNetworksChangedEvent(network_guids));
+  for (auto& observer : network_events_observers_)
+    observer.OnNetworksChangedEvent(network_guids);
 }
 
 void NetworkingPrivateServiceClient::OnNetworkListChangedEventOnUIThread(
     const std::vector<std::string>& network_guids) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  FOR_EACH_OBSERVER(NetworkingPrivateDelegateObserver,
-                    network_events_observers_,
-                    OnNetworkListChangedEvent(network_guids));
+  for (auto& observer : network_events_observers_)
+    observer.OnNetworkListChangedEvent(network_guids);
 }
 
 }  // namespace extensions

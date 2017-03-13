@@ -109,17 +109,48 @@ bool ExtractPerfCommandCpuSpecifier(const std::string& key,
   return true;
 }
 
+// Parses the components of a version string, e.g. major.minor.bugfix
+void ExtractVersionNumbers(const std::string& version,
+                           int32_t* major_version,
+                           int32_t* minor_version,
+                           int32_t* bugfix_version) {
+  *major_version = *minor_version = *bugfix_version = 0;
+  // Parse out the version numbers from the string.
+  sscanf(version.c_str(), "%d.%d.%d", major_version, minor_version,
+         bugfix_version);
+}
+
+// Returns if a micro-architecture supports LBR callgraph profiling.
+bool MicroarchitectureHasLBRCallgraph(const std::string& uarch) {
+  return uarch == "Haswell" || uarch == "Broadwell" || uarch == "Skylake";
+}
+
+// Returns if a kernel release supports LBR callgraph profiling.
+bool KernelReleaseHasLBRCallgraph(const std::string& release) {
+  int32_t major, minor, bugfix;
+  ExtractVersionNumbers(release, &major, &minor, &bugfix);
+  return major > 4 || (major == 4 && minor >= 4) || (major == 3 && minor == 18);
+}
+
 // Hopefully we never need a space in a command argument.
 const char kPerfCommandDelimiter[] = " ";
 
 const char kPerfRecordCyclesCmd[] =
   "perf record -a -e cycles -c 1000003";
 
-const char kPerfRecordCallgraphCmd[] =
+const char kPerfRecordFPCallgraphCmd[] =
   "perf record -a -e cycles -g -c 4000037";
 
+const char kPerfRecordLBRCallgraphCmd[] =
+  "perf record -a -e cycles -c 4000037 --call-graph lbr";
+
 const char kPerfRecordLBRCmd[] =
-  "perf record -a -e r2c4 -b -c 20011";
+  "perf record -a -e r20c4 -b -c 200011";
+
+// Silvermont, Airmont, Goldmont don't have a branches taken event. Therefore,
+// we sample on the branches retired event.
+const char kPerfRecordLBRCmdAtom[] =
+  "perf record -a -e rc4 -b -c 300001";
 
 const char kPerfRecordInstructionTLBMissesCmd[] =
   "perf record -a -e iTLB-misses -c 2003";
@@ -139,31 +170,82 @@ const std::vector<RandomSelector::WeightAndValue> GetDefaultCommands_x86_64(
   std::vector<WeightAndValue> cmds;
   DCHECK_EQ(cpuid.arch, "x86_64");
   const std::string intel_uarch = GetIntelUarch(cpuid);
+  // Haswell and newer big Intel cores support LBR callstack profiling. This
+  // requires kernel support, which was added in kernel 4.4, and it was
+  // backported to kernel 3.18. Prefer LBR callstack profiling where supported
+  // instead of FP callchains, because the former works with binaries compiled
+  // with frame pointers disabled, such as the ARC++ runtime.
+  const char *callgraph_cmd = kPerfRecordFPCallgraphCmd;
+  if (MicroarchitectureHasLBRCallgraph(intel_uarch) &&
+      KernelReleaseHasLBRCallgraph(cpuid.release)) {
+    callgraph_cmd = kPerfRecordLBRCallgraphCmd;
+  }
+
   if (intel_uarch == "IvyBridge" ||
       intel_uarch == "Haswell" ||
       intel_uarch == "Broadwell") {
-    cmds.push_back(WeightAndValue(60.0, kPerfRecordCyclesCmd));
-    cmds.push_back(WeightAndValue(20.0, kPerfRecordCallgraphCmd));
-    cmds.push_back(WeightAndValue(5.0, kPerfRecordLBRCmd));
+    cmds.push_back(WeightAndValue(50.0, kPerfRecordCyclesCmd));
+    cmds.push_back(WeightAndValue(20.0, callgraph_cmd));
+    cmds.push_back(WeightAndValue(15.0, kPerfRecordLBRCmd));
     cmds.push_back(WeightAndValue(5.0, kPerfRecordInstructionTLBMissesCmd));
     cmds.push_back(WeightAndValue(5.0, kPerfRecordDataTLBMissesCmd));
     cmds.push_back(WeightAndValue(5.0, kPerfStatMemoryBandwidthCmd));
     return cmds;
   }
-  if (intel_uarch == "SandyBridge") {
-    cmds.push_back(WeightAndValue(65.0, kPerfRecordCyclesCmd));
-    cmds.push_back(WeightAndValue(20.0, kPerfRecordCallgraphCmd));
-    cmds.push_back(WeightAndValue(5.0, kPerfRecordLBRCmd));
+  if (intel_uarch == "SandyBridge" || intel_uarch == "Skylake") {
+    cmds.push_back(WeightAndValue(55.0, kPerfRecordCyclesCmd));
+    cmds.push_back(WeightAndValue(20.0, callgraph_cmd));
+    cmds.push_back(WeightAndValue(15.0, kPerfRecordLBRCmd));
+    cmds.push_back(WeightAndValue(5.0, kPerfRecordInstructionTLBMissesCmd));
+    cmds.push_back(WeightAndValue(5.0, kPerfRecordDataTLBMissesCmd));
+    return cmds;
+  }
+  if (intel_uarch == "Silvermont" || intel_uarch == "Airmont") {
+    cmds.push_back(WeightAndValue(55.0, kPerfRecordCyclesCmd));
+    cmds.push_back(WeightAndValue(20.0, callgraph_cmd));
+    cmds.push_back(WeightAndValue(15.0, kPerfRecordLBRCmdAtom));
     cmds.push_back(WeightAndValue(5.0, kPerfRecordInstructionTLBMissesCmd));
     cmds.push_back(WeightAndValue(5.0, kPerfRecordDataTLBMissesCmd));
     return cmds;
   }
   // Other 64-bit x86
   cmds.push_back(WeightAndValue(70.0, kPerfRecordCyclesCmd));
-  cmds.push_back(WeightAndValue(20.0, kPerfRecordCallgraphCmd));
+  cmds.push_back(WeightAndValue(20.0, callgraph_cmd));
   cmds.push_back(WeightAndValue(5.0, kPerfRecordInstructionTLBMissesCmd));
   cmds.push_back(WeightAndValue(5.0, kPerfRecordDataTLBMissesCmd));
   return cmds;
+}
+
+// PerfDataProto is defined elsewhere with more fields than the definition in
+// Chromium's copy of perf_data.proto. During deserialization, the protobuf
+// data could contain fields that are defined elsewhere but not in
+// perf_data.proto, resulting in some data in |unknown_fields| for the message
+// types within PerfDataProto.
+//
+// This function deletes those dangling unknown fields if they are in messages
+// containing strings. See comments in perf_data.proto describing the fields
+// that have been intentionally left out. Note that all unknown fields will be
+// removed from those messages, not just unknown string fields.
+void RemoveUnknownFieldsFromMessagesWithStrings(PerfDataProto* proto) {
+  // Clean up PerfEvent::MMapEvent and PerfEvent::CommEvent.
+  for (PerfDataProto::PerfEvent& event : *proto->mutable_events()) {
+    if (event.has_comm_event())
+      event.mutable_comm_event()->mutable_unknown_fields()->clear();
+    if (event.has_mmap_event())
+      event.mutable_mmap_event()->mutable_unknown_fields()->clear();
+  }
+  // Clean up PerfBuildID.
+  for (PerfDataProto::PerfBuildID& build_id : *proto->mutable_build_ids()) {
+    build_id.mutable_unknown_fields()->clear();
+  }
+  // Clean up StringMetadata and StringMetadata::StringAndMd5sumPrefix.
+  if (proto->has_string_metadata()) {
+    proto->mutable_string_metadata()->mutable_unknown_fields()->clear();
+    if (proto->string_metadata().has_perf_command_line_whole()) {
+      proto->mutable_string_metadata()->mutable_perf_command_line_whole()->
+          mutable_unknown_fields()->clear();
+    }
+  }
 }
 
 }  // namespace
@@ -181,7 +263,7 @@ std::vector<RandomSelector::WeightAndValue> GetDefaultCommandsForCpu(
   if (cpuid.arch == "x86" ||     // 32-bit x86, or...
       cpuid.arch == "armv7l") {  // ARM
     cmds.push_back(WeightAndValue(80.0, kPerfRecordCyclesCmd));
-    cmds.push_back(WeightAndValue(20.0, kPerfRecordCallgraphCmd));
+    cmds.push_back(WeightAndValue(20.0, kPerfRecordFPCallgraphCmd));
     return cmds;
   }
 
@@ -430,6 +512,7 @@ void PerfProvider::ParseOutputProtoIfValid(
         AddToPerfHistogram(PROTOBUF_NOT_PARSED);
         return;
       }
+      RemoveUnknownFieldsFromMessagesWithStrings(&perf_data_proto);
       sampled_profile->set_ms_after_boot(
           base::SysInfo::Uptime().InMilliseconds());
       sampled_profile->mutable_perf_data()->Swap(&perf_data_proto);

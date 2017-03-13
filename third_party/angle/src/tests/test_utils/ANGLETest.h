@@ -17,9 +17,9 @@
 #include "angle_gl.h"
 #include "angle_test_configs.h"
 #include "common/angleutils.h"
+#include "common/vector_utils.h"
 #include "shader_utils.h"
 #include "system_utils.h"
-#include "Vector.h"
 
 #define EXPECT_GL_ERROR(err) EXPECT_EQ(static_cast<GLenum>(err), glGetError())
 #define EXPECT_GL_NO_ERROR() EXPECT_EQ(static_cast<GLenum>(GL_NO_ERROR), glGetError())
@@ -41,6 +41,10 @@
 
 #define ASSERT_GLENUM_EQ(expected, actual) ASSERT_EQ(static_cast<GLenum>(expected), static_cast<GLenum>(actual))
 #define EXPECT_GLENUM_EQ(expected, actual) EXPECT_EQ(static_cast<GLenum>(expected), static_cast<GLenum>(actual))
+#define ASSERT_GLENUM_NE(expected, actual) \
+    ASSERT_NE(static_cast<GLenum>(expected), static_cast<GLenum>(actual))
+#define EXPECT_GLENUM_NE(expected, actual) \
+    EXPECT_NE(static_cast<GLenum>(expected), static_cast<GLenum>(actual))
 
 namespace angle
 {
@@ -48,7 +52,7 @@ struct GLColorRGB
 {
     GLColorRGB();
     GLColorRGB(GLubyte r, GLubyte g, GLubyte b);
-    GLColorRGB(const Vector3 &floatColor);
+    GLColorRGB(const angle::Vector3 &floatColor);
 
     GLubyte R, G, B;
 
@@ -63,10 +67,10 @@ struct GLColor
 {
     GLColor();
     GLColor(GLubyte r, GLubyte g, GLubyte b, GLubyte a);
-    GLColor(const Vector4 &floatColor);
+    GLColor(const angle::Vector4 &floatColor);
     GLColor(GLuint colorValue);
 
-    Vector4 toNormalizedVector() const;
+    angle::Vector4 toNormalizedVector() const;
 
     GLubyte R, G, B, A;
 
@@ -79,6 +83,8 @@ struct GLColor
     static const GLColor white;
     static const GLColor yellow;
 };
+
+struct WorkaroundsD3D;
 
 // Useful to cast any type to GLubyte.
 template <typename TR, typename TG, typename TB, typename TA>
@@ -141,6 +147,8 @@ class ANGLETest : public ::testing::TestWithParam<angle::PlatformParameters>
     static void SetWindowVisible(bool isVisible);
     static bool eglDisplayExtensionEnabled(EGLDisplay display, const std::string &extName);
 
+    virtual void overrideWorkaroundsD3D(angle::WorkaroundsD3D *workaroundsD3D) {}
+
   protected:
     virtual void SetUp();
     virtual void TearDown();
@@ -160,7 +168,7 @@ class ANGLETest : public ::testing::TestWithParam<angle::PlatformParameters>
                   GLfloat positionAttribZ,
                   GLfloat positionAttribXYScale,
                   bool useVertexBuffer);
-    static std::array<Vector3, 6> GetQuadVertices();
+    static std::array<angle::Vector3, 6> GetQuadVertices();
     void drawIndexedQuad(GLuint program,
                          const std::string &positionAttribName,
                          GLfloat positionAttribZ);
@@ -171,7 +179,9 @@ class ANGLETest : public ::testing::TestWithParam<angle::PlatformParameters>
 
     static GLuint compileShader(GLenum type, const std::string &source);
     static bool extensionEnabled(const std::string &extName);
+    static bool extensionRequestable(const std::string &extName);
     static bool eglClientExtensionEnabled(const std::string &extName);
+    static bool eglDeviceExtensionEnabled(EGLDeviceEXT device, const std::string &extName);
 
     void setWindowWidth(int width);
     void setWindowHeight(int height);
@@ -186,6 +196,7 @@ class ANGLETest : public ::testing::TestWithParam<angle::PlatformParameters>
     void setNoErrorEnabled(bool enabled);
     void setWebGLCompatibilityEnabled(bool webglCompatibility);
     void setBindGeneratesResource(bool bindGeneratesResource);
+    void setVulkanLayersEnabled(bool enabled);
 
     int getClientMajorVersion() const;
     int getClientMinorVersion() const;
@@ -198,6 +209,8 @@ class ANGLETest : public ::testing::TestWithParam<angle::PlatformParameters>
     EGLint getPlatformRenderer() const;
 
     void ignoreD3D11SDKLayersWarnings();
+
+    static OSWindow *GetOSWindow() { return mOSWindow; }
 
   private:
     bool createEGLContext();
@@ -245,12 +258,14 @@ bool IsD3DSM3();
 bool IsDesktopOpenGL();
 bool IsOpenGLES();
 bool IsOpenGL();
+bool IsNULL();
 
 // Operating systems
 bool IsAndroid();
 bool IsLinux();
 bool IsOSX();
 bool IsWindows();
+bool IsVulkan();
 
 // Debug/Release
 bool IsDebug();

@@ -14,7 +14,7 @@
 #include "content/public/renderer/platform_event_observer.h"
 #include "content/renderer/render_thread_impl.h"
 #include "mojo/public/cpp/system/platform_handle.h"
-#include "services/shell/public/cpp/interface_provider.h"
+#include "services/service_manager/public/cpp/interface_provider.h"
 
 namespace content {
 
@@ -24,8 +24,7 @@ class CONTENT_EXPORT DeviceSensorMojoClientMixin : public Base {
   template <typename... Args>
   explicit DeviceSensorMojoClientMixin(Args&&... args)
       : Base(std::forward<Args>(args)...) {
-    mojo::InterfaceRequest<MojoInterface> request =
-        mojo::GetProxy(&mojo_interface_);
+    mojo::InterfaceRequest<MojoInterface> request(&mojo_interface_);
 
     // When running layout tests, those observers should not listen to the
     // actual hardware changes. In order to make that happen, don't connect

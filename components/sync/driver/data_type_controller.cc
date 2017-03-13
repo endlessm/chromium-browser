@@ -5,13 +5,11 @@
 #include "components/sync/driver/data_type_controller.h"
 
 #include "components/sync/base/data_type_histogram.h"
-#include "components/sync/core/user_share.h"
+#include "components/sync/syncable/user_share.h"
 
 namespace syncer {
 
-DataTypeController::DataTypeController(ModelType type,
-                                       const base::Closure& dump_stack)
-    : dump_stack_(dump_stack), type_(type) {}
+DataTypeController::DataTypeController(ModelType type) : type_(type) {}
 
 DataTypeController::~DataTypeController() {}
 

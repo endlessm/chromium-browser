@@ -48,10 +48,6 @@ UI_BASE_X_EXPORT bool IsXInput2Available();
 // Return true iff the display supports Xrender
 UI_BASE_X_EXPORT bool QueryRenderSupport(XDisplay* dpy);
 
-// Returns an X11 Cursor, sharable across the process.
-// |cursor_shape| is an X font cursor shape, see XCreateFontCursor().
-UI_BASE_X_EXPORT::Cursor GetXCursor(int cursor_shape);
-
 // Creates a custom X cursor from the image. This takes ownership of image. The
 // caller must not free/modify the image. The refcount of the newly created
 // cursor is set to 1.
@@ -243,7 +239,10 @@ UI_BASE_X_EXPORT bool CopyAreaToCanvas(XID drawable,
                                        gfx::Canvas* canvas);
 
 enum WindowManagerName {
-  WM_UNKNOWN,
+  WM_OTHER,    // We were able to obtain the WM's name, but there is
+               // no corresponding entry in this enum.
+  WM_UNNAMED,  // Either there is no WM or there is no way to obtain
+               // the WM name.
 
   WM_AWESOME,
   WM_BLACKBOX,
@@ -265,9 +264,10 @@ enum WindowManagerName {
   WM_STUMPWM,
   WM_WMII,
   WM_XFWM4,
+  WM_XMONAD,
 };
-// Attempts to guess the window maager. Returns WM_UNKNOWN if we can't
-// determine it for one reason or another.
+// Attempts to guess the window maager. Returns WM_OTHER or WM_UNNAMED
+// if we can't determine it for one reason or another.
 UI_BASE_X_EXPORT WindowManagerName GuessWindowManager();
 
 // The same as GuessWindowManager(), but returns the raw string.  If we
@@ -324,9 +324,6 @@ class UI_BASE_X_EXPORT XScopedCursor {
 };
 
 namespace test {
-// Resets the cache used by GetXCursor(). Only useful for tests that may delete
-// the display.
-UI_BASE_X_EXPORT void ResetXCursorCache();
 
 // Returns the cached XcursorImage for |cursor|.
 UI_BASE_X_EXPORT const XcursorImage* GetCachedXcursorImage(::Cursor cursor);

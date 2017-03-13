@@ -22,12 +22,14 @@
 #include "components/autofill/core/common/form_data_predictions.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/navigation_details.h"
+#include "content/public/browser/navigation_entry.h"
+#include "content/public/browser/ssl_status.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/frame_navigate_params.h"
 #include "content/public/test/test_renderer_host.h"
 #include "mojo/public/cpp/bindings/binding_set.h"
-#include "services/shell/public/cpp/interface_provider.h"
+#include "services/service_manager/public/cpp/interface_provider.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -135,6 +137,9 @@ class FakeAutofillAgent : public mojom::AutofillAgent {
     return true;
   }
 
+  // Mocked mojom::AutofillAgent methods:
+  MOCK_METHOD0(FirstUserGestureObservedInTab, void());
+
  private:
   void CallDone() {
     if (!quit_closure_.is_null()) {
@@ -143,9 +148,7 @@ class FakeAutofillAgent : public mojom::AutofillAgent {
     }
   }
 
-  // mojom::AutofillAgent methods:
-  void FirstUserGestureObservedInTab() override {}
-
+  // mojom::AutofillAgent:
   void FillForm(int32_t id, const FormData& form) override {
     fill_form_id_ = id;
     fill_form_form_ = form;
@@ -234,6 +237,11 @@ class MockAutofillManager : public AutofillManager {
   MOCK_METHOD0(Reset, void());
 };
 
+class MockAutofillClient : public TestAutofillClient {
+ public:
+  MOCK_METHOD0(OnFirstUserGestureObserved, void());
+};
+
 class TestContentAutofillDriver : public ContentAutofillDriver {
  public:
   TestContentAutofillDriver(content::RenderFrameHost* rfh,
@@ -257,13 +265,13 @@ class ContentAutofillDriverTest : public content::RenderViewHostTestHarness {
   void SetUp() override {
     content::RenderViewHostTestHarness::SetUp();
 
-    test_autofill_client_.reset(new TestAutofillClient());
+    test_autofill_client_.reset(new MockAutofillClient());
     driver_.reset(new TestContentAutofillDriver(web_contents()->GetMainFrame(),
                                                 test_autofill_client_.get()));
 
-    shell::InterfaceProvider* remote_interfaces =
+    service_manager::InterfaceProvider* remote_interfaces =
         web_contents()->GetMainFrame()->GetRemoteInterfaces();
-    shell::InterfaceProvider::TestApi test_api(remote_interfaces);
+    service_manager::InterfaceProvider::TestApi test_api(remote_interfaces);
     test_api.SetBinderForName(mojom::AutofillAgent::Name_,
                               base::Bind(&FakeAutofillAgent::BindRequest,
                                          base::Unretained(&fake_agent_)));
@@ -277,7 +285,7 @@ class ContentAutofillDriverTest : public content::RenderViewHostTestHarness {
   }
 
  protected:
-  std::unique_ptr<TestAutofillClient> test_autofill_client_;
+  std::unique_ptr<MockAutofillClient> test_autofill_client_;
   std::unique_ptr<TestContentAutofillDriver> driver_;
 
   FakeAutofillAgent fake_agent_;
@@ -445,6 +453,47 @@ TEST_F(ContentAutofillDriverTest, PreviewFieldWithValue) {
 
   EXPECT_TRUE(fake_agent_.GetString16PreviewFieldWithValue(&output_value));
   EXPECT_EQ(input_value, output_value);
+}
+
+// Tests that credit card form interactions are recorded on the current
+// NavigationEntry's SSLStatus if the page is HTTP.
+TEST_F(ContentAutofillDriverTest, CreditCardFormInteraction) {
+  GURL url("http://example.test");
+  NavigateAndCommit(url);
+  driver_->DidInteractWithCreditCardForm();
+
+  content::NavigationEntry* entry =
+      web_contents()->GetController().GetVisibleEntry();
+  ASSERT_TRUE(entry);
+  EXPECT_EQ(url, entry->GetURL());
+  EXPECT_TRUE(!!(entry->GetSSL().content_status &
+                 content::SSLStatus::DISPLAYED_CREDIT_CARD_FIELD_ON_HTTP));
+}
+
+// Tests that credit card form interactions are *not* recorded on the current
+// NavigationEntry's SSLStatus if the page is *not* HTTP.
+TEST_F(ContentAutofillDriverTest, CreditCardFormInteractionOnHTTPS) {
+  GURL url("https://example.test");
+  NavigateAndCommit(url);
+  driver_->DidInteractWithCreditCardForm();
+
+  content::NavigationEntry* entry =
+      web_contents()->GetController().GetVisibleEntry();
+  ASSERT_TRUE(entry);
+  EXPECT_EQ(url, entry->GetURL());
+  EXPECT_FALSE(!!(entry->GetSSL().content_status &
+                  content::SSLStatus::DISPLAYED_CREDIT_CARD_FIELD_ON_HTTP));
+}
+
+TEST_F(ContentAutofillDriverTest, NotifyFirstUserGestureObservedInTab) {
+  driver_->NotifyFirstUserGestureObservedInTab();
+  EXPECT_CALL(fake_agent_, FirstUserGestureObservedInTab());
+  base::RunLoop().RunUntilIdle();
+}
+
+TEST_F(ContentAutofillDriverTest, FirstUserGestureObserved) {
+  EXPECT_CALL(*test_autofill_client_, OnFirstUserGestureObserved());
+  driver_->FirstUserGestureObserved();
 }
 
 }  // namespace autofill

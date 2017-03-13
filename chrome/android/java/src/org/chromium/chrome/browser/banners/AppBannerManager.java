@@ -11,6 +11,7 @@ import org.chromium.base.ContextUtils;
 import org.chromium.base.VisibleForTesting;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.JNINamespace;
+import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ShortcutHelper;
 import org.chromium.content_public.browser.WebContents;
 
@@ -128,28 +129,32 @@ public class AppBannerManager {
         mIsEnabledForTab = state;
     }
 
+    /** Returns the language option to use for the add to homescreen dialog and menu item. */
+    public static int getHomescreenLanguageOption() {
+        int languageOption = nativeGetHomescreenLanguageOption();
+        if (languageOption == LanguageOption.ADD) {
+            return R.string.menu_add_to_homescreen_add;
+        } else if (languageOption == LanguageOption.INSTALL) {
+            return R.string.menu_add_to_homescreen_install;
+        }
+        return R.string.menu_add_to_homescreen;
+    }
+
+    /** Returns the language option to use for app banners. */
+    public static int getAppBannerLanguageOption() {
+        int languageOption = nativeGetHomescreenLanguageOption();
+        if (languageOption == LanguageOption.ADD) {
+            return R.string.app_banner_add;
+        } else if (languageOption == LanguageOption.INSTALL) {
+            return R.string.app_banner_install;
+        }
+        return R.string.menu_add_to_homescreen;
+    }
+
     /** Overrides whether the system supports add to home screen. Used in testing. */
     @VisibleForTesting
     public static void setIsSupported(boolean state) {
         sIsSupported = state;
-    }
-
-    /** Sets a constant (in days) that gets added to the time when the current time is requested. */
-    @VisibleForTesting
-    static void setTimeDeltaForTesting(int days) {
-        nativeSetTimeDeltaForTesting(days);
-    }
-
-    /** Disables the HTTPS scheme requirement for testing. */
-    @VisibleForTesting
-    static void disableSecureSchemeCheckForTesting() {
-        nativeDisableSecureSchemeCheckForTesting();
-    }
-
-    /** Sets the weights of direct and indirect page navigations for testing. */
-    @VisibleForTesting
-    static void setEngagementWeights(double directEngagement, double indirectEngagement) {
-        nativeSetEngagementWeights(directEngagement, indirectEngagement);
     }
 
     /** Returns whether the native AppBannerManager is working. */
@@ -158,20 +163,39 @@ public class AppBannerManager {
         return nativeIsActiveForTesting(mNativePointer);
     }
 
+    /** Sets constants (in days) the banner should be blocked for after dismissing and ignoring. */
+    @VisibleForTesting
+    static void setDaysAfterDismissAndIgnoreForTesting(int dismissDays, int ignoreDays) {
+        nativeSetDaysAfterDismissAndIgnoreToTrigger(dismissDays, ignoreDays);
+    }
+
+    /** Sets a constant (in days) that gets added to the time when the current time is requested. */
+    @VisibleForTesting
+    static void setTimeDeltaForTesting(int days) {
+        nativeSetTimeDeltaForTesting(days);
+    }
+
+    /** Sets the total required engagement to trigger the banner. */
+    @VisibleForTesting
+    static void setTotalEngagementForTesting(double engagement) {
+        nativeSetTotalEngagementToTrigger(engagement);
+    }
+
     /** Returns the AppBannerManager object. This is owned by the C++ banner manager. */
     public static AppBannerManager getAppBannerManagerForWebContents(WebContents webContents) {
         return nativeGetJavaBannerManagerForWebContents(webContents);
     }
 
+    private static native int nativeGetHomescreenLanguageOption();
     private static native AppBannerManager nativeGetJavaBannerManagerForWebContents(
             WebContents webContents);
     private native boolean nativeOnAppDetailsRetrieved(long nativeAppBannerManagerAndroid,
             AppData data, String title, String packageName, String imageUrl);
 
     // Testing methods.
-    private static native void nativeSetTimeDeltaForTesting(int days);
-    private static native void nativeDisableSecureSchemeCheckForTesting();
-    private static native void nativeSetEngagementWeights(double directEngagement,
-            double indirectEngagement);
     private native boolean nativeIsActiveForTesting(long nativeAppBannerManagerAndroid);
+    private static native void nativeSetDaysAfterDismissAndIgnoreToTrigger(
+            int dismissDays, int ignoreDays);
+    private static native void nativeSetTimeDeltaForTesting(int days);
+    private static native void nativeSetTotalEngagementToTrigger(double engagement);
 }

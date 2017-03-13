@@ -62,17 +62,17 @@ void testTokens(const String& string,
                 const CSSParserToken& token2 = CSSParserToken(EOFToken),
                 const CSSParserToken& token3 = CSSParserToken(EOFToken)) {
   Vector<CSSParserToken> expectedTokens;
-  expectedTokens.append(token1);
+  expectedTokens.push_back(token1);
   if (token2.type() != EOFToken) {
-    expectedTokens.append(token2);
+    expectedTokens.push_back(token2);
     if (token3.type() != EOFToken)
-      expectedTokens.append(token3);
+      expectedTokens.push_back(token3);
   }
 
   CSSParserTokenRange expected(expectedTokens);
 
-  CSSTokenizer::Scope actualScope(string);
-  CSSParserTokenRange actual = actualScope.tokenRange();
+  CSSTokenizer tokenizer(string);
+  CSSParserTokenRange actual = tokenizer.tokenRange();
 
   // Just check that serialization doesn't hit any asserts
   actual.serialize();
@@ -495,8 +495,8 @@ TEST(CSSTokenizerBlockTest, Basic) {
       {0, 0, 0}  // Do not remove the terminator line.
   };
   for (int i = 0; testCases[i].input; ++i) {
-    CSSTokenizer::Scope scope(testCases[i].input);
-    CSSParserTokenRange range = scope.tokenRange();
+    CSSTokenizer tokenizer(testCases[i].input);
+    CSSParserTokenRange range = tokenizer.tokenRange();
     MediaQueryBlockWatcher blockWatcher;
 
     unsigned maxLevel = 0;

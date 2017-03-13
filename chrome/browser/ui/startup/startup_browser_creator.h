@@ -18,10 +18,8 @@
 #include "chrome/browser/ui/startup/startup_types.h"
 #include "url/gurl.h"
 
-class Browser;
 class GURL;
 class PrefRegistrySimple;
-class PrefService;
 
 namespace base {
 class CommandLine;
@@ -103,6 +101,7 @@ class StartupBrowserCreator {
   static void ClearLaunchedProfilesForTesting();
 
   static void RegisterLocalStatePrefs(PrefRegistrySimple* registry);
+  static void RegisterProfilePrefs(PrefRegistrySimple* registry);
 
  private:
   friend class CloudPrintProxyPolicyTest;

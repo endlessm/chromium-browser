@@ -14,35 +14,36 @@
 #include "base/memory/weak_ptr.h"
 #include "build/build_config.h"
 #include "content/browser/compositor/browser_compositor_output_surface.h"
+#include "ui/events/latency_info.h"
 
 namespace ui {
-class CompositorVSyncManager;
+class ContextProviderCommandBuffer;
 }
 
 namespace content {
-class CommandBufferProxyImpl;
 class ReflectorTexture;
 
 class OffscreenBrowserCompositorOutputSurface
     : public BrowserCompositorOutputSurface {
  public:
   OffscreenBrowserCompositorOutputSurface(
-      scoped_refptr<ContextProviderCommandBuffer> context,
-      scoped_refptr<ui::CompositorVSyncManager> vsync_manager,
-      cc::SyntheticBeginFrameSource* begin_frame_source,
+      scoped_refptr<ui::ContextProviderCommandBuffer> context,
+      const UpdateVSyncParametersCallback& update_vsync_parameters_callback,
       std::unique_ptr<display_compositor::CompositorOverlayCandidateValidator>
           overlay_candidate_validator);
 
   ~OffscreenBrowserCompositorOutputSurface() override;
 
- protected:
-  // cc::OutputSurface:
+ private:
+  // cc::OutputSurface implementation.
+  void BindToClient(cc::OutputSurfaceClient* client) override;
   void EnsureBackbuffer() override;
   void DiscardBackbuffer() override;
   void Reshape(const gfx::Size& size,
                float scale_factor,
                const gfx::ColorSpace& color_space,
-               bool alpha) override;
+               bool alpha,
+               bool stencil) override;
   void BindFramebuffer() override;
   void SwapBuffers(cc::OutputSurfaceFrame frame) override;
   bool IsDisplayedAsOverlayPlane() const override;
@@ -50,25 +51,21 @@ class OffscreenBrowserCompositorOutputSurface
   bool SurfaceIsSuspendForRecycle() const override;
   uint32_t GetFramebufferCopyTextureFormat() override;
 
-  // BrowserCompositorOutputSurface
+  // BrowserCompositorOutputSurface implementation.
   void OnReflectorChanged() override;
-  void OnGpuSwapBuffersCompleted(
-      const std::vector<ui::LatencyInfo>& latency_info,
-      gfx::SwapResult result,
-      const gpu::GpuProcessHostedCALayerTreeParamsMac* params_mac) override{};
 #if defined(OS_MACOSX)
   void SetSurfaceSuspendedForRecycle(bool suspended) override {};
 #endif
 
+  void OnSwapBuffersComplete(const std::vector<ui::LatencyInfo>& latency_info);
+
+  cc::OutputSurfaceClient* client_ = nullptr;
+  gfx::Size reshape_size_;
   uint32_t fbo_ = 0;
   bool reflector_changed_ = false;
   std::unique_ptr<ReflectorTexture> reflector_texture_;
-
   base::WeakPtrFactory<OffscreenBrowserCompositorOutputSurface>
       weak_ptr_factory_;
-
- private:
-  void OnSwapBuffersComplete();
 
   DISALLOW_COPY_AND_ASSIGN(OffscreenBrowserCompositorOutputSurface);
 };

@@ -7,7 +7,7 @@
 #include "base/memory/ptr_util.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "components/sync/base/cancelation_signal.h"
-#include "components/sync/core/http_post_provider_factory.h"
+#include "components/sync/engine/net/http_post_provider_factory.h"
 #include "components/sync/test/fake_server/fake_server.h"
 #include "components/sync/test/fake_server/fake_server_http_post_provider.h"
 
@@ -19,7 +19,8 @@ namespace fake_server {
 
 FakeServerNetworkResources::FakeServerNetworkResources(
     const base::WeakPtr<FakeServer>& fake_server)
-    : fake_server_(fake_server) {}
+    : fake_server_(fake_server),
+      fake_server_task_runner_(base::ThreadTaskRunnerHandle::Get()) {}
 
 FakeServerNetworkResources::~FakeServerNetworkResources() {}
 
@@ -28,9 +29,8 @@ FakeServerNetworkResources::GetHttpPostProviderFactory(
     const scoped_refptr<net::URLRequestContextGetter>& baseline_context_getter,
     const NetworkTimeUpdateCallback& network_time_update_callback,
     CancelationSignal* cancelation_signal) {
-  return base::WrapUnique<syncer::HttpPostProviderFactory>(
-      new FakeServerHttpPostProviderFactory(
-          fake_server_, base::ThreadTaskRunnerHandle::Get()));
+  return base::MakeUnique<FakeServerHttpPostProviderFactory>(
+      fake_server_, fake_server_task_runner_);
 }
 
 }  // namespace fake_server

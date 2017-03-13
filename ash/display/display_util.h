@@ -15,7 +15,7 @@ class Window;
 }
 
 namespace display {
-class ManagedDisplayInfo;
+class DisplayManager;
 }
 
 namespace gfx {
@@ -25,14 +25,13 @@ class Rect;
 
 namespace ash {
 class AshWindowTreeHost;
-class DisplayManager;
 class MouseWarpController;
 
 // Creates a MouseWarpController for the current display
 // configuration. |drag_source| is the window where dragging
 // started, or nullptr otherwise.
 std::unique_ptr<MouseWarpController> CreateMouseWarpController(
-    DisplayManager* manager,
+    display::DisplayManager* manager,
     aura::Window* drag_source);
 
 // Creates edge bounds from |bounds_in_screen| that fits the edge
@@ -48,10 +47,10 @@ void MoveCursorTo(AshWindowTreeHost* ash_host,
                   const gfx::Point& point_in_screen,
                   bool update_last_location_now);
 
-#if defined(OS_CHROMEOS)
-// Shows the notification message for display related issues.
-void ShowDisplayErrorNotification(int message_id);
-#endif
+// Shows the notification message for display related issues, and optionally
+// adds a button to send a feedback report.
+void ShowDisplayErrorNotification(const base::string16& message,
+                                  bool allow_feedback);
 
 ASH_EXPORT base::string16 GetDisplayErrorNotificationMessageForTest();
 

@@ -23,7 +23,7 @@ class PersistentNode final {
  public:
   PersistentNode() : m_self(nullptr), m_trace(nullptr) { ASSERT(isUnused()); }
 
-#if ENABLE(ASSERT)
+#if DCHECK_IS_ON()
   ~PersistentNode() {
     // If you hit this assert, it means that the thread finished
     // without clearing persistent handles that the thread created.
@@ -107,7 +107,7 @@ class PLATFORM_EXPORT PersistentRegion final {
   PersistentRegion()
       : m_freeListHead(nullptr),
         m_slots(nullptr)
-#if ENABLE(ASSERT)
+#if DCHECK_IS_ON()
         ,
         m_persistentCount(0)
 #endif
@@ -116,7 +116,7 @@ class PLATFORM_EXPORT PersistentRegion final {
   ~PersistentRegion();
 
   PersistentNode* allocatePersistentNode(void* self, TraceCallback trace) {
-#if ENABLE(ASSERT)
+#if DCHECK_IS_ON()
     ++m_persistentCount;
 #endif
     if (UNLIKELY(!m_freeListHead))
@@ -130,10 +130,12 @@ class PLATFORM_EXPORT PersistentRegion final {
   }
 
   void freePersistentNode(PersistentNode* persistentNode) {
-    ASSERT(m_persistentCount > 0);
+#if DCHECK_IS_ON()
+    DCHECK_GT(m_persistentCount, 0);
+#endif
     persistentNode->setFreeListNext(m_freeListHead);
     m_freeListHead = persistentNode;
-#if ENABLE(ASSERT)
+#if DCHECK_IS_ON()
     --m_persistentCount;
 #endif
   }
@@ -157,7 +159,7 @@ class PLATFORM_EXPORT PersistentRegion final {
 
   PersistentNode* m_freeListHead;
   PersistentNodeSlots* m_slots;
-#if ENABLE(ASSERT)
+#if DCHECK_IS_ON()
   int m_persistentCount;
 #endif
 };
@@ -167,7 +169,7 @@ class CrossThreadPersistentRegion final {
 
  public:
   CrossThreadPersistentRegion()
-      : m_persistentRegion(wrapUnique(new PersistentRegion)) {}
+      : m_persistentRegion(WTF::wrapUnique(new PersistentRegion)) {}
 
   void allocatePersistentNode(PersistentNode*& persistentNode,
                               void* self,
@@ -212,7 +214,7 @@ class CrossThreadPersistentRegion final {
 
   void tracePersistentNodes(Visitor* visitor) {
 // If this assert triggers, you're tracing without being in a LockScope.
-#if ENABLE(ASSERT)
+#if DCHECK_IS_ON()
     DCHECK(m_mutex.locked());
 #endif
     m_persistentRegion->tracePersistentNodes(
@@ -223,6 +225,10 @@ class CrossThreadPersistentRegion final {
 
   NO_SANITIZE_ADDRESS
   static bool shouldTracePersistentNode(Visitor*, PersistentNode*);
+
+#if defined(ADDRESS_SANITIZER)
+  void unpoisonCrossThreadPersistents();
+#endif
 
  private:
   friend class LockScope;

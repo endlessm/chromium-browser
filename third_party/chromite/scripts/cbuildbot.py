@@ -20,24 +20,24 @@ import pickle
 import sys
 
 from chromite.cbuildbot import builders
+from chromite.cbuildbot import build_status
 from chromite.cbuildbot import cbuildbot_run
-from chromite.cbuildbot import config_lib
-from chromite.cbuildbot import constants
-from chromite.cbuildbot import manifest_version
 from chromite.cbuildbot import remote_try
 from chromite.cbuildbot import repository
 from chromite.cbuildbot import tee
 from chromite.cbuildbot import topology
 from chromite.cbuildbot import tree_status
 from chromite.cbuildbot import trybot_patch_pool
-from chromite.cbuildbot import failures_lib
 from chromite.cbuildbot.stages import completion_stages
 from chromite.lib import cidb
 from chromite.lib import cgroups
 from chromite.lib import cleanup
 from chromite.lib import commandline
+from chromite.lib import config_lib
+from chromite.lib import constants
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
+from chromite.lib import failures_lib
 from chromite.lib import git
 from chromite.lib import graphite
 from chromite.lib import gob_util
@@ -205,8 +205,14 @@ def _RunBuildStagesWrapper(options, site_config, build_config):
     # Tell Chrome to fetch the source locally.
     internal = constants.USE_CHROME_INTERNAL in build_config['useflags']
     chrome_src = 'chrome-src-internal' if internal else 'chrome-src'
-    options.chrome_root = os.path.join(options.cache_dir, 'distfiles', 'target',
-                                       chrome_src)
+    target_name = 'target'
+    if options.branch:
+      # Tie the cache per branch
+      target_name = 'target-%s' % options.branch
+    options.chrome_root = os.path.join(options.cache_dir, 'distfiles',
+                                       target_name, chrome_src)
+    # Create directory if in need
+    osutils.SafeMakedirsNonRoot(options.chrome_root)
   elif options.rietveld_patches:
     cros_build_lib.Die('This builder does not support Rietveld patches.')
 
@@ -266,7 +272,7 @@ def _CheckLocalPatches(sourceroot, local_patches):
   for patch in local_patches:
     project, _, branch = patch.partition(':')
 
-    checkouts = manifest.FindCheckouts(project, only_patchable=True)
+    checkouts = manifest.FindCheckouts(project)
     if not checkouts:
       cros_build_lib.Die('Project %s does not exist.' % (project,))
     if len(checkouts) > 1:
@@ -519,11 +525,19 @@ def _CreateParser():
                           help=('Args passed directly to the bootstrap re-exec '
                                 'to skip verification by the bootstrap code'))
   group.add_remote_option('--buildbot', dest='buildbot', action='store_true',
-                          default=False, help='This is running on a buildbot')
+                          default=False,
+                          help='This is running on a buildbot. '
+                               'This can be used to make a build operate '
+                               'like an official builder, e.g. generate '
+                               'new version numbers and archive official '
+                               'artifacts and such. This should only be '
+                               'used if you are confident in what you are '
+                               'doing, as it will make automated commits.')
   parser.add_remote_option('--repo-cache', type='path',
                            help='Directory from which to copy a repo checkout '
                                 'if our build root is empty, to avoid '
-                                'excessive GoB load with a fresh sync.')
+                                'excessive GoB load with a fresh sync.'
+                                'Deprecated in favor of --git-cache-dir.')
   group.add_remote_option('--no-buildbot-tags', action='store_false',
                           dest='enable_buildbot_tags', default=True,
                           help='Suppress buildbot specific tags from log '
@@ -624,6 +638,7 @@ def _CreateParser():
                                 'version rather than create or get latest. '
                                 'Examples: 4815.0.0-rc1, 4815.1.2'))
   group.add_remote_option('--git-cache-dir', dest='git_cache_dir', default=None,
+                          api=constants.REEXEC_API_GIT_CACHE_DIR,
                           help=('Specify the cache directory to store the '
                                 'project caches populated by the git-cache '
                                 'tool. Bootstrap the projects based on the git '
@@ -1255,7 +1270,7 @@ def main(argv):
       with open(options.mock_slave_status, 'r') as f:
         mock_statuses = pickle.load(f)
         for key, value in mock_statuses.iteritems():
-          mock_statuses[key] = manifest_version.BuilderStatus(**value)
+          mock_statuses[key] = build_status.BuilderStatus(**value)
       stack.Add(mock.patch.object,
                 completion_stages.MasterSlaveSyncCompletionStage,
                 '_FetchSlaveStatuses',

@@ -23,9 +23,7 @@ class WebServiceWorkerRegistrationProxy;
 namespace content {
 
 class ServiceWorkerRegistrationHandleReference;
-class ThreadSafeSender;
 class WebServiceWorkerImpl;
-struct ServiceWorkerObjectInfo;
 
 // Each instance corresponds to one ServiceWorkerRegistration object in JS
 // context, and is held by ServiceWorkerRegistration object in Blink's C++ layer
@@ -51,12 +49,26 @@ class CONTENT_EXPORT WebServiceWorkerRegistrationImpl
   void setProxy(blink::WebServiceWorkerRegistrationProxy* proxy) override;
   blink::WebServiceWorkerRegistrationProxy* proxy() override;
   blink::WebURL scope() const override;
-  void update(blink::WebServiceWorkerProvider* provider,
-              WebServiceWorkerUpdateCallbacks* callbacks) override;
+  void update(
+      blink::WebServiceWorkerProvider* provider,
+      std::unique_ptr<WebServiceWorkerUpdateCallbacks> callbacks) override;
   void unregister(blink::WebServiceWorkerProvider* provider,
-                  WebServiceWorkerUnregistrationCallbacks* callbacks) override;
-
-  int64_t registration_id() const;
+                  std::unique_ptr<WebServiceWorkerUnregistrationCallbacks>
+                      callbacks) override;
+  void enableNavigationPreload(
+      bool enable,
+      blink::WebServiceWorkerProvider* provider,
+      std::unique_ptr<WebEnableNavigationPreloadCallbacks> callbacks) override;
+  void getNavigationPreloadState(
+      blink::WebServiceWorkerProvider* provider,
+      std::unique_ptr<WebGetNavigationPreloadStateCallbacks> callbacks)
+      override;
+  void setNavigationPreloadHeader(
+      const blink::WebString& value,
+      blink::WebServiceWorkerProvider* provider,
+      std::unique_ptr<WebSetNavigationPreloadHeaderCallbacks> callbacks)
+      override;
+  int64_t registrationId() const override;
 
   using WebServiceWorkerRegistrationHandle =
       blink::WebServiceWorkerRegistration::Handle;
@@ -64,13 +76,6 @@ class CONTENT_EXPORT WebServiceWorkerRegistrationImpl
   // Creates WebServiceWorkerRegistrationHandle object that owns a reference to
   // the given WebServiceWorkerRegistrationImpl object.
   static std::unique_ptr<WebServiceWorkerRegistrationHandle> CreateHandle(
-      const scoped_refptr<WebServiceWorkerRegistrationImpl>& registration);
-
-  // Same with CreateHandle(), but returns a raw pointer to the handle w/ its
-  // ownership instead. The caller must manage the ownership. This function must
-  // be used only for passing the handle to Blink API that does not support
-  // blink::WebPassOwnPtr.
-  static WebServiceWorkerRegistrationHandle* CreateLeakyHandle(
       const scoped_refptr<WebServiceWorkerRegistrationImpl>& registration);
 
  private:

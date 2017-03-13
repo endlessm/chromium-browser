@@ -8,7 +8,7 @@ from __future__ import print_function
 
 import os
 
-from chromite.cbuildbot import constants
+from chromite.lib import constants
 from chromite.lib import commandline
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
@@ -254,7 +254,7 @@ def main(argv):
     for path in options.overlays.split(':'):
       if not os.path.isdir(path):
         cros_build_lib.Die('Cannot find overlay: %s' % path)
-      overlays[path] = []
+      overlays[os.path.realpath(path)] = []
   else:
     logging.warning('Missing --overlays argument')
     overlays = {
@@ -305,7 +305,8 @@ def main(argv):
       messages = []
       for ebuild in ebuilds:
         if options.verbose:
-          logging.info('Working on %s', ebuild.package)
+          logging.info('Working on %s, info %s', ebuild.package,
+                       ebuild.cros_workon_vars)
         try:
           new_package = ebuild.RevWorkOnEBuild(options.srcroot, manifest)
           if new_package:

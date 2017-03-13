@@ -17,7 +17,6 @@
 
 namespace blink {
 
-class InspectorEmulationAgent;
 class IntPoint;
 class IntRect;
 class TransformationMatrix;
@@ -110,8 +109,7 @@ class WEB_EXPORT DevToolsEmulator final
 
   bool m_touchEventEmulationEnabled;
   bool m_doubleTapToZoomEnabled;
-  bool m_originalTouchEnabled;
-  bool m_originalDeviceSupportsMouse;
+  bool m_originalTouchEventFeatureDetectionEnabled;
   bool m_originalDeviceSupportsTouch;
   int m_originalMaxTouchPoints;
   std::unique_ptr<IntPoint> m_lastPinchAnchorCss;

@@ -11,25 +11,29 @@
 
 #include "gpu/command_buffer/common/mailbox.h"
 #include "media/base/media_export.h"
+#include "ui/gfx/color_space.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
 
 namespace media {
 
-// A picture buffer that is composed of a GLES2 texture.
+// A picture buffer that is composed of one or more GLES2 textures.
 // This is the media-namespace equivalent of PP_PictureBuffer_Dev.
 class MEDIA_EXPORT PictureBuffer {
  public:
   using TextureIds = std::vector<uint32_t>;
 
-  PictureBuffer(int32_t id, gfx::Size size, const TextureIds& texture_ids);
+  PictureBuffer(int32_t id, const gfx::Size& size);
   PictureBuffer(int32_t id,
-                gfx::Size size,
-                const TextureIds& texture_ids,
-                const TextureIds& internal_texture_ids);
+                const gfx::Size& size,
+                const TextureIds& client_texture_ids);
   PictureBuffer(int32_t id,
-                gfx::Size size,
-                const TextureIds& texture_ids,
+                const gfx::Size& size,
+                const TextureIds& client_texture_ids,
+                const TextureIds& service_texture_ids);
+  PictureBuffer(int32_t id,
+                const gfx::Size& size,
+                const TextureIds& client_texture_ids,
                 const std::vector<gpu::Mailbox>& texture_mailboxes);
   PictureBuffer(const PictureBuffer& other);
   ~PictureBuffer();
@@ -38,29 +42,24 @@ class MEDIA_EXPORT PictureBuffer {
   int32_t id() const { return id_; }
 
   // Returns the size of the buffer.
-  gfx::Size size() const {
-    return size_;
-  }
+  gfx::Size size() const { return size_; }
+
   void set_size(const gfx::Size& size) { size_ = size; }
 
-  // Returns the id of the texture.
-  // NOTE: The texture id in the renderer process corresponds to a different
-  // texture id in the GPU process.
-  const TextureIds& texture_ids() const { return texture_ids_; }
+  // The client texture ids, i.e., those returned by Chrome's GL service.
+  const TextureIds& client_texture_ids() const { return client_texture_ids_; }
 
-  const TextureIds& internal_texture_ids() const {
-    return internal_texture_ids_;
-  }
+  // The service texture ids, i.e., the real platform ids corresponding to
+  // |client_texture_ids|.
+  const TextureIds& service_texture_ids() const { return service_texture_ids_; }
 
-  const gpu::Mailbox& texture_mailbox(size_t plane) const {
-    return texture_mailboxes_[plane];
-  }
+  gpu::Mailbox texture_mailbox(size_t plane) const;
 
  private:
   int32_t id_;
   gfx::Size size_;
-  TextureIds texture_ids_;
-  TextureIds internal_texture_ids_;
+  TextureIds client_texture_ids_;
+  TextureIds service_texture_ids_;
   std::vector<gpu::Mailbox> texture_mailboxes_;
 };
 
@@ -73,7 +72,10 @@ class MEDIA_EXPORT Picture {
   Picture(int32_t picture_buffer_id,
           int32_t bitstream_buffer_id,
           const gfx::Rect& visible_rect,
+          const gfx::ColorSpace& color_space,
           bool allow_overlay);
+  Picture(const Picture&);
+  ~Picture();
 
   // Returns the id of the picture buffer where this picture is contained.
   int32_t picture_buffer_id() const { return picture_buffer_id_; }
@@ -84,6 +86,9 @@ class MEDIA_EXPORT Picture {
   void set_bitstream_buffer_id(int32_t bitstream_buffer_id) {
     bitstream_buffer_id_ = bitstream_buffer_id;
   }
+
+  // Returns the color space of the picture.
+  const gfx::ColorSpace& color_space() const { return color_space_; }
 
   // Returns the visible rectangle of the picture. Its size may be smaller
   // than the size of the PictureBuffer, as it is the only visible part of the
@@ -100,12 +105,27 @@ class MEDIA_EXPORT Picture {
 
   void set_size_changed(bool size_changed) { size_changed_ = size_changed; }
 
+  bool surface_texture() const { return surface_texture_; }
+
+  void set_surface_texture(bool surface_texture) {
+    surface_texture_ = surface_texture;
+  }
+
+  bool wants_promotion_hint() const { return wants_promotion_hint_; }
+
+  void set_wants_promotion_hint(bool wants_promotion_hint) {
+    wants_promotion_hint_ = wants_promotion_hint;
+  }
+
  private:
   int32_t picture_buffer_id_;
   int32_t bitstream_buffer_id_;
   gfx::Rect visible_rect_;
+  gfx::ColorSpace color_space_;
   bool allow_overlay_;
   bool size_changed_;
+  bool surface_texture_;
+  bool wants_promotion_hint_;
 };
 
 }  // namespace media

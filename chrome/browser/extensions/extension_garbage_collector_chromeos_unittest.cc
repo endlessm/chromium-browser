@@ -22,17 +22,18 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile.h"
-#include "chromeos/login/user_names.h"
 #include "components/prefs/scoped_user_pref_update.h"
 #include "components/prefs/testing_pref_service.h"
 #include "components/signin/core/account_id/account_id.h"
 #include "components/user_manager/user_manager.h"
+#include "components/user_manager/user_names.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/plugin_service.h"
 #include "content/public/test/test_utils.h"
 #include "extensions/browser/extension_prefs.h"
 #include "extensions/browser/install_flag.h"
 #include "extensions/common/manifest_constants.h"
+#include "ppapi/features/features.h"
 
 namespace {
 const char kExtensionId1[] = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -47,7 +48,7 @@ class ExtensionGarbageCollectorChromeOSUnitTest
   const base::FilePath& cache_dir() { return cache_dir_.GetPath(); }
 
   void SetUp() override {
-#if defined(ENABLE_PLUGINS)
+#if BUILDFLAG(ENABLE_PLUGINS)
     content::PluginService::GetInstance()->Init();
 #endif
     InitializeGoodInstalledExtensionService();
@@ -69,8 +70,8 @@ class ExtensionGarbageCollectorChromeOSUnitTest
     user_manager_enabler_.reset(new chromeos::ScopedUserManagerEnabler(
         new chromeos::FakeChromeUserManager));
 
-    GetFakeUserManager()->AddUser(chromeos::login::StubAccountId());
-    GetFakeUserManager()->LoginUser(chromeos::login::StubAccountId());
+    GetFakeUserManager()->AddUser(user_manager::StubAccountId());
+    GetFakeUserManager()->LoginUser(user_manager::StubAccountId());
     chromeos::ProfileHelper::Get()->SetUserToProfileMappingForTesting(
         GetFakeUserManager()->GetActiveUser(), profile_.get());
   }
@@ -159,7 +160,7 @@ TEST_F(ExtensionGarbageCollectorChromeOSUnitTest, SharedExtensions) {
   base::FilePath path_id1_2 = CreateSharedExtensionDir(
       kExtensionId1, "2.0", cache_dir());
   CreateSharedExtensionPrefs(kExtensionId1, "2.0",
-                             chromeos::login::StubAccountId().GetUserEmail(),
+                             user_manager::StubAccountId().GetUserEmail(),
                              path_id1_2);
   EXPECT_TRUE(base::PathExists(path_id1_2));
 
@@ -167,7 +168,7 @@ TEST_F(ExtensionGarbageCollectorChromeOSUnitTest, SharedExtensions) {
   base::FilePath path_id2_1 = CreateSharedExtensionDir(
       kExtensionId2, "1.0", cache_dir());
   CreateSharedExtensionPrefs(kExtensionId2, "1.0",
-                             chromeos::login::StubAccountId().GetUserEmail(),
+                             user_manager::StubAccountId().GetUserEmail(),
                              path_id2_1);
   scoped_refptr<Extension> extension2 = CreateExtension(kExtensionId2, "1.0",
                                                         path_id2_1);

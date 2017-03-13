@@ -5,7 +5,7 @@
 Polymer({
   is: 'controlled-radio-button',
 
-  behaviors: [CrPolicyPrefBehavior, PrefControlBehavior],
+  behaviors: [PrefControlBehavior],
 
   properties: {
     name: {
@@ -21,12 +21,16 @@ Polymer({
     },
   },
 
+  listeners: {
+    'focus': 'onFocus_',
+  },
+
   /**
    * @return {boolean} Whether the button is disabled.
    * @private
    */
   computeControlled_: function() {
-    return this.isPrefPolicyControlled(assert(this.pref));
+    return this.pref.enforcement == chrome.settingsPrivate.Enforcement.ENFORCED;
   },
 
   /**
@@ -48,5 +52,10 @@ Polymer({
     // Disallow <controlled-radio-button on-tap="..."> when controlled.
     e.preventDefault();
     e.stopPropagation();
+  },
+
+  /** Focuses the internal radio button when the row is selected. */
+  onFocus_: function() {
+    this.$.radioButton.focus();
   },
 });

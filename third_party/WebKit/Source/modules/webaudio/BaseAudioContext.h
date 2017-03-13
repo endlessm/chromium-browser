@@ -29,8 +29,8 @@
 #include "bindings/core/v8/ActiveScriptWrappable.h"
 #include "bindings/core/v8/ScriptPromise.h"
 #include "bindings/core/v8/ScriptPromiseResolver.h"
-#include "core/dom/ActiveDOMObject.h"
 #include "core/dom/DOMTypedArray.h"
+#include "core/dom/SuspendableObject.h"
 #include "core/events/EventListener.h"
 #include "modules/EventTargetModules.h"
 #include "modules/ModulesExport.h"
@@ -53,13 +53,13 @@ class AudioBuffer;
 class AudioBufferCallback;
 class AudioBufferSourceNode;
 class AudioListener;
-class AudioSummingJunction;
+class BaseAudioContextTest;
 class BiquadFilterNode;
 class ChannelMergerNode;
 class ChannelSplitterNode;
+class ConstantSourceNode;
 class ConvolverNode;
 class DelayNode;
-class Dictionary;
 class Document;
 class DynamicsCompressorNode;
 class ExceptionState;
@@ -67,6 +67,7 @@ class GainNode;
 class HTMLMediaElement;
 class IIRFilterNode;
 class MediaElementAudioSourceNode;
+class MediaStream;
 class MediaStreamAudioDestinationNode;
 class MediaStreamAudioSourceNode;
 class OscillatorNode;
@@ -84,9 +85,10 @@ class WaveShaperNode;
 // are created from it.  For thread safety between the audio thread and the main
 // thread, it has a rendering graph locking mechanism.
 
-class MODULES_EXPORT BaseAudioContext : public EventTargetWithInlineData,
-                                        public ActiveScriptWrappable,
-                                        public ActiveDOMObject {
+class MODULES_EXPORT BaseAudioContext
+    : public EventTargetWithInlineData,
+      public ActiveScriptWrappable<BaseAudioContext>,
+      public SuspendableObject {
   USING_GARBAGE_COLLECTED_MIXIN(BaseAudioContext);
   DEFINE_WRAPPERTYPEINFO();
 
@@ -112,7 +114,7 @@ class MODULES_EXPORT BaseAudioContext : public EventTargetWithInlineData,
   }
 
   // Document notification
-  void contextDestroyed() final;
+  void contextDestroyed(ExecutionContext*) final;
   bool hasPendingActivity() const final;
 
   // Cannnot be called from the audio thread.
@@ -137,6 +139,11 @@ class MODULES_EXPORT BaseAudioContext : public EventTargetWithInlineData,
 
   float sampleRate() const {
     return m_destinationNode ? m_destinationNode->handler().sampleRate() : 0;
+  }
+
+  size_t callbackBufferSize() const {
+    return m_destinationNode ? m_destinationNode->handler().callbackBufferSize()
+                             : 0;
   }
 
   String state() const;
@@ -169,6 +176,7 @@ class MODULES_EXPORT BaseAudioContext : public EventTargetWithInlineData,
   // The AudioNode create methods are called on the main thread (from
   // JavaScript).
   AudioBufferSourceNode* createBufferSource(ExceptionState&);
+  ConstantSourceNode* createConstantSource(ExceptionState&);
   MediaElementAudioSourceNode* createMediaElementSource(HTMLMediaElement*,
                                                         ExceptionState&);
   MediaStreamAudioSourceNode* createMediaStreamSource(MediaStream*,
@@ -236,7 +244,7 @@ class MODULES_EXPORT BaseAudioContext : public EventTargetWithInlineData,
   void notifySourceNodeFinishedProcessing(AudioHandler*);
 
   // Called at the start of each render quantum.
-  void handlePreRenderTasks();
+  void handlePreRenderTasks(const AudioIOPosition& outputPosition);
 
   // Called at the end of each render quantum.
   void handlePostRenderTasks();
@@ -265,7 +273,7 @@ class MODULES_EXPORT BaseAudioContext : public EventTargetWithInlineData,
   void lock() { deferredTaskHandler().lock(); }
   bool tryLock() { return deferredTaskHandler().tryLock(); }
   void unlock() { deferredTaskHandler().unlock(); }
-#if ENABLE(ASSERT)
+#if DCHECK_IS_ON()
   // Returns true if this thread owns the context's lock.
   bool isGraphOwner() { return deferredTaskHandler().isGraphOwner(); }
 #endif
@@ -296,6 +304,11 @@ class MODULES_EXPORT BaseAudioContext : public EventTargetWithInlineData,
   // Get the PeriodicWave for the specified oscillator type.  The table is
   // initialized internally if necessary.
   PeriodicWave* periodicWave(int type);
+
+  // For metrics purpose, records when start() is called on a
+  // AudioScheduledSourceHandler or a AudioBufferSourceHandler without a user
+  // gesture while the AudioContext requires a user gesture.
+  void maybeRecordStartAttempt();
 
  protected:
   explicit BaseAudioContext(Document*);
@@ -339,7 +352,26 @@ class MODULES_EXPORT BaseAudioContext : public EventTargetWithInlineData,
   // Returns whether the AudioContext is allowed to start rendering.
   bool isAllowedToStart() const;
 
+  AudioIOPosition outputPosition();
+
  private:
+  friend class BaseAudioContextTest;
+
+  // Do not change the order of this enum, it is used for metrics.
+  enum AutoplayStatus {
+    // The AudioContext failed to activate because of user gesture requirements.
+    AutoplayStatusFailed = 0,
+    // Same as AutoplayStatusFailed but start() on a node was called with a user
+    // gesture.
+    AutoplayStatusFailedWithStart = 1,
+    // The AudioContext had user gesture requirements and was able to activate
+    // with a user gesture.
+    AutoplayStatusSucceeded = 2,
+
+    // Keep at the end.
+    AutoplayStatusCount
+  };
+
   bool m_isCleared;
   void clear();
 
@@ -381,6 +413,9 @@ class MODULES_EXPORT BaseAudioContext : public EventTargetWithInlineData,
   // resolvers.
   virtual void rejectPendingResolvers();
 
+  // Record the current autoplay status and clear it.
+  void recordAutoplayStatus();
+
   // True if we're in the process of resolving promises for resume().  Resolving
   // can take some time and the audio context process loop is very fast, so we
   // don't want to call resolve an excessive number of times.
@@ -420,6 +455,9 @@ class MODULES_EXPORT BaseAudioContext : public EventTargetWithInlineData,
   // This is considering 32 is large enough for multiple channels audio.
   // It is somewhat arbitrary and could be increased if necessary.
   enum { MaxNumberOfChannels = 32 };
+
+  Optional<AutoplayStatus> m_autoplayStatus;
+  AudioIOPosition m_outputPosition;
 };
 
 }  // namespace blink

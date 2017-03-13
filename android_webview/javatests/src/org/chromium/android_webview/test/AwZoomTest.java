@@ -6,7 +6,7 @@ package org.chromium.android_webview.test;
 
 import android.app.Activity;
 import android.content.pm.ActivityInfo;
-import android.test.suitebuilder.annotation.SmallTest;
+import android.support.test.filters.SmallTest;
 import android.view.View;
 import android.view.ViewConfiguration;
 
@@ -188,6 +188,7 @@ public class AwZoomTest extends AwTestBase {
 
     @SmallTest
     @Feature({"AndroidWebView"})
+    @RetryOnFailure  // Flaky (times out). See http://crbug.com/661879.
     public void testMagnification() throws Throwable {
         getAwSettingsOnUiThread(mAwContents).setSupportZoom(true);
         runMagnificationTest();

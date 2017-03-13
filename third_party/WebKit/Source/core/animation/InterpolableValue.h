@@ -38,7 +38,7 @@ class CORE_EXPORT InterpolableValue {
                            const double progress,
                            InterpolableValue& result) const = 0;
 
-  friend class Interpolation;
+  friend class LegacyStyleInterpolation;
   friend class PairwisePrimitiveInterpolation;
 
   // Keep interpolate private, but allow calls within the hierarchy without
@@ -53,7 +53,7 @@ class CORE_EXPORT InterpolableValue {
 class CORE_EXPORT InterpolableNumber final : public InterpolableValue {
  public:
   static std::unique_ptr<InterpolableNumber> create(double value) {
-    return wrapUnique(new InterpolableNumber(value));
+    return WTF::wrapUnique(new InterpolableNumber(value));
   }
 
   bool isNumber() const final { return true; }
@@ -78,39 +78,6 @@ class CORE_EXPORT InterpolableNumber final : public InterpolableValue {
   explicit InterpolableNumber(double value) : m_value(value) {}
 };
 
-class CORE_EXPORT InterpolableBool final : public InterpolableValue {
- public:
-  static std::unique_ptr<InterpolableBool> create(bool value) {
-    return wrapUnique(new InterpolableBool(value));
-  }
-
-  bool isBool() const final { return true; }
-  bool value() const { return m_value; }
-  bool equals(const InterpolableValue&) const final {
-    NOTREACHED();
-    return false;
-  }
-  std::unique_ptr<InterpolableValue> clone() const final {
-    return create(m_value);
-  }
-  std::unique_ptr<InterpolableValue> cloneAndZero() const final {
-    NOTREACHED();
-    return nullptr;
-  }
-  void scale(double scale) final { NOTREACHED(); }
-  void scaleAndAdd(double scale, const InterpolableValue& other) final {
-    NOTREACHED();
-  }
-
- private:
-  void interpolate(const InterpolableValue& to,
-                   const double progress,
-                   InterpolableValue& result) const final;
-  bool m_value;
-
-  explicit InterpolableBool(bool value) : m_value(value) {}
-};
-
 class CORE_EXPORT InterpolableList : public InterpolableValue {
  public:
   // Explicitly delete operator= because MSVC automatically generate
@@ -123,11 +90,11 @@ class CORE_EXPORT InterpolableList : public InterpolableValue {
 
   static std::unique_ptr<InterpolableList> create(
       const InterpolableList& other) {
-    return wrapUnique(new InterpolableList(other));
+    return WTF::wrapUnique(new InterpolableList(other));
   }
 
   static std::unique_ptr<InterpolableList> create(size_t size) {
-    return wrapUnique(new InterpolableList(size));
+    return WTF::wrapUnique(new InterpolableList(size));
   }
 
   bool isList() const final { return true; }
@@ -168,7 +135,7 @@ class InterpolableAnimatableValue : public InterpolableValue {
  public:
   static std::unique_ptr<InterpolableAnimatableValue> create(
       PassRefPtr<AnimatableValue> value) {
-    return wrapUnique(new InterpolableAnimatableValue(std::move(value)));
+    return WTF::wrapUnique(new InterpolableAnimatableValue(std::move(value)));
   }
 
   bool isAnimatableValue() const final { return true; }
@@ -204,11 +171,6 @@ DEFINE_TYPE_CASTS(InterpolableNumber,
                   value,
                   value->isNumber(),
                   value.isNumber());
-DEFINE_TYPE_CASTS(InterpolableBool,
-                  InterpolableValue,
-                  value,
-                  value->isBool(),
-                  value.isBool());
 DEFINE_TYPE_CASTS(InterpolableList,
                   InterpolableValue,
                   value,

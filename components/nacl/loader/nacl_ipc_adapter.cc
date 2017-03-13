@@ -342,17 +342,18 @@ NaClIPCAdapter::IOThreadData::IOThreadData() {
 NaClIPCAdapter::IOThreadData::~IOThreadData() {
 }
 
-NaClIPCAdapter::NaClIPCAdapter(const IPC::ChannelHandle& handle,
-                               base::TaskRunner* runner,
-                               ResolveFileTokenCallback resolve_file_token_cb,
-                               OpenResourceCallback open_resource_cb)
+NaClIPCAdapter::NaClIPCAdapter(
+    const IPC::ChannelHandle& handle,
+    const scoped_refptr<base::SingleThreadTaskRunner>& runner,
+    ResolveFileTokenCallback resolve_file_token_cb,
+    OpenResourceCallback open_resource_cb)
     : lock_(),
       cond_var_(&lock_),
       task_runner_(runner),
       resolve_file_token_cb_(resolve_file_token_cb),
       open_resource_cb_(open_resource_cb),
       locked_data_() {
-  io_thread_data_.channel_ = IPC::Channel::CreateServer(handle, this);
+  io_thread_data_.channel_ = IPC::Channel::CreateServer(handle, this, runner);
   // Note, we can not PostTask for ConnectChannelOnIOThread here. If we did,
   // and that task ran before this constructor completes, the reference count
   // would go to 1 and then to 0 because of the Task, before we've been returned
@@ -476,12 +477,6 @@ void NaClIPCAdapter::CloseChannel() {
 NaClDesc* NaClIPCAdapter::MakeNaClDesc() {
   return MakeNaClDescCustom(this);
 }
-
-#if defined(OS_POSIX)
-base::ScopedFD NaClIPCAdapter::TakeClientFileDescriptor() {
-  return io_thread_data_.channel_->TakeClientFileDescriptor();
-}
-#endif
 
 bool NaClIPCAdapter::OnMessageReceived(const IPC::Message& msg) {
   uint32_t type = msg.type();
@@ -631,7 +626,6 @@ std::unique_ptr<IPC::Message> CreateOpenResourceReply(
   ppapi::proxy::SerializedHandle::WriteHeader(sh.header(),
                                               new_msg.get());
   new_msg->WriteBool(true);  // valid == true
-  new_msg->WriteBool(false);  // brokerable == false
   // The file descriptor is at index 0. There's only ever one file
   // descriptor provided for this message type, so this will be correct.
   new_msg->WriteInt(0);
@@ -778,7 +772,7 @@ bool NaClIPCAdapter::SendCompleteMessage(const char* buffer,
   std::unique_ptr<IPC::Message> new_msg;
   locked_data_.nacl_msg_scanner_.ScanUntrustedMessage(*msg, &new_msg);
   if (new_msg)
-    msg.reset(new_msg.release());
+    msg = std::move(new_msg);
 
   // Actual send must be done on the I/O thread.
   task_runner_->PostTask(FROM_HERE,

@@ -48,7 +48,8 @@ scoped_refptr<GLSurface> CreateDefaultOffscreenGLSurface(
   switch (GetGLImplementation()) {
     case kGLImplementationOSMesaGL:
       return InitializeGLSurface(
-          new GLSurfaceOSMesa(GLSurface::SURFACE_OSMESA_BGRA, size));
+          new GLSurfaceOSMesa(
+              GLSurfaceFormat(GLSurfaceFormat::PIXEL_LAYOUT_BGRA), size));
     case kGLImplementationMockGL:
       return InitializeGLSurface(new GLSurfaceStub);
     default:
@@ -80,12 +81,12 @@ bool GetGLWindowSystemBindingInfo(GLWindowSystemBindingInfo* info) {
 
 scoped_refptr<GLContext> CreateGLContext(GLShareGroup* share_group,
                                          GLSurface* compatible_surface,
-                                         GpuPreference gpu_preference) {
+                                         const GLContextAttribs& attribs) {
   TRACE_EVENT0("gpu", "gl::init::CreateGLContext");
 
   if (HasGLOzone()) {
     return GetGLOzone()->CreateGLContext(share_group, compatible_surface,
-                                         gpu_preference);
+                                         attribs);
   }
 
   switch (GetGLImplementation()) {
@@ -93,10 +94,10 @@ scoped_refptr<GLContext> CreateGLContext(GLShareGroup* share_group,
       return scoped_refptr<GLContext>(new GLContextStub(share_group));
     case kGLImplementationOSMesaGL:
       return InitializeGLContext(new GLContextOSMesa(share_group),
-                                 compatible_surface, gpu_preference);
+                                 compatible_surface, attribs);
     case kGLImplementationEGLGLES2:
       return InitializeGLContext(new GLContextEGL(share_group),
-                                 compatible_surface, gpu_preference);
+                                 compatible_surface, attribs);
     default:
       NOTREACHED();
   }
@@ -131,8 +132,14 @@ scoped_refptr<GLSurface> CreateSurfacelessViewGLSurface(
       GetGLImplementation(), window);
 }
 
-scoped_refptr<GLSurface> CreateOffscreenGLSurface(const gfx::Size& size) {
+scoped_refptr<GLSurface> CreateOffscreenGLSurfaceWithFormat(
+    const gfx::Size& size, GLSurfaceFormat format) {
   TRACE_EVENT0("gpu", "gl::init::CreateOffscreenGLSurface");
+
+  if (!format.IsDefault()) {
+    NOTREACHED() << "FATAL: Ozone only supports default-format surfaces.";
+    return nullptr;
+  }
 
   if (HasGLOzone())
     return GetGLOzone()->CreateOffscreenGLSurface(size);

@@ -48,8 +48,6 @@
 #include "core/workers/WorkerClients.h"
 #include "core/workers/WorkerThreadStartupData.h"
 #include "modules/EventTargetModules.h"
-#include "modules/cachestorage/CacheStorage.h"
-#include "modules/cachestorage/InspectorCacheStorageAgent.h"
 #include "modules/fetch/GlobalFetch.h"
 #include "modules/serviceworkers/ServiceWorkerClients.h"
 #include "modules/serviceworkers/ServiceWorkerGlobalScopeClient.h"
@@ -65,6 +63,7 @@
 #include "wtf/CurrentTime.h"
 #include "wtf/PtrUtil.h"
 #include <memory>
+#include <utility>
 
 namespace blink {
 
@@ -77,9 +76,9 @@ ServiceWorkerGlobalScope* ServiceWorkerGlobalScope::create(
       startupData->m_scriptURL, startupData->m_userAgent, thread,
       monotonicallyIncreasingTime(),
       std::move(startupData->m_starterOriginPrivilegeData),
-      startupData->m_workerClients.release());
+      startupData->m_workerClients);
 
-  context->setV8CacheOptions(startupData->m_v8CacheOptions);
+  context->setV8CacheOptions(startupData->m_workerV8Settings.m_v8CacheOptions);
   context->applyContentSecurityPolicyFromVector(
       *startupData->m_contentSecurityPolicyHeaders);
   if (!startupData->m_referrerPolicy.isNull())
@@ -168,7 +167,8 @@ ScriptPromise ServiceWorkerGlobalScope::skipWaiting(ScriptState* scriptState) {
   ScriptPromise promise = resolver->promise();
 
   ServiceWorkerGlobalScopeClient::from(executionContext)
-      ->skipWaiting(new CallbackPromiseAdapter<void, void>(resolver));
+      ->skipWaiting(
+          WTF::makeUnique<CallbackPromiseAdapter<void, void>>(resolver));
   return promise;
 }
 
@@ -177,7 +177,7 @@ void ServiceWorkerGlobalScope::setRegistration(
   if (!getExecutionContext())
     return;
   m_registration = ServiceWorkerRegistration::getOrCreate(
-      getExecutionContext(), wrapUnique(handle.release()));
+      getExecutionContext(), WTF::wrapUnique(handle.release()));
 }
 
 bool ServiceWorkerGlobalScope::addEventListenerInternal(
@@ -257,7 +257,7 @@ void ServiceWorkerGlobalScope::exceptionThrown(ErrorEvent* event) {
   WorkerGlobalScope::exceptionThrown(event);
   if (WorkerThreadDebugger* debugger =
           WorkerThreadDebugger::from(thread()->isolate()))
-    debugger->exceptionThrown(event);
+    debugger->exceptionThrown(thread(), event);
 }
 
 }  // namespace blink

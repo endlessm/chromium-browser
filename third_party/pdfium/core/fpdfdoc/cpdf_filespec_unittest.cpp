@@ -12,13 +12,6 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "testing/test_support.h"
 
-namespace {
-
-using ScopedObj = std::unique_ptr<CPDF_Object, ReleaseDeleter<CPDF_Object>>;
-using ScopedDict =
-    std::unique_ptr<CPDF_Dictionary, ReleaseDeleter<CPDF_Dictionary>>;
-}
-
 TEST(cpdf_filespec, EncodeDecodeFileName) {
   std::vector<pdfium::NullTermWstrFuncTestData> test_data = {
     // Empty src string.
@@ -74,7 +67,8 @@ TEST(cpdf_filespec, GetFileName) {
       L"/docs/test.pdf"
 #endif
     };
-    ScopedObj str_obj(new CPDF_String(test_data.input));
+    std::unique_ptr<CPDF_Object> str_obj(
+        new CPDF_String(nullptr, test_data.input));
     CPDF_FileSpec file_spec(str_obj.get());
     CFX_WideString file_name;
     EXPECT_TRUE(file_spec.GetFileName(&file_name));
@@ -105,24 +99,24 @@ TEST(cpdf_filespec, GetFileName) {
     };
     // Keyword fields in reverse order of precedence to retrieve the file name.
     const char* const keywords[5] = {"Unix", "Mac", "DOS", "F", "UF"};
-    ScopedDict dict_obj(new CPDF_Dictionary());
+    std::unique_ptr<CPDF_Dictionary> dict_obj(new CPDF_Dictionary());
     CPDF_FileSpec file_spec(dict_obj.get());
     CFX_WideString file_name;
     for (int i = 0; i < 5; ++i) {
-      dict_obj->SetFor(keywords[i], new CPDF_String(test_data[i].input));
+      dict_obj->SetNewFor<CPDF_String>(keywords[i], test_data[i].input);
       EXPECT_TRUE(file_spec.GetFileName(&file_name));
       EXPECT_TRUE(file_name == test_data[i].expected);
     }
 
     // With all the former fields and 'FS' field suggests 'URL' type.
-    dict_obj->SetStringFor("FS", "URL");
+    dict_obj->SetNewFor<CPDF_String>("FS", "URL", false);
     EXPECT_TRUE(file_spec.GetFileName(&file_name));
     // Url string is not decoded.
     EXPECT_TRUE(file_name == test_data[4].input);
   }
   {
     // Invalid object.
-    ScopedObj name_obj(new CPDF_Name("test.pdf"));
+    std::unique_ptr<CPDF_Object> name_obj(new CPDF_Name(nullptr, "test.pdf"));
     CPDF_FileSpec file_spec(name_obj.get());
     CFX_WideString file_name;
     EXPECT_FALSE(file_spec.GetFileName(&file_name));
@@ -143,7 +137,7 @@ TEST(cpdf_filespec, SetFileName) {
 #endif
   };
   // String object.
-  ScopedObj str_obj(new CPDF_String(L"babababa"));
+  std::unique_ptr<CPDF_Object> str_obj(new CPDF_String(nullptr, L"babababa"));
   CPDF_FileSpec file_spec1(str_obj.get());
   file_spec1.SetFileName(test_data.input);
   // Check internal object value.
@@ -155,7 +149,7 @@ TEST(cpdf_filespec, SetFileName) {
   EXPECT_TRUE(file_name == test_data.input);
 
   // Dictionary object.
-  ScopedDict dict_obj(new CPDF_Dictionary());
+  std::unique_ptr<CPDF_Dictionary> dict_obj(new CPDF_Dictionary());
   CPDF_FileSpec file_spec2(dict_obj.get());
   file_spec2.SetFileName(test_data.input);
   // Check internal object value.

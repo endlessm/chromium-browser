@@ -2,6 +2,9 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//extensions/common/api/schema.gni")
+import("//tools/json_schema_compiler/json_schema_api.gni")
+
 source_set("api") {
   sources = [
     "api_resource.cc",
@@ -32,7 +35,6 @@ source_set("api") {
     "//extensions/browser/api/bluetooth_low_energy",
     "//extensions/browser/api/bluetooth_socket",
     "//extensions/browser/api/cast_channel",
-    "//extensions/browser/api/clipboard",
     "//extensions/browser/api/declarative",
     "//extensions/browser/api/declarative_content",
     "//extensions/browser/api/declarative_webrequest",
@@ -47,6 +49,7 @@ source_set("api") {
     "//extensions/browser/api/idle",
     "//extensions/browser/api/management",
     "//extensions/browser/api/messaging",
+    "//extensions/browser/api/metrics_private",
     "//extensions/browser/api/mime_handler_private",
     "//extensions/browser/api/networking_private",
     "//extensions/browser/api/power",
@@ -74,14 +77,33 @@ source_set("api") {
   deps = [
     "//base:i18n",
     "//content/public/browser",
+    "//extensions/strings",
   ]
 
   if (is_chromeos) {
     public_deps += [
+      "//extensions/browser/api/clipboard",
       "//extensions/browser/api/diagnostics",
       "//extensions/browser/api/networking_config",
       "//extensions/browser/api/vpn_provider",
       "//extensions/browser/api/webcam_private",
     ]
   }
+}
+
+json_schema_api("api_registration") {
+  sources = extensions_api_schema_files
+  impl_dir = "//extensions/browser/api"
+  bundle_registration = true
+  bundle_name = ""
+  root_namespace = extensions_api_root_namespace
+  uncompiled_sources = extensions_api_uncompiled_sources
+
+  deps = [
+    ":api",
+    "//device/serial",
+    "//extensions/common/api",
+    "//extensions/common/api/cast_channel:cast_channel_proto",
+    "//skia",
+  ]
 }

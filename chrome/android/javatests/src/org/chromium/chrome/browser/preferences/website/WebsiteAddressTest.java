@@ -4,8 +4,7 @@
 
 package org.chromium.chrome.browser.preferences.website;
 
-import android.test.suitebuilder.annotation.SmallTest;
-import android.test.suitebuilder.annotation.Smoke;
+import android.support.test.filters.SmallTest;
 
 import org.chromium.base.CommandLine;
 import org.chromium.base.test.util.Feature;
@@ -16,7 +15,6 @@ import org.chromium.content.browser.test.NativeLibraryTestBase;
  */
 public class WebsiteAddressTest extends NativeLibraryTestBase {
 
-    @Smoke
     @SmallTest
     @Feature({"Preferences", "Main"})
     public void testCreate() {
@@ -39,12 +37,12 @@ public class WebsiteAddressTest extends NativeLibraryTestBase {
         assertEquals("https://a.google.com", httpsAddress.getTitle());
 
         WebsiteAddress hostAddress = WebsiteAddress.create("a.google.com");
-        assertEquals(null, hostAddress.getOrigin());
+        assertEquals("http://a.google.com", hostAddress.getOrigin());
         assertEquals("a.google.com", hostAddress.getHost());
         assertEquals("a.google.com", hostAddress.getTitle());
 
         WebsiteAddress anySubdomainAddress = WebsiteAddress.create("[*.]google.com");
-        assertEquals(null, anySubdomainAddress.getOrigin());
+        assertEquals("http://google.com", anySubdomainAddress.getOrigin());
         assertEquals("google.com", anySubdomainAddress.getHost());
         assertEquals("google.com", anySubdomainAddress.getTitle());
     }

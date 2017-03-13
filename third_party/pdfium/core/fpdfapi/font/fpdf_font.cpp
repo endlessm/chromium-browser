@@ -6,6 +6,9 @@
 
 #include "core/fpdfapi/font/font_int.h"
 
+#include <memory>
+#include <utility>
+
 #include "core/fpdfapi/cpdf_modulemgr.h"
 #include "core/fpdfapi/page/cpdf_form.h"
 #include "core/fpdfapi/page/cpdf_pagemodule.h"
@@ -21,6 +24,7 @@
 #include "core/fxcrt/fx_safe_types.h"
 #include "core/fxge/fx_freetype.h"
 #include "third_party/base/numerics/safe_conversions.h"
+#include "third_party/base/ptr_util.h"
 #include "third_party/base/stl_util.h"
 
 int TT2PDF(int m, FXFT_Face face) {
@@ -47,11 +51,8 @@ CFX_StockFontArray::CFX_StockFontArray() {}
 
 CFX_StockFontArray::~CFX_StockFontArray() {
   for (size_t i = 0; i < FX_ArraySize(m_StockFonts); ++i) {
-    if (!m_StockFonts[i])
-      continue;
-    CPDF_Dictionary* pFontDict = m_StockFonts[i]->GetFontDict();
-    if (pFontDict)
-      pFontDict->Release();
+    if (m_StockFonts[i])
+      delete m_StockFonts[i]->GetFontDict();
   }
 }
 
@@ -87,7 +88,7 @@ CPDF_Font* CPDF_FontGlobals::Set(CPDF_Document* pDoc,
                                  uint32_t index,
                                  std::unique_ptr<CPDF_Font> pFont) {
   if (!pdfium::ContainsKey(m_StockMap, pDoc))
-    m_StockMap[pDoc].reset(new CFX_StockFontArray);
+    m_StockMap[pDoc] = pdfium::MakeUnique<CFX_StockFontArray>();
   return m_StockMap[pDoc]->SetFont(index, std::move(pFont));
 }
 
@@ -208,7 +209,7 @@ uint32_t CPDF_ToUnicodeMap::GetUnicode() {
 void CPDF_ToUnicodeMap::Load(CPDF_Stream* pStream) {
   CIDSet cid_set = CIDSET_UNKNOWN;
   CPDF_StreamAcc stream;
-  stream.LoadAllData(pStream, FALSE);
+  stream.LoadAllData(pStream, false);
   CPDF_SimpleParser parser(stream.GetData(), stream.GetSize());
   while (1) {
     CFX_ByteStringC word = parser.GetWord();
@@ -307,7 +308,7 @@ void CPDF_ToUnicodeMap::Load(CPDF_Stream* pStream) {
     m_pBaseMap = CPDF_ModuleMgr::Get()
                      ->GetPageModule()
                      ->GetFontGlobals()
-                     ->m_CMapManager.GetCID2UnicodeMap(cid_set, FALSE);
+                     ->m_CMapManager.GetCID2UnicodeMap(cid_set, false);
   } else {
     m_pBaseMap = nullptr;
   }

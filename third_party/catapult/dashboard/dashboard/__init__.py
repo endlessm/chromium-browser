@@ -34,12 +34,16 @@ THIRD_PARTY_LIBRARIES_IN_SDK = [
 DASHBOARD_FILES = [
     'appengine_config.py',
     'app.yaml',
-    'bisect',
-    'bisect.yaml',
     'dashboard',
     'index.yaml',
     'mapreduce.yaml',
+    'pinpoint.yaml',
     'queue.yaml',
+]
+
+TRACING_PATHS = [
+    'tracing/tracing',
+    'tracing/third_party/gl-matrix/dist/gl-matrix-min.js'
 ]
 
 
@@ -60,6 +64,7 @@ def PathsForDeployment():
       paths.append(p)
   for name in DASHBOARD_FILES:
     paths.append(os.path.join(_CATAPULT_PATH, 'dashboard', name))
+  paths.extend(_TracingPaths())
   return paths
 
 
@@ -90,4 +95,14 @@ def _CatapultThirdPartyLibraryPaths():
   paths = []
   for library in THIRD_PARTY_LIBRARIES:
     paths.append(os.path.join(_CATAPULT_PATH, 'third_party', library))
+  return paths
+
+
+def _TracingPaths():
+  """Returns a list of paths that may be imported from tracing."""
+  # TODO(sullivan): This should either pull from tracing_project or be generated
+  # via gypi. See https://github.com/catapult-project/catapult/issues/3048.
+  paths = []
+  for path in TRACING_PATHS:
+    paths.append(os.path.join(_CATAPULT_PATH, os.path.normpath(path)))
   return paths

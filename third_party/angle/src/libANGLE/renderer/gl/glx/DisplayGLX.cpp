@@ -106,8 +106,8 @@ class FunctionsGLGLX : public FunctionsGL
     PFNGETPROCPROC mGetProc;
 };
 
-DisplayGLX::DisplayGLX()
-    : DisplayGL(),
+DisplayGLX::DisplayGLX(const egl::DisplayState &state)
+    : DisplayGL(state),
       mFunctionsGL(nullptr),
       mRequestedVisual(-1),
       mContextConfig(nullptr),
@@ -350,7 +350,7 @@ egl::Error DisplayGLX::initialize(egl::Display *display)
     bool isOpenGLES =
         eglAttributes.get(EGL_PLATFORM_ANGLE_TYPE_ANGLE, EGL_PLATFORM_ANGLE_TYPE_DEFAULT_ANGLE) ==
         EGL_PLATFORM_ANGLE_TYPE_OPENGLES_ANGLE;
-    if (isOpenGLES && (vendor == VENDOR_ID_INTEL || vendor == VENDOR_ID_NVIDIA))
+    if (isOpenGLES && (IsIntel(vendor) || IsNvidia(vendor)))
     {
         return egl::Error(EGL_NOT_INITIALIZED, "Intel or NVIDIA OpenGL ES drivers are not supported.");
     }
@@ -382,23 +382,21 @@ void DisplayGLX::terminate()
 }
 
 SurfaceImpl *DisplayGLX::createWindowSurface(const egl::SurfaceState &state,
-                                             const egl::Config *configuration,
                                              EGLNativeWindowType window,
                                              const egl::AttributeMap &attribs)
 {
-    ASSERT(configIdToGLXConfig.count(configuration->configID) > 0);
-    glx::FBConfig fbConfig = configIdToGLXConfig[configuration->configID];
+    ASSERT(configIdToGLXConfig.count(state.config->configID) > 0);
+    glx::FBConfig fbConfig = configIdToGLXConfig[state.config->configID];
 
     return new WindowSurfaceGLX(state, mGLX, this, getRenderer(), window, mGLX.getDisplay(),
                                 mContext, fbConfig);
 }
 
 SurfaceImpl *DisplayGLX::createPbufferSurface(const egl::SurfaceState &state,
-                                              const egl::Config *configuration,
                                               const egl::AttributeMap &attribs)
 {
-    ASSERT(configIdToGLXConfig.count(configuration->configID) > 0);
-    glx::FBConfig fbConfig = configIdToGLXConfig[configuration->configID];
+    ASSERT(configIdToGLXConfig.count(state.config->configID) > 0);
+    glx::FBConfig fbConfig = configIdToGLXConfig[state.config->configID];
 
     EGLint width  = static_cast<EGLint>(attribs.get(EGL_WIDTH, 0));
     EGLint height = static_cast<EGLint>(attribs.get(EGL_HEIGHT, 0));
@@ -409,8 +407,8 @@ SurfaceImpl *DisplayGLX::createPbufferSurface(const egl::SurfaceState &state,
 }
 
 SurfaceImpl *DisplayGLX::createPbufferFromClientBuffer(const egl::SurfaceState &state,
-                                                       const egl::Config *configuration,
-                                                       EGLClientBuffer shareHandle,
+                                                       EGLenum buftype,
+                                                       EGLClientBuffer clientBuffer,
                                                        const egl::AttributeMap &attribs)
 {
     UNIMPLEMENTED();
@@ -418,7 +416,6 @@ SurfaceImpl *DisplayGLX::createPbufferFromClientBuffer(const egl::SurfaceState &
 }
 
 SurfaceImpl *DisplayGLX::createPixmapSurface(const egl::SurfaceState &state,
-                                             const egl::Config *configuration,
                                              NativePixmapType nativePixmap,
                                              const egl::AttributeMap &attribs)
 {

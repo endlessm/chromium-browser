@@ -11,6 +11,7 @@
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/callback.h"
+#include "base/json/json_reader.h"
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/metrics/histogram_macros.h"
@@ -23,7 +24,6 @@
 #include "chrome/browser/chromeos/settings/cros_settings.h"
 #include "chrome/browser/chromeos/settings/device_settings_cache.h"
 #include "chrome/browser/metrics/metrics_reporting_state.h"
-#include "chrome/installer/util/google_update_settings.h"
 #include "chromeos/chromeos_switches.h"
 #include "chromeos/dbus/cryptohome_client.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
@@ -65,6 +65,7 @@ const char* const kKnownSettings[] = {
     kDeviceDisabledMessage,
     kDeviceOwner,
     kDeviceQuirksDownloadEnabled,
+    kDeviceWallpaperImage,
     kDisplayRotationDefault,
     kExtensionCacheSize,
     kHeartbeatEnabled,
@@ -94,6 +95,7 @@ const char* const kKnownSettings[] = {
     kSystemLogUploadEnabled,
     kSystemTimezonePolicy,
     kSystemUse24HourClock,
+    kTargetVersionPrefix,
     kUpdateDisabled,
     kVariationsRestrictParameter,
 };
@@ -201,6 +203,21 @@ void DecodeLoginPolicies(
         entry_dict->SetStringWithoutPathExpansion(
             kAccountsPrefDeviceLocalAccountsKeyKioskAppUpdateURL,
             entry->kiosk_app().update_url());
+      }
+      if (entry->android_kiosk_app().has_package_name()) {
+        entry_dict->SetStringWithoutPathExpansion(
+            chromeos::kAccountsPrefDeviceLocalAccountsKeyArcKioskPackage,
+            entry->android_kiosk_app().package_name());
+      }
+      if (entry->android_kiosk_app().has_class_name()) {
+        entry_dict->SetStringWithoutPathExpansion(
+            chromeos::kAccountsPrefDeviceLocalAccountsKeyArcKioskClass,
+            entry->android_kiosk_app().class_name());
+      }
+      if (entry->android_kiosk_app().has_action()) {
+        entry_dict->SetStringWithoutPathExpansion(
+            chromeos::kAccountsPrefDeviceLocalAccountsKeyArcKioskAction,
+            entry->android_kiosk_app().action());
       }
     } else if (entry->has_deprecated_public_session_id()) {
       // Deprecated public session specification.
@@ -316,6 +333,12 @@ void DecodeAutoUpdatePolicies(
       new_values_cache->SetBoolean(kUpdateDisabled,
                                    au_settings_proto.update_disabled());
     }
+
+    if (au_settings_proto.has_target_version_prefix()) {
+      new_values_cache->SetString(kTargetVersionPrefix,
+                                  au_settings_proto.target_version_prefix());
+    }
+
     const RepeatedField<int>& allowed_connection_types =
         au_settings_proto.allowed_connection_types();
     std::unique_ptr<base::ListValue> list(new base::ListValue());
@@ -501,6 +524,14 @@ void DecodeGenericPolicies(
     new_values_cache->SetBoolean(
         kDeviceQuirksDownloadEnabled,
         policy.quirks_download_enabled().quirks_download_enabled());
+  }
+
+  if (policy.has_device_wallpaper_image() &&
+      policy.device_wallpaper_image().has_device_wallpaper_image()) {
+    std::unique_ptr<base::DictionaryValue> dict_val =
+        base::DictionaryValue::From(base::JSONReader::Read(
+            policy.device_wallpaper_image().device_wallpaper_image()));
+    new_values_cache->SetValue(kDeviceWallpaperImage, std::move(dict_val));
   }
 }
 
@@ -704,11 +735,11 @@ void DeviceSettingsProvider::UpdateValuesCache(
   // cache so that if somebody actually reads the cache will be already valid.
   std::vector<std::string> notifications;
   // Go through the new values and verify in the old ones.
-  PrefValueMap::iterator iter = new_values_cache.begin();
+  auto iter = new_values_cache.begin();
   for (; iter != new_values_cache.end(); ++iter) {
     const base::Value* old_value;
     if (!values_cache_.GetValue(iter->first, &old_value) ||
-        !old_value->Equals(iter->second)) {
+        !old_value->Equals(iter->second.get())) {
       notifications.push_back(iter->first);
     }
   }

@@ -10,11 +10,11 @@ from google.appengine.ext import ndb
 
 from dashboard import alerts
 from dashboard import chart_handler
-from dashboard import list_tests
 from dashboard import update_test_suites
 from dashboard.common import request_handler
 from dashboard.common import utils
 from dashboard.models import anomaly
+from dashboard.models import page_state
 from dashboard.models import stoppage_alert
 
 # This is the max number of alerts to query at once. This is used in cases
@@ -35,19 +35,29 @@ class GroupReportHandler(chart_handler.ChartHandler):
   def post(self):
     """Returns dynamic data for /group_report with some set of alerts.
 
-    The set of alerts is determined by the keys, bug ID or revision given.
+    The set of alerts is determined by the sid, keys, bug ID, or revision given.
 
     Request parameters:
       keys: A comma-separated list of urlsafe Anomaly keys (optional).
       bug_id: A bug number on the Chromium issue tracker (optional).
       rev: A revision number (optional).
+      sid: A hash of a group of keys from /short_uri (optional).
 
     Outputs:
       JSON for the /group_report page XHR request.
     """
-    keys = self.request.get('keys')
     bug_id = self.request.get('bug_id')
     rev = self.request.get('rev')
+    keys = self.request.get('keys')
+    hash_code = self.request.get('sid')
+
+    # sid takes precedence.
+    if hash_code:
+      state = ndb.Key(page_state.PageState, hash_code).get()
+      if state:
+        keys = json.loads(state.value)
+    elif keys:
+      keys = keys.split(',')
 
     try:
       if bug_id:
@@ -79,7 +89,7 @@ class GroupReportHandler(chart_handler.ChartHandler):
     stoppage_alert_query = stoppage_alert.StoppageAlert.query(
         stoppage_alert.StoppageAlert.bug_id == bug_id)
     stoppage_alerts = stoppage_alert_query.fetch(limit=_DISPLAY_LIMIT)
-    self._ShowAlerts(anomalies + stoppage_alerts, bug_id)
+    self._ShowAlerts(anomalies + stoppage_alerts, None, bug_id)
 
   def _ShowAlertsAroundRevision(self, rev):
     """Shows a alerts whose revision range includes the given revision.
@@ -113,7 +123,8 @@ class GroupReportHandler(chart_handler.ChartHandler):
     Args:
       keys: Comma-separated list of urlsafe strings for Anomaly keys.
     """
-    urlsafe_keys = keys.split(',')
+    urlsafe_keys = keys
+
     try:
       keys = [ndb.Key(urlsafe=k) for k in urlsafe_keys]
     # Errors that can be thrown here include ProtocolBufferDecodeError
@@ -153,9 +164,9 @@ class GroupReportHandler(chart_handler.ChartHandler):
           anomalies.append(anomaly_entity)
     else:
       anomalies = requested_anomalies
-    self._ShowAlerts(anomalies)
+    self._ShowAlerts(anomalies, urlsafe_keys)
 
-  def _ShowAlerts(self, alert_list, bug_id=None):
+  def _ShowAlerts(self, alert_list, selected_keys=None, bug_id=None):
     """Responds to an XHR from /group_report page with a JSON list of alerts.
 
     Args:
@@ -170,13 +181,9 @@ class GroupReportHandler(chart_handler.ChartHandler):
 
     values = {
         'alert_list': alert_dicts[:_DISPLAY_LIMIT],
-        # This code for getting the subtests is supposed to be used to sort out
-        # which metrics are "core" vs "non-core". But it's extremely slow, and
-        # also doesn't seem to work very well. Turn it off for now:
-        # https://github.com/catapult-project/catapult/issues/2877
-        #'subtests': _GetSubTestsForAlerts(alert_dicts),
         'bug_id': bug_id,
         'test_suites': update_test_suites.FetchCachedTestSuites(),
+        'selected_keys': selected_keys,
     }
     self.GetDynamicVariables(values)
 
@@ -190,20 +197,6 @@ def _IsInt(x):
     return True
   except ValueError:
     return False
-
-
-def _GetSubTestsForAlerts(alert_list):
-  """Gets subtest dict for list of alerts."""
-  subtests = {}
-  for alert in alert_list:
-    bot_name = alert['master'] + '/' + alert['bot']
-    testsuite = alert['testsuite']
-    if bot_name not in subtests:
-      subtests[bot_name] = {}
-    if testsuite not in subtests[bot_name]:
-      subtests[bot_name][testsuite] = list_tests.GetSubTests(
-          testsuite, [bot_name])
-  return subtests
 
 
 def _GetOverlaps(anomalies, start, end):

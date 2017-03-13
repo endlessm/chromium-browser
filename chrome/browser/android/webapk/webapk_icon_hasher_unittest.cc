@@ -26,7 +26,7 @@ const base::FilePath::CharType kTestDataDir[] =
 const char kIconUrl[] = "/android/google.png";
 
 // Murmur2 hash for |kIconUrl|.
-const char kIconMurmur2Hash[] = "13321047016824288610";
+const char kIconMurmur2Hash[] = "2081059568551351877";
 
 // Runs WebApkIconHasher and blocks till the murmur2 hash is computed.
 class WebApkIconHasherRunner {
@@ -95,6 +95,22 @@ TEST_F(WebApkIconHasherTest, Success) {
   WebApkIconHasherRunner runner;
   runner.Run(icon_url);
   EXPECT_EQ(kIconMurmur2Hash, runner.murmur2_hash());
+}
+
+TEST_F(WebApkIconHasherTest, DataUri) {
+  GURL icon_url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAUA"
+      "AAAFCAYAAACNbyblAAAAHElEQVQI12P4//8/w38GIAXDIBKE0DHxgljNBAAO"
+      "9TXL0Y4OHwAAAABJRU5ErkJggg==");
+  WebApkIconHasherRunner runner;
+  runner.Run(icon_url);
+  EXPECT_EQ("536500236142107998", runner.murmur2_hash());
+}
+
+TEST_F(WebApkIconHasherTest, DataUriInvalid) {
+  GURL icon_url("data:image/png;base64");
+  WebApkIconHasherRunner runner;
+  runner.Run(icon_url);
+  EXPECT_EQ("", runner.murmur2_hash());
 }
 
 // Test that the hash callback is called with an empty string if an HTTP error

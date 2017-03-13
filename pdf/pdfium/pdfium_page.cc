@@ -118,6 +118,7 @@ void PDFiumPage::Unload() {
 
 FPDF_PAGE PDFiumPage::GetPage() {
   ScopedUnsupportedFeature scoped_unsupported_feature(engine_);
+  ScopedSubstFont scoped_subst_font(engine_);
   if (!available_)
     return nullptr;
   if (!page_) {
@@ -132,6 +133,7 @@ FPDF_PAGE PDFiumPage::GetPage() {
 
 FPDF_PAGE PDFiumPage::GetPrintPage() {
   ScopedUnsupportedFeature scoped_unsupported_feature(engine_);
+  ScopedSubstFont scoped_subst_font(engine_);
   if (!available_)
     return nullptr;
   if (!page_) {
@@ -178,7 +180,8 @@ void PDFiumPage::GetTextRunInfo(int start_char_index,
   int text_run_font_size = FPDFText_GetFontSize(text_page, char_index);
   pp::FloatRect text_run_bounds =
       GetFloatCharRectInPixels(page, text_page, char_index);
-  char_index++;
+  if (char_index < chars_count)
+    char_index++;
   while (char_index < chars_count) {
     unsigned int character = FPDFText_GetUnicode(text_page, char_index);
 

@@ -7,6 +7,8 @@
 #ifndef CORE_FPDFDOC_FPDF_TAGGED_H_
 #define CORE_FPDFDOC_FPDF_TAGGED_H_
 
+#include <memory>
+
 #include "core/fxge/fx_dib.h"
 
 class CPDF_Dictionary;
@@ -15,9 +17,9 @@ class IPDF_StructElement;
 
 class IPDF_StructTree {
  public:
-  static IPDF_StructTree* LoadDoc(const CPDF_Document* pDoc);
-  static IPDF_StructTree* LoadPage(const CPDF_Document* pDoc,
-                                   const CPDF_Dictionary* pPageDict);
+  static std::unique_ptr<IPDF_StructTree> LoadPage(
+      const CPDF_Document* pDoc,
+      const CPDF_Dictionary* pPageDict);
 
   virtual ~IPDF_StructTree() {}
 
@@ -62,31 +64,31 @@ class IPDF_StructElement {
 
   virtual CPDF_Object* GetAttr(const CFX_ByteStringC& owner,
                                const CFX_ByteStringC& name,
-                               FX_BOOL bInheritable = FALSE,
+                               bool bInheritable = false,
                                FX_FLOAT fLevel = 0.0F) = 0;
 
   virtual CFX_ByteString GetName(const CFX_ByteStringC& owner,
                                  const CFX_ByteStringC& name,
                                  const CFX_ByteStringC& default_value,
-                                 FX_BOOL bInheritable = FALSE,
+                                 bool bInheritable = false,
                                  int subindex = -1) = 0;
 
   virtual FX_ARGB GetColor(const CFX_ByteStringC& owner,
                            const CFX_ByteStringC& name,
                            FX_ARGB default_value,
-                           FX_BOOL bInheritable = FALSE,
+                           bool bInheritable = false,
                            int subindex = -1) = 0;
 
   virtual FX_FLOAT GetNumber(const CFX_ByteStringC& owner,
                              const CFX_ByteStringC& name,
                              FX_FLOAT default_value,
-                             FX_BOOL bInheritable = FALSE,
+                             bool bInheritable = false,
                              int subindex = -1) = 0;
 
   virtual int GetInteger(const CFX_ByteStringC& owner,
                          const CFX_ByteStringC& name,
                          int default_value,
-                         FX_BOOL bInheritable = FALSE,
+                         bool bInheritable = false,
                          int subindex = -1) = 0;
 };
 

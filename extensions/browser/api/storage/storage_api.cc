@@ -132,10 +132,10 @@ void GetModificationQuotaLimitHeuristics(QuotaLimitHeuristics* heuristics) {
   QuotaLimitHeuristic::Config long_limit_config = {
       api::storage::sync::MAX_WRITE_OPERATIONS_PER_HOUR,
       base::TimeDelta::FromHours(1)};
-  heuristics->push_back(new QuotaService::TimedLimit(
+  heuristics->push_back(base::MakeUnique<QuotaService::TimedLimit>(
       short_limit_config, new QuotaLimitHeuristic::SingletonBucketMapper(),
       "MAX_WRITE_OPERATIONS_PER_MINUTE"));
-  heuristics->push_back(new QuotaService::TimedLimit(
+  heuristics->push_back(base::MakeUnique<QuotaService::TimedLimit>(
       long_limit_config, new QuotaLimitHeuristic::SingletonBucketMapper(),
       "MAX_WRITE_OPERATIONS_PER_HOUR"));
 }
@@ -149,23 +149,23 @@ ExtensionFunction::ResponseValue StorageStorageAreaGetFunction::RunWithStorage(
     return BadMessage();
 
   switch (input->GetType()) {
-    case base::Value::TYPE_NULL:
+    case base::Value::Type::NONE:
       return UseReadResult(storage->Get());
 
-    case base::Value::TYPE_STRING: {
+    case base::Value::Type::STRING: {
       std::string as_string;
       input->GetAsString(&as_string);
       return UseReadResult(storage->Get(as_string));
     }
 
-    case base::Value::TYPE_LIST: {
+    case base::Value::Type::LIST: {
       std::vector<std::string> as_string_list;
       AddAllStringValues(*static_cast<base::ListValue*>(input),
                          &as_string_list);
       return UseReadResult(storage->Get(as_string_list));
     }
 
-    case base::Value::TYPE_DICTIONARY: {
+    case base::Value::Type::DICTIONARY: {
       base::DictionaryValue* as_dict =
           static_cast<base::DictionaryValue*>(input);
       ValueStore::ReadResult result = storage->Get(GetKeys(*as_dict));
@@ -193,18 +193,18 @@ StorageStorageAreaGetBytesInUseFunction::RunWithStorage(ValueStore* storage) {
   size_t bytes_in_use = 0;
 
   switch (input->GetType()) {
-    case base::Value::TYPE_NULL:
+    case base::Value::Type::NONE:
       bytes_in_use = storage->GetBytesInUse();
       break;
 
-    case base::Value::TYPE_STRING: {
+    case base::Value::Type::STRING: {
       std::string as_string;
       input->GetAsString(&as_string);
       bytes_in_use = storage->GetBytesInUse(as_string);
       break;
     }
 
-    case base::Value::TYPE_LIST: {
+    case base::Value::Type::LIST: {
       std::vector<std::string> as_string_list;
       AddAllStringValues(*static_cast<base::ListValue*>(input),
                          &as_string_list);
@@ -240,13 +240,13 @@ StorageStorageAreaRemoveFunction::RunWithStorage(ValueStore* storage) {
     return BadMessage();
 
   switch (input->GetType()) {
-    case base::Value::TYPE_STRING: {
+    case base::Value::Type::STRING: {
       std::string as_string;
       input->GetAsString(&as_string);
       return UseWriteResult(storage->Remove(as_string));
     }
 
-    case base::Value::TYPE_LIST: {
+    case base::Value::Type::LIST: {
       std::vector<std::string> as_string_list;
       AddAllStringValues(*static_cast<base::ListValue*>(input),
                          &as_string_list);

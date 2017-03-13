@@ -16,6 +16,7 @@
 #include "chromeos/dbus/dbus_client.h"
 #include "chromeos/dbus/dbus_client_implementation_type.h"
 #include "chromeos/dbus/dbus_method_call_status.h"
+#include "third_party/cros_system_api/dbus/login_manager/dbus-constants.h"
 
 namespace cryptohome {
 class Identification;
@@ -128,8 +129,8 @@ class CHROMEOS_EXPORT SessionManagerClient : public DBusClient {
   // method. It receives |sessions| argument where the keys are cryptohome_ids
   // for all users that are currently active and |success| argument which
   // indicates whether or not the request succeded.
-  typedef base::Callback<void(const ActiveSessionsMap& sessions,
-                              bool success)> ActiveSessionsCallback;
+  using ActiveSessionsCallback =
+      base::Callback<void(const ActiveSessionsMap& sessions, bool success)>;
 
   // Enumerates active user sessions. Usually Chrome naturally keeps track of
   // active users when they are added into current session. When Chrome is
@@ -143,7 +144,8 @@ class CHROMEOS_EXPORT SessionManagerClient : public DBusClient {
   // RetrieveDeviceLocalAccountPolicy. Takes a serialized protocol buffer as
   // string.  Upon success, we will pass a protobuf to the callback.  On
   // failure, we will pass "".
-  typedef base::Callback<void(const std::string&)> RetrievePolicyCallback;
+  using RetrievePolicyCallback =
+      base::Callback<void(const std::string& protobuf)>;
 
   // Fetches the device policy blob stored by the session manager.  Upon
   // completion of the retrieve attempt, we will call the provided callback.
@@ -174,7 +176,7 @@ class CHROMEOS_EXPORT SessionManagerClient : public DBusClient {
   // Used for StoreDevicePolicy, StorePolicyForUser and
   // StoreDeviceLocalAccountPolicy. Takes a boolean indicating whether the
   // operation was successful or not.
-  typedef base::Callback<void(bool)> StorePolicyCallback;
+  using StorePolicyCallback = base::Callback<void(bool success)>;
 
   // Attempts to asynchronously store |policy_blob| as device policy.  Upon
   // completion of the store attempt, we will call callback.
@@ -201,8 +203,8 @@ class CHROMEOS_EXPORT SessionManagerClient : public DBusClient {
   virtual void SetFlagsForUser(const cryptohome::Identification& cryptohome_id,
                                const std::vector<std::string>& flags) = 0;
 
-  typedef base::Callback<void(const std::vector<std::string>& state_keys)>
-      StateKeysCallback;
+  using StateKeysCallback =
+      base::Callback<void(const std::vector<std::string>& state_keys)>;
 
   // Get the currently valid server-backed state keys for the device.
   // Server-backed state keys are opaque, device-unique, time-dependent,
@@ -210,18 +212,19 @@ class CHROMEOS_EXPORT SessionManagerClient : public DBusClient {
   // for the device to retrieve after a device factory reset.
   //
   // The state keys are returned asynchronously via |callback|. The callback
-  // will be invoked with an empty state key vector in case of errors.
+  // is invoked with an empty state key vector in case of errors. If the time
+  // sync fails or there's no network, the callback is never invoked.
   virtual void GetServerBackedStateKeys(const StateKeysCallback& callback) = 0;
 
   // Used for several ARC methods.  Takes a boolean indicating whether the
   // operation was successful or not.
-  typedef base::Callback<void(bool)> ArcCallback;
+  using ArcCallback = base::Callback<void(bool success)>;
 
   // Used for GetArcStartTime. Takes a boolean indicating whether the
   // operation was successful or not and the ticks of ARC start time if it
   // is successful.
-  typedef base::Callback<void(bool success, base::TimeTicks ticks)>
-      GetArcStartTimeCallback;
+  using GetArcStartTimeCallback =
+      base::Callback<void(bool success, base::TimeTicks ticks)>;
 
   // Asynchronously checks if starting the ARC instance is available.
   // The result of the operation is reported through |callback|.
@@ -231,12 +234,19 @@ class CHROMEOS_EXPORT SessionManagerClient : public DBusClient {
   // Asynchronously starts the ARC instance for the user whose cryptohome is
   // located by |cryptohome_id|.  Flag |disable_boot_completed_broadcast|
   // blocks Android ACTION_BOOT_COMPLETED broadcast for 3rd party applications.
-  // Upon completion, invokes |callback| with the result; true on success, false
-  // on failure (either session manager failed to start an instance or session
-  // manager can not be reached).
+  // Upon completion, invokes |callback| with the result.
+  // Running ARC requires some amount of disk space. LOW_FREE_DISK_SPACE will
+  // be returned when there is not enough free disk space for ARC.
+  // UNKNOWN_ERROR is returned for any other errors.
+  enum class StartArcInstanceResult {
+    SUCCESS,
+    UNKNOWN_ERROR,
+    LOW_FREE_DISK_SPACE,
+  };
+  using StartArcInstanceCallback = base::Callback<void(StartArcInstanceResult)>;
   virtual void StartArcInstance(const cryptohome::Identification& cryptohome_id,
                                 bool disable_boot_completed_broadcast,
-                                const ArcCallback& callback) = 0;
+                                const StartArcInstanceCallback& callback) = 0;
 
   // Asynchronously stops the ARC instance.  Upon completion, invokes
   // |callback| with the result; true on success, false on failure (either
@@ -244,12 +254,24 @@ class CHROMEOS_EXPORT SessionManagerClient : public DBusClient {
   // reached).
   virtual void StopArcInstance(const ArcCallback& callback) = 0;
 
+  // Deprecated. Use SetArcCpuRestriction() instead.
+  // TODO(yusukes): Remove the interface.
   // Prioritizes the ARC instance by removing cgroups restrictions that
   // session_manager applies to the instance by default. Upon completion,
   // invokes |callback| with the result; true on success, false on failure.
-  // Calling this multiple times is okay. Such calls except the first one
-  // will be ignored.
+  // All calls after the first one will have no effect.
   virtual void PrioritizeArcInstance(const ArcCallback& callback) = 0;
+
+  // Adjusts the amount of CPU the ARC instance is allowed to use. When
+  // |restriction_state| is CONTAINER_CPU_RESTRICTION_FOREGROUND the limit is
+  // adjusted so ARC can use all the system's CPU if needed. When it is
+  // CONTAINER_CPU_RESTRICTION_BACKGROUND, ARC can only use tightly restricted
+  // CPU resources. The ARC instance is started in a state that is more
+  // restricted than CONTAINER_CPU_RESTRICTION_BACKGROUND. When ARC is not
+  // supported, the function asynchronously runs the |callback| with false.
+  virtual void SetArcCpuRestriction(
+      login_manager::ContainerCpuRestrictionState restriction_state,
+      const ArcCallback& callback) = 0;
 
   // Emits the "arc-booted" upstart signal.
   virtual void EmitArcBooted() = 0;

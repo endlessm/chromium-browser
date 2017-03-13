@@ -11,9 +11,9 @@ import android.view.MenuItem;
 
 import junit.framework.Assert;
 
+import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.chrome.browser.tab.EmptyTabObserver;
 import org.chromium.chrome.browser.tab.Tab;
-import org.chromium.content.browser.test.util.CallbackHelper;
 import org.chromium.content.browser.test.util.Criteria;
 import org.chromium.content.browser.test.util.CriteriaHelper;
 import org.chromium.content.browser.test.util.DOMUtils;
@@ -148,7 +148,7 @@ public class ContextMenuUtils {
 
     private static void selectOpenContextMenuItem(
             final ActivityInstrumentationTestCase2<?> testCase, final ContextMenu menu,
-            final int itemId) throws InterruptedException {
+            final int itemId) {
         MenuItem item = menu.findItem(itemId);
         Assert.assertNotNull("Could not find '" + itemId + "' in menu", item);
         Assert.assertTrue("'" + itemId + "' is not visible", item.isVisible());

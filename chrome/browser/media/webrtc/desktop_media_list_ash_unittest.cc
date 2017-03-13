@@ -38,6 +38,12 @@ class DesktopMediaListAshTest : public ash::test::AshTestBase {
   DesktopMediaListAshTest() {}
   ~DesktopMediaListAshTest() override {}
 
+  void TearDown() override {
+    // Reset the unique_ptr so the list stops refreshing.
+    list_.reset();
+    ash::test::AshTestBase::TearDown();
+  }
+
   void CreateList(int source_types) {
     list_.reset(new DesktopMediaListAsh(source_types));
     list_->SetThumbnailSize(gfx::Size(kThumbnailSize, kThumbnailSize));
@@ -103,14 +109,7 @@ TEST_F(DesktopMediaListAshTest, ScreenOnly) {
   base::RunLoop().Run();
 }
 
-// Times out on Win DrMemory bot. http://crbug.com/493187
-#if defined(OS_WIN)
-#define MAYBE_WindowOnly DISABLED_WindowOnly
-#else
-#define MAYBE_WindowOnly WindowOnly
-#endif
-
-TEST_F(DesktopMediaListAshTest, MAYBE_WindowOnly) {
+TEST_F(DesktopMediaListAshTest, WindowOnly) {
   CreateList(DesktopMediaListAsh::WINDOWS);
 
   std::unique_ptr<aura::Window> window(CreateTestWindowInShellWithId(0));

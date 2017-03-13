@@ -102,6 +102,7 @@ bool MockDrmDevice::AddFramebuffer2(uint32_t width,
                                     uint32_t handles[4],
                                     uint32_t strides[4],
                                     uint32_t offsets[4],
+                                    uint64_t modifiers[4],
                                     uint32_t* framebuffer,
                                     uint32_t flags) {
   add_framebuffer_call_count_++;
@@ -226,8 +227,8 @@ bool MockDrmDevice::CommitProperties(drmModeAtomicReq* properties,
 
 bool MockDrmDevice::SetColorCorrection(
     uint32_t crtc_id,
-    const std::vector<GammaRampRGBEntry>& degamma_lut,
-    const std::vector<GammaRampRGBEntry>& gamma_lut,
+    const std::vector<display::GammaRampRGBEntry>& degamma_lut,
+    const std::vector<display::GammaRampRGBEntry>& gamma_lut,
     const std::vector<float>& correction_matrix) {
   return true;
 }

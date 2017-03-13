@@ -46,9 +46,9 @@ class TraceValue(value_module.Value):
       return self._serialized_file_handle.GetAbsPath()
 
   def _GetTraceParts(self, trace_data):
-    return [(trace_data.GetTraceFor(p), p)
+    return [(trace_data.GetTracesFor(p), p)
             for p in trace_data_module.ALL_TRACE_PARTS
-            if trace_data.HasTraceFor(p)]
+            if trace_data.HasTracesFor(p)]
 
   @staticmethod
   def _DumpTraceToFile(trace, path):
@@ -65,13 +65,16 @@ class TraceValue(value_module.Value):
     trace_files = []
     counter = 0
     try:
-      for trace, part in self._GetTraceParts(trace_data):
-        file_path = os.path.join(temp_dir, '%s.trace' % counter)
-        self._DumpTraceToFile(trace, file_path)
-        logging.info('Trace (%s) of size %d bytes saved.',
-                     part, os.path.getsize(file_path))
-        trace_files.append(file_path)
-        counter += 1
+      trace_size_data = {}
+      for traces_list, part in self._GetTraceParts(trace_data):
+        for trace in traces_list:
+          file_path = os.path.join(temp_dir, '%s.trace' % counter)
+          self._DumpTraceToFile(trace, file_path)
+          trace_size_data.setdefault(part, 0)
+          trace_size_data[part] += os.path.getsize(file_path)
+          trace_files.append(file_path)
+          counter += 1
+      logging.info('Trace sizes in bytes: %s', trace_size_data)
       tf = tempfile.NamedTemporaryFile(delete=False, suffix='.html')
       tf.close()
       if trace_files:
@@ -161,7 +164,9 @@ class TraceValue(value_module.Value):
       file_name = self.page.file_safe_name
     else:
       file_name = ''
-    file_name += str(self._temp_file.id) + self._temp_file.extension
+    file_name += str(self._temp_file.id)
+    file_name += datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+    file_name += self._temp_file.extension
     file_path = os.path.abspath(os.path.join(dir_path, file_name))
     shutil.copy(self._temp_file.GetAbsPath(), file_path)
     self._serialized_file_handle = file_handle.FromFilePath(file_path)

@@ -12,8 +12,8 @@
 // Iterators should be stable in the face of mutations, except for an
 // iterator pointing to an element that was just deleted.
 
-#ifndef UTIL_GTL_LINKED_HASH_MAP_H_
-#define UTIL_GTL_LINKED_HASH_MAP_H_
+#ifndef NET_BASE_LINKED_HASH_MAP_H_
+#define NET_BASE_LINKED_HASH_MAP_H_
 
 #include <stddef.h>
 
@@ -116,6 +116,9 @@ class linked_hash_map {
   bool empty() const {
     return list_.empty();
   }
+
+  // Removes the first element from the list.
+  void pop_front() { erase(begin()); }
 
   // Erases values with the provided key.  Returns the number of elements
   // erased.  In this implementation, this will be 0 or 1.
@@ -258,4 +261,4 @@ class linked_hash_map {
 
 }  // namespace net
 
-#endif  // UTIL_GTL_LINKED_HASH_MAP_H_
+#endif  // NET_BASE_LINKED_HASH_MAP_H_

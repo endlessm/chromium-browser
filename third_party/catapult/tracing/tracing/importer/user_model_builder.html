@@ -22,20 +22,19 @@ found in the LICENSE file.
 tr.exportTo('tr.importer', function() {
   var INSIGNIFICANT_MS = 1;
 
-  function UserModelBuilder(model) {
-    this.model = model;
-    this.modelHelper = model.getOrCreateHelper(
-        tr.model.helpers.ChromeModelHelper);
-  };
+  class UserModelBuilder {
+    constructor(model) {
+      this.model = model;
+      this.modelHelper = model.getOrCreateHelper(
+          tr.model.helpers.ChromeModelHelper);
+    }
 
-  UserModelBuilder.supportsModelHelper = function(modelHelper) {
-    return modelHelper.browserHelper !== undefined;
-  };
+    static supportsModelHelper(modelHelper) {
+      return modelHelper.browserHelper !== undefined;
+    }
 
-  UserModelBuilder.prototype = {
-    buildUserModel: function() {
-      if (!this.modelHelper || !this.modelHelper.browserHelper)
-        return;
+    buildUserModel() {
+      if (!this.modelHelper || !this.modelHelper.browserHelper) return;
 
       var expectations = undefined;
       try {
@@ -49,14 +48,14 @@ tr.exportTo('tr.importer', function() {
         });
         return;
       }
-      expectations.forEach(function(expectation) {
+      for (var expectation of expectations) {
         this.model.userModel.expectations.push(expectation);
-      }, this);
+      }
 
       // TODO(benjhayden) Find Gestures here.
-    },
+    }
 
-    findUserExpectations: function() {
+    findUserExpectations() {
       var expectations = [];
       expectations.push.apply(expectations, tr.importer.findStartupExpectations(
           this.modelHelper));
@@ -69,63 +68,61 @@ tr.exportTo('tr.importer', function() {
           expectations, this.findIdleExpectations(expectations));
       this.collectUnassociatedEvents_(expectations);
       return expectations;
-    },
+    }
 
     // Find all unassociated top-level ThreadSlices. If they start during an
-    // Idle or Load IR, then add their entire hierarchy to that IR.
-    collectUnassociatedEvents_: function(rirs) {
-      var vacuumIRs = [];
-      rirs.forEach(function(ir) {
-        if (ir instanceof tr.model.um.IdleExpectation ||
-            ir instanceof tr.model.um.LoadExpectation ||
-            ir instanceof tr.model.um.StartupExpectation)
-          vacuumIRs.push(ir);
-      });
-      if (vacuumIRs.length === 0)
-        return;
+    // Idle or Load UE, then add their entire hierarchy to that UE.
+    collectUnassociatedEvents_(expectations) {
+      var vacuumUEs = [];
+      for (var expectation of expectations) {
+        if (expectation instanceof tr.model.um.IdleExpectation ||
+            expectation instanceof tr.model.um.LoadExpectation ||
+            expectation instanceof tr.model.um.StartupExpectation) {
+          vacuumUEs.push(expectation);
+        }
+      }
+      if (vacuumUEs.length === 0) return;
 
-      var allAssociatedEvents = tr.model.getAssociatedEvents(rirs);
+      var allAssociatedEvents = tr.model.getAssociatedEvents(expectations);
       var unassociatedEvents = tr.model.getUnassociatedEvents(
           this.model, allAssociatedEvents);
 
-      unassociatedEvents.forEach(function(event) {
-        if (!(event instanceof tr.model.ThreadSlice))
-          return;
+      for (var event of unassociatedEvents) {
+        if (!(event instanceof tr.model.ThreadSlice)) continue;
 
-        if (!event.isTopLevel)
-          return;
+        if (!event.isTopLevel) continue;
 
-        for (var iri = 0; iri < vacuumIRs.length; ++iri) {
-          var ir = vacuumIRs[iri];
+        for (var index = 0; index < vacuumUEs.length; ++index) {
+          var expectation = vacuumUEs[index];
 
-          if ((event.start >= ir.start) &&
-              (event.start < ir.end)) {
-            ir.associatedEvents.addEventSet(event.entireHierarchy);
-            return;
+          if ((event.start >= expectation.start) &&
+              (event.start < expectation.end)) {
+            expectation.associatedEvents.addEventSet(event.entireHierarchy);
+            break;
           }
         }
-      });
-    },
-
-    // Fill in the empty space between IRs with IdleIRs.
-    findIdleExpectations: function(otherIRs) {
-      if (this.model.bounds.isEmpty)
-        return;
-      var emptyRanges = tr.b.findEmptyRangesBetweenRanges(
-          tr.b.convertEventsToRanges(otherIRs),
-          this.model.bounds);
-      var irs = [];
-      var model = this.model;
-      emptyRanges.forEach(function(range) {
-        // Ignore insignificantly tiny idle ranges.
-        if (range.max < (range.min + INSIGNIFICANT_MS))
-          return;
-        irs.push(new tr.model.um.IdleExpectation(
-            model, range.min, range.max - range.min));
-      });
-      return irs;
+      }
     }
-  };
+
+    // Fill in the empty space between UEs with IdleUEs.
+    findIdleExpectations(otherUEs) {
+      if (this.model.bounds.isEmpty) return;
+
+      var emptyRanges = tr.b.findEmptyRangesBetweenRanges(
+          tr.b.convertEventsToRanges(otherUEs),
+          this.model.bounds);
+      var expectations = [];
+      var model = this.model;
+      for (var range of emptyRanges) {
+        // Ignore insignificantly tiny idle ranges.
+        if (range.max < (range.min + INSIGNIFICANT_MS)) continue;
+
+        expectations.push(new tr.model.um.IdleExpectation(
+            model, range.min, range.max - range.min));
+      }
+      return expectations;
+    }
+  }
 
   function createCustomizeModelLinesFromModel(model) {
     var modelLines = [];
@@ -138,13 +135,13 @@ tr.exportTo('tr.importer', function() {
     }
 
     var modelEvents = new tr.model.EventSet();
-    model.userModel.expectations.forEach(function(ir, index) {
-      modelEvents.addEventSet(ir.sourceEvents);
-    });
+    for (var ue of model.userModel.expectations) {
+      modelEvents.addEventSet(ue.sourceEvents);
+    }
     modelEvents = modelEvents.toArray();
     modelEvents.sort(tr.importer.compareEvents);
 
-    modelEvents.forEach(function(event) {
+    for (var event of modelEvents) {
       var startAndEnd = 'start: ' + parseInt(event.start) + ', ' +
                         'end: ' + parseInt(event.end) + '});';
       if (event instanceof tr.e.cc.InputLatencyAsyncSlice) {
@@ -162,11 +159,12 @@ tr.exportTo('tr.importer', function() {
         modelLines.push('        title: \'Animation\', ' + startAndEnd);
         return;
       } else {
-        throw ('You must extend createCustomizeModelLinesFromModel()' +
-               'to support this event:\n' + event.title + '\n');
+        throw new Error(
+            'You must extend createCustomizeModelLinesFromModel()' +
+            'to support this event:\n' + event.title + '\n');
       }
       modelLines.push('          {' + startAndEnd);
-    });
+    }
 
     modelLines.push('      audits.addEvent(model.browserMain,');
     modelLines.push('          {' +
@@ -176,24 +174,24 @@ tr.exportTo('tr.importer', function() {
     return modelLines;
   }
 
-  function createExpectedIRLinesFromModel(model) {
+  function createExpectedUELinesFromModel(model) {
     var expectedLines = [];
-    var irCount = model.userModel.expectations.length;
-    model.userModel.expectations.forEach(function(ir, index) {
-      var irString = '      {';
-      irString += 'title: \'' + ir.title + '\', ';
-      irString += 'start: ' + parseInt(ir.start) + ', ';
-      irString += 'end: ' + parseInt(ir.end) + ', ';
-      irString += 'eventCount: ' + ir.sourceEvents.length;
-      irString += '}';
-      if (index < (irCount - 1))
-        irString += ',';
-      expectedLines.push(irString);
-    });
+    var ueCount = model.userModel.expectations.length;
+    for (var index = 0; index < ueCount; ++index) {
+      var expectation = model.userModel.expectations[index];
+      var ueString = '      {';
+      ueString += 'title: \'' + expectation.title + '\', ';
+      ueString += 'start: ' + parseInt(expectation.start) + ', ';
+      ueString += 'end: ' + parseInt(expectation.end) + ', ';
+      ueString += 'eventCount: ' + expectation.sourceEvents.length;
+      ueString += '}';
+      if (index < (ueCount - 1)) ueString += ',';
+      expectedLines.push(ueString);
+    }
     return expectedLines;
   }
 
-  function createIRFinderTestCaseStringFromModel(model) {
+  function createUEFinderTestCaseStringFromModel(model) {
     var filename = window.location.hash.substr(1);
     var testName = filename.substr(filename.lastIndexOf('/') + 1);
     testName = testName.substr(0, testName.indexOf('.'));
@@ -212,8 +210,8 @@ tr.exportTo('tr.importer', function() {
       testLines.push.apply(testLines,
           createCustomizeModelLinesFromModel(model));
       testLines.push('    };');
-      testLines.push('    verifier.expectedIRs = [');
-      testLines.push.apply(testLines, createExpectedIRLinesFromModel(model));
+      testLines.push('    verifier.expectedUEs = [');
+      testLines.push.apply(testLines, createExpectedUELinesFromModel(model));
       testLines.push('    ];');
       testLines.push('    verifier.verify();');
       testLines.push('  });');
@@ -224,8 +222,8 @@ tr.exportTo('tr.importer', function() {
   }
 
   return {
-    UserModelBuilder: UserModelBuilder,
-    createIRFinderTestCaseStringFromModel: createIRFinderTestCaseStringFromModel
+    UserModelBuilder,
+    createUEFinderTestCaseStringFromModel,
   };
 });
 </script>

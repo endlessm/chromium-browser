@@ -8,14 +8,16 @@
 #include <utility>
 
 #include "ash/common/material_design/material_design_controller.h"
+#include "ash/common/shelf/wm_shelf_util.h"
 #include "ash/common/system/chromeos/session/logout_confirmation_controller.h"
-#include "ash/common/system/tray/system_tray_delegate.h"
+#include "ash/common/system/tray/system_tray_controller.h"
 #include "ash/common/system/tray/system_tray_notifier.h"
 #include "ash/common/system/tray/tray_constants.h"
 #include "ash/common/system/tray/tray_utils.h"
 #include "ash/common/system/user/login_status.h"
 #include "ash/common/wm_shell.h"
 #include "ash/public/cpp/shelf_types.h"
+#include "ash/resources/vector_icons/vector_icons.h"
 #include "base/logging.h"
 #include "grit/ash_resources.h"
 #include "third_party/skia/include/core/SkColor.h"
@@ -24,7 +26,6 @@
 #include "ui/gfx/geometry/insets.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/gfx/paint_vector_icon.h"
-#include "ui/gfx/vector_icons_public.h"
 #include "ui/views/bubble/tray_bubble_view.h"
 #include "ui/views/controls/button/label_button.h"
 #include "ui/views/controls/button/label_button_border.h"
@@ -115,12 +116,16 @@ LogoutButtonTray::LogoutButtonTray(WmShelf* wm_shelf)
     // crbug.com/623987
     button->AdjustFontSize(2);
     button_ = button;
+
+    // Since LogoutButtonTray has a red background and it is distinguished
+    // by itself, no separator is needed on its right side.
+    set_separator_visibility(false);
   } else {
     button_ = new LogoutButton(this);
   }
   tray_container()->AddChildView(button_);
   if (!MaterialDesignController::IsShelfMaterial())
-    tray_container()->SetBorder(views::Border::NullBorder());
+    tray_container()->SetBorder(views::NullBorder());
   WmShell::Get()->system_tray_notifier()->AddLogoutButtonObserver(this);
 }
 
@@ -134,7 +139,7 @@ void LogoutButtonTray::SetShelfAlignment(ShelfAlignment alignment) {
   UpdateButtonTextAndImage(login_status_, alignment);
   TrayBackgroundView::SetShelfAlignment(alignment);
   if (!MaterialDesignController::IsShelfMaterial())
-    tray_container()->SetBorder(views::Border::NullBorder());
+    tray_container()->SetBorder(views::NullBorder());
 }
 
 base::string16 LogoutButtonTray::GetAccessibleNameForTray() {
@@ -146,6 +151,22 @@ void LogoutButtonTray::HideBubbleWithView(
 
 void LogoutButtonTray::ClickedOutsideBubble() {}
 
+void LogoutButtonTray::ButtonPressed(views::Button* sender,
+                                     const ui::Event& event) {
+  if (sender != button_) {
+    TrayBackgroundView::ButtonPressed(sender, event);
+    return;
+  }
+
+  if (dialog_duration_ <= base::TimeDelta()) {
+    // Sign out immediately if |dialog_duration_| is non-positive.
+    WmShell::Get()->system_tray_controller()->SignOut();
+  } else if (WmShell::Get()->logout_confirmation_controller()) {
+    WmShell::Get()->logout_confirmation_controller()->ConfirmLogout(
+        base::TimeTicks::Now() + dialog_duration_);
+  }
+}
+
 void LogoutButtonTray::OnShowLogoutButtonInTrayChanged(bool show) {
   show_logout_button_in_tray_ = show;
   UpdateVisibility();
@@ -153,18 +174,6 @@ void LogoutButtonTray::OnShowLogoutButtonInTrayChanged(bool show) {
 
 void LogoutButtonTray::OnLogoutDialogDurationChanged(base::TimeDelta duration) {
   dialog_duration_ = duration;
-}
-
-void LogoutButtonTray::ButtonPressed(views::Button* sender,
-                                     const ui::Event& event) {
-  DCHECK_EQ(sender, button_);
-  if (dialog_duration_ <= base::TimeDelta()) {
-    // Sign out immediately if |dialog_duration_| is non-positive.
-    WmShell::Get()->system_tray_delegate()->SignOut();
-  } else if (WmShell::Get()->logout_confirmation_controller()) {
-    WmShell::Get()->logout_confirmation_controller()->ConfirmLogout(
-        base::TimeTicks::Now() + dialog_duration_);
-  }
 }
 
 void LogoutButtonTray::UpdateAfterLoginStatusChange(LoginStatus login_status) {
@@ -185,16 +194,15 @@ void LogoutButtonTray::UpdateButtonTextAndImage(LoginStatus login_status,
   const int button_size = MaterialDesignController::IsShelfMaterial()
                               ? kTrayItemSize
                               : GetTrayConstant(TRAY_ITEM_HEIGHT_LEGACY);
-  if (alignment == SHELF_ALIGNMENT_BOTTOM) {
+  if (IsHorizontalAlignment(alignment)) {
     button_->SetText(title);
     button_->SetImage(views::LabelButton::STATE_NORMAL, gfx::ImageSkia());
     button_->SetMinSize(gfx::Size(0, button_size));
   } else {
     button_->SetText(base::string16());
     button_->SetAccessibleName(title);
-    button_->SetImage(
-        views::LabelButton::STATE_NORMAL,
-        gfx::CreateVectorIcon(gfx::VectorIconId::SHELF_LOGOUT, kTrayIconColor));
+    button_->SetImage(views::LabelButton::STATE_NORMAL,
+                      gfx::CreateVectorIcon(kShelfLogoutIcon, kTrayIconColor));
     button_->SetMinSize(gfx::Size(button_size, button_size));
   }
   UpdateVisibility();

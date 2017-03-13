@@ -53,16 +53,17 @@ bool RowSizeForBufferFormatChecked(
       checked_size += 3;
       if (!checked_size.IsValid())
         return false;
-      *size_in_bytes = checked_size.ValueOrDie() & ~0x3;
+      *size_in_bytes = (checked_size & ~0x3).ValueOrDie();
       return true;
     case BufferFormat::RG_88:
     case BufferFormat::BGR_565:
     case BufferFormat::RGBA_4444:
     case BufferFormat::UYVY_422:
       checked_size *= 2;
+      checked_size += 3;
       if (!checked_size.IsValid())
         return false;
-      *size_in_bytes = checked_size.ValueOrDie();
+      *size_in_bytes = (checked_size & ~0x3).ValueOrDie();
       return true;
     case BufferFormat::BGRX_8888:
     case BufferFormat::RGBX_8888:

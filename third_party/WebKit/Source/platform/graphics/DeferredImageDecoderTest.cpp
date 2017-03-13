@@ -27,11 +27,11 @@
 
 #include "platform/CrossThreadFunctional.h"
 #include "platform/SharedBuffer.h"
+#include "platform/WebTaskRunner.h"
 #include "platform/graphics/ImageDecodingStore.h"
 #include "platform/graphics/ImageFrameGenerator.h"
 #include "platform/graphics/test/MockImageDecoder.h"
 #include "public/platform/Platform.h"
-#include "public/platform/WebTaskRunner.h"
 #include "public/platform/WebThread.h"
 #include "public/platform/WebTraceLocation.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -214,7 +214,7 @@ TEST_F(DeferredImageDecoderTest, decodeOnOtherThread) {
 
   // Create a thread to rasterize SkPicture.
   std::unique_ptr<WebThread> thread =
-      wrapUnique(Platform::current()->createThread("RasterThread"));
+      WTF::wrapUnique(Platform::current()->createThread("RasterThread"));
   thread->getWebTaskRunner()->postTask(
       BLINK_FROM_HERE,
       crossThreadBind(&rasterizeMain,
@@ -330,15 +330,15 @@ TEST_F(DeferredImageDecoderTest, smallerFrameCount) {
 TEST_F(DeferredImageDecoderTest, frameOpacity) {
   std::unique_ptr<DeferredImageDecoder> decoder = DeferredImageDecoder::create(
       m_data, true, ImageDecoder::AlphaPremultiplied,
-      ImageDecoder::GammaAndColorProfileApplied);
+      ColorBehavior::transformToTargetForTesting());
 
   SkImageInfo pixInfo = SkImageInfo::MakeN32Premul(1, 1);
 
   size_t rowBytes = pixInfo.minRowBytes();
   size_t size = pixInfo.getSafeSize(rowBytes);
 
-  SkAutoMalloc storage(size);
-  SkPixmap pixmap(pixInfo, storage.get(), rowBytes);
+  Vector<char> storage(size);
+  SkPixmap pixmap(pixInfo, storage.data(), rowBytes);
 
   // Before decoding, the frame is not known to be opaque.
   sk_sp<SkImage> frame = decoder->createFrameAtIndex(0);

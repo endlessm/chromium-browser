@@ -8,6 +8,7 @@
 #include <stdint.h>
 
 #include <string>
+#include <vector>
 
 #include "base/gtest_prod_util.h"
 #include "base/strings/string_piece.h"
@@ -35,10 +36,7 @@ class CertVerifier;
 class ChannelIDService;
 class CTVerifier;
 class SSLCertRequestInfo;
-struct SSLConfig;
-class SSLInfo;
 class TransportSecurityState;
-class X509Certificate;
 
 // This struct groups together several fields which are used by various
 // classes related to SSLClientSocket.
@@ -83,10 +81,6 @@ class NET_EXPORT SSLClientSocket : public SSLSocket {
   virtual void GetSSLCertRequestInfo(
       SSLCertRequestInfo* cert_request_info) = 0;
 
-  static NextProto NextProtoFromString(base::StringPiece proto_string);
-
-  static const char* NextProtoToString(NextProto next_proto);
-
   // Log SSL key material to |path| on |task_runner|. Must be called before any
   // SSLClientSockets are created.
   //
@@ -121,11 +115,6 @@ class NET_EXPORT SSLClientSocket : public SSLSocket {
   // that bug is closed. This returns the channel ID key that was used when
   // establishing the connection (or NULL if no channel ID was used).
   virtual crypto::ECPrivateKey* GetChannelIDKey() const = 0;
-
-  // Returns true if the CECPQ1 (experimental post-quantum) experiment is
-  // enabled.  This should be removed after the experiment is ended, around
-  // 2017-18.
-  static bool IsPostQuantumExperimentEnabled();
 
  protected:
   void set_signed_cert_timestamps_received(

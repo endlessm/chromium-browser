@@ -19,31 +19,29 @@
 #include "components/history/core/browser/history_service.h"
 #include "components/history/core/browser/history_service_observer.h"
 #include "components/keyed_service/core/keyed_service.h"
-#include "components/ntp_snippets/category_factory.h"
+#include "components/ntp_snippets/callbacks.h"
+#include "components/ntp_snippets/category.h"
+#include "components/ntp_snippets/category_rankers/category_ranker.h"
 #include "components/ntp_snippets/category_status.h"
 #include "components/ntp_snippets/content_suggestions_provider.h"
 #include "components/ntp_snippets/user_classifier.h"
+#include "components/signin/core/browser/signin_manager.h"
 
 class PrefService;
-
-namespace gfx {
-class Image;
-}  // namespace gfx
+class PrefRegistrySimple;
 
 namespace ntp_snippets {
 
-class NTPSnippetsService;
+class RemoteSuggestionsProvider;
+class RemoteSuggestionsScheduler;
 
 // Retrieves suggestions from a number of ContentSuggestionsProviders and serves
 // them grouped into categories. There can be at most one provider per category.
 class ContentSuggestionsService : public KeyedService,
                                   public ContentSuggestionsProvider::Observer,
+                                  public SigninManagerBase::Observer,
                                   public history::HistoryServiceObserver {
  public:
-  using ImageFetchedCallback = base::Callback<void(const gfx::Image&)>;
-  using DismissedSuggestionsCallback = base::Callback<void(
-      std::vector<ContentSuggestion> dismissed_suggestions)>;
-
   class Observer {
    public:
     // Fired every time the service receives a new set of data for the given
@@ -70,6 +68,11 @@ class ContentSuggestionsService : public KeyedService,
     virtual void OnSuggestionInvalidated(
         const ContentSuggestion::ID& suggestion_id) = 0;
 
+    // Fired when the previously sent data is not valid anymore and a refresh
+    // of all the suggestions is required. Called for example when the sign in
+    // state changes and personalised suggestions have to be shown or discarded.
+    virtual void OnFullRefreshRequired() = 0;
+
     // Sent when the service is shutting down. After the service has shut down,
     // it will not provide any data anymore, though calling the getters is still
     // safe.
@@ -85,18 +88,23 @@ class ContentSuggestionsService : public KeyedService,
   };
 
   ContentSuggestionsService(State state,
+                            SigninManagerBase* signin_manager,
                             history::HistoryService* history_service,
-                            PrefService* pref_service);
+                            PrefService* pref_service,
+                            std::unique_ptr<CategoryRanker> category_ranker);
   ~ContentSuggestionsService() override;
 
   // Inherited from KeyedService.
   void Shutdown() override;
 
+  static void RegisterProfilePrefs(PrefRegistrySimple* registry);
+
   State state() { return state_; }
 
-  // Gets all categories for which a provider is registered. The categories
-  // may or may not be available, see |GetCategoryStatus()|.
-  const std::vector<Category>& GetCategories() const { return categories_; }
+  // Gets all categories for which a provider is registered. The categories may
+  // or may not be available, see |GetCategoryStatus()|. The order in which the
+  // categories are returned is the order in which they should be displayed.
+  std::vector<Category> GetCategories() const;
 
   // Gets the status of a category.
   CategoryStatus GetCategoryStatus(Category category) const;
@@ -118,12 +126,38 @@ class ContentSuggestionsService : public KeyedService,
                             const ImageFetchedCallback& callback);
 
   // Dismisses the suggestion with the given |suggestion_id|, if it exists.
-  // This will not trigger an update through the observers.
+  // This will not trigger an update through the observers (i.e. providers must
+  // not call |Observer::OnNewSuggestions|).
   void DismissSuggestion(const ContentSuggestion::ID& suggestion_id);
 
   // Dismisses the given |category|, if it exists.
   // This will not trigger an update through the observers.
   void DismissCategory(Category category);
+
+  // Restores all dismissed categories.
+  // This will not trigger an update through the observers.
+  void RestoreDismissedCategories();
+
+  // Returns whether |category| is dismissed.
+  bool IsCategoryDismissed(Category category) const;
+
+  // Fetches additional contents for the given |category|. If the fetch was
+  // completed, the given |callback| is called with the updated content.
+  // This includes new and old data.
+  // TODO(jkrcal): Consider either renaming this to FetchMore or unify the ways
+  // to get suggestions to just this async Fetch() API.
+  void Fetch(const Category& category,
+             const std::set<std::string>& known_suggestion_ids,
+             const FetchDoneCallback& callback);
+
+  // Reloads suggestions from all categories, from all providers. If a provider
+  // naturally has some ability to generate fresh suggestions, it may provide a
+  // completely new set of suggestions. If the provider has no ability to
+  // generate fresh suggestions on demand, it may only fill in any vacant space
+  // by suggestions that were previously not included due to space limits (there
+  // may be vacant space because of the user dismissing suggestions in the
+  // meantime).
+  void ReloadSuggestions();
 
   // Observer accessors.
   void AddObserver(Observer* observer);
@@ -172,16 +206,33 @@ class ContentSuggestionsService : public KeyedService,
   // supports it).
   void ClearDismissedSuggestionsForDebugging(Category category);
 
-  CategoryFactory* category_factory() { return &category_factory_; }
+  // The reference to the RemoteSuggestionsProvider provider should
+  // only be set by the factory and only used for debugging.
+  // TODO(jkrcal) The way we deal with the circular dependency feels wrong.
+  // Consider swapping the dependencies: first constructing all providers, then
+  // constructing the service (passing the remote provider as arg), finally
+  // registering the service as an observer of all providers?
+  void set_remote_suggestions_provider(
+      RemoteSuggestionsProvider* remote_suggestions_provider) {
+    remote_suggestions_provider_ = remote_suggestions_provider;
+  }
+  RemoteSuggestionsProvider* remote_suggestions_provider_for_debugging() {
+    return remote_suggestions_provider_;
+  }
 
-  // The reference to the NTPSnippetsService provider should only be set by the
-  // factory and only be used for scheduling, periodic fetching and debugging.
-  NTPSnippetsService* ntp_snippets_service() { return ntp_snippets_service_; }
-  void set_ntp_snippets_service(NTPSnippetsService* ntp_snippets_service) {
-    ntp_snippets_service_ = ntp_snippets_service;
+  // The reference to RemoteSuggestionsScheduler should only be set by the
+  // factory. The interface is suited for informing about external events that
+  // have influence on scheduling remote fetches.
+  void set_remote_suggestions_scheduler(
+      ntp_snippets::RemoteSuggestionsScheduler* remote_suggestions_scheduler) {
+    remote_suggestions_scheduler_ = remote_suggestions_scheduler;
+  }
+  RemoteSuggestionsScheduler* remote_suggestions_scheduler() {
+    return remote_suggestions_scheduler_;
   }
 
   UserClassifier* user_classifier() { return &user_classifier_; }
+  CategoryRanker* category_ranker() { return category_ranker_.get(); }
 
  private:
   friend class ContentSuggestionsServiceTest;
@@ -197,6 +248,13 @@ class ContentSuggestionsService : public KeyedService,
       ContentSuggestionsProvider* provider,
       const ContentSuggestion::ID& suggestion_id) override;
 
+  // SigninManagerBase::Observer implementation
+  void GoogleSigninSucceeded(const std::string& account_id,
+                             const std::string& username,
+                             const std::string& password) override;
+  void GoogleSignedOut(const std::string& account_id,
+                       const std::string& username) override;
+
   // history::HistoryServiceObserver implementation.
   void OnURLsDeleted(history::HistoryService* history_service,
                      bool all_history,
@@ -208,9 +266,13 @@ class ContentSuggestionsService : public KeyedService,
 
   // Registers the given |provider| for the given |category|, unless it is
   // already registered. Returns true if the category was newly registered or
-  // false if it was present before.
-  bool RegisterCategoryIfRequired(ContentSuggestionsProvider* provider,
-                                  Category category);
+  // false if it is dismissed or was present before.
+  bool TryRegisterProviderForCategory(ContentSuggestionsProvider* provider,
+                                      Category category);
+  void RegisterCategory(Category category,
+                        ContentSuggestionsProvider* provider);
+  void UnregisterCategory(Category category,
+                          ContentSuggestionsProvider* provider);
 
   // Removes a suggestion from the local store |suggestions_by_category_|, if it
   // exists. Returns true if a suggestion was removed.
@@ -219,13 +281,16 @@ class ContentSuggestionsService : public KeyedService,
   // Fires the OnCategoryStatusChanged event for the given |category|.
   void NotifyCategoryStatusChanged(Category category);
 
-  void SortCategories();
+  void OnSignInStateChanged();
+
+  // Re-enables a dismissed category, making querying its provider possible.
+  void RestoreDismissedCategory(Category category);
+
+  void RestoreDismissedCategoriesFromPrefs();
+  void StoreDismissedCategoriesToPrefs();
 
   // Whether the content suggestions feature is enabled.
   State state_;
-
-  // Provides new and existing categories and an order for them.
-  CategoryFactory category_factory_;
 
   // All registered providers, owned by the service.
   std::vector<std::unique_ptr<ContentSuggestionsProvider>> providers_;
@@ -237,9 +302,15 @@ class ContentSuggestionsService : public KeyedService,
   std::map<Category, ContentSuggestionsProvider*, Category::CompareByID>
       providers_by_category_;
 
-  // All current suggestion categories, in an order determined by the
-  // |category_factory_|. This vector contains exactly the same categories as
-  // |providers_by_category_|.
+  // All dismissed categories and their providers. These may be restored by
+  // RestoreDismissedCategories(). The provider can be null if the dismissed
+  // category has received no updates since initialisation.
+  // (see RestoreDismissedCategoriesFromPrefs())
+  std::map<Category, ContentSuggestionsProvider*, Category::CompareByID>
+      dismissed_providers_by_category_;
+
+  // All current suggestion categories in arbitrary order. This vector contains
+  // exactly the same categories as |providers_by_category_|.
   std::vector<Category> categories_;
 
   // All current suggestions grouped by category. This contains an entry for
@@ -248,6 +319,11 @@ class ContentSuggestionsService : public KeyedService,
   // loading).
   std::map<Category, std::vector<ContentSuggestion>, Category::CompareByID>
       suggestions_by_category_;
+
+  // Observer for the SigninManager. All observers are notified when the signin
+  // state changes so that they can refresh their list of suggestions.
+  ScopedObserver<SigninManagerBase, SigninManagerBase::Observer>
+      signin_observer_;
 
   // Observer for the HistoryService. All providers are notified when history is
   // deleted.
@@ -258,12 +334,21 @@ class ContentSuggestionsService : public KeyedService,
 
   const std::vector<ContentSuggestion> no_suggestions_;
 
-  // Keep a direct reference to this special provider to redirect scheduling,
-  // background fetching and debugging calls to it. If the NTPSnippetsService is
-  // loaded, it is also present in |providers_|, otherwise this is a nullptr.
-  NTPSnippetsService* ntp_snippets_service_;
+  // Keep a direct reference to this special provider to redirect debugging
+  // calls to it. If the RemoteSuggestionsProvider is loaded, it is also present
+  // in |providers_|, otherwise this is a nullptr.
+  RemoteSuggestionsProvider* remote_suggestions_provider_;
+
+  // Interface for informing about external events that have influence on
+  // scheduling remote fetches. Not owned.
+  RemoteSuggestionsScheduler* remote_suggestions_scheduler_;
+
+  PrefService* pref_service_;
 
   UserClassifier user_classifier_;
+
+  // Provides order for categories.
+  std::unique_ptr<CategoryRanker> category_ranker_;
 
   DISALLOW_COPY_AND_ASSIGN(ContentSuggestionsService);
 };

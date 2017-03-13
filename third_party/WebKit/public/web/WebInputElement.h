@@ -36,7 +36,6 @@
 namespace blink {
 
 class HTMLInputElement;
-class WebElementCollection;
 class WebOptionElement;
 
 // Provides readonly access to some properties of a DOM input element node.
@@ -65,8 +64,8 @@ class WebInputElement final : public WebFormControlElement {
   BLINK_EXPORT bool isRadioButton() const;
   BLINK_EXPORT bool isCheckbox() const;
   // This has different behavior from 'maxLength' IDL attribute, it returns
-  // HTMLInputElement::maximumLength when no valid has been set,
-  // whereas 'maxLength' IDL attribute returns -1.
+  // defaultMaxLength() when no valid has been set, whereas 'maxLength' IDL
+  // attribute returns -1.
   BLINK_EXPORT int maxLength() const;
   BLINK_EXPORT void setActivatedSubmit(bool);
   BLINK_EXPORT int size() const;

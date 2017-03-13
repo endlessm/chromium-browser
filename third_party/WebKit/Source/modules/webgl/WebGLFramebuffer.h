@@ -26,6 +26,7 @@
 #ifndef WebGLFramebuffer_h
 #define WebGLFramebuffer_h
 
+#include "bindings/core/v8/ScriptWrappableVisitor.h"
 #include "modules/webgl/WebGLContextObject.h"
 #include "modules/webgl/WebGLSharedObject.h"
 
@@ -44,10 +45,9 @@ class WebGLFramebuffer final : public WebGLContextObject {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
-  class WebGLAttachment : public GarbageCollectedFinalized<WebGLAttachment> {
+  class WebGLAttachment : public GarbageCollected<WebGLAttachment>,
+                          public TraceWrapperBase {
    public:
-    virtual ~WebGLAttachment();
-
     virtual WebGLSharedObject* object() const = 0;
     virtual bool isSharedObject(WebGLSharedObject*) const = 0;
     virtual bool valid() const = 0;
@@ -109,6 +109,7 @@ class WebGLFramebuffer final : public WebGLContextObject {
                                      const v8::Persistent<v8::Object>&);
 
   DECLARE_VIRTUAL_TRACE();
+  DECLARE_VIRTUAL_TRACE_WRAPPERS();
 
  protected:
   explicit WebGLFramebuffer(WebGLRenderingContextBase*);
@@ -143,10 +144,10 @@ class WebGLFramebuffer final : public WebGLContextObject {
 
   GLuint m_object;
 
-  typedef HeapHashMap<GLenum, Member<WebGLAttachment>> AttachmentMap;
+  typedef HeapHashMap<GLenum, TraceWrapperMember<WebGLAttachment>>
+      AttachmentMap;
 
   AttachmentMap m_attachments;
-  bool m_destructionInProgress;
 
   bool m_hasEverBeenBound;
   bool m_webGL1DepthStencilConsistent;

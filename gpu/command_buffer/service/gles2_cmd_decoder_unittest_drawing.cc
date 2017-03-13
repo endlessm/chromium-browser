@@ -2339,5 +2339,23 @@ TEST_P(GLES2DecoderManualInitTest, DrawClearsDepthTexture) {
   EXPECT_EQ(GL_NO_ERROR, GetGLError());
 }
 
+TEST_P(GLES3DecoderTest, DrawNoProgram) {
+  SetupAllNeededVertexBuffers();
+
+  EXPECT_CALL(*gl_, DrawArrays(GL_TRIANGLES, _, _)).Times(0);
+  DrawArrays cmd;
+  cmd.Init(GL_TRIANGLES, 0, kNumVertices);
+  EXPECT_EQ(error::kNoError, ExecuteCmd(cmd));
+  EXPECT_EQ(GL_NO_ERROR, GetGLError());
+}
+
+TEST_P(GLES2DecoderTest, ClearInvalidValue) {
+  EXPECT_CALL(*gl_, Clear(_)).Times(0);
+  Clear cmd;
+  cmd.Init(0xffffffff);
+  EXPECT_EQ(error::kNoError, ExecuteCmd(cmd));
+  EXPECT_EQ(GL_INVALID_VALUE, GetGLError());
+}
+
 }  // namespace gles2
 }  // namespace gpu

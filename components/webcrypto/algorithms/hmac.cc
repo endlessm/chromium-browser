@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include <openssl/hmac.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -20,6 +19,7 @@
 #include "crypto/secure_util.h"
 #include "third_party/WebKit/public/platform/WebCryptoAlgorithmParams.h"
 #include "third_party/WebKit/public/platform/WebCryptoKeyAlgorithm.h"
+#include "third_party/boringssl/src/include/openssl/hmac.h"
 
 namespace webcrypto {
 
@@ -291,6 +291,10 @@ class HmacImplementation : public AlgorithmImplementation {
                                 blink::WebCryptoKeyUsageMask usages,
                                 const CryptoData& key_data,
                                 blink::WebCryptoKey* key) const override {
+    if (algorithm.paramsType() != blink::WebCryptoKeyAlgorithmParamsTypeHmac ||
+        type != blink::WebCryptoKeyTypeSecret)
+      return Status::ErrorUnexpected();
+
     return CreateWebCryptoSecretKey(key_data, algorithm, extractable, usages,
                                     key);
   }

@@ -8,7 +8,7 @@
 #include "core/layout/LayoutBlock.h"
 #include "core/layout/LayoutObject.h"
 #include "core/layout/LayoutText.h"
-#include "platform/tracing/TracedValue.h"
+#include "platform/instrumentation/tracing/TracedValue.h"
 #include <memory>
 
 namespace blink {
@@ -76,17 +76,10 @@ void LayoutAnalyzer::push(const LayoutObject& o) {
     increment(LayoutInlineObjectsThatAlwaysCreateLineBoxes);
   if (o.isText()) {
     const LayoutText& t = *toLayoutText(&o);
-    if (t.canUseSimpleFontCodePath()) {
-      increment(LayoutObjectsThatAreTextAndCanUseTheSimpleFontCodePath);
-      increment(
-          CharactersInLayoutObjectsThatAreTextAndCanUseTheSimpleFontCodePath,
-          t.textLength());
-    } else {
-      increment(LayoutObjectsThatAreTextAndCanNotUseTheSimpleFontCodePath);
-      increment(
-          CharactersInLayoutObjectsThatAreTextAndCanNotUseTheSimpleFontCodePath,
-          t.textLength());
-    }
+    increment(LayoutObjectsThatAreTextAndCanNotUseTheSimpleFontCodePath);
+    increment(
+        CharactersInLayoutObjectsThatAreTextAndCanNotUseTheSimpleFontCodePath,
+        t.textLength());
   }
 
   ++m_depth;

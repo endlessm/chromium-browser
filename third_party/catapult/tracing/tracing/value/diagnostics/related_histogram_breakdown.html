@@ -5,7 +5,7 @@ Use of this source code is governed by a BSD-style license that can be
 found in the LICENSE file.
 -->
 
-<link rel="import" href="/tracing/value/diagnostics/related_value_map.html">
+<link rel="import" href="/tracing/value/diagnostics/related_histogram_map.html">
 
 <script>
 'use strict';
@@ -27,7 +27,7 @@ tr.exportTo('tr.v.d', function() {
    * buildFromEvents() for an example of how to build a
    * RelatedHistogramBreakdown from an EventSet and a grouping function.
    */
-  class RelatedHistogramBreakdown extends tr.v.d.RelatedValueMap {
+  class RelatedHistogramBreakdown extends tr.v.d.RelatedHistogramMap {
     constructor() {
       super();
       this.colorScheme = undefined;
@@ -37,18 +37,13 @@ tr.exportTo('tr.v.d', function() {
      * Add a Histogram by an explicit name to this map.
      *
      * @param {string} name
-     * @param {!(tr.v.d.ValueRef|tr.v.Histogram)} value
+     * @param {!(tr.v.d.HistogramRef|tr.v.Histogram)} value
      */
     set(name, value) {
-      if (!(value instanceof tr.v.d.ValueRef)) {
+      if (!(value instanceof tr.v.d.HistogramRef)) {
         if (!(value instanceof tr.v.Histogram)) {
           throw new Error(
               'RelatedHistogramBreakdown can only contain Histograms');
-        }
-
-        if (value.name.indexOf(name) !== (value.name.length - name.length)) {
-          throw new Error(
-              'RelatedHistogramBreakdown name must be a suffix of value.name');
         }
 
         if ((this.length > 0) &&
@@ -59,11 +54,11 @@ tr.exportTo('tr.v.d', function() {
         }
       }
 
-      tr.v.d.RelatedValueMap.prototype.set.call(this, name, value);
+      tr.v.d.RelatedHistogramMap.prototype.set.call(this, name, value);
     }
 
     asDictInto_(d) {
-      tr.v.d.RelatedValueMap.prototype.asDictInto_.call(this, d);
+      tr.v.d.RelatedHistogramMap.prototype.asDictInto_.call(this, d);
       if (this.colorScheme)
         d.colorScheme = this.colorScheme;
     }
@@ -71,7 +66,7 @@ tr.exportTo('tr.v.d', function() {
     static fromDict(d) {
       var diagnostic = new RelatedHistogramBreakdown();
       tr.b.iterItems(d.values, function(name, guid) {
-        diagnostic.set(name, new tr.v.d.ValueRef(guid));
+        diagnostic.set(name, new tr.v.d.HistogramRef(guid));
       });
       if (d.colorScheme)
         diagnostic.colorScheme = d.colorScheme;
@@ -87,7 +82,7 @@ tr.exportTo('tr.v.d', function() {
     * must add the result RelatedHistogramBreakdown to their Histogram's
     * diagnostics.
     *
-    * @param {!tr.v.ValueSet} values
+    * @param {!tr.v.HistogramSet} values
     * @param {string} namePrefix
     * @param {!tr.model.EventSet} events
     * @param {!function(!tr.model.Event):string} categoryForEvent
@@ -128,9 +123,8 @@ tr.exportTo('tr.v.d', function() {
   });
 
   return {
-    COLOR_SCHEME_CHROME_USER_FRIENDLY_CATEGORY_DRIVER:
-      COLOR_SCHEME_CHROME_USER_FRIENDLY_CATEGORY_DRIVER,
-    RelatedHistogramBreakdown: RelatedHistogramBreakdown
+    COLOR_SCHEME_CHROME_USER_FRIENDLY_CATEGORY_DRIVER,
+    RelatedHistogramBreakdown,
   };
 });
 </script>

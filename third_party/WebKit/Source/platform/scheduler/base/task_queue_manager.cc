@@ -38,6 +38,16 @@ void RecordImmediateTaskQueueingDuration(tracked_objects::Duration duration) {
 double MonotonicTimeInSeconds(base::TimeTicks timeTicks) {
   return (timeTicks - base::TimeTicks()).InSecondsF();
 }
+
+// Converts a OnceClosure to a RepeatingClosure. It hits CHECK failure to run
+// the resulting RepeatingClosure more than once.
+// TODO(tzik): This will be unneeded after the Closure-to-OnceClosure migration
+// on TaskRunner finished. Remove it once it gets unneeded.
+base::RepeatingClosure UnsafeConvertOnceClosureToRepeating(
+    base::OnceClosure cb) {
+  return base::BindRepeating([](base::OnceClosure cb) { std::move(cb).Run(); },
+                             base::Passed(&cb));
+}
 }
 
 TaskQueueManager::TaskQueueManager(
@@ -102,7 +112,7 @@ void TaskQueueManager::UnregisterTimeDomain(TimeDomain* time_domain) {
 scoped_refptr<internal::TaskQueueImpl> TaskQueueManager::NewTaskQueue(
     const TaskQueue::Spec& spec) {
   TRACE_EVENT1(tracing_category_, "TaskQueueManager::NewTaskQueue",
-               "queue_name", spec.name);
+               "queue_name", TaskQueue::NameForQueueType(spec.type));
   DCHECK(main_thread_checker_.CalledOnValidThread());
   TimeDomain* time_domain =
       spec.time_domain ? spec.time_domain : real_time_domain_.get();
@@ -133,18 +143,21 @@ void TaskQueueManager::UnregisterTaskQueue(
   // freed while any of our structures hold hold a raw pointer to it.
   queues_to_delete_.insert(task_queue);
   queues_.erase(task_queue);
+
   selector_.RemoveQueue(task_queue.get());
 }
 
-void TaskQueueManager::UpdateWorkQueues(LazyNow lazy_now) {
+void TaskQueueManager::UpdateWorkQueues(LazyNow* lazy_now) {
   TRACE_EVENT0(disabled_by_default_tracing_category_,
                "TaskQueueManager::UpdateWorkQueues");
 
   for (TimeDomain* time_domain : time_domains_) {
-    LazyNow lazy_now_in_domain = time_domain == real_time_domain_.get()
-                                     ? lazy_now
-                                     : time_domain->CreateLazyNow();
-    time_domain->UpdateWorkQueues(lazy_now_in_domain);
+    if (time_domain == real_time_domain_.get()) {
+      time_domain->UpdateWorkQueues(lazy_now);
+    } else {
+      LazyNow time_domain_lazy_now = time_domain->CreateLazyNow();
+      time_domain->UpdateWorkQueues(&time_domain_lazy_now);
+    }
   }
 }
 
@@ -221,23 +234,15 @@ void TaskQueueManager::DoWork(base::TimeTicks run_time, bool from_main_thread) {
     queues_to_delete_.clear();
 
   LazyNow lazy_now(real_time_domain()->CreateLazyNow());
-  base::TimeTicks task_start_time;
-
-  if (!delegate_->IsNested() && task_time_observers_.might_have_observers())
-    task_start_time = lazy_now.Now();
-
-  UpdateWorkQueues(lazy_now);
+  UpdateWorkQueues(&lazy_now);
 
   for (int i = 0; i < work_batch_size_; i++) {
     internal::WorkQueue* work_queue;
     if (!SelectWorkQueueToService(&work_queue))
       break;
 
-    // TaskQueueManager guarantees that task queue will not be deleted
-    // when we are in DoWork (but WorkQueue may be deleted).
-    internal::TaskQueueImpl* task_queue = work_queue->task_queue();
-
-    switch (ProcessTaskFromWorkQueue(work_queue)) {
+    base::TimeTicks time_after_task;
+    switch (ProcessTaskFromWorkQueue(work_queue, lazy_now, &time_after_task)) {
       case ProcessTaskResult::DEFERRED:
         // If a task was deferred, try again with another task.
         continue;
@@ -247,20 +252,11 @@ void TaskQueueManager::DoWork(base::TimeTicks run_time, bool from_main_thread) {
         return;  // The TaskQueueManager got deleted, we must bail out.
     }
 
-    lazy_now = real_time_domain()->CreateLazyNow();
-    if (!delegate_->IsNested() && task_start_time != base::TimeTicks()) {
-      // Only report top level task durations.
-      base::TimeTicks task_end_time = lazy_now.Now();
-      FOR_EACH_OBSERVER(
-          TaskTimeObserver, task_time_observers_,
-          ReportTaskTime(task_queue, MonotonicTimeInSeconds(task_start_time),
-                         MonotonicTimeInSeconds(task_end_time)));
-      task_start_time = task_end_time;
-    }
-
     work_queue = nullptr;  // The queue may have been unregistered.
 
-    UpdateWorkQueues(lazy_now);
+    lazy_now = time_after_task.is_null() ? real_time_domain()->CreateLazyNow()
+                                         : LazyNow(time_after_task);
+    UpdateWorkQueues(&lazy_now);
 
     // Only run a single task per batch in nested run loops so that we can
     // properly exit the nested loop when someone calls RunLoop::Quit().
@@ -273,16 +269,38 @@ void TaskQueueManager::DoWork(base::TimeTicks run_time, bool from_main_thread) {
   // TODO(alexclarke): Consider refactoring the above loop to terminate only
   // when there's no more work left to be done, rather than posting a
   // continuation task.
-  if (!selector_.EnabledWorkQueuesEmpty() || TryAdvanceTimeDomains())
+  base::Optional<base::TimeDelta> next_delay =
+      ComputeDelayTillNextTask(&lazy_now);
+
+  if (!next_delay)
+    return;
+
+  base::TimeDelta delay = next_delay.value();
+  if (delay.is_zero()) {
     MaybeScheduleImmediateWork(FROM_HERE);
+  } else {
+    MaybeScheduleDelayedWork(FROM_HERE, lazy_now.Now(), delay);
+  }
 }
 
-bool TaskQueueManager::TryAdvanceTimeDomains() {
-  bool can_advance = false;
+base::Optional<base::TimeDelta> TaskQueueManager::ComputeDelayTillNextTask(
+    LazyNow* lazy_now) {
+  // If the selector has non-empty queues we trivially know there is immediate
+  // work to be done.
+  if (!selector_.EnabledWorkQueuesEmpty())
+    return base::TimeDelta();
+
+  // Otherwise we need to find the shortest delay, if any.
+  base::Optional<base::TimeDelta> next_continuation;
   for (TimeDomain* time_domain : time_domains_) {
-    can_advance |= time_domain->MaybeAdvanceTime();
+    base::Optional<base::TimeDelta> continuation =
+        time_domain->DelayTillNextTask(lazy_now);
+    if (!continuation)
+      continue;
+    if (!next_continuation || next_continuation.value() > continuation.value())
+      next_continuation = continuation;
   }
-  return can_advance;
+  return next_continuation;
 }
 
 bool TaskQueueManager::SelectWorkQueueToService(
@@ -300,7 +318,9 @@ void TaskQueueManager::DidQueueTask(
 }
 
 TaskQueueManager::ProcessTaskResult TaskQueueManager::ProcessTaskFromWorkQueue(
-    internal::WorkQueue* work_queue) {
+    internal::WorkQueue* work_queue,
+    LazyNow time_before_task,
+    base::TimeTicks* time_after_task) {
   DCHECK(main_thread_checker_.CalledOnValidThread());
   scoped_refptr<DeletionSentinel> protect(deletion_sentinel_);
   internal::TaskQueueImpl::Task pending_task =
@@ -319,20 +339,33 @@ TaskQueueManager::ProcessTaskResult TaskQueueManager::ProcessTaskFromWorkQueue(
     // arbitrarily delayed so the additional delay should not be a problem.
     // TODO(skyostil): Figure out a way to not forget which task queue the
     // task is associated with. See http://crbug.com/522843.
-    delegate_->PostNonNestableTask(pending_task.posted_from,
-                                   std::move(pending_task.task));
+    // TODO(tzik): Remove base::UnsafeConvertOnceClosureToRepeating once
+    // TaskRunners have migrated to OnceClosure.
+    delegate_->PostNonNestableTask(
+        pending_task.posted_from,
+        UnsafeConvertOnceClosureToRepeating(std::move(pending_task.task)));
     return ProcessTaskResult::DEFERRED;
   }
 
   MaybeRecordTaskDelayHistograms(pending_task, queue);
 
+  double task_start_time = 0;
   TRACE_TASK_EXECUTION("TaskQueueManager::ProcessTaskFromWorkQueue",
                        pending_task);
   if (queue->GetShouldNotifyObservers()) {
-    FOR_EACH_OBSERVER(base::MessageLoop::TaskObserver, task_observers_,
-                      WillProcessTask(pending_task));
+    for (auto& observer : task_observers_)
+      observer.WillProcessTask(pending_task);
     queue->NotifyWillProcessTask(pending_task);
+
+    bool notify_time_observers =
+        !delegate_->IsNested() && task_time_observers_.might_have_observers();
+    if (notify_time_observers) {
+      task_start_time = MonotonicTimeInSeconds(time_before_task.Now());
+      for (auto& observer : task_time_observers_)
+        observer.willProcessTask(queue, task_start_time);
+    }
   }
+
   TRACE_EVENT1(tracing_category_, "TaskQueueManager::RunTask", "queue",
                queue->GetName());
   // NOTE when TaskQueues get unregistered a reference ends up getting retained
@@ -341,7 +374,7 @@ TaskQueueManager::ProcessTaskResult TaskQueueManager::ProcessTaskFromWorkQueue(
   internal::TaskQueueImpl* prev_executing_task_queue =
       currently_executing_task_queue_;
   currently_executing_task_queue_ = queue;
-  task_annotator_.RunTask("TaskQueueManager::PostTask", pending_task);
+  task_annotator_.RunTask("TaskQueueManager::PostTask", &pending_task);
   // Detect if the TaskQueueManager just got deleted.  If this happens we must
   // not access any member variables after this point.
   if (protect->HasOneRef())
@@ -349,9 +382,17 @@ TaskQueueManager::ProcessTaskResult TaskQueueManager::ProcessTaskFromWorkQueue(
 
   currently_executing_task_queue_ = prev_executing_task_queue;
 
+
   if (queue->GetShouldNotifyObservers()) {
-    FOR_EACH_OBSERVER(base::MessageLoop::TaskObserver, task_observers_,
-                      DidProcessTask(pending_task));
+    if (task_start_time) {
+      *time_after_task = real_time_domain()->Now();
+      double task_end_time = MonotonicTimeInSeconds(*time_after_task);
+      for (auto& observer : task_time_observers_)
+        observer.didProcessTask(queue, task_start_time, task_end_time);
+    }
+
+    for (auto& observer : task_observers_)
+      observer.DidProcessTask(pending_task);
     queue->NotifyDidProcessTask(pending_task);
   }
 
@@ -396,7 +437,8 @@ void TaskQueueManager::RemoveTaskObserver(
   task_observers_.RemoveObserver(task_observer);
 }
 
-void TaskQueueManager::AddTaskTimeObserver(TaskTimeObserver* task_time_observer) {
+void TaskQueueManager::AddTaskTimeObserver(
+    TaskTimeObserver* task_time_observer) {
   DCHECK(main_thread_checker_.CalledOnValidThread());
   task_time_observers_.AddObserver(task_time_observer);
 }
@@ -424,6 +466,13 @@ internal::EnqueueOrder TaskQueueManager::GetNextSequenceNumber() {
 
 LazyNow TaskQueueManager::CreateLazyNow() const {
   return LazyNow(delegate_.get());
+}
+
+size_t TaskQueueManager::GetNumberOfPendingTasks() const {
+  size_t task_count = 0;
+  for (auto& queue : queues_)
+    task_count += queue->GetNumberOfPendingTasks();
+  return task_count;
 }
 
 std::unique_ptr<base::trace_event::ConvertableToTraceFormat>
@@ -467,6 +516,20 @@ void TaskQueueManager::OnTriedToSelectBlockedWorkQueue(
   if (observer_) {
     observer_->OnTriedToExecuteBlockedTask(*work_queue->task_queue(),
                                            *work_queue->GetFrontTask());
+  }
+}
+
+bool TaskQueueManager::HasImmediateWorkForTesting() const {
+  return !selector_.EnabledWorkQueuesEmpty();
+}
+
+void TaskQueueManager::SweepCanceledDelayedTasks() {
+  std::map<TimeDomain*, base::TimeTicks> time_domain_now;
+  for (const scoped_refptr<internal::TaskQueueImpl>& queue : queues_) {
+    TimeDomain* time_domain = queue->GetTimeDomain();
+    if (time_domain_now.find(time_domain) == time_domain_now.end())
+      time_domain_now.insert(std::make_pair(time_domain, time_domain->Now()));
+    queue->SweepCanceledDelayedTasks(time_domain_now[time_domain]);
   }
 }
 

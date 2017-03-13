@@ -12,8 +12,8 @@
 #include "base/timer/timer.h"
 
 #include "components/sync/base/weak_handle.h"
-#include "components/sync/core/data_type_association_stats.h"
 #include "components/sync/driver/data_type_manager.h"
+#include "components/sync/engine/data_type_association_stats.h"
 
 namespace syncer {
 
@@ -29,7 +29,7 @@ class DataTypeController;
 class ModelAssociationManagerDelegate {
  public:
   // Called when all desired types are ready to be configured with
-  // BackendDataTypeConfigurer. Data type is ready when its progress marker is
+  // ModelTypeConfigurer. Data type is ready when its progress marker is
   // available to configurer. Directory data types are always ready, their
   // progress markers are read from directory. USS data type controllers need to
   // load model and read data type context first.

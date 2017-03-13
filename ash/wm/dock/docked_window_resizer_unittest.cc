@@ -4,29 +4,31 @@
 
 #include "ash/common/wm/dock/docked_window_resizer.h"
 
-#include "ash/aura/wm_window_aura.h"
+#include "ash/common/ash_switches.h"
 #include "ash/common/shelf/shelf_widget.h"
 #include "ash/common/shelf/wm_shelf.h"
-#include "ash/common/shell_window_ids.h"
+#include "ash/common/test/test_shelf_delegate.h"
 #include "ash/common/wm/dock/docked_window_layout_manager.h"
 #include "ash/common/wm/panels/panel_layout_manager.h"
 #include "ash/common/wm/window_state.h"
 #include "ash/common/wm/wm_event.h"
 #include "ash/common/wm_shell.h"
+#include "ash/common/wm_window.h"
 #include "ash/display/window_tree_host_manager.h"
 #include "ash/public/cpp/shelf_types.h"
+#include "ash/public/cpp/shell_window_ids.h"
 #include "ash/root_window_controller.h"
 #include "ash/screen_util.h"
 #include "ash/shell.h"
 #include "ash/test/ash_test_base.h"
 #include "ash/test/cursor_manager_test_api.h"
-#include "ash/test/test_shelf_delegate.h"
 #include "ash/wm/drag_window_resizer.h"
+#include "ash/wm/window_properties.h"
 #include "ash/wm/window_state_aura.h"
 #include "ash/wm/window_util.h"
 #include "base/command_line.h"
 #include "ui/aura/client/aura_constants.h"
-#include "ui/aura/client/window_tree_client.h"
+#include "ui/aura/client/window_parenting_client.h"
 #include "ui/aura/test/test_window_delegate.h"
 #include "ui/aura/window_event_dispatcher.h"
 #include "ui/base/hit_test.h"
@@ -46,6 +48,8 @@ class DockedWindowResizerTest
   virtual ~DockedWindowResizerTest() {}
 
   void SetUp() override {
+    base::CommandLine::ForCurrentProcess()->AppendSwitch(
+        ash::switches::kAshEnableDockedWindows);
     AshTestBase::SetUp();
     UpdateDisplay("600x400");
   }
@@ -72,12 +76,9 @@ class DockedWindowResizerTest
     aura::Window* window = CreateTestWindowInShellWithDelegateAndType(
         &delegate_, window_type_, 0, bounds);
     if (window_type_ == ui::wm::WINDOW_TYPE_PANEL) {
-      test::TestShelfDelegate* shelf_delegate =
-          test::TestShelfDelegate::instance();
-      shelf_delegate->AddShelfItem(window);
-      PanelLayoutManager* manager =
-          PanelLayoutManager::Get(WmWindowAura::Get(window));
-      manager->Relayout();
+      WmWindow* wm_window = WmWindow::Get(window);
+      test::TestShelfDelegate::instance()->AddShelfItem(wm_window);
+      PanelLayoutManager::Get(wm_window)->Relayout();
     }
     return window;
   }
@@ -109,7 +110,7 @@ class DockedWindowResizerTest
       aura::Window* window,
       const gfx::Point& point_in_parent,
       int window_component) {
-    return CreateWindowResizer(WmWindowAura::Get(window), point_in_parent,
+    return CreateWindowResizer(WmWindow::Get(window), point_in_parent,
                                window_component,
                                aura::client::WINDOW_MOVE_SOURCE_MOUSE)
         .release();
@@ -548,7 +549,7 @@ TEST_P(DockedWindowResizerTest, AttachOneAutoHideShelf) {
                             ->GetDisplayNearestWindow(w1.get())
                             .work_area();
   DockedWindowLayoutManager* manager =
-      DockedWindowLayoutManager::Get(WmWindowAura::Get(w1.get()));
+      DockedWindowLayoutManager::Get(WmWindow::Get(w1.get()));
 
   // Docked window should be centered vertically in the work area.
   EXPECT_EQ(work_area.CenterPoint().y(), w1->bounds().CenterPoint().y());
@@ -618,7 +619,7 @@ TEST_P(DockedWindowResizerTest, RevertDockedDragRevertsAttachment) {
   std::unique_ptr<aura::Window> window(
       CreateTestWindow(gfx::Rect(0, 0, 201, 201)));
   DockedWindowLayoutManager* manager =
-      DockedWindowLayoutManager::Get(WmWindowAura::Get(window.get()));
+      DockedWindowLayoutManager::Get(WmWindow::Get(window.get()));
   int previous_container_id = window->parent()->id();
   // Drag the window out but revert the drag
   ASSERT_NO_FATAL_FAILURE(DragStart(window.get()));
@@ -725,7 +726,7 @@ TEST_P(DockedWindowResizerTest, AttachTwoWindowsDetachOne) {
             w1->GetBoundsInScreen().right());
   EXPECT_EQ(kShellWindowId_DockedContainer, w1->parent()->id());
   DockedWindowLayoutManager* manager =
-      DockedWindowLayoutManager::Get(WmWindowAura::Get(w1.get()));
+      DockedWindowLayoutManager::Get(WmWindow::Get(w1.get()));
   EXPECT_EQ(DOCKED_ALIGNMENT_RIGHT, docked_alignment(manager));
   EXPECT_EQ(w1->bounds().width(), docked_width(manager));
 
@@ -792,7 +793,7 @@ TEST_P(DockedWindowResizerTest, AttachWindowMaximizeOther) {
             w1->GetBoundsInScreen().right());
   EXPECT_EQ(kShellWindowId_DockedContainer, w1->parent()->id());
   DockedWindowLayoutManager* manager =
-      DockedWindowLayoutManager::Get(WmWindowAura::Get(w1.get()));
+      DockedWindowLayoutManager::Get(WmWindow::Get(w1.get()));
   EXPECT_EQ(DOCKED_ALIGNMENT_RIGHT, docked_alignment(manager));
   EXPECT_EQ(w1->bounds().width(), docked_width(manager));
 
@@ -886,7 +887,7 @@ TEST_P(DockedWindowResizerTest, AttachOneTestSticky) {
             w1->GetBoundsInScreen().x());
   EXPECT_EQ(kShellWindowId_DockedContainer, w1->parent()->id());
   DockedWindowLayoutManager* manager =
-      DockedWindowLayoutManager::Get(WmWindowAura::Get(w1.get()));
+      DockedWindowLayoutManager::Get(WmWindow::Get(w1.get()));
   // The first window should be docked.
   EXPECT_EQ(w1->GetRootWindow()->GetBoundsInScreen().x(),
             w1->GetBoundsInScreen().x());
@@ -980,7 +981,7 @@ TEST_P(DockedWindowResizerTest, ResizeOneOfTwoWindows) {
             w1->GetBoundsInScreen().right());
   EXPECT_EQ(kShellWindowId_DockedContainer, w1->parent()->id());
   DockedWindowLayoutManager* manager =
-      DockedWindowLayoutManager::Get(WmWindowAura::Get(w1.get()));
+      DockedWindowLayoutManager::Get(WmWindow::Get(w1.get()));
   EXPECT_EQ(DOCKED_ALIGNMENT_RIGHT, docked_alignment(manager));
   EXPECT_EQ(w1->bounds().width(), docked_width(manager));
 
@@ -1117,7 +1118,7 @@ TEST_P(DockedWindowResizerTest, ResizingKeepsSize) {
             w1->GetBoundsInScreen().right());
   EXPECT_EQ(kShellWindowId_DockedContainer, w1->parent()->id());
   DockedWindowLayoutManager* manager =
-      DockedWindowLayoutManager::Get(WmWindowAura::Get(w1.get()));
+      DockedWindowLayoutManager::Get(WmWindow::Get(w1.get()));
   EXPECT_EQ(DOCKED_ALIGNMENT_RIGHT, docked_alignment(manager));
   EXPECT_EQ(w1->bounds().width(), docked_width(manager));
 
@@ -1167,7 +1168,7 @@ TEST_P(DockedWindowResizerTest, ResizingKeepsDockedState) {
             w1->GetBoundsInScreen().right());
   EXPECT_EQ(kShellWindowId_DockedContainer, w1->parent()->id());
   DockedWindowLayoutManager* manager =
-      DockedWindowLayoutManager::Get(WmWindowAura::Get(w1.get()));
+      DockedWindowLayoutManager::Get(WmWindow::Get(w1.get()));
   EXPECT_EQ(DOCKED_ALIGNMENT_RIGHT, docked_alignment(manager));
   EXPECT_EQ(w1->bounds().width(), docked_width(manager));
 
@@ -1224,7 +1225,7 @@ TEST_P(DockedWindowResizerTest, ResizeTwoWindows) {
   EXPECT_EQ(kShellWindowId_DockedContainer, w2->parent()->id());
   // Dock width should be set to ideal width.
   DockedWindowLayoutManager* manager =
-      DockedWindowLayoutManager::Get(WmWindowAura::Get(w1.get()));
+      DockedWindowLayoutManager::Get(WmWindow::Get(w1.get()));
   EXPECT_EQ(DOCKED_ALIGNMENT_RIGHT, docked_alignment(manager));
   EXPECT_EQ(ideal_width(), docked_width(manager));
 
@@ -1287,7 +1288,7 @@ TEST_P(DockedWindowResizerTest, DragToShelf) {
             w1->GetBoundsInScreen().right());
   EXPECT_EQ(kShellWindowId_DockedContainer, w1->parent()->id());
   DockedWindowLayoutManager* manager =
-      DockedWindowLayoutManager::Get(WmWindowAura::Get(w1.get()));
+      DockedWindowLayoutManager::Get(WmWindow::Get(w1.get()));
   EXPECT_EQ(DOCKED_ALIGNMENT_RIGHT, docked_alignment(manager));
   EXPECT_EQ(w1->bounds().width(), docked_width(manager));
 
@@ -1310,7 +1311,7 @@ TEST_P(DockedWindowResizerTest, DragToShelf) {
   if (test_panels()) {
     // The panel should be touching the shelf and attached.
     EXPECT_EQ(shelf_y, w1->bounds().bottom());
-    EXPECT_TRUE(wm::GetWindowState(w1.get())->panel_attached());
+    EXPECT_TRUE(w1->GetProperty(kPanelAttachedKey));
   } else {
     // The window should not be touching the shelf.
     EXPECT_EQ(shelf_y - kDistanceFromShelf, w1->bounds().bottom());
@@ -1410,7 +1411,7 @@ TEST_P(DockedWindowResizerTest, SideSnapDocked) {
             w1->GetBoundsInScreen().right());
   EXPECT_EQ(kShellWindowId_DockedContainer, w1->parent()->id());
   DockedWindowLayoutManager* manager =
-      DockedWindowLayoutManager::Get(WmWindowAura::Get(w1.get()));
+      DockedWindowLayoutManager::Get(WmWindow::Get(w1.get()));
   EXPECT_EQ(DOCKED_ALIGNMENT_RIGHT, docked_alignment(manager));
   EXPECT_EQ(w1->bounds().width(), docked_width(manager));
   EXPECT_TRUE(window_state->IsDocked());
@@ -1469,7 +1470,7 @@ TEST_P(DockedWindowResizerTest, MaximizedDuringDrag) {
             window->GetBoundsInScreen().right());
   EXPECT_EQ(kShellWindowId_DockedContainer, window->parent()->id());
   DockedWindowLayoutManager* manager =
-      DockedWindowLayoutManager::Get(WmWindowAura::Get(window.get()));
+      DockedWindowLayoutManager::Get(WmWindow::Get(window.get()));
   EXPECT_EQ(DOCKED_ALIGNMENT_RIGHT, docked_alignment(manager));
   EXPECT_EQ(window->bounds().width(), docked_width(manager));
   EXPECT_TRUE(window_state->IsDocked());

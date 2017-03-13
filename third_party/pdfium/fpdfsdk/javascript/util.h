@@ -14,29 +14,29 @@
 
 class util : public CJS_EmbedObj {
  public:
-  util(CJS_Object* pJSObject);
+  explicit util(CJS_Object* pJSObject);
   ~util() override;
 
-  FX_BOOL printd(IJS_Context* cc,
-                 const std::vector<CJS_Value>& params,
-                 CJS_Value& vRet,
-                 CFX_WideString& sError);
-  FX_BOOL printf(IJS_Context* cc,
-                 const std::vector<CJS_Value>& params,
-                 CJS_Value& vRet,
-                 CFX_WideString& sError);
-  FX_BOOL printx(IJS_Context* cc,
-                 const std::vector<CJS_Value>& params,
-                 CJS_Value& vRet,
-                 CFX_WideString& sError);
-  FX_BOOL scand(IJS_Context* cc,
-                const std::vector<CJS_Value>& params,
-                CJS_Value& vRet,
-                CFX_WideString& sError);
-  FX_BOOL byteToChar(IJS_Context* cc,
-                     const std::vector<CJS_Value>& params,
-                     CJS_Value& vRet,
-                     CFX_WideString& sError);
+  bool printd(IJS_Context* cc,
+              const std::vector<CJS_Value>& params,
+              CJS_Value& vRet,
+              CFX_WideString& sError);
+  bool printf(IJS_Context* cc,
+              const std::vector<CJS_Value>& params,
+              CJS_Value& vRet,
+              CFX_WideString& sError);
+  bool printx(IJS_Context* cc,
+              const std::vector<CJS_Value>& params,
+              CJS_Value& vRet,
+              CFX_WideString& sError);
+  bool scand(IJS_Context* cc,
+             const std::vector<CJS_Value>& params,
+             CJS_Value& vRet,
+             CFX_WideString& sError);
+  bool byteToChar(IJS_Context* cc,
+                  const std::vector<CJS_Value>& params,
+                  CJS_Value& vRet,
+                  CFX_WideString& sError);
 
   static CFX_WideString printx(const CFX_WideString& cFormat,
                                const CFX_WideString& cSource);
@@ -44,7 +44,7 @@ class util : public CJS_EmbedObj {
 
 class CJS_Util : public CJS_Object {
  public:
-  CJS_Util(v8::Local<v8::Object> pObject) : CJS_Object(pObject) {}
+  explicit CJS_Util(v8::Local<v8::Object> pObject) : CJS_Object(pObject) {}
   ~CJS_Util() override {}
 
   DECLARE_JS_CLASS();

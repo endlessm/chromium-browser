@@ -4,13 +4,12 @@
 
 """General functions which are useful throughout this project."""
 
-import base64
-import binascii
 import json
 import logging
 import os
 import re
 import time
+import urllib
 
 from apiclient import discovery
 from apiclient import errors
@@ -379,33 +378,6 @@ def BisectConfigPythonString(config):
       config, sort_keys=True, indent=2, separators=(',', ': '))
 
 
-def DownloadChromiumFile(path):
-  """Downloads a file in the chromium/src repository.
-
-  This function uses gitiles to fetch files. As of September 2015,
-  gitiles supports fetching base-64 encoding of files. If it supports
-  fetching plain text in the future, that may be simpler.
-
-  Args:
-    path: Path to a file in src repository, without a leading slash or "src/".
-
-  Returns:
-    The contents of the file as a string, or None.
-  """
-  base_url = 'https://chromium.googlesource.com/chromium/src/+/master/'
-  url = '%s%s?format=TEXT' % (base_url, path)
-  response = urlfetch.fetch(url)
-  if response.status_code != 200:
-    logging.error('Got %d fetching "%s".', response.status_code, url)
-    return None
-  try:
-    plaintext_content = base64.decodestring(response.content)
-  except binascii.Error:
-    logging.error('Failed to decode "%s" from "%s".', response.content, url)
-    return None
-  return plaintext_content
-
-
 def GetRequestId():
   """Returns the request log ID which can be used to find a specific log."""
   return os.environ.get('REQUEST_LOG_ID')
@@ -493,3 +465,42 @@ def FetchURL(request_url, skip_status_code=False):
         'ERROR %s checking %s', response.status_code, request_url)
     return None
   return response
+
+
+def GetBuildDetailsFromStdioLink(stdio_link):
+  no_details = (None, None, None, None, None)
+  m = re.match(r'\[(.+?)\]\((.+?)\)', stdio_link)
+  if not m:
+    # This wasn't the markdown-style link we were expecting.
+    return no_details
+  _, link = m.groups()
+  m = re.match(
+      r'(https{0,1}://.*/([^\/]*)/builders/)'
+      r'([^\/]+)/builds/(\d+)/steps/([^\/]+)', link)
+  if not m:
+    # This wasn't a buildbot formatted link.
+    return no_details
+  base_url, master, bot, buildnumber, step = m.groups()
+  bot = urllib.unquote(bot)
+  return base_url, master, bot, buildnumber, step
+
+
+def GetBuildbotStatusPageUriFromStdioLink(stdio_link):
+  base_url, _, bot, buildnumber, _ = GetBuildDetailsFromStdioLink(
+      stdio_link)
+  if not base_url:
+    # Can't parse status page
+    return None
+  return '%s%s/builds/%s' % (base_url, urllib.quote(bot), buildnumber)
+
+
+def GetLogdogLogUriFromStdioLink(stdio_link):
+  base_url, master, bot, buildnumber, step = GetBuildDetailsFromStdioLink(
+      stdio_link)
+  if not base_url:
+    # Can't parse status page
+    return None
+  bot = re.sub(r'[ \(\)]', '_', bot)
+  s_param = urllib.quote('chrome/bb/%s/%s/%s/+/recipes/steps/%s/0/stdout' % (
+      master, bot, buildnumber, step), safe='')
+  return 'https://luci-logdog.appspot.com/v/?s=%s' % s_param

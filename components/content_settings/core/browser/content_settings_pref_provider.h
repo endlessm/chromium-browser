@@ -20,7 +20,6 @@ class PrefService;
 
 namespace base {
 class Clock;
-class DictionaryValue;
 }
 
 namespace user_prefs {
@@ -79,6 +78,9 @@ class PrefProvider : public ObservableProvider {
               const ContentSettingsPattern& secondary_pattern,
               ContentSettingsType content_type,
               const std::string& resource_identifier);
+
+  // Clean up the obsolete preferences from the user's profile.
+  void DiscardObsoletePreferences();
 
   // Weak; owned by the Profile and reset in ShutdownOnUIThread.
   PrefService* prefs_;

@@ -17,10 +17,10 @@
 #include "content/public/child/v8_value_converter.h"
 #include "content/public/renderer/render_frame.h"
 #include "content/public/renderer/render_thread.h"
+#include "third_party/WebKit/public/platform/WebInputEvent.h"
 #include "third_party/WebKit/public/web/WebDOMMessageEvent.h"
 #include "third_party/WebKit/public/web/WebDocument.h"
 #include "third_party/WebKit/public/web/WebElement.h"
-#include "third_party/WebKit/public/web/WebInputEvent.h"
 #include "third_party/WebKit/public/web/WebKit.h"
 #include "third_party/WebKit/public/web/WebLocalFrame.h"
 #include "third_party/WebKit/public/web/WebPluginContainer.h"
@@ -129,9 +129,8 @@ void LoadablePluginPlaceholder::ReplacePlugin(blink::WebPlugin* new_plugin) {
 
   container->invalidate();
   container->reportGeometry();
-  if (plugin()->focused())
-    new_plugin->updateFocus(true, blink::WebFocusTypeNone);
   container->element().setAttribute("title", plugin()->old_title());
+  plugin()->ReplayReceivedData(new_plugin);
   plugin()->destroy();
 }
 
@@ -210,8 +209,7 @@ void LoadablePluginPlaceholder::OnUnobscuredRectUpdate(
                                 : RenderFrame::RECORD_DECISION);
 
   bool plugin_is_tiny_and_blocked =
-      is_blocked_for_tinyness_ &&
-      status == RenderFrame::CONTENT_STATUS_ESSENTIAL_CROSS_ORIGIN_TINY;
+      is_blocked_for_tinyness_ && status == RenderFrame::CONTENT_STATUS_TINY;
 
   // Early exit for plugins that we've discovered to be essential.
   if (!plugin_is_tiny_and_blocked &&
@@ -330,6 +328,9 @@ void LoadablePluginPlaceholder::DidFinishLoadingCallback() {
 }
 
 void LoadablePluginPlaceholder::DidFinishIconRepositionForTestingCallback() {
+  if (!plugin())
+    return;
+
   // Set an attribute and post an event, so browser tests can wait for the
   // placeholder to be ready to receive simulated user input.
   blink::WebElement element = plugin()->container()->element();

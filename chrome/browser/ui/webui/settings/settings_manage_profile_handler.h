@@ -13,10 +13,6 @@
 #include "chrome/browser/profiles/profile_attributes_storage.h"
 #include "chrome/browser/ui/webui/settings/settings_page_ui_handler.h"
 
-namespace base {
-class StringValue;
-}
-
 class Profile;
 
 namespace settings {
@@ -56,15 +52,15 @@ class ManageProfileHandler : public settings::SettingsPageUIHandler,
   // ]
   void HandleSetProfileIconAndName(const base::ListValue* args);
 
-  // Callback for the "requestHasProfileShortcuts" message, which is called
+  // Callback for the "requestProfileShortcutStatus" message, which is called
   // when editing an existing profile. Asks the profile shortcut manager whether
   // the profile has shortcuts and gets the result in |OnHasProfileShortcuts()|.
-  // |args| is of the form: [ {string} profileFilePath ]
-  void HandleRequestHasProfileShortcuts(const base::ListValue* args);
+  void HandleRequestProfileShortcutStatus(const base::ListValue* args);
 
   // Callback invoked from the profile manager indicating whether the profile
   // being edited has any desktop shortcuts.
-  void OnHasProfileShortcuts(bool has_shortcuts);
+  void OnHasProfileShortcuts(const std::string& callback_id,
+                             bool has_shortcuts);
 
   // Callback for the "addProfileShortcut" message, which is called when editing
   // an existing profile and the user clicks the "Add desktop shortcut" button.

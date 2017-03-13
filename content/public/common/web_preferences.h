@@ -96,6 +96,7 @@ struct CONTENT_EXPORT WebPreferences {
   bool loads_images_automatically;
   bool images_enabled;
   bool plugins_enabled;
+  bool encrypted_media_enabled;
   bool dom_paste_enabled;
   bool shrinks_standalone_images_to_fit;
   bool text_areas_are_resizable;
@@ -115,7 +116,6 @@ struct CONTENT_EXPORT WebPreferences {
   bool databases_enabled;
   bool application_cache_enabled;
   bool tabs_to_links;
-  bool caret_browsing_enabled;
   bool history_entry_requires_user_gesture;
   bool hyperlink_auditing_enabled;
   bool allow_universal_access_from_file_urls;
@@ -159,11 +159,9 @@ struct CONTENT_EXPORT WebPreferences {
   bool should_clear_document_background;
   bool enable_scroll_animator;
   bool css_variables_enabled;
-  bool touch_enabled;
+  bool touch_event_feature_detection_enabled;
   // TODO(mustaq): Nuke when the new API is ready
   bool device_supports_touch;
-  // TODO(mustaq): Nuke when the new API is ready
-  bool device_supports_mouse;
   bool touch_adjustment_enabled;
   int pointer_events_max_touch_points;
   int available_pointer_types;
@@ -172,6 +170,8 @@ struct CONTENT_EXPORT WebPreferences {
   ui::HoverType primary_hover_type;
   bool sync_xhr_in_documents_enabled;
   bool color_correct_rendering_enabled = false;
+  bool color_correct_rendering_default_mode_enabled = false;
+  bool true_color_rendering_enabled = false;
   bool should_respect_image_orientation;
   int number_of_cpu_cores;
   EditingBehavior editing_behavior;
@@ -185,7 +185,6 @@ struct CONTENT_EXPORT WebPreferences {
   bool initialize_at_minimum_page_scale;
   bool smart_insert_delete_enabled;
   bool spatial_navigation_enabled;
-  int pinch_overlay_scrollbar_thickness;
   bool use_solid_color_scrollbars;
   bool navigate_on_drag_drop;
   V8CacheOptions v8_cache_options;
@@ -212,6 +211,14 @@ struct CONTENT_EXPORT WebPreferences {
   // Cues will not be placed in this margin area.
   float text_track_margin_percentage;
 
+  // Specifies aggressiveness of background tab throttling.
+  // expensive_background_throttling_cpu_budget is given in percentages,
+  // other values are in seconds.
+  float expensive_background_throttling_cpu_budget;
+  float expensive_background_throttling_initial_budget;
+  float expensive_background_throttling_max_budget;
+  float expensive_background_throttling_max_delay;
+
 #if defined(OS_ANDROID)
   bool text_autosizing_enabled;
   float font_scale_factor;
@@ -236,22 +243,30 @@ struct CONTENT_EXPORT WebPreferences {
   // Used by Android_WebView only to support legacy apps that inject script into
   // a top-level initial empty document and expect it to persist on navigation.
   bool resue_global_for_unowned_main_frame;
-  bool autoplay_muted_videos_enabled;
   ProgressBarCompletion progress_bar_completion;
   // Specifies default setting for spellcheck when the spellcheck attribute is
   // not explicitly specified.
   bool spellcheck_enabled_by_default;
-#endif
-
-  // String that describes how media element autoplay behavior should be
-  // affected by experiment.
-  std::string autoplay_experiment_mode;
+  // If enabled, when a video goes fullscreen, the orientation should be locked.
+  bool video_fullscreen_orientation_lock_enabled;
+#else  // defined(OS_ANDROID)
+  bool cross_origin_media_playback_requires_user_gesture;
+#endif  // defined(OS_ANDROID)
 
   // Default (used if the page or UA doesn't override these) values for page
   // scale limits. These are set directly on the WebView so there's no analogue
   // in WebSettings.
   float default_minimum_page_scale_factor;
   float default_maximum_page_scale_factor;
+
+  // Whether download UI should be hidden on this page.
+  bool hide_download_ui;
+
+  // If enabled, disabled video track when the video is in the background.
+  bool background_video_track_optimization_enabled;
+
+  // Whether it is a presentation receiver.
+  bool presentation_receiver;
 
   // We try to keep the default values the same as the default values in
   // chrome, except for the cases where it would require lots of extra work for

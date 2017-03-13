@@ -108,41 +108,25 @@ void CreateSpdyHeadersFromHttpRequest(const HttpRequestInfo& info,
   }
 }
 
-void CreateSpdyHeadersFromHttpResponse(
-    const HttpResponseHeaders& response_headers,
-    SpdyHeaderBlock* headers) {
-  const std::string status_line = response_headers.GetStatusLine();
-  std::string::const_iterator after_version =
-      std::find(status_line.begin(), status_line.end(), ' ');
-  // Get status code only.
-  std::string::const_iterator after_status =
-      std::find(after_version + 1, status_line.end(), ' ');
-  (*headers)[":status"] = std::string(after_version + 1, after_status);
-
-  size_t iter = 0;
-  std::string raw_name, value;
-  while (response_headers.EnumerateHeaderLines(&iter, &raw_name, &value)) {
-    std::string name = base::ToLowerASCII(raw_name);
-    AddSpdyHeader(name, value, headers);
-  }
-}
-
-static_assert(HIGHEST - LOWEST < 4 && HIGHEST - MINIMUM_PRIORITY < 5,
+static_assert(HIGHEST - LOWEST < 4 && HIGHEST - MINIMUM_PRIORITY < 6,
               "request priority incompatible with spdy");
 
 SpdyPriority ConvertRequestPriorityToSpdyPriority(
     const RequestPriority priority) {
   DCHECK_GE(priority, MINIMUM_PRIORITY);
   DCHECK_LE(priority, MAXIMUM_PRIORITY);
-  return static_cast<SpdyPriority>(MAXIMUM_PRIORITY - priority);
+  return static_cast<SpdyPriority>(MAXIMUM_PRIORITY - priority +
+                                   kV3HighestPriority);
 }
 
 NET_EXPORT_PRIVATE RequestPriority
 ConvertSpdyPriorityToRequestPriority(SpdyPriority priority) {
   // Handle invalid values gracefully.
-  // Note that SpdyPriority is not an enum, hence the magic constants.
-  return (priority >= 5) ?
-      IDLE : static_cast<RequestPriority>(4 - priority);
+  return ((priority - kV3HighestPriority) >
+          (MAXIMUM_PRIORITY - MINIMUM_PRIORITY))
+             ? IDLE
+             : static_cast<RequestPriority>(MAXIMUM_PRIORITY -
+                                            (priority - kV3HighestPriority));
 }
 
 NET_EXPORT_PRIVATE void ConvertHeaderBlockToHttpRequestHeaders(

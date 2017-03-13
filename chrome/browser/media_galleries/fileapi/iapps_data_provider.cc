@@ -14,9 +14,7 @@
 #include "base/logging.h"
 #include "base/stl_util.h"
 #include "base/strings/string_util.h"
-#include "base/strings/stringprintf.h"
 #include "base/threading/thread_restrictions.h"
-#include "chrome/browser/media_galleries/fileapi/file_path_watcher_util.h"
 #include "chrome/browser/media_galleries/fileapi/media_file_system_backend.h"
 #include "chrome/common/media_galleries/itunes_library.h"
 #include "storage/browser/fileapi/native_file_util.h"
@@ -67,7 +65,7 @@ const base::FilePath& IAppsDataProvider::library_path() const {
 }
 
 void IAppsDataProvider::OnLibraryWatchStarted(
-    std::unique_ptr<base::FilePathWatcher> library_watcher) {
+    MediaFilePathWatcherUniquePtr library_watcher) {
   MediaFileSystemBackend::AssertCurrentlyOnMediaSequence();
   library_watcher_ = std::move(library_watcher);
 }

@@ -41,14 +41,10 @@ media::VideoCodecProfile WebRTCVideoCodecToVideoCodecProfile(
   switch (type) {
     case webrtc::kVideoCodecVP8:
       return media::VP8PROFILE_ANY;
-    case webrtc::kVideoCodecH264: {
-      switch (codec_settings->codecSpecific.H264.profile) {
-        case webrtc::kProfileBase:
-          return media::H264PROFILE_BASELINE;
-        case webrtc::kProfileMain:
-          return media::H264PROFILE_MAIN;
-      }
-    }
+    case webrtc::kVideoCodecH264:
+      // TODO(magjed): WebRTC is only using Baseline profile for now. Update
+      // once http://crbug/webrtc/6337 is fixed.
+      return media::H264PROFILE_BASELINE;
     default:
       NOTREACHED() << "Unrecognized video codec type";
       return media::VIDEO_CODEC_PROFILE_UNKNOWN;
@@ -238,6 +234,10 @@ class RTCVideoEncoder::Impl
   // 15 bits running index of the VP8 frames. See VP8 RTP spec for details.
   uint16_t picture_id_;
 
+  // |capture_time_ms_| field of the last returned webrtc::EncodedImage from
+  // BitstreamBufferReady().
+  int64_t last_capture_time_ms_;
+
   // webrtc::VideoEncoder encode complete callback.
   webrtc::EncodedImageCallback* encoded_image_callback_;
 
@@ -265,6 +265,7 @@ RTCVideoEncoder::Impl::Impl(media::GpuVideoAcceleratorFactories* gpu_factories,
       input_next_frame_(NULL),
       input_next_frame_keyframe_(false),
       output_buffers_free_count_(0),
+      last_capture_time_ms_(-1),
       encoded_image_callback_(nullptr),
       video_codec_type_(video_codec_type),
       status_(WEBRTC_VIDEO_CODEC_UNINITIALIZED) {
@@ -473,21 +474,22 @@ void RTCVideoEncoder::Impl::BitstreamBufferReady(int32_t bitstream_buffer_id,
   }
   output_buffers_free_count_--;
 
-  // Derive the capture time (in ms) and RTP timestamp (in 90KHz ticks).
-  int64_t capture_time_us, capture_time_ms;
-  uint32_t rtp_timestamp;
+  // Derive the capture time in ms from system clock. Make sure that it is
+  // greater than the last.
+  const int64_t capture_time_us = rtc::TimeMicros();
+  int64_t capture_time_ms =
+      capture_time_us / base::Time::kMicrosecondsPerMillisecond;
+  capture_time_ms = std::max(capture_time_ms, last_capture_time_ms_ + 1);
+  last_capture_time_ms_ = capture_time_ms;
 
-  if (!timestamp.is_zero()) {
-    capture_time_us = timestamp.InMicroseconds();;
-    capture_time_ms = timestamp.InMilliseconds();
-  } else {
-    // Fallback to the current time if encoder does not provide timestamp.
-    capture_time_us = rtc::TimeMicros();
-    capture_time_ms = capture_time_us / base::Time::kMicrosecondsPerMillisecond;
-  }
-  // RTP timestamp can wrap around. Get the lower 32 bits.
-  rtp_timestamp = static_cast<uint32_t>(
-      capture_time_us * 90 / base::Time::kMicrosecondsPerMillisecond);
+  // Fallback to the current time if encoder does not provide timestamp.
+  const int64_t encoder_time_us =
+      timestamp.is_zero() ? capture_time_us : timestamp.InMicroseconds();
+
+  // Derive the RTP timestamp (in 90KHz ticks).  It can wrap around, get the
+  // lower 32 bits.
+  const uint32_t rtp_timestamp = static_cast<uint32_t>(
+      encoder_time_us * 90 / base::Time::kMicrosecondsPerMillisecond);
 
   webrtc::EncodedImage image(
       reinterpret_cast<uint8_t*>(output_buffer->memory()), payload_size,
@@ -565,7 +567,8 @@ void RTCVideoEncoder::Impl::EncodeOneFrame() {
   if (next_frame->video_frame_buffer()->native_handle()) {
     frame = static_cast<media::VideoFrame*>(
         next_frame->video_frame_buffer()->native_handle());
-    requires_copy = RequiresSizeChange(frame);
+    requires_copy = RequiresSizeChange(frame) ||
+                    frame->storage_type() != media::VideoFrame::STORAGE_SHMEM;
   } else {
     requires_copy = true;
   }
@@ -751,7 +754,10 @@ int32_t RTCVideoEncoder::InitEncode(const webrtc::VideoCodec* codec_settings,
            << ", width=" << codec_settings->width
            << ", height=" << codec_settings->height
            << ", startBitrate=" << codec_settings->startBitrate;
-  DCHECK(!impl_.get());
+  if (impl_) {
+    DVLOG(1) << "Release because of reinitialization";
+    Release();
+  }
 
   impl_ = new Impl(gpu_factories_, video_codec_type_);
   const media::VideoCodecProfile profile = WebRTCVideoCodecToVideoCodecProfile(

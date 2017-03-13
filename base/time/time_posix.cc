@@ -16,6 +16,7 @@
 #include <ostream>
 
 #include "base/logging.h"
+#include "base/numerics/safe_math.h"
 #include "build/build_config.h"
 
 #if defined(OS_ANDROID)
@@ -227,22 +228,30 @@ void Time::Explode(bool is_local, Exploded* exploded) const {
 
 // static
 bool Time::FromExploded(bool is_local, const Exploded& exploded, Time* time) {
+  CheckedNumeric<int> month = exploded.month;
+  month--;
+  CheckedNumeric<int> year = exploded.year;
+  year -= 1900;
+  if (!month.IsValid() || !year.IsValid()) {
+    *time = Time(0);
+    return false;
+  }
+
   struct tm timestruct;
-  timestruct.tm_sec    = exploded.second;
-  timestruct.tm_min    = exploded.minute;
-  timestruct.tm_hour   = exploded.hour;
-  timestruct.tm_mday   = exploded.day_of_month;
-  timestruct.tm_mon    = exploded.month - 1;
-  timestruct.tm_year   = exploded.year - 1900;
-  timestruct.tm_wday   = exploded.day_of_week;  // mktime/timegm ignore this
-  timestruct.tm_yday   = 0;     // mktime/timegm ignore this
-  timestruct.tm_isdst  = -1;    // attempt to figure it out
+  timestruct.tm_sec = exploded.second;
+  timestruct.tm_min = exploded.minute;
+  timestruct.tm_hour = exploded.hour;
+  timestruct.tm_mday = exploded.day_of_month;
+  timestruct.tm_mon = month.ValueOrDie();
+  timestruct.tm_year = year.ValueOrDie();
+  timestruct.tm_wday = exploded.day_of_week;  // mktime/timegm ignore this
+  timestruct.tm_yday = 0;                     // mktime/timegm ignore this
+  timestruct.tm_isdst = -1;                   // attempt to figure it out
 #if !defined(OS_NACL) && !defined(OS_SOLARIS)
-  timestruct.tm_gmtoff = 0;     // not a POSIX field, so mktime/timegm ignore
-  timestruct.tm_zone   = NULL;  // not a POSIX field, so mktime/timegm ignore
+  timestruct.tm_gmtoff = 0;   // not a POSIX field, so mktime/timegm ignore
+  timestruct.tm_zone = NULL;  // not a POSIX field, so mktime/timegm ignore
 #endif
 
-  int64_t milliseconds;
   SysTime seconds;
 
   // Certain exploded dates do not really exist due to daylight saving times,
@@ -280,6 +289,7 @@ bool Time::FromExploded(bool is_local, const Exploded& exploded, Time* time) {
   // return is the best that can be done here.  It's not ideal, but it's better
   // than failing here or ignoring the overflow case and treating each time
   // overflow as one second prior to the epoch.
+  int64_t milliseconds = 0;
   if (seconds == -1 &&
       (exploded.year < 1969 || exploded.year > 1970)) {
     // If exploded.year is 1969 or 1970, take -1 as correct, with the
@@ -312,13 +322,25 @@ bool Time::FromExploded(bool is_local, const Exploded& exploded, Time* time) {
       milliseconds += (kMillisecondsPerSecond - 1);
     }
   } else {
-    milliseconds = seconds * kMillisecondsPerSecond + exploded.millisecond;
+    base::CheckedNumeric<int64_t> checked_millis = seconds;
+    checked_millis *= kMillisecondsPerSecond;
+    checked_millis += exploded.millisecond;
+    if (!checked_millis.IsValid()) {
+      *time = base::Time(0);
+      return false;
+    }
+    milliseconds = checked_millis.ValueOrDie();
   }
 
-  // Adjust from Unix (1970) to Windows (1601) epoch.
-  base::Time converted_time =
-      Time((milliseconds * kMicrosecondsPerMillisecond) +
-           kWindowsEpochDeltaMicroseconds);
+  // Adjust from Unix (1970) to Windows (1601) epoch avoiding overflows.
+  base::CheckedNumeric<int64_t> checked_microseconds_win_epoch = milliseconds;
+  checked_microseconds_win_epoch *= kMicrosecondsPerMillisecond;
+  checked_microseconds_win_epoch += kWindowsEpochDeltaMicroseconds;
+  if (!checked_microseconds_win_epoch.IsValid()) {
+    *time = base::Time(0);
+    return false;
+  }
+  base::Time converted_time(checked_microseconds_win_epoch.ValueOrDie());
 
   // If |exploded.day_of_month| is set to 31 on a 28-30 day month, it will
   // return the first day of the next month. Thus round-trip the time and

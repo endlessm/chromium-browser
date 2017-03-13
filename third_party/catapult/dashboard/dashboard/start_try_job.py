@@ -8,11 +8,14 @@ import difflib
 import hashlib
 import json
 import logging
+import pipes
+import re
 
 import httplib2
 
 from google.appengine.api import users
 from google.appengine.api import app_identity
+from google.appengine.api import urlfetch
 
 from dashboard import buildbucket_job
 from dashboard import can_bisect
@@ -20,10 +23,12 @@ from dashboard import list_tests
 from dashboard import quick_logger
 from dashboard.common import namespaced_stored_object
 from dashboard.common import request_handler
+from dashboard.common import stored_object
 from dashboard.common import utils
 from dashboard.models import graph_data
 from dashboard.models import try_job
 from dashboard.services import buildbucket_service
+from dashboard.services import gitiles_service
 from dashboard.services import issue_tracker_service
 from dashboard.services import rietveld_service
 
@@ -81,6 +86,8 @@ _NON_TELEMETRY_TEST_COMMANDS = {
         '--build_type Release',
     ],
 }
+_DISABLE_STORY_FILTER = set(_NON_TELEMETRY_TEST_COMMANDS)
+_DISABLE_STORY_FILTER.add('octane')  # Has a single story.
 
 
 class StartBisectHandler(request_handler.RequestHandler):
@@ -127,7 +134,7 @@ class StartBisectHandler(request_handler.RequestHandler):
     master_name = self.request.get('master', 'ChromiumPerf')
     internal_only = self.request.get('internal_only') == 'true'
     bisect_bot = self.request.get('bisect_bot')
-    bypass_no_repro_check = self.request.get('bypass_no_repro_check') == 'true'
+    use_staging_bot = self.request.get('use_staging_bot') == 'true'
 
     bisect_config = GetBisectConfig(
         bisect_bot=bisect_bot,
@@ -139,9 +146,9 @@ class StartBisectHandler(request_handler.RequestHandler):
         repeat_count=self.request.get('repeat_count', 10),
         max_time_minutes=self.request.get('max_time_minutes', 20),
         bug_id=bug_id,
-        use_archive=self.request.get('use_archive'),
+        story_filter=self.request.get('story_filter'),
         bisect_mode=self.request.get('bisect_mode', 'mean'),
-        bypass_no_repro_check=bypass_no_repro_check)
+        use_staging_bot=use_staging_bot)
 
     if 'error' in bisect_config:
       return bisect_config
@@ -219,7 +226,6 @@ def _PrefillInfo(test_path):
   info = {'suite': suite.test_name}
   info['master'] = suite.master_name
   info['internal_only'] = suite.internal_only
-  info['use_archive'] = _CanDownloadBuilds(suite.master_name)
 
   info['all_bots'] = _GetAvailableBisectBots(suite.master_name)
   info['bisect_bot'] = GuessBisectBot(suite.master_name, suite.bot_name)
@@ -232,24 +238,30 @@ def _PrefillInfo(test_path):
   if suite.internal_only and not utils.IsInternalUser():
     return {'error': 'Unauthorized access, please use corp account to login.'}
 
+  if users.is_current_user_admin():
+    info['is_admin'] = True
+  else:
+    info['is_admin'] = False
+
   info['email'] = user.email()
 
   info['all_metrics'] = []
   metric_keys = list_tests.GetTestDescendants(graph_key, has_rows=True)
+
   for metric_key in metric_keys:
     metric_path = utils.TestPath(metric_key)
     if metric_path.endswith('/ref') or metric_path.endswith('_ref'):
       continue
     info['all_metrics'].append(GuessMetric(metric_path))
   info['default_metric'] = GuessMetric(test_path)
-
+  info['story_filter'] = GuessStoryFilter(test_path)
   return info
 
 
 def GetBisectConfig(
     bisect_bot, master_name, suite, metric, good_revision, bad_revision,
-    repeat_count, max_time_minutes, bug_id, use_archive=None,
-    bisect_mode='mean', bypass_no_repro_check=False):
+    repeat_count, max_time_minutes, bug_id, story_filter=None,
+    bisect_mode='mean', use_staging_bot=False):
   """Fills in a JSON response with the filled-in config file.
 
   Args:
@@ -263,16 +275,15 @@ def GetBisectConfig(
     repeat_count: Number of times to repeat the test.
     max_time_minutes: Max time to run the test.
     bug_id: The Chromium issue tracker bug ID.
-    use_archive: Specifies whether to use build archives or not to bisect.
-        If this is not empty or None, then we want to use archived builds.
     bisect_mode: What aspect of the test run to bisect on; possible options are
         "mean", "std_dev", and "return_code".
+    use_staging_bot: Specifies if we should redirect to a staging bot.
 
   Returns:
     A dictionary with the result; if successful, this will contain "config",
     which is a config string; if there's an error, this will contain "error".
   """
-  command = GuessCommand(bisect_bot, suite, metric=metric)
+  command = GuessCommand(bisect_bot, suite, story_filter=story_filter)
   if not command:
     return {'error': 'Could not guess command for %r.' % suite}
 
@@ -296,28 +307,30 @@ def GetBisectConfig(
       'repeat_count': str(repeat_count),
       'max_time_minutes': str(max_time_minutes),
       'bug_id': str(bug_id),
-      'builder_type': _BuilderType(master_name, use_archive),
+      'builder_type': _BuilderType(master_name),
       'target_arch': GuessTargetArch(bisect_bot),
       'bisect_mode': bisect_mode,
   }
+
+  # If 'use_staging_bot' was checked, we try to redirect to a staging bot.
+  # Do this here since we need to guess parts of the command line using the
+  # bot's name.
+  if use_staging_bot:
+    bisect_bot = _GuessStagingBot(master_name, bisect_bot) or bisect_bot
+
   config_dict['recipe_tester_name'] = bisect_bot
-  if bypass_no_repro_check:
-    config_dict['required_initial_confidence'] = '0'
   return config_dict
 
 
-def _BuilderType(master_name, use_archive):
+def _BuilderType(master_name):
   """Returns the builder_type string to use in the bisect config.
 
   Args:
     master_name: The test master name.
-    use_archive: Whether or not to use archived builds.
 
   Returns:
     A string which indicates where the builds should be obtained from.
   """
-  if not use_archive:
-    return ''
   builder_types = namespaced_stored_object.Get(_BUILDER_TYPES_KEY)
   if not builder_types or master_name not in builder_types:
     return 'perf'
@@ -377,35 +390,42 @@ def _GetAvailableBisectBots(master_name):
   return []
 
 
-def _CanDownloadBuilds(master_name):
-  """Checks whether bisecting using archives is supported."""
-  return master_name.startswith('ChromiumPerf')
-
-
 def GuessBisectBot(master_name, bot_name):
   """Returns a bisect bot name based on |bot_name| (perf_id) string."""
-  fallback = 'linux_perf_bisect'
+  platform_bot_pairs = []
   bisect_bot_map = namespaced_stored_object.Get(can_bisect.BISECT_BOT_MAP_KEY)
-  if not bisect_bot_map:
+  if bisect_bot_map:
+    for master, pairs in bisect_bot_map.iteritems():
+      if master_name.startswith(master):
+        platform_bot_pairs = pairs
+        break
+
+  fallback = 'linux_perf_bisect'
+  if not platform_bot_pairs:
+    # No bots available.
+    logging.error('No bisect bots defined for %s.', master_name)
     return fallback
+
   bot_name = bot_name.lower()
-  for master, platform_bot_pairs in bisect_bot_map.iteritems():
-    # Treat ChromiumPerfFyi (etc.) the same as ChromiumPerf.
-    if master_name.startswith(master):
-      for platform, bisect_bot in platform_bot_pairs:
-        if platform.lower() in bot_name:
-          return bisect_bot
+  for platform, bisect_bot in platform_bot_pairs:
+    if platform.lower() in bot_name:
+      return bisect_bot
+
+  for _, bisect_bot in platform_bot_pairs:
+    if bisect_bot == fallback:
+      return fallback
+
   # Nothing was found; log a warning and return a fall-back name.
   logging.warning('No bisect bot for %s/%s.', master_name, bot_name)
-  return fallback
+  return platform_bot_pairs[0][1]
 
 
 def GuessCommand(
-    bisect_bot, suite, metric=None, rerun_option=None):
+    bisect_bot, suite, story_filter=None, rerun_option=None):
   """Returns a command to use in the bisect configuration."""
   if suite in _NON_TELEMETRY_TEST_COMMANDS:
     return _GuessCommandNonTelemetry(suite, bisect_bot)
-  return _GuessCommandTelemetry(suite, bisect_bot, metric, rerun_option)
+  return _GuessCommandTelemetry(suite, bisect_bot, story_filter, rerun_option)
 
 
 def _GuessCommandNonTelemetry(suite, bisect_bot):
@@ -427,18 +447,14 @@ def _GuessCommandNonTelemetry(suite, bisect_bot):
   if _GuessBrowserName(bisect_bot) == 'release_x64':
     command[0] = command[0].replace('/Release/', '/Release_x64/')
 
-  if bisect_bot.startswith('win'):
+  if bisect_bot.startswith('win') or bisect_bot.startswith('staging_win'):
     command[0] = command[0].replace('/', '\\')
     command[0] += '.exe'
   return ' '.join(command)
 
 
-def _GuessCommandTelemetry(
-    suite, bisect_bot, metric,  # pylint: disable=unused-argument
-    rerun_option):
+def _GuessCommandTelemetry(suite, bisect_bot, story_filter, rerun_option):
   """Returns a command to use given that |suite| is a Telemetry benchmark."""
-  # TODO(qyearsley): Use metric to add a --story-filter flag for Telemetry.
-  # See: http://crbug.com/448628
   command = []
 
   test_cmd = 'src/tools/perf/run_benchmark'
@@ -452,6 +468,8 @@ def _GuessCommandTelemetry(
       '--pageset-repeat=1',
       '--also-run-disabled-tests',
   ])
+  if story_filter:
+    command.append('--story-filter=%s' % pipes.quote(story_filter))
 
   # Test command might be a little different from the test name on the bots.
   if suite == 'blink_perf':
@@ -480,6 +498,46 @@ def _GuessBrowserName(bisect_bot):
     if bisect_bot.startswith(bot_name_prefix):
       return browser_name
   return default
+
+
+def GuessStoryFilter(test_path):
+  """Returns a suitable "story filter" to use in the bisect config.
+
+  Args:
+    test_path: The slash-separated test path used by the dashboard.
+
+  Returns:
+    A regex pattern that matches the story referred to by the test_path, or
+    an empty string if the test_path does not refer to a story and no story
+    filter should be used.
+  """
+  test_path_parts = test_path.split('/')
+  suite_name, story_name = test_path_parts[2], test_path_parts[-1]
+  if any([
+      suite_name in _DISABLE_STORY_FILTER,
+      suite_name.startswith('media.') and '.html?' not in story_name,
+      suite_name.startswith('webrtc.')]):
+    return ''
+  test_key = utils.TestKey(test_path)
+  subtest_keys = list_tests.GetTestDescendants(test_key)
+  try:
+    subtest_keys.remove(test_key)
+  except ValueError:
+    pass
+  if subtest_keys:  # Stories do not have subtests.
+    return ''
+  if story_name.startswith('after_'):
+    # TODO(perezju,#1811): Remove this hack after deprecating the
+    # memory.top_10_mobile benchmark.
+    story_name = story_name[len('after_'):]
+
+  # During import, some chars in story names got replaced by "_" so they
+  # could be safely included in the test_path. At this point we don't know
+  # what the original characters were. Additionally, some special characters
+  # and argument quoting are not interpreted correctly, e.g. by bisect
+  # scripts (crbug.com/662472). We thus keep only a small set of "safe chars"
+  # and replace all others with match-any-character regex dots.
+  return re.sub(r'[^a-zA-Z0-9]', '.', story_name)
 
 
 # TODO(eakuefner): Make bisect work with value-level summaries and delete this.
@@ -588,6 +646,7 @@ def PerformBisect(bisect_job):
   else:
     comment = 'Started bisect job: %s' % result
   if bisect_job.bug_id:
+    logging.info('Commenting on bug %s for bisect job', bisect_job.bug_id)
     issue_tracker = issue_tracker_service.IssueTrackerService(
         utils.ServiceAccountHttp())
     issue_tracker.AddBugComment(bisect_job.bug_id, comment, send_email=False)
@@ -619,7 +678,12 @@ def _PerformPerfTryJob(perf_job):
   perf_job.config = utils.BisectConfigPythonString(config_dict)
 
   # Get the base config file contents and make a patch.
-  base_config = utils.DownloadChromiumFile(_PERF_CONFIG_PATH)
+  try:
+    base_config = gitiles_service.FileContents('chromium/src', 'master',
+                                               _PERF_CONFIG_PATH)
+  except urlfetch.Error:
+    base_config = None
+
   if not base_config:
     return {'error': 'Error downloading base config'}
   patch, base_checksum, base_hashes = _CreatePatch(
@@ -743,3 +807,15 @@ def _GetTryServerBucket(bisect_job):
         'Could not get bucket to be used by buildbucket, using default.')
     return default
   return master_bucket_map.get(bisect_job.master_name, default)
+
+def _GuessStagingBot(master_name, production_bot_name):
+  staging_bot_map = stored_object.Get('staging_bot_map') or {
+      'ChromiumPerf': [
+          ['win', 'staging_win_perf_bisect'],
+          ['mac', 'staging_mac_10_10_perf_bisect'],
+          ['linux', 'staging_linux_perf_bisect'],
+          ['android', 'staging_android_nexus5X_perf_bisect']]
+  }
+  for infix, staging_bot in staging_bot_map[master_name]:
+    if infix in production_bot_name:
+      return staging_bot

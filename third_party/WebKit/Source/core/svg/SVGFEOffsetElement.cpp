@@ -34,9 +34,7 @@ inline SVGFEOffsetElement::SVGFEOffsetElement(Document& document)
       m_dy(SVGAnimatedNumber::create(this,
                                      SVGNames::dyAttr,
                                      SVGNumber::create())),
-      m_in1(SVGAnimatedString::create(this,
-                                      SVGNames::inAttr,
-                                      SVGString::create())) {
+      m_in1(SVGAnimatedString::create(this, SVGNames::inAttr)) {
   addToPropertyMap(m_dx);
   addToPropertyMap(m_dy);
   addToPropertyMap(m_in1);
@@ -70,7 +68,7 @@ FilterEffect* SVGFEOffsetElement::build(SVGFilterBuilder* filterBuilder,
 
   FilterEffect* effect = FEOffset::create(filter, m_dx->currentValue()->value(),
                                           m_dy->currentValue()->value());
-  effect->inputEffects().append(input1);
+  effect->inputEffects().push_back(input1);
   return effect;
 }
 

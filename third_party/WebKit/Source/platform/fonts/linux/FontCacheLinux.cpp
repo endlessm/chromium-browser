@@ -34,13 +34,23 @@
 
 namespace blink {
 
-FontCache::FontCache() : m_purgePreventCount(0) {
-  if (s_staticFontManager) {
-    adopted(s_staticFontManager);
-    m_fontManager = sk_ref_sp(s_staticFontManager);
-  } else {
-    m_fontManager = nullptr;
-  }
+FontCache::FontCache()
+    : m_purgePreventCount(0), m_fontManager(sk_ref_sp(s_staticFontManager)) {}
+
+static AtomicString& mutableSystemFontFamily() {
+  DEFINE_STATIC_LOCAL(AtomicString, systemFontFamily, ());
+  return systemFontFamily;
+}
+
+// static
+const AtomicString& FontCache::systemFontFamily() {
+  return mutableSystemFontFamily();
+}
+
+// static
+void FontCache::setSystemFontFamily(const AtomicString& familyName) {
+  DCHECK(!familyName.isEmpty());
+  mutableSystemFontFamily() = familyName;
 }
 
 void FontCache::getFontForCharacter(

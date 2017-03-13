@@ -4,6 +4,8 @@
 
 #include "core/layout/LayoutBoxModelObject.h"
 
+#include "core/dom/DOMTokenList.h"
+#include "core/dom/DocumentLifecycle.h"
 #include "core/html/HTMLElement.h"
 #include "core/layout/ImageQualityController.h"
 #include "core/layout/LayoutTestHelper.h"
@@ -34,17 +36,17 @@ TEST_F(LayoutBoxModelObjectTest, StickyPositionConstraints) {
       "}"
       "#container { box-sizing: border-box; position: relative; top: 100px; "
       "height: 400px; width: 200px; padding: 10px; border: 5px solid black; }"
-      "#scroller { height: 100px; overflow: auto; position: relative; top: "
-      "200px; }"
+      "#scroller { width: 400px; height: 100px; overflow: auto; "
+      "position: relative; top: 200px; border: 2px solid black; }"
       ".spacer { height: 1000px; }</style>"
       "<div id='scroller'><div id='container'><div "
       "id='sticky'></div></div><div class='spacer'></div></div>");
   LayoutBoxModelObject* scroller =
       toLayoutBoxModelObject(getLayoutObjectByElementId("scroller"));
   PaintLayerScrollableArea* scrollableArea = scroller->getScrollableArea();
-  scrollableArea->scrollToOffset(
-      DoubleSize(scrollableArea->adjustedScrollOffset().width(), 50));
-  ASSERT_EQ(50.0, scrollableArea->adjustedScrollOffset().height());
+  scrollableArea->scrollToAbsolutePosition(
+      FloatPoint(scrollableArea->scrollOffsetInt().width(), 50));
+  ASSERT_EQ(50.0, scrollableArea->scrollPosition().y());
   LayoutBoxModelObject* sticky =
       toLayoutBoxModelObject(getLayoutObjectByElementId("sticky"));
   sticky->updateStickyPositionConstraints();
@@ -54,13 +56,60 @@ TEST_F(LayoutBoxModelObjectTest, StickyPositionConstraints) {
       scrollableArea->stickyConstraintsMap().get(sticky->layer());
   ASSERT_EQ(0.f, constraints.topOffset());
 
-  // The coordinates of the constraint rects should all be with respect to the unscrolled scroller.
+  // The coordinates of the constraint rects should all be with respect to the
+  // unscrolled scroller.
   ASSERT_EQ(IntRect(15, 115, 170, 370),
             enclosingIntRect(
                 getScrollContainerRelativeContainingBlockRect(constraints)));
   ASSERT_EQ(
       IntRect(15, 115, 100, 100),
       enclosingIntRect(getScrollContainerRelativeStickyBoxRect(constraints)));
+
+  // The sticky constraining rect also doesn't include the border offset.
+  ASSERT_EQ(IntRect(0, 50, 400, 100),
+            enclosingIntRect(sticky->computeStickyConstrainingRect()));
+}
+
+// Verifies that the sticky constraints are correctly computed in right to left.
+TEST_F(LayoutBoxModelObjectTest, StickyPositionVerticalRLConstraints) {
+  setBodyInnerHTML(
+      "<style> html { -webkit-writing-mode: vertical-rl; } "
+      "#sticky { position: sticky; top: 0; width: 100px; height: 100px; "
+      "}"
+      "#container { box-sizing: border-box; position: relative; top: 100px; "
+      "height: 400px; width: 200px; padding: 10px; border: 5px solid black; }"
+      "#scroller { width: 400px; height: 100px; overflow: auto; "
+      "position: relative; top: 200px; border: 2px solid black; }"
+      ".spacer { height: 1000px; }</style>"
+      "<div id='scroller'><div id='container'><div "
+      "id='sticky'></div></div><div class='spacer'></div></div>");
+  LayoutBoxModelObject* scroller =
+      toLayoutBoxModelObject(getLayoutObjectByElementId("scroller"));
+  PaintLayerScrollableArea* scrollableArea = scroller->getScrollableArea();
+  scrollableArea->scrollToAbsolutePosition(
+      FloatPoint(scrollableArea->scrollOffsetInt().width(), 50));
+  ASSERT_EQ(50.0, scrollableArea->scrollPosition().y());
+  LayoutBoxModelObject* sticky =
+      toLayoutBoxModelObject(getLayoutObjectByElementId("sticky"));
+  sticky->updateStickyPositionConstraints();
+  ASSERT_EQ(scroller->layer(), sticky->layer()->ancestorOverflowLayer());
+
+  const StickyPositionScrollingConstraints& constraints =
+      scrollableArea->stickyConstraintsMap().get(sticky->layer());
+  ASSERT_EQ(0.f, constraints.topOffset());
+
+  // The coordinates of the constraint rects should all be with respect to the
+  // unscrolled scroller.
+  ASSERT_EQ(IntRect(215, 115, 170, 370),
+            enclosingIntRect(
+                getScrollContainerRelativeContainingBlockRect(constraints)));
+  ASSERT_EQ(
+      IntRect(285, 115, 100, 100),
+      enclosingIntRect(getScrollContainerRelativeStickyBoxRect(constraints)));
+
+  // The sticky constraining rect also doesn't include the border offset.
+  ASSERT_EQ(IntRect(0, 50, 400, 100),
+            enclosingIntRect(sticky->computeStickyConstrainingRect()));
 }
 
 // Verifies that the sticky constraints are not affected by transforms
@@ -79,9 +128,9 @@ TEST_F(LayoutBoxModelObjectTest, StickyPositionTransforms) {
   LayoutBoxModelObject* scroller =
       toLayoutBoxModelObject(getLayoutObjectByElementId("scroller"));
   PaintLayerScrollableArea* scrollableArea = scroller->getScrollableArea();
-  scrollableArea->scrollToOffset(
-      DoubleSize(scrollableArea->adjustedScrollOffset().width(), 50));
-  ASSERT_EQ(50.0, scrollableArea->adjustedScrollOffset().height());
+  scrollableArea->scrollToAbsolutePosition(
+      FloatPoint(scrollableArea->scrollOffsetInt().width(), 50));
+  ASSERT_EQ(50.0, scrollableArea->scrollPosition().y());
   LayoutBoxModelObject* sticky =
       toLayoutBoxModelObject(getLayoutObjectByElementId("sticky"));
   sticky->updateStickyPositionConstraints();
@@ -91,7 +140,8 @@ TEST_F(LayoutBoxModelObjectTest, StickyPositionTransforms) {
       scrollableArea->stickyConstraintsMap().get(sticky->layer());
   ASSERT_EQ(0.f, constraints.topOffset());
 
-  // The coordinates of the constraint rects should all be with respect to the unscrolled scroller.
+  // The coordinates of the constraint rects should all be with respect to the
+  // unscrolled scroller.
   ASSERT_EQ(IntRect(15, 115, 170, 370),
             enclosingIntRect(
                 getScrollContainerRelativeContainingBlockRect(constraints)));
@@ -115,9 +165,9 @@ TEST_F(LayoutBoxModelObjectTest, StickyPositionPercentageStyles) {
   LayoutBoxModelObject* scroller =
       toLayoutBoxModelObject(getLayoutObjectByElementId("scroller"));
   PaintLayerScrollableArea* scrollableArea = scroller->getScrollableArea();
-  scrollableArea->scrollToOffset(
-      DoubleSize(scrollableArea->adjustedScrollOffset().width(), 50));
-  ASSERT_EQ(50.0, scrollableArea->adjustedScrollOffset().height());
+  scrollableArea->scrollToAbsolutePosition(
+      FloatPoint(scrollableArea->scrollPosition().x(), 50));
+  ASSERT_EQ(50.0, scrollableArea->scrollPosition().y());
   LayoutBoxModelObject* sticky =
       toLayoutBoxModelObject(getLayoutObjectByElementId("sticky"));
   sticky->updateStickyPositionConstraints();
@@ -135,23 +185,23 @@ TEST_F(LayoutBoxModelObjectTest, StickyPositionPercentageStyles) {
       enclosingIntRect(getScrollContainerRelativeStickyBoxRect(constraints)));
 }
 
-// Verifies that the sticky constraints are correct when the sticky position container is also
-// the ancestor scroller.
+// Verifies that the sticky constraints are correct when the sticky position
+// container is also the ancestor scroller.
 TEST_F(LayoutBoxModelObjectTest, StickyPositionContainerIsScroller) {
   setBodyInnerHTML(
       "<style>#sticky { position: sticky; top: 0; width: 100px; height: 100px; "
       "}"
       "#scroller { height: 100px; width: 400px; overflow: auto; position: "
-      "relative; top: 200px; }"
+      "relative; top: 200px; border: 2px solid black; }"
       ".spacer { height: 1000px; }</style>"
       "<div id='scroller'><div id='sticky'></div><div "
       "class='spacer'></div></div>");
   LayoutBoxModelObject* scroller =
       toLayoutBoxModelObject(getLayoutObjectByElementId("scroller"));
   PaintLayerScrollableArea* scrollableArea = scroller->getScrollableArea();
-  scrollableArea->scrollToOffset(
-      DoubleSize(scrollableArea->adjustedScrollOffset().width(), 50));
-  ASSERT_EQ(50.0, scrollableArea->adjustedScrollOffset().height());
+  scrollableArea->scrollToAbsolutePosition(
+      FloatPoint(scrollableArea->scrollPosition().x(), 50));
+  ASSERT_EQ(50.0, scrollableArea->scrollPosition().y());
   LayoutBoxModelObject* sticky =
       toLayoutBoxModelObject(getLayoutObjectByElementId("sticky"));
   sticky->updateStickyPositionConstraints();
@@ -167,8 +217,8 @@ TEST_F(LayoutBoxModelObjectTest, StickyPositionContainerIsScroller) {
       enclosingIntRect(getScrollContainerRelativeStickyBoxRect(constraints)));
 }
 
-// Verifies that the sticky constraints are correct when the sticky position object has an
-// anonymous containing block.
+// Verifies that the sticky constraints are correct when the sticky position
+// object has an anonymous containing block.
 TEST_F(LayoutBoxModelObjectTest, StickyPositionAnonymousContainer) {
   setBodyInnerHTML(
       "<style>#sticky { display: inline-block; position: sticky; top: 0; "
@@ -184,9 +234,9 @@ TEST_F(LayoutBoxModelObjectTest, StickyPositionAnonymousContainer) {
   LayoutBoxModelObject* scroller =
       toLayoutBoxModelObject(getLayoutObjectByElementId("scroller"));
   PaintLayerScrollableArea* scrollableArea = scroller->getScrollableArea();
-  scrollableArea->scrollToOffset(
-      DoubleSize(scrollableArea->adjustedScrollOffset().width(), 50));
-  ASSERT_EQ(50.0, scrollableArea->adjustedScrollOffset().height());
+  scrollableArea->scrollToAbsolutePosition(
+      FloatPoint(scrollableArea->scrollPosition().x(), 50));
+  ASSERT_EQ(50.0, scrollableArea->scrollPosition().y());
   LayoutBoxModelObject* sticky =
       toLayoutBoxModelObject(getLayoutObjectByElementId("sticky"));
   sticky->updateStickyPositionConstraints();
@@ -201,4 +251,81 @@ TEST_F(LayoutBoxModelObjectTest, StickyPositionAnonymousContainer) {
       IntRect(15, 165, 100, 100),
       enclosingIntRect(getScrollContainerRelativeStickyBoxRect(constraints)));
 }
+
+TEST_F(LayoutBoxModelObjectTest, StickyPositionTableContainers) {
+  setBodyInnerHTML(
+      "<style> td, th { height: 50px; width: 50px; } "
+      "#sticky { position: sticky; left: 0; will-change: transform; }"
+      "table {border: none; }"
+      "#scroller { overflow: auto; }"
+      "</style>"
+      "<div id='scroller'>"
+      "<table cellspacing='0' cellpadding='0'>"
+      "    <thead><tr><td></td></tr></thead>"
+      "    <tr><td id='sticky'></td></tr>"
+      "</table></div>");
+  LayoutBoxModelObject* scroller =
+      toLayoutBoxModelObject(getLayoutObjectByElementId("scroller"));
+  PaintLayerScrollableArea* scrollableArea = scroller->getScrollableArea();
+  LayoutBoxModelObject* sticky =
+      toLayoutBoxModelObject(getLayoutObjectByElementId("sticky"));
+  sticky->updateStickyPositionConstraints();
+  const StickyPositionScrollingConstraints& constraints =
+      scrollableArea->stickyConstraintsMap().get(sticky->layer());
+  EXPECT_EQ(IntRect(0, 0, 50, 100),
+            enclosingIntRect(
+                getScrollContainerRelativeContainingBlockRect(constraints)));
+  EXPECT_EQ(
+      IntRect(0, 50, 50, 50),
+      enclosingIntRect(getScrollContainerRelativeStickyBoxRect(constraints)));
+}
+
+// Tests that when a non-layer changes size it invalidates the constraints for
+// sticky position elements within the same scroller.
+TEST_F(LayoutBoxModelObjectTest, StickyPositionConstraintInvalidation) {
+  setBodyInnerHTML(
+      "<style>"
+      "#scroller { overflow: auto; display: flex; width: 200px; }"
+      "#target { width: 50px; }"
+      "#sticky { position: sticky; top: 0; }"
+      ".container { width: 100px; margin-left: auto; margin-right: auto; }"
+      ".hide { display: none; }"
+      "</style>"
+      "<div id='scroller'>"
+      "  <div style='flex: 1'>"
+      "    <div class='container'><div id='sticky'></div>"
+      "  </div>"
+      "</div>"
+      "<div class='spacer' id='target'></div>"
+      "</div>");
+  LayoutBoxModelObject* scroller =
+      toLayoutBoxModelObject(getLayoutObjectByElementId("scroller"));
+  PaintLayerScrollableArea* scrollableArea = scroller->getScrollableArea();
+  LayoutBoxModelObject* sticky =
+      toLayoutBoxModelObject(getLayoutObjectByElementId("sticky"));
+  LayoutBoxModelObject* target =
+      toLayoutBoxModelObject(getLayoutObjectByElementId("target"));
+  EXPECT_TRUE(scrollableArea->stickyConstraintsMap().contains(sticky->layer()));
+  EXPECT_EQ(25.f,
+            getScrollContainerRelativeStickyBoxRect(
+                scrollableArea->stickyConstraintsMap().get(sticky->layer()))
+                .location()
+                .x());
+  toHTMLElement(target->node())->classList().add("hide", ASSERT_NO_EXCEPTION);
+  document().view()->updateLifecycleToLayoutClean();
+  // Layout should invalidate the sticky constraints of the sticky element and
+  // mark it as needing a compositing inputs update.
+  EXPECT_FALSE(
+      scrollableArea->stickyConstraintsMap().contains(sticky->layer()));
+  EXPECT_TRUE(sticky->layer()->needsCompositingInputsUpdate());
+
+  // After updating compositing inputs we should have the updated position.
+  document().view()->updateAllLifecyclePhases();
+  EXPECT_EQ(50.f,
+            getScrollContainerRelativeStickyBoxRect(
+                scrollableArea->stickyConstraintsMap().get(sticky->layer()))
+                .location()
+                .x());
+}
+
 }  // namespace blink

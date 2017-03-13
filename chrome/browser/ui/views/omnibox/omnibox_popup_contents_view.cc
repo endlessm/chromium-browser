@@ -11,7 +11,6 @@
 #include "build/build_config.h"
 #include "chrome/browser/search/search.h"
 #include "chrome/browser/themes/theme_properties.h"
-#include "chrome/browser/ui/layout_constants.h"
 #include "chrome/browser/ui/views/location_bar/location_bar_view.h"
 #include "chrome/browser/ui/views/omnibox/omnibox_result_view.h"
 #include "chrome/browser/ui/views/theme_copying_widget.h"
@@ -22,11 +21,10 @@
 #include "ui/compositor/paint_recorder.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/geometry/safe_integer_conversions.h"
-#include "ui/gfx/image/canvas_image_source.h"
 #include "ui/gfx/image/image.h"
+#include "ui/gfx/image/image_skia_operations.h"
 #include "ui/gfx/path.h"
 #include "ui/gfx/shadow_value.h"
-#include "ui/gfx/skia_util.h"
 #include "ui/views/controls/image_view.h"
 #include "ui/views/view_targeter.h"
 #include "ui/views/widget/widget.h"
@@ -34,44 +32,12 @@
 
 namespace {
 
-// This creates a shadow image that is 1dp wide, suitable for tiling along the
-// top or bottom edge of the omnibox popup.
-class ShadowImageSource : public gfx::CanvasImageSource {
- public:
-  ShadowImageSource(const std::vector<gfx::ShadowValue>& shadows, bool bottom)
-      : gfx::CanvasImageSource(gfx::Size(1, GetHeightForShadows(shadows)),
-                               false),
-        shadows_(shadows),
-        bottom_(bottom) {}
-  ~ShadowImageSource() override {}
-
-  void Draw(gfx::Canvas* canvas) override {
-    SkPaint paint;
-    paint.setLooper(gfx::CreateShadowDrawLooperCorrectBlur(shadows_));
-    canvas->DrawRect(gfx::RectF(0, bottom_ ? -1 : size().height(), 1, 1),
-                     paint);
-  }
-
- private:
-  static int GetHeightForShadows(const std::vector<gfx::ShadowValue>& shadows) {
-    int height = 0;
-    for (const auto& shadow : shadows) {
-      height =
-          std::max(height, shadow.y() + gfx::ToCeiledInt(shadow.blur() / 2));
-    }
-    return height;
-  }
-
-  const std::vector<gfx::ShadowValue> shadows_;
-  bool bottom_;
-
-  DISALLOW_COPY_AND_ASSIGN(ShadowImageSource);
-};
-
 // Cache the shadow images so that potentially expensive shadow drawing isn't
 // repeated.
 base::LazyInstance<gfx::ImageSkia> g_top_shadow = LAZY_INSTANCE_INITIALIZER;
 base::LazyInstance<gfx::ImageSkia> g_bottom_shadow = LAZY_INSTANCE_INITIALIZER;
+
+const int kPopupVerticalPadding = 4;
 
 }  // namespace
 
@@ -122,9 +88,8 @@ OmniboxPopupContentsView::OmniboxPopupContentsView(
     std::vector<gfx::ShadowValue> shadows;
     // Blur by 1dp. See comment below about blur accounting.
     shadows.emplace_back(gfx::Vector2d(), 2, SK_ColorBLACK);
-
-    auto source = new ShadowImageSource(shadows, false);
-    g_top_shadow.Get() = gfx::ImageSkia(source, source->size());
+    g_top_shadow.Get() =
+        gfx::ImageSkiaOperations::CreateHorizontalShadow(shadows, false);
   }
   if (g_bottom_shadow.Get().isNull()) {
     const int kSmallShadowBlur = 3;
@@ -140,8 +105,8 @@ OmniboxPopupContentsView::OmniboxPopupContentsView(
     shadows.emplace_back(gfx::Vector2d(0, kLargeShadowYOffset),
                          2 * kLargeShadowBlur, SK_ColorBLACK);
 
-    auto source = new ShadowImageSource(shadows, true);
-    g_bottom_shadow.Get() = gfx::ImageSkia(source, source->size());
+    g_bottom_shadow.Get() =
+        gfx::ImageSkiaOperations::CreateHorizontalShadow(shadows, true);
   }
 
   SetEventTargeter(
@@ -183,7 +148,7 @@ gfx::Rect OmniboxPopupContentsView::GetPopupBounds() const {
 
 void OmniboxPopupContentsView::LayoutChildren() {
   gfx::Rect contents_rect = GetContentsBounds();
-  contents_rect.Inset(GetLayoutInsets(OMNIBOX_DROPDOWN));
+  contents_rect.Inset(gfx::Insets(kPopupVerticalPadding, 0));
   contents_rect.Inset(start_margin_, g_top_shadow.Get().height(), end_margin_,
                       0);
 
@@ -470,15 +435,14 @@ int OmniboxPopupContentsView::CalculatePopupHeight() {
   // Add enough space on the top and bottom so it looks like there is the same
   // amount of space between the text and the popup border as there is in the
   // interior between each row of text.
-  return popup_height + GetLayoutInsets(OMNIBOX_DROPDOWN).height() +
+  return popup_height + kPopupVerticalPadding * 2 +
          g_top_shadow.Get().height() + g_bottom_shadow.Get().height();
 }
 
 OmniboxResultView* OmniboxPopupContentsView::CreateResultView(
     int model_index,
     const gfx::FontList& font_list) {
-  return new OmniboxResultView(this, model_index, location_bar_view_,
-                               font_list);
+  return new OmniboxResultView(this, model_index, font_list);
 }
 
 ////////////////////////////////////////////////////////////////////////////////

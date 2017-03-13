@@ -67,6 +67,18 @@ public:
                const char* upload_data, size_t* upload_data_size) override;
 };
 
+/**
+   Controls whether overdraw rendering is enabled. Posting to /overdraw/1 turns overdraw on,
+   /overdraw/0 disables it.
+ */
+class OverdrawHandler : public UrlHandler {
+public:
+    bool canHandle(const char* method, const char* url) override;
+    int handle(Request* request, MHD_Connection* connection,
+               const char* url, const char* method,
+               const char* upload_data, size_t* upload_data_size) override;
+};
+
 class PostHandler : public UrlHandler {
 public:
     bool canHandle(const char* method, const char* url) override;
@@ -100,9 +112,9 @@ public:
 };
 
 /*
- * Returns a json descripton of all the batches in the image
+ * Returns a json descripton of all the GPU ops in the image
  */
-class BatchesHandler : public UrlHandler {
+class OpsHandler : public UrlHandler {
 public:
     bool canHandle(const char* method, const char* url) override;
     int handle(Request* request, MHD_Connection* connection,
@@ -111,9 +123,9 @@ public:
 };
 
 /*
- * Enables drawing of batch bounds
+ * Enables drawing of gpu op bounds
  */
-class BatchBoundsHandler : public UrlHandler {
+class OpBoundsHandler : public UrlHandler {
 public:
     bool canHandle(const char* method, const char* url) override;
     int handle(Request* request, MHD_Connection* connection,

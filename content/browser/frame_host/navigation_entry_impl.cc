@@ -240,13 +240,12 @@ std::unique_ptr<NavigationEntryImpl> NavigationEntryImpl::FromNavigationEntry(
 }
 
 NavigationEntryImpl::NavigationEntryImpl()
-    : NavigationEntryImpl(nullptr, -1, GURL(), Referrer(), base::string16(),
+    : NavigationEntryImpl(nullptr, GURL(), Referrer(), base::string16(),
                           ui::PAGE_TRANSITION_LINK, false) {
 }
 
 NavigationEntryImpl::NavigationEntryImpl(
     scoped_refptr<SiteInstanceImpl> instance,
-    int page_id,
     const GURL& url,
     const Referrer& referrer,
     const base::string16& title,
@@ -267,7 +266,6 @@ NavigationEntryImpl::NavigationEntryImpl(
       page_type_(PAGE_TYPE_NORMAL),
       update_virtual_url_with_url_(false),
       title_(title),
-      page_id_(page_id),
       transition_type_(transition_type),
       restore_type_(RestoreType::NONE),
       is_overriding_user_agent_(false),
@@ -278,7 +276,8 @@ NavigationEntryImpl::NavigationEntryImpl(
       can_load_local_resources_(false),
       frame_tree_node_id_(-1),
       reload_type_(ReloadType::NONE),
-      started_from_context_menu_(false) {
+      started_from_context_menu_(false),
+      ssl_error_(false) {
 #if defined(OS_ANDROID)
   has_user_gesture_ = false;
 #endif
@@ -404,14 +403,6 @@ PageState NavigationEntryImpl::GetPageState() const {
   std::string encoded_data;
   EncodePageState(exploded_state, &encoded_data);
   return PageState::CreateFromEncodedData(encoded_data);
-}
-
-void NavigationEntryImpl::SetPageID(int page_id) {
-  page_id_ = page_id;
-}
-
-int32_t NavigationEntryImpl::GetPageID() const {
-  return page_id_;
 }
 
 void NavigationEntryImpl::set_site_instance(
@@ -644,7 +635,6 @@ std::unique_ptr<NavigationEntryImpl> NavigationEntryImpl::CloneAndReplace(
   copy->update_virtual_url_with_url_ = update_virtual_url_with_url_;
   copy->title_ = title_;
   copy->favicon_ = favicon_;
-  copy->page_id_ = page_id_;
   copy->ssl_ = ssl_;
   copy->transition_type_ = transition_type_;
   copy->user_typed_url_ = user_typed_url_;
@@ -682,7 +672,7 @@ CommonNavigationParams NavigationEntryImpl::ConstructCommonNavigationParams(
     const GURL& dest_url,
     const Referrer& dest_referrer,
     FrameMsg_Navigate_Type::Value navigation_type,
-    LoFiState lofi_state,
+    PreviewsState previews_state,
     const base::TimeTicks& navigation_start) const {
   FrameMsg_UILoadMetricsReportType::Value report_type =
       FrameMsg_UILoadMetricsReportType::NO_REPORT;
@@ -705,7 +695,7 @@ CommonNavigationParams NavigationEntryImpl::ConstructCommonNavigationParams(
   return CommonNavigationParams(
       dest_url, dest_referrer, GetTransitionType(), navigation_type,
       !IsViewSourceMode(), should_replace_entry(), ui_timestamp, report_type,
-      GetBaseURLForDataURL(), GetHistoryURLForDataURL(), lofi_state,
+      GetBaseURLForDataURL(), GetHistoryURLForDataURL(), previews_state,
       navigation_start, method, post_body ? post_body : post_data_);
 }
 
@@ -751,11 +741,11 @@ RequestNavigationParams NavigationEntryImpl::ConstructRequestNavigationParams(
 #endif
   RequestNavigationParams request_params(
       GetIsOverridingUserAgent(), redirects, GetCanLoadLocalResources(),
-      base::Time::Now(), frame_entry.page_state(), GetPageID(), GetUniqueID(),
-      is_same_document_history_load, is_history_navigation_in_new_child,
-      subframe_unique_names, has_committed_real_load, intended_as_new_entry,
-      pending_offset_to_send, current_offset_to_send, current_length_to_send,
-      IsViewSourceMode(), should_clear_history_list(), user_gesture);
+      frame_entry.page_state(), GetUniqueID(), is_same_document_history_load,
+      is_history_navigation_in_new_child, subframe_unique_names,
+      has_committed_real_load, intended_as_new_entry, pending_offset_to_send,
+      current_offset_to_send, current_length_to_send, IsViewSourceMode(),
+      should_clear_history_list(), user_gesture);
 #if defined(OS_ANDROID)
   if (GetDataURLAsString() &&
       GetDataURLAsString()->size() <= kMaxLengthOfDataURLString) {
@@ -810,14 +800,6 @@ void NavigationEntryImpl::AddOrUpdateFrameEntry(
     const PageState& page_state,
     const std::string& method,
     int64_t post_id) {
-  // We should only have an empty PageState if the navigation is new, and thus
-  // page ID is -1.
-  if (!page_state.IsValid() && GetPageID() != -1) {
-    // Temporarily generate a minidump to diagnose https://crbug.com/568703.
-    base::debug::DumpWithoutCrashing();
-    NOTREACHED() << "Shouldn't set an empty PageState.";
-  }
-
   // If this is called for the main frame, the FrameNavigationEntry is
   // guaranteed to exist, so just update it directly and return.
   if (frame_tree_node->IsMainFrame()) {
@@ -895,10 +877,10 @@ std::map<std::string, bool> NavigationEntryImpl::GetSubframeUniqueNames(
       // that was the default URL.  PageState doesn't matter there, because
       // content injected into about:blank frames doesn't use it.
       //
-      // Be careful not to include iframe srcdoc URLs in this check, which do
-      // need their PageState.  The committed URL in that case gets rewritten to
-      // about:blank, but we can detect it via the PageState's URL.
-      //
+      // Be careful not to rely on FrameNavigationEntry's URLs in this check,
+      // because the committed URL in the browser could be rewritten to
+      // about:blank.
+      // See RenderProcessHostImpl::FilterURL to know which URLs are rewritten.
       // See https://crbug.com/657896 for details.
       bool is_about_blank = false;
       ExplodedPageState exploded_page_state;

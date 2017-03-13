@@ -18,15 +18,14 @@
 #include "third_party/WebKit/public/platform/WebMediaStreamTrack.h"
 #include "third_party/wds/src/libwds/public/media_manager.h"
 
-namespace shell {
+namespace service_manager {
 class InterfaceProvider;
-}  // namespace shell
+}
 
 namespace extensions {
 class WiFiDisplayAudioSink;
 class WiFiDisplayVideoSink;
 class WiFiDisplayMediaPipeline;
-class WiFiDisplaySessionService;
 
 class WiFiDisplayMediaManager : public wds::SourceMediaManager {
  public:
@@ -36,7 +35,7 @@ class WiFiDisplayMediaManager : public wds::SourceMediaManager {
       const blink::WebMediaStreamTrack& video_track,
       const blink::WebMediaStreamTrack& audio_track,
       const std::string& sink_ip_address,
-      shell::InterfaceProvider* interface_provider,
+      service_manager::InterfaceProvider* interface_provider,
       const ErrorCallback& error_callback);
 
   ~WiFiDisplayMediaManager() override;
@@ -69,17 +68,17 @@ class WiFiDisplayMediaManager : public wds::SourceMediaManager {
   void OnPlayerCreated(std::unique_ptr<WiFiDisplayMediaPipeline> player);
   void OnMediaPipelineInitialized(bool success);
   void RegisterMediaService(
-       const scoped_refptr<base::SingleThreadTaskRunner>& main_runner,
-       WiFiDisplayMediaServiceRequest service,
-       const base::Closure& on_completed);
-  void ConnectToRemoteService(WiFiDisplayMediaServiceRequest request);
+      const scoped_refptr<base::SingleThreadTaskRunner>& main_runner,
+      mojom::WiFiDisplayMediaServiceRequest service,
+      const base::Closure& on_completed);
+  void ConnectToRemoteService(mojom::WiFiDisplayMediaServiceRequest request);
   blink::WebMediaStreamTrack video_track_;
   blink::WebMediaStreamTrack audio_track_;
 
   std::unique_ptr<WiFiDisplayAudioSink> audio_sink_;
   std::unique_ptr<WiFiDisplayVideoSink> video_sink_;
 
-  shell::InterfaceProvider* interface_provider_;
+  service_manager::InterfaceProvider* interface_provider_;
   std::string sink_ip_address_;
   std::pair<int, int> sink_rtp_ports_;
   wds::H264VideoFormat optimal_video_format_;

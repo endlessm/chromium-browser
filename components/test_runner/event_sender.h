@@ -20,10 +20,12 @@
 #include "third_party/WebKit/public/platform/WebDragOperation.h"
 #include "third_party/WebKit/public/platform/WebInputEvent.h"
 #include "third_party/WebKit/public/platform/WebInputEventResult.h"
+#include "third_party/WebKit/public/platform/WebMouseWheelEvent.h"
 #include "third_party/WebKit/public/platform/WebPoint.h"
 #include "third_party/WebKit/public/platform/WebTouchPoint.h"
 
 namespace blink {
+class WebFrameWidget;
 class WebLocalFrame;
 class WebView;
 class WebWidget;
@@ -186,10 +188,9 @@ class EventSender {
 
   void UpdateClickCountForButton(blink::WebMouseEvent::Button);
 
-  void InitMouseWheelEvent(gin::Arguments* args,
-                           MouseScrollType scroll_type,
-                           blink::WebMouseWheelEvent* event,
-                           bool* send_gestures);
+  blink::WebMouseWheelEvent GetMouseWheelEvent(gin::Arguments* args,
+                                               MouseScrollType scroll_type,
+                                               bool* send_gestures);
   void InitPointerProperties(gin::Arguments* args,
                              blink::WebPointerProperties* e,
                              float* radius_x,
@@ -197,6 +198,7 @@ class EventSender {
 
   void FinishDragAndDrop(const blink::WebMouseEvent&, blink::WebDragOperation);
 
+  int ModifiersForPointer(int pointer_id);
   void DoDragAfterMouseUp(const blink::WebMouseEvent&);
   void DoDragAfterMouseMove(const blink::WebMouseEvent&);
   void ReplaySavedEvents();
@@ -265,6 +267,7 @@ class EventSender {
   const blink::WebView* view() const;
   blink::WebView* view();
   blink::WebWidget* widget();
+  blink::WebFrameWidget* mainFrameWidget();
 
   bool force_layout_on_events_;
 

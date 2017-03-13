@@ -5,7 +5,6 @@
 #include "ash/magnifier/magnification_controller.h"
 
 #include "ash/common/accessibility_types.h"
-#include "ash/display/display_manager.h"
 #include "ash/shell.h"
 #include "ash/test/ash_test_base.h"
 #include "base/strings/stringprintf.h"
@@ -13,6 +12,7 @@
 #include "ui/aura/test/aura_test_utils.h"
 #include "ui/aura/window_tree_host.h"
 #include "ui/base/ime/input_method.h"
+#include "ui/display/manager/display_manager.h"
 #include "ui/display/screen.h"
 #include "ui/events/test/event_generator.h"
 #include "ui/gfx/geometry/rect_conversions.h"
@@ -64,15 +64,6 @@ class MagnificationControllerTest : public test::AshTestBase {
   void SetUp() override {
     AshTestBase::SetUp();
     UpdateDisplay(base::StringPrintf("%dx%d", kRootWidth, kRootHeight));
-
-#if defined(OS_WIN)
-    // RootWindow and Display can't resize on Windows Ash.
-    // http://crbug.com/165962
-    aura::Window* root = GetRootWindow();
-    gfx::Rect root_bounds(root->bounds());
-    EXPECT_EQ(kRootHeight, root_bounds.height());
-    EXPECT_EQ(kRootWidth, root_bounds.width());
-#endif
 
     GetMagnificationController()->DisableMoveMagnifierDelayForTesting();
   }

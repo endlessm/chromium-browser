@@ -21,7 +21,6 @@
 
 namespace content {
 
-class SynchronousCompositorClient;
 class WebContentsImpl;
 
 // Android wrapper around WebContents that provides safer passage from java and
@@ -100,13 +99,12 @@ class CONTENT_EXPORT WebContentsAndroid
       const base::android::JavaParamRef<jobject>& obj);
   void ExitFullscreen(JNIEnv* env,
                       const base::android::JavaParamRef<jobject>& obj);
-  void UpdateTopControlsState(JNIEnv* env,
-                              const base::android::JavaParamRef<jobject>& obj,
-                              bool enable_hiding,
-                              bool enable_showing,
-                              bool animate);
-  void ShowImeIfNeeded(JNIEnv* env,
-                       const base::android::JavaParamRef<jobject>& obj);
+  void UpdateBrowserControlsState(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& obj,
+      bool enable_hiding,
+      bool enable_showing,
+      bool animate);
   void ScrollFocusedEditableNodeIntoView(
       JNIEnv* env,
       const base::android::JavaParamRef<jobject>& obj);
@@ -133,12 +131,19 @@ class CONTENT_EXPORT WebContentsAndroid
       jint level,
       const base::android::JavaParamRef<jstring>& message);
 
-  void SendMessageToFrame(
+  void PostMessageToFrame(
       JNIEnv* env,
       const base::android::JavaParamRef<jobject>& obj,
-      const base::android::JavaParamRef<jstring>& frame_name,
-      const base::android::JavaParamRef<jstring>& message,
-      const base::android::JavaParamRef<jstring>& target_origin);
+      const base::android::JavaParamRef<jstring>& jframe_name,
+      const base::android::JavaParamRef<jstring>& jmessage,
+      const base::android::JavaParamRef<jstring>& jsource_origin,
+      const base::android::JavaParamRef<jstring>& jtarget_origin,
+      const base::android::JavaParamRef<jintArray>& jsent_ports);
+
+  void CreateMessageChannel(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& obj,
+      const base::android::JavaParamRef<jobjectArray>& ports);
 
   jboolean HasAccessedInitialDocument(
       JNIEnv* env,
@@ -152,16 +157,14 @@ class CONTENT_EXPORT WebContentsAndroid
       const base::android::JavaParamRef<jobject>& obj,
       const base::android::JavaParamRef<jobject>& callback);
 
-  void ResumeMediaSession(JNIEnv* env,
-                          const base::android::JavaParamRef<jobject>& obj);
-  void SuspendMediaSession(JNIEnv* env,
-                           const base::android::JavaParamRef<jobject>& obj);
-  void StopMediaSession(JNIEnv* env,
-                        const base::android::JavaParamRef<jobject>& obj);
-
   base::android::ScopedJavaLocalRef<jstring> GetEncoding(
       JNIEnv* env,
       const base::android::JavaParamRef<jobject>& obj) const;
+
+  void SetOverscrollRefreshHandler(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& obj,
+      const base::android::JavaParamRef<jobject>& overscroll_refresh_handler);
 
   // Relay the access from Java layer to GetScaledContentBitmap through JNI.
   void GetContentBitmap(JNIEnv* env,
@@ -177,13 +180,6 @@ class CONTENT_EXPORT WebContentsAndroid
   void ReloadLoFiImages(JNIEnv* env,
                         const base::android::JavaParamRef<jobject>& obj);
 
-  void set_synchronous_compositor_client(SynchronousCompositorClient* client) {
-    synchronous_compositor_client_ = client;
-  }
-  SynchronousCompositorClient* synchronous_compositor_client() const {
-    return synchronous_compositor_client_;
-  }
-
   int DownloadImage(JNIEnv* env,
                     const base::android::JavaParamRef<jobject>& obj,
                     const base::android::JavaParamRef<jstring>& url,
@@ -191,29 +187,31 @@ class CONTENT_EXPORT WebContentsAndroid
                     jint max_bitmap_size,
                     jboolean bypass_cache,
                     const base::android::JavaParamRef<jobject>& jcallback);
+  void DismissTextHandles(JNIEnv* env,
+                          const base::android::JavaParamRef<jobject>& obj);
+
+  void SetMediaSession(
+      const base::android::ScopedJavaLocalRef<jobject>& j_media_session);
 
  private:
   RenderWidgetHostViewAndroid* GetRenderWidgetHostViewAndroid();
 
-  void OnFinishGetContentBitmap(
-      base::android::ScopedJavaGlobalRef<jobject>* obj,
-      base::android::ScopedJavaGlobalRef<jobject>* callback,
-      const SkBitmap& bitmap,
-      ReadbackResponse response);
+  void OnFinishGetContentBitmap(const base::android::JavaRef<jobject>& obj,
+                                const base::android::JavaRef<jobject>& callback,
+                                const SkBitmap& bitmap,
+                                ReadbackResponse response);
 
-  void OnFinishDownloadImage(
-      base::android::ScopedJavaGlobalRef<jobject>* obj,
-      base::android::ScopedJavaGlobalRef<jobject>* callback,
-      int id,
-      int http_status_code,
-      const GURL& url,
-      const std::vector<SkBitmap>& bitmaps,
-      const std::vector<gfx::Size>& sizes);
+  void OnFinishDownloadImage(const base::android::JavaRef<jobject>& obj,
+                             const base::android::JavaRef<jobject>& callback,
+                             int id,
+                             int http_status_code,
+                             const GURL& url,
+                             const std::vector<SkBitmap>& bitmaps,
+                             const std::vector<gfx::Size>& sizes);
 
   WebContentsImpl* web_contents_;
   NavigationControllerAndroid navigation_controller_;
   base::android::ScopedJavaGlobalRef<jobject> obj_;
-  SynchronousCompositorClient* synchronous_compositor_client_;
 
   base::WeakPtrFactory<WebContentsAndroid> weak_factory_;
 

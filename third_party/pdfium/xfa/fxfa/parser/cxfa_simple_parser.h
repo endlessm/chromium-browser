@@ -15,16 +15,17 @@
 class CXFA_Document;
 class CXFA_Node;
 class CXFA_XMLParser;
-class IFX_FileRead;
+class IFX_SeekableReadStream;
 class IFX_Pause;
-class IFX_Stream;
+class IFGAS_Stream;
 
 class CXFA_SimpleParser {
  public:
   CXFA_SimpleParser(CXFA_Document* pFactory, bool bDocumentParser);
   ~CXFA_SimpleParser();
 
-  int32_t StartParse(IFX_FileRead* pStream, XFA_XDPPACKET ePacketID);
+  int32_t StartParse(const CFX_RetainPtr<IFX_SeekableReadStream>& pStream,
+                     XFA_XDPPACKET ePacketID);
   int32_t DoParse(IFX_Pause* pPause);
   int32_t ParseXMLData(const CFX_WideString& wsXML,
                        CFDE_XMLNode*& pXMLNode,
@@ -57,10 +58,10 @@ class CXFA_SimpleParser {
   CXFA_Node* NormalLoader(CXFA_Node* pXFANode,
                           CFDE_XMLNode* pXMLDoc,
                           XFA_XDPPACKET ePacketID,
-                          FX_BOOL bUseAttribute);
+                          bool bUseAttribute);
   CXFA_Node* DataLoader(CXFA_Node* pXFANode,
                         CFDE_XMLNode* pXMLDoc,
-                        FX_BOOL bDoTransform);
+                        bool bDoTransform);
   CXFA_Node* UserPacketLoader(CXFA_Node* pXFANode, CFDE_XMLNode* pXMLDoc);
   void ParseContentNode(CXFA_Node* pXFANode,
                         CFDE_XMLNode* pXMLNode,
@@ -77,12 +78,12 @@ class CXFA_SimpleParser {
 
   CXFA_XMLParser* m_pXMLParser;
   std::unique_ptr<CFDE_XMLDoc> m_pXMLDoc;
-  std::unique_ptr<IFX_Stream, ReleaseDeleter<IFX_Stream>> m_pStream;
-  IFX_FileRead* m_pFileRead;
+  CFX_RetainPtr<IFGAS_Stream> m_pStream;
+  CFX_RetainPtr<IFX_SeekableReadStream> m_pFileRead;
   CXFA_Document* m_pFactory;
   CXFA_Node* m_pRootNode;
   XFA_XDPPACKET m_ePacketID;
-  FX_BOOL m_bDocumentParser;
+  bool m_bDocumentParser;
 };
 
 #endif  // XFA_FXFA_PARSER_CXFA_SIMPLE_PARSER_H_

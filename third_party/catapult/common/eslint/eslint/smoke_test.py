@@ -24,11 +24,13 @@ var non_camel_case = 0;
 class SmokeTest(unittest.TestCase):
   def testEslintFindsError(self):
     try:
-      tmp_file =  tempfile.NamedTemporaryFile(delete=False, suffix=".html")
+      tmp_file =  tempfile.NamedTemporaryFile(
+          delete=False, dir=os.path.dirname(__file__), suffix=".html")
       tmp_file.write(_TEMP_FILE_CONTENTS)
       tmp_file.close()
 
-      output = eslint.RunEslintOnFiles([tmp_file.name])
+      success, output = eslint.RunEslint([tmp_file.name])
+      self.assertFalse(success)
       self.assertTrue('is not in camel case' in output)
     finally:
       os.remove(tmp_file.name)

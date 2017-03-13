@@ -67,6 +67,7 @@
 #include "chrome/browser/ui/extensions/app_launch_params.h"
 #include "chrome/browser/ui/extensions/application_launch.h"
 #include "chrome/browser/ui/session_crashed_bubble.h"
+#include "chrome/browser/ui/startup/automation_infobar_delegate.h"
 #include "chrome/browser/ui/startup/bad_flags_prompt.h"
 #include "chrome/browser/ui/startup/default_browser_prompt.h"
 #include "chrome/browser/ui/startup/google_api_keys_infobar_delegate.h"
@@ -88,7 +89,8 @@
 #include "chrome/installer/util/browser_distribution.h"
 #include "components/google/core/browser/google_util.h"
 #include "components/prefs/pref_service.h"
-#include "components/rappor/rappor_utils.h"
+#include "components/rappor/public/rappor_utils.h"
+#include "components/rappor/rappor_service_impl.h"
 #include "content/public/browser/child_process_security_policy.h"
 #include "content/public/browser/dom_storage_context.h"
 #include "content/public/browser/notification_observer.h"
@@ -102,6 +104,7 @@
 #include "extensions/common/extension.h"
 #include "extensions/common/extension_set.h"
 #include "net/base/network_change_notifier.h"
+#include "rlz/features/features.h"
 #include "ui/base/l10n/l10n_util.h"
 
 #if defined(OS_MACOSX)
@@ -116,7 +119,7 @@
 #include "chrome/browser/shell_integration_win.h"
 #endif
 
-#if defined(ENABLE_RLZ)
+#if BUILDFLAG(ENABLE_RLZ)
 #include "components/rlz/rlz_tracker.h"  // nogncheck
 #endif
 
@@ -279,13 +282,11 @@ void AppendTabs(const StartupTabs& from, StartupTabs* to) {
 }
 
 // Determines whether the Consolidated startup flow should be used, based on
-// OS, OS version, and the kUseConsolidatedStartupFlow Feature.
+// the kUseConsolidatedStartupFlow Feature. Not enabled on Windows 10+.
 bool UseConsolidatedFlow() {
 #if defined(OS_WIN)
-  // TODO(tmartino): Enable for Windows 10+ once relevant Win 10-specific logic
-  // is added to StartupTabProvider.
   if (base::win::GetVersion() >= base::win::VERSION_WIN10)
-    return false;
+    return base::FeatureList::IsEnabled(features::kEnableWelcomeWin10);
 #endif  // defined(OS_WIN)
   return base::FeatureList::IsEnabled(features::kUseConsolidatedStartupFlow);
 }
@@ -300,6 +301,8 @@ GURL GetTriggeredResetSettingsURL() {
 }
 
 GURL GetWelcomePageURL() {
+  // Record that the Welcome page was added to the startup url list.
+  UMA_HISTOGRAM_BOOLEAN("Welcome.Win10.OriginalPromoPageAdded", true);
   return GURL(l10n_util::GetStringUTF8(IDS_WELCOME_PAGE_URL));
 }
 
@@ -470,12 +473,12 @@ Browser* StartupBrowserCreatorImpl::OpenTabsInBrowser(Browser* browser,
                                    : WindowOpenDisposition::NEW_BACKGROUND_TAB;
     params.tabstrip_add_types = add_types;
 
-#if defined(ENABLE_RLZ)
+#if BUILDFLAG(ENABLE_RLZ)
     if (process_startup && google_util::IsGoogleHomePageUrl(tabs[i].url)) {
       params.extra_headers = rlz::RLZTracker::GetAccessPointHttpHeader(
           rlz::RLZTracker::ChromeHomePage());
     }
-#endif  // defined(ENABLE_RLZ)
+#endif  // BUILDFLAG(ENABLE_RLZ)
 
     chrome::Navigate(&params);
 
@@ -695,7 +698,7 @@ StartupTabs StartupBrowserCreatorImpl::DetermineStartupTabs(
   // Policies for onboarding (e.g., first run) may show promotional and
   // introductory content depending on a number of system status factors,
   // including OS and whether or not this is First Run.
-  StartupTabs onboarding_tabs = provider.GetOnboardingTabs();
+  StartupTabs onboarding_tabs = provider.GetOnboardingTabs(profile_);
   AppendTabs(onboarding_tabs, &tabs);
 
   // If the user has set the preference indicating URLs to show on opening,
@@ -799,11 +802,19 @@ void StartupBrowserCreatorImpl::AddInfoBarsIfNecessary(
     SessionCrashedInfoBarDelegate::Create(browser);
   }
 
+  if (command_line_.HasSwitch(switches::kEnableAutomation))
+    AutomationInfoBarDelegate::Create();
+
   // The below info bars are only added to the first profile which is launched.
   // Other profiles might be restoring the browsing sessions asynchronously,
   // so we cannot add the info bars to the focused tabs here.
+  //
+  // These info bars are not shown when the browser is being controlled by
+  // automated tests, so that they don't interfere with tests that assume no
+  // info bars.
   if (is_process_startup == chrome::startup::IS_PROCESS_STARTUP &&
-      !command_line_.HasSwitch(switches::kTestType)) {
+      !command_line_.HasSwitch(switches::kTestType) &&
+      !command_line_.HasSwitch(switches::kEnableAutomation)) {
     chrome::ShowBadFlagsPrompt(browser);
     GoogleApiKeysInfoBarDelegate::Create(InfoBarService::FromWebContents(
         browser->tab_strip_model()->GetActiveWebContents()));
@@ -1122,10 +1133,11 @@ void StartupBrowserCreatorImpl::AddStartupURLs(
       // behavior is desired because completing or skipping the sync promo
       // causes a redirect to the NTP.
       if (!startup_urls->empty() &&
-          startup_urls->at(0) == GURL(chrome::kChromeUINewTabURL))
+          startup_urls->at(0) == chrome::kChromeUINewTabURL) {
         startup_urls->at(0) = sync_promo_url;
-      else
+      } else {
         startup_urls->insert(startup_urls->begin(), sync_promo_url);
+      }
     }
   }
 }

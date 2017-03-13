@@ -16,7 +16,6 @@
 namespace views {
 
 class Border;
-class FocusableBorder;
 class Label;
 class LabelButton;
 class ScrollBar;
@@ -41,12 +40,21 @@ class VIEWS_EXPORT PlatformStyle {
   // Whether the default button for a dialog can be the Cancel button.
   static const bool kDialogDefaultButtonCanBeCancel;
 
-  // Whether dragging vertically above or below a textfield's bounds selects to
-  // the left or right end of the text from the cursor, respectively.
-  static const bool kTextfieldDragVerticallyDragsToEnd;
+  // Whether right clicking on text, selects the word under cursor.
+  static const bool kSelectWordOnRightClick;
 
   // The menu button's action to show the menu.
   static const CustomButton::NotifyAction kMenuNotifyActivationAction;
+
+  // Whether the Space key clicks a button on key press or key release.
+  static const CustomButton::KeyClickAction kKeyClickActionOnSpace;
+
+  // Whether the Return key clicks the focused control (on key press).
+  // Otherwise, Return does nothing unless it is handled by an accelerator.
+  static const bool kReturnClicksFocusedControl;
+
+  // Whether TreeViews get a focus ring on the entire TreeView when focused.
+  static const bool kTreeViewHasFocusRing;
 
   // Whether selecting a row in a TreeView selects the entire row or only the
   // label for that row.
@@ -55,19 +63,16 @@ class VIEWS_EXPORT PlatformStyle {
   // Whether ripples should be used for visual feedback on control activation.
   static const bool kUseRipples;
 
+  // Whether to mirror the arrow of bubble dialogs in RTL, such that the bubble
+  // opens in the opposite direction.
+  static const bool kMirrorBubbleArrowInRTLByDefault;
+
   // Creates an ImageSkia containing the image to use for the combobox arrow.
   // The |is_enabled| argument is true if the control the arrow is for is
   // enabled, and false if the control is disabled. The |style| argument is the
   // style of the combobox the arrow is being drawn for.
   static gfx::ImageSkia CreateComboboxArrow(bool is_enabled,
                                             Combobox::Style style);
-
-  // Creates the appropriate border for a focusable Combobox.
-  static std::unique_ptr<FocusableBorder> CreateComboboxBorder();
-
-  // Creates the appropriate background for a Combobox.
-  static std::unique_ptr<Background> CreateComboboxBackground(
-      int shoulder_width);
 
   // Creates the default scrollbar for the given orientation.
   static std::unique_ptr<ScrollBar> CreateScrollBar(bool is_horizontal);
@@ -86,9 +91,9 @@ class VIEWS_EXPORT PlatformStyle {
   static std::unique_ptr<Border> CreateThemedLabelButtonBorder(
       LabelButton* button);
 
-  // Called whenever a textfield keypress is unhandled for any reason. Gives
-  // visual/audio feedback about the unhandled key if platform-appropriate.
-  static void OnTextfieldKeypressUnhandled();
+  // Called whenever a textfield edit fails. Gives visual/audio feedback about
+  // the failed edit if platform-appropriate.
+  static void OnTextfieldEditFailed();
 
  private:
   DISALLOW_IMPLICIT_CONSTRUCTORS(PlatformStyle);

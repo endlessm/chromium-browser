@@ -26,14 +26,19 @@ Polymer({
   behaviors: [SiteSettingsBehavior, WebUIListenerBehavior],
 
   properties: {
-    /**
-     * The site that was selected by the user in the dropdown list.
-     * @type {SiteException}
-     */
-    selectedSite: {
-      type: Object,
-      notify: true,
+    /** @private */
+    enableSiteSettings_: {
+      type: Boolean,
+      value: function() {
+        return loadTimeData.getBoolean('enableSiteSettings');
+      },
     },
+
+    /**
+     * The site serving as the model for the currently open action menu.
+     * @private {?SiteException}
+     */
+    actionMenuSite_: Object,
 
     /**
      * Array of sites to display in the widget.
@@ -60,16 +65,6 @@ Polymer({
     categorySubtype: {
       type: String,
       value: settings.INVALID_CATEGORY_SUBTYPE,
-    },
-
-    /**
-     * Represents the state of the main toggle shown for the category. For
-     * example, the Location category can be set to Block/Ask so false, in that
-     * case, represents Block and true represents Ask.
-     */
-    categoryEnabled: {
-      type: Boolean,
-      value: true,
     },
 
     /**
@@ -113,7 +108,7 @@ Polymer({
   },
 
   observers: [
-    'configureWidget_(category, categorySubtype, categoryEnabled, allSites)'
+    'configureWidget_(category, categorySubtype)'
   ],
 
   ready: function() {
@@ -161,39 +156,12 @@ Polymer({
     }
 
     this.setUpActionMenu_();
-    this.ensureOpened_();
     this.populateList_();
-  },
 
-  /**
-   * Ensures the widget is |opened| when needed when displayed initially.
-   * @private
-   */
-  ensureOpened_: function() {
-    // Allowed list and Clear on Exit lists are always shown opened by default
-    // and All Sites is presented all in one list (nothing closed by default).
-    if (this.allSites ||
-        this.categorySubtype == settings.PermissionValues.ALLOW ||
-        this.categorySubtype == settings.PermissionValues.SESSION_ONLY) {
-      this.$.category.opened = true;
-      return;
-    }
-
-    // Block list should only be shown opened if there is nothing to show in
-    // the other lists.
-    if (this.category != settings.INVALID_CATEGORY_SUBTYPE) {
-      this.browserProxy_.getExceptionList(this.category).then(
-        function(exceptionList) {
-          var othersExists = exceptionList.some(function(exception) {
-            return exception.setting == settings.PermissionValues.ALLOW ||
-                exception.setting == settings.PermissionValues.SESSION_ONLY;
-          });
-          if (othersExists)
-            return;
-          this.$.category.opened = true;
-      }.bind(this));
-    } else {
-      this.$.category.opened = true;
+    // The Session permissions are only for cookies.
+    if (this.categorySubtype == settings.PermissionValues.SESSION_ONLY) {
+      this.$.category.hidden =
+          this.category != settings.ContentSettingsTypes.COOKIES;
     }
   },
 
@@ -211,30 +179,33 @@ Polymer({
   },
 
   /**
+   * Whether there are any site exceptions added for this content setting.
+   * @return {boolean}
+   * @private
+   */
+  hasSites_: function() {
+    return !!this.sites.length;
+  },
+
+  /**
    * @param {string} source Where the setting came from.
    * @return {boolean}
    * @private
    */
-  shouldShowMenu_: function(source) {
-    return !(this.isExceptionControlled_(source) || this.allSites);
-  },
-
-  /**
-   * Makes sure the visibility is correct for this widget.
-   * @private
-   */
-  updateCategoryVisibility_: function() {
-    this.$.category.hidden =
-        !this.showSiteList_(this.sites, this.categoryEnabled);
+  isActionMenuHidden_: function(source) {
+    return this.isExceptionControlled_(source) || this.allSites;
   },
 
   /**
    * A handler for the Add Site button.
+   * @param {!Event} e
    * @private
    */
-  onAddSiteTap_: function() {
+  onAddSiteTap_: function(e) {
+    e.preventDefault();
     var dialog = document.createElement('add-site-dialog');
     dialog.category = this.category;
+    dialog.contentSetting = this.categorySubtype;
     this.shadowRoot.appendChild(dialog);
 
     dialog.open(this.categorySubtype);
@@ -245,17 +216,6 @@ Polymer({
   },
 
   /**
-   * Handles the expanding and collapsing of the sites list.
-   * @private
-   */
-  onToggle_: function(e) {
-    if (this.$.category.opened)
-      this.$.icon.icon = 'cr:expand-less';
-    else
-      this.$.icon.icon = 'cr:expand-more';
-  },
-
-  /**
    * Populate the sites list for display.
    * @private
    */
@@ -263,11 +223,13 @@ Polymer({
     if (this.allSites) {
       this.getAllSitesList_().then(function(lists) {
         this.processExceptions_(lists);
+        this.closeActionMenu_();
       }.bind(this));
     } else {
       this.browserProxy_.getExceptionList(this.category).then(
         function(exceptionList) {
           this.processExceptions_([exceptionList]);
+          this.closeActionMenu_();
       }.bind(this));
     }
   },
@@ -283,7 +245,6 @@ Polymer({
     for (var i = 0; i < data.length; ++i)
       sites = this.appendSiteList_(sites, data[i]);
     this.sites = this.toSiteArray_(sites);
-    this.updateCategoryVisibility_();
   },
 
   /**
@@ -336,34 +297,39 @@ Polymer({
   },
 
   /**
-   * Converts an unordered site list to an ordered array, sorted by site name
-   * then protocol and de-duped (by origin).
-   * @param {!Array<SiteException>} sites A list of sites to sort and de-dupe.
-   * @return {!Array<SiteException>} Sorted and de-duped list.
+   * Converts a list of exceptions received from the C++ handler to
+   * full SiteException objects. If this site-list is used as an all sites
+   * view, the list is sorted by site name, then protocol and port and de-duped
+   * (by origin).
+   * @param {!Array<SiteException>} sites A list of sites to convert.
+   * @return {!Array<SiteException>} A list of full SiteExceptions. Sorted and
+   *    deduped if allSites is set.
    * @private
    */
   toSiteArray_: function(sites) {
     var self = this;
-    sites.sort(function(a, b) {
-      var url1 = self.toUrl(a.origin);
-      var url2 = self.toUrl(b.origin);
-      var comparison = url1.host.localeCompare(url2.host);
-      if (comparison == 0) {
-        comparison = url1.protocol.localeCompare(url2.protocol);
+    if (this.allSites) {
+      sites.sort(function(a, b) {
+        var url1 = self.toUrl(a.origin);
+        var url2 = self.toUrl(b.origin);
+        var comparison = url1.host.localeCompare(url2.host);
         if (comparison == 0) {
-          comparison = url1.port.localeCompare(url2.port);
+          comparison = url1.protocol.localeCompare(url2.protocol);
           if (comparison == 0) {
-            // Compare hosts for the embedding origins.
-            var host1 = self.toUrl(a.embeddingOrigin);
-            var host2 = self.toUrl(b.embeddingOrigin);
-            host1 = (host1 == null) ? '' : host1.host;
-            host2 = (host2 == null) ? '' : host2.host;
-            return host1.localeCompare(host2);
+            comparison = url1.port.localeCompare(url2.port);
+            if (comparison == 0) {
+              // Compare hosts for the embedding origins.
+              var host1 = self.toUrl(a.embeddingOrigin);
+              var host2 = self.toUrl(b.embeddingOrigin);
+              host1 = (host1 == null) ? '' : host1.host;
+              host2 = (host2 == null) ? '' : host2.host;
+              return host1.localeCompare(host2);
+            }
           }
         }
-      }
-      return comparison;
-    });
+        return comparison;
+      });
+    }
     var results = /** @type {!Array<SiteException>} */([]);
     var lastOrigin = '';
     var lastEmbeddingOrigin = '';
@@ -372,20 +338,20 @@ Polymer({
       var siteException = this.expandSiteException(sites[i]);
 
       // The All Sites category can contain duplicates (from other categories).
-      if (siteException.originForDisplay == lastOrigin &&
-          siteException.embeddingOriginForDisplay == lastEmbeddingOrigin) {
+      if (this.allSites && siteException.origin == lastOrigin &&
+          siteException.embeddingOrigin == lastEmbeddingOrigin) {
         continue;
       }
 
       results.push(siteException);
-      lastOrigin = siteException.originForDisplay;
-      lastEmbeddingOrigin = siteException.embeddingOriginForDisplay;
+      lastOrigin = siteException.origin;
+      lastEmbeddingOrigin = siteException.embeddingOrigin;
     }
     return results;
   },
 
   /**
-   * Setup the values to use for the action menu.
+   * Set up the values to use for the action menu.
    * @private
    */
   setUpActionMenu_: function() {
@@ -399,15 +365,15 @@ Polymer({
   },
 
   /**
-   * Whether to show the Session Only menu item for a given site.
-   * @param {SiteException} site The site in question.
-   * @return {boolean} Whether to show the menu item.
+   * @return {boolean} Whether to show the "Session Only" menu item for the
+   *     currently active site.
+   * @private
    */
-  showSessionOnlyActionForSite_: function(site) {
+  showSessionOnlyActionForSite_: function() {
     // It makes no sense to show "clear on exit" for exceptions that only apply
     // to incognito. It gives the impression that they might under some
     // circumstances not be cleared on exit, which isn't true.
-    if (site.incognito)
+    if (!this.actionMenuSite_ || this.actionMenuSite_.incognito)
       return false;
 
     return this.showSessionOnlyAction_;
@@ -415,25 +381,26 @@ Polymer({
 
   /**
    * A handler for selecting a site (by clicking on the origin).
+   * @param {!{model: !{item: !SiteException}}} event
    * @private
    */
   onOriginTap_: function(event) {
-    this.selectedSite = event.model.item;
+    if (!this.enableSiteSettings_)
+      return;
     settings.navigateTo(settings.Route.SITE_SETTINGS_SITE_DETAILS,
-        new URLSearchParams('site=' + this.selectedSite.origin));
+        new URLSearchParams('site=' + event.model.item.origin));
   },
 
   /**
    * A handler for activating one of the menu action items.
-   * @param {!{model: !{item: !{origin: string}}}} event
    * @param {string} action The permission to set (Allow, Block, SessionOnly,
    *     etc).
    * @private
    */
-  onActionMenuActivate_: function(event, action) {
-    var origin = event.model.item.origin;
-    var incognito = event.model.item.incognito;
-    var embeddingOrigin = event.model.item.embeddingOrigin;
+  onActionMenuActivate_: function(action) {
+    var origin = this.actionMenuSite_.origin;
+    var incognito = this.actionMenuSite_.incognito;
+    var embeddingOrigin = this.actionMenuSite_.embeddingOrigin;
     if (action == settings.PermissionValues.DEFAULT) {
       this.browserProxy.resetCategoryPermissionForOrigin(
           origin, embeddingOrigin, this.category, incognito);
@@ -444,46 +411,27 @@ Polymer({
   },
 
   /** @private */
-  onAllowTap_: function(event) {
-    this.onActionMenuActivate_(event, settings.PermissionValues.ALLOW);
+  onAllowTap_: function() {
+    this.onActionMenuActivate_(settings.PermissionValues.ALLOW);
+    this.closeActionMenu_();
   },
 
   /** @private */
-  onBlockTap_: function(event) {
-    this.onActionMenuActivate_(event, settings.PermissionValues.BLOCK);
+  onBlockTap_: function() {
+    this.onActionMenuActivate_(settings.PermissionValues.BLOCK);
+    this.closeActionMenu_();
   },
 
   /** @private */
-  onSessionOnlyTap_: function(event) {
-    this.onActionMenuActivate_(event, settings.PermissionValues.SESSION_ONLY);
+  onSessionOnlyTap_: function() {
+    this.onActionMenuActivate_(settings.PermissionValues.SESSION_ONLY);
+    this.closeActionMenu_();
   },
 
   /** @private */
-  onResetTap_: function(event) {
-    this.onActionMenuActivate_(event, settings.PermissionValues.DEFAULT);
-  },
-
-  /**
-   * Returns the appropriate header value for display.
-   * @param {Array<string>} siteList The list of all sites to display for this
-   *     category subtype.
-   * @param {boolean} toggleState The state of the global toggle for this
-   *     category.
-   * @private
-   */
-  computeSiteListHeader_: function(siteList, toggleState) {
-    var title = '';
-    if (this.categorySubtype == settings.PermissionValues.ALLOW) {
-      title = loadTimeData.getString(
-          toggleState ? 'siteSettingsAllow' : 'siteSettingsExceptions');
-    } else if (this.categorySubtype == settings.PermissionValues.BLOCK) {
-      title = loadTimeData.getString('siteSettingsBlock');
-    } else if (this.categorySubtype == settings.PermissionValues.SESSION_ONLY) {
-      title = loadTimeData.getString('siteSettingsSessionOnly');
-    } else {
-      return title;
-    }
-    return loadTimeData.getStringF('titleAndCount', title, siteList.length);
+  onResetTap_: function() {
+    this.onActionMenuActivate_(settings.PermissionValues.DEFAULT);
+    this.closeActionMenu_();
   },
 
   /**
@@ -494,49 +442,34 @@ Polymer({
    * @return {string} The site description.
    */
   computeSiteDescription_: function(item) {
-    if (item.incognito && item.embeddingOriginForDisplay.length > 0) {
+    if (item.incognito && item.embeddingDisplayName.length > 0) {
       return loadTimeData.getStringF('embeddedIncognitoSite',
-          item.embeddingOriginForDisplay);
+          item.embeddingDisplayName);
     }
 
     if (item.incognito)
       return loadTimeData.getString('incognitoSite');
-    return item.embeddingOriginForDisplay;
+    return item.embeddingDisplayName;
   },
 
   /**
-   * Returns true if this widget is showing the Allow list.
+   * @param {!{model: !{item: !SiteException}}} e
    * @private
    */
-  isAllowList_: function() {
-    return this.categorySubtype == settings.PermissionValues.ALLOW;
+  onShowActionMenuTap_: function(e) {
+    this.actionMenuSite_ = e.model.item;
+    /** @type {!CrActionMenuElement} */ (
+        this.$$('dialog[is=cr-action-menu]')).showAt(
+            /** @type {!Element} */ (
+                Polymer.dom(/** @type {!Event} */ (e)).localTarget));
   },
 
-  /**
-   * Returns true if this widget is showing the Session Only list.
-   * @private
-   */
-  isSessionOnlyList_: function() {
-    return this.categorySubtype == settings.PermissionValues.SESSION_ONLY;
-  },
-
-  /**
-   * Returns whether to show the site list.
-   * @param {Array} siteList The list of all sites to display for this category
-   *     subtype.
-   * @param {boolean} toggleState The state of the global toggle for this
-   *     category.
-   * @private
-   */
-  showSiteList_: function(siteList, toggleState) {
-    // The Block list is only shown when the category is set to Allow since it
-    // is redundant to also list all the sites that are blocked.
-    if (this.isAllowList_())
-      return true;
-
-    if (this.isSessionOnlyList_())
-      return siteList.length > 0;
-
-    return toggleState;
+  /** @private */
+  closeActionMenu_: function() {
+    this.actionMenuSite_ = null;
+    var actionMenu = /** @type {!CrActionMenuElement} */ (
+        this.$$('dialog[is=cr-action-menu]'));
+    if (actionMenu.open)
+      actionMenu.close();
   },
 });

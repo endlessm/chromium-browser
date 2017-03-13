@@ -17,13 +17,14 @@
 #include "base/memory/weak_ptr.h"
 #include "base/threading/non_thread_safe.h"
 #include "build/build_config.h"
+#include "chrome/common/features.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
+#include "extensions/features/features.h"
 #include "ui/base/theme_provider.h"
 
 class CustomThemeSupplier;
-class BrowserThemePack;
 class ThemeSyncableService;
 class Profile;
 
@@ -274,7 +275,7 @@ class ThemeService : public base::NonThreadSafe,
   // case we don't have a theme pack).
   void BuildFromExtension(const extensions::Extension* extension);
 
-#if defined(ENABLE_SUPERVISED_USERS)
+#if BUILDFLAG(ENABLE_SUPERVISED_USERS)
   // Returns true if the profile belongs to a supervised user.
   bool IsSupervisedUser() const;
 
@@ -319,7 +320,7 @@ class ThemeService : public base::NonThreadSafe,
 
   std::unique_ptr<ThemeSyncableService> theme_syncable_service_;
 
-#if defined(ENABLE_EXTENSIONS)
+#if BUILDFLAG(ENABLE_EXTENSIONS)
   class ThemeObserver;
   std::unique_ptr<ThemeObserver> theme_observer_;
 #endif

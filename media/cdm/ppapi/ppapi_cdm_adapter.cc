@@ -326,9 +326,7 @@ PpapiCdmAdapter::PpapiCdmAdapter(PP_Instance instance, pp::Module* module)
       query_output_protection_in_progress_(false),
       uma_for_output_protection_query_reported_(false),
       uma_for_output_protection_positive_result_reported_(false),
-#if defined(OS_CHROMEOS)
       platform_verification_(this),
-#endif
       allocator_(this),
       cdm_(NULL),
       allow_distinctive_identifier_(false),
@@ -1075,7 +1073,7 @@ void PpapiCdmAdapter::EnableOutputProtection(uint32_t desired_protection_mask) {
   // inspect the protection status on a regular basis.
 
   if (result != PP_OK && result != PP_OK_COMPLETIONPENDING)
-    CDM_DLOG() << __FUNCTION__ << " failed!";
+    CDM_DLOG() << __func__ << " failed!";
 }
 
 void PpapiCdmAdapter::QueryOutputProtectionStatus() {
@@ -1094,7 +1092,7 @@ void PpapiCdmAdapter::QueryOutputProtectionStatus() {
 
   // Fall through on error and issue an empty OnQueryOutputProtectionStatus().
   PP_DCHECK(result != PP_OK);
-  CDM_DLOG() << __FUNCTION__ << " failed, result = " << result;
+  CDM_DLOG() << __func__ << " failed, result = " << result;
 }
 
 void PpapiCdmAdapter::OnDeferredInitializationDone(cdm::StreamType stream_type,
@@ -1183,7 +1181,7 @@ void PpapiCdmAdapter::SendPlatformChallengeDone(
     int32_t result,
     const linked_ptr<PepperPlatformChallengeResponse>& response) {
   if (result != PP_OK) {
-    CDM_DLOG() << __FUNCTION__ << ": Platform challenge failed!";
+    CDM_DLOG() << __func__ << ": Platform challenge failed!";
     cdm::PlatformChallengeResponse platform_challenge_response = {};
     cdm_->OnPlatformChallengeResponse(platform_challenge_response);
     return;
@@ -1211,7 +1209,7 @@ void PpapiCdmAdapter::SendPlatformChallengeDone(
 void PpapiCdmAdapter::EnableProtectionDone(int32_t result) {
   // Does nothing since clients must call QueryOutputProtectionStatus() to
   // inspect the protection status on a regular basis.
-  CDM_DLOG() << __FUNCTION__ << " : " << result;
+  CDM_DLOG() << __func__ << " : " << result;
 }
 
 void PpapiCdmAdapter::QueryOutputProtectionStatusDone(int32_t result) {
@@ -1221,7 +1219,7 @@ void PpapiCdmAdapter::QueryOutputProtectionStatusDone(int32_t result) {
   // Return a query status of failed on error.
   cdm::QueryResult query_result;
   if (result != PP_OK) {
-    CDM_DLOG() << __FUNCTION__ << " failed, result = " << result;
+    CDM_DLOG() << __func__ << " failed, result = " << result;
     output_link_mask_ = output_protection_mask_ = 0;
     query_result = cdm::kQueryFailed;
   } else {

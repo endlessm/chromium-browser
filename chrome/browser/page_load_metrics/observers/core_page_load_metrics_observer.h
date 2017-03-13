@@ -13,7 +13,6 @@ namespace internal {
 // specified by the ".Background" suffix. For these events, we put them into the
 // background histogram if the web contents was ever in the background from
 // navigation start to the event in question.
-extern const char kHistogramCommit[];
 extern const char kHistogramFirstLayout[];
 extern const char kHistogramFirstPaint[];
 extern const char kHistogramFirstTextPaint[];
@@ -26,7 +25,6 @@ extern const char kHistogramParseBlockedOnScriptLoad[];
 extern const char kHistogramParseBlockedOnScriptExecution[];
 extern const char kHistogramParseStartToFirstMeaningfulPaint[];
 
-extern const char kBackgroundHistogramCommit[];
 extern const char kBackgroundHistogramFirstLayout[];
 extern const char kBackgroundHistogramFirstTextPaint[];
 extern const char kBackgroundHistogramDomContentLoaded[];
@@ -41,7 +39,6 @@ extern const char kHistogramLoadTypeParseStartReload[];
 extern const char kHistogramLoadTypeParseStartForwardBack[];
 extern const char kHistogramLoadTypeParseStartNewNavigation[];
 
-extern const char kHistogramBackgroundBeforePaint[];
 extern const char kHistogramFailedProvisionalLoad[];
 
 extern const char kRapporMetricsNameCoarseTiming[];
@@ -49,6 +46,10 @@ extern const char kHistogramFirstMeaningfulPaintStatus[];
 
 extern const char kHistogramFirstNonScrollInputAfterFirstPaint[];
 extern const char kHistogramFirstScrollInputAfterFirstPaint[];
+
+extern const char kHistogramTotalBytes[];
+extern const char kHistogramNetworkBytes[];
+extern const char kHistogramCacheBytes[];
 
 enum FirstMeaningfulPaintStatus {
   FIRST_MEANINGFUL_PAINT_RECORDED,
@@ -108,6 +109,8 @@ class CorePageLoadMetricsObserver
       const page_load_metrics::FailedProvisionalLoadInfo& failed_load_info,
       const page_load_metrics::PageLoadExtraInfo& extra_info) override;
   void OnUserInput(const blink::WebInputEvent& event) override;
+  void OnLoadedResource(
+      const page_load_metrics::ExtraRequestInfo& extra_request_info) override;
 
  private:
   void RecordTimingHistograms(const page_load_metrics::PageLoadTiming& timing,
@@ -116,8 +119,18 @@ class CorePageLoadMetricsObserver
                     const page_load_metrics::PageLoadExtraInfo& info);
 
   ui::PageTransition transition_;
-  bool initiated_by_user_gesture_;
   bool was_no_store_main_resource_;
+
+  // Note: these are only approximations, based on WebContents attribution from
+  // ResourceRequestInfo objects while this is the currently committed load in
+  // the WebContents.
+  int num_cache_requests_;
+  int num_network_requests_;
+
+  // The number of body (not header) prefilter bytes consumed by requests for
+  // the page.
+  int64_t cache_bytes_;
+  int64_t network_bytes_;
 
   // True if we've received a non-scroll input (touch tap or mouse up)
   // after first paint has happened.

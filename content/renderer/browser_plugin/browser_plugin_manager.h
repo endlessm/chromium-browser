@@ -11,10 +11,6 @@
 #include "content/public/renderer/render_thread_observer.h"
 #include "ipc/ipc_sender.h"
 
-namespace blink {
-class WebFrame;
-}
-
 namespace content {
 
 class BrowserPlugin;
@@ -65,7 +61,7 @@ class CONTENT_EXPORT BrowserPluginManager : public RenderThreadObserver {
 
  private:
   // This map is keyed by guest instance IDs.
-  IDMap<BrowserPlugin> instances_;
+  IDMap<BrowserPlugin*> instances_;
 
   DISALLOW_COPY_AND_ASSIGN(BrowserPluginManager);
 };

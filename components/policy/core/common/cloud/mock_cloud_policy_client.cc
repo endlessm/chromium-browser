@@ -4,6 +4,7 @@
 
 #include <utility>
 
+#include "base/memory/ptr_util.h"
 #include "components/policy/core/common/cloud/mock_cloud_policy_client.h"
 #include "components/policy/proto/device_management_backend.pb.h"
 #include "net/url_request/url_request_context_getter.h"
@@ -13,12 +14,11 @@ namespace em = enterprise_management;
 namespace policy {
 
 MockCloudPolicyClient::MockCloudPolicyClient()
-    : CloudPolicyClient(std::string(),
-                        std::string(),
-                        std::string(),
-                        nullptr,
-                        nullptr,
-                        nullptr) {}
+    : CloudPolicyClient(std::string(), /* machine_id */
+                        std::string(), /* machine_model */
+                        nullptr,       /* service */
+                        nullptr,       /* request_context */
+                        nullptr /* signing_service */) {}
 
 MockCloudPolicyClient::~MockCloudPolicyClient() {}
 
@@ -29,10 +29,8 @@ void MockCloudPolicyClient::SetDMToken(const std::string& token) {
 void MockCloudPolicyClient::SetPolicy(const std::string& policy_type,
                                       const std::string& settings_entity_id,
                                       const em::PolicyFetchResponse& policy) {
-  em::PolicyFetchResponse*& response =
-      responses_[std::make_pair(policy_type, settings_entity_id)];
-  delete response;
-  response = new enterprise_management::PolicyFetchResponse(policy);
+  responses_[std::make_pair(policy_type, settings_entity_id)] =
+      base::MakeUnique<enterprise_management::PolicyFetchResponse>(policy);
 }
 
 void MockCloudPolicyClient::SetFetchedInvalidationVersion(

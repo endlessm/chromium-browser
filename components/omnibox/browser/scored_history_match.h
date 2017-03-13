@@ -16,18 +16,23 @@
 #include "components/history/core/browser/history_match.h"
 #include "components/history/core/browser/history_types.h"
 #include "components/omnibox/browser/in_memory_url_index_types.h"
+#include "components/omnibox/browser/omnibox_field_trial.h"
 
 class ScoredHistoryMatchTest;
-class TemplateURLService;
 
 // An HistoryMatch that has a score as well as metrics defining where in the
 // history item's URL and/or page title matches have occurred.
 struct ScoredHistoryMatch : public history::HistoryMatch {
   // ScoreMaxRelevance maps from an intermediate-score to the maximum
   // final-relevance score given to a URL for this intermediate score.
-  // This is used to store the score ranges of HQP relevance buckets.
+  // This is used to store the score ranges of relevance buckets.
   // Please see GetFinalRelevancyScore() for details.
-  typedef std::pair<double, int> ScoreMaxRelevance;
+  using ScoreMaxRelevance = std::pair<double, int>;
+
+  // A sorted vector of ScoreMaxRelevance entries, used by taking a score and
+  // interpolating between consecutive buckets.  See GetFinalRelevancyScore()
+  // for details.
+  using ScoreMaxRelevances = std::vector<ScoreMaxRelevance>;
 
   // Required for STL, we don't use this directly.
   ScoredHistoryMatch();
@@ -36,19 +41,19 @@ struct ScoredHistoryMatch : public history::HistoryMatch {
   // Initializes the ScoredHistoryMatch with a raw score calculated for the
   // history item given in |row| with recent visits as indicated in |visits|. It
   // first determines if the row qualifies by seeing if all of the terms in
-  // |terms_vector| occur in |row| and checking if the URL does not come from
-  // the default search provider (obtained from |template_url_service|).  If
-  // both those constraints are true, calculates a raw score.  This raw score
-  // is in part determined by whether the matches occur at word boundaries, the
-  // locations of which are stored in |word_starts|.  For some terms, it's
-  // appropriate to look for the word boundary within the term. For instance,
-  // the term ".net" should look for a word boundary at the "n". These offsets
-  // (".net" should have an offset of 1) come from
+  // |terms_vector| occur in |row|.  If so, calculates a raw score.  This raw
+  // score is in part determined by whether the matches occur at word
+  // boundaries, the locations of which are stored in |word_starts|.  For some
+  // terms, it's appropriate to look for the word boundary within the term. For
+  // instance, the term ".net" should look for a word boundary at the "n".
+  // These offsets (".net" should have an offset of 1) come from
   // |terms_to_word_starts_offsets|. |is_url_bookmarked| indicates whether the
   // match's URL is referenced by any bookmarks, which can also affect the raw
-  // score.  The raw score allows the matches to be ordered and can be used to
-  // influence the final score calculated by the client of this index.  If the
-  // row does not qualify the raw score will be 0.
+  // score.  |num_matching_pages| indicates how many URLs in the eligible URL
+  // database match the user's input; it can also affect the raw score.  The raw
+  // score allows the matches to be ordered and can be used to influence the
+  // final score calculated by the client of this index.  If the row does not
+  // qualify the raw score will be 0.
   ScoredHistoryMatch(const history::URLRow& row,
                      const VisitInfoVector& visits,
                      const base::string16& lower_string,
@@ -56,7 +61,7 @@ struct ScoredHistoryMatch : public history::HistoryMatch {
                      const WordStarts& terms_to_word_starts_offsets,
                      const RowWordStarts& word_starts,
                      bool is_url_bookmarked,
-                     TemplateURLService* template_url_service,
+                     size_t num_matching_pages,
                      base::Time now);
 
   ~ScoredHistoryMatch();
@@ -79,11 +84,6 @@ struct ScoredHistoryMatch : public history::HistoryMatch {
       size_t start_pos,
       size_t end_pos);
 
-  // The maximum number of recent visits to examine in GetFrequency().
-  // Public so url_index_private_data.cc knows how many visits it is
-  // expected to deliver (at minimum) to this class.
-  static const size_t kMaxVisitsToScore;
-
   // An interim score taking into consideration location and completeness
   // of the match.
   int raw_score;
@@ -102,7 +102,9 @@ struct ScoredHistoryMatch : public history::HistoryMatch {
 
  private:
   friend class ScoredHistoryMatchTest;
+  FRIEND_TEST_ALL_PREFIXES(ScoredHistoryMatchTest, GetDocumentSpecificityScore);
   FRIEND_TEST_ALL_PREFIXES(ScoredHistoryMatchTest, GetFinalRelevancyScore);
+  FRIEND_TEST_ALL_PREFIXES(ScoredHistoryMatchTest, GetFrequency);
   FRIEND_TEST_ALL_PREFIXES(ScoredHistoryMatchTest, GetHQPBucketsFromString);
   FRIEND_TEST_ALL_PREFIXES(ScoredHistoryMatchTest, ScoringBookmarks);
   FRIEND_TEST_ALL_PREFIXES(ScoredHistoryMatchTest, ScoringScheme);
@@ -127,7 +129,7 @@ struct ScoredHistoryMatch : public history::HistoryMatch {
   // how many days ago the page was last visited.
   float GetRecencyScore(int last_visit_days_ago) const;
 
-  // Examines the first kMaxVisitsToScore and return a score (higher is
+  // Examines the first |max_visits_to_score_| and returns a score (higher is
   // better) based the rate of visits, whether the page is bookmarked, and
   // how often those visits are typed navigations (i.e., explicitly
   // invoked by the user).  |now| is passed in to avoid unnecessarily
@@ -136,41 +138,49 @@ struct ScoredHistoryMatch : public history::HistoryMatch {
                      const bool bookmarked,
                      const VisitInfoVector& visits) const;
 
-  // Combines the two component scores into a final score that's
-  // an appropriate value to use as a relevancy score. Scoring buckets are
-  // specified through |hqp_relevance_buckets|. Please see the function
-  // implementation for more details.
-  static float GetFinalRelevancyScore(
-      float topicality_score,
-      float frequency_score,
-      const std::vector<ScoreMaxRelevance>& hqp_relevance_buckets);
+  // Returns a document specificity score based on how many pages matched the
+  // user's input.
+  float GetDocumentSpecificityScore(size_t num_matching_pages) const;
 
-  // Initializes the HQP experimental params: |hqp_relevance_buckets_|
-  // to default buckets. If hqp experimental scoring is enabled, it
-  // fetches the |hqp_experimental_scoring_enabled_|, |topicality_threshold_|
-  // and |hqp_relevance_buckets_| from omnibox field trials.
-  static void InitHQPExperimentalParams();
+  // Combines the three component scores into a final score that's
+  // an appropriate value to use as a relevancy score.
+  static float GetFinalRelevancyScore(float topicality_score,
+                                      float frequency_score,
+                                      float specificity_score);
 
-  // Helper function to parse the string containing the scoring buckets.
-  // For example,
-  // String: "0.0:400,1.5:600,12.0:1300,20.0:1399"
-  // Buckets: vector[(0.0, 400),(1.5,600),(12.0,1300),(20.0,1399)]
-  // Returns false, in case if it fail to parse the string.
-  static bool GetHQPBucketsFromString(
-      const std::string& buckets_str,
-      std::vector<ScoreMaxRelevance>* hqp_buckets);
+  // Helper function that returns the string containing the scoring buckets
+  // (either the default ones or ones specified in an experiment).
+  static ScoreMaxRelevances GetHQPBuckets();
+
+  // Helper function to parse the string containing the scoring buckets and
+  // return the results.  For example, with |buckets_str| as
+  // "0.0:400,1.5:600,12.0:1300,20.0:1399", it returns [(0.0, 400), (1.5, 600),
+  // (12.0, 1300), (20.0, 1399)]. It returns an empty vector in the case of a
+  // malformed |buckets_str|.
+  static ScoreMaxRelevances GetHQPBucketsFromString(
+      const std::string& buckets_str);
 
   // If true, assign raw scores to be max(whatever it normally would be, a
   // score that's similar to the score HistoryURL provider would assign).
   static bool also_do_hup_like_scoring_;
 
   // Untyped visits to bookmarked pages score this, compared to 1 for
-  // untyped visits to non-bookmarked pages and 20 for typed visits.
-  static int bookmark_value_;
+  // untyped visits to non-bookmarked pages and |typed_value_| for typed visits.
+  static float bookmark_value_;
+
+  // Typed visits to page score this, compared to 1 for untyped visits.
+  static float typed_value_;
 
   // True if we should fix a bug in frequency scoring relating to how we
   // extrapolate frecency when the URL has been visited few times.
   static bool fix_few_visits_bug_;
+
+  // Determines whether GetFrequency() returns a score based on on the weighted
+  // sum of visit scores instead of the weighted average.
+  static bool frequency_uses_sum_;
+
+  // The maximum number of recent visits to examine in GetFrequency().
+  static size_t max_visits_to_score_;
 
   // If true, we allow input terms to match in the TLD (e.g., ".com").
   static bool allow_tld_matches_;
@@ -182,22 +192,20 @@ struct ScoredHistoryMatch : public history::HistoryMatch {
   // Words beyond this number are ignored.
   static size_t num_title_words_to_allow_;
 
-  // True, if hqp experimental scoring is enabled.
-  static bool hqp_experimental_scoring_enabled_;
-
   // |topicality_threshold_| is used to control the topicality scoring.
-  // If |topicality_threshold_| > 0, then URLs with topicality-score < threshold
-  // are given topicality score of 0. By default it is initalized to -1.
+  // If |topicality_threshold_| > 0, then URLs with topicality-score less than
+  // the threshold are given topicality score of 0.
   static float topicality_threshold_;
 
-  // |hqp_relevance_buckets_str_| is used to control the hqp score ranges.
-  // It is the string representation of |hqp_relevance_buckets_|.
-  static char hqp_relevance_buckets_str_[];
+  // Used for testing.  A possibly null pointer to a vector.  If set,
+  // overrides the static local variable |relevance_buckets| declared in
+  // GetFinalRelevancyScore().
+  static ScoreMaxRelevances* relevance_buckets_override_;
 
-  // |hqp_relevance_buckets_| gives mapping from (topicality*frequency)
-  // to the final relevance scoring. Please see GetFinalRelevancyScore()
-  // for more details and scoring method.
-  static std::vector<ScoreMaxRelevance>* hqp_relevance_buckets_;
+  // Used for testing.  If this pointer is not null, it overrides the static
+  // local variable |default_matches_to_specificity| declared in
+  // GetDocumentSpecificityScore().
+  static OmniboxFieldTrial::NumMatchesScores* matches_to_specificity_override_;
 };
 typedef std::vector<ScoredHistoryMatch> ScoredHistoryMatches;
 

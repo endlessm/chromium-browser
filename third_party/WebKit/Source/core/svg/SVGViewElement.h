@@ -28,9 +28,6 @@
 
 namespace blink {
 
-class SVGStaticStringList;
-class SVGStringListTearOff;
-
 class SVGViewElement final : public SVGElement,
                              public SVGFitToViewBox,
                              public SVGZoomAndPan {
@@ -39,21 +36,14 @@ class SVGViewElement final : public SVGElement,
 
  public:
   DECLARE_NODE_FACTORY(SVGViewElement);
-
-  SVGStringListTearOff* viewTarget();
-
   DECLARE_VIRTUAL_TRACE();
 
  private:
   explicit SVGViewElement(Document&);
 
-  void parseAttribute(const QualifiedName&,
-                      const AtomicString&,
-                      const AtomicString&) override;
+  void parseAttribute(const AttributeModificationParams&) override;
 
   bool layoutObjectIsNeeded(const ComputedStyle&) override { return false; }
-
-  Member<SVGStaticStringList> m_viewTarget;
 };
 
 }  // namespace blink

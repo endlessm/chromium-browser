@@ -6,6 +6,7 @@
 
 #include "base/command_line.h"
 #include "build/build_config.h"
+#include "ui/views/layout/layout_constants.h"
 #include "ui/views/views_touch_selection_controller_factory.h"
 #include "ui/views/widget/native_widget_private.h"
 
@@ -105,6 +106,10 @@ ui::ContextFactory* ViewsDelegate::GetContextFactory() {
   return nullptr;
 }
 
+ui::ContextFactoryPrivate* ViewsDelegate::GetContextFactoryPrivate() {
+  return nullptr;
+}
+
 std::string ViewsDelegate::GetApplicationName() {
   base::FilePath program = base::CommandLine::ForCurrentProcess()->GetProgram();
   return program.BaseName().AsUTF8Unsafe();
@@ -119,6 +124,28 @@ int ViewsDelegate::GetAppbarAutohideEdges(HMONITOR monitor,
 
 scoped_refptr<base::TaskRunner> ViewsDelegate::GetBlockingPoolTaskRunner() {
   return nullptr;
+}
+
+gfx::Insets ViewsDelegate::GetDialogButtonInsets() {
+  return gfx::Insets(0, kButtonHEdgeMarginNew, kButtonVEdgeMarginNew,
+                     kButtonHEdgeMarginNew);
+}
+
+int ViewsDelegate::GetDialogRelatedButtonHorizontalSpacing() {
+  return kRelatedButtonHSpacing;
+}
+
+int ViewsDelegate::GetDialogRelatedControlVerticalSpacing() {
+  return kRelatedControlVerticalSpacing;
+}
+
+gfx::Insets ViewsDelegate::GetDialogFrameViewInsets() {
+  return gfx::Insets(kPanelVertMargin, kButtonHEdgeMarginNew, 0,
+                     kButtonHEdgeMarginNew);
+}
+
+gfx::Insets ViewsDelegate::GetBubbleDialogMargins() {
+  return gfx::Insets(kPanelVertMargin, kPanelHorizMargin);
 }
 
 ViewsDelegate::ViewsDelegate()

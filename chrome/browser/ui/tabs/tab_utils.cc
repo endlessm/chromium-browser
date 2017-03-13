@@ -9,6 +9,7 @@
 #include "base/command_line.h"
 #include "base/strings/string16.h"
 #include "build/build_config.h"
+#include "chrome/app/vector_icons/vector_icons.h"
 #include "chrome/browser/media/webrtc/media_capture_devices_dispatcher.h"
 #include "chrome/browser/media/webrtc/media_stream_capture_indicator.h"
 #include "chrome/browser/themes/theme_properties.h"
@@ -23,7 +24,6 @@
 #include "ui/gfx/animation/multi_animation.h"
 #include "ui/gfx/image/image.h"
 #include "ui/gfx/paint_vector_icon.h"
-#include "ui/gfx/vector_icons_public.h"
 #include "ui/native_theme/common_theme.h"
 #include "ui/native_theme/native_theme.h"
 
@@ -177,58 +177,31 @@ TabAlertState GetTabAlertStateForContents(content::WebContents* contents) {
 
 gfx::Image GetTabAlertIndicatorImage(TabAlertState alert_state,
                                      SkColor button_color) {
-#if defined(OS_MACOSX)
-  if (!ui::MaterialDesignController::IsModeMaterial()) {
-    ui::ResourceBundle* rb = &ui::ResourceBundle::GetSharedInstance();
-    switch (alert_state) {
-      case TabAlertState::AUDIO_PLAYING:
-        return rb->GetNativeImageNamed(IDR_TAB_AUDIO_INDICATOR);
-      case TabAlertState::AUDIO_MUTING:
-        return rb->GetNativeImageNamed(IDR_TAB_AUDIO_MUTING_INDICATOR);
-      case TabAlertState::MEDIA_RECORDING:
-        return rb->GetNativeImageNamed(IDR_TAB_RECORDING_INDICATOR);
-      case TabAlertState::TAB_CAPTURING:
-        return rb->GetNativeImageNamed(IDR_TAB_CAPTURE_INDICATOR);
-      case TabAlertState::BLUETOOTH_CONNECTED:
-        return rb->GetNativeImageNamed(IDR_TAB_BLUETOOTH_INDICATOR);
-      case TabAlertState::USB_CONNECTED:
-        return rb->GetNativeImageNamed(IDR_TAB_USB_INDICATOR);
-      case TabAlertState::NONE:
-        break;
-    }
-    NOTREACHED();
-    return gfx::Image();
-  }
-#endif
-
-  gfx::VectorIconId icon_id = gfx::VectorIconId::VECTOR_ICON_NONE;
+  const gfx::VectorIcon* icon = nullptr;
   switch (alert_state) {
     case TabAlertState::AUDIO_PLAYING:
-      icon_id = gfx::VectorIconId::TAB_AUDIO;
+      icon = &kTabAudioIcon;
       break;
     case TabAlertState::AUDIO_MUTING:
-      icon_id = gfx::VectorIconId::TAB_AUDIO_MUTING;
+      icon = &kTabAudioMutingIcon;
       break;
     case TabAlertState::MEDIA_RECORDING:
-      icon_id = gfx::VectorIconId::TAB_MEDIA_RECORDING;
+      icon = &kTabMediaRecordingIcon;
       break;
     case TabAlertState::TAB_CAPTURING:
-      icon_id = gfx::VectorIconId::TAB_MEDIA_CAPTURING;
+      icon = &kTabMediaCapturingIcon;
       break;
     case TabAlertState::BLUETOOTH_CONNECTED:
-      icon_id = gfx::VectorIconId::TAB_BLUETOOTH_CONNECTED;
+      icon = &kTabBluetoothConnectedIcon;
       break;
     case TabAlertState::USB_CONNECTED:
-      icon_id = gfx::VectorIconId::TAB_USB_CONNECTED;
+      icon = &kTabUsbConnectedIcon;
       break;
     case TabAlertState::NONE:
-      break;
+      return gfx::Image();
   }
-  if (icon_id != gfx::VectorIconId::VECTOR_ICON_NONE)
-    return gfx::Image(gfx::CreateVectorIcon(icon_id, 16, button_color));
-
-  NOTREACHED();
-  return gfx::Image();
+  DCHECK(icon);
+  return gfx::Image(gfx::CreateVectorIcon(*icon, 16, button_color));
 }
 
 gfx::Image GetTabAlertIndicatorAffordanceImage(TabAlertState alert_state,

@@ -6,11 +6,11 @@
 #include "base/strings/sys_string_conversions.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/ui/autofill/autofill_dialog_models.h"
-#include "chrome/browser/ui/chrome_style.h"
 #import "chrome/browser/ui/cocoa/autofill/autofill_pop_up_button.h"
 #import "chrome/browser/ui/cocoa/autofill/autofill_textfield.h"
 #import "chrome/browser/ui/cocoa/autofill/autofill_tooltip_controller.h"
 #include "chrome/browser/ui/cocoa/autofill/card_unmask_prompt_view_bridge.h"
+#include "chrome/browser/ui/cocoa/chrome_style.h"
 #import "chrome/browser/ui/cocoa/constrained_window/constrained_window_button.h"
 #import "chrome/browser/ui/cocoa/constrained_window/constrained_window_control_utils.h"
 #import "chrome/browser/ui/cocoa/constrained_window/constrained_window_custom_sheet.h"
@@ -29,7 +29,7 @@
 #include "ui/base/cocoa/window_size_constants.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/gfx/color_palette.h"
-#include "ui/native_theme/native_theme_mac.h"
+#include "ui/native_theme/native_theme.h"
 
 namespace {
 
@@ -653,7 +653,7 @@ void CardUnmaskPromptViewBridge::PerformClose() {
 
   progressOverlayLabel_.reset([constrained_window::CreateLabel() retain]);
   NSColor* throbberBlueColor = skia::SkColorToCalibratedNSColor(
-      ui::NativeThemeMac::instance()->GetSystemColor(
+      ui::NativeTheme::GetInstanceForNativeUi()->GetSystemColor(
           ui::NativeTheme::kColorId_ThrobberSpinningColor));
   [progressOverlayLabel_ setTextColor:throbberBlueColor];
   [progressOverlayView_ addSubview:progressOverlayLabel_];

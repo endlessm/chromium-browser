@@ -62,6 +62,7 @@ MojoResult UnwrapPlatformFile(ScopedHandle handle, base::PlatformFile* file);
 // SharedMemoryHandle. Note that |read_only| is only an indicator of whether
 // |memory_handle| only supports read-only mapping. It does NOT have any
 // influence on the access control of the shared buffer object.
+MOJO_CPP_SYSTEM_EXPORT
 ScopedSharedBufferHandle WrapSharedMemoryHandle(
     const base::SharedMemoryHandle& memory_handle,
     size_t size,
@@ -74,6 +75,17 @@ UnwrapSharedMemoryHandle(ScopedSharedBufferHandle handle,
                          base::SharedMemoryHandle* memory_handle,
                          size_t* size,
                          bool* read_only);
+
+#if defined(OS_MACOSX) && !defined(OS_IOS)
+// Wraps a mach_port_t as a Mojo handle. This takes a reference to the
+// Mach port.
+MOJO_CPP_SYSTEM_EXPORT ScopedHandle WrapMachPort(mach_port_t port);
+
+// Unwraps a mach_port_t from a Mojo handle. The caller gets ownership of the
+// Mach port.
+MOJO_CPP_SYSTEM_EXPORT MojoResult UnwrapMachPort(ScopedHandle handle,
+                                                 mach_port_t* port);
+#endif  // defined(OS_MACOSX) && !defined(OS_IOS)
 
 }  // namespace mojo
 

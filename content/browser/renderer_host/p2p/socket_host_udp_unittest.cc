@@ -18,7 +18,7 @@
 #include "net/base/ip_endpoint.h"
 #include "net/base/net_errors.h"
 #include "net/log/net_log_with_source.h"
-#include "net/udp/datagram_server_socket.h"
+#include "net/socket/datagram_server_socket.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -39,7 +39,7 @@ class ScopedFakeClock : public rtc::ClockInterface {
   ScopedFakeClock() { prev_clock_ = rtc::SetClockForTesting(this); }
   ~ScopedFakeClock() override { rtc::SetClockForTesting(prev_clock_); }
   // ClockInterface implementation.
-  uint64_t TimeNanos() const override { return time_nanos_; }
+  int64_t TimeNanos() const override { return time_nanos_; }
   void SetTimeNanos(uint64_t time_nanos) { time_nanos_ = time_nanos; }
 
  private:

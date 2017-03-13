@@ -31,8 +31,8 @@
 #include "wtf/SpinLock.h"
 
 #include "platform/CrossThreadFunctional.h"
+#include "platform/WebTaskRunner.h"
 #include "public/platform/Platform.h"
-#include "public/platform/WebTaskRunner.h"
 #include "public/platform/WebThread.h"
 #include "public/platform/WebTraceLocation.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -74,9 +74,9 @@ TEST(SpinLockTest, Torture) {
   char sharedBuffer[bufferSize];
 
   std::unique_ptr<WebThread> thread1 =
-      wrapUnique(Platform::current()->createThread("thread1"));
+      WTF::wrapUnique(Platform::current()->createThread("thread1"));
   std::unique_ptr<WebThread> thread2 =
-      wrapUnique(Platform::current()->createThread("thread2"));
+      WTF::wrapUnique(Platform::current()->createThread("thread2"));
 
   thread1->getWebTaskRunner()->postTask(
       BLINK_FROM_HERE,

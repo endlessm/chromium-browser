@@ -68,7 +68,7 @@ class AsyncMethodRunner final
 
   // If it's scheduled to run the method, cancel it and remember to schedule
   // it again when resume() is called. Mainly for implementing
-  // ActiveDOMObject::suspend().
+  // SuspendableObject::suspend().
   void suspend() {
     if (m_suspended)
       return;
@@ -104,8 +104,7 @@ class AsyncMethodRunner final
     }
 
     ASSERT(!m_runWhenResumed);
-    if (m_timer.isActive())
-      m_timer.stop();
+    m_timer.stop();
   }
 
   bool isActive() const { return m_timer.isActive(); }

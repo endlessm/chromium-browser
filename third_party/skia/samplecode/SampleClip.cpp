@@ -6,15 +6,17 @@
  */
 
 #include "SampleCode.h"
+#include "SkAAClip.h"
 #include "SkView.h"
 #include "SkCanvas.h"
 #include "SkColorPriv.h"
 #include "SkPaint.h"
 #include "SkPath.h"
 #include "SkRandom.h"
+#include "SkClipOpPriv.h"
 
-#define W   150
-#define H   200
+constexpr int W = 150;
+constexpr int H = 200;
 
 static void show_text(SkCanvas* canvas, bool doAA) {
     SkRandom rand;
@@ -101,8 +103,6 @@ static void show_thick(SkCanvas* canvas, bool doAA) {
 
 typedef void (*CanvasProc)(SkCanvas*, bool);
 
-#include "SkAAClip.h"
-
 class ClipView : public SampleView {
 public:
     ClipView() {
@@ -143,7 +143,7 @@ protected:
             canvas->save();
             for (size_t i = 0; i < SK_ARRAY_COUNT(gProc); ++i) {
                 canvas->save();
-                canvas->clipPath(clipPath, SkCanvas::kIntersect_Op, SkToBool(aa));
+                canvas->clipPath(clipPath, kIntersect_SkClipOp, SkToBool(aa));
 //                canvas->drawColor(SK_ColorWHITE);
                 gProc[i](canvas, SkToBool(aa));
                 canvas->restore();

@@ -26,7 +26,6 @@ class Buffer;
 class ErrorState;
 class ErrorStateClient;
 class FeatureInfo;
-class Framebuffer;
 class IndexedBufferBindingHost;
 class Logger;
 class Program;
@@ -68,21 +67,32 @@ struct GPU_EXPORT TextureUnit {
       GLenum type) {
     switch (type) {
       case GL_SAMPLER_2D:
+      case GL_SAMPLER_2D_SHADOW:
+      case GL_INT_SAMPLER_2D:
+      case GL_UNSIGNED_INT_SAMPLER_2D:
         return bound_texture_2d;
       case GL_SAMPLER_CUBE:
+      case GL_SAMPLER_CUBE_SHADOW:
+      case GL_INT_SAMPLER_CUBE:
+      case GL_UNSIGNED_INT_SAMPLER_CUBE:
         return bound_texture_cube_map;
       case GL_SAMPLER_EXTERNAL_OES:
         return bound_texture_external_oes;
       case GL_SAMPLER_2D_RECT_ARB:
         return bound_texture_rectangle_arb;
       case GL_SAMPLER_3D:
+      case GL_INT_SAMPLER_3D:
+      case GL_UNSIGNED_INT_SAMPLER_3D:
         return bound_texture_3d;
       case GL_SAMPLER_2D_ARRAY:
+      case GL_SAMPLER_2D_ARRAY_SHADOW:
+      case GL_INT_SAMPLER_2D_ARRAY:
+      case GL_UNSIGNED_INT_SAMPLER_2D_ARRAY:
         return bound_texture_2d_array;
     }
 
     NOTREACHED();
-    return NULL;
+    return nullptr;
   }
 
   scoped_refptr<TextureRef>& GetInfoForTarget(GLenum target) {
@@ -166,6 +176,8 @@ struct GPU_EXPORT ContextState {
 
   void Initialize();
 
+  void SetLineWidthBounds(GLfloat min, GLfloat max);
+
   void SetIgnoreCachedStateForTest(bool ignore) {
     ignore_cached_state = ignore;
   }
@@ -192,6 +204,7 @@ struct GPU_EXPORT ContextState {
 
   void PushTextureDecompressionUnpackState() const;
   void RestoreUnpackState() const;
+  void DoLineWidth(GLfloat width) const;
 
   // Helper for getting cached state.
   bool GetStateAsGLint(
@@ -341,12 +354,19 @@ struct GPU_EXPORT ContextState {
 
   void InitStateManual(const ContextState* prev_state) const;
 
-  bool framebuffer_srgb_;
+  // EnableDisableFramebufferSRGB is called at very high frequency. Cache the
+  // true value of FRAMEBUFFER_SRGB, if we know it, to elide some of these
+  // calls.
+  bool framebuffer_srgb_valid_ = false;
+  bool framebuffer_srgb_ = false;
 
   // Generic vertex attrib base types: FLOAT, INT, or UINT.
   // Each base type is encoded into 2 bits, the lowest 2 bits for location 0,
   // the highest 2 bits for location (max_vertex_attribs - 1).
   std::vector<uint32_t> generic_attrib_base_type_mask_;
+
+  GLfloat line_width_min_ = 0.0f;
+  GLfloat line_width_max_ = 1.0f;
 
   FeatureInfo* feature_info_;
   std::unique_ptr<ErrorState> error_state_;
@@ -356,4 +376,3 @@ struct GPU_EXPORT ContextState {
 }  // namespace gpu
 
 #endif  // GPU_COMMAND_BUFFER_SERVICE_CONTEXT_STATE_H_
-

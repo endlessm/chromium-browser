@@ -9,6 +9,7 @@
 
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -47,6 +48,8 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothDeviceBlueZ
       base::Callback<void(const std::vector<BluetoothServiceRecordBlueZ>&)>;
   using GetServiceRecordsErrorCallback =
       base::Callback<void(BluetoothServiceRecordBlueZ::ErrorCode)>;
+
+  ~BluetoothDeviceBlueZ() override;
 
   // BluetoothDevice override
   uint32_t GetBluetoothClass() const override;
@@ -119,6 +122,18 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothDeviceBlueZ
   //    advertising service data for a UUID.
   void UpdateServiceData();
 
+  // Called by BluetoothAdapterBlueZ to update manufacturer_data_ defined in
+  // BluetoothDevice when receive DevicePropertyChanged event for the
+  // manufacturer data property. Note that same BlueZ implementation detail from
+  // UpdateServiceData() also applies here.
+  void UpdateManufacturerData();
+
+  // Called by BluetoothAdapterBlueZ to update advertising_data_flags_ defined
+  // in BluetoothDevice when receive DevicePropertyChanged event for the
+  // advertising data flags property. Note that same BlueZ implementation detail
+  // from UpdateServiceData() also applies here.
+  void UpdateAdvertisingDataFlags();
+
   // Creates a pairing object with the given delegate |pairing_delegate| and
   // establishes it as the pairing context for this device. All pairing-related
   // method calls will be forwarded to this object until it is released.
@@ -151,7 +166,6 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothDeviceBlueZ
       const dbus::ObjectPath& object_path,
       scoped_refptr<base::SequencedTaskRunner> ui_task_runner,
       scoped_refptr<device::BluetoothSocketThread> socket_thread);
-  ~BluetoothDeviceBlueZ() override;
 
   // bluez::BluetoothGattServiceClient::Observer overrides
   void GattServiceAdded(const dbus::ObjectPath& object_path) override;

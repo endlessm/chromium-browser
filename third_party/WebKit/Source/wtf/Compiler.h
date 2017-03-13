@@ -26,6 +26,8 @@
 #ifndef WTF_Compiler_h
 #define WTF_Compiler_h
 
+#include "base/compiler_specific.h"
+
 /* COMPILER() - the compiler being used to build the project */
 #define COMPILER(WTF_FEATURE) \
   (defined WTF_COMPILER_##WTF_FEATURE && WTF_COMPILER_##WTF_FEATURE)
@@ -59,73 +61,11 @@
 
 /* ==== Compiler features ==== */
 
-/* ALWAYS_INLINE */
-
-#ifndef ALWAYS_INLINE
-#if COMPILER(GCC) && defined(NDEBUG) && !COMPILER(MINGW)
-#define ALWAYS_INLINE inline __attribute__((__always_inline__))
-#elif COMPILER(MSVC) && defined(NDEBUG)
-#define ALWAYS_INLINE __forceinline
-#else
-#define ALWAYS_INLINE inline
-#endif
-#endif
-
 /* NEVER_INLINE */
 
-#ifndef NEVER_INLINE
-#if COMPILER(GCC)
-#define NEVER_INLINE __attribute__((__noinline__))
-#elif COMPILER(MSVC)
-#define NEVER_INLINE __declspec(noinline)
-#else
-#define NEVER_INLINE
-#endif
-#endif
-
-/* UNLIKELY */
-
-#ifndef UNLIKELY
-#if COMPILER(GCC)
-#define UNLIKELY(x) __builtin_expect((x), 0)
-#else
-#define UNLIKELY(x) (x)
-#endif
-#endif
-
-/* LIKELY */
-
-#ifndef LIKELY
-#if COMPILER(GCC)
-#define LIKELY(x) __builtin_expect((x), 1)
-#else
-#define LIKELY(x) (x)
-#endif
-#endif
-
-/* NO_RETURN */
-
-#ifndef NO_RETURN
-#if COMPILER(GCC)
-#define NO_RETURN __attribute((__noreturn__))
-#elif COMPILER(MSVC)
-#define NO_RETURN __declspec(noreturn)
-#else
-#define NO_RETURN
-#endif
-#endif
-
-/* WARN_UNUSED_RETURN */
-
-#if COMPILER(GCC)
-#define WARN_UNUSED_RETURN __attribute__((warn_unused_result))
-#else
-#define WARN_UNUSED_RETURN
-#endif
-
-/* ALLOW_UNUSED_LOCAL */
-
-#define ALLOW_UNUSED_LOCAL(x) false ? (void)x : (void)0
+// TODO(palmer): Remove this and update callers to use NOINLINE from Chromium
+// base. https://bugs.chromium.org/p/chromium/issues/detail?id=632441
+#define NEVER_INLINE NOINLINE
 
 /* OBJC_CLASS */
 
@@ -155,15 +95,6 @@
   __attribute__((no_sanitize("cfi-unrelated-cast", "vptr")))
 #else
 #define NO_SANITIZE_UNRELATED_CAST
-#endif
-
-/* WTF_NON_EXPORTED_BASE; similar NON_EXPORTED_BASE in base/compiler_specific.h
- */
-
-#if COMPILER(MSVC)
-#define WTF_NON_EXPORTED_BASE(code) __pragma(warning(suppress : 4275)) code
-#else
-#define WTF_NON_EXPORTED_BASE(code) code
 #endif
 
 #endif /* WTF_Compiler_h */

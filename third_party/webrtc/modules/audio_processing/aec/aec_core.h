@@ -26,6 +26,7 @@ extern "C" {
 #include "webrtc/common_audio/wav_file.h"
 #include "webrtc/modules/audio_processing/aec/aec_common.h"
 #include "webrtc/modules/audio_processing/utility/block_mean_calculator.h"
+#include "webrtc/modules/audio_processing/utility/ooura_fft.h"
 #include "webrtc/typedefs.h"
 
 namespace webrtc {
@@ -134,6 +135,7 @@ struct AecCore {
   ~AecCore();
 
   std::unique_ptr<ApmDataDumper> data_dumper;
+  const OouraFft ooura_fft;
 
   CoherenceState coherence_state;
 
@@ -237,8 +239,7 @@ struct AecCore {
   int delay_agnostic_enabled;
   // 1 = extended filter mode enabled, 0 = disabled.
   int extended_filter_enabled;
-  // 1 = next generation aec mode enabled, 0 = disabled.
-  int aec3_enabled;
+  // 1 = refined filter adaptation aec mode enabled, 0 = disabled.
   bool refined_adaptive_filter_enabled;
 
   // Runtime selection of number of filter partitions.
@@ -307,12 +308,6 @@ void WebRtcAec_enable_delay_agnostic(AecCore* self, int enable);
 // Returns non-zero if delay agnostic (i.e., signal based delay estimation) is
 // enabled and zero if disabled.
 int WebRtcAec_delay_agnostic_enabled(AecCore* self);
-
-// Non-zero enables, zero disables.
-void WebRtcAec_enable_aec3(AecCore* self, int enable);
-
-// Returns 1 if the next generation aec is enabled and zero if disabled.
-int WebRtcAec_aec3_enabled(AecCore* self);
 
 // Turns on/off the refined adaptive filter feature.
 void WebRtcAec_enable_refined_adaptive_filter(AecCore* self, bool enable);

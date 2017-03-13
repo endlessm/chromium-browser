@@ -5,22 +5,28 @@
 #include <stdint.h>
 
 #include "build/build_config.h"
+#include "base/command_line.h"
 #include "base/time/time.h"
 #include "chrome/app/chrome_main_delegate.h"
 #include "chrome/common/features.h"
 #include "content/public/app/content_main.h"
+#include "content/public/common/content_switches.h"
+#include "headless/public/headless_shell.h"
+#include "ui/gfx/switches.h"
 
 #if BUILDFLAG(ENABLE_PACKAGE_MASH_SERVICES)
-#include "base/command_line.h"
 #include "chrome/app/mash/mash_runner.h"
 #include "chrome/common/channel_info.h"
 #include "components/version_info/version_info.h"
+#include "services/service_manager/runner/common/client_util.h"
 #endif
 
 #if defined(OS_WIN)
 #include "base/debug/dump_without_crashing.h"
 #include "base/win/win_util.h"
 #include "chrome/common/chrome_constants.h"
+#include "chrome/install_static/initialize_from_primary_module.h"
+#include "chrome/install_static/install_details.h"
 
 #define DLLEXPORT __declspec(dllexport)
 
@@ -45,14 +51,10 @@ DLLEXPORT int __cdecl ChromeMain(HINSTANCE instance,
 int ChromeMain(int argc, const char** argv) {
   int64_t exe_entry_point_ticks = 0;
 #endif
-#if defined(OS_WIN) && defined(ARCH_CPU_X86_64)
-  // VS2013 only checks the existence of FMA3 instructions, not the enabled-ness
-  // of them at the OS level (this is fixed in VS2015). We force off usage of
-  // FMA3 instructions in the CRT to avoid using that path and hitting illegal
-  // instructions when running on CPUs that support FMA3, but OSs that don't.
-  // See http://crbug.com/436603.
-  _set_FMA3_enable(0);
-#endif  // WIN && ARCH_CPU_X86_64
+
+#if defined(OS_WIN)
+  install_static::InitializeFromPrimaryModule();
+#endif
 
   ChromeMainDelegate chrome_main_delegate(
       base::TimeTicks::FromInternalValue(exe_entry_point_ticks));
@@ -66,7 +68,7 @@ int ChromeMain(int argc, const char** argv) {
   params.sandbox_info = sandbox_info;
 
   // SetDumpWithoutCrashingFunction must be passed the DumpProcess function
-  // from the EXE and not from the DLL in order for DumpWithoutCrashing to
+  // from chrome_elf and not from the DLL in order for DumpWithoutCrashing to
   // function correctly.
   typedef void (__cdecl *DumpProcessFunction)();
   DumpProcessFunction DumpProcess = reinterpret_cast<DumpProcessFunction>(
@@ -74,23 +76,36 @@ int ChromeMain(int argc, const char** argv) {
                        "DumpProcessWithoutCrash"));
   CHECK(DumpProcess);
   base::debug::SetDumpWithoutCrashingFunction(DumpProcess);
+
+  // Verify that chrome_elf and this module (chrome.dll and chrome_child.dll)
+  // have the same version.
+  if (install_static::InstallDetails::Get().VersionMismatch())
+    base::debug::DumpWithoutCrashing();
 #else
   params.argc = argc;
   params.argv = argv;
 #endif
 
-#if BUILDFLAG(ENABLE_PACKAGE_MASH_SERVICES)
 #if !defined(OS_WIN)
   base::CommandLine::Init(params.argc, params.argv);
+  const base::CommandLine* command_line(base::CommandLine::ForCurrentProcess());
+  ALLOW_UNUSED_LOCAL(command_line);
 #endif
 
+#if defined(OS_LINUX)
+  if (command_line->HasSwitch(switches::kHeadless))
+    return headless::HeadlessShellMain(argc, argv);
+#endif  // defined(OS_LINUX)
+
+#if BUILDFLAG(ENABLE_PACKAGE_MASH_SERVICES)
   version_info::Channel channel = chrome::GetChannel();
   if (channel == version_info::Channel::CANARY ||
       channel == version_info::Channel::UNKNOWN) {
-    const base::CommandLine& command_line =
-        *base::CommandLine::ForCurrentProcess();
-    if (command_line.HasSwitch("mash"))
+    if (command_line->HasSwitch("mash"))
       return MashMain();
+    WaitForMashDebuggerIfNecessary();
+    if (service_manager::ServiceManagerIsRemote())
+      params.env_mode = aura::Env::Mode::MUS;
   }
 #endif  // BUILDFLAG(ENABLE_PACKAGE_MASH_SERVICES)
 

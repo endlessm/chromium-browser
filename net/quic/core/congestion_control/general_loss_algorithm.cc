@@ -5,9 +5,9 @@
 #include "net/quic/core/congestion_control/general_loss_algorithm.h"
 
 #include "net/quic/core/congestion_control/rtt_stats.h"
-#include "net/quic/core/quic_bug_tracker.h"
 #include "net/quic/core/quic_flags.h"
-#include "net/quic/core/quic_protocol.h"
+#include "net/quic/core/quic_packets.h"
+#include "net/quic/platform/api/quic_bug_tracker.h"
 
 namespace net {
 
@@ -30,7 +30,8 @@ GeneralLossAlgorithm::GeneralLossAlgorithm()
     : loss_detection_timeout_(QuicTime::Zero()),
       largest_sent_on_spurious_retransmit_(0),
       loss_type_(kNack),
-      reordering_shift_(kDefaultLossDelayShift) {}
+      reordering_shift_(kDefaultLossDelayShift),
+      largest_previously_acked_(0) {}
 
 GeneralLossAlgorithm::GeneralLossAlgorithm(LossDetectionType loss_type)
     : loss_detection_timeout_(QuicTime::Zero()),
@@ -38,7 +39,8 @@ GeneralLossAlgorithm::GeneralLossAlgorithm(LossDetectionType loss_type)
       loss_type_(loss_type),
       reordering_shift_(loss_type == kAdaptiveTime
                             ? kDefaultAdaptiveLossDelayShift
-                            : kDefaultLossDelayShift) {}
+                            : kDefaultLossDelayShift),
+      largest_previously_acked_(0) {}
 
 LossDetectionType GeneralLossAlgorithm::GetLossDetectionType() const {
   return loss_type_;
@@ -51,6 +53,7 @@ void GeneralLossAlgorithm::SetLossDetectionType(LossDetectionType loss_type) {
   reordering_shift_ = loss_type == kAdaptiveTime
                           ? kDefaultAdaptiveLossDelayShift
                           : kDefaultLossDelayShift;
+  largest_previously_acked_ = 0;
 }
 
 // Uses nack counts to decide when packets are lost.
@@ -81,13 +84,23 @@ void GeneralLossAlgorithm::DetectLosses(
         packets_lost->push_back(std::make_pair(packet_number, it->bytes_sent));
         continue;
       }
+    } else if (loss_type_ == kLazyFack) {
+      // Require two in order acks to invoke FACK, which avoids spuriously
+      // retransmitting packets when one packet is reordered by a large amount.
+      if (largest_newly_acked > largest_previously_acked_ &&
+          largest_previously_acked_ > packet_number &&
+          largest_previously_acked_ - packet_number >=
+              (kNumberOfNacksBeforeRetransmission - 1)) {
+        packets_lost->push_back(std::make_pair(packet_number, it->bytes_sent));
+        continue;
+      }
     }
 
     // Only early retransmit(RFC5827) when the last packet gets acked and
     // there are retransmittable packets in flight.
     // This also implements a timer-protected variant of FACK.
     if ((!it->retransmittable_frames.empty() &&
-         (FLAGS_quic_largest_sent_retransmittable
+         (FLAGS_quic_reloadable_flag_quic_largest_sent_retransmittable
               ? unacked_packets.largest_sent_retransmittable_packet()
               : unacked_packets.largest_sent_packet()) <=
              largest_newly_acked) ||
@@ -108,6 +121,7 @@ void GeneralLossAlgorithm::DetectLosses(
       continue;
     }
   }
+  largest_previously_acked_ = largest_newly_acked;
 }
 
 QuicTime GeneralLossAlgorithm::GetLossTimeout() const {

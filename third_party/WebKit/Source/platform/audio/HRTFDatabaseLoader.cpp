@@ -30,8 +30,8 @@
 
 #include "platform/CrossThreadFunctional.h"
 #include "platform/WaitableEvent.h"
+#include "platform/WebTaskRunner.h"
 #include "public/platform/Platform.h"
-#include "public/platform/WebTaskRunner.h"
 #include "public/platform/WebTraceLocation.h"
 #include "wtf/PtrUtil.h"
 
@@ -95,8 +95,8 @@ void HRTFDatabaseLoader::loadAsynchronously() {
   DCHECK(!m_thread);
 
   // Start the asynchronous database loading process.
-  m_thread =
-      wrapUnique(Platform::current()->createThread("HRTF database loader"));
+  m_thread = WTF::wrapUnique(
+      Platform::current()->createThread("HRTF database loader"));
   // TODO(alexclarke): Should this be posted as a loading task?
   m_thread->getWebTaskRunner()->postTask(
       BLINK_FROM_HERE, crossThreadBind(&HRTFDatabaseLoader::loadTask,

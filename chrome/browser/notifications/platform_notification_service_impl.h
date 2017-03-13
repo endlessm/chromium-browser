@@ -29,6 +29,10 @@ class NotificationDelegate;
 class NotificationDisplayService;
 class ScopedKeepAlive;
 
+namespace base {
+class NullableString16;
+}
+
 namespace content {
 class BrowserContext;
 struct NotificationResources;
@@ -53,7 +57,8 @@ class PlatformNotificationServiceImpl
   void OnPersistentNotificationClick(content::BrowserContext* browser_context,
                                      const std::string& notification_id,
                                      const GURL& origin,
-                                     int action_index);
+                                     int action_index,
+                                     const base::NullableString16& reply);
 
   // To be called when a persistent notification has been closed. The data
   // associated with the notification has to be pruned from the database in this
@@ -90,7 +95,7 @@ class PlatformNotificationServiceImpl
       const content::NotificationResources& notification_resources) override;
   void ClosePersistentNotification(content::BrowserContext* browser_context,
                                    const std::string& notification_id) override;
-  bool GetDisplayedPersistentNotifications(
+  bool GetDisplayedNotifications(
       content::BrowserContext* browser_context,
       std::set<std::string>* displayed_notifications) override;
 
@@ -114,7 +119,8 @@ class PlatformNotificationServiceImpl
   void OnCloseEventDispatchComplete(
       content::PersistentNotificationStatus status);
 
-  // Creates a new Web Notification-based Notification object.
+  // Creates a new Web Notification-based Notification object. Should only be
+  // called when the notification is first shown.
   // TODO(peter): |delegate| can be a scoped_refptr, but properly passing this
   // through requires changing a whole lot of Notification constructor calls.
   Notification CreateNotificationFromData(

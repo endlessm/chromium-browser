@@ -2,16 +2,17 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "ash/aura/wm_window_aura.h"
 #include "ash/common/accessibility_types.h"
 #include "ash/common/shelf/shelf_layout_manager.h"
 #include "ash/common/shelf/wm_shelf.h"
-#include "ash/common/shell_window_ids.h"
+#include "ash/common/wm_window.h"
+#include "ash/public/cpp/shell_window_ids.h"
 #include "ash/root_window_controller.h"
 #include "ash/shell.h"
 #include "base/macros.h"
 #include "chrome/browser/chromeos/accessibility/accessibility_manager.h"
 #include "chrome/browser/chromeos/accessibility/chromevox_panel.h"
+#include "chrome/browser/data_use_measurement/data_use_web_contents_observer.h"
 #include "chrome/browser/extensions/chrome_extension_web_contents_observer.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "content/public/browser/web_contents.h"
@@ -76,6 +77,8 @@ ChromeVoxPanel::ChromeVoxPanel(content::BrowserContext* browser_context)
   content::WebContents* contents = web_view->GetWebContents();
   web_contents_observer_.reset(
       new ChromeVoxPanelWebContentsObserver(contents, this));
+  data_use_measurement::DataUseWebContentsObserver::CreateForWebContents(
+      contents);
   extensions::SetViewType(contents, extensions::VIEW_TYPE_COMPONENT);
   extensions::ChromeExtensionWebContentsObserver::CreateForWebContents(
       contents);
@@ -93,7 +96,7 @@ ChromeVoxPanel::ChromeVoxPanel(content::BrowserContext* browser_context)
   params.bounds = gfx::Rect(0, 0, root_window->bounds().width(),
                             root_window->bounds().height());
   widget_->Init(params);
-  SetShadowType(widget_->GetNativeWindow(), wm::SHADOW_TYPE_RECTANGULAR);
+  SetShadowElevation(widget_->GetNativeWindow(), wm::ShadowElevation::MEDIUM);
 
   display::Screen::GetScreen()->AddObserver(this);
 }
@@ -117,7 +120,7 @@ void ChromeVoxPanel::DidFirstVisuallyNonEmptyPaint() {
 
 void ChromeVoxPanel::UpdatePanelHeight() {
   ash::WmShelf* shelf =
-      ash::WmShelf::ForWindow(ash::WmWindowAura::Get(GetRootWindow()));
+      ash::WmShelf::ForWindow(ash::WmWindow::Get(GetRootWindow()));
   if (!shelf->IsShelfInitialized())
     return;
 

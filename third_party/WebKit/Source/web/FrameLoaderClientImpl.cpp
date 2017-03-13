@@ -49,6 +49,7 @@
 #include "core/loader/FrameLoadRequest.h"
 #include "core/loader/FrameLoader.h"
 #include "core/loader/HistoryItem.h"
+#include "core/origin_trials/OriginTrials.h"
 #include "core/page/Page.h"
 #include "core/page/WindowFeatures.h"
 #include "modules/audio_output_devices/HTMLMediaElementAudioOutputDevice.h"
@@ -58,23 +59,23 @@
 #include "modules/device_orientation/DeviceOrientationController.h"
 #include "modules/encryptedmedia/HTMLMediaElementEncryptedMedia.h"
 #include "modules/gamepad/NavigatorGamepad.h"
+#include "modules/remoteplayback/HTMLMediaElementRemotePlayback.h"
+#include "modules/remoteplayback/RemotePlayback.h"
 #include "modules/serviceworkers/NavigatorServiceWorker.h"
 #include "modules/serviceworkers/ServiceWorkerLinkResource.h"
 #include "modules/storage/DOMWindowStorageController.h"
 #include "modules/vr/NavigatorVR.h"
 #include "platform/Histogram.h"
-#include "platform/MIMETypeRegistry.h"
 #include "platform/RuntimeEnabledFeatures.h"
 #include "platform/UserGestureIndicator.h"
 #include "platform/exported/WrappedResourceRequest.h"
 #include "platform/exported/WrappedResourceResponse.h"
-#include "platform/fonts/GlyphPageTreeNode.h"
 #include "platform/network/HTTPParsers.h"
+#include "platform/network/mime/MIMETypeRegistry.h"
 #include "platform/plugins/PluginData.h"
 #include "public/platform/Platform.h"
 #include "public/platform/WebApplicationCacheHost.h"
 #include "public/platform/WebMediaPlayerSource.h"
-#include "public/platform/WebMimeRegistry.h"
 #include "public/platform/WebRTCPeerConnectionHandler.h"
 #include "public/platform/WebSecurityOrigin.h"
 #include "public/platform/WebURL.h"
@@ -155,7 +156,8 @@ void FrameLoaderClientImpl::dispatchDidClearWindowObjectInMainWorld() {
       NavigatorGamepad::from(*document);
       NavigatorServiceWorker::from(*document);
       DOMWindowStorageController::from(*document);
-      if (RuntimeEnabledFeatures::webVREnabled())
+      if (RuntimeEnabledFeatures::webVREnabled() ||
+          OriginTrials::webVREnabled(document->getExecutionContext()))
         NavigatorVR::from(*document);
     }
   }
@@ -188,11 +190,9 @@ void FrameLoaderClientImpl::runScriptsAtDocumentReady(bool documentIsEmpty) {
 
 void FrameLoaderClientImpl::didCreateScriptContext(
     v8::Local<v8::Context> context,
-    int extensionGroup,
     int worldId) {
   if (m_webFrame->client())
-    m_webFrame->client()->didCreateScriptContext(m_webFrame, context,
-                                                 extensionGroup, worldId);
+    m_webFrame->client()->didCreateScriptContext(m_webFrame, context, worldId);
 }
 
 void FrameLoaderClientImpl::willReleaseScriptContext(
@@ -203,13 +203,7 @@ void FrameLoaderClientImpl::willReleaseScriptContext(
                                                    worldId);
 }
 
-bool FrameLoaderClientImpl::allowScriptExtension(const String& extensionName,
-                                                 int extensionGroup,
-                                                 int worldId) {
-  if (m_webFrame->contentSettingsClient())
-    return m_webFrame->contentSettingsClient()->allowScriptExtension(
-        extensionName, extensionGroup, worldId);
-
+bool FrameLoaderClientImpl::allowScriptExtensions() {
   return true;
 }
 
@@ -289,11 +283,6 @@ void FrameLoaderClientImpl::didNotAllowPlugins() {
     m_webFrame->contentSettingsClient()->didNotAllowPlugins();
 }
 
-void FrameLoaderClientImpl::didUseKeygen() {
-  if (m_webFrame->contentSettingsClient())
-    m_webFrame->contentSettingsClient()->didUseKeygen();
-}
-
 bool FrameLoaderClientImpl::hasWebView() const {
   return m_webFrame->viewImpl();
 }
@@ -321,20 +310,12 @@ Frame* FrameLoaderClientImpl::top() const {
   return toCoreFrame(m_webFrame->top());
 }
 
-Frame* FrameLoaderClientImpl::previousSibling() const {
-  return toCoreFrame(m_webFrame->previousSibling());
-}
-
 Frame* FrameLoaderClientImpl::nextSibling() const {
   return toCoreFrame(m_webFrame->nextSibling());
 }
 
 Frame* FrameLoaderClientImpl::firstChild() const {
   return toCoreFrame(m_webFrame->firstChild());
-}
-
-Frame* FrameLoaderClientImpl::lastChild() const {
-  return toCoreFrame(m_webFrame->lastChild());
 }
 
 void FrameLoaderClientImpl::willBeDetached() {
@@ -424,11 +405,9 @@ void FrameLoaderClientImpl::dispatchWillCommitProvisionalLoad() {
     m_webFrame->client()->willCommitProvisionalLoad(m_webFrame);
 }
 
-void FrameLoaderClientImpl::dispatchDidStartProvisionalLoad(
-    double triggeringEventTime) {
+void FrameLoaderClientImpl::dispatchDidStartProvisionalLoad() {
   if (m_webFrame->client())
-    m_webFrame->client()->didStartProvisionalLoad(m_webFrame,
-                                                  triggeringEventTime);
+    m_webFrame->client()->didStartProvisionalLoad(m_webFrame);
   if (WebDevToolsAgentImpl* devTools = devToolsAgent())
     devTools->didStartProvisionalLoad(m_webFrame->frame());
 }
@@ -451,13 +430,6 @@ void FrameLoaderClientImpl::dispatchDidCommitLoad(
   if (!m_webFrame->parent()) {
     m_webFrame->viewImpl()->didCommitLoad(commitType == StandardCommit, false);
   }
-
-  // Save some histogram data so we can compute the average memory used per
-  // page load of the glyphs.
-  // TODO(esprehn): Is this ancient uma actually useful?
-  DEFINE_STATIC_LOCAL(CustomCountHistogram, gyphsPagesPerLoadHistogram,
-                      ("Memory.GlyphPagesPerLoad", 1, 10000, 50));
-  gyphsPagesPerLoadHistogram.count(GlyphPageTreeNode::treeGlyphPageCount());
 
   if (m_webFrame->client())
     m_webFrame->client()->didCommitProvisionalLoad(
@@ -489,14 +461,14 @@ void FrameLoaderClientImpl::dispatchDidChangeThemeColor() {
 
 static bool allowCreatingBackgroundTabs() {
   const WebInputEvent* inputEvent = WebViewImpl::currentInputEvent();
-  if (!inputEvent || (inputEvent->type != WebInputEvent::MouseUp &&
-                      (inputEvent->type != WebInputEvent::RawKeyDown &&
-                       inputEvent->type != WebInputEvent::KeyDown) &&
-                      inputEvent->type != WebInputEvent::GestureTap))
+  if (!inputEvent || (inputEvent->type() != WebInputEvent::MouseUp &&
+                      (inputEvent->type() != WebInputEvent::RawKeyDown &&
+                       inputEvent->type() != WebInputEvent::KeyDown) &&
+                      inputEvent->type() != WebInputEvent::GestureTap))
     return false;
 
   unsigned short buttonNumber;
-  if (WebInputEvent::isMouseEventType(inputEvent->type)) {
+  if (WebInputEvent::isMouseEventType(inputEvent->type())) {
     const WebMouseEvent* mouseEvent =
         static_cast<const WebMouseEvent*>(inputEvent);
 
@@ -517,10 +489,10 @@ static bool allowCreatingBackgroundTabs() {
     // The click is simulated when triggering the keypress event.
     buttonNumber = 0;
   }
-  bool ctrl = inputEvent->modifiers & WebMouseEvent::ControlKey;
-  bool shift = inputEvent->modifiers & WebMouseEvent::ShiftKey;
-  bool alt = inputEvent->modifiers & WebMouseEvent::AltKey;
-  bool meta = inputEvent->modifiers & WebMouseEvent::MetaKey;
+  bool ctrl = inputEvent->modifiers() & WebMouseEvent::ControlKey;
+  bool shift = inputEvent->modifiers() & WebMouseEvent::ShiftKey;
+  bool alt = inputEvent->modifiers() & WebMouseEvent::AltKey;
+  bool meta = inputEvent->modifiers() & WebMouseEvent::MetaKey;
 
   NavigationPolicy userPolicy;
   if (!navigationPolicyFromMouseEvent(buttonNumber, ctrl, shift, alt, meta,
@@ -535,7 +507,8 @@ NavigationPolicy FrameLoaderClientImpl::decidePolicyForNavigation(
     NavigationType type,
     NavigationPolicy policy,
     bool replacesCurrentHistoryItem,
-    bool isClientRedirect) {
+    bool isClientRedirect,
+    HTMLFormElement* form) {
   if (!m_webFrame->client())
     return NavigationPolicyIgnore;
 
@@ -571,6 +544,14 @@ NavigationPolicy FrameLoaderClientImpl::decidePolicyForNavigation(
   navigationInfo.isHistoryNavigationInNewChildFrame =
       isHistoryNavigationInNewChildFrame;
   navigationInfo.isClientRedirect = isClientRedirect;
+  // Caching could be disabled for requests initiated by DevTools.
+  // TODO(ananta)
+  // We should extract the network cache state into a global component which
+  // can be queried here and wherever necessary.
+  navigationInfo.isCacheDisabled =
+      devToolsAgent() ? devToolsAgent()->cacheDisabled() : false;
+  if (form)
+    navigationInfo.form = WebFormElement(form);
 
   WebNavigationPolicy webPolicy =
       m_webFrame->client()->decidePolicyForNavigation(navigationInfo);
@@ -614,6 +595,11 @@ void FrameLoaderClientImpl::loadURLExternally(const ResourceRequest& request,
   m_webFrame->client()->loadURLExternally(
       WrappedResourceRequest(request), static_cast<WebNavigationPolicy>(policy),
       suggestedName, shouldReplaceCurrentEntry);
+}
+
+void FrameLoaderClientImpl::loadErrorPage(int reason) {
+  if (m_webFrame->client())
+    m_webFrame->client()->loadErrorPage(reason);
 }
 
 bool FrameLoaderClientImpl::navigateBackForward(int offset) const {
@@ -692,8 +678,12 @@ void FrameLoaderClientImpl::selectorMatchChanged(
 DocumentLoader* FrameLoaderClientImpl::createDocumentLoader(
     LocalFrame* frame,
     const ResourceRequest& request,
-    const SubstituteData& data) {
-  WebDataSourceImpl* ds = WebDataSourceImpl::create(frame, request, data);
+    const SubstituteData& data,
+    ClientRedirectPolicy clientRedirectPolicy) {
+  DCHECK(frame);
+
+  WebDataSourceImpl* ds =
+      WebDataSourceImpl::create(frame, request, data, clientRedirectPolicy);
   if (m_webFrame->client())
     m_webFrame->client()->didCreateDataSource(m_webFrame, ds);
   return ds;
@@ -785,9 +775,14 @@ std::unique_ptr<WebMediaPlayer> FrameLoaderClientImpl::createWebMediaPlayer(
   HTMLMediaElementEncryptedMedia& encryptedMedia =
       HTMLMediaElementEncryptedMedia::from(htmlMediaElement);
   WebString sinkId(HTMLMediaElementAudioOutputDevice::sinkId(htmlMediaElement));
-  return wrapUnique(webFrame->client()->createMediaPlayer(
+  return WTF::wrapUnique(webFrame->client()->createMediaPlayer(
       source, client, &encryptedMedia, encryptedMedia.contentDecryptionModule(),
       sinkId));
+}
+
+WebRemotePlaybackClient* FrameLoaderClientImpl::createWebRemotePlaybackClient(
+    HTMLMediaElement& htmlMediaElement) {
+  return HTMLMediaElementRemotePlayback::remote(htmlMediaElement);
 }
 
 ObjectContentType FrameLoaderClientImpl::getObjectContentType(
@@ -871,6 +866,12 @@ void FrameLoaderClientImpl::didChangeSandboxFlags(Frame* childFrame,
       WebFrame::fromFrame(childFrame), static_cast<WebSandboxFlags>(flags));
 }
 
+void FrameLoaderClientImpl::didSetFeaturePolicyHeader(
+    const WebParsedFeaturePolicy& parsedHeader) {
+  if (m_webFrame->client())
+    m_webFrame->client()->didSetFeaturePolicyHeader(parsedHeader);
+}
+
 void FrameLoaderClientImpl::didAddContentSecurityPolicy(
     const String& headerValue,
     ContentSecurityPolicyHeaderType type,
@@ -890,9 +891,11 @@ void FrameLoaderClientImpl::didChangeFrameOwnerProperties(
   m_webFrame->client()->didChangeFrameOwnerProperties(
       WebFrame::fromFrame(frameElement->contentFrame()),
       WebFrameOwnerProperties(
+          frameElement->browsingContextContainerName(),
           frameElement->scrollingMode(), frameElement->marginWidth(),
           frameElement->marginHeight(), frameElement->allowFullscreen(),
-          frameElement->csp(), frameElement->delegatedPermissions()));
+          frameElement->allowPaymentRequest(), frameElement->csp(),
+          frameElement->delegatedPermissions()));
 }
 
 void FrameLoaderClientImpl::dispatchWillStartUsingPeerConnectionHandler(
@@ -916,7 +919,7 @@ std::unique_ptr<WebServiceWorkerProvider>
 FrameLoaderClientImpl::createServiceWorkerProvider() {
   if (!m_webFrame->client())
     return nullptr;
-  return wrapUnique(m_webFrame->client()->createServiceWorkerProvider());
+  return WTF::wrapUnique(m_webFrame->client()->createServiceWorkerProvider());
 }
 
 bool FrameLoaderClientImpl::isControlledByServiceWorker(
@@ -943,7 +946,8 @@ FrameLoaderClientImpl::createApplicationCacheHost(
     WebApplicationCacheHostClient* client) {
   if (!m_webFrame->client())
     return nullptr;
-  return wrapUnique(m_webFrame->client()->createApplicationCacheHost(client));
+  return WTF::wrapUnique(
+      m_webFrame->client()->createApplicationCacheHost(client));
 }
 
 void FrameLoaderClientImpl::dispatchDidChangeManifest() {
@@ -993,6 +997,11 @@ WebDevToolsAgentImpl* FrameLoaderClientImpl::devToolsAgent() {
 
 KURL FrameLoaderClientImpl::overrideFlashEmbedWithHTML(const KURL& url) {
   return m_webFrame->client()->overrideFlashEmbedWithHTML(WebURL(url));
+}
+
+void FrameLoaderClientImpl::setHasReceivedUserGesture() {
+  if (m_webFrame->client())
+    m_webFrame->client()->setHasReceivedUserGesture();
 }
 
 }  // namespace blink

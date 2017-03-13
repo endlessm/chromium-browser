@@ -15,7 +15,7 @@
 #include "chrome/browser/ui/webui/ntp/new_tab_ui.h"
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "components/bookmarks/common/bookmark_pref_names.h"
-#include "components/syncable_prefs/pref_service_syncable.h"
+#include "components/sync_preferences/pref_service_syncable.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/web_contents.h"
 
@@ -125,15 +125,13 @@ void BookmarkTabHelper::BookmarkNodeChanged(BookmarkModel* model,
   UpdateStarredStateForCurrentURL();
 }
 
-void BookmarkTabHelper::DidNavigateMainFrame(
-    const content::LoadCommittedDetails& /*details*/,
-    const content::FrameNavigateParams& /*params*/) {
+void BookmarkTabHelper::DidStartNavigation(
+    content::NavigationHandle* navigation_handle) {
   UpdateStarredStateForCurrentURL();
 }
 
-void BookmarkTabHelper::DidStartNavigationToPendingEntry(
-    const GURL& /*url*/,
-    content::ReloadType /*reload_type*/) {
+void BookmarkTabHelper::DidFinishNavigation(
+    content::NavigationHandle* navigation_handle) {
   UpdateStarredStateForCurrentURL();
 }
 

@@ -74,15 +74,12 @@ void ExternalProtocolDialog::DeleteDelegate() {
 }
 
 bool ExternalProtocolDialog::Cancel() {
-  // We also get called back here if the user closes the dialog or presses
-  // escape. In these cases it would be preferable to ignore the state of the
-  // check box but MessageBox doesn't distinguish this from pressing the cancel
-  // button.
-  delegate_->DoCancel(delegate_->url(),
-                      message_box_view_->IsCheckBoxSelected());
+  bool is_checked = message_box_view_->IsCheckBoxSelected();
+  delegate_->DoCancel(delegate_->url(), is_checked);
 
-  ExternalProtocolHandler::RecordMetrics(
-      message_box_view_->IsCheckBoxSelected());
+  ExternalProtocolHandler::RecordCheckboxStateMetrics(is_checked);
+  ExternalProtocolHandler::RecordHandleStateMetrics(
+      is_checked, ExternalProtocolHandler::BLOCK);
 
   // Returning true closes the dialog.
   return true;
@@ -95,13 +92,23 @@ bool ExternalProtocolDialog::Accept() {
   UMA_HISTOGRAM_LONG_TIMES("clickjacking.launch_url",
                            base::TimeTicks::Now() - creation_time_);
 
-  ExternalProtocolHandler::RecordMetrics(
-      message_box_view_->IsCheckBoxSelected());
+  bool is_checked = message_box_view_->IsCheckBoxSelected();
+  ExternalProtocolHandler::RecordCheckboxStateMetrics(is_checked);
+  ExternalProtocolHandler::RecordHandleStateMetrics(
+      is_checked, ExternalProtocolHandler::DONT_BLOCK);
 
-  delegate_->DoAccept(delegate_->url(),
-                      message_box_view_->IsCheckBoxSelected());
+  delegate_->DoAccept(delegate_->url(), is_checked);
 
   // Returning true closes the dialog.
+  return true;
+}
+
+bool ExternalProtocolDialog::Close() {
+  // If the user dismisses the dialog without interacting with the buttons (e.g.
+  // via pressing Esc or the X), act as though they cancelled the request, but
+  // ignore the checkbox state. This ensures that if they check the checkbox but
+  // dismiss the dialog, we don't stop prompting them forever.
+  delegate_->DoCancel(delegate_->url(), false);
   return true;
 }
 

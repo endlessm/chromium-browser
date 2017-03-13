@@ -39,10 +39,11 @@ TextIteratorTextState::TextIteratorTextState(bool emitsOriginalText)
       m_positionEndOffset(0),
       m_hasEmitted(false),
       m_lastCharacter(0),
-      m_emitsOriginalText(emitsOriginalText) {}
+      m_emitsOriginalText(emitsOriginalText),
+      m_textStartOffset(0) {}
 
 UChar TextIteratorTextState::characterAt(unsigned index) const {
-  ASSERT_WITH_SECURITY_IMPLICATION(index < static_cast<unsigned>(length()));
+  SECURITY_DCHECK(index < static_cast<unsigned>(length()));
   if (!(index < static_cast<unsigned>(length())))
     return 0;
 
@@ -57,10 +58,8 @@ UChar TextIteratorTextState::characterAt(unsigned index) const {
 
 String TextIteratorTextState::substring(unsigned position,
                                         unsigned length) const {
-  ASSERT_WITH_SECURITY_IMPLICATION(position <=
-                                   static_cast<unsigned>(this->length()));
-  ASSERT_WITH_SECURITY_IMPLICATION(position + length <=
-                                   static_cast<unsigned>(this->length()));
+  SECURITY_DCHECK(position <= static_cast<unsigned>(this->length()));
+  SECURITY_DCHECK(position + length <= static_cast<unsigned>(this->length()));
   if (!length)
     return emptyString();
   if (m_singleCharacterBuffer) {
@@ -97,12 +96,14 @@ void TextIteratorTextState::updateForReplacedElement(Node* baseNode) {
 
   m_textLength = 0;
   m_lastCharacter = 0;
+  m_textStartOffset = 0;
 }
 
 void TextIteratorTextState::emitAltText(Node* node) {
   m_text = toHTMLElement(node)->altText();
   m_textLength = m_text.length();
   m_lastCharacter = m_textLength ? m_text[m_textLength - 1] : 0;
+  m_textStartOffset = 0;
 }
 
 void TextIteratorTextState::flushPositionOffsets() const {
@@ -138,6 +139,7 @@ void TextIteratorTextState::spliceBuffer(UChar c,
 
   // remember some iteration state
   m_lastCharacter = c;
+  m_textStartOffset = 0;
 }
 
 void TextIteratorTextState::emitText(Node* textNode,
@@ -163,15 +165,15 @@ void TextIteratorTextState::emitText(Node* textNode,
   m_lastCharacter = m_text[textEndOffset - 1];
 
   m_hasEmitted = true;
+  m_textStartOffset = layoutObject->textStartOffset();
 }
 
 void TextIteratorTextState::appendTextTo(ForwardsTextBuffer* output,
                                          unsigned position,
                                          unsigned lengthToAppend) const {
-  ASSERT_WITH_SECURITY_IMPLICATION(position + lengthToAppend <=
-                                   static_cast<unsigned>(length()));
+  SECURITY_DCHECK(position + lengthToAppend <= static_cast<unsigned>(length()));
   // Make sure there's no integer overflow.
-  ASSERT_WITH_SECURITY_IMPLICATION(position + lengthToAppend >= position);
+  SECURITY_DCHECK(position + lengthToAppend >= position);
   if (!lengthToAppend)
     return;
   DCHECK(output);

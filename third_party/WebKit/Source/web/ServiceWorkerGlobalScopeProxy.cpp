@@ -38,6 +38,7 @@
 #include "core/dom/MessagePort.h"
 #include "core/inspector/ConsoleMessage.h"
 #include "core/origin_trials/OriginTrials.h"
+#include "core/workers/ParentFrameTaskRunners.h"
 #include "core/workers/WorkerGlobalScope.h"
 #include "core/workers/WorkerThread.h"
 #include "modules/background_sync/SyncEvent.h"
@@ -45,6 +46,9 @@
 #include "modules/notifications/Notification.h"
 #include "modules/notifications/NotificationEvent.h"
 #include "modules/notifications/NotificationEventInit.h"
+#include "modules/payments/PaymentAppRequestData.h"
+#include "modules/payments/PaymentAppRequestDataConversion.h"
+#include "modules/payments/PaymentRequestEvent.h"
 #include "modules/push_messaging/PushEvent.h"
 #include "modules/push_messaging/PushMessageData.h"
 #include "modules/serviceworkers/ExtendableEvent.h"
@@ -85,6 +89,8 @@ ServiceWorkerGlobalScopeProxy::~ServiceWorkerGlobalScopeProxy() {
 
 DEFINE_TRACE(ServiceWorkerGlobalScopeProxy) {
   visitor->trace(m_document);
+  visitor->trace(m_parentFrameTaskRunners);
+  visitor->trace(m_pendingPreloadFetchEvents);
 }
 
 void ServiceWorkerGlobalScopeProxy::setRegistration(
@@ -139,8 +145,9 @@ void ServiceWorkerGlobalScopeProxy::dispatchExtendableMessageEvent(
   String origin;
   if (!sourceOrigin.isUnique())
     origin = sourceOrigin.toString();
-  ServiceWorker* source = ServiceWorker::from(
-      m_workerGlobalScope->getExecutionContext(), wrapUnique(handle.release()));
+  ServiceWorker* source =
+      ServiceWorker::from(m_workerGlobalScope->getExecutionContext(),
+                          WTF::wrapUnique(handle.release()));
   WaitUntilObserver* observer = WaitUntilObserver::create(
       workerGlobalScope(), WaitUntilObserver::Message, eventID);
 
@@ -150,16 +157,17 @@ void ServiceWorkerGlobalScopeProxy::dispatchExtendableMessageEvent(
 }
 
 void ServiceWorkerGlobalScopeProxy::dispatchFetchEvent(
-    int responseID,
-    int eventFinishID,
-    const WebServiceWorkerRequest& webRequest) {
+    int fetchEventID,
+    const WebServiceWorkerRequest& webRequest,
+    bool navigationPreloadSent) {
   ScriptState::Scope scope(
       workerGlobalScope()->scriptController()->getScriptState());
   WaitUntilObserver* waitUntilObserver = WaitUntilObserver::create(
-      workerGlobalScope(), WaitUntilObserver::Fetch, eventFinishID);
+      workerGlobalScope(), WaitUntilObserver::Fetch, fetchEventID);
   RespondWithObserver* respondWithObserver = RespondWithObserver::create(
-      workerGlobalScope(), responseID, webRequest.url(), webRequest.mode(),
-      webRequest.frameType(), webRequest.requestContext(), waitUntilObserver);
+      workerGlobalScope(), fetchEventID, webRequest.url(), webRequest.mode(),
+      webRequest.redirectMode(), webRequest.frameType(),
+      webRequest.requestContext(), waitUntilObserver);
   Request* request = Request::create(
       workerGlobalScope()->scriptController()->getScriptState(), webRequest);
   request->getHeaders()->setGuard(Headers::ImmutableGuard);
@@ -169,9 +177,16 @@ void ServiceWorkerGlobalScopeProxy::dispatchFetchEvent(
   eventInit.setClientId(
       webRequest.isMainResourceLoad() ? WebString() : webRequest.clientId());
   eventInit.setIsReload(webRequest.isReload());
+  ScriptState* scriptState =
+      workerGlobalScope()->scriptController()->getScriptState();
   FetchEvent* fetchEvent = FetchEvent::create(
-      workerGlobalScope()->scriptController()->getScriptState(),
-      EventTypeNames::fetch, eventInit, respondWithObserver, waitUntilObserver);
+      scriptState, EventTypeNames::fetch, eventInit, respondWithObserver,
+      waitUntilObserver, navigationPreloadSent);
+  if (navigationPreloadSent) {
+    // Keep |fetchEvent| until onNavigationPreloadResponse() or
+    // onNavigationPreloadError() will be called.
+    m_pendingPreloadFetchEvents.add(fetchEventID, fetchEvent);
+  }
   waitUntilObserver->willDispatchEvent();
   respondWithObserver->willDispatchEvent();
   DispatchEventResult dispatchResult =
@@ -182,9 +197,31 @@ void ServiceWorkerGlobalScopeProxy::dispatchFetchEvent(
   waitUntilObserver->didDispatchEvent(false /* errorOccurred */);
 }
 
+void ServiceWorkerGlobalScopeProxy::onNavigationPreloadResponse(
+    int fetchEventID,
+    std::unique_ptr<WebURLResponse> response,
+    std::unique_ptr<WebDataConsumerHandle> dataConsumeHandle) {
+  FetchEvent* fetchEvent = m_pendingPreloadFetchEvents.take(fetchEventID);
+  DCHECK(fetchEvent);
+  fetchEvent->onNavigationPreloadResponse(
+      workerGlobalScope()->scriptController()->getScriptState(),
+      std::move(response), std::move(dataConsumeHandle));
+}
+
+void ServiceWorkerGlobalScopeProxy::onNavigationPreloadError(
+    int fetchEventID,
+    std::unique_ptr<WebServiceWorkerError> error) {
+  FetchEvent* fetchEvent = m_pendingPreloadFetchEvents.take(fetchEventID);
+  // This method may be called after onNavigationPreloadResponse() was called.
+  if (!fetchEvent)
+    return;
+  fetchEvent->onNavigationPreloadError(
+      workerGlobalScope()->scriptController()->getScriptState(),
+      std::move(error));
+}
+
 void ServiceWorkerGlobalScopeProxy::dispatchForeignFetchEvent(
-    int responseID,
-    int eventFinishID,
+    int fetchEventID,
     const WebServiceWorkerRequest& webRequest) {
   if (!OriginTrials::foreignFetchEnabled(workerGlobalScope())) {
     // If origin trial tokens have expired, or are otherwise no longer valid
@@ -192,9 +229,9 @@ void ServiceWorkerGlobalScopeProxy::dispatchForeignFetchEvent(
     // TODO(mek): Ideally the browser wouldn't even start the service worker
     // if its tokens have expired.
     ServiceWorkerGlobalScopeClient::from(workerGlobalScope())
-        ->respondToFetchEvent(responseID, WTF::currentTime());
+        ->respondToFetchEvent(fetchEventID, WTF::currentTime());
     ServiceWorkerGlobalScopeClient::from(workerGlobalScope())
-        ->didHandleFetchEvent(eventFinishID,
+        ->didHandleFetchEvent(fetchEventID,
                               WebServiceWorkerEventResultCompleted,
                               WTF::currentTime());
     return;
@@ -205,12 +242,12 @@ void ServiceWorkerGlobalScopeProxy::dispatchForeignFetchEvent(
   RefPtr<SecurityOrigin> origin =
       SecurityOrigin::create(webRequest.referrerUrl());
   WaitUntilObserver* waitUntilObserver = WaitUntilObserver::create(
-      workerGlobalScope(), WaitUntilObserver::Fetch, eventFinishID);
+      workerGlobalScope(), WaitUntilObserver::Fetch, fetchEventID);
   ForeignFetchRespondWithObserver* respondWithObserver =
       ForeignFetchRespondWithObserver::create(
-          workerGlobalScope(), responseID, webRequest.url(), webRequest.mode(),
-          webRequest.frameType(), webRequest.requestContext(), origin,
-          waitUntilObserver);
+          workerGlobalScope(), fetchEventID, webRequest.url(),
+          webRequest.mode(), webRequest.redirectMode(), webRequest.frameType(),
+          webRequest.requestContext(), origin, waitUntilObserver);
   Request* request = Request::create(
       workerGlobalScope()->scriptController()->getScriptState(), webRequest);
   request->getHeaders()->setGuard(Headers::ImmutableGuard);
@@ -244,7 +281,8 @@ void ServiceWorkerGlobalScopeProxy::dispatchNotificationClickEvent(
     int eventID,
     const WebString& notificationID,
     const WebNotificationData& data,
-    int actionIndex) {
+    int actionIndex,
+    const WebString& reply) {
   WaitUntilObserver* observer = WaitUntilObserver::create(
       workerGlobalScope(), WaitUntilObserver::NotificationClick, eventID);
   NotificationEventInit eventInit;
@@ -252,6 +290,7 @@ void ServiceWorkerGlobalScopeProxy::dispatchNotificationClickEvent(
       workerGlobalScope(), notificationID, data, true /* showing */));
   if (0 <= actionIndex && actionIndex < static_cast<int>(data.actions.size()))
     eventInit.setAction(data.actions[actionIndex].action);
+  eventInit.setReply(reply);
   Event* event = NotificationEvent::create(EventTypeNames::notificationclick,
                                            eventInit, observer);
   workerGlobalScope()->dispatchExtendableEvent(event, observer);
@@ -298,9 +337,34 @@ void ServiceWorkerGlobalScopeProxy::dispatchSyncEvent(
   workerGlobalScope()->dispatchExtendableEvent(event, observer);
 }
 
+void ServiceWorkerGlobalScopeProxy::dispatchPaymentRequestEvent(
+    int eventID,
+    const WebPaymentAppRequestData& webData) {
+  WaitUntilObserver* observer = WaitUntilObserver::create(
+      workerGlobalScope(), WaitUntilObserver::PaymentRequest, eventID);
+  Event* event = PaymentRequestEvent::create(
+      EventTypeNames::paymentrequest,
+      PaymentAppRequestDataConversion::toPaymentAppRequestData(
+          workerGlobalScope()->scriptController()->getScriptState(), webData),
+      observer);
+  workerGlobalScope()->dispatchExtendableEvent(event, observer);
+}
+
 bool ServiceWorkerGlobalScopeProxy::hasFetchEventHandler() {
   DCHECK(m_workerGlobalScope);
   return m_workerGlobalScope->hasEventListeners(EventTypeNames::fetch);
+}
+
+void ServiceWorkerGlobalScopeProxy::countFeature(UseCounter::Feature) {
+  // TODO(nhiroki): Support UseCounter for ServiceWorker. Send an IPC message to
+  // the browser process and ask each controlled document to record API use in
+  // its UseCoutner (https://crbug.com/376039).
+}
+
+void ServiceWorkerGlobalScopeProxy::countDeprecation(UseCounter::Feature) {
+  // TODO(nhiroki): Support UseCounter for ServiceWorker. Send an IPC message to
+  // the browser process and ask each controlled document to record API use in
+  // its UseCoutner (https://crbug.com/376039).
 }
 
 void ServiceWorkerGlobalScopeProxy::reportException(
@@ -323,10 +387,19 @@ void ServiceWorkerGlobalScopeProxy::reportConsoleMessage(
 void ServiceWorkerGlobalScopeProxy::postMessageToPageInspector(
     const String& message) {
   DCHECK(m_embeddedWorker);
-  document().postInspectorTask(
-      BLINK_FROM_HERE,
-      createCrossThreadTask(&WebEmbeddedWorkerImpl::postMessageToPageInspector,
-                            crossThreadUnretained(m_embeddedWorker), message));
+  // The TaskType of Inspector tasks need to be Unthrottled because they need to
+  // run even on a suspended page.
+  getParentFrameTaskRunners()
+      ->get(TaskType::Unthrottled)
+      ->postTask(
+          BLINK_FROM_HERE,
+          crossThreadBind(&WebEmbeddedWorkerImpl::postMessageToPageInspector,
+                          crossThreadUnretained(m_embeddedWorker), message));
+}
+
+ParentFrameTaskRunners*
+ServiceWorkerGlobalScopeProxy::getParentFrameTaskRunners() {
+  return m_parentFrameTaskRunners.get();
 }
 
 void ServiceWorkerGlobalScopeProxy::didCreateWorkerGlobalScope(
@@ -388,7 +461,15 @@ ServiceWorkerGlobalScopeProxy::ServiceWorkerGlobalScopeProxy(
     : m_embeddedWorker(&embeddedWorker),
       m_document(&document),
       m_client(&client),
-      m_workerGlobalScope(nullptr) {}
+      m_workerGlobalScope(nullptr) {
+  // ServiceWorker can sometimes run tasks that are initiated by/associated with
+  // a document's frame but these documents can be from a different process. So
+  // we intentionally populate the task runners with null document in order to
+  // use the thread's default task runner. Note that |m_document| should not be
+  // used as it's a dummy document for loading that doesn't represent the frame
+  // of any associated document.
+  m_parentFrameTaskRunners = ParentFrameTaskRunners::create(nullptr);
+}
 
 void ServiceWorkerGlobalScopeProxy::detach() {
   m_embeddedWorker = nullptr;

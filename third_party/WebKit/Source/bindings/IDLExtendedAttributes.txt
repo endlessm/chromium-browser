@@ -33,6 +33,7 @@
 
 ActiveScriptWrappable
 CEReactions
+CachedAccessor
 CachedAttribute=*
 CallWith=ExecutionContext|ScriptState|ScriptArguments|CurrentWindow|EnteredWindow|ThisValue
 CheckSecurity=Receiver|ReturnValue
@@ -41,6 +42,7 @@ Constructor
 # FIXME: remove [ConstructorCallWith=Document], as can instead use
 # [ConstructorCallWith=ExecutionContext] + toDocument(executionContext)
 ConstructorCallWith=ExecutionContext|ScriptState|Document
+CrossOrigin=|Getter|Setter
 Custom=|Getter|Setter|LegacyCallAsFunction|VisitDOMWrapper|PropertyGetter|PropertyEnumerator|PropertyQuery|CallPrologue|CallEpilogue
 CustomConstructor
 CustomElementCallbacks
@@ -48,7 +50,6 @@ Default=Undefined
 DependentLifetime
 DeprecateAs=*
 DoNotCheckConstants
-DoNotCheckSecurity=|Setter
 DoNotTestNewObject
 EnforceRange
 ExperimentalCallbackFunction
@@ -57,8 +58,8 @@ FeaturePolicy=*
 FlexibleArrayBufferView
 Global=|*
 HTMLConstructor
+ImmutablePrototype
 ImplementedAs=*
-ImplementedInPrivateScript
 Iterable
 LegacyInterfaceTypeChecking
 LegacyTreatAsPartialInterface
@@ -69,10 +70,8 @@ NewObject
 Measure
 MeasureAs=*
 NamedConstructor=*
-NoImplHeader
 NoInterfaceObject
 NotEnumerable
-OnlyExposedToPrivateScript
 OriginTrialEnabled=*
 OverrideBuiltins
 PartialInterfaceImplementedAs=*
@@ -98,7 +97,7 @@ SetWrapperReferenceFrom=*
 SetWrapperReferenceTo=*
 SetterCallWith=ExecutionContext|ScriptArguments|CurrentWindow|EnteredWindow
 TreatNullAs=NullString|EmptyString
-TreatUndefinedAs=NullString
 URL
 Unforgeable
 Unscopable
+WebModuleAPI

@@ -7,6 +7,7 @@
 #include <memory>
 
 #include "base/macros.h"
+#include "base/memory/ptr_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "ui/base/dragdrop/drag_drop_types.h"
@@ -18,9 +19,9 @@
 #include "ui/views/test/views_test_base.h"
 
 #if defined(USE_AURA)
+#include "ui/aura/client/drag_drop_client.h"
 #include "ui/events/event.h"
 #include "ui/events/event_handler.h"
-#include "ui/wm/public/drag_drop_client.h"
 #endif
 
 using base::ASCIIToUTF16;
@@ -245,8 +246,6 @@ class TestDragDropClient : public aura::client::DragDropClient,
                        const gfx::Point& screen_location,
                        int operation,
                        ui::DragDropTypes::DragEventSource source) override;
-  void DragUpdate(aura::Window* target, const ui::LocatedEvent& event) override;
-  void Drop(aura::Window* target, const ui::LocatedEvent& event) override;
   void DragCancel() override;
   bool IsDragDropInProgress() override;
 
@@ -284,15 +283,6 @@ int TestDragDropClient::StartDragAndDrop(
   return operation;
 }
 
-void TestDragDropClient::DragUpdate(aura::Window* target,
-                                    const ui::LocatedEvent& event) {
-}
-
-void TestDragDropClient::Drop(aura::Window* target,
-                              const ui::LocatedEvent& event) {
-  drag_in_progress_ = false;
-}
-
 void TestDragDropClient::DragCancel() {
   drag_in_progress_ = false;
 }
@@ -306,11 +296,10 @@ void TestDragDropClient::OnMouseEvent(ui::MouseEvent* event) {
     return;
   switch (event->type()) {
     case ui::ET_MOUSE_DRAGGED:
-      DragUpdate(target_, *event);
       event->StopPropagation();
       break;
     case ui::ET_MOUSE_RELEASED:
-      Drop(target_, *event);
+      drag_in_progress_ = false;
       event->StopPropagation();
       break;
     default:
@@ -353,10 +342,12 @@ TEST_F(MenuButtonTest, ActivateDropDownOnMouseClick) {
 
 // Test that the MenuButton stays pressed while there are any PressedLocks.
 TEST_F(MenuButtonTest, ButtonStateForMenuButtonsWithPressedLocks) {
-  // Hovered-state is not updated under mus when EventGenerator send a
-  // mouse-move event. https://crbug.com/615033
+  // Similarly for aura-mus-client the location of the cursor is not updated by
+  // EventGenerator so that IsMouseHovered() checks the wrong thing.
+  // https://crbug.com/615033.
   if (IsMus())
     return;
+
   CreateMenuButtonWithNoListener();
 
   // Move the mouse over the button; the button should be in a hovered state.
@@ -545,8 +536,8 @@ TEST_F(MenuButtonTest,
 // Tests that the MenuButton does not become pressed if it can be dragged, and a
 // DragDropClient is processing the events.
 TEST_F(MenuButtonTest, DraggableMenuButtonDoesNotActivateOnDrag) {
-  // The test uses drag-n-drop, which isn't yet supported on mus.
-  // https://crbug.com/614037.
+  // TODO: test uses GetContext(), which is not applicable to aura-mus.
+  // http://crbug.com/663809.
   if (IsMus())
     return;
   TestMenuButtonListener menu_button_listener;
@@ -571,8 +562,9 @@ TEST_F(MenuButtonTest, DraggableMenuButtonDoesNotActivateOnDrag) {
 // Tests if the listener is notified correctly when a gesture tap happens on a
 // MenuButton that has a MenuButtonListener.
 TEST_F(MenuButtonTest, ActivateDropDownOnGestureTap) {
-  // Hovered-state is not updated under mus when EventGenerator send a
-  // mouse-move event. https://crbug.com/615033
+  // Similarly for aura-mus-client the location of the cursor is not updated by
+  // EventGenerator so that IsMouseHovered() checks the wrong thing.
+  // https://crbug.com/615033.
   if (IsMus())
     return;
   TestMenuButtonListener menu_button_listener;

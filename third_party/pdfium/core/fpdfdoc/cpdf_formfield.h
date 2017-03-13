@@ -7,11 +7,14 @@
 #ifndef CORE_FPDFDOC_CPDF_FORMFIELD_H_
 #define CORE_FPDFDOC_CPDF_FORMFIELD_H_
 
+#include <vector>
+
 #include "core/fpdfdoc/cpdf_aaction.h"
 #include "core/fpdfdoc/cpdf_formfield.h"
 #include "core/fxcrt/fx_basic.h"
 #include "core/fxcrt/fx_string.h"
 #include "core/fxcrt/fx_system.h"
+#include "third_party/base/stl_util.h"
 
 #define FIELDTYPE_UNKNOWN 0
 #define FIELDTYPE_PUSHBUTTON 1
@@ -56,13 +59,13 @@ class CPDF_FormField {
   CPDF_Dictionary* GetFieldDict() const { return m_pDict; }
   void SetFieldDict(CPDF_Dictionary* pDict) { m_pDict = pDict; }
 
-  FX_BOOL ResetField(FX_BOOL bNotify = FALSE);
+  bool ResetField(bool bNotify = false);
 
-  int CountControls() const { return m_ControlList.GetSize(); }
-
-  CPDF_FormControl* GetControl(int index) const {
-    return m_ControlList.GetAt(index);
+  int CountControls() const {
+    return pdfium::CollectionSize<int>(m_ControlList);
   }
+
+  CPDF_FormControl* GetControl(int index) const { return m_ControlList[index]; }
 
   int GetControlIndex(const CPDF_FormControl* pControl) const;
   int GetFieldType() const;
@@ -77,19 +80,17 @@ class CPDF_FormField {
 
   CFX_WideString GetValue() const;
   CFX_WideString GetDefaultValue() const;
-  FX_BOOL SetValue(const CFX_WideString& value, FX_BOOL bNotify = FALSE);
+  bool SetValue(const CFX_WideString& value, bool bNotify = false);
 
   int GetMaxLen() const;
   int CountSelectedItems() const;
   int GetSelectedIndex(int index) const;
 
-  FX_BOOL ClearSelection(FX_BOOL bNotify = FALSE);
-  FX_BOOL IsItemSelected(int index) const;
-  FX_BOOL SetItemSelection(int index,
-                           FX_BOOL bSelected,
-                           FX_BOOL bNotify = FALSE);
+  bool ClearSelection(bool bNotify = false);
+  bool IsItemSelected(int index) const;
+  bool SetItemSelection(int index, bool bSelected, bool bNotify = false);
 
-  FX_BOOL IsItemDefaultSelected(int index) const;
+  bool IsItemDefaultSelected(int index) const;
 
   int GetDefaultSelectedItem() const;
   int CountOptions() const;
@@ -100,26 +101,24 @@ class CPDF_FormField {
   int FindOption(CFX_WideString csOptLabel) const;
   int FindOptionValue(const CFX_WideString& csOptValue) const;
 
-  FX_BOOL CheckControl(int iControlIndex, bool bChecked, bool bNotify = false);
+  bool CheckControl(int iControlIndex, bool bChecked, bool bNotify = false);
 
   int GetTopVisibleIndex() const;
   int CountSelectedOptions() const;
 
   int GetSelectedOptionIndex(int index) const;
-  FX_BOOL IsOptionSelected(int iOptIndex) const;
+  bool IsOptionSelected(int iOptIndex) const;
 
-  FX_BOOL SelectOption(int iOptIndex,
-                       FX_BOOL bSelected,
-                       FX_BOOL bNotify = FALSE);
+  bool SelectOption(int iOptIndex, bool bSelected, bool bNotify = false);
 
-  FX_BOOL ClearSelectedOptions(FX_BOOL bNotify = FALSE);
+  bool ClearSelectedOptions(bool bNotify = false);
 
 #ifdef PDF_ENABLE_XFA
-  FX_BOOL ClearOptions(FX_BOOL bNotify = FALSE);
+  bool ClearOptions(bool bNotify = false);
 
   int InsertOption(CFX_WideString csOptLabel,
                    int index = -1,
-                   FX_BOOL bNotify = FALSE);
+                   bool bNotify = false);
 #endif  // PDF_ENABLE_XFA
 
   FX_FLOAT GetFontSize() const { return m_FontSize; }
@@ -132,20 +131,16 @@ class CPDF_FormField {
   CPDF_FormField(CPDF_InterForm* pForm, CPDF_Dictionary* pDict);
   ~CPDF_FormField();
 
-  CFX_WideString GetValue(FX_BOOL bDefault) const;
-  FX_BOOL SetValue(const CFX_WideString& value,
-                   FX_BOOL bDefault,
-                   FX_BOOL bNotify);
+  CFX_WideString GetValue(bool bDefault) const;
+  bool SetValue(const CFX_WideString& value, bool bDefault, bool bNotify);
 
   void SyncFieldFlags();
   int FindListSel(CPDF_String* str);
   CFX_WideString GetOptionText(int index, int sub_index) const;
 
   void LoadDA();
-  CFX_WideString GetCheckValue(FX_BOOL bDefault) const;
-  FX_BOOL SetCheckValue(const CFX_WideString& value,
-                        FX_BOOL bDefault,
-                        FX_BOOL bNotify);
+  CFX_WideString GetCheckValue(bool bDefault) const;
+  bool SetCheckValue(const CFX_WideString& value, bool bDefault, bool bNotify);
 
   bool NotifyBeforeSelectionChange(const CFX_WideString& value);
   void NotifyAfterSelectionChange();
@@ -158,9 +153,9 @@ class CPDF_FormField {
 
   CPDF_FormField::Type m_Type;
   uint32_t m_Flags;
-  CPDF_InterForm* m_pForm;
+  CPDF_InterForm* const m_pForm;
   CPDF_Dictionary* m_pDict;
-  CFX_ArrayTemplate<CPDF_FormControl*> m_ControlList;
+  std::vector<CPDF_FormControl*> m_ControlList;  // Owned by InterForm parent.
   FX_FLOAT m_FontSize;
   CPDF_Font* m_pFont;
 };

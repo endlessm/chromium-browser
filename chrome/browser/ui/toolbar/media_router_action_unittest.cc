@@ -10,7 +10,7 @@
 #include "chrome/browser/ui/toolbar/media_router_action.h"
 #include "chrome/browser/ui/toolbar/toolbar_action_view_delegate.h"
 #include "chrome/browser/ui/webui/media_router/media_router_dialog_controller_impl.h"
-#include "chrome/browser/ui/webui/media_router/media_router_test.h"
+#include "chrome/browser/ui/webui/media_router/media_router_web_ui_test.h"
 #include "chrome/grit/generated_resources.h"
 #include "content/public/browser/site_instance.h"
 #include "content/public/test/test_utils.h"
@@ -76,38 +76,23 @@ class TestMediaRouterAction : public MediaRouterAction {
   MediaRouterActionPlatformDelegate* platform_delegate_;
 };
 
-class MediaRouterActionUnitTest : public MediaRouterTest {
+class MediaRouterActionUnitTest : public MediaRouterWebUITest {
  public:
   MediaRouterActionUnitTest()
-      : toolbar_model_(nullptr),
-        fake_issue_notification_(media_router::Issue(
+      : MediaRouterWebUITest(true),
+        toolbar_model_(nullptr),
+        fake_issue_notification_(media_router::IssueInfo(
             "title notification",
-            "message notification",
-            media_router::IssueAction(media_router::IssueAction::TYPE_DISMISS),
-            std::vector<media_router::IssueAction>(),
-            "route_id",
-            media_router::Issue::NOTIFICATION,
-            false,
-            -1)),
-        fake_issue_warning_(
-            media_router::Issue("title warning",
-                                "message warning",
-                                media_router::IssueAction(
-                                    media_router::IssueAction::TYPE_LEARN_MORE),
-                                std::vector<media_router::IssueAction>(),
-                                "route_id",
-                                media_router::Issue::WARNING,
-                                false,
-                                12345)),
-        fake_issue_fatal_(media_router::Issue(
-            "title fatal",
-            "message fatal",
-            media_router::IssueAction(media_router::IssueAction::TYPE_DISMISS),
-            std::vector<media_router::IssueAction>(),
-            "route_id",
-            media_router::Issue::FATAL,
-            true,
-            -1)),
+            media_router::IssueInfo::Action::DISMISS,
+            media_router::IssueInfo::Severity::NOTIFICATION)),
+        fake_issue_warning_(media_router::IssueInfo(
+            "title warning",
+            media_router::IssueInfo::Action::LEARN_MORE,
+            media_router::IssueInfo::Severity::WARNING)),
+        fake_issue_fatal_(
+            media_router::IssueInfo("title fatal",
+                                    media_router::IssueInfo::Action::DISMISS,
+                                    media_router::IssueInfo::Severity::FATAL)),
         fake_source1_("fakeSource1"),
         fake_source2_("fakeSource2"),
         active_icon_(GetIcon(gfx::VectorIconId::MEDIA_ROUTER_ACTIVE)),
@@ -117,9 +102,9 @@ class MediaRouterActionUnitTest : public MediaRouterTest {
 
   ~MediaRouterActionUnitTest() override {}
 
-  // MediaRouterTest:
+  // MediaRouterWebUITest:
   void SetUp() override {
-    MediaRouterTest::SetUp();
+    MediaRouterWebUITest::SetUp();
     toolbar_model_ =
         extensions::extension_action_test_util::CreateToolbarModelForProfile(
             profile());
@@ -147,7 +132,7 @@ class MediaRouterActionUnitTest : public MediaRouterTest {
   void TearDown() override {
     action_.reset();
     browser_action_test_util_.reset();
-    MediaRouterTest::TearDown();
+    MediaRouterWebUITest::TearDown();
   }
 
   gfx::Image GetIcon(gfx::VectorIconId icon_id) {
@@ -156,15 +141,13 @@ class MediaRouterActionUnitTest : public MediaRouterTest {
   }
 
   TestMediaRouterAction* action() { return action_.get(); }
-  const media_router::Issue* fake_issue_notification() {
-    return &fake_issue_notification_;
+  const media_router::Issue& fake_issue_notification() {
+    return fake_issue_notification_;
   }
-  const media_router::Issue* fake_issue_warning() {
-    return &fake_issue_warning_;
+  const media_router::Issue& fake_issue_warning() {
+    return fake_issue_warning_;
   }
-  const media_router::Issue* fake_issue_fatal() {
-    return &fake_issue_fatal_;
-  }
+  const media_router::Issue& fake_issue_fatal() { return fake_issue_fatal_; }
   const gfx::Image active_icon() { return active_icon_; }
   const gfx::Image error_icon() { return error_icon_; }
   const gfx::Image idle_icon() { return idle_icon_; }
@@ -229,22 +212,22 @@ TEST_F(MediaRouterActionUnitTest, UpdateIssues) {
       idle_icon(), action()->GetIcon(nullptr, gfx::Size())));
 
   // Don't update |current_icon_| since the issue is only a notification.
-  action()->OnIssueUpdated(fake_issue_notification());
+  action()->OnIssue(fake_issue_notification());
   EXPECT_TRUE(gfx::test::AreImagesEqual(
       idle_icon(), action()->GetIcon(nullptr, gfx::Size())));
 
   // Update |current_icon_| since the issue is a warning.
-  action()->OnIssueUpdated(fake_issue_warning());
+  action()->OnIssue(fake_issue_warning());
   EXPECT_TRUE(gfx::test::AreImagesEqual(
       warning_icon(), action()->GetIcon(nullptr, gfx::Size())));
 
   // Update |current_icon_| since the issue is fatal.
-  action()->OnIssueUpdated(fake_issue_fatal());
+  action()->OnIssue(fake_issue_fatal());
   EXPECT_TRUE(gfx::test::AreImagesEqual(
       error_icon(), action()->GetIcon(nullptr, gfx::Size())));
 
   // Clear the issue.
-  action()->OnIssueUpdated(nullptr);
+  action()->OnIssuesCleared();
   EXPECT_TRUE(gfx::test::AreImagesEqual(idle_icon(),
                                  action()->GetIcon(nullptr, gfx::Size())));
 }
@@ -281,7 +264,7 @@ TEST_F(MediaRouterActionUnitTest, UpdateIssuesAndRoutes) {
 
   // There is no change in |current_icon_| since notification issues do not
   // update the state.
-  action()->OnIssueUpdated(fake_issue_notification());
+  action()->OnIssue(fake_issue_notification());
   EXPECT_TRUE(gfx::test::AreImagesEqual(
       idle_icon(), action()->GetIcon(nullptr, gfx::Size())));
 
@@ -298,7 +281,7 @@ TEST_F(MediaRouterActionUnitTest, UpdateIssuesAndRoutes) {
 
   // Update |current_icon_|, with a priority to reflect the warning issue
   // rather than the local route.
-  action()->OnIssueUpdated(fake_issue_warning());
+  action()->OnIssue(fake_issue_warning());
   EXPECT_TRUE(gfx::test::AreImagesEqual(
       warning_icon(), action()->GetIcon(nullptr, gfx::Size())));
 
@@ -309,7 +292,7 @@ TEST_F(MediaRouterActionUnitTest, UpdateIssuesAndRoutes) {
       warning_icon(), action()->GetIcon(nullptr, gfx::Size())));
 
   // Update |current_icon_| since the issue has been updated to fatal.
-  action()->OnIssueUpdated(fake_issue_fatal());
+  action()->OnIssue(fake_issue_fatal());
   EXPECT_TRUE(gfx::test::AreImagesEqual(
       error_icon(), action()->GetIcon(nullptr, gfx::Size())));
 
@@ -320,7 +303,7 @@ TEST_F(MediaRouterActionUnitTest, UpdateIssuesAndRoutes) {
 
   // When the fatal issue is dismissed, |current_icon_| reflects the existing
   // local route.
-  action()->OnIssueUpdated(nullptr);
+  action()->OnIssuesCleared();
   EXPECT_TRUE(gfx::test::AreImagesEqual(
       active_icon(), action()->GetIcon(nullptr, gfx::Size())));
 

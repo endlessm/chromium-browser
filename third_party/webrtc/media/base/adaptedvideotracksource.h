@@ -28,10 +28,13 @@ class AdaptedVideoTrackSource
   AdaptedVideoTrackSource();
 
  protected:
+  // Allows derived classes to initialize |video_adapter_| with a custom
+  // alignment.
+  AdaptedVideoTrackSource(int required_alignment);
   // Checks the apply_rotation() flag. If the frame needs rotation, and it is a
   // plain memory frame, it is rotated. Subclasses producing native frames must
   // handle apply_rotation() themselves.
-  void OnFrame(const cricket::VideoFrame& frame);
+  void OnFrame(const webrtc::VideoFrame& frame);
 
   // Reports the appropriate frame size after adaptation. Returns true
   // if a frame is wanted. Returns false if there are no interested
@@ -57,9 +60,9 @@ class AdaptedVideoTrackSource
 
  private:
   // Implements rtc::VideoSourceInterface.
-  void AddOrUpdateSink(rtc::VideoSinkInterface<cricket::VideoFrame>* sink,
+  void AddOrUpdateSink(rtc::VideoSinkInterface<webrtc::VideoFrame>* sink,
                        const rtc::VideoSinkWants& wants) override;
-  void RemoveSink(rtc::VideoSinkInterface<cricket::VideoFrame>* sink) override;
+  void RemoveSink(rtc::VideoSinkInterface<webrtc::VideoFrame>* sink) override;
 
   // Part of VideoTrackSourceInterface.
   bool GetStats(Stats* stats) override;

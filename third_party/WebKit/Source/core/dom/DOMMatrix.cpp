@@ -21,6 +21,13 @@ DOMMatrix* DOMMatrix::create(const SkMatrix44& matrix,
   return new DOMMatrix(transformationMatrix, transformationMatrix.isAffine());
 }
 
+DOMMatrix* DOMMatrix::create(const String& transformList,
+                             ExceptionState& exceptionState) {
+  DOMMatrix* matrix = new DOMMatrix(TransformationMatrix());
+  matrix->setMatrixValueFromString(transformList, exceptionState);
+  return matrix;
+}
+
 DOMMatrix* DOMMatrix::create(Vector<double> sequence,
                              ExceptionState& exceptionState) {
   if (sequence.size() != 6 && sequence.size() != 16) {
@@ -58,17 +65,15 @@ template <typename T>
 DOMMatrix::DOMMatrix(T sequence, int size)
     : DOMMatrixReadOnly(sequence, size) {}
 
-DOMMatrix::DOMMatrix(const TransformationMatrix& matrix, bool is2D) {
-  m_matrix = TransformationMatrix::create(matrix);
-  m_is2D = is2D;
-}
+DOMMatrix::DOMMatrix(const TransformationMatrix& matrix, bool is2D)
+    : DOMMatrixReadOnly(matrix, is2D) {}
 
 DOMMatrix* DOMMatrix::fromMatrix(DOMMatrixInit& other,
                                  ExceptionState& exceptionState) {
-  validateAndFixup(other, exceptionState);
-  if (exceptionState.hadException())
+  if (!validateAndFixup(other, exceptionState)) {
+    DCHECK(exceptionState.hadException());
     return nullptr;
-
+  }
   if (other.is2D()) {
     return new DOMMatrix({other.m11(), other.m12(), other.m21(), other.m22(),
                           other.m41(), other.m42()},
@@ -87,9 +92,32 @@ void DOMMatrix::setIs2D(bool value) {
     m_is2D = value;
 }
 
+void DOMMatrix::setNAN() {
+  m_matrix->setM11(NAN);
+  m_matrix->setM12(NAN);
+  m_matrix->setM13(NAN);
+  m_matrix->setM14(NAN);
+  m_matrix->setM21(NAN);
+  m_matrix->setM22(NAN);
+  m_matrix->setM23(NAN);
+  m_matrix->setM24(NAN);
+  m_matrix->setM31(NAN);
+  m_matrix->setM32(NAN);
+  m_matrix->setM33(NAN);
+  m_matrix->setM34(NAN);
+  m_matrix->setM41(NAN);
+  m_matrix->setM42(NAN);
+  m_matrix->setM43(NAN);
+  m_matrix->setM44(NAN);
+}
+
 DOMMatrix* DOMMatrix::multiplySelf(DOMMatrixInit& other,
                                    ExceptionState& exceptionState) {
   DOMMatrix* otherMatrix = DOMMatrix::fromMatrix(other, exceptionState);
+  if (!otherMatrix) {
+    DCHECK(exceptionState.hadException());
+    return nullptr;
+  }
   if (!otherMatrix->is2D())
     m_is2D = false;
 
@@ -101,6 +129,10 @@ DOMMatrix* DOMMatrix::multiplySelf(DOMMatrixInit& other,
 DOMMatrix* DOMMatrix::preMultiplySelf(DOMMatrixInit& other,
                                       ExceptionState& exceptionState) {
   DOMMatrix* otherMatrix = DOMMatrix::fromMatrix(other, exceptionState);
+  if (!otherMatrix) {
+    DCHECK(exceptionState.hadException());
+    return nullptr;
+  }
   if (!otherMatrix->is2D())
     m_is2D = false;
 
@@ -125,23 +157,16 @@ DOMMatrix* DOMMatrix::translateSelf(double tx, double ty, double tz) {
   return this;
 }
 
-DOMMatrix* DOMMatrix::scaleSelf(double scale, double ox, double oy) {
-  return scaleNonUniformSelf(scale, scale, 1, ox, oy);
+DOMMatrix* DOMMatrix::scaleSelf(double sx) {
+  return scaleSelf(sx, sx);
 }
 
-DOMMatrix* DOMMatrix::scale3dSelf(double scale,
-                                  double ox,
-                                  double oy,
-                                  double oz) {
-  return scaleNonUniformSelf(scale, scale, scale, ox, oy, oz);
-}
-
-DOMMatrix* DOMMatrix::scaleNonUniformSelf(double sx,
-                                          double sy,
-                                          double sz,
-                                          double ox,
-                                          double oy,
-                                          double oz) {
+DOMMatrix* DOMMatrix::scaleSelf(double sx,
+                                double sy,
+                                double sz,
+                                double ox,
+                                double oy,
+                                double oz) {
   if (sz != 1 || oz)
     m_is2D = false;
 
@@ -164,6 +189,55 @@ DOMMatrix* DOMMatrix::scaleNonUniformSelf(double sx,
   return this;
 }
 
+DOMMatrix* DOMMatrix::scale3dSelf(double scale,
+                                  double ox,
+                                  double oy,
+                                  double oz) {
+  return scaleSelf(scale, scale, scale, ox, oy, oz);
+}
+
+DOMMatrix* DOMMatrix::rotateSelf(double rotX) {
+  return rotateSelf(0, 0, rotX);
+}
+
+DOMMatrix* DOMMatrix::rotateSelf(double rotX, double rotY) {
+  return rotateSelf(rotX, rotY, 0);
+}
+
+DOMMatrix* DOMMatrix::rotateSelf(double rotX, double rotY, double rotZ) {
+  if (rotZ)
+    m_matrix->rotate3d(0, 0, 1, rotZ);
+
+  if (rotY) {
+    m_matrix->rotate3d(0, 1, 0, rotY);
+    m_is2D = false;
+  }
+
+  if (rotX) {
+    m_matrix->rotate3d(1, 0, 0, rotX);
+    m_is2D = false;
+  }
+
+  return this;
+}
+
+DOMMatrix* DOMMatrix::rotateFromVectorSelf(double x, double y) {
+  m_matrix->rotate(rad2deg(atan2(y, x)));
+  return this;
+}
+
+DOMMatrix* DOMMatrix::rotateAxisAngleSelf(double x,
+                                          double y,
+                                          double z,
+                                          double angle) {
+  m_matrix->rotate3d(x, y, z, angle);
+
+  if (x != 0 || y != 0)
+    m_is2D = false;
+
+  return this;
+}
+
 DOMMatrix* DOMMatrix::skewXSelf(double sx) {
   m_matrix->skewX(sx);
   return this;
@@ -178,24 +252,15 @@ DOMMatrix* DOMMatrix::invertSelf() {
   if (m_matrix->isInvertible()) {
     m_matrix = TransformationMatrix::create(m_matrix->inverse());
   } else {
-    setM11(NAN);
-    setM12(NAN);
-    setM13(NAN);
-    setM14(NAN);
-    setM21(NAN);
-    setM22(NAN);
-    setM23(NAN);
-    setM24(NAN);
-    setM31(NAN);
-    setM32(NAN);
-    setM33(NAN);
-    setM34(NAN);
-    setM41(NAN);
-    setM42(NAN);
-    setM43(NAN);
-    setM44(NAN);
+    setNAN();
     setIs2D(false);
   }
+  return this;
+}
+
+DOMMatrix* DOMMatrix::setMatrixValue(const String& inputString,
+                                     ExceptionState& exceptionState) {
+  setMatrixValueFromString(inputString, exceptionState);
   return this;
 }
 

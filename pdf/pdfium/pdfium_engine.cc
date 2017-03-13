@@ -12,17 +12,20 @@
 #include <memory>
 #include <set>
 
+#include "base/auto_reset.h"
 #include "base/i18n/encoding_detection.h"
 #include "base/i18n/icu_string_conversions.h"
 #include "base/lazy_instance.h"
 #include "base/logging.h"
 #include "base/macros.h"
+#include "base/memory/ptr_util.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/threading/thread_task_runner_handle.h"
 #include "gin/array_buffer.h"
 #include "gin/public/gin_embedders.h"
 #include "gin/public/isolate_holder.h"
@@ -55,6 +58,7 @@
 #include "third_party/pdfium/public/fpdf_transformpage.h"
 #include "third_party/pdfium/public/fpdfview.h"
 #include "ui/events/keycodes/keyboard_codes.h"
+#include "ui/gfx/codec/jpeg_codec.h"
 #include "ui/gfx/geometry/rect.h"
 #include "v8/include/v8.h"
 
@@ -110,6 +114,8 @@ const int32_t kMaxProgressivePaintTimeMs = 300;
 // process.
 const int32_t kMaxInitialProgressivePaintTimeMs = 250;
 
+PDFiumEngine* g_engine_for_fontmapper = nullptr;
+
 std::vector<uint32_t> GetPageNumbersFromPrintPageNumberRange(
     const PP_PrintPageNumberRange_Dev* page_ranges,
     uint32_t page_range_count) {
@@ -127,6 +133,7 @@ std::vector<uint32_t> GetPageNumbersFromPrintPageNumberRange(
 
 PP_Instance g_last_instance_id;
 
+// TODO(npm): Move font stuff to another file to reduce the size of this one
 PP_BrowserFont_Trusted_Weight WeightToBrowserFontTrustedWeight(int weight) {
   static_assert(PP_BROWSERFONT_TRUSTED_WEIGHT_100 == 0,
                 "PP_BrowserFont_Trusted_Weight min");
@@ -143,7 +150,7 @@ PP_BrowserFont_Trusted_Weight WeightToBrowserFontTrustedWeight(int weight) {
 // This list is for CPWL_FontMap::GetDefaultFontByCharset().
 // We pretend to have these font natively and let the browser (or underlying
 // fontconfig) to pick the proper font on the system.
-void EnumFonts(struct _FPDF_SYSFONTINFO* sysfontinfo, void* mapper) {
+void EnumFonts(FPDF_SYSFONTINFO* sysfontinfo, void* mapper) {
   FPDF_AddInstalledFont(mapper, "Arial", FXFONT_DEFAULT_CHARSET);
 
   const FPDF_CharsetFontMap* font_map = FPDF_GetDefaultTTFMap();
@@ -152,8 +159,13 @@ void EnumFonts(struct _FPDF_SYSFONTINFO* sysfontinfo, void* mapper) {
   }
 }
 
-void* MapFont(struct _FPDF_SYSFONTINFO*, int weight, int italic,
-              int charset, int pitch_family, const char* face, int* exact) {
+void* MapFont(FPDF_SYSFONTINFO*,
+              int weight,
+              int italic,
+              int charset,
+              int pitch_family,
+              const char* face,
+              int* exact) {
   // Do not attempt to map fonts if pepper is not initialized (for privet local
   // printing).
   // TODO(noamsml): Real font substitution (http://crbug.com/391978)
@@ -259,6 +271,9 @@ void* MapFont(struct _FPDF_SYSFONTINFO*, int weight, int italic,
     return nullptr;
   }
 
+  if (g_engine_for_fontmapper)
+    g_engine_for_fontmapper->FontSubstituted();
+
   PP_Resource font_resource = pp::PDF::GetFontFileWithFallback(
       pp::InstanceHandle(g_last_instance_id),
       &description.pp_font_description(),
@@ -267,8 +282,10 @@ void* MapFont(struct _FPDF_SYSFONTINFO*, int weight, int italic,
   return reinterpret_cast<void*>(res_id);
 }
 
-unsigned long GetFontData(struct _FPDF_SYSFONTINFO*, void* font_id,
-                          unsigned int table, unsigned char* buffer,
+unsigned long GetFontData(FPDF_SYSFONTINFO*,
+                          void* font_id,
+                          unsigned int table,
+                          unsigned char* buffer,
                           unsigned long buf_size) {
   if (!pp::PDF::IsAvailable()) {
     NOTREACHED();
@@ -282,7 +299,7 @@ unsigned long GetFontData(struct _FPDF_SYSFONTINFO*, void* font_id,
   return size;
 }
 
-void DeleteFont(struct _FPDF_SYSFONTINFO*, void* font_id) {
+void DeleteFont(FPDF_SYSFONTINFO*, void* font_id) {
   long res_id = reinterpret_cast<long>(font_id);
   pp::Module::Get()->core()->ReleaseResource(res_id);
 }
@@ -298,6 +315,111 @@ FPDF_SYSFONTINFO g_font_info = {
   0,
   DeleteFont
 };
+#else
+struct FPDF_SYSFONTINFO_WITHMETRICS : public FPDF_SYSFONTINFO {
+  explicit FPDF_SYSFONTINFO_WITHMETRICS(FPDF_SYSFONTINFO* sysfontinfo) {
+    version = sysfontinfo->version;
+    default_sysfontinfo = sysfontinfo;
+  }
+
+  ~FPDF_SYSFONTINFO_WITHMETRICS() {
+    FPDF_FreeDefaultSystemFontInfo(default_sysfontinfo);
+  }
+
+  FPDF_SYSFONTINFO* default_sysfontinfo;
+};
+
+FPDF_SYSFONTINFO_WITHMETRICS* g_font_info = nullptr;
+
+void* MapFontWithMetrics(FPDF_SYSFONTINFO* sysfontinfo,
+                         int weight,
+                         int italic,
+                         int charset,
+                         int pitch_family,
+                         const char* face,
+                         int* exact) {
+  auto* fontinfo_with_metrics =
+      static_cast<FPDF_SYSFONTINFO_WITHMETRICS*>(sysfontinfo);
+  if (!fontinfo_with_metrics->default_sysfontinfo->MapFont)
+    return nullptr;
+  void* mapped_font = fontinfo_with_metrics->default_sysfontinfo->MapFont(
+      fontinfo_with_metrics->default_sysfontinfo, weight, italic, charset,
+      pitch_family, face, exact);
+  if (mapped_font && g_engine_for_fontmapper)
+    g_engine_for_fontmapper->FontSubstituted();
+  return mapped_font;
+}
+
+void DeleteFont(FPDF_SYSFONTINFO* sysfontinfo, void* font_id) {
+  auto* fontinfo_with_metrics =
+      static_cast<FPDF_SYSFONTINFO_WITHMETRICS*>(sysfontinfo);
+  if (!fontinfo_with_metrics->default_sysfontinfo->DeleteFont)
+    return;
+  fontinfo_with_metrics->default_sysfontinfo->DeleteFont(
+      fontinfo_with_metrics->default_sysfontinfo, font_id);
+}
+
+void EnumFonts(FPDF_SYSFONTINFO* sysfontinfo, void* mapper) {
+  auto* fontinfo_with_metrics =
+      static_cast<FPDF_SYSFONTINFO_WITHMETRICS*>(sysfontinfo);
+  if (!fontinfo_with_metrics->default_sysfontinfo->EnumFonts)
+    return;
+  fontinfo_with_metrics->default_sysfontinfo->EnumFonts(
+      fontinfo_with_metrics->default_sysfontinfo, mapper);
+}
+
+unsigned long GetFaceName(FPDF_SYSFONTINFO* sysfontinfo,
+                          void* hFont,
+                          char* buffer,
+                          unsigned long buffer_size) {
+  auto* fontinfo_with_metrics =
+      static_cast<FPDF_SYSFONTINFO_WITHMETRICS*>(sysfontinfo);
+  if (!fontinfo_with_metrics->default_sysfontinfo->GetFaceName)
+    return 0;
+  return fontinfo_with_metrics->default_sysfontinfo->GetFaceName(
+      fontinfo_with_metrics->default_sysfontinfo, hFont, buffer, buffer_size);
+}
+
+void* GetFont(FPDF_SYSFONTINFO* sysfontinfo, const char* face) {
+  auto* fontinfo_with_metrics =
+      static_cast<FPDF_SYSFONTINFO_WITHMETRICS*>(sysfontinfo);
+  if (!fontinfo_with_metrics->default_sysfontinfo->GetFont)
+    return nullptr;
+  return fontinfo_with_metrics->default_sysfontinfo->GetFont(
+      fontinfo_with_metrics->default_sysfontinfo, face);
+}
+
+int GetFontCharset(FPDF_SYSFONTINFO* sysfontinfo, void* hFont) {
+  auto* fontinfo_with_metrics =
+      static_cast<FPDF_SYSFONTINFO_WITHMETRICS*>(sysfontinfo);
+  if (!fontinfo_with_metrics->default_sysfontinfo->GetFontCharset)
+    return 0;
+  return fontinfo_with_metrics->default_sysfontinfo->GetFontCharset(
+      fontinfo_with_metrics->default_sysfontinfo, hFont);
+}
+
+unsigned long GetFontData(FPDF_SYSFONTINFO* sysfontinfo,
+                          void* hFont,
+                          unsigned int table,
+                          unsigned char* buffer,
+                          unsigned long buf_size) {
+  auto* fontinfo_with_metrics =
+      static_cast<FPDF_SYSFONTINFO_WITHMETRICS*>(sysfontinfo);
+  if (!fontinfo_with_metrics->default_sysfontinfo->GetFontData)
+    return 0;
+  return fontinfo_with_metrics->default_sysfontinfo->GetFontData(
+      fontinfo_with_metrics->default_sysfontinfo, hFont, table, buffer,
+      buf_size);
+}
+
+void Release(FPDF_SYSFONTINFO* sysfontinfo) {
+  auto* fontinfo_with_metrics =
+      static_cast<FPDF_SYSFONTINFO_WITHMETRICS*>(sysfontinfo);
+  if (!fontinfo_with_metrics->default_sysfontinfo->Release)
+    return;
+  fontinfo_with_metrics->default_sysfontinfo->Release(
+      fontinfo_with_metrics->default_sysfontinfo);
+}
 #endif  // defined(OS_LINUX)
 
 PDFiumEngine* g_engine_for_unsupported = nullptr;
@@ -486,8 +608,8 @@ void SetUpV8() {
   gin::IsolateHolder::Initialize(gin::IsolateHolder::kNonStrictMode,
                                  gin::IsolateHolder::kStableV8Extras,
                                  gin::ArrayBufferAllocator::SharedInstance());
-  g_isolate_holder =
-      new gin::IsolateHolder(gin::IsolateHolder::kSingleThread);
+  g_isolate_holder = new gin::IsolateHolder(base::ThreadTaskRunnerHandle::Get(),
+                                            gin::IsolateHolder::kSingleThread);
   g_isolate_holder->isolate()->Enter();
 }
 
@@ -495,6 +617,17 @@ void TearDownV8() {
   g_isolate_holder->isolate()->Exit();
   delete g_isolate_holder;
   g_isolate_holder = nullptr;
+}
+
+int GetBlockForJpeg(void* param,
+                    unsigned long pos,
+                    unsigned char* buf,
+                    unsigned long size) {
+  std::vector<uint8_t>* data_vector = static_cast<std::vector<uint8_t>*>(param);
+  if (pos + size < pos || pos + size > data_vector->size())
+    return 0;
+  memcpy(buf, data_vector->data() + pos, size);
+  return 1;
 }
 
 }  // namespace
@@ -512,6 +645,19 @@ bool InitializeSDK() {
 #if defined(OS_LINUX)
   // Font loading doesn't work in the renderer sandbox in Linux.
   FPDF_SetSystemFontInfo(&g_font_info);
+#else
+  g_font_info =
+      new FPDF_SYSFONTINFO_WITHMETRICS(FPDF_GetDefaultSystemFontInfo());
+  g_font_info->Release = Release;
+  g_font_info->EnumFonts = EnumFonts;
+  // Set new MapFont that calculates metrics
+  g_font_info->MapFont = MapFontWithMetrics;
+  g_font_info->GetFont = GetFont;
+  g_font_info->GetFaceName = GetFaceName;
+  g_font_info->GetFontCharset = GetFontCharset;
+  g_font_info->GetFontData = GetFontData;
+  g_font_info->DeleteFont = DeleteFont;
+  FPDF_SetSystemFontInfo(g_font_info);
 #endif
 
   FSDK_SetUnSpObjProcessHandler(&g_unsupported_info);
@@ -521,6 +667,9 @@ bool InitializeSDK() {
 
 void ShutdownSDK() {
   FPDF_DestroyLibrary();
+#if !defined(OS_LINUX)
+  delete g_font_info;
+#endif
   TearDownV8();
 }
 
@@ -649,8 +798,6 @@ PDFiumEngine::~PDFiumEngine() {
 #endif
   }
   FPDFAvail_Destroy(fpdf_availability_);
-
-  base::STLDeleteElements(&pages_);
 }
 
 #if defined(PDF_ENABLE_XFA)
@@ -1076,6 +1223,10 @@ void PDFiumEngine::OnNewDataAvailable() {
                                 doc_loader_.document_size());
 }
 
+void PDFiumEngine::OnDocumentFailed() {
+  client_->DocumentLoadFailed();
+}
+
 void PDFiumEngine::OnDocumentComplete() {
   if (!doc_ || !form_) {
     file_access_.m_FileLen = doc_loader_.document_size();
@@ -1171,6 +1322,10 @@ void PDFiumEngine::UnsupportedFeature(int type) {
   client_->DocumentHasUnsupportedFeature(feature);
 }
 
+void PDFiumEngine::FontSubstituted() {
+  client_->FontSubstituted();
+}
+
 void PDFiumEngine::ContinueFind(int32_t result) {
   StartFind(current_find_text_, result != 0);
 }
@@ -1211,9 +1366,11 @@ bool PDFiumEngine::HandleEvent(const pp::InputEvent& event) {
 }
 
 uint32_t PDFiumEngine::QuerySupportedPrintOutputFormats() {
-  if (!HasPermission(PDFEngine::PERMISSION_PRINT_LOW_QUALITY))
-    return 0;
-  return PP_PRINTOUTPUTFORMAT_PDF;
+  if (HasPermission(PDFEngine::PERMISSION_PRINT_HIGH_QUALITY))
+    return PP_PRINTOUTPUTFORMAT_PDF | PP_PRINTOUTPUTFORMAT_RASTER;
+  if (HasPermission(PDFEngine::PERMISSION_PRINT_LOW_QUALITY))
+    return PP_PRINTOUTPUTFORMAT_RASTER;
+  return 0;
 }
 
 void PDFiumEngine::PrintBegin() {
@@ -1223,10 +1380,14 @@ void PDFiumEngine::PrintBegin() {
 pp::Resource PDFiumEngine::PrintPages(
     const PP_PrintPageNumberRange_Dev* page_ranges, uint32_t page_range_count,
     const PP_PrintSettings_Dev& print_settings) {
-  if (HasPermission(PDFEngine::PERMISSION_PRINT_HIGH_QUALITY))
+  ScopedSubstFont scoped_subst_font(this);
+  if (HasPermission(PDFEngine::PERMISSION_PRINT_HIGH_QUALITY) &&
+      (print_settings.format & PP_PRINTOUTPUTFORMAT_PDF)) {
     return PrintPagesAsPDF(page_ranges, page_range_count, print_settings);
-  else if (HasPermission(PDFEngine::PERMISSION_PRINT_LOW_QUALITY))
+  } else if (HasPermission(PDFEngine::PERMISSION_PRINT_LOW_QUALITY)) {
     return PrintPagesAsRasterPDF(page_ranges, page_range_count, print_settings);
+  }
+
   return pp::Resource();
 }
 
@@ -1269,6 +1430,8 @@ FPDF_DOCUMENT PDFiumEngine::CreateSinglePageRasterPdf(
                         print_settings.orientation,
                         FPDF_ANNOT | FPDF_PRINTING | FPDF_NO_CATCH);
 
+  unsigned char* bitmap_data =
+      static_cast<unsigned char*>(FPDFBitmap_GetBuffer(bitmap));
   double ratio_x = ConvertUnitDouble(bitmap_size.width(),
                                      print_settings.dpi,
                                      kPointsPerInch);
@@ -1279,7 +1442,25 @@ FPDF_DOCUMENT PDFiumEngine::CreateSinglePageRasterPdf(
   // Add the bitmap to an image object and add the image object to the output
   // page.
   FPDF_PAGEOBJECT temp_img = FPDFPageObj_NewImgeObj(temp_doc);
-  FPDFImageObj_SetBitmap(&temp_page, 1, temp_img, bitmap);
+
+  std::vector<uint8_t> compressed_bitmap_data;
+  int quality = 40;
+  if (!(print_settings.format & PP_PRINTOUTPUTFORMAT_PDF) &&
+      (gfx::JPEGCodec::Encode(
+          bitmap_data, gfx::JPEGCodec::FORMAT_BGRA, FPDFBitmap_GetWidth(bitmap),
+          FPDFBitmap_GetHeight(bitmap), FPDFBitmap_GetStride(bitmap), quality,
+          &compressed_bitmap_data))) {
+    FPDF_FILEACCESS file_access = {};
+    file_access.m_FileLen =
+        static_cast<unsigned long>(compressed_bitmap_data.size());
+    file_access.m_GetBlock = &GetBlockForJpeg;
+    file_access.m_Param = &compressed_bitmap_data;
+
+    FPDFImageObj_LoadJpegFileInline(&temp_page, 1, temp_img, &file_access);
+  } else {
+    FPDFImageObj_SetBitmap(&temp_page, 1, temp_img, bitmap);
+  }
+
   FPDFImageObj_SetMatrix(temp_img, ratio_x, 0, 0, ratio_y, 0, 0);
   FPDFPage_InsertObject(temp_page, temp_img);
   FPDFPage_GenerateContent(temp_page);
@@ -1375,6 +1556,7 @@ pp::Buffer_Dev PDFiumEngine::PrintPagesAsRasterPDF(
 
 pp::Buffer_Dev PDFiumEngine::GetFlattenedPrintData(const FPDF_DOCUMENT& doc) {
   pp::Buffer_Dev buffer;
+  ScopedSubstFont scoped_subst_font(this);
   int page_count = FPDF_GetPageCount(doc);
   for (int i = 0; i < page_count; ++i) {
     FPDF_PAGE page = FPDF_LoadPage(doc, i);
@@ -1596,7 +1778,7 @@ bool PDFiumEngine::OnMouseDown(const pp::MouseInputEvent& event) {
 
 void PDFiumEngine::OnSingleClick(int page_index, int char_index) {
   SetSelecting(true);
-  selection_.push_back(PDFiumRange(pages_[page_index], char_index, 0));
+  selection_.push_back(PDFiumRange(pages_[page_index].get(), char_index, 0));
 }
 
 void PDFiumEngine::OnMultipleClick(int click_count,
@@ -1623,8 +1805,8 @@ void PDFiumEngine::OnMultipleClick(int click_count,
       break;
   }
 
-  selection_.push_back(PDFiumRange(
-      pages_[page_index], start_index, end_index - start_index));
+  selection_.push_back(PDFiumRange(pages_[page_index].get(), start_index,
+                                   end_index - start_index));
 }
 
 bool PDFiumEngine::OnMouseUp(const pp::MouseInputEvent& event) {
@@ -1780,13 +1962,13 @@ bool PDFiumEngine::OnMouseMove(const pp::MouseInputEvent& event) {
     // First make sure that there are no gaps in selection, i.e. if mousedown on
     // page one but we only get mousemove over page three, we want page two.
     for (int i = selection_[last].page_index() + 1; i < page_index; ++i) {
-      selection_.push_back(PDFiumRange(pages_[i], 0,
-                           pages_[i]->GetCharCount()));
+      selection_.push_back(
+          PDFiumRange(pages_[i].get(), 0, pages_[i]->GetCharCount()));
     }
 
     int count = pages_[selection_[last].page_index()]->GetCharCount();
     selection_[last].SetCharCount(count - selection_[last].char_index());
-    selection_.push_back(PDFiumRange(pages_[page_index], 0, char_index));
+    selection_.push_back(PDFiumRange(pages_[page_index].get(), 0, char_index));
   } else {
     // Selecting into the previous page.
     // The selection's char_index is 0-based, so the character count is one
@@ -1797,13 +1979,13 @@ bool PDFiumEngine::OnMouseMove(const pp::MouseInputEvent& event) {
     // First make sure that there are no gaps in selection, i.e. if mousedown on
     // page three but we only get mousemove over page one, we want page two.
     for (int i = selection_[last].page_index() - 1; i > page_index; --i) {
-      selection_.push_back(PDFiumRange(pages_[i], 0,
-                           pages_[i]->GetCharCount()));
+      selection_.push_back(
+          PDFiumRange(pages_[i].get(), 0, pages_[i]->GetCharCount()));
     }
 
     int count = pages_[page_index]->GetCharCount();
     selection_.push_back(
-        PDFiumRange(pages_[page_index], count, count - char_index));
+        PDFiumRange(pages_[page_index].get(), count, count - char_index));
   }
 
   return true;
@@ -1968,7 +2150,7 @@ void PDFiumEngine::SearchUsingPDFium(const base::string16& term,
   // page boundaries.  We could do this manually ourself, but it seems low
   // priority since Reader itself doesn't do it.
   while (FPDFText_FindNext(find)) {
-    PDFiumRange result(pages_[current_page],
+    PDFiumRange result(pages_[current_page].get(),
                        FPDFText_GetSchResultIndex(find),
                        FPDFText_GetSchCount(find));
 
@@ -2025,7 +2207,7 @@ void PDFiumEngine::SearchUsingICU(const base::string16& term,
     int end = FPDFText_GetCharIndexFromTextIndex(
         pages_[current_page]->GetTextPage(),
         temp_start + result.length);
-    AddFindResult(PDFiumRange(pages_[current_page], start, end - start));
+    AddFindResult(PDFiumRange(pages_[current_page].get(), start, end - start));
   }
 }
 
@@ -2253,7 +2435,7 @@ void PDFiumEngine::SelectAll() {
   selection_.clear();
   for (const auto& page : pages_) {
     if (page->available())
-      selection_.push_back(PDFiumRange(page, 0, page->GetCharCount()));
+      selection_.push_back(PDFiumRange(page.get(), 0, page->GetCharCount()));
   }
 }
 
@@ -2291,9 +2473,8 @@ int PDFiumEngine::GetMostVisiblePage() {
   // to defer the page deletion otherwise we could potentially delete the page
   // that originated the calling JS request and destroy the objects that are
   // currently being used.
-  defer_page_unload_ = true;
+  base::AutoReset<bool> defer_page_unload_guard(&defer_page_unload_, true);
   CalculateVisiblePages();
-  defer_page_unload_ = false;
   return most_visible_page_;
 }
 
@@ -2330,17 +2511,17 @@ void PDFiumEngine::OnCallback(int id) {
 }
 
 int PDFiumEngine::GetCharCount(int page_index) {
-  DCHECK(page_index >= 0 && page_index < static_cast<int>(pages_.size()));
+  DCHECK(PageIndexInBounds(page_index));
   return pages_[page_index]->GetCharCount();
 }
 
 pp::FloatRect PDFiumEngine::GetCharBounds(int page_index, int char_index) {
-  DCHECK(page_index >= 0 && page_index < static_cast<int>(pages_.size()));
+  DCHECK(PageIndexInBounds(page_index));
   return pages_[page_index]->GetCharBounds(char_index);
 }
 
 uint32_t PDFiumEngine::GetCharUnicode(int page_index, int char_index) {
-  DCHECK(page_index >= 0 && page_index < static_cast<int>(pages_.size()));
+  DCHECK(PageIndexInBounds(page_index));
   return pages_[page_index]->GetCharUnicode(char_index);
 }
 
@@ -2349,7 +2530,7 @@ void PDFiumEngine::GetTextRunInfo(int page_index,
                                   uint32_t* out_len,
                                   double* out_font_size,
                                   pp::FloatRect* out_bounds) {
-  DCHECK(page_index >= 0 && page_index < static_cast<int>(pages_.size()));
+  DCHECK(PageIndexInBounds(page_index));
   return pages_[page_index]->GetTextRunInfo(start_char_index, out_len,
                                             out_font_size, out_bounds);
 }
@@ -2395,7 +2576,6 @@ void PDFiumEngine::AppendBlankPages(int num_pages) {
 
   // Delete all pages except the first one.
   while (pages_.size() > 1) {
-    delete pages_.back();
     pages_.pop_back();
     FPDFPage_Delete(doc_, pages_.size());
   }
@@ -2431,7 +2611,7 @@ void PDFiumEngine::AppendBlankPages(int num_pages) {
                                                 kPixelsPerInch,
                                                 kPointsPerInch);
     FPDFPage_New(doc_, i, width_in_points, height_in_points);
-    pages_.push_back(new PDFiumPage(this, i, page_rect, true));
+    pages_.push_back(base::MakeUnique<PDFiumPage>(this, i, page_rect, true));
   }
 
   CalculateVisiblePages();
@@ -2453,6 +2633,7 @@ void PDFiumEngine::LoadDocument() {
     return;
 
   ScopedUnsupportedFeature scoped_unsupported_feature(this);
+  ScopedSubstFont scoped_subst_font(this);
   bool needs_password = false;
   if (TryLoadingDoc(std::string(), &needs_password)) {
     ContinueLoadingDocument(std::string());
@@ -2486,6 +2667,7 @@ bool PDFiumEngine::TryLoadingDoc(const std::string& password,
   } else {
     doc_ = FPDFAvail_GetDocument(fpdf_availability_, password_cstr);
   }
+
   if (!doc_) {
     if (FPDF_GetLastError() == FPDF_ERR_PASSWORD)
       *needs_password = true;
@@ -2517,6 +2699,7 @@ void PDFiumEngine::OnGetPasswordComplete(int32_t result,
 
 void PDFiumEngine::ContinueLoadingDocument(const std::string& password) {
   ScopedUnsupportedFeature scoped_unsupported_feature(this);
+  ScopedSubstFont scoped_subst_font(this);
 
   bool needs_password = false;
   bool loaded = TryLoadingDoc(password, &needs_password);
@@ -2525,7 +2708,6 @@ void PDFiumEngine::ContinueLoadingDocument(const std::string& password) {
     GetPasswordAndLoad();
     return;
   }
-
   if (!doc_) {
     client_->DocumentLoadFailed();
     return;
@@ -2622,7 +2804,7 @@ void PDFiumEngine::LoadPageInfo(bool reload) {
       // The page is marked as not being available even if |doc_complete| is
       // true because FPDFAvail_IsPageAvail() still has to be called for this
       // page, which will be done in FinishLoadingDocument().
-      pages_.push_back(new PDFiumPage(this, i, page_rect, false));
+      pages_.push_back(base::MakeUnique<PDFiumPage>(this, i, page_rect, false));
     }
   }
 
@@ -2688,6 +2870,9 @@ bool PDFiumEngine::IsPageVisible(int index) const {
 }
 
 void PDFiumEngine::ScrollToPage(int page) {
+  if (!PageIndexInBounds(page))
+    return;
+
   in_flight_visible_page_ = page;
   client_->ScrollToPage(page);
 }
@@ -2758,8 +2943,7 @@ bool PDFiumEngine::ContinuePaint(int progressive_index,
   int rv;
   FPDF_BITMAP bitmap = progressive_paints_[progressive_index].bitmap;
   int page_index = progressive_paints_[progressive_index].page_index;
-  DCHECK_GE(page_index, 0);
-  DCHECK_LT(static_cast<size_t>(page_index), pages_.size());
+  DCHECK(PageIndexInBounds(page_index));
   FPDF_PAGE page = pages_[page_index]->GetPage();
 
   last_progressive_start_time_ = base::Time::Now();
@@ -3411,6 +3595,10 @@ void PDFiumEngine::SetSelecting(bool selecting) {
     client_->IsSelectingChanged(selecting);
 }
 
+bool PDFiumEngine::PageIndexInBounds(int index) const {
+  return index >= 0 && index < static_cast<int>(pages_.size());
+}
+
 void PDFiumEngine::Form_Invalidate(FPDF_FORMFILLINFO* param,
                                    FPDF_PAGE page,
                                    double left,
@@ -3494,14 +3682,13 @@ FPDF_PAGE PDFiumEngine::Form_GetPage(FPDF_FORMFILLINFO* param,
                                      FPDF_DOCUMENT document,
                                      int page_index) {
   PDFiumEngine* engine = static_cast<PDFiumEngine*>(param);
-  if (page_index < 0 || page_index >= static_cast<int>(engine->pages_.size()))
+  if (!engine->PageIndexInBounds(page_index))
     return nullptr;
   return engine->pages_[page_index]->GetPage();
 }
 
 FPDF_PAGE PDFiumEngine::Form_GetCurrentPage(FPDF_FORMFILLINFO* param,
                                             FPDF_DOCUMENT document) {
-  // TODO(jam): find out what this is used for.
   PDFiumEngine* engine = static_cast<PDFiumEngine*>(param);
   int index = engine->last_page_mouse_down_;
   if (index == -1) {
@@ -3733,6 +3920,15 @@ ScopedUnsupportedFeature::~ScopedUnsupportedFeature() {
   g_engine_for_unsupported = old_engine_;
 }
 
+ScopedSubstFont::ScopedSubstFont(PDFiumEngine* engine)
+    : old_engine_(g_engine_for_fontmapper) {
+  g_engine_for_fontmapper = engine;
+}
+
+ScopedSubstFont::~ScopedSubstFont() {
+  g_engine_for_fontmapper = old_engine_;
+}
+
 namespace {
 
 base::LazyInstance<PDFiumEngineExports>::Leaky g_pdf_engine_exports =
@@ -3907,6 +4103,12 @@ void PDFiumEngineExports::SetPDFEnsureTypefaceCharactersAccessible(
 void PDFiumEngineExports::SetPDFUseGDIPrinting(bool enable) {
   FPDF_SetPrintTextWithGDI(enable);
 }
+
+void PDFiumEngineExports::SetPDFPostscriptPrintingLevel(
+    int postscript_level) {
+  FPDF_SetPrintPostscriptLevel(postscript_level);
+}
+
 #endif  // defined(OS_WIN)
 
 bool PDFiumEngineExports::RenderPDFPageToBitmap(
@@ -3972,12 +4174,11 @@ bool PDFiumEngineExports::GetPDFDocInfo(const void* pdf_buffer,
   return true;
 }
 
-bool PDFiumEngineExports::GetPDFPageSizeByIndex(
-    const void* pdf_buffer,
-    int pdf_buffer_size,
-    int page_number,
-    double* width,
-    double* height) {
+bool PDFiumEngineExports::GetPDFPageSizeByIndex(const void* pdf_buffer,
+                                                int pdf_buffer_size,
+                                                int page_number,
+                                                double* width,
+                                                double* height) {
   FPDF_DOCUMENT doc =
       FPDF_LoadMemDocument(pdf_buffer, pdf_buffer_size, nullptr);
   if (!doc)

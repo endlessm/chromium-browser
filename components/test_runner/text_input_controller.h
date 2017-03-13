@@ -12,6 +12,7 @@
 #include "base/memory/weak_ptr.h"
 
 namespace blink {
+class WebInputMethodController;
 class WebLocalFrame;
 class WebView;
 }
@@ -43,8 +44,13 @@ class TextInputController {
   std::vector<int> FirstRectForCharacterRange(unsigned location,
                                               unsigned length);
   void SetComposition(const std::string& text);
+  void ForceTextInputStateUpdate();
 
   blink::WebView* view();
+  // Returns the WebInputMethodController corresponding to the focused frame
+  // accepting IME. Could return nullptr if no such frame exists.
+  blink::WebInputMethodController* GetInputMethodController();
+
   WebViewTestProxyBase* web_view_test_proxy_base_;
 
   base::WeakPtrFactory<TextInputController> weak_factory_;

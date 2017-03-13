@@ -5,14 +5,11 @@
 #ifndef SERVICES_UI_WS_USER_DISPLAY_MANAGER_DELEGATE_H_
 #define SERVICES_UI_WS_USER_DISPLAY_MANAGER_DELEGATE_H_
 
-#include "services/ui/public/interfaces/display.mojom.h"
+#include "services/ui/public/interfaces/window_manager_constants.mojom.h"
 #include "services/ui/ws/user_id.h"
 
 namespace ui {
 namespace ws {
-
-class Display;
-class WindowManagerState;
 
 class UserDisplayManagerDelegate {
  public:

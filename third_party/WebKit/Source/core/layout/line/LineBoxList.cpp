@@ -40,7 +40,7 @@
 
 namespace blink {
 
-#if ENABLE(ASSERT)
+#if DCHECK_IS_ON()
 LineBoxList::~LineBoxList() {
   ASSERT(!m_firstLineBox);
   ASSERT(!m_lastLineBox);
@@ -291,11 +291,15 @@ void LineBoxList::dirtyLinesFromChangedChild(LineLayoutItem container,
   // check the siblings of our inline parent. If we didn't find a line box, then
   // use our parent's first line box.
   RootInlineBox* box = nullptr;
-  LineLayoutItem curr = child.isFloating() && !child.previousSibling() &&
-                                child.parent() &&
-                                child.parent().isLayoutInline()
-                            ? child.parent().previousSibling()
-                            : child.previousSibling();
+  LineLayoutItem curr = child.previousSibling();
+  if (child.isFloating() && !curr) {
+    LineLayoutItem parent = child.parent();
+    while (parent && parent.isLayoutInline() && !parent.previousSibling())
+      parent = parent.parent();
+    if (parent)
+      curr = parent.previousSibling();
+  }
+
   for (; curr; curr = curr.previousSibling()) {
     if (curr.isFloatingOrOutOfFlowPositioned())
       continue;
@@ -360,7 +364,7 @@ void LineBoxList::dirtyLinesFromChangedChild(LineLayoutItem container,
   }
 }
 
-#if ENABLE(ASSERT)
+#if DCHECK_IS_ON()
 void LineBoxList::checkConsistency() const {
 #ifdef CHECK_CONSISTENCY
   const InlineFlowBox* prev = nullptr;

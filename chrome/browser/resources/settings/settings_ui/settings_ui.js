@@ -19,6 +19,8 @@ settings.defaultResourceLoaded = true;
 Polymer({
   is: 'settings-ui',
 
+  behaviors: [settings.RouteObserverBehavior],
+
   properties: {
     /**
      * Preferences state.
@@ -32,6 +34,13 @@ Polymer({
       value: new settings.DirectionDelegateImpl(),
     },
 
+    /** @private */
+    advancedOpened_: {
+      type: Boolean,
+      value: false,
+      notify: true,
+    },
+
     /** @private {boolean} */
     toolbarSpinnerActive_: {
       type: Boolean,
@@ -43,6 +52,19 @@ Polymer({
      * @private {!GuestModePageVisibility}
      */
     pageVisibility_: Object,
+
+    /** @private */
+    showAndroidApps_: Boolean,
+
+    /** @private */
+    lastSearchQuery_: {
+      type: String,
+      value: '',
+    }
+  },
+
+  listeners: {
+    'refresh-pref': 'onRefreshPref_',
   },
 
   /** @override */
@@ -56,31 +78,60 @@ Polymer({
    *     strict mode.
    */
   ready: function() {
-    this.$$('cr-toolbar').addEventListener('search-changed', function(e) {
-      this.$$('settings-main').searchContents(e.detail);
-    }.bind(this));
-
     // Lazy-create the drawer the first time it is opened or swiped into view.
-    var drawer = assert(this.$$('app-drawer'));
-    listenOnce(drawer, 'track opened-changed', function() {
+    listenOnce(this.$.drawer, 'open-changed', function() {
       this.$.drawerTemplate.if = true;
     }.bind(this));
 
     window.addEventListener('popstate', function(e) {
-      drawer.close();
+      this.$.drawer.closeDrawer();
     }.bind(this));
+
+    CrPolicyStrings = {
+      controlledSettingPolicy:
+          loadTimeData.getString('controlledSettingPolicy'),
+      controlledSettingRecommendedMatches:
+          loadTimeData.getString('controlledSettingRecommendedMatches'),
+      controlledSettingRecommendedDiffers:
+          loadTimeData.getString('controlledSettingRecommendedDiffers'),
+// <if expr="chromeos">
+      controlledSettingShared:
+          loadTimeData.getString('controlledSettingShared'),
+      controlledSettingOwner: loadTimeData.getString('controlledSettingOwner'),
+// </if>
+    };
+
+// <if expr="chromeos">
+    CrOncStrings = {
+      OncTypeCellular: loadTimeData.getString('OncTypeCellular'),
+      OncTypeEthernet: loadTimeData.getString('OncTypeEthernet'),
+      OncTypeVPN: loadTimeData.getString('OncTypeVPN'),
+      OncTypeWiFi: loadTimeData.getString('OncTypeWiFi'),
+      OncTypeWiMAX: loadTimeData.getString('OncTypeWiMAX'),
+      networkDisabled: loadTimeData.getString('networkDisabled'),
+      networkListItemConnected:
+          loadTimeData.getString('networkListItemConnected'),
+      networkListItemConnecting:
+          loadTimeData.getString('networkListItemConnecting'),
+      networkListItemConnectingTo:
+          loadTimeData.getString('networkListItemConnectingTo'),
+      networkListItemNotConnected:
+          loadTimeData.getString('networkListItemNotConnected'),
+      vpnNameTemplate: loadTimeData.getString('vpnNameTemplate'),
+    };
+// </if>
 
     if (loadTimeData.getBoolean('isGuest')) {
       this.pageVisibility_ = {
         people: false,
         onStartup: false,
         reset: false,
-<if expr="not chromeos">
+// <if expr="not chromeos">
         appearance: false,
         defaultBrowser: false,
         advancedSettings: false,
-</if>
-<if expr="chromeos">
+// </if>
+// <if expr="chromeos">
         appearance: {
           setWallpaper: false,
           setTheme: false,
@@ -97,15 +148,71 @@ Polymer({
         downloads: {
           googleDrive: false,
         },
-</if>
+// </if>
       };
     }
+
+    this.showAndroidApps_ = loadTimeData.valueExists('androidAppsAllowed') &&
+        loadTimeData.getBoolean('androidAppsAllowed');
   },
 
   /** @override */
   attached: function() {
     // Preload bold Roboto so it doesn't load and flicker the first time used.
     document.fonts.load('bold 12px Roboto');
+    settings.setGlobalScrollTarget(this.$.headerPanel.scroller);
+  },
+
+  /** @param {!settings.Route} route */
+  currentRouteChanged: function(route) {
+    var urlSearchQuery = settings.getQueryParameters().get('search') || '';
+    if (urlSearchQuery == this.lastSearchQuery_)
+      return;
+
+    this.lastSearchQuery_ = urlSearchQuery;
+
+    var toolbar = /** @type {!CrToolbarElement} */ (this.$$('cr-toolbar'));
+    var searchField = /** @type {CrToolbarSearchFieldElement} */ (
+        toolbar.getSearchField());
+
+    // If the search was initiated by directly entering a search URL, need to
+    // sync the URL parameter to the textbox.
+    if (urlSearchQuery != searchField.getValue()) {
+      // Setting the search box value without triggering a 'search-changed'
+      // event, to prevent an unnecessary duplicate entry in |window.history|.
+      searchField.setValue(urlSearchQuery, true /* noEvent */);
+    }
+
+    this.$.main.searchContents(urlSearchQuery);
+  },
+
+  /**
+   * @param {!CustomEvent} e
+   * @private
+   */
+  onRefreshPref_: function(e) {
+    var prefName = /** @type {string} */(e.detail);
+    return /** @type {SettingsPrefsElement} */(this.$.prefs).refresh(prefName);
+  },
+
+  /**
+   * Handles the 'search-changed' event fired from the toolbar.
+   * @param {!Event} e
+   * @private
+   */
+  onSearchChanged_: function(e) {
+    // Trim leading whitespace only, to prevent searching for empty string. This
+    // still allows the user to search for 'foo bar', while taking a long pause
+    // after typing 'foo '.
+    var query = e.detail.replace(/^\s+/, '');
+    // Prevent duplicate history entries.
+    if (query == this.lastSearchQuery_)
+      return;
+
+    settings.navigateTo(
+        settings.Route.BASIC,
+        query.length > 0 ? new URLSearchParams(`search=${query}`) : undefined,
+        /* removeSearch */ true);
   },
 
   /**
@@ -114,17 +221,17 @@ Polymer({
    */
   onIronActivate_: function(event) {
     if (event.detail.item.id != 'advancedPage')
-      this.$$('app-drawer').close();
+      this.$.drawer.closeDrawer();
   },
 
   /** @private */
   onMenuButtonTap_: function() {
-    this.$$('app-drawer').toggle();
+    this.$.drawer.toggle();
   },
 
   /** @private */
   directionDelegateChanged_: function() {
-    this.$$('app-drawer').align = this.directionDelegate.isRtl() ?
+    this.$.drawer.align = this.directionDelegate.isRtl() ?
         'right' : 'left';
   },
 });

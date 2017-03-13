@@ -106,15 +106,18 @@ bool CheckStudyHardwareClass(const Study_Filter& filter,
 }
 
 bool CheckStudyLocale(const Study_Filter& filter, const std::string& locale) {
-  // An empty locale list matches all locales.
-  if (filter.locale_size() == 0)
+  // Empty locale and exclude_locale lists matches all locales.
+  if (filter.locale_size() == 0 && filter.exclude_locale_size() == 0)
     return true;
 
-  for (int i = 0; i < filter.locale_size(); ++i) {
-    if (filter.locale(i) == locale)
-      return true;
-  }
-  return false;
+  // Check if we are supposed to filter for a specified set of countries. Note
+  // that this means this overrides the exclude_locale in case that ever occurs
+  // (which it shouldn't).
+  if (filter.locale_size() > 0)
+    return base::ContainsValue(filter.locale(), locale);
+
+  // Omit if matches any of the exclude entries.
+  return !base::ContainsValue(filter.exclude_locale(), locale);
 }
 
 bool CheckStudyPlatform(const Study_Filter& filter, Study_Platform platform) {
@@ -135,6 +138,16 @@ bool CheckStudyStartDate(const Study_Filter& filter,
     const base::Time start_date =
         ConvertStudyDateToBaseTime(filter.start_date());
     return date_time >= start_date;
+  }
+
+  return true;
+}
+
+bool CheckStudyEndDate(const Study_Filter& filter,
+                       const base::Time& date_time) {
+  if (filter.has_end_date()) {
+    const base::Time end_date = ConvertStudyDateToBaseTime(filter.end_date());
+    return end_date >= date_time;
   }
 
   return true;
@@ -219,6 +232,11 @@ bool ShouldAddStudy(
     if (!CheckStudyStartDate(study.filter(), reference_date)) {
       DVLOG(1) << "Filtered out study " << study.name() <<
                   " due to start date.";
+      return false;
+    }
+
+    if (!CheckStudyEndDate(study.filter(), reference_date)) {
+      DVLOG(1) << "Filtered out study " << study.name() << " due to end date.";
       return false;
     }
 

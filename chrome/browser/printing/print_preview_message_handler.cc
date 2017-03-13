@@ -7,6 +7,7 @@
 #include <stdint.h>
 
 #include <memory>
+#include <utility>
 #include <vector>
 
 #include "base/bind.h"
@@ -21,7 +22,6 @@
 #include "chrome/browser/ui/webui/print_preview/print_preview_ui.h"
 #include "components/printing/common/print_messages.h"
 #include "content/public/browser/browser_thread.h"
-#include "content/public/browser/render_view_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_ui.h"
 #include "printing/page_size_margins.h"
@@ -92,9 +92,12 @@ PrintPreviewUI* PrintPreviewMessageHandler::GetPrintPreviewUI() {
 }
 
 void PrintPreviewMessageHandler::OnRequestPrintPreview(
+    content::RenderFrameHost* render_frame_host,
     const PrintHostMsg_RequestPrintPreview_Params& params) {
-  if (params.webnode_only)
-    PrintViewManager::FromWebContents(web_contents())->PrintPreviewForWebNode();
+  if (params.webnode_only) {
+    PrintViewManager::FromWebContents(web_contents())->PrintPreviewForWebNode(
+        render_frame_host);
+  }
   PrintPreviewDialogController::PrintPreview(web_contents());
   PrintPreviewUI::SetInitialParams(GetPrintPreviewDialog(), params);
 }
@@ -206,11 +209,19 @@ void PrintPreviewMessageHandler::OnSetOptionsFromDocument(
 }
 
 bool PrintPreviewMessageHandler::OnMessageReceived(
-    const IPC::Message& message) {
+    const IPC::Message& message,
+    content::RenderFrameHost* render_frame_host) {
   bool handled = true;
-  IPC_BEGIN_MESSAGE_MAP(PrintPreviewMessageHandler, message)
+  IPC_BEGIN_MESSAGE_MAP_WITH_PARAM(PrintPreviewMessageHandler, message,
+                                   render_frame_host)
     IPC_MESSAGE_HANDLER(PrintHostMsg_RequestPrintPreview,
                         OnRequestPrintPreview)
+    IPC_MESSAGE_UNHANDLED(handled = false)
+  IPC_END_MESSAGE_MAP()
+  if (handled)
+    return true;
+
+  IPC_BEGIN_MESSAGE_MAP(PrintPreviewMessageHandler, message)
     IPC_MESSAGE_HANDLER(PrintHostMsg_DidGetPreviewPageCount,
                         OnDidGetPreviewPageCount)
     IPC_MESSAGE_HANDLER(PrintHostMsg_DidPreviewPage,

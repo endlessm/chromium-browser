@@ -31,7 +31,6 @@
 namespace blink {
 
 class AffineTransform;
-class Path;
 class SVGMatrixTearOff;
 class SVGRectTearOff;
 
@@ -54,10 +53,8 @@ class CORE_EXPORT SVGGraphicsElement : public SVGElement, public SVGTests {
 
   AffineTransform localCoordinateSpaceTransform(
       SVGElement::CTMScope) const override {
-    return calculateAnimatedLocalTransform();
+    return calculateTransform(IncludeMotionTransform);
   }
-  bool hasAnimatedLocalTransform() const;
-  AffineTransform calculateAnimatedLocalTransform() const;
   AffineTransform* animateMotionTransform() override;
 
   virtual FloatRect getBBox();
@@ -85,6 +82,9 @@ class CORE_EXPORT SVGGraphicsElement : public SVGElement, public SVGTests {
     return Element::supportsFocus() || hasFocusEventListeners();
   }
 
+  void collectStyleForPresentationAttribute(const QualifiedName&,
+                                            const AtomicString&,
+                                            MutableStylePropertySet*) override;
   void svgAttributeChanged(const QualifiedName&) override;
 
   Member<SVGAnimatedTransformList> m_transform;

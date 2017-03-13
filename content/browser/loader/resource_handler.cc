@@ -8,6 +8,8 @@
 
 namespace content {
 
+ResourceHandler::~ResourceHandler() {}
+
 ResourceHandler::ResourceHandler(net::URLRequest* request)
     : controller_(NULL),
       request_(request) {
@@ -26,7 +28,7 @@ int ResourceHandler::GetRequestID() const {
 }
 
 ResourceMessageFilter* ResourceHandler::GetFilter() const {
-  return GetRequestInfo()->filter();
+  return GetRequestInfo()->requester_info()->filter();
 }
 
 }  // namespace content

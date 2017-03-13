@@ -35,6 +35,8 @@ InputEventAckState InputEventDispositionToAck(
       return INPUT_EVENT_ACK_STATE_CONSUMED;
     case InputHandlerProxy::DID_NOT_HANDLE:
       return INPUT_EVENT_ACK_STATE_NOT_CONSUMED;
+    case InputHandlerProxy::DID_NOT_HANDLE_NON_BLOCKING_DUE_TO_FLING:
+      return INPUT_EVENT_ACK_STATE_SET_NON_BLOCKING_DUE_TO_FLING;
     case InputHandlerProxy::DROP_EVENT:
       return INPUT_EVENT_ACK_STATE_NO_CONSUMER_EXISTS;
     case InputHandlerProxy::DID_HANDLE_NON_BLOCKING:
@@ -110,12 +112,12 @@ void InputHandlerManager::AddInputHandlerOnCompositorThread(
     synchronous_handler_proxy_client_->DidAddSynchronousHandlerProxy(
         routing_id, wrapper->input_handler_proxy());
   }
-  input_handlers_.add(routing_id, std::move(wrapper));
+  input_handlers_[routing_id] = std::move(wrapper);
 }
 
 void InputHandlerManager::RemoveInputHandler(int routing_id) {
   DCHECK(task_runner_->BelongsToCurrentThread());
-  DCHECK(input_handlers_.contains(routing_id));
+  DCHECK(input_handlers_.find(routing_id) != input_handlers_.end());
 
   TRACE_EVENT0("input", "InputHandlerManager::RemoveInputHandler");
 
@@ -189,8 +191,9 @@ void InputHandlerManager::ObserveGestureEventAndResultOnCompositorThread(
 void InputHandlerManager::NotifyInputEventHandledOnMainThread(
     int routing_id,
     blink::WebInputEvent::Type type,
+    blink::WebInputEventResult result,
     InputEventAckState ack_result) {
-  client_->NotifyInputEventHandled(routing_id, type, ack_result);
+  client_->NotifyInputEventHandled(routing_id, type, result, ack_result);
 }
 
 void InputHandlerManager::ProcessRafAlignedInputOnMainThread(int routing_id) {
@@ -199,12 +202,12 @@ void InputHandlerManager::ProcessRafAlignedInputOnMainThread(int routing_id) {
 
 void InputHandlerManager::HandleInputEvent(
     int routing_id,
-    ui::ScopedWebInputEvent input_event,
+    blink::WebScopedInputEvent input_event,
     const ui::LatencyInfo& latency_info,
     const InputEventAckStateCallback& callback) {
   DCHECK(task_runner_->BelongsToCurrentThread());
   TRACE_EVENT1("input,benchmark,rail", "InputHandlerManager::HandleInputEvent",
-               "type", WebInputEvent::GetName(input_event->type));
+               "type", WebInputEvent::GetName(input_event->type()));
 
   auto it = input_handlers_.find(routing_id);
   if (it == input_handlers_.end()) {
@@ -228,7 +231,7 @@ void InputHandlerManager::HandleInputEvent(
 void InputHandlerManager::DidHandleInputEventAndOverscroll(
     const InputEventAckStateCallback& callback,
     InputHandlerProxy::EventDisposition event_disposition,
-    ui::ScopedWebInputEvent input_event,
+    blink::WebScopedInputEvent input_event,
     const ui::LatencyInfo& latency_info,
     std::unique_ptr<ui::DidOverscrollParams> overscroll_params) {
   InputEventAckState input_event_ack_state =
@@ -240,6 +243,7 @@ void InputHandlerManager::DidHandleInputEventAndOverscroll(
           RendererScheduler::InputEventState::EVENT_CONSUMED_BY_COMPOSITOR);
       break;
     case INPUT_EVENT_ACK_STATE_NOT_CONSUMED:
+    case INPUT_EVENT_ACK_STATE_SET_NON_BLOCKING_DUE_TO_FLING:
       renderer_scheduler_->DidHandleInputEventOnCompositorThread(
           *input_event,
           RendererScheduler::InputEventState::EVENT_FORWARDED_TO_MAIN_THREAD);
@@ -254,10 +258,6 @@ void InputHandlerManager::DidHandleInputEventAndOverscroll(
 void InputHandlerManager::DidOverscroll(int routing_id,
                                         const ui::DidOverscrollParams& params) {
   client_->DidOverscroll(routing_id, params);
-}
-
-void InputHandlerManager::DidStartFlinging(int routing_id) {
-  client_->DidStartFlinging(routing_id);
 }
 
 void InputHandlerManager::DidStopFlinging(int routing_id) {
@@ -278,7 +278,7 @@ void InputHandlerManager::NeedsMainFrame(int routing_id) {
 
 void InputHandlerManager::DispatchNonBlockingEventToMainThread(
     int routing_id,
-    ui::ScopedWebInputEvent event,
+    blink::WebScopedInputEvent event,
     const ui::LatencyInfo& latency_info) {
   DCHECK(task_runner_->BelongsToCurrentThread());
   client_->DispatchNonBlockingEventToMainThread(routing_id, std::move(event),

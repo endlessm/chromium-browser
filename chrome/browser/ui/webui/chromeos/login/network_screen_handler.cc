@@ -69,9 +69,6 @@ NetworkScreenHandler::~NetworkScreenHandler() {
 
 // NetworkScreenHandler, NetworkScreenActor implementation: --------------------
 
-void NetworkScreenHandler::PrepareToShow() {
-}
-
 void NetworkScreenHandler::Show() {
   if (!page_is_ready()) {
     show_on_init_ = true;
@@ -139,8 +136,7 @@ void NetworkScreenHandler::ShowConnectingStatus(
 
 void NetworkScreenHandler::ReloadLocalizedContent() {
   base::DictionaryValue localized_strings;
-  static_cast<OobeUI*>(web_ui()->GetController())
-      ->GetLocalizedStrings(&localized_strings);
+  GetOobeUI()->GetLocalizedStrings(&localized_strings);
   core_oobe_actor_->ReloadContent(localized_strings);
 }
 
@@ -170,6 +166,7 @@ void NetworkScreenHandler::DeclareLocalizedValues(
   builder->Add("languageSectionTitle", IDS_LANGUAGE_SECTION_TITLE);
   builder->Add("accessibilitySectionTitle", IDS_ACCESSIBILITY_SECTION_TITLE);
   builder->Add("accessibilitySectionHint", IDS_ACCESSIBILITY_SECTION_HINT);
+  builder->Add("timezoneSectionTitle", IDS_TIMEZONE_SECTION_TITLE);
   builder->Add("networkSectionTitle", IDS_NETWORK_SECTION_TITLE);
   builder->Add("networkSectionHint", IDS_NETWORK_SECTION_HINT);
 
@@ -189,6 +186,9 @@ void NetworkScreenHandler::DeclareLocalizedValues(
   builder->Add("spokenFeedbackOptionOn", IDS_SPOKEN_FEEDBACK_OPTION_ON);
   builder->Add("virtualKeyboardOptionOff", IDS_VIRTUAL_KEYBOARD_OPTION_OFF);
   builder->Add("virtualKeyboardOptionOn", IDS_VIRTUAL_KEYBOARD_OPTION_ON);
+
+  builder->Add("timezoneDropdownTitle", IDS_TIMEZONE_DROPDOWN_TITLE);
+  builder->Add("timezoneButtonText", IDS_TIMEZONE_BUTTON_TEXT);
 }
 
 void NetworkScreenHandler::GetAdditionalParameters(

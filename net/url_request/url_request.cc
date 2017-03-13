@@ -12,12 +12,12 @@
 #include "base/compiler_specific.h"
 #include "base/lazy_instance.h"
 #include "base/memory/singleton.h"
-#include "base/message_loop/message_loop.h"
 #include "base/profiler/scoped_tracker.h"
 #include "base/rand_util.h"
 #include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/synchronization/lock.h"
+#include "base/threading/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "net/base/auth.h"
 #include "net/base/host_port_pair.h"
@@ -182,11 +182,12 @@ URLRequest::~URLRequest() {
       job_->NotifyURLRequestDestroyed();
   }
 
-  if (job_.get())
-    OrphanJob();
+  // Delete job before |this|, since subclasses may do weird things, like depend
+  // on UserData associated with |this| and poke at it during teardown.
+  job_.reset();
 
-  int deleted = context_->url_requests()->erase(this);
-  CHECK_EQ(1, deleted);
+  DCHECK_EQ(1u, context_->url_requests()->count(this));
+  context_->url_requests()->erase(this);
 
   int net_error = OK;
   // Log error only on failure, not cancellation, as even successful requests
@@ -293,7 +294,7 @@ std::unique_ptr<base::Value> URLRequest::GetStateAsValue() const {
   if (!load_state.param.empty())
     dict->SetString("load_state_param", load_state.param);
   if (!blocked_by_.empty())
-    dict->SetString("delegate_info", blocked_by_);
+    dict->SetString("delegate_blocked_by", blocked_by_);
 
   dict->SetString("method", method_);
   dict->SetBoolean("has_upload", has_upload());
@@ -334,8 +335,9 @@ void URLRequest::LogBlockedBy(const char* blocked_by) {
   blocked_by_ = blocked_by;
   use_blocked_by_as_load_param_ = false;
 
-  net_log_.BeginEvent(NetLogEventType::DELEGATE_INFO,
-                      NetLog::StringCallback("delegate_info", &blocked_by_));
+  net_log_.BeginEvent(
+      NetLogEventType::DELEGATE_INFO,
+      NetLog::StringCallback("delegate_blocked_by", &blocked_by_));
 }
 
 void URLRequest::LogAndReportBlockedBy(const char* source) {
@@ -468,8 +470,10 @@ void URLRequest::set_first_party_url_policy(
   first_party_url_policy_ = first_party_url_policy;
 }
 
-void URLRequest::set_initiator(const url::Origin& initiator) {
+void URLRequest::set_initiator(const base::Optional<url::Origin>& initiator) {
   DCHECK(!is_pending_);
+  DCHECK(!initiator.has_value() || initiator.value().unique() ||
+         initiator.value().GetURL().is_valid());
   initiator_ = initiator;
 }
 
@@ -490,15 +494,6 @@ void URLRequest::SetReferrer(const std::string& referrer) {
 
 void URLRequest::set_referrer_policy(ReferrerPolicy referrer_policy) {
   DCHECK(!is_pending_);
-  // External callers shouldn't be setting NO_REFERRER or
-  // ORIGIN. |referrer_policy_| is only applied during server redirects,
-  // so external callers must set the referrer themselves using
-  // SetReferrer() for the initial request. Once the referrer has been
-  // set to an origin or to an empty string, there is no point in
-  // setting the policy to NO_REFERRER or ORIGIN as it would have the
-  // same effect as using NEVER_CLEAR_REFERRER across redirects.
-  DCHECK_NE(referrer_policy, NO_REFERRER);
-  DCHECK_NE(referrer_policy, ORIGIN);
   referrer_policy_ = referrer_policy;
 }
 
@@ -585,13 +580,15 @@ URLRequest::URLRequest(const GURL& url,
                                           base::Unretained(this))),
       has_notified_completion_(false),
       received_response_content_length_(0),
-      creation_time_(base::TimeTicks::Now()) {
+      creation_time_(base::TimeTicks::Now()),
+      raw_header_size_(0) {
   // Sanity check out environment.
-  DCHECK(base::MessageLoop::current())
-      << "The current base::MessageLoop must exist";
+  DCHECK(base::ThreadTaskRunnerHandle::IsSet());
 
   context->url_requests()->insert(this);
-  net_log_.BeginEvent(NetLogEventType::REQUEST_ALIVE);
+  net_log_.BeginEvent(
+      NetLogEventType::REQUEST_ALIVE,
+      base::Bind(&NetLogURLRequestConstructorCallback, &url, priority_));
 }
 
 void URLRequest::BeforeRequestComplete(int error) {
@@ -634,7 +631,6 @@ void URLRequest::StartJob(URLRequestJob* job) {
   net_log_.BeginEvent(
       NetLogEventType::URL_REQUEST_START_JOB,
       base::Bind(&NetLogURLRequestStartCallback, &url(), &method_, load_flags_,
-                 priority_,
                  upload_data_stream_ ? upload_data_stream_->identifier() : -1));
 
   job_.reset(job);
@@ -649,11 +645,12 @@ void URLRequest::StartJob(URLRequestJob* job) {
 
   response_info_.was_cached = false;
 
-  if (GURL(referrer_) != URLRequestJob::ComputeReferrerForRedirect(
-                             referrer_policy_, referrer_, url())) {
+  GURL referrer_url(referrer_);
+  if (referrer_url != URLRequestJob::ComputeReferrerForRedirect(
+                          referrer_policy_, referrer_url, url())) {
     if (!network_delegate_ ||
         !network_delegate_->CancelURLRequestWithPolicyViolatingReferrerHeader(
-            *this, url(), GURL(referrer_))) {
+            *this, url(), referrer_url)) {
       referrer_.clear();
     } else {
       // We need to clear the referrer anyway to avoid an infinite recursion
@@ -768,14 +765,14 @@ int URLRequest::Read(IOBuffer* dest, int dest_size) {
   }
 
   int rv = job_->Read(dest, dest_size);
-  if (rv == ERR_IO_PENDING)
+  if (rv == ERR_IO_PENDING) {
     set_status(URLRequestStatus::FromError(ERR_IO_PENDING));
+  } else if (rv <= 0) {
+    NotifyRequestCompleted();
+  }
 
   // If rv is not 0 or actual bytes read, the status cannot be success.
   DCHECK(rv >= 0 || status_.status() != URLRequestStatus::SUCCESS);
-
-  if (rv == 0 && status_.is_success())
-    NotifyRequestCompleted();
   return rv;
 }
 
@@ -905,7 +902,7 @@ void URLRequest::PrepareToRestart() {
   // one.
   net_log_.EndEvent(NetLogEventType::URL_REQUEST_START_JOB);
 
-  OrphanJob();
+  job_.reset();
 
   response_info_ = HttpResponseInfo();
   response_info_.request_time = base::Time::Now();
@@ -917,19 +914,6 @@ void URLRequest::PrepareToRestart() {
   status_ = URLRequestStatus();
   is_pending_ = false;
   proxy_server_ = ProxyServer();
-}
-
-void URLRequest::OrphanJob() {
-  // When calling this function, please check that URLRequestHttpJob is
-  // not in between calling NetworkDelegate::NotifyHeadersReceived receiving
-  // the call back. This is currently guaranteed by the following strategies:
-  // - OrphanJob is called on JobRestart, in this case the URLRequestJob cannot
-  //   be receiving any headers at that time.
-  // - OrphanJob is called in ~URLRequest, in this case
-  //   NetworkDelegate::NotifyURLRequestDestroyed notifies the NetworkDelegate
-  //   that the callback becomes invalid.
-  job_->Kill();
-  job_ = NULL;
 }
 
 int URLRequest::Redirect(const RedirectInfo& redirect_info) {
@@ -1043,12 +1027,11 @@ void URLRequest::SetPriority(RequestPriority priority) {
     return;
 
   priority_ = priority;
-  if (job_.get()) {
-    net_log_.AddEvent(
-        NetLogEventType::URL_REQUEST_SET_PRIORITY,
-        NetLog::StringCallback("priority", RequestPriorityToString(priority_)));
+  net_log_.AddEvent(
+      NetLogEventType::URL_REQUEST_SET_PRIORITY,
+      NetLog::StringCallback("priority", RequestPriorityToString(priority_)));
+  if (job_.get())
     job_->SetPriority(priority_);
-  }
 }
 
 void URLRequest::NotifyAuthRequired(AuthChallengeInfo* auth_info) {

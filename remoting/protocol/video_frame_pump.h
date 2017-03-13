@@ -9,9 +9,9 @@
 #include <stdint.h>
 
 #include <memory>
+#include <vector>
 
 #include "base/macros.h"
-#include "base/memory/scoped_vector.h"
 #include "base/threading/thread_checker.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
@@ -80,8 +80,9 @@ class VideoFramePump : public VideoStream,
   ~VideoFramePump() override;
 
   // VideoStream interface.
+  void SetEventTimestampsSource(scoped_refptr<InputEventTimestampsSource>
+                                    event_timestamps_source) override;
   void Pause(bool pause) override;
-  void OnInputEventReceived(int64_t event_timestamp) override;
   void SetLosslessEncode(bool want_lossless) override;
   void SetLosslessColor(bool want_lossless) override;
   void SetObserver(Observer* observer) override;
@@ -95,12 +96,9 @@ class VideoFramePump : public VideoStream,
     FrameTimestamps();
     ~FrameTimestamps();
 
-    // The following two fields are set only for one frame after each incoming
-    // input event. |input_event_client_timestamp| is event timestamp
-    // received from the client. |input_event_received_time| is local time when
-    // the event was received.
-    int64_t input_event_client_timestamp = -1;
-    base::TimeTicks input_event_received_time;
+    // The following field is not-null for a single frame after each incoming
+    // input event.
+    InputEventTimestamps input_event_timestamps;
 
     base::TimeTicks capture_started_time;
     base::TimeTicks capture_ended_time;
@@ -159,6 +157,8 @@ class VideoFramePump : public VideoStream,
   // Used to encode captured frames. Always accessed on the encode thread.
   std::unique_ptr<VideoEncoder> encoder_;
 
+  scoped_refptr<InputEventTimestampsSource> event_timestamps_source_;
+
   // Interface through which video frames are passed to the client.
   protocol::VideoStub* video_stub_;
 
@@ -174,15 +174,12 @@ class VideoFramePump : public VideoStream,
   // captured.
   CaptureScheduler capture_scheduler_;
 
-  // Timestamps for the frame to be captured next.
-  std::unique_ptr<FrameTimestamps> next_frame_timestamps_;
-
   // Timestamps for the frame that's being captured.
   std::unique_ptr<FrameTimestamps> captured_frame_timestamps_;
 
   bool send_pending_ = false;
 
-  ScopedVector<PacketWithTimestamps> pending_packets_;
+  std::vector<std::unique_ptr<PacketWithTimestamps>> pending_packets_;
 
   base::ThreadChecker thread_checker_;
 

@@ -52,7 +52,7 @@ tr.exportTo('tr.ui.b', function() {
   };
 
   return {
-    TableFormat: TableFormat
+    TableFormat,
   };
 });
 </script>
@@ -182,6 +182,7 @@ tr.exportTo('tr.ui.b', function() {
         cursor: pointer;
         margin-right: 3px;
         font-size: smaller;
+        height: 1rem;
       }
 
       expand-button.button-expanded {
@@ -237,6 +238,7 @@ tr.exportTo('tr.ui.b', function() {
       this.customizeTableRowCallback_ = undefined;
       this.defaultExpansionStateCallback_ = undefined;
       this.userCanModifySortOrder_ = true;
+      this.computedFontSizePx_ = undefined;
     },
 
     ready: function() {
@@ -439,7 +441,7 @@ tr.exportTo('tr.ui.b', function() {
     set userCanModifySortOrder(userCanModifySortOrder) {
       var newUserCanModifySortOrder = !!userCanModifySortOrder;
       if (newUserCanModifySortOrder === this.userCanModifySortOrder_)
-        return
+        return;
 
       this.userCanModifySortOrder_ = newUserCanModifySortOrder;
       this.scheduleRebuildHeaders_();
@@ -683,8 +685,11 @@ tr.exportTo('tr.ui.b', function() {
     },
 
     get basicIndentation_() {
-      var px = parseInt(getComputedStyle(this).fontSize) || 16;
-      return px - 2;
+      if (this.computedFontSizePx_ === undefined) {
+        this.computedFontSizePx_ = parseInt(
+            getComputedStyle(this).fontSize) || 16;
+      }
+      return this.computedFontSizePx_ - 2;
     },
 
     getHTMLNodeForRowInfo_: function(tableSection, rowInfo,
@@ -751,61 +756,59 @@ tr.exportTo('tr.ui.b', function() {
               tr.ui.b.asHTMLOrTextNode(value, this.ownerDocument));
         }
 
-        // Add a click handler for selection and row expansion (if applicable).
-        if (isBodyRow || isExpandableRow) {
-          td.addEventListener('click', function(i, e) {
-            e.stopPropagation();
-            if (e.target.tagName === 'EXPAND-BUTTON') {
-              this.setExpandedForUserRow_(
-                  tableSection, rowInfoMap,
-                  rowInfo.userRow, !rowInfo.isExpanded);
-              return;
-            }
-
-            // If the row/cell can be selected and it's not selected yet,
-            // select it.
-            if (isBodyRow && this.selectionMode_ !== SelectionMode.NONE) {
-              var shouldSelect = false;
-              var shouldFocus = false;
-              switch (this.selectionMode_) {
-                case SelectionMode.ROW:
-                  shouldSelect = this.selectedTableRowInfo_ !== rowInfo;
-                  shouldFocus = true;
-                  break;
-                case SelectionMode.CELL:
-                  if (this.doesColumnIndexSupportSelection(i)) {
-                    shouldSelect = this.selectedTableRowInfo_ !== rowInfo ||
-                        this.selectedColumnIndex_ !== i;
-                    shouldFocus = true;
-                  }
-                  break;
-                default:
-                  throw new Error('Invalid selection mode ' +
-                      this.selectionMode_);
-              }
-              if (shouldFocus) {
-                this.focus();
-              }
-              if (shouldSelect) {
-                this.didTableRowInfoGetClicked_(rowInfo, i);
-                return;
-              }
-            }
-
-            // Otherwise, if the row is expandable, expand/collapse it.
-            if (isExpandableRow) {
-              this.setExpandedForUserRow_(tableSection, rowInfoMap,
-                  rowInfo.userRow, !rowInfo.isExpanded);
-            }
-          }.bind(this, i));
-        }
-
-        td.addEventListener('mousedown', function(e) {
+        td.addEventListener('click', function(i, clickEvent) {
           // Prevent automatically focusing on the table upon clicking on the
           // table. Explicitly focus on it when appropriate (upon clicking on a
           // selectable row/cell) instead.
-          e.preventDefault();
-        });
+          clickEvent.preventDefault();
+
+          if (!isBodyRow && !isExpandableRow) return;
+
+          clickEvent.stopPropagation();
+
+          if (clickEvent.target.tagName === 'EXPAND-BUTTON') {
+            this.setExpandedForUserRow_(
+                tableSection, rowInfoMap,
+                rowInfo.userRow, !rowInfo.isExpanded);
+            return;
+          }
+
+          // If the row/cell can be selected and it's not selected yet,
+          // select it.
+          if (isBodyRow && this.selectionMode_ !== SelectionMode.NONE) {
+            var shouldSelect = false;
+            var shouldFocus = false;
+            switch (this.selectionMode_) {
+              case SelectionMode.ROW:
+                shouldSelect = this.selectedTableRowInfo_ !== rowInfo;
+                shouldFocus = true;
+                break;
+              case SelectionMode.CELL:
+                if (this.doesColumnIndexSupportSelection(i)) {
+                  shouldSelect = this.selectedTableRowInfo_ !== rowInfo ||
+                      this.selectedColumnIndex_ !== i;
+                  shouldFocus = true;
+                }
+                break;
+              default:
+                throw new Error('Invalid selection mode ' +
+                    this.selectionMode_);
+            }
+            if (shouldFocus) {
+              this.focus();
+            }
+            if (shouldSelect) {
+              this.didTableRowInfoGetClicked_(rowInfo, i);
+              return;
+            }
+          }
+
+          // Otherwise, if the row is expandable, expand/collapse it.
+          if (isExpandableRow) {
+            this.setExpandedForUserRow_(tableSection, rowInfoMap,
+                rowInfo.userRow, !rowInfo.isExpanded);
+          }
+        }.bind(this, i));
 
         // Add a double-click handler for stepping into a row/cell (if
         // applicable).
@@ -1512,7 +1515,7 @@ tr.exportTo('tr.ui.b', function() {
     },
 
     selectNextOrFirstRowIfPossible_: function() {
-      this.getFirstSelectableColumnIndex_
+      this.getFirstSelectableColumnIndex_;
       var next = this.selectedTableRowInfo_ ?
           this.selectedTableRowInfo_.htmlNode.nextElementSibling :
           this.$.body.firstChild;

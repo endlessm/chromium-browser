@@ -10,9 +10,7 @@
 #include <GLES2/gl2.h>
 #include <stdint.h>
 
-namespace gfx {
-class Size;
-}  // namespace gfx
+#include <vector>
 
 class GLTestHelper {
  public:
@@ -47,23 +45,33 @@ class GLTestHelper {
   // Returns the created buffer.
   static GLuint SetupUnitQuad(GLint position_location);
 
+  // Returns a vector of size 2. The first is the array buffer object,
+  // the second is the element array buffer object.
+  static std::vector<GLuint> SetupIndexedUnitQuad(GLint position_location);
+
   // Make a 6 vertex colors.
   // Returns the created buffer.
   static GLuint SetupColorsForUnitQuad(
       GLint location, const GLfloat color[4], GLenum usage);
 
   // Checks an area of pixels for a color.
+  // If mask is nullptr, compare all color channels; otherwise, compare the
+  // channels whose corresponding mask bit is true.
   static bool CheckPixels(GLint x,
                           GLint y,
                           GLsizei width,
                           GLsizei height,
                           GLint tolerance,
-                          const uint8_t* color);
+                          const uint8_t* color,
+                          const uint8_t* mask);
 
   // Uses ReadPixels to save an area of the current FBO/Backbuffer.
   static bool SaveBackbufferAsBMP(const char* filename, int width, int height);
 
-  static void DrawTextureQuad(GLenum target, const gfx::Size& size);
+  static void DrawTextureQuad(const char* vertex_src,
+                              const char* fragment_src,
+                              const char* position_name,
+                              const char* sampler_name);
 };
 
 #endif  // GPU_COMMAND_BUFFER_TESTS_GL_TEST_UTILS_H_

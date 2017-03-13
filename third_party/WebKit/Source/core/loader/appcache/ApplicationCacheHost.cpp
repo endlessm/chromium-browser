@@ -30,7 +30,7 @@
 
 #include "core/loader/appcache/ApplicationCacheHost.h"
 
-#include "bindings/core/v8/ExceptionStatePlaceholder.h"
+#include "bindings/core/v8/ExceptionState.h"
 #include "core/events/ApplicationCacheErrorEvent.h"
 #include "core/events/ProgressEvent.h"
 #include "core/frame/Deprecation.h"
@@ -98,10 +98,11 @@ void ApplicationCacheHost::willStartLoadingMainResource(
   if (!spawningFrame || !spawningFrame->isLocalFrame())
     spawningFrame = &frame;
   if (DocumentLoader* spawningDocLoader =
-          toLocalFrame(spawningFrame)->loader().documentLoader())
+          toLocalFrame(spawningFrame)->loader().documentLoader()) {
     spawningHost = spawningDocLoader->applicationCacheHost()
                        ? spawningDocLoader->applicationCacheHost()->m_host.get()
                        : nullptr;
+  }
 
   m_host->willStartMainResourceRequest(wrapped, spawningHost);
 
@@ -198,15 +199,16 @@ void ApplicationCacheHost::notifyApplicationCache(
     const String& errorURL,
     int errorStatus,
     const String& errorMessage) {
-  if (id != kProgressEvent)
+  if (id != kProgressEvent) {
     InspectorInstrumentation::updateApplicationCacheStatus(
         m_documentLoader->frame());
+  }
 
   if (m_defersEvents) {
     // Event dispatching is deferred until document.onload has fired.
-    m_deferredEvents.append(DeferredEvent(id, progressTotal, progressDone,
-                                          errorReason, errorURL, errorStatus,
-                                          errorMessage));
+    m_deferredEvents.push_back(DeferredEvent(id, progressTotal, progressDone,
+                                             errorReason, errorURL, errorStatus,
+                                             errorMessage));
     return;
   }
   dispatchDOMEvent(id, progressTotal, progressDone, errorReason, errorURL,
@@ -230,7 +232,7 @@ void ApplicationCacheHost::fillResourceList(ResourceInfoList* resources) {
   WebVector<WebApplicationCacheHost::ResourceInfo> webResources;
   m_host->getResourceList(&webResources);
   for (size_t i = 0; i < webResources.size(); ++i) {
-    resources->append(
+    resources->push_back(
         ResourceInfo(webResources[i].url, webResources[i].isMaster,
                      webResources[i].isManifest, webResources[i].isFallback,
                      webResources[i].isForeign, webResources[i].isExplicit,
@@ -258,20 +260,22 @@ void ApplicationCacheHost::dispatchDOMEvent(
     const String& errorURL,
     int errorStatus,
     const String& errorMessage) {
-  if (!m_domApplicationCache)
+  // Don't dispatch an event if the window is detached.
+  if (!m_domApplicationCache || !m_domApplicationCache->domWindow())
     return;
 
   const AtomicString& eventType = ApplicationCache::toEventType(id);
-  if (eventType.isEmpty() || !m_domApplicationCache->getExecutionContext())
+  if (eventType.isEmpty())
     return;
   Event* event = nullptr;
-  if (id == kProgressEvent)
+  if (id == kProgressEvent) {
     event = ProgressEvent::create(eventType, true, progressDone, progressTotal);
-  else if (id == kErrorEvent)
+  } else if (id == kErrorEvent) {
     event = ApplicationCacheErrorEvent::create(errorReason, errorURL,
                                                errorStatus, errorMessage);
-  else
+  } else {
     event = Event::create(eventType);
+  }
   m_domApplicationCache->dispatchEvent(event);
 }
 
@@ -285,9 +289,10 @@ bool ApplicationCacheHost::update() {
 
 bool ApplicationCacheHost::swapCache() {
   bool success = m_host ? m_host->swapCache() : false;
-  if (success)
+  if (success) {
     InspectorInstrumentation::updateApplicationCacheStatus(
         m_documentLoader->frame());
+  }
   return success;
 }
 
@@ -301,7 +306,7 @@ bool ApplicationCacheHost::isApplicationCacheEnabled() {
   return m_documentLoader->frame()->settings() &&
          m_documentLoader->frame()
              ->settings()
-             ->offlineWebApplicationCacheEnabled();
+             ->getOfflineWebApplicationCacheEnabled();
 }
 
 void ApplicationCacheHost::didChangeCacheAssociation() {

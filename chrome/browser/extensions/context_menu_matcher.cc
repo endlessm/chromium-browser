@@ -194,7 +194,7 @@ bool ContextMenuMatcher::GetRelevantExtensionTopLevelItems(
 
   // Find matching items.
   MenuManager* manager = MenuManager::Get(browser_context_);
-  const MenuItem::List* all_items = manager->MenuItems(extension_key);
+  const MenuItem::OwnedList* all_items = manager->MenuItems(extension_key);
   if (!all_items || all_items->empty())
     return false;
 
@@ -205,19 +205,18 @@ bool ContextMenuMatcher::GetRelevantExtensionTopLevelItems(
 }
 
 MenuItem::List ContextMenuMatcher::GetRelevantExtensionItems(
-    const MenuItem::List& items,
+    const MenuItem::OwnedList& items,
     bool can_cross_incognito) {
   MenuItem::List result;
-  for (MenuItem::List::const_iterator i = items.begin();
-       i != items.end(); ++i) {
-    const MenuItem* item = *i;
+  for (auto i = items.begin(); i != items.end(); ++i) {
+    MenuItem* item = i->get();
 
     if (!filter_.Run(item))
       continue;
 
     if (item->id().incognito == browser_context_->IsOffTheRecord() ||
         can_cross_incognito)
-      result.push_back(*i);
+      result.push_back(item);
   }
   return result;
 }
@@ -233,8 +232,7 @@ void ContextMenuMatcher::RecursivelyAppendExtensionItems(
   int radio_group_id = 1;
   int num_items = 0;
 
-  for (MenuItem::List::const_iterator i = items.begin();
-       i != items.end(); ++i) {
+  for (auto i = items.begin(); i != items.end(); ++i) {
     MenuItem* item = *i;
 
     // If last item was of type radio but the current one isn't, auto-insert
@@ -310,11 +308,10 @@ void ContextMenuMatcher::SetExtensionIcon(const std::string& extension_id) {
   int index = menu_model_->GetItemCount() - 1;
   DCHECK_GE(index, 0);
 
-  const SkBitmap& icon = menu_manager->GetIconForExtension(extension_id);
-  DCHECK(icon.width() == gfx::kFaviconSize);
-  DCHECK(icon.height() == gfx::kFaviconSize);
-
-  menu_model_->SetIcon(index, gfx::Image::CreateFrom1xBitmap(icon));
+  gfx::Image icon = menu_manager->GetIconForExtension(extension_id);
+  DCHECK_EQ(gfx::kFaviconSize, icon.Width());
+  DCHECK_EQ(gfx::kFaviconSize, icon.Height());
+  menu_model_->SetIcon(index, icon);
 }
 
 }  // namespace extensions

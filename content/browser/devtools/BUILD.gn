@@ -3,6 +3,7 @@
 # found in the LICENSE file.
 
 import("//tools/grit/grit_rule.gni")
+import("//third_party/inspector_protocol/inspector_protocol.gni")
 
 group("resources") {
   public_deps = [
@@ -33,24 +34,61 @@ grit("devtools_resources") {
   ]
 }
 
-action("gen_devtools_protocol_handler") {
+inspector_protocol_generate("protocol_sources") {
   visibility = [ "//content/browser" ]
   deps = [
     "//third_party/WebKit/Source/core/inspector:protocol_version",
   ]
-  script = "//content/browser/devtools/protocol/" +
-           "devtools_protocol_handler_generator.py"
+  _blink_protocol_path =
+      rebase_path("$root_gen_dir/blink/core/inspector/protocol.json",
+                  root_build_dir)
 
-  blink_protocol = "$root_gen_dir/blink/core/inspector/protocol.json"
+  inspector_protocol_dir = "//third_party/inspector_protocol"
+  out_dir = target_gen_dir
+  config_file = "protocol_config.json"
+  config_values = [ "protocol.path=$_blink_protocol_path" ]
+
   inputs = [
-    blink_protocol,
+    "$root_gen_dir/blink/core/inspector/protocol.json",
+    config_file,
   ]
 
+  # These are relative to $target_gen_dir.
   outputs = [
-    "$target_gen_dir/protocol/devtools_protocol_dispatcher.cc",
-    "$target_gen_dir/protocol/devtools_protocol_dispatcher.h",
+    "protocol/dom.cc",
+    "protocol/dom.h",
+    "protocol/emulation.cc",
+    "protocol/emulation.h",
+    "protocol/forward.h",
+    "protocol/input.cc",
+    "protocol/input.h",
+    "protocol/inspector.cc",
+    "protocol/inspector.h",
+    "protocol/io.cc",
+    "protocol/io.h",
+    "protocol/memory.cc",
+    "protocol/memory.h",
+    "protocol/network.cc",
+    "protocol/network.h",
+    "protocol/page.cc",
+    "protocol/page.h",
+    "protocol/protocol.cc",
+    "protocol/protocol.h",
+    "protocol/schema.cc",
+    "protocol/schema.h",
+    "protocol/security.cc",
+    "protocol/security.h",
+    "protocol/service_worker.cc",
+    "protocol/service_worker.h",
+    "protocol/storage.cc",
+    "protocol/storage.h",
+    "protocol/system_info.cc",
+    "protocol/system_info.h",
+    "protocol/target.cc",
+    "protocol/target.h",
+    "protocol/tethering.cc",
+    "protocol/tethering.h",
+    "protocol/tracing.cc",
+    "protocol/tracing.h",
   ]
-
-  args =
-      rebase_path(inputs, root_build_dir) + rebase_path(outputs, root_build_dir)
 }

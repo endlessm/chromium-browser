@@ -32,13 +32,14 @@ const SVGEnumerationStringEntries&
 getStaticStringEntries<ComponentTransferType>() {
   DEFINE_STATIC_LOCAL(SVGEnumerationStringEntries, entries, ());
   if (entries.isEmpty()) {
-    entries.append(
+    entries.push_back(
         std::make_pair(FECOMPONENTTRANSFER_TYPE_IDENTITY, "identity"));
-    entries.append(std::make_pair(FECOMPONENTTRANSFER_TYPE_TABLE, "table"));
-    entries.append(
+    entries.push_back(std::make_pair(FECOMPONENTTRANSFER_TYPE_TABLE, "table"));
+    entries.push_back(
         std::make_pair(FECOMPONENTTRANSFER_TYPE_DISCRETE, "discrete"));
-    entries.append(std::make_pair(FECOMPONENTTRANSFER_TYPE_LINEAR, "linear"));
-    entries.append(std::make_pair(FECOMPONENTTRANSFER_TYPE_GAMMA, "gamma"));
+    entries.push_back(
+        std::make_pair(FECOMPONENTTRANSFER_TYPE_LINEAR, "linear"));
+    entries.push_back(std::make_pair(FECOMPONENTTRANSFER_TYPE_GAMMA, "gamma"));
   }
   return entries;
 }
@@ -47,9 +48,8 @@ SVGComponentTransferFunctionElement::SVGComponentTransferFunctionElement(
     const QualifiedName& tagName,
     Document& document)
     : SVGElement(tagName, document),
-      m_tableValues(SVGAnimatedNumberList::create(this,
-                                                  SVGNames::tableValuesAttr,
-                                                  SVGNumberList::create())),
+      m_tableValues(
+          SVGAnimatedNumberList::create(this, SVGNames::tableValuesAttr)),
       m_slope(SVGAnimatedNumber::create(this,
                                         SVGNames::slopeAttr,
                                         SVGNumber::create(1))),

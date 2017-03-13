@@ -1,4 +1,4 @@
-// Copyright (c) 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,7 +13,9 @@
 #include "base/test/histogram_tester.h"
 #include "base/time/time.h"
 #include "chrome/browser/page_load_metrics/metrics_navigation_throttle.h"
+#include "chrome/browser/page_load_metrics/page_load_metrics_embedder_interface.h"
 #include "chrome/browser/page_load_metrics/page_load_metrics_observer.h"
+#include "chrome/browser/page_load_metrics/page_load_tracker.h"
 #include "chrome/common/page_load_metrics/page_load_metrics_messages.h"
 #include "chrome/test/base/chrome_render_view_host_test_harness.h"
 #include "content/public/browser/navigation_handle.h"
@@ -107,16 +109,9 @@ class FilteringPageLoadMetricsObserver : public PageLoadMetricsObserver {
 class TestPageLoadMetricsEmbedderInterface
     : public PageLoadMetricsEmbedderInterface {
  public:
-  TestPageLoadMetricsEmbedderInterface()
-      : is_prerendering_(false), is_ntp_(false) {}
+  TestPageLoadMetricsEmbedderInterface() : is_ntp_(false) {}
 
-  bool IsPrerendering(content::WebContents* web_contents) override {
-    return is_prerendering_;
-  }
   bool IsNewTabPageUrl(const GURL& url) override { return is_ntp_; }
-  void set_is_prerendering(bool is_prerendering) {
-    is_prerendering_ = is_prerendering;
-  }
   void set_is_ntp(bool is_ntp) { is_ntp_ = is_ntp; }
   void RegisterObservers(PageLoadTracker* tracker) override {
     tracker->AddObserver(base::MakeUnique<TestPageLoadMetricsObserver>(
@@ -146,7 +141,6 @@ class TestPageLoadMetricsEmbedderInterface
   std::vector<PageLoadTiming> complete_timings_;
   std::vector<GURL> observed_committed_urls_;
   std::vector<GURL> completed_filtered_urls_;
-  bool is_prerendering_;
   bool is_ntp_;
 };
 
@@ -317,23 +311,6 @@ TEST_F(MetricsWebContentsObserverTest, SamePageNoTrigger) {
   ASSERT_EQ(1, CountUpdatedTimingReported());
   ASSERT_EQ(1, CountCompleteTimingReported());
   ASSERT_EQ(0, CountEmptyCompleteTimingReported());
-  CheckNoErrorEvents();
-}
-
-TEST_F(MetricsWebContentsObserverTest, DontLogPrerender) {
-  PageLoadTiming timing;
-  timing.navigation_start = base::Time::FromDoubleT(1);
-
-  content::WebContentsTester* web_contents_tester =
-      content::WebContentsTester::For(web_contents());
-  embedder_interface_->set_is_prerendering(true);
-  observer_->WasHidden();
-
-  web_contents_tester->NavigateAndCommit(GURL(kDefaultTestUrl));
-  SimulateTimingUpdate(timing);
-  web_contents_tester->NavigateAndCommit(GURL(kDefaultTestUrl2));
-  ASSERT_EQ(0, CountUpdatedTimingReported());
-  ASSERT_EQ(0, CountCompleteTimingReported());
   CheckNoErrorEvents();
 }
 

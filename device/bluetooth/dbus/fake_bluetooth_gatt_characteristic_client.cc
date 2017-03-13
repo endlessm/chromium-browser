@@ -454,23 +454,22 @@ void FakeBluetoothGattCharacteristicClient::OnPropertyChanged(
   VLOG(2) << "Characteristic property changed: " << object_path.value() << ": "
           << property_name;
 
-  FOR_EACH_OBSERVER(
-      BluetoothGattCharacteristicClient::Observer, observers_,
-      GattCharacteristicPropertyChanged(object_path, property_name));
+  for (auto& observer : observers_)
+    observer.GattCharacteristicPropertyChanged(object_path, property_name);
 }
 
 void FakeBluetoothGattCharacteristicClient::NotifyCharacteristicAdded(
     const dbus::ObjectPath& object_path) {
   VLOG(2) << "GATT characteristic added: " << object_path.value();
-  FOR_EACH_OBSERVER(BluetoothGattCharacteristicClient::Observer, observers_,
-                    GattCharacteristicAdded(object_path));
+  for (auto& observer : observers_)
+    observer.GattCharacteristicAdded(object_path);
 }
 
 void FakeBluetoothGattCharacteristicClient::NotifyCharacteristicRemoved(
     const dbus::ObjectPath& object_path) {
   VLOG(2) << "GATT characteristic removed: " << object_path.value();
-  FOR_EACH_OBSERVER(BluetoothGattCharacteristicClient::Observer, observers_,
-                    GattCharacteristicRemoved(object_path));
+  for (auto& observer : observers_)
+    observer.GattCharacteristicRemoved(object_path);
 }
 
 void FakeBluetoothGattCharacteristicClient::
@@ -534,7 +533,7 @@ FakeBluetoothGattCharacteristicClient::GetHeartRateMeasurementValue() {
 
   // Total calories burned in kJoules since the last reset. Increment this by 1
   // every time. It's fine if it overflows: it becomes 0 when the user resets
-  // the heart rate monitor (or pretend that he had a lot of cheeseburgers).
+  // the heart rate monitor (or pretend that they had a lot of cheeseburgers).
   value.energy_expanded = calories_burned_++;
 
   // Include one RR-Interval value, in seconds.

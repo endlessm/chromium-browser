@@ -8,9 +8,10 @@ import static org.chromium.base.test.util.Restriction.RESTRICTION_TYPE_NON_LOW_E
 
 import android.content.Context;
 import android.net.Uri;
-import android.test.suitebuilder.annotation.SmallTest;
+import android.support.test.filters.SmallTest;
 import android.widget.LinearLayout;
 
+import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.util.Feature;
 import org.chromium.base.test.util.Restriction;
 import org.chromium.base.test.util.RetryOnFailure;
@@ -23,6 +24,7 @@ import org.chromium.chrome.browser.compositor.layouts.eventfilter.EventFilterHos
 import org.chromium.chrome.test.ChromeActivityTestCaseBase;
 import org.chromium.content.browser.ContentViewCore;
 import org.chromium.content.browser.ContextualSearchClient;
+import org.chromium.content.browser.SelectionPopupController;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.ui.base.WindowAndroid;
 import org.chromium.ui.resources.dynamics.DynamicResourceLoader;
@@ -86,7 +88,11 @@ public class ContextualSearchTapEventTest extends ChromeActivityTestCaseBase<Chr
                 WindowAndroid windowAndroid) {
             super(activity, windowAndroid, null);
             setSelectionController(new MockCSSelectionController(activity, this));
-            getSelectionController().getBaseContentView().setContextualSearchClient(this);
+            ContentViewCore contentView = getSelectionController().getBaseContentView();
+            contentView.setSelectionPopupControllerForTesting(
+                    new SelectionPopupController(activity, null, null, null,
+                            contentView.getRenderCoordinates(), null));
+            contentView.setContextualSearchClient(this);
             MockContextualSearchPolicy policy = new MockContextualSearchPolicy(activity);
             setContextualSearchPolicy(policy);
             mTranslateController = new MockedCSTranslateController(activity, policy, null);
@@ -96,7 +102,8 @@ public class ContextualSearchTapEventTest extends ChromeActivityTestCaseBase<Chr
         public void startSearchTermResolutionRequest(String selection) {
             // Skip native calls and immediately "resolve" the search term.
             onSearchTermResolutionResponse(
-                    true, 200, selection, selection, "", "", false, 0, 10, "", "", "");
+                    true, 200, selection, selection, "", "", false, 0, 10, "", "", "", "",
+                    QuickActionCategory.NONE);
         }
 
         @Override
@@ -107,8 +114,8 @@ public class ContextualSearchTapEventTest extends ChromeActivityTestCaseBase<Chr
 
         @Override
         protected void nativeGatherSurroundingText(long nativeContextualSearchManager,
-                String selection, boolean useResolvedSearchTerm,
-                WebContents webContents, boolean maySendBasePageUrl) {}
+                String selection, String homeCountry, WebContents webContents,
+                boolean maySendBasePageUrl) {}
 
         /**
          * @return A stubbed ContentViewCore for mocking text selection.
@@ -192,7 +199,13 @@ public class ContextualSearchTapEventTest extends ChromeActivityTestCaseBase<Chr
      */
     private void mockTapText(String text) {
         mContextualSearchManager.getBaseContentView().setSelectedText(text);
-        mContextualSearchClient.onSelectionEvent(SelectionEventType.SELECTION_HANDLES_SHOWN, 0, 0);
+        ThreadUtils.runOnUiThreadBlocking(new Runnable() {
+            @Override
+            public void run() {
+                mContextualSearchClient.onSelectionEvent(SelectionEventType.SELECTION_HANDLES_SHOWN,
+                        0, 0);
+            }
+        });
     }
 
     /**

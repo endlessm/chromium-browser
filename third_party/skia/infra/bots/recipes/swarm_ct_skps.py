@@ -9,17 +9,17 @@ import math
 DEPS = [
   'build/file',
   'build/gsutil',
-  'core',
-  'ct',
-  'flavor',
   'recipe_engine/json',
   'recipe_engine/path',
   'recipe_engine/properties',
   'recipe_engine/step',
   'recipe_engine/time',
-  'run',
-  'swarming',
-  'vars',
+  'skia-recipes/core',
+  'skia-recipes/ct',
+  'skia-recipes/flavor',
+  'skia-recipes/run',
+  'skia-recipes/swarming',
+  'skia-recipes/vars',
 ]
 
 
@@ -89,10 +89,17 @@ def RunSteps(api):
   skps_chromium_build = api.properties.get(
       'skps_chromium_build', DEFAULT_SKPS_CHROMIUM_BUILD)
 
-  # Set build property to make finding SKPs convenient.
-  api.step.active_result.presentation.properties['Location of SKPs'] = (
+  # Set build properties to make finding SKPs convenient.
+  webpage_rankings_link = (
+      'https://storage.cloud.google.com/%s/csv/top-1m.csv'
+          % api.ct.CT_GS_BUCKET)
+  api.step.active_result.presentation.properties['Webpage rankings'] = (
+      webpage_rankings_link)
+  download_skps_link = (
       'https://pantheon.corp.google.com/storage/browser/%s/swarming/skps/%s/%s/'
           % (api.ct.CT_GS_BUCKET, ct_page_type, skps_chromium_build))
+  api.step.active_result.presentation.properties['Download SKPs by rank'] = (
+      download_skps_link)
 
   # Delete swarming_temp_dir to ensure it starts from a clean slate.
   api.run.rmtree(api.swarming.swarming_temp_dir)
@@ -215,6 +222,11 @@ def RunSteps(api):
           )
 
     except api.step.StepFailure as e:
+      # Add SKP links for convenience.
+      api.step.active_result.presentation.links['Webpage rankings'] = (
+          webpage_rankings_link)
+      api.step.active_result.presentation.links['Download SKPs by rank'] = (
+          download_skps_link)
       failed_tasks.append(e)
 
   if failed_tasks:
@@ -242,6 +254,7 @@ def GenTests(api):
         swarm_out_dir='[SWARM_OUT_DIR]',
         ct_num_slaves=ct_num_slaves,
         num_per_slave=num_per_slave,
+        repository='https://skia.googlesource.com/skia.git',
         revision=skia_revision,
     )
   )
@@ -258,6 +271,7 @@ def GenTests(api):
         swarm_out_dir='[SWARM_OUT_DIR]',
         ct_num_slaves=ct_num_slaves,
         num_per_slave=num_per_slave,
+        repository='https://skia.googlesource.com/skia.git',
         revision=skia_revision,
     )
   )
@@ -273,6 +287,7 @@ def GenTests(api):
         swarm_out_dir='[SWARM_OUT_DIR]',
         ct_num_slaves=ct_num_slaves,
         num_per_slave=num_per_slave,
+        repository='https://skia.googlesource.com/skia.git',
         revision=skia_revision,
     )
   )
@@ -289,6 +304,7 @@ def GenTests(api):
         swarm_out_dir='[SWARM_OUT_DIR]',
         ct_num_slaves=ct_num_slaves,
         num_per_slave=num_per_slave,
+        repository='https://skia.googlesource.com/skia.git',
         revision=skia_revision,
     )
   )
@@ -305,11 +321,12 @@ def GenTests(api):
         swarm_out_dir='[SWARM_OUT_DIR]',
         ct_num_slaves=ct_num_slaves,
         num_per_slave=num_per_slave,
+        repository='https://skia.googlesource.com/skia.git',
         revision=skia_revision,
     ) +
     api.path.exists(
-        api.path['slave_build'].join('skia'),
-        api.path['slave_build'].join('src')
+        api.path['start_dir'].join('skia'),
+        api.path['start_dir'].join('src')
     )
   )
 
@@ -325,11 +342,12 @@ def GenTests(api):
         swarm_out_dir='[SWARM_OUT_DIR]',
         ct_num_slaves=ct_num_slaves,
         num_per_slave=num_per_slave,
+        repository='https://skia.googlesource.com/skia.git',
         revision=skia_revision,
     ) +
     api.path.exists(
-        api.path['slave_build'].join('skia'),
-        api.path['slave_build'].join('src')
+        api.path['start_dir'].join('skia'),
+        api.path['start_dir'].join('src')
     )
   )
 
@@ -345,11 +363,12 @@ def GenTests(api):
         swarm_out_dir='[SWARM_OUT_DIR]',
         ct_num_slaves=ct_num_slaves,
         num_per_slave=num_per_slave,
+        repository='https://skia.googlesource.com/skia.git',
         revision=skia_revision,
     ) +
     api.path.exists(
-        api.path['slave_build'].join('skia'),
-        api.path['slave_build'].join('src')
+        api.path['start_dir'].join('skia'),
+        api.path['start_dir'].join('src')
     )
   )
 
@@ -364,6 +383,7 @@ def GenTests(api):
         swarm_out_dir='[SWARM_OUT_DIR]',
         ct_num_slaves=ct_num_slaves,
         num_per_slave=num_per_slave,
+        repository='https://skia.googlesource.com/skia.git',
         revision=skia_revision,
     )
   )
@@ -380,6 +400,7 @@ def GenTests(api):
         swarm_out_dir='[SWARM_OUT_DIR]',
         ct_num_slaves=ct_num_slaves,
         num_per_slave=num_per_slave,
+        repository='https://skia.googlesource.com/skia.git',
         revision=skia_revision,
     ) +
     api.expect_exception('Exception')
@@ -397,6 +418,7 @@ def GenTests(api):
         swarm_out_dir='[SWARM_OUT_DIR]',
         ct_num_slaves=ct_num_slaves,
         num_per_slave=num_per_slave,
+        repository='https://skia.googlesource.com/skia.git',
         revision=skia_revision,
     ) +
     api.expect_exception('Exception')
@@ -414,6 +436,7 @@ def GenTests(api):
         swarm_out_dir='[SWARM_OUT_DIR]',
         ct_num_slaves=ct_num_slaves,
         num_per_slave=num_per_slave,
+        repository='https://skia.googlesource.com/skia.git',
         revision=skia_revision,
     )
   )
@@ -431,6 +454,7 @@ def GenTests(api):
         swarm_out_dir='[SWARM_OUT_DIR]',
         ct_num_slaves=ct_num_slaves,
         num_per_slave=num_per_slave,
+        repository='https://skia.googlesource.com/skia.git',
         revision=skia_revision,
     )
   )
@@ -450,6 +474,7 @@ def GenTests(api):
         rietveld='codereview.chromium.org',
         issue=1499623002,
         patchset=1,
+        repository='https://skia.googlesource.com/skia.git',
     )
   )
 
@@ -465,6 +490,7 @@ def GenTests(api):
         swarm_out_dir='[SWARM_OUT_DIR]',
         ct_num_slaves=ct_num_slaves,
         num_per_slave=num_per_slave,
+        repository='https://skia.googlesource.com/skia.git',
         revision=skia_revision,
     )
   )

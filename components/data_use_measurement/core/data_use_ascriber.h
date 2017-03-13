@@ -9,6 +9,8 @@
 
 #include <memory>
 
+#include "components/data_use_measurement/core/data_use_measurement.h"
+#include "components/metrics/data_use_tracker.h"
 #include "url/gurl.h"
 
 namespace net {
@@ -19,6 +21,7 @@ class URLRequest;
 namespace data_use_measurement {
 
 class DataUseRecorder;
+class URLRequestClassifier;
 
 // Abstract class that manages instances of DataUseRecorder and maps
 // a URLRequest instance to its appropriate DataUseRecorder. An embedder
@@ -31,25 +34,32 @@ class DataUseAscriber {
 
   // Creates a network delegate that will be used to track data use.
   std::unique_ptr<net::NetworkDelegate> CreateNetworkDelegate(
-      std::unique_ptr<net::NetworkDelegate> wrapped_network_delegate);
+      std::unique_ptr<net::NetworkDelegate> wrapped_network_delegate,
+      const metrics::UpdateUsagePrefCallbackType& metrics_data_use_forwarder);
 
   // Returns the DataUseRecorder to which data usage for the given URL should
   // be ascribed. If no existing DataUseRecorder exists, a new one will be
   // created.
-  virtual DataUseRecorder* GetDataUseRecorder(net::URLRequest* request) = 0;
+  virtual DataUseRecorder* GetOrCreateDataUseRecorder(
+      net::URLRequest* request) = 0;
+
+  // Returns the existing DataUseRecorder to which data usage for the given URL
+  // should be ascribed.
+  virtual DataUseRecorder* GetDataUseRecorder(
+      const net::URLRequest& request) = 0;
+
+  // Returns a URLRequestClassifier that can classify requests for metrics
+  // recording.
+  virtual std::unique_ptr<URLRequestClassifier> CreateURLRequestClassifier()
+      const = 0;
 
   // Methods called by DataUseNetworkDelegate to propagate data use information:
   virtual void OnBeforeUrlRequest(net::URLRequest* request);
-
-  virtual void OnBeforeRedirect(net::URLRequest* request,
-                                const GURL& new_location);
-
   virtual void OnNetworkBytesSent(net::URLRequest* request, int64_t bytes_sent);
-
   virtual void OnNetworkBytesReceived(net::URLRequest* request,
                                       int64_t bytes_received);
-
   virtual void OnUrlRequestCompleted(net::URLRequest* request, bool started);
+  virtual void OnUrlRequestDestroyed(net::URLRequest* request);
 };
 
 }  // namespace data_use_measurement

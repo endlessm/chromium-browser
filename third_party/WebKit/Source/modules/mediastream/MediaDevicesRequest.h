@@ -27,7 +27,7 @@
 #define MediaDevicesRequest_h
 
 #include "bindings/core/v8/ScriptPromise.h"
-#include "core/dom/ActiveDOMObject.h"
+#include "core/dom/ContextLifecycleObserver.h"
 #include "modules/ModulesExport.h"
 #include "modules/mediastream/MediaDeviceInfo.h"
 #include "platform/heap/Handle.h"
@@ -35,19 +35,18 @@
 namespace blink {
 
 class Document;
-class ExceptionState;
 class UserMediaController;
 class ScriptState;
 class ScriptPromiseResolver;
 
 class MODULES_EXPORT MediaDevicesRequest final
     : public GarbageCollectedFinalized<MediaDevicesRequest>,
-      public ActiveDOMObject {
+      public ContextLifecycleObserver {
   USING_GARBAGE_COLLECTED_MIXIN(MediaDevicesRequest);
 
  public:
   static MediaDevicesRequest* create(ScriptState*, UserMediaController*);
-  ~MediaDevicesRequest() override;
+  virtual ~MediaDevicesRequest();
 
   Document* ownerDocument();
 
@@ -55,8 +54,8 @@ class MODULES_EXPORT MediaDevicesRequest final
 
   void succeed(const MediaDeviceInfoVector&);
 
-  // ActiveDOMObject
-  void contextDestroyed() override;
+  // ContextLifecycleObserver
+  void contextDestroyed(ExecutionContext*) override;
 
   DECLARE_VIRTUAL_TRACE();
 

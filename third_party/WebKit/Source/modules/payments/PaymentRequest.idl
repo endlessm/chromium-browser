@@ -8,13 +8,14 @@
 [
     RuntimeEnabled=PaymentRequest,
     Constructor(sequence<PaymentMethodData> methodData, PaymentDetails details, optional PaymentOptions options),
-    ConstructorCallWith=ScriptState,
+    ConstructorCallWith=Document,
     RaisesException=Constructor,
     ActiveScriptWrappable,
     DependentLifetime,
 ] interface PaymentRequest : EventTarget {
     [CallWith=ScriptState] Promise<PaymentResponse> show();
     [CallWith=ScriptState] Promise<void> abort();
+    [CallWith=ScriptState, RuntimeEnabled=CanMakePayment] Promise<boolean> canMakePayment();
 
     [ImplementedAs=getShippingAddress] readonly attribute PaymentAddress? shippingAddress;
     readonly attribute DOMString? shippingOption;

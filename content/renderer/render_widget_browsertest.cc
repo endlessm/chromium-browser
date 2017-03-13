@@ -2,10 +2,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "base/strings/utf_string_conversions.h"
 #include "content/common/resize_params.h"
 #include "content/public/test/render_view_test.h"
 #include "content/renderer/render_view_impl.h"
 #include "content/renderer/render_widget.h"
+#include "third_party/WebKit/public/web/WebFrameWidget.h"
+#include "third_party/WebKit/public/web/WebInputMethodController.h"
+#include "ui/base/ime/text_input_type.h"
 
 namespace content {
 
@@ -26,6 +30,21 @@ class RenderWidgetTest : public RenderViewTest {
   bool next_paint_is_resize_ack() {
     return widget()->next_paint_is_resize_ack();
   }
+
+  blink::WebInputMethodController* GetInputMethodController() {
+    return widget()->GetInputMethodController();
+  }
+
+  void CommitText(std::string text) {
+    widget()->OnImeCommitText(
+        base::UTF8ToUTF16(text),
+        std::vector<blink::WebCompositionUnderline>(),
+        gfx::Range::InvalidRange(), 0);
+  }
+
+  ui::TextInputType GetTextInputType() { return widget()->GetTextInputType(); }
+
+  void SetFocus(bool focused) { widget()->OnSetFocus(focused); }
 };
 
 TEST_F(RenderWidgetTest, OnResize) {
@@ -36,8 +55,7 @@ TEST_F(RenderWidgetTest, OnResize) {
   resize_params.new_size = gfx::Size();
   resize_params.physical_backing_size = gfx::Size();
   resize_params.top_controls_height = 0.f;
-  resize_params.top_controls_shrink_blink_size = false;
-  resize_params.resizer_rect = gfx::Rect();
+  resize_params.browser_controls_shrink_blink_size = false;
   resize_params.is_fullscreen_granted = false;
   resize_params.needs_resize_ack = false;
   OnResize(resize_params);
@@ -58,7 +76,7 @@ TEST_F(RenderWidgetTest, OnResize) {
   EXPECT_EQ(resize_params.needs_resize_ack, next_paint_is_resize_ack());
 
   // Clear the flag.
-  widget()->DidCompleteSwapBuffers();
+  widget()->DidReceiveCompositorFrameAck();
 
   // Setting the same size again should not send the ack.
   resize_params.needs_resize_ack = false;
@@ -110,7 +128,9 @@ TEST_F(RenderWidgetTest, GetCompositionRangeValidComposition) {
       "<div contenteditable>EDITABLE</div>"
       "<script> document.querySelector('div').focus(); </script>");
   blink::WebVector<blink::WebCompositionUnderline> emptyUnderlines;
-  widget()->GetWebWidget()->setComposition("hello", emptyUnderlines, 3, 3);
+  DCHECK(widget()->GetInputMethodController());
+  widget()->GetInputMethodController()->setComposition("hello", emptyUnderlines,
+                                                       3, 3);
   gfx::Range range;
   GetCompositionRange(&range);
   EXPECT_TRUE(range.IsValid());
@@ -136,6 +156,53 @@ TEST_F(RenderWidgetTest, GetCompositionRangeInvalid) {
   // and gfx::Range::InvalidRange are no longer expressed in the same
   // values of start/end.
   EXPECT_FALSE(range.IsValid());
+}
+
+// This test verifies that WebInputMethodController always exists as long as
+// there is a focused frame inside the page, but, IME events are only executed
+// if there is also page focus.
+TEST_F(RenderWidgetTest, PageFocusIme) {
+  LoadHTML(
+      "<input/>"
+      " <script> document.querySelector('input').focus(); </script>");
+
+  // Give initial focus to the widget.
+  SetFocus(true);
+
+  // We must have an active WebInputMethodController.
+  EXPECT_TRUE(GetInputMethodController());
+
+  // Verify the text input type.
+  EXPECT_EQ(ui::TEXT_INPUT_TYPE_TEXT, GetTextInputType());
+
+  // Commit some text.
+  std::string text = "hello";
+  CommitText(text);
+
+  // The text should be committed since there is page focus in the beginning.
+  EXPECT_EQ(text, GetInputMethodController()->textInputInfo().value.utf8());
+
+  // Drop focus.
+  SetFocus(false);
+
+  // We must still have an active WebInputMethodController.
+  EXPECT_TRUE(GetInputMethodController());
+
+  // The text input type should not change.
+  EXPECT_EQ(ui::TEXT_INPUT_TYPE_TEXT, GetTextInputType());
+
+  // Commit the text again.
+  text = " world";
+  CommitText(text);
+
+  // This time is should not work since |m_imeAcceptEvents| is not set.
+  EXPECT_EQ("hello", GetInputMethodController()->textInputInfo().value.utf8());
+
+  // Now give focus back again and commit text.
+  SetFocus(true);
+  CommitText(text);
+  EXPECT_EQ("hello world",
+            GetInputMethodController()->textInputInfo().value.utf8());
 }
 
 }  // namespace content

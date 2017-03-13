@@ -29,6 +29,8 @@
 #include "content/renderer/render_widget.h"
 #include "ipc/ipc_message_macros.h"
 #include "third_party/WebKit/public/platform/URLConversion.h"
+#include "third_party/WebKit/public/platform/WebFeaturePolicy.h"
+#include "third_party/WebKit/public/platform/WebRect.h"
 #include "third_party/WebKit/public/platform/WebString.h"
 #include "third_party/WebKit/public/web/WebLocalFrame.h"
 #include "third_party/WebKit/public/web/WebUserGestureIndicator.h"
@@ -46,6 +48,23 @@ static base::LazyInstance<RoutingIDProxyMap> g_routing_id_proxy_map =
 // Facilitates lookup of RenderFrameProxy by WebFrame.
 typedef std::map<blink::WebFrame*, RenderFrameProxy*> FrameMap;
 base::LazyInstance<FrameMap> g_frame_map = LAZY_INSTANCE_INITIALIZER;
+
+blink::WebParsedFeaturePolicy ToWebParsedFeaturePolicy(
+    const ParsedFeaturePolicy& parsed_whitelists) {
+  std::vector<blink::WebFeaturePolicy::ParsedWhitelist> result;
+  for (const FeaturePolicyParsedWhitelist& whitelist : parsed_whitelists) {
+    blink::WebFeaturePolicy::ParsedWhitelist web_whitelist;
+    web_whitelist.featureName =
+        blink::WebString::fromUTF8(whitelist.feature_name);
+    web_whitelist.matchesAllOrigins = whitelist.matches_all_origins;
+    std::vector<blink::WebSecurityOrigin> web_origins;
+    for (const url::Origin& origin : whitelist.origins)
+      web_origins.push_back(origin);
+    web_whitelist.origins = web_origins;
+    result.push_back(web_whitelist);
+  }
+  return result;
+}
 
 }  // namespace
 
@@ -82,7 +101,7 @@ RenderFrameProxy* RenderFrameProxy::CreateProxyToReplaceFrame(
 RenderFrameProxy* RenderFrameProxy::CreateFrameProxy(
     int routing_id,
     int render_view_routing_id,
-    int opener_routing_id,
+    blink::WebFrame* opener,
     int parent_routing_id,
     const FrameReplicationState& replicated_state) {
   RenderFrameProxy* parent = nullptr;
@@ -94,9 +113,6 @@ RenderFrameProxy* RenderFrameProxy::CreateFrameProxy(
     if (!parent)
       return nullptr;
   }
-
-  blink::WebFrame* opener =
-      RenderFrameImpl::ResolveOpener(opener_routing_id, nullptr);
 
   std::unique_ptr<RenderFrameProxy> proxy(
       new RenderFrameProxy(routing_id, MSG_ROUTING_NONE));
@@ -111,6 +127,14 @@ RenderFrameProxy* RenderFrameProxy::CreateFrameProxy(
                                               proxy.get(), opener);
     render_view->webview()->setMainFrame(web_frame);
     render_widget = render_view->GetWidget();
+
+    // If the RenderView is reused by this proxy after having been used for a
+    // pending RenderFrame that was discarded, its swapped out state needs to
+    // be updated, as the OnSwapOut flow which normally does this won't happen
+    // in that case.  See https://crbug.com/653746 and
+    // https://crbug.com/651980.
+    if (!render_view->is_swapped_out())
+      render_view->SetSwappedOut(true);
   } else {
     // Create a frame under an existing parent. The parent is always expected
     // to be a RenderFrameProxy, because navigations initiated by local frames
@@ -218,6 +242,10 @@ void RenderFrameProxy::SetReplicatedState(const FrameReplicationState& state) {
   web_frame_->setReplicatedInsecureRequestPolicy(state.insecure_request_policy);
   web_frame_->setReplicatedPotentiallyTrustworthyUniqueOrigin(
       state.has_potentially_trustworthy_unique_origin);
+  web_frame_->setReplicatedFeaturePolicyHeader(
+      ToWebParsedFeaturePolicy(state.feature_policy_header));
+  if (state.has_received_user_gesture)
+    web_frame_->setHasReceivedUserGesture();
 
   web_frame_->resetReplicatedContentSecurityPolicy();
   for (const auto& header : state.accumulated_csp_headers)
@@ -277,6 +305,8 @@ bool RenderFrameProxy::OnMessageReceived(const IPC::Message& msg) {
     IPC_MESSAGE_HANDLER(InputMsg_SetFocus, OnSetPageFocus)
     IPC_MESSAGE_HANDLER(FrameMsg_SetFocusedFrame, OnSetFocusedFrame)
     IPC_MESSAGE_HANDLER(FrameMsg_WillEnterFullscreen, OnWillEnterFullscreen)
+    IPC_MESSAGE_HANDLER(FrameMsg_SetHasReceivedUserGesture,
+                        OnSetHasReceivedUserGesture)
     IPC_MESSAGE_UNHANDLED(handled = false)
   IPC_END_MESSAGE_MAP()
 
@@ -314,13 +344,12 @@ void RenderFrameProxy::OnSetChildFrameSurface(
     compositing_helper_ =
         ChildFrameCompositingHelper::CreateForRenderFrameProxy(this);
   }
-  compositing_helper_->OnSetSurface(surface_id, frame_size, scale_factor,
-                                    sequence);
+  compositing_helper_->OnSetSurface(
+      cc::SurfaceInfo(surface_id, scale_factor, frame_size), sequence);
 }
 
 void RenderFrameProxy::OnUpdateOpener(int opener_routing_id) {
-  blink::WebFrame* opener =
-      RenderFrameImpl::ResolveOpener(opener_routing_id, nullptr);
+  blink::WebFrame* opener = RenderFrameImpl::ResolveOpener(opener_routing_id);
   web_frame_->setOpener(opener);
 }
 
@@ -333,7 +362,7 @@ void RenderFrameProxy::OnDidStopLoading() {
 }
 
 void RenderFrameProxy::OnDispatchLoad() {
-  web_frame_->DispatchLoadEventForFrameOwner();
+  web_frame_->dispatchLoadEventOnFrameOwner();
 }
 
 void RenderFrameProxy::OnDidUpdateName(const std::string& name,
@@ -383,6 +412,10 @@ void RenderFrameProxy::OnSetFocusedFrame() {
 
 void RenderFrameProxy::OnWillEnterFullscreen() {
   web_frame_->willEnterFullscreen();
+}
+
+void RenderFrameProxy::OnSetHasReceivedUserGesture() {
+  web_frame_->setHasReceivedUserGesture();
 }
 
 void RenderFrameProxy::frameDetached(DetachType type) {
@@ -445,15 +478,14 @@ void RenderFrameProxy::navigate(const blink::WebURLRequest& request,
   params.url = request.url();
   params.uses_post = request.httpMethod().utf8() == "POST";
   params.resource_request_body = GetRequestBodyForWebURLRequest(request);
+  params.extra_headers = GetWebURLRequestHeaders(request);
   params.referrer = Referrer(
       blink::WebStringToGURL(
           request.httpHeaderField(blink::WebString::fromUTF8("Referer"))),
-      request.referrerPolicy());
+      request.getReferrerPolicy());
   params.disposition = WindowOpenDisposition::CURRENT_TAB;
   params.should_replace_current_entry = should_replace_current_entry;
-  params.user_gesture =
-      blink::WebUserGestureIndicator::isProcessingUserGesture();
-  blink::WebUserGestureIndicator::consumeUserGesture();
+  params.user_gesture = request.hasUserGesture();
   Send(new FrameHostMsg_OpenURL(routing_id_, params));
 }
 
@@ -468,6 +500,12 @@ void RenderFrameProxy::frameRectsChanged(const blink::WebRect& frame_rect) {
         rect, 1.f / render_widget_->GetOriginalDeviceScaleFactor());
   }
   Send(new FrameHostMsg_FrameRectChanged(routing_id_, rect));
+}
+
+void RenderFrameProxy::updateRemoteViewportIntersection(
+    const blink::WebRect& viewportIntersection) {
+  Send(new FrameHostMsg_UpdateViewportIntersection(
+      routing_id_, gfx::Rect(viewportIntersection)));
 }
 
 void RenderFrameProxy::visibilityChanged(bool visible) {

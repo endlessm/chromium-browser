@@ -55,7 +55,8 @@ class ChildTracingTest : public content::RenderViewTest, public IPC::Listener {
     // registered itself by now; this cannot be prevented easily.
     mock_dump_provider_.reset(new MockDumpProvider());
     MemoryDumpManager::GetInstance()->RegisterDumpProvider(
-        mock_dump_provider_.get(), "MockDumpProvider", nullptr);
+        mock_dump_provider_.get(), "MockDumpProvider",
+        base::ThreadTaskRunnerHandle::Get());
     MemoryDumpManager::GetInstance()
         ->set_dumper_registrations_ignored_for_testing(true);
 
@@ -116,6 +117,13 @@ class ChildTracingTest : public content::RenderViewTest, public IPC::Listener {
   }
 
   void EnableTracingWithMemoryDumps() {
+    // Re-enabling tracing could crash these tests https://crbug.com/656729 .
+    if (base::trace_event::TraceLog::GetInstance()->IsEnabled()) {
+      FAIL() << "Tracing seems to be already enabled. "
+                "Very likely this is because the startup tracing file "
+                "has been leaked from a previous test.";
+    }
+
     std::string category_filter = "-*,";  // Disable all other trace categories.
     category_filter += MemoryDumpManager::kTraceCategory;
     base::trace_event::TraceConfig trace_config(category_filter, "");

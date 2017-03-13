@@ -4,8 +4,8 @@
 
 // TODO(rltoscano): Move data/* into print_preview.data namespace
 
-<include src="component.js">
-<include src="print_preview_focus_manager.js">
+// <include src="component.js">
+// <include src="print_preview_focus_manager.js">
 
 cr.define('print_preview', function() {
   'use strict';
@@ -17,6 +17,13 @@ cr.define('print_preview', function() {
    */
   function PrintPreview() {
     print_preview.Component.call(this);
+
+    /**
+     * Whether the print scaling feature is enabled.
+     * @type {boolean}
+     * @private
+     */
+    this.scalingEnabled_ = loadTimeData.getBoolean('scalingEnabled');
 
     /**
      * Used to communicate with Chromium's print system.
@@ -115,15 +122,6 @@ cr.define('print_preview', function() {
     this.addChild(this.copiesSettings_);
 
     /**
-     * Component that renders the media size settings.
-     * @type {!print_preview.MediaSizeSettings}
-     * @private
-     */
-    this.mediaSizeSettings_ =
-        new print_preview.MediaSizeSettings(this.printTicketStore_.mediaSize);
-    this.addChild(this.mediaSizeSettings_);
-
-    /**
      * Component that renders the layout settings.
      * @type {!print_preview.LayoutSettings}
      * @private
@@ -140,6 +138,15 @@ cr.define('print_preview', function() {
     this.colorSettings_ =
         new print_preview.ColorSettings(this.printTicketStore_.color);
     this.addChild(this.colorSettings_);
+
+     /**
+     * Component that renders the media size settings.
+     * @type {!print_preview.MediaSizeSettings}
+     * @private
+     */
+    this.mediaSizeSettings_ =
+        new print_preview.MediaSizeSettings(this.printTicketStore_.mediaSize);
+    this.addChild(this.mediaSizeSettings_);
 
     /**
      * Component that renders a select box for choosing margin settings.
@@ -159,6 +166,18 @@ cr.define('print_preview', function() {
         new print_preview.DpiSettings(this.printTicketStore_.dpi);
     this.addChild(this.dpiSettings_);
 
+    if (this.scalingEnabled_) {
+      /**
+       * Component that renders the scaling settings.
+       * @type {!print_preview.ScalingSettings}
+       * @private
+       */
+      this.scalingSettings_ =
+          new print_preview.ScalingSettings(this.printTicketStore_.scaling,
+                                            this.printTicketStore_.fitToPage);
+      this.addChild(this.scalingSettings_);
+    }
+
     /**
      * Component that renders miscellaneous print options.
      * @type {!print_preview.OtherOptionsSettings}
@@ -169,7 +188,8 @@ cr.define('print_preview', function() {
         this.printTicketStore_.fitToPage,
         this.printTicketStore_.cssBackground,
         this.printTicketStore_.selectionOnly,
-        this.printTicketStore_.headerFooter);
+        this.printTicketStore_.headerFooter,
+        this.printTicketStore_.rasterize);
     this.addChild(this.otherOptionsSettings_);
 
     /**
@@ -201,6 +221,10 @@ cr.define('print_preview', function() {
         this.dpiSettings_,
         this.otherOptionsSettings_,
         this.advancedOptionsSettings_];
+    if (this.scalingEnabled_) {
+      settingsSections.splice(8, 0, this.scalingSettings_);
+    }
+
     /**
      * Component representing more/less settings button.
      * @type {!print_preview.MoreSettings}
@@ -349,6 +373,12 @@ cr.define('print_preview', function() {
           this.nativeLayer_,
           print_preview.NativeLayer.EventType.PRINT_PRESET_OPTIONS,
           this.onPrintPresetOptionsFromDocument_.bind(this));
+      if (this.scalingEnabled_) {
+        this.tracker.add(
+            this.nativeLayer_,
+            print_preview.NativeLayer.EventType.PAGE_COUNT_READY,
+            this.onPageCountReady_.bind(this));
+      }
       this.tracker.add(
           this.nativeLayer_,
           print_preview.NativeLayer.EventType.PRIVET_PRINT_FAILED,
@@ -468,11 +498,13 @@ cr.define('print_preview', function() {
       this.destinationSettings_.decorate($('destination-settings'));
       this.pageSettings_.decorate($('page-settings'));
       this.copiesSettings_.decorate($('copies-settings'));
-      this.mediaSizeSettings_.decorate($('media-size-settings'));
       this.layoutSettings_.decorate($('layout-settings'));
       this.colorSettings_.decorate($('color-settings'));
+      this.mediaSizeSettings_.decorate($('media-size-settings'));
       this.marginSettings_.decorate($('margin-settings'));
       this.dpiSettings_.decorate($('dpi-settings'));
+      if (this.scalingEnabled_)
+        this.scalingSettings_.decorate($('scaling-settings'));
       this.otherOptionsSettings_.decorate($('other-options-settings'));
       this.advancedOptionsSettings_.decorate($('advanced-options-settings'));
       this.advancedSettings_.decorate($('advanced-settings'));
@@ -495,11 +527,13 @@ cr.define('print_preview', function() {
       this.destinationSettings_.isEnabled = isEnabled;
       this.pageSettings_.isEnabled = isEnabled;
       this.copiesSettings_.isEnabled = isEnabled;
-      this.mediaSizeSettings_.isEnabled = isEnabled;
       this.layoutSettings_.isEnabled = isEnabled;
       this.colorSettings_.isEnabled = isEnabled;
+      this.mediaSizeSettings_.isEnabled = isEnabled;
       this.marginSettings_.isEnabled = isEnabled;
       this.dpiSettings_.isEnabled = isEnabled;
+      if (this.scalingEnabled_)
+         this.scalingSettings_.isEnabled = isEnabled;
       this.otherOptionsSettings_.isEnabled = isEnabled;
       this.advancedOptionsSettings_.isEnabled = isEnabled;
     },
@@ -870,8 +904,7 @@ cr.define('print_preview', function() {
      */
     onKeyDown_: function(e) {
       // Escape key closes the dialog.
-      if (e.keyCode == 27 && !e.shiftKey && !e.ctrlKey && !e.altKey &&
-          !e.metaKey) {
+      if (e.keyCode == 27 && !hasKeyModifiers(e)) {
         // On non-mac with toolkit-views, ESC key is handled by C++-side instead
         // of JS-side.
         if (cr.isMac) {
@@ -996,6 +1029,20 @@ cr.define('print_preview', function() {
           this.printTicketStore_.duplex.isCapabilityAvailable()) {
         this.printTicketStore_.duplex.updateValue(
             event.optionsFromDocument.duplex);
+      }
+    },
+
+    /**
+     * Called when the Page Count Ready message is received to update the fit to
+     * page scaling value in the scaling settings.
+     * @param {Event} event Event object representing the page count ready
+     *     message
+     * @private
+     */
+    onPageCountReady_: function(event) {
+      if (event.fitToPageScaling >= 0) {
+        this.scalingSettings_.updateFitToPageScaling(
+              event.fitToPageScaling);
       }
     },
 
@@ -1237,82 +1284,86 @@ cr.define('print_preview', function() {
 });
 
 // Pull in all other scripts in a single shot.
-<include src="common/overlay.js">
-<include src="common/search_box.js">
-<include src="common/search_bubble.js">
+// <include src="common/overlay.js">
+// <include src="common/search_box.js">
+// <include src="common/search_bubble.js">
 
-<include src="data/page_number_set.js">
-<include src="data/destination.js">
-<include src="data/local_parsers.js">
-<include src="data/cloud_parsers.js">
-<include src="data/destination_store.js">
-<include src="data/invitation.js">
-<include src="data/invitation_store.js">
-<include src="data/margins.js">
-<include src="data/document_info.js">
-<include src="data/printable_area.js">
-<include src="data/measurement_system.js">
-<include src="data/print_ticket_store.js">
-<include src="data/coordinate2d.js">
-<include src="data/size.js">
-<include src="data/capabilities_holder.js">
-<include src="data/user_info.js">
-<include src="data/app_state.js">
+// <include src="data/page_number_set.js">
+// <include src="data/destination.js">
+// <include src="data/local_parsers.js">
+// <include src="data/cloud_parsers.js">
+// <include src="data/destination_store.js">
+// <include src="data/invitation.js">
+// <include src="data/invitation_store.js">
+// <include src="data/margins.js">
+// <include src="data/document_info.js">
+// <include src="data/printable_area.js">
+// <include src="data/measurement_system.js">
+// <include src="data/print_ticket_store.js">
+// <include src="data/coordinate2d.js">
+// <include src="data/size.js">
+// <include src="data/capabilities_holder.js">
+// <include src="data/user_info.js">
+// <include src="data/app_state.js">
 
-<include src="data/ticket_items/ticket_item.js">
+// <include src="data/ticket_items/ticket_item.js">
 
-<include src="data/ticket_items/custom_margins.js">
-<include src="data/ticket_items/collate.js">
-<include src="data/ticket_items/color.js">
-<include src="data/ticket_items/copies.js">
-<include src="data/ticket_items/dpi.js">
-<include src="data/ticket_items/duplex.js">
-<include src="data/ticket_items/header_footer.js">
-<include src="data/ticket_items/media_size.js">
-<include src="data/ticket_items/landscape.js">
-<include src="data/ticket_items/margins_type.js">
-<include src="data/ticket_items/page_range.js">
-<include src="data/ticket_items/fit_to_page.js">
-<include src="data/ticket_items/css_background.js">
-<include src="data/ticket_items/selection_only.js">
-<include src="data/ticket_items/vendor_items.js">
+// <include src="data/ticket_items/custom_margins.js">
+// <include src="data/ticket_items/collate.js">
+// <include src="data/ticket_items/color.js">
+// <include src="data/ticket_items/copies.js">
+// <include src="data/ticket_items/dpi.js">
+// <include src="data/ticket_items/duplex.js">
+// <include src="data/ticket_items/header_footer.js">
+// <include src="data/ticket_items/media_size.js">
+// <include src="data/ticket_items/scaling.js">
+// <include src="data/ticket_items/landscape.js">
+// <include src="data/ticket_items/margins_type.js">
+// <include src="data/ticket_items/page_range.js">
+// <include src="data/ticket_items/fit_to_page.js">
+// <include src="data/ticket_items/css_background.js">
+// <include src="data/ticket_items/selection_only.js">
+// <include src="data/ticket_items/rasterize.js">
+// <include src="data/ticket_items/vendor_items.js">
 
-<include src="native_layer.js">
-<include src="print_preview_animations.js">
-<include src="cloud_print_interface.js">
-<include src="print_preview_utils.js">
-<include src="print_header.js">
-<include src="metrics.js">
+// <include src="native_layer.js">
+// <include src="print_preview_animations.js">
+// <include src="cloud_print_interface.js">
+// <include src="print_preview_utils.js">
+// <include src="print_header.js">
+// <include src="metrics.js">
 
-<include src="settings/settings_section.js">
-<include src="settings/settings_section_select.js">
-<include src="settings/page_settings.js">
-<include src="settings/copies_settings.js">
-<include src="settings/dpi_settings.js">
-<include src="settings/media_size_settings.js">
-<include src="settings/layout_settings.js">
-<include src="settings/color_settings.js">
-<include src="settings/margin_settings.js">
-<include src="settings/destination_settings.js">
-<include src="settings/other_options_settings.js">
-<include src="settings/advanced_options_settings.js">
-<include src="settings/advanced_settings/advanced_settings.js">
-<include src="settings/advanced_settings/advanced_settings_item.js">
-<include src="settings/more_settings.js">
+// <include src="settings/settings_section.js">
+// <include src="settings/settings_section_select.js">
+// <include src="settings/destination_settings.js">
+// <include src="settings/page_settings.js">
+// <include src="settings/copies_settings.js">
+// <include src="settings/layout_settings.js">
+// <include src="settings/color_settings.js">
+// <include src="settings/media_size_settings.js">
+// <include src="settings/margin_settings.js">
+// <include src="settings/dpi_settings.js">
+// <include src="settings/scaling_settings.js">
+// <include src="settings/other_options_settings.js">
+// <include src="settings/advanced_options_settings.js">
+// <include src="settings/advanced_settings/advanced_settings.js">
+// <include src="settings/advanced_settings/advanced_settings_item.js">
+// <include src="settings/more_settings.js">
 
-<include src="previewarea/margin_control.js">
-<include src="previewarea/margin_control_container.js">
-<include src="../pdf/pdf_scripting_api.js">
-<include src="previewarea/preview_area.js">
-<include src="preview_generator.js">
+// <include src="previewarea/margin_control.js">
+// <include src="previewarea/margin_control_container.js">
+// <include src="../pdf/pdf_scripting_api.js">
+// <include src="previewarea/preview_area.js">
+// <include src="preview_generator.js">
 
-<include src="search/destination_list.js">
-<include src="search/cloud_destination_list.js">
-<include src="search/recent_destination_list.js">
-<include src="search/destination_list_item.js">
-<include src="search/destination_search.js">
-<include src="search/fedex_tos.js">
-<include src="search/provisional_destination_resolver.js">
+// <include src="search/destination_list.js">
+// <include src="search/cloud_destination_list.js">
+// <include src="search/recent_destination_list.js">
+// <include src="search/destination_list_item.js">
+// <include src="search/destination_search.js">
+// <include src="search/fedex_tos.js">
+// <include src="search/cros_destination_resolver.js">
+// <include src="search/provisional_destination_resolver.js">
 
 window.addEventListener('DOMContentLoaded', function() {
   printPreview = new print_preview.PrintPreview();

@@ -76,7 +76,6 @@ class NetEq {
   struct Config {
     Config()
         : sample_rate_hz(16000),
-          enable_audio_classifier(false),
           enable_post_decode_vad(false),
           max_packets_in_buffer(50),
           // |max_delay_ms| has the same effect as calling SetMaximumDelay().
@@ -88,7 +87,6 @@ class NetEq {
     std::string ToString() const;
 
     int sample_rate_hz;  // Initial value. Will change with input data.
-    bool enable_audio_classifier;
     bool enable_post_decode_vad;
     size_t max_packets_in_buffer;
     int max_delay_ms;
@@ -177,6 +175,11 @@ class NetEq {
                                       NetEqDecoder codec,
                                       const std::string& codec_name,
                                       uint8_t rtp_payload_type) = 0;
+
+  // Associates |rtp_payload_type| with the given codec, which NetEq will
+  // instantiate when it needs it. Returns true iff successful.
+  virtual bool RegisterPayloadType(int rtp_payload_type,
+                                   const SdpAudioFormat& audio_format) = 0;
 
   // Removes |rtp_payload_type| from the codec database. Returns 0 on success,
   // -1 on failure.

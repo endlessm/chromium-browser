@@ -27,11 +27,11 @@
 #ifndef CSSPreloadScanner_h
 #define CSSPreloadScanner_h
 
-#include "core/fetch/CSSStyleSheetResource.h"
 #include "core/fetch/ResourceOwner.h"
-#include "core/fetch/StyleSheetResourceClient.h"
 #include "core/html/parser/HTMLToken.h"
 #include "core/html/parser/PreloadRequest.h"
+#include "core/loader/resource/CSSStyleSheetResource.h"
+#include "core/loader/resource/StyleSheetResourceClient.h"
 #include "platform/heap/Handle.h"
 #include "wtf/text/StringBuilder.h"
 
@@ -101,7 +101,7 @@ class CSSPreloadScanner {
 // @import tags before parsing.
 class CORE_EXPORT CSSPreloaderResourceClient
     : public GarbageCollectedFinalized<CSSPreloaderResourceClient>,
-      public ResourceOwner<CSSStyleSheetResource, StyleSheetResourceClient> {
+      public StyleSheetResourceClient {
   USING_GARBAGE_COLLECTED_MIXIN(CSSPreloaderResourceClient);
 
  public:
@@ -123,6 +123,7 @@ class CORE_EXPORT CSSPreloaderResourceClient
 
  private:
   void scanCSS(const CSSStyleSheetResource*);
+  void clearResource();
 
   enum PreloadPolicy {
     ScanOnly,
@@ -131,6 +132,7 @@ class CORE_EXPORT CSSPreloaderResourceClient
 
   const PreloadPolicy m_policy;
   WeakMember<HTMLResourcePreloader> m_preloader;
+  WeakMember<CSSStyleSheetResource> m_resource;
 };
 
 }  // namespace blink

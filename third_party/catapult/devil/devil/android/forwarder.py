@@ -18,6 +18,11 @@ from devil.utils import cmd_helper
 
 logger = logging.getLogger(__name__)
 
+# If passed as the device port, this will tell the forwarder to allocate
+# a dynamic port on the device. The actual port can then be retrieved with
+# Forwarder.DevicePortForHostPort.
+DYNAMIC_DEVICE_PORT = 0
+
 
 def _GetProcessStartTime(pid):
   return psutil.Process(pid).create_time
@@ -155,11 +160,13 @@ class Forwarder(object):
                 'Failed to kill the device forwarder after map failure: %s',
                 str(e))
           _LogMapFailureDiagnostics(device)
+          formatted_output = ('\n'.join(output) if isinstance(output, list)
+                              else output)
           raise HostForwarderError(
               '`%s` exited with %d:\n%s' % (
                   ' '.join(map_cmd),
                   exit_code,
-                  '\n'.join(output)))
+                  formatted_output))
         tokens = output.split(':')
         if len(tokens) != 2:
           raise HostForwarderError(
@@ -209,7 +216,10 @@ class Forwarder(object):
       if exit_code != 0:
         error_msg = [
             '`%s` exited with %d' % (' '.join(unmap_all_cmd), exit_code)]
-        error_msg += output
+        if isinstance(output, list):
+          error_msg += output
+        else:
+          error_msg += [output]
         raise HostForwarderError('\n'.join(error_msg))
 
       # Clean out any entries from the device & host map.
@@ -229,9 +239,9 @@ class Forwarder(object):
   def DevicePortForHostPort(host_port):
     """Returns the device port that corresponds to a given host port."""
     with _FileLock(Forwarder._LOCK_PATH):
-      _, device_port = Forwarder._GetInstanceLocked(
+      serial_and_port = Forwarder._GetInstanceLocked(
           None)._host_to_device_port_map.get(host_port)
-      return device_port
+      return serial_and_port[1] if serial_and_port else None
 
   @staticmethod
   def RemoveHostLog():
@@ -312,7 +322,7 @@ class Forwarder(object):
           '`%s` exited with %d:\n%s',
           ' '.join(unmap_cmd),
           exit_code,
-          '\n'.join(output))
+          '\n'.join(output) if isinstance(output, list) else output)
 
   @staticmethod
   def _GetPidForLock():
@@ -405,8 +415,10 @@ class Forwarder(object):
             kill_cmd, Forwarder._TIMEOUT)
         if exit_code != 0:
           raise HostForwarderError(
-              '%s exited with %d:\n%s' % (self._host_forwarder_path, exit_code,
-                                          '\n'.join(output)))
+              '%s exited with %d:\n%s' % (
+                  self._host_forwarder_path,
+                  exit_code,
+                  '\n'.join(output) if isinstance(output, list) else output))
     except cmd_helper.TimeoutError as e:
       raise HostForwarderError(
           '`%s` timed out:\n%s' % (' '.join(kill_cmd), e.output))

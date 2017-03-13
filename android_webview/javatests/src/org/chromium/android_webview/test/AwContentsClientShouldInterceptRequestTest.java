@@ -4,7 +4,7 @@
 
 package org.chromium.android_webview.test;
 
-import android.test.suitebuilder.annotation.SmallTest;
+import android.support.test.filters.SmallTest;
 import android.util.Pair;
 
 import org.chromium.android_webview.AwContents;
@@ -12,9 +12,9 @@ import org.chromium.android_webview.AwWebResourceResponse;
 import org.chromium.android_webview.test.util.AwTestTouchUtils;
 import org.chromium.android_webview.test.util.CommonResources;
 import org.chromium.android_webview.test.util.JSUtils;
+import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.Feature;
 import org.chromium.base.test.util.TestFileUtil;
-import org.chromium.content.browser.test.util.CallbackHelper;
 import org.chromium.content.browser.test.util.TestCallbackHelperContainer.OnReceivedErrorHelper;
 import org.chromium.net.test.util.TestWebServer;
 
@@ -43,7 +43,7 @@ public class AwContentsClientShouldInterceptRequestTest extends AwTestBase {
             private ConcurrentHashMap<String, AwWebResourceRequest> mRequestsByUrls =
                     new ConcurrentHashMap<String, AwWebResourceRequest>();
             // This is read on another thread, so needs to be marked volatile.
-            private volatile AwWebResourceResponse mShouldInterceptRequestReturnValue = null;
+            private volatile AwWebResourceResponse mShouldInterceptRequestReturnValue;
             void setReturnValue(AwWebResourceResponse value) {
                 mShouldInterceptRequestReturnValue = value;
             }

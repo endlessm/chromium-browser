@@ -6,72 +6,120 @@
 #define NGLengthUtils_h
 
 #include "core/CoreExport.h"
-#include "core/layout/ng/ng_direction.h"
+#include "core/layout/ng/ng_units.h"
 #include "core/layout/ng/ng_writing_mode.h"
+#include "platform/text/TextDirection.h"
+#include "wtf/Optional.h"
 
 namespace blink {
 class ComputedStyle;
 class LayoutUnit;
 class Length;
+struct MinAndMaxContentSizes;
 class NGConstraintSpace;
 struct NGBoxStrut;
 class NGFragment;
 
 enum class LengthResolveType {
-  MinSize,
-  MaxSize,
-  ContentSize,
-  MarginBorderPaddingSize
+  kMinSize,
+  kMaxSize,
+  kContentSize,
+  kMarginBorderPaddingSize
 };
 
 #define NGSizeIndefinite LayoutUnit(-1)
 
+// Whether the caller needs to compute min-content and max-content sizes to
+// pass them to ResolveInlineLength / ComputeInlineSizeForFragment.
+// If this function returns false, it is safe to pass an empty
+// MinAndMaxContentSizes struct to those functions.
+CORE_EXPORT bool NeedMinAndMaxContentSizes(const NGConstraintSpace&,
+                                           const ComputedStyle&);
+
+// Like NeedMinAndMaxContentSizes, but for use when calling
+// ComputeMinAndMaxContentContribution.
+CORE_EXPORT bool NeedMinAndMaxContentSizesForContentContribution(
+    const ComputedStyle&);
+
 // Convert an inline-axis length to a layout unit using the given constraint
 // space.
-CORE_EXPORT LayoutUnit resolveInlineLength(const NGConstraintSpace&,
-                                           const ComputedStyle&,
-                                           const Length&,
-                                           LengthResolveType);
+CORE_EXPORT LayoutUnit
+ResolveInlineLength(const NGConstraintSpace&,
+                    const ComputedStyle&,
+                    const WTF::Optional<MinAndMaxContentSizes>&,
+                    const Length&,
+                    LengthResolveType);
 
 // Convert a block-axis length to a layout unit using the given constraint
 // space and content size.
-CORE_EXPORT LayoutUnit resolveBlockLength(const NGConstraintSpace&,
+CORE_EXPORT LayoutUnit ResolveBlockLength(const NGConstraintSpace&,
                                           const ComputedStyle&,
                                           const Length&,
-                                          LayoutUnit contentSize,
+                                          LayoutUnit content_size,
                                           LengthResolveType);
+
+// For the given style and min/max content sizes, computes the min and max
+// content contribution (https://drafts.csswg.org/css-sizing/#contributions).
+// This is similar to ComputeInlineSizeForFragment except that it does not
+// require a constraint space (percentage sizes as well as auto margins compute
+// to zero) and that an auto inline size resolves to the respective min/max
+// content size.
+// Also, the min/max contribution does include the inline margins as well.
+CORE_EXPORT MinAndMaxContentSizes ComputeMinAndMaxContentContribution(
+    const ComputedStyle&,
+    const WTF::Optional<MinAndMaxContentSizes>&);
 
 // Resolves the given length to a layout unit, constraining it by the min
 // logical width and max logical width properties from the ComputedStyle
 // object.
-CORE_EXPORT LayoutUnit computeInlineSizeForFragment(const NGConstraintSpace&,
-                                                    const ComputedStyle&);
+CORE_EXPORT LayoutUnit
+ComputeInlineSizeForFragment(const NGConstraintSpace&,
+                             const ComputedStyle&,
+                             const WTF::Optional<MinAndMaxContentSizes>&);
 
 // Resolves the given length to a layout unit, constraining it by the min
 // logical height and max logical height properties from the ComputedStyle
 // object.
-CORE_EXPORT LayoutUnit computeBlockSizeForFragment(const NGConstraintSpace&,
+CORE_EXPORT LayoutUnit ComputeBlockSizeForFragment(const NGConstraintSpace&,
                                                    const ComputedStyle&,
-                                                   LayoutUnit contentSize);
+                                                   LayoutUnit content_size);
 
-CORE_EXPORT NGBoxStrut computeMargins(const NGConstraintSpace&,
+// Based on available inline size, CSS computed column-width, CSS computed
+// column-count and CSS used column-gap, return CSS used column-count.
+CORE_EXPORT int ResolveUsedColumnCount(int computed_count,
+                                       LayoutUnit computed_size,
+                                       LayoutUnit used_gap,
+                                       LayoutUnit available_size);
+
+// Based on available inline size, CSS computed column-width, CSS computed
+// column-count and CSS used column-gap, return CSS used column-width.
+CORE_EXPORT LayoutUnit ResolveUsedColumnInlineSize(int computed_count,
+                                                   LayoutUnit computed_size,
+                                                   LayoutUnit used_gap,
+                                                   LayoutUnit available_size);
+CORE_EXPORT LayoutUnit ResolveUsedColumnInlineSize(LayoutUnit available_size,
+                                                   const ComputedStyle&);
+
+CORE_EXPORT LayoutUnit ResolveUsedColumnGap(const ComputedStyle&);
+
+CORE_EXPORT NGBoxStrut ComputeMargins(const NGConstraintSpace&,
                                       const ComputedStyle&,
                                       const NGWritingMode writing_mode,
-                                      const NGDirection direction);
+                                      const TextDirection direction);
 
-CORE_EXPORT NGBoxStrut computeBorders(const ComputedStyle&);
+CORE_EXPORT NGBoxStrut ComputeBorders(const ComputedStyle&);
 
-CORE_EXPORT NGBoxStrut computePadding(const NGConstraintSpace&,
+CORE_EXPORT NGBoxStrut ComputePadding(const NGConstraintSpace&,
                                       const ComputedStyle&);
 
 // Resolves margin: auto in the inline direction after a box has been laid out.
-// This uses the container size from the constraint space and the box size from
+// This uses the available size from the constraint space and the box size from
 // the fragment to compute the margins that are auto, if any, and adjusts
 // the given NGBoxStrut accordingly.
 CORE_EXPORT void ApplyAutoMargins(const NGConstraintSpace&,
                                   const ComputedStyle&,
                                   const NGFragment&,
-                                  NGBoxStrut& margins);
+                                  NGBoxStrut* margins);
 
 }  // namespace blink
 

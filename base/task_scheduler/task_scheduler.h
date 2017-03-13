@@ -11,8 +11,11 @@
 #include "base/base_export.h"
 #include "base/callback_forward.h"
 #include "base/memory/ref_counted.h"
+#include "base/sequenced_task_runner.h"
+#include "base/single_thread_task_runner.h"
 #include "base/task_runner.h"
 #include "base/task_scheduler/task_traits.h"
+#include "base/time/time.h"
 
 namespace tracked_objects {
 class Location;
@@ -20,6 +23,7 @@ class Location;
 
 namespace base {
 
+class HistogramBase;
 class SchedulerWorkerPoolParams;
 
 // Interface for a task scheduler and static methods to manage the instance used
@@ -36,17 +40,32 @@ class BASE_EXPORT TaskScheduler {
 
   virtual ~TaskScheduler() = default;
 
-  // Posts |task| with specific |traits|.
+  // Posts |task| with a |delay| and specific |traits|. |delay| can be zero.
   // For one off tasks that don't require a TaskRunner.
-  virtual void PostTaskWithTraits(const tracked_objects::Location& from_here,
-                                  const TaskTraits& traits,
-                                  const Closure& task) = 0;
-
-  // Returns a TaskRunner whose PostTask invocations will result in scheduling
-  // Tasks with |traits| which will be executed according to |execution_mode|.
-  virtual scoped_refptr<TaskRunner> CreateTaskRunnerWithTraits(
+  virtual void PostDelayedTaskWithTraits(
+      const tracked_objects::Location& from_here,
       const TaskTraits& traits,
-      ExecutionMode execution_mode) = 0;
+      const Closure& task,
+      TimeDelta delay) = 0;
+
+  // Returns a TaskRunner whose PostTask invocations result in scheduling tasks
+  // using |traits|. Tasks may run in any order and in parallel.
+  virtual scoped_refptr<TaskRunner> CreateTaskRunnerWithTraits(
+      const TaskTraits& traits) = 0;
+
+  // Returns a SequencedTaskRunner whose PostTask invocations result in
+  // scheduling tasks using |traits|. Tasks run one at a time in posting order.
+  virtual scoped_refptr<SequencedTaskRunner>
+  CreateSequencedTaskRunnerWithTraits(const TaskTraits& traits) = 0;
+
+  // Returns a SingleThreadTaskRunner whose PostTask invocations result in
+  // scheduling tasks using |traits|. Tasks run on a single thread in posting
+  // order.
+  virtual scoped_refptr<SingleThreadTaskRunner>
+  CreateSingleThreadTaskRunnerWithTraits(const TaskTraits& traits) = 0;
+
+  // Returns a vector of all histograms available in this task scheduler.
+  virtual std::vector<const HistogramBase*> GetHistograms() const = 0;
 
   // Synchronously shuts down the scheduler. Once this is called, only tasks
   // posted with the BLOCK_SHUTDOWN behavior will be run. When this returns:
@@ -66,16 +85,21 @@ class BASE_EXPORT TaskScheduler {
   // other threads during the call. Returns immediately when shutdown completes.
   virtual void FlushForTesting() = 0;
 
-  // CreateAndSetDefaultTaskScheduler() and SetInstance() register a
-  // TaskScheduler to handle tasks posted through the post_task.h API for this
-  // process. The registered TaskScheduler will only be deleted when a new
-  // TaskScheduler is registered and is leaked on shutdown. The methods must
-  // not be called when TaskRunners created by the previous TaskScheduler are
-  // still alive. The methods are not thread-safe; proper synchronization is
-  // required to use the post_task.h API after registering a new TaskScheduler.
+  // CreateAndSetSimpleTaskScheduler(), CreateAndSetDefaultTaskScheduler(), and
+  // SetInstance() register a TaskScheduler to handle tasks posted through the
+  // post_task.h API for this process. The registered TaskScheduler will only be
+  // deleted when a new TaskScheduler is registered and is leaked on shutdown.
+  // The methods must not be called when TaskRunners created by the previous
+  // TaskScheduler are still alive. The methods are not thread-safe; proper
+  // synchronization is required to use the post_task.h API after registering a
+  // new TaskScheduler.
 
-  // Creates and sets a default task scheduler. CHECKs on failure.
-  // |worker_pool_params_vector| describes the worker pools to create.
+  // Creates and sets a task scheduler with one worker pool that can have up to
+  // |max_threads| threads. CHECKs on failure.
+  static void CreateAndSetSimpleTaskScheduler(int max_threads);
+
+  // Creates and sets a task scheduler with custom worker pools. CHECKs on
+  // failure. |worker_pool_params_vector| describes the worker pools to create.
   // |worker_pool_index_for_traits_callback| returns the index in |worker_pools|
   // of the worker pool in which a task with given traits should run.
   static void CreateAndSetDefaultTaskScheduler(

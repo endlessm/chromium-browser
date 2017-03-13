@@ -17,8 +17,9 @@ namespace internal {
 
 class JSONParserTest : public testing::Test {
  public:
-  JSONParser* NewTestParser(const std::string& input) {
-    JSONParser* parser = new JSONParser(JSON_PARSE_RFC);
+  JSONParser* NewTestParser(const std::string& input,
+                            int options = JSON_PARSE_RFC) {
+    JSONParser* parser = new JSONParser(options);
     parser->start_pos_ = input.data();
     parser->pos_ = parser->start_pos_;
     parser->end_pos_ = parser->start_pos_ + input.length();
@@ -123,7 +124,7 @@ TEST_F(JSONParserTest, ConsumeLiterals) {
   TestLastThree(parser.get());
 
   ASSERT_TRUE(value.get());
-  EXPECT_TRUE(value->IsType(Value::TYPE_NULL));
+  EXPECT_TRUE(value->IsType(Value::Type::NONE));
 }
 
 TEST_F(JSONParserTest, ConsumeNumbers) {
@@ -243,14 +244,14 @@ TEST_F(JSONParserTest, ErrorMessages) {
   EXPECT_EQ(JSONReader::JSON_UNEXPECTED_DATA_AFTER_ROOT, error_code);
 
   std::string nested_json;
-  for (int i = 0; i < 101; ++i) {
+  for (int i = 0; i < 201; ++i) {
     nested_json.insert(nested_json.begin(), '[');
     nested_json.append(1, ']');
   }
   root = JSONReader::ReadAndReturnError(nested_json, JSON_PARSE_RFC,
                                         &error_code, &error_message);
   EXPECT_FALSE(root.get());
-  EXPECT_EQ(JSONParser::FormatErrorMessage(1, 100, JSONReader::kTooMuchNesting),
+  EXPECT_EQ(JSONParser::FormatErrorMessage(1, 200, JSONReader::kTooMuchNesting),
             error_message);
   EXPECT_EQ(JSONReader::JSON_TOO_MUCH_NESTING, error_code);
 
@@ -326,6 +327,19 @@ TEST_F(JSONParserTest, DecodeUnicodeNonCharacter) {
 TEST_F(JSONParserTest, DecodeNegativeEscapeSequence) {
   EXPECT_FALSE(JSONReader::Read("[\"\\x-A\"]"));
   EXPECT_FALSE(JSONReader::Read("[\"\\u-00A\"]"));
+}
+
+// Verifies invalid utf-8 characters are replaced.
+TEST_F(JSONParserTest, ReplaceInvalidCharacters) {
+  const std::string bogus_char = "󿿿";
+  const std::string quoted_bogus_char = "\"" + bogus_char + "\"";
+  std::unique_ptr<JSONParser> parser(
+      NewTestParser(quoted_bogus_char, JSON_REPLACE_INVALID_CHARACTERS));
+  std::unique_ptr<Value> value(parser->ConsumeString());
+  ASSERT_TRUE(value.get());
+  std::string str;
+  EXPECT_TRUE(value->GetAsString(&str));
+  EXPECT_EQ(kUnicodeReplacementString, str);
 }
 
 }  // namespace internal

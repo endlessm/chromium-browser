@@ -73,8 +73,8 @@ typedef uint32_t SkFontID;
 namespace blink {
 
 class Font;
-class GraphicsContext;
 class HarfBuzzFace;
+class FontVariationSettings;
 
 class PLATFORM_EXPORT FontPlatformData {
   USING_FAST_MALLOC(FontPlatformData);
@@ -96,9 +96,10 @@ class PLATFORM_EXPORT FontPlatformData {
 #if OS(MACOSX)
   FontPlatformData(NSFont*,
                    float size,
-                   bool syntheticBold = false,
-                   bool syntheticItalic = false,
-                   FontOrientation = FontOrientation::Horizontal);
+                   bool syntheticBold,
+                   bool syntheticItalic,
+                   FontOrientation,
+                   FontVariationSettings*);
 #endif
   FontPlatformData(sk_sp<SkTypeface>,
                    const char* name,

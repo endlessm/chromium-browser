@@ -9,6 +9,10 @@ source_set("exo") {
   sources = [
     "buffer.cc",
     "buffer.h",
+    "compositor_frame_sink.cc",
+    "compositor_frame_sink.h",
+    "compositor_frame_sink_holder.cc",
+    "compositor_frame_sink_holder.h",
     "display.cc",
     "display.h",
     "gamepad.cc",
@@ -16,6 +20,7 @@ source_set("exo") {
     "keyboard.cc",
     "keyboard.h",
     "keyboard_delegate.h",
+    "keyboard_device_configuration_delegate.h",
     "notification_surface.cc",
     "notification_surface.h",
     "notification_surface_manager.h",
@@ -46,22 +51,25 @@ source_set("exo") {
 
   deps = [
     "//ash",
+    "//ash/public/cpp",
     "//base",
     "//cc",
-    "//cc/surfaces:surfaces",
+    "//cc/ipc:interfaces",
+    "//cc/surfaces",
     "//device/gamepad",
     "//gpu",
     "//gpu/command_buffer/client:gles2_interface",
-    "//services/ui/public/cpp",
     "//skia",
     "//ui/aura",
     "//ui/compositor",
+    "//ui/display/manager",
+    "//ui/events/devices:devices",
     "//ui/gfx",
     "//ui/gfx/geometry",
     "//ui/gl",
     "//ui/views",
     "//ui/views/mus",
-    "//ui/wm:wm",
+    "//ui/wm",
   ]
 
   if (is_chromeos) {
@@ -81,8 +89,9 @@ source_set("test_support") {
 
   deps = [
     ":exo",
-    "//ash:ash_with_aura_test_support",
-    "//ash:test_support_without_content",
+    "//ash/public/cpp",
+    "//ash/test:ash_with_aura_test_support",
+    "//ash/test:test_support_without_content",
     "//base",
     "//gpu",
     "//skia",
@@ -90,6 +99,7 @@ source_set("test_support") {
     "//ui/aura",
     "//ui/compositor",
     "//ui/gfx/geometry",
+    "//ui/views",
     "//ui/wm:wm",
   ]
 }
@@ -114,6 +124,7 @@ source_set("unit_tests") {
     ":exo",
     ":test_support",
     "//ash",
+    "//ash/public/cpp",
     "//base",
     "//base/test:test_support",
     "//cc",
@@ -131,7 +142,7 @@ source_set("unit_tests") {
     "//ui/keyboard",
     "//ui/message_center",
     "//ui/views",
-    "//ui/wm:wm",
+    "//ui/wm",
   ]
 
   if (use_ozone) {
@@ -146,11 +157,12 @@ test("exo_unittests") {
 
   deps = [
     ":unit_tests",
-    "//ash:ash_with_aura_test_support",
-    "//ash:test_support_without_content",
+    "//ash/test:ash_with_aura_test_support",
+    "//ash/test:test_support_without_content",
     "//base",
     "//base/test:test_support",
     "//device/gamepad:test_helpers",
+    "//mojo/edk/embedder:headers",
   ]
 
   data_deps = [
@@ -158,10 +170,6 @@ test("exo_unittests") {
     "//ash/resources:ash_test_resources_100_percent",
     "//ash/resources:ash_test_resources_200_percent",
   ]
-
-  if (use_x11) {
-    deps += [ "//tools/xdisplaycheck" ]
-  }
 
   if (is_linux) {
     deps += [ "//components/exo/wayland:unit_tests" ]

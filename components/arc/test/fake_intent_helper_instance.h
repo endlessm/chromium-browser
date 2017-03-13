@@ -5,12 +5,12 @@
 #ifndef COMPONENTS_ARC_TEST_FAKE_INTENT_HELPER_INSTANCE_H_
 #define COMPONENTS_ARC_TEST_FAKE_INTENT_HELPER_INSTANCE_H_
 
+#include <map>
 #include <string>
 #include <vector>
 
 #include "base/callback.h"
 #include "components/arc/common/intent_helper.mojom.h"
-#include "mojo/public/cpp/bindings/binding.h"
 
 namespace arc {
 
@@ -20,10 +20,10 @@ class FakeIntentHelperInstance : public mojom::IntentHelperInstance {
 
   class Broadcast {
    public:
-    Broadcast(const mojo::String& action,
-              const mojo::String& package_name,
-              const mojo::String& cls,
-              const mojo::String& extras);
+    Broadcast(const std::string& action,
+              const std::string& package_name,
+              const std::string& cls,
+              const std::string& extras);
 
     ~Broadcast();
 
@@ -35,52 +35,93 @@ class FakeIntentHelperInstance : public mojom::IntentHelperInstance {
     std::string extras;
   };
 
+  // Parameters passed to HandleIntent().
+  struct HandledIntent {
+    HandledIntent(mojom::IntentInfoPtr intent,
+                  mojom::ActivityNamePtr activity);
+    HandledIntent(HandledIntent&& other);
+    HandledIntent& operator=(HandledIntent&& other);
+    ~HandledIntent();
+
+    mojom::IntentInfoPtr intent;
+    mojom::ActivityNamePtr activity;
+  };
+
   void clear_broadcasts() { broadcasts_.clear(); }
+  void clear_handled_intents() { handled_intents_.clear(); }
 
   const std::vector<Broadcast>& broadcasts() const { return broadcasts_; }
+  const std::vector<HandledIntent>& handled_intents() const {
+    return handled_intents_;
+  }
 
-  // mojom::HelpIntentInstance:
+  // Sets a list of intent handlers to be returned in response to
+  // RequestIntentHandlerList() calls with intents containing |action|.
+  void SetIntentHandlers(
+      const std::string& action,
+      std::vector<mojom::IntentHandlerInfoPtr> handlers);
+
+  // mojom::IntentHelperInstance:
   ~FakeIntentHelperInstance() override;
 
-  void AddPreferredPackage(const mojo::String& package_name) override;
+  void AddPreferredPackage(const std::string& package_name) override;
 
-  void HandleUrl(const mojo::String& url,
-                 const mojo::String& package_name) override;
+  void GetFileSizeDeprecated(
+      const std::string& url,
+      const GetFileSizeDeprecatedCallback& callback) override;
 
-  void HandleUrlList(mojo::Array<mojom::UrlWithMimeTypePtr> urls,
+  void HandleIntent(mojom::IntentInfoPtr intent,
+                    mojom::ActivityNamePtr activity) override;
+
+  void HandleUrl(const std::string& url,
+                 const std::string& package_name) override;
+
+  void HandleUrlList(std::vector<mojom::UrlWithMimeTypePtr> urls,
                      mojom::ActivityNamePtr activity,
                      mojom::ActionType action) override;
 
-  void HandleUrlListDeprecated(mojo::Array<mojom::UrlWithMimeTypePtr> urls,
-                               const mojo::String& package_name,
-                               mojom::ActionType action) override;
-
   void Init(mojom::IntentHelperHostPtr host_ptr) override;
 
+  void OpenFileToReadDeprecated(
+      const std::string& url,
+      const OpenFileToReadDeprecatedCallback& callback) override;
+
   void RequestActivityIcons(
-      mojo::Array<mojom::ActivityNamePtr> activities,
+      std::vector<mojom::ActivityNamePtr> activities,
       ::arc::mojom::ScaleFactor scale_factor,
       const RequestActivityIconsCallback& callback) override;
 
+  void RequestIntentHandlerList(
+      mojom::IntentInfoPtr intent,
+      const RequestIntentHandlerListCallback& callback) override;
+
   void RequestUrlHandlerList(
-      const mojo::String& url,
+      const std::string& url,
       const RequestUrlHandlerListCallback& callback) override;
 
   void RequestUrlListHandlerList(
-      mojo::Array<mojom::UrlWithMimeTypePtr> urls,
+      std::vector<mojom::UrlWithMimeTypePtr> urls,
       const RequestUrlListHandlerListCallback& callback) override;
 
-  void SendBroadcast(const mojo::String& action,
-                     const mojo::String& package_name,
-                     const mojo::String& cls,
-                     const mojo::String& extras) override;
+  void SendBroadcast(const std::string& action,
+                     const std::string& package_name,
+                     const std::string& cls,
+                     const std::string& extras) override;
 
  private:
   std::vector<Broadcast> broadcasts_;
+
+  // Information about calls to HandleIntent().
+  std::vector<HandledIntent> handled_intents_;
+
+  // Map from action names to intent handlers to be returned by
+  // RequestIntentHandlerList().
+  std::map<std::string, std::vector<mojom::IntentHandlerInfoPtr>>
+      intent_handlers_;
 
   DISALLOW_COPY_AND_ASSIGN(FakeIntentHelperInstance);
 };
 
 }  // namespace arc
 
-#endif  // COMPONENTS_ARC_TEST_FAKE_POLICY_INSTANCE_H_
+#endif  // COMPONENTS_ARC_TEST_FAKE_INTENT_HELPER_INSTANCE_H_

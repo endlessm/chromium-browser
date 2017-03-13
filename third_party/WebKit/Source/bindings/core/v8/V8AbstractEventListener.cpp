@@ -35,10 +35,12 @@
 #include "bindings/core/v8/V8EventListenerHelper.h"
 #include "bindings/core/v8/V8EventTarget.h"
 #include "bindings/core/v8/V8HiddenValue.h"
+#include "core/dom/Document.h"
+#include "core/dom/DocumentParser.h"
 #include "core/events/BeforeUnloadEvent.h"
 #include "core/events/Event.h"
-#include "core/inspector/InstanceCounters.h"
 #include "core/workers/WorkerGlobalScope.h"
+#include "platform/InstanceCounters.h"
 
 namespace blink {
 
@@ -46,6 +48,7 @@ V8AbstractEventListener::V8AbstractEventListener(bool isAttribute,
                                                  DOMWrapperWorld& world,
                                                  v8::Isolate* isolate)
     : EventListener(JSEventListenerType),
+      m_listener(nullptr),
       m_isAttribute(isAttribute),
       m_world(world),
       m_isolate(isolate),
@@ -92,7 +95,7 @@ void V8AbstractEventListener::handleEvent(ScriptState* scriptState,
 
   // Get the V8 wrapper for the event object.
   v8::Local<v8::Value> jsEvent =
-      toV8(event, scriptState->context()->Global(), isolate());
+      ToV8(event, scriptState->context()->Global(), isolate());
   if (jsEvent.IsEmpty())
     return;
   invokeEventHandler(scriptState, event,
@@ -108,8 +111,7 @@ void V8AbstractEventListener::setListenerObject(
   } else {
     m_keepAlive = this;
   }
-  m_listener.set(isolate(), listener);
-  m_listener.setWeak(this, &wrapperCleared);
+  m_listener.set(isolate(), listener, this, &wrapperCleared);
 }
 
 void V8AbstractEventListener::invokeEventHandler(ScriptState* scriptState,
@@ -192,16 +194,26 @@ v8::Local<v8::Object> V8AbstractEventListener::getReceiverObject(
 
   EventTarget* target = event->currentTarget();
   v8::Local<v8::Value> value =
-      toV8(target, scriptState->context()->Global(), isolate());
+      ToV8(target, scriptState->context()->Global(), isolate());
   if (value.IsEmpty())
     return v8::Local<v8::Object>();
   return v8::Local<v8::Object>::New(isolate(),
                                     v8::Local<v8::Object>::Cast(value));
 }
 
-bool V8AbstractEventListener::belongsToTheCurrentWorld() const {
-  return ScriptState::hasCurrentScriptState(isolate()) &&
-         &world() == &DOMWrapperWorld::current(isolate());
+bool V8AbstractEventListener::belongsToTheCurrentWorld(
+    ExecutionContext* executionContext) const {
+  if (!isolate()->GetCurrentContext().IsEmpty() &&
+      &world() == &DOMWrapperWorld::current(isolate()))
+    return true;
+  // If currently parsing, the parser could be accessing this listener
+  // outside of any v8 context; check if it belongs to the main world.
+  if (!isolate()->InContext() && executionContext->isDocument()) {
+    Document* document = toDocument(executionContext);
+    if (document->parser() && document->parser()->isParsing())
+      return world().isMainWorld();
+  }
+  return false;
 }
 
 void V8AbstractEventListener::clearListenerObject() {
@@ -226,7 +238,7 @@ DEFINE_TRACE(V8AbstractEventListener) {
 }
 
 DEFINE_TRACE_WRAPPERS(V8AbstractEventListener) {
-  visitor->traceWrappers(&m_listener);
+  visitor->traceWrappers(m_listener.cast<v8::Value>());
 }
 
 }  // namespace blink

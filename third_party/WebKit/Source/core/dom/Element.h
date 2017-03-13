@@ -38,6 +38,7 @@
 #include "core/dom/SpaceSplitString.h"
 #include "core/html/CollectionType.h"
 #include "platform/heap/Handle.h"
+#include "platform/scroll/ScrollTypes.h"
 #include "public/platform/WebFocusType.h"
 
 namespace blink {
@@ -52,16 +53,15 @@ class CompositorMutation;
 class CustomElementDefinition;
 class DOMStringMap;
 class DOMTokenList;
-class Dictionary;
 class ElementRareData;
 class ElementShadow;
 class ExceptionState;
 class Image;
-class IntSize;
+class InputDeviceCapabilities;
 class Locale;
 class MutableStylePropertySet;
-class NodeIntersectionObserverData;
-class PropertySetCSSStyleDeclaration;
+class NamedNodeMap;
+class ElementIntersectionObserverData;
 class PseudoElement;
 class ResizeObservation;
 class ResizeObserver;
@@ -87,9 +87,10 @@ enum ElementFlags {
   ContainsFullScreenElement = 1 << 3,
   IsInTopLayer = 1 << 4,
   HasPendingResources = 1 << 5,
+  AlreadySpellChecked = 1 << 6,
 
   NumberOfElementFlags =
-      6,  // Required size of bitfield used to store the flags.
+      7,  // Required size of bitfield used to store the flags.
 };
 
 enum class ShadowRootType;
@@ -313,8 +314,6 @@ class CORE_EXPORT Element : public ContainerNode {
   Element* cloneElementWithChildren();
   Element* cloneElementWithoutChildren();
 
-  void scheduleSVGFilterLayerUpdateHack();
-
   void setBooleanAttribute(const QualifiedName&, bool);
 
   virtual const StylePropertySet* additionalPresentationAttributeStyle() {
@@ -357,16 +356,35 @@ class CORE_EXPORT Element : public ContainerNode {
   // For exposing to DOM only.
   NamedNodeMap* attributesForBindings() const;
 
-  enum AttributeModificationReason { ModifiedDirectly, ModifiedByCloning };
-
-  // This method is called whenever an attribute is added, changed or removed.
-  virtual void attributeChanged(const QualifiedName&,
+  enum class AttributeModificationReason { kDirectly, kByParser, kByCloning };
+  struct AttributeModificationParams {
+    STACK_ALLOCATED();
+    AttributeModificationParams(const QualifiedName& qname,
                                 const AtomicString& oldValue,
                                 const AtomicString& newValue,
-                                AttributeModificationReason = ModifiedDirectly);
-  virtual void parseAttribute(const QualifiedName&,
-                              const AtomicString& oldValue,
-                              const AtomicString& newValue);
+                                AttributeModificationReason reason)
+        : name(qname), oldValue(oldValue), newValue(newValue), reason(reason) {}
+
+    const QualifiedName& name;
+    const AtomicString& oldValue;
+    const AtomicString& newValue;
+    const AttributeModificationReason reason;
+  };
+
+  // |attributeChanged| is called whenever an attribute is added, changed or
+  // removed. It handles very common attributes such as id, class, name, style,
+  // and slot.
+  //
+  // While the owner document is parsed, this function is called after all
+  // attributes in a start tag were added to the element.
+  virtual void attributeChanged(const AttributeModificationParams&);
+
+  // |parseAttribute| is called by |attributeChanged|. If an element
+  // implementation needs to check an attribute update, override this function.
+  //
+  // While the owner document is parsed, this function is called after all
+  // attributes in a start tag were added to the element.
+  virtual void parseAttribute(const AttributeModificationParams&);
 
   virtual bool hasLegalLinkAttribute(const QualifiedName&) const;
   virtual const QualifiedName& subResourceAttributeName() const;
@@ -399,6 +417,7 @@ class CORE_EXPORT Element : public ContainerNode {
   virtual LayoutObject* createLayoutObject(const ComputedStyle&);
   virtual bool layoutObjectIsNeeded(const ComputedStyle&);
   void recalcStyle(StyleRecalcChange, Text* nextTextSibling = nullptr);
+  StyleRecalcChange rebuildLayoutTree();
   void pseudoStateChanged(CSSSelector::PseudoType);
   void setAnimationStyleChange(bool);
   void clearAnimationStyleChange();
@@ -474,6 +493,7 @@ class CORE_EXPORT Element : public ContainerNode {
       const Attribute&) const {
     return false;
   }
+  bool isScriptingAttribute(const Attribute&) const;
 
   virtual bool isLiveLink() const { return false; }
   KURL hrefURL() const;
@@ -532,11 +552,11 @@ class CORE_EXPORT Element : public ContainerNode {
       Element* newFocusedElement,
       InputDeviceCapabilities* sourceCapabilities = nullptr);
 
-  String innerText();
+  virtual String innerText();
   String outerText();
   String innerHTML() const;
   String outerHTML() const;
-  void setInnerHTML(const String&, ExceptionState&);
+  void setInnerHTML(const String&, ExceptionState& = ASSERT_NO_EXCEPTION);
   void setOuterHTML(const String&, ExceptionState&);
 
   Element* insertAdjacentElement(const String& where,
@@ -579,9 +599,6 @@ class CORE_EXPORT Element : public ContainerNode {
   LayoutSize minimumSizeForResizing() const;
   void setMinimumSizeForResizing(const LayoutSize&);
 
-  virtual void didBecomeFullscreenElement() {}
-  virtual void willStopBeingFullscreenElement() {}
-
   // Called by the parser when this element's close tag is reached, signaling
   // that all child tags have been parsed and added.  This is needed for
   // <applet> and <object> elements, which can't lay themselves out until they
@@ -614,7 +631,7 @@ class CORE_EXPORT Element : public ContainerNode {
 
   virtual bool isFormControlElement() const { return false; }
   virtual bool isSpinButtonElement() const { return false; }
-  virtual bool isTextFormControl() const { return false; }
+  virtual bool isTextControl() const { return false; }
   virtual bool isOptionalFormControl() const { return false; }
   virtual bool isRequiredFormControl() const { return false; }
   virtual bool willValidate() const { return false; }
@@ -636,6 +653,13 @@ class CORE_EXPORT Element : public ContainerNode {
   void setHasPendingResources() { setElementFlag(HasPendingResources); }
   void clearHasPendingResources() { clearElementFlag(HasPendingResources); }
   virtual void buildPendingResource() {}
+
+  bool isAlreadySpellChecked() const {
+    return hasElementFlag(AlreadySpellChecked);
+  }
+  void setAlreadySpellChecked(bool value) {
+    setElementFlag(AlreadySpellChecked, value);
+  }
 
   void v0SetCustomElementDefinition(V0CustomElementDefinition*);
   V0CustomElementDefinition* v0CustomElementDefinition() const;
@@ -663,8 +687,8 @@ class CORE_EXPORT Element : public ContainerNode {
   bool hasClass() const;
   const SpaceSplitString& classNames() const;
 
-  IntSize savedLayerScrollOffset() const;
-  void setSavedLayerScrollOffset(const IntSize&);
+  ScrollOffset savedLayerScrollOffset() const;
+  void setSavedLayerScrollOffset(const ScrollOffset&);
 
   ElementAnimations* elementAnimations() const;
   ElementAnimations& ensureElementAnimations();
@@ -676,7 +700,7 @@ class CORE_EXPORT Element : public ContainerNode {
   void clearMutableInlineStyleIfEmpty();
 
   void setTabIndex(int);
-  short tabIndex() const override;
+  int tabIndex() const override;
 
   // A compositor proxy is a very limited wrapper around an element. It
   // exposes only those properties that are requested at the time the proxy is
@@ -702,9 +726,7 @@ class CORE_EXPORT Element : public ContainerNode {
                                                  const QualifiedName& attr3);
   void logUpdateAttributeIfIsolatedWorldAndInDocument(
       const char element[],
-      const QualifiedName& attributeName,
-      const AtomicString& oldValue,
-      const AtomicString& newValue);
+      const AttributeModificationParams&);
 
   DECLARE_VIRTUAL_TRACE();
 
@@ -712,8 +734,8 @@ class CORE_EXPORT Element : public ContainerNode {
 
   SpellcheckAttributeState spellcheckAttributeState() const;
 
-  NodeIntersectionObserverData* intersectionObserverData() const;
-  NodeIntersectionObserverData& ensureIntersectionObserverData();
+  ElementIntersectionObserverData* intersectionObserverData() const;
+  ElementIntersectionObserverData& ensureIntersectionObserverData();
 
   HeapHashMap<Member<ResizeObserver>, Member<ResizeObservation>>*
   resizeObserverData() const;
@@ -756,7 +778,7 @@ class CORE_EXPORT Element : public ContainerNode {
   bool supportsSpatialNavigationFocus() const;
 
   void clearTabIndexExplicitlyIfNeeded();
-  void setTabIndexExplicitly(short);
+  void setTabIndexExplicitly();
   // Subclasses may override this method to affect focusability. This method
   // must be called on an up-to-date ComputedStyle, so it may use existence of
   // layoutObject and the LayoutObject::style() to reason about focusability.
@@ -813,9 +835,7 @@ class CORE_EXPORT Element : public ContainerNode {
   // and returns the new style. Otherwise, returns null.
   PassRefPtr<ComputedStyle> propagateInheritedProperties(StyleRecalcChange);
 
-  StyleRecalcChange recalcOwnStyle(StyleRecalcChange);
-  StyleRecalcChange rebuildLayoutTree();
-
+  StyleRecalcChange recalcOwnStyle(StyleRecalcChange, Text*);
   inline void checkForEmptyStyleChange();
 
   void updatePseudoElement(PseudoId, StyleRecalcChange);
@@ -906,7 +926,6 @@ class CORE_EXPORT Element : public ContainerNode {
   ElementRareData* elementRareData() const;
   ElementRareData& ensureElementRareData();
 
-  AttrNodeList& ensureAttrNodeList();
   void removeAttrNodeList();
   void detachAllAttrNodesFromElement();
   void detachAttrNodeFromElementWithValue(Attr*, const AtomicString& value);
@@ -954,6 +973,27 @@ inline const T& toElement(const Node& node) {
 template <typename T>
 inline const T* toElement(const Node* node) {
   SECURITY_DCHECK(!node || isElementOfType<const T>(*node));
+  return static_cast<const T*>(node);
+}
+
+template <typename T>
+inline T& toElementOrDie(Node& node) {
+  CHECK(isElementOfType<const T>(node));
+  return static_cast<T&>(node);
+}
+template <typename T>
+inline T* toElementOrDie(Node* node) {
+  CHECK(!node || isElementOfType<const T>(*node));
+  return static_cast<T*>(node);
+}
+template <typename T>
+inline const T& toElementOrDie(const Node& node) {
+  CHECK(isElementOfType<const T>(node));
+  return static_cast<const T&>(node);
+}
+template <typename T>
+inline const T* toElementOrDie(const Node* node) {
+  CHECK(!node || isElementOfType<const T>(*node));
   return static_cast<const T*>(node);
 }
 

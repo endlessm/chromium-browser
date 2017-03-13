@@ -32,15 +32,19 @@
 #define HTTPParsers_h
 
 #include "platform/PlatformExport.h"
+#include "platform/json/JSONValues.h"
 #include "wtf/Allocator.h"
 #include "wtf/Forward.h"
 #include "wtf/HashSet.h"
 #include "wtf/Vector.h"
 #include "wtf/text/StringHash.h"
 
+#include <memory>
+
 namespace blink {
 
 class Suborigin;
+class ResourceResponse;
 
 typedef enum {
   ContentDispositionNone,
@@ -52,14 +56,6 @@ typedef enum {
 enum ContentTypeOptionsDisposition {
   ContentTypeOptionsNone,
   ContentTypeOptionsNosniff
-};
-
-enum XFrameOptionsDisposition {
-  XFrameOptionsInvalid,
-  XFrameOptionsDeny,
-  XFrameOptionsSameOrigin,
-  XFrameOptionsAllowAll,
-  XFrameOptionsConflict
 };
 
 // Be sure to update the behavior of
@@ -131,8 +127,6 @@ parseXSSProtectionHeader(const String& header,
                          String& failureReason,
                          unsigned& failurePosition,
                          String& reportURL);
-PLATFORM_EXPORT XFrameOptionsDisposition
-parseXFrameOptionsHeader(const String&);
 PLATFORM_EXPORT CacheControlHeader
 parseCacheControlDirectives(const AtomicString& cacheControlHeader,
                             const AtomicString& pragmaHeader);
@@ -148,6 +142,21 @@ PLATFORM_EXPORT bool parseSuboriginHeader(const String& header,
 
 PLATFORM_EXPORT ContentTypeOptionsDisposition
 parseContentTypeOptionsHeader(const String& header);
+
+// Returns true and stores the position of the end of the headers to |*end|
+// if the headers part ends in |bytes[0..size]|. Returns false otherwise.
+PLATFORM_EXPORT bool parseMultipartHeadersFromBody(const char* bytes,
+                                                   size_t,
+                                                   ResourceResponse*,
+                                                   size_t* end);
+
+// Parses a header value containing JSON data, according to
+// https://tools.ietf.org/html/draft-ietf-httpbis-jfv-01
+// Returns an empty unique_ptr if the header cannot be parsed as JSON. JSON
+// strings which represent object nested deeper than |maxParseDepth| will also
+// cause an empty return value.
+PLATFORM_EXPORT std::unique_ptr<JSONArray> parseJSONHeader(const String& header,
+                                                           int maxParseDepth);
 
 }  // namespace blink
 

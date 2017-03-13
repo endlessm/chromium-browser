@@ -40,6 +40,7 @@ grit("password_manager_internals_resources") {
 
 grit("policy_resources") {
   source = "md_policy/policy_resources.grd"
+  defines = chrome_grit_defines
 
   # TODO(thestig): use_qualified_include = true
   outputs = [
@@ -73,21 +74,16 @@ grit("translate_internals_resources") {
   output_dir = "$root_gen_dir/chrome"
 }
 
-copy("extension_resource_demo") {
-  sources = [
-    "extension_resource/demo/library.js",
-  ]
-  outputs = [
-    "$root_out_dir/resources/extension/demo/library.js",
-  ]
-}
-
 if (!is_ios) {
   grit("component_extension_resources") {
     source = "component_extension_resources.grd"
 
     # TODO(thestig): use_qualified_include = true
     defines = chrome_grit_defines
+    if (enable_hangout_services_extension) {
+      defines += [ "enable_hangout_services_extension" ]
+    }
+
     outputs = [
       "grit/component_extension_resources.h",
       "grit/component_extension_resources_map.cc",

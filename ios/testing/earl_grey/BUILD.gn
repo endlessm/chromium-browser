@@ -8,10 +8,12 @@ config("earl_grey_support_config") {
 }
 
 source_set("earl_grey_support") {
+  configs += [ "//build/config/compiler:enable_arc" ]
   testonly = true
 
   deps = [
     "//base/test:test_support",
+    "//ios/testing:ios_test_support",
     "//ios/third_party/earl_grey",
   ]
 
@@ -19,8 +21,6 @@ source_set("earl_grey_support") {
     "disabled_test_macros.h",
     "matchers.h",
     "matchers.mm",
-    "wait_util.h",
-    "wait_util.mm",
   ]
 
   public_configs = [ ":earl_grey_support_config" ]

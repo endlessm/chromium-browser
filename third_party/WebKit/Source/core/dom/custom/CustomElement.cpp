@@ -4,6 +4,8 @@
 
 #include "core/dom/custom/CustomElement.h"
 
+#include "core/HTMLElementFactory.h"
+#include "core/HTMLElementTypeHelpers.h"
 #include "core/dom/Document.h"
 #include "core/dom/QualifiedName.h"
 #include "core/dom/custom/CEReactionsScope.h"
@@ -59,9 +61,8 @@ bool CustomElement::isHyphenatedSpecElementName(const AtomicString& name) {
   return hyphenatedSpecElementNames.contains(name);
 }
 
-bool CustomElement::shouldCreateCustomElement(const AtomicString& localName) {
-  return RuntimeEnabledFeatures::customElementsV1Enabled() &&
-         isValidName(localName);
+bool CustomElement::shouldCreateCustomElement(const AtomicString& name) {
+  return RuntimeEnabledFeatures::customElementsV1Enabled() && isValidName(name);
 }
 
 bool CustomElement::shouldCreateCustomElement(const QualifiedName& tagName) {
@@ -69,55 +70,70 @@ bool CustomElement::shouldCreateCustomElement(const QualifiedName& tagName) {
          tagName.namespaceURI() == HTMLNames::xhtmlNamespaceURI;
 }
 
-static CustomElementDefinition* definitionForName(const Document& document,
-                                                  const QualifiedName& name) {
+bool CustomElement::shouldCreateCustomizedBuiltinElement(
+    const AtomicString& localName) {
+  return htmlElementTypeForTag(localName) !=
+             HTMLElementType::kHTMLUnknownElement &&
+         RuntimeEnabledFeatures::customElementsBuiltinEnabled();
+}
+
+bool CustomElement::shouldCreateCustomizedBuiltinElement(
+    const QualifiedName& tagName) {
+  return shouldCreateCustomizedBuiltinElement(tagName.localName()) &&
+         tagName.namespaceURI() == HTMLNames::xhtmlNamespaceURI;
+}
+
+static CustomElementDefinition* definitionFor(
+    const Document& document,
+    const CustomElementDescriptor desc) {
   if (CustomElementRegistry* registry = CustomElement::registry(document))
-    return registry->definitionForName(name.localName());
+    return registry->definitionFor(desc);
   return nullptr;
 }
 
 HTMLElement* CustomElement::createCustomElementSync(
     Document& document,
+    const QualifiedName& tagName) {
+  CustomElementDefinition* definition = nullptr;
+  CustomElementRegistry* registry = CustomElement::registry(document);
+  if (registry) {
+    definition = registry->definitionFor(
+        CustomElementDescriptor(tagName.localName(), tagName.localName()));
+  }
+  return createCustomElementSync(document, tagName, definition);
+}
+
+HTMLElement* CustomElement::createCustomElementSync(
+    Document& document,
     const AtomicString& localName,
-    ExceptionState& exceptionState) {
+    CustomElementDefinition* definition) {
   return createCustomElementSync(
       document,
       QualifiedName(nullAtom, localName, HTMLNames::xhtmlNamespaceURI),
-      exceptionState);
+      definition);
 }
 
+// https://dom.spec.whatwg.org/#concept-create-element
 HTMLElement* CustomElement::createCustomElementSync(
     Document& document,
     const QualifiedName& tagName,
-    ExceptionState& exceptionState) {
-  DCHECK(shouldCreateCustomElement(tagName));
+    CustomElementDefinition* definition) {
+  DCHECK(shouldCreateCustomElement(tagName) ||
+         shouldCreateCustomizedBuiltinElement(tagName));
+  HTMLElement* element;
 
-  // To create an element:
-  // https://dom.spec.whatwg.org/#concept-create-element
-  // 6. If definition is non-null, then:
-  // 6.1. If the synchronous custom elements flag is set:
-  if (CustomElementDefinition* definition =
-          definitionForName(document, tagName))
-    return definition->createElementSync(document, tagName, exceptionState);
-
-  return createUndefinedElement(document, tagName);
-}
-
-HTMLElement* CustomElement::createCustomElementSync(
-    Document& document,
-    const QualifiedName& tagName) {
-  DCHECK(shouldCreateCustomElement(tagName));
-
-  // When invoked from "create an element for a token":
-  // https://html.spec.whatwg.org/multipage/syntax.html#create-an-element-for-the-token
-  // 7. If this step throws an exception, then report the exception,
-  // and let element be instead a new element that implements
-  // HTMLUnknownElement.
-  if (CustomElementDefinition* definition =
-          definitionForName(document, tagName))
-    return definition->createElementSync(document, tagName);
-
-  return createUndefinedElement(document, tagName);
+  if (definition && definition->descriptor().isAutonomous()) {
+    // 6. If definition is non-null and we have an autonomous custom element
+    element = definition->createElementSync(document, tagName);
+  } else if (definition) {
+    // 5. If definition is non-null and we have a customized built-in element
+    element = createUndefinedElement(document, tagName);
+    definition->upgrade(element);
+  } else {
+    // 7. Otherwise
+    element = createUndefinedElement(document, tagName);
+  }
+  return element;
 }
 
 HTMLElement* CustomElement::createCustomElementAsync(
@@ -129,17 +145,20 @@ HTMLElement* CustomElement::createCustomElementAsync(
   // https://dom.spec.whatwg.org/#concept-create-element
   // 6. If definition is non-null, then:
   // 6.2. If the synchronous custom elements flag is not set:
-  if (CustomElementDefinition* definition =
-          definitionForName(document, tagName))
+  if (CustomElementDefinition* definition = definitionFor(
+          document,
+          CustomElementDescriptor(tagName.localName(), tagName.localName())))
     return definition->createElementAsync(document, tagName);
 
   return createUndefinedElement(document, tagName);
 }
 
+// Create a HTMLElement
 HTMLElement* CustomElement::createUndefinedElement(
     Document& document,
     const QualifiedName& tagName) {
-  DCHECK(shouldCreateCustomElement(tagName));
+  bool shouldCreateBuiltin = shouldCreateCustomizedBuiltinElement(tagName);
+  DCHECK(shouldCreateCustomElement(tagName) || shouldCreateBuiltin);
 
   HTMLElement* element;
   if (V0CustomElement::isValidName(tagName.localName()) &&
@@ -148,6 +167,9 @@ HTMLElement* CustomElement::createUndefinedElement(
         document, tagName);
     SECURITY_DCHECK(v0element->isHTMLElement());
     element = toHTMLElement(v0element);
+  } else if (shouldCreateBuiltin) {
+    element = HTMLElementFactory::createHTMLElement(
+        tagName.localName(), document, CreatedByCreateElement);
   } else {
     element = HTMLElement::create(tagName, document);
   }
@@ -235,8 +257,8 @@ void CustomElement::tryToUpgrade(Element* element) {
   CustomElementRegistry* registry = CustomElement::registry(*element);
   if (!registry)
     return;
-  if (CustomElementDefinition* definition =
-          registry->definitionForName(element->localName()))
+  if (CustomElementDefinition* definition = registry->definitionFor(
+          CustomElementDescriptor(element->localName(), element->localName())))
     definition->enqueueUpgradeReaction(element);
   else
     registry->addCandidate(element);

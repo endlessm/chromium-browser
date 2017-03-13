@@ -8,6 +8,7 @@
 #include "bindings/core/v8/ScriptPromise.h"
 #include "bindings/core/v8/ScriptValue.h"
 #include "bindings/core/v8/ScriptWrappable.h"
+#include "components/payments/payment_request.mojom-blink.h"
 #include "core/dom/ContextLifecycleObserver.h"
 #include "core/events/EventTarget.h"
 #include "modules/ModulesExport.h"
@@ -19,7 +20,6 @@
 #include "mojo/public/cpp/bindings/binding.h"
 #include "platform/Timer.h"
 #include "platform/heap/Handle.h"
-#include "public/platform/modules/payments/payment_request.mojom-blink.h"
 #include "wtf/Compiler.h"
 #include "wtf/Noncopyable.h"
 #include "wtf/RefPtr.h"
@@ -35,34 +35,27 @@ class ScriptState;
 
 class MODULES_EXPORT PaymentRequest final
     : public EventTargetWithInlineData,
-      WTF_NON_EXPORTED_BASE(public mojom::blink::PaymentRequestClient),
+      NON_EXPORTED_BASE(public payments::mojom::blink::PaymentRequestClient),
       public PaymentCompleter,
       public PaymentUpdater,
       public ContextLifecycleObserver,
-      public ActiveScriptWrappable {
+      public ActiveScriptWrappable<PaymentRequest> {
   DEFINE_WRAPPERTYPEINFO();
   USING_GARBAGE_COLLECTED_MIXIN(PaymentRequest)
   WTF_MAKE_NONCOPYABLE(PaymentRequest);
 
  public:
-  static PaymentRequest* create(ScriptState*,
+  static PaymentRequest* create(Document&,
                                 const HeapVector<PaymentMethodData>&,
                                 const PaymentDetails&,
                                 ExceptionState&);
-  static PaymentRequest* create(ScriptState*,
+  static PaymentRequest* create(Document&,
                                 const HeapVector<PaymentMethodData>&,
                                 const PaymentDetails&,
                                 const PaymentOptions&,
                                 ExceptionState&);
 
   virtual ~PaymentRequest();
-
-  struct MethodData {
-    MethodData(const Vector<String>& methods, const String& data)
-        : supportedMethods(methods), stringifiedData(data) {}
-    Vector<String> supportedMethods;
-    String stringifiedData;
-  };
 
   ScriptPromise show(ScriptState*);
   ScriptPromise abort(ScriptState*);
@@ -73,6 +66,8 @@ class MODULES_EXPORT PaymentRequest final
 
   DEFINE_ATTRIBUTE_EVENT_LISTENER(shippingaddresschange);
   DEFINE_ATTRIBUTE_EVENT_LISTENER(shippingoptionchange);
+
+  ScriptPromise canMakePayment(ScriptState*);
 
   // ScriptWrappable:
   bool hasPendingActivity() const override;
@@ -93,22 +88,25 @@ class MODULES_EXPORT PaymentRequest final
   void onCompleteTimeoutForTesting();
 
  private:
-  PaymentRequest(ScriptState*,
+  PaymentRequest(Document&,
                  const HeapVector<PaymentMethodData>&,
                  const PaymentDetails&,
                  const PaymentOptions&,
                  ExceptionState&);
 
   // LifecycleObserver:
-  void contextDestroyed() override;
+  void contextDestroyed(ExecutionContext*) override;
 
-  // mojom::blink::PaymentRequestClient:
-  void OnShippingAddressChange(mojom::blink::PaymentAddressPtr) override;
+  // payments::mojom::blink::PaymentRequestClient:
+  void OnShippingAddressChange(
+      payments::mojom::blink::PaymentAddressPtr) override;
   void OnShippingOptionChange(const String& shippingOptionId) override;
-  void OnPaymentResponse(mojom::blink::PaymentResponsePtr) override;
-  void OnError(mojom::blink::PaymentErrorReason) override;
+  void OnPaymentResponse(payments::mojom::blink::PaymentResponsePtr) override;
+  void OnError(payments::mojom::blink::PaymentErrorReason) override;
   void OnComplete() override;
   void OnAbort(bool abortedSuccessfully) override;
+  void OnCanMakePayment(
+      payments::mojom::blink::CanMakePaymentQueryResult) override;
 
   void onCompleteTimeout(TimerBase*);
 
@@ -122,8 +120,9 @@ class MODULES_EXPORT PaymentRequest final
   Member<ScriptPromiseResolver> m_showResolver;
   Member<ScriptPromiseResolver> m_completeResolver;
   Member<ScriptPromiseResolver> m_abortResolver;
-  mojom::blink::PaymentRequestPtr m_paymentProvider;
-  mojo::Binding<mojom::blink::PaymentRequestClient> m_clientBinding;
+  Member<ScriptPromiseResolver> m_canMakePaymentResolver;
+  payments::mojom::blink::PaymentRequestPtr m_paymentProvider;
+  mojo::Binding<payments::mojom::blink::PaymentRequestClient> m_clientBinding;
   Timer<PaymentRequest> m_completeTimer;
 };
 

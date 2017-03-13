@@ -26,8 +26,10 @@ class DevToolsClientBackendTest(browser_test_case.BrowserTestCase):
   def testIsAlive(self):
     self.assertTrue(self._devtools_client.IsAlive())
 
+  # https://github.com/catapult-project/catapult/issues/3099 (Android)
+  # crbug.com/483212 (CrOS)
   @decorators.Enabled('has tabs')
-  @decorators.Disabled('chromeos')  # crbug.com/483212
+  @decorators.Disabled('android', 'chromeos')
   def testGetUpdatedInspectableContexts(self):
     self._browser.tabs.New()
     c1 = self._devtools_client.GetUpdatedInspectableContexts()
@@ -62,7 +64,9 @@ class DevToolsClientBackendTest(browser_test_case.BrowserTestCase):
     self.assertEqual(tabs4[0], tabs3[0])
     self.assertEqual(tabs4[1], tabs3[2])
 
-  @decorators.Disabled('chromeos')  # crbug.com/483212
+  # https://github.com/catapult-project/catapult/issues/3099 (Android)
+  # crbug.com/483212 (CrOS)
+  @decorators.Disabled('android', 'chromeos')
   def testGetUpdatedInspectableContextsUpdateContextsData(self):
     c1 = self._devtools_client.GetUpdatedInspectableContexts()
     self.assertEqual(len(c1.contexts), 1)

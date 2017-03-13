@@ -22,7 +22,6 @@
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
 #include "chrome/browser/chromeos/settings/device_settings_provider.h"
-#include "chrome/browser/chromeos/settings/session_manager_operation.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chromeos/chromeos_switches.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
@@ -60,7 +59,7 @@ bool IsOwnerInTests(const std::string& user_id) {
     return false;
   }
   const base::Value* value = CrosSettings::Get()->GetPref(kDeviceOwner);
-  if (!value || value->GetType() != base::Value::TYPE_STRING)
+  if (!value || value->GetType() != base::Value::Type::STRING)
     return false;
   return static_cast<const base::StringValue*>(value)->GetString() == user_id;
 }
@@ -252,7 +251,7 @@ bool OwnerSettingsServiceChromeOS::Set(const std::string& setting,
   if (!IsOwner() && !IsOwnerInTests(user_id_))
     return false;
 
-  pending_changes_.add(setting, base::WrapUnique(value.DeepCopy()));
+  pending_changes_[setting] = base::WrapUnique(value.DeepCopy());
 
   em::ChromeDeviceSettingsProto settings;
   if (tentative_settings_.get()) {
@@ -266,8 +265,8 @@ bool OwnerSettingsServiceChromeOS::Set(const std::string& setting,
   em::PolicyData policy_data;
   policy_data.set_username(user_id_);
   CHECK(settings.SerializeToString(policy_data.mutable_policy_value()));
-  FOR_EACH_OBSERVER(OwnerSettingsService::Observer, observers_,
-                    OnTentativeChangesInPolicy(policy_data));
+  for (auto& observer : observers_)
+    observer.OnTentativeChangesInPolicy(policy_data);
   StorePendingChanges();
   return true;
 }
@@ -276,12 +275,12 @@ bool OwnerSettingsServiceChromeOS::AppendToList(const std::string& setting,
                                                 const base::Value& value) {
   DCHECK(thread_checker_.CalledOnValidThread());
   const base::Value* old_value = CrosSettings::Get()->GetPref(setting);
-  if (old_value && !old_value->IsType(base::Value::TYPE_LIST))
+  if (old_value && !old_value->IsType(base::Value::Type::LIST))
     return false;
   std::unique_ptr<base::ListValue> new_value(
       old_value ? static_cast<const base::ListValue*>(old_value)->DeepCopy()
                 : new base::ListValue());
-  new_value->Append(value.DeepCopy());
+  new_value->Append(value.CreateDeepCopy());
   return Set(setting, *new_value);
 }
 
@@ -289,7 +288,7 @@ bool OwnerSettingsServiceChromeOS::RemoveFromList(const std::string& setting,
                                                   const base::Value& value) {
   DCHECK(thread_checker_.CalledOnValidThread());
   const base::Value* old_value = CrosSettings::Get()->GetPref(setting);
-  if (old_value && !old_value->IsType(base::Value::TYPE_LIST))
+  if (old_value && !old_value->IsType(base::Value::Type::LIST))
     return false;
   std::unique_ptr<base::ListValue> new_value(
       old_value ? static_cast<const base::ListValue*>(old_value)->DeepCopy()
@@ -692,7 +691,7 @@ void OwnerSettingsServiceChromeOS::StorePendingChanges() {
   }
 
   for (const auto& change : pending_changes_)
-    UpdateDeviceSettings(change.first, *change.second, settings);
+    UpdateDeviceSettings(change.first, *change.second.get(), settings);
   pending_changes_.clear();
 
   std::unique_ptr<em::PolicyData> policy =
@@ -730,8 +729,8 @@ void OwnerSettingsServiceChromeOS::OnSignedPolicyStored(bool success) {
 void OwnerSettingsServiceChromeOS::ReportStatusAndContinueStoring(
     bool success) {
   store_settings_factory_.InvalidateWeakPtrs();
-  FOR_EACH_OBSERVER(OwnerSettingsService::Observer, observers_,
-                    OnSignedPolicyStored(success));
+  for (auto& observer : observers_)
+    observer.OnSignedPolicyStored(success);
   StorePendingChanges();
 }
 

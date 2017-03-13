@@ -10,6 +10,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <limits>
 #include <string>
 #include <vector>
@@ -68,14 +69,15 @@ TEST_F(Webm2PesTests, CreatePesFile) { CreateAndLoadTestInput(); }
 TEST_F(Webm2PesTests, CanParseFirstPacket) {
   CreateAndLoadTestInput();
   libwebm::VpxPesParser::PesHeader header;
-  libwebm::VpxPesParser::VpxFrame frame;
+  libwebm::VideoFrame frame;
   ASSERT_TRUE(parser()->ParseNextPacket(&header, &frame));
   EXPECT_TRUE(VerifyPacketStartCode(header));
 
-  const std::size_t kPesOptionalHeaderLength = 9;
-  const std::size_t kFirstFrameLength = 83;
-  const std::size_t kPesPayloadLength =
-      kPesOptionalHeaderLength + kFirstFrameLength;
+  //   9 bytes: PES optional header
+  //  10 bytes: BCMV Header
+  //  83 bytes: frame
+  // 102 bytes total in packet length field:
+  const std::size_t kPesPayloadLength = 102;
   EXPECT_EQ(kPesPayloadLength, header.packet_length);
 
   EXPECT_GE(header.stream_id, kMinVideoStreamId);
@@ -94,12 +96,58 @@ TEST_F(Webm2PesTests, CanParseFirstPacket) {
   EXPECT_EQ(0, header.opt_header.unused_fields);
 
   // Test the BCMV header.
-  const libwebm::VpxPesParser::BcmvHeader kFirstBcmvHeader(kFirstFrameLength);
+  // Note: The length field of the BCMV header includes its own length.
+  const std::size_t kBcmvBaseLength = 10;
+  const std::size_t kFirstFrameLength = 83;
+  const libwebm::VpxPesParser::BcmvHeader kFirstBcmvHeader(kFirstFrameLength +
+                                                           kBcmvBaseLength);
   EXPECT_TRUE(header.bcmv_header.Valid());
   EXPECT_EQ(kFirstBcmvHeader, header.bcmv_header);
 
   // Parse the next packet to confirm correct parse and consumption of payload.
   EXPECT_TRUE(parser()->ParseNextPacket(&header, &frame));
+}
+
+TEST_F(Webm2PesTests, CanMuxLargeBuffers) {
+  const std::size_t kBufferSize = 100 * 1024;
+  const std::int64_t kFakeTimestamp = libwebm::kNanosecondsPerSecond;
+  libwebm::VideoFrame fake_frame(kFakeTimestamp, libwebm::VideoFrame::kVP9);
+  ASSERT_TRUE(fake_frame.Init(kBufferSize));
+  std::memset(fake_frame.buffer().data.get(), 0x80, kBufferSize);
+  ASSERT_TRUE(fake_frame.SetBufferLength(kBufferSize));
+  libwebm::PacketDataBuffer pes_packet_buffer;
+  ASSERT_TRUE(
+      libwebm::Webm2Pes::WritePesPacket(fake_frame, &pes_packet_buffer));
+
+  // TODO(tomfinegan): Change VpxPesParser so it can read from a buffer, and get
+  // rid of this extra step.
+  libwebm::FilePtr pes_file(std::fopen(pes_file_name().c_str(), "wb"),
+                            libwebm::FILEDeleter());
+  ASSERT_EQ(pes_packet_buffer.size(),
+            fwrite(&pes_packet_buffer[0], 1, pes_packet_buffer.size(),
+                   pes_file.get()));
+  fclose(pes_file.get());
+  pes_file.release();
+
+  libwebm::VpxPesParser parser;
+  ASSERT_TRUE(parser.Open(pes_file_name()));
+  libwebm::VpxPesParser::PesHeader header;
+  libwebm::VideoFrame parsed_frame;
+  ASSERT_TRUE(parser.ParseNextPacket(&header, &parsed_frame));
+  EXPECT_EQ(fake_frame.nanosecond_pts(), parsed_frame.nanosecond_pts());
+  EXPECT_EQ(fake_frame.buffer().length, parsed_frame.buffer().length);
+  EXPECT_EQ(0, std::memcmp(fake_frame.buffer().data.get(),
+                           parsed_frame.buffer().data.get(), kBufferSize));
+}
+
+TEST_F(Webm2PesTests, ParserConsumesAllInput) {
+  CreateAndLoadTestInput();
+  libwebm::VpxPesParser::PesHeader header;
+  libwebm::VideoFrame frame;
+  while (parser()->ParseNextPacket(&header, &frame) == true) {
+    EXPECT_TRUE(VerifyPacketStartCode(header));
+  }
+  EXPECT_EQ(0, parser()->BytesAvailable());
 }
 
 }  // namespace

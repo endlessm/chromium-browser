@@ -5,6 +5,9 @@
 import("//build/config/features.gni")
 import("//build/config/ui.gni")
 import("//chrome/common/features.gni")
+import("//extensions/features/features.gni")
+import("//media/media_options.gni")
+import("//rlz/features/features.gni")
 
 assert(enable_extensions)
 
@@ -173,6 +176,8 @@ static_library("extensions") {
     "api/developer_private/inspectable_views_finder.h",
     "api/developer_private/show_permissions_dialog_helper.cc",
     "api/developer_private/show_permissions_dialog_helper.h",
+    "api/dial/device_description_fetcher.cc",
+    "api/dial/device_description_fetcher.h ",
     "api/dial/dial_api.cc",
     "api/dial/dial_api.h",
     "api/dial/dial_api_factory.cc",
@@ -291,8 +296,6 @@ static_library("extensions") {
     "api/messaging/native_messaging_policy_handler.h",
     "api/metrics_private/chrome_metrics_private_delegate.cc",
     "api/metrics_private/chrome_metrics_private_delegate.h",
-    "api/metrics_private/metrics_private_api.cc",
-    "api/metrics_private/metrics_private_api.h",
     "api/module/module.cc",
     "api/module/module.h",
     "api/music_manager_private/device_id.cc",
@@ -503,6 +506,8 @@ static_library("extensions") {
     "chrome_requirements_checker.h",
     "chrome_url_request_util.cc",
     "chrome_url_request_util.h",
+    "clipboard_extension_helper_chromeos.cc",
+    "clipboard_extension_helper_chromeos.h",
     "component_extensions_whitelist/whitelist.cc",
     "component_extensions_whitelist/whitelist.h",
     "component_loader.cc",
@@ -521,6 +526,8 @@ static_library("extensions") {
     "data_deleter.h",
     "dev_mode_bubble_delegate.cc",
     "dev_mode_bubble_delegate.h",
+    "device_permissions_dialog_controller.cc",
+    "device_permissions_dialog_controller.h",
     "devtools_util.cc",
     "devtools_util.h",
     "display_info_provider_chromeos.cc",
@@ -605,8 +612,6 @@ static_library("extensions") {
     "extension_migrator.h",
     "extension_reenabler.cc",
     "extension_reenabler.h",
-    "extension_resource_protocols.cc",
-    "extension_resource_protocols.h",
     "extension_service.cc",
     "extension_service.h",
     "extension_special_storage_policy.cc",
@@ -835,8 +840,10 @@ static_library("extensions") {
     "//components/bubble",
     "//components/content_settings/core/browser",
     "//components/crx_file",
+    "//components/cryptauth",
     "//components/data_reduction_proxy/core/browser",
     "//components/dom_distiller/core",
+    "//components/drive",
     "//components/favicon/content",
     "//components/feedback",
     "//components/gcm_driver",
@@ -855,12 +862,12 @@ static_library("extensions") {
     "//components/pref_registry",
     "//components/proximity_auth",
     "//components/proximity_auth/ble",
-    "//components/proximity_auth/cryptauth",
     "//components/proximity_auth/logging",
     "//components/proxy_config",
     "//components/rappor",
     "//components/resources",
     "//components/safe_browsing_db:database_manager",
+    "//components/safe_browsing_db:safe_browsing_prefs",
     "//components/safe_json",
     "//components/search_engines",
     "//components/sessions",
@@ -869,8 +876,8 @@ static_library("extensions") {
     "//components/storage_monitor",
     "//components/strings",
     "//components/sync",
+    "//components/sync_preferences",
     "//components/sync_sessions",
-    "//components/syncable_prefs",
     "//components/translate/core/browser",
     "//components/undo",
     "//components/update_client",
@@ -885,10 +892,15 @@ static_library("extensions") {
     "//device/hid",
     "//extensions:extensions_resources",
     "//extensions/browser",
+    "//extensions/browser/api:api_registration",
     "//extensions/common/api",
-    "//extensions/common/api:api_registration",
+    "//extensions/features",
     "//extensions/strings",
+    "//media:media_features",
     "//net",
+    "//ppapi/features",
+    "//printing/features",
+    "//rlz/features",
     "//skia",
     "//sql",
     "//storage/browser",
@@ -904,6 +916,7 @@ static_library("extensions") {
     "//ui/accessibility:ax_gen",
     "//ui/base",
     "//ui/base/ime",
+    "//ui/display/manager",
     "//ui/gfx",
     "//ui/gfx/geometry",
     "//ui/native_theme",
@@ -919,8 +932,6 @@ static_library("extensions") {
 
   if (is_chromeos) {
     sources += [
-      "api/cast_devices_private/cast_devices_private_api.cc",
-      "api/cast_devices_private/cast_devices_private_api.h",
       "api/certificate_provider/certificate_provider_api.cc",
       "api/certificate_provider/certificate_provider_api.h",
       "api/enterprise_device_attributes/enterprise_device_attributes_api.cc",
@@ -1043,9 +1054,11 @@ static_library("extensions") {
     }
   }
 
-  if (!is_android && !is_ios) {
-    # Non-mobile.
-    #deps += [ "//apps" ]
+  if (!is_android) {
+    sources += [
+      "api/processes/processes_api.cc",
+      "api/processes/processes_api.h",
+    ]
   }
 
   if (is_win || is_mac) {
@@ -1057,6 +1070,16 @@ static_library("extensions") {
       "api/networking_private/networking_private_credentials_getter_win.cc",
     ]
     deps += [ "//components/wifi" ]
+  }
+
+  if (is_win || is_mac || is_chromeos) {
+    sources += [
+      "api/networking_private/networking_private_crypto.cc",
+      "api/networking_private/networking_private_crypto.h",
+    ]
+
+    # networking_private_crypto.cc depends on boringssl.
+    public_deps += [ "//third_party/boringssl" ]
   }
 
   if (is_win) {
@@ -1120,13 +1143,6 @@ static_library("extensions") {
       "api/mdns/dns_sd_registry.h",
       "api/mdns/mdns_api.cc",
       "api/mdns/mdns_api.h",
-    ]
-  }
-
-  if (enable_task_manager) {
-    sources += [
-      "api/processes/processes_api.cc",
-      "api/processes/processes_api.h",
     ]
   }
 

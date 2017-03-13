@@ -12,8 +12,8 @@
 
 namespace blink {
 
-class Document;
-class DOMWindow;
+class TaskAttributionTiming;
+using TaskAttributionVector = HeapVector<Member<TaskAttributionTiming>>;
 
 class PerformanceLongTaskTiming final : public PerformanceEntry {
   DEFINE_WRAPPERTYPEINFO();
@@ -22,12 +22,11 @@ class PerformanceLongTaskTiming final : public PerformanceEntry {
   static PerformanceLongTaskTiming* create(double startTime,
                                            double endTime,
                                            String name,
-                                           DOMWindow* culpritWindow) {
-    return new PerformanceLongTaskTiming(startTime, endTime, name,
-                                         culpritWindow);
-  }
+                                           String frameSrc,
+                                           String frameId,
+                                           String frameName);
 
-  DOMWindow* culpritWindow() const;
+  TaskAttributionVector attribution() const;
 
   DECLARE_VIRTUAL_TRACE();
 
@@ -35,10 +34,12 @@ class PerformanceLongTaskTiming final : public PerformanceEntry {
   PerformanceLongTaskTiming(double startTime,
                             double endTime,
                             String name,
-                            DOMWindow* culpritWindow);
+                            String frameSrc,
+                            String frameId,
+                            String frameName);
   ~PerformanceLongTaskTiming() override;
 
-  Member<DOMWindow> m_culpritWindow;
+  TaskAttributionVector m_attribution;
 };
 
 }  // namespace blink

@@ -68,6 +68,29 @@ TEST(UiScene, AddRemoveElements) {
   EXPECT_EQ(scene.GetUiElements().size(), 0u);
 }
 
+TEST(UiScene, AddRemoveContentQuad) {
+  UiScene scene;
+
+  EXPECT_EQ(scene.GetContentQuad(), nullptr);
+
+  base::DictionaryValue dict;
+  dict.SetInteger("id", 0);
+  dict.SetBoolean("contentQuad", true);
+  scene.AddUiElementFromDict(dict);
+  EXPECT_NE(scene.GetContentQuad(), nullptr);
+
+  dict.SetBoolean("contentQuad", false);
+  scene.UpdateUiElementFromDict(dict);
+  EXPECT_EQ(scene.GetContentQuad(), nullptr);
+
+  dict.SetBoolean("contentQuad", true);
+  scene.UpdateUiElementFromDict(dict);
+  EXPECT_NE(scene.GetContentQuad(), nullptr);
+
+  scene.RemoveUiElement(0);
+  EXPECT_EQ(scene.GetContentQuad(), nullptr);
+}
+
 TEST(UiScene, AddRemoveAnimations) {
   UiScene scene;
   addElement(&scene, 0);
@@ -136,6 +159,26 @@ TEST(UiScene, ParentTransformAppliesToChild) {
   EXPECT_VEC3F_NEAR(gvr::Vec3f({0, 0, 10}), new_point);
 }
 
+TEST(UiScene, Opacity) {
+  UiScene scene;
+  std::unique_ptr<ContentRectangle> element;
+
+  element.reset(new ContentRectangle);
+  element->id = 0;
+  element->opacity = 0.5;
+  scene.AddUiElement(element);
+
+  element.reset(new ContentRectangle);
+  element->id = 1;
+  element->parent_id = 0;
+  element->opacity = 0.5;
+  scene.AddUiElement(element);
+
+  scene.UpdateTransforms(0, 0);
+  EXPECT_EQ(scene.GetUiElementById(0)->computed_opacity, 0.5f);
+  EXPECT_EQ(scene.GetUiElementById(1)->computed_opacity, 0.25f);
+}
+
 typedef struct {
   XAnchoring x_anchoring;
   YAnchoring y_anchoring;
@@ -191,6 +234,12 @@ TEST(UiScene, AddUiElementFromDictionary) {
   dict.SetInteger("id", 10);
   dict.SetInteger("parentId", 11);
   dict.SetBoolean("visible", false);
+  dict.SetBoolean("hitTestable", false);
+  dict.SetBoolean("lockToFov", true);
+  dict.SetBoolean("contentQuad", true);
+  dict.SetInteger("xAnchoring", XAnchoring::XLEFT);
+  dict.SetInteger("yAnchoring", YAnchoring::YTOP);
+  dict.SetDouble("opacity", 0.357);
 
   std::unique_ptr<base::DictionaryValue> copy_rect(new base::DictionaryValue);
   copy_rect->SetInteger("x", 100);
@@ -223,9 +272,6 @@ TEST(UiScene, AddUiElementFromDictionary) {
   translation->SetDouble("z", 502);
   dict.Set("translation", std::move(translation));
 
-  dict.SetInteger("xAnchoring", XAnchoring::XLEFT);
-  dict.SetInteger("yAnchoring", YAnchoring::YTOP);
-
   scene.AddUiElementFromDict(dict);
   const auto *element = scene.GetUiElementById(10);
   EXPECT_NE(element, nullptr);
@@ -233,6 +279,12 @@ TEST(UiScene, AddUiElementFromDictionary) {
   EXPECT_EQ(element->id, 10);
   EXPECT_EQ(element->parent_id, 11);
   EXPECT_EQ(element->visible, false);
+  EXPECT_EQ(element->hit_testable, false);
+  EXPECT_EQ(element->lock_to_fov, true);
+  EXPECT_EQ(element->content_quad, true);
+  EXPECT_EQ(element->x_anchoring, XAnchoring::XLEFT);
+  EXPECT_EQ(element->y_anchoring, YAnchoring::YTOP);
+  EXPECT_FLOAT_EQ(element->opacity, 0.357);
 
   EXPECT_EQ(element->copy_rect.x, 100);
   EXPECT_EQ(element->copy_rect.y, 101);
@@ -255,9 +307,6 @@ TEST(UiScene, AddUiElementFromDictionary) {
   EXPECT_FLOAT_EQ(element->translation.x, 500);
   EXPECT_FLOAT_EQ(element->translation.y, 501);
   EXPECT_FLOAT_EQ(element->translation.z, 502);
-
-  EXPECT_EQ(element->x_anchoring, XAnchoring::XLEFT);
-  EXPECT_EQ(element->y_anchoring, YAnchoring::YTOP);
 }
 
 TEST(UiScene, AddAnimationFromDictionary) {

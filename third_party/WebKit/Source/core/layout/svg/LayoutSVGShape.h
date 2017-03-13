@@ -106,6 +106,8 @@ class LayoutSVGShape : public LayoutSVGModelObject {
   const char* name() const override { return "LayoutSVGShape"; }
 
  protected:
+  bool adjustVisualRectForRasterEffects(LayoutRect&) const override;
+
   void clearPath() { m_path.reset(); }
   void createPath();
 
@@ -129,10 +131,6 @@ class LayoutSVGShape : public LayoutSVGModelObject {
                     bool requiresFill = true,
                     const WindRule fillRule = RULE_NONZERO);
   bool strokeContains(const FloatPoint&, bool requiresStroke = true);
-
-  const AffineTransform& localToSVGParentTransform() const final {
-    return m_localTransform;
-  }
 
   bool isOfType(LayoutObjectType type) const override {
     return type == LayoutObjectSVGShape || LayoutSVGModelObject::isOfType(type);

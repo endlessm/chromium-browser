@@ -71,7 +71,7 @@ sk_sp<const SkPicture> LayoutSVGResourceMasker::createContentPicture(
 
   SubtreeContentTransformScope contentTransformScope(contentTransformation);
 
-  // Using strokeBoundingBox instead of paintInvalidationRectInLocalCoordinates
+  // Using strokeBoundingBox instead of visualRectInLocalCoordinates
   // to avoid the intersection with local clips/mask, which may yield incorrect
   // results when mixing objectBoundingBox and userSpaceOnUse units.
   // http://crbug.com/294900
@@ -85,17 +85,11 @@ sk_sp<const SkPicture> LayoutSVGResourceMasker::createContentPicture(
           : ColorFilterNone;
   pictureBuilder.context().setColorFilter(maskContentFilter);
 
-  for (SVGElement* childElement = Traversal<SVGElement>::firstChild(*element());
-       childElement;
-       childElement = Traversal<SVGElement>::nextSibling(*childElement)) {
-    LayoutObject* layoutObject = childElement->layoutObject();
-    if (!layoutObject)
+  for (const SVGElement& childElement :
+       Traversal<SVGElement>::childrenOf(*element())) {
+    const LayoutObject* layoutObject = childElement.layoutObject();
+    if (!layoutObject || layoutObject->styleRef().display() == EDisplay::None)
       continue;
-    const ComputedStyle* style = layoutObject->style();
-    if (!style || style->display() == EDisplay::None ||
-        style->visibility() != EVisibility::Visible)
-      continue;
-
     SVGPaintContext::paintSubtree(pictureBuilder.context(), layoutObject);
   }
 
@@ -103,20 +97,15 @@ sk_sp<const SkPicture> LayoutSVGResourceMasker::createContentPicture(
   return m_maskContentPicture;
 }
 
-void LayoutSVGResourceMasker::calculateMaskContentPaintInvalidationRect() {
-  for (SVGElement* childElement = Traversal<SVGElement>::firstChild(*element());
-       childElement;
-       childElement = Traversal<SVGElement>::nextSibling(*childElement)) {
-    LayoutObject* layoutObject = childElement->layoutObject();
-    if (!layoutObject)
-      continue;
-    const ComputedStyle* style = layoutObject->style();
-    if (!style || style->display() == EDisplay::None ||
-        style->visibility() != EVisibility::Visible)
+void LayoutSVGResourceMasker::calculateMaskContentVisualRect() {
+  for (const SVGElement& childElement :
+       Traversal<SVGElement>::childrenOf(*element())) {
+    const LayoutObject* layoutObject = childElement.layoutObject();
+    if (!layoutObject || layoutObject->styleRef().display() == EDisplay::None)
       continue;
     m_maskContentBoundaries.unite(
         layoutObject->localToSVGParentTransform().mapRect(
-            layoutObject->paintInvalidationRectInLocalSVGCoordinates()));
+            layoutObject->visualRectInLocalSVGCoordinates()));
   }
 }
 
@@ -135,7 +124,7 @@ FloatRect LayoutSVGResourceMasker::resourceBoundingBox(
     return maskBoundaries;
 
   if (m_maskContentBoundaries.isEmpty())
-    calculateMaskContentPaintInvalidationRect();
+    calculateMaskContentVisualRect();
 
   FloatRect maskRect = m_maskContentBoundaries;
   if (maskElement->maskContentUnits()->currentValue()->value() ==

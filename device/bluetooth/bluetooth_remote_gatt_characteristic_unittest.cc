@@ -71,10 +71,6 @@ class BluetoothRemoteGattCharacteristicTest : public BluetoothTest {
     }
     ASSERT_NO_FATAL_FAILURE(FakeCharacteristicBoilerplate(properties));
 
-#if !defined(OS_MACOSX)
-    // macOS: Not applicable. CoreBluetooth exposes -[CBPeripheral
-    // setNotifyValue:forCharacteristic:] which handles all interactions with
-    // the CCC descriptor.
     size_t expected_descriptors_count = 0;
     if (error != StartNotifySetupError::CONFIG_DESCRIPTOR_MISSING) {
       SimulateGattDescriptor(
@@ -92,7 +88,6 @@ class BluetoothRemoteGattCharacteristicTest : public BluetoothTest {
     }
     ASSERT_EQ(expected_descriptors_count,
               characteristic1_->GetDescriptors().size());
-#endif  // !defined(OS_MACOSX)
 
     if (error == StartNotifySetupError::SET_NOTIFY) {
       SimulateGattCharacteristicSetNotifyWillFailSynchronouslyOnce(
@@ -366,7 +361,7 @@ TEST_F(BluetoothRemoteGattCharacteristicTest,
 
   characteristic1_->ReadRemoteCharacteristic(
       GetReadValueCallback(Call::NOT_EXPECTED),
-      GetGattErrorCallback(Call::NOT_EXPECTED));
+      GetGattErrorCallback(Call::EXPECTED));
 
   RememberCharacteristicForSubsequentAction(characteristic1_);
   DeleteDevice(device_);  // TODO(576906) delete only the characteristic.
@@ -378,8 +373,9 @@ TEST_F(BluetoothRemoteGattCharacteristicTest,
 }
 #endif  // defined(OS_ANDROID) || defined(OS_WIN)
 
-// TODO(crbug.com/621901): Enable test on all platforms.
-#if defined(OS_MACOSX)
+// TODO(crbug.com/663131): Enable test on windows when disconnection is
+// implemented.
+#if defined(OS_ANDROID) || defined(OS_MACOSX)
 TEST_F(BluetoothRemoteGattCharacteristicTest,
        ReadRemoteCharacteristic_Disconnected) {
   if (!PlatformSupportsLowEnergy()) {
@@ -415,7 +411,7 @@ TEST_F(BluetoothRemoteGattCharacteristicTest,
                                  empty_vector);
 #endif
 }
-#endif  // defined(OS_MACOSX)
+#endif  // defined(OS_ANDROID) || defined(OS_MACOSX)
 
 #if defined(OS_ANDROID) || defined(OS_WIN)
 // Tests WriteRemoteCharacteristic completing after Chrome objects are deleted.
@@ -433,7 +429,7 @@ TEST_F(BluetoothRemoteGattCharacteristicTest,
   std::vector<uint8_t> empty_vector;
   characteristic1_->WriteRemoteCharacteristic(
       empty_vector, GetCallback(Call::NOT_EXPECTED),
-      GetGattErrorCallback(Call::NOT_EXPECTED));
+      GetGattErrorCallback(Call::EXPECTED));
 
   RememberCharacteristicForSubsequentAction(characteristic1_);
   DeleteDevice(device_);  // TODO(576906) delete only the characteristic.
@@ -443,8 +439,9 @@ TEST_F(BluetoothRemoteGattCharacteristicTest,
 }
 #endif  // defined(OS_ANDROID) || defined(OS_WIN)
 
-// TODO(crbug.com/621901): Enable test on all platforms.
-#if defined(OS_MACOSX)
+// TODO(crbug.com/663131): Enable test on windows when disconnection is
+// implemented.
+#if defined(OS_ANDROID) || defined(OS_MACOSX)
 TEST_F(BluetoothRemoteGattCharacteristicTest,
        WriteRemoteCharacteristic_Disconnected) {
   if (!PlatformSupportsLowEnergy()) {
@@ -479,7 +476,7 @@ TEST_F(BluetoothRemoteGattCharacteristicTest,
   SimulateGattCharacteristicWrite(/* use remembered characteristic */ nullptr);
 #endif  // !defined(OS_MACOSX)
 }
-#endif  // defined(OS_MACOSX)
+#endif  // defined(OS_ANDROID) || defined(OS_MACOSX)
 
 #if defined(OS_ANDROID) || defined(OS_MACOSX) || defined(OS_WIN)
 // Tests ReadRemoteCharacteristic and GetValue with non-empty value buffer.

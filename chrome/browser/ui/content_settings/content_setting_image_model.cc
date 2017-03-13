@@ -408,7 +408,8 @@ void ContentSettingSubresourceFilterImageModel::UpdateFromWebContents(
   set_icon_by_vector_id(gfx::VectorIconId::SUBRESOURCE_FILTER_ACTIVE,
                         gfx::VectorIconId::BLOCKED_BADGE);
   set_explanatory_string_id(IDS_FILTERED_DECEPTIVE_CONTENT_PROMPT_TITLE);
-  // TODO(melandory): Set tooltip text.
+  set_tooltip(
+      l10n_util::GetStringUTF16(IDS_FILTERED_DECEPTIVE_CONTENT_PROMPT_TITLE));
   set_visible(true);
 }
 
@@ -427,7 +428,8 @@ bool ContentSettingSubresourceFilterImageModel::ShouldRunAnimation(
     return false;
   TabSpecificContentSettings* content_settings =
       TabSpecificContentSettings::FromWebContents(web_contents);
-  return content_settings && content_settings->IsSubresourceBlockageIndicated();
+  return content_settings &&
+         !content_settings->IsSubresourceBlockageIndicated();
 }
 
 void ContentSettingSubresourceFilterImageModel::SetAnimationHasRun(
@@ -520,34 +522,34 @@ ContentSettingImageModel::ContentSettingImageModel()
       explanatory_string_id_(0) {}
 
 // static
-ScopedVector<ContentSettingImageModel>
-    ContentSettingImageModel::GenerateContentSettingImageModels() {
-  ScopedVector<ContentSettingImageModel> result;
+std::vector<std::unique_ptr<ContentSettingImageModel>>
+ContentSettingImageModel::GenerateContentSettingImageModels() {
+  std::vector<std::unique_ptr<ContentSettingImageModel>> result;
 
   // The ordering of the models here influences the order in which icons are
   // shown in the omnibox.
+  result.push_back(base::MakeUnique<ContentSettingBlockedImageModel>(
+      CONTENT_SETTINGS_TYPE_COOKIES));
+  result.push_back(base::MakeUnique<ContentSettingBlockedImageModel>(
+      CONTENT_SETTINGS_TYPE_IMAGES));
+  result.push_back(base::MakeUnique<ContentSettingBlockedImageModel>(
+      CONTENT_SETTINGS_TYPE_JAVASCRIPT));
+  result.push_back(base::MakeUnique<ContentSettingBlockedImageModel>(
+      CONTENT_SETTINGS_TYPE_PPAPI_BROKER));
+  result.push_back(base::MakeUnique<ContentSettingBlockedImageModel>(
+      CONTENT_SETTINGS_TYPE_PLUGINS));
+  result.push_back(base::MakeUnique<ContentSettingBlockedImageModel>(
+      CONTENT_SETTINGS_TYPE_POPUPS));
+  result.push_back(base::MakeUnique<ContentSettingGeolocationImageModel>());
+  result.push_back(base::MakeUnique<ContentSettingBlockedImageModel>(
+      CONTENT_SETTINGS_TYPE_MIXEDSCRIPT));
+  result.push_back(base::MakeUnique<ContentSettingRPHImageModel>());
+  result.push_back(base::MakeUnique<ContentSettingMediaImageModel>());
   result.push_back(
-      new ContentSettingBlockedImageModel(CONTENT_SETTINGS_TYPE_COOKIES));
-  result.push_back(
-      new ContentSettingBlockedImageModel(CONTENT_SETTINGS_TYPE_IMAGES));
-  result.push_back(
-      new ContentSettingBlockedImageModel(CONTENT_SETTINGS_TYPE_JAVASCRIPT));
-  result.push_back(
-      new ContentSettingBlockedImageModel(CONTENT_SETTINGS_TYPE_PPAPI_BROKER));
-  result.push_back(
-      new ContentSettingBlockedImageModel(CONTENT_SETTINGS_TYPE_PLUGINS));
-  result.push_back(
-      new ContentSettingBlockedImageModel(CONTENT_SETTINGS_TYPE_POPUPS));
-  result.push_back(new ContentSettingGeolocationImageModel());
-  result.push_back(
-      new ContentSettingBlockedImageModel(CONTENT_SETTINGS_TYPE_MIXEDSCRIPT));
-  result.push_back(new ContentSettingRPHImageModel());
-  result.push_back(new ContentSettingMediaImageModel());
-  result.push_back(new ContentSettingSubresourceFilterImageModel());
-  result.push_back(
-      new ContentSettingBlockedImageModel(
-          CONTENT_SETTINGS_TYPE_AUTOMATIC_DOWNLOADS));
-  result.push_back(new ContentSettingMIDISysExImageModel());
+      base::MakeUnique<ContentSettingSubresourceFilterImageModel>());
+  result.push_back(base::MakeUnique<ContentSettingBlockedImageModel>(
+      CONTENT_SETTINGS_TYPE_AUTOMATIC_DOWNLOADS));
+  result.push_back(base::MakeUnique<ContentSettingMIDISysExImageModel>());
 
   return result;
 }

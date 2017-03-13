@@ -12,7 +12,6 @@
 #include "extensions/common/user_script.h"
 #include "third_party/WebKit/public/web/WebScriptSource.h"
 
-class GURL;
 class InjectionHost;
 
 namespace blink {
@@ -20,7 +19,6 @@ class WebLocalFrame;
 }
 
 namespace extensions {
-struct ScriptsRunInfo;
 
 // The pseudo-delegate class for a ScriptInjection that provides all necessary
 // information about how to inject the script, including what code to inject,
@@ -64,7 +62,7 @@ class ScriptInjector {
   virtual PermissionsData::AccessType CanExecuteOnFrame(
       const InjectionHost* injection_host,
       blink::WebLocalFrame* web_frame,
-      int tab_id) const = 0;
+      int tab_id) = 0;
 
   // Returns the javascript sources to inject at the given |run_location|.
   // Only called if ShouldInjectJs() is true.

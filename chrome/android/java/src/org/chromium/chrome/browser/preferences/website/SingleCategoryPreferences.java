@@ -78,15 +78,15 @@ public class SingleCategoryPreferences extends PreferenceFragment
     // If not blank, represents a substring to use to search for site names.
     private String mSearch = "";
     // Whether to group by allowed/blocked list.
-    private boolean mGroupByAllowBlock = false;
+    private boolean mGroupByAllowBlock;
     // Whether the Blocked list should be shown expanded.
-    private boolean mBlockListExpanded = false;
+    private boolean mBlockListExpanded;
     // Whether the Allowed list should be shown expanded.
     private boolean mAllowListExpanded = true;
     // Whether this is the first time this screen is shown.
     private boolean mIsInitialRun = true;
     // The number of sites that are on the Allowed list.
-    private int mAllowedSiteCount = 0;
+    private int mAllowedSiteCount;
     // The websites that are currently displayed to the user.
     private List<WebsitePreference> mWebsites;
 
@@ -215,8 +215,6 @@ public class SingleCategoryPreferences extends PreferenceFragment
             return website.site().getCameraPermission() == ContentSetting.BLOCK;
         } else if (mCategory.showCookiesSites()) {
             return website.site().getCookiePermission() == ContentSetting.BLOCK;
-        } else if (mCategory.showFullscreenSites()) {
-            return website.site().getFullscreenPermission() == ContentSetting.ASK;
         } else if (mCategory.showGeolocationSites()) {
             return website.site().getGeolocationPermission() == ContentSetting.BLOCK;
         } else if (mCategory.showJavaScriptSites()) {
@@ -477,8 +475,6 @@ public class SingleCategoryPreferences extends PreferenceFragment
             } else if (mCategory.showCookiesSites()) {
                 PrefServiceBridge.getInstance().setAllowCookiesEnabled((boolean) newValue);
                 updateThirdPartyCookiesCheckBox();
-            } else if (mCategory.showFullscreenSites()) {
-                PrefServiceBridge.getInstance().setFullscreenAllowed((boolean) newValue);
             } else if (mCategory.showGeolocationSites()) {
                 PrefServiceBridge.getInstance().setAllowLocationEnabled((boolean) newValue);
             } else if (mCategory.showJavaScriptSites()) {
@@ -695,13 +691,6 @@ public class SingleCategoryPreferences extends PreferenceFragment
                 } else if (mCategory.showCookiesSites()) {
                     globalToggle.setChecked(
                             PrefServiceBridge.getInstance().isAcceptCookiesEnabled());
-                } else if (mCategory.showFullscreenSites()) {
-                    globalToggle.setChecked(
-                            PrefServiceBridge.getInstance().isFullscreenAllowed());
-                    // The fullscreen global toggle cannot be disabled.
-                    // TODO(mgiuca): Remove this setting entirely (requires deleting all the data;
-                    // see https://crbug.com/591896).
-                    globalToggle.setEnabled(false);
                 } else if (mCategory.showGeolocationSites()) {
                     globalToggle.setChecked(
                             LocationSettings.getInstance().isChromeLocationSettingEnabled());

@@ -2,8 +2,10 @@
  * This file is part of the select element layoutObject in WebCore.
  *
  * Copyright (C) 2010 Nokia Corporation and/or its subsidiary(-ies).
- * Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Apple Inc. All rights reserved.
- *               2009 Torch Mobile Inc. All rights reserved. (http://www.torchmobile.com/)
+ * Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Apple Inc.
+ *               All rights reserved.
+ *           (C) 2009 Torch Mobile Inc. All rights reserved.
+ *               (http://www.torchmobile.com/)
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Library General Public
@@ -26,6 +28,7 @@
 
 #include "core/dom/AXObjectCache.h"
 #include "core/dom/NodeComputedStyle.h"
+#include "core/frame/FrameView.h"
 #include "core/html/HTMLOptionElement.h"
 #include "core/html/HTMLSelectElement.h"
 #include "core/layout/LayoutText.h"
@@ -49,8 +52,8 @@ LayoutMenuList::LayoutMenuList(Element* element)
 
 LayoutMenuList::~LayoutMenuList() {}
 
-// FIXME: Instead of this hack we should add a ShadowRoot to <select> with no insertion point
-// to prevent children from rendering.
+// FIXME: Instead of this hack we should add a ShadowRoot to <select> with no
+// insertion point to prevent children from rendering.
 bool LayoutMenuList::isChildAllowed(LayoutObject* object,
                                     const ComputedStyle&) const {
   return object->isAnonymous() && !object->isLayoutFullScreen();
@@ -86,7 +89,8 @@ void LayoutMenuList::adjustInnerStyle() {
   innerStyle.setMinWidth(Length(0, Fixed));
   // Use margin:auto instead of align-items:center to get safe centering, i.e.
   // when the content overflows, treat it the same as align-items: flex-start.
-  // But we only do that for the cases where html.css would otherwise use center.
+  // But we only do that for the cases where html.css would otherwise use
+  // center.
   if (style()->alignItemsPosition() == ItemPositionCenter) {
     innerStyle.setMarginTop(Length());
     innerStyle.setMarginBottom(Length());
@@ -95,12 +99,15 @@ void LayoutMenuList::adjustInnerStyle() {
 
   Length paddingStart =
       Length(LayoutTheme::theme().popupInternalPaddingStart(styleRef()), Fixed);
-  Length paddingEnd =
-      Length(LayoutTheme::theme().popupInternalPaddingEnd(styleRef()), Fixed);
-  innerStyle.setPaddingLeft(styleRef().direction() == LTR ? paddingStart
-                                                          : paddingEnd);
-  innerStyle.setPaddingRight(styleRef().direction() == LTR ? paddingEnd
-                                                           : paddingStart);
+  Length paddingEnd = Length(LayoutTheme::theme().popupInternalPaddingEnd(
+                                 frameView()->getHostWindow(), styleRef()),
+                             Fixed);
+  innerStyle.setPaddingLeft(styleRef().direction() == TextDirection::kLtr
+                                ? paddingStart
+                                : paddingEnd);
+  innerStyle.setPaddingRight(styleRef().direction() == TextDirection::kLtr
+                                 ? paddingEnd
+                                 : paddingStart);
   innerStyle.setPaddingTop(
       Length(LayoutTheme::theme().popupInternalPaddingTop(styleRef()), Fixed));
   innerStyle.setPaddingBottom(Length(
@@ -108,12 +115,14 @@ void LayoutMenuList::adjustInnerStyle() {
 
   if (m_optionStyle) {
     if ((m_optionStyle->direction() != innerStyle.direction() ||
-         m_optionStyle->unicodeBidi() != innerStyle.unicodeBidi()))
+         m_optionStyle->getUnicodeBidi() != innerStyle.getUnicodeBidi()))
       m_innerBlock->setNeedsLayoutAndPrefWidthsRecalcAndFullPaintInvalidation(
           LayoutInvalidationReason::StyleChange);
-    innerStyle.setTextAlign(style()->isLeftToRightDirection() ? LEFT : RIGHT);
+    innerStyle.setTextAlign(style()->isLeftToRightDirection()
+                                ? ETextAlign::kLeft
+                                : ETextAlign::kRight);
     innerStyle.setDirection(m_optionStyle->direction());
-    innerStyle.setUnicodeBidi(m_optionStyle->unicodeBidi());
+    innerStyle.setUnicodeBidi(m_optionStyle->getUnicodeBidi());
   }
 }
 
@@ -152,7 +161,9 @@ void LayoutMenuList::styleDidChange(StyleDifference diff,
 }
 
 void LayoutMenuList::updateInnerBlockHeight() {
-  m_innerBlockHeight = style()->getFontMetrics().height() +
+  const SimpleFontData* fontData = style()->font().primaryFont();
+  DCHECK(fontData);
+  m_innerBlockHeight = (fontData ? fontData->getFontMetrics().height() : 0) +
                        m_innerBlock->borderAndPaddingHeight();
 }
 
@@ -213,11 +224,13 @@ void LayoutMenuList::updateFromElement() {
 
 void LayoutMenuList::setText(const String& s) {
   if (s.isEmpty()) {
-    // FIXME: This is a hack. We need the select to have the same baseline positioning as
-    // any surrounding text. Wihtout any content, we align the bottom of the select to the bottom
-    // of the text. With content (In this case the faked " ") we correctly align the middle of
-    // the select to the middle of the text. It should be possible to remove this, just set
-    // s.impl() into the text and have things align correctly ...  crbug.com/485982
+    // FIXME: This is a hack. We need the select to have the same baseline
+    // positioning as any surrounding text. Wihtout any content, we align the
+    // bottom of the select to the bottom of the text. With content (In this
+    // case the faked " ") we correctly align the middle of the select to the
+    // middle of the text. It should be possible to remove this, just set
+    // s.impl() into the text and have things align correctly...
+    // crbug.com/485982
     m_isEmpty = true;
     m_buttonText->setText(StringImpl::create(" ", 1), true);
   } else {
@@ -233,9 +246,10 @@ String LayoutMenuList::text() const {
 
 LayoutRect LayoutMenuList::controlClipRect(
     const LayoutPoint& additionalOffset) const {
-  // Clip to the intersection of the content box and the content box for the inner box
-  // This will leave room for the arrows which sit in the inner box padding,
-  // and if the inner box ever spills out of the outer box, that will get clipped too.
+  // Clip to the intersection of the content box and the content box for the
+  // inner box. This will leave room for the arrows which sit in the inner box
+  // padding, and if the inner box ever spills out of the outer box, that will
+  // get clipped too.
   LayoutRect outerBox = contentBoxRect();
   outerBox.moveBy(additionalOffset);
 
@@ -287,8 +301,8 @@ void LayoutMenuList::didUpdateActiveOption(HTMLOptionElement* option) {
   if (optionIndex < 0)
     return;
 
-  // We skip sending accessiblity notifications for the very first option, otherwise
-  // we get extra focus and select events that are undesired.
+  // We skip sending accessiblity notifications for the very first option,
+  // otherwise we get extra focus and select events that are undesired.
   if (!m_hasUpdatedActiveOption) {
     m_hasUpdatedActiveOption = true;
     return;

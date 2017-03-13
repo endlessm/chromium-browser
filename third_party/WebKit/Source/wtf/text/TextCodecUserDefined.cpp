@@ -42,7 +42,7 @@ void TextCodecUserDefined::registerEncodingNames(
 static std::unique_ptr<TextCodec> newStreamingTextDecoderUserDefined(
     const TextEncoding&,
     const void*) {
-  return wrapUnique(new TextCodecUserDefined);
+  return WTF::wrapUnique(new TextCodecUserDefined);
 }
 
 void TextCodecUserDefined::registerCodecs(TextCodecRegistrar registrar) {
@@ -113,7 +113,7 @@ CString TextCodecUserDefined::encodeCommon(const CharType* characters,
                                            size_t length,
                                            UnencodableHandling handling) {
   char* bytes;
-  CString result = CString::newUninitialized(length, bytes);
+  CString result = CString::createUninitialized(length, bytes);
 
   // Convert the string a fast way and simultaneously do an efficient check to
   // see if it's all ASCII.

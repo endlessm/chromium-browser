@@ -9,13 +9,13 @@
 #include "base/bind.h"
 #include "base/numerics/safe_conversions.h"
 #include "content/public/renderer/render_thread.h"
-#include "services/shell/public/cpp/interface_registry.h"
+#include "services/service_manager/public/cpp/interface_registry.h"
 #include "third_party/WebKit/public/web/WebCache.h"
 
 namespace web_cache {
 
 WebCacheImpl::WebCacheImpl() : clear_cache_state_(kInit) {
-  shell::InterfaceRegistry* registry =
+  service_manager::InterfaceRegistry* registry =
       content::RenderThread::Get()->GetInterfaceRegistry();
   registry->AddInterface(
       base::Bind(&WebCacheImpl::BindRequest, base::Unretained(this)));
@@ -42,15 +42,10 @@ void WebCacheImpl::ExecutePendingClearCache() {
   }
 }
 
-void WebCacheImpl::SetCacheCapacities(uint64_t min_dead_capacity,
-                                      uint64_t max_dead_capacity,
-                                      uint64_t capacity64) {
-  size_t min_dead_capacity2 = base::checked_cast<size_t>(min_dead_capacity);
-  size_t max_dead_capacity2 = base::checked_cast<size_t>(max_dead_capacity);
+void WebCacheImpl::SetCacheCapacity(uint64_t capacity64) {
   size_t capacity = base::checked_cast<size_t>(capacity64);
 
-  blink::WebCache::setCapacities(min_dead_capacity2, max_dead_capacity2,
-                                 capacity);
+  blink::WebCache::setCapacity(capacity);
 }
 
 void WebCacheImpl::ClearCache(bool on_navigation) {

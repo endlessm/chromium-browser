@@ -3,14 +3,15 @@
 # found in the LICENSE file.
 
 import("//media/media_options.gni")
-import("//services/shell/public/cpp/service.gni")
-import("//services/shell/public/service_manifest.gni")
+import("//services/service_manager/public/cpp/service.gni")
+import("//services/service_manager/public/service_manifest.gni")
 import("//testing/test.gni")
 
 config("mojo_media_config") {
   if (!enable_mojo_media) {
     assert(mojo_media_services == [], "Mojo media is not enabled")
     assert(mojo_media_host == "none", "Mojo media is not enabled")
+    assert(!enable_test_mojo_media_client, "Mojo media is not enabled")
   } else {
     defines = [ "ENABLE_MOJO_MEDIA" ]
 
@@ -38,16 +39,37 @@ config("mojo_media_config") {
     } else {
       assert(false, "Invalid mojo media host: $mojo_media_host")
     }
+
+    if (enable_test_mojo_media_client) {
+      defines += [ "ENABLE_TEST_MOJO_MEDIA_CLIENT" ]
+    }
   }
 }
 
 component("services") {
   output_name = "media_mojo_services"
 
+  public_deps = [
+    ":lib",
+  ]
+}
+
+# TODO(xhwang): Add this intermediate target because ServiceTest doesn't support
+# services that depend on shared libraries in component build.
+# See http://crbug.com/670094
+source_set("lib") {
   sources = [
     "demuxer_stream_provider_shim.cc",
     "demuxer_stream_provider_shim.h",
+    "gpu_mojo_media_client.cc",
+    "gpu_mojo_media_client.h",
+    "interface_factory_impl.cc",
+    "interface_factory_impl.h",
     "media_mojo_export.h",
+    "media_service.cc",
+    "media_service.h",
+    "media_service_factory.cc",
+    "media_service_factory.h",
     "mojo_audio_decoder_service.cc",
     "mojo_audio_decoder_service.h",
     "mojo_cdm_allocator.cc",
@@ -62,18 +84,17 @@ component("services") {
     "mojo_decryptor_service.h",
     "mojo_demuxer_stream_adapter.cc",
     "mojo_demuxer_stream_adapter.h",
-    "mojo_media_application.cc",
-    "mojo_media_application.h",
-    "mojo_media_application_factory.cc",
-    "mojo_media_application_factory.h",
     "mojo_media_client.cc",
     "mojo_media_client.h",
+    "mojo_provision_fetcher.cc",
+    "mojo_provision_fetcher.h",
     "mojo_renderer_service.cc",
     "mojo_renderer_service.h",
     "mojo_video_decoder_service.cc",
     "mojo_video_decoder_service.h",
-    "service_factory_impl.cc",
-    "service_factory_impl.h",
+    "strong_binding_set.h",
+    "test_mojo_media_client.cc",
+    "test_mojo_media_client.h",
   ]
 
   defines = [ "MEDIA_MOJO_IMPLEMENTATION" ]
@@ -88,7 +109,7 @@ component("services") {
     "//media/mojo/interfaces",
     "//mojo/public/cpp/bindings",
     "//mojo/public/cpp/system",
-    "//services/shell/public/cpp",
+    "//services/service_manager/public/cpp",
     "//url",
   ]
 
@@ -97,20 +118,13 @@ component("services") {
     "//media:shared_memory_support",
     "//media/mojo/common",
     "//mojo/common",
-    "//services/shell/public/interfaces",
+    "//services/service_manager/public/interfaces",
   ]
 
   if (is_android) {
     sources += [
       "android_mojo_media_client.cc",
       "android_mojo_media_client.h",
-      "mojo_provision_fetcher.cc",
-      "mojo_provision_fetcher.h",
-    ]
-  } else {
-    sources += [
-      "default_mojo_media_client.cc",
-      "default_mojo_media_client.h",
     ]
   }
 }
@@ -118,46 +132,60 @@ component("services") {
 service("media") {
   testonly = true
 
+  # crbug.com/676418: Suppress symbol import warnings.
+  if (is_win && is_component_build) {
+    ldflags = [ "/ignore:4217" ]
+  }
+
   sources = [
     "main.cc",
   ]
 
   public_deps = [
-    ":services",
     "//base",
     "//media",
   ]
 
   deps = [
+    ":lib",
     "//mojo/public/c/system",
-    "//services/shell/public/cpp",
-  ]
-}
-
-test("media_mojo_shell_unittests") {
-  testonly = true
-
-  sources = [
-    "media_mojo_unittest.cc",
-  ]
-
-  deps = [
-    "//media",
-    "//media/base:test_support",
-    "//media/mojo/clients",
-    "//media/mojo/common",
-    "//media/mojo/interfaces",
-    "//services/shell/public/cpp:service_test_support",
-    "//services/shell/public/cpp/test:run_all_shelltests",
-    "//testing/gmock",
-    "//testing/gtest",
+    "//services/service_manager/public/cpp",
   ]
 
   data_deps = [
-    "//media/mojo/services:test_manifest",
-    "//media/mojo/services:media",
+    ":media_manifest",
   ]
 }
+
+# crbug.com/676055: media_service_unittests currently fails to link in Windows
+# component builds, so don't declare it, otherwise the "all" target will still
+# try to build it.
+if (!(is_win && is_component_build)) {
+  test("media_service_unittests") {
+    testonly = true
+
+    sources = [
+      "media_service_unittest.cc",
+    ]
+
+    deps = [
+      "//media",
+      "//media/base:test_support",
+      "//media/mojo/clients",
+      "//media/mojo/common",
+      "//media/mojo/interfaces",
+      "//services/service_manager/public/cpp:service_test_support",
+      "//services/service_manager/public/cpp/test:run_all_service_tests",
+      "//testing/gmock",
+      "//testing/gtest",
+    ]
+
+    data_deps = [
+      ":media",
+      ":test_manifest",
+    ]
+  }
+}  # !(is_win && is_component_build)
 
 service_manifest("media_manifest") {
   name = "media"
@@ -165,8 +193,7 @@ service_manifest("media_manifest") {
 }
 
 service_manifest("test_manifest") {
-  name = "media_mojo_shell_unittests"
-  type = "exe"
+  name = "media_service_unittests"
   source = "test_manifest.json"
 }
 
@@ -175,7 +202,7 @@ test("media_pipeline_integration_unittests") {
 
   deps = [
     "//media/test:mojo_pipeline_integration_tests",
-    "//services/shell/public/cpp/test:run_all_shelltests",
+    "//services/service_manager/public/cpp/test:run_all_service_tests",
   ]
 
   data_deps = [
@@ -186,6 +213,5 @@ test("media_pipeline_integration_unittests") {
 
 service_manifest("pipeline_test_manifest") {
   name = "media_pipeline_integration_unittests"
-  type = "exe"
   source = "pipeline_test_manifest.json"
 }

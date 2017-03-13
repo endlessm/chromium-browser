@@ -12,6 +12,11 @@
 #include "libANGLE/renderer/DisplayImpl.h"
 #include "libANGLE/renderer/gl/FunctionsGL.h"
 
+namespace egl
+{
+class Surface;
+}
+
 namespace rx
 {
 
@@ -20,7 +25,7 @@ class RendererGL;
 class DisplayGL : public DisplayImpl
 {
   public:
-    DisplayGL();
+    DisplayGL(const egl::DisplayState &state);
     ~DisplayGL() override;
 
     egl::Error initialize(egl::Display *display) override;
@@ -48,6 +53,8 @@ class DisplayGL : public DisplayImpl
     virtual const FunctionsGL *getFunctionsGL() const = 0;
 
     RendererGL *mRenderer;
+
+    egl::Surface *mCurrentDrawSurface;
 };
 
 }

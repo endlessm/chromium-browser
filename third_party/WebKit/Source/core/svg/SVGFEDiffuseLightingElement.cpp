@@ -40,9 +40,7 @@ inline SVGFEDiffuseLightingElement::SVGFEDiffuseLightingElement(
       m_kernelUnitLength(SVGAnimatedNumberOptionalNumber::create(
           this,
           SVGNames::kernelUnitLengthAttr)),
-      m_in1(SVGAnimatedString::create(this,
-                                      SVGNames::inAttr,
-                                      SVGString::create())) {
+      m_in1(SVGAnimatedString::create(this, SVGNames::inAttr)) {
   addToPropertyMap(m_diffuseConstant);
   addToPropertyMap(m_surfaceScale);
   addToPropertyMap(m_kernelUnitLength);
@@ -162,8 +160,8 @@ FilterEffect* SVGFEDiffuseLightingElement::build(
 
   FilterEffect* effect = FEDiffuseLighting::create(
       filter, color, m_surfaceScale->currentValue()->value(),
-      m_diffuseConstant->currentValue()->value(), lightSource.release());
-  effect->inputEffects().append(input1);
+      m_diffuseConstant->currentValue()->value(), std::move(lightSource));
+  effect->inputEffects().push_back(input1);
   return effect;
 }
 

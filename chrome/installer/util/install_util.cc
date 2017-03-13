@@ -11,8 +11,9 @@
 #include <shlobj.h>
 #include <shlwapi.h>
 
-#include <algorithm>
 #include <memory>
+#include <string>
+#include <vector>
 
 #include "base/command_line.h"
 #include "base/environment.h"
@@ -33,7 +34,6 @@
 #include "chrome/common/chrome_paths.h"
 #include "chrome/installer/util/browser_distribution.h"
 #include "chrome/installer/util/google_update_constants.h"
-#include "chrome/installer/util/helper.h"
 #include "chrome/installer/util/installation_state.h"
 #include "chrome/installer/util/l10n_string_util.h"
 #include "chrome/installer/util/util_constants.h"
@@ -163,13 +163,10 @@ bool InstallUtil::ExecuteExeAsAdmin(const base::CommandLine& cmd,
   return success;
 }
 
-base::CommandLine InstallUtil::GetChromeUninstallCmd(
-    bool system_install,
-    BrowserDistribution::Type distribution_type) {
+base::CommandLine InstallUtil::GetChromeUninstallCmd(bool system_install) {
   ProductState state;
-  if (state.Initialize(system_install, distribution_type)) {
+  if (state.Initialize(system_install))
     return state.uninstall_command();
-  }
   return base::CommandLine(base::CommandLine::NO_PROGRAM);
 }
 
@@ -320,13 +317,6 @@ bool InstallUtil::IsPerUserInstall(const base::FilePath& exe_path) {
 void InstallUtil::ResetIsPerUserInstallForTest() {
   std::unique_ptr<base::Environment> env(base::Environment::Create());
   env->UnSetVar(kEnvProgramFilesPath);
-}
-
-bool InstallUtil::IsMultiInstall(BrowserDistribution* dist,
-                                 bool system_install) {
-  DCHECK(dist);
-  ProductState state;
-  return state.Initialize(system_install, dist) && state.is_multi_install();
 }
 
 bool CheckIsChromeSxSProcess() {
@@ -496,7 +486,6 @@ int InstallUtil::GetInstallReturnCode(installer::InstallStatus status) {
     case installer::INSTALL_REPAIRED:
     case installer::NEW_VERSION_UPDATED:
     case installer::IN_USE_UPDATED:
-    case installer::UNUSED_BINARIES_UNINSTALLED:
     case installer::OLD_VERSION_DOWNGRADE:
     case installer::IN_USE_DOWNGRADE:
       return 0;
@@ -530,14 +519,11 @@ base::string16 InstallUtil::GetCurrentDate() {
 
 // Open |path| with minimal access to obtain information about it, returning
 // true and populating |file| on success.
+// static
 bool InstallUtil::ProgramCompare::OpenForInfo(const base::FilePath& path,
-                                              base::File* file,
-                                              ComparisonType comparison_type) {
+                                              base::File* file) {
   DCHECK(file);
-  uint32_t flags = base::File::FLAG_OPEN;
-  if (comparison_type == ComparisonType::FILE_OR_DIRECTORY)
-    flags |= base::File::FLAG_BACKUP_SEMANTICS;
-  file->Initialize(path, flags);
+  file->Initialize(path, base::File::FLAG_OPEN);
   return file->IsValid();
 }
 
@@ -575,7 +561,6 @@ void InstallUtil::AddUpdateDowngradeVersionItem(
     WorkItemList* list) {
   DCHECK(list);
   DCHECK(dist);
-  DCHECK_EQ(BrowserDistribution::CHROME_BROWSER, dist->GetType());
   base::Version downgrade_version = GetDowngradeVersion(system_install, dist);
   HKEY root = system_install ? HKEY_LOCAL_MACHINE : HKEY_CURRENT_USER;
   if (!current_version ||
@@ -591,15 +576,10 @@ void InstallUtil::AddUpdateDowngradeVersionItem(
 }
 
 InstallUtil::ProgramCompare::ProgramCompare(const base::FilePath& path_to_match)
-    : ProgramCompare(path_to_match, ComparisonType::FILE) {}
-
-InstallUtil::ProgramCompare::ProgramCompare(const base::FilePath& path_to_match,
-                                            ComparisonType comparison_type)
     : path_to_match_(path_to_match),
-      file_info_(),
-      comparison_type_(comparison_type) {
+      file_info_() {
   DCHECK(!path_to_match_.empty());
-  if (!OpenForInfo(path_to_match_, &file_, comparison_type_)) {
+  if (!OpenForInfo(path_to_match_, &file_)) {
     PLOG(WARNING) << "Failed opening " << path_to_match_.value()
                   << "; falling back to path string comparisons.";
   } else if (!GetInfo(file_, &file_info_)) {
@@ -643,7 +623,8 @@ bool InstallUtil::ProgramCompare::EvaluatePath(
   base::File file;
   BY_HANDLE_FILE_INFORMATION info = {};
 
-  return (OpenForInfo(path, &file, comparison_type_) && GetInfo(file, &info) &&
+  return (OpenForInfo(path, &file) &&
+          GetInfo(file, &info) &&
           info.dwVolumeSerialNumber == file_info_.dwVolumeSerialNumber &&
           info.nFileIndexHigh == file_info_.nFileIndexHigh &&
           info.nFileIndexLow == file_info_.nFileIndexLow);

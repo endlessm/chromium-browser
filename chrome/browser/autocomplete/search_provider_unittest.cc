@@ -52,7 +52,7 @@
 #include "components/search_engines/template_url_service.h"
 #include "components/signin/core/browser/account_tracker_service.h"
 #include "components/signin/core/browser/signin_manager.h"
-#include "components/sync/driver/pref_names.h"
+#include "components/sync/base/pref_names.h"
 #include "components/variations/entropy_provider.h"
 #include "components/variations/variations_associated_data.h"
 #include "content/public/test/test_browser_thread_bundle.h"
@@ -3486,7 +3486,7 @@ TEST_F(SearchProviderTest, RemoveExtraAnswers) {
   match3.answer_contents = base::ASCIIToUTF16("not to play");
   match3.answer_type = base::ASCIIToUTF16("1983");
   match5.answer = SuggestionAnswer::copy(&answer3);
-  match5.answer_contents = base::ASCIIToUTF16("a man");
+  match5.answer_contents = base::ASCIIToUTF16("a person");
   match5.answer_type = base::ASCIIToUTF16("423");
 
   matches.push_back(match1);

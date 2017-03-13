@@ -17,7 +17,6 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/path_service.h"
-#include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/test_timeouts.h"
 #include "base/time/time.h"
@@ -538,6 +537,34 @@ void WaitForHistoryToLoad(history::HistoryService* history_service) {
     scoped_observer.Add(history_service);
     runner->Run();
   }
+}
+
+BrowserActivationWaiter::BrowserActivationWaiter(const Browser* browser)
+    : browser_(browser), observed_(false) {
+  if (chrome::FindLastActive() == browser_) {
+    observed_ = true;
+    return;
+  }
+  BrowserList::AddObserver(this);
+}
+
+BrowserActivationWaiter::~BrowserActivationWaiter() {}
+
+void BrowserActivationWaiter::WaitForActivation() {
+  if (observed_)
+    return;
+  message_loop_runner_ = new content::MessageLoopRunner;
+  message_loop_runner_->Run();
+}
+
+void BrowserActivationWaiter::OnBrowserSetLastActive(Browser* browser) {
+  if (browser != browser_)
+    return;
+
+  observed_ = true;
+  BrowserList::RemoveObserver(this);
+  if (message_loop_runner_.get() && message_loop_runner_->loop_running())
+    message_loop_runner_->Quit();
 }
 
 }  // namespace ui_test_utils

@@ -42,7 +42,8 @@ ATRACE_DATA_THREAD_FIXED = os.path.join(TEST_DIR, 'atrace_data_thread_fixed')
 ATRACE_DATA_WITH_THREAD_LIST = os.path.join(TEST_DIR,
                                             'atrace_data_with_thread_list')
 ATRACE_THREAD_NAMES = os.path.join(TEST_DIR, 'atrace_thread_names')
-ATRACE_THREAD_LIST = os.path.join(TEST_DIR, 'atrace_ps_dump')
+ATRACE_PS_DUMPS = [os.path.join(TEST_DIR, psdump) for psdump in
+        ['atrace_ps_dump', 'atrace_ps_dump_2', 'atrace_ps_dump_3']]
 ATRACE_EXTRACTED_THREADS = os.path.join(TEST_DIR, 'atrace_extracted_threads')
 ATRACE_PROCFS_DUMP = os.path.join(TEST_DIR, 'atrace_procfs_dump')
 ATRACE_EXTRACTED_TGIDS = os.path.join(TEST_DIR, 'atrace_extracted_tgids')
@@ -104,28 +105,14 @@ class AtraceAgentTest(unittest.TestCase):
     self.assertEqual(' '.join(TRACE_ARGS), ' '.join(tracer_args))
 
   @decorators.HostOnlyTest
-  def test_preprocess_trace_data(self):
-    with contextlib.nested(open(ATRACE_DATA_STRIPPED, 'r'),
-                           open(ATRACE_DATA_RAW, 'r')) as (f1, f2):
-      atrace_data = f1.read()
-      atrace_data_raw = f2.read()
-      options, categories = run_systrace.parse_options(SYSTRACE_CMD)
-      agent = atrace_agent.AtraceAgent()
-      agent._config = options
-      agent._config.atrace_categories = categories
-      trace_data = agent._preprocess_trace_data(atrace_data_raw)
-      self.assertEqual(atrace_data, trace_data)
-
-  @decorators.HostOnlyTest
   def test_extract_thread_list(self):
-    with contextlib.nested(open(ATRACE_EXTRACTED_THREADS, 'r'),
-                           open(ATRACE_THREAD_LIST)) as (f1, f2):
-
-      atrace_result = f1.read()
-      ps_dump = f2.read()
-
-      thread_names = atrace_agent.extract_thread_list(ps_dump)
-      self.assertEqual(atrace_result, str(thread_names))
+    with open(ATRACE_EXTRACTED_THREADS, 'r') as expected_file:
+      expected = expected_file.read().strip()
+      for dump_file_name in ATRACE_PS_DUMPS:
+        with open(dump_file_name, 'r') as dump_file:
+          ps_dump = dump_file.read()
+          thread_names = atrace_agent.extract_thread_list(ps_dump)
+          self.assertEqual(expected, str(thread_names))
 
   @decorators.HostOnlyTest
   def test_strip_and_decompress_trace(self):

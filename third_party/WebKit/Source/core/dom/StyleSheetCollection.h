@@ -30,18 +30,21 @@
 #ifndef StyleSheetCollection_h
 #define StyleSheetCollection_h
 
+#include "bindings/core/v8/ScriptWrappable.h"
+#include "bindings/core/v8/TraceWrapperMember.h"
 #include "core/CoreExport.h"
+#include "core/css/ActiveStyleSheets.h"
 #include "platform/heap/Handle.h"
 #include "wtf/Allocator.h"
 #include "wtf/Vector.h"
 
 namespace blink {
 
-class CSSStyleSheet;
 class StyleSheet;
 
 class CORE_EXPORT StyleSheetCollection
-    : public GarbageCollected<StyleSheetCollection> {
+    : public GarbageCollected<StyleSheetCollection>,
+      public TraceWrapperBase {
   WTF_MAKE_NONCOPYABLE(StyleSheetCollection);
 
  public:
@@ -50,27 +53,29 @@ class CORE_EXPORT StyleSheetCollection
 
   static StyleSheetCollection* create() { return new StyleSheetCollection; }
 
-  const HeapVector<Member<CSSStyleSheet>>& activeAuthorStyleSheets() const {
+  const ActiveStyleSheetVector& activeAuthorStyleSheets() const {
     return m_activeAuthorStyleSheets;
   }
-  const HeapVector<Member<StyleSheet>>& styleSheetsForStyleSheetList() const {
+  const HeapVector<TraceWrapperMember<StyleSheet>>&
+  styleSheetsForStyleSheetList() const {
     return m_styleSheetsForStyleSheetList;
   }
 
   void swap(StyleSheetCollection&);
   void swapSheetsForSheetList(HeapVector<Member<StyleSheet>>&);
-  void appendActiveStyleSheet(CSSStyleSheet*);
+  void appendActiveStyleSheet(const ActiveStyleSheet&);
   void appendSheetForList(StyleSheet*);
 
   DECLARE_VIRTUAL_TRACE();
+  DECLARE_VIRTUAL_TRACE_WRAPPERS();
 
   void dispose();
 
  protected:
   StyleSheetCollection();
 
-  HeapVector<Member<StyleSheet>> m_styleSheetsForStyleSheetList;
-  HeapVector<Member<CSSStyleSheet>> m_activeAuthorStyleSheets;
+  HeapVector<TraceWrapperMember<StyleSheet>> m_styleSheetsForStyleSheetList;
+  ActiveStyleSheetVector m_activeAuthorStyleSheets;
 };
 
 }  // namespace blink

@@ -74,8 +74,9 @@ public:
         static bool Build(Desc*,
                           const GrPrimitiveProcessor&,
                           const GrPipeline&,
+                          const GrStencilSettings&,
                           GrPrimitiveType primitiveType,
-                          const GrGLSLCaps&);
+                          const GrShaderCaps&);
     private:
         typedef GrProgramDesc INHERITED;
     };
@@ -140,7 +141,8 @@ private:
 
     void writeUniformBuffers(const GrVkGpu* gpu);
 
-    void writeSamplers(GrVkGpu* gpu, const SkTArray<const GrTextureAccess*>& textureBindings,
+    void writeSamplers(GrVkGpu* gpu,
+                       const SkTArray<const GrProcessor::TextureSampler*>& textureBindings,
                        bool allowSRGBInputs);
 
     /**
@@ -207,8 +209,8 @@ private:
     int fStartDS;
     int fDSCount;
 
-    SkAutoTDelete<GrVkUniformBuffer> fVertexUniformBuffer;
-    SkAutoTDelete<GrVkUniformBuffer> fFragmentUniformBuffer;
+    std::unique_ptr<GrVkUniformBuffer> fVertexUniformBuffer;
+    std::unique_ptr<GrVkUniformBuffer> fFragmentUniformBuffer;
 
     // GrVkResources used for sampling textures
     SkTDArray<GrVkSampler*> fSamplers;
@@ -220,8 +222,8 @@ private:
     BuiltinUniformHandles fBuiltinUniformHandles;
 
     // Processors in the GrVkPipelineState
-    SkAutoTDelete<GrGLSLPrimitiveProcessor> fGeometryProcessor;
-    SkAutoTDelete<GrGLSLXferProcessor> fXferProcessor;
+    std::unique_ptr<GrGLSLPrimitiveProcessor> fGeometryProcessor;
+    std::unique_ptr<GrGLSLXferProcessor> fXferProcessor;
     GrGLSLFragProcs fFragmentProcessors;
 
     Desc fDesc;

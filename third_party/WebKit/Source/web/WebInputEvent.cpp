@@ -28,9 +28,11 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "public/web/WebInputEvent.h"
+#include "public/platform/WebInputEvent.h"
 
 #include "platform/KeyboardCodes.h"
+#include "public/platform/WebGestureEvent.h"
+#include "public/platform/WebMouseWheelEvent.h"
 #include "wtf/ASCIICType.h"
 #include "wtf/Assertions.h"
 #include "wtf/StringExtras.h"
@@ -39,7 +41,7 @@
 namespace blink {
 
 struct SameSizeAsWebInputEvent {
-  int inputData[5];
+  int inputData[8];
 };
 
 struct SameSizeAsWebKeyboardEvent : public SameSizeAsWebInputEvent {
@@ -47,7 +49,7 @@ struct SameSizeAsWebKeyboardEvent : public SameSizeAsWebInputEvent {
 };
 
 struct SameSizeAsWebMouseEvent : public SameSizeAsWebInputEvent {
-  int mouseData[15];
+  int mouseData[17];
 };
 
 struct SameSizeAsWebMouseWheelEvent : public SameSizeAsWebMouseEvent {

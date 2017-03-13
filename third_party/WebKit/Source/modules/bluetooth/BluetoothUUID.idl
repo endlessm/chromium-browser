@@ -2,10 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// https://webbluetoothchrome.github.io/web-bluetooth/#idl-def-bluetoothuuid
+// https://webbluetoothcg.github.io/web-bluetooth/#bluetoothuuid
 
 [
-    OriginTrialEnabled=WebBluetooth,
+    RuntimeEnabled=WebBluetooth,
 ] interface BluetoothUUID {
     [RaisesException] static UUID getService((DOMString or unsigned long) name);
     [RaisesException] static UUID getCharacteristic((DOMString or unsigned long) name);

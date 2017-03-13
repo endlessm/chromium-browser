@@ -11,11 +11,11 @@
 #include <unordered_map>
 #include <vector>
 
-#include "cc/animation/element_id.h"
 #include "cc/base/cc_export.h"
 #include "cc/base/synced_property.h"
 #include "cc/layers/layer_sticky_position_constraint.h"
 #include "cc/output/filter_operations.h"
+#include "cc/trees/element_id.h"
 #include "ui/gfx/geometry/rect_f.h"
 #include "ui/gfx/geometry/scroll_offset.h"
 #include "ui/gfx/transform.h"
@@ -28,16 +28,9 @@ class TracedValue;
 
 namespace cc {
 
-namespace proto {
-class PropertyTree;
-class PropertyTrees;
-class ScrollNodeData;
-class StickyPositionNodeData;
-class TreeNode;
-}  // namespace proto
-
 class CopyOutputRequest;
 class LayerTreeImpl;
+class RenderSurfaceImpl;
 class ScrollState;
 struct ClipNode;
 struct EffectNode;
@@ -45,13 +38,6 @@ struct ScrollAndScaleSet;
 struct ScrollNode;
 struct TransformNode;
 struct TransformCachedNodeData;
-
-// ------------------------------*IMPORTANT*---------------------------------
-// Each class declared here has a corresponding proto defined in
-// cc/proto/property_tree.proto. When making any changes to a class structure
-// including addition/deletion/updation of a field, please also make the
-// change to its proto and the ToProtobuf and FromProtobuf methods for that
-// class.
 
 typedef SyncedProperty<AdditionGroup<gfx::ScrollOffset>> SyncedScrollOffset;
 
@@ -79,13 +65,11 @@ class CC_EXPORT PropertyTree {
   int Insert(const T& tree_node, int parent_id);
 
   T* Node(int i) {
-    // TODO(vollick): remove this.
-    CHECK(i < static_cast<int>(nodes_.size()));
+    DCHECK(i < static_cast<int>(nodes_.size()));
     return i > kInvalidNodeId ? &nodes_[i] : nullptr;
   }
   const T* Node(int i) const {
-    // TODO(vollick): remove this.
-    CHECK(i < static_cast<int>(nodes_.size()));
+    DCHECK(i < static_cast<int>(nodes_.size()));
     return i > kInvalidNodeId ? &nodes_[i] : nullptr;
   }
 
@@ -106,10 +90,6 @@ class CC_EXPORT PropertyTree {
 
   int next_available_id() const { return static_cast<int>(size()); }
 
-  void ToProtobuf(proto::PropertyTree* proto) const;
-  void FromProtobuf(const proto::PropertyTree& proto,
-                    std::unordered_map<int, int>* node_id_to_index_map);
-
   void SetPropertyTrees(PropertyTrees* property_trees) {
     property_trees_ = property_trees;
   }
@@ -120,6 +100,7 @@ class CC_EXPORT PropertyTree {
  private:
   std::vector<T> nodes_;
 
+  friend class TransformTree;
   bool needs_update_;
   PropertyTrees* property_trees_;
 };
@@ -134,8 +115,6 @@ struct StickyPositionNodeData {
   gfx::Vector2dF main_thread_offset;
 
   StickyPositionNodeData() : scroll_ancestor(-1) {}
-  void ToProtobuf(proto::StickyPositionNodeData* proto) const;
-  void FromProtobuf(const proto::StickyPositionNodeData& proto);
 };
 
 class CC_EXPORT TransformTree final : public PropertyTree<TransformNode> {
@@ -157,19 +136,6 @@ class CC_EXPORT TransformTree final : public PropertyTree<TransformNode> {
   int Insert(const TransformNode& tree_node, int parent_id);
 
   void clear();
-
-  // Computes the change of basis transform from node |source_id| to |dest_id|.
-  // The function returns false iff the inverse of a singular transform was
-  // used (and the result should, therefore, not be trusted). Transforms may
-  // be computed between any pair of nodes that have an ancestor/descendant
-  // relationship. Transforms between other pairs of nodes may only be computed
-  // if the following condition holds: let id1 the larger id and let id2 be the
-  // other id; then the nearest ancestor of node id1 whose id is smaller than
-  // id2 is the lowest common ancestor of the pair of nodes, and the transform
-  // from this lowest common ancestor to node id2 is only a 2d translation.
-  bool ComputeTransform(int source_id,
-                        int dest_id,
-                        gfx::Transform* transform) const;
 
   void OnTransformAnimated(const gfx::Transform& transform,
                            int id,
@@ -193,6 +159,8 @@ class CC_EXPORT TransformTree final : public PropertyTree<TransformNode> {
   void UpdateNodeAndAncestorsAreAnimatedOrInvertible(
       TransformNode* node,
       TransformNode* parent_node);
+
+  void set_needs_update(bool needs_update);
 
   // A TransformNode's source_to_parent value is used to account for the fact
   // that fixed-position layers are positioned by Blink wrt to their layer tree
@@ -225,7 +193,6 @@ class CC_EXPORT TransformTree final : public PropertyTree<TransformNode> {
                                   float page_scale_factor_for_root,
                                   const gfx::Transform& device_transform,
                                   gfx::PointF root_position);
-
   float device_transform_scale_factor() const {
     return device_transform_scale_factor_;
   }
@@ -249,14 +216,6 @@ class CC_EXPORT TransformTree final : public PropertyTree<TransformNode> {
     return nodes_affected_by_outer_viewport_bounds_delta_;
   }
 
-  const gfx::Transform& FromTarget(int node_id, int effect) const;
-  void SetFromTarget(int node_id, const gfx::Transform& transform);
-
-  // TODO(sunxd): Remove target space transforms in cached data when we
-  // completely implement computing draw transforms on demand.
-  const gfx::Transform& ToTarget(int node_id, int effect_id) const;
-  void SetToTarget(int node_id, const gfx::Transform& transform);
-
   const gfx::Transform& FromScreen(int node_id) const;
   void SetFromScreen(int node_id, const gfx::Transform& transform);
 
@@ -274,10 +233,6 @@ class CC_EXPORT TransformTree final : public PropertyTree<TransformNode> {
   }
 
   StickyPositionNodeData* StickyPositionData(int node_id);
-
-  void ToProtobuf(proto::PropertyTree* proto) const;
-  void FromProtobuf(const proto::PropertyTree& proto,
-                    std::unordered_map<int, int>* node_id_to_index_map);
 
   // Computes the combined transform between |source_id| and |dest_id|. These
   // two nodes must be on the same ancestor chain.
@@ -300,9 +255,6 @@ class CC_EXPORT TransformTree final : public PropertyTree<TransformNode> {
   void UpdateLocalTransform(TransformNode* node);
   void UpdateScreenSpaceTransform(TransformNode* node,
                                   TransformNode* parent_node,
-                                  TransformNode* target_node);
-  void UpdateSurfaceContentsScale(TransformNode* node);
-  void UpdateTargetSpaceTransform(TransformNode* node,
                                   TransformNode* target_node);
   void UpdateAnimationProperties(TransformNode* node,
                                  TransformNode* parent_node);
@@ -334,10 +286,6 @@ class CC_EXPORT ClipTree final : public PropertyTree<ClipNode> {
 
   void SetViewportClip(gfx::RectF viewport_rect);
   gfx::RectF ViewportClip() const;
-
-  void ToProtobuf(proto::PropertyTree* proto) const;
-  void FromProtobuf(const proto::PropertyTree& proto,
-                    std::unordered_map<int, int>* node_id_to_index_map);
 };
 
 class CC_EXPORT EffectTree final : public PropertyTree<EffectNode> {
@@ -382,9 +330,13 @@ class CC_EXPORT EffectTree final : public PropertyTree<EffectNode> {
 
   void ResetChangeTracking();
 
-  void ToProtobuf(proto::PropertyTree* proto) const;
-  void FromProtobuf(const proto::PropertyTree& proto,
-                    std::unordered_map<int, int>* node_id_to_index_map);
+  // A list of pairs of stable id and render surface, sorted by stable id.
+  using StableIdRenderSurfaceList =
+      std::vector<std::pair<int, RenderSurfaceImpl*>>;
+  StableIdRenderSurfaceList CreateStableIdRenderSurfaceList() const;
+  void UpdateRenderSurfaceEffectIds(
+      const StableIdRenderSurfaceList& stable_id_render_surface_list,
+      LayerTreeImpl* layer_tree_impl);
 
  private:
   void UpdateOpacities(EffectNode* node, EffectNode* parent_node);
@@ -407,18 +359,12 @@ class CC_EXPORT ScrollTree final : public PropertyTree<ScrollNode> {
   ScrollTree& operator=(const ScrollTree& from);
   bool operator==(const ScrollTree& other) const;
 
-  void ToProtobuf(proto::PropertyTree* proto) const;
-  void FromProtobuf(const proto::PropertyTree& proto,
-                    std::unordered_map<int, int>* node_id_to_index_map);
-
   void clear();
 
-  typedef std::unordered_map<int, scoped_refptr<SyncedScrollOffset>>
-      ScrollOffsetMap;
+  typedef std::unordered_map<int, bool> ScrollbarsEnabledMap;
 
   gfx::ScrollOffset MaxScrollOffset(int scroll_node_id) const;
   void OnScrollOffsetAnimated(int layer_id,
-                              int transform_tree_index,
                               int scroll_tree_index,
                               const gfx::ScrollOffset& scroll_offset,
                               LayerTreeImpl* layer_tree_impl);
@@ -431,19 +377,36 @@ class CC_EXPORT ScrollTree final : public PropertyTree<ScrollNode> {
   void set_currently_scrolling_node(int scroll_node_id);
   gfx::Transform ScreenSpaceTransform(int scroll_node_id) const;
 
+  // Returns the current scroll offset. On the main thread this would return the
+  // value for the LayerTree while on the impl thread this is the current value
+  // on the active tree.
   const gfx::ScrollOffset current_scroll_offset(int layer_id) const;
+
+  // Collects deltas for scroll changes on the impl thread that need to be
+  // reported to the main thread during the main frame. As such, should only be
+  // called on the impl thread side PropertyTrees.
   void CollectScrollDeltas(ScrollAndScaleSet* scroll_info,
                            int inner_viewport_layer_id);
-  void UpdateScrollOffsetMap(ScrollOffsetMap* new_scroll_offset_map,
-                             LayerTreeImpl* layer_tree_impl);
-  ScrollOffsetMap& scroll_offset_map();
-  const ScrollOffsetMap& scroll_offset_map() const;
+
+  // Applies deltas sent in the previous main frame onto the impl thread state.
+  // Should only be called on the impl thread side PropertyTrees.
   void ApplySentScrollDeltasFromAbortedCommit();
+
+  // Pushes scroll updates from the ScrollTree on the main thread onto the
+  // impl thread associated state.
+  void PushScrollUpdatesFromMainThread(PropertyTrees* main_property_trees,
+                                       LayerTreeImpl* sync_tree);
+
+  // Pushes scroll updates from the ScrollTree on the pending tree onto the
+  // active tree associated state.
+  void PushScrollUpdatesFromPendingTree(PropertyTrees* pending_property_trees,
+                                        LayerTreeImpl* active_tree);
+
   bool SetBaseScrollOffset(int layer_id,
                            const gfx::ScrollOffset& scroll_offset);
   bool SetScrollOffset(int layer_id, const gfx::ScrollOffset& scroll_offset);
   void SetScrollOffsetClobberActiveValue(int layer_id) {
-    synced_scroll_offset(layer_id)->set_clobber_active_value();
+    GetOrCreateSyncedScrollOffset(layer_id)->set_clobber_active_value();
   }
   bool UpdateScrollOffsetBaseForTesting(int layer_id,
                                         const gfx::ScrollOffset& offset);
@@ -460,16 +423,30 @@ class CC_EXPORT ScrollTree final : public PropertyTree<ScrollNode> {
   gfx::ScrollOffset ClampScrollOffsetToLimits(gfx::ScrollOffset offset,
                                               ScrollNode* scroll_node) const;
 
- private:
-  int currently_scrolling_node_id_;
-  ScrollOffsetMap layer_id_to_scroll_offset_map_;
+  const SyncedScrollOffset* GetSyncedScrollOffset(int layer_id) const;
 
-  SyncedScrollOffset* synced_scroll_offset(int layer_id);
-  const SyncedScrollOffset* synced_scroll_offset(int layer_id) const;
+#if DCHECK_IS_ON()
+  void CopyCompleteTreeState(const ScrollTree& other);
+#endif
+
+ private:
+  using ScrollOffsetMap = std::unordered_map<int, gfx::ScrollOffset>;
+  using SyncedScrollOffsetMap =
+      std::unordered_map<int, scoped_refptr<SyncedScrollOffset>>;
+
+  int currently_scrolling_node_id_;
+  ScrollbarsEnabledMap layer_id_to_scrollbars_enabled_map_;
+
+  // On the main thread we store the scroll offsets directly since the main
+  // thread only needs to keep track of the current main thread state. The impl
+  // thread stores a map of SyncedProperty instances in order to track
+  // additional state necessary to synchronize scroll changes between the main
+  // and impl threads.
+  ScrollOffsetMap layer_id_to_scroll_offset_map_;
+  SyncedScrollOffsetMap layer_id_to_synced_scroll_offset_map_;
+
+  SyncedScrollOffset* GetOrCreateSyncedScrollOffset(int layer_id);
   gfx::ScrollOffset PullDeltaForMainThread(SyncedScrollOffset* scroll_offset);
-  void UpdateScrollOffsetMapEntry(int key,
-                                  ScrollOffsetMap* new_scroll_offset_map,
-                                  LayerTreeImpl* layer_tree_impl);
 };
 
 struct AnimationScaleData {
@@ -519,33 +496,48 @@ struct CombinedAnimationScale {
 };
 
 struct DrawTransforms {
-  bool invertible;
+  // We compute invertibility of a draw transforms lazily.
+  // Might_be_invertible is true if we have not computed the inverse of either
+  // to_target or from_target, or to_target / from_target is invertible.
+  bool might_be_invertible;
+  // From_valid is true if the from_target is already computed directly or
+  // computed by inverting an invertible to_target.
+  bool from_valid;
+  // To_valid is true if to_target stores a valid result, similar to from_valid.
+  bool to_valid;
   gfx::Transform from_target;
   gfx::Transform to_target;
 
   DrawTransforms(gfx::Transform from, gfx::Transform to)
-      : invertible(true), from_target(from), to_target(to) {}
+      : might_be_invertible(true),
+        from_valid(false),
+        to_valid(false),
+        from_target(from),
+        to_target(to) {}
   bool operator==(const DrawTransforms& other) const {
-    return invertible == other.invertible && from_target == other.from_target &&
-           to_target == other.to_target;
+    return from_valid == other.from_valid && to_valid == other.to_valid &&
+           from_target == other.from_target && to_target == other.to_target;
   }
 };
 
 struct DrawTransformData {
   int update_number;
+  int target_id;
+
   DrawTransforms transforms;
 
   // TODO(sunxd): Move screen space transforms here if it can improve
   // performance.
   DrawTransformData()
-      : update_number(-1), transforms(gfx::Transform(), gfx::Transform()) {}
+      : update_number(-1),
+        target_id(EffectTree::kInvalidNodeId),
+        transforms(gfx::Transform(), gfx::Transform()) {}
 };
 
 struct PropertyTreesCachedData {
   int property_tree_update_number;
   std::vector<AnimationScaleData> animation_scales;
-  mutable std::vector<std::unordered_map<int, DrawTransformData>>
-      draw_transforms;
+  mutable std::vector<std::vector<DrawTransformData>> draw_transforms;
 
   PropertyTreesCachedData();
   ~PropertyTreesCachedData();
@@ -560,14 +552,26 @@ class CC_EXPORT PropertyTrees final {
   bool operator==(const PropertyTrees& other) const;
   PropertyTrees& operator=(const PropertyTrees& from);
 
-  void ToProtobuf(proto::PropertyTrees* proto) const;
-  void FromProtobuf(const proto::PropertyTrees& proto);
-
-  std::unordered_map<int, int> transform_id_to_index_map;
-  std::unordered_map<int, int> effect_id_to_index_map;
-  std::unordered_map<int, int> clip_id_to_index_map;
-  std::unordered_map<int, int> scroll_id_to_index_map;
+  // These maps map from layer id to the index for each of the respective
+  // property node types.
+  std::unordered_map<int, int> layer_id_to_transform_node_index;
+  std::unordered_map<int, int> layer_id_to_effect_node_index;
+  std::unordered_map<int, int> layer_id_to_clip_node_index;
+  std::unordered_map<int, int> layer_id_to_scroll_node_index;
   enum TreeType { TRANSFORM, EFFECT, CLIP, SCROLL };
+
+  // These maps allow mapping directly from a compositor element id to the
+  // respective property node. This will eventually allow simplifying logic in
+  // various places that today has to map from element id to layer id, and then
+  // from layer id to the respective property node. Completing that work is
+  // pending the launch of Slimming Paint v2 and reworking UI compositor logic
+  // to produce cc property trees and these maps.
+  std::unordered_map<ElementId, int, ElementIdHash>
+      element_id_to_effect_node_index;
+  std::unordered_map<ElementId, int, ElementIdHash>
+      element_id_to_scroll_node_index;
+  std::unordered_map<ElementId, int, ElementIdHash>
+      element_id_to_transform_node_index;
 
   std::vector<int> always_use_active_tree_opacity_effect_ids;
   TransformTree transform_tree;
@@ -590,7 +594,6 @@ class CC_EXPORT PropertyTrees final {
   int sequence_number;
   bool is_main_thread;
   bool is_active;
-  bool verify_transform_tree_calculations;
 
   void clear();
 
@@ -624,27 +627,28 @@ class CC_EXPORT PropertyTrees final {
                                     float maximum_animation_scale,
                                     float starting_animation_scale);
 
-  // GetDrawTransforms may change the value of cached_data_.
-  const DrawTransforms& GetDrawTransforms(int transform_id,
-                                          int effect_id) const;
+  bool GetToTarget(int transform_id,
+                   int effect_id,
+                   gfx::Transform* to_target) const;
+  bool GetFromTarget(int transform_id,
+                     int effect_id,
+                     gfx::Transform* from_target) const;
 
   void ResetCachedData();
   void UpdateCachedNumber();
   gfx::Transform ToScreenSpaceTransformWithoutSurfaceContentsScale(
       int transform_id,
       int effect_id) const;
-  bool ComputeTransformToTarget(int transform_id,
-                                int effect_id,
-                                gfx::Transform* transform) const;
-
-  bool ComputeTransformFromTarget(int transform_id,
-                                  int effect_id,
-                                  gfx::Transform* transform) const;
 
  private:
   gfx::Vector2dF inner_viewport_container_bounds_delta_;
   gfx::Vector2dF outer_viewport_container_bounds_delta_;
   gfx::Vector2dF inner_viewport_scroll_bounds_delta_;
+
+  // GetDrawTransforms may change the value of cached_data_.
+  DrawTransforms& GetDrawTransforms(int transform_id, int effect_id) const;
+  DrawTransformData& FetchDrawTransformsDataFromCache(int transform_id,
+                                                      int effect_id) const;
 
   PropertyTreesCachedData cached_data_;
 };

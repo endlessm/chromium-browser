@@ -33,6 +33,7 @@
 #include "chrome/browser/ui/webui/ntp/app_launcher_handler.h"
 #include "chrome/browser/ui/webui/ntp/new_tab_ui.h"
 #include "chrome/common/chrome_switches.h"
+#include "chrome/common/features.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/browser_resources.h"
@@ -84,7 +85,7 @@ const char kLearnMoreIncognitoUrl[] =
 // The URL for the Learn More page shown on guest session new tab.
 const char kLearnMoreGuestSessionUrl[] =
 #if defined(OS_CHROMEOS)
-    "https://support.google.com/chromebook/answer/1057090";
+    "https://support.google.com/chromebook/?p=chromebook_guest";
 #else
     "https://support.google.com/chrome/?p=ui_guest";
 #endif
@@ -183,7 +184,7 @@ NTPResourceCache::NTPResourceCache(Profile* profile)
   profile_pref_change_registrar_.Add(prefs::kHideWebStoreIcon, callback);
 
   // Some tests don't have a local state.
-#if defined(ENABLE_APP_LIST)
+#if BUILDFLAG(ENABLE_APP_LIST)
   if (g_browser_process->local_state()) {
     local_state_pref_change_registrar_.Init(g_browser_process->local_state());
     local_state_pref_change_registrar_.Add(prefs::kShowAppLauncherPromo,
@@ -443,9 +444,10 @@ void NTPResourceCache::CreateNewTabHTML() {
   load_time_data.SetString("learnMore",
       l10n_util::GetStringUTF16(IDS_LEARN_MORE));
   const std::string& app_locale = g_browser_process->GetApplicationLocale();
-  load_time_data.SetString("webStoreLink",
-      google_util::AppendGoogleLocaleParam(
-          GURL(extension_urls::GetWebstoreLaunchURL()), app_locale).spec());
+  load_time_data.SetString(
+      "webStoreLink", google_util::AppendGoogleLocaleParam(
+                          extension_urls::GetWebstoreLaunchURL(), app_locale)
+                          .spec());
   load_time_data.SetString("appInstallHintText",
       l10n_util::GetStringUTF16(IDS_NEW_TAB_APP_INSTALL_HINT_LABEL));
   load_time_data.SetString("learn_more",
@@ -575,8 +577,6 @@ void NTPResourceCache::CreateNewTabCSS() {
   substitutions["backgroundBarAttached"] = GetNewTabBackgroundCSS(tp, true);
   substitutions["backgroundTiling"] = GetNewTabBackgroundTilingCSS(tp);
   substitutions["colorTextRgba"] = SkColorToRGBAString(color_text);
-  substitutions["colorSectionBorder"] =
-      SkColorToRGBAString(color_section_border);
   substitutions["colorTextLight"] = SkColorToRGBAString(color_text_light);
   substitutions["colorSectionBorder"] =
       SkColorToRGBComponents(color_section_border);

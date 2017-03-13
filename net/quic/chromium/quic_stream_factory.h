@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef NET_QUIC_QUIC_STREAM_FACTORY_H_
-#define NET_QUIC_QUIC_STREAM_FACTORY_H_
+#ifndef NET_QUIC_CHROMIUM_QUIC_STREAM_FACTORY_H_
+#define NET_QUIC_CHROMIUM_QUIC_STREAM_FACTORY_H_
 
 #include <stddef.h>
 #include <stdint.h>
@@ -32,11 +32,12 @@
 #include "net/proxy/proxy_server.h"
 #include "net/quic/chromium/network_connection.h"
 #include "net/quic/chromium/quic_chromium_client_session.h"
+#include "net/quic/chromium/quic_clock_skew_detector.h"
 #include "net/quic/chromium/quic_http_stream.h"
 #include "net/quic/core/quic_client_push_promise_index.h"
 #include "net/quic/core/quic_config.h"
 #include "net/quic/core/quic_crypto_stream.h"
-#include "net/quic/core/quic_protocol.h"
+#include "net/quic/core/quic_packets.h"
 #include "net/quic/core/quic_server_id.h"
 #include "net/ssl/ssl_config_service.h"
 
@@ -198,7 +199,6 @@ class NET_EXPORT_PRIVATE QuicStreamFactory
       size_t max_packet_length,
       const std::string& user_agent_id,
       const QuicVersionVector& supported_versions,
-      bool enable_port_selection,
       bool always_require_handshake_confirmation,
       bool disable_connection_pooling,
       float load_server_info_timeout_srtt_multiplier,
@@ -353,8 +353,7 @@ class NET_EXPORT_PRIVATE QuicStreamFactory
   // CertDatabase::Observer methods:
 
   // We close all sessions when certificate database is changed.
-  void OnCertAdded(const X509Certificate* cert) override;
-  void OnCACertChanged(const X509Certificate* cert) override;
+  void OnCertDBChanged(const X509Certificate* cert) override;
 
   bool require_confirmation() const { return require_confirmation_; }
 
@@ -369,14 +368,16 @@ class NET_EXPORT_PRIVATE QuicStreamFactory
 
   QuicChromiumAlarmFactory* alarm_factory() { return alarm_factory_.get(); }
 
-  bool enable_port_selection() const { return enable_port_selection_; }
-
   bool has_quic_server_info_factory() {
     return quic_server_info_factory_.get() != nullptr;
   }
 
   void set_quic_server_info_factory(
       QuicServerInfoFactory* quic_server_info_factory);
+
+  void set_server_push_delegate(ServerPushDelegate* push_delegate) {
+    push_delegate_ = push_delegate;
+  }
 
   bool enable_connection_racing() const { return enable_connection_racing_; }
   void set_enable_connection_racing(bool enable_connection_racing) {
@@ -403,7 +404,7 @@ class NET_EXPORT_PRIVATE QuicStreamFactory
   typedef std::set<QuicChromiumClientSession*> SessionSet;
   typedef std::map<IPEndPoint, SessionSet> IPAliasMap;
   typedef std::map<QuicChromiumClientSession*, IPEndPoint> SessionPeerIPMap;
-  typedef std::set<Job*> JobSet;
+  typedef std::map<Job*, std::unique_ptr<Job>> JobSet;
   typedef std::map<QuicServerId, JobSet> JobMap;
   typedef std::map<QuicStreamRequest*, QuicServerId> RequestMap;
   typedef std::set<QuicStreamRequest*> RequestSet;
@@ -502,6 +503,7 @@ class NET_EXPORT_PRIVATE QuicStreamFactory
   HostResolver* host_resolver_;
   ClientSocketFactory* client_socket_factory_;
   HttpServerProperties* http_server_properties_;
+  ServerPushDelegate* push_delegate_;
   ProxyDelegate* proxy_delegate_;
   TransportSecurityState* transport_security_state_;
   CTVerifier* cert_transparency_verifier_;
@@ -510,6 +512,7 @@ class NET_EXPORT_PRIVATE QuicStreamFactory
   QuicRandom* random_generator_;
   std::unique_ptr<QuicClock> clock_;
   const size_t max_packet_length_;
+  QuicClockSkewDetector clock_skew_detector_;
 
   // Factory which is used to create socket performance watcher. A new watcher
   // is created for every QUIC connection.
@@ -547,11 +550,6 @@ class NET_EXPORT_PRIVATE QuicStreamFactory
   CertVerifierJobMap active_cert_verifier_jobs_;
 
   QuicVersionVector supported_versions_;
-
-  // Determine if we should consistently select a client UDP port. If false,
-  // then we will just let the OS select a random client port for each new
-  // connection.
-  bool enable_port_selection_;
 
   // Set if we always require handshake confirmation. If true, this will
   // introduce at least one RTT for the handshake before the client sends data.
@@ -628,14 +626,6 @@ class NET_EXPORT_PRIVATE QuicStreamFactory
   // If set, configure QUIC sockets to not fragment packets.
   bool quic_do_not_fragment_;
 
-  // Each profile will (probably) have a unique port_seed_ value.  This value
-  // is used to help seed a pseudo-random number generator (PortSuggester) so
-  // that we consistently (within this profile) suggest the same ephemeral
-  // port when we re-connect to any given server/port.  The differences between
-  // profiles (probablistically) prevent two profiles from colliding in their
-  // ephemeral port requests.
-  uint64_t port_seed_;
-
   // Local address of socket that was created in CreateSession.
   IPEndPoint local_address_;
   bool check_persisted_supports_quic_;
@@ -662,4 +652,4 @@ class NET_EXPORT_PRIVATE QuicStreamFactory
 
 }  // namespace net
 
-#endif  // NET_QUIC_QUIC_STREAM_FACTORY_H_
+#endif  // NET_QUIC_CHROMIUM_QUIC_STREAM_FACTORY_H_

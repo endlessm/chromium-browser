@@ -9,10 +9,6 @@
 
 #include "components/policy/policy_export.h"
 
-namespace enterprise_management {
-class PolicyData;
-}
-
 namespace policy {
 
 // Constants related to the device management protocol.
@@ -21,11 +17,14 @@ namespace dm_protocol {
 // Name extern constants for URL query parameters.
 POLICY_EXPORT extern const char kParamAgent[];
 POLICY_EXPORT extern const char kParamAppType[];
+POLICY_EXPORT extern const char kParamCritical[];
 POLICY_EXPORT extern const char kParamDeviceID[];
 POLICY_EXPORT extern const char kParamDeviceType[];
+POLICY_EXPORT extern const char kParamLastError[];
 POLICY_EXPORT extern const char kParamOAuthToken[];
 POLICY_EXPORT extern const char kParamPlatform[];
 POLICY_EXPORT extern const char kParamRequest[];
+POLICY_EXPORT extern const char kParamRetry[];
 
 // String extern constants for the device and app type we report to the server.
 POLICY_EXPORT extern const char kValueAppType[];
@@ -50,6 +49,7 @@ POLICY_EXPORT extern const char kChromeDevicePolicyType[];
 POLICY_EXPORT extern const char kChromeUserPolicyType[];
 POLICY_EXPORT extern const char kChromePublicAccountPolicyType[];
 POLICY_EXPORT extern const char kChromeExtensionPolicyType[];
+POLICY_EXPORT extern const char kChromeSigninExtensionPolicyType[];
 
 // These codes are sent in the |error_code| field of PolicyFetchResponse.
 enum PolicyFetchStatus {
@@ -62,9 +62,11 @@ enum PolicyFetchStatus {
 // The header used to transmit the policy ID for this client.
 POLICY_EXPORT extern const char kChromePolicyHeader[];
 
-// Information about the verification key used to verify that policy signing
-// keys are valid.
+// Public half of the verification key that is used to verify that policy
+// signing keys are originating from DM server.
 POLICY_EXPORT std::string GetPolicyVerificationKey();
+
+// Corresponding hash.
 POLICY_EXPORT extern const char kPolicyVerificationKeyHash[];
 
 // Status codes for communication errors with the device management service.
@@ -117,6 +119,7 @@ enum DeviceMode {
                                    // device.
   DEVICE_MODE_ENTERPRISE,          // The device is enrolled as an enterprise
                                    // device.
+  DEVICE_MODE_ENTERPRISE_AD,       // The device has joined AD.
   DEVICE_MODE_LEGACY_RETAIL_MODE,  // The device is enrolled as a retail kiosk
                                    // device. Even though retail mode is
                                    // deprecated, we still check for this device

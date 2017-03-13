@@ -7,17 +7,17 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "base/files/file_path.h"
 #include "base/time/time.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/resource_request_info.h"
+#include "content/public/common/previews_state.h"
 #include "content/public/common/resource_type.h"
 #include "ui/base/page_transition_types.h"
 
 class GURL;
-template <class T> class ScopedVector;
-
 namespace net {
 class AuthChallengeInfo;
 class ClientCertStore;
@@ -31,7 +31,6 @@ class NavigationData;
 class ResourceContext;
 class ResourceDispatcherHostLoginDelegate;
 class ResourceThrottle;
-struct Referrer;
 struct ResourceResponse;
 struct StreamInfo;
 
@@ -47,23 +46,25 @@ class CONTENT_EXPORT ResourceDispatcherHostDelegate {
 
   // Called after ShouldBeginRequest to allow the embedder to add resource
   // throttles.
-  virtual void RequestBeginning(net::URLRequest* request,
-                                ResourceContext* resource_context,
-                                AppCacheService* appcache_service,
-                                ResourceType resource_type,
-                                ScopedVector<ResourceThrottle>* throttles);
+  virtual void RequestBeginning(
+      net::URLRequest* request,
+      ResourceContext* resource_context,
+      AppCacheService* appcache_service,
+      ResourceType resource_type,
+      std::vector<std::unique_ptr<ResourceThrottle>>* throttles);
 
   // Allows an embedder to add additional resource handlers for a download.
   // |must_download| is set if the request must be handled as a download.
   // |is_new_request| is true if this is a call for a new, unstarted request
   // which also means that RequestBeginning has not been and will not be
   // called for this request.
-  virtual void DownloadStarting(net::URLRequest* request,
-                                ResourceContext* resource_context,
-                                bool is_content_initiated,
-                                bool must_download,
-                                bool is_new_request,
-                                ScopedVector<ResourceThrottle>* throttles);
+  virtual void DownloadStarting(
+      net::URLRequest* request,
+      ResourceContext* resource_context,
+      bool is_content_initiated,
+      bool must_download,
+      bool is_new_request,
+      std::vector<std::unique_ptr<ResourceThrottle>>* throttles);
 
   // Creates a ResourceDispatcherHostLoginDelegate that asks the user for a
   // username and password.
@@ -74,14 +75,8 @@ class CONTENT_EXPORT ResourceDispatcherHostDelegate {
   // Launches the url for the given tab. Returns true if an attempt to handle
   // the url was made, e.g. by launching an app. Note that this does not
   // guarantee that the app successfully handled it.
-  virtual bool HandleExternalProtocol(
-      const GURL& url,
-      int child_id,
-      const ResourceRequestInfo::WebContentsGetter& web_contents_getter,
-      bool is_main_frame,
-      ui::PageTransition page_transition,
-      bool has_user_gesture,
-      ResourceContext* resource_context);
+  virtual bool HandleExternalProtocol(const GURL& url,
+                                      ResourceRequestInfo* info);
 
   // Returns true if we should force the given resource to be downloaded.
   // Otherwise, the content layer decides.
@@ -128,10 +123,13 @@ class CONTENT_EXPORT ResourceDispatcherHostDelegate {
   // TODO(maksims): Remove this once all the callers are modified.
   virtual void RequestComplete(net::URLRequest* url_request);
 
-  // Asks the embedder if Lo-Fi mode should be enabled for the given request. It
-  // is only called for requests with an unspecified Lo-Fi value.
-  virtual bool ShouldEnableLoFiMode(const net::URLRequest& url_request,
-                                    content::ResourceContext* resource_context);
+  // Asks the embedder for the PreviewsState which says which previews should
+  // be enabled for the given request. The PreviewsState is a bitmask of
+  // potentially several Previews optimizations. It is only called for requests
+  // with an unspecified Previews state.
+  virtual PreviewsState GetPreviewsState(
+      const net::URLRequest& url_request,
+      content::ResourceContext* resource_context);
 
   // Asks the embedder for NavigationData related to this request. It is only
   // called for navigation requests.

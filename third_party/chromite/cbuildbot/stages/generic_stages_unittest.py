@@ -13,22 +13,24 @@ import os
 import sys
 import unittest
 
-from chromite.cbuildbot import commands
-from chromite.cbuildbot import config_lib
-from chromite.cbuildbot import constants
-from chromite.cbuildbot import failures_lib
-from chromite.cbuildbot import chromeos_config
-from chromite.cbuildbot import results_lib
+from chromite.cbuildbot import buildbucket_lib
 from chromite.cbuildbot import cbuildbot_run
+from chromite.cbuildbot import chromeos_config
+from chromite.cbuildbot import commands
 from chromite.cbuildbot.stages import generic_stages
+from chromite.lib import auth
+from chromite.lib import config_lib
+from chromite.lib import constants
 from chromite.lib import cidb
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_build_lib_unittest
 from chromite.lib import cros_test_lib
+from chromite.lib import failures_lib
 from chromite.lib import osutils
 from chromite.lib import parallel
 from chromite.lib import partial_mock
 from chromite.lib import portage_util
+from chromite.lib import results_lib
 from chromite.scripts import cbuildbot
 
 
@@ -282,6 +284,8 @@ class BuilderStageTest(AbstractStageTestCase):
     self._Prepare(waterfall=constants.WATERFALL_EXTERNAL)
     self.mock_cidb = mock.MagicMock()
     cidb.CIDBConnectionFactory.SetupMockCidb(self.mock_cidb)
+    # Many tests modify the global results_lib.Results instance.
+    results_lib.Results.Clear()
 
   def tearDown(self):
     cidb.CIDBConnectionFactory.ClearMock()
@@ -336,12 +340,13 @@ class BuilderStageTest(AbstractStageTestCase):
     """Basic test for the ConstructDashboardURL() function."""
     stage = self.ConstructStage()
 
-    exp_url = ('https://uberchromegw.corp.google.com/i/chromeos/builders/'
-               'x86-generic-paladin/builds/%s' % DEFAULT_BUILD_NUMBER)
+    exp_url = ('https://luci-milo.appspot.com/buildbot/chromiumos/'
+               'x86-generic-paladin/%s' % DEFAULT_BUILD_NUMBER)
     self.assertEqual(stage.ConstructDashboardURL(), exp_url)
 
     stage_name = 'Archive'
-    exp_url = '%s/steps/%s/logs/stdio' % (exp_url, stage_name)
+    exp_url = ('https://uberchromegw.corp.google.com/i/chromeos/builders/'
+               'x86-generic-paladin/builds/1234321/steps/Archive/logs/stdio')
     self.assertEqual(stage.ConstructDashboardURL(stage=stage_name), exp_url)
 
   def test_ExtractOverlaysSmoke(self):
@@ -378,6 +383,7 @@ class BuilderStageTest(AbstractStageTestCase):
       stage.Run()
     finally:
       output.StopCapturing()
+    return output
 
   def testRunException(self):
     """Verify stage exceptions are handled."""
@@ -414,6 +420,28 @@ class BuilderStageTest(AbstractStageTestCase):
         constants.BUILDER_STATUS_SKIPPED)
     self.assertFalse(self.mock_cidb.StartBuildStage.called)
 
+  @osutils.TempFileDecorator
+  def testRunSkipsPreviouslyCompletedStage(self):
+    """Test that a stage that has run before is skipped, and marked as such."""
+    handle_skip_mock = self.PatchObject(generic_stages.BuilderStage,
+                                        'HandleSkip')
+    stage = self.ConstructStage()
+
+    # Record a result as if the stage succeeded in a _previous_ run.
+    results_lib.Results.Record(stage.name, results_lib.Results.SUCCESS,
+                               description="Injected success")
+    with open(self.tempfile, 'w') as out:
+      results_lib.Results.SaveCompletedStages(out)
+    results_lib.Results.Clear()
+    with open(self.tempfile, 'r') as out:
+      results_lib.Results.RestoreCompletedStages(out)
+
+    output = self._RunCapture(stage)
+    all_out = output.GetStdout()
+    all_out += output.GetStderr()
+    self.assertTrue('[PREVIOUSLY PROCESSED]' in all_out)
+    self.assertTrue(handle_skip_mock.called)
+
   def testHandleExceptionException(self):
     """Verify exceptions in HandleException handlers are themselves handled."""
     class TestError(Exception):
@@ -449,6 +477,84 @@ class BuilderStageTest(AbstractStageTestCase):
         DEFAULT_BUILD_STAGE_ID,
         constants.BUILDER_STATUS_FAILED)
 
+
+class MasterConfigBuilderStageTest(AbstractStageTestCase):
+  """Tests for BuilderStage on master build."""
+
+  BOT_ID = 'master-paladin'
+
+  def setUp(self):
+    self._Prepare(waterfall=constants.WATERFALL_EXTERNAL)
+    self.mock_cidb = mock.MagicMock()
+    cidb.CIDBConnectionFactory.SetupMockCidb(self.mock_cidb)
+    results_lib.Results.Clear()
+
+  def tearDown(self):
+    cidb.CIDBConnectionFactory.ClearMock()
+
+  def ConstructStage(self):
+    return generic_stages.BuilderStage(self._run)
+
+  def testGetBuildbucketClient(self):
+    """GetBuildbucketClient returns not None."""
+    self.PatchObject(buildbucket_lib, 'GetServiceAccount',
+                     return_value=True)
+    self.PatchObject(auth.AuthorizedHttp, '__init__',
+                     return_value=None)
+    self.PatchObject(buildbucket_lib.BuildbucketClient,
+                     '_GetHost',
+                     return_value=buildbucket_lib.BUILDBUCKET_TEST_HOST)
+    stage = self.ConstructStage()
+    self.assertIsNotNone(stage.GetBuildbucketClient())
+
+  def testGetBuildbucketClientWithoutServiceAccount(self):
+    """GetBuildbucketClient returns None with no ServiceAccount."""
+    self.PatchObject(buildbucket_lib, 'GetServiceAccount',
+                     return_value=False)
+    stage = self.ConstructStage()
+    self.assertIsNone(stage.GetBuildbucketClient())
+
+  def testGetBuildbucketClientRaisesException(self):
+    """GetBuildbucketClient raises exceptions correctly."""
+    self.PatchObject(buildbucket_lib, 'GetServiceAccount',
+                     return_value=False)
+    self.PatchObject(cbuildbot_run._BuilderRunBase, 'InProduction',
+                     return_value=True)
+    stage = self.ConstructStage()
+    self.assertRaises(buildbucket_lib.NoBuildbucketClientException,
+                      stage.GetBuildbucketClient)
+
+  def testGetScheduledSlaveBuildbucketIdsReturnsEmpty(self):
+    """test GetScheduledSlaveBuildbucketIds with no builds."""
+    stage = self.ConstructStage()
+    self.assertEqual(stage.GetScheduledSlaveBuildbucketIds(), [])
+
+  def testGetScheduledSlaveBuildbucketIdsWithoutRetriedBuilds(self):
+    """test GetScheduledSlaveBuildbucketIds without retried builds."""
+    stage = self.ConstructStage()
+    scheduled_slave_builds = [('slave1', 'bb_id1', 0),
+                              ('slave2', 'bb_id2', 0)]
+    self._run.attrs.metadata.ExtendKeyListWithList(
+        constants.METADATA_SCHEDULED_SLAVES, scheduled_slave_builds)
+    self.assertEqual(set(stage.GetScheduledSlaveBuildbucketIds()),
+                     {'bb_id1', 'bb_id2'})
+
+  def testGetScheduledSlaveBuildbucketIdsWithRetriedBuilds(self):
+    """test GetScheduledSlaveBuildbucketIds With Retried Builds."""
+    stage = self.ConstructStage()
+    scheduled_slave_builds = [('slave1', 'bb_id1', 0),
+                              ('slave2', 'bb_id2', 0),
+                              ('slave1', 'bb_id3', 3)]
+    self._run.attrs.metadata.ExtendKeyListWithList(
+        constants.METADATA_SCHEDULED_SLAVES, scheduled_slave_builds)
+    self.assertEqual(set(stage.GetScheduledSlaveBuildbucketIds()),
+                     {'bb_id3', 'bb_id2'})
+
+  def testGetScheduledSlaveBuildbucketIdsReturnsNone(self):
+    """Returns None for non master build."""
+    stage = self.ConstructStage()
+    stage._run.config.master = False
+    self.assertIsNone(stage.GetScheduledSlaveBuildbucketIds())
 
 class BoardSpecificBuilderStageTest(AbstractStageTestCase):
   """Tests option/config settings on board-specific stages."""

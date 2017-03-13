@@ -11,9 +11,7 @@
 namespace net {
 namespace test {
 
-ServerThread::ServerThread(QuicServer* server,
-                           const IPEndPoint& address,
-                           bool strike_register_no_startup_period)
+ServerThread::ServerThread(QuicServer* server, const QuicSocketAddress& address)
     : SimpleThread("server_thread"),
       confirmed_(base::WaitableEvent::ResetPolicy::MANUAL,
                  base::WaitableEvent::InitialState::NOT_SIGNALED),
@@ -28,11 +26,7 @@ ServerThread::ServerThread(QuicServer* server,
       server_(server),
       address_(address),
       port_(0),
-      initialized_(false) {
-  if (strike_register_no_startup_period) {
-    server_->SetStrikeRegisterNoStartupPeriod();
-  }
-}
+      initialized_(false) {}
 
 ServerThread::~ServerThread() {}
 
@@ -61,6 +55,7 @@ void ServerThread::Run() {
       resume_.Wait();
     }
     server_->WaitForEvents();
+    ExecuteScheduledActions();
     MaybeNotifyOfHandshakeConfirmation();
   }
 
@@ -72,6 +67,12 @@ int ServerThread::GetPort() {
   int rc = port_;
   port_lock_.Release();
   return rc;
+}
+
+void ServerThread::Schedule(std::function<void()> action) {
+  DCHECK(!quit_.IsSignaled());
+  QuicWriterMutexLock lock(&scheduled_actions_lock_);
+  scheduled_actions_.push_back(std::move(action));
 }
 
 void ServerThread::WaitForCryptoHandshakeConfirmed() {
@@ -107,9 +108,21 @@ void ServerThread::MaybeNotifyOfHandshakeConfirmation() {
     // Wait for a session to be created.
     return;
   }
-  QuicSession* session = dispatcher->session_map().begin()->second;
+  QuicSession* session = dispatcher->session_map().begin()->second.get();
   if (session->IsCryptoHandshakeConfirmed()) {
     confirmed_.Signal();
+  }
+}
+
+void ServerThread::ExecuteScheduledActions() {
+  std::deque<std::function<void()>> actions;
+  {
+    QuicWriterMutexLock lock(&scheduled_actions_lock_);
+    actions.swap(scheduled_actions_);
+  }
+  while (!actions.empty()) {
+    actions.front()();
+    actions.pop_front();
   }
 }
 

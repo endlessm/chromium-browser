@@ -5,28 +5,28 @@
 #include "mash/quick_launch/quick_launch.h"
 
 #include "base/macros.h"
+#include "base/memory/ptr_util.h"
 #include "base/message_loop/message_loop.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "mash/public/interfaces/launchable.mojom.h"
 #include "services/catalog/public/interfaces/catalog.mojom.h"
-#include "services/shell/public/c/main.h"
-#include "services/shell/public/cpp/connector.h"
-#include "services/shell/public/cpp/service.h"
-#include "services/shell/public/cpp/service_runner.h"
+#include "services/catalog/public/interfaces/constants.mojom.h"
+#include "services/service_manager/public/c/main.h"
+#include "services/service_manager/public/cpp/connector.h"
+#include "services/service_manager/public/cpp/interface_registry.h"
+#include "services/service_manager/public/cpp/service.h"
+#include "services/service_manager/public/cpp/service_context.h"
+#include "services/service_manager/public/cpp/service_runner.h"
 #include "services/tracing/public/cpp/provider.h"
 #include "ui/views/background.h"
 #include "ui/views/controls/textfield/textfield.h"
 #include "ui/views/controls/textfield/textfield_controller.h"
 #include "ui/views/mus/aura_init.h"
-#include "ui/views/mus/window_manager_connection.h"
+#include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_delegate.h"
 #include "url/gurl.h"
-
-namespace views {
-class AuraInit;
-}
 
 namespace mash {
 namespace quick_launch {
@@ -35,10 +35,10 @@ class QuickLaunchUI : public views::WidgetDelegateView,
                       public views::TextfieldController {
  public:
   QuickLaunchUI(QuickLaunch* quick_launch,
-                shell::Connector* connector,
+                service_manager::Connector* connector,
                 catalog::mojom::CatalogPtr catalog)
       : quick_launch_(quick_launch),
-    connector_(connector),
+        connector_(connector),
         prompt_(new views::Textfield),
         catalog_(std::move(catalog)) {
     set_background(views::Background::CreateStandardPanelBackground());
@@ -93,6 +93,9 @@ class QuickLaunchUI : public views::WidgetDelegateView,
     if (suggestion_rejected_)
       return;
 
+    if (new_contents.empty())
+      return;
+
     // TODO(beng): it'd be nice if we persisted some history/scoring here.
     for (const auto& name : app_names_) {
       if (base::StartsWith(name, new_contents,
@@ -114,12 +117,12 @@ class QuickLaunchUI : public views::WidgetDelegateView,
     base::TrimWhitespace(input, base::TRIM_ALL, &working);
     GURL url(working);
     if (url.scheme() != "service" && url.scheme() != "exe")
-      working = base::ASCIIToUTF16("service:") + working;
+      working = base::ASCIIToUTF16("") + working;
     return base::UTF16ToUTF8(working);
   }
 
   void UpdateEntries() {
-    catalog_->GetEntriesProvidingClass(
+    catalog_->GetEntriesProvidingCapability(
         "mash:launchable",
         base::Bind(&QuickLaunchUI::OnGotCatalogEntries,
                    base::Unretained(this)));
@@ -131,8 +134,9 @@ class QuickLaunchUI : public views::WidgetDelegateView,
   }
 
   void Launch(const std::string& name, bool new_window) {
-    std::unique_ptr<shell::Connection> connection = connector_->Connect(name);
-    mojom::LaunchablePtr launchable;
+    std::unique_ptr<service_manager::Connection> connection =
+        connector_->Connect(name);
+    ::mash::mojom::LaunchablePtr launchable;
     connection->GetInterface(&launchable);
     connections_.push_back(std::move(connection));
     launchable->Launch(mojom::kWindow,
@@ -141,9 +145,9 @@ class QuickLaunchUI : public views::WidgetDelegateView,
   }
 
   QuickLaunch* quick_launch_;
-  shell::Connector* connector_;
+  service_manager::Connector* connector_;
   views::Textfield* prompt_;
-  std::vector<std::unique_ptr<shell::Connection>> connections_;
+  std::vector<std::unique_ptr<service_manager::Connection>> connections_;
   catalog::mojom::CatalogPtr catalog_;
   std::set<base::string16> app_names_;
   bool suggestion_rejected_ = false;
@@ -162,20 +166,19 @@ void QuickLaunch::RemoveWindow(views::Widget* window) {
     base::MessageLoop::current()->QuitWhenIdle();
 }
 
-void QuickLaunch::OnStart(const shell::Identity& identity) {
-  tracing_.Initialize(connector(), identity.name());
+void QuickLaunch::OnStart() {
+  tracing_.Initialize(context()->connector(), context()->identity().name());
 
-  aura_init_.reset(
-      new views::AuraInit(connector(), "views_mus_resources.pak"));
-  window_manager_connection_ =
-      views::WindowManagerConnection::Create(connector(), identity);
+  aura_init_ = base::MakeUnique<views::AuraInit>(
+      context()->connector(), context()->identity(), "views_mus_resources.pak",
+      std::string(), nullptr, views::AuraInit::Mode::AURA_MUS);
 
   Launch(mojom::kWindow, mojom::LaunchMode::MAKE_NEW);
 }
 
-bool QuickLaunch::OnConnect(const shell::Identity& remote_identity,
-                            shell::InterfaceRegistry* registry) {
-  registry->AddInterface<mojom::Launchable>(this);
+bool QuickLaunch::OnConnect(const service_manager::ServiceInfo& remote_info,
+                            service_manager::InterfaceRegistry* registry) {
+  registry->AddInterface<::mash::mojom::Launchable>(this);
   return true;
 }
 
@@ -187,17 +190,17 @@ void QuickLaunch::Launch(uint32_t what, mojom::LaunchMode how) {
     return;
   }
   catalog::mojom::CatalogPtr catalog;
-  connector()->ConnectToInterface("service:catalog", &catalog);
+  context()->connector()->BindInterface(catalog::mojom::kServiceName, &catalog);
 
   views::Widget* window = views::Widget::CreateWindowWithContextAndBounds(
-      new QuickLaunchUI(this, connector(), std::move(catalog)),
+      new QuickLaunchUI(this, context()->connector(), std::move(catalog)),
       nullptr, gfx::Rect(10, 640, 0, 0));
   window->Show();
   windows_.push_back(window);
 }
 
-void QuickLaunch::Create(const shell::Identity& remote_identity,
-                         mojom::LaunchableRequest request) {
+void QuickLaunch::Create(const service_manager::Identity& remote_identity,
+                         ::mash::mojom::LaunchableRequest request) {
   bindings_.AddBinding(this, std::move(request));
 }
 

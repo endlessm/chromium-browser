@@ -41,9 +41,7 @@ class PLATFORM_EXPORT GIFImageDecoder final : public ImageDecoder {
   WTF_MAKE_NONCOPYABLE(GIFImageDecoder);
 
  public:
-  GIFImageDecoder(AlphaOption,
-                  GammaAndColorProfileOption,
-                  size_t maxDecodedBytes);
+  GIFImageDecoder(AlphaOption, const ColorBehavior&, size_t maxDecodedBytes);
   ~GIFImageDecoder() override;
 
   enum GIFParseQuery { GIFSizeQuery, GIFFrameCountQuery };
@@ -54,7 +52,6 @@ class PLATFORM_EXPORT GIFImageDecoder final : public ImageDecoder {
   int repetitionCount() const override;
   bool frameIsCompleteAtIndex(size_t) const override;
   float frameDurationAtIndex(size_t) const override;
-  size_t clearCacheExceptFrame(size_t) override;
   // CAUTION: setFailed() deletes |m_reader|.  Be careful to avoid
   // accessing deleted memory, especially when calling this from inside
   // GIFImageReader!
@@ -84,13 +81,15 @@ class PLATFORM_EXPORT GIFImageDecoder final : public ImageDecoder {
   // data. If parsing fails, sets the "decode failure" flag.
   void parse(GIFParseQuery);
 
-  // Called to initialize the frame buffer with the given index, based on
-  // the previous frame's disposal method. Returns true on success. On
-  // failure, this will mark the image as failed.
-  bool initFrameBuffer(size_t frameIndex);
+  // Reset the alpha tracker for this frame. Before calling this method, the
+  // caller must verify that the frame exists.
+  void onInitFrameBuffer(size_t) override;
 
-  // Like clearCacheExceptFrame(), but preserves two frames instead of one.
-  size_t clearCacheExceptTwoFrames(size_t, size_t);
+  // When the disposal method of the frame is DisposeOverWritePrevious, the
+  // next frame will use the previous frame's buffer as its starting state, so
+  // we can't take over the data in that case. Before calling this method, the
+  // caller must verify that the frame exists.
+  bool canReusePreviousFrameBuffer(size_t) const override;
 
   bool m_currentBufferSawAlpha;
   mutable int m_repetitionCount;

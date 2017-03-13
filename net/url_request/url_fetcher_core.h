@@ -27,6 +27,7 @@
 #include "url/gurl.h"
 
 namespace base {
+class SequencedTaskRunner;
 class SingleThreadTaskRunner;
 }  // namespace base
 
@@ -87,12 +88,11 @@ class URLFetcherCore : public base::RefCountedThreadSafe<URLFetcherCore>,
   void SetExtraRequestHeaders(const std::string& extra_request_headers);
   void AddExtraRequestHeader(const std::string& header_line);
   void SetRequestContext(URLRequestContextGetter* request_context_getter);
-  // Set the URL that should be considered as "initiating" the fetch. This URL
+  // Set the origin that should be considered as "initiating" the fetch. This
+  // URL
   // will be considered the "first-party" when applying cookie blocking policy
   // to requests, and treated as the request's initiator.
-  //
-  // TODO(mkwst): Convert this to a url::Origin. https://crbug.com/577565
-  void SetInitiatorURL(const GURL& initiator);
+  void SetInitiator(const base::Optional<url::Origin>& initiator);
   // Set the key and data callback that is used when setting the user
   // data on any URLRequest objects this object creates.
   void SetURLRequestUserData(
@@ -217,10 +217,10 @@ class URLFetcherCore : public base::RefCountedThreadSafe<URLFetcherCore>,
 
   // Notify Delegate about the progress of upload/download.
   void InformDelegateUploadProgress();
-  void InformDelegateUploadProgressInDelegateThread(int64_t current,
-                                                    int64_t total);
+  void InformDelegateUploadProgressInDelegateSequence(int64_t current,
+                                                      int64_t total);
   void InformDelegateDownloadProgress();
-  void InformDelegateDownloadProgressInDelegateThread(
+  void InformDelegateDownloadProgressInDelegateSequence(
       int64_t current,
       int64_t total,
       int64_t current_network_bytes);
@@ -234,8 +234,8 @@ class URLFetcherCore : public base::RefCountedThreadSafe<URLFetcherCore>,
   URLFetcher::RequestType request_type_;  // What type of request is this?
   URLRequestStatus status_;          // Status of the request
   URLFetcherDelegate* delegate_;     // Object to notify on completion
-  // Task runner for the creating thread. Used to interact with the delegate.
-  scoped_refptr<base::SingleThreadTaskRunner> delegate_task_runner_;
+  // Task runner for the creating sequence. Used to interact with the delegate.
+  const scoped_refptr<base::SequencedTaskRunner> delegate_task_runner_;
   // Task runner for network operations.
   scoped_refptr<base::SingleThreadTaskRunner> network_task_runner_;
   // Task runner for upload file access.
@@ -247,7 +247,7 @@ class URLFetcherCore : public base::RefCountedThreadSafe<URLFetcherCore>,
                                      // Read buffer
   scoped_refptr<URLRequestContextGetter> request_context_getter_;
                                      // Cookie/cache info for the request
-  GURL initiator_;  // The request's initiator
+  base::Optional<url::Origin> initiator_;  // The request's initiator
   // The user data to add to each newly-created URLRequest.
   const void* url_request_data_key_;
   URLFetcher::CreateDataCallback url_request_create_data_callback_;

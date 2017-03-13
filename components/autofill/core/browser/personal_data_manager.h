@@ -9,12 +9,12 @@
 #include <memory>
 #include <set>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
-#include "base/memory/scoped_vector.h"
 #include "base/observer_list.h"
 #include "base/strings/string16.h"
 #include "build/build_config.h"
@@ -85,8 +85,9 @@ class PersonalDataManager : public KeyedService,
   void OnSyncServiceInitialized(syncer::SyncService* sync_service);
 
   // WebDataServiceConsumer:
-  void OnWebDataServiceRequestDone(WebDataServiceBase::Handle h,
-                                   const WDTypedResult* result) override;
+  void OnWebDataServiceRequestDone(
+      WebDataServiceBase::Handle h,
+      std::unique_ptr<WDTypedResult> result) override;
 
   // AutofillWebDataServiceObserverOnUIThread:
   void AutofillMultipleChanged() override;
@@ -151,9 +152,9 @@ class PersonalDataManager : public KeyedService,
   // status can be changed. Looks up the card by server ID.
   virtual void UpdateServerCreditCard(const CreditCard& credit_card);
 
-  // Updates the billing address for the server |credit_card|. Looks up the card
-  // by GUID.
-  void UpdateServerCardBillingAddress(const CreditCard& credit_card);
+  // Updates the use stats and billing address id for the server |credit_card|.
+  // Looks up the card by server_id.
+  void UpdateServerCardMetadata(const CreditCard& credit_card);
 
   // Resets the card for |guid| to the masked state.
   void ResetFullServerCard(const std::string& guid);
@@ -169,7 +170,7 @@ class PersonalDataManager : public KeyedService,
 
   // Returns the credit card with the specified |guid|, or NULL if there is
   // no credit card with the specified |guid|.
-  CreditCard* GetCreditCardByGUID(const std::string& guid);
+  virtual CreditCard* GetCreditCardByGUID(const std::string& guid);
 
   // Gets the field types availabe in the stored address and credit card data.
   void GetNonEmptyTypes(ServerFieldTypeSet* non_empty_types);
@@ -185,9 +186,9 @@ class PersonalDataManager : public KeyedService,
   // card information, respectively.  |GetProfiles()| returns both web and
   // auxiliary profiles.  |web_profiles()| returns only web profiles.
   virtual const std::vector<AutofillProfile*>& GetProfiles() const;
-  virtual const std::vector<AutofillProfile*>& web_profiles() const;
+  virtual std::vector<AutofillProfile*> web_profiles() const;
   // Returns just LOCAL_CARD cards.
-  virtual const std::vector<CreditCard*>& GetLocalCreditCards() const;
+  virtual std::vector<CreditCard*> GetLocalCreditCards() const;
   // Returns all credit cards, server and local.
   virtual const std::vector<CreditCard*>& GetCreditCards() const;
 
@@ -239,10 +240,11 @@ class PersonalDataManager : public KeyedService,
   // otherwise appends |new_profile| to the end of that list. Fills
   // |merged_profiles| with the result. Returns the |guid| of the new or updated
   // profile.
-  std::string MergeProfile(const AutofillProfile& new_profile,
-                           std::vector<AutofillProfile*> existing_profiles,
-                           const std::string& app_locale,
-                           std::vector<AutofillProfile>* merged_profiles);
+  std::string MergeProfile(
+      const AutofillProfile& new_profile,
+      std::vector<std::unique_ptr<AutofillProfile>>* existing_profiles,
+      const std::string& app_locale,
+      std::vector<AutofillProfile>* merged_profiles);
 
   // Returns true if |country_code| is a country that the user is likely to
   // be associated with the user. More concretely, it checks if there are any
@@ -255,7 +257,7 @@ class PersonalDataManager : public KeyedService,
   // will only update when Chrome is restarted.
   virtual const std::string& GetDefaultCountryCodeForNewAddress() const;
 
-  // De-dupe credit card to suggest. Full server cards are prefered over their
+  // De-dupe credit card to suggest. Full server cards are preferred over their
   // local duplicates, and local cards are preferred over their masked server
   // card duplicate.
   static void DedupeCreditCardToSuggest(
@@ -287,9 +289,15 @@ class PersonalDataManager : public KeyedService,
   FRIEND_TEST_ALL_PREFIXES(AutofillMetricsTest, AutofillIsEnabledAtStartup);
   FRIEND_TEST_ALL_PREFIXES(PersonalDataManagerTest,
                            DedupeProfiles_ProfilesToDelete);
+  FRIEND_TEST_ALL_PREFIXES(PersonalDataManagerTest,
+                           DedupeProfiles_GuidsMergeMap);
+  FRIEND_TEST_ALL_PREFIXES(PersonalDataManagerTest,
+                           UpdateCardsBillingAddressReference);
   FRIEND_TEST_ALL_PREFIXES(PersonalDataManagerTest, ApplyProfileUseDatesFix);
   FRIEND_TEST_ALL_PREFIXES(PersonalDataManagerTest,
                            ApplyProfileUseDatesFix_NotAppliedTwice);
+  FRIEND_TEST_ALL_PREFIXES(PersonalDataManagerTest,
+                           ApplyDedupingRoutine_CardsBillingAddressIdUpdated);
   FRIEND_TEST_ALL_PREFIXES(PersonalDataManagerTest,
                            ApplyDedupingRoutine_MergedProfileValues);
   FRIEND_TEST_ALL_PREFIXES(PersonalDataManagerTest,
@@ -300,6 +308,10 @@ class PersonalDataManager : public KeyedService,
                            ApplyDedupingRoutine_MultipleVerifiedProfiles);
   FRIEND_TEST_ALL_PREFIXES(PersonalDataManagerTest,
                            ApplyDedupingRoutine_FeatureDisabled);
+  FRIEND_TEST_ALL_PREFIXES(PersonalDataManagerTest,
+                           ApplyDedupingRoutine_NopIfZeroProfiles);
+  FRIEND_TEST_ALL_PREFIXES(PersonalDataManagerTest,
+                           ApplyDedupingRoutine_NopIfOneProfile);
   FRIEND_TEST_ALL_PREFIXES(PersonalDataManagerTest,
                            ApplyDedupingRoutine_OncePerVersion);
   FRIEND_TEST_ALL_PREFIXES(PersonalDataManagerTest,
@@ -390,18 +402,18 @@ class PersonalDataManager : public KeyedService,
 
   // The loaded web profiles. These are constructed from entries on web pages
   // and from manually editing in the settings.
-  ScopedVector<AutofillProfile> web_profiles_;
+  std::vector<std::unique_ptr<AutofillProfile>> web_profiles_;
 
   // Profiles read from the user's account stored on the server.
-  mutable ScopedVector<AutofillProfile> server_profiles_;
+  mutable std::vector<std::unique_ptr<AutofillProfile>> server_profiles_;
 
   // Storage for web profiles.  Contents are weak references.  Lifetime managed
   // by |web_profiles_|.
   mutable std::vector<AutofillProfile*> profiles_;
 
   // Cached versions of the local and server credit cards.
-  ScopedVector<CreditCard> local_credit_cards_;
-  ScopedVector<CreditCard> server_credit_cards_;
+  std::vector<std::unique_ptr<CreditCard>> local_credit_cards_;
+  std::vector<std::unique_ptr<CreditCard>> server_credit_cards_;
 
   // A combination of local and server credit cards. The pointers are owned
   // by the local/sverver_credit_cards_ vectors.
@@ -467,20 +479,28 @@ class PersonalDataManager : public KeyedService,
   // Applies the deduping routine once per major version if the feature is
   // enabled. Calls DedupeProfiles with the content of |web_profiles_| as a
   // parameter. Removes the profiles to delete from the database and updates the
-  // others. Returns true if the routine was run.
+  // others. Also updates the credit cards' billing address references. Returns
+  // true if the routine was run.
   bool ApplyDedupingRoutine();
 
   // Goes through all the |existing_profiles| and merges all similar unverified
   // profiles together. Also discards unverified profiles that are similar to a
   // verified profile. All the profiles except the results of the merges will be
   // added to |profile_guids_to_delete|. This routine should be run once per
-  // major version.
+  // major version. Records all the merges into the |guids_merge_map|.
   //
   // This method should only be called by ApplyDedupingRoutine. It is split for
   // testing purposes.
   void DedupeProfiles(
-      std::vector<AutofillProfile*>* existing_profiles,
-      std::unordered_set<AutofillProfile*>* profile_guids_to_delete);
+      std::vector<std::unique_ptr<AutofillProfile>>* existing_profiles,
+      std::unordered_set<AutofillProfile*>* profile_guids_to_delete,
+      std::unordered_map<std::string, std::string>* guids_merge_map);
+
+  // Updates the credit cards' billing address reference based on the merges
+  // that happened during the dedupe, as defined in |guids_merge_map|. Also
+  // updates the cards entries in the database.
+  void UpdateCardsBillingAddressReference(
+      const std::unordered_map<std::string, std::string>& guids_merge_map);
 
   const std::string app_locale_;
 
@@ -518,9 +538,8 @@ class PersonalDataManager : public KeyedService,
   // An observer to listen for changes to prefs::kAutofillWalletImportEnabled.
   std::unique_ptr<BooleanPrefMember> wallet_enabled_pref_;
 
-  // Set to true if autofill profile deduplication is enabled and needs to be
-  // performed on the next data refresh.
-  bool is_autofill_profile_dedupe_pending_ = false;
+  // True if autofill profile cleanup needs to be performed.
+  bool is_autofill_profile_cleanup_pending_ = false;
 
 #if defined(OS_ANDROID)
   // The context for the request to be used to fetch libaddressinput's address

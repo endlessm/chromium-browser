@@ -19,6 +19,10 @@ bool PasswordManagerClient::IsFillingEnabledForCurrentPage() const {
   return true;
 }
 
+bool PasswordManagerClient::OnCredentialManagerUsed() {
+  return true;
+}
+
 void PasswordManagerClient::ForceSavePassword() {
 }
 
@@ -64,7 +68,7 @@ const GURL& PasswordManagerClient::GetMainFrameURL() const {
   return GURL::EmptyGURL();
 }
 
-bool PasswordManagerClient::IsUpdatePasswordUIEnabled() const {
+bool PasswordManagerClient::IsMainFrameSecure() const {
   return false;
 }
 

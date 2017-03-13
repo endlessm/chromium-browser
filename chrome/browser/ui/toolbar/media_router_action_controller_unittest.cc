@@ -8,7 +8,7 @@
 #include "chrome/browser/media/router/mock_media_router.h"
 #include "chrome/browser/ui/toolbar/component_toolbar_actions_factory.h"
 #include "chrome/browser/ui/toolbar/media_router_action_controller.h"
-#include "chrome/browser/ui/webui/media_router/media_router_test.h"
+#include "chrome/browser/ui/webui/media_router/media_router_web_ui_test.h"
 #include "chrome/common/pref_names.h"
 #include "testing/gmock/include/gmock/gmock.h"
 
@@ -43,26 +43,21 @@ class FakeComponentActionDelegate
   bool has_media_router_action_ = false;
 };
 
-class MediaRouterActionControllerUnitTest : public MediaRouterTest {
+class MediaRouterActionControllerUnitTest : public MediaRouterWebUITest {
  public:
   MediaRouterActionControllerUnitTest()
-      : issue_(media_router::Issue(
+      : issue_(media_router::IssueInfo(
             "title notification",
-            "message notification",
-            media_router::IssueAction(media_router::IssueAction::TYPE_DISMISS),
-            std::vector<media_router::IssueAction>(),
-            "route_id",
-            media_router::Issue::NOTIFICATION,
-            false,
-            -1)),
+            media_router::IssueInfo::Action::DISMISS,
+            media_router::IssueInfo::Severity::NOTIFICATION)),
         source1_("fakeSource1"),
         source2_("fakeSource2") {}
 
   ~MediaRouterActionControllerUnitTest() override {}
 
-  // MediaRouterTest:
+  // MediaRouterWebUITest:
   void SetUp() override {
-    MediaRouterTest::SetUp();
+    MediaRouterWebUITest::SetUp();
 
     router_.reset(new media_router::MockMediaRouter());
     component_action_delegate_.reset(new FakeComponentActionDelegate());
@@ -90,7 +85,7 @@ class MediaRouterActionControllerUnitTest : public MediaRouterTest {
     component_migration_helper_.reset();
     component_action_delegate_.reset();
     router_.reset();
-    MediaRouterTest::TearDown();
+    MediaRouterWebUITest::TearDown();
   }
 
   bool ActionExists() {
@@ -105,7 +100,7 @@ class MediaRouterActionControllerUnitTest : public MediaRouterTest {
 
   MediaRouterActionController* controller() { return controller_.get(); }
 
-  const media_router::Issue* issue() { return &issue_; }
+  const media_router::Issue& issue() { return issue_; }
   const std::vector<media_router::MediaRoute>& local_display_route_list()
       const {
     return local_display_route_list_;
@@ -137,7 +132,7 @@ class MediaRouterActionControllerUnitTest : public MediaRouterTest {
   DISALLOW_COPY_AND_ASSIGN(MediaRouterActionControllerUnitTest);
 };
 
-TEST_F(MediaRouterActionControllerUnitTest, EphemeralIcon) {
+TEST_F(MediaRouterActionControllerUnitTest, EphemeralIconForRoutesAndIssues) {
   EXPECT_FALSE(ActionExists());
 
   // Creating a local route should show the action icon.
@@ -152,23 +147,60 @@ TEST_F(MediaRouterActionControllerUnitTest, EphemeralIcon) {
   EXPECT_FALSE(ActionExists());
 
   // Creating an issue should show the action icon.
-  controller()->OnIssueUpdated(issue());
+  controller()->OnIssue(issue());
   EXPECT_TRUE(controller()->has_issue_);
   EXPECT_TRUE(ActionExists());
   // Removing the issue should hide the icon.
-  controller()->OnIssueUpdated(nullptr);
+  controller()->OnIssuesCleared();
   EXPECT_FALSE(controller()->has_issue_);
   EXPECT_FALSE(ActionExists());
 
-  controller()->OnIssueUpdated(issue());
+  controller()->OnIssue(issue());
   controller()->OnRoutesUpdated(local_display_route_list(),
                                 empty_route_id_list());
-  controller()->OnIssueUpdated(nullptr);
+  controller()->OnIssuesCleared();
   // When the issue disappears, the icon should remain visible if there's
   // a local route.
   EXPECT_TRUE(ActionExists());
   controller()->OnRoutesUpdated(std::vector<media_router::MediaRoute>(),
                                 empty_route_id_list());
+  EXPECT_FALSE(ActionExists());
+}
+
+TEST_F(MediaRouterActionControllerUnitTest, EphemeralIconForDialog) {
+  EXPECT_FALSE(ActionExists());
+
+  // Showing a dialog should show the icon.
+  controller()->OnDialogShown();
+  EXPECT_TRUE(ActionExists());
+  // Showing and hiding a dialog shouldn't hide the icon as long as we have a
+  // positive number of dialogs.
+  controller()->OnDialogShown();
+  EXPECT_TRUE(ActionExists());
+  controller()->OnDialogHidden();
+  EXPECT_TRUE(ActionExists());
+  // When we have zero dialogs, the icon should be hidden.
+  controller()->OnDialogHidden();
+  EXPECT_FALSE(ActionExists());
+
+  controller()->OnDialogShown();
+  EXPECT_TRUE(ActionExists());
+  controller()->OnRoutesUpdated(local_display_route_list(),
+                                empty_route_id_list());
+  // Hiding the dialog while there are local routes shouldn't hide the icon.
+  controller()->OnDialogHidden();
+  EXPECT_TRUE(ActionExists());
+  controller()->OnRoutesUpdated(non_local_display_route_list(),
+                                empty_route_id_list());
+  EXPECT_FALSE(ActionExists());
+
+  controller()->OnDialogShown();
+  EXPECT_TRUE(ActionExists());
+  controller()->OnIssue(issue());
+  // Hiding the dialog while there is an issue shouldn't hide the icon.
+  controller()->OnDialogHidden();
+  EXPECT_TRUE(ActionExists());
+  controller()->OnIssuesCleared();
   EXPECT_FALSE(ActionExists());
 }
 

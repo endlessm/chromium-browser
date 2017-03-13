@@ -37,6 +37,7 @@
 #include "core/dom/ExceptionCode.h"
 #include "core/dom/ExecutionContext.h"
 #include "core/dom/ExecutionContextTask.h"
+#include "core/dom/TaskRunnerHelper.h"
 #include "core/events/ProgressEvent.h"
 #include "core/fileapi/File.h"
 #include "core/inspector/InspectorInstrumentation.h"
@@ -186,14 +187,11 @@ class FileReader::ThrottlingController final
 };
 
 FileReader* FileReader::create(ExecutionContext* context) {
-  FileReader* fileReader = new FileReader(context);
-  fileReader->suspendIfNeeded();
-  return fileReader;
+  return new FileReader(context);
 }
 
 FileReader::FileReader(ExecutionContext* context)
-    : ActiveScriptWrappable(this),
-      ActiveDOMObject(context),
+    : ContextLifecycleObserver(context),
       m_state(kEmpty),
       m_loadingState(LoadingStateNone),
       m_stillFiringEvents(false),
@@ -208,15 +206,16 @@ const AtomicString& FileReader::interfaceName() const {
   return EventTargetNames::FileReader;
 }
 
-void FileReader::contextDestroyed() {
+void FileReader::contextDestroyed(ExecutionContext* destroyedContext) {
   // The delayed abort task tidies up and advances to the DONE state.
   if (m_loadingState == LoadingStateAborted)
     return;
 
-  if (hasPendingActivity())
+  if (hasPendingActivity()) {
     ThrottlingController::finishReader(
-        getExecutionContext(), this,
-        ThrottlingController::removeReader(getExecutionContext(), this));
+        destroyedContext, this,
+        ThrottlingController::removeReader(destroyedContext, this));
+  }
   terminate();
 }
 
@@ -322,10 +321,6 @@ void FileReader::executePendingRead() {
   m_blobDataHandle = nullptr;
 }
 
-static void delayedAbort(FileReader* reader) {
-  reader->doAbort();
-}
-
 void FileReader::abort() {
   DVLOG(1) << "aborting";
 
@@ -335,20 +330,12 @@ void FileReader::abort() {
   }
   m_loadingState = LoadingStateAborted;
 
-  // Schedule to have the abort done later since abort() might be called from
-  // the event handler and we do not want the resource loading code to be in the
-  // stack.
-  getExecutionContext()->postTask(
-      BLINK_FROM_HERE,
-      createSameThreadTask(&delayedAbort, wrapPersistent(this)));
-}
-
-void FileReader::doAbort() {
   DCHECK_NE(kDone, m_state);
+  m_state = kDone;
+
   AutoReset<bool> firingEvents(&m_stillFiringEvents, true);
 
-  terminate();
-
+  // Setting error implicitly makes |result| return null.
   m_error = FileError::createDOMException(FileError::kAbortErr);
 
   // Unregister the reader.
@@ -361,10 +348,18 @@ void FileReader::doAbort() {
 
   // All possible events have fired and we're done, no more pending activity.
   ThrottlingController::finishReader(getExecutionContext(), this, finalStep);
+
+  // ..but perform the loader cancellation asynchronously as abort() could be
+  // called from the event handler and we do not want the resource loading code
+  // to be on the stack when doing so. The persistent reference keeps the
+  // reader alive until the task has completed.
+  getExecutionContext()->postTask(
+      TaskType::FileReading, BLINK_FROM_HERE,
+      createSameThreadTask(&FileReader::terminate, wrapPersistent(this)));
 }
 
 void FileReader::result(StringOrArrayBuffer& resultAttribute) const {
-  if (!m_loader || m_error)
+  if (m_error || !m_loader)
     return;
 
   if (m_readType == FileReaderLoader::ReadAsArrayBuffer)
@@ -408,7 +403,7 @@ void FileReader::didFinishLoading() {
   // TODO(jochen): When we set m_state to DONE below, we still need to fire
   // the load and loadend events. To avoid GC to collect this FileReader, we
   // use this separate variable to keep the wrapper of this FileReader alive.
-  // An alternative would be to keep any active DOM object alive that is on
+  // An alternative would be to keep any ActiveScriptWrappables alive that is on
   // the stack.
   AutoReset<bool> firingEvents(&m_stillFiringEvents, true);
 
@@ -445,8 +440,7 @@ void FileReader::didFail(FileError::ErrorCode errorCode) {
   DCHECK_NE(kDone, m_state);
   m_state = kDone;
 
-  m_error = FileError::createDOMException(
-      static_cast<FileError::ErrorCode>(errorCode));
+  m_error = FileError::createDOMException(errorCode);
 
   // Unregister the reader.
   ThrottlingController::FinishReaderType finalStep =
@@ -477,7 +471,7 @@ void FileReader::fireEvent(const AtomicString& type) {
 DEFINE_TRACE(FileReader) {
   visitor->trace(m_error);
   EventTargetWithInlineData::trace(visitor);
-  ActiveDOMObject::trace(visitor);
+  ContextLifecycleObserver::trace(visitor);
 }
 
 }  // namespace blink

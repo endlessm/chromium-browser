@@ -16,6 +16,7 @@ import android.text.TextUtils;
 import android.view.View;
 import android.view.View.OnAttachStateChangeListener;
 import android.view.View.OnClickListener;
+import android.view.ViewGroup.MarginLayoutParams;
 import android.widget.FrameLayout;
 
 import org.chromium.base.ApiCompatibilityUtils;
@@ -40,7 +41,7 @@ import org.chromium.chrome.browser.compositor.layouts.LayoutManager;
 import org.chromium.chrome.browser.compositor.layouts.OverviewModeBehavior;
 import org.chromium.chrome.browser.compositor.layouts.OverviewModeBehavior.OverviewModeObserver;
 import org.chromium.chrome.browser.compositor.layouts.SceneChangeObserver;
-import org.chromium.chrome.browser.fullscreen.ChromeFullscreenManager;
+import org.chromium.chrome.browser.fullscreen.BrowserStateBrowserControlsVisibilityDelegate;
 import org.chromium.chrome.browser.fullscreen.FullscreenManager;
 import org.chromium.chrome.browser.ntp.IncognitoNewTabPage;
 import org.chromium.chrome.browser.ntp.NativePageFactory;
@@ -71,6 +72,7 @@ import org.chromium.content_public.browser.LoadUrlParams;
 import org.chromium.content_public.browser.NavigationController;
 import org.chromium.content_public.browser.NavigationEntry;
 import org.chromium.content_public.browser.WebContents;
+import org.chromium.ui.UiUtils;
 import org.chromium.ui.base.DeviceFormFactor;
 import org.chromium.ui.base.PageTransition;
 
@@ -135,7 +137,7 @@ public class ToolbarManager implements ToolbarTabController, UrlFocusChangeListe
     private final ActionModeController mActionModeController;
     private final LoadProgressSimulator mLoadProgressSimulator;
 
-    private ChromeFullscreenManager mFullscreenManager;
+    private BrowserStateBrowserControlsVisibilityDelegate mControlsVisibilityDelegate;
     private int mFullscreenFocusToken = FullscreenManager.INVALID_TOKEN;
     private int mFullscreenFindInPageToken = FullscreenManager.INVALID_TOKEN;
     private int mFullscreenMenuToken = FullscreenManager.INVALID_TOKEN;
@@ -166,7 +168,7 @@ public class ToolbarManager implements ToolbarTabController, UrlFocusChangeListe
         mActionBarDelegate = new ActionModeController.ActionBarDelegate() {
             @Override
             public void setControlTopMargin(int margin) {
-                FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams)
+                MarginLayoutParams lp = (MarginLayoutParams)
                         mControlContainer.getLayoutParams();
                 lp.topMargin = margin;
                 mControlContainer.setLayoutParams(lp);
@@ -307,11 +309,6 @@ public class ToolbarManager implements ToolbarTabController, UrlFocusChangeListe
             }
 
             @Override
-            public void onWebContentsInstantSupportDisabled() {
-                mLocationBar.setUrlToPageUrl();
-            }
-
-            @Override
             public void onDidNavigateMainFrame(Tab tab, String url, String baseUrl,
                     boolean isNavigationToDifferentPage, boolean isFragmentNavigation,
                     int statusCode) {
@@ -369,6 +366,13 @@ public class ToolbarManager implements ToolbarTabController, UrlFocusChangeListe
 
                 // TODO(kkimlabs): Investigate using float progress all the way up to Blink.
                 updateLoadProgress(progress);
+            }
+
+            @Override
+            public void onToggleFullscreenMode(Tab tab, boolean enable) {
+                if (mFindToolbarManager != null && enable) {
+                    mFindToolbarManager.hideToolbar();
+                }
             }
 
             @Override
@@ -458,9 +462,8 @@ public class ToolbarManager implements ToolbarTabController, UrlFocusChangeListe
             }
 
             @Override
-            public void onDidStartProvisionalLoadForFrame(Tab tab, long frameId, long parentFrameId,
-                    boolean isMainFrame, String validatedUrl, boolean isErrorPage,
-                    boolean isIframeSrcdoc) {
+            public void onDidStartProvisionalLoadForFrame(
+                    Tab tab, boolean isMainFrame, String validatedUrl) {
                 // This event is used as the primary trigger for the progress bar because it
                 // is the earliest indication that a load has started for a particular frame. In
                 // the case of the progress bar, it should only traverse the screen a single time
@@ -492,9 +495,9 @@ public class ToolbarManager implements ToolbarTabController, UrlFocusChangeListe
                     @Override
                     public void onFindToolbarShown() {
                         mToolbar.handleFindToolbarStateChange(true);
-                        if (mFullscreenManager != null) {
-                            mFullscreenFindInPageToken =
-                                    mFullscreenManager.showControlsPersistentAndClearOldToken(
+                        if (mControlsVisibilityDelegate != null) {
+                            mFullscreenFindInPageToken = mControlsVisibilityDelegate
+                                    .showControlsPersistentAndClearOldToken(
                                             mFullscreenFindInPageToken);
                         }
                     }
@@ -502,8 +505,9 @@ public class ToolbarManager implements ToolbarTabController, UrlFocusChangeListe
                     @Override
                     public void onFindToolbarHidden() {
                         mToolbar.handleFindToolbarStateChange(false);
-                        if (mFullscreenManager != null) {
-                            mFullscreenManager.hideControlsPersistent(mFullscreenFindInPageToken);
+                        if (mControlsVisibilityDelegate != null) {
+                            mControlsVisibilityDelegate.hideControlsPersistent(
+                                    mFullscreenFindInPageToken);
                             mFullscreenFindInPageToken = FullscreenManager.INVALID_TOKEN;
                         }
                     }
@@ -576,14 +580,15 @@ public class ToolbarManager implements ToolbarTabController, UrlFocusChangeListe
      * <p>
      * Calling this must occur after the native library have completely loaded.
      *
-     * @param tabModelSelector     The selector that handles tab management.
-     * @param fullscreenManager    The manager in charge of interacting with the fullscreen feature.
-     * @param findToolbarManager   The manager for find in page.
-     * @param overviewModeBehavior The overview mode manager.
-     * @param layoutDriver         A {@link LayoutManager} instance used to watch for scene changes.
+     * @param tabModelSelector           The selector that handles tab management.
+     * @param controlsVisibilityDelegate The delegate to handle visibility of browser controls.
+     * @param findToolbarManager         The manager for find in page.
+     * @param overviewModeBehavior       The overview mode manager.
+     * @param layoutDriver               A {@link LayoutManager} instance used to watch for scene
+     *                                   changes.
      */
     public void initializeWithNative(TabModelSelector tabModelSelector,
-            ChromeFullscreenManager fullscreenManager,
+            BrowserStateBrowserControlsVisibilityDelegate controlsVisibilityDelegate,
             final FindToolbarManager findToolbarManager,
             final OverviewModeBehavior overviewModeBehavior,
             final LayoutManager layoutDriver,
@@ -596,7 +601,7 @@ public class ToolbarManager implements ToolbarTabController, UrlFocusChangeListe
 
         mToolbar.getLocationBar().updateVisualsForState();
         mToolbar.getLocationBar().setUrlToPageUrl();
-        mToolbar.setFullscreenManager(fullscreenManager);
+        mToolbar.setBrowserControlsVisibilityDelegate(controlsVisibilityDelegate);
         mToolbar.setOnTabSwitcherClickHandler(tabSwitcherClickHandler);
         mToolbar.setOnNewTabClickHandler(newTabClickHandler);
         mToolbar.setBookmarkClickHandler(bookmarkClickHandler);
@@ -649,8 +654,8 @@ public class ToolbarManager implements ToolbarTabController, UrlFocusChangeListe
 
         mFindToolbarManager = findToolbarManager;
 
-        assert fullscreenManager != null;
-        mFullscreenManager = fullscreenManager;
+        assert controlsVisibilityDelegate != null;
+        mControlsVisibilityDelegate = controlsVisibilityDelegate;
 
         mNativeLibraryReady = false;
 
@@ -806,13 +811,13 @@ public class ToolbarManager implements ToolbarTabController, UrlFocusChangeListe
         menuHandler.addObserver(new AppMenuObserver() {
             @Override
             public void onMenuVisibilityChanged(boolean isVisible) {
-                if (mFullscreenManager == null) return;
+                if (mControlsVisibilityDelegate == null) return;
                 if (isVisible) {
                     mFullscreenMenuToken =
-                            mFullscreenManager.showControlsPersistentAndClearOldToken(
+                            mControlsVisibilityDelegate.showControlsPersistentAndClearOldToken(
                                     mFullscreenMenuToken);
                 } else {
-                    mFullscreenManager.hideControlsPersistent(mFullscreenMenuToken);
+                    mControlsVisibilityDelegate.hideControlsPersistent(mFullscreenMenuToken);
                     mFullscreenMenuToken = FullscreenManager.INVALID_TOKEN;
                 }
             }
@@ -896,12 +901,12 @@ public class ToolbarManager implements ToolbarTabController, UrlFocusChangeListe
 
         if (mFindToolbarManager != null && hasFocus) mFindToolbarManager.hideToolbar();
 
-        if (mFullscreenManager == null) return;
+        if (mControlsVisibilityDelegate == null) return;
         if (hasFocus) {
-            mFullscreenFocusToken = mFullscreenManager.showControlsPersistentAndClearOldToken(
-                    mFullscreenFocusToken);
+            mFullscreenFocusToken = mControlsVisibilityDelegate
+                    .showControlsPersistentAndClearOldToken(mFullscreenFocusToken);
         } else {
-            mFullscreenManager.hideControlsPersistent(mFullscreenFocusToken);
+            mControlsVisibilityDelegate.hideControlsPersistent(mFullscreenFocusToken);
             mFullscreenFocusToken = FullscreenManager.INVALID_TOKEN;
         }
     }
@@ -927,6 +932,14 @@ public class ToolbarManager implements ToolbarTabController, UrlFocusChangeListe
      */
     public void setShouldUpdateToolbarPrimaryColor(boolean shouldUpdate) {
         mShouldUpdateToolbarPrimaryColor = shouldUpdate;
+    }
+
+    /**
+     * Prevents the shadow from being rendered.
+     */
+    public void disableShadow() {
+        View toolbarShadow = mControlContainer.findViewById(R.id.toolbar_shadow);
+        if (toolbarShadow != null) UiUtils.removeViewFromParent(toolbarShadow);
     }
 
     /**

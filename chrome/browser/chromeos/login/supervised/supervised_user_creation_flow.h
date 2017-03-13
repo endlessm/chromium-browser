@@ -23,7 +23,9 @@ class SupervisedUserCreationFlow : public ExtendedUserFlow {
   ~SupervisedUserCreationFlow() override;
 
   bool CanLockScreen() override;
+  bool CanStartArc() override;
   bool ShouldShowSettings() override;
+  bool ShouldShowNotificationTray() override;
   bool ShouldLaunchBrowser() override;
   bool ShouldSkipPostLoginScreens() override;
   bool SupportsEarlyRestartToApplyFlags() override;

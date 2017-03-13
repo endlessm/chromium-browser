@@ -19,7 +19,9 @@
 #include "ui/gfx/geometry/vector2d.h"
 #include "ui/native_theme/native_theme.h"
 #include "ui/views/animation/flood_fill_ink_drop_ripple.h"
+#include "ui/views/animation/ink_drop.h"
 #include "ui/views/animation/ink_drop_highlight.h"
+#include "ui/views/animation/ink_drop_impl.h"
 #include "ui/views/animation/square_ink_drop_ripple.h"
 #include "ui/views/background.h"
 #include "ui/views/controls/button/label_button_border.h"
@@ -69,21 +71,6 @@ const gfx::FontList& GetDefaultBoldFontList() {
 
   return font_list.Get();
 }
-
-// Ink drop container view that does not capture any events.
-class InkDropContainerView : public views::View {
- public:
-  InkDropContainerView() {}
-
-  // View:
-  bool CanProcessEventsWithinSubtree() const override {
-    // Ensure the container View is found as the EventTarget instead of this.
-    return false;
-  }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(InkDropContainerView);
-};
 
 }  // namespace
 
@@ -172,25 +159,13 @@ void LabelButton::SetTextSubpixelRenderingEnabled(bool enabled) {
   label_->SetSubpixelRenderingEnabled(enabled);
 }
 
-const gfx::FontList& LabelButton::GetFontList() const {
-  return label_->font_list();
-}
-
-void LabelButton::SetFontList(const gfx::FontList& font_list) {
-  cached_normal_font_list_ = font_list;
-  if (PlatformStyle::kDefaultLabelButtonHasBoldFont) {
-    cached_bold_font_list_ = font_list.DeriveWithWeight(
-        GetValueBolderThan(font_list.GetFontWeight()));
-    if (is_default_) {
-      label_->SetFontList(cached_bold_font_list_);
-      return;
-    }
-  }
-  label_->SetFontList(cached_normal_font_list_);
+void LabelButton::SetFontListDeprecated(const gfx::FontList& font_list) {
+  SetFontList(font_list);
 }
 
 void LabelButton::AdjustFontSize(int font_size_delta) {
-  LabelButton::SetFontList(GetFontList().DeriveWithSizeDelta(font_size_delta));
+  LabelButton::SetFontList(
+      label()->font_list().DeriveWithSizeDelta(font_size_delta));
 }
 
 void LabelButton::SetElideBehavior(gfx::ElideBehavior elide_behavior) {
@@ -262,7 +237,7 @@ gfx::Size LabelButton::GetPreferredSize() const {
     return cached_preferred_size_;
 
   // Use a temporary label copy for sizing to avoid calculation side-effects.
-  Label label(GetText(), cached_normal_font_list_);
+  Label label(GetText(), label_->font_list());
   label.SetShadows(label_->shadows());
 
   if (style_ == STYLE_BUTTON && PlatformStyle::kDefaultLabelButtonHasBoldFont) {
@@ -271,7 +246,7 @@ gfx::Size LabelButton::GetPreferredSize() const {
     const int current_width = label.GetPreferredSize().width();
     label.SetFontList(cached_bold_font_list_);
     if (label.GetPreferredSize().width() < current_width)
-      label.SetFontList(cached_normal_font_list_);
+      label.SetFontList(label_->font_list());
   }
 
   // Calculate the required size.
@@ -406,6 +381,19 @@ gfx::Rect LabelButton::GetChildAreaBounds() {
   return GetLocalBounds();
 }
 
+void LabelButton::SetFontList(const gfx::FontList& font_list) {
+  cached_normal_font_list_ = font_list;
+  if (PlatformStyle::kDefaultLabelButtonHasBoldFont) {
+    cached_bold_font_list_ = font_list.DeriveWithWeight(
+        GetValueBolderThan(font_list.GetFontWeight()));
+    if (is_default_) {
+      label_->SetFontList(cached_bold_font_list_);
+      return;
+    }
+  }
+  label_->SetFontList(cached_normal_font_list_);
+}
+
 void LabelButton::OnPaint(gfx::Canvas* canvas) {
   View::OnPaint(canvas);
   Painter::PaintFocusPainter(this, canvas, focus_painter_.get());
@@ -437,36 +425,37 @@ void LabelButton::OnNativeThemeChanged(const ui::NativeTheme* theme) {
 void LabelButton::AddInkDropLayer(ui::Layer* ink_drop_layer) {
   image()->SetPaintToLayer(true);
   image()->layer()->SetFillsBoundsOpaquely(false);
-  ink_drop_container_->SetVisible(true);
-  ink_drop_container_->layer()->Add(ink_drop_layer);
+  ink_drop_container_->AddInkDropLayer(ink_drop_layer);
 }
 
 void LabelButton::RemoveInkDropLayer(ui::Layer* ink_drop_layer) {
   image()->SetPaintToLayer(false);
-  ink_drop_container_->layer()->Remove(ink_drop_layer);
-  ink_drop_container_->SetVisible(false);
+  ink_drop_container_->RemoveInkDropLayer(ink_drop_layer);
+}
+
+std::unique_ptr<InkDrop> LabelButton::CreateInkDrop() {
+  return UseFloodFillInkDrop() ? CreateDefaultFloodFillInkDropImpl()
+                               : CustomButton::CreateInkDrop();
 }
 
 std::unique_ptr<views::InkDropRipple> LabelButton::CreateInkDropRipple() const {
-  return GetText().empty()
-             ? CreateDefaultInkDropRipple(
-                   image()->GetMirroredBounds().CenterPoint())
-             : base::MakeUnique<views::FloodFillInkDropRipple>(
-                   GetLocalBounds(), GetInkDropCenterBasedOnLastEvent(),
-                   GetInkDropBaseColor(), ink_drop_visible_opacity());
+  return UseFloodFillInkDrop()
+             ? base::MakeUnique<views::FloodFillInkDropRipple>(
+                   size(), GetInkDropCenterBasedOnLastEvent(),
+                   GetInkDropBaseColor(), ink_drop_visible_opacity())
+             : CreateDefaultInkDropRipple(
+                   image()->GetMirroredBounds().CenterPoint());
 }
 
 std::unique_ptr<views::InkDropHighlight> LabelButton::CreateInkDropHighlight()
     const {
-  if (!ShouldShowInkDropHighlight())
-    return nullptr;
-  return GetText().empty()
-             ? CreateDefaultInkDropHighlight(
-                   gfx::RectF(image()->GetMirroredBounds()).CenterPoint())
-             : base::MakeUnique<views::InkDropHighlight>(
+  return UseFloodFillInkDrop()
+             ? base::MakeUnique<views::InkDropHighlight>(
                    size(), kInkDropSmallCornerRadius,
                    gfx::RectF(GetLocalBounds()).CenterPoint(),
-                   GetInkDropBaseColor());
+                   GetInkDropBaseColor())
+             : CreateDefaultInkDropHighlight(
+                   gfx::RectF(image()->GetMirroredBounds()).CenterPoint());
 }
 
 void LabelButton::StateChanged() {
@@ -615,6 +604,10 @@ void LabelButton::ResetLabelEnabledColor() {
           : PlatformStyle::TextColorForButton(button_state_colors_, *this);
   if (state() != STATE_DISABLED && label_->enabled_color() != color)
     label_->SetEnabledColor(color);
+}
+
+bool LabelButton::UseFloodFillInkDrop() const {
+  return !GetText().empty();
 }
 
 }  // namespace views

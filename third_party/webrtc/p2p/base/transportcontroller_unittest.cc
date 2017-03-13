@@ -50,13 +50,13 @@ class TransportControllerTest : public testing::Test,
     ConnectTransportControllerSignals();
   }
 
-  void CreateTransportControllerWithWorkerThread() {
-    if (!worker_thread_) {
-      worker_thread_.reset(new rtc::Thread());
-      worker_thread_->Start();
+  void CreateTransportControllerWithNetworkThread() {
+    if (!network_thread_) {
+      network_thread_ = rtc::Thread::CreateWithSocketServer();
+      network_thread_->Start();
     }
     transport_controller_.reset(
-        new TransportControllerForTest(worker_thread_.get()));
+        new TransportControllerForTest(network_thread_.get()));
     ConnectTransportControllerSignals();
   }
 
@@ -92,8 +92,8 @@ class TransportControllerTest : public testing::Test,
   }
 
   // Used for thread hopping test.
-  void CreateChannelsAndCompleteConnectionOnWorkerThread() {
-    worker_thread_->Invoke<void>(
+  void CreateChannelsAndCompleteConnectionOnNetworkThread() {
+    network_thread_->Invoke<void>(
         RTC_FROM_HERE,
         rtc::Bind(
             &TransportControllerTest::CreateChannelsAndCompleteConnection_w,
@@ -174,7 +174,7 @@ class TransportControllerTest : public testing::Test,
     ++candidates_signal_count_;
   }
 
-  std::unique_ptr<rtc::Thread> worker_thread_;  // Not used for most tests.
+  std::unique_ptr<rtc::Thread> network_thread_;  // Not used for most tests.
   std::unique_ptr<TransportControllerForTest> transport_controller_;
 
   // Information received from signals from transport controller.
@@ -662,8 +662,8 @@ TEST_F(TransportControllerTest, TestSignalCandidatesGathered) {
 }
 
 TEST_F(TransportControllerTest, TestSignalingOccursOnSignalingThread) {
-  CreateTransportControllerWithWorkerThread();
-  CreateChannelsAndCompleteConnectionOnWorkerThread();
+  CreateTransportControllerWithNetworkThread();
+  CreateChannelsAndCompleteConnectionOnNetworkThread();
 
   // connecting --> connected --> completed
   EXPECT_EQ_WAIT(kIceConnectionCompleted, connection_state_, kTimeout);
@@ -747,6 +747,91 @@ TEST_F(TransportControllerTest, IceRoleNotRedetermined) {
   EXPECT_TRUE(transport_controller_->SetLocalTransportDescription(
       "audio", ice_restart_desc, CA_OFFER, &err));
   EXPECT_EQ(ICEROLE_CONTROLLED, channel->GetIceRole());
+}
+
+// Tests channel role is reversed after receiving ice-lite from remote.
+TEST_F(TransportControllerTest, TestSetRemoteIceLiteInOffer) {
+  FakeTransportChannel* channel = CreateChannel("audio", 1);
+  ASSERT_NE(nullptr, channel);
+  std::string err;
+
+  transport_controller_->SetIceRole(ICEROLE_CONTROLLED);
+  TransportDescription remote_desc(std::vector<std::string>(), kIceUfrag1,
+                                   kIcePwd1, ICEMODE_LITE,
+                                   CONNECTIONROLE_ACTPASS, nullptr);
+  EXPECT_TRUE(transport_controller_->SetRemoteTransportDescription(
+      "audio", remote_desc, CA_OFFER, &err));
+  TransportDescription local_desc(kIceUfrag1, kIcePwd1);
+  ASSERT_TRUE(transport_controller_->SetLocalTransportDescription(
+      "audio", local_desc, CA_ANSWER, nullptr));
+
+  EXPECT_EQ(ICEROLE_CONTROLLING, channel->GetIceRole());
+  EXPECT_EQ(ICEMODE_LITE, channel->remote_ice_mode());
+}
+
+// Tests ice-lite in remote answer.
+TEST_F(TransportControllerTest, TestSetRemoteIceLiteInAnswer) {
+  FakeTransportChannel* channel = CreateChannel("audio", 1);
+  ASSERT_NE(nullptr, channel);
+  std::string err;
+
+  transport_controller_->SetIceRole(ICEROLE_CONTROLLING);
+  TransportDescription local_desc(kIceUfrag1, kIcePwd1);
+  ASSERT_TRUE(transport_controller_->SetLocalTransportDescription(
+      "audio", local_desc, CA_OFFER, nullptr));
+  EXPECT_EQ(ICEROLE_CONTROLLING, channel->GetIceRole());
+  // Channels will be created in ICEFULL_MODE.
+  EXPECT_EQ(ICEMODE_FULL, channel->remote_ice_mode());
+  TransportDescription remote_desc(std::vector<std::string>(), kIceUfrag1,
+                                   kIcePwd1, ICEMODE_LITE, CONNECTIONROLE_NONE,
+                                   nullptr);
+  ASSERT_TRUE(transport_controller_->SetRemoteTransportDescription(
+      "audio", remote_desc, CA_ANSWER, nullptr));
+  EXPECT_EQ(ICEROLE_CONTROLLING, channel->GetIceRole());
+  // After receiving remote description with ICEMODE_LITE, channel should
+  // have mode set to ICEMODE_LITE.
+  EXPECT_EQ(ICEMODE_LITE, channel->remote_ice_mode());
+}
+
+// Tests SetNeedsIceRestartFlag and NeedsIceRestart, setting the flag and then
+// initiating an ICE restart for one of the transports.
+TEST_F(TransportControllerTest, NeedsIceRestart) {
+  CreateChannel("audio", 1);
+  CreateChannel("video", 1);
+
+  // Do initial offer/answer so there's something to restart.
+  TransportDescription local_desc(kIceUfrag1, kIcePwd1);
+  TransportDescription remote_desc(kIceUfrag1, kIcePwd1);
+  ASSERT_TRUE(transport_controller_->SetLocalTransportDescription(
+      "audio", local_desc, CA_OFFER, nullptr));
+  ASSERT_TRUE(transport_controller_->SetLocalTransportDescription(
+      "video", local_desc, CA_OFFER, nullptr));
+  ASSERT_TRUE(transport_controller_->SetRemoteTransportDescription(
+      "audio", remote_desc, CA_ANSWER, nullptr));
+  ASSERT_TRUE(transport_controller_->SetRemoteTransportDescription(
+      "video", remote_desc, CA_ANSWER, nullptr));
+
+  // Initially NeedsIceRestart should return false.
+  EXPECT_FALSE(transport_controller_->NeedsIceRestart("audio"));
+  EXPECT_FALSE(transport_controller_->NeedsIceRestart("video"));
+
+  // Set the needs-ice-restart flag and verify NeedsIceRestart starts returning
+  // true.
+  transport_controller_->SetNeedsIceRestartFlag();
+  EXPECT_TRUE(transport_controller_->NeedsIceRestart("audio"));
+  EXPECT_TRUE(transport_controller_->NeedsIceRestart("video"));
+  // For a nonexistent transport, false should be returned.
+  EXPECT_FALSE(transport_controller_->NeedsIceRestart("deadbeef"));
+
+  // Do ICE restart but only for audio.
+  TransportDescription ice_restart_local_desc(kIceUfrag2, kIcePwd2);
+  ASSERT_TRUE(transport_controller_->SetLocalTransportDescription(
+      "audio", ice_restart_local_desc, CA_OFFER, nullptr));
+  ASSERT_TRUE(transport_controller_->SetLocalTransportDescription(
+      "video", local_desc, CA_OFFER, nullptr));
+  // NeedsIceRestart should still be true for video.
+  EXPECT_FALSE(transport_controller_->NeedsIceRestart("audio"));
+  EXPECT_TRUE(transport_controller_->NeedsIceRestart("video"));
 }
 
 }  // namespace cricket {

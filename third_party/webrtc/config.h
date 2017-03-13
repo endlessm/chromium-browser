@@ -16,6 +16,7 @@
 #include <string>
 #include <vector>
 
+#include "webrtc/base/basictypes.h"
 #include "webrtc/base/optional.h"
 #include "webrtc/base/refcount.h"
 #include "webrtc/base/scoped_ref_ptr.h"
@@ -35,14 +36,16 @@ struct NackConfig {
   int rtp_history_ms;
 };
 
-// Settings for forward error correction, see RFC 5109 for details. Set the
-// payload types to '-1' to disable.
-struct FecConfig {
-  FecConfig()
+// Settings for ULPFEC forward error correction.
+// Set the payload types to '-1' to disable.
+struct UlpfecConfig {
+  UlpfecConfig()
       : ulpfec_payload_type(-1),
         red_payload_type(-1),
         red_rtx_payload_type(-1) {}
   std::string ToString() const;
+  bool operator==(const UlpfecConfig& other) const;
+
   // Payload type used for ULPFEC packets.
   int ulpfec_payload_type;
 
@@ -142,7 +145,7 @@ class VideoEncoderConfig {
     virtual void FillVideoCodecVp9(VideoCodecVP9* vp9_settings) const;
     virtual void FillVideoCodecH264(VideoCodecH264* h264_settings) const;
    private:
-    virtual ~EncoderSpecificSettings() {}
+    ~EncoderSpecificSettings() override {}
     friend class VideoEncoderConfig;
   };
 
@@ -190,7 +193,7 @@ class VideoEncoderConfig {
         const VideoEncoderConfig& encoder_config) = 0;
 
    protected:
-    virtual ~VideoStreamFactoryInterface() {}
+    ~VideoStreamFactoryInterface() override {}
   };
 
   VideoEncoderConfig& operator=(VideoEncoderConfig&&) = default;
@@ -200,7 +203,7 @@ class VideoEncoderConfig {
   VideoEncoderConfig Copy() const { return VideoEncoderConfig(*this); }
 
   VideoEncoderConfig();
-  VideoEncoderConfig(VideoEncoderConfig&&) = default;
+  VideoEncoderConfig(VideoEncoderConfig&&);
   ~VideoEncoderConfig();
   std::string ToString() const;
 
@@ -222,17 +225,7 @@ class VideoEncoderConfig {
  private:
   // Access to the copy constructor is private to force use of the Copy()
   // method for those exceptional cases where we do use it.
-  VideoEncoderConfig(const VideoEncoderConfig&) = default;
-};
-
-struct VideoDecoderH264Settings {
-  std::string sprop_parameter_sets;
-};
-
-class DecoderSpecificSettings {
- public:
-  virtual ~DecoderSpecificSettings() {}
-  rtc::Optional<VideoDecoderH264Settings> h264_extra_settings;
+  VideoEncoderConfig(const VideoEncoderConfig&);
 };
 
 }  // namespace webrtc

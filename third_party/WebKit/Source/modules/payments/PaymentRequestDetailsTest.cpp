@@ -10,6 +10,7 @@
 #include "core/dom/Document.h"
 #include "core/dom/ExceptionCode.h"
 #include "modules/payments/PaymentDetails.h"
+#include "modules/payments/PaymentOptions.h"
 #include "modules/payments/PaymentTestHelper.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include <ostream>  // NOLINT
@@ -98,6 +99,9 @@ std::ostream& operator<<(std::ostream& out, DetailsTestCase testCase) {
     case PaymentTestDataCurrencyCode:
       out << "currency ";
       break;
+    case PaymentTestDataCurrencySystem:
+      out << "currencySystem ";
+      break;
     case PaymentTestDataValue:
       out << "value ";
       break;
@@ -126,9 +130,11 @@ TEST_P(PaymentRequestDetailsTest, ValidatesDetails) {
   V8TestingScope scope;
   scope.document().setSecurityOrigin(
       SecurityOrigin::create(KURL(KURL(), "https://www.example.com/")));
-  PaymentRequest::create(scope.getScriptState(),
-                         buildPaymentMethodDataForTest(),
-                         GetParam().buildDetails(), scope.getExceptionState());
+  PaymentOptions options;
+  options.setRequestShipping(true);
+  PaymentRequest::create(scope.document(), buildPaymentMethodDataForTest(),
+                         GetParam().buildDetails(), options,
+                         scope.getExceptionState());
 
   EXPECT_EQ(GetParam().expectException(),
             scope.getExceptionState().hadException());
@@ -314,146 +320,40 @@ INSTANTIATE_TEST_CASE_P(
                                     PaymentTestDataCurrencyCode,
                                     PaymentTestOverwriteValue,
                                     "USD"),
-                    DetailsTestCase(PaymentTestDetailTotal,
-                                    PaymentTestDataCurrencyCode,
-                                    PaymentTestOverwriteValue,
-                                    "US1"),
-                    DetailsTestCase(PaymentTestDetailTotal,
-                                    PaymentTestDataCurrencyCode,
-                                    PaymentTestOverwriteValue,
-                                    "US"),
-                    DetailsTestCase(PaymentTestDetailTotal,
-                                    PaymentTestDataCurrencyCode,
-                                    PaymentTestOverwriteValue,
-                                    "USD0"),
-                    DetailsTestCase(PaymentTestDetailTotal,
-                                    PaymentTestDataCurrencyCode,
-                                    PaymentTestOverwriteValue,
-                                    "usd"),
-                    DetailsTestCase(PaymentTestDetailTotal,
-                                    PaymentTestDataCurrencyCode,
-                                    PaymentTestOverwriteValue,
-                                    "ANYSTRING"),
-                    DetailsTestCase(PaymentTestDetailTotal,
-                                    PaymentTestDataCurrencyCode,
-                                    PaymentTestOverwriteValue,
-                                    ""),
-
                     DetailsTestCase(PaymentTestDetailItem,
                                     PaymentTestDataCurrencyCode,
                                     PaymentTestOverwriteValue,
                                     "USD"),
-                    DetailsTestCase(PaymentTestDetailItem,
-                                    PaymentTestDataCurrencyCode,
-                                    PaymentTestOverwriteValue,
-                                    "US1"),
-                    DetailsTestCase(PaymentTestDetailItem,
-                                    PaymentTestDataCurrencyCode,
-                                    PaymentTestOverwriteValue,
-                                    "US"),
-                    DetailsTestCase(PaymentTestDetailItem,
-                                    PaymentTestDataCurrencyCode,
-                                    PaymentTestOverwriteValue,
-                                    "USD0"),
-                    DetailsTestCase(PaymentTestDetailItem,
-                                    PaymentTestDataCurrencyCode,
-                                    PaymentTestOverwriteValue,
-                                    "usd"),
-                    DetailsTestCase(PaymentTestDetailItem,
-                                    PaymentTestDataCurrencyCode,
-                                    PaymentTestOverwriteValue,
-                                    "ANYSTRING"),
-                    DetailsTestCase(PaymentTestDetailItem,
-                                    PaymentTestDataCurrencyCode,
-                                    PaymentTestOverwriteValue,
-                                    ""),
-
                     DetailsTestCase(PaymentTestDetailShippingOption,
-                                    PaymentTestDataCurrencyCode,
-                                    PaymentTestOverwriteValue,
-                                    "USD"),
-                    DetailsTestCase(PaymentTestDetailShippingOption,
-                                    PaymentTestDataCurrencyCode,
-                                    PaymentTestOverwriteValue,
-                                    "US1"),
-                    DetailsTestCase(PaymentTestDetailShippingOption,
-                                    PaymentTestDataCurrencyCode,
-                                    PaymentTestOverwriteValue,
-                                    "US"),
-                    DetailsTestCase(PaymentTestDetailShippingOption,
-                                    PaymentTestDataCurrencyCode,
-                                    PaymentTestOverwriteValue,
-                                    "USD0"),
-                    DetailsTestCase(PaymentTestDetailShippingOption,
-                                    PaymentTestDataCurrencyCode,
-                                    PaymentTestOverwriteValue,
-                                    "usd"),
-                    DetailsTestCase(PaymentTestDetailShippingOption,
-                                    PaymentTestDataCurrencyCode,
-                                    PaymentTestOverwriteValue,
-                                    "ANYSTRING"),
-                    DetailsTestCase(PaymentTestDetailShippingOption,
-                                    PaymentTestDataCurrencyCode,
-                                    PaymentTestOverwriteValue,
-                                    ""),
-
-                    DetailsTestCase(PaymentTestDetailModifierTotal,
                                     PaymentTestDataCurrencyCode,
                                     PaymentTestOverwriteValue,
                                     "USD"),
                     DetailsTestCase(PaymentTestDetailModifierTotal,
                                     PaymentTestDataCurrencyCode,
                                     PaymentTestOverwriteValue,
-                                    "US1"),
-                    DetailsTestCase(PaymentTestDetailModifierTotal,
-                                    PaymentTestDataCurrencyCode,
-                                    PaymentTestOverwriteValue,
-                                    "US"),
-                    DetailsTestCase(PaymentTestDetailModifierTotal,
-                                    PaymentTestDataCurrencyCode,
-                                    PaymentTestOverwriteValue,
-                                    "USD0"),
-                    DetailsTestCase(PaymentTestDetailModifierTotal,
-                                    PaymentTestDataCurrencyCode,
-                                    PaymentTestOverwriteValue,
-                                    "usd"),
-                    DetailsTestCase(PaymentTestDetailModifierTotal,
-                                    PaymentTestDataCurrencyCode,
-                                    PaymentTestOverwriteValue,
-                                    "ANYSTRING"),
-                    DetailsTestCase(PaymentTestDetailModifierTotal,
-                                    PaymentTestDataCurrencyCode,
-                                    PaymentTestOverwriteValue,
-                                    ""),
-
-                    DetailsTestCase(PaymentTestDetailModifierItem,
-                                    PaymentTestDataCurrencyCode,
-                                    PaymentTestOverwriteValue,
                                     "USD"),
                     DetailsTestCase(PaymentTestDetailModifierItem,
                                     PaymentTestDataCurrencyCode,
                                     PaymentTestOverwriteValue,
-                                    "US1"),
-                    DetailsTestCase(PaymentTestDetailModifierItem,
-                                    PaymentTestDataCurrencyCode,
+                                    "USD")));
+
+INSTANTIATE_TEST_CASE_P(
+    ValidCurrencySystem,
+    PaymentRequestDetailsTest,
+    testing::Values(DetailsTestCase(PaymentTestDetailTotal,
+                                    PaymentTestDataCurrencySystem,
                                     PaymentTestOverwriteValue,
-                                    "US"),
-                    DetailsTestCase(PaymentTestDetailModifierItem,
-                                    PaymentTestDataCurrencyCode,
+                                    "https://bitcoin.org")));
+
+INSTANTIATE_TEST_CASE_P(
+    InvalidCurrencySystem,
+    PaymentRequestDetailsTest,
+    testing::Values(DetailsTestCase(PaymentTestDetailTotal,
+                                    PaymentTestDataCurrencySystem,
                                     PaymentTestOverwriteValue,
-                                    "USD0"),
-                    DetailsTestCase(PaymentTestDetailModifierItem,
-                                    PaymentTestDataCurrencyCode,
-                                    PaymentTestOverwriteValue,
-                                    "usd"),
-                    DetailsTestCase(PaymentTestDetailModifierItem,
-                                    PaymentTestDataCurrencyCode,
-                                    PaymentTestOverwriteValue,
-                                    "ANYSTRING"),
-                    DetailsTestCase(PaymentTestDetailModifierItem,
-                                    PaymentTestDataCurrencyCode,
-                                    PaymentTestOverwriteValue,
-                                    "")));
+                                    "\\^%\\",
+                                    true,
+                                    V8TypeError)));
 
 INSTANTIATE_TEST_CASE_P(
     ValidValueFormat,

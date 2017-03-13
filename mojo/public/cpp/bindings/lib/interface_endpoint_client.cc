@@ -46,7 +46,7 @@ class ResponderThunk : public MessageReceiverWithStatus {
         task_runner_(std::move(runner)) {}
   ~ResponderThunk() override {
     if (!accept_was_invoked_) {
-      // The Mojo application handled a message that was expecting a response
+      // The Service handled a message that was expecting a response
       // but did not send a response.
       // We raise an error to signal the calling application that an error
       // condition occurred. Without this the calling application would have no
@@ -159,14 +159,10 @@ InterfaceEndpointClient::InterfaceEndpointClient(
       handle_, this, task_runner_);
   if (expect_sync_requests)
     controller_->AllowWokenUpBySyncWatchOnSameThread();
-
-  base::MessageLoop::current()->AddDestructionObserver(this);
 }
 
 InterfaceEndpointClient::~InterfaceEndpointClient() {
   DCHECK(thread_checker_.CalledOnValidThread());
-
-  StopObservingIfNecessary();
 
   if (handle_.is_valid())
     handle_.group_controller()->DetachEndpointClient(handle_);
@@ -280,9 +276,11 @@ void InterfaceEndpointClient::NotifyError() {
     return;
   encountered_error_ = true;
 
-  // The callbacks may hold on to resources. There is no need to keep them any
-  // longer.
-  async_responders_.clear();
+  // Response callbacks may hold on to resource, and there's no need to keep
+  // them alive any longer. Note that it's allowed that a pending response
+  // callback may own this endpoint, so we simply move the responders onto the
+  // stack here and let them be destroyed when the stack unwinds.
+  AsyncResponderMap responders = std::move(async_responders_);
 
   control_message_proxy_.OnConnectionError();
 
@@ -338,19 +336,6 @@ bool InterfaceEndpointClient::HandleValidatedMessage(Message* message) {
 
     return incoming_receiver_->Accept(message);
   }
-}
-
-void InterfaceEndpointClient::StopObservingIfNecessary() {
-  if (!observing_message_loop_destruction_)
-    return;
-
-  observing_message_loop_destruction_ = false;
-  base::MessageLoop::current()->RemoveDestructionObserver(this);
-}
-
-void InterfaceEndpointClient::WillDestroyCurrentMessageLoop() {
-  StopObservingIfNecessary();
-  NotifyError();
 }
 
 }  // namespace mojo

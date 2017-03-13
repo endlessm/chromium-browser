@@ -9,7 +9,6 @@
 #include <utility>
 #include <vector>
 
-#include "base/memory/linked_ptr.h"
 #include "base/memory/ptr_util.h"
 #include "base/trace_event/trace_event.h"
 #include "base/values.h"
@@ -273,7 +272,8 @@ void FileSystemProviderNotifyFunction::OnNotifyCompleted(
   SendResponse(true);
 }
 
-bool FileSystemProviderInternalUnmountRequestedSuccessFunction::RunWhenValid() {
+ExtensionFunction::ResponseAction
+FileSystemProviderInternalUnmountRequestedSuccessFunction::Run() {
   using api::file_system_provider_internal::UnmountRequestedSuccess::Params;
   std::unique_ptr<Params> params(Params::Create(*args_));
   EXTENSION_FUNCTION_VALIDATE(params);
@@ -283,8 +283,8 @@ bool FileSystemProviderInternalUnmountRequestedSuccessFunction::RunWhenValid() {
       false /* has_more */);
 }
 
-bool
-FileSystemProviderInternalGetMetadataRequestedSuccessFunction::RunWhenValid() {
+ExtensionFunction::ResponseAction
+FileSystemProviderInternalGetMetadataRequestedSuccessFunction::Run() {
   using api::file_system_provider_internal::GetMetadataRequestedSuccess::Params;
   std::unique_ptr<Params> params(Params::Create(*args_));
   EXTENSION_FUNCTION_VALIDATE(params);
@@ -294,8 +294,8 @@ FileSystemProviderInternalGetMetadataRequestedSuccessFunction::RunWhenValid() {
       false /* has_more */);
 }
 
-bool FileSystemProviderInternalGetActionsRequestedSuccessFunction::
-    RunWhenValid() {
+ExtensionFunction::ResponseAction
+FileSystemProviderInternalGetActionsRequestedSuccessFunction::Run() {
   using api::file_system_provider_internal::GetActionsRequestedSuccess::Params;
   std::unique_ptr<Params> params(Params::Create(*args_));
   EXTENSION_FUNCTION_VALIDATE(params);
@@ -305,8 +305,8 @@ bool FileSystemProviderInternalGetActionsRequestedSuccessFunction::
       false /* has_more */);
 }
 
-bool FileSystemProviderInternalReadDirectoryRequestedSuccessFunction::
-    RunWhenValid() {
+ExtensionFunction::ResponseAction
+FileSystemProviderInternalReadDirectoryRequestedSuccessFunction::Run() {
   using api::file_system_provider_internal::ReadDirectoryRequestedSuccess::
       Params;
   std::unique_ptr<Params> params(Params::Create(*args_));
@@ -317,8 +317,8 @@ bool FileSystemProviderInternalReadDirectoryRequestedSuccessFunction::
       RequestValue::CreateForReadDirectorySuccess(std::move(params)), has_more);
 }
 
-bool
-FileSystemProviderInternalReadFileRequestedSuccessFunction::RunWhenValid() {
+ExtensionFunction::ResponseAction
+FileSystemProviderInternalReadFileRequestedSuccessFunction::Run() {
   TRACE_EVENT0("file_system_provider", "ReadFileRequestedSuccess");
   using api::file_system_provider_internal::ReadFileRequestedSuccess::Params;
 
@@ -330,8 +330,8 @@ FileSystemProviderInternalReadFileRequestedSuccessFunction::RunWhenValid() {
       RequestValue::CreateForReadFileSuccess(std::move(params)), has_more);
 }
 
-bool
-FileSystemProviderInternalOperationRequestedSuccessFunction::RunWhenValid() {
+ExtensionFunction::ResponseAction
+FileSystemProviderInternalOperationRequestedSuccessFunction::Run() {
   using api::file_system_provider_internal::OperationRequestedSuccess::Params;
   std::unique_ptr<Params> params(Params::Create(*args_));
   EXTENSION_FUNCTION_VALIDATE(params);
@@ -342,7 +342,8 @@ FileSystemProviderInternalOperationRequestedSuccessFunction::RunWhenValid() {
       false /* has_more */);
 }
 
-bool FileSystemProviderInternalOperationRequestedErrorFunction::RunWhenValid() {
+ExtensionFunction::ResponseAction
+FileSystemProviderInternalOperationRequestedErrorFunction::Run() {
   using api::file_system_provider_internal::OperationRequestedError::Params;
   std::unique_ptr<Params> params(Params::Create(*args_));
   EXTENSION_FUNCTION_VALIDATE(params);

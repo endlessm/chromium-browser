@@ -148,6 +148,20 @@
           ],
         },
         {
+          'target_name': 'crashy_signal',
+          'type': 'executable',
+          'dependencies': [
+            '../client/client.gyp:crashpad_client',
+            '../third_party/mini_chromium/mini_chromium.gyp:base',
+          ],
+          'include_dirs': [
+            '..',
+          ],
+          'sources': [
+            'win/crashy_signal.cc',
+          ],
+        },
+        {
           'target_name': 'crash_other_program',
           'type': 'executable',
           'dependencies': [
@@ -158,6 +172,13 @@
           ],
           'sources': [
             'win/crash_other_program.cc',
+          ],
+        },
+        {
+          'target_name': 'fake_handler_that_crashes_at_startup',
+          'type': 'executable',
+          'sources': [
+            'win/fake_handler_that_crashes_at_startup.cc',
           ],
         },
         {

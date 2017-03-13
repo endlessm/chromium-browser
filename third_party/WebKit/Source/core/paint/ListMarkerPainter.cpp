@@ -25,13 +25,13 @@ static inline void paintSymbol(GraphicsContext& context,
   context.setStrokeStyle(SolidStroke);
   context.setStrokeThickness(1.0f);
   switch (listStyle) {
-    case Disc:
+    case EListStyleType::kDisc:
       context.fillEllipse(marker);
       break;
-    case Circle:
+    case EListStyleType::kCircle:
       context.strokeEllipse(marker);
       break;
-    case Square:
+    case EListStyleType::kSquare:
       context.fillRect(marker);
       break;
     default:
@@ -45,7 +45,7 @@ void ListMarkerPainter::paint(const PaintInfo& paintInfo,
   if (paintInfo.phase != PaintPhaseForeground)
     return;
 
-  if (m_layoutListMarker.style()->visibility() != EVisibility::Visible)
+  if (m_layoutListMarker.style()->visibility() != EVisibility::kVisible)
     return;
 
   if (LayoutObjectDrawingRecorder::useCachedDrawingIfPossible(
@@ -130,9 +130,11 @@ void ListMarkerPainter::paint(const PaintInfo& paintInfo,
 
   TextRunPaintInfo textRunPaintInfo(textRun);
   textRunPaintInfo.bounds = marker;
+  const SimpleFontData* fontData =
+      m_layoutListMarker.style()->font().primaryFont();
   IntPoint textOrigin = IntPoint(
       marker.x(),
-      marker.y() + m_layoutListMarker.style()->getFontMetrics().ascent());
+      marker.y() + (fontData ? fontData->getFontMetrics().ascent() : 0));
 
   // Text is not arbitrary. We can judge whether it's RTL from the first
   // character, and we only need to handle the direction RightToLeft for now.
@@ -145,7 +147,7 @@ void ListMarkerPainter::paint(const PaintInfo& paintInfo,
     reversedText.reserveCapacity(length);
     for (int i = length - 1; i >= 0; --i)
       reversedText.append(m_layoutListMarker.text()[i]);
-    ASSERT(reversedText.length() == length);
+    DCHECK(reversedText.length() == length);
     textRun.setText(reversedText.toString());
   }
 

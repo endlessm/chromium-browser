@@ -15,18 +15,20 @@
 #include <string>
 #include <vector>
 
-#include "webrtc/base/constructormagic.h"
-#include "webrtc/p2p/base/candidate.h"
-#include "webrtc/p2p/base/candidatepairinterface.h"
-#include "webrtc/p2p/base/transport.h"
-#include "webrtc/p2p/base/transportdescription.h"
 #include "webrtc/base/asyncpacketsocket.h"
 #include "webrtc/base/basictypes.h"
+#include "webrtc/base/constructormagic.h"
 #include "webrtc/base/dscp.h"
 #include "webrtc/base/sigslot.h"
 #include "webrtc/base/socket.h"
 #include "webrtc/base/sslidentity.h"
 #include "webrtc/base/sslstreamadapter.h"
+#include "webrtc/p2p/base/candidate.h"
+#include "webrtc/p2p/base/candidatepairinterface.h"
+#include "webrtc/p2p/base/icetransportinternal.h"
+#include "webrtc/p2p/base/jseptransport.h"
+#include "webrtc/p2p/base/packettransportinterface.h"
+#include "webrtc/p2p/base/transportdescription.h"
 
 namespace cricket {
 
@@ -39,19 +41,11 @@ enum PacketFlags {
                            // crypto provided by the transport (e.g. DTLS)
 };
 
-// Used to indicate channel's connection state.
-enum TransportChannelState {
-  STATE_INIT,
-  STATE_CONNECTING,  // Will enter this state once a connection is created
-  STATE_COMPLETED,
-  STATE_FAILED
-};
-
 // A TransportChannel represents one logical stream of packets that are sent
 // between the two sides of a session.
 // TODO(deadbeef): This interface currently represents the unity of an ICE
 // transport and a DTLS transport. They need to be separated apart.
-class TransportChannel : public sigslot::has_slots<> {
+class TransportChannel : public rtc::PacketTransportInterface {
  public:
   TransportChannel(const std::string& transport_name, int component)
       : transport_name_(transport_name),
@@ -62,41 +56,24 @@ class TransportChannel : public sigslot::has_slots<> {
 
   // TODO(guoweis) - Make this pure virtual once all subclasses of
   // TransportChannel have this defined.
-  virtual TransportChannelState GetState() const {
-    return TransportChannelState::STATE_CONNECTING;
+  virtual IceTransportState GetState() const {
+    return IceTransportState::STATE_CONNECTING;
   }
 
   const std::string& transport_name() const { return transport_name_; }
   int component() const { return component_; }
+  const std::string debug_name() const override {
+    return transport_name() + " " + std::to_string(component());
+  }
 
   // Returns the states of this channel.  Each time one of these states changes,
   // a signal is raised.  These states are aggregated by the TransportManager.
-  bool writable() const { return writable_; }
-  bool receiving() const { return receiving_; }
+  bool writable() const override { return writable_; }
+  bool receiving() const override { return receiving_; }
   DtlsTransportState dtls_state() const { return dtls_state_; }
-  sigslot::signal1<TransportChannel*> SignalWritableState;
-  // Emitted when the TransportChannel's ability to send has changed.
-  sigslot::signal1<TransportChannel*> SignalReadyToSend;
-  sigslot::signal1<TransportChannel*> SignalReceivingState;
   // Emitted whenever DTLS-SRTP is setup which will require setting up a new
   // SRTP context.
   sigslot::signal2<TransportChannel*, DtlsTransportState> SignalDtlsState;
-
-  // Attempts to send the given packet.  The return value is < 0 on failure.
-  // TODO: Remove the default argument once channel code is updated.
-  virtual int SendPacket(const char* data, size_t len,
-                         const rtc::PacketOptions& options,
-                         int flags = 0) = 0;
-
-  // Sets a socket option on this channel.  Note that not all options are
-  // supported by all transport types.
-  virtual int SetOption(rtc::Socket::Option opt, int value) = 0;
-  // TODO(pthatcher): Once Chrome's MockTransportChannel implments
-  // this, remove the default implementation.
-  virtual bool GetOption(rtc::Socket::Option opt, int* value) { return false; }
-
-  // Returns the most recent error that occurred on this channel.
-  virtual int GetError() = 0;
 
   // Returns the current stats for this connection.
   virtual bool GetStats(ConnectionInfos* infos) = 0;
@@ -138,13 +115,6 @@ class TransportChannel : public sigslot::has_slots<> {
                                     bool use_context,
                                     uint8_t* result,
                                     size_t result_len) = 0;
-
-  // Signalled each time a packet is received on this channel.
-  sigslot::signal5<TransportChannel*, const char*,
-                   size_t, const rtc::PacketTime&, int> SignalReadPacket;
-
-  // Signalled each time a packet is sent on this channel.
-  sigslot::signal2<TransportChannel*, const rtc::SentPacket&> SignalSentPacket;
 
   // Deprecated by SignalSelectedCandidatePairChanged
   // This signal occurs when there is a change in the way that packets are

@@ -6,7 +6,7 @@
 
 #import <UIKit/UIKit.h>
 
-#include "base/mac/scoped_nsobject.h"
+#import "base/mac/scoped_nsobject.h"
 #include "base/strings/string16.h"
 #include "ios/web/public/referrer.h"
 #include "url/gurl.h"
@@ -38,6 +38,10 @@ struct ContextMenuParams {
 
   // The location in |view| to present the menu.
   CGPoint location;
+
+  // The text associated with the link. It is either nil or nonempty (it can not
+  // be empty).
+  base::scoped_nsobject<NSString> link_text;
 };
 
 }  // namespace web

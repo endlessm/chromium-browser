@@ -15,14 +15,18 @@ import android.os.Bundle;
 import android.provider.Browser;
 import android.test.InstrumentationTestRunner;
 import android.text.TextUtils;
-import android.util.Log;
 import android.view.View;
 import android.widget.ListView;
 
+import org.chromium.base.ActivityState;
+import org.chromium.base.ApplicationStatus;
+import org.chromium.base.ApplicationStatus.ActivityStateListener;
+import org.chromium.base.Log;
 import org.chromium.base.PerfTraceEvent;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.annotations.SuppressFBWarnings;
 import org.chromium.base.test.BaseActivityInstrumentationTestCase;
+import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.PerfTest;
 import org.chromium.base.test.util.parameter.BaseParameter;
@@ -55,7 +59,6 @@ import org.chromium.chrome.test.util.NewTabPageTestUtils;
 import org.chromium.chrome.test.util.parameters.AddFakeAccountToAppParameter;
 import org.chromium.chrome.test.util.parameters.AddFakeAccountToOsParameter;
 import org.chromium.chrome.test.util.parameters.AddGoogleAccountToOsParameter;
-import org.chromium.content.browser.test.util.CallbackHelper;
 import org.chromium.content.browser.test.util.Criteria;
 import org.chromium.content.browser.test.util.CriteriaHelper;
 import org.chromium.content.browser.test.util.JavaScriptUtils;
@@ -77,6 +80,7 @@ import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Base class for all Chrome instrumentation tests.
@@ -91,7 +95,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 public abstract class ChromeActivityTestCaseBase<T extends ChromeActivity>
         extends BaseActivityInstrumentationTestCase<T> {
 
-    private static final String TAG = "ChromeActivityTestCaseBase";
+    private static final String TAG = "cr_CATestCaseBase";
 
     // The number of ms to wait for the rendering activity to be started.
     protected static final int ACTIVITY_START_TIMEOUT_MS = 1000;
@@ -104,18 +108,19 @@ public abstract class ChromeActivityTestCaseBase<T extends ChromeActivity>
 
     private static final long OMNIBOX_FIND_SUGGESTION_TIMEOUT_MS = 10 * 1000;
 
+    protected boolean mSkipClearAppData;
+    private Thread.UncaughtExceptionHandler mDefaultUncaughtExceptionHandler;
+    private Class<T> mChromeActivityClass;
+
     public ChromeActivityTestCaseBase(Class<T> activityClass) {
         super(activityClass);
+        mChromeActivityClass = activityClass;
     }
-
-    protected boolean mSkipClearAppData = false;
-
-    private Thread.UncaughtExceptionHandler mDefaultUncaughtExceptionHandler;
 
     private class ChromeUncaughtExceptionHandler implements Thread.UncaughtExceptionHandler {
         @Override
         public void uncaughtException(Thread t, Throwable e) {
-            String stackTrace = Log.getStackTraceString(e);
+            String stackTrace = android.util.Log.getStackTraceString(e);
             if (e.getClass().getName().endsWith("StrictModeViolation")) {
                 stackTrace += "\nSearch logcat for \"StrictMode policy violation\" for full stack.";
             }
@@ -175,20 +180,41 @@ public abstract class ChromeActivityTestCaseBase<T extends ChromeActivity>
      * and the activity's main looper has become idle.
      */
     protected void startActivityCompletely(Intent intent) {
-        final Class<?> activityClazz = ChromeTabbedActivity.class;
-        Instrumentation.ActivityMonitor monitor = getInstrumentation().addMonitor(
-                activityClazz.getName(), null, false);
-        Activity activity = getInstrumentation().startActivitySync(intent);
-        assertNotNull("Main activity did not start", activity);
-        ChromeActivity chromeActivity = (ChromeActivity)
-                monitor.waitForActivityWithTimeout(ACTIVITY_START_TIMEOUT_MS);
-        assertNotNull("ChromeActivity did not start", chromeActivity);
-        setActivity(chromeActivity);
-        Log.d(TAG, "startActivityCompletely <<");
+        final CallbackHelper activityCallback = new CallbackHelper();
+        final AtomicReference<T> activityRef = new AtomicReference<>();
+        ActivityStateListener stateListener = new ActivityStateListener() {
+            @SuppressWarnings("unchecked")
+            @Override
+            public void onActivityStateChange(Activity activity, int newState) {
+                if (newState == ActivityState.RESUMED) {
+                    if (!mChromeActivityClass.isAssignableFrom(activity.getClass())) {
+                        return;
+                    }
+
+                    activityRef.set((T) activity);
+                    activityCallback.notifyCalled();
+                    ApplicationStatus.unregisterActivityStateListener(this);
+                }
+            }
+        };
+        ApplicationStatus.registerStateListenerForAllActivities(stateListener);
+
+        try {
+            getInstrumentation().startActivitySync(intent);
+            activityCallback.waitForCallback("Activity did not start as expected", 0);
+            T activity = activityRef.get();
+            assertNotNull("Activity reference is null.", activity);
+            setActivity(activity);
+            Log.d(TAG, "startActivityCompletely <<");
+        } catch (InterruptedException | TimeoutException e) {
+            throw new RuntimeException(e);
+        } finally {
+            ApplicationStatus.unregisterActivityStateListener(stateListener);
+        }
     }
 
     /** Convenience function for {@link ApplicationTestUtils#clearAppData(Context)}. */
-    protected void clearAppData() throws Exception {
+    protected void clearAppData() {
         ApplicationTestUtils.clearAppData(getInstrumentation().getTargetContext());
     }
 
@@ -483,7 +509,7 @@ public abstract class ChromeActivityTestCaseBase<T extends ChromeActivity>
                 intent.putExtra(ChromeTabbedActivity.INTENT_EXTRA_TEST_RENDER_PROCESS_LIMIT,
                         limit.value());
             }
-        } catch (Exception ex) {
+        } catch (NoSuchMethodException ex) {
             // Ignore exception.
         }
         return intent;
@@ -856,7 +882,7 @@ public abstract class ChromeActivityTestCaseBase<T extends ChromeActivity>
 
                 System.out.println(perfTagAnalysisString);
             }
-        } catch (Exception ex) {
+        } catch (NoSuchMethodException ex) {
             // Eat exception here.
         }
     }

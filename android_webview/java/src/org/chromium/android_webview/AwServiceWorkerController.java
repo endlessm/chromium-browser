@@ -81,25 +81,6 @@ public class AwServiceWorkerController {
             // see e.g. AwCookieAccessPolicy::GetShouldAcceptThirdPartyCookies.
             return false;
         }
-
-        @Override
-        public void onDownloadStart(String url, String userAgent,
-                String contentDisposition, String mimeType, long contentLength) {}
-
-        @Override
-        public void newLoginRequest(String realm, String account, String args) {}
-
-        @Override
-        public void onReceivedError(AwContentsClient.AwWebResourceRequest request,
-                AwContentsClient.AwWebResourceError error) {
-            // TODO
-        }
-
-        @Override
-        public void onReceivedHttpError(AwContentsClient.AwWebResourceRequest request,
-                AwWebResourceResponse response) {
-            // TODO
-        }
     }
 
     private class ServiceWorkerBackgroundThreadClientImpl

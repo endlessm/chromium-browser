@@ -29,7 +29,8 @@ enum {
 #endif
   DIR_RESOURCES,                // Directory containing separate file resources
                                 // used by Chrome at runtime.
-  DIR_INSPECTOR,                // Directory where web inspector is located.
+  DIR_INSPECTOR_DEBUG,          // Directory where non-bundled and non-minified
+                                // web inspector is located.
   DIR_APP_DICTIONARIES,         // Directory where the global dictionaries are.
   DIR_USER_DOCUMENTS,           // Directory for a user's "My Documents".
   DIR_USER_MUSIC,               // Directory for a user's music.
@@ -96,7 +97,6 @@ enum {
   FILE_RESOURCES_PACK,          // Full path to the .pak file containing
                                 // binary data (e.g., html files and images
                                 // used by internal pages).
-  DIR_RESOURCES_EXTENSION,      // Full path to extension resources.
 #if defined(OS_CHROMEOS)
   DIR_CHROMEOS_WALLPAPERS,      // Directory where downloaded chromeos
                                 // wallpapers reside.
@@ -129,8 +129,11 @@ enum {
 #if defined(OS_LINUX)
   FILE_COMPONENT_FLASH_HINT,    // A file in a known location that points to
                                 // the component updated flash plugin.
-#endif // defined(OS_LINUX)
-
+#endif  // defined(OS_LINUX)
+#if defined(OS_CHROMEOS)
+  FILE_CHROME_OS_COMPONENT_FLASH,  // The location of component updated Flash on
+                                   // Chrome OS.
+#endif  // defined(OS_CHROMEOS)
   PATH_END
 };
 

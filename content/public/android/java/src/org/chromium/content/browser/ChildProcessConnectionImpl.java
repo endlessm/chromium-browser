@@ -10,6 +10,7 @@ import android.content.Intent;
 import android.content.ServiceConnection;
 import android.content.pm.PackageManager;
 import android.content.pm.ServiceInfo;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.DeadObjectException;
 import android.os.IBinder;
@@ -40,36 +41,36 @@ public class ChildProcessConnectionImpl implements ChildProcessConnection {
     // (specifically start and stop) may be called from any thread, hence all entry point methods
     // into the class are synchronized on the lock to protect access to these members.
     private final Object mLock = new Object();
-    private IChildProcessService mService = null;
+    private IChildProcessService mService;
     // Set to true when the service connected successfully.
-    private boolean mServiceConnectComplete = false;
+    private boolean mServiceConnectComplete;
     // Set to true when the service disconnects, as opposed to being properly closed. This happens
     // when the process crashes or gets killed by the system out-of-memory killer.
-    private boolean mServiceDisconnected = false;
+    private boolean mServiceDisconnected;
     // When the service disconnects (i.e. mServiceDisconnected is set to true), the status of the
     // oom bindings is stashed here for future inspection.
-    private boolean mWasOomProtected = false;
-    private int mPid = 0;  // Process ID of the corresponding child process.
+    private boolean mWasOomProtected;
+    private int mPid;  // Process ID of the corresponding child process.
     // Initial binding protects the newly spawned process from being killed before it is put to use,
     // it is maintained between calls to start() and removeInitialBinding().
-    private ChildServiceConnection mInitialBinding = null;
+    private ChildServiceConnection mInitialBinding;
     // Strong binding will make the service priority equal to the priority of the activity. We want
     // the OS to be able to kill background renderers as it kills other background apps, so strong
     // bindings are maintained only for services that are active at the moment (between
     // addStrongBinding() and removeStrongBinding()).
-    private ChildServiceConnection mStrongBinding = null;
+    private ChildServiceConnection mStrongBinding;
     // Low priority binding maintained in the entire lifetime of the connection, i.e. between calls
     // to start() and stop().
-    private ChildServiceConnection mWaivedBinding = null;
+    private ChildServiceConnection mWaivedBinding;
     // Incremented on addStrongBinding(), decremented on removeStrongBinding().
-    private int mStrongBindingCount = 0;
+    private int mStrongBindingCount;
     // Moderate binding will make the service priority equal to the priority of a visible process
     // while the app is in the foreground. It will stay bound only while the app is in the
     // foreground to protect a background process from the system out-of-memory killer.
-    private ChildServiceConnection mModerateBinding = null;
+    private ChildServiceConnection mModerateBinding;
 
     // Linker-related parameters.
-    private ChromiumLinkerParams mLinkerParams = null;
+    private ChromiumLinkerParams mLinkerParams;
 
     private final boolean mAlwaysInForeground;
     private final ChildProcessCreationParams mCreationParams;
@@ -107,7 +108,7 @@ public class ChildProcessConnectionImpl implements ChildProcessConnection {
     private ChildProcessConnection.ConnectionCallback mConnectionCallback;
 
     private class ChildServiceConnection implements ServiceConnection {
-        private boolean mBound = false;
+        private boolean mBound;
 
         private final int mBindFlags;
 
@@ -120,10 +121,7 @@ public class ChildProcessConnectionImpl implements ChildProcessConnection {
             return intent;
         }
 
-        public ChildServiceConnection(int bindFlags, boolean needsExtraBindFlags) {
-            if (needsExtraBindFlags && mCreationParams != null) {
-                bindFlags = mCreationParams.addExtraBindFlags(bindFlags);
-            }
+        public ChildServiceConnection(int bindFlags) {
             mBindFlags = bindFlags;
         }
 
@@ -132,9 +130,9 @@ public class ChildProcessConnectionImpl implements ChildProcessConnection {
                 try {
                     TraceEvent.begin("ChildProcessConnectionImpl.ChildServiceConnection.bind");
                     final Intent intent = createServiceBindIntent();
-                    if (commandLine != null) {
-                        intent.putExtra(ChildProcessConstants.EXTRA_COMMAND_LINE, commandLine);
-                    }
+                    // Note, the intent may be saved and re-used by Android for re-launching the
+                    // child service. Do not pass data that is different for each child; command
+                    // line arguments for example.
                     if (mLinkerParams != null) {
                         mLinkerParams.addIntentExtras(intent);
                     }
@@ -226,16 +224,18 @@ public class ChildProcessConnectionImpl implements ChildProcessConnection {
         mCreationParams = creationParams;
         int initialFlags = Context.BIND_AUTO_CREATE;
         if (mAlwaysInForeground) initialFlags |= Context.BIND_IMPORTANT;
-        // "external service" attribute is approximated by "exported" attribute.
-        // TODO(mnaganov): Update after the release of the next Android SDK.
-        final boolean needsExtraBindFlags = isExportedService(inSandbox, mContext, mServiceName);
-        mInitialBinding = new ChildServiceConnection(initialFlags, needsExtraBindFlags);
+        int extraBindFlags = 0;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && mCreationParams != null
+                && mCreationParams.getIsExternalService()
+                && isExportedService(inSandbox, mContext, mServiceName)) {
+            extraBindFlags = Context.BIND_EXTERNAL_SERVICE;
+        }
+        mInitialBinding = new ChildServiceConnection(initialFlags | extraBindFlags);
         mStrongBinding = new ChildServiceConnection(
-                Context.BIND_AUTO_CREATE | Context.BIND_IMPORTANT, needsExtraBindFlags);
+                Context.BIND_AUTO_CREATE | Context.BIND_IMPORTANT | extraBindFlags);
         mWaivedBinding = new ChildServiceConnection(
-                Context.BIND_AUTO_CREATE | Context.BIND_WAIVE_PRIORITY, needsExtraBindFlags);
-        mModerateBinding = new ChildServiceConnection(
-                Context.BIND_AUTO_CREATE, needsExtraBindFlags);
+                Context.BIND_AUTO_CREATE | Context.BIND_WAIVE_PRIORITY | extraBindFlags);
+        mModerateBinding = new ChildServiceConnection(Context.BIND_AUTO_CREATE | extraBindFlags);
     }
 
     private static boolean isExportedService(boolean inSandbox, Context context,

@@ -72,7 +72,7 @@ Polymer({
         return {
           'AccessPointName': 'String',
           'Username': 'String',
-          'Password': 'String'
+          'Password': 'Password'
         };
       },
       readOnly: true
@@ -139,11 +139,11 @@ Polymer({
     result.push(otherApn);
 
     this.apnSelectList_ = result;
-    this.selectedApn_ =
-        (activeApn && activeApn.AccessPointName) || otherApn.AccessPointName;
-    // We need to flush the DOM here, otherwise the paper-dropdown-menu-light
-    // will not update to correctly display the selected AccessPointName.
-    Polymer.dom.flush();
+    // Set selectedApn_ after dom-repeat has been stamped.
+    this.async(function() {
+      this.selectedApn_ =
+          (activeApn && activeApn.AccessPointName) || otherApn.AccessPointName;
+    }.bind(this));
   },
 
   /**
@@ -177,16 +177,18 @@ Polymer({
 
   /**
    * Event triggered when the selectApn selection changes.
-   * @param {!{detail: !{selected: string}}} event
+   * @param {!Event} event
    * @private
    */
   onSelectApnChange_: function(event) {
-    /** @type {string} */ var accessPointName = event.detail.selected;
+    let target = /** @type {!HTMLSelectElement} */(event.target);
+    var accessPointName = target.value;
     // When selecting 'Other', don't set a change event unless a valid
     // non-default value has been set for Other.
     if (this.isOtherSelected_(accessPointName) &&
         (!this.otherApn_ || !this.otherApn_.AccessPointName ||
          this.otherApn_.AccessPointName == this.DefaultAccessPointName)) {
+      this.selectedApn_ = accessPointName;
       return;
     }
     this.sendApnChange_(accessPointName);
@@ -198,7 +200,7 @@ Polymer({
    * @private
    */
   onOtherApnChange_: function(event) {
-    this.set('otherApn.' + event.detail.field, event.detail.value);
+    this.set('otherApn_.' + event.detail.field, event.detail.value);
     // Don't send a change event for 'Other' until the 'Save' button is tapped.
   },
 

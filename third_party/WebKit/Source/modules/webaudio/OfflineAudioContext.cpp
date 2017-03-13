@@ -111,7 +111,7 @@ OfflineAudioContext* OfflineAudioContext::create(
   // fairly arbitrary.
   DEFINE_STATIC_LOCAL(
       CustomCountHistogram, offlineContextSampleRateHistogram,
-      ("WebAudio.OfflineAudioContext.SampleRate", 3000, 192000, 50));
+      ("WebAudio.OfflineAudioContext.SampleRate384kHz", 3000, 384000, 50));
 
   offlineContextChannelCountHistogram.sample(numberOfChannels);
   offlineContextLengthHistogram.count(numberOfFrames);
@@ -208,10 +208,8 @@ ScriptPromise OfflineAudioContext::startOfflineRendering(
 }
 
 ScriptPromise OfflineAudioContext::suspendContext(ScriptState* scriptState) {
-  // This CANNOT be called on OfflineAudioContext; this is only to implement
-  // the pure virtual interface from BaseAudioContext.
-  RELEASE_NOTREACHED();
-
+  LOG(FATAL) << "This CANNOT be called on OfflineAudioContext; this is only to "
+                "implement the pure virtual interface from BaseAudioContext.";
   return ScriptPromise();
 }
 

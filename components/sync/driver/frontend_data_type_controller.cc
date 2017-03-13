@@ -7,15 +7,15 @@
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "base/threading/thread_task_runner_handle.h"
-#include "components/sync/api/data_type_error_handler_impl.h"
-#include "components/sync/api/sync_error.h"
-#include "components/sync/api/sync_merge_result.h"
 #include "components/sync/base/data_type_histogram.h"
 #include "components/sync/base/model_type.h"
-#include "components/sync/driver/change_processor.h"
 #include "components/sync/driver/model_associator.h"
 #include "components/sync/driver/sync_client.h"
 #include "components/sync/driver/sync_service.h"
+#include "components/sync/model/change_processor.h"
+#include "components/sync/model/data_type_error_handler_impl.h"
+#include "components/sync/model/sync_error.h"
+#include "components/sync/model/sync_merge_result.h"
 
 namespace syncer {
 
@@ -23,7 +23,7 @@ FrontendDataTypeController::FrontendDataTypeController(
     ModelType type,
     const base::Closure& dump_stack,
     SyncClient* sync_client)
-    : DirectoryDataTypeController(type, dump_stack, sync_client),
+    : DirectoryDataTypeController(type, dump_stack, sync_client, GROUP_UI),
       state_(NOT_RUNNING) {
   DCHECK(CalledOnValidThread());
   DCHECK(sync_client);
@@ -100,14 +100,10 @@ void FrontendDataTypeController::Stop() {
     error = model_associator()->DisassociateModels();
   }
 
-  set_model_associator(NULL);
+  set_model_associator(nullptr);
   change_processor_.reset();
 
   state_ = NOT_RUNNING;
-}
-
-ModelSafeGroup FrontendDataTypeController::model_safe_group() const {
-  return GROUP_UI;
 }
 
 std::string FrontendDataTypeController::name() const {
@@ -120,7 +116,10 @@ DataTypeController::State FrontendDataTypeController::state() const {
 }
 
 FrontendDataTypeController::FrontendDataTypeController()
-    : DirectoryDataTypeController(UNSPECIFIED, base::Closure(), nullptr),
+    : DirectoryDataTypeController(UNSPECIFIED,
+                                  base::Closure(),
+                                  nullptr,
+                                  GROUP_UI),
       state_(NOT_RUNNING) {}
 
 FrontendDataTypeController::~FrontendDataTypeController() {}
@@ -185,7 +184,7 @@ void FrontendDataTypeController::CleanUpState() {
 
 void FrontendDataTypeController::CleanUp() {
   CleanUpState();
-  set_model_associator(NULL);
+  set_model_associator(nullptr);
   change_processor_.reset();
 }
 

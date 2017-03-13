@@ -23,7 +23,7 @@
 
 #include "core/dom/Document.h"
 #include "core/inspector/ConsoleMessage.h"
-#include "core/layout/svg/SVGResourcesCache.h"
+#include "core/layout/svg/LayoutSVGResourceContainer.h"
 #include "core/svg/SVGSVGElement.h"
 #include "core/svg/animation/SMILTimeContainer.h"
 #include "wtf/AutoReset.h"
@@ -33,10 +33,6 @@ namespace blink {
 
 SVGDocumentExtensions::SVGDocumentExtensions(Document* document)
     : m_document(document)
-#if ENABLE(ASSERT)
-      ,
-      m_inRelativeLengthSVGRootsInvalidation(false)
-#endif
 {
 }
 
@@ -211,91 +207,32 @@ void SVGDocumentExtensions::clearHasPendingResourcesIfPossible(
 
 void SVGDocumentExtensions::removeElementFromPendingResources(
     Element* element) {
-  ASSERT(element);
+  DCHECK(element);
 
   // Remove the element from pending resources.
-  if (!m_pendingResources.isEmpty() && element->hasPendingResources()) {
-    Vector<AtomicString> toBeRemoved;
-    for (const auto& entry : m_pendingResources) {
-      SVGPendingElements* elements = entry.value.get();
-      ASSERT(elements);
-      ASSERT(!elements->isEmpty());
+  if (m_pendingResources.isEmpty() || !element->hasPendingResources())
+    return;
 
-      elements->remove(element);
-      if (elements->isEmpty())
-        toBeRemoved.append(entry.key);
-    }
+  Vector<AtomicString> toBeRemoved;
+  for (const auto& entry : m_pendingResources) {
+    SVGPendingElements* elements = entry.value.get();
+    DCHECK(elements);
+    DCHECK(!elements->isEmpty());
 
-    clearHasPendingResourcesIfPossible(element);
-
-    // We use the removePendingResource function here because it deals with set
-    // lifetime correctly.
-    for (const AtomicString& id : toBeRemoved)
-      removePendingResource(id);
+    elements->remove(element);
+    if (elements->isEmpty())
+      toBeRemoved.push_back(entry.key);
   }
 
-  // Remove the element from pending resources that were scheduled for removal.
-  if (!m_pendingResourcesForRemoval.isEmpty()) {
-    Vector<AtomicString> toBeRemoved;
-    for (const auto& entry : m_pendingResourcesForRemoval) {
-      SVGPendingElements* elements = entry.value.get();
-      ASSERT(elements);
-      ASSERT(!elements->isEmpty());
+  clearHasPendingResourcesIfPossible(element);
 
-      elements->remove(element);
-      if (elements->isEmpty())
-        toBeRemoved.append(entry.key);
-    }
-
-    // We use the removePendingResourceForRemoval function here because it deals
-    // with set lifetime correctly.
-    for (const AtomicString& id : toBeRemoved)
-      removePendingResourceForRemoval(id);
-  }
+  m_pendingResources.removeAll(toBeRemoved);
 }
 
 SVGDocumentExtensions::SVGPendingElements*
 SVGDocumentExtensions::removePendingResource(const AtomicString& id) {
   ASSERT(m_pendingResources.contains(id));
   return m_pendingResources.take(id);
-}
-
-SVGDocumentExtensions::SVGPendingElements*
-SVGDocumentExtensions::removePendingResourceForRemoval(const AtomicString& id) {
-  ASSERT(m_pendingResourcesForRemoval.contains(id));
-  return m_pendingResourcesForRemoval.take(id);
-}
-
-void SVGDocumentExtensions::markPendingResourcesForRemoval(
-    const AtomicString& id) {
-  if (id.isEmpty())
-    return;
-
-  ASSERT(!m_pendingResourcesForRemoval.contains(id));
-
-  Member<SVGPendingElements> existing = m_pendingResources.take(id);
-  if (existing && !existing->isEmpty())
-    m_pendingResourcesForRemoval.add(id, existing.release());
-}
-
-Element* SVGDocumentExtensions::removeElementFromPendingResourcesForRemoval(
-    const AtomicString& id) {
-  if (id.isEmpty())
-    return nullptr;
-
-  SVGPendingElements* resourceSet = m_pendingResourcesForRemoval.get(id);
-  if (!resourceSet || resourceSet->isEmpty())
-    return nullptr;
-
-  SVGPendingElements::iterator firstElement = resourceSet->begin();
-  Element* element = *firstElement;
-
-  resourceSet->remove(firstElement);
-
-  if (resourceSet->isEmpty())
-    removePendingResourceForRemoval(id);
-
-  return element;
 }
 
 void SVGDocumentExtensions::addSVGRootWithRelativeLengthDescendents(
@@ -318,7 +255,7 @@ bool SVGDocumentExtensions::isSVGRootWithRelativeLengthDescendents(
 void SVGDocumentExtensions::invalidateSVGRootsWithRelativeLengthDescendents(
     SubtreeLayoutScope* scope) {
   ASSERT(!m_inRelativeLengthSVGRootsInvalidation);
-#if ENABLE(ASSERT)
+#if DCHECK_IS_ON()
   AutoReset<bool> inRelativeLengthSVGRootsChange(
       &m_inRelativeLengthSVGRootsInvalidation, true);
 #endif
@@ -361,7 +298,6 @@ DEFINE_TRACE(SVGDocumentExtensions) {
   visitor->trace(m_webAnimationsPendingSVGElements);
   visitor->trace(m_relativeLengthSVGRoots);
   visitor->trace(m_pendingResources);
-  visitor->trace(m_pendingResourcesForRemoval);
 }
 
 }  // namespace blink

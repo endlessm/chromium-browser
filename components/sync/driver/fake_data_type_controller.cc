@@ -7,15 +7,18 @@
 #include "base/bind.h"
 #include "base/memory/ptr_util.h"
 #include "base/threading/thread_task_runner_handle.h"
-#include "components/sync/api/data_type_error_handler_impl.h"
-#include "components/sync/api/sync_merge_result.h"
+#include "components/sync/model/data_type_error_handler_impl.h"
+#include "components/sync/model/sync_merge_result.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace syncer {
 
 FakeDataTypeController::FakeDataTypeController(ModelType type)
-    : DirectoryDataTypeController(type, base::Closure(), nullptr),
+    : DirectoryDataTypeController(type,
+                                  base::Closure(),
+                                  nullptr,
+                                  GROUP_PASSIVE),
       state_(NOT_RUNNING),
       model_load_delayed_(false),
       ready_for_start_(true),
@@ -50,7 +53,8 @@ void FakeDataTypeController::LoadModels(
 }
 
 void FakeDataTypeController::RegisterWithBackend(
-    BackendDataTypeConfigurer* configurer) {
+    base::Callback<void(bool)> set_downloaded,
+    ModelTypeConfigurer* configurer) {
   ++register_with_backend_call_count_;
 }
 
@@ -112,12 +116,8 @@ std::string FakeDataTypeController::name() const {
   return ModelTypeToString(type());
 }
 
-ModelSafeGroup FakeDataTypeController::model_safe_group() const {
-  return GROUP_PASSIVE;
-}
-
 ChangeProcessor* FakeDataTypeController::GetChangeProcessor() const {
-  return NULL;
+  return nullptr;
 }
 
 DataTypeController::State FakeDataTypeController::state() const {

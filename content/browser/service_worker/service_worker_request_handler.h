@@ -32,12 +32,12 @@ class BlobStorageContext;
 namespace content {
 
 class ResourceContext;
-class ResourceMessageFilter;
 class ResourceRequestBodyImpl;
 class ServiceWorkerContextCore;
 class ServiceWorkerContextWrapper;
 class ServiceWorkerNavigationHandleCore;
 class ServiceWorkerProviderHost;
+class WebContents;
 
 // Abstract base class for routing network requests to ServiceWorkers.
 // Created one per URLRequest and attached to each request.
@@ -56,7 +56,8 @@ class CONTENT_EXPORT ServiceWorkerRequestHandler
       RequestContextType request_context_type,
       RequestContextFrameType frame_type,
       bool is_parent_frame_secure,
-      scoped_refptr<ResourceRequestBodyImpl> body);
+      scoped_refptr<ResourceRequestBodyImpl> body,
+      const base::Callback<WebContents*(void)>& web_contents_getter);
 
   // Attaches a newly created handler if the given |request| needs to
   // be handled by ServiceWorker.

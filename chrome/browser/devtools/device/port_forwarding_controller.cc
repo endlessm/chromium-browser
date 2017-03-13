@@ -15,7 +15,6 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
-#include "base/strings/stringprintf.h"
 #include "base/threading/non_thread_safe.h"
 #include "chrome/browser/devtools/devtools_protocol.h"
 #include "chrome/browser/devtools/devtools_protocol_constants.h"
@@ -31,6 +30,7 @@
 #include "net/log/net_log_source.h"
 #include "net/log/net_log_with_source.h"
 #include "net/socket/tcp_client_socket.h"
+#include "third_party/WebKit/public/public_features.h"
 
 using content::BrowserThread;
 
@@ -316,9 +316,9 @@ void PortForwardingController::Connection::SendCommand(
     pending_responses_[id] =
         base::Bind(&Connection::ProcessBindResponse,
                    base::Unretained(this), port);
-#if defined(DEBUG_DEVTOOLS)
+#if BUILDFLAG(DEBUG_DEVTOOLS)
     port_status_[port] = kStatusConnecting;
-#endif  // defined(DEBUG_DEVTOOLS)
+#endif  // BUILDFLAG(DEBUG_DEVTOOLS)
   } else {
     PortStatusMap::iterator it = port_status_.find(port);
     if (it != port_status_.end() && it->second == kStatusError) {
@@ -330,9 +330,9 @@ void PortForwardingController::Connection::SendCommand(
     pending_responses_[id] =
         base::Bind(&Connection::ProcessUnbindResponse,
                    base::Unretained(this), port);
-#if defined(DEBUG_DEVTOOLS)
+#if BUILDFLAG(DEBUG_DEVTOOLS)
     port_status_[port] = kStatusDisconnecting;
-#endif  // defined(DEBUG_DEVTOOLS)
+#endif  // BUILDFLAG(DEBUG_DEVTOOLS)
   }
 
   web_socket_->SendFrame(
@@ -467,9 +467,9 @@ PortForwardingController::DeviceListChanged(
 }
 
 void PortForwardingController::CloseAllConnections() {
-  std::vector<Connection*> registry_copy;
   Registry copy(registry_);
-  base::STLDeleteValues(&copy);
+  for (auto& entry : copy)
+    delete entry.second;
 }
 
 void PortForwardingController::OnPrefsChange() {

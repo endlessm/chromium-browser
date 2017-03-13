@@ -33,22 +33,24 @@ inline SVGImageElement::SVGImageElement(Document& document)
       SVGURIReference(this),
       m_x(SVGAnimatedLength::create(this,
                                     SVGNames::xAttr,
-                                    SVGLength::create(SVGLengthMode::Width))),
+                                    SVGLength::create(SVGLengthMode::Width),
+                                    CSSPropertyX)),
       m_y(SVGAnimatedLength::create(this,
                                     SVGNames::yAttr,
-                                    SVGLength::create(SVGLengthMode::Height))),
-      m_width(
-          SVGAnimatedLength::create(this,
-                                    SVGNames::widthAttr,
-                                    SVGLength::create(SVGLengthMode::Width))),
+                                    SVGLength::create(SVGLengthMode::Height),
+                                    CSSPropertyY)),
+      m_width(SVGAnimatedLength::create(this,
+                                        SVGNames::widthAttr,
+                                        SVGLength::create(SVGLengthMode::Width),
+                                        CSSPropertyWidth)),
       m_height(
           SVGAnimatedLength::create(this,
                                     SVGNames::heightAttr,
-                                    SVGLength::create(SVGLengthMode::Height))),
+                                    SVGLength::create(SVGLengthMode::Height),
+                                    CSSPropertyHeight)),
       m_preserveAspectRatio(SVGAnimatedPreserveAspectRatio::create(
           this,
-          SVGNames::preserveAspectRatioAttr,
-          SVGPreserveAspectRatio::create())),
+          SVGNames::preserveAspectRatioAttr)),
       m_imageLoader(SVGImageLoader::create(this)),
       m_needsLoaderURIUpdate(true) {
   addToPropertyMap(m_x);
@@ -83,44 +85,27 @@ bool SVGImageElement::currentFrameHasSingleSecurityOrigin() const {
   return true;
 }
 
-bool SVGImageElement::isPresentationAttribute(
-    const QualifiedName& attrName) const {
-  if (attrName == SVGNames::xAttr || attrName == SVGNames::yAttr ||
-      attrName == SVGNames::widthAttr || attrName == SVGNames::heightAttr)
-    return true;
-  return SVGGraphicsElement::isPresentationAttribute(attrName);
-}
-
-bool SVGImageElement::isPresentationAttributeWithSVGDOM(
-    const QualifiedName& attrName) const {
-  if (attrName == SVGNames::xAttr || attrName == SVGNames::yAttr ||
-      attrName == SVGNames::widthAttr || attrName == SVGNames::heightAttr)
-    return true;
-  return SVGGraphicsElement::isPresentationAttributeWithSVGDOM(attrName);
-}
-
 void SVGImageElement::collectStyleForPresentationAttribute(
     const QualifiedName& name,
     const AtomicString& value,
     MutableStylePropertySet* style) {
   SVGAnimatedPropertyBase* property = propertyFromAttribute(name);
-  if (property == m_width)
-    addPropertyToPresentationAttributeStyle(
-        style, CSSPropertyWidth,
-        m_width->currentValue()->asCSSPrimitiveValue());
-  else if (property == m_height)
-    addPropertyToPresentationAttributeStyle(
-        style, CSSPropertyHeight,
-        m_height->currentValue()->asCSSPrimitiveValue());
-  else if (property == m_x)
-    addPropertyToPresentationAttributeStyle(
-        style, CSSPropertyX, m_x->currentValue()->asCSSPrimitiveValue());
-  else if (property == m_y)
-    addPropertyToPresentationAttributeStyle(
-        style, CSSPropertyY, m_y->currentValue()->asCSSPrimitiveValue());
-  else
+  if (property == m_width) {
+    addPropertyToPresentationAttributeStyle(style, CSSPropertyWidth,
+                                            m_width->cssValue());
+  } else if (property == m_height) {
+    addPropertyToPresentationAttributeStyle(style, CSSPropertyHeight,
+                                            m_height->cssValue());
+  } else if (property == m_x) {
+    addPropertyToPresentationAttributeStyle(style, CSSPropertyX,
+                                            m_x->cssValue());
+  } else if (property == m_y) {
+    addPropertyToPresentationAttributeStyle(style, CSSPropertyY,
+                                            m_y->cssValue());
+  } else {
     SVGGraphicsElement::collectStyleForPresentationAttribute(name, value,
                                                              style);
+  }
 }
 
 void SVGImageElement::svgAttributeChanged(const QualifiedName& attrName) {

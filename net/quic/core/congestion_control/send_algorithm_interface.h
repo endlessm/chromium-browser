@@ -4,19 +4,21 @@
 //
 // The pure virtual class for send side congestion control algorithm.
 
-#ifndef NET_QUIC_CONGESTION_CONTROL_SEND_ALGORITHM_INTERFACE_H_
-#define NET_QUIC_CONGESTION_CONTROL_SEND_ALGORITHM_INTERFACE_H_
+#ifndef NET_QUIC_CORE_CONGESTION_CONTROL_SEND_ALGORITHM_INTERFACE_H_
+#define NET_QUIC_CORE_CONGESTION_CONTROL_SEND_ALGORITHM_INTERFACE_H_
 
 #include <algorithm>
 #include <map>
 
-#include "net/base/net_export.h"
+#include "net/quic/core/crypto/quic_random.h"
 #include "net/quic/core/quic_bandwidth.h"
-#include "net/quic/core/quic_clock.h"
 #include "net/quic/core/quic_config.h"
 #include "net/quic/core/quic_connection_stats.h"
-#include "net/quic/core/quic_protocol.h"
+#include "net/quic/core/quic_packets.h"
 #include "net/quic/core/quic_time.h"
+#include "net/quic/core/quic_unacked_packet_map.h"
+#include "net/quic/platform/api/quic_clock.h"
+#include "net/quic/platform/api/quic_export.h"
 
 namespace net {
 
@@ -25,7 +27,7 @@ class RttStats;
 
 const QuicPacketCount kDefaultMaxCongestionWindowPackets = 2000;
 
-class NET_EXPORT_PRIVATE SendAlgorithmInterface {
+class QUIC_EXPORT_PRIVATE SendAlgorithmInterface {
  public:
   // A sorted vector of packets.
   typedef std::vector<std::pair<QuicPacketNumber, QuicPacketLength>>
@@ -34,7 +36,9 @@ class NET_EXPORT_PRIVATE SendAlgorithmInterface {
   static SendAlgorithmInterface* Create(
       const QuicClock* clock,
       const RttStats* rtt_stats,
+      const QuicUnackedPacketMap* unacked_packets,
       CongestionControlType type,
+      QuicRandom* random,
       QuicConnectionStats* stats,
       QuicPacketCount initial_congestion_window);
 
@@ -49,11 +53,12 @@ class NET_EXPORT_PRIVATE SendAlgorithmInterface {
 
   // Indicates an update to the congestion state, caused either by an incoming
   // ack or loss event timeout.  |rtt_updated| indicates whether a new
-  // latest_rtt sample has been taken, |byte_in_flight| the bytes in flight
-  // prior to the congestion event.  |acked_packets| and |lost_packets| are
-  // any packets considered acked or lost as a result of the congestion event.
+  // latest_rtt sample has been taken, |prior_in_flight| the bytes in flight
+  // prior to the congestion event.  |acked_packets| and |lost_packets| are any
+  // packets considered acked or lost as a result of the congestion event.
   virtual void OnCongestionEvent(bool rtt_updated,
-                                 QuicByteCount bytes_in_flight,
+                                 QuicByteCount prior_in_flight,
+                                 QuicTime event_time,
                                  const CongestionVector& acked_packets,
                                  const CongestionVector& lost_packets) = 0;
 
@@ -134,4 +139,4 @@ class NET_EXPORT_PRIVATE SendAlgorithmInterface {
 
 }  // namespace net
 
-#endif  // NET_QUIC_CONGESTION_CONTROL_SEND_ALGORITHM_INTERFACE_H_
+#endif  // NET_QUIC_CORE_CONGESTION_CONTROL_SEND_ALGORITHM_INTERFACE_H_

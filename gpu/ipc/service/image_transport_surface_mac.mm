@@ -21,7 +21,9 @@ class DRTSurfaceOSMesa : public gl::GLSurfaceOSMesa {
  public:
   // Size doesn't matter, the surface is resized to the right size later.
   DRTSurfaceOSMesa()
-      : GLSurfaceOSMesa(gl::GLSurface::SURFACE_OSMESA_RGBA, gfx::Size(1, 1)) {}
+      : GLSurfaceOSMesa(
+          gl::GLSurfaceFormat(gl::GLSurfaceFormat::PIXEL_LAYOUT_RGBA),
+          gfx::Size(1, 1)) {}
 
   // Implement a subset of GLSurface.
   gfx::SwapResult SwapBuffers() override;
@@ -41,10 +43,9 @@ bool g_allow_os_mesa = false;
 
 // static
 scoped_refptr<gl::GLSurface> ImageTransportSurface::CreateNativeSurface(
-    GpuChannelManager* manager,
-    GpuCommandBufferStub* stub,
+    base::WeakPtr<ImageTransportSurfaceDelegate> delegate,
     SurfaceHandle surface_handle,
-    gl::GLSurface::Format format) {
+    gl::GLSurfaceFormat format) {
   DCHECK_NE(surface_handle, kNullSurfaceHandle);
 
   switch (gl::GetGLImplementation()) {
@@ -52,7 +53,7 @@ scoped_refptr<gl::GLSurface> ImageTransportSurface::CreateNativeSurface(
     case gl::kGLImplementationDesktopGLCoreProfile:
     case gl::kGLImplementationAppleGL:
       return make_scoped_refptr<gl::GLSurface>(
-          new ImageTransportSurfaceOverlayMac(stub));
+          new ImageTransportSurfaceOverlayMac(delegate));
     case gl::kGLImplementationMockGL:
       return make_scoped_refptr<gl::GLSurface>(new gl::GLSurfaceStub);
     default:
@@ -67,7 +68,7 @@ scoped_refptr<gl::GLSurface> ImageTransportSurface::CreateNativeSurface(
       if (!surface.get() || !surface->Initialize(format))
         return surface;
       return make_scoped_refptr<gl::GLSurface>(
-          new PassThroughImageTransportSurface(manager, stub, surface.get()));
+          new PassThroughImageTransportSurface(delegate, surface.get()));
   }
 }
 

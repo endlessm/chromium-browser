@@ -37,12 +37,11 @@ class SingleThreadTaskRunner;
 }
 
 namespace blink {
-class WebContentDecryptionModule;
-class WebContentDecryptionModuleResult;
 class WebFrame;
 class WebMediaPlayerClient;
 class WebMediaPlayerEncryptedMediaClient;
 class WebURL;
+enum class WebRemotePlaybackAvailability;
 }
 
 namespace cc_blink {
@@ -53,12 +52,10 @@ namespace gpu {
 namespace gles2 {
 class GLES2Interface;
 }
-struct MailboxHolder;
 }
 
 namespace media {
 class MediaLog;
-class WebContentDecryptionModuleImpl;
 }
 
 namespace content {
@@ -114,6 +111,7 @@ class WebMediaPlayerAndroid
                  blink::WebSetSinkIdCallbacks* web_callback) override;
   void requestRemotePlayback() override;
   void requestRemotePlaybackControl() override;
+  void requestRemotePlaybackStop() override;
   blink::WebTimeRanges buffered() const override;
   blink::WebTimeRanges seekable() const override;
 
@@ -131,8 +129,6 @@ class WebMediaPlayerAndroid
 
   bool copyVideoTextureToPlatformTexture(gpu::gles2::GLES2Interface* gl,
                                          unsigned int texture,
-                                         unsigned int internal_format,
-                                         unsigned int type,
                                          bool premultiply_alpha,
                                          bool flip_y) override;
 
@@ -200,10 +196,12 @@ class WebMediaPlayerAndroid
       override;
   void OnDisconnectedFromRemoteDevice() override;
   void OnCancelledRemotePlaybackRequest() override;
+  void OnRemotePlaybackStarted() override;
   void OnDidExitFullscreen() override;
   void OnMediaPlayerPlay() override;
   void OnMediaPlayerPause() override;
-  void OnRemoteRouteAvailabilityChanged(bool routes_available) override;
+  void OnRemoteRouteAvailabilityChanged(
+      blink::WebRemotePlaybackAvailability availability) override;
 
   // Called when the player is released.
   void OnPlayerReleased() override;
@@ -214,9 +212,10 @@ class WebMediaPlayerAndroid
   void SuspendAndReleaseResources() override;
 
   // WebMediaPlayerDelegate::Observer implementation.
-  void OnHidden() override;
-  void OnShown() override;
-  bool OnSuspendRequested(bool must_suspend) override;
+  void OnFrameHidden() override;
+  void OnFrameClosed() override;
+  void OnFrameShown() override;
+  void OnIdleTimeout() override;
   void OnPlay() override;
   void OnPause() override;
   void OnVolumeMultiplierUpdate(double multiplier) override;
@@ -229,7 +228,6 @@ class WebMediaPlayerAndroid
   void UpdateNetworkState(blink::WebMediaPlayer::NetworkState state);
   void UpdateReadyState(blink::WebMediaPlayer::ReadyState state);
   void TryCreateStreamTextureProxyIfNeeded();
-  void DoCreateStreamTexture();
 
   // Helper method to reestablish the surface texture peer for android
   // media player.
@@ -246,7 +244,6 @@ class WebMediaPlayerAndroid
   void DrawRemotePlaybackText(const std::string& remote_playback_message);
   void ReallocateVideoFrame();
   void SetCurrentFrameInternal(scoped_refptr<media::VideoFrame>& frame);
-  void RemoveSurfaceTextureAndProxy();
   void DidLoadMediaInfo(MediaInfoLoader::Status status,
                         const GURL& redirected_url,
                         const GURL& first_party_for_cookies,
@@ -348,9 +345,6 @@ class WebMediaPlayerAndroid
   // point for when the mailbox was produced.
   gpu::Mailbox texture_mailbox_;
 
-  // Stream texture ID allocated to the video.
-  unsigned int stream_id_;
-
   // Whether the media player has been initialized.
   bool is_player_initialized_;
 
@@ -428,6 +422,10 @@ class WebMediaPlayerAndroid
   // for a transient sound.  Playout volume is derived by volume * multiplier.
   double volume_;
   double volume_multiplier_;
+
+  // Whether the video requires a user gesture to resume after it was paused in
+  // the background.
+  bool video_locked_when_paused_when_hidden_;
 
   // NOTE: Weak pointers must be invalidated before all other member variables.
   base::WeakPtrFactory<WebMediaPlayerAndroid> weak_factory_;

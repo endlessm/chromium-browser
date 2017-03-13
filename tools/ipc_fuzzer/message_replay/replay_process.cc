@@ -88,14 +88,13 @@ bool ReplayProcess::Initialize(int argc, const char** argv) {
 
 #if defined(OS_POSIX)
   base::GlobalDescriptors* g_fds = base::GlobalDescriptors::GetInstance();
-  g_fds->Set(kPrimaryIPCChannel,
-             kPrimaryIPCChannel + base::GlobalDescriptors::kBaseDescriptor);
   g_fds->Set(kMojoIPCChannel,
              kMojoIPCChannel + base::GlobalDescriptors::kBaseDescriptor);
 #endif
 
-  mojo_ipc_support_.reset(
-      new mojo::edk::ScopedIPCSupport(io_thread_.task_runner()));
+  mojo_ipc_support_.reset(new mojo::edk::ScopedIPCSupport(
+      io_thread_.task_runner(),
+      mojo::edk::ScopedIPCSupport::ShutdownPolicy::FAST));
   InitializeMojoIPCChannel();
 
   return true;

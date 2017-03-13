@@ -93,7 +93,7 @@ class ContextualSearchDelegateTest : public testing::Test {
       int start_offset,
       int end_offset) {
     test_context_ = new ContextualSearchContext(
-        selected_text, true, GURL(kSomeSpecificBasePage), "utf-8");
+        selected_text, std::string(), GURL(kSomeSpecificBasePage), "utf-8");
     // ContextualSearchDelegate class takes ownership of the context.
     delegate_->set_context_for_testing(test_context_);
 
@@ -148,7 +148,7 @@ class ContextualSearchDelegateTest : public testing::Test {
                              int start_offset,
                              int end_offset) {
     test_context_ = new ContextualSearchContext(
-        "Bogus", true, GURL(kSomeSpecificBasePage), "utf-8");
+        "Bogus", std::string(), GURL(kSomeSpecificBasePage), "utf-8");
     test_context_->surrounding_text = surrounding_text;
     test_context_->start_offset = start_offset;
     test_context_->end_offset = end_offset;
@@ -541,10 +541,14 @@ TEST_F(ContextualSearchDelegateTest, DecodeSearchTermFromJsonResponse) {
   std::string context_language;
   std::string thumbnail_url;
   std::string caption;
+  std::string quick_action_uri;
+  QuickActionCategory quick_action_category = QUICK_ACTION_CATEGORY_NONE;
+
   delegate_->DecodeSearchTermFromJsonResponse(
       json_with_escape, &search_term, &display_text, &alternate_term,
       &mid, &prevent_preload, &mention_start, &mention_end, &context_language,
-      &thumbnail_url, &caption);
+      &thumbnail_url, &caption, &quick_action_uri, &quick_action_category);
+
   EXPECT_EQ("obama", search_term);
   EXPECT_EQ("Barack Obama", display_text);
   EXPECT_EQ("barack obama", alternate_term);
@@ -553,6 +557,8 @@ TEST_F(ContextualSearchDelegateTest, DecodeSearchTermFromJsonResponse) {
   EXPECT_EQ("", context_language);
   EXPECT_EQ("", thumbnail_url);
   EXPECT_EQ("", caption);
+  EXPECT_EQ("", quick_action_uri);
+  EXPECT_EQ(QUICK_ACTION_CATEGORY_NONE, quick_action_category);
 }
 
 TEST_F(ContextualSearchDelegateTest, ResponseWithLanguage) {

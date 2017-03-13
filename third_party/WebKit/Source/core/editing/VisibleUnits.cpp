@@ -48,7 +48,7 @@
 #include "core/frame/LocalFrame.h"
 #include "core/frame/Settings.h"
 #include "core/html/HTMLBRElement.h"
-#include "core/html/HTMLTextFormControlElement.h"
+#include "core/html/TextControlElement.h"
 #include "core/layout/HitTestRequest.h"
 #include "core/layout/HitTestResult.h"
 #include "core/layout/LayoutInline.h"
@@ -182,7 +182,7 @@ static PositionWithAffinityTemplate<Strategy> honorEditingBoundaryAtOrBefore(
 
   // Return empty position if |pos| is not somewhere inside the editable
   // region containing this position
-  if (highestRoot && !pos.position().anchorNode()->isDescendantOf(highestRoot))
+  if (highestRoot && !pos.anchorNode()->isDescendantOf(highestRoot))
     return PositionWithAffinityTemplate<Strategy>();
 
   // Return |pos| itself if the two are from the very same editable region, or
@@ -706,8 +706,9 @@ static VisiblePosition visualWordPosition(
 
     bool isWordBreak;
     bool boxHasSameDirectionalityAsBlock = box->direction() == blockDirection;
-    bool movingBackward = (direction == MoveLeft && box->direction() == LTR) ||
-                          (direction == MoveRight && box->direction() == RTL);
+    bool movingBackward =
+        (direction == MoveLeft && box->direction() == TextDirection::kLtr) ||
+        (direction == MoveRight && box->direction() == TextDirection::kRtl);
     if ((skipsSpaceWhenMovingRight && boxHasSameDirectionalityAsBlock) ||
         (!skipsSpaceWhenMovingRight && movingBackward)) {
       bool logicalStartInLayoutObject =
@@ -744,7 +745,7 @@ VisiblePosition leftWordPosition(const VisiblePosition& visiblePosition,
       isEditablePosition(visiblePosition.deepEquivalent())) {
     TextDirection blockDirection =
         directionOfEnclosingBlock(visiblePosition.deepEquivalent());
-    leftWordBreak = blockDirection == LTR
+    leftWordBreak = blockDirection == TextDirection::kLtr
                         ? startOfEditableContent(visiblePosition)
                         : endOfEditableContent(visiblePosition);
   }
@@ -764,7 +765,7 @@ VisiblePosition rightWordPosition(const VisiblePosition& visiblePosition,
       isEditablePosition(visiblePosition.deepEquivalent())) {
     TextDirection blockDirection =
         directionOfEnclosingBlock(visiblePosition.deepEquivalent());
-    rightWordBreak = blockDirection == LTR
+    rightWordBreak = blockDirection == TextDirection::kLtr
                          ? endOfEditableContent(visiblePosition)
                          : startOfEditableContent(visiblePosition);
   }
@@ -1430,8 +1431,8 @@ bool inSameLineAlgorithm(
     const PositionWithAffinityTemplate<Strategy>& position2) {
   if (position1.isNull() || position2.isNull())
     return false;
-  DCHECK_EQ(position1.position().document(), position2.position().document());
-  DCHECK(!position1.position().document()->needsLayoutTreeUpdate());
+  DCHECK_EQ(position1.document(), position2.document());
+  DCHECK(!position1.document()->needsLayoutTreeUpdate());
 
   PositionWithAffinityTemplate<Strategy> startOfLine1 = startOfLine(position1);
   PositionWithAffinityTemplate<Strategy> startOfLine2 = startOfLine(position2);
@@ -1574,7 +1575,7 @@ VisiblePosition previousLinePosition(const VisiblePosition& visiblePosition,
         root->closestLeafChildForPoint(pointInLine, isEditablePosition(p))
             ->getLineLayoutItem();
     Node* node = lineLayoutItem.node();
-    if (node && editingIgnoresContent(node))
+    if (node && editingIgnoresContent(*node))
       return VisiblePosition::inParentBeforeNode(*node);
     return createVisiblePosition(lineLayoutItem.positionForPoint(pointInLine));
   }
@@ -1637,7 +1638,7 @@ VisiblePosition nextLinePosition(const VisiblePosition& visiblePosition,
         root->closestLeafChildForPoint(pointInLine, isEditablePosition(p))
             ->getLineLayoutItem();
     Node* node = lineLayoutItem.node();
-    if (node && editingIgnoresContent(node))
+    if (node && editingIgnoresContent(*node))
       return VisiblePosition::inParentBeforeNode(*node);
     return createVisiblePosition(lineLayoutItem.positionForPoint(pointInLine));
   }
@@ -1788,7 +1789,7 @@ PositionTemplate<Strategy> startOfParagraphAlgorithm(
       continue;
     }
     const ComputedStyle& style = layoutItem.styleRef();
-    if (style.visibility() != EVisibility::Visible) {
+    if (style.visibility() != EVisibility::kVisible) {
       prevousNodeIterator =
           Strategy::previousPostOrder(*prevousNodeIterator, startBlock);
       continue;
@@ -1817,7 +1818,7 @@ PositionTemplate<Strategy> startOfParagraphAlgorithm(
       candidateOffset = 0;
       prevousNodeIterator =
           Strategy::previousPostOrder(*prevousNodeIterator, startBlock);
-    } else if (editingIgnoresContent(prevousNodeIterator) ||
+    } else if (editingIgnoresContent(*prevousNodeIterator) ||
                isDisplayInsideTable(prevousNodeIterator)) {
       candidateNode = prevousNodeIterator;
       candidateType = PositionAnchorType::BeforeAnchor;
@@ -1856,28 +1857,6 @@ VisiblePositionInFlatTree startOfParagraph(
     const VisiblePositionInFlatTree& c,
     EditingBoundaryCrossingRule boundaryCrossingRule) {
   return startOfParagraphAlgorithm<EditingInFlatTreeStrategy>(
-      c, boundaryCrossingRule);
-}
-
-template <typename Strategy>
-VisiblePositionTemplate<Strategy> startOfParagraphAlgorithmDeprecated(
-    const VisiblePositionTemplate<Strategy>& visiblePosition,
-    EditingBoundaryCrossingRule boundaryCrossingRule) {
-  return createVisiblePositionDeprecated(startOfParagraphAlgorithm(
-      visiblePosition.deepEquivalent(), boundaryCrossingRule));
-}
-
-VisiblePosition startOfParagraphDeprecated(
-    const VisiblePosition& c,
-    EditingBoundaryCrossingRule boundaryCrossingRule) {
-  return startOfParagraphAlgorithmDeprecated<EditingStrategy>(
-      c, boundaryCrossingRule);
-}
-
-VisiblePositionInFlatTree startOfParagraphDeprecated(
-    const VisiblePositionInFlatTree& c,
-    EditingBoundaryCrossingRule boundaryCrossingRule) {
-  return startOfParagraphAlgorithmDeprecated<EditingInFlatTreeStrategy>(
       c, boundaryCrossingRule);
 }
 
@@ -1923,7 +1902,7 @@ static PositionTemplate<Strategy> endOfParagraphAlgorithm(
       continue;
     }
     const ComputedStyle& style = layoutObject->styleRef();
-    if (style.visibility() != EVisibility::Visible) {
+    if (style.visibility() != EVisibility::kVisible) {
       nextNodeItreator = Strategy::next(*nextNodeItreator, startBlock);
       continue;
     }
@@ -1952,7 +1931,7 @@ static PositionTemplate<Strategy> endOfParagraphAlgorithm(
       candidateOffset =
           layoutObject->caretMaxOffset() + text->textStartOffset();
       nextNodeItreator = Strategy::next(*nextNodeItreator, startBlock);
-    } else if (Strategy::editingIgnoresContent(nextNodeItreator) ||
+    } else if (editingIgnoresContent(*nextNodeItreator) ||
                isDisplayInsideTable(nextNodeItreator)) {
       candidateNode = nextNodeItreator;
       candidateType = PositionAnchorType::AfterAnchor;
@@ -1991,28 +1970,6 @@ VisiblePositionInFlatTree endOfParagraph(
       c, boundaryCrossingRule);
 }
 
-template <typename Strategy>
-static VisiblePositionTemplate<Strategy> endOfParagraphAlgorithmDeprecated(
-    const VisiblePositionTemplate<Strategy>& visiblePosition,
-    EditingBoundaryCrossingRule boundaryCrossingRule) {
-  return createVisiblePositionDeprecated(endOfParagraphAlgorithm(
-      visiblePosition.deepEquivalent(), boundaryCrossingRule));
-}
-
-VisiblePosition endOfParagraphDeprecated(
-    const VisiblePosition& c,
-    EditingBoundaryCrossingRule boundaryCrossingRule) {
-  return endOfParagraphAlgorithmDeprecated<EditingStrategy>(
-      c, boundaryCrossingRule);
-}
-
-VisiblePositionInFlatTree endOfParagraphDeprecated(
-    const VisiblePositionInFlatTree& c,
-    EditingBoundaryCrossingRule boundaryCrossingRule) {
-  return endOfParagraphAlgorithmDeprecated<EditingInFlatTreeStrategy>(
-      c, boundaryCrossingRule);
-}
-
 // FIXME: isStartOfParagraph(startOfNextParagraph(pos)) is not always true
 VisiblePosition startOfNextParagraph(const VisiblePosition& visiblePosition) {
   DCHECK(visiblePosition.isValid()) << visiblePosition;
@@ -2028,19 +1985,6 @@ VisiblePosition startOfNextParagraph(const VisiblePosition& visiblePosition) {
 }
 
 // FIXME: isStartOfParagraph(startOfNextParagraph(pos)) is not always true
-VisiblePosition startOfNextParagraphDeprecated(
-    const VisiblePosition& visiblePosition) {
-  VisiblePosition paragraphEnd(
-      endOfParagraphDeprecated(visiblePosition, CanSkipOverEditingBoundary));
-  VisiblePosition afterParagraphEnd(
-      nextPositionOf(paragraphEnd, CannotCrossEditingBoundary));
-  // The position after the last position in the last cell of a table
-  // is not the start of the next paragraph.
-  if (tableElementJustBefore(afterParagraphEnd))
-    return nextPositionOf(afterParagraphEnd, CannotCrossEditingBoundary);
-  return afterParagraphEnd;
-}
-
 bool inSameParagraph(const VisiblePosition& a,
                      const VisiblePosition& b,
                      EditingBoundaryCrossingRule boundaryCrossingRule) {
@@ -2049,16 +1993,6 @@ bool inSameParagraph(const VisiblePosition& a,
   return a.isNotNull() &&
          startOfParagraph(a, boundaryCrossingRule).deepEquivalent() ==
              startOfParagraph(b, boundaryCrossingRule).deepEquivalent();
-}
-
-bool inSameParagraphDeprecated(
-    const VisiblePosition& a,
-    const VisiblePosition& b,
-    EditingBoundaryCrossingRule boundaryCrossingRule) {
-  return a.isNotNull() &&
-         startOfParagraphDeprecated(a, boundaryCrossingRule).deepEquivalent() ==
-             startOfParagraphDeprecated(b, boundaryCrossingRule)
-                 .deepEquivalent();
 }
 
 template <typename Strategy>
@@ -2084,30 +2018,6 @@ bool isStartOfParagraph(const VisiblePositionInFlatTree& pos,
 }
 
 template <typename Strategy>
-static bool isStartOfParagraphAlgorithmDeprecated(
-    const VisiblePositionTemplate<Strategy>& pos,
-    EditingBoundaryCrossingRule boundaryCrossingRule) {
-  return pos.isNotNull() &&
-         pos.deepEquivalent() ==
-             startOfParagraphDeprecated(pos, boundaryCrossingRule)
-                 .deepEquivalent();
-}
-
-bool isStartOfParagraphDeprecated(
-    const VisiblePosition& pos,
-    EditingBoundaryCrossingRule boundaryCrossingRule) {
-  return isStartOfParagraphAlgorithmDeprecated<EditingStrategy>(
-      pos, boundaryCrossingRule);
-}
-
-bool isStartOfParagraphDeprecated(
-    const VisiblePositionInFlatTree& pos,
-    EditingBoundaryCrossingRule boundaryCrossingRule) {
-  return isStartOfParagraphAlgorithmDeprecated<EditingInFlatTreeStrategy>(
-      pos, boundaryCrossingRule);
-}
-
-template <typename Strategy>
 static bool isEndOfParagraphAlgorithm(
     const VisiblePositionTemplate<Strategy>& pos,
     EditingBoundaryCrossingRule boundaryCrossingRule) {
@@ -2125,30 +2035,6 @@ bool isEndOfParagraph(const VisiblePosition& pos,
 bool isEndOfParagraph(const VisiblePositionInFlatTree& pos,
                       EditingBoundaryCrossingRule boundaryCrossingRule) {
   return isEndOfParagraphAlgorithm<EditingInFlatTreeStrategy>(
-      pos, boundaryCrossingRule);
-}
-
-template <typename Strategy>
-static bool isEndOfParagraphAlgorithmDeprecated(
-    const VisiblePositionTemplate<Strategy>& pos,
-    EditingBoundaryCrossingRule boundaryCrossingRule) {
-  return pos.isNotNull() &&
-         pos.deepEquivalent() ==
-             endOfParagraphDeprecated(pos, boundaryCrossingRule)
-                 .deepEquivalent();
-}
-
-bool isEndOfParagraphDeprecated(
-    const VisiblePosition& pos,
-    EditingBoundaryCrossingRule boundaryCrossingRule) {
-  return isEndOfParagraphAlgorithmDeprecated<EditingStrategy>(
-      pos, boundaryCrossingRule);
-}
-
-bool isEndOfParagraphDeprecated(
-    const VisiblePositionInFlatTree& pos,
-    EditingBoundaryCrossingRule boundaryCrossingRule) {
-  return isEndOfParagraphAlgorithmDeprecated<EditingInFlatTreeStrategy>(
       pos, boundaryCrossingRule);
 }
 
@@ -2321,20 +2207,21 @@ bool isEndOfEditableOrNonEditableContent(
   // an inner editor is an only leaf node.
   if (!nextPosition.deepEquivalent().isAfterAnchor())
     return false;
-  return isHTMLTextFormControlElement(
-      nextPosition.deepEquivalent().anchorNode());
+  return isTextControlElement(nextPosition.deepEquivalent().anchorNode());
 }
 
 VisiblePosition leftBoundaryOfLine(const VisiblePosition& c,
                                    TextDirection direction) {
   DCHECK(c.isValid()) << c;
-  return direction == LTR ? logicalStartOfLine(c) : logicalEndOfLine(c);
+  return direction == TextDirection::kLtr ? logicalStartOfLine(c)
+                                          : logicalEndOfLine(c);
 }
 
 VisiblePosition rightBoundaryOfLine(const VisiblePosition& c,
                                     TextDirection direction) {
   DCHECK(c.isValid()) << c;
-  return direction == LTR ? logicalEndOfLine(c) : logicalStartOfLine(c);
+  return direction == TextDirection::kLtr ? logicalEndOfLine(c)
+                                          : logicalStartOfLine(c);
 }
 
 static bool isNonTextLeafChild(LayoutObject* object) {
@@ -2564,7 +2451,8 @@ static InlineBoxPosition computeInlineBoxPositionTemplate(
     return InlineBoxPosition(inlineBox, caretOffset);
   }
 
-  if (layoutObject && layoutObject->style()->unicodeBidi() == Plaintext) {
+  if (layoutObject &&
+      layoutObject->style()->getUnicodeBidi() == UnicodeBidi::kPlaintext) {
     if (inlineBox->bidiLevel() < level)
       return InlineBoxPosition(inlineBox, inlineBox->caretLeftmostOffset());
     return InlineBoxPosition(inlineBox, inlineBox->caretRightmostOffset());
@@ -2644,11 +2532,11 @@ template <typename Strategy>
 LayoutRect localCaretRectOfPositionTemplate(
     const PositionWithAffinityTemplate<Strategy>& position,
     LayoutObject*& layoutObject) {
-  if (position.position().isNull()) {
+  if (position.isNull()) {
     layoutObject = nullptr;
     return LayoutRect();
   }
-  Node* node = position.position().anchorNode();
+  Node* node = position.anchorNode();
 
   layoutObject = node->layoutObject();
   if (!layoutObject)
@@ -2665,10 +2553,58 @@ LayoutRect localCaretRectOfPositionTemplate(
                                       boxPosition.offsetInBox);
 }
 
+// This function was added because the caret rect that is calculated by
+// using the line top value instead of the selection top.
+template <typename Strategy>
+LayoutRect localSelectionRectOfPositionTemplate(
+    const PositionWithAffinityTemplate<Strategy>& position,
+    LayoutObject*& layoutObject) {
+  if (position.isNull()) {
+    layoutObject = nullptr;
+    return LayoutRect();
+  }
+  Node* node = position.anchorNode();
+  layoutObject = node->layoutObject();
+  if (!layoutObject)
+    return LayoutRect();
+
+  InlineBoxPosition boxPosition =
+      computeInlineBoxPosition(position.position(), position.affinity());
+
+  if (!boxPosition.inlineBox)
+    return LayoutRect();
+
+  layoutObject = LineLayoutAPIShim::layoutObjectFrom(
+      boxPosition.inlineBox->getLineLayoutItem());
+
+  LayoutRect rect = layoutObject->localCaretRect(boxPosition.inlineBox,
+                                                 boxPosition.offsetInBox);
+
+  if (rect.isEmpty())
+    return rect;
+
+  InlineBox* const box = boxPosition.inlineBox;
+  if (layoutObject->style()->isHorizontalWritingMode()) {
+    rect.setY(box->root().selectionTop());
+    rect.setHeight(box->root().selectionHeight());
+    return rect;
+  }
+
+  rect.setX(box->root().selectionTop());
+  rect.setWidth(box->root().selectionHeight());
+  return rect;
+}
+
 LayoutRect localCaretRectOfPosition(const PositionWithAffinity& position,
                                     LayoutObject*& layoutObject) {
   return localCaretRectOfPositionTemplate<EditingStrategy>(position,
                                                            layoutObject);
+}
+
+LayoutRect localSelectionRectOfPosition(const PositionWithAffinity& position,
+                                        LayoutObject*& layoutObject) {
+  return localSelectionRectOfPositionTemplate<EditingStrategy>(position,
+                                                               layoutObject);
 }
 
 LayoutRect localCaretRectOfPosition(
@@ -2941,7 +2877,7 @@ static PositionTemplate<Strategy> mostBackwardCaretPosition(
     LayoutObject* layoutObject =
         associatedLayoutObjectOf(*currentNode, currentPos.offsetInLeafNode());
     if (!layoutObject ||
-        layoutObject->style()->visibility() != EVisibility::Visible)
+        layoutObject->style()->visibility() != EVisibility::kVisible)
       continue;
 
     if (rule == CanCrossEditingBoundary && boundaryCrossed) {
@@ -2962,7 +2898,7 @@ static PositionTemplate<Strategy> mostBackwardCaretPosition(
 
     // Return position after tables and nodes which have content that can be
     // ignored.
-    if (Strategy::editingIgnoresContent(currentNode) ||
+    if (editingIgnoresContent(*currentNode) ||
         isDisplayInsideTable(currentNode)) {
       if (currentPos.atEndOfNode())
         return PositionTemplate<Strategy>::afterNode(currentNode);
@@ -3005,7 +2941,7 @@ static PositionTemplate<Strategy> mostBackwardCaretPosition(
                     ->layoutObject();
             if (firstLetterLayoutObject &&
                 firstLetterLayoutObject->style()->visibility() ==
-                    EVisibility::Visible)
+                    EVisibility::kVisible)
               return currentPos.computePosition();
           }
           continue;
@@ -3125,7 +3061,7 @@ PositionTemplate<Strategy> mostForwardCaretPosition(
     LayoutObject* layoutObject =
         associatedLayoutObjectOf(*currentNode, currentPos.offsetInLeafNode());
     if (!layoutObject ||
-        layoutObject->style()->visibility() != EVisibility::Visible)
+        layoutObject->style()->visibility() != EVisibility::kVisible)
       continue;
 
     if (rule == CanCrossEditingBoundary && boundaryCrossed) {
@@ -3139,7 +3075,7 @@ PositionTemplate<Strategy> mostForwardCaretPosition(
 
     // Return position before tables and nodes which have content that can be
     // ignored.
-    if (Strategy::editingIgnoresContent(currentNode) ||
+    if (editingIgnoresContent(*currentNode) ||
         isDisplayInsideTable(currentNode)) {
       if (currentPos.offsetInLeafNode() <= layoutObject->caretMinOffset())
         return PositionTemplate<Strategy>::editingPositionOf(
@@ -3262,7 +3198,7 @@ static bool isVisuallyEquivalentCandidateAlgorithm(
   if (!layoutObject)
     return false;
 
-  if (layoutObject->style()->visibility() != EVisibility::Visible)
+  if (layoutObject->style()->visibility() != EVisibility::kVisible)
     return false;
 
   if (layoutObject->isBR()) {
@@ -3287,8 +3223,7 @@ static bool isVisuallyEquivalentCandidateAlgorithm(
     return false;
   }
 
-  if (isDisplayInsideTable(anchorNode) ||
-      Strategy::editingIgnoresContent(anchorNode)) {
+  if (isDisplayInsideTable(anchorNode) || editingIgnoresContent(*anchorNode)) {
     if (!position.atFirstEditingPositionForNode() &&
         !position.atLastEditingPositionForNode())
       return false;
@@ -3312,11 +3247,7 @@ static bool isVisuallyEquivalentCandidateAlgorithm(
       return hasEditableStyle(*anchorNode) && atEditingBoundary(position);
     }
   } else {
-    LocalFrame* frame = anchorNode->document().frame();
-    bool caretBrowsing =
-        frame->settings() && frame->settings()->caretBrowsingEnabled();
-    return (caretBrowsing || hasEditableStyle(*anchorNode)) &&
-           atEditingBoundary(position);
+    return hasEditableStyle(*anchorNode) && atEditingBoundary(position);
   }
 
   return false;
@@ -3347,6 +3278,24 @@ static IntRect absoluteCaretBoundsOfAlgorithm(
 
 IntRect absoluteCaretBoundsOf(const VisiblePosition& visiblePosition) {
   return absoluteCaretBoundsOfAlgorithm<EditingStrategy>(visiblePosition);
+}
+
+template <typename Strategy>
+static IntRect absoluteSelectionBoundsOfAlgorithm(
+    const VisiblePositionTemplate<Strategy>& visiblePosition) {
+  DCHECK(visiblePosition.isValid()) << visiblePosition;
+  LayoutObject* layoutObject;
+  LayoutRect localRect = localSelectionRectOfPosition(
+      visiblePosition.toPositionWithAffinity(), layoutObject);
+  if (localRect.isEmpty() || !layoutObject)
+    return IntRect();
+
+  return layoutObject->localToAbsoluteQuad(FloatRect(localRect))
+      .enclosingBoundingBox();
+}
+
+IntRect absoluteSelectionBoundsOf(const VisiblePosition& visiblePosition) {
+  return absoluteSelectionBoundsOfAlgorithm<EditingStrategy>(visiblePosition);
 }
 
 IntRect absoluteCaretBoundsOf(
@@ -3453,7 +3402,7 @@ static PositionTemplate<Strategy> leftVisuallyDistinctCandidate(
     InlineBox* box = boxPosition.inlineBox;
     int offset = boxPosition.offsetInBox;
     if (!box)
-      return primaryDirection == LTR
+      return primaryDirection == TextDirection::kLtr
                  ? previousVisuallyDistinctCandidate(deepPosition)
                  : nextVisuallyDistinctCandidate(deepPosition);
 
@@ -3469,7 +3418,7 @@ static PositionTemplate<Strategy> leftVisuallyDistinctCandidate(
       if (!lineLayoutItem.node()) {
         box = box->prevLeafChild();
         if (!box)
-          return primaryDirection == LTR
+          return primaryDirection == TextDirection::kLtr
                      ? previousVisuallyDistinctCandidate(deepPosition)
                      : nextVisuallyDistinctCandidate(deepPosition);
         lineLayoutItem = box->getLineLayoutItem();
@@ -3493,10 +3442,11 @@ static PositionTemplate<Strategy> leftVisuallyDistinctCandidate(
         InlineBox* prevBox = box->prevLeafChildIgnoringLineBreak();
         if (!prevBox) {
           PositionTemplate<Strategy> positionOnLeft =
-              primaryDirection == LTR ? previousVisuallyDistinctCandidate(
-                                            visiblePosition.deepEquivalent())
-                                      : nextVisuallyDistinctCandidate(
-                                            visiblePosition.deepEquivalent());
+              primaryDirection == TextDirection::kLtr
+                  ? previousVisuallyDistinctCandidate(
+                        visiblePosition.deepEquivalent())
+                  : nextVisuallyDistinctCandidate(
+                        visiblePosition.deepEquivalent());
           if (positionOnLeft.isNull())
             return PositionTemplate<Strategy>();
 
@@ -3524,13 +3474,14 @@ static PositionTemplate<Strategy> leftVisuallyDistinctCandidate(
       if (box->direction() == primaryDirection) {
         if (!prevBox) {
           InlineBox* logicalStart = 0;
-          if (primaryDirection == LTR
+          if (primaryDirection == TextDirection::kLtr
                   ? box->root().getLogicalStartBoxWithNode(logicalStart)
                   : box->root().getLogicalEndBoxWithNode(logicalStart)) {
             box = logicalStart;
             lineLayoutItem = box->getLineLayoutItem();
-            offset = primaryDirection == LTR ? box->caretMinOffset()
-                                             : box->caretMaxOffset();
+            offset = primaryDirection == TextDirection::kLtr
+                         ? box->caretMinOffset()
+                         : box->caretMaxOffset();
           }
           break;
         }
@@ -3592,8 +3543,9 @@ static PositionTemplate<Strategy> leftVisuallyDistinctCandidate(
           level = box->bidiLevel();
         }
         lineLayoutItem = box->getLineLayoutItem();
-        offset = primaryDirection == LTR ? box->caretMinOffset()
-                                         : box->caretMaxOffset();
+        offset = primaryDirection == TextDirection::kLtr
+                     ? box->caretMinOffset()
+                     : box->caretMaxOffset();
       }
       break;
     }
@@ -3623,7 +3575,7 @@ VisiblePositionTemplate<Strategy> leftPositionOfAlgorithm(
   const VisiblePositionTemplate<Strategy> left = createVisiblePosition(pos);
   DCHECK_NE(left.deepEquivalent(), visiblePosition.deepEquivalent());
 
-  return directionOfEnclosingBlock(left.deepEquivalent()) == LTR
+  return directionOfEnclosingBlock(left.deepEquivalent()) == TextDirection::kLtr
              ? honorEditingBoundaryAtOrBefore(left,
                                               visiblePosition.deepEquivalent())
              : honorEditingBoundaryAtOrAfter(left,
@@ -3660,7 +3612,7 @@ static PositionTemplate<Strategy> rightVisuallyDistinctCandidate(
     InlineBox* box = boxPosition.inlineBox;
     int offset = boxPosition.offsetInBox;
     if (!box)
-      return primaryDirection == LTR
+      return primaryDirection == TextDirection::kLtr
                  ? nextVisuallyDistinctCandidate(deepPosition)
                  : previousVisuallyDistinctCandidate(deepPosition);
 
@@ -3677,7 +3629,7 @@ static PositionTemplate<Strategy> rightVisuallyDistinctCandidate(
       if (!layoutObject->node()) {
         box = box->nextLeafChild();
         if (!box)
-          return primaryDirection == LTR
+          return primaryDirection == TextDirection::kLtr
                      ? nextVisuallyDistinctCandidate(deepPosition)
                      : previousVisuallyDistinctCandidate(deepPosition);
         layoutObject =
@@ -3702,7 +3654,7 @@ static PositionTemplate<Strategy> rightVisuallyDistinctCandidate(
         InlineBox* nextBox = box->nextLeafChildIgnoringLineBreak();
         if (!nextBox) {
           PositionTemplate<Strategy> positionOnRight =
-              primaryDirection == LTR
+              primaryDirection == TextDirection::kLtr
                   ? nextVisuallyDistinctCandidate(deepPosition)
                   : previousVisuallyDistinctCandidate(deepPosition);
           if (positionOnRight.isNull())
@@ -3734,14 +3686,15 @@ static PositionTemplate<Strategy> rightVisuallyDistinctCandidate(
       if (box->direction() == primaryDirection) {
         if (!nextBox) {
           InlineBox* logicalEnd = 0;
-          if (primaryDirection == LTR
+          if (primaryDirection == TextDirection::kLtr
                   ? box->root().getLogicalEndBoxWithNode(logicalEnd)
                   : box->root().getLogicalStartBoxWithNode(logicalEnd)) {
             box = logicalEnd;
             layoutObject =
                 LineLayoutAPIShim::layoutObjectFrom(box->getLineLayoutItem());
-            offset = primaryDirection == LTR ? box->caretMaxOffset()
-                                             : box->caretMinOffset();
+            offset = primaryDirection == TextDirection::kLtr
+                         ? box->caretMaxOffset()
+                         : box->caretMinOffset();
           }
           break;
         }
@@ -3810,8 +3763,9 @@ static PositionTemplate<Strategy> rightVisuallyDistinctCandidate(
         }
         layoutObject =
             LineLayoutAPIShim::layoutObjectFrom(box->getLineLayoutItem());
-        offset = primaryDirection == LTR ? box->caretMaxOffset()
-                                         : box->caretMinOffset();
+        offset = primaryDirection == TextDirection::kLtr
+                     ? box->caretMaxOffset()
+                     : box->caretMinOffset();
       }
       break;
     }
@@ -3841,7 +3795,8 @@ static VisiblePositionTemplate<Strategy> rightPositionOfAlgorithm(
   const VisiblePositionTemplate<Strategy> right = createVisiblePosition(pos);
   DCHECK_NE(right.deepEquivalent(), visiblePosition.deepEquivalent());
 
-  return directionOfEnclosingBlock(right.deepEquivalent()) == LTR
+  return directionOfEnclosingBlock(right.deepEquivalent()) ==
+                 TextDirection::kLtr
              ? honorEditingBoundaryAtOrAfter(right,
                                              visiblePosition.deepEquivalent())
              : honorEditingBoundaryAtOrBefore(right,
@@ -3887,29 +3842,6 @@ VisiblePositionInFlatTree nextPositionOf(
     const VisiblePositionInFlatTree& visiblePosition,
     EditingBoundaryCrossingRule rule) {
   DCHECK(visiblePosition.isValid()) << visiblePosition;
-  return nextPositionOfAlgorithm<EditingInFlatTreeStrategy>(
-      visiblePosition.toPositionWithAffinity(), rule);
-}
-
-VisiblePosition nextPositionOfDeprecated(const VisiblePosition& visiblePosition,
-                                         EditingBoundaryCrossingRule rule) {
-  if (visiblePosition.isNull())
-    return VisiblePosition();
-  visiblePosition.deepEquivalent()
-      .document()
-      ->updateStyleAndLayoutIgnorePendingStylesheets();
-  return nextPositionOfAlgorithm<EditingStrategy>(
-      visiblePosition.toPositionWithAffinity(), rule);
-}
-
-VisiblePositionInFlatTree nextPositionOfDeprecated(
-    const VisiblePositionInFlatTree& visiblePosition,
-    EditingBoundaryCrossingRule rule) {
-  if (visiblePosition.isNull())
-    return VisiblePositionInFlatTree();
-  visiblePosition.deepEquivalent()
-      .document()
-      ->updateStyleAndLayoutIgnorePendingStylesheets();
   return nextPositionOfAlgorithm<EditingInFlatTreeStrategy>(
       visiblePosition.toPositionWithAffinity(), rule);
 }
@@ -3988,30 +3920,6 @@ VisiblePositionInFlatTree previousPositionOf(
     const VisiblePositionInFlatTree& visiblePosition,
     EditingBoundaryCrossingRule rule) {
   DCHECK(visiblePosition.isValid()) << visiblePosition;
-  return previousPositionOfAlgorithm<EditingInFlatTreeStrategy>(
-      visiblePosition.deepEquivalent(), rule);
-}
-
-VisiblePosition previousPositionOfDeprecated(
-    const VisiblePosition& visiblePosition,
-    EditingBoundaryCrossingRule rule) {
-  if (visiblePosition.isNull())
-    return VisiblePosition();
-  visiblePosition.deepEquivalent()
-      .document()
-      ->updateStyleAndLayoutIgnorePendingStylesheets();
-  return previousPositionOfAlgorithm<EditingStrategy>(
-      visiblePosition.deepEquivalent(), rule);
-}
-
-VisiblePositionInFlatTree previousPositionOfDeprecated(
-    const VisiblePositionInFlatTree& visiblePosition,
-    EditingBoundaryCrossingRule rule) {
-  if (visiblePosition.isNull())
-    return VisiblePositionInFlatTree();
-  visiblePosition.deepEquivalent()
-      .document()
-      ->updateStyleAndLayoutIgnorePendingStylesheets();
   return previousPositionOfAlgorithm<EditingInFlatTreeStrategy>(
       visiblePosition.deepEquivalent(), rule);
 }

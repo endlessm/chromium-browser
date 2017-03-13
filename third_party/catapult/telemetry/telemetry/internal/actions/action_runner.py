@@ -6,6 +6,8 @@ import logging
 import time
 import urlparse
 
+from telemetry.core import exceptions
+from telemetry import decorators
 from telemetry.internal.actions.drag import DragAction
 from telemetry.internal.actions.javascript_click import ClickElementAction
 from telemetry.internal.actions.key_event import KeyPressAction
@@ -22,17 +24,25 @@ from telemetry.internal.actions.repaint_continuously import (
 from telemetry.internal.actions.repeatable_scroll import RepeatableScrollAction
 from telemetry.internal.actions.scroll import ScrollAction
 from telemetry.internal.actions.scroll_bounce import ScrollBounceAction
+from telemetry.internal.actions.scroll_to_element import ScrollToElementAction
 from telemetry.internal.actions.seek import SeekAction
 from telemetry.internal.actions.swipe import SwipeAction
 from telemetry.internal.actions.tap import TapAction
 from telemetry.internal.actions.wait import WaitForElementAction
+from telemetry.util import js_template
 from telemetry.web_perf import timeline_interaction_record
+
+from py_trace_event import trace_event
+
+import py_utils
 
 
 _DUMP_WAIT_TIME = 3
 
 
 class ActionRunner(object):
+
+  __metaclass__ = trace_event.TracedMetaClass
 
   def __init__(self, tab, skip_waits=False):
     self._tab = tab
@@ -62,7 +72,7 @@ class ActionRunner(object):
     e.g:
       with action_runner.CreateInteraction('Animation-1'):
         action_runner.TapElement(...)
-        action_runner.WaitForJavaScriptCondition(...)
+        action_runner.WaitForJavaScriptCondition2(...)
 
     Args:
       label: A label for this particular interaction. This can be any
@@ -78,7 +88,7 @@ class ActionRunner(object):
     if repeatable:
       flags.append(timeline_interaction_record.REPEATABLE)
 
-    return Interaction(self._tab, label, flags)
+    return Interaction(self, label, flags)
 
   def CreateGestureInteraction(self, label, repeatable=False):
     """ Create an action.Interaction object that issues gesture-based
@@ -108,6 +118,19 @@ class ActionRunner(object):
     """
     return self.CreateInteraction('Gesture_' + label, repeatable)
 
+  def WaitForNetworkQuiescence(self, timeout_in_seconds=10):
+    """ Wait for network quiesence on the page.
+    Args:
+      timeout_in_seconds: maximum amount of time (seconds) to wait for network
+        quiesence unil raising exception.
+
+    Raises:
+      py_utils.TimeoutException when the timeout is reached but the page's
+        network is not quiet.
+    """
+
+    py_utils.WaitFor(self.tab.HasReachedQuiescence, timeout_in_seconds)
+
   def MeasureMemory(self, deterministic_mode=False):
     """Add a memory measurement to the trace being recorded.
 
@@ -135,7 +158,8 @@ class ActionRunner(object):
         platform.FlushEntireSystemCache()
       self.Wait(_DUMP_WAIT_TIME)
     dump_id = self.tab.browser.DumpMemory()
-    assert dump_id, 'Unable to obtain memory dump'
+    if not dump_id:
+      raise exceptions.Error('Unable to obtain memory dump')
     return dump_id
 
   def Navigate(self, url, script_to_evaluate_on_commit=None,
@@ -154,6 +178,10 @@ class ActionRunner(object):
         script_to_evaluate_on_commit=script_to_evaluate_on_commit,
         timeout_in_seconds=timeout_in_seconds))
 
+  def NavigateBack(self):
+    """ Navigate back to the previous page."""
+    self.ExecuteJavaScript2('window.history.back()')
+
   def WaitForNavigate(self, timeout_in_seconds_seconds=60):
     start_time = time.time()
     self._tab.WaitForNavigate(timeout_in_seconds_seconds)
@@ -166,38 +194,79 @@ class ActionRunner(object):
 
   def ReloadPage(self):
     """Reloads the page."""
-    self._tab.ExecuteJavaScript('window.location.reload()')
+    self._tab.ExecuteJavaScript2('window.location.reload()')
     self._tab.WaitForDocumentReadyStateToBeInteractiveOrBetter()
 
-  def ExecuteJavaScript(self, statement):
-    """Executes a given JavaScript expression. Does not return the result.
+  def ExecuteJavaScript2(self, *args, **kwargs):
+    """Executes a given JavaScript statement. Does not return the result.
 
-    Example: runner.ExecuteJavaScript('var foo = 1;');
+    Example: runner.ExecuteJavaScript2('var foo = {{ value }};', value='hi');
 
     Args:
-      statement: The statement to execute (provided as string).
+      statement: The statement to execute (provided as a string).
+
+    Optional keyword args:
+      timeout: The number of seconds to wait for the statement to execute.
+      Additional keyword arguments provide values to be interpolated within
+          the statement. See telemetry.util.js_template for details.
 
     Raises:
       EvaluationException: The statement failed to execute.
     """
-    self._tab.ExecuteJavaScript(statement)
+    return self._tab.ExecuteJavaScript2(*args, **kwargs)
 
-  def EvaluateJavaScript(self, expression):
-    """Returns the evaluation result of the given JavaScript expression.
+  def EvaluateJavaScript2(self, *args, **kwargs):
+    """Returns the result of evaluating a given JavaScript expression.
 
     The evaluation results must be convertible to JSON. If the result
-    is not needed, use ExecuteJavaScript instead.
+    is not needed, use ExecuteJavaScript2 instead.
 
-    Example: num = runner.EvaluateJavaScript('document.location.href')
+    Example: runner.ExecuteJavaScript2('document.location.href');
 
     Args:
-      expression: The expression to evaluate (provided as string).
+      expression: The expression to execute (provided as a string).
+
+    Optional keyword args:
+      timeout: The number of seconds to wait for the expression to evaluate.
+      Additional keyword arguments provide values to be interpolated within
+          the expression. See telemetry.util.js_template for details.
 
     Raises:
       EvaluationException: The statement expression failed to execute
           or the evaluation result can not be JSON-ized.
     """
-    return self._tab.EvaluateJavaScript(expression)
+    return self._tab.EvaluateJavaScript2(*args, **kwargs)
+
+  def WaitForJavaScriptCondition2(self, *args, **kwargs):
+    """Wait for a JavaScript condition to become true.
+
+    Example: runner.WaitForJavaScriptCondition2('window.foo == 10');
+
+    Args:
+      condition: The JavaScript condition (provided as string).
+
+    Optional keyword args:
+      timeout: The number in seconds to wait for the condition to become
+          True (default to 60).
+      Additional keyword arguments provide values to be interpolated within
+          the expression. See telemetry.util.js_template for details.
+    """
+    return self._tab.WaitForJavaScriptCondition2(*args, **kwargs)
+
+  @decorators.Deprecated(
+      2017, 2, 28,
+      'New clients should use ExecuteJavaScript2. See go/catabug/3028')
+  def ExecuteJavaScript(self, statement, **kwargs):
+    """Executes a given JavaScript expression. Does not return the result."""
+    self._tab.ExecuteJavaScript2(js_template.Render(statement, **kwargs))
+
+  @decorators.Deprecated(
+      2017, 2, 28,
+      'New clients should use EvaluateJavaScript2. See go/catabug/3028')
+  def EvaluateJavaScript(self, expression, **kwargs):
+    """Returns the evaluation result of the given JavaScript expression."""
+    return self._tab.EvaluateJavaScript2(
+        js_template.Render(expression, **kwargs))
 
   def Wait(self, seconds):
     """Wait for the number of seconds specified.
@@ -208,16 +277,14 @@ class ActionRunner(object):
     if not self._skip_waits:
       time.sleep(seconds)
 
-  def WaitForJavaScriptCondition(self, condition, timeout_in_seconds=60):
-    """Wait for a JavaScript condition to become true.
-
-    Example: runner.WaitForJavaScriptCondition('window.foo == 10');
-
-    Args:
-      condition: The JavaScript condition (as string).
-      timeout_in_seconds: The timeout in seconds (default to 60).
-    """
-    self._tab.WaitForJavaScriptExpression(condition, timeout_in_seconds)
+  @decorators.Deprecated(
+      2017, 2, 28,
+      'New clients should use WaitForJavaScriptCondition2. See go/catabug/3028')
+  def WaitForJavaScriptCondition(self, condition, **kwargs):
+    """Wait for a JavaScript condition to become true."""
+    timeout = kwargs.get('timeout_in_seconds', 60)
+    self._tab.WaitForJavaScriptCondition2(
+        js_template.Render(condition, **kwargs), timeout=timeout)
 
   def WaitForElement(self, selector=None, text=None, element_function=None,
                      timeout_in_seconds=60):
@@ -392,6 +459,36 @@ class ActionRunner(object):
         direction=direction, distance=distance, distance_expr=distance_expr,
         speed_in_pixels_per_second=speed_in_pixels_per_second,
         use_touch=use_touch, synthetic_gesture_source=synthetic_gesture_source))
+
+  def ScrollPageToElement(self, selector=None, element_function=None,
+                          container_selector=None,
+                          container_element_function=None,
+                          speed_in_pixels_per_second=800):
+    """Perform scroll gesture on container until an element is in view.
+
+    Both the element and the container can be specified by a CSS selector
+    xor a JavaScript function, provided as a string, which returns an element.
+    The element is required so exactly one of selector and element_function
+    must be provided. The container is optional so at most one of
+    container_selector and container_element_function can be provided.
+    The container defaults to document.scrollingElement or document.body if
+    scrollingElement is not set.
+
+    Args:
+      selector: A CSS selector describing the element.
+      element_function: A JavaScript function (as string) that is used
+          to retrieve the element. For example:
+          'function() { return foo.element; }'.
+      container_selector: A CSS selector describing the container element.
+      container_element_function: A JavaScript function (as a string) that is
+          used to retrieve the container element.
+      speed_in_pixels_per_second: Speed to scroll.
+    """
+    self._RunAction(ScrollToElementAction(
+        selector=selector, element_function=element_function,
+        container_selector=container_selector,
+        container_element_function=container_element_function,
+        speed_in_pixels_per_second=speed_in_pixels_per_second))
 
   def RepeatableBrowserDrivenScroll(self, x_scroll_distance_ratio=0.0,
                                     y_scroll_distance_ratio=0.5,
@@ -776,15 +873,15 @@ class Interaction(object):
   def Begin(self):
     assert not self._started
     self._started = True
-    self._action_runner.ExecuteJavaScript(
-        'console.time("%s");' %
-        timeline_interaction_record.GetJavaScriptMarker(
-        self._label, self._flags))
+    self._action_runner.ExecuteJavaScript2(
+        'console.time({{ marker }});',
+        marker=timeline_interaction_record.GetJavaScriptMarker(
+            self._label, self._flags))
 
   def End(self):
     assert self._started
     self._started = False
-    self._action_runner.ExecuteJavaScript(
-        'console.timeEnd("%s");' %
-        timeline_interaction_record.GetJavaScriptMarker(
-        self._label, self._flags))
+    self._action_runner.ExecuteJavaScript2(
+        'console.timeEnd({{ marker }});',
+        marker=timeline_interaction_record.GetJavaScriptMarker(
+            self._label, self._flags))

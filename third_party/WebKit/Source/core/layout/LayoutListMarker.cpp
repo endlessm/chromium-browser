@@ -1,7 +1,8 @@
 /*
  * Copyright (C) 1999 Lars Knoll (knoll@kde.org)
  *           (C) 1999 Antti Koivisto (koivisto@kde.org)
- * Copyright (C) 2003, 2004, 2005, 2006, 2007, 2008 Apple Inc. All rights reserved.
+ * Copyright (C) 2003, 2004, 2005, 2006, 2007, 2008 Apple Inc.
+ *               All rights reserved.
  * Copyright (C) 2006 Andrew Wellington (proton@wiretapped.net)
  * Copyright (C) 2010 Daniel Bates (dbates@intudata.com)
  *
@@ -24,7 +25,6 @@
 
 #include "core/layout/LayoutListMarker.h"
 
-#include "core/fetch/ImageResource.h"
 #include "core/layout/LayoutAnalyzer.h"
 #include "core/layout/LayoutListItem.h"
 #include "core/layout/ListMarkerText.h"
@@ -42,7 +42,7 @@ const int cMarkerPaddingPx = 7;
 const int cUAMarkerMarginEm = 1;
 
 LayoutListMarker::LayoutListMarker(LayoutListItem* item)
-    : LayoutBox(nullptr), m_listItem(item) {
+    : LayoutBox(nullptr), m_listItem(item), m_lineOffset() {
   setInline(true);
   setIsAtomicInlineLevel(true);
 }
@@ -64,11 +64,16 @@ LayoutListMarker* LayoutListMarker::createAnonymous(LayoutListItem* item) {
 
 LayoutSize LayoutListMarker::imageBulletSize() const {
   ASSERT(isImage());
+  const SimpleFontData* fontData = style()->font().primaryFont();
+  DCHECK(fontData);
+  if (!fontData)
+    return LayoutSize();
 
-  // FIXME: This is a somewhat arbitrary default width. Generated images for markers really won't
-  // become particularly useful until we support the CSS3 marker pseudoclass to allow control over
-  // the width and height of the marker box.
-  LayoutUnit bulletWidth = style()->getFontMetrics().ascent() / LayoutUnit(2);
+  // FIXME: This is a somewhat arbitrary default width. Generated images for
+  // markers really won't become particularly useful until we support the CSS3
+  // marker pseudoclass to allow control over the width and height of the
+  // marker box.
+  LayoutUnit bulletWidth = fontData->getFontMetrics().ascent() / LayoutUnit(2);
   return m_image->imageSize(*this, style()->effectiveZoom(),
                             LayoutSize(bulletWidth, bulletWidth));
 }
@@ -133,14 +138,28 @@ void LayoutListMarker::layout() {
   ASSERT(needsLayout());
   LayoutAnalyzer::Scope analyzer(*this);
 
+  LayoutUnit blockOffset;
+  for (LayoutBox* o = parentBox(); o && o != listItem(); o = o->parentBox()) {
+    blockOffset += o->logicalTop();
+  }
+  if (listItem()->style()->isLeftToRightDirection()) {
+    m_lineOffset = listItem()->logicalLeftOffsetForLine(
+        blockOffset, DoNotIndentText, LayoutUnit());
+  } else {
+    m_lineOffset = listItem()->logicalRightOffsetForLine(
+        blockOffset, DoNotIndentText, LayoutUnit());
+  }
   if (isImage()) {
     updateMarginsAndContent();
     LayoutSize imageSize(imageBulletSize());
     setWidth(imageSize.width());
     setHeight(imageSize.height());
   } else {
+    const SimpleFontData* fontData = style()->font().primaryFont();
+    DCHECK(fontData);
     setLogicalWidth(minPreferredLogicalWidth());
-    setLogicalHeight(LayoutUnit(style()->getFontMetrics().height()));
+    setLogicalHeight(
+        LayoutUnit(fontData ? fontData->getFontMetrics().height() : 0));
   }
 
   setMarginStart(LayoutUnit());
@@ -157,7 +176,8 @@ void LayoutListMarker::layout() {
 }
 
 void LayoutListMarker::imageChanged(WrappedImagePtr o, const IntRect*) {
-  // A list marker can't have a background or border image, so no need to call the base class method.
+  // A list marker can't have a background or border image, so no need to call
+  // the base class method.
   if (!m_image || o != m_image->data())
     return;
 
@@ -175,7 +195,8 @@ void LayoutListMarker::updateMarginsAndContent() {
 }
 
 void LayoutListMarker::updateContent() {
-  // FIXME: This if-statement is just a performance optimization, but it's messy to use the preferredLogicalWidths dirty bit for this.
+  // FIXME: This if-statement is just a performance optimization, but it's messy
+  // to use the preferredLogicalWidths dirty bit for this.
   // It's unclear if this is a premature optimization.
   if (!preferredLogicalWidthsDirty())
     return;
@@ -230,6 +251,10 @@ void LayoutListMarker::computePreferredLogicalWidths() {
   }
 
   const Font& font = style()->font();
+  const SimpleFontData* fontData = font.primaryFont();
+  DCHECK(fontData);
+  if (!fontData)
+    return;
 
   LayoutUnit logicalWidth;
   switch (getListStyleCategory()) {
@@ -237,7 +262,7 @@ void LayoutListMarker::computePreferredLogicalWidths() {
       break;
     case ListStyleCategory::Symbol:
       logicalWidth =
-          LayoutUnit((font.getFontMetrics().ascent() * 2 / 3 + 1) / 2 + 2);
+          LayoutUnit((fontData->getFontMetrics().ascent() * 2 / 3 + 1) / 2 + 2);
       break;
     case ListStyleCategory::Language:
       logicalWidth = getWidthOfTextWithSuffix();
@@ -253,7 +278,11 @@ void LayoutListMarker::computePreferredLogicalWidths() {
 }
 
 void LayoutListMarker::updateMargins() {
-  const FontMetrics& fontMetrics = style()->getFontMetrics();
+  const SimpleFontData* fontData = style()->font().primaryFont();
+  DCHECK(fontData);
+  if (!fontData)
+    return;
+  const FontMetrics& fontMetrics = fontData->getFontMetrics();
 
   LayoutUnit marginStart;
   LayoutUnit marginEnd;
@@ -341,64 +370,64 @@ int LayoutListMarker::baselinePosition(
 LayoutListMarker::ListStyleCategory LayoutListMarker::getListStyleCategory()
     const {
   switch (style()->listStyleType()) {
-    case NoneListStyle:
+    case EListStyleType::kNone:
       return ListStyleCategory::None;
-    case Disc:
-    case Circle:
-    case Square:
+    case EListStyleType::kDisc:
+    case EListStyleType::kCircle:
+    case EListStyleType::kSquare:
       return ListStyleCategory::Symbol;
-    case ArabicIndic:
-    case Armenian:
-    case Bengali:
-    case Cambodian:
-    case CJKIdeographic:
-    case CjkEarthlyBranch:
-    case CjkHeavenlyStem:
-    case DecimalLeadingZero:
-    case DecimalListStyle:
-    case Devanagari:
-    case EthiopicHalehame:
-    case EthiopicHalehameAm:
-    case EthiopicHalehameTiEr:
-    case EthiopicHalehameTiEt:
-    case Georgian:
-    case Gujarati:
-    case Gurmukhi:
-    case Hangul:
-    case HangulConsonant:
-    case Hebrew:
-    case Hiragana:
-    case HiraganaIroha:
-    case Kannada:
-    case Katakana:
-    case KatakanaIroha:
-    case Khmer:
-    case KoreanHangulFormal:
-    case KoreanHanjaFormal:
-    case KoreanHanjaInformal:
-    case Lao:
-    case LowerAlpha:
-    case LowerArmenian:
-    case LowerGreek:
-    case LowerLatin:
-    case LowerRoman:
-    case Malayalam:
-    case Mongolian:
-    case Myanmar:
-    case Oriya:
-    case Persian:
-    case SimpChineseFormal:
-    case SimpChineseInformal:
-    case Telugu:
-    case Thai:
-    case Tibetan:
-    case TradChineseFormal:
-    case TradChineseInformal:
-    case UpperAlpha:
-    case UpperArmenian:
-    case UpperLatin:
-    case UpperRoman:
-    case Urdu:
+    case EListStyleType::kArabicIndic:
+    case EListStyleType::kArmenian:
+    case EListStyleType::kBengali:
+    case EListStyleType::kCambodian:
+    case EListStyleType::kCjkIdeographic:
+    case EListStyleType::kCjkEarthlyBranch:
+    case EListStyleType::kCjkHeavenlyStem:
+    case EListStyleType::kDecimalLeadingZero:
+    case EListStyleType::kDecimal:
+    case EListStyleType::kDevanagari:
+    case EListStyleType::kEthiopicHalehame:
+    case EListStyleType::kEthiopicHalehameAm:
+    case EListStyleType::kEthiopicHalehameTiEr:
+    case EListStyleType::kEthiopicHalehameTiEt:
+    case EListStyleType::kGeorgian:
+    case EListStyleType::kGujarati:
+    case EListStyleType::kGurmukhi:
+    case EListStyleType::kHangul:
+    case EListStyleType::kHangulConsonant:
+    case EListStyleType::kHebrew:
+    case EListStyleType::kHiragana:
+    case EListStyleType::kHiraganaIroha:
+    case EListStyleType::kKannada:
+    case EListStyleType::kKatakana:
+    case EListStyleType::kKatakanaIroha:
+    case EListStyleType::kKhmer:
+    case EListStyleType::kKoreanHangulFormal:
+    case EListStyleType::kKoreanHanjaFormal:
+    case EListStyleType::kKoreanHanjaInformal:
+    case EListStyleType::kLao:
+    case EListStyleType::kLowerAlpha:
+    case EListStyleType::kLowerArmenian:
+    case EListStyleType::kLowerGreek:
+    case EListStyleType::kLowerLatin:
+    case EListStyleType::kLowerRoman:
+    case EListStyleType::kMalayalam:
+    case EListStyleType::kMongolian:
+    case EListStyleType::kMyanmar:
+    case EListStyleType::kOriya:
+    case EListStyleType::kPersian:
+    case EListStyleType::kSimpChineseFormal:
+    case EListStyleType::kSimpChineseInformal:
+    case EListStyleType::kTelugu:
+    case EListStyleType::kThai:
+    case EListStyleType::kTibetan:
+    case EListStyleType::kTradChineseFormal:
+    case EListStyleType::kTradChineseInformal:
+    case EListStyleType::kUpperAlpha:
+    case EListStyleType::kUpperArmenian:
+    case EListStyleType::kUpperLatin:
+    case EListStyleType::kUpperRoman:
+    case EListStyleType::kUrdu:
       return ListStyleCategory::Language;
     default:
       ASSERT_NOT_REACHED();
@@ -408,7 +437,7 @@ LayoutListMarker::ListStyleCategory LayoutListMarker::getListStyleCategory()
 
 bool LayoutListMarker::isInside() const {
   return m_listItem->notInList() ||
-         style()->listStylePosition() == EListStylePosition::Inside;
+         style()->listStylePosition() == EListStylePosition::kInside;
 }
 
 IntRect LayoutListMarker::getRelativeMarkerRect() const {
@@ -418,13 +447,18 @@ IntRect LayoutListMarker::getRelativeMarkerRect() const {
   }
 
   IntRect relativeRect;
+  const SimpleFontData* fontData = style()->font().primaryFont();
+  DCHECK(fontData);
+  if (!fontData)
+    return relativeRect;
+
   switch (getListStyleCategory()) {
     case ListStyleCategory::None:
       return IntRect();
     case ListStyleCategory::Symbol: {
       // TODO(wkorman): Review and clean up/document the calculations below.
       // http://crbug.com/543193
-      const FontMetrics& fontMetrics = style()->getFontMetrics();
+      const FontMetrics& fontMetrics = fontData->getFontMetrics();
       int ascent = fontMetrics.ascent();
       int bulletWidth = (ascent * 2 / 3 + 1) / 2;
       relativeRect = IntRect(1, 3 * (ascent - ascent * 2 / 3) / 2, bulletWidth,
@@ -432,7 +466,7 @@ IntRect LayoutListMarker::getRelativeMarkerRect() const {
     } break;
     case ListStyleCategory::Language:
       relativeRect = IntRect(0, 0, getWidthOfTextWithSuffix().toInt(),
-                             style()->font().getFontMetrics().height());
+                             fontData->getFontMetrics().height());
       break;
   }
 
@@ -446,7 +480,8 @@ IntRect LayoutListMarker::getRelativeMarkerRect() const {
 }
 
 void LayoutListMarker::setSelectionState(SelectionState state) {
-  // The selection state for our containing block hierarchy is updated by the base class call.
+  // The selection state for our containing block hierarchy is updated by the
+  // base class call.
   LayoutBox::setSelectionState(state);
 
   if (inlineBoxWrapper() && canUpdateSelectionOnRootLineBoxes())
@@ -455,16 +490,16 @@ void LayoutListMarker::setSelectionState(SelectionState state) {
 
 void LayoutListMarker::listItemStyleDidChange() {
   RefPtr<ComputedStyle> newStyle = ComputedStyle::create();
-  // The marker always inherits from the list item, regardless of where it might end
-  // up (e.g., in some deeply nested line box). See CSS3 spec.
+  // The marker always inherits from the list item, regardless of where it might
+  // end up (e.g., in some deeply nested line box). See CSS3 spec.
   newStyle->inheritFrom(m_listItem->styleRef());
   if (style()) {
-    // Reuse the current margins. Otherwise resetting the margins to initial values
-    // would trigger unnecessary layout.
+    // Reuse the current margins. Otherwise resetting the margins to initial
+    // values would trigger unnecessary layout.
     newStyle->setMarginStart(style()->marginStart());
     newStyle->setMarginEnd(style()->marginRight());
   }
-  setStyle(newStyle.release());
+  setStyle(std::move(newStyle));
 }
 
 }  // namespace blink

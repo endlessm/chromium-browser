@@ -29,20 +29,16 @@ const gfx::VectorIcon& ResourceIdToVectorIcon(int resource_id) {
   switch (resource_id) {
     case IDR_AURA_UBER_TRAY_ACCESSIBILITY:
       return kSystemTrayAccessibilityIcon;
-    case IDR_AURA_UBER_TRAY_UPDATE:
-      return kSystemTrayUpdateIcon;
-    case IDR_AURA_UBER_TRAY_VOLUME_MUTE:
-      return kSystemTrayVolumeMuteIcon;
-#if defined(OS_CHROMEOS)
     case IDR_AURA_UBER_TRAY_AUTO_ROTATION_LOCKED:
       return kSystemTrayRotationLockLockedIcon;
     case IDR_AURA_UBER_TRAY_CAPS_LOCK:
       return kSystemTrayCapsLockIcon;
     case IDR_AURA_UBER_TRAY_TRACING:
-      // TODO(tdanderson): Update the icon used for tracing or remove it from
-      // the system tray. See crbug.com/625691.
-      return kSystemMenuTimerIcon;
-#endif
+      return kSystemTrayTracingIcon;
+    case IDR_AURA_UBER_TRAY_UPDATE:
+      return kSystemTrayUpdateIcon;
+    case IDR_AURA_UBER_TRAY_VOLUME_MUTE:
+      return kSystemTrayVolumeMuteIcon;
     default:
       NOTREACHED();
       break;
@@ -73,7 +69,6 @@ views::View* TrayImageItem::CreateTrayView(LoginStatus status) {
   tray_view_->CreateImageView();
   UpdateImageOnImageView();
   tray_view_->SetVisible(GetInitialVisibility());
-  SetItemAlignment(system_tray()->shelf_alignment());
   return tray_view_;
 }
 
@@ -89,7 +84,6 @@ void TrayImageItem::UpdateAfterLoginStatusChange(LoginStatus status) {}
 
 void TrayImageItem::UpdateAfterShelfAlignmentChange(ShelfAlignment alignment) {
   SetTrayImageItemBorder(tray_view_, alignment);
-  SetItemAlignment(alignment);
 }
 
 void TrayImageItem::DestroyTrayView() {
@@ -108,15 +102,6 @@ void TrayImageItem::SetIconColor(SkColor color) {
 void TrayImageItem::SetImageFromResourceId(int resource_id) {
   resource_id_ = resource_id;
   UpdateImageOnImageView();
-}
-
-void TrayImageItem::SetItemAlignment(ShelfAlignment alignment) {
-  // Center the item dependent on the orientation of the shelf.
-  views::BoxLayout::Orientation layout = IsHorizontalAlignment(alignment)
-                                             ? views::BoxLayout::kHorizontal
-                                             : views::BoxLayout::kVertical;
-  tray_view_->SetLayoutManager(new views::BoxLayout(layout, 0, 0, 0));
-  tray_view_->Layout();
 }
 
 void TrayImageItem::UpdateImageOnImageView() {

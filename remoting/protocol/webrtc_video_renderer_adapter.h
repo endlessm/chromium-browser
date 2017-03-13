@@ -30,12 +30,11 @@ namespace protocol {
 
 class MessagePipe;
 class VideoRenderer;
-class WebrtcTransport;
 struct ClientFrameStats;
 struct HostFrameStats;
 
 class WebrtcVideoRendererAdapter
-    : public rtc::VideoSinkInterface<cricket::VideoFrame>,
+    : public rtc::VideoSinkInterface<webrtc::VideoFrame>,
       public VideoStatsStub,
       public ClientVideoStatsDispatcher::EventHandler {
  public:
@@ -49,7 +48,7 @@ class WebrtcVideoRendererAdapter
   void SetVideoStatsChannel(std::unique_ptr<MessagePipe> message_pipe);
 
   // rtc::VideoSinkInterface implementation.
-  void OnFrame(const cricket::VideoFrame& frame) override;
+  void OnFrame(const webrtc::VideoFrame& frame) override;
 
  private:
   // VideoStatsStub interface.

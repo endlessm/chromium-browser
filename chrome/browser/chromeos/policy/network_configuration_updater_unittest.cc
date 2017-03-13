@@ -185,10 +185,8 @@ std::string ValueToString(const base::Value& value) {
 }
 
 void AppendAll(const base::ListValue& from, base::ListValue* to) {
-  for (base::ListValue::const_iterator it = from.begin(); it != from.end();
-       ++it) {
-    to->Append((*it)->DeepCopy());
-  }
+  for (const auto& value : from)
+    to->Append(value->CreateDeepCopy());
 }
 
 // Matcher to match base::Value.
@@ -314,10 +312,12 @@ class NetworkConfigurationUpdaterTest : public testing::Test {
   std::unique_ptr<PolicyServiceImpl> policy_service_;
   FakeUser fake_user_;
 
+  // Must outlive |profile_|.
+  content::TestBrowserThreadBundle thread_bundle_;
+
   TestingProfile profile_;
 
   std::unique_ptr<NetworkConfigurationUpdater> network_configuration_updater_;
-  content::TestBrowserThreadBundle thread_bundle_;
 };
 
 TEST_F(NetworkConfigurationUpdaterTest, CellularAllowRoaming) {

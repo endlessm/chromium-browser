@@ -36,7 +36,6 @@
 #include "core/layout/svg/SVGLayoutSupport.h"
 #include "core/layout/svg/SVGResourcesCache.h"
 #include "core/paint/PaintLayer.h"
-#include "core/paint/SVGModelObjectPaintInvalidator.h"
 #include "core/svg/SVGGraphicsElement.h"
 
 namespace blink {
@@ -58,16 +57,15 @@ void LayoutSVGModelObject::mapLocalToAncestor(
   SVGLayoutSupport::mapLocalToAncestor(this, ancestor, transformState, flags);
 }
 
-LayoutRect LayoutSVGModelObject::absoluteClippedOverflowRect() const {
-  return SVGLayoutSupport::clippedOverflowRectForPaintInvalidation(*this,
-                                                                   *view());
+LayoutRect LayoutSVGModelObject::absoluteVisualRect() const {
+  return SVGLayoutSupport::visualRectInAncestorSpace(*this, *view());
 }
 
 void LayoutSVGModelObject::mapAncestorToLocal(
     const LayoutBoxModelObject* ancestor,
     TransformState& transformState,
-    MapCoordinatesFlags) const {
-  SVGLayoutSupport::mapAncestorToLocal(*this, ancestor, transformState);
+    MapCoordinatesFlags flags) const {
+  SVGLayoutSupport::mapAncestorToLocal(*this, ancestor, transformState, flags);
 }
 
 const LayoutObject* LayoutSVGModelObject::pushMappingToContainer(
@@ -82,11 +80,12 @@ void LayoutSVGModelObject::absoluteRects(
     const LayoutPoint& accumulatedOffset) const {
   IntRect rect = enclosingIntRect(strokeBoundingBox());
   rect.moveBy(roundedIntPoint(accumulatedOffset));
-  rects.append(rect);
+  rects.push_back(rect);
 }
 
-void LayoutSVGModelObject::absoluteQuads(Vector<FloatQuad>& quads) const {
-  quads.append(localToAbsoluteQuad(strokeBoundingBox()));
+void LayoutSVGModelObject::absoluteQuads(Vector<FloatQuad>& quads,
+                                         MapCoordinatesFlags mode) const {
+  quads.push_back(localToAbsoluteQuad(strokeBoundingBox(), mode));
 }
 
 FloatRect LayoutSVGModelObject::localBoundingBoxRectForAccessibility() const {
@@ -96,12 +95,6 @@ FloatRect LayoutSVGModelObject::localBoundingBoxRectForAccessibility() const {
 void LayoutSVGModelObject::willBeDestroyed() {
   SVGResourcesCache::clientDestroyed(this);
   LayoutObject::willBeDestroyed();
-}
-
-PaintInvalidationReason LayoutSVGModelObject::invalidatePaintIfNeeded(
-    const PaintInvalidatorContext& context) const {
-  return SVGModelObjectPaintInvalidator(*this, context)
-      .invalidatePaintIfNeeded();
 }
 
 void LayoutSVGModelObject::computeLayerHitTestRects(
@@ -133,6 +126,9 @@ void LayoutSVGModelObject::styleDidChange(StyleDifference diff,
       parent()->descendantIsolationRequirementsChanged(
           style()->hasBlendMode() ? DescendantIsolationRequired
                                   : DescendantIsolationNeedsUpdate);
+
+    if (hasBlendModeChanged)
+      setNeedsPaintPropertyUpdate();
   }
 
   LayoutObject::styleDidChange(diff, oldStyle);
@@ -151,8 +147,7 @@ bool LayoutSVGModelObject::nodeAtPoint(HitTestResult&,
 // default absoluteElementBoundingBoxRect() returns incorrect values for SVG
 // objects. Overriding this method provides access to the absolute bounds.
 IntRect LayoutSVGModelObject::absoluteElementBoundingBoxRect() const {
-  return localToAbsoluteQuad(
-             FloatQuad(paintInvalidationRectInLocalSVGCoordinates()))
+  return localToAbsoluteQuad(FloatQuad(visualRectInLocalSVGCoordinates()))
       .enclosingBoundingBox();
 }
 

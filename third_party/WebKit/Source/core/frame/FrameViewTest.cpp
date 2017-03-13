@@ -4,7 +4,7 @@
 
 #include "core/frame/FrameView.h"
 
-#include "bindings/core/v8/ExceptionStatePlaceholder.h"
+#include "bindings/core/v8/ExceptionState.h"
 #include "core/frame/Settings.h"
 #include "core/html/HTMLElement.h"
 #include "core/layout/LayoutObject.h"
@@ -80,8 +80,7 @@ class FrameViewTest
 INSTANTIATE_TEST_CASE_P(All, FrameViewTest, ::testing::Bool());
 
 TEST_P(FrameViewTest, SetPaintInvalidationDuringUpdateAllLifecyclePhases) {
-  document().body()->setInnerHTML("<div id='a' style='color: blue'>A</div>",
-                                  ASSERT_NO_EXCEPTION);
+  document().body()->setInnerHTML("<div id='a' style='color: blue'>A</div>");
   document().view()->updateAllLifecyclePhases();
   document().getElementById("a")->setAttribute(HTMLNames::styleAttr,
                                                "color: green");
@@ -91,8 +90,7 @@ TEST_P(FrameViewTest, SetPaintInvalidationDuringUpdateAllLifecyclePhases) {
 }
 
 TEST_P(FrameViewTest, SetPaintInvalidationOutOfUpdateAllLifecyclePhases) {
-  document().body()->setInnerHTML("<div id='a' style='color: blue'>A</div>",
-                                  ASSERT_NO_EXCEPTION);
+  document().body()->setInnerHTML("<div id='a' style='color: blue'>A</div>");
   document().view()->updateAllLifecyclePhases();
   chromeClient().m_hasScheduledAnimation = false;
   document()
@@ -115,12 +113,19 @@ TEST_P(FrameViewTest, SetPaintInvalidationOutOfUpdateAllLifecyclePhases) {
 // performance. See crbug.com/586852 for details.
 TEST_P(FrameViewTest, HideTooltipWhenScrollPositionChanges) {
   document().body()->setInnerHTML(
-      "<div style='width:1000px;height:1000px'></div>", ASSERT_NO_EXCEPTION);
+      "<div style='width:1000px;height:1000px'></div>");
   document().view()->updateAllLifecyclePhases();
 
   EXPECT_CALL(chromeClient(), mockSetToolTip(document().frame(), String(), _));
-  document().view()->layoutViewportScrollableArea()->setScrollPosition(
-      DoublePoint(1, 1), UserScroll);
+  document().view()->layoutViewportScrollableArea()->setScrollOffset(
+      ScrollOffset(1, 1), UserScroll);
+
+  // Programmatic scrolling should not dismiss the tooltip, so setToolTip
+  // should not be called for this invocation.
+  EXPECT_CALL(chromeClient(), mockSetToolTip(document().frame(), String(), _))
+      .Times(0);
+  document().view()->layoutViewportScrollableArea()->setScrollOffset(
+      ScrollOffset(2, 2), ProgrammaticScroll);
 }
 
 // NoOverflowInIncrementVisuallyNonEmptyPixelCount tests fail if the number of

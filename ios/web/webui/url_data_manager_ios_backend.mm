@@ -22,7 +22,7 @@
 #include "base/strings/stringprintf.h"
 #include "base/trace_event/trace_event.h"
 #include "ios/web/public/browser_state.h"
-#include "ios/web/public/web_client.h"
+#import "ios/web/public/web_client.h"
 #include "ios/web/public/web_thread.h"
 #include "ios/web/webui/shared_resources_data_source_ios.h"
 #include "ios/web/webui/url_data_source_ios_impl.h"
@@ -464,13 +464,13 @@ bool URLDataManagerIOSBackend::StartRequest(const net::URLRequest* request,
   // is guaranteed because request for mime type is placed in the
   // message loop before request for data. And correspondingly their
   // replies are put on the IO thread in the same order.
-  base::MessageLoop* target_message_loop =
-      web::WebThread::UnsafeGetMessageLoopForThread(web::WebThread::UI);
-  target_message_loop->task_runner()->PostTask(
+  scoped_refptr<base::SingleThreadTaskRunner> target_runner =
+      web::WebThread::GetTaskRunnerForThread(web::WebThread::UI);
+  target_runner->PostTask(
       FROM_HERE, base::Bind(&GetMimeTypeOnUI, base::RetainedRef(source), path,
                             job->weak_factory_.GetWeakPtr()));
 
-  target_message_loop->task_runner()->PostTask(
+  target_runner->PostTask(
       FROM_HERE, base::Bind(&URLDataManagerIOSBackend::CallStartRequest,
                             make_scoped_refptr(source), path, request_id));
   return true;

@@ -6,37 +6,29 @@
 
 #include "xfa/fwl/theme/cfwl_datetimepickertp.h"
 
-#include "xfa/fwl/basewidget/ifwl_datetimepicker.h"
-#include "xfa/fwl/core/cfwl_themebackground.h"
+#include "xfa/fwl/cfwl_datetimepicker.h"
+#include "xfa/fwl/cfwl_themebackground.h"
 
 CFWL_DateTimePickerTP::CFWL_DateTimePickerTP() {}
 
 CFWL_DateTimePickerTP::~CFWL_DateTimePickerTP() {}
 
-bool CFWL_DateTimePickerTP::IsValidWidget(IFWL_Widget* pWidget) {
-  return pWidget && pWidget->GetClassID() == FWL_Type::DateTimePicker;
-}
-
-FX_BOOL CFWL_DateTimePickerTP::DrawBackground(CFWL_ThemeBackground* pParams) {
+void CFWL_DateTimePickerTP::DrawBackground(CFWL_ThemeBackground* pParams) {
   if (!pParams)
-    return FALSE;
+    return;
+
   switch (pParams->m_iPart) {
     case CFWL_Part::Border: {
       DrawBorder(pParams->m_pGraphics, &pParams->m_rtPart, &pParams->m_matrix);
-      break;
-    }
-    case CFWL_Part::Edge: {
-      DrawEdge(pParams->m_pGraphics, pParams->m_pWidget->GetStyles(),
-               &pParams->m_rtPart, &pParams->m_matrix);
       break;
     }
     case CFWL_Part::DropDownButton: {
       DrawDropDownButton(pParams, &pParams->m_matrix);
       break;
     }
-    default: {}
+    default:
+      break;
   }
-  return TRUE;
 }
 
 void CFWL_DateTimePickerTP::DrawDropDownButton(CFWL_ThemeBackground* pParams,
@@ -58,10 +50,11 @@ void CFWL_DateTimePickerTP::DrawDropDownButton(CFWL_ThemeBackground* pParams,
       break;
     }
     case CFWL_PartState_Disabled: {
-      eState = FWLTHEME_STATE_Disabale;
+      eState = FWLTHEME_STATE_Disable;
       break;
     }
-    default: {}
+    default:
+      break;
   }
   DrawArrowBtn(pParams->m_pGraphics, &pParams->m_rtPart,
                FWLTHEME_DIRECTION_Down, eState, pMatrix);

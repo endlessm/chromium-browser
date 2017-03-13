@@ -31,7 +31,6 @@
 
 #include "bindings/core/v8/ExceptionMessages.h"
 #include "bindings/core/v8/ExceptionState.h"
-#include "bindings/core/v8/ExceptionStatePlaceholder.h"
 #include "core/dom/Document.h"
 #include "core/dom/ExceptionCode.h"
 #include "core/dom/Node.h"
@@ -40,19 +39,13 @@
 #include "core/editing/EditingUtilities.h"
 #include "core/editing/FrameSelection.h"
 #include "core/editing/iterators/TextIterator.h"
+#include "core/frame/Deprecation.h"
 #include "core/frame/LocalFrame.h"
 #include "core/frame/UseCounter.h"
 #include "core/inspector/ConsoleMessage.h"
 #include "wtf/text/WTFString.h"
 
 namespace blink {
-
-static Position createPosition(Node* node, int offset) {
-  DCHECK_GE(offset, 0);
-  if (!node)
-    return Position();
-  return Position(node, offset);
-}
 
 static Node* selectionShadowAncestor(LocalFrame* frame) {
   Node* node = frame->selection().selection().base().anchorNode();
@@ -66,7 +59,7 @@ static Node* selectionShadowAncestor(LocalFrame* frame) {
 }
 
 DOMSelection::DOMSelection(const TreeScope* treeScope)
-    : DOMWindowProperty(treeScope->rootNode().document().frame()),
+    : ContextClient(treeScope->rootNode().document().frame()),
       m_treeScope(treeScope) {}
 
 void DOMSelection::clearTreeScope() {
@@ -210,15 +203,11 @@ void DOMSelection::collapse(Node* node,
   if (exceptionState.hadException())
     return;
 
-  // TODO(xiaochengh): The use of updateStyleAndLayoutIgnorePendingStylesheets
-  // needs to be audited.  See http://crbug.com/590369 for more details.
-  // In the long term, we should change FrameSelection::setSelection to take a
-  // parameter that does not require clean layout, so that modifying selection
-  // no longer performs synchronous layout by itself.
-  frame()->document()->updateStyleAndLayoutIgnorePendingStylesheets();
-
-  frame()->selection().setSelection(createVisibleSelection(
-      Position(node, offset), frame()->selection().isDirectional()));
+  frame()->selection().setSelection(
+      SelectionInDOMTree::Builder()
+          .collapse(Position(node, offset))
+          .setIsDirectional(frame()->selection().isDirectional())
+          .build());
 }
 
 void DOMSelection::collapseToEnd(ExceptionState& exceptionState) {
@@ -233,14 +222,9 @@ void DOMSelection::collapseToEnd(ExceptionState& exceptionState) {
     return;
   }
 
-  // TODO(xiaochengh): The use of updateStyleAndLayoutIgnorePendingStylesheets
-  // needs to be audited.  See http://crbug.com/590369 for more details.
-  // In the long term, we should change FrameSelection::setSelection to take a
-  // parameter that does not require clean layout, so that modifying selection
-  // no longer performs synchronous layout by itself.
-  frame()->document()->updateStyleAndLayoutIgnorePendingStylesheets();
-
-  frame()->selection().moveTo(selection.end(), SelDefaultAffinity);
+  SelectionInDOMTree::Builder builder;
+  builder.collapse(selection.end());
+  frame()->selection().setSelection(builder.build());
 }
 
 void DOMSelection::collapseToStart(ExceptionState& exceptionState) {
@@ -255,14 +239,9 @@ void DOMSelection::collapseToStart(ExceptionState& exceptionState) {
     return;
   }
 
-  // TODO(xiaochengh): The use of updateStyleAndLayoutIgnorePendingStylesheets
-  // needs to be audited.  See http://crbug.com/590369 for more details.
-  // In the long term, we should change FrameSelection::setSelection to take a
-  // parameter that does not require clean layout, so that modifying selection
-  // no longer performs synchronous layout by itself.
-  frame()->document()->updateStyleAndLayoutIgnorePendingStylesheets();
-
-  frame()->selection().moveTo(selection.start(), SelDefaultAffinity);
+  SelectionInDOMTree::Builder builder;
+  builder.collapse(selection.start());
+  frame()->selection().setSelection(builder.build());
 }
 
 void DOMSelection::empty() {
@@ -293,25 +272,38 @@ void DOMSelection::setBaseAndExtent(Node* baseNode,
     return;
   }
 
-  if (!baseNode || !extentNode)
+  // TODO(editing-dev): Behavior on where base or extent is null is still
+  // under discussion: https://github.com/w3c/selection-api/issues/72
+  if (!baseNode) {
     UseCounter::count(frame(), UseCounter::SelectionSetBaseAndExtentNull);
+    frame()->selection().clear();
+    return;
+  }
+  if (!extentNode) {
+    UseCounter::count(frame(), UseCounter::SelectionSetBaseAndExtentNull);
+    extentOffset = 0;
+  }
 
   if (!isValidForPosition(baseNode) || !isValidForPosition(extentNode))
     return;
 
-  Position base = createPosition(baseNode, baseOffset);
-  Position extent = createPosition(extentNode, extentOffset);
-  const bool selectionHasDirection = true;
-
-  // TODO(xiaochengh): The use of updateStyleAndLayoutIgnorePendingStylesheets
+  // TODO(editing-dev): The use of updateStyleAndLayoutIgnorePendingStylesheets
   // needs to be audited.  See http://crbug.com/590369 for more details.
   // In the long term, we should change FrameSelection::setSelection to take a
   // parameter that does not require clean layout, so that modifying selection
   // no longer performs synchronous layout by itself.
+  // TODO(editing-dev): Once SVG USE element doesn't modifies DOM tree, we
+  // should get rid of this update layout call.
+  // See http://crbug.com/566281
+  // See "svg/text/textpath-reference-crash.html"
   frame()->document()->updateStyleAndLayoutIgnorePendingStylesheets();
 
-  frame()->selection().setSelection(createVisibleSelection(
-      base, extent, SelDefaultAffinity, selectionHasDirection));
+  frame()->selection().setSelection(
+      SelectionInDOMTree::Builder()
+          .setBaseAndExtentDeprecated(Position(baseNode, baseOffset),
+                                      Position(extentNode, extentOffset))
+          .setIsDirectional(true)
+          .build());
 }
 
 void DOMSelection::modify(const String& alterString,
@@ -362,6 +354,10 @@ void DOMSelection::modify(const String& alterString,
   else
     return;
 
+  // TODO(editing-dev): The use of updateStyleAndLayoutIgnorePendingStylesheets
+  // needs to be audited.  See http://crbug.com/590369 for more details.
+  frame()->document()->updateStyleAndLayoutIgnorePendingStylesheets();
+
   frame()->selection().modify(alter, direction, granularity);
 }
 
@@ -389,19 +385,20 @@ void DOMSelection::extend(Node* node,
     return;
 
   const Position& base = frame()->selection().base();
-  const Position& extent = createPosition(node, offset);
-  const bool selectionHasDirection = true;
-
-  // TODO(xiaochengh): The use of updateStyleAndLayoutIgnorePendingStylesheets
-  // needs to be audited.  See http://crbug.com/590369 for more details.
-  // In the long term, we should change FrameSelection::setSelection to take a
-  // parameter that does not require clean layout, so that modifying selection
-  // no longer performs synchronous layout by itself.
-  frame()->document()->updateStyleAndLayoutIgnorePendingStylesheets();
-
-  const VisibleSelection newSelection = createVisibleSelection(
-      base, extent, TextAffinity::Downstream, selectionHasDirection);
-  frame()->selection().setSelection(newSelection);
+  if (base.isNull()) {
+    // TODO(editing-dev): We should throw |InvalidStateError| if selection is
+    // none to follow the spec.
+    frame()->selection().setSelection(SelectionInDOMTree::Builder()
+                                          .collapse(Position(node, offset))
+                                          .setIsDirectional(true)
+                                          .build());
+    return;
+  }
+  frame()->selection().setSelection(SelectionInDOMTree::Builder()
+                                        .collapse(base)
+                                        .extend(Position(node, offset))
+                                        .setIsDirectional(true)
+                                        .build());
 }
 
 Range* DOMSelection::getRangeAt(int index, ExceptionState& exceptionState) {
@@ -466,7 +463,7 @@ void DOMSelection::addRange(Range* newRange) {
   frame()->document()->updateStyleAndLayoutIgnorePendingStylesheets();
 
   if (selection.isNone()) {
-    selection.setSelectedRange(newRange, VP_DEFAULT_AFFINITY);
+    selection.setSelectedRange(EphemeralRange(newRange), VP_DEFAULT_AFFINITY);
     return;
   }
 
@@ -500,6 +497,8 @@ void DOMSelection::addRange(Range* newRange) {
   // really do the same, since we don't support discontiguous selection. Further
   // discussions at
   // <https://code.google.com/p/chromium/issues/detail?id=353069>.
+  Deprecation::countDeprecation(frame(),
+                                UseCounter::SelectionAddRangeIntersect);
 
   Range* start = originalRange->compareBoundaryPoints(
                      Range::kStartToStart, newRange, ASSERT_NO_EXCEPTION) < 0
@@ -509,9 +508,8 @@ void DOMSelection::addRange(Range* newRange) {
                                                     ASSERT_NO_EXCEPTION) < 0
                    ? newRange
                    : originalRange;
-  Range* merged = Range::create(originalRange->startContainer()->document(),
-                                start->startContainer(), start->startOffset(),
-                                end->endContainer(), end->endOffset());
+  const EphemeralRange merged =
+      EphemeralRange(start->startPosition(), end->endPosition());
   TextAffinity affinity = selection.selection().affinity();
   selection.setSelectedRange(merged, affinity);
 }
@@ -524,6 +522,11 @@ void DOMSelection::deleteFromDocument() {
 
   if (selection.isNone())
     return;
+
+  // TODO(xiaochengh): The use of updateStyleAndLayoutIgnorePendingStylesheets
+  // needs to be audited.  See http://crbug.com/590369 for more details.
+  // |VisibleSelection::toNormalizedEphemeralRange| requires clean layout.
+  frame()->document()->updateStyleAndLayoutIgnorePendingStylesheets();
 
   Range* selectedRange =
       createRange(selection.selection().toNormalizedEphemeralRange());
@@ -550,6 +553,12 @@ bool DOMSelection::containsNode(const Node* n, bool allowPartial) const {
     return false;
 
   unsigned nodeIndex = n->nodeIndex();
+
+  // TODO(xiaochengh): The use of updateStyleAndLayoutIgnorePendingStylesheets
+  // needs to be audited.  See http://crbug.com/590369 for more details.
+  // |VisibleSelection::toNormalizedEphemeralRange| requires clean layout.
+  frame()->document()->updateStyleAndLayoutIgnorePendingStylesheets();
+
   const EphemeralRange selectedRange =
       selection.selection().toNormalizedEphemeralRange();
 
@@ -560,7 +569,7 @@ bool DOMSelection::containsNode(const Node* n, bool allowPartial) const {
   const Position startPosition =
       selectedRange.startPosition().toOffsetInAnchor();
   const Position endPosition = selectedRange.endPosition().toOffsetInAnchor();
-  TrackExceptionState exceptionState;
+  DummyExceptionStateForTesting exceptionState;
   bool nodeFullySelected =
       Range::compareBoundaryPoints(
           parentNode, nodeIndex, startPosition.computeContainerNode(),
@@ -662,7 +671,7 @@ void DOMSelection::addConsoleError(const String& message) {
 
 DEFINE_TRACE(DOMSelection) {
   visitor->trace(m_treeScope);
-  DOMWindowProperty::trace(visitor);
+  ContextClient::trace(visitor);
 }
 
 }  // namespace blink

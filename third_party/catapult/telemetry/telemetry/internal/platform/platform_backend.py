@@ -91,6 +91,9 @@ class PlatformBackend(object):
   def GetRemotePort(self, port):
     return port
 
+  def GetSystemLog(self):
+    return None
+
   def DidCreateBrowser(self, browser, browser_backend):
     browser_options = browser_backend.browser_options
     self.SetFullPerformanceModeEnabled(browser_options.full_performance_mode)
@@ -296,3 +299,10 @@ class PlatformBackend(object):
 
   def HasBattOrConnected(self):
     return battor_wrapper.IsBattOrConnected(self.GetOSName())
+
+  def WaitForTemperature(self, temp):
+    """Waits for device under test to cool down to temperature given.
+    Args:
+      temp: temperature target in degrees C.
+    """
+    pass

@@ -31,7 +31,6 @@
 #include "core/inspector/DOMEditor.h"
 
 #include "bindings/core/v8/ExceptionState.h"
-#include "bindings/core/v8/ExceptionStatePlaceholder.h"
 #include "core/dom/DOMException.h"
 #include "core/dom/Element.h"
 #include "core/dom/Node.h"
@@ -356,7 +355,7 @@ class DOMEditor::SetNodeValueAction final : public InspectorHistory::Action {
 
   bool perform(ExceptionState&) override {
     m_oldValue = m_node->nodeValue();
-    return redo(IGNORE_EXCEPTION);
+    return redo(IGNORE_EXCEPTION_FOR_TESTING);
   }
 
   bool undo(ExceptionState&) override {
@@ -446,67 +445,54 @@ bool DOMEditor::setNodeValue(Node* node,
                             exceptionState);
 }
 
-static void populateErrorString(ExceptionState& exceptionState,
-                                ErrorString* errorString) {
-  if (exceptionState.hadException())
-    *errorString = DOMException::getErrorName(exceptionState.code());
+static Response toResponse(ExceptionState& exceptionState) {
+  if (exceptionState.hadException()) {
+    return Response::Error(DOMException::getErrorName(exceptionState.code()) +
+                           " " + exceptionState.message());
+  }
+  return Response::OK();
 }
 
-bool DOMEditor::insertBefore(ContainerNode* parentNode,
-                             Node* node,
-                             Node* anchorNode,
-                             ErrorString* errorString) {
-  TrackExceptionState exceptionState;
-  bool result = insertBefore(parentNode, node, anchorNode, exceptionState);
-  populateErrorString(exceptionState, errorString);
-  return result;
+Response DOMEditor::insertBefore(ContainerNode* parentNode,
+                                 Node* node,
+                                 Node* anchorNode) {
+  DummyExceptionStateForTesting exceptionState;
+  insertBefore(parentNode, node, anchorNode, exceptionState);
+  return toResponse(exceptionState);
 }
 
-bool DOMEditor::removeChild(ContainerNode* parentNode,
-                            Node* node,
-                            ErrorString* errorString) {
-  TrackExceptionState exceptionState;
-  bool result = removeChild(parentNode, node, exceptionState);
-  populateErrorString(exceptionState, errorString);
-  return result;
+Response DOMEditor::removeChild(ContainerNode* parentNode, Node* node) {
+  DummyExceptionStateForTesting exceptionState;
+  removeChild(parentNode, node, exceptionState);
+  return toResponse(exceptionState);
 }
 
-bool DOMEditor::setAttribute(Element* element,
-                             const String& name,
-                             const String& value,
-                             ErrorString* errorString) {
-  TrackExceptionState exceptionState;
-  bool result = setAttribute(element, name, value, exceptionState);
-  populateErrorString(exceptionState, errorString);
-  return result;
+Response DOMEditor::setAttribute(Element* element,
+                                 const String& name,
+                                 const String& value) {
+  DummyExceptionStateForTesting exceptionState;
+  setAttribute(element, name, value, exceptionState);
+  return toResponse(exceptionState);
 }
 
-bool DOMEditor::removeAttribute(Element* element,
-                                const String& name,
-                                ErrorString* errorString) {
-  TrackExceptionState exceptionState;
-  bool result = removeAttribute(element, name, exceptionState);
-  populateErrorString(exceptionState, errorString);
-  return result;
+Response DOMEditor::removeAttribute(Element* element, const String& name) {
+  DummyExceptionStateForTesting exceptionState;
+  removeAttribute(element, name, exceptionState);
+  return toResponse(exceptionState);
 }
 
-bool DOMEditor::setOuterHTML(Node* node,
-                             const String& html,
-                             Node** newNode,
-                             ErrorString* errorString) {
-  TrackExceptionState exceptionState;
-  bool result = setOuterHTML(node, html, newNode, exceptionState);
-  populateErrorString(exceptionState, errorString);
-  return result;
+Response DOMEditor::setOuterHTML(Node* node,
+                                 const String& html,
+                                 Node** newNode) {
+  DummyExceptionStateForTesting exceptionState;
+  setOuterHTML(node, html, newNode, exceptionState);
+  return toResponse(exceptionState);
 }
 
-bool DOMEditor::replaceWholeText(Text* textNode,
-                                 const String& text,
-                                 ErrorString* errorString) {
-  TrackExceptionState exceptionState;
-  bool result = replaceWholeText(textNode, text, exceptionState);
-  populateErrorString(exceptionState, errorString);
-  return result;
+Response DOMEditor::replaceWholeText(Text* textNode, const String& text) {
+  DummyExceptionStateForTesting exceptionState;
+  replaceWholeText(textNode, text, exceptionState);
+  return toResponse(exceptionState);
 }
 
 DEFINE_TRACE(DOMEditor) {

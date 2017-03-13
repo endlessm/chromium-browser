@@ -31,7 +31,9 @@
 #include "core/html/canvas/CanvasContextCreationAttributes.h"
 #include "core/layout/HitTestCanvasResult.h"
 #include "core/offscreencanvas/OffscreenCanvas.h"
+#include "platform/graphics/ColorBehavior.h"
 #include "third_party/skia/include/core/SkColorSpace.h"
+#include "third_party/skia/include/core/SkImageInfo.h"
 #include "wtf/HashSet.h"
 #include "wtf/Noncopyable.h"
 #include "wtf/text/StringHash.h"
@@ -85,9 +87,12 @@ class CORE_EXPORT CanvasRenderingContext
   CanvasColorSpace colorSpace() const { return m_colorSpace; };
   WTF::String colorSpaceAsString() const;
   sk_sp<SkColorSpace> skColorSpace() const;
+  SkColorType colorType() const;
+  ColorBehavior colorBehaviorForMediaDrawnToCanvas() const;
 
   virtual PassRefPtr<Image> getImage(AccelerationHint,
                                      SnapshotReason) const = 0;
+  virtual ImageData* toImageData(SnapshotReason reason) { return nullptr; }
   virtual ContextType getContextType() const = 0;
   virtual bool isAccelerated() const { return false; }
   virtual bool shouldAntialias() const { return false; }
@@ -159,15 +164,14 @@ class CORE_EXPORT CanvasRenderingContext
   virtual bool paint(GraphicsContext&, const IntRect&) { return false; }
 
   // OffscreenCanvas-specific methods
-  OffscreenCanvas* getOffscreenCanvas() const { return m_offscreenCanvas; }
-  virtual ImageBitmap* transferToImageBitmap(ExceptionState&) {
-    return nullptr;
-  }
+  OffscreenCanvas* offscreenCanvas() const { return m_offscreenCanvas; }
+  virtual ImageBitmap* transferToImageBitmap(ScriptState*) { return nullptr; }
 
   bool wouldTaintOrigin(CanvasImageSource*, SecurityOrigin* = nullptr);
   void didMoveToNewDocument(Document*);
 
   void detachCanvas() { m_canvas = nullptr; }
+  void detachOffscreenCanvas() { m_offscreenCanvas = nullptr; }
 
   const CanvasContextCreationAttributes& creationAttributes() const {
     return m_creationAttributes;

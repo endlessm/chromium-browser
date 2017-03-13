@@ -13,15 +13,15 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Message;
-import android.test.suitebuilder.annotation.MediumTest;
+import android.support.test.filters.MediumTest;
 import android.view.View;
 import android.view.ViewGroup;
 
 import org.chromium.base.ThreadUtils;
+import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.Feature;
 import org.chromium.base.test.util.RetryOnFailure;
 import org.chromium.chrome.test.ChromeActivityTestCaseBase;
-import org.chromium.content.browser.test.util.CallbackHelper;
 
 import java.lang.reflect.Method;
 import java.util.concurrent.TimeoutException;

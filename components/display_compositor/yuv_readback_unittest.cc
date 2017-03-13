@@ -11,9 +11,10 @@
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/trace_event/trace_event.h"
 #include "components/display_compositor/gl_helper.h"
-#include "gpu/command_buffer/client/gl_in_process_context.h"
 #include "gpu/command_buffer/client/gles2_implementation.h"
 #include "gpu/command_buffer/client/shared_memory_limits.h"
+#include "gpu/ipc/common/surface_handle.h"
+#include "gpu/ipc/gl_in_process_context.h"
 #include "media/base/video_frame.h"
 #include "media/base/video_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -40,16 +41,16 @@ class YUVReadbackTest : public testing::Test {
     attributes.sample_buffers = 1;
     attributes.bind_generates_resource = false;
 
-    context_.reset(gpu::GLInProcessContext::Create(
-        nullptr,                     /* service */
-        nullptr,                     /* surface */
-        true,                        /* offscreen */
-        gfx::kNullAcceleratedWidget, /* window */
-        nullptr,                     /* share_context */
-        attributes, gpu::SharedMemoryLimits(),
-        nullptr, /* gpu_memory_buffer_manager */
-        nullptr, /* image_factory */
-        base::ThreadTaskRunnerHandle::Get()));
+    context_.reset(
+        gpu::GLInProcessContext::Create(nullptr,                 /* service */
+                                        nullptr,                 /* surface */
+                                        true,                    /* offscreen */
+                                        gpu::kNullSurfaceHandle, /* window */
+                                        nullptr, /* share_context */
+                                        attributes, gpu::SharedMemoryLimits(),
+                                        nullptr, /* gpu_memory_buffer_manager */
+                                        nullptr, /* image_factory */
+                                        base::ThreadTaskRunnerHandle::Get()));
     gl_ = context_->GetImplementation();
     gpu::ContextSupport* support = context_->GetImplementation();
 

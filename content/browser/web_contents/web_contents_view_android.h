@@ -13,10 +13,13 @@
 #include "content/public/browser/web_contents_view_delegate.h"
 #include "content/public/common/context_menu_params.h"
 #include "content/public/common/drop_data.h"
+#include "ui/android/overscroll_refresh.h"
+#include "ui/android/view_android.h"
 #include "ui/gfx/geometry/rect_f.h"
 
 namespace content {
 class ContentViewCoreImpl;
+class SynchronousCompositorClient;
 class WebContentsImpl;
 
 // Android-specific implementation of the WebContentsView.
@@ -31,6 +34,17 @@ class WebContentsViewAndroid : public WebContentsView,
   // by its Java ContentViewCore counterpart, whose lifetime is managed
   // by the UI frontend.
   void SetContentViewCore(ContentViewCoreImpl* content_view_core);
+
+  void set_synchronous_compositor_client(SynchronousCompositorClient* client) {
+    synchronous_compositor_client_ = client;
+  }
+
+  SynchronousCompositorClient* synchronous_compositor_client() const {
+    return synchronous_compositor_client_;
+  }
+
+  void SetOverscrollRefreshHandler(
+      std::unique_ptr<ui::OverscrollRefreshHandler> overscroll_refresh_handler);
 
   // WebContentsView implementation --------------------------------------------
   gfx::NativeView GetNativeView() const override;
@@ -69,11 +83,13 @@ class WebContentsViewAndroid : public WebContentsView,
                      bool right_aligned,
                      bool allow_multiple_selection) override;
   void HidePopupMenu() override;
+  ui::OverscrollRefreshHandler* GetOverscrollRefreshHandler() const override;
   void StartDragging(const DropData& drop_data,
                      blink::WebDragOperationsMask allowed_ops,
                      const gfx::ImageSkia& image,
                      const gfx::Vector2d& image_offset,
-                     const DragEventSourceInfo& event_info) override;
+                     const DragEventSourceInfo& event_info,
+                     RenderWidgetHostImpl* source_rwh) override;
   void UpdateDragCursor(blink::WebDragOperation operation) override;
   void GotFocus() override;
   void TakeFocus(bool reverse) override;
@@ -96,8 +112,17 @@ class WebContentsViewAndroid : public WebContentsView,
   // ContentViewCoreImpl is our interface to the view system.
   ContentViewCoreImpl* content_view_core_;
 
+  // Handles "overscroll to refresh" events
+  std::unique_ptr<ui::OverscrollRefreshHandler> overscroll_refresh_handler_;
+
   // Interface for extensions to WebContentsView. Used to show the context menu.
   std::unique_ptr<WebContentsViewDelegate> delegate_;
+
+  // The native view associated with the contents of the web.
+  ui::ViewAndroid view_;
+
+  // Interface used to get notified of events from the synchronous compositor.
+  SynchronousCompositorClient* synchronous_compositor_client_;
 
   DISALLOW_COPY_AND_ASSIGN(WebContentsViewAndroid);
 };

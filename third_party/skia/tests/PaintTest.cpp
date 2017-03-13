@@ -5,6 +5,7 @@
  * found in the LICENSE file.
  */
 
+#include "SkAutoMalloc.h"
 #include "SkBlurMask.h"
 #include "SkBlurMaskFilter.h"
 #include "SkLayerDrawLooper.h"
@@ -15,7 +16,6 @@
 #include "SkTypeface.h"
 #include "SkUtils.h"
 #include "SkWriteBuffer.h"
-#include "SkXfermode.h"
 #include "Test.h"
 
 static size_t uni_to_utf8(const SkUnichar src[], void* dst, int count) {
@@ -312,10 +312,6 @@ DEF_TEST(Paint_MoreFlattening, r) {
     ASSERT(other.getTextSize()   == paint.getTextSize());
     ASSERT(other.getLooper()     == paint.getLooper());
     ASSERT(other.getBlendMode()  == paint.getBlendMode());
-
-#ifdef SK_SUPPORT_LEGACY_XFERMODE_PTR
-    other.setXfermode(nullptr);
-#endif
 }
 
 DEF_TEST(Paint_getHash, r) {

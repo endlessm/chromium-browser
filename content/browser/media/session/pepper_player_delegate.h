@@ -5,34 +5,35 @@
 #ifndef CONTENT_BROWSER_MEDIA_SESSION_PEPPER_PLAYER_DELEGATE_H_
 #define CONTENT_BROWSER_MEDIA_SESSION_PEPPER_PLAYER_DELEGATE_H_
 
+#include <stdint.h>
+
 #include "base/macros.h"
-#include "content/browser/media/session/media_session_observer.h"
-#include "content/browser/web_contents/web_contents_impl.h"
+#include "content/browser/media/session/media_session_player_observer.h"
 
 namespace content {
 
-class PepperWebContentsObserver;
+class RenderFrameHost;
 
-class PepperPlayerDelegate : public MediaSessionObserver {
+class PepperPlayerDelegate : public MediaSessionPlayerObserver {
  public:
   // The Id can only be 0 for PepperPlayerDelegate. Declare the constant here so
   // it can be used elsewhere.
   static const int kPlayerId;
 
-  PepperPlayerDelegate(
-      WebContentsImpl* contents, int32_t pp_instance);
+  PepperPlayerDelegate(RenderFrameHost* render_frame_host, int32_t pp_instance);
   ~PepperPlayerDelegate() override;
 
-  // MediaSessionObserver implementation.
+  // MediaSessionPlayerObserver implementation.
   void OnSuspend(int player_id) override;
   void OnResume(int player_id) override;
   void OnSetVolumeMultiplier(int player_id,
                              double volume_multiplier) override;
+  RenderFrameHost* GetRenderFrameHost() const override;
 
  private:
   void SetVolume(int player_id, double volume);
 
-  WebContentsImpl* contents_;
+  RenderFrameHost* render_frame_host_;
   int32_t pp_instance_;
 
   DISALLOW_COPY_AND_ASSIGN(PepperPlayerDelegate);

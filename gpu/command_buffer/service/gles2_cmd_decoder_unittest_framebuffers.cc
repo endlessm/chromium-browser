@@ -919,7 +919,6 @@ TEST_P(GLES2DecoderManualInitTest, ReadPixels2RowLengthWorkaround) {
   command_line.AppendSwitchASCII(
       switches::kGpuDriverBugWorkarounds,
       base::IntToString(gpu::PACK_PARAMETERS_WORKAROUND_WITH_PACK_BUFFER));
-  command_line.AppendSwitch(switches::kEnableUnsafeES3APIs);
   InitState init;
   init.gl_version = "OpenGL ES 3.0";
   init.bind_generates_resource = true;
@@ -973,7 +972,6 @@ TEST_P(GLES2DecoderManualInitTest, ReadPixels2AlignmentWorkaround) {
   command_line.AppendSwitchASCII(
       switches::kGpuDriverBugWorkarounds,
       base::IntToString(gpu::PACK_PARAMETERS_WORKAROUND_WITH_PACK_BUFFER));
-  command_line.AppendSwitch(switches::kEnableUnsafeES3APIs);
   InitState init;
   init.gl_version = "OpenGL ES 3.0";
   init.bind_generates_resource = true;
@@ -1029,7 +1027,6 @@ TEST_P(GLES2DecoderManualInitTest,
   command_line.AppendSwitchASCII(
       switches::kGpuDriverBugWorkarounds,
       base::IntToString(gpu::PACK_PARAMETERS_WORKAROUND_WITH_PACK_BUFFER));
-  command_line.AppendSwitch(switches::kEnableUnsafeES3APIs);
   InitState init;
   init.gl_version = "OpenGL ES 3.0";
   init.bind_generates_resource = true;
@@ -2697,6 +2694,130 @@ TEST_P(GLES3DecoderTest, CopyTexImage2DValidInternalFormat) {
   EXPECT_EQ(GL_NO_ERROR, GetGLError());
 }
 
+TEST_P(GLES3DecoderManualInitTest, CopyTexImage2DValidInternalFormat_FloatEXT) {
+  InitState init;
+  init.extensions = "GL_EXT_color_buffer_float";
+  init.gl_version = "OpenGL ES 3.0";
+  init.bind_generates_resource = true;
+  init.context_type = CONTEXT_TYPE_OPENGLES3;
+  InitDecoder(init);
+
+  const GLuint kFBOClientTextureId = 4100;
+  const GLuint kFBOServiceTextureId = 4101;
+
+  GLenum target = GL_TEXTURE_2D;
+  GLint level = 0;
+  GLenum internal_format = GL_RG16F;
+  GLenum format = GL_RGBA;
+  GLenum type = GL_HALF_FLOAT;
+  GLsizei width = 16;
+  GLsizei height = 8;
+  GLint border = 0;
+
+  EXPECT_CALL(*gl_, GenTextures(_, _))
+      .WillOnce(SetArgPointee<1>(kFBOServiceTextureId))
+      .RetiresOnSaturation();
+  GenHelper<GenTexturesImmediate>(kFBOClientTextureId);
+
+  DoBindTexture(GL_TEXTURE_2D, kFBOClientTextureId, kFBOServiceTextureId);
+  DoTexImage2D(GL_TEXTURE_2D,
+               level,
+               GL_RGBA16F,
+               width,
+               height,
+               0,
+               format,
+               type,
+               kSharedMemoryId,
+               kSharedMemoryOffset);
+  DoBindFramebuffer(
+      GL_READ_FRAMEBUFFER, client_framebuffer_id_, kServiceFramebufferId);
+  DoFramebufferTexture2D(GL_READ_FRAMEBUFFER,
+                         GL_COLOR_ATTACHMENT0,
+                         GL_TEXTURE_2D,
+                         kFBOClientTextureId,
+                         kFBOServiceTextureId,
+                         0,
+                         GL_NO_ERROR);
+  EXPECT_CALL(*gl_,
+              CopyTexImage2D(
+                  target, level, internal_format, 0, 0, width, height, border))
+      .Times(1)
+      .RetiresOnSaturation();
+  EXPECT_CALL(*gl_, GetError())
+      .WillOnce(Return(GL_NO_ERROR))
+      .WillOnce(Return(GL_NO_ERROR))
+      .RetiresOnSaturation();
+  EXPECT_CALL(*gl_, CheckFramebufferStatusEXT(GL_READ_FRAMEBUFFER))
+      .WillOnce(Return(GL_FRAMEBUFFER_COMPLETE))
+      .RetiresOnSaturation();
+  DoBindTexture(GL_TEXTURE_2D, client_texture_id_, kServiceTextureId);
+  CopyTexImage2D cmd;
+  cmd.Init(target, level, internal_format, 0, 0, width, height);
+  EXPECT_EQ(error::kNoError, ExecuteCmd(cmd));
+  EXPECT_EQ(GL_NO_ERROR, GetGLError());
+}
+
+TEST_P(GLES3DecoderManualInitTest,
+    CopyTexImage2DInvalidInternalFormat_FloatEXT) {
+  InitState init;
+  init.extensions = "GL_EXT_color_buffer_float";
+  init.gl_version = "OpenGL ES 3.0";
+  init.bind_generates_resource = true;
+  init.context_type = CONTEXT_TYPE_OPENGLES3;
+  InitDecoder(init);
+
+  const GLuint kFBOClientTextureId = 4100;
+  const GLuint kFBOServiceTextureId = 4101;
+
+  GLenum target = GL_TEXTURE_2D;
+  GLint level = 0;
+  GLenum internal_format = GL_RG16F;
+  GLenum format = GL_RGBA;
+  GLenum type = GL_UNSIGNED_BYTE;
+  GLsizei width = 16;
+  GLsizei height = 8;
+  GLint border = 0;
+
+  EXPECT_CALL(*gl_, GenTextures(_, _))
+      .WillOnce(SetArgPointee<1>(kFBOServiceTextureId))
+      .RetiresOnSaturation();
+  GenHelper<GenTexturesImmediate>(kFBOClientTextureId);
+
+  DoBindTexture(GL_TEXTURE_2D, kFBOClientTextureId, kFBOServiceTextureId);
+  DoTexImage2D(GL_TEXTURE_2D,
+               level,
+               GL_RGBA8,
+               width,
+               height,
+               0,
+               format,
+               type,
+               kSharedMemoryId,
+               kSharedMemoryOffset);
+  DoBindFramebuffer(
+      GL_READ_FRAMEBUFFER, client_framebuffer_id_, kServiceFramebufferId);
+  DoFramebufferTexture2D(GL_READ_FRAMEBUFFER,
+                         GL_COLOR_ATTACHMENT0,
+                         GL_TEXTURE_2D,
+                         kFBOClientTextureId,
+                         kFBOServiceTextureId,
+                         0,
+                         GL_NO_ERROR);
+  EXPECT_CALL(*gl_,
+              CopyTexImage2D(
+                  target, level, internal_format, 0, 0, width, height, border))
+      .Times(0);
+  EXPECT_CALL(*gl_, CheckFramebufferStatusEXT(GL_READ_FRAMEBUFFER))
+      .WillOnce(Return(GL_FRAMEBUFFER_COMPLETE))
+      .RetiresOnSaturation();
+  DoBindTexture(GL_TEXTURE_2D, client_texture_id_, kServiceTextureId);
+  CopyTexImage2D cmd;
+  cmd.Init(target, level, internal_format, 0, 0, width, height);
+  EXPECT_EQ(error::kNoError, ExecuteCmd(cmd));
+  EXPECT_EQ(GL_INVALID_OPERATION, GetGLError());
+}
+
 TEST_P(GLES3DecoderTest, CopyTexImage2DInvalidInternalFormat) {
   const GLuint kFBOClientTextureId = 4100;
   const GLuint kFBOServiceTextureId = 4101;
@@ -3276,7 +3397,8 @@ TEST_P(GLES2DecoderManualInitTest, InvalidateFramebufferBinding) {
   // EXPECT_EQ can't be used to compare function pointers
   EXPECT_TRUE(
       gl::MockGLInterface::GetGLProcAddress("glInvalidateFramebuffer") !=
-      gl::g_driver_gl.fn.glDiscardFramebufferEXTFn);
+      reinterpret_cast<gl::GLFunctionPointerType>(
+          gl::g_driver_gl.fn.glDiscardFramebufferEXTFn));
   EXPECT_TRUE(
       gl::MockGLInterface::GetGLProcAddress("glInvalidateFramebuffer") !=
       gl::MockGLInterface::GetGLProcAddress("glDiscardFramebufferEXT"));
@@ -3326,7 +3448,8 @@ TEST_P(GLES2DecoderManualInitTest, DiscardFramebufferEXT) {
   // EXPECT_EQ can't be used to compare function pointers
   EXPECT_TRUE(
       gl::MockGLInterface::GetGLProcAddress("glDiscardFramebufferEXT") ==
-      gl::g_driver_gl.fn.glDiscardFramebufferEXTFn);
+      reinterpret_cast<gl::GLFunctionPointerType>(
+          gl::g_driver_gl.fn.glDiscardFramebufferEXTFn));
 
   const GLenum target = GL_FRAMEBUFFER;
   const GLsizei count = 1;
@@ -3368,7 +3491,8 @@ TEST_P(GLES2DecoderManualInitTest, ClearBackbufferBitsOnDiscardFramebufferEXT) {
   // EXPECT_EQ can't be used to compare function pointers.
   EXPECT_TRUE(
       gl::MockGLInterface::GetGLProcAddress("glDiscardFramebufferEXT") ==
-      gl::g_driver_gl.fn.glDiscardFramebufferEXTFn);
+      reinterpret_cast<gl::GLFunctionPointerType>(
+          gl::g_driver_gl.fn.glDiscardFramebufferEXTFn));
 
   const GLenum target = GL_FRAMEBUFFER;
   const GLsizei count = 1;
@@ -3430,6 +3554,92 @@ TEST_P(GLES2DecoderTest, DiscardFramebufferEXTUnsupported) {
   // Should not result into a call into GL.
   EXPECT_EQ(error::kUnknownCommand,
             ExecuteImmediateCmd(cmd, sizeof(attachments)));
+}
+
+TEST_P(GLES3DecoderTest, DiscardFramebufferEXTInvalidTarget) {
+  const GLenum target = GL_RED;  // Invalid
+  const GLsizei count = 1;
+  const GLenum attachments[] = {GL_COLOR_ATTACHMENT0};
+
+  SetupTexture();
+  DoBindFramebuffer(
+      GL_FRAMEBUFFER, client_framebuffer_id_, kServiceFramebufferId);
+  DoFramebufferTexture2D(GL_FRAMEBUFFER,
+                         GL_COLOR_ATTACHMENT0,
+                         GL_TEXTURE_2D,
+                         client_texture_id_,
+                         kServiceTextureId,
+                         0,
+                         GL_NO_ERROR);
+  FramebufferManager* framebuffer_manager = group().framebuffer_manager();
+  Framebuffer* framebuffer =
+      framebuffer_manager->GetFramebuffer(client_framebuffer_id_);
+  EXPECT_TRUE(framebuffer->IsCleared());
+
+  EXPECT_CALL(*gl_, InvalidateFramebuffer(target, count, _)).Times(0);
+  DiscardFramebufferEXTImmediate& cmd =
+      *GetImmediateAs<DiscardFramebufferEXTImmediate>();
+  cmd.Init(target, count, attachments);
+
+  EXPECT_EQ(error::kNoError, ExecuteImmediateCmd(cmd, sizeof(attachments)));
+  EXPECT_EQ(GL_INVALID_ENUM, GetGLError());
+  EXPECT_TRUE(framebuffer->IsCleared());
+}
+
+TEST_P(GLES3DecoderTest, DiscardFramebufferEXTUseCorrectTarget) {
+  const GLenum target = GL_READ_FRAMEBUFFER;
+  const GLsizei count = 1;
+  const GLenum attachments[] = {GL_COLOR_ATTACHMENT0};
+
+  SetupTexture();
+  DoBindFramebuffer(
+      GL_READ_FRAMEBUFFER, client_framebuffer_id_, kServiceFramebufferId);
+  DoFramebufferTexture2D(GL_READ_FRAMEBUFFER,
+                         GL_COLOR_ATTACHMENT0,
+                         GL_TEXTURE_2D,
+                         client_texture_id_,
+                         kServiceTextureId,
+                         0,
+                         GL_NO_ERROR);
+
+  EXPECT_CALL(*gl_, GenFramebuffersEXT(_, _))
+      .WillOnce(SetArgPointee<1>(kServiceFramebufferId + 1))
+      .RetiresOnSaturation();
+  DoBindFramebuffer(GL_DRAW_FRAMEBUFFER, client_framebuffer_id_ + 1,
+                    kServiceFramebufferId + 1);
+  EXPECT_CALL(*gl_, GenTextures(_, _))
+      .WillOnce(SetArgPointee<1>(kServiceTextureId + 1))
+      .RetiresOnSaturation();
+  DoBindTexture(GL_TEXTURE_2D, client_texture_id_ + 1, kServiceTextureId + 1);
+  DoTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE,
+               kSharedMemoryId, kSharedMemoryOffset);
+  DoFramebufferTexture2D(GL_DRAW_FRAMEBUFFER,
+                         GL_COLOR_ATTACHMENT0,
+                         GL_TEXTURE_2D,
+                         client_texture_id_ + 1,
+                         kServiceTextureId + 1,
+                         0,
+                         GL_NO_ERROR);
+
+  FramebufferManager* framebuffer_manager = group().framebuffer_manager();
+  Framebuffer* framebuffer =
+      framebuffer_manager->GetFramebuffer(client_framebuffer_id_);
+  EXPECT_TRUE(framebuffer->IsCleared());
+  Framebuffer* other_framebuffer =
+      framebuffer_manager->GetFramebuffer(client_framebuffer_id_ + 1);
+  EXPECT_TRUE(other_framebuffer->IsCleared());
+
+  EXPECT_CALL(*gl_, InvalidateFramebuffer(target, count, _))
+      .Times(1)
+      .RetiresOnSaturation();
+  DiscardFramebufferEXTImmediate& cmd =
+      *GetImmediateAs<DiscardFramebufferEXTImmediate>();
+  cmd.Init(target, count, attachments);
+
+  EXPECT_EQ(error::kNoError, ExecuteImmediateCmd(cmd, sizeof(attachments)));
+  EXPECT_EQ(GL_NO_ERROR, GetGLError());
+  EXPECT_FALSE(framebuffer->IsCleared());
+  EXPECT_TRUE(other_framebuffer->IsCleared());
 }
 
 TEST_P(GLES2DecoderManualInitTest,
@@ -3505,7 +3715,8 @@ TEST_P(GLES2DecoderManualInitTest,
   // and the framebuffer as incomplete.
   EXPECT_TRUE(
       gl::MockGLInterface::GetGLProcAddress("glDiscardFramebufferEXT") ==
-      gl::g_driver_gl.fn.glDiscardFramebufferEXTFn);
+      reinterpret_cast<gl::GLFunctionPointerType>(
+          gl::g_driver_gl.fn.glDiscardFramebufferEXTFn));
 
   const GLenum target = GL_FRAMEBUFFER;
   const GLsizei count = 1;
@@ -3549,14 +3760,7 @@ TEST_P(GLES2DecoderTest, ImplementationReadColorFormatAndType) {
   EXPECT_CALL(*gl_, GetError())
       .WillOnce(Return(GL_NO_ERROR))
       .WillOnce(Return(GL_NO_ERROR))
-      .WillOnce(Return(GL_NO_ERROR))
-      .WillOnce(Return(GL_NO_ERROR))
-      .WillOnce(Return(GL_NO_ERROR))
       .RetiresOnSaturation();
-  EXPECT_CALL(*gl_, CheckFramebufferStatusEXT(_))
-      .WillOnce(Return(GL_FRAMEBUFFER_COMPLETE))
-      .RetiresOnSaturation();
-  EXPECT_CALL(*gl_, GetIntegerv(_, _)).Times(1).RetiresOnSaturation();
   cmd.Init(GL_IMPLEMENTATION_COLOR_READ_FORMAT,
            shared_memory_id_,
            shared_memory_offset_);
@@ -3568,13 +3772,7 @@ TEST_P(GLES2DecoderTest, ImplementationReadColorFormatAndType) {
   EXPECT_CALL(*gl_, GetError())
       .WillOnce(Return(GL_NO_ERROR))
       .WillOnce(Return(GL_NO_ERROR))
-      .WillOnce(Return(GL_NO_ERROR))
-      .WillOnce(Return(GL_NO_ERROR))
-      .WillOnce(Return(GL_NO_ERROR))
       .RetiresOnSaturation();
-  EXPECT_CALL(*gl_, CheckFramebufferStatusEXT(_))
-      .Times(0);
-  EXPECT_CALL(*gl_, GetIntegerv(_, _)).Times(1).RetiresOnSaturation();
   cmd.Init(GL_IMPLEMENTATION_COLOR_READ_TYPE,
            shared_memory_id_,
            shared_memory_offset_);
@@ -3682,7 +3880,7 @@ TEST_P(GLES3DecoderTest, InvalidateFramebufferDepthStencilAttachment) {
   EXPECT_FALSE(framebuffer->HasUnclearedAttachment(GL_STENCIL_ATTACHMENT));
 
   attachments[0] = GL_DEPTH_STENCIL_ATTACHMENT;
-  EXPECT_CALL(*gl_, InvalidateFramebuffer(target, 1, _))
+  EXPECT_CALL(*gl_, InvalidateFramebuffer(target, 2, _))
       .Times(1)
       .RetiresOnSaturation();
   cmd.Init(target, count, attachments);
@@ -3754,21 +3952,18 @@ TEST_P(GLES3DecoderTest, BlitFramebufferDisabledReadBuffer) {
                                             1.0f,                 // depth
                                             false,  // scissor test
                                             0, 0, 128, 64);
-    EXPECT_CALL(*gl_, BlitFramebufferEXT(0, 0, 1, 1, 0, 0, 1, 1,
-                                      GL_COLOR_BUFFER_BIT, GL_LINEAR))
-        .Times(1)
-        .RetiresOnSaturation();
     BlitFramebufferCHROMIUM cmd;
     cmd.Init(0, 0, 1, 1, 0, 0, 1, 1, GL_COLOR_BUFFER_BIT, GL_LINEAR);
     EXPECT_EQ(error::kNoError, ExecuteCmd(cmd));
-    EXPECT_EQ(GL_NO_ERROR, GetGLError());
+    // Generate INVALID_OPERATION because of missing read buffer image.
+    EXPECT_EQ(GL_INVALID_OPERATION, GetGLError());
   }
 }
 
 TEST_P(GLES3DecoderTest, BlitFramebufferMissingDepthOrStencil) {
   // Run BlitFramebufferCHROMIUM with depth or stencil bits, from/to a read/draw
-  // framebuffer that doesn't have depth/stencil. The bits should be silently
-  // ignored.
+  // framebuffer that doesn't have depth/stencil. It should generate
+  // INVALID_OPERATION.
   DoBindRenderbuffer(GL_RENDERBUFFER, client_renderbuffer_id_,
                      kServiceRenderbufferId);
   DoRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8,
@@ -3816,16 +4011,13 @@ TEST_P(GLES3DecoderTest, BlitFramebufferMissingDepthOrStencil) {
     EXPECT_CALL(*gl_, CheckFramebufferStatusEXT(GL_READ_FRAMEBUFFER))
         .WillOnce(Return(GL_FRAMEBUFFER_COMPLETE))
         .RetiresOnSaturation();
-    EXPECT_CALL(*gl_, BlitFramebufferEXT(0, 0, 1, 1, 0, 0, 1, 1,
-                                         _, _))
-        .Times(0);
     BlitFramebufferCHROMIUM cmd;
     cmd.Init(0, 0, 1, 1, 0, 0, 1, 1, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
     EXPECT_EQ(error::kNoError, ExecuteCmd(cmd));
-    EXPECT_EQ(GL_NO_ERROR, GetGLError());
+    EXPECT_EQ(GL_INVALID_OPERATION, GetGLError());
     cmd.Init(0, 0, 1, 1, 0, 0, 1, 1, GL_STENCIL_BUFFER_BIT, GL_NEAREST);
     EXPECT_EQ(error::kNoError, ExecuteCmd(cmd));
-    EXPECT_EQ(GL_NO_ERROR, GetGLError());
+    EXPECT_EQ(GL_INVALID_OPERATION, GetGLError());
   }
 
   // Switch FBOs and try the same.

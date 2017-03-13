@@ -8,6 +8,7 @@
 
 #include <memory>
 
+#include "base/memory/ptr_util.h"
 #include "cc/layers/layer.h"
 #include "cc/layers/ui_resource_layer.h"
 #include "chrome/browser/android/compositor/decoration_title.h"
@@ -25,7 +26,7 @@ namespace android {
 // static
 LayerTitleCache* LayerTitleCache::FromJavaObject(jobject jobj) {
   if (!jobj)
-    return NULL;
+    return nullptr;
   return reinterpret_cast<LayerTitleCache*>(Java_LayerTitleCache_getNativePtr(
       base::android::AttachCurrentThread(), jobj));
 }
@@ -58,14 +59,7 @@ void LayerTitleCache::UpdateLayer(JNIEnv* env,
                                   bool is_incognito,
                                   bool is_rtl) {
   DecorationTitle* title_layer = layer_cache_.Lookup(tab_id);
-  if (title_layer == NULL) {
-    layer_cache_.AddWithID(
-        new DecorationTitle(
-            resource_manager_, title_resource_id, favicon_resource_id,
-            spinner_resource_id_, spinner_incognito_resource_id_, fade_width_,
-            favicon_start_padding_, favicon_end_padding_, is_incognito, is_rtl),
-        tab_id);
-  } else {
+  if (title_layer) {
     if (title_resource_id != -1 && favicon_resource_id != -1) {
       title_layer->Update(title_resource_id, favicon_resource_id, fade_width_,
                           favicon_start_padding_, favicon_end_padding_,
@@ -73,6 +67,13 @@ void LayerTitleCache::UpdateLayer(JNIEnv* env,
     } else {
       layer_cache_.Remove(tab_id);
     }
+  } else {
+    layer_cache_.AddWithID(
+        base::MakeUnique<DecorationTitle>(
+            resource_manager_, title_resource_id, favicon_resource_id,
+            spinner_resource_id_, spinner_incognito_resource_id_, fade_width_,
+            favicon_start_padding_, favicon_end_padding_, is_incognito, is_rtl),
+        tab_id);
   }
 }
 
@@ -89,7 +90,7 @@ void LayerTitleCache::UpdateFavicon(JNIEnv* env,
 void LayerTitleCache::ClearExcept(JNIEnv* env,
                                   const JavaParamRef<jobject>& obj,
                                   jint except_id) {
-  IDMap<DecorationTitle, IDMapOwnPointer>::iterator iter(&layer_cache_);
+  IDMap<std::unique_ptr<DecorationTitle>>::iterator iter(&layer_cache_);
   for (; !iter.IsAtEnd(); iter.Advance()) {
     const int id = iter.GetCurrentKey();
     if (id != except_id)
@@ -111,7 +112,7 @@ void LayerTitleCache::SetResourceManager(
     ui::ResourceManager* resource_manager) {
   resource_manager_ = resource_manager;
 
-  IDMap<DecorationTitle, IDMapOwnPointer>::iterator iter(&layer_cache_);
+  IDMap<std::unique_ptr<DecorationTitle>>::iterator iter(&layer_cache_);
   for (; !iter.IsAtEnd(); iter.Advance()) {
     iter.GetCurrentValue()->SetResourceManager(resource_manager_);
   }

@@ -4,7 +4,7 @@
 
 #include "core/dom/StyleChangeReason.h"
 
-#include "platform/tracing/TraceEvent.h"
+#include "platform/instrumentation/tracing/TraceEvent.h"
 #include "wtf/StaticConstructors.h"
 
 namespace blink {
@@ -35,7 +35,6 @@ const char PropertyUnregistration[] = "PropertyUnregistration";
 const char PseudoClass[] = "PseudoClass";
 const char SVGContainerSizeChange[] = "SVGContainerSizeChange";
 const char SVGCursor[] = "SVGCursor";
-const char SVGFilterLayerUpdate[] = "SVGFilterLayerUpdate";
 const char Settings[] = "Settings";
 const char Shadow[] = "Shadow";
 const char StyleInvalidator[] = "StyleInvalidator";
@@ -48,13 +47,13 @@ const char Zoom[] = "Zoom";
 }  // namespace StyleChangeReason
 
 namespace StyleChangeExtraData {
-DEFINE_GLOBAL(AtomicString, Active)
-DEFINE_GLOBAL(AtomicString, Disabled)
-DEFINE_GLOBAL(AtomicString, Drag)
-DEFINE_GLOBAL(AtomicString, Focus)
-DEFINE_GLOBAL(AtomicString, Hover)
-DEFINE_GLOBAL(AtomicString, Past)
-DEFINE_GLOBAL(AtomicString, Unresolved)
+DEFINE_GLOBAL(AtomicString, Active);
+DEFINE_GLOBAL(AtomicString, Disabled);
+DEFINE_GLOBAL(AtomicString, Drag);
+DEFINE_GLOBAL(AtomicString, Focus);
+DEFINE_GLOBAL(AtomicString, Hover);
+DEFINE_GLOBAL(AtomicString, Past);
+DEFINE_GLOBAL(AtomicString, Unresolved);
 
 void init() {
   DCHECK(isMainThread());

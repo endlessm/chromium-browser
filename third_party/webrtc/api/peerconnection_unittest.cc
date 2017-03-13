@@ -40,6 +40,7 @@
 #include "webrtc/base/virtualsocketserver.h"
 #include "webrtc/media/engine/fakewebrtcvideoengine.h"
 #include "webrtc/p2p/base/p2pconstants.h"
+#include "webrtc/p2p/base/portinterface.h"
 #include "webrtc/p2p/base/sessiondescription.h"
 #include "webrtc/p2p/base/testturnserver.h"
 #include "webrtc/p2p/client/basicportallocator.h"
@@ -188,6 +189,13 @@ class PeerConnectionTestClient : public webrtc::PeerConnectionObserver,
                                  public ObserverInterface,
                                  public rtc::MessageHandler {
  public:
+  // We need these using declarations because there are two versions of each of
+  // the below methods and we only override one of them.
+  // TODO(deadbeef): Remove once there's only one version of the methods.
+  using PeerConnectionObserver::OnAddStream;
+  using PeerConnectionObserver::OnRemoveStream;
+  using PeerConnectionObserver::OnDataChannel;
+
   // If |config| is not provided, uses a default constructed RTCConfiguration.
   static PeerConnectionTestClient* CreateClientWithDtlsIdentityStore(
       const std::string& id,
@@ -1287,23 +1295,33 @@ class P2PTestConductor : public testing::Test {
     EXPECT_EQ(pc2_video_received, receiving_client_->video_frames_received());
   }
 
-  void VerifyRenderedSize(int width, int height) {
-    VerifyRenderedSize(width, height, webrtc::kVideoRotation_0);
+  void VerifyRenderedAspectRatio(int width, int height) {
+    VerifyRenderedAspectRatio(width, height, webrtc::kVideoRotation_0);
   }
 
-  void VerifyRenderedSize(int width,
-                          int height,
-                          webrtc::VideoRotation rotation) {
-    EXPECT_EQ(width, receiving_client()->rendered_width());
-    EXPECT_EQ(height, receiving_client()->rendered_height());
-    EXPECT_EQ(rotation, receiving_client()->rendered_rotation());
-    EXPECT_EQ(width, initializing_client()->rendered_width());
-    EXPECT_EQ(height, initializing_client()->rendered_height());
-    EXPECT_EQ(rotation, initializing_client()->rendered_rotation());
+  void VerifyRenderedAspectRatio(int width,
+                                 int height,
+                                 webrtc::VideoRotation rotation) {
+    double expected_aspect_ratio = static_cast<double>(width) / height;
+    double receiving_client_rendered_aspect_ratio =
+        static_cast<double>(receiving_client()->rendered_width()) /
+        receiving_client()->rendered_height();
+    double initializing_client_rendered_aspect_ratio =
+        static_cast<double>(initializing_client()->rendered_width()) /
+        initializing_client()->rendered_height();
+    double initializing_client_local_rendered_aspect_ratio =
+        static_cast<double>(initializing_client()->local_rendered_width()) /
+        initializing_client()->local_rendered_height();
+    // Verify end-to-end rendered aspect ratio.
+    EXPECT_EQ(expected_aspect_ratio, receiving_client_rendered_aspect_ratio);
+    EXPECT_EQ(expected_aspect_ratio, initializing_client_rendered_aspect_ratio);
+    // Verify aspect ratio of the local preview.
+    EXPECT_EQ(expected_aspect_ratio,
+              initializing_client_local_rendered_aspect_ratio);
 
-    // Verify size of the local preview.
-    EXPECT_EQ(width, initializing_client()->local_rendered_width());
-    EXPECT_EQ(height, initializing_client()->local_rendered_height());
+    // Verify rotation.
+    EXPECT_EQ(rotation, receiving_client()->rendered_rotation());
+    EXPECT_EQ(rotation, initializing_client()->rendered_rotation());
   }
 
   void VerifySessionDescriptions() {
@@ -1458,15 +1476,25 @@ class P2PTestConductor : public testing::Test {
     FakeConstraints setup_constraints;
     setup_constraints.AddMandatory(MediaConstraintsInterface::kEnableDtlsSrtp,
                                    true);
-    ASSERT_TRUE(CreateTestClients(&setup_constraints, &setup_constraints));
+    // Disable resolution adaptation, we don't want it interfering with the
+    // test results.
+    webrtc::PeerConnectionInterface::RTCConfiguration rtc_config;
+    rtc_config.set_cpu_adaptation(false);
+
+    ASSERT_TRUE(CreateTestClients(&setup_constraints, nullptr, &rtc_config,
+                                  &setup_constraints, nullptr, &rtc_config));
     LocalP2PTest();
-    VerifyRenderedSize(640, 480);
+    VerifyRenderedAspectRatio(640, 480);
   }
 
   PeerConnectionTestClient* CreateDtlsClientWithAlternateKey() {
     FakeConstraints setup_constraints;
     setup_constraints.AddMandatory(MediaConstraintsInterface::kEnableDtlsSrtp,
                                    true);
+    // Disable resolution adaptation, we don't want it interfering with the
+    // test results.
+    webrtc::PeerConnectionInterface::RTCConfiguration rtc_config;
+    rtc_config.set_cpu_adaptation(false);
 
     std::unique_ptr<FakeRTCCertificateGenerator> cert_generator(
         rtc::SSLStreamAdapter::HaveDtlsSrtp() ?
@@ -1475,7 +1503,7 @@ class P2PTestConductor : public testing::Test {
 
     // Make sure the new client is using a different certificate.
     return PeerConnectionTestClient::CreateClientWithDtlsIdentityStore(
-        "New Peer: ", &setup_constraints, nullptr, nullptr,
+        "New Peer: ", &setup_constraints, nullptr, &rtc_config,
         std::move(cert_generator), prefer_constraint_apis_,
         network_thread_.get(), worker_thread_.get());
   }
@@ -1640,7 +1668,7 @@ TEST_F(P2PTestConductor, DISABLED_LocalP2PTest1280By720) {
   constraint.SetMandatoryMinHeight(720);
   SetVideoConstraints(constraint, constraint);
   LocalP2PTest();
-  VerifyRenderedSize(1280, 720);
+  VerifyRenderedAspectRatio(1280, 720);
 }
 
 // This test sets up a call between two endpoints that are configured to use
@@ -1692,7 +1720,7 @@ TEST_F(P2PTestConductor, LocalP2PTestDtlsTransferCallee) {
   SetSignalingReceivers();
   receiving_client()->SetExpectIceRestart(true);
   LocalP2PTest();
-  VerifyRenderedSize(640, 480);
+  VerifyRenderedAspectRatio(640, 480);
 }
 
 // This test sets up a non-bundle call and apply bundle during ICE restart. When
@@ -1706,13 +1734,13 @@ TEST_F(P2PTestConductor, LocalP2PTestDtlsBundleInIceRestart) {
   ASSERT_TRUE(CreateTestClients(&setup_constraints, &setup_constraints));
   receiving_client()->RemoveBundleFromReceivedSdp(true);
   LocalP2PTest();
-  VerifyRenderedSize(640, 480);
+  VerifyRenderedAspectRatio(640, 480);
 
   initializing_client()->IceRestart();
   receiving_client()->SetExpectIceRestart(true);
   receiving_client()->RemoveBundleFromReceivedSdp(false);
   LocalP2PTest();
-  VerifyRenderedSize(640, 480);
+  VerifyRenderedAspectRatio(640, 480);
 }
 
 // This test sets up a call transfer to a new callee with a different DTLS
@@ -1730,14 +1758,14 @@ TEST_F(P2PTestConductor, LocalP2PTestDtlsTransferCaller) {
   SetSignalingReceivers();
   initializing_client()->IceRestart();
   LocalP2PTest();
-  VerifyRenderedSize(640, 480);
+  VerifyRenderedAspectRatio(640, 480);
 }
 
 TEST_F(P2PTestConductor, LocalP2PTestCVO) {
   ASSERT_TRUE(CreateTestClients());
   SetCaptureRotation(webrtc::kVideoRotation_90);
   LocalP2PTest();
-  VerifyRenderedSize(640, 480, webrtc::kVideoRotation_90);
+  VerifyRenderedAspectRatio(640, 480, webrtc::kVideoRotation_90);
 }
 
 TEST_F(P2PTestConductor, LocalP2PTestReceiverDoesntSupportCVO) {
@@ -1745,7 +1773,7 @@ TEST_F(P2PTestConductor, LocalP2PTestReceiverDoesntSupportCVO) {
   SetCaptureRotation(webrtc::kVideoRotation_90);
   receiving_client()->RemoveCvoFromReceivedSdp(true);
   LocalP2PTest();
-  VerifyRenderedSize(480, 640, webrtc::kVideoRotation_0);
+  VerifyRenderedAspectRatio(480, 640, webrtc::kVideoRotation_0);
 }
 
 // This test sets up a call between two endpoints that are configured to use
@@ -1759,8 +1787,21 @@ TEST_F(P2PTestConductor, LocalP2PTestOfferDtlsButNotSdes) {
   ASSERT_TRUE(CreateTestClients(&setup_constraints, &setup_constraints));
   receiving_client()->RemoveSdesCryptoFromReceivedSdp(true);
   LocalP2PTest();
-  VerifyRenderedSize(640, 480);
+  VerifyRenderedAspectRatio(640, 480);
 }
+
+#ifdef HAVE_SCTP
+// This test verifies that the negotiation will succeed with data channel only
+// in max-bundle mode.
+TEST_F(P2PTestConductor, LocalP2PTestOfferDataChannelOnly) {
+  webrtc::PeerConnectionInterface::RTCConfiguration rtc_config;
+  rtc_config.bundle_policy =
+      webrtc::PeerConnectionInterface::kBundlePolicyMaxBundle;
+  ASSERT_TRUE(CreateTestClients(rtc_config, rtc_config));
+  initializing_client()->CreateDataChannel();
+  initializing_client()->Negotiate();
+}
+#endif
 
 // This test sets up a Jsep call between two parties, and the callee only
 // accept to receive video.
@@ -1809,11 +1850,7 @@ TEST_F(P2PTestConductor, LocalP2PTestWithoutMsid) {
   LocalP2PTest();
 }
 
-// This test sets up a Jsep call between two parties and the initiating peer
-// sends two steams.
-// TODO(perkj): Disabled due to
-// https://code.google.com/p/webrtc/issues/detail?id=1454
-TEST_F(P2PTestConductor, DISABLED_LocalP2PTestTwoStreams) {
+TEST_F(P2PTestConductor, LocalP2PTestTwoStreams) {
   ASSERT_TRUE(CreateTestClients());
   // Set optional video constraint to max 320pixels to decrease CPU usage.
   FakeConstraints constraint;
@@ -2054,6 +2091,7 @@ TEST_F(P2PTestConductor, LocalP2PTestRtpDataChannel) {
   EXPECT_FALSE(receiving_client()->data_observer()->IsOpen());
 }
 
+#ifdef HAVE_SCTP
 // This test sets up a call between two parties with audio, video and an SCTP
 // data channel.
 TEST_F(P2PTestConductor, LocalP2PTestSctpDataChannel) {
@@ -2141,6 +2179,7 @@ TEST_F(P2PTestConductor, UnorderedSctpDataChannel) {
                    kMaxWaitMs);
   EXPECT_TRUE_WAIT(!receiving_client()->data_observer()->IsOpen(), kMaxWaitMs);
 }
+#endif  // HAVE_SCTP
 
 // This test sets up a call between two parties and creates a data channel.
 // The test tests that received data is buffered unless an observer has been
@@ -2582,16 +2621,31 @@ class IceServerParsingTest : public testing::Test {
     return ParseUrl(url, std::string(), std::string());
   }
 
+  bool ParseTurnUrl(const std::string& url) {
+    return ParseUrl(url, "username", "password");
+  }
+
   bool ParseUrl(const std::string& url,
                 const std::string& username,
                 const std::string& password) {
+    return ParseUrl(
+        url, username, password,
+        PeerConnectionInterface::TlsCertPolicy::kTlsCertPolicySecure);
+  }
+
+  bool ParseUrl(const std::string& url,
+                const std::string& username,
+                const std::string& password,
+                PeerConnectionInterface::TlsCertPolicy tls_certificate_policy) {
     PeerConnectionInterface::IceServers servers;
     PeerConnectionInterface::IceServer server;
     server.urls.push_back(url);
     server.username = username;
     server.password = password;
+    server.tls_cert_policy = tls_certificate_policy;
     servers.push_back(server);
-    return webrtc::ParseIceServers(servers, &stun_servers_, &turn_servers_);
+    return webrtc::ParseIceServers(servers, &stun_servers_, &turn_servers_) ==
+           webrtc::RTCErrorType::NONE;
   }
 
  protected:
@@ -2611,16 +2665,28 @@ TEST_F(IceServerParsingTest, ParseStunPrefixes) {
   EXPECT_EQ(0U, turn_servers_.size());
   stun_servers_.clear();
 
-  EXPECT_TRUE(ParseUrl("turn:hostname"));
+  EXPECT_TRUE(ParseTurnUrl("turn:hostname"));
   EXPECT_EQ(0U, stun_servers_.size());
   EXPECT_EQ(1U, turn_servers_.size());
-  EXPECT_FALSE(turn_servers_[0].ports[0].secure);
+  EXPECT_EQ(cricket::PROTO_UDP, turn_servers_[0].ports[0].proto);
   turn_servers_.clear();
 
-  EXPECT_TRUE(ParseUrl("turns:hostname"));
+  EXPECT_TRUE(ParseTurnUrl("turns:hostname"));
   EXPECT_EQ(0U, stun_servers_.size());
   EXPECT_EQ(1U, turn_servers_.size());
-  EXPECT_TRUE(turn_servers_[0].ports[0].secure);
+  EXPECT_EQ(cricket::PROTO_TLS, turn_servers_[0].ports[0].proto);
+  EXPECT_TRUE(turn_servers_[0].tls_cert_policy ==
+              cricket::TlsCertPolicy::TLS_CERT_POLICY_SECURE);
+  turn_servers_.clear();
+
+  EXPECT_TRUE(ParseUrl(
+      "turns:hostname", "username", "password",
+      PeerConnectionInterface::TlsCertPolicy::kTlsCertPolicyInsecureNoCheck));
+  EXPECT_EQ(0U, stun_servers_.size());
+  EXPECT_EQ(1U, turn_servers_.size());
+  EXPECT_TRUE(turn_servers_[0].tls_cert_policy ==
+              cricket::TlsCertPolicy::TLS_CERT_POLICY_INSECURE_NO_CHECK);
+  EXPECT_EQ(cricket::PROTO_TLS, turn_servers_[0].ports[0].proto);
   turn_servers_.clear();
 
   // invalid prefixes
@@ -2632,14 +2698,14 @@ TEST_F(IceServerParsingTest, ParseStunPrefixes) {
 
 TEST_F(IceServerParsingTest, VerifyDefaults) {
   // TURNS defaults
-  EXPECT_TRUE(ParseUrl("turns:hostname"));
+  EXPECT_TRUE(ParseTurnUrl("turns:hostname"));
   EXPECT_EQ(1U, turn_servers_.size());
   EXPECT_EQ(5349, turn_servers_[0].ports[0].address.port());
-  EXPECT_EQ(cricket::PROTO_TCP, turn_servers_[0].ports[0].proto);
+  EXPECT_EQ(cricket::PROTO_TLS, turn_servers_[0].ports[0].proto);
   turn_servers_.clear();
 
   // TURN defaults
-  EXPECT_TRUE(ParseUrl("turn:hostname"));
+  EXPECT_TRUE(ParseTurnUrl("turn:hostname"));
   EXPECT_EQ(1U, turn_servers_.size());
   EXPECT_EQ(3478, turn_servers_[0].ports[0].address.port());
   EXPECT_EQ(cricket::PROTO_UDP, turn_servers_[0].ports[0].proto);
@@ -2704,30 +2770,33 @@ TEST_F(IceServerParsingTest, ParseHostnameAndPort) {
 
 // Test parsing the "?transport=xxx" part of the URL.
 TEST_F(IceServerParsingTest, ParseTransport) {
-  EXPECT_TRUE(ParseUrl("turn:hostname:1234?transport=tcp"));
+  EXPECT_TRUE(ParseTurnUrl("turn:hostname:1234?transport=tcp"));
   EXPECT_EQ(1U, turn_servers_.size());
   EXPECT_EQ(cricket::PROTO_TCP, turn_servers_[0].ports[0].proto);
   turn_servers_.clear();
 
-  EXPECT_TRUE(ParseUrl("turn:hostname?transport=udp"));
+  EXPECT_TRUE(ParseTurnUrl("turn:hostname?transport=udp"));
   EXPECT_EQ(1U, turn_servers_.size());
   EXPECT_EQ(cricket::PROTO_UDP, turn_servers_[0].ports[0].proto);
   turn_servers_.clear();
 
-  EXPECT_FALSE(ParseUrl("turn:hostname?transport=invalid"));
+  EXPECT_FALSE(ParseTurnUrl("turn:hostname?transport=invalid"));
+  EXPECT_FALSE(ParseTurnUrl("turn:hostname?transport="));
+  EXPECT_FALSE(ParseTurnUrl("turn:hostname?="));
+  EXPECT_FALSE(ParseTurnUrl("?"));
 }
 
 // Test parsing ICE username contained in URL.
 TEST_F(IceServerParsingTest, ParseUsername) {
-  EXPECT_TRUE(ParseUrl("turn:user@hostname"));
+  EXPECT_TRUE(ParseTurnUrl("turn:user@hostname"));
   EXPECT_EQ(1U, turn_servers_.size());
   EXPECT_EQ("user", turn_servers_[0].credentials.username);
   turn_servers_.clear();
 
-  EXPECT_FALSE(ParseUrl("turn:@hostname"));
-  EXPECT_FALSE(ParseUrl("turn:username@"));
-  EXPECT_FALSE(ParseUrl("turn:@"));
-  EXPECT_FALSE(ParseUrl("turn:user@name@hostname"));
+  EXPECT_FALSE(ParseTurnUrl("turn:@hostname"));
+  EXPECT_FALSE(ParseTurnUrl("turn:username@"));
+  EXPECT_FALSE(ParseTurnUrl("turn:@"));
+  EXPECT_FALSE(ParseTurnUrl("turn:user@name@hostname"));
 }
 
 // Test that username and password from IceServer is copied into the resulting
@@ -2745,8 +2814,11 @@ TEST_F(IceServerParsingTest, ParseMultipleUrls) {
   PeerConnectionInterface::IceServer server;
   server.urls.push_back("stun:hostname");
   server.urls.push_back("turn:hostname");
+  server.username = "foo";
+  server.password = "bar";
   servers.push_back(server);
-  EXPECT_TRUE(webrtc::ParseIceServers(servers, &stun_servers_, &turn_servers_));
+  EXPECT_EQ(webrtc::RTCErrorType::NONE,
+            webrtc::ParseIceServers(servers, &stun_servers_, &turn_servers_));
   EXPECT_EQ(1U, stun_servers_.size());
   EXPECT_EQ(1U, turn_servers_.size());
 }
@@ -2758,8 +2830,11 @@ TEST_F(IceServerParsingTest, TurnServerPrioritiesUnique) {
   PeerConnectionInterface::IceServer server;
   server.urls.push_back("turn:hostname");
   server.urls.push_back("turn:hostname2");
+  server.username = "foo";
+  server.password = "bar";
   servers.push_back(server);
-  EXPECT_TRUE(webrtc::ParseIceServers(servers, &stun_servers_, &turn_servers_));
+  EXPECT_EQ(webrtc::RTCErrorType::NONE,
+            webrtc::ParseIceServers(servers, &stun_servers_, &turn_servers_));
   EXPECT_EQ(2U, turn_servers_.size());
   EXPECT_NE(turn_servers_[0].priority, turn_servers_[1].priority);
 }

@@ -43,10 +43,10 @@ public:
     void translate(SkScalar, SkScalar);
     void translateZ(SkScalar);
 
-    void clipPath  (const   SkPath&, SkCanvas::ClipOp, bool aa);
-    void clipRect  (const   SkRect&, SkCanvas::ClipOp, bool aa);
-    void clipRRect (const  SkRRect&, SkCanvas::ClipOp, bool aa);
-    void clipRegion(const SkRegion&, SkCanvas::ClipOp);
+    void clipPath  (const   SkPath&, SkClipOp, bool aa);
+    void clipRect  (const   SkRect&, SkClipOp, bool aa);
+    void clipRRect (const  SkRRect&, SkClipOp, bool aa);
+    void clipRegion(const SkRegion&, SkClipOp);
 
     void drawPaint (const SkPaint&);
     void drawPath  (const SkPath&, const SkPaint&);
@@ -78,12 +78,12 @@ public:
                           const SkRect&, const SkPaint*);
 
     void drawPatch(const SkPoint[12], const SkColor[4], const SkPoint[4],
-                   SkXfermode*, const SkPaint&);
+                   SkBlendMode, const SkPaint&);
     void drawPoints(SkCanvas::PointMode, size_t, const SkPoint[], const SkPaint&);
     void drawVertices(SkCanvas::VertexMode, int, const SkPoint[], const SkPoint[], const SkColor[],
-                      SkXfermode*, const uint16_t[], int, const SkPaint&);
+                      SkBlendMode, const uint16_t[], int, const SkPaint&);
     void drawAtlas(const SkImage*, const SkRSXform[], const SkRect[], const SkColor[], int,
-                   SkXfermode::Mode, const SkRect*, const SkPaint*);
+                   SkBlendMode, const SkRect*, const SkPaint*);
 
     void setBounds(const SkRect& bounds);
 

@@ -7,7 +7,14 @@
 #ifndef XFA_FXFA_APP_XFA_FFWIDGETACC_H_
 #define XFA_FXFA_APP_XFA_FFWIDGETACC_H_
 
-#include "xfa/fxfa/app/xfa_textlayout.h"
+#include "core/fxcrt/fx_string.h"
+#include "xfa/fxfa/app/cxfa_textlayout.h"
+#include "xfa/fxfa/fxfa_widget.h"
+#include "xfa/fxfa/parser/cxfa_font.h"
+#include "xfa/fxfa/parser/cxfa_para.h"
+
+class CXFA_FFDoc;
+class CXFA_Node;
 
 enum XFA_TEXTPROVIDERTYPE {
   XFA_TEXTPROVIDERTYPE_Text,
@@ -27,15 +34,15 @@ class CXFA_TextProvider {
   }
   ~CXFA_TextProvider() {}
 
-  CXFA_Node* GetTextNode(FX_BOOL& bRichText);
+  CXFA_Node* GetTextNode(bool& bRichText);
   CXFA_Para GetParaNode();
   CXFA_Font GetFontNode();
-  FX_BOOL IsCheckButtonAndAutoWidth();
+  bool IsCheckButtonAndAutoWidth();
   CXFA_FFDoc* GetDocNode() { return m_pWidgetAcc->GetDoc(); }
-  FX_BOOL GetEmbbedObj(FX_BOOL bURI,
-                       FX_BOOL bRaw,
-                       const CFX_WideString& wsAttr,
-                       CFX_WideString& wsValue);
+  bool GetEmbbedObj(bool bURI,
+                    bool bRaw,
+                    const CFX_WideString& wsAttr,
+                    CFX_WideString& wsValue);
 
  protected:
   CXFA_WidgetAcc* m_pWidgetAcc;

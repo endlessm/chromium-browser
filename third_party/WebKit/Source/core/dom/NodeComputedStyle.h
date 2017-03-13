@@ -30,7 +30,6 @@
 #include "core/dom/shadow/InsertionPoint.h"
 #include "core/html/HTMLOptGroupElement.h"
 #include "core/layout/LayoutObject.h"
-#include "core/style/ComputedStyle.h"
 
 namespace blink {
 
@@ -51,7 +50,7 @@ inline ComputedStyle* Node::mutableComputedStyle() const {
 }
 
 inline const ComputedStyle* Node::parentComputedStyle() const {
-  if (isSlotOrActiveInsertionPoint())
+  if (isActiveSlotOrActiveInsertionPoint())
     return 0;
   ContainerNode* parent = LayoutTreeBuilderTraversal::parent(*this);
   return parent ? parent->computedStyle() : 0;

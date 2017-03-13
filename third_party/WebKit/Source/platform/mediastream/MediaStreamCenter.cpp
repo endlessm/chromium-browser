@@ -32,7 +32,6 @@
 #include "platform/mediastream/MediaStreamCenter.h"
 
 #include "platform/mediastream/MediaStreamDescriptor.h"
-#include "platform/mediastream/MediaStreamTrackSourcesRequest.h"
 #include "platform/mediastream/MediaStreamWebAudioSource.h"
 #include "public/platform/Platform.h"
 #include "public/platform/WebAudioSourceProvider.h"
@@ -53,7 +52,8 @@ MediaStreamCenter& MediaStreamCenter::instance() {
 
 MediaStreamCenter::MediaStreamCenter()
     : m_private(
-          wrapUnique(Platform::current()->createMediaStreamCenter(this))) {}
+          WTF::wrapUnique(Platform::current()->createMediaStreamCenter(this))) {
+}
 
 MediaStreamCenter::~MediaStreamCenter() {}
 
@@ -116,13 +116,19 @@ void MediaStreamCenter::didCreateMediaStreamTrack(MediaStreamComponent* track) {
     m_private->didCreateMediaStreamTrack(track);
 }
 
+void MediaStreamCenter::didSetContentHint(MediaStreamComponent* track) {
+  if (m_private)
+    m_private->didSetContentHint(track);
+}
+
 std::unique_ptr<AudioSourceProvider>
 MediaStreamCenter::createWebAudioSourceFromMediaStreamTrack(
     MediaStreamComponent* track) {
   DCHECK(track);
-  if (m_private)
-    return MediaStreamWebAudioSource::create(
-        wrapUnique(m_private->createWebAudioSourceFromMediaStreamTrack(track)));
+  if (m_private) {
+    return MediaStreamWebAudioSource::create(WTF::wrapUnique(
+        m_private->createWebAudioSourceFromMediaStreamTrack(track)));
+  }
 
   return nullptr;
 }

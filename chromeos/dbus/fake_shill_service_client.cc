@@ -420,7 +420,7 @@ bool FakeShillServiceClient::SetServiceProperty(const std::string& service_path,
     provider->SetWithoutPathExpansion(key, value.DeepCopy());
     new_properties.SetWithoutPathExpansion(shill::kProviderProperty, provider);
     changed_property = shill::kProviderProperty;
-  } else if (value.GetType() == base::Value::TYPE_DICTIONARY) {
+  } else if (value.GetType() == base::Value::Type::DICTIONARY) {
     const base::DictionaryValue* new_dict = NULL;
     value.GetAsDictionary(&new_dict);
     CHECK(new_dict);
@@ -521,9 +521,8 @@ void FakeShillServiceClient::NotifyObserversPropertyChanged(
                << path << " : " << property;
     return;
   }
-  FOR_EACH_OBSERVER(ShillPropertyChangedObserver,
-                    GetObserverList(service_path),
-                    OnPropertyChanged(property, *value));
+  for (auto& observer : GetObserverList(service_path))
+    observer.OnPropertyChanged(property, *value);
 }
 
 base::DictionaryValue* FakeShillServiceClient::GetModifiableServiceProperties(

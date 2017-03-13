@@ -20,8 +20,8 @@
 IPC_ENUM_TRAITS_MAX_VALUE(content::MediaStreamType,
                           content::NUM_MEDIA_TYPES - 1)
 
-IPC_ENUM_TRAITS_MAX_VALUE(content::VideoFacingMode,
-                          content::NUM_MEDIA_VIDEO_FACING_MODE - 1)
+IPC_ENUM_TRAITS_MAX_VALUE(media::VideoFacingMode,
+                          media::NUM_MEDIA_VIDEO_FACING_MODE - 1)
 
 IPC_ENUM_TRAITS_MAX_VALUE(content::MediaStreamRequestResult,
                           content::NUM_MEDIA_REQUEST_RESULTS - 1)
@@ -29,21 +29,20 @@ IPC_ENUM_TRAITS_MAX_VALUE(content::MediaStreamRequestResult,
 IPC_STRUCT_TRAITS_BEGIN(content::TrackControls)
   IPC_STRUCT_TRAITS_MEMBER(requested)
   IPC_STRUCT_TRAITS_MEMBER(stream_source)
-  IPC_STRUCT_TRAITS_MEMBER(device_ids)
-  IPC_STRUCT_TRAITS_MEMBER(alternate_device_ids)
+  IPC_STRUCT_TRAITS_MEMBER(device_id)
 IPC_STRUCT_TRAITS_END()
 
 IPC_STRUCT_TRAITS_BEGIN(content::StreamControls)
   IPC_STRUCT_TRAITS_MEMBER(audio)
   IPC_STRUCT_TRAITS_MEMBER(video)
   IPC_STRUCT_TRAITS_MEMBER(hotword_enabled)
+  IPC_STRUCT_TRAITS_MEMBER(disable_local_echo)
 IPC_STRUCT_TRAITS_END()
 
 IPC_STRUCT_TRAITS_BEGIN(content::StreamDeviceInfo)
   IPC_STRUCT_TRAITS_MEMBER(device.type)
   IPC_STRUCT_TRAITS_MEMBER(device.name)
   IPC_STRUCT_TRAITS_MEMBER(device.id)
-  IPC_STRUCT_TRAITS_MEMBER(device.group_id)
   IPC_STRUCT_TRAITS_MEMBER(device.video_facing)
   IPC_STRUCT_TRAITS_MEMBER(device.matched_output_device_id)
   IPC_STRUCT_TRAITS_MEMBER(device.input.sample_rate)
@@ -77,13 +76,6 @@ IPC_MESSAGE_ROUTED2(MediaStreamMsg_DeviceStopped,
                     std::string /* label */,
                     content::StreamDeviceInfo /* the device */)
 
-// The browser has enumerated devices. If no devices are found
-// |device_list| is empty.
-// Used by Pepper and WebRTC.
-IPC_MESSAGE_ROUTED2(MediaStreamMsg_DevicesEnumerated,
-                    int /* request id */,
-                    content::StreamDeviceInfoArray /* device_list */)
-
 // TODO(wjia): should DeviceOpen* messages be merged with
 // StreamGenerat* ones?
 // The browser has opened a device successfully.
@@ -95,9 +87,6 @@ IPC_MESSAGE_ROUTED3(MediaStreamMsg_DeviceOpened,
 // The browser has failed to open a device.
 IPC_MESSAGE_ROUTED1(MediaStreamMsg_DeviceOpenFailed,
                     int /* request id */)
-
-// The browser has detected a change in the set of media devices.
-IPC_MESSAGE_ROUTED0(MediaStreamMsg_DevicesChanged)
 
 // Messages sent from the renderer to the browser.
 
@@ -119,19 +108,6 @@ IPC_MESSAGE_CONTROL2(MediaStreamHostMsg_StopStreamDevice,
                      int /* render frame id */,
                      std::string /*device_id*/)
 
-// Request to enumerate devices.
-// Used by Pepper and WebRTC.
-IPC_MESSAGE_CONTROL4(MediaStreamHostMsg_EnumerateDevices,
-                     int /* render frame id */,
-                     int /* request id */,
-                     content::MediaStreamType /* type */,
-                     url::Origin /* security origin */)
-
-// Request to stop enumerating devices.
-IPC_MESSAGE_CONTROL2(MediaStreamHostMsg_CancelEnumerateDevices,
-                     int /* render frame id */,
-                     int /* request id */)
-
 // Request to open the device.
 IPC_MESSAGE_CONTROL5(MediaStreamHostMsg_OpenDevice,
                      int /* render frame id */,
@@ -144,15 +120,6 @@ IPC_MESSAGE_CONTROL5(MediaStreamHostMsg_OpenDevice,
 IPC_MESSAGE_CONTROL2(MediaStreamHostMsg_CloseDevice,
                      int /* render frame id */,
                      std::string /*label*/)
-
-// Subscribe to notifications about changes in the set of media devices.
-IPC_MESSAGE_CONTROL2(MediaStreamHostMsg_SubscribeToDeviceChangeNotifications,
-                     int /* render frame id */,
-                     url::Origin /* security origin */)
-
-// Cancel notifications about changes in the set of media devices.
-IPC_MESSAGE_CONTROL1(MediaStreamHostMsg_CancelDeviceChangeNotifications,
-                     int /* render frame id */)
 
 // Tell the browser process if the video capture is secure (i.e., all
 // connected video sinks meet the requirement of output protection.).

@@ -71,7 +71,7 @@ class FontServiceThread : public base::Thread,
       SkString* out_family_name,
       SkFontStyle* out_style,
       mojom::FontIdentityPtr font_identity,
-      mojo::String family_name,
+      const std::string& family_name,
       mojom::TypefaceStylePtr style);
 
   // Implementation of OpenStream; same threading restrictions as MatchFamily.
@@ -80,7 +80,7 @@ class FontServiceThread : public base::Thread,
                       const uint32_t id_number);
   void OnOpenStreamComplete(base::WaitableEvent* done_event,
                             base::File* output_file,
-                            mojo::ScopedHandle handle);
+                            base::File file);
 
   // Connection to |font_service_| has gone away. Called on the background
   // thread.

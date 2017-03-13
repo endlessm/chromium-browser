@@ -31,8 +31,6 @@ class SkPicture;
 
 namespace blink {
 
-class GraphicsContext;
-
 static const size_t kInitialDisplayItemListCapacityBytes = 512;
 
 template class RasterInvalidationTrackingMap<const PaintChunk>;
@@ -46,7 +44,7 @@ class PLATFORM_EXPORT PaintController {
 
  public:
   static std::unique_ptr<PaintController> create() {
-    return wrapUnique(new PaintController());
+    return WTF::wrapUnique(new PaintController());
   }
 
   ~PaintController() {
@@ -162,6 +160,8 @@ class PLATFORM_EXPORT PaintController {
     m_subsequenceCachingDisabled = disable;
   }
 
+  bool firstPainted() const { return m_firstPainted; }
+  void setFirstPainted() { m_firstPainted = true; }
   bool textPainted() const { return m_textPainted; }
   void setTextPainted() { m_textPainted = true; }
   bool imagePainted() const { return m_imagePainted; }
@@ -182,6 +182,10 @@ class PLATFORM_EXPORT PaintController {
 
 #if DCHECK_IS_ON()
   void assertDisplayItemClientsAreLive();
+
+  enum Usage { ForNormalUsage, ForSkPictureBuilder };
+  void setUsage(Usage usage) { m_usage = usage; }
+  bool isForSkPictureBuilder() const { return m_usage == ForSkPictureBuilder; }
 #endif
 
   void setTracksRasterInvalidations(bool value);
@@ -195,6 +199,7 @@ class PLATFORM_EXPORT PaintController {
       : m_newDisplayItemList(0),
         m_constructionDisabled(false),
         m_subsequenceCachingDisabled(false),
+        m_firstPainted(false),
         m_textPainted(false),
         m_imagePainted(false),
         m_skippingCacheCount(0),
@@ -296,8 +301,11 @@ class PLATFORM_EXPORT PaintController {
   // caching.
   bool m_subsequenceCachingDisabled;
 
-  // Indicates this PaintController has ever had text. It is never reset to
-  // false.
+  // The following fields indicate that this PaintController has ever had
+  // first-paint, text or image painted. They are never reset to false.
+  // First-paint is defined in https://github.com/WICG/paint-timing. It excludes
+  // default background paint.
+  bool m_firstPainted;
   bool m_textPainted;
   bool m_imagePainted;
 
@@ -344,6 +352,8 @@ class PLATFORM_EXPORT PaintController {
 #if DCHECK_IS_ON()
   // This is used to check duplicated ids during createAndAppend().
   IndicesByClientMap m_newDisplayItemIndicesByClient;
+
+  Usage m_usage;
 #endif
 
   // These are set in useCachedDrawingIfPossible() and

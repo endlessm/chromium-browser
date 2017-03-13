@@ -11,10 +11,12 @@ found in the LICENSE file.
 'use strict';
 
 tr.b.unittest.testSuite(function() {
-  test('basic', function() {
+  test('groupby-picker', function() {
+    var settingsKey = 'tr-ui-b-grouping-table-groupby-picker-test';
     var picker = document.createElement(
         'tr-ui-b-grouping-table-groupby-picker');
-    picker.settingsKey = 'basic-test';
+    tr.b.Settings.set(settingsKey, []);
+    picker.settingsKey = settingsKey;
     picker.possibleGroups = [
       {key: 'a', label: 'A'},
       {key: 'b', label: 'B'},
@@ -22,39 +24,32 @@ tr.b.unittest.testSuite(function() {
       {key: 'd', label: 'D'},
       {key: 'e', label: 'E'}
     ];
-    picker.defaultGroupKeys = ['a', 'b', 'd'];
+    assert.deepEqual([], picker.currentGroupKeys);
     this.addHTMLOutput(picker);
-  });
 
-  test('allGroupsAdded', function() {
-    var picker = document.createElement(
-        'tr-ui-b-grouping-table-groupby-picker');
-    picker.settingsKey = 'basic-test';
-    picker.possibleGroups = [
-      {key: 'a', label: 'A'},
-      {key: 'b', label: 'B'},
-      {key: 'c', label: 'C'},
-      {key: 'd', label: 'D'},
-      {key: 'e', label: 'E'}
-    ];
-    picker.defaultGroupKeys = ['a', 'b', 'c', 'd', 'e'];
-    this.addHTMLOutput(picker);
-  });
+    var keys = ['a', 'b', 'c', 'd', 'e'];
+    picker.currentGroupKeys = keys;
+    assert.deepEqual(keys, picker.currentGroupKeys);
 
-  test('noGroupsAdded', function() {
-    var picker = document.createElement(
-        'tr-ui-b-grouping-table-groupby-picker');
-    picker.settingsKey = 'basic-test';
-    picker.possibleGroups = [
-      {key: 'a', label: 'A'},
-      {key: 'b', label: 'B'},
-      {key: 'c', label: 'C'},
-      {key: 'd', label: 'D'},
-      {key: 'e', label: 'E'}
-    ];
-    picker.defaultGroupKeys = [];
-    this.addHTMLOutput(picker);
-  });
+    var keys = ['e', 'd', 'c', 'b', 'a'];
+    picker.currentGroupKeys = keys;
+    assert.deepEqual(keys, picker.currentGroupKeys);
 
+    var keys = [];
+    picker.currentGroupKeys = keys;
+    assert.deepEqual(keys, picker.currentGroupKeys);
+
+    var keys = ['a', 'b', 'd'];
+    picker.currentGroupKeys = keys;
+    assert.deepEqual(keys, picker.currentGroupKeys);
+
+    tr.b.Settings.set(settingsKey, ['foo']);
+    picker.settingsKey = settingsKey;
+    assert.deepEqual([], picker.currentGroupKeys);
+
+    tr.b.Settings.set(settingsKey, ['e']);
+    picker.settingsKey = settingsKey;
+    assert.deepEqual(['e'], picker.currentGroupKeys);
+  });
 });
 </script>

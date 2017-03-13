@@ -19,12 +19,6 @@ namespace mojo {
 namespace edk {
 namespace {
 
-// The maximum length of the name of a socket for MODE_NAMED_SERVER or
-// MODE_NAMED_CLIENT if you want to pass in your own socket.
-// The standard size on linux is 108, mac is 104. To maintain consistency
-// across platforms we standardize on the smaller value.
-const size_t kMaxSocketNameLength = 104;
-
 // This function fills in |unix_addr| with the appropriate data for the socket,
 // and sets |unix_addr_len| to the length of the data therein.
 // Returns true on success, or false on failure (typically because |handle.name|
@@ -99,9 +93,9 @@ ScopedPlatformHandle CreateClientHandle(
   return handle;
 }
 
-ScopedPlatformHandle CreateServerHandle(const NamedPlatformHandle& named_handle,
-                                        bool enforce_uniqueness) {
-  CHECK(!enforce_uniqueness);
+ScopedPlatformHandle CreateServerHandle(
+    const NamedPlatformHandle& named_handle,
+    const CreateServerHandleOptions& options) {
   if (!named_handle.is_valid())
     return ScopedPlatformHandle();
 

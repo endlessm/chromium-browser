@@ -16,6 +16,9 @@
 #include "chrome/common/extensions/chrome_extension_messages.h"
 #include "content/public/browser/ax_event_notification_details.h"
 #include "content/public/browser/browser_context.h"
+#include "ui/accessibility/ax_action_data.h"
+#include "ui/accessibility/ax_enums.h"
+#include "ui/aura/env.h"
 #include "ui/aura/window.h"
 #include "ui/views/accessibility/ax_aura_obj_wrapper.h"
 #include "ui/views/view.h"
@@ -35,9 +38,7 @@ AutomationManagerAura* AutomationManagerAura::GetInstance() {
 
 void AutomationManagerAura::Enable(BrowserContext* context) {
   enabled_ = true;
-  if (!current_tree_.get())
-    current_tree_.reset(new AXTreeSourceAura());
-  ResetSerializer();
+  Reset(false);
 
   SendEvent(context, current_tree_->GetRoot(), ui::AX_EVENT_LOAD_COMPLETE);
   views::AXAuraObjCache::GetInstance()->SetDelegate(this);
@@ -54,9 +55,7 @@ void AutomationManagerAura::Enable(BrowserContext* context) {
 
 void AutomationManagerAura::Disable() {
   enabled_ = false;
-
-  // Reset the serializer to save memory.
-  current_tree_serializer_->Reset();
+  Reset(true);
 }
 
 void AutomationManagerAura::HandleEvent(BrowserContext* context,
@@ -65,8 +64,9 @@ void AutomationManagerAura::HandleEvent(BrowserContext* context,
   if (!enabled_)
     return;
 
-  views::AXAuraObjWrapper* aura_obj =
-      views::AXAuraObjCache::GetInstance()->GetOrCreate(view);
+  views::AXAuraObjWrapper* aura_obj = view ?
+      views::AXAuraObjCache::GetInstance()->GetOrCreate(view) :
+      current_tree_->GetRoot();
   SendEvent(nullptr, aura_obj, event_type);
 }
 
@@ -81,36 +81,53 @@ void AutomationManagerAura::HandleAlert(content::BrowserContext* context,
   SendEvent(context, obj, ui::AX_EVENT_ALERT);
 }
 
-void AutomationManagerAura::DoDefault(int32_t id) {
+void AutomationManagerAura::PerformAction(
+    const ui::AXActionData& data) {
   CHECK(enabled_);
-  current_tree_->DoDefault(id);
-}
 
-void AutomationManagerAura::Focus(int32_t id) {
-  CHECK(enabled_);
-  current_tree_->Focus(id);
-}
-
-void AutomationManagerAura::MakeVisible(int32_t id) {
-  CHECK(enabled_);
-  current_tree_->MakeVisible(id);
-}
-
-void AutomationManagerAura::SetSelection(int32_t anchor_id,
-                                         int32_t anchor_offset,
-                                         int32_t focus_id,
-                                         int32_t focus_offset) {
-  CHECK(enabled_);
-  if (anchor_id != focus_id) {
-    NOTREACHED();
-    return;
+  switch (data.action) {
+    case ui::AX_ACTION_DO_DEFAULT:
+      current_tree_->DoDefault(data.target_node_id);
+      break;
+    case ui::AX_ACTION_FOCUS:
+      current_tree_->Focus(data.target_node_id);
+      break;
+    case ui::AX_ACTION_SCROLL_TO_MAKE_VISIBLE:
+      current_tree_->MakeVisible(data.target_node_id);
+      break;
+    case ui::AX_ACTION_SET_SELECTION:
+      if (data.anchor_node_id != data.focus_node_id) {
+        NOTREACHED();
+        return;
+      }
+      current_tree_->SetSelection(
+          data.anchor_node_id, data.anchor_offset, data.focus_offset);
+      break;
+    case ui::AX_ACTION_SHOW_CONTEXT_MENU:
+      current_tree_->ShowContextMenu(data.target_node_id);
+      break;
+    case ui::AX_ACTION_SET_ACCESSIBILITY_FOCUS:
+      // Sent by ChromeVox but doesn't need to be handled by aura.
+      break;
+    case ui::AX_ACTION_SET_SEQUENTIAL_FOCUS_NAVIGATION_STARTING_POINT:
+      // Sent by ChromeVox but doesn't need to be handled by aura.
+      break;
+    case ui::AX_ACTION_BLUR:
+    case ui::AX_ACTION_DECREMENT:
+    case ui::AX_ACTION_GET_IMAGE_DATA:
+    case ui::AX_ACTION_HIT_TEST:
+    case ui::AX_ACTION_INCREMENT:
+    case ui::AX_ACTION_REPLACE_SELECTED_TEXT:
+    case ui::AX_ACTION_SCROLL_TO_POINT:
+    case ui::AX_ACTION_SET_SCROLL_OFFSET:
+    case ui::AX_ACTION_SET_VALUE:
+      // Not implemented yet.
+      NOTREACHED();
+      break;
+    case ui::AX_ACTION_NONE:
+      NOTREACHED();
+      break;
   }
-  current_tree_->SetSelection(anchor_id, anchor_offset, focus_offset);
-}
-
-void AutomationManagerAura::ShowContextMenu(int32_t id) {
-  CHECK(enabled_);
-  current_tree_->ShowContextMenu(id);
 }
 
 void AutomationManagerAura::OnChildWindowRemoved(
@@ -130,9 +147,12 @@ AutomationManagerAura::AutomationManagerAura()
 AutomationManagerAura::~AutomationManagerAura() {
 }
 
-void AutomationManagerAura::ResetSerializer() {
-  current_tree_serializer_.reset(
-      new AuraAXTreeSerializer(current_tree_.get()));
+void AutomationManagerAura::Reset(bool reset_serializer) {
+  if (!current_tree_)
+    current_tree_.reset(new AXTreeSourceAura());
+  reset_serializer ? current_tree_serializer_.reset()
+                   : current_tree_serializer_.reset(
+                         new AuraAXTreeSerializer(current_tree_.get()));
 }
 
 void AutomationManagerAura::SendEvent(BrowserContext* context,
@@ -168,6 +188,7 @@ void AutomationManagerAura::SendEvent(BrowserContext* context,
   params.tree_id = 0;
   params.id = aura_obj->GetID();
   params.event_type = event_type;
+  params.mouse_location = aura::Env::GetInstance()->last_mouse_location();
   AutomationEventRouter* router = AutomationEventRouter::GetInstance();
   router->DispatchAccessibilityEvent(params);
 

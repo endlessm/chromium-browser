@@ -21,7 +21,7 @@
 #include "chrome/test/base/chrome_render_view_host_test_harness.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/prefs/pref_service.h"
-#include "components/syncable_prefs/testing_pref_service_syncable.h"
+#include "components/sync_preferences/testing_pref_service_syncable.h"
 #include "content/public/browser/download_interrupt_reasons.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_delegate.h"
@@ -188,7 +188,7 @@ class ChromeDownloadManagerDelegateTest
   DownloadPrefs* download_prefs();
 
  private:
-  syncable_prefs::TestingPrefServiceSyncable* pref_service_;
+  sync_preferences::TestingPrefServiceSyncable* pref_service_;
   base::ScopedTempDir test_download_dir_;
   std::unique_ptr<content::MockDownloadManager> download_manager_;
   std::unique_ptr<TestChromeDownloadManagerDelegate> delegate_;
@@ -337,7 +337,7 @@ DownloadPrefs* ChromeDownloadManagerDelegateTest::download_prefs() {
 }  // namespace
 
 // There is no "save as" context menu option on Android.
-#if !BUILDFLAG(ANDROID_JAVA_UI)
+#if !defined(OS_ANDROID)
 TEST_F(ChromeDownloadManagerDelegateTest, StartDownload_LastSavePath) {
   GURL download_url("http://example.com/foo.txt");
 
@@ -410,7 +410,7 @@ TEST_F(ChromeDownloadManagerDelegateTest, StartDownload_LastSavePath) {
     VerifyAndClearExpectations();
   }
 }
-#endif  // !BUILDFLAG(ANDROID_JAVA_UI)
+#endif  // !defined(OS_ANDROID)
 
 TEST_F(ChromeDownloadManagerDelegateTest, MaybeDangerousContent) {
 #if !defined(OS_ANDROID)

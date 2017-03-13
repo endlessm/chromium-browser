@@ -13,7 +13,6 @@
 
 namespace views {
 class StyledLabel;
-class View;
 }
 
 namespace autofill {
@@ -48,7 +47,7 @@ class PasswordGenerationPopupViewViews : public AutofillPopupBaseView,
   // views:Views implementation.
   void Layout() override;
   void OnPaint(gfx::Canvas* canvas) override;
-  void GetAccessibleState(ui::AXViewState* state) override;
+  void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
 
   // views::StyledLabelListener implementation
   void StyledLabelLinkClicked(views::StyledLabel* label,

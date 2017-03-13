@@ -6,26 +6,26 @@
 
 #include "base/bind.h"
 #include "base/strings/string_util.h"
-#include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/chromeos/enrollment_dialog_view.h"
 #include "chrome/browser/chromeos/login/startup_utils.h"
-#include "chrome/browser/chromeos/net/onc_utils.h"
+#include "chrome/browser/chromeos/net/shill_error.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/grit/generated_resources.h"
 #include "chrome/grit/theme_resources.h"
 #include "chromeos/login/login_state.h"
 #include "chromeos/network/network_configuration_handler.h"
+#include "chromeos/network/network_connect.h"
 #include "chromeos/network/network_event_log.h"
 #include "chromeos/network/network_profile.h"
 #include "chromeos/network/network_profile_handler.h"
 #include "chromeos/network/network_state.h"
 #include "chromeos/network/network_state_handler.h"
+#include "chromeos/network/onc/onc_utils.h"
 #include "components/onc/onc_constants.h"
 #include "third_party/cros_system_api/dbus/service_constants.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
-#include "ui/chromeos/network/network_connect.h"
 #include "ui/events/event.h"
 #include "ui/views/controls/button/checkbox.h"
 #include "ui/views/controls/button/image_button.h"
@@ -100,8 +100,8 @@ void WimaxConfigView::UpdateErrorLabel() {
     const NetworkState* wimax = NetworkHandler::Get()->network_state_handler()->
         GetNetworkState(service_path_);
     if (wimax && wimax->connection_state() == shill::kStateFailure)
-      error_msg = ui::NetworkConnect::Get()->GetShillErrorString(
-          wimax->last_error(), wimax->path());
+      error_msg =
+          shill_error::GetShillErrorString(wimax->last_error(), wimax->guid());
   }
   if (!error_msg.empty()) {
     error_label_->SetText(error_msg);
@@ -168,8 +168,8 @@ bool WimaxConfigView::Login() {
                                               false);
   }
 
-  ui::NetworkConnect::Get()->ConfigureNetworkAndConnect(
-      service_path_, properties, share_network);
+  NetworkConnect::Get()->ConfigureNetworkIdAndConnect(wimax->guid(), properties,
+                                                      share_network);
   return true;  // dialog will be closed
 }
 
@@ -280,12 +280,12 @@ void WimaxConfigView::Init() {
             IDS_OPTIONS_SETTINGS_INTERNET_OPTIONS_PASSPHRASE_HIDE));
     passphrase_visible_button_->SetImage(
         views::ImageButton::STATE_NORMAL,
-        ResourceBundle::GetSharedInstance().
-        GetImageSkiaNamed(IDR_NETWORK_SHOW_PASSWORD));
+        *ResourceBundle::GetSharedInstance().GetImageSkiaNamed(
+            IDR_NETWORK_SHOW_PASSWORD));
     passphrase_visible_button_->SetImage(
         views::ImageButton::STATE_HOVERED,
-        ResourceBundle::GetSharedInstance().
-        GetImageSkiaNamed(IDR_NETWORK_SHOW_PASSWORD_HOVER));
+        *ResourceBundle::GetSharedInstance().GetImageSkiaNamed(
+            IDR_NETWORK_SHOW_PASSWORD_HOVER));
     passphrase_visible_button_->SetToggledImage(
         views::ImageButton::STATE_NORMAL,
         ResourceBundle::GetSharedInstance().

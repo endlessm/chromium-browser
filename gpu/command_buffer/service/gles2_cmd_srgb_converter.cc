@@ -41,10 +41,39 @@ void SRGBConverter::InitializeSRGBConverterProgram() {
 
   srgb_converter_program_ = glCreateProgram();
 
+  const char* kShaderPrecisionPreamble =
+      "#ifdef GL_ES\n"
+      "precision mediump float;\n"
+      "#define TexCoordPrecision mediump\n"
+      "#else\n"
+      "#define TexCoordPrecision\n"
+      "#endif\n";
+
+  std::string vs_source;
+  if (feature_info_->gl_version_info().is_es) {
+    if (feature_info_->gl_version_info().is_es3) {
+      vs_source += "#version 300 es\n";
+      vs_source +=
+          "#define ATTRIBUTE in\n"
+          "#define VARYING out\n";
+    } else {
+      vs_source +=
+          "#define ATTRIBUTE attribute\n"
+          "#define VARYING varying\n";
+    }
+  } else {
+    vs_source += "#version 150\n";
+    vs_source +=
+        "#define ATTRIBUTE in\n"
+        "#define VARYING out\n";
+  }
+
+  vs_source += kShaderPrecisionPreamble;
+
+  // TODO(yizhou): gles 2.0 does not support gl_VertexID.
   // Compile the vertex shader
-  const char* vs_source =
-      "#version 150\n"
-      "out vec2 v_texcoord;\n"
+  vs_source +=
+      "VARYING TexCoordPrecision vec2 v_texcoord;\n"
       "\n"
       "void main()\n"
       "{\n"
@@ -64,7 +93,7 @@ void SRGBConverter::InitializeSRGBConverterProgram() {
       "    v_texcoord = quad_positions[gl_VertexID];\n"
       "}\n";
   GLuint vs = glCreateShader(GL_VERTEX_SHADER);
-  CompileShader(vs, vs_source);
+  CompileShader(vs, vs_source.c_str());
   glAttachShader(srgb_converter_program_, vs);
   glDeleteShader(vs);
 
@@ -80,20 +109,50 @@ void SRGBConverter::InitializeSRGBConverterProgram() {
   // encoding, we don't need to use the equation to explicitly encode linear
   // to srgb in fragment shader.
   // As a result, we just use a simple fragment shader to do srgb conversion.
-  const char* fs_source =
-      "#version 150\n"
-      "uniform sampler2D u_source_texture;\n"
-      "in vec2 v_texcoord;\n"
-      "out vec4 output_color;\n"
+  std::string fs_source;
+  if (feature_info_->gl_version_info().is_es) {
+    if (feature_info_->gl_version_info().is_es3) {
+      fs_source += "#version 300 es\n";
+    }
+  } else {
+    fs_source += "#version 150\n";
+  }
+
+  fs_source += kShaderPrecisionPreamble;
+
+  if (feature_info_->gl_version_info().is_es) {
+    if (feature_info_->gl_version_info().is_es3) {
+      fs_source +=
+          "#define VARYING in\n"
+          "out vec4 frag_color;\n"
+          "#define FRAGCOLOR frag_color\n"
+          "#define TextureLookup texture\n";
+    } else {
+      fs_source +=
+          "#define VARYING varying\n"
+          "#define FRAGCOLOR gl_FragColor\n"
+          "#define TextureLookup texture2D\n";
+    }
+  } else {
+    fs_source +=
+        "#define VARYING in\n"
+        "out vec4 frag_color;\n"
+        "#define FRAGCOLOR frag_color\n"
+        "#define TextureLookup texture\n";
+  }
+
+  fs_source +=
+      "uniform mediump sampler2D u_source_texture;\n"
+      "VARYING TexCoordPrecision vec2 v_texcoord;\n"
       "\n"
       "void main()\n"
       "{\n"
-      "    vec4 c = texture(u_source_texture, v_texcoord);\n"
-      "    output_color = c;\n"
+      "    vec4 c = TextureLookup(u_source_texture, v_texcoord);\n"
+      "    FRAGCOLOR = c;\n"
       "}\n";
 
   GLuint fs = glCreateShader(GL_FRAGMENT_SHADER);
-  CompileShader(fs, fs_source);
+  CompileShader(fs, fs_source.c_str());
   glAttachShader(srgb_converter_program_, fs);
   glDeleteShader(fs);
 
@@ -198,6 +257,10 @@ void SRGBConverter::Blit(
   // If we need to blit from linear to srgb or vice versa, some steps will be
   // skipped.
   DCHECK(srgb_converter_initialized_);
+  // Use RGBA32F as the temp texture's internalformat to prevent precision
+  // loss during srgb conversion. But it is not color-renderable and
+  // texture-filterable in ES context.
+  DCHECK(!feature_info_->gl_version_info().is_es);
 
   // Set the states
   glActiveTexture(GL_TEXTURE0);
@@ -239,9 +302,8 @@ void SRGBConverter::Blit(
     glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
 
     glBindTexture(GL_TEXTURE_2D, srgb_converter_textures_[1]);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA,
-                 c.width(), c.height(),
-                 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, c.width(), c.height(), 0,
+                 GL_RGBA, GL_FLOAT, nullptr);
     glBindFramebufferEXT(GL_FRAMEBUFFER, srgb_decoder_fbo_);
     glFramebufferTexture2DEXT(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
                               GL_TEXTURE_2D, srgb_converter_textures_[1], 0);
@@ -272,11 +334,9 @@ void SRGBConverter::Blit(
     height_draw = dstY1 > dstY0 ? dstY1 - dstY0 : dstY0 - dstY1;
     glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
     glTexImage2D(
-        GL_TEXTURE_2D, 0, decode ? GL_RGBA : src_framebuffer_internal_format,
-        width_draw, height_draw, 0,
-        decode ? GL_RGBA : src_framebuffer_format,
-        decode ? GL_UNSIGNED_BYTE : src_framebuffer_type,
-        nullptr);
+        GL_TEXTURE_2D, 0, decode ? GL_RGBA32F : src_framebuffer_internal_format,
+        width_draw, height_draw, 0, decode ? GL_RGBA : src_framebuffer_format,
+        decode ? GL_FLOAT : src_framebuffer_type, nullptr);
 
     glBindFramebufferEXT(GL_DRAW_FRAMEBUFFER, srgb_encoder_fbo_);
     glFramebufferTexture2DEXT(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
@@ -329,6 +389,106 @@ void SRGBConverter::Blit(
   decoder->RestoreBufferBindings();
   decoder->RestoreFramebufferBindings();
   decoder->RestoreGlobalState();
+}
+
+void SRGBConverter::GenerateMipmap(const gles2::GLES2Decoder* decoder,
+                                   Texture* tex,
+                                   GLenum target) {
+  // This function generateMipmap for srgb texture.
+  // The steps are:
+  // 1) Do sampling from the base level of the sRGB texture and draw into
+  // a linear texture. During sampling, the sRGB format is converted to
+  // Linear format
+  // 2) Perform the glGenerateMipmap call against the linear texture
+  // 3) Iterate each mipmap level of the linear texture and draw back into
+  // the sRGB texture's corresponding mipmap. During drawing, the linear
+  // format is converted to sRGB format
+  DCHECK(srgb_converter_initialized_);
+
+  GLsizei width;
+  GLsizei height;
+  GLsizei depth;
+  GLenum type = 0;
+  GLenum internal_format = 0;
+  GLenum format = 0;
+  GLsizei base_level = tex->base_level();
+  tex->GetLevelSize(target, base_level, &width, &height, &depth);
+  tex->GetLevelType(target, base_level, &type, &internal_format);
+  format = TextureManager::ExtractFormatFromStorageFormat(internal_format);
+  const GLint mipmap_levels =
+      TextureManager::ComputeMipMapCount(target, width, height, depth);
+
+  glBindTexture(GL_TEXTURE_2D, srgb_converter_textures_[1]);
+  if (feature_info_->ext_color_buffer_float_available() &&
+      feature_info_->oes_texture_float_linear_available()) {
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, width, height, 0, GL_RGBA,
+                 GL_FLOAT, nullptr);
+  } else {
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA,
+                 GL_UNSIGNED_BYTE, nullptr);
+  }
+  glBindFramebufferEXT(GL_DRAW_FRAMEBUFFER, srgb_decoder_fbo_);
+  glFramebufferTexture2DEXT(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                            GL_TEXTURE_2D, srgb_converter_textures_[1], 0);
+
+  // bind texture with srgb format and render with srgb_converter_program_
+  glUseProgram(srgb_converter_program_);
+  glViewport(0, 0, width, height);
+  glDisable(GL_SCISSOR_TEST);
+  glDisable(GL_DEPTH_TEST);
+  glDisable(GL_STENCIL_TEST);
+  glDisable(GL_CULL_FACE);
+  glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+  glDepthMask(GL_FALSE);
+  glDisable(GL_BLEND);
+  glDisable(GL_DITHER);
+
+  glBindVertexArrayOES(srgb_converter_vao_);
+  glActiveTexture(GL_TEXTURE0);
+  glBindTexture(GL_TEXTURE_2D, tex->service_id());
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+
+  glDrawArrays(GL_TRIANGLES, 0, 6);
+
+  glBindTexture(GL_TEXTURE_2D, srgb_converter_textures_[1]);
+  glGenerateMipmapEXT(GL_TEXTURE_2D);
+
+  // bind tex with rgba format and render with srgb_converter_program_
+  glBindFramebufferEXT(GL_DRAW_FRAMEBUFFER, srgb_encoder_fbo_);
+  glBindTexture(GL_TEXTURE_2D, srgb_converter_textures_[1]);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER,
+                  GL_NEAREST_MIPMAP_NEAREST);
+  width >>= 1;
+  height >>= 1;
+
+  // TODO(yizhou): An optimization. Attach 1 level at a time, once for every
+  // iteration of the loop.
+  for (GLint level = base_level + 1; level < base_level + mipmap_levels;
+       ++level) {
+    // copy mipmaps level by level from srgb_converter_textures_[1] to tex
+    // generate mipmap for tex manually
+    glBindTexture(GL_TEXTURE_2D, tex->service_id());
+    glTexImage2D(GL_TEXTURE_2D, level, internal_format, width, height, 0,
+                 format, type, nullptr);
+    glFramebufferTexture2DEXT(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                              GL_TEXTURE_2D, tex->service_id(), level);
+
+    glBindTexture(GL_TEXTURE_2D, srgb_converter_textures_[1]);
+    glViewport(0, 0, width, height);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    width >>= 1;
+    height >>= 1;
+  }
+
+  // Restore state
+  decoder->RestoreAllAttributes();
+  decoder->RestoreTextureUnitBindings(0);
+  decoder->RestoreActiveTexture();
+  decoder->RestoreProgramBindings();
+  decoder->RestoreBufferBindings();
+  decoder->RestoreFramebufferBindings();
+  decoder->RestoreGlobalState();
+  decoder->RestoreTextureState(tex->service_id());
 }
 
 }  // namespace gles2.

@@ -6,12 +6,13 @@
 #define CHROME_BROWSER_UI_WEBUI_SIGNIN_MD_USER_MANAGER_UI_H_
 
 #include "base/macros.h"
+#include "chrome/common/features.h"
 #include "content/public/browser/web_ui_controller.h"
 
 class SigninCreateProfileHandler;
 class UserManagerScreenHandler;
 
-#if defined(ENABLE_SUPERVISED_USERS)
+#if BUILDFLAG(ENABLE_SUPERVISED_USERS)
 class SigninSupervisedUserImportHandler;
 #endif
 
@@ -33,10 +34,10 @@ class MDUserManagerUI : public content::WebUIController {
       const base::DictionaryValue& localized_strings);
   void GetLocalizedStrings(base::DictionaryValue* localized_strings);
 
-  SigninCreateProfileHandler* signin_create_profile_handler_;
-  UserManagerScreenHandler* user_manager_screen_handler_;
+  SigninCreateProfileHandler* signin_create_profile_handler_ = nullptr;
+  UserManagerScreenHandler* user_manager_screen_handler_ = nullptr;
 
-#if defined(ENABLE_SUPERVISED_USERS)
+#if BUILDFLAG(ENABLE_SUPERVISED_USERS)
   SigninSupervisedUserImportHandler* signin_supervised_user_import_handler_;
 #endif
 

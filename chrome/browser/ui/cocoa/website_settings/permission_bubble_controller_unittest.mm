@@ -9,16 +9,16 @@
 #include "base/mac/foundation_util.h"
 #import "base/mac/scoped_objc_class_swizzler.h"
 #include "base/mac/sdk_forward_declarations.h"
-#include "base/stl_util.h"
+#include "base/memory/ptr_util.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/permissions/mock_permission_request.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/cocoa/browser_window_controller.h"
-#import "chrome/browser/ui/cocoa/cocoa_profile_test.h"
 #include "chrome/browser/ui/cocoa/location_bar/location_bar_view_mac.h"
-#include "chrome/browser/ui/cocoa/run_loop_testing.h"
+#import "chrome/browser/ui/cocoa/test/cocoa_profile_test.h"
+#include "chrome/browser/ui/cocoa/test/run_loop_testing.h"
 #import "chrome/browser/ui/cocoa/website_settings/permission_bubble_cocoa.h"
 #import "chrome/browser/ui/cocoa/website_settings/split_block_button.h"
 #include "chrome/grit/generated_resources.h"
@@ -89,16 +89,17 @@ class PermissionBubbleControllerTest : public CocoaProfileTest,
   void TearDown() override {
     [controller_ close];
     chrome::testing::NSRunLoopRunAllPending();
-    base::STLDeleteElements(&requests_);
+    owned_requests_.clear();
     CocoaProfileTest::TearDown();
   }
 
   void AddRequest(const std::string& title) {
-    MockPermissionRequest* request = new MockPermissionRequest(
-        title,
-        l10n_util::GetStringUTF8(IDS_PERMISSION_ALLOW),
-        l10n_util::GetStringUTF8(IDS_PERMISSION_DENY));
-    requests_.push_back(request);
+    std::unique_ptr<MockPermissionRequest> request =
+        base::MakeUnique<MockPermissionRequest>(
+            title, l10n_util::GetStringUTF8(IDS_PERMISSION_ALLOW),
+            l10n_util::GetStringUTF8(IDS_PERMISSION_DENY));
+    requests_.push_back(request.get());
+    owned_requests_.push_back(std::move(request));
   }
 
   NSButton* FindButtonWithTitle(const std::string& title) {
@@ -160,6 +161,7 @@ class PermissionBubbleControllerTest : public CocoaProfileTest,
   PermissionBubbleController* controller_;  // Weak;  it deletes itself.
   std::unique_ptr<PermissionBubbleCocoa> bridge_;
   std::vector<PermissionRequest*> requests_;
+  std::vector<std::unique_ptr<PermissionRequest>> owned_requests_;
   std::vector<bool> accept_states_;
 };
 

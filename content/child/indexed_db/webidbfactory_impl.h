@@ -6,6 +6,7 @@
 #define CONTENT_CHILD_INDEXED_DB_WEBIDBFACTORY_IMPL_H_
 
 #include "base/memory/ref_counted.h"
+#include "content/common/indexed_db/indexed_db.mojom.h"
 #include "third_party/WebKit/public/platform/WebVector.h"
 #include "third_party/WebKit/public/platform/modules/indexeddb/WebIDBCallbacks.h"
 #include "third_party/WebKit/public/platform/modules/indexeddb/WebIDBDatabaseCallbacks.h"
@@ -16,12 +17,16 @@ class WebSecurityOrigin;
 class WebString;
 }
 
+namespace IPC {
+class SyncMessageFilter;
+}
+
 namespace content {
-class ThreadSafeSender;
 
 class WebIDBFactoryImpl : public blink::WebIDBFactory {
  public:
-  explicit WebIDBFactoryImpl(ThreadSafeSender* thread_safe_sender);
+  WebIDBFactoryImpl(scoped_refptr<IPC::SyncMessageFilter> sync_message_filter,
+                    scoped_refptr<base::SingleThreadTaskRunner> io_runner);
   ~WebIDBFactoryImpl() override;
 
   // See WebIDBFactory.h for documentation on these functions.
@@ -38,7 +43,10 @@ class WebIDBFactoryImpl : public blink::WebIDBFactory {
                       const blink::WebSecurityOrigin& origin) override;
 
  private:
-  scoped_refptr<ThreadSafeSender> thread_safe_sender_;
+  class IOThreadHelper;
+
+  IOThreadHelper* io_helper_;
+  scoped_refptr<base::SingleThreadTaskRunner> io_runner_;
 };
 
 }  // namespace content

@@ -33,6 +33,7 @@
 
 #include "bindings/core/v8/WrapperTypeInfo.h"
 #include "platform/ScriptForbiddenScope.h"
+#include "wtf/Compiler.h"
 #include "wtf/HashMap.h"
 #include <utility>
 #include <v8-util.h>
@@ -65,9 +66,9 @@ class DOMWrapperMap {
 
   bool containsKey(KeyType* key) { return m_map.Contains(key); }
 
-  bool set(KeyType* key,
-           const WrapperTypeInfo* wrapperTypeInfo,
-           v8::Local<v8::Object>& wrapper) WARN_UNUSED_RETURN {
+  WARN_UNUSED_RESULT bool set(KeyType* key,
+                              const WrapperTypeInfo* wrapperTypeInfo,
+                              v8::Local<v8::Object>& wrapper) {
     if (UNLIKELY(containsKey(key))) {
       wrapper = newLocal(m_isolate, key);
       return false;
@@ -85,9 +86,8 @@ class DOMWrapperMap {
     m_map.Remove(key);
   }
 
-  void markWrapper(v8::EmbedderReachableReferenceReporter* reporter,
-                   KeyType* object) {
-    m_map.RegisterExternallyReferencedObject(reporter, object);
+  void markWrapper(KeyType* object) {
+    m_map.RegisterExternallyReferencedObject(object);
   }
 
  private:

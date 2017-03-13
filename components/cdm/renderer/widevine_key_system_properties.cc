@@ -4,6 +4,7 @@
 
 #include "components/cdm/renderer/widevine_key_system_properties.h"
 
+#include "ppapi/features/features.h"
 #include "widevine_cdm_version.h"  // In SHARED_INTERMEDIATE_DIR.
 
 #if defined(WIDEVINE_CDM_AVAILABLE)
@@ -118,17 +119,13 @@ EmeConfigRule WidevineKeySystemProperties::GetRobustnessConfigRule(
   }
 
 #if defined(OS_CHROMEOS)
-  // TODO(ddorwin): Remove this once we have confirmed it is not necessary.
-  // See https://crbug.com/482277
-  if (robustness == Robustness::EMPTY)
-    return EmeConfigRule::SUPPORTED;
-
   // Hardware security requires remote attestation.
   if (robustness >= Robustness::HW_SECURE_CRYPTO)
     return EmeConfigRule::IDENTIFIER_REQUIRED;
 
   // For video, recommend remote attestation if HW_SECURE_ALL is available,
-  // because it enables hardware accelerated decoding.
+  // regardless of the value of |robustness|, because it enables hardware
+  // accelerated decoding.
   // TODO(sandersd): Only do this when hardware accelerated decoding is
   // available for the requested codecs.
   if (media_type == EmeMediaType::VIDEO &&
@@ -165,7 +162,7 @@ EmeFeatureSupport WidevineKeySystemProperties::GetDistinctiveIdentifierSupport()
   return distinctive_identifier_support_;
 }
 
-#if defined(ENABLE_PEPPER_CDMS)
+#if BUILDFLAG(ENABLE_PEPPER_CDMS)
 std::string WidevineKeySystemProperties::GetPepperType() const {
   return kWidevineCdmPluginMimeType;
 }

@@ -7,26 +7,22 @@
 #include "ash/common/ash_layout_constants.h"
 #include "ash/common/frame/caption_buttons/frame_caption_button_container_view.h"
 #include "ash/common/frame/header_painter_util.h"
+#include "ash/resources/vector_icons/vector_icons.h"
 #include "base/logging.h"  // DCHECK
 #include "chrome/browser/themes/theme_properties.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/views/frame/browser_frame.h"
 #include "chrome/browser/ui/views/frame/browser_non_client_frame_view_ash.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
-#include "chrome/grit/theme_resources.h"
 #include "third_party/skia/include/core/SkCanvas.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "third_party/skia/include/core/SkPaint.h"
 #include "third_party/skia/include/core/SkPath.h"
-#include "ui/base/material_design/material_design_controller.h"
-#include "ui/base/resource/resource_bundle.h"
-#include "ui/base/theme_provider.h"
 #include "ui/gfx/animation/slide_animation.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/image/image_skia.h"
 #include "ui/gfx/skia_util.h"
-#include "ui/gfx/vector_icons_public.h"
 #include "ui/views/view.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_delegate.h"
@@ -69,15 +65,12 @@ void PaintFrameImagesInRoundRect(gfx::Canvas* canvas,
                                  int corner_radius,
                                  int image_inset_x) {
   SkPath frame_path = MakeRoundRectPath(bounds, corner_radius, corner_radius);
-  // If |paint| is using an unusual SkXfermode::Mode (this is the case while
+  // If |paint| is using an unusual SkBlendMode (this is the case while
   // crossfading), we must create a new canvas to overlay |frame_image| and
-  // |frame_overlay_image| using |normal_mode| and then paint the result
+  // |frame_overlay_image| using |kSrcOver| and then paint the result
   // using the unusual mode. We try to avoid this because creating a new
   // browser-width canvas is expensive.
-  SkXfermode::Mode normal_mode;
-  SkXfermode::AsMode(nullptr, &normal_mode);
-  bool fast_path = (frame_overlay_image.isNull() ||
-      SkXfermode::IsMode(paint.getXfermode(), normal_mode));
+  bool fast_path = (frame_overlay_image.isNull() || paint.isSrcOver());
   if (fast_path) {
     if (frame_image.isNull()) {
       canvas->DrawPath(frame_path, paint);
@@ -191,12 +184,6 @@ void BrowserHeaderPainterAsh::PaintHeader(gfx::Canvas* canvas, Mode mode) {
   PaintFrameImages(canvas, false);
   PaintFrameImages(canvas, true);
 
-  if (!ui::MaterialDesignController::IsModeMaterial() &&
-      !frame_->IsMaximized() &&
-      !frame_->IsFullscreen()) {
-    PaintHighlightForRestoredWindow(canvas);
-  }
-
   if (frame_->widget_delegate() &&
       frame_->widget_delegate()->ShouldShowWindowTitle()) {
     PaintTitleBar(canvas);
@@ -269,65 +256,20 @@ void BrowserHeaderPainterAsh::PaintFrameImages(gfx::Canvas* canvas,
   if (alpha == 0)
     return;
 
-  int corner_radius =
-      (frame_->IsMaximized() || frame_->IsFullscreen())
-          ? 0
-          : ash::HeaderPainterUtil::GetTopCornerRadiusWhenRestored();
-
+  bool round_corners = !frame_->IsMaximized() && !frame_->IsFullscreen();
   gfx::ImageSkia frame_image = view_->GetFrameImage(active);
   gfx::ImageSkia frame_overlay_image = view_->GetFrameOverlayImage(active);
 
   SkPaint paint;
-  paint.setXfermodeMode(SkXfermode::kPlus_Mode);
+  paint.setBlendMode(SkBlendMode::kPlus);
   paint.setAlpha(alpha);
   paint.setColor(SkColorSetA(view_->GetFrameColor(active), alpha));
+  paint.setAntiAlias(round_corners);
   PaintFrameImagesInRoundRect(
       canvas, frame_image, frame_overlay_image, paint, GetPaintedBounds(),
-      corner_radius, ash::HeaderPainterUtil::GetThemeBackgroundXInset());
-}
-
-void BrowserHeaderPainterAsh::PaintHighlightForRestoredWindow(
-    gfx::Canvas* canvas) {
-  ui::ResourceBundle& rb = ui::ResourceBundle::GetSharedInstance();
-  gfx::ImageSkia top_left_corner = *rb.GetImageSkiaNamed(
-      IDR_ASH_BROWSER_WINDOW_HEADER_SHADE_TOP_LEFT);
-  gfx::ImageSkia top_right_corner = *rb.GetImageSkiaNamed(
-      IDR_ASH_BROWSER_WINDOW_HEADER_SHADE_TOP_RIGHT);
-  gfx::ImageSkia top_edge = *rb.GetImageSkiaNamed(
-      IDR_ASH_BROWSER_WINDOW_HEADER_SHADE_TOP);
-  gfx::ImageSkia left_edge = *rb.GetImageSkiaNamed(
-      IDR_ASH_BROWSER_WINDOW_HEADER_SHADE_LEFT);
-  gfx::ImageSkia right_edge = *rb.GetImageSkiaNamed(
-      IDR_ASH_BROWSER_WINDOW_HEADER_SHADE_RIGHT);
-
-  int top_left_width = top_left_corner.width();
-  int top_left_height = top_left_corner.height();
-  canvas->DrawImageInt(top_left_corner, 0, 0);
-
-  int top_right_width = top_right_corner.width();
-  int top_right_height = top_right_corner.height();
-  canvas->DrawImageInt(top_right_corner,
-                       view_->width() - top_right_width,
-                       0);
-
-  canvas->TileImageInt(
-      top_edge,
-      top_left_width,
-      0,
-      view_->width() - top_left_width - top_right_width,
-      top_edge.height());
-
-  canvas->TileImageInt(left_edge,
-                       0,
-                       top_left_height,
-                       left_edge.width(),
-                       painted_height_ - top_left_height);
-
-  canvas->TileImageInt(right_edge,
-                       view_->width() - right_edge.width(),
-                       top_right_height,
-                       right_edge.width(),
-                       painted_height_ - top_right_height);
+      round_corners ? ash::HeaderPainterUtil::GetTopCornerRadiusWhenRestored()
+                    : 0,
+      ash::HeaderPainterUtil::GetThemeBackgroundXInset());
 }
 
 void BrowserHeaderPainterAsh::PaintTitleBar(gfx::Canvas* canvas) {
@@ -343,29 +285,27 @@ void BrowserHeaderPainterAsh::PaintTitleBar(gfx::Canvas* canvas) {
 }
 
 void BrowserHeaderPainterAsh::UpdateCaptionButtons() {
-  caption_button_container_->SetButtonImage(
-      ash::CAPTION_BUTTON_ICON_MINIMIZE,
-      gfx::VectorIconId::WINDOW_CONTROL_MINIMIZE);
-  caption_button_container_->SetButtonImage(
-      ash::CAPTION_BUTTON_ICON_CLOSE, gfx::VectorIconId::WINDOW_CONTROL_CLOSE);
+  caption_button_container_->SetButtonImage(ash::CAPTION_BUTTON_ICON_MINIMIZE,
+                                            ash::kWindowControlMinimizeIcon);
+  caption_button_container_->SetButtonImage(ash::CAPTION_BUTTON_ICON_CLOSE,
+                                            ash::kWindowControlCloseIcon);
   caption_button_container_->SetButtonImage(
       ash::CAPTION_BUTTON_ICON_LEFT_SNAPPED,
-      gfx::VectorIconId::WINDOW_CONTROL_LEFT_SNAPPED);
+      ash::kWindowControlLeftSnappedIcon);
   caption_button_container_->SetButtonImage(
       ash::CAPTION_BUTTON_ICON_RIGHT_SNAPPED,
-      gfx::VectorIconId::WINDOW_CONTROL_RIGHT_SNAPPED);
+      ash::kWindowControlRightSnappedIcon);
 
-  gfx::VectorIconId size_icon_id = gfx::VectorIconId::WINDOW_CONTROL_MAXIMIZE;
+  const gfx::VectorIcon* size_icon = &ash::kWindowControlMaximizeIcon;
   gfx::Size button_size(
       GetAshLayoutSize(AshLayoutSize::BROWSER_RESTORED_CAPTION_BUTTON));
   if (frame_->IsMaximized() || frame_->IsFullscreen()) {
-    size_icon_id = gfx::VectorIconId::WINDOW_CONTROL_RESTORE;
+    size_icon = &ash::kWindowControlRestoreIcon;
     button_size =
         GetAshLayoutSize(AshLayoutSize::BROWSER_MAXIMIZED_CAPTION_BUTTON);
   }
   caption_button_container_->SetButtonImage(
-      ash::CAPTION_BUTTON_ICON_MAXIMIZE_RESTORE,
-      size_icon_id);
+      ash::CAPTION_BUTTON_ICON_MAXIMIZE_RESTORE, *size_icon);
   caption_button_container_->SetButtonSize(button_size);
 }
 

@@ -13,6 +13,7 @@
 #include "base/time/time.h"
 #include "components/spellcheck/common/spellcheck_common.h"
 #include "components/spellcheck/common/spellcheck_messages.h"
+#include "components/spellcheck/spellcheck_build_features.h"
 #include "content/public/renderer/render_thread.h"
 #include "third_party/hunspell/src/hunspell/hunspell.hxx"
 
@@ -33,7 +34,7 @@ namespace {
                 "MaxSuggestLen too long");
 }  // namespace
 
-#if !defined(USE_BROWSER_SPELLCHECKER)
+#if !BUILDFLAG(USE_BROWSER_SPELLCHECKER)
 SpellingEngine* CreateNativeSpellingEngine() {
   return new HunspellEngine();
 }
@@ -85,7 +86,7 @@ bool HunspellEngine::CheckSpelling(const base::string16& word_to_check,
     // to check rather than crash.
     if (hunspell_.get()) {
       // |hunspell_->spell| returns 0 if the word is misspelled.
-      word_correct = (hunspell_->spell(word_to_check_utf8.c_str()) != 0);
+      word_correct = (hunspell_->spell(word_to_check_utf8) != 0);
     }
   }
 
@@ -105,18 +106,14 @@ void HunspellEngine::FillSuggestionList(
   if (!hunspell_.get())
     return;
 
-  char** suggestions = NULL;
-  int number_of_suggestions =
-      hunspell_->suggest(&suggestions, wrong_word_utf8.c_str());
+  std::vector<std::string> suggestions =
+      hunspell_->suggest(wrong_word_utf8);
 
   // Populate the vector of WideStrings.
-  for (int i = 0; i < number_of_suggestions; ++i) {
+  for (size_t i = 0; i < suggestions.size(); ++i) {
     if (i < spellcheck::kMaxSuggestions)
       optional_suggestions->push_back(base::UTF8ToUTF16(suggestions[i]));
-    free(suggestions[i]);
   }
-  if (suggestions != NULL)
-    free(suggestions);
 }
 
 bool HunspellEngine::InitializeIfNeeded() {

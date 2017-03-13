@@ -21,6 +21,11 @@ Polymer({
   is: 'settings-startup-url-entry',
 
   properties: {
+    editable: {
+      type: Boolean,
+      reflectToAttribute: true,
+    },
+
     /** @type {!StartupPageInfo} */
     model: Object,
   },
@@ -36,14 +41,25 @@ Polymer({
 
   /** @private */
   onRemoveTap_: function() {
-    this.$$('iron-dropdown').close();
+    this.$$('dialog[is=cr-action-menu]').close();
     settings.StartupUrlsPageBrowserProxyImpl.getInstance().removeStartupPage(
         this.model.modelIndex);
   },
 
-  /** @private */
-  onEditTap_: function() {
-    this.$$('iron-dropdown').close();
+  /**
+   * @param {!Event} e
+   * @private
+   */
+  onEditTap_: function(e) {
+    e.preventDefault();
+    this.$$('dialog[is=cr-action-menu]').close();
     this.fire(settings.EDIT_STARTUP_URL_EVENT, this.model);
+  },
+
+  /** @private */
+  onDotsTap_: function() {
+    var actionMenu = /** @type {!CrActionMenuElement} */(
+        this.$$('#menu').get());
+    actionMenu.showAt(assert(this.$$('#dots')));
   },
 });

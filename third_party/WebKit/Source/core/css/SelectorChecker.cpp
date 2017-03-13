@@ -53,8 +53,6 @@
 #include "core/html/parser/HTMLParserIdioms.h"
 #include "core/html/track/vtt/VTTElement.h"
 #include "core/inspector/InspectorInstrumentation.h"
-#include "core/layout/LayoutObject.h"
-#include "core/layout/LayoutScrollbar.h"
 #include "core/page/FocusController.h"
 #include "core/page/Page.h"
 #include "core/style/ComputedStyle.h"
@@ -116,16 +114,17 @@ static Element* parentElement(
   return context.element->parentElement();
 }
 
+// If context has scope, return slot that matches the scope, otherwise return
+// the assigned slot for scope-less matching of ::slotted pseudo element.
 static const HTMLSlotElement* findSlotElementInScope(
     const SelectorChecker::SelectorCheckingContext& context) {
   if (!context.scope)
-    return nullptr;
+    return context.element->assignedSlot();
 
-  const HTMLSlotElement* slot = context.element->assignedSlot();
-  while (slot) {
+  for (const HTMLSlotElement* slot = context.element->assignedSlot(); slot;
+       slot = slot->assignedSlot()) {
     if (slot->treeScope() == context.scope->treeScope())
       return slot;
-    slot = slot->assignedSlot();
   }
   return nullptr;
 }
@@ -202,7 +201,7 @@ static bool isLastOfType(Element& element, const QualifiedName& type) {
 // * SelectorFailsAllSiblings - the selector fails for e and any sibling of e
 // * SelectorFailsCompletely  - the selector fails for e and any sibling or
 //   ancestor of e
-SelectorChecker::Match SelectorChecker::matchSelector(
+SelectorChecker::MatchStatus SelectorChecker::matchSelector(
     const SelectorCheckingContext& context,
     MatchResult& result) const {
   MatchResult subResult;
@@ -220,7 +219,7 @@ SelectorChecker::Match SelectorChecker::matchSelector(
     return SelectorFailsLocally;
   }
 
-  Match match;
+  MatchStatus match;
   if (context.selector->relation() != CSSSelector::SubSelector) {
     if (nextSelectorExceedsScope(context))
       return SelectorFailsCompletely;
@@ -248,7 +247,7 @@ prepareNextContextForRelation(
   return nextContext;
 }
 
-SelectorChecker::Match SelectorChecker::matchForSubSelector(
+SelectorChecker::MatchStatus SelectorChecker::matchForSubSelector(
     const SelectorCheckingContext& context,
     MatchResult& result) const {
   SelectorCheckingContext nextContext = prepareNextContextForRelation(context);
@@ -268,7 +267,7 @@ static inline bool isV0ShadowRoot(const Node* node) {
          toShadowRoot(node)->type() == ShadowRootType::V0;
 }
 
-SelectorChecker::Match SelectorChecker::matchForPseudoShadow(
+SelectorChecker::MatchStatus SelectorChecker::matchForPseudoShadow(
     const SelectorCheckingContext& context,
     const ContainerNode* node,
     MatchResult& result) const {
@@ -287,7 +286,15 @@ static inline Element* parentOrV0ShadowHostElement(const Element& element) {
   return element.parentOrShadowHostElement();
 }
 
-SelectorChecker::Match SelectorChecker::matchForRelation(
+static inline Element* parentOrOpenShadowHostElement(const Element& element) {
+  if (element.parentNode() && element.parentNode()->isShadowRoot()) {
+    if (toShadowRoot(element.parentNode())->type() != ShadowRootType::Open)
+      return nullptr;
+  }
+  return element.parentOrShadowHostElement();
+}
+
+SelectorChecker::MatchStatus SelectorChecker::matchForRelation(
     const SelectorCheckingContext& context,
     MatchResult& result) const {
   SelectorCheckingContext nextContext = prepareNextContextForRelation(context);
@@ -324,7 +331,7 @@ SelectorChecker::Match SelectorChecker::matchForRelation(
 
       for (nextContext.element = parentElement(context); nextContext.element;
            nextContext.element = parentElement(nextContext)) {
-        Match match = matchSelector(nextContext, result);
+        MatchStatus match = matchSelector(nextContext, result);
         if (match == SelectorMatches || match == SelectorFailsCompletely)
           return match;
         if (nextSelectorExceedsScope(nextContext))
@@ -373,7 +380,7 @@ SelectorChecker::Match SelectorChecker::matchForRelation(
       for (; nextContext.element;
            nextContext.element =
                ElementTraversal::previousSibling(*nextContext.element)) {
-        Match match = matchSelector(nextContext, result);
+        MatchStatus match = matchSelector(nextContext, result);
         if (match == SelectorMatches || match == SelectorFailsAllSiblings ||
             match == SelectorFailsCompletely)
           return match;
@@ -428,7 +435,7 @@ SelectorChecker::Match SelectorChecker::matchForRelation(
            nextContext.element;
            nextContext.element =
                parentOrV0ShadowHostElement(*nextContext.element)) {
-        Match match = matchSelector(nextContext, result);
+        MatchStatus match = matchSelector(nextContext, result);
         if (match == SelectorMatches && context.element->isInShadowTree())
           UseCounter::count(context.element->document(),
                             UseCounter::CSSDeepCombinatorAndShadow);
@@ -436,6 +443,28 @@ SelectorChecker::Match SelectorChecker::matchForRelation(
           return match;
         if (nextSelectorExceedsScope(nextContext))
           return SelectorFailsCompletely;
+      }
+      return SelectorFailsCompletely;
+    }
+
+    case CSSSelector::ShadowPiercingDescendant: {
+      DCHECK(m_isQuerySelector);
+      UseCounter::count(context.element->document(),
+                        UseCounter::CSSShadowPiercingDescendantCombinator);
+      // TODO(kochi): parentOrOpenShadowHostElement() is necessary because
+      // SelectorQuery can pass V0 shadow roots. All closed shadow roots are
+      // already filtered out, thus once V0 is removed this logic can use
+      // parentOrShadowHostElement() instead.
+      for (nextContext.element =
+               parentOrOpenShadowHostElement(*context.element);
+           nextContext.element;
+           nextContext.element =
+               parentOrOpenShadowHostElement(*nextContext.element)) {
+        MatchStatus match = matchSelector(nextContext, result);
+        if (match == SelectorMatches || match == SelectorFailsCompletely)
+          return match;
+        if (nextSelectorExceedsScope(nextContext))
+          break;
       }
       return SelectorFailsCompletely;
     }
@@ -456,7 +485,7 @@ SelectorChecker::Match SelectorChecker::matchForRelation(
   return SelectorFailsCompletely;
 }
 
-SelectorChecker::Match SelectorChecker::matchForPseudoContent(
+SelectorChecker::MatchStatus SelectorChecker::matchForPseudoContent(
     const SelectorCheckingContext& context,
     const Element& element,
     MatchResult& result) const {
@@ -561,8 +590,17 @@ static bool anyAttributeMatches(Element& element,
 
   AttributeCollection attributes = element.attributesWithoutUpdate();
   for (const auto& attributeItem : attributes) {
-    if (!attributeItem.matches(selectorAttr))
-      continue;
+    if (!attributeItem.matches(selectorAttr)) {
+      if (element.isHTMLElement() || !element.document().isHTMLDocument())
+        continue;
+      // Non-html attributes in html documents are normalized to their camel-
+      // cased version during parsing if applicable. Yet, attribute selectors
+      // are lower-cased for selectors in html documents. Compare the selector
+      // and the attribute local name insensitively to e.g. allow matching SVG
+      // attributes like viewBox.
+      if (!attributeItem.matchesCaseInsensitive(selectorAttr))
+        continue;
+    }
 
     if (attributeValueMatches(attributeItem, match, selectorValue,
                               caseSensitivity))
@@ -747,7 +785,7 @@ bool SelectorChecker::checkPseudoClass(const SelectorCheckingContext& context,
           parent->setChildrenAffectedByLastChildRules();
           element.setAffectedByLastChildRules();
         }
-        if (!parent->isFinishedParsingChildren())
+        if (!m_isQuerySelector && !parent->isFinishedParsingChildren())
           return false;
         return isLastChild(element);
       }
@@ -756,7 +794,7 @@ bool SelectorChecker::checkPseudoClass(const SelectorCheckingContext& context,
       if (ContainerNode* parent = element.parentElementOrDocumentFragment()) {
         if (m_mode == ResolvingStyle)
           parent->setChildrenAffectedByBackwardPositionalRules();
-        if (!parent->isFinishedParsingChildren())
+        if (!m_isQuerySelector && !parent->isFinishedParsingChildren())
           return false;
         return isLastOfType(element, element.tagQName());
       }
@@ -769,7 +807,7 @@ bool SelectorChecker::checkPseudoClass(const SelectorCheckingContext& context,
           element.setAffectedByFirstChildRules();
           element.setAffectedByLastChildRules();
         }
-        if (!parent->isFinishedParsingChildren())
+        if (!m_isQuerySelector && !parent->isFinishedParsingChildren())
           return false;
         return isFirstChild(element) && isLastChild(element);
       }
@@ -781,15 +819,15 @@ bool SelectorChecker::checkPseudoClass(const SelectorCheckingContext& context,
           parent->setChildrenAffectedByForwardPositionalRules();
           parent->setChildrenAffectedByBackwardPositionalRules();
         }
-        if (!parent->isFinishedParsingChildren())
+        if (!m_isQuerySelector && !parent->isFinishedParsingChildren())
           return false;
         return isFirstOfType(element, element.tagQName()) &&
                isLastOfType(element, element.tagQName());
       }
       break;
     case CSSSelector::PseudoPlaceholderShown:
-      if (isHTMLTextFormControlElement(element))
-        return toHTMLTextFormControlElement(element).isPlaceholderVisible();
+      if (isTextControlElement(element))
+        return toTextControlElement(element).isPlaceholderVisible();
       break;
     case CSSSelector::PseudoNthChild:
       if (ContainerNode* parent = element.parentElementOrDocumentFragment()) {
@@ -809,7 +847,7 @@ bool SelectorChecker::checkPseudoClass(const SelectorCheckingContext& context,
       if (ContainerNode* parent = element.parentElementOrDocumentFragment()) {
         if (m_mode == ResolvingStyle)
           parent->setChildrenAffectedByBackwardPositionalRules();
-        if (!parent->isFinishedParsingChildren())
+        if (!m_isQuerySelector && !parent->isFinishedParsingChildren())
           return false;
         return selector.matchNth(NthIndexCache::nthLastChildIndex(element));
       }
@@ -818,7 +856,7 @@ bool SelectorChecker::checkPseudoClass(const SelectorCheckingContext& context,
       if (ContainerNode* parent = element.parentElementOrDocumentFragment()) {
         if (m_mode == ResolvingStyle)
           parent->setChildrenAffectedByBackwardPositionalRules();
-        if (!parent->isFinishedParsingChildren())
+        if (!m_isQuerySelector && !parent->isFinishedParsingChildren())
           return false;
         return selector.matchNth(NthIndexCache::nthLastOfTypeIndex(element));
       }
@@ -1059,6 +1097,12 @@ bool SelectorChecker::checkPseudoElement(const SelectorCheckingContext& context,
       }
       return false;
     }
+    case CSSSelector::PseudoPlaceholder:
+      if (ShadowRoot* root = element.containingShadowRoot()) {
+        return root->type() == ShadowRootType::UserAgent &&
+               element.shadowPseudoId() == "-webkit-input-placeholder";
+      }
+      return false;
     case CSSSelector::PseudoWebKitCustomElement: {
       if (ShadowRoot* root = element.containingShadowRoot())
         return root->type() == ShadowRootType::UserAgent &&

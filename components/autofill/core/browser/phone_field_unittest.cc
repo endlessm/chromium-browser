@@ -7,10 +7,11 @@
 #include <stddef.h>
 
 #include <memory>
+#include <vector>
 
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
-#include "base/memory/scoped_vector.h"
+#include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/autofill/core/browser/autofill_field.h"
 #include "components/autofill/core/browser/autofill_scanner.h"
@@ -55,7 +56,7 @@ class PhoneFieldTest : public testing::Test {
     EXPECT_EQ(expected_type, it->second.BestHeuristicType()) << name;
   }
 
-  ScopedVector<AutofillField> list_;
+  std::vector<std::unique_ptr<AutofillField>> list_;
   std::unique_ptr<PhoneField> field_;
   FieldCandidatesMap field_candidates_map_;
 
@@ -64,14 +65,14 @@ class PhoneFieldTest : public testing::Test {
 };
 
 TEST_F(PhoneFieldTest, Empty) {
-  AutofillScanner scanner(list_.get());
+  AutofillScanner scanner(list_);
   field_ = Parse(&scanner);
   ASSERT_EQ(nullptr, field_.get());
 }
 
 TEST_F(PhoneFieldTest, NonParse) {
-  list_.push_back(new AutofillField);
-  AutofillScanner scanner(list_.get());
+  list_.push_back(base::MakeUnique<AutofillField>());
+  AutofillScanner scanner(list_);
   field_ = Parse(&scanner);
   ASSERT_EQ(nullptr, field_.get());
 }
@@ -79,15 +80,16 @@ TEST_F(PhoneFieldTest, NonParse) {
 TEST_F(PhoneFieldTest, ParseOneLinePhone) {
   FormFieldData field;
 
-  for (size_t i = 0; i < arraysize(kFieldTypes); ++i) {
+  for (const char* field_type : kFieldTypes) {
     Clear();
 
-    field.form_control_type = kFieldTypes[i];
+    field.form_control_type = field_type;
     field.label = ASCIIToUTF16("Phone");
     field.name = ASCIIToUTF16("phone");
-    list_.push_back(new AutofillField(field, ASCIIToUTF16("phone1")));
+    list_.push_back(
+        base::MakeUnique<AutofillField>(field, ASCIIToUTF16("phone1")));
 
-    AutofillScanner scanner(list_.get());
+    AutofillScanner scanner(list_);
     field_ = Parse(&scanner);
     ASSERT_NE(nullptr, field_.get());
     field_->AddClassifications(&field_candidates_map_);
@@ -98,19 +100,21 @@ TEST_F(PhoneFieldTest, ParseOneLinePhone) {
 TEST_F(PhoneFieldTest, ParseTwoLinePhone) {
   FormFieldData field;
 
-  for (size_t i = 0; i < arraysize(kFieldTypes); ++i) {
+  for (const char* field_type : kFieldTypes) {
     Clear();
 
-    field.form_control_type = kFieldTypes[i];
+    field.form_control_type = field_type;
     field.label = ASCIIToUTF16("Area Code");
     field.name = ASCIIToUTF16("area code");
-    list_.push_back(new AutofillField(field, ASCIIToUTF16("areacode1")));
+    list_.push_back(
+        base::MakeUnique<AutofillField>(field, ASCIIToUTF16("areacode1")));
 
     field.label = ASCIIToUTF16("Phone");
     field.name = ASCIIToUTF16("phone");
-    list_.push_back(new AutofillField(field, ASCIIToUTF16("phone2")));
+    list_.push_back(
+        base::MakeUnique<AutofillField>(field, ASCIIToUTF16("phone2")));
 
-    AutofillScanner scanner(list_.get());
+    AutofillScanner scanner(list_);
     field_ = Parse(&scanner);
     ASSERT_NE(nullptr, field_.get());
     field_->AddClassifications(&field_candidates_map_);
@@ -127,31 +131,35 @@ TEST_F(PhoneFieldTest, ThreePartPhoneNumber) {
   // than 4.
   FormFieldData field;
 
-  for (size_t i = 0; i < arraysize(kFieldTypes); ++i) {
+  for (const char* field_type : kFieldTypes) {
     Clear();
 
-    field.form_control_type = kFieldTypes[i];
+    field.form_control_type = field_type;
     field.label = ASCIIToUTF16("Phone:");
     field.name = ASCIIToUTF16("dayphone1");
     field.max_length = 0;
-    list_.push_back(new AutofillField(field, ASCIIToUTF16("areacode1")));
+    list_.push_back(
+        base::MakeUnique<AutofillField>(field, ASCIIToUTF16("areacode1")));
 
     field.label = ASCIIToUTF16("-");
     field.name = ASCIIToUTF16("dayphone2");
     field.max_length = 3;
-    list_.push_back(new AutofillField(field, ASCIIToUTF16("prefix2")));
+    list_.push_back(
+        base::MakeUnique<AutofillField>(field, ASCIIToUTF16("prefix2")));
 
     field.label = ASCIIToUTF16("-");
     field.name = ASCIIToUTF16("dayphone3");
     field.max_length = 4;
-    list_.push_back(new AutofillField(field, ASCIIToUTF16("suffix3")));
+    list_.push_back(
+        base::MakeUnique<AutofillField>(field, ASCIIToUTF16("suffix3")));
 
     field.label = ASCIIToUTF16("ext.:");
     field.name = ASCIIToUTF16("dayphone4");
     field.max_length = 0;
-    list_.push_back(new AutofillField(field, ASCIIToUTF16("ext4")));
+    list_.push_back(
+        base::MakeUnique<AutofillField>(field, ASCIIToUTF16("ext4")));
 
-    AutofillScanner scanner(list_.get());
+    AutofillScanner scanner(list_);
     field_ = Parse(&scanner);
     ASSERT_NE(nullptr, field_.get());
     field_->AddClassifications(&field_candidates_map_);
@@ -168,23 +176,26 @@ TEST_F(PhoneFieldTest, ThreePartPhoneNumber) {
 TEST_F(PhoneFieldTest, ThreePartPhoneNumberPrefixSuffix) {
   FormFieldData field;
 
-  for (size_t i = 0; i < arraysize(kFieldTypes); ++i) {
+  for (const char* field_type : kFieldTypes) {
     Clear();
 
-    field.form_control_type = kFieldTypes[i];
+    field.form_control_type = field_type;
     field.label = ASCIIToUTF16("Phone:");
     field.name = ASCIIToUTF16("area");
-    list_.push_back(new AutofillField(field, ASCIIToUTF16("areacode1")));
+    list_.push_back(
+        base::MakeUnique<AutofillField>(field, ASCIIToUTF16("areacode1")));
 
     field.label = base::string16();
     field.name = ASCIIToUTF16("prefix");
-    list_.push_back(new AutofillField(field, ASCIIToUTF16("prefix2")));
+    list_.push_back(
+        base::MakeUnique<AutofillField>(field, ASCIIToUTF16("prefix2")));
 
     field.label = base::string16();
     field.name = ASCIIToUTF16("suffix");
-    list_.push_back(new AutofillField(field, ASCIIToUTF16("suffix3")));
+    list_.push_back(
+        base::MakeUnique<AutofillField>(field, ASCIIToUTF16("suffix3")));
 
-    AutofillScanner scanner(list_.get());
+    AutofillScanner scanner(list_);
     field_ = Parse(&scanner);
     ASSERT_NE(nullptr, field_.get());
     field_->AddClassifications(&field_candidates_map_);
@@ -197,26 +208,29 @@ TEST_F(PhoneFieldTest, ThreePartPhoneNumberPrefixSuffix) {
 TEST_F(PhoneFieldTest, ThreePartPhoneNumberPrefixSuffix2) {
   FormFieldData field;
 
-  for (size_t i = 0; i < arraysize(kFieldTypes); ++i) {
+  for (const char* field_type : kFieldTypes) {
     Clear();
 
-    field.form_control_type = kFieldTypes[i];
+    field.form_control_type = field_type;
     field.label = ASCIIToUTF16("(");
     field.name = ASCIIToUTF16("phone1");
     field.max_length = 3;
-    list_.push_back(new AutofillField(field, ASCIIToUTF16("phone1")));
+    list_.push_back(
+        base::MakeUnique<AutofillField>(field, ASCIIToUTF16("phone1")));
 
     field.label = ASCIIToUTF16(")");
     field.name = ASCIIToUTF16("phone2");
     field.max_length = 3;
-    list_.push_back(new AutofillField(field, ASCIIToUTF16("phone2")));
+    list_.push_back(
+        base::MakeUnique<AutofillField>(field, ASCIIToUTF16("phone2")));
 
     field.label = base::string16();
     field.name = ASCIIToUTF16("phone3");
     field.max_length = 4;
-    list_.push_back(new AutofillField(field, ASCIIToUTF16("phone3")));
+    list_.push_back(
+        base::MakeUnique<AutofillField>(field, ASCIIToUTF16("phone3")));
 
-    AutofillScanner scanner(list_.get());
+    AutofillScanner scanner(list_);
     field_ = Parse(&scanner);
     ASSERT_NE(nullptr, field_.get());
     field_->AddClassifications(&field_candidates_map_);
@@ -231,21 +245,23 @@ TEST_F(PhoneFieldTest, CountryAndCityAndPhoneNumber) {
   // The |maxlength| is considered, otherwise it's too broad.
   FormFieldData field;
 
-  for (size_t i = 0; i < arraysize(kFieldTypes); ++i) {
+  for (const char* field_type : kFieldTypes) {
     Clear();
 
-    field.form_control_type = kFieldTypes[i];
+    field.form_control_type = field_type;
     field.label = ASCIIToUTF16("Phone Number");
     field.name = ASCIIToUTF16("CountryCode");
     field.max_length = 3;
-    list_.push_back(new AutofillField(field, ASCIIToUTF16("country")));
+    list_.push_back(
+        base::MakeUnique<AutofillField>(field, ASCIIToUTF16("country")));
 
     field.label = ASCIIToUTF16("Phone Number");
     field.name = ASCIIToUTF16("PhoneNumber");
     field.max_length = 10;
-    list_.push_back(new AutofillField(field, ASCIIToUTF16("phone")));
+    list_.push_back(
+        base::MakeUnique<AutofillField>(field, ASCIIToUTF16("phone")));
 
-    AutofillScanner scanner(list_.get());
+    AutofillScanner scanner(list_);
     field_ = Parse(&scanner);
     ASSERT_NE(nullptr, field_.get());
     field_->AddClassifications(&field_candidates_map_);

@@ -21,6 +21,7 @@
 #include "base/single_thread_task_runner.h"
 #include "base/strings/stringize_macros.h"
 #include "base/synchronization/waitable_event.h"
+#include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "ui/gl/gl_context.h"
@@ -46,7 +47,7 @@
 
 #if defined(USE_OZONE)
 #if defined(OS_CHROMEOS)
-#include "ui/display/chromeos/display_configurator.h"
+#include "ui/display/manager/chromeos/display_configurator.h"
 #include "ui/display/types/native_display_delegate.h"
 #endif  // defined(OS_CHROMEOS)
 #include "ui/ozone/public/ozone_platform.h"
@@ -85,23 +86,24 @@ void WaitForSwapAck(const base::Closure& callback, gfx::SwapResult result) {
 
 #if defined(USE_OZONE)
 
-class DisplayConfiguratorObserver : public ui::DisplayConfigurator::Observer {
+class DisplayConfiguratorObserver
+    : public display::DisplayConfigurator::Observer {
  public:
   explicit DisplayConfiguratorObserver(base::RunLoop* loop) : loop_(loop) {}
   ~DisplayConfiguratorObserver() override {}
 
  private:
-  // ui::DisplayConfigurator::Observer overrides:
+  // display::DisplayConfigurator::Observer overrides:
   void OnDisplayModeChanged(
-      const ui::DisplayConfigurator::DisplayStateList& outputs) override {
+      const display::DisplayConfigurator::DisplayStateList& outputs) override {
     if (!loop_)
       return;
     loop_->Quit();
     loop_ = nullptr;
   }
   void OnDisplayModeChangeFailed(
-      const ui::DisplayConfigurator::DisplayStateList& outputs,
-      ui::MultipleDisplayState failed_new_state) override {
+      const display::DisplayConfigurator::DisplayStateList& outputs,
+      display::MultipleDisplayState failed_new_state) override {
     LOG(FATAL) << "Could not configure display";
   }
 
@@ -212,16 +214,7 @@ RenderingHelper::~RenderingHelper() {
 }
 
 void RenderingHelper::Setup() {
-#if defined(OS_WIN)
-  window_ = CreateWindowEx(0,
-                           L"Static",
-                           L"VideoDecodeAcceleratorTest",
-                           WS_OVERLAPPEDWINDOW | WS_VISIBLE,
-                           0, 0,
-                           GetSystemMetrics(SM_CXSCREEN),
-                           GetSystemMetrics(SM_CYSCREEN),
-                           NULL, NULL, NULL, NULL);
-#elif defined(USE_X11)
+#if defined(USE_X11)
   Display* display = gfx::GetXDisplay();
   Screen* screen = DefaultScreenOfDisplay(display);
 
@@ -265,7 +258,7 @@ void RenderingHelper::Setup() {
   // the same size.
   base::RunLoop wait_display_setup;
   DisplayConfiguratorObserver display_setup_observer(&wait_display_setup);
-  display_configurator_.reset(new ui::DisplayConfigurator());
+  display_configurator_.reset(new display::DisplayConfigurator());
   display_configurator_->SetDelegateForTesting(0);
   display_configurator_->AddObserver(&display_setup_observer);
   display_configurator_->Init(
@@ -295,17 +288,13 @@ void RenderingHelper::Setup() {
   // wait for the window to resized and therefore associated with
   // display output to be sure that we will get such events.
   wait_window_resize.RunUntilIdle();
-#else
+#elif !defined(OS_WIN)
 #error unknown platform
 #endif
-  CHECK(window_ != gfx::kNullAcceleratedWidget);
 }
 
 void RenderingHelper::TearDown() {
-#if defined(OS_WIN)
-  if (window_)
-    DestroyWindow(window_);
-#elif defined(USE_X11)
+#if defined(USE_X11)
   // Destroy resources acquired in Initialize, in reverse-acquisition order.
   if (window_) {
     CHECK(XUnmapWindow(gfx::GetXDisplay(), window_));
@@ -323,6 +312,13 @@ void RenderingHelper::TearDown() {
 
 void RenderingHelper::Initialize(const RenderingHelperParams& params,
                                  base::WaitableEvent* done) {
+#if defined(OS_WIN)
+  window_ = CreateWindowEx(
+      0, L"Static", L"VideoDecodeAcceleratorTest",
+      WS_OVERLAPPEDWINDOW | WS_VISIBLE, 0, 0, GetSystemMetrics(SM_CXSCREEN),
+      GetSystemMetrics(SM_CYSCREEN), NULL, NULL, NULL, NULL);
+#endif
+  CHECK(window_ != gfx::kNullAcceleratedWidget);
   // Use videos_.size() != 0 as a proxy for the class having already been
   // Initialize()'d, and UnInitialize() before continuing.
   if (videos_.size()) {
@@ -340,7 +336,7 @@ void RenderingHelper::Initialize(const RenderingHelperParams& params,
                         : base::TimeDelta();
 
   render_as_thumbnails_ = params.render_as_thumbnails;
-  message_loop_ = base::MessageLoop::current();
+  task_runner_ = base::ThreadTaskRunnerHandle::Get();
 
   gl_surface_ = gl::init::CreateViewGLSurface(window_);
 #if defined(USE_OZONE)
@@ -349,7 +345,7 @@ void RenderingHelper::Initialize(const RenderingHelperParams& params,
   screen_size_ = gl_surface_->GetSize();
 
   gl_context_ = gl::init::CreateGLContext(nullptr, gl_surface_.get(),
-                                          gl::PreferIntegratedGpu);
+                                          gl::GLContextAttribs());
   CHECK(gl_context_->MakeCurrent(gl_surface_.get()));
 
   CHECK_GT(params.window_sizes.size(), 0U);
@@ -418,7 +414,7 @@ void RenderingHelper::Initialize(const RenderingHelperParams& params,
                   gl_Position = in_pos;
                 });
 
-#if GL_VARIANT_EGL
+#if GL_VARIANT_EGL && !defined(OS_WIN)
   static const char kFragmentShader[] =
       "#extension GL_OES_EGL_image_external : enable\n"
       "precision mediump float;\n"
@@ -436,11 +432,14 @@ void RenderingHelper::Initialize(const RenderingHelperParams& params,
       "}\n";
 #else
   static const char kFragmentShader[] =
-      STRINGIZE(varying vec2 interp_tc;
-                uniform sampler2D tex;
-                void main() {
-                  gl_FragColor = texture2D(tex, interp_tc);
-                });
+      "#ifdef GL_ES\n"
+      "precision mediump float;\n"
+      "#endif\n"
+      "varying vec2 interp_tc;\n"
+      "uniform sampler2D tex;\n"
+      "void main() {\n"
+      "  gl_FragColor = texture2D(tex, interp_tc);\n"
+      "}\n";
 #endif
   program_ = glCreateProgram();
   CreateShader(program_, GL_VERTEX_SHADER, kVertexShader,
@@ -539,7 +538,7 @@ void RenderingHelper::WarmUpRendering(int warm_up_iterations) {
 }
 
 void RenderingHelper::UnInitialize(base::WaitableEvent* done) {
-  CHECK_EQ(base::MessageLoop::current(), message_loop_);
+  CHECK(task_runner_->BelongsToCurrentThread());
 
   render_task_.Cancel();
 
@@ -553,6 +552,13 @@ void RenderingHelper::UnInitialize(base::WaitableEvent* done) {
   gl_surface_ = NULL;
 
   Clear();
+
+#if defined(OS_WIN)
+  if (window_)
+    DestroyWindow(window_);
+  window_ = gfx::kNullAcceleratedWidget;
+#endif
+
   done->Signal();
 }
 
@@ -560,8 +566,8 @@ void RenderingHelper::CreateTexture(uint32_t texture_target,
                                     uint32_t* texture_id,
                                     const gfx::Size& size,
                                     base::WaitableEvent* done) {
-  if (base::MessageLoop::current() != message_loop_) {
-    message_loop_->task_runner()->PostTask(
+  if (!task_runner_->BelongsToCurrentThread()) {
+    task_runner_->PostTask(
         FROM_HERE,
         base::Bind(&RenderingHelper::CreateTexture, base::Unretained(this),
                    texture_target, texture_id, size, done));
@@ -596,7 +602,7 @@ static inline void GLSetViewPort(const gfx::Rect& area) {
 
 void RenderingHelper::RenderThumbnail(uint32_t texture_target,
                                       uint32_t texture_id) {
-  CHECK_EQ(base::MessageLoop::current(), message_loop_);
+  CHECK(task_runner_->BelongsToCurrentThread());
   const int width = thumbnail_size_.width();
   const int height = thumbnail_size_.height();
   const int thumbnails_in_row = thumbnails_fbo_size_.width() / width;
@@ -622,7 +628,7 @@ void RenderingHelper::RenderThumbnail(uint32_t texture_target,
 void RenderingHelper::QueueVideoFrame(
     size_t window_id,
     scoped_refptr<VideoFrameTexture> video_frame) {
-  CHECK_EQ(base::MessageLoop::current(), message_loop_);
+  CHECK(task_runner_->BelongsToCurrentThread());
   RenderedVideo* video = &videos_[window_id];
   DCHECK(!video->is_flushing);
 
@@ -636,7 +642,7 @@ void RenderingHelper::QueueVideoFrame(
   // Schedules the first RenderContent() if need.
   if (scheduled_render_time_.is_null()) {
     scheduled_render_time_ = base::TimeTicks::Now();
-    message_loop_->task_runner()->PostTask(FROM_HERE, render_task_.callback());
+    task_runner_->PostTask(FROM_HERE, render_task_.callback());
   }
 }
 
@@ -656,7 +662,7 @@ void RenderingHelper::RenderTexture(uint32_t texture_target,
 }
 
 void RenderingHelper::DeleteTexture(uint32_t texture_id) {
-  CHECK_EQ(base::MessageLoop::current(), message_loop_);
+  CHECK(task_runner_->BelongsToCurrentThread());
   glDeleteTextures(1, &texture_id);
   CHECK_EQ(static_cast<int>(glGetError()), GL_NO_ERROR);
 }
@@ -671,7 +677,7 @@ void* RenderingHelper::GetGLDisplay() {
 
 void RenderingHelper::Clear() {
   videos_.clear();
-  message_loop_ = NULL;
+  task_runner_ = nullptr;
   gl_context_ = NULL;
   gl_surface_ = NULL;
 
@@ -721,7 +727,7 @@ void RenderingHelper::Flush(size_t window_id) {
 }
 
 void RenderingHelper::RenderContent() {
-  CHECK_EQ(base::MessageLoop::current(), message_loop_);
+  CHECK(task_runner_->BelongsToCurrentThread());
 
   // Update the VSync params.
   //
@@ -735,7 +741,7 @@ void RenderingHelper::RenderContent() {
         static_cast<base::WaitableEvent*>(NULL)));
   }
 
-  int tex_flip = 1;
+  int tex_flip = !gl_surface_->FlipsVertically();
 #if defined(USE_OZONE)
   // Ozone surfaceless renders flipped from normal GL, so there's no need to
   // do an extra flip.
@@ -886,7 +892,7 @@ void RenderingHelper::ScheduleNextRenderContent() {
     DropOneFrameForAllVideos();
   }
 
-  message_loop_->task_runner()->PostDelayedTask(
-      FROM_HERE, render_task_.callback(), target - now);
+  task_runner_->PostDelayedTask(FROM_HERE, render_task_.callback(),
+                                target - now);
 }
 }  // namespace media

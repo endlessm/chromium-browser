@@ -48,6 +48,8 @@
 #include "content/public/browser/resource_request_info.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/process_type.h"
+#include "content/public/common/resource_type.h"
+#include "extensions/features/features.h"
 #include "net/base/host_port_pair.h"
 #include "net/base/load_flags.h"
 #include "net/base/net_errors.h"
@@ -61,7 +63,7 @@
 #include "net/log/net_log_with_source.h"
 #include "net/url_request/url_request.h"
 
-#if BUILDFLAG(ANDROID_JAVA_UI)
+#if defined(OS_ANDROID)
 #include "chrome/browser/io_thread.h"
 #include "chrome/browser/precache/precache_util.h"
 #endif
@@ -71,14 +73,13 @@
 #include "chrome/common/chrome_switches.h"
 #endif
 
-#if defined(ENABLE_EXTENSIONS)
+#if BUILDFLAG(ENABLE_EXTENSIONS)
 #include "extensions/common/constants.h"
 #endif
 
 using content::BrowserThread;
 using content::RenderViewHost;
 using content::ResourceRequestInfo;
-using content::ResourceType;
 
 // By default we don't allow access to all file:// urls on ChromeOS and
 // Android.
@@ -126,15 +127,15 @@ void ReportInvalidReferrerSend(const GURL& target_url,
 
 // Record network errors that HTTP requests complete with, including OK and
 // ABORTED.
-void RecordNetworkErrorHistograms(const net::URLRequest* request) {
+void RecordNetworkErrorHistograms(const net::URLRequest* request,
+                                  int net_error) {
   if (request->url().SchemeIs("http")) {
     UMA_HISTOGRAM_SPARSE_SLOWLY("Net.HttpRequestCompletionErrorCodes",
-                                std::abs(request->status().error()));
+                                std::abs(net_error));
 
     if (request->load_flags() & net::LOAD_MAIN_FRAME_DEPRECATED) {
       UMA_HISTOGRAM_SPARSE_SLOWLY(
-          "Net.HttpRequestCompletionErrorCodes.MainFrame",
-          std::abs(request->status().error()));
+          "Net.HttpRequestCompletionErrorCodes.MainFrame", std::abs(net_error));
     }
   }
 }
@@ -143,17 +144,14 @@ void RecordNetworkErrorHistograms(const net::URLRequest* request) {
 
 ChromeNetworkDelegate::ChromeNetworkDelegate(
     extensions::EventRouterForwarder* event_router,
-    BooleanPrefMember* enable_referrers,
-    const metrics::UpdateUsagePrefCallbackType& metrics_data_use_forwarder)
+    BooleanPrefMember* enable_referrers)
     : profile_(nullptr),
       enable_referrers_(enable_referrers),
       enable_do_not_track_(nullptr),
       force_google_safe_search_(nullptr),
       force_youtube_restrict_(nullptr),
       allowed_domains_for_apps_(nullptr),
-      url_blacklist_manager_(nullptr),
-      domain_reliability_monitor_(nullptr),
-      data_use_measurement_(metrics_data_use_forwarder),
+      url_blacklist_manager_(NULL),
       experimental_web_platform_features_enabled_(
           base::CommandLine::ForCurrentProcess()->HasSwitch(
               switches::kEnableExperimentalWebPlatformFeatures)),
@@ -235,8 +233,6 @@ int ChromeNetworkDelegate::OnBeforeURLRequest(
   tracked_objects::ScopedTracker tracking_profile1(
       FROM_HERE_WITH_EXPLICIT_FUNCTION(
           "456327 URLRequest::ChromeNetworkDelegate::OnBeforeURLRequest"));
-
-  data_use_measurement_.OnBeforeURLRequest(request);
 
   // TODO(joaodasilva): This prevents extensions from seeing URLs that are
   // blocked. However, an extension might redirect the request to another URL,
@@ -352,55 +348,52 @@ int ChromeNetworkDelegate::OnHeadersReceived(
 
 void ChromeNetworkDelegate::OnBeforeRedirect(net::URLRequest* request,
                                              const GURL& new_location) {
-  data_use_measurement_.OnBeforeRedirect(*request, new_location);
   if (domain_reliability_monitor_)
     domain_reliability_monitor_->OnBeforeRedirect(request);
   extensions_delegate_->OnBeforeRedirect(request, new_location);
 }
 
-
-void ChromeNetworkDelegate::OnResponseStarted(net::URLRequest* request) {
-  extensions_delegate_->OnResponseStarted(request);
+void ChromeNetworkDelegate::OnResponseStarted(net::URLRequest* request,
+                                              int net_error) {
+  extensions_delegate_->OnResponseStarted(request, net_error);
 }
 
 void ChromeNetworkDelegate::OnNetworkBytesReceived(net::URLRequest* request,
                                                    int64_t bytes_received) {
-#if defined(ENABLE_TASK_MANAGER)
+#if !defined(OS_ANDROID)
   // Note: Currently, OnNetworkBytesReceived is only implemented for HTTP jobs,
   // not FTP or other types, so those kinds of bytes will not be reported here.
   task_manager::TaskManagerInterface::OnRawBytesRead(*request, bytes_received);
-#endif  // defined(ENABLE_TASK_MANAGER)
+#endif  // !defined(OS_ANDROID)
 
   ReportDataUsageStats(request, 0 /* tx_bytes */, bytes_received);
-  data_use_measurement_.OnNetworkBytesReceived(*request, bytes_received);
 }
 
 void ChromeNetworkDelegate::OnNetworkBytesSent(net::URLRequest* request,
                                                int64_t bytes_sent) {
   ReportDataUsageStats(request, bytes_sent, 0 /* rx_bytes */);
-  data_use_measurement_.OnNetworkBytesSent(*request, bytes_sent);
 }
 
 void ChromeNetworkDelegate::OnCompleted(net::URLRequest* request,
-                                        bool started) {
-  data_use_measurement_.OnCompleted(*request, started);
-  RecordNetworkErrorHistograms(request);
+                                        bool started,
+                                        int net_error) {
+  DCHECK_NE(net::ERR_IO_PENDING, net_error);
 
-  if (request->status().status() == net::URLRequestStatus::SUCCESS) {
-#if BUILDFLAG(ANDROID_JAVA_UI)
+  // TODO(amohammadkhan): Verify that there is no double recording in data use
+  // of redirected requests.
+  RecordNetworkErrorHistograms(request, net_error);
+
+  if (net_error == net::OK) {
+#if defined(OS_ANDROID)
     precache::UpdatePrecacheMetricsAndState(request, profile_);
-#endif  // BUILDFLAG(ANDROID_JAVA_UI)
-    extensions_delegate_->OnCompleted(request, started);
-  } else if (request->status().status() == net::URLRequestStatus::FAILED ||
-             request->status().status() == net::URLRequestStatus::CANCELED) {
-    extensions_delegate_->OnCompleted(request, started);
-  } else {
-    NOTREACHED();
+#endif  // defined(OS_ANDROID)
   }
+
+  extensions_delegate_->OnCompleted(request, started, net_error);
   if (domain_reliability_monitor_)
     domain_reliability_monitor_->OnCompleted(request, started);
   RecordRequestSourceBandwidth(request, started);
-  extensions_delegate_->ForwardProxyErrors(request);
+  extensions_delegate_->ForwardProxyErrors(request, net_error);
   extensions_delegate_->ForwardDoneRequestStatus(request);
 }
 
@@ -548,10 +541,11 @@ bool ChromeNetworkDelegate::OnCanEnablePrivacyMode(
   if (!cookie_settings_.get())
     return false;
 
-  bool reading_cookie_allowed = cookie_settings_->IsReadingCookieAllowed(
-      url, first_party_for_cookies);
-  bool setting_cookie_allowed = cookie_settings_->IsSettingCookieAllowed(
-      url, first_party_for_cookies);
+  bool reading_cookie_allowed = false;
+  bool setting_cookie_allowed = false;
+  cookie_settings_->GetReadingAndSettingCookieAllowed(
+      url, first_party_for_cookies, &reading_cookie_allowed,
+      &setting_cookie_allowed);
   bool privacy_mode = !(reading_cookie_allowed && setting_cookie_allowed);
   return privacy_mode;
 }

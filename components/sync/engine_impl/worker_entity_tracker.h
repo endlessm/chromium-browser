@@ -12,7 +12,7 @@
 
 #include "base/macros.h"
 #include "base/time/time.h"
-#include "components/sync/core/non_blocking_sync_common.h"
+#include "components/sync/engine/non_blocking_sync_common.h"
 #include "components/sync/protocol/sync.pb.h"
 
 namespace syncer {
@@ -40,6 +40,9 @@ class WorkerEntityTracker {
   // Returns true if this entity should be commited to the server.
   bool HasPendingCommit() const;
 
+  // Returns true if pending commit contains deleted entity.
+  bool PendingCommitIsDeletion() const;
+
   // Populates a sync_pb::SyncEntity for a commit.
   void PopulateCommitProto(sync_pb::SyncEntity* commit_entity) const;
 
@@ -54,6 +57,9 @@ class WorkerEntityTracker {
 
   // Handles receipt of an update from the server.
   void ReceiveUpdate(const UpdateResponseData& update);
+
+  // Check if update contains newer version than local.
+  bool UpdateContainsNewVersion(const UpdateResponseData& update);
 
   // Handles the receipt of an encrypted update from the server.
   //

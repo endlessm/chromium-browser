@@ -7,20 +7,20 @@
 #include <memory>
 #include <utility>
 
-#include "base/strings/string_number_conversions.h"
 #include "net/quic/core/quic_connection.h"
 #include "net/quic/core/quic_utils.h"
 #include "net/quic/core/quic_write_blocked_list.h"
 #include "net/quic/core/spdy_utils.h"
+#include "net/quic/platform/api/quic_ptr_util.h"
+#include "net/quic/platform/api/quic_text_utils.h"
 #include "net/quic/test_tools/quic_flow_controller_peer.h"
 #include "net/quic/test_tools/quic_session_peer.h"
+#include "net/quic/test_tools/quic_stream_peer.h"
 #include "net/quic/test_tools/quic_test_utils.h"
-#include "net/quic/test_tools/reliable_quic_stream_peer.h"
 #include "net/test/gtest_util.h"
 #include "testing/gmock/include/gmock/gmock.h"
 
 using base::StringPiece;
-using std::min;
 using std::string;
 using testing::AnyNumber;
 using testing::Invoke;
@@ -54,8 +54,8 @@ class TestStream : public QuicSpdyStream {
     data_ += string(buffer, bytes_read);
   }
 
-  using ReliableQuicStream::WriteOrBufferData;
-  using ReliableQuicStream::CloseWriteSide;
+  using QuicStream::WriteOrBufferData;
+  using QuicStream::CloseWriteSide;
 
   const string& data() const { return data_; }
 
@@ -103,13 +103,20 @@ class QuicSpdyStreamTest : public ::testing::TestWithParam<QuicVersion> {
     session_.reset(new testing::StrictMock<MockQuicSpdySession>(connection_));
     stream_ = new TestStream(kClientDataStreamId1, session_.get(),
                              stream_should_process_data);
-    session_->ActivateStream(stream_);
+    session_->ActivateStream(QuicWrapUnique(stream_));
     stream2_ = new TestStream(kClientDataStreamId2, session_.get(),
                               stream_should_process_data);
-    session_->ActivateStream(stream2_);
+    session_->ActivateStream(QuicWrapUnique(stream2_));
+  }
+
+  QuicHeaderList ProcessHeaders(bool fin, const SpdyHeaderBlock& headers) {
+    QuicHeaderList h = AsHeaderList(headers);
+    stream_->OnStreamHeaderList(fin, h.uncompressed_header_bytes(), h);
+    return h;
   }
 
  protected:
+  QuicFlagSaver flags_;  // Save/restore all QUIC flag values.
   MockQuicConnectionHelper helper_;
   MockAlarmFactory alarm_factory_;
   MockQuicConnection* connection_;
@@ -126,51 +133,27 @@ INSTANTIATE_TEST_CASE_P(Tests,
                         QuicSpdyStreamTest,
                         ::testing::ValuesIn(AllSupportedVersions()));
 
-TEST_P(QuicSpdyStreamTest, ProcessHeaders) {
-  Initialize(kShouldProcessData);
-
-  string headers = SpdyUtils::SerializeUncompressedHeaders(headers_);
-  stream_->OnStreamHeadersPriority(kV3HighestPriority);
-  stream_->OnStreamHeaders(headers);
-  EXPECT_EQ("", stream_->data());
-  EXPECT_EQ(headers, stream_->decompressed_headers());
-  stream_->OnStreamHeadersComplete(false, headers.size());
-  EXPECT_EQ(kV3HighestPriority, stream_->priority());
-  EXPECT_EQ("", stream_->data());
-  EXPECT_EQ(headers, stream_->decompressed_headers());
-  EXPECT_FALSE(stream_->IsDoneReading());
-}
-
 TEST_P(QuicSpdyStreamTest, ProcessHeaderList) {
   Initialize(kShouldProcessData);
 
-  size_t total_bytes = 0;
-  QuicHeaderList headers;
-  for (auto p : headers_) {
-    headers.OnHeader(p.first, p.second);
-    total_bytes += p.first.size() + p.second.size();
-  }
   stream_->OnStreamHeadersPriority(kV3HighestPriority);
-  stream_->OnStreamHeaderList(false, total_bytes, headers);
+  ProcessHeaders(false, headers_);
   EXPECT_EQ("", stream_->data());
   EXPECT_FALSE(stream_->header_list().empty());
   EXPECT_FALSE(stream_->IsDoneReading());
 }
 
-TEST_P(QuicSpdyStreamTest, ProcessHeadersWithFin) {
+TEST_P(QuicSpdyStreamTest, ProcessTooLargeHeaderList) {
+  FLAGS_quic_reloadable_flag_quic_limit_uncompressed_headers = true;
   Initialize(kShouldProcessData);
 
-  string headers = SpdyUtils::SerializeUncompressedHeaders(headers_);
+  QuicHeaderList headers;
   stream_->OnStreamHeadersPriority(kV3HighestPriority);
-  stream_->OnStreamHeaders(headers);
-  EXPECT_EQ("", stream_->data());
-  EXPECT_EQ(headers, stream_->decompressed_headers());
-  stream_->OnStreamHeadersComplete(true, headers.size());
-  EXPECT_EQ(kV3HighestPriority, stream_->priority());
-  EXPECT_EQ("", stream_->data());
-  EXPECT_EQ(headers, stream_->decompressed_headers());
-  EXPECT_FALSE(stream_->IsDoneReading());
-  EXPECT_TRUE(stream_->HasFinalReceivedByteOffset());
+
+  EXPECT_CALL(*session_,
+              SendRstStream(stream_->id(), QUIC_HEADERS_TOO_LARGE, 0));
+  stream_->OnStreamHeaderList(false, 1 << 20, headers);
+  EXPECT_EQ(QUIC_HEADERS_TOO_LARGE, stream_->stream_error());
 }
 
 TEST_P(QuicSpdyStreamTest, ProcessHeaderListWithFin) {
@@ -196,100 +179,96 @@ TEST_P(QuicSpdyStreamTest, ParseHeaderStatusCode) {
   Initialize(kShouldProcessData);
   int status_code = 0;
 
-  // Valid status code.
-  headers_.ReplaceOrAppendHeader(":status", "404");
+  // Valid status codes.
+  headers_[":status"] = "404";
   EXPECT_TRUE(stream_->ParseHeaderStatusCode(headers_, &status_code));
   EXPECT_EQ(404, status_code);
 
+  headers_[":status"] = "100";
+  EXPECT_TRUE(stream_->ParseHeaderStatusCode(headers_, &status_code));
+  EXPECT_EQ(100, status_code);
+
+  headers_[":status"] = "599";
+  EXPECT_TRUE(stream_->ParseHeaderStatusCode(headers_, &status_code));
+  EXPECT_EQ(599, status_code);
+
   // Invalid status codes.
-  headers_.ReplaceOrAppendHeader(":status", "010");
+  headers_[":status"] = "010";
   EXPECT_FALSE(stream_->ParseHeaderStatusCode(headers_, &status_code));
 
-  headers_.ReplaceOrAppendHeader(":status", "600");
+  headers_[":status"] = "600";
   EXPECT_FALSE(stream_->ParseHeaderStatusCode(headers_, &status_code));
 
-  headers_.ReplaceOrAppendHeader(":status", "200 ok");
+  headers_[":status"] = "200 ok";
   EXPECT_FALSE(stream_->ParseHeaderStatusCode(headers_, &status_code));
 
-  headers_.ReplaceOrAppendHeader(":status", "2000");
+  headers_[":status"] = "2000";
   EXPECT_FALSE(stream_->ParseHeaderStatusCode(headers_, &status_code));
 
-  headers_.ReplaceOrAppendHeader(":status", "+200");
+  headers_[":status"] = "+200";
   EXPECT_FALSE(stream_->ParseHeaderStatusCode(headers_, &status_code));
 
-  headers_.ReplaceOrAppendHeader(":status", "+20");
+  headers_[":status"] = "+20";
+  EXPECT_FALSE(stream_->ParseHeaderStatusCode(headers_, &status_code));
+
+  headers_[":status"] = "-10";
+  EXPECT_FALSE(stream_->ParseHeaderStatusCode(headers_, &status_code));
+
+  headers_[":status"] = "-100";
   EXPECT_FALSE(stream_->ParseHeaderStatusCode(headers_, &status_code));
 
   // Leading or trailing spaces are also invalid.
-  headers_.ReplaceOrAppendHeader(":status", " 200");
+  headers_[":status"] = " 200";
   EXPECT_FALSE(stream_->ParseHeaderStatusCode(headers_, &status_code));
 
-  headers_.ReplaceOrAppendHeader(":status", "200 ");
+  headers_[":status"] = "200 ";
   EXPECT_FALSE(stream_->ParseHeaderStatusCode(headers_, &status_code));
 
-  headers_.ReplaceOrAppendHeader(":status", " 200 ");
+  headers_[":status"] = " 200 ";
   EXPECT_FALSE(stream_->ParseHeaderStatusCode(headers_, &status_code));
 
-  headers_.ReplaceOrAppendHeader(":status", "  ");
+  headers_[":status"] = "  ";
   EXPECT_FALSE(stream_->ParseHeaderStatusCode(headers_, &status_code));
 }
 
 TEST_P(QuicSpdyStreamTest, MarkHeadersConsumed) {
   Initialize(kShouldProcessData);
 
-  string headers = SpdyUtils::SerializeUncompressedHeaders(headers_);
   string body = "this is the body";
+  QuicHeaderList headers = ProcessHeaders(false, headers_);
+  EXPECT_EQ(headers, stream_->header_list());
 
-  stream_->OnStreamHeaders(headers);
-  stream_->OnStreamHeadersComplete(false, headers.size());
-  EXPECT_EQ(headers, stream_->decompressed_headers());
-
-  headers.erase(0, 10);
-  stream_->MarkHeadersConsumed(10);
-  EXPECT_EQ(headers, stream_->decompressed_headers());
-
-  stream_->MarkHeadersConsumed(headers.length());
-  EXPECT_EQ("", stream_->decompressed_headers());
+  stream_->ConsumeHeaderList();
+  EXPECT_EQ(QuicHeaderList(), stream_->header_list());
 }
 
 TEST_P(QuicSpdyStreamTest, ProcessHeadersAndBody) {
   Initialize(kShouldProcessData);
 
-  string headers = SpdyUtils::SerializeUncompressedHeaders(headers_);
   string body = "this is the body";
 
-  stream_->OnStreamHeaders(headers);
   EXPECT_EQ("", stream_->data());
-  EXPECT_EQ(headers, stream_->decompressed_headers());
-  stream_->OnStreamHeadersComplete(false, headers.size());
-  EXPECT_EQ(headers, stream_->decompressed_headers());
-  stream_->MarkHeadersConsumed(headers.length());
+  QuicHeaderList headers = ProcessHeaders(false, headers_);
+  EXPECT_EQ(headers, stream_->header_list());
+  stream_->ConsumeHeaderList();
   QuicStreamFrame frame(kClientDataStreamId1, false, 0, StringPiece(body));
   stream_->OnStreamFrame(frame);
-  EXPECT_EQ("", stream_->decompressed_headers());
+  EXPECT_EQ(QuicHeaderList(), stream_->header_list());
   EXPECT_EQ(body, stream_->data());
 }
 
 TEST_P(QuicSpdyStreamTest, ProcessHeadersAndBodyFragments) {
-  string headers = SpdyUtils::SerializeUncompressedHeaders(headers_);
   string body = "this is the body";
 
   for (size_t fragment_size = 1; fragment_size < body.size(); ++fragment_size) {
     Initialize(kShouldProcessData);
-    for (size_t offset = 0; offset < headers.size(); offset += fragment_size) {
-      size_t remaining_data = headers.size() - offset;
-      StringPiece fragment(headers.data() + offset,
-                           min(fragment_size, remaining_data));
-      stream_->OnStreamHeaders(fragment);
-    }
-    stream_->OnStreamHeadersComplete(false, headers.size());
-    ASSERT_EQ(headers, stream_->decompressed_headers()) << "fragment_size: "
-                                                        << fragment_size;
-    stream_->MarkHeadersConsumed(headers.length());
+    QuicHeaderList headers = ProcessHeaders(false, headers_);
+    ASSERT_EQ(headers, stream_->header_list());
+    stream_->ConsumeHeaderList();
     for (size_t offset = 0; offset < body.size(); offset += fragment_size) {
       size_t remaining_data = body.size() - offset;
       StringPiece fragment(body.data() + offset,
-                           min(fragment_size, remaining_data));
+                           std::min(fragment_size, remaining_data));
       QuicStreamFrame frame(kClientDataStreamId1, false, offset,
                             StringPiece(fragment));
       stream_->OnStreamFrame(frame);
@@ -299,21 +278,13 @@ TEST_P(QuicSpdyStreamTest, ProcessHeadersAndBodyFragments) {
 }
 
 TEST_P(QuicSpdyStreamTest, ProcessHeadersAndBodyFragmentsSplit) {
-  string headers = SpdyUtils::SerializeUncompressedHeaders(headers_);
   string body = "this is the body";
 
   for (size_t split_point = 1; split_point < body.size() - 1; ++split_point) {
     Initialize(kShouldProcessData);
-    StringPiece headers1(headers.data(), split_point);
-    stream_->OnStreamHeaders(headers1);
-
-    StringPiece headers2(headers.data() + split_point,
-                         headers.size() - split_point);
-    stream_->OnStreamHeaders(headers2);
-    stream_->OnStreamHeadersComplete(false, headers.size());
-    ASSERT_EQ(headers, stream_->decompressed_headers()) << "split_point: "
-                                                        << split_point;
-    stream_->MarkHeadersConsumed(headers.length());
+    QuicHeaderList headers = ProcessHeaders(false, headers_);
+    ASSERT_EQ(headers, stream_->header_list());
+    stream_->ConsumeHeaderList();
 
     StringPiece fragment1(body.data(), split_point);
     QuicStreamFrame frame1(kClientDataStreamId1, false, 0,
@@ -332,14 +303,12 @@ TEST_P(QuicSpdyStreamTest, ProcessHeadersAndBodyFragmentsSplit) {
 TEST_P(QuicSpdyStreamTest, ProcessHeadersAndBodyReadv) {
   Initialize(!kShouldProcessData);
 
-  string headers = SpdyUtils::SerializeUncompressedHeaders(headers_);
   string body = "this is the body";
 
-  stream_->OnStreamHeaders(headers);
-  stream_->OnStreamHeadersComplete(false, headers.size());
+  ProcessHeaders(false, headers_);
   QuicStreamFrame frame(kClientDataStreamId1, false, 0, StringPiece(body));
   stream_->OnStreamFrame(frame);
-  stream_->MarkHeadersConsumed(headers.length());
+  stream_->ConsumeHeaderList();
 
   char buffer[2048];
   ASSERT_LT(body.length(), arraysize(buffer));
@@ -355,14 +324,12 @@ TEST_P(QuicSpdyStreamTest, ProcessHeadersAndBodyReadv) {
 TEST_P(QuicSpdyStreamTest, ProcessHeadersAndBodyMarkConsumed) {
   Initialize(!kShouldProcessData);
 
-  string headers = SpdyUtils::SerializeUncompressedHeaders(headers_);
   string body = "this is the body";
 
-  stream_->OnStreamHeaders(headers);
-  stream_->OnStreamHeadersComplete(false, headers.size());
+  ProcessHeaders(false, headers_);
   QuicStreamFrame frame(kClientDataStreamId1, false, 0, StringPiece(body));
   stream_->OnStreamFrame(frame);
-  stream_->MarkHeadersConsumed(headers.length());
+  stream_->ConsumeHeaderList();
 
   struct iovec vec;
 
@@ -377,13 +344,11 @@ TEST_P(QuicSpdyStreamTest, ProcessHeadersAndBodyMarkConsumed) {
 TEST_P(QuicSpdyStreamTest, ProcessHeadersAndBodyIncrementalReadv) {
   Initialize(!kShouldProcessData);
 
-  string headers = SpdyUtils::SerializeUncompressedHeaders(headers_);
   string body = "this is the body";
-  stream_->OnStreamHeaders(headers);
-  stream_->OnStreamHeadersComplete(false, headers.size());
+  ProcessHeaders(false, headers_);
   QuicStreamFrame frame(kClientDataStreamId1, false, 0, StringPiece(body));
   stream_->OnStreamFrame(frame);
-  stream_->MarkHeadersConsumed(headers.length());
+  stream_->ConsumeHeaderList();
 
   char buffer[1];
   struct iovec vec;
@@ -400,13 +365,11 @@ TEST_P(QuicSpdyStreamTest, ProcessHeadersAndBodyIncrementalReadv) {
 TEST_P(QuicSpdyStreamTest, ProcessHeadersUsingReadvWithMultipleIovecs) {
   Initialize(!kShouldProcessData);
 
-  string headers = SpdyUtils::SerializeUncompressedHeaders(headers_);
   string body = "this is the body";
-  stream_->OnStreamHeaders(headers);
-  stream_->OnStreamHeadersComplete(false, headers.size());
+  ProcessHeaders(false, headers_);
   QuicStreamFrame frame(kClientDataStreamId1, false, 0, StringPiece(body));
   stream_->OnStreamFrame(frame);
-  stream_->MarkHeadersConsumed(headers.length());
+  stream_->ConsumeHeaderList();
 
   char buffer1[1];
   char buffer2[1];
@@ -438,9 +401,8 @@ TEST_P(QuicSpdyStreamTest, StreamFlowControlBlocked) {
 
   // Try to send more data than the flow control limit allows.
   string headers = SpdyUtils::SerializeUncompressedHeaders(headers_);
-  string body;
   const uint64_t kOverflow = 15;
-  GenerateBody(&body, kWindow + kOverflow);
+  string body(kWindow + kOverflow, 'a');
 
   EXPECT_CALL(*connection_, SendBlocked(kClientDataStreamId1));
   EXPECT_CALL(*session_, WritevData(_, _, _, _, _, _))
@@ -452,7 +414,7 @@ TEST_P(QuicSpdyStreamTest, StreamFlowControlBlocked) {
             QuicFlowControllerPeer::SendWindowSize(stream_->flow_controller()));
 
   // And we should have queued the overflowed data.
-  EXPECT_EQ(kOverflow, ReliableQuicStreamPeer::SizeOfQueuedData(stream_));
+  EXPECT_EQ(kOverflow, QuicStreamPeer::SizeOfQueuedData(stream_));
 }
 
 TEST_P(QuicSpdyStreamTest, StreamFlowControlNoWindowUpdateIfNotConsumed) {
@@ -477,11 +439,9 @@ TEST_P(QuicSpdyStreamTest, StreamFlowControlNoWindowUpdateIfNotConsumed) {
                          stream_->flow_controller()));
 
   // Stream receives enough data to fill a fraction of the receive window.
-  string headers = SpdyUtils::SerializeUncompressedHeaders(headers_);
-  string body;
-  GenerateBody(&body, kWindow / 3);
-  stream_->OnStreamHeaders(headers);
-  stream_->OnStreamHeadersComplete(false, headers.size());
+  string body(kWindow / 3, 'a');
+  auto headers = AsHeaderList(headers_);
+  ProcessHeaders(false, headers_);
 
   QuicStreamFrame frame1(kClientDataStreamId1, false, 0, StringPiece(body));
   stream_->OnStreamFrame(frame1);
@@ -515,12 +475,9 @@ TEST_P(QuicSpdyStreamTest, StreamFlowControlWindowUpdate) {
                          stream_->flow_controller()));
 
   // Stream receives enough data to fill a fraction of the receive window.
-  string headers = SpdyUtils::SerializeUncompressedHeaders(headers_);
-  string body;
-  GenerateBody(&body, kWindow / 3);
-  stream_->OnStreamHeaders(headers);
-  stream_->OnStreamHeadersComplete(false, headers.size());
-  stream_->MarkHeadersConsumed(headers.length());
+  string body(kWindow / 3, 'a');
+  ProcessHeaders(false, headers_);
+  stream_->ConsumeHeaderList();
 
   QuicStreamFrame frame1(kClientDataStreamId1, false, 0, StringPiece(body));
   stream_->OnStreamFrame(frame1);
@@ -565,18 +522,17 @@ TEST_P(QuicSpdyStreamTest, ConnectionFlowControlWindowUpdate) {
                                               kWindow);
 
   // Supply headers to both streams so that they are happy to receive data.
-  string headers = SpdyUtils::SerializeUncompressedHeaders(headers_);
-  stream_->OnStreamHeaders(headers);
-  stream_->OnStreamHeadersComplete(false, headers.size());
-  stream_->MarkHeadersConsumed(headers.length());
-  stream2_->OnStreamHeaders(headers);
-  stream2_->OnStreamHeadersComplete(false, headers.size());
-  stream2_->MarkHeadersConsumed(headers.length());
+  auto headers = AsHeaderList(headers_);
+  stream_->OnStreamHeaderList(false, headers.uncompressed_header_bytes(),
+                              headers);
+  stream_->ConsumeHeaderList();
+  stream2_->OnStreamHeaderList(false, headers.uncompressed_header_bytes(),
+                               headers);
+  stream2_->ConsumeHeaderList();
 
   // Each stream gets a quarter window of data. This should not trigger a
   // WINDOW_UPDATE for either stream, nor for the connection.
-  string body;
-  GenerateBody(&body, kWindow / 4);
+  string body(kWindow / 4, 'a');
   QuicStreamFrame frame1(kClientDataStreamId1, false, 0, StringPiece(body));
   stream_->OnStreamFrame(frame1);
   QuicStreamFrame frame2(kClientDataStreamId2, false, 0, StringPiece(body));
@@ -588,9 +544,10 @@ TEST_P(QuicSpdyStreamTest, ConnectionFlowControlWindowUpdate) {
   EXPECT_CALL(*connection_, SendWindowUpdate(kClientDataStreamId1, _)).Times(0);
   EXPECT_CALL(*connection_, SendWindowUpdate(kClientDataStreamId2, _)).Times(0);
   EXPECT_CALL(*connection_,
-              SendWindowUpdate(0, QuicFlowControllerPeer::ReceiveWindowOffset(
-                                      session_->flow_controller()) +
-                                      1 + kWindow / 2));
+              SendWindowUpdate(0,
+                               QuicFlowControllerPeer::ReceiveWindowOffset(
+                                   session_->flow_controller()) +
+                                   1 + kWindow / 2));
   QuicStreamFrame frame3(kClientDataStreamId1, false, (kWindow / 4),
                          StringPiece("a"));
   stream_->OnStreamFrame(frame3);
@@ -609,13 +566,10 @@ TEST_P(QuicSpdyStreamTest, StreamFlowControlViolation) {
   QuicFlowControllerPeer::SetReceiveWindowOffset(stream_->flow_controller(),
                                                  kWindow);
 
-  string headers = SpdyUtils::SerializeUncompressedHeaders(headers_);
-  stream_->OnStreamHeaders(headers);
-  stream_->OnStreamHeadersComplete(false, headers.size());
+  ProcessHeaders(false, headers_);
 
   // Receive data to overflow the window, violating flow control.
-  string body;
-  GenerateBody(&body, kWindow + 1);
+  string body(kWindow + 1, 'a');
   QuicStreamFrame frame(kClientDataStreamId1, false, 0, StringPiece(body));
   EXPECT_CALL(*connection_,
               CloseConnection(QUIC_FLOW_CONTROL_RECEIVED_TOO_MUCH_DATA, _, _));
@@ -624,9 +578,7 @@ TEST_P(QuicSpdyStreamTest, StreamFlowControlViolation) {
 
 TEST_P(QuicSpdyStreamTest, TestHandlingQuicRstStreamNoError) {
   Initialize(kShouldProcessData);
-  string headers = SpdyUtils::SerializeUncompressedHeaders(headers_);
-  stream_->OnStreamHeaders(headers);
-  stream_->OnStreamHeadersComplete(false, headers.size());
+  ProcessHeaders(false, headers_);
 
   stream_->OnStreamReset(
       QuicRstStreamFrame(stream_->id(), QUIC_STREAM_NO_ERROR, 0));
@@ -651,13 +603,10 @@ TEST_P(QuicSpdyStreamTest, ConnectionFlowControlViolation) {
   QuicFlowControllerPeer::SetReceiveWindowOffset(session_->flow_controller(),
                                                  kConnectionWindow);
 
-  string headers = SpdyUtils::SerializeUncompressedHeaders(headers_);
-  stream_->OnStreamHeaders(headers);
-  stream_->OnStreamHeadersComplete(false, headers.size());
+  ProcessHeaders(false, headers_);
 
   // Send enough data to overflow the connection level flow control window.
-  string body;
-  GenerateBody(&body, kConnectionWindow + 1);
+  string body(kConnectionWindow + 1, 'a');
   EXPECT_LT(body.size(), kStreamWindow);
   QuicStreamFrame frame(kClientDataStreamId1, false, 0, StringPiece(body));
 
@@ -688,35 +637,46 @@ TEST_P(QuicSpdyStreamTest, StreamFlowControlFinNotBlocked) {
   stream_->WriteOrBufferData(body, fin, nullptr);
 }
 
-TEST_P(QuicSpdyStreamTest, ReceivingTrailers) {
-  // Test that receiving trailing headers from the peer works, and can be read
-  // from the stream and consumed.
+TEST_P(QuicSpdyStreamTest, ReceivingTrailersViaHeaderList) {
+  // Test that receiving trailing headers from the peer via
+  // OnStreamHeaderList() works, and can be read from the stream and consumed.
   Initialize(kShouldProcessData);
 
   // Receive initial headers.
-  string headers = SpdyUtils::SerializeUncompressedHeaders(headers_);
-  stream_->OnStreamHeaders(headers);
-  stream_->OnStreamHeadersComplete(false, headers.size());
-  stream_->MarkHeadersConsumed(stream_->decompressed_headers().size());
+  size_t total_bytes = 0;
+  QuicHeaderList headers;
+  for (const auto& p : headers_) {
+    headers.OnHeader(p.first, p.second);
+    total_bytes += p.first.size() + p.second.size();
+  }
+
+  stream_->OnStreamHeadersPriority(kV3HighestPriority);
+  stream_->OnStreamHeaderList(/*fin=*/false, total_bytes, headers);
+  stream_->ConsumeHeaderList();
 
   // Receive trailing headers.
   SpdyHeaderBlock trailers_block;
   trailers_block["key1"] = "value1";
   trailers_block["key2"] = "value2";
   trailers_block["key3"] = "value3";
-  trailers_block[kFinalOffsetHeaderKey] = "0";
-  string trailers = SpdyUtils::SerializeUncompressedHeaders(trailers_block);
-  stream_->OnStreamHeaders(trailers);
-  stream_->OnStreamHeadersComplete(/*fin=*/true, trailers.size());
+  SpdyHeaderBlock trailers_block_with_final_offset = trailers_block.Clone();
+  trailers_block_with_final_offset[kFinalOffsetHeaderKey] = "0";
+  total_bytes = 0;
+  QuicHeaderList trailers;
+  for (const auto& p : trailers_block_with_final_offset) {
+    trailers.OnHeader(p.first, p.second);
+    total_bytes += p.first.size() + p.second.size();
+  }
+  stream_->OnStreamHeaderList(/*fin=*/true, total_bytes, trailers);
 
   // The trailers should be decompressed, and readable from the stream.
   EXPECT_TRUE(stream_->trailers_decompressed());
-  const string decompressed_trailers = stream_->decompressed_trailers();
-  EXPECT_EQ(trailers, decompressed_trailers);
+  EXPECT_EQ(trailers_block, stream_->received_trailers());
 
-  // Consuming the trailers erases them from the stream.
-  stream_->MarkTrailersConsumed(decompressed_trailers.size());
-  EXPECT_EQ("", stream_->decompressed_trailers());
+  // IsDoneReading() returns false until trailers marked consumed.
+  EXPECT_FALSE(stream_->IsDoneReading());
+  stream_->MarkTrailersConsumed();
+  EXPECT_TRUE(stream_->IsDoneReading());
 }
 
 TEST_P(QuicSpdyStreamTest, ReceivingTrailersWithoutOffset) {
@@ -724,10 +684,10 @@ TEST_P(QuicSpdyStreamTest, ReceivingTrailersWithoutOffset) {
   Initialize(kShouldProcessData);
 
   // Receive initial headers.
-  string headers = SpdyUtils::SerializeUncompressedHeaders(headers_);
-  stream_->OnStreamHeaders(headers);
-  stream_->OnStreamHeadersComplete(false, headers.size());
-  stream_->MarkHeadersConsumed(stream_->decompressed_headers().size());
+  auto headers = AsHeaderList(headers_);
+  stream_->OnStreamHeaderList(false, headers.uncompressed_header_bytes(),
+                              headers);
+  stream_->ConsumeHeaderList();
 
   const string body = "this is the body";
   // Receive trailing headers, without kFinalOffsetHeaderKey.
@@ -735,8 +695,7 @@ TEST_P(QuicSpdyStreamTest, ReceivingTrailersWithoutOffset) {
   trailers_block["key1"] = "value1";
   trailers_block["key2"] = "value2";
   trailers_block["key3"] = "value3";
-  string trailers = SpdyUtils::SerializeUncompressedHeaders(trailers_block);
-  stream_->OnStreamHeaders(trailers);
+  auto trailers = AsHeaderList(trailers_block);
 
   // Verify that the trailers block didn't contain a final offset.
   EXPECT_EQ("", trailers_block[kFinalOffsetHeaderKey].as_string());
@@ -745,7 +704,8 @@ TEST_P(QuicSpdyStreamTest, ReceivingTrailersWithoutOffset) {
   EXPECT_CALL(*connection_,
               CloseConnection(QUIC_INVALID_HEADERS_STREAM_DATA, _, _))
       .Times(1);
-  stream_->OnStreamHeadersComplete(/*fin=*/true, trailers.size());
+  stream_->OnStreamHeaderList(/*fin=*/true,
+                              trailers.uncompressed_header_bytes(), trailers);
 }
 
 TEST_P(QuicSpdyStreamTest, ReceivingTrailersWithoutFin) {
@@ -753,19 +713,19 @@ TEST_P(QuicSpdyStreamTest, ReceivingTrailersWithoutFin) {
   Initialize(kShouldProcessData);
 
   // Receive initial headers.
-  string headers = SpdyUtils::SerializeUncompressedHeaders(headers_);
-  stream_->OnStreamHeaders(headers);
-  stream_->OnStreamHeadersComplete(false, headers.size());
+  auto headers = AsHeaderList(headers_);
+  stream_->OnStreamHeaderList(/*fin=*/false,
+                              headers.uncompressed_header_bytes(), headers);
 
   // Receive trailing headers with FIN deliberately set to false.
   SpdyHeaderBlock trailers_block;
-  string trailers = SpdyUtils::SerializeUncompressedHeaders(trailers_block);
-  stream_->OnStreamHeaders(trailers);
+  auto trailers = AsHeaderList(trailers_block);
 
   EXPECT_CALL(*connection_,
               CloseConnection(QUIC_INVALID_HEADERS_STREAM_DATA, _, _))
       .Times(1);
-  stream_->OnStreamHeadersComplete(/*fin=*/false, trailers.size());
+  stream_->OnStreamHeaderList(/*fin=*/false,
+                              trailers.uncompressed_header_bytes(), trailers);
 }
 
 TEST_P(QuicSpdyStreamTest, ReceivingTrailersAfterFin) {
@@ -773,19 +733,14 @@ TEST_P(QuicSpdyStreamTest, ReceivingTrailersAfterFin) {
   Initialize(kShouldProcessData);
 
   // Receive initial headers with FIN set.
-  string headers = SpdyUtils::SerializeUncompressedHeaders(headers_);
-  stream_->OnStreamHeaders(headers);
-  stream_->OnStreamHeadersComplete(/*fin=*/true, headers.size());
+  ProcessHeaders(true, headers_);
 
   // Receive trailing headers after FIN already received.
   SpdyHeaderBlock trailers_block;
-  string trailers = SpdyUtils::SerializeUncompressedHeaders(trailers_block);
-  stream_->OnStreamHeaders(trailers);
-
   EXPECT_CALL(*connection_,
               CloseConnection(QUIC_INVALID_HEADERS_STREAM_DATA, _, _))
       .Times(1);
-  stream_->OnStreamHeadersComplete(/*fin=*/true, trailers.size());
+  ProcessHeaders(true, trailers_block);
 }
 
 TEST_P(QuicSpdyStreamTest, ReceivingTrailersAfterBodyWithFin) {
@@ -793,9 +748,7 @@ TEST_P(QuicSpdyStreamTest, ReceivingTrailersAfterBodyWithFin) {
   Initialize(kShouldProcessData);
 
   // Receive initial headers without FIN set.
-  string headers = SpdyUtils::SerializeUncompressedHeaders(headers_);
-  stream_->OnStreamHeaders(headers);
-  stream_->OnStreamHeadersComplete(/*fin=*/false, headers.size());
+  ProcessHeaders(false, headers_);
 
   // Receive body data, with FIN.
   QuicStreamFrame frame(kClientDataStreamId1, /*fin=*/true, 0, "body");
@@ -803,13 +756,10 @@ TEST_P(QuicSpdyStreamTest, ReceivingTrailersAfterBodyWithFin) {
 
   // Receive trailing headers after FIN already received.
   SpdyHeaderBlock trailers_block;
-  string trailers = SpdyUtils::SerializeUncompressedHeaders(trailers_block);
-  stream_->OnStreamHeaders(trailers);
-
   EXPECT_CALL(*connection_,
               CloseConnection(QUIC_INVALID_HEADERS_STREAM_DATA, _, _))
       .Times(1);
-  stream_->OnStreamHeadersComplete(/*fin=*/true, trailers.size());
+  ProcessHeaders(false, trailers_block);
 }
 
 TEST_P(QuicSpdyStreamTest, ReceivingTrailersWithOffset) {
@@ -818,10 +768,8 @@ TEST_P(QuicSpdyStreamTest, ReceivingTrailersWithOffset) {
   Initialize(kShouldProcessData);
 
   // Receive initial headers.
-  string headers = SpdyUtils::SerializeUncompressedHeaders(headers_);
-  stream_->OnStreamHeaders(headers);
-  stream_->OnStreamHeadersComplete(false, headers.size());
-  stream_->MarkHeadersConsumed(stream_->decompressed_headers().size());
+  QuicHeaderList headers = ProcessHeaders(false, headers_);
+  stream_->ConsumeHeaderList();
 
   const string body = "this is the body";
   // Receive trailing headers.
@@ -829,19 +777,21 @@ TEST_P(QuicSpdyStreamTest, ReceivingTrailersWithOffset) {
   trailers_block["key1"] = "value1";
   trailers_block["key2"] = "value2";
   trailers_block["key3"] = "value3";
-  trailers_block[kFinalOffsetHeaderKey] = base::IntToString(body.size());
-  string trailers = SpdyUtils::SerializeUncompressedHeaders(trailers_block);
-  stream_->OnStreamHeaders(trailers);
-  stream_->OnStreamHeadersComplete(/*fin=*/true, trailers.size());
+  trailers_block[kFinalOffsetHeaderKey] =
+      QuicTextUtils::Uint64ToString(body.size());
+
+  QuicHeaderList trailers = ProcessHeaders(true, trailers_block);
 
   // The trailers should be decompressed, and readable from the stream.
   EXPECT_TRUE(stream_->trailers_decompressed());
-  const string decompressed_trailers = stream_->decompressed_trailers();
-  EXPECT_EQ(trailers, decompressed_trailers);
+
+  // The final offset trailer will be consumed by QUIC.
+  trailers_block.erase(kFinalOffsetHeaderKey);
+  EXPECT_EQ(trailers_block, stream_->received_trailers());
+
   // Consuming the trailers erases them from the stream.
-  stream_->MarkTrailersConsumed(decompressed_trailers.size());
   stream_->MarkTrailersConsumed();
-  EXPECT_EQ("", stream_->decompressed_trailers());
+  EXPECT_TRUE(stream_->FinishedReadingTrailers());
 
   EXPECT_FALSE(stream_->IsDoneReading());
   // Receive and consume body.
@@ -857,10 +807,9 @@ TEST_P(QuicSpdyStreamTest, ClosingStreamWithNoTrailers) {
   Initialize(kShouldProcessData);
 
   // Receive and consume initial headers with FIN not set.
-  string headers = SpdyUtils::SerializeUncompressedHeaders(headers_);
-  stream_->OnStreamHeaders(headers);
-  stream_->OnStreamHeadersComplete(/*fin=*/false, headers.size());
-  stream_->MarkHeadersConsumed(headers.size());
+  auto h = AsHeaderList(headers_);
+  stream_->OnStreamHeaderList(/*fin=*/false, h.uncompressed_header_bytes(), h);
+  stream_->ConsumeHeaderList();
 
   // Receive and consume body with FIN set, and no trailers.
   const string kBody = string(1024, 'x');
@@ -911,7 +860,8 @@ TEST_P(QuicSpdyStreamTest, WritingTrailersFinalOffset) {
   SpdyHeaderBlock trailers;
   trailers["trailer key"] = "trailer value";
   SpdyHeaderBlock trailers_with_offset(trailers.Clone());
-  trailers_with_offset[kFinalOffsetHeaderKey] = base::IntToString(kBodySize);
+  trailers_with_offset[kFinalOffsetHeaderKey] =
+      QuicTextUtils::Uint64ToString(kBodySize);
   EXPECT_CALL(*session_, WriteHeadersMock(_, _, true, _, _));
   stream_->WriteTrailers(std::move(trailers), nullptr);
   EXPECT_EQ(trailers_with_offset, session_->GetWriteHeaders());

@@ -6,10 +6,13 @@
 
 #import <UIKit/UIKit.h>
 
-#include "base/ios/ios_util.h"
 #include "base/logging.h"
 #import "ios/chrome/browser/ui/uikit_ui_util.h"
 #include "ui/gfx/ios/uikit_util.h"
+
+#if !defined(__has_feature) || !__has_feature(objc_arc)
+#error "This file requires ARC support."
+#endif
 
 bool IsIPadIdiom() {
   UIUserInterfaceIdiom idiom = [[UIDevice currentDevice] userInterfaceIdiom];
@@ -42,21 +45,11 @@ bool IsLandscape() {
 }
 
 CGFloat CurrentScreenHeight() {
-  CGSize screenSize = [UIScreen mainScreen].bounds.size;
-  if (base::ios::IsRunningOnIOS8OrLater()) {
-    return screenSize.height;
-  } else {
-    return IsPortrait() ? screenSize.height : screenSize.width;
-  }
+  return [UIScreen mainScreen].bounds.size.height;
 }
 
 CGFloat CurrentScreenWidth() {
-  CGSize screenSize = [UIScreen mainScreen].bounds.size;
-  if (base::ios::IsRunningOnIOS8OrLater()) {
-    return screenSize.width;
-  } else {
-    return IsPortrait() ? screenSize.width : screenSize.height;
-  }
+  return [UIScreen mainScreen].bounds.size.width;
 }
 
 CGFloat StatusBarHeight() {
@@ -117,6 +110,7 @@ void CalculateProjection(CGSize originalSize,
       break;
 
     case ProjectionMode::kAspectFill:
+    case ProjectionMode::kAspectFillAlignTop:
       if (targetAspectRatio < aspectRatio) {
         // Clip the x-axis.
         projectTo.size.width = targetSize.height * aspectRatio;
@@ -129,6 +123,9 @@ void CalculateProjection(CGSize originalSize,
         projectTo.size.height = targetSize.width / aspectRatio;
         projectTo.origin.x = 0;
         projectTo.origin.y = (targetSize.height - projectTo.size.height) / 2;
+      }
+      if (projectionMode == ProjectionMode::kAspectFillAlignTop) {
+        projectTo.origin.y = 0;
       }
       break;
 

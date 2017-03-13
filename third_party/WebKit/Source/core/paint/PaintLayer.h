@@ -49,12 +49,12 @@
 #include "core/layout/ClipRectsCache.h"
 #include "core/layout/LayoutBox.h"
 #include "core/paint/PaintLayerClipper.h"
-#include "core/paint/PaintLayerFilterInfo.h"
 #include "core/paint/PaintLayerFragment.h"
-#include "core/paint/PaintLayerPainter.h"
+#include "core/paint/PaintLayerResourceInfo.h"
 #include "core/paint/PaintLayerScrollableArea.h"
 #include "core/paint/PaintLayerStackingNode.h"
 #include "core/paint/PaintLayerStackingNodeIterator.h"
+#include "core/paint/PaintResult.h"
 #include "platform/graphics/CompositingReasons.h"
 #include "platform/graphics/SquashingDisallowedReasons.h"
 #include "wtf/Allocator.h"
@@ -67,12 +67,11 @@ namespace blink {
 class CompositedLayerMapping;
 class CompositorFilterOperations;
 class ComputedStyle;
+class FilterEffect;
 class FilterOperations;
-class HitTestRequest;
 class HitTestResult;
 class HitTestingTransformState;
 class PaintLayerCompositor;
-class PaintTiming;
 class TransformationMatrix;
 
 enum IncludeSelfOrNot { IncludeSelf, ExcludeSelf };
@@ -82,7 +81,7 @@ enum CompositingQueryMode {
   CompositingQueriesAreOnlyAllowedInCertainDocumentLifecyclePhases
 };
 
-// FIXME: remove this once the compositing query ASSERTS are no longer hit.
+// FIXME: remove this once the compositing query DCHECKS are no longer hit.
 class CORE_EXPORT DisableCompositingQueryAsserts {
   STACK_ALLOCATED();
   WTF_MAKE_NONCOPYABLE(DisableCompositingQueryAsserts);
@@ -138,7 +137,7 @@ struct PaintLayerRareData {
   // composited or paints into its own backing.
   CompositedLayerMapping* groupedMapping;
 
-  Persistent<PaintLayerFilterInfo> filterInfo;
+  Persistent<PaintLayerResourceInfo> resourceInfo;
 
   // The accumulated subpixel offset of a composited layer's composited bounds
   // compared to absolute coordinates.
@@ -251,10 +250,6 @@ class CORE_EXPORT PaintLayer : public DisplayItemClient {
   // FIXME: Many people call this function while it has out-of-date information.
   bool isSelfPaintingLayer() const { return m_isSelfPaintingLayer; }
 
-  // PaintLayers which represent LayoutParts may become self-painting due to
-  // being composited.  If this is the case, this method returns true.
-  bool isSelfPaintingOnlyBecauseIsCompositedPart() const;
-
   bool isTransparent() const {
     return layoutObject()->isTransparent() ||
            layoutObject()->style()->hasBlendMode() || layoutObject()->hasMask();
@@ -268,10 +263,12 @@ class CORE_EXPORT PaintLayer : public DisplayItemClient {
   }
 
   const LayoutPoint& location() const {
-    ASSERT(!m_needsPositionUpdate);
+#if DCHECK_IS_ON()
+    DCHECK(!m_needsPositionUpdate);
+#endif
     return m_location;
   }
-  // FIXME: size() should ASSERT(!m_needsPositionUpdate) as well, but that fails
+  // FIXME: size() should DCHECK(!m_needsPositionUpdate) as well, but that fails
   // in some tests, for example, fast/repaint/clipped-relative.html.
   const IntSize& size() const { return m_size; }
   void setSizeHackForLayoutTreeAsText(const IntSize& size) { m_size = size; }
@@ -290,7 +287,7 @@ class CORE_EXPORT PaintLayer : public DisplayItemClient {
   void updateLayerPosition();
 
   void updateLayerPositionsAfterLayout();
-  void updateLayerPositionsAfterOverflowScroll(const DoubleSize& scrollDelta);
+  void updateLayerPositionsAfterOverflowScroll();
 
   PaintLayer* enclosingPaginationLayer() const {
     return m_rareData ? m_rareData->enclosingPaginationLayer : nullptr;
@@ -313,22 +310,17 @@ class CORE_EXPORT PaintLayer : public DisplayItemClient {
     return !hasVisibleContent() && !hasVisibleDescendant();
   }
 
-  // FIXME: hasVisibleContent() should call updateDescendantDependentFlags() if
-  // m_isVisibleContentDirty.
   bool hasVisibleContent() const {
-    DCHECK(!m_isVisibleContentDirty);
+    DCHECK(!m_needsDescendantDependentFlagsUpdate);
     return m_hasVisibleContent;
   }
 
-  // FIXME: hasVisibleDescendant() should call updateDescendantDependentFlags()
-  // if m_isVisibleDescendantDirty.
   bool hasVisibleDescendant() const {
-    DCHECK(!m_isVisibleDescendantDirty);
+    DCHECK(!m_needsDescendantDependentFlagsUpdate);
     return m_hasVisibleDescendant;
   }
 
   void dirtyVisibleContentStatus();
-  void potentiallyDirtyVisibleContentStatus(EVisibility);
 
   bool hasBoxDecorationsOrBackground() const;
   bool hasVisibleBoxDecorations() const;
@@ -422,18 +414,16 @@ class CORE_EXPORT PaintLayer : public DisplayItemClient {
       CalculateBoundsOptions = MaybeIncludeTransformForAncestorLayer) const;
   LayoutRect fragmentsBoundingBox(const PaintLayer* ancestorLayer) const;
 
-  FloatRect boxForFilter() const;
+  FloatRect boxForFilterOrMask() const;
   LayoutRect boxForClipPath() const;
 
   LayoutRect boundingBoxForCompositingOverlapTest() const;
+  LayoutRect boundingBoxForCompositing() const;
 
   // If true, this layer's children are included in its bounds for overlap
   // testing.  We can't rely on the children's positions if this layer has a
   // filter that could have moved the children's pixels around.
   bool overlapBoundsIncludeChildren() const;
-  LayoutRect boundingBoxForCompositing(
-      const PaintLayer* ancestorLayer = 0,
-      CalculateBoundsOptions = MaybeIncludeTransformForAncestorLayer) const;
 
   LayoutUnit staticInlinePosition() const { return m_staticInlinePosition; }
   LayoutUnit staticBlockPosition() const { return m_staticBlockPosition; }
@@ -480,8 +470,6 @@ class CORE_EXPORT PaintLayer : public DisplayItemClient {
            layoutObject()->style()->preserves3D();
   }
 
-  void filterNeedsPaintInvalidation();
-
   // Returns |true| if any property that renders using filter operations is
   // used (including, but not limited to, 'filter' and 'box-reflect').
   bool hasFilterInducingProperty() const {
@@ -501,14 +489,17 @@ class CORE_EXPORT PaintLayer : public DisplayItemClient {
   // Don't null check this.
   // FIXME: Rename.
   CompositedLayerMapping* compositedLayerMapping() const;
-  GraphicsLayer* graphicsLayerBacking() const;
-  GraphicsLayer* graphicsLayerBackingForScrolling() const;
-  // Returns true for layers with scrollable overflow which have a background
-  // that can be painted into the composited scrolling contents layer when it
-  // exist (i.e. the background can scroll with the content). When the
-  // background is also opaque this allows us to composite the scroller even on
-  // low DPI as we can draw with subpixel anti-aliasing.
-  bool canPaintBackgroundOntoScrollingContentsLayer() const;
+
+  // Returns the GraphicsLayer owned by this PaintLayer's
+  // CompositedLayerMapping (or groupedMapping()'s, if squashed),
+  // into which the given LayoutObject paints. If null, assumes the
+  // LayoutObject is *not* layoutObject().
+  // Assumes that the given LayoutObject paints into one of the GraphicsLayers
+  // associated with this PaintLayer.
+  // Returns nullptr if this PaintLayer is not composited.
+  GraphicsLayer* graphicsLayerBacking(const LayoutObject* = nullptr) const;
+
+  BackgroundPaintLocation backgroundPaintLocation() const;
   // NOTE: If you are using hasCompositedLayerMapping to determine the state of
   // compositing for this layer, (and not just to do bookkeeping related to the
   // mapping like, say, allocating or deallocating a mapping), then you may have
@@ -535,6 +526,16 @@ class CORE_EXPORT PaintLayer : public DisplayItemClient {
     return m_scrollableArea && m_scrollableArea->needsCompositedScrolling();
   }
 
+  // Paint invalidation containers can be self-composited or squashed.
+  // In the former case, these methods do nothing.
+  // In the latter case, they adjust from the space of the squashed PaintLayer
+  // to the space of the PaintLayer into which it squashes.
+  //
+  // Note that this method does *not* adjust rects into the space of any
+  // particular GraphicsLayer. To do that requires adjusting for the
+  // offsetFromLayoutObject of the desired GraphicsLayer (which can differ
+  // for different GraphicsLayers belonging to the same
+  // CompositedLayerMapping).
   static void mapPointInPaintInvalidationContainerToBacking(
       const LayoutBoxModelObject& paintInvalidationContainer,
       FloatPoint&);
@@ -556,6 +557,12 @@ class CORE_EXPORT PaintLayer : public DisplayItemClient {
            ((globalPaintFlags & GlobalPaintFlattenCompositingLayers) ||
             compositingState() != PaintsIntoOwnBacking);
   }
+
+  // Returns true if the element or any ancestor is transformed.
+  bool compositesWithTransform() const;
+
+  // Returns true if the element or any ancestor has non 1 opacity.
+  bool compositesWithOpacity() const;
 
   bool paintsWithTransform(GlobalPaintFlags) const;
 
@@ -588,19 +595,21 @@ class CORE_EXPORT PaintLayer : public DisplayItemClient {
 
   bool hasFilterThatMovesPixels() const;
 
-  PaintLayerFilterInfo* filterInfo() const {
-    return m_rareData ? m_rareData->filterInfo.get() : nullptr;
+  PaintLayerResourceInfo* resourceInfo() const {
+    return m_rareData ? m_rareData->resourceInfo.get() : nullptr;
   }
-  PaintLayerFilterInfo& ensureFilterInfo();
+  PaintLayerResourceInfo& ensureResourceInfo();
 
   void updateFilters(const ComputedStyle* oldStyle,
                      const ComputedStyle& newStyle);
+  void updateClipPath(const ComputedStyle* oldStyle,
+                      const ComputedStyle& newStyle);
 
   Node* enclosingNode() const;
 
   bool isInTopLayer() const;
 
-  bool scrollsWithViewport() const;
+  bool sticksToViewport() const;
   bool scrollsWithRespectTo(const PaintLayer*) const;
 
   void addLayerHitTestRects(LayerHitTestRects&) const;
@@ -626,7 +635,7 @@ class CORE_EXPORT PaintLayer : public DisplayItemClient {
                       : CompositingReasonNone;
   }
   void setPotentialCompositingReasonsFromStyle(CompositingReasons reasons) {
-    ASSERT(reasons ==
+    DCHECK(reasons ==
            (reasons & CompositingReasonComboAllStyleDeterminedReasons));
     if (m_rareData || reasons != CompositingReasonNone)
       ensureRareData().potentialCompositingReasonsFromStyle = reasons;
@@ -638,31 +647,16 @@ class CORE_EXPORT PaintLayer : public DisplayItemClient {
   }
 
   class AncestorDependentCompositingInputs {
-    DISALLOW_NEW();
-
    public:
-    AncestorDependentCompositingInputs() : clippingContainer(nullptr) {}
-
-    IntRect clippedAbsoluteBoundingBox;
-    const LayoutObject* clippingContainer;
-  };
-
-  class RareAncestorDependentCompositingInputs {
-   public:
-    RareAncestorDependentCompositingInputs()
+    AncestorDependentCompositingInputs()
         : opacityAncestor(nullptr),
           transformAncestor(nullptr),
           filterAncestor(nullptr),
           ancestorScrollingLayer(nullptr),
           nearestFixedPositionLayer(nullptr),
           scrollParent(nullptr),
-          clipParent(nullptr) {}
-
-    bool isDefault() const {
-      return !opacityAncestor && !transformAncestor && !filterAncestor &&
-             !ancestorScrollingLayer && !nearestFixedPositionLayer &&
-             !scrollParent && !clipParent;
-    }
+          clipParent(nullptr),
+          clippingContainer(nullptr) {}
 
     const PaintLayer* opacityAncestor;
     const PaintLayer* transformAncestor;
@@ -688,6 +682,10 @@ class CORE_EXPORT PaintLayer : public DisplayItemClient {
     // needs to know about clip parents in order to circumvent its normal
     // clipping logic.
     const PaintLayer* clipParent;
+
+    IntRect clippedAbsoluteBoundingBox;
+    IntRect unclippedAbsoluteBoundingBox;
+    const LayoutObject* clippingContainer;
   };
 
   void setNeedsCompositingInputsUpdate();
@@ -695,11 +693,7 @@ class CORE_EXPORT PaintLayer : public DisplayItemClient {
     return m_childNeedsCompositingInputsUpdate;
   }
   bool needsCompositingInputsUpdate() const {
-    // While we're updating the compositing inputs, these values may differ.
-    // We should never be asking for this value when that is the case.
-    ASSERT(m_needsDescendantDependentCompositingInputsUpdate ==
-           m_needsAncestorDependentCompositingInputsUpdate);
-    return m_needsDescendantDependentCompositingInputsUpdate;
+    return m_needsAncestorDependentCompositingInputsUpdate;
   }
 
   void updateAncestorOverflowLayer(const PaintLayer* ancestorOverflowLayer) {
@@ -707,7 +701,6 @@ class CORE_EXPORT PaintLayer : public DisplayItemClient {
   }
   void updateAncestorDependentCompositingInputs(
       const AncestorDependentCompositingInputs&,
-      const RareAncestorDependentCompositingInputs&,
       bool hasAncestorWithClipPath);
   void updateDescendantDependentCompositingInputs(
       bool hasDescendantWithClipPath,
@@ -715,111 +708,119 @@ class CORE_EXPORT PaintLayer : public DisplayItemClient {
       bool hasRootScrollerAsDescendant);
   void didUpdateCompositingInputs();
 
-  IntRect clippedAbsoluteBoundingBox() const {
-    ASSERT(!m_needsAncestorDependentCompositingInputsUpdate);
-    return m_ancestorDependentCompositingInputs.clippedAbsoluteBoundingBox;
+  const IntRect& clippedAbsoluteBoundingBox() const {
+    DCHECK(!m_needsAncestorDependentCompositingInputsUpdate);
+    return m_ancestorDependentCompositingInputs->clippedAbsoluteBoundingBox;
+  }
+  const IntRect& unclippedAbsoluteBoundingBox() const {
+    DCHECK(!m_needsAncestorDependentCompositingInputsUpdate);
+    return m_ancestorDependentCompositingInputs->unclippedAbsoluteBoundingBox;
   }
   const PaintLayer* opacityAncestor() const {
-    ASSERT(!m_needsAncestorDependentCompositingInputsUpdate);
-    return m_rareAncestorDependentCompositingInputs
-               ? m_rareAncestorDependentCompositingInputs->opacityAncestor
+    DCHECK(!m_needsAncestorDependentCompositingInputsUpdate);
+    return m_ancestorDependentCompositingInputs
+               ? m_ancestorDependentCompositingInputs->opacityAncestor
                : nullptr;
   }
   const PaintLayer* transformAncestor() const {
-    ASSERT(!m_needsAncestorDependentCompositingInputsUpdate);
-    return m_rareAncestorDependentCompositingInputs
-               ? m_rareAncestorDependentCompositingInputs->transformAncestor
+    DCHECK(!m_needsAncestorDependentCompositingInputsUpdate);
+    return m_ancestorDependentCompositingInputs
+               ? m_ancestorDependentCompositingInputs->transformAncestor
                : nullptr;
   }
   const PaintLayer* filterAncestor() const {
-    ASSERT(!m_needsAncestorDependentCompositingInputsUpdate);
-    return m_rareAncestorDependentCompositingInputs
-               ? m_rareAncestorDependentCompositingInputs->filterAncestor
+    DCHECK(!m_needsAncestorDependentCompositingInputsUpdate);
+    return m_ancestorDependentCompositingInputs
+               ? m_ancestorDependentCompositingInputs->filterAncestor
                : nullptr;
   }
   const LayoutObject* clippingContainer() const {
-    ASSERT(!m_needsAncestorDependentCompositingInputsUpdate);
-    return m_ancestorDependentCompositingInputs.clippingContainer;
+    DCHECK(!m_needsAncestorDependentCompositingInputsUpdate);
+    return m_ancestorDependentCompositingInputs->clippingContainer;
   }
   const PaintLayer* ancestorOverflowLayer() const {
     return m_ancestorOverflowLayer;
   }
   const PaintLayer* ancestorScrollingLayer() const {
-    ASSERT(!m_needsAncestorDependentCompositingInputsUpdate);
-    return m_rareAncestorDependentCompositingInputs
-               ? m_rareAncestorDependentCompositingInputs
-                     ->ancestorScrollingLayer
+    DCHECK(!m_needsAncestorDependentCompositingInputsUpdate);
+    return m_ancestorDependentCompositingInputs
+               ? m_ancestorDependentCompositingInputs->ancestorScrollingLayer
                : nullptr;
   }
   const PaintLayer* nearestFixedPositionLayer() const {
-    ASSERT(!m_needsAncestorDependentCompositingInputsUpdate);
-    return m_rareAncestorDependentCompositingInputs
-               ? m_rareAncestorDependentCompositingInputs
-                     ->nearestFixedPositionLayer
+    DCHECK(!m_needsAncestorDependentCompositingInputsUpdate);
+    return m_ancestorDependentCompositingInputs
+               ? m_ancestorDependentCompositingInputs->nearestFixedPositionLayer
                : nullptr;
   }
   const PaintLayer* scrollParent() const {
-    ASSERT(!m_needsAncestorDependentCompositingInputsUpdate);
-    return m_rareAncestorDependentCompositingInputs
-               ? m_rareAncestorDependentCompositingInputs->scrollParent
+    DCHECK(!m_needsAncestorDependentCompositingInputsUpdate);
+    return m_ancestorDependentCompositingInputs
+               ? m_ancestorDependentCompositingInputs->scrollParent
                : nullptr;
   }
   const PaintLayer* clipParent() const {
-    ASSERT(!m_needsAncestorDependentCompositingInputsUpdate);
-    return m_rareAncestorDependentCompositingInputs
-               ? m_rareAncestorDependentCompositingInputs->clipParent
+    DCHECK(!m_needsAncestorDependentCompositingInputsUpdate);
+    return m_ancestorDependentCompositingInputs
+               ? m_ancestorDependentCompositingInputs->clipParent
                : nullptr;
   }
   bool hasAncestorWithClipPath() const {
-    ASSERT(!m_needsAncestorDependentCompositingInputsUpdate);
+    DCHECK(!m_needsAncestorDependentCompositingInputsUpdate);
     return m_hasAncestorWithClipPath;
   }
   bool hasDescendantWithClipPath() const {
-    ASSERT(!m_needsDescendantDependentCompositingInputsUpdate);
+    DCHECK(!m_needsDescendantDependentFlagsUpdate);
     return m_hasDescendantWithClipPath;
   }
+
+  // Returns true if there is a descendant with blend-mode that is
+  // not contained within another enclosing stacking context other
+  // than the stacking context blend-mode creates, or the stacking
+  // context this PaintLayer might create. This is needed because
+  // blend-mode content needs to blend with the containing stacking
+  // context's painted output, but not the content in any grandparent
+  // stacking contexts.
   bool hasNonIsolatedDescendantWithBlendMode() const;
 
   bool hasRootScrollerAsDescendant() const {
-    ASSERT(!m_needsDescendantDependentCompositingInputsUpdate);
+    DCHECK(!m_needsDescendantDependentFlagsUpdate);
     return m_hasRootScrollerAsDescendant;
   }
 
   bool lostGroupedMapping() const {
-    ASSERT(isAllowedToQueryCompositingState());
+    DCHECK(isAllowedToQueryCompositingState());
     return m_lostGroupedMapping;
   }
   void setLostGroupedMapping(bool b) { m_lostGroupedMapping = b; }
 
   CompositingReasons getCompositingReasons() const {
-    ASSERT(isAllowedToQueryCompositingState());
+    DCHECK(isAllowedToQueryCompositingState());
     return m_rareData ? m_rareData->compositingReasons : CompositingReasonNone;
   }
   void setCompositingReasons(CompositingReasons,
                              CompositingReasons mask = CompositingReasonAll);
 
   SquashingDisallowedReasons getSquashingDisallowedReasons() const {
-    ASSERT(isAllowedToQueryCompositingState());
+    DCHECK(isAllowedToQueryCompositingState());
     return m_rareData ? m_rareData->squashingDisallowedReasons
                       : SquashingDisallowedReasonsNone;
   }
   void setSquashingDisallowedReasons(SquashingDisallowedReasons);
 
   bool hasCompositingDescendant() const {
-    ASSERT(isAllowedToQueryCompositingState());
+    DCHECK(isAllowedToQueryCompositingState());
     return m_hasCompositingDescendant;
   }
   void setHasCompositingDescendant(bool);
 
   bool shouldIsolateCompositedDescendants() const {
-    ASSERT(isAllowedToQueryCompositingState());
+    DCHECK(isAllowedToQueryCompositingState());
     return m_shouldIsolateCompositedDescendants;
   }
   void setShouldIsolateCompositedDescendants(bool);
 
   void updateDescendantDependentFlags();
-
-  void updateOrRemoveFilterEffect();
 
   void updateSelfPaintingLayer();
   // This is O(depth) so avoid calling this in loops. Instead use optimizations
@@ -834,7 +835,7 @@ class CORE_EXPORT PaintLayer : public DisplayItemClient {
   bool hasSelfPaintingLayerDescendant() const {
     if (m_hasSelfPaintingLayerDescendantDirty)
       updateHasSelfPaintingLayerDescendant();
-    ASSERT(!m_hasSelfPaintingLayerDescendantDirty);
+    DCHECK(!m_hasSelfPaintingLayerDescendantDirty);
     return m_hasSelfPaintingLayerDescendant;
   }
   LayoutRect paintingExtent(const PaintLayer* rootLayer,
@@ -912,12 +913,12 @@ class CORE_EXPORT PaintLayer : public DisplayItemClient {
     m_previousPaintDirtyRect = rect;
   }
 
-  PaintLayerPainter::PaintResult previousPaintResult() const {
-    return static_cast<PaintLayerPainter::PaintResult>(m_previousPaintResult);
+  PaintResult previousPaintResult() const {
+    return static_cast<PaintResult>(m_previousPaintResult);
   }
-  void setPreviousPaintResult(PaintLayerPainter::PaintResult result) {
+  void setPreviousPaintResult(PaintResult result) {
     m_previousPaintResult = static_cast<unsigned>(result);
-    ASSERT(m_previousPaintResult == static_cast<unsigned>(result));
+    DCHECK(m_previousPaintResult == static_cast<unsigned>(result));
   }
 
   // Used to skip PaintPhaseDescendantOutlinesOnly for layers that have never
@@ -965,22 +966,28 @@ class CORE_EXPORT PaintLayer : public DisplayItemClient {
     m_previousPaintPhaseDescendantBlockBackgroundsWasEmpty = isEmpty;
   }
 
-  PaintTiming* paintTiming();
-
   ClipRectsCache* clipRectsCache() const { return m_clipRectsCache.get(); }
   ClipRectsCache& ensureClipRectsCache() const {
     if (!m_clipRectsCache)
-      m_clipRectsCache = wrapUnique(new ClipRectsCache);
+      m_clipRectsCache = WTF::wrapUnique(new ClipRectsCache);
     return *m_clipRectsCache;
   }
   void clearClipRectsCache() const { m_clipRectsCache.reset(); }
 
-  void dirty3DTransformedDescendantStatus();
-  // Both updates the status, and returns true if descendants of this have 3d.
-  bool update3DTransformedDescendantStatus();
   bool has3DTransformedDescendant() const {
-    DCHECK(!m_is3DTransformedDescendantDirty);
+    DCHECK(!m_needsDescendantDependentFlagsUpdate);
     return m_has3DTransformedDescendant;
+  }
+
+  // Whether the value of isSelfPaintingLayer() changed since the last clearing
+  // (which happens after the flag is chedked during compositing update).
+  bool selfPaintingStatusChanged() const {
+    DCHECK(!RuntimeEnabledFeatures::slimmingPaintV2Enabled());
+    return m_selfPaintingStatusChanged;
+  }
+  void clearSelfPaintingStatusChanged() {
+    DCHECK(!RuntimeEnabledFeatures::slimmingPaintV2Enabled());
+    m_selfPaintingStatusChanged = false;
   }
 
 #if CHECK_DISPLAY_ITEM_CLIENT_ALIVENESS
@@ -988,6 +995,10 @@ class CORE_EXPORT PaintLayer : public DisplayItemClient {
 #endif
 
  private:
+  void setNeedsCompositingInputsUpdateInternal();
+
+  void update3DTransformedDescendantStatus();
+
   // Bounding box in the coordinates of this layer.
   LayoutRect logicalBoundingBox() const;
 
@@ -996,9 +1007,6 @@ class CORE_EXPORT PaintLayer : public DisplayItemClient {
   void dirtyAncestorChainHasSelfPaintingLayerDescendantStatus();
 
   void updateLayerPositionRecursive();
-  void updateLayerPositionsAfterScrollRecursive(
-      const DoubleSize& scrollDelta,
-      bool paintInvalidationContainerWasScrolled);
 
   void setNextSibling(PaintLayer* next) { m_next = next; }
   void setPreviousSibling(PaintLayer* prev) { m_previous = prev; }
@@ -1073,7 +1081,6 @@ class CORE_EXPORT PaintLayer : public DisplayItemClient {
   void updateStackingNode();
 
   FilterOperations addReflectionToFilterOperations(const ComputedStyle&) const;
-  FilterEffect* updateFilterEffect() const;
 
   // FIXME: We could lazily allocate our ScrollableArea based on style
   // properties ('overflow', ...) but for now, we are always allocating it for
@@ -1081,7 +1088,7 @@ class CORE_EXPORT PaintLayer : public DisplayItemClient {
   bool requiresScrollableArea() const { return layoutBox(); }
   void updateScrollableArea();
 
-  void dirtyAncestorChainVisibleDescendantStatus();
+  void markAncestorChainForDescendantDependentFlagsUpdate();
 
   bool attemptDirectCompositingUpdate(StyleDifference,
                                       const ComputedStyle* oldStyle);
@@ -1089,8 +1096,6 @@ class CORE_EXPORT PaintLayer : public DisplayItemClient {
                        const ComputedStyle& newStyle);
 
   void removeAncestorOverflowLayer(const PaintLayer* removedLayer);
-
-  void updateOrRemoveFilterClients();
 
   void updatePaginationRecursive(bool needsPaginationUpdate = false);
   void clearPaginationRecursive();
@@ -1100,7 +1105,7 @@ class CORE_EXPORT PaintLayer : public DisplayItemClient {
 
   PaintLayerRareData& ensureRareData() {
     if (!m_rareData)
-      m_rareData = wrapUnique(new PaintLayerRareData);
+      m_rareData = WTF::wrapUnique(new PaintLayerRareData);
     return *m_rareData;
   }
 
@@ -1112,9 +1117,18 @@ class CORE_EXPORT PaintLayer : public DisplayItemClient {
         layer.m_needsPaintPhaseDescendantBlockBackgrounds;
   }
 
-  bool isSelfPaintingLayerForIntrinsicOrScrollingReasons() const;
-
   bool shouldFragmentCompositedBounds(const PaintLayer* compositingLayer) const;
+
+  void expandRectForStackingChildren(const PaintLayer* compositedLayer,
+                                     LayoutRect& result,
+                                     PaintLayer::CalculateBoundsOptions) const;
+
+  // The return value is in the space of |stackingParent|, if non-null, or
+  // |this| otherwise.
+  LayoutRect boundingBoxForCompositingInternal(
+      const PaintLayer* compositedLayer,
+      const PaintLayer* stackingParent,
+      CalculateBoundsOptions) const;
 
   // Self-painting layer is an optimization where we avoid the heavy Layer
   // painting machinery for a Layer allocated only to handle the overflow clip
@@ -1132,16 +1146,14 @@ class CORE_EXPORT PaintLayer : public DisplayItemClient {
 
   const unsigned m_isRootLayer : 1;
 
-  unsigned m_isVisibleContentDirty : 1;
   unsigned m_hasVisibleContent : 1;
-  unsigned m_isVisibleDescendantDirty : 1;
+  unsigned m_needsDescendantDependentFlagsUpdate : 1;
   unsigned m_hasVisibleDescendant : 1;
 
-#if ENABLE(ASSERT)
+#if DCHECK_IS_ON()
   unsigned m_needsPositionUpdate : 1;
 #endif
 
-  unsigned m_is3DTransformedDescendantDirty : 1;
   // Set on a stacking context layer that has 3D descendants anywhere
   // in a preserves3D hierarchy. Hint to do 3D-aware hit testing.
   unsigned m_has3DTransformedDescendant : 1;
@@ -1149,7 +1161,6 @@ class CORE_EXPORT PaintLayer : public DisplayItemClient {
   unsigned m_containsDirtyOverlayScrollbars : 1;
 
   unsigned m_needsAncestorDependentCompositingInputsUpdate : 1;
-  unsigned m_needsDescendantDependentCompositingInputsUpdate : 1;
   unsigned m_childNeedsCompositingInputsUpdate : 1;
 
   // Used only while determining what layers should be composited. Applies to
@@ -1170,7 +1181,9 @@ class CORE_EXPORT PaintLayer : public DisplayItemClient {
   unsigned m_lostGroupedMapping : 1;
 
   unsigned m_needsRepaint : 1;
-  unsigned m_previousPaintResult : 1;  // PaintLayerPainter::PaintResult
+  unsigned m_previousPaintResult : 1;  // PaintResult
+  static_assert(MaxPaintResult <= 2,
+                "Should update number of bits of m_previousPaintResult");
 
   unsigned m_needsPaintPhaseDescendantOutlines : 1;
   unsigned m_previousPaintPhaseDescendantOutlinesWasEmpty : 1;
@@ -1185,6 +1198,8 @@ class CORE_EXPORT PaintLayer : public DisplayItemClient {
   unsigned m_hasNonIsolatedDescendantWithBlendMode : 1;
   unsigned m_hasAncestorWithClipPath : 1;
   unsigned m_hasRootScrollerAsDescendant : 1;
+
+  unsigned m_selfPaintingStatusChanged : 1;
 
   LayoutBoxModelObject* m_layoutObject;
 
@@ -1211,9 +1226,8 @@ class CORE_EXPORT PaintLayer : public DisplayItemClient {
   // The first ancestor having a non visible overflow.
   const PaintLayer* m_ancestorOverflowLayer;
 
-  AncestorDependentCompositingInputs m_ancestorDependentCompositingInputs;
-  std::unique_ptr<RareAncestorDependentCompositingInputs>
-      m_rareAncestorDependentCompositingInputs;
+  std::unique_ptr<AncestorDependentCompositingInputs>
+      m_ancestorDependentCompositingInputs;
 
   Persistent<PaintLayerScrollableArea> m_scrollableArea;
 
@@ -1226,6 +1240,9 @@ class CORE_EXPORT PaintLayer : public DisplayItemClient {
   LayoutRect m_previousPaintDirtyRect;
 
   std::unique_ptr<PaintLayerRareData> m_rareData;
+
+  FRIEND_TEST_ALL_PREFIXES(PaintLayerTest,
+                           DescendantDependentFlagsStopsAtThrottledFrames);
 };
 
 }  // namespace blink

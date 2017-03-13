@@ -13,8 +13,8 @@ import unittest
 import warnings
 
 from chromite.cbuildbot import binhost
-from chromite.cbuildbot import config_lib
-from chromite.cbuildbot import constants
+from chromite.lib import config_lib
+from chromite.lib import constants
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
 from chromite.lib import cros_test_lib
@@ -182,9 +182,15 @@ class PrebuiltCompatibilityTest(cros_test_lib.TestCase):
         continue
 
       # Look for boards with missing prebuilts.
-      pre_cq = (config.build_type == config_lib.CONFIG_TYPE_PRECQ)
-      if ((config.usepkg_build_packages and not config.chrome_rev) and
-          (config.active_waterfall or pre_cq)):
+      builds_chrome = config.usepkg_build_packages and not config.chrome_rev
+
+      production_config = (
+          (config.build_type == config_lib.CONFIG_TYPE_PRECQ) or
+          (config.active_waterfall and
+           config.active_waterfall != constants.WATERFALL_TRYBOT)
+      )
+
+      if builds_chrome and production_config:
         self.AssertChromePrebuilts(pfq_configs, config)
 
         # Check that we have a builder for the version w/o custom useflags as

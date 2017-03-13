@@ -32,18 +32,21 @@
 
 #include "core/animation/AnimationTimeline.h"
 #include "core/animation/CompositorPendingAnimations.h"
-#include "core/animation/KeyframeEffect.h"
+#include "core/animation/KeyframeEffectReadOnly.h"
 #include "core/animation/css/CSSAnimations.h"
 #include "core/dom/Document.h"
 #include "core/dom/ExceptionCode.h"
 #include "core/dom/StyleChangeReason.h"
+#include "core/dom/TaskRunnerHelper.h"
 #include "core/events/AnimationPlaybackEvent.h"
 #include "core/frame/UseCounter.h"
 #include "core/inspector/InspectorInstrumentation.h"
 #include "core/inspector/InspectorTraceEvents.h"
 #include "platform/RuntimeEnabledFeatures.h"
+#include "platform/WebTaskRunner.h"
 #include "platform/animation/CompositorAnimationPlayer.h"
-#include "platform/tracing/TraceEvent.h"
+#include "platform/heap/Persistent.h"
+#include "platform/instrumentation/tracing/TraceEvent.h"
 #include "public/platform/Platform.h"
 #include "public/platform/WebCompositorSupport.h"
 #include "wtf/MathExtras.h"
@@ -68,7 +71,6 @@ Animation* Animation::create(AnimationEffectReadOnly* effect,
 
   Animation* animation =
       new Animation(timeline->document()->contextDocument(), *timeline, effect);
-  animation->suspendIfNeeded();
 
   if (timeline) {
     timeline->animationAttached(*animation);
@@ -81,8 +83,7 @@ Animation* Animation::create(AnimationEffectReadOnly* effect,
 Animation::Animation(ExecutionContext* executionContext,
                      AnimationTimeline& timeline,
                      AnimationEffectReadOnly* content)
-    : ActiveScriptWrappable(this),
-      ActiveDOMObject(executionContext),
+    : ContextLifecycleObserver(executionContext),
       m_playState(Idle),
       m_playbackRate(1),
       m_startTime(nullValue()),
@@ -99,7 +100,6 @@ Animation::Animation(ExecutionContext* executionContext,
       m_compositorState(nullptr),
       m_compositorPending(false),
       m_compositorGroup(0),
-      m_preFinalizerRegistered(false),
       m_currentTimePending(false),
       m_stateIsBeingUpdated(false),
       m_effectSuppressed(false) {
@@ -115,7 +115,8 @@ Animation::Animation(ExecutionContext* executionContext,
 }
 
 Animation::~Animation() {
-  destroyCompositorPlayer();
+  // Verify that m_compositorPlayer has been disposed of.
+  DCHECK(!m_compositorPlayer);
 }
 
 void Animation::dispose() {
@@ -295,7 +296,7 @@ bool Animation::preCommit(int compositorGroup, bool startOnCompositor) {
         createCompositorPlayer();
 
       if (maybeStartAnimationOnCompositor())
-        m_compositorState = wrapUnique(new CompositorState(*this));
+        m_compositorState = WTF::wrapUnique(new CompositorState(*this));
       else
         cancelIncompatibleAnimationsOnCompositor();
     }
@@ -388,10 +389,11 @@ void Animation::notifyStartTime(double timelineTime) {
 }
 
 bool Animation::affects(const Element& element, CSSPropertyID property) const {
-  if (!m_content || !m_content->isKeyframeEffect())
+  if (!m_content || !m_content->isKeyframeEffectReadOnly())
     return false;
 
-  const KeyframeEffect* effect = toKeyframeEffect(m_content.get());
+  const KeyframeEffectReadOnly* effect =
+      toKeyframeEffectReadOnly(m_content.get());
   return (effect->target() == &element) &&
          effect->affects(PropertyHandle(property));
 }
@@ -446,7 +448,7 @@ void Animation::setStartTimeInternal(double newStartTime) {
   } else if (!hadStartTime && m_timeline) {
     // Even though this animation is not outdated, time to effect change is
     // infinity until start time is set.
-    m_timeline->wake();
+    forceServiceOnNextFrame();
   }
 }
 
@@ -618,6 +620,7 @@ void Animation::finish(ExceptionState& exceptionState) {
   m_currentTimePending = false;
   m_startTime = calculateStartTime(newCurrentTime);
   m_playState = Finished;
+  forceServiceOnNextFrame();
 }
 
 ScriptPromise Animation::finished(ScriptState* scriptState) {
@@ -645,15 +648,19 @@ const AtomicString& Animation::interfaceName() const {
 }
 
 ExecutionContext* Animation::getExecutionContext() const {
-  return ActiveDOMObject::getExecutionContext();
+  return ContextLifecycleObserver::getExecutionContext();
 }
 
 bool Animation::hasPendingActivity() const {
-  return m_pendingFinishedEvent ||
+  bool hasPendingPromise =
+      m_finishedPromise &&
+      m_finishedPromise->getState() == ScriptPromisePropertyBase::Pending;
+
+  return m_pendingFinishedEvent || hasPendingPromise ||
          (!m_finished && hasEventListeners(EventTypeNames::finish));
 }
 
-void Animation::contextDestroyed() {
+void Animation::contextDestroyed(ExecutionContext*) {
   PlayStateUpdateScope updateScope(*this, TimingUpdateOnDemand);
 
   m_finished = true;
@@ -712,6 +719,10 @@ void Animation::setOutdated() {
     m_timeline->setOutdatedAnimation(this);
 }
 
+void Animation::forceServiceOnNextFrame() {
+  m_timeline->wake();
+}
+
 bool Animation::canStartAnimationOnCompositor() const {
   if (m_isCompositedAnimationDisabledForTesting || effectSuppressed())
     return false;
@@ -721,14 +732,15 @@ bool Animation::canStartAnimationOnCompositor() const {
       (timeline() && timeline()->playbackRate() != 1))
     return false;
 
-  return m_timeline && m_content && m_content->isKeyframeEffect() && playing();
+  return m_timeline && m_content && m_content->isKeyframeEffectReadOnly() &&
+         playing();
 }
 
 bool Animation::isCandidateForAnimationOnCompositor() const {
   if (!canStartAnimationOnCompositor())
     return false;
 
-  return toKeyframeEffect(m_content.get())
+  return toKeyframeEffectReadOnly(m_content.get())
       ->isCandidateForAnimationOnCompositor(m_playbackRate);
 }
 
@@ -750,7 +762,7 @@ bool Animation::maybeStartAnimationOnCompositor() {
     timeOffset = timeOffset / fabs(m_playbackRate);
   }
   DCHECK_NE(m_compositorGroup, 0);
-  return toKeyframeEffect(m_content.get())
+  return toKeyframeEffectReadOnly(m_content.get())
       ->maybeStartAnimationOnCompositor(m_compositorGroup, startTime,
                                         timeOffset, m_playbackRate);
 }
@@ -777,27 +789,28 @@ void Animation::setCompositorPending(bool effectChanged) {
 
 void Animation::cancelAnimationOnCompositor() {
   if (hasActiveAnimationsOnCompositor())
-    toKeyframeEffect(m_content.get())->cancelAnimationOnCompositor();
+    toKeyframeEffectReadOnly(m_content.get())->cancelAnimationOnCompositor();
 
   destroyCompositorPlayer();
 }
 
 void Animation::restartAnimationOnCompositor() {
   if (hasActiveAnimationsOnCompositor())
-    toKeyframeEffect(m_content.get())->restartAnimationOnCompositor();
+    toKeyframeEffectReadOnly(m_content.get())->restartAnimationOnCompositor();
 }
 
 void Animation::cancelIncompatibleAnimationsOnCompositor() {
-  if (m_content && m_content->isKeyframeEffect())
-    toKeyframeEffect(m_content.get())
+  if (m_content && m_content->isKeyframeEffectReadOnly())
+    toKeyframeEffectReadOnly(m_content.get())
         ->cancelIncompatibleAnimationsOnCompositor();
 }
 
 bool Animation::hasActiveAnimationsOnCompositor() {
-  if (!m_content || !m_content->isKeyframeEffect())
+  if (!m_content || !m_content->isKeyframeEffectReadOnly())
     return false;
 
-  return toKeyframeEffect(m_content.get())->hasActiveAnimationsOnCompositor();
+  return toKeyframeEffectReadOnly(m_content.get())
+      ->hasActiveAnimationsOnCompositor();
 }
 
 bool Animation::update(TimingUpdateReason reason) {
@@ -881,6 +894,7 @@ void Animation::cancel() {
   m_playState = Idle;
   m_startTime = nullValue();
   m_currentTimePending = false;
+  forceServiceOnNextFrame();
 }
 
 void Animation::beginUpdatingState() {
@@ -897,17 +911,9 @@ void Animation::endUpdatingState() {
 void Animation::createCompositorPlayer() {
   if (Platform::current()->isThreadedAnimationEnabled() &&
       !m_compositorPlayer) {
-    // We only need to pre-finalize if we are running animations on the
-    // compositor.
-    if (!m_preFinalizerRegistered) {
-      ThreadState::current()->registerPreFinalizer(this);
-      m_preFinalizerRegistered = true;
-    }
-
     DCHECK(Platform::current()->compositorSupport());
-    m_compositorPlayer = CompositorAnimationPlayer::create();
+    m_compositorPlayer = CompositorAnimationPlayerHolder::create(this);
     DCHECK(m_compositorPlayer);
-    m_compositorPlayer->setAnimationDelegate(this);
     attachCompositorTimeline();
   }
 
@@ -919,8 +925,8 @@ void Animation::destroyCompositorPlayer() {
 
   if (m_compositorPlayer) {
     detachCompositorTimeline();
-    m_compositorPlayer->setAnimationDelegate(nullptr);
-    m_compositorPlayer.reset();
+    m_compositorPlayer->detach();
+    m_compositorPlayer = nullptr;
   }
 }
 
@@ -947,14 +953,14 @@ void Animation::attachCompositedLayers() {
     return;
 
   DCHECK(m_content);
-  DCHECK(m_content->isKeyframeEffect());
+  DCHECK(m_content->isKeyframeEffectReadOnly());
 
-  toKeyframeEffect(m_content.get())->attachCompositedLayers();
+  toKeyframeEffectReadOnly(m_content.get())->attachCompositedLayers();
 }
 
 void Animation::detachCompositedLayers() {
-  if (m_compositorPlayer && m_compositorPlayer->isElementAttached())
-    m_compositorPlayer->detachElement();
+  if (m_compositorPlayer && m_compositorPlayer->player()->isElementAttached())
+    m_compositorPlayer->player()->detachElement();
 }
 
 void Animation::notifyAnimationStarted(double monotonicTime, int group) {
@@ -1009,9 +1015,9 @@ Animation::PlayStateUpdateScope::~PlayStateUpdateScope() {
         m_animation->m_readyPromise->reject(DOMException::create(AbortError));
       }
       m_animation->m_readyPromise->reset();
-      m_animation->m_readyPromise->resolve(m_animation);
+      m_animation->resolvePromiseAsync(m_animation->m_readyPromise.get());
     } else if (oldPlayState == Pending) {
-      m_animation->m_readyPromise->resolve(m_animation);
+      m_animation->resolvePromiseAsync(m_animation->m_readyPromise.get());
     } else if (newPlayState == Pending) {
       DCHECK_NE(m_animation->m_readyPromise->getState(),
                 AnimationPromise::Pending);
@@ -1028,7 +1034,7 @@ Animation::PlayStateUpdateScope::~PlayStateUpdateScope() {
       }
       m_animation->m_finishedPromise->reset();
     } else if (newPlayState == Finished) {
-      m_animation->m_finishedPromise->resolve(m_animation);
+      m_animation->resolvePromiseAsync(m_animation->m_finishedPromise.get());
     } else if (oldPlayState == Finished) {
       m_animation->m_finishedPromise->reset();
     }
@@ -1074,10 +1080,9 @@ void Animation::addedEventListener(
 }
 
 void Animation::pauseForTesting(double pauseTime) {
-  RELEASE_ASSERT(!paused());
   setCurrentTimeInternal(pauseTime, TimingUpdateOnDemand);
   if (hasActiveAnimationsOnCompositor())
-    toKeyframeEffect(m_content.get())
+    toKeyframeEffectReadOnly(m_content.get())
         ->pauseAnimationForTestingOnCompositor(currentTimeInternal());
   m_isPausedForTesting = true;
   pause();
@@ -1095,15 +1100,22 @@ void Animation::disableCompositedAnimationForTesting() {
 }
 
 void Animation::invalidateKeyframeEffect(const TreeScope& treeScope) {
-  if (!m_content || !m_content->isKeyframeEffect())
+  if (!m_content || !m_content->isKeyframeEffectReadOnly())
     return;
 
-  Element& target = *toKeyframeEffect(m_content.get())->target();
+  Element& target = *toKeyframeEffectReadOnly(m_content.get())->target();
 
   if (CSSAnimations::isAffectedByKeyframesFromScope(target, treeScope))
     target.setNeedsStyleRecalc(LocalStyleChange,
                                StyleChangeReasonForTracing::create(
                                    StyleChangeReason::StyleSheetChange));
+}
+
+void Animation::resolvePromiseAsync(AnimationPromise* promise) {
+  TaskRunnerHelper::get(TaskType::DOMManipulation, getExecutionContext())
+      ->postTask(BLINK_FROM_HERE,
+                 WTF::bind(&AnimationPromise::resolve<Animation*>,
+                           wrapPersistent(promise), wrapPersistent(this)));
 }
 
 DEFINE_TRACE(Animation) {
@@ -1113,8 +1125,35 @@ DEFINE_TRACE(Animation) {
   visitor->trace(m_pendingCancelledEvent);
   visitor->trace(m_finishedPromise);
   visitor->trace(m_readyPromise);
+  visitor->trace(m_compositorPlayer);
   EventTargetWithInlineData::trace(visitor);
-  ActiveDOMObject::trace(visitor);
+  ContextLifecycleObserver::trace(visitor);
 }
 
+Animation::CompositorAnimationPlayerHolder*
+Animation::CompositorAnimationPlayerHolder::create(Animation* animation) {
+  return new CompositorAnimationPlayerHolder(animation);
+}
+
+Animation::CompositorAnimationPlayerHolder::CompositorAnimationPlayerHolder(
+    Animation* animation)
+    : m_animation(animation) {
+  m_compositorPlayer = CompositorAnimationPlayer::create();
+  m_compositorPlayer->setAnimationDelegate(m_animation);
+}
+
+void Animation::CompositorAnimationPlayerHolder::dispose() {
+  if (!m_animation)
+    return;
+  m_animation->dispose();
+  DCHECK(!m_animation);
+  DCHECK(!m_compositorPlayer);
+}
+
+void Animation::CompositorAnimationPlayerHolder::detach() {
+  DCHECK(m_compositorPlayer);
+  m_compositorPlayer->setAnimationDelegate(nullptr);
+  m_animation = nullptr;
+  m_compositorPlayer.reset();
+}
 }  // namespace blink

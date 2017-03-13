@@ -10,24 +10,16 @@ package org.chromium.chrome.browser.ntp.cards;
  *
  * @see ProgressViewHolder
  */
-class ProgressItem implements NewTabPageItem {
-    private boolean mVisible = false;
+class ProgressItem extends OptionalLeaf {
 
     @Override
-    public int getType() {
-        return NewTabPageItem.VIEW_TYPE_PROGRESS;
-    }
-
-    public boolean isVisible() {
-        return mVisible;
-    }
-
-    public void setVisible(boolean visible) {
-        mVisible = visible;
+    @ItemViewType
+    protected int getItemViewType() {
+        return ItemViewType.PROGRESS;
     }
 
     @Override
-    public void onBindViewHolder(NewTabPageViewHolder holder) {
+    protected void onBindViewHolder(NewTabPageViewHolder holder) {
         assert holder instanceof ProgressViewHolder;
         ((ProgressViewHolder) holder).onBindViewHolder(this);
     }

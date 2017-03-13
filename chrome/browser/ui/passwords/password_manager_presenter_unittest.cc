@@ -252,6 +252,15 @@ TEST_F(PasswordManagerPresenterTest, Sorting_DifferentPasswords) {
                         PasswordEntryType::SAVED);
 }
 
+TEST_F(PasswordManagerPresenterTest, Sorting_DifferentSchemes) {
+  const SortEntry test_cases[] = {
+      {"https://example.com", "user", "1", nullptr, nullptr, 1},
+      {"https://example.com", "user", "1", nullptr, nullptr, -1},  // Hide it.
+      {"http://example.com", "user", "1", nullptr, nullptr, 0}};
+  SortAndCheckPositions(test_cases, arraysize(test_cases),
+                        PasswordEntryType::SAVED);
+}
+
 TEST_F(PasswordManagerPresenterTest, Sorting_HideDuplicates) {
   const SortEntry test_cases[] = {
       {"http://example.com", "user_a", "pwd", nullptr, nullptr, 0},
@@ -294,9 +303,9 @@ TEST_F(PasswordManagerPresenterTest, Sorting_PasswordExceptions) {
 
 TEST_F(PasswordManagerPresenterTest, Sorting_AndroidCredentials) {
   const SortEntry test_cases[] = {
-      {"https://alpha.com", "user", "secret", nullptr, nullptr, 0},
+      {"https://alpha.com", "user", "secret", nullptr, nullptr, 1},
       {"android://hash@com.alpha", "user", "secret", "https://alpha.com",
-       nullptr, 1},
+       nullptr, 0},
       {"android://hash@com.alpha", "user", "secret", "https://alpha.com",
        nullptr, -1},
       {"android://hash@com.alpha", "user", "secret", nullptr, nullptr, 2},
@@ -320,13 +329,6 @@ TEST_F(PasswordManagerPresenterTest, Sorting_Federations) {
 
 TEST_F(PasswordManagerPresenterTest, Sorting_SpecialCharacters) {
   // URLs with encoded special characters should not cause crash during sorting.
-  LOG(INFO) << GURL("http://abč.com");
-  LOG(INFO) << GURL("http://abc.com");
-  LOG(INFO) << GURL("http://ábc.com");
-  LOG(INFO) << GURL("http://uoy.com");
-  LOG(INFO) << GURL("http://üöÿ.com");
-  LOG(INFO) << GURL("http://zrc.com");
-  LOG(INFO) << GURL("http://žřč.com");
   const SortEntry test_cases[] = {
       {"https://xn--bea5m6d.com/", "user_a", "pwd", nullptr, nullptr, 4},
       {"https://uoy.com/", "user_a", "pwd", nullptr, nullptr, 1},

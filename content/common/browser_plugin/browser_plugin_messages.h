@@ -74,10 +74,12 @@ IPC_MESSAGE_CONTROL5(
 
 // This message is sent from BrowserPlugin to BrowserPluginGuest to notify that
 // deleting the current composition and inserting specified text is requested.
-IPC_MESSAGE_CONTROL3(BrowserPluginHostMsg_ImeCommitText,
-                     int /* browser_plugin_instance_id */,
-                     std::string /* text */,
-                     int /* relative_cursor_pos */)
+IPC_MESSAGE_CONTROL4(
+    BrowserPluginHostMsg_ImeCommitText,
+    int /* browser_plugin_instance_id */,
+    std::string /* text */,
+    std::vector<blink::WebCompositionUnderline> /* underlines */,
+    int /* relative_cursor_pos */)
 
 // This message is sent from BrowserPlugin to BrowserPluginGuest to notify that
 // inserting the current composition is requested.
@@ -160,6 +162,9 @@ IPC_MESSAGE_ROUTED3(BrowserPluginHostMsg_RequireSequence,
 // When the guest crashes, the browser process informs the embedder through this
 // message.
 IPC_MESSAGE_CONTROL1(BrowserPluginMsg_GuestGone,
+                     int /* browser_plugin_instance_id */)
+
+IPC_MESSAGE_CONTROL1(BrowserPluginMsg_GuestReady,
                      int /* browser_plugin_instance_id */)
 
 // When the user tabs to the end of the tab stops of a guest, the browser

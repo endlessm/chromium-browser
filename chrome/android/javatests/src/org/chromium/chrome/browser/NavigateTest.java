@@ -5,9 +5,7 @@
 package org.chromium.chrome.browser;
 
 import android.content.pm.ActivityInfo;
-import android.os.Environment;
-import android.test.suitebuilder.annotation.MediumTest;
-import android.test.suitebuilder.annotation.Smoke;
+import android.support.test.filters.MediumTest;
 import android.text.TextUtils;
 import android.util.Base64;
 import android.view.KeyEvent;
@@ -61,8 +59,7 @@ public class NavigateTest extends ChromeTabbedActivityTestBase {
     @Override
     protected void setUp() throws Exception {
         super.setUp();
-        mTestServer = EmbeddedTestServer.createAndStartFileServer(
-                getInstrumentation().getContext(), Environment.getExternalStorageDirectory());
+        mTestServer = EmbeddedTestServer.createAndStartServer(getInstrumentation().getContext());
     }
 
     @Override
@@ -142,7 +139,6 @@ public class NavigateTest extends ChromeTabbedActivityTestBase {
     /**
      * Verify Selection on the Location Bar.
      */
-    @Smoke
     @MediumTest
     @Feature({"Navigation", "Main"})
     @RetryOnFailure

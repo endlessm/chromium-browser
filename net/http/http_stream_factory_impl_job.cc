@@ -18,13 +18,13 @@
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
-#include "base/strings/stringprintf.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/trace_event/trace_event.h"
 #include "base/values.h"
 #include "build/build_config.h"
 #include "net/base/port_util.h"
 #include "net/base/proxy_delegate.h"
+#include "net/base/trace_constants.h"
 #include "net/cert/cert_verifier.h"
 #include "net/http/bidirectional_stream_impl.h"
 #include "net/http/http_basic_stream.h"
@@ -140,8 +140,7 @@ std::unique_ptr<base::Value> NetLogHttpStreamProtoCallback(
     NetLogCaptureMode /* capture_mode */) {
   std::unique_ptr<base::DictionaryValue> dict(new base::DictionaryValue());
 
-  dict->SetString("proto",
-                  SSLClientSocket::NextProtoToString(negotiated_protocol));
+  dict->SetString("proto", NextProtoToString(negotiated_protocol));
   return std::move(dict);
 }
 
@@ -214,14 +213,14 @@ HttpStreamFactoryImpl::Job::Job(Delegate* delegate,
   // the same time since alternative services are used for requests that are
   // fetched directly, while the alternative proxy server is used for requests
   // that should be fetched using proxy.
-  DCHECK(alternative_service_.protocol == UNINITIALIZED_ALTERNATE_PROTOCOL ||
+  DCHECK(alternative_service_.protocol == kProtoUnknown ||
          !alternative_proxy_server_.is_valid());
   DCHECK(!alternative_proxy_server_.is_valid() ||
          !(IsSpdyAlternative() || IsQuicAlternative()));
   // If either the alternative service protocol is specified or if the
   // alternative proxy server is valid, then the job type must be set to
   // either ALTERNATIVE or PRECONNECT.
-  DCHECK((alternative_service_.protocol == UNINITIALIZED_ALTERNATE_PROTOCOL &&
+  DCHECK((alternative_service_.protocol == kProtoUnknown &&
           !alternative_proxy_server_.is_valid()) ||
          (job_type_ == ALTERNATIVE || job_type_ == PRECONNECT));
   // If the alternative proxy server is valid, then the job type must be
@@ -232,7 +231,7 @@ HttpStreamFactoryImpl::Job::Job(Delegate* delegate,
     DCHECK(origin_url_.SchemeIs(url::kHttpsScheme));
   }
   if (IsQuicAlternative()) {
-    DCHECK(session_->params().enable_quic);
+    DCHECK(session_->IsQuicEnabled());
     using_quic_ = true;
   }
 }
@@ -387,7 +386,7 @@ void HttpStreamFactoryImpl::Job::OnStreamReadyCallback() {
 
   MaybeCopyConnectionAttemptsFromSocketOrHandle();
 
-  delegate_->OnStreamReady(this, server_ssl_config_, proxy_info_);
+  delegate_->OnStreamReady(this, server_ssl_config_);
   // |this| may be deleted after this call.
 }
 
@@ -477,6 +476,8 @@ void HttpStreamFactoryImpl::Job::OnHttpsProxyTunnelResponseCallback(
 }
 
 void HttpStreamFactoryImpl::Job::OnPreconnectsComplete() {
+  DCHECK(!new_spdy_session_);
+
   if (new_spdy_session_.get()) {
     delegate_->OnNewSpdySessionReady(this, new_spdy_session_,
                                      spdy_session_direct_);
@@ -502,14 +503,12 @@ int HttpStreamFactoryImpl::Job::OnHostResolution(
 }
 
 void HttpStreamFactoryImpl::Job::OnIOComplete(int result) {
-  TRACE_EVENT0(TRACE_DISABLED_BY_DEFAULT("net"),
-               "HttpStreamFactoryImpl::Job::OnIOComplete");
+  TRACE_EVENT0(kNetTracingCategory, "HttpStreamFactoryImpl::Job::OnIOComplete");
   RunLoop(result);
 }
 
 int HttpStreamFactoryImpl::Job::RunLoop(int result) {
-  TRACE_EVENT0(TRACE_DISABLED_BY_DEFAULT("net"),
-               "HttpStreamFactoryImpl::Job::RunLoop");
+  TRACE_EVENT0(kNetTracingCategory, "HttpStreamFactoryImpl::Job::RunLoop");
   result = DoLoop(result);
 
   if (result == ERR_IO_PENDING)
@@ -738,7 +737,7 @@ int HttpStreamFactoryImpl::Job::DoResolveProxyComplete(int result) {
         ProxyServer::SCHEME_HTTPS | ProxyServer::SCHEME_SOCKS4 |
         ProxyServer::SCHEME_SOCKS5;
 
-    if (session_->params().enable_quic)
+    if (session_->IsQuicEnabled())
       supported_proxies |= ProxyServer::SCHEME_QUIC;
 
     proxy_info_.RemoveProxiesWithoutScheme(supported_proxies);
@@ -769,7 +768,7 @@ int HttpStreamFactoryImpl::Job::DoResolveProxyComplete(int result) {
 }
 
 bool HttpStreamFactoryImpl::Job::ShouldForceQuic() const {
-  return session_->params().enable_quic &&
+  return session_->IsQuicEnabled() &&
          (base::ContainsKey(session_->params().origins_to_force_quic_on,
                             HostPortPair()) ||
           base::ContainsKey(session_->params().origins_to_force_quic_on,
@@ -808,6 +807,11 @@ int HttpStreamFactoryImpl::Job::DoInitConnectionImpl() {
   DCHECK(proxy_info_.proxy_server().is_valid());
   next_state_ = STATE_INIT_CONNECTION_COMPLETE;
 
+  if (delegate_->OnInitConnection(proxy_info_)) {
+    // Return since the connection initialization can be skipped.
+    return OK;
+  }
+
   using_ssl_ = origin_url_.SchemeIs(url::kHttpsScheme) ||
                origin_url_.SchemeIs(url::kWssScheme);
   using_spdy_ = false;
@@ -815,11 +819,11 @@ int HttpStreamFactoryImpl::Job::DoInitConnectionImpl() {
   if (ShouldForceQuic())
     using_quic_ = true;
 
-  DCHECK(!using_quic_ || session_->params().enable_quic);
+  DCHECK(!using_quic_ || session_->IsQuicEnabled());
 
   if (proxy_info_.is_quic()) {
     using_quic_ = true;
-    DCHECK(session_->params().enable_quic);
+    DCHECK(session_->IsQuicEnabled());
   }
 
   if (proxy_info_.is_https() || proxy_info_.is_quic()) {
@@ -1009,11 +1013,11 @@ int HttpStreamFactoryImpl::Job::DoInitConnectionComplete(int result) {
   if (ssl_started && (result == OK || IsCertificateError(result))) {
     if (using_quic_ && result == OK) {
       was_alpn_negotiated_ = true;
-      negotiated_protocol_ = kProtoQUIC1SPDY3;
+      negotiated_protocol_ = kProtoQUIC;
     } else {
       SSLClientSocket* ssl_socket =
           static_cast<SSLClientSocket*>(connection_->socket());
-      if (ssl_socket->WasNpnNegotiated()) {
+      if (ssl_socket->WasAlpnNegotiated()) {
         was_alpn_negotiated_ = true;
         negotiated_protocol_ = ssl_socket->GetNegotiatedProtocol();
         net_log_.AddEvent(
@@ -1312,11 +1316,11 @@ bool HttpStreamFactoryImpl::Job::IsHttpsProxyAndHttpUrl() const {
 }
 
 bool HttpStreamFactoryImpl::Job::IsSpdyAlternative() const {
-  return alternative_service_.protocol == NPN_HTTP_2;
+  return alternative_service_.protocol == kProtoHTTP2;
 }
 
 bool HttpStreamFactoryImpl::Job::IsQuicAlternative() const {
-  return alternative_service_.protocol == QUIC;
+  return alternative_service_.protocol == kProtoQUIC;
 }
 
 void HttpStreamFactoryImpl::Job::InitSSLConfig(SSLConfig* ssl_config,

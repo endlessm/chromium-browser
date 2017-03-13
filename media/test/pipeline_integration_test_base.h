@@ -9,11 +9,11 @@
 #include <memory>
 
 #include "base/md5.h"
+#include "base/memory/scoped_vector.h"
 #include "base/message_loop/message_loop.h"
 #include "media/audio/clockless_audio_sink.h"
 #include "media/audio/null_audio_sink.h"
 #include "media/base/demuxer.h"
-#include "media/base/media_keys.h"
 #include "media/base/null_video_sink.h"
 #include "media/base/pipeline_impl.h"
 #include "media/base/pipeline_status.h"
@@ -23,13 +23,11 @@
 #include "media/renderers/video_renderer_impl.h"
 #include "testing/gmock/include/gmock/gmock.h"
 
-namespace base {
-class FilePath;
-}
-
 namespace media {
 
+class AudioDecoder;
 class CdmContext;
+class VideoDecoder;
 
 // Empty MD5 hash string.  Used to verify empty video tracks.
 extern const char kNullVideoHash[];
@@ -78,7 +76,12 @@ class PipelineIntegrationTestBase : public Pipeline::Client {
   // started. |filename| points at a test file located under media/test/data/.
   PipelineStatus Start(const std::string& filename);
   PipelineStatus Start(const std::string& filename, CdmContext* cdm_context);
-  PipelineStatus Start(const std::string& filename, uint8_t test_type);
+  PipelineStatus Start(const std::string& filename,
+                       uint8_t test_type,
+                       ScopedVector<VideoDecoder> prepend_video_decoders =
+                           ScopedVector<VideoDecoder>(),
+                       ScopedVector<AudioDecoder> prepend_audio_decoders =
+                           ScopedVector<AudioDecoder>());
 
   // Starts the pipeline with |data| (with |size| bytes). The |data| will be
   // valid throughtout the lifetime of this test.
@@ -143,14 +146,25 @@ class PipelineIntegrationTestBase : public Pipeline::Client {
   DummyTickClock dummy_clock_;
   PipelineMetadata metadata_;
   scoped_refptr<VideoFrame> last_frame_;
+  base::TimeDelta current_duration_;
 
-  PipelineStatus StartInternal(std::unique_ptr<DataSource> data_source,
-                               CdmContext* cdm_context,
-                               uint8_t test_type);
+  PipelineStatus StartInternal(
+      std::unique_ptr<DataSource> data_source,
+      CdmContext* cdm_context,
+      uint8_t test_type,
+      ScopedVector<VideoDecoder> prepend_video_decoders =
+          ScopedVector<VideoDecoder>(),
+      ScopedVector<AudioDecoder> prepend_audio_decoders =
+          ScopedVector<AudioDecoder>());
 
-  PipelineStatus StartWithFile(const std::string& filename,
-                               CdmContext* cdm_context,
-                               uint8_t test_type);
+  PipelineStatus StartWithFile(
+      const std::string& filename,
+      CdmContext* cdm_context,
+      uint8_t test_type,
+      ScopedVector<VideoDecoder> prepend_video_decoders =
+          ScopedVector<VideoDecoder>(),
+      ScopedVector<AudioDecoder> prepend_audio_decoders =
+          ScopedVector<AudioDecoder>());
 
   void OnSeeked(base::TimeDelta seek_time, PipelineStatus status);
   void OnStatusCallback(PipelineStatus status);
@@ -165,9 +179,18 @@ class PipelineIntegrationTestBase : public Pipeline::Client {
   void CreateDemuxer(std::unique_ptr<DataSource> data_source);
 
   // Creates and returns a Renderer.
-  virtual std::unique_ptr<Renderer> CreateRenderer();
+  virtual std::unique_ptr<Renderer> CreateRenderer(
+      ScopedVector<VideoDecoder> prepend_video_decoders =
+          ScopedVector<VideoDecoder>(),
+      ScopedVector<AudioDecoder> prepend_audio_decoders =
+          ScopedVector<AudioDecoder>());
 
   void OnVideoFramePaint(const scoped_refptr<VideoFrame>& frame);
+
+  void CheckDuration();
+
+  // Return the media start time from |demuxer_|.
+  base::TimeDelta GetStartTime();
 
   MOCK_METHOD1(DecryptorAttached, void(bool));
   // Pipeline::Client overrides.
@@ -182,6 +205,7 @@ class PipelineIntegrationTestBase : public Pipeline::Client {
   MOCK_METHOD0(OnWaitingForDecryptionKey, void(void));
   MOCK_METHOD1(OnVideoNaturalSizeChange, void(const gfx::Size&));
   MOCK_METHOD1(OnVideoOpacityChange, void(bool));
+  MOCK_METHOD0(OnVideoAverageKeyframeDistanceUpdate, void());
 };
 
 }  // namespace media

@@ -10,9 +10,9 @@
 #include "base/android/application_status_listener.h"
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/android/offline_pages/prerendering_loader.h"
-#include "components/offline_pages/background/offliner.h"
-#include "components/offline_pages/offline_page_model.h"
-#include "components/offline_pages/offline_page_types.h"
+#include "components/offline_pages/core/background/offliner.h"
+#include "components/offline_pages/core/offline_page_model.h"
+#include "components/offline_pages/core/offline_page_types.h"
 
 namespace content {
 class BrowserContext;
@@ -49,14 +49,12 @@ class PrerenderingOffliner : public Offliner {
 
  protected:
   // Internal method for requesting OfflinePageModel to save page.  Exposed for
-  // unit testing.  |proposed_offline_id| will be used if non-zero.  If it is
-  // zero, a new, random, id will be generated instead.
+  // unit testing.
   // TODO(dougarnett): Consider making OfflinePageModel mockable instead.
-  virtual void SavePage(const GURL& url,
-                        const ClientId& client_id,
-                        int64_t proposed_offline_id,
-                        std::unique_ptr<OfflinePageArchiver> archiver,
-                        const SavePageCallback& save_callback);
+  virtual void SavePage(
+      const OfflinePageModel::SavePageParams& save_page_params,
+      std::unique_ptr<OfflinePageArchiver> archiver,
+      const SavePageCallback& save_callback);
 
  private:
   // Callback logic for PrerenderingLoader::LoadPage().

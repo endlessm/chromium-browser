@@ -117,7 +117,8 @@ public class AddressWidget implements AdapterView.OnItemSelectedListener {
   private enum ZipLabel {
     ZIP,
     POSTAL,
-    PIN
+    PIN,
+    EIRCODE
   }
 
   private ZipLabel zipLabel;
@@ -142,6 +143,7 @@ public class AddressWidget implements AdapterView.OnItemSelectedListener {
     localityLabelMap.put("city", R.string.i18n_locality_label);
     localityLabelMap.put("district", R.string.i18n_district);
     localityLabelMap.put("post_town", R.string.i18n_post_town);
+    localityLabelMap.put("suburb", R.string.i18n_suburb);
     LOCALITY_LABELS = Collections.unmodifiableMap(localityLabelMap);
 
     Map<String, Integer> sublocalityLabelMap = new HashMap<String, Integer>(2);
@@ -149,6 +151,7 @@ public class AddressWidget implements AdapterView.OnItemSelectedListener {
     sublocalityLabelMap.put("district", R.string.i18n_district);
     sublocalityLabelMap.put("neighborhood", R.string.i18n_neighborhood);
     sublocalityLabelMap.put("village_township", R.string.i18n_village_township);
+    sublocalityLabelMap.put("townland", R.string.i18n_townland);
     SUBLOCALITY_LABELS = Collections.unmodifiableMap(sublocalityLabelMap);
   }
 
@@ -233,9 +236,9 @@ public class AddressWidget implements AdapterView.OnItemSelectedListener {
 
   private AddressWidgetUiComponentProvider componentProvider;
 
-  /** TODO: Add region-dependent width types for address fields. */
   private WidthType getFieldWidthType(AddressUiComponent field) {
-    return field.getId().getDefaultWidthType();
+    // TODO(user): For drop-downs (spinners), derive the width-type from the list of values.
+    return field.getId().getWidthTypeForRegion(currentRegion);
   }
 
   private void createView(ViewGroup rootView, AddressUiComponent field, String defaultKey,
@@ -260,6 +263,7 @@ public class AddressWidget implements AdapterView.OnItemSelectedListener {
       Spinner spinner = componentProvider.createUiPickerSpinner(widthType);
 
       field.setView(spinner);
+      spinner.setEnabled(!readOnly);
       rootView.addView(spinner, lp);
       spinner.setAdapter(adapter);
       AddressSpinnerInfo spinnerInfo =
@@ -346,6 +350,9 @@ public class AddressWidget implements AdapterView.OnItemSelectedListener {
     if (zipType == null || zipType.equals("postal")) {
       zipLabel = ZipLabel.POSTAL;
       zipName = context.getString(R.string.i18n_postal_code_label);
+    } else if (zipType.equals("eircode")) {
+      zipLabel = ZipLabel.EIRCODE;
+      zipName = context.getString(R.string.i18n_eir_code_label);
     } else if (zipType.equals("pin")) {
       zipLabel = ZipLabel.PIN;
       zipName = context.getString(R.string.i18n_pin_code_label);
@@ -760,14 +767,13 @@ public class AddressWidget implements AdapterView.OnItemSelectedListener {
     return null;
   }
 
-  private String getErrorMessageForInvalidEntry(AddressData address, AddressField field,
+  public String getErrorMessageForInvalidEntry(AddressData address, AddressField field,
       AddressProblemType problem) {
     switch (problem) {
       case MISSING_REQUIRED_FIELD:
         return context.getString(R.string.i18n_missing_required_field);
       case UNKNOWN_VALUE:
-        String currentValue = address.getFieldValue(field);
-        return String.format(context.getString(R.string.unknown_entry), currentValue);
+        return context.getString(R.string.unknown_entry);
       case INVALID_FORMAT:
         // We only support this error type for the Postal Code field.
         if (zipLabel == ZipLabel.POSTAL) {

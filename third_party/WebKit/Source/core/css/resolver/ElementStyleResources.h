@@ -34,7 +34,6 @@
 
 namespace blink {
 
-class CSSCursorImageValue;
 class CSSImageGeneratorValue;
 class CSSImageSetValue;
 class CSSImageValue;
@@ -42,7 +41,7 @@ class CSSURIValue;
 class CSSValue;
 class ComputedStyle;
 class Document;
-class FilterOperation;
+class SVGElementProxy;
 class StyleImage;
 class StylePendingImage;
 
@@ -58,14 +57,11 @@ class ElementStyleResources {
   StyleImage* styleImage(CSSPropertyID, const CSSValue&);
   StyleImage* cachedOrPendingFromValue(CSSPropertyID, const CSSImageValue&);
   StyleImage* setOrPendingFromValue(CSSPropertyID, const CSSImageSetValue&);
+  SVGElementProxy& cachedOrPendingFromValue(const CSSURIValue&);
 
   void loadPendingResources(ComputedStyle*);
 
-  void addPendingSVGDocument(FilterOperation*, const CSSURIValue*);
-
  private:
-  StyleImage* cursorOrPendingFromValue(CSSPropertyID,
-                                       const CSSCursorImageValue&);
   StyleImage* generatedOrPendingFromValue(CSSPropertyID,
                                           const CSSImageGeneratorValue&);
 
@@ -79,8 +75,6 @@ class ElementStyleResources {
 
   Member<Document> m_document;
   HashSet<CSSPropertyID> m_pendingImageProperties;
-  HeapHashMap<Member<FilterOperation>, Member<const CSSURIValue>>
-      m_pendingSVGDocuments;
   float m_deviceScaleFactor;
 };
 

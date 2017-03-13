@@ -203,7 +203,7 @@ TEST(ContiguousContainerTest, ElementAddressesAreStable) {
   ContiguousContainer<Point2D, kPointAlignment> list(kMaxPointSize);
   Vector<Point2D*> pointers;
   for (int i = 0; i < (int)kNumElements; i++)
-    pointers.append(&list.allocateAndConstruct<Point2D>());
+    pointers.push_back(&list.allocateAndConstruct<Point2D>());
   EXPECT_EQ(kNumElements, list.size());
   EXPECT_EQ(kNumElements, pointers.size());
 
@@ -283,10 +283,10 @@ TEST(ContiguousContainerTest, IterationAfterRemoveLast) {
   // Utilities which keep these two lists in sync and check that their
   // iteration order matches.
   auto push = [&list, &pointers]() {
-    pointers.append(&list.allocateAndConstruct<SmallStruct>());
+    pointers.push_back(&list.allocateAndConstruct<SmallStruct>());
   };
   auto pop = [&list, &pointers]() {
-    pointers.removeLast();
+    pointers.pop_back();
     list.removeLast();
   };
   auto check_equal = [&list, &pointers]() {

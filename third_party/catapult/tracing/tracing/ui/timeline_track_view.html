@@ -22,7 +22,7 @@ found in the LICENSE file.
 <link rel="import" href="/tracing/ui/timeline_viewport.html">
 <link rel="import" href="/tracing/ui/tracks/drawing_container.html">
 <link rel="import" href="/tracing/ui/tracks/model_track.html">
-<link rel="import" href="/tracing/ui/tracks/ruler_track.html">
+<link rel="import" href="/tracing/ui/tracks/x_axis_track.html">
 
 <!--
   Interactive visualizaiton of Model objects based loosely on gantt charts.
@@ -84,6 +84,7 @@ Polymer({
     this.model_ = undefined;
 
     this.timelineView_ = undefined;
+    this.pollIfViewportAttachedInterval_ = undefined;
 
     this.viewport_ = new tr.ui.TimelineViewport(this);
     this.viewportDisplayTransformAtMouseDown_ = undefined;
@@ -94,7 +95,7 @@ Polymer({
     Polymer.dom(this).appendChild(this.rulerTrackContainer_);
     this.rulerTrackContainer_.invalidate();
 
-    this.rulerTrack_ = new tr.ui.tracks.RulerTrack(this.viewport_);
+    this.rulerTrack_ = new tr.ui.tracks.XAxisTrack(this.viewport_);
     Polymer.dom(this.rulerTrackContainer_).appendChild(this.rulerTrack_);
 
     this.upperModelTrack_ = new tr.ui.tracks.ModelTrack(this.viewport_);
@@ -248,6 +249,10 @@ Polymer({
     this.modelTrack_.detach();
     this.upperModelTrack_.detach();
 
+    if (this.pollIfViewportAttachedInterval_) {
+      window.clearInterval(this.pollIfViewportAttachedInterval_);
+      this.pollIfViewportAttachedInterval_ = undefined;
+    }
     this.viewport_.detach();
   },
 
@@ -269,13 +274,36 @@ Polymer({
     this.upperModelTrack_.model = model;
 
     // Set up a reasonable viewport.
-    if (modelInstanceChanged)
-      this.viewport_.setWhenPossible(this.setInitialViewport_.bind(this));
+    if (modelInstanceChanged) {
+      // The following code uses an interval to detect when the parent element
+      // is attached to the document. That is a trigger to run the setup
+      // function and install a resize listener.
+      this.pollIfViewportAttachedInterval_ = window.setInterval(
+          this.pollIfViewportAttached_.bind(this), 250);
+    }
   },
 
   get hasVisibleContent() {
     return this.modelTrack_.hasVisibleContent ||
         this.upperModelTrack_.hasVisibleContent;
+  },
+
+  /**
+   * Checks whether the parentNode is attached to the document.
+   * When it is, the method installs the iframe-based resize detection hook
+   * and then runs setInitialViewport_, if present.
+   */
+  pollIfViewportAttached_: function() {
+    if (!this.viewport_.isAttachedToDocumentOrInTestMode ||
+        this.viewport_.clientWidth === 0) {
+      return;
+    }
+    window.addEventListener(
+        'resize', this.viewport_.dispatchChangeEvent);
+    window.clearInterval(this.pollIfViewportAttachedInterval_);
+    this.pollIfViewportAttachedInterval_ = undefined;
+
+    this.setInitialViewport_();
   },
 
   setInitialViewport_: function() {
@@ -352,16 +380,16 @@ Polymer({
     this.addKeyPressHotKeys_();
   },
 
-  addKeyPressHotKeys_: function() {
-    var addBinding = function(dict) {
-      dict.eventType = 'keypress';
-      dict.useCapture = false;
-      dict.thisArg = this;
-      var binding = new tr.ui.b.HotKey(dict);
-      this.$.hotkey_controller.addHotKey(binding);
-    }.bind(this);
+  addKeyPressHotKey: function(dict) {
+    dict.eventType = 'keypress';
+    dict.useCapture = false;
+    dict.thisArg = this;
+    var binding = new tr.ui.b.HotKey(dict);
+    this.$.hotkey_controller.addHotKey(binding);
+  },
 
-    addBinding({
+  addKeyPressHotKeys_: function() {
+    this.addKeyPressHotKey({
       keyCodes: ['w'.charCodeAt(0), ','.charCodeAt(0)],
       callback: function(e) {
         this.zoomBy_(1.5, true);
@@ -369,7 +397,7 @@ Polymer({
       }
     });
 
-    addBinding({
+    this.addKeyPressHotKey({
       keyCodes: ['s'.charCodeAt(0), 'o'.charCodeAt(0)],
       callback: function(e) {
         this.zoomBy_(1 / 1.5, true);
@@ -377,7 +405,7 @@ Polymer({
       }
     });
 
-    addBinding({
+    this.addKeyPressHotKey({
       keyCode: 'g'.charCodeAt(0),
       callback: function(e) {
         this.onGridToggle_(true);
@@ -385,7 +413,7 @@ Polymer({
       }
     });
 
-    addBinding({
+    this.addKeyPressHotKey({
       keyCode: 'G'.charCodeAt(0),
       callback: function(e) {
         this.onGridToggle_(false);
@@ -393,7 +421,7 @@ Polymer({
       }
     });
 
-    addBinding({
+    this.addKeyPressHotKey({
       keyCodes: ['W'.charCodeAt(0), '<'.charCodeAt(0)],
       callback: function(e) {
         this.zoomBy_(10, true);
@@ -401,7 +429,7 @@ Polymer({
       }
     });
 
-    addBinding({
+    this.addKeyPressHotKey({
       keyCodes: ['S'.charCodeAt(0), 'O'.charCodeAt(0)],
       callback: function(e) {
         this.zoomBy_(1 / 10, true);
@@ -409,7 +437,7 @@ Polymer({
       }
     });
 
-    addBinding({
+    this.addKeyPressHotKey({
       keyCode: 'a'.charCodeAt(0),
       callback: function(e) {
         this.queueSmoothPan_(this.viewWidth_ * 0.3, 0);
@@ -417,7 +445,7 @@ Polymer({
       }
     });
 
-    addBinding({
+    this.addKeyPressHotKey({
       keyCodes: ['d'.charCodeAt(0), 'e'.charCodeAt(0)],
       callback: function(e) {
         this.queueSmoothPan_(this.viewWidth_ * -0.3, 0);
@@ -425,7 +453,7 @@ Polymer({
       }
     });
 
-    addBinding({
+    this.addKeyPressHotKey({
       keyCode: 'A'.charCodeAt(0),
       callback: function(e) {
         this.queueSmoothPan_(viewWidth * 0.5, 0);
@@ -433,7 +461,7 @@ Polymer({
       }
     });
 
-    addBinding({
+    this.addKeyPressHotKey({
       keyCode: 'D'.charCodeAt(0),
       callback: function(e) {
         this.queueSmoothPan_(viewWidth * -0.5, 0);
@@ -441,7 +469,7 @@ Polymer({
       }
     });
 
-    addBinding({
+    this.addKeyPressHotKey({
       keyCode: '0'.charCodeAt(0),
       callback: function(e) {
         this.setInitialViewport_();
@@ -449,7 +477,7 @@ Polymer({
       }
     });
 
-    addBinding({
+    this.addKeyPressHotKey({
       keyCode: 'f'.charCodeAt(0),
       callback: function(e) {
         this.zoomToSelection();
@@ -457,7 +485,7 @@ Polymer({
       }
     });
 
-    addBinding({
+    this.addKeyPressHotKey({
       keyCode: 'm'.charCodeAt(0),
       callback: function(e) {
         this.setCurrentSelectionAsInterestRange_();
@@ -465,7 +493,7 @@ Polymer({
       }
     });
 
-    addBinding({
+    this.addKeyPressHotKey({
       keyCode: 'p'.charCodeAt(0),
       callback: function(e) {
         this.selectPowerSamplesInCurrentTimeRange_();
@@ -473,7 +501,7 @@ Polymer({
       }
     });
 
-    addBinding({
+    this.addKeyPressHotKey({
       keyCode: 'h'.charCodeAt(0),
       callback: function(e) {
         this.toggleHighDetails_();
@@ -803,7 +831,7 @@ Polymer({
     };
 
     var headingWidth = window.getComputedStyle(
-        Polymer.dom(this).querySelector('tr-ui-heading')).width;
+        Polymer.dom(this).querySelector('tr-ui-b-heading')).width;
     var trackTitleWidth = parseInt(headingWidth);
     clipRect.left = clipRect.left + trackTitleWidth;
 

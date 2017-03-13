@@ -104,17 +104,16 @@ class GLES2DecoderTestBase : public ::testing::TestWithParam<bool> {
     return reinterpret_cast<T>(ptr);
   }
 
-  Buffer* GetBuffer(GLuint service_id) {
-    return group_->buffer_manager()->GetBuffer(service_id);
+  Buffer* GetBuffer(GLuint client_id) {
+    return group_->buffer_manager()->GetBuffer(client_id);
   }
 
-  Framebuffer* GetFramebuffer(GLuint service_id) {
-    return group_->framebuffer_manager()->GetFramebuffer(service_id);
+  Framebuffer* GetFramebuffer(GLuint client_id) {
+    return group_->framebuffer_manager()->GetFramebuffer(client_id);
   }
 
-  Renderbuffer* GetRenderbuffer(
-      GLuint service_id) {
-    return group_->renderbuffer_manager()->GetRenderbuffer(service_id);
+  Renderbuffer* GetRenderbuffer(GLuint client_id) {
+    return group_->renderbuffer_manager()->GetRenderbuffer(client_id);
   }
 
   TextureRef* GetTexture(GLuint client_id) {
@@ -169,6 +168,8 @@ class GLES2DecoderTestBase : public ::testing::TestWithParam<bool> {
   void DoCreateProgram(GLuint client_id, GLuint service_id);
   void DoCreateShader(GLenum shader_type, GLuint client_id, GLuint service_id);
   void DoFenceSync(GLuint client_id, GLuint service_id);
+  void DoCreateSampler(GLuint client_id, GLuint service_id);
+  void DoCreateTransformFeedback(GLuint client_id, GLuint service_id);
 
   void SetBucketData(uint32_t bucket_id, const void* data, uint32_t data_size);
   void SetBucketAsCString(uint32_t bucket_id, const char* str);
@@ -270,6 +271,9 @@ class GLES2DecoderTestBase : public ::testing::TestWithParam<bool> {
   void EnsureRenderbufferBound(bool expect_bind);
   void DoBindTexture(GLenum target, GLuint client_id, GLuint service_id);
   void DoBindVertexArrayOES(GLuint client_id, GLuint service_id);
+  void DoBindSampler(GLuint unit, GLuint client_id, GLuint service_id);
+  void DoBindTransformFeedback(
+      GLenum target, GLuint client_id, GLuint service_id);
 
   bool DoIsBuffer(GLuint client_id);
   bool DoIsFramebuffer(GLuint client_id);
@@ -287,6 +291,8 @@ class GLES2DecoderTestBase : public ::testing::TestWithParam<bool> {
   void DoDeleteRenderbuffer(GLuint client_id, GLuint service_id);
   void DoDeleteShader(GLuint client_id, GLuint service_id);
   void DoDeleteTexture(GLuint client_id, GLuint service_id);
+  void DoDeleteSampler(GLuint client_id, GLuint service_id);
+  void DoDeleteTransformFeedback(GLuint client_id, GLuint service_id);
 
   void DoCompressedTexImage2D(GLenum target,
                               GLint level,
@@ -749,6 +755,7 @@ class GLES2DecoderTestBase : public ::testing::TestWithParam<bool> {
   void SetupMockGLBehaviors();
 
   void SetupInitStateManualExpectations(bool es3_capable);
+  void SetupInitStateManualExpectationsForDoLineWidth(GLfloat width);
 
   std::unique_ptr<::testing::StrictMock<MockCommandBufferEngine>> engine_;
   GpuPreferences gpu_preferences_;

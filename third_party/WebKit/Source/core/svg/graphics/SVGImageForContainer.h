@@ -68,7 +68,6 @@ class SVGImageForContainer final : public Image {
         new SVGImageForContainer(image, containerSizeWithoutZoom, zoom, url));
   }
 
-  bool isTextureBacked() override;
   IntSize size() const override;
 
   bool usesContainerSize() const override {
@@ -81,22 +80,24 @@ class SVGImageForContainer final : public Image {
             const FloatRect&,
             const FloatRect&,
             RespectImageOrientationEnum,
-            ImageClampingMode) override;
-
-  void drawPattern(GraphicsContext&,
-                   const FloatRect&,
-                   const FloatSize&,
-                   const FloatPoint&,
-                   SkXfermode::Mode,
-                   const FloatRect&,
-                   const FloatSize& repeatSpacing) override;
+            ImageClampingMode,
+            const ColorBehavior&) override;
 
   // FIXME: Implement this to be less conservative.
   bool currentFrameKnownToBeOpaque(MetadataMode = UseCurrentMetadata) override {
     return false;
   }
 
-  sk_sp<SkImage> imageForCurrentFrame() override;
+  sk_sp<SkImage> imageForCurrentFrame(const ColorBehavior&) override;
+
+ protected:
+  void drawPattern(GraphicsContext&,
+                   const FloatRect&,
+                   const FloatSize&,
+                   const FloatPoint&,
+                   SkBlendMode,
+                   const FloatRect&,
+                   const FloatSize& repeatSpacing) override;
 
  private:
   SVGImageForContainer(SVGImage* image,

@@ -23,7 +23,6 @@ BlobBytesConsumer::BlobBytesConsumer(ExecutionContext* executionContext,
     : ContextLifecycleObserver(executionContext),
       m_blobDataHandle(blobDataHandle),
       m_loader(loader) {
-  ThreadState::current()->registerPreFinalizer(this);
   if (!m_blobDataHandle) {
     // Note that |m_loader| is non-null only in tests.
     if (m_loader) {
@@ -36,7 +35,7 @@ BlobBytesConsumer::BlobBytesConsumer(ExecutionContext* executionContext,
 
 BlobBytesConsumer::BlobBytesConsumer(ExecutionContext* executionContext,
                                      PassRefPtr<BlobDataHandle> blobDataHandle)
-    : BlobBytesConsumer(executionContext, blobDataHandle, nullptr) {}
+    : BlobBytesConsumer(executionContext, std::move(blobDataHandle), nullptr) {}
 
 BlobBytesConsumer::~BlobBytesConsumer() {}
 
@@ -164,7 +163,7 @@ BytesConsumer::PublicState BlobBytesConsumer::getPublicState() const {
   return m_state;
 }
 
-void BlobBytesConsumer::contextDestroyed() {
+void BlobBytesConsumer::contextDestroyed(ExecutionContext*) {
   if (m_state != PublicState::ReadableOrWaiting)
     return;
 
@@ -231,8 +230,8 @@ void BlobBytesConsumer::didFinishLoading(unsigned long identifier,
 
 void BlobBytesConsumer::didFail(const ResourceError& e) {
   if (e.isCancellation()) {
-    DCHECK_EQ(PublicState::Closed, m_state);
-    return;
+    if (m_state != PublicState::ReadableOrWaiting)
+      return;
   }
   DCHECK_EQ(PublicState::ReadableOrWaiting, m_state);
   m_loader = nullptr;
@@ -265,7 +264,8 @@ BlobBytesConsumer* BlobBytesConsumer::createForTesting(
     ExecutionContext* executionContext,
     PassRefPtr<BlobDataHandle> blobDataHandle,
     ThreadableLoader* loader) {
-  return new BlobBytesConsumer(executionContext, blobDataHandle, loader);
+  return new BlobBytesConsumer(executionContext, std::move(blobDataHandle),
+                               loader);
 }
 
 ThreadableLoader* BlobBytesConsumer::createLoader() {
@@ -278,8 +278,9 @@ ThreadableLoader* BlobBytesConsumer::createLoader() {
   ResourceLoaderOptions resourceLoaderOptions;
   resourceLoaderOptions.dataBufferingPolicy = DoNotBufferData;
 
-  return ThreadableLoader::create(*getExecutionContext(), this, options,
-                                  resourceLoaderOptions);
+  return ThreadableLoader::create(
+      *getExecutionContext(), this, options, resourceLoaderOptions,
+      ThreadableLoader::ClientSpec::kBlobBytesConsumer);
 }
 
 void BlobBytesConsumer::close() {

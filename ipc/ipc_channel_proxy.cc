@@ -27,17 +27,6 @@
 
 namespace IPC {
 
-namespace {
-
-void BindAssociatedInterfaceOnTaskRunner(
-    scoped_refptr<base::SingleThreadTaskRunner> task_runner,
-    const ChannelProxy::GenericAssociatedInterfaceFactory& factory,
-    mojo::ScopedInterfaceEndpointHandle handle) {
-  task_runner->PostTask(FROM_HERE, base::Bind(factory, base::Passed(&handle)));
-}
-
-}  // namespace
-
 //------------------------------------------------------------------------------
 
 ChannelProxy::Context::Context(
@@ -48,8 +37,7 @@ ChannelProxy::Context::Context(
       ipc_task_runner_(ipc_task_runner),
       channel_connected_called_(false),
       message_filter_router_(new MessageFilterRouter()),
-      peer_pid_(base::kNullProcessId),
-      attachment_broker_endpoint_(false) {
+      peer_pid_(base::kNullProcessId) {
   DCHECK(ipc_task_runner_.get());
   // The Listener thread where Messages are handled must be a separate thread
   // to avoid oversubscribing the IO thread. If you trigger this error, you
@@ -74,9 +62,7 @@ void ChannelProxy::Context::CreateChannel(
   base::AutoLock l(channel_lifetime_lock_);
   DCHECK(!channel_);
   DCHECK_EQ(factory->GetIPCTaskRunner(), ipc_task_runner_);
-  channel_id_ = factory->GetName();
   channel_ = factory->BuildChannel(this);
-  channel_->SetAttachmentBrokerEndpoint(attachment_broker_endpoint_);
 
   Channel::AssociatedInterfaceSupport* support =
       channel_->GetAssociatedInterfaceSupport();
@@ -84,9 +70,9 @@ void ChannelProxy::Context::CreateChannel(
     associated_group_ = *support->GetAssociatedGroup();
 
     base::AutoLock l(pending_filters_lock_);
-    for (auto& entry : pending_interfaces_)
+    for (auto& entry : pending_io_thread_interfaces_)
       support->AddGenericAssociatedInterface(entry.first, entry.second);
-    pending_interfaces_.clear();
+    pending_io_thread_interfaces_.clear();
   }
 }
 
@@ -105,7 +91,7 @@ bool ChannelProxy::Context::TryFilters(const Message& message) {
     }
 #ifdef IPC_MESSAGE_LOG_ENABLED
     if (logger->Enabled())
-      logger->OnPostDispatchMessage(message, channel_id_);
+      logger->OnPostDispatchMessage(message);
 #endif
     return true;
   }
@@ -150,7 +136,7 @@ void ChannelProxy::Context::OnChannelConnected(int32_t peer_pid) {
   // We cache off the peer_pid so it can be safely accessed from both threads.
   {
     base::AutoLock l(peer_pid_lock_);
-    peer_pid_ = channel_->GetPeerPID();
+    peer_pid_ = peer_pid;
   }
 
   // Add any pending filters.  This avoids a race condition where someone
@@ -211,9 +197,13 @@ void ChannelProxy::Context::OnChannelClosed() {
   if (!channel_)
     return;
 
-  for (size_t i = 0; i < filters_.size(); ++i) {
-    filters_[i]->OnChannelClosing();
-    filters_[i]->OnFilterRemoved();
+  for (auto& filter : pending_filters_) {
+    filter->OnChannelClosing();
+    filter->OnFilterRemoved();
+  }
+  for (auto& filter : filters_) {
+    filter->OnChannelClosing();
+    filter->OnFilterRemoved();
   }
 
   // We don't need the filters anymore.
@@ -342,7 +332,7 @@ void ChannelProxy::Context::OnDispatchMessage(const Message& message) {
 
 #ifdef IPC_MESSAGE_LOG_ENABLED
   if (logger->Enabled())
-    logger->OnPostDispatchMessage(message, channel_id_);
+    logger->OnPostDispatchMessage(message);
 #endif
 }
 
@@ -387,21 +377,13 @@ void ChannelProxy::Context::ClearChannel() {
   associated_group_ = mojo::AssociatedGroup();
 }
 
-void ChannelProxy::Context::AddGenericAssociatedInterface(
-    const std::string& name,
-    const GenericAssociatedInterfaceFactory& factory) {
-  AddGenericAssociatedInterfaceForIOThread(
-      name, base::Bind(&BindAssociatedInterfaceOnTaskRunner,
-                       listener_task_runner_, factory));
-}
-
 void ChannelProxy::Context::AddGenericAssociatedInterfaceForIOThread(
     const std::string& name,
     const GenericAssociatedInterfaceFactory& factory) {
   base::AutoLock l(channel_lifetime_lock_);
   if (!channel_) {
     base::AutoLock l(pending_filters_lock_);
-    pending_interfaces_.emplace_back(name, factory);
+    pending_io_thread_interfaces_.emplace_back(name, factory);
     return;
   }
   Channel::AssociatedInterfaceSupport* support =
@@ -563,7 +545,7 @@ bool ChannelProxy::Send(Message* message) {
 #endif
 
 #ifdef IPC_MESSAGE_LOG_ENABLED
-  Logging::GetInstance()->OnSendMessage(message, context_->channel_id());
+  Logging::GetInstance()->OnSendMessage(message);
 #endif
 
   context_->Send(message);
@@ -582,12 +564,6 @@ void ChannelProxy::RemoveFilter(MessageFilter* filter) {
   context_->ipc_task_runner()->PostTask(
       FROM_HERE, base::Bind(&Context::OnRemoveFilter, context_,
                             base::RetainedRef(filter)));
-}
-
-void ChannelProxy::AddGenericAssociatedInterface(
-    const std::string& name,
-    const GenericAssociatedInterfaceFactory& factory) {
-  context()->AddGenericAssociatedInterface(name, factory);
 }
 
 void ChannelProxy::AddGenericAssociatedInterfaceForIOThread(
@@ -614,38 +590,6 @@ void ChannelProxy::ClearIPCTaskRunner() {
 
   context()->ClearIPCTaskRunner();
 }
-
-base::ProcessId ChannelProxy::GetPeerPID() const {
-  base::AutoLock l(context_->peer_pid_lock_);
-  return context_->peer_pid_;
-}
-
-void ChannelProxy::OnSetAttachmentBrokerEndpoint() {
-  CHECK(!did_init_);
-  context()->set_attachment_broker_endpoint(is_attachment_broker_endpoint());
-}
-
-#if defined(OS_POSIX) && !defined(OS_NACL_SFI)
-// See the TODO regarding lazy initialization of the channel in
-// ChannelProxy::Init().
-int ChannelProxy::GetClientFileDescriptor() {
-  DCHECK(CalledOnValidThread());
-
-  Channel* channel = context_.get()->channel_.get();
-  // Channel must have been created first.
-  DCHECK(channel) << context_.get()->channel_id_;
-  return channel->GetClientFileDescriptor();
-}
-
-base::ScopedFD ChannelProxy::TakeClientFileDescriptor() {
-  DCHECK(CalledOnValidThread());
-
-  Channel* channel = context_.get()->channel_.get();
-  // Channel must have been created first.
-  DCHECK(channel) << context_.get()->channel_id_;
-  return channel->TakeClientFileDescriptor();
-}
-#endif
 
 void ChannelProxy::OnChannelInit() {
 }

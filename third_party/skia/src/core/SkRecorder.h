@@ -9,8 +9,8 @@
 #define SkRecorder_DEFINED
 
 #include "SkBigPicture.h"
-#include "SkCanvas.h"
 #include "SkMiniRecorder.h"
+#include "SkNoDrawCanvas.h"
 #include "SkRecord.h"
 #include "SkRecords.h"
 #include "SkTDArray.h"
@@ -36,7 +36,7 @@ private:
 
 // SkRecorder provides an SkCanvas interface for recording into an SkRecord.
 
-class SkRecorder : public SkCanvas {
+class SkRecorder final : public SkNoDrawCanvas {
 public:
     // Does not take ownership of the SkRecord.
     SkRecorder(SkRecord*, int width, int height, SkMiniRecorder* = nullptr);   // legacy version
@@ -48,7 +48,7 @@ public:
     size_t approxBytesUsedBySubPictures() const { return fApproxBytesUsedBySubPictures; }
 
     SkDrawableList* getDrawableList() const { return fDrawableList.get(); }
-    SkDrawableList* detachDrawableList() { return fDrawableList.release(); }
+    std::unique_ptr<SkDrawableList> detachDrawableList() { return std::move(fDrawableList); }
 
     // Make SkRecorder forget entirely about its SkRecord*; all calls to SkRecorder will fail.
     void forgetRecord();
@@ -99,7 +99,7 @@ public:
                         SkScalar y,
                         const SkPaint& paint) override;
     void onDrawPatch(const SkPoint cubics[12], const SkColor colors[4],
-                     const SkPoint texCoords[4], SkXfermode* xmode,
+                     const SkPoint texCoords[4], SkBlendMode,
                      const SkPaint& paint) override;
 
     void onDrawPaint(const SkPaint&) override;
@@ -126,16 +126,16 @@ public:
                              const SkPaint*) override;
     void onDrawVertices(VertexMode vmode, int vertexCount,
                         const SkPoint vertices[], const SkPoint texs[],
-                        const SkColor colors[], SkXfermode* xmode,
+                        const SkColor colors[], SkBlendMode,
                         const uint16_t indices[], int indexCount,
                         const SkPaint&) override;
     void onDrawAtlas(const SkImage*, const SkRSXform[], const SkRect[], const SkColor[],
-                     int count, SkXfermode::Mode, const SkRect* cull, const SkPaint*) override;
+                     int count, SkBlendMode, const SkRect* cull, const SkPaint*) override;
 
-    void onClipRect(const SkRect& rect, ClipOp, ClipEdgeStyle) override;
-    void onClipRRect(const SkRRect& rrect, ClipOp, ClipEdgeStyle) override;
-    void onClipPath(const SkPath& path, ClipOp, ClipEdgeStyle) override;
-    void onClipRegion(const SkRegion& deviceRgn, ClipOp) override;
+    void onClipRect(const SkRect& rect, SkClipOp, ClipEdgeStyle) override;
+    void onClipRRect(const SkRRect& rrect, SkClipOp, ClipEdgeStyle) override;
+    void onClipPath(const SkPath& path, SkClipOp, ClipEdgeStyle) override;
+    void onClipRegion(const SkRegion& deviceRgn, SkClipOp) override;
 
     void onDrawPicture(const SkPicture*, const SkMatrix*, const SkPaint*) override;
 
@@ -173,7 +173,7 @@ private:
     DrawPictureMode fDrawPictureMode;
     size_t fApproxBytesUsedBySubPictures;
     SkRecord* fRecord;
-    SkAutoTDelete<SkDrawableList> fDrawableList;
+    std::unique_ptr<SkDrawableList> fDrawableList;
 
     SkMiniRecorder* fMiniRecorder;
 };

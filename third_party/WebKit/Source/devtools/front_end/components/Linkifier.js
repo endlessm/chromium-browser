@@ -29,536 +29,761 @@
  */
 
 /**
- * @interface
+ * @implements {SDK.TargetManager.Observer}
+ * @unrestricted
  */
-WebInspector.LinkifierFormatter = function()
-{
-}
-
-WebInspector.LinkifierFormatter.prototype = {
-    /**
-     * @param {!Element} anchor
-     * @param {!WebInspector.UILocation} uiLocation
-     * @param {boolean} isBlackboxed
-     */
-    formatLiveAnchor: function(anchor, uiLocation, isBlackboxed) { }
-}
-
-/**
- * @constructor
- * @implements {WebInspector.TargetManager.Observer}
- * @param {!WebInspector.LinkifierFormatter=} formatter
- */
-WebInspector.Linkifier = function(formatter)
-{
-    this._formatter = formatter || new WebInspector.Linkifier.DefaultFormatter(WebInspector.Linkifier.MaxLengthForDisplayedURLs);
-    /** @type {!Map<!WebInspector.Target, !Array<!Element>>} */
+Components.Linkifier = class {
+  /**
+   * @param {number=} maxLengthForDisplayedURLs
+   * @param {boolean=} useLinkDecorator
+   */
+  constructor(maxLengthForDisplayedURLs, useLinkDecorator) {
+    this._maxLength = maxLengthForDisplayedURLs || UI.MaxLengthForDisplayedURLs;
+    /** @type {!Map<!SDK.Target, !Array<!Element>>} */
     this._anchorsByTarget = new Map();
-    /** @type {!Map<!WebInspector.Target, !WebInspector.LiveLocationPool>} */
+    /** @type {!Map<!SDK.Target, !Bindings.LiveLocationPool>} */
     this._locationPoolByTarget = new Map();
-    WebInspector.targetManager.observeTargets(this);
-}
+    this._useLinkDecorator = !!useLinkDecorator;
+    Components.Linkifier._instances.add(this);
+    SDK.targetManager.observeTargets(this);
+  }
 
-/**
- * @param {?WebInspector.Linkifier.LinkHandler} handler
- */
-WebInspector.Linkifier.setLinkHandler = function(handler)
-{
-    WebInspector.Linkifier._linkHandler = handler;
-}
+  /**
+   * @param {!Components.LinkDecorator} decorator
+   */
+  static setLinkDecorator(decorator) {
+    console.assert(!Components.Linkifier._decorator, 'Cannot re-register link decorator.');
+    Components.Linkifier._decorator = decorator;
+    decorator.addEventListener(Components.LinkDecorator.Events.LinkIconChanged, onLinkIconChanged);
+    for (var linkifier of Components.Linkifier._instances)
+      linkifier._updateAllAnchorDecorations();
 
-/**
- * @param {string} url
- * @param {number=} lineNumber
- * @return {boolean}
- */
-WebInspector.Linkifier.handleLink = function(url, lineNumber)
-{
-    if (!WebInspector.Linkifier._linkHandler)
-        return false;
-    return WebInspector.Linkifier._linkHandler.handleLink(url, lineNumber);
-}
-
-/**
- * @param {!Object} revealable
- * @param {string} text
- * @param {string=} fallbackHref
- * @param {number=} fallbackLineNumber
- * @param {string=} title
- * @param {string=} classes
- * @return {!Element}
- */
-WebInspector.Linkifier.linkifyUsingRevealer = function(revealable, text, fallbackHref, fallbackLineNumber, title, classes)
-{
-    var a = createElement("a");
-    a.className = (classes || "") + " webkit-html-resource-link";
-    a.textContent = text.trimMiddle(WebInspector.Linkifier.MaxLengthForDisplayedURLs);
-    a.title = title || text;
-    if (fallbackHref) {
-        a.href = fallbackHref;
-        a.lineNumber = fallbackLineNumber;
+    /**
+     * @param {!Common.Event} event
+     */
+    function onLinkIconChanged(event) {
+      var uiSourceCode = /** @type {!Workspace.UISourceCode} */ (event.data);
+      var links = uiSourceCode[Components.Linkifier._sourceCodeAnchors] || [];
+      for (var link of links)
+        Components.Linkifier._updateLinkDecorations(link);
     }
-    /**
-     * @param {!Event} event
-     * @this {Object}
-     */
-    function clickHandler(event)
-    {
-        event.stopImmediatePropagation();
-        event.preventDefault();
-        if (fallbackHref && WebInspector.Linkifier.handleLink(fallbackHref, fallbackLineNumber))
-            return;
+  }
 
-        WebInspector.Revealer.reveal(this);
+  _updateAllAnchorDecorations() {
+    for (var anchors of this._anchorsByTarget.values()) {
+      for (var anchor of anchors)
+        Components.Linkifier._updateLinkDecorations(anchor);
     }
-    a.addEventListener("click", clickHandler.bind(revealable), false);
-    return a;
-}
+  }
 
-WebInspector.Linkifier._uiLocationSymbol = Symbol("uiLocation");
-WebInspector.Linkifier._fallbackAnchorSymbol = Symbol("fallbackAnchor");
-WebInspector.Linkifier._liveLocationSymbol = Symbol("liveLocation");
-
-WebInspector.Linkifier.prototype = {
-    /**
-     * @override
-     * @param {!WebInspector.Target} target
-     */
-    targetAdded: function(target)
-    {
-        this._anchorsByTarget.set(target, []);
-        this._locationPoolByTarget.set(target, new WebInspector.LiveLocationPool());
-    },
-
-    /**
-     * @override
-     * @param {!WebInspector.Target} target
-     */
-    targetRemoved: function(target)
-    {
-        var locationPool = /** @type {!WebInspector.LiveLocationPool} */(this._locationPoolByTarget.remove(target));
-        locationPool.disposeAll();
-        var anchors = this._anchorsByTarget.remove(target);
-        for (var anchor of anchors) {
-            delete anchor[WebInspector.Linkifier._liveLocationSymbol];
-            var fallbackAnchor = anchor[WebInspector.Linkifier._fallbackAnchorSymbol];
-            if (fallbackAnchor) {
-                anchor.href = fallbackAnchor.href;
-                anchor.lineNumber = fallbackAnchor.lineNumber;
-                anchor.title = fallbackAnchor.title;
-                anchor.className = fallbackAnchor.className;
-                anchor.textContent = fallbackAnchor.textContent;
-                delete anchor[WebInspector.Linkifier._fallbackAnchorSymbol];
-            }
-        }
-    },
-
-    /**
-     * @param {?WebInspector.Target} target
-     * @param {?string} scriptId
-     * @param {string} sourceURL
-     * @param {number} lineNumber
-     * @param {number=} columnNumber
-     * @param {string=} classes
-     * @return {?Element}
-     */
-    maybeLinkifyScriptLocation: function(target, scriptId, sourceURL, lineNumber, columnNumber, classes)
-    {
-        var fallbackAnchor = sourceURL ? WebInspector.linkifyResourceAsNode(sourceURL, lineNumber, columnNumber, classes) : null;
-        if (!target || target.isDetached())
-            return fallbackAnchor;
-        var debuggerModel = WebInspector.DebuggerModel.fromTarget(target);
-        if (!debuggerModel)
-            return fallbackAnchor;
-
-        var rawLocation =
-            (scriptId ? debuggerModel.createRawLocationByScriptId(scriptId, lineNumber, columnNumber || 0) : null) ||
-            debuggerModel.createRawLocationByURL(sourceURL, lineNumber, columnNumber || 0);
-        if (!rawLocation)
-            return fallbackAnchor;
-
-        var anchor = this._createAnchor(classes);
-        var liveLocation = WebInspector.debuggerWorkspaceBinding.createLiveLocation(rawLocation, this._updateAnchor.bind(this, anchor), /** @type {!WebInspector.LiveLocationPool} */(this._locationPoolByTarget.get(rawLocation.target())));
-        var anchors = /** @type {!Array<!Element>} */(this._anchorsByTarget.get(rawLocation.target()));
-        anchors.push(anchor);
-        anchor[WebInspector.Linkifier._liveLocationSymbol] = liveLocation;
-        anchor[WebInspector.Linkifier._fallbackAnchorSymbol] = fallbackAnchor;
-        return anchor;
-    },
-
-    /**
-     * @param {?WebInspector.Target} target
-     * @param {?string} scriptId
-     * @param {string} sourceURL
-     * @param {number} lineNumber
-     * @param {number=} columnNumber
-     * @param {string=} classes
-     * @return {!Element}
-     */
-    linkifyScriptLocation: function(target, scriptId, sourceURL, lineNumber, columnNumber, classes)
-    {
-        return this.maybeLinkifyScriptLocation(target, scriptId, sourceURL, lineNumber, columnNumber, classes)
-            || WebInspector.linkifyResourceAsNode(sourceURL, lineNumber, columnNumber, classes);
-    },
-
-    /**
-     * @param {!WebInspector.DebuggerModel.Location} rawLocation
-     * @param {string} fallbackUrl
-     * @param {string=} classes
-     * @return {!Element}
-     */
-    linkifyRawLocation: function(rawLocation, fallbackUrl, classes)
-    {
-        return this.linkifyScriptLocation(rawLocation.target(), rawLocation.scriptId, fallbackUrl, rawLocation.lineNumber, rawLocation.columnNumber, classes);
-    },
-
-    /**
-     * @param {?WebInspector.Target} target
-     * @param {!RuntimeAgent.CallFrame} callFrame
-     * @param {string=} classes
-     * @return {?Element}
-     */
-    maybeLinkifyConsoleCallFrame: function(target, callFrame, classes)
-    {
-        return this.maybeLinkifyScriptLocation(target, callFrame.scriptId, callFrame.url, callFrame.lineNumber, callFrame.columnNumber, classes);
-    },
-
-    /**
-     * @param {!WebInspector.Target} target
-     * @param {!RuntimeAgent.StackTrace} stackTrace
-     * @param {string=} classes
-     * @return {!Element}
-     */
-    linkifyStackTraceTopFrame: function(target, stackTrace, classes)
-    {
-        console.assert(stackTrace.callFrames && stackTrace.callFrames.length);
-
-        var topFrame = stackTrace.callFrames[0];
-        var fallbackAnchor = WebInspector.linkifyResourceAsNode(topFrame.url, topFrame.lineNumber, topFrame.columnNumber, classes);
-        if (target.isDetached())
-            return fallbackAnchor;
-
-        var debuggerModel = WebInspector.DebuggerModel.fromTarget(target);
-        var rawLocations = debuggerModel.createRawLocationsByStackTrace(stackTrace);
-        if (rawLocations.length === 0)
-            return fallbackAnchor;
-
-        var anchor = this._createAnchor(classes);
-        var liveLocation = WebInspector.debuggerWorkspaceBinding.createStackTraceTopFrameLiveLocation(rawLocations, this._updateAnchor.bind(this, anchor), /** @type {!WebInspector.LiveLocationPool} */(this._locationPoolByTarget.get(target)));
-        var anchors = /** @type {!Array<!Element>} */(this._anchorsByTarget.get(target));
-        anchors.push(anchor);
-        anchor[WebInspector.Linkifier._liveLocationSymbol] = liveLocation;
-        anchor[WebInspector.Linkifier._fallbackAnchorSymbol] = fallbackAnchor;
-        return anchor;
-    },
-
-    /**
-     * @param {!WebInspector.CSSLocation} rawLocation
-     * @param {string=} classes
-     * @return {!Element}
-     */
-    linkifyCSSLocation: function(rawLocation, classes)
-    {
-        var anchor = this._createAnchor(classes);
-        var liveLocation = WebInspector.cssWorkspaceBinding.createLiveLocation(rawLocation, this._updateAnchor.bind(this, anchor), /** @type {!WebInspector.LiveLocationPool} */(this._locationPoolByTarget.get(rawLocation.target())));
-        var anchors = /** @type {!Array<!Element>} */(this._anchorsByTarget.get(rawLocation.target()));
-        anchors.push(anchor);
-        anchor[WebInspector.Linkifier._liveLocationSymbol] = liveLocation;
-        return anchor;
-    },
-
-    /**
-     * @param {!WebInspector.Target} target
-     * @param {!Element} anchor
-     */
-    disposeAnchor: function(target, anchor)
-    {
-        delete anchor[WebInspector.Linkifier._uiLocationSymbol];
-        delete anchor[WebInspector.Linkifier._fallbackAnchorSymbol];
-        var liveLocation = anchor[WebInspector.Linkifier._liveLocationSymbol];
-        if (liveLocation)
-            liveLocation.dispose();
-        delete anchor[WebInspector.Linkifier._liveLocationSymbol];
-    },
-
-    /**
-     * @param {string=} classes
-     * @return {!Element}
-     */
-    _createAnchor: function(classes)
-    {
-        var anchor = createElement("a");
-        anchor.className = (classes || "") + " webkit-html-resource-link";
-
-        /**
-         * @param {!Event} event
-         */
-        function clickHandler(event)
-        {
-            var uiLocation = anchor[WebInspector.Linkifier._uiLocationSymbol];
-            if (!uiLocation)
-                return;
-
-            event.consume(true);
-            if (WebInspector.Linkifier.handleLink(uiLocation.uiSourceCode.url(), uiLocation.lineNumber))
-                return;
-            WebInspector.Revealer.reveal(uiLocation);
-        }
-        anchor.addEventListener("click", clickHandler, false);
-        return anchor;
-    },
-
-    reset: function()
-    {
-        for (var target of this._anchorsByTarget.keysArray()) {
-            this.targetRemoved(target);
-            this.targetAdded(target);
-        }
-    },
-
-    dispose: function()
-    {
-        for (var target of this._anchorsByTarget.keysArray())
-            this.targetRemoved(target);
-        WebInspector.targetManager.unobserveTargets(this);
-    },
-
-    /**
-     * @param {!Element} anchor
-     * @param {!WebInspector.LiveLocation} liveLocation
-     */
-    _updateAnchor: function(anchor, liveLocation)
-    {
-        var uiLocation = liveLocation.uiLocation();
-        if (!uiLocation)
-            return;
-        anchor[WebInspector.Linkifier._uiLocationSymbol] = uiLocation;
-        this._formatter.formatLiveAnchor(anchor, uiLocation, liveLocation.isBlackboxed());
+  /**
+   * @param {!Element} anchor
+   * @param {!Workspace.UILocation} uiLocation
+   */
+  static _bindUILocation(anchor, uiLocation) {
+    Components.Linkifier._linkInfo(anchor).uiLocation = uiLocation;
+    if (!uiLocation)
+      return;
+    var uiSourceCode = uiLocation.uiSourceCode;
+    var sourceCodeAnchors = uiSourceCode[Components.Linkifier._sourceCodeAnchors];
+    if (!sourceCodeAnchors) {
+      sourceCodeAnchors = new Set();
+      uiSourceCode[Components.Linkifier._sourceCodeAnchors] = sourceCodeAnchors;
     }
-}
+    sourceCodeAnchors.add(anchor);
+  }
 
-/**
- * @param {!Element} anchor
- * @return {?WebInspector.UILocation} uiLocation
- */
-WebInspector.Linkifier.uiLocationByAnchor = function(anchor)
-{
-    return anchor[WebInspector.Linkifier._uiLocationSymbol];
-}
+  /**
+   * @param {!Element} anchor
+   */
+  static _unbindUILocation(anchor) {
+    var info = Components.Linkifier._linkInfo(anchor);
+    if (!info.uiLocation)
+      return;
 
-/**
- * @constructor
- * @implements {WebInspector.LinkifierFormatter}
- * @param {number=} maxLength
- */
-WebInspector.Linkifier.DefaultFormatter = function(maxLength)
-{
-    this._maxLength = maxLength;
-}
+    var uiSourceCode = info.uiLocation.uiSourceCode;
+    info.uiLocation = null;
+    var sourceCodeAnchors = uiSourceCode[Components.Linkifier._sourceCodeAnchors];
+    if (sourceCodeAnchors)
+      sourceCodeAnchors.delete(anchor);
+  }
 
-WebInspector.Linkifier.DefaultFormatter.prototype = {
-    /**
-     * @override
-     * @param {!Element} anchor
-     * @param {!WebInspector.UILocation} uiLocation
-     * @param {boolean} isBlackboxed
-     */
-    formatLiveAnchor: function(anchor, uiLocation, isBlackboxed)
-    {
-        var text = uiLocation.linkText();
-        text = text.replace(/([a-f0-9]{7})[a-f0-9]{13}[a-f0-9]*/g, "$1\u2026");
-        if (this._maxLength)
-            text = text.trimMiddle(this._maxLength);
-        anchor.textContent = text;
+  /**
+   * @override
+   * @param {!SDK.Target} target
+   */
+  targetAdded(target) {
+    this._anchorsByTarget.set(target, []);
+    this._locationPoolByTarget.set(target, new Bindings.LiveLocationPool());
+  }
 
-        var titleText = uiLocation.uiSourceCode.url();
-        if (typeof uiLocation.lineNumber === "number")
-            titleText += ":" + (uiLocation.lineNumber + 1);
-        anchor.title = titleText;
-
-        anchor.classList.toggle("webkit-html-blackbox-link", isBlackboxed);
+  /**
+   * @override
+   * @param {!SDK.Target} target
+   */
+  targetRemoved(target) {
+    var locationPool = /** @type {!Bindings.LiveLocationPool} */ (this._locationPoolByTarget.remove(target));
+    locationPool.disposeAll();
+    var anchors = this._anchorsByTarget.remove(target);
+    for (var anchor of anchors) {
+      var info = Components.Linkifier._linkInfo(anchor);
+      info.liveLocation = null;
+      Components.Linkifier._unbindUILocation(anchor);
+      if (info.fallback) {
+        anchor.href = info.fallback.href;
+        anchor.title = info.fallback.title;
+        anchor.className = info.fallback.className;
+        anchor.textContent = info.fallback.textContent;
+        anchor[Components.Linkifier._infoSymbol] = info.fallback[Components.Linkifier._infoSymbol];
+      }
     }
-}
+  }
+
+  /**
+   * @param {?SDK.Target} target
+   * @param {?string} scriptId
+   * @param {string} sourceURL
+   * @param {number} lineNumber
+   * @param {number=} columnNumber
+   * @param {string=} classes
+   * @return {?Element}
+   */
+  maybeLinkifyScriptLocation(target, scriptId, sourceURL, lineNumber, columnNumber, classes) {
+    var fallbackAnchor =
+        sourceURL ? Components.Linkifier.linkifyURL(sourceURL, undefined, classes, lineNumber, columnNumber) : null;
+    if (!target || target.isDisposed())
+      return fallbackAnchor;
+    var debuggerModel = SDK.DebuggerModel.fromTarget(target);
+    if (!debuggerModel)
+      return fallbackAnchor;
+
+    var rawLocation =
+        (scriptId ? debuggerModel.createRawLocationByScriptId(scriptId, lineNumber, columnNumber || 0) : null) ||
+        debuggerModel.createRawLocationByURL(sourceURL, lineNumber, columnNumber || 0);
+    if (!rawLocation)
+      return fallbackAnchor;
+
+    var anchor = Components.Linkifier._createLink('', classes || '');
+    var info = Components.Linkifier._linkInfo(anchor);
+    info.enableDecorator = this._useLinkDecorator;
+    info.fallback = fallbackAnchor;
+    info.liveLocation = Bindings.debuggerWorkspaceBinding.createLiveLocation(
+        rawLocation, this._updateAnchor.bind(this, anchor),
+        /** @type {!Bindings.LiveLocationPool} */ (this._locationPoolByTarget.get(rawLocation.target())));
+
+    var anchors = /** @type {!Array<!Element>} */ (this._anchorsByTarget.get(rawLocation.target()));
+    anchors.push(anchor);
+    return anchor;
+  }
+
+  /**
+   * @param {?SDK.Target} target
+   * @param {?string} scriptId
+   * @param {string} sourceURL
+   * @param {number} lineNumber
+   * @param {number=} columnNumber
+   * @param {string=} classes
+   * @return {!Element}
+   */
+  linkifyScriptLocation(target, scriptId, sourceURL, lineNumber, columnNumber, classes) {
+    return this.maybeLinkifyScriptLocation(target, scriptId, sourceURL, lineNumber, columnNumber, classes) ||
+        Components.Linkifier.linkifyURL(sourceURL, undefined, classes, lineNumber, columnNumber);
+  }
+
+  /**
+   * @param {!SDK.DebuggerModel.Location} rawLocation
+   * @param {string} fallbackUrl
+   * @param {string=} classes
+   * @return {!Element}
+   */
+  linkifyRawLocation(rawLocation, fallbackUrl, classes) {
+    return this.linkifyScriptLocation(
+        rawLocation.target(), rawLocation.scriptId, fallbackUrl, rawLocation.lineNumber, rawLocation.columnNumber,
+        classes);
+  }
+
+  /**
+   * @param {?SDK.Target} target
+   * @param {!Protocol.Runtime.CallFrame} callFrame
+   * @param {string=} classes
+   * @return {?Element}
+   */
+  maybeLinkifyConsoleCallFrame(target, callFrame, classes) {
+    return this.maybeLinkifyScriptLocation(
+        target, callFrame.scriptId, callFrame.url, callFrame.lineNumber, callFrame.columnNumber, classes);
+  }
+
+  /**
+   * @param {!SDK.Target} target
+   * @param {!Protocol.Runtime.StackTrace} stackTrace
+   * @param {string=} classes
+   * @return {!Element}
+   */
+  linkifyStackTraceTopFrame(target, stackTrace, classes) {
+    console.assert(stackTrace.callFrames && stackTrace.callFrames.length);
+
+    var topFrame = stackTrace.callFrames[0];
+    var fallbackAnchor =
+        Components.Linkifier.linkifyURL(topFrame.url, undefined, classes, topFrame.lineNumber, topFrame.columnNumber);
+    if (target.isDisposed())
+      return fallbackAnchor;
+
+    var debuggerModel = SDK.DebuggerModel.fromTarget(target);
+    var rawLocations = debuggerModel.createRawLocationsByStackTrace(stackTrace);
+    if (rawLocations.length === 0)
+      return fallbackAnchor;
+
+    var anchor = Components.Linkifier._createLink('', classes || '');
+    var info = Components.Linkifier._linkInfo(anchor);
+    info.enableDecorator = this._useLinkDecorator;
+    info.fallback = fallbackAnchor;
+    info.liveLocation = Bindings.debuggerWorkspaceBinding.createStackTraceTopFrameLiveLocation(
+        rawLocations, this._updateAnchor.bind(this, anchor),
+        /** @type {!Bindings.LiveLocationPool} */ (this._locationPoolByTarget.get(target)));
+
+    var anchors = /** @type {!Array<!Element>} */ (this._anchorsByTarget.get(target));
+    anchors.push(anchor);
+    return anchor;
+  }
+
+  /**
+   * @param {!SDK.CSSLocation} rawLocation
+   * @param {string=} classes
+   * @return {!Element}
+   */
+  linkifyCSSLocation(rawLocation, classes) {
+    var anchor = Components.Linkifier._createLink('', classes || '');
+    var info = Components.Linkifier._linkInfo(anchor);
+    info.enableDecorator = this._useLinkDecorator;
+    info.liveLocation = Bindings.cssWorkspaceBinding.createLiveLocation(
+        rawLocation, this._updateAnchor.bind(this, anchor),
+        /** @type {!Bindings.LiveLocationPool} */ (this._locationPoolByTarget.get(rawLocation.target())));
+
+    var anchors = /** @type {!Array<!Element>} */ (this._anchorsByTarget.get(rawLocation.target()));
+    anchors.push(anchor);
+    return anchor;
+  }
+
+  /**
+   * @param {!SDK.Target} target
+   * @param {!Element} anchor
+   */
+  disposeAnchor(target, anchor) {
+    Components.Linkifier._unbindUILocation(anchor);
+    var info = Components.Linkifier._linkInfo(anchor);
+    info.fallback = null;
+    if (info.liveLocation) {
+      info.liveLocation.dispose();
+      info.liveLocation = null;
+    }
+  }
+
+  reset() {
+    for (var target of this._anchorsByTarget.keysArray()) {
+      this.targetRemoved(target);
+      this.targetAdded(target);
+    }
+  }
+
+  dispose() {
+    for (var target of this._anchorsByTarget.keysArray())
+      this.targetRemoved(target);
+    SDK.targetManager.unobserveTargets(this);
+    Components.Linkifier._instances.delete(this);
+  }
+
+  /**
+   * @param {!Element} anchor
+   * @param {!Bindings.LiveLocation} liveLocation
+   */
+  _updateAnchor(anchor, liveLocation) {
+    Components.Linkifier._unbindUILocation(anchor);
+    var uiLocation = liveLocation.uiLocation();
+    if (!uiLocation)
+      return;
+
+    Components.Linkifier._bindUILocation(anchor, uiLocation);
+    var text = uiLocation.linkText();
+    var info = Components.Linkifier._linkInfo(anchor);
+    info.originalLinkText = text;
+    text = text.replace(/([a-f0-9]{7})[a-f0-9]{13}[a-f0-9]*/g, '$1\u2026');
+    if (this._maxLength)
+      text = text.trimMiddle(this._maxLength);
+    anchor.textContent = text;
+
+    var titleText = uiLocation.uiSourceCode.url();
+    if (typeof uiLocation.lineNumber === 'number')
+      titleText += ':' + (uiLocation.lineNumber + 1);
+    anchor.title = titleText;
+    anchor.classList.toggle('webkit-html-blackbox-link', liveLocation.isBlackboxed());
+    Components.Linkifier._updateLinkDecorations(anchor);
+  }
+
+  /**
+   * @param {!Element} anchor
+   */
+  static _updateLinkDecorations(anchor) {
+    var info = Components.Linkifier._linkInfo(anchor);
+    if (!info || !info.enableDecorator)
+      return;
+    if (!Components.Linkifier._decorator || !info.uiLocation)
+      return;
+    if (info.icon && info.icon.parentElement)
+      anchor.removeChild(info.icon);
+    var icon = Components.Linkifier._decorator.linkIcon(info.uiLocation.uiSourceCode);
+    if (icon) {
+      icon.style.setProperty('margin-right', '2px');
+      anchor.insertBefore(icon, anchor.firstChild);
+    }
+    info.icon = icon;
+  }
+
+  /**
+   * @param {string} url
+   * @param {string=} text
+   * @param {string=} className
+   * @param {number=} lineNumber
+   * @param {number=} columnNumber
+   * @param {boolean=} preventClick
+   * @return {!Element}
+   */
+  static linkifyURL(url, text, className, lineNumber, columnNumber, preventClick) {
+    if (!url || url.trim().toLowerCase().startsWith('javascript:')) {
+      var element = createElementWithClass('span', className);
+      element.textContent = text || url || Common.UIString('(unknown)');
+      return element;
+    }
+
+    var linkText = text || Bindings.displayNameForURL(url);
+    if (typeof lineNumber === 'number' && !text)
+      linkText += ':' + (lineNumber + 1);
+    var title = linkText !== url ? url : '';
+    var link = Components.Linkifier._createLink(
+        linkText, className || '', UI.MaxLengthForDisplayedURLs, title, url, preventClick);
+    var info = Components.Linkifier._linkInfo(link);
+    if (typeof lineNumber === 'number')
+      info.lineNumber = lineNumber;
+    if (typeof columnNumber === 'number')
+      info.columnNumber = columnNumber;
+    return link;
+  }
+
+  /**
+   * @param {!Object} revealable
+   * @param {string} text
+   * @param {string=} fallbackHref
+   * @return {!Element}
+   */
+  static linkifyRevealable(revealable, text, fallbackHref) {
+    var link = Components.Linkifier._createLink(text, '', UI.MaxLengthForDisplayedURLs, undefined, fallbackHref);
+    Components.Linkifier._linkInfo(link).revealable = revealable;
+    return link;
+  }
+
+  /**
+   * @param {string} text
+   * @param {string} className
+   * @param {number=} maxLength
+   * @param {string=} title
+   * @param {string=} href
+   * @param {boolean=} preventClick
+   * @returns{!Element}
+   */
+  static _createLink(text, className, maxLength, title, href, preventClick) {
+    var link = createElementWithClass('span', className);
+    link.classList.add('devtools-link');
+    if (title)
+      link.title = title;
+    if (href)
+      link.href = href;
+    link.textContent = text;
+    if (maxLength)
+      link.textContent = link.textContent.trimMiddle(maxLength);
+    link[Components.Linkifier._infoSymbol] = {
+      icon: null,
+      enableDecorator: false,
+      uiLocation: null,
+      liveLocation: null,
+      url: href || null,
+      lineNumber: null,
+      columnNumber: null,
+      revealable: null,
+      fallback: null,
+      originalLinkText: text
+    };
+    if (!preventClick)
+      link.addEventListener('click', Components.Linkifier._handleClick, false);
+    else
+      link.classList.add('devtools-link-prevent-click');
+    return link;
+  }
+
+  /**
+   * @param {?Element} link
+   * @return {?string}
+   */
+  static originalLinkText(link) {
+    var info = this._linkInfo(link);
+    return info ? info.originalLinkText : null;
+  }
+
+  /**
+   * @param {?Element} link
+   * @return {?Components._LinkInfo}
+   */
+  static _linkInfo(link) {
+    return /** @type {?Components._LinkInfo} */ (link ? link[Components.Linkifier._infoSymbol] || null : null);
+  }
+
+  /**
+   * @param {!Event} event
+   */
+  static _handleClick(event) {
+    var link = /** @type {!Element} */ (event.currentTarget);
+    event.consume(true);
+    if (link.preventFollow || UI.isBeingEdited(/** @type {!Node} */ (event.target)))
+      return;
+    var actions = Components.Linkifier._linkActions(link);
+    if (actions.length)
+      actions[0].handler.call(null);
+  }
+
+  /**
+   * @return {!Common.Setting}
+   */
+  static _linkHandlerSetting() {
+    if (!Components.Linkifier._linkHandlerSettingInstance) {
+      Components.Linkifier._linkHandlerSettingInstance =
+          Common.settings.createSetting('openLinkHandler', Common.UIString('auto'));
+    }
+    return Components.Linkifier._linkHandlerSettingInstance;
+  }
+
+  /**
+   * @param {string} title
+   * @param {!Components.Linkifier.LinkHandler} handler
+   */
+  static registerLinkHandler(title, handler) {
+    Components.Linkifier._linkHandlers.set(title, handler);
+    self.runtime.sharedInstance(Components.Linkifier.LinkHandlerSettingUI)._update();
+  }
+
+  /**
+   * @param {string} title
+   */
+  static unregisterLinkHandler(title) {
+    Components.Linkifier._linkHandlers.delete(title);
+    self.runtime.sharedInstance(Components.Linkifier.LinkHandlerSettingUI)._update();
+  }
+
+  /**
+   * @param {?Element} link
+   * @return {!Array<{title: string, handler: function()}>}
+   */
+  static _linkActions(link) {
+    var info = Components.Linkifier._linkInfo(link);
+    var result = [];
+    if (!info)
+      return result;
+
+    var url = '';
+    var uiLocation = null;
+    if (info.uiLocation) {
+      uiLocation = info.uiLocation;
+      url = uiLocation.uiSourceCode.contentURL();
+    } else if (info.url) {
+      url = info.url;
+      var uiSourceCode = Workspace.workspace.uiSourceCodeForURL(url);
+      uiLocation = uiSourceCode ? uiSourceCode.uiLocation(info.lineNumber || 0, info.columnNumber || 0) : null;
+    }
+    var resource = url ? Bindings.resourceForURL(url) : null;
+    var request = url ? SDK.NetworkLog.requestForURL(url) : null;
+    var contentProvider = uiLocation ? uiLocation.uiSourceCode : resource;
+
+    if (info.revealable)
+      result.push({title: Common.UIString('Reveal'), handler: () => Common.Revealer.reveal(info.revealable)});
+    if (uiLocation) {
+      result.push({
+        title: Common.UIString.capitalize('Open in Sources ^panel'),
+        handler: () => Common.Revealer.reveal(uiLocation)
+      });
+    }
+    if (resource) {
+      result.push({
+        title: Common.UIString.capitalize('Open in Application ^panel'),
+        handler: () => Common.Revealer.reveal(resource)
+      });
+    }
+    if (request) {
+      result.push({
+        title: Common.UIString.capitalize('Open in Network ^panel'),
+        handler: () => Common.Revealer.reveal(request)
+      });
+    }
+    if (contentProvider) {
+      var lineNumber = uiLocation ? uiLocation.lineNumber : info.lineNumber || 0;
+      for (var title of Components.Linkifier._linkHandlers.keys()) {
+        var handler = Components.Linkifier._linkHandlers.get(title);
+        var action = {
+          title: Common.UIString.capitalize('Open using %s', title),
+          handler: handler.bind(null, contentProvider, lineNumber)
+        };
+        if (title === Components.Linkifier._linkHandlerSetting().get())
+          result.unshift(action);
+        else
+          result.push(action);
+      }
+    }
+    if (resource || info.url) {
+      result.push({title: UI.openLinkExternallyLabel(), handler: () => InspectorFrontendHost.openInNewTab(url)});
+      result.push({title: UI.copyLinkAddressLabel(), handler: () => InspectorFrontendHost.copyText(url)});
+    }
+    return result;
+  }
+};
+
+/** @type {!Set<!Components.Linkifier>} */
+Components.Linkifier._instances = new Set();
+/** @type {?Components.LinkDecorator} */
+Components.Linkifier._decorator = null;
+
+Components.Linkifier._sourceCodeAnchors = Symbol('Linkifier.anchors');
+Components.Linkifier._infoSymbol = Symbol('Linkifier.info');
 
 /**
- * @constructor
- * @extends {WebInspector.Linkifier.DefaultFormatter}
+ * @typedef {{
+ *     icon: ?UI.Icon,
+ *     enableDecorator: boolean,
+ *     uiLocation: ?Workspace.UILocation,
+ *     liveLocation: ?Bindings.LiveLocation,
+ *     url: ?string,
+ *     lineNumber: ?number,
+ *     columnNumber: ?number,
+ *     revealable: ?Object,
+ *     fallback: ?Element,
+ *     originalLinkText: string
+ * }}
  */
-WebInspector.Linkifier.DefaultCSSFormatter = function()
-{
-    WebInspector.Linkifier.DefaultFormatter.call(this, WebInspector.Linkifier.DefaultCSSFormatter.MaxLengthForDisplayedURLs);
-}
-
-WebInspector.Linkifier.DefaultCSSFormatter.MaxLengthForDisplayedURLs = 30;
-
-WebInspector.Linkifier.DefaultCSSFormatter.prototype = {
-    /**
-     * @override
-     * @param {!Element} anchor
-     * @param {!WebInspector.UILocation} uiLocation
-     * @param {boolean} isBlackboxed
-     */
-    formatLiveAnchor: function(anchor, uiLocation, isBlackboxed)
-    {
-        WebInspector.Linkifier.DefaultFormatter.prototype.formatLiveAnchor.call(this, anchor, uiLocation, isBlackboxed);
-        anchor.classList.add("webkit-html-resource-link");
-        anchor.setAttribute("data-uncopyable", anchor.textContent);
-        anchor.textContent = "";
-    },
-    __proto__: WebInspector.Linkifier.DefaultFormatter.prototype
-}
-
-/**
- * The maximum number of characters to display in a URL.
- * @const
- * @type {number}
- */
-WebInspector.Linkifier.MaxLengthForDisplayedURLs = 150;
+Components._LinkInfo;
 
 /**
  * The maximum length before strings are considered too long for finding URLs.
  * @const
  * @type {number}
  */
-WebInspector.Linkifier.MaxLengthToIgnoreLinkifier = 10000;
+Components.Linkifier.MaxLengthToIgnoreLinkifier = 10000;
 
 /**
+ * @typedef {function(!Common.ContentProvider, number)}
+ */
+Components.Linkifier.LinkHandler;
+
+/** @type {!Map<string, !Components.Linkifier.LinkHandler>} */
+Components.Linkifier._linkHandlers = new Map();
+
+/**
+ * @extends {Common.EventTarget}
  * @interface
  */
-WebInspector.Linkifier.LinkHandler = function()
-{
-}
+Components.LinkDecorator = function() {};
 
-WebInspector.Linkifier.LinkHandler.prototype = {
-    /**
-     * @param {string} url
-     * @param {number=} lineNumber
-     * @return {boolean}
-     */
-    handleLink: function(url, lineNumber) {}
-}
+Components.LinkDecorator.prototype = {
+  /**
+   * @param {!Workspace.UISourceCode} uiSourceCode
+   * @return {?UI.Icon}
+   */
+  linkIcon(uiSourceCode) {}
+};
 
-/**
- * @param {!WebInspector.Target} target
- * @param {string} scriptId
- * @param {number} lineNumber
- * @param {number=} columnNumber
- * @return {string}
- */
-WebInspector.Linkifier.liveLocationText = function(target, scriptId, lineNumber, columnNumber)
-{
-    var debuggerModel = WebInspector.DebuggerModel.fromTarget(target);
-    if (!debuggerModel)
-        return "";
-    var script = debuggerModel.scriptForId(scriptId);
-    if (!script)
-        return "";
-    var location = /** @type {!WebInspector.DebuggerModel.Location} */ (debuggerModel.createRawLocation(script, lineNumber, columnNumber || 0));
-    var uiLocation = /** @type {!WebInspector.UILocation} */ (WebInspector.debuggerWorkspaceBinding.rawLocationToUILocation(location));
-    return uiLocation.linkText();
-}
+Components.LinkDecorator.Events = {
+  LinkIconChanged: Symbol('LinkIconChanged')
+};
 
 /**
  * @param {string} string
  * @param {function(string,string,number=,number=):!Node} linkifier
  * @return {!DocumentFragment}
  */
-WebInspector.linkifyStringAsFragmentWithCustomLinkifier = function(string, linkifier)
-{
-    var container = createDocumentFragment();
-    var linkStringRegEx = /(?:[a-zA-Z][a-zA-Z0-9+.-]{2,}:\/\/|data:|www\.)[\w$\-_+*'=\|\/\\(){}[\]^%@&#~,:;.!?]{2,}[\w$\-_+*=\|\/\\({^%@&#~]/;
-    var pathLineRegex = /(?:\/[\/\w\.-]+)+\:[\d]+/;
+Components.linkifyStringAsFragmentWithCustomLinkifier = function(string, linkifier) {
+  var container = createDocumentFragment();
+  var linkStringRegEx =
+      /(?:[a-zA-Z][a-zA-Z0-9+.-]{2,}:\/\/|data:|www\.)[\w$\-_+*'=\|\/\\(){}[\]^%@&#~,:;.!?]{2,}[\w$\-_+*=\|\/\\({^%@&#~]/;
+  var pathLineRegex = /(?:\/[\w\.-]*)+\:[\d]+/;
 
-    while (string && string.length < WebInspector.Linkifier.MaxLengthToIgnoreLinkifier) {
-        var linkString = linkStringRegEx.exec(string) || pathLineRegex.exec(string);
-        if (!linkString)
-            break;
+  while (string && string.length < Components.Linkifier.MaxLengthToIgnoreLinkifier) {
+    var linkString = linkStringRegEx.exec(string) || pathLineRegex.exec(string);
+    if (!linkString)
+      break;
 
-        linkString = linkString[0];
-        var linkIndex = string.indexOf(linkString);
-        var nonLink = string.substring(0, linkIndex);
-        container.appendChild(createTextNode(nonLink));
+    linkString = linkString[0];
+    var linkIndex = string.indexOf(linkString);
+    var nonLink = string.substring(0, linkIndex);
+    container.appendChild(createTextNode(nonLink));
 
-        var title = linkString;
-        var realURL = (linkString.startsWith("www.") ? "http://" + linkString : linkString);
-        var splitResult = WebInspector.ParsedURL.splitLineAndColumn(realURL);
-        var linkNode;
-        if (splitResult)
-            linkNode = linkifier(title, splitResult.url, splitResult.lineNumber, splitResult.columnNumber);
-        else
-            linkNode = linkifier(title, realURL);
+    var title = linkString;
+    var realURL = (linkString.startsWith('www.') ? 'http://' + linkString : linkString);
+    var splitResult = Common.ParsedURL.splitLineAndColumn(realURL);
+    var linkNode;
+    if (splitResult)
+      linkNode = linkifier(title, splitResult.url, splitResult.lineNumber, splitResult.columnNumber);
+    else
+      linkNode = linkifier(title, realURL);
 
-        container.appendChild(linkNode);
-        string = string.substring(linkIndex + linkString.length, string.length);
-    }
+    container.appendChild(linkNode);
+    string = string.substring(linkIndex + linkString.length, string.length);
+  }
 
-    if (string)
-        container.appendChild(createTextNode(string));
+  if (string)
+    container.appendChild(createTextNode(string));
 
-    return container;
-}
+  return container;
+};
 
 /**
  * @param {string} string
  * @return {!DocumentFragment}
  */
-WebInspector.linkifyStringAsFragment = function(string)
-{
+Components.linkifyStringAsFragment = function(string) {
+  /**
+   * @param {string} title
+   * @param {string} url
+   * @param {number=} lineNumber
+   * @param {number=} columnNumber
+   * @return {!Node}
+   */
+  function linkifier(title, url, lineNumber, columnNumber) {
+    return Components.Linkifier.linkifyURL(url, title, undefined, lineNumber, columnNumber);
+  }
+
+  return Components.linkifyStringAsFragmentWithCustomLinkifier(string, linkifier);
+};
+
+/**
+ * @implements {UI.ContextMenu.Provider}
+ * @unrestricted
+ */
+Components.Linkifier.LinkContextMenuProvider = class {
+  /**
+   * @override
+   * @param {!Event} event
+   * @param {!UI.ContextMenu} contextMenu
+   * @param {!Object} target
+   */
+  appendApplicableItems(event, contextMenu, target) {
+    var targetNode = /** @type {!Node} */ (target);
+    while (targetNode && !targetNode[Components.Linkifier._infoSymbol])
+      targetNode = targetNode.parentNodeOrShadowHost();
+    var link = /** @type {?Element} */ (targetNode);
+    var actions = Components.Linkifier._linkActions(link);
+    for (var action of actions)
+      contextMenu.appendItem(action.title, action.handler);
+  }
+};
+
+/**
+ * @implements {UI.SettingUI}
+ * @unrestricted
+ */
+Components.Linkifier.LinkHandlerSettingUI = class {
+  constructor() {
+    this._element = createElementWithClass('select', 'chrome-select');
+    this._element.addEventListener('change', this._onChange.bind(this), false);
+    this._update();
+  }
+
+  _update() {
+    this._element.removeChildren();
+    var names = Components.Linkifier._linkHandlers.keysArray();
+    names.unshift(Common.UIString('auto'));
+    for (var name of names) {
+      var option = createElement('option');
+      option.textContent = name;
+      option.selected = name === Components.Linkifier._linkHandlerSetting().get();
+      this._element.appendChild(option);
+    }
+    this._element.disabled = names.length <= 1;
+  }
+
+  /**
+   * @param {!Event} event
+   */
+  _onChange(event) {
+    var value = event.target.value;
+    Components.Linkifier._linkHandlerSetting().set(value);
+  }
+
+  /**
+   * @override
+   * @return {?Element}
+   */
+  settingElement() {
+    return UI.SettingsUI.createCustomSetting(Common.UIString('Link handling:'), this._element);
+  }
+};
+
+/**
+ * @implements {UI.ContextMenu.Provider}
+ * @unrestricted
+ */
+Components.Linkifier.ContentProviderContextMenuProvider = class {
+  /**
+   * @override
+   * @param {!Event} event
+   * @param {!UI.ContextMenu} contextMenu
+   * @param {!Object} target
+   */
+  appendApplicableItems(event, contextMenu, target) {
+    var contentProvider = /** @type {!Common.ContentProvider} */ (target);
+    if (!contentProvider.contentURL())
+      return;
+
+    contextMenu.appendItem(
+        UI.openLinkExternallyLabel(), () => InspectorFrontendHost.openInNewTab(contentProvider.contentURL()));
+    for (var title of Components.Linkifier._linkHandlers.keys()) {
+      var handler = Components.Linkifier._linkHandlers.get(title);
+      contextMenu.appendItem(
+          Common.UIString.capitalize('Open using %s', title), handler.bind(null, contentProvider, 0));
+    }
+    if (contentProvider instanceof SDK.NetworkRequest)
+      return;
+
+    contextMenu.appendItem(
+        UI.copyLinkAddressLabel(), () => InspectorFrontendHost.copyText(contentProvider.contentURL()));
+    if (!contentProvider.contentType().isDocumentOrScriptOrStyleSheet())
+      return;
+
     /**
-     * @param {string} title
-     * @param {string} url
-     * @param {number=} lineNumber
-     * @param {number=} columnNumber
-     * @return {!Node}
+     * @param {boolean} forceSaveAs
+     * @param {?string} content
      */
-    function linkifier(title, url, lineNumber, columnNumber)
-    {
-        var isExternal = !WebInspector.resourceForURL(url) && !WebInspector.networkMapping.uiSourceCodeForURLForAnyTarget(url);
-        var urlNode = WebInspector.linkifyURLAsNode(url, title, undefined, isExternal);
-        if (typeof lineNumber !== "undefined") {
-            urlNode.lineNumber = lineNumber;
-            if (typeof columnNumber !== "undefined")
-                urlNode.columnNumber = columnNumber;
-        }
-
-        return urlNode;
+    function doSave(forceSaveAs, content) {
+      var url = contentProvider.contentURL();
+      Workspace.fileManager.save(url, /** @type {string} */ (content), forceSaveAs);
+      Workspace.fileManager.close(url);
     }
 
-    return WebInspector.linkifyStringAsFragmentWithCustomLinkifier(string, linkifier);
-}
-
-/**
- * @param {string} url
- * @param {number=} lineNumber
- * @param {number=} columnNumber
- * @param {string=} classes
- * @param {string=} tooltipText
- * @param {string=} urlDisplayName
- * @return {!Element}
- */
-WebInspector.linkifyResourceAsNode = function(url, lineNumber, columnNumber, classes, tooltipText, urlDisplayName)
-{
-    if (!url) {
-        var element = createElementWithClass("span", classes);
-        element.textContent = urlDisplayName || WebInspector.UIString("(unknown)");
-        return element;
+    /**
+     * @param {boolean} forceSaveAs
+     */
+    function save(forceSaveAs) {
+      if (contentProvider instanceof Workspace.UISourceCode) {
+        var uiSourceCode = /** @type {!Workspace.UISourceCode} */ (contentProvider);
+        if (forceSaveAs)
+          uiSourceCode.saveAs();
+        else
+          uiSourceCode.commitWorkingCopy();
+        return;
+      }
+      contentProvider.requestContent().then(doSave.bind(null, forceSaveAs));
     }
-    var linkText = urlDisplayName || WebInspector.displayNameForURL(url);
-    if (typeof lineNumber === "number")
-        linkText += ":" + (lineNumber + 1);
-    var anchor = WebInspector.linkifyURLAsNode(url, linkText, classes, false, tooltipText);
-    anchor.lineNumber = lineNumber;
-    anchor.columnNumber = columnNumber;
-    return anchor;
-}
 
-/**
- * @param {!WebInspector.NetworkRequest} request
- * @return {!Element}
- */
-WebInspector.linkifyRequestAsNode = function(request)
-{
-    var anchor = WebInspector.linkifyURLAsNode(request.url);
-    anchor.requestId = request.requestId;
-    return anchor;
-}
+    contextMenu.appendSeparator();
+    contextMenu.appendItem(Common.UIString('Save'), save.bind(null, false));
+
+    if (contentProvider instanceof Workspace.UISourceCode) {
+      var uiSourceCode = /** @type {!Workspace.UISourceCode} */ (contentProvider);
+      if (!uiSourceCode.project().canSetFileContent())
+        contextMenu.appendItem(Common.UIString.capitalize('Save ^as...'), save.bind(null, true));
+    }
+  }
+};

@@ -174,14 +174,29 @@ class CHROMEOS_EXPORT InputDeviceSettings {
   // where other input devices like mouse are absent.
   static bool ForceKeyboardDrivenUINavigation();
 
-  // Registers local pref names for touchpad and touch screen statuses.
+  // Registers local state pref names for touchscreen status.
   static void RegisterPrefs(PrefRegistrySimple* registry);
 
-  void InitTouchDevicesStatusFromLocalPrefs();
+  // Registers profile pref names for touchpad and touchscreen statuses.
+  static void RegisterProfilePrefs(PrefRegistrySimple* registry);
 
-  // Toggles the status of Touchscreen/Touchpad on or off and updates the local
-  // prefs.
-  void ToggleTouchscreen();
+  // Updates the enabled/disabled status of the touchscreen/touchpad from the
+  // preferences.
+  void UpdateTouchDevicesStatusFromPrefs();
+
+  // If |use_local_state| is true, returns the touchscreen status from local
+  // state, otherwise from user prefs.
+  bool IsTouchscreenEnabledInPrefs(bool use_local_state) const;
+
+  // Sets the status of touchscreen to |enabled| in prefs. If |use_local_state|,
+  // pref is set in local state, otherwise in user pref.
+  void SetTouchscreenEnabledInPrefs(bool enabled, bool use_local_state);
+
+  // Updates the enabled/disabled status of the touchscreen from prefs. Enabled
+  // if both local state and user prefs are enabled, otherwise disabled.
+  void UpdateTouchscreenStatusFromPrefs();
+
+  // Toggles the status of touchpad between enabled and disabled.
   void ToggleTouchpad();
 
   // Calls |callback|, possibly asynchronously, after determining if a touchpad

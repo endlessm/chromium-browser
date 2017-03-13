@@ -54,8 +54,6 @@ class MojoChannelFactory : public ChannelFactory {
         mode_(mode),
         ipc_task_runner_(ipc_task_runner) {}
 
-  std::string GetName() const override { return ""; }
-
   std::unique_ptr<Channel> BuildChannel(Listener* listener) override {
     return ChannelMojo::Create(
         std::move(handle_), mode_, listener, ipc_task_runner_);
@@ -126,14 +124,14 @@ base::ScopedFD TakeOrDupFile(internal::PlatformFileAttachment* attachment) {
 
 MojoResult WrapAttachmentImpl(MessageAttachment* attachment,
                               mojom::SerializedHandlePtr* serialized) {
-  if (attachment->GetType() == MessageAttachment::TYPE_MOJO_HANDLE) {
+  if (attachment->GetType() == MessageAttachment::Type::MOJO_HANDLE) {
     *serialized = CreateSerializedHandle(
         static_cast<internal::MojoHandleAttachment&>(*attachment).TakeHandle(),
         mojom::SerializedHandle::Type::MOJO_HANDLE);
     return MOJO_RESULT_OK;
   }
 #if defined(OS_POSIX)
-  if (attachment->GetType() == MessageAttachment::TYPE_PLATFORM_FILE) {
+  if (attachment->GetType() == MessageAttachment::Type::PLATFORM_FILE) {
     // We dup() the handles in IPC::Message to transmit.
     // IPC::MessageAttachmentSet has intricate lifecycle semantics
     // of FDs, so just to dup()-and-own them is the safest option.
@@ -150,10 +148,7 @@ MojoResult WrapAttachmentImpl(MessageAttachment* attachment,
   }
 #endif
 #if defined(OS_MACOSX)
-  DCHECK_EQ(attachment->GetType(),
-            MessageAttachment::TYPE_BROKERABLE_ATTACHMENT);
-  DCHECK_EQ(static_cast<BrokerableAttachment&>(*attachment).GetBrokerableType(),
-            BrokerableAttachment::MACH_PORT);
+  DCHECK_EQ(attachment->GetType(), MessageAttachment::Type::MACH_PORT);
   internal::MachPortAttachmentMac& mach_port_attachment =
       static_cast<internal::MachPortAttachmentMac&>(*attachment);
   MojoResult result = WrapMachPort(mach_port_attachment.get_mach_port(),
@@ -161,10 +156,7 @@ MojoResult WrapAttachmentImpl(MessageAttachment* attachment,
   mach_port_attachment.reset_mach_port_ownership();
   return result;
 #elif defined(OS_WIN)
-  DCHECK_EQ(attachment->GetType(),
-            MessageAttachment::TYPE_BROKERABLE_ATTACHMENT);
-  DCHECK_EQ(static_cast<BrokerableAttachment&>(*attachment).GetBrokerableType(),
-            BrokerableAttachment::WIN_HANDLE);
+  DCHECK_EQ(attachment->GetType(), MessageAttachment::Type::WIN_HANDLE);
   internal::HandleAttachmentWin& handle_attachment =
       static_cast<internal::HandleAttachmentWin&>(*attachment);
   MojoResult result = WrapPlatformHandle(
@@ -233,6 +225,18 @@ MojoResult UnwrapAttachment(mojom::SerializedHandlePtr handle,
 #endif  // defined(OS_WIN)
   NOTREACHED();
   return MOJO_RESULT_UNKNOWN;
+}
+
+base::ProcessId GetSelfPID() {
+#if defined(OS_LINUX)
+  if (int global_pid = Channel::GetGlobalPid())
+    return global_pid;
+#endif  // OS_LINUX
+#if defined(OS_NACL)
+  return -1;
+#else
+  return base::GetCurrentProcId();
+#endif  // defined(OS_NACL)
 }
 
 }  // namespace
@@ -370,53 +374,21 @@ bool ChannelMojo::Send(Message* message) {
   return message_reader_->Send(std::move(scoped_message));
 }
 
-base::ProcessId ChannelMojo::GetPeerPID() const {
-  if (!message_reader_)
-    return base::kNullProcessId;
-  return message_reader_->GetPeerPid();
-}
-
-base::ProcessId ChannelMojo::GetSelfPID() const {
-#if defined(OS_LINUX)
-  if (int global_pid = GetGlobalPid())
-    return global_pid;
-#endif  // OS_LINUX
-#if defined(OS_NACL)
-  return -1;
-#else
-  return base::GetCurrentProcId();
-#endif  // defined(OS_NACL)
-}
-
 Channel::AssociatedInterfaceSupport*
 ChannelMojo::GetAssociatedInterfaceSupport() { return this; }
 
-void ChannelMojo::OnPeerPidReceived() {
-  listener_->OnChannelConnected(static_cast<int32_t>(GetPeerPID()));
+void ChannelMojo::OnPeerPidReceived(int32_t peer_pid) {
+  listener_->OnChannelConnected(peer_pid);
 }
 
 void ChannelMojo::OnMessageReceived(const Message& message) {
   TRACE_EVENT2("ipc,toplevel", "ChannelMojo::OnMessageReceived",
                "class", IPC_MESSAGE_ID_CLASS(message.type()),
                "line", IPC_MESSAGE_ID_LINE(message.type()));
-  if (AttachmentBroker* broker = AttachmentBroker::GetGlobal()) {
-    if (broker->OnMessageReceived(message))
-      return;
-  }
   listener_->OnMessageReceived(message);
   if (message.dispatch_error())
     listener_->OnBadMessageReceived(message);
 }
-
-#if defined(OS_POSIX) && !defined(OS_NACL_SFI)
-int ChannelMojo::GetClientFileDescriptor() const {
-  return -1;
-}
-
-base::ScopedFD ChannelMojo::TakeClientFileDescriptor() {
-  return base::ScopedFD(GetClientFileDescriptor());
-}
-#endif  // defined(OS_POSIX) && !defined(OS_NACL_SFI)
 
 // static
 MojoResult ChannelMojo::ReadFromMessageAttachmentSet(
@@ -431,18 +403,9 @@ MojoResult ChannelMojo::ReadFromMessageAttachmentSet(
   std::vector<mojom::SerializedHandlePtr> output_handles;
   MessageAttachmentSet* set = message->attachment_set();
 
-  for (unsigned i = 0;
-       result == MOJO_RESULT_OK && i < set->num_non_brokerable_attachments();
-       ++i) {
-    result = WrapAttachment(set->GetNonBrokerableAttachmentAt(i).get(),
-                            &output_handles);
+  for (unsigned i = 0; result == MOJO_RESULT_OK && i < set->size(); ++i) {
+    result = WrapAttachment(set->GetAttachmentAt(i).get(), &output_handles);
   }
-  for (unsigned i = 0;
-       result == MOJO_RESULT_OK && i < set->num_brokerable_attachments(); ++i) {
-    result = WrapAttachment(set->GetBrokerableAttachmentAt(i).get(),
-                            &output_handles);
-  }
-
   set->CommitAllDescriptors();
 
   if (!output_handles.empty())

@@ -2,6 +2,7 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import sys
 import os
 
 from telemetry.testing import serially_executed_browser_test_case
@@ -32,6 +33,7 @@ class SimpleBrowserTest(
   def JavascriptTest(self, file_path, num_1, num_2, expected_sum):
     url = self.UrlOfStaticFilePath(file_path)
     self.action_runner.Navigate(url)
+    # TODO(catapult:#3028): Fix interpolation of JavaScript values.
     actual_sum = self.action_runner.EvaluateJavaScript(
         '%i + %i' % (num_1, num_2))
     self.assertEquals(expected_sum, actual_sum)
@@ -64,3 +66,9 @@ class SimpleBrowserTest(
     self.action_runner.ExecuteJavaScript('valueSettableByTest = 1997')
     self.action_runner.ClickElement(text='Click/tap me')
     self.assertEqual(1997, self.action_runner.EvaluateJavaScript('valueToTest'))
+
+
+def load_tests(loader, tests, pattern):
+  del loader, tests, pattern  # Unused.
+  return serially_executed_browser_test_case.LoadAllTestsInModule(
+      sys.modules[__name__])

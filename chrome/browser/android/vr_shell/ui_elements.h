@@ -10,7 +10,7 @@
 
 #include "base/macros.h"
 #include "chrome/browser/android/vr_shell/vr_math.h"
-#include "third_party/gvr-android-sdk/src/ndk/include/vr/gvr/capi/include/gvr_types.h"
+#include "third_party/gvr-android-sdk/src/libraries/headers/vr/gvr/capi/include/gvr_types.h"
 
 namespace vr_shell {
 
@@ -63,6 +63,12 @@ struct ContentRectangle : public WorldRectangle {
 
   void Animate(int64_t time);
 
+  // Indicates whether the element should be visually rendered.
+  bool IsVisible() const;
+
+  // Indicates whether the element should be tested for cursor input.
+  bool IsHitTestable() const;
+
   // Valid IDs are non-negative.
   int id = -1;
 
@@ -70,8 +76,19 @@ struct ContentRectangle : public WorldRectangle {
   // are applied relative to the parent, rather than absolutely.
   int parent_id = -1;
 
-  // If true, this object will be visible and accept input.
+  // If true, this object will be visible.
   bool visible = true;
+
+  // If false, the reticle will not hit the element, even if visible.
+  bool hit_testable = true;
+
+  // If true, transformations will be applied relative to the field of view,
+  // rather than the world.
+  bool lock_to_fov = false;
+
+  // If true, this element is the content quad. Only one content quad may be
+  // added to the scene.
+  bool content_quad = false;
 
   // Specifies the region (in pixels) of a texture to render.
   Recti copy_rect = {0, 0, 0, 0};
@@ -88,6 +105,12 @@ struct ContentRectangle : public WorldRectangle {
   // The translation of the object, and its children.  Translation is applied
   // after rotation and scaling.
   gvr::Vec3f translation = {0.0f, 0.0f, 0.0f};
+
+  // The opacity of the object (between 0.0 and 1.0).
+  float opacity = 1.0f;
+
+  // The computed opacity, incorporating opacity of parent objects.
+  float computed_opacity;
 
   // If anchoring is specified, the translation will be relative to the
   // specified edge(s) of the parent, rather than the center.  A parent object

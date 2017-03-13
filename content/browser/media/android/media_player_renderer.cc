@@ -6,6 +6,7 @@
 
 #include <memory>
 
+#include "base/callback_helpers.h"
 #include "content/browser/android/scoped_surface_request_manager.h"
 #include "content/browser/media/android/media_resource_getter_impl.h"
 #include "content/public/browser/browser_context.h"
@@ -14,6 +15,8 @@
 #include "content/public/browser/storage_partition.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/content_client.h"
+#include "media/base/android/media_service_throttler.h"
+#include "media/base/timestamp_constants.h"
 
 // TODO(tguilbert): Remove this ID once MediaPlayerManager has been deleted
 // and MediaPlayerBridge updated. See comment in header file.
@@ -21,8 +24,15 @@ constexpr int kUnusedAndIrrelevantPlayerId = 0;
 
 namespace content {
 
+namespace {
+
+media::MediaUrlInterceptor* g_media_url_interceptor = nullptr;
+
+}  // namespace
+
 MediaPlayerRenderer::MediaPlayerRenderer(RenderFrameHost* render_frame_host)
     : render_frame_host_(render_frame_host),
+      duration_(media::kInfiniteDuration),
       has_error_(false),
       weak_factory_(this) {}
 
@@ -35,6 +45,11 @@ void MediaPlayerRenderer::Initialize(
     media::RendererClient* client,
     const media::PipelineStatusCB& init_cb) {
   DVLOG(1) << __func__;
+
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+
+  renderer_client_ = client;
+
   if (demuxer_stream_provider->GetType() !=
       media::DemuxerStreamProvider::Type::URL) {
     DLOG(ERROR) << "DemuxerStreamProvider is not of Type URL";
@@ -42,22 +57,37 @@ void MediaPlayerRenderer::Initialize(
     return;
   }
 
-  GURL url = demuxer_stream_provider->GetUrl();
-  renderer_client_ = client;
+  base::TimeDelta creation_delay =
+      media::MediaServiceThrottler::GetInstance()->GetDelayForClientCreation();
+
+  if (creation_delay.is_zero()) {
+    CreateMediaPlayer(demuxer_stream_provider->GetMediaUrlParams(), init_cb);
+    return;
+  }
+
+  BrowserThread::PostDelayedTask(
+      BrowserThread::UI, FROM_HERE,
+      base::Bind(&MediaPlayerRenderer::CreateMediaPlayer,
+                 weak_factory_.GetWeakPtr(),
+                 demuxer_stream_provider->GetMediaUrlParams(), init_cb),
+      creation_delay);
+}
+
+void MediaPlayerRenderer::CreateMediaPlayer(
+    const media::MediaUrlParams& url_params,
+    const media::PipelineStatusCB& init_cb) {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   const std::string user_agent = GetContentClient()->GetUserAgent();
 
-  // TODO(tguilbert): Get the first party cookies from WMPI. See
-  // crbug.com/636604.
   media_player_.reset(new media::MediaPlayerBridge(
-      kUnusedAndIrrelevantPlayerId, url,
-      GURL(),  // first_party_for_cookies
-      user_agent,
+      kUnusedAndIrrelevantPlayerId, url_params.media_url,
+      url_params.first_party_for_cookies, user_agent,
       false,  // hide_url_log
       this, base::Bind(&MediaPlayerRenderer::OnDecoderResourcesReleased,
                        weak_factory_.GetWeakPtr()),
       GURL(),  // frame_url
-      false));   // allow_crendentials
+      true));  // allow_crendentials
 
   media_player_->Initialize();
   init_cb.Run(media::PIPELINE_OK);
@@ -79,8 +109,20 @@ void MediaPlayerRenderer::StartPlayingFrom(base::TimeDelta time) {
   if (has_error_)
     return;
 
-  media_player_->Start();
   media_player_->SeekTo(time);
+  media_player_->Start();
+
+  // WMPI needs to receive a BUFFERING_HAVE_ENOUGH data before sending a
+  // playback_rate > 0. The MediaPlayer manages its own buffering and will pause
+  // internally if ever it runs out of data. Sending BUFFERING_HAVE_ENOUGH here
+  // is always safe.
+  //
+  // NOTE: OnBufferingUpdate is triggered whenever the media has buffered or
+  // played up to a % value between 1-100, and it's not a reliable indicator of
+  // the buffering state.
+  //
+  // TODO(tguilbert): Investigate the effect of this call on UMAs.
+  renderer_client_->OnBufferingStateChange(media::BUFFERING_HAVE_ENOUGH);
 }
 
 void MediaPlayerRenderer::SetPlaybackRate(double playback_rate) {
@@ -127,20 +169,10 @@ base::TimeDelta MediaPlayerRenderer::GetMediaTime() {
   return media_player_->GetCurrentTime();
 }
 
-bool MediaPlayerRenderer::HasAudio() {
-  return media_player_->HasAudio();
-}
-
-bool MediaPlayerRenderer::HasVideo() {
-  return media_player_->HasVideo();
-}
-
 media::MediaResourceGetter* MediaPlayerRenderer::GetMediaResourceGetter() {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   if (!media_resource_getter_.get()) {
-    WebContents* web_contents =
-        WebContents::FromRenderFrameHost(render_frame_host_);
-    RenderProcessHost* host = web_contents->GetRenderProcessHost();
+    RenderProcessHost* host = render_frame_host_->GetProcess();
     BrowserContext* context = host->GetBrowserContext();
     StoragePartition* partition = host->GetStoragePartition();
     storage::FileSystemContext* file_system_context =
@@ -153,9 +185,7 @@ media::MediaResourceGetter* MediaPlayerRenderer::GetMediaResourceGetter() {
 }
 
 media::MediaUrlInterceptor* MediaPlayerRenderer::GetMediaUrlInterceptor() {
-  // TODO(tguilbert): Offer a RegisterMediaUrlInterceptor equivalent for use in
-  // webview. See crbug.com/636588.
-  return nullptr;
+  return g_media_url_interceptor;
 }
 
 void MediaPlayerRenderer::OnTimeUpdate(int player_id,
@@ -170,6 +200,11 @@ void MediaPlayerRenderer::OnMediaMetadataChanged(int player_id,
   if (video_size_ != gfx::Size(width, height))
     OnVideoSizeChanged(kUnusedAndIrrelevantPlayerId, width, height);
 
+  // For HLS streams, the reported duration may be zero for infinite streams.
+  // See http://crbug.com/501213.
+  if (duration.is_zero())
+    duration = media::kInfiniteDuration;
+
   if (duration_ != duration) {
     duration_ = duration;
     renderer_client_->OnDurationChange(duration);
@@ -182,15 +217,7 @@ void MediaPlayerRenderer::OnPlaybackComplete(int player_id) {
 
 void MediaPlayerRenderer::OnMediaInterrupted(int player_id) {}
 
-void MediaPlayerRenderer::OnBufferingUpdate(int player_id, int percentage) {
-  // As per Android documentation, |percentage| actually indicates "percentage
-  // buffered or played". E.g. if we are at 50% playback and have 1%
-  // buffered, |percentage| will be equal to 51.
-  //
-  // MediaPlayer manages its own buffering and will pause internally if ever it
-  // runs out of data. Therefore, we can always return BUFFERING_HAVE_ENOUGH.
-  renderer_client_->OnBufferingStateChange(media::BUFFERING_HAVE_ENOUGH);
-}
+void MediaPlayerRenderer::OnBufferingUpdate(int player_id, int percentage) {}
 
 void MediaPlayerRenderer::OnSeekComplete(int player_id,
                                          const base::TimeDelta& current_time) {}
@@ -227,17 +254,18 @@ media::MediaPlayerAndroid* MediaPlayerRenderer::GetPlayer(int player_id) {
 bool MediaPlayerRenderer::RequestPlay(int player_id,
                                       base::TimeDelta duration,
                                       bool has_audio) {
-  // TODO(tguilbert): Throttle requests, via exponential backoff.
-  // See crbug.com/636615.
   return true;
 }
 
 void MediaPlayerRenderer::OnDecoderResourcesReleased(int player_id) {
   // Since we are not using a pool of MediaPlayerAndroid instances, this
   // function is not relevant.
+}
 
-  // TODO(tguilbert): Throttle requests, via exponential backoff.
-  // See crbug.com/636615.
+// static
+void MediaPlayerRenderer::RegisterMediaUrlInterceptor(
+    media::MediaUrlInterceptor* media_url_interceptor) {
+  g_media_url_interceptor = media_url_interceptor;
 }
 
 void MediaPlayerRenderer::CancelScopedSurfaceRequest() {

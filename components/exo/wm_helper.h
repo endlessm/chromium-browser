@@ -62,6 +62,22 @@ class WMHelper {
     virtual ~MaximizeModeObserver() {}
   };
 
+  class AccessibilityObserver {
+   public:
+    virtual void OnAccessibilityModeChanged() = 0;
+
+   protected:
+    virtual ~AccessibilityObserver() {}
+  };
+
+  class InputDeviceEventObserver {
+   public:
+    virtual void OnKeyboardDeviceConfigurationChanged() = 0;
+
+   protected:
+    virtual ~InputDeviceEventObserver() {}
+  };
+
   virtual ~WMHelper();
 
   static void SetInstance(WMHelper* helper);
@@ -75,6 +91,10 @@ class WMHelper {
   void RemoveCursorObserver(CursorObserver* observer);
   void AddMaximizeModeObserver(MaximizeModeObserver* observer);
   void RemoveMaximizeModeObserver(MaximizeModeObserver* observer);
+  void AddAccessibilityObserver(AccessibilityObserver* observer);
+  void RemoveAccessibilityObserver(AccessibilityObserver* observer);
+  void AddInputDeviceEventObserver(InputDeviceEventObserver* observer);
+  void RemoveInputDeviceEventObserver(InputDeviceEventObserver* observer);
 
   virtual const display::ManagedDisplayInfo GetDisplayInfo(
       int64_t display_id) const = 0;
@@ -88,6 +108,8 @@ class WMHelper {
   virtual void AddPostTargetHandler(ui::EventHandler* handler) = 0;
   virtual void RemovePostTargetHandler(ui::EventHandler* handler) = 0;
   virtual bool IsMaximizeModeWindowManagerEnabled() const = 0;
+  virtual bool IsSpokenFeedbackEnabled() const = 0;
+  virtual void PlayEarcon(int sound_key) const = 0;
 
  protected:
   WMHelper();
@@ -100,12 +122,16 @@ class WMHelper {
   void NotifyCursorSetChanged(ui::CursorSetType cursor_set);
   void NotifyMaximizeModeStarted();
   void NotifyMaximizeModeEnded();
+  void NotifyAccessibilityModeChanged();
+  void NotifyKeyboardDeviceConfigurationChanged();
 
  private:
   base::ObserverList<ActivationObserver> activation_observers_;
   base::ObserverList<FocusObserver> focus_observers_;
   base::ObserverList<CursorObserver> cursor_observers_;
   base::ObserverList<MaximizeModeObserver> maximize_mode_observers_;
+  base::ObserverList<AccessibilityObserver> accessibility_observers_;
+  base::ObserverList<InputDeviceEventObserver> input_device_event_observers_;
 
   DISALLOW_COPY_AND_ASSIGN(WMHelper);
 };

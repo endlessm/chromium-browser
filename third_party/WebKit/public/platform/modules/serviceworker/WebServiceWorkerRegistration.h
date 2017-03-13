@@ -8,11 +8,13 @@
 #include "public/platform/WebCallbacks.h"
 #include "public/platform/WebURL.h"
 #include "public/platform/modules/serviceworker/WebServiceWorkerError.h"
+#include <memory>
 
 namespace blink {
 
 class WebServiceWorkerProvider;
 class WebServiceWorkerRegistrationProxy;
+struct WebNavigationPreloadState;
 
 // The interface of the registration representation in the embedder. The
 // embedder implements this interface and passes its handle
@@ -26,6 +28,13 @@ class WebServiceWorkerRegistration {
       WebCallbacks<void, const WebServiceWorkerError&>;
   using WebServiceWorkerUnregistrationCallbacks =
       WebCallbacks<bool, const WebServiceWorkerError&>;
+  using WebEnableNavigationPreloadCallbacks =
+      WebCallbacks<void, const WebServiceWorkerError&>;
+  using WebGetNavigationPreloadStateCallbacks =
+      WebCallbacks<const WebNavigationPreloadState&,
+                   const WebServiceWorkerError&>;
+  using WebSetNavigationPreloadHeaderCallbacks =
+      WebCallbacks<void, const WebServiceWorkerError&>;
 
   // The handle interface that retains a reference to the implementation of
   // WebServiceWorkerRegistration in the embedder and is owned by
@@ -42,10 +51,24 @@ class WebServiceWorkerRegistration {
   virtual void proxyStopped() {}
 
   virtual WebURL scope() const { return WebURL(); }
+  virtual int64_t registrationId() const = 0;
   virtual void update(WebServiceWorkerProvider*,
-                      WebServiceWorkerUpdateCallbacks*) {}
-  virtual void unregister(WebServiceWorkerProvider*,
-                          WebServiceWorkerUnregistrationCallbacks*) {}
+                      std::unique_ptr<WebServiceWorkerUpdateCallbacks>) {}
+  virtual void unregister(
+      WebServiceWorkerProvider*,
+      std::unique_ptr<WebServiceWorkerUnregistrationCallbacks>) {}
+
+  virtual void enableNavigationPreload(
+      bool enable,
+      WebServiceWorkerProvider*,
+      std::unique_ptr<WebEnableNavigationPreloadCallbacks>) {}
+  virtual void getNavigationPreloadState(
+      WebServiceWorkerProvider*,
+      std::unique_ptr<WebGetNavigationPreloadStateCallbacks>) {}
+  virtual void setNavigationPreloadHeader(
+      const WebString& value,
+      WebServiceWorkerProvider*,
+      std::unique_ptr<WebSetNavigationPreloadHeaderCallbacks>) {}
 };
 
 }  // namespace blink

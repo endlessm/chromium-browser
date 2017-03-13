@@ -45,14 +45,22 @@ class TestDisplayScheduler : public DisplayScheduler {
   TestDisplayScheduler(BeginFrameSource* begin_frame_source,
                        base::SingleThreadTaskRunner* task_runner,
                        int max_pending_swaps)
-      : DisplayScheduler(begin_frame_source, task_runner, max_pending_swaps),
-        scheduler_begin_frame_deadline_count_(0) {}
+      : DisplayScheduler(task_runner, max_pending_swaps),
+        scheduler_begin_frame_deadline_count_(0) {
+    SetBeginFrameSource(begin_frame_source);
+  }
 
   base::TimeTicks DesiredBeginFrameDeadlineTimeForTest() {
     return DesiredBeginFrameDeadlineTime();
   }
 
-  void BeginFrameDeadlineForTest() { OnBeginFrameDeadline(); }
+  void BeginFrameDeadlineForTest() {
+    // Ensure that any missed BeginFrames were handled by the scheduler. We need
+    // to run the scheduled task ourselves since the NullTaskRunner won't.
+    if (!missed_begin_frame_task_.IsCancelled())
+      missed_begin_frame_task_.callback().Run();
+    OnBeginFrameDeadline();
+  }
 
   void ScheduleBeginFrameDeadline() override {
     scheduler_begin_frame_deadline_count_++;
@@ -61,6 +69,10 @@ class TestDisplayScheduler : public DisplayScheduler {
 
   int scheduler_begin_frame_deadline_count() {
     return scheduler_begin_frame_deadline_count_;
+  }
+
+  bool inside_begin_frame_deadline_interval() {
+    return inside_begin_frame_deadline_interval_;
   }
 
  protected:
@@ -83,12 +95,14 @@ class DisplaySchedulerTest : public testing::Test {
 
   void SetUp() override { scheduler_.SetRootSurfaceResourcesLocked(false); }
 
-  void BeginFrameForTest() {
+  void AdvanceTimeAndBeginFrameForTest() {
+    now_src_.Advance(base::TimeDelta::FromMicroseconds(10000));
     base::TimeTicks frame_time = now_src_.NowTicks();
     base::TimeDelta interval = BeginFrameArgs::DefaultInterval();
     base::TimeTicks deadline = frame_time + interval;
+    // FakeBeginFrameSource deals with |source_id| and |sequence_number|.
     fake_begin_frame_source_.TestOnBeginFrame(
-        BeginFrameArgs::Create(BEGINFRAME_FROM_HERE, frame_time, deadline,
+        BeginFrameArgs::Create(BEGINFRAME_FROM_HERE, 0, 1, frame_time, deadline,
                                interval, BeginFrameArgs::NORMAL));
   }
 
@@ -106,22 +120,25 @@ class DisplaySchedulerTest : public testing::Test {
 };
 
 TEST_F(DisplaySchedulerTest, ResizeHasLateDeadlineUntilNewRootSurface) {
-  SurfaceId root_surface_id1(kArbitraryFrameSinkId, LocalFrameId(1, 0));
-  SurfaceId root_surface_id2(kArbitraryFrameSinkId, LocalFrameId(2, 0));
-  SurfaceId sid1(kArbitraryFrameSinkId, LocalFrameId(3, 0));
+  SurfaceId root_surface_id1(kArbitraryFrameSinkId,
+                             LocalFrameId(1, base::UnguessableToken::Create()));
+  SurfaceId root_surface_id2(kArbitraryFrameSinkId,
+                             LocalFrameId(2, base::UnguessableToken::Create()));
+  SurfaceId sid1(kArbitraryFrameSinkId,
+                 LocalFrameId(3, base::UnguessableToken::Create()));
   base::TimeTicks late_deadline;
 
   scheduler_.SetVisible(true);
 
   // Go trough an initial BeginFrame cycle with the root surface.
-  BeginFrameForTest();
+  AdvanceTimeAndBeginFrameForTest();
   scheduler_.SetNewRootSurface(root_surface_id1);
   scheduler_.BeginFrameDeadlineForTest();
 
   // Resize on the next begin frame cycle should cause the deadline to wait
   // for a new root surface.
+  AdvanceTimeAndBeginFrameForTest();
   late_deadline = now_src().NowTicks() + BeginFrameArgs::DefaultInterval();
-  BeginFrameForTest();
   scheduler_.SurfaceDamaged(sid1);
   EXPECT_GT(late_deadline, scheduler_.DesiredBeginFrameDeadlineTimeForTest());
   scheduler_.DisplayResized();
@@ -133,7 +150,7 @@ TEST_F(DisplaySchedulerTest, ResizeHasLateDeadlineUntilNewRootSurface) {
 
   // Verify deadline goes back to normal after resize.
   late_deadline = now_src().NowTicks() + BeginFrameArgs::DefaultInterval();
-  BeginFrameForTest();
+  AdvanceTimeAndBeginFrameForTest();
   scheduler_.SurfaceDamaged(sid1);
   EXPECT_GT(late_deadline, scheduler_.DesiredBeginFrameDeadlineTimeForTest());
   scheduler_.SurfaceDamaged(root_surface_id2);
@@ -143,21 +160,23 @@ TEST_F(DisplaySchedulerTest, ResizeHasLateDeadlineUntilNewRootSurface) {
 }
 
 TEST_F(DisplaySchedulerTest, ResizeHasLateDeadlineUntilDamagedSurface) {
-  SurfaceId root_surface_id(kArbitraryFrameSinkId, LocalFrameId(1, 0));
-  SurfaceId sid1(kArbitraryFrameSinkId, LocalFrameId(2, 0));
+  SurfaceId root_surface_id(kArbitraryFrameSinkId,
+                            LocalFrameId(1, base::UnguessableToken::Create()));
+  SurfaceId sid1(kArbitraryFrameSinkId,
+                 LocalFrameId(2, base::UnguessableToken::Create()));
   base::TimeTicks late_deadline;
 
   scheduler_.SetVisible(true);
 
   // Go trough an initial BeginFrame cycle with the root surface.
-  BeginFrameForTest();
+  AdvanceTimeAndBeginFrameForTest();
   scheduler_.SetNewRootSurface(root_surface_id);
   scheduler_.BeginFrameDeadlineForTest();
 
   // Resize on the next begin frame cycle should cause the deadline to wait
   // for a new root surface.
+  AdvanceTimeAndBeginFrameForTest();
   late_deadline = now_src().NowTicks() + BeginFrameArgs::DefaultInterval();
-  BeginFrameForTest();
   scheduler_.SurfaceDamaged(sid1);
   EXPECT_GT(late_deadline, scheduler_.DesiredBeginFrameDeadlineTimeForTest());
   scheduler_.DisplayResized();
@@ -168,8 +187,8 @@ TEST_F(DisplaySchedulerTest, ResizeHasLateDeadlineUntilDamagedSurface) {
   scheduler_.BeginFrameDeadlineForTest();
 
   // Verify deadline goes back to normal after resize.
+  AdvanceTimeAndBeginFrameForTest();
   late_deadline = now_src().NowTicks() + BeginFrameArgs::DefaultInterval();
-  BeginFrameForTest();
   scheduler_.SurfaceDamaged(sid1);
   EXPECT_GT(late_deadline, scheduler_.DesiredBeginFrameDeadlineTimeForTest());
   scheduler_.SurfaceDamaged(root_surface_id);
@@ -179,9 +198,12 @@ TEST_F(DisplaySchedulerTest, ResizeHasLateDeadlineUntilDamagedSurface) {
 }
 
 TEST_F(DisplaySchedulerTest, SurfaceDamaged) {
-  SurfaceId root_surface_id(kArbitraryFrameSinkId, LocalFrameId(0, 0));
-  SurfaceId sid1(kArbitraryFrameSinkId, LocalFrameId(1, 0));
-  SurfaceId sid2(kArbitraryFrameSinkId, LocalFrameId(2, 0));
+  SurfaceId root_surface_id(kArbitraryFrameSinkId,
+                            LocalFrameId(0, base::UnguessableToken::Create()));
+  SurfaceId sid1(kArbitraryFrameSinkId,
+                 LocalFrameId(1, base::UnguessableToken::Create()));
+  SurfaceId sid2(kArbitraryFrameSinkId,
+                 LocalFrameId(2, base::UnguessableToken::Create()));
 
   scheduler_.SetVisible(true);
 
@@ -190,15 +212,15 @@ TEST_F(DisplaySchedulerTest, SurfaceDamaged) {
 
   // Get scheduler to detect surface 1 as active by drawing
   // two frames in a row with damage from surface 1.
-  BeginFrameForTest();
+  AdvanceTimeAndBeginFrameForTest();
   scheduler_.SurfaceDamaged(sid1);
   scheduler_.BeginFrameDeadlineForTest();
-  BeginFrameForTest();
+  AdvanceTimeAndBeginFrameForTest();
   scheduler_.SurfaceDamaged(sid1);
   scheduler_.BeginFrameDeadlineForTest();
 
   // Damage only from surface 2 (inactive) does not trigger deadline early.
-  BeginFrameForTest();
+  AdvanceTimeAndBeginFrameForTest();
   scheduler_.SurfaceDamaged(sid2);
   EXPECT_LT(now_src().NowTicks(),
             scheduler_.DesiredBeginFrameDeadlineTimeForTest());
@@ -210,13 +232,13 @@ TEST_F(DisplaySchedulerTest, SurfaceDamaged) {
   scheduler_.BeginFrameDeadlineForTest();
 
   // Make both surface 1 and 2 active.
-  BeginFrameForTest();
+  AdvanceTimeAndBeginFrameForTest();
   scheduler_.SurfaceDamaged(sid2);
   scheduler_.SurfaceDamaged(sid1);
   scheduler_.BeginFrameDeadlineForTest();
 
   // Deadline doesn't trigger early until surface 1 and 2 are both damaged.
-  BeginFrameForTest();
+  AdvanceTimeAndBeginFrameForTest();
   EXPECT_LT(now_src().NowTicks(),
             scheduler_.DesiredBeginFrameDeadlineTimeForTest());
   scheduler_.SurfaceDamaged(sid1);
@@ -228,16 +250,15 @@ TEST_F(DisplaySchedulerTest, SurfaceDamaged) {
   scheduler_.BeginFrameDeadlineForTest();
 
   // Make the system idle
-  BeginFrameForTest();
+  AdvanceTimeAndBeginFrameForTest();
   scheduler_.BeginFrameDeadlineForTest();
-  BeginFrameForTest();
-  scheduler_.BeginFrameDeadlineForTest();
+  AdvanceTimeAndBeginFrameForTest();
+  EXPECT_FALSE(scheduler_.inside_begin_frame_deadline_interval());
 
   // Deadline should trigger early if child surfaces are idle and
   // we get damage on the root surface.
-  BeginFrameForTest();
-  EXPECT_LT(now_src().NowTicks(),
-            scheduler_.DesiredBeginFrameDeadlineTimeForTest());
+  AdvanceTimeAndBeginFrameForTest();
+  EXPECT_FALSE(scheduler_.inside_begin_frame_deadline_interval());
   scheduler_.SurfaceDamaged(root_surface_id);
   EXPECT_GE(now_src().NowTicks(),
             scheduler_.DesiredBeginFrameDeadlineTimeForTest());
@@ -245,8 +266,10 @@ TEST_F(DisplaySchedulerTest, SurfaceDamaged) {
 }
 
 TEST_F(DisplaySchedulerTest, OutputSurfaceLost) {
-  SurfaceId root_surface_id(kArbitraryFrameSinkId, LocalFrameId(0, 0));
-  SurfaceId sid1(kArbitraryFrameSinkId, LocalFrameId(1, 0));
+  SurfaceId root_surface_id(kArbitraryFrameSinkId,
+                            LocalFrameId(0, base::UnguessableToken::Create()));
+  SurfaceId sid1(kArbitraryFrameSinkId,
+                 LocalFrameId(1, base::UnguessableToken::Create()));
 
   scheduler_.SetVisible(true);
 
@@ -254,7 +277,7 @@ TEST_F(DisplaySchedulerTest, OutputSurfaceLost) {
   scheduler_.SetNewRootSurface(root_surface_id);
 
   // DrawAndSwap normally.
-  BeginFrameForTest();
+  AdvanceTimeAndBeginFrameForTest();
   EXPECT_LT(now_src().NowTicks(),
             scheduler_.DesiredBeginFrameDeadlineTimeForTest());
   EXPECT_EQ(0, client_.draw_and_swap_count());
@@ -263,7 +286,7 @@ TEST_F(DisplaySchedulerTest, OutputSurfaceLost) {
   EXPECT_EQ(1, client_.draw_and_swap_count());
 
   // Deadline triggers immediately on OutputSurfaceLost.
-  BeginFrameForTest();
+  AdvanceTimeAndBeginFrameForTest();
   EXPECT_LT(now_src().NowTicks(),
             scheduler_.DesiredBeginFrameDeadlineTimeForTest());
   scheduler_.OutputSurfaceLost();
@@ -278,8 +301,10 @@ TEST_F(DisplaySchedulerTest, OutputSurfaceLost) {
 }
 
 TEST_F(DisplaySchedulerTest, VisibleWithoutDamageNoTicks) {
-  SurfaceId root_surface_id(kArbitraryFrameSinkId, LocalFrameId(0, 0));
-  SurfaceId sid1(kArbitraryFrameSinkId, LocalFrameId(1, 0));
+  SurfaceId root_surface_id(kArbitraryFrameSinkId,
+                            LocalFrameId(0, base::UnguessableToken::Create()));
+  SurfaceId sid1(kArbitraryFrameSinkId,
+                 LocalFrameId(1, base::UnguessableToken::Create()));
 
   EXPECT_EQ(0u, fake_begin_frame_source_.num_observers());
   scheduler_.SetVisible(true);
@@ -293,8 +318,10 @@ TEST_F(DisplaySchedulerTest, VisibleWithoutDamageNoTicks) {
 }
 
 TEST_F(DisplaySchedulerTest, VisibleWithDamageTicks) {
-  SurfaceId root_surface_id(kArbitraryFrameSinkId, LocalFrameId(0, 0));
-  SurfaceId sid1(kArbitraryFrameSinkId, LocalFrameId(1, 0));
+  SurfaceId root_surface_id(kArbitraryFrameSinkId,
+                            LocalFrameId(0, base::UnguessableToken::Create()));
+  SurfaceId sid1(kArbitraryFrameSinkId,
+                 LocalFrameId(1, base::UnguessableToken::Create()));
 
   scheduler_.SetNewRootSurface(root_surface_id);
 
@@ -307,15 +334,17 @@ TEST_F(DisplaySchedulerTest, VisibleWithDamageTicks) {
 }
 
 TEST_F(DisplaySchedulerTest, Visibility) {
-  SurfaceId root_surface_id(kArbitraryFrameSinkId, LocalFrameId(0, 0));
-  SurfaceId sid1(kArbitraryFrameSinkId, LocalFrameId(1, 0));
+  SurfaceId root_surface_id(kArbitraryFrameSinkId,
+                            LocalFrameId(0, base::UnguessableToken::Create()));
+  SurfaceId sid1(kArbitraryFrameSinkId,
+                 LocalFrameId(1, base::UnguessableToken::Create()));
 
   scheduler_.SetNewRootSurface(root_surface_id);
   scheduler_.SetVisible(true);
   EXPECT_EQ(1u, fake_begin_frame_source_.num_observers());
 
   // DrawAndSwap normally.
-  BeginFrameForTest();
+  AdvanceTimeAndBeginFrameForTest();
   EXPECT_LT(now_src().NowTicks(),
             scheduler_.DesiredBeginFrameDeadlineTimeForTest());
   EXPECT_EQ(0, client_.draw_and_swap_count());
@@ -323,7 +352,7 @@ TEST_F(DisplaySchedulerTest, Visibility) {
   scheduler_.BeginFrameDeadlineForTest();
   EXPECT_EQ(1, client_.draw_and_swap_count());
 
-  BeginFrameForTest();
+  AdvanceTimeAndBeginFrameForTest();
   EXPECT_LT(now_src().NowTicks(),
             scheduler_.DesiredBeginFrameDeadlineTimeForTest());
 
@@ -356,8 +385,10 @@ TEST_F(DisplaySchedulerTest, Visibility) {
 }
 
 TEST_F(DisplaySchedulerTest, ResizeCausesSwap) {
-  SurfaceId root_surface_id(kArbitraryFrameSinkId, LocalFrameId(0, 0));
-  SurfaceId sid1(kArbitraryFrameSinkId, LocalFrameId(1, 0));
+  SurfaceId root_surface_id(kArbitraryFrameSinkId,
+                            LocalFrameId(0, base::UnguessableToken::Create()));
+  SurfaceId sid1(kArbitraryFrameSinkId,
+                 LocalFrameId(1, base::UnguessableToken::Create()));
 
   scheduler_.SetVisible(true);
 
@@ -365,7 +396,7 @@ TEST_F(DisplaySchedulerTest, ResizeCausesSwap) {
   scheduler_.SetNewRootSurface(root_surface_id);
 
   // DrawAndSwap normally.
-  BeginFrameForTest();
+  AdvanceTimeAndBeginFrameForTest();
   EXPECT_LT(now_src().NowTicks(),
             scheduler_.DesiredBeginFrameDeadlineTimeForTest());
   EXPECT_EQ(0, client_.draw_and_swap_count());
@@ -374,15 +405,17 @@ TEST_F(DisplaySchedulerTest, ResizeCausesSwap) {
   EXPECT_EQ(1, client_.draw_and_swap_count());
 
   scheduler_.DisplayResized();
-  BeginFrameForTest();
+  AdvanceTimeAndBeginFrameForTest();
   // DisplayResized should trigger a swap to happen.
   scheduler_.BeginFrameDeadlineForTest();
   EXPECT_EQ(2, client_.draw_and_swap_count());
 }
 
 TEST_F(DisplaySchedulerTest, RootSurfaceResourcesLocked) {
-  SurfaceId root_surface_id(kArbitraryFrameSinkId, LocalFrameId(0, 0));
-  SurfaceId sid1(kArbitraryFrameSinkId, LocalFrameId(1, 0));
+  SurfaceId root_surface_id(kArbitraryFrameSinkId,
+                            LocalFrameId(0, base::UnguessableToken::Create()));
+  SurfaceId sid1(kArbitraryFrameSinkId,
+                 LocalFrameId(1, base::UnguessableToken::Create()));
   base::TimeTicks late_deadline;
 
   scheduler_.SetVisible(true);
@@ -391,7 +424,7 @@ TEST_F(DisplaySchedulerTest, RootSurfaceResourcesLocked) {
   scheduler_.SetNewRootSurface(root_surface_id);
 
   // DrawAndSwap normally.
-  BeginFrameForTest();
+  AdvanceTimeAndBeginFrameForTest();
   EXPECT_LT(now_src().NowTicks(),
             scheduler_.DesiredBeginFrameDeadlineTimeForTest());
   EXPECT_EQ(0, client_.draw_and_swap_count());
@@ -400,8 +433,8 @@ TEST_F(DisplaySchedulerTest, RootSurfaceResourcesLocked) {
   EXPECT_EQ(1, client_.draw_and_swap_count());
 
   // Deadline triggers late while root resources are locked.
+  AdvanceTimeAndBeginFrameForTest();
   late_deadline = now_src().NowTicks() + BeginFrameArgs::DefaultInterval();
-  BeginFrameForTest();
   scheduler_.SurfaceDamaged(sid1);
   EXPECT_GT(late_deadline, scheduler_.DesiredBeginFrameDeadlineTimeForTest());
   scheduler_.SetRootSurfaceResourcesLocked(true);
@@ -414,8 +447,8 @@ TEST_F(DisplaySchedulerTest, RootSurfaceResourcesLocked) {
   EXPECT_EQ(1, client_.draw_and_swap_count());
 
   //  Deadline triggers normally when root resources are unlocked.
+  AdvanceTimeAndBeginFrameForTest();
   late_deadline = now_src().NowTicks() + BeginFrameArgs::DefaultInterval();
-  BeginFrameForTest();
   scheduler_.SurfaceDamaged(sid1);
   EXPECT_EQ(late_deadline, scheduler_.DesiredBeginFrameDeadlineTimeForTest());
   scheduler_.SetRootSurfaceResourcesLocked(false);
@@ -429,9 +462,12 @@ TEST_F(DisplaySchedulerTest, RootSurfaceResourcesLocked) {
 }
 
 TEST_F(DisplaySchedulerTest, DidSwapBuffers) {
-  SurfaceId root_surface_id(kArbitraryFrameSinkId, LocalFrameId(0, 0));
-  SurfaceId sid1(kArbitraryFrameSinkId, LocalFrameId(1, 0));
-  SurfaceId sid2(kArbitraryFrameSinkId, LocalFrameId(2, 0));
+  SurfaceId root_surface_id(kArbitraryFrameSinkId,
+                            LocalFrameId(0, base::UnguessableToken::Create()));
+  SurfaceId sid1(kArbitraryFrameSinkId,
+                 LocalFrameId(1, base::UnguessableToken::Create()));
+  SurfaceId sid2(kArbitraryFrameSinkId,
+                 LocalFrameId(2, base::UnguessableToken::Create()));
 
   scheduler_.SetVisible(true);
 
@@ -439,17 +475,17 @@ TEST_F(DisplaySchedulerTest, DidSwapBuffers) {
   scheduler_.SetNewRootSurface(root_surface_id);
 
   // Get scheduler to detect surface 1 and 2 as active.
-  BeginFrameForTest();
+  AdvanceTimeAndBeginFrameForTest();
   scheduler_.SurfaceDamaged(sid1);
   scheduler_.SurfaceDamaged(sid2);
   scheduler_.BeginFrameDeadlineForTest();
-  BeginFrameForTest();
+  AdvanceTimeAndBeginFrameForTest();
   scheduler_.SurfaceDamaged(sid1);
   scheduler_.SurfaceDamaged(sid2);
   scheduler_.BeginFrameDeadlineForTest();
 
   // DrawAndSwap normally.
-  BeginFrameForTest();
+  AdvanceTimeAndBeginFrameForTest();
   EXPECT_LT(now_src().NowTicks(),
             scheduler_.DesiredBeginFrameDeadlineTimeForTest());
   EXPECT_EQ(2, client_.draw_and_swap_count());
@@ -460,9 +496,9 @@ TEST_F(DisplaySchedulerTest, DidSwapBuffers) {
   scheduler_.DidSwapBuffers();
 
   // Deadline triggers late when swap throttled.
+  AdvanceTimeAndBeginFrameForTest();
   base::TimeTicks late_deadline =
       now_src().NowTicks() + BeginFrameArgs::DefaultInterval();
-  BeginFrameForTest();
   // Damage surface 1, but not surface 2 so we avoid triggering deadline
   // early because all surfaces are ready.
   scheduler_.SurfaceDamaged(sid1);
@@ -475,11 +511,11 @@ TEST_F(DisplaySchedulerTest, DidSwapBuffers) {
 
   // Deadline triggers normally once not swap throttled.
   // Damage from previous BeginFrame should cary over, so don't damage again.
+  scheduler_.DidReceiveSwapBuffersAck();
+  AdvanceTimeAndBeginFrameForTest();
   base::TimeTicks expected_deadline =
       scheduler_.LastUsedBeginFrameArgs().deadline -
       BeginFrameArgs::DefaultEstimatedParentDrawTime();
-  scheduler_.DidSwapBuffersComplete();
-  BeginFrameForTest();
   EXPECT_EQ(expected_deadline,
             scheduler_.DesiredBeginFrameDeadlineTimeForTest());
   // Still waiting for surface 2. Once it updates, deadline should trigger
@@ -496,8 +532,10 @@ TEST_F(DisplaySchedulerTest, DidSwapBuffers) {
 // This test verfies that we try to reschedule the deadline
 // after any event that may change what deadline we want.
 TEST_F(DisplaySchedulerTest, ScheduleBeginFrameDeadline) {
-  SurfaceId root_surface_id(kArbitraryFrameSinkId, LocalFrameId(1, 0));
-  SurfaceId sid1(kArbitraryFrameSinkId, LocalFrameId(2, 0));
+  SurfaceId root_surface_id(kArbitraryFrameSinkId,
+                            LocalFrameId(1, base::UnguessableToken::Create()));
+  SurfaceId sid1(kArbitraryFrameSinkId,
+                 LocalFrameId(2, base::UnguessableToken::Create()));
   int count = 1;
   EXPECT_EQ(count, scheduler_.scheduler_begin_frame_deadline_count());
 
@@ -521,15 +559,15 @@ TEST_F(DisplaySchedulerTest, ScheduleBeginFrameDeadline) {
   scheduler_.SetNewRootSurface(root_surface_id);
   EXPECT_EQ(++count, scheduler_.scheduler_begin_frame_deadline_count());
 
-  BeginFrameForTest();
+  AdvanceTimeAndBeginFrameForTest();
   EXPECT_EQ(++count, scheduler_.scheduler_begin_frame_deadline_count());
 
   scheduler_.BeginFrameDeadlineForTest();
   scheduler_.DidSwapBuffers();
-  BeginFrameForTest();
+  AdvanceTimeAndBeginFrameForTest();
   EXPECT_EQ(++count, scheduler_.scheduler_begin_frame_deadline_count());
 
-  scheduler_.DidSwapBuffersComplete();
+  scheduler_.DidReceiveSwapBuffersAck();
   EXPECT_EQ(++count, scheduler_.scheduler_begin_frame_deadline_count());
 
   scheduler_.DisplayResized();

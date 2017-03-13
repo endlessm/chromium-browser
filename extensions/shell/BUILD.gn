@@ -5,6 +5,7 @@
 import("//build/config/features.gni")
 import("//build/config/ui.gni")
 import("//build/util/process_version.gni")
+import("//extensions/features/features.gni")
 import("//testing/test.gni")
 import("//tools/grit/grit_rule.gni")
 
@@ -37,15 +38,15 @@ source_set("app_shell_lib") {
     "//components/web_cache/renderer",
     "//content",
     "//content/shell:content_shell_lib",
-    "//device/core",
+    "//device/base",
     "//device/hid",
     "//extensions:extensions_resources",
     "//extensions:shell_and_test_pak",
     "//extensions/browser",
+    "//extensions/browser/api:api_registration",
     "//extensions/browser/kiosk",
     "//extensions/common",
     "//extensions/common/api",
-    "//extensions/common/api:api_registration",
     "//extensions/renderer",
     "//extensions/shell/common/api",
     "//extensions/shell/common/api:api_registration",
@@ -58,6 +59,15 @@ source_set("app_shell_lib") {
     "//ui/base/ime",
     "//v8",
   ]
+
+  # TODO(michaelpg): remove Mac support and always use aura.
+  if (use_aura) {
+    deps += [ "//ui/aura" ]
+
+    if (use_x11) {
+      deps += [ "//ui/events" ]
+    }
+  }
 
   sources = [
     "app/paths_mac.h",
@@ -116,6 +126,8 @@ source_set("app_shell_lib") {
     "browser/shell_native_app_window.h",
     "browser/shell_native_app_window_mac.h",
     "browser/shell_native_app_window_mac.mm",
+    "browser/shell_navigation_ui_data.cc",
+    "browser/shell_navigation_ui_data.h",
     "browser/shell_network_controller_chromeos.cc",
     "browser/shell_network_controller_chromeos.h",
     "browser/shell_network_delegate.cc",
@@ -152,6 +164,8 @@ source_set("app_shell_lib") {
 
   if (use_aura) {
     sources += [
+      "browser/input_method_event_handler.cc",
+      "browser/input_method_event_handler.h",
       "browser/shell_app_window_client_aura.cc",
       "browser/shell_desktop_controller_aura.cc",
       "browser/shell_desktop_controller_aura.h",
@@ -168,7 +182,7 @@ source_set("app_shell_lib") {
     deps += [
       "//chromeos",
       "//ui/chromeos",
-      "//ui/display",
+      "//ui/display/manager",
     ]
   }
 

@@ -41,15 +41,24 @@
 
 namespace blink {
 
-IndexedDBClient* IndexedDBClientImpl::create() {
-  return new IndexedDBClientImpl();
+IndexedDBClient* IndexedDBClientImpl::create(LocalFrame& frame) {
+  return new IndexedDBClientImpl(frame);
 }
+
+IndexedDBClient* IndexedDBClientImpl::create(WorkerClients& workerClients) {
+  return new IndexedDBClientImpl(workerClients);
+}
+
+IndexedDBClientImpl::IndexedDBClientImpl(LocalFrame& frame)
+    : IndexedDBClient(frame) {}
+
+IndexedDBClientImpl::IndexedDBClientImpl(WorkerClients& workerClients)
+    : IndexedDBClient(workerClients) {}
 
 bool IndexedDBClientImpl::allowIndexedDB(ExecutionContext* context,
                                          const String& name) {
   DCHECK(context->isContextThread());
-  ASSERT_WITH_SECURITY_IMPLICATION(context->isDocument() ||
-                                   context->isWorkerGlobalScope());
+  SECURITY_DCHECK(context->isDocument() || context->isWorkerGlobalScope());
 
   if (context->isDocument()) {
     WebSecurityOrigin origin(context->getSecurityOrigin());

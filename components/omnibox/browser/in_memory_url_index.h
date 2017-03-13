@@ -40,13 +40,10 @@ namespace bookmarks {
 class BookmarkModel;
 }
 
-namespace in_memory_url_index {
-class InMemoryURLIndexCacheItem;
-}
-
 namespace history {
 class HistoryDatabase;
 class HistoryService;
+class HQPPerfTestOnePopularURL;
 }
 
 class URLIndexPrivateData;
@@ -148,6 +145,7 @@ class InMemoryURLIndex : public KeyedService,
 
  private:
   friend class ::HistoryQuickProviderTest;
+  friend class history::HQPPerfTestOnePopularURL;
   friend class InMemoryURLIndexTest;
   friend class InMemoryURLIndexCacheTest;
   FRIEND_TEST_ALL_PREFIXES(InMemoryURLIndexTest, ExpireRow);

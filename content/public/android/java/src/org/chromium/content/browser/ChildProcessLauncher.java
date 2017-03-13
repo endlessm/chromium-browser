@@ -8,12 +8,10 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
-import android.graphics.SurfaceTexture;
 import android.os.Bundle;
 import android.os.ParcelFileDescriptor;
 import android.os.RemoteException;
 import android.text.TextUtils;
-import android.util.Pair;
 import android.view.Surface;
 
 import org.chromium.base.CommandLine;
@@ -21,6 +19,7 @@ import org.chromium.base.CpuFeatures;
 import org.chromium.base.Log;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.TraceEvent;
+import org.chromium.base.UnguessableToken;
 import org.chromium.base.VisibleForTesting;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.JNINamespace;
@@ -382,8 +381,8 @@ public class ChildProcessLauncher {
                         creationParams);
     }
 
-    private static boolean sLinkerInitialized = false;
-    private static long sLinkerLoadAddress = 0;
+    private static boolean sLinkerInitialized;
+    private static long sLinkerLoadAddress;
 
     private static ChromiumLinkerParams getLinkerParamsForNewConnection() {
         if (!sLinkerInitialized) {
@@ -485,18 +484,10 @@ public class ChildProcessLauncher {
             new ConcurrentHashMap<Integer, ChildProcessConnection>();
 
     // A pre-allocated and pre-bound connection ready for connection setup, or null.
-    private static ChildProcessConnection sSpareSandboxedConnection = null;
+    private static ChildProcessConnection sSpareSandboxedConnection;
 
     // Manages oom bindings used to bind chind services.
     private static BindingManager sBindingManager = BindingManagerImpl.createBindingManager();
-
-    // Map from surface id to Surface.
-    private static Map<Integer, Surface> sViewSurfaceMap =
-            new ConcurrentHashMap<Integer, Surface>();
-
-    // Map from surface texture id to Surface.
-    private static Map<Pair<Integer, Integer>, Surface> sSurfaceTextureSurfaceMap =
-            new ConcurrentHashMap<Pair<Integer, Integer>, Surface>();
 
     // Whether the main application is currently brought to the foreground.
     private static boolean sApplicationInForeground = true;
@@ -510,72 +501,6 @@ public class ChildProcessLauncher {
     @CalledByNative
     private static boolean isOomProtected(int pid) {
         return sBindingManager.isOomProtected(pid);
-    }
-
-    @CalledByNative
-    private static void registerViewSurface(int surfaceId, Surface surface) {
-        if (!surface.isValid())
-            throw new RuntimeException("Attempting to register invalid Surface.");
-        sViewSurfaceMap.put(surfaceId, surface);
-    }
-
-    @CalledByNative
-    private static void unregisterViewSurface(int surfaceId) {
-        sViewSurfaceMap.remove(surfaceId);
-    }
-
-    @CalledByNative
-    private static Surface getViewSurface(int surfaceId) {
-        Surface surface = sViewSurfaceMap.get(surfaceId);
-        if (surface == null) {
-            Log.e(TAG, "Invalid surfaceId.");
-            return null;
-        }
-        if (!surface.isValid()) {
-            Log.e(TAG, "Requested surface is not valid.");
-            return null;
-        }
-        return surface;
-    }
-
-    private static void registerSurfaceTextureSurface(
-            int surfaceTextureId, int clientId, Surface surface) {
-        Pair<Integer, Integer> key = new Pair<Integer, Integer>(surfaceTextureId, clientId);
-        sSurfaceTextureSurfaceMap.put(key, surface);
-    }
-
-    private static void unregisterSurfaceTextureSurface(int surfaceTextureId, int clientId) {
-        Pair<Integer, Integer> key = new Pair<Integer, Integer>(surfaceTextureId, clientId);
-        Surface surface = sSurfaceTextureSurfaceMap.remove(key);
-        if (surface == null) return;
-
-        assert surface.isValid();
-        surface.release();
-    }
-
-    @CalledByNative
-    private static void createSurfaceTextureSurface(
-            int surfaceTextureId, int clientId, SurfaceTexture surfaceTexture) {
-        registerSurfaceTextureSurface(surfaceTextureId, clientId, new Surface(surfaceTexture));
-    }
-
-    @CalledByNative
-    private static void destroySurfaceTextureSurface(int surfaceTextureId, int clientId) {
-        unregisterSurfaceTextureSurface(surfaceTextureId, clientId);
-    }
-
-    @CalledByNative
-    private static SurfaceWrapper getSurfaceTextureSurface(
-            int surfaceTextureId, int clientId) {
-        Pair<Integer, Integer> key = new Pair<Integer, Integer>(surfaceTextureId, clientId);
-
-        Surface surface = sSurfaceTextureSurfaceMap.get(key);
-        if (surface == null) {
-            Log.e(TAG, "Invalid Id for surface texture.");
-            return null;
-        }
-        assert surface.isValid();
-        return new SurfaceWrapper(surface);
     }
 
     /**
@@ -710,10 +635,8 @@ public class ChildProcessLauncher {
                 // name. In WebAPK, ChildProcessCreationParams are initialized with WebAPK's
                 // package name. Make a copy of the WebAPK's params, but replace the package with
                 // Chrome's package to use when initializing a non-renderer processes.
-                // TODO(michaelbai | hanxi): crbug.com/620102. Cleans up the setting of
-                // ChildProcessCreationParams after using N sdk.
                 params = new ChildProcessCreationParams(context.getPackageName(),
-                        params.getExtraBindFlags(), params.getLibraryProcessType());
+                        params.getIsExternalService(), params.getLibraryProcessType());
             }
             if (ContentSwitches.SWITCH_GPU_PROCESS.equals(processType)) {
                 callbackType = CALLBACK_FOR_GPU_PROCESS;
@@ -876,7 +799,7 @@ public class ChildProcessLauncher {
 
             @Override
             public void forwardSurfaceForSurfaceRequest(
-                    long requestTokenHigh, long requestTokenLow, Surface surface) {
+                    UnguessableToken requestToken, Surface surface) {
                 // Do not allow a malicious renderer to connect to a producer. This is only used
                 // from stream textures managed by the GPU process.
                 if (callbackType != CALLBACK_FOR_GPU_PROCESS) {
@@ -884,7 +807,7 @@ public class ChildProcessLauncher {
                     return;
                 }
 
-                nativeCompleteScopedSurfaceRequest(requestTokenHigh, requestTokenLow, surface);
+                nativeCompleteScopedSurfaceRequest(requestToken, surface);
             }
 
             @Override
@@ -894,45 +817,11 @@ public class ChildProcessLauncher {
                     Log.e(TAG, "Illegal callback for non-GPU process.");
                     return null;
                 }
-                Surface surface = ChildProcessLauncher.getViewSurface(surfaceId);
+                Surface surface = ChildProcessLauncher.nativeGetViewSurface(surfaceId);
                 if (surface == null) {
                     return null;
                 }
                 return new SurfaceWrapper(surface);
-            }
-
-            @Override
-            public void registerSurfaceTextureSurface(
-                    int surfaceTextureId, int clientId, Surface surface) {
-                if (callbackType != CALLBACK_FOR_GPU_PROCESS) {
-                    Log.e(TAG, "Illegal callback for non-GPU process.");
-                    return;
-                }
-
-                ChildProcessLauncher.registerSurfaceTextureSurface(surfaceTextureId, clientId,
-                        surface);
-            }
-
-            @Override
-            public void unregisterSurfaceTextureSurface(
-                    int surfaceTextureId, int clientId) {
-                if (callbackType != CALLBACK_FOR_GPU_PROCESS) {
-                    Log.e(TAG, "Illegal callback for non-GPU process.");
-                    return;
-                }
-
-                ChildProcessLauncher.unregisterSurfaceTextureSurface(surfaceTextureId, clientId);
-            }
-
-            @Override
-            public SurfaceWrapper getSurfaceTextureSurface(int surfaceTextureId) {
-                if (callbackType != CALLBACK_FOR_RENDERER_PROCESS) {
-                    Log.e(TAG, "Illegal callback for non-renderer process.");
-                    return null;
-                }
-
-                return ChildProcessLauncher.getSurfaceTextureSurface(surfaceTextureId,
-                        childProcessId);
             }
         };
     }
@@ -1027,6 +916,7 @@ public class ChildProcessLauncher {
     private static native void nativeEstablishSurfacePeer(
             int pid, Surface surface, int primaryID, int secondaryID);
     private static native void nativeCompleteScopedSurfaceRequest(
-            long requestTokenHigh, long requestTokenLow, Surface surface);
+            UnguessableToken requestToken, Surface surface);
     private static native boolean nativeIsSingleProcess();
+    private static native Surface nativeGetViewSurface(int surfaceId);
 }

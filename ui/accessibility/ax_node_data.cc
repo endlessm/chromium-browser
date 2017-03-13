@@ -13,6 +13,7 @@
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "ui/accessibility/ax_text_utils.h"
 #include "ui/gfx/transform.h"
 
 using base::DoubleToString;
@@ -60,6 +61,8 @@ typename std::vector<std::pair<FirstType, SecondType>>::const_iterator
 AXNodeData::AXNodeData()
     : id(-1),
       role(AX_ROLE_UNKNOWN),
+      // Turn on all flags to more easily catch bugs where no flags are set.
+      // This will be cleared back to a 0-state before use.
       state(0xFFFFFFFF),
       offset_container_id(-1) {
 }
@@ -287,11 +290,46 @@ void AXNodeData::AddIntListAttribute(AXIntListAttribute attribute,
 }
 
 void AXNodeData::SetName(const std::string& name) {
+  for (size_t i = 0; i < string_attributes.size(); ++i) {
+    if (string_attributes[i].first == AX_ATTR_NAME) {
+      string_attributes[i].second = name;
+      return;
+    }
+  }
+
   string_attributes.push_back(std::make_pair(AX_ATTR_NAME, name));
 }
 
+void AXNodeData::SetName(const base::string16& name) {
+  SetName(base::UTF16ToUTF8(name));
+}
+
 void AXNodeData::SetValue(const std::string& value) {
+  for (size_t i = 0; i < string_attributes.size(); ++i) {
+    if (string_attributes[i].first == AX_ATTR_VALUE) {
+      string_attributes[i].second = value;
+      return;
+    }
+  }
+
   string_attributes.push_back(std::make_pair(AX_ATTR_VALUE, value));
+}
+
+void AXNodeData::SetValue(const base::string16& value) {
+  SetValue(base::UTF16ToUTF8(value));
+}
+
+// static
+bool AXNodeData::IsFlagSet(uint32_t state, ui::AXState state_flag) {
+  return 0 != (state & (1 << state_flag));
+}
+
+void AXNodeData::AddStateFlag(ui::AXState state_flag) {
+  state |= (1 << state_flag);
+}
+
+bool AXNodeData::HasStateFlag(ui::AXState state_flag) const {
+  return IsFlagSet(state, state_flag);
 }
 
 std::string AXNodeData::ToString() const {
@@ -357,6 +395,12 @@ std::string AXNodeData::ToString() const {
   for (size_t i = 0; i < int_attributes.size(); ++i) {
     std::string value = IntToString(int_attributes[i].second);
     switch (int_attributes[i].first) {
+      case AX_ATTR_ACTION:
+        result +=
+            " action=" +
+            base::UTF16ToUTF8(ActionToUnlocalizedString(
+                static_cast<AXSupportedAction>(int_attributes[i].second)));
+        break;
       case AX_ATTR_SCROLL_X:
         result += " scroll_x=" + value;
         break;
@@ -383,6 +427,18 @@ std::string AXNodeData::ToString() const {
         break;
       case AX_ATTR_TEXT_SEL_END:
         result += " sel_end=" + value;
+        break;
+      case AX_ATTR_ARIA_COL_COUNT:
+        result += " aria_col_count=" + value;
+        break;
+      case AX_ATTR_ARIA_COL_INDEX:
+        result += " aria_col_index=" + value;
+        break;
+      case AX_ATTR_ARIA_ROW_COUNT:
+        result += " aria_row_count=" + value;
+        break;
+      case AX_ATTR_ARIA_ROW_INDEX:
+        result += " aria_row_index=" + value;
         break;
       case AX_ATTR_TABLE_ROW_COUNT:
         result += " rows=" + value;
@@ -434,12 +490,14 @@ std::string AXNodeData::ToString() const {
         }
         break;
       case AX_ATTR_NAME_FROM:
-        result += " name_from=" + ui::ToString(
-            static_cast<ui::AXNameFrom>(int_attributes[i].second));
+        result +=
+            " name_from=" +
+            ui::ToString(static_cast<AXNameFrom>(int_attributes[i].second));
         break;
       case AX_ATTR_DESCRIPTION_FROM:
-        result += " description_from=" + ui::ToString(
-            static_cast<ui::AXDescriptionFrom>(int_attributes[i].second));
+        result += " description_from=" +
+                  ui::ToString(
+                      static_cast<AXDescriptionFrom>(int_attributes[i].second));
         break;
       case AX_ATTR_ACTIVEDESCENDANT_ID:
         result += " activedescendant=" + value;
@@ -560,14 +618,14 @@ std::string AXNodeData::ToString() const {
       case AX_ATTR_ACCESS_KEY:
         result += " access_key=" + value;
         break;
-      case AX_ATTR_ACTION:
-        result += " action=" + value;
-        break;
       case AX_ATTR_ARIA_INVALID_VALUE:
         result += " aria_invalid_value=" + value;
         break;
       case AX_ATTR_AUTO_COMPLETE:
         result += " autocomplete=" + value;
+        break;
+      case AX_ATTR_CHROME_CHANNEL:
+        result += " chrome_channel=" + value;
         break;
       case AX_ATTR_DESCRIPTION:
         result += " description=" + value;
@@ -580,6 +638,10 @@ std::string AXNodeData::ToString() const {
         break;
       case AX_ATTR_HTML_TAG:
         result += " html_tag=" + value;
+        break;
+      case AX_ATTR_IMAGE_DATA_URL:
+        result += " image_data_url=(" +
+            IntToString(static_cast<int>(value.size())) + " bytes)";
         break;
       case AX_ATTR_LANGUAGE:
         result += " language=" + value;
@@ -691,6 +753,9 @@ std::string AXNodeData::ToString() const {
         break;
       case AX_ATTR_LABELLEDBY_IDS:
         result += " labelledby_ids=" + IntVectorToString(values);
+        break;
+      case AX_ATTR_LINE_BREAKS:
+        result += " line_breaks=" + IntVectorToString(values);
         break;
       case AX_ATTR_MARKER_TYPES: {
         std::string types_str;

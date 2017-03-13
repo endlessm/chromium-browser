@@ -13,11 +13,18 @@
 #include "base/single_thread_task_runner.h"
 #include "base/synchronization/lock.h"
 #include "base/time/tick_clock.h"
+#include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "cc/layers/video_frame_provider.h"
 #include "media/base/video_renderer_sink.h"
 #include "media/blink/media_blink_export.h"
 #include "ui/gfx/geometry/size.h"
+
+namespace base {
+namespace trace_event {
+class AutoOpenCloseEvent;
+}
+}
 
 namespace media {
 class VideoFrame;
@@ -51,6 +58,9 @@ class MEDIA_BLINK_EXPORT VideoFrameCompositor
     : public VideoRendererSink,
       NON_EXPORTED_BASE(public cc::VideoFrameProvider) {
  public:
+  // Used to report back the time when the new frame has been processed.
+  using OnNewProcessedFrameCB = base::Callback<void(base::TimeTicks)>;
+
   // |compositor_task_runner| is the task runner on which this class will live,
   // though it may be constructed on any thread.
   explicit VideoFrameCompositor(
@@ -96,6 +106,11 @@ class MEDIA_BLINK_EXPORT VideoFrameCompositor
   // from the media thread as long as the VFC is stopped. (Assuming that
   // PaintSingleFrame() is not also called while stopped.)
   base::TimeDelta GetCurrentFrameTimestamp() const;
+
+  // Sets the callback to be run when the new frame has been processed. The
+  // callback is only run once and then reset.
+  // Must be called on the compositor thread.
+  void SetOnNewProcessedFrameCallback(const OnNewProcessedFrameCB& cb);
 
   void set_tick_clock_for_testing(std::unique_ptr<base::TickClock> tick_clock) {
     tick_clock_ = std::move(tick_clock);
@@ -151,6 +166,7 @@ class MEDIA_BLINK_EXPORT VideoFrameCompositor
   bool new_background_frame_;
   base::TimeDelta last_interval_;
   base::TimeTicks last_background_render_;
+  OnNewProcessedFrameCB new_processed_frame_cb_;
 
   // These values are set on the compositor thread, but also read on the media
   // thread when the VFC is stopped.
@@ -159,6 +175,9 @@ class MEDIA_BLINK_EXPORT VideoFrameCompositor
   // These values are updated and read from the media and compositor threads.
   base::Lock callback_lock_;
   VideoRendererSink::RenderCallback* callback_;
+
+  // AutoOpenCloseEvent for begin/end events.
+  std::unique_ptr<base::trace_event::AutoOpenCloseEvent> auto_open_close_;
 
   DISALLOW_COPY_AND_ASSIGN(VideoFrameCompositor);
 };

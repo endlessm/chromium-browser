@@ -19,7 +19,7 @@ import shutil
 import tempfile
 import urlparse
 
-from chromite.cbuildbot import constants
+from chromite.lib import constants
 from chromite.lib import cache
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
@@ -29,9 +29,13 @@ from chromite.lib import retry_stats
 from chromite.lib import retry_util
 from chromite.lib import timeout_util
 
+# Public path, only really works for files.
+PUBLIC_BASE_HTTPS_URL = 'https://storage.googleapis.com/'
 
-PUBLIC_BASE_HTTPS_URL = 'https://commondatastorage.googleapis.com/'
+# Private path for files.
 PRIVATE_BASE_HTTPS_URL = 'https://storage.cloud.google.com/'
+
+# Private path for directories.
 # TODO(akeshet): this is a workaround for b/27653354. If that is ultimately
 # fixed, revisit this workaround.
 PRIVATE_BASE_HTTPS_DOWNLOAD_URL = (
@@ -78,7 +82,10 @@ def CanonicalizeURL(url, strict=False):
     url: URL to canonicalize.
     strict: Raises exception if URL cannot be canonicalized.
   """
-  for prefix in (PUBLIC_BASE_HTTPS_URL, PRIVATE_BASE_HTTPS_URL):
+  for prefix in (PUBLIC_BASE_HTTPS_URL,
+                 PRIVATE_BASE_HTTPS_URL,
+                 PRIVATE_BASE_HTTPS_DOWNLOAD_URL,
+                 'https://commondatastorage.googleapis.com/'):
     if url.startswith(prefix):
       return url.replace(prefix, BASE_GS_URL, 1)
 
@@ -100,11 +107,49 @@ def GetGsURL(bucket, for_gsutil=False, public=True, suburl=''):
   Returns:
     The fully constructed URL
   """
+  url = 'gs://%s/%s' % (bucket, suburl)
+
   if for_gsutil:
-    urlbase = BASE_GS_URL
+    return url
   else:
-    urlbase = PUBLIC_BASE_HTTPS_URL if public else PRIVATE_BASE_HTTPS_URL
-  return '%s%s/%s' % (urlbase, bucket, suburl)
+    return GsUrlToHttp(url, public=public)
+
+
+def GsUrlToHttp(path, public=True, directory=False):
+  """Convert a GS URL to a HTTP URL for the same resource.
+
+  Because the HTTP Urls are not fixed (and may not always be simple prefix
+  replacements), use this method to centralize the conversion.
+
+  Directories need to have different URLs from files, because the Web UIs for GS
+  are weird and really inconsistent. Also public directories probably
+  don't work, and probably never will (permissions as well as UI).
+
+  e.g. 'gs://chromeos-image-archive/path/file' ->
+       'https://pantheon/path/file'
+
+  Args:
+    path: GS URL to convert.
+    public: Is this URL for Googler access, or publicly visible?
+    directory: Force this URL to be treated as a directory?
+               We try to autodetect on False.
+
+  Returns:
+    https URL as a string.
+  """
+  assert PathIsGs(path)
+  directory = directory or path.endswith('/')
+
+  # Public HTTP URls for directories don't work'
+  # assert not public or not directory,
+
+  if public:
+    return path.replace(BASE_GS_URL, PUBLIC_BASE_HTTPS_URL, 1)
+  else:
+    if directory:
+      return path.replace(BASE_GS_URL, PRIVATE_BASE_HTTPS_DOWNLOAD_URL, 1)
+    else:
+      return path.replace(BASE_GS_URL, PRIVATE_BASE_HTTPS_URL, 1)
 
 
 class GSContextException(Exception):
@@ -358,6 +403,13 @@ class GSContext(object):
 
       # Locate the module in the build dir.
       temp_mod_path = os.path.join(tempdir, 'crcmod', '_crcfunext.so')
+      # If the module compile failed (missing compiler/headers/whatever),
+      # then the setup.py build command above would have passed, but there
+      # won't actually be a _crcfunext.so module.  Check for it here to
+      # disambiguate other errors from shutil.copy2.
+      if not os.path.exists(temp_mod_path):
+        logging.debug('No crcmod module produced (missing host compiler?)')
+        return False
       try:
         shutil.copy2(temp_mod_path, mod_path)
         return True
@@ -503,7 +555,7 @@ class GSContext(object):
         return osutils.ReadFile(path)
       except Exception as e:
         if getattr(e, 'errno', None) == errno.ENOENT:
-          raise GSNoSuchKey('%s: file does not exist' % path)
+          raise GSNoSuchKey('Cat Error: file %s does not exist' % path)
         else:
           raise GSContextException(str(e))
     elif self.dry_run:
@@ -592,10 +644,6 @@ class GSContext(object):
 
     error = e.result.error
     if error:
-      # TODO: Do not log warning for GSContextPreconditionFailed and
-      # GSNoSuchKey after crbug.com/642986 is resolved.
-      logging.warning('GS_ERROR: %s (Temp log for crbug.com/642986)', error)
-
       # gsutil usually prints PreconditionException when a precondition fails.
       # It may also print "ResumableUploadAbortException: 412 Precondition
       # Failed", so the logic needs to be a little more general.
@@ -611,6 +659,8 @@ class GSContext(object):
           'One or more URLs matched no objects' in error):
         raise GSNoSuchKey(e)
 
+      logging.warning('GS_ERROR: %s ', error)
+
       # TODO: Below is a list of known flaky errors that we should
       # retry. The list needs to be extended.
 
@@ -624,8 +674,14 @@ class GSContext(object):
           'ResumableUploadAbortException',
           'ResumableDownloadException',
           'ssl.SSLError: The read operation timed out',
+          # TODO: Error messages may change in different library versions,
+          # use regexes to match resumable error messages.
+          'ssl.SSLError: (\'The read operation timed out\',)',
+          'ssl.SSLError: _ssl.c:495: The handshake operation timed out',
           'Unable to find the server',
           'doesn\'t match cloud-supplied digest',
+          'ssl.SSLError: [Errno 8]',
+          'EOF occurred in violation of protocol',
       )
       if any(x in error for x in RESUMABLE_ERROR_MESSAGE):
         # Only remove the tracker files if we try to upload/download a file.
@@ -803,12 +859,18 @@ class GSContext(object):
           return int(m.group(1))
         else:
           return None
-      except GSNoSuchKey:
+      except GSNoSuchKey as e:
         # If the source was a local file, the error is a quirk of gsutil 4.5
         # and should be ignored. If the source was remote, there might
         # legitimately be no such file. See crbug.com/393419.
         if os.path.isfile(src_path):
           return None
+
+        # Temp log for crbug.com/642986, should be removed when the bug
+        # is fixed.
+        logging.warning('Copy Error: src %s dest %s: %s '
+                        '(Temp log for crbug.com/642986)',
+                        src_path, dest_path, e)
         raise
 
   def CreateWithContents(self, gs_uri, contents, **kwargs):
@@ -1041,7 +1103,7 @@ class GSContext(object):
       # Example line:
       # No URLs matched gs://bucket/file
       if e.result.error.startswith('No URLs matched'):
-        raise GSNoSuchKey(path)
+        raise GSNoSuchKey('Stat Error: No URLs matched %s.' % path)
 
       # No idea what this is, so just choke.
       raise

@@ -11,6 +11,7 @@ var Page = {
   ITEM_LIST: '0',
   DETAIL_VIEW: '1',
   KEYBOARD_SHORTCUTS: '2',
+  ERROR_PAGE: '3',
 };
 
 cr.define('extensions', function() {
@@ -62,6 +63,23 @@ cr.define('extensions', function() {
         value: '',
       },
 
+      /**
+       * The item currently displayed in the error subpage. We use a separate
+       * item for different pages (rather than a single subpageItem_ property)
+       * so that hidden subpages don't update when an item updates. That is, we
+       * don't want the details view subpage to update when the item shown in
+       * the errors page updates, and vice versa.
+       * @private {!chrome.developerPrivate.ExtensionInfo|undefined}
+       */
+      errorPageItem_: Object,
+
+      /**
+       * The item currently displayed in the details view subpage. See also
+       * errorPageItem_.
+       * @private {!chrome.developerPrivate.ExtensionInfo|undefined}
+       */
+      detailViewItem_: Object,
+
       /** @type {!Array<!chrome.developerPrivate.ExtensionInfo>} */
       extensions: {
         type: Array,
@@ -77,6 +95,7 @@ cr.define('extensions', function() {
 
     listeners: {
       'items-list.extension-item-show-details': 'onShouldShowItemDetails_',
+      'items-list.extension-item-show-errors': 'onShouldShowItemErrors_',
     },
 
     created: function() {
@@ -104,13 +123,17 @@ cr.define('extensions', function() {
       return this.$['options-dialog'];
     },
 
+    get errorPage() {
+      return this.$['error-page'];
+    },
+
     /**
      * Shows the details view for a given item.
      * @param {!chrome.developerPrivate.ExtensionInfo} data
      */
     showItemDetails: function(data) {
-      this.$['items-list'].willShowItemDetails(data.id);
-      this.$['details-view'].data = data;
+      this.$['items-list'].willShowItemSubpage(data.id);
+      this.detailViewItem_ = data;
       this.changePage(Page.DETAIL_VIEW);
     },
 
@@ -197,6 +220,19 @@ cr.define('extensions', function() {
       // We should never try and update a non-existent item.
       assert(index >= 0);
       this.set([listId, index], item);
+
+      // Update the subpage if it is open and displaying the item. If it's not
+      // open, we don't update the data even if it's displaying that item. We'll
+      // set the item correctly before opening the page. It's a little weird
+      // that the DOM will have stale data, but there's no point in causing the
+      // extra work.
+      if (this.detailViewItem_ && this.detailViewItem_.id == item.id &&
+          this.$.pages.selected == Page.DETAIL_VIEW) {
+        this.detailViewItem_ = item;
+      } else if (this.errorPageItem_ && this.errorPageItem_.id == item.id &&
+                 this.$.pages.selected == Page.ERROR_PAGE) {
+        this.errorPageItem_ = item;
+      }
     },
 
     /**
@@ -226,6 +262,8 @@ cr.define('extensions', function() {
           return this.$['details-view'];
         case Page.KEYBOARD_SHORTCUTS:
           return this.$['keyboard-shortcuts'];
+        case Page.ERROR_PAGE:
+          return this.$['error-page'];
       }
       assertNotReached();
     },
@@ -240,7 +278,8 @@ cr.define('extensions', function() {
         return;
       var entry;
       var exit;
-      if (fromPage == Page.ITEM_LIST && toPage == Page.DETAIL_VIEW) {
+      if (fromPage == Page.ITEM_LIST && (toPage == Page.DETAIL_VIEW ||
+                                         toPage == Page.ERROR_PAGE)) {
         entry = extensions.Animation.HERO;
         exit = extensions.Animation.HERO;
       } else if (toPage == Page.ITEM_LIST) {
@@ -263,11 +302,32 @@ cr.define('extensions', function() {
      * @private
      */
     onShouldShowItemDetails_: function(e) {
-      this.showItemDetails(e.detail.element.data);
+      this.showItemDetails(e.detail.data);
+    },
+
+    /**
+     * Handles the event for the user clicking on the errors button.
+     * @param {!CustomEvent} e
+     * @private
+     */
+    onShouldShowItemErrors_: function(e) {
+      var data = e.detail.data;
+      this.$['items-list'].willShowItemSubpage(data.id);
+      this.errorPageItem_ = data;
+      this.changePage(Page.ERROR_PAGE);
     },
 
     /** @private */
     onDetailsViewClose_: function() {
+      // Note: we don't reset detailViewItem_ here because doing so just causes
+      // extra work for the data-bound details view.
+      this.changePage(Page.ITEM_LIST);
+    },
+
+    /** @private */
+    onErrorPageClose_: function() {
+      // Note: we don't reset errorPageItem_ here because doing so just causes
+      // extra work for the data-bound error page.
       this.changePage(Page.ITEM_LIST);
     }
   });

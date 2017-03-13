@@ -13,6 +13,7 @@
 #include "net/base/net_errors.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/base/page_transition_types.h"
+#include "url/gurl.h"
 
 #undef NO_ERROR  // Defined in winerror.h.
 
@@ -26,7 +27,11 @@ class TestNetErrorTabHelper : public NetErrorTabHelper {
         mock_probe_running_(false),
         last_status_sent_(error_page::DNS_PROBE_MAX),
         mock_sent_count_(0),
-        times_diagnostics_dialog_invoked_(0) {}
+#if defined(OS_ANDROID)
+        times_download_page_later_invoked_(0),
+#endif  // defined(OS_ANDROID)
+        times_diagnostics_dialog_invoked_(0) {
+  }
 
   void FinishProbe(DnsProbeStatus status) {
     EXPECT_TRUE(mock_probe_running_);
@@ -37,6 +42,18 @@ class TestNetErrorTabHelper : public NetErrorTabHelper {
   bool mock_probe_running() const { return mock_probe_running_; }
   DnsProbeStatus last_status_sent() const { return last_status_sent_; }
   int mock_sent_count() const { return mock_sent_count_; }
+
+#if defined(OS_ANDROID)
+  using NetErrorTabHelper::OnDownloadPageLater;
+
+  const GURL& download_page_later_url() const {
+    return download_page_later_url_;
+  }
+
+  int times_download_page_later_invoked() const {
+    return times_download_page_later_invoked_;
+  }
+#endif  // defined(OS_ANDROID)
 
   const std::string& network_diagnostics_url() const {
     return network_diagnostics_url_;
@@ -51,7 +68,9 @@ class TestNetErrorTabHelper : public NetErrorTabHelper {
         render_frame_host);
   }
 
-  mojom::NetworkDiagnostics* network_diagnostics_interface() { return this; }
+  chrome::mojom::NetworkDiagnostics* network_diagnostics_interface() {
+    return this;
+  }
 
  private:
   // NetErrorTabHelper implementation:
@@ -71,9 +90,20 @@ class TestNetErrorTabHelper : public NetErrorTabHelper {
     times_diagnostics_dialog_invoked_++;
   }
 
+#if defined(OS_ANDROID)
+  void DownloadPageLaterHelper(const GURL& url) override {
+    download_page_later_url_ = url;
+    times_download_page_later_invoked_++;
+  }
+#endif  // defined(OS_ANDROID)
+
   bool mock_probe_running_;
   DnsProbeStatus last_status_sent_;
   int mock_sent_count_;
+#if defined(OS_ANDROID)
+  GURL download_page_later_url_;
+  int times_download_page_later_invoked_;
+#endif  // defined(OS_ANDROID)
   std::string network_diagnostics_url_;
   int times_diagnostics_dialog_invoked_;
 };
@@ -123,6 +153,32 @@ class NetErrorTabHelperTest : public ChromeRenderViewHostTestHarness {
   }
 
   void FinishProbe(DnsProbeStatus status) { tab_helper_->FinishProbe(status); }
+
+  void LoadURL(const GURL& url, bool succeeded) {
+    controller().LoadURL(
+        url, content::Referrer(), ui::PAGE_TRANSITION_TYPED, std::string());
+    content::RenderFrameHostTester::For(main_rfh())->
+        SimulateNavigationStart(url);
+    if (succeeded) {
+      content::RenderFrameHostTester::For(main_rfh())->
+          SimulateNavigationCommit(url);
+    } else {
+      content::RenderFrameHostTester::For(main_rfh())->
+          SimulateNavigationError(url, net::ERR_TIMED_OUT);
+      content::RenderFrameHostTester::For(main_rfh())->
+          SimulateNavigationErrorPageCommit();
+    }
+  }
+
+#if defined(OS_ANDROID)
+  void NoDownloadPageLaterForNonHttpSchemes(const char* url_string,
+                                            bool succeeded) {
+    GURL url(url_string);
+    LoadURL(url, succeeded);
+    tab_helper()->OnDownloadPageLater();
+    EXPECT_EQ(0, tab_helper()->times_download_page_later_invoked());
+  }
+#endif
 
   bool probe_running() { return tab_helper_->mock_probe_running(); }
   DnsProbeStatus last_status_sent() { return tab_helper_->last_status_sent(); }
@@ -315,3 +371,40 @@ TEST_F(NetErrorTabHelperTest, NoDiagnosticsForNonHttpSchemes) {
     EXPECT_EQ(0, tab_helper()->times_diagnostics_dialog_invoked());
   }
 }
+
+#if defined(OS_ANDROID)
+TEST_F(NetErrorTabHelperTest, DownloadPageLater) {
+  GURL url("http://somewhere:123/");
+  LoadURL(url, false /*succeeded*/);
+  tab_helper()->OnDownloadPageLater();
+  EXPECT_EQ(url, tab_helper()->download_page_later_url());
+  EXPECT_EQ(1, tab_helper()->times_download_page_later_invoked());
+}
+
+TEST_F(NetErrorTabHelperTest, NoDownloadPageLaterOnNonErrorPage) {
+  GURL url("http://somewhere:123/");
+  LoadURL(url, true /*succeeded*/);
+  tab_helper()->OnDownloadPageLater();
+  EXPECT_EQ(0, tab_helper()->times_download_page_later_invoked());
+}
+
+// Makes sure that "Download page later" isn't run on URLs with non-HTTP/HTTPS
+// schemes.
+// NOTE: the test harness code in this file and in TestRendererHost don't always
+// deal with pending RFH correctly. This works because most tests only load
+// once. So workaround it by puting each test case in a separate test.
+TEST_F(NetErrorTabHelperTest, NoDownloadPageLaterForNonHttpSchemes1) {
+  NoDownloadPageLaterForNonHttpSchemes("file:///blah/blah", false);
+}
+
+TEST_F(NetErrorTabHelperTest, NoDownloadPageLaterForNonHttpSchemes2) {
+  NoDownloadPageLaterForNonHttpSchemes("chrome://blah/", false);
+}
+
+TEST_F(NetErrorTabHelperTest, NoDownloadPageLaterForNonHttpSchemes3) {
+  // about:blank always succeeds, and the test harness won't handle URLs that
+  // don't go to the network failing.
+  NoDownloadPageLaterForNonHttpSchemes("about:blank", true);
+}
+
+#endif  // defined(OS_ANDROID)

@@ -28,6 +28,7 @@
 #include "components/spellcheck/browser/spelling_service_client.h"
 #include "components/spellcheck/common/spellcheck_common.h"
 #include "components/spellcheck/common/spellcheck_result.h"
+#include "components/spellcheck/spellcheck_build_features.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/render_widget_host.h"
 #include "content/public/browser/render_widget_host_view.h"
@@ -168,7 +169,6 @@ void SpellingMenuObserver::InitMenu(const content::ContextMenuParams& params) {
   proxy_->AddMenuItem(IDC_SPELLCHECK_ADD_TO_DICTIONARY,
       l10n_util::GetStringUTF16(IDS_CONTENT_CONTEXT_ADD_TO_DICTIONARY));
   proxy_->AddSpellCheckServiceItem(integrate_spelling_service_.GetValue());
-  proxy_->AddSeparator();
 }
 
 bool SpellingMenuObserver::IsCommandIdSupported(int command_id) {
@@ -271,7 +271,7 @@ void SpellingMenuObserver::ExecuteCommand(int command_id) {
         spellcheck->GetFeedbackSender()->AddedToDictionary(misspelling_hash_);
       }
     }
-#if defined(USE_BROWSER_SPELLCHECKER)
+#if BUILDFLAG(USE_BROWSER_SPELLCHECKER)
     spellcheck_platform::AddWord(misspelled_word_);
 #endif
   }

@@ -26,6 +26,7 @@
 
 #include "platform/network/ResourceError.h"
 
+#include "platform/network/ResourceRequest.h"
 #include "platform/weborigin/KURL.h"
 #include "public/platform/Platform.h"
 #include "public/platform/WebURL.h"
@@ -40,9 +41,18 @@ ResourceError ResourceError::cancelledError(const String& failingURL) {
 }
 
 ResourceError ResourceError::cancelledDueToAccessCheckError(
-    const String& failingURL) {
+    const String& failingURL,
+    ResourceRequestBlockedReason blockedReason) {
   ResourceError error = cancelledError(failingURL);
   error.setIsAccessCheck(true);
+  if (blockedReason == ResourceRequestBlockedReason::SubresourceFilter)
+    error.setShouldCollapseInitiator(true);
+  return error;
+}
+
+ResourceError ResourceError::cacheMissError(const String& failingURL) {
+  ResourceError error(errorDomainBlinkInternal, 0, failingURL, String());
+  error.setIsCacheMiss(true);
   return error;
 }
 
@@ -58,6 +68,7 @@ ResourceError ResourceError::copy() const {
   errorCopy.m_isTimeout = m_isTimeout;
   errorCopy.m_staleCopyInCache = m_staleCopyInCache;
   errorCopy.m_wasIgnoredByHandler = m_wasIgnoredByHandler;
+  errorCopy.m_isCacheMiss = m_isCacheMiss;
   return errorCopy;
 }
 
@@ -93,6 +104,9 @@ bool ResourceError::compare(const ResourceError& a, const ResourceError& b) {
     return false;
 
   if (a.wasIgnoredByHandler() != b.wasIgnoredByHandler())
+    return false;
+
+  if (a.isCacheMiss() != b.isCacheMiss())
     return false;
 
   return true;

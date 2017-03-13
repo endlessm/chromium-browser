@@ -20,18 +20,23 @@ GLContextOSMesa::GLContextOSMesa(GLShareGroup* share_group)
 }
 
 bool GLContextOSMesa::Initialize(GLSurface* compatible_surface,
-                                 GpuPreference gpu_preference) {
+                                 const GLContextAttribs& attribs) {
+  // webgl_compatibility_context and disabling bind_generates_resource are not
+  // supported.
+  DCHECK(!attribs.webgl_compatibility_context &&
+         attribs.bind_generates_resource);
+
   DCHECK(!context_);
 
   OSMesaContext share_handle = static_cast<OSMesaContext>(
       share_group() ? share_group()->GetHandle() : nullptr);
 
   GLuint format = 0;
-  switch (compatible_surface->GetFormat()) {
-    case GLSurface::SURFACE_OSMESA_BGRA:
+  switch (compatible_surface->GetFormat().GetPixelLayout()) {
+    case GLSurfaceFormat::PIXEL_LAYOUT_BGRA:
       format = OSMESA_BGRA;
       break;
-    case GLSurface::SURFACE_OSMESA_RGBA:
+    case GLSurfaceFormat::PIXEL_LAYOUT_RGBA:
       format = OSMESA_RGBA;
       break;
     default:

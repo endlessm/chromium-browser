@@ -11,7 +11,11 @@
 #include "content/common/content_export.h"
 #include "ipc/ipc_listener.h"
 
-namespace shell {
+namespace IPC {
+class Channel;
+}
+
+namespace service_manager {
 class InterfaceProvider;
 }
 
@@ -28,6 +32,9 @@ class ChildProcessHostDelegate : public IPC::Listener {
   // it's ok to shutdown, when really it's not.
   CONTENT_EXPORT virtual bool CanShutdown();
 
+  // Called when the IPC channel for the child process is initialized.
+  virtual void OnChannelInitialized(IPC::Channel* channel) {}
+
   // Called when the child process unexpected closes the IPC channel. Delegates
   // would normally delete the object in this case.
   virtual void OnChildDisconnected() {}
@@ -36,9 +43,10 @@ class ChildProcessHostDelegate : public IPC::Listener {
   // OnProcessLaunched is called or it will be invalid and may crash.
   virtual const base::Process& GetProcess() const = 0;
 
-  // Returns the shell::InterfaceProvider the process host can use to bind
-  // interfaces exposed to it from the child.
-  CONTENT_EXPORT virtual shell::InterfaceProvider* GetRemoteInterfaces();
+  // Returns the service_manager::InterfaceProvider the process host can use to
+  // bind interfaces exposed to it from the child.
+  CONTENT_EXPORT virtual service_manager::InterfaceProvider*
+  GetRemoteInterfaces();
 };
 
 };  // namespace content

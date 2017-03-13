@@ -6,14 +6,13 @@
 
 #include "base/memory/ptr_util.h"
 #include "ui/base/resource/resource_bundle.h"
+#include "ui/base/ui_features.h"
 #include "ui/gfx/color_utils.h"
 #include "ui/gfx/paint_vector_icon.h"
-#include "ui/gfx/vector_icons_public.h"
 #include "ui/resources/grit/ui_resources.h"
 #include "ui/views/controls/button/label_button.h"
-#include "ui/views/controls/focusable_rounded_border_mac.h"
 #import "ui/views/controls/scrollbar/cocoa_scroll_bar.h"
-#include "ui/views/style/mac/combobox_background_mac.h"
+#include "ui/views/resources/vector_icons/vector_icons.h"
 
 #import <Cocoa/Cocoa.h>
 
@@ -24,12 +23,26 @@ const int PlatformStyle::kMinLabelButtonWidth = 32;
 const int PlatformStyle::kMinLabelButtonHeight = 30;
 const bool PlatformStyle::kDefaultLabelButtonHasBoldFont = false;
 const bool PlatformStyle::kDialogDefaultButtonCanBeCancel = false;
-const bool PlatformStyle::kTextfieldDragVerticallyDragsToEnd = true;
+const bool PlatformStyle::kSelectWordOnRightClick = true;
+const bool PlatformStyle::kTreeViewHasFocusRing = true;
 const bool PlatformStyle::kTreeViewSelectionPaintsEntireRow = true;
 const bool PlatformStyle::kUseRipples = false;
 
+// On Mac, the Cocoa browser window does not flip its UI in RTL (e.g. bookmark
+// star remains on the right, padlock on the left). So bubbles should open in
+// the same direction as in LTR by default, unless the entire browser is views.
+const bool PlatformStyle::kMirrorBubbleArrowInRTLByDefault =
+    BUILDFLAG(MAC_VIEWS_BROWSER);
+
 const CustomButton::NotifyAction PlatformStyle::kMenuNotifyActivationAction =
     CustomButton::NOTIFY_ON_PRESS;
+
+const CustomButton::KeyClickAction PlatformStyle::kKeyClickActionOnSpace =
+    CustomButton::CLICK_ON_KEY_PRESS;
+
+// On Mac, the Return key is used to perform the default action even when a
+// control is focused.
+const bool PlatformStyle::kReturnClicksFocusedControl = false;
 
 // static
 gfx::ImageSkia PlatformStyle::CreateComboboxArrow(bool is_enabled,
@@ -42,20 +55,8 @@ gfx::ImageSkia PlatformStyle::CreateComboboxArrow(bool is_enabled,
   }
   const int kComboboxArrowWidth = 24;
   return gfx::CreateVectorIcon(
-      is_enabled ? gfx::VectorIconId::COMBOBOX_ARROW_MAC_ENABLED
-                 : gfx::VectorIconId::COMBOBOX_ARROW_MAC_DISABLED,
+      is_enabled ? kComboboxArrowMacEnabledIcon : kComboboxArrowMacDisabledIcon,
       kComboboxArrowWidth, SK_ColorBLACK);
-}
-
-// static
-std::unique_ptr<FocusableBorder> PlatformStyle::CreateComboboxBorder() {
-  return base::WrapUnique(new FocusableRoundedBorder);
-}
-
-// static
-std::unique_ptr<Background> PlatformStyle::CreateComboboxBackground(
-    int shoulder_width) {
-  return base::MakeUnique<ComboboxBackgroundMac>(shoulder_width);
 }
 
 // static
@@ -85,7 +86,7 @@ void PlatformStyle::ApplyLabelButtonTextStyle(
 }
 
 // static
-void PlatformStyle::OnTextfieldKeypressUnhandled() {
+void PlatformStyle::OnTextfieldEditFailed() {
   NSBeep();
 }
 

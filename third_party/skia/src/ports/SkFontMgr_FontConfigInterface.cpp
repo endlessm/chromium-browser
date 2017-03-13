@@ -113,8 +113,8 @@ private:
         const char* getCategory() const override { return "request_cache"; }
         SkDiscardableMemory* diagnostic_only_getDiscardable() const override { return nullptr; }
 
-        SkAutoTDelete<Request> fRequest;
-        SkAutoTUnref<SkTypeface> fFace;
+        std::unique_ptr<Request> fRequest;
+        sk_sp<SkTypeface> fFace;
     };
 
     SkResourceCache fCachedResults;
@@ -133,7 +133,7 @@ public:
             const Result& result = static_cast<const Result&>(rec);
             SkTypeface** face = static_cast<SkTypeface**>(context);
 
-            *face = result.fFace;
+            *face = result.fFace.get();
             return true;
         }, &face);
         return SkSafeRef(face);
@@ -267,8 +267,8 @@ protected:
 
         // Check if this request is already in the request cache.
         using Request = SkFontRequestCache::Request;
-        SkAutoTDelete<Request> request(Request::Create(requestedFamilyName, requestedStyle));
-        SkTypeface* face = fCache.findAndRef(request);
+        std::unique_ptr<Request> request(Request::Create(requestedFamilyName, requestedStyle));
+        SkTypeface* face = fCache.findAndRef(request.get());
         if (face) {
             return face;
         }
@@ -296,7 +296,7 @@ protected:
     }
 };
 
-SK_API SkFontMgr* SkFontMgr_New_FCI(sk_sp<SkFontConfigInterface> fci) {
+SK_API sk_sp<SkFontMgr> SkFontMgr_New_FCI(sk_sp<SkFontConfigInterface> fci) {
     SkASSERT(fci);
-    return new SkFontMgr_FCI(std::move(fci));
+    return sk_make_sp<SkFontMgr_FCI>(std::move(fci));
 }

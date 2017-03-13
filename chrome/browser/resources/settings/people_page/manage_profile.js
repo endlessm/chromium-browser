@@ -24,6 +24,11 @@ Polymer({
     profileName: String,
 
     /**
+     * True if the current profile has a shortcut.
+     */
+    hasProfileShortcut_: Boolean,
+
+    /**
      * The available icons for selection.
      * @type {!Array<string>}
      */
@@ -47,6 +52,11 @@ Polymer({
         return settings.ManageProfileBrowserProxyImpl.getInstance();
       },
     },
+
+    /**
+     * True if the profile shortcuts feature is enabled.
+     */
+    isProfileShortcutSettingVisible_: Boolean,
   },
 
   /** @override */
@@ -61,8 +71,22 @@ Polymer({
 
   /** @protected */
   currentRouteChanged: function() {
-    if (settings.getCurrentRoute() == settings.Route.MANAGE_PROFILE)
+    if (settings.getCurrentRoute() == settings.Route.MANAGE_PROFILE) {
       this.$.name.value = this.profileName;
+
+      if (loadTimeData.getBoolean('profileShortcutsEnabled')) {
+        this.browserProxy_.getProfileShortcutStatus().then(function(status) {
+          if (status == ProfileShortcutStatus.PROFILE_SHORTCUT_SETTING_HIDDEN) {
+            this.isProfileShortcutSettingVisible_ = false;
+            return;
+          }
+
+          this.isProfileShortcutSettingVisible_ = true;
+          this.hasProfileShortcut_ =
+              status == ProfileShortcutStatus.PROFILE_SHORTCUT_FOUND;
+        }.bind(this));
+      }
+    }
   },
 
   /**
@@ -96,4 +120,17 @@ Polymer({
   isProfileNameDisabled_: function(syncStatus) {
     return !!syncStatus.supervisedUser && !syncStatus.childUser;
   },
+
+  /**
+   * Handler for when the profile shortcut toggle is changed.
+   * @param {!Event} event
+   * @private
+   */
+  onHasProfileShortcutChange_: function(event) {
+    if (this.hasProfileShortcut_) {
+      this.browserProxy_.addProfileShortcut();
+    } else {
+      this.browserProxy_.removeProfileShortcut();
+    }
+  }
 });

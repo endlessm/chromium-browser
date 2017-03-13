@@ -28,6 +28,7 @@
 #include "bindings/core/v8/ExceptionState.h"
 #include "core/dom/ExceptionCode.h"
 #include "modules/webaudio/AudioNodeInput.h"
+#include "modules/webaudio/AudioNodeOptions.h"
 #include "modules/webaudio/BaseAudioContext.h"
 #include "platform/UUID.h"
 #include "platform/mediastream/MediaStreamCenter.h"
@@ -47,13 +48,14 @@ MediaStreamAudioDestinationHandler::MediaStreamAudioDestinationHandler(
                                  node,
                                  node.context()->sampleRate(),
                                  numberOfChannels),
-      m_mixBus(AudioBus::create(numberOfChannels, ProcessingSizeInFrames)) {
+      m_mixBus(AudioBus::create(numberOfChannels,
+                                AudioUtilities::kRenderQuantumFrames)) {
   m_source = MediaStreamSource::create(
       "WebAudio-" + createCanonicalUUIDString(), MediaStreamSource::TypeAudio,
       "MediaStreamAudioDestinationNode", false,
       MediaStreamSource::ReadyStateLive, true);
   MediaStreamSourceVector audioSources;
-  audioSources.append(m_source.get());
+  audioSources.push_back(m_source.get());
   MediaStreamSourceVector videoSources;
   m_stream = MediaStream::create(
       node.context()->getExecutionContext(),
@@ -91,7 +93,7 @@ void MediaStreamAudioDestinationHandler::process(size_t numberOfFrames) {
   if (tryLocker.locked()) {
     unsigned count = channelCount();
     if (count != m_mixBus->numberOfChannels()) {
-      m_mixBus = AudioBus::create(count, ProcessingSizeInFrames);
+      m_mixBus = AudioBus::create(count, AudioUtilities::kRenderQuantumFrames);
       // setAudioFormat has an internal lock.  This can cause audio to
       // glitch.  This is outside of our control.
       m_source->setAudioFormat(count, context()->sampleRate());
@@ -114,9 +116,9 @@ void MediaStreamAudioDestinationHandler::setChannelCount(
   // which is constrained by m_source (WebAudioCapturereSource). Although
   // it has its own safety check for the excessive channels, throwing an
   // exception here is useful to developers.
-  if (channelCount > maxChannelCount()) {
+  if (channelCount < 1 || channelCount > maxChannelCount()) {
     exceptionState.throwDOMException(
-        IndexSizeError,
+        NotSupportedError,
         ExceptionMessages::indexOutsideRange<unsigned>(
             "channel count", channelCount, 1, ExceptionMessages::InclusiveBound,
             maxChannelCount(), ExceptionMessages::InclusiveBound));
@@ -156,6 +158,28 @@ MediaStreamAudioDestinationNode* MediaStreamAudioDestinationNode::create(
   }
 
   return new MediaStreamAudioDestinationNode(context, numberOfChannels);
+}
+
+MediaStreamAudioDestinationNode* MediaStreamAudioDestinationNode::create(
+    BaseAudioContext* context,
+    const AudioNodeOptions& options,
+    ExceptionState& exceptionState) {
+  DCHECK(isMainThread());
+
+  // Default to stereo; |options| will update it approriately if needed.
+  MediaStreamAudioDestinationNode* node =
+      new MediaStreamAudioDestinationNode(*context, 2);
+
+  // Need to handle channelCount here ourselves because the upper
+  // limit is different from the normal AudioNode::setChannelCount
+  // limit of 32.  Error messages will sometimes show the wrong
+  // limits.
+  if (options.hasChannelCount())
+    node->setChannelCount(options.channelCount(), exceptionState);
+
+  node->handleChannelOptions(options, exceptionState);
+
+  return node;
 }
 
 MediaStream* MediaStreamAudioDestinationNode::stream() const {

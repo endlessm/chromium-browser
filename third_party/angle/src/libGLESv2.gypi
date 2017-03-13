@@ -34,7 +34,20 @@
             'common/tls.h',
             'common/utilities.cpp',
             'common/utilities.h',
+            'common/vector_utils.h',
             'common/version.h',
+        ],
+        'libangle_common_linux_sources':
+        [
+            'common/system_utils_linux.cpp',
+        ],
+        'libangle_common_mac_sources':
+        [
+            'common/system_utils_mac.cpp',
+        ],
+        'libangle_common_win_sources':
+        [
+            'common/system_utils_win.cpp',
         ],
         'libangle_image_util_sources':
         [
@@ -68,6 +81,7 @@
             '../include/GLSLANG/ShaderVars.h',
             '../include/KHR/khrplatform.h',
             '../include/platform/Platform.h',
+            '../include/platform/WorkaroundsD3D.h',
         ],
         'libangle_sources':
         [
@@ -138,10 +152,14 @@
             'libANGLE/Surface.h',
             'libANGLE/Texture.cpp',
             'libANGLE/Texture.h',
+            'libANGLE/Thread.cpp',
+            'libANGLE/Thread.h',
             'libANGLE/TransformFeedback.cpp',
             'libANGLE/TransformFeedback.h',
             'libANGLE/Uniform.cpp',
             'libANGLE/Uniform.h',
+            'libANGLE/VaryingPacking.cpp',
+            'libANGLE/VaryingPacking.h',
             'libANGLE/Version.h',
             'libANGLE/Version.inl',
             'libANGLE/VertexArray.cpp',
@@ -149,9 +167,12 @@
             'libANGLE/VertexAttribute.cpp',
             'libANGLE/VertexAttribute.h',
             'libANGLE/VertexAttribute.inl',
+            'libANGLE/WorkerThread.cpp',
+            'libANGLE/WorkerThread.h',
             'libANGLE/angletypes.cpp',
             'libANGLE/angletypes.h',
             'libANGLE/angletypes.inl',
+            'libANGLE/es3_copy_conversion_table_autogen.cpp',
             'libANGLE/features.h',
             'libANGLE/format_map_autogen.cpp',
             'libANGLE/formatutils.cpp',
@@ -165,6 +186,8 @@
             'libANGLE/renderer/CompilerImpl.h',
             'libANGLE/renderer/ContextImpl.cpp',
             'libANGLE/renderer/ContextImpl.h',
+            'libANGLE/renderer/driver_utils.cpp',
+            'libANGLE/renderer/driver_utils.h',
             'libANGLE/renderer/DeviceImpl.cpp',
             'libANGLE/renderer/DeviceImpl.h',
             'libANGLE/renderer/DisplayImpl.cpp',
@@ -173,8 +196,7 @@
             'libANGLE/renderer/FenceNVImpl.h',
             'libANGLE/renderer/FenceSyncImpl.h',
             'libANGLE/renderer/Format_ID_autogen.inl',
-            'libANGLE/renderer/Format_autogen.cpp',
-            'libANGLE/renderer/Format.cpp',
+            'libANGLE/renderer/Format_table_autogen.cpp',
             'libANGLE/renderer/Format.h',
             'libANGLE/renderer/FramebufferAttachmentObjectImpl.h',
             'libANGLE/renderer/FramebufferImpl.h',
@@ -253,17 +275,15 @@
             'libANGLE/renderer/d3d/ShaderExecutableD3D.h',
             'libANGLE/renderer/d3d/SurfaceD3D.cpp',
             'libANGLE/renderer/d3d/SurfaceD3D.h',
+            'libANGLE/renderer/d3d/SwapChainD3D.cpp',
             'libANGLE/renderer/d3d/SwapChainD3D.h',
             'libANGLE/renderer/d3d/TextureD3D.cpp',
             'libANGLE/renderer/d3d/TextureD3D.h',
             'libANGLE/renderer/d3d/TextureStorage.h',
-            'libANGLE/renderer/d3d/VaryingPacking.cpp',
-            'libANGLE/renderer/d3d/VaryingPacking.h',
             'libANGLE/renderer/d3d/VertexBuffer.cpp',
             'libANGLE/renderer/d3d/VertexBuffer.h',
             'libANGLE/renderer/d3d/VertexDataManager.cpp',
             'libANGLE/renderer/d3d/VertexDataManager.h',
-            'libANGLE/renderer/d3d/WorkaroundsD3D.h',
         ],
         'libangle_d3d9_sources':
         [
@@ -299,8 +319,11 @@
             'libANGLE/renderer/d3d/d3d9/ShaderExecutable9.cpp',
             'libANGLE/renderer/d3d/d3d9/ShaderExecutable9.h',
             'libANGLE/renderer/d3d/d3d9/shaders/compiled/componentmaskps.h',
-            'libANGLE/renderer/d3d/d3d9/shaders/compiled/flipyvs.h',
+            'libANGLE/renderer/d3d/d3d9/shaders/compiled/componentmaskpremultps.h',
+            'libANGLE/renderer/d3d/d3d9/shaders/compiled/componentmaskunmultps.h',
             'libANGLE/renderer/d3d/d3d9/shaders/compiled/luminanceps.h',
+            'libANGLE/renderer/d3d/d3d9/shaders/compiled/luminancepremultps.h',
+            'libANGLE/renderer/d3d/d3d9/shaders/compiled/luminanceunmultps.h',
             'libANGLE/renderer/d3d/d3d9/shaders/compiled/passthroughps.h',
             'libANGLE/renderer/d3d/d3d9/shaders/compiled/standardvs.h',
             'libANGLE/renderer/d3d/d3d9/StateManager9.cpp',
@@ -330,6 +353,7 @@
             'libANGLE/renderer/d3d/d3d11/copyvertex.inl',
             'libANGLE/renderer/d3d/d3d11/DebugAnnotator11.cpp',
             'libANGLE/renderer/d3d/d3d11/DebugAnnotator11.h',
+            'libANGLE/renderer/d3d/d3d11/dxgi_format_map_autogen.cpp',
             'libANGLE/renderer/d3d/d3d11/dxgi_support_table.cpp',
             'libANGLE/renderer/d3d/d3d11/dxgi_support_table.h',
             'libANGLE/renderer/d3d/d3d11/Fence11.cpp',
@@ -508,6 +532,8 @@
         ],
         'libangle_gl_wgl_sources':
         [
+            'libANGLE/renderer/gl/wgl/D3DTextureSurfaceWGL.cpp',
+            'libANGLE/renderer/gl/wgl/D3DTextureSurfaceWGL.h',
             'libANGLE/renderer/gl/wgl/DisplayWGL.cpp',
             'libANGLE/renderer/gl/wgl/DisplayWGL.h',
             'libANGLE/renderer/gl/wgl/DXGISwapChainWindowSurfaceWGL.cpp',
@@ -605,6 +631,8 @@
             'libANGLE/renderer/vulkan/RenderbufferVk.h',
             'libANGLE/renderer/vulkan/RendererVk.cpp',
             'libANGLE/renderer/vulkan/RendererVk.h',
+            'libANGLE/renderer/vulkan/RenderTargetVk.cpp',
+            'libANGLE/renderer/vulkan/RenderTargetVk.h',
             'libANGLE/renderer/vulkan/SamplerVk.cpp',
             'libANGLE/renderer/vulkan/SamplerVk.h',
             'libANGLE/renderer/vulkan/ShaderVk.cpp',
@@ -617,6 +645,11 @@
             'libANGLE/renderer/vulkan/TransformFeedbackVk.h',
             'libANGLE/renderer/vulkan/VertexArrayVk.cpp',
             'libANGLE/renderer/vulkan/VertexArrayVk.h',
+            'libANGLE/renderer/vulkan/formatutilsvk.h',
+            'libANGLE/renderer/vulkan/formatutilsvk.cpp',
+            'libANGLE/renderer/vulkan/renderervk_utils.cpp',
+            'libANGLE/renderer/vulkan/renderervk_utils.h',
+            'libANGLE/renderer/vulkan/vk_format_table_autogen.cpp',
         ],
         'libangle_null_sources':
         [
@@ -695,152 +728,15 @@
     'targets':
     [
         {
-            'target_name': 'libANGLE',
-            'type': 'static_library',
-            'dependencies':
-            [
-                'translator_static',
-                'commit_id',
-                'angle_common',
-                'angle_image_util',
-            ],
-            'includes': [ '../build/common_defines.gypi', ],
-            'include_dirs':
-            [
-                '.',
-                '../include',
-                'third_party/khronos',
-            ],
-            'sources':
-            [
-                '<@(libangle_sources)',
-                '<@(libangle_includes)',
-            ],
-            'defines':
-            [
-                'LIBANGLE_IMPLEMENTATION',
-            ],
-            'export_dependent_settings':
-            [
-                'angle_common',
-            ],
-            'direct_dependent_settings':
-            {
-                'include_dirs':
-                [
-                    '<(angle_path)/src',
-                    '<(angle_path)/include',
-                ],
-                'defines':
-                [
-                    'GL_GLEXT_PROTOTYPES',
-                    'ANGLE_PRELOADED_D3DCOMPILER_MODULE_NAMES={ "d3dcompiler_47.dll", "d3dcompiler_46.dll", "d3dcompiler_43.dll" }',
-                ],
-                'conditions':
-                [
-                    ['OS=="win"', {
-                        'defines':
-                        [
-                            'GL_APICALL=',
-                            'EGLAPI=',
-                        ],
-                    }, {
-                        'defines':
-                        [
-                            'GL_APICALL=__attribute__((visibility("default")))',
-                            'EGLAPI=__attribute__((visibility("default")))',
-                        ],
-                    }],
-                    ['OS == "mac"',
-                    {
-                        'xcode_settings':
-                        {
-                            'DYLIB_INSTALL_NAME_BASE': '@rpath',
-                        },
-                    }],
-                    ['angle_enable_d3d9==1',
-                    {
-                        'defines':
-                        [
-                            'ANGLE_ENABLE_D3D9',
-                        ],
-                    }],
-                    ['angle_enable_d3d11==1',
-                    {
-                        'defines':
-                        [
-                            'ANGLE_ENABLE_D3D11',
-                        ],
-                    }],
-                    ['angle_enable_gl==1',
-                    {
-                        'defines':
-                        [
-                            'ANGLE_ENABLE_OPENGL',
-                        ],
-                        'conditions':
-                        [
-                            ['angle_use_glx==1',
-                            {
-                                'defines':
-                                [
-                                    'ANGLE_USE_X11',
-                                ],
-                            }],
-                        ],
-                    }],
-                    ['angle_enable_vulkan==1',
-                    {
-                        'defines':
-                        [
-                            'ANGLE_ENABLE_VULKAN',
-                        ],
-                    }],
-                ],
-            },
+            # This target includes the right ANGLE defines for common/platform.h for D3D11.
+            # It also links against the right libs. This is useful for the tests, which
+            # have special D3D11 code for Debug runtime error message handling.
+            'target_name': 'libANGLE_d3d11_config',
+            'type': 'none',
             'conditions':
             [
-                ['angle_enable_d3d9==1 or angle_enable_d3d11==1',
-                {
-                    'sources':
-                    [
-                        '<@(libangle_d3d_shared_sources)',
-                    ],
-                }],
-                ['angle_enable_d3d9==1',
-                {
-                    'sources':
-                    [
-                        '<@(libangle_d3d9_sources)',
-                    ],
-                    'defines':
-                    [
-                        'ANGLE_ENABLE_D3D9',
-                    ],
-                    'link_settings':
-                    {
-                        'msvs_settings':
-                        {
-                            'VCLinkerTool':
-                            {
-                                'AdditionalDependencies':
-                                [
-                                    'd3d9.lib',
-                                ]
-                            }
-                        },
-                    },
-                }],
                 ['angle_enable_d3d11==1',
                 {
-                    'sources':
-                    [
-                        '<@(libangle_d3d11_sources)',
-                    ],
-                    'defines':
-                    [
-                        'ANGLE_ENABLE_D3D11',
-                    ],
                     'link_settings':
                     {
                         'msvs_settings':
@@ -869,6 +765,173 @@
                             }
                         },
                     },
+                }],
+            ],
+        },
+
+        {
+            'target_name': 'libANGLE_renderer_config',
+            'type': 'none',
+            'direct_dependent_settings':
+            {
+                'conditions':
+                [
+                    ['angle_enable_d3d11==1',
+                    {
+                        'defines':
+                        [
+                            'ANGLE_ENABLE_D3D11',
+                        ],
+                    }],
+                    ['angle_enable_d3d9==1',
+                    {
+                        'defines':
+                        [
+                            'ANGLE_ENABLE_D3D9',
+                        ],
+                    }],
+                    ['angle_enable_gl==1',
+                    {
+                        'defines':
+                        [
+                            'ANGLE_ENABLE_OPENGL',
+                        ],
+                    }],
+                    ['angle_enable_vulkan==1',
+                    {
+                        'defines':
+                        [
+                            'ANGLE_ENABLE_VULKAN',
+                        ],
+                    }],
+                    ['angle_enable_null==1',
+                    {
+                        'defines':
+                        [
+                            'ANGLE_ENABLE_NULL',
+                        ],
+                    }],
+                ],
+            },
+        },
+
+        {
+            'target_name': 'libANGLE',
+            'type': 'static_library',
+            'dependencies':
+            [
+                'translator',
+                'commit_id',
+                'angle_common',
+                'angle_image_util',
+                'libANGLE_d3d11_config',
+                'libANGLE_renderer_config',
+            ],
+            'includes': [ '../gyp/common_defines.gypi', ],
+            'include_dirs':
+            [
+                '.',
+                '../include',
+                'third_party/khronos',
+            ],
+            'sources':
+            [
+                '<@(libangle_sources)',
+                '<@(libangle_includes)',
+            ],
+            'defines':
+            [
+                'LIBANGLE_IMPLEMENTATION',
+            ],
+            'export_dependent_settings':
+            [
+                'angle_common',
+                'libANGLE_d3d11_config',
+                'libANGLE_renderer_config',
+            ],
+            'direct_dependent_settings':
+            {
+                'include_dirs':
+                [
+                    '<(angle_path)/src',
+                    '<(angle_path)/include',
+                ],
+                'defines':
+                [
+                    'LIBANGLE_IMPLEMENTATION',
+                    'GL_GLEXT_PROTOTYPES',
+                    'ANGLE_PRELOADED_D3DCOMPILER_MODULE_NAMES={ "d3dcompiler_47.dll", "d3dcompiler_46.dll", "d3dcompiler_43.dll" }',
+                ],
+                'conditions':
+                [
+                    ['OS=="win"', {
+                        'defines':
+                        [
+                            'GL_APICALL=',
+                        ],
+                    }, {
+                        'defines':
+                        [
+                            'GL_APICALL=__attribute__((visibility("default")))',
+                        ],
+                    }],
+                    ['OS == "mac"',
+                    {
+                        'xcode_settings':
+                        {
+                            'DYLIB_INSTALL_NAME_BASE': '@rpath',
+                        },
+                    }],
+                    ['angle_enable_gl==1',
+                    {
+                        'conditions':
+                        [
+                            ['angle_use_glx==1',
+                            {
+                                'defines':
+                                [
+                                    'ANGLE_USE_X11',
+                                ],
+                            }],
+                        ],
+                    }],
+                ],
+            },
+            'conditions':
+            [
+                ['angle_enable_d3d9==1 or angle_enable_d3d11==1',
+                {
+                    'sources':
+                    [
+                        '<@(libangle_d3d_shared_sources)',
+                    ],
+                }],
+                ['angle_enable_d3d9==1',
+                {
+                    'sources':
+                    [
+                        '<@(libangle_d3d9_sources)',
+                    ],
+                    'link_settings':
+                    {
+                        'msvs_settings':
+                        {
+                            'VCLinkerTool':
+                            {
+                                'AdditionalDependencies':
+                                [
+                                    'd3d9.lib',
+                                ]
+                            }
+                        },
+                    },
+                }],
+                ['angle_enable_d3d11==1',
+                {
+                    'sources':
+                    [
+                        '<@(libangle_d3d11_sources)',
+                    ],
                     'conditions':
                     [
                         ['angle_build_winrt==1',
@@ -891,10 +954,6 @@
                     'sources':
                     [
                         '<@(libangle_gl_sources)',
-                    ],
-                    'defines':
-                    [
-                        'ANGLE_ENABLE_OPENGL',
                     ],
                     'conditions':
                     [
@@ -998,9 +1057,13 @@
                     [
                         '<@(libangle_vulkan_sources)',
                     ],
-                    'defines':
+                    'dependencies':
                     [
-                        'ANGLE_ENABLE_VULKAN',
+                        'angle_vulkan',
+                    ],
+                    'export_dependent_settings':
+                    [
+                        'angle_vulkan',
                     ],
                 }],
                 ['angle_enable_null==1',
@@ -1008,10 +1071,6 @@
                     'sources':
                     [
                         '<@(libangle_null_sources)',
-                    ],
-                    'defines':
-                    [
-                        'ANGLE_ENABLE_NULL',
                     ],
                 }],
                 ['angle_build_winrt==0 and OS=="win"',
@@ -1031,7 +1090,7 @@
             'target_name': 'libGLESv2',
             'type': '<(angle_gl_library_type)',
             'dependencies': [ 'libANGLE', 'angle_common' ],
-            'includes': [ '../build/common_defines.gypi', ],
+            'includes': [ '../gyp/common_defines.gypi', ],
             'sources':
             [
                 '<@(libglesv2_sources)',
@@ -1039,6 +1098,28 @@
             'defines':
             [
                 'LIBGLESV2_IMPLEMENTATION',
+            ],
+            'conditions':
+            [
+                ['angle_build_winrt==1',
+                {
+                    'msvs_requires_importlibrary' : 'true',
+                }],
+            ],
+        },
+
+        {
+            'target_name': 'libGLESv2_static',
+            'type': 'static_library',
+            'dependencies': [ 'libANGLE', 'angle_common' ],
+            'export_dependent_settings':
+            [
+                'libANGLE',
+            ],
+            'includes': [ '../gyp/common_defines.gypi', ],
+            'sources':
+            [
+                '<@(libglesv2_sources)',
             ],
             'conditions':
             [

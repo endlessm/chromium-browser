@@ -13,12 +13,19 @@
 #ifndef WEBRTC_MEDIA_BASE_VIDEOCAPTURER_H_
 #define WEBRTC_MEDIA_BASE_VIDEOCAPTURER_H_
 
+#include <stdint.h>
+
 #include <algorithm>
 #include <memory>
 #include <string>
 #include <vector>
 
-#include "webrtc/base/basictypes.h"
+// TODO(nisse): Transition hack, some downstream applications expect that
+// including this file declares I420Buffer and NativeHandleBuffer. Delete after
+// users of these classes are fixed to include the right headers.
+#include "webrtc/api/video/i420_buffer.h"
+#include "webrtc/common_video/include/video_frame_buffer.h"
+
 #include "webrtc/base/constructormagic.h"
 #include "webrtc/base/criticalsection.h"
 #include "webrtc/media/base/videosourceinterface.h"
@@ -29,6 +36,9 @@
 #include "webrtc/media/base/videobroadcaster.h"
 #include "webrtc/media/base/videocommon.h"
 
+namespace webrtc {
+class VideoFrame;
+}
 
 namespace cricket {
 
@@ -41,8 +51,6 @@ enum CaptureState {
                  // capturing.
   CS_FAILED,     // The capturer failed to start.
 };
-
-class VideoFrame;
 
 // VideoCapturer is an abstract class that defines the interfaces for video
 // capturing. The subclasses implement the video capturer for various types of
@@ -71,7 +79,7 @@ class VideoFrame;
 //   thread safe.
 //
 class VideoCapturer : public sigslot::has_slots<>,
-                      public rtc::VideoSourceInterface<cricket::VideoFrame> {
+                      public rtc::VideoSourceInterface<webrtc::VideoFrame> {
  public:
   VideoCapturer();
 
@@ -142,18 +150,6 @@ class VideoCapturer : public sigslot::has_slots<>,
   // implement screencast specific behavior.
   virtual bool IsScreencast() const = 0;
 
-  // Indicates that the encoder should denoise video before encoding
-  // it, wired up to VideoCapturerTrackSource::needs_denoising. If it
-  // is not set, the default configuration is used which is different
-  // depending on video codec.
-  // TODO(nisse): This is a workaround needed to fix
-  // https://bugs.chromium.org/p/chromium/issues/detail?id=645907.
-  // Chrome should migrate to implement VideoTrackSourceInterface
-  // directly, and then this method is no longer needed.
-  virtual rtc::Optional<bool> NeedsDenoising() const {
-    return rtc::Optional<bool>();
-  }
-
   // Caps the VideoCapturer's format according to max_format. It can e.g. be
   // used to prevent cameras from capturing at a resolution or framerate that
   // the capturer is capable of but not performing satisfactorily at.
@@ -183,9 +179,9 @@ class VideoCapturer : public sigslot::has_slots<>,
   bool GetInputSize(int* width, int* height);
 
   // Implements VideoSourceInterface
-  void AddOrUpdateSink(rtc::VideoSinkInterface<cricket::VideoFrame>* sink,
+  void AddOrUpdateSink(rtc::VideoSinkInterface<webrtc::VideoFrame>* sink,
                        const rtc::VideoSinkWants& wants) override;
-  void RemoveSink(rtc::VideoSinkInterface<cricket::VideoFrame>* sink) override;
+  void RemoveSink(rtc::VideoSinkInterface<webrtc::VideoFrame>* sink) override;
 
  protected:
   // OnSinkWantsChanged can be overridden to change the default behavior
@@ -224,7 +220,9 @@ class VideoCapturer : public sigslot::has_slots<>,
   // VideoFrame. OnFrame can be called directly by an implementation
   // that does not use SignalFrameCaptured or OnFrameCaptured. The
   // orig_width and orig_height are used only to produce stats.
-  void OnFrame(const VideoFrame& frame, int orig_width, int orig_height);
+  void OnFrame(const webrtc::VideoFrame& frame,
+               int orig_width,
+               int orig_height);
 
   VideoAdapter* video_adapter() { return &video_adapter_; }
 

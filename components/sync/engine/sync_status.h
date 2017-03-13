@@ -11,7 +11,7 @@
 #include "base/time/time.h"
 #include "components/sync/base/model_type.h"
 #include "components/sync/base/passphrase_type.h"
-#include "components/sync/core/sync_encryption_handler.h"
+#include "components/sync/engine/sync_encryption_handler.h"
 #include "components/sync/protocol/sync_protocol_error.h"
 
 namespace syncer {
@@ -81,6 +81,9 @@ struct SyncStatus {
   // Per-datatype throttled status.
   ModelTypeSet throttled_types;
 
+  // Per-datatype backed off status.
+  ModelTypeSet backed_off_types;
+
   // The unique identifer for the sync store.
   std::string sync_id;
 
@@ -93,6 +96,9 @@ struct SyncStatus {
 
   // Time of next retry if sync scheduler is throttled or in backoff.
   base::Time retry_time;
+
+  // The location of the local sync backend db file if local sync is enabled.
+  std::string local_sync_folder;
 };
 
 }  // namespace syncer

@@ -8,13 +8,13 @@
   </outputs>
   <release seq="1">
     <includes>
-      <include name="IDR_UASTYLE_HTML_CSS" file="../Source/core/css/html.css" type="BINDATA"/>
+      <!-- Source/core/css/html.css processed through minimize_css.py -->
+      <include name="IDR_UASTYLE_HTML_CSS" file="${html_min_css}" type="BINDATA"/>
       <include name="IDR_UASTYLE_QUIRKS_CSS" file="../Source/core/css/quirks.css" type="BINDATA"/>
       <include name="IDR_UASTYLE_VIEW_SOURCE_CSS" file="../Source/core/css/view-source.css" type="BINDATA"/>
       <include name="IDR_UASTYLE_THEME_CHROMIUM_ANDROID_CSS" file="../Source/core/css/themeChromiumAndroid.css" type="BINDATA"/>
       <include name="IDR_UASTYLE_FULLSCREEN_ANDROID_CSS" file="../Source/core/css/fullscreenAndroid.css" type="BINDATA"/>
       <include name="IDR_UASTYLE_MEDIA_CONTROLS_ANDROID_CSS" file="../Source/core/css/mediaControlsAndroid.css" type="BINDATA"/>
-      <include name="IDR_UASTYLE_MEDIA_CONTROLS_ANDROID_NEW_CSS" file="../Source/core/css/mediaControlsAndroidNew.css" type="BINDATA"/>
       <include name="IDR_UASTYLE_THEME_CHROMIUM_LINUX_CSS" file="../Source/core/css/themeChromiumLinux.css" type="BINDATA"/>
       <if expr="is_macosx">
         <include name="IDR_UASTYLE_THEME_MAC_CSS" file="../Source/core/css/themeMac.css" type="BINDATA"/>
@@ -25,18 +25,14 @@
       <include name="IDR_UASTYLE_SVG_CSS" file="../Source/core/css/svg.css" type="BINDATA"/>
       <include name="IDR_UASTYLE_MATHML_CSS" file="../Source/core/css/mathml.css" type="BINDATA"/>
       <include name="IDR_UASTYLE_MEDIA_CONTROLS_CSS" file="../Source/core/css/mediaControls.css" type="BINDATA"/>
-      <include name="IDR_UASTYLE_MEDIA_CONTROLS_NEW_CSS" file="../Source/core/css/mediaControlsNew.css" type="BINDATA"/>
       <include name="IDR_UASTYLE_FULLSCREEN_CSS" file="../Source/core/css/fullscreen.css" type="BINDATA"/>
       <include name="IDR_UASTYLE_XHTMLMP_CSS" file="../Source/core/css/xhtmlmp.css" type="BINDATA"/>
       <include name="IDR_UASTYLE_VIEWPORT_ANDROID_CSS" file="../Source/core/css/viewportAndroid.css" type="BINDATA"/>
       <include name="IDR_UASTYLE_VIEWPORT_TELEVISION_CSS" file="../Source/core/css/viewportTelevision.css" type="BINDATA"/>
 
       <include name="IDR_INSPECTOR_OVERLAY_PAGE_HTML" file="../Source/core/inspector/InspectorOverlayPage.html" type="BINDATA"/>
-      <include name="IDR_PRIVATE_SCRIPT_DOCUMENTEXECCOMMAND_JS" file="../Source/core/editing/js/DocumentExecCommand.js" type="BINDATA"/>
-      <include name="IDR_PRIVATE_SCRIPT_DOCUMENTXMLTREEVIEWER_CSS" file="../Source/core/xml/DocumentXMLTreeViewer.css" type="BINDATA"/>
-      <include name="IDR_PRIVATE_SCRIPT_DOCUMENTXMLTREEVIEWER_JS" file="../Source/core/xml/DocumentXMLTreeViewer.js" type="BINDATA"/>
-      <include name="IDR_PRIVATE_SCRIPT_HTMLMARQUEEELEMENT_JS" file="../Source/core/html/HTMLMarqueeElement.js" type="BINDATA"/>
-      <include name="IDR_PRIVATE_SCRIPT_PRIVATESCRIPTRUNNER_JS" file="../Source/bindings/core/v8/PrivateScriptRunner.js" type="BINDATA"/>
+      <include name="IDR_DOCUMENTXMLTREEVIEWER_CSS" file="../Source/core/xml/DocumentXMLTreeViewer.css" type="BINDATA"/>
+      <include name="IDR_DOCUMENTXMLTREEVIEWER_JS" file="../Source/core/xml/DocumentXMLTreeViewer.js" type="BINDATA"/>
       <if expr="not is_android">
         <include name="IDR_PICKER_COMMON_JS" file="../Source/web/resources/pickerCommon.js" type="BINDATA"/>
         <include name="IDR_PICKER_COMMON_CSS" file="../Source/web/resources/pickerCommon.css" type="BINDATA"/>
@@ -51,7 +47,7 @@
         <include name="IDR_LIST_PICKER_JS" file="../Source/web/resources/listPicker.js" type="BINDATA"/>
       </if>
       <if expr="use_concatenated_impulse_responses">
-        <include name="IDR_AUDIO_SPATIALIZATION_COMPOSITE" file="../Source/platform/audio/resources/Composite.wav" type="BINDATA"/>
+        <include name="IDR_AUDIO_SPATIALIZATION_COMPOSITE" file="../Source/platform/audio/resources/Composite.flac" type="BINDATA"/>
       </if>
       <if expr="not use_concatenated_impulse_responses">
         <include name="IDR_AUDIO_SPATIALIZATION_T000_P000" file="..\Source\platform\audio\resources\IRC_Composite_C_R0195_T000_P000.wav" type="BINDATA"/>

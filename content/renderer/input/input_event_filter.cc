@@ -9,6 +9,7 @@
 
 #include "base/auto_reset.h"
 #include "base/bind.h"
+#include "base/debug/crash_logging.h"
 #include "base/location.h"
 #include "base/memory/ptr_util.h"
 #include "base/single_thread_task_runner.h"
@@ -71,15 +72,6 @@ void InputEventFilter::SetInputHandlerManager(
   input_handler_manager_ = input_handler_manager;
 }
 
-void InputEventFilter::SetIsFlingingInMainThreadEventQueue(int routing_id,
-                                                           bool is_flinging) {
-  RouteQueueMap::iterator iter = route_queues_.find(routing_id);
-  if (iter == route_queues_.end() || !iter->second)
-    return;
-
-  iter->second->set_is_flinging(is_flinging);
-}
-
 void InputEventFilter::RegisterRoutingID(int routing_id) {
   base::AutoLock locked(routes_lock_);
   routes_.insert(routing_id);
@@ -99,18 +91,13 @@ void InputEventFilter::DidOverscroll(int routing_id,
       new InputHostMsg_DidOverscroll(routing_id, params)));
 }
 
-void InputEventFilter::DidStartFlinging(int routing_id) {
-  SetIsFlingingInMainThreadEventQueue(routing_id, true);
-}
-
 void InputEventFilter::DidStopFlinging(int routing_id) {
-  SetIsFlingingInMainThreadEventQueue(routing_id, false);
   SendMessage(base::MakeUnique<InputHostMsg_DidStopFlinging>(routing_id));
 }
 
 void InputEventFilter::DispatchNonBlockingEventToMainThread(
     int routing_id,
-    ui::ScopedWebInputEvent event,
+    blink::WebScopedInputEvent event,
     const ui::LatencyInfo& latency_info) {
   DCHECK(target_task_runner_->BelongsToCurrentThread());
   RouteQueueMap::iterator iter = route_queues_.find(routing_id);
@@ -121,9 +108,11 @@ void InputEventFilter::DispatchNonBlockingEventToMainThread(
   }
 }
 
-void InputEventFilter::NotifyInputEventHandled(int routing_id,
-                                               blink::WebInputEvent::Type type,
-                                               InputEventAckState ack_result) {
+void InputEventFilter::NotifyInputEventHandled(
+    int routing_id,
+    blink::WebInputEvent::Type type,
+    blink::WebInputEventResult result,
+    InputEventAckState ack_result) {
   DCHECK(main_task_runner_->BelongsToCurrentThread());
   scoped_refptr<MainThreadEventQueue> queue;
   {
@@ -134,7 +123,7 @@ void InputEventFilter::NotifyInputEventHandled(int routing_id,
     queue = iter->second;
   }
 
-  queue->EventHandled(type, ack_result);
+  queue->EventHandled(type, result, ack_result);
 }
 
 void InputEventFilter::ProcessRafAlignedInput(int routing_id) {
@@ -192,9 +181,10 @@ bool InputEventFilter::OnMessageReceived(const IPC::Message& message) {
       return false;
   }
 
-  target_task_runner_->PostTask(
+  bool postedTask = target_task_runner_->PostTask(
       FROM_HERE, base::Bind(&InputEventFilter::ForwardToHandler, this, message,
                             received_time));
+  LOG_IF(WARNING, !postedTask) << "PostTask failed";
   return true;
 }
 
@@ -212,7 +202,9 @@ void InputEventFilter::ForwardToHandler(const IPC::Message& message,
         "input",
         "InputEventFilter::ForwardToHandler::ForwardToMainListener",
         TRACE_EVENT_SCOPE_THREAD);
-    main_task_runner_->PostTask(FROM_HERE, base::Bind(main_listener_, message));
+    CHECK(main_task_runner_->PostTask(FROM_HERE,
+                                      base::Bind(main_listener_, message)))
+        << "PostTask failed";
     return;
   }
 
@@ -220,7 +212,7 @@ void InputEventFilter::ForwardToHandler(const IPC::Message& message,
   InputMsg_HandleInputEvent::Param params;
   if (!InputMsg_HandleInputEvent::Read(&message, &params))
     return;
-  ui::ScopedWebInputEvent event =
+  blink::WebScopedInputEvent event =
       ui::WebInputEventTraits::Clone(*std::get<0>(params));
   ui::LatencyInfo latency_info = std::get<1>(params);
   InputEventDispatchType dispatch_type = std::get<2>(params);
@@ -230,7 +222,7 @@ void InputEventFilter::ForwardToHandler(const IPC::Message& message,
          dispatch_type == DISPATCH_TYPE_NON_BLOCKING);
 
   if (!received_time.is_null())
-    event->timeStampSeconds = ui::EventTimeStampToSeconds(received_time);
+    event->setTimeStampSeconds(ui::EventTimeStampToSeconds(received_time));
 
   input_handler_manager_->HandleInputEvent(
       routing_id, std::move(event), latency_info,
@@ -242,15 +234,16 @@ void InputEventFilter::DidForwardToHandlerAndOverscroll(
     int routing_id,
     InputEventDispatchType dispatch_type,
     InputEventAckState ack_state,
-    ui::ScopedWebInputEvent event,
+    blink::WebScopedInputEvent event,
     const ui::LatencyInfo& latency_info,
     std::unique_ptr<DidOverscrollParams> overscroll_params) {
   bool send_ack = dispatch_type == DISPATCH_TYPE_BLOCKING;
   uint32_t unique_touch_event_id =
       ui::WebInputEventTraits::GetUniqueTouchEventId(*event);
-  WebInputEvent::Type type = event->type;
+  WebInputEvent::Type type = event->type();
 
   if (ack_state == INPUT_EVENT_ACK_STATE_SET_NON_BLOCKING ||
+      ack_state == INPUT_EVENT_ACK_STATE_SET_NON_BLOCKING_DUE_TO_FLING ||
       ack_state == INPUT_EVENT_ACK_STATE_NOT_CONSUMED) {
     DCHECK(!overscroll_params);
     RouteQueueMap::iterator iter = route_queues_.find(routing_id);
@@ -264,16 +257,18 @@ void InputEventFilter::DidForwardToHandlerAndOverscroll(
   if (!send_ack)
     return;
 
-  InputEventAck ack(type, ack_state, latency_info, std::move(overscroll_params),
+  InputEventAck ack(InputEventAckSource::COMPOSITOR_THREAD, type, ack_state,
+                    latency_info, std::move(overscroll_params),
                     unique_touch_event_id);
   SendMessage(std::unique_ptr<IPC::Message>(
       new InputHostMsg_HandleInputEvent_ACK(routing_id, ack)));
 }
 
 void InputEventFilter::SendMessage(std::unique_ptr<IPC::Message> message) {
-  io_task_runner_->PostTask(
+  CHECK(io_task_runner_->PostTask(
       FROM_HERE, base::Bind(&InputEventFilter::SendMessageOnIOThread, this,
-                            base::Passed(&message)));
+                            base::Passed(&message))))
+      << "PostTask failed";
 }
 
 void InputEventFilter::SendMessageOnIOThread(
@@ -283,7 +278,13 @@ void InputEventFilter::SendMessageOnIOThread(
   if (!sender_)
     return;  // Filter was removed.
 
-  sender_->Send(message.release());
+  bool success = sender_->Send(message.release());
+  if (success)
+    return;
+  static size_t s_send_failure_count_ = 0;
+  s_send_failure_count_++;
+  base::debug::SetCrashKeyValue("input-event-filter-send-failure",
+                                base::IntToString(s_send_failure_count_));
 }
 
 void InputEventFilter::HandleEventOnMainThread(
@@ -302,7 +303,9 @@ void InputEventFilter::SendInputEventAck(int routing_id,
                                          blink::WebInputEvent::Type type,
                                          InputEventAckState ack_result,
                                          uint32_t touch_event_id) {
-  InputEventAck ack(type, ack_result, touch_event_id);
+  DCHECK(main_task_runner_->BelongsToCurrentThread());
+  InputEventAck ack(InputEventAckSource::MAIN_THREAD, type, ack_result,
+                    touch_event_id);
   SendMessage(std::unique_ptr<IPC::Message>(
       new InputHostMsg_HandleInputEvent_ACK(routing_id, ack)));
 }
@@ -313,9 +316,10 @@ void InputEventFilter::NeedsMainFrame(int routing_id) {
     return;
   }
 
-  target_task_runner_->PostTask(
+  CHECK(target_task_runner_->PostTask(
       FROM_HERE,
-      base::Bind(&InputEventFilter::NeedsMainFrame, this, routing_id));
+      base::Bind(&InputEventFilter::NeedsMainFrame, this, routing_id)))
+      << "PostTask failed";
 }
 
 }  // namespace content

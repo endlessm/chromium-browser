@@ -5,7 +5,7 @@ Use of this source code is governed by a BSD-style license that can be
 found in the LICENSE file.
 -->
 
-<link rel="import" href="/tracing/value/diagnostics/related_value_map.html">
+<link rel="import" href="/tracing/value/diagnostics/diagnostic.html">
 
 <script>
 'use strict';
@@ -40,7 +40,7 @@ tr.exportTo('tr.v.d', function() {
       return this.values_.get(name) || 0;
     }
 
-    *[Symbol.iterator]() {
+    * [Symbol.iterator]() {
       for (var pair of this.values_)
         yield pair;
     }
@@ -90,7 +90,7 @@ tr.exportTo('tr.v.d', function() {
   });
 
   return {
-    Breakdown: Breakdown
+    Breakdown,
   };
 });
 </script>

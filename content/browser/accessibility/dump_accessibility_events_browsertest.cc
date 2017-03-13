@@ -91,8 +91,7 @@ std::vector<std::string> DumpAccessibilityEventsTest::Dump() {
   // a result of this function.
   std::unique_ptr<AccessibilityNotificationWaiter> waiter;
   waiter.reset(new AccessibilityNotificationWaiter(
-      shell()->web_contents(), AccessibilityModeComplete, ui::AX_EVENT_NONE));
-
+      shell()->web_contents(), ACCESSIBILITY_MODE_COMPLETE, ui::AX_EVENT_NONE));
 
   web_contents->GetMainFrame()->ExecuteJavaScriptForTests(
       base::ASCIIToUTF16("go()"));
@@ -105,11 +104,12 @@ std::vector<std::string> DumpAccessibilityEventsTest::Dump() {
   // To make sure we've received all accessibility events, add a
   // sentinel by calling AccessibilityHitTest and waiting for a HOVER
   // event in response.
-  waiter.reset(new AccessibilityNotificationWaiter(
-      shell()->web_contents(), AccessibilityModeComplete, ui::AX_EVENT_HOVER));
+  waiter.reset(new AccessibilityNotificationWaiter(shell()->web_contents(),
+                                                   ACCESSIBILITY_MODE_COMPLETE,
+                                                   ui::AX_EVENT_HOVER));
   BrowserAccessibilityManager* manager =
       web_contents->GetRootBrowserAccessibilityManager();
-  manager->delegate()->AccessibilityHitTest(gfx::Point(0, 0));
+  manager->HitTest(gfx::Point(0, 0));
   waiter->WaitForNotification();
 
   // Save a copy of the final accessibility tree (as a text dump); we'll
@@ -199,8 +199,8 @@ IN_PROC_BROWSER_TEST_F(DumpAccessibilityEventsTest,
 }
 
 IN_PROC_BROWSER_TEST_F(DumpAccessibilityEventsTest,
-                       AccessibilityEventsAddChild) {
-  RunEventTest(FILE_PATH_LITERAL("add-child.html"));
+                       AccessibilityEventsAddChildOfBody) {
+  RunEventTest(FILE_PATH_LITERAL("add-child-of-body.html"));
 }
 
 IN_PROC_BROWSER_TEST_F(DumpAccessibilityEventsTest,

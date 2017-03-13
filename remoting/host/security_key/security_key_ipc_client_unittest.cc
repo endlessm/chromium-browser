@@ -12,7 +12,8 @@
 #include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "ipc/ipc_channel.h"
-#include "remoting/host/security_key/fake_ipc_security_key_auth_handler.h"
+#include "mojo/edk/embedder/named_platform_handle_utils.h"
+#include "mojo/edk/embedder/scoped_ipc_support.h"
 #include "remoting/host/security_key/fake_security_key_ipc_server.h"
 #include "remoting/host/security_key/security_key_ipc_constants.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -35,6 +36,12 @@ class SecurityKeyIpcClientTest : public testing::Test {
   // completion of an IPC channel state change or reception of an IPC message.
   void OperationComplete(bool failed);
 
+  // Callback used to signal when the IPC channel is ready for messages.
+  void ConnectionStateHandler(bool established);
+
+  // Callback used to drive the |fake_ipc_server_| connection behavior.
+  void SendConnectionMessage();
+
   // Used as a callback given to the object under test, expected to be called
   // back when a security key request is received by it.
   void SendMessageToClient(int connection_id, const std::string& data);
@@ -51,9 +58,10 @@ class SecurityKeyIpcClientTest : public testing::Test {
   void WaitForOperationComplete();
 
   // Sets up an active IPC connection between |security_key_ipc_client_|
-  // and |fake_ipc_server_|.  |expect_success| defines whether the operation
-  // is expected to succeed or fail.
-  void EstablishConnection(bool expect_success);
+  // and |fake_ipc_server_|.  |expect_connected| defines whether the operation
+  // is result in a usable IPC connection.  |expect_error| defines whether the
+  // the error callback should be invoked during the connection process.
+  void EstablishConnection(bool expect_connected, bool expect_error);
 
   // Sends a security key request from |security_key_ipc_client_| and
   // a response from |fake_ipc_server_| and verifies the payloads for both.
@@ -66,16 +74,14 @@ class SecurityKeyIpcClientTest : public testing::Test {
   // IPC tests require a valid MessageLoop to run.
   base::MessageLoopForIO message_loop_;
 
+  mojo::edk::ScopedIPCSupport ipc_support_;
+
   // Used to allow |message_loop_| to run during tests.  The instance is reset
   // after each stage of the tests has been completed.
   std::unique_ptr<base::RunLoop> run_loop_;
 
   // The object under test.
   SecurityKeyIpcClient security_key_ipc_client_;
-
-  // Provides a connection details message to |security_key_ipc_client_|
-  // for testing.
-  FakeIpcSecurityKeyAuthHandler fake_security_key_auth_handler_;
 
   // Used to send/receive security key IPC messages for testing.
   FakeSecurityKeyIpcServer fake_ipc_server_;
@@ -85,6 +91,12 @@ class SecurityKeyIpcClientTest : public testing::Test {
 
   // Tracks the success/failure of the last async operation.
   bool operation_failed_ = false;
+
+  // Tracks whether the IPC channel connection has been established.
+  bool connection_established_ = false;
+
+  // Used to drive invalid session behavior for testing the client.
+  bool simulate_invalid_session_ = false;
 
   // Used to validate the object under test uses the correct ID when
   // communicating over the IPC channel.
@@ -98,12 +110,16 @@ class SecurityKeyIpcClientTest : public testing::Test {
 };
 
 SecurityKeyIpcClientTest::SecurityKeyIpcClientTest()
-    : run_loop_(new base::RunLoop()),
+    : ipc_support_(message_loop_.task_runner(),
+                   mojo::edk::ScopedIPCSupport::ShutdownPolicy::FAST),
+      run_loop_(new base::RunLoop()),
       fake_ipc_server_(
           kTestConnectionId,
-          /*peer_session_id=*/UINT32_MAX,
+          /*client_session_details=*/nullptr,
           /*initial_connect_timeout=*/base::TimeDelta::FromMilliseconds(500),
           base::Bind(&SecurityKeyIpcClientTest::SendMessageToClient,
+                     base::Unretained(this)),
+          base::Bind(&SecurityKeyIpcClientTest::SendConnectionMessage,
                      base::Unretained(this)),
           base::Bind(&SecurityKeyIpcClientTest::OperationComplete,
                      base::Unretained(this),
@@ -125,6 +141,19 @@ void SecurityKeyIpcClientTest::SetUp() {
 void SecurityKeyIpcClientTest::OperationComplete(bool failed) {
   operation_failed_ |= failed;
   run_loop_->Quit();
+}
+
+void SecurityKeyIpcClientTest::ConnectionStateHandler(bool established) {
+  connection_established_ = established;
+  OperationComplete(/*failed=*/false);
+}
+
+void SecurityKeyIpcClientTest::SendConnectionMessage() {
+  if (simulate_invalid_session_) {
+    fake_ipc_server_.SendInvalidSessionMessage();
+  } else {
+    fake_ipc_server_.SendConnectionReadyMessage();
+  }
 }
 
 void SecurityKeyIpcClientTest::WaitForOperationComplete() {
@@ -150,39 +179,29 @@ std::string SecurityKeyIpcClientTest::GenerateUniqueTestChannelName() {
          IPC::Channel::GenerateUniqueRandomChannelID();
 }
 
-void SecurityKeyIpcClientTest::EstablishConnection(bool expect_success) {
+void SecurityKeyIpcClientTest::EstablishConnection(bool expect_connected,
+                                                   bool expect_error) {
   // Start up the security key forwarding session IPC channel first, that way
   // we can provide the channel using the fake SecurityKeyAuthHandler later on.
-  std::string ipc_session_channel_name = GenerateUniqueTestChannelName();
+  mojo::edk::NamedPlatformHandle channel_handle(
+      GenerateUniqueTestChannelName());
+  security_key_ipc_client_.SetIpcChannelHandleForTest(channel_handle);
   ASSERT_TRUE(fake_ipc_server_.CreateChannel(
-      ipc_session_channel_name,
+      channel_handle,
       /*request_timeout=*/base::TimeDelta::FromMilliseconds(500)));
-  ASSERT_TRUE(IPC::Channel::IsNamedServerInitialized(ipc_session_channel_name));
-  fake_security_key_auth_handler_.set_ipc_security_key_channel_name(
-      ipc_session_channel_name);
 
-  // Set up the channel name for the initial IPC channel.
-  std::string ipc_server_channel_name = GenerateUniqueTestChannelName();
-  fake_security_key_auth_handler_.set_ipc_server_channel_name(
-      ipc_server_channel_name);
-  security_key_ipc_client_.SetInitialIpcChannelNameForTest(
-      ipc_server_channel_name);
-
-  // Create the initial IPC channel and verify it was set up correctly.
-  ASSERT_FALSE(security_key_ipc_client_.WaitForSecurityKeyIpcServerChannel());
-  fake_security_key_auth_handler_.CreateSecurityKeyConnection();
-  ASSERT_TRUE(IPC::Channel::IsNamedServerInitialized(ipc_server_channel_name));
-  ASSERT_TRUE(security_key_ipc_client_.WaitForSecurityKeyIpcServerChannel());
+  ASSERT_TRUE(security_key_ipc_client_.CheckForSecurityKeyIpcServerChannel());
 
   // Establish the IPC channel so we can begin sending and receiving security
   // key messages.
   security_key_ipc_client_.EstablishIpcConnection(
-      base::Bind(&SecurityKeyIpcClientTest::OperationComplete,
-                 base::Unretained(this), /*failed=*/false),
+      base::Bind(&SecurityKeyIpcClientTest::ConnectionStateHandler,
+                 base::Unretained(this)),
       base::Bind(&SecurityKeyIpcClientTest::OperationComplete,
                  base::Unretained(this), /*failed=*/true));
   WaitForOperationComplete();
-  ASSERT_NE(operation_failed_, expect_success);
+  ASSERT_EQ(expect_connected, connection_established_);
+  ASSERT_EQ(expect_error, operation_failed_);
 }
 
 void SecurityKeyIpcClientTest::SendRequestAndResponse(
@@ -193,17 +212,17 @@ void SecurityKeyIpcClientTest::SendRequestAndResponse(
                                base::Unretained(this))));
   WaitForOperationComplete();
   ASSERT_FALSE(operation_failed_);
-  ASSERT_EQ(last_connection_id_received_, kTestConnectionId);
-  ASSERT_EQ(last_message_received_, request_data);
+  ASSERT_EQ(kTestConnectionId, last_connection_id_received_);
+  ASSERT_EQ(request_data, last_message_received_);
 
   ASSERT_TRUE(fake_ipc_server_.SendResponse(response_data));
   WaitForOperationComplete();
   ASSERT_FALSE(operation_failed_);
-  ASSERT_EQ(last_message_received_, response_data);
+  ASSERT_EQ(response_data, last_message_received_);
 }
 
 TEST_F(SecurityKeyIpcClientTest, GenerateSingleSecurityKeyRequest) {
-  EstablishConnection(/*expect_success=*/true);
+  EstablishConnection(/*expect_connected=*/true, /*expect_error=*/false);
 
   SendRequestAndResponse("Auth me!", "You've been authed!");
 
@@ -211,7 +230,7 @@ TEST_F(SecurityKeyIpcClientTest, GenerateSingleSecurityKeyRequest) {
 }
 
 TEST_F(SecurityKeyIpcClientTest, GenerateLargeSecurityKeyRequest) {
-  EstablishConnection(/*expect_success=*/true);
+  EstablishConnection(/*expect_connected=*/true, /*expect_error=*/false);
 
   SendRequestAndResponse(std::string(kLargeMessageSizeBytes, 'Y'),
                          std::string(kLargeMessageSizeBytes, 'Z'));
@@ -220,7 +239,7 @@ TEST_F(SecurityKeyIpcClientTest, GenerateLargeSecurityKeyRequest) {
 }
 
 TEST_F(SecurityKeyIpcClientTest, GenerateReallyLargeSecurityKeyRequest) {
-  EstablishConnection(/*expect_success=*/true);
+  EstablishConnection(/*expect_connected=*/true, /*expect_error=*/false);
 
   SendRequestAndResponse(std::string(kLargeMessageSizeBytes * 2, 'Y'),
                          std::string(kLargeMessageSizeBytes * 2, 'Z'));
@@ -229,7 +248,7 @@ TEST_F(SecurityKeyIpcClientTest, GenerateReallyLargeSecurityKeyRequest) {
 }
 
 TEST_F(SecurityKeyIpcClientTest, GenerateMultipleSecurityKeyRequest) {
-  EstablishConnection(/*expect_success=*/true);
+  EstablishConnection(/*expect_connected=*/true, /*expect_error=*/false);
 
   SendRequestAndResponse("Auth me 1!", "You've been authed once!");
   SendRequestAndResponse("Auth me 2!", "You've been authed twice!");
@@ -239,7 +258,7 @@ TEST_F(SecurityKeyIpcClientTest, GenerateMultipleSecurityKeyRequest) {
 }
 
 TEST_F(SecurityKeyIpcClientTest, ServerClosesConnectionAfterRequestTimeout) {
-  EstablishConnection(/*expect_success=*/true);
+  EstablishConnection(/*expect_connected=*/true, /*expect_error=*/false);
   fake_ipc_server_.CloseChannel();
   WaitForOperationComplete();
   ASSERT_FALSE(operation_failed_);
@@ -247,7 +266,7 @@ TEST_F(SecurityKeyIpcClientTest, ServerClosesConnectionAfterRequestTimeout) {
 
 TEST_F(SecurityKeyIpcClientTest,
        SecondSecurityKeyRequestBeforeFirstResponseReceived) {
-  EstablishConnection(/*expect_success=*/true);
+  EstablishConnection(/*expect_connected=*/true, /*expect_error=*/false);
 
   ASSERT_TRUE(security_key_ipc_client_.SendSecurityKeyRequest(
       "First Request",
@@ -263,7 +282,7 @@ TEST_F(SecurityKeyIpcClientTest,
 }
 
 TEST_F(SecurityKeyIpcClientTest, ReceiveSecurityKeyResponseWithEmptyPayload) {
-  EstablishConnection(/*expect_success=*/true);
+  EstablishConnection(/*expect_connected=*/true, /*expect_error=*/false);
 
   ASSERT_TRUE(security_key_ipc_client_.SendSecurityKeyRequest(
       "Valid request",
@@ -285,47 +304,49 @@ TEST_F(SecurityKeyIpcClientTest, SendRequestBeforeEstablishingConnection) {
                                base::Unretained(this))));
 }
 
-TEST_F(SecurityKeyIpcClientTest, NonExistentMainIpcServerChannel) {
-  std::string ipc_server_channel_name(kNonexistentIpcChannelName);
-  security_key_ipc_client_.SetInitialIpcChannelNameForTest(
-      ipc_server_channel_name);
+TEST_F(SecurityKeyIpcClientTest, NonExistentIpcServerChannel) {
+  security_key_ipc_client_.SetIpcChannelHandleForTest(
+      mojo::edk::NamedPlatformHandle(kNonexistentIpcChannelName));
 
   // Attempt to establish the conection (should fail since the IPC channel does
   // not exist).
   security_key_ipc_client_.EstablishIpcConnection(
-      base::Bind(&SecurityKeyIpcClientTest::OperationComplete,
-                 base::Unretained(this), /*failed=*/false),
+      base::Bind(&SecurityKeyIpcClientTest::ConnectionStateHandler,
+                 base::Unretained(this)),
       base::Bind(&SecurityKeyIpcClientTest::OperationComplete,
                  base::Unretained(this), /*failed=*/true));
   WaitForOperationComplete();
   ASSERT_TRUE(operation_failed_);
 }
 
-TEST_F(SecurityKeyIpcClientTest, NonExistentIpcSessionChannel) {
-  fake_security_key_auth_handler_.set_ipc_security_key_channel_name(
-      kNonexistentIpcChannelName);
+TEST_F(SecurityKeyIpcClientTest, MultipleConnectionReadyMessagesReceived) {
+  EstablishConnection(/*expect_connected=*/true, /*expect_error=*/false);
+  ASSERT_FALSE(operation_failed_);
 
-  // Set up the channel name for the initial IPC channel.
-  std::string ipc_server_channel_name = GenerateUniqueTestChannelName();
-  fake_security_key_auth_handler_.set_ipc_server_channel_name(
-      ipc_server_channel_name);
-  security_key_ipc_client_.SetInitialIpcChannelNameForTest(
-      ipc_server_channel_name);
-
-  // Create the initial IPC channel and verify it was set up correctly.
-  ASSERT_FALSE(security_key_ipc_client_.WaitForSecurityKeyIpcServerChannel());
-  fake_security_key_auth_handler_.CreateSecurityKeyConnection();
-  ASSERT_TRUE(IPC::Channel::IsNamedServerInitialized(ipc_server_channel_name));
-  ASSERT_TRUE(security_key_ipc_client_.WaitForSecurityKeyIpcServerChannel());
-
-  // Attempt to establish the conection (should fail since the IPC channel does
-  // not exist).
-  security_key_ipc_client_.EstablishIpcConnection(
-      base::Bind(&SecurityKeyIpcClientTest::OperationComplete,
-                 base::Unretained(this), /*failed=*/false),
-      base::Bind(&SecurityKeyIpcClientTest::OperationComplete,
-                 base::Unretained(this), /*failed=*/true));
+  // Send a second ConnectionReady message to trigger the error callback.
+  SendConnectionMessage();
   WaitForOperationComplete();
+  ASSERT_TRUE(operation_failed_);
+
+  // Send a third message to ensure no crash occurs both callbacks will have
+  // been called and cleared so we don't wait for the operation to complete.
+  SendConnectionMessage();
+  ASSERT_TRUE(operation_failed_);
+}
+
+TEST_F(SecurityKeyIpcClientTest, UnexpectedInvalidSessionMessagesReceived) {
+  EstablishConnection(/*expect_connected=*/true, /*expect_error=*/false);
+  ASSERT_FALSE(operation_failed_);
+
+  // Send an InvalidSession message to trigger the error callback.
+  simulate_invalid_session_ = true;
+  SendConnectionMessage();
+  WaitForOperationComplete();
+  ASSERT_TRUE(operation_failed_);
+
+  // Send a third message to ensure no crash occurs both callbacks will have
+  // been called and cleared so we don't wait for the operation to complete.
+  SendConnectionMessage();
   ASSERT_TRUE(operation_failed_);
 }
 
@@ -336,8 +357,52 @@ TEST_F(SecurityKeyIpcClientTest, SecurityKeyIpcServerRunningInWrongSession) {
                                                                 1);
 
   // Attempting to establish a connection should fail here since the IPC Server
+  // is 'running' in a different session than expected.  The success callback
+  // will be called by the IPC server since it thinks the connection is valid,
+  // but we will have already started tearing down the connection since it
+  // failed at the client end.
+  EstablishConnection(/*expect_connected=*/true, /*expect_error=*/true);
+}
+
+TEST_F(SecurityKeyIpcClientTest, SecurityKeyIpcClientRunningInWrongSession) {
+  // Attempting to establish a connection should fail here since the IPC Client
+  // is 'running' in the non-remoted session.
+  simulate_invalid_session_ = true;
+  EstablishConnection(/*expect_connected=*/false, /*expect_error=*/false);
+}
+
+TEST_F(SecurityKeyIpcClientTest, MultipleInvalidSessionMessagesReceived) {
+  // Attempting to establish a connection should fail here since the IPC Server
   // is 'running' in a different session than expected.
-  EstablishConnection(/*expect_success=*/false);
+  simulate_invalid_session_ = true;
+  EstablishConnection(/*expect_connected=*/false, /*expect_error=*/false);
+
+  SendConnectionMessage();
+  WaitForOperationComplete();
+  ASSERT_TRUE(operation_failed_);
+
+  // Send a third message to ensure no crash occurs both callbacks will have
+  // been called and cleared so we don't wait for the operation to complete.
+  SendConnectionMessage();
+  ASSERT_TRUE(operation_failed_);
+}
+
+TEST_F(SecurityKeyIpcClientTest, UnexpectedConnectionReadyMessagesReceived) {
+  // Attempting to establish a connection should fail here since the IPC Server
+  // is 'running' in a different session than expected.
+  simulate_invalid_session_ = true;
+  EstablishConnection(/*expect_connected=*/false, /*expect_error=*/false);
+
+  // Send an InvalidSession message to trigger the error callback.
+  simulate_invalid_session_ = false;
+  SendConnectionMessage();
+  WaitForOperationComplete();
+  ASSERT_TRUE(operation_failed_);
+
+  // Send a third message to ensure no crash occurs both callbacks will have
+  // been called and cleared so we don't wait for the operation to complete.
+  SendConnectionMessage();
+  ASSERT_TRUE(operation_failed_);
 }
 #endif  // defined(OS_WIN)
 

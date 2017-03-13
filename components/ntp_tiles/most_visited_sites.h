@@ -32,7 +32,11 @@ namespace user_prefs {
 class PrefRegistrySyncable;
 }
 
+class PrefService;
+
 namespace ntp_tiles {
+
+class IconCacher;
 
 // Shim interface for SupervisedUserService.
 class MostVisitedSitesSupervisor {
@@ -51,6 +55,8 @@ class MostVisitedSitesSupervisor {
     ~Observer() {}
   };
 
+  virtual ~MostVisitedSitesSupervisor() {}
+
   // Pass non-null to set observer, or null to remove observer.
   // If setting observer, there must not yet be an observer set.
   // If removing observer, there must already be one to remove.
@@ -65,47 +71,17 @@ class MostVisitedSitesSupervisor {
 
   // If true, be conservative about suggesting sites from outside sources.
   virtual bool IsChildProfile() = 0;
-
- protected:
-  virtual ~MostVisitedSitesSupervisor() {}
 };
 
 // Tracks the list of most visited sites and their thumbnails.
-//
-// Do not use, except from MostVisitedSitesBridge. The interface is in flux
-// while we are extracting the functionality of the Java class to make available
-// in C++.
-//
-// TODO(sfiera): finalize interface.
 class MostVisitedSites : public history::TopSitesObserver,
                          public MostVisitedSitesSupervisor::Observer {
  public:
-  using PopularSitesVector = std::vector<PopularSites::Site>;
-
-  // The visual type of a most visited tile.
-  //
-  // These values must stay in sync with the MostVisitedTileType enum
-  // in histograms.xml.
-  //
-  // A Java counterpart will be generated for this enum.
-  // GENERATED_JAVA_ENUM_PACKAGE: org.chromium.chrome.browser.ntp
-  enum MostVisitedTileType {
-    // The icon or thumbnail hasn't loaded yet.
-    NONE,
-    // The item displays a site's actual favicon or touch icon.
-    ICON_REAL,
-    // The item displays a color derived from the site's favicon or touch icon.
-    ICON_COLOR,
-    // The item displays a default gray box in place of an icon.
-    ICON_DEFAULT,
-    NUM_TILE_TYPES,
-  };
-
   // The observer to be notified when the list of most visited sites changes.
   class Observer {
    public:
     virtual void OnMostVisitedURLsAvailable(const NTPTilesVector& tiles) = 0;
-    virtual void OnPopularURLsAvailable(const PopularSitesVector& sites) {}
+    virtual void OnIconMadeAvailable(const GURL& site_url) = 0;
 
    protected:
     virtual ~Observer() {}
@@ -120,29 +96,35 @@ class MostVisitedSites : public history::TopSitesObserver,
                    scoped_refptr<history::TopSites> top_sites,
                    suggestions::SuggestionsService* suggestions,
                    std::unique_ptr<PopularSites> popular_sites,
-                   MostVisitedSitesSupervisor* supervisor);
+                   std::unique_ptr<IconCacher> icon_cacher,
+                   std::unique_ptr<MostVisitedSitesSupervisor> supervisor);
 
   ~MostVisitedSites() override;
 
+  // Sets the observer, and immediately fetches the current suggestions.
   // Does not take ownership of |observer|, which must outlive this object and
   // must not be null.
   void SetMostVisitedURLsObserver(Observer* observer, int num_sites);
 
+  // Requests an asynchronous refresh of the suggestions. Notifies the observer
+  // once the request completes.
+  void Refresh();
+
   void AddOrRemoveBlacklistedUrl(const GURL& url, bool add_url);
-  void RecordTileTypeMetrics(const std::vector<MostVisitedTileType>& tile_types,
-                             const std::vector<NTPTileSource>& sources);
-  void RecordOpenedMostVisitedItem(int index,
-                                   MostVisitedTileType tile_type,
-                                   NTPTileSource source);
+  void ClearBlacklistedUrls();
 
   // MostVisitedSitesSupervisor::Observer implementation.
   void OnBlockedSitesChanged() override;
 
   static void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry);
 
- private:
-  friend class MostVisitedSitesTest;
+  // Workhorse for SaveNewTiles. Implemented as a separate static and public
+  // method for ease of testing.
+  static NTPTilesVector MergeTiles(NTPTilesVector personal_tiles,
+                                   NTPTilesVector whitelist_tiles,
+                                   NTPTilesVector popular_tiles);
 
+ private:
   void BuildCurrentTiles();
 
   // Initialize the query to Top Sites. Called if the SuggestionsService
@@ -174,20 +156,13 @@ class MostVisitedSites : public history::TopSitesObserver,
   // if appropriate, and saves the new tiles.
   void SaveNewTiles(NTPTilesVector personal_tiles);
 
-  // Workhorse for SaveNewTiles above. Implemented as a separate static method
-  // for ease of testing.
-  static NTPTilesVector MergeTiles(NTPTilesVector personal_tiles,
-                                   NTPTilesVector whitelist_tiles,
-                                   NTPTilesVector popular_tiles);
-
   // Notifies the observer about the availability of tiles.
   // Also records impressions UMA if not done already.
   void NotifyMostVisitedURLsObserver();
 
-  void OnPopularSitesAvailable(bool success);
+  void OnPopularSitesDownloaded(bool success);
 
-  // Records UMA histogram metrics related to the number of impressions.
-  void RecordImpressionUMAMetrics();
+  void OnIconMadeAvailable(const GURL& site_url, bool newly_available);
 
   // history::TopSitesObserver implementation.
   void TopSitesLoaded(history::TopSites* top_sites) override;
@@ -198,24 +173,13 @@ class MostVisitedSites : public history::TopSitesObserver,
   scoped_refptr<history::TopSites> top_sites_;
   suggestions::SuggestionsService* suggestions_service_;
   std::unique_ptr<PopularSites> const popular_sites_;
-  MostVisitedSitesSupervisor* supervisor_;
+  std::unique_ptr<IconCacher> const icon_cacher_;
+  std::unique_ptr<MostVisitedSitesSupervisor> supervisor_;
 
   Observer* observer_;
 
   // The maximum number of most visited sites to return.
   int num_sites_;
-
-  // True if we are still waiting for an initial set of most visited sites (from
-  // either TopSites or the SuggestionsService).
-  bool waiting_for_most_visited_sites_;
-
-  // True if we are still waiting for the set of popular sites. Immediately set
-  // to false if popular sites are disabled, or are not required.
-  bool waiting_for_popular_sites_;
-
-  // True if we have recorded one-shot UMA metrics such as impressions. They are
-  // recorded once both the previous flags are true.
-  bool recorded_uma_;
 
   std::unique_ptr<
       suggestions::SuggestionsService::ResponseCallbackList::Subscription>
@@ -229,8 +193,9 @@ class MostVisitedSites : public history::TopSitesObserver,
 
   NTPTilesVector current_tiles_;
 
-  // For callbacks may be run after destruction.
-  base::WeakPtrFactory<MostVisitedSites> weak_ptr_factory_;
+  // For callbacks may be run after destruction, used exclusively for TopSites
+  // (since it's used to detect whether there's a query in flight).
+  base::WeakPtrFactory<MostVisitedSites> top_sites_weak_ptr_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(MostVisitedSites);
 };

@@ -32,7 +32,6 @@
 #include "chrome/browser/history/web_history_service_factory.h"
 #include "chrome/browser/prefs/browser_prefs.h"
 #include "chrome/browser/profiles/profile_manager.h"
-#include "chrome/common/chrome_constants.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/safe_browsing/csd.pb.h"
 #include "chrome/test/base/testing_browser_process.h"
@@ -46,7 +45,8 @@
 #include "components/history/core/browser/history_constants.h"
 #include "components/history/core/browser/history_database_params.h"
 #include "components/history/core/browser/history_service.h"
-#include "components/syncable_prefs/testing_pref_service_syncable.h"
+#include "components/safe_browsing_db/safe_browsing_prefs.h"
+#include "components/sync_preferences/testing_pref_service_syncable.h"
 #include "content/public/test/test_browser_thread_bundle.h"
 #include "content/public/test/test_utils.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -193,13 +193,13 @@ class LastDownloadFinderTest : public testing::Test {
             NULL)));
 
     // Create prefs for the profile with safe browsing enabled or not.
-    std::unique_ptr<syncable_prefs::TestingPrefServiceSyncable> prefs(
-        new syncable_prefs::TestingPrefServiceSyncable);
+    std::unique_ptr<sync_preferences::TestingPrefServiceSyncable> prefs(
+        new sync_preferences::TestingPrefServiceSyncable);
     chrome::RegisterUserProfilePrefs(prefs->registry());
     prefs->SetBoolean(prefs::kSafeBrowsingEnabled,
                       safe_browsing_opt_in != SAFE_BROWSING_OPT_OUT);
-    prefs->SetBoolean(prefs::kSafeBrowsingExtendedReportingEnabled,
-                      safe_browsing_opt_in == EXTENDED_REPORTING_OPT_IN);
+    SetExtendedReportingPref(prefs.get(),
+                             safe_browsing_opt_in == EXTENDED_REPORTING_OPT_IN);
 
     TestingProfile* profile = profile_manager_->CreateTestingProfile(
         profile_name, std::move(prefs),

@@ -13,6 +13,8 @@ Polymer({
   behaviors: [CrScrollableBehavior, WebUIListenerBehavior],
 
   properties: {
+    prefs: Object,
+
     /** @type {settings.StartupUrlsPageBrowserProxy} */
     browserProxy_: Object,
 
@@ -33,6 +35,10 @@ Polymer({
   attached: function() {
     this.browserProxy_ = settings.StartupUrlsPageBrowserProxyImpl.getInstance();
     this.addWebUIListener('update-startup-pages', function(startupPages) {
+      // If an "edit" URL dialog was open, close it, because the underlying page
+      // might have just been removed (and model indices have changed anyway).
+      if (this.startupUrlDialogModel_)
+        this.destroyUrlDialog_();
       this.startupPages_ = startupPages;
       this.updateScrollableContents();
     }.bind(this));
@@ -40,31 +46,24 @@ Polymer({
 
     this.addEventListener(settings.EDIT_STARTUP_URL_EVENT, function(event) {
       this.startupUrlDialogModel_ = event.detail;
-      this.openDialog_();
+      this.showStartupUrlDialog_ = true;
       event.stopPropagation();
     }.bind(this));
   },
 
-  /** @private */
-  onAddPageTap_: function() {
-    this.openDialog_();
-  },
-
   /**
-   * Opens the dialog and registers a listener for removing the dialog from the
-   * DOM once is closed. The listener is destroyed when the dialog is removed
-   * (because of 'restamp').
+   * @param {!Event} e
    * @private
    */
-  openDialog_: function() {
+  onAddPageTap_: function(e) {
+    e.preventDefault();
     this.showStartupUrlDialog_ = true;
-    this.async(function() {
-      var dialog = this.$$('settings-startup-url-dialog');
-      dialog.addEventListener('close', function() {
-        this.showStartupUrlDialog_ = false;
-        this.startupUrlDialogModel_ = null;
-      }.bind(this));
-    }.bind(this));
+  },
+
+  /** @private */
+  destroyUrlDialog_: function() {
+    this.showStartupUrlDialog_ = false;
+    this.startupUrlDialogModel_ = null;
   },
 
   /** @private */

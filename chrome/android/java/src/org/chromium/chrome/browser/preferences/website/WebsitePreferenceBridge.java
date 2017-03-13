@@ -7,7 +7,6 @@ package org.chromium.chrome.browser.preferences.website;
 import org.chromium.base.Callback;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.chrome.browser.preferences.PrefServiceBridge;
-import org.chromium.content_public.browser.WebContents;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -25,30 +24,6 @@ public abstract class WebsitePreferenceBridge {
     public interface StorageInfoClearedCallback {
         @CalledByNative("StorageInfoClearedCallback")
         public void onStorageInfoCleared();
-    }
-
-    /**
-     * @return the list of all origins that have keygen permissions in non-incognito mode.
-     */
-    @SuppressWarnings("unchecked")
-    public static List<KeygenInfo> getKeygenInfo() {
-        ArrayList<KeygenInfo> list = new ArrayList<KeygenInfo>();
-        nativeGetKeygenOrigins(list);
-        return list;
-    }
-
-    @CalledByNative
-    private static void insertKeygenInfoIntoList(
-            ArrayList<KeygenInfo> list, String origin, String embedder) {
-        list.add(new KeygenInfo(origin, embedder, false));
-    }
-
-    /**
-     * @return whether we've blocked key generation in the current tab.
-     */
-    @SuppressWarnings("unchecked")
-    public static boolean getKeygenBlocked(WebContents webContents) {
-        return nativeGetKeygenBlocked(webContents);
     }
 
     /**
@@ -221,16 +196,6 @@ public abstract class WebsitePreferenceBridge {
     }
 
     /**
-     * @return the list of all sites that have fullscreen permissions in non-incognito mode.
-     */
-    public static List<FullscreenInfo> getFullscreenInfo() {
-        boolean managedOnly = PrefServiceBridge.getInstance().isFullscreenManaged();
-        ArrayList<FullscreenInfo> list = new ArrayList<FullscreenInfo>();
-        nativeGetFullscreenOrigins(list, managedOnly);
-        return list;
-    }
-
-    /**
      * Returns the list of all USB device permissions.
      *
      * There will be one UsbInfo instance for each granted permission. That
@@ -244,15 +209,6 @@ public abstract class WebsitePreferenceBridge {
     }
 
     /**
-     * Inserts fullscreen information into a list.
-     */
-    @CalledByNative
-    private static void insertFullscreenInfoIntoList(
-            ArrayList<FullscreenInfo> list, String origin, String embedder) {
-        list.add(new FullscreenInfo(origin, embedder, false));
-    }
-
-    /**
      * Inserts USB device information into a list.
      */
     @CalledByNative
@@ -261,17 +217,34 @@ public abstract class WebsitePreferenceBridge {
         list.add(new UsbInfo(origin, embedder, name, object));
     }
 
+    /**
+     * Returns whether the DSE (Default Search Engine) geolocation setting should be used to
+     * determine geolocation access for the given origin.
+     */
+    public static boolean shouldUseDSEGeolocationSetting(
+            String origin, boolean isIncognito) {
+        return nativeShouldUseDSEGeolocationSetting(origin, isIncognito);
+    }
+
+    /**
+     * Returns the DSE (Default Search Engine) geolocation setting.
+     */
+    public static boolean getDSEGeolocationSetting() {
+        return nativeGetDSEGeolocationSetting();
+    }
+
+    /**
+     * Sets the DSE (Default Search Engine) geolocation setting.
+     */
+    public static void setDSEGeolocationSetting(boolean setting) {
+        nativeSetDSEGeolocationSetting(setting);
+    }
+
     private static native void nativeGetGeolocationOrigins(Object list, boolean managedOnly);
     static native int nativeGetGeolocationSettingForOrigin(
             String origin, String embedder, boolean isIncognito);
     public static native void nativeSetGeolocationSettingForOrigin(
             String origin, String embedder, int value, boolean isIncognito);
-    private static native void nativeGetKeygenOrigins(Object list);
-    static native int nativeGetKeygenSettingForOrigin(
-            String origin, String embedder, boolean isIncognito);
-    static native void nativeSetKeygenSettingForOrigin(
-            String origin, int value, boolean isIncognito);
-    private static native boolean nativeGetKeygenBlocked(Object webContents);
     private static native void nativeGetMidiOrigins(Object list);
     static native int nativeGetMidiSettingForOrigin(
             String origin, String embedder, boolean isIncognito);
@@ -304,11 +277,11 @@ public abstract class WebsitePreferenceBridge {
     private static native void nativeFetchStorageInfo(Object callback);
     static native boolean nativeIsContentSettingsPatternValid(String pattern);
     static native boolean nativeUrlMatchesContentSettingsPattern(String url, String pattern);
-    private static native void nativeGetFullscreenOrigins(Object list, boolean managedOnly);
-    static native int nativeGetFullscreenSettingForOrigin(
-            String origin, String embedder, boolean isIncognito);
-    static native void nativeSetFullscreenSettingForOrigin(
-            String origin, String embedder, int value, boolean isIncognito);
     static native void nativeGetUsbOrigins(Object list);
     static native void nativeRevokeUsbPermission(String origin, String embedder, String object);
+    static native void nativeClearBannerData(String origin);
+    private static native boolean nativeShouldUseDSEGeolocationSetting(
+            String origin, boolean isIncognito);
+    private static native boolean nativeGetDSEGeolocationSetting();
+    private static native void nativeSetDSEGeolocationSetting(boolean setting);
 }

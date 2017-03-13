@@ -6,7 +6,7 @@ package org.chromium.content_public.browser;
 
 import android.content.Context;
 
-import org.chromium.services.shell.InterfaceRegistry;
+import org.chromium.services.service_manager.InterfaceRegistry;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -23,8 +23,8 @@ public interface InterfaceRegistrar<ParamType> {
 
     /** A registry of InterfaceRegistrars. */
     public static class Registry<ParamType> {
-        private static Registry<Context> sContextRegistry = null;
-        private static Registry<WebContents> sWebContentsRegistry = null;
+        private static Registry<Context> sContextRegistry;
+        private static Registry<WebContents> sWebContentsRegistry;
 
         private List<InterfaceRegistrar<ParamType>> mRegistrars =
                 new ArrayList<InterfaceRegistrar<ParamType>>();

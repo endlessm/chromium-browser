@@ -5,7 +5,7 @@
 #include "chrome/browser/chromeos/input_method/input_method_persistence.h"
 
 #include "base/command_line.h"
-#include "chrome/browser/chromeos/input_method/mock_input_method_manager.h"
+#include "chrome/browser/chromeos/input_method/mock_input_method_manager_impl.h"
 #include "chrome/browser/chromeos/language_preferences.h"
 #include "chrome/browser/chromeos/login/users/fake_chrome_user_manager.h"
 #include "chrome/browser/chromeos/login/users/scoped_user_manager_enabler.h"
@@ -19,7 +19,7 @@
 #include "chrome/test/base/testing_profile_manager.h"
 #include "chromeos/chromeos_switches.h"
 #include "components/prefs/pref_service.h"
-#include "components/syncable_prefs/testing_pref_service_syncable.h"
+#include "components/sync_preferences/testing_pref_service_syncable.h"
 #include "content/public/test/test_browser_thread_bundle.h"
 
 #include "testing/gtest/include/gtest/gtest.h"
@@ -71,8 +71,8 @@ class InputMethodPersistenceTest : public testing::Test {
   }
 
   content::TestBrowserThreadBundle thread_bundle_;
-  syncable_prefs::TestingPrefServiceSyncable* mock_user_prefs_;
-  MockInputMethodManager mock_manager_;
+  sync_preferences::TestingPrefServiceSyncable* mock_user_prefs_;
+  MockInputMethodManagerImpl mock_manager_;
   TestingProfileManager mock_profile_manager_;
   chromeos::FakeChromeUserManager* fake_user_manager_;
   chromeos::ScopedUserManagerEnabler user_manager_enabler_;
@@ -81,9 +81,9 @@ class InputMethodPersistenceTest : public testing::Test {
 TEST_F(InputMethodPersistenceTest, TestLifetime) {
   {
     InputMethodPersistence persistence(&mock_manager_);
-    EXPECT_EQ(1, mock_manager_.add_observer_count_);
+    EXPECT_EQ(1, mock_manager_.add_observer_count());
   }
-  EXPECT_EQ(1, mock_manager_.remove_observer_count_);
+  EXPECT_EQ(1, mock_manager_.remove_observer_count());
 }
 
 TEST_F(InputMethodPersistenceTest, TestPrefPersistenceByState) {

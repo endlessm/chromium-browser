@@ -47,9 +47,9 @@
 
 #include "core/CoreExport.h"
 #include "core/layout/ClipRectsCache.h"
-#include "core/layout/ScrollEnums.h"
 
 #include "platform/graphics/paint/GeometryMapper.h"
+#include "platform/scroll/ScrollTypes.h"
 
 #include "wtf/Allocator.h"
 
@@ -182,7 +182,7 @@ class CORE_EXPORT PaintLayerClipper {
   LayoutRect localClipRect(const PaintLayer* ancestorLayer) const;
 
   // Computes the same thing as backgroundRect in calculateRects(), but skips
-  // apllying CSS clip and the visualOverflowRect() of |m_layer|.
+  // applying CSS clip and the visualOverflowRect() of |m_layer|.
   ClipRect backgroundClipRect(const ClipRectsContext&) const;
 
   // This method figures out our layerBounds in coordinates relative to
@@ -200,6 +200,7 @@ class CORE_EXPORT PaintLayerClipper {
                                const LayoutSize& subpixelAccumulation) const;
 
  private:
+  void clearCache(ClipRectsCacheSlot);
   ClipRects& getClipRects(const ClipRectsContext&) const;
 
   void calculateClipRects(const ClipRectsContext&, ClipRects&) const;
@@ -210,12 +211,17 @@ class CORE_EXPORT PaintLayerClipper {
 
   void getOrCalculateClipRects(const ClipRectsContext&, ClipRects&) const;
 
+  bool shouldClipOverflow(const ClipRectsContext&) const;
   bool shouldRespectOverflowClip(const ClipRectsContext&) const;
 
+  // Returned clip rect is in the space of the context's rootLayer.
   ClipRect clipRectWithGeometryMapper(const ClipRectsContext&,
                                       bool isForeground) const;
+  // Mutates the given rect into a rect in the space of the context's
+  // rootLayer.
   void mapLocalToRootWithGeometryMapper(const ClipRectsContext&,
-                                        LayoutRect& localRect) const;
+                                        LayoutRect&) const;
+  // Same as calculateRects, but using GeometryMapper.
   void calculateRectsWithGeometryMapper(
       const ClipRectsContext&,
       const LayoutRect& paintDirtyRect,
@@ -230,6 +236,8 @@ class CORE_EXPORT PaintLayerClipper {
 
   const PaintLayer& m_layer;
   std::unique_ptr<GeometryMapper> m_geometryMapper;
+
+  friend class PaintLayerClipperTest;
 };
 
 }  // namespace blink

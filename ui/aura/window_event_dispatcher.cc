@@ -74,7 +74,6 @@ WindowEventDispatcher::WindowEventDispatcher(WindowTreeHost* host)
       move_hold_count_(0),
       dispatching_held_event_(nullptr),
       observer_manager_(this),
-      transform_events_(true),
       env_controller_(new EnvInputStateController),
       repost_event_factory_(this),
       held_event_factory_(this) {
@@ -159,10 +158,10 @@ DispatchDetails WindowEventDispatcher::DispatchMouseExitAtPoint(
 void WindowEventDispatcher::ProcessedTouchEvent(uint32_t unique_event_id,
                                                 Window* window,
                                                 ui::EventResult result) {
-  std::unique_ptr<ui::GestureRecognizer::Gestures> gestures(
+  ui::GestureRecognizer::Gestures gestures =
       ui::GestureRecognizer::Get()->AckTouchEvent(unique_event_id, result,
-                                                  window));
-  DispatchDetails details = ProcessGestures(window, gestures.get());
+                                                  window);
+  DispatchDetails details = ProcessGestures(window, std::move(gestures));
   if (details.dispatcher_destroyed)
     return;
 }
@@ -276,9 +275,9 @@ ui::EventDispatchDetails WindowEventDispatcher::DispatchMouseEnterOrExit(
 
 ui::EventDispatchDetails WindowEventDispatcher::ProcessGestures(
     Window* target,
-    ui::GestureRecognizer::Gestures* gestures) {
+    ui::GestureRecognizer::Gestures gestures) {
   DispatchDetails details;
-  if (!gestures || gestures->empty())
+  if (gestures.empty())
     return details;
 
   // If a window has been hidden between the touch event and now, the associated
@@ -286,10 +285,9 @@ ui::EventDispatchDetails WindowEventDispatcher::ProcessGestures(
   if (!target)
     return details;
 
-  for (size_t i = 0; i < gestures->size(); ++i) {
-    ui::GestureEvent* event = gestures->get().at(i);
+  for (const auto& event : gestures) {
     event->ConvertLocationToTarget(window(), target);
-    details = DispatchEvent(target, event);
+    details = DispatchEvent(target, event.get());
     if (details.dispatcher_destroyed || details.target_destroyed)
       break;
   }
@@ -423,10 +421,8 @@ void WindowEventDispatcher::OnEventProcessingStarted(ui::Event* event) {
   // The held events are already in |window()|'s coordinate system. So it is
   // not necessary to apply the transform to convert from the host's
   // coordinate system to |window()|'s coordinate system.
-  if (event->IsLocatedEvent() && !is_dispatched_held_event(*event) &&
-      transform_events_) {
+  if (event->IsLocatedEvent() && !is_dispatched_held_event(*event))
     TransformEventForDeviceScaleFactor(static_cast<ui::LocatedEvent*>(event));
-  }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -489,13 +485,12 @@ ui::EventDispatchDetails WindowEventDispatcher::PostDispatchEvent(
       const ui::TouchEvent& touchevent = *event.AsTouchEvent();
 
       if (!touchevent.synchronous_handling_disabled()) {
-        std::unique_ptr<ui::GestureRecognizer::Gestures> gestures;
-
         Window* window = static_cast<Window*>(target);
-        gestures.reset(ui::GestureRecognizer::Get()->AckTouchEvent(
-            touchevent.unique_event_id(), event.result(), window));
+        ui::GestureRecognizer::Gestures gestures =
+            ui::GestureRecognizer::Get()->AckTouchEvent(
+                touchevent.unique_event_id(), event.result(), window);
 
-        return ProcessGestures(window, gestures.get());
+        return ProcessGestures(window, std::move(gestures));
       }
     }
   }
@@ -717,7 +712,7 @@ ui::EventDispatchDetails WindowEventDispatcher::SynthesizeMouseMoveEvent() {
   if (!window()->bounds().Contains(root_mouse_location))
     return details;
   gfx::Point host_mouse_location = root_mouse_location;
-  host_->ConvertPointToHost(&host_mouse_location);
+  host_->ConvertDIPToPixels(&host_mouse_location);
   ui::MouseEvent event(ui::ET_MOUSE_MOVED, host_mouse_location,
                        host_mouse_location, ui::EventTimeForNow(),
                        ui::EF_IS_SYNTHESIZED, 0);

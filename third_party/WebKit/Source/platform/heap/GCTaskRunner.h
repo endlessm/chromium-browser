@@ -32,8 +32,8 @@
 #define GCTaskRunner_h
 
 #include "platform/CrossThreadFunctional.h"
+#include "platform/WebTaskRunner.h"
 #include "platform/heap/ThreadState.h"
-#include "public/platform/WebTaskRunner.h"
 #include "public/platform/WebThread.h"
 #include "public/platform/WebTraceLocation.h"
 #include "wtf/PtrUtil.h"
@@ -43,8 +43,8 @@ namespace blink {
 
 class MessageLoopInterruptor final : public BlinkGCInterruptor {
  public:
-  explicit MessageLoopInterruptor(WebTaskRunner* taskRunner)
-      : m_taskRunner(taskRunner) {}
+  explicit MessageLoopInterruptor(RefPtr<WebTaskRunner> taskRunner)
+      : m_taskRunner(std::move(taskRunner)) {}
 
   void requestInterrupt() override {
     // GCTask has an empty run() method. Its only purpose is to guarantee
@@ -62,7 +62,7 @@ class MessageLoopInterruptor final : public BlinkGCInterruptor {
     // conservatively enters safepoint with pointers on stack.
   }
 
-  WebTaskRunner* m_taskRunner;
+  RefPtr<WebTaskRunner> m_taskRunner;
 };
 
 class GCTaskObserver final : public WebThread::TaskObserver {
@@ -100,10 +100,11 @@ class GCTaskRunner final {
 
  public:
   explicit GCTaskRunner(WebThread* thread)
-      : m_gcTaskObserver(wrapUnique(new GCTaskObserver)), m_thread(thread) {
+      : m_gcTaskObserver(WTF::wrapUnique(new GCTaskObserver)),
+        m_thread(thread) {
     m_thread->addTaskObserver(m_gcTaskObserver.get());
-    ThreadState::current()->addInterruptor(
-        wrapUnique(new MessageLoopInterruptor(thread->getWebTaskRunner())));
+    ThreadState::current()->addInterruptor(WTF::wrapUnique(
+        new MessageLoopInterruptor(thread->getWebTaskRunner())));
   }
 
   ~GCTaskRunner() { m_thread->removeTaskObserver(m_gcTaskObserver.get()); }

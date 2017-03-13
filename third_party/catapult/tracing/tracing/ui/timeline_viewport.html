@@ -26,6 +26,8 @@ tr.exportTo('tr.ui', function() {
   var TimelineDisplayTransform = tr.ui.TimelineDisplayTransform;
   var TimelineInterestRange = tr.ui.TimelineInterestRange;
 
+  var IDEAL_MAJOR_MARK_DISTANCE_PX = 150;
+
   /**
    * The TimelineViewport manages the transform used for navigating
    * within the timeline. It is a simple transform:
@@ -66,31 +68,21 @@ tr.exportTo('tr.ui', function() {
     this.onModelTrackControllerScroll_ =
         this.onModelTrackControllerScroll_.bind(this);
 
-    // The following code uses an interval to detect when the parent element
-    // is attached to the document. That is a trigger to run the setup function
-    // and install a resize listener.
-    this.checkForAttachInterval_ = setInterval(
-        this.checkForAttach_.bind(this), 250);
-
-    this.majorMarkPositions = [];
+    // Major mark positions are where the gridlines/ruler marks are placed along
+    // the x-axis.
+    this.majorMarkWorldPositions_ = [];
+    this.majorMarkUnit_ = undefined;
+    this.majorMarkUnitDivisor_ = undefined;
     this.interestRange_ = new TimelineInterestRange(this);
 
     this.eventToTrackMap_ = new tr.ui.tracks.EventToTrackMap();
     this.containerToTrackMap = new tr.ui.tracks.ContainerToTrackMap();
+
+    this.dispatchChangeEvent = this.dispatchChangeEvent.bind(this);
   }
 
   TimelineViewport.prototype = {
     __proto__: tr.b.EventTarget.prototype,
-
-    /**
-     * Allows initialization of the viewport when the viewport's parent element
-     * has been attached to the document and given a size.
-     * @param {Function} fn Function to call when the viewport can be safely
-     * initialized.
-     */
-    setWhenPossible: function(fn) {
-      this.pendingSetFunction_ = fn;
-    },
 
     /**
      * @return {boolean} Whether the current timeline is attached to the
@@ -108,34 +100,6 @@ tr.exportTo('tr.ui', function() {
     },
 
     /**
-     * Checks whether the parentNode is attached to the document.
-     * When it is, it installs the iframe-based resize detection hook
-     * and then runs the pendingSetFunction_, if present.
-     */
-    checkForAttach_: function() {
-      if (!this.isAttachedToDocumentOrInTestMode || this.clientWidth === 0)
-        return;
-
-      window.addEventListener('resize', this.dispatchChangeEvent.bind(this));
-
-      var curSize = this.parentEl_.clientWidth + 'x' +
-          this.parentEl_.clientHeight;
-      if (this.pendingSetFunction_) {
-        this.lastSize_ = curSize;
-        try {
-          this.pendingSetFunction_();
-        } catch (ex) {
-          console.log('While running setWhenPossible:',
-              ex.message ? ex.message + '\n' + ex.stack : ex.stack);
-        }
-        this.pendingSetFunction_ = undefined;
-      }
-
-      window.clearInterval(this.checkForAttachInterval_);
-      this.checkForAttachInterval_ = undefined;
-    },
-
-    /**
      * Fires the change event on this viewport. Used to notify listeners
      * to redraw when the underlying model has been mutated.
      */
@@ -144,11 +108,7 @@ tr.exportTo('tr.ui', function() {
     },
 
     detach: function() {
-      if (this.checkForAttachInterval_) {
-        window.clearInterval(this.checkForAttachInterval_);
-        this.checkForAttachInterval_ = undefined;
-      }
-      window.removeEventListener('resize', this.dispatchChangeEvent.bind(this));
+      window.removeEventListener('resize', this.dispatchChangeEvent);
     },
 
     initAnimationController_: function() {
@@ -313,6 +273,70 @@ tr.exportTo('tr.ui', function() {
       return this.interestRange_;
     },
 
+    get majorMarkWorldPositions() {
+      return this.majorMarkWorldPositions_;
+    },
+
+    get majorMarkUnit() {
+      return this.majorMarkUnit_;
+    },
+
+    get majorMarkUnitDivisor() {
+      return this.majorMarkUnitDivisor_;
+    },
+
+    updateMajorMarkData: function(viewLWorld, viewRWorld) {
+      var pixelRatio = window.devicePixelRatio || 1;
+      var dt = this.currentDisplayTransform;
+
+      var idealMajorMarkDistancePix =
+          IDEAL_MAJOR_MARK_DISTANCE_PX * pixelRatio;
+      var idealMajorMarkDistanceWorld =
+          dt.xViewVectorToWorld(idealMajorMarkDistancePix);
+
+      // The conservative guess is the nearest enclosing 0.1, 1, 10, 100, etc.
+      var conservativeGuess = tr.b.greaterPower(idealMajorMarkDistanceWorld);
+
+      // Once we have a conservative guess, consider things that evenly add up
+      // to the conservative guess, e.g. 0.5, 0.2, 0.1. Pick the one that still
+      // exceeds the ideal mark distance.
+      var majorMarkDistanceWorld = conservativeGuess;
+      var divisors = [2, 5, 10];
+      for (var i = 0; i < divisors.length; ++i) {
+        var tightenedGuess = conservativeGuess / divisors[i];
+        if (dt.xWorldVectorToView(tightenedGuess) < idealMajorMarkDistancePix) {
+          break;
+        }
+        majorMarkDistanceWorld = tightenedGuess;
+      }
+
+      // TODO(aiolos): move these conversions to tr.b.Unit and use from there.
+      // https://github.com/catapult-project/catapult/issues/2985
+      if (majorMarkDistanceWorld < 0.0001) {
+        this.majorMarkUnit_ = 'ns';
+        this.majorMarkUnitDivisor_ = 0.000001;
+      } else if (majorMarkDistanceWorld < 0.1) {
+        this.majorMarkUnit_ = 'us';
+        this.majorMarkUnitDivisor_ = 0.001;
+      } else if (majorMarkDistanceWorld < 100) {
+        this.majorMarkUnit_ = 'ms';
+        this.majorMarkUnitDivisor_ = 1;
+      } else {
+        this.majorMarkUnit_ = 's';
+        this.majorMarkUnitDivisor_ = 1000;
+      }
+
+      var firstMajorMark = Math.floor(
+          viewLWorld / majorMarkDistanceWorld) * majorMarkDistanceWorld;
+
+      this.majorMarkWorldPositions_ = [];
+      for (var curX = firstMajorMark;
+           curX < viewRWorld;
+           curX += majorMarkDistanceWorld) {
+        this.majorMarkWorldPositions_.push(Math.floor(curX));
+      }
+    },
+
     drawMajorMarkLines: function(ctx) {
       // Apply subpixel translate to get crisp lines.
       // http://www.mobtowers.com/html5-canvas-crisp-lines-every-time/
@@ -320,8 +344,8 @@ tr.exportTo('tr.ui', function() {
       ctx.translate((Math.round(ctx.lineWidth) % 2) / 2, 0);
 
       ctx.beginPath();
-      for (var idx in this.majorMarkPositions) {
-        var x = Math.floor(this.majorMarkPositions[idx]);
+      for (var majorMark of this.majorMarkWorldPositions_) {
+        var x = this.currentDisplayTransform.xWorldToView(majorMark);
         tr.ui.b.drawLine(ctx, x, 0, x, ctx.canvas.height);
       }
       ctx.strokeStyle = '#ddd';
@@ -412,7 +436,7 @@ tr.exportTo('tr.ui', function() {
   };
 
   return {
-    TimelineViewport: TimelineViewport
+    TimelineViewport,
   };
 });
 </script>

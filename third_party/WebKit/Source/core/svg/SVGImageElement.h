@@ -51,7 +51,7 @@ class SVGImageElement final : public SVGGraphicsElement,
   }
 
   // Exposed for testing.
-  ImageResource* cachedImage() const { return imageLoader().image(); }
+  ImageResourceContent* cachedImage() const { return imageLoader().image(); }
 
  private:
   explicit SVGImageElement(Document&);
@@ -60,8 +60,6 @@ class SVGImageElement final : public SVGGraphicsElement,
     return !hrefString().isNull();
   }
 
-  bool isPresentationAttribute(const QualifiedName&) const override;
-  bool isPresentationAttributeWithSVGDOM(const QualifiedName&) const override;
   void collectStyleForPresentationAttribute(const QualifiedName&,
                                             const AtomicString&,
                                             MutableStylePropertySet*) override;

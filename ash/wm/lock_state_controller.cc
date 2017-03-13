@@ -11,8 +11,10 @@
 #include "ash/cancel_mode.h"
 #include "ash/common/accessibility_delegate.h"
 #include "ash/common/shell_delegate.h"
-#include "ash/common/shell_window_ids.h"
+#include "ash/common/shutdown_controller.h"
 #include "ash/common/wm_shell.h"
+#include "ash/public/cpp/shell_window_ids.h"
+#include "ash/public/interfaces/shutdown.mojom.h"
 #include "ash/shell.h"
 #include "ash/wm/session_state_animator.h"
 #include "ash/wm/session_state_animator_impl.h"
@@ -23,16 +25,13 @@
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string_util.h"
+#include "base/sys_info.h"
 #include "base/timer/timer.h"
+#include "chromeos/dbus/dbus_thread_manager.h"
+#include "chromeos/dbus/session_manager_client.h"
 #include "ui/aura/window_tree_host.h"
 #include "ui/views/controls/menu/menu_controller.h"
 #include "ui/wm/core/compound_event_filter.h"
-
-#if defined(OS_CHROMEOS)
-#include "base/sys_info.h"
-#include "chromeos/dbus/dbus_thread_manager.h"
-#include "chromeos/dbus/session_manager_client.h"
-#endif
 
 #define UMA_HISTOGRAM_LOCK_TIMES(name, sample)                     \
   UMA_HISTOGRAM_CUSTOM_TIMES(name, sample,                         \
@@ -43,9 +42,7 @@ namespace ash {
 
 namespace {
 
-#if defined(OS_CHROMEOS)
 const int kMaxShutdownSoundDurationMs = 1500;
-#endif
 
 }  // namespace
 
@@ -55,10 +52,6 @@ const int kMaxShutdownSoundDurationMs = 1500;
 // For MSan the slowdown depends heavily on the value of msan_track_origins GYP
 // flag. The multiplier below corresponds to msan_track_origins=1.
 static const int kTimeoutMultiplier = 6;
-#elif defined(ADDRESS_SANITIZER) && defined(OS_WIN)
-// Asan/Win has not been optimized yet, give it a higher
-// timeout multiplier. See http://crbug.com/412471
-static const int kTimeoutMultiplier = 3;
 #elif defined(ADDRESS_SANITIZER) || defined(THREAD_SANITIZER) || \
     defined(SYZYASAN)
 static const int kTimeoutMultiplier = 2;
@@ -70,12 +63,8 @@ const int LockStateController::kLockFailTimeoutMs = 8000 * kTimeoutMultiplier;
 const int LockStateController::kLockToShutdownTimeoutMs = 150;
 const int LockStateController::kShutdownRequestDelayMs = 50;
 
-LockStateController::TestApi::TestApi(LockStateController* controller)
-    : controller_(controller) {}
-
-LockStateController::TestApi::~TestApi() {}
-
-LockStateController::LockStateController()
+LockStateController::LockStateController(
+    ShutdownController* shutdown_controller)
     : animator_(new SessionStateAnimatorImpl()),
       login_status_(LoginStatus::NOT_LOGGED_IN),
       system_is_locked_(false),
@@ -83,17 +72,14 @@ LockStateController::LockStateController()
       shutdown_after_lock_(false),
       animating_lock_(false),
       can_cancel_lock_animation_(false),
+      shutdown_controller_(shutdown_controller),
       weak_ptr_factory_(this) {
+  DCHECK(shutdown_controller_);
   Shell::GetPrimaryRootWindow()->GetHost()->AddObserver(this);
 }
 
 LockStateController::~LockStateController() {
   Shell::GetPrimaryRootWindow()->GetHost()->RemoveObserver(this);
-}
-
-void LockStateController::SetDelegate(
-    std::unique_ptr<LockStateControllerDelegate> delegate) {
-  delegate_ = std::move(delegate);
 }
 
 void LockStateController::StartLockAnimation(bool shutdown_after_lock) {
@@ -298,14 +284,12 @@ void LockStateController::StartRealShutdownTimer(bool with_animation_time) {
         animator_->GetDuration(SessionStateAnimator::ANIMATION_SPEED_SHUTDOWN);
   }
 
-#if defined(OS_CHROMEOS)
   base::TimeDelta sound_duration =
       WmShell::Get()->accessibility_delegate()->PlayShutdownSound();
   sound_duration =
       std::min(sound_duration,
                base::TimeDelta::FromMilliseconds(kMaxShutdownSoundDurationMs));
   duration = std::max(duration, sound_duration);
-#endif
 
   real_shutdown_timer_.Start(
       FROM_HERE, duration, base::Bind(&LockStateController::OnRealPowerTimeout,
@@ -315,17 +299,9 @@ void LockStateController::StartRealShutdownTimer(bool with_animation_time) {
 void LockStateController::OnRealPowerTimeout() {
   VLOG(1) << "OnRealPowerTimeout";
   DCHECK(shutting_down_);
-#if defined(OS_CHROMEOS)
-  if (!base::SysInfo::IsRunningOnChromeOS()) {
-    ShellDelegate* delegate = WmShell::Get()->delegate();
-    if (delegate) {
-      delegate->Exit();
-      return;
-    }
-  }
-#endif
   WmShell::Get()->RecordUserMetricsAction(UMA_ACCEL_SHUT_DOWN_POWER_BUTTON);
-  delegate_->RequestShutdown();
+  // Shut down or reboot based on device policy.
+  shutdown_controller_->ShutDownOrReboot();
 }
 
 void LockStateController::StartCancellableShutdownAnimation() {
@@ -490,25 +466,24 @@ void LockStateController::PreLockAnimationFinished(bool request_lock) {
     WmShell::Get()->RecordUserMetricsAction(
         shutdown_after_lock_ ? UMA_ACCEL_LOCK_SCREEN_POWER_BUTTON
                              : UMA_ACCEL_LOCK_SCREEN_LOCK_BUTTON);
-#if defined(OS_CHROMEOS)
     chromeos::DBusThreadManager::Get()
         ->GetSessionManagerClient()
         ->RequestLockScreen();
-#endif
   }
 
   base::TimeDelta timeout =
       base::TimeDelta::FromMilliseconds(kLockFailTimeoutMs);
-#if defined(OS_CHROMEOS)
   // Increase lock timeout for slower hardware, see http://crbug.com/350628
-  const std::string board = base::SysInfo::GetLsbReleaseBoard();
-  if (board == "x86-mario" ||
+  // The devices with boards "x86-mario", "daisy", "x86-alex" and "x86-zgb" have
+  // slower hardware. For "x86-alex" and "x86-zgb" there are some modifications
+  // like "x86-alex-he". Also there's "daisy", "daisy_spring" and "daisy_skate",
+  // but they are all different devices and only "daisy" has slower hardware.
+  const std::string board = base::SysInfo::GetStrippedReleaseBoard();
+  if (board == "x86-mario" || board == "daisy" ||
       base::StartsWith(board, "x86-alex", base::CompareCase::SENSITIVE) ||
-      base::StartsWith(board, "x86-zgb", base::CompareCase::SENSITIVE) ||
-      base::StartsWith(board, "daisy", base::CompareCase::SENSITIVE)) {
+      base::StartsWith(board, "x86-zgb", base::CompareCase::SENSITIVE)) {
     timeout *= 2;
   }
-#endif
   lock_fail_timer_.Start(FROM_HERE, timeout, this,
                          &LockStateController::OnLockFailTimeout);
 

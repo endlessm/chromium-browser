@@ -16,6 +16,7 @@ import logging
 import multiprocessing
 import os
 import posixpath
+import pprint
 import re
 import shutil
 import stat
@@ -72,12 +73,14 @@ _RESTART_ADBD_SCRIPT = """
 
 # Not all permissions can be set.
 _PERMISSIONS_BLACKLIST = [
+    'android.permission.ACCESS_LOCATION_EXTRA_COMMANDS',
     'android.permission.ACCESS_MOCK_LOCATION',
     'android.permission.ACCESS_NETWORK_STATE',
     'android.permission.ACCESS_WIFI_STATE',
     'android.permission.AUTHENTICATE_ACCOUNTS',
     'android.permission.BLUETOOTH',
     'android.permission.BLUETOOTH_ADMIN',
+    'android.permission.DISABLE_KEYGUARD',
     'android.permission.DOWNLOAD_WITHOUT_NOTIFICATION',
     'android.permission.INTERNET',
     'android.permission.MANAGE_ACCOUNTS',
@@ -96,6 +99,7 @@ _PERMISSIONS_BLACKLIST = [
     'com.android.browser.permission.WRITE_HISTORY_BOOKMARKS',
     'com.android.launcher.permission.INSTALL_SHORTCUT',
     'com.chrome.permission.DEVICE_EXTRAS',
+    'com.google.android.apps.now.CURRENT_ACCOUNT_ACCESS',
     'com.google.android.c2dm.permission.RECEIVE',
     'com.google.android.providers.gsf.permission.READ_GSERVICES',
     'com.sec.enterprise.knox.MDM_CONTENT_PROVIDER',
@@ -496,15 +500,11 @@ class DeviceUtils(object):
     apks = []
     for line in output:
       if not line.startswith('package:'):
-        # KitKat on x86 may show following warnings that is safe to ignore.
-        if (line.startswith('WARNING: linker: libdvm.so has text relocations.')
-            and version_codes.KITKAT <= self.build_version_sdk
-            and self.build_version_sdk <= version_codes.KITKAT_WATCH
-            and self.product_cpu_abi == 'x86'):
-          continue
-        raise device_errors.CommandFailedError(
-            'pm path returned: %r' % '\n'.join(output), str(self))
+        continue
       apks.append(line[len('package:'):])
+    if not apks and output:
+      raise device_errors.CommandFailedError(
+          'pm path returned: %r' % '\n'.join(output), str(self))
     self._cache['package_apk_paths'][package] = list(apks)
     return apks
 
@@ -538,19 +538,19 @@ class DeviceUtils(object):
       package: Name of the package.
 
     Returns:
-      The package's data directory, or None if the package doesn't exist on the
-      device.
+      The package's data directory.
+    Raises:
+      CommandFailedError if the package's data directory can't be found,
+        whether because it's not installed or otherwise.
     """
-    try:
-      output = self._RunPipedShellCommand(
-          'pm dump %s | grep dataDir=' % cmd_helper.SingleQuote(package))
-      for line in output:
-        _, _, dataDir = line.partition('dataDir=')
-        if dataDir:
-          return dataDir
-    except device_errors.CommandFailedError:
-      logger.exception('Could not find data directory for %s', package)
-    return None
+    output = self._RunPipedShellCommand(
+        'pm dump %s | grep dataDir=' % cmd_helper.SingleQuote(package))
+    for line in output:
+      _, _, dataDir = line.partition('dataDir=')
+      if dataDir:
+        return dataDir
+    raise device_errors.CommandFailedError(
+        'Could not find data directory for %s', package)
 
   @decorators.WithTimeoutAndRetriesFromInstance()
   def WaitUntilFullyBooted(self, wifi=False, timeout=None, retries=None):
@@ -702,6 +702,12 @@ class DeviceUtils(object):
       if len(all_apks) == 1:
         logger.warning('split-select did not select any from %s', split_apks)
 
+    missing_apks = [apk for apk in all_apks if not os.path.exists(apk)]
+    if missing_apks:
+      raise device_errors.CommandFailedError(
+          'Attempted to install non-existent apks: %s'
+              % pprint.pformat(missing_apks))
+
     package_name = base_apk.GetPackageName()
     device_apk_paths = self._GetApplicationPathsInternal(package_name)
 
@@ -794,8 +800,9 @@ class DeviceUtils(object):
 
   @decorators.WithTimeoutAndRetriesFromInstance()
   def RunShellCommand(self, cmd, check_return=False, cwd=None, env=None,
-                      as_root=False, single_line=False, large_output=False,
-                      raw_output=False, timeout=None, retries=None):
+                      run_as=None, as_root=False, single_line=False,
+                      large_output=False, raw_output=False, timeout=None,
+                      retries=None):
     """Run an ADB shell command.
 
     The command to run |cmd| should be a sequence of program arguments or else
@@ -824,6 +831,8 @@ class DeviceUtils(object):
         be checked.
       cwd: The device directory in which the command should be run.
       env: The environment variables with which the command should be run.
+      run_as: A string containing the package as which the command should be
+        run.
       as_root: A boolean indicating whether the shell command should be run
         with root privileges.
       single_line: A boolean indicating if only a single line of output is
@@ -904,6 +913,9 @@ class DeviceUtils(object):
       cmd = '%s %s' % (env, cmd)
     if cwd:
       cmd = 'cd %s && %s' % (cmd_helper.SingleQuote(cwd), cmd)
+    if run_as:
+      cmd = 'run-as %s sh -c %s' % (cmd_helper.SingleQuote(run_as),
+                                    cmd_helper.SingleQuote(cmd))
     if as_root and self.NeedsSU():
       # "su -c sh -c" allows using shell features in |cmd|
       cmd = self._Su('sh -c %s' % cmd_helper.SingleQuote(cmd))
@@ -1492,6 +1504,33 @@ class DeviceUtils(object):
       return True
     except device_errors.CommandFailedError:
       return False
+
+  @decorators.WithTimeoutAndRetriesFromInstance()
+  def RemovePath(self, device_path, force=False, recursive=False,
+                 as_root=False, timeout=None, retries=None):
+    """Removes the given path(s) from the device.
+
+    Args:
+      device_path: A string containing the absolute path to the file on the
+                   device, or an iterable of paths to check.
+      force: Whether to remove the path(s) with force (-f).
+      recursive: Whether to remove any directories in the path(s) recursively.
+      as_root: Whether root permissions should be use to remove the given
+               path(s).
+      timeout: timeout in seconds
+      retries: number of retries
+    """
+    args = ['rm']
+    if force:
+      args.append('-f')
+    if recursive:
+      args.append('-r')
+    if isinstance(device_path, basestring):
+      args.append(device_path)
+    else:
+      args.extend(device_path)
+    self.RunShellCommand(args, as_root=as_root, check_return=True)
+
 
   @decorators.WithTimeoutAndRetriesFromInstance()
   def PullFile(self, device_path, host_path, timeout=None, retries=None):
@@ -2350,7 +2389,7 @@ class DeviceUtils(object):
       A device serial, or a list of device serials (optional).
 
     Returns:
-      A list of one or more DeviceUtils instances.
+      A list of DeviceUtils instances.
 
     Raises:
       NoDevicesError: Raised when no non-blacklisted devices exist and

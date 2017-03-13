@@ -407,19 +407,6 @@
     }
   }
 
-  /**
-   * Helper to convert callback-based define() API to a promise-based API.
-   * @param {!Array<string>} moduleNames
-   * @return {!Promise}
-   */
-  function importModules(moduleNames) {
-    return new Promise(function(resolve, reject) {
-      define(moduleNames, function(var_args) {
-        resolve(Array.prototype.slice.call(arguments, 0));
-      });
-    });
-  }
-
   // NOTE: Need to keep a global reference to the |pageImpl| such that it is not
   // garbage collected, which causes the pipe to close and future calls from C++
   // to JS to get dropped.
@@ -428,24 +415,23 @@
 
   function initializeProxies() {
     return importModules([
-      'mojo/public/js/connection',
+      'mojo/public/js/bindings',
       'chrome/browser/ui/webui/omnibox/omnibox.mojom',
       'content/public/renderer/frame_interfaces',
     ]).then(function(modules) {
-      var connection = modules[0];
+      var bindings = modules[0];
       var mojom = modules[1];
       var frameInterfaces = modules[2];
 
-      browserProxy = connection.bindHandleToProxy(
-          frameInterfaces.getInterface(mojom.OmniboxPageHandler.name),
-          mojom.OmniboxPageHandler);
+      browserProxy = new mojom.OmniboxPageHandlerPtr(
+          frameInterfaces.getInterface(mojom.OmniboxPageHandler.name));
 
       /** @constructor */
-      var OmniboxPageImpl = function() {};
+      var OmniboxPageImpl = function() {
+        this.binding = new bindings.Binding(mojom.OmniboxPage, this);
+      };
 
       OmniboxPageImpl.prototype = {
-        __proto__: mojom.OmniboxPage.stubClass.prototype,
-
         /** @override */
         handleNewAutocompleteResult: function(result) {
           progressiveAutocompleteResults.push(result);
@@ -454,12 +440,7 @@
       };
 
       pageImpl = new OmniboxPageImpl();
-
-      // Create a message pipe, with one end of the pipe already connected to
-      // JS.
-      var handle = connection.bindStubDerivedImpl(pageImpl);
-      // Send the other end of the pipe to C++.
-      browserProxy.setClientPage(handle);
+      browserProxy.setClientPage(pageImpl.binding.createInterfacePtrAndBind());
     });
   }
 

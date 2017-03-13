@@ -36,7 +36,8 @@ TEST_F(TextAutosizerTest, SimpleParagraph) {
   Element* autosized = document().getElementById("autosized");
   EXPECT_FLOAT_EQ(16.f,
                   autosized->layoutObject()->style()->specifiedFontSize());
-  // (specified font-size = 16px) * (viewport width = 800px) / (window width = 320px) = 40px.
+  // (specified font-size = 16px) * (viewport width = 800px) /
+  // (window width = 320px) = 40px.
   EXPECT_FLOAT_EQ(40.f, autosized->layoutObject()->style()->computedFontSize());
 }
 
@@ -283,7 +284,8 @@ TEST_F(TextAutosizerTest, AccessibilityFontScaleFactor) {
   Element* autosized = document().getElementById("autosized");
   EXPECT_FLOAT_EQ(16.f,
                   autosized->layoutObject()->style()->specifiedFontSize());
-  // 1.5 * (specified font-size = 16px) * (viewport width = 800px) / (window width = 320px) = 60px.
+  // 1.5 * (specified font-size = 16px) * (viewport width = 800px) /
+  // (window width = 320px) = 60px.
   EXPECT_FLOAT_EQ(60.f, autosized->layoutObject()->style()->computedFontSize());
 }
 
@@ -349,7 +351,8 @@ TEST_F(TextAutosizerTest, ChangingAccessibilityFontScaleFactor) {
   Element* autosized = document().getElementById("autosized");
   EXPECT_FLOAT_EQ(16.f,
                   autosized->layoutObject()->style()->specifiedFontSize());
-  // 1.0 * (specified font-size = 16px) * (viewport width = 800px) / (window width = 320px) = 40px.
+  // 1.0 * (specified font-size = 16px) * (viewport width = 800px) /
+  // (window width = 320px) = 40px.
   EXPECT_FLOAT_EQ(40.f, autosized->layoutObject()->style()->computedFontSize());
 
   document().settings()->setAccessibilityFontScaleFactor(2);
@@ -357,7 +360,8 @@ TEST_F(TextAutosizerTest, ChangingAccessibilityFontScaleFactor) {
 
   EXPECT_FLOAT_EQ(16.f,
                   autosized->layoutObject()->style()->specifiedFontSize());
-  // 2.0 * (specified font-size = 16px) * (viewport width = 800px) / (window width = 320px) = 80px.
+  // 2.0 * (specified font-size = 16px) * (viewport width = 800px) /
+  // (window width = 320px) = 80px.
   EXPECT_FLOAT_EQ(80.f, autosized->layoutObject()->style()->computedFontSize());
 }
 
@@ -401,7 +405,8 @@ TEST_F(TextAutosizerTest, TextSizeAdjustDoesNotDisableAccessibility) {
   EXPECT_FLOAT_EQ(
       48.f, textSizeAdjustDouble->layoutObject()->style()->computedFontSize());
 
-  // Changing the accessibility font scale factor should change the adjusted size.
+  // Changing the accessibility font scale factor should change the adjusted
+  // size.
   document().settings()->setAccessibilityFontScaleFactor(2);
   document().view()->updateAllLifecyclePhases();
 
@@ -462,7 +467,8 @@ TEST_F(TextAutosizerTest, DeviceScaleAdjustmentWithViewport) {
   Element* autosized = document().getElementById("autosized");
   EXPECT_FLOAT_EQ(16.f,
                   autosized->layoutObject()->style()->specifiedFontSize());
-  // (specified font-size = 16px) * (viewport width = 800px) / (window width = 320px) = 40px.
+  // (specified font-size = 16px) * (viewport width = 800px) /
+  // (window width = 320px) = 40px.
   // The device scale adjustment of 1.5 is ignored.
   EXPECT_FLOAT_EQ(40.f, autosized->layoutObject()->style()->computedFontSize());
 
@@ -472,8 +478,187 @@ TEST_F(TextAutosizerTest, DeviceScaleAdjustmentWithViewport) {
   autosized = document().getElementById("autosized");
   EXPECT_FLOAT_EQ(16.f,
                   autosized->layoutObject()->style()->specifiedFontSize());
-  // (device scale adjustment = 1.5) * (specified font-size = 16px) * (viewport width = 800px) / (window width = 320px) = 60px.
+  // (device scale adjustment = 1.5) * (specified font-size = 16px) *
+  // (viewport width = 800px) / (window width = 320px) = 60px.
   EXPECT_FLOAT_EQ(60.f, autosized->layoutObject()->style()->computedFontSize());
 }
 
+TEST_F(TextAutosizerTest, ChangingSuperClusterFirstText) {
+  setBodyInnerHTML(
+      "<meta name='viewport' content='width=800'>"
+      "<style>"
+      "    html { font-size: 16px; }"
+      "    body { width: 800px; margin: 0; overflow-y: hidden; }"
+      "    .supercluster { width:560px; }"
+      "</style>"
+      "<div class='supercluster'>"
+      "    <div id='longText'>short blah blah</div>"
+      "</div>"
+      "<div class='supercluster'>"
+      "    <div id='shortText'>short blah blah</div>"
+      "</div>");
+  document().view()->updateAllLifecyclePhases();
+
+  Element* longTextElement = document().getElementById("longText");
+  longTextElement->setInnerHTML(
+      "    Lorem ipsum dolor sit amet, consectetur adipisicing elit, sed "
+      "do eiusmod tempor"
+      "    incididunt ut labore et dolore magna aliqua. Ut enim ad minim "
+      "veniam, quis nostrud"
+      "    exercitation ullamco laboris nisi ut aliquip ex ea commodo "
+      "consequat. Duis aute irure"
+      "    dolor in reprehenderit in voluptate velit esse cillum dolore eu "
+      "fugiat nulla pariatur."
+      "    Excepteur sint occaecat cupidatat non proident, sunt in culpa "
+      "qui officia deserunt"
+      "    mollit anim id est laborum.",
+      ASSERT_NO_EXCEPTION);
+  document().view()->updateAllLifecyclePhases();
+
+  LayoutObject* longText =
+      document().getElementById("longText")->layoutObject();
+  EXPECT_FLOAT_EQ(16.f, longText->style()->specifiedFontSize());
+  //(specified font-size = 16px) * (block width = 560px) /
+  // (window width = 320px) = 28px.
+  EXPECT_FLOAT_EQ(28.f, longText->style()->computedFontSize());
+  LayoutObject* shortText =
+      document().getElementById("shortText")->layoutObject();
+  EXPECT_FLOAT_EQ(16.f, shortText->style()->specifiedFontSize());
+  EXPECT_FLOAT_EQ(28.f, shortText->style()->computedFontSize());
+}
+
+TEST_F(TextAutosizerTest, ChangingSuperClusterSecondText) {
+  setBodyInnerHTML(
+      "<meta name='viewport' content='width=800'>"
+      "<style>"
+      "    html { font-size: 16px; }"
+      "    body { width: 800px; margin: 0; overflow-y: hidden; }"
+      "    .supercluster { width:560px; }"
+      "</style>"
+      "<div class='supercluster'>"
+      "    <div id='shortText'>short blah blah</div>"
+      "</div>"
+      "<div class='supercluster'>"
+      "    <div id='longText'>short blah blah</div>"
+      "</div>");
+  document().view()->updateAllLifecyclePhases();
+
+  Element* longTextElement = document().getElementById("longText");
+  longTextElement->setInnerHTML(
+      "    Lorem ipsum dolor sit amet, consectetur adipisicing elit, sed "
+      "do eiusmod tempor"
+      "    incididunt ut labore et dolore magna aliqua. Ut enim ad minim "
+      "veniam, quis nostrud"
+      "    exercitation ullamco laboris nisi ut aliquip ex ea commodo "
+      "consequat. Duis aute irure"
+      "    dolor in reprehenderit in voluptate velit esse cillum dolore eu "
+      "fugiat nulla pariatur."
+      "    Excepteur sint occaecat cupidatat non proident, sunt in culpa "
+      "qui officia deserunt"
+      "    mollit anim id est laborum.",
+      ASSERT_NO_EXCEPTION);
+  document().view()->updateAllLifecyclePhases();
+
+  LayoutObject* longText =
+      document().getElementById("longText")->layoutObject();
+  EXPECT_FLOAT_EQ(16.f, longText->style()->specifiedFontSize());
+  //(specified font-size = 16px) * (block width = 560px) /
+  // (window width = 320px) = 28px.
+  EXPECT_FLOAT_EQ(28.f, longText->style()->computedFontSize());
+  LayoutObject* shortText =
+      document().getElementById("shortText")->layoutObject();
+  EXPECT_FLOAT_EQ(16.f, shortText->style()->specifiedFontSize());
+  EXPECT_FLOAT_EQ(28.f, shortText->style()->computedFontSize());
+}
+
+TEST_F(TextAutosizerTest, AddingSuperCluster) {
+  setBodyInnerHTML(
+      "<meta name='viewport' content='width=800'>"
+      "<style>"
+      "    html { font-size: 16px; }"
+      "    body { width: 800px; margin: 0; overflow-y: hidden; }"
+      "    .supercluster { width:560px; }"
+      "</style>"
+      "<div>"
+      "    <div class='supercluster' id='shortText'>"
+      "        short blah blah"
+      "    </div>"
+      "</div>"
+      "<div id='container'></div>");
+  document().view()->updateAllLifecyclePhases();
+
+  Element* container = document().getElementById("container");
+  container->setInnerHTML(
+      "<div class='supercluster' id='longText'>"
+      "    Lorem ipsum dolor sit amet, consectetur adipisicing elit, sed "
+      "do eiusmod tempor"
+      "    incididunt ut labore et dolore magna aliqua. Ut enim ad minim "
+      "veniam, quis nostrud"
+      "    exercitation ullamco laboris nisi ut aliquip ex ea commodo "
+      "consequat. Duis aute irure"
+      "    dolor in reprehenderit in voluptate velit esse cillum dolore eu "
+      "fugiat nulla pariatur."
+      "    Excepteur sint occaecat cupidatat non proident, sunt in culpa "
+      "qui officia deserunt"
+      "    mollit anim id est laborum."
+      "</div>",
+      ASSERT_NO_EXCEPTION);
+  document().view()->updateAllLifecyclePhases();
+
+  LayoutObject* longText =
+      document().getElementById("longText")->layoutObject();
+  EXPECT_FLOAT_EQ(16.f, longText->style()->specifiedFontSize());
+  //(specified font-size = 16px) * (block width = 560px) /
+  // (window width = 320px) = 28px.
+  EXPECT_FLOAT_EQ(28.f, longText->style()->computedFontSize());
+  LayoutObject* shortText =
+      document().getElementById("shortText")->layoutObject();
+  EXPECT_FLOAT_EQ(16.f, shortText->style()->specifiedFontSize());
+  EXPECT_FLOAT_EQ(28.f, shortText->style()->computedFontSize());
+}
+
+TEST_F(TextAutosizerTest, ChangingInheritedClusterTextInsideSuperCluster) {
+  setBodyInnerHTML(
+      "<meta name='viewport' content='width=800'>"
+      "<style>"
+      "    html { font-size: 16px; }"
+      "    body { width: 800px; margin: 0; overflow-y: hidden; }"
+      "    .supercluster { width:560px; }"
+      "    .cluster{width:560px;}"
+      "</style>"
+      "<div class='supercluster'>"
+      "    <div class='cluster' id='longText'>short blah blah</div>"
+      "</div>"
+      "<div class='supercluster'>"
+      "    <div class='cluster' id='shortText'>short blah blah</div>"
+      "</div>");
+  document().view()->updateAllLifecyclePhases();
+
+  Element* longTextElement = document().getElementById("longText");
+  longTextElement->setInnerHTML(
+      "    Lorem ipsum dolor sit amet, consectetur adipisicing elit, sed "
+      "do eiusmod tempor"
+      "    incididunt ut labore et dolore magna aliqua. Ut enim ad minim "
+      "veniam, quis nostrud"
+      "    exercitation ullamco laboris nisi ut aliquip ex ea commodo "
+      "consequat. Duis aute irure"
+      "    dolor in reprehenderit in voluptate velit esse cillum dolore eu "
+      "fugiat nulla pariatur."
+      "    Excepteur sint occaecat cupidatat non proident, sunt in culpa "
+      "qui officia deserunt"
+      "    mollit anim id est laborum.",
+      ASSERT_NO_EXCEPTION);
+  document().view()->updateAllLifecyclePhases();
+
+  LayoutObject* longText =
+      document().getElementById("longText")->layoutObject();
+  EXPECT_FLOAT_EQ(16.f, longText->style()->specifiedFontSize());
+  //(specified font-size = 16px) * (block width = 560px) /
+  // (window width = 320px) = 28px.
+  EXPECT_FLOAT_EQ(28.f, longText->style()->computedFontSize());
+  LayoutObject* shortText =
+      document().getElementById("shortText")->layoutObject();
+  EXPECT_FLOAT_EQ(16.f, shortText->style()->specifiedFontSize());
+  EXPECT_FLOAT_EQ(28.f, shortText->style()->computedFontSize());
+}
 }  // namespace blink

@@ -37,10 +37,10 @@ void DistributedNodes::swap(DistributedNodes& other) {
 
 void DistributedNodes::append(Node* node) {
   DCHECK(node);
-  DCHECK(!node->isSlotOrActiveInsertionPoint());
+  DCHECK(!node->isActiveSlotOrActiveInsertionPoint());
   size_t size = m_nodes.size();
   m_indices.set(node, size);
-  m_nodes.append(node);
+  m_nodes.push_back(node);
 }
 
 size_t DistributedNodes::find(const Node* node) const {

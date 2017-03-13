@@ -18,7 +18,6 @@
 namespace content {
 
 class BrowserContext;
-class ServiceWorkerContext;
 struct PushSubscriptionOptions;
 
 // A push service-agnostic interface that the Push API uses for talking to
@@ -94,6 +93,12 @@ class CONTENT_EXPORT PushMessagingService {
   // receiving a push message are supported. Influences permission request and
   // permission check behaviour.
   virtual bool SupportNonVisibleMessages() = 0;
+
+  // Unsubscribes the push subscription associated with this service worker
+  // registration, if such a push subscription exists.
+  virtual void DidDeleteServiceWorkerRegistration(
+      const GURL& origin,
+      int64_t service_worker_registration_id) = 0;
 
  protected:
   static void GetSenderId(BrowserContext* browser_context,

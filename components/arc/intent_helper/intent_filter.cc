@@ -6,29 +6,31 @@
 
 #include "base/compiler_specific.h"
 #include "base/strings/string_util.h"
+#include "components/arc/common/intent_helper.mojom.h"
 #include "url/gurl.h"
 
 namespace arc {
 
-IntentFilter::IntentFilter(const mojom::IntentFilterPtr& mojo_intent_filter) {
-  for (const mojom::AuthorityEntryPtr& authorityptr :
-       mojo_intent_filter->data_authorities) {
-    authorities_.emplace_back(authorityptr);
-  }
-  for (const mojom::PatternMatcherPtr& pattern :
-       mojo_intent_filter->data_paths) {
-    paths_.emplace_back(pattern);
-  }
+IntentFilter::IntentFilter() = default;
+IntentFilter::IntentFilter(IntentFilter&& other) = default;
+
+IntentFilter::IntentFilter(
+    std::vector<IntentFilter::AuthorityEntry> authorities,
+    std::vector<IntentFilter::PatternMatcher> paths)
+    : authorities_(std::move(authorities)) {
+  // In order to register a path we need to have at least one authority.
+  if (!authorities_.empty())
+    paths_ = std::move(paths);
 }
 
-IntentFilter::IntentFilter(const IntentFilter& other) = default;
-
 IntentFilter::~IntentFilter() = default;
+
+IntentFilter& IntentFilter::operator=(IntentFilter&& other) = default;
 
 // Logically, this maps to IntentFilter#match, but this code only deals with
 // view intents for http/https URLs and so it really only implements the
 // #matchData part of the match code.
-bool IntentFilter::match(const GURL& url) const {
+bool IntentFilter::Match(const GURL& url) const {
   // Chrome-side code only receives view intents for http/https URLs, so this
   // match code really only implements the matchData part of the android
   // IntentFilter class.
@@ -36,19 +38,21 @@ bool IntentFilter::match(const GURL& url) const {
     return false;
   }
 
-  // Match the authority and the path (if any).
+  // Match the authority and the path. If there are no authorities for this
+  // filter, we can treat this as a match, since we already know this filter
+  // has a http(s) scheme and it doesn't corresponds to a MIME type.
   if (!authorities_.empty()) {
-    return matchDataAuthority(url) && (paths_.empty() || hasDataPath(url));
+    return MatchDataAuthority(url) && (paths_.empty() || HasDataPath(url));
   }
 
-  return false;
+  return true;
 }
 
 // Transcribed from android's IntentFilter#hasDataPath.
-bool IntentFilter::hasDataPath(const GURL& url) const {
+bool IntentFilter::HasDataPath(const GURL& url) const {
   const std::string path = url.path();
   for (const PatternMatcher& pattern : paths_) {
-    if (pattern.match(path)) {
+    if (pattern.Match(path)) {
       return true;
     }
   }
@@ -56,18 +60,24 @@ bool IntentFilter::hasDataPath(const GURL& url) const {
 }
 
 // Transcribed from android's IntentFilter#matchDataAuthority.
-bool IntentFilter::matchDataAuthority(const GURL& url) const {
+bool IntentFilter::MatchDataAuthority(const GURL& url) const {
   for (const AuthorityEntry& authority : authorities_) {
-    if (authority.match(url)) {
+    if (authority.Match(url)) {
       return true;
     }
   }
   return false;
 }
 
+IntentFilter::AuthorityEntry::AuthorityEntry() = default;
 IntentFilter::AuthorityEntry::AuthorityEntry(
-    const mojom::AuthorityEntryPtr& entry)
-    : host_(entry->host.get()), port_(entry->port) {
+    IntentFilter::AuthorityEntry&& other) = default;
+
+IntentFilter::AuthorityEntry& IntentFilter::AuthorityEntry::operator=(
+    IntentFilter::AuthorityEntry&& other) = default;
+
+IntentFilter::AuthorityEntry::AuthorityEntry(const std::string& host, int port)
+    : host_(host), port_(port) {
   // Wildcards are only allowed at the front of the host string.
   wild_ = !host_.empty() && host_[0] == '*';
   if (wild_) {
@@ -80,7 +90,7 @@ IntentFilter::AuthorityEntry::AuthorityEntry(
 }
 
 // Transcribed from android's IntentFilter.AuthorityEntry#match.
-bool IntentFilter::AuthorityEntry::match(const GURL& url) const {
+bool IntentFilter::AuthorityEntry::Match(const GURL& url) const {
   if (!url.has_host()) {
     return false;
   }
@@ -110,12 +120,19 @@ bool IntentFilter::AuthorityEntry::match(const GURL& url) const {
   }
 }
 
+IntentFilter::PatternMatcher::PatternMatcher() = default;
 IntentFilter::PatternMatcher::PatternMatcher(
-    const mojom::PatternMatcherPtr& pattern)
-    : pattern_(pattern->pattern.get()), match_type_(pattern->type) {}
+    IntentFilter::PatternMatcher&& other) = default;
+
+IntentFilter::PatternMatcher::PatternMatcher(const std::string& pattern,
+                                             mojom::PatternType match_type)
+    : pattern_(pattern), match_type_(match_type) {}
+
+IntentFilter::PatternMatcher& IntentFilter::PatternMatcher::operator=(
+    IntentFilter::PatternMatcher&& other) = default;
 
 // Transcribed from android's PatternMatcher#matchPattern.
-bool IntentFilter::PatternMatcher::match(const std::string& str) const {
+bool IntentFilter::PatternMatcher::Match(const std::string& str) const {
   if (str.empty()) {
     return false;
   }
@@ -126,14 +143,14 @@ bool IntentFilter::PatternMatcher::match(const std::string& str) const {
       return base::StartsWith(str, pattern_,
                               base::CompareCase::INSENSITIVE_ASCII);
     case mojom::PatternType::PATTERN_SIMPLE_GLOB:
-      return matchGlob(str);
+      return MatchGlob(str);
   }
 
   return false;
 }
 
 // Transcribed from android's PatternMatcher#matchPattern.
-bool IntentFilter::PatternMatcher::matchGlob(const std::string& str) const {
+bool IntentFilter::PatternMatcher::MatchGlob(const std::string& str) const {
 #define GET_CHAR(s, i) ((UNLIKELY(i >= s.length())) ? '\0' : s[i])
 
   const size_t NP = pattern_.length();

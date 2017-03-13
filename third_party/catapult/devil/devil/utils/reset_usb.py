@@ -6,8 +6,14 @@
 import argparse
 import fcntl
 import logging
+import os
 import re
 import sys
+
+if __name__ == '__main__':
+  sys.path.append(
+      os.path.abspath(os.path.join(os.path.dirname(__file__),
+                                   '..', '..')))
 
 from devil.android import device_errors
 from devil.utils import lsusb
@@ -47,7 +53,8 @@ def reset_android_usb(serial):
     reset_usb(bus, device)
   else:
     raise device_errors.DeviceUnreachableError(
-        'Unable to determine bus or device for device %s' % serial)
+        'Unable to determine bus(%s) or device(%s) for device %s'
+         % (bus, device, serial))
 
 
 def reset_all_android_devices():

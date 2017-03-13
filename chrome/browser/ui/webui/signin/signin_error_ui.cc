@@ -6,6 +6,7 @@
 
 #include <vector>
 
+#include "base/memory/ptr_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/profiles/profile_attributes_entry.h"
@@ -26,31 +27,29 @@
 #include "ui/gfx/text_elider.h"
 
 SigninErrorUI::SigninErrorUI(content::WebUI* web_ui)
-    : SigninErrorUI(web_ui,
-                    new SigninErrorHandler(Profile::FromWebUI(web_ui)
-                                               ->GetOriginalProfile()
-                                               ->IsSystemProfile())) {}
+    : SigninErrorUI(
+          web_ui,
+          base::MakeUnique<SigninErrorHandler>(Profile::FromWebUI(web_ui)
+                                                   ->GetOriginalProfile()
+                                                   ->IsSystemProfile())) {}
 
 SigninErrorUI::SigninErrorUI(content::WebUI* web_ui,
-                             SigninErrorHandler* handler)
+                             std::unique_ptr<SigninErrorHandler> handler)
     : WebDialogUI(web_ui) {
   Profile* webui_profile = Profile::FromWebUI(web_ui);
   Profile* signin_profile;
   bool is_system_profile =
       webui_profile->GetOriginalProfile()->IsSystemProfile();
 
-// TODO(zmin): Remove the condition for MACOSX once user_manager_mac.cc is
-// updated.
-#if !defined(OS_MACOSX)
   if (is_system_profile) {
     signin_profile = g_browser_process->profile_manager()->GetProfileByPath(
         UserManager::GetSigninProfilePath());
+    // Sign in is completed before profile creation.
+    if (!signin_profile)
+      signin_profile = webui_profile->GetOriginalProfile();
   } else {
     signin_profile = webui_profile;
   }
-#else
-  signin_profile = webui_profile;
-#endif
 
   content::WebUIDataSource* source =
       content::WebUIDataSource::Create(chrome::kChromeUISigninErrorHost);
@@ -123,5 +122,5 @@ SigninErrorUI::SigninErrorUI(content::WebUI* web_ui,
   source->AddLocalizedStrings(strings);
 
   content::WebUIDataSource::Add(webui_profile, source);
-  web_ui->AddMessageHandler(handler);
+  web_ui->AddMessageHandler(std::move(handler));
 }

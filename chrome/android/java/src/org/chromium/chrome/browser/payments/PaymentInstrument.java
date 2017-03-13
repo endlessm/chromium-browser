@@ -4,12 +4,17 @@
 
 package org.chromium.chrome.browser.payments;
 
+import android.graphics.drawable.Drawable;
+
 import org.chromium.chrome.browser.payments.ui.PaymentOption;
 import org.chromium.payments.mojom.PaymentItem;
-
-import org.json.JSONObject;
+import org.chromium.payments.mojom.PaymentMethodData;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+import javax.annotation.Nullable;
 
 /**
  * The base class for a single payment instrument, e.g., a credit card.
@@ -18,7 +23,14 @@ public abstract class PaymentInstrument extends PaymentOption {
     /**
      * The interface for the requester of instrument details.
      */
-    public interface DetailsCallback {
+    public interface InstrumentDetailsCallback {
+        /**
+         * Called by the payment instrument to let Chrome know that the payment app's UI is
+         * now hidden, but the payment instrument has not been returned yet. This is a good
+         * time to show a "loading" progress indicator UI.
+         */
+        void onInstrumentDetailsLoadingWithoutUI();
+
         /**
          * Called after retrieving instrument details.
          *
@@ -33,35 +45,49 @@ public abstract class PaymentInstrument extends PaymentOption {
         void onInstrumentDetailsError();
     }
 
-    protected PaymentInstrument(String id, String label, String sublabel, int icon) {
+    protected PaymentInstrument(String id, String label, String sublabel, Drawable icon) {
         super(id, label, sublabel, icon);
     }
 
     /**
-     * Returns the method name for this instrument, e.g., "visa" or "mastercard" in basic card
-     * payments: https://w3c.github.io/browser-payment-api/specs/basic-card-payment.html#method-id
+     * Sets the modified total for this payment instrument.
      *
-     * @return The method name for this instrument.
+     * @param modifiedTotal The new modified total to use.
      */
-    public abstract String getMethodName();
+    public void setModifiedTotal(@Nullable String modifiedTotal) {
+        updateTertiarylabel(modifiedTotal);
+    }
 
     /**
-     * Asynchronously retrieves the instrument details and invokes the callback with the result.
+     * Returns a set of payment method names for this instrument, e.g., "visa" or
+     * "mastercard" in basic card payments:
+     * https://w3c.github.io/webpayments-methods-card/#method-id
      *
-     * @param merchantName The name of the merchant.
-     * @param origin       The origin of this merchant.
-     * @param total        The total amount.
-     * @param items        The shopping cart items.
-     * @param details      The payment-method specific data, e.g., whether the app should be invoked
-     *                     in test or production key, a merchant identifier, or a public key.
-     * @param callback     The object that will receive the instrument details.
+     * @return The method names for this instrument.
      */
-    public abstract void getDetails(String merchantName, String origin, PaymentItem total,
-            List<PaymentItem> cart, JSONObject details, DetailsCallback callback);
+    public abstract Set<String> getInstrumentMethodNames();
+
+    /**
+     * Invoke the payment app to retrieve the instrument details.
+     *
+     * The callback will be invoked with the resulting payment details or error.
+     *
+     * @param merchantName  The name of the merchant.
+     * @param origin        The origin of this merchant.
+     * @param total         The total amount.
+     * @param items         The shopping cart items.
+     * @param methodDataMap The payment-method specific data for all applicable payment methods,
+     *                      e.g., whether the app should be invoked in test or production, a
+     *                      merchant identifier, or a public key.
+     * @param callback      The object that will receive the instrument details.
+     */
+    public abstract void invokePaymentApp(String merchantName, String origin, PaymentItem total,
+            List<PaymentItem> cart, Map<String, PaymentMethodData> methodDataMap,
+            InstrumentDetailsCallback callback);
 
     /**
      * Cleans up any resources held by the payment instrument. For example, closes server
      * connections.
      */
-    public abstract void dismiss();
+    public abstract void dismissInstrument();
 }

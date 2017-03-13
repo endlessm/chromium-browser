@@ -10,7 +10,10 @@
 #include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "base/trace_event/trace_event.h"
+#include "components/subresource_filter/core/common/first_party_origin.h"
 #include "components/subresource_filter/core/common/memory_mapped_ruleset.h"
+#include "components/subresource_filter/core/common/scoped_timers.h"
+#include "components/subresource_filter/core/common/time_measurements.h"
 #include "third_party/WebKit/public/platform/WebURL.h"
 
 namespace subresource_filter {
@@ -74,20 +77,27 @@ proto::ElementType ToElementType(
 
 DocumentSubresourceFilter::DocumentSubresourceFilter(
     ActivationState activation_state,
+    bool measure_performance,
     const scoped_refptr<const MemoryMappedRuleset>& ruleset,
     const std::vector<GURL>& ancestor_document_urls,
     const base::Closure& first_disallowed_load_callback)
     : activation_state_(activation_state),
+      measure_performance_(measure_performance),
       ruleset_(ruleset),
       ruleset_matcher_(ruleset_->data(), ruleset_->length()),
       first_disallowed_load_callback_(first_disallowed_load_callback) {
+  TRACE_EVENT1("loader", "DocumentSubresourceFilter::DocumentSubresourceFilter",
+               "document_url", ancestor_document_urls.empty()
+                                   ? std::string()
+                                   : ancestor_document_urls[0].spec());
+
+  SCOPED_UMA_HISTOGRAM_MICRO_TIMER(
+      "SubresourceFilter.DocumentLoad.Activation.WallDuration");
+  SCOPED_UMA_HISTOGRAM_MICRO_THREAD_TIMER(
+      "SubresourceFilter.DocumentLoad.Activation.CPUDuration");
+
   DCHECK_NE(activation_state_, ActivationState::DISABLED);
   DCHECK(ruleset);
-
-  if (ancestor_document_urls.empty())
-    return;
-
-  document_origin_ = url::Origin(ancestor_document_urls.front());
 
   url::Origin parent_document_origin;
   for (auto iter = ancestor_document_urls.rbegin(),
@@ -100,11 +110,19 @@ DocumentSubresourceFilter::DocumentSubresourceFilter(
       filtering_disabled_for_document_ = true;
       return;
     }
+    // TODO(pkalinnikov): Match several activation types in a batch.
+    generic_blocking_rules_disabled_ =
+        generic_blocking_rules_disabled_ ||
+        ruleset_matcher_.ShouldDisableFilteringForDocument(
+            document_url, parent_document_origin,
+            proto::ACTIVATION_TYPE_GENERICBLOCK);
+
+    // TODO(pkalinnikov): Think about avoiding this conversion.
     parent_document_origin = url::Origin(document_url);
   }
 
-  // TODO(pkalinnikov): Implement GENERICBLOCK activation type as well.
-  // TODO(pkalinnikov): Match several activation types in a batch.
+  url::Origin document_origin = std::move(parent_document_origin);
+  document_origin_.reset(new FirstPartyOrigin(std::move(document_origin)));
 }
 
 DocumentSubresourceFilter::~DocumentSubresourceFilter() = default;
@@ -115,7 +133,21 @@ bool DocumentSubresourceFilter::allowLoad(
   TRACE_EVENT1("loader", "DocumentSubresourceFilter::allowLoad", "url",
                resourceUrl.string().utf8());
 
-  ++num_loads_total_;
+  auto wall_duration_timer = ScopedTimers::StartIf(
+      measure_performance_ && ScopedThreadTimers::IsSupported(),
+      [this](base::TimeDelta delta) {
+        statistics_.evaluation_total_wall_duration += delta;
+        UMA_HISTOGRAM_MICRO_TIMES(
+            "SubresourceFilter.SubresourceLoad.Evaluation.WallDuration", delta);
+      });
+  auto cpu_duration_timer = ScopedThreadTimers::StartIf(
+      measure_performance_, [this](base::TimeDelta delta) {
+        statistics_.evaluation_total_cpu_duration += delta;
+        UMA_HISTOGRAM_MICRO_TIMES(
+            "SubresourceFilter.SubresourceLoad.Evaluation.CPUDuration", delta);
+      });
+
+  ++statistics_.num_loads_total;
 
   if (filtering_disabled_for_document_)
     return true;
@@ -123,18 +155,19 @@ bool DocumentSubresourceFilter::allowLoad(
   if (resourceUrl.protocolIs(url::kDataScheme))
     return true;
 
-  ++num_loads_evaluated_;
+  ++statistics_.num_loads_evaluated;
+  DCHECK(document_origin_);
   if (ruleset_matcher_.ShouldDisallowResourceLoad(
-          GURL(resourceUrl), document_origin_,
-          ToElementType(request_context))) {
-    ++num_loads_matching_rules_;
+          GURL(resourceUrl), *document_origin_, ToElementType(request_context),
+          generic_blocking_rules_disabled_)) {
+    ++statistics_.num_loads_matching_rules;
     if (activation_state_ == ActivationState::ENABLED) {
       if (!first_disallowed_load_callback_.is_null()) {
-        DCHECK_EQ(num_loads_disallowed_, 0u);
+        DCHECK_EQ(statistics_.num_loads_disallowed, 0);
         first_disallowed_load_callback_.Run();
         first_disallowed_load_callback_.Reset();
       }
-      ++num_loads_disallowed_;
+      ++statistics_.num_loads_disallowed;
       return false;
     }
   }

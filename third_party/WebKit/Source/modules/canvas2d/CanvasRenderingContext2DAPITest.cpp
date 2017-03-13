@@ -69,7 +69,7 @@ void CanvasRenderingContext2DAPITest::SetUp() {
   m_dummyPageHolder = DummyPageHolder::create(IntSize(800, 600), &pageClients);
   m_document = &m_dummyPageHolder->document();
   m_document->documentElement()->setInnerHTML(
-      "<body><canvas id='c'></canvas></body>", ASSERT_NO_EXCEPTION);
+      "<body><canvas id='c'></canvas></body>");
   m_document->view()->updateAllLifecyclePhases();
   m_canvasElement = toHTMLCanvasElement(m_document->getElementById("c"));
 }
@@ -215,8 +215,8 @@ TEST_F(CanvasRenderingContext2DAPITest, LineDashStateSave) {
   createContext(NonOpaque);
 
   Vector<double> simpleDash;
-  simpleDash.append(4);
-  simpleDash.append(2);
+  simpleDash.push_back(4);
+  simpleDash.push_back(2);
 
   context2d()->setLineDash(simpleDash);
   EXPECT_EQ(simpleDash, context2d()->getLineDash());
@@ -274,7 +274,7 @@ TEST_F(CanvasRenderingContext2DAPITest, CreateImageData) {
 
 TEST_F(CanvasRenderingContext2DAPITest, CreateImageDataTooBig) {
   createContext(NonOpaque);
-  TrackExceptionState exceptionState;
+  DummyExceptionStateForTesting exceptionState;
   ImageData* tooBigImageData =
       context2d()->createImageData(1000000, 1000000, exceptionState);
   EXPECT_EQ(nullptr, tooBigImageData);
@@ -284,7 +284,7 @@ TEST_F(CanvasRenderingContext2DAPITest, CreateImageDataTooBig) {
 
 TEST_F(CanvasRenderingContext2DAPITest, GetImageDataTooBig) {
   createContext(NonOpaque);
-  TrackExceptionState exceptionState;
+  DummyExceptionStateForTesting exceptionState;
   ImageData* imageData =
       context2d()->getImageData(0, 0, 1000000, 1000000, exceptionState);
   EXPECT_EQ(nullptr, imageData);
@@ -296,8 +296,7 @@ void resetCanvasForAccessibilityRectTest(Document& document) {
   document.documentElement()->setInnerHTML(
       "<canvas id='canvas' style='position:absolute; top:0px; left:0px; "
       "padding:10px; margin:5px;'>"
-      "<button id='button'></button></canvas>",
-      ASSERT_NO_EXCEPTION);
+      "<button id='button'></button></canvas>");
   document.settings()->setAccessibilityEnabled(true);
   HTMLCanvasElement* canvas =
       toHTMLCanvasElement(document.getElementById("canvas"));

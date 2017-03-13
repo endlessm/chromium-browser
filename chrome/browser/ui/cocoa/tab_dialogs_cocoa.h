@@ -17,7 +17,8 @@ class TabDialogsCocoa : public TabDialogs {
   // TabDialogs:
   gfx::NativeView GetDialogParentView() const override;
   void ShowCollectedCookies() override;
-  void ShowHungRendererDialog() override;
+  void ShowHungRendererDialog(
+      const content::WebContentsUnresponsiveState& unresponsive_state) override;
   void HideHungRendererDialog() override;
   void ShowProfileSigninConfirmation(
       Browser* browser,
@@ -30,6 +31,9 @@ class TabDialogsCocoa : public TabDialogs {
       const gfx::Rect& anchor_in_root_view,
       const base::string16& main_text,
       const base::string16& sub_text) override;
+
+ protected:
+  content::WebContents* web_contents() const { return web_contents_; }
 
  private:
   content::WebContents* web_contents_;  // Weak. Owns this.

@@ -17,6 +17,7 @@
 package com.google.i18n.addressinput.common;
 
 import static com.google.common.truth.Truth.assertThat;
+import com.google.i18n.addressinput.common.AddressField.WidthType;
 import static java.util.Arrays.asList;
 
 import com.google.i18n.addressinput.common.LookupKey.ScriptType;
@@ -24,6 +25,10 @@ import com.google.i18n.addressinput.common.LookupKey.ScriptType;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map;
 
 @RunWith(JUnit4.class)
 public class FormatInterpreterTest {
@@ -93,6 +98,99 @@ public class FormatInterpreterTest {
         .inOrder();
   }
 
+  @Test public void testGetEnvelopeAddress_MissingFields_LiteralsBetweenFields() {
+    FormatInterpreter formatInterpreter = new FormatInterpreter(new FormOptions().createSnapshot());
+    AddressData.Builder addressBuilder = AddressData.builder()
+        .setCountry("US");
+
+    assertThat(formatInterpreter.getEnvelopeAddress(addressBuilder.build())).isEmpty();
+
+    addressBuilder.setAdminArea("CA");
+    assertThat(formatInterpreter.getEnvelopeAddress(addressBuilder.build()))
+        .containsExactly("CA");
+
+    addressBuilder.setLocality("Los Angeles");
+    assertThat(formatInterpreter.getEnvelopeAddress(addressBuilder.build()))
+        .containsExactly("Los Angeles, CA");
+
+    addressBuilder.setPostalCode("90291");
+    assertThat(formatInterpreter.getEnvelopeAddress(addressBuilder.build()))
+        .containsExactly("Los Angeles, CA 90291");
+
+    addressBuilder.setAdminArea("");
+    assertThat(formatInterpreter.getEnvelopeAddress(addressBuilder.build()))
+        .containsExactly("Los Angeles 90291");
+
+    addressBuilder.setLocality("");
+    addressBuilder.setAdminArea("CA");
+    assertThat(formatInterpreter.getEnvelopeAddress(addressBuilder.build()))
+        .containsExactly("CA 90291");
+  }
+
+  @Test public void testGetEnvelopeAddress_MissingFields_LiteralsOnSeparateLine() {
+    FormatInterpreter formatInterpreter = new FormatInterpreter(new FormOptions().createSnapshot());
+    AddressData.Builder addressBuilder = AddressData.builder()
+        .setCountry("AX");
+
+    assertThat(formatInterpreter.getEnvelopeAddress(addressBuilder.build()))
+        .containsExactly("ÅLAND");
+
+    addressBuilder.setLocality("City");
+    assertThat(formatInterpreter.getEnvelopeAddress(addressBuilder.build()))
+        .containsExactly("City", "ÅLAND").inOrder();
+
+    addressBuilder.setPostalCode("123");
+    assertThat(formatInterpreter.getEnvelopeAddress(addressBuilder.build()))
+        .containsExactly("AX-123 City", "ÅLAND").inOrder();
+  }
+
+  @Test public void testGetEnvelopeAddress_MissingFields_LiteralBeforeField() {
+    FormatInterpreter formatInterpreter = new FormatInterpreter(new FormOptions().createSnapshot());
+    AddressData.Builder addressBuilder = AddressData.builder()
+        .setCountry("JP")
+        .setLanguageCode("ja");
+
+    assertThat(formatInterpreter.getEnvelopeAddress(addressBuilder.build())).isEmpty();
+
+    addressBuilder.setPostalCode("123");
+    assertThat(formatInterpreter.getEnvelopeAddress(addressBuilder.build()))
+        .containsExactly("〒123");
+
+    addressBuilder.setAdminArea("Prefecture");
+    assertThat(formatInterpreter.getEnvelopeAddress(addressBuilder.build()))
+        .containsExactly("〒123", "Prefecture").inOrder();
+
+    addressBuilder.setPostalCode("");
+    assertThat(formatInterpreter.getEnvelopeAddress(addressBuilder.build()))
+        .containsExactly("Prefecture");
+  }
+
+  @Test public void testGetEnvelopeAddress_MissingFields_DuplicateField() {
+    FormatInterpreter formatInterpreter = new FormatInterpreter(new FormOptions().createSnapshot());
+    AddressData.Builder addressBuilder = AddressData.builder()
+        .setCountry("CI");
+
+    addressBuilder.setSortingCode("123");
+    assertThat(formatInterpreter.getEnvelopeAddress(addressBuilder.build()))
+        .containsExactly("123 123");
+
+    addressBuilder.setAddressLine1("456 Main St");
+    assertThat(formatInterpreter.getEnvelopeAddress(addressBuilder.build()))
+        .containsExactly("123 456 Main St 123");
+
+    addressBuilder.setLocality("Yamoussoukro");
+    assertThat(formatInterpreter.getEnvelopeAddress(addressBuilder.build()))
+        .containsExactly("123 456 Main St Yamoussoukro 123");
+
+    addressBuilder.setSortingCode("");
+    assertThat(formatInterpreter.getEnvelopeAddress(addressBuilder.build()))
+        .containsExactly("456 Main St Yamoussoukro");
+
+    addressBuilder.setAddressLines(new ArrayList<String>());
+    assertThat(formatInterpreter.getEnvelopeAddress(addressBuilder.build()))
+        .containsExactly("Yamoussoukro");
+  }
+
   @Test public void testUsEnvelopeAddress() {
     FormatInterpreter formatInterpreter = new FormatInterpreter(new FormOptions().createSnapshot());
     AddressData address = AddressData.builder()
@@ -128,7 +226,7 @@ public class FormatInterpreterTest {
         .inOrder();
   }
 
-  @Test public void testEnvelopeAddressIncompleteAddress() {
+  @Test public void testGetEnvelopeAddressIncompleteAddress() {
     FormatInterpreter formatInterpreter = new FormatInterpreter(new FormOptions().createSnapshot());
     AddressData address = AddressData.builder()
         .setCountry("US")
@@ -141,13 +239,13 @@ public class FormatInterpreterTest {
         .containsExactly("1098 Alta Ave", "CA 94043").inOrder();
   }
 
-  @Test public void testEnvelopeAddressEmptyAddress() {
+  @Test public void testGetEnvelopeAddressEmptyAddress() {
     FormatInterpreter formatInterpreter = new FormatInterpreter(new FormOptions().createSnapshot());
     AddressData address = AddressData.builder().setCountry("US").build();
     assertThat(formatInterpreter.getEnvelopeAddress(address)).isEmpty();
   }
 
-  @Test public void testEnvelopeAddressLeadingPostPrefix() {
+  @Test public void testGetEnvelopeAddressLeadingPostPrefix() {
     FormatInterpreter formatInterpreter = new FormatInterpreter(new FormOptions().createSnapshot());
     AddressData address = AddressData.builder()
         .setCountry("CH")
@@ -173,5 +271,55 @@ public class FormatInterpreterTest {
         AddressData.builder(svAddress).setPostalCode("CP 2101").build();
     assertThat(formatInterpreter.getEnvelopeAddress(svAddressWithPostCode))
         .containsExactly("Some Street 12", "CP 2101-Ahuachapán", "Ahuachapán").inOrder();
+  }
+
+  private Map<String, String> createWidthOverrideRegionData(String overridesString) {
+    Map<String, String> map = new HashMap<String, String>(1);
+    map.put("US", "{\"width_overrides\":\"" + overridesString + "\"}");
+    return map;
+  }
+
+  @Test public void testGetWidthOverride_goodData() {
+    Map<String, String> fakeData = createWidthOverrideRegionData("%S:L%C:S");
+    assertThat(FormatInterpreter.getWidthOverride(AddressField.LOCALITY, "US", fakeData))
+        .isEqualTo(WidthType.SHORT);
+    assertThat(FormatInterpreter.getWidthOverride(AddressField.ADMIN_AREA, "US", fakeData))
+        .isEqualTo(WidthType.LONG);
+    assertThat(FormatInterpreter.getWidthOverride(AddressField.POSTAL_CODE, "US", fakeData))
+        .isNull();
+  }
+
+  @Test public void testGetWidthOverride_singleOverride() {
+    Map<String, String> fakeData = createWidthOverrideRegionData("%S:S");
+    assertThat(FormatInterpreter.getWidthOverride(AddressField.ADMIN_AREA, "US", fakeData))
+        .isEqualTo(WidthType.SHORT);
+    assertThat(FormatInterpreter.getWidthOverride(AddressField.LOCALITY, "US", fakeData)).isNull();
+  }
+
+  @Test public void testGetWidthOverride_badData() {
+    // Doesn't test that the parsing code actually just skips bad keys/values. That's nice, but
+    // not essential.
+    for (String overridesString : new String[]{
+        "", "%", ":", "%%", "%:", "%CX", "%CX:", "C:S", "%C:", "%C:SS", "%C:SS%Q:L"}) {
+      Map<String, String> fakeData = createWidthOverrideRegionData(overridesString);
+      for (AddressField field : AddressField.values()) {
+        assertThat(FormatInterpreter.getWidthOverride(field, "US", fakeData))
+            .named("With field " + field + " and overrides string '" + overridesString + "'")
+            .isNull();
+      }
+    }
+  }
+
+  @Test public void testGetWidthOverride_skipTooLongKeys() {
+    for (String overridesString : new String[]{
+        "%NH:L%C:S", "%Z:L%BG:S%C:S", "%C:S%NH:S", "%NH:QL%C:S", "%NH:L%C:S%BG:L"}) {
+      Map<String, String> fakeData = createWidthOverrideRegionData(overridesString);
+        assertThat(FormatInterpreter.getWidthOverride(AddressField.LOCALITY, "US", fakeData))
+            .named("For LOCALITY (C) and overrides string '" + overridesString + "'")
+            .isEqualTo(WidthType.SHORT);
+        assertThat(FormatInterpreter.getWidthOverride(AddressField.ADMIN_AREA, "US", fakeData))
+            .named("For ADMIN_AREA (S) and overrides string '" + overridesString + "'")
+            .isNull();
+    }
   }
 }

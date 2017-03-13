@@ -7,7 +7,7 @@ COMMIT
 If you are working on experimental code and do not want to risk accidentally
 submitting the change via the CQ, then you can mark it with "COMMIT=false".
 The CQ will immediately abandon the change if it contains this option.
-To do a dry run through the CQ please use Rietveld's [dry run](https://groups.google.com/a/chromium.org/forum/#!topic/chromium-dev/G5-X0_tfmok) feature.
+To do a dry run through the CQ please use Gerrit's [CQ Dry Run](https://groups.google.com/a/chromium.org/forum/#!topic/chromium-dev/G5-X0_tfmok) feature.
 
     COMMIT=false
 
@@ -30,13 +30,13 @@ The CQ will block till these tryjobs pass just like the default list of tryjobs.
 
 This is the format of the values of this keyword:
 
-    CQ_INCLUDE_TRYBOTS=master1:bot1,bot2;master2:bot3,bot4
+    CQ_INCLUDE_TRYBOTS=bucket1:bot1,bot2;bucket2:bot3,bot4
 
 Here are some real world examples:
 
-    CQ_INCLUDE_TRYBOTS=tryserver.chromium:linux_layout_rel
+    CQ_INCLUDE_TRYBOTS=master.tryserver.chromium.linux:linux_chromium_asan_rel_ng
 
-    CQ_INCLUDE_TRYBOTS=tryserver.skia:Build-Mac10.9-Clang-x86_64-Debug
+    CQ_INCLUDE_TRYBOTS=skia.primary:Test-Win-MSVC-ShuttleC-GPU-GTX960-x86_64-Debug-ANGLE
 
 TBR
 ---

@@ -11,6 +11,7 @@
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "base/profiler/scoped_tracker.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/trace_event/trace_event.h"
@@ -27,14 +28,19 @@
 #include "content/browser/service_worker/service_worker_registration.h"
 #include "content/browser/service_worker/service_worker_registration_handle.h"
 #include "content/common/service_worker/embedded_worker_messages.h"
+#include "content/common/service_worker/service_worker_event_dispatcher.mojom.h"
 #include "content/common/service_worker/service_worker_messages.h"
 #include "content/common/service_worker/service_worker_types.h"
 #include "content/common/service_worker/service_worker_utils.h"
 #include "content/public/browser/content_browser_client.h"
+#include "content/public/browser/render_frame_host.h"
+#include "content/public/browser/web_contents.h"
 #include "content/public/common/browser_side_navigation_policy.h"
+#include "content/public/common/child_process_host.h"
 #include "content/public/common/content_client.h"
 #include "content/public/common/origin_util.h"
 #include "ipc/ipc_message_macros.h"
+#include "net/http/http_util.h"
 #include "third_party/WebKit/public/platform/modules/serviceworker/WebServiceWorkerError.h"
 #include "url/gurl.h"
 
@@ -51,6 +57,15 @@ const char kShutdownErrorMessage[] =
 const char kUserDeniedPermissionMessage[] =
     "The user denied permission to use Service Worker.";
 const char kInvalidStateErrorMessage[] = "The object is in an invalid state.";
+const char kEnableNavigationPreloadErrorPrefix[] =
+    "Failed to enable or disable navigation preload: ";
+const char kGetNavigationPreloadStateErrorPrefix[] =
+    "Failed to get navigation preload state: ";
+const char kSetNavigationPreloadHeaderErrorPrefix[] =
+    "Failed to set navigation preload header: ";
+const char kNoActiveWorkerErrorMessage[] =
+    "The registration does not have an active worker.";
+const char kDatabaseErrorMessage[] = "Failed to access storage.";
 
 const uint32_t kFilteredMessageClasses[] = {
     ServiceWorkerMsgStart, EmbeddedWorkerMsgStart,
@@ -61,33 +76,31 @@ void RunSoon(const base::Closure& callback) {
     base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE, callback);
 }
 
-bool CanUnregisterServiceWorker(const GURL& document_url,
-                                const GURL& pattern) {
-  DCHECK(document_url.is_valid());
-  DCHECK(pattern.is_valid());
-  return ServiceWorkerUtils::PassOriginEqualitySecurityCheck<GURL>(document_url,
-                                                                   pattern) &&
-         OriginCanAccessServiceWorkers(document_url) &&
-         OriginCanAccessServiceWorkers(pattern);
+WebContents* GetWebContents(int render_process_id, int render_frame_id) {
+  RenderFrameHost* rfh =
+      RenderFrameHost::FromID(render_process_id, render_frame_id);
+  return WebContents::FromRenderFrameHost(rfh);
 }
 
-bool CanUpdateServiceWorker(const GURL& document_url, const GURL& pattern) {
-  DCHECK(document_url.is_valid());
-  DCHECK(pattern.is_valid());
-  DCHECK(OriginCanAccessServiceWorkers(document_url));
-  DCHECK(OriginCanAccessServiceWorkers(pattern));
-  return ServiceWorkerUtils::PassOriginEqualitySecurityCheck<GURL>(document_url,
-                                                                   pattern);
-}
-
-bool CanGetRegistration(const GURL& document_url,
-                        const GURL& given_document_url) {
-  DCHECK(document_url.is_valid());
-  DCHECK(given_document_url.is_valid());
-  return ServiceWorkerUtils::PassOriginEqualitySecurityCheck<GURL>(
-             document_url, given_document_url) &&
-         OriginCanAccessServiceWorkers(document_url) &&
-         OriginCanAccessServiceWorkers(given_document_url);
+std::string GetNavigationPreloadDisabledErrorMessage(
+    ServiceWorkerVersion::NavigationPreloadSupportStatus support_status) {
+  switch (support_status) {
+    case ServiceWorkerVersion::NavigationPreloadSupportStatus::SUPPORTED:
+      NOTREACHED();
+      break;
+    case ServiceWorkerVersion::NavigationPreloadSupportStatus::
+        NOT_SUPPORTED_FIELD_TRIAL_STOPPED:
+      return "The Navigation Preload Origin Trial has ended.";
+    case ServiceWorkerVersion::NavigationPreloadSupportStatus::
+        NOT_SUPPORTED_DISABLED_BY_COMMAND_LINE:
+      return "Navigation Preload is disabled by command line flag.";
+    case ServiceWorkerVersion::NavigationPreloadSupportStatus::
+        NOT_SUPPORTED_NO_VALID_ORIGIN_TRIAL_TOKEN:
+      return "The service worker script does not have a valid Navigation "
+             "Preload Origin Trial token.";
+  }
+  NOTREACHED();
+  return "";
 }
 
 }  // namespace
@@ -101,7 +114,12 @@ ServiceWorkerDispatcherHost::ServiceWorkerDispatcherHost(
       render_process_id_(render_process_id),
       message_port_message_filter_(message_port_message_filter),
       resource_context_(resource_context),
-      channel_ready_(false) {
+      channel_ready_(false),
+      weak_factory_(this) {
+  AddAssociatedInterface(
+      mojom::ServiceWorkerDispatcherHost::Name_,
+      base::Bind(&ServiceWorkerDispatcherHost::AddMojoBinding,
+                 base::Unretained(this)));
 }
 
 ServiceWorkerDispatcherHost::~ServiceWorkerDispatcherHost() {
@@ -206,6 +224,12 @@ bool ServiceWorkerDispatcherHost::OnMessageReceived(
     IPC_MESSAGE_HANDLER(ServiceWorkerHostMsg_DecrementRegistrationRefCount,
                         OnDecrementRegistrationRefCount)
     IPC_MESSAGE_HANDLER(ServiceWorkerHostMsg_TerminateWorker, OnTerminateWorker)
+    IPC_MESSAGE_HANDLER(ServiceWorkerHostMsg_EnableNavigationPreload,
+                        OnEnableNavigationPreload)
+    IPC_MESSAGE_HANDLER(ServiceWorkerHostMsg_GetNavigationPreloadState,
+                        OnGetNavigationPreloadState)
+    IPC_MESSAGE_HANDLER(ServiceWorkerHostMsg_SetNavigationPreloadHeader,
+                        OnSetNavigationPreloadHeader)
     IPC_MESSAGE_UNHANDLED(handled = false)
   IPC_END_MESSAGE_MAP()
 
@@ -217,6 +241,13 @@ bool ServiceWorkerDispatcherHost::OnMessageReceived(
   }
 
   return handled;
+}
+
+void ServiceWorkerDispatcherHost::AddMojoBinding(
+    mojo::ScopedInterfaceEndpointHandle handle) {
+  bindings_.AddBinding(
+      this, mojo::MakeAssociatedRequest<mojom::ServiceWorkerDispatcherHost>(
+                std::move(handle)));
 }
 
 bool ServiceWorkerDispatcherHost::Send(IPC::Message* message) {
@@ -245,7 +276,7 @@ void ServiceWorkerDispatcherHost::RegisterServiceWorkerRegistrationHandle(
 ServiceWorkerHandle* ServiceWorkerDispatcherHost::FindServiceWorkerHandle(
     int provider_id,
     int64_t version_id) {
-  for (IDMap<ServiceWorkerHandle, IDMapOwnPointer>::iterator iter(&handles_);
+  for (IDMap<std::unique_ptr<ServiceWorkerHandle>>::iterator iter(&handles_);
        !iter.IsAtEnd(); iter.Advance()) {
     ServiceWorkerHandle* handle = iter.GetCurrentValue();
     DCHECK(handle);
@@ -286,53 +317,32 @@ void ServiceWorkerDispatcherHost::OnRegisterServiceWorker(
     const GURL& script_url) {
   TRACE_EVENT0("ServiceWorker",
                "ServiceWorkerDispatcherHost::OnRegisterServiceWorker");
-  if (!GetContext()) {
-    Send(new ServiceWorkerMsg_ServiceWorkerRegistrationError(
-        thread_id, request_id, WebServiceWorkerError::ErrorTypeAbort,
-        base::ASCIIToUTF16(kServiceWorkerRegisterErrorPrefix) +
-            base::ASCIIToUTF16(kShutdownErrorMessage)));
-    return;
+  ProviderStatus provider_status;
+  ServiceWorkerProviderHost* provider_host =
+      GetProviderHostForRequest(&provider_status, provider_id);
+  switch (provider_status) {
+    case ProviderStatus::NO_CONTEXT:  // fallthrough
+    case ProviderStatus::DEAD_HOST:
+      Send(new ServiceWorkerMsg_ServiceWorkerRegistrationError(
+          thread_id, request_id, WebServiceWorkerError::ErrorTypeAbort,
+          base::ASCIIToUTF16(kServiceWorkerRegisterErrorPrefix) +
+              base::ASCIIToUTF16(kShutdownErrorMessage)));
+      return;
+    case ProviderStatus::NO_HOST:
+      bad_message::ReceivedBadMessage(this, bad_message::SWDH_REGISTER_NO_HOST);
+      return;
+    case ProviderStatus::NO_URL:
+      Send(new ServiceWorkerMsg_ServiceWorkerRegistrationError(
+          thread_id, request_id, WebServiceWorkerError::ErrorTypeSecurity,
+          base::ASCIIToUTF16(kServiceWorkerRegisterErrorPrefix) +
+              base::ASCIIToUTF16(kNoDocumentURLErrorMessage)));
+      return;
+    case ProviderStatus::OK:
+      break;
   }
+
   if (!pattern.is_valid() || !script_url.is_valid()) {
     bad_message::ReceivedBadMessage(this, bad_message::SWDH_REGISTER_BAD_URL);
-    return;
-  }
-
-  ServiceWorkerProviderHost* provider_host = GetContext()->GetProviderHost(
-      render_process_id_, provider_id);
-  if (!provider_host) {
-    bad_message::ReceivedBadMessage(this, bad_message::SWDH_REGISTER_NO_HOST);
-    return;
-  }
-  if (!provider_host->IsContextAlive()) {
-    Send(new ServiceWorkerMsg_ServiceWorkerRegistrationError(
-        thread_id, request_id, WebServiceWorkerError::ErrorTypeAbort,
-        base::ASCIIToUTF16(kServiceWorkerRegisterErrorPrefix) +
-            base::ASCIIToUTF16(kShutdownErrorMessage)));
-    return;
-  }
-
-  // TODO(ksakamoto): Currently, document_url is empty if the document is in an
-  // IFRAME using frame.contentDocument.write(...). We can remove this check
-  // once crbug.com/439697 is fixed.
-  if (provider_host->document_url().is_empty()) {
-    Send(new ServiceWorkerMsg_ServiceWorkerRegistrationError(
-        thread_id, request_id, WebServiceWorkerError::ErrorTypeSecurity,
-        base::ASCIIToUTF16(kServiceWorkerRegisterErrorPrefix) +
-            base::ASCIIToUTF16(kNoDocumentURLErrorMessage)));
-    return;
-  }
-
-  if (!ServiceWorkerUtils::CanRegisterServiceWorker(
-          provider_host->document_url(), pattern, script_url)) {
-    // Temporary debugging for https://crbug.com/630495
-    base::debug::ScopedCrashKey host_url_key(
-        "swdh_register_cannot_host_url", provider_host->document_url().spec());
-    base::debug::ScopedCrashKey scope_url_key("swdh_register_cannot_scope_url",
-                                              pattern.spec());
-    base::debug::ScopedCrashKey script_url_key(
-        "swdh_register_cannot_script_url", script_url.spec());
-    bad_message::ReceivedBadMessage(this, bad_message::SWDH_REGISTER_CANNOT);
     return;
   }
 
@@ -343,9 +353,16 @@ void ServiceWorkerDispatcherHost::OnRegisterServiceWorker(
     return;
   }
 
+  std::vector<GURL> urls = {provider_host->document_url(), pattern, script_url};
+  if (!ServiceWorkerUtils::AllOriginsMatchAndCanAccessServiceWorkers(urls)) {
+    bad_message::ReceivedBadMessage(this, bad_message::SWDH_REGISTER_CANNOT);
+    return;
+  }
+
   if (!GetContentClient()->browser()->AllowServiceWorker(
           pattern, provider_host->topmost_frame_url(), resource_context_,
-          render_process_id_, provider_host->frame_id())) {
+          base::Bind(&GetWebContents, render_process_id_,
+                     provider_host->frame_id()))) {
     Send(new ServiceWorkerMsg_ServiceWorkerRegistrationError(
         thread_id, request_id, WebServiceWorkerError::ErrorTypeDisabled,
         base::ASCIIToUTF16(kServiceWorkerRegisterErrorPrefix) +
@@ -374,35 +391,28 @@ void ServiceWorkerDispatcherHost::OnUpdateServiceWorker(
     int64_t registration_id) {
   TRACE_EVENT0("ServiceWorker",
                "ServiceWorkerDispatcherHost::OnUpdateServiceWorker");
-  if (!GetContext()) {
-    Send(new ServiceWorkerMsg_ServiceWorkerUpdateError(
-        thread_id, request_id, WebServiceWorkerError::ErrorTypeAbort,
-        base::ASCIIToUTF16(kServiceWorkerUpdateErrorPrefix) +
-            base::ASCIIToUTF16(kShutdownErrorMessage)));
-    return;
-  }
-
+  ProviderStatus provider_status;
   ServiceWorkerProviderHost* provider_host =
-      GetContext()->GetProviderHost(render_process_id_, provider_id);
-  if (!provider_host) {
-    bad_message::ReceivedBadMessage(this, bad_message::SWDH_UPDATE_NO_HOST);
-    return;
-  }
-  if (!provider_host->IsContextAlive()) {
-    Send(new ServiceWorkerMsg_ServiceWorkerUpdateError(
-        thread_id, request_id, WebServiceWorkerError::ErrorTypeAbort,
-        base::ASCIIToUTF16(kServiceWorkerUpdateErrorPrefix) +
-            base::ASCIIToUTF16(kShutdownErrorMessage)));
-    return;
-  }
-
-  // TODO(jungkees): This check can be removed once crbug.com/439697 is fixed.
-  if (provider_host->document_url().is_empty()) {
-    Send(new ServiceWorkerMsg_ServiceWorkerUpdateError(
-        thread_id, request_id, WebServiceWorkerError::ErrorTypeSecurity,
-        base::ASCIIToUTF16(kServiceWorkerUpdateErrorPrefix) +
-            base::ASCIIToUTF16(kNoDocumentURLErrorMessage)));
-    return;
+      GetProviderHostForRequest(&provider_status, provider_id);
+  switch (provider_status) {
+    case ProviderStatus::NO_CONTEXT:  // fallthrough
+    case ProviderStatus::DEAD_HOST:
+      Send(new ServiceWorkerMsg_ServiceWorkerUpdateError(
+          thread_id, request_id, WebServiceWorkerError::ErrorTypeAbort,
+          base::ASCIIToUTF16(kServiceWorkerUpdateErrorPrefix) +
+              base::ASCIIToUTF16(kShutdownErrorMessage)));
+      return;
+    case ProviderStatus::NO_HOST:
+      bad_message::ReceivedBadMessage(this, bad_message::SWDH_UPDATE_NO_HOST);
+      return;
+    case ProviderStatus::NO_URL:
+      Send(new ServiceWorkerMsg_ServiceWorkerUpdateError(
+          thread_id, request_id, WebServiceWorkerError::ErrorTypeSecurity,
+          base::ASCIIToUTF16(kServiceWorkerUpdateErrorPrefix) +
+              base::ASCIIToUTF16(kNoDocumentURLErrorMessage)));
+      return;
+    case ProviderStatus::OK:
+      break;
   }
 
   ServiceWorkerRegistration* registration =
@@ -415,15 +425,17 @@ void ServiceWorkerDispatcherHost::OnUpdateServiceWorker(
     return;
   }
 
-  if (!CanUpdateServiceWorker(provider_host->document_url(),
-                              registration->pattern())) {
+  std::vector<GURL> urls = {provider_host->document_url(),
+                            registration->pattern()};
+  if (!ServiceWorkerUtils::AllOriginsMatchAndCanAccessServiceWorkers(urls)) {
     bad_message::ReceivedBadMessage(this, bad_message::SWDH_UPDATE_CANNOT);
     return;
   }
 
   if (!GetContentClient()->browser()->AllowServiceWorker(
           registration->pattern(), provider_host->topmost_frame_url(),
-          resource_context_, render_process_id_, provider_host->frame_id())) {
+          resource_context_, base::Bind(&GetWebContents, render_process_id_,
+                                        provider_host->frame_id()))) {
     Send(new ServiceWorkerMsg_ServiceWorkerUpdateError(
         thread_id, request_id, WebServiceWorkerError::ErrorTypeDisabled,
         base::ASCIIToUTF16(kServiceWorkerUpdateErrorPrefix) +
@@ -458,32 +470,29 @@ void ServiceWorkerDispatcherHost::OnUnregisterServiceWorker(
     int64_t registration_id) {
   TRACE_EVENT0("ServiceWorker",
                "ServiceWorkerDispatcherHost::OnUnregisterServiceWorker");
-  if (!GetContext()) {
-    Send(new ServiceWorkerMsg_ServiceWorkerUnregistrationError(
-        thread_id, request_id, blink::WebServiceWorkerError::ErrorTypeAbort,
-        base::ASCIIToUTF16(kShutdownErrorMessage)));
-    return;
-  }
-
+  ProviderStatus provider_status;
   ServiceWorkerProviderHost* provider_host =
-      GetContext()->GetProviderHost(render_process_id_, provider_id);
-  if (!provider_host) {
-    bad_message::ReceivedBadMessage(this, bad_message::SWDH_UNREGISTER_NO_HOST);
-    return;
-  }
-  if (!provider_host->IsContextAlive()) {
-    Send(new ServiceWorkerMsg_ServiceWorkerUnregistrationError(
-        thread_id, request_id, blink::WebServiceWorkerError::ErrorTypeAbort,
-        base::ASCIIToUTF16(kShutdownErrorMessage)));
-    return;
-  }
-
-  // TODO(ksakamoto): This check can be removed once crbug.com/439697 is fixed.
-  if (provider_host->document_url().is_empty()) {
-    Send(new ServiceWorkerMsg_ServiceWorkerUnregistrationError(
-        thread_id, request_id, WebServiceWorkerError::ErrorTypeSecurity,
-        base::ASCIIToUTF16(kNoDocumentURLErrorMessage)));
-    return;
+      GetProviderHostForRequest(&provider_status, provider_id);
+  switch (provider_status) {
+    case ProviderStatus::NO_CONTEXT:  // fallthrough
+    case ProviderStatus::DEAD_HOST:
+      Send(new ServiceWorkerMsg_ServiceWorkerUnregistrationError(
+          thread_id, request_id, WebServiceWorkerError::ErrorTypeAbort,
+          base::ASCIIToUTF16(kServiceWorkerUpdateErrorPrefix) +
+              base::ASCIIToUTF16(kShutdownErrorMessage)));
+      return;
+    case ProviderStatus::NO_HOST:
+      bad_message::ReceivedBadMessage(this,
+                                      bad_message::SWDH_UNREGISTER_NO_HOST);
+      return;
+    case ProviderStatus::NO_URL:
+      Send(new ServiceWorkerMsg_ServiceWorkerUnregistrationError(
+          thread_id, request_id, WebServiceWorkerError::ErrorTypeSecurity,
+          base::ASCIIToUTF16(kServiceWorkerUnregisterErrorPrefix) +
+              base::ASCIIToUTF16(kNoDocumentURLErrorMessage)));
+      return;
+    case ProviderStatus::OK:
+      break;
   }
 
   ServiceWorkerRegistration* registration =
@@ -496,21 +505,17 @@ void ServiceWorkerDispatcherHost::OnUnregisterServiceWorker(
     return;
   }
 
-  if (!CanUnregisterServiceWorker(provider_host->document_url(),
-                                  registration->pattern())) {
-    // Temporary debugging for https://crbug.com/619294
-    base::debug::ScopedCrashKey host_url_key(
-        "swdh_unregister_cannot_host_url",
-        provider_host->document_url().spec());
-    base::debug::ScopedCrashKey scope_url_key(
-        "swdh_unregister_cannot_scope_url", registration->pattern().spec());
+  std::vector<GURL> urls = {provider_host->document_url(),
+                            registration->pattern()};
+  if (!ServiceWorkerUtils::AllOriginsMatchAndCanAccessServiceWorkers(urls)) {
     bad_message::ReceivedBadMessage(this, bad_message::SWDH_UNREGISTER_CANNOT);
     return;
   }
 
   if (!GetContentClient()->browser()->AllowServiceWorker(
           registration->pattern(), provider_host->topmost_frame_url(),
-          resource_context_, render_process_id_, provider_host->frame_id())) {
+          resource_context_, base::Bind(&GetWebContents, render_process_id_,
+                                        provider_host->frame_id()))) {
     Send(new ServiceWorkerMsg_ServiceWorkerUnregistrationError(
         thread_id, request_id, WebServiceWorkerError::ErrorTypeDisabled,
         base::ASCIIToUTF16(kUserDeniedPermissionMessage)));
@@ -535,50 +540,39 @@ void ServiceWorkerDispatcherHost::OnGetRegistration(
   TRACE_EVENT0("ServiceWorker",
                "ServiceWorkerDispatcherHost::OnGetRegistration");
 
-  if (!GetContext()) {
-    Send(new ServiceWorkerMsg_ServiceWorkerGetRegistrationError(
-        thread_id, request_id, blink::WebServiceWorkerError::ErrorTypeAbort,
-        base::ASCIIToUTF16(kServiceWorkerGetRegistrationErrorPrefix) +
-            base::ASCIIToUTF16(kShutdownErrorMessage)));
-    return;
+  ProviderStatus provider_status;
+  ServiceWorkerProviderHost* provider_host =
+      GetProviderHostForRequest(&provider_status, provider_id);
+  switch (provider_status) {
+    case ProviderStatus::NO_CONTEXT:  // fallthrough
+    case ProviderStatus::DEAD_HOST:
+      Send(new ServiceWorkerMsg_ServiceWorkerGetRegistrationError(
+          thread_id, request_id, blink::WebServiceWorkerError::ErrorTypeAbort,
+          base::ASCIIToUTF16(kServiceWorkerGetRegistrationErrorPrefix) +
+              base::ASCIIToUTF16(kShutdownErrorMessage)));
+      return;
+    case ProviderStatus::NO_HOST:
+      bad_message::ReceivedBadMessage(
+          this, bad_message::SWDH_GET_REGISTRATION_NO_HOST);
+      return;
+    case ProviderStatus::NO_URL:
+      Send(new ServiceWorkerMsg_ServiceWorkerGetRegistrationError(
+          thread_id, request_id, WebServiceWorkerError::ErrorTypeSecurity,
+          base::ASCIIToUTF16(kServiceWorkerGetRegistrationErrorPrefix) +
+              base::ASCIIToUTF16(kNoDocumentURLErrorMessage)));
+      return;
+    case ProviderStatus::OK:
+      break;
   }
+
   if (!document_url.is_valid()) {
     bad_message::ReceivedBadMessage(this,
                                     bad_message::SWDH_GET_REGISTRATION_BAD_URL);
     return;
   }
 
-  ServiceWorkerProviderHost* provider_host = GetContext()->GetProviderHost(
-      render_process_id_, provider_id);
-  if (!provider_host) {
-    bad_message::ReceivedBadMessage(this,
-                                    bad_message::SWDH_GET_REGISTRATION_NO_HOST);
-    return;
-  }
-  if (!provider_host->IsContextAlive()) {
-    Send(new ServiceWorkerMsg_ServiceWorkerGetRegistrationError(
-        thread_id, request_id, blink::WebServiceWorkerError::ErrorTypeAbort,
-        base::ASCIIToUTF16(kServiceWorkerGetRegistrationErrorPrefix) +
-            base::ASCIIToUTF16(kShutdownErrorMessage)));
-    return;
-  }
-
-  // TODO(ksakamoto): This check can be removed once crbug.com/439697 is fixed.
-  if (provider_host->document_url().is_empty()) {
-    Send(new ServiceWorkerMsg_ServiceWorkerGetRegistrationError(
-        thread_id, request_id, WebServiceWorkerError::ErrorTypeSecurity,
-        base::ASCIIToUTF16(kServiceWorkerGetRegistrationErrorPrefix) +
-            base::ASCIIToUTF16(kNoDocumentURLErrorMessage)));
-    return;
-  }
-
-  if (!CanGetRegistration(provider_host->document_url(), document_url)) {
-    // Temporary debugging for https://crbug.com/630496
-    base::debug::ScopedCrashKey host_url_key(
-        "swdh_get_registration_cannot_host_url",
-        provider_host->document_url().spec());
-    base::debug::ScopedCrashKey document_url_key(
-        "swdh_get_registration_cannot_document_url", document_url.spec());
+  std::vector<GURL> urls = {provider_host->document_url(), document_url};
+  if (!ServiceWorkerUtils::AllOriginsMatchAndCanAccessServiceWorkers(urls)) {
     bad_message::ReceivedBadMessage(this,
                                     bad_message::SWDH_GET_REGISTRATION_CANNOT);
     return;
@@ -586,7 +580,8 @@ void ServiceWorkerDispatcherHost::OnGetRegistration(
 
   if (!GetContentClient()->browser()->AllowServiceWorker(
           provider_host->document_url(), provider_host->topmost_frame_url(),
-          resource_context_, render_process_id_, provider_host->frame_id())) {
+          resource_context_, base::Bind(&GetWebContents, render_process_id_,
+                                        provider_host->frame_id()))) {
     Send(new ServiceWorkerMsg_ServiceWorkerGetRegistrationError(
         thread_id, request_id, WebServiceWorkerError::ErrorTypeDisabled,
         base::ASCIIToUTF16(kServiceWorkerGetRegistrationErrorPrefix) +
@@ -613,36 +608,29 @@ void ServiceWorkerDispatcherHost::OnGetRegistrations(int thread_id,
   TRACE_EVENT0("ServiceWorker",
                "ServiceWorkerDispatcherHost::OnGetRegistrations");
 
-  if (!GetContext()) {
-    Send(new ServiceWorkerMsg_ServiceWorkerGetRegistrationsError(
-        thread_id, request_id, blink::WebServiceWorkerError::ErrorTypeAbort,
-        base::ASCIIToUTF16(kServiceWorkerGetRegistrationsErrorPrefix) +
-            base::ASCIIToUTF16(kShutdownErrorMessage)));
-    return;
-  }
-
+  ProviderStatus provider_status;
   ServiceWorkerProviderHost* provider_host =
-      GetContext()->GetProviderHost(render_process_id_, provider_id);
-  if (!provider_host) {
-    bad_message::ReceivedBadMessage(
-        this, bad_message::SWDH_GET_REGISTRATIONS_NO_HOST);
-    return;
-  }
-  if (!provider_host->IsContextAlive()) {
-    Send(new ServiceWorkerMsg_ServiceWorkerGetRegistrationsError(
-        thread_id, request_id, blink::WebServiceWorkerError::ErrorTypeAbort,
-        base::ASCIIToUTF16(kServiceWorkerGetRegistrationsErrorPrefix) +
-            base::ASCIIToUTF16(kShutdownErrorMessage)));
-    return;
-  }
-
-  // TODO(jungkees): This check can be removed once crbug.com/439697 is fixed.
-  if (provider_host->document_url().is_empty()) {
-    Send(new ServiceWorkerMsg_ServiceWorkerGetRegistrationsError(
-        thread_id, request_id, WebServiceWorkerError::ErrorTypeSecurity,
-        base::ASCIIToUTF16(kServiceWorkerGetRegistrationsErrorPrefix) +
-            base::ASCIIToUTF16(kNoDocumentURLErrorMessage)));
-    return;
+      GetProviderHostForRequest(&provider_status, provider_id);
+  switch (provider_status) {
+    case ProviderStatus::NO_CONTEXT:  // fallthrough
+    case ProviderStatus::DEAD_HOST:
+      Send(new ServiceWorkerMsg_ServiceWorkerGetRegistrationsError(
+          thread_id, request_id, blink::WebServiceWorkerError::ErrorTypeAbort,
+          base::ASCIIToUTF16(kServiceWorkerGetRegistrationsErrorPrefix) +
+              base::ASCIIToUTF16(kShutdownErrorMessage)));
+      return;
+    case ProviderStatus::NO_HOST:
+      bad_message::ReceivedBadMessage(
+          this, bad_message::SWDH_GET_REGISTRATIONS_NO_HOST);
+      return;
+    case ProviderStatus::NO_URL:
+      Send(new ServiceWorkerMsg_ServiceWorkerGetRegistrationsError(
+          thread_id, request_id, WebServiceWorkerError::ErrorTypeSecurity,
+          base::ASCIIToUTF16(kServiceWorkerGetRegistrationsErrorPrefix) +
+              base::ASCIIToUTF16(kNoDocumentURLErrorMessage)));
+      return;
+    case ProviderStatus::OK:
+      break;
   }
 
   if (!OriginCanAccessServiceWorkers(provider_host->document_url())) {
@@ -653,7 +641,8 @@ void ServiceWorkerDispatcherHost::OnGetRegistrations(int thread_id,
 
   if (!GetContentClient()->browser()->AllowServiceWorker(
           provider_host->document_url(), provider_host->topmost_frame_url(),
-          resource_context_, render_process_id_, provider_host->frame_id())) {
+          resource_context_, base::Bind(&GetWebContents, render_process_id_,
+                                        provider_host->frame_id()))) {
     Send(new ServiceWorkerMsg_ServiceWorkerGetRegistrationsError(
         thread_id, request_id, WebServiceWorkerError::ErrorTypeDisabled,
         base::ASCIIToUTF16(kServiceWorkerGetRegistrationsErrorPrefix) +
@@ -697,6 +686,253 @@ void ServiceWorkerDispatcherHost::OnGetRegistrationForReady(
     bad_message::ReceivedBadMessage(
         this, bad_message::SWDH_GET_REGISTRATION_FOR_READY_ALREADY_IN_PROGRESS);
   }
+}
+
+void ServiceWorkerDispatcherHost::OnEnableNavigationPreload(
+    int thread_id,
+    int request_id,
+    int provider_id,
+    int64_t registration_id,
+    bool enable) {
+  ProviderStatus provider_status;
+  ServiceWorkerProviderHost* provider_host =
+      GetProviderHostForRequest(&provider_status, provider_id);
+  switch (provider_status) {
+    case ProviderStatus::NO_CONTEXT:  // fallthrough
+    case ProviderStatus::DEAD_HOST:
+      Send(new ServiceWorkerMsg_EnableNavigationPreloadError(
+          thread_id, request_id, WebServiceWorkerError::ErrorTypeAbort,
+          std::string(kEnableNavigationPreloadErrorPrefix) +
+              std::string(kShutdownErrorMessage)));
+      return;
+    case ProviderStatus::NO_HOST:
+      bad_message::ReceivedBadMessage(
+          this, bad_message::SWDH_ENABLE_NAVIGATION_PRELOAD_NO_HOST);
+      return;
+    case ProviderStatus::NO_URL:
+      Send(new ServiceWorkerMsg_EnableNavigationPreloadError(
+          thread_id, request_id, WebServiceWorkerError::ErrorTypeSecurity,
+          std::string(kEnableNavigationPreloadErrorPrefix) +
+              std::string(kNoDocumentURLErrorMessage)));
+      return;
+    case ProviderStatus::OK:
+      break;
+  }
+
+  ServiceWorkerRegistration* registration =
+      GetContext()->GetLiveRegistration(registration_id);
+  if (!registration) {
+    // |registration| must be alive because a renderer retains a registration
+    // reference at this point.
+    bad_message::ReceivedBadMessage(
+        this, bad_message::SWDH_ENABLE_NAVIGATION_PRELOAD_BAD_REGISTRATION_ID);
+    return;
+  }
+  // The spec discussion consensus is to reject if there is no active worker:
+  // https://github.com/w3c/ServiceWorker/issues/920#issuecomment-262212670
+  // TODO(falken): Remove this comment when the spec is updated.
+  if (!registration->active_version()) {
+    Send(new ServiceWorkerMsg_EnableNavigationPreloadError(
+        thread_id, request_id, WebServiceWorkerError::ErrorTypeState,
+        std::string(kEnableNavigationPreloadErrorPrefix) +
+            std::string(kNoActiveWorkerErrorMessage)));
+    return;
+  }
+
+  ServiceWorkerVersion::NavigationPreloadSupportStatus support_status =
+      registration->active_version()->GetNavigationPreloadSupportStatus();
+  if (support_status !=
+      ServiceWorkerVersion::NavigationPreloadSupportStatus::SUPPORTED) {
+    Send(new ServiceWorkerMsg_EnableNavigationPreloadError(
+        thread_id, request_id, WebServiceWorkerError::ErrorTypeAbort,
+        std::string(kEnableNavigationPreloadErrorPrefix) +
+            GetNavigationPreloadDisabledErrorMessage(support_status)));
+    return;
+  }
+
+  std::vector<GURL> urls = {provider_host->document_url(),
+                            registration->pattern()};
+  if (!ServiceWorkerUtils::AllOriginsMatchAndCanAccessServiceWorkers(urls)) {
+    bad_message::ReceivedBadMessage(
+        this, bad_message::SWDH_ENABLE_NAVIGATION_PRELOAD_INVALID_ORIGIN);
+    return;
+  }
+
+  if (!GetContentClient()->browser()->AllowServiceWorker(
+          registration->pattern(), provider_host->topmost_frame_url(),
+          resource_context_, base::Bind(&GetWebContents, render_process_id_,
+                                        provider_host->frame_id()))) {
+    Send(new ServiceWorkerMsg_EnableNavigationPreloadError(
+        thread_id, request_id, WebServiceWorkerError::ErrorTypeDisabled,
+        std::string(kEnableNavigationPreloadErrorPrefix) +
+            std::string(kUserDeniedPermissionMessage)));
+    return;
+  }
+
+  GetContext()->storage()->UpdateNavigationPreloadEnabled(
+      registration->id(), registration->pattern().GetOrigin(), enable,
+      base::Bind(
+          &ServiceWorkerDispatcherHost::DidUpdateNavigationPreloadEnabled, this,
+          thread_id, request_id, registration->id(), enable));
+}
+
+void ServiceWorkerDispatcherHost::OnGetNavigationPreloadState(
+    int thread_id,
+    int request_id,
+    int provider_id,
+    int64_t registration_id) {
+  ProviderStatus provider_status;
+  ServiceWorkerProviderHost* provider_host =
+      GetProviderHostForRequest(&provider_status, provider_id);
+  switch (provider_status) {
+    case ProviderStatus::NO_CONTEXT:  // fallthrough
+    case ProviderStatus::DEAD_HOST:
+      Send(new ServiceWorkerMsg_GetNavigationPreloadStateError(
+          thread_id, request_id, WebServiceWorkerError::ErrorTypeAbort,
+          std::string(kGetNavigationPreloadStateErrorPrefix) +
+              std::string(kShutdownErrorMessage)));
+      return;
+    case ProviderStatus::NO_HOST:
+      bad_message::ReceivedBadMessage(
+          this, bad_message::SWDH_GET_NAVIGATION_PRELOAD_STATE_NO_HOST);
+      return;
+    case ProviderStatus::NO_URL:
+      Send(new ServiceWorkerMsg_GetNavigationPreloadStateError(
+          thread_id, request_id, WebServiceWorkerError::ErrorTypeSecurity,
+          std::string(kGetNavigationPreloadStateErrorPrefix) +
+              std::string(kNoDocumentURLErrorMessage)));
+      return;
+    case ProviderStatus::OK:
+      break;
+  }
+
+  ServiceWorkerRegistration* registration =
+      GetContext()->GetLiveRegistration(registration_id);
+  if (!registration) {
+    // |registration| must be alive because a renderer retains a registration
+    // reference at this point.
+    bad_message::ReceivedBadMessage(
+        this,
+        bad_message::SWDH_GET_NAVIGATION_PRELOAD_STATE_BAD_REGISTRATION_ID);
+    return;
+  }
+
+  std::vector<GURL> urls = {provider_host->document_url(),
+                            registration->pattern()};
+  if (!ServiceWorkerUtils::AllOriginsMatchAndCanAccessServiceWorkers(urls)) {
+    bad_message::ReceivedBadMessage(
+        this, bad_message::SWDH_GET_NAVIGATION_PRELOAD_STATE_INVALID_ORIGIN);
+    return;
+  }
+
+  if (!GetContentClient()->browser()->AllowServiceWorker(
+          registration->pattern(), provider_host->topmost_frame_url(),
+          resource_context_, base::Bind(&GetWebContents, render_process_id_,
+                                        provider_host->frame_id()))) {
+    Send(new ServiceWorkerMsg_GetNavigationPreloadStateError(
+        thread_id, request_id, WebServiceWorkerError::ErrorTypeDisabled,
+        std::string(kGetNavigationPreloadStateErrorPrefix) +
+            std::string(kUserDeniedPermissionMessage)));
+    return;
+  }
+
+  Send(new ServiceWorkerMsg_DidGetNavigationPreloadState(
+      thread_id, request_id, registration->navigation_preload_state()));
+}
+
+void ServiceWorkerDispatcherHost::OnSetNavigationPreloadHeader(
+    int thread_id,
+    int request_id,
+    int provider_id,
+    int64_t registration_id,
+    const std::string& value) {
+  ProviderStatus provider_status;
+  ServiceWorkerProviderHost* provider_host =
+      GetProviderHostForRequest(&provider_status, provider_id);
+  switch (provider_status) {
+    case ProviderStatus::NO_CONTEXT:  // fallthrough
+    case ProviderStatus::DEAD_HOST:
+      Send(new ServiceWorkerMsg_SetNavigationPreloadHeaderError(
+          thread_id, request_id, WebServiceWorkerError::ErrorTypeAbort,
+          std::string(kSetNavigationPreloadHeaderErrorPrefix) +
+              std::string(kShutdownErrorMessage)));
+      return;
+    case ProviderStatus::NO_HOST:
+      bad_message::ReceivedBadMessage(
+          this, bad_message::SWDH_SET_NAVIGATION_PRELOAD_HEADER_NO_HOST);
+      return;
+    case ProviderStatus::NO_URL:
+      Send(new ServiceWorkerMsg_SetNavigationPreloadHeaderError(
+          thread_id, request_id, WebServiceWorkerError::ErrorTypeSecurity,
+          std::string(kSetNavigationPreloadHeaderErrorPrefix) +
+              std::string(kNoDocumentURLErrorMessage)));
+      return;
+    case ProviderStatus::OK:
+      break;
+  }
+
+  ServiceWorkerRegistration* registration =
+      GetContext()->GetLiveRegistration(registration_id);
+  if (!registration) {
+    // |registration| must be alive because a renderer retains a registration
+    // reference at this point.
+    bad_message::ReceivedBadMessage(
+        this,
+        bad_message::SWDH_SET_NAVIGATION_PRELOAD_HEADER_BAD_REGISTRATION_ID);
+    return;
+  }
+  // The spec discussion consensus is to reject if there is no active worker:
+  // https://github.com/w3c/ServiceWorker/issues/920#issuecomment-262212670
+  // TODO(falken): Remove this comment when the spec is updated.
+  if (!registration->active_version()) {
+    Send(new ServiceWorkerMsg_SetNavigationPreloadHeaderError(
+        thread_id, request_id, WebServiceWorkerError::ErrorTypeState,
+        std::string(kSetNavigationPreloadHeaderErrorPrefix) +
+            std::string(kNoActiveWorkerErrorMessage)));
+    return;
+  }
+
+  ServiceWorkerVersion::NavigationPreloadSupportStatus support_status =
+      registration->active_version()->GetNavigationPreloadSupportStatus();
+  if (support_status !=
+      ServiceWorkerVersion::NavigationPreloadSupportStatus::SUPPORTED) {
+    Send(new ServiceWorkerMsg_SetNavigationPreloadHeaderError(
+        thread_id, request_id, WebServiceWorkerError::ErrorTypeAbort,
+        std::string(kSetNavigationPreloadHeaderErrorPrefix) +
+            GetNavigationPreloadDisabledErrorMessage(support_status)));
+    return;
+  }
+  std::vector<GURL> urls = {provider_host->document_url(),
+                            registration->pattern()};
+  if (!ServiceWorkerUtils::AllOriginsMatchAndCanAccessServiceWorkers(urls)) {
+    bad_message::ReceivedBadMessage(
+        this, bad_message::SWDH_SET_NAVIGATION_PRELOAD_HEADER_INVALID_ORIGIN);
+    return;
+  }
+
+  // TODO(falken): Ideally this would match Blink's isValidHTTPHeaderValue.
+  // Chrome's check is less restrictive: it allows non-latin1 characters.
+  if (!net::HttpUtil::IsValidHeaderValue(value)) {
+    bad_message::ReceivedBadMessage(
+        this, bad_message::SWDH_SET_NAVIGATION_PRELOAD_HEADER_BAD_VALUE);
+    return;
+  }
+
+  if (!GetContentClient()->browser()->AllowServiceWorker(
+          registration->pattern(), provider_host->topmost_frame_url(),
+          resource_context_, base::Bind(&GetWebContents, render_process_id_,
+                                        provider_host->frame_id()))) {
+    Send(new ServiceWorkerMsg_SetNavigationPreloadHeaderError(
+        thread_id, request_id, WebServiceWorkerError::ErrorTypeDisabled,
+        std::string(kSetNavigationPreloadHeaderErrorPrefix) +
+            std::string(kUserDeniedPermissionMessage)));
+    return;
+  }
+
+  GetContext()->storage()->UpdateNavigationPreloadHeader(
+      registration->id(), registration->pattern().GetOrigin(), value,
+      base::Bind(&ServiceWorkerDispatcherHost::DidUpdateNavigationPreloadHeader,
+                 this, thread_id, request_id, registration->id(), value));
 }
 
 void ServiceWorkerDispatcherHost::OnPostMessageToWorker(
@@ -750,16 +986,22 @@ void ServiceWorkerDispatcherHost::DispatchExtendableMessageEvent(
                          DispatchExtendableMessageEventInternal<
                              ServiceWorkerClientInfo>,
                      this, worker, message, source_origin, sent_message_ports,
-                     callback));
+                     base::nullopt, callback));
       break;
-    case SERVICE_WORKER_PROVIDER_FOR_CONTROLLER:
+    case SERVICE_WORKER_PROVIDER_FOR_CONTROLLER: {
+      // Clamp timeout to the sending worker's remaining timeout, to prevent
+      // postMessage from keeping workers alive forever.
+      base::TimeDelta timeout =
+          sender_provider_host->running_hosted_version()->remaining_timeout();
       RunSoon(base::Bind(
           &ServiceWorkerDispatcherHost::DispatchExtendableMessageEventInternal<
               ServiceWorkerObjectInfo>,
-          this, worker, message, source_origin, sent_message_ports, callback,
+          this, worker, message, source_origin, sent_message_ports,
+          base::make_optional(timeout), callback,
           sender_provider_host->GetOrCreateServiceWorkerHandle(
               sender_provider_host->running_hosted_version())));
       break;
+    }
     case SERVICE_WORKER_PROVIDER_UNKNOWN:
     default:
       NOTREACHED() << sender_provider_host->provider_type();
@@ -881,6 +1123,22 @@ void ServiceWorkerDispatcherHost::OnSetHostedVersionId(int provider_id,
 
   // A process for the worker must be equal to a process for the provider host.
   if (version->embedded_worker()->process_id() != provider_host->process_id()) {
+    // Temporary debugging for https://crbug.com/668633
+    base::debug::ScopedCrashKey scope_worker_pid(
+        "swdh_set_hosted_version_worker_pid",
+        base::IntToString(version->embedded_worker()->process_id()));
+    base::debug::ScopedCrashKey scope_provider_host_pid(
+        "swdh_set_hosted_version_host_pid",
+        base::IntToString(provider_host->process_id()));
+    if (version->embedded_worker()->process_id() !=
+        ChildProcessHost::kInvalidUniqueID) {
+      base::debug::ScopedCrashKey scope_is_new_process(
+          "swdh_set_hosted_version_is_new_process",
+          version->embedded_worker()->is_new_process() ? "true" : "false");
+    }
+    base::debug::ScopedCrashKey scope_worker_restart_count(
+        "swdh_set_hosted_version_restart_count",
+        base::IntToString(version->embedded_worker()->restart_count()));
     bad_message::ReceivedBadMessage(
         this, bad_message::SWDH_SET_HOSTED_VERSION_PROCESS_MISMATCH);
     return;
@@ -913,6 +1171,7 @@ void ServiceWorkerDispatcherHost::DispatchExtendableMessageEventInternal(
     const base::string16& message,
     const url::Origin& source_origin,
     const std::vector<int>& sent_message_ports,
+    const base::Optional<base::TimeDelta>& timeout,
     const StatusCallback& callback,
     const SourceInfo& source_info) {
   if (!source_info.IsValid()) {
@@ -920,12 +1179,22 @@ void ServiceWorkerDispatcherHost::DispatchExtendableMessageEventInternal(
         sent_message_ports, source_info, callback, SERVICE_WORKER_ERROR_FAILED);
     return;
   }
+
+  // If not enough time is left to actually process the event don't even
+  // bother starting the worker and sending the event.
+  if (timeout && *timeout < base::TimeDelta::FromMilliseconds(100)) {
+    DidFailToDispatchExtendableMessageEvent<SourceInfo>(
+        sent_message_ports, source_info, callback,
+        SERVICE_WORKER_ERROR_TIMEOUT);
+    return;
+  }
+
   worker->RunAfterStartWorker(
       ServiceWorkerMetrics::EventType::MESSAGE,
       base::Bind(&ServiceWorkerDispatcherHost::
                      DispatchExtendableMessageEventAfterStartWorker,
                  this, worker, message, source_origin, sent_message_ports,
-                 ExtendableMessageEventSource(source_info), callback),
+                 ExtendableMessageEventSource(source_info), timeout, callback),
       base::Bind(
           &ServiceWorkerDispatcherHost::DidFailToDispatchExtendableMessageEvent<
               SourceInfo>,
@@ -939,33 +1208,44 @@ void ServiceWorkerDispatcherHost::
         const url::Origin& source_origin,
         const std::vector<int>& sent_message_ports,
         const ExtendableMessageEventSource& source,
+        const base::Optional<base::TimeDelta>& timeout,
         const StatusCallback& callback) {
-  int request_id =
-      worker->StartRequest(ServiceWorkerMetrics::EventType::MESSAGE, callback);
+  int request_id;
+  if (timeout) {
+    request_id = worker->StartRequestWithCustomTimeout(
+        ServiceWorkerMetrics::EventType::MESSAGE, callback, *timeout,
+        ServiceWorkerVersion::CONTINUE_ON_TIMEOUT);
+  } else {
+    request_id = worker->StartRequest(ServiceWorkerMetrics::EventType::MESSAGE,
+                                      callback);
+  }
 
   MessagePortMessageFilter* filter =
       worker->embedded_worker()->message_port_message_filter();
   std::vector<int> new_routing_ids;
   filter->UpdateMessagePortsWithNewRoutes(sent_message_ports, &new_routing_ids);
 
-  ServiceWorkerMsg_ExtendableMessageEvent_Params params;
-  params.message = message;
-  params.source_origin = source_origin;
-  params.message_ports = sent_message_ports;
-  params.new_routing_ids = new_routing_ids;
-  params.source = source;
+  mojom::ExtendableMessageEventPtr event = mojom::ExtendableMessageEvent::New();
+  event->message = message;
+  event->source_origin = source_origin;
+  event->message_ports = sent_message_ports;
+  event->new_routing_ids = new_routing_ids;
+  event->source = source;
 
   // Hide the client url if the client has a unique origin.
   if (source_origin.unique()) {
-    if (params.source.client_info.IsValid())
-      params.source.client_info.url = GURL();
+    if (event->source.client_info.IsValid())
+      event->source.client_info.url = GURL();
     else
-      params.source.service_worker_info.url = GURL();
+      event->source.service_worker_info.url = GURL();
   }
 
-  worker->DispatchSimpleEvent<
-      ServiceWorkerHostMsg_ExtendableMessageEventFinished>(
-      request_id, ServiceWorkerMsg_ExtendableMessageEvent(request_id, params));
+  // |event_dispatcher| is owned by |worker|, once |worker| got destroyed, the
+  // bound function will never be called, so it is safe to use
+  // base::Unretained() here.
+  worker->event_dispatcher()->DispatchExtendableMessageEvent(
+      std::move(event), base::Bind(&ServiceWorkerVersion::OnSimpleEventFinished,
+                                   base::Unretained(worker.get()), request_id));
 }
 
 template <typename SourceInfo>
@@ -1448,6 +1728,77 @@ ServiceWorkerContextCore* ServiceWorkerDispatcherHost::GetContext() {
   if (!context_wrapper_.get())
     return nullptr;
   return context_wrapper_->context();
+}
+
+ServiceWorkerProviderHost*
+ServiceWorkerDispatcherHost::GetProviderHostForRequest(ProviderStatus* status,
+                                                       int provider_id) {
+  if (!GetContext()) {
+    *status = ProviderStatus::NO_CONTEXT;
+    return nullptr;
+  }
+
+  ServiceWorkerProviderHost* provider_host =
+      GetContext()->GetProviderHost(render_process_id_, provider_id);
+  if (!provider_host) {
+    *status = ProviderStatus::NO_HOST;
+    return nullptr;
+  }
+
+  if (!provider_host->IsContextAlive()) {
+    *status = ProviderStatus::DEAD_HOST;
+    return nullptr;
+  }
+
+  // TODO(falken): This check can be removed once crbug.com/439697 is fixed.
+  if (provider_host->document_url().is_empty()) {
+    *status = ProviderStatus::NO_URL;
+    return nullptr;
+  }
+
+  *status = ProviderStatus::OK;
+  return provider_host;
+}
+
+void ServiceWorkerDispatcherHost::DidUpdateNavigationPreloadEnabled(
+    int thread_id,
+    int request_id,
+    int registration_id,
+    bool enable,
+    ServiceWorkerStatusCode status) {
+  if (status != SERVICE_WORKER_OK) {
+    Send(new ServiceWorkerMsg_EnableNavigationPreloadError(
+        thread_id, request_id, WebServiceWorkerError::ErrorTypeUnknown,
+        std::string(kEnableNavigationPreloadErrorPrefix) +
+            std::string(kDatabaseErrorMessage)));
+    return;
+  }
+  ServiceWorkerRegistration* registration =
+      GetContext()->GetLiveRegistration(registration_id);
+  if (registration)
+    registration->EnableNavigationPreload(enable);
+  Send(new ServiceWorkerMsg_DidEnableNavigationPreload(thread_id, request_id));
+}
+
+void ServiceWorkerDispatcherHost::DidUpdateNavigationPreloadHeader(
+    int thread_id,
+    int request_id,
+    int registration_id,
+    const std::string& value,
+    ServiceWorkerStatusCode status) {
+  if (status != SERVICE_WORKER_OK) {
+    Send(new ServiceWorkerMsg_SetNavigationPreloadHeaderError(
+        thread_id, request_id, WebServiceWorkerError::ErrorTypeUnknown,
+        std::string(kSetNavigationPreloadHeaderErrorPrefix) +
+            std::string(kDatabaseErrorMessage)));
+    return;
+  }
+  ServiceWorkerRegistration* registration =
+      GetContext()->GetLiveRegistration(registration_id);
+  if (registration)
+    registration->SetNavigationPreloadHeader(value);
+  Send(new ServiceWorkerMsg_DidSetNavigationPreloadHeader(thread_id,
+                                                          request_id));
 }
 
 void ServiceWorkerDispatcherHost::OnTerminateWorker(int handle_id) {

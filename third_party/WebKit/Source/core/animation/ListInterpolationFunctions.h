@@ -12,7 +12,6 @@
 
 namespace blink {
 
-class CSSValueList;
 class UnderlyingValueOwner;
 class InterpolationType;
 
@@ -100,7 +99,7 @@ InterpolationValue ListInterpolationFunctions::createList(
     if (!item)
       return nullptr;
     interpolableList->set(i, std::move(item.interpolableValue));
-    nonInterpolableValues[i] = item.nonInterpolableValue.release();
+    nonInterpolableValues[i] = std::move(item.nonInterpolableValue);
   }
   return InterpolationValue(
       std::move(interpolableList),

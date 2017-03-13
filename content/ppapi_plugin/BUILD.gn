@@ -23,6 +23,7 @@ source_set("ppapi_plugin_sources") {
     "//content",  # For the component build.
     "//content/app:*",
     "//gin",
+    "//services/service_manager/public/cpp",
   ]
 
   sources = [
@@ -45,6 +46,8 @@ source_set("ppapi_plugin_sources") {
 
   deps = [
     "//base",
+    "//components/discardable_memory/client",
+    "//components/variations",
     "//content:export",
     "//content/child",
     "//content/public/child:child_sources",
@@ -55,7 +58,7 @@ source_set("ppapi_plugin_sources") {
     "//ppapi/proxy:ipc",
     "//ppapi/shared_impl",
     "//sandbox",
-    "//services/shell/public/interfaces",
+    "//services/service_manager/public/interfaces",
     "//skia",
     "//third_party/WebKit/public:blink",
     "//third_party/icu",

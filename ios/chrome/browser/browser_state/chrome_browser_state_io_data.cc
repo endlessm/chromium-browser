@@ -32,7 +32,7 @@
 #include "components/net_log/chrome_net_log.h"
 #include "components/prefs/pref_service.h"
 #include "components/signin/core/common/signin_pref_names.h"
-#include "components/sync/driver/pref_names.h"
+#include "components/sync/base/pref_names.h"
 #include "ios/chrome/browser/application_context.h"
 #include "ios/chrome/browser/browser_state/chrome_browser_state.h"
 #include "ios/chrome/browser/chrome_url_constants.h"
@@ -44,7 +44,6 @@
 #include "ios/chrome/browser/net/ios_chrome_url_request_context_getter.h"
 #include "ios/chrome/browser/net/proxy_service_factory.h"
 #include "ios/web/public/web_thread.h"
-#include "net/base/keygen_handler.h"
 #include "net/cert/cert_verifier.h"
 #include "net/cert/multi_log_ct_verifier.h"
 #include "net/cookies/canonical_cookie.h"
@@ -417,13 +416,12 @@ ChromeBrowserStateIOData::SetUpJobFactoryDefaults(
   // Set up interceptors in the reverse order.
   std::unique_ptr<net::URLRequestJobFactory> top_job_factory =
       std::move(job_factory);
-  for (URLRequestInterceptorScopedVector::reverse_iterator i =
-           request_interceptors.rbegin();
-       i != request_interceptors.rend(); ++i) {
+  for (auto i = request_interceptors.rbegin(); i != request_interceptors.rend();
+       ++i) {
     top_job_factory.reset(new net::URLRequestInterceptingJobFactory(
-        std::move(top_job_factory), base::WrapUnique(*i)));
+        std::move(top_job_factory), std::move(*i)));
   }
-  request_interceptors.weak_clear();
+  request_interceptors.clear();
   return top_job_factory;
 }
 

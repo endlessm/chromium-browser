@@ -13,8 +13,8 @@
 #include "content/common/input/input_event_dispatch_type.h"
 #include "content/common/input/web_input_event_queue.h"
 #include "content/public/common/content_features.h"
+#include "third_party/WebKit/public/platform/WebInputEvent.h"
 #include "third_party/WebKit/public/platform/scheduler/renderer/renderer_scheduler.h"
-#include "third_party/WebKit/public/web/WebInputEvent.h"
 #include "ui/events/blink/web_input_event_traits.h"
 #include "ui/events/latency_info.h"
 
@@ -22,16 +22,14 @@ namespace content {
 
 class EventWithDispatchType : public ScopedWebInputEventWithLatencyInfo {
  public:
-  EventWithDispatchType(ui::ScopedWebInputEvent event,
+  EventWithDispatchType(blink::WebScopedInputEvent event,
                         const ui::LatencyInfo& latency,
                         InputEventDispatchType dispatch_type);
   ~EventWithDispatchType();
-  bool CanCoalesceWith(const EventWithDispatchType& other) const
-      WARN_UNUSED_RESULT;
   void CoalesceWith(const EventWithDispatchType& other);
 
-  const std::deque<uint32_t>& coalescedEventIds() const {
-    return coalesced_event_ids_;
+  const std::deque<uint32_t>& blockingCoalescedEventIds() const {
+    return blocking_coalesced_event_ids_;
   }
   InputEventDispatchType dispatchType() const { return dispatch_type_; }
   base::TimeTicks creationTimestamp() const { return creation_timestamp_; }
@@ -39,14 +37,20 @@ class EventWithDispatchType : public ScopedWebInputEventWithLatencyInfo {
     return last_coalesced_timestamp_;
   }
 
+  size_t coalescedCount() const {
+    return non_blocking_coalesced_count_ + blocking_coalesced_event_ids_.size();
+  }
+
  private:
   InputEventDispatchType dispatch_type_;
 
-  // |coalesced_event_ids_| contains the unique touch event ids to be acked. If
+  // Contains the unique touch event ids to be acked. If
   // the events are not TouchEvents the values will be 0. More importantly for
   // those cases the deque ends up containing how many additional ACKs
   // need to be sent.
-  std::deque<uint32_t> coalesced_event_ids_;
+  std::deque<uint32_t> blocking_coalesced_event_ids_;
+  // Contains the number of non-blocking events coalesced.
+  size_t non_blocking_coalesced_count_;
   base::TimeTicks creation_timestamp_;
   base::TimeTicks last_coalesced_timestamp_;
 };
@@ -116,7 +120,7 @@ class CONTENT_EXPORT MainThreadEventQueue
 
   // Called once the compositor has handled |event| and indicated that it is
   // a non-blocking event to be queued to the main thread.
-  bool HandleEvent(ui::ScopedWebInputEvent event,
+  bool HandleEvent(blink::WebScopedInputEvent event,
                    const ui::LatencyInfo& latency,
                    InputEventDispatchType dispatch_type,
                    InputEventAckState ack_result);
@@ -125,9 +129,8 @@ class CONTENT_EXPORT MainThreadEventQueue
   // Call once the main thread has handled an outstanding |type| event
   // in flight.
   void EventHandled(blink::WebInputEvent::Type type,
+                    blink::WebInputEventResult result,
                     InputEventAckState ack_result);
-
-  void set_is_flinging(bool is_flinging) { is_flinging_ = is_flinging; }
 
  private:
   friend class base::RefCountedThreadSafe<MainThreadEventQueue>;
@@ -142,14 +145,18 @@ class CONTENT_EXPORT MainThreadEventQueue
                              const ui::LatencyInfo& latency,
                              InputEventDispatchType original_dispatch_type);
 
+  bool IsRafAlignedInputDisabled();
+  bool IsRafAlignedEvent(const blink::WebInputEvent& event);
+
   friend class MainThreadEventQueueTest;
   int routing_id_;
   MainThreadEventQueueClient* client_;
   std::unique_ptr<EventWithDispatchType> in_flight_event_;
-  bool is_flinging_;
   bool last_touch_start_forced_nonblocking_due_to_fling_;
   bool enable_fling_passive_listener_flag_;
-  bool handle_raf_aligned_input_;
+  bool enable_non_blocking_due_to_main_thread_responsiveness_flag_;
+  bool handle_raf_aligned_touch_input_;
+  bool handle_raf_aligned_mouse_input_;
 
   // Contains data to be shared between main thread and compositor thread.
   struct SharedState {

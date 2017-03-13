@@ -41,7 +41,7 @@ tr.exportTo('tr.metrics.v8.utils', function() {
       'V8.GCIncrementalMarking': 'v8-gc-incremental-step',
       'V8.GCIncrementalMarkingFinalize': 'v8-gc-incremental-finalize',
       'V8.GCIncrementalMarkingStart': 'v8-gc-incremental-start',
-      'V8.GCPhantomHandleProcessingCallback' : 'v8-gc-phantom-handle-callback',
+      'V8.GCPhantomHandleProcessingCallback': 'v8-gc-phantom-handle-callback',
       'V8.GCScavenger': 'v8-gc-scavenger'
   };
 
@@ -149,14 +149,14 @@ tr.exportTo('tr.metrics.v8.utils', function() {
   }
 
   /**
-  * Given a list of intervals, returns a new list with all overalapping
-  * intervals merged into a single interval.
-  */
+   * Given a list of intervals, returns a new list with all overalapping
+   * intervals merged into a single interval.
+   */
   function unionOfIntervals(intervals) {
     if (intervals.length === 0)
       return [];
     return tr.b.mergeRanges(
-      intervals.map(x => ({min: x.start, max: x.end})), 1e-6,
+      intervals.map(x => { return { min: x.start, max: x.end }; }), 1e-6,
       function(ranges) {
         return {
           start: ranges.reduce((acc, x) => Math.min(acc, x.min), ranges[0].min),
@@ -293,21 +293,21 @@ tr.exportTo('tr.metrics.v8.utils', function() {
   }
 
   return {
-    findParent: findParent,
-    groupAndProcessEvents: groupAndProcessEvents,
-    isForcedGarbageCollectionEvent: isForcedGarbageCollectionEvent,
-    isGarbageCollectionEvent: isGarbageCollectionEvent,
-    isIdleTask: isIdleTask,
-    isLowMemoryEvent: isLowMemoryEvent,
-    isSubGarbageCollectionEvent: isSubGarbageCollectionEvent,
-    isTopGarbageCollectionEvent: isTopGarbageCollectionEvent,
-    isTopV8ExecuteEvent: isTopV8ExecuteEvent,
-    isV8ExecuteEvent: isV8ExecuteEvent,
-    mutatorUtilization: mutatorUtilization,
-    subGarbageCollectionEventName: subGarbageCollectionEventName,
-    topGarbageCollectionEventName: topGarbageCollectionEventName,
-    rangeForMemoryDumps: rangeForMemoryDumps,
-    unionOfIntervals: unionOfIntervals
+    findParent,
+    groupAndProcessEvents,
+    isForcedGarbageCollectionEvent,
+    isGarbageCollectionEvent,
+    isIdleTask,
+    isLowMemoryEvent,
+    isSubGarbageCollectionEvent,
+    isTopGarbageCollectionEvent,
+    isTopV8ExecuteEvent,
+    isV8ExecuteEvent,
+    mutatorUtilization,
+    subGarbageCollectionEventName,
+    topGarbageCollectionEventName,
+    rangeForMemoryDumps,
+    unionOfIntervals,
   };
 });
 </script>

@@ -49,7 +49,7 @@ MutationObserverRegistration::MutationObserverRegistration(
     Node* registrationNode,
     MutationObserverOptions options,
     const HashSet<AtomicString>& attributeFilter)
-    : m_observer(observer),
+    : m_observer(this, &observer),
       m_registrationNode(registrationNode),
       m_options(options),
       m_attributeFilter(attributeFilter) {
@@ -107,10 +107,11 @@ void MutationObserverRegistration::clearTransientRegistrations() {
 }
 
 void MutationObserverRegistration::unregister() {
-  DCHECK(m_registrationNode);
-  m_registrationNode->unregisterMutationObserver(this);
-  // The above line will cause this object to be deleted, so don't do any more
-  // in this function.
+  // |this| can outlives m_registrationNode.
+  if (m_registrationNode)
+    m_registrationNode->unregisterMutationObserver(this);
+  else
+    dispose();
 }
 
 bool MutationObserverRegistration::shouldReceiveMutationFrom(

@@ -4,14 +4,17 @@
 
 package org.chromium.content.browser;
 
-import android.test.suitebuilder.annotation.MediumTest;
+import android.support.test.filters.MediumTest;
 
+import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Feature;
 import org.chromium.base.test.util.RetryOnFailure;
+import org.chromium.content.common.ContentSwitches;
 
 /**
  * Test suite for click listener validation in content detection.
  */
+@CommandLineFlags.Add({ContentSwitches.ENABLE_CONTENT_INTENT_DETECTION})
 public class ClickListenerTest extends ContentDetectionTestBase {
 
     @MediumTest

@@ -5,6 +5,7 @@
 #import <Cocoa/Cocoa.h>
 #include <stddef.h>
 
+#include "base/feature_list.h"
 #include "base/strings/string16.h"
 
 namespace cocoa_l10n_util {
@@ -33,6 +34,7 @@ NSString* ReplaceNSStringPlaceholders(NSString* formatString,
 // Generates a tooltip string for a given URL and title.
 NSString* TooltipForURLAndTitle(NSString* url, NSString* title);
 
+extern const base::Feature kExperimentalMacRTL;
 // Returns whether both:
 // 1) Experimental Mac RTL support is enabled via the ExperimentalMacRTL
 //    feature;
@@ -40,5 +42,11 @@ NSString* TooltipForURLAndTitle(NSString* url, NSString* title);
 // If ExperimentalMacRTL becomes the default, this function can be replaced with
 // uses of base::i18n::IsRTL().
 bool ShouldDoExperimentalRTLLayout();
+
+// Returns true if ShouldDoExperimentalRTLLayout() is true and the OS is
+// 10.12 or above. macOS 10.12 is the first OS where the native stoplight
+// buttons are reversed in RTL, so manually reversing them in previous
+// OSes would make Chrome stick out.
+bool ShouldFlipWindowControlsInRTL();
 
 }  // namespace cocoa_l10n_util

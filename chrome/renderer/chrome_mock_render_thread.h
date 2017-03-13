@@ -10,8 +10,6 @@
 #include "base/macros.h"
 #include "content/public/test/mock_render_thread.h"
 
-struct ExtensionMsg_ExternalConnectionInfo;
-
 // Extends content::MockRenderThread to know about extension messages.
 class ChromeMockRenderThread : public content::MockRenderThread {
  public:
@@ -27,20 +25,7 @@ class ChromeMockRenderThread : public content::MockRenderThread {
   void set_io_task_runner(
       const scoped_refptr<base::SingleThreadTaskRunner>& task_runner);
 
- private:
-  // Overrides base class implementation to add custom handling for
-  // print and extensions.
-  bool OnMessageReceived(const IPC::Message& msg) override;
-
-#if defined(ENABLE_EXTENSIONS)
-  // The callee expects to be returned a valid channel_id.
-  void OnOpenChannelToExtension(int routing_id,
-                                const ExtensionMsg_ExternalConnectionInfo& info,
-                                const std::string& channel_name,
-                                bool include_tls_channel_id,
-                                int request_id);
-#endif
-
+ protected:
   scoped_refptr<base::SingleThreadTaskRunner> io_task_runner_;
 
   DISALLOW_COPY_AND_ASSIGN(ChromeMockRenderThread);

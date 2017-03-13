@@ -12,10 +12,6 @@
 #include "platform/scheduler/base/task_queue_manager.h"
 #include "platform/scheduler/base/task_queue_selector.h"
 
-namespace base {
-class TickClock;
-}
-
 namespace blink {
 namespace scheduler {
 
@@ -90,6 +86,9 @@ class BLINK_PLATFORM_EXPORT SchedulerHelper
   // Note |observer| is expected to outlive the SchedulerHelper.
   void SetObserver(Observer* observer);
 
+  // Remove all canceled delayed tasks.
+  void SweepCanceledDelayedTasks();
+
   // Accessor methods.
   RealTimeDomain* real_time_domain() const;
   void RegisterTimeDomain(TimeDomain* time_domain);
@@ -97,6 +96,8 @@ class BLINK_PLATFORM_EXPORT SchedulerHelper
   const scoped_refptr<SchedulerTqmDelegate>& scheduler_tqm_delegate() const;
   bool GetAndClearSystemIsQuiescentBit();
   TaskQueue* CurrentlyExecutingTaskQueue() const;
+
+  size_t GetNumberOfPendingTasks() const;
 
   // Test helpers.
   void SetWorkBatchSizeForTesting(size_t work_batch_size);

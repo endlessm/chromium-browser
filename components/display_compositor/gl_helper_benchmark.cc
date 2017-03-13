@@ -27,9 +27,9 @@
 #include "base/time/time.h"
 #include "components/display_compositor/gl_helper.h"
 #include "components/display_compositor/gl_helper_scaling.h"
-#include "gpu/command_buffer/client/gl_in_process_context.h"
 #include "gpu/command_buffer/client/gles2_implementation.h"
 #include "gpu/command_buffer/client/shared_memory_limits.h"
+#include "gpu/ipc/gl_in_process_context.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "third_party/skia/include/core/SkTypes.h"
@@ -67,16 +67,16 @@ class GLHelperBenchmark : public testing::Test {
     attributes.bind_generates_resource = false;
     attributes.gpu_preference = gl::PreferDiscreteGpu;
 
-    context_.reset(gpu::GLInProcessContext::Create(
-        nullptr,                     /* service */
-        nullptr,                     /* surface */
-        true,                        /* offscreen */
-        gfx::kNullAcceleratedWidget, /* window */
-        nullptr,                     /* share_context */
-        attributes, gpu::SharedMemoryLimits(),
-        nullptr, /* gpu_memory_buffer_manager */
-        nullptr, /* image_factory */
-        base::ThreadTaskRunnerHandle::Get()));
+    context_.reset(
+        gpu::GLInProcessContext::Create(nullptr,                 /* service */
+                                        nullptr,                 /* surface */
+                                        true,                    /* offscreen */
+                                        gpu::kNullSurfaceHandle, /* window */
+                                        nullptr, /* share_context */
+                                        attributes, gpu::SharedMemoryLimits(),
+                                        nullptr, /* gpu_memory_buffer_manager */
+                                        nullptr, /* image_factory */
+                                        base::ThreadTaskRunnerHandle::Get()));
     gl_ = context_->GetImplementation();
     gpu::ContextSupport* support = context_->GetImplementation();
 

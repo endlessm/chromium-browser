@@ -9,9 +9,10 @@
 #include "core/events/WheelEvent.h"
 #include "core/frame/RemoteFrame.h"
 #include "core/frame/RemoteFrameView.h"
-#include "core/layout/LayoutPart.h"
 #include "core/layout/api/LayoutItem.h"
+#include "core/layout/api/LayoutPartItem.h"
 #include "platform/exported/WrappedResourceRequest.h"
+#include "platform/geometry/IntRect.h"
 #include "platform/weborigin/SecurityOrigin.h"
 #include "platform/weborigin/SecurityPolicy.h"
 #include "public/web/WebRemoteFrameClient.h"
@@ -87,20 +88,12 @@ Frame* RemoteFrameClientImpl::top() const {
   return toCoreFrame(m_webFrame->top());
 }
 
-Frame* RemoteFrameClientImpl::previousSibling() const {
-  return toCoreFrame(m_webFrame->previousSibling());
-}
-
 Frame* RemoteFrameClientImpl::nextSibling() const {
   return toCoreFrame(m_webFrame->nextSibling());
 }
 
 Frame* RemoteFrameClientImpl::firstChild() const {
   return toCoreFrame(m_webFrame->firstChild());
-}
-
-Frame* RemoteFrameClientImpl::lastChild() const {
-  return toCoreFrame(m_webFrame->lastChild());
 }
 
 void RemoteFrameClientImpl::frameFocused() const {
@@ -155,7 +148,7 @@ void RemoteFrameClientImpl::forwardInputEvent(Event* event) {
   // implemented, since this code path will need to be removed or refactored
   // anyway.
   // See https://crbug.com/520705.
-  if (!m_webFrame->toImplBase()->frame()->ownerLayoutObject())
+  if (m_webFrame->toImplBase()->frame()->ownerLayoutItem().isNull())
     return;
 
   // This is only called when we have out-of-process iframes, which
@@ -163,16 +156,16 @@ void RemoteFrameClientImpl::forwardInputEvent(Event* event) {
   // FIXME: Add a check for out-of-process iframes enabled.
   std::unique_ptr<WebInputEvent> webEvent;
   if (event->isKeyboardEvent())
-    webEvent = wrapUnique(
+    webEvent = WTF::wrapUnique(
         new WebKeyboardEventBuilder(*static_cast<KeyboardEvent*>(event)));
   else if (event->isMouseEvent())
-    webEvent = wrapUnique(new WebMouseEventBuilder(
+    webEvent = WTF::wrapUnique(new WebMouseEventBuilder(
         m_webFrame->frame()->view(),
-        LayoutItem(m_webFrame->toImplBase()->frame()->ownerLayoutObject()),
+        m_webFrame->toImplBase()->frame()->ownerLayoutItem(),
         *static_cast<MouseEvent*>(event)));
 
   // Other or internal Blink events should not be forwarded.
-  if (!webEvent || webEvent->type == WebInputEvent::Undefined)
+  if (!webEvent || webEvent->type() == WebInputEvent::Undefined)
     return;
 
   m_webFrame->client()->forwardInputEvent(webEvent.get());
@@ -180,6 +173,11 @@ void RemoteFrameClientImpl::forwardInputEvent(Event* event) {
 
 void RemoteFrameClientImpl::frameRectsChanged(const IntRect& frameRect) {
   m_webFrame->client()->frameRectsChanged(frameRect);
+}
+
+void RemoteFrameClientImpl::updateRemoteViewportIntersection(
+    const IntRect& viewportIntersection) {
+  m_webFrame->client()->updateRemoteViewportIntersection(viewportIntersection);
 }
 
 void RemoteFrameClientImpl::advanceFocus(WebFocusType type,

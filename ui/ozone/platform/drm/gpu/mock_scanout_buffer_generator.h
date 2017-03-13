@@ -18,11 +18,17 @@ class MockScanoutBufferGenerator : public ScanoutBufferGenerator {
 
   // ScanoutBufferGenerator:
   scoped_refptr<ScanoutBuffer> Create(const scoped_refptr<DrmDevice>& drm,
-                                      gfx::BufferFormat format,
+                                      uint32_t format,
                                       const gfx::Size& size) override;
+
+  void set_allocation_failure(bool allocation_failure) {
+    allocation_failure_ = allocation_failure;
+  }
 
  private:
   DISALLOW_COPY_AND_ASSIGN(MockScanoutBufferGenerator);
+
+  bool allocation_failure_ = false;
 };
 
 }  // namespace ui

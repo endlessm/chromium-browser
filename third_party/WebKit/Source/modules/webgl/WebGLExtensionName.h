@@ -13,6 +13,7 @@ enum WebGLExtensionName {
   EXTBlendMinMaxName,
   EXTColorBufferFloatName,
   EXTDisjointTimerQueryName,
+  EXTDisjointTimerQueryWebGL2Name,
   EXTFragDepthName,
   EXTShaderTextureLODName,
   EXTsRGBName,
@@ -26,7 +27,7 @@ enum WebGLExtensionName {
   OESVertexArrayObjectName,
   WebGLCompressedTextureASTCName,
   WebGLCompressedTextureATCName,
-  WebGLCompressedTextureES30Name,
+  WebGLCompressedTextureETCName,
   WebGLCompressedTextureETC1Name,
   WebGLCompressedTexturePVRTCName,
   WebGLCompressedTextureS3TCName,
@@ -35,6 +36,7 @@ enum WebGLExtensionName {
   WebGLDebugShadersName,
   WebGLDepthTextureName,
   WebGLDrawBuffersName,
+  WebGLGetBufferSubDataAsyncName,
   WebGLLoseContextName,
   WebGLExtensionNameCount,  // Must be the last entry
 };

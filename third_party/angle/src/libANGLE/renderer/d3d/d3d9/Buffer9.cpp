@@ -12,9 +12,8 @@
 namespace rx
 {
 
-Buffer9::Buffer9(Renderer9 *renderer)
-    : BufferD3D(renderer),
-      mSize(0)
+Buffer9::Buffer9(const gl::BufferState &state, Renderer9 *renderer)
+    : BufferD3D(state, renderer), mSize(0)
 {}
 
 Buffer9::~Buffer9()
@@ -42,13 +41,13 @@ gl::Error Buffer9::setData(GLenum /*target*/, const void *data, size_t size, GLe
 
     invalidateStaticData();
 
-    return gl::Error(GL_NO_ERROR);
+    return gl::NoError();
 }
 
 gl::Error Buffer9::getData(const uint8_t **outData)
 {
     *outData = mMemory.data();
-    return gl::Error(GL_NO_ERROR);
+    return gl::NoError();
 }
 
 gl::Error Buffer9::setSubData(GLenum /*target*/, const void *data, size_t size, size_t offset)
@@ -69,7 +68,7 @@ gl::Error Buffer9::setSubData(GLenum /*target*/, const void *data, size_t size, 
 
     invalidateStaticData();
 
-    return gl::Error(GL_NO_ERROR);
+    return gl::NoError();
 }
 
 gl::Error Buffer9::copySubData(BufferImpl* source, GLintptr sourceOffset, GLintptr destOffset, GLsizeiptr size)
@@ -82,7 +81,7 @@ gl::Error Buffer9::copySubData(BufferImpl* source, GLintptr sourceOffset, GLintp
 
     invalidateStaticData();
 
-    return gl::Error(GL_NO_ERROR);
+    return gl::NoError();
 }
 
 // We do not support buffer mapping in D3D9

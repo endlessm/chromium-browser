@@ -14,25 +14,23 @@ static_library("rappor") {
     "rappor_metric.cc",
     "rappor_metric.h",
     "rappor_parameters.cc",
-    "rappor_parameters.h",
     "rappor_pref_names.cc",
     "rappor_pref_names.h",
     "rappor_prefs.cc",
     "rappor_prefs.h",
-    "rappor_service.cc",
-    "rappor_service.h",
+    "rappor_service_impl.cc",
+    "rappor_service_impl.h",
     "rappor_utils.cc",
-    "rappor_utils.h",
     "reports.cc",
     "reports.h",
     "sample.cc",
-    "sample.h",
     "sampler.cc",
     "sampler.h",
   ]
 
   public_deps = [
     "//components/rappor/proto",
+    "//components/rappor/public",
   ]
 
   deps = [
@@ -44,6 +42,23 @@ static_library("rappor") {
     "//crypto",
     "//net",
     "//third_party/smhasher:cityhash",
+  ]
+}
+
+static_library("rappor_recorder") {
+  sources = [
+    "rappor_recorder_impl.cc",
+    "rappor_recorder_impl.h",
+  ]
+
+  public_deps = [
+    "//base",
+    "//components/rappor/public/interfaces",
+  ]
+
+  deps = [
+    ":rappor",
+    "//mojo/public/cpp/bindings",
   ]
 }
 

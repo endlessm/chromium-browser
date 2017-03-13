@@ -193,6 +193,10 @@ void WebMediaPlayerCast::requestRemotePlaybackControl() {
   player_manager_->RequestRemotePlaybackControl(player_id_);
 }
 
+void WebMediaPlayerCast::requestRemotePlaybackStop() {
+  player_manager_->RequestRemotePlaybackStop(player_id_);
+}
+
 void WebMediaPlayerCast::OnMediaMetadataChanged(base::TimeDelta duration,
                                                 int width,
                                                 int height,
@@ -201,48 +205,48 @@ void WebMediaPlayerCast::OnMediaMetadataChanged(base::TimeDelta duration,
 }
 
 void WebMediaPlayerCast::OnPlaybackComplete() {
-  DVLOG(1) << __FUNCTION__;
+  DVLOG(1) << __func__;
   webmediaplayer_->OnRemotePlaybackEnded();
 }
 
 void WebMediaPlayerCast::OnBufferingUpdate(int percentage) {
-  DVLOG(1) << __FUNCTION__;
+  DVLOG(1) << __func__;
 }
 
 void WebMediaPlayerCast::OnSeekRequest(const base::TimeDelta& time_to_seek) {
-  DVLOG(1) << __FUNCTION__;
+  DVLOG(1) << __func__;
   client_->requestSeek(time_to_seek.InSecondsF());
 }
 
 void WebMediaPlayerCast::OnSeekComplete(const base::TimeDelta& current_time) {
-  DVLOG(1) << __FUNCTION__;
+  DVLOG(1) << __func__;
   remote_time_at_ = base::TimeTicks::Now();
   remote_time_ = current_time;
   webmediaplayer_->OnPipelineSeeked(true);
 }
 
 void WebMediaPlayerCast::OnMediaError(int error_type) {
-  DVLOG(1) << __FUNCTION__;
+  DVLOG(1) << __func__;
 }
 
 void WebMediaPlayerCast::OnVideoSizeChanged(int width, int height) {
-  DVLOG(1) << __FUNCTION__;
+  DVLOG(1) << __func__;
 }
 
 void WebMediaPlayerCast::OnTimeUpdate(base::TimeDelta current_timestamp,
                                       base::TimeTicks current_time_ticks) {
-  DVLOG(1) << __FUNCTION__ << " " << current_timestamp.InSecondsF();
+  DVLOG(1) << __func__ << " " << current_timestamp.InSecondsF();
   remote_time_at_ = current_time_ticks;
   remote_time_ = current_timestamp;
 }
 
 void WebMediaPlayerCast::OnPlayerReleased() {
-  DVLOG(1) << __FUNCTION__;
+  DVLOG(1) << __func__;
 }
 
 void WebMediaPlayerCast::OnConnectedToRemoteDevice(
     const std::string& remote_playback_message) {
-  DVLOG(1) << __FUNCTION__;
+  DVLOG(1) << __func__;
   remote_time_ = base::TimeDelta::FromSecondsD(webmediaplayer_->currentTime());
   is_remote_ = true;
   initializing_ = true;
@@ -281,7 +285,7 @@ void WebMediaPlayerCast::seek(base::TimeDelta t) {
 }
 
 void WebMediaPlayerCast::OnDisconnectedFromRemoteDevice() {
-  DVLOG(1) << __FUNCTION__;
+  DVLOG(1) << __func__;
   if (!paused_) {
     paused_ = true;
   }
@@ -294,16 +298,20 @@ void WebMediaPlayerCast::OnDisconnectedFromRemoteDevice() {
 }
 
 void WebMediaPlayerCast::OnCancelledRemotePlaybackRequest() {
-  DVLOG(1) << __FUNCTION__;
+  DVLOG(1) << __func__;
   client_->cancelledRemotePlaybackRequest();
 }
 
+void WebMediaPlayerCast::OnRemotePlaybackStarted() {
+  client_->remotePlaybackStarted();
+}
+
 void WebMediaPlayerCast::OnDidExitFullscreen() {
-  DVLOG(1) << __FUNCTION__;
+  DVLOG(1) << __func__;
 }
 
 void WebMediaPlayerCast::OnMediaPlayerPlay() {
-  DVLOG(1) << __FUNCTION__ << " is_remote_ = " << is_remote_;
+  DVLOG(1) << __func__ << " is_remote_ = " << is_remote_;
   initializing_ = false;
   if (is_remote_ && paused_) {
     paused_ = false;
@@ -316,7 +324,7 @@ void WebMediaPlayerCast::OnMediaPlayerPlay() {
 }
 
 void WebMediaPlayerCast::OnMediaPlayerPause() {
-  DVLOG(1) << __FUNCTION__ << " is_remote_ = " << is_remote_;
+  DVLOG(1) << __func__ << " is_remote_ = " << is_remote_;
   if (is_remote_ && !paused_) {
     paused_ = true;
     client_->playbackStateChanged();
@@ -324,27 +332,19 @@ void WebMediaPlayerCast::OnMediaPlayerPause() {
 }
 
 void WebMediaPlayerCast::OnRemoteRouteAvailabilityChanged(
-    bool routes_available) {
-  DVLOG(1) << __FUNCTION__;
-  client_->remoteRouteAvailabilityChanged(routes_available);
+    blink::WebRemotePlaybackAvailability availability) {
+  DVLOG(1) << __func__;
+  client_->remoteRouteAvailabilityChanged(availability);
 }
 
 void WebMediaPlayerCast::SuspendAndReleaseResources() {}
-
-bool WebMediaPlayerCast::hasVideo() const {
-  return true;
-}
-
-bool WebMediaPlayerCast::paused() const {
-  return paused_;
-}
 
 void WebMediaPlayerCast::SetDeviceScaleFactor(float scale_factor) {
   device_scale_factor_ = scale_factor;
 }
 
 scoped_refptr<VideoFrame> WebMediaPlayerCast::GetCastingBanner() {
-  DVLOG(1) << __FUNCTION__;
+  DVLOG(1) << __func__;
 
   // TODO(johnme): Should redraw this frame if the layer bounds change; but
   // there seems no easy way to listen for the layer resizing (as opposed to

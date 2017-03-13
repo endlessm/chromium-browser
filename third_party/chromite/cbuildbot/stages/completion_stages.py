@@ -6,21 +6,22 @@
 
 from __future__ import print_function
 
+from chromite.cbuildbot import buildbucket_lib
+from chromite.cbuildbot import build_status
 from chromite.cbuildbot import chroot_lib
 from chromite.cbuildbot import commands
-from chromite.cbuildbot import config_lib
-from chromite.cbuildbot import failures_lib
-from chromite.cbuildbot import results_lib
-from chromite.cbuildbot import constants
-from chromite.cbuildbot import manifest_version
 from chromite.cbuildbot import prebuilts
 from chromite.cbuildbot import tree_status
 from chromite.cbuildbot.stages import generic_stages
 from chromite.cbuildbot.stages import sync_stages
 from chromite.lib import clactions
+from chromite.lib import config_lib
+from chromite.lib import constants
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
+from chromite.lib import failures_lib
 from chromite.lib import patch as cros_patch
+from chromite.lib import results_lib
 
 
 def GetBuilderSuccessMap(builder_run, overall_success):
@@ -138,11 +139,12 @@ class MasterSlaveSyncCompletionStage(ManifestVersionedSyncCompletionStage):
   def __init__(self, *args, **kwargs):
     super(MasterSlaveSyncCompletionStage, self).__init__(*args, **kwargs)
     self._slave_statuses = {}
+    self.buildbucket_client = self.GetBuildbucketClient()
 
   def _GetLocalBuildStatus(self):
     """Return the status for this build as a dictionary."""
-    status = manifest_version.BuilderStatus.GetCompletedStatus(self.success)
-    status_obj = manifest_version.BuilderStatus(status, self.message)
+    status = build_status.BuilderStatus.GetCompletedStatus(self.success)
+    status_obj = build_status.BuilderStatus(status, self.message)
     return {self._bot_id: status_obj}
 
   def _FetchSlaveStatuses(self):
@@ -151,9 +153,9 @@ class MasterSlaveSyncCompletionStage(ManifestVersionedSyncCompletionStage):
     If this build is not a master then return just the status of this build.
 
     Returns:
-      A dict of build_config name -> BuilderStatus objects, for all important
-      slave build configs. Build configs that never started will have a
-      BuilderStatus of MISSING.
+      A dict of build_config name -> build_status.BuilderStatus objects,
+      for all important slave build configs. Build configs that never started
+      will have a build_status.BuilderStatus of MISSING.
     """
     # Wait for slaves if we're a master, in production or mock-production.
     # Otherwise just look at our own status.
@@ -185,7 +187,8 @@ class MasterSlaveSyncCompletionStage(ManifestVersionedSyncCompletionStage):
       if sync_stages.MasterSlaveLKGMSyncStage.external_manager:
         manager = sync_stages.MasterSlaveLKGMSyncStage.external_manager
       slave_statuses.update(manager.GetBuildersStatus(
-          self._run.attrs.metadata.GetValue('build_id'),
+          build_id,
+          db,
           builder_names,
           timeout=timeout))
     return slave_statuses
@@ -304,6 +307,54 @@ class MasterSlaveSyncCompletionStage(ManifestVersionedSyncCompletionStage):
     sanity_builders = set(sanity_builders)
     return not sanity_builders.issuperset(failing | inflight | no_stat)
 
+  def _AnnotateBuildStatusFromBuildbucket(self, no_stat):
+    """Annotate the build statuses fetched from the Buildbucket.
+
+    Some builds may fail to upload statuses to GS. If the builds were
+    scheduled by Buildbucket, get the build statuses and annotate the results.
+
+    Args:
+      no_stat: Config names of the slave builds with None status.
+    """
+    buildbucket_info_dict = buildbucket_lib.GetBuildInfoDict(
+        self._run.attrs.metadata)
+
+    for config_name in no_stat:
+      if config_name in buildbucket_info_dict:
+        buildbucket_id = buildbucket_info_dict[config_name]['buildbucket_id']
+        assert buildbucket_id is not None, 'buildbucket_id is None'
+        try:
+          content = self.buildbucket_client.GetBuildRequest(
+              buildbucket_id, self._run.options.debug)
+
+          status = buildbucket_lib.GetBuildStatus(content)
+          result = buildbucket_lib.GetBuildResult(content)
+
+          text = '%s: [status] %s [result] %s' % (config_name, status, result)
+
+          if result == constants.BUILDBUCKET_BUILDER_RESULT_FAILURE:
+            failure_reason = buildbucket_lib.GetBuildFailureReason(content)
+            if failure_reason:
+              text += ' [failure_reason] %s' % failure_reason
+          elif result == constants.BUILDBUCKET_BUILDER_RESULT_CANCELED:
+            cancel_reason = buildbucket_lib.GetBuildCancelationReason(content)
+            if cancel_reason:
+              text += ' [cancelation_reason] %s' % cancel_reason
+
+          dashboard_url = buildbucket_lib.GetBuildURL(content)
+          if dashboard_url:
+            logging.PrintBuildbotLink(text, dashboard_url)
+          else:
+            logging.PrintBuildbotStepText(text)
+        except buildbucket_lib.BuildbucketResponseException as e:
+          logging.error('Cannot get status for %s: %s', config_name, e)
+          logging.PrintBuildbotStepText(
+              'No status found for build %s buildbucket_id %s'
+              % (config_name, buildbucket_id))
+      else:
+        logging.PrintBuildbotStepText('%s wasn\'t scheduled by master.'
+                                      % config_name)
+
   def _AnnotateFailingBuilders(self, failing, inflight, no_stat, statuses):
     """Add annotations that link to either failing or inflight builders.
 
@@ -328,8 +379,12 @@ class MasterSlaveSyncCompletionStage(ManifestVersionedSyncCompletionStage):
 
         logging.PrintBuildbotLink(text, statuses[builder].dashboard_url)
 
-    for builder in no_stat:
-      logging.PrintBuildbotStepText('%s did not start.' % builder)
+    if no_stat:
+      if config_lib.UseBuildbucketScheduler(self._run.config):
+        self._AnnotateBuildStatusFromBuildbucket(no_stat)
+      else:
+        for builder in no_stat:
+          logging.PrintBuildbotStepText('%s did not start.' % builder)
 
   def GetSlaveStatuses(self):
     """Returns cached slave status results.
@@ -338,7 +393,7 @@ class MasterSlaveSyncCompletionStage(ManifestVersionedSyncCompletionStage):
     should only be called after PerformStage has returned.
 
     Returns:
-      A dictionary from build names to manifest_version.BuilderStatus
+      A dictionary from build names to build_status.BuilderStatus
       builder status objects.
     """
     return self._slave_statuses
@@ -513,7 +568,9 @@ class CommitQueueCompletionStage(MasterSlaveSyncCompletionStage):
         self, failing, inflight, no_stat)
 
     if self._run.config.master:
-      self.CQMasterHandleFailure(failing, inflight, no_stat)
+      slave_buildbucket_ids = self.GetScheduledSlaveBuildbucketIds()
+      self.CQMasterHandleFailure(
+          failing, inflight, no_stat, slave_buildbucket_ids)
 
     self._RecordSubmissionMetrics()
 
@@ -535,14 +592,18 @@ class CommitQueueCompletionStage(MasterSlaveSyncCompletionStage):
           submitted_change_strategies.keys())
 
       action_history = clactions.CLActionHistory(submitted_changes_all_actions)
+      logging.info('Recording submission metrics about %s CLs to monarch.',
+                   len(submitted_change_strategies))
       clactions.RecordSubmissionMetrics(action_history,
                                         submitted_change_strategies)
 
-  def _GetSlaveMappingAndCLActions(self, changes):
+  def _GetSlaveMappingAndCLActions(self, changes, slave_buildbucket_ids):
     """Query CIDB to for slaves and CL actions.
 
     Args:
       changes: A list of GerritPatch instances to examine.
+      slave_buildbucket_ids: A list of buildbucket_ids (strings) of slave builds
+                             scheduled by Buildbucket.
 
     Returns:
       A tuple of (config_map, action_history), where the config_map
@@ -553,7 +614,9 @@ class CommitQueueCompletionStage(MasterSlaveSyncCompletionStage):
     # build_id is the master build id for the run.
     build_id, db = self._run.GetCIDBHandle()
     assert db, 'No database connection to use.'
-    slave_list = db.GetSlaveStatuses(build_id)
+
+    slave_list = db.GetSlaveStatuses(
+        build_id, buildbucket_ids=slave_buildbucket_ids)
     # TODO(akeshet): We are getting the full action history for all changes that
     # were in this CQ run. It would make more sense to only get the actions from
     # build_ids of this master and its slaves.
@@ -561,11 +624,6 @@ class CommitQueueCompletionStage(MasterSlaveSyncCompletionStage):
 
     config_map = dict()
 
-    # Build the build_id to config_name mapping. Note that if add the
-    # "relaunch" feature in cbuildbot, there may be multiple build ids
-    # for the same slave config. We will have to make sure
-    # GetSlaveStatuses() returns only the valid slaves (e.g. with
-    # latest start time).
     for d in slave_list:
       config_map[d['id']] = d['build_config']
 
@@ -578,18 +636,22 @@ class CommitQueueCompletionStage(MasterSlaveSyncCompletionStage):
 
     return config_map, action_history
 
-  def GetRelevantChangesForSlaves(self, changes, no_stat):
+  def GetRelevantChangesForSlaves(self, changes, no_stat,
+                                  slave_buildbucket_ids):
     """Compile a set of relevant changes for each slave.
 
     Args:
       changes: A list of GerritPatch instances to examine.
       no_stat: Set of builder names of slave builders that had status None.
+      slave_buildbucket_ids: A list of buildbucket_ids (strings) of slave builds
+                             scheduled by Buildbucket.
 
     Returns:
       A dictionary mapping a slave config name to a set of relevant changes.
     """
     # Retrieve the slaves and clactions from CIDB.
-    config_map, action_history = self._GetSlaveMappingAndCLActions(changes)
+    config_map, action_history = self._GetSlaveMappingAndCLActions(
+        changes, slave_buildbucket_ids)
     changes_by_build_id = clactions.GetRelevantChangesForBuilds(
         changes, action_history, config_map.keys())
 
@@ -636,8 +698,12 @@ class CommitQueueCompletionStage(MasterSlaveSyncCompletionStage):
         # If message_subtype==subsystem_unused, keep d as an empty dict.
     return subsys_by_config
 
-  def _ShouldSubmitPartialPool(self):
+  def _ShouldSubmitPartialPool(self, slave_buildbucket_ids):
     """Determine whether we should attempt or skip SubmitPartialPool.
+
+    Args:
+        slave_buildbucket_ids: A list of buildbucket_ids (strings) of slave
+                               builds scheduled by Buildbucket.
 
     Returns:
       True if all important, non-sanity-check slaves ran and completed all
@@ -654,7 +720,8 @@ class CommitQueueCompletionStage(MasterSlaveSyncCompletionStage):
     # Get slave stages.
     build_id, db = self._run.GetCIDBHandle()
     assert db, 'No database connection to use.'
-    slave_stages = db.GetSlaveStages(build_id)
+    slave_stages = db.GetSlaveStages(
+        build_id, buildbucket_ids=slave_buildbucket_ids)
 
     should_submit = True
     ACCEPTED_STATUSES = (constants.BUILDER_STATUS_PASSED,
@@ -677,7 +744,8 @@ class CommitQueueCompletionStage(MasterSlaveSyncCompletionStage):
 
     return should_submit
 
-  def CQMasterHandleFailure(self, failing, inflight, no_stat):
+  def CQMasterHandleFailure(self, failing, inflight, no_stat,
+                            slave_buildbucket_ids):
     """Handle changes in the validation pool upon build failure or timeout.
 
     This function determines whether to reject CLs and what CLs to
@@ -688,16 +756,19 @@ class CommitQueueCompletionStage(MasterSlaveSyncCompletionStage):
       failing: Names of the builders that failed.
       inflight: Names of the builders that timed out.
       no_stat: Set of builder names of slave builders that had status None.
+      slave_buildbucket_ids: A list of buildbucket_ids (strings) of slave builds
+                             scheduled by Buildbucket.
     """
     messages = self._GetFailedMessages(failing)
     self.SendInfraAlertIfNeeded(failing, inflight, no_stat)
 
     changes = self.sync_stage.pool.applied
 
-    do_partial_submission = self._ShouldSubmitPartialPool()
+    do_partial_submission = self._ShouldSubmitPartialPool(slave_buildbucket_ids)
 
     if do_partial_submission:
-      changes_by_config = self.GetRelevantChangesForSlaves(changes, no_stat)
+      changes_by_config = self.GetRelevantChangesForSlaves(
+          changes, no_stat, slave_buildbucket_ids)
       subsys_by_config = self.GetSubsysResultForSlaves()
 
       # Even if there was a failure, we can submit the changes that indicate
@@ -790,7 +861,8 @@ class CommitQueueCompletionStage(MasterSlaveSyncCompletionStage):
     Args:
       sanity_check_slaves: Names of slave builders that are "sanity check"
         builders for the current master.
-      slave_statuses: Dict of BuilderStatus objects by builder name keys.
+      slave_statuses: Dict of build_status.BuilderStatus objects by builder
+        name keys.
 
     Returns:
       True if no sanity builders ran and failed.
@@ -944,7 +1016,10 @@ class PublishUprevChangesStage(generic_stages.BuilderStage):
     elif self._build_stage_id is not None and db is not None:
       slave_configs = self._GetSlaveConfigs()
       important_set = set([slave['name'] for slave in slave_configs])
-      stages = db.GetSlaveStages(build_id)
+
+      slave_buildbucket_ids = self.GetScheduledSlaveBuildbucketIds()
+      stages = db.GetSlaveStages(
+          build_id, buildbucket_ids=slave_buildbucket_ids)
 
       passed_set = set([s['build_config'] for s in stages if (
           s['name'] == stage_name and

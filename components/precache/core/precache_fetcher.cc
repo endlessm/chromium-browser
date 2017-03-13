@@ -28,7 +28,6 @@
 #include "components/data_use_measurement/core/data_use_user_data.h"
 #include "components/precache/core/precache_database.h"
 #include "components/precache/core/precache_switches.h"
-#include "components/precache/core/proto/precache.pb.h"
 #include "components/precache/core/proto/quota.pb.h"
 #include "components/precache/core/proto/unfinished_work.pb.h"
 #include "net/base/completion_callback.h"
@@ -195,13 +194,13 @@ std::deque<ManifestHostInfo> RetrieveManifestInfo(
   for (const auto& host : hosts_to_fetch) {
     auto referrer_host_info = precache_database->GetReferrerHost(host.first);
     if (referrer_host_info.id != PrecacheReferrerHostEntry::kInvalidId) {
-      std::vector<GURL> used_urls, unused_urls;
-      precache_database->GetURLListForReferrerHost(referrer_host_info.id,
-                                                   &used_urls, &unused_urls);
+      std::vector<GURL> used_urls, downloaded_urls;
+      precache_database->GetURLListForReferrerHost(
+          referrer_host_info.id, &used_urls, &downloaded_urls);
       hosts_info.push_back(
           ManifestHostInfo(referrer_host_info.manifest_id, host.first,
                            host.second, GetResourceURLBase64Hash(used_urls),
-                           GetResourceURLBase64Hash(unused_urls)));
+                           GetResourceURLBase64Hash(downloaded_urls)));
     } else {
       hosts_info.push_back(
           ManifestHostInfo(PrecacheReferrerHostEntry::kInvalidId, host.first,
@@ -229,11 +228,42 @@ bool IsQuotaTimeExpired(const PrecacheQuota& quota,
          start_time + base::TimeDelta::FromDays(1) < time_now;
 }
 
-double ResourceWeight(const PrecacheResource& resource, int64_t host_visits) {
-  return resource.weight_ratio() * host_visits;
+// Models the expected number of requests for the resource, given that
+// resource_weight_ratio is the probability of a request given a visit to the
+// host, and host_visits is the number of visits to the host in 30 days.
+double NaiveResourceWeight(double resource_weight_ratio, int64_t host_visits) {
+  return resource_weight_ratio * host_visits;
+}
+
+// Models the probability of at least one request for the resource, given that
+// resource_weight_ratio is the probability of a request given a visit to the
+// host, and host_visits is the number of visits to the host in 30 days.
+double GeometricResourceWeight(double resource_weight_ratio,
+                               int64_t host_visits) {
+  return 1 - pow(1 - resource_weight_ratio, host_visits);
 }
 
 }  // namespace
+
+// Returns the weight of the resource. When global ranking is enabled, the
+// fetches are sorted by descending weight. Parameters:
+//   function: Which combination function to use.
+//   resource_weight_ratio: The weight_ratio of the resource.
+//   host_visits: The count of visits to the given host in the past 30 days.
+double ResourceWeight(
+    PrecacheConfigurationSettings::ResourceWeightFunction function,
+    double resource_weight_ratio,
+    int64_t host_visits) {
+  switch (function) {
+    case PrecacheConfigurationSettings::FUNCTION_NAIVE:
+      return NaiveResourceWeight(resource_weight_ratio, host_visits);
+    case PrecacheConfigurationSettings::FUNCTION_GEOMETRIC:
+      return GeometricResourceWeight(resource_weight_ratio, host_visits);
+    default:
+      DLOG(FATAL) << "Unknown function " << function;
+      return 0;
+  }
+}
 
 PrecacheFetcher::Fetcher::Fetcher(
     net::URLRequestContextGetter* request_context,
@@ -241,13 +271,15 @@ PrecacheFetcher::Fetcher::Fetcher(
     const std::string& referrer,
     const base::Callback<void(const Fetcher&)>& callback,
     bool is_resource_request,
-    size_t max_bytes)
+    size_t max_bytes,
+    bool revalidation_only)
     : request_context_(request_context),
       url_(url),
       referrer_(referrer),
       callback_(callback),
       is_resource_request_(is_resource_request),
       max_bytes_(max_bytes),
+      revalidation_only_(revalidation_only),
       response_bytes_(0),
       network_response_bytes_(0),
       was_cached_(false) {
@@ -268,7 +300,9 @@ void PrecacheFetcher::Fetcher::LoadFromCache() {
       cache_url_fetcher_.get(),
       data_use_measurement::DataUseUserData::PRECACHE);
   cache_url_fetcher_->SetRequestContext(request_context_);
-  cache_url_fetcher_->SetLoadFlags(net::LOAD_ONLY_FROM_CACHE | kNoTracking);
+  cache_url_fetcher_->SetLoadFlags(net::LOAD_ONLY_FROM_CACHE |
+                                   net::LOAD_SKIP_CACHE_VALIDATION |
+                                   kNoTracking);
   std::unique_ptr<URLFetcherNullWriter> null_writer(new URLFetcherNullWriter);
   cache_url_fetcher_->SaveResponseWithWriter(std::move(null_writer));
   cache_url_fetcher_->Start();
@@ -328,7 +362,8 @@ void PrecacheFetcher::Fetcher::OnURLFetchComplete(
     const net::URLFetcher* source) {
   CHECK(source);
   if (fetch_stage_ == FetchStage::CACHE &&
-      (source->GetStatus().error() == net::ERR_CACHE_MISS ||
+      ((source->GetStatus().error() == net::ERR_CACHE_MISS &&
+        !revalidation_only_) ||
        (source->GetResponseHeaders() &&
         source->GetResponseHeaders()->HasValidators()))) {
     // If the resource was not found in the cache, request it from the
@@ -486,7 +521,8 @@ void PrecacheFetcher::Start() {
   pool_.Add(base::MakeUnique<Fetcher>(
       request_context_.get(), config_url, std::string(),
       base::Bind(&PrecacheFetcher::OnConfigFetchComplete, AsWeakPtr()),
-      false /* is_resource_request */, std::numeric_limits<int32_t>::max()));
+      false /* is_resource_request */, std::numeric_limits<int32_t>::max(),
+      false /* revalidation_only */));
 }
 
 void PrecacheFetcher::StartNextResourceFetch() {
@@ -501,7 +537,8 @@ void PrecacheFetcher::StartNextResourceFetch() {
     pool_.Add(base::MakeUnique<Fetcher>(
         request_context_.get(), resource.url, resource.referrer,
         base::Bind(&PrecacheFetcher::OnResourceFetchComplete, AsWeakPtr()),
-        true /* is_resource_request */, max_bytes));
+        true /* is_resource_request */, max_bytes,
+        unfinished_work_->config_settings().revalidation_only()));
 
     resources_fetching_.push_back(std::move(resource));
     resources_to_fetch_.pop_front();
@@ -517,7 +554,8 @@ void PrecacheFetcher::StartNextManifestFetches() {
         request_context_.get(), top_host.manifest_url, top_host.hostname,
         base::Bind(&PrecacheFetcher::OnManifestFetchComplete, AsWeakPtr(),
                    top_host.visits),
-        false /* is_resource_request */, std::numeric_limits<int32_t>::max()));
+        false /* is_resource_request */, std::numeric_limits<int32_t>::max(),
+        false /* revalidation_only */));
     top_hosts_fetching_.push_back(std::move(top_host));
     top_hosts_to_fetch_.pop_front();
   }
@@ -639,7 +677,7 @@ void PrecacheFetcher::OnManifestInfoRetrieved(
       manifest.manifest_url = net::AppendOrReplaceQueryParameter(
           manifest.manifest_url, "used_resources", manifest.used_url_hash);
       manifest.manifest_url = net::AppendOrReplaceQueryParameter(
-          manifest.manifest_url, "unused_resources", manifest.unused_url_hash);
+          manifest.manifest_url, "d", manifest.downloaded_url_hash);
       DCHECK(manifest.manifest_url.is_valid());
     }
   }
@@ -671,12 +709,12 @@ ManifestHostInfo::ManifestHostInfo(int64_t manifest_id,
                                    const std::string& hostname,
                                    int64_t visits,
                                    const std::string& used_url_hash,
-                                   const std::string& unused_url_hash)
+                                   const std::string& downloaded_url_hash)
     : manifest_id(manifest_id),
       hostname(hostname),
       visits(visits),
       used_url_hash(used_url_hash),
-      unused_url_hash(unused_url_hash) {}
+      downloaded_url_hash(downloaded_url_hash) {}
 
 ManifestHostInfo::~ManifestHostInfo() {}
 
@@ -715,7 +753,9 @@ void PrecacheFetcher::OnManifestFetchComplete(int64_t host_visits,
             manifest.resource(i).has_url()) {
           GURL url(manifest.resource(i).url());
           if (url.is_valid()) {
-            double weight = ResourceWeight(manifest.resource(i), host_visits);
+            double weight = ResourceWeight(
+                unfinished_work_->config_settings().resource_weight_function(),
+                manifest.resource(i).weight_ratio(), host_visits);
             if (weight >= unfinished_work_->config_settings().min_weight())
               resources_to_rank_.emplace_back(url, source.referrer(), weight);
           }

@@ -13,7 +13,6 @@
 #include "chrome/browser/ui/views/website_settings/chosen_object_row_observer.h"
 #include "chrome/browser/ui/views/website_settings/permission_selector_row_observer.h"
 #include "chrome/browser/ui/website_settings/website_settings_ui.h"
-#include "components/security_state/security_state_model.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "ui/views/bubble/bubble_dialog_delegate.h"
 #include "ui/views/controls/button/button.h"
@@ -33,14 +32,15 @@ namespace net {
 class X509Certificate;
 }
 
+namespace security_state {
+struct SecurityInfo;
+}  // namespace security_state
+
 namespace test {
 class WebsiteSettingsPopupViewTestApi;
 }
 
 namespace views {
-class ImageButton;
-class Label;
-class LabelButton;
 class Link;
 class Widget;
 }
@@ -64,27 +64,35 @@ class WebsiteSettingsPopupView : public content::WebContentsObserver,
  public:
   ~WebsiteSettingsPopupView() override;
 
-  // If |anchor_view| is null, |anchor_rect| is used to anchor the bubble.
-  static void ShowPopup(
-      views::View* anchor_view,
-      const gfx::Rect& anchor_rect,
-      Profile* profile,
-      content::WebContents* web_contents,
-      const GURL& url,
-      const security_state::SecurityStateModel::SecurityInfo& security_info);
+  // Type of the popup being displayed.
+  enum PopupType {
+    POPUP_NONE,
+    // Usual page info bubble for websites.
+    POPUP_WEBSITE_SETTINGS,
+    // Custom bubble for internal pages like chrome:// and chrome-extensions://.
+    POPUP_INTERNAL_PAGE
+  };
 
-  static bool IsPopupShowing();
+  // If |anchor_view| is null, |anchor_rect| is used to anchor the bubble.
+  static void ShowPopup(views::View* anchor_view,
+                        const gfx::Rect& anchor_rect,
+                        Profile* profile,
+                        content::WebContents* web_contents,
+                        const GURL& url,
+                        const security_state::SecurityInfo& security_info);
+
+  // Returns the type of the popup bubble being shown.
+  static PopupType GetShownPopupType();
 
  private:
   friend class test::WebsiteSettingsPopupViewTestApi;
 
-  WebsiteSettingsPopupView(
-      views::View* anchor_view,
-      gfx::NativeView parent_window,
-      Profile* profile,
-      content::WebContents* web_contents,
-      const GURL& url,
-      const security_state::SecurityStateModel::SecurityInfo& security_info);
+  WebsiteSettingsPopupView(views::View* anchor_view,
+                           gfx::NativeView parent_window,
+                           Profile* profile,
+                           content::WebContents* web_contents,
+                           const GURL& url,
+                           const security_state::SecurityInfo& security_info);
 
   // WebContentsObserver implementation.
   void RenderFrameDeleted(content::RenderFrameHost* render_frame_host) override;
@@ -99,8 +107,11 @@ class WebsiteSettingsPopupView : public content::WebContentsObserver,
       const WebsiteSettingsUI::ChosenObjectInfo& info) override;
 
   // views::BubbleDialogDelegateView implementation.
+  base::string16 GetWindowTitle() const override;
+  bool ShouldShowCloseButton() const override;
   void OnWidgetDestroying(views::Widget* widget) override;
   int GetDialogButtons() const override;
+  const gfx::FontList& GetTitleFontList() const override;
 
   // views::ButtonListener implementation.
   void ButtonPressed(views::Button* button, const ui::Event& event) override;
@@ -118,16 +129,13 @@ class WebsiteSettingsPopupView : public content::WebContentsObserver,
 
   // WebsiteSettingsUI implementations.
   void SetCookieInfo(const CookieInfoList& cookie_info_list) override;
-  void SetPermissionInfo(
-      const PermissionInfoList& permission_info_list,
-      const ChosenObjectInfoList& chosen_object_info_list) override;
+  void SetPermissionInfo(const PermissionInfoList& permission_info_list,
+                         ChosenObjectInfoList chosen_object_info_list) override;
   void SetIdentityInfo(const IdentityInfo& identity_info) override;
-  // TODO(lgarron): Remove SetSelectedTab() with https://crbug.com/571533
-  void SetSelectedTab(TabId tab_id) override;
 
   // Creates the contents of the |site_settings_view_|. The ownership of the
   // returned view is transferred to the caller.
-  views::View* CreateSiteSettingsView() WARN_UNUSED_RESULT;
+  views::View* CreateSiteSettingsView(int side_margin) WARN_UNUSED_RESULT;
 
   // Used to asynchronously handle clicks since these calls may cause the
   // destruction of the settings view and the base class window still needs to
@@ -144,6 +152,9 @@ class WebsiteSettingsPopupView : public content::WebContentsObserver,
 
   // The header section (containing security-related information).
   PopupHeaderView* header_;
+
+  // The security summary for the current page.
+  base::string16 summary_text_;
 
   // The separator between the header and the site settings view.
   views::Separator* separator_;

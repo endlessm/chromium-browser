@@ -40,8 +40,8 @@ SearchResultTileItemListView::SearchResultTileItemListView(
     SearchResultTileItemView* tile_item =
         new SearchResultTileItemView(this, view_delegate);
     tile_item->SetParentBackgroundColor(kCardBackgroundColor);
-    tile_item->SetBorder(views::Border::CreateEmptyBorder(
-        kTopBottomPadding, 0, kTopBottomPadding, 0));
+    tile_item->SetBorder(
+        views::CreateEmptyBorder(kTopBottomPadding, 0, kTopBottomPadding, 0));
     tile_views_.push_back(tile_item);
     AddChildView(tile_item);
   }
@@ -72,7 +72,7 @@ int SearchResultTileItemListView::GetYSize() {
   return num_results() ? 1 : 0;
 }
 
-int SearchResultTileItemListView::Update() {
+int SearchResultTileItemListView::DoUpdate() {
   std::vector<SearchResult*> display_results =
       AppListModel::FilterSearchResultsByDisplayType(
           results(), SearchResult::DISPLAY_TILE, kNumSearchResultTiles);

@@ -111,6 +111,19 @@ bool VCMSessionInfo::NonReference() const {
   return packets_.front().video_header.codecHeader.VP8.nonReference;
 }
 
+std::vector<NaluInfo> VCMSessionInfo::GetNaluInfos() const {
+  if (packets_.empty() || packets_.front().video_header.codec != kRtpVideoH264)
+    return std::vector<NaluInfo>();
+  std::vector<NaluInfo> nalu_infos;
+  for (const VCMPacket& packet : packets_) {
+    for (size_t i = 0; i < packet.video_header.codecHeader.H264.nalus_length;
+         ++i) {
+      nalu_infos.push_back(packet.video_header.codecHeader.H264.nalus[i]);
+    }
+  }
+  return nalu_infos;
+}
+
 void VCMSessionInfo::SetGofInfo(const GofInfoVP9& gof_info, size_t idx) {
   if (packets_.empty() || packets_.front().video_header.codec != kRtpVideoVp9 ||
       packets_.front().video_header.codecHeader.VP9.flexible_mode) {
@@ -442,7 +455,7 @@ int VCMSessionInfo::InsertPacket(const VCMPacket& packet,
 
   if (packet.codec == kVideoCodecH264) {
     frame_type_ = packet.frameType;
-    if (packet.isFirstPacket &&
+    if (packet.is_first_packet_in_frame &&
         (first_packet_seq_num_ == -1 ||
          IsNewerSequenceNumber(first_packet_seq_num_, packet.seqNum))) {
       first_packet_seq_num_ = packet.seqNum;
@@ -458,7 +471,7 @@ int VCMSessionInfo::InsertPacket(const VCMPacket& packet,
     // Placing check here, as to properly account for duplicate packets.
     // Check if this is first packet (only valid for some codecs)
     // Should only be set for one packet per session.
-    if (packet.isFirstPacket && first_packet_seq_num_ == -1) {
+    if (packet.is_first_packet_in_frame && first_packet_seq_num_ == -1) {
       // The first packet in a frame signals the frame type.
       frame_type_ = packet.frameType;
       // Store the sequence number for the first packet.

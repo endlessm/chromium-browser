@@ -15,7 +15,6 @@
 #include "ash/common/session/session_state_delegate.h"
 #include "ash/common/shelf/wm_shelf.h"
 #include "ash/common/shell_delegate.h"
-#include "ash/common/shell_window_ids.h"
 #include "ash/common/system/system_notifier.h"
 #include "ash/common/system/tray/system_tray.h"
 #include "ash/common/wm/maximize_mode/maximize_mode_controller.h"
@@ -23,10 +22,10 @@
 #include "ash/common/wm/wm_event.h"
 #include "ash/common/wm_shell.h"
 #include "ash/debug.h"
-#include "ash/display/display_manager.h"
 #include "ash/display/window_tree_host_manager.h"
 #include "ash/host/ash_window_tree_host.h"
 #include "ash/magnifier/magnification_controller.h"
+#include "ash/public/cpp/shell_window_ids.h"
 #include "ash/root_window_controller.h"
 #include "ash/rotator/screen_rotation_animator.h"
 #include "ash/rotator/window_rotation.h"
@@ -37,6 +36,7 @@
 #include "ash/wm/power_button_controller.h"
 #include "ash/wm/window_state_aura.h"
 #include "ash/wm/window_util.h"
+#include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/user_metrics.h"
 #include "base/strings/string_split.h"
@@ -48,6 +48,7 @@
 #include "ui/compositor/layer.h"
 #include "ui/compositor/layer_animation_sequence.h"
 #include "ui/compositor/layer_animator.h"
+#include "ui/display/manager/display_manager.h"
 #include "ui/display/screen.h"
 #include "ui/events/event.h"
 #include "ui/events/keycodes/keyboard_codes.h"
@@ -187,7 +188,7 @@ void HandleRotateActiveWindow() {
         ui::LayerAnimator::REPLACE_QUEUED_ANIMATIONS);
     active_window->layer()->GetAnimator()->StartAnimation(
         new ui::LayerAnimationSequence(
-            new WindowRotation(360, active_window->layer())));
+            base::MakeUnique<WindowRotation>(360, active_window->layer())));
   }
 }
 

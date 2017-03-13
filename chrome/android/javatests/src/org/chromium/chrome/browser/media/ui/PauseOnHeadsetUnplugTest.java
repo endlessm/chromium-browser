@@ -6,8 +6,7 @@ package org.chromium.chrome.browser.media.ui;
 
 import android.content.Intent;
 import android.media.AudioManager;
-import android.os.Environment;
-import android.test.suitebuilder.annotation.SmallTest;
+import android.support.test.filters.SmallTest;
 
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.RetryOnFailure;
@@ -60,8 +59,7 @@ public class PauseOnHeadsetUnplugTest extends ChromeActivityTestCaseBase<ChromeA
 
     @Override
     protected void setUp() throws Exception {
-        mTestServer = EmbeddedTestServer.createAndStartFileServer(
-                getInstrumentation().getContext(), Environment.getExternalStorageDirectory());
+        mTestServer = EmbeddedTestServer.createAndStartServer(getInstrumentation().getContext());
         super.setUp();
     }
 
@@ -71,7 +69,7 @@ public class PauseOnHeadsetUnplugTest extends ChromeActivityTestCaseBase<ChromeA
         super.tearDown();
     }
 
-    private void waitForNotificationReady() throws InterruptedException {
+    private void waitForNotificationReady() {
         CriteriaHelper.pollInstrumentationThread(new Criteria() {
             @Override
             public boolean isSatisfied() {

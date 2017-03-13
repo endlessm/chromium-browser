@@ -12,7 +12,6 @@
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/net/dns_probe_service.h"
-#include "chrome/common/features.h"
 #include "chrome/common/network_diagnostics.mojom.h"
 #include "components/error_page/common/net_error_info.h"
 #include "components/prefs/pref_member.h"
@@ -29,7 +28,7 @@ namespace chrome_browser_net {
 class NetErrorTabHelper
     : public content::WebContentsObserver,
       public content::WebContentsUserData<NetErrorTabHelper>,
-      public mojom::NetworkDiagnostics {
+      public chrome::mojom::NetworkDiagnostics {
  public:
   enum TestingState {
     TESTING_DEFAULT,
@@ -52,6 +51,12 @@ class NetErrorTabHelper
     dns_probe_status_snoop_callback_ = dns_probe_status_snoop_callback;
   }
 
+#if defined(OS_ANDROID)
+  bool is_showing_download_button_in_error_page() const {
+    return is_showing_download_button_in_error_page_;
+  }
+#endif  // defined(OS_ANDROID)
+
   // content::WebContentsObserver implementation.
   void RenderFrameCreated(content::RenderFrameHost* render_frame_host) override;
   void DidStartNavigation(
@@ -73,10 +78,15 @@ class NetErrorTabHelper
     return dns_probe_status_;
   }
 
-  content::WebContentsFrameBindingSet<mojom::NetworkDiagnostics>&
+  content::WebContentsFrameBindingSet<chrome::mojom::NetworkDiagnostics>&
   network_diagnostics_bindings_for_testing() {
     return network_diagnostics_bindings_;
   }
+
+#if defined(OS_ANDROID)
+  void OnDownloadPageLater();
+  void OnSetIsShowingDownloadButtonInErrorPage(bool is_showing_download_button);
+#endif  // defined(OS_ANDROID)
 
  private:
   friend class content::WebContentsUserData<NetErrorTabHelper>;
@@ -86,22 +96,19 @@ class NetErrorTabHelper
   void InitializePref(content::WebContents* contents);
   bool ProbesAllowed() const;
 
-  // mojom::NetworkDiagnostics:
+  // chrome::mojom::NetworkDiagnostics:
   void RunNetworkDiagnostics(const GURL& url) override;
 
   // Shows the diagnostics dialog after its been sanitized, virtual for
   // testing.
   virtual void RunNetworkDiagnosticsHelper(const std::string& sanitized_url);
 
-  // Relates to offline pages handling.
-#if BUILDFLAG(ANDROID_JAVA_UI)
-  void UpdateHasOfflinePages(int frame_tree_node_id);
-  void SetHasOfflinePages(int frame_tree_node_id, bool has_offline_pages);
-  void ShowOfflinePages();
-  bool IsFromErrorPage() const;
-#endif  // BUILDFLAG(ANDROID_JAVA_UI)
+#if defined(OS_ANDROID)
+  // Virtual for testing.
+  virtual void DownloadPageLaterHelper(const GURL& url);
+#endif  // defined(OS_ANDROID)
 
-  content::WebContentsFrameBindingSet<mojom::NetworkDiagnostics>
+  content::WebContentsFrameBindingSet<chrome::mojom::NetworkDiagnostics>
       network_diagnostics_bindings_;
 
   // True if the last provisional load that started was for an error page.
@@ -114,6 +121,11 @@ class NetErrorTabHelper
   // True if the helper has seen an error page commit while |dns_error_active_|
   // is true.  (This should never be true if |dns_error_active_| is false.)
   bool dns_error_page_committed_;
+
+#if defined(OS_ANDROID)
+  // True if download button is being shown when the error page commits.
+  bool is_showing_download_button_in_error_page_;
+#endif  // defined(OS_ANDROID)
 
   // The status of a DNS probe that may or may not have started or finished.
   // Since the renderer can change out from under the helper (in cross-process

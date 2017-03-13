@@ -23,7 +23,6 @@
 #include "core/fileapi/Blob.h"
 #include "core/fileapi/File.h"
 #include "core/fileapi/FileList.h"
-#include "platform/Histogram.h"
 #include "platform/RuntimeEnabledFeatures.h"
 #include "public/platform/Platform.h"
 #include "public/platform/WebBlobInfo.h"
@@ -108,6 +107,22 @@ void SerializedScriptValueWriter::writeBooleanObject(bool value) {
   append(value ? TrueObjectTag : FalseObjectTag);
 }
 
+void SerializedScriptValueWriter::writeRawStringBytes(
+    v8::Local<v8::String>& string) {
+  int rawLength = string->Length();
+  string->WriteOneByte(byteAt(m_position), 0, rawLength,
+                       v8StringWriteOptions());
+  m_position += rawLength;
+}
+
+void SerializedScriptValueWriter::writeUtf8String(
+    v8::Local<v8::String>& string) {
+  int utf8Length = string->Utf8Length();
+  char* buffer = reinterpret_cast<char*>(byteAt(m_position));
+  string->WriteUtf8(buffer, utf8Length, 0, v8StringWriteOptions());
+  m_position += utf8Length;
+}
+
 void SerializedScriptValueWriter::writeOneByteString(
     v8::Local<v8::String>& string) {
   int stringLength = string->Length();
@@ -120,13 +135,10 @@ void SerializedScriptValueWriter::writeOneByteString(
 
   // ASCII fast path.
   if (stringLength == utf8Length) {
-    string->WriteOneByte(byteAt(m_position), 0, utf8Length,
-                         v8StringWriteOptions());
+    writeRawStringBytes(string);
   } else {
-    char* buffer = reinterpret_cast<char*>(byteAt(m_position));
-    string->WriteUtf8(buffer, utf8Length, 0, v8StringWriteOptions());
+    writeUtf8String(string);
   }
-  m_position += utf8Length;
 }
 
 void SerializedScriptValueWriter::writeUCharString(
@@ -251,7 +263,7 @@ void SerializedScriptValueWriter::writeArrayBuffer(
 void SerializedScriptValueWriter::writeArrayBufferView(
     const DOMArrayBufferView& arrayBufferView) {
   append(ArrayBufferViewTag);
-#if ENABLE(ASSERT)
+#if DCHECK_IS_ON()
   ASSERT(static_cast<const uint8_t*>(arrayBufferView.bufferBase()->data()) +
              arrayBufferView.byteOffset() ==
          static_cast<const uint8_t*>(arrayBufferView.baseAddress()));
@@ -355,17 +367,13 @@ void SerializedScriptValueWriter::writeTransferredOffscreenCanvas(
     uint32_t height,
     uint32_t canvasId,
     uint32_t clientId,
-    uint32_t sinkId,
-    uint32_t localId,
-    uint64_t nonce) {
+    uint32_t sinkId) {
   append(OffscreenCanvasTransferTag);
   doWriteUint32(width);
   doWriteUint32(height);
   doWriteUint32(canvasId);
   doWriteUint32(clientId);
   doWriteUint32(sinkId);
-  doWriteUint32(localId);
-  doWriteUint64(nonce);
 }
 
 void SerializedScriptValueWriter::writeTransferredSharedArrayBuffer(
@@ -701,7 +709,7 @@ void ScriptValueSerializer::copyTransferables(
   const auto& messagePorts = transferables.messagePorts;
   for (size_t i = 0; i < messagePorts.size(); ++i) {
     v8::Local<v8::Object> v8MessagePort =
-        toV8(messagePorts[i].get(), creationContext, isolate())
+        ToV8(messagePorts[i].get(), creationContext, isolate())
             .As<v8::Object>();
     m_transferredMessagePorts.set(v8MessagePort, i);
   }
@@ -709,7 +717,7 @@ void ScriptValueSerializer::copyTransferables(
   const auto& arrayBuffers = transferables.arrayBuffers;
   for (size_t i = 0; i < arrayBuffers.size(); ++i) {
     v8::Local<v8::Object> v8ArrayBuffer =
-        toV8(arrayBuffers[i].get(), creationContext, isolate())
+        ToV8(arrayBuffers[i].get(), creationContext, isolate())
             .As<v8::Object>();
     // Coalesce multiple occurences of the same buffer to the first index.
     if (!m_transferredArrayBuffers.contains(v8ArrayBuffer))
@@ -719,7 +727,7 @@ void ScriptValueSerializer::copyTransferables(
   const auto& imageBitmaps = transferables.imageBitmaps;
   for (size_t i = 0; i < imageBitmaps.size(); ++i) {
     v8::Local<v8::Object> v8ImageBitmap =
-        toV8(imageBitmaps[i].get(), creationContext, isolate())
+        ToV8(imageBitmaps[i].get(), creationContext, isolate())
             .As<v8::Object>();
     if (!m_transferredImageBitmaps.contains(v8ImageBitmap))
       m_transferredImageBitmaps.set(v8ImageBitmap, i);
@@ -728,37 +736,17 @@ void ScriptValueSerializer::copyTransferables(
   const auto& offscreenCanvases = transferables.offscreenCanvases;
   for (size_t i = 0; i < offscreenCanvases.size(); ++i) {
     v8::Local<v8::Object> v8OffscreenCanvas =
-        toV8(offscreenCanvases[i].get(), creationContext, isolate())
+        ToV8(offscreenCanvases[i].get(), creationContext, isolate())
             .As<v8::Object>();
     if (!m_transferredOffscreenCanvas.contains(v8OffscreenCanvas))
       m_transferredOffscreenCanvas.set(v8OffscreenCanvas, i);
   }
 }
 
-static void recordValueCounts(int primitiveCount,
-                              int jsObjectCount,
-                              int domWrapperCount) {
-  struct ObjectCountHistograms {
-    CustomCountHistogram primitiveCount{
-        "Blink.ScriptValueSerializer.PrimitiveCount", 0, 100000, 50};
-    CustomCountHistogram jsObjectCount{
-        "Blink.ScriptValueSerializer.JSObjectCount", 0, 100000, 50};
-    CustomCountHistogram domWrapperCount{
-        "Blink.ScriptValueSerializer.DOMWrapperCount", 0, 100000, 50};
-  };
-  DEFINE_THREAD_SAFE_STATIC_LOCAL(ObjectCountHistograms, histograms,
-                                  new ObjectCountHistograms);
-  histograms.primitiveCount.count(primitiveCount);
-  histograms.jsObjectCount.count(jsObjectCount);
-  histograms.domWrapperCount.count(domWrapperCount);
-}
-
 PassRefPtr<SerializedScriptValue> ScriptValueSerializer::serialize(
     v8::Local<v8::Value> value,
     Transferables* transferables,
     ExceptionState& exceptionState) {
-  m_primitiveCount = m_jsObjectCount = m_domWrapperCount = 0;
-
   DCHECK(!m_blobDataHandles);
 
   RefPtr<SerializedScriptValue> serializedValue =
@@ -776,7 +764,6 @@ PassRefPtr<SerializedScriptValue> ScriptValueSerializer::serialize(
 
   switch (m_status) {
     case Status::Success:
-      recordValueCounts(m_primitiveCount, m_jsObjectCount, m_domWrapperCount);
       transferData(transferables, exceptionState, serializedValue.get());
       break;
     case Status::InputError:
@@ -798,7 +785,7 @@ void ScriptValueSerializer::transferData(
     ExceptionState& exceptionState,
     SerializedScriptValue* serializedValue) {
   serializedValue->setData(m_writer.takeWireString());
-  DCHECK(serializedValue->data().impl()->hasOneRef());
+  DCHECK(serializedValue->dataHasOneRef());
   if (!transferables)
     return;
 
@@ -846,15 +833,9 @@ ScriptValueSerializer::StateBase* ScriptValueSerializer::doSerialize(
     m_writer.writeObjectReference(objectReference);
     return nullptr;
   }
-  if (value->IsObject()) {
-    if (V8DOMWrapper::isWrapper(isolate(), value))
-      m_domWrapperCount++;
-    else
-      m_jsObjectCount++;
+  if (value->IsObject())
     return doSerializeObject(value.As<v8::Object>(), next);
-  }
 
-  m_primitiveCount++;
   if (value->IsUndefined()) {
     m_writer.writeUndefined();
   } else if (value->IsNull()) {
@@ -1162,7 +1143,7 @@ ScriptValueSerializer::StateBase* ScriptValueSerializer::writeFileList(
     if (appendFileInfo(file, &blobIndex)) {
       ASSERT(!i || blobIndex > 0);
       ASSERT(blobIndex >= 0);
-      blobIndices.append(blobIndex);
+      blobIndices.push_back(blobIndex);
     }
   }
   if (!blobIndices.isEmpty())
@@ -1226,7 +1207,7 @@ ScriptValueSerializer::writeAndGreyArrayBufferView(v8::Local<v8::Object> object,
     return handleError(Status::DataCloneError,
                        "An ArrayBuffer could not be cloned.", next);
   v8::Local<v8::Value> underlyingBuffer =
-      toV8(arrayBufferView->bufferBase(), m_scriptState->context()->Global(),
+      ToV8(arrayBufferView->bufferBase(), m_scriptState->context()->Global(),
            isolate());
   if (underlyingBuffer.IsEmpty())
     return handleError(Status::DataCloneError,
@@ -1256,8 +1237,20 @@ ScriptValueSerializer::writeWasmCompiledModule(v8::Local<v8::Object> object,
   // TODO (mtrofin): explore mechanism avoiding data copying / buffer resizing.
   v8::Local<v8::WasmCompiledModule> wasmModule =
       object.As<v8::WasmCompiledModule>();
+  v8::Local<v8::String> wireBytes = wasmModule->GetWasmWireBytes();
+  DCHECK(wireBytes->IsOneByte());
+
   v8::WasmCompiledModule::SerializedModule data = wasmModule->Serialize();
   m_writer.append(WasmModuleTag);
+  uint32_t wireBytesLength = static_cast<uint32_t>(wireBytes->Length());
+  // We place a tag so we may evolve the format in which we store the
+  // wire bytes. We plan to move them to a blob.
+  // We want to control how we write the string, though, so we explicitly
+  // call writeRawStringBytes.
+  m_writer.append(RawBytesTag);
+  m_writer.doWriteUint32(wireBytesLength);
+  m_writer.ensureSpace(wireBytesLength);
+  m_writer.writeRawStringBytes(wireBytes);
   m_writer.doWriteUint32(static_cast<uint32_t>(data.second));
   m_writer.append(data.first.get(), static_cast<int>(data.second));
   return nullptr;
@@ -1302,9 +1295,8 @@ ScriptValueSerializer::writeTransferredOffscreenCanvas(
                        next);
   m_writer.writeTransferredOffscreenCanvas(
       offscreenCanvas->width(), offscreenCanvas->height(),
-      offscreenCanvas->getAssociatedCanvasId(), offscreenCanvas->clientId(),
-      offscreenCanvas->sinkId(), offscreenCanvas->localId(),
-      offscreenCanvas->nonce());
+      offscreenCanvas->placeholderCanvasId(), offscreenCanvas->clientId(),
+      offscreenCanvas->sinkId());
   return nullptr;
 }
 
@@ -1398,7 +1390,7 @@ bool ScriptValueSerializer::appendBlobInfo(const String& uuid,
   if (!m_blobInfo)
     return false;
   *index = m_blobInfo->size();
-  m_blobInfo->append(WebBlobInfo(uuid, type, size));
+  m_blobInfo->push_back(WebBlobInfo(uuid, type, size));
   return true;
 }
 
@@ -1412,8 +1404,8 @@ bool ScriptValueSerializer::appendFileInfo(const File* file, int* index) {
   *index = m_blobInfo->size();
   // FIXME: transition WebBlobInfo.lastModified to be milliseconds-based also.
   double lastModified = lastModifiedMS / msPerSecond;
-  m_blobInfo->append(WebBlobInfo(file->uuid(), file->path(), file->name(),
-                                 file->type(), lastModified, size));
+  m_blobInfo->push_back(WebBlobInfo(file->uuid(), file->path(), file->name(),
+                                    file->type(), lastModified, size));
   return true;
 }
 
@@ -1684,8 +1676,7 @@ bool SerializedScriptValueReader::readWithTag(
     case OffscreenCanvasTransferTag: {
       if (!m_version)
         return false;
-      uint32_t width, height, canvasId, clientId, sinkId, localId;
-      uint64_t nonce;
+      uint32_t width, height, canvasId, clientId, sinkId;
       if (!doReadUint32(&width))
         return false;
       if (!doReadUint32(&height))
@@ -1696,12 +1687,8 @@ bool SerializedScriptValueReader::readWithTag(
         return false;
       if (!doReadUint32(&sinkId))
         return false;
-      if (!doReadUint32(&localId))
-        return false;
-      if (!doReadUint64(&nonce))
-        return false;
       if (!deserializer.tryGetTransferredOffscreenCanvas(
-              width, height, canvasId, clientId, sinkId, localId, nonce, value))
+              width, height, canvasId, clientId, sinkId, value))
         return false;
       break;
     }
@@ -1898,7 +1885,7 @@ bool SerializedScriptValueReader::readImageData(v8::Local<v8::Value>* value) {
   m_position += pixelDataLength;
   if (!imageData)
     return false;
-  *value = toV8(imageData, m_scriptState->context()->Global(), isolate());
+  *value = ToV8(imageData, m_scriptState->context()->Global(), isolate());
   return !value->IsEmpty();
 }
 
@@ -1920,7 +1907,7 @@ bool SerializedScriptValueReader::readImageBitmap(v8::Local<v8::Value>* value) {
       pixelData, width, height, isPremultiplied, isOriginClean);
   if (!imageBitmap)
     return false;
-  *value = toV8(imageBitmap, m_scriptState->context()->Global(), isolate());
+  *value = ToV8(imageBitmap, m_scriptState->context()->Global(), isolate());
   return !value->IsEmpty();
 }
 
@@ -1935,7 +1922,7 @@ bool SerializedScriptValueReader::readCompositorProxy(
 
   CompositorProxy* compositorProxy = CompositorProxy::create(
       m_scriptState->getExecutionContext(), element, attributes);
-  *value = toV8(compositorProxy, m_scriptState->context()->Global(), isolate());
+  *value = ToV8(compositorProxy, m_scriptState->context()->Global(), isolate());
   return !value->IsEmpty();
 }
 
@@ -1953,24 +1940,40 @@ DOMArrayBuffer* SerializedScriptValueReader::doReadArrayBuffer() {
 bool SerializedScriptValueReader::readWasmCompiledModule(
     v8::Local<v8::Value>* value) {
   CHECK(RuntimeEnabledFeatures::webAssemblySerializationEnabled());
-  uint32_t size = 0;
-  if (!doReadUint32(&size))
+  // First, read the tag of the wire bytes.
+  SerializationTag wireBytesFormat = InvalidTag;
+  if (!readTag(&wireBytesFormat))
     return false;
-  if (m_position + size > m_length)
+  DCHECK(wireBytesFormat == RawBytesTag);
+  // Just like when writing, we don't rely on the default string serialization
+  // mechanics for the wire bytes. We don't even want a string, because
+  // that would lead to a memory copying API implementation on the V8 side.
+  uint32_t wireBytesSize = 0;
+  uint32_t compiledBytesSize = 0;
+  if (!doReadUint32(&wireBytesSize))
     return false;
-  const uint8_t* buf = m_buffer + m_position;
-  // TODO(mtrofin): simplify deserializer API. const uint8_t* + size_t should
-  // be sufficient.
-  v8::WasmCompiledModule::SerializedModule data = {
-      std::unique_ptr<const uint8_t[]>(buf), static_cast<size_t>(size)};
-  v8::MaybeLocal<v8::WasmCompiledModule> retval =
-      v8::WasmCompiledModule::Deserialize(isolate(), data);
-  data.first.release();
-  m_position += size;
+  if (m_position + wireBytesSize > m_length)
+    return false;
+  const uint8_t* wireBytesStart = m_buffer + m_position;
+  m_position += wireBytesSize;
 
-  // TODO(mtrofin): right now, we'll return undefined if the deserialization
-  // fails, which is what may happen when v8's version changes. Update when
-  // spec settles. crbug.com/639090
+  if (!doReadUint32(&compiledBytesSize))
+    return false;
+  if (m_position + compiledBytesSize > m_length)
+    return false;
+  const uint8_t* compiledBytesStart = m_buffer + m_position;
+  m_position += compiledBytesSize;
+
+  v8::WasmCompiledModule::CallerOwnedBuffer wireBytes = {
+      wireBytesStart, static_cast<size_t>(wireBytesSize)};
+
+  v8::WasmCompiledModule::CallerOwnedBuffer compiledBytes = {
+      compiledBytesStart, static_cast<size_t>(compiledBytesSize)};
+
+  v8::MaybeLocal<v8::WasmCompiledModule> retval =
+      v8::WasmCompiledModule::DeserializeOrCompile(isolate(), compiledBytes,
+                                                   wireBytes);
+
   return retval.ToLocal(value);
 }
 
@@ -1978,7 +1981,7 @@ bool SerializedScriptValueReader::readArrayBuffer(v8::Local<v8::Value>* value) {
   DOMArrayBuffer* arrayBuffer = doReadArrayBuffer();
   if (!arrayBuffer)
     return false;
-  *value = toV8(arrayBuffer, m_scriptState->context()->Global(), isolate());
+  *value = ToV8(arrayBuffer, m_scriptState->context()->Global(), isolate());
   return !value->IsEmpty();
 }
 
@@ -2059,48 +2062,48 @@ bool SerializedScriptValueReader::readArrayBufferView(
   v8::Local<v8::Object> creationContext = m_scriptState->context()->Global();
   switch (subTag) {
     case ByteArrayTag:
-      *value = toV8(DOMInt8Array::create(arrayBuffer, byteOffset, numElements),
+      *value = ToV8(DOMInt8Array::create(arrayBuffer, byteOffset, numElements),
                     creationContext, isolate());
       break;
     case UnsignedByteArrayTag:
-      *value = toV8(DOMUint8Array::create(arrayBuffer, byteOffset, numElements),
+      *value = ToV8(DOMUint8Array::create(arrayBuffer, byteOffset, numElements),
                     creationContext, isolate());
       break;
     case UnsignedByteClampedArrayTag:
-      *value = toV8(
+      *value = ToV8(
           DOMUint8ClampedArray::create(arrayBuffer, byteOffset, numElements),
           creationContext, isolate());
       break;
     case ShortArrayTag:
-      *value = toV8(DOMInt16Array::create(arrayBuffer, byteOffset, numElements),
+      *value = ToV8(DOMInt16Array::create(arrayBuffer, byteOffset, numElements),
                     creationContext, isolate());
       break;
     case UnsignedShortArrayTag:
       *value =
-          toV8(DOMUint16Array::create(arrayBuffer, byteOffset, numElements),
+          ToV8(DOMUint16Array::create(arrayBuffer, byteOffset, numElements),
                creationContext, isolate());
       break;
     case IntArrayTag:
-      *value = toV8(DOMInt32Array::create(arrayBuffer, byteOffset, numElements),
+      *value = ToV8(DOMInt32Array::create(arrayBuffer, byteOffset, numElements),
                     creationContext, isolate());
       break;
     case UnsignedIntArrayTag:
       *value =
-          toV8(DOMUint32Array::create(arrayBuffer, byteOffset, numElements),
+          ToV8(DOMUint32Array::create(arrayBuffer, byteOffset, numElements),
                creationContext, isolate());
       break;
     case FloatArrayTag:
       *value =
-          toV8(DOMFloat32Array::create(arrayBuffer, byteOffset, numElements),
+          ToV8(DOMFloat32Array::create(arrayBuffer, byteOffset, numElements),
                creationContext, isolate());
       break;
     case DoubleArrayTag:
       *value =
-          toV8(DOMFloat64Array::create(arrayBuffer, byteOffset, numElements),
+          ToV8(DOMFloat64Array::create(arrayBuffer, byteOffset, numElements),
                creationContext, isolate());
       break;
     case DataViewTag:
-      *value = toV8(DOMDataView::create(arrayBuffer, byteOffset, byteLength),
+      *value = ToV8(DOMDataView::create(arrayBuffer, byteOffset, byteLength),
                     creationContext, isolate());
       break;
   }
@@ -2150,7 +2153,7 @@ bool SerializedScriptValueReader::readBlob(v8::Local<v8::Value>* value,
       return false;
     blob = Blob::create(getOrCreateBlobDataHandle(uuid, type, size));
   }
-  *value = toV8(blob, m_scriptState->context()->Global(), isolate());
+  *value = ToV8(blob, m_scriptState->context()->Global(), isolate());
   return !value->IsEmpty();
 }
 
@@ -2166,7 +2169,7 @@ bool SerializedScriptValueReader::readFile(v8::Local<v8::Value>* value,
   }
   if (!file)
     return false;
-  *value = toV8(file, m_scriptState->context()->Global(), isolate());
+  *value = ToV8(file, m_scriptState->context()->Global(), isolate());
   return !value->IsEmpty();
 }
 
@@ -2191,7 +2194,7 @@ bool SerializedScriptValueReader::readFileList(v8::Local<v8::Value>* value,
       return false;
     fileList->append(file);
   }
-  *value = toV8(fileList, m_scriptState->context()->Global(), isolate());
+  *value = ToV8(fileList, m_scriptState->context()->Global(), isolate());
   return !value->IsEmpty();
 }
 
@@ -2459,7 +2462,7 @@ bool ScriptValueDeserializer::completeSet(uint32_t length,
 
 void ScriptValueDeserializer::pushObjectReference(
     const v8::Local<v8::Value>& object) {
-  m_objectPool.append(object);
+  m_objectPool.push_back(object);
 }
 
 bool ScriptValueDeserializer::tryGetTransferredMessagePort(
@@ -2471,7 +2474,7 @@ bool ScriptValueDeserializer::tryGetTransferredMessagePort(
     return false;
   v8::Local<v8::Object> creationContext =
       m_reader.getScriptState()->context()->Global();
-  *object = toV8(m_transferredMessagePorts->at(index).get(), creationContext,
+  *object = ToV8(m_transferredMessagePorts->at(index).get(), creationContext,
                  m_reader.getScriptState()->isolate());
   return !object->IsEmpty();
 }
@@ -2490,7 +2493,7 @@ bool ScriptValueDeserializer::tryGetTransferredArrayBuffer(
     v8::Isolate* isolate = m_reader.getScriptState()->isolate();
     v8::Local<v8::Object> creationContext =
         m_reader.getScriptState()->context()->Global();
-    result = toV8(buffer, creationContext, isolate);
+    result = ToV8(buffer, creationContext, isolate);
     if (result.IsEmpty())
       return false;
     m_arrayBuffers[index] = result;
@@ -2512,7 +2515,7 @@ bool ScriptValueDeserializer::tryGetTransferredImageBitmap(
     v8::Isolate* isolate = m_reader.getScriptState()->isolate();
     v8::Local<v8::Object> creationContext =
         m_reader.getScriptState()->context()->Global();
-    result = toV8(bitmap, creationContext, isolate);
+    result = ToV8(bitmap, creationContext, isolate);
     if (result.IsEmpty())
       return false;
     m_imageBitmaps[index] = result;
@@ -2536,7 +2539,7 @@ bool ScriptValueDeserializer::tryGetTransferredSharedArrayBuffer(
     v8::Isolate* isolate = m_reader.getScriptState()->isolate();
     v8::Local<v8::Object> creationContext =
         m_reader.getScriptState()->context()->Global();
-    result = toV8(buffer, creationContext, isolate);
+    result = ToV8(buffer, creationContext, isolate);
     if (result.IsEmpty())
       return false;
     m_arrayBuffers[index] = result;
@@ -2551,13 +2554,11 @@ bool ScriptValueDeserializer::tryGetTransferredOffscreenCanvas(
     uint32_t canvasId,
     uint32_t clientId,
     uint32_t sinkId,
-    uint32_t localId,
-    uint64_t nonce,
     v8::Local<v8::Value>* object) {
   OffscreenCanvas* offscreenCanvas = OffscreenCanvas::create(width, height);
-  offscreenCanvas->setAssociatedCanvasId(canvasId);
-  offscreenCanvas->setSurfaceId(clientId, sinkId, localId, nonce);
-  *object = toV8(offscreenCanvas, m_reader.getScriptState());
+  offscreenCanvas->setPlaceholderCanvasId(canvasId);
+  offscreenCanvas->setFrameSinkId(clientId, sinkId);
+  *object = ToV8(offscreenCanvas, m_reader.getScriptState());
   if ((*object).IsEmpty())
     return false;
   return true;
@@ -2617,15 +2618,15 @@ bool ScriptValueDeserializer::doDeserialize() {
 }
 
 v8::Local<v8::Value> ScriptValueDeserializer::element(unsigned index) {
-  ASSERT_WITH_SECURITY_IMPLICATION(index < m_stack.size());
+  SECURITY_DCHECK(index < m_stack.size());
   return m_stack[index];
 }
 
 void ScriptValueDeserializer::openComposite(
     const v8::Local<v8::Value>& object) {
   uint32_t newObjectReference = m_objectPool.size();
-  m_openCompositeReferenceStack.append(newObjectReference);
-  m_objectPool.append(object);
+  m_openCompositeReferenceStack.push_back(newObjectReference);
+  m_objectPool.push_back(object);
 }
 
 bool ScriptValueDeserializer::closeComposite(v8::Local<v8::Value>* object) {

@@ -66,7 +66,12 @@ class ReportBadMessageTest : public testing::Test {
         base::Bind(&ReportBadMessageTest::OnProcessError,
                    base::Unretained(this)));
 
-    impl_.BindImpl(GetProxy(&proxy_));
+    impl_.BindImpl(MakeRequest(&proxy_));
+  }
+
+  void TearDown() override {
+    mojo::edk::SetDefaultProcessErrorCallback(
+        mojo::edk::ProcessErrorCallback());
   }
 
   TestBadMessages* proxy() { return proxy_.get(); }

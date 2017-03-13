@@ -40,8 +40,7 @@ class UserMediaController final
   USING_GARBAGE_COLLECTED_MIXIN(UserMediaController);
 
  public:
-  static UserMediaController* create(std::unique_ptr<UserMediaClient>);
-
+  UserMediaController(LocalFrame&, std::unique_ptr<UserMediaClient>);
   DECLARE_VIRTUAL_TRACE();
 
   UserMediaClient* client() const { return m_client.get(); }
@@ -49,7 +48,6 @@ class UserMediaController final
   void requestUserMedia(UserMediaRequest*);
   void cancelUserMediaRequest(UserMediaRequest*);
   void requestMediaDevices(MediaDevicesRequest*);
-  void requestSources(MediaStreamTrackSourcesRequest*);
   void setMediaDeviceChangeObserver(MediaDevices*);
 
   static const char* supplementName();
@@ -59,8 +57,6 @@ class UserMediaController final
   }
 
  private:
-  explicit UserMediaController(std::unique_ptr<UserMediaClient>);
-
   std::unique_ptr<UserMediaClient> m_client;
 };
 
@@ -76,11 +72,6 @@ inline void UserMediaController::cancelUserMediaRequest(
 inline void UserMediaController::requestMediaDevices(
     MediaDevicesRequest* request) {
   m_client->requestMediaDevices(request);
-}
-
-inline void UserMediaController::requestSources(
-    MediaStreamTrackSourcesRequest* request) {
-  m_client->requestSources(request);
 }
 
 inline void UserMediaController::setMediaDeviceChangeObserver(

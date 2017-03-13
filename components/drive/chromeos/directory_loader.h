@@ -40,7 +40,6 @@ class ResourceEntry;
 namespace internal {
 
 class AboutResourceLoader;
-class ChangeList;
 class ChangeListLoaderObserver;
 class DirectoryFetchInfo;
 class LoaderController;
@@ -137,7 +136,7 @@ class DirectoryLoader {
   LoadCallbackMap pending_load_callback_;
 
   // Set of the running feed fetcher for the fast fetch.
-  std::set<FeedFetcher*> fast_fetch_feed_fetcher_set_;
+  std::set<std::unique_ptr<FeedFetcher>> fast_fetch_feed_fetcher_set_;
 
   base::ThreadChecker thread_checker_;
 

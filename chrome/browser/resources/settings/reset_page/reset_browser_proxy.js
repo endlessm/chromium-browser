@@ -10,9 +10,10 @@ cr.define('settings', function() {
     /**
      * @param {boolean} sendSettings Whether the user gave consent to upload
      *     broken settings to Google for analysis.
+     * @param {string} requestOrigin The origin of the reset request.
      * @return {!Promise} A promise firing once resetting has completed.
      */
-    performResetProfileSettings: function(sendSettings) {},
+    performResetProfileSettings: function(sendSettings, requestOrigin) {},
 
     /**
      * A method to be called when the reset profile dialog is hidden.
@@ -35,7 +36,14 @@ cr.define('settings', function() {
      */
     showReportedSettings: function() {},
 
-<if expr="chromeos">
+    /**
+     * Retrieves the triggered reset tool name.
+     * @return {!Promise<string>} A promise firing with the tool name, once it
+     *     has been retrieved.
+     */
+    getTriggeredResetToolName: function() {},
+
+// <if expr="chromeos">
     /**
      * A method to be called when the reset powerwash dialog is shown.
      */
@@ -45,7 +53,7 @@ cr.define('settings', function() {
      * Initiates a factory reset and restarts ChromeOS.
      */
     requestFactoryResetRestart: function() {},
-</if>
+// </if>
   };
 
   /**
@@ -57,8 +65,9 @@ cr.define('settings', function() {
 
   ResetBrowserProxyImpl.prototype = {
     /** @override */
-    performResetProfileSettings: function(sendSettings) {
-      return cr.sendWithPromise('performResetProfileSettings', sendSettings);
+    performResetProfileSettings: function(sendSettings, requestOrigin) {
+      return cr.sendWithPromise('performResetProfileSettings',
+                                sendSettings, requestOrigin);
     },
 
     /** @override */
@@ -90,7 +99,12 @@ cr.define('settings', function() {
       });
     },
 
-<if expr="chromeos">
+    /** @override */
+    getTriggeredResetToolName: function() {
+      return cr.sendWithPromise('getTriggeredResetToolName');
+    },
+
+// <if expr="chromeos">
     /** @override */
     onPowerwashDialogShow: function() {
       chrome.send('onPowerwashDialogShow');
@@ -100,7 +114,7 @@ cr.define('settings', function() {
     requestFactoryResetRestart: function() {
       chrome.send('requestFactoryResetRestart');
     },
-</if>
+// </if>
   };
 
   return {

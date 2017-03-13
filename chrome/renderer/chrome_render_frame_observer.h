@@ -10,8 +10,6 @@
 #include "chrome/common/prerender_types.h"
 #include "content/public/renderer/render_frame_observer.h"
 
-class GURL;
-
 namespace gfx {
 class Size;
 }
@@ -52,8 +50,6 @@ class ChromeRenderFrameObserver : public content::RenderFrameObserver {
       int callback_id);
   void OnPrintNodeUnderContextMenu();
   void OnSetClientSidePhishingDetection(bool enable_phishing_detection);
-  void OnAppBannerPromptRequest(int request_id,
-                                const std::string& platform);
 
   // Captures page information using the top (main) frame of a frame tree.
   // Currently, this page information is just the text content of the all

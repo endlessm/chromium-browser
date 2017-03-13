@@ -61,7 +61,6 @@ namespace net {
 class FakeURLFetcherFactory;
 class ScopedDefaultHostResolverProc;
 class URLFetcherImplFactory;
-class URLRequestContextGetter;
 }  // namespace net
 
 // This is the base class for integration tests for all sync data types. Derived
@@ -237,7 +236,7 @@ class SyncTest : public InProcessBrowserTest {
   // Triggers the creation the Synced Bookmarks folder on the server.
   void TriggerCreateSyncedBookmarks();
 
-  // Returns the FakeServer being used for the test or NULL if FakeServer is
+  // Returns the FakeServer being used for the test or null if FakeServer is
   // not being used.
   fake_server::FakeServer* GetFakeServer() const;
 

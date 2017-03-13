@@ -28,9 +28,7 @@ namespace blink {
 
 inline SVGFETileElement::SVGFETileElement(Document& document)
     : SVGFilterPrimitiveStandardAttributes(SVGNames::feTileTag, document),
-      m_in1(SVGAnimatedString::create(this,
-                                      SVGNames::inAttr,
-                                      SVGString::create())) {
+      m_in1(SVGAnimatedString::create(this, SVGNames::inAttr)) {
   addToPropertyMap(m_in1);
 }
 
@@ -58,7 +56,7 @@ FilterEffect* SVGFETileElement::build(SVGFilterBuilder* filterBuilder,
   ASSERT(input1);
 
   FilterEffect* effect = FETile::create(filter);
-  effect->inputEffects().append(input1);
+  effect->inputEffects().push_back(input1);
   return effect;
 }
 

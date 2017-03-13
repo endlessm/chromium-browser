@@ -30,8 +30,7 @@
 #include "core/dom/FirstLetterPseudoElement.h"
 #include "core/editing/EditingUtilities.h"
 #include "core/editing/iterators/TextIterator.h"
-#include "core/html/HTMLElement.h"
-#include "core/html/HTMLTextFormControlElement.h"
+#include "core/html/HTMLFormControlElement.h"
 #include "core/layout/LayoutTextFragment.h"
 
 namespace blink {
@@ -163,12 +162,12 @@ void SimplifiedBackwardsTextIteratorAlgorithm<Strategy>::advance() {
       if (layoutObject && layoutObject->isText() &&
           m_node->getNodeType() == Node::kTextNode) {
         // FIXME: What about kCdataSectionNode?
-        if (layoutObject->style()->visibility() == EVisibility::Visible &&
+        if (layoutObject->style()->visibility() == EVisibility::kVisible &&
             m_offset > 0)
           m_handledNode = handleTextNode();
       } else if (layoutObject && (layoutObject->isLayoutPart() ||
                                   TextIterator::supportsAltText(m_node))) {
-        if (layoutObject->style()->visibility() == EVisibility::Visible &&
+        if (layoutObject->style()->visibility() == EVisibility::kVisible &&
             m_offset > 0)
           m_handledNode = handleReplacedElement();
       } else {
@@ -420,7 +419,7 @@ UChar SimplifiedBackwardsTextIteratorAlgorithm<Strategy>::characterAt(
     unsigned index) const {
   // TODO(xiaochengh): Mostly copied from TextIteratorTextState::characterAt.
   // Should try to improve the code quality by reusing the code.
-  ASSERT_WITH_SECURITY_IMPLICATION(index < static_cast<unsigned>(length()));
+  SECURITY_DCHECK(index < static_cast<unsigned>(length()));
   if (!(index < static_cast<unsigned>(length())))
     return 0;
   if (m_singleCharacterBuffer) {

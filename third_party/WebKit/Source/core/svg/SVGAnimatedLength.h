@@ -42,24 +42,33 @@ class SVGAnimatedLength : public SVGAnimatedProperty<SVGLength>,
   DEFINE_WRAPPERTYPEINFO();
 
  public:
-  static SVGAnimatedLength* create(SVGElement* contextElement,
-                                   const QualifiedName& attributeName,
-                                   SVGLength* initialValue) {
-    return new SVGAnimatedLength(contextElement, attributeName, initialValue);
+  static SVGAnimatedLength* create(
+      SVGElement* contextElement,
+      const QualifiedName& attributeName,
+      SVGLength* initialValue,
+      CSSPropertyID cssPropertyId = CSSPropertyInvalid) {
+    return new SVGAnimatedLength(contextElement, attributeName, initialValue,
+                                 cssPropertyId);
   }
 
   void setDefaultValueAsString(const String&);
   SVGParsingError setBaseValueAsString(const String&) override;
+
+  const CSSValue* cssValue() const {
+    return &currentValue()->asCSSPrimitiveValue();
+  }
 
   DECLARE_VIRTUAL_TRACE_WRAPPERS();
 
  protected:
   SVGAnimatedLength(SVGElement* contextElement,
                     const QualifiedName& attributeName,
-                    SVGLength* initialValue)
+                    SVGLength* initialValue,
+                    CSSPropertyID cssPropertyId = CSSPropertyInvalid)
       : SVGAnimatedProperty<SVGLength>(contextElement,
                                        attributeName,
-                                       initialValue) {}
+                                       initialValue,
+                                       cssPropertyId) {}
 };
 
 }  // namespace blink

@@ -6,8 +6,7 @@ package org.chromium.chrome.browser.customtabs;
 
 import android.app.Activity;
 import android.os.Bundle;
-import android.os.Environment;
-import android.test.suitebuilder.annotation.SmallTest;
+import android.support.test.filters.SmallTest;
 
 import org.chromium.base.test.util.RetryOnFailure;
 import org.chromium.chrome.browser.customtabs.CustomTabDelegateFactory.CustomTabNavigationDelegate;
@@ -53,8 +52,7 @@ public class CustomTabExternalNavigationTest extends CustomTabActivityTestBase {
 
     @Override
     public void setUp() throws Exception {
-        mTestServer = EmbeddedTestServer.createAndStartFileServer(
-                getInstrumentation().getContext(), Environment.getExternalStorageDirectory());
+        mTestServer = EmbeddedTestServer.createAndStartServer(getInstrumentation().getContext());
         super.setUp();
     }
 

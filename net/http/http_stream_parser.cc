@@ -20,7 +20,6 @@
 #include "net/http/http_request_headers.h"
 #include "net/http/http_request_info.h"
 #include "net/http/http_response_headers.h"
-#include "net/http/http_status_line_validator.h"
 #include "net/http/http_util.h"
 #include "net/log/net_log_event_type.h"
 #include "net/socket/client_socket_handle.h"
@@ -31,23 +30,6 @@
 namespace net {
 
 namespace {
-
-enum HttpHeaderParserEvent {
-  HEADER_PARSER_INVOKED = 0,
-  // Obsolete: HEADER_HTTP_09_RESPONSE = 1,
-  HEADER_ALLOWED_TRUNCATED_HEADERS = 2,
-  HEADER_SKIPPED_WS_PREFIX = 3,
-  HEADER_SKIPPED_NON_WS_PREFIX = 4,
-  HEADER_HTTP_09_RESPONSE_OVER_HTTP = 5,
-  HEADER_HTTP_09_RESPONSE_OVER_SSL = 6,
-  HEADER_HTTP_09_ON_REUSED_SOCKET = 7,
-  NUM_HEADER_EVENTS
-};
-
-void RecordHeaderParserEvent(HttpHeaderParserEvent header_event) {
-  UMA_HISTOGRAM_ENUMERATION("Net.HttpHeaderParserEvent", header_event,
-                            NUM_HEADER_EVENTS);
-}
 
 const uint64_t kMaxMergedHeaderAndBodySize = 1400;
 const size_t kRequestBodyBufferSize = 1 << 14;  // 16KB
@@ -379,6 +361,12 @@ int HttpStreamParser::ReadResponseBody(IOBuffer* buf, int buf_len,
   user_read_buf_ = buf;
   user_read_buf_len_ = buf_len;
   io_state_ = STATE_READ_BODY;
+
+  // Invalidate HttpRequestInfo pointer. This is to allow the stream to be
+  // shared across multiple consumers.
+  // It is safe to reset it at this point since request_->upload_data_stream
+  // is also not needed anymore.
+  request_ = nullptr;
 
   int result = DoLoop(OK);
   if (result == ERR_IO_PENDING)
@@ -854,7 +842,6 @@ int HttpStreamParser::HandleReadHeaderResult(int result) {
       // The response looks to be a truncated set of HTTP headers.
       io_state_ = STATE_READ_BODY_COMPLETE;
       end_offset = read_buf_->offset();
-      RecordHeaderParserEvent(HEADER_ALLOWED_TRUNCATED_HEADERS);
     } else {
       // The response is apparently using HTTP/0.9.  Treat the entire response
       // as the body.
@@ -971,54 +958,32 @@ int HttpStreamParser::ParseResponseHeaders(int end_offset) {
   scoped_refptr<HttpResponseHeaders> headers;
   DCHECK_EQ(0, read_buf_unused_offset_);
 
-  RecordHeaderParserEvent(HEADER_PARSER_INVOKED);
-
-  if (response_header_start_offset_ > 0) {
-    bool has_non_whitespace_in_prefix = false;
-    for (int i = 0; i < response_header_start_offset_; ++i) {
-      if (!strchr(" \t\r\n", read_buf_->StartOfBuffer()[i])) {
-        has_non_whitespace_in_prefix = true;
-        break;
-      }
-    }
-    if (has_non_whitespace_in_prefix) {
-      RecordHeaderParserEvent(HEADER_SKIPPED_NON_WS_PREFIX);
-    } else {
-      RecordHeaderParserEvent(HEADER_SKIPPED_WS_PREFIX);
-    }
-  }
-
   if (response_header_start_offset_ >= 0) {
     received_bytes_ += end_offset;
-    std::string raw_headers =
-        HttpUtil::AssembleRawHeaders(read_buf_->StartOfBuffer(), end_offset);
-    ValidateStatusLine(
-        std::string(read_buf_->StartOfBuffer(), raw_headers.find('\0')));
-    headers = new HttpResponseHeaders(raw_headers);
+    headers = new HttpResponseHeaders(
+        HttpUtil::AssembleRawHeaders(read_buf_->StartOfBuffer(), end_offset));
   } else {
     // Enough data was read -- there is no status line, so this is HTTP/0.9, or
     // the server is broken / doesn't speak HTTP.
 
     // If the port is not the default for the scheme, assume it's not a real
     // HTTP/0.9 response, and fail the request.
-    // TODO(crbug.com/624462):  Further restrict the cases in which we allow
-    // HTTP/0.9.
-    std::string scheme(request_->url.scheme());
+    base::StringPiece scheme = request_->url.scheme_piece();
     if (!http_09_on_non_default_ports_enabled_ &&
-        url::DefaultPortForScheme(scheme.c_str(), scheme.length()) !=
+        url::DefaultPortForScheme(scheme.data(), scheme.length()) !=
             request_->url.EffectiveIntPort()) {
-      return ERR_INVALID_HTTP_RESPONSE;
+      // Allow Shoutcast responses over HTTP, as it's somewhat common and relies
+      // on HTTP/0.9 on weird ports to work.
+      // See
+      // https://groups.google.com/a/chromium.org/forum/#!topic/blink-dev/qS63pYso4P0
+      if (read_buf_->offset() < 3 || scheme != "http" ||
+          !base::LowerCaseEqualsASCII(
+              base::StringPiece(read_buf_->StartOfBuffer(), 3), "icy")) {
+        return ERR_INVALID_HTTP_RESPONSE;
+      }
     }
 
     headers = new HttpResponseHeaders(std::string("HTTP/0.9 200 OK"));
-
-    if (request_->url.SchemeIsCryptographic()) {
-      RecordHeaderParserEvent(HEADER_HTTP_09_RESPONSE_OVER_SSL);
-    } else {
-      RecordHeaderParserEvent(HEADER_HTTP_09_RESPONSE_OVER_HTTP);
-    }
-    if (connection_->is_reused())
-      RecordHeaderParserEvent(HEADER_HTTP_09_ON_REUSED_SOCKET);
   }
 
   // Check for multiple Content-Length headers when the response is not
@@ -1216,16 +1181,9 @@ bool HttpStreamParser::ShouldMergeRequestHeadersAndBody(
   return false;
 }
 
-void HttpStreamParser::ValidateStatusLine(const std::string& status_line) {
-  HttpStatusLineValidator::StatusLineStatus status =
-      HttpStatusLineValidator::ValidateStatusLine(status_line);
-  UMA_HISTOGRAM_ENUMERATION("Net.HttpStatusLineStatus", status,
-                            HttpStatusLineValidator::STATUS_LINE_MAX);
-}
-
 bool HttpStreamParser::SendRequestBuffersEmpty() {
   return request_headers_ == nullptr && request_body_send_buf_ == nullptr &&
-         request_body_send_buf_ == nullptr;
+         request_body_read_buf_ == nullptr;
 }
 
 }  // namespace net

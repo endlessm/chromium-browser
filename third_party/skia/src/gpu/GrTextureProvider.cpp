@@ -14,15 +14,12 @@
 #include "../private/GrSingleOwner.h"
 #include "SkMathPriv.h"
 #include "SkTArray.h"
+#include "SkTLazy.h"
+
+const int GrTextureProvider::kMinScratchTextureSize = 16;
 
 #define ASSERT_SINGLE_OWNER \
     SkDEBUGCODE(GrSingleOwner::AutoEnforce debug_SingleOwner(fSingleOwner);)
-
-enum ScratchTextureFlags {
-    kExact_ScratchTextureFlag           = 0x1,
-    kNoPendingIO_ScratchTextureFlag     = 0x2,
-    kNoCreate_ScratchTextureFlag        = 0x4,
-};
 
 GrTextureProvider::GrTextureProvider(GrGpu* gpu, GrResourceCache* cache, GrSingleOwner* singleOwner)
     : fCache(cache)
@@ -48,7 +45,9 @@ GrTexture* GrTextureProvider::createMipMappedTexture(const GrSurfaceDesc& desc, 
             return nullptr;
         }
     }
-
+    if (mipLevelCount > 1 && GrPixelConfigIsSint(desc.fConfig)) {
+        return nullptr;
+    }
     if ((desc.fFlags & kRenderTarget_GrSurfaceFlag) &&
         !fGpu->caps()->isConfigRenderable(desc.fConfig, desc.fSampleCnt > 0)) {
         return nullptr;
@@ -84,10 +83,10 @@ GrTexture* GrTextureProvider::createTexture(const GrSurfaceDesc& desc, SkBudgete
     GrMipLevel* texels = nullptr;
     int levelCount = 0;
     if (srcData) {
-      tempTexels.fPixels = srcData;
-      tempTexels.fRowBytes = rowBytes;
-      texels = &tempTexels;
-      levelCount = 1;
+        tempTexels.fPixels = srcData;
+        tempTexels.fRowBytes = rowBytes;
+        texels = &tempTexels;
+        levelCount = 1;
     }
     return this->createMipMappedTexture(desc, budgeted, texels, levelCount);
 }
@@ -122,10 +121,9 @@ GrTexture* GrTextureProvider::refScratchTexture(const GrSurfaceDesc& inDesc,
     if (fGpu->caps()->reuseScratchTextures() || (desc->fFlags & kRenderTarget_GrSurfaceFlag)) {
         if (!(kExact_ScratchTextureFlag & flags)) {
             // bin by pow2 with a reasonable min
-            const int kMinSize = 16;
             GrSurfaceDesc* wdesc = desc.writable();
-            wdesc->fWidth  = SkTMax(kMinSize, GrNextPow2(desc->fWidth));
-            wdesc->fHeight = SkTMax(kMinSize, GrNextPow2(desc->fHeight));
+            wdesc->fWidth  = SkTMax(kMinScratchTextureSize, GrNextPow2(desc->fWidth));
+            wdesc->fHeight = SkTMax(kMinScratchTextureSize, GrNextPow2(desc->fHeight));
         }
 
         GrScratchKey key;
@@ -158,8 +156,8 @@ GrTexture* GrTextureProvider::refScratchTexture(const GrSurfaceDesc& inDesc,
     return nullptr;
 }
 
-GrTexture* GrTextureProvider::wrapBackendTexture(const GrBackendTextureDesc& desc,
-                                                 GrWrapOwnership ownership) {
+sk_sp<GrTexture> GrTextureProvider::wrapBackendTexture(const GrBackendTextureDesc& desc,
+                                                       GrWrapOwnership ownership) {
     ASSERT_SINGLE_OWNER
     if (this->isAbandoned()) {
         return nullptr;
@@ -167,10 +165,12 @@ GrTexture* GrTextureProvider::wrapBackendTexture(const GrBackendTextureDesc& des
     return fGpu->wrapBackendTexture(desc, ownership);
 }
 
-GrRenderTarget* GrTextureProvider::wrapBackendRenderTarget(const GrBackendRenderTargetDesc& desc) {
+sk_sp<GrRenderTarget> GrTextureProvider::wrapBackendRenderTarget(
+    const GrBackendRenderTargetDesc& desc)
+{
     ASSERT_SINGLE_OWNER
-    return this->isAbandoned() ? nullptr : fGpu->wrapBackendRenderTarget(desc,
-                                                                         kBorrow_GrWrapOwnership);
+    return this->isAbandoned() ? nullptr
+                               : fGpu->wrapBackendRenderTarget(desc, kBorrow_GrWrapOwnership);
 }
 
 void GrTextureProvider::assignUniqueKeyToResource(const GrUniqueKey& key, GrGpuResource* resource) {

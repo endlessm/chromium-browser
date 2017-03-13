@@ -8,7 +8,7 @@ from __future__ import print_function
 
 import os
 
-from chromite.cbuildbot import constants
+from chromite.lib import constants
 from chromite.lib import commandline
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
@@ -67,8 +67,8 @@ def main(argv):
   except cros_build_lib.RunCommandError:
     # If we have an error resetting, or syncing, we clobber, and fresh sync.
     logging.warning('Chrome checkout appears corrupt. Clobbering.')
-    osutils.RmDir(options.chrome_root, ignore_missing=True)
-    osutils.SafeMakedirs(options.chrome_root)
+    osutils.RmDir(options.chrome_root, ignore_missing=True, sudo=True)
+    osutils.SafeMakedirsNonRoot(options.chrome_root)
     SyncChrome(gclient_path, options)
 
   return 0

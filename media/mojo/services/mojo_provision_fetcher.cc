@@ -12,7 +12,7 @@ MojoProvisionFetcher::MojoProvisionFetcher(
     mojom::ProvisionFetcherPtr provision_fetcher_ptr)
     : provision_fetcher_ptr_(std::move(provision_fetcher_ptr)),
       weak_factory_(this) {
-  DVLOG(1) << __FUNCTION__;
+  DVLOG(1) << __func__;
 }
 
 MojoProvisionFetcher::~MojoProvisionFetcher() {}
@@ -21,7 +21,7 @@ MojoProvisionFetcher::~MojoProvisionFetcher() {}
 void MojoProvisionFetcher::Retrieve(const std::string& default_url,
                                     const std::string& request_data,
                                     const ResponseCB& response_cb) {
-  DVLOG(1) << __FUNCTION__;
+  DVLOG(1) << __func__;
   provision_fetcher_ptr_->Retrieve(
       default_url, request_data,
       base::Bind(&MojoProvisionFetcher::OnResponse, weak_factory_.GetWeakPtr(),
@@ -30,7 +30,7 @@ void MojoProvisionFetcher::Retrieve(const std::string& default_url,
 
 void MojoProvisionFetcher::OnResponse(const ResponseCB& response_cb,
                                       bool success,
-                                      mojo::String response) {
+                                      const std::string& response) {
   response_cb.Run(success, response);
 }
 

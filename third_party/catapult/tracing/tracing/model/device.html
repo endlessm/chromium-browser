@@ -31,7 +31,7 @@ tr.exportTo('tr.model', function() {
 
     this.powerSeries_ = undefined;
     this.vSyncTimestamps_ = [];
-  };
+  }
 
   Device.compare = function(x, y) {
     return x.guid - y.guid;
@@ -96,14 +96,14 @@ tr.exportTo('tr.model', function() {
     addCategoriesToDict: function(categoriesDict) {
     },
 
-    childEventContainers: function*() {
+    childEventContainers: function* () {
       if (this.powerSeries_)
         yield this.powerSeries_;
     }
   };
 
   return {
-    Device: Device
+    Device,
   };
 });
 </script>

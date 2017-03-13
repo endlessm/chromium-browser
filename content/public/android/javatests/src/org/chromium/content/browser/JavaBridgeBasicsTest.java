@@ -6,7 +6,7 @@ package org.chromium.content.browser;
 
 import static org.chromium.base.test.util.ScalableTimeout.scaleTimeout;
 
-import android.test.suitebuilder.annotation.SmallTest;
+import android.support.test.filters.SmallTest;
 
 import junit.framework.Assert;
 
@@ -35,7 +35,8 @@ import java.util.concurrent.CountDownLatch;
  * - Threading
  * - Inheritance
  */
-@SuppressFBWarnings("URF_UNREAD_PUBLIC_OR_PROTECTED_FIELD")
+@SuppressFBWarnings(
+        {"UMAC_UNCALLABLE_METHOD_OF_ANONYMOUS_CLASS", "URF_UNREAD_PUBLIC_OR_PROTECTED_FIELD"})
 public class JavaBridgeBasicsTest extends JavaBridgeTestBase {
     @SuppressFBWarnings("CHROMIUM_SYNCHRONIZED_METHOD")
     private class TestController extends Controller {

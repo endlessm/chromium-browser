@@ -37,6 +37,7 @@ import org.chromium.chrome.browser.ChromeSwitches;
 import org.chromium.chrome.browser.FileProviderHelper;
 import org.chromium.chrome.browser.crash.MinidumpDirectoryObserver;
 import org.chromium.chrome.browser.device.DeviceClassManager;
+import org.chromium.chrome.browser.download.DownloadManagerService;
 import org.chromium.chrome.browser.services.GoogleServicesManager;
 import org.chromium.chrome.browser.tabmodel.document.DocumentTabModelImpl;
 import org.chromium.chrome.browser.webapps.ActivityAssigner;
@@ -60,7 +61,7 @@ import java.util.Locale;
  */
 public class ChromeBrowserInitializer {
     private static final String TAG = "BrowserInitializer";
-    private static ChromeBrowserInitializer sChromeBrowserInitiliazer;
+    private static ChromeBrowserInitializer sChromeBrowserInitializer;
 
     private final Handler mHandler;
     private final ChromeApplication mApplication;
@@ -92,10 +93,10 @@ public class ChromeBrowserInitializer {
      * @return The singleton instance of {@link ChromeBrowserInitializer}.
      */
     public static ChromeBrowserInitializer getInstance(Context context) {
-        if (sChromeBrowserInitiliazer == null) {
-            sChromeBrowserInitiliazer = new ChromeBrowserInitializer(context);
+        if (sChromeBrowserInitializer == null) {
+            sChromeBrowserInitializer = new ChromeBrowserInitializer(context);
         }
-        return sChromeBrowserInitiliazer;
+        return sChromeBrowserInitializer;
     }
 
     private ChromeBrowserInitializer(Context context) {
@@ -169,6 +170,7 @@ public class ChromeBrowserInitializer {
                     ContextUtils.getAppSharedPreferences();
                     DocumentTabModelImpl.warmUpSharedPrefs(mApplication);
                     ActivityAssigner.warmUpSharedPrefs(mApplication);
+                    DownloadManagerService.warmUpSharedPrefs(mApplication);
                     return null;
                 }
             }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
@@ -176,13 +178,14 @@ public class ChromeBrowserInitializer {
             ContextUtils.getAppSharedPreferences();
             DocumentTabModelImpl.warmUpSharedPrefs(mApplication);
             ActivityAssigner.warmUpSharedPrefs(mApplication);
+            DownloadManagerService.warmUpSharedPrefs(mApplication);
         }
     }
 
     private void preInflationStartup() {
         ThreadUtils.assertOnUiThread();
         if (mPreInflationStartupComplete) return;
-        PathUtils.setPrivateDataDirectorySuffix(PRIVATE_DATA_DIRECTORY_SUFFIX, mApplication);
+        PathUtils.setPrivateDataDirectorySuffix(PRIVATE_DATA_DIRECTORY_SUFFIX);
 
         // Ensure critical files are available, so they aren't blocked on the file-system
         // behind long-running accesses in next phase.
@@ -208,7 +211,7 @@ public class ChromeBrowserInitializer {
         // Check to see if we need to extract any new resources from the APK. This could
         // be on first run when we need to extract all the .pak files we need, or after
         // the user has switched locale, in which case we want new locale resources.
-        ResourceExtractor.get(mApplication).startExtractingResources();
+        ResourceExtractor.get().startExtractingResources();
 
         mPostInflationStartupComplete = true;
     }
@@ -435,5 +438,13 @@ public class ChromeBrowserInitializer {
                 }
             }
         };
+    }
+
+    /**
+     * For unit testing of clients.
+     * @param initializer The (dummy or mocked) initializer to use.
+     */
+    public static void setForTesting(ChromeBrowserInitializer initializer) {
+        sChromeBrowserInitializer = initializer;
     }
 }

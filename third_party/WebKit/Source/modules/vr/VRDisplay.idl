@@ -7,10 +7,12 @@ enum VREye {
     "right"
 };
 
-// http://mozvr.github.io/webvr-spec/webvr.html#vrdisplay
+// https://w3c.github.io/webvr/#interface-vrdisplay
 [
-    RuntimeEnabled=WebVR
-] interface VRDisplay {
+    ActiveScriptWrappable,
+    DependentLifetime,
+    OriginTrialEnabled=WebVR
+] interface VRDisplay : EventTarget {
     // An identifier for this device unique across VRDisplays.
     readonly attribute unsigned long displayId;
 
@@ -26,7 +28,7 @@ enum VREye {
     readonly attribute VRStageParameters stageParameters;
 
     boolean getFrameData(VRFrameData frameData);
-    VRPose getPose();
+    [DeprecateAs=VRDeprecatedGetPose] VRPose getPose();
     void resetPose();
 
     attribute double depthNear;

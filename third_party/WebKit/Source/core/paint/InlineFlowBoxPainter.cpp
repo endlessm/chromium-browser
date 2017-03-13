@@ -18,7 +18,7 @@ void InlineFlowBoxPainter::paint(const PaintInfo& paintInfo,
                                  const LayoutPoint& paintOffset,
                                  const LayoutUnit lineTop,
                                  const LayoutUnit lineBottom) {
-  ASSERT(!shouldPaintSelfOutline(paintInfo.phase) &&
+  DCHECK(!shouldPaintSelfOutline(paintInfo.phase) &&
          !shouldPaintDescendantOutlines(paintInfo.phase));
 
   LayoutRect overflowRect(
@@ -61,7 +61,7 @@ void InlineFlowBoxPainter::paintFillLayers(const PaintInfo& paintInfo,
                                            const Color& c,
                                            const FillLayer& fillLayer,
                                            const LayoutRect& rect,
-                                           SkXfermode::Mode op) {
+                                           SkBlendMode op) {
   // FIXME: This should be a for loop or similar. It's a little non-trivial to
   // do so, however, since the layers need to be painted in reverse order.
   if (fillLayer.next())
@@ -73,7 +73,7 @@ void InlineFlowBoxPainter::paintFillLayer(const PaintInfo& paintInfo,
                                           const Color& c,
                                           const FillLayer& fillLayer,
                                           const LayoutRect& rect,
-                                          SkXfermode::Mode op) {
+                                          SkBlendMode op) {
   LayoutBoxModelObject* boxModel = toLayoutBoxModelObject(
       LineLayoutAPIShim::layoutObjectFrom(m_inlineFlowBox.boxModelObject()));
   StyleImage* img = fillLayer.image();
@@ -109,21 +109,35 @@ void InlineFlowBoxPainter::paintFillLayer(const PaintInfo& paintInfo,
   }
 }
 
-void InlineFlowBoxPainter::paintBoxShadow(const PaintInfo& info,
-                                          const ComputedStyle& s,
-                                          ShadowStyle shadowStyle,
-                                          const LayoutRect& paintRect) {
-  if ((!m_inlineFlowBox.prevLineBox() && !m_inlineFlowBox.nextLineBox()) ||
-      !m_inlineFlowBox.parent()) {
-    BoxPainter::paintBoxShadow(info, paintRect, s, shadowStyle);
-  } else {
-    // FIXME: We can do better here in the multi-line case. We want to push a
-    // clip so that the shadow doesn't protrude incorrectly at the edges, and we
-    // want to possibly include shadows cast from the previous/following lines
-    BoxPainter::paintBoxShadow(info, paintRect, s, shadowStyle,
-                               m_inlineFlowBox.includeLogicalLeftEdge(),
-                               m_inlineFlowBox.includeLogicalRightEdge());
-  }
+inline bool InlineFlowBoxPainter::shouldForceIncludeLogicalEdges() const {
+  return (!m_inlineFlowBox.prevLineBox() && !m_inlineFlowBox.nextLineBox()) ||
+         !m_inlineFlowBox.parent();
+}
+
+inline bool InlineFlowBoxPainter::includeLogicalLeftEdgeForBoxShadow() const {
+  return shouldForceIncludeLogicalEdges() ||
+         m_inlineFlowBox.includeLogicalLeftEdge();
+}
+
+inline bool InlineFlowBoxPainter::includeLogicalRightEdgeForBoxShadow() const {
+  return shouldForceIncludeLogicalEdges() ||
+         m_inlineFlowBox.includeLogicalRightEdge();
+}
+
+void InlineFlowBoxPainter::paintNormalBoxShadow(const PaintInfo& info,
+                                                const ComputedStyle& s,
+                                                const LayoutRect& paintRect) {
+  BoxPainter::paintNormalBoxShadow(info, paintRect, s,
+                                   includeLogicalLeftEdgeForBoxShadow(),
+                                   includeLogicalRightEdgeForBoxShadow());
+}
+
+void InlineFlowBoxPainter::paintInsetBoxShadow(const PaintInfo& info,
+                                               const ComputedStyle& s,
+                                               const LayoutRect& paintRect) {
+  BoxPainter::paintInsetBoxShadow(info, paintRect, s,
+                                  includeLogicalLeftEdgeForBoxShadow(),
+                                  includeLogicalRightEdgeForBoxShadow());
 }
 
 static LayoutRect clipRectForNinePieceImageStrip(const InlineFlowBox& box,
@@ -167,7 +181,7 @@ LayoutRect InlineFlowBoxPainter::paintRectForImageStrip(
   // off.
   LayoutUnit logicalOffsetOnLine;
   LayoutUnit totalLogicalWidth;
-  if (direction == LTR) {
+  if (direction == TextDirection::kLtr) {
     for (const InlineFlowBox* curr = m_inlineFlowBox.prevLineBox(); curr;
          curr = curr->prevLineBox())
       logicalOffsetOnLine += curr->logicalWidth();
@@ -229,9 +243,9 @@ void InlineFlowBoxPainter::paintBoxDecorationBackground(
     const PaintInfo& paintInfo,
     const LayoutPoint& paintOffset,
     const LayoutRect& cullRect) {
-  ASSERT(paintInfo.phase == PaintPhaseForeground);
+  DCHECK(paintInfo.phase == PaintPhaseForeground);
   if (m_inlineFlowBox.getLineLayoutItem().style()->visibility() !=
-      EVisibility::Visible)
+      EVisibility::kVisible)
     return;
 
   // You can use p::first-line to specify a background. If so, the root line
@@ -276,15 +290,13 @@ void InlineFlowBoxPainter::paintBoxDecorationBackground(
       getBorderPaintType(adjustedFrameRect, adjustedClipRect);
 
   // Shadow comes first and is behind the background and border.
-  if (!m_inlineFlowBox.boxModelObject().boxShadowShouldBeAppliedToBackground(
-          BackgroundBleedNone, &m_inlineFlowBox))
-    paintBoxShadow(paintInfo, *styleToUse, Normal, adjustedFrameRect);
+  paintNormalBoxShadow(paintInfo, *styleToUse, adjustedFrameRect);
 
   Color backgroundColor = inlineFlowBoxLayoutObject->resolveColor(
       *styleToUse, CSSPropertyBackgroundColor);
   paintFillLayers(paintInfo, backgroundColor, styleToUse->backgroundLayers(),
                   adjustedFrameRect);
-  paintBoxShadow(paintInfo, *styleToUse, Inset, adjustedFrameRect);
+  paintInsetBoxShadow(paintInfo, *styleToUse, adjustedFrameRect);
 
   switch (borderPaintingType) {
     case DontPaintBorders:
@@ -303,8 +315,8 @@ void InlineFlowBoxPainter::paintBoxDecorationBackground(
       // FIXME: What the heck do we do with RTL here? The math we're using is
       // obviously not right, but it isn't even clear how this should work at
       // all.
-      LayoutRect imageStripPaintRect =
-          paintRectForImageStrip(adjustedPaintOffset, frameRect.size(), LTR);
+      LayoutRect imageStripPaintRect = paintRectForImageStrip(
+          adjustedPaintOffset, frameRect.size(), TextDirection::kLtr);
       GraphicsContextStateSaver stateSaver(paintInfo.context);
       paintInfo.context.clip(adjustedClipRect);
       BoxPainter::paintBorder(
@@ -320,7 +332,7 @@ void InlineFlowBoxPainter::paintBoxDecorationBackground(
 void InlineFlowBoxPainter::paintMask(const PaintInfo& paintInfo,
                                      const LayoutPoint& paintOffset) {
   if (m_inlineFlowBox.getLineLayoutItem().style()->visibility() !=
-          EVisibility::Visible ||
+          EVisibility::kVisible ||
       paintInfo.phase != PaintPhaseMask)
     return;
 
@@ -343,7 +355,7 @@ void InlineFlowBoxPainter::paintMask(const PaintInfo& paintInfo,
       m_inlineFlowBox.boxModelObject().layer()->hasCompositedMask();
   bool flattenCompositingLayers =
       paintInfo.getGlobalPaintFlags() & GlobalPaintFlattenCompositingLayers;
-  SkXfermode::Mode compositeOp = SkXfermode::kSrcOver_Mode;
+  SkBlendMode compositeOp = SkBlendMode::kSrcOver;
   if (!compositedMask || flattenCompositingLayers) {
     if ((maskBoxImage &&
          m_inlineFlowBox.getLineLayoutItem()
@@ -352,7 +364,7 @@ void InlineFlowBoxPainter::paintMask(const PaintInfo& paintInfo,
              .hasImage()) ||
         m_inlineFlowBox.getLineLayoutItem().style()->maskLayers().next()) {
       pushTransparencyLayer = true;
-      paintInfo.context.beginLayer(1.0f, SkXfermode::kDstIn_Mode);
+      paintInfo.context.beginLayer(1.0f, SkBlendMode::kDstIn);
     } else {
       // TODO(fmalita): passing a dst-in xfer mode down to
       // paintFillLayers/paintNinePieceImage seems dangerous: it is only correct
@@ -360,7 +372,7 @@ void InlineFlowBoxPainter::paintMask(const PaintInfo& paintInfo,
       // presumably ensures that is the case, this approach seems super fragile.
       // We should investigate dropping this optimization in favour of the more
       // robust layer branch above.
-      compositeOp = SkXfermode::kDstIn_Mode;
+      compositeOp = SkBlendMode::kDstIn;
     }
   }
 
@@ -389,8 +401,8 @@ void InlineFlowBoxPainter::paintMask(const PaintInfo& paintInfo,
     // We have a mask image that spans multiple lines.
     // FIXME: What the heck do we do with RTL here? The math we're using is
     // obviously not right, but it isn't even clear how this should work at all.
-    LayoutRect imageStripPaintRect =
-        paintRectForImageStrip(adjustedPaintOffset, frameRect.size(), LTR);
+    LayoutRect imageStripPaintRect = paintRectForImageStrip(
+        adjustedPaintOffset, frameRect.size(), TextDirection::kLtr);
     FloatRect clipRect(clipRectForNinePieceImageStrip(
         m_inlineFlowBox, maskNinePieceImage, paintRect));
     GraphicsContextStateSaver stateSaver(paintInfo.context);

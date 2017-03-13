@@ -17,20 +17,21 @@
 #include "core/dom/custom/CustomElement.h"
 #include "core/events/ErrorEvent.h"
 #include "core/html/HTMLElement.h"
+#include "core/html/imports/HTMLImportsController.h"
 #include "v8.h"
 #include "wtf/Allocator.h"
 
 namespace blink {
 
 // Retrieves the custom elements constructor -> name map, creating it
-// if necessary. The same map is used to keep prototypes alive.
+// if necessary.
 static v8::Local<v8::Map> ensureCustomElementRegistryMap(
     ScriptState* scriptState,
     CustomElementRegistry* registry) {
   CHECK(scriptState->world().isMainWorld());
   v8::Local<v8::String> name =
       V8HiddenValue::customElementsRegistryMap(scriptState->isolate());
-  v8::Local<v8::Object> wrapper = toV8(registry, scriptState).As<v8::Object>();
+  v8::Local<v8::Object> wrapper = ToV8(registry, scriptState).As<v8::Object>();
   v8::Local<v8::Value> map =
       V8HiddenValue::getHiddenValue(scriptState, wrapper, name);
   if (map.IsEmpty()) {
@@ -101,14 +102,13 @@ ScriptCustomElementDefinition* ScriptCustomElementDefinition::create(
     CustomElementRegistry* registry,
     const CustomElementDescriptor& descriptor,
     const v8::Local<v8::Object>& constructor,
-    const v8::Local<v8::Object>& prototype,
     const v8::Local<v8::Function>& connectedCallback,
     const v8::Local<v8::Function>& disconnectedCallback,
     const v8::Local<v8::Function>& adoptedCallback,
     const v8::Local<v8::Function>& attributeChangedCallback,
     const HashSet<AtomicString>& observedAttributes) {
   ScriptCustomElementDefinition* definition = new ScriptCustomElementDefinition(
-      scriptState, descriptor, constructor, prototype, connectedCallback,
+      scriptState, descriptor, constructor, connectedCallback,
       disconnectedCallback, adoptedCallback, attributeChangedCallback,
       observedAttributes);
 
@@ -120,17 +120,16 @@ ScriptCustomElementDefinition* ScriptCustomElementDefinition::create(
   map->Set(scriptState->context(), constructor, nameValue).ToLocalChecked();
   definition->m_constructor.setPhantom();
 
-  // We add the prototype and callbacks here to keep them alive. We use the
-  // name as the key because it is unique per-registry.
+  // We add the callbacks here to keep them alive. We use the name as
+  // the key because it is unique per-registry.
   v8::Local<v8::Array> array = v8::Array::New(scriptState->isolate(), 5);
-  keepAlive(array, 0, prototype, definition->m_prototype, scriptState);
-  keepAlive(array, 1, connectedCallback, definition->m_connectedCallback,
+  keepAlive(array, 0, connectedCallback, definition->m_connectedCallback,
             scriptState);
-  keepAlive(array, 2, disconnectedCallback, definition->m_disconnectedCallback,
+  keepAlive(array, 1, disconnectedCallback, definition->m_disconnectedCallback,
             scriptState);
-  keepAlive(array, 3, adoptedCallback, definition->m_adoptedCallback,
+  keepAlive(array, 2, adoptedCallback, definition->m_adoptedCallback,
             scriptState);
-  keepAlive(array, 4, attributeChangedCallback,
+  keepAlive(array, 3, attributeChangedCallback,
             definition->m_attributeChangedCallback, scriptState);
   map->Set(scriptState->context(), nameValue, array).ToLocalChecked();
 
@@ -141,7 +140,6 @@ ScriptCustomElementDefinition::ScriptCustomElementDefinition(
     ScriptState* scriptState,
     const CustomElementDescriptor& descriptor,
     const v8::Local<v8::Object>& constructor,
-    const v8::Local<v8::Object>& prototype,
     const v8::Local<v8::Function>& connectedCallback,
     const v8::Local<v8::Function>& disconnectedCallback,
     const v8::Local<v8::Function>& adoptedCallback,
@@ -150,43 +148,6 @@ ScriptCustomElementDefinition::ScriptCustomElementDefinition(
     : CustomElementDefinition(descriptor, observedAttributes),
       m_scriptState(scriptState),
       m_constructor(scriptState->isolate(), constructor) {}
-
-HTMLElement* ScriptCustomElementDefinition::createElementSync(
-    Document& document,
-    const QualifiedName& tagName,
-    ExceptionState& exceptionState) {
-  DCHECK(ScriptState::current(m_scriptState->isolate()) == m_scriptState);
-
-  // Create an element
-  // https://dom.spec.whatwg.org/#concept-create-element
-  // 6. If definition is non-null
-  // 6.1. If the synchronous custom elements flag is set:
-  // 6.1.2. Set result to Construct(C). Rethrow any exceptions.
-
-  // Create an element and push to the construction stack.
-  // V8HTMLElement::constructorCustom() can only refer to
-  // window.document(), but it is different from the document here
-  // when it is an import document.  This is not exactly what the
-  // spec defines, but the public behavior matches to the spec.
-  Element* element = createElementForConstructor(document);
-  {
-    ConstructionStackScope constructionStackScope(this, element);
-    v8::TryCatch tryCatch(m_scriptState->isolate());
-    element = runConstructor();
-    if (tryCatch.HasCaught()) {
-      exceptionState.rethrowV8Exception(tryCatch.Exception());
-      return nullptr;
-    }
-  }
-
-  // 6.1.3. through 6.1.9.
-  checkConstructorResult(element, document, tagName, exceptionState);
-  if (exceptionState.hadException())
-    return nullptr;
-
-  DCHECK_EQ(element->getCustomElementState(), CustomElementState::Custom);
-  return toHTMLElement(element);
-}
 
 static void dispatchErrorEvent(v8::Isolate* isolate,
                                v8::Local<v8::Value> exception,
@@ -197,29 +158,73 @@ static void dispatchErrorEvent(v8::Isolate* isolate,
       isolate, exception, constructor.As<v8::Function>()->GetScriptOrigin());
 }
 
+HTMLElement* ScriptCustomElementDefinition::handleCreateElementSyncException(
+    Document& document,
+    const QualifiedName& tagName,
+    v8::Isolate* isolate,
+    ExceptionState& exceptionState) {
+  DCHECK(exceptionState.hadException());
+  // 6.1."If any of these subsubsteps threw an exception".1
+  // Report the exception.
+  dispatchErrorEvent(isolate, exceptionState.getException(), constructor());
+  exceptionState.clearException();
+  // ... .2 Return HTMLUnknownElement.
+  return CustomElement::createFailedElement(document, tagName);
+}
+
 HTMLElement* ScriptCustomElementDefinition::createElementSync(
     Document& document,
     const QualifiedName& tagName) {
+  if (!m_scriptState->contextIsValid())
+    return CustomElement::createFailedElement(document, tagName);
   ScriptState::Scope scope(m_scriptState.get());
   v8::Isolate* isolate = m_scriptState->isolate();
 
-  // When invoked from "create an element for a token":
-  // https://html.spec.whatwg.org/multipage/syntax.html#create-an-element-for-the-token
+  ExceptionState exceptionState(isolate, ExceptionState::ConstructionContext,
+                                "CustomElement");
 
-  ExceptionState exceptionState(ExceptionState::ConstructionContext,
-                                "CustomElement", constructor(), isolate);
-  HTMLElement* element = createElementSync(document, tagName, exceptionState);
+  // Create an element with the synchronous custom elements flag set.
+  // https://dom.spec.whatwg.org/#concept-create-element
 
-  if (exceptionState.hadException()) {
-    DCHECK(!element);
-    // 7. If this step throws an exception, then report the exception, ...
-    dispatchErrorEvent(isolate, exceptionState.getException(), constructor());
-    exceptionState.clearException();
-    // and return HTMLUnknownElement.
-    return CustomElement::createFailedElement(document, tagName);
+  // TODO(dominicc): Implement step 5 which constructs customized
+  // built-in elements.
+
+  Element* element = nullptr;
+  {
+    v8::TryCatch tryCatch(m_scriptState->isolate());
+
+    bool isImportDocument = document.importsController() &&
+                            document.importsController()->master() != document;
+    if (isImportDocument) {
+      // V8HTMLElement::constructorCustom() can only refer to
+      // window.document() which is not the import document. Create
+      // elements in import documents ahead of time so they end up in
+      // the right document. This subtly violates recursive
+      // construction semantics, but only in import documents.
+      element = createElementForConstructor(document);
+      DCHECK(!tryCatch.HasCaught());
+
+      ConstructionStackScope constructionStackScope(this, element);
+      element = callConstructor();
+    } else {
+      element = callConstructor();
+    }
+
+    if (tryCatch.HasCaught()) {
+      exceptionState.rethrowV8Exception(tryCatch.Exception());
+      return handleCreateElementSyncException(document, tagName, isolate,
+                                              exceptionState);
+    }
   }
-  DCHECK(element);
-  return element;
+
+  // 6.1.3. through 6.1.9.
+  checkConstructorResult(element, document, tagName, exceptionState);
+  if (exceptionState.hadException()) {
+    return handleCreateElementSyncException(document, tagName, isolate,
+                                            exceptionState);
+  }
+  DCHECK_EQ(element->getCustomElementState(), CustomElementState::Custom);
+  return toHTMLElement(element);
 }
 
 // https://html.spec.whatwg.org/multipage/scripting.html#upgrades
@@ -234,9 +239,9 @@ bool ScriptCustomElementDefinition::runConstructor(Element* element) {
   v8::TryCatch tryCatch(isolate);
   tryCatch.SetVerbose(true);
 
-  Element* result = runConstructor();
+  Element* result = callConstructor();
 
-  // To report exception thrown from runConstructor()
+  // To report exception thrown from callConstructor()
   if (tryCatch.HasCaught())
     return false;
 
@@ -255,7 +260,7 @@ bool ScriptCustomElementDefinition::runConstructor(Element* element) {
   return true;
 }
 
-Element* ScriptCustomElementDefinition::runConstructor() {
+Element* ScriptCustomElementDefinition::callConstructor() {
   v8::Isolate* isolate = m_scriptState->isolate();
   DCHECK(ScriptState::current(isolate) == m_scriptState);
   ExecutionContext* executionContext = m_scriptState->getExecutionContext();
@@ -271,11 +276,6 @@ Element* ScriptCustomElementDefinition::runConstructor() {
 v8::Local<v8::Object> ScriptCustomElementDefinition::constructor() const {
   DCHECK(!m_constructor.isEmpty());
   return m_constructor.newLocal(m_scriptState->isolate());
-}
-
-v8::Local<v8::Object> ScriptCustomElementDefinition::prototype() const {
-  DCHECK(!m_prototype.isEmpty());
-  return m_prototype.newLocal(m_scriptState->isolate());
 }
 
 // CustomElementDefinition
@@ -311,7 +311,7 @@ void ScriptCustomElementDefinition::runCallback(
 
   ExecutionContext* executionContext = m_scriptState->getExecutionContext();
   v8::Local<v8::Value> elementHandle =
-      toV8(element, m_scriptState->context()->Global(), isolate);
+      ToV8(element, m_scriptState->context()->Global(), isolate);
   V8ScriptRunner::callFunction(callback, executionContext, elementHandle, argc,
                                argv, isolate);
 }
@@ -340,8 +340,8 @@ void ScriptCustomElementDefinition::runAdoptedCallback(Element* element,
   ScriptState::Scope scope(m_scriptState.get());
   v8::Isolate* isolate = m_scriptState->isolate();
   v8::Local<v8::Value> argv[] = {
-      toV8(oldOwner, m_scriptState->context()->Global(), isolate),
-      toV8(newOwner, m_scriptState->context()->Global(), isolate)};
+      ToV8(oldOwner, m_scriptState->context()->Global(), isolate),
+      ToV8(newOwner, m_scriptState->context()->Global(), isolate)};
   runCallback(m_adoptedCallback.newLocal(isolate), element,
               WTF_ARRAY_LENGTH(argv), argv);
 }

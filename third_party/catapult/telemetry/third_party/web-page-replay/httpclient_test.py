@@ -13,12 +13,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import mock
 import unittest
 
+import datetime
 import dnsproxy
 import httparchive
 import httpclient
 import platformsettings
+import script_injector
 import test_utils
 
 
@@ -205,6 +208,74 @@ class ActualNetworkFetchTest(test_utils.RealNetworkFetchTest):
         request_body=None, headers={}, is_ssl=True)
     response = fetch(request)
     self.assertIsNotNone(response)
+
+
+class HttpArchiveFetchTest(unittest.TestCase):
+
+  TEST_REQUEST_TIME = datetime.datetime(2016, 11, 17, 1, 2, 3, 456)
+
+  def createTestResponse(self):
+    return httparchive.ArchivedHttpResponse(
+        11, 200, 'OK', [('content-type', 'text/html')],
+        ['<body>test</body>'],
+        request_time=HttpArchiveFetchTest.TEST_REQUEST_TIME)
+
+  def checkTestResponse(self, actual_response, archive, request):
+    self.assertEqual(actual_response, archive[request])
+    self.assertEqual(['<body>test</body>'], actual_response.response_data)
+    self.assertEqual(HttpArchiveFetchTest.TEST_REQUEST_TIME,
+                     actual_response.request_time)
+
+  @staticmethod
+  def dummy_injector(_):
+    return '<body>test</body>'
+
+
+class RecordHttpArchiveFetchTest(HttpArchiveFetchTest):
+
+  @mock.patch('httpclient.RealHttpFetch')
+  def testFetch(self, real_http_fetch):
+    http_fetch_instance = real_http_fetch.return_value
+    response = self.createTestResponse()
+    http_fetch_instance.return_value = response
+    archive = httparchive.HttpArchive()
+    fetch = httpclient.RecordHttpArchiveFetch(archive, self.dummy_injector)
+    request = httparchive.ArchivedHttpRequest(
+        'GET', 'www.test.com', '/', None, {})
+    self.checkTestResponse(fetch(request), archive, request)
+
+
+class ReplayHttpArchiveFetchTest(HttpArchiveFetchTest):
+
+  def testFetch(self):
+    request = httparchive.ArchivedHttpRequest(
+        'GET', 'www.test.com', '/', None, {})
+    response = self.createTestResponse()
+    archive = httparchive.HttpArchive()
+    archive[request] = response
+    fetch = httpclient.ReplayHttpArchiveFetch(
+        archive, None, self.dummy_injector)
+    self.checkTestResponse(fetch(request), archive, request)
+
+  @mock.patch('script_injector.util.resource_string')
+  @mock.patch('script_injector.util.resource_exists')
+  @mock.patch('script_injector.os.path.exists')
+  def testInjectedDate(self, os_path, util_exists, util_resource_string):
+    os_path.return_value = False
+    util_exists.return_value = True
+    util_resource_string.return_value = \
+        ["""var time_seed={}""".format(script_injector.TIME_SEED_MARKER)]
+    request = httparchive.ArchivedHttpRequest(
+        'GET', 'www.test.com', '/', None, {})
+    response = self.createTestResponse()
+    archive = httparchive.HttpArchive()
+    archive[request] = response
+
+    fetch = httpclient.ReplayHttpArchiveFetch(
+        archive, None, script_injector.GetScriptInjector("time_script.js"))
+    self.assertEqual(
+        ['<script>var time_seed=1479344523000</script><body>test</body>'],
+        fetch(request).response_data)
 
 
 if __name__ == '__main__':

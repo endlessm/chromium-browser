@@ -8,11 +8,6 @@
 #include "build/build_config.h"
 #include "ui/base/ui_base_export.h"
 
-namespace gfx {
-class Point;
-class Size;
-}
-
 #if defined(OS_WIN)
 typedef struct HINSTANCE__* HINSTANCE;
 typedef struct HICON__* HICON;
@@ -81,6 +76,10 @@ const int kCursorZoomOut = 41;
 const int kCursorGrab = 42;
 const int kCursorGrabbing = 43;
 const int kCursorCustom = 44;
+const int kCursorDndNone = 45;
+const int kCursorDndMove = 46;
+const int kCursorDndCopy = 47;
+const int kCursorDndLink = 48;
 
 enum CursorSetType {
   CURSOR_SET_NORMAL,

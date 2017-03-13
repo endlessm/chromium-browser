@@ -28,16 +28,25 @@
 
 #include "modules/ModulesExport.h"
 #include "platform/heap/Handle.h"
+#include "public/platform/WebVector.h"
 #include "wtf/PassRefPtr.h"
+
+#include <unordered_map>
 
 namespace blink {
 
 class DOMException;
 class IDBDatabase;
+class WebIDBDatabaseCallbacks;
+struct WebIDBObservation;
 
 class MODULES_EXPORT IDBDatabaseCallbacks
     : public GarbageCollectedFinalized<IDBDatabaseCallbacks> {
  public:
+  // Maps observer to transaction, which needs an id and a scope.
+  using TransactionMap =
+      std::unordered_map<int32_t, std::pair<int64_t, std::vector<int64_t>>>;
+
   static IDBDatabaseCallbacks* create();
   virtual ~IDBDatabaseCallbacks();
   DECLARE_TRACE();
@@ -48,8 +57,19 @@ class MODULES_EXPORT IDBDatabaseCallbacks
 
   virtual void onAbort(int64_t transactionId, DOMException*);
   virtual void onComplete(int64_t transactionId);
+  virtual void onChanges(
+      const std::unordered_map<int32_t, std::vector<int32_t>>&
+          observation_index_map,
+      const WebVector<WebIDBObservation>& observations,
+      const TransactionMap& transactions);
 
   void connect(IDBDatabase*);
+
+  // Returns a new WebIDBDatabaseCallbacks for this object. Must only be
+  // called once.
+  std::unique_ptr<WebIDBDatabaseCallbacks> createWebCallbacks();
+  void detachWebCallbacks();
+  void webCallbacksDestroyed();
 
  protected:
   // Exposed to subclasses for unit tests.
@@ -64,6 +84,10 @@ class MODULES_EXPORT IDBDatabaseCallbacks
   // can survive too. m_database should be a weak reference to avoid that an
   // IDBDatabase survives the GC with the IDBDatabaseCallbacks.
   WeakMember<IDBDatabase> m_database;
+
+  // Pointer back to the WebIDBDatabaseCallbacks that holds a persistent
+  // reference to this object.
+  WebIDBDatabaseCallbacks* m_webCallbacks = nullptr;
 };
 
 }  // namespace blink

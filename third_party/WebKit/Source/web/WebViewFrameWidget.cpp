@@ -4,6 +4,7 @@
 
 #include "web/WebViewFrameWidget.h"
 
+#include "web/WebInputMethodControllerImpl.h"
 #include "web/WebLocalFrameImpl.h"
 #include "web/WebViewImpl.h"
 
@@ -100,10 +101,10 @@ void WebViewFrameWidget::applyViewportDeltas(
     const WebFloatSize& layoutViewportDelta,
     const WebFloatSize& elasticOverscrollDelta,
     float scaleFactor,
-    float topControlsShownRatioDelta) {
+    float browserControlsShownRatioDelta) {
   return m_webView->applyViewportDeltas(
       visualViewportDelta, layoutViewportDelta, elasticOverscrollDelta,
-      scaleFactor, topControlsShownRatioDelta);
+      scaleFactor, browserControlsShownRatioDelta);
 }
 
 void WebViewFrameWidget::mouseCaptureLost() {
@@ -114,35 +115,8 @@ void WebViewFrameWidget::setFocus(bool enable) {
   return m_webView->setFocus(enable);
 }
 
-bool WebViewFrameWidget::setComposition(
-    const WebString& text,
-    const WebVector<WebCompositionUnderline>& underlines,
-    int selectionStart,
-    int selectionEnd) {
-  return m_webView->setComposition(text, underlines, selectionStart,
-                                   selectionEnd);
-}
-
-bool WebViewFrameWidget::finishComposingText(
-    ConfirmCompositionBehavior selectionBehavior) {
-  return m_webView->finishComposingText(selectionBehavior);
-}
-
-bool WebViewFrameWidget::commitText(const WebString& text,
-                                    int relativeCaretPosition) {
-  return m_webView->commitText(text, relativeCaretPosition);
-}
-
 WebRange WebViewFrameWidget::compositionRange() {
   return m_webView->compositionRange();
-}
-
-WebTextInputInfo WebViewFrameWidget::textInputInfo() {
-  return m_webView->textInputInfo();
-}
-
-WebTextInputType WebViewFrameWidget::textInputType() {
-  return m_webView->textInputType();
 }
 
 bool WebViewFrameWidget::selectionBounds(WebRect& anchor,
@@ -187,10 +161,6 @@ void WebViewFrameWidget::didLosePointerLock() {
   return m_webView->didLosePointerLock();
 }
 
-void WebViewFrameWidget::didChangeWindowResizerRect() {
-  return m_webView->didChangeWindowResizerRect();
-}
-
 WebColor WebViewFrameWidget::backgroundColor() const {
   return m_webView->backgroundColor();
 }
@@ -208,10 +178,11 @@ void WebViewFrameWidget::applyReplacementRange(const WebRange& range) {
   m_webView->applyReplacementRange(range);
 }
 
-void WebViewFrameWidget::updateTopControlsState(WebTopControlsState constraints,
-                                                WebTopControlsState current,
-                                                bool animate) {
-  return m_webView->updateTopControlsState(constraints, current, animate);
+void WebViewFrameWidget::updateBrowserControlsState(
+    WebBrowserControlsState constraints,
+    WebBrowserControlsState current,
+    bool animate) {
+  return m_webView->updateBrowserControlsState(constraints, current, animate);
 }
 
 void WebViewFrameWidget::setVisibilityState(
@@ -231,8 +202,13 @@ void WebViewFrameWidget::setBaseBackgroundColor(WebColor color) {
   m_webView->setBaseBackgroundColor(color);
 }
 
-WebLocalFrameImpl* WebViewFrameWidget::localRoot() {
+WebLocalFrameImpl* WebViewFrameWidget::localRoot() const {
   return m_webView->mainFrameImpl();
+}
+
+WebInputMethodControllerImpl*
+WebViewFrameWidget::getActiveWebInputMethodController() const {
+  return m_webView->getActiveWebInputMethodController();
 }
 
 void WebViewFrameWidget::scheduleAnimation() {
@@ -251,14 +227,12 @@ void WebViewFrameWidget::setRootLayer(WebLayer* layer) {
   m_webView->setRootLayer(layer);
 }
 
-void WebViewFrameWidget::attachCompositorAnimationTimeline(
-    CompositorAnimationTimeline* compositorTimeline) {
-  m_webView->attachCompositorAnimationTimeline(compositorTimeline);
+WebLayerTreeView* WebViewFrameWidget::getLayerTreeView() const {
+  return m_webView->layerTreeView();
 }
 
-void WebViewFrameWidget::detachCompositorAnimationTimeline(
-    CompositorAnimationTimeline* compositorTimeline) {
-  m_webView->detachCompositorAnimationTimeline(compositorTimeline);
+CompositorAnimationHost* WebViewFrameWidget::animationHost() const {
+  return m_webView->animationHost();
 }
 
 HitTestResult WebViewFrameWidget::coreHitTestResultAt(const WebPoint& point) {

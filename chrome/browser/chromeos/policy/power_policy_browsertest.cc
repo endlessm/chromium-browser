@@ -15,6 +15,7 @@
 #include "base/files/file_util.h"
 #include "base/location.h"
 #include "base/macros.h"
+#include "base/numerics/safe_conversions.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
@@ -24,7 +25,7 @@
 #include "chrome/browser/chromeos/policy/device_policy_cros_browser_test.h"
 #include "chrome/browser/chromeos/policy/proto/chrome_device_policy.pb.h"
 #include "chrome/browser/chromeos/policy/user_cloud_policy_manager_chromeos.h"
-#include "chrome/browser/chromeos/policy/user_cloud_policy_manager_factory_chromeos.h"
+#include "chrome/browser/chromeos/policy/user_policy_manager_factory_chromeos.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/policy/profile_policy_connector.h"
@@ -41,7 +42,6 @@
 #include "chromeos/dbus/fake_session_manager_client.h"
 #include "chromeos/dbus/power_manager/policy.pb.h"
 #include "chromeos/dbus/power_policy_controller.h"
-#include "chromeos/login/user_names.h"
 #include "components/policy/core/common/cloud/cloud_policy_core.h"
 #include "components/policy/core/common/cloud/cloud_policy_store.h"
 #include "components/policy/core/common/cloud/policy_builder.h"
@@ -50,6 +50,7 @@
 #include "components/policy/core/common/policy_service.h"
 #include "components/policy/proto/device_management_backend.pb.h"
 #include "components/signin/core/account_id/account_id.h"
+#include "components/user_manager/user_names.h"
 #include "content/public/browser/notification_details.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/notification_source.h"
@@ -199,7 +200,7 @@ void PowerPolicyBrowserTestBase::SetUpOnMainThread() {
   // Initialize user policy.
   InstallUserKey();
   user_policy_.policy_data().set_username(
-      chromeos::login::StubAccountId().GetUserEmail());
+      user_manager::StubAccountId().GetUserEmail());
 }
 
 void PowerPolicyBrowserTestBase::InstallUserKey() {
@@ -207,18 +208,16 @@ void PowerPolicyBrowserTestBase::InstallUserKey() {
   ASSERT_TRUE(PathService::Get(chromeos::DIR_USER_POLICY_KEYS, &user_keys_dir));
   std::string sanitized_username =
       chromeos::CryptohomeClient::GetStubSanitizedUsername(
-          cryptohome::Identification(chromeos::login::StubAccountId()));
+          cryptohome::Identification(user_manager::StubAccountId()));
   base::FilePath user_key_file =
       user_keys_dir.AppendASCII(sanitized_username)
                    .AppendASCII("policy.pub");
-  std::vector<uint8_t> user_key_bits;
-  ASSERT_TRUE(user_policy_.GetSigningKey()->ExportPublicKey(&user_key_bits));
+  std::string user_key_bits = user_policy_.GetPublicSigningKeyAsString();
+  ASSERT_FALSE(user_key_bits.empty());
   ASSERT_TRUE(base::CreateDirectory(user_key_file.DirName()));
-  ASSERT_EQ(base::WriteFile(
-                user_key_file,
-                reinterpret_cast<const char*>(user_key_bits.data()),
-                user_key_bits.size()),
-            static_cast<int>(user_key_bits.size()));
+  ASSERT_EQ(base::checked_cast<int>(user_key_bits.length()),
+            base::WriteFile(user_key_file, user_key_bits.data(),
+                            user_key_bits.length()));
 }
 
 void PowerPolicyBrowserTestBase::StoreAndReloadUserPolicy() {
@@ -276,7 +275,8 @@ void PowerPolicyBrowserTestBase::RunClosureAndWaitForUserPolicyUpdate(
 
 void PowerPolicyBrowserTestBase::ReloadUserPolicy(Profile* profile) {
   UserCloudPolicyManagerChromeOS* policy_manager =
-      UserCloudPolicyManagerFactoryChromeOS::GetForProfile(profile);
+      UserPolicyManagerFactoryChromeOS::GetCloudPolicyManagerForProfile(
+          profile);
   ASSERT_TRUE(policy_manager);
   policy_manager->core()->store()->Load();
 }

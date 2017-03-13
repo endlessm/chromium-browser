@@ -4,8 +4,7 @@
 
 package org.chromium.chrome.browser.bookmarks;
 
-import android.os.Environment;
-import android.test.suitebuilder.annotation.SmallTest;
+import android.support.test.filters.SmallTest;
 import android.text.TextUtils;
 import android.view.View;
 import android.view.ViewGroup;
@@ -54,8 +53,7 @@ public class BookmarkTest extends ChromeActivityTestCaseBase<ChromeActivity> {
     @Override
     protected void setUp() throws Exception {
         super.setUp();
-        mTestServer = EmbeddedTestServer.createAndStartFileServer(
-                getInstrumentation().getContext(), Environment.getExternalStorageDirectory());
+        mTestServer = EmbeddedTestServer.createAndStartServer(getInstrumentation().getContext());
         mTestPage = mTestServer.getURL(TEST_PAGE);
     }
 

@@ -11,7 +11,6 @@
 #include "base/memory/ptr_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "components/ntp_snippets/category.h"
-#include "components/ntp_snippets/category_factory.h"
 #include "components/ntp_snippets/content_suggestions_provider.h"
 #include "components/ntp_snippets/mock_content_suggestions_provider_observer.h"
 #include "components/prefs/testing_pref_service.h"
@@ -51,8 +50,9 @@ const char kUrl11[] = "http://www.fake11.com/";
 const char kTitle[] = "title is ignored";
 
 SessionWindow* GetOrCreateWindow(SyncedSession* session, int window_id) {
-  if (session->windows.find(window_id) == session->windows.end())
+  if (session->windows.find(window_id) == session->windows.end()) {
     session->windows[window_id] = base::MakeUnique<SessionWindow>();
+  }
 
   return session->windows[window_id].get();
 }
@@ -116,8 +116,7 @@ class ForeignSessionsSuggestionsProviderTest : public Test {
                                  _, category(), CategoryStatus::AVAILABLE));
 
     provider_ = base::MakeUnique<ForeignSessionsSuggestionsProvider>(
-        &observer_, &category_factory_,
-        std::move(fake_foreign_sessions_provider), &pref_service_);
+        &observer_, std::move(fake_foreign_sessions_provider), &pref_service_);
   }
 
  protected:
@@ -140,6 +139,8 @@ class ForeignSessionsSuggestionsProviderTest : public Test {
     AddTabToSession(GetOrCreateSession(session_id), window_id, url, age);
   }
 
+  void ClearSessionData() { sessions_map_.clear(); }
+
   void TriggerOnChange() {
     std::vector<const SyncedSession*> sessions;
     for (const auto& kv : sessions_map_) {
@@ -154,7 +155,7 @@ class ForeignSessionsSuggestionsProviderTest : public Test {
   }
 
   Category category() {
-    return category_factory_.FromKnownCategory(KnownCategories::FOREIGN_TABS);
+    return Category::FromKnownCategory(KnownCategories::FOREIGN_TABS);
   }
 
   MockContentSuggestionsProviderObserver* observer() { return &observer_; }
@@ -162,7 +163,6 @@ class ForeignSessionsSuggestionsProviderTest : public Test {
  private:
   FakeForeignSessionsProvider* fake_foreign_sessions_provider_;
   MockContentSuggestionsProviderObserver observer_;
-  CategoryFactory category_factory_;
   TestingPrefServiceSimple pref_service_;
   std::unique_ptr<ForeignSessionsSuggestionsProvider> provider_;
   std::map<int, std::unique_ptr<SyncedSession>> sessions_map_;
@@ -320,6 +320,55 @@ TEST_F(ForeignSessionsSuggestionsProviderTest, DismissedChangingOwnSession) {
   AddTab(0, 0, kUrl4, TimeDelta::FromMinutes(4));
   AddTab(0, 0, kUrl5, TimeDelta::FromMinutes(5));
   AddTab(0, 0, kUrl6, TimeDelta::FromMinutes(6));
+  TriggerOnChange();
+}
+
+TEST_F(ForeignSessionsSuggestionsProviderTest, DismissedPruning) {
+  EXPECT_CALL(*observer(),
+              OnNewSuggestions(
+                  _, category(),
+                  ElementsAre(Property(&ContentSuggestion::url, GURL(kUrl1)),
+                              Property(&ContentSuggestion::url, GURL(kUrl2)),
+                              Property(&ContentSuggestion::url, GURL(kUrl3)))));
+  AddTab(0, 0, kUrl1, TimeDelta::FromMinutes(1));
+  AddTab(0, 0, kUrl2, TimeDelta::FromMinutes(2));
+  AddTab(0, 0, kUrl3, TimeDelta::FromMinutes(3));
+  TriggerOnChange();
+
+  EXPECT_CALL(*observer(),
+              OnNewSuggestions(
+                  _, category(),
+                  ElementsAre(Property(&ContentSuggestion::url, GURL(kUrl1)),
+                              Property(&ContentSuggestion::url, GURL(kUrl3)))));
+  Dismiss(kUrl2);
+  TriggerOnChange();
+
+  // This case is important because it verifies the dismissal of |kUrl2| from
+  // above is still around.
+  EXPECT_CALL(*observer(),
+              OnNewSuggestions(
+                  _, category(),
+                  ElementsAre(Property(&ContentSuggestion::url, GURL(kUrl1)))));
+  Dismiss(kUrl3);
+  TriggerOnChange();
+
+  EXPECT_CALL(*observer(),
+              OnNewSuggestions(
+                  _, category(),
+                  ElementsAre(Property(&ContentSuggestion::url, GURL(kUrl1)))));
+  // kUrl2 is no longer present, which should result in the dismissal being
+  // pruned during the next round of suggestions.
+  ClearSessionData();
+  AddTab(0, 0, kUrl1, TimeDelta::FromMinutes(1));
+  TriggerOnChange();
+
+  // Verify that kUrl2 is now allowed, and the previous dismissal was pruned.
+  EXPECT_CALL(*observer(),
+              OnNewSuggestions(
+                  _, category(),
+                  ElementsAre(Property(&ContentSuggestion::url, GURL(kUrl1)),
+                              Property(&ContentSuggestion::url, GURL(kUrl2)))));
+  AddTab(0, 0, kUrl2, TimeDelta::FromMinutes(2));
   TriggerOnChange();
 }
 

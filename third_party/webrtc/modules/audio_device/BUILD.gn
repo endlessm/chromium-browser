@@ -8,6 +8,11 @@
 
 import("../../build/webrtc.gni")
 
+if (is_android) {
+  import("//build/config/android/config.gni")
+  import("//build/config/android/rules.gni")
+}
+
 config("audio_device_config") {
   include_dirs = [
     "../include",
@@ -159,10 +164,8 @@ rtc_static_library("audio_device") {
           "mac/audio_device_mac.h",
           "mac/audio_mixer_manager_mac.cc",
           "mac/audio_mixer_manager_mac.h",
-          "mac/portaudio/pa_memorybarrier.h",
-          "mac/portaudio/pa_ringbuffer.c",
-          "mac/portaudio/pa_ringbuffer.h",
         ]
+        deps += [ ":mac_portaudio" ]
         libs = [
           # Needed for CoreGraphics:
           "ApplicationServices.framework",
@@ -235,10 +238,44 @@ rtc_static_library("audio_device") {
     ]
   }
 
-  if (is_clang) {
-    # Suppress warnings from Chrome's Clang plugins.
-    # See http://code.google.com/p/webrtc/issues/detail?id=163 for details.
+  if (!build_with_chromium && is_clang) {
+    # Suppress warnings from the Chromium Clang plugin (bugs.webrtc.org/163).
     suppressed_configs += [ "//build/config/clang:find_bad_constructs" ]
+  }
+}
+
+rtc_source_set("mac_portaudio") {
+  visibility = [ ":*" ]  # Only targets in this file can depend on this.
+  sources = [
+    "mac/portaudio/pa_memorybarrier.h",
+    "mac/portaudio/pa_ringbuffer.c",
+    "mac/portaudio/pa_ringbuffer.h",
+  ]
+}
+
+config("mock_audio_device_config") {
+  if (is_win) {
+    cflags = [
+      # TODO(phoglund): get rid of 4373 supression when
+      # http://code.google.com/p/webrtc/issues/detail?id=261 is solved.
+      # legacy warning for ignoring const / volatile in signatures.
+      "/wd4373",
+    ]
+  }
+}
+
+if (rtc_include_tests) {
+  rtc_source_set("mock_audio_device") {
+    testonly = true
+    sources = [
+      "include/mock_audio_device.h",
+      "include/mock_audio_transport.h",
+    ]
+    deps = [
+      ":audio_device",
+      "../../test:test_support",
+    ]
+    all_dependent_configs = [ ":mock_audio_device_config" ]
   }
 }
 
@@ -255,12 +292,25 @@ if (rtc_include_tests && !is_ios) {
       ":audio_device",
       "../..:webrtc_common",
       "../../system_wrappers",
+      "../../test:test_main",
       "../../test:test_support",
-      "../../test:test_support_main",
       "../rtp_rtcp",
       "../utility",
       "//testing/gtest",
     ]
     public_configs = [ ":audio_device_config" ]
+  }
+}
+
+if (!build_with_chromium && is_android) {
+  android_shared_srcjar("audio_device_java") {
+    sources = [
+      "android/java/src/org/webrtc/voiceengine/BuildInfo.java",
+      "android/java/src/org/webrtc/voiceengine/WebRtcAudioEffects.java",
+      "android/java/src/org/webrtc/voiceengine/WebRtcAudioManager.java",
+      "android/java/src/org/webrtc/voiceengine/WebRtcAudioRecord.java",
+      "android/java/src/org/webrtc/voiceengine/WebRtcAudioTrack.java",
+      "android/java/src/org/webrtc/voiceengine/WebRtcAudioUtils.java",
+    ]
   }
 }

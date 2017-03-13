@@ -12,10 +12,12 @@
 #include "cc/surfaces/surface_id_allocator.h"
 #include "cc/surfaces/surface_manager.h"
 #include "content/browser/frame_host/render_widget_host_view_child_frame.h"
+#include "content/browser/frame_host/render_widget_host_view_guest.h"
 #include "content/browser/renderer_host/render_widget_host_impl.h"
 #include "content/browser/renderer_host/render_widget_host_view_base.h"
 #include "content/common/frame_messages.h"
-#include "third_party/WebKit/public/web/WebInputEvent.h"
+#include "third_party/WebKit/public/platform/WebInputEvent.h"
+#include "ui/events/blink/web_input_event_traits.h"
 
 namespace {
 
@@ -27,10 +29,10 @@ void TransformEventTouchPositions(blink::WebTouchEvent* event,
   }
 }
 
-blink::WebGestureEvent DummyGestureScrollUpdate() {
-  blink::WebGestureEvent dummy_gesture_scroll_update;
-  dummy_gesture_scroll_update.type = blink::WebInputEvent::GestureScrollUpdate;
-  return dummy_gesture_scroll_update;
+blink::WebGestureEvent DummyGestureScrollUpdate(double timeStampSeconds) {
+  return blink::WebGestureEvent(blink::WebInputEvent::GestureScrollUpdate,
+                                blink::WebInputEvent::NoModifiers,
+                                timeStampSeconds);
 }
 
 }  // anonymous namespace
@@ -169,20 +171,22 @@ RenderWidgetHostViewBase* RenderWidgetHostInputEventRouter::FindEventTarget(
 
 void RenderWidgetHostInputEventRouter::RouteMouseEvent(
     RenderWidgetHostViewBase* root_view,
-    blink::WebMouseEvent* event) {
+    blink::WebMouseEvent* event,
+    const ui::LatencyInfo& latency) {
   RenderWidgetHostViewBase* target;
   gfx::Point transformed_point;
   const int mouse_button_modifiers = blink::WebInputEvent::LeftButtonDown |
                                      blink::WebInputEvent::MiddleButtonDown |
                                      blink::WebInputEvent::RightButtonDown;
   if (mouse_capture_target_.target &&
-      event->type != blink::WebInputEvent::MouseDown &&
-      (event->type == blink::WebInputEvent::MouseUp ||
-       event->modifiers & mouse_button_modifiers)) {
+      event->type() != blink::WebInputEvent::MouseDown &&
+      (event->type() == blink::WebInputEvent::MouseUp ||
+       event->modifiers() & mouse_button_modifiers)) {
     target = mouse_capture_target_.target;
-    transformed_point = root_view->TransformPointToCoordSpaceForView(
-        gfx::Point(event->x, event->y), target);
-    if (event->type == blink::WebInputEvent::MouseUp)
+    if (!root_view->TransformPointToCoordSpaceForView(
+            gfx::Point(event->x, event->y), target, &transformed_point))
+      return;
+    if (event->type() == blink::WebInputEvent::MouseUp)
       mouse_capture_target_.target = nullptr;
   } else {
     target = FindEventTarget(root_view, gfx::Point(event->x, event->y),
@@ -194,11 +198,33 @@ void RenderWidgetHostInputEventRouter::RouteMouseEvent(
   // the embedding renderer and then BrowserPluginGuest.
   if (target && target->IsRenderWidgetHostViewGuest()) {
     ui::LatencyInfo latency_info;
-    root_view->ProcessMouseEvent(*event, latency_info);
+    RenderWidgetHostViewBase* owner_view =
+        static_cast<RenderWidgetHostViewGuest*>(target)
+            ->GetOwnerRenderWidgetHostView();
+    // In case there is nested RenderWidgetHostViewGuests (i.e., PDF inside
+    // <webview>), we will need the owner view of the top-most guest for input
+    // routing.
+    while (owner_view->IsRenderWidgetHostViewGuest()) {
+      owner_view = static_cast<RenderWidgetHostViewGuest*>(owner_view)
+                       ->GetOwnerRenderWidgetHostView();
+    }
+
+    if (owner_view != root_view) {
+      // This happens when the view is embedded inside a cross-process frame
+      // (i.e., owner view is a RenderWidgetHostViewChildFrame).
+      gfx::Point owner_point;
+      if (!root_view->TransformPointToCoordSpaceForView(
+              gfx::Point(event->x, event->y), owner_view, &owner_point)) {
+        return;
+      }
+      event->x = owner_point.x();
+      event->y = owner_point.y();
+    }
+    owner_view->ProcessMouseEvent(*event, latency_info);
     return;
   }
 
-  if (event->type == blink::WebInputEvent::MouseDown)
+  if (event->type() == blink::WebInputEvent::MouseDown)
     mouse_capture_target_.target = target;
 
   if (!target)
@@ -207,22 +233,20 @@ void RenderWidgetHostInputEventRouter::RouteMouseEvent(
   // SendMouseEnterOrLeaveEvents is called with the original event
   // coordinates, which are transformed independently for each view that will
   // receive an event.
-  if ((event->type == blink::WebInputEvent::MouseLeave ||
-       event->type == blink::WebInputEvent::MouseMove) &&
+  if ((event->type() == blink::WebInputEvent::MouseLeave ||
+       event->type() == blink::WebInputEvent::MouseMove) &&
       target != last_mouse_move_target_)
     SendMouseEnterOrLeaveEvents(event, target, root_view);
 
   event->x = transformed_point.x();
   event->y = transformed_point.y();
-  // TODO(wjmaclean): Initialize latency info correctly for OOPIFs.
-  // https://crbug.com/613628
-  ui::LatencyInfo latency_info;
-  target->ProcessMouseEvent(*event, latency_info);
+  target->ProcessMouseEvent(*event, latency);
 }
 
 void RenderWidgetHostInputEventRouter::RouteMouseWheelEvent(
     RenderWidgetHostViewBase* root_view,
-    blink::WebMouseWheelEvent* event) {
+    blink::WebMouseWheelEvent* event,
+    const ui::LatencyInfo& latency) {
   gfx::Point transformed_point;
   RenderWidgetHostViewBase* target = FindEventTarget(
       root_view, gfx::Point(event->x, event->y), &transformed_point);
@@ -231,10 +255,7 @@ void RenderWidgetHostInputEventRouter::RouteMouseWheelEvent(
 
   event->x = transformed_point.x();
   event->y = transformed_point.y();
-  // TODO(wjmaclean): Initialize latency info correctly for OOPIFs.
-  // https://crbug.com/613628
-  ui::LatencyInfo latency_info;
-  target->ProcessMouseWheelEvent(*event, latency_info);
+  target->ProcessMouseWheelEvent(*event, latency);
 }
 
 void RenderWidgetHostInputEventRouter::RouteGestureEvent(
@@ -261,7 +282,7 @@ unsigned CountChangedTouchPoints(const blink::WebTouchEvent& event) {
 
   blink::WebTouchPoint::State required_state =
       blink::WebTouchPoint::StateUndefined;
-  switch (event.type) {
+  switch (event.type()) {
     case blink::WebInputEvent::TouchStart:
       required_state = blink::WebTouchPoint::StatePressed;
       break;
@@ -281,7 +302,8 @@ unsigned CountChangedTouchPoints(const blink::WebTouchEvent& event) {
       ++changed_count;
   }
 
-  DCHECK(event.type == blink::WebInputEvent::TouchCancel || changed_count == 1);
+  DCHECK(event.type() == blink::WebInputEvent::TouchCancel ||
+         changed_count == 1);
   return changed_count;
 }
 
@@ -291,7 +313,7 @@ void RenderWidgetHostInputEventRouter::RouteTouchEvent(
     RenderWidgetHostViewBase* root_view,
     blink::WebTouchEvent* event,
     const ui::LatencyInfo& latency) {
-  switch (event->type) {
+  switch (event->type()) {
     case blink::WebInputEvent::TouchStart: {
       active_touches_ += CountChangedTouchPoints(*event);
       if (active_touches_ == 1) {
@@ -316,8 +338,9 @@ void RenderWidgetHostInputEventRouter::RouteTouchEvent(
           return;
 
         if (touch_target_.target == bubbling_gesture_scroll_target_.target) {
-          SendGestureScrollEnd(bubbling_gesture_scroll_target_.target,
-                               DummyGestureScrollUpdate());
+          SendGestureScrollEnd(
+              bubbling_gesture_scroll_target_.target,
+              DummyGestureScrollUpdate(event->timeStampSeconds()));
           CancelScrollBubbling(bubbling_gesture_scroll_target_.target);
         }
       }
@@ -431,9 +454,14 @@ void RenderWidgetHostInputEventRouter::SendMouseEnterOrLeaveEvents(
   // Send MouseLeaves.
   for (auto view : exited_views) {
     blink::WebMouseEvent mouse_leave(*event);
-    mouse_leave.type = blink::WebInputEvent::MouseLeave;
-    transformed_point = root_view->TransformPointToCoordSpaceForView(
-        gfx::Point(event->x, event->y), view);
+    mouse_leave.setType(blink::WebInputEvent::MouseLeave);
+    // There is a chance of a race if the last target has recently created a
+    // new compositor surface. The SurfaceID for that might not have
+    // propagated to its embedding surface, which makes it impossible to
+    // compute the transformation for it
+    if (!root_view->TransformPointToCoordSpaceForView(
+            gfx::Point(event->x, event->y), view, &transformed_point))
+      transformed_point = gfx::Point();
     mouse_leave.x = transformed_point.x();
     mouse_leave.y = transformed_point.y();
     view->ProcessMouseEvent(mouse_leave, ui::LatencyInfo());
@@ -442,9 +470,11 @@ void RenderWidgetHostInputEventRouter::SendMouseEnterOrLeaveEvents(
   // The ancestor might need to trigger MouseOut handlers.
   if (common_ancestor && common_ancestor != target) {
     blink::WebMouseEvent mouse_move(*event);
-    mouse_move.type = blink::WebInputEvent::MouseMove;
-    transformed_point = root_view->TransformPointToCoordSpaceForView(
-        gfx::Point(event->x, event->y), common_ancestor);
+    mouse_move.setType(blink::WebInputEvent::MouseMove);
+    if (!root_view->TransformPointToCoordSpaceForView(
+            gfx::Point(event->x, event->y), common_ancestor,
+            &transformed_point))
+      transformed_point = gfx::Point();
     mouse_move.x = transformed_point.x();
     mouse_move.y = transformed_point.y();
     common_ancestor->ProcessMouseEvent(mouse_move, ui::LatencyInfo());
@@ -455,9 +485,10 @@ void RenderWidgetHostInputEventRouter::SendMouseEnterOrLeaveEvents(
     if (view == target)
       continue;
     blink::WebMouseEvent mouse_enter(*event);
-    mouse_enter.type = blink::WebInputEvent::MouseMove;
-    transformed_point = root_view->TransformPointToCoordSpaceForView(
-        gfx::Point(event->x, event->y), view);
+    mouse_enter.setType(blink::WebInputEvent::MouseMove);
+    if (!root_view->TransformPointToCoordSpaceForView(
+            gfx::Point(event->x, event->y), view, &transformed_point))
+      transformed_point = gfx::Point();
     mouse_enter.x = transformed_point.x();
     mouse_enter.y = transformed_point.y();
     view->ProcessMouseEvent(mouse_enter, ui::LatencyInfo());
@@ -476,19 +507,22 @@ void RenderWidgetHostInputEventRouter::BubbleScrollEvent(
   // difficult to resolve until this is changed to do all scroll targeting,
   // including bubbling, based on GestureScrollBegin.
   DCHECK(target_view);
-  DCHECK(event.type == blink::WebInputEvent::GestureScrollUpdate ||
-         event.type == blink::WebInputEvent::GestureScrollEnd);
+  DCHECK(event.type() == blink::WebInputEvent::GestureScrollUpdate ||
+         event.type() == blink::WebInputEvent::GestureScrollEnd);
   // DCHECK_XNOR the current and original bubble targets. Both should be set
   // if a bubbling gesture scroll is in progress.
   DCHECK(!first_bubbling_scroll_target_.target ==
          !bubbling_gesture_scroll_target_.target);
 
+  ui::LatencyInfo latency_info =
+      ui::WebInputEventTraits::CreateLatencyInfoForWebGestureEvent(event);
+
   // If target_view is already set up for bubbled scrolls, we forward
   // the event to the current scroll target without further consideration.
   if (target_view == first_bubbling_scroll_target_.target) {
-    bubbling_gesture_scroll_target_.target->ProcessGestureEvent(
-        event, ui::LatencyInfo());
-    if (event.type == blink::WebInputEvent::GestureScrollEnd) {
+    bubbling_gesture_scroll_target_.target->ProcessGestureEvent(event,
+                                                                latency_info);
+    if (event.type() == blink::WebInputEvent::GestureScrollEnd) {
       first_bubbling_scroll_target_.target = nullptr;
       bubbling_gesture_scroll_target_.target = nullptr;
     }
@@ -498,15 +532,15 @@ void RenderWidgetHostInputEventRouter::BubbleScrollEvent(
   // Disregard GestureScrollEnd events going to non-current targets.
   // These should only happen on ACKs of synthesized GSE events that are
   // sent from SendGestureScrollEnd calls, and are not relevant here.
-  if (event.type == blink::WebInputEvent::GestureScrollEnd)
+  if (event.type() == blink::WebInputEvent::GestureScrollEnd)
     return;
 
   // This is a special case to catch races where multiple GestureScrollUpdates
   // have been sent to a renderer before the first one was ACKed, and the ACK
   // caused a bubble retarget. In this case they all get forwarded.
   if (target_view == bubbling_gesture_scroll_target_.target) {
-    bubbling_gesture_scroll_target_.target->ProcessGestureEvent(
-        event, ui::LatencyInfo());
+    bubbling_gesture_scroll_target_.target->ProcessGestureEvent(event,
+                                                                latency_info);
     return;
   }
 
@@ -531,36 +565,40 @@ void RenderWidgetHostInputEventRouter::BubbleScrollEvent(
   bubbling_gesture_scroll_target_.target = target_view;
 
   SendGestureScrollBegin(target_view, event);
-  target_view->ProcessGestureEvent(event, ui::LatencyInfo());
+  target_view->ProcessGestureEvent(event, latency_info);
 }
 
 void RenderWidgetHostInputEventRouter::SendGestureScrollBegin(
     RenderWidgetHostViewBase* view,
     const blink::WebGestureEvent& event) {
-  DCHECK(event.type == blink::WebInputEvent::GestureScrollUpdate ||
-         event.type == blink::WebInputEvent::GesturePinchBegin);
+  DCHECK(event.type() == blink::WebInputEvent::GestureScrollUpdate ||
+         event.type() == blink::WebInputEvent::GesturePinchBegin);
   blink::WebGestureEvent scroll_begin(event);
-  scroll_begin.type = blink::WebInputEvent::GestureScrollBegin;
+  scroll_begin.setType(blink::WebInputEvent::GestureScrollBegin);
   scroll_begin.data.scrollBegin.deltaXHint = event.data.scrollUpdate.deltaX;
   scroll_begin.data.scrollBegin.deltaYHint = event.data.scrollUpdate.deltaY;
   scroll_begin.data.scrollBegin.deltaHintUnits =
       event.data.scrollUpdate.deltaUnits;
-  view->ProcessGestureEvent(scroll_begin, ui::LatencyInfo());
+  view->ProcessGestureEvent(
+      scroll_begin,
+      ui::WebInputEventTraits::CreateLatencyInfoForWebGestureEvent(event));
 }
 
 void RenderWidgetHostInputEventRouter::SendGestureScrollEnd(
     RenderWidgetHostViewBase* view,
     const blink::WebGestureEvent& event) {
-  DCHECK(event.type == blink::WebInputEvent::GestureScrollUpdate ||
-         event.type == blink::WebInputEvent::GesturePinchEnd);
+  DCHECK(event.type() == blink::WebInputEvent::GestureScrollUpdate ||
+         event.type() == blink::WebInputEvent::GesturePinchEnd);
   blink::WebGestureEvent scroll_end(event);
-  scroll_end.type = blink::WebInputEvent::GestureScrollEnd;
-  scroll_end.timeStampSeconds =
-      (base::TimeTicks::Now() - base::TimeTicks()).InSecondsF();
+  scroll_end.setType(blink::WebInputEvent::GestureScrollEnd);
+  scroll_end.setTimeStampSeconds(
+      (base::TimeTicks::Now() - base::TimeTicks()).InSecondsF());
   scroll_end.data.scrollEnd.inertialPhase =
       event.data.scrollUpdate.inertialPhase;
   scroll_end.data.scrollEnd.deltaUnits = event.data.scrollUpdate.deltaUnits;
-  view->ProcessGestureEvent(scroll_end, ui::LatencyInfo());
+  view->ProcessGestureEvent(
+      scroll_end,
+      ui::WebInputEventTraits::CreateLatencyInfoForWebGestureEvent(event));
 }
 
 void RenderWidgetHostInputEventRouter::CancelScrollBubbling(
@@ -613,6 +651,8 @@ RenderWidgetHostInputEventRouter::GetRenderWidgetHostAtPoint(
     RenderWidgetHostViewBase* root_view,
     const gfx::Point& point,
     gfx::Point* transformed_point) {
+  if (!root_view)
+    return nullptr;
   return RenderWidgetHostImpl::From(
       FindEventTarget(root_view, point, transformed_point)
           ->GetRenderWidgetHost());
@@ -624,7 +664,7 @@ void RenderWidgetHostInputEventRouter::RouteTouchscreenGestureEvent(
     const ui::LatencyInfo& latency) {
   DCHECK_EQ(blink::WebGestureDeviceTouchscreen, event->sourceDevice);
 
-  if (event->type == blink::WebInputEvent::GesturePinchBegin) {
+  if (event->type() == blink::WebInputEvent::GesturePinchBegin) {
     in_touchscreen_gesture_pinch_ = true;
     // If the root view wasn't already receiving the gesture stream, then we
     // need to wrap the diverted pinch events in a GestureScrollBegin/End.
@@ -645,7 +685,7 @@ void RenderWidgetHostInputEventRouter::RouteTouchscreenGestureEvent(
 
   if (in_touchscreen_gesture_pinch_) {
     root_view->ProcessGestureEvent(*event, latency);
-    if (event->type == blink::WebInputEvent::GesturePinchEnd) {
+    if (event->type() == blink::WebInputEvent::GesturePinchEnd) {
       in_touchscreen_gesture_pinch_ = false;
       // If the root view wasn't already receiving the gesture stream, then we
       // need to wrap the diverted pinch events in a GestureScrollBegin/End.
@@ -666,7 +706,7 @@ void RenderWidgetHostInputEventRouter::RouteTouchscreenGestureEvent(
   // means the GestureFlingCancel that always comes between ET_GESTURE_BEGIN and
   // GestureTapDown is sent to the previous target, in case it is still in a
   // fling.
-  if (event->type == blink::WebInputEvent::GestureTapDown) {
+  if (event->type() == blink::WebInputEvent::GestureTapDown) {
     bool no_target = touchscreen_gesture_target_queue_.empty();
     // This UMA metric is temporary, and will be removed once it has fulfilled
     // it's purpose, namely telling us when the incidents of empty
@@ -689,7 +729,7 @@ void RenderWidgetHostInputEventRouter::RouteTouchscreenGestureEvent(
         touchscreen_gesture_target_.target ==
             bubbling_gesture_scroll_target_.target) {
       SendGestureScrollEnd(bubbling_gesture_scroll_target_.target,
-                           DummyGestureScrollUpdate());
+                           DummyGestureScrollUpdate(event->timeStampSeconds()));
       CancelScrollBubbling(bubbling_gesture_scroll_target_.target);
     }
   }
@@ -709,8 +749,8 @@ void RenderWidgetHostInputEventRouter::RouteTouchpadGestureEvent(
     const ui::LatencyInfo& latency) {
   DCHECK_EQ(blink::WebGestureDeviceTouchpad, event->sourceDevice);
 
-  if (event->type == blink::WebInputEvent::GesturePinchBegin ||
-      event->type == blink::WebInputEvent::GestureFlingStart) {
+  if (event->type() == blink::WebInputEvent::GesturePinchBegin ||
+      event->type() == blink::WebInputEvent::GestureFlingStart) {
     gfx::Point transformed_point;
     gfx::Point original_point(event->x, event->y);
     touchpad_gesture_target_.target =
@@ -727,7 +767,7 @@ void RenderWidgetHostInputEventRouter::RouteTouchpadGestureEvent(
         touchpad_gesture_target_.target ==
             bubbling_gesture_scroll_target_.target) {
       SendGestureScrollEnd(bubbling_gesture_scroll_target_.target,
-                           DummyGestureScrollUpdate());
+                           DummyGestureScrollUpdate(event->timeStampSeconds()));
       CancelScrollBubbling(bubbling_gesture_scroll_target_.target);
     }
   }

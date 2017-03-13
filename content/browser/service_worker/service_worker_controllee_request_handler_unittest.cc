@@ -17,8 +17,10 @@
 #include "content/browser/service_worker/service_worker_context_core.h"
 #include "content/browser/service_worker/service_worker_provider_host.h"
 #include "content/browser/service_worker/service_worker_registration.h"
+#include "content/browser/service_worker/service_worker_test_utils.h"
 #include "content/browser/service_worker/service_worker_url_request_job.h"
 #include "content/common/resource_request_body_impl.h"
+#include "content/common/service_worker/service_worker_types.h"
 #include "content/common/service_worker/service_worker_utils.h"
 #include "content/public/browser/resource_context.h"
 #include "content/public/common/request_context_frame_type.h"
@@ -44,11 +46,13 @@ class FailureHelper : public EmbeddedWorkerTestHelper {
   ~FailureHelper() override {}
 
  protected:
-  void OnStartWorker(int embedded_worker_id,
-                     int64_t service_worker_version_id,
-                     const GURL& scope,
-                     const GURL& script_url,
-                     bool pause_after_download) override {
+  void OnStartWorker(
+      int embedded_worker_id,
+      int64_t service_worker_version_id,
+      const GURL& scope,
+      const GURL& script_url,
+      bool pause_after_download,
+      mojom::ServiceWorkerEventDispatcherRequest request) override {
     SimulateWorkerStopped(embedded_worker_id);
   }
 };
@@ -117,6 +121,8 @@ class ServiceWorkerControlleeRequestHandlerTest : public testing::Test {
     records.push_back(
         ServiceWorkerDatabase::ResourceRecord(10, version_->script_url(), 100));
     version_->script_cache_map()->SetResources(records);
+    version_->SetMainScriptHttpResponseInfo(
+        EmbeddedWorkerTestHelper::CreateHttpResponseInfo());
 
     // An empty host.
     std::unique_ptr<ServiceWorkerProviderHost> host(
@@ -156,11 +162,11 @@ class ServiceWorkerControlleeRequestHandlerTest : public testing::Test {
 class ServiceWorkerTestContentBrowserClient : public TestContentBrowserClient {
  public:
   ServiceWorkerTestContentBrowserClient() {}
-  bool AllowServiceWorker(const GURL& scope,
-                          const GURL& first_party,
-                          content::ResourceContext* context,
-                          int render_process_id,
-                          int render_frame_id) override {
+  bool AllowServiceWorker(
+      const GURL& scope,
+      const GURL& first_party,
+      content::ResourceContext* context,
+      const base::Callback<WebContents*(void)>& wc_getter) override {
     return false;
   }
 };
@@ -291,6 +297,48 @@ TEST_F(ServiceWorkerControlleeRequestHandlerTest, DeletedProviderHost) {
   base::RunLoop().RunUntilIdle();
   EXPECT_TRUE(sw_job->ShouldFallbackToNetwork());
   EXPECT_FALSE(sw_job->ShouldForwardToServiceWorker());
+}
+
+// Tests the scenario where a controllee request handler was created
+// for a subresource request, but before MaybeCreateJob() is run, the
+// controller/active version becomes null.
+TEST_F(ServiceWorkerControlleeRequestHandlerTest, LostActiveVersion) {
+  // Store an activated worker.
+  version_->set_fetch_handler_existence(
+      ServiceWorkerVersion::FetchHandlerExistence::EXISTS);
+  version_->SetStatus(ServiceWorkerVersion::ACTIVATED);
+  registration_->SetActiveVersion(version_);
+  context()->storage()->StoreRegistration(
+      registration_.get(), version_.get(),
+      base::Bind(&ServiceWorkerUtils::NoOpStatusCallback));
+  base::RunLoop().RunUntilIdle();
+
+  // Conduct a main resource load to set the controller.
+  ServiceWorkerRequestTestResources main_test_resources(
+      this, GURL("https://host/scope/doc"), RESOURCE_TYPE_MAIN_FRAME);
+  main_test_resources.MaybeCreateJob();
+  base::RunLoop().RunUntilIdle();
+  EXPECT_TRUE(version_->HasControllee());
+  EXPECT_EQ(version_, provider_host_->controlling_version());
+  EXPECT_EQ(version_, provider_host_->active_version());
+
+  // Unset the active version.
+  provider_host_->NotifyControllerLost();
+  registration_->SetActiveVersion(nullptr);
+  EXPECT_FALSE(version_->HasControllee());
+  EXPECT_FALSE(provider_host_->controlling_version());
+  EXPECT_FALSE(provider_host_->active_version());
+
+  // Conduct a subresource load.
+  ServiceWorkerRequestTestResources sub_test_resources(
+      this, GURL("https://host/scope/doc"), RESOURCE_TYPE_IMAGE);
+  ServiceWorkerURLRequestJob* sub_job = sub_test_resources.MaybeCreateJob();
+  base::RunLoop().RunUntilIdle();
+
+  // Verify that the job errored.
+  EXPECT_EQ(
+      ServiceWorkerURLRequestJob::ResponseType::FAIL_DUE_TO_LOST_CONTROLLER,
+      sub_job->response_type_);
 }
 
 TEST_F(ServiceWorkerControlleeRequestHandlerTest, FallbackWithNoFetchHandler) {

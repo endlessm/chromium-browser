@@ -16,13 +16,12 @@ class MockZoomDecoration : public ZoomDecoration {
   explicit MockZoomDecoration(LocationBarViewMac* owner)
       : ZoomDecoration(owner), update_ui_count_(0) {}
   bool ShouldShowDecoration() const override { return true; }
-  void ShowAndUpdateUI(zoom::ZoomController* zoom_controller,
-                       NSString* tooltip_string,
-                       bool location_bar_is_dark) override {
+  void UpdateUI(zoom::ZoomController* zoom_controller,
+                NSString* tooltip_string,
+                bool location_bar_is_dark) override {
     ++update_ui_count_;
-    ZoomDecoration::ShowAndUpdateUI(zoom_controller,
-                                    tooltip_string,
-                                    location_bar_is_dark);
+    ZoomDecoration::UpdateUI(zoom_controller, tooltip_string,
+                             location_bar_is_dark);
   }
 
   int update_ui_count_;
@@ -36,6 +35,7 @@ class MockZoomController : public zoom::ZoomController {
   explicit MockZoomController(content::WebContents* web_contents)
       : zoom::ZoomController(web_contents) {}
   int GetZoomPercent() const override { return zoom_percent_; }
+  bool IsAtDefaultZoom() const override { return zoom_percent_ == 100; }
 
   int zoom_percent_;
 

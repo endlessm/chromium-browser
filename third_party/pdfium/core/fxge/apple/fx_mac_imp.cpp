@@ -4,12 +4,12 @@
 
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
+#include <memory>
+
 #include "core/fxge/apple/apple_int.h"
 #include "core/fxge/cfx_gemodule.h"
 #include "core/fxge/ge/cfx_folderfontinfo.h"
 #include "core/fxge/ifx_systemfontinfo.h"
-
-#if _FX_OS_ == _FX_MACOSX_
 
 namespace {
 
@@ -38,7 +38,7 @@ class CFX_MacFontInfo : public CFX_FolderFontInfo {
 
   // CFX_FolderFontInfo
   void* MapFont(int weight,
-                FX_BOOL bItalic,
+                bool bItalic,
                 int charset,
                 int pitch_family,
                 const FX_CHAR* family,
@@ -58,7 +58,7 @@ void GetJapanesePreference(CFX_ByteString* face, int weight, int pitch_family) {
 }
 
 void* CFX_MacFontInfo::MapFont(int weight,
-                               FX_BOOL bItalic,
+                               bool bItalic,
                                int charset,
                                int pitch_family,
                                const FX_CHAR* cstr_face,
@@ -67,7 +67,7 @@ void* CFX_MacFontInfo::MapFont(int weight,
   for (size_t i = 0; i < FX_ArraySize(g_Base14Substs); ++i) {
     if (face == CFX_ByteStringC(g_Base14Substs[i].m_pName)) {
       face = g_Base14Substs[i].m_pSubstName;
-      iExact = TRUE;
+      iExact = true;
       return GetFont(face.c_str());
     }
   }
@@ -137,5 +137,3 @@ void CFX_GEModule::DestroyPlatform() {
   delete reinterpret_cast<CApplePlatform*>(m_pPlatformData);
   m_pPlatformData = nullptr;
 }
-
-#endif  // _FX_OS_ == _FX_MACOSX_

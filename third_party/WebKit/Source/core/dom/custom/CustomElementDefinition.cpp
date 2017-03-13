@@ -12,6 +12,7 @@
 #include "core/dom/custom/CustomElementConnectedCallbackReaction.h"
 #include "core/dom/custom/CustomElementDisconnectedCallbackReaction.h"
 #include "core/dom/custom/CustomElementReaction.h"
+#include "core/dom/custom/CustomElementReactionStack.h"
 #include "core/dom/custom/CustomElementUpgradeReaction.h"
 #include "core/html/HTMLElement.h"
 
@@ -125,16 +126,16 @@ CustomElementDefinition::ConstructionStackScope::ConstructionStackScope(
     Element* element)
     : m_constructionStack(definition->m_constructionStack), m_element(element) {
   // Push the construction stack.
-  m_constructionStack.append(element);
+  m_constructionStack.push_back(element);
   m_depth = m_constructionStack.size();
 }
 
 CustomElementDefinition::ConstructionStackScope::~ConstructionStackScope() {
   // Pop the construction stack.
-  DCHECK(!m_constructionStack.last() ||
-         m_constructionStack.last() == m_element);
+  DCHECK(!m_constructionStack.back() ||
+         m_constructionStack.back() == m_element);
   DCHECK_EQ(m_constructionStack.size(), m_depth);  // It's a *stack*.
-  m_constructionStack.removeLast();
+  m_constructionStack.pop_back();
 }
 
 // https://html.spec.whatwg.org/multipage/scripting.html#concept-upgrade-an-element
@@ -154,6 +155,7 @@ void CustomElementDefinition::upgrade(Element* element) {
   }
   if (!succeeded) {
     element->setCustomElementState(CustomElementState::Failed);
+    CustomElementReactionStack::current().clearQueue(element);
     return;
   }
 

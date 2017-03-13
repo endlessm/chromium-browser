@@ -14,15 +14,10 @@
 namespace base {
 class CommandLine;
 }
-namespace gpu {
-namespace gles2 {
-class GLES2Decoder;
-}
-}
+
 namespace gl {
 
 class GLContext;
-class GLSurface;
 struct GLVersionInfo;
 
 GL_EXPORT void InitializeStaticGLBindingsGL();
@@ -32,7 +27,7 @@ void InitializeNullDrawGLBindingsGL();
 // TODO(danakj): Remove this when all test suites are using null-draw.
 bool HasInitializedNullDrawGLBindingsGL();
 bool SetNullDrawGLBindingsEnabledGL(bool enabled);
-GL_EXPORT void ClearGLBindingsGL();
+GL_EXPORT void ClearBindingsGL();
 void SetGLToRealGLApi();
 void SetGLToStubGLApi();
 void SetGLApi(GLApi* api);

@@ -19,6 +19,7 @@
 #include "webrtc/modules/video_coding/jitter_estimator.h"
 #include "webrtc/modules/video_coding/timing.h"
 #include "webrtc/system_wrappers/include/clock.h"
+#include "webrtc/system_wrappers/include/metrics.h"
 
 namespace webrtc {
 namespace video_coding {
@@ -28,7 +29,7 @@ namespace {
 constexpr int kMaxFramesBuffered = 600;
 
 // Max number of decoded frame info that will be saved.
-constexpr int kMaxFramesHistory = 20;
+constexpr int kMaxFramesHistory = 50;
 }  // namespace
 
 FrameBuffer::FrameBuffer(Clock* clock,
@@ -45,6 +46,10 @@ FrameBuffer::FrameBuffer(Clock* clock,
       num_frames_buffered_(0),
       stopped_(false),
       protection_mode_(kProtectionNack) {}
+
+FrameBuffer::~FrameBuffer() {
+  UpdateHistograms();
+}
 
 FrameBuffer::ReturnReason FrameBuffer::NextFrame(
     int64_t max_wait_time_ms,
@@ -85,8 +90,10 @@ FrameBuffer::ReturnReason FrameBuffer::NextFrame(
         ++continuous_end_it;
 
       for (; frame_it != continuous_end_it; ++frame_it) {
-        if (frame_it->second.num_missing_decodable > 0)
+        if (!frame_it->second.continuous ||
+            frame_it->second.num_missing_decodable > 0) {
           continue;
+        }
 
         FrameObject* frame = frame_it->second.frame.get();
         next_frame_it = frame_it;
@@ -112,17 +119,19 @@ FrameBuffer::ReturnReason FrameBuffer::NextFrame(
   if (next_frame_it != frames_.end()) {
     std::unique_ptr<FrameObject> frame = std::move(next_frame_it->second.frame);
     int64_t received_time = frame->ReceivedTime();
-    uint32_t timestamp = frame->Timestamp();
+    uint32_t timestamp = frame->timestamp;
 
     int64_t frame_delay;
     if (inter_frame_delay_.CalculateDelay(timestamp, &frame_delay,
                                           received_time)) {
-      jitter_estimator_->UpdateEstimate(frame_delay, frame->size);
+      jitter_estimator_->UpdateEstimate(frame_delay, frame->size());
     }
     float rtt_mult = protection_mode_ == kProtectionNackFEC ? 0.0 : 1.0;
     timing_->SetJitterDelay(jitter_estimator_->GetJitterEstimate(rtt_mult));
     timing_->UpdateCurrentDelay(frame->RenderTime(),
                                 clock_->TimeInMilliseconds());
+
+    UpdateJitterDelay();
 
     PropagateDecodability(next_frame_it->second);
     AdvanceLastDecodedFrame(next_frame_it);
@@ -151,6 +160,12 @@ void FrameBuffer::Stop() {
 
 int FrameBuffer::InsertFrame(std::unique_ptr<FrameObject> frame) {
   rtc::CritScope lock(&crit_);
+  RTC_DCHECK(frame);
+
+  ++num_total_frames_;
+  if (frame->num_references == 0)
+    ++num_key_frames_;
+
   FrameKey key(frame->picture_id, frame->spatial_layer);
   int last_continuous_picture_id =
       last_continuous_frame_it_ == frames_.end()
@@ -186,10 +201,15 @@ int FrameBuffer::InsertFrame(std::unique_ptr<FrameObject> frame) {
 
   auto info = frames_.insert(std::make_pair(key, FrameInfo())).first;
 
-  if (!UpdateFrameInfoWithIncomingFrame(*frame, info)) {
-    frames_.erase(info);
+  if (info->second.frame) {
+    LOG(LS_WARNING) << "Frame with (picture_id:spatial_id) (" << key.picture_id
+                    << ":" << static_cast<int>(key.spatial_layer)
+                    << ") already inserted, dropping frame.";
     return last_continuous_picture_id;
   }
+
+  if (!UpdateFrameInfoWithIncomingFrame(*frame, info))
+    return last_continuous_picture_id;
 
   info->second.frame = std::move(frame);
   ++num_frames_buffered_;
@@ -241,6 +261,7 @@ void FrameBuffer::PropagateContinuity(FrameMap::iterator start) {
 void FrameBuffer::PropagateDecodability(const FrameInfo& info) {
   for (size_t d = 0; d < info.num_dependent_frames; ++d) {
     auto ref_info = frames_.find(info.dependent_frames[d]);
+    RTC_DCHECK(ref_info != frames_.end());
     RTC_DCHECK_GT(ref_info->second.num_missing_decodable, 0U);
     --ref_info->second.num_missing_decodable;
   }
@@ -311,6 +332,8 @@ bool FrameBuffer::UpdateFrameInfoWithIncomingFrame(const FrameObject& frame,
           key;
       ++ref_info->second.num_dependent_frames;
     }
+    RTC_DCHECK_LE(ref_info->second.num_missing_continuous,
+                  ref_info->second.num_missing_decodable);
   }
 
   // Check if we have the lower spatial layer frame.
@@ -331,9 +354,40 @@ bool FrameBuffer::UpdateFrameInfoWithIncomingFrame(const FrameObject& frame,
           key;
       ++ref_info->second.num_dependent_frames;
     }
+    RTC_DCHECK_LE(ref_info->second.num_missing_continuous,
+                  ref_info->second.num_missing_decodable);
   }
 
+  RTC_DCHECK_LE(info->second.num_missing_continuous,
+                info->second.num_missing_decodable);
+
   return true;
+}
+
+void FrameBuffer::UpdateJitterDelay() {
+  int unused;
+  int delay;
+  timing_->GetTimings(&unused, &unused, &unused, &unused, &delay, &unused,
+                      &unused);
+
+  accumulated_delay_ += delay;
+  ++accumulated_delay_samples_;
+}
+
+void FrameBuffer::UpdateHistograms() const {
+  rtc::CritScope lock(&crit_);
+  if (num_total_frames_ > 0) {
+    int key_frames_permille = (static_cast<float>(num_key_frames_) * 1000.0f /
+                                   static_cast<float>(num_total_frames_) +
+                               0.5f);
+    RTC_HISTOGRAM_COUNTS_1000("WebRTC.Video.KeyFramesReceivedInPermille",
+                              key_frames_permille);
+  }
+
+  if (accumulated_delay_samples_ > 0) {
+    RTC_HISTOGRAM_COUNTS_10000("WebRTC.Video.JitterBufferDelayInMs",
+                               accumulated_delay_ / accumulated_delay_samples_);
+  }
 }
 
 }  // namespace video_coding

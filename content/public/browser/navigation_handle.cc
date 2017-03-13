@@ -32,8 +32,7 @@ NavigationHandle::CreateNavigationHandleForTesting(
           url, static_cast<RenderFrameHostImpl*>(render_frame_host)
                    ->frame_tree_node(),
           true,   // is_renderer_initiated
-          false,  // is_synchronous
-          false,  // is_srcdoc
+          false,  // is_same_page
           base::TimeTicks::Now(), 0,
           false);  // started_from_context_menu
   handle_impl->set_render_frame_host(

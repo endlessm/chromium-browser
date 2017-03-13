@@ -9,11 +9,11 @@
 #include "base/time/time.h"
 #include "content/browser/renderer_host/input/synthetic_gesture.h"
 #include "content/browser/renderer_host/input/synthetic_gesture_target.h"
-#include "content/browser/renderer_host/input/synthetic_pointer.h"
+#include "content/browser/renderer_host/input/synthetic_pointer_driver.h"
 #include "content/common/content_export.h"
 #include "content/common/input/synthetic_pinch_gesture_params.h"
 #include "content/common/input/synthetic_web_input_event_builders.h"
-#include "third_party/WebKit/public/web/WebInputEvent.h"
+#include "third_party/WebKit/public/platform/WebInputEvent.h"
 
 namespace content {
 
@@ -48,7 +48,7 @@ class CONTENT_EXPORT SyntheticTouchscreenPinchGesture
   bool HasReachedTarget(const base::TimeTicks& timestamp) const;
 
   SyntheticPinchGestureParams params_;
-  std::unique_ptr<SyntheticPointer> synthetic_pointer_;
+  std::unique_ptr<SyntheticPointerDriver> synthetic_pointer_driver_;
   float start_y_0_;
   float start_y_1_;
   float max_pointer_delta_0_;

@@ -8,7 +8,7 @@
 #include <string>
 
 #include "ash/ash_export.h"
-#include "ash/common/system/cast/tray_cast.h"
+#include "ash/common/system/chromeos/cast/tray_cast.h"
 #include "base/macros.h"
 
 namespace ash {
@@ -40,10 +40,6 @@ class TrayCastTestAPI {
   // this function manually, as there is no actual casting going on. In a real
   // environment, this method is invoked by the casting system in Chrome.
   void OnCastingSessionStartedOrStopped(bool is_casting);
-
-  // Release callback hooks in config delegate. They will get re-registered if
-  // the tray is used again.
-  void ReleaseConfigCallbacks();
 
  private:
   bool IsViewDrawn(TrayCast::ChildViewId id) const;

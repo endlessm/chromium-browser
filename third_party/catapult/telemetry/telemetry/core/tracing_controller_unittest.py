@@ -72,7 +72,9 @@ class TracingControllerTest(tab_test_case.TabTestCase):
     tab = self._browser.tabs[0]
     def InjectMarker(index):
       marker = 'test-marker-%d' % index
+      # TODO(catapult:#3028): Fix interpolation of JavaScript values.
       tab.EvaluateJavaScript('console.time("%s");' % marker)
+      # TODO(catapult:#3028): Fix interpolation of JavaScript values.
       tab.EvaluateJavaScript('console.timeEnd("%s");' % marker)
 
     # Set up the tracing config.
@@ -150,7 +152,8 @@ class TracingControllerTest(tab_test_case.TabTestCase):
         self._browser.Close()
         self._browser = None
 
-  @decorators.Enabled('android')
+  # https://github.com/catapult-project/catapult/issues/3099 (Android)
+  @decorators.Disabled('all')
   @decorators.Isolated
   def testStartupTracingOnAndroid(self):
     self._StartupTracing(self._browser.platform)
@@ -165,6 +168,7 @@ class TracingControllerTest(tab_test_case.TabTestCase):
   def testStartupTracingOnDesktop(self):
     self._StartupTracing(platform_module.GetHostPlatform())
 
+  @decorators.Disabled('linux')  # crbug.com/673761
   def testBattOrTracing(self):
     test_platform = self._browser.platform.GetOSName()
     device = (self._browser.platform._platform_backend.device
@@ -182,4 +186,4 @@ class TracingControllerTest(tab_test_case.TabTestCase):
     time.sleep(1)
     trace_data = tracing_controller.StopTracing()
     self.assertTrue(
-        trace_data.HasTraceFor(trace_data_module.BATTOR_TRACE_PART))
+        trace_data.HasTracesFor(trace_data_module.BATTOR_TRACE_PART))

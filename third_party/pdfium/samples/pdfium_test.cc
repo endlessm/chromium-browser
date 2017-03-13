@@ -17,6 +17,7 @@
 #define _SKIA_SUPPORT_
 #endif
 
+#include "core/fdrm/crypto/fx_crypt.h"
 #include "public/fpdf_dataavail.h"
 #include "public/fpdf_edit.h"
 #include "public/fpdf_ext.h"
@@ -26,18 +27,26 @@
 #include "samples/image_diff_png.h"
 #include "testing/test_support.h"
 
+#ifdef _WIN32
+#include <io.h>
+#else
+#include <unistd.h>
+#endif
+
 #ifdef PDF_ENABLE_V8
 #include "v8/include/libplatform/libplatform.h"
 #include "v8/include/v8.h"
 #endif  // PDF_ENABLE_V8
 
-#ifdef _WIN32
-#define snprintf _snprintf
-#endif
-
 #ifdef PDF_ENABLE_SKIA
 #include "third_party/skia/include/core/SkPictureRecorder.h"
 #include "third_party/skia/include/core/SkStream.h"
+#endif
+
+#ifdef _WIN32
+#define access _access
+#define snprintf _snprintf
+#define R_OK 4
 #endif
 
 enum OutputFormat {
@@ -56,25 +65,34 @@ enum OutputFormat {
 
 struct Options {
   Options()
-      : show_config(false), send_events(false), output_format(OUTPUT_NONE) {}
+      : show_config(false),
+        send_events(false),
+        pages(false),
+        md5(false),
+        output_format(OUTPUT_NONE) {}
 
   bool show_config;
   bool send_events;
+  bool pages;
+  bool md5;
   OutputFormat output_format;
   std::string scale_factor_as_string;
   std::string exe_path;
   std::string bin_directory;
   std::string font_directory;
+  // 0-based page numbers to be rendered.
+  int first_page;
+  int last_page;
 };
 
 struct FPDF_FORMFILLINFO_PDFiumTest : public FPDF_FORMFILLINFO {
   // Hold a map of the currently loaded pages in order to avoid them
   // to get loaded twice.
-  std::map<int, FPDF_PAGE> loadedPages;
+  std::map<int, FPDF_PAGE> loaded_pages;
 
   // Hold a pointer of FPDF_FORMHANDLE so that PDFium app hooks can
   // make use of it.
-  FPDF_FORMHANDLE formHandle;
+  FPDF_FORMHANDLE form_handle;
 };
 
 struct AvailDeleter {
@@ -82,8 +100,8 @@ struct AvailDeleter {
 };
 
 static FPDF_FORMFILLINFO_PDFiumTest* ToPDFiumTestFormFillInfo(
-    FPDF_FORMFILLINFO* formFillInfo) {
-  return static_cast<FPDF_FORMFILLINFO_PDFiumTest*>(formFillInfo);
+    FPDF_FORMFILLINFO* form_fill_info) {
+  return static_cast<FPDF_FORMFILLINFO_PDFiumTest*>(form_fill_info);
 }
 
 static bool CheckDimensions(int stride, int width, int height) {
@@ -94,23 +112,37 @@ static bool CheckDimensions(int stride, int width, int height) {
   return true;
 }
 
-static void WritePpm(const char* pdf_name, int num, const void* buffer_void,
-                     int stride, int width, int height) {
+static void OutputMD5Hash(const char* file_name, const char* buffer, int len) {
+  // Get the MD5 hash and write it to stdout.
+  uint8_t digest[16];
+  CRYPT_MD5Generate(reinterpret_cast<const uint8_t*>(buffer), len, digest);
+  printf("MD5:%s:", file_name);
+  for (int i = 0; i < 16; i++)
+    printf("%02x", digest[i]);
+  printf("\n");
+}
+
+static std::string WritePpm(const char* pdf_name,
+                            int num,
+                            const void* buffer_void,
+                            int stride,
+                            int width,
+                            int height) {
   const char* buffer = reinterpret_cast<const char*>(buffer_void);
 
   if (!CheckDimensions(stride, width, height))
-    return;
+    return "";
 
   int out_len = width * height;
   if (out_len > INT_MAX / 3)
-    return;
+    return "";
   out_len *= 3;
 
   char filename[256];
   snprintf(filename, sizeof(filename), "%s.%d.ppm", pdf_name, num);
   FILE* fp = fopen(filename, "wb");
   if (!fp)
-    return;
+    return "";
   fprintf(fp, "P6\n# PDF test render\n%d %d\n255\n", width, height);
   // Source data is B, G, R, unused.
   // Dest data is R, G, B.
@@ -129,6 +161,7 @@ static void WritePpm(const char* pdf_name, int num, const void* buffer_void,
   }
   fwrite(result.data(), out_len, 1, fp);
   fclose(fp);
+  return std::string(filename);
 }
 
 void WriteText(FPDF_PAGE page, const char* pdf_name, int num) {
@@ -162,17 +195,21 @@ void WriteText(FPDF_PAGE page, const char* pdf_name, int num) {
   (void)fclose(fp);
 }
 
-static void WritePng(const char* pdf_name, int num, const void* buffer_void,
-                     int stride, int width, int height) {
+static std::string WritePng(const char* pdf_name,
+                            int num,
+                            const void* buffer_void,
+                            int stride,
+                            int width,
+                            int height) {
   if (!CheckDimensions(stride, width, height))
-    return;
+    return "";
 
   std::vector<unsigned char> png_encoding;
   const unsigned char* buffer = static_cast<const unsigned char*>(buffer_void);
   if (!image_diff_png::EncodeBGRAPNG(
           buffer, width, height, stride, false, &png_encoding)) {
     fprintf(stderr, "Failed to convert bitmap to PNG\n");
-    return;
+    return "";
   }
 
   char filename[256];
@@ -181,13 +218,13 @@ static void WritePng(const char* pdf_name, int num, const void* buffer_void,
   if (chars_formatted < 0 ||
       static_cast<size_t>(chars_formatted) >= sizeof(filename)) {
     fprintf(stderr, "Filename %s is too long\n", filename);
-    return;
+    return "";
   }
 
   FILE* fp = fopen(filename, "wb");
   if (!fp) {
     fprintf(stderr, "Failed to open %s for output\n", filename);
-    return;
+    return "";
   }
 
   size_t bytes_written = fwrite(
@@ -196,23 +233,28 @@ static void WritePng(const char* pdf_name, int num, const void* buffer_void,
     fprintf(stderr, "Failed to write to  %s\n", filename);
 
   (void)fclose(fp);
+  return std::string(filename);
 }
 
 #ifdef _WIN32
-static void WriteBmp(const char* pdf_name, int num, const void* buffer,
-                     int stride, int width, int height) {
+static std::string WriteBmp(const char* pdf_name,
+                            int num,
+                            const void* buffer,
+                            int stride,
+                            int width,
+                            int height) {
   if (!CheckDimensions(stride, width, height))
-    return;
+    return "";
 
   int out_len = stride * height;
   if (out_len > INT_MAX / 3)
-    return;
+    return "";
 
   char filename[256];
   snprintf(filename, sizeof(filename), "%s.%d.bmp", pdf_name, num);
   FILE* fp = fopen(filename, "wb");
   if (!fp)
-    return;
+    return "";
 
   BITMAPINFO bmi = {};
   bmi.bmiHeader.biSize = sizeof(bmi) - sizeof(RGBQUAD);
@@ -232,6 +274,7 @@ static void WriteBmp(const char* pdf_name, int num, const void* buffer,
   fwrite(&bmi, bmi.bmiHeader.biSize, 1, fp);
   fwrite(buffer, out_len, 1, fp);
   fclose(fp);
+  return std::string(filename);
 }
 
 void WriteEmf(FPDF_PAGE page, const char* pdf_name, int num) {
@@ -260,7 +303,9 @@ void WriteEmf(FPDF_PAGE page, const char* pdf_name, int num) {
 #endif
 
 #ifdef PDF_ENABLE_SKIA
-void WriteSkp(const char* pdf_name, int num, SkPictureRecorder* recorder) {
+static std::string WriteSkp(const char* pdf_name,
+                            int num,
+                            SkPictureRecorder* recorder) {
   char filename[256];
   int chars_formatted =
       snprintf(filename, sizeof(filename), "%s.%d.skp", pdf_name, num);
@@ -268,12 +313,13 @@ void WriteSkp(const char* pdf_name, int num, SkPictureRecorder* recorder) {
   if (chars_formatted < 0 ||
       static_cast<size_t>(chars_formatted) >= sizeof(filename)) {
     fprintf(stderr, "Filename %s is too long\n", filename);
-    return;
+    return "";
   }
 
   sk_sp<SkPicture> picture(recorder->finishRecordingAsPicture());
   SkFILEWStream wStream(filename);
   picture->serialize(&wStream);
+  return std::string(filename);
 }
 #endif
 
@@ -283,11 +329,11 @@ void WriteSkp(const char* pdf_name, int num, SkPictureRecorder* recorder) {
 int ExampleAppAlert(IPDF_JSPLATFORM*,
                     FPDF_WIDESTRING msg,
                     FPDF_WIDESTRING title,
-                    int nType,
-                    int nIcon) {
+                    int type,
+                    int icon) {
   printf("%ls", GetPlatformWString(title).c_str());
-  if (nIcon || nType)
-    printf("[icon=%d,type=%d]", nIcon, nType);
+  if (icon || type)
+    printf("[icon=%d,type=%d]", icon, type);
   printf(": %ls\n", GetPlatformWString(msg).c_str());
   return 0;
 }
@@ -295,16 +341,16 @@ int ExampleAppAlert(IPDF_JSPLATFORM*,
 int ExampleAppResponse(IPDF_JSPLATFORM*,
                        FPDF_WIDESTRING question,
                        FPDF_WIDESTRING title,
-                       FPDF_WIDESTRING defaultValue,
+                       FPDF_WIDESTRING default_value,
                        FPDF_WIDESTRING label,
-                       FPDF_BOOL isPassword,
+                       FPDF_BOOL is_password,
                        void* response,
                        int length) {
   printf("%ls: %ls, defaultValue=%ls, label=%ls, isPassword=%d, length=%d\n",
          GetPlatformWString(title).c_str(),
          GetPlatformWString(question).c_str(),
-         GetPlatformWString(defaultValue).c_str(),
-         GetPlatformWString(label).c_str(), isPassword, length);
+         GetPlatformWString(default_value).c_str(),
+         GetPlatformWString(label).c_str(), is_password, length);
 
   // UTF-16, always LE regardless of platform.
   uint8_t* ptr = static_cast<uint8_t*>(response);
@@ -315,20 +361,20 @@ int ExampleAppResponse(IPDF_JSPLATFORM*,
   return 4;
 }
 
-void ExampleDocGotoPage(IPDF_JSPLATFORM*, int pageNumber) {
-  printf("Goto Page: %d\n", pageNumber);
+void ExampleDocGotoPage(IPDF_JSPLATFORM*, int page_number) {
+  printf("Goto Page: %d\n", page_number);
 }
 
 void ExampleDocMail(IPDF_JSPLATFORM*,
                     void* mailData,
                     int length,
-                    FPDF_BOOL bUI,
+                    FPDF_BOOL UI,
                     FPDF_WIDESTRING To,
                     FPDF_WIDESTRING Subject,
                     FPDF_WIDESTRING CC,
                     FPDF_WIDESTRING BCC,
                     FPDF_WIDESTRING Msg) {
-  printf("Mail Msg: %d, to=%ls, cc=%ls, bcc=%ls, subject=%ls, body=%ls\n", bUI,
+  printf("Mail Msg: %d, to=%ls, cc=%ls, bcc=%ls, subject=%ls, body=%ls\n", UI,
          GetPlatformWString(To).c_str(), GetPlatformWString(CC).c_str(),
          GetPlatformWString(BCC).c_str(), GetPlatformWString(Subject).c_str(),
          GetPlatformWString(Msg).c_str());
@@ -458,6 +504,25 @@ bool ParseCommandLine(const std::vector<std::string>& args,
         return false;
       }
       options->scale_factor_as_string = cur_arg.substr(8);
+    } else if (cur_arg.size() > 8 && cur_arg.compare(0, 8, "--pages=") == 0) {
+      if (options->pages) {
+        fprintf(stderr, "Duplicate --pages argument\n");
+        return false;
+      }
+      options->pages = true;
+      const std::string pages_string = cur_arg.substr(8);
+      size_t first_dash = pages_string.find("-");
+      if (first_dash == std::string::npos) {
+        std::stringstream(pages_string) >> options->first_page;
+        options->last_page = options->first_page;
+      } else {
+        std::stringstream(pages_string.substr(0, first_dash)) >>
+            options->first_page;
+        std::stringstream(pages_string.substr(first_dash + 1)) >>
+            options->last_page;
+      }
+    } else if (cur_arg == "--md5") {
+      options->md5 = true;
     } else if (cur_arg.size() >= 2 && cur_arg[0] == '-' && cur_arg[1] == '-') {
       fprintf(stderr, "Unrecognized argument %s\n", cur_arg.c_str());
       return false;
@@ -471,12 +536,11 @@ bool ParseCommandLine(const std::vector<std::string>& args,
   return true;
 }
 
-FPDF_BOOL Is_Data_Avail(FX_FILEAVAIL* pThis, size_t offset, size_t size) {
+FPDF_BOOL Is_Data_Avail(FX_FILEAVAIL* avail, size_t offset, size_t size) {
   return true;
 }
 
-void Add_Segment(FX_DOWNLOADHINTS* pThis, size_t offset, size_t size) {
-}
+void Add_Segment(FX_DOWNLOADHINTS* hints, size_t offset, size_t size) {}
 
 void SendPageEvents(const FPDF_FORMHANDLE& form,
                     const FPDF_PAGE& page,
@@ -542,34 +606,35 @@ void SendPageEvents(const FPDF_FORMHANDLE& form,
 FPDF_PAGE GetPageForIndex(FPDF_FORMFILLINFO* param,
                           FPDF_DOCUMENT doc,
                           int index) {
-  FPDF_FORMFILLINFO_PDFiumTest* formFillInfo = ToPDFiumTestFormFillInfo(param);
-  auto& loadedPages = formFillInfo->loadedPages;
+  FPDF_FORMFILLINFO_PDFiumTest* form_fill_info =
+      ToPDFiumTestFormFillInfo(param);
+  auto& loaded_pages = form_fill_info->loaded_pages;
 
-  auto iter = loadedPages.find(index);
-  if (iter != loadedPages.end())
+  auto iter = loaded_pages.find(index);
+  if (iter != loaded_pages.end())
     return iter->second;
 
   FPDF_PAGE page = FPDF_LoadPage(doc, index);
   if (!page)
     return nullptr;
 
-  FPDF_FORMHANDLE& formHandle = formFillInfo->formHandle;
+  FPDF_FORMHANDLE& form_handle = form_fill_info->form_handle;
 
-  FORM_OnAfterLoadPage(page, formHandle);
-  FORM_DoPageAAction(page, formHandle, FPDFPAGE_AACTION_OPEN);
+  FORM_OnAfterLoadPage(page, form_handle);
+  FORM_DoPageAAction(page, form_handle, FPDFPAGE_AACTION_OPEN);
 
-  loadedPages[index] = page;
+  loaded_pages[index] = page;
   return page;
 }
 
 bool RenderPage(const std::string& name,
                 FPDF_DOCUMENT doc,
                 FPDF_FORMHANDLE& form,
-                FPDF_FORMFILLINFO_PDFiumTest& formFillInfo,
+                FPDF_FORMFILLINFO_PDFiumTest& form_fill_info,
                 const int page_index,
                 const Options& options,
                 const std::string& events) {
-  FPDF_PAGE page = GetPageForIndex(&formFillInfo, doc, page_index);
+  FPDF_PAGE page = GetPageForIndex(&form_fill_info, doc, page_index);
   if (!page)
     return false;
 
@@ -596,10 +661,12 @@ bool RenderPage(const std::string& name,
     const char* buffer =
         reinterpret_cast<const char*>(FPDFBitmap_GetBuffer(bitmap));
 
+    std::string&& image_file_name = "";
     switch (options.output_format) {
 #ifdef _WIN32
       case OUTPUT_BMP:
-        WriteBmp(name.c_str(), page_index, buffer, stride, width, height);
+        image_file_name =
+            WriteBmp(name.c_str(), page_index, buffer, stride, width, height);
         break;
 
       case OUTPUT_EMF:
@@ -611,11 +678,13 @@ bool RenderPage(const std::string& name,
         break;
 
       case OUTPUT_PNG:
-        WritePng(name.c_str(), page_index, buffer, stride, width, height);
+        image_file_name =
+            WritePng(name.c_str(), page_index, buffer, stride, width, height);
         break;
 
       case OUTPUT_PPM:
-        WritePpm(name.c_str(), page_index, buffer, stride, width, height);
+        image_file_name =
+            WritePpm(name.c_str(), page_index, buffer, stride, width, height);
         break;
 
 #ifdef PDF_ENABLE_SKIA
@@ -624,19 +693,24 @@ bool RenderPage(const std::string& name,
             reinterpret_cast<SkPictureRecorder*>(
                 FPDF_RenderPageSkp(page, width, height)));
         FPDF_FFLRecord(form, recorder.get(), page, 0, 0, width, height, 0, 0);
-        WriteSkp(name.c_str(), page_index, recorder.get());
+        image_file_name = WriteSkp(name.c_str(), page_index, recorder.get());
       } break;
 #endif
       default:
         break;
     }
 
+    // Write the filename and the MD5 of the buffer to stdout if we wrote a
+    // file.
+    if (options.md5 && image_file_name != "")
+      OutputMD5Hash(image_file_name.c_str(), buffer, stride * height);
+
     FPDFBitmap_Destroy(bitmap);
   } else {
     fprintf(stderr, "Page was too large to be rendered.\n");
   }
 
-  formFillInfo.loadedPages.erase(page_index);
+  form_fill_info.loaded_pages.erase(page_index);
 
   FORM_DoPageAAction(page, form, FPDFPAGE_AACTION_CLOSE);
   FORM_OnBeforeClosePage(page, form);
@@ -751,7 +825,7 @@ void RenderPdf(const std::string& name,
   (void)FPDF_GetDocPermissions(doc);
 
   FPDF_FORMHANDLE form = FPDFDOC_InitFormFillEnvironment(doc, &form_callbacks);
-  form_callbacks.formHandle = form;
+  form_callbacks.form_handle = form;
 
 #ifdef PDF_ENABLE_XFA
   int doc_type = DOCTYPE_PDF;
@@ -769,7 +843,9 @@ void RenderPdf(const std::string& name,
   int page_count = FPDF_GetPageCount(doc);
   int rendered_pages = 0;
   int bad_pages = 0;
-  for (int i = 0; i < page_count; ++i) {
+  int first_page = options.pages ? options.first_page : 0;
+  int last_page = options.pages ? options.last_page + 1 : page_count;
+  for (int i = first_page; i < last_page; ++i) {
     if (bIsLinearized) {
       nRet = PDF_DATA_NOTAVAIL;
       while (nRet == PDF_DATA_NOTAVAIL)
@@ -827,6 +903,7 @@ static const char kUsageString[] =
     "  --bin-dir=<path>  - override path to v8 external data\n"
     "  --font-dir=<path> - override path to external fonts\n"
     "  --scale=<number>  - scale output size by number (e.g. 0.5)\n"
+    "  --pages=<number>(-<number>) - only render the given 0-based page(s)\n"
 #ifdef _WIN32
     "  --bmp - write page images <pdf-name>.<page-number>.bmp\n"
     "  --emf - write page meta files <pdf-name>.<page-number>.emf\n"
@@ -837,6 +914,7 @@ static const char kUsageString[] =
 #ifdef PDF_ENABLE_SKIA
     "  --skp - write page images <pdf-name>.<page-number>.skp\n"
 #endif
+    "  --md5 - write output image paths and their md5 hashes to stdout.\n"
     "";
 
 int main(int argc, const char* argv[]) {
@@ -884,12 +962,12 @@ int main(int argc, const char* argv[]) {
   }
   FPDF_InitLibraryWithConfig(&config);
 
-  UNSUPPORT_INFO unsuppored_info;
-  memset(&unsuppored_info, '\0', sizeof(unsuppored_info));
-  unsuppored_info.version = 1;
-  unsuppored_info.FSDK_UnSupport_Handler = ExampleUnsupportedHandler;
+  UNSUPPORT_INFO unsupported_info;
+  memset(&unsupported_info, '\0', sizeof(unsupported_info));
+  unsupported_info.version = 1;
+  unsupported_info.FSDK_UnSupport_Handler = ExampleUnsupportedHandler;
 
-  FSDK_SetUnSpObjProcessHandler(&unsuppored_info);
+  FSDK_SetUnSpObjProcessHandler(&unsupported_info);
 
   for (const std::string& filename : files) {
     size_t file_length = 0;
@@ -905,11 +983,15 @@ int main(int argc, const char* argv[]) {
       size_t extension_pos = event_filename.find(".pdf");
       if (extension_pos != std::string::npos) {
         event_filename.replace(extension_pos, 4, ".evt");
-        std::unique_ptr<char, pdfium::FreeDeleter> event_contents =
-            GetFileContents(event_filename.c_str(), &event_length);
-        if (event_contents) {
-          fprintf(stderr, "Sending events from: %s\n", event_filename.c_str());
-          events = std::string(event_contents.get(), event_length);
+        if (access(event_filename.c_str(), R_OK) == 0) {
+          fprintf(stderr, "Using event file %s.\n", event_filename.c_str());
+          std::unique_ptr<char, pdfium::FreeDeleter> event_contents =
+              GetFileContents(event_filename.c_str(), &event_length);
+          if (event_contents) {
+            fprintf(stderr, "Sending events from: %s\n",
+                    event_filename.c_str());
+            events = std::string(event_contents.get(), event_length);
+          }
         }
       }
     }

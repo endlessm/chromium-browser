@@ -10,7 +10,6 @@
 #include <string>
 
 #include "base/macros.h"
-#include "base/memory/linked_ptr.h"
 #include "base/observer_list.h"
 #include "base/values.h"
 #include "components/keyed_service/core/keyed_service.h"
@@ -26,13 +25,12 @@ class PrefRegistrySyncable;
 }
 
 class AccountTrackerService;
-class GaiaAuthFetcher;
 class ProfileOAuth2TokenService;
 class SigninClient;
 
 // Many values in SigninStatus are also associated with a timestamp.
 // This makes it easier to keep values and their associated times together.
-typedef std::pair<std::string, std::string> TimedSigninStatusValue;
+using TimedSigninStatusValue = std::pair<std::string, std::string>;
 
 // This class collects authentication, signin and token information
 // to propagate to about:signin-internals via SigninInternalsUI.
@@ -110,7 +108,8 @@ class AboutSigninInternals
     ~TokenInfo();
     std::unique_ptr<base::DictionaryValue> ToValue() const;
 
-    static bool LessThan(const TokenInfo* a, const TokenInfo* b);
+    static bool LessThan(const std::unique_ptr<TokenInfo>& a,
+                         const std::unique_ptr<TokenInfo>& b);
 
     // Called when the token is invalidated.
     void Invalidate();
@@ -124,15 +123,15 @@ class AboutSigninInternals
     bool removed_;
   };
 
-  // Map account id to tokens associated to the account.
-  typedef std::map<std::string, std::vector<TokenInfo*> > TokenInfoMap;
-
   // Encapsulates both authentication and token related information. Used
   // by SigninInternals to maintain information that needs to be shown in
   // the about:signin-internals page.
   struct SigninStatus {
     std::vector<TimedSigninStatusValue> timed_signin_fields;
-    TokenInfoMap token_info_map;
+
+    // Map account id to tokens associated to the account.
+    std::map<std::string, std::vector<std::unique_ptr<TokenInfo>>>
+        token_info_map;
 
     SigninStatus();
     ~SigninStatus();

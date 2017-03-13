@@ -41,6 +41,16 @@ const base::FilePath::CharType kDataPath[] =
 #else
     FILE_PATH_LITERAL("components\\flapper\\NONEXISTENT");
 #endif
+#elif defined(OS_CHROMEOS)
+#if defined(ARCH_CPU_X86)
+    FILE_PATH_LITERAL("components/flapper/chromeos_intel32");
+#elif defined(ARCH_CPU_X86_64)
+    FILE_PATH_LITERAL("components/flapper/chromeos_intel64");
+#elif defined(ARCH_CPU_ARMEL)
+    FILE_PATH_LITERAL("components/flapper/chromeos_arm32");
+#else
+    FILE_PATH_LITERAL("components/flapper/NONEXISTENT");
+#endif
 #else  // OS_LINUX, etc.
 #if defined(ARCH_CPU_X86)
     FILE_PATH_LITERAL("components/flapper/linux");
@@ -79,7 +89,7 @@ TEST(ComponentInstallerTest, PepperFlashCheck) {
       base::DictionaryValue::From(deserializer.Deserialize(NULL, &error));
 
   ASSERT_TRUE(root);
-  ASSERT_TRUE(root->IsType(base::Value::TYPE_DICTIONARY));
+  ASSERT_TRUE(root->IsType(base::Value::Type::DICTIONARY));
 
   // This checks that the whole manifest is compatible.
   base::Version version;

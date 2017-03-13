@@ -23,7 +23,7 @@
 #include "content/public/common/process_type.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/common/extension_set.h"
-#include "services/shell/public/cpp/interface_provider.h"
+#include "services/service_manager/public/cpp/interface_provider.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
 
@@ -116,7 +116,7 @@ base::string16 GetLocalizedTitle(const base::string16& title,
 // BrowserChildProcessHost whose unique ID is |unique_child_process_id|.
 void ConnectResourceReporterOnIOThread(
     int unique_child_process_id,
-    mojom::ResourceUsageReporterRequest resource_reporter) {
+    chrome::mojom::ResourceUsageReporterRequest resource_reporter) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
 
   content::BrowserChildProcessHost* host =
@@ -124,7 +124,8 @@ void ConnectResourceReporterOnIOThread(
   if (!host)
     return;
 
-  shell::InterfaceProvider* interfaces = host->GetHost()->GetRemoteInterfaces();
+  service_manager::InterfaceProvider* interfaces =
+      host->GetHost()->GetRemoteInterfaces();
   if (interfaces)
     interfaces->GetInterface(std::move(resource_reporter));
 }
@@ -134,8 +135,8 @@ void ConnectResourceReporterOnIOThread(
 // |unique_child_process_id|.
 ProcessResourceUsage* CreateProcessResourcesSampler(
     int unique_child_process_id) {
-  mojom::ResourceUsageReporterPtr usage_reporter;
-  mojom::ResourceUsageReporterRequest request = mojo::GetProxy(&usage_reporter);
+  chrome::mojom::ResourceUsageReporterPtr usage_reporter;
+  chrome::mojom::ResourceUsageReporterRequest request(&usage_reporter);
   content::BrowserThread::PostTask(
       content::BrowserThread::IO,
       FROM_HERE,

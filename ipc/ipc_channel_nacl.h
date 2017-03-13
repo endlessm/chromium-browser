@@ -19,6 +19,8 @@
 
 namespace IPC {
 
+class MessageAttachment;
+
 // Contains the results from one call to imc_recvmsg (data and file
 // descriptors).
 struct MessageContents;
@@ -42,12 +44,9 @@ class ChannelNacl : public Channel,
   ~ChannelNacl() override;
 
   // Channel implementation.
-  base::ProcessId GetPeerPID() const override;
-  base::ProcessId GetSelfPID() const override;
   bool Connect() override;
   void Close() override;
   bool Send(Message* message) override;
-  AttachmentBroker* GetAttachmentBroker() override;
 
   // Posted to the main thread by ReaderThreadRunner.
   void DidRecvMsg(std::unique_ptr<MessageContents> contents);
@@ -65,23 +64,15 @@ class ChannelNacl : public Channel,
                      int buffer_len,
                      int* bytes_read) override;
   bool ShouldDispatchInputMessage(Message* msg) override;
-  bool GetNonBrokeredAttachments(Message* msg) override;
+  bool GetAttachments(Message* msg) override;
   bool DidEmptyInputBuffers() override;
   void HandleInternalMessage(const Message& msg) override;
-  base::ProcessId GetSenderPID() override;
-  bool IsAttachmentBrokerEndpoint() override;
 
   Mode mode_;
   bool waiting_connect_;
 
   // The pipe used for communication.
   int pipe_;
-
-  // The "name" of our pipe.  On Windows this is the global identifier for
-  // the pipe.  On POSIX it's used as a key in a local map of file descriptors.
-  // For NaCl, we don't actually support looking up file descriptors by name,
-  // and it's only used for debug information.
-  std::string pipe_name_;
 
   // We use a thread for reading, so that we can simply block on reading and
   // post the received data back to the main thread to be properly interleaved
@@ -107,11 +98,8 @@ class ChannelNacl : public Channel,
   //                 2 above in NaCl eventually.
   // When ReadData is called, it pulls the bytes out of this queue in order.
   std::deque<linked_ptr<std::vector<char> > > read_queue_;
-  // Queue of file descriptors extracted from imc_recvmsg messages.
-  // NOTE: The implementation assumes underlying storage here is contiguous, so
-  // don't change to something like std::deque<> without changing the
-  // implementation!
-  std::vector<int> input_fds_;
+  // Queue of file descriptor attachments extracted from imc_recvmsg messages.
+  std::vector<scoped_refptr<MessageAttachment>> input_attachments_;
 
   // This queue is used when a message is sent prior to Connect having been
   // called. Normally after we're connected, the queue is empty.

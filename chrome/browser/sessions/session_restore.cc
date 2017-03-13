@@ -588,10 +588,7 @@ class SessionRestoreImpl : public content::NotificationObserver {
     // See crbug.com/154129.
     if (tab.navigations.empty())
       return nullptr;
-    int selected_index = tab.current_navigation_index;
-    selected_index = std::max(
-        0,
-        std::min(selected_index, static_cast<int>(tab.navigations.size() - 1)));
+    int selected_index = GetNavigationIndexToSelect(tab);
 
     RecordAppLaunchForTab(browser, tab, selected_index);
 
@@ -771,7 +768,7 @@ void SessionRestore::RestoreSessionAfterCrash(Browser* browser) {
   if (browser->tab_strip_model()->count() == 1) {
     const content::WebContents* active_tab =
         browser->tab_strip_model()->GetWebContentsAt(0);
-    if (active_tab->GetURL() == GURL(chrome::kChromeUINewTabURL) ||
+    if (active_tab->GetURL() == chrome::kChromeUINewTabURL ||
         search::IsInstantNTP(active_tab)) {
       // There is only one tab and its the new tab page, make session restore
       // clobber it.

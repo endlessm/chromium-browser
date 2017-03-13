@@ -22,8 +22,6 @@
 #include "components/keyed_service/core/keyed_service.h"
 #include "content/public/browser/presentation_service_delegate.h"
 
-class Profile;
-
 namespace content {
 class WebContents;
 }
@@ -65,7 +63,7 @@ class MediaRouter : public KeyedService {
   ~MediaRouter() override = default;
 
   // Creates a media route from |source_id| to |sink_id|.
-  // |origin| is the URL of requestor's page.
+  // |origin| is the origin of requestor's page.
   // |web_contents| is the WebContents of the tab in which the request was made.
   // |origin| and |web_contents| are used for enforcing same-origin and/or
   // same-tab scope for JoinRoute() requests. (e.g., if enforced, the page
@@ -147,8 +145,8 @@ class MediaRouter : public KeyedService {
       std::unique_ptr<std::vector<uint8_t>> data,
       const SendRouteMessageCallback& callback) = 0;
 
-  // Adds a new |issue|.
-  virtual void AddIssue(const Issue& issue) = 0;
+  // Adds a new issue with info |issue_info|.
+  virtual void AddIssue(const IssueInfo& issue_info) = 0;
 
   // Clears the issue with the id |issue_id|.
   virtual void ClearIssue(const Issue::Id& issue_id) = 0;
@@ -182,6 +180,10 @@ class MediaRouter : public KeyedService {
   // Called when the incognito profile for this instance is being shut down.
   // This will terminate all incognito media routes.
   virtual void OnIncognitoProfileShutdown() = 0;
+
+  // Returns the media routes that currently exist. To get notified whenever
+  // there is a change to the media routes, subclass MediaRoutesObserver.
+  virtual std::vector<MediaRoute> GetCurrentRoutes() const = 0;
 
  private:
   friend class IssuesObserver;

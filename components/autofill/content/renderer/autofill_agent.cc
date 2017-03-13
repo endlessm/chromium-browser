@@ -41,8 +41,9 @@
 #include "content/public/renderer/render_frame.h"
 #include "content/public/renderer/render_view.h"
 #include "net/cert/cert_status_flags.h"
-#include "services/shell/public/cpp/interface_provider.h"
-#include "services/shell/public/cpp/interface_registry.h"
+#include "services/service_manager/public/cpp/interface_provider.h"
+#include "services/service_manager/public/cpp/interface_registry.h"
+#include "third_party/WebKit/public/platform/WebInputEvent.h"
 #include "third_party/WebKit/public/platform/WebURLRequest.h"
 #include "third_party/WebKit/public/web/WebConsoleMessage.h"
 #include "third_party/WebKit/public/web/WebDataSource.h"
@@ -50,7 +51,6 @@
 #include "third_party/WebKit/public/web/WebElementCollection.h"
 #include "third_party/WebKit/public/web/WebFormControlElement.h"
 #include "third_party/WebKit/public/web/WebFormElement.h"
-#include "third_party/WebKit/public/web/WebInputEvent.h"
 #include "third_party/WebKit/public/web/WebLocalFrame.h"
 #include "third_party/WebKit/public/web/WebNode.h"
 #include "third_party/WebKit/public/web/WebOptionElement.h"
@@ -300,10 +300,6 @@ void AutofillAgent::FocusChangeComplete() {
   }
 }
 
-void AutofillAgent::setIgnoreTextChanges(bool ignore) {
-  ignore_text_changes_ = ignore;
-}
-
 void AutofillAgent::FormControlElementClicked(
     const WebFormControlElement& element,
     bool was_focused) {
@@ -487,10 +483,6 @@ void AutofillAgent::PreviewForm(int32_t id, const FormData& form) {
   GetAutofillDriver()->DidPreviewAutofillFormData();
 }
 
-void AutofillAgent::OnPing() {
-  GetAutofillDriver()->PingAck();
-}
-
 void AutofillAgent::FieldTypePredictionsAvailable(
     const std::vector<FormDataPredictions>& forms) {
   for (const auto& form : forms) {
@@ -575,6 +567,14 @@ void AutofillAgent::ShowInitialPasswordAccountSuggestions(
   options.show_full_suggestion_list = true;
   for (auto element : elements)
     ShowSuggestions(element, options);
+}
+
+void AutofillAgent::ShowNotSecureWarning(
+    const blink::WebInputElement& element) {
+  if (is_generation_popup_possibly_visible_)
+    return;
+  password_autofill_agent_->ShowNotSecureWarning(element);
+  is_popup_possibly_visible_ = true;
 }
 
 void AutofillAgent::OnSamePageNavigationCompleted() {
@@ -783,7 +783,7 @@ void AutofillAgent::ajaxSucceeded() {
 const mojom::AutofillDriverPtr& AutofillAgent::GetAutofillDriver() {
   if (!autofill_driver_) {
     render_frame()->GetRemoteInterfaces()->GetInterface(
-        mojo::GetProxy(&autofill_driver_));
+        mojo::MakeRequest(&autofill_driver_));
   }
 
   return autofill_driver_;

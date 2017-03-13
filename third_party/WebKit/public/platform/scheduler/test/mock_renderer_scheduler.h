@@ -24,9 +24,12 @@ class MockRendererScheduler : public RendererScheduler {
   MOCK_METHOD0(IdleTaskRunner,
                scoped_refptr<blink::scheduler::SingleThreadIdleTaskRunner>());
   MOCK_METHOD0(TimerTaskRunner, scoped_refptr<TaskQueue>());
-  MOCK_METHOD1(NewLoadingTaskRunner, scoped_refptr<TaskQueue>(const char*));
-  MOCK_METHOD1(NewTimerTaskRunner, scoped_refptr<TaskQueue>(const char*));
-  MOCK_METHOD1(NewUnthrottledTaskRunner, scoped_refptr<TaskQueue>(const char*));
+  MOCK_METHOD1(NewLoadingTaskRunner,
+               scoped_refptr<TaskQueue>(TaskQueue::QueueType));
+  MOCK_METHOD1(NewTimerTaskRunner,
+               scoped_refptr<TaskQueue>(TaskQueue::QueueType));
+  MOCK_METHOD1(NewUnthrottledTaskRunner,
+               scoped_refptr<TaskQueue>(TaskQueue::QueueType));
   MOCK_METHOD0(NewRenderWidgetSchedulingState,
                std::unique_ptr<RenderWidgetSchedulingState>());
   MOCK_METHOD1(WillBeginFrame, void(const cc::BeginFrameArgs&));
@@ -34,11 +37,13 @@ class MockRendererScheduler : public RendererScheduler {
   MOCK_METHOD0(DidCommitFrameToCompositor, void());
   MOCK_METHOD2(DidHandleInputEventOnCompositorThread,
                void(const WebInputEvent&, InputEventState));
-  MOCK_METHOD1(DidHandleInputEventOnMainThread, void(const WebInputEvent&));
+  MOCK_METHOD2(DidHandleInputEventOnMainThread,
+               void(const WebInputEvent&, WebInputEventResult));
   MOCK_METHOD0(DidAnimateForInputOnCompositorThread, void());
   MOCK_METHOD0(OnRendererBackgrounded, void());
   MOCK_METHOD0(OnRendererForegrounded, void());
   MOCK_METHOD0(SuspendRenderer, void());
+  MOCK_METHOD0(ResumeRenderer, void());
   MOCK_METHOD1(AddPendingNavigation, void(WebScheduler::NavigatingFrameType));
   MOCK_METHOD1(RemovePendingNavigation,
                void(WebScheduler::NavigatingFrameType));
@@ -54,6 +59,7 @@ class MockRendererScheduler : public RendererScheduler {
   MOCK_METHOD1(SetTimerQueueSuspensionWhenBackgroundedEnabled, void(bool));
   MOCK_METHOD1(SetTopLevelBlameContext, void(base::trace_event::BlameContext*));
   MOCK_METHOD1(SetRAILModeObserver, void(RAILModeObserver*));
+  MOCK_METHOD0(MainThreadSeemsUnresponsive, bool());
 
  private:
   DISALLOW_COPY_AND_ASSIGN(MockRendererScheduler);

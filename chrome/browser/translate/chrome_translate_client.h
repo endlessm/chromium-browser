@@ -22,10 +22,6 @@ class BrowserContext;
 class WebContents;
 }  // namespace content
 
-namespace test {
-class ScopedCLDDynamicDataHarness;
-}  // namespace test
-
 class PrefService;
 
 namespace translate {
@@ -35,6 +31,8 @@ class TranslateAcceptLanguages;
 class TranslatePrefs;
 class TranslateManager;
 }  // namespace translate
+
+enum class ShowTranslateBubbleResult;
 
 class ChromeTranslateClient
     : public translate::TranslateClient,
@@ -117,8 +115,9 @@ class ChromeTranslateClient
   void WebContentsDestroyed() override;
 
   // Shows the translate bubble.
-  void ShowBubble(translate::TranslateStep step,
-                  translate::TranslateErrors::Type error_type);
+  ShowTranslateBubbleResult ShowBubble(
+      translate::TranslateStep step,
+      translate::TranslateErrors::Type error_type);
 
   translate::ContentTranslateDriver translate_driver_;
   std::unique_ptr<translate::TranslateManager> translate_manager_;

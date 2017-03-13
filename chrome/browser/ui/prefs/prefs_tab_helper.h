@@ -14,8 +14,6 @@
 #include "content/public/browser/notification_registrar.h"
 #include "content/public/browser/web_contents_user_data.h"
 
-class OverlayUserPrefStore;
-class PrefService;
 class Profile;
 
 namespace content {
@@ -54,6 +52,8 @@ class PrefsTabHelper : public content::NotificationObserver,
 
   void OnFontFamilyPrefChanged(const std::string& pref_name);
   void OnWebPrefChanged(const std::string& pref_name);
+
+  void NotifyWebkitPreferencesChanged(const std::string& pref_name);
 
   content::WebContents* web_contents_;
   Profile* profile_;

@@ -21,7 +21,7 @@ ColorLUTCache::~ColorLUTCache() {
   GLuint textures[10];
   size_t n = 0;
   for (const auto& cache_entry : lut_cache_) {
-    textures[n++] = cache_entry.second.first;
+    textures[n++] = cache_entry.second.texture;
     if (n == arraysize(textures)) {
       gl_->DeleteTextures(n, textures);
       n = 0;
@@ -53,18 +53,18 @@ unsigned int ColorLUTCache::MakeLUT(const gfx::ColorSpace& from,
   std::vector<unsigned char> lut(lut_entries * 4);
   std::vector<gfx::ColorTransform::TriStim> samples(lut_samples);
   unsigned char* lutp = lut.data();
-  for (int y = 0; y < lut_samples; y++) {
-    for (int v = 0; v < lut_samples; v++) {
-      for (int u = 0; u < lut_samples; u++) {
-        samples[u].set_x(y * inverse);
-        samples[u].set_y(u * inverse);
-        samples[u].set_z(v * inverse);
+  for (int v = 0; v < lut_samples; v++) {
+    for (int u = 0; u < lut_samples; u++) {
+      for (int y = 0; y < lut_samples; y++) {
+        samples[y].set_x(y * inverse);
+        samples[y].set_y(u * inverse);
+        samples[y].set_z(v * inverse);
       }
       transform->transform(samples.data(), samples.size());
-      for (int u = 0; u < lut_samples; u++) {
-        *(lutp++) = FloatToLUT(samples[u].x());
-        *(lutp++) = FloatToLUT(samples[u].y());
-        *(lutp++) = FloatToLUT(samples[u].z());
+      for (int y = 0; y < lut_samples; y++) {
+        *(lutp++) = FloatToLUT(samples[y].x());
+        *(lutp++) = FloatToLUT(samples[y].y());
+        *(lutp++) = FloatToLUT(samples[y].z());
         *(lutp++) = 255;  // alpha
       }
     }
@@ -89,21 +89,21 @@ unsigned int ColorLUTCache::GetLUT(const gfx::ColorSpace& from,
   CacheKey key(from, std::make_pair(to, lut_samples));
   auto iter = lut_cache_.Get(key);
   if (iter != lut_cache_.end()) {
-    iter->second.second = current_frame_;
-    return iter->second.first;
+    iter->second.last_used_frame = current_frame_;
+    return iter->second.texture;
   }
 
   unsigned int lut = MakeLUT(from, to, lut_samples);
-  lut_cache_.Put(key, std::make_pair(lut, current_frame_));
+  lut_cache_.Put(key, CacheVal(lut, current_frame_));
   return lut;
 }
 
 void ColorLUTCache::Swap() {
   current_frame_++;
   while (!lut_cache_.empty() &&
-         current_frame_ - lut_cache_.rbegin()->second.first >
+         current_frame_ - lut_cache_.rbegin()->second.last_used_frame >
              kMaxFramesUnused) {
-    gl_->DeleteTextures(1, &lut_cache_.rbegin()->second.first);
+    gl_->DeleteTextures(1, &lut_cache_.rbegin()->second.texture);
     lut_cache_.ShrinkToSize(lut_cache_.size() - 1);
   }
 }

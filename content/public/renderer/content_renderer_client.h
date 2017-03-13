@@ -12,9 +12,10 @@
 #include <string>
 #include <vector>
 
-#include "base/bind.h"
+#include "base/callback_forward.h"
 #include "base/memory/ref_counted.h"
 #include "base/strings/string16.h"
+#include "base/task_scheduler/task_scheduler.h"
 #include "build/build_config.h"
 #include "content/public/common/content_client.h"
 #include "third_party/WebKit/public/platform/WebPageVisibilityState.h"
@@ -28,11 +29,10 @@ class SkBitmap;
 
 namespace base {
 class FilePath;
-class SingleThreadTaskRunner;
+class SchedulerWorkerPoolParams;
 }
 
 namespace blink {
-class WebAppBannerClient;
 class WebAudioDevice;
 class WebClipboard;
 class WebFrame;
@@ -42,13 +42,13 @@ class WebMIDIAccessorClient;
 class WebMediaStreamCenter;
 class WebMediaStreamCenterClient;
 class WebPlugin;
-class WebPluginContainer;
 class WebPrescientNetworking;
 class WebRTCPeerConnectionHandler;
 class WebRTCPeerConnectionHandlerClient;
 class WebSpeechSynthesizer;
 class WebSpeechSynthesizerClient;
 class WebThemeEngine;
+class WebURL;
 class WebURLResponse;
 class WebURLRequest;
 class WebWorkerContentSettingsClientProxy;
@@ -56,33 +56,23 @@ struct WebPluginParams;
 struct WebURLError;
 }
 
-namespace cc {
-class ImageSerializationProcessor;
-}
-
 namespace gfx {
 class ICCProfile;
 }
 
 namespace media {
-class GpuVideoAcceleratorFactories;
 class KeySystemProperties;
-class MediaLog;
-class RendererFactory;
 }
 
-namespace shell {
+namespace service_manager {
 class InterfaceRegistry;
 }
 
 namespace content {
 class BrowserPluginDelegate;
-class DocumentState;
 class MediaStreamRendererFactory;
 class RenderFrame;
 class RenderView;
-class SynchronousCompositor;
-struct WebPluginInfo;
 
 // Embedder API for participating in renderer logic.
 class CONTENT_EXPORT ContentRendererClient {
@@ -217,7 +207,7 @@ class CONTENT_EXPORT ContentRendererClient {
   // ignored by WebKit. This method is used by CEF and android_webview.
   virtual bool HandleNavigation(RenderFrame* render_frame,
                                 bool is_content_initiated,
-                                int opener_id,
+                                bool render_view_was_created_by_renderer,
                                 blink::WebFrame* frame,
                                 const blink::WebURLRequest& request,
                                 blink::WebNavigationType type,
@@ -242,10 +232,9 @@ class CONTENT_EXPORT ContentRendererClient {
 
   // Notifies the embedder that the given frame is requesting the resource at
   // |url|.  If the function returns true, the url is changed to |new_url|.
-  virtual bool WillSendRequest(blink::WebFrame* frame,
+  virtual bool WillSendRequest(blink::WebLocalFrame* frame,
                                ui::PageTransition transition_type,
-                               const GURL& url,
-                               const GURL& first_party_for_cookies,
+                               const blink::WebURL& url,
                                GURL* new_url);
 
   // Returns true if the request is associated with a document that is in
@@ -272,9 +261,6 @@ class CONTENT_EXPORT ContentRendererClient {
   // Allows an embedder to provide a MediaStreamRendererFactory.
   virtual std::unique_ptr<MediaStreamRendererFactory>
   CreateMediaStreamRendererFactory();
-
-  // Allows an embedder to provide a cc::ImageSerializationProcessor.
-  virtual cc::ImageSerializationProcessor* GetImageSerializationProcessor();
 
   // Allows an embedder to provide a default image decode color space.
   virtual std::unique_ptr<gfx::ICCProfile> GetImageDecodeColorProfile();
@@ -319,10 +305,6 @@ class CONTENT_EXPORT ContentRendererClient {
   // metric. See: https://www.chromium.org/developers/design-documents/rappor
   virtual void RecordRapporURL(const std::string& metric, const GURL& url) {}
 
-  // Allows an embedder to provide a blink::WebAppBannerClient.
-  virtual std::unique_ptr<blink::WebAppBannerClient> CreateAppBannerClient(
-      RenderFrame* render_frame);
-
   // Gives the embedder a chance to add properties to the context menu.
   // Currently only called when the context menu is for an image.
   virtual void AddImageContextMenuProperties(
@@ -346,14 +328,14 @@ class CONTENT_EXPORT ContentRendererClient {
   // is called from the worker thread.
   virtual void DidInitializeServiceWorkerContextOnWorkerThread(
       v8::Local<v8::Context> context,
-      int embedded_worker_id,
+      int64_t service_worker_version_id,
       const GURL& url) {}
 
   // Notifies that a service worker context will be destroyed. This function
   // is called from the worker thread.
   virtual void WillDestroyServiceWorkerContextOnWorkerThread(
       v8::Local<v8::Context> context,
-      int embedded_worker_id,
+      int64_t service_worker_version_id,
       const GURL& url) {}
 
   // Whether this renderer should enforce preferences related to the WebRTC
@@ -368,11 +350,18 @@ class CONTENT_EXPORT ContentRendererClient {
   // Allows the client to expose interfaces from the renderer process to the
   // browser process via |registry|.
   virtual void ExposeInterfacesToBrowser(
-      shell::InterfaceRegistry* interface_registry) {}
+      service_manager::InterfaceRegistry* interface_registry) {}
 
   // Overwrites the given URL to use an HTML5 embed if possible.
   // An empty URL is returned if the URL is not overriden.
   virtual GURL OverrideFlashEmbedWithHTML(const GURL& url);
+
+  // Provides parameters for initializing the global task scheduler. If
+  // |params_vector| is left empty, default parameters are used.
+  virtual void GetTaskSchedulerInitializationParams(
+      std::vector<base::SchedulerWorkerPoolParams>* params_vector,
+      base::TaskScheduler::WorkerPoolIndexForTraitsCallback*
+          index_to_traits_callback) {}
 };
 
 }  // namespace content

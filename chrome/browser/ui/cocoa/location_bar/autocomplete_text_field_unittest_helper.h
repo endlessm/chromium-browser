@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef CHROME_BROWSER_UI_COCOA_AUTOCOMPLETE_TEXT_FIELD_UNITTEST_HELPER_H_
-#define CHROME_BROWSER_UI_COCOA_AUTOCOMPLETE_TEXT_FIELD_UNITTEST_HELPER_H_
+#ifndef CHROME_BROWSER_UI_COCOA_LOCATION_BAR_AUTOCOMPLETE_TEXT_FIELD_UNITTEST_HELPER_H_
+#define CHROME_BROWSER_UI_COCOA_LOCATION_BAR_AUTOCOMPLETE_TEXT_FIELD_UNITTEST_HELPER_H_
 
 #import <Cocoa/Cocoa.h>
 
@@ -50,6 +50,7 @@ class MockAutocompleteTextFieldObserver : public AutocompleteTextFieldObserver {
   MOCK_METHOD0(OnDidChange, void());
   MOCK_METHOD0(OnDidEndEditing, void());
   MOCK_METHOD0(OnInsertText, void());
+  MOCK_METHOD0(OnBeforeDrawRect, void());
   MOCK_METHOD0(OnDidDrawRect, void());
   MOCK_METHOD1(OnDoCommandBySelector, bool(SEL cmd));
   MOCK_METHOD1(OnSetFocus, void(bool control_down));
@@ -57,4 +58,4 @@ class MockAutocompleteTextFieldObserver : public AutocompleteTextFieldObserver {
   MOCK_METHOD1(OnMouseDown, void(NSInteger button_number));
 };
 
-#endif  // CHROME_BROWSER_UI_COCOA_AUTOCOMPLETE_TEXT_FIELD_UNITTEST_HELPER_H_
+#endif  // CHROME_BROWSER_UI_COCOA_LOCATION_BAR_AUTOCOMPLETE_TEXT_FIELD_UNITTEST_HELPER_H_

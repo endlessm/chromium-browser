@@ -68,9 +68,15 @@ typedef struct VP9Context {
     ptrdiff_t y_stride, uv_stride;
 
     uint8_t ss_h, ss_v;
-    uint8_t last_bpp, bpp, bpp_index, bytesperpixel;
+    uint8_t last_bpp, bpp_index, bytesperpixel;
     uint8_t last_keyframe;
-    enum AVPixelFormat pix_fmt, last_fmt;
+    // sb_cols/rows, rows/cols and last_fmt are used for allocating all internal
+    // arrays, and are thus per-thread. w/h and gf_fmt are synced between threads
+    // and are therefore per-stream. pix_fmt represents the value in the header
+    // of the currently processed frame.
+    int w, h;
+    enum AVPixelFormat pix_fmt, last_fmt, gf_fmt;
+    unsigned sb_cols, sb_rows, rows, cols;
     ThreadFrame next_refs[8];
 
     struct {
@@ -78,7 +84,6 @@ typedef struct VP9Context {
         uint8_t mblim_lut[64];
     } filter_lut;
     unsigned tile_row_start, tile_row_end, tile_col_start, tile_col_end;
-    unsigned sb_cols, sb_rows, rows, cols;
     struct {
         prob_context p;
         uint8_t coef[4][2][2][6][6][3];
@@ -245,36 +250,53 @@ static int update_size(AVCodecContext *ctx, int w, int h)
     enum AVPixelFormat pix_fmts[HWACCEL_MAX + 2], *fmtp = pix_fmts;
     VP9Context *s = ctx->priv_data;
     uint8_t *p;
-    int bytesperpixel = s->bytesperpixel, res;
+    int bytesperpixel = s->bytesperpixel, res, cols, rows;
 
     av_assert0(w > 0 && h > 0);
 
-    if (s->intra_pred_data[0] && w == ctx->width && h == ctx->height && s->pix_fmt == s->last_fmt)
-        return 0;
+    if (!(s->pix_fmt == s->gf_fmt && w == s->w && h == s->h)) {
+        if ((res = ff_set_dimensions(ctx, w, h)) < 0)
+            return res;
 
-    if ((res = ff_set_dimensions(ctx, w, h)) < 0)
-        return res;
-
-    if (s->pix_fmt == AV_PIX_FMT_YUV420P) {
+        switch (s->pix_fmt) {
+        case AV_PIX_FMT_YUV420P:
 #if CONFIG_VP9_DXVA2_HWACCEL
-        *fmtp++ = AV_PIX_FMT_DXVA2_VLD;
+            *fmtp++ = AV_PIX_FMT_DXVA2_VLD;
 #endif
 #if CONFIG_VP9_D3D11VA_HWACCEL
-        *fmtp++ = AV_PIX_FMT_D3D11VA_VLD;
+            *fmtp++ = AV_PIX_FMT_D3D11VA_VLD;
 #endif
 #if CONFIG_VP9_VAAPI_HWACCEL
-        *fmtp++ = AV_PIX_FMT_VAAPI;
+            *fmtp++ = AV_PIX_FMT_VAAPI;
 #endif
+            break;
+        case AV_PIX_FMT_YUV420P10:
+        case AV_PIX_FMT_YUV420P12:
+#if CONFIG_VP9_VAAPI_HWACCEL
+            *fmtp++ = AV_PIX_FMT_VAAPI;
+#endif
+            break;
+        }
+
+        *fmtp++ = s->pix_fmt;
+        *fmtp = AV_PIX_FMT_NONE;
+
+        res = ff_thread_get_format(ctx, pix_fmts);
+        if (res < 0)
+            return res;
+
+        ctx->pix_fmt = res;
+        s->gf_fmt  = s->pix_fmt;
+        s->w = w;
+        s->h = h;
     }
 
-    *fmtp++ = s->pix_fmt;
-    *fmtp = AV_PIX_FMT_NONE;
+    cols = (w + 7) >> 3;
+    rows = (h + 7) >> 3;
 
-    res = ff_thread_get_format(ctx, pix_fmts);
-    if (res < 0)
-        return res;
+    if (s->intra_pred_data[0] && cols == s->cols && rows == s->rows && s->pix_fmt == s->last_fmt)
+        return 0;
 
-    ctx->pix_fmt = res;
     s->last_fmt  = s->pix_fmt;
     s->sb_cols   = (w + 63) >> 6;
     s->sb_rows   = (h + 63) >> 6;
@@ -312,10 +334,10 @@ static int update_size(AVCodecContext *ctx, int w, int h)
     av_freep(&s->b_base);
     av_freep(&s->block_base);
 
-    if (s->bpp != s->last_bpp) {
-        ff_vp9dsp_init(&s->dsp, s->bpp, ctx->flags & AV_CODEC_FLAG_BITEXACT);
-        ff_videodsp_init(&s->vdsp, s->bpp);
-        s->last_bpp = s->bpp;
+    if (s->s.h.bpp != s->last_bpp) {
+        ff_vp9dsp_init(&s->dsp, s->s.h.bpp, ctx->flags & AV_CODEC_FLAG_BITEXACT);
+        ff_videodsp_init(&s->vdsp, s->s.h.bpp);
+        s->last_bpp = s->s.h.bpp;
     }
 
     return 0;
@@ -444,8 +466,8 @@ static int read_colorspace_details(AVCodecContext *ctx)
     int bits = ctx->profile <= 1 ? 0 : 1 + get_bits1(&s->gb); // 0:8, 1:10, 2:12
 
     s->bpp_index = bits;
-    s->bpp = 8 + bits * 2;
-    s->bytesperpixel = (7 + s->bpp) >> 3;
+    s->s.h.bpp = 8 + bits * 2;
+    s->bytesperpixel = (7 + s->s.h.bpp) >> 3;
     ctx->colorspace = colorspaces[get_bits(&s->gb, 3)];
     if (ctx->colorspace == AVCOL_SPC_RGB) { // RGB = profile 1
         static const enum AVPixelFormat pix_fmt_rgb[3] = {
@@ -557,7 +579,7 @@ static int decode_frame_header(AVCodecContext *ctx,
                     return res;
             } else {
                 s->ss_h = s->ss_v = 1;
-                s->bpp = 8;
+                s->s.h.bpp = 8;
                 s->bpp_index = 0;
                 s->bytesperpixel = 1;
                 s->pix_fmt = AV_PIX_FMT_YUV420P;
@@ -628,6 +650,8 @@ static int decode_frame_header(AVCodecContext *ctx,
     s->s.h.refreshctx   = s->s.h.errorres ? 0 : get_bits1(&s->gb);
     s->s.h.parallelmode = s->s.h.errorres ? 1 : get_bits1(&s->gb);
     s->s.h.framectxid   = c = get_bits(&s->gb, 2);
+    if (s->s.h.keyframe || s->s.h.intraonly)
+        s->s.h.framectxid = 0; // BUG: libvpx ignores this field in keyframes
 
     /* loopfilter header data */
     if (s->s.h.keyframe || s->s.h.errorres || s->s.h.intraonly) {
@@ -729,7 +753,7 @@ static int decode_frame_header(AVCodecContext *ctx,
         if (s->s.h.lf_delta.enabled) {
             s->s.h.segmentation.feat[i].lflvl[0][0] =
             s->s.h.segmentation.feat[i].lflvl[0][1] =
-                av_clip_uintp2(lflvl + (s->s.h.lf_delta.ref[0] << sh), 6);
+                av_clip_uintp2(lflvl + (s->s.h.lf_delta.ref[0] * (1 << sh)), 6);
             for (j = 1; j < 4; j++) {
                 s->s.h.segmentation.feat[i].lflvl[j][0] =
                     av_clip_uintp2(lflvl + ((s->s.h.lf_delta.ref[j] +
@@ -2262,7 +2286,7 @@ static int decode_coeffs_b_16bpp(VP9Context *s, int16_t *coef, int n_coeffs,
                                  const int16_t (*nb)[2], const int16_t *band_counts,
                                  const int16_t *qmul)
 {
-    return decode_coeffs_b_generic(&s->c, coef, n_coeffs, 0, 0, s->bpp, cnt, eob, p,
+    return decode_coeffs_b_generic(&s->c, coef, n_coeffs, 0, 0, s->s.h.bpp, cnt, eob, p,
                                    nnz, scan, nb, band_counts, qmul);
 }
 
@@ -2272,7 +2296,7 @@ static int decode_coeffs_b32_16bpp(VP9Context *s, int16_t *coef, int n_coeffs,
                                    const int16_t (*nb)[2], const int16_t *band_counts,
                                    const int16_t *qmul)
 {
-    return decode_coeffs_b_generic(&s->c, coef, n_coeffs, 1, 0, s->bpp, cnt, eob, p,
+    return decode_coeffs_b_generic(&s->c, coef, n_coeffs, 1, 0, s->s.h.bpp, cnt, eob, p,
                                    nnz, scan, nb, band_counts, qmul);
 }
 
@@ -2463,7 +2487,7 @@ static av_always_inline int check_intra_mode(VP9Context *s, int mode, uint8_t **
     int have_top = row > 0 || y > 0;
     int have_left = col > s->tile_col_start || x > 0;
     int have_right = x < w - 1;
-    int bpp = s->bpp;
+    int bpp = s->s.h.bpp;
     static const uint8_t mode_conv[10][2 /* have_left */][2 /* have_top */] = {
         [VERT_PRED]            = { { DC_127_PRED,          VERT_PRED },
                                    { DC_127_PRED,          VERT_PRED } },
@@ -2733,8 +2757,11 @@ static av_always_inline void mc_luma_unscaled(VP9Context *s, vp9_mc_func (*mc)[2
     // the longest loopfilter of the next sbrow
     th = (y + bh + 4 * !!my + 7) >> 6;
     ff_thread_await_progress(ref_frame, FFMAX(th, 0), 0);
+    // The arm/aarch64 _hv filters read one more row than what actually is
+    // needed, so switch to emulated edge one pixel sooner vertically
+    // (!!my * 5) than horizontally (!!mx * 4).
     if (x < !!mx * 3 || y < !!my * 3 ||
-        x + !!mx * 4 > w - bw || y + !!my * 4 > h - bh) {
+        x + !!mx * 4 > w - bw || y + !!my * 5 > h - bh) {
         s->vdsp.emulated_edge_mc(s->edge_emu_buffer,
                                  ref - !!my * 3 * ref_stride - !!mx * 3 * bytesperpixel,
                                  160, ref_stride,
@@ -2755,7 +2782,7 @@ static av_always_inline void mc_chroma_unscaled(VP9Context *s, vp9_mc_func (*mc)
                                                 ptrdiff_t y, ptrdiff_t x, const VP56mv *mv,
                                                 int bw, int bh, int w, int h, int bytesperpixel)
 {
-    int mx = mv->x << !s->ss_h, my = mv->y << !s->ss_v, th;
+    int mx = mv->x * (1 << !s->ss_h), my = mv->y * (1 << !s->ss_v), th;
 
     y += my >> 4;
     x += mx >> 4;
@@ -2768,8 +2795,11 @@ static av_always_inline void mc_chroma_unscaled(VP9Context *s, vp9_mc_func (*mc)
     // the longest loopfilter of the next sbrow
     th = (y + bh + 4 * !!my + 7) >> (6 - s->ss_v);
     ff_thread_await_progress(ref_frame, FFMAX(th, 0), 0);
+    // The arm/aarch64 _hv filters read one more row than what actually is
+    // needed, so switch to emulated edge one pixel sooner vertically
+    // (!!my * 5) than horizontally (!!mx * 4).
     if (x < !!mx * 3 || y < !!my * 3 ||
-        x + !!mx * 4 > w - bw || y + !!my * 4 > h - bh) {
+        x + !!mx * 4 > w - bw || y + !!my * 5 > h - bh) {
         s->vdsp.emulated_edge_mc(s->edge_emu_buffer,
                                  ref_u - !!my * 3 * src_stride_u - !!mx * 3 * bytesperpixel,
                                  160, src_stride_u,
@@ -2835,8 +2865,8 @@ static av_always_inline void mc_luma_scaled(VP9Context *s, vp9_scaled_mc_func sm
     int th;
     VP56mv mv;
 
-    mv.x = av_clip(in_mv->x, -(x + pw - px + 4) << 3, (s->cols * 8 - x + px + 3) << 3);
-    mv.y = av_clip(in_mv->y, -(y + ph - py + 4) << 3, (s->rows * 8 - y + py + 3) << 3);
+    mv.x = av_clip(in_mv->x, -(x + pw - px + 4) * 8, (s->cols * 8 - x + px + 3) * 8);
+    mv.y = av_clip(in_mv->y, -(y + ph - py + 4) * 8, (s->rows * 8 - y + py + 3) * 8);
     // BUG libvpx seems to scale the two components separately. This introduces
     // rounding errors but we have to reproduce them to be exactly compatible
     // with the output from libvpx...
@@ -2855,7 +2885,10 @@ static av_always_inline void mc_luma_scaled(VP9Context *s, vp9_scaled_mc_func sm
     // the longest loopfilter of the next sbrow
     th = (y + refbh_m1 + 4 + 7) >> 6;
     ff_thread_await_progress(ref_frame, FFMAX(th, 0), 0);
-    if (x < 3 || y < 3 || x + 4 >= w - refbw_m1 || y + 4 >= h - refbh_m1) {
+    // The arm/aarch64 _hv filters read one more row than what actually is
+    // needed, so switch to emulated edge one pixel sooner vertically
+    // (y + 5 >= h - refbh_m1) than horizontally (x + 4 >= w - refbw_m1).
+    if (x < 3 || y < 3 || x + 4 >= w - refbw_m1 || y + 5 >= h - refbh_m1) {
         s->vdsp.emulated_edge_mc(s->edge_emu_buffer,
                                  ref - 3 * ref_stride - 3 * bytesperpixel,
                                  288, ref_stride,
@@ -2893,19 +2926,19 @@ static av_always_inline void mc_chroma_scaled(VP9Context *s, vp9_scaled_mc_func 
 
     if (s->ss_h) {
         // BUG https://code.google.com/p/webm/issues/detail?id=820
-        mv.x = av_clip(in_mv->x, -(x + pw - px + 4) << 4, (s->cols * 4 - x + px + 3) << 4);
+        mv.x = av_clip(in_mv->x, -(x + pw - px + 4) * 16, (s->cols * 4 - x + px + 3) * 16);
         mx = scale_mv(mv.x, 0) + (scale_mv(x * 16, 0) & ~15) + (scale_mv(x * 32, 0) & 15);
     } else {
-        mv.x = av_clip(in_mv->x, -(x + pw - px + 4) << 3, (s->cols * 8 - x + px + 3) << 3);
-        mx = scale_mv(mv.x << 1, 0) + scale_mv(x * 16, 0);
+        mv.x = av_clip(in_mv->x, -(x + pw - px + 4) * 8, (s->cols * 8 - x + px + 3) * 8);
+        mx = scale_mv(mv.x * 2, 0) + scale_mv(x * 16, 0);
     }
     if (s->ss_v) {
         // BUG https://code.google.com/p/webm/issues/detail?id=820
-        mv.y = av_clip(in_mv->y, -(y + ph - py + 4) << 4, (s->rows * 4 - y + py + 3) << 4);
+        mv.y = av_clip(in_mv->y, -(y + ph - py + 4) * 16, (s->rows * 4 - y + py + 3) * 16);
         my = scale_mv(mv.y, 1) + (scale_mv(y * 16, 1) & ~15) + (scale_mv(y * 32, 1) & 15);
     } else {
-        mv.y = av_clip(in_mv->y, -(y + ph - py + 4) << 3, (s->rows * 8 - y + py + 3) << 3);
-        my = scale_mv(mv.y << 1, 1) + scale_mv(y * 16, 1);
+        mv.y = av_clip(in_mv->y, -(y + ph - py + 4) * 8, (s->rows * 8 - y + py + 3) * 8);
+        my = scale_mv(mv.y * 2, 1) + scale_mv(y * 16, 1);
     }
 #undef scale_mv
     y = my >> 4;
@@ -2921,7 +2954,10 @@ static av_always_inline void mc_chroma_scaled(VP9Context *s, vp9_scaled_mc_func 
     // the longest loopfilter of the next sbrow
     th = (y + refbh_m1 + 4 + 7) >> (6 - s->ss_v);
     ff_thread_await_progress(ref_frame, FFMAX(th, 0), 0);
-    if (x < 3 || y < 3 || x + 4 >= w - refbw_m1 || y + 4 >= h - refbh_m1) {
+    // The arm/aarch64 _hv filters read one more row than what actually is
+    // needed, so switch to emulated edge one pixel sooner vertically
+    // (y + 5 >= h - refbh_m1) than horizontally (x + 4 >= w - refbw_m1).
+    if (x < 3 || y < 3 || x + 4 >= w - refbw_m1 || y + 5 >= h - refbh_m1) {
         s->vdsp.emulated_edge_mc(s->edge_emu_buffer,
                                  ref_u - 3 * src_stride_u - 3 * bytesperpixel,
                                  288, src_stride_u,
@@ -3282,13 +3318,13 @@ static void decode_b(AVCodecContext *ctx, int row, int col,
         s->uv_stride = f->linesize[1];
     }
     if (b->intra) {
-        if (s->bpp > 8) {
+        if (s->s.h.bpp > 8) {
             intra_recon_16bpp(ctx, yoff, uvoff);
         } else {
             intra_recon_8bpp(ctx, yoff, uvoff);
         }
     } else {
-        if (s->bpp > 8) {
+        if (s->s.h.bpp > 8) {
             inter_recon_16bpp(ctx);
         } else {
             inter_recon_8bpp(ctx);
@@ -3689,11 +3725,10 @@ static av_always_inline void adapt_prob(uint8_t *p, unsigned ct0, unsigned ct1,
     if (!ct)
         return;
 
+    update_factor = FASTDIV(update_factor * FFMIN(ct, max_count), max_count);
     p1 = *p;
-    p2 = ((ct0 << 8) + (ct >> 1)) / ct;
+    p2 = ((((int64_t) ct0) << 8) + (ct >> 1)) / ct;
     p2 = av_clip(p2, 1, 255);
-    ct = FFMIN(ct, max_count);
-    update_factor = FASTDIV(update_factor * ct, max_count);
 
     // (p1 * (256 - update_factor) + p2 * update_factor + 128) >> 8
     *p = p1 + (((p2 - p1) * update_factor + 128) >> 8);
@@ -3976,7 +4011,12 @@ static int vp9_decode_frame(AVCodecContext *ctx, void *frame,
         }
         if ((res = av_frame_ref(frame, s->s.refs[ref].f)) < 0)
             return res;
+        ((AVFrame *)frame)->pts = pkt->pts;
+#if FF_API_PKT_PTS
+FF_DISABLE_DEPRECATION_WARNINGS
         ((AVFrame *)frame)->pkt_pts = pkt->pts;
+FF_ENABLE_DEPRECATION_WARNINGS
+#endif
         ((AVFrame *)frame)->pkt_dts = pkt->dts;
         for (i = 0; i < 8; i++) {
             if (s->next_refs[i].f->buf[0])
@@ -4292,13 +4332,6 @@ static int vp9_decode_update_thread_context(AVCodecContext *dst, const AVCodecCo
     int i, res;
     VP9Context *s = dst->priv_data, *ssrc = src->priv_data;
 
-    // detect size changes in other threads
-    if (s->intra_pred_data[0] &&
-        (!ssrc->intra_pred_data[0] || s->cols != ssrc->cols ||
-         s->rows != ssrc->rows || s->bpp != ssrc->bpp || s->pix_fmt != ssrc->pix_fmt)) {
-        free_buffers(s);
-    }
-
     for (i = 0; i < 3; i++) {
         if (s->s.frames[i].tf.f->buf[0])
             vp9_unref_frame(dst, &s->s.frames[i]);
@@ -4325,7 +4358,10 @@ static int vp9_decode_update_thread_context(AVCodecContext *dst, const AVCodecCo
     s->s.h.segmentation.update_map = ssrc->s.h.segmentation.update_map;
     s->s.h.segmentation.absolute_vals = ssrc->s.h.segmentation.absolute_vals;
     s->bytesperpixel = ssrc->bytesperpixel;
-    s->bpp = ssrc->bpp;
+    s->gf_fmt = ssrc->gf_fmt;
+    s->w = ssrc->w;
+    s->h = ssrc->h;
+    s->s.h.bpp = ssrc->s.h.bpp;
     s->bpp_index = ssrc->bpp_index;
     s->pix_fmt = ssrc->pix_fmt;
     memcpy(&s->prob_ctx, &ssrc->prob_ctx, sizeof(s->prob_ctx));

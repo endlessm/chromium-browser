@@ -14,6 +14,8 @@
 #include "chrome/browser/ui/toolbar/back_forward_menu_model.h"
 #include "chrome/browser/ui/views/location_bar/location_bar_view.h"
 #include "components/prefs/pref_member.h"
+#include "components/translate/core/browser/translate_step.h"
+#include "components/translate/core/common/translate_errors.h"
 #include "ui/base/accelerators/accelerator.h"
 #include "ui/views/accessible_pane_view.h"
 #include "ui/views/controls/button/menu_button.h"
@@ -28,13 +30,13 @@ class HomeButton;
 class ReloadButton;
 class ToolbarButton;
 
-namespace bookmarks {
-class BookmarkBubbleObserver;
+namespace autofill {
+class SaveCardBubbleController;
+class SaveCardBubbleView;
 }
 
-namespace extensions {
-class Command;
-class Extension;
+namespace bookmarks {
+class BookmarkBubbleObserver;
 }
 
 // The Browser Window's toolbar.
@@ -80,16 +82,17 @@ class ToolbarView : public views::AccessiblePaneView,
                           bool already_bookmarked,
                           bookmarks::BookmarkBubbleObserver* observer);
 
-  // Returns the view to which the "Save credit card" bubble should be anchored.
-  views::View* GetSaveCreditCardBubbleAnchor();
+  // Shows a bubble offering to save a credit card and anchors it appropriately.
+  autofill::SaveCardBubbleView* ShowSaveCreditCardBubble(
+      content::WebContents* contents,
+      autofill::SaveCardBubbleController* controller,
+      bool is_user_gesture);
 
-  // Returns the view to which the Translate bubble should be anchored.
-  views::View* GetTranslateBubbleAnchor();
-
-  // Adds |anchor_view| as an observer of |bubble_widget| to track its
-  // visibility.
-  void OnBubbleCreatedForAnchor(views::View* anchor_view,
-                                views::Widget* bubble_widget);
+  // Shows the translate bubble and anchors it appropriately.
+  void ShowTranslateBubble(content::WebContents* web_contents,
+                           translate::TranslateStep step,
+                           translate::TranslateErrors::Type error_type,
+                           bool is_user_gesture);
 
   // Returns the maximum width the browser actions container can have.
   int GetMaxBrowserActionsWidth() const;
@@ -107,7 +110,7 @@ class ToolbarView : public views::AccessiblePaneView,
 
   // AccessiblePaneView:
   bool SetPaneFocus(View* initial_focus) override;
-  void GetAccessibleState(ui::AXViewState* state) override;
+  void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
 
   // views::MenuButtonListener:
   void OnMenuButtonClicked(views::MenuButton* source,
@@ -123,11 +126,7 @@ class ToolbarView : public views::AccessiblePaneView,
       ExtensionAction* action) override;
   ContentSettingBubbleModelDelegate* GetContentSettingBubbleModelDelegate()
       override;
-  void ShowWebsiteSettings(
-      content::WebContents* web_contents,
-      const GURL& virtual_url,
-      const security_state::SecurityStateModel::SecurityInfo& security_info)
-      override;
+  void ShowWebsiteSettings(content::WebContents* web_contents) override;
 
   // CommandObserver:
   void EnabledStateChangedForCommand(int id, bool enabled) override;

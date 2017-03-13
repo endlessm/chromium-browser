@@ -34,10 +34,24 @@ namespace WTF {
 
 struct AtomicStringHash;
 
+// An AtomicString instance represents a string, and multiple AtomicString
+// instances can share their string storage if the strings are
+// identical. Comparing two AtomicString instances is much faster than comparing
+// two String instances because we just check string storage identity.
+//
+// AtomicString instances are not thread-safe. An AtomicString instance created
+// in a thread must be used only in the creator thread.  If multiple threads
+// access a single AtomicString instance, we have race condition of a reference
+// count in StringImpl, and would hit a runtime CHECK in
+// AtomicStringTable::remove().
+//
+// Exception: nullAtom and emptyAtom, are shared in multiple threads, and are
+// never stored in AtomicStringTable.
 class WTF_EXPORT AtomicString {
   USING_FAST_MALLOC(AtomicString);
 
  public:
+  // The function is defined in StringStatics.cpp.
   static void init();
 
   AtomicString() {}
@@ -50,6 +64,8 @@ class WTF_EXPORT AtomicString {
   AtomicString(const LChar* chars, unsigned length);
   AtomicString(const UChar* chars, unsigned length);
   AtomicString(const UChar* chars);
+  AtomicString(const char16_t* chars)
+      : AtomicString(reinterpret_cast<const UChar*>(chars)) {}
 
   template <size_t inlineCapacity>
   explicit AtomicString(const Vector<UChar, inlineCapacity>& vector)
@@ -102,7 +118,9 @@ class WTF_EXPORT AtomicString {
     return m_string.find(value, start, caseSensitivity);
   }
 
-  // Unicode aware case insensitive string matching.
+  // Unicode aware case insensitive string matching. Non-ASCII characters might
+  // match to ASCII characters. This function is rarely used to implement web
+  // platform features.
   size_t findIgnoringCase(const StringView& value, unsigned start = 0) const {
     return m_string.findIgnoringCase(value, start);
   }
@@ -142,9 +160,16 @@ class WTF_EXPORT AtomicString {
   }
   bool endsWith(UChar character) const { return m_string.endsWith(character); }
 
+  // Returns a lowercase/uppercase version of the string. These functions might
+  // convert non-ASCII characters to ASCII characters. For example, lower() for
+  // U+212A is 'k', upper() for U+017F is 'S'.
+  // These functions are rarely used to implement web platform features.
   AtomicString lower() const;
-  AtomicString lowerASCII() const;
   AtomicString upper() const { return AtomicString(impl()->upper()); }
+
+  // Returns a lowercase version of the string. This function converts only
+  // upper-case ASCII characters.
+  AtomicString lowerASCII() const;
 
   int toInt(bool* ok = 0) const { return m_string.toInt(ok); }
   double toDouble(bool* ok = 0) const { return m_string.toDouble(ok); }
@@ -207,54 +232,34 @@ class WTF_EXPORT AtomicString {
 inline bool operator==(const AtomicString& a, const AtomicString& b) {
   return a.impl() == b.impl();
 }
-WTF_EXPORT bool operator==(const AtomicString&, const LChar*);
-inline bool operator==(const AtomicString& a, const char* b) {
-  return WTF::equal(a.impl(), reinterpret_cast<const LChar*>(b));
-}
-inline bool operator==(const AtomicString& a, const Vector<UChar>& b) {
-  return a.impl() && equal(a.impl(), b.data(), b.size());
-}
 inline bool operator==(const AtomicString& a, const String& b) {
+  // We don't use equalStringView so we get the isAtomic() optimization inside
+  // WTF::equal.
   return equal(a.impl(), b.impl());
-}
-inline bool operator==(const LChar* a, const AtomicString& b) {
-  return b == a;
-}
-inline bool operator==(const char* a, const AtomicString& b) {
-  return b == a;
 }
 inline bool operator==(const String& a, const AtomicString& b) {
-  return equal(a.impl(), b.impl());
+  return b == a;
 }
-inline bool operator==(const Vector<UChar>& a, const AtomicString& b) {
+inline bool operator==(const AtomicString& a, const char* b) {
+  return equalStringView(a, b);
+}
+inline bool operator==(const char* a, const AtomicString& b) {
   return b == a;
 }
 
 inline bool operator!=(const AtomicString& a, const AtomicString& b) {
   return a.impl() != b.impl();
 }
-inline bool operator!=(const AtomicString& a, const LChar* b) {
+inline bool operator!=(const AtomicString& a, const String& b) {
+  return !(a == b);
+}
+inline bool operator!=(const String& a, const AtomicString& b) {
   return !(a == b);
 }
 inline bool operator!=(const AtomicString& a, const char* b) {
   return !(a == b);
 }
-inline bool operator!=(const AtomicString& a, const String& b) {
-  return !equal(a.impl(), b.impl());
-}
-inline bool operator!=(const AtomicString& a, const Vector<UChar>& b) {
-  return !(a == b);
-}
-inline bool operator!=(const LChar* a, const AtomicString& b) {
-  return !(b == a);
-}
 inline bool operator!=(const char* a, const AtomicString& b) {
-  return !(b == a);
-}
-inline bool operator!=(const String& a, const AtomicString& b) {
-  return !equal(a.impl(), b.impl());
-}
-inline bool operator!=(const Vector<UChar>& a, const AtomicString& b) {
   return !(a == b);
 }
 
@@ -266,6 +271,8 @@ WTF_EXPORT extern const AtomicString& starAtom;
 WTF_EXPORT extern const AtomicString& xmlAtom;
 WTF_EXPORT extern const AtomicString& xmlnsAtom;
 WTF_EXPORT extern const AtomicString& xlinkAtom;
+WTF_EXPORT extern const AtomicString& httpAtom;
+WTF_EXPORT extern const AtomicString& httpsAtom;
 
 // AtomicStringHash is the default hash for AtomicString
 template <typename T>

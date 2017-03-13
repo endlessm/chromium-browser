@@ -179,32 +179,33 @@ class POLICY_EXPORT CloudPolicyValidatorBase {
   void ValidatePayload();
 
   // Instruct the validator to check that |cached_key| is valid by verifying the
-  // |cached_key_signature| using the passed |owning_domain| and
-  // |verification_key|.
+  // |cached_key_signature| using the passed |owning_domain| and the baked-in
+  // policy verification key.
   void ValidateCachedKey(const std::string& cached_key,
                          const std::string& cached_key_signature,
-                         const std::string& verification_key,
                          const std::string& owning_domain);
 
   // Instruct the validator to check that the signature on the policy blob
-  // verifies against |key|. If |allow_key_rotation| is true and there is a key
-  // rotation present in the policy blob, this checks the signature on the new
-  // key against |key| and the policy blob against the new key. New key is also
-  // validated using the passed |verification_key| and |owning_domain|, and the
-  // |new_public_key_verification_signature| field.
-  void ValidateSignature(const std::string& key,
-                         const std::string& verification_key,
-                         const std::string& owning_domain,
-                         bool allow_key_rotation);
+  // verifies against |key|.
+  void ValidateSignature(const std::string& key);
+
+  // Instruct the validator to check that the signature on the policy blob
+  // verifies against |key|. If there is a key rotation present in the policy
+  // blob, this checks the signature on the new key against |key| and the policy
+  // blob against the new key. New key is also validated using the passed
+  // |owning_domain| and the baked-in policy verification key against the
+  // proto's new_public_key_verification_signature_deprecated field.
+  void ValidateSignatureAllowingRotation(const std::string& key,
+                                         const std::string& owning_domain);
 
   // Similar to ValidateSignature(), this instructs the validator to check the
   // signature on the policy blob. However, this variant expects a new policy
   // key set in the policy blob and makes sure the policy is signed using that
   // key. This should be called at setup time when there is no existing policy
-  // key present to check against. New key is validated using the passed
-  // |verification_key| and the new_public_key_verification_signature field.
-  void ValidateInitialKey(const std::string& verification_key,
-                          const std::string& owning_domain);
+  // key present to check against. New key is validated using the baked-in
+  // policy verification key against the proto's
+  // new_public_key_verification_signature_deprecated field.
+  void ValidateInitialKey(const std::string& owning_domain);
 
   // Convenience helper that instructs the validator to check timestamp, DM
   // token and device id based on the current policy blob. |policy_data| may be
@@ -271,7 +272,7 @@ class POLICY_EXPORT CloudPolicyValidatorBase {
   void RunChecks();
 
   // Helper routine that verifies that the new public key in the policy blob
-  // is properly signed by the |verification_key_|.
+  // is properly signed by the baked-in policy verification key.
   bool CheckNewPublicKeyVerificationSignature();
 
   // Helper routine that performs a verification-key-based signature check,
@@ -285,10 +286,9 @@ class POLICY_EXPORT CloudPolicyValidatorBase {
   // empty string if the policy does not contain a username field.
   std::string ExtractDomainFromPolicy();
 
-  // Sets the key and domain used to verify new public keys, and ensures that
+  // Sets the owning domain used to verify new public keys, and ensures that
   // callers don't try to set conflicting values.
-  void set_verification_key_and_domain(const std::string& verification_key,
-                                       const std::string& owning_domain);
+  void set_owning_domain(const std::string& owning_domain);
 
   // Helper functions implementing individual checks.
   Status CheckTimestamp();

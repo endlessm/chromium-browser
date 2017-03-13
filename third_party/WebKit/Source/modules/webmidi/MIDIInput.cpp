@@ -36,7 +36,7 @@
 
 namespace blink {
 
-using PortState = MIDIAccessor::MIDIPortState;
+using midi::mojom::PortState;
 
 MIDIInput* MIDIInput::create(MIDIAccess* access,
                              const String& id,
@@ -45,10 +45,7 @@ MIDIInput* MIDIInput::create(MIDIAccess* access,
                              const String& version,
                              PortState state) {
   DCHECK(access);
-  MIDIInput* input =
-      new MIDIInput(access, id, manufacturer, name, version, state);
-  input->suspendIfNeeded();
-  return input;
+  return new MIDIInput(access, id, manufacturer, name, version, state);
 }
 
 MIDIInput::MIDIInput(MIDIAccess* access,

@@ -11,8 +11,8 @@
 #include "base/files/file_util.h"
 #include "base/json/json_file_value_serializer.h"
 #include "base/macros.h"
+#include "base/memory/ptr_util.h"
 #include "base/message_loop/message_loop.h"
-#include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
@@ -205,10 +205,9 @@ void FirefoxImporter::ImportBookmarks() {
     return;
 
   // Get the bookmark folders that we are interested in.
-  int toolbar_folder_id = -1;
-  int menu_folder_id = -1;
-  int unsorted_folder_id = -1;
-  LoadRootNodeID(&db, &toolbar_folder_id, &menu_folder_id, &unsorted_folder_id);
+  int toolbar_folder_id = LoadNodeIDByGUID(&db, "toolbar_____");
+  int menu_folder_id = LoadNodeIDByGUID(&db, "menu________");
+  int unsorted_folder_id = LoadNodeIDByGUID(&db, "unfiled_____");
 
   // Load livemark IDs.
   std::set<int> livemark_id;
@@ -246,9 +245,7 @@ void FirefoxImporter::ImportBookmarks() {
   while (s.Step() && !cancelled())
     post_keyword_ids.insert(s.ColumnInt(0));
 
-  for (size_t i = 0; i < list.size(); ++i) {
-    BookmarkItem* item = list[i];
-
+  for (const auto& item : list) {
     // Folders are added implicitly on adding children, so we only explicitly
     // add empty folders.
     if (item->type != TYPE_BOOKMARK &&
@@ -263,11 +260,11 @@ void FirefoxImporter::ImportBookmarks() {
 
       // Find the bookmark path by tracing their links to parent folders.
       std::vector<base::string16> path;
-      BookmarkItem* child = item;
+      BookmarkItem* child = item.get();
       bool found_path = false;
       bool is_in_toolbar = false;
       while (child->parent >= 0) {
-        BookmarkItem* parent = list[child->parent];
+        BookmarkItem* parent = list[child->parent].get();
         if (livemark_id.find(parent->id) != livemark_id.end()) {
           // Don't import live bookmarks.
           break;
@@ -332,8 +329,6 @@ void FirefoxImporter::ImportBookmarks() {
       search_engines.push_back(search_engine_info);
     }
   }
-
-  base::STLDeleteElements(&list);
 
   // Write into profile.
   if (!bookmarks.empty() && !cancelled()) {
@@ -647,31 +642,22 @@ void FirefoxImporter::GetSearchEnginesXMLDataFromJSON(
   }
 }
 
-void FirefoxImporter::LoadRootNodeID(sql::Connection* db,
-                                      int* toolbar_folder_id,
-                                      int* menu_folder_id,
-                                      int* unsorted_folder_id) {
-  static const char kToolbarFolderName[] = "toolbar";
-  static const char kMenuFolderName[] = "menu";
-  static const char kUnsortedFolderName[] = "unfiled";
-
-  const char query[] = "SELECT root_name, folder_id FROM moz_bookmarks_roots";
+int FirefoxImporter::LoadNodeIDByGUID(sql::Connection* db,
+                                      const std::string& GUID) {
+  const char query[] =
+      "SELECT id "
+      "FROM moz_bookmarks "
+      "WHERE guid == ?";
   sql::Statement s(db->GetUniqueStatement(query));
+  s.BindString(0, GUID);
 
-  while (s.Step()) {
-    std::string folder = s.ColumnString(0);
-    int id = s.ColumnInt(1);
-    if (folder == kToolbarFolderName)
-      *toolbar_folder_id = id;
-    else if (folder == kMenuFolderName)
-      *menu_folder_id = id;
-    else if (folder == kUnsortedFolderName)
-      *unsorted_folder_id = id;
-  }
+  if (!s.Step())
+    return -1;
+  return s.ColumnInt(0);
 }
 
 void FirefoxImporter::LoadLivemarkIDs(sql::Connection* db,
-                                       std::set<int>* livemark) {
+                                      std::set<int>* livemark) {
   static const char kFeedAnnotation[] = "livemark/feedURI";
   livemark->clear();
 
@@ -688,8 +674,8 @@ void FirefoxImporter::LoadLivemarkIDs(sql::Connection* db,
 }
 
 void FirefoxImporter::GetTopBookmarkFolder(sql::Connection* db,
-                                            int folder_id,
-                                            BookmarkList* list) {
+                                           int folder_id,
+                                           BookmarkList* list) {
   const char query[] =
       "SELECT b.title "
       "FROM moz_bookmarks b "
@@ -699,21 +685,21 @@ void FirefoxImporter::GetTopBookmarkFolder(sql::Connection* db,
   s.BindInt(0, folder_id);
 
   if (s.Step()) {
-    BookmarkItem* item = new BookmarkItem;
+    std::unique_ptr<BookmarkItem> item = base::MakeUnique<BookmarkItem>();
     item->parent = -1;  // The top level folder has no parent.
     item->id = folder_id;
     item->title = s.ColumnString16(0);
     item->type = TYPE_FOLDER;
     item->favicon = 0;
     item->empty_folder = true;
-    list->push_back(item);
+    list->push_back(std::move(item));
   }
 }
 
 void FirefoxImporter::GetWholeBookmarkFolder(sql::Connection* db,
-                                              BookmarkList* list,
-                                              size_t position,
-                                              bool* empty_folder) {
+                                             BookmarkList* list,
+                                             size_t position,
+                                             bool* empty_folder) {
   if (position >= list->size()) {
     NOTREACHED();
     return;
@@ -732,7 +718,7 @@ void FirefoxImporter::GetWholeBookmarkFolder(sql::Connection* db,
 
   BookmarkList temp_list;
   while (s.Step()) {
-    BookmarkItem* item = new BookmarkItem;
+    std::unique_ptr<BookmarkItem> item = base::MakeUnique<BookmarkItem>();
     item->parent = static_cast<int>(position);
     item->id = s.ColumnInt(0);
     item->url = GURL(s.ColumnString(1));
@@ -743,18 +729,19 @@ void FirefoxImporter::GetWholeBookmarkFolder(sql::Connection* db,
     item->favicon = s.ColumnInt64(6);
     item->empty_folder = true;
 
-    temp_list.push_back(item);
+    temp_list.push_back(std::move(item));
     if (empty_folder != NULL)
       *empty_folder = false;
   }
 
   // Appends all items to the list.
-  for (BookmarkList::iterator i = temp_list.begin();
-       i != temp_list.end(); ++i) {
-    list->push_back(*i);
+  for (auto& bookmark : temp_list) {
+    list->push_back(std::move(bookmark));
     // Recursive add bookmarks in sub-folders.
-    if ((*i)->type == TYPE_FOLDER)
-      GetWholeBookmarkFolder(db, list, list->size() - 1, &(*i)->empty_folder);
+    if (list->back()->type == TYPE_FOLDER) {
+      GetWholeBookmarkFolder(db, list, list->size() - 1,
+                             &list->back()->empty_folder);
+    }
   }
 }
 

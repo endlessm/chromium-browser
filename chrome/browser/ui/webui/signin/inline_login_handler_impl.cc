@@ -110,122 +110,6 @@ void RedirectToNtpOrAppsPageIfNecessary(
     RedirectToNtpOrAppsPage(contents, access_point);
 }
 
-class ConfirmEmailDialogDelegate : public TabModalConfirmDialogDelegate {
- public:
-  // Callback indicating action performed by the user.
-  typedef base::Callback<void(InlineSigninHelper::Action)> Callback;
-
-  // Ask the user for confirmation before starting to sync.
-  static void AskForConfirmation(content::WebContents* contents,
-                                 const std::string& last_email,
-                                 const std::string& email,
-                                 Callback callback);
-
- private:
-  ConfirmEmailDialogDelegate(content::WebContents* contents,
-                             const std::string& last_email,
-                             const std::string& email,
-                             Callback callback);
-  ~ConfirmEmailDialogDelegate() override;
-
-  // TabModalConfirmDialogDelegate:
-  base::string16 GetTitle() override;
-  base::string16 GetDialogMessage() override;
-  base::string16 GetAcceptButtonTitle() override;
-  base::string16 GetCancelButtonTitle() override;
-  base::string16 GetLinkText() const override;
-  void OnAccepted() override;
-  void OnCanceled() override;
-  void OnClosed() override;
-  void OnLinkClicked(WindowOpenDisposition disposition) override;
-
-  std::string last_email_;
-  std::string email_;
-  Callback callback_;
-
-  // Web contents from which the "Learn more" link should be opened.
-  content::WebContents* web_contents_;
-
-  DISALLOW_COPY_AND_ASSIGN(ConfirmEmailDialogDelegate);
-};
-
-// static
-void ConfirmEmailDialogDelegate::AskForConfirmation(
-    content::WebContents* contents,
-    const std::string& last_email,
-    const std::string& email,
-    Callback callback) {
-  content::RecordAction(
-      base::UserMetricsAction("Signin_Show_ImportDataPrompt"));
-  TabModalConfirmDialog::Create(
-      new ConfirmEmailDialogDelegate(contents, last_email, email, callback),
-      contents);
-}
-
-ConfirmEmailDialogDelegate::ConfirmEmailDialogDelegate(
-    content::WebContents* contents,
-    const std::string& last_email,
-    const std::string& email,
-    Callback callback)
-  : TabModalConfirmDialogDelegate(contents),
-    last_email_(last_email),
-    email_(email),
-    callback_(callback),
-    web_contents_(contents) {
-}
-
-ConfirmEmailDialogDelegate::~ConfirmEmailDialogDelegate() {
-}
-
-base::string16 ConfirmEmailDialogDelegate::GetTitle() {
-  return l10n_util::GetStringUTF16(
-      IDS_ONE_CLICK_SIGNIN_CONFIRM_EMAIL_DIALOG_TITLE);
-}
-
-base::string16 ConfirmEmailDialogDelegate::GetDialogMessage() {
-  return l10n_util::GetStringFUTF16(
-      IDS_ONE_CLICK_SIGNIN_CONFIRM_EMAIL_DIALOG_MESSAGE,
-      base::UTF8ToUTF16(last_email_), base::UTF8ToUTF16(email_));
-}
-
-base::string16 ConfirmEmailDialogDelegate::GetAcceptButtonTitle() {
-  return l10n_util::GetStringUTF16(
-      IDS_ONE_CLICK_SIGNIN_CONFIRM_EMAIL_DIALOG_OK_BUTTON);
-}
-
-base::string16 ConfirmEmailDialogDelegate::GetCancelButtonTitle() {
-  return l10n_util::GetStringUTF16(
-      IDS_ONE_CLICK_SIGNIN_CONFIRM_EMAIL_DIALOG_CANCEL_BUTTON);
-}
-
-base::string16 ConfirmEmailDialogDelegate::GetLinkText() const {
-  return l10n_util::GetStringUTF16(IDS_LEARN_MORE);
-}
-
-void ConfirmEmailDialogDelegate::OnAccepted() {
-  base::ResetAndReturn(&callback_).Run(InlineSigninHelper::CREATE_NEW_USER);
-}
-
-void ConfirmEmailDialogDelegate::OnCanceled() {
-  base::ResetAndReturn(&callback_).Run(InlineSigninHelper::START_SYNC);
-}
-
-void ConfirmEmailDialogDelegate::OnClosed() {
-  base::ResetAndReturn(&callback_).Run(InlineSigninHelper::CLOSE);
-}
-
-void ConfirmEmailDialogDelegate::OnLinkClicked(
-    WindowOpenDisposition disposition) {
-  content::OpenURLParams params(
-      GURL(chrome::kChromeSyncMergeTroubleshootingURL), content::Referrer(),
-      WindowOpenDisposition::NEW_POPUP, ui::PAGE_TRANSITION_AUTO_TOPLEVEL,
-      false);
-  // It is guaranteed that |web_contents_| is valid here because when it's
-  // deleted, the dialog is immediately closed and no further action can be
-  // performed.
-  web_contents_->OpenURL(params);
-}
-
 void CloseModalSigninIfNeeded(InlineLoginHandlerImpl* handler) {
   if (handler && switches::UsePasswordSeparatedSigninFlow()) {
     Browser* browser = handler->GetDesktopBrowser();
@@ -234,12 +118,40 @@ void CloseModalSigninIfNeeded(InlineLoginHandlerImpl* handler) {
   }
 }
 
+void UnlockProfileAndHideLoginUI(const base::FilePath profile_path,
+                                 InlineLoginHandlerImpl* handler) {
+  if (!profile_path.empty()) {
+    ProfileManager* profile_manager = g_browser_process->profile_manager();
+    if (profile_manager) {
+      ProfileAttributesEntry* entry;
+      if (profile_manager->GetProfileAttributesStorage()
+              .GetProfileAttributesWithPath(profile_path, &entry)) {
+        entry->SetIsSigninRequired(false);
+      }
+    }
+  }
+  if (handler)
+    handler->web_ui()->CallJavascriptFunctionUnsafe("inline.login.closeDialog");
+  UserManager::Hide();
+}
+
+bool IsCrossAccountError(Profile* profile,
+                         const std::string& email,
+                         const std::string& gaia_id) {
+  InvestigatorDependencyProvider provider(profile);
+  InvestigatedScenario scenario =
+      SigninInvestigator(email, gaia_id, &provider).Investigate();
+
+  return scenario == InvestigatedScenario::DIFFERENT_ACCOUNT;
+}
+
 }  // namespace
 
 InlineSigninHelper::InlineSigninHelper(
     base::WeakPtr<InlineLoginHandlerImpl> handler,
     net::URLRequestContextGetter* getter,
     Profile* profile,
+    Profile::CreateStatus create_status,
     const GURL& current_url,
     const std::string& email,
     const std::string& gaia_id,
@@ -252,6 +164,7 @@ InlineSigninHelper::InlineSigninHelper(
     : gaia_auth_fetcher_(this, GaiaConstants::kChromeSource, getter),
       handler_(handler),
       profile_(profile),
+      create_status_(create_status),
       current_url_(current_url),
       email_(email),
       gaia_id_(gaia_id),
@@ -275,6 +188,23 @@ InlineSigninHelper::InlineSigninHelper(
 InlineSigninHelper::~InlineSigninHelper() {}
 
 void InlineSigninHelper::OnClientOAuthSuccess(const ClientOAuthResult& result) {
+  if (signin::IsForceSigninEnabled()) {
+    // With force sign in enabled, the browser window won't be opened until now.
+    profiles::OpenBrowserWindowForProfile(
+        base::Bind(&InlineSigninHelper::OnClientOAuthSuccessAndBrowserOpened,
+                   base::Unretained(this), result),
+        true, false, profile_, create_status_);
+  } else {
+    OnClientOAuthSuccessAndBrowserOpened(result, profile_, create_status_);
+  }
+}
+
+void InlineSigninHelper::OnClientOAuthSuccessAndBrowserOpened(
+    const ClientOAuthResult& result,
+    Profile* profile,
+    Profile::CreateStatus status) {
+  if (signin::IsForceSigninEnabled())
+    UnlockProfileAndHideLoginUI(profile_->GetPath(), handler_.get());
   content::WebContents* contents = NULL;
   Browser* browser = NULL;
   if (handler_) {
@@ -355,7 +285,8 @@ void InlineSigninHelper::OnClientOAuthSuccess(const ClientOAuthResult& result) {
     if (start_signin) {
       CreateSyncStarter(browser, contents, current_url_,
                         signin::GetNextPageURLForPromoURL(current_url_),
-                        result.refresh_token, start_mode,
+                        result.refresh_token,
+                        OneClickSigninSyncStarter::CURRENT_PROFILE, start_mode,
                         confirmation_required);
       base::ThreadTaskRunnerHandle::Get()->DeleteSoon(FROM_HERE, this);
     }
@@ -368,12 +299,14 @@ void InlineSigninHelper::CreateSyncStarter(
     const GURL& current_url,
     const GURL& continue_url,
     const std::string& refresh_token,
+    OneClickSigninSyncStarter::ProfileMode profile_mode,
     OneClickSigninSyncStarter::StartSyncMode start_mode,
     OneClickSigninSyncStarter::ConfirmationRequired confirmation_required) {
   // OneClickSigninSyncStarter will delete itself once the job is done.
   new OneClickSigninSyncStarter(
-      profile_, browser, gaia_id_, email_, password_, refresh_token, start_mode,
-      contents, confirmation_required, current_url, continue_url,
+      profile_, browser, gaia_id_, email_, password_, refresh_token,
+      profile_mode, start_mode, contents, confirmation_required, current_url,
+      continue_url,
       base::Bind(&InlineLoginHandlerImpl::SyncStarterCallback, handler_));
 }
 
@@ -381,32 +314,27 @@ bool InlineSigninHelper::HandleCrossAccountError(
     const std::string& refresh_token,
     OneClickSigninSyncStarter::ConfirmationRequired confirmation_required,
     OneClickSigninSyncStarter::StartSyncMode start_mode) {
+  // With force sign in enabled, cross account sign in will be rejected in the
+  // early stage so there is no need to show the warning page here.
+  if (signin::IsForceSigninEnabled())
+    return false;
+
   std::string last_email =
       profile_->GetPrefs()->GetString(prefs::kGoogleServicesLastUsername);
 
-  InvestigatorDependencyProvider provider(profile_);
-  InvestigatedScenario scenario =
-      SigninInvestigator(email_, gaia_id_, &provider).Investigate();
-
   // TODO(skym): Warn for high risk upgrade scenario, crbug.com/572754.
-  if (scenario != InvestigatedScenario::DIFFERENT_ACCOUNT) {
+  if (!IsCrossAccountError(profile_, email_, gaia_id_))
     return false;
-  }
 
   Browser* browser = chrome::FindLastActiveWithProfile(profile_);
   content::WebContents* web_contents =
       browser->tab_strip_model()->GetActiveWebContents();
 
-  ConfirmEmailDialogDelegate::AskForConfirmation(
-      web_contents,
-      last_email,
-      email_,
+  SigninEmailConfirmationDialog::AskForConfirmation(
+      web_contents, profile_, last_email, email_,
       base::Bind(&InlineSigninHelper::ConfirmEmailAction,
-                 base::Unretained(this),
-                 web_contents,
-                 refresh_token,
-                 confirmation_required,
-                 start_mode));
+                 base::Unretained(this), web_contents, refresh_token,
+                 confirmation_required, start_mode));
   return true;
 }
 
@@ -415,26 +343,25 @@ void InlineSigninHelper::ConfirmEmailAction(
     const std::string& refresh_token,
     OneClickSigninSyncStarter::ConfirmationRequired confirmation_required,
     OneClickSigninSyncStarter::StartSyncMode start_mode,
-    InlineSigninHelper::Action action) {
+    SigninEmailConfirmationDialog::Action action) {
   Browser* browser = chrome::FindLastActiveWithProfile(profile_);
   switch (action) {
-    case InlineSigninHelper::CREATE_NEW_USER:
+    case SigninEmailConfirmationDialog::CREATE_NEW_USER:
       content::RecordAction(
           base::UserMetricsAction("Signin_ImportDataPrompt_DontImport"));
-      if (handler_) {
-        handler_->SyncStarterCallback(
-            OneClickSigninSyncStarter::SYNC_SETUP_FAILURE);
-      }
-      UserManager::Show(base::FilePath(), profiles::USER_MANAGER_NO_TUTORIAL,
-                        profiles::USER_MANAGER_OPEN_CREATE_USER_PAGE);
+      CreateSyncStarter(browser, web_contents, current_url_, GURL(),
+                        refresh_token, OneClickSigninSyncStarter::NEW_PROFILE,
+                        start_mode, confirmation_required);
       break;
-    case InlineSigninHelper::START_SYNC:
+    case SigninEmailConfirmationDialog::START_SYNC:
       content::RecordAction(
           base::UserMetricsAction("Signin_ImportDataPrompt_ImportData"));
       CreateSyncStarter(browser, web_contents, current_url_, GURL(),
-                        refresh_token, start_mode, confirmation_required);
+                        refresh_token,
+                        OneClickSigninSyncStarter::CURRENT_PROFILE, start_mode,
+                        confirmation_required);
       break;
-    case InlineSigninHelper::CLOSE:
+    case SigninEmailConfirmationDialog::CLOSE:
       content::RecordAction(
           base::UserMetricsAction("Signin_ImportDataPrompt_Cancel"));
       if (handler_) {
@@ -538,7 +465,7 @@ bool InlineLoginHandlerImpl::CanOffer(Profile* profile,
     if (!current_email.empty() && !same_email) {
       UMA_HISTOGRAM_ENUMERATION("Signin.Reauth",
                                 signin_metrics::HISTOGRAM_ACCOUNT_MISSMATCH,
-                                signin_metrics::HISTOGRAM_MAX);
+                                signin_metrics::HISTOGRAM_REAUTH_MAX);
       if (error_message) {
         error_message->assign(
             l10n_util::GetStringFUTF8(IDS_SYNC_WRONG_EMAIL,
@@ -573,6 +500,18 @@ bool InlineLoginHandlerImpl::CanOffer(Profile* profile,
           }
         }
       }
+    }
+
+    // With force sign in enabled, cross account sign in is not allowed.
+    if (signin::IsForceSigninEnabled() &&
+        IsCrossAccountError(profile, email, gaia_id)) {
+      if (error_message) {
+        std::string last_email =
+            profile->GetPrefs()->GetString(prefs::kGoogleServicesLastUsername);
+        error_message->assign(l10n_util::GetStringFUTF8(
+            IDS_SYNC_USED_PROFILE_ERROR, base::UTF8ToUTF16(last_email)));
+      }
+      return false;
     }
   }
 
@@ -691,6 +630,9 @@ void InlineLoginHandlerImpl::CompleteLogin(const base::ListValue* args) {
   if (IsSystemProfile(profile)) {
     ProfileManager* manager = g_browser_process->profile_manager();
     base::FilePath path = profiles::GetPathOfProfileWithEmail(manager, email);
+    if (path.empty()) {
+      path = UserManager::GetSigninProfilePath();
+    }
     if (!path.empty()) {
       signin_metrics::Reason reason =
           signin::GetSigninReasonForPromoURL(current_url);
@@ -708,14 +650,23 @@ void InlineLoginHandlerImpl::CompleteLogin(const base::ListValue* args) {
         // Otherwise, switch to the profile and finish the login. Pass the
         // profile path so it can be marked as unlocked. Don't pass a handler
         // pointer since it will be destroyed before the callback runs.
-        FinishCompleteLoginParams params(nullptr, partition, current_url, path,
+        bool is_force_signin_enabled = signin::IsForceSigninEnabled();
+        InlineLoginHandlerImpl* handler = nullptr;
+        if (is_force_signin_enabled)
+          handler = this;
+        FinishCompleteLoginParams params(handler, partition, current_url, path,
                                          confirm_untrusted_signin_, email,
                                          gaia_id, password, session_index,
                                          auth_code, choose_what_to_sync);
         ProfileManager::CreateCallback callback =
             base::Bind(&InlineLoginHandlerImpl::FinishCompleteLogin, params);
-        profiles::SwitchToProfile(path, true, callback,
-                                  ProfileMetrics::SWITCH_PROFILE_UNLOCK);
+        if (is_force_signin_enabled) {
+          // Browser window will be opened after ClientOAuthSuccess.
+          profiles::LoadProfileAsync(path, callback);
+        } else {
+          profiles::SwitchToProfile(path, true, callback,
+                                    ProfileMetrics::SWITCH_PROFILE_UNLOCK);
+        }
       }
     }
   } else {
@@ -773,7 +724,7 @@ void InlineLoginHandlerImpl::FinishCompleteLogin(
   if (net::GetValueForKeyInQuery(params.url, "email", &default_email) &&
       net::GetValueForKeyInQuery(params.url, "validateEmail",
                                  &validate_email) &&
-      validate_email == "1") {
+      validate_email == "1" && !default_email.empty()) {
     if (!gaia::AreEmailsSame(params.email, default_email)) {
       if (params.handler) {
         params.handler->HandleLoginError(
@@ -841,32 +792,17 @@ void InlineLoginHandlerImpl::FinishCompleteLogin(
     handler_weak_ptr = params.handler->GetWeakPtr();
 
   // InlineSigninHelper will delete itself.
-  new InlineSigninHelper(handler_weak_ptr,
-                         params.partition->GetURLRequestContext(), profile,
-                         params.url,
-                         params.email, params.gaia_id, params.password,
-                         params.session_index, params.auth_code,
-                         signin_scoped_device_id,
-                         params.choose_what_to_sync,
-                         params.confirm_untrusted_signin);
+  new InlineSigninHelper(
+      handler_weak_ptr, params.partition->GetURLRequestContext(), profile,
+      status, params.url, params.email, params.gaia_id, params.password,
+      params.session_index, params.auth_code, signin_scoped_device_id,
+      params.choose_what_to_sync, params.confirm_untrusted_signin);
 
   // If opened from user manager to unlock a profile, make sure the user manager
   // is closed and that the profile is marked as unlocked.
-  if (!params.profile_path.empty()) {
-    UserManager::Hide();
-    ProfileManager* profile_manager = g_browser_process->profile_manager();
-    if (profile_manager) {
-      ProfileAttributesEntry* entry;
-      if (profile_manager->GetProfileAttributesStorage()
-              .GetProfileAttributesWithPath(params.profile_path, &entry)) {
-        entry->SetIsSigninRequired(false);
-      }
-    }
+  if (!signin::IsForceSigninEnabled()) {
+    UnlockProfileAndHideLoginUI(params.profile_path, params.handler);
   }
-
-  if (params.handler)
-    params.handler->web_ui()->CallJavascriptFunctionUnsafe(
-        "inline.login.closeDialog");
 }
 
 void InlineLoginHandlerImpl::HandleLoginError(const std::string& error_msg,
@@ -875,8 +811,11 @@ void InlineLoginHandlerImpl::HandleLoginError(const std::string& error_msg,
   Browser* browser = GetDesktopBrowser();
   Profile* profile = Profile::FromWebUI(web_ui());
 
+  if (IsSystemProfile(profile))
+    profile = g_browser_process->profile_manager()->GetProfileByPath(
+        UserManager::GetSigninProfilePath());
   CloseModalSigninIfNeeded(this);
-  if (browser && !error_msg.empty()) {
+  if (!error_msg.empty()) {
     LoginUIServiceFactory::GetForProfile(profile)->DisplayLoginResult(
         browser, base::UTF8ToUTF16(error_msg), email);
   }

@@ -246,9 +246,12 @@ class GLES2_IMPL_EXPORT GLES2Implementation
   void FreeUnusedSharedMemory();
   void FreeEverything();
 
+  void FreeSharedMemory(void*) override;
+
   // ContextSupport implementation.
   void SignalSyncToken(const gpu::SyncToken& sync_token,
                        const base::Closure& callback) override;
+  bool IsSyncTokenSignalled(const gpu::SyncToken& sync_token) override;
   void SignalQuery(uint32_t query, const base::Closure& callback) override;
   void SetAggressivelyFreeResources(bool aggressively_free_resources) override;
 
@@ -814,7 +817,7 @@ class GLES2_IMPL_EXPORT GLES2Implementation
 
   int current_trace_stack_;
 
-  GpuControl* gpu_control_;
+  GpuControl* const gpu_control_;
 
   Capabilities capabilities_;
 

@@ -50,23 +50,30 @@ class MojoVideoDecoder final : public VideoDecoder,
   void OnVideoFrameDecoded(mojom::VideoFramePtr frame) final;
 
  private:
-  void OnInitializeDone(bool status);
-  void OnDecodeDone(mojom::DecodeStatus status);
+  void OnInitializeDone(bool status,
+                        bool needs_bitstream_conversion,
+                        int32_t max_decode_requests);
+  void OnDecodeDone(uint64_t decode_id, DecodeStatus status);
   void OnResetDone();
 
   void BindRemoteDecoder();
-  void OnConnectionError();
 
+  // Cleans up callbacks and blocks future calls.
+  void Stop();
+
+  // Task runner that the decoder runs on (media thread).
   scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
-  GpuVideoAcceleratorFactories* gpu_factories_;
 
   // Used to pass the remote decoder from the constructor (on the main thread)
   // to Initialize() (on the media thread).
   mojom::VideoDecoderPtrInfo remote_decoder_info_;
 
+  GpuVideoAcceleratorFactories* gpu_factories_ = nullptr;
+
   InitCB init_cb_;
   OutputCB output_cb_;
-  DecodeCB decode_cb_;
+  uint64_t decode_counter_ = 0;
+  std::map<uint64_t, DecodeCB> pending_decodes_;
   base::Closure reset_cb_;
 
   mojom::VideoDecoderPtr remote_decoder_;
@@ -74,6 +81,10 @@ class MojoVideoDecoder final : public VideoDecoder,
   bool remote_decoder_bound_ = false;
   bool has_connection_error_ = false;
   mojo::AssociatedBinding<VideoDecoderClient> client_binding_;
+
+  bool initialized_ = false;
+  bool needs_bitstream_conversion_ = false;
+  int32_t max_decode_requests_ = 1;
 
   DISALLOW_COPY_AND_ASSIGN(MojoVideoDecoder);
 };

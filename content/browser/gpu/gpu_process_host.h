@@ -28,11 +28,10 @@
 #include "gpu/ipc/common/surface_handle.h"
 #include "ipc/ipc_sender.h"
 #include "ipc/message_filter.h"
+#include "services/ui/gpu/interfaces/gpu_main.mojom.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/gfx/gpu_memory_buffer.h"
 #include "url/gurl.h"
-
-struct GPUCreateCommandBufferConfig;
 
 namespace base {
 class Thread;
@@ -44,19 +43,17 @@ struct ChannelHandle;
 
 namespace gpu {
 struct GpuPreferences;
+class ShaderDiskCache;
 struct SyncToken;
 }
 
-namespace shell {
+namespace service_manager {
 class InterfaceProvider;
 }
 
 namespace content {
 class BrowserChildProcessHostImpl;
-class GpuMainThread;
 class InProcessChildThreadParams;
-class RenderWidgetHostViewFrameSubscriber;
-class ShaderDiskCache;
 
 typedef base::Thread* (*GpuMainThreadFactoryFunction)(
     const InProcessChildThreadParams&, const gpu::GpuPreferences&);
@@ -113,7 +110,7 @@ class GpuProcessHost : public BrowserChildProcessHostDelegate,
   CONTENT_EXPORT static void RegisterGpuMainThreadFactory(
       GpuMainThreadFactoryFunction create);
 
-  shell::InterfaceProvider* GetRemoteInterfaces();
+  service_manager::InterfaceProvider* GetRemoteInterfaces();
 
   // Get the GPU process host for the GPU process with the given ID. Returns
   // null if the process no longer exists.
@@ -222,7 +219,7 @@ class GpuProcessHost : public BrowserChildProcessHostDelegate,
   // Update GPU crash counters.  Disable GPU if crash limit is reached.
   void RecordProcessCrash();
 
-  std::string GetShaderPrefixKey();
+  std::string GetShaderPrefixKey(const std::string& shader);
 
   // The serial number of the GpuProcessHost / GpuProcessHostUIShim pair.
   int host_id_;
@@ -286,11 +283,13 @@ class GpuProcessHost : public BrowserChildProcessHostDelegate,
   // automatic execution of 3D content from those domains.
   std::multiset<GURL> urls_with_live_offscreen_contexts_;
 
-  typedef std::map<int32_t, scoped_refptr<ShaderDiskCache>>
+  typedef std::map<int32_t, scoped_refptr<gpu::ShaderDiskCache>>
       ClientIdToShaderCacheMap;
   ClientIdToShaderCacheMap client_id_to_shader_cache_;
 
-  std::string shader_prefix_key_;
+  std::string shader_prefix_key_info_;
+
+  ui::mojom::GpuMainAssociatedPtr gpu_main_ptr_;
 
   DISALLOW_COPY_AND_ASSIGN(GpuProcessHost);
 };

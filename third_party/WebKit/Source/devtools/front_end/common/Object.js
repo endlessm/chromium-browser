@@ -22,198 +22,275 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-
 /**
- * @constructor
- * @implements {WebInspector.EventTarget}
+ * @implements {Common.EventTarget}
+ * @unrestricted
  */
-WebInspector.Object = function() {
-}
+Common.Object = class {
+  constructor() {
+    /** @type {(!Map<(symbol|!Common.Emittable), !Array<!Common.Object._listenerCallbackTuple>>|undefined)} */
+    this._listeners;
+  }
+  /**
+   * @override
+   * @param {symbol} eventType
+   * @param {function(!Common.Event)} listener
+   * @param {!Object=} thisObject
+   * @return {!Common.EventTarget.EventDescriptor}
+   */
+  addEventListener(eventType, listener, thisObject) {
+    if (!listener)
+      console.assert(false);
 
-WebInspector.Object.prototype = {
-    /**
-     * @override
-     * @param {string|symbol} eventType
-     * @param {function(!WebInspector.Event)} listener
-     * @param {!Object=} thisObject
-     * @return {!WebInspector.EventTarget.EventDescriptor}
-     */
-    addEventListener: function(eventType, listener, thisObject)
-    {
-        if (!listener)
-            console.assert(false);
+    if (!this._listeners)
+      this._listeners = new Map();
 
-        if (!this._listeners)
-            this._listeners = new Map();
-        if (!this._listeners.has(eventType))
-            this._listeners.set(eventType, []);
-        this._listeners.get(eventType).push({ thisObject: thisObject, listener: listener });
-        return new WebInspector.EventTarget.EventDescriptor(this, eventType, thisObject, listener);
-    },
+    if (!this._listeners.has(eventType))
+      this._listeners.set(eventType, []);
+    this._listeners.get(eventType).push({thisObject: thisObject, listener: listener});
+    return new Common.EventTarget.EventDescriptor(this, eventType, thisObject, listener);
+  }
 
-    /**
-     * @override
-     * @param {string|symbol} eventType
-     * @param {function(!WebInspector.Event)} listener
-     * @param {!Object=} thisObject
-     */
-    removeEventListener: function(eventType, listener, thisObject)
-    {
-        console.assert(listener);
+  /**
+   * @override
+   * @param {symbol} eventType
+   * @param {function(!Common.Event)} listener
+   * @param {!Object=} thisObject
+   */
+  removeEventListener(eventType, listener, thisObject) {
+    console.assert(listener);
 
-        if (!this._listeners || !this._listeners.has(eventType))
-            return;
-        var listeners = this._listeners.get(eventType);
-        for (var i = 0; i < listeners.length; ++i) {
-            if (listeners[i].listener === listener && listeners[i].thisObject === thisObject)
-                listeners.splice(i--, 1);
-        }
-
-        if (!listeners.length)
-            this._listeners.delete(eventType);
-    },
-
-    /**
-     * @override
-     */
-    removeAllListeners: function()
-    {
-        delete this._listeners;
-    },
-
-    /**
-     * @override
-     * @param {string|symbol} eventType
-     * @return {boolean}
-     */
-    hasEventListeners: function(eventType)
-    {
-        return this._listeners && this._listeners.has(eventType);
-    },
-
-    /**
-     * @override
-     * @param {string|symbol} eventType
-     * @param {*=} eventData
-     * @return {boolean}
-     */
-    dispatchEventToListeners: function(eventType, eventData)
-    {
-        if (!this._listeners || !this._listeners.has(eventType))
-            return false;
-
-        var event = new WebInspector.Event(this, eventType, eventData);
-        var listeners = this._listeners.get(eventType).slice(0);
-        for (var i = 0; i < listeners.length; ++i) {
-            listeners[i].listener.call(listeners[i].thisObject, event);
-            if (event._stoppedPropagation)
-                break;
-        }
-
-        return event.defaultPrevented;
+    if (!this._listeners || !this._listeners.has(eventType))
+      return;
+    var listeners = this._listeners.get(eventType);
+    for (var i = 0; i < listeners.length; ++i) {
+      if (listeners[i].listener === listener && listeners[i].thisObject === thisObject)
+        listeners.splice(i--, 1);
     }
-}
 
-/**
- * @constructor
- * @param {!WebInspector.EventTarget} target
- * @param {string|symbol} type
- * @param {*=} data
- */
-WebInspector.Event = function(target, type, data)
-{
-    this.target = target;
-    this.type = type;
-    this.data = data;
-    this.defaultPrevented = false;
-    this._stoppedPropagation = false;
-}
+    if (!listeners.length)
+      this._listeners.delete(eventType);
+  }
 
-WebInspector.Event.prototype = {
-    stopPropagation: function()
-    {
-        this._stoppedPropagation = true;
-    },
+  /**
+   * @override
+   * @param {symbol} eventType
+   * @return {boolean}
+   */
+  hasEventListeners(eventType) {
+    return !!(this._listeners && this._listeners.has(eventType));
+  }
 
-    preventDefault: function()
-    {
-        this.defaultPrevented = true;
-    },
+  /**
+   * @override
+   * @param {symbol} eventType
+   * @param {*=} eventData
+   */
+  dispatchEventToListeners(eventType, eventData) {
+    if (!this._listeners || !this._listeners.has(eventType))
+      return;
 
-    /**
-     * @param {boolean=} preventDefault
-     */
-    consume: function(preventDefault)
-    {
-        this.stopPropagation();
-        if (preventDefault)
-            this.preventDefault();
+    var event = new Common.Event(eventData);
+    var listeners = this._listeners.get(eventType).slice(0);
+    for (var i = 0; i < listeners.length; ++i)
+      listeners[i].listener.call(listeners[i].thisObject, event);
+  }
+
+  /**
+   * @override
+   * @param {function(new:Common.Emittable, ...)} eventType
+   * @param {function(!T)} listener
+   * @param {!Object=} thisObject
+   * @return {!Common.EventTarget.TypedEventDescriptor}
+   * @template T
+   */
+  on(eventType, listener, thisObject) {
+    if (!this._listeners)
+      this._listeners = new Map();
+    if (!this._listeners.has(eventType))
+      this._listeners.set(eventType, []);
+    this._listeners.get(eventType).push({thisObject: thisObject, listener: listener});
+    return new Common.EventTarget.TypedEventDescriptor(this, eventType, thisObject, listener);
+  }
+
+  /**
+   * @override
+   * @param {function(new:Common.Emittable, ...)} eventType
+   * @param {function(!Common.Emittable)} listener
+   * @param {!Object=} thisObject
+   */
+  off(eventType, listener, thisObject) {
+    if (!this._listeners || !this._listeners.has(eventType))
+      return;
+    var listeners = this._listeners.get(eventType);
+    for (var i = 0; i < listeners.length; ++i) {
+      if (listeners[i].listener === listener && listeners[i].thisObject === thisObject)
+        listeners.splice(i--, 1);
     }
-}
+    if (!listeners.length)
+      this._listeners.delete(eventType);
+  }
+
+  /**
+   * @override
+   * @param {!Common.Emittable} event
+   */
+  emit(event) {
+    var eventType = event.constructor;
+    if (!this._listeners || !this._listeners.has(eventType))
+      return;
+    var listeners = this._listeners.get(eventType).slice(0);
+    for (var i = 0; i < listeners.length; ++i)
+      listeners[i].listener.call(listeners[i].thisObject, event);
+  }
+};
 
 /**
  * @interface
  */
-WebInspector.EventTarget = function()
-{
-}
+Common.Emittable = function() {};
 
 /**
- * @param {!Array<!WebInspector.EventTarget.EventDescriptor>} eventList
+ * @typedef {!{thisObject: (!Object|undefined), listener: function(!Common.Emittable)}}
  */
-WebInspector.EventTarget.removeEventListeners = function(eventList)
-{
-    for (var i = 0; i < eventList.length; ++i) {
-        var eventInfo = eventList[i];
-        eventInfo.eventTarget.removeEventListener(eventInfo.eventType, eventInfo.method, eventInfo.receiver);
-    }
-    // Do not hold references on unused event descriptors.
-    eventList.splice(0, eventList.length);
-}
-
-WebInspector.EventTarget.prototype = {
-    /**
-     * @param {string|symbol} eventType
-     * @param {function(!WebInspector.Event)} listener
-     * @param {!Object=} thisObject
-     * @return {!WebInspector.EventTarget.EventDescriptor}
-     */
-    addEventListener: function(eventType, listener, thisObject) { },
-
-    /**
-     * @param {string|symbol} eventType
-     * @param {function(!WebInspector.Event)} listener
-     * @param {!Object=} thisObject
-     */
-    removeEventListener: function(eventType, listener, thisObject) { },
-
-    removeAllListeners: function() { },
-
-    /**
-     * @param {string|symbol} eventType
-     * @return {boolean}
-     */
-    hasEventListeners: function(eventType) { },
-
-    /**
-     * @param {string|symbol} eventType
-     * @param {*=} eventData
-     * @return {boolean}
-     */
-    dispatchEventToListeners: function(eventType, eventData) { },
-}
+Common.Object._listenerCallbackTuple;
 
 /**
- * @constructor
- * @param {!WebInspector.EventTarget} eventTarget
- * @param {string|symbol} eventType
- * @param {(!Object|undefined)} receiver
- * @param {function(?):?} method
+ * @implements {Common.Emittable}
+ * @unrestricted
  */
-WebInspector.EventTarget.EventDescriptor = function(eventTarget, eventType, receiver, method)
-{
+Common.Event = class {
+  /**
+   * @param {*=} data
+   */
+  constructor(data) {
+    this.data = data;
+  }
+};
+
+/**
+ * @interface
+ */
+Common.EventTarget = function() {};
+
+/**
+ * @record
+ * @template T
+ */
+Common.EventTarget.EventDescriptorStruct = class {
+  constructor() {
+    /** @type {!Common.EventTarget} */
+    this.eventTarget;
+    /** @type {!T} */
+    this.eventType;
+    /** @type {(!Object|undefined)} */
+    this.receiver;
+    /** @type {function(!Common.Emittable)} */
+    this.method;
+  }
+};
+
+/**
+ * @implements {Common.EventTarget.EventDescriptorStruct<symbol>}
+ * @unrestricted
+ */
+Common.EventTarget.EventDescriptor = class {
+  /**
+   * @param {!Common.EventTarget} eventTarget
+   * @param {symbol} eventType
+   * @param {(!Object|undefined)} receiver
+   * @param {function(!Common.Event)} method
+   */
+  constructor(eventTarget, eventType, receiver, method) {
     this.eventTarget = eventTarget;
     this.eventType = eventType;
     this.receiver = receiver;
     this.method = method;
-}
+  }
+};
+
+/**
+ * @implements {Common.EventTarget.EventDescriptorStruct<function(new:Common.Emittable)>}
+ * @unrestricted
+ */
+Common.EventTarget.TypedEventDescriptor = class {
+  /**
+   * @param {!Common.EventTarget} eventTarget
+   * @param {function(new:Common.Emittable, ...)} eventType
+   * @param {(!Object|undefined)} receiver
+   * @param {function(!Common.Emittable)} method
+   */
+  constructor(eventTarget, eventType, receiver, method) {
+    this.eventTarget = eventTarget;
+    this.eventType = eventType;
+    this.receiver = receiver;
+    this.method = method;
+  }
+};
+
+/**
+ * @param {!Array<!Common.EventTarget.EventDescriptorStruct>} eventList
+ */
+Common.EventTarget.removeEventListeners = function(eventList) {
+  for (var i = 0; i < eventList.length; ++i) {
+    if (eventList[i] instanceof Common.EventTarget.EventDescriptor) {
+      var eventInfo = /** @type {!Common.EventTarget.EventDescriptor} */ (eventList[i]);
+      eventInfo.eventTarget.removeEventListener(eventInfo.eventType, eventInfo.method, eventInfo.receiver);
+    } else {
+      var eventInfo = /** @type {!Common.EventTarget.TypedEventDescriptor} */ (eventList[i]);
+      eventInfo.eventTarget.off(eventInfo.eventType, eventInfo.method, eventInfo.receiver);
+    }
+  }
+  // Do not hold references on unused event descriptors.
+  eventList.splice(0, eventList.length);
+};
+
+Common.EventTarget.prototype = {
+  /**
+   * @param {symbol} eventType
+   * @param {function(!Common.Event)} listener
+   * @param {!Object=} thisObject
+   * @return {!Common.EventTarget.EventDescriptor}
+   */
+  addEventListener(eventType, listener, thisObject) {},
+
+  /**
+   * @param {symbol} eventType
+   * @param {function(!Common.Event)} listener
+   * @param {!Object=} thisObject
+   */
+  removeEventListener(eventType, listener, thisObject) {},
+
+  /**
+   * @param {symbol} eventType
+   * @return {boolean}
+   */
+  hasEventListeners(eventType) {},
+
+  /**
+   * @param {symbol} eventType
+   * @param {*=} eventData
+   */
+  dispatchEventToListeners(eventType, eventData) {},
+
+  /**
+   * @param {function(new:Common.Emittable, ...)} eventType
+   * @param {function(!T)} listener
+   * @param {!Object=} thisObject
+   * @return {!Common.EventTarget.TypedEventDescriptor}
+   * @template T
+   */
+  on(eventType, listener, thisObject) {},
+
+  /**
+   * @param {function(new:Common.Emittable, ...)} eventType
+   * @param {function(!Common.Emittable)} listener
+   * @param {!Object=} thisObject
+   */
+  off(eventType, listener, thisObject) {},
+
+  /**
+   * @param {!Common.Emittable} event
+   */
+  emit(event) {},
+};

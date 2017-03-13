@@ -6,7 +6,6 @@
 
 #include "base/logging.h"
 #include "third_party/skia/include/core/SkPaint.h"
-#include "third_party/skia/include/effects/SkArithmeticMode.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/animation/animation.h"
 #include "ui/gfx/canvas.h"
@@ -157,7 +156,7 @@ void LabelButtonAssetBorder::Paint(const View& view, gfx::Canvas* canvas) {
     // Then modulate the foreground by alpha, and blend using kPlus_Mode.
     SkPaint paint;
     paint.setAlpha(fg_alpha);
-    paint.setXfermodeMode(SkXfermode::kPlus_Mode);
+    paint.setBlendMode(SkBlendMode::kPlus);
     canvas->sk_canvas()->saveLayer(&sk_rect, &paint);
     state = native_theme_delegate->GetForegroundThemeState(&extra);
     PaintHelper(this, canvas, state, rect, extra);
@@ -184,8 +183,8 @@ Painter* LabelButtonAssetBorder::GetPainter(bool focused,
 
 void LabelButtonAssetBorder::SetPainter(bool focused,
                                         Button::ButtonState state,
-                                        Painter* painter) {
-  painters_[focused ? 1 : 0][state].reset(painter);
+                                        std::unique_ptr<Painter> painter) {
+  painters_[focused ? 1 : 0][state] = std::move(painter);
 }
 
 }  // namespace views

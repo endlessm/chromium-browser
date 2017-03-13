@@ -56,9 +56,7 @@ class SpaceSplitString {
 
   size_t size() const { return m_data ? m_data->size() : 0; }
   bool isNull() const { return !m_data; }
-  const AtomicString& operator[](size_t i) const {
-    return (*m_data)[i];
-  }
+  const AtomicString& operator[](size_t i) const { return (*m_data)[i]; }
 
  private:
   class Data : public RefCounted<Data> {
@@ -69,9 +67,8 @@ class SpaceSplitString {
     ~Data();
 
     bool contains(const AtomicString& string) {
-      size_t size = m_vector.size();
-      for (size_t i = 0; i < size; ++i) {
-        if (m_vector[i] == string)
+      for (const auto& item : m_vector) {
+        if (item == string)
           return true;
       }
       return false;
@@ -84,9 +81,7 @@ class SpaceSplitString {
 
     bool isUnique() const { return m_keyString.isNull(); }
     size_t size() const { return m_vector.size(); }
-    const AtomicString& operator[](size_t i) {
-      return m_vector[i];
-    }
+    const AtomicString& operator[](size_t i) { return m_vector[i]; }
 
    private:
     explicit Data(const AtomicString&);

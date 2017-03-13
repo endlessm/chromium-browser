@@ -17,7 +17,7 @@
 #include "base/files/file_util.h"
 #include "base/json/json_writer.h"
 #include "base/macros.h"
-#include "base/memory/linked_ptr.h"
+#include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/path_service.h"
@@ -26,7 +26,6 @@
 #include "base/time/time.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/chromeos/login/login_manager_test.h"
 #include "chrome/browser/chromeos/login/startup_utils.h"
 #include "chrome/browser/chromeos/login/users/avatar/user_image_manager_impl.h"
@@ -35,10 +34,12 @@
 #include "chrome/browser/chromeos/login/users/default_user_image/default_user_images.h"
 #include "chrome/browser/chromeos/login/users/mock_user_manager.h"
 #include "chrome/browser/chromeos/login/users/scoped_user_manager_enabler.h"
+#include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
 #include "chrome/browser/chromeos/policy/cloud_external_data_manager_base_test_util.h"
 #include "chrome/browser/chromeos/policy/user_cloud_policy_manager_chromeos.h"
-#include "chrome/browser/chromeos/policy/user_cloud_policy_manager_factory_chromeos.h"
+#include "chrome/browser/chromeos/policy/user_policy_manager_factory_chromeos.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
+#include "chrome/browser/chromeos/settings/stub_install_attributes.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_downloader.h"
 #include "chrome/browser/signin/account_tracker_service_factory.h"
@@ -61,9 +62,6 @@
 #include "components/user_manager/user.h"
 #include "components/user_manager/user_image/user_image.h"
 #include "components/user_manager/user_manager.h"
-#include "content/public/browser/notification_service.h"
-#include "content/public/browser/notification_source.h"
-#include "content/public/test/test_utils.h"
 #include "crypto/rsa_private_key.h"
 #include "google_apis/gaia/gaia_oauth_client.h"
 #include "google_apis/gaia/oauth2_token_service.h"
@@ -95,13 +93,38 @@ policy::CloudPolicyStore* GetStoreForUser(const user_manager::User* user) {
     return NULL;
   }
   policy::UserCloudPolicyManagerChromeOS* policy_manager =
-      policy::UserCloudPolicyManagerFactoryChromeOS::GetForProfile(profile);
+      policy::UserPolicyManagerFactoryChromeOS::GetCloudPolicyManagerForProfile(
+          profile);
   if (!policy_manager) {
     ADD_FAILURE();
     return NULL;
   }
   return policy_manager->core()->store();
 }
+
+class UserImageChangeWaiter : public user_manager::UserManager::Observer {
+ public:
+  UserImageChangeWaiter() {}
+  ~UserImageChangeWaiter() override {}
+
+  void Wait() {
+    user_manager::UserManager::Get()->AddObserver(this);
+    run_loop_ = base::MakeUnique<base::RunLoop>();
+    run_loop_->Run();
+    user_manager::UserManager::Get()->RemoveObserver(this);
+  }
+
+  // user_manager::UserManager::Observer:
+  void OnUserImageChanged(const user_manager::User& user) override {
+    if (run_loop_)
+      run_loop_->Quit();
+  }
+
+ private:
+  std::unique_ptr<base::RunLoop> run_loop_;
+
+  DISALLOW_COPY_AND_ASSIGN(UserImageChangeWaiter);
+};
 
 }  // namespace
 
@@ -112,6 +135,13 @@ class UserImageManagerTest : public LoginManagerTest,
 
   // LoginManagerTest overrides:
   void SetUpInProcessBrowserTestFixture() override {
+    // Set up fake install attributes.
+    std::unique_ptr<chromeos::StubInstallAttributes> attributes =
+        base::MakeUnique<chromeos::StubInstallAttributes>();
+    attributes->SetEnterprise("fake-domain", "fake-id");
+    policy::BrowserPolicyConnectorChromeOS::SetInstallAttributesForTesting(
+        attributes.release());
+
     LoginManagerTest::SetUpInProcessBrowserTestFixture();
 
     ASSERT_TRUE(PathService::Get(chrome::DIR_TEST_DATA, &test_data_dir_));
@@ -258,7 +288,7 @@ class UserImageManagerTest : public LoginManagerTest,
     run_loop.Run();
 
     const user_manager::User* user =
-        user_manager::UserManager::Get()->GetLoggedInUser();
+        user_manager::UserManager::Get()->GetActiveUser();
     ASSERT_TRUE(user);
     UserImageManagerImpl* uim = reinterpret_cast<UserImageManagerImpl*>(
         ChromeUserManager::Get()->GetUserImageManager(user->GetAccountId()));
@@ -297,8 +327,8 @@ IN_PROC_BROWSER_TEST_F(UserImageManagerTest, PRE_SaveAndLoadUserImage) {
       default_user_image::kFirstDefaultImageIndex);
   UserImageManager* user_image_manager =
       ChromeUserManager::Get()->GetUserImageManager(test_account_id1_);
-  user_image_manager->SaveUserImage(
-      user_manager::UserImage::CreateAndEncode(image));
+  user_image_manager->SaveUserImage(user_manager::UserImage::CreateAndEncode(
+      image, user_manager::UserImage::FORMAT_JPEG));
   run_loop_->Run();
 }
 
@@ -309,11 +339,8 @@ IN_PROC_BROWSER_TEST_F(UserImageManagerTest, SaveAndLoadUserImage) {
       user_manager::UserManager::Get()->FindUser(test_account_id1_);
   ASSERT_TRUE(user);
   // Wait for image load.
-  if (user->image_index() == user_manager::User::USER_IMAGE_INVALID) {
-    content::WindowedNotificationObserver(
-        chrome::NOTIFICATION_LOGIN_USER_IMAGE_CHANGED,
-        content::NotificationService::AllSources()).Wait();
-  }
+  if (user->image_index() == user_manager::User::USER_IMAGE_INVALID)
+    UserImageChangeWaiter().Wait();
   // The image should be in the safe format.
   EXPECT_TRUE(user->image_is_safe_format());
   // Check image dimensions. Images can't be compared since JPEG is lossy.
@@ -371,8 +398,8 @@ IN_PROC_BROWSER_TEST_F(UserImageManagerTest, SaveUserImage) {
   run_loop_.reset(new base::RunLoop);
   UserImageManager* user_image_manager =
       ChromeUserManager::Get()->GetUserImageManager(test_account_id1_);
-  user_image_manager->SaveUserImage(
-      user_manager::UserImage::CreateAndEncode(custom_image));
+  user_image_manager->SaveUserImage(user_manager::UserImage::CreateAndEncode(
+      custom_image, user_manager::UserImage::FORMAT_JPEG));
   run_loop_->Run();
 
   EXPECT_FALSE(user->HasDefaultImage());
@@ -428,6 +455,36 @@ IN_PROC_BROWSER_TEST_F(UserImageManagerTest, SaveUserImageFromFile) {
   // Check image dimensions. Images can't be compared since JPEG is lossy.
   EXPECT_EQ(custom_image->width(), saved_image->width());
   EXPECT_EQ(custom_image->height(), saved_image->height());
+
+  // Replace the user image with a PNG file with transparent pixels.
+  const base::FilePath transparent_image_path =
+      test_data_dir_.Append(test::kUserAvatarImage3RelativePath);
+  const std::unique_ptr<gfx::ImageSkia> transparent_image =
+      test::ImageLoader(transparent_image_path).Load();
+  ASSERT_TRUE(transparent_image);
+  // This image should have transparent pixels (i.e. not opaque).
+  EXPECT_FALSE(SkBitmap::ComputeIsOpaque(*transparent_image->bitmap()));
+
+  run_loop_.reset(new base::RunLoop);
+  user_image_manager->SaveUserImageFromFile(transparent_image_path);
+  run_loop_->Run();
+
+  EXPECT_TRUE(test::AreImagesEqual(*transparent_image, user->GetImage()));
+  ExpectUserImageInfo(test_account_id1_,
+                      user_manager::User::USER_IMAGE_EXTERNAL,
+                      GetUserImagePath(test_account_id1_, "png"));
+
+  const std::unique_ptr<gfx::ImageSkia> new_saved_image =
+      test::ImageLoader(GetUserImagePath(test_account_id1_, "png")).Load();
+  ASSERT_TRUE(new_saved_image);
+
+  // The saved image should have transparent pixels (i.e. not opaque).
+  EXPECT_FALSE(SkBitmap::ComputeIsOpaque(*new_saved_image->bitmap()));
+
+  // The old user image file in JPEG should be deleted. Only the PNG version
+  // should stay.
+  EXPECT_FALSE(base::PathExists(GetUserImagePath(test_account_id1_, "jpg")));
+  EXPECT_TRUE(base::PathExists(GetUserImagePath(test_account_id1_, "png")));
 }
 
 IN_PROC_BROWSER_TEST_F(UserImageManagerTest,

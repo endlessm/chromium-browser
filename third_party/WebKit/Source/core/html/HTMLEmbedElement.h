@@ -23,11 +23,12 @@
 #ifndef HTMLEmbedElement_h
 #define HTMLEmbedElement_h
 
+#include "core/CoreExport.h"
 #include "core/html/HTMLPlugInElement.h"
 
 namespace blink {
 
-class HTMLEmbedElement final : public HTMLPlugInElement {
+class CORE_EXPORT HTMLEmbedElement final : public HTMLPlugInElement {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
@@ -38,9 +39,7 @@ class HTMLEmbedElement final : public HTMLPlugInElement {
  private:
   HTMLEmbedElement(Document&, bool createdByParser);
 
-  void parseAttribute(const QualifiedName&,
-                      const AtomicString&,
-                      const AtomicString&) override;
+  void parseAttribute(const AttributeModificationParams&) override;
   bool isPresentationAttribute(const QualifiedName&) const override;
   void collectStyleForPresentationAttribute(const QualifiedName&,
                                             const AtomicString&,

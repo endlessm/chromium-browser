@@ -6,9 +6,7 @@
 
 #include <cstdlib>  // std::abs
 
-#include "net/quic/core/quic_flags.h"
-
-using std::max;
+#include "net/quic/platform/api/quic_logging.h"
 
 namespace net {
 
@@ -20,8 +18,6 @@ const float kAlpha = 0.125f;
 const float kOneMinusAlpha = (1 - kAlpha);
 const float kBeta = 0.25f;
 const float kOneMinusBeta = (1 - kBeta);
-// 10-second window length for windowed min RTT.
-const int kMinRttWindowLengthMs = 10000;
 
 }  // namespace
 
@@ -31,26 +27,13 @@ RttStats::RttStats()
       smoothed_rtt_(QuicTime::Delta::Zero()),
       previous_srtt_(QuicTime::Delta::Zero()),
       mean_deviation_(QuicTime::Delta::Zero()),
-      initial_rtt_us_(kInitialRttMs * kNumMicrosPerMilli),
-      forced_windowed_min_rtt_(QuicTime::Delta::Zero()),
-      forced_windowed_min_rtt_time_(QuicTime::Zero()),
-      num_samples_for_forced_min_(0),
-      windowed_min_rtt_(
-          QuicTime::Delta::FromMilliseconds(kMinRttWindowLengthMs),
-          QuicTime::Delta::Zero(),
-          QuicTime::Zero()) {}
-
-void RttStats::SampleNewWindowedMinRtt(uint32_t num_samples) {
-  num_samples_for_forced_min_ = num_samples;
-  forced_windowed_min_rtt_ = QuicTime::Delta::Zero();
-  forced_windowed_min_rtt_time_ = QuicTime::Zero();
-}
+      initial_rtt_us_(kInitialRttMs * kNumMicrosPerMilli) {}
 
 void RttStats::ExpireSmoothedMetrics() {
-  mean_deviation_ = max(mean_deviation_,
-                        QuicTime::Delta::FromMicroseconds(std::abs(
-                            (smoothed_rtt_ - latest_rtt_).ToMicroseconds())));
-  smoothed_rtt_ = max(smoothed_rtt_, latest_rtt_);
+  mean_deviation_ = std::max(
+      mean_deviation_, QuicTime::Delta::FromMicroseconds(std::abs(
+                           (smoothed_rtt_ - latest_rtt_).ToMicroseconds())));
+  smoothed_rtt_ = std::max(smoothed_rtt_, latest_rtt_);
 }
 
 // Updates the RTT based on a new sample.
@@ -58,9 +41,10 @@ void RttStats::UpdateRtt(QuicTime::Delta send_delta,
                          QuicTime::Delta ack_delay,
                          QuicTime now) {
   if (send_delta.IsInfinite() || send_delta <= QuicTime::Delta::Zero()) {
-    LOG(WARNING) << "Ignoring measured send_delta, because it's is "
-                 << "either infinite, zero, or negative.  send_delta = "
-                 << send_delta.ToMicroseconds();
+    QUIC_LOG_FIRST_N(WARNING, 3)
+        << "Ignoring measured send_delta, because it's is "
+        << "either infinite, zero, or negative.  send_delta = "
+        << send_delta.ToMicroseconds();
     return;
   }
 
@@ -71,7 +55,6 @@ void RttStats::UpdateRtt(QuicTime::Delta send_delta,
   if (min_rtt_.IsZero() || min_rtt_ > send_delta) {
     min_rtt_ = send_delta;
   }
-  UpdateWindowedMinRtt(send_delta, now);
 
   // Correct for ack_delay if information received from the peer results in a
   // positive RTT sample. Otherwise, we use the send_delta as a reasonable
@@ -93,28 +76,9 @@ void RttStats::UpdateRtt(QuicTime::Delta send_delta,
         kOneMinusBeta * mean_deviation_.ToMicroseconds() +
         kBeta * std::abs((smoothed_rtt_ - rtt_sample).ToMicroseconds())));
     smoothed_rtt_ = kOneMinusAlpha * smoothed_rtt_ + kAlpha * rtt_sample;
-    DVLOG(1) << " smoothed_rtt(us):" << smoothed_rtt_.ToMicroseconds()
-             << " mean_deviation(us):" << mean_deviation_.ToMicroseconds();
+    QUIC_DVLOG(1) << " smoothed_rtt(us):" << smoothed_rtt_.ToMicroseconds()
+                  << " mean_deviation(us):" << mean_deviation_.ToMicroseconds();
   }
-}
-
-void RttStats::UpdateWindowedMinRtt(QuicTime::Delta rtt_sample, QuicTime now) {
-  // Update windowed_min_rtt.
-  windowed_min_rtt_.Update(rtt_sample, now);
-  if (num_samples_for_forced_min_ <= 0) {
-    return;
-  }
-  // Reset windowed_min_rtt to the min of num_samples_for_forced_min_ samples.
-  if (forced_windowed_min_rtt_.IsZero() ||
-      rtt_sample <= forced_windowed_min_rtt_) {
-    forced_windowed_min_rtt_ = rtt_sample;
-    forced_windowed_min_rtt_time_ = now;
-  }
-  if (num_samples_for_forced_min_ == 1) {
-    windowed_min_rtt_.Reset(forced_windowed_min_rtt_,
-                            forced_windowed_min_rtt_time_);
-  }
-  --num_samples_for_forced_min_;
 }
 
 void RttStats::OnConnectionMigration() {
@@ -123,8 +87,6 @@ void RttStats::OnConnectionMigration() {
   smoothed_rtt_ = QuicTime::Delta::Zero();
   mean_deviation_ = QuicTime::Delta::Zero();
   initial_rtt_us_ = kInitialRttMs * kNumMicrosPerMilli;
-  num_samples_for_forced_min_ = 0;
-  windowed_min_rtt_.Reset(QuicTime::Delta::Zero(), QuicTime::Zero());
 }
 
 }  // namespace net

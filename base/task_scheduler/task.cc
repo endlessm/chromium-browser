@@ -10,7 +10,7 @@ namespace internal {
 Task::Task(const tracked_objects::Location& posted_from,
            const Closure& task,
            const TaskTraits& traits,
-           const TimeDelta& delay)
+           TimeDelta delay)
     : PendingTask(posted_from,
                   task,
                   delay.is_zero() ? TimeTicks() : TimeTicks::Now() + delay,
@@ -22,7 +22,8 @@ Task::Task(const tracked_objects::Location& posted_from,
                          TaskShutdownBehavior::BLOCK_SHUTDOWN
                  ? TaskTraits(traits).WithShutdownBehavior(
                        TaskShutdownBehavior::SKIP_ON_SHUTDOWN)
-                 : traits) {}
+                 : traits),
+      delay(delay) {}
 
 Task::~Task() = default;
 

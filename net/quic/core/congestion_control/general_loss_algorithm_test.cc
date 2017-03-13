@@ -5,16 +5,15 @@
 #include "net/quic/core/congestion_control/general_loss_algorithm.h"
 
 #include <algorithm>
+#include <cstdint>
 
-#include "base/logging.h"
+#include "base/stl_util.h"
 #include "net/quic/core/congestion_control/rtt_stats.h"
 #include "net/quic/core/quic_flags.h"
 #include "net/quic/core/quic_unacked_packet_map.h"
 #include "net/quic/test_tools/mock_clock.h"
 #include "net/quic/test_tools/quic_test_utils.h"
 #include "testing/gtest/include/gtest/gtest.h"
-
-using std::vector;
 
 namespace net {
 namespace test {
@@ -38,7 +37,7 @@ class GeneralLossAlgorithmTest : public ::testing::Test {
     frame->stream_id = kHeadersStreamId;
     SerializedPacket packet(kDefaultPathId, packet_number,
                             PACKET_1BYTE_PACKET_NUMBER, nullptr, kDefaultLength,
-                            0, false, false);
+                            false, false);
     packet.retransmittable_frames.push_back(QuicFrame(frame));
     unacked_packets_.AddSentPacket(&packet, 0, NOT_RETRANSMISSION, clock_.Now(),
                                    true);
@@ -47,7 +46,7 @@ class GeneralLossAlgorithmTest : public ::testing::Test {
   void SendAckPacket(QuicPacketNumber packet_number) {
     SerializedPacket packet(kDefaultPathId, packet_number,
                             PACKET_1BYTE_PACKET_NUMBER, nullptr, kDefaultLength,
-                            0, true, false);
+                            true, false);
     unacked_packets_.AddSentPacket(&packet, 0, NOT_RETRANSMISSION, clock_.Now(),
                                    false);
   }
@@ -193,7 +192,7 @@ TEST_F(GeneralLossAlgorithmTest, DontEarlyRetransmitNeuteredPacket) {
 }
 
 TEST_F(GeneralLossAlgorithmTest, EarlyRetransmitWithLargerUnackablePackets) {
-  FLAGS_quic_largest_sent_retransmittable = true;
+  FLAGS_quic_reloadable_flag_quic_largest_sent_retransmittable = true;
   // Transmit 2 data packets and one ack.
   SendDataPacket(1);
   SendDataPacket(2);
@@ -230,6 +229,73 @@ TEST_F(GeneralLossAlgorithmTest, AlwaysLosePacketSent1RTTEarlier) {
   unacked_packets_.RemoveFromInFlight(2);
   QuicPacketNumber lost[] = {1};
   VerifyLosses(2, lost, arraysize(lost));
+}
+
+// NoFack loss detection tests.
+TEST_F(GeneralLossAlgorithmTest, LazyFackNackRetransmit1Packet) {
+  loss_algorithm_.SetLossDetectionType(kLazyFack);
+  const size_t kNumSentPackets = 5;
+  // Transmit 5 packets.
+  for (size_t i = 1; i <= kNumSentPackets; ++i) {
+    SendDataPacket(i);
+  }
+  // No loss on one ack.
+  unacked_packets_.RemoveFromInFlight(2);
+  VerifyLosses(2, nullptr, 0);
+  // No loss on two acks.
+  unacked_packets_.RemoveFromInFlight(3);
+  VerifyLosses(3, nullptr, 0);
+  // Loss on three acks.
+  unacked_packets_.RemoveFromInFlight(4);
+  QuicPacketNumber lost[] = {1};
+  VerifyLosses(4, lost, arraysize(lost));
+  EXPECT_EQ(QuicTime::Zero(), loss_algorithm_.GetLossTimeout());
+}
+
+// A stretch ack is an ack that covers more than 1 packet of previously
+// unacknowledged data.
+TEST_F(GeneralLossAlgorithmTest,
+       LazyFackNoNackRetransmit1PacketWith1StretchAck) {
+  loss_algorithm_.SetLossDetectionType(kLazyFack);
+  const size_t kNumSentPackets = 10;
+  // Transmit 10 packets.
+  for (size_t i = 1; i <= kNumSentPackets; ++i) {
+    SendDataPacket(i);
+  }
+
+  // Nack the first packet 3 times in a single StretchAck.
+  unacked_packets_.RemoveFromInFlight(2);
+  unacked_packets_.RemoveFromInFlight(3);
+  unacked_packets_.RemoveFromInFlight(4);
+  VerifyLosses(4, nullptr, 0);
+  // The timer isn't set because we expect more acks.
+  EXPECT_EQ(QuicTime::Zero(), loss_algorithm_.GetLossTimeout());
+  // Process another ack and then packet 1 will be lost.
+  unacked_packets_.RemoveFromInFlight(5);
+  QuicPacketNumber lost[] = {1};
+  VerifyLosses(5, lost, arraysize(lost));
+  EXPECT_EQ(QuicTime::Zero(), loss_algorithm_.GetLossTimeout());
+}
+
+// Ack a packet 3 packets ahead does not cause a retransmit.
+TEST_F(GeneralLossAlgorithmTest, LazyFackNackRetransmit1PacketSingleAck) {
+  loss_algorithm_.SetLossDetectionType(kLazyFack);
+  const size_t kNumSentPackets = 10;
+  // Transmit 10 packets.
+  for (size_t i = 1; i <= kNumSentPackets; ++i) {
+    SendDataPacket(i);
+  }
+
+  // Nack the first packet 3 times in an AckFrame with three missing packets.
+  unacked_packets_.RemoveFromInFlight(4);
+  VerifyLosses(4, nullptr, 0);
+  // The timer isn't set because we expect more acks.
+  EXPECT_EQ(QuicTime::Zero(), loss_algorithm_.GetLossTimeout());
+  // Process another ack and then packet 1 and 2 will be lost.
+  unacked_packets_.RemoveFromInFlight(5);
+  QuicPacketNumber lost[] = {1, 2};
+  VerifyLosses(5, lost, arraysize(lost));
+  EXPECT_EQ(QuicTime::Zero(), loss_algorithm_.GetLossTimeout());
 }
 
 // Time-based loss detection tests.

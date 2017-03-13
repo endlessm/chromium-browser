@@ -4,7 +4,6 @@
 
 #include "chrome/browser/ui/views/location_bar/location_icon_view.h"
 
-#include "chrome/browser/ssl/chrome_security_state_model_client.h"
 #include "chrome/browser/ui/view_ids.h"
 #include "chrome/browser/ui/views/location_bar/location_bar_view.h"
 #include "chrome/browser/ui/views/website_settings/website_settings_popup_view.h"
@@ -12,13 +11,10 @@
 #include "chrome/grit/theme_resources.h"
 #include "components/grit/components_scaled_resources.h"
 #include "components/omnibox/browser/omnibox_edit_model.h"
-#include "content/public/browser/navigation_controller.h"
-#include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/web_contents.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/views/controls/label.h"
 
-using content::NavigationEntry;
 using content::WebContents;
 
 LocationIconView::LocationIconView(const gfx::FontList& font_list,
@@ -57,7 +53,9 @@ bool LocationIconView::OnMousePressed(const ui::MouseEvent& event) {
       model->PasteAndGo(text);
   }
 
-  suppress_mouse_released_action_ = WebsiteSettingsPopupView::IsPopupShowing();
+  suppress_mouse_released_action_ =
+      WebsiteSettingsPopupView::GetShownPopupType() !=
+      WebsiteSettingsPopupView::POPUP_NONE;
   return true;
 }
 
@@ -103,22 +101,13 @@ bool LocationIconView::OnActivate(const ui::Event& event) {
   WebContents* contents = location_bar_->GetWebContents();
   if (!contents)
     return false;
-
-  // Important to use GetVisibleEntry to match what's showing in the omnibox.
-  NavigationEntry* entry = contents->GetController().GetVisibleEntry();
-  // The visible entry can be nullptr in the case of window.open("").
-  if (!entry)
-    return false;
-
-  ChromeSecurityStateModelClient* model_client =
-      ChromeSecurityStateModelClient::FromWebContents(contents);
-  DCHECK(model_client);
-  security_state::SecurityStateModel::SecurityInfo security_info;
-  model_client->GetSecurityInfo(&security_info);
-
-  location_bar_->delegate()->ShowWebsiteSettings(
-      contents, entry->GetVirtualURL(), security_info);
+  location_bar_->delegate()->ShowWebsiteSettings(contents);
   return true;
+}
+
+void LocationIconView::GetAccessibleNodeData(ui::AXNodeData* node_data) {
+  IconLabelBubbleView::GetAccessibleNodeData(node_data);
+  node_data->role = ui::AX_ROLE_POP_UP_BUTTON;
 }
 
 gfx::Size LocationIconView::GetMinimumSizeForLabelText(
@@ -128,7 +117,8 @@ gfx::Size LocationIconView::GetMinimumSizeForLabelText(
       GetSizeForLabelWidth(label.GetPreferredSize().width()));
 }
 
-void LocationIconView::SetSecurityState(bool should_show, bool should_animate) {
+void LocationIconView::SetTextVisibility(bool should_show,
+                                         bool should_animate) {
   if (!should_animate) {
     animation_.Reset(should_show);
   } else if (should_show) {

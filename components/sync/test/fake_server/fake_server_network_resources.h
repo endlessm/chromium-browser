@@ -7,9 +7,11 @@
 
 #include <memory>
 
+#include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
-#include "components/sync/core/network_resources.h"
-#include "components/sync/core/network_time_update_callback.h"
+#include "base/single_thread_task_runner.h"
+#include "components/sync/engine/net/network_resources.h"
+#include "components/sync/engine/net/network_time_update_callback.h"
 
 namespace net {
 class URLRequestContextGetter;
@@ -35,6 +37,7 @@ class FakeServerNetworkResources : public syncer::NetworkResources {
 
  private:
   base::WeakPtr<FakeServer> fake_server_;
+  scoped_refptr<base::SingleThreadTaskRunner> fake_server_task_runner_;
 };
 
 }  // namespace fake_server

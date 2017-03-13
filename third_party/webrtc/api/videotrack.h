@@ -29,13 +29,15 @@ class VideoTrack : public MediaStreamTrack<VideoTrackInterface>,
       const std::string& label,
       VideoTrackSourceInterface* source);
 
-  void AddOrUpdateSink(rtc::VideoSinkInterface<cricket::VideoFrame>* sink,
+  void AddOrUpdateSink(rtc::VideoSinkInterface<VideoFrame>* sink,
                        const rtc::VideoSinkWants& wants) override;
-  void RemoveSink(rtc::VideoSinkInterface<cricket::VideoFrame>* sink) override;
+  void RemoveSink(rtc::VideoSinkInterface<VideoFrame>* sink) override;
 
   VideoTrackSourceInterface* GetSource() const override {
     return video_source_.get();
   }
+  ContentHint content_hint() const override;
+  void set_content_hint(ContentHint hint) override;
   bool set_enabled(bool enable) override;
   std::string kind() const override;
 
@@ -50,6 +52,7 @@ class VideoTrack : public MediaStreamTrack<VideoTrackInterface>,
   rtc::ThreadChecker signaling_thread_checker_;
   rtc::ThreadChecker worker_thread_checker_;
   rtc::scoped_refptr<VideoTrackSourceInterface> video_source_;
+  ContentHint content_hint_ GUARDED_BY(signaling_thread_checker_);
 };
 
 }  // namespace webrtc

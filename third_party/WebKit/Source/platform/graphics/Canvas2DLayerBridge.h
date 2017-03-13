@@ -56,7 +56,6 @@ class GLES2Interface;
 
 namespace blink {
 
-class Canvas2DLayerBridgeHistogramLogger;
 class Canvas2DLayerBridgeTest;
 class ImageBuffer;
 class WebGraphicsContext3DProvider;
@@ -95,7 +94,8 @@ class PLATFORM_EXPORT Canvas2DLayerBridge
                       int msaaSampleCount,
                       OpacityMode,
                       AccelerationMode,
-                      sk_sp<SkColorSpace>);
+                      sk_sp<SkColorSpace>,
+                      SkColorType);
 
   ~Canvas2DLayerBridge() override;
 
@@ -142,6 +142,9 @@ class PLATFORM_EXPORT Canvas2DLayerBridge
   void hibernate();
   bool isHibernating() const { return m_hibernationImage.get(); }
   sk_sp<SkColorSpace> colorSpace() const { return m_colorSpace; }
+  SkColorType colorType() const { return m_colorType; }
+
+  bool hasRecordedDrawCommands() { return m_haveRecordedDrawCommands; }
 
   sk_sp<SkImage> newImageSnapshot(AccelerationHint, SnapshotReason);
 
@@ -265,6 +268,8 @@ class PLATFORM_EXPORT Canvas2DLayerBridge
   bool m_surfaceCreationFailedAtLeastOnce = false;
   bool m_hibernationScheduled = false;
   bool m_dontUseIdleSchedulingForTesting = false;
+  bool m_didDrawSinceLastFlush = false;
+  bool m_didDrawSinceLastGpuFlush = false;
 
   friend class Canvas2DLayerBridgeTest;
   friend class CanvasRenderingContext2DTest;
@@ -285,6 +290,7 @@ class PLATFORM_EXPORT Canvas2DLayerBridge
   OpacityMode m_opacityMode;
   const IntSize m_size;
   sk_sp<SkColorSpace> m_colorSpace;
+  SkColorType m_colorType;
   int m_recordingPixelCount;
 
 #if USE_IOSURFACE_FOR_2D_CANVAS

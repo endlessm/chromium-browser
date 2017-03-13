@@ -454,12 +454,12 @@ void vpx_mbpost_proc_across_ip_msa(uint8_t *src_ptr, int32_t pitch,
   v16u8 tmp = { 0 };
   v16i8 zero = { 0 };
   v8u16 sum_h, src_r_h, src_l_h;
-  v4u32 src_r_w, src_l_w;
+  v4u32 src_r_w;
   v4i32 flimit_vec;
 
   flimit_vec = __msa_fill_w(flimit);
   for (row = rows; row--;) {
-    int32_t sum_sq = 0;
+    int32_t sum_sq;
     int32_t sum = 0;
     src0 = (v16u8)__msa_fill_b(src_dup[0]);
     ST8x1_UB(src0, (src_dup - 8));
@@ -473,9 +473,8 @@ void vpx_mbpost_proc_across_ip_msa(uint8_t *src_ptr, int32_t pitch,
     src[15] = 0;
     ILVRL_B2_UH(zero, src, src_r_h, src_l_h);
     src_r_w = __msa_dotp_u_w(src_r_h, src_r_h);
-    src_l_w = __msa_dotp_u_w(src_l_h, src_l_h);
-    sum_sq = HADD_SW_S32(src_r_w);
-    sum_sq += HADD_SW_S32(src_l_w);
+    src_r_w += __msa_dotp_u_w(src_l_h, src_l_h);
+    sum_sq = HADD_SW_S32(src_r_w) + 16;
     sum_h = __msa_hadd_u_h(src, src);
     sum = HADD_UH_U32(sum_h);
     {
@@ -574,7 +573,6 @@ void vpx_mbpost_proc_across_ip_msa(uint8_t *src_ptr, int32_t pitch,
 void vpx_mbpost_proc_down_msa(uint8_t *dst_ptr, int32_t pitch, int32_t rows,
                               int32_t cols, int32_t flimit) {
   int32_t row, col, cnt, i;
-  const int16_t *rv3 = &vpx_rv[63 & rand()];
   v4i32 flimit_vec;
   v16u8 dst7, dst8, dst_r_b, dst_l_b;
   v16i8 mask;
@@ -602,7 +600,7 @@ void vpx_mbpost_proc_down_msa(uint8_t *dst_ptr, int32_t pitch, int32_t rows,
 
     dst = LD_UB(dst_tmp);
     for (cnt = (col << 4), i = 0; i < 16; ++cnt) {
-      rv2[i] = rv3 + ((cnt * 17) & 127);
+      rv2[i] = vpx_rv + (i & 7);
       ++i;
     }
     for (cnt = -8; cnt < 0; ++cnt) {

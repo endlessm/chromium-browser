@@ -6,6 +6,7 @@
 
 #include "base/bind.h"
 #include "base/callback.h"
+#include "base/memory/ptr_util.h"
 #include "chrome/browser/history/history_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/supervised_user/supervised_user_interstitial.h"
@@ -66,9 +67,9 @@ void SupervisedUserNavigationObserver::OnRequestBlocked(
 
 void SupervisedUserNavigationObserver::DidFinishNavigation(
       content::NavigationHandle* navigation_handle) {
-  // Only filter synchronous navigations (eg. pushState/popState); others will
+  // Only filter same page navigations (eg. pushState/popState); others will
   // have been filtered by the ResourceThrottle.
-  if (!navigation_handle->IsSynchronousNavigation())
+  if (!navigation_handle->IsSamePage())
     return;
 
   if (!navigation_handle->IsInMainFrame())

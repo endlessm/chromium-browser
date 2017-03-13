@@ -64,7 +64,7 @@ extern "C" {
  *
  * The "seal" and "open" operations are atomic - an entire message must be
  * encrypted or decrypted in a single call. Large messages may have to be split
- * up in order to accomodate this. When doing so, be mindful of the need not to
+ * up in order to accommodate this. When doing so, be mindful of the need not to
  * repeat nonces and the possibility that an attacker could duplicate, reorder
  * or drop message chunks. For example, using a single key for a given (large)
  * message and sealing chunks with nonces counting from zero would be secure as
@@ -105,20 +105,6 @@ OPENSSL_EXPORT const EVP_AEAD *EVP_aead_chacha20_poly1305(void);
  * suites. */
 OPENSSL_EXPORT const EVP_AEAD *EVP_aead_chacha20_poly1305_old(void);
 
-/* EVP_aead_aes_128_key_wrap is AES-128 Key Wrap mode. This should never be
- * used except to interoperate with existing systems that use this mode.
- *
- * If the nonce is empty then the default nonce will be used, otherwise it must
- * be eight bytes long. The input must be a multiple of eight bytes long. No
- * additional data can be given to this mode. */
-OPENSSL_EXPORT const EVP_AEAD *EVP_aead_aes_128_key_wrap(void);
-
-/* EVP_aead_aes_256_key_wrap is AES-256 in Key Wrap mode. This should never be
- * used except to interoperate with existing systems that use this mode.
- *
- * See |EVP_aead_aes_128_key_wrap| for details. */
-OPENSSL_EXPORT const EVP_AEAD *EVP_aead_aes_256_key_wrap(void);
-
 /* EVP_aead_aes_128_ctr_hmac_sha256 is AES-128 in CTR mode with HMAC-SHA256 for
  * authentication. The nonce is 12 bytes; the bottom 32-bits are used as the
  * block counter, thus the maximum plaintext size is 64GB. */
@@ -127,6 +113,14 @@ OPENSSL_EXPORT const EVP_AEAD *EVP_aead_aes_128_ctr_hmac_sha256(void);
 /* EVP_aead_aes_256_ctr_hmac_sha256 is AES-256 in CTR mode with HMAC-SHA256 for
  * authentication. See |EVP_aead_aes_128_ctr_hmac_sha256| for details. */
 OPENSSL_EXPORT const EVP_AEAD *EVP_aead_aes_256_ctr_hmac_sha256(void);
+
+/* EVP_aead_aes_128_gcm_siv is AES-128 in GCM-SIV mode. See
+ * https://tools.ietf.org/html/draft-irtf-cfrg-gcmsiv-02 */
+OPENSSL_EXPORT const EVP_AEAD *EVP_aead_aes_128_gcm_siv(void);
+
+/* EVP_aead_aes_256_gcm_siv is AES-256 in GCM-SIV mode. See
+ * https://tools.ietf.org/html/draft-irtf-cfrg-gcmsiv-02 */
+OPENSSL_EXPORT const EVP_AEAD *EVP_aead_aes_256_gcm_siv(void);
 
 /* EVP_has_aes_hardware returns one if we enable hardware support for fast and
  * constant-time AES-GCM. */

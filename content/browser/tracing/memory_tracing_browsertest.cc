@@ -13,6 +13,7 @@
 #include "base/trace_event/memory_dump_provider.h"
 #include "base/trace_event/memory_dump_request_args.h"
 #include "base/trace_event/trace_config_memory_test_util.h"
+#include "base/trace_event/trace_log.h"
 #include "content/public/browser/tracing_controller.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/test/browser_test_utils.h"
@@ -102,13 +103,19 @@ class MemoryTracingTest : public ContentBrowserTest {
   }
 
   void TearDown() override {
-    MemoryDumpManager::GetInstance()->UnregisterDumpProvider(
-        mock_dump_provider_.get());
+    MemoryDumpManager::GetInstance()->UnregisterAndDeleteDumpProviderSoon(
+        std::move(mock_dump_provider_));
     mock_dump_provider_.reset();
     ContentBrowserTest::TearDown();
   }
 
   void EnableMemoryTracing() {
+    // Re-enabling tracing could crash these tests https://crbug.com/657628 .
+    if (base::trace_event::TraceLog::GetInstance()->IsEnabled()) {
+      FAIL() << "Tracing seems to be already enabled. "
+                "Very likely this is because the startup tracing file "
+                "has been leaked from a previous test.";
+    }
     // Enable tracing without periodic dumps.
     base::trace_event::TraceConfig trace_config(
         base::trace_event::TraceConfigMemoryTestUtil::

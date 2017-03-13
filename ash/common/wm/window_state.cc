@@ -13,7 +13,6 @@
 #include "ash/common/wm/wm_event.h"
 #include "ash/common/wm/wm_screen_util.h"
 #include "ash/common/wm_window.h"
-#include "ash/common/wm_window_property.h"
 #include "base/auto_reset.h"
 
 namespace ash {
@@ -34,6 +33,8 @@ WMEventType WMEventTypeFromShowState(ui::WindowShowState requested_show_state) {
       return WM_EVENT_FULLSCREEN;
     case ui::SHOW_STATE_INACTIVE:
       return WM_EVENT_SHOW_INACTIVE;
+
+    // TODO(afakhry): Remove Docked Windows in M58.
     case ui::SHOW_STATE_DOCKED:
       return WM_EVENT_DOCK;
     case ui::SHOW_STATE_END:
@@ -88,6 +89,10 @@ bool WindowState::IsPinned() const {
          GetStateType() == WINDOW_STATE_TYPE_TRUSTED_PINNED;
 }
 
+bool WindowState::IsTrustedPinned() const {
+  return GetStateType() == WINDOW_STATE_TYPE_TRUSTED_PINNED;
+}
+
 bool WindowState::IsNormalStateType() const {
   return GetStateType() == WINDOW_STATE_TYPE_NORMAL ||
          GetStateType() == WINDOW_STATE_TYPE_DEFAULT;
@@ -111,12 +116,8 @@ bool WindowState::IsUserPositionable() const {
           window_->GetType() == ui::wm::WINDOW_TYPE_PANEL);
 }
 
-bool WindowState::ShouldBeExcludedFromMru() const {
-  return (window_->GetBoolProperty(ash::WmWindowProperty::EXCLUDE_FROM_MRU));
-}
-
 bool WindowState::CanMaximize() const {
-  // Window must have the kCanMaximizeKey and have no maximum width or height.
+  // Window must allow maximization and have no maximum width or height.
   if (!window_->CanMaximize())
     return false;
 
@@ -164,10 +165,6 @@ void WindowState::Minimize() {
 
 void WindowState::Unminimize() {
   window_->Unminimize();
-}
-
-void WindowState::SetExcludedFromMru(bool excluded_from_mru) {
-  window_->SetExcludedFromMru(excluded_from_mru);
 }
 
 void WindowState::Activate() {
@@ -302,7 +299,6 @@ WindowState::WindowState(WmWindow* window)
     : window_(window),
       window_position_managed_(false),
       bounds_changed_by_user_(false),
-      panel_attached_(true),
       ignored_by_shelf_(false),
       can_consume_system_keys_(false),
       unminimize_to_restore_bounds_(false),
@@ -351,14 +347,14 @@ void WindowState::UpdateWindowShowStateFromStateType() {
 
 void WindowState::NotifyPreStateTypeChange(
     WindowStateType old_window_state_type) {
-  FOR_EACH_OBSERVER(WindowStateObserver, observer_list_,
-                    OnPreWindowStateTypeChange(this, old_window_state_type));
+  for (auto& observer : observer_list_)
+    observer.OnPreWindowStateTypeChange(this, old_window_state_type);
 }
 
 void WindowState::NotifyPostStateTypeChange(
     WindowStateType old_window_state_type) {
-  FOR_EACH_OBSERVER(WindowStateObserver, observer_list_,
-                    OnPostWindowStateTypeChange(this, old_window_state_type));
+  for (auto& observer : observer_list_)
+    observer.OnPostWindowStateTypeChange(this, old_window_state_type);
 }
 
 void WindowState::SetBoundsDirect(const gfx::Rect& bounds) {

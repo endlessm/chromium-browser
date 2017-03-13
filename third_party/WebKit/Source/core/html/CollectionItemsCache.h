@@ -32,7 +32,7 @@
 #ifndef CollectionItemsCache_h
 #define CollectionItemsCache_h
 
-#include "core/html/CollectionIndexCache.h"
+#include "core/dom/CollectionIndexCache.h"
 #include "wtf/Vector.h"
 
 namespace blink {
@@ -86,7 +86,7 @@ unsigned CollectionItemsCache<Collection, NodeType>::nodeCount(
   NodeType* currentNode = collection.traverseToFirst();
   unsigned currentIndex = 0;
   while (currentNode) {
-    m_cachedList.append(currentNode);
+    m_cachedList.push_back(currentNode);
     currentNode = collection.traverseForwardToOffset(
         currentIndex + 1, *currentNode, currentIndex);
   }

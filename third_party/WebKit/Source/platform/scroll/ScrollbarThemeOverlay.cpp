@@ -59,6 +59,21 @@ ScrollbarThemeOverlay::ScrollbarThemeOverlay(int thumbThickness,
       m_allowHitTest(allowHitTest),
       m_useSolidColor(false) {}
 
+bool ScrollbarThemeOverlay::shouldRepaintAllPartsOnInvalidation() const {
+  return false;
+}
+
+ScrollbarPart ScrollbarThemeOverlay::invalidateOnThumbPositionChange(
+    const ScrollbarThemeClient&,
+    float oldPosition,
+    float newPosition) const {
+  return NoPart;
+}
+
+ScrollbarPart ScrollbarThemeOverlay::invalidateOnEnabledChange() const {
+  return NoPart;
+}
+
 int ScrollbarThemeOverlay::scrollbarThickness(
     ScrollbarControlSize controlSize) {
   return m_thumbThickness + m_scrollbarMargin;
@@ -70,6 +85,27 @@ int ScrollbarThemeOverlay::scrollbarMargin() const {
 
 bool ScrollbarThemeOverlay::usesOverlayScrollbars() const {
   return true;
+}
+
+double ScrollbarThemeOverlay::overlayScrollbarFadeOutDelaySeconds() const {
+  // TODO(bokan): Unit tests run without a theme engine. This is normally fine
+  // because they expect to use ScrollbarThemeMock which doesn't use a theme
+  // engine.  If overlays are turned on though, this class is used even if mock
+  // scrollbars are on. We should either provide mock out a web theme engine for
+  // unit tests or provide a mock version of this class.
+  if (!Platform::current()->themeEngine())
+    return 0.0;
+  WebThemeEngine::ScrollbarStyle style;
+  Platform::current()->themeEngine()->getOverlayScrollbarStyle(&style);
+  return style.fadeOutDelaySeconds;
+}
+
+double ScrollbarThemeOverlay::overlayScrollbarFadeOutDurationSeconds() const {
+  if (!Platform::current()->themeEngine())
+    return 0.0;
+  WebThemeEngine::ScrollbarStyle style;
+  Platform::current()->themeEngine()->getOverlayScrollbarStyle(&style);
+  return style.fadeOutDurationSeconds;
 }
 
 int ScrollbarThemeOverlay::thumbPosition(const ScrollbarThemeClient& scrollbar,
@@ -145,13 +181,16 @@ void ScrollbarThemeOverlay::paintThumb(GraphicsContext& context,
       thumbRect.setX(thumbRect.x() + m_scrollbarMargin);
   }
 
-  if (m_useSolidColor) {
+  if (m_useSolidColor || !Platform::current()->themeEngine()) {
     context.fillRect(thumbRect, m_color);
     return;
   }
 
   WebThemeEngine::State state = WebThemeEngine::StateNormal;
-  if (scrollbar.pressedPart() == ThumbPart)
+
+  if (!scrollbar.enabled())
+    state = WebThemeEngine::StateDisabled;
+  else if (scrollbar.pressedPart() == ThumbPart)
     state = WebThemeEngine::StatePressed;
   else if (scrollbar.hoveredPart() == ThumbPart)
     state = WebThemeEngine::StateHover;
@@ -162,8 +201,13 @@ void ScrollbarThemeOverlay::paintThumb(GraphicsContext& context,
   if (scrollbar.orientation() == VerticalScrollbar)
     part = WebThemeEngine::PartScrollbarVerticalThumb;
 
+  blink::WebThemeEngine::ExtraParams params;
+  params.scrollbarThumb.scrollbarTheme =
+      static_cast<WebScrollbarOverlayColorTheme>(
+          scrollbar.getScrollbarOverlayColorTheme());
+
   Platform::current()->themeEngine()->paint(canvas, part, state, WebRect(rect),
-                                            0);
+                                            &params);
 }
 
 ScrollbarPart ScrollbarThemeOverlay::hitTest(
@@ -172,7 +216,11 @@ ScrollbarPart ScrollbarThemeOverlay::hitTest(
   if (m_allowHitTest == DisallowHitTest)
     return NoPart;
 
-  return ScrollbarTheme::hitTest(scrollbar, position);
+  ScrollbarPart part = ScrollbarTheme::hitTest(scrollbar, position);
+  if (part != ThumbPart)
+    return NoPart;
+
+  return ThumbPart;
 }
 
 ScrollbarThemeOverlay& ScrollbarThemeOverlay::mobileTheme() {

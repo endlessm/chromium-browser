@@ -28,6 +28,7 @@ class PersonalDataManagerAndroid
   class Delegate {
    public:
     virtual void OnRulesSuccessfullyLoaded() = 0;
+    virtual ~Delegate() {}
   };
 
   PersonalDataManagerAndroid(JNIEnv* env, jobject obj);
@@ -67,6 +68,13 @@ class PersonalDataManagerAndroid
       const base::android::JavaParamRef<jobject>& unused_obj,
       const base::android::JavaParamRef<jobject>& jprofile);
 
+  // Adds or modifies a profile like SetProfile interface if |jprofile| is
+  // local. Otherwise it creates a local copy of it.
+  base::android::ScopedJavaLocalRef<jstring> SetProfileToLocal(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& unused_obj,
+      const base::android::JavaParamRef<jobject>& jprofile);
+
   // Gets the labels for all known profiles. These labels are useful for
   // distinguishing the profiles from one another.
   //
@@ -79,17 +87,38 @@ class PersonalDataManagerAndroid
   // useful for distinguishing the profiles from one another.
   //
   // The labels never contain the email address, or phone numbers. The
-  // |include_name| argument controls whether the name is included. All other
-  // fields are included in the label.
+  // |include_name_in_label| argument controls whether the name is included.
+  // All other fields are included in the label.
   base::android::ScopedJavaLocalRef<jobjectArray> GetProfileLabelsToSuggest(
       JNIEnv* env,
       const base::android::JavaParamRef<jobject>& unused_obj,
-      jboolean include_name);
+      jboolean include_name_in_label,
+      jboolean include_organization_in_label,
+      jboolean include_country_in_label);
 
-  // Returns the label of the given profile for PaymentRequest. This label does
-  // not contain the full name or the email address. All other fields are
-  // included in the label.
-  base::android::ScopedJavaLocalRef<jstring> GetAddressLabelForPaymentRequest(
+  // Returns the shipping label of the given profile for PaymentRequest. This
+  // label does not contain the full name or the email address. All other fields
+  // are included in the label.
+  base::android::ScopedJavaLocalRef<jstring>
+  GetShippingAddressLabelWithCountryForPaymentRequest(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& unused_obj,
+      const base::android::JavaParamRef<jobject>& jprofile);
+
+  // Returns the shipping label of the given profile for PaymentRequest. This
+  // label does not contain the full name, the email address or the country. All
+  // other fields are included in the label.
+  base::android::ScopedJavaLocalRef<jstring>
+  GetShippingAddressLabelWithoutCountryForPaymentRequest(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& unused_obj,
+      const base::android::JavaParamRef<jobject>& jprofile);
+
+  // Returns the billing label of the given profile for PaymentRequest. This
+  // label does not contain the company name, the phone number, the country or
+  // the email address. All other fields are included in the label.
+  base::android::ScopedJavaLocalRef<jstring>
+  GetBillingAddressLabelForPaymentRequest(
       JNIEnv* env,
       const base::android::JavaParamRef<jobject>& unused_obj,
       const base::android::JavaParamRef<jobject>& jprofile);
@@ -132,20 +161,19 @@ class PersonalDataManagerAndroid
       const base::android::JavaParamRef<jobject>& unused_obj,
       const base::android::JavaParamRef<jobject>& jcard);
 
-  // Updates the billing address of a server credit card with server ID
-  // |jcard_server_id|.
+  // Updates the billing address of a server credit card |jcard|.
   void UpdateServerCardBillingAddress(
       JNIEnv* env,
       const base::android::JavaParamRef<jobject>& unused_obj,
-      const base::android::JavaParamRef<jstring>& jcard_server_id,
-      const base::android::JavaParamRef<jstring>& jbilling_address_id);
+      const base::android::JavaParamRef<jobject>& jcard);
 
   // Returns the card type according to PaymentRequest spec, or an empty string
-  // if the given card number is not valid.
-  base::android::ScopedJavaLocalRef<jstring> GetBasicCardPaymentTypeIfValid(
+  // if the given card number is not valid and |jempty_if_invalid| is true.
+  base::android::ScopedJavaLocalRef<jstring> GetBasicCardPaymentType(
       JNIEnv* env,
       const base::android::JavaParamRef<jobject>& unused_obj,
-      const base::android::JavaParamRef<jstring>& jcard_number);
+      const base::android::JavaParamRef<jstring>& jcard_number,
+      const jboolean jempty_if_invalid);
 
   // Adds a server credit card. Used only in tests.
   void AddServerCreditCardForTest(
@@ -298,7 +326,7 @@ class PersonalDataManagerAndroid
       JNIEnv* env);
 
   // Cancels the pending address normalization task.
-  void CancelPendingAddressNormalization(
+  void CancelPendingAddressNormalizations(
       JNIEnv* env,
       const base::android::JavaParamRef<jobject>& unused_obj);
 
@@ -328,8 +356,20 @@ class PersonalDataManagerAndroid
   base::android::ScopedJavaLocalRef<jobjectArray> GetProfileLabels(
       JNIEnv* env,
       bool address_only,
-      bool include_name,
+      bool include_name_in_label,
+      bool include_organization_in_label,
+      bool include_country_in_label,
       std::vector<AutofillProfile*> profiles);
+
+  // Returns the shipping label of the given profile for PaymentRequest. This
+  // label does not contain the full name or the email address but will include
+  // the country depending on the value of |include_country_in_label|. All other
+  // fields are included in the label.
+  base::android::ScopedJavaLocalRef<jstring>
+  GetShippingAddressLabelForPaymentRequest(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& jprofile,
+      bool inlude_country_in_label);
 
   // Pointer to the java counterpart.
   JavaObjectWeakGlobalRef weak_java_obj_;
@@ -340,8 +380,9 @@ class PersonalDataManagerAndroid
   // The address validator used to normalize addresses.
   AddressValidator address_validator_;
 
-  // Map associating a region code to a pending normalization.
-  std::map<std::string, Delegate*> pending_normalization_;
+  // Map associating a region code to pending normalizations.
+  std::map<std::string, std::vector<std::unique_ptr<Delegate>>>
+      pending_normalization_;
 
   DISALLOW_COPY_AND_ASSIGN(PersonalDataManagerAndroid);
 };

@@ -17,7 +17,6 @@
 #include "base/win/scoped_select_object.h"
 #include "base/win/win_util.h"
 #include "base/win/windows_version.h"
-#include "skia/ext/bitmap_platform_device.h"
 #include "skia/ext/platform_canvas.h"
 #include "skia/ext/skia_utils_win.h"
 #include "third_party/skia/include/core/SkCanvas.h"
@@ -150,20 +149,18 @@ class ScopedCreateDCWithBitmap {
 
 namespace ui {
 
-bool NativeThemeWin::IsThemingActive() const {
-  return is_theme_active_ && is_theme_active_();
+NativeTheme* NativeTheme::GetInstanceForNativeUi() {
+  return NativeThemeWin::instance();
 }
 
-bool NativeThemeWin::IsUsingHighContrastTheme() const {
-  if (is_using_high_contrast_valid_)
-    return is_using_high_contrast_;
-  HIGHCONTRAST result;
-  result.cbSize = sizeof(HIGHCONTRAST);
-  is_using_high_contrast_ =
-      SystemParametersInfo(SPI_GETHIGHCONTRAST, result.cbSize, &result, 0) &&
-      (result.dwFlags & HCF_HIGHCONTRASTON) == HCF_HIGHCONTRASTON;
-  is_using_high_contrast_valid_ = true;
-  return is_using_high_contrast_;
+// static
+bool NativeThemeWin::IsUsingHighContrastTheme() {
+  return instance()->IsUsingHighContrastThemeInternal();
+}
+
+// static
+void NativeThemeWin::CloseHandles() {
+  instance()->CloseHandlesInternal();
 }
 
 HRESULT NativeThemeWin::GetThemeColor(ThemeName theme,
@@ -203,18 +200,6 @@ gfx::Size NativeThemeWin::GetThemeBorderSize(ThemeName theme) const {
 void NativeThemeWin::DisableTheming() const {
   if (set_theme_properties_)
     set_theme_properties_(0);
-}
-
-void NativeThemeWin::CloseHandles() const {
-  if (!close_theme_)
-    return;
-
-  for (int i = 0; i < LAST; ++i) {
-    if (theme_handles_[i]) {
-      close_theme_(theme_handles_[i]);
-      theme_handles_[i] = NULL;
-    }
-  }
 }
 
 bool NativeThemeWin::IsClassicTheme(ThemeName name) const {
@@ -292,18 +277,17 @@ void NativeThemeWin::Paint(SkCanvas* canvas,
       break;
   }
 
-  skia::ScopedPlatformPaint paint(canvas);
-  HDC surface = paint.GetPlatformSurface();
+  HDC surface = skia::GetNativeDrawingContext(canvas);
 
   // When drawing the task manager or the bookmark editor, we draw into an
   // offscreen buffer, where we can use OS-specific drawing routines for
   // UI features like scrollbars. However, we need to set up that buffer,
   // and then read it back when it's done and blit it onto the screen.
 
-  if (skia::SupportsPlatformPaint(canvas))
+  if (surface)
     PaintDirect(canvas, surface, part, state, rect, extra);
   else
-    PaintIndirect(canvas, surface, part, state, rect, extra);
+    PaintIndirect(canvas, part, state, rect, extra);
 }
 
 NativeThemeWin::NativeThemeWin()
@@ -315,7 +299,6 @@ NativeThemeWin::NativeThemeWin()
       open_theme_(NULL),
       close_theme_(NULL),
       set_theme_properties_(NULL),
-      is_theme_active_(NULL),
       get_theme_int_(NULL),
       theme_dll_(LoadLibrary(L"uxtheme.dll")),
       color_change_listener_(this),
@@ -338,8 +321,6 @@ NativeThemeWin::NativeThemeWin()
         GetProcAddress(theme_dll_, "CloseThemeData"));
     set_theme_properties_ = reinterpret_cast<SetThemeAppPropertiesPtr>(
         GetProcAddress(theme_dll_, "SetThemeAppProperties"));
-    is_theme_active_ = reinterpret_cast<IsThemeActivePtr>(
-        GetProcAddress(theme_dll_, "IsThemeActive"));
     get_theme_int_ = reinterpret_cast<GetThemeIntPtr>(
         GetProcAddress(theme_dll_, "GetThemeInt"));
   }
@@ -355,6 +336,30 @@ NativeThemeWin::~NativeThemeWin() {
     // certain tests and the reliability bots.
     // CloseHandles();
     FreeLibrary(theme_dll_);
+  }
+}
+
+bool NativeThemeWin::IsUsingHighContrastThemeInternal() {
+  if (is_using_high_contrast_valid_)
+    return is_using_high_contrast_;
+  HIGHCONTRAST result;
+  result.cbSize = sizeof(HIGHCONTRAST);
+  is_using_high_contrast_ =
+      SystemParametersInfo(SPI_GETHIGHCONTRAST, result.cbSize, &result, 0) &&
+      (result.dwFlags & HCF_HIGHCONTRASTON) == HCF_HIGHCONTRASTON;
+  is_using_high_contrast_valid_ = true;
+  return is_using_high_contrast_;
+}
+
+void NativeThemeWin::CloseHandlesInternal() {
+  if (!close_theme_)
+    return;
+
+  for (int i = 0; i < LAST; ++i) {
+    if (theme_handles_[i]) {
+      close_theme_(theme_handles_[i]);
+      theme_handles_[i] = nullptr;
+    }
   }
 }
 
@@ -456,7 +461,7 @@ void NativeThemeWin::PaintDirect(SkCanvas* destination_canvas,
                           extra.scrollbar_track);
       return;
     case kScrollbarCorner:
-      destination_canvas->drawColor(SK_ColorWHITE, SkXfermode::kSrc_Mode);
+      destination_canvas->drawColor(SK_ColorWHITE, SkBlendMode::kSrc);
       return;
     case kTabPanelBackground:
       PaintTabPanelBackground(hdc, rect);
@@ -479,25 +484,6 @@ void NativeThemeWin::PaintDirect(SkCanvas* destination_canvas,
 }
 
 SkColor NativeThemeWin::GetSystemColor(ColorId color_id) const {
-  const bool md = ui::MaterialDesignController::IsModeMaterial();
-  if (!md) {
-    // Link:
-    const SkColor kLinkPressedColor = SkColorSetRGB(200, 0, 0);
-
-    switch (color_id) {
-      // Link
-      case kColorId_LinkDisabled:
-        return system_colors_[COLOR_WINDOWTEXT];
-      case kColorId_LinkEnabled:
-        return system_colors_[COLOR_HOTLIGHT];
-      case kColorId_LinkPressed:
-        return kLinkPressedColor;
-
-      default:
-        break;
-    }
-  }
-
   // TODO: Obtain the correct colors using GetSysColor.
   // Dialogs:
   const SkColor kDialogBackgroundColor = SkColorSetRGB(251, 251, 251);
@@ -514,9 +500,10 @@ SkColor NativeThemeWin::GetSystemColor(ColorId color_id) const {
   const SkColor kPositiveTextColor = SkColorSetRGB(0x0b, 0x80, 0x43);
   const SkColor kNegativeTextColor = SkColorSetRGB(0xc5, 0x39, 0x29);
   // Results Tables:
-  const SkColor kResultsTableUrlColor =
-      md ? gfx::kGoogleBlue700 : SkColorSetRGB(0x0b, 0x80, 0x43);
+  const SkColor kResultsTableUrlColor = gfx::kGoogleBlue700;
   const SkColor kResultsTableSelectedUrlColor = SK_ColorWHITE;
+  // Label:
+  const SkColor kLabelTextSelectionBackgroundFocusedColor = gfx::kGoogleBlue700;
 
   switch (color_id) {
     // Windows
@@ -549,6 +536,10 @@ SkColor NativeThemeWin::GetSystemColor(ColorId color_id) const {
       return system_colors_[COLOR_BTNTEXT];
     case kColorId_LabelDisabledColor:
       return system_colors_[COLOR_GRAYTEXT];
+    case kColorId_LabelTextSelectionColor:
+      return system_colors_[COLOR_HIGHLIGHTTEXT];
+    case kColorId_LabelTextSelectionBackgroundFocused:
+      return kLabelTextSelectionBackgroundFocusedColor;
 
     // Textfield
     case kColorId_TextfieldDefaultColor:
@@ -681,7 +672,6 @@ SkColor NativeThemeWin::GetSystemColor(ColorId color_id) const {
 }
 
 void NativeThemeWin::PaintIndirect(SkCanvas* destination_canvas,
-                                   HDC destination_hdc,
                                    Part part,
                                    State state,
                                    const gfx::Rect& rect,

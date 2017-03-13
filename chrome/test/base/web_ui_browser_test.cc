@@ -36,9 +36,10 @@
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/test_navigation_observer.h"
 #include "net/base/filename_util.h"
+#include "printing/features/features.h"
 #include "ui/base/resource/resource_handle.h"
 
-#if defined(ENABLE_PRINT_PREVIEW)
+#if BUILDFLAG(ENABLE_PRINT_PREVIEW)
 #include "chrome/browser/printing/print_preview_dialog_controller.h"
 #endif
 
@@ -223,21 +224,11 @@ void WebUIBrowserTest::BrowsePreload(const GURL& browse_to) {
       browser(), GURL(browse_to), ui::PAGE_TRANSITION_TYPED);
   params.disposition = WindowOpenDisposition::CURRENT_TAB;
 
-  // This is needed to make the test
-  // MaterialHistoryBrowserTest.HistoryToolbarFocusTest pass on macOS. The test
-  // is fundamentally flawed, since it expects a particular widget to be
-  // focused. Chrome focus semantics are based on the Windows platform, where a
-  // widget cannot be focused without window activation. browser_tests can be
-  // sharded, so there is no way to enforce that a given window is activated.
-  // Focus tests should be interactive_ui_tests, and they should explicitly
-  // activate the window. https://crbug.com/642467.
-  params.window_action = chrome::NavigateParams::SHOW_WINDOW;
-
   chrome::Navigate(&params);
   navigation_observer.Wait();
 }
 
-#if defined(ENABLE_PRINT_PREVIEW)
+#if BUILDFLAG(ENABLE_PRINT_PREVIEW)
 
 // This custom ContentBrowserClient is used to get notified when a WebContents
 // for the print preview dialog gets created.
@@ -280,7 +271,7 @@ class PrintContentBrowserClient : public ChromeContentBrowserClient {
 #endif
 
 void WebUIBrowserTest::BrowsePrintPreload(const GURL& browse_to) {
-#if defined(ENABLE_PRINT_PREVIEW)
+#if BUILDFLAG(ENABLE_PRINT_PREVIEW)
   ui_test_utils::NavigateToURL(browser(), browse_to);
 
   PrintContentBrowserClient new_client(

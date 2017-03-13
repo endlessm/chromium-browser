@@ -18,8 +18,8 @@
 #include "content/renderer/media/media_stream_video_track.h"
 #include "content/renderer/pepper/ppb_image_data_impl.h"
 #include "content/renderer/render_thread_impl.h"
-#include "media/base/video_capture_types.h"
 #include "media/base/video_frame_pool.h"
+#include "media/capture/video_capture_types.h"
 #include "third_party/WebKit/public/platform/WebMediaStreamTrack.h"
 #include "third_party/WebKit/public/platform/WebURL.h"
 #include "third_party/WebKit/public/web/WebMediaStreamRegistry.h"
@@ -257,7 +257,7 @@ bool PepperToVideoTrackAdapter::Open(MediaStreamRegistryInterface* registry,
   blink::WebMediaStreamSource webkit_source;
   blink::WebMediaStreamSource::Type type =
       blink::WebMediaStreamSource::TypeVideo;
-  blink::WebString webkit_track_id = base::UTF8ToUTF16(track_id);
+  blink::WebString webkit_track_id = blink::WebString::fromUTF8(track_id);
   webkit_source.initialize(webkit_track_id, type, webkit_track_id,
                            false /* remote */);
   webkit_source.setExtraData(writer);

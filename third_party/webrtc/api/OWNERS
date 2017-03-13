@@ -2,12 +2,11 @@ pthatcher@webrtc.org
 glaznev@webrtc.org
 juberti@webrtc.org
 perkj@webrtc.org
+solenberg@webrtc.org
 tkchin@webrtc.org
 tommi@webrtc.org
 deadbeef@webrtc.org
 
-per-file androidvideotracksource.*=sakal@webrtc.org
-per-file androidvideotracksource.*=magjed@webrtc.org
 per-file rtcstats*=hbos@webrtc.org
 per-file rtcstats*=hta@webrtc.org
 
@@ -15,5 +14,3 @@ per-file rtcstats*=hta@webrtc.org
 # structural changes, please get a review from a reviewer in this file.
 per-file *.gn=*
 per-file *.gni=*
-per-file *.gyp=*
-per-file *.gypi=*

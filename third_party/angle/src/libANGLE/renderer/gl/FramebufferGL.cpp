@@ -85,10 +85,12 @@ static void BindFramebufferAttachment(const FunctionsGL *functions,
             const Texture *texture     = attachment->getTexture();
             const TextureGL *textureGL = GetImplAs<TextureGL>(texture);
 
-            if (texture->getTarget() == GL_TEXTURE_2D)
+            if (texture->getTarget() == GL_TEXTURE_2D ||
+                texture->getTarget() == GL_TEXTURE_2D_MULTISAMPLE)
             {
-                functions->framebufferTexture2D(GL_FRAMEBUFFER, attachmentPoint, GL_TEXTURE_2D,
-                                                textureGL->getTextureID(), attachment->mipLevel());
+                functions->framebufferTexture2D(GL_FRAMEBUFFER, attachmentPoint,
+                                                texture->getTarget(), textureGL->getTextureID(),
+                                                attachment->mipLevel());
             }
             else if (texture->getTarget() == GL_TEXTURE_CUBE_MAP)
             {
@@ -127,20 +129,25 @@ static void BindFramebufferAttachment(const FunctionsGL *functions,
 
 Error FramebufferGL::discard(size_t count, const GLenum *attachments)
 {
-    UNIMPLEMENTED();
-    return Error(GL_INVALID_OPERATION);
+    // glInvalidateFramebuffer accepts the same enums as glDiscardFramebufferEXT
+    return invalidate(count, attachments);
 }
 
 Error FramebufferGL::invalidate(size_t count, const GLenum *attachments)
 {
-    // Since this function is just a hint and not available until OpenGL 4.3, only call it if it is available.
+    // Since this function is just a hint, only call a native function if it exists.
     if (mFunctions->invalidateFramebuffer)
     {
         mStateManager->bindFramebuffer(GL_FRAMEBUFFER, mFramebufferID);
         mFunctions->invalidateFramebuffer(GL_FRAMEBUFFER, static_cast<GLsizei>(count), attachments);
     }
+    else if (mFunctions->discardFramebuffer)
+    {
+        mStateManager->bindFramebuffer(GL_FRAMEBUFFER, mFramebufferID);
+        mFunctions->discardFramebuffer(GL_FRAMEBUFFER, static_cast<GLsizei>(count), attachments);
+    }
 
-    return Error(GL_NO_ERROR);
+    return gl::NoError();
 }
 
 Error FramebufferGL::invalidateSub(size_t count,
@@ -155,7 +162,7 @@ Error FramebufferGL::invalidateSub(size_t count,
                                              attachments, area.x, area.y, area.width, area.height);
     }
 
-    return Error(GL_NO_ERROR);
+    return NoError();
 }
 
 Error FramebufferGL::clear(ContextImpl *context, GLbitfield mask)
@@ -164,7 +171,7 @@ Error FramebufferGL::clear(ContextImpl *context, GLbitfield mask)
     mStateManager->bindFramebuffer(GL_FRAMEBUFFER, mFramebufferID);
     mFunctions->clear(mask);
 
-    return Error(GL_NO_ERROR);
+    return NoError();
 }
 
 Error FramebufferGL::clearBufferfv(ContextImpl *context,
@@ -176,7 +183,7 @@ Error FramebufferGL::clearBufferfv(ContextImpl *context,
     mStateManager->bindFramebuffer(GL_FRAMEBUFFER, mFramebufferID);
     mFunctions->clearBufferfv(buffer, drawbuffer, values);
 
-    return Error(GL_NO_ERROR);
+    return NoError();
 }
 
 Error FramebufferGL::clearBufferuiv(ContextImpl *context,
@@ -188,7 +195,7 @@ Error FramebufferGL::clearBufferuiv(ContextImpl *context,
     mStateManager->bindFramebuffer(GL_FRAMEBUFFER, mFramebufferID);
     mFunctions->clearBufferuiv(buffer, drawbuffer, values);
 
-    return Error(GL_NO_ERROR);
+    return NoError();
 }
 
 Error FramebufferGL::clearBufferiv(ContextImpl *context,
@@ -200,7 +207,7 @@ Error FramebufferGL::clearBufferiv(ContextImpl *context,
     mStateManager->bindFramebuffer(GL_FRAMEBUFFER, mFramebufferID);
     mFunctions->clearBufferiv(buffer, drawbuffer, values);
 
-    return Error(GL_NO_ERROR);
+    return NoError();
 }
 
 Error FramebufferGL::clearBufferfi(ContextImpl *context,
@@ -213,7 +220,7 @@ Error FramebufferGL::clearBufferfi(ContextImpl *context,
     mStateManager->bindFramebuffer(GL_FRAMEBUFFER, mFramebufferID);
     mFunctions->clearBufferfi(buffer, drawbuffer, depth, stencil);
 
-    return Error(GL_NO_ERROR);
+    return NoError();
 }
 
 GLenum FramebufferGL::getImplementationColorReadFormat() const
@@ -283,59 +290,63 @@ Error FramebufferGL::blit(ContextImpl *context,
     const Framebuffer *sourceFramebuffer     = context->getGLState().getReadFramebuffer();
     const Framebuffer *destFramebuffer       = context->getGLState().getDrawFramebuffer();
 
+    const FramebufferAttachment *colorReadAttachment = sourceFramebuffer->getReadColorbuffer();
+
+    GLsizei readAttachmentSamples = 0;
+    if (colorReadAttachment != nullptr)
+    {
+        readAttachmentSamples = colorReadAttachment->getSamples();
+    }
+
     bool needManualColorBlit = false;
 
-    // The manual SRGB blit is only needed to perform correct linear interpolation. We don't
-    // need to make sure there is SRGB conversion for NEAREST as the values will be copied.
-    if (filter != GL_NEAREST)
+    // TODO(cwallez) when the filter is LINEAR and both source and destination are SRGB, we
+    // could avoid doing a manual blit.
+
+    // Prior to OpenGL 4.4 BlitFramebuffer (section 18.3.1 of GL 4.3 core profile) reads:
+    //      When values are taken from the read buffer, no linearization is performed, even
+    //      if the format of the buffer is SRGB.
+    // Starting from OpenGL 4.4 (section 18.3.1) it reads:
+    //      When values are taken from the read buffer, if FRAMEBUFFER_SRGB is enabled and the
+    //      value of FRAMEBUFFER_ATTACHMENT_COLOR_ENCODING for the framebuffer attachment
+    //      corresponding to the read buffer is SRGB, the red, green, and blue components are
+    //      converted from the non-linear sRGB color space according [...].
     {
+        bool sourceSRGB = colorReadAttachment != nullptr &&
+                          colorReadAttachment->getColorEncoding() == GL_SRGB;
+        needManualColorBlit =
+            needManualColorBlit || (sourceSRGB && mFunctions->isAtMostGL(gl::Version(4, 3)));
+    }
 
-        // Prior to OpenGL 4.4 BlitFramebuffer (section 18.3.1 of GL 4.3 core profile) reads:
-        //      When values are taken from the read buffer, no linearization is performed, even
-        //      if the format of the buffer is SRGB.
-        // Starting from OpenGL 4.4 (section 18.3.1) it reads:
-        //      When values are taken from the read buffer, if FRAMEBUFFER_SRGB is enabled and the
-        //      value of FRAMEBUFFER_ATTACHMENT_COLOR_ENCODING for the framebuffer attachment
-        //      corresponding to the read buffer is SRGB, the red, green, and blue components are
-        //      converted from the non-linear sRGB color space according [...].
+    // Prior to OpenGL 4.2 BlitFramebuffer (section 4.3.2 of GL 4.1 core profile) reads:
+    //      Blit operations bypass the fragment pipeline. The only fragment operations which
+    //      affect a blit are the pixel ownership test and scissor test.
+    // Starting from OpenGL 4.2 (section 4.3.2) it reads:
+    //      When values are written to the draw buffers, blit operations bypass the fragment
+    //      pipeline. The only fragment operations which affect a blit are the pixel ownership
+    //      test,  the scissor test and sRGB conversion.
+    if (!needManualColorBlit)
+    {
+        bool destSRGB = false;
+        for (size_t i = 0; i < destFramebuffer->getDrawbufferStateCount(); ++i)
         {
-            const FramebufferAttachment *readAttachment = sourceFramebuffer->getReadColorbuffer();
-            bool sourceSRGB =
-                readAttachment != nullptr && readAttachment->getColorEncoding() == GL_SRGB;
-            needManualColorBlit =
-                needManualColorBlit || (sourceSRGB && !mFunctions->isAtLeastGL(gl::Version(4, 4)));
-        }
-
-        // Prior to OpenGL 4.2 BlitFramebuffer (section 4.3.2 of GL 4.1 core profile) reads:
-        //      Blit operations bypass the fragment pipeline. The only fragment operations which
-        //      affect a blit are the pixel ownership test and scissor test.
-        // Starting from OpenGL 4.2 (section 4.3.2) it reads:
-        //      When values are written to the draw buffers, blit operations bypass the fragment
-        //      pipeline. The only fragment operations which affect a blit are the pixel ownership
-        //      test,  the scissor test and sRGB conversion.
-        if (!needManualColorBlit)
-        {
-            bool destSRGB = false;
-            for (size_t i = 0; i < destFramebuffer->getDrawbufferStateCount(); ++i)
+            const FramebufferAttachment *attachment = destFramebuffer->getDrawBuffer(i);
+            if (attachment && attachment->getColorEncoding() == GL_SRGB)
             {
-                const FramebufferAttachment *attachment = destFramebuffer->getDrawBuffer(i);
-                if (attachment && attachment->getColorEncoding() == GL_SRGB)
-                {
-                    destSRGB = true;
-                    break;
-                }
+                destSRGB = true;
+                break;
             }
-
-            needManualColorBlit =
-                needManualColorBlit || (destSRGB && !mFunctions->isAtLeastGL(gl::Version(4, 2)));
         }
+
+        needManualColorBlit =
+            needManualColorBlit || (destSRGB && mFunctions->isAtMostGL(gl::Version(4, 1)));
     }
 
     // Enable FRAMEBUFFER_SRGB if needed
-    syncDrawState();
+    mStateManager->setFramebufferSRGBEnabledForFramebuffer(true, this);
 
     GLenum blitMask = mask;
-    if (needManualColorBlit && (mask & GL_COLOR_BUFFER_BIT))
+    if (needManualColorBlit && (mask & GL_COLOR_BUFFER_BIT) && readAttachmentSamples <= 1)
     {
         ANGLE_TRY(mBlitter->blitColorBufferWithShader(sourceFramebuffer, destFramebuffer,
                                                       sourceArea, destArea, filter));
@@ -355,6 +366,13 @@ Error FramebufferGL::blit(ContextImpl *context,
                                 destArea.x, destArea.y, destArea.x1(), destArea.y1(), blitMask,
                                 filter);
 
+    return gl::NoError();
+}
+
+gl::Error FramebufferGL::getSamplePosition(size_t index, GLfloat *xy) const
+{
+    mStateManager->bindFramebuffer(GL_FRAMEBUFFER, mFramebufferID);
+    mFunctions->getMultisamplefv(GL_SAMPLE_POSITION, static_cast<GLuint>(index), xy);
     return gl::NoError();
 }
 
@@ -421,17 +439,9 @@ GLuint FramebufferGL::getFramebufferID() const
     return mFramebufferID;
 }
 
-void FramebufferGL::syncDrawState() const
+bool FramebufferGL::isDefault() const
 {
-    if (mFunctions->standard == STANDARD_GL_DESKTOP)
-    {
-        // Enable SRGB blending for all framebuffers except the default framebuffer on Desktop
-        // OpenGL.
-        // When SRGB blending is enabled, only SRGB capable formats will use it but the default
-        // framebuffer will always use it if it is enabled.
-        // TODO(geofflang): Update this when the framebuffer binding dirty changes, when it exists.
-        mStateManager->setFramebufferSRGBEnabled(!mIsDefault);
-    }
+    return mIsDefault;
 }
 
 void FramebufferGL::syncClearState(GLbitfield mask)

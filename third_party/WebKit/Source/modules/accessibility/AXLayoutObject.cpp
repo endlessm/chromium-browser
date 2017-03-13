@@ -28,7 +28,7 @@
 
 #include "modules/accessibility/AXLayoutObject.h"
 
-#include "bindings/core/v8/ExceptionStatePlaceholder.h"
+#include "bindings/core/v8/ExceptionState.h"
 #include "core/CSSPropertyNames.h"
 #include "core/InputTypeNames.h"
 #include "core/dom/ElementTraversal.h"
@@ -43,8 +43,10 @@
 #include "core/editing/iterators/TextIterator.h"
 #include "core/frame/FrameOwner.h"
 #include "core/frame/FrameView.h"
+#include "core/frame/ImageBitmap.h"
 #include "core/frame/LocalFrame.h"
 #include "core/frame/Settings.h"
+#include "core/html/HTMLCanvasElement.h"
 #include "core/html/HTMLFrameOwnerElement.h"
 #include "core/html/HTMLImageElement.h"
 #include "core/html/HTMLInputElement.h"
@@ -52,8 +54,11 @@
 #include "core/html/HTMLOptionElement.h"
 #include "core/html/HTMLSelectElement.h"
 #include "core/html/HTMLTextAreaElement.h"
+#include "core/html/HTMLVideoElement.h"
+#include "core/html/ImageData.h"
 #include "core/html/LabelsNodeList.h"
 #include "core/html/shadow/ShadowElementNames.h"
+#include "core/imagebitmap/ImageBitmapOptions.h"
 #include "core/layout/HitTestResult.h"
 #include "core/layout/LayoutFileUploadControl.h"
 #include "core/layout/LayoutHTMLCanvas.h"
@@ -62,6 +67,7 @@
 #include "core/layout/LayoutListMarker.h"
 #include "core/layout/LayoutMenuList.h"
 #include "core/layout/LayoutTextControl.h"
+#include "core/layout/LayoutTextFragment.h"
 #include "core/layout/LayoutView.h"
 #include "core/layout/api/LayoutAPIShim.h"
 #include "core/layout/api/LayoutViewItem.h"
@@ -120,6 +126,13 @@ static inline bool isInlineWithContinuation(LayoutObject* object) {
 static inline LayoutObject* firstChildConsideringContinuation(
     LayoutObject* layoutObject) {
   LayoutObject* firstChild = layoutObject->slowFirstChild();
+
+  // CSS first-letter pseudo element is handled as continuation. Returning it
+  // will result in duplicated elements.
+  if (firstChild && firstChild->isText() &&
+      toLayoutText(firstChild)->isTextFragment() &&
+      toLayoutTextFragment(firstChild)->firstLetterPseudoElement())
+    return nullptr;
 
   if (!firstChild && isInlineWithContinuation(layoutObject))
     firstChild = firstChildInContinuation(toLayoutInline(*layoutObject));
@@ -181,7 +194,7 @@ AXLayoutObject::AXLayoutObject(LayoutObject* layoutObject,
                                AXObjectCacheImpl& axObjectCache)
     : AXNodeObject(layoutObject->node(), axObjectCache),
       m_layoutObject(layoutObject) {
-#if ENABLE(ASSERT)
+#if DCHECK_IS_ON()
   m_layoutObject->setHasAXObject(true);
 #endif
 }
@@ -301,7 +314,7 @@ void AXLayoutObject::detach() {
 
   detachRemoteSVGRoot();
 
-#if ENABLE(ASSERT)
+#if DCHECK_IS_ON()
   if (m_layoutObject)
     m_layoutObject->setHasAXObject(false);
 #endif
@@ -328,15 +341,16 @@ bool AXLayoutObject::isEditable() const {
   if (getLayoutObject() && getLayoutObject()->isTextControl())
     return true;
 
-  m_layoutObject->document().updateStyleAndLayoutTree();
   if (getNode() && hasEditableStyle(*getNode()))
     return true;
 
   if (isWebArea()) {
     Document& document = getLayoutObject()->document();
     HTMLElement* body = document.body();
-    if (body && hasEditableStyle(*body))
-      return true;
+    if (body && hasEditableStyle(*body)) {
+      AXObject* axBody = axObjectCache().getOrCreate(body);
+      return axBody && axBody != axBody->ariaHiddenRoot();
+    }
 
     return hasEditableStyle(document);
   }
@@ -347,15 +361,16 @@ bool AXLayoutObject::isEditable() const {
 // Requires layoutObject to be present because it relies on style
 // user-modify. Don't move this logic to AXNodeObject.
 bool AXLayoutObject::isRichlyEditable() const {
-  m_layoutObject->document().updateStyleAndLayoutTree();
   if (getNode() && hasRichlyEditableStyle(*getNode()))
     return true;
 
   if (isWebArea()) {
     Document& document = m_layoutObject->document();
     HTMLElement* body = document.body();
-    if (body && hasRichlyEditableStyle(*body))
-      return true;
+    if (body && hasRichlyEditableStyle(*body)) {
+      AXObject* axBody = axObjectCache().getOrCreate(body);
+      return axBody && axBody != axBody->ariaHiddenRoot();
+    }
 
     return hasRichlyEditableStyle(document);
   }
@@ -381,7 +396,7 @@ bool AXLayoutObject::isLoaded() const {
 bool AXLayoutObject::isOffScreen() const {
   ASSERT(m_layoutObject);
   IntRect contentRect =
-      pixelSnappedIntRect(m_layoutObject->absoluteClippedOverflowRect());
+      pixelSnappedIntRect(m_layoutObject->absoluteVisualRect());
   FrameView* view = m_layoutObject->frame()->view();
   IntRect viewRect = view->visibleContentRect();
   viewRect.intersect(contentRect);
@@ -394,8 +409,10 @@ bool AXLayoutObject::isReadOnly() const {
   if (isWebArea()) {
     Document& document = m_layoutObject->document();
     HTMLElement* body = document.body();
-    if (body && hasEditableStyle(*body))
-      return false;
+    if (body && hasEditableStyle(*body)) {
+      AXObject* axBody = axObjectCache().getOrCreate(body);
+      return !axBody || axBody == axBody->ariaHiddenRoot();
+    }
 
     return !hasEditableStyle(document);
   }
@@ -407,7 +424,8 @@ bool AXLayoutObject::isVisited() const {
   // FIXME: Is it a privacy violation to expose visited information to
   // accessibility APIs?
   return m_layoutObject->style()->isLink() &&
-         m_layoutObject->style()->insideLink() == InsideVisitedLink;
+         m_layoutObject->style()->insideLink() ==
+             EInsideLink::kInsideVisitedLink;
 }
 
 //
@@ -466,18 +484,18 @@ AXObjectInclusion AXLayoutObject::defaultObjectInclusion(
 
   if (!m_layoutObject) {
     if (ignoredReasons)
-      ignoredReasons->append(IgnoredReason(AXNotRendered));
+      ignoredReasons->push_back(IgnoredReason(AXNotRendered));
     return IgnoreObject;
   }
 
-  if (m_layoutObject->style()->visibility() != EVisibility::Visible) {
+  if (m_layoutObject->style()->visibility() != EVisibility::kVisible) {
     // aria-hidden is meant to override visibility as the determinant in AX
     // hierarchy inclusion.
     if (equalIgnoringCase(getAttribute(aria_hiddenAttr), "false"))
       return DefaultBehavior;
 
     if (ignoredReasons)
-      ignoredReasons->append(IgnoredReason(AXNotVisible));
+      ignoredReasons->push_back(IgnoredReason(AXNotVisible));
     return IgnoreObject;
   }
 
@@ -486,7 +504,7 @@ AXObjectInclusion AXLayoutObject::defaultObjectInclusion(
 
 bool AXLayoutObject::computeAccessibilityIsIgnored(
     IgnoredReasons* ignoredReasons) const {
-#if ENABLE(ASSERT)
+#if DCHECK_IS_ON()
   ASSERT(m_initialized);
 #endif
 
@@ -502,18 +520,21 @@ bool AXLayoutObject::computeAccessibilityIsIgnored(
   if (decision == IgnoreObject)
     return true;
 
+  if (m_layoutObject->isAnonymousBlock())
+    return true;
+
   // If this element is within a parent that cannot have children, it should not
   // be exposed.
   if (isDescendantOfLeafNode()) {
     if (ignoredReasons)
-      ignoredReasons->append(
+      ignoredReasons->push_back(
           IgnoredReason(AXAncestorIsLeafNode, leafNodeAncestor()));
     return true;
   }
 
   if (roleValue() == IgnoredRole) {
     if (ignoredReasons)
-      ignoredReasons->append(IgnoredReason(AXUninteresting));
+      ignoredReasons->push_back(IgnoredReason(AXUninteresting));
     return true;
   }
 
@@ -521,9 +542,9 @@ bool AXLayoutObject::computeAccessibilityIsIgnored(
     if (ignoredReasons) {
       const AXObject* inheritsFrom = inheritsPresentationalRoleFrom();
       if (inheritsFrom == this)
-        ignoredReasons->append(IgnoredReason(AXPresentationalRole));
+        ignoredReasons->push_back(IgnoredReason(AXPresentationalRole));
       else
-        ignoredReasons->append(
+        ignoredReasons->push_back(
             IgnoredReason(AXInheritsPresentation, inheritsFrom));
     }
     return true;
@@ -532,7 +553,7 @@ bool AXLayoutObject::computeAccessibilityIsIgnored(
   // An ARIA tree can only have tree items and static text as children.
   if (AXObject* treeAncestor = treeAncestorDisallowingChild()) {
     if (ignoredReasons)
-      ignoredReasons->append(
+      ignoredReasons->push_back(
           IgnoredReason(AXAncestorDisallowsChild, treeAncestor));
     return true;
   }
@@ -556,10 +577,11 @@ bool AXLayoutObject::computeAccessibilityIsIgnored(
       HTMLLabelElement* label = labelElementContainer();
       if (label && label != getNode()) {
         AXObject* labelAXObject = axObjectCache().getOrCreate(label);
-        ignoredReasons->append(IgnoredReason(AXLabelContainer, labelAXObject));
+        ignoredReasons->push_back(
+            IgnoredReason(AXLabelContainer, labelAXObject));
       }
 
-      ignoredReasons->append(IgnoredReason(AXLabelFor, controlObject));
+      ignoredReasons->push_back(IgnoredReason(AXLabelFor, controlObject));
     }
     return true;
   }
@@ -574,14 +596,14 @@ bool AXLayoutObject::computeAccessibilityIsIgnored(
     if (parent && (parent->ariaRoleAttribute() == MenuItemRole ||
                    parent->ariaRoleAttribute() == MenuButtonRole)) {
       if (ignoredReasons)
-        ignoredReasons->append(
+        ignoredReasons->push_back(
             IgnoredReason(AXStaticTextUsedAsNameFor, parent));
       return true;
     }
     LayoutText* layoutText = toLayoutText(m_layoutObject);
     if (!layoutText->hasTextBoxes()) {
       if (ignoredReasons)
-        ignoredReasons->append(IgnoredReason(AXEmptyText));
+        ignoredReasons->push_back(IgnoredReason(AXEmptyText));
       return true;
     }
 
@@ -597,7 +619,7 @@ bool AXLayoutObject::computeAccessibilityIsIgnored(
     // or similar...
     if (layoutText->text().impl()->containsOnlyWhitespace()) {
       if (ignoredReasons)
-        ignoredReasons->append(IgnoredReason(AXEmptyText));
+        ignoredReasons->push_back(IgnoredReason(AXEmptyText));
       return true;
     }
     return false;
@@ -692,56 +714,12 @@ bool AXLayoutObject::computeAccessibilityIsIgnored(
   // textual block elements.
   if (isHTMLSpanElement(node)) {
     if (ignoredReasons)
-      ignoredReasons->append(IgnoredReason(AXUninteresting));
+      ignoredReasons->push_back(IgnoredReason(AXUninteresting));
     return true;
   }
 
-  // ignore images seemingly used as spacers
-  if (isImage()) {
-    // If the image can take focus, it should not be ignored, lest the user not
-    // be able to interact with something important.
-    if (canSetFocusAttribute())
-      return false;
-
-    if (node && node->isElementNode()) {
-      Element* elt = toElement(node);
-      const AtomicString& alt = elt->getAttribute(altAttr);
-      // don't ignore an image that has an alt tag
-      if (!alt.getString().containsOnlyWhitespace())
-        return false;
-      // informal standard is to ignore images with zero-length alt strings
-      if (!alt.isNull()) {
-        if (ignoredReasons)
-          ignoredReasons->append(IgnoredReason(AXEmptyAlt));
-        return true;
-      }
-    }
-
-    if (isNativeImage() && m_layoutObject->isImage()) {
-      // check for one-dimensional image
-      LayoutImage* image = toLayoutImage(m_layoutObject);
-      if (image->size().height() <= 1 || image->size().width() <= 1) {
-        if (ignoredReasons)
-          ignoredReasons->append(IgnoredReason(AXProbablyPresentational));
-        return true;
-      }
-
-      // Check whether laid out image was stretched from one-dimensional file
-      // image.
-      if (image->cachedImage()) {
-        LayoutSize imageSize = image->cachedImage()->imageSize(
-            LayoutObject::shouldRespectImageOrientation(m_layoutObject),
-            image->view()->zoomFactor());
-        if (imageSize.height() <= 1 || imageSize.width() <= 1) {
-          if (ignoredReasons)
-            ignoredReasons->append(IgnoredReason(AXProbablyPresentational));
-          return true;
-        }
-        return false;
-      }
-    }
+  if (isImage())
     return false;
-  }
 
   if (isCanvas()) {
     if (canvasHasFallbackContent())
@@ -749,7 +727,7 @@ bool AXLayoutObject::computeAccessibilityIsIgnored(
     LayoutHTMLCanvas* canvas = toLayoutHTMLCanvas(m_layoutObject);
     if (canvas->size().height() <= 1 || canvas->size().width() <= 1) {
       if (ignoredReasons)
-        ignoredReasons->append(IgnoredReason(AXProbablyPresentational));
+        ignoredReasons->push_back(IgnoredReason(AXProbablyPresentational));
       return true;
     }
     // Otherwise fall through; use presence of help text, title, or description
@@ -777,9 +755,6 @@ bool AXLayoutObject::computeAccessibilityIsIgnored(
   if (isGenericFocusableElement() && node->hasChildren())
     return false;
 
-  if (!ariaAccessibilityDescription().isEmpty())
-    return false;
-
   if (isScrollableContainer())
     return false;
 
@@ -797,14 +772,14 @@ bool AXLayoutObject::computeAccessibilityIsIgnored(
       return false;
 
     if (ignoredReasons)
-      ignoredReasons->append(IgnoredReason(AXUninteresting));
+      ignoredReasons->push_back(IgnoredReason(AXUninteresting));
     return true;
   }
 
   // By default, objects should be ignored so that the AX hierarchy is not
   // filled with unnecessary items.
   if (ignoredReasons)
-    ignoredReasons->append(IgnoredReason(AXUninteresting));
+    ignoredReasons->push_back(IgnoredReason(AXUninteresting));
   return true;
 }
 
@@ -900,6 +875,72 @@ float AXLayoutObject::fontSize() const {
   return style->computedFontSize();
 }
 
+String AXLayoutObject::imageDataUrl(const IntSize& maxSize) const {
+  Node* node = getNode();
+  if (!node)
+    return String();
+
+  ImageBitmapOptions options;
+  ImageBitmap* imageBitmap = nullptr;
+  Document* document = &node->document();
+  if (isHTMLImageElement(node)) {
+    imageBitmap = ImageBitmap::create(toHTMLImageElement(node),
+                                      Optional<IntRect>(), document, options);
+  } else if (isHTMLCanvasElement(node)) {
+    imageBitmap = ImageBitmap::create(toHTMLCanvasElement(node),
+                                      Optional<IntRect>(), options);
+  } else if (isHTMLVideoElement(node)) {
+    imageBitmap = ImageBitmap::create(toHTMLVideoElement(node),
+                                      Optional<IntRect>(), document, options);
+  }
+  if (!imageBitmap)
+    return String();
+
+  // TODO(ccameron): AXLayoutObject::imageDataUrl should create sRGB images.
+  sk_sp<SkImage> image = imageBitmap->bitmapImage()->imageForCurrentFrame(
+      ColorBehavior::transformToGlobalTarget());
+  if (!image || image->width() <= 0 || image->height() <= 0)
+    return String();
+
+  // Determine the width and height of the output image, using a proportional
+  // scale factor such that it's no larger than |maxSize|, if |maxSize| is not
+  // empty. It only resizes the image to be smaller (if necessary), not
+  // larger.
+  float xScale = maxSize.width() ? maxSize.width() * 1.0 / image->width() : 1.0;
+  float yScale =
+      maxSize.height() ? maxSize.height() * 1.0 / image->height() : 1.0;
+  float scale = std::min(xScale, yScale);
+  if (scale >= 1.0)
+    scale = 1.0;
+  int width = std::round(image->width() * scale);
+  int height = std::round(image->height() * scale);
+
+  // Draw the scaled image into a bitmap in native format.
+  SkBitmap bitmap;
+  bitmap.allocPixels(SkImageInfo::MakeN32(width, height, kPremul_SkAlphaType));
+  SkCanvas canvas(bitmap);
+  canvas.clear(SK_ColorTRANSPARENT);
+  canvas.drawImageRect(image, SkRect::MakeIWH(width, height), nullptr);
+
+  // Copy the bits into a buffer in RGBA_8888 unpremultiplied format
+  // for encoding.
+  SkImageInfo info = SkImageInfo::Make(width, height, kRGBA_8888_SkColorType,
+                                       kUnpremul_SkAlphaType);
+  size_t rowBytes = info.minRowBytes();
+  Vector<char> pixelStorage(info.getSafeSize(rowBytes));
+  SkPixmap pixmap(info, pixelStorage.data(), rowBytes);
+  if (!SkImage::MakeFromBitmap(bitmap)->readPixels(pixmap, 0, 0))
+    return String();
+
+  // Encode as a PNG and return as a data url.
+  String dataUrl =
+      ImageDataBuffer(
+          IntSize(width, height),
+          reinterpret_cast<const unsigned char*>(pixelStorage.data()))
+          .toDataURL("image/png", 1.0);
+  return dataUrl;
+}
+
 String AXLayoutObject::text() const {
   if (isPasswordFieldAndShouldHideValue()) {
     if (!getLayoutObject())
@@ -949,16 +990,16 @@ AccessibilityTextDirection AXLayoutObject::textDirection() const {
 
   if (style->isHorizontalWritingMode()) {
     switch (style->direction()) {
-      case LTR:
+      case TextDirection::kLtr:
         return AccessibilityTextDirectionLTR;
-      case RTL:
+      case TextDirection::kRtl:
         return AccessibilityTextDirectionRTL;
     }
   } else {
     switch (style->direction()) {
-      case LTR:
+      case TextDirection::kLtr:
         return AccessibilityTextDirectionTTB;
-      case RTL:
+      case TextDirection::kRtl:
         return AccessibilityTextDirectionBTT;
     }
   }
@@ -1180,9 +1221,9 @@ String AXLayoutObject::textAlternative(bool recursive,
     if (foundTextAlternative) {
       nameFrom = AXNameFromContents;
       if (nameSources) {
-        nameSources->append(NameSource(false));
-        nameSources->last().type = nameFrom;
-        nameSources->last().text = textAlternative;
+        nameSources->push_back(NameSource(false));
+        nameSources->back().type = nameFrom;
+        nameSources->back().text = textAlternative;
       }
       return textAlternative;
     }
@@ -1755,10 +1796,10 @@ AXObject::AXRange AXLayoutObject::selectionUnderObject() const {
       // Selection is contained in node.
       ||
       !(parentNode &&
-        selectionRange->comparePoint(parentNode, nodeIndex, IGNORE_EXCEPTION) <
-            0 &&
+        selectionRange->comparePoint(parentNode, nodeIndex,
+                                     IGNORE_EXCEPTION_FOR_TESTING) < 0 &&
         selectionRange->comparePoint(parentNode, nodeIndex + 1,
-                                     IGNORE_EXCEPTION) > 0)) {
+                                     IGNORE_EXCEPTION_FOR_TESTING) > 0)) {
     return AXRange();
   }
 
@@ -1792,8 +1833,8 @@ AXObject::AXRange AXLayoutObject::textControlSelection() const {
     return AXRange();
 
   VisibleSelection selection = layout->frame()->selection().selection();
-  HTMLTextFormControlElement* textControl =
-      toLayoutTextControl(layout)->textFormControlElement();
+  TextControlElement* textControl =
+      toLayoutTextControl(layout)->textControlElement();
   ASSERT(textControl);
   int start = textControl->selectionStart();
   int end = textControl->selectionEnd();
@@ -1805,8 +1846,8 @@ AXObject::AXRange AXLayoutObject::textControlSelection() const {
 int AXLayoutObject::indexForVisiblePosition(
     const VisiblePosition& position) const {
   if (getLayoutObject() && getLayoutObject()->isTextControl()) {
-    HTMLTextFormControlElement* textControl =
-        toLayoutTextControl(getLayoutObject())->textFormControlElement();
+    TextControlElement* textControl =
+        toLayoutTextControl(getLayoutObject())->textControlElement();
     return textControl->indexForVisiblePosition(position);
   }
 
@@ -1818,8 +1859,8 @@ int AXLayoutObject::indexForVisiblePosition(
     return 0;
 
   Range* range = Range::create(*getDocument());
-  range->setStart(getNode(), 0, IGNORE_EXCEPTION);
-  range->setEnd(indexPosition, IGNORE_EXCEPTION);
+  range->setStart(getNode(), 0, IGNORE_EXCEPTION_FOR_TESTING);
+  range->setEnd(indexPosition, IGNORE_EXCEPTION_FOR_TESTING);
 
   return TextIterator::rangeLength(range->startPosition(),
                                    range->endPosition());
@@ -1916,9 +1957,9 @@ void AXLayoutObject::setSelection(const AXRange& selection) {
   // The selection offsets are offsets into the accessible value.
   if (anchorObject == focusObject &&
       anchorObject->getLayoutObject()->isTextControl()) {
-    HTMLTextFormControlElement* textControl =
+    TextControlElement* textControl =
         toLayoutTextControl(anchorObject->getLayoutObject())
-            ->textFormControlElement();
+            ->textControlElement();
     if (selection.anchorOffset <= selection.focusOffset) {
       textControl->setSelectionRange(selection.anchorOffset,
                                      selection.focusOffset,
@@ -1951,7 +1992,10 @@ void AXLayoutObject::setSelection(const AXRange& selection) {
     return;
 
   frame->selection().setSelection(
-      createVisibleSelection(anchorVisiblePosition, focusVisiblePosition));
+      SelectionInDOMTree::Builder()
+          .collapse(anchorVisiblePosition.toPositionWithAffinity())
+          .extend(focusVisiblePosition.deepEquivalent())
+          .build());
 }
 
 bool AXLayoutObject::isValidSelectionBound(const AXObject* boundObject) const {
@@ -2043,7 +2087,7 @@ void AXLayoutObject::textChanged() {
     return;
 
   Settings* settings = getDocument()->settings();
-  if (settings && settings->inlineTextBoxAccessibilityEnabled() &&
+  if (settings && settings->getInlineTextBoxAccessibilityEnabled() &&
       roleValue() == StaticTextRole)
     childrenChanged();
 
@@ -2073,7 +2117,7 @@ VisiblePosition AXLayoutObject::visiblePositionForIndex(int index) const {
 
   if (m_layoutObject->isTextControl())
     return toLayoutTextControl(m_layoutObject)
-        ->textFormControlElement()
+        ->textControlElement()
         ->visiblePositionForIndex(index);
 
   Node* node = m_layoutObject->node();
@@ -2096,7 +2140,8 @@ VisiblePosition AXLayoutObject::visiblePositionForIndex(int index) const {
 
 void AXLayoutObject::addInlineTextBoxChildren(bool force) {
   Settings* settings = getDocument()->settings();
-  if (!force && (!settings || !settings->inlineTextBoxAccessibilityEnabled()))
+  if (!force &&
+      (!settings || !settings->getInlineTextBoxAccessibilityEnabled()))
     return;
 
   if (!getLayoutObject() || !getLayoutObject()->isText())
@@ -2115,7 +2160,7 @@ void AXLayoutObject::addInlineTextBoxChildren(bool force) {
        box.get(); box = box->nextInlineTextBox()) {
     AXObject* axObject = axObjectCache().getOrCreate(box.get());
     if (!axObject->accessibilityIsIgnored())
-      m_children.append(axObject);
+      m_children.push_back(axObject);
   }
 }
 
@@ -2129,7 +2174,7 @@ void AXLayoutObject::lineBreaks(Vector<int>& lineBreaks) const {
   // nextLinePosition moves to the end of the current line when there are
   // no more lines.
   while (visiblePos.isNotNull() && !inSameLine(prevVisiblePos, visiblePos)) {
-    lineBreaks.append(indexForVisiblePosition(visiblePos));
+    lineBreaks.push_back(indexForVisiblePosition(visiblePos));
     prevVisiblePos = visiblePos;
     visiblePos = nextLinePosition(visiblePos, LayoutUnit(), HasEditableAXRole);
 
@@ -2346,7 +2391,7 @@ void AXLayoutObject::addHiddenChildren() {
       if (AXObject* childObject = axObjectCache().get(child.layoutObject())) {
         if (childObject->accessibilityIsIgnored()) {
           const auto& children = childObject->children();
-          childObject = children.size() ? children.last().get() : 0;
+          childObject = children.size() ? children.back().get() : 0;
         }
         if (childObject)
           insertionIndex = m_children.find(childObject) + 1;
@@ -2381,7 +2426,7 @@ void AXLayoutObject::addTextFieldChildren() {
       toAXSpinButton(axObjectCache().getOrCreate(SpinButtonRole));
   axSpinButton->setSpinButtonElement(toSpinButtonElement(spinButtonElement));
   axSpinButton->setParent(this);
-  m_children.append(axSpinButton);
+  m_children.push_back(axSpinButton);
 }
 
 void AXLayoutObject::addImageMapChildren() {
@@ -2402,7 +2447,7 @@ void AXLayoutObject::addImageMapChildren() {
       areaObject->setParent(this);
       ASSERT(areaObject->axObjectID() != 0);
       if (!areaObject->accessibilityIsIgnored())
-        m_children.append(areaObject);
+        m_children.push_back(areaObject);
       else
         axObjectCache().remove(areaObject->axObjectID());
     }
@@ -2425,7 +2470,7 @@ void AXLayoutObject::addPopupChildren() {
   if (!isHTMLInputElement(getNode()))
     return;
   if (AXObject* axPopup = toHTMLInputElement(getNode())->popupRootAXObject())
-    m_children.append(axPopup);
+    m_children.push_back(axPopup);
 }
 
 void AXLayoutObject::addRemoteSVGChildren() {
@@ -2437,9 +2482,9 @@ void AXLayoutObject::addRemoteSVGChildren() {
 
   if (root->accessibilityIsIgnored()) {
     for (const auto& child : root->children())
-      m_children.append(child);
+      m_children.push_back(child);
   } else {
-    m_children.append(root);
+    m_children.push_back(root);
   }
 }
 

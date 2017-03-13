@@ -441,226 +441,6 @@ error::Error GLES2DecoderPassthroughImpl::HandleCompileShader(
   return error::kNoError;
 }
 
-error::Error GLES2DecoderPassthroughImpl::HandleCompressedTexImage2DBucket(
-    uint32_t immediate_data_size,
-    const volatile void* cmd_data) {
-  const volatile gles2::cmds::CompressedTexImage2DBucket& c =
-      *static_cast<const volatile gles2::cmds::CompressedTexImage2DBucket*>(
-          cmd_data);
-  GLenum target = static_cast<GLenum>(c.target);
-  GLint level = static_cast<GLint>(c.level);
-  GLenum internalformat = static_cast<GLenum>(c.internalformat);
-  GLsizei width = static_cast<GLsizei>(c.width);
-  GLsizei height = static_cast<GLsizei>(c.height);
-  GLuint bucket_id = static_cast<GLuint>(c.bucket_id);
-  GLint border = static_cast<GLint>(c.border);
-  Bucket* bucket = GetBucket(bucket_id);
-  if (!bucket)
-    return error::kInvalidArguments;
-  uint32_t data_size = bucket->size();
-  GLsizei imageSize = data_size;
-  const void* data = bucket->GetData(0, data_size);
-  DCHECK(data || !imageSize);
-  error::Error error = DoCompressedTexImage2D(
-      target, level, internalformat, width, height, border, imageSize, data);
-  if (error != error::kNoError) {
-    return error;
-  }
-  return error::kNoError;
-}
-
-error::Error GLES2DecoderPassthroughImpl::HandleCompressedTexImage2D(
-    uint32_t immediate_data_size,
-    const volatile void* cmd_data) {
-  const volatile gles2::cmds::CompressedTexImage2D& c =
-      *static_cast<const volatile gles2::cmds::CompressedTexImage2D*>(cmd_data);
-  GLenum target = static_cast<GLenum>(c.target);
-  GLint level = static_cast<GLint>(c.level);
-  GLenum internalformat = static_cast<GLenum>(c.internalformat);
-  GLsizei width = static_cast<GLsizei>(c.width);
-  GLsizei height = static_cast<GLsizei>(c.height);
-  GLint border = static_cast<GLint>(c.border);
-  GLsizei imageSize = static_cast<GLsizei>(c.imageSize);
-  uint32_t data_size = imageSize;
-  const void* data = GetSharedMemoryAs<const void*>(
-      c.data_shm_id, c.data_shm_offset, data_size);
-  error::Error error = DoCompressedTexImage2D(
-      target, level, internalformat, width, height, border, imageSize, data);
-  if (error != error::kNoError) {
-    return error;
-  }
-  return error::kNoError;
-}
-
-error::Error GLES2DecoderPassthroughImpl::HandleCompressedTexSubImage2DBucket(
-    uint32_t immediate_data_size,
-    const volatile void* cmd_data) {
-  const volatile gles2::cmds::CompressedTexSubImage2DBucket& c =
-      *static_cast<const volatile gles2::cmds::CompressedTexSubImage2DBucket*>(
-          cmd_data);
-  GLenum target = static_cast<GLenum>(c.target);
-  GLint level = static_cast<GLint>(c.level);
-  GLint xoffset = static_cast<GLint>(c.xoffset);
-  GLint yoffset = static_cast<GLint>(c.yoffset);
-  GLsizei width = static_cast<GLsizei>(c.width);
-  GLsizei height = static_cast<GLsizei>(c.height);
-  GLenum format = static_cast<GLenum>(c.format);
-  GLuint bucket_id = static_cast<GLuint>(c.bucket_id);
-  Bucket* bucket = GetBucket(bucket_id);
-  if (!bucket)
-    return error::kInvalidArguments;
-  uint32_t data_size = bucket->size();
-  GLsizei imageSize = data_size;
-  const void* data = bucket->GetData(0, data_size);
-  DCHECK(data || !imageSize);
-  error::Error error = DoCompressedTexSubImage2D(
-      target, level, xoffset, yoffset, width, height, format, imageSize, data);
-  if (error != error::kNoError) {
-    return error;
-  }
-  return error::kNoError;
-}
-
-error::Error GLES2DecoderPassthroughImpl::HandleCompressedTexSubImage2D(
-    uint32_t immediate_data_size,
-    const volatile void* cmd_data) {
-  const volatile gles2::cmds::CompressedTexSubImage2D& c =
-      *static_cast<const volatile gles2::cmds::CompressedTexSubImage2D*>(
-          cmd_data);
-  GLenum target = static_cast<GLenum>(c.target);
-  GLint level = static_cast<GLint>(c.level);
-  GLint xoffset = static_cast<GLint>(c.xoffset);
-  GLint yoffset = static_cast<GLint>(c.yoffset);
-  GLsizei width = static_cast<GLsizei>(c.width);
-  GLsizei height = static_cast<GLsizei>(c.height);
-  GLenum format = static_cast<GLenum>(c.format);
-  GLsizei imageSize = static_cast<GLsizei>(c.imageSize);
-  uint32_t data_size = imageSize;
-  const void* data = GetSharedMemoryAs<const void*>(
-      c.data_shm_id, c.data_shm_offset, data_size);
-  error::Error error = DoCompressedTexSubImage2D(
-      target, level, xoffset, yoffset, width, height, format, imageSize, data);
-  if (error != error::kNoError) {
-    return error;
-  }
-  return error::kNoError;
-}
-
-error::Error GLES2DecoderPassthroughImpl::HandleCompressedTexImage3DBucket(
-    uint32_t immediate_data_size,
-    const volatile void* cmd_data) {
-  const volatile gles2::cmds::CompressedTexImage3DBucket& c =
-      *static_cast<const volatile gles2::cmds::CompressedTexImage3DBucket*>(
-          cmd_data);
-  GLenum target = static_cast<GLenum>(c.target);
-  GLint level = static_cast<GLint>(c.level);
-  GLenum internalformat = static_cast<GLenum>(c.internalformat);
-  GLsizei width = static_cast<GLsizei>(c.width);
-  GLsizei height = static_cast<GLsizei>(c.height);
-  GLsizei depth = static_cast<GLsizei>(c.depth);
-  GLuint bucket_id = static_cast<GLuint>(c.bucket_id);
-  GLint border = static_cast<GLint>(c.border);
-  Bucket* bucket = GetBucket(bucket_id);
-  if (!bucket)
-    return error::kInvalidArguments;
-  uint32_t data_size = bucket->size();
-  GLsizei imageSize = data_size;
-  const void* data = bucket->GetData(0, data_size);
-  DCHECK(data || !imageSize);
-  error::Error error =
-      DoCompressedTexImage3D(target, level, internalformat, width, height,
-                             depth, border, imageSize, data);
-  if (error != error::kNoError) {
-    return error;
-  }
-  return error::kNoError;
-}
-
-error::Error GLES2DecoderPassthroughImpl::HandleCompressedTexImage3D(
-    uint32_t immediate_data_size,
-    const volatile void* cmd_data) {
-  const volatile gles2::cmds::CompressedTexImage3D& c =
-      *static_cast<const volatile gles2::cmds::CompressedTexImage3D*>(cmd_data);
-  GLenum target = static_cast<GLenum>(c.target);
-  GLint level = static_cast<GLint>(c.level);
-  GLenum internalformat = static_cast<GLenum>(c.internalformat);
-  GLsizei width = static_cast<GLsizei>(c.width);
-  GLsizei height = static_cast<GLsizei>(c.height);
-  GLsizei depth = static_cast<GLsizei>(c.depth);
-  GLint border = static_cast<GLint>(c.border);
-  GLsizei imageSize = static_cast<GLsizei>(c.imageSize);
-  uint32_t data_size = imageSize;
-  const void* data = GetSharedMemoryAs<const void*>(
-      c.data_shm_id, c.data_shm_offset, data_size);
-  error::Error error =
-      DoCompressedTexImage3D(target, level, internalformat, width, height,
-                             depth, border, imageSize, data);
-  if (error != error::kNoError) {
-    return error;
-  }
-  return error::kNoError;
-}
-
-error::Error GLES2DecoderPassthroughImpl::HandleCompressedTexSubImage3DBucket(
-    uint32_t immediate_data_size,
-    const volatile void* cmd_data) {
-  const volatile gles2::cmds::CompressedTexSubImage3DBucket& c =
-      *static_cast<const volatile gles2::cmds::CompressedTexSubImage3DBucket*>(
-          cmd_data);
-  GLenum target = static_cast<GLenum>(c.target);
-  GLint level = static_cast<GLint>(c.level);
-  GLint xoffset = static_cast<GLint>(c.xoffset);
-  GLint yoffset = static_cast<GLint>(c.yoffset);
-  GLint zoffset = static_cast<GLint>(c.zoffset);
-  GLsizei width = static_cast<GLsizei>(c.width);
-  GLsizei height = static_cast<GLsizei>(c.height);
-  GLsizei depth = static_cast<GLsizei>(c.depth);
-  GLenum format = static_cast<GLenum>(c.format);
-  GLuint bucket_id = static_cast<GLuint>(c.bucket_id);
-  Bucket* bucket = GetBucket(bucket_id);
-  if (!bucket)
-    return error::kInvalidArguments;
-  uint32_t data_size = bucket->size();
-  GLsizei imageSize = data_size;
-  const void* data = bucket->GetData(0, data_size);
-  DCHECK(data || !imageSize);
-  error::Error error =
-      DoCompressedTexSubImage3D(target, level, xoffset, yoffset, zoffset, width,
-                                height, depth, format, imageSize, data);
-  if (error != error::kNoError) {
-    return error;
-  }
-  return error::kNoError;
-}
-
-error::Error GLES2DecoderPassthroughImpl::HandleCompressedTexSubImage3D(
-    uint32_t immediate_data_size,
-    const volatile void* cmd_data) {
-  const volatile gles2::cmds::CompressedTexSubImage3D& c =
-      *static_cast<const volatile gles2::cmds::CompressedTexSubImage3D*>(
-          cmd_data);
-  GLenum target = static_cast<GLenum>(c.target);
-  GLint level = static_cast<GLint>(c.level);
-  GLint xoffset = static_cast<GLint>(c.xoffset);
-  GLint yoffset = static_cast<GLint>(c.yoffset);
-  GLint zoffset = static_cast<GLint>(c.zoffset);
-  GLsizei width = static_cast<GLsizei>(c.width);
-  GLsizei height = static_cast<GLsizei>(c.height);
-  GLsizei depth = static_cast<GLsizei>(c.depth);
-  GLenum format = static_cast<GLenum>(c.format);
-  GLsizei imageSize = static_cast<GLsizei>(c.imageSize);
-  uint32_t data_size = imageSize;
-  const void* data = GetSharedMemoryAs<const void*>(
-      c.data_shm_id, c.data_shm_offset, data_size);
-  error::Error error =
-      DoCompressedTexSubImage3D(target, level, xoffset, yoffset, zoffset, width,
-                                height, depth, format, imageSize, data);
-  if (error != error::kNoError) {
-    return error;
-  }
-  return error::kNoError;
-}
-
 error::Error GLES2DecoderPassthroughImpl::HandleCopyBufferSubData(
     uint32_t immediate_data_size,
     const volatile void* cmd_data) {
@@ -3897,7 +3677,9 @@ error::Error GLES2DecoderPassthroughImpl::HandleCopyTextureCHROMIUM(
   const volatile gles2::cmds::CopyTextureCHROMIUM& c =
       *static_cast<const volatile gles2::cmds::CopyTextureCHROMIUM*>(cmd_data);
   GLenum source_id = static_cast<GLenum>(c.source_id);
+  GLint source_level = static_cast<GLint>(c.source_level);
   GLenum dest_id = static_cast<GLenum>(c.dest_id);
+  GLint dest_level = static_cast<GLint>(c.dest_level);
   GLint internalformat = static_cast<GLint>(c.internalformat);
   GLenum dest_type = static_cast<GLenum>(c.dest_type);
   GLboolean unpack_flip_y = static_cast<GLboolean>(c.unpack_flip_y);
@@ -3906,8 +3688,8 @@ error::Error GLES2DecoderPassthroughImpl::HandleCopyTextureCHROMIUM(
   GLboolean unpack_unmultiply_alpha =
       static_cast<GLboolean>(c.unpack_unmultiply_alpha);
   error::Error error = DoCopyTextureCHROMIUM(
-      source_id, dest_id, internalformat, dest_type, unpack_flip_y,
-      unpack_premultiply_alpha, unpack_unmultiply_alpha);
+      source_id, source_level, dest_id, dest_level, internalformat, dest_type,
+      unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha);
   if (error != error::kNoError) {
     return error;
   }
@@ -3921,7 +3703,9 @@ error::Error GLES2DecoderPassthroughImpl::HandleCopySubTextureCHROMIUM(
       *static_cast<const volatile gles2::cmds::CopySubTextureCHROMIUM*>(
           cmd_data);
   GLenum source_id = static_cast<GLenum>(c.source_id);
+  GLint source_level = static_cast<GLint>(c.source_level);
   GLenum dest_id = static_cast<GLenum>(c.dest_id);
+  GLint dest_level = static_cast<GLint>(c.dest_level);
   GLint xoffset = static_cast<GLint>(c.xoffset);
   GLint yoffset = static_cast<GLint>(c.yoffset);
   GLint x = static_cast<GLint>(c.x);
@@ -3934,8 +3718,9 @@ error::Error GLES2DecoderPassthroughImpl::HandleCopySubTextureCHROMIUM(
   GLboolean unpack_unmultiply_alpha =
       static_cast<GLboolean>(c.unpack_unmultiply_alpha);
   error::Error error = DoCopySubTextureCHROMIUM(
-      source_id, dest_id, xoffset, yoffset, x, y, width, height, unpack_flip_y,
-      unpack_premultiply_alpha, unpack_unmultiply_alpha);
+      source_id, source_level, dest_id, dest_level, xoffset, yoffset, x, y,
+      width, height, unpack_flip_y, unpack_premultiply_alpha,
+      unpack_unmultiply_alpha);
   if (error != error::kNoError) {
     return error;
   }
@@ -3964,7 +3749,7 @@ error::Error GLES2DecoderPassthroughImpl::HandleProduceTextureCHROMIUMImmediate(
       const volatile gles2::cmds::ProduceTextureCHROMIUMImmediate*>(cmd_data);
   GLenum target = static_cast<GLenum>(c.target);
   uint32_t data_size;
-  if (!GLES2Util::ComputeDataSize(1, sizeof(GLbyte), 64, &data_size)) {
+  if (!GLES2Util::ComputeDataSize(1, sizeof(GLbyte), 16, &data_size)) {
     return error::kOutOfBounds;
   }
   if (data_size > immediate_data_size) {
@@ -3990,7 +3775,7 @@ GLES2DecoderPassthroughImpl::HandleProduceTextureDirectCHROMIUMImmediate(
   GLuint texture = c.texture;
   GLenum target = static_cast<GLenum>(c.target);
   uint32_t data_size;
-  if (!GLES2Util::ComputeDataSize(1, sizeof(GLbyte), 64, &data_size)) {
+  if (!GLES2Util::ComputeDataSize(1, sizeof(GLbyte), 16, &data_size)) {
     return error::kOutOfBounds;
   }
   if (data_size > immediate_data_size) {
@@ -4012,7 +3797,7 @@ error::Error GLES2DecoderPassthroughImpl::HandleConsumeTextureCHROMIUMImmediate(
       const volatile gles2::cmds::ConsumeTextureCHROMIUMImmediate*>(cmd_data);
   GLenum target = static_cast<GLenum>(c.target);
   uint32_t data_size;
-  if (!GLES2Util::ComputeDataSize(1, sizeof(GLbyte), 64, &data_size)) {
+  if (!GLES2Util::ComputeDataSize(1, sizeof(GLbyte), 16, &data_size)) {
     return error::kOutOfBounds;
   }
   if (data_size > immediate_data_size) {
@@ -4037,7 +3822,7 @@ GLES2DecoderPassthroughImpl::HandleCreateAndConsumeTextureINTERNALImmediate(
   GLenum target = static_cast<GLenum>(c.target);
   GLuint texture = static_cast<GLuint>(c.texture);
   uint32_t data_size;
-  if (!GLES2Util::ComputeDataSize(1, sizeof(GLbyte), 64, &data_size)) {
+  if (!GLES2Util::ComputeDataSize(1, sizeof(GLbyte), 16, &data_size)) {
     return error::kOutOfBounds;
   }
   if (data_size > immediate_data_size) {
@@ -4344,6 +4129,24 @@ error::Error GLES2DecoderPassthroughImpl::
                                                   immediate_data_size);
   error::Error error = DoUniformMatrix4fvStreamTextureMatrixCHROMIUM(
       location, transpose, transform);
+  if (error != error::kNoError) {
+    return error;
+  }
+  return error::kNoError;
+}
+
+error::Error GLES2DecoderPassthroughImpl::HandleOverlayPromotionHintCHROMIUM(
+    uint32_t immediate_data_size,
+    const volatile void* cmd_data) {
+  const volatile gles2::cmds::OverlayPromotionHintCHROMIUM& c =
+      *static_cast<const volatile gles2::cmds::OverlayPromotionHintCHROMIUM*>(
+          cmd_data);
+  GLuint texture = c.texture;
+  GLboolean promotion_hint = static_cast<GLboolean>(c.promotion_hint);
+  GLint display_x = static_cast<GLint>(c.display_x);
+  GLint display_y = static_cast<GLint>(c.display_y);
+  error::Error error = DoOverlayPromotionHintCHROMIUM(texture, promotion_hint,
+                                                      display_x, display_y);
   if (error != error::kNoError) {
     return error;
   }

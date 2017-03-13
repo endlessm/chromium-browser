@@ -11,7 +11,6 @@
 #include "components/filesystem/files_test_base.h"
 #include "mojo/public/cpp/bindings/interface_request.h"
 #include "mojo/public/cpp/bindings/type_converter.h"
-#include "mojo/public/cpp/system/platform_handle.h"
 
 namespace filesystem {
 namespace {
@@ -29,7 +28,7 @@ TEST_F(FileImplTest, CreateWriteCloseRenameOpenRead) {
     mojom::FilePtr file;
     error = mojom::FileError::FAILED;
     handled =
-        directory->OpenFile("my_file", GetProxy(&file),
+        directory->OpenFile("my_file", MakeRequest(&file),
                             mojom::kFlagWrite | mojom::kFlagCreate, &error);
     ASSERT_TRUE(handled);
     EXPECT_EQ(mojom::FileError::OK, error);
@@ -43,9 +42,8 @@ TEST_F(FileImplTest, CreateWriteCloseRenameOpenRead) {
     bytes_to_write.push_back(static_cast<uint8_t>('o'));
     error = mojom::FileError::FAILED;
     uint32_t num_bytes_written = 0;
-    handled =
-        file->Write(mojo::Array<uint8_t>::From(bytes_to_write), 0,
-                    mojom::Whence::FROM_CURRENT, &error, &num_bytes_written);
+    handled = file->Write(bytes_to_write, 0, mojom::Whence::FROM_CURRENT,
+                          &error, &num_bytes_written);
     ASSERT_TRUE(handled);
     EXPECT_EQ(mojom::FileError::OK, error);
     EXPECT_EQ(bytes_to_write.size(), num_bytes_written);
@@ -68,21 +66,22 @@ TEST_F(FileImplTest, CreateWriteCloseRenameOpenRead) {
     mojom::FilePtr file;
     error = mojom::FileError::FAILED;
     bool handled =
-        directory->OpenFile("your_file", GetProxy(&file),
+        directory->OpenFile("your_file", MakeRequest(&file),
                             mojom::kFlagRead | mojom::kFlagOpen, &error);
     ASSERT_TRUE(handled);
     EXPECT_EQ(mojom::FileError::OK, error);
 
     // Read from it.
-    mojo::Array<uint8_t> bytes_read;
+    base::Optional<std::vector<uint8_t>> bytes_read;
     error = mojom::FileError::FAILED;
     handled = file->Read(3, 1, mojom::Whence::FROM_BEGIN, &error, &bytes_read);
     ASSERT_TRUE(handled);
     EXPECT_EQ(mojom::FileError::OK, error);
-    ASSERT_EQ(3u, bytes_read.size());
-    EXPECT_EQ(static_cast<uint8_t>('e'), bytes_read[0]);
-    EXPECT_EQ(static_cast<uint8_t>('l'), bytes_read[1]);
-    EXPECT_EQ(static_cast<uint8_t>('l'), bytes_read[2]);
+    ASSERT_TRUE(bytes_read.has_value());
+    ASSERT_EQ(3u, bytes_read.value().size());
+    EXPECT_EQ(static_cast<uint8_t>('e'), bytes_read.value()[0]);
+    EXPECT_EQ(static_cast<uint8_t>('l'), bytes_read.value()[1]);
+    EXPECT_EQ(static_cast<uint8_t>('l'), bytes_read.value()[2]);
   }
 
   // TODO(vtl): Test read/write offset options.
@@ -105,7 +104,7 @@ TEST_F(FileImplTest, CantWriteInReadMode) {
     mojom::FilePtr file;
     error = mojom::FileError::FAILED;
     bool handled =
-        directory->OpenFile("my_file", GetProxy(&file),
+        directory->OpenFile("my_file", MakeRequest(&file),
                             mojom::kFlagWrite | mojom::kFlagCreate, &error);
     ASSERT_TRUE(handled);
     EXPECT_EQ(mojom::FileError::OK, error);
@@ -113,9 +112,8 @@ TEST_F(FileImplTest, CantWriteInReadMode) {
     // Write to it.
     error = mojom::FileError::FAILED;
     uint32_t num_bytes_written = 0;
-    handled =
-        file->Write(mojo::Array<uint8_t>::From(bytes_to_write), 0,
-                    mojom::Whence::FROM_CURRENT, &error, &num_bytes_written);
+    handled = file->Write(bytes_to_write, 0, mojom::Whence::FROM_CURRENT,
+                          &error, &num_bytes_written);
     ASSERT_TRUE(handled);
     EXPECT_EQ(mojom::FileError::OK, error);
     EXPECT_EQ(bytes_to_write.size(), num_bytes_written);
@@ -132,7 +130,7 @@ TEST_F(FileImplTest, CantWriteInReadMode) {
     mojom::FilePtr file;
     error = mojom::FileError::FAILED;
     bool handled =
-        directory->OpenFile("my_file", GetProxy(&file),
+        directory->OpenFile("my_file", MakeRequest(&file),
                             mojom::kFlagRead | mojom::kFlagOpen, &error);
     ASSERT_TRUE(handled);
     EXPECT_EQ(mojom::FileError::OK, error);
@@ -140,9 +138,8 @@ TEST_F(FileImplTest, CantWriteInReadMode) {
     // Try to write in read mode; it should fail.
     error = mojom::FileError::OK;
     uint32_t num_bytes_written = 0;
-    handled =
-        file->Write(mojo::Array<uint8_t>::From(bytes_to_write), 0,
-                    mojom::Whence::FROM_CURRENT, &error, &num_bytes_written);
+    handled = file->Write(bytes_to_write, 0, mojom::Whence::FROM_CURRENT,
+                          &error, &num_bytes_written);
 
     ASSERT_TRUE(handled);
     EXPECT_EQ(mojom::FileError::FAILED, error);
@@ -166,7 +163,7 @@ TEST_F(FileImplTest, OpenInAppendMode) {
     mojom::FilePtr file;
     error = mojom::FileError::FAILED;
     bool handled =
-        directory->OpenFile("my_file", GetProxy(&file),
+        directory->OpenFile("my_file", MakeRequest(&file),
                             mojom::kFlagWrite | mojom::kFlagCreate, &error);
     ASSERT_TRUE(handled);
     EXPECT_EQ(mojom::FileError::OK, error);
@@ -180,9 +177,8 @@ TEST_F(FileImplTest, OpenInAppendMode) {
     bytes_to_write.push_back(static_cast<uint8_t>('o'));
     error = mojom::FileError::FAILED;
     uint32_t num_bytes_written = 0;
-    handled =
-        file->Write(mojo::Array<uint8_t>::From(bytes_to_write), 0,
-                    mojom::Whence::FROM_CURRENT, &error, &num_bytes_written);
+    handled = file->Write(bytes_to_write, 0, mojom::Whence::FROM_CURRENT,
+                          &error, &num_bytes_written);
     ASSERT_TRUE(handled);
     EXPECT_EQ(mojom::FileError::OK, error);
     EXPECT_EQ(bytes_to_write.size(), num_bytes_written);
@@ -199,7 +195,7 @@ TEST_F(FileImplTest, OpenInAppendMode) {
     mojom::FilePtr file;
     error = mojom::FileError::FAILED;
     bool handled =
-        directory->OpenFile("my_file", GetProxy(&file),
+        directory->OpenFile("my_file", MakeRequest(&file),
                             mojom::kFlagAppend | mojom::kFlagOpen, &error);
     ASSERT_TRUE(handled);
     EXPECT_EQ(mojom::FileError::OK, error);
@@ -215,9 +211,8 @@ TEST_F(FileImplTest, OpenInAppendMode) {
     bytes_to_write.push_back(static_cast<uint8_t>('e'));
     error = mojom::FileError::FAILED;
     uint32_t num_bytes_written = 0;
-    handled =
-        file->Write(mojo::Array<uint8_t>::From(bytes_to_write), 0,
-                    mojom::Whence::FROM_CURRENT, &error, &num_bytes_written);
+    handled = file->Write(bytes_to_write, 0, mojom::Whence::FROM_CURRENT,
+                          &error, &num_bytes_written);
     ASSERT_TRUE(handled);
     EXPECT_EQ(mojom::FileError::OK, error);
     EXPECT_EQ(bytes_to_write.size(), num_bytes_written);
@@ -234,22 +229,23 @@ TEST_F(FileImplTest, OpenInAppendMode) {
     mojom::FilePtr file;
     error = mojom::FileError::FAILED;
     bool handled =
-        directory->OpenFile("my_file", GetProxy(&file),
+        directory->OpenFile("my_file", MakeRequest(&file),
                             mojom::kFlagRead | mojom::kFlagOpen, &error);
     ASSERT_TRUE(handled);
     EXPECT_EQ(mojom::FileError::OK, error);
 
     // Read from it.
-    mojo::Array<uint8_t> bytes_read;
+    base::Optional<std::vector<uint8_t>> bytes_read;
     error = mojom::FileError::FAILED;
     handled = file->Read(12, 0, mojom::Whence::FROM_BEGIN, &error, &bytes_read);
     ASSERT_TRUE(handled);
     EXPECT_EQ(mojom::FileError::OK, error);
-    ASSERT_EQ(12u, bytes_read.size());
-    EXPECT_EQ(static_cast<uint8_t>('l'), bytes_read[3]);
-    EXPECT_EQ(static_cast<uint8_t>('o'), bytes_read[4]);
-    EXPECT_EQ(static_cast<uint8_t>('g'), bytes_read[5]);
-    EXPECT_EQ(static_cast<uint8_t>('o'), bytes_read[6]);
+    ASSERT_TRUE(bytes_read.has_value());
+    ASSERT_EQ(12u, bytes_read.value().size());
+    EXPECT_EQ(static_cast<uint8_t>('l'), bytes_read.value()[3]);
+    EXPECT_EQ(static_cast<uint8_t>('o'), bytes_read.value()[4]);
+    EXPECT_EQ(static_cast<uint8_t>('g'), bytes_read.value()[5]);
+    EXPECT_EQ(static_cast<uint8_t>('o'), bytes_read.value()[6]);
   }
 }
 
@@ -263,7 +259,7 @@ TEST_F(FileImplTest, OpenInTruncateMode) {
     mojom::FilePtr file;
     error = mojom::FileError::FAILED;
     bool handled =
-        directory->OpenFile("my_file", GetProxy(&file),
+        directory->OpenFile("my_file", MakeRequest(&file),
                             mojom::kFlagWrite | mojom::kFlagCreate, &error);
     ASSERT_TRUE(handled);
     EXPECT_EQ(mojom::FileError::OK, error);
@@ -277,9 +273,8 @@ TEST_F(FileImplTest, OpenInTruncateMode) {
     bytes_to_write.push_back(static_cast<uint8_t>('o'));
     error = mojom::FileError::FAILED;
     uint32_t num_bytes_written = 0;
-    handled =
-        file->Write(mojo::Array<uint8_t>::From(bytes_to_write), 0,
-                    mojom::Whence::FROM_CURRENT, &error, &num_bytes_written);
+    handled = file->Write(bytes_to_write, 0, mojom::Whence::FROM_CURRENT,
+                          &error, &num_bytes_written);
     ASSERT_TRUE(handled);
     EXPECT_EQ(mojom::FileError::OK, error);
     EXPECT_EQ(bytes_to_write.size(), num_bytes_written);
@@ -296,7 +291,7 @@ TEST_F(FileImplTest, OpenInTruncateMode) {
     mojom::FilePtr file;
     error = mojom::FileError::FAILED;
     bool handled = directory->OpenFile(
-        "my_file", GetProxy(&file),
+        "my_file", MakeRequest(&file),
         mojom::kFlagWrite | mojom::kFlagOpenTruncated, &error);
     ASSERT_TRUE(handled);
     EXPECT_EQ(mojom::FileError::OK, error);
@@ -312,9 +307,8 @@ TEST_F(FileImplTest, OpenInTruncateMode) {
     bytes_to_write.push_back(static_cast<uint8_t>('e'));
     error = mojom::FileError::FAILED;
     uint32_t num_bytes_written = 0;
-    handled =
-        file->Write(mojo::Array<uint8_t>::From(bytes_to_write), 0,
-                    mojom::Whence::FROM_CURRENT, &error, &num_bytes_written);
+    handled = file->Write(bytes_to_write, 0, mojom::Whence::FROM_CURRENT,
+                          &error, &num_bytes_written);
     ASSERT_TRUE(handled);
     EXPECT_EQ(mojom::FileError::OK, error);
     EXPECT_EQ(bytes_to_write.size(), num_bytes_written);
@@ -331,22 +325,23 @@ TEST_F(FileImplTest, OpenInTruncateMode) {
     mojom::FilePtr file;
     error = mojom::FileError::FAILED;
     bool handled =
-        directory->OpenFile("my_file", GetProxy(&file),
+        directory->OpenFile("my_file", MakeRequest(&file),
                             mojom::kFlagRead | mojom::kFlagOpen, &error);
     ASSERT_TRUE(handled);
     EXPECT_EQ(mojom::FileError::OK, error);
 
     // Read from it.
-    mojo::Array<uint8_t> bytes_read;
+    base::Optional<std::vector<uint8_t>> bytes_read;
     error = mojom::FileError::FAILED;
     handled = file->Read(7, 0, mojom::Whence::FROM_BEGIN, &error, &bytes_read);
     ASSERT_TRUE(handled);
     EXPECT_EQ(mojom::FileError::OK, error);
-    ASSERT_EQ(7u, bytes_read.size());
-    EXPECT_EQ(static_cast<uint8_t>('g'), bytes_read[0]);
-    EXPECT_EQ(static_cast<uint8_t>('o'), bytes_read[1]);
-    EXPECT_EQ(static_cast<uint8_t>('o'), bytes_read[2]);
-    EXPECT_EQ(static_cast<uint8_t>('d'), bytes_read[3]);
+    ASSERT_TRUE(bytes_read.has_value());
+    ASSERT_EQ(7u, bytes_read.value().size());
+    EXPECT_EQ(static_cast<uint8_t>('g'), bytes_read.value()[0]);
+    EXPECT_EQ(static_cast<uint8_t>('o'), bytes_read.value()[1]);
+    EXPECT_EQ(static_cast<uint8_t>('o'), bytes_read.value()[2]);
+    EXPECT_EQ(static_cast<uint8_t>('d'), bytes_read.value()[3]);
   }
 }
 
@@ -361,7 +356,7 @@ TEST_F(FileImplTest, StatTouch) {
   mojom::FilePtr file;
   error = mojom::FileError::FAILED;
   bool handled =
-      directory->OpenFile("my_file", GetProxy(&file),
+      directory->OpenFile("my_file", MakeRequest(&file),
                           mojom::kFlagWrite | mojom::kFlagCreate, &error);
   ASSERT_TRUE(handled);
   EXPECT_EQ(mojom::FileError::OK, error);
@@ -432,7 +427,7 @@ TEST_F(FileImplTest, TellSeek) {
   mojom::FilePtr file;
   error = mojom::FileError::FAILED;
   bool handled =
-      directory->OpenFile("my_file", GetProxy(&file),
+      directory->OpenFile("my_file", MakeRequest(&file),
                           mojom::kFlagWrite | mojom::kFlagCreate, &error);
   ASSERT_TRUE(handled);
   EXPECT_EQ(mojom::FileError::OK, error);
@@ -441,9 +436,8 @@ TEST_F(FileImplTest, TellSeek) {
   std::vector<uint8_t> bytes_to_write(1000, '!');
   error = mojom::FileError::FAILED;
   uint32_t num_bytes_written = 0;
-  handled =
-      file->Write(mojo::Array<uint8_t>::From(bytes_to_write), 0,
-                  mojom::Whence::FROM_CURRENT, &error, &num_bytes_written);
+  handled = file->Write(bytes_to_write, 0, mojom::Whence::FROM_CURRENT, &error,
+                        &num_bytes_written);
   ASSERT_TRUE(handled);
   EXPECT_EQ(mojom::FileError::OK, error);
   EXPECT_EQ(bytes_to_write.size(), num_bytes_written);
@@ -519,7 +513,7 @@ TEST_F(FileImplTest, Dup) {
   mojom::FilePtr file1;
   error = mojom::FileError::FAILED;
   bool handled = directory->OpenFile(
-      "my_file", GetProxy(&file1),
+      "my_file", MakeRequest(&file1),
       mojom::kFlagRead | mojom::kFlagWrite | mojom::kFlagCreate, &error);
   ASSERT_TRUE(handled);
   EXPECT_EQ(mojom::FileError::OK, error);
@@ -533,9 +527,8 @@ TEST_F(FileImplTest, Dup) {
   bytes_to_write.push_back(static_cast<uint8_t>('o'));
   error = mojom::FileError::FAILED;
   uint32_t num_bytes_written = 0;
-  handled =
-      file1->Write(mojo::Array<uint8_t>::From(bytes_to_write), 0,
-                   mojom::Whence::FROM_CURRENT, &error, &num_bytes_written);
+  handled = file1->Write(bytes_to_write, 0, mojom::Whence::FROM_CURRENT, &error,
+                         &num_bytes_written);
   ASSERT_TRUE(handled);
   EXPECT_EQ(mojom::FileError::OK, error);
   EXPECT_EQ(bytes_to_write.size(), num_bytes_written);
@@ -544,7 +537,7 @@ TEST_F(FileImplTest, Dup) {
   // Dup it.
   mojom::FilePtr file2;
   error = mojom::FileError::FAILED;
-  handled = file1->Dup(GetProxy(&file2), &error);
+  handled = file1->Dup(MakeRequest(&file2), &error);
   ASSERT_TRUE(handled);
   EXPECT_EQ(mojom::FileError::OK, error);
 
@@ -565,9 +558,8 @@ TEST_F(FileImplTest, Dup) {
   more_bytes_to_write.push_back(static_cast<uint8_t>('d'));
   error = mojom::FileError::FAILED;
   num_bytes_written = 0;
-  handled =
-      file2->Write(mojo::Array<uint8_t>::From(more_bytes_to_write), 0,
-                   mojom::Whence::FROM_CURRENT, &error, &num_bytes_written);
+  handled = file2->Write(more_bytes_to_write, 0, mojom::Whence::FROM_CURRENT,
+                         &error, &num_bytes_written);
   ASSERT_TRUE(handled);
   EXPECT_EQ(mojom::FileError::OK, error);
   EXPECT_EQ(more_bytes_to_write.size(), num_bytes_written);
@@ -588,16 +580,17 @@ TEST_F(FileImplTest, Dup) {
   EXPECT_EQ(mojom::FileError::OK, error);
 
   // Read everything using |file2|.
-  mojo::Array<uint8_t> bytes_read;
+  base::Optional<std::vector<uint8_t>> bytes_read;
   error = mojom::FileError::FAILED;
   handled =
       file2->Read(1000, 0, mojom::Whence::FROM_BEGIN, &error, &bytes_read);
   ASSERT_TRUE(handled);
   EXPECT_EQ(mojom::FileError::OK, error);
-  ASSERT_EQ(static_cast<size_t>(end_world_pos), bytes_read.size());
+  ASSERT_TRUE(bytes_read.has_value());
+  ASSERT_EQ(static_cast<size_t>(end_world_pos), bytes_read.value().size());
   // Just check the first and last bytes.
-  EXPECT_EQ(static_cast<uint8_t>('h'), bytes_read[0]);
-  EXPECT_EQ(static_cast<uint8_t>('d'), bytes_read[end_world_pos - 1]);
+  EXPECT_EQ(static_cast<uint8_t>('h'), bytes_read.value()[0]);
+  EXPECT_EQ(static_cast<uint8_t>('d'), bytes_read.value()[end_world_pos - 1]);
 
   // TODO(vtl): Test that |file2| has the same open options as |file1|.
 }
@@ -614,7 +607,7 @@ TEST_F(FileImplTest, Truncate) {
   mojom::FilePtr file;
   error = mojom::FileError::FAILED;
   bool handled =
-      directory->OpenFile("my_file", GetProxy(&file),
+      directory->OpenFile("my_file", MakeRequest(&file),
                           mojom::kFlagWrite | mojom::kFlagCreate, &error);
   ASSERT_TRUE(handled);
   EXPECT_EQ(mojom::FileError::OK, error);
@@ -623,9 +616,8 @@ TEST_F(FileImplTest, Truncate) {
   std::vector<uint8_t> bytes_to_write(kInitialSize, '!');
   error = mojom::FileError::FAILED;
   uint32_t num_bytes_written = 0;
-  handled =
-      file->Write(mojo::Array<uint8_t>::From(bytes_to_write), 0,
-                  mojom::Whence::FROM_CURRENT, &error, &num_bytes_written);
+  handled = file->Write(bytes_to_write, 0, mojom::Whence::FROM_CURRENT, &error,
+                        &num_bytes_written);
   ASSERT_TRUE(handled);
   EXPECT_EQ(mojom::FileError::OK, error);
   EXPECT_EQ(kInitialSize, num_bytes_written);
@@ -665,26 +657,18 @@ TEST_F(FileImplTest, AsHandle) {
     mojom::FilePtr file1;
     error = mojom::FileError::FAILED;
     bool handled = directory->OpenFile(
-        "my_file", GetProxy(&file1),
+        "my_file", MakeRequest(&file1),
         mojom::kFlagRead | mojom::kFlagWrite | mojom::kFlagCreate, &error);
     ASSERT_TRUE(handled);
     EXPECT_EQ(mojom::FileError::OK, error);
 
-    // Fetch the handle
+    // Fetch the file.
     error = mojom::FileError::FAILED;
-    mojo::ScopedHandle handle;
-    handled = file1->AsHandle(&error, &handle);
+    base::File raw_file;
+    handled = file1->AsHandle(&error, &raw_file);
     ASSERT_TRUE(handled);
     EXPECT_EQ(mojom::FileError::OK, error);
 
-    // Pull a file descriptor out of the scoped handle.
-    base::PlatformFile platform_file;
-    MojoResult unwrap_result = mojo::UnwrapPlatformFile(std::move(handle),
-                                                        &platform_file);
-    EXPECT_EQ(MOJO_RESULT_OK, unwrap_result);
-
-    // Pass this raw file descriptor to a base::File.
-    base::File raw_file(platform_file);
     ASSERT_TRUE(raw_file.IsValid());
     EXPECT_EQ(5, raw_file.WriteAtCurrentPos("hello", 5));
   }
@@ -694,23 +678,24 @@ TEST_F(FileImplTest, AsHandle) {
     mojom::FilePtr file2;
     error = mojom::FileError::FAILED;
     bool handled =
-        directory->OpenFile("my_file", GetProxy(&file2),
+        directory->OpenFile("my_file", MakeRequest(&file2),
                             mojom::kFlagRead | mojom::kFlagOpen, &error);
     ASSERT_TRUE(handled);
     EXPECT_EQ(mojom::FileError::OK, error);
 
     // Verify that we wrote data raw on the file descriptor.
-    mojo::Array<uint8_t> bytes_read;
+    base::Optional<std::vector<uint8_t>> bytes_read;
     error = mojom::FileError::FAILED;
     handled = file2->Read(5, 0, mojom::Whence::FROM_BEGIN, &error, &bytes_read);
     ASSERT_TRUE(handled);
     EXPECT_EQ(mojom::FileError::OK, error);
-    ASSERT_EQ(5u, bytes_read.size());
-    EXPECT_EQ(static_cast<uint8_t>('h'), bytes_read[0]);
-    EXPECT_EQ(static_cast<uint8_t>('e'), bytes_read[1]);
-    EXPECT_EQ(static_cast<uint8_t>('l'), bytes_read[2]);
-    EXPECT_EQ(static_cast<uint8_t>('l'), bytes_read[3]);
-    EXPECT_EQ(static_cast<uint8_t>('o'), bytes_read[4]);
+    ASSERT_TRUE(bytes_read.has_value());
+    ASSERT_EQ(5u, bytes_read.value().size());
+    EXPECT_EQ(static_cast<uint8_t>('h'), bytes_read.value()[0]);
+    EXPECT_EQ(static_cast<uint8_t>('e'), bytes_read.value()[1]);
+    EXPECT_EQ(static_cast<uint8_t>('l'), bytes_read.value()[2]);
+    EXPECT_EQ(static_cast<uint8_t>('l'), bytes_read.value()[3]);
+    EXPECT_EQ(static_cast<uint8_t>('o'), bytes_read.value()[4]);
   }
 }
 
@@ -723,7 +708,7 @@ TEST_F(FileImplTest, SimpleLockUnlock) {
   mojom::FilePtr file;
   error = mojom::FileError::FAILED;
   bool handled = directory->OpenFile(
-      "my_file", GetProxy(&file),
+      "my_file", MakeRequest(&file),
       mojom::kFlagRead | mojom::kFlagWrite | mojom::kFlagCreate, &error);
   ASSERT_TRUE(handled);
   EXPECT_EQ(mojom::FileError::OK, error);
@@ -750,7 +735,7 @@ TEST_F(FileImplTest, CantDoubleLock) {
   mojom::FilePtr file;
   error = mojom::FileError::FAILED;
   bool handled = directory->OpenFile(
-      "my_file", GetProxy(&file),
+      "my_file", MakeRequest(&file),
       mojom::kFlagRead | mojom::kFlagWrite | mojom::kFlagCreate, &error);
   ASSERT_TRUE(handled);
   EXPECT_EQ(mojom::FileError::OK, error);
@@ -778,7 +763,7 @@ TEST_F(FileImplTest, ClosingFileClearsLock) {
     mojom::FilePtr file;
     error = mojom::FileError::FAILED;
     bool handled = directory->OpenFile(
-        "my_file", GetProxy(&file),
+        "my_file", MakeRequest(&file),
         mojom::kFlagRead | mojom::kFlagWrite | mojom::kFlagOpenAlways, &error);
     ASSERT_TRUE(handled);
     EXPECT_EQ(mojom::FileError::OK, error);
@@ -795,7 +780,7 @@ TEST_F(FileImplTest, ClosingFileClearsLock) {
     mojom::FilePtr file;
     error = mojom::FileError::FAILED;
     bool handled = directory->OpenFile(
-        "my_file", GetProxy(&file),
+        "my_file", MakeRequest(&file),
         mojom::kFlagRead | mojom::kFlagWrite | mojom::kFlagOpenAlways, &error);
     ASSERT_TRUE(handled);
     EXPECT_EQ(mojom::FileError::OK, error);

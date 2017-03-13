@@ -22,16 +22,7 @@
 #include "third_party/WebKit/public/web/WebPopupType.h"
 #include "ui/gfx/native_widget_types.h"
 
-namespace IPC {
-class Message;
-}
-
-namespace base {
-class TimeDelta;
-}
-
 namespace content {
-class GpuProcessHost;
 class ResourceDispatcherHostImpl;
 class SessionStorageNamespace;
 
@@ -99,8 +90,7 @@ class RenderWidgetHelper
 
   void CreateNewWindow(mojom::CreateNewWindowParamsPtr params,
                        bool no_javascript_access,
-                       base::ProcessHandle render_process,
-                       int32_t* route_id,
+                       int32_t* render_view_route_id,
                        int32_t* main_frame_route_id,
                        int32_t* main_frame_widget_route_id,
                        SessionStorageNamespace* session_storage_namespace);
@@ -117,11 +107,12 @@ class RenderWidgetHelper
   ~RenderWidgetHelper();
 
   // Called on the UI thread to finish creating a window.
-  void OnCreateWindowOnUI(mojom::CreateNewWindowParamsPtr params,
-                          int32_t route_id,
-                          int32_t main_frame_route_id,
-                          int32_t main_frame_widget_route_id,
-                          SessionStorageNamespace* session_storage_namespace);
+  void OnCreateNewWindowOnUI(
+      mojom::CreateNewWindowParamsPtr params,
+      int32_t render_view_route_id,
+      int32_t main_frame_route_id,
+      int32_t main_frame_widget_route_id,
+      SessionStorageNamespace* session_storage_namespace);
 
   // Called on the UI thread to finish creating a widget.
   void OnCreateWidgetOnUI(int32_t opener_id,

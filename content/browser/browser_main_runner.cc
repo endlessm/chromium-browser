@@ -87,20 +87,6 @@ class BrowserMainRunnerImpl : public BrowserMainRunner {
       if (parameters.command_line.HasSwitch(switches::kWaitForDebugger))
         base::debug::WaitForDebugger(60, true);
 
-#if defined(OS_WIN)
-      if (base::win::GetVersion() < base::win::VERSION_VISTA) {
-        // When "Extend support of advanced text services to all programs"
-        // (a.k.a. Cicero Unaware Application Support; CUAS) is enabled on
-        // Windows XP and handwriting modules shipped with Office 2003 are
-        // installed, "penjpn.dll" and "skchui.dll" will be loaded and then
-        // crash unless a user installs Office 2003 SP3. To prevent these
-        // modules from being loaded, disable TSF entirely. crbug.com/160914.
-        // TODO(yukawa): Add a high-level wrapper for this instead of calling
-        // Win32 API here directly.
-        ImmDisableTextFrameService(static_cast<DWORD>(-1));
-      }
-#endif  // OS_WIN
-
       base::StatisticsRecorder::Initialize();
 
       notification_service_.reset(new NotificationServiceImpl);
@@ -159,6 +145,7 @@ class BrowserMainRunnerImpl : public BrowserMainRunner {
   void Shutdown() override {
     DCHECK(initialization_started_);
     DCHECK(!is_shutdown_);
+
 #ifdef LEAK_SANITIZER
     // Invoke leak detection now, to avoid dealing with shutdown-only leaks.
     // Normally this will have already happened in
@@ -167,6 +154,9 @@ class BrowserMainRunnerImpl : public BrowserMainRunner {
     // If leaks are found, the process will exit here.
     __lsan_do_leak_check();
 #endif
+
+    main_loop_->PreShutdown();
+
     // If startup tracing has not been finished yet, replace it's dumper
     // with special version, which would save trace file on exit (i.e.
     // startup tracing becomes a version of shutdown tracing).

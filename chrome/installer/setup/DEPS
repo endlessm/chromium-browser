@@ -1,5 +1,7 @@
 include_rules = [
   "+chrome_elf/chrome_elf_constants.h",
+  "+chrome/install_static/install_details.h",
+  "+chrome/install_static/install_util.h",
   "+components/base32",
   "+courgette",
 ]

@@ -11,6 +11,7 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
+#include "base/threading/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "net/base/host_mapping_rules.h"
 #include "net/base/proxy_delegate.h"
@@ -25,6 +26,10 @@
 #include "url/url_constants.h"
 
 namespace net {
+
+// The maximum time to wait for the alternate job to complete before resuming
+// the main job.
+const int kMaxDelayTimeForMainJobSecs = 3;
 
 // Returns parameters associated with the delay of the HTTP stream job.
 std::unique_ptr<base::Value> NetLogHttpStreamJobDelayCallback(
@@ -49,8 +54,10 @@ HttpStreamFactoryImpl::JobController::JobController(
       alternative_job_failed_(false),
       job_bound_(false),
       main_job_is_blocked_(false),
+      main_job_is_resumed_(false),
       bound_job_(nullptr),
       can_start_alternative_proxy_job_(false),
+      privacy_mode_(PRIVACY_MODE_DISABLED),
       ptr_factory_(this) {
   DCHECK(factory);
 }
@@ -78,6 +85,8 @@ HttpStreamFactoryImpl::Request* HttpStreamFactoryImpl::JobController::Start(
   DCHECK(factory_);
   DCHECK(!request_);
 
+  privacy_mode_ = request_info.privacy_mode;
+
   request_ = new Request(request_info.url, this, delegate,
                          websocket_handshake_stream_create_helper, net_log,
                          stream_type);
@@ -96,6 +105,8 @@ void HttpStreamFactoryImpl::JobController::Preconnect(
   DCHECK(!main_job_);
   DCHECK(!alternative_job_);
 
+  privacy_mode_ = request_info.privacy_mode;
+
   is_preconnect_ = true;
   HostPortPair destination(HostPortPair::FromURL(request_info.url));
   GURL origin_url = ApplyHostMappingRules(request_info.url, &destination);
@@ -103,9 +114,9 @@ void HttpStreamFactoryImpl::JobController::Preconnect(
   const AlternativeService alternative_service = GetAlternativeServiceFor(
       request_info, nullptr, HttpStreamRequest::HTTP_STREAM);
 
-  if (alternative_service.protocol != UNINITIALIZED_ALTERNATE_PROTOCOL) {
+  if (alternative_service.protocol != kProtoUnknown) {
     if (session_->params().quic_disable_preconnect_if_0rtt &&
-        alternative_service.protocol == QUIC &&
+        alternative_service.protocol == kProtoQUIC &&
         session_->quic_stream_factory()->ZeroRTTEnabledFor(QuicServerId(
             alternative_service.host_port_pair(), request_info.privacy_mode))) {
       MaybeNotifyFactoryOfCompletion();
@@ -144,6 +155,10 @@ void HttpStreamFactoryImpl::JobController::OnRequestComplete() {
   if (bound_job_) {
     if (bound_job_->job_type() == MAIN) {
       main_job_.reset();
+      // |alternative_job_| can be non-null if |main_job_| is resumed after
+      // |main_job_wait_time_| has elapsed. Allow |alternative_job_| to run to
+      // completion, rather than resetting it. OnOrphanedJobComplete() will
+      // clean up |this| when the job completes.
     } else {
       DCHECK(bound_job_->job_type() == ALTERNATIVE);
       alternative_job_.reset();
@@ -171,11 +186,12 @@ void HttpStreamFactoryImpl::JobController::SetPriority(
 
 void HttpStreamFactoryImpl::JobController::OnStreamReady(
     Job* job,
-    const SSLConfig& used_ssl_config,
-    const ProxyInfo& used_proxy_info) {
+    const SSLConfig& used_ssl_config) {
   DCHECK(job);
 
-  if (job_bound_ && bound_job_ != job) {
+  factory_->OnStreamReady(job->proxy_info(), privacy_mode_);
+
+  if (IsJobOrphaned(job)) {
     // We have bound a job to the associated Request, |job| has been orphaned.
     OnOrphanedJobComplete(job);
     return;
@@ -191,7 +207,7 @@ void HttpStreamFactoryImpl::JobController::OnStreamReady(
   DCHECK(!factory_->for_websockets_);
   DCHECK_EQ(HttpStreamRequest::HTTP_STREAM, request_->stream_type());
   OnJobSucceeded(job);
-  request_->OnStreamReady(used_ssl_config, used_proxy_info, stream.release());
+  request_->OnStreamReady(used_ssl_config, job->proxy_info(), stream.release());
 }
 
 void HttpStreamFactoryImpl::JobController::OnBidirectionalStreamImplReady(
@@ -200,7 +216,7 @@ void HttpStreamFactoryImpl::JobController::OnBidirectionalStreamImplReady(
     const ProxyInfo& used_proxy_info) {
   DCHECK(job);
 
-  if (job_bound_ && bound_job_ != job) {
+  if (IsJobOrphaned(job)) {
     // We have bound a job to the associated Request, |job| has been orphaned.
     OnOrphanedJobComplete(job);
     return;
@@ -251,7 +267,7 @@ void HttpStreamFactoryImpl::JobController::OnStreamFailed(
 
   MaybeResumeMainJob(job, base::TimeDelta());
 
-  if (job_bound_ && bound_job_ != job) {
+  if (IsJobOrphaned(job)) {
     // We have bound a job to the associated Request, |job| has been orphaned.
     OnOrphanedJobComplete(job);
     return;
@@ -289,7 +305,7 @@ void HttpStreamFactoryImpl::JobController::OnCertificateError(
     const SSLInfo& ssl_info) {
   MaybeResumeMainJob(job, base::TimeDelta());
 
-  if (job_bound_ && bound_job_ != job) {
+  if (IsJobOrphaned(job)) {
     // We have bound a job to the associated Request, |job| has been orphaned.
     OnOrphanedJobComplete(job);
     return;
@@ -312,7 +328,7 @@ void HttpStreamFactoryImpl::JobController::OnHttpsProxyTunnelResponse(
     HttpStream* stream) {
   MaybeResumeMainJob(job, base::TimeDelta());
 
-  if (job_bound_ && bound_job_ != job) {
+  if (IsJobOrphaned(job)) {
     // We have bound a job to the associated Request, |job| has been orphaned.
     OnOrphanedJobComplete(job);
     return;
@@ -332,7 +348,7 @@ void HttpStreamFactoryImpl::JobController::OnNeedsClientAuth(
     SSLCertRequestInfo* cert_info) {
   MaybeResumeMainJob(job, base::TimeDelta());
 
-  if (job_bound_ && bound_job_ != job) {
+  if (IsJobOrphaned(job)) {
     // We have bound a job to the associated Request, |job| has been orphaned.
     OnOrphanedJobComplete(job);
     return;
@@ -353,7 +369,7 @@ void HttpStreamFactoryImpl::JobController::OnNeedsProxyAuth(
     HttpAuthController* auth_controller) {
   MaybeResumeMainJob(job, base::TimeDelta());
 
-  if (job_bound_ && bound_job_ != job) {
+  if (IsJobOrphaned(job)) {
     // We have bound a job to the associated Request, |job| has been orphaned.
     OnOrphanedJobComplete(job);
     return;
@@ -365,6 +381,11 @@ void HttpStreamFactoryImpl::JobController::OnNeedsProxyAuth(
     BindJob(job);
   request_->OnNeedsProxyAuth(proxy_response, used_ssl_config, used_proxy_info,
                              auth_controller);
+}
+
+bool HttpStreamFactoryImpl::JobController::OnInitConnection(
+    const ProxyInfo& proxy_info) {
+  return factory_->OnInitConnection(*this, proxy_info, privacy_mode_);
 }
 
 void HttpStreamFactoryImpl::JobController::OnResolveProxyComplete(
@@ -413,8 +434,9 @@ void HttpStreamFactoryImpl::JobController::OnNewSpdySessionReady(
     bool direct) {
   DCHECK(job);
   DCHECK(job->using_spdy());
+  DCHECK(!is_preconnect_);
 
-  bool is_job_orphaned = job_bound_ && bound_job_ != job;
+  bool is_job_orphaned = IsJobOrphaned(job);
 
   // Cache these values in case the job gets deleted.
   const SSLConfig used_ssl_config = job->server_ssl_config();
@@ -504,6 +526,10 @@ void HttpStreamFactoryImpl::JobController::AddConnectionAttemptsToRequest(
 }
 
 void HttpStreamFactoryImpl::JobController::ResumeMainJob() {
+  if (main_job_is_resumed_)
+    return;
+
+  main_job_is_resumed_ = true;
   main_job_->net_log().AddEvent(
       NetLogEventType::HTTP_STREAM_JOB_DELAYED,
       base::Bind(&NetLogHttpStreamJobDelayCallback, main_job_wait_time_));
@@ -515,15 +541,24 @@ void HttpStreamFactoryImpl::JobController::ResumeMainJob() {
 void HttpStreamFactoryImpl::JobController::MaybeResumeMainJob(
     Job* job,
     const base::TimeDelta& delay) {
+  DCHECK(delay == base::TimeDelta() || delay == main_job_wait_time_);
   DCHECK(job == main_job_.get() || job == alternative_job_.get());
 
-  if (!main_job_is_blocked_ || job != alternative_job_.get() || !main_job_)
+  if (job != alternative_job_.get() || !main_job_)
     return;
 
   main_job_is_blocked_ = false;
 
-  if (!main_job_->is_waiting())
+  if (!main_job_->is_waiting()) {
+    // There are two cases where the main job is not in WAIT state:
+    //   1) The main job hasn't got to waiting state, do not yet post a task to
+    //      resume since that will happen in ShouldWait().
+    //   2) The main job has passed waiting state, so the main job does not need
+    //      to be resumed.
     return;
+  }
+
+  main_job_wait_time_ = delay;
 
   base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
       FROM_HERE,
@@ -612,8 +647,10 @@ const NetLogWithSource* HttpStreamFactoryImpl::JobController::GetNetLog(
 
 void HttpStreamFactoryImpl::JobController::MaybeSetWaitTimeForMainJob(
     const base::TimeDelta& delay) {
-  if (main_job_is_blocked_)
-    main_job_wait_time_ = delay;
+  if (main_job_is_blocked_) {
+    main_job_wait_time_ = std::min(
+        delay, base::TimeDelta::FromSeconds(kMaxDelayTimeForMainJobSecs));
+  }
 }
 
 WebSocketHandshakeStreamBase::CreateHelper* HttpStreamFactoryImpl::
@@ -644,7 +681,7 @@ void HttpStreamFactoryImpl::JobController::CreateJobs(
   const AlternativeService alternative_service =
       GetAlternativeServiceFor(request_info, delegate, stream_type);
 
-  if (alternative_service.protocol != UNINITIALIZED_ALTERNATE_PROTOCOL) {
+  if (alternative_service.protocol != kProtoUnknown) {
     // Never share connection with other jobs for FTP requests.
     DVLOG(1) << "Selected alternative service (host: "
              << alternative_service.host_port_pair().host()
@@ -724,7 +761,17 @@ void HttpStreamFactoryImpl::JobController::OrphanUnboundJob() {
   } else if (bound_job_->job_type() == ALTERNATIVE && main_job_) {
     // Orphan main job.
     factory_->request_map_.erase(main_job_.get());
-    main_job_->Orphan();
+    // If ResumeMainJob() is not executed, reset |main_job_|. Otherwise,
+    // OnOrphanedJobComplete() will clean up |this| when the job completes.
+    // Use |main_job_is_blocked_| and |!main_job_wait_time_.is_zero()| instead
+    // of |main_job_|->is_waiting() because |main_job_| can be in proxy
+    // resolution step.
+    if (main_job_ && (main_job_is_blocked_ || !main_job_wait_time_.is_zero())) {
+      DCHECK(alternative_job_);
+      main_job_.reset();
+    } else {
+      main_job_->Orphan();
+    }
   }
 }
 
@@ -777,7 +824,7 @@ void HttpStreamFactoryImpl::JobController::OnAlternativeJobFailed(Job* job) {
     failed_alternative_service_ = job->alternative_service();
   }
 
-  if (!request_ || (job_bound_ && bound_job_ != job)) {
+  if (IsJobOrphaned(job)) {
     // If |request_| is gone then it must have been successfully served by
     // |main_job_|.
     // If |request_| is bound to a different job, then it is being
@@ -787,8 +834,7 @@ void HttpStreamFactoryImpl::JobController::OnAlternativeJobFailed(Job* job) {
 }
 
 void HttpStreamFactoryImpl::JobController::ReportBrokenAlternativeService() {
-  DCHECK(failed_alternative_service_.protocol !=
-             UNINITIALIZED_ALTERNATE_PROTOCOL ||
+  DCHECK(failed_alternative_service_.protocol != kProtoUnknown ||
          failed_alternative_proxy_server_.is_valid());
 
   if (failed_alternative_proxy_server_.is_valid()) {
@@ -830,13 +876,6 @@ GURL HttpStreamFactoryImpl::JobController::ApplyHostMappingRules(
 bool HttpStreamFactoryImpl::JobController::IsQuicWhitelistedForHost(
     const std::string& host) {
   bool whitelist_needed = false;
-  for (QuicVersion version : session_->params().quic_supported_versions) {
-    if (version <= QUIC_VERSION_30) {
-      whitelist_needed = true;
-      break;
-    }
-  }
-
   // The QUIC whitelist is not needed in QUIC versions after 30.
   if (!whitelist_needed)
     return true;
@@ -856,16 +895,16 @@ HttpStreamFactoryImpl::JobController::GetAlternativeServiceFor(
   AlternativeService alternative_service =
       GetAlternativeServiceForInternal(request_info, delegate, stream_type);
   AlternativeServiceType type;
-  if (alternative_service.protocol == UNINITIALIZED_ALTERNATE_PROTOCOL) {
+  if (alternative_service.protocol == kProtoUnknown) {
     type = NO_ALTERNATIVE_SERVICE;
-  } else if (alternative_service.protocol == QUIC) {
-    if (request_info.url.host() == alternative_service.host) {
+  } else if (alternative_service.protocol == kProtoQUIC) {
+    if (request_info.url.host_piece() == alternative_service.host) {
       type = QUIC_SAME_DESTINATION;
     } else {
       type = QUIC_DIFFERENT_DESTINATION;
     }
   } else {
-    if (request_info.url.host() == alternative_service.host) {
+    if (request_info.url.host_piece() == alternative_service.host) {
       type = NOT_QUIC_SAME_DESTINATION;
     } else {
       type = NOT_QUIC_DIFFERENT_DESTINATION;
@@ -903,7 +942,7 @@ HttpStreamFactoryImpl::JobController::GetAlternativeServiceForInternal(
   for (const AlternativeService& alternative_service :
        alternative_service_vector) {
     DCHECK(IsAlternateProtocolValid(alternative_service.protocol));
-    if (!quic_advertised && alternative_service.protocol == QUIC)
+    if (!quic_advertised && alternative_service.protocol == kProtoQUIC)
       quic_advertised = true;
     if (http_server_properties.IsAlternativeServiceBroken(
             alternative_service)) {
@@ -924,7 +963,7 @@ HttpStreamFactoryImpl::JobController::GetAlternativeServiceForInternal(
          origin.port() < kUnrestrictedPort))
       continue;
 
-    if (alternative_service.protocol == NPN_HTTP_2) {
+    if (alternative_service.protocol == kProtoHTTP2) {
       if (origin.host() != alternative_service.host &&
           !session_->params()
                .enable_http2_alternative_service_with_different_host) {
@@ -932,13 +971,12 @@ HttpStreamFactoryImpl::JobController::GetAlternativeServiceForInternal(
       }
 
       // Cache this entry if we don't have a non-broken Alt-Svc yet.
-      if (first_alternative_service.protocol ==
-          UNINITIALIZED_ALTERNATE_PROTOCOL)
+      if (first_alternative_service.protocol == kProtoUnknown)
         first_alternative_service = alternative_service;
       continue;
     }
 
-    DCHECK_EQ(QUIC, alternative_service.protocol);
+    DCHECK_EQ(kProtoQUIC, alternative_service.protocol);
     if (origin.host() != alternative_service.host &&
         !session_->params()
              .enable_quic_alternative_service_with_different_host) {
@@ -946,7 +984,7 @@ HttpStreamFactoryImpl::JobController::GetAlternativeServiceForInternal(
     }
 
     quic_all_broken = false;
-    if (!session_->params().enable_quic)
+    if (!session_->IsQuicEnabled())
       continue;
 
     if (!IsQuicWhitelistedForHost(origin.host()))
@@ -977,7 +1015,7 @@ HttpStreamFactoryImpl::JobController::GetAlternativeServiceForInternal(
     }
 
     // Cache this entry if we don't have a non-broken Alt-Svc yet.
-    if (first_alternative_service.protocol == UNINITIALIZED_ALTERNATE_PROTOCOL)
+    if (first_alternative_service.protocol == kProtoUnknown)
       first_alternative_service = alternative_service;
   }
 
@@ -1046,7 +1084,7 @@ bool HttpStreamFactoryImpl::JobController::
 
   if (alternative_proxy_server->is_quic()) {
     // Check that QUIC is enabled globally, and it is not disabled.
-    if (!session_->params().enable_quic ||
+    if (!session_->IsQuicEnabled() ||
         session_->quic_stream_factory()->IsQuicDisabled()) {
       return false;
     }
@@ -1084,6 +1122,10 @@ void HttpStreamFactoryImpl::JobController::StartAlternativeProxyServerJob() {
     return;
   DCHECK(alternative_job_->alternative_proxy_server().is_valid());
   alternative_job_->Start(request_->stream_type());
+}
+
+bool HttpStreamFactoryImpl::JobController::IsJobOrphaned(Job* job) const {
+  return !request_ || (job_bound_ && bound_job_ != job);
 }
 
 }  // namespace net

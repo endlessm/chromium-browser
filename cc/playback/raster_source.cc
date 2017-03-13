@@ -40,8 +40,7 @@ RasterSource::RasterSource(const RecordingSource* other, bool can_use_lcd_text)
       clear_canvas_with_debug_color_(other->clear_canvas_with_debug_color_),
       slow_down_raster_scale_factor_for_debug_(
           other->slow_down_raster_scale_factor_for_debug_),
-      should_attempt_to_use_distance_field_text_(false),
-      image_decode_controller_(nullptr) {}
+      image_decode_cache_(nullptr) {}
 
 RasterSource::RasterSource(const RasterSource* other, bool can_use_lcd_text)
     : display_list_(other->display_list_),
@@ -56,10 +55,7 @@ RasterSource::RasterSource(const RasterSource* other, bool can_use_lcd_text)
       clear_canvas_with_debug_color_(other->clear_canvas_with_debug_color_),
       slow_down_raster_scale_factor_for_debug_(
           other->slow_down_raster_scale_factor_for_debug_),
-      should_attempt_to_use_distance_field_text_(
-          other->should_attempt_to_use_distance_field_text_),
-      image_decode_controller_(other->image_decode_controller_) {
-}
+      image_decode_cache_(other->image_decode_cache_) {}
 
 RasterSource::~RasterSource() {
 }
@@ -67,7 +63,7 @@ RasterSource::~RasterSource() {
 void RasterSource::PlaybackToCanvas(SkCanvas* raster_canvas,
                                     const gfx::Rect& canvas_bitmap_rect,
                                     const gfx::Rect& canvas_playback_rect,
-                                    float contents_scale,
+                                    float raster_scale,
                                     const PlaybackSettings& settings) const {
   SkIRect raster_bounds = gfx::RectToSkIRect(canvas_bitmap_rect);
   if (!canvas_playback_rect.IsEmpty() &&
@@ -79,7 +75,7 @@ void RasterSource::PlaybackToCanvas(SkCanvas* raster_canvas,
   raster_canvas->save();
   raster_canvas->translate(-canvas_bitmap_rect.x(), -canvas_bitmap_rect.y());
   raster_canvas->clipRect(SkRect::MakeFromIRect(raster_bounds));
-  raster_canvas->scale(contents_scale, contents_scale);
+  raster_canvas->scale(raster_scale, raster_scale);
   PlaybackToCanvas(raster_canvas, settings);
   raster_canvas->restore();
 }
@@ -95,8 +91,7 @@ void RasterSource::PlaybackToCanvas(SkCanvas* raster_canvas,
   } else if (settings.use_image_hijack_canvas) {
     const SkImageInfo& info = raster_canvas->imageInfo();
 
-    ImageHijackCanvas canvas(info.width(), info.height(),
-                             image_decode_controller_);
+    ImageHijackCanvas canvas(info.width(), info.height(), image_decode_cache_);
     // Before adding the canvas, make sure that the ImageHijackCanvas is aware
     // of the current transform and clip, which may affect the clip bounds.
     // Since we query the clip bounds of the current canvas to get the list of
@@ -113,13 +108,27 @@ void RasterSource::PlaybackToCanvas(SkCanvas* raster_canvas,
   }
 }
 
+namespace {
+
+bool CanvasIsUnclipped(const SkCanvas* canvas) {
+  if (!canvas->isClipRect())
+    return false;
+
+  SkIRect bounds;
+  if (!canvas->getClipDeviceBounds(&bounds))
+    return false;
+
+  SkISize size = canvas->getBaseLayerSize();
+  return bounds.contains(0, 0, size.width(), size.height());
+}
+
+}  // namespace
+
 void RasterSource::PrepareForPlaybackToCanvas(SkCanvas* canvas) const {
   // TODO(hendrikw): See if we can split this up into separate functions.
 
-  if (canvas->getClipStack()->quickContains(
-          SkRect::MakeFromIRect(canvas->imageInfo().bounds()))) {
+  if (CanvasIsUnclipped(canvas))
     canvas->discard();
-  }
 
   // If this raster source has opaque contents, it is guaranteeing that it will
   // draw an opaque rect the size of the layer.  If it is not, then we must
@@ -174,7 +183,7 @@ void RasterSource::PrepareForPlaybackToCanvas(SkCanvas* canvas) const {
     // Use clipRegion to bypass CTM because the rects are device rects.
     SkRegion interest_region;
     interest_region.setRect(interest_rect);
-    canvas->clipRegion(interest_region, SkRegion::kDifference_Op);
+    canvas->clipRegion(interest_region, SkClipOp::kDifference);
     canvas->clear(DebugColors::MissingResizeInvalidations());
     canvas->restore();
   }
@@ -225,7 +234,7 @@ bool RasterSource::PerformSolidColorAnalysis(const gfx::Rect& content_rect,
   TRACE_EVENT0("cc", "RasterSource::PerformSolidColorAnalysis");
 
   gfx::Rect layer_rect =
-      gfx::ScaleToEnclosingRect(content_rect, 1.0f / contents_scale);
+      gfx::ScaleToEnclosingRect(content_rect, 1.f / contents_scale);
 
   layer_rect.Intersect(gfx::Rect(size_));
   skia::AnalysisCanvas canvas(layer_rect.width(), layer_rect.height());
@@ -236,10 +245,10 @@ bool RasterSource::PerformSolidColorAnalysis(const gfx::Rect& content_rect,
 
 void RasterSource::GetDiscardableImagesInRect(
     const gfx::Rect& layer_rect,
-    float raster_scale,
+    float contents_scale,
     std::vector<DrawImage>* images) const {
   DCHECK_EQ(0u, images->size());
-  display_list_->GetDiscardableImagesInRect(layer_rect, raster_scale, images);
+  display_list_->GetDiscardableImagesInRect(layer_rect, contents_scale, images);
 }
 
 bool RasterSource::CoversRect(const gfx::Rect& layer_rect) const {
@@ -252,6 +261,14 @@ bool RasterSource::CoversRect(const gfx::Rect& layer_rect) const {
 
 gfx::Size RasterSource::GetSize() const {
   return size_;
+}
+
+bool RasterSource::HasImpliedColorSpace() const {
+  return display_list_->HasImpliedColorSpace();
+}
+
+const gfx::ColorSpace& RasterSource::GetImpliedColorSpace() const {
+  return display_list_->GetImpliedColorSpace();
 }
 
 bool RasterSource::IsSolidColor() const {
@@ -269,14 +286,6 @@ bool RasterSource::HasRecordings() const {
 
 gfx::Rect RasterSource::RecordedViewport() const {
   return recorded_viewport_;
-}
-
-void RasterSource::SetShouldAttemptToUseDistanceFieldText() {
-  should_attempt_to_use_distance_field_text_ = true;
-}
-
-bool RasterSource::ShouldAttemptToUseDistanceFieldText() const {
-  return should_attempt_to_use_distance_field_text_;
 }
 
 void RasterSource::AsValueInto(base::trace_event::TracedValue* array) const {

@@ -15,8 +15,6 @@
 
 namespace blink {
 
-class StyleResolverState;
-
 // Represents an animation's effect between an adjacent pair of
 // PropertySpecificKeyframes after converting the keyframes to an internal
 // format with respect to the animation environment and underlying values.
@@ -50,7 +48,7 @@ class PairwisePrimitiveInterpolation : public PrimitiveInterpolation {
       std::unique_ptr<InterpolableValue> start,
       std::unique_ptr<InterpolableValue> end,
       PassRefPtr<NonInterpolableValue> nonInterpolableValue) {
-    return wrapUnique(new PairwisePrimitiveInterpolation(
+    return WTF::wrapUnique(new PairwisePrimitiveInterpolation(
         type, std::move(start), std::move(end),
         std::move(nonInterpolableValue)));
   }
@@ -107,7 +105,7 @@ class FlipPrimitiveInterpolation : public PrimitiveInterpolation {
   static std::unique_ptr<FlipPrimitiveInterpolation> create(
       std::unique_ptr<TypedInterpolationValue> start,
       std::unique_ptr<TypedInterpolationValue> end) {
-    return wrapUnique(
+    return WTF::wrapUnique(
         new FlipPrimitiveInterpolation(std::move(start), std::move(end)));
   }
 

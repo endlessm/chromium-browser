@@ -9,7 +9,6 @@
 #include <stdint.h>
 
 #include "base/compiler_specific.h"
-#include "base/containers/scoped_ptr_hash_map.h"
 #include "base/threading/thread_local_storage.h"
 #include "base/timer/timer.h"
 #include "base/trace_event/trace_event.h"
@@ -20,9 +19,10 @@
 #include "third_party/WebKit/public/platform/Platform.h"
 #include "third_party/WebKit/public/platform/WebGestureDevice.h"
 #include "third_party/WebKit/public/platform/WebURLError.h"
+#include "third_party/WebKit/public/public_features.h"
 #include "ui/base/layout.h"
 
-#if defined(USE_DEFAULT_RENDER_THEME)
+#if BUILDFLAG(USE_DEFAULT_RENDER_THEME)
 #include "content/child/webthemeengine_impl_default.h"
 #elif defined(OS_WIN)
 #include "content/child/webthemeengine_impl_win.h"
@@ -33,7 +33,6 @@
 #endif
 
 namespace base {
-class MessageLoop;
 class WaitableEvent;
 }
 
@@ -44,12 +43,10 @@ class WebThreadBase;
 }
 
 namespace content {
-class BackgroundSyncProvider;
-class FlingCurveConfiguration;
+
 class NotificationDispatcher;
 class PushDispatcher;
 class ThreadSafeSender;
-class TraceLogObserverAdapter;
 class WebCryptoImpl;
 
 class CONTENT_EXPORT BlinkPlatformImpl
@@ -75,25 +72,16 @@ class CONTENT_EXPORT BlinkPlatformImpl
       const blink::WebSecurityOrigin& origin) override;
   bool databaseSetFileSize(const blink::WebString& vfs_file_name,
                            long long size) override;
-  blink::WebString signedPublicKeyAndChallengeString(
-      unsigned key_size_index,
-      const blink::WebString& challenge,
-      const blink::WebURL& url,
-      const blink::WebURL& top_origin) override;
   size_t actualMemoryUsageMB() override;
   size_t numberOfProcessors() override;
+
+  void bindServiceConnector(
+      mojo::ScopedMessagePipeHandle remote_handle) override;
 
   size_t maxDecodedImageBytes() override;
   uint32_t getUniqueIdForProcess() override;
   blink::WebString userAgent() override;
-  blink::WebData parseDataURL(const blink::WebURL& url,
-                              blink::WebString& mimetype,
-                              blink::WebString& charset) override;
   blink::WebURLError cancelledError(const blink::WebURL& url) const override;
-  bool parseMultipartHeadersFromBody(const char* bytes,
-                                     size_t size,
-                                     blink::WebURLResponse* response,
-                                     size_t* end) const override;
   blink::WebThread* createThread(const char* name) override;
   blink::WebThread* currentThread() override;
   void recordAction(const blink::UserMetricsAction&) override;
@@ -123,7 +111,6 @@ class CONTENT_EXPORT BlinkPlatformImpl
   blink::WebCrypto* crypto() override;
   blink::WebNotificationManager* notificationManager() override;
   blink::WebPushProvider* pushProvider() override;
-  blink::WebSyncProvider* backgroundSyncProvider() override;
 
   blink::WebString domCodeStringFromEnum(int dom_code) override;
   int domEnumFromCodeString(const blink::WebString& codeString) override;
@@ -151,7 +138,6 @@ class CONTENT_EXPORT BlinkPlatformImpl
   scoped_refptr<ThreadSafeSender> thread_safe_sender_;
   scoped_refptr<NotificationDispatcher> notification_dispatcher_;
   scoped_refptr<PushDispatcher> push_dispatcher_;
-  std::unique_ptr<BackgroundSyncProvider> main_thread_sync_provider_;
 
   blink::scheduler::WebThreadBase* compositor_thread_;
 };

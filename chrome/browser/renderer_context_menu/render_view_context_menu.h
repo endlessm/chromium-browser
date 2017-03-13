@@ -20,16 +20,18 @@
 #include "components/renderer_context_menu/render_view_context_menu_observer.h"
 #include "components/renderer_context_menu/render_view_context_menu_proxy.h"
 #include "content/public/common/context_menu_params.h"
+#include "extensions/features/features.h"
+#include "ppapi/features/features.h"
+#include "printing/features/features.h"
 #include "ui/base/models/simple_menu_model.h"
 #include "ui/base/window_open_disposition.h"
 #include "ui/gfx/geometry/vector2d.h"
 
-#if defined(ENABLE_EXTENSIONS)
+#if BUILDFLAG(ENABLE_EXTENSIONS)
 #include "chrome/browser/extensions/context_menu_matcher.h"
 #include "chrome/browser/extensions/menu_manager.h"
 #endif
 
-class OpenWithMenuObserver;
 class PrintPreviewContextMenuObserver;
 class Profile;
 class SpellingMenuObserver;
@@ -88,7 +90,7 @@ class RenderViewContextMenu : public RenderViewContextMenuBase {
   // Helper function to escape "&" as "&&".
   void EscapeAmpersands(base::string16* text);
 
-#if defined(ENABLE_EXTENSIONS)
+#if BUILDFLAG(ENABLE_EXTENSIONS)
   extensions::ContextMenuMatcher extension_items_;
 #endif
   void RecordUsedItem(int id) override;
@@ -103,7 +105,7 @@ class RenderViewContextMenu : public RenderViewContextMenuBase {
 
   static bool IsDevToolsURL(const GURL& url);
   static bool IsInternalResourcesURL(const GURL& url);
-#if defined(ENABLE_EXTENSIONS)
+#if BUILDFLAG(ENABLE_EXTENSIONS)
   static bool ExtensionContextAndPatternMatch(
       const content::ContextMenuParams& params,
       const extensions::MenuItem::ContextList& contexts,
@@ -115,7 +117,7 @@ class RenderViewContextMenu : public RenderViewContextMenuBase {
   // RenderViewContextMenuBase:
   void InitMenu() override;
   void RecordShownItem(int id) override;
-#if defined(ENABLE_PLUGINS)
+#if BUILDFLAG(ENABLE_PLUGINS)
   void HandleAuthorizeAllPlugins() override;
 #endif
   void NotifyMenuShown() override;
@@ -145,7 +147,7 @@ class RenderViewContextMenu : public RenderViewContextMenuBase {
   void AppendLanguageSettings();
   void AppendSpellingSuggestionItems();
   void AppendSearchProvider();
-#if defined(ENABLE_EXTENSIONS)
+#if BUILDFLAG(ENABLE_EXTENSIONS)
   void AppendAllExtensionItems();
   void AppendCurrentExtensionItems();
 #endif
@@ -167,6 +169,7 @@ class RenderViewContextMenu : public RenderViewContextMenuBase {
   bool IsPasteAndMatchStyleEnabled() const;
   bool IsPrintPreviewEnabled() const;
   bool IsRouteMediaEnabled() const;
+  bool IsOpenLinkOTREnabled() const;
 
   // Command execution functions.
   void ExecOpenLinkNewTab();
@@ -218,6 +221,8 @@ class RenderViewContextMenu : public RenderViewContextMenuBase {
   bool multiple_profiles_open_;
   ui::SimpleMenuModel protocol_handler_submenu_model_;
   ProtocolHandlerRegistry* protocol_handler_registry_;
+  // Whether the Save As text experiment is on.
+  bool save_as_text_experiement_enabled_;
 
   // An observer that handles spelling suggestions, "Add to dictionary", and
   // "Ask Google for suggestions" items.
@@ -233,7 +238,7 @@ class RenderViewContextMenu : public RenderViewContextMenuBase {
   // An observer that handles "Open with <app>" items.
   std::unique_ptr<RenderViewContextMenuObserver> open_with_menu_observer_;
 
-#if defined(ENABLE_PRINT_PREVIEW)
+#if BUILDFLAG(ENABLE_PRINT_PREVIEW)
   // An observer that disables menu items when print preview is active.
   std::unique_ptr<PrintPreviewContextMenuObserver> print_preview_menu_observer_;
 #endif

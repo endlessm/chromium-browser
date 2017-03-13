@@ -23,12 +23,15 @@
 #include "components/open_from_clipboard/clipboard_recent_content.h"
 #include "components/prefs/json_pref_store.h"
 #include "components/prefs/pref_service.h"
-#include "components/rappor/rappor_service.h"
+#include "components/rappor/rappor_service_impl.h"
 #include "components/translate/core/browser/translate_download_manager.h"
+#include "components/variations/field_trial_config/field_trial_util.h"
 #include "components/variations/service/variations_service.h"
 #include "components/variations/variations_http_header_provider.h"
+#include "components/variations/variations_switches.h"
 #include "ios/chrome/browser/about_flags.h"
 #include "ios/chrome/browser/application_context_impl.h"
+#include "ios/chrome/browser/browser_state/browser_state_keyed_service_factories.h"
 #include "ios/chrome/browser/browser_state/chrome_browser_state.h"
 #include "ios/chrome/browser/browser_state/chrome_browser_state_manager.h"
 #include "ios/chrome/browser/chrome_paths.h"
@@ -39,7 +42,6 @@
 #include "ios/chrome/browser/ios_chrome_field_trials.h"
 #include "ios/chrome/browser/metrics/field_trial_synchronizer.h"
 #include "ios/chrome/browser/open_from_clipboard/create_clipboard_recent_content.h"
-#include "ios/chrome/browser/physical_web/start_physical_web_discovery.h"
 #include "ios/chrome/browser/pref_names.h"
 #include "ios/chrome/browser/translate/translate_service_ios.h"
 #include "ios/public/provider/chrome/browser/chrome_browser_provider.h"
@@ -48,12 +50,17 @@
 #include "net/http/http_network_layer.h"
 #include "net/http/http_stream_factory.h"
 #include "net/url_request/url_request.h"
+#include "rlz/features/features.h"
 #include "ui/base/l10n/l10n_util_mac.h"
 #include "ui/base/resource/resource_bundle.h"
 
-#if defined(ENABLE_RLZ)
+#if BUILDFLAG(ENABLE_RLZ)
 #include "components/rlz/rlz_tracker.h"                        // nogncheck
 #include "ios/chrome/browser/rlz/rlz_tracker_delegate_impl.h"  // nogncheck
+#endif
+
+#if !defined(__has_feature) || !__has_feature(objc_arc)
+#error "This file requires ARC support."
 #endif
 
 IOSChromeMainParts::IOSChromeMainParts(
@@ -81,6 +88,11 @@ void IOSChromeMainParts::PreMainMessageLoopStart() {
 }
 
 void IOSChromeMainParts::PreCreateThreads() {
+  // IMPORTANT
+  // Calls in this function should not post tasks or create threads as
+  // components used to handle those tasks are not yet available. This work
+  // should be deferred to PreMainMessageLoopRunImpl.
+
   base::FilePath local_state_path;
   CHECK(PathService::Get(ios::FILE_LOCAL_STATE, &local_state_path));
   scoped_refptr<base::SequencedTaskRunner> local_state_task_runner =
@@ -111,11 +123,11 @@ void IOSChromeMainParts::PreCreateThreads() {
       base::MakeUnique<base::DefaultTickClock>(),
       base::Bind(&metrics::IOSTrackingSynchronizerDelegate::Create));
 
-  // Now the command line has been mutated based on about:flags, we can setup
-  // metrics and initialize field trials that are needed by IOSChromeIOThread's
-  // initialization which happens in ApplicationContext:PreCreateThreads.
+  // Now that the command line has been mutated based on about:flags, we can
+  // initialize field trials. The field trials are needed by IOThread's
+  // initialization which happens in BrowserProcess:PreCreateThreads. Metrics
+  // initialization is handled in PreMainMessageLoopRun since it posts tasks.
   SetupFieldTrials();
-  SetupMetrics();
 
   // Initialize FieldTrialSynchronizer system.
   field_trial_synchronizer_.reset(new ios::FieldTrialSynchronizer);
@@ -124,6 +136,10 @@ void IOSChromeMainParts::PreCreateThreads() {
 }
 
 void IOSChromeMainParts::PreMainMessageLoopRun() {
+  // This must occur at PreMainMessageLoopRun because |SetupMetrics()| uses the
+  // blocking pool, which is disabled until the CreateThreads phase of startup.
+  SetupMetrics();
+
   // Now that the file thread has been started, start recording.
   StartMetricsRecording();
 
@@ -139,13 +155,13 @@ void IOSChromeMainParts::PreMainMessageLoopRun() {
       CreateClipboardRecentContentIOS().release());
 
   // Ensure that the browser state is initialized.
-  ios::GetChromeBrowserProvider()->AssertBrowserContextKeyedFactoriesBuilt();
+  EnsureBrowserStateKeyedServiceFactoriesBuilt();
   ios::ChromeBrowserStateManager* browser_state_manager =
       application_context_->GetChromeBrowserStateManager();
   ios::ChromeBrowserState* last_used_browser_state =
       browser_state_manager->GetLastUsedBrowserState();
 
-#if defined(ENABLE_RLZ)
+#if BUILDFLAG(ENABLE_RLZ)
   // Init the RLZ library. This just schedules a task on the file thread to be
   // run sometime later. If this is the first run we record the installation
   // event.
@@ -160,7 +176,7 @@ void IOSChromeMainParts::PreMainMessageLoopRun() {
       RLZTrackerDelegateImpl::IsGoogleDefaultSearch(last_used_browser_state),
       RLZTrackerDelegateImpl::IsGoogleHomepage(last_used_browser_state),
       RLZTrackerDelegateImpl::IsGoogleInStartpages(last_used_browser_state));
-#endif  // defined(ENABLE_RLZ)
+#endif  // BUILDFLAG(ENABLE_RLZ)
 
   TranslateServiceIOS::Initialize();
   language_usage_metrics::LanguageUsageMetrics::RecordAcceptLanguages(
@@ -179,8 +195,6 @@ void IOSChromeMainParts::PreMainMessageLoopRun() {
 
   translate::TranslateDownloadManager::RequestLanguageList(
       last_used_browser_state->GetPrefs());
-
-  StartPhysicalWebDiscovery(last_used_browser_state->GetPrefs());
 }
 
 void IOSChromeMainParts::PostMainMessageLoopRun() {
@@ -239,6 +253,15 @@ void IOSChromeMainParts::SetupFieldTrials() {
   feature_list->InitializeFromCommandLine(
       command_line->GetSwitchValueASCII(switches::kEnableIOSFeatures),
       command_line->GetSwitchValueASCII(switches::kDisableIOSFeatures));
+
+#if defined(FIELDTRIAL_TESTING_ENABLED)
+  if (!command_line->HasSwitch(
+          variations::switches::kDisableFieldTrialTestingConfig) &&
+      !command_line->HasSwitch(switches::kForceFieldTrials) &&
+      !command_line->HasSwitch(variations::switches::kVariationsServerURL)) {
+    variations::AssociateDefaultFieldTrialConfig(feature_list.get());
+  }
+#endif  // defined(FIELDTRIAL_TESTING_ENABLED)
 
   variations::VariationsService* variations_service =
       application_context_->GetVariationsService();

@@ -26,7 +26,7 @@
 
 #include "core/editing/commands/ReplaceSelectionCommand.h"
 
-#include "bindings/core/v8/ExceptionStatePlaceholder.h"
+#include "bindings/core/v8/ExceptionState.h"
 #include "core/CSSPropertyNames.h"
 #include "core/HTMLNames.h"
 #include "core/InputTypeNames.h"
@@ -59,7 +59,7 @@
 #include "core/html/HTMLSpanElement.h"
 #include "core/layout/LayoutObject.h"
 #include "core/layout/LayoutText.h"
-#include "platform/tracing/TraceEvent.h"
+#include "platform/instrumentation/tracing/TraceEvent.h"
 #include "wtf/StdLibExtras.h"
 #include "wtf/Vector.h"
 
@@ -133,7 +133,7 @@ static bool isHTMLInterchangeConvertedSpaceSpan(const Node* node) {
 static Position positionAvoidingPrecedingNodes(Position pos) {
   // If we're already on a break, it's probably a placeholder and we shouldn't
   // change our position.
-  if (editingIgnoresContent(pos.anchorNode()))
+  if (editingIgnoresContent(*pos.anchorNode()))
     return pos;
 
   // We also stop when changing block flow elements because even though the
@@ -154,8 +154,8 @@ static Position positionAvoidingPrecedingNodes(Position pos) {
     if (nextPosition == pos ||
         enclosingBlock(nextPosition.computeContainerNode()) !=
             enclosingBlockElement ||
-        createVisiblePositionDeprecated(pos).deepEquivalent() !=
-            createVisiblePositionDeprecated(nextPosition).deepEquivalent())
+        createVisiblePosition(pos).deepEquivalent() !=
+            createVisiblePosition(nextPosition).deepEquivalent())
       break;
   }
   return pos;
@@ -178,6 +178,8 @@ ReplacementFragment::ReplacementFragment(Document* document,
   DCHECK(editableRoot);
   if (!editableRoot)
     return;
+
+  m_document->updateStyleAndLayoutIgnorePendingStylesheets();
 
   Element* shadowAncestorElement;
   if (editableRoot->isInShadowTree())
@@ -231,7 +233,8 @@ ReplacementFragment::ReplacementFragment(Document* document,
   }
 
   const EphemeralRange range =
-      VisibleSelection::selectionFromContentsOfNode(holder)
+      createVisibleSelection(
+          SelectionInDOMTree::Builder().selectAllChildren(*holder).build())
           .toNormalizedEphemeralRange();
   String text = plainText(range, static_cast<TextIteratorBehavior>(
                                      TextIteratorEmitsOriginalText |
@@ -313,6 +316,8 @@ HTMLElement* ReplacementFragment::insertFragmentForTestRendering(
 
   holder->appendChild(m_fragment);
   rootEditableElement->appendChild(holder);
+
+  // TODO(editing-dev): Hoist this call to the call sites.
   m_document->updateStyleAndLayoutIgnorePendingStylesheets();
 
   return holder;
@@ -336,7 +341,7 @@ void ReplacementFragment::removeUnrenderedNodes(ContainerNode* holder) {
 
   for (Node& node : NodeTraversal::descendantsOf(*holder)) {
     if (!isNodeRendered(node) && !isTableStructureNode(&node))
-      unrendered.append(&node);
+      unrendered.push_back(&node);
   }
 
   for (auto& node : unrendered)
@@ -401,6 +406,8 @@ ReplaceSelectionCommand::InsertedNodes::willRemoveNodePreservingChildren(
     m_lastNodeInserted = node.lastChild()
                              ? node.lastChild()
                              : NodeTraversal::nextSkippingChildren(node);
+  if (m_refNode.get() == node)
+    m_refNode = NodeTraversal::next(node);
 }
 
 inline void ReplaceSelectionCommand::InsertedNodes::willRemoveNode(Node& node) {
@@ -414,6 +421,8 @@ inline void ReplaceSelectionCommand::InsertedNodes::willRemoveNode(Node& node) {
     m_lastNodeInserted =
         NodeTraversal::previousSkippingChildren(*m_lastNodeInserted);
   }
+  if (node.contains(m_refNode))
+    m_refNode = NodeTraversal::nextSkippingChildren(node);
 }
 
 inline void ReplaceSelectionCommand::InsertedNodes::didReplaceNode(
@@ -423,6 +432,8 @@ inline void ReplaceSelectionCommand::InsertedNodes::didReplaceNode(
     m_firstNodeInserted = &newNode;
   if (m_lastNodeInserted.get() == node)
     m_lastNodeInserted = &newNode;
+  if (m_refNode.get() == node)
+    m_refNode = &newNode;
 }
 
 ReplaceSelectionCommand::ReplaceSelectionCommand(
@@ -472,14 +483,14 @@ bool ReplaceSelectionCommand::shouldMergeStart(
   // pasted into an unquoted position. If that unquoted position happens to be
   // right after another blockquote, we don't want to merge and risk stripping a
   // valid block (and newline) from the pasted content.
-  if (isStartOfParagraphDeprecated(startOfInsertedContent) &&
+  if (isStartOfParagraph(startOfInsertedContent) &&
       selectionStartWasInsideMailBlockquote &&
       hasMatchingQuoteLevel(prev, positionAtEndOfInsertedContent()))
     return true;
 
   return !selectionStartWasStartOfParagraph &&
          !fragmentHasInterchangeNewlineAtStart &&
-         isStartOfParagraphDeprecated(startOfInsertedContent) &&
+         isStartOfParagraph(startOfInsertedContent) &&
          !isHTMLBRElement(
              *startOfInsertedContent.deepEquivalent().anchorNode()) &&
          shouldMerge(startOfInsertedContent, prev);
@@ -494,7 +505,7 @@ bool ReplaceSelectionCommand::shouldMergeEnd(
     return false;
 
   return !selectionEndWasEndOfParagraph &&
-         isEndOfParagraphDeprecated(endOfInsertedContent) &&
+         isEndOfParagraph(endOfInsertedContent) &&
          !isHTMLBRElement(
              *endOfInsertedContent.deepEquivalent().anchorNode()) &&
          shouldMerge(endOfInsertedContent, next);
@@ -604,6 +615,14 @@ void ReplaceSelectionCommand::removeRedundantStylesAndKeepStyleSpanInline(
               : toHTMLQuoteElement(enclosingNodeOfType(
                     Position::firstPositionInNode(context),
                     isMailHTMLBlockquoteElement, CanCrossEditingBoundary));
+
+      // EditingStyle::removeStyleFromRulesAndContext() uses StyleResolver,
+      // which requires clean style.
+      // TODO(editing-dev): There is currently no way to update style without
+      // updating layout. We might want to have updateLifcycleToStyleClean()
+      // similar to FrameView::updateLifecylceToLayoutClean() in Document.
+      document().updateStyleAndLayoutIgnorePendingStylesheets();
+
       if (blockquoteElement)
         newInlineStyle->removeStyleFromRulesAndContext(
             element, document().documentElement());
@@ -626,6 +645,8 @@ void ReplaceSelectionCommand::removeRedundantStylesAndKeepStyleSpanInline(
       setNodeAttribute(element, styleAttr,
                        AtomicString(newInlineStyle->style()->asText()));
     }
+
+    document().updateStyleAndLayoutIgnorePendingStylesheets();
 
     // FIXME: Tolerate differences in id, class, and style attributes.
     if (element->parentNode() && isNonTableCellHTMLBlockElement(element) &&
@@ -666,13 +687,17 @@ void ReplaceSelectionCommand::removeRedundantStylesAndKeepStyleSpanInline(
 
       // Mutate using the CSSOM wrapper so we get the same event behavior as a
       // script.
-      if (isEnclosingBlock(element))
-        element->style()->setPropertyInternal(
-            CSSPropertyDisplay, String(), "inline", false, IGNORE_EXCEPTION);
+      if (isEnclosingBlock(element)) {
+        element->style()->setPropertyInternal(CSSPropertyDisplay, String(),
+                                              "inline", false,
+                                              IGNORE_EXCEPTION_FOR_TESTING);
+      }
       if (element->layoutObject() &&
-          element->layoutObject()->style()->isFloating())
+          element->layoutObject()->style()->isFloating()) {
         element->style()->setPropertyInternal(CSSPropertyFloat, String(),
-                                              "none", false, IGNORE_EXCEPTION);
+                                              "none", false,
+                                              IGNORE_EXCEPTION_FOR_TESTING);
+      }
     }
   }
 }
@@ -755,8 +780,9 @@ void ReplaceSelectionCommand::moveElementOutOfAncestor(
   if (!hasEditableStyle(*ancestor->parentNode()))
     return;
 
+  document().updateStyleAndLayoutIgnorePendingStylesheets();
   VisiblePosition positionAtEndOfNode =
-      createVisiblePositionDeprecated(lastPositionInOrAfterNode(element));
+      createVisiblePosition(lastPositionInOrAfterNode(element));
   VisiblePosition lastPositionInParagraph =
       VisiblePosition::lastPositionInNode(ancestor);
   if (positionAtEndOfNode.deepEquivalent() ==
@@ -817,24 +843,27 @@ void ReplaceSelectionCommand::removeUnrenderedTextNodesAtEnds(
 
 VisiblePosition ReplaceSelectionCommand::positionAtEndOfInsertedContent()
     const {
+  // TODO(xiaochengh): Hoist the call and change it into a DCHECK.
+  document().updateStyleAndLayoutIgnorePendingStylesheets();
   // TODO(yosin): We should set |m_endOfInsertedContent| not in SELECT
   // element, since contents of SELECT elements, e.g. OPTION, OPTGROUP, are
   // not editable, or SELECT element is an atomic on editing.
   HTMLSelectElement* enclosingSelect = toHTMLSelectElement(
       enclosingElementWithTag(m_endOfInsertedContent, selectTag));
   if (enclosingSelect)
-    return createVisiblePositionDeprecated(
-        lastPositionInOrAfterNode(enclosingSelect));
+    return createVisiblePosition(lastPositionInOrAfterNode(enclosingSelect));
   if (m_endOfInsertedContent.isOrphan())
     return VisiblePosition();
-  return createVisiblePositionDeprecated(m_endOfInsertedContent);
+  return createVisiblePosition(m_endOfInsertedContent);
 }
 
 VisiblePosition ReplaceSelectionCommand::positionAtStartOfInsertedContent()
     const {
+  // TODO(xiaochengh): Hoist the call and change it into a DCHECK.
+  document().updateStyleAndLayoutIgnorePendingStylesheets();
   if (m_startOfInsertedContent.isOrphan())
     return VisiblePosition();
-  return createVisiblePositionDeprecated(m_startOfInsertedContent);
+  return createVisiblePosition(m_startOfInsertedContent);
 }
 
 static void removeHeadContents(ReplacementFragment& fragment) {
@@ -1005,20 +1034,21 @@ void ReplaceSelectionCommand::mergeEndIfNeeded(EditingState* editingState) {
   // paragraph already in the document, unless the paragraph to move would
   // include the what was the start of the selection that was pasted into, so
   // that we preserve that paragraph's block styles.
-  bool mergeForward = !(
-      inSameParagraphDeprecated(startOfInsertedContent, endOfInsertedContent) &&
-      !isStartOfParagraphDeprecated(startOfInsertedContent));
+  bool mergeForward =
+      !(inSameParagraph(startOfInsertedContent, endOfInsertedContent) &&
+        !isStartOfParagraph(startOfInsertedContent));
 
   VisiblePosition destination = mergeForward
                                     ? nextPositionOf(endOfInsertedContent)
                                     : endOfInsertedContent;
+  // TODO(xiaochengh): Stop storing VisiblePositions through mutations.
   VisiblePosition startOfParagraphToMove =
-      mergeForward ? startOfParagraphDeprecated(endOfInsertedContent)
+      mergeForward ? startOfParagraph(endOfInsertedContent)
                    : nextPositionOf(endOfInsertedContent);
 
   // Merging forward could result in deleting the destination anchor node.
   // To avoid this, we add a placeholder node before the start of the paragraph.
-  if (endOfParagraphDeprecated(startOfParagraphToMove).deepEquivalent() ==
+  if (endOfParagraph(startOfParagraphToMove).deepEquivalent() ==
       destination.deepEquivalent()) {
     HTMLBRElement* placeholder = HTMLBRElement::create(document());
     insertNodeBefore(placeholder,
@@ -1026,22 +1056,26 @@ void ReplaceSelectionCommand::mergeEndIfNeeded(EditingState* editingState) {
                      editingState);
     if (editingState->isAborted())
       return;
+    document().updateStyleAndLayoutIgnorePendingStylesheets();
     destination = VisiblePosition::beforeNode(placeholder);
+    startOfParagraphToMove =
+        createVisiblePosition(startOfParagraphToMove.toPositionWithAffinity());
   }
 
-  moveParagraph(startOfParagraphToMove,
-                endOfParagraphDeprecated(startOfParagraphToMove), destination,
-                editingState);
+  moveParagraph(startOfParagraphToMove, endOfParagraph(startOfParagraphToMove),
+                destination, editingState);
   if (editingState->isAborted())
     return;
 
+  document().updateStyleAndLayoutIgnorePendingStylesheets();
+
   // Merging forward will remove m_endOfInsertedContent from the document.
   if (mergeForward) {
-    if (m_startOfInsertedContent.isOrphan())
+    if (m_startOfInsertedContent.isOrphan()) {
       m_startOfInsertedContent =
-          endingSelection().visibleStartDeprecated().deepEquivalent();
-    m_endOfInsertedContent =
-        endingSelection().visibleEndDeprecated().deepEquivalent();
+          endingSelection().visibleStart().deepEquivalent();
+    }
+    m_endOfInsertedContent = endingSelection().visibleEnd().deepEquivalent();
     // If we merged text nodes, m_endOfInsertedContent could be null. If
     // this is the case, we use m_startOfInsertedContent.
     if (m_endOfInsertedContent.isNull())
@@ -1124,6 +1158,8 @@ void ReplaceSelectionCommand::doApply(EditingState* editingState) {
   if (trivialReplaceResult)
     return;
 
+  document().updateStyleAndLayoutIgnorePendingStylesheets();
+
   // We can skip matching the style if the selection is plain text.
   if ((selection.start().anchorNode()->layoutObject() &&
        selection.start().anchorNode()->layoutObject()->style()->userModify() ==
@@ -1138,13 +1174,12 @@ void ReplaceSelectionCommand::doApply(EditingState* editingState) {
     m_insertionStyle->mergeTypingStyle(&document());
   }
 
-  const VisiblePosition visibleStart = selection.visibleStartDeprecated();
-  const VisiblePosition visibleEnd = selection.visibleEndDeprecated();
+  const VisiblePosition visibleStart = selection.visibleStart();
+  const VisiblePosition visibleEnd = selection.visibleEnd();
 
-  const bool selectionEndWasEndOfParagraph =
-      isEndOfParagraphDeprecated(visibleEnd);
+  const bool selectionEndWasEndOfParagraph = isEndOfParagraph(visibleEnd);
   const bool selectionStartWasStartOfParagraph =
-      isStartOfParagraphDeprecated(visibleStart);
+      isStartOfParagraph(visibleStart);
 
   Element* enclosingBlockOfVisibleStart =
       enclosingBlock(visibleStart.deepEquivalent().anchorNode());
@@ -1170,7 +1205,7 @@ void ReplaceSelectionCommand::doApply(EditingState* editingState) {
     // Merge blocks if the start of the selection was in a Mail blockquote,
     // since we handle that case specially to prevent nesting.
     bool mergeBlocksAfterDelete = startIsInsideMailBlockquote ||
-                                  isEndOfParagraphDeprecated(visibleEnd) ||
+                                  isEndOfParagraph(visibleEnd) ||
                                   isStartOfBlock(visibleStart);
     // FIXME: We should only expand to include fully selected special elements
     // if we are copying a selection and pasting it on top of itself.
@@ -1178,14 +1213,18 @@ void ReplaceSelectionCommand::doApply(EditingState* editingState) {
     if (editingState->isAborted())
       return;
     if (fragment.hasInterchangeNewlineAtStart()) {
-      VisiblePosition startAfterDelete =
-          endingSelection().visibleStartDeprecated();
-      if (isEndOfParagraphDeprecated(startAfterDelete) &&
-          !isStartOfParagraphDeprecated(startAfterDelete) &&
-          !isEndOfEditableOrNonEditableContent(startAfterDelete))
-        setEndingSelection(nextPositionOf(startAfterDelete));
-      else
+      document().updateStyleAndLayoutIgnorePendingStylesheets();
+      VisiblePosition startAfterDelete = endingSelection().visibleStart();
+      if (isEndOfParagraph(startAfterDelete) &&
+          !isStartOfParagraph(startAfterDelete) &&
+          !isEndOfEditableOrNonEditableContent(startAfterDelete)) {
+        setEndingSelection(
+            SelectionInDOMTree::Builder()
+                .collapse(nextPositionOf(startAfterDelete).deepEquivalent())
+                .build());
+      } else {
         insertParagraphSeparator(editingState);
+      }
       if (editingState->isAborted())
         return;
     }
@@ -1194,13 +1233,17 @@ void ReplaceSelectionCommand::doApply(EditingState* editingState) {
     if (fragment.hasInterchangeNewlineAtStart()) {
       const VisiblePosition next =
           nextPositionOf(visibleStart, CannotCrossEditingBoundary);
-      if (isEndOfParagraphDeprecated(visibleStart) &&
-          !isStartOfParagraphDeprecated(visibleStart) && next.isNotNull())
-        setEndingSelection(next);
-      else
+      if (isEndOfParagraph(visibleStart) && !isStartOfParagraph(visibleStart) &&
+          next.isNotNull()) {
+        setEndingSelection(SelectionInDOMTree::Builder()
+                               .collapse(next.deepEquivalent())
+                               .build());
+      } else {
         insertParagraphSeparator(editingState);
-      if (editingState->isAborted())
-        return;
+        if (editingState->isAborted())
+          return;
+        document().updateStyleAndLayoutIgnorePendingStylesheets();
+      }
     }
     // We split the current paragraph in two to avoid nesting the blocks from
     // the fragment inside the current block.
@@ -1217,15 +1260,17 @@ void ReplaceSelectionCommand::doApply(EditingState* editingState) {
     //   <div>xbar<div>bar</div><div>bazx</div></div>
     // Don't do this if the selection started in a Mail blockquote.
     if (m_preventNesting && !startIsInsideMailBlockquote &&
-        !isEndOfParagraphDeprecated(
-            endingSelection().visibleStartDeprecated()) &&
-        !isStartOfParagraphDeprecated(
-            endingSelection().visibleStartDeprecated())) {
+        !isEndOfParagraph(endingSelection().visibleStart()) &&
+        !isStartOfParagraph(endingSelection().visibleStart())) {
       insertParagraphSeparator(editingState);
       if (editingState->isAborted())
         return;
+      document().updateStyleAndLayoutIgnorePendingStylesheets();
       setEndingSelection(
-          previousPositionOf(endingSelection().visibleStartDeprecated()));
+          SelectionInDOMTree::Builder()
+              .collapse(previousPositionOf(endingSelection().visibleStart())
+                            .deepEquivalent())
+              .build());
     }
   }
 
@@ -1257,6 +1302,8 @@ void ReplaceSelectionCommand::doApply(EditingState* editingState) {
   // <div>foo</div> into hello^ world.
   prepareWhitespaceAtPositionForSplit(insertionPos);
 
+  document().updateStyleAndLayoutIgnorePendingStylesheets();
+
   // If the downstream node has been removed there's no point in continuing.
   if (!mostForwardCaretPosition(insertionPos).anchorNode())
     return;
@@ -1285,8 +1332,7 @@ void ReplaceSelectionCommand::doApply(EditingState* editingState) {
       enclosingBlockOfInsertionPos != currentRoot &&
       !isTableCell(enclosingBlockOfInsertionPos) &&
       !startIsInsideMailBlockquote) {
-    VisiblePosition visibleInsertionPos =
-        createVisiblePositionDeprecated(insertionPos);
+    VisiblePosition visibleInsertionPos = createVisiblePosition(insertionPos);
     if (isEndOfBlock(visibleInsertionPos) &&
         !(isStartOfBlock(visibleInsertionPos) &&
           fragment.hasInterchangeNewlineAtEnd()))
@@ -1309,6 +1355,8 @@ void ReplaceSelectionCommand::doApply(EditingState* editingState) {
     frame->selection().clearTypingStyle();
 
   removeHeadContents(fragment);
+
+  document().updateStyleAndLayoutIgnorePendingStylesheets();
 
   // We don't want the destination to end up inside nodes that weren't selected.
   // To avoid that, we move the position forward without changing the visible
@@ -1374,39 +1422,40 @@ void ReplaceSelectionCommand::doApply(EditingState* editingState) {
   // 6) Select the replacement if requested, and match style if requested.
 
   InsertedNodes insertedNodes;
-  Node* refNode = fragment.firstChild();
-  DCHECK(refNode);
-  Node* node = refNode->nextSibling();
+  insertedNodes.setRefNode(fragment.firstChild());
+  DCHECK(insertedNodes.refNode());
+  Node* node = insertedNodes.refNode()->nextSibling();
 
-  fragment.removeNode(refNode);
+  fragment.removeNode(insertedNodes.refNode());
 
   Element* blockStart = enclosingBlock(insertionPos.anchorNode());
-  if ((isHTMLListElement(refNode) ||
-       (isLegacyAppleHTMLSpanElement(refNode) &&
-        isHTMLListElement(refNode->firstChild()))) &&
+  if ((isHTMLListElement(insertedNodes.refNode()) ||
+       (isLegacyAppleHTMLSpanElement(insertedNodes.refNode()) &&
+        isHTMLListElement(insertedNodes.refNode()->firstChild()))) &&
       blockStart && blockStart->layoutObject()->isListItem() &&
       hasEditableStyle(*blockStart->parentNode())) {
-    refNode = insertAsListItems(toHTMLElement(refNode), blockStart,
-                                insertionPos, insertedNodes, editingState);
+    insertedNodes.setRefNode(
+        insertAsListItems(toHTMLElement(insertedNodes.refNode()), blockStart,
+                          insertionPos, insertedNodes, editingState));
     if (editingState->isAborted())
       return;
   } else {
-    insertNodeAt(refNode, insertionPos, editingState);
+    insertNodeAt(insertedNodes.refNode(), insertionPos, editingState);
     if (editingState->isAborted())
       return;
-    insertedNodes.respondToNodeInsertion(*refNode);
+    insertedNodes.respondToNodeInsertion(*insertedNodes.refNode());
   }
 
   // Mutation events (bug 22634) may have already removed the inserted content
-  if (!refNode->isConnected())
+  if (!insertedNodes.refNode()->isConnected())
     return;
 
-  bool plainTextFragment = isPlainTextMarkup(refNode);
+  bool plainTextFragment = isPlainTextMarkup(insertedNodes.refNode());
 
   while (node) {
     Node* next = node->nextSibling();
     fragment.removeNode(node);
-    insertNodeAfter(node, refNode, editingState);
+    insertNodeAfter(node, insertedNodes.refNode(), editingState);
     if (editingState->isAborted())
       return;
     insertedNodes.respondToNodeInsertion(*node);
@@ -1415,7 +1464,7 @@ void ReplaceSelectionCommand::doApply(EditingState* editingState) {
     if (!node->isConnected())
       return;
 
-    refNode = node;
+    insertedNodes.setRefNode(node);
     if (node && plainTextFragment)
       plainTextFragment = isPlainTextMarkup(node);
     node = next;
@@ -1430,6 +1479,8 @@ void ReplaceSelectionCommand::doApply(EditingState* editingState) {
       return;
   }
 
+  document().updateStyleAndLayoutIgnorePendingStylesheets();
+
   // Mutation events (bug 20161) may have already removed the inserted content
   if (!insertedNodes.firstNodeInserted() ||
       !insertedNodes.firstNodeInserted()->isConnected())
@@ -1442,7 +1493,7 @@ void ReplaceSelectionCommand::doApply(EditingState* editingState) {
       !enclosingBlockOfInsertionPos->isConnected())
     enclosingBlockOfInsertionPos = nullptr;
 
-  VisiblePosition startOfInsertedContent = createVisiblePositionDeprecated(
+  VisiblePosition startOfInsertedContent = createVisiblePosition(
       firstPositionInOrBeforeNode(insertedNodes.firstNodeInserted()));
 
   // We inserted before the enclosingBlockOfInsertionPos to prevent nesting, and
@@ -1453,13 +1504,14 @@ void ReplaceSelectionCommand::doApply(EditingState* editingState) {
       insertionPos.anchorNode() == enclosingBlockOfInsertionPos->parentNode() &&
       (unsigned)insertionPos.computeEditingOffset() <
           enclosingBlockOfInsertionPos->nodeIndex() &&
-      !isStartOfParagraphDeprecated(startOfInsertedContent)) {
+      !isStartOfParagraph(startOfInsertedContent)) {
     insertNodeAt(HTMLBRElement::create(document()),
                  startOfInsertedContent.deepEquivalent(), editingState);
     if (editingState->isAborted())
       return;
   }
 
+  document().updateStyleAndLayoutIgnorePendingStylesheets();
   if (endBR &&
       (plainTextFragment ||
        (shouldRemoveEndBR(endBR, originalVisPosBeforeEndBR) &&
@@ -1482,9 +1534,18 @@ void ReplaceSelectionCommand::doApply(EditingState* editingState) {
   if (editingState->isAborted())
     return;
 
-  removeRedundantStylesAndKeepStyleSpanInline(insertedNodes, editingState);
-  if (editingState->isAborted())
-    return;
+  {
+    // TODO(dominicc): refNode may not be connected, for example in
+    // LayoutTests/editing/inserting/insert-table-in-paragraph-crash.html .
+    // Refactor this so there's a relationship between the conditions
+    // where refNode is dereferenced and refNode is connected.
+    bool refNodeWasConnected = insertedNodes.refNode()->isConnected();
+    removeRedundantStylesAndKeepStyleSpanInline(insertedNodes, editingState);
+    if (editingState->isAborted())
+      return;
+    DCHECK_EQ(insertedNodes.refNode()->isConnected(), refNodeWasConnected)
+        << insertedNodes.refNode();
+  }
 
   if (m_sanitizeFragment && insertedNodes.firstNodeInserted()) {
     applyCommandToComposite(SimplifyMarkupCommand::create(
@@ -1512,6 +1573,13 @@ void ReplaceSelectionCommand::doApply(EditingState* editingState) {
                        startIsInsideMailBlockquote)) {
     VisiblePosition startOfParagraphToMove = positionAtStartOfInsertedContent();
     VisiblePosition destination = previousPositionOf(startOfParagraphToMove);
+
+    // Helpers for making the VisiblePositions valid again after DOM changes.
+    PositionWithAffinity startOfParagraphToMovePosition =
+        startOfParagraphToMove.toPositionWithAffinity();
+    PositionWithAffinity destinationPosition =
+        destination.toPositionWithAffinity();
+
     // We need to handle the case where we need to merge the end
     // but our destination node is inside an inline that is the last in the
     // block.
@@ -1521,8 +1589,8 @@ void ReplaceSelectionCommand::doApply(EditingState* editingState) {
     if (m_shouldMergeEnd &&
         destinationNode != enclosingInline(destinationNode) &&
         enclosingInline(destinationNode)->nextSibling()) {
-      insertNodeBefore(HTMLBRElement::create(document()), refNode,
-                       editingState);
+      insertNodeBefore(HTMLBRElement::create(document()),
+                       insertedNodes.refNode(), editingState);
       if (editingState->isAborted())
         return;
     }
@@ -1536,31 +1604,41 @@ void ReplaceSelectionCommand::doApply(EditingState* editingState) {
     // Insert a line break just after the inserted content to separate it from
     // what comes after and prevent that from happening.
     VisiblePosition endOfInsertedContent = positionAtEndOfInsertedContent();
-    if (startOfParagraphDeprecated(endOfInsertedContent).deepEquivalent() ==
-        startOfParagraphToMove.deepEquivalent()) {
+    if (startOfParagraph(endOfInsertedContent).deepEquivalent() ==
+        startOfParagraphToMovePosition.position()) {
       insertNodeAt(HTMLBRElement::create(document()),
                    endOfInsertedContent.deepEquivalent(), editingState);
       if (editingState->isAborted())
         return;
       // Mutation events (bug 22634) triggered by inserting the <br> might have
       // removed the content we're about to move
-      if (!startOfParagraphToMove.deepEquivalent().isConnected())
+      if (!startOfParagraphToMovePosition.isConnected())
         return;
     }
+
+    document().updateStyleAndLayoutIgnorePendingStylesheets();
+
+    // Making the two VisiblePositions valid again.
+    startOfParagraphToMove =
+        createVisiblePosition(startOfParagraphToMovePosition);
+    destination = createVisiblePosition(destinationPosition);
 
     // FIXME: Maintain positions for the start and end of inserted content
     // instead of keeping nodes.  The nodes are only ever used to create
     // positions where inserted content starts/ends.
     moveParagraph(startOfParagraphToMove,
-                  endOfParagraphDeprecated(startOfParagraphToMove), destination,
+                  endOfParagraph(startOfParagraphToMove), destination,
                   editingState);
     if (editingState->isAborted())
       return;
+
+    document().updateStyleAndLayoutIgnorePendingStylesheets();
     m_startOfInsertedContent = mostForwardCaretPosition(
-        endingSelection().visibleStartDeprecated().deepEquivalent());
-    if (m_endOfInsertedContent.isOrphan())
+        endingSelection().visibleStart().deepEquivalent());
+    if (m_endOfInsertedContent.isOrphan()) {
       m_endOfInsertedContent = mostBackwardCaretPosition(
-          endingSelection().visibleEndDeprecated().deepEquivalent());
+          endingSelection().visibleEnd().deepEquivalent());
+    }
   }
 
   Position lastPositionToSelect;
@@ -1570,9 +1648,8 @@ void ReplaceSelectionCommand::doApply(EditingState* editingState) {
         nextPositionOf(endOfInsertedContent, CannotCrossEditingBoundary);
 
     if (selectionEndWasEndOfParagraph ||
-        !isEndOfParagraphDeprecated(endOfInsertedContent) || next.isNull()) {
-      if (HTMLTextFormControlElement* textControl =
-              enclosingTextFormControl(currentRoot)) {
+        !isEndOfParagraph(endOfInsertedContent) || next.isNull()) {
+      if (TextControlElement* textControl = enclosingTextControl(currentRoot)) {
         if (!insertedNodes.lastLeafInserted()->nextSibling()) {
           insertNodeAfter(textControl->createPlaceholderBreakElement(),
                           insertedNodes.lastLeafInserted(), editingState);
@@ -1580,12 +1657,16 @@ void ReplaceSelectionCommand::doApply(EditingState* editingState) {
             return;
         }
         setEndingSelection(
-            VisiblePosition::afterNode(insertedNodes.lastLeafInserted()));
+            SelectionInDOMTree::Builder()
+                .collapse(Position::afterNode(insertedNodes.lastLeafInserted()))
+                .build());
         // Select up to the paragraph separator that was added.
         lastPositionToSelect =
-            endingSelection().visibleStartDeprecated().deepEquivalent();
-      } else if (!isStartOfParagraphDeprecated(endOfInsertedContent)) {
-        setEndingSelection(endOfInsertedContent);
+            endingSelection().visibleStart().deepEquivalent();
+      } else if (!isStartOfParagraph(endOfInsertedContent)) {
+        setEndingSelection(SelectionInDOMTree::Builder()
+                               .collapse(endOfInsertedContent.deepEquivalent())
+                               .build());
         Element* enclosingBlockElement =
             enclosingBlock(endOfInsertedContent.deepEquivalent().anchorNode());
         if (isListItem(enclosingBlockElement)) {
@@ -1593,7 +1674,10 @@ void ReplaceSelectionCommand::doApply(EditingState* editingState) {
           insertNodeAfter(newListItem, enclosingBlockElement, editingState);
           if (editingState->isAborted())
             return;
-          setEndingSelection(VisiblePosition::firstPositionInNode(newListItem));
+          setEndingSelection(
+              SelectionInDOMTree::Builder()
+                  .collapse(Position::firstPositionInNode(newListItem))
+                  .build());
         } else {
           // Use a default paragraph element (a plain div) for the empty
           // paragraph, using the last paragraph block's style seems to annoy
@@ -1609,9 +1693,11 @@ void ReplaceSelectionCommand::doApply(EditingState* editingState) {
             return;
         }
 
+        document().updateStyleAndLayoutIgnorePendingStylesheets();
+
         // Select up to the paragraph separator that was added.
         lastPositionToSelect =
-            endingSelection().visibleStartDeprecated().deepEquivalent();
+            endingSelection().visibleStart().deepEquivalent();
         updateNodesInserted(lastPositionToSelect.anchorNode());
       }
     } else {
@@ -1658,23 +1744,22 @@ bool ReplaceSelectionCommand::shouldRemoveEndBR(
 
   // Remove the br if it is collapsed away and so is unnecessary.
   if (!document().inNoQuirksMode() && isEndOfBlock(visiblePos) &&
-      !isStartOfParagraphDeprecated(visiblePos))
+      !isStartOfParagraph(visiblePos))
     return true;
 
   // A br that was originally holding a line open should be displaced by
   // inserted content or turned into a line break.
   // A br that was originally acting as a line break should still be acting as a
   // line break, not as a placeholder.
-  return isStartOfParagraphDeprecated(visiblePos) &&
-         isEndOfParagraphDeprecated(visiblePos);
+  return isStartOfParagraph(visiblePos) && isEndOfParagraph(visiblePos);
 }
 
 bool ReplaceSelectionCommand::shouldPerformSmartReplace() const {
   if (!m_smartReplace)
     return false;
 
-  HTMLTextFormControlElement* textControl = enclosingTextFormControl(
-      positionAtStartOfInsertedContent().deepEquivalent());
+  TextControlElement* textControl =
+      enclosingTextControl(positionAtStartOfInsertedContent().deepEquivalent());
   if (isHTMLInputElement(textControl) &&
       toHTMLInputElement(textControl)->type() == InputTypeNames::password)
     return false;  // Disable smart replace for password fields.
@@ -1703,7 +1788,7 @@ void ReplaceSelectionCommand::addSpacesForSmartReplace(
   }
 
   bool needsTrailingSpace =
-      !isEndOfParagraphDeprecated(endOfInsertedContent) &&
+      !isEndOfParagraph(endOfInsertedContent) &&
       !isCharacterSmartReplaceExemptConsideringNonBreakingSpace(
           characterAfter(endOfInsertedContent), false);
   if (needsTrailingSpace && endNode) {
@@ -1742,7 +1827,7 @@ void ReplaceSelectionCommand::addSpacesForSmartReplace(
   }
 
   bool needsLeadingSpace =
-      !isStartOfParagraphDeprecated(startOfInsertedContent) &&
+      !isStartOfParagraph(startOfInsertedContent) &&
       !isCharacterSmartReplaceExemptConsideringNonBreakingSpace(
           characterBefore(startOfInsertedContent), true);
   if (needsLeadingSpace && startNode) {
@@ -1806,12 +1891,22 @@ void ReplaceSelectionCommand::completeHTMLReplacement(
   m_startOfInsertedRange = start;
   m_endOfInsertedRange = end;
 
-  if (m_selectReplacement)
-    setEndingSelection(createVisibleSelectionDeprecated(
-        start, end, SelDefaultAffinity, endingSelection().isDirectional()));
-  else
-    setEndingSelection(createVisibleSelectionDeprecated(
-        end, SelDefaultAffinity, endingSelection().isDirectional()));
+  if (m_selectReplacement) {
+    setEndingSelection(SelectionInDOMTree::Builder()
+                           .setBaseAndExtentDeprecated(start, end)
+                           .setIsDirectional(endingSelection().isDirectional())
+                           .build());
+    return;
+  }
+
+  if (end.isNotNull()) {
+    setEndingSelection(SelectionInDOMTree::Builder()
+                           .collapse(end)
+                           .setIsDirectional(endingSelection().isDirectional())
+                           .build());
+    return;
+  }
+  setEndingSelection(SelectionInDOMTree());
 }
 
 void ReplaceSelectionCommand::mergeTextNodesAroundPosition(
@@ -1922,10 +2017,9 @@ Node* ReplaceSelectionCommand::insertAsListItems(HTMLElement* listElement,
          isHTMLListElement(listElement->firstChild()))
     listElement = toHTMLElement(listElement->firstChild());
 
-  bool isStart =
-      isStartOfParagraphDeprecated(createVisiblePositionDeprecated(insertPos));
-  bool isEnd =
-      isEndOfParagraphDeprecated(createVisiblePositionDeprecated(insertPos));
+  document().updateStyleAndLayoutIgnorePendingStylesheets();
+  bool isStart = isStartOfParagraph(createVisiblePosition(insertPos));
+  bool isEnd = isEndOfParagraph(createVisiblePosition(insertPos));
   bool isMiddle = !isStart && !isEnd;
   Node* lastNode = insertionBlock;
 
@@ -2020,10 +2114,10 @@ bool ReplaceSelectionCommand::performTrivialReplace(
   m_startOfInsertedRange = start;
   m_endOfInsertedRange = end;
 
-  VisibleSelection selectionAfterReplace =
-      createVisibleSelectionDeprecated(m_selectReplacement ? start : end, end);
-
-  setEndingSelection(selectionAfterReplace);
+  setEndingSelection(
+      SelectionInDOMTree::Builder()
+          .setBaseAndExtentDeprecated(m_selectReplacement ? start : end, end)
+          .build());
 
   return true;
 }

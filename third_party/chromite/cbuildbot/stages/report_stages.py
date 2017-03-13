@@ -14,11 +14,11 @@ import StringIO
 
 from chromite.cbuildbot import cbuildbot_run
 from chromite.cbuildbot import commands
-from chromite.cbuildbot import config_lib
-from chromite.cbuildbot import constants
-from chromite.cbuildbot import failures_lib
-from chromite.cbuildbot import metadata_lib
-from chromite.cbuildbot import results_lib
+from chromite.lib import config_lib
+from chromite.lib import constants
+from chromite.lib import failures_lib
+from chromite.lib import metadata_lib
+from chromite.lib import results_lib
 from chromite.cbuildbot import tree_status
 from chromite.cbuildbot import triage_lib
 from chromite.cbuildbot import validation_pool
@@ -67,6 +67,10 @@ def WriteBasicMetadata(builder_run):
       'bot-hostname': cros_build_lib.GetHostName(fully_qualified=True),
       'build-number': builder_run.buildnumber,
       'builder-name': builder_run.GetBuilderName(),
+      # This is something like https://uberchromegw.corp.google.com/i/chromeos/
+      # Note that we are phasing out using the buildbot UI, transitioning
+      # instead to luci-milo.
+      # Once we phase out completely, we can get rid of this metadata entry.
       'buildbot-url': os.environ.get('BUILDBOT_BUILDBOTURL', ''),
       'buildbot-master-name':
           os.environ.get('BUILDBOT_MASTERNAME', ''),
@@ -79,6 +83,70 @@ def WriteBasicMetadata(builder_run):
 
   builder_run.attrs.metadata.UpdateWithDict(metadata)
 
+def WriteTagMetadata(builder_run):
+  """Add a 'tags' sub-dict to metadata.
+
+  This is a proof of concept for using tags to help find commonality
+  in failures.
+  """
+  build_id, _ = builder_run.GetCIDBHandle()
+
+  # Yes, these values match general metadata values, but they are just
+  # proof of concept, so far.
+  tags = {
+      'bot_config': builder_run.config['name'],
+      'bot_hostname': cros_build_lib.GetHostName(fully_qualified=True),
+      'build_id': build_id,
+      'build_number': builder_run.buildnumber,
+      'builder_name': builder_run.GetBuilderName(),
+      'buildbot_url': os.environ.get('BUILDBOT_BUILDBOTURL', ''),
+      'buildbot_master_name':
+          os.environ.get('BUILDBOT_MASTERNAME', ''),
+      'id': ('Build', build_id),
+      'master_build_id': builder_run.options.master_build_id,
+      'important': builder_run.config['important'],
+  }
+
+  # Guess type of bot.
+  tags['bot_type'] = 'unknown'
+  if '.golo.' in tags['bot_hostname']:
+    tags['bot_type'] = 'golo'
+  else:
+    gce_types = ['beefy', 'standard', 'wimpy']
+    for t in gce_types:
+      host_string = 'cros-%s' % t
+      if host_string in tags['bot_hostname']:
+        tags['bot_type'] = 'gce-%s' % t
+        break
+
+  # Look up the git version.
+  try:
+    cmd_result = cros_build_lib.RunCommand(['git', '--version'],
+                                           capture_output=True)
+    tags['git_version'] = cmd_result.output.strip()
+  except cros_build_lib.RunCommandError:
+    pass  # If we fail, just don't include the tag.
+
+  # Look up the repo version.
+  try:
+    cmd_result = cros_build_lib.RunCommand(['repo', '--version'],
+                                           capture_output=True)
+
+    # Convert the following output into 'v1.12.17-cr3':
+    #
+    # repo version v1.12.17-cr3
+    #        (from https://chromium.googlesource.com/external/repo.git)
+    # repo launcher version 1.21
+    #        (from /usr/local/google/home/dgarrett/sand/depot_tools/repo)
+    # git version 2.8.0.rc3.226.g39d4020
+    # Python 2.7.6 (default, Jun 22 2015, 17:58:13)
+    # [GCC 4.8.2]
+    tags['repo_version'] = cmd_result.output.splitlines()[0].split(' ')[-1]
+  except (cros_build_lib.RunCommandError, IndexError):
+    pass  # If we fail, just don't include the tag.
+
+  builder_run.attrs.metadata.UpdateKeyDictWithDict(constants.METADATA_TAGS,
+                                                   tags)
 
 def GetChildConfigListMetadata(child_configs, config_status_map):
   """Creates a list for the child configs metadata.
@@ -141,7 +209,7 @@ class BuildStartStage(generic_stages.BuilderStage):
     # This is a heuristic value for |important|, since patches that get applied
     # later in the build might change the config. We write it now anyway,
     # because in case the build fails before Sync, it is better to have this
-    # heuristic value than None. In BuildReexectuionFinishedStage, we re-write
+    # heuristic value than None. In BuildReexecutionFinishedStage, we re-write
     # the definitive value.
     self._run.attrs.metadata.UpdateWithDict(
         {'important': self._run.config['important']})
@@ -189,14 +257,14 @@ class BuildStartStage(generic_stages.BuilderStage):
         master_build_id = d['master_build_id']
         if master_build_id is not None:
           master_build_status = db.GetBuildStatus(master_build_id)
-          master_waterfall_url = constants.WATERFALL_TO_DASHBOARD[
-              master_build_status['waterfall']]
-
           master_url = tree_status.ConstructDashboardURL(
-              master_waterfall_url,
+              master_build_status['waterfall'],
               master_build_status['builder_name'],
               master_build_status['build_number'])
           logging.PrintBuildbotLink('Link to master build', master_url)
+
+    # Write the tag metadata last so that a build_id is available.
+    WriteTagMetadata(self._run)
 
   def HandleSkip(self):
     """Ensure that re-executions use the same db instance as initial db."""
@@ -232,7 +300,9 @@ class SlaveFailureSummaryStage(generic_stages.BuilderStage):
                    'Doing nothing.')
       return
 
-    slave_failures = db.GetSlaveFailures(build_id)
+    slave_buildbucket_ids = self.GetScheduledSlaveBuildbucketIds()
+    slave_failures = db.GetSlaveFailures(
+        build_id, buildbucket_ids=slave_buildbucket_ids)
     failures_by_build = cros_build_lib.GroupByKey(slave_failures, 'build_id')
     for build_id, build_failures in sorted(failures_by_build.items()):
       failures_by_stage = cros_build_lib.GroupByKey(build_failures,
@@ -250,7 +320,7 @@ class SlaveFailureSummaryStage(generic_stages.BuilderStage):
             failure['build_status'] == constants.BUILDER_STATUS_INFLIGHT):
           continue
         waterfall_url = constants.WATERFALL_TO_DASHBOARD[failure['waterfall']]
-        slave_stage_url = tree_status.ConstructDashboardURL(
+        slave_stage_url = tree_status.ConstructBuildStageURL(
             waterfall_url,
             failure['builder_name'],
             failure['build_number'],
@@ -344,19 +414,46 @@ class BuildReexecutionFinishedStage(generic_stages.BuilderStage,
     }
 
     if len(config['boards']) == 1:
-      toolchains = toolchain.GetToolchainsForBoard(config['boards'][0],
-                                                   buildroot=build_root)
-      metadata['toolchain-tuple'] = (
-          toolchain.FilterToolchains(toolchains, 'default', True).keys() +
-          toolchain.FilterToolchains(toolchains, 'default', False).keys())
+      metadata['toolchain-tuple'] = toolchain.GetToolchainTupleForBoard(
+          config['boards'][0], buildroot=build_root)
 
     logging.info('Metadata being written: %s', metadata)
     self._run.attrs.metadata.UpdateWithDict(metadata)
+
+    toolchains = set()
+    toolchain_tuples = []
+    primary_toolchains = []
+    for board in config['boards']:
+      toolchain_tuple = toolchain.GetToolchainTupleForBoard(
+          board, buildroot=build_root)
+      toolchains |= set(toolchain_tuple)
+      toolchain_tuples.append(','.join(toolchain_tuple))
+      if len(toolchain_tuple):
+        primary_toolchains.append(toolchain_tuple[0])
+
     # Update 'version' separately to avoid overwriting the existing
     # entries in it (e.g. PFQ builders may have written the Chrome
     # version to uprev).
     logging.info("Metadata 'version' being written: %s", version)
     self._run.attrs.metadata.UpdateKeyDictWithDict('version', version)
+
+    tags = {
+        'boards': config['boards'],
+        'child_config_names': [cc['name'] for cc in child_configs],
+        'build_type': config['build_type'],
+        'important': config['important'],
+
+        # Data for the toolchain used.
+        'sdk_version': sdk_verinfo.get('SDK_LATEST_VERSION', '<unknown>'),
+        'toolchain_url': sdk_verinfo.get('TC_PATH', '<unknown>'),
+        'toolchains': list(toolchains),
+        'toolchain_tuples': toolchain_tuples,
+        'primary_toolchains': primary_toolchains,
+    }
+    full_version = self._run.attrs.metadata.GetValue('version')
+    tags.update({'version_%s' % v: full_version[v] for v in full_version})
+    self._run.attrs.metadata.UpdateKeyDictWithDict(constants.METADATA_TAGS,
+                                                   tags)
 
     # Ensure that all boards and child config boards have a per-board
     # metadata subdict.
@@ -745,7 +842,7 @@ class ReportStage(generic_stages.BuilderStage,
 
     # Upload metadata, and update the pass/fail streak counter for the main
     # run only. These aren't needed for the child builder runs.
-    self.UploadMetadata()
+    self.UploadMetadata(export=True)
     self._UpdateRunStreak(self._run, final_status)
 
     # Alert if the Pre-CQ has infra failures.
@@ -848,6 +945,32 @@ class ReportStage(generic_stages.BuilderStage,
     self._run.attrs.metadata.UpdateWithDict(
         self.GetReportMetadata(final_status=final_status,
                                completion_instance=self._completion_instance))
+
+    # Add tags for the arches and statuses of the build.
+    # arches requires crossdev which isn't available at the early part of the
+    # build.
+    arches = []
+    for board in self._run.config['boards']:
+      toolchains = toolchain.GetToolchainsForBoard(
+          board, buildroot=self._build_root)
+      default = toolchain.FilterToolchains(toolchains, 'default', True).keys()
+      if len(default):
+        try:
+          arches.append(toolchain.GetArchForTarget(default[0]))
+        except cros_build_lib.RunCommandError as e:
+          logging.warning(
+              'Unable to retrieve arch for board %s default toolchain %s: %s' %
+              (board, default, e))
+    tags = {
+        'arches': arches,
+        'status': final_status,
+    }
+    results = self._run.attrs.metadata.GetValue('results')
+    for stage in results:
+      tags['stage_status:%s' % stage['name']] = stage['status']
+      tags['stage_summary:%s' % stage['name']] = stage['summary']
+    self._run.attrs.metadata.UpdateKeyDictWithDict(constants.METADATA_TAGS,
+                                                   tags)
 
     # Some operations can only be performed if a valid version is available.
     try:

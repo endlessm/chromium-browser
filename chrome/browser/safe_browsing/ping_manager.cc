@@ -12,8 +12,8 @@
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/values.h"
+#include "chrome/browser/safe_browsing/notification_image_reporter.h"
 #include "chrome/browser/safe_browsing/permission_reporter.h"
-#include "components/certificate_reporting/error_reporter.h"
 #include "components/data_use_measurement/core/data_use_user_data.h"
 #include "content/public/browser/browser_thread.h"
 #include "google_apis/google_api_keys.h"
@@ -21,23 +21,16 @@
 #include "net/base/load_flags.h"
 #include "net/log/net_log_source_type.h"
 #include "net/ssl/ssl_info.h"
-#include "net/url_request/report_sender.h"
 #include "net/url_request/url_fetcher.h"
 #include "net/url_request/url_request_context.h"
 #include "net/url_request/url_request_context_getter.h"
 #include "net/url_request/url_request_status.h"
+#include "third_party/skia/include/core/SkBitmap.h"
 #include "url/gurl.h"
 
 using content::BrowserThread;
 
 namespace {
-// URL to upload invalid certificate chain reports. An HTTP URL is
-// used because a client seeing an invalid cert might not be able to
-// make an HTTPS connection to report it.
-const char kExtendedReportingUploadUrlInsecure[] =
-    "http://safebrowsing.googleusercontent.com/safebrowsing/clientreport/"
-    "chrome-certs";
-
 // Returns a dictionary with "url"=|url-spec| and "data"=|payload| for
 // netlogging the start phase of a ping.
 std::unique_ptr<base::Value> NetLogPingStartCallback(
@@ -91,17 +84,10 @@ SafeBrowsingPingManager::SafeBrowsingPingManager(
   DCHECK(!url_prefix_.empty());
 
   if (request_context_getter) {
-    net::ReportSender::CookiesPreference cookies_preference;
-    GURL certificate_upload_url;
-    cookies_preference = net::ReportSender::DO_NOT_SEND_COOKIES;
-    certificate_upload_url = GURL(kExtendedReportingUploadUrlInsecure);
-
-    certificate_error_reporter_.reset(new certificate_reporting::ErrorReporter(
-        request_context_getter->GetURLRequestContext(), certificate_upload_url,
-        cookies_preference));
-
-    permission_reporter_.reset(
-        new PermissionReporter(request_context_getter->GetURLRequestContext()));
+    permission_reporter_ = base::MakeUnique<PermissionReporter>(
+        request_context_getter->GetURLRequestContext());
+    notification_image_reporter_ = base::MakeUnique<NotificationImageReporter>(
+        request_context_getter->GetURLRequestContext());
 
     net_log_ = net::NetLogWithSource::Make(
         request_context_getter->GetURLRequestContext()->net_log(),
@@ -183,21 +169,18 @@ void SafeBrowsingPingManager::ReportThreatDetails(const std::string& report) {
   safebrowsing_reports_.insert(std::move(fetcher));
 }
 
-void SafeBrowsingPingManager::ReportInvalidCertificateChain(
-    const std::string& serialized_report) {
-  DCHECK(certificate_error_reporter_);
-  certificate_error_reporter_->SendExtendedReportingReport(serialized_report);
-}
-
-void SafeBrowsingPingManager::SetCertificateErrorReporterForTesting(
-    std::unique_ptr<certificate_reporting::ErrorReporter>
-        certificate_error_reporter) {
-  certificate_error_reporter_ = std::move(certificate_error_reporter);
-}
-
 void SafeBrowsingPingManager::ReportPermissionAction(
     const PermissionReportInfo& report_info) {
   permission_reporter_->SendReport(report_info);
+}
+
+void SafeBrowsingPingManager::ReportNotificationImage(
+    Profile* profile,
+    const scoped_refptr<SafeBrowsingDatabaseManager>& database_manager,
+    const GURL& origin,
+    const SkBitmap& image) {
+  notification_image_reporter_->ReportNotificationImageOnIO(
+      profile, database_manager, origin, image);
 }
 
 GURL SafeBrowsingPingManager::SafeBrowsingHitUrl(
@@ -210,7 +193,7 @@ GURL SafeBrowsingPingManager::SafeBrowsingHitUrl(
          hit_report.threat_type == SB_THREAT_TYPE_CLIENT_SIDE_MALWARE_URL);
   std::string url = SafeBrowsingProtocolManagerHelper::ComposeUrl(
       url_prefix_, "report", client_name_, version_, std::string(),
-      hit_report.is_extended_reporting);
+      hit_report.extended_reporting_level);
 
   std::string threat_list = "none";
   switch (hit_report.threat_type) {

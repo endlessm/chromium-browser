@@ -17,13 +17,15 @@
 #include <windows.h>
 
 #include "base/logging.h"
+#include "base/macros.h"
+#include "util/win/exception_handler_server.h"
 #include "util/win/scoped_handle.h"
 
 namespace crashpad {
 
 bool SendToCrashHandlerServer(const base::string16& pipe_name,
-                              const crashpad::ClientToServerMessage& message,
-                              crashpad::ServerToClientMessage* response) {
+                              const ClientToServerMessage& message,
+                              ServerToClientMessage* response) {
   // Retry CreateFile() in a loop. If the handler isn’t actively waiting in
   // ConnectNamedPipe() on a pipe instance because it’s busy doing something
   // else, CreateFile() will fail with ERROR_PIPE_BUSY. WaitNamedPipe() waits
@@ -39,7 +41,7 @@ bool SendToCrashHandlerServer(const base::string16& pipe_name,
   // around the same time as its client, something external to this code must be
   // done to guarantee correct ordering. When the client starts the handler
   // itself, CrashpadClient::StartHandler() provides this synchronization.
-  for (int tries = 0;;) {
+  for (;;) {
     ScopedFileHANDLE pipe(
         CreateFile(pipe_name.c_str(),
                    GENERIC_READ | GENERIC_WRITE,
@@ -49,13 +51,12 @@ bool SendToCrashHandlerServer(const base::string16& pipe_name,
                    SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION,
                    nullptr));
     if (!pipe.is_valid()) {
-      if (++tries == 5 || GetLastError() != ERROR_PIPE_BUSY) {
+      if (GetLastError() != ERROR_PIPE_BUSY) {
         PLOG(ERROR) << "CreateFile";
         return false;
       }
 
-      if (!WaitNamedPipe(pipe_name.c_str(), 1000) &&
-          GetLastError() != ERROR_SEM_TIMEOUT) {
+      if (!WaitNamedPipe(pipe_name.c_str(), NMPWAIT_WAIT_FOREVER)) {
         PLOG(ERROR) << "WaitNamedPipe";
         return false;
       }
@@ -72,7 +73,7 @@ bool SendToCrashHandlerServer(const base::string16& pipe_name,
     BOOL result = TransactNamedPipe(
         pipe.get(),
         // This is [in], but is incorrectly declared non-const.
-        const_cast<crashpad::ClientToServerMessage*>(&message),
+        const_cast<ClientToServerMessage*>(&message),
         sizeof(message),
         response,
         sizeof(*response),
@@ -89,6 +90,118 @@ bool SendToCrashHandlerServer(const base::string16& pipe_name,
     }
     return true;
   }
+}
+
+HANDLE CreateNamedPipeInstance(const std::wstring& pipe_name,
+                               bool first_instance) {
+  SECURITY_ATTRIBUTES security_attributes;
+  SECURITY_ATTRIBUTES* security_attributes_pointer = nullptr;
+
+  if (first_instance) {
+    // Pre-Vista does not have integrity levels.
+    const DWORD version = GetVersion();
+    const DWORD major_version = LOBYTE(LOWORD(version));
+    const bool is_vista_or_later = major_version >= 6;
+    if (is_vista_or_later) {
+      memset(&security_attributes, 0, sizeof(security_attributes));
+      security_attributes.nLength = sizeof(SECURITY_ATTRIBUTES);
+      security_attributes.lpSecurityDescriptor =
+          const_cast<void*>(GetSecurityDescriptorForNamedPipeInstance(nullptr));
+      security_attributes.bInheritHandle = TRUE;
+      security_attributes_pointer = &security_attributes;
+    }
+  }
+
+  return CreateNamedPipe(
+      pipe_name.c_str(),
+      PIPE_ACCESS_DUPLEX | (first_instance ? FILE_FLAG_FIRST_PIPE_INSTANCE : 0),
+      PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT,
+      ExceptionHandlerServer::kPipeInstances,
+      512,
+      512,
+      0,
+      security_attributes_pointer);
+}
+
+const void* GetSecurityDescriptorForNamedPipeInstance(size_t* size) {
+  // Mandatory Label, no ACE flags, no ObjectType, integrity level untrusted is
+  // "S:(ML;;;;;S-1-16-0)". Typically
+  // ConvertStringSecurityDescriptorToSecurityDescriptor() would be used to
+  // convert from a string representation. However, that function cannot be used
+  // because it is in advapi32.dll and CreateNamedPipeInstance() is called from
+  // within DllMain() where the loader lock is held. advapi32.dll is delay
+  // loaded in chrome_elf.dll because it must avoid loading user32.dll. If an
+  // advapi32.dll function were used, it would cause a load of the DLL, which
+  // would in turn cause deadlock.
+
+#pragma pack(push, 1)
+  static const struct SecurityDescriptorBlob {
+    // See https://msdn.microsoft.com/en-us/library/cc230366.aspx.
+    SECURITY_DESCRIPTOR_RELATIVE sd_rel;
+    struct {
+      ACL acl;
+      struct {
+        // This is equivalent to SYSTEM_MANDATORY_LABEL_ACE, but there's no
+        // DWORD offset to the SID, instead it's inline.
+        ACE_HEADER header;
+        ACCESS_MASK mask;
+        SID sid;
+      } ace[1];
+    } sacl;
+  } kSecDescBlob = {
+      // sd_rel.
+      {
+          SECURITY_DESCRIPTOR_REVISION1,  // Revision.
+          0x00,  // Sbz1.
+          SE_SELF_RELATIVE | SE_SACL_PRESENT,  // Control.
+          0,  // OffsetOwner.
+          0,  // OffsetGroup.
+          offsetof(SecurityDescriptorBlob, sacl),  // OffsetSacl.
+          0,  // OffsetDacl.
+      },
+
+      // sacl.
+      {
+          // acl.
+          {
+              ACL_REVISION,  // AclRevision.
+              0,  // Sbz1.
+              sizeof(kSecDescBlob.sacl),  // AclSize.
+              arraysize(kSecDescBlob.sacl.ace),  // AceCount.
+              0,  // Sbz2.
+          },
+
+          // ace[0].
+          {
+              {
+                  // header.
+                  {
+                      SYSTEM_MANDATORY_LABEL_ACE_TYPE,  // AceType.
+                      0,  // AceFlags.
+                      sizeof(kSecDescBlob.sacl.ace[0]),  // AceSize.
+                  },
+
+                  // mask.
+                  0,
+
+                  // sid.
+                  {
+                      SID_REVISION,  // Revision.
+                      // SubAuthorityCount.
+                      arraysize(kSecDescBlob.sacl.ace[0].sid.SubAuthority),
+                      // IdentifierAuthority.
+                      {SECURITY_MANDATORY_LABEL_AUTHORITY},
+                      {SECURITY_MANDATORY_UNTRUSTED_RID},  // SubAuthority.
+                  },
+              },
+          },
+      },
+  };
+#pragma pack(pop)
+
+  if (size)
+    *size = sizeof(kSecDescBlob);
+  return reinterpret_cast<const void*>(&kSecDescBlob);
 }
 
 }  // namespace crashpad

@@ -77,7 +77,11 @@ found in the LICENSE file.
           dataFn: function(eventStat) { return eventStat.title; }
         }
       ];
-      this.$.picker.defaultGroupKeys = ['phase', 'title'];
+      // If the picker did not restore currentGroupKeys from Settings,
+      // then set default currentGroupKeys.
+      if (this.$.picker.currentGroupKeys.length === 0) {
+        this.$.picker.currentGroupKeys = ['phase', 'title'];
+      }
       this.$.picker.addEventListener('current-groups-changed',
                                      this.updateContents_.bind(this));
     },
@@ -161,7 +165,6 @@ found in the LICENSE file.
       if (stats && stats.hasEventSizesinBytes) {
         columns.push({
           title: 'Bytes',
-          align: tr.ui.b.TableFormat.ColumnAlignment.RIGHT,
           value: function(row) {
             var value = new tr.v.ScalarNumeric(tr.b.Unit.byName.sizeInBytes,
                 row.rowStats.totalEventSizeinBytes);

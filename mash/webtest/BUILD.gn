@@ -3,8 +3,8 @@
 # found in the LICENSE file.
 
 import("//build/config/ui.gni")
-import("//services/shell/public/cpp/service.gni")
-import("//services/shell/public/service_manifest.gni")
+import("//services/service_manager/public/cpp/service.gni")
+import("//services/service_manager/public/service_manifest.gni")
 import("//mojo/public/tools/bindings/mojom.gni")
 import("//tools/grit/repack.gni")
 
@@ -20,10 +20,11 @@ source_set("lib") {
     "//mash/public/interfaces",
     "//mojo/public/cpp/bindings",
     "//services/navigation/public/interfaces",
-    "//services/shell/public/cpp",
-    "//services/shell/public/interfaces",
+    "//services/service_manager/public/cpp",
+    "//services/service_manager/public/interfaces",
     "//services/tracing/public/cpp",
     "//services/ui/public/cpp",
+    "//ui/aura",
     "//ui/gfx/geometry/mojo",
     "//ui/native_theme",
     "//ui/views",
@@ -44,7 +45,7 @@ service("webtest") {
 
   deps = [
     ":lib",
-    "//services/shell/public/cpp",
+    "//services/service_manager/public/cpp",
     "//ui/views/mus:for_mojo_application",
   ]
 
@@ -52,7 +53,6 @@ service("webtest") {
 
   data_deps = [
     ":manifest",
-    "//services/ui",
   ]
 }
 

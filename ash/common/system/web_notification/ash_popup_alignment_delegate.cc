@@ -6,23 +6,24 @@
 
 #include "ash/common/shelf/shelf_constants.h"
 #include "ash/common/shelf/wm_shelf.h"
-#include "ash/common/shell_window_ids.h"
-#include "ash/common/wm_root_window_controller.h"
 #include "ash/common/wm_shell.h"
 #include "ash/common/wm_window.h"
 #include "ash/public/cpp/shelf_types.h"
+#include "ash/public/cpp/shell_window_ids.h"
+#include "ash/root_window_controller.h"
 #include "base/i18n/rtl.h"
 #include "ui/display/display.h"
 #include "ui/display/screen.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/message_center/message_center_style.h"
 #include "ui/message_center/views/message_popup_collection.h"
+#include "ui/wm/core/shadow_types.h"
 
 namespace ash {
 
 namespace {
 
-const int kToastMarginX = 3;
+const int kToastMarginX = 7;
 
 // If there should be no margin for the first item, this value needs to be
 // substracted to flush the message to the shelf (the width of the border +
@@ -90,8 +91,11 @@ int AshPopupAlignmentDelegate::GetBaseLine() const {
          tray_bubble_height_;
 }
 
-int AshPopupAlignmentDelegate::GetWorkAreaBottom() const {
-  return work_area_.bottom() - tray_bubble_height_;
+gfx::Rect AshPopupAlignmentDelegate::GetWorkArea() const {
+  gfx::Rect work_area_without_tray_bubble = work_area_;
+  work_area_without_tray_bubble.set_height(
+      work_area_without_tray_bubble.height() - tray_bubble_height_);
+  return work_area_without_tray_bubble;
 }
 
 bool AshPopupAlignmentDelegate::IsTopDown() const {
@@ -110,6 +114,8 @@ void AshPopupAlignmentDelegate::RecomputeAlignment(
 void AshPopupAlignmentDelegate::ConfigureWidgetInitParamsForContainer(
     views::Widget* widget,
     views::Widget::InitParams* init_params) {
+  init_params->shadow_type = views::Widget::InitParams::SHADOW_TYPE_DROP;
+  init_params->shadow_elevation = ::wm::ShadowElevation::MEDIUM;
   // On ash, popups go in the status container.
   shelf_->GetWindow()
       ->GetRootWindowController()

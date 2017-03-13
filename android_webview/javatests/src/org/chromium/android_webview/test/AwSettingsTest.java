@@ -4,24 +4,22 @@
 
 package org.chromium.android_webview.test;
 
+import static org.chromium.base.test.util.ScalableTimeout.scaleTimeout;
+
 import android.content.Context;
 import android.graphics.Point;
 import android.net.http.SslError;
 import android.os.Build;
 import android.os.SystemClock;
-import android.test.suitebuilder.annotation.LargeTest;
-import android.test.suitebuilder.annotation.MediumTest;
-import android.test.suitebuilder.annotation.SmallTest;
+import android.support.test.filters.LargeTest;
+import android.support.test.filters.MediumTest;
+import android.support.test.filters.SmallTest;
 import android.view.WindowManager;
 import android.webkit.JavascriptInterface;
 import android.webkit.ValueCallback;
 import android.webkit.WebSettings;
 import android.webkit.WebSettings.LayoutAlgorithm;
 
-import static org.chromium.base.test.util.ScalableTimeout.scaleTimeout;
-
-import org.apache.http.Header;
-import org.apache.http.HttpRequest;
 import org.chromium.android_webview.AwContents;
 import org.chromium.android_webview.AwSettings;
 import org.chromium.android_webview.AwWebResourceResponse;
@@ -30,18 +28,19 @@ import org.chromium.android_webview.test.util.ImagePageGenerator;
 import org.chromium.android_webview.test.util.JSUtils;
 import org.chromium.android_webview.test.util.VideoTestUtil;
 import org.chromium.android_webview.test.util.VideoTestWebServer;
+import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
 import org.chromium.base.test.util.RetryOnFailure;
 import org.chromium.base.test.util.TestFileUtil;
 import org.chromium.base.test.util.UrlUtils;
-import org.chromium.content.browser.test.util.CallbackHelper;
 import org.chromium.content.browser.test.util.DOMUtils;
 import org.chromium.content.browser.test.util.HistoryUtils;
 import org.chromium.content.browser.test.util.TestCallbackHelperContainer;
 import org.chromium.content_public.browser.WebContents;
+import org.chromium.net.test.EmbeddedTestServer;
 import org.chromium.net.test.util.TestWebServer;
-import org.chromium.ui.gfx.DeviceDisplayInfo;
+import org.chromium.ui.display.DisplayAndroid;
 
 import java.io.File;
 import java.util.concurrent.Callable;
@@ -958,8 +957,9 @@ public class AwSettingsTest extends AwTestBase {
         }
 
         protected String getData() {
-            DeviceDisplayInfo deviceInfo = DeviceDisplayInfo.create(mContext);
-            int displayWidth = (int) (deviceInfo.getDisplayWidth() / deviceInfo.getDIPScale());
+            DisplayAndroid displayAndroid = DisplayAndroid.getNonMultiDisplay(mContext);
+            int displayWidth =
+                    (int) (displayAndroid.getDisplayWidth() / displayAndroid.getDipScale());
             int layoutWidth = (int) (displayWidth * 2.5f); // Use 2.5 as autosizing layout tests do.
             StringBuilder sb = new StringBuilder();
             sb.append("<html>"
@@ -1464,10 +1464,10 @@ public class AwSettingsTest extends AwTestBase {
             loadDataSync(getData());
             final int reportedClientWidth = Integer.parseInt(getTitleOnUiThread());
             if (value) {
-                final DeviceDisplayInfo deviceInfo = DeviceDisplayInfo.create(mContext);
+                final DisplayAndroid displayAndroid = DisplayAndroid.getNonMultiDisplay(mContext);
                 // The clientWidth is subject to pixel snapping.
                 final int displayWidth = (int) Math.ceil(
-                        deviceInfo.getDisplayWidth() / deviceInfo.getDIPScale());
+                        displayAndroid.getDisplayWidth() / displayAndroid.getDipScale());
                 assertEquals(displayWidth, reportedClientWidth);
             } else {
                 assertEquals(3000, reportedClientWidth);
@@ -1749,31 +1749,28 @@ public class AwSettingsTest extends AwTestBase {
         final TestAwContentsClient contentClient = new TestAwContentsClient();
         final AwTestContainerView testContainerView =
                 createAwTestContainerViewOnMainSync(contentClient);
-        AwContents awContents = testContainerView.getAwContents();
-        AwSettings settings = getAwSettingsOnUiThread(awContents);
         final String customUserAgentString =
                 "testUserAgentWithTestServerUserAgent";
+        AwContents awContents = testContainerView.getAwContents();
+        AwSettings settings = getAwSettingsOnUiThread(awContents);
+        EmbeddedTestServer testServer =
+                EmbeddedTestServer.createAndStartServer(getInstrumentation().getContext());
 
-        String fileName = null;
-        TestWebServer webServer = TestWebServer.start();
+        enableJavaScriptOnUiThread(awContents);
+
         try {
-            final String httpPath = "/testUserAgentWithTestServer.html";
-            final String url = webServer.setResponse(httpPath, "foo", null);
-
+            // Create url with echoheader echoing the User-Agent header in the the html body.
+            String url = testServer.getURL("/echoheader?User-Agent");
             settings.setUserAgentString(customUserAgentString);
             loadUrlSync(awContents,
                         contentClient.getOnPageFinishedHelper(),
                         url);
-
-            assertEquals(1, webServer.getRequestCount(httpPath));
-            HttpRequest request = webServer.getLastRequest(httpPath);
-            Header[] matchingHeaders = request.getHeaders("User-Agent");
-            assertEquals(1, matchingHeaders.length);
-
-            Header header = matchingHeaders[0];
-            assertEquals(customUserAgentString, header.getValue());
+            String userAgent = maybeStripDoubleQuotes(JSUtils.executeJavaScriptAndWaitForResult(
+                    this, awContents, contentClient.getOnEvaluateJavaScriptResultHelper(),
+                    "document.body.textContent"));
+            assertEquals(customUserAgentString, userAgent);
         } finally {
-            webServer.shutdown();
+            testServer.stopAndDestroyServer();
         }
     }
 
@@ -2536,8 +2533,9 @@ public class AwSettingsTest extends AwTestBase {
                 pageTemplate,
                 "<meta name='viewport' content='width=" + viewportTagSpecifiedWidth + "' />");
 
-        DeviceDisplayInfo deviceInfo = DeviceDisplayInfo.create(testContainer.getContext());
-        int displayWidth = (int) (deviceInfo.getDisplayWidth() / deviceInfo.getDIPScale());
+        DisplayAndroid displayAndroid = DisplayAndroid.getNonMultiDisplay(
+                testContainer.getContext());
+        int displayWidth = (int) (displayAndroid.getDisplayWidth() / displayAndroid.getDipScale());
 
         settings.setJavaScriptEnabled(true);
         assertFalse(settings.getUseWideViewPort());
@@ -2604,9 +2602,9 @@ public class AwSettingsTest extends AwTestBase {
         AwSettings settings = getAwSettingsOnUiThread(awContents);
         settings.setBuiltInZoomControls(true);
 
-        DeviceDisplayInfo deviceInfo =
-                DeviceDisplayInfo.create(testContainerView.getContext());
-        int displayWidth = (int) (deviceInfo.getDisplayWidth() / deviceInfo.getDIPScale());
+        DisplayAndroid displayAndroid =
+                DisplayAndroid.getNonMultiDisplay(testContainerView.getContext());
+        int displayWidth = (int) (displayAndroid.getDisplayWidth() / displayAndroid.getDipScale());
         int layoutWidth = displayWidth * 2;
         final String page = "<html>"
                 + "<head><meta name='viewport' content='width=" + layoutWidth + "'>"

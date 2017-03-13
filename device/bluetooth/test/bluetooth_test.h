@@ -41,6 +41,21 @@ class BluetoothTestBase : public testing::Test {
  public:
   enum class Call { EXPECTED, NOT_EXPECTED };
 
+  // List of devices that can be simulated with
+  // SimulateConnectedLowEnergyDevice().
+  // GENERIC_DEVICE:
+  //   - Name:     kTestDeviceName
+  //   - Address:  kTestPeripheralUUID1
+  //   - Services: [ kTestUUIDGenericAccess ]
+  // HEART_RATE_DEVICE:
+  //   - Name:     kTestDeviceName
+  //   - Address:  kTestPeripheralUUID2
+  //   - Services: [ kTestUUIDGenericAccess, kTestUUIDHeartRate]
+  enum class ConnectedDeviceType {
+    GENERIC_DEVICE,
+    HEART_RATE_DEVICE,
+  };
+
   static const std::string kTestAdapterName;
   static const std::string kTestAdapterAddress;
 
@@ -149,6 +164,11 @@ class BluetoothTestBase : public testing::Test {
   //      No Tx Power
   //      Supports BR/EDR and LE.
   virtual BluetoothDevice* SimulateLowEnergyDevice(int device_ordinal);
+
+  // Simulates a connected low energy device. Used before starting a low energy
+  // discovey session.
+  virtual void SimulateConnectedLowEnergyDevice(
+      ConnectedDeviceType device_ordinal){};
 
   // Create a fake classic device and discover it. The device will have
   // name kTestDeviceName, no advertised UUIDs and address kTestDeviceAddress3.
@@ -454,11 +474,11 @@ class BluetoothTestBase : public testing::Test {
   base::MessageLoop message_loop_;
 
   scoped_refptr<BluetoothAdapter> adapter_;
-  ScopedVector<BluetoothDiscoverySession> discovery_sessions_;
-  ScopedVector<BluetoothGattConnection> gatt_connections_;
+  std::vector<std::unique_ptr<BluetoothDiscoverySession>> discovery_sessions_;
+  std::vector<std::unique_ptr<BluetoothGattConnection>> gatt_connections_;
   enum BluetoothDevice::ConnectErrorCode last_connect_error_code_ =
       BluetoothDevice::ERROR_UNKNOWN;
-  ScopedVector<BluetoothGattNotifySession> notify_sessions_;
+  std::vector<std::unique_ptr<BluetoothGattNotifySession>> notify_sessions_;
   std::vector<uint8_t> last_read_value_;
   std::vector<uint8_t> last_write_value_;
   BluetoothRemoteGattService::GattErrorCode last_gatt_error_code_;

@@ -227,9 +227,9 @@ const char* EditingBehavior::interpretKeyEvent(
   }
 
   unsigned modifiers =
-      keyEvent->modifiers & (ShiftKey | AltKey | CtrlKey | MetaKey);
+      keyEvent->modifiers() & (ShiftKey | AltKey | CtrlKey | MetaKey);
 
-  if (keyEvent->type == WebInputEvent::RawKeyDown) {
+  if (keyEvent->type() == WebInputEvent::RawKeyDown) {
     int mapKey = modifiers << 16 | event.keyCode();
     const char* name = mapKey ? keyDownCommandsMap->get(mapKey) : nullptr;
     if (!name)
@@ -267,7 +267,13 @@ bool EditingBehavior::shouldInsertCharacter(const KeyboardEvent& event) const {
   // unexpected behaviour
   if (ch < ' ')
     return false;
-#if !OS(WIN)
+#if OS(LINUX)
+  // According to XKB map no keyboard combinations with ctrl key are mapped to
+  // printable characters, however we need the filter as the DomKey/text could
+  // contain printable characters.
+  if (event.ctrlKey())
+    return false;
+#elif !OS(WIN)
   // Don't insert ASCII character if ctrl w/o alt or meta is on.
   // On Mac, we should ignore events when meta is on (Command-<x>).
   if (ch < 0x80) {

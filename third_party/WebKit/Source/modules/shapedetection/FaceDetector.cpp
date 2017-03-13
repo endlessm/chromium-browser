@@ -6,131 +6,83 @@
 
 #include "core/dom/DOMException.h"
 #include "core/dom/DOMRect.h"
-#include "core/dom/Document.h"
-#include "core/fetch/ImageResource.h"
-#include "core/frame/LocalDOMWindow.h"
 #include "core/frame/LocalFrame.h"
-#include "core/html/HTMLImageElement.h"
-#include "platform/graphics/Image.h"
+#include "core/html/canvas/CanvasImageSource.h"
+#include "modules/shapedetection/DetectedFace.h"
+#include "modules/shapedetection/FaceDetectorOptions.h"
 #include "public/platform/InterfaceProvider.h"
-#include "third_party/skia/include/core/SkImage.h"
-#include "third_party/skia/include/core/SkImageInfo.h"
+#include "services/shape_detection/public/interfaces/facedetection_provider.mojom-blink.h"
 
 namespace blink {
 
-namespace {
-
-mojo::ScopedSharedBufferHandle getSharedBufferHandle(
-    const HTMLImageElement* img) {
-  ImageResource* const imageResource = img->cachedImage();
-  if (!imageResource) {
-    DLOG(ERROR) << "Failed to convert HTMLImageElement to ImageSource.";
-    return mojo::ScopedSharedBufferHandle();
-  }
-
-  Image* const blinkImage = imageResource->getImage();
-  if (!blinkImage) {
-    DLOG(ERROR) << "Failed to convert ImageSource to blink::Image.";
-    return mojo::ScopedSharedBufferHandle();
-  }
-
-  const sk_sp<SkImage> image = blinkImage->imageForCurrentFrame();
-  DCHECK_EQ(img->naturalWidth(), image->width());
-  DCHECK_EQ(img->naturalHeight(), image->height());
-
-  if (!image) {
-    DLOG(ERROR) << "Failed to convert blink::Image to sk_sp<SkImage>.";
-    return mojo::ScopedSharedBufferHandle();
-  }
-
-  const SkImageInfo skiaInfo =
-      SkImageInfo::MakeN32(image->width(), image->height(), image->alphaType());
-
-  const uint32_t allocationSize = skiaInfo.getSafeSize(skiaInfo.minRowBytes());
-  mojo::ScopedSharedBufferHandle sharedBufferHandle =
-      mojo::SharedBufferHandle::Create(allocationSize);
-  const mojo::ScopedSharedBufferMapping mappedBuffer =
-      sharedBufferHandle->Map(allocationSize);
-  DCHECK(mappedBuffer);
-
-  const SkPixmap pixmap(skiaInfo, mappedBuffer.get(), skiaInfo.minRowBytes());
-  if (!image->readPixels(pixmap, 0, 0)) {
-    DLOG(ERROR) << "Failed to read pixels from sk_sp<SkImage>.";
-    return mojo::ScopedSharedBufferHandle();
-  }
-
-  return sharedBufferHandle;
+FaceDetector* FaceDetector::create(Document& document,
+                                   const FaceDetectorOptions& options) {
+  return new FaceDetector(*document.frame(), options);
 }
 
-}  // anonymous namespace
+FaceDetector::FaceDetector(LocalFrame& frame,
+                           const FaceDetectorOptions& options)
+    : ShapeDetector(frame) {
+  shape_detection::mojom::blink::FaceDetectorOptionsPtr faceDetectorOptions =
+      shape_detection::mojom::blink::FaceDetectorOptions::New();
+  faceDetectorOptions->max_detected_faces = options.maxDetectedFaces();
+  faceDetectorOptions->fast_mode = options.fastMode();
+  shape_detection::mojom::blink::FaceDetectionProviderPtr provider;
+  frame.interfaceProvider()->getInterface(mojo::MakeRequest(&provider));
+  provider->CreateFaceDetection(mojo::MakeRequest(&m_faceService),
+                                std::move(faceDetectorOptions));
 
-FaceDetector* FaceDetector::create(ScriptState* scriptState) {
-  return new FaceDetector(*scriptState->domWindow()->frame());
+  m_faceService.set_connection_error_handler(convertToBaseCallback(WTF::bind(
+      &FaceDetector::onFaceServiceConnectionError, wrapWeakPersistent(this))));
 }
 
-FaceDetector::FaceDetector(LocalFrame& frame) {
-  DCHECK(!m_service.is_bound());
-  DCHECK(frame.interfaceProvider());
-  frame.interfaceProvider()->getInterface(mojo::GetProxy(&m_service));
-}
-
-ScriptPromise FaceDetector::detect(ScriptState* scriptState,
-                                   const HTMLImageElement* img) {
-  ScriptPromiseResolver* resolver = ScriptPromiseResolver::create(scriptState);
+ScriptPromise FaceDetector::doDetect(
+    ScriptPromiseResolver* resolver,
+    mojo::ScopedSharedBufferHandle sharedBufferHandle,
+    int imageWidth,
+    int imageHeight) {
   ScriptPromise promise = resolver->promise();
-
-  if (!m_service) {
+  if (!m_faceService) {
     resolver->reject(DOMException::create(
-        NotFoundError, "Face detection service unavailable."));
+        NotSupportedError, "Face detection service unavailable."));
     return promise;
   }
-
-  if (!img) {
-    resolver->reject(DOMException::create(
-        SyntaxError, "The provided HTMLImageElement is empty."));
-    return promise;
-  }
-
-  // TODO(xianglu): Add security check when the spec is ready.
-  // https://crbug.com/646083
-  mojo::ScopedSharedBufferHandle sharedBufferHandle =
-      getSharedBufferHandle(img);
-  if (!sharedBufferHandle->is_valid()) {
-    resolver->reject(
-        DOMException::create(SyntaxError, "Failed to get sharedBufferHandle."));
-    return promise;
-  }
-
-  m_serviceRequests.add(resolver);
-  DCHECK(m_service.is_bound());
-  m_service->DetectFace(std::move(sharedBufferHandle), img->naturalWidth(),
-                        img->naturalHeight(),
+  m_faceServiceRequests.add(resolver);
+  m_faceService->Detect(std::move(sharedBufferHandle), imageWidth, imageHeight,
                         convertToBaseCallback(WTF::bind(
-                            &FaceDetector::onDetectFace, wrapPersistent(this),
+                            &FaceDetector::onDetectFaces, wrapPersistent(this),
                             wrapPersistent(resolver))));
-  sharedBufferHandle.reset();
   return promise;
 }
 
-void FaceDetector::onDetectFace(
+void FaceDetector::onDetectFaces(
     ScriptPromiseResolver* resolver,
-    mojom::blink::FaceDetectionResultPtr faceDetectionResult) {
-  if (!m_serviceRequests.contains(resolver))
-    return;
+    shape_detection::mojom::blink::FaceDetectionResultPtr faceDetectionResult) {
+  DCHECK(m_faceServiceRequests.contains(resolver));
+  m_faceServiceRequests.remove(resolver);
 
-  HeapVector<Member<DOMRect>> detectedFaces;
-  for (const auto& boundingBox : faceDetectionResult->boundingBoxes) {
-    detectedFaces.append(DOMRect::create(boundingBox->x, boundingBox->y,
-                                         boundingBox->width,
-                                         boundingBox->height));
+  HeapVector<Member<DetectedFace>> detectedFaces;
+  for (const auto& boundingBox : faceDetectionResult->bounding_boxes) {
+    detectedFaces.push_back(DetectedFace::create(
+        DOMRect::create(boundingBox->x, boundingBox->y, boundingBox->width,
+                        boundingBox->height)));
   }
 
   resolver->resolve(detectedFaces);
-  m_serviceRequests.remove(resolver);
+}
+
+void FaceDetector::onFaceServiceConnectionError() {
+  for (const auto& request : m_faceServiceRequests) {
+    request->reject(DOMException::create(NotSupportedError,
+                                         "Face Detection not implemented."));
+  }
+  m_faceServiceRequests.clear();
+  m_faceService.reset();
 }
 
 DEFINE_TRACE(FaceDetector) {
-  visitor->trace(m_serviceRequests);
+  ShapeDetector::trace(visitor);
+  visitor->trace(m_faceServiceRequests);
 }
 
 }  // namespace blink

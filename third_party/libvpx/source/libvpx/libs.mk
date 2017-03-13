@@ -12,7 +12,7 @@
 # ARM assembly files are written in RVCT-style. We use some make magic to
 # filter those files to allow GCC compilation
 ifeq ($(ARCH_ARM),yes)
-  ASM:=$(if $(filter yes,$(CONFIG_GCC)$(CONFIG_MSVS)),.asm.s,.asm)
+  ASM:=$(if $(filter yes,$(CONFIG_GCC)$(CONFIG_MSVS)),.asm.S,.asm)
 else
   ASM:=.asm
 endif
@@ -366,7 +366,7 @@ endif
 #
 # Add assembler dependencies for configuration.
 #
-$(filter %.s.o,$(OBJS-yes)):     $(BUILD_PFX)vpx_config.asm
+$(filter %.S.o,$(OBJS-yes)):     $(BUILD_PFX)vpx_config.asm
 $(filter %$(ASM).o,$(OBJS-yes)): $(BUILD_PFX)vpx_config.asm
 
 
@@ -391,7 +391,7 @@ LIBVPX_TEST_SRCS=$(addprefix test/,$(call enabled,LIBVPX_TEST_SRCS))
 LIBVPX_TEST_BIN=./test_libvpx$(EXE_SFX)
 LIBVPX_TEST_DATA=$(addprefix $(LIBVPX_TEST_DATA_PATH)/,\
                      $(call enabled,LIBVPX_TEST_DATA))
-libvpx_test_data_url=http://downloads.webmproject.org/test_data/libvpx/$(1)
+libvpx_test_data_url=https://storage.googleapis.com/downloads.webmproject.org/test_data/libvpx/$(1)
 
 TEST_INTRA_PRED_SPEED_BIN=./test_intra_pred_speed$(EXE_SFX)
 TEST_INTRA_PRED_SPEED_SRCS=$(addprefix test/,$(call enabled,TEST_INTRA_PRED_SPEED_SRCS))
@@ -405,7 +405,7 @@ CLEAN-OBJS += libvpx_test_srcs.txt
 $(LIBVPX_TEST_DATA): $(SRC_PATH_BARE)/test/test-data.sha1
 	@echo "    [DOWNLOAD] $@"
 	$(qexec)trap 'rm -f $@' INT TERM &&\
-            curl -L -o $@ $(call libvpx_test_data_url,$(@F))
+            curl --retry 1 -L -o $@ $(call libvpx_test_data_url,$(@F))
 
 testdata:: $(LIBVPX_TEST_DATA)
 	$(qexec)[ -x "$$(which sha1sum)" ] && sha1sum=sha1sum;\

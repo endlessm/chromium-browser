@@ -47,14 +47,10 @@
 namespace blink {
 
 class DOMWrapperWorld;
-class ExecutionContext;
-class HTMLDocument;
-class HTMLPlugInElement;
+class Element;
 class KURL;
-class ScriptState;
 class ScriptSourceCode;
 class SecurityOrigin;
-class WindowProxy;
 class Widget;
 
 typedef WTF::Vector<v8::Extension*> V8Extensions;
@@ -80,9 +76,9 @@ class CORE_EXPORT ScriptController final
 
   DECLARE_TRACE();
 
-  bool initializeMainWorld();
-  WindowProxy* windowProxy(DOMWrapperWorld&);
-  WindowProxy* existingWindowProxy(DOMWrapperWorld&);
+  // This returns an initialized window proxy. (If the window proxy is not
+  // yet initialized, it's implicitly initialized at the first access.)
+  LocalWindowProxy* windowProxy(DOMWrapperWorld&);
 
   // Evaluate JavaScript in the main world.
   void executeScriptInMainWorld(
@@ -105,15 +101,13 @@ class CORE_EXPORT ScriptController final
   // If an isolated world with the specified ID already exists, it is reused.
   // Otherwise, a new world is created.
   //
-  // FIXME: Get rid of extensionGroup here.
   // FIXME: We don't want to support multiple scripts.
   void executeScriptInIsolatedWorld(int worldID,
                                     const HeapVector<ScriptSourceCode>& sources,
-                                    int extensionGroup,
                                     Vector<v8::Local<v8::Value>>* results);
 
   // Returns true if argument is a JavaScript URL.
-  bool executeScriptIfJavaScriptURL(const KURL&);
+  bool executeScriptIfJavaScriptURL(const KURL&, Element*);
 
   // Returns true if the current world is isolated, and has its own Content
   // Security Policy. In this case, the policy of the main world should be
@@ -125,20 +119,12 @@ class CORE_EXPORT ScriptController final
   void enableEval();
   void disableEval(const String& errorMessage);
 
-  static bool canAccessFromCurrentOrigin(v8::Isolate*, Frame*);
-
-  void collectIsolatedContexts(
-      Vector<std::pair<ScriptState*, SecurityOrigin*>>&);
-
   bool canExecuteScripts(ReasonForCallingCanExecuteScripts);
 
   TextPosition eventHandlerPosition() const;
 
   void clearWindowProxy();
   void updateDocument();
-
-  void namedItemAdded(HTMLDocument*, const AtomicString&);
-  void namedItemRemoved(HTMLDocument*, const AtomicString&);
 
   void updateSecurityOrigin(SecurityOrigin*);
 
@@ -152,22 +138,20 @@ class CORE_EXPORT ScriptController final
 
   v8::Isolate* isolate() const { return m_windowProxyManager->isolate(); }
 
-  WindowProxyManager* getWindowProxyManager() const {
+  LocalWindowProxyManager* getWindowProxyManager() const {
     return m_windowProxyManager.get();
   }
 
  private:
   explicit ScriptController(LocalFrame*);
 
-  LocalFrame* frame() const {
-    return toLocalFrame(m_windowProxyManager->frame());
-  }
+  LocalFrame* frame() const { return m_windowProxyManager->frame(); }
 
   v8::Local<v8::Value> evaluateScriptInMainWorld(const ScriptSourceCode&,
                                                  AccessControlStatus,
                                                  ExecuteScriptPolicy);
 
-  Member<WindowProxyManager> m_windowProxyManager;
+  Member<LocalWindowProxyManager> m_windowProxyManager;
 };
 
 }  // namespace blink

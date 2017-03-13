@@ -25,7 +25,7 @@
 #include "webrtc/base/thread.h"
 #include "webrtc/base/thread_annotations.h"
 #include "webrtc/modules/audio_device/fine_audio_buffer.h"
-#include "webrtc/modules/utility/include/helpers_ios.h"
+#include "webrtc/sdk/objc/Framework/Classes/helpers.h"
 
 #import "WebRTC/RTCLogging.h"
 #import "webrtc/modules/audio_device/ios/objc/RTCAudioSession.h"
@@ -407,9 +407,9 @@ OSStatus AudioDeviceIOS::OnGetPlayoutData(AudioUnitRenderActionFlags* flags,
                                           UInt32 num_frames,
                                           AudioBufferList* io_data) {
   // Verify 16-bit, noninterleaved mono PCM signal format.
-  RTC_DCHECK_EQ(1u, io_data->mNumberBuffers);
+  RTC_DCHECK_EQ(1, io_data->mNumberBuffers);
   AudioBuffer* audio_buffer = &io_data->mBuffers[0];
-  RTC_DCHECK_EQ(1u, audio_buffer->mNumberChannels);
+  RTC_DCHECK_EQ(1, audio_buffer->mNumberChannels);
   // Get pointer to internal audio buffer to which new audio data shall be
   // written.
   const size_t size_in_bytes = audio_buffer->mDataByteSize;
@@ -537,7 +537,7 @@ void AudioDeviceIOS::HandleSampleRateChange(float sample_rate) {
          current_sample_rate, (unsigned long)current_frames_per_buffer);;
 
   // Sample rate and buffer size are the same, no work to do.
-  if (abs(current_sample_rate - session_sample_rate) <= DBL_EPSILON &&
+  if (std::abs(current_sample_rate - session_sample_rate) <= DBL_EPSILON &&
       current_frames_per_buffer == session_frames_per_buffer) {
     return;
   }

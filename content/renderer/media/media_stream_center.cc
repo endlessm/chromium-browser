@@ -26,8 +26,6 @@
 #include "third_party/WebKit/public/platform/WebMediaStreamCenterClient.h"
 #include "third_party/WebKit/public/platform/WebMediaStreamSource.h"
 #include "third_party/WebKit/public/platform/WebMediaStreamTrack.h"
-#include "third_party/WebKit/public/platform/WebMediaStreamTrackSourcesRequest.h"
-#include "third_party/WebKit/public/platform/WebSourceInfo.h"
 #include "third_party/WebKit/public/platform/WebVector.h"
 #include "third_party/WebKit/public/web/WebFrame.h"
 
@@ -107,6 +105,13 @@ void MediaStreamCenter::didCreateMediaStreamTrack(
       CreateNativeVideoMediaStreamTrack(track);
       break;
   }
+}
+
+void MediaStreamCenter::didSetContentHint(
+    const blink::WebMediaStreamTrack& track) {
+  MediaStreamTrack* native_track = MediaStreamTrack::GetTrack(track);
+  if (native_track)
+    native_track->SetContentHint(track.contentHint());
 }
 
 void MediaStreamCenter::didEnableMediaStreamTrack(

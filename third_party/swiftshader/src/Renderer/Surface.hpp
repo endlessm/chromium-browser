@@ -283,8 +283,9 @@ namespace sw
 		inline int getInternalSliceB() const;
 		inline int getInternalSliceP() const;
 
-		void *lockStencil(int front, Accessor client);
+		void *lockStencil(int x, int y, int front, Accessor client);
 		void unlockStencil();
+		inline Format getStencilFormat() const;
 		inline int getStencilPitchB() const;
 		inline int getStencilSliceB() const;
 
@@ -326,6 +327,7 @@ namespace sw
 
 		static bool isStencil(Format format);
 		static bool isDepth(Format format);
+		static bool hasQuadLayout(Format format);
 		static bool isPalette(Format format);
 
 		static bool isFloatFormat(Format format);
@@ -571,6 +573,11 @@ namespace sw
 	int Surface::getInternalSliceP() const
 	{
 		return internal.sliceP;
+	}
+
+	Format Surface::getStencilFormat() const
+	{
+		return stencil.format;
 	}
 
 	int Surface::getStencilPitchB() const

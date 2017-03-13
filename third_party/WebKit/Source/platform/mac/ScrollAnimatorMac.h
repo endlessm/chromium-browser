@@ -27,13 +27,12 @@
 #define ScrollAnimatorMac_h
 
 #include "platform/Timer.h"
+#include "platform/WebTaskRunner.h"
 #include "platform/geometry/FloatPoint.h"
 #include "platform/geometry/FloatSize.h"
 #include "platform/geometry/IntRect.h"
 #include "platform/heap/Handle.h"
-#include "platform/scheduler/CancellableTaskFactory.h"
 #include "platform/scroll/ScrollAnimatorBase.h"
-#include "public/platform/WebTaskRunner.h"
 #include "wtf/RetainPtr.h"
 #include <memory>
 
@@ -56,7 +55,7 @@ class PLATFORM_EXPORT ScrollAnimatorMac : public ScrollAnimatorBase {
 
   void dispose() override;
 
-  void immediateScrollToPointForScrollAnimation(const FloatPoint& newPosition);
+  void immediateScrollToOffsetForScrollAnimation(const ScrollOffset& newOffset);
   bool haveScrolledSincePageLoad() const { return m_haveScrolledSincePageLoad; }
 
   void updateScrollerStyle();
@@ -65,7 +64,7 @@ class PLATFORM_EXPORT ScrollAnimatorMac : public ScrollAnimatorBase {
   void startScrollbarPaintTimer();
   void stopScrollbarPaintTimer();
 
-  void sendContentAreaScrolledSoon(const FloatSize& scrollDelta);
+  void sendContentAreaScrolledSoon(const ScrollOffset& scrollDelta);
 
   void setVisibleScrollerThumbRect(const IntRect&);
 
@@ -82,17 +81,16 @@ class PLATFORM_EXPORT ScrollAnimatorMac : public ScrollAnimatorBase {
   RetainPtr<BlinkScrollbarPainterDelegate> m_verticalScrollbarPainterDelegate;
 
   void initialScrollbarPaintTask();
-  std::unique_ptr<CancellableTaskFactory> m_initialScrollbarPaintTaskFactory;
+  TaskHandle m_initialScrollbarPaintTaskHandle;
 
   void sendContentAreaScrolledTask();
-  std::unique_ptr<CancellableTaskFactory> m_sendContentAreaScrolledTaskFactory;
-  std::unique_ptr<WebTaskRunner> m_taskRunner;
-  FloatSize m_contentAreaScrolledTimerScrollDelta;
+  TaskHandle m_sendContentAreaScrolledTaskHandle;
+  RefPtr<WebTaskRunner> m_taskRunner;
+  ScrollOffset m_contentAreaScrolledTimerScrollDelta;
 
-  ScrollResult userScroll(ScrollGranularity, const FloatSize& delta) override;
-  void scrollToOffsetWithoutAnimation(const FloatPoint&) override;
-
-  void handleWheelEventPhase(PlatformWheelEventPhase) override;
+  ScrollResult userScroll(ScrollGranularity,
+                          const ScrollOffset& delta) override;
+  void scrollToOffsetWithoutAnimation(const ScrollOffset&) override;
 
   void cancelAnimation() override;
 
@@ -105,9 +103,6 @@ class PLATFORM_EXPORT ScrollAnimatorMac : public ScrollAnimatorBase {
   void contentsResized() const override;
   void contentAreaDidShow() const override;
   void contentAreaDidHide() const override;
-  void didBeginScrollGesture() const;
-  void didEndScrollGesture() const;
-  void mayBeginScrollGesture() const;
 
   void finishCurrentScrollAnimations() override;
 
@@ -116,15 +111,13 @@ class PLATFORM_EXPORT ScrollAnimatorMac : public ScrollAnimatorBase {
   void didAddHorizontalScrollbar(Scrollbar&) override;
   void willRemoveHorizontalScrollbar(Scrollbar&) override;
 
-  bool shouldScrollbarParticipateInHitTesting(Scrollbar&) override;
-
-  void notifyContentAreaScrolled(const FloatSize& delta) override;
+  void notifyContentAreaScrolled(const ScrollOffset& delta) override;
 
   bool setScrollbarsVisibleForTesting(bool) override;
 
-  FloatPoint adjustScrollPositionIfNecessary(const FloatPoint&) const;
+  ScrollOffset adjustScrollOffsetIfNecessary(const ScrollOffset&) const;
 
-  void immediateScrollTo(const FloatPoint&);
+  void immediateScrollTo(const ScrollOffset&);
 
   bool m_haveScrolledSincePageLoad;
   bool m_needsScrollerStyleUpdate;

@@ -83,6 +83,8 @@ class WTF_EXPORT StringView {
         m_characters16(chars),
         m_length(length) {}
   StringView(const UChar* chars);
+  StringView(const char16_t* chars)
+      : StringView(reinterpret_cast<const UChar*>(chars)) {}
 
 #if DCHECK_IS_ON()
   ~StringView();
@@ -134,6 +136,9 @@ class WTF_EXPORT StringView {
 
   String toString() const;
   AtomicString toAtomicString() const;
+
+  template <bool isSpecialCharacter(UChar)>
+  bool isAllSpecialCharacters() const;
 
  private:
   void set(const StringImpl&, unsigned offset, unsigned length);
@@ -213,11 +218,14 @@ inline void StringView::set(const StringImpl& impl,
     m_characters16 = impl.characters16() + offset;
 }
 
+// Unicode aware case insensitive string matching. Non-ASCII characters might
+// match to ASCII characters. These functions are rarely used to implement web
+// platform features.
 WTF_EXPORT bool equalIgnoringCase(const StringView&, const StringView&);
-WTF_EXPORT bool equalIgnoringASCIICase(const StringView&, const StringView&);
-
 WTF_EXPORT bool equalIgnoringCaseAndNullity(const StringView&,
                                             const StringView&);
+
+WTF_EXPORT bool equalIgnoringASCIICase(const StringView&, const StringView&);
 
 // TODO(esprehn): Can't make this an overload of WTF::equal since that makes
 // calls to equal() that pass literal strings ambiguous. Figure out if we can
@@ -232,10 +240,33 @@ inline bool operator!=(const StringView& a, const StringView& b) {
   return !(a == b);
 }
 
+template <bool isSpecialCharacter(UChar), typename CharacterType>
+inline bool isAllSpecialCharacters(const CharacterType* characters,
+                                   size_t length) {
+  for (size_t i = 0; i < length; ++i) {
+    if (!isSpecialCharacter(characters[i]))
+      return false;
+  }
+  return true;
+}
+
+template <bool isSpecialCharacter(UChar)>
+inline bool StringView::isAllSpecialCharacters() const {
+  size_t len = length();
+  if (!len)
+    return true;
+
+  return is8Bit() ? WTF::isAllSpecialCharacters<isSpecialCharacter, LChar>(
+                        characters8(), len)
+                  : WTF::isAllSpecialCharacters<isSpecialCharacter, UChar>(
+                        characters16(), len);
+}
+
 }  // namespace WTF
 
 using WTF::StringView;
 using WTF::equalIgnoringASCIICase;
 using WTF::equalIgnoringCase;
+using WTF::isAllSpecialCharacters;
 
 #endif

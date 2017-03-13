@@ -11,7 +11,7 @@
 #include "chrome/browser/content_settings/tab_specific_content_settings.h"
 #include "chrome/browser/media/webrtc/media_capture_devices_dispatcher.h"
 #include "chrome/browser/ui/browser.h"
-#import "chrome/browser/ui/cocoa/cocoa_test_helper.h"
+#import "chrome/browser/ui/cocoa/test/cocoa_test_helper.h"
 #include "chrome/browser/ui/content_settings/content_setting_bubble_model.h"
 #include "chrome/browser/ui/content_settings/content_setting_image_model.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
@@ -55,11 +55,12 @@ ContentSettingBubbleControllerTest::CreateBubbleController(
   [parent_ setReleasedWhenClosed:NO];
   [parent_ orderFront:nil];
 
-  ContentSettingBubbleController* controller = [ContentSettingBubbleController
-      showForModel:bubble
-       webContents:web_contents()
-      parentWindow:parent_
-        anchoredAt:NSMakePoint(50, 20)];
+  ContentSettingBubbleController* controller =
+      [ContentSettingBubbleController showForModel:bubble
+                                       webContents:web_contents()
+                                      parentWindow:parent_
+                                        decoration:nullptr
+                                        anchoredAt:NSMakePoint(50, 20)];
 
   EXPECT_TRUE(controller);
   EXPECT_TRUE([[controller window] isVisible]);
@@ -71,9 +72,9 @@ ContentSettingBubbleControllerTest::CreateBubbleController(
 IN_PROC_BROWSER_TEST_F(ContentSettingBubbleControllerTest, Init) {
   TabSpecificContentSettings::FromWebContents(web_contents())->
       BlockAllContentForTesting();
-  ScopedVector<ContentSettingImageModel> models =
+  std::vector<std::unique_ptr<ContentSettingImageModel>> models =
       ContentSettingImageModel::GenerateContentSettingImageModels();
-  for (ContentSettingImageModel* model : models.get()) {
+  for (const auto& model : models) {
     ContentSettingBubbleModel* bubble =
         model->CreateBubbleModel(nullptr, web_contents(), profile());
     ContentSettingBubbleController* controller = CreateBubbleController(bubble);

@@ -42,7 +42,7 @@ class SnapToLinesLayouter {
   SnapToLinesLayouter(LayoutVTTCue& cueBox, const IntRect& controlsRect)
       : m_cueBox(cueBox), m_controlsRect(controlsRect), m_margin(0.0) {
     if (Settings* settings = m_cueBox.document().settings())
-      m_margin = settings->textTrackMarginPercentage() / 100.0;
+      m_margin = settings->getTextTrackMarginPercentage() / 100.0;
   }
 
   void layout();
@@ -85,7 +85,7 @@ LayoutUnit SnapToLinesLayouter::computeInitialPositionAdjustment(
 
   WritingMode writingMode = m_cueBox.style()->getWritingMode();
   // 8. Vertical Growing Left: Add one to line then negate it.
-  if (writingMode == RightToLeftWritingMode)
+  if (isFlippedBlocksWritingMode(writingMode))
     linePosition = -(linePosition + 1);
 
   // 9. Let position be the result of multiplying step and line offset.
@@ -93,7 +93,7 @@ LayoutUnit SnapToLinesLayouter::computeInitialPositionAdjustment(
 
   // 10. Vertical Growing Left: Decrease position by the width of the
   // bounding box of the boxes in boxes, then increase position by step.
-  if (writingMode == RightToLeftWritingMode) {
+  if (isFlippedBlocksWritingMode(writingMode)) {
     position -= m_cueBox.size().width();
     position += step;
   }
@@ -282,7 +282,8 @@ LayoutVTTCue::LayoutVTTCue(ContainerNode* node, float snapToLinesPosition)
     : LayoutBlockFlow(node), m_snapToLinesPosition(snapToLinesPosition) {}
 
 void LayoutVTTCue::repositionCueSnapToLinesNotSet() {
-  // FIXME: Implement overlapping detection when snap-to-lines is not set. http://wkb.ug/84296
+  // FIXME: Implement overlapping detection when snap-to-lines is not set.
+  // http://wkb.ug/84296
 
   // http://dev.w3.org/html5/webvtt/#dfn-apply-webvtt-cue-settings
   // Step 13, "If cue's text track cue snap-to-lines flag is not set".
@@ -354,7 +355,7 @@ void LayoutVTTCue::layout() {
 
   DCHECK(firstChild());
 
-  LayoutState state(*this, locationOffset());
+  LayoutState state(*this);
 
   // http://dev.w3.org/html5/webvtt/#dfn-apply-webvtt-cue-settings - step 13.
   if (!std::isnan(m_snapToLinesPosition))

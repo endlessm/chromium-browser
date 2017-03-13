@@ -772,9 +772,18 @@ static void set_sar(TiffContext *s, unsigned tag, unsigned num, unsigned den)
     int offset = tag == TIFF_YRES ? 2 : 0;
     s->res[offset++] = num;
     s->res[offset]   = den;
-    if (s->res[0] && s->res[1] && s->res[2] && s->res[3])
+    if (s->res[0] && s->res[1] && s->res[2] && s->res[3]) {
+        uint64_t num = s->res[2] * (uint64_t)s->res[1];
+        uint64_t den = s->res[0] * (uint64_t)s->res[3];
+        if (num > INT64_MAX || den > INT64_MAX) {
+            num = num >> 1;
+            den = den >> 1;
+        }
         av_reduce(&s->avctx->sample_aspect_ratio.num, &s->avctx->sample_aspect_ratio.den,
-                  s->res[2] * (uint64_t)s->res[1], s->res[0] * (uint64_t)s->res[3], INT32_MAX);
+                  num, den, INT32_MAX);
+        if (!s->avctx->sample_aspect_ratio.den)
+            s->avctx->sample_aspect_ratio = (AVRational) {0, 1};
+    }
 }
 
 static int tiff_decode_tag(TiffContext *s, AVFrame *frame)
@@ -861,6 +870,7 @@ static int tiff_decode_tag(TiffContext *s, AVFrame *frame)
         break;
     case TIFF_COMPR:
         s->compr     = value;
+        av_log(s->avctx, AV_LOG_DEBUG, "compression: %d\n", s->compr);
         s->predictor = 0;
         switch (s->compr) {
         case TIFF_RAW:

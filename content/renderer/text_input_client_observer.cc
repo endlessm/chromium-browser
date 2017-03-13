@@ -15,6 +15,7 @@
 #include "content/renderer/render_view_impl.h"
 #include "content/renderer/render_widget.h"
 #include "ipc/ipc_message.h"
+#include "ppapi/features/features.h"
 #include "third_party/WebKit/public/platform/WebPoint.h"
 #include "third_party/WebKit/public/platform/WebRect.h"
 #include "third_party/WebKit/public/platform/WebString.h"
@@ -24,6 +25,13 @@
 #include "ui/gfx/geometry/rect.h"
 
 namespace content {
+
+namespace {
+uint32_t GetCurrentCursorPositionInFrame(blink::WebLocalFrame* localFrame) {
+  blink::WebRange range = localFrame->selectionRange();
+  return range.isNull() ? 0U : static_cast<uint32_t>(range.startOffset());
+}
+}
 
 TextInputClientObserver::TextInputClientObserver(RenderWidget* render_widget)
     : render_widget_(render_widget) {}
@@ -52,25 +60,33 @@ bool TextInputClientObserver::Send(IPC::Message* message) {
 
 blink::WebFrameWidget* TextInputClientObserver::GetWebFrameWidget() const {
   blink::WebWidget* widget = render_widget_->GetWebWidget();
-  // We should always receive a WebFrameWidget in the call above. RenderViewImpl
-  // however might return a WebView if the main frame is destroyed, but as long
-  // as there is a rendered page, we should not be in that state and the RVImpl
-  // should be returning a frame widget.
-  DCHECK(widget->isWebFrameWidget());
-  return static_cast<blink::WebFrameWidget*>(render_widget_->GetWebWidget());
+  if (!widget->isWebFrameWidget()) {
+    // When a page navigation occurs, for a brief period
+    // RenderViewImpl::GetWebWidget() will return a WebViewImpl instead of a
+    // WebViewFrameWidget. Therefore, casting to WebFrameWidget is invalid and
+    // could cause crashes. Also, WebView::mainFrame() could be a remote frame
+    // which will yield a nullptr for localRoot() (https://crbug.com/664890).
+    return nullptr;
+  }
+  return static_cast<blink::WebFrameWidget*>(widget);
 }
 
 blink::WebLocalFrame* TextInputClientObserver::GetFocusedFrame() const {
-  blink::WebLocalFrame* focused =
-      RenderFrameImpl::FromWebFrame(GetWebFrameWidget()->localRoot())
-          ->render_view()
-          ->webview()
-          ->focusedFrame();
-  return focused->localRoot() == GetWebFrameWidget()->localRoot() ? focused
-                                                                  : nullptr;
+  if (auto* frame_widget = GetWebFrameWidget()) {
+    blink::WebLocalFrame* localRoot = frame_widget->localRoot();
+    RenderFrameImpl* render_frame = RenderFrameImpl::FromWebFrame(localRoot);
+    if (!render_frame) {
+      // TODO(ekaramad): Can this ever be nullptr? (https://crbug.com/664890).
+      return nullptr;
+    }
+    blink::WebLocalFrame* focused =
+        render_frame->render_view()->webview()->focusedFrame();
+    return focused->localRoot() == localRoot ? focused : nullptr;
+  }
+  return nullptr;
 }
 
-#if defined(ENABLE_PLUGINS)
+#if BUILDFLAG(ENABLE_PLUGINS)
 PepperPluginInstanceImpl* TextInputClientObserver::GetFocusedPepperPlugin()
     const {
   blink::WebLocalFrame* focusedFrame = GetFocusedFrame();
@@ -84,8 +100,12 @@ PepperPluginInstanceImpl* TextInputClientObserver::GetFocusedPepperPlugin()
 void TextInputClientObserver::OnStringAtPoint(gfx::Point point) {
 #if defined(OS_MACOSX)
   blink::WebPoint baselinePoint;
-  NSAttributedString* string = blink::WebSubstringUtil::attributedWordAtPoint(
-      GetWebFrameWidget(), point, baselinePoint);
+  NSAttributedString* string = nil;
+
+  if (auto* frame_widget = GetWebFrameWidget()) {
+    string = blink::WebSubstringUtil::attributedWordAtPoint(frame_widget, point,
+                                                   baselinePoint);
+  }
 
   std::unique_ptr<const mac::AttributedStringCoder::EncodedString> encoded(
       mac::AttributedStringCoder::Encode(string));
@@ -98,15 +118,17 @@ void TextInputClientObserver::OnStringAtPoint(gfx::Point point) {
 
 void TextInputClientObserver::OnCharacterIndexForPoint(gfx::Point point) {
   blink::WebPoint web_point(point);
-  uint32_t index = static_cast<uint32_t>(
-      GetFocusedFrame()->characterIndexForPoint(web_point));
+  uint32_t index = 0U;
+  if (auto* frame = GetFocusedFrame())
+    index = static_cast<uint32_t>(frame->characterIndexForPoint(web_point));
+
   Send(new TextInputClientReplyMsg_GotCharacterIndexForPoint(
       render_widget_->routing_id(), index));
 }
 
 void TextInputClientObserver::OnFirstRectForCharacterRange(gfx::Range range) {
   gfx::Rect rect;
-#if defined(ENABLE_PLUGINS)
+#if BUILDFLAG(ENABLE_PLUGINS)
   PepperPluginInstanceImpl* focused_plugin = GetFocusedPepperPlugin();
   if (focused_plugin) {
     rect = focused_plugin->GetCaretBounds();
@@ -118,8 +140,11 @@ void TextInputClientObserver::OnFirstRectForCharacterRange(gfx::Range range) {
     // See crbug.com/304341
     if (frame) {
       blink::WebRect web_rect;
-      frame->firstRectForCharacterRange(range.start(), range.length(),
-                                        web_rect);
+      // When request range is invalid we will try to obtain it from current
+      // frame selection. The fallback value will be 0.
+      uint32_t start = range.IsValid() ? range.start()
+                                       : GetCurrentCursorPositionInFrame(frame);
+      frame->firstRectForCharacterRange(start, range.length(), web_rect);
       rect = web_rect;
     }
   }

@@ -71,7 +71,7 @@ namespace blink {
 std::unique_ptr<LinkHighlightImpl> LinkHighlightImpl::create(
     Node* node,
     WebViewImpl* owningWebViewImpl) {
-  return wrapUnique(new LinkHighlightImpl(node, owningWebViewImpl));
+  return WTF::wrapUnique(new LinkHighlightImpl(node, owningWebViewImpl));
 }
 
 LinkHighlightImpl::LinkHighlightImpl(Node* node, WebViewImpl* owningWebViewImpl)
@@ -87,8 +87,8 @@ LinkHighlightImpl::LinkHighlightImpl(Node* node, WebViewImpl* owningWebViewImpl)
   WebCompositorSupport* compositorSupport =
       Platform::current()->compositorSupport();
   DCHECK(compositorSupport);
-  m_contentLayer = wrapUnique(compositorSupport->createContentLayer(this));
-  m_clipLayer = wrapUnique(compositorSupport->createLayer());
+  m_contentLayer = compositorSupport->createContentLayer(this);
+  m_clipLayer = compositorSupport->createLayer();
   m_clipLayer->setTransformOrigin(WebFloatPoint3D());
   m_clipLayer->addChild(m_contentLayer->layer());
 
@@ -134,13 +134,12 @@ void LinkHighlightImpl::releaseResources() {
 void LinkHighlightImpl::attachLinkHighlightToCompositingLayer(
     const LayoutBoxModelObject& paintInvalidationContainer) {
   GraphicsLayer* newGraphicsLayer =
-      paintInvalidationContainer.layer()->graphicsLayerBacking();
+      paintInvalidationContainer.layer()->graphicsLayerBacking(
+          m_node->layoutObject());
   m_isScrollingGraphicsLayer = false;
   // FIXME: There should always be a GraphicsLayer. See crbug.com/431961.
   if (paintInvalidationContainer.layer()->needsCompositedScrolling() &&
       m_node->layoutObject() != &paintInvalidationContainer) {
-    newGraphicsLayer =
-        paintInvalidationContainer.layer()->graphicsLayerBackingForScrolling();
     m_isScrollingGraphicsLayer = true;
   }
   if (!newGraphicsLayer)
@@ -154,56 +153,6 @@ void LinkHighlightImpl::attachLinkHighlightToCompositingLayer(
 
     m_currentGraphicsLayer = newGraphicsLayer;
     m_currentGraphicsLayer->addLinkHighlight(this);
-  }
-}
-
-static void convertTargetSpaceQuadToCompositedLayer(
-    const FloatQuad& targetSpaceQuad,
-    LayoutObject* targetLayoutObject,
-    const LayoutBoxModelObject& paintInvalidationContainer,
-    FloatQuad& compositedSpaceQuad) {
-  DCHECK(targetLayoutObject);
-  for (unsigned i = 0; i < 4; ++i) {
-    IntPoint point;
-    switch (i) {
-      case 0:
-        point = roundedIntPoint(targetSpaceQuad.p1());
-        break;
-      case 1:
-        point = roundedIntPoint(targetSpaceQuad.p2());
-        break;
-      case 2:
-        point = roundedIntPoint(targetSpaceQuad.p3());
-        break;
-      case 3:
-        point = roundedIntPoint(targetSpaceQuad.p4());
-        break;
-    }
-
-    // FIXME: this does not need to be absolute, just in the paint invalidation
-    // container's space.
-    point = targetLayoutObject->frame()->view()->contentsToRootFrame(point);
-    point =
-        paintInvalidationContainer.frame()->view()->rootFrameToContents(point);
-    FloatPoint floatPoint =
-        paintInvalidationContainer.absoluteToLocal(point, UseTransforms);
-    PaintLayer::mapPointInPaintInvalidationContainerToBacking(
-        paintInvalidationContainer, floatPoint);
-
-    switch (i) {
-      case 0:
-        compositedSpaceQuad.setP1(floatPoint);
-        break;
-      case 1:
-        compositedSpaceQuad.setP2(floatPoint);
-        break;
-      case 2:
-        compositedSpaceQuad.setP3(floatPoint);
-        break;
-      case 3:
-        compositedSpaceQuad.setP4(floatPoint);
-        break;
-    }
   }
 }
 
@@ -236,7 +185,7 @@ void LinkHighlightImpl::computeQuads(const Node& node,
   } else {
     // FIXME: this does not need to be absolute, just in the paint invalidation
     // container's space.
-    layoutObject->absoluteQuads(outQuads);
+    layoutObject->absoluteQuads(outQuads, TraverseDocumentBoundaries);
   }
 }
 
@@ -264,19 +213,27 @@ bool LinkHighlightImpl::computeHighlightLayerPathAndPosition(
     // Scrolling content layers have the same offset from layout object as the
     // non-scrolling layers. Thus we need to adjust for their scroll offset.
     if (m_isScrollingGraphicsLayer) {
-      DoubleSize adjustedScrollOffset = paintInvalidationContainer.layer()
-                                            ->getScrollableArea()
-                                            ->adjustedScrollOffset();
-      absoluteQuad.move(adjustedScrollOffset.width(),
-                        adjustedScrollOffset.height());
+      FloatPoint scrollPosition = paintInvalidationContainer.layer()
+                                      ->getScrollableArea()
+                                      ->scrollPosition();
+      absoluteQuad.move(toScrollOffset(scrollPosition));
     }
 
-    // Transform node quads in target absolute coords to local coordinates in
-    // the compositor layer.
-    FloatQuad transformedQuad;
-    convertTargetSpaceQuadToCompositedLayer(
-        absoluteQuad, m_node->layoutObject(), paintInvalidationContainer,
-        transformedQuad);
+    absoluteQuad.setP1(roundedIntPoint(absoluteQuad.p1()));
+    absoluteQuad.setP2(roundedIntPoint(absoluteQuad.p2()));
+    absoluteQuad.setP3(roundedIntPoint(absoluteQuad.p3()));
+    absoluteQuad.setP4(roundedIntPoint(absoluteQuad.p4()));
+    FloatQuad transformedQuad = paintInvalidationContainer.absoluteToLocalQuad(
+        absoluteQuad, UseTransforms | TraverseDocumentBoundaries);
+    FloatPoint offsetToBacking;
+
+    PaintLayer::mapPointInPaintInvalidationContainerToBacking(
+        paintInvalidationContainer, offsetToBacking);
+
+    // Adjust for offset from LayoutObject.
+    offsetToBacking.move(-m_currentGraphicsLayer->offsetFromLayoutObject());
+
+    transformedQuad.move(toFloatSize(offsetToBacking));
 
     // FIXME: for now, we'll only use rounded paths if we have a single node
     // quad. The reason for this is that we may sometimes get a chain of

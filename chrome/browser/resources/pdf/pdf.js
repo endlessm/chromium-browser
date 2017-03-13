@@ -131,13 +131,16 @@ function PDFViewer(browserApi) {
   var shortWindow = window.innerHeight < PDFViewer.TOOLBAR_WINDOW_MIN_HEIGHT;
   var topToolbarHeight =
       (toolbarEnabled) ? PDFViewer.MATERIAL_TOOLBAR_HEIGHT : 0;
+  var defaultZoom =
+      this.browserApi_.getZoomBehavior() == BrowserApi.ZoomBehavior.MANAGE ?
+      this.browserApi_.getDefaultZoom() : 1.0;
   this.viewport_ = new Viewport(window,
                                 this.sizer_,
                                 this.viewportChanged_.bind(this),
                                 this.beforeZoom_.bind(this),
                                 this.afterZoom_.bind(this),
                                 getScrollbarWidth(),
-                                this.browserApi_.getDefaultZoom(),
+                                defaultZoom,
                                 topToolbarHeight);
 
   // Create the plugin object dynamically so we can set its src. The plugin
@@ -191,6 +194,15 @@ function PDFViewer(browserApi) {
   this.zoomToolbar_.addEventListener('zoom-out',
       this.viewport_.zoomOut.bind(this.viewport_));
 
+  this.gestureDetector_ = new GestureDetector(this.plugin_);
+  this.gestureDetector_.addEventListener(
+      'pinchstart', this.viewport_.pinchZoomStart.bind(this.viewport_));
+  this.sentPinchEvent_ = false;
+  this.gestureDetector_.addEventListener(
+      'pinchupdate', this.onPinchUpdate_.bind(this));
+  this.gestureDetector_.addEventListener(
+      'pinchend', this.onPinchEnd_.bind(this));
+
   if (toolbarEnabled) {
     this.toolbar_ = $('toolbar');
     this.toolbar_.hidden = false;
@@ -221,9 +233,11 @@ function PDFViewer(browserApi) {
       new ToolbarManager(window, this.toolbar_, this.zoomToolbar_);
 
   // Set up the ZoomManager.
-  this.zoomManager_ = new ZoomManager(
-      this.viewport_, this.browserApi_.setZoom.bind(this.browserApi_),
+  this.zoomManager_ = ZoomManager.create(
+      this.browserApi_.getZoomBehavior(), this.viewport_,
+      this.browserApi_.setZoom.bind(this.browserApi_),
       this.browserApi_.getInitialZoom());
+  this.viewport_.zoomManager = this.zoomManager_;
   this.browserApi_.addZoomEventListener(
       this.zoomManager_.onBrowserZoomChange.bind(this.zoomManager_));
 
@@ -232,10 +246,10 @@ function PDFViewer(browserApi) {
   document.addEventListener('mousemove', this.handleMouseEvent_.bind(this));
   document.addEventListener('mouseout', this.handleMouseEvent_.bind(this));
 
-  var isInTab = this.browserApi_.getStreamInfo().tabId != -1;
+  var tabId = this.browserApi_.getStreamInfo().tabId;
   this.navigator_ = new Navigator(
       this.originalUrl_, this.viewport_, this.paramsParser_,
-      new NavigatorDelegate(isInTab));
+      new NavigatorDelegate(tabId));
   this.viewportScroller_ =
       new ViewportScroller(this.viewport_, this.plugin_, window);
 
@@ -306,7 +320,7 @@ PDFViewer.prototype = {
         pageDownHandler();
         return;
       case 37:  // Left arrow key.
-        if (!(e.altKey || e.ctrlKey || e.metaKey || e.shiftKey)) {
+        if (!hasKeyModifiers(e)) {
           // Go to the previous page if there are no horizontal scrollbars and
           // no form field is focused.
           if (!(this.viewport_.documentHasScrollbars().horizontal ||
@@ -327,7 +341,7 @@ PDFViewer.prototype = {
         }
         return;
       case 39:  // Right arrow key.
-        if (!(e.altKey || e.ctrlKey || e.metaKey || e.shiftKey)) {
+        if (!hasKeyModifiers(e)) {
           // Go to the next page if there are no horizontal scrollbars and no
           // form field is focused.
           if (!(this.viewport_.documentHasScrollbars().horizontal ||
@@ -658,6 +672,19 @@ PDFViewer.prototype = {
     this.plugin_.postMessage({
       type: 'stopScrolling'
     });
+
+    if (this.viewport_.pinchPhase == Viewport.PinchPhase.PINCH_START) {
+      var position = this.viewport_.position;
+      var zoom = this.viewport_.zoom;
+      var pinchPhase = this.viewport_.pinchPhase;
+      this.plugin_.postMessage({
+        type: 'viewport',
+        zoom: zoom,
+        xOffset: position.x,
+        yOffset: position.y,
+        pinchPhase: pinchPhase
+      });
+    }
   },
 
   /**
@@ -668,13 +695,51 @@ PDFViewer.prototype = {
   afterZoom_: function() {
     var position = this.viewport_.position;
     var zoom = this.viewport_.zoom;
+    var pinchVector = this.viewport_.pinchPanVector || {x: 0, y: 0};
+    var pinchCenter = this.viewport_.pinchCenter || {x: 0, y: 0};
+    var pinchPhase = this.viewport_.pinchPhase;
+
     this.plugin_.postMessage({
       type: 'viewport',
       zoom: zoom,
       xOffset: position.x,
-      yOffset: position.y
+      yOffset: position.y,
+      pinchPhase: pinchPhase,
+      pinchX: pinchCenter.x,
+      pinchY: pinchCenter.y,
+      pinchVectorX: pinchVector.x,
+      pinchVectorY: pinchVector.y
     });
     this.zoomManager_.onPdfZoomChange();
+  },
+
+  /**
+   * @private
+   * A callback that's called when an update to a pinch zoom is detected.
+   * @param {!Object} e the pinch event.
+   */
+  onPinchUpdate_: function(e) {
+    // Throttle number of pinch events to one per frame.
+    if (!this.sentPinchEvent_) {
+      this.sentPinchEvent_ = true;
+      window.requestAnimationFrame(function() {
+        this.sentPinchEvent_ = false;
+        this.viewport_.pinchZoom(e);
+      }.bind(this));
+    }
+  },
+
+  /**
+   * @private
+   * A callback that's called when the end of a pinch zoom is detected.
+   * @param {!Object} e the pinch event.
+   */
+  onPinchEnd_: function(e) {
+    // Using rAF for pinch end prevents pinch updates scheduled by rAF getting
+    // sent after the pinch end.
+    window.requestAnimationFrame(function() {
+      this.viewport_.pinchZoomEnd(e);
+    }.bind(this));
   },
 
   /**

@@ -13,6 +13,7 @@
 #include "ui/compositor/paint_recorder.h"
 #include "ui/events/event.h"
 #include "ui/events/event_constants.h"
+#include "ui/gfx/shadow_value.h"
 #include "ui/views/widget/widget.h"
 #include "ui/wm/core/coordinate_conversion.h"
 
@@ -129,10 +130,6 @@ class PartialMagnificationController::ContentMask : public ui::LayerDelegate {
     // Redrawing will take care of scale factor change.
   }
 
-  base::Closure PrepareForLayerBoundsChange() override {
-    return base::Closure();
-  }
-
   ui::Layer layer_;
   bool is_border_;
   DISALLOW_COPY_AND_ASSIGN(ContentMask);
@@ -201,10 +198,6 @@ class PartialMagnificationController::BorderRenderer
 
   void OnDeviceScaleFactorChanged(float device_scale_factor) override {}
 
-  base::Closure PrepareForLayerBoundsChange() override {
-    return base::Closure();
-  }
-
   gfx::Rect magnifier_window_bounds_;
   std::vector<gfx::ShadowValue> magnifier_shadows_;
 
@@ -239,10 +232,6 @@ void PartialMagnificationController::SwitchTargetRootWindowIfNeeded(
     CloseMagnifierWindow();
     CreateMagnifierWindow(new_root_window);
   }
-}
-
-void PartialMagnificationController::OnMouseEvent(ui::MouseEvent* event) {
-  OnLocatedEvent(event, event->pointer_details());
 }
 
 void PartialMagnificationController::OnTouchEvent(ui::TouchEvent* event) {
@@ -291,12 +280,12 @@ void PartialMagnificationController::OnLocatedEvent(
   wm::ConvertPointToScreen(event_root, &screen_point);
 
   // If the stylus is pressed on the palette icon or widget, do not activate.
-  if (event->type() == ui::ET_MOUSE_PRESSED &&
-      !PaletteContainsPointInScreen(screen_point)) {
+  if (event->type() == ui::ET_TOUCH_PRESSED &&
+      !palette_utils::PaletteContainsPointInScreen(screen_point)) {
     SetActive(true);
   }
 
-  if (event->type() == ui::ET_MOUSE_RELEASED)
+  if (event->type() == ui::ET_TOUCH_RELEASED)
     SetActive(false);
 
   if (!is_active_)
@@ -320,7 +309,7 @@ void PartialMagnificationController::OnLocatedEvent(
   host_widget_->SetBounds(GetBounds(point));
 
   // If the stylus is over the palette icon or widget, do not consume the event.
-  if (!PaletteContainsPointInScreen(screen_point))
+  if (!palette_utils::PaletteContainsPointInScreen(screen_point))
     event->StopPropagation();
 }
 

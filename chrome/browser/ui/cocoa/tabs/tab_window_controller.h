@@ -18,6 +18,7 @@
 
 @class FastResizeView;
 @class FocusTracker;
+@class NSVisualEffectView;
 @class TabStripView;
 @class TabView;
 
@@ -26,6 +27,9 @@
   // Wrapper view around web content, and the developer tools view.
   base::scoped_nsobject<FastResizeView> tabContentArea_;
   base::scoped_nsobject<NSView> tabStripBackgroundView_;
+
+  // Used to blur the titlebar. nil if window does not have titlebar.
+  base::scoped_nsobject<NSVisualEffectView> visualEffectView_;
 
   // The tab strip overlaps the titlebar of the window.
   base::scoped_nsobject<TabStripView> tabStripView_;
@@ -158,6 +162,9 @@
 // In any fullscreen mode, the y offset to use for the content at the top of
 // the screen (tab strip, omnibox, bookmark bar, etc). Ranges from 0 to -22.
 - (CGFloat)menubarOffset;
+
+// The height of the menubar.
+- (CGFloat)menubarHeight;
 
 // Returns the view of the avatar button.
 - (NSView*)avatarView;

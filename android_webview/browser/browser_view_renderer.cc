@@ -7,7 +7,6 @@
 #include <utility>
 
 #include "android_webview/browser/browser_view_renderer_client.h"
-#include "android_webview/browser/child_frame.h"
 #include "android_webview/browser/compositor_frame_consumer.h"
 #include "android_webview/common/aw_switches.h"
 #include "base/auto_reset.h"
@@ -94,14 +93,15 @@ BrowserViewRenderer::BrowserViewRenderer(
     const scoped_refptr<base::SingleThreadTaskRunner>& ui_task_runner)
     : client_(client),
       ui_task_runner_(ui_task_runner),
-      async_on_draw_hardware_(base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kAsyncOnDrawHardware)),
+      sync_on_draw_hardware_(base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kSyncOnDrawHardware)),
       current_compositor_frame_consumer_(nullptr),
       compositor_(nullptr),
       is_paused_(false),
       view_visible_(false),
       window_visible_(false),
       attached_to_window_(false),
+      was_attached_(false),
       hardware_enabled_(false),
       dip_scale_(0.f),
       page_scale_factor_(1.f),
@@ -109,7 +109,8 @@ BrowserViewRenderer::BrowserViewRenderer(
       max_page_scale_factor_(0.f),
       on_new_picture_enable_(false),
       clear_view_(false),
-      offscreen_pre_raster_(false) {}
+      offscreen_pre_raster_(false),
+      allow_async_draw_(false) {}
 
 BrowserViewRenderer::~BrowserViewRenderer() {
   DCHECK(compositor_map_.empty());
@@ -232,49 +233,33 @@ bool BrowserViewRenderer::OnDrawHardware() {
   gfx::Rect viewport_rect_for_tile_priority =
       ComputeViewportRectForTilePriority();
 
-  if (async_on_draw_hardware_) {
-    compositor_->DemandDrawHwAsync(size_, viewport_rect_for_tile_priority,
-                                   transform_for_tile_priority);
-    return current_compositor_frame_consumer_->HasFrameOnUI();
+  scoped_refptr<content::SynchronousCompositor::FrameFuture> future; // Async.
+  content::SynchronousCompositor::Frame frame; // Sync.
+  bool async = !sync_on_draw_hardware_ && allow_async_draw_;
+  if (async) {
+    future = compositor_->DemandDrawHwAsync(
+        size_, viewport_rect_for_tile_priority, transform_for_tile_priority);
+  } else {
+    frame = compositor_->DemandDrawHw(size_, viewport_rect_for_tile_priority,
+                                      transform_for_tile_priority);
   }
 
-  content::SynchronousCompositor::Frame frame = compositor_->DemandDrawHw(
-      size_, viewport_rect_for_tile_priority, transform_for_tile_priority);
-  if (!frame.frame) {
+  if (!frame.frame && !future) {
     TRACE_EVENT_INSTANT0("android_webview", "NoNewFrame",
                          TRACE_EVENT_SCOPE_THREAD);
     return current_compositor_frame_consumer_->HasFrameOnUI();
   }
 
+  allow_async_draw_ = true;
   std::unique_ptr<ChildFrame> child_frame = base::MakeUnique<ChildFrame>(
-      frame.compositor_frame_sink_id, std::move(frame.frame), compositor_id_,
-      viewport_rect_for_tile_priority.IsEmpty(), transform_for_tile_priority,
-      offscreen_pre_raster_, external_draw_constraints_.is_layer);
+      std::move(future), frame.compositor_frame_sink_id, std::move(frame.frame),
+      compositor_id_, viewport_rect_for_tile_priority.IsEmpty(),
+      transform_for_tile_priority, offscreen_pre_raster_,
+      external_draw_constraints_.is_layer);
 
   ReturnUnusedResource(
-      current_compositor_frame_consumer_->PassUncommittedFrameOnUI());
-  current_compositor_frame_consumer_->SetFrameOnUI(std::move(child_frame),
-                                                   nullptr);
-
+      current_compositor_frame_consumer_->SetFrameOnUI(std::move(child_frame)));
   return true;
-}
-
-void BrowserViewRenderer::OnDrawHardwareProcessFrameFuture(
-    const scoped_refptr<content::SynchronousCompositor::FrameFuture>&
-        frame_future) {
-  gfx::Transform transform_for_tile_priority =
-      external_draw_constraints_.transform;
-  gfx::Rect viewport_rect_for_tile_priority =
-      ComputeViewportRectForTilePriority();
-
-  ReturnUnusedResource(
-      current_compositor_frame_consumer_->PassUncommittedFrameOnUI());
-  current_compositor_frame_consumer_->SetFrameOnUI(
-      base::MakeUnique<ChildFrame>(
-          0, nullptr, compositor_id_, viewport_rect_for_tile_priority.IsEmpty(),
-          transform_for_tile_priority, offscreen_pre_raster_,
-          external_draw_constraints_.is_layer),
-      frame_future);
 }
 
 gfx::Rect BrowserViewRenderer::ComputeViewportRectForTilePriority() {
@@ -312,9 +297,16 @@ void BrowserViewRenderer::RemoveCompositorFrameConsumer(
   // At this point the compositor frame consumer has to hand back all resources
   // to the child compositor.
   compositor_frame_consumer->DeleteHardwareRendererOnUI();
-  ReturnUnusedResource(compositor_frame_consumer->PassUncommittedFrameOnUI());
+  ReturnUncommittedFrames(
+      compositor_frame_consumer->PassUncommittedFrameOnUI());
   ReturnResourceFromParent(compositor_frame_consumer);
   compositor_frame_consumer->SetCompositorFrameProducer(nullptr);
+}
+
+void BrowserViewRenderer::ReturnUncommittedFrames(
+    ChildFrameQueue child_frames) {
+  for (auto& child_frame : child_frames)
+    ReturnUnusedResource(std::move(child_frame));
 }
 
 void BrowserViewRenderer::ReturnUnusedResource(
@@ -323,8 +315,8 @@ void BrowserViewRenderer::ReturnUnusedResource(
     return;
 
   cc::ReturnedResourceArray resources;
-  cc::TransferableResource::ReturnResources(
-      child_frame->frame->delegated_frame_data->resource_list, &resources);
+  cc::TransferableResource::ReturnResources(child_frame->frame->resource_list,
+                                            &resources);
   content::SynchronousCompositor* compositor =
       FindCompositor(child_frame->compositor_id);
   if (compositor && !resources.empty())
@@ -453,6 +445,8 @@ void BrowserViewRenderer::OnAttachedToWindow(int width, int height) {
                "height",
                height);
   attached_to_window_ = true;
+  was_attached_ = true;
+
   size_.SetSize(width, height);
   if (offscreen_pre_raster_)
     UpdateMemoryPolicy();
@@ -480,7 +474,8 @@ void BrowserViewRenderer::OnComputeScroll(base::TimeTicks animation_time) {
 
 void BrowserViewRenderer::ReleaseHardware() {
   for (auto* compositor_frame_consumer : compositor_frame_consumers_) {
-    ReturnUnusedResource(compositor_frame_consumer->PassUncommittedFrameOnUI());
+    ReturnUncommittedFrames(
+        compositor_frame_consumer->PassUncommittedFrameOnUI());
     ReturnResourceFromParent(compositor_frame_consumer);
     DCHECK(compositor_frame_consumer->ReturnedResourcesEmptyOnUI());
   }
@@ -494,7 +489,13 @@ bool BrowserViewRenderer::IsVisible() const {
 }
 
 bool BrowserViewRenderer::IsClientVisible() const {
-  return !is_paused_ && (!attached_to_window_ || window_visible_);
+  // When WebView is not paused, we declare it visible even before it is
+  // attached to window to allow for background operations. If it ever gets
+  // attached though, the WebView is visible as long as it is attached
+  // to a window and the window is visible.
+  return is_paused_
+             ? false
+             : !was_attached_ || (attached_to_window_ && window_visible_);
 }
 
 gfx::Rect BrowserViewRenderer::GetScreenRect() const {

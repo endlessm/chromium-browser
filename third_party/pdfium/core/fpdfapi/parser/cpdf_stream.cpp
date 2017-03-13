@@ -6,18 +6,28 @@
 
 #include "core/fpdfapi/parser/cpdf_stream.h"
 
+#include <utility>
+
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
+#include "core/fpdfapi/parser/cpdf_number.h"
 #include "core/fpdfapi/parser/cpdf_stream_acc.h"
 #include "core/fpdfapi/parser/fpdf_parser_decode.h"
 #include "third_party/base/numerics/safe_conversions.h"
+#include "third_party/base/ptr_util.h"
 #include "third_party/base/stl_util.h"
 
 CPDF_Stream::CPDF_Stream() {}
 
-CPDF_Stream::CPDF_Stream(uint8_t* pData, uint32_t size, CPDF_Dictionary* pDict)
-    : m_pDict(pDict), m_dwSize(size), m_pDataBuf(pData) {}
+CPDF_Stream::CPDF_Stream(std::unique_ptr<uint8_t, FxFreeDeleter> pData,
+                         uint32_t size,
+                         std::unique_ptr<CPDF_Dictionary> pDict)
+    : m_dwSize(size), m_pDict(std::move(pDict)), m_pDataBuf(std::move(pData)) {}
 
-CPDF_Stream::~CPDF_Stream() {}
+CPDF_Stream::~CPDF_Stream() {
+  m_ObjNum = kInvalidObjNum;
+  if (m_pDict && m_pDict->GetObjNum() == kInvalidObjNum)
+    m_pDict.release();  // lowercase release, release ownership.
+}
 
 CPDF_Object::Type CPDF_Stream::GetType() const {
   return STREAM;
@@ -41,8 +51,8 @@ const CPDF_Stream* CPDF_Stream::AsStream() const {
 
 void CPDF_Stream::InitStream(const uint8_t* pData,
                              uint32_t size,
-                             CPDF_Dictionary* pDict) {
-  m_pDict.reset(pDict);
+                             std::unique_ptr<CPDF_Dictionary> pDict) {
+  m_pDict = std::move(pDict);
   m_bMemoryBased = true;
   m_pFile = nullptr;
   m_pDataBuf.reset(FX_Alloc(uint8_t, size));
@@ -50,38 +60,41 @@ void CPDF_Stream::InitStream(const uint8_t* pData,
     FXSYS_memcpy(m_pDataBuf.get(), pData, size);
   m_dwSize = size;
   if (m_pDict)
-    m_pDict->SetIntegerFor("Length", m_dwSize);
+    m_pDict->SetNewFor<CPDF_Number>("Length", static_cast<int>(m_dwSize));
 }
 
-void CPDF_Stream::InitStreamFromFile(IFX_FileRead* pFile,
-                                     CPDF_Dictionary* pDict) {
-  m_pDict.reset(pDict);
+void CPDF_Stream::InitStreamFromFile(
+    const CFX_RetainPtr<IFX_SeekableReadStream>& pFile,
+    std::unique_ptr<CPDF_Dictionary> pDict) {
+  m_pDict = std::move(pDict);
   m_bMemoryBased = false;
   m_pDataBuf.reset();
   m_pFile = pFile;
   m_dwSize = pdfium::base::checked_cast<uint32_t>(pFile->GetSize());
   if (m_pDict)
-    m_pDict->SetIntegerFor("Length", m_dwSize);
+    m_pDict->SetNewFor<CPDF_Number>("Length", static_cast<int>(m_dwSize));
 }
 
-CPDF_Object* CPDF_Stream::Clone() const {
+std::unique_ptr<CPDF_Object> CPDF_Stream::Clone() const {
   return CloneObjectNonCyclic(false);
 }
 
-CPDF_Object* CPDF_Stream::CloneNonCyclic(
+std::unique_ptr<CPDF_Object> CPDF_Stream::CloneNonCyclic(
     bool bDirect,
     std::set<const CPDF_Object*>* pVisited) const {
   pVisited->insert(this);
   CPDF_StreamAcc acc;
-  acc.LoadAllData(this, TRUE);
+  acc.LoadAllData(this, true);
+
   uint32_t streamSize = acc.GetSize();
   CPDF_Dictionary* pDict = GetDict();
+  std::unique_ptr<CPDF_Dictionary> pNewDict;
   if (pDict && !pdfium::ContainsKey(*pVisited, pDict)) {
-    pDict = ToDictionary(
+    pNewDict = ToDictionary(
         static_cast<CPDF_Object*>(pDict)->CloneNonCyclic(bDirect, pVisited));
   }
-
-  return new CPDF_Stream(acc.DetachData(), streamSize, pDict);
+  return pdfium::MakeUnique<CPDF_Stream>(acc.DetachData(), streamSize,
+                                         std::move(pNewDict));
 }
 
 void CPDF_Stream::SetData(const uint8_t* pData, uint32_t size) {
@@ -91,26 +104,30 @@ void CPDF_Stream::SetData(const uint8_t* pData, uint32_t size) {
     FXSYS_memcpy(m_pDataBuf.get(), pData, size);
   m_dwSize = size;
   if (!m_pDict)
-    m_pDict.reset(new CPDF_Dictionary());
-  m_pDict->SetIntegerFor("Length", size);
+    m_pDict = pdfium::MakeUnique<CPDF_Dictionary>();
+  m_pDict->SetNewFor<CPDF_Number>("Length", static_cast<int>(size));
   m_pDict->RemoveFor("Filter");
   m_pDict->RemoveFor("DecodeParms");
 }
 
-FX_BOOL CPDF_Stream::ReadRawData(FX_FILESIZE offset,
-                                 uint8_t* buf,
-                                 uint32_t size) const {
+bool CPDF_Stream::ReadRawData(FX_FILESIZE offset,
+                              uint8_t* buf,
+                              uint32_t size) const {
   if (m_bMemoryBased && m_pFile)
     return m_pFile->ReadBlock(buf, offset, size);
 
   if (m_pDataBuf)
     FXSYS_memcpy(buf, m_pDataBuf.get() + offset, size);
 
-  return TRUE;
+  return true;
+}
+
+bool CPDF_Stream::HasFilter() const {
+  return m_pDict && m_pDict->KeyExist("Filter");
 }
 
 CFX_WideString CPDF_Stream::GetUnicodeText() const {
   CPDF_StreamAcc stream;
-  stream.LoadAllData(this, FALSE);
+  stream.LoadAllData(this, false);
   return PDF_DecodeText(stream.GetData(), stream.GetSize());
 }

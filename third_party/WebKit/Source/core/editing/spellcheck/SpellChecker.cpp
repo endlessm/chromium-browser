@@ -28,10 +28,12 @@
 
 #include "core/HTMLNames.h"
 #include "core/InputTypeNames.h"
+#include "core/clipboard/DataObject.h"
 #include "core/dom/Document.h"
 #include "core/dom/Element.h"
 #include "core/dom/ElementTraversal.h"
 #include "core/dom/NodeTraversal.h"
+#include "core/dom/Range.h"
 #include "core/editing/EditingUtilities.h"
 #include "core/editing/Editor.h"
 #include "core/editing/EphemeralRange.h"
@@ -50,6 +52,7 @@
 #include "core/loader/EmptyClients.h"
 #include "core/page/Page.h"
 #include "core/page/SpellCheckerClient.h"
+#include "platform/RuntimeEnabledFeatures.h"
 #include "platform/text/TextBreakIterator.h"
 #include "platform/text/TextCheckerClient.h"
 
@@ -59,40 +62,39 @@ using namespace HTMLNames;
 
 namespace {
 
-bool isSelectionInTextField(const VisibleSelection& selection) {
-  HTMLTextFormControlElement* textControl =
-      enclosingTextFormControl(selection.start());
+bool isPositionInTextField(const Position& selectionStart) {
+  TextControlElement* textControl = enclosingTextControl(selectionStart);
   return isHTMLInputElement(textControl) &&
          toHTMLInputElement(textControl)->isTextField();
 }
 
-bool isSelectionInTextArea(const VisibleSelection& selection) {
-  HTMLTextFormControlElement* textControl =
-      enclosingTextFormControl(selection.start());
+bool isPositionInTextArea(const Position& position) {
+  TextControlElement* textControl = enclosingTextControl(position);
   return isHTMLTextAreaElement(textControl);
 }
 
-bool isSelectionInTextFormControl(const VisibleSelection& selection) {
-  return !!enclosingTextFormControl(selection.start());
+static bool isSpellCheckingEnabledFor(const Position& position) {
+  if (position.isNull())
+    return false;
+  // TODO(tkent): The following password type check should be done in
+  // HTMLElement::spellcheck(). crbug.com/371567
+  if (TextControlElement* textControl = enclosingTextControl(position)) {
+    if (isHTMLInputElement(textControl) &&
+        toHTMLInputElement(textControl)->type() == InputTypeNames::password)
+      return false;
+  }
+  if (HTMLElement* element =
+          Traversal<HTMLElement>::firstAncestorOrSelf(*position.anchorNode())) {
+    if (element->isSpellCheckingEnabled())
+      return true;
+  }
+  return false;
 }
 
 static bool isSpellCheckingEnabledFor(const VisibleSelection& selection) {
   if (selection.isNone())
     return false;
-  // TODO(tkent): The following password type check should be done in
-  // HTMLElement::spellcheck(). crbug.com/371567
-  if (HTMLTextFormControlElement* textControl =
-          enclosingTextFormControl(selection.start())) {
-    if (isHTMLInputElement(textControl) &&
-        toHTMLInputElement(textControl)->type() == InputTypeNames::password)
-      return false;
-  }
-  if (HTMLElement* element = Traversal<HTMLElement>::firstAncestorOrSelf(
-          *selection.start().anchorNode())) {
-    if (element->isSpellCheckingEnabled())
-      return true;
-  }
-  return false;
+  return isSpellCheckingEnabledFor(selection.start());
 }
 
 static EphemeralRange expandEndToSentenceBoundary(const EphemeralRange& range) {
@@ -127,6 +129,17 @@ static EphemeralRange expandRangeToSentenceBoundary(
           ? sentenceStart
           : range.startPosition(),
       range.endPosition()));
+}
+
+SelectionInDOMTree selectWord(const VisiblePosition& position) {
+  // TODO(yosin): We should fix |startOfWord()| and |endOfWord()| not to return
+  // null position.
+  const VisiblePosition& start = startOfWord(position, LeftWordIfOnBoundary);
+  const VisiblePosition& end = endOfWord(position, RightWordIfOnBoundary);
+  return SelectionInDOMTree::Builder()
+      .setBaseAndExtentDeprecated(start.deepEquivalent(), end.deepEquivalent())
+      .setAffinity(start.affinity())
+      .build();
 }
 
 }  // namespace
@@ -167,12 +180,17 @@ void SpellChecker::toggleSpellCheckingEnabled() {
     if (!frame->isLocalFrame())
       continue;
     for (Node& node :
-         NodeTraversal::startsAt(toLocalFrame(frame)->document()->rootNode()))
-      node.setAlreadySpellChecked(false);
+         NodeTraversal::startsAt(toLocalFrame(frame)->document()->rootNode())) {
+      if (node.isElementNode())
+        toElement(node).setAlreadySpellChecked(false);
+    }
   }
 }
 
 void SpellChecker::didBeginEditing(Element* element) {
+  if (RuntimeEnabledFeatures::idleTimeSpellCheckingEnabled())
+    return;
+
   if (!isSpellCheckingEnabled())
     return;
 
@@ -186,17 +204,15 @@ void SpellChecker::didBeginEditing(Element* element) {
       frame().document()->lifecycle());
 
   bool isTextField = false;
-  HTMLTextFormControlElement* enclosingHTMLTextFormControlElement = 0;
-  if (!isHTMLTextFormControlElement(*element))
-    enclosingHTMLTextFormControlElement =
-        enclosingTextFormControl(Position::firstPositionInNode(element));
-  element = enclosingHTMLTextFormControlElement
-                ? enclosingHTMLTextFormControlElement
-                : element;
+  TextControlElement* enclosingTextControlElement = nullptr;
+  if (!isTextControlElement(*element)) {
+    enclosingTextControlElement =
+        enclosingTextControl(Position::firstPositionInNode(element));
+  }
+  element = enclosingTextControlElement ? enclosingTextControlElement : element;
   Element* parent = element;
-  if (isHTMLTextFormControlElement(*element)) {
-    HTMLTextFormControlElement* textControl =
-        toHTMLTextFormControlElement(element);
+  if (isTextControlElement(*element)) {
+    TextControlElement* textControl = toTextControlElement(element);
     parent = textControl;
     element = textControl->innerEditorElement();
     if (!element)
@@ -206,13 +222,13 @@ void SpellChecker::didBeginEditing(Element* element) {
   }
 
   if (isTextField || !parent->isAlreadySpellChecked()) {
-    if (EditingStrategy::editingIgnoresContent(element))
+    if (editingIgnoresContent(*element))
       return;
     // We always recheck textfields because markers are removed from them on
     // blur.
-    VisibleSelection selection =
-        VisibleSelection::selectionFromContentsOfNode(element);
-    markMisspellingsAndBadGrammar(selection);
+    const VisibleSelection selection = createVisibleSelection(
+        SelectionInDOMTree::Builder().selectAllChildren(*element).build());
+    markMisspellingsInternal(selection);
     if (!isTextField)
       parent->setAlreadySpellChecked(true);
   }
@@ -326,7 +342,9 @@ void SpellChecker::advanceToNextMisspelling(bool startBeforeSelection) {
     const EphemeralRange misspellingRange = calculateCharacterSubrange(
         EphemeralRange(spellingSearchStart, spellingSearchEnd),
         misspellingOffset, misspelledWord.length());
-    frame().selection().setSelection(createVisibleSelection(misspellingRange));
+    frame().selection().setSelection(SelectionInDOMTree::Builder()
+                                         .setBaseAndExtent(misspellingRange)
+                                         .build());
     frame().selection().revealSelection();
     spellCheckerClient().updateSpellingUIWithMisspelledWord(misspelledWord);
     frame().document()->markers().addMarker(misspellingRange.startPosition(),
@@ -345,13 +363,16 @@ void SpellChecker::showSpellingGuessPanel() {
   spellCheckerClient().showSpellingUI(true);
 }
 
-void SpellChecker::clearMisspellingsAndBadGrammarForMovingParagraphs(
+void SpellChecker::clearMisspellingsForMovingParagraphs(
     const VisibleSelection& movingSelection) {
   removeMarkers(movingSelection, DocumentMarker::MisspellingMarkers());
 }
 
-void SpellChecker::markMisspellingsAndBadGrammarForMovingParagraphs(
+void SpellChecker::markMisspellingsForMovingParagraphs(
     const VisibleSelection& movingSelection) {
+  if (RuntimeEnabledFeatures::idleTimeSpellCheckingEnabled())
+    return;
+
   // TODO(xiaochengh): The use of updateStyleAndLayoutIgnorePendingStylesheets
   // needs to be audited.  See http://crbug.com/590369 for more details.
   // In the long term we should use idle time spell checker to prevent
@@ -361,11 +382,10 @@ void SpellChecker::markMisspellingsAndBadGrammarForMovingParagraphs(
   DocumentLifecycle::DisallowTransitionScope disallowTransition(
       frame().document()->lifecycle());
 
-  markMisspellingsAndBadGrammar(movingSelection);
+  markMisspellingsInternal(movingSelection);
 }
 
-void SpellChecker::markMisspellingsAndBadGrammar(
-    const VisibleSelection& selection) {
+void SpellChecker::markMisspellingsInternal(const VisibleSelection& selection) {
   if (!isSpellCheckingEnabled() || !isSpellCheckingEnabledFor(selection))
     return;
 
@@ -380,15 +400,24 @@ void SpellChecker::markMisspellingsAndBadGrammar(
 
   TextCheckingParagraph fullParagraphToCheck(
       expandRangeToSentenceBoundary(range));
-  chunkAndMarkAllMisspellingsAndBadGrammar(fullParagraphToCheck);
+  chunkAndMarkAllMisspellings(fullParagraphToCheck);
 }
 
 void SpellChecker::markMisspellingsAfterApplyingCommand(
     const CompositeEditCommand& cmd) {
+  if (RuntimeEnabledFeatures::idleTimeSpellCheckingEnabled())
+    return;
+
   if (!isSpellCheckingEnabled())
     return;
   if (!isSpellCheckingEnabledFor(cmd.endingSelection()))
     return;
+
+  // TODO(xiaochengh): The use of updateStyleAndLayoutIgnorePendingStylesheets
+  // needs to be audited.  See http://crbug.com/590369 for more details.
+  // In the long term we should use idle time spell checker to prevent
+  // synchronous layout caused by spell checking (see crbug.com/517298).
+  frame().document()->updateStyleAndLayoutIgnorePendingStylesheets();
 
   // Use type-based conditioning instead of polymorphism so that all spell
   // checking code can be encapsulated in SpellChecker.
@@ -429,8 +458,13 @@ void SpellChecker::markMisspellingsAfterTypingCommand(
   if (cmd.commandTypeOfOpenCommand() ==
       TypingCommand::InsertParagraphSeparator) {
     VisiblePosition nextWord = nextWordPosition(start);
-    VisibleSelection words =
-        createVisibleSelection(wordStartOfPrevious, endOfWord(nextWord));
+    // TODO(yosin): We should make |endOfWord()| not to return null position.
+    VisibleSelection words = createVisibleSelection(
+        SelectionInDOMTree::Builder()
+            .setBaseAndExtentDeprecated(wordStartOfPrevious.deepEquivalent(),
+                                        endOfWord(nextWord).deepEquivalent())
+            .setAffinity(wordStartOfPrevious.affinity())
+            .build());
     markMisspellingsAfterLineBreak(words);
     return;
   }
@@ -447,7 +481,7 @@ void SpellChecker::markMisspellingsAfterLineBreak(
     const VisibleSelection& wordSelection) {
   TRACE_EVENT0("blink", "SpellChecker::markMisspellingsAfterLineBreak");
 
-  markMisspellingsAndBadGrammar(wordSelection);
+  markMisspellingsInternal(wordSelection);
 }
 
 void SpellChecker::markMisspellingsAfterTypingToWord(
@@ -455,9 +489,8 @@ void SpellChecker::markMisspellingsAfterTypingToWord(
   TRACE_EVENT0("blink", "SpellChecker::markMisspellingsAfterTypingToWord");
 
   VisibleSelection adjacentWords =
-      createVisibleSelection(startOfWord(wordStart, LeftWordIfOnBoundary),
-                             endOfWord(wordStart, RightWordIfOnBoundary));
-  markMisspellingsAndBadGrammar(adjacentWords);
+      createVisibleSelection(selectWord(wordStart));
+  markMisspellingsInternal(adjacentWords);
 }
 
 bool SpellChecker::isSpellCheckingEnabledInFocusedNode() const {
@@ -488,10 +521,10 @@ void SpellChecker::markMisspellingsAfterReplaceSelectionCommand(
   EphemeralRange paragraphRange(Position::firstPositionInNode(node),
                                 Position::lastPositionInNode(node));
   TextCheckingParagraph textToCheck(insertedRange, paragraphRange);
-  chunkAndMarkAllMisspellingsAndBadGrammar(textToCheck);
+  chunkAndMarkAllMisspellings(textToCheck);
 }
 
-void SpellChecker::chunkAndMarkAllMisspellingsAndBadGrammar(
+void SpellChecker::chunkAndMarkAllMisspellings(
     const TextCheckingParagraph& fullParagraphToCheck) {
   if (fullParagraphToCheck.isEmpty())
     return;
@@ -504,8 +537,7 @@ void SpellChecker::chunkAndMarkAllMisspellingsAndBadGrammar(
   // Check the full paragraph instead if the paragraph is short, which saves
   // the cost on sentence boundary finding.
   if (fullParagraphToCheck.rangeLength() <= kChunkSize) {
-    SpellCheckRequest* request =
-        SpellCheckRequest::create(TextCheckingProcessBatch, paragraphRange, 0);
+    SpellCheckRequest* request = SpellCheckRequest::create(paragraphRange, 0);
     if (request)
       m_spellCheckRequester->requestCheckingFor(request);
     return;
@@ -521,8 +553,8 @@ void SpellChecker::chunkAndMarkAllMisspellingsAndBadGrammar(
                                     ? expandEndToSentenceBoundary(chunkRange)
                                     : expandRangeToSentenceBoundary(chunkRange);
 
-    SpellCheckRequest* request = SpellCheckRequest::create(
-        TextCheckingProcessBatch, checkRange, requestNum);
+    SpellCheckRequest* request =
+        SpellCheckRequest::create(checkRange, requestNum);
     if (request)
       m_spellCheckRequester->requestCheckingFor(request);
 
@@ -536,6 +568,26 @@ void SpellChecker::chunkAndMarkAllMisspellingsAndBadGrammar(
             chunkRange.endPosition(), checkRange.endPosition()));
     }
   }
+}
+
+static void addMarker(Document* document,
+                      const EphemeralRange& checkingRange,
+                      DocumentMarker::MarkerType type,
+                      int location,
+                      int length,
+                      const String& description,
+                      uint32_t hash) {
+  DCHECK_GT(length, 0);
+  DCHECK_GE(location, 0);
+  const EphemeralRange& rangeToMark =
+      calculateCharacterSubrange(checkingRange, location, length);
+  if (!isSpellCheckingEnabledFor(rangeToMark.startPosition()))
+    return;
+  if (!isSpellCheckingEnabledFor(rangeToMark.endPosition()))
+    return;
+  document->markers().addMarker(rangeToMark.startPosition(),
+                                rangeToMark.endPosition(), type, description,
+                                hash);
 }
 
 void SpellChecker::markAndReplaceFor(
@@ -560,118 +612,84 @@ void SpellChecker::markAndReplaceFor(
   // needs to be audited.  See http://crbug.com/590369 for more details.
   frame().document()->updateStyleAndLayoutIgnorePendingStylesheets();
 
+  DocumentLifecycle::DisallowTransitionScope disallowTransition(
+      frame().document()->lifecycle());
+
   TextCheckingParagraph paragraph(request->checkingRange(),
                                   request->checkingRange());
 
+  // TODO(xiaochengh): The following comment does not match the current behavior
+  // and should be rewritten.
   // Expand the range to encompass entire paragraphs, since text checking needs
   // that much context.
   int selectionOffset = 0;
   int ambiguousBoundaryOffset = -1;
-  bool selectionChanged = false;
-  bool restoreSelectionAfterChange = false;
-  bool adjustSelectionForParagraphBoundaries = false;
 
-  {
-    DocumentLifecycle::DisallowTransitionScope disallowTransition(
-        frame().document()->lifecycle());
-
-    if (frame().selection().isCaret()) {
-      // Attempt to save the caret position so we can restore it later if needed
-      Position caretPosition = frame().selection().end();
-      selectionOffset = paragraph.offsetTo(caretPosition);
-      restoreSelectionAfterChange = true;
-      if (selectionOffset > 0 &&
-          (static_cast<unsigned>(selectionOffset) > paragraph.text().length() ||
-           paragraph.textCharAt(selectionOffset - 1) == newlineCharacter))
-        adjustSelectionForParagraphBoundaries = true;
-      if (selectionOffset > 0 &&
-          static_cast<unsigned>(selectionOffset) <= paragraph.text().length() &&
-          isAmbiguousBoundaryCharacter(
-              paragraph.textCharAt(selectionOffset - 1)))
-        ambiguousBoundaryOffset = selectionOffset - 1;
-    }
-
-    for (unsigned i = 0; i < results.size(); i++) {
-      int spellingRangeEndOffset = paragraph.checkingEnd();
-      const TextCheckingResult* result = &results[i];
-      int resultLocation = result->location + paragraph.checkingStart();
-      int resultLength = result->length;
-      bool resultEndsAtAmbiguousBoundary =
-          ambiguousBoundaryOffset >= 0 &&
-          resultLocation + resultLength == ambiguousBoundaryOffset;
-
-      // Only mark misspelling if:
-      // 1. Current text checking isn't done for autocorrection.
-      // 2. Result falls within spellingRange.
-      // 3. The word in question doesn't end at an ambiguous boundary. For
-      //    instance, we would not mark "wouldn'" as misspelled right after
-      //    apostrophe is typed.
-      if (result->decoration == TextDecorationTypeSpelling &&
-          resultLocation >= paragraph.checkingStart() &&
-          resultLocation + resultLength <= spellingRangeEndOffset &&
-          !resultEndsAtAmbiguousBoundary) {
-        DCHECK_GT(resultLength, 0);
-        DCHECK_GE(resultLocation, 0);
-        const EphemeralRange misspellingRange = calculateCharacterSubrange(
-            paragraph.paragraphRange(), resultLocation, resultLength);
-        frame().document()->markers().addMarker(
-            misspellingRange.startPosition(), misspellingRange.endPosition(),
-            DocumentMarker::Spelling, result->replacement, result->hash);
-      } else if (result->decoration == TextDecorationTypeGrammar &&
-                 paragraph.checkingRangeCovers(resultLocation, resultLength)) {
-        DCHECK_GT(resultLength, 0);
-        DCHECK_GE(resultLocation, 0);
-        for (unsigned j = 0; j < result->details.size(); j++) {
-          const GrammarDetail* detail = &result->details[j];
-          DCHECK_GT(detail->length, 0);
-          DCHECK_GE(detail->location, 0);
-          if (paragraph.checkingRangeCovers(resultLocation + detail->location,
-                                            detail->length)) {
-            const EphemeralRange badGrammarRange = calculateCharacterSubrange(
-                paragraph.paragraphRange(), resultLocation + detail->location,
-                detail->length);
-            frame().document()->markers().addMarker(
-                badGrammarRange.startPosition(), badGrammarRange.endPosition(),
-                DocumentMarker::Grammar, detail->userDescription, result->hash);
-          }
-        }
-      } else if (result->decoration == TextDecorationTypeInvisibleSpellcheck &&
-                 resultLocation >= paragraph.checkingStart() &&
-                 resultLocation + resultLength <= spellingRangeEndOffset) {
-        DCHECK_GT(resultLength, 0);
-        DCHECK_GE(resultLocation, 0);
-        const EphemeralRange invisibleSpellcheckRange =
-            calculateCharacterSubrange(paragraph.paragraphRange(),
-                                       resultLocation, resultLength);
-        frame().document()->markers().addMarker(
-            invisibleSpellcheckRange.startPosition(),
-            invisibleSpellcheckRange.endPosition(),
-            DocumentMarker::InvisibleSpellcheck, result->replacement,
-            result->hash);
-      }
+  if (frame().selection().isCaret()) {
+    // TODO(xiaochengh): The following comment does not match the current
+    // behavior and should be rewritten.
+    // Attempt to save the caret position so we can restore it later if needed
+    const Position& caretPosition = frame().selection().end();
+    selectionOffset = paragraph.offsetTo(caretPosition);
+    if (selectionOffset > 0 &&
+        static_cast<unsigned>(selectionOffset) <= paragraph.text().length() &&
+        isAmbiguousBoundaryCharacter(
+            paragraph.textCharAt(selectionOffset - 1))) {
+      ambiguousBoundaryOffset = selectionOffset - 1;
     }
   }
 
-  if (selectionChanged) {
-    TextCheckingParagraph extendedParagraph(paragraph);
-    // Restore the caret position if we have made any replacements
-    extendedParagraph.expandRangeToNextEnd();
-    if (restoreSelectionAfterChange && selectionOffset >= 0 &&
-        selectionOffset <= extendedParagraph.rangeLength()) {
-      EphemeralRange selectionRange =
-          extendedParagraph.subrange(0, selectionOffset);
-      frame().selection().moveTo(selectionRange.endPosition(),
-                                 TextAffinity::Downstream);
-      if (adjustSelectionForParagraphBoundaries)
-        frame().selection().modify(FrameSelection::AlterationMove,
-                                   DirectionForward, CharacterGranularity);
-    } else {
-      // If this fails for any reason, the fallback is to go one position beyond
-      // the last replacement
-      frame().selection().moveTo(frame().selection().selection().visibleEnd());
-      frame().selection().modify(FrameSelection::AlterationMove,
-                                 DirectionForward, CharacterGranularity);
+  const int spellingRangeEndOffset = paragraph.checkingEnd();
+  for (const TextCheckingResult& result : results) {
+    const int resultLocation = result.location + paragraph.checkingStart();
+    const int resultLength = result.length;
+    const bool resultEndsAtAmbiguousBoundary =
+        ambiguousBoundaryOffset >= 0 &&
+        resultLocation + resultLength == ambiguousBoundaryOffset;
+
+    // Only mark misspelling if:
+    // 1. Result falls within spellingRange.
+    // 2. The word in question doesn't end at an ambiguous boundary. For
+    //    instance, we would not mark "wouldn'" as misspelled right after
+    //    apostrophe is typed.
+    switch (result.decoration) {
+      case TextDecorationTypeSpelling:
+        if (resultLocation < paragraph.checkingStart() ||
+            resultLocation + resultLength > spellingRangeEndOffset ||
+            resultEndsAtAmbiguousBoundary)
+          continue;
+        addMarker(frame().document(), paragraph.checkingRange(),
+                  DocumentMarker::Spelling, resultLocation, resultLength,
+                  result.replacement, result.hash);
+        continue;
+
+      case TextDecorationTypeGrammar:
+        if (!paragraph.checkingRangeCovers(resultLocation, resultLength))
+          continue;
+        DCHECK_GT(resultLength, 0);
+        DCHECK_GE(resultLocation, 0);
+        for (const GrammarDetail& detail : result.details) {
+          DCHECK_GT(detail.length, 0);
+          DCHECK_GE(detail.location, 0);
+          if (!paragraph.checkingRangeCovers(resultLocation + detail.location,
+                                             detail.length))
+            continue;
+          addMarker(frame().document(), paragraph.checkingRange(),
+                    DocumentMarker::Grammar, resultLocation + detail.location,
+                    detail.length, result.replacement, result.hash);
+        }
+        continue;
+
+      case TextDecorationTypeInvisibleSpellcheck:
+        if (resultLocation < paragraph.checkingStart() ||
+            resultLocation + resultLength > spellingRangeEndOffset)
+          continue;
+        addMarker(frame().document(), paragraph.checkingRange(),
+                  DocumentMarker::InvisibleSpellcheck, resultLocation,
+                  resultLength, result.replacement, result.hash);
+        continue;
     }
+    NOTREACHED();
   }
 }
 
@@ -780,10 +798,10 @@ void SpellChecker::didEndEditingOnTextField(Element* e) {
 
   // Remove markers when deactivating a selection in an <input type="text"/>.
   // Prevent new ones from appearing too.
-  m_spellCheckRequester->cancelCheck();
-  HTMLTextFormControlElement* textFormControlElement =
-      toHTMLTextFormControlElement(e);
-  HTMLElement* innerEditor = textFormControlElement->innerEditorElement();
+  if (!RuntimeEnabledFeatures::idleTimeSpellCheckingEnabled())
+    m_spellCheckRequester->cancelCheck();
+  TextControlElement* textControlElement = toTextControlElement(e);
+  HTMLElement* innerEditor = textControlElement->innerEditorElement();
   DocumentMarker::MarkerTypes markerTypes(DocumentMarker::Spelling);
   markerTypes.add(DocumentMarker::Grammar);
   for (Node& node : NodeTraversal::inclusiveDescendantsOf(*innerEditor))
@@ -807,40 +825,65 @@ void SpellChecker::replaceMisspelledRange(const String& text) {
                               markers[0]->endOffset()));
   if (markerRange.isNull())
     return;
-  frame().selection().setSelection(createVisibleSelection(markerRange),
-                                   CharacterGranularity);
+
+  frame().selection().setSelection(
+      SelectionInDOMTree::Builder().setBaseAndExtent(markerRange).build());
+
+  Document& currentDocument = *frame().document();
+
+  // Dispatch 'beforeinput'.
+  Element* const target = frame().editor().findEventTargetFromSelection();
+  RangeVector* const ranges =
+      new RangeVector(1, frame().selection().firstRange());
+  DataTransfer* const dataTransfer = DataTransfer::create(
+      DataTransfer::DataTransferType::InsertReplacementText,
+      DataTransferAccessPolicy::DataTransferReadable,
+      DataObject::createFromString(text));
+
+  const bool cancel =
+      dispatchBeforeInputDataTransfer(
+          target, InputEvent::InputType::InsertReplacementText, dataTransfer,
+          ranges) != DispatchEventResult::NotCanceled;
+
+  // 'beforeinput' event handler may destroy target frame.
+  if (currentDocument != frame().document())
+    return;
 
   // TODO(xiaochengh): The use of updateStyleAndLayoutIgnorePendingStylesheets
   // needs to be audited.  See http://crbug.com/590369 for more details.
   frame().document()->updateStyleAndLayoutIgnorePendingStylesheets();
 
-  frame().editor().replaceSelectionWithText(text, false, false);
+  if (cancel)
+    return;
+  frame().editor().replaceSelectionWithText(
+      text, false, false, InputEvent::InputType::InsertReplacementText);
 }
 
-static bool shouldCheckOldSelection(const VisibleSelection& oldSelection) {
-  if (!oldSelection.start().isConnected())
+static bool shouldCheckOldSelection(const Position& oldSelectionStart) {
+  if (!oldSelectionStart.isConnected())
     return false;
-  if (isSelectionInTextField(oldSelection))
+  if (isPositionInTextField(oldSelectionStart))
     return false;
-  if (isSelectionInTextArea(oldSelection))
+  if (isPositionInTextArea(oldSelectionStart))
     return true;
 
   // TODO(xiaochengh): The use of updateStyleAndLayoutIgnorePendingStylesheets
   // needs to be audited.  See http://crbug.com/590369 for more details.
   // In the long term we should use idle time spell checker to prevent
   // synchronous layout caused by spell checking (see crbug.com/517298).
-  oldSelection.start()
-      .document()
-      ->updateStyleAndLayoutIgnorePendingStylesheets();
+  oldSelectionStart.document()->updateStyleAndLayoutIgnorePendingStylesheets();
 
-  return oldSelection.isContentEditable();
+  return isEditablePosition(oldSelectionStart);
 }
 
 void SpellChecker::respondToChangedSelection(
-    const VisibleSelection& oldSelection,
+    const Position& oldSelectionStart,
     FrameSelection::SetSelectionOptions options) {
+  if (RuntimeEnabledFeatures::idleTimeSpellCheckingEnabled())
+    return;
+
   TRACE_EVENT0("blink", "SpellChecker::respondToChangedSelection");
-  if (!isSpellCheckingEnabledFor(oldSelection))
+  if (!isSpellCheckingEnabledFor(oldSelectionStart))
     return;
 
   // When spell checking is off, existing markers disappear after the selection
@@ -853,7 +896,7 @@ void SpellChecker::respondToChangedSelection(
 
   if (!(options & FrameSelection::CloseTyping))
     return;
-  if (!shouldCheckOldSelection(oldSelection))
+  if (!shouldCheckOldSelection(oldSelectionStart))
     return;
 
   // TODO(xiaochengh): The use of updateStyleAndLayoutIgnorePendingStylesheets
@@ -867,20 +910,9 @@ void SpellChecker::respondToChangedSelection(
 
   VisibleSelection newAdjacentWords;
   const VisibleSelection newSelection = frame().selection().selection();
-  if (isSelectionInTextFormControl(newSelection)) {
-    const Position newStart = newSelection.start();
-    newAdjacentWords.setWithoutValidation(
-        HTMLTextFormControlElement::startOfWord(newStart),
-        HTMLTextFormControlElement::endOfWord(newStart));
-  } else {
-    const bool caretBrowsing =
-        frame().settings() && frame().settings()->caretBrowsingEnabled();
-    if (newSelection.isContentEditable() || caretBrowsing) {
-      const VisiblePosition newStart(newSelection.visibleStart());
-      newAdjacentWords =
-          createVisibleSelection(startOfWord(newStart, LeftWordIfOnBoundary),
-                                 endOfWord(newStart, RightWordIfOnBoundary));
-    }
+  if (newSelection.isContentEditable()) {
+    newAdjacentWords =
+        createVisibleSelection(selectWord(newSelection.visibleStart()));
   }
 
   // When typing we check spelling elsewhere, so don't redo it here.
@@ -888,7 +920,7 @@ void SpellChecker::respondToChangedSelection(
   // oldSelection may no longer be in the document.
   // FIXME(http://crbug.com/382809): if oldSelection is on a textarea
   // element, we cause synchronous layout.
-  spellCheckOldSelection(oldSelection, newAdjacentWords);
+  spellCheckOldSelection(oldSelectionStart, newAdjacentWords);
 }
 
 void SpellChecker::removeSpellingMarkers() {
@@ -906,10 +938,13 @@ void SpellChecker::removeSpellingMarkersUnderWords(
 }
 
 void SpellChecker::spellCheckAfterBlur() {
+  if (RuntimeEnabledFeatures::idleTimeSpellCheckingEnabled())
+    return;
+
   if (!frame().selection().selection().isContentEditable())
     return;
 
-  if (isSelectionInTextField(frame().selection().selection())) {
+  if (isPositionInTextField(frame().selection().selection().start())) {
     // textFieldDidEndEditing() and textFieldDidBeginEditing() handle this.
     return;
   }
@@ -924,24 +959,23 @@ void SpellChecker::spellCheckAfterBlur() {
       frame().document()->lifecycle());
 
   VisibleSelection empty;
-  spellCheckOldSelection(frame().selection().selection(), empty);
+  spellCheckOldSelection(frame().selection().selection().start(), empty);
 }
 
 void SpellChecker::spellCheckOldSelection(
-    const VisibleSelection& oldSelection,
+    const Position& oldSelectionStart,
     const VisibleSelection& newAdjacentWords) {
   if (!isSpellCheckingEnabled())
     return;
 
   TRACE_EVENT0("blink", "SpellChecker::spellCheckOldSelection");
 
-  VisiblePosition oldStart(oldSelection.visibleStart());
+  VisiblePosition oldStart = createVisiblePosition(oldSelectionStart);
   VisibleSelection oldAdjacentWords =
-      createVisibleSelection(startOfWord(oldStart, LeftWordIfOnBoundary),
-                             endOfWord(oldStart, RightWordIfOnBoundary));
+      createVisibleSelection(selectWord(oldStart));
   if (oldAdjacentWords == newAdjacentWords)
     return;
-  markMisspellingsAndBadGrammar(oldAdjacentWords);
+  markMisspellingsInternal(oldAdjacentWords);
 }
 
 static Node* findFirstMarkable(Node* node) {
@@ -952,7 +986,7 @@ static Node* findFirstMarkable(Node* node) {
       return node;
     if (node->layoutObject()->isTextControl())
       node = toLayoutTextControl(node->layoutObject())
-                 ->textFormControlElement()
+                 ->textControlElement()
                  ->visiblePositionForIndex(1)
                  .deepEquivalent()
                  .anchorNode();
@@ -993,27 +1027,20 @@ bool SpellChecker::selectionStartHasSpellingMarkerFor(int from,
 
 void SpellChecker::removeMarkers(const VisibleSelection& selection,
                                  DocumentMarker::MarkerTypes markerTypes) {
-  const EphemeralRange range = selection.toNormalizedEphemeralRange();
+  DCHECK(!frame().document()->needsLayoutTreeUpdate());
+
+  const EphemeralRange& range = selection.toNormalizedEphemeralRange();
   if (range.isNull())
     return;
-
-  // TODO(xiaochengh): The use of updateStyleAndLayoutIgnorePendingStylesheets
-  // needs to be audited.  See http://crbug.com/590369 for more details.
-  frame().document()->updateStyleAndLayoutIgnorePendingStylesheets();
 
   frame().document()->markers().removeMarkers(range, markerTypes);
 }
 
+// TODO(xiaochengh): This function is only used by unit tests. We should move it
+// to IdleSpellCheckCallback and modify unit tests to cope with idle time spell
+// checker.
 void SpellChecker::cancelCheck() {
   m_spellCheckRequester->cancelCheck();
-}
-
-void SpellChecker::requestTextChecking(const Element& element) {
-  if (!element.isSpellCheckingEnabled())
-    return;
-  const EphemeralRange rangeToCheck = EphemeralRange::rangeOfContents(element);
-  m_spellCheckRequester->requestCheckingFor(
-      SpellCheckRequest::create(TextCheckingProcessBatch, rangeToCheck));
 }
 
 DEFINE_TRACE(SpellChecker) {
@@ -1022,7 +1049,8 @@ DEFINE_TRACE(SpellChecker) {
 }
 
 void SpellChecker::prepareForLeakDetection() {
-  m_spellCheckRequester->prepareForLeakDetection();
+  if (!RuntimeEnabledFeatures::idleTimeSpellCheckingEnabled())
+    m_spellCheckRequester->prepareForLeakDetection();
 }
 
 Vector<TextCheckingResult> SpellChecker::findMisspellings(const String& text) {
@@ -1053,7 +1081,7 @@ Vector<TextCheckingResult> SpellChecker::findMisspellings(const String& text) {
       misspelling.decoration = TextDecorationTypeSpelling;
       misspelling.location = wordStart + misspellingLocation;
       misspelling.length = misspellingLength;
-      results.append(misspelling);
+      results.push_back(misspelling);
     }
     wordStart = wordEnd;
   }

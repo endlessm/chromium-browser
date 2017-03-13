@@ -31,14 +31,14 @@
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/pref_names.h"
+#include "components/cryptauth/cryptauth_client_impl.h"
+#include "components/cryptauth/cryptauth_device_manager.h"
+#include "components/cryptauth/cryptauth_enrollment_manager.h"
+#include "components/cryptauth/secure_message_delegate.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
 #include "components/prefs/scoped_user_pref_update.h"
-#include "components/proximity_auth/cryptauth/cryptauth_client_impl.h"
-#include "components/proximity_auth/cryptauth/cryptauth_device_manager.h"
-#include "components/proximity_auth/cryptauth/cryptauth_enrollment_manager.h"
-#include "components/proximity_auth/cryptauth/secure_message_delegate.h"
 #include "components/proximity_auth/logging/logging.h"
 #include "components/proximity_auth/proximity_auth_pref_manager.h"
 #include "components/proximity_auth/proximity_auth_system.h"
@@ -60,8 +60,8 @@
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/power_manager_client.h"
+#include "components/session_manager/core/session_manager.h"
 #include "components/signin/core/account_id/account_id.h"
-#include "components/user_manager/user_manager.h"
 #endif
 
 #if defined(OS_WIN)
@@ -287,9 +287,9 @@ void EasyUnlockService::RegisterProfilePrefs(
       false,
       user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
 
-  proximity_auth::CryptAuthGCMManager::RegisterPrefs(registry);
-  proximity_auth::CryptAuthDeviceManager::RegisterPrefs(registry);
-  proximity_auth::CryptAuthEnrollmentManager::RegisterPrefs(registry);
+  cryptauth::CryptAuthGCMManager::RegisterPrefs(registry);
+  cryptauth::CryptAuthDeviceManager::RegisterPrefs(registry);
+  cryptauth::CryptAuthEnrollmentManager::RegisterPrefs(registry);
 
   if (base::CommandLine::ForCurrentProcess()->HasSwitch(
           proximity_auth::switches::kEnableBluetoothLowEnergyDiscovery))
@@ -494,8 +494,8 @@ bool EasyUnlockService::UpdateScreenlockState(ScreenlockState state) {
       HandleAuthFailure(GetAccountId());
   }
 
-  FOR_EACH_OBSERVER(
-      EasyUnlockServiceObserver, observers_, OnScreenlockStateChanged(state));
+  for (EasyUnlockServiceObserver& observer : observers_)
+    observer.OnScreenlockStateChanged(state);
   return true;
 }
 
@@ -723,8 +723,8 @@ void EasyUnlockService::NotifyUserUpdated() {
 }
 
 void EasyUnlockService::NotifyTurnOffOperationStatusChanged() {
-  FOR_EACH_OBSERVER(
-      EasyUnlockServiceObserver, observers_, OnTurnOffOperationStatusChanged());
+  for (EasyUnlockServiceObserver& observer : observers_)
+    observer.OnTurnOffOperationStatusChanged();
 }
 
 void EasyUnlockService::ResetScreenlockState() {
@@ -844,7 +844,7 @@ EasyUnlockAuthEvent EasyUnlockService::GetPasswordAuthEvent() const {
 
 void EasyUnlockService::SetProximityAuthDevices(
     const AccountId& account_id,
-    const proximity_auth::RemoteDeviceList& remote_devices) {
+    const cryptauth::RemoteDeviceList& remote_devices) {
   if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
           proximity_auth::switches::kEnableBluetoothLowEnergyDiscovery))
     return;
@@ -913,8 +913,8 @@ void EasyUnlockService::EnsureTpmKeyPresentIfNeeded() {
   // If this is called before the session is started, the chances are Chrome
   // is restarting in order to apply user flags. Don't check TPM keys in this
   // case.
-  if (!user_manager::UserManager::Get() ||
-      !user_manager::UserManager::Get()->IsSessionStarted())
+  if (!session_manager::SessionManager::Get() ||
+      !session_manager::SessionManager::Get()->IsSessionStarted())
     return;
 
   // TODO(tbarzic): Set check_private_key only if previous sign-in attempt

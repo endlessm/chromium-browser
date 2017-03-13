@@ -8,6 +8,7 @@
 #include "SkLumaColorFilter.h"
 
 #include "SkColorPriv.h"
+#include "SkRasterPipeline.h"
 #include "SkString.h"
 
 #if SK_SUPPORT_GPU
@@ -35,6 +36,14 @@ void SkLumaColorFilter::filterSpan(const SkPMColor src[], int count,
                                            SkGetPackedB32(c));
         dst[i] = SkPackARGB32(luma, 0, 0, 0);
     }
+}
+
+bool SkLumaColorFilter::onAppendStages(SkRasterPipeline* p,
+                                       SkColorSpace* dst,
+                                       SkArenaAlloc* scratch,
+                                       bool shaderIsOpaque) const {
+    p->append(SkRasterPipeline::luminance_to_alpha);
+    return true;
 }
 
 sk_sp<SkColorFilter> SkLumaColorFilter::Make() {
@@ -66,7 +75,7 @@ public:
 
     class GLSLProcessor : public GrGLSLFragmentProcessor {
     public:
-        static void GenKey(const GrProcessor&, const GrGLSLCaps&, GrProcessorKeyBuilder*) {}
+        static void GenKey(const GrProcessor&, const GrShaderCaps&, GrProcessorKeyBuilder*) {}
 
         void emitCode(EmitArgs& args) override {
             if (nullptr == args.fInputColor) {
@@ -97,7 +106,7 @@ private:
         return new GLSLProcessor;
     }
 
-    virtual void onGetGLSLProcessorKey(const GrGLSLCaps& caps,
+    virtual void onGetGLSLProcessorKey(const GrShaderCaps& caps,
                                        GrProcessorKeyBuilder* b) const override {
         GLSLProcessor::GenKey(*this, caps, b);
     }
@@ -111,7 +120,7 @@ private:
     }
 };
 
-sk_sp<GrFragmentProcessor> SkLumaColorFilter::asFragmentProcessor(GrContext*) const {
+sk_sp<GrFragmentProcessor> SkLumaColorFilter::asFragmentProcessor(GrContext*, SkColorSpace*) const {
     return LumaColorFilterEffect::Make();
 }
 #endif

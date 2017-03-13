@@ -8,9 +8,15 @@
 #import <Foundation/Foundation.h>
 
 #include <memory>
+#include <vector>
 
 namespace base {
 class ListValue;
+}
+
+namespace physical_web {
+struct Metadata;
+using MetadataList = std::vector<Metadata>;
 }
 
 @protocol PhysicalWebScannerDelegate;
@@ -18,6 +24,11 @@ class ListValue;
 // This class will scan for physical web devices.
 
 @interface PhysicalWebScanner : NSObject
+
+// When onLostDetectionEnabled is YES, the delegate will be notified if a URL
+// that was previously nearby is no longer detected. Changing this value while
+// scanning is active will reset the list of nearby URLs.
+@property(nonatomic, assign) BOOL onLostDetectionEnabled;
 
 // When networkRequest is NO, no network request will be sent.
 @property(nonatomic, assign) BOOL networkRequestEnabled;
@@ -51,6 +62,11 @@ class ListValue;
 // will never be nil; if no metadata has been received then an empty list is
 // returned.
 - (std::unique_ptr<base::ListValue>)metadata;
+
+// Returns the metadata for all resolved physical web URLs. The returned value
+// will never be nil; if no metadata has been received then an empty list is
+// returned.
+- (std::unique_ptr<physical_web::MetadataList>)metadataList;
 
 @end
 

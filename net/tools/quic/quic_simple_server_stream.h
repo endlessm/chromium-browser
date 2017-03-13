@@ -10,9 +10,11 @@
 #include <string>
 
 #include "base/macros.h"
-#include "net/quic/core/quic_protocol.h"
+#include "net/quic/core/quic_packets.h"
 #include "net/quic/core/quic_spdy_stream.h"
 #include "net/spdy/spdy_framer.h"
+#include "net/tools/quic/quic_http_response_cache.h"
+#include "net/tools/quic/quic_spdy_server_stream_base.h"
 
 namespace net {
 
@@ -23,14 +25,14 @@ class QuicSimpleServerStreamPeer;
 
 // All this does right now is aggregate data, and on fin, send an HTTP
 // response.
-class QuicSimpleServerStream : public QuicSpdyStream {
+class QuicSimpleServerStream : public QuicSpdyServerStreamBase {
  public:
-  QuicSimpleServerStream(QuicStreamId id, QuicSpdySession* session);
+  QuicSimpleServerStream(QuicStreamId id,
+                         QuicSpdySession* session,
+                         QuicHttpResponseCache* response_cache);
   ~QuicSimpleServerStream() override;
 
   // QuicSpdyStream
-  void OnInitialHeadersComplete(bool fin, size_t frame_len) override;
-  void OnTrailingHeadersComplete(bool fin, size_t frame_len) override;
   void OnInitialHeadersComplete(bool fin,
                                 size_t frame_len,
                                 const QuicHeaderList& header_list) override;
@@ -38,7 +40,7 @@ class QuicSimpleServerStream : public QuicSpdyStream {
                                  size_t frame_len,
                                  const QuicHeaderList& header_list) override;
 
-  // ReliableQuicStream implementation called by the sequencer when there is
+  // QuicStream implementation called by the sequencer when there is
   // data (or a FIN) to be read.
   void OnDataAvailable() override;
 
@@ -81,6 +83,8 @@ class QuicSimpleServerStream : public QuicSpdyStream {
   SpdyHeaderBlock request_headers_;
   int64_t content_length_;
   std::string body_;
+
+  QuicHttpResponseCache* response_cache_;  // Not owned.
 
   DISALLOW_COPY_AND_ASSIGN(QuicSimpleServerStream);
 };

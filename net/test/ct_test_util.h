@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef NET_CERT_CT_TEST_UTIL_H_
-#define NET_CERT_CT_TEST_UTIL_H_
+#ifndef NET_TEST_CT_TEST_UTIL_H_
+#define NET_TEST_CT_TEST_UTIL_H_
 
 #include <stddef.h>
 #include <stdint.h>
@@ -13,12 +13,12 @@
 
 #include "base/memory/ref_counted.h"
 #include "net/cert/signed_certificate_timestamp.h"
+#include "net/cert/signed_certificate_timestamp_and_status.h"
 
 namespace net {
 
 namespace ct {
 
-struct CTVerifyResult;
 struct DigitallySigned;
 struct LogEntry;
 struct MerkleTreeLeaf;
@@ -120,15 +120,16 @@ std::string GetSCTListWithInvalidSCT();
 
 // Returns true if |log_description| is in the |result|'s |verified_scts| and
 // number of |verified_scts| in |result| is equal to 1.
-bool CheckForSingleVerifiedSCTInResult(const CTVerifyResult& result,
-                                       const std::string& log_description);
+bool CheckForSingleVerifiedSCTInResult(
+    const SignedCertificateTimestampAndStatusList& scts,
+    const std::string& log_description);
 
 // Returns true if |origin| is in the |result|'s |verified_scts|.
-bool CheckForSCTOrigin(const CTVerifyResult& result,
+bool CheckForSCTOrigin(const SignedCertificateTimestampAndStatusList& scts,
                        SignedCertificateTimestamp::Origin origin);
 
 }  // namespace ct
 
 }  // namespace net
 
-#endif  // NET_CERT_CT_TEST_UTIL_H_
+#endif  // NET_TEST_CT_TEST_UTIL_H_

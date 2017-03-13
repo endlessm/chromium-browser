@@ -13,20 +13,21 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/timer/timer.h"
+#include "content/public/common/service_names.mojom.h"
 #include "mash/browser/debug_view.h"
 #include "mash/public/interfaces/launchable.mojom.h"
 #include "services/navigation/public/cpp/view.h"
 #include "services/navigation/public/cpp/view_delegate.h"
 #include "services/navigation/public/cpp/view_observer.h"
 #include "services/navigation/public/interfaces/view.mojom.h"
-#include "services/shell/public/c/main.h"
-#include "services/shell/public/cpp/connector.h"
-#include "services/shell/public/cpp/service.h"
-#include "services/shell/public/cpp/service_runner.h"
+#include "services/service_manager/public/c/main.h"
+#include "services/service_manager/public/cpp/connector.h"
+#include "services/service_manager/public/cpp/interface_registry.h"
+#include "services/service_manager/public/cpp/service.h"
+#include "services/service_manager/public/cpp/service_context.h"
+#include "services/service_manager/public/cpp/service_runner.h"
 #include "services/tracing/public/cpp/provider.h"
-#include "services/ui/public/cpp/window.h"
-#include "services/ui/public/cpp/window_tree_client.h"
-#include "ui/aura/mus/mus_util.h"
+#include "ui/aura/window.h"
 #include "ui/base/models/menu_model.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/paint_throbber.h"
@@ -40,7 +41,7 @@
 #include "ui/views/controls/textfield/textfield_controller.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/mus/aura_init.h"
-#include "ui/views/mus/window_manager_connection.h"
+#include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_delegate.h"
 #include "url/gurl.h"
 
@@ -102,10 +103,13 @@ class Tab : public views::LabelButton,
 
   bool selected() const { return selected_; }
 
-  ui::Window* window() { return window_; }
-  void SetWindow(ui::Window* window) {
+  aura::Window* window() { return window_; }
+  void SetWindow(aura::Window* window) {
     window_ = window;
-    window_->SetVisible(selected_);
+    if (selected_)
+      window_->Show();
+    else
+      window_->Hide();
     view_->EmbedInWindow(window_);
   }
   navigation::View* view() { return view_.get(); }
@@ -133,11 +137,15 @@ class Tab : public views::LabelButton,
                  selected_ ? SK_ColorWHITE : SK_ColorBLACK);
     SetTextColor(views::Button::STATE_PRESSED,
                  selected_ ? SK_ColorWHITE : SK_ColorBLACK);
-    if (window_)
-      window_->SetVisible(selected_);
+    if (window_) {
+      if (selected_)
+        window_->Show();
+      else
+        window_->Hide();
+    }
   }
 
-  ui::Window* window_ = nullptr;
+  aura::Window* window_ = nullptr;
   std::unique_ptr<navigation::View> view_;
   bool selected_ = false;
 
@@ -183,11 +191,12 @@ class TabStrip : public views::View,
       RemoveObserver(tab);
   }
 
-  void SetContainerWindow(ui::Window* container) {
+  void SetContainerWindow(aura::Window* container) {
     DCHECK(!container_);
     container_ = container;
     for (auto* tab : tabs_) {
-      ui::Window* window = container_->window_tree()->NewWindow();
+      aura::Window* window = new aura::Window(nullptr);
+      window->Init(ui::LAYER_NOT_DRAWN);
       container_->AddChild(window);
       tab->SetWindow(window);
     }
@@ -198,14 +207,16 @@ class TabStrip : public views::View,
     Tab* tab = new Tab(std::move(view), this);
     // We won't have a WindowTree until we're added to a view hierarchy.
     if (container_) {
-      ui::Window* window = container_->window_tree()->NewWindow();
+      aura::Window* window = new aura::Window(nullptr);
+      window->Init(ui::LAYER_NOT_DRAWN);
       container_->AddChild(window);
       tab->SetWindow(window);
     }
     AddObserver(tab);
     tabs_.push_back(tab);
     tab_container_->AddChildView(tab);
-    FOR_EACH_OBSERVER(TabStripObserver, observers_, OnTabAdded(tab));
+    for (auto& observer : observers_)
+      observer.OnTabAdded(tab);
     SelectTab(tab);
   }
 
@@ -236,7 +247,8 @@ class TabStrip : public views::View,
         SelectTab(tabs_[next_selected_index]);
     }
     Layout();
-    FOR_EACH_OBSERVER(TabStripObserver, observers_, OnTabRemoved(tab));
+    for (auto& observer : observers_)
+      observer.OnTabRemoved(tab);
     delete tab;
   }
 
@@ -246,7 +258,8 @@ class TabStrip : public views::View,
     auto it = std::find(tabs_.begin(), tabs_.end(), tab);
     DCHECK(it != tabs_.end());
     selected_index_ = it - tabs_.begin();
-    FOR_EACH_OBSERVER(TabStripObserver, observers_, OnTabSelected(tab));
+    for (auto& observer : observers_)
+      observer.OnTabSelected(tab);
   }
   Tab* selected_tab() {
     return selected_index_ != -1 ? tabs_[selected_index_] : nullptr;
@@ -287,7 +300,7 @@ class TabStrip : public views::View,
   std::vector<Tab*> tabs_;
   int selected_index_ = -1;
   base::ObserverList<TabStripObserver> observers_;
-  ui::Window* container_ = nullptr;
+  aura::Window* container_ = nullptr;
 
   DISALLOW_COPY_AND_ASSIGN(TabStrip);
 };
@@ -675,9 +688,10 @@ class UI : public views::WidgetDelegateView,
   void ViewHierarchyChanged(
       const views::View::ViewHierarchyChangedDetails& details) override {
     if (details.is_add && GetWidget() && !content_area_) {
-      ui::Window* window = aura::GetMusWindow(GetWidget()->GetNativeWindow());
-      content_area_ = window->window_tree()->NewWindow(nullptr);
-      content_area_->SetVisible(true);
+      aura::Window* window = GetWidget()->GetNativeWindow();
+      content_area_ = new aura::Window(nullptr);
+      content_area_->Init(ui::LAYER_NOT_DRAWN);
+      content_area_->Show();
       window->AddChild(content_area_);
       tab_strip_->SetContainerWindow(content_area_);
     }
@@ -835,7 +849,7 @@ class UI : public views::WidgetDelegateView,
   Throbber* throbber_;
   ProgressBar* progress_bar_;
 
-  ui::Window* content_area_ = nullptr;
+  aura::Window* content_area_ = nullptr;
 
   DebugView* debug_view_;
   bool showing_debug_view_ = false;
@@ -860,21 +874,21 @@ void Browser::RemoveWindow(views::Widget* window) {
 
 std::unique_ptr<navigation::View> Browser::CreateView() {
   navigation::mojom::ViewFactoryPtr factory;
-  connector()->ConnectToInterface("exe:navigation", &factory);
+  context()->connector()->BindInterface(content::mojom::kBrowserServiceName,
+                                        &factory);
   return base::MakeUnique<navigation::View>(std::move(factory));
 }
 
-void Browser::OnStart(const shell::Identity& identity) {
-  tracing_.Initialize(connector(), identity.name());
+void Browser::OnStart() {
+  tracing_.Initialize(context()->connector(), context()->identity().name());
 
-  aura_init_.reset(
-      new views::AuraInit(connector(), "views_mus_resources.pak"));
-  window_manager_connection_ =
-      views::WindowManagerConnection::Create(connector(), identity);
+  aura_init_ = base::MakeUnique<views::AuraInit>(
+      context()->connector(), context()->identity(), "views_mus_resources.pak",
+      std::string(), nullptr, views::AuraInit::Mode::AURA_MUS);
 }
 
-bool Browser::OnConnect(const shell::Identity& remote_identity,
-                        shell::InterfaceRegistry* registry) {
+bool Browser::OnConnect(const service_manager::ServiceInfo& remote_info,
+                        service_manager::InterfaceRegistry* registry) {
   registry->AddInterface<mojom::Launchable>(this);
   return true;
 }
@@ -895,7 +909,7 @@ void Browser::Launch(uint32_t what, mojom::LaunchMode how) {
   AddWindow(window);
 }
 
-void Browser::Create(const shell::Identity& remote_identity,
+void Browser::Create(const service_manager::Identity& remote_identity,
                      mojom::LaunchableRequest request) {
   bindings_.AddBinding(this, std::move(request));
 }

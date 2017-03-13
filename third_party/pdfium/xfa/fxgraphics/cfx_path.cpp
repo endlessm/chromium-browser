@@ -7,6 +7,7 @@
 #include "xfa/fxgraphics/cfx_path.h"
 
 #include "core/fxge/cfx_pathdata.h"
+#include "third_party/base/ptr_util.h"
 #include "xfa/fxgraphics/cfx_path_generator.h"
 
 CFX_Path::CFX_Path() {}
@@ -15,7 +16,7 @@ FWL_Error CFX_Path::Create() {
   if (m_generator)
     return FWL_Error::PropertyInvalid;
 
-  m_generator.reset(new CFX_PathGenerator());
+  m_generator = pdfium::MakeUnique<CFX_PathGenerator>();
   return FWL_Error::Succeeded;
 }
 
@@ -162,12 +163,12 @@ FWL_Error CFX_Path::Clear() {
   return FWL_Error::Succeeded;
 }
 
-FX_BOOL CFX_Path::IsEmpty() const {
+bool CFX_Path::IsEmpty() const {
   if (!m_generator)
-    return FALSE;
+    return false;
   if (m_generator->GetPathData()->GetPointCount() == 0)
-    return TRUE;
-  return FALSE;
+    return true;
+  return false;
 }
 
 CFX_PathData* CFX_Path::GetPathData() const {

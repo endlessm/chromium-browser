@@ -4,6 +4,8 @@
 
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
+#include <memory>
+
 #include "core/fxge/cfx_fontmapper.h"
 #include "core/fxge/ifx_systemfontinfo.h"
 
@@ -52,7 +54,7 @@ CFX_ByteString GetNameFromTT(const uint8_t* name_table,
 #ifdef PDF_ENABLE_XFA
 void* IFX_SystemFontInfo::MapFontByUnicode(uint32_t dwUnicode,
                                            int weight,
-                                           FX_BOOL bItalic,
+                                           bool bItalic,
                                            int pitch_family) {
   return nullptr;
 }

@@ -10,6 +10,7 @@
 
 #include <memory>
 
+#include "webrtc/api/video/video_frame.h"
 #include "webrtc/base/checks.h"
 #include "webrtc/base/timeutils.h"
 #include "webrtc/common_video/include/video_image.h"
@@ -135,8 +136,8 @@ int SequenceCoder(webrtc::test::CommandLineParser* parser) {
   webrtc::VP8Encoder* encoder = webrtc::VP8Encoder::Create();
   webrtc::VP8Decoder* decoder = webrtc::VP8Decoder::Create();
   inst.codecType = webrtc::kVideoCodecVP8;
-  inst.codecSpecific.VP8.feedbackModeOn = false;
-  inst.codecSpecific.VP8.denoisingOn = true;
+  inst.VP8()->feedbackModeOn = false;
+  inst.VP8()->denoisingOn = true;
   inst.maxFramerate = framerate;
   inst.startBitrate = target_bitrate;
   inst.maxBitrate = 8000;

@@ -15,6 +15,7 @@
 #include <assert.h>
 
 #include <openssl/bio.h>
+#include <openssl/err.h>
 #include <openssl/evp.h>
 #include <openssl/rand.h>
 #include <openssl/rsa.h>
@@ -246,6 +247,8 @@ struct GlobalState {
     assert(pkey != nullptr);
     SSL_CTX_set1_tls_channel_id(ctx, pkey);
     EVP_PKEY_free(pkey);
+
+    SSL_CTX_set_short_header_enabled(ctx, 1);
   }
 
   ~GlobalState() {
@@ -257,7 +260,7 @@ struct GlobalState {
 
 static GlobalState g_state;
 
-extern "C" int LLVMFuzzerTestOneInput(uint8_t *buf, size_t len) {
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t *buf, size_t len) {
   RAND_reset_for_fuzzing();
 
   // TODO(davidben): Extract an SSL_SESSION from |buf| and offer it for
@@ -276,7 +279,7 @@ extern "C" int LLVMFuzzerTestOneInput(uint8_t *buf, size_t len) {
   SSL_set_alpn_protos(client, kALPNProtocols, sizeof(kALPNProtocols));
 
   // Enable ciphers that are off by default.
-  SSL_set_cipher_list(client, "ALL:kCECPQ1:NULL-SHA");
+  SSL_set_cipher_list(client, "ALL:NULL-SHA");
 
   BIO_write(in, buf, len);
   if (SSL_do_handshake(client) == 1) {
@@ -290,5 +293,6 @@ extern "C" int LLVMFuzzerTestOneInput(uint8_t *buf, size_t len) {
   }
   SSL_free(client);
 
+  ERR_clear_error();
   return 0;
 }

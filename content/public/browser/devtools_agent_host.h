@@ -15,6 +15,7 @@
 #include "base/time/time.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/devtools_agent_host_client.h"
+#include "content/public/browser/devtools_agent_host_observer.h"
 #include "url/gurl.h"
 
 namespace base {
@@ -29,7 +30,6 @@ namespace content {
 
 class BrowserContext;
 class DevToolsExternalAgentProxyDelegate;
-class DevToolsManagerDelegate;
 class DevToolsSocketFactory;
 class RenderFrameHost;
 class WebContents;
@@ -94,6 +94,10 @@ class CONTENT_EXPORT DevToolsAgentHost
       scoped_refptr<base::SingleThreadTaskRunner> tethering_task_runner,
       const CreateServerSocketCallback& socket_callback);
 
+  // Creates DevToolsAgentHost for discovery, which supports part of the
+  // protocol to discover other agent hosts.
+  static scoped_refptr<DevToolsAgentHost> CreateForDiscovery();
+
   static bool IsDebuggerAttached(WebContents* web_contents);
 
   using List = std::vector<scoped_refptr<DevToolsAgentHost>>;
@@ -123,6 +127,10 @@ class CONTENT_EXPORT DevToolsAgentHost
 
   // Stops remote debugging.
   static void StopRemoteDebuggingServer();
+
+  // Observer is notified about changes in DevToolsAgentHosts.
+  static void AddObserver(DevToolsAgentHostObserver*);
+  static void RemoveObserver(DevToolsAgentHostObserver*);
 
   // Attaches |client| to this agent host to start debugging.
   // Returns true iff attach succeeded.
@@ -200,12 +208,6 @@ class CONTENT_EXPORT DevToolsAgentHost
 
   // Terminates all debugging sessions and detaches all clients.
   static void DetachAllClients();
-
-  typedef base::Callback<void(DevToolsAgentHost*, bool attached)>
-      AgentStateCallback;
-
-  static void AddAgentStateCallback(const AgentStateCallback& callback);
-  static void RemoveAgentStateCallback(const AgentStateCallback& callback);
 
  protected:
   friend class base::RefCounted<DevToolsAgentHost>;

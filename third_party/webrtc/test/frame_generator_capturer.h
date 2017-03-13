@@ -13,12 +13,11 @@
 #include <memory>
 #include <string>
 
+#include "webrtc/api/video/video_frame.h"
 #include "webrtc/base/criticalsection.h"
 #include "webrtc/base/platform_thread.h"
-#include "webrtc/common_video/rotation.h"
 #include "webrtc/test/video_capturer.h"
 #include "webrtc/typedefs.h"
-#include "webrtc/video_frame.h"
 
 namespace webrtc {
 
@@ -31,6 +30,17 @@ class FrameGenerator;
 
 class FrameGeneratorCapturer : public VideoCapturer {
  public:
+  class SinkWantsObserver {
+   public:
+    // OnSinkWantsChanged is called when FrameGeneratorCapturer::AddOrUpdateSink
+    // is called.
+    virtual void OnSinkWantsChanged(rtc::VideoSinkInterface<VideoFrame>* sink,
+                                    const rtc::VideoSinkWants& wants) = 0;
+
+   protected:
+    virtual ~SinkWantsObserver() {}
+  };
+
   static FrameGeneratorCapturer* Create(size_t width,
                                         size_t height,
                                         int target_fps,
@@ -46,6 +56,8 @@ class FrameGeneratorCapturer : public VideoCapturer {
   void Start() override;
   void Stop() override;
   void ChangeResolution(size_t width, size_t height);
+
+  void SetSinkWantsObserver(SinkWantsObserver* observer);
 
   void AddOrUpdateSink(rtc::VideoSinkInterface<VideoFrame>* sink,
                        const rtc::VideoSinkWants& wants) override;
@@ -68,6 +80,7 @@ class FrameGeneratorCapturer : public VideoCapturer {
   Clock* const clock_;
   bool sending_;
   rtc::VideoSinkInterface<VideoFrame>* sink_ GUARDED_BY(&lock_);
+  SinkWantsObserver* sink_wants_observer_ GUARDED_BY(&lock_);
 
   std::unique_ptr<EventTimerWrapper> tick_;
   rtc::CriticalSection lock_;

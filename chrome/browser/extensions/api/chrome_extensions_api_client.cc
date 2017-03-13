@@ -32,19 +32,21 @@
 #include "extensions/browser/api/virtual_keyboard_private/virtual_keyboard_delegate.h"
 #include "extensions/browser/guest_view/web_view/web_view_guest.h"
 #include "extensions/browser/guest_view/web_view/web_view_permission_helper.h"
+#include "printing/features/features.h"
 
 #if defined(OS_CHROMEOS)
 #include "chrome/browser/extensions/api/virtual_keyboard_private/chrome_virtual_keyboard_delegate.h"
+#include "chrome/browser/extensions/clipboard_extension_helper_chromeos.h"
 #endif
 
-#if defined(ENABLE_PRINTING)
-#if defined(ENABLE_PRINT_PREVIEW)
+#if BUILDFLAG(ENABLE_PRINTING)
+#if BUILDFLAG(ENABLE_PRINT_PREVIEW)
 #include "chrome/browser/printing/print_preview_message_handler.h"
 #include "chrome/browser/printing/print_view_manager.h"
 #else
 #include "chrome/browser/printing/print_view_manager_basic.h"
-#endif  // defined(ENABLE_PRINT_PREVIEW)
-#endif  // defined(ENABLE_PRINTING)
+#endif  // BUILDFLAG(ENABLE_PRINT_PREVIEW)
+#endif  // BUILDFLAG(ENABLE_PRINTING)
 
 namespace extensions {
 
@@ -70,14 +72,14 @@ void ChromeExtensionsAPIClient::AddAdditionalValueStoreCaches(
 void ChromeExtensionsAPIClient::AttachWebContentsHelpers(
     content::WebContents* web_contents) const {
   favicon::CreateContentFaviconDriverForWebContents(web_contents);
-#if defined(ENABLE_PRINTING)
-#if defined(ENABLE_PRINT_PREVIEW)
+#if BUILDFLAG(ENABLE_PRINTING)
+#if BUILDFLAG(ENABLE_PRINT_PREVIEW)
   printing::PrintViewManager::CreateForWebContents(web_contents);
   printing::PrintPreviewMessageHandler::CreateForWebContents(web_contents);
 #else
   printing::PrintViewManagerBasic::CreateForWebContents(web_contents);
-#endif  // defined(ENABLE_PRINT_PREVIEW)
-#endif  // defined(ENABLE_PRINTING)
+#endif  // BUILDFLAG(ENABLE_PRINT_PREVIEW)
+#endif  // BUILDFLAG(ENABLE_PRINTING)
   pdf::PDFWebContentsHelper::CreateForWebContentsWithClient(
       web_contents, std::unique_ptr<pdf::PDFWebContentsHelperClient>(
                         new ChromePDFWebContentsHelperClient()));
@@ -164,5 +166,18 @@ MetricsPrivateDelegate* ChromeExtensionsAPIClient::GetMetricsPrivateDelegate() {
     metrics_private_delegate_.reset(new ChromeMetricsPrivateDelegate());
   return metrics_private_delegate_.get();
 }
+
+#if defined(OS_CHROMEOS)
+void ChromeExtensionsAPIClient::SaveImageDataToClipboard(
+    const std::vector<char>& image_data,
+    api::clipboard::ImageType type,
+    const base::Closure& success_callback,
+    const base::Callback<void(const std::string&)>& error_callback) {
+  if (!clipboard_extension_helper_)
+    clipboard_extension_helper_ = base::MakeUnique<ClipboardExtensionHelper>();
+  clipboard_extension_helper_->DecodeAndSaveImageData(
+      image_data, type, success_callback, error_callback);
+}
+#endif
 
 }  // namespace extensions

@@ -13,18 +13,20 @@
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/mac/bind_objc_block.h"
+#include "base/mac/objc_property_releaser.h"
 #include "base/mac/scoped_cftyperef.h"
+#include "base/mac/scoped_nsobject.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/task_runner_util.h"
 #include "base/threading/thread_restrictions.h"
 #include "ios/chrome/browser/experimental_flags.h"
+#import "ios/chrome/browser/snapshots/lru_cache.h"
+#import "ios/chrome/browser/snapshots/snapshot_cache_internal.h"
 #include "ios/chrome/browser/ui/ui_util.h"
 #import "ios/chrome/browser/ui/uikit_ui_util.h"
 #include "ios/web/public/web_thread.h"
 
 @interface SnapshotCache ()
-+ (base::FilePath)imagePathForSessionID:(NSString*)sessionID;
-+ (base::FilePath)greyImagePathForSessionID:(NSString*)sessionID;
 // Returns the directory where the thumbnails are saved.
 + (base::FilePath)cacheDirectory;
 // Returns the directory where the thumbnails were stored in M28 and earlier.
@@ -130,7 +132,34 @@ void ConvertAndSaveGreyImage(
 
 }  // anonymous namespace
 
-@implementation SnapshotCache
+@implementation SnapshotCache {
+  // Dictionary to hold color snapshots in memory. n.b. Color snapshots are not
+  // kept in memory on tablets.
+  base::scoped_nsobject<NSMutableDictionary> imageDictionary_;
+
+  // Cache to hold color snapshots in memory. n.b. Color snapshots are not
+  // kept in memory on tablets. It is used in place of the imageDictionary_ when
+  // the LRU cache snapshot experiment is enabled.
+  base::scoped_nsobject<LRUCache> lruCache_;
+
+  // Temporary dictionary to hold grey snapshots for tablet side swipe. This
+  // will be nil before -createGreyCache is called and after -removeGreyCache
+  // is called.
+  base::scoped_nsobject<NSMutableDictionary> greyImageDictionary_;
+  NSSet* pinnedIDs_;
+
+  // Session ID of most recent pending grey snapshot request.
+  base::scoped_nsobject<NSString> mostRecentGreySessionId_;
+  // Block used by pending request for a grey snapshot.
+  base::scoped_nsprotocol<GreyBlock> mostRecentGreyBlock_;
+
+  // Session ID and correspoinding UIImage for the snapshot that will likely
+  // be requested to be saved to disk when the application is backgrounded.
+  base::scoped_nsobject<NSString> backgroundingImageSessionId_;
+  base::scoped_nsobject<UIImage> backgroundingColorImage_;
+
+  base::mac::ObjCPropertyReleaser propertyReleaser_SnapshotCache_;
+}
 
 @synthesize pinnedIDs = pinnedIDs_;
 
@@ -144,52 +173,45 @@ void ConvertAndSaveGreyImage(
     DCHECK_CURRENTLY_ON(web::WebThread::UI);
     propertyReleaser_SnapshotCache_.Init(self, [SnapshotCache class]);
 
-    // Always use the LRUCache when the tab switcher is enabled.
-    if (experimental_flags::IsTabSwitcherEnabled() ||
-        experimental_flags::IsLRUSnapshotCacheEnabled()) {
+    if ([self usesLRUCache]) {
       lruCache_.reset(
           [[LRUCache alloc] initWithCacheSize:kLRUCacheMaxCapacity]);
     } else {
       imageDictionary_.reset(
           [[NSMutableDictionary alloc] initWithCapacity:kCacheInitialCapacity]);
     }
-
-    if (!IsIPadIdiom() || experimental_flags::IsTabSwitcherEnabled()) {
-      [[NSNotificationCenter defaultCenter]
-          addObserver:self
-             selector:@selector(handleLowMemory)
-                 name:UIApplicationDidReceiveMemoryWarningNotification
-               object:nil];
-      [[NSNotificationCenter defaultCenter]
-          addObserver:self
-             selector:@selector(handleEnterBackground)
-                 name:UIApplicationDidEnterBackgroundNotification
-               object:nil];
-      [[NSNotificationCenter defaultCenter]
-          addObserver:self
-             selector:@selector(handleBecomeActive)
-                 name:UIApplicationDidBecomeActiveNotification
-               object:nil];
-    }
+    [[NSNotificationCenter defaultCenter]
+        addObserver:self
+           selector:@selector(handleLowMemory)
+               name:UIApplicationDidReceiveMemoryWarningNotification
+             object:nil];
+    [[NSNotificationCenter defaultCenter]
+        addObserver:self
+           selector:@selector(handleEnterBackground)
+               name:UIApplicationDidEnterBackgroundNotification
+             object:nil];
+    [[NSNotificationCenter defaultCenter]
+        addObserver:self
+           selector:@selector(handleBecomeActive)
+               name:UIApplicationDidBecomeActiveNotification
+             object:nil];
   }
   return self;
 }
 
 - (void)dealloc {
-  if (!IsIPadIdiom() || experimental_flags::IsTabSwitcherEnabled()) {
-    [[NSNotificationCenter defaultCenter]
-        removeObserver:self
-                  name:UIApplicationDidReceiveMemoryWarningNotification
-                object:nil];
-    [[NSNotificationCenter defaultCenter]
-        removeObserver:self
-                  name:UIApplicationDidEnterBackgroundNotification
-                object:nil];
-    [[NSNotificationCenter defaultCenter]
-        removeObserver:self
-                  name:UIApplicationDidBecomeActiveNotification
-                object:nil];
-  }
+  [[NSNotificationCenter defaultCenter]
+      removeObserver:self
+                name:UIApplicationDidReceiveMemoryWarningNotification
+              object:nil];
+  [[NSNotificationCenter defaultCenter]
+      removeObserver:self
+                name:UIApplicationDidEnterBackgroundNotification
+              object:nil];
+  [[NSNotificationCenter defaultCenter]
+      removeObserver:self
+                name:UIApplicationDidBecomeActiveNotification
+              object:nil];
   [super dealloc];
 }
 
@@ -210,9 +232,7 @@ void ConvertAndSaveGreyImage(
   DCHECK_CURRENTLY_ON(web::WebThread::UI);
   DCHECK(sessionID);
 
-  // Cache on iPad is enabled only when the tab switcher is enabled.
-  if ((IsIPadIdiom() && !experimental_flags::IsTabSwitcherEnabled()) &&
-      !callback)
+  if (![self inMemoryCacheIsEnabled] && !callback)
     return;
 
   UIImage* img = nil;
@@ -236,9 +256,7 @@ void ConvertAndSaveGreyImage(
             [SnapshotCache imagePathForSessionID:sessionID]) retain]);
       }),
       base::BindBlock(^(base::scoped_nsobject<UIImage> image) {
-        // Cache on iPad is enabled only when the tab switcher is enabled.
-        if ((!IsIPadIdiom() || experimental_flags::IsTabSwitcherEnabled()) &&
-            image) {
+        if ([self inMemoryCacheIsEnabled] && image) {
           if (lruCache_)
             [lruCache_ setObject:image forKey:sessionID];
           else
@@ -254,8 +272,7 @@ void ConvertAndSaveGreyImage(
   if (!img || !sessionID)
     return;
 
-  // Cache on iPad is enabled only when the tab switcher is enabled.
-  if (!IsIPadIdiom() || experimental_flags::IsTabSwitcherEnabled()) {
+  if ([self inMemoryCacheIsEnabled]) {
     if (lruCache_)
       [lruCache_ setObject:img forKey:sessionID];
     else
@@ -386,8 +403,18 @@ void ConvertAndSaveGreyImage(
   }
 }
 
+- (BOOL)inMemoryCacheIsEnabled {
+  // In-memory cache on iPad is enabled only when the tab switcher is enabled.
+  return !IsIPadIdiom() || experimental_flags::IsTabSwitcherEnabled();
+}
+
+- (BOOL)usesLRUCache {
+  // Always use the LRUCache when the tab switcher is enabled.
+  return experimental_flags::IsTabSwitcherEnabled() ||
+         experimental_flags::IsLRUSnapshotCacheEnabled();
+}
+
 - (void)handleLowMemory {
-  DCHECK(!IsIPadIdiom() || experimental_flags::IsTabSwitcherEnabled());
   DCHECK_CURRENTLY_ON(web::WebThread::UI);
   base::scoped_nsobject<NSMutableDictionary> dictionary(
       [[NSMutableDictionary alloc] initWithCapacity:2]);
@@ -411,14 +438,12 @@ void ConvertAndSaveGreyImage(
 }
 
 - (void)handleEnterBackground {
-  DCHECK(!IsIPadIdiom() || experimental_flags::IsTabSwitcherEnabled());
   DCHECK_CURRENTLY_ON(web::WebThread::UI);
   [imageDictionary_ removeAllObjects];
   [lruCache_ removeAllObjects];
 }
 
 - (void)handleBecomeActive {
-  DCHECK(!IsIPadIdiom() || experimental_flags::IsTabSwitcherEnabled());
   DCHECK_CURRENTLY_ON(web::WebThread::UI);
   for (NSString* sessionID in pinnedIDs_)
     [self retrieveImageForSessionID:sessionID callback:nil];
@@ -569,11 +594,12 @@ void ConvertAndSaveGreyImage(
 @implementation SnapshotCache (TestingAdditions)
 
 - (BOOL)hasImageInMemory:(NSString*)sessionID {
-  if (experimental_flags::IsLRUSnapshotCacheEnabled())
+  if ([self usesLRUCache])
     return [lruCache_ objectForKey:sessionID] != nil;
   else
     return [imageDictionary_ objectForKey:sessionID] != nil;
 }
+
 - (BOOL)hasGreyImageInMemory:(NSString*)sessionID {
   return [greyImageDictionary_ objectForKey:sessionID] != nil;
 }

@@ -9,19 +9,15 @@
 #include <string>
 
 #include "base/memory/weak_ptr.h"
-#include "components/sync/api/data_type_error_handler.h"
-#include "components/sync/api/syncable_service.h"
 #include "components/sync/base/model_type.h"
-#include "components/sync/core/attachments/attachment_service.h"
 #include "components/sync/driver/data_type_controller.h"
+#include "components/sync/model/attachments/attachment_service.h"
+#include "components/sync/model/data_type_error_handler.h"
+#include "components/sync/model/syncable_service.h"
 
 namespace base {
 class FilePath;
 }  // namespace base
-
-namespace history {
-class HistoryBackend;
-}
 
 namespace invalidation {
 class InvalidationService;
@@ -35,10 +31,8 @@ class DataTypeDebugInfoListener;
 class DataTypeEncryptionHandler;
 class DataTypeManager;
 class DataTypeManagerObserver;
-class DataTypeStatusTable;
-class GenericChangeProcessor;
 class LocalDeviceInfoProvider;
-class SyncBackendHost;
+class SyncEngine;
 class SyncClient;
 class SyncPrefs;
 class SyncService;
@@ -84,18 +78,17 @@ class SyncApiComponentFactory {
       SyncService* sync_service,
       const RegisterDataTypesMethod& register_platform_types_method) = 0;
 
-  // Instantiates a new DataTypeManager with a SyncBackendHost, a list of data
-  // type controllers and a DataTypeManagerObserver.  The return pointer is
-  // owned by the caller.
+  // Creates a DataTypeManager; the return pointer is owned by the caller.
   virtual DataTypeManager* CreateDataTypeManager(
+      ModelTypeSet initial_types,
       const WeakHandle<DataTypeDebugInfoListener>& debug_info_listener,
       const DataTypeController::TypeMap* controllers,
       const DataTypeEncryptionHandler* encryption_handler,
-      SyncBackendHost* backend,
+      ModelTypeConfigurer* configurer,
       DataTypeManagerObserver* observer) = 0;
 
   // Creating this in the factory helps us mock it out in testing.
-  virtual SyncBackendHost* CreateSyncBackendHost(
+  virtual SyncEngine* CreateSyncEngine(
       const std::string& name,
       invalidation::InvalidationService* invalidator,
       const base::WeakPtr<SyncPrefs>& sync_prefs,
@@ -118,7 +111,7 @@ class SyncApiComponentFactory {
   // |model_type| is the model type this AttachmentService will be used with.
   //
   // |delegate| is optional delegate for AttachmentService to notify about
-  // asynchronous events (AttachmentUploaded). Pass NULL if delegate is not
+  // asynchronous events (AttachmentUploaded). Pass null if delegate is not
   // provided. AttachmentService doesn't take ownership of delegate, the pointer
   // must be valid throughout AttachmentService lifetime.
   virtual std::unique_ptr<AttachmentService> CreateAttachmentService(

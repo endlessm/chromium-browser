@@ -23,12 +23,10 @@
 #include "base/threading/thread_checker.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
-
 #include "chrome/browser/chromeos/settings/cros_settings.h"
 #include "chromeos/system/version_loader.h"
 #include "components/policy/proto/device_management_backend.pb.h"
 #include "components/prefs/pref_member.h"
-#include "mojo/public/cpp/bindings/string.h"
 #include "ui/base/idle/idle.h"
 
 namespace chromeos {
@@ -36,11 +34,6 @@ class CrosSettings;
 namespace system {
 class StatisticsProvider;
 }
-}
-
-namespace content {
-class NotificationDetails;
-class NotificationSource;
 }
 
 class PrefRegistrySimple;
@@ -73,9 +66,12 @@ class DeviceStatusCollector {
 
   // Passed into asynchronous mojo interface for communicating with Android.
   using AndroidStatusReceiver =
-      base::Callback<void(mojo::String, mojo::String)>;
+      base::Callback<void(const std::string&, const std::string&)>;
   // Calls the enterprise reporting mojo interface, passing over the
-  // AndroidStatusReceiver.
+  // AndroidStatusReceiver. Returns false if the mojo interface isn't available,
+  // in which case no asynchronous query is emitted and the android status query
+  // fails synchronously. The |AndroidStatusReceiver| is not called in this
+  // case.
   using AndroidStatusFetcher =
       base::Callback<bool(const AndroidStatusReceiver&)>;
 
@@ -86,10 +82,10 @@ class DeviceStatusCollector {
       std::unique_ptr<enterprise_management::DeviceStatusReportRequest>,
       std::unique_ptr<enterprise_management::SessionStatusReportRequest>)>;
 
-  // Constructor. Callers can inject their own VolumeInfoFetcher,
-  // CPUStatisticsFetcher and CPUTempFetcher. These callbacks are executed on
-  // Blocking Pool. A null callback can be passed for either parameter, to use
-  // the default implementation.
+  // Constructor. Callers can inject their own *Fetcher callbacks, e.g. for unit
+  // testing. A null callback can be passed for any *Fetcher parameter, to use
+  // the default implementation. These callbacks are always executed on Blocking
+  // Pool.
   DeviceStatusCollector(
       PrefService* local_state,
       chromeos::system::StatisticsProvider* provider,

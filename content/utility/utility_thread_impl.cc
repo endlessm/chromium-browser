@@ -18,10 +18,11 @@
 #include "content/utility/utility_blink_platform_impl.h"
 #include "content/utility/utility_service_factory.h"
 #include "ipc/ipc_sync_channel.h"
-#include "services/shell/public/cpp/interface_registry.h"
+#include "ppapi/features/features.h"
+#include "services/service_manager/public/cpp/interface_registry.h"
 #include "third_party/WebKit/public/web/WebKit.h"
 
-#if defined(OS_POSIX) && defined(ENABLE_PLUGINS)
+#if defined(OS_POSIX) && BUILDFLAG(ENABLE_PLUGINS)
 #include "base/files/file_path.h"
 #include "content/common/plugin_list.h"
 #endif
@@ -122,7 +123,7 @@ void UtilityThreadImpl::OnBatchModeFinished() {
 }
 
 void UtilityThreadImpl::BindServiceFactoryRequest(
-    shell::mojom::ServiceFactoryRequest request) {
+    service_manager::mojom::ServiceFactoryRequest request) {
   DCHECK(service_factory_);
   service_factory_bindings_.AddBinding(service_factory_.get(),
                                        std::move(request));

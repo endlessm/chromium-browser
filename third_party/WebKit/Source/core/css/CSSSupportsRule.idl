@@ -26,15 +26,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// http://dev.w3.org/csswg/css-conditional/#the-csssupportsrule-interface
+// https://dev.w3.org/csswg/css-conditional/#the-csssupportsrule-interface
 
-// TODO(foolip): CSSSupportsRule should inherit from CSSConditionRule and
-// inherit all members.
-interface CSSSupportsRule : CSSRule {
-    // http://dev.w3.org/csswg/css-conditional/#the-cssconditionrule-interface
-    readonly attribute DOMString conditionText;
-    // http://dev.w3.org/csswg/cssom/#the-cssgroupingrule-interface
-    [SameObject] readonly attribute CSSRuleList cssRules;
-    [RaisesException] unsigned long insertRule(DOMString rule, unsigned long index);
-    [RaisesException] void deleteRule(unsigned long index);
+interface CSSSupportsRule : CSSConditionRule {
 };

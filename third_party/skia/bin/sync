@@ -68,12 +68,12 @@ if current_deps_hash != deps_hash:
   if not os.path.isfile('.gclient'):
     with open('.gclient', 'w') as o:
       o.write(default_gclient_config)
-  gclient_sync_command = [gclient, 'sync'] + skia_opt_deps
+  command = [gclient, 'sync'] + skia_opt_deps
   try:
-    sys.stdout.write('%r\n' % gclient_sync_command)
-    subprocess.check_call(gclient_sync_command)
+    sys.stdout.write('%r\n' % command)
+    subprocess.check_call(command)
   except:
-    sys.stderr.write('\n`gclient sync` failed.\n')
+    sys.stderr.write('\n%r failed.\n' % command)
     try:
       os.remove('.deps_sha1')  # Unknown state.
     except:

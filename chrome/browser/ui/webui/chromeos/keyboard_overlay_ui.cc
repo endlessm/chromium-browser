@@ -6,13 +6,13 @@
 
 #include <stddef.h>
 
-#include "ash/display/display_manager.h"
 #include "ash/shell.h"
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/command_line.h"
 #include "base/feature_list.h"
 #include "base/macros.h"
+#include "base/memory/ptr_util.h"
 #include "base/memory/weak_ptr.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
@@ -33,6 +33,7 @@
 #include "content/public/browser/web_ui_message_handler.h"
 #include "ui/base/ime/chromeos/ime_keyboard.h"
 #include "ui/base/ime/chromeos/input_method_manager.h"
+#include "ui/display/manager/display_manager.h"
 
 using chromeos::input_method::ModifierKey;
 using content::WebUIMessageHandler;
@@ -259,8 +260,6 @@ struct I18nContentToMessage {
   { "keyboardOverlayDisableCapsLock", IDS_KEYBOARD_OVERLAY_DISABLE_CAPS_LOCK },
   { "keyboardOverlayToggleChromevoxSpokenFeedback",
     IDS_KEYBOARD_OVERLAY_TOGGLE_CHROMEVOX_SPOKEN_FEEDBACK },
-  { "keyboardOverlayToggleHighContrastMode",
-    IDS_KEYBOARD_OVERLAY_TOGGLE_HIGH_CONTRAST_MODE},
   { "keyboardOverlayToggleProjectionTouchHud",
     IDS_KEYBOARD_OVERLAY_TOGGLE_PROJECTION_TOUCH_HUD },
   { "keyboardOverlayUndo", IDS_KEYBOARD_OVERLAY_UNDO },
@@ -308,7 +307,7 @@ content::WebUIDataSource* CreateKeyboardOverlayUIHTMLSource(Profile* profile) {
   source->AddBoolean("keyboardOverlayTopRowKeysAreFunctionKeys",
                      TopRowKeysAreFunctionKeys(profile));
   ash::Shell* shell = ash::Shell::GetInstance();
-  ash::DisplayManager* display_manager = shell->display_manager();
+  display::DisplayManager* display_manager = shell->display_manager();
   source->AddBoolean("keyboardOverlayIsDisplayUIScalingEnabled",
                      display_manager->IsDisplayUIScalingEnabled());
   source->AddBoolean(
@@ -423,8 +422,7 @@ void KeyboardOverlayHandler::OpenLearnMorePage(const base::ListValue* args) {
 KeyboardOverlayUI::KeyboardOverlayUI(content::WebUI* web_ui)
     : WebDialogUI(web_ui) {
   Profile* profile = Profile::FromWebUI(web_ui);
-  KeyboardOverlayHandler* handler = new KeyboardOverlayHandler(profile);
-  web_ui->AddMessageHandler(handler);
+  web_ui->AddMessageHandler(base::MakeUnique<KeyboardOverlayHandler>(profile));
 
   // Set up the chrome://keyboardoverlay/ source.
   content::WebUIDataSource::Add(profile,

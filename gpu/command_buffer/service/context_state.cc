@@ -221,13 +221,17 @@ ContextState::ContextState(FeatureInfo* feature_info,
       pack_reverse_row_order(false),
       ignore_cached_state(false),
       fbo_binding_for_scissor_workaround_dirty(false),
-      framebuffer_srgb_(false),
       feature_info_(feature_info),
       error_state_(ErrorState::Create(error_state_client, logger)) {
   Initialize();
 }
 
 ContextState::~ContextState() {
+}
+
+void ContextState::SetLineWidthBounds(GLfloat min, GLfloat max) {
+  line_width_min_ = min;
+  line_width_max_ = max;
 }
 
 void ContextState::RestoreTextureUnitBindings(
@@ -295,6 +299,11 @@ void ContextState::RestoreUnpackState() const {
     glPixelStorei(GL_UNPACK_ROW_LENGTH, unpack_row_length);
     glPixelStorei(GL_UNPACK_IMAGE_HEIGHT, unpack_image_height);
   }
+}
+
+void ContextState::DoLineWidth(GLfloat width) const {
+  glLineWidth(
+      std::min(std::max(width, line_width_min_), line_width_max_));
 }
 
 void ContextState::RestoreBufferBindings() const {
@@ -495,15 +504,8 @@ void ContextState::RestoreState(const ContextState* prev_state) {
   RestoreIndexedUniformBufferBindings(prev_state);
   RestoreGlobalState(prev_state);
 
-  if (!prev_state) {
-    if (feature_info_->feature_flags().desktop_srgb_support) {
-      framebuffer_srgb_ = false;
-      glDisable(GL_FRAMEBUFFER_SRGB);
-    }
-  } else if (framebuffer_srgb_ != prev_state->framebuffer_srgb_) {
-    // FRAMEBUFFER_SRGB will be restored lazily at render time.
-    framebuffer_srgb_ = prev_state->framebuffer_srgb_;
-  }
+  // FRAMEBUFFER_SRGB will be restored lazily at render time.
+  framebuffer_srgb_valid_ = false;
 }
 
 ErrorState* ContextState::GetErrorState() {
@@ -602,6 +604,9 @@ void ContextState::RemoveBoundBuffer(Buffer* buffer) {
   if (bound_transform_feedback_buffer.get() == buffer) {
     bound_transform_feedback_buffer = nullptr;
   }
+  if (bound_transform_feedback.get()) {
+    bound_transform_feedback->RemoveBoundBuffer(buffer);
+  }
   if (bound_uniform_buffer.get() == buffer) {
     bound_uniform_buffer = nullptr;
   }
@@ -693,10 +698,11 @@ PixelStoreParams ContextState::GetUnpackParams(Dimension dimension) {
 }
 
 void ContextState::EnableDisableFramebufferSRGB(bool enable) {
-  if (framebuffer_srgb_ == enable)
+  if (framebuffer_srgb_valid_ && framebuffer_srgb_ == enable)
     return;
   EnableDisable(GL_FRAMEBUFFER_SRGB, enable);
   framebuffer_srgb_ = enable;
+  framebuffer_srgb_valid_ = true;
 }
 
 void ContextState::InitStateManual(const ContextState*) const {

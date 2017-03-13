@@ -5,7 +5,7 @@
 #include "ui/content_accelerators/accelerator_util.h"
 
 #include "build/build_config.h"
-#include "third_party/WebKit/public/web/WebInputEvent.h"
+#include "third_party/WebKit/public/platform/WebInputEvent.h"
 #include "ui/events/event.h"
 #include "ui/events/event_constants.h"
 
@@ -16,14 +16,14 @@ namespace {
 int GetModifiersFromNativeWebKeyboardEvent(
     const content::NativeWebKeyboardEvent& event) {
   int modifiers = ui::EF_NONE;
-  if (event.modifiers & content::NativeWebKeyboardEvent::ShiftKey)
+  if (event.modifiers() & content::NativeWebKeyboardEvent::ShiftKey)
     modifiers |= ui::EF_SHIFT_DOWN;
-  if (event.modifiers & content::NativeWebKeyboardEvent::ControlKey)
+  if (event.modifiers() & content::NativeWebKeyboardEvent::ControlKey)
     modifiers |= ui::EF_CONTROL_DOWN;
-  if (event.modifiers & content::NativeWebKeyboardEvent::AltKey)
+  if (event.modifiers() & content::NativeWebKeyboardEvent::AltKey)
     modifiers |= ui::EF_ALT_DOWN;
 #if defined(OS_MACOSX) || defined(OS_CHROMEOS)
-  if (event.modifiers & content::NativeWebKeyboardEvent::MetaKey)
+  if (event.modifiers() & content::NativeWebKeyboardEvent::MetaKey)
     modifiers |= ui::EF_COMMAND_DOWN;
 #endif
 #if defined(USE_AURA)
@@ -40,7 +40,7 @@ ui::Accelerator GetAcceleratorFromNativeWebKeyboardEvent(
   ui::Accelerator accelerator(
       static_cast<ui::KeyboardCode>(event.windowsKeyCode),
       GetModifiersFromNativeWebKeyboardEvent(event));
-  if (event.type == blink::WebInputEvent::KeyUp)
+  if (event.type() == blink::WebInputEvent::KeyUp)
     accelerator.set_type(ui::ET_KEY_RELEASED);
   return accelerator;
 }

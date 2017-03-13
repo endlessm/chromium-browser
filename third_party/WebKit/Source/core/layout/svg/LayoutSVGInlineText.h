@@ -45,7 +45,7 @@ class LayoutSVGInlineText final : public LayoutText {
   const Font& scaledFont() const { return m_scaledFont; }
   void updateScaledFont();
   void updateMetricsList(bool& lastCharacterWasWhiteSpace);
-  static void computeNewScaledFontForStyle(LayoutObject*,
+  static void computeNewScaledFontForStyle(const LayoutObject&,
                                            float& scalingFactor,
                                            Font& scaledFont);
 
@@ -80,8 +80,8 @@ class LayoutSVGInlineText final : public LayoutText {
   LayoutRect linesBoundingBox() const override;
   InlineTextBox* createTextBox(int start, unsigned short length) override;
 
-  LayoutRect absoluteClippedOverflowRect() const final;
-  FloatRect paintInvalidationRectInLocalSVGCoordinates() const final;
+  LayoutRect absoluteVisualRect() const final;
+  FloatRect visualRectInLocalSVGCoordinates() const final;
 
   float m_scalingFactor;
   Font m_scaledFont;

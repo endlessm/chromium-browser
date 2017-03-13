@@ -4,6 +4,8 @@
 
 #include "chrome/browser/banners/app_banner_manager.h"
 
+#include <algorithm>
+
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/command_line.h"
@@ -13,33 +15,22 @@
 #include "chrome/browser/banners/app_banner_settings_helper.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/engagement/site_engagement_service.h"
-#include "chrome/browser/installable/installable_logging.h"
-#include "chrome/browser/installable/installable_manager.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/render_messages.h"
-#include "components/rappor/rappor_utils.h"
+#include "components/rappor/public/rappor_utils.h"
+#include "components/rappor/rappor_service_impl.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
-#include "content/public/common/origin_util.h"
-#include "third_party/WebKit/public/platform/modules/app_banner/WebAppBannerPromptReply.h"
+#include "mojo/public/cpp/bindings/interface_request.h"
+#include "services/service_manager/public/cpp/interface_provider.h"
+#include "third_party/WebKit/public/platform/modules/installation/installation.mojom.h"
 #include "third_party/skia/include/core/SkBitmap.h"
-#include "ui/display/display.h"
-#include "ui/display/screen.h"
 
 namespace {
 
-bool gDisableSecureCheckForTesting = false;
 int gCurrentRequestID = -1;
-base::LazyInstance<base::TimeDelta> gTimeDeltaForTesting =
-    LAZY_INSTANCE_INITIALIZER;
-
-// Returns |size_in_px| in dp, i.e. divided by the current device scale factor.
-int ConvertIconSizeFromPxToDp(int size_in_px) {
-  return size_in_px /
-      display::Screen::GetScreen()->GetPrimaryDisplay().device_scale_factor();
-}
+int gTimeDeltaInDaysForTesting = 0;
 
 InstallableParams ParamsToGetManifest() {
   return InstallableParams();
@@ -47,13 +38,13 @@ InstallableParams ParamsToGetManifest() {
 
 // Returns an InstallableParams object that requests all checks necessary for
 // a web app banner.
-InstallableParams ParamsToPerformInstallableCheck(int ideal_icon_size_in_dp,
-                                                  int minimum_icon_size_in_dp) {
+InstallableParams ParamsToPerformInstallableCheck(int ideal_icon_size_in_px,
+                                                  int minimum_icon_size_in_px) {
   InstallableParams params;
-  params.ideal_icon_size_in_dp = ideal_icon_size_in_dp;
-  params.minimum_icon_size_in_dp = minimum_icon_size_in_dp;
+  params.ideal_primary_icon_size_in_px = ideal_icon_size_in_px;
+  params.minimum_primary_icon_size_in_px = minimum_icon_size_in_px;
   params.check_installable = true;
-  params.fetch_valid_icon = true;
+  params.fetch_valid_primary_icon = true;
 
   return params;
 }
@@ -63,39 +54,35 @@ InstallableParams ParamsToPerformInstallableCheck(int ideal_icon_size_in_dp,
 namespace banners {
 
 // static
-void AppBannerManager::DisableSecureSchemeCheckForTesting() {
-  gDisableSecureCheckForTesting = true;
-}
-
-// static
 base::Time AppBannerManager::GetCurrentTime() {
-  return base::Time::Now() + gTimeDeltaForTesting.Get();
+  return base::Time::Now() +
+         base::TimeDelta::FromDays(gTimeDeltaInDaysForTesting);
 }
 
 // static
 void AppBannerManager::SetTimeDeltaForTesting(int days) {
-  gTimeDeltaForTesting.Get() = base::TimeDelta::FromDays(days);
+  gTimeDeltaInDaysForTesting = days;
 }
 
 // static
-void AppBannerManager::SetEngagementWeights(double direct_engagement,
-                                            double indirect_engagement) {
-  AppBannerSettingsHelper::SetEngagementWeights(direct_engagement,
-                                                indirect_engagement);
+void AppBannerManager::SetTotalEngagementToTrigger(double engagement) {
+  AppBannerSettingsHelper::SetTotalEngagementToTrigger(engagement);
 }
 
 // static
 bool AppBannerManager::URLsAreForTheSamePage(const GURL& first,
                                              const GURL& second) {
   return first.GetWithEmptyPath() == second.GetWithEmptyPath() &&
-         first.path() == second.path() && first.query() == second.query();
+         first.path_piece() == second.path_piece() &&
+         first.query_piece() == second.query_piece();
 }
 
 void AppBannerManager::RequestAppBanner(const GURL& validated_url,
                                         bool is_debug_mode) {
+  content::WebContents* contents = web_contents();
+
   // Don't start a redundant banner request. Otherwise, if one is running,
   // invalidate our weak pointers so it terminates.
-  content::WebContents* contents = web_contents();
   if (is_active_) {
     if (URLsAreForTheSamePage(validated_url, contents->GetLastCommittedURL()))
       return;
@@ -111,17 +98,19 @@ void AppBannerManager::RequestAppBanner(const GURL& validated_url,
   DCHECK(!need_to_log_status_);
   need_to_log_status_ = !IsDebugMode();
 
-  if (contents->GetMainFrame()->GetParent()) {
-    ReportStatus(contents, NOT_IN_MAIN_FRAME);
-    Stop();
-    return;
+  // Exit if this is an incognito window, non-main frame, or insecure context.
+  InstallableStatusCode code = NO_ERROR_DETECTED;
+  if (Profile::FromBrowserContext(contents->GetBrowserContext())
+          ->IsOffTheRecord()) {
+    code = IN_INCOGNITO;
+  } else if (contents->GetMainFrame()->GetParent()) {
+    code = NOT_IN_MAIN_FRAME;
+  } else if (!InstallableManager::IsContentSecure(contents)) {
+    code = NOT_FROM_SECURE_ORIGIN;
   }
 
-  // A secure origin is required to show banners, so exit early if we see the
-  // URL is invalid.
-  if (!content::IsOriginSecure(validated_url) &&
-      !gDisableSecureCheckForTesting) {
-    ReportStatus(contents, NOT_FROM_SECURE_ORIGIN);
+  if (code != NO_ERROR_DETECTED) {
+    ReportStatus(contents, code);
     Stop();
     return;
   }
@@ -129,9 +118,37 @@ void AppBannerManager::RequestAppBanner(const GURL& validated_url,
   if (validated_url_.is_empty())
     validated_url_ = validated_url;
 
+  // Any existing binding is invalid when we request a new banner.
+  if (binding_.is_bound())
+    binding_.Close();
+
   manager_->GetData(
       ParamsToGetManifest(),
       base::Bind(&AppBannerManager::OnDidGetManifest, GetWeakPtr()));
+}
+
+void AppBannerManager::OnInstall() {
+  blink::mojom::InstallationServicePtr installation_service;
+  web_contents()->GetMainFrame()->GetRemoteInterfaces()->GetInterface(
+      mojo::MakeRequest(&installation_service));
+  DCHECK(installation_service);
+  installation_service->OnInstall();
+}
+
+void AppBannerManager::SendBannerAccepted(int request_id) {
+  if (request_id != gCurrentRequestID)
+    return;
+
+  DCHECK(event_.is_bound());
+  event_->BannerAccepted(GetBannerType());
+}
+
+void AppBannerManager::SendBannerDismissed(int request_id) {
+  if (request_id != gCurrentRequestID)
+    return;
+
+  DCHECK(event_.is_bound());
+  event_->BannerDismissed();
 }
 
 base::Closure AppBannerManager::FetchWebappSplashScreenImageCallback(
@@ -144,6 +161,7 @@ AppBannerManager::AppBannerManager(content::WebContents* web_contents)
       SiteEngagementObserver(nullptr),
       manager_(nullptr),
       event_request_id_(-1),
+      binding_(this),
       is_active_(false),
       banner_request_queued_(false),
       load_finished_(false),
@@ -179,14 +197,12 @@ std::string AppBannerManager::GetStatusParam(InstallableStatusCode code) {
   return std::string();
 }
 
-int AppBannerManager::GetIdealIconSizeInDp() {
-  return ConvertIconSizeFromPxToDp(
-      InstallableManager::GetMinimumIconSizeInPx());
+int AppBannerManager::GetIdealIconSizeInPx() {
+  return InstallableManager::GetMinimumIconSizeInPx();
 }
 
-int AppBannerManager::GetMinimumIconSizeInDp() {
-  return ConvertIconSizeFromPxToDp(
-      InstallableManager::GetMinimumIconSizeInPx());
+int AppBannerManager::GetMinimumIconSizeInPx() {
+  return InstallableManager::GetMinimumIconSizeInPx();
 }
 
 base::WeakPtr<AppBannerManager> AppBannerManager::GetWeakPtr() {
@@ -201,7 +217,8 @@ bool AppBannerManager::IsDebugMode() const {
 
 bool AppBannerManager::IsWebAppInstalled(
     content::BrowserContext* browser_context,
-    const GURL& start_url) {
+    const GURL& start_url,
+    const GURL& manifest_url) {
   return false;
 }
 
@@ -226,19 +243,12 @@ void AppBannerManager::OnDidGetManifest(const InstallableData& data) {
 }
 
 void AppBannerManager::PerformInstallableCheck() {
-  if (IsWebAppInstalled(web_contents()->GetBrowserContext(),
-                        manifest_.start_url) &&
-      !IsDebugMode()) {
-    ReportStatus(web_contents(), ALREADY_INSTALLED);
-    Stop();
-  }
-
-  if (!is_active_)
+  if (!CheckIfShouldShowBanner())
     return;
 
   // Fetch and verify the other required information.
-  manager_->GetData(ParamsToPerformInstallableCheck(GetIdealIconSizeInDp(),
-                                                    GetMinimumIconSizeInDp()),
+  manager_->GetData(ParamsToPerformInstallableCheck(GetIdealIconSizeInPx(),
+                                                    GetMinimumIconSizeInPx()),
                     base::Bind(&AppBannerManager::OnDidPerformInstallableCheck,
                                GetWeakPtr()));
 }
@@ -260,11 +270,11 @@ void AppBannerManager::OnDidPerformInstallableCheck(
     return;
 
   DCHECK(data.is_installable);
-  DCHECK(!data.icon_url.is_empty());
-  DCHECK(data.icon);
+  DCHECK(!data.primary_icon_url.is_empty());
+  DCHECK(data.primary_icon);
 
-  icon_url_ = data.icon_url;
-  icon_.reset(new SkBitmap(*data.icon));
+  icon_url_ = data.primary_icon_url;
+  icon_.reset(new SkBitmap(*data.primary_icon));
 
   SendBannerPromptRequest();
 }
@@ -294,6 +304,14 @@ void AppBannerManager::ReportStatus(content::WebContents* web_contents,
   }
 }
 
+void AppBannerManager::ResetCurrentPageData() {
+  active_media_players_.clear();
+  manifest_ = content::Manifest();
+  manifest_url_ = GURL();
+  validated_url_ = GURL();
+  referrer_.erase();
+}
+
 void AppBannerManager::Stop() {
   if (was_canceled_by_page_ && !page_requested_prompt_) {
     TrackBeforeInstallEvent(
@@ -309,29 +327,29 @@ void AppBannerManager::Stop() {
   DCHECK(!need_to_log_status_ || is_active_);
 
   weak_factory_.InvalidateWeakPtrs();
+  binding_.Close();
+  controller_.reset();
+  event_.reset();
+
   is_active_ = false;
   was_canceled_by_page_ = false;
   page_requested_prompt_ = false;
   need_to_log_status_ = false;
-  validated_url_ = GURL();
-  referrer_.erase();
 }
 
 void AppBannerManager::SendBannerPromptRequest() {
   RecordCouldShowBanner();
 
-  // Given all of the other checks that have been made, the only possible reason
-  // for stopping now is that the app has been added to the homescreen.
-  if (!IsDebugMode() && !CheckIfShouldShowBanner()) {
-    Stop();
-    return;
-  }
-
   TrackBeforeInstallEvent(BEFORE_INSTALL_EVENT_CREATED);
   event_request_id_ = ++gCurrentRequestID;
-  content::RenderFrameHost* frame = web_contents()->GetMainFrame();
-  frame->Send(new ChromeViewMsg_AppBannerPromptRequest(
-      frame->GetRoutingID(), event_request_id_, GetBannerType()));
+
+  web_contents()->GetMainFrame()->GetRemoteInterfaces()->GetInterface(
+      mojo::MakeRequest(&controller_));
+
+  controller_->BannerPromptRequest(
+      binding_.CreateInterfacePtrAndBind(), mojo::MakeRequest(&event_),
+      {GetBannerType()},
+      base::Bind(&AppBannerManager::OnBannerPromptReply, GetWeakPtr()));
 }
 
 void AppBannerManager::DidStartNavigation(content::NavigationHandle* handle) {
@@ -339,8 +357,7 @@ void AppBannerManager::DidStartNavigation(content::NavigationHandle* handle) {
     return;
 
   load_finished_ = false;
-  if (AppBannerSettingsHelper::ShouldUseSiteEngagementScore() &&
-      GetSiteEngagementService() == nullptr) {
+  if (GetSiteEngagementService() == nullptr) {
     // Ensure that we are observing the site engagement service on navigation
     // start. This may be the first navigation, or we may have stopped
     // observing if the banner flow was triggered on the previous page.
@@ -352,8 +369,7 @@ void AppBannerManager::DidStartNavigation(content::NavigationHandle* handle) {
 void AppBannerManager::DidFinishNavigation(content::NavigationHandle* handle) {
   if (handle->IsInMainFrame() && handle->HasCommitted() &&
       !handle->IsSamePage()) {
-    last_transition_type_ = handle->GetPageTransition();
-    active_media_players_.clear();
+    ResetCurrentPageData();
     if (is_active_)
       Stop();
   }
@@ -368,10 +384,9 @@ void AppBannerManager::DidFinishLoad(
 
   load_finished_ = true;
   validated_url_ = validated_url;
-  // Start the pipeline immediately if we aren't using engagement, or if 0
-  // engagement is required.
-  if (!AppBannerSettingsHelper::ShouldUseSiteEngagementScore() ||
-      banner_request_queued_ ||
+  // Start the pipeline immediately if 0 engagement is required or if we've
+  // queued a banner request.
+  if (banner_request_queued_ ||
       AppBannerSettingsHelper::HasSufficientEngagement(0)) {
     SiteEngagementObserver::Observe(nullptr);
     banner_request_queued_ = false;
@@ -380,11 +395,13 @@ void AppBannerManager::DidFinishLoad(
   }
 }
 
-void AppBannerManager::MediaStartedPlaying(const MediaPlayerId& id) {
+void AppBannerManager::MediaStartedPlaying(const MediaPlayerInfo& media_info,
+                                           const MediaPlayerId& id) {
   active_media_players_.push_back(id);
 }
 
-void AppBannerManager::MediaStoppedPlaying(const MediaPlayerId& id) {
+void AppBannerManager::MediaStoppedPlaying(const MediaPlayerInfo& media_info,
+                                           const MediaPlayerId& id) {
   active_media_players_.erase(std::remove(active_media_players_.begin(),
                                           active_media_players_.end(), id),
                               active_media_players_.end());
@@ -422,69 +439,58 @@ void AppBannerManager::RecordCouldShowBanner() {
   content::WebContents* contents = web_contents();
   DCHECK(contents);
 
-  AppBannerSettingsHelper::RecordBannerCouldShowEvent(
+  AppBannerSettingsHelper::RecordBannerEvent(
       contents, validated_url_, GetAppIdentifier(),
-      GetCurrentTime(), last_transition_type_);
+      AppBannerSettingsHelper::APP_BANNER_EVENT_COULD_SHOW, GetCurrentTime());
 }
 
 bool AppBannerManager::CheckIfShouldShowBanner() {
-  content::WebContents* contents = web_contents();
-  DCHECK(contents);
-
-  InstallableStatusCode code = AppBannerSettingsHelper::ShouldShowBanner(
-      contents, validated_url_, GetAppIdentifier(), GetCurrentTime());
-  if (code == NO_ERROR_DETECTED)
+  if (IsDebugMode())
     return true;
 
-  switch (code) {
-    case ALREADY_INSTALLED:
-      banners::TrackDisplayEvent(banners::DISPLAY_EVENT_INSTALLED_PREVIOUSLY);
-      break;
-    case PREVIOUSLY_BLOCKED:
-      banners::TrackDisplayEvent(banners::DISPLAY_EVENT_BLOCKED_PREVIOUSLY);
-      break;
-    case PREVIOUSLY_IGNORED:
-      banners::TrackDisplayEvent(banners::DISPLAY_EVENT_IGNORED_PREVIOUSLY);
-      break;
-    case INSUFFICIENT_ENGAGEMENT:
-      banners::TrackDisplayEvent(banners::DISPLAY_EVENT_NOT_VISITED_ENOUGH);
-      break;
-    default:
-      break;
+  // Check whether we are permitted to show the banner. If we have already
+  // added this site to homescreen, or if the banner has been shown too
+  // recently, prevent the banner from being shown.
+  content::WebContents* contents = web_contents();
+  InstallableStatusCode code = AppBannerSettingsHelper::ShouldShowBanner(
+      contents, validated_url_, GetAppIdentifier(), GetCurrentTime());
+
+  if (code == NO_ERROR_DETECTED &&
+      IsWebAppInstalled(contents->GetBrowserContext(), manifest_.start_url,
+                        manifest_url_)) {
+    code = ALREADY_INSTALLED;
   }
 
-  // If we are in debug mode, AppBannerSettingsHelper::ShouldShowBanner must
-  // return NO_ERROR_DETECTED (bypass flag is set) or we must not have entered
-  // this method.
-  DCHECK(!IsDebugMode());
-  ReportStatus(web_contents(), code);
-  return false;
-}
-
-bool AppBannerManager::OnMessageReceived(
-    const IPC::Message& message,
-    content::RenderFrameHost* render_frame_host) {
-  bool handled = true;
-
-  IPC_BEGIN_MESSAGE_MAP_WITH_PARAM(AppBannerManager, message, render_frame_host)
-    IPC_MESSAGE_HANDLER(ChromeViewHostMsg_AppBannerPromptReply,
-                        OnBannerPromptReply)
-    IPC_MESSAGE_HANDLER(ChromeViewHostMsg_RequestShowAppBanner,
-                        OnRequestShowAppBanner)
-    IPC_MESSAGE_UNHANDLED(handled = false)
-  IPC_END_MESSAGE_MAP()
-
-  return handled;
+  if (code != NO_ERROR_DETECTED) {
+    switch (code) {
+      case ALREADY_INSTALLED:
+        banners::TrackDisplayEvent(banners::DISPLAY_EVENT_INSTALLED_PREVIOUSLY);
+        break;
+      case PREVIOUSLY_BLOCKED:
+        banners::TrackDisplayEvent(banners::DISPLAY_EVENT_BLOCKED_PREVIOUSLY);
+        break;
+      case PREVIOUSLY_IGNORED:
+        banners::TrackDisplayEvent(banners::DISPLAY_EVENT_IGNORED_PREVIOUSLY);
+        break;
+      case PACKAGE_NAME_OR_START_URL_EMPTY:
+        break;
+      default:
+        NOTREACHED();
+    }
+    ReportStatus(contents, code);
+    Stop();
+    return false;
+  }
+  return true;
 }
 
 void AppBannerManager::OnBannerPromptReply(
-    content::RenderFrameHost* render_frame_host,
-    int request_id,
-    blink::WebAppBannerPromptReply reply,
-    std::string referrer) {
+    blink::mojom::AppBannerPromptReply reply,
+    const std::string& referrer) {
+  // We don't need the controller any more, so reset it so the Blink-side object
+  // is destroyed.
+  controller_.reset();
   content::WebContents* contents = web_contents();
-  if (request_id != event_request_id_)
-    return;
 
   // The renderer might have requested the prompt to be canceled.
   // They may request that it is redisplayed later, so don't Stop() here.
@@ -495,7 +501,7 @@ void AppBannerManager::OnBannerPromptReply(
   // request may be received *before* the Cancel prompt reply (e.g. if redisplay
   // is requested in the beforeinstallprompt event handler).
   referrer_ = referrer;
-  if (reply == blink::WebAppBannerPromptReply::Cancel &&
+  if (reply == blink::mojom::AppBannerPromptReply::CANCEL &&
       !page_requested_prompt_) {
     TrackBeforeInstallEvent(BEFORE_INSTALL_EVENT_PREVENT_DEFAULT_CALLED);
     was_canceled_by_page_ = true;
@@ -526,14 +532,11 @@ void AppBannerManager::OnBannerPromptReply(
   is_active_ = false;
 }
 
-void AppBannerManager::OnRequestShowAppBanner(
-    content::RenderFrameHost* render_frame_host,
-    int request_id) {
+void AppBannerManager::DisplayAppBanner() {
   if (was_canceled_by_page_) {
     // Simulate a non-canceled OnBannerPromptReply to show the delayed banner.
     // Don't reset |was_canceled_by_page_| yet for metrics purposes.
-    OnBannerPromptReply(render_frame_host, request_id,
-                        blink::WebAppBannerPromptReply::None, referrer_);
+    OnBannerPromptReply(blink::mojom::AppBannerPromptReply::NONE, referrer_);
   } else {
     // Log that the prompt request was made for when we get the prompt reply.
     page_requested_prompt_ = true;

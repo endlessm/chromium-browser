@@ -1,5 +1,6 @@
 include_rules = [
   "+chrome/grit",
+  "+chrome/install_static",
   "+chromeos",  # For chromeos_switches.h
   "+components/autofill/content/common",
   "+components/autofill/core/common",
@@ -17,6 +18,7 @@ include_rules = [
   "+components/metrics/client_info.h",
   "+components/metrics/metrics_pref_names.h",
   "+components/nacl/common",
+  "+components/ntp_tiles",
   "+components/offline_pages/offline_page_feature.h",
   "+components/password_manager/core/common",
   "+components/policy/core/common",
@@ -26,6 +28,7 @@ include_rules = [
   "+components/url_formatter",
   "+components/version_info",
   "+extensions/common",
+  "+extensions/features",
   "+gin/public",  # For profiling.cc
   "+google_apis/gaia",  # For gaia_switches.h
   "+media",
@@ -33,8 +36,14 @@ include_rules = [
   "+ppapi/shared_impl",
   "+ppapi/thunk",
   "+sandbox/linux/services/credentials.h",
+  "+third_party/boringssl/src/include",
   "+third_party/kasko",
 
   # FIXME - refactor code and remove these dependencies
   "+chrome/installer",
 ]
+specific_include_rules = {
+  "service_process_util.*": [
+    "+mojo/edk/embedder",
+  ],
+}

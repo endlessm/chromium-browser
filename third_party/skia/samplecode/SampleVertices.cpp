@@ -14,7 +14,6 @@
 #include "SkRegion.h"
 #include "SkShader.h"
 #include "SkUtils.h"
-#include "SkXfermode.h"
 #include "SkColorPriv.h"
 #include "SkColorFilter.h"
 #include "SkTime.h"
@@ -90,21 +89,21 @@ protected:
             paint.setShader(nullptr);
             canvas->drawVertices(fRecs[i].fMode, fRecs[i].fCount,
                                  fRecs[i].fVerts, fRecs[i].fTexs,
-                                 nullptr, nullptr, nullptr, 0, paint);
+                                 nullptr, nullptr, 0, paint);
 
             canvas->translate(SkIntToScalar(250), 0);
 
             paint.setShader(fShader0);
             canvas->drawVertices(fRecs[i].fMode, fRecs[i].fCount,
                                  fRecs[i].fVerts, fRecs[i].fTexs,
-                                 nullptr, nullptr, nullptr, 0, paint);
+                                 nullptr, nullptr, 0, paint);
 
             canvas->translate(SkIntToScalar(250), 0);
 
             paint.setShader(fShader1);
             canvas->drawVertices(fRecs[i].fMode, fRecs[i].fCount,
                                  fRecs[i].fVerts, fRecs[i].fTexs,
-                                 nullptr, nullptr, nullptr, 0, paint);
+                                 nullptr, nullptr, 0, paint);
             canvas->restore();
 
             canvas->translate(0, SkIntToScalar(250));

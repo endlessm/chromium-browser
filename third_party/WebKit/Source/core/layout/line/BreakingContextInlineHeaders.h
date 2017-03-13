@@ -73,8 +73,8 @@ class BreakingContext {
         m_lineInfo(inLineInfo),
         m_layoutTextInfo(inLayoutTextInfo),
         m_width(lineWidth),
-        m_currWS(NORMAL),
-        m_lastWS(NORMAL),
+        m_currWS(EWhiteSpace::kNormal),
+        m_lastWS(EWhiteSpace::kNormal),
         m_preservesNewline(false),
         m_atStart(true),
         m_ignoringSpaces(false),
@@ -146,7 +146,7 @@ class BreakingContext {
   InlineIterator handleEndOfLine();
 
   void clearLineBreakIfFitsOnLine() {
-    if (m_width.fitsOnLine() || m_lastWS == NOWRAP)
+    if (m_width.fitsOnLine() || m_lastWS == EWhiteSpace::kNowrap)
       m_lineBreak.clear();
   }
 
@@ -161,6 +161,7 @@ class BreakingContext {
                           bool breakAll,
                           int& nextBreakablePositionForBreakAll);
   bool rewindToMidWordBreak(WordMeasurement&, int end, float width);
+  bool canMidWordBreakBefore(LineLayoutText);
   bool rewindToFirstMidWordBreak(LineLayoutText,
                                  const ComputedStyle&,
                                  const Font&,
@@ -242,7 +243,7 @@ inline bool shouldCollapseWhiteSpace(const ComputedStyle& style,
   // set to 'pre-wrap', UAs may visually collapse them.
   return style.collapseWhiteSpace() ||
          (whitespacePosition == TrailingWhitespace &&
-          style.whiteSpace() == PRE_WRAP &&
+          style.whiteSpace() == EWhiteSpace::kPreWrap &&
           (!lineInfo.isEmpty() || !lineInfo.previousLineBrokeCleanly()));
 }
 
@@ -253,11 +254,7 @@ inline bool requiresLineBoxForContent(LineLayoutInline flow,
       (flow.style(lineInfo.isFirstLine())->lineHeight() !=
            parent.style(lineInfo.isFirstLine())->lineHeight() ||
        flow.style()->verticalAlign() != parent.style()->verticalAlign() ||
-       !parent.style()
-            ->font()
-            .getFontMetrics()
-            .hasIdenticalAscentDescentAndLineGap(
-                flow.style()->font().getFontMetrics())))
+       !parent.style()->hasIdenticalAscentDescentAndLineGap(flow.styleRef())))
     return true;
   return false;
 }
@@ -482,7 +479,7 @@ inline void BreakingContext::handleOutOfFlowPositioned(
     m_trailingObjects.appendObjectIfNeeded(box);
   }
   if (!containerIsInline)
-    positionedObjects.append(box);
+    positionedObjects.push_back(box);
   m_width.addUncommittedWidth(
       inlineLogicalWidthFromAncestorsIfNeeded(box).toFloat());
   // Reset prior line break context characters.
@@ -492,21 +489,33 @@ inline void BreakingContext::handleOutOfFlowPositioned(
 inline void BreakingContext::handleFloat() {
   LineLayoutBox floatBox(m_current.getLineLayoutItem());
   FloatingObject* floatingObject = m_block.insertFloatingObject(floatBox);
-  // Check if it fits in the current line; if it does, position it now,
-  // otherwise, position it after moving to next line (in newLine() func).
-  // FIXME: Bug 110372: Properly position multiple stacked floats with
-  // non-rectangular shape outside.
-  if (m_floatsFitOnLine &&
-      m_width.fitsOnLine(
-          m_block.logicalWidthForFloat(*floatingObject).toFloat(),
-          ExcludeWhitespace)) {
-    m_block.positionNewFloats(&m_width);
-    if (m_lineBreak.getLineLayoutItem() == m_current.getLineLayoutItem()) {
-      ASSERT(!m_lineBreak.offset());
-      m_lineBreak.increment();
+
+  if (m_floatsFitOnLine) {
+    // We need to calculate the logical width of the float before we can tell
+    // whether it's going to fit on the line. That means that we need to
+    // position and lay it out. Note that we have to avoid positioning floats
+    // that have been placed prematurely: Sometimes, floats are inserted too
+    // early by skipTrailingWhitespace(), and later on they all get placed by
+    // the first float here in handleFloat(). Their position may then be wrong,
+    // but it's too late to do anything about that now. See crbug.com/671577
+    if (!floatingObject->isPlaced())
+      m_block.positionAndLayoutFloat(*floatingObject, m_block.logicalHeight());
+
+    // Check if it fits in the current line; if it does, place it now,
+    // otherwise, place it after moving to next line (in newLine() func).
+    // FIXME: Bug 110372: Properly position multiple stacked floats with
+    // non-rectangular shape outside.
+    if (m_width.fitsOnLine(
+            m_block.logicalWidthForFloat(*floatingObject).toFloat(),
+            ExcludeWhitespace)) {
+      m_block.placeNewFloats(m_block.logicalHeight(), &m_width);
+      if (m_lineBreak.getLineLayoutItem() == m_current.getLineLayoutItem()) {
+        DCHECK(!m_lineBreak.offset());
+        m_lineBreak.increment();
+      }
+    } else {
+      m_floatsFitOnLine = false;
     }
-  } else {
-    m_floatsFitOnLine = false;
   }
   // Update prior line break context characters, using U+FFFD (OBJECT
   // REPLACEMENT CHARACTER) for floating element.
@@ -662,8 +671,8 @@ ALWAYS_INLINE TextDirection
 textDirectionFromUnicode(WTF::Unicode::CharDirection direction) {
   return direction == WTF::Unicode::RightToLeft ||
                  direction == WTF::Unicode::RightToLeftArabic
-             ? RTL
-             : LTR;
+             ? TextDirection::kRtl
+             : TextDirection::kLtr;
 }
 
 ALWAYS_INLINE float textWidth(
@@ -758,6 +767,28 @@ ALWAYS_INLINE bool BreakingContext::rewindToMidWordBreak(
   return true;
 }
 
+ALWAYS_INLINE bool BreakingContext::canMidWordBreakBefore(LineLayoutText text) {
+  // No break opportunities at the beginning of a line.
+  if (!m_width.currentWidth())
+    return false;
+  // If this text node is not the first child of an inline, the parent and the
+  // preivous have the same style.
+  if (text.previousSibling())
+    return true;
+  // Element boundaries belong to the parent of the element.
+  // TODO(kojii): Not all cases of element boundaries are supported yet.
+  // crbug.com/282134
+  if (LineLayoutItem element = text.parent()) {
+    if (LineLayoutItem parent = element.parent()) {
+      const ComputedStyle& parentStyle = parent.styleRef();
+      return parentStyle.autoWrap() &&
+             ((parentStyle.breakWords() && !m_width.committedWidth()) ||
+              parentStyle.wordBreak() == BreakAllWordBreak);
+    }
+  }
+  return false;
+}
+
 ALWAYS_INLINE bool BreakingContext::rewindToFirstMidWordBreak(
     LineLayoutText text,
     const ComputedStyle& style,
@@ -765,21 +796,24 @@ ALWAYS_INLINE bool BreakingContext::rewindToFirstMidWordBreak(
     bool breakAll,
     WordMeasurement& wordMeasurement) {
   int start = wordMeasurement.startOffset;
-  int end;
+  int end = canMidWordBreakBefore(text) ? start : start + 1;
   if (breakAll) {
     LazyLineBreakIterator lineBreakIterator(text.text(), style.locale());
-    end = -1;
-    lineBreakIterator.isBreakable(start + 1, end, LineBreakType::BreakAll);
-    if (end < 0)
+    int nextBreakable = -1;
+    lineBreakIterator.isBreakable(end, nextBreakable, LineBreakType::BreakAll);
+    if (nextBreakable < 0)
       return false;
-  } else {
-    end = start + 1;
+    end = nextBreakable;
   }
   if (end >= wordMeasurement.endOffset)
     return false;
 
   float width = textWidth(text, start, end - start, font,
                           m_width.currentWidth(), m_collapseWhiteSpace);
+  // If the first break opportunity doesn't fit, and if there's a break
+  // opportunity in previous runs, break at the opportunity.
+  if (!m_width.fitsOnLine(width) && m_width.committedWidth())
+    return false;
   return rewindToMidWordBreak(wordMeasurement, end, width);
 }
 
@@ -793,23 +827,27 @@ ALWAYS_INLINE bool BreakingContext::rewindToMidWordBreak(
   int len = wordMeasurement.endOffset - start;
   if (!len)
     return false;
-  if (m_width.availableWidth() <= LayoutUnit::epsilon())
+  float xPosToBreak = m_width.availableWidth() - m_width.currentWidth();
+  if (xPosToBreak <= LayoutUnit::epsilon()) {
+    // There were no space left. Skip computing how many characters can fit.
     return rewindToFirstMidWordBreak(text, style, font, breakAll,
                                      wordMeasurement);
+  }
 
   TextRun run = constructTextRun(font, text, start, len, style);
   run.setTabSize(!m_collapseWhiteSpace, style.getTabSize());
   run.setXPos(m_width.currentWidth());
 
   // TODO(kojii): should be replaced with safe-to-break when hb is ready.
-  float x =
-      m_width.availableWidth() + LayoutUnit::epsilon() - m_width.currentWidth();
+  xPosToBreak += LayoutUnit::epsilon();
   if (run.rtl())
-    x = wordMeasurement.width - x;
-  len = font.offsetForPosition(run, x, false);
-  if (!len && !m_width.currentWidth())
+    xPosToBreak = wordMeasurement.width - xPosToBreak;
+  len = font.offsetForPosition(run, xPosToBreak, false);
+  if (!len) {
+    // No characters can fit in the available space.
     return rewindToFirstMidWordBreak(text, style, font, breakAll,
                                      wordMeasurement);
+  }
 
   int end = start + len;
   if (breakAll) {
@@ -819,8 +857,6 @@ ALWAYS_INLINE bool BreakingContext::rewindToMidWordBreak(
     len = end - start;
   }
   FloatRect rect = font.selectionRectForText(run, FloatPoint(), 0, 0, len);
-  DCHECK(m_width.fitsOnLine(rect.width() -
-                            1));  // avoid failure when rect is rounded up.
   return rewindToMidWordBreak(wordMeasurement, end, rect.width());
 }
 
@@ -854,6 +890,7 @@ ALWAYS_INLINE bool BreakingContext::hyphenate(
   unsigned prefixLength = hyphenation.lastHyphenLocation(
       StringView(text.text(), start, len),
       std::min(maxPrefixLength, len - Hyphenation::minimumSuffixLength) + 1);
+  DCHECK_LE(prefixLength, maxPrefixLength);
   if (!prefixLength || prefixLength < Hyphenation::minimumPrefixLength)
     return false;
 
@@ -862,13 +899,19 @@ ALWAYS_INLINE bool BreakingContext::hyphenate(
   // ignores the kerning between the last letter and the hyphen.
   return rewindToMidWordBreak(
       wordMeasurement, start + prefixLength,
-      font.getCharacterRange(run, 0, prefixLength).width() + hyphenWidth);
+      font.getCharacterRange(run, 0, prefixLength).width());
 }
 
 ALWAYS_INLINE bool BreakingContext::isBreakAtSoftHyphen() const {
   return m_lineBreak != m_resolver.position()
              ? m_lineBreak.previousInSameNode() == softHyphenCharacter
              : m_current.previousInSameNode() == softHyphenCharacter;
+}
+
+static ALWAYS_INLINE bool hasVisibleText(LineLayoutText layoutText,
+                                         unsigned offset) {
+  return !layoutText.containsOnlyWhitespace(offset,
+                                            layoutText.textLength() - offset);
 }
 
 inline bool BreakingContext::handleText(WordMeasurements& wordMeasurements,
@@ -899,9 +942,9 @@ inline bool BreakingContext::handleText(WordMeasurements& wordMeasurements,
   // Auto-wrapping text should wrap in the middle of a word only if it could not
   // wrap before the word, which is only possible if the word is the first thing
   // on the line, that is, if |w| is zero.
-  bool breakWords =
-      m_currentStyle->breakWords() &&
-      ((m_autoWrap && !m_width.committedWidth()) || m_currWS == PRE);
+  bool breakWords = m_currentStyle->breakWords() &&
+                    ((m_autoWrap && !m_width.committedWidth()) ||
+                     m_currWS == EWhiteSpace::kPre);
   bool midWordBreak = false;
   bool breakAll =
       m_currentStyle->wordBreak() == BreakAllWordBreak && m_autoWrap;
@@ -916,9 +959,10 @@ inline bool BreakingContext::handleText(WordMeasurements& wordMeasurements,
   // See: fast/css3-text/css3-word-break/word-break-all-wrap-with-floats.html
   float widthMeasurementAtLastBreakOpportunity = 0;
 
-  Hyphenation* hyphenation = style.getHyphenation();
+  Hyphenation* hyphenation = m_autoWrap ? style.getHyphenation() : nullptr;
   bool disableSoftHyphen = style.getHyphens() == HyphensNone;
   float hyphenWidth = 0;
+  bool isLineEmpty = m_lineInfo.isEmpty();
 
   if (layoutText.isSVGInlineText()) {
     breakWords = false;
@@ -990,7 +1034,7 @@ inline bool BreakingContext::handleText(WordMeasurements& wordMeasurements,
     int nextBreakablePosition = m_current.nextBreakablePosition();
     bool betweenWords =
         c == newlineCharacter ||
-        (m_currWS != PRE && !m_atStart &&
+        (m_currWS != EWhiteSpace::kPre && !m_atStart &&
          m_layoutTextInfo.m_lineBreakIterator.isBreakable(
              m_current.offset(), nextBreakablePosition, lineBreakType) &&
          (!disableSoftHyphen ||
@@ -1005,7 +1049,7 @@ inline bool BreakingContext::handleText(WordMeasurements& wordMeasurements,
         // new point.
         lastSpaceWordSpacing = applyWordSpacing ? wordSpacing : 0;
         wordSpacingForWordMeasurement =
-            (applyWordSpacing && wordMeasurements.last().width) ? wordSpacing
+            (applyWordSpacing && wordMeasurements.back().width) ? wordSpacing
                                                                 : 0;
         stopIgnoringSpaces(lastSpace);
       }
@@ -1070,15 +1114,8 @@ inline bool BreakingContext::handleText(WordMeasurements& wordMeasurements,
 
     midWordBreak = false;
     if (!m_width.fitsOnLine()) {
-      if (canBreakMidWord) {
-        m_width.addUncommittedWidth(-wordMeasurement.width);
-        if (rewindToMidWordBreak(layoutText, style, font, breakAll,
-                                 wordMeasurement)) {
-          lastWidthMeasurement = wordMeasurement.width + lastSpaceWordSpacing;
-          midWordBreak = true;
-        }
-        m_width.addUncommittedWidth(wordMeasurement.width);
-      } else if (hyphenation) {
+      if (hyphenation && (m_nextObject || isLineEmpty ||
+                          hasVisibleText(layoutText, m_current.offset()))) {
         m_width.addUncommittedWidth(-wordMeasurement.width);
         DCHECK(lastSpace == static_cast<unsigned>(wordMeasurement.startOffset));
         DCHECK(m_current.offset() ==
@@ -1089,6 +1126,15 @@ inline bool BreakingContext::handleText(WordMeasurements& wordMeasurements,
           hyphenated = true;
           m_atEnd = true;
           return false;
+        }
+        m_width.addUncommittedWidth(wordMeasurement.width);
+      }
+      if (canBreakMidWord) {
+        m_width.addUncommittedWidth(-wordMeasurement.width);
+        if (rewindToMidWordBreak(layoutText, style, font, breakAll,
+                                 wordMeasurement)) {
+          lastWidthMeasurement = wordMeasurement.width + lastSpaceWordSpacing;
+          midWordBreak = true;
         }
         m_width.addUncommittedWidth(wordMeasurement.width);
       }
@@ -1167,6 +1213,7 @@ inline bool BreakingContext::handleText(WordMeasurements& wordMeasurements,
     prepareForNextCharacter(layoutText, prohibitBreakInside,
                             previousCharacterIsSpace);
     m_atStart = false;
+    isLineEmpty = m_lineInfo.isEmpty();
     nextCharacter(c, lastCharacter, secondToLastCharacter);
   }
 
@@ -1174,14 +1221,13 @@ inline bool BreakingContext::handleText(WordMeasurements& wordMeasurements,
                                                        secondToLastCharacter);
 
   wordMeasurements.grow(wordMeasurements.size() + 1);
-  WordMeasurement& wordMeasurement = wordMeasurements.last();
+  WordMeasurement& wordMeasurement = wordMeasurements.back();
   wordMeasurement.layoutText = layoutText;
 
   // IMPORTANT: current.offset() is > layoutText.textLength() here!
   float lastWidthMeasurement = 0;
   wordMeasurement.startOffset = lastSpace;
   wordMeasurement.endOffset = m_current.offset();
-  midWordBreak = false;
   if (!m_ignoringSpaces) {
     lastWidthMeasurement =
         textWidth(layoutText, lastSpace, m_current.offset() - lastSpace, font,
@@ -1190,13 +1236,6 @@ inline bool BreakingContext::handleText(WordMeasurements& wordMeasurements,
     wordMeasurement.width =
         lastWidthMeasurement + wordSpacingForWordMeasurement;
     wordMeasurement.glyphBounds.move(wordSpacingForWordMeasurement, 0);
-
-    if (canBreakMidWord && !m_width.fitsOnLine(lastWidthMeasurement) &&
-        rewindToMidWordBreak(layoutText, style, font, breakAll,
-                             wordMeasurement)) {
-      lastWidthMeasurement = wordMeasurement.width;
-      midWordBreak = true;
-    }
   }
   lastWidthMeasurement += lastSpaceWordSpacing;
 
@@ -1213,15 +1252,12 @@ inline bool BreakingContext::handleText(WordMeasurements& wordMeasurements,
 
   m_includeEndWidth = false;
 
-  if (midWordBreak) {
-    m_width.commit();
-    m_atEnd = true;
-  } else if (!m_width.fitsOnLine()) {
-    if (hyphenation && (m_nextObject || m_lineInfo.isEmpty())) {
+  if (!m_ignoringSpaces && !m_width.fitsOnLine()) {
+    if (hyphenation && (m_nextObject || isLineEmpty)) {
       m_width.addUncommittedWidth(-wordMeasurement.width);
-      DCHECK(lastSpace == static_cast<unsigned>(wordMeasurement.startOffset));
-      DCHECK(m_current.offset() ==
-             static_cast<unsigned>(wordMeasurement.endOffset));
+      DCHECK_EQ(lastSpace, static_cast<unsigned>(wordMeasurement.startOffset));
+      DCHECK_EQ(m_current.offset(),
+                static_cast<unsigned>(wordMeasurement.endOffset));
       if (hyphenate(layoutText, style, font, *hyphenation, lastSpaceWordSpacing,
                     wordMeasurement)) {
         hyphenated = true;
@@ -1232,9 +1268,19 @@ inline bool BreakingContext::handleText(WordMeasurements& wordMeasurements,
     if (!hyphenated && isBreakAtSoftHyphen() && !disableSoftHyphen) {
       hyphenated = true;
       m_atEnd = true;
-    } else if (!m_ignoringSpaces && canBreakMidWord &&
-               m_width.committedWidth()) {
-      m_atEnd = true;
+    }
+    if (!hyphenated && canBreakMidWord) {
+      m_width.addUncommittedWidth(-wordMeasurement.width);
+      if (rewindToMidWordBreak(layoutText, style, font, breakAll,
+                               wordMeasurement)) {
+        m_width.addUncommittedWidth(wordMeasurement.width);
+        m_width.commit();
+        m_atEnd = true;
+      } else {
+        m_width.addUncommittedWidth(wordMeasurement.width);
+        if (m_width.committedWidth())
+          m_atEnd = true;
+      }
     }
   }
   return false;
@@ -1289,7 +1335,7 @@ inline WordMeasurement& BreakingContext::calculateWordWidth(
     float wordTrailingSpaceWidth,
     UChar c) {
   wordMeasurements.grow(wordMeasurements.size() + 1);
-  WordMeasurement& wordMeasurement = wordMeasurements.last();
+  WordMeasurement& wordMeasurement = wordMeasurements.back();
   wordMeasurement.layoutText = layoutText;
   wordMeasurement.endOffset = m_current.offset();
   wordMeasurement.startOffset = lastSpace;
@@ -1408,7 +1454,7 @@ inline bool BreakingContext::canBreakAtWhitespace(
 inline void BreakingContext::commitAndUpdateLineBreakIfNeeded() {
   bool checkForBreak = m_autoWrap;
   if (m_width.committedWidth() && !m_width.fitsOnLine() &&
-      m_lineBreak.getLineLayoutItem() && m_currWS == NOWRAP) {
+      m_lineBreak.getLineLayoutItem() && m_currWS == EWhiteSpace::kNowrap) {
     if (m_width.fitsOnLine(0, ExcludeWhitespace)) {
       m_width.commit();
       m_lineBreak.moveToStartOf(m_nextObject);
@@ -1446,7 +1492,7 @@ inline void BreakingContext::commitAndUpdateLineBreakIfNeeded() {
     }
   }
 
-  ASSERT_WITH_SECURITY_IMPLICATION(m_currentStyle->refCount() > 0);
+  SECURITY_DCHECK(m_currentStyle->refCount() > 0);
   if (checkForBreak && !m_width.fitsOnLine()) {
     // if we have floats, try to get below them.
     if (m_currentCharacterIsSpace && !m_ignoringSpaces &&

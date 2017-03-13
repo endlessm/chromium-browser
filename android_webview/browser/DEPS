@@ -2,6 +2,7 @@ include_rules = [
   "-android_webview",
   "+android_webview/browser",
   "+android_webview/common",
+  "+android_webview/grit",
   "+android_webview/native/public",
   "+android_webview/public/browser",
 
@@ -19,6 +20,9 @@ include_rules = [
   "+components/pref_registry",
   "+components/printing/browser",
   "+components/printing/common",
+  "+components/safe_browsing",
+  "+components/safe_browsing_db",
+  "+components/security_interstitials/content",
   "+components/spellcheck/browser",
   "+components/spellcheck/common",
   "+components/url_formatter",
@@ -41,7 +45,7 @@ include_rules = [
 
   "+printing",
 
-  "+services/shell/public/cpp",
+  "+services/service_manager/public/cpp",
 
   "+ui/gfx",
   "+ui/gl",

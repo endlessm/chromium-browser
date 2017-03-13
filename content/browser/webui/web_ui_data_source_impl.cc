@@ -5,10 +5,12 @@
 #include "content/browser/webui/web_ui_data_source_impl.h"
 
 #include <stddef.h>
+#include <stdint.h>
 
 #include <string>
 
 #include "base/bind.h"
+#include "base/logging.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/strings/string_util.h"
@@ -31,6 +33,14 @@ WebUIDataSource* WebUIDataSource::Create(const std::string& source_name) {
 void WebUIDataSource::Add(BrowserContext* browser_context,
                           WebUIDataSource* source) {
   URLDataManager::AddWebUIDataSource(browser_context, source);
+}
+
+// static
+void WebUIDataSource::Update(BrowserContext* browser_context,
+                             const std::string& source_name,
+                             std::unique_ptr<base::DictionaryValue> update) {
+  URLDataManager::UpdateWebUIDataSource(browser_context, source_name,
+                                        std::move(update));
 }
 
 // Internal class to hide the fact that WebUIDataSourceImpl implements
@@ -59,6 +69,11 @@ class WebUIDataSourceImpl::InternalDataSource : public URLDataSource {
   bool ShouldAddContentSecurityPolicy() const override {
     return parent_->add_csp_;
   }
+  std::string GetContentSecurityPolicyScriptSrc() const override {
+    if (parent_->script_src_set_)
+      return parent_->script_src_;
+    return URLDataSource::GetContentSecurityPolicyScriptSrc();
+  }
   std::string GetContentSecurityPolicyObjectSrc() const override {
     if (parent_->object_src_set_)
       return parent_->object_src_;
@@ -73,9 +88,8 @@ class WebUIDataSourceImpl::InternalDataSource : public URLDataSource {
     return parent_->deny_xframe_options_;
   }
   bool IsGzipped(const std::string& path) const override {
-    if (!parent_->json_path_.empty() && path == parent_->json_path_)
-      return false;
-    return parent_->use_gzip_for_all_paths_;
+    return parent_->use_gzip_ &&
+        parent_->excluded_paths_.find(path) == parent_->excluded_paths_.end();
   }
 
  private:
@@ -87,12 +101,13 @@ WebUIDataSourceImpl::WebUIDataSourceImpl(const std::string& source_name)
       source_name_(source_name),
       default_resource_(-1),
       add_csp_(true),
+      script_src_set_(false),
       object_src_set_(false),
       frame_src_set_(false),
       deny_xframe_options_(true),
       add_load_time_data_defaults_(true),
       replace_existing_source_(true),
-      use_gzip_for_all_paths_(false) {}
+      use_gzip_(false) {}
 
 WebUIDataSourceImpl::~WebUIDataSourceImpl() {
 }
@@ -121,15 +136,8 @@ void WebUIDataSourceImpl::AddLocalizedString(const std::string& name,
 void WebUIDataSourceImpl::AddLocalizedStrings(
     const base::DictionaryValue& localized_strings) {
   localized_strings_.MergeDictionary(&localized_strings);
-
-  for (base::DictionaryValue::Iterator it(localized_strings); !it.IsAtEnd();
-       it.Advance()) {
-    if (it.value().IsType(base::Value::TYPE_STRING)) {
-      std::string value;
-      it.value().GetAsString(&value);
-      replacements_[it.key()] = value;
-    }
-  }
+  ui::TemplateReplacementsFromDictionaryValue(localized_strings,
+                                              &replacements_);
 }
 
 void WebUIDataSourceImpl::AddBoolean(const std::string& name, bool value) {
@@ -141,8 +149,16 @@ void WebUIDataSourceImpl::AddBoolean(const std::string& name, bool value) {
   // replacements.
 }
 
+void WebUIDataSourceImpl::AddInteger(const std::string& name, int32_t value) {
+  localized_strings_.SetInteger(name, value);
+}
+
 void WebUIDataSourceImpl::SetJsonPath(const std::string& path) {
+  DCHECK(json_path_.empty());
+  DCHECK(!path.empty());
+
   json_path_ = path;
+  excluded_paths_.insert(json_path_);
 }
 
 void WebUIDataSourceImpl::AddResourcePath(const std::string &path,
@@ -163,8 +179,18 @@ void WebUIDataSourceImpl::DisableReplaceExistingSource() {
   replace_existing_source_ = false;
 }
 
+bool WebUIDataSourceImpl::IsWebUIDataSourceImpl() const {
+  return true;
+}
+
 void WebUIDataSourceImpl::DisableContentSecurityPolicy() {
   add_csp_ = false;
+}
+
+void WebUIDataSourceImpl::OverrideContentSecurityPolicyScriptSrc(
+    const std::string& data) {
+  script_src_set_ = true;
+  script_src_ = data;
 }
 
 void WebUIDataSourceImpl::OverrideContentSecurityPolicyObjectSrc(
@@ -183,8 +209,26 @@ void WebUIDataSourceImpl::DisableDenyXFrameOptions() {
   deny_xframe_options_ = false;
 }
 
-void WebUIDataSourceImpl::DisableI18nAndUseGzipForAllPaths() {
-  use_gzip_for_all_paths_ = true;
+void WebUIDataSourceImpl::UseGzip(
+    const std::unordered_set<std::string>& excluded_paths) {
+  use_gzip_ = true;
+  for (const auto& path : excluded_paths)
+    excluded_paths_.insert(path);
+}
+
+const ui::TemplateReplacements* WebUIDataSourceImpl::GetReplacements() const {
+  return &replacements_;
+}
+
+void WebUIDataSourceImpl::EnsureLoadTimeDataDefaultsAdded() {
+  if (!add_load_time_data_defaults_)
+    return;
+
+  add_load_time_data_defaults_ = false;
+  std::string locale = GetContentClient()->browser()->GetApplicationLocale();
+  base::DictionaryValue defaults;
+  webui::SetLoadTimeDataDefaults(locale, &defaults);
+  AddLocalizedStrings(defaults);
 }
 
 std::string WebUIDataSourceImpl::GetSource() const {
@@ -222,13 +266,7 @@ void WebUIDataSourceImpl::StartDataRequest(
     return;
   }
 
-  if (add_load_time_data_defaults_) {
-    std::string locale = GetContentClient()->browser()->GetApplicationLocale();
-    base::DictionaryValue defaults;
-    webui::SetLoadTimeDataDefaults(locale, &defaults);
-    AddLocalizedStrings(defaults);
-    add_load_time_data_defaults_ = false;
-  }
+  EnsureLoadTimeDataDefaultsAdded();
 
   if (!json_path_.empty() && path == json_path_) {
     SendLocalizedStringsAsJSON(callback);
@@ -245,18 +283,6 @@ void WebUIDataSourceImpl::StartDataRequest(
   DCHECK_NE(resource_id, -1);
   scoped_refptr<base::RefCountedMemory> response(
       GetContentClient()->GetDataResourceBytes(resource_id));
-
-  // TODO(dschuyler): improve filtering of which resource to run template
-  // expansion upon. TODO(dbeam): make a streaming filter that works on gzipped
-  // content.
-  if (response.get() && GetMimeType(path) == "text/html" &&
-      !source()->IsGzipped(path)) {
-    std::string replaced = ui::ReplaceTemplateExpressions(
-        base::StringPiece(response->front_as<char>(), response->size()),
-        replacements_);
-    response = base::RefCountedString::TakeString(&replaced);
-  }
-
   callback.Run(response.get());
 }
 

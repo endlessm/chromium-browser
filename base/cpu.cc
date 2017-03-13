@@ -43,6 +43,7 @@ CPU::CPU()
     has_ssse3_(false),
     has_sse41_(false),
     has_sse42_(false),
+    has_popcnt_(false),
     has_avx_(false),
     has_avx2_(false),
     has_aesni_(false),
@@ -59,23 +60,22 @@ namespace {
 #if defined(__pic__) && defined(__i386__)
 
 void __cpuid(int cpu_info[4], int info_type) {
-  __asm__ volatile (
-    "mov %%ebx, %%edi\n"
-    "cpuid\n"
-    "xchg %%edi, %%ebx\n"
-    : "=a"(cpu_info[0]), "=D"(cpu_info[1]), "=c"(cpu_info[2]), "=d"(cpu_info[3])
-    : "a"(info_type)
-  );
+  __asm__ volatile(
+      "mov %%ebx, %%edi\n"
+      "cpuid\n"
+      "xchg %%edi, %%ebx\n"
+      : "=a"(cpu_info[0]), "=D"(cpu_info[1]), "=c"(cpu_info[2]),
+        "=d"(cpu_info[3])
+      : "a"(info_type), "c"(0));
 }
 
 #else
 
 void __cpuid(int cpu_info[4], int info_type) {
-  __asm__ volatile (
-    "cpuid\n"
-    : "=a"(cpu_info[0]), "=b"(cpu_info[1]), "=c"(cpu_info[2]), "=d"(cpu_info[3])
-    : "a"(info_type)
-  );
+  __asm__ volatile("cpuid\n"
+                   : "=a"(cpu_info[0]), "=b"(cpu_info[1]), "=c"(cpu_info[2]),
+                     "=d"(cpu_info[3])
+                   : "a"(info_type), "c"(0));
 }
 
 #endif
@@ -177,6 +177,8 @@ void CPU::Initialize() {
     has_ssse3_ = (cpu_info[2] & 0x00000200) != 0;
     has_sse41_ = (cpu_info[2] & 0x00080000) != 0;
     has_sse42_ = (cpu_info[2] & 0x00100000) != 0;
+    has_popcnt_ = (cpu_info[2] & 0x00800000) != 0;
+
     // AVX instructions will generate an illegal instruction exception unless
     //   a) they are supported by the CPU,
     //   b) XSAVE is supported by the CPU and

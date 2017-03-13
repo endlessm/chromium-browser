@@ -27,19 +27,13 @@
 #include "core/css/MediaList.h"
 #include "core/dom/Document.h"
 #include "core/dom/StyleEngine.h"
+#include "core/dom/TaskRunnerHelper.h"
 #include "core/dom/shadow/ShadowRoot.h"
 #include "core/events/Event.h"
-#include "core/events/EventSender.h"
 
 namespace blink {
 
 using namespace HTMLNames;
-
-static StyleEventSender& styleLoadEventSender() {
-  DEFINE_STATIC_LOCAL(StyleEventSender, sharedLoadEventSender,
-                      (StyleEventSender::create(EventTypeNames::load)));
-  return sharedLoadEventSender;
-}
 
 inline HTMLStyleElement::HTMLStyleElement(Document& document,
                                           bool createdByParser)
@@ -55,18 +49,16 @@ HTMLStyleElement* HTMLStyleElement::create(Document& document,
   return new HTMLStyleElement(document, createdByParser);
 }
 
-void HTMLStyleElement::parseAttribute(const QualifiedName& name,
-                                      const AtomicString& oldValue,
-                                      const AtomicString& value) {
-  if (name == titleAttr && m_sheet && isInDocumentTree()) {
-    m_sheet->setTitle(value);
-  } else if (name == mediaAttr && isConnected() && document().isActive() &&
-             m_sheet) {
-    m_sheet->setMediaQueries(MediaQuerySet::create(value));
-    document().styleEngine().setNeedsActiveStyleUpdate(m_sheet.get(),
-                                                       FullStyleUpdate);
+void HTMLStyleElement::parseAttribute(
+    const AttributeModificationParams& params) {
+  if (params.name == titleAttr && m_sheet && isInDocumentTree()) {
+    m_sheet->setTitle(params.newValue);
+  } else if (params.name == mediaAttr && isConnected() &&
+             document().isActive() && m_sheet) {
+    m_sheet->setMediaQueries(MediaQuerySet::create(params.newValue));
+    document().styleEngine().mediaQueriesChangedInScope(treeScope());
   } else {
-    HTMLElement::parseAttribute(name, oldValue, value);
+    HTMLElement::parseAttribute(params);
   }
 }
 
@@ -113,14 +105,14 @@ const AtomicString& HTMLStyleElement::type() const {
   return getAttribute(typeAttr);
 }
 
-void HTMLStyleElement::dispatchPendingLoadEvents() {
-  styleLoadEventSender().dispatchPendingEvents();
-}
-
-void HTMLStyleElement::dispatchPendingEvent(StyleEventSender* eventSender) {
-  DCHECK_EQ(eventSender, &styleLoadEventSender());
+void HTMLStyleElement::dispatchPendingEvent(
+    std::unique_ptr<IncrementLoadEventDelayCount> count) {
   dispatchEvent(Event::create(m_loadedSheet ? EventTypeNames::load
                                             : EventTypeNames::error));
+
+  // Checks Document's load event synchronously here for performance.
+  // This is safe because dispatchPendingEvent() is called asynchronously.
+  count->clearAndCheckLoadEvent();
 }
 
 void HTMLStyleElement::notifyLoadedSheetAndAllCriticalSubresources(
@@ -129,7 +121,12 @@ void HTMLStyleElement::notifyLoadedSheetAndAllCriticalSubresources(
   if (m_firedLoad && isLoadEvent)
     return;
   m_loadedSheet = isLoadEvent;
-  styleLoadEventSender().dispatchEventSoon(this);
+  TaskRunnerHelper::get(TaskType::DOMManipulation, &document())
+      ->postTask(
+          BLINK_FROM_HERE,
+          WTF::bind(
+              &HTMLStyleElement::dispatchPendingEvent, wrapPersistent(this),
+              WTF::passed(IncrementLoadEventDelayCount::create(document()))));
   m_firedLoad = true;
 }
 

@@ -68,6 +68,11 @@ extern const char kNumExtensionsCount[];
 // "exit" for BROWSER_EXIT, or "end" for END_SESSION.
 extern const char kShutdownType[];
 
+// Stack trace associated to the browser being unpinned and starting the
+// shutdown sequence. The value is set when we trigger a browser crash due to an
+// invalid attempt to Pin the browser process after that.
+extern const char kBrowserUnpinTrace[];
+
 // GPU information.
 #if !defined(OS_ANDROID)
 extern const char kGPUVendorID[];
@@ -85,7 +90,24 @@ extern const char kGPURenderer[];
 
 #if defined(OS_WIN)
 extern const char kHungAudioThreadDetails[];
+
+// Hung renderer crash reports are only sent on Windows.
+extern const char kHungRendererOutstandingAckCount[];
+extern const char kHungRendererOutstandingEventType[];
+extern const char kHungRendererLastEventType[];
+extern const char kHungRendererReason[];
+
+// Third-party module crash keys are sent only on Windows.
+extern const char kThirdPartyModulesLoaded[];
+extern const char kThirdPartyModulesNotLoaded[];
+
+// Whether the machine is domain joined is only sent on Windows.
+extern const char kEnrolledToDomain[];
 #endif
+
+// Number of input event send IPC failures. Added to debug
+// crbug.com/615090.
+extern const char kInputEventFilterSendFailure[];
 
 // The user's printers, up to kPrinterInfoCount. Should be set with
 // ScopedPrinterInfo.
@@ -95,6 +117,10 @@ extern const char kPrinterInfo[];
 #if defined(OS_CHROMEOS)
 // The number of simultaneous users in multi profile sessions.
 extern const char kNumberOfUsers[];
+
+// The stack trace of the last good close of a fd that just fails a close.
+// Temporary for https://crbug.com/660960
+extern const char kLastGoodCloseStack[];
 #endif
 
 #if defined(OS_MACOSX)
@@ -115,6 +141,9 @@ extern const char kNSExceptionTrace[];
 // In the CrApplication, records information about the current event's
 // target-action.
 extern const char kSendAction[];
+
+// In the CrApplication, records information about the current event.
+extern const char kNSEvent[];
 
 }  // namespace mac
 #endif

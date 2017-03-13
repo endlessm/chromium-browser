@@ -6,6 +6,7 @@
 
 #include <stddef.h>
 
+#include "cc/animation/animation_host.h"
 #include "cc/base/math_util.h"
 #include "cc/layers/layer.h"
 #include "cc/layers/layer_impl.h"
@@ -87,7 +88,10 @@ class OcclusionTrackerTest : public testing::Test {
  protected:
   explicit OcclusionTrackerTest(bool opaque_layers)
       : opaque_layers_(opaque_layers),
-        host_(FakeLayerTreeHost::Create(&client_, &task_graph_runner_)),
+        animation_host_(AnimationHost::CreateForTesting(ThreadInstance::MAIN)),
+        host_(FakeLayerTreeHost::Create(&client_,
+                                        &task_graph_runner_,
+                                        animation_host_.get())),
         next_layer_impl_id_(1) {}
 
   virtual void RunMyTest() = 0;
@@ -290,6 +294,7 @@ class OcclusionTrackerTest : public testing::Test {
   bool opaque_layers_;
   FakeLayerTreeHostClient client_;
   TestTaskGraphRunner task_graph_runner_;
+  std::unique_ptr<AnimationHost> animation_host_;
   std::unique_ptr<FakeLayerTreeHost> host_;
   // These hold ownership of the layers for the duration of the test.
   LayerImplList render_surface_layer_list_impl_;
@@ -1063,9 +1068,9 @@ class OcclusionTrackerTestLayerBehindCameraDoesNotOcclude
     TestContentLayerImpl* layer = this->CreateDrawingLayer(
         parent, transform, gfx::PointF(), gfx::Size(100, 100), true);
     parent->test_properties()->should_flatten_transform = false;
-    parent->Set3dSortingContextId(1);
+    parent->test_properties()->sorting_context_id = 1;
     layer->test_properties()->should_flatten_transform = false;
-    layer->Set3dSortingContextId(1);
+    layer->test_properties()->sorting_context_id = 1;
     this->CalcDrawEtc(parent);
 
     TestOcclusionTrackerWithClip occlusion(gfx::Rect(0, 0, 1000, 1000));
@@ -1767,8 +1772,7 @@ class OcclusionTrackerTestBlendModeDoesNotOcclude
 
     // Blend mode makes the layer own a surface.
     blend_mode_layer->test_properties()->force_render_surface = true;
-    blend_mode_layer->test_properties()->blend_mode =
-        SkXfermode::kMultiply_Mode;
+    blend_mode_layer->test_properties()->blend_mode = SkBlendMode::kMultiply;
 
     this->CalcDrawEtc(parent);
 

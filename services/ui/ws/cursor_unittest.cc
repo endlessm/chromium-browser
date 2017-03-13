@@ -11,13 +11,12 @@
 #include "services/ui/common/types.h"
 #include "services/ui/common/util.h"
 #include "services/ui/public/interfaces/window_tree.mojom.h"
-#include "services/ui/surfaces/display_compositor.h"
 #include "services/ui/ws/display_manager.h"
 #include "services/ui/ws/ids.h"
 #include "services/ui/ws/platform_display.h"
 #include "services/ui/ws/platform_display_factory.h"
 #include "services/ui/ws/server_window.h"
-#include "services/ui/ws/server_window_surface_manager_test_api.h"
+#include "services/ui/ws/server_window_compositor_frame_sink_manager_test_api.h"
 #include "services/ui/ws/test_utils.h"
 #include "services/ui/ws/window_manager_display_root.h"
 #include "services/ui/ws/window_manager_state.h"
@@ -49,12 +48,11 @@ class CursorTest : public testing::Test {
  protected:
   // testing::Test:
   void SetUp() override {
-    window_server_delegate()->set_num_displays_to_create(1);
+    screen_manager_.Init(window_server()->display_manager());
+    screen_manager_.AddDisplay();
 
     // As a side effect, this allocates Displays.
-    WindowManagerWindowTreeFactorySetTestApi(
-        window_server()->window_manager_window_tree_factory_set())
-        .Add(kTestId1);
+    AddWindowManager(window_server(), kTestId1);
     window_server()->user_id_tracker()->AddUserId(kTestId1);
     window_server()->user_id_tracker()->SetActiveUserId(kTestId1);
   }
@@ -83,8 +81,9 @@ class CursorTest : public testing::Test {
     w->SetClientArea(gfx::Insets(10, 10), std::vector<gfx::Rect>());
     w->SetVisible(true);
 
-    ServerWindowSurfaceManagerTestApi test_api(w->GetOrCreateSurfaceManager());
-    test_api.CreateEmptyDefaultSurface();
+    ServerWindowCompositorFrameSinkManagerTestApi test_api(
+        w->GetOrCreateCompositorFrameSinkManager());
+    test_api.CreateEmptyDefaultCompositorFrameSink();
 
     return w;
   }
@@ -104,6 +103,7 @@ class CursorTest : public testing::Test {
 
  private:
   WindowServerTestHelper ws_test_helper_;
+  TestScreenManager screen_manager_;
   DISALLOW_COPY_AND_ASSIGN(CursorTest);
 };
 

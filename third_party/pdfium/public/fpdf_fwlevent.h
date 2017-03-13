@@ -7,6 +7,7 @@
 #ifndef PUBLIC_FPDF_FWLEVENT_H_
 #define PUBLIC_FPDF_FWLEVENT_H_
 
+// NOLINTNEXTLINE(build/include)
 #include "fpdfview.h"
 
 #ifdef __cplusplus
@@ -75,6 +76,7 @@ struct FWL_EVENT_MOUSEWHEEL {
 typedef enum {
   FWL_VKEY_Back = 0x08,
   FWL_VKEY_Tab = 0x09,
+  FWL_VKEY_NewLine = 0x0A,
   FWL_VKEY_Clear = 0x0C,
   FWL_VKEY_Return = 0x0D,
   FWL_VKEY_Shift = 0x10,

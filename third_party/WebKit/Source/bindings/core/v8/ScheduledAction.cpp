@@ -32,6 +32,7 @@
 
 #include "bindings/core/v8/ScriptController.h"
 #include "bindings/core/v8/ScriptSourceCode.h"
+#include "bindings/core/v8/SourceLocation.h"
 #include "bindings/core/v8/V8Binding.h"
 #include "bindings/core/v8/V8GCController.h"
 #include "bindings/core/v8/V8ScriptRunner.h"
@@ -40,7 +41,7 @@
 #include "core/frame/LocalFrame.h"
 #include "core/workers/WorkerGlobalScope.h"
 #include "core/workers/WorkerThread.h"
-#include "platform/tracing/TraceEvent.h"
+#include "platform/instrumentation/tracing/TraceEvent.h"
 
 namespace blink {
 
@@ -60,7 +61,17 @@ DEFINE_TRACE(ScheduledAction) {
   visitor->trace(m_code);
 }
 
-ScheduledAction::~ScheduledAction() {}
+ScheduledAction::~ScheduledAction() {
+  // Verify that owning DOMTimer has eagerly disposed.
+  DCHECK(m_info.IsEmpty());
+}
+
+void ScheduledAction::dispose() {
+  m_code.dispose();
+  m_info.Clear();
+  m_function.clear();
+  m_scriptState.clear();
+}
 
 void ScheduledAction::execute(ExecutionContext* context) {
   if (context->isDocument()) {
@@ -168,7 +179,7 @@ void ScheduledAction::createLocalHandlesForArgs(
     Vector<v8::Local<v8::Value>>* handles) {
   handles->reserveCapacity(m_info.Size());
   for (size_t i = 0; i < m_info.Size(); ++i)
-    handles->append(m_info.Get(i));
+    handles->push_back(m_info.Get(i));
 }
 
 }  // namespace blink

@@ -2,6 +2,7 @@
 # dependencies to a minimal set.
 include_rules = [
   "-components",
+  "+components/browser_watcher",
   "+components/compression",
   "+components/metrics",
   "+components/prefs",
@@ -9,7 +10,7 @@ include_rules = [
   "+components/version_info",
   "+content/public/test",
   "+mojo/public/cpp",
-  "+services/shell/public/cpp",
+  "+services/service_manager/public/cpp",
   "+third_party/zlib/google",
   "-net",
 ]

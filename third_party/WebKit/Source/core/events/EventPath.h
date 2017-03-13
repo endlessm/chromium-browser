@@ -52,6 +52,12 @@ class CORE_EXPORT EventPath final : public GarbageCollected<EventPath> {
 
   void initializeWith(Node&, Event*);
 
+  const HeapVector<NodeEventContext>& nodeEventContexts() const {
+    return m_nodeEventContexts;
+  }
+  HeapVector<NodeEventContext>& nodeEventContexts() {
+    return m_nodeEventContexts;
+  }
   NodeEventContext& operator[](size_t index) {
     return m_nodeEventContexts[index];
   }
@@ -91,6 +97,10 @@ class CORE_EXPORT EventPath final : public GarbageCollected<EventPath> {
   void calculateAdjustedTargets();
   void calculateTreeOrderAndSetNearestAncestorClosedTree();
 
+  bool shouldStopEventPath(EventTarget& currentTarget,
+                           EventTarget& currentRelatedTarget,
+                           const Node& target);
+
   void shrink(size_t newSize) {
     DCHECK(!m_windowEventContext);
     m_nodeEventContexts.shrink(newSize);
@@ -98,7 +108,7 @@ class CORE_EXPORT EventPath final : public GarbageCollected<EventPath> {
 
   void retargetRelatedTarget(const Node& relatedTargetNode);
 
-  void shrinkForRelatedTarget(const Node& target, const Node& relatedTarget);
+  void shrinkForRelatedTarget(const Node& target);
 
   void adjustTouchList(const TouchList*,
                        HeapVector<Member<TouchList>> adjustedTouchList,

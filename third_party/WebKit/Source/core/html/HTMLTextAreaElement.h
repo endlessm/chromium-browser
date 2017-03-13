@@ -26,19 +26,17 @@
 
 #include "base/gtest_prod_util.h"
 #include "core/CoreExport.h"
-#include "core/html/HTMLTextFormControlElement.h"
+#include "core/html/TextControlElement.h"
 
 namespace blink {
 
 class BeforeTextInsertedEvent;
-class ExceptionState;
 
-class CORE_EXPORT HTMLTextAreaElement final
-    : public HTMLTextFormControlElement {
+class CORE_EXPORT HTMLTextAreaElement final : public TextControlElement {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
-  static HTMLTextAreaElement* create(Document&, HTMLFormElement*);
+  static HTMLTextAreaElement* create(Document&);
 
   unsigned cols() const { return m_cols; }
   unsigned rows() const { return m_rows; }
@@ -51,10 +49,6 @@ class CORE_EXPORT HTMLTextAreaElement final
   String defaultValue() const;
   void setDefaultValue(const String&);
   int textLength() const { return value().length(); }
-  int maxLength() const;
-  int minLength() const;
-  void setMaxLength(int, ExceptionState&);
-  void setMinLength(int, ExceptionState&);
 
   String suggestedValue() const;
   void setSuggestedValue(const String&);
@@ -71,7 +65,7 @@ class CORE_EXPORT HTMLTextAreaElement final
 
  private:
   FRIEND_TEST_ALL_PREFIXES(HTMLTextAreaElementTest, SanitizeUserInputValue);
-  HTMLTextAreaElement(Document&, HTMLFormElement*);
+  explicit HTMLTextAreaElement(Document&);
 
   enum WrapMethod { NoWrap, SoftWrap, HardWrap };
   enum SetValueCommonOption { NotSetSelection, SetSeletion };
@@ -121,12 +115,10 @@ class CORE_EXPORT HTMLTextAreaElement final
   FormControlState saveFormControlState() const override;
   void restoreFormControlState(const FormControlState&) override;
 
-  bool isTextFormControl() const override { return true; }
+  bool isTextControl() const override { return true; }
 
   void childrenChanged(const ChildrenChange&) override;
-  void parseAttribute(const QualifiedName&,
-                      const AtomicString&,
-                      const AtomicString&) override;
+  void parseAttribute(const AttributeModificationParams&) override;
   bool isPresentationAttribute(const QualifiedName&) const override;
   void collectStyleForPresentationAttribute(const QualifiedName&,
                                             const AtomicString&,

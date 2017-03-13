@@ -4,9 +4,11 @@
 
 #include "chrome/browser/chromeos/login/supervised/supervised_user_creation_screen.h"
 
-#include "ash/common/shelf/wm_shelf.h"
+#include <utility>
+
 #include "ash/common/wallpaper/wallpaper_controller.h"
 #include "ash/common/wm_shell.h"
+#include "base/memory/ptr_util.h"
 #include "base/rand_util.h"
 #include "base/values.h"
 #include "chrome/browser/chromeos/camera_detector.h"
@@ -95,13 +97,14 @@ void ConfigureErrorScreen(ErrorScreen* screen,
 SupervisedUserCreationScreen* SupervisedUserCreationScreen::Get(
     ScreenManager* manager) {
   return static_cast<SupervisedUserCreationScreen*>(
-      manager->GetScreen(WizardController::kSupervisedUserCreationScreenName));
+      manager->GetScreen(OobeScreen::SCREEN_CREATE_SUPERVISED_USER_FLOW));
 }
 
 SupervisedUserCreationScreen::SupervisedUserCreationScreen(
     BaseScreenDelegate* base_screen_delegate,
     SupervisedUserCreationScreenHandler* actor)
-    : BaseScreen(base_screen_delegate),
+    : BaseScreen(base_screen_delegate,
+                 OobeScreen::SCREEN_CREATE_SUPERVISED_USER_FLOW),
       actor_(actor),
       on_error_screen_(false),
       manager_signin_in_progress_(false),
@@ -123,11 +126,6 @@ SupervisedUserCreationScreen::~SupervisedUserCreationScreen() {
   if (actor_)
     actor_->SetDelegate(NULL);
   network_portal_detector::GetInstance()->RemoveObserver(this);
-}
-
-void SupervisedUserCreationScreen::PrepareToShow() {
-  if (actor_)
-    actor_->PrepareToShow();
 }
 
 void SupervisedUserCreationScreen::Show() {
@@ -193,10 +191,6 @@ void SupervisedUserCreationScreen::Hide() {
     actor_->Hide();
   if (!on_error_screen_)
     network_portal_detector::GetInstance()->RemoveObserver(this);
-}
-
-std::string SupervisedUserCreationScreen::GetName() const {
-  return WizardController::kSupervisedUserCreationScreenName;
 }
 
 void SupervisedUserCreationScreen::AbortFlow() {
@@ -374,8 +368,6 @@ void SupervisedUserCreationScreen::OnManagerFullyAuthenticated(
   // For manager user, move wallpaper to locked container so that windows
   // created during the user image picker step are below it.
   ash::WmShell::Get()->wallpaper_controller()->MoveToLockedContainer();
-  ash::WmShelf::ForWindow(ash::WmShell::Get()->GetPrimaryRootWindow())
-      ->SetAlignment(ash::ShelfAlignment::SHELF_ALIGNMENT_BOTTOM_LOCKED);
 
   controller_->SetManagerProfile(manager_profile);
   if (actor_)
@@ -496,8 +488,8 @@ void SupervisedUserCreationScreen::ApplyPicture() {
         apply_photo_after_decoding_ = true;
         return;
       }
-      image_manager->SaveUserImage(
-          user_manager::UserImage::CreateAndEncode(user_photo_));
+      image_manager->SaveUserImage(user_manager::UserImage::CreateAndEncode(
+          user_photo_, user_manager::UserImage::FORMAT_JPEG));
       break;
     case user_manager::User::USER_IMAGE_PROFILE:
       NOTREACHED() << "Supervised users have no profile pictures";
@@ -538,8 +530,7 @@ void SupervisedUserCreationScreen::OnGetSupervisedUsers(
         static_cast<base::DictionaryValue*>(it.value().DeepCopy());
     // Copy that would be passed to WebUI. It has some extra values for
     // displaying, but does not contain sensitive data, such as master password.
-    base::DictionaryValue* ui_copy =
-        static_cast<base::DictionaryValue*>(new base::DictionaryValue());
+    auto ui_copy = base::MakeUnique<base::DictionaryValue>();
 
     int avatar_index = SupervisedUserCreationController::kDummyAvatarIndex;
     std::string chromeos_avatar;
@@ -590,7 +581,7 @@ void SupervisedUserCreationScreen::OnGetSupervisedUsers(
     ui_copy->SetString("id", it.key());
 
     existing_users_->Set(it.key(), local_copy);
-    ui_users->Append(ui_copy);
+    ui_users->Append(std::move(ui_copy));
   }
   actor_->ShowExistingSupervisedUsers(ui_users.get());
 }

@@ -60,7 +60,7 @@ class CPDF_InterForm {
                                       int* z_order) const;
   CPDF_FormControl* GetControlByDict(const CPDF_Dictionary* pWidgetDict) const;
 
-  FX_BOOL NeedConstructAP() const;
+  bool NeedConstructAP() const;
   int CountFieldsInCalculationOrder();
   CPDF_FormField* GetFieldInCalculationOrder(int index);
   int FindFieldInCalculationOrder(const CPDF_FormField* pField);
@@ -73,12 +73,14 @@ class CPDF_InterForm {
       const std::vector<CPDF_FormField*>* fields,
       bool bIncludeOrExclude) const;
 
-  CFDF_Document* ExportToFDF(const CFX_WideStringC& pdf_path,
-                             bool bSimpleFileSpec) const;
-  CFDF_Document* ExportToFDF(const CFX_WideStringC& pdf_path,
-                             const std::vector<CPDF_FormField*>& fields,
-                             bool bIncludeOrExclude,
-                             bool bSimpleFileSpec) const;
+  std::unique_ptr<CFDF_Document> ExportToFDF(const CFX_WideStringC& pdf_path,
+                                             bool bSimpleFileSpec) const;
+
+  std::unique_ptr<CFDF_Document> ExportToFDF(
+      const CFX_WideStringC& pdf_path,
+      const std::vector<CPDF_FormField*>& fields,
+      bool bIncludeOrExclude,
+      bool bSimpleFileSpec) const;
 
   bool ResetForm(const std::vector<CPDF_FormField*>& fields,
                  bool bIncludeOrExclude,
@@ -86,7 +88,7 @@ class CPDF_InterForm {
   bool ResetForm(bool bNotify);
 
   void SetFormNotify(IPDF_FormNotify* pNotify);
-  FX_BOOL HasXFAForm() const;
+  bool HasXFAForm() const;
   void FixPageFields(const CPDF_Page* pPage);
 
  private:
@@ -99,7 +101,7 @@ class CPDF_InterForm {
                                CPDF_Dictionary* pWidgetDict);
   void FDF_ImportField(CPDF_Dictionary* pField,
                        const CFX_WideString& parent_name,
-                       FX_BOOL bNotify = FALSE,
+                       bool bNotify = false,
                        int nLevel = 0);
   bool ValidateFieldName(CFX_WideString& csNewFieldName,
                          int iType,
@@ -110,7 +112,8 @@ class CPDF_InterForm {
 
   CPDF_Document* const m_pDocument;
   CPDF_Dictionary* m_pFormDict;
-  std::map<const CPDF_Dictionary*, CPDF_FormControl*> m_ControlMap;
+  std::map<const CPDF_Dictionary*, std::unique_ptr<CPDF_FormControl>>
+      m_ControlMap;
   std::unique_ptr<CFieldTree> m_pFieldTree;
   CFX_ByteString m_bsEncoding;
   IPDF_FormNotify* m_pFormNotify;

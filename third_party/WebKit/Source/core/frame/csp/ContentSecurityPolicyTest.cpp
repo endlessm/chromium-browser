@@ -7,6 +7,7 @@
 #include "core/dom/Document.h"
 #include "core/fetch/IntegrityMetadata.h"
 #include "core/frame/csp/CSPDirectiveList.h"
+#include "core/html/HTMLScriptElement.h"
 #include "core/loader/DocumentLoader.h"
 #include "core/testing/DummyPageHolder.h"
 #include "platform/Crypto.h"
@@ -193,42 +194,6 @@ TEST_F(ContentSecurityPolicyTest, IsFrameAncestorsEnforced) {
   EXPECT_TRUE(csp->isFrameAncestorsEnforced());
 }
 
-TEST_F(ContentSecurityPolicyTest, MultipleReferrerDirectives) {
-  csp->didReceiveHeader("referrer unsafe-url; referrer origin;",
-                        ContentSecurityPolicyHeaderTypeEnforce,
-                        ContentSecurityPolicyHeaderSourceHTTP);
-  csp->bindToExecutionContext(document.get());
-  EXPECT_EQ(ReferrerPolicyOrigin, document->getReferrerPolicy());
-}
-
-TEST_F(ContentSecurityPolicyTest, MultipleReferrerPolicies) {
-  csp->didReceiveHeader("referrer unsafe-url;",
-                        ContentSecurityPolicyHeaderTypeEnforce,
-                        ContentSecurityPolicyHeaderSourceHTTP);
-  csp->bindToExecutionContext(document.get());
-  EXPECT_EQ(ReferrerPolicyAlways, document->getReferrerPolicy());
-  document->parseAndSetReferrerPolicy("origin");
-  EXPECT_EQ(ReferrerPolicyOrigin, document->getReferrerPolicy());
-}
-
-TEST_F(ContentSecurityPolicyTest, UnknownReferrerDirective) {
-  csp->didReceiveHeader("referrer unsafe-url; referrer blahblahblah",
-                        ContentSecurityPolicyHeaderTypeEnforce,
-                        ContentSecurityPolicyHeaderSourceHTTP);
-  csp->bindToExecutionContext(document.get());
-  EXPECT_EQ(ReferrerPolicyAlways, document->getReferrerPolicy());
-  document->parseAndSetReferrerPolicy("origin");
-  document->parseAndSetReferrerPolicy("blahblahblah");
-  EXPECT_EQ(ReferrerPolicyOrigin, document->getReferrerPolicy());
-}
-
-TEST_F(ContentSecurityPolicyTest, EmptyReferrerDirective) {
-  csp->didReceiveHeader("referrer;", ContentSecurityPolicyHeaderTypeEnforce,
-                        ContentSecurityPolicyHeaderSourceHTTP);
-  csp->bindToExecutionContext(document.get());
-  EXPECT_EQ(ReferrerPolicyNever, document->getReferrerPolicy());
-}
-
 // Tests that frame-ancestors directives are discarded from policies
 // delivered in <meta> elements.
 TEST_F(ContentSecurityPolicyTest, FrameAncestorsInMeta) {
@@ -298,6 +263,37 @@ TEST_F(ContentSecurityPolicyTest, ObjectSrc) {
                                 ContentSecurityPolicy::SuppressReport));
 }
 
+TEST_F(ContentSecurityPolicyTest, ConnectSrc) {
+  KURL url(KURL(), "https://example.test");
+  csp->bindToExecutionContext(document.get());
+  csp->didReceiveHeader("connect-src 'none';",
+                        ContentSecurityPolicyHeaderTypeEnforce,
+                        ContentSecurityPolicyHeaderSourceMeta);
+  EXPECT_FALSE(csp->allowRequest(WebURLRequest::RequestContextSubresource, url,
+                                 String(), IntegrityMetadataSet(),
+                                 ParserInserted,
+                                 ResourceRequest::RedirectStatus::NoRedirect,
+                                 ContentSecurityPolicy::SuppressReport));
+  EXPECT_FALSE(csp->allowRequest(WebURLRequest::RequestContextXMLHttpRequest,
+                                 url, String(), IntegrityMetadataSet(),
+                                 ParserInserted,
+                                 ResourceRequest::RedirectStatus::NoRedirect,
+                                 ContentSecurityPolicy::SuppressReport));
+  EXPECT_FALSE(csp->allowRequest(WebURLRequest::RequestContextBeacon, url,
+                                 String(), IntegrityMetadataSet(),
+                                 ParserInserted,
+                                 ResourceRequest::RedirectStatus::NoRedirect,
+                                 ContentSecurityPolicy::SuppressReport));
+  EXPECT_FALSE(csp->allowRequest(
+      WebURLRequest::RequestContextFetch, url, String(), IntegrityMetadataSet(),
+      ParserInserted, ResourceRequest::RedirectStatus::NoRedirect,
+      ContentSecurityPolicy::SuppressReport));
+  EXPECT_TRUE(csp->allowRequest(WebURLRequest::RequestContextPlugin, url,
+                                String(), IntegrityMetadataSet(),
+                                ParserInserted,
+                                ResourceRequest::RedirectStatus::NoRedirect,
+                                ContentSecurityPolicy::SuppressReport));
+}
 // Tests that requests for scripts and styles are blocked
 // if `require-sri-for` delivered in HTTP header requires integrity be present
 TEST_F(ContentSecurityPolicyTest, RequireSRIForInHeaderMissingIntegrity) {
@@ -705,6 +701,7 @@ TEST_F(ContentSecurityPolicyTest, NonceInline) {
                                     << "`, Nonce: `" << test.nonce << "`");
 
     unsigned expectedReports = test.allowed ? 0u : 1u;
+    HTMLScriptElement* element = HTMLScriptElement::create(*document, true);
 
     // Enforce 'script-src'
     Persistent<ContentSecurityPolicy> policy = ContentSecurityPolicy::create();
@@ -713,8 +710,8 @@ TEST_F(ContentSecurityPolicyTest, NonceInline) {
                              ContentSecurityPolicyHeaderTypeEnforce,
                              ContentSecurityPolicyHeaderSourceHTTP);
     EXPECT_EQ(test.allowed,
-              policy->allowInlineScript(contextURL, String(test.nonce),
-                                        ParserInserted, contextLine, content));
+              policy->allowInlineScript(element, contextURL, String(test.nonce),
+                                        contextLine, content));
     EXPECT_EQ(expectedReports, policy->m_violationReportsSent.size());
 
     // Enforce 'style-src'
@@ -724,7 +721,7 @@ TEST_F(ContentSecurityPolicyTest, NonceInline) {
                              ContentSecurityPolicyHeaderTypeEnforce,
                              ContentSecurityPolicyHeaderSourceHTTP);
     EXPECT_EQ(test.allowed,
-              policy->allowInlineStyle(contextURL, String(test.nonce),
+              policy->allowInlineStyle(element, contextURL, String(test.nonce),
                                        contextLine, content));
     EXPECT_EQ(expectedReports, policy->m_violationReportsSent.size());
 
@@ -735,7 +732,7 @@ TEST_F(ContentSecurityPolicyTest, NonceInline) {
                              ContentSecurityPolicyHeaderTypeReport,
                              ContentSecurityPolicyHeaderSourceHTTP);
     EXPECT_TRUE(policy->allowInlineScript(
-        contextURL, String(test.nonce), ParserInserted, contextLine, content));
+        element, contextURL, String(test.nonce), contextLine, content));
     EXPECT_EQ(expectedReports, policy->m_violationReportsSent.size());
 
     // Report 'style-src'
@@ -744,8 +741,8 @@ TEST_F(ContentSecurityPolicyTest, NonceInline) {
     policy->didReceiveHeader(String("style-src ") + test.policy,
                              ContentSecurityPolicyHeaderTypeReport,
                              ContentSecurityPolicyHeaderSourceHTTP);
-    EXPECT_TRUE(policy->allowInlineStyle(contextURL, String(test.nonce),
-                                         contextLine, content));
+    EXPECT_TRUE(policy->allowInlineStyle(
+        element, contextURL, String(test.nonce), contextLine, content));
     EXPECT_EQ(expectedReports, policy->m_violationReportsSent.size());
   }
 }
@@ -860,6 +857,136 @@ TEST_F(ContentSecurityPolicyTest, NonceMultiplePolicy) {
                                               ParserInserted));
     EXPECT_EQ(expectedReports, policy->m_violationReportsSent.size());
   }
+}
+
+TEST_F(ContentSecurityPolicyTest, ShouldEnforceEmbeddersPolicy) {
+  struct TestCase {
+    const char* resourceURL;
+    const bool inherits;
+  } cases[] = {
+      // Same-origin
+      {"https://example.test/index.html", true},
+      // Cross-origin
+      {"http://example.test/index.html", false},
+      {"http://example.test:8443/index.html", false},
+      {"https://example.test:8443/index.html", false},
+      {"http://not.example.test/index.html", false},
+      {"https://not.example.test/index.html", false},
+      {"https://not.example.test:8443/index.html", false},
+
+      // Inherit
+      {"about:blank", true},
+      {"data:text/html,yay", true},
+      {"blob:https://example.test/bbe708f3-defd-4852-93b6-cf94e032f08d", true},
+      {"filesystem:http://example.test/temporary/index.html", true},
+  };
+
+  for (const auto& test : cases) {
+    ResourceResponse response;
+    response.setURL(KURL(ParsedURLString, test.resourceURL));
+    EXPECT_EQ(ContentSecurityPolicy::shouldEnforceEmbeddersPolicy(
+                  response, secureOrigin.get()),
+              test.inherits);
+
+    response.setHTTPHeaderField(HTTPNames::Allow_CSP_From, AtomicString("*"));
+    EXPECT_TRUE(ContentSecurityPolicy::shouldEnforceEmbeddersPolicy(
+        response, secureOrigin.get()));
+
+    response.setHTTPHeaderField(HTTPNames::Allow_CSP_From,
+                                AtomicString("* not a valid header"));
+    EXPECT_EQ(ContentSecurityPolicy::shouldEnforceEmbeddersPolicy(
+                  response, secureOrigin.get()),
+              test.inherits);
+
+    response.setHTTPHeaderField(HTTPNames::Allow_CSP_From,
+                                AtomicString("http://example.test"));
+    EXPECT_EQ(ContentSecurityPolicy::shouldEnforceEmbeddersPolicy(
+                  response, secureOrigin.get()),
+              test.inherits);
+
+    response.setHTTPHeaderField(HTTPNames::Allow_CSP_From,
+                                AtomicString("https://example.test"));
+    EXPECT_TRUE(ContentSecurityPolicy::shouldEnforceEmbeddersPolicy(
+        response, secureOrigin.get()));
+  }
+}
+
+TEST_F(ContentSecurityPolicyTest, DirectiveType) {
+  struct TestCase {
+    ContentSecurityPolicy::DirectiveType type;
+    const String& name;
+  } cases[] = {
+      {ContentSecurityPolicy::DirectiveType::BaseURI, "base-uri"},
+      {ContentSecurityPolicy::DirectiveType::BlockAllMixedContent,
+       "block-all-mixed-content"},
+      {ContentSecurityPolicy::DirectiveType::ChildSrc, "child-src"},
+      {ContentSecurityPolicy::DirectiveType::ConnectSrc, "connect-src"},
+      {ContentSecurityPolicy::DirectiveType::DefaultSrc, "default-src"},
+      {ContentSecurityPolicy::DirectiveType::FrameAncestors, "frame-ancestors"},
+      {ContentSecurityPolicy::DirectiveType::FrameSrc, "frame-src"},
+      {ContentSecurityPolicy::DirectiveType::FontSrc, "font-src"},
+      {ContentSecurityPolicy::DirectiveType::FormAction, "form-action"},
+      {ContentSecurityPolicy::DirectiveType::ImgSrc, "img-src"},
+      {ContentSecurityPolicy::DirectiveType::ManifestSrc, "manifest-src"},
+      {ContentSecurityPolicy::DirectiveType::MediaSrc, "media-src"},
+      {ContentSecurityPolicy::DirectiveType::ObjectSrc, "object-src"},
+      {ContentSecurityPolicy::DirectiveType::PluginTypes, "plugin-types"},
+      {ContentSecurityPolicy::DirectiveType::ReportURI, "report-uri"},
+      {ContentSecurityPolicy::DirectiveType::RequireSRIFor, "require-sri-for"},
+      {ContentSecurityPolicy::DirectiveType::Sandbox, "sandbox"},
+      {ContentSecurityPolicy::DirectiveType::ScriptSrc, "script-src"},
+      {ContentSecurityPolicy::DirectiveType::StyleSrc, "style-src"},
+      {ContentSecurityPolicy::DirectiveType::TreatAsPublicAddress,
+       "treat-as-public-address"},
+      {ContentSecurityPolicy::DirectiveType::UpgradeInsecureRequests,
+       "upgrade-insecure-requests"},
+      {ContentSecurityPolicy::DirectiveType::WorkerSrc, "worker-src"},
+  };
+
+  EXPECT_EQ(ContentSecurityPolicy::DirectiveType::Undefined,
+            ContentSecurityPolicy::getDirectiveType("random"));
+
+  for (const auto& test : cases) {
+    const String& nameFromType =
+        ContentSecurityPolicy::getDirectiveName(test.type);
+    ContentSecurityPolicy::DirectiveType typeFromName =
+        ContentSecurityPolicy::getDirectiveType(test.name);
+    EXPECT_EQ(nameFromType, test.name);
+    EXPECT_EQ(typeFromName, test.type);
+    EXPECT_EQ(test.type, ContentSecurityPolicy::getDirectiveType(nameFromType));
+    EXPECT_EQ(test.name, ContentSecurityPolicy::getDirectiveName(typeFromName));
+  }
+}
+
+TEST_F(ContentSecurityPolicyTest, Subsumes) {
+  ContentSecurityPolicy* other = ContentSecurityPolicy::create();
+  EXPECT_TRUE(csp->subsumes(*other));
+  EXPECT_TRUE(other->subsumes(*csp));
+
+  csp->didReceiveHeader("default-src http://example.com;",
+                        ContentSecurityPolicyHeaderTypeEnforce,
+                        ContentSecurityPolicyHeaderSourceHTTP);
+  // If this CSP is not empty, the other must not be empty either.
+  EXPECT_FALSE(csp->subsumes(*other));
+  EXPECT_TRUE(other->subsumes(*csp));
+
+  // Report-only policies do not impact subsumption.
+  other->didReceiveHeader("default-src http://example.com;",
+                          ContentSecurityPolicyHeaderTypeReport,
+                          ContentSecurityPolicyHeaderSourceHTTP);
+  EXPECT_FALSE(csp->subsumes(*other));
+
+  // CSPDirectiveLists have to subsume.
+  other->didReceiveHeader("default-src http://example.com https://another.com;",
+                          ContentSecurityPolicyHeaderTypeEnforce,
+                          ContentSecurityPolicyHeaderSourceHTTP);
+  EXPECT_FALSE(csp->subsumes(*other));
+
+  // `other` is stricter than `this`.
+  other->didReceiveHeader("default-src https://example.com;",
+                          ContentSecurityPolicyHeaderTypeEnforce,
+                          ContentSecurityPolicyHeaderSourceHTTP);
+  EXPECT_TRUE(csp->subsumes(*other));
 }
 
 }  // namespace blink

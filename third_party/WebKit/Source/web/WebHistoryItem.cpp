@@ -68,7 +68,7 @@ WebString WebHistoryItem::referrer() const {
   return m_private->referrer().referrer;
 }
 
-WebReferrerPolicy WebHistoryItem::referrerPolicy() const {
+WebReferrerPolicy WebHistoryItem::getReferrerPolicy() const {
   return static_cast<WebReferrerPolicy>(m_private->referrer().referrerPolicy);
 }
 
@@ -87,20 +87,22 @@ void WebHistoryItem::setTarget(const WebString& target) {
 }
 
 WebFloatPoint WebHistoryItem::visualViewportScrollOffset() const {
-  return m_private->visualViewportScrollPoint();
+  ScrollOffset offset = m_private->visualViewportScrollOffset();
+  return WebFloatPoint(offset.width(), offset.height());
 }
 
 void WebHistoryItem::setVisualViewportScrollOffset(
     const WebFloatPoint& scrollOffset) {
-  m_private->setVisualViewportScrollPoint(scrollOffset);
+  m_private->setVisualViewportScrollOffset(toScrollOffset(scrollOffset));
 }
 
-WebPoint WebHistoryItem::scrollOffset() const {
-  return m_private->scrollPoint();
+WebPoint WebHistoryItem::getScrollOffset() const {
+  ScrollOffset offset = m_private->getScrollOffset();
+  return WebPoint(offset.width(), offset.height());
 }
 
 void WebHistoryItem::setScrollOffset(const WebPoint& scrollOffset) {
-  m_private->setScrollPoint(scrollOffset);
+  m_private->setScrollOffset(ScrollOffset(scrollOffset.x, scrollOffset.y));
 }
 
 float WebHistoryItem::pageScaleFactor() const {
@@ -111,15 +113,15 @@ void WebHistoryItem::setPageScaleFactor(float scale) {
   m_private->setPageScaleFactor(scale);
 }
 
-WebVector<WebString> WebHistoryItem::documentState() const {
-  return m_private->documentState();
+WebVector<WebString> WebHistoryItem::getDocumentState() const {
+  return m_private->getDocumentState();
 }
 
 void WebHistoryItem::setDocumentState(const WebVector<WebString>& state) {
   // FIXME: would be nice to avoid the intermediate copy
   Vector<String> ds;
   for (size_t i = 0; i < state.size(); ++i)
-    ds.append(state[i]);
+    ds.push_back(state[i]);
   m_private->setDocumentState(ds);
 }
 

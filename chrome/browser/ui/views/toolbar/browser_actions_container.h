@@ -22,14 +22,6 @@
 #include "ui/views/view.h"
 #include "ui/views/widget/widget_observer.h"
 
-class ExtensionPopup;
-
-namespace extensions {
-class ActiveTabPermissionGranter;
-class Command;
-class Extension;
-}
-
 namespace views {
 class BubbleDialogDelegateView;
 class ResizeArea;
@@ -37,7 +29,7 @@ class ResizeArea;
 
 // The BrowserActionsContainer is a container view, responsible for drawing the
 // toolbar action icons (including extension icons and icons for component
-// toolbar actions). It comes intwo flavors, a main container (when residing on
+// toolbar actions). It comes in two flavors, a main container (when residing on
 // the toolbar) and an overflow container (that resides in the main application
 // menu, aka the Chrome menu).
 //
@@ -57,8 +49,7 @@ class ResizeArea;
 //   r: An invisible resize area.  This is
 //      GetLayoutConstant(TOOLBAR_STANDARD_SPACING) pixels wide and directly
 //      adjacent to the omnibox. Only shown for the main container.
-//   I: An icon. In material design this has a width of 28. Otherwise it is as
-//      wide as the IDR_BROWSER_ACTION image.
+//   I: An icon. This has a width of 28.
 //   _: ToolbarActionsBar::PlatformSettings::item_spacing pixels of empty space.
 //   s: GetLayoutConstant(TOOLBAR_STANDARD_SPACING) pixels of empty space
 //      (before the app menu).
@@ -135,7 +126,7 @@ class BrowserActionsContainer : public views::View,
 
   // Get a particular toolbar action view.
   ToolbarActionView* GetToolbarActionViewAt(int index) {
-    return toolbar_action_views_[index];
+    return toolbar_action_views_[index].get();
   }
 
   // Whether we are performing resize animation on the container.
@@ -180,7 +171,7 @@ class BrowserActionsContainer : public views::View,
   int OnDragUpdated(const ui::DropTargetEvent& event) override;
   void OnDragExited() override;
   int OnPerformDrop(const ui::DropTargetEvent& event) override;
-  void GetAccessibleState(ui::AXViewState* state) override;
+  void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
 
   // Overridden from views::DragController:
   void WriteDragDataForView(View* sender,
@@ -235,7 +226,7 @@ class BrowserActionsContainer : public views::View,
   // A struct representing the position at which an action will be dropped.
   struct DropPosition;
 
-  typedef std::vector<ToolbarActionView*> ToolbarActionViews;
+  typedef std::vector<std::unique_ptr<ToolbarActionView>> ToolbarActionViews;
 
   // Clears the |active_bubble_|, and unregisters the container as an observer.
   void ClearActiveBubble(views::Widget* widget);
@@ -262,7 +253,6 @@ class BrowserActionsContainer : public views::View,
   views::ResizeArea* resize_area_;
 
   // The painter used when we are highlighting a subset of extensions.
-  std::unique_ptr<views::Painter> info_highlight_painter_;
   std::unique_ptr<views::Painter> warning_highlight_painter_;
 
   // The animation that happens when the container snaps to place.

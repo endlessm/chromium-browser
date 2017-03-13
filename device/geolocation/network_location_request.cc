@@ -13,7 +13,7 @@
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
 #include "base/metrics/histogram.h"
-#include "base/metrics/sparse_histogram.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
@@ -367,7 +367,7 @@ bool ParseServerResponse(const std::string& response_body,
     return false;
   }
 
-  if (!response_value->IsType(base::Value::TYPE_DICTIONARY)) {
+  if (!response_value->IsType(base::Value::Type::DICTIONARY)) {
     VLOG(1) << "ParseServerResponse() : Unexpected response type "
             << response_value->GetType();
     return false;
@@ -388,8 +388,8 @@ bool ParseServerResponse(const std::string& response_body,
   }
   DCHECK(location_value);
 
-  if (!location_value->IsType(base::Value::TYPE_DICTIONARY)) {
-    if (!location_value->IsType(base::Value::TYPE_NULL)) {
+  if (!location_value->IsType(base::Value::Type::DICTIONARY)) {
+    if (!location_value->IsType(base::Value::Type::NONE)) {
       VLOG(1) << "ParseServerResponse() : Unexpected location type "
               << location_value->GetType();
       // If the network provider was unable to provide a position fix, it should

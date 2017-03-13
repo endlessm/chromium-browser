@@ -12,7 +12,7 @@
 
 #include "base/command_line.h"
 #include "base/logging.h"
-#include "base/metrics/sparse_histogram.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_split.h"
@@ -45,7 +45,7 @@ scoped_refptr<gl::GLSurface> InitializeGLSurface() {
 
 scoped_refptr<gl::GLContext> InitializeGLContext(gl::GLSurface* surface) {
   scoped_refptr<gl::GLContext> context(
-      gl::init::CreateGLContext(nullptr, surface, gl::PreferIntegratedGpu));
+      gl::init::CreateGLContext(nullptr, surface, gl::GLContextAttribs()));
   if (!context.get()) {
     LOG(ERROR) << "gl::init::CreateGLContext failed";
     return NULL;
@@ -228,6 +228,8 @@ void MergeGPUInfoGL(GPUInfo* basic_gpu_info,
   basic_gpu_info->sandboxed = context_gpu_info.sandboxed;
   basic_gpu_info->direct_rendering = context_gpu_info.direct_rendering;
   basic_gpu_info->in_process_gpu = context_gpu_info.in_process_gpu;
+  basic_gpu_info->passthrough_cmd_decoder =
+      context_gpu_info.passthrough_cmd_decoder;
   basic_gpu_info->context_info_state = context_gpu_info.context_info_state;
   basic_gpu_info->initialization_time = context_gpu_info.initialization_time;
   basic_gpu_info->video_decode_accelerator_capabilities =

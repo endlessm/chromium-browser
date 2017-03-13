@@ -10,7 +10,7 @@
 #include "base/message_loop/message_loop.h"
 #include "base/strings/string_split.h"
 #include "base/strings/utf_string_conversions.h"
-#include "ui/accessibility/ax_view_state.h"
+#include "ui/accessibility/ax_node_data.h"
 #include "ui/base/clipboard/clipboard.h"
 #include "ui/base/clipboard/scoped_clipboard_writer.h"
 #include "ui/views/controls/button/checkbox.h"
@@ -130,8 +130,8 @@ void MessageBoxView::SetLink(const base::string16& text,
   ResetLayoutManager();
 }
 
-void MessageBoxView::GetAccessibleState(ui::AXViewState* state) {
-  state->role = ui::AX_ROLE_ALERT;
+void MessageBoxView::GetAccessibleNodeData(ui::AXNodeData* node_data) {
+  node_data->role = ui::AX_ROLE_ALERT;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -148,11 +148,16 @@ void MessageBoxView::ViewHierarchyChanged(
 }
 
 bool MessageBoxView::AcceleratorPressed(const ui::Accelerator& accelerator) {
-  // We only accepts Ctrl-C.
+  // We only accept Ctrl-C.
   DCHECK(accelerator.key_code() == 'C' && accelerator.IsCtrlDown());
 
   // We must not intercept Ctrl-C when we have a text box and it's focused.
   if (prompt_field_ && prompt_field_->HasFocus())
+    return false;
+
+  // Don't intercept Ctrl-C if we only use a single message label supporting
+  // text selection.
+  if (message_labels_.size() == 1u && message_labels_[0]->selectable())
     return false;
 
   ui::ScopedClipboardWriter scw(ui::CLIPBOARD_TYPE_COPY_PASTE);
@@ -189,6 +194,10 @@ void MessageBoxView::Init(const InitParams& params) {
     message_label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
     message_labels_.push_back(message_label);
   }
+  // Don't enable text selection if multiple labels are used, since text
+  // selection can't span multiple labels.
+  if (message_labels_.size() == 1u)
+    message_labels_[0]->SetSelectable(true);
 
   if (params.options & HAS_PROMPT_FIELD) {
     prompt_field_ = new Textfield;

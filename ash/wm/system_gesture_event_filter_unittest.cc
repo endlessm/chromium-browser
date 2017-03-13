@@ -6,18 +6,15 @@
 
 #include <vector>
 
-#include "ash/aura/wm_window_aura.h"
 #include "ash/common/accelerators/accelerator_controller.h"
 #include "ash/common/shelf/shelf_model.h"
 #include "ash/common/system/tray/system_tray_delegate.h"
 #include "ash/common/wm/window_positioning_utils.h"
 #include "ash/common/wm/window_state.h"
-#include "ash/display/display_manager.h"
+#include "ash/common/wm_window.h"
 #include "ash/shell.h"
 #include "ash/test/ash_test_base.h"
-#include "ash/test/display_manager_test_api.h"
 #include "ash/test/shell_test_api.h"
-#include "ash/test/test_shelf_delegate.h"
 #include "ash/wm/window_state_aura.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
@@ -26,7 +23,9 @@
 #include "ui/aura/test/test_windows.h"
 #include "ui/aura/window_event_dispatcher.h"
 #include "ui/base/hit_test.h"
+#include "ui/display/manager/display_manager.h"
 #include "ui/display/screen.h"
+#include "ui/display/test/display_manager_test_api.h"
 #include "ui/events/event.h"
 #include "ui/events/event_handler.h"
 #include "ui/events/event_utils.h"
@@ -129,7 +128,8 @@ class SystemGestureEventFilterTest : public AshTestBase {
 
     test::AshTestBase::SetUp();
     // Enable brightness key.
-    test::DisplayManagerTestApi(Shell::GetInstance()->display_manager())
+    display::test::DisplayManagerTestApi(
+        Shell::GetInstance()->display_manager())
         .SetFirstDisplayAsInternalDisplay();
   }
 
@@ -420,7 +420,7 @@ TEST_F(SystemGestureEventFilterTest, DragLeftNearEdgeSnaps) {
                                      0);
 
   EXPECT_EQ(ash::wm::GetDefaultLeftSnappedWindowBoundsInParent(
-                ash::WmWindowAura::Get(toplevel_window))
+                ash::WmWindow::Get(toplevel_window))
                 .ToString(),
             toplevel_window->bounds().ToString());
 }
@@ -449,7 +449,7 @@ TEST_F(SystemGestureEventFilterTest, DragRightNearEdgeSnaps) {
   generator.GestureMultiFingerScroll(kTouchPoints, points, 120, kSteps, drag_x,
                                      0);
   EXPECT_EQ(wm::GetDefaultRightSnappedWindowBoundsInParent(
-                WmWindowAura::Get(toplevel_window))
+                WmWindow::Get(toplevel_window))
                 .ToString(),
             toplevel_window->bounds().ToString());
 }

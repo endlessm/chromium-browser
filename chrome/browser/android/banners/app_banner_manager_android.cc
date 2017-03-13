@@ -2,9 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include <utility>
-
 #include "chrome/browser/android/banners/app_banner_manager_android.h"
+
+#include <memory>
+#include <utility>
 
 #include "base/android/jni_android.h"
 #include "base/android/jni_string.h"
@@ -16,9 +17,9 @@
 #include "chrome/browser/android/webapk/webapk_metrics.h"
 #include "chrome/browser/android/webapk/webapk_web_manifest_checker.h"
 #include "chrome/browser/banners/app_banner_metrics.h"
+#include "chrome/browser/banners/app_banner_settings_helper.h"
 #include "chrome/browser/manifest/manifest_icon_downloader.h"
 #include "chrome/browser/manifest/manifest_icon_selector.h"
-#include "chrome/common/chrome_constants.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/frame_navigate_params.h"
 #include "jni/AppBannerManager_jni.h"
@@ -43,7 +44,7 @@ std::unique_ptr<ShortcutInfo> CreateShortcutInfo(
   if (!manifest.IsEmpty()) {
     shortcut_info->UpdateFromManifest(manifest);
     shortcut_info->manifest_url = manifest_url;
-    shortcut_info->icon_url = icon_url;
+    shortcut_info->best_icon_url = icon_url;
     shortcut_info->UpdateSource(ShortcutInfo::SOURCE_APP_BANNER);
   }
   return shortcut_info;
@@ -70,17 +71,17 @@ base::Closure AppBannerManagerAndroid::FetchWebappSplashScreenImageCallback(
   content::WebContents* contents = web_contents();
   DCHECK(contents);
 
-  int ideal_splash_image_size_in_dp =
-      ShortcutHelper::GetIdealSplashImageSizeInDp();
-  int minimum_splash_image_size_in_dp =
-      ShortcutHelper::GetMinimumSplashImageSizeInDp();
+  int ideal_splash_image_size_in_px =
+      ShortcutHelper::GetIdealSplashImageSizeInPx();
+  int minimum_splash_image_size_in_px =
+      ShortcutHelper::GetMinimumSplashImageSizeInPx();
   GURL image_url = ManifestIconSelector::FindBestMatchingIcon(
-      manifest_.icons, ideal_splash_image_size_in_dp,
-      minimum_splash_image_size_in_dp);
+      manifest_.icons, ideal_splash_image_size_in_px,
+      minimum_splash_image_size_in_px);
 
   return base::Bind(&ShortcutHelper::FetchSplashScreenImage, contents,
-                    image_url, ideal_splash_image_size_in_dp,
-                    minimum_splash_image_size_in_dp, webapp_id);
+                    image_url, ideal_splash_image_size_in_px,
+                    minimum_splash_image_size_in_px, webapp_id);
 }
 
 const base::android::ScopedJavaGlobalRef<jobject>&
@@ -106,9 +107,12 @@ bool AppBannerManagerAndroid::OnAppDetailsRetrieved(
   native_app_package_ = ConvertJavaStringToUTF8(env, japp_package);
   icon_url_ = GURL(ConvertJavaStringToUTF8(env, jicon_url));
 
+  if (!CheckIfShouldShowBanner())
+    return false;
+
   return ManifestIconDownloader::Download(
-      web_contents(), icon_url_, GetIdealIconSizeInDp(),
-      GetMinimumIconSizeInDp(),
+      web_contents(), icon_url_, GetIdealIconSizeInPx(),
+      GetMinimumIconSizeInPx(),
       base::Bind(&AppBannerManager::OnAppIconFetched, GetWeakPtr()));
 }
 
@@ -128,27 +132,29 @@ std::string AppBannerManagerAndroid::GetAppIdentifier() {
 
 std::string AppBannerManagerAndroid::GetBannerType() {
   return native_app_data_.is_null() ? AppBannerManager::GetBannerType()
-                                    : "android";
+                                    : "play";
 }
 
-int AppBannerManagerAndroid::GetIdealIconSizeInDp() {
-  return ShortcutHelper::GetIdealHomescreenIconSizeInDp();
+int AppBannerManagerAndroid::GetIdealIconSizeInPx() {
+  return ShortcutHelper::GetIdealHomescreenIconSizeInPx();
 }
 
-int AppBannerManagerAndroid::GetMinimumIconSizeInDp() {
-  return ShortcutHelper::GetMinimumHomescreenIconSizeInDp();
+int AppBannerManagerAndroid::GetMinimumIconSizeInPx() {
+  return ShortcutHelper::GetMinimumHomescreenIconSizeInPx();
 }
 
 bool AppBannerManagerAndroid::IsWebAppInstalled(
     content::BrowserContext* browser_context,
-    const GURL& start_url) {
-  // Returns true if a WebAPK is installed. Does not check whether a non-WebAPK
-  // web app is installed: this is detected by the content settings check in
-  // AppBannerSettingsHelper::ShouldShowBanner (due to the lack of an API to
-  // detect what is and isn't on the Android homescreen).
-  // This method will still detect the presence of a WebAPK even if Chrome's
-  // data is cleared.
-  return ShortcutHelper::IsWebApkInstalled(start_url);
+    const GURL& start_url,
+    const GURL& manifest_url) {
+  // Returns true if a WebAPK is installed or is being installed.
+  // Does not check whether a non-WebAPK web app is installed: this is detected
+  // by the content settings check in AppBannerSettingsHelper::ShouldShowBanner
+  // (due to the lack of an API to detect what is and isn't on the Android
+  // homescreen). This method will still detect the presence of a WebAPK even if
+  // Chrome's data is cleared.
+  return ShortcutHelper::IsWebApkInstalled(browser_context, start_url,
+                                           manifest_url);
 }
 
 void AppBannerManagerAndroid::PerformInstallableCheck() {
@@ -165,7 +171,7 @@ void AppBannerManagerAndroid::PerformInstallableCheck() {
     Stop();
   }
 
-  if (ChromeWebApkHost::AreWebApkEnabled()) {
+  if (ChromeWebApkHost::CanInstallWebApk()) {
     if (!AreWebManifestUrlsWebApkCompatible(manifest_)) {
       ReportStatus(web_contents(), URL_NOT_SUPPORTED_FOR_WEBAPK);
       Stop();
@@ -190,6 +196,12 @@ void AppBannerManagerAndroid::OnAppIconFetched(const SkBitmap& bitmap) {
   SendBannerPromptRequest();
 }
 
+void AppBannerManagerAndroid::ResetCurrentPageData() {
+  AppBannerManager::ResetCurrentPageData();
+  native_app_data_.Reset();
+  native_app_package_ = "";
+}
+
 void AppBannerManagerAndroid::ShowBanner() {
   content::WebContents* contents = web_contents();
   DCHECK(contents);
@@ -199,7 +211,6 @@ void AppBannerManagerAndroid::ShowBanner() {
             contents, GetWeakPtr(), app_title_,
             CreateShortcutInfo(manifest_url_, manifest_, icon_url_),
             std::move(icon_), event_request_id(),
-            ChromeWebApkHost::AreWebApkEnabled(),
             webapk::INSTALL_SOURCE_BANNER)) {
       RecordDidShowBanner("AppBanner.WebApp.Shown");
       TrackDisplayEvent(DISPLAY_EVENT_WEB_APP_BANNER_CREATED);
@@ -252,7 +263,7 @@ bool AppBannerManagerAndroid::CanHandleNonWebApp(const std::string& platform,
   ScopedJavaLocalRef<jstring> jreferrer(ConvertUTF8ToJavaString(env, referrer));
   Java_AppBannerManager_fetchAppDetails(env, java_banner_manager_, jurl,
                                         jpackage, jreferrer,
-                                        GetIdealIconSizeInDp());
+                                        GetIdealIconSizeInPx());
   return true;
 }
 
@@ -289,6 +300,13 @@ bool AppBannerManagerAndroid::Register(JNIEnv* env) {
 }
 
 // static
+jint GetHomescreenLanguageOption(JNIEnv* env,
+                                 const JavaParamRef<jclass>& clazz) {
+  return AppBannerSettingsHelper::GetHomescreenLanguageOption();
+}
+
+
+// static
 ScopedJavaLocalRef<jobject> GetJavaBannerManagerForWebContents(
     JNIEnv* env,
     const JavaParamRef<jclass>& clazz,
@@ -300,18 +318,12 @@ ScopedJavaLocalRef<jobject> GetJavaBannerManagerForWebContents(
 }
 
 // static
-void DisableSecureSchemeCheckForTesting(JNIEnv* env,
-                                        const JavaParamRef<jclass>& clazz) {
-  AppBannerManager::DisableSecureSchemeCheckForTesting();
-}
-
-// static
-void SetEngagementWeights(JNIEnv* env,
-                          const JavaParamRef<jclass>& clazz,
-                          jdouble direct_engagement,
-                          jdouble indirect_engagement) {
-  AppBannerManager::SetEngagementWeights(direct_engagement,
-                                         indirect_engagement);
+void SetDaysAfterDismissAndIgnoreToTrigger(JNIEnv* env,
+                                           const JavaParamRef<jclass>& clazz,
+                                           jint dismiss_days,
+                                           jint ignore_days) {
+  AppBannerSettingsHelper::SetDaysAfterDismissAndIgnoreToTrigger(dismiss_days,
+                                                                 ignore_days);
 }
 
 // static
@@ -319,6 +331,13 @@ void SetTimeDeltaForTesting(JNIEnv* env,
                             const JavaParamRef<jclass>& clazz,
                             jint days) {
   AppBannerManager::SetTimeDeltaForTesting(days);
+}
+
+// static
+void SetTotalEngagementToTrigger(JNIEnv* env,
+                                 const JavaParamRef<jclass>& clazz,
+                                 jdouble engagement) {
+  AppBannerSettingsHelper::SetTotalEngagementToTrigger(engagement);
 }
 
 }  // namespace banners

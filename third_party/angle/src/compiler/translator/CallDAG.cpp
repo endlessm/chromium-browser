@@ -9,16 +9,19 @@
 // order.
 
 #include "compiler/translator/CallDAG.h"
-#include "compiler/translator/InfoSink.h"
+#include "compiler/translator/Diagnostics.h"
+
+namespace sh
+{
 
 // The CallDAGCreator does all the processing required to create the CallDAG
 // structure so that the latter contains only the necessary variables.
 class CallDAG::CallDAGCreator : public TIntermTraverser
 {
   public:
-    CallDAGCreator(TInfoSinkBase *info)
+    CallDAGCreator(TDiagnostics *diagnostics)
         : TIntermTraverser(true, false, true),
-          mCreationInfo(info),
+          mDiagnostics(diagnostics),
           mCurrentFunction(nullptr),
           mCurrentIndex(0)
     {
@@ -35,7 +38,6 @@ class CallDAG::CallDAGCreator : public TIntermTraverser
                 InitResult result = assignIndicesInternal(&it.second);
                 if (result != INITDAG_SUCCESS)
                 {
-                    *mCreationInfo << "\n";
                     return result;
                 }
             }
@@ -76,70 +78,67 @@ class CallDAG::CallDAGCreator : public TIntermTraverser
                 record.callees.push_back(static_cast<int>(callee->index));
             }
 
-            (*idToIndex)[data.node->getFunctionId()] = static_cast<int>(data.index);
+            (*idToIndex)[data.node->getFunctionSymbolInfo()->getId()] =
+                static_cast<int>(data.index);
         }
     }
 
   private:
-
     struct CreatorFunctionData
     {
-        CreatorFunctionData()
-            : node(nullptr),
-              index(0),
-              indexAssigned(false),
-              visiting(false)
-        {
-        }
+        CreatorFunctionData() : node(nullptr), index(0), indexAssigned(false), visiting(false) {}
 
-        std::set<CreatorFunctionData*> callees;
-        TIntermAggregate *node;
+        std::set<CreatorFunctionData *> callees;
+        TIntermFunctionDefinition *node;
         TString name;
         size_t index;
         bool indexAssigned;
         bool visiting;
     };
 
+    bool visitFunctionDefinition(Visit visit, TIntermFunctionDefinition *node) override
+    {
+        // Create the record if need be and remember the node.
+        if (visit == PreVisit)
+        {
+            auto it = mFunctions.find(node->getFunctionSymbolInfo()->getName());
+
+            if (it == mFunctions.end())
+            {
+                mCurrentFunction = &mFunctions[node->getFunctionSymbolInfo()->getName()];
+            }
+            else
+            {
+                mCurrentFunction = &it->second;
+            }
+
+            mCurrentFunction->node = node;
+            mCurrentFunction->name = node->getFunctionSymbolInfo()->getName();
+        }
+        else if (visit == PostVisit)
+        {
+            mCurrentFunction = nullptr;
+        }
+        return true;
+    }
+
+    bool visitFunctionPrototype(Visit visit, TIntermFunctionPrototype *node) override
+    {
+        ASSERT(visit == PreVisit);
+        // Function declaration, create an empty record.
+        auto &record = mFunctions[node->getFunctionSymbolInfo()->getName()];
+        record.name  = node->getFunctionSymbolInfo()->getName();
+
+        // No need to traverse the parameters.
+        return false;
+    }
+
     // Aggregates the AST node for each function as well as the name of the functions called by it
     bool visitAggregate(Visit visit, TIntermAggregate *node) override
     {
         switch (node->getOp())
         {
-          case EOpPrototype:
-            if (visit == PreVisit)
-            {
-                // Function declaration, create an empty record.
-                auto& record = mFunctions[node->getName()];
-                record.name = node->getName();
-            }
-            break;
-          case EOpFunction:
-            {
-                // Function definition, create the record if need be and remember the node.
-                if (visit == PreVisit)
-                {
-                    auto it = mFunctions.find(node->getName());
-
-                    if (it == mFunctions.end())
-                    {
-                        mCurrentFunction = &mFunctions[node->getName()];
-                    }
-                    else
-                    {
-                        mCurrentFunction = &it->second;
-                    }
-
-                    mCurrentFunction->node = node;
-                    mCurrentFunction->name = node->getName();
-
-                }
-                else if (visit == PostVisit)
-                {
-                    mCurrentFunction = nullptr;
-                }
-                break;
-            }
-          case EOpFunctionCall:
+            case EOpFunctionCall:
             {
                 // Function call, add the callees
                 if (visit == PreVisit)
@@ -147,7 +146,7 @@ class CallDAG::CallDAGCreator : public TIntermTraverser
                     // Do not handle calls to builtin functions
                     if (node->isUserDefined())
                     {
-                        auto it = mFunctions.find(node->getName());
+                        auto it = mFunctions.find(node->getFunctionSymbolInfo()->getName());
                         ASSERT(it != mFunctions.end());
 
                         // We might be in a top-level function call to set a global variable
@@ -159,8 +158,8 @@ class CallDAG::CallDAGCreator : public TIntermTraverser
                 }
                 break;
             }
-          default:
-            break;
+            default:
+                break;
         }
         return true;
     }
@@ -193,6 +192,8 @@ class CallDAG::CallDAGCreator : public TIntermTraverser
 
         InitResult result = INITDAG_SUCCESS;
 
+        std::stringstream errorStream;
+
         while (!functionsToProcess.empty())
         {
             CreatorFunctionData *function = functionsToProcess.back();
@@ -209,8 +210,8 @@ class CallDAG::CallDAGCreator : public TIntermTraverser
 
             if (!function->node)
             {
-                *mCreationInfo << "Undefined function '" << function->name
-                               << ")' used in the following call chain:";
+                errorStream << "Undefined function '" << function->name
+                            << ")' used in the following call chain:";
                 result = INITDAG_UNDEFINED;
                 break;
             }
@@ -231,7 +232,7 @@ class CallDAG::CallDAGCreator : public TIntermTraverser
                 // in the chain printed in the info log.
                 if (callee->visiting)
                 {
-                    *mCreationInfo << "Recursive function call in the following call chain:";
+                    errorStream << "Recursive function call in the following call chain:";
                     result = INITDAG_RECURSION;
                     break;
                 }
@@ -253,18 +254,23 @@ class CallDAG::CallDAGCreator : public TIntermTraverser
                 {
                     if (!first)
                     {
-                        *mCreationInfo << " -> ";
+                        errorStream << " -> ";
                     }
-                    *mCreationInfo << function->name << ")";
+                    errorStream << function->name << ")";
                     first = false;
                 }
+            }
+            if (mDiagnostics)
+            {
+                std::string errorStr = errorStream.str();
+                mDiagnostics->globalError(errorStr.c_str());
             }
         }
 
         return result;
     }
 
-    TInfoSinkBase *mCreationInfo;
+    TDiagnostics *mDiagnostics;
 
     std::map<TString, CreatorFunctionData> mFunctions;
     CreatorFunctionData *mCurrentFunction;
@@ -283,13 +289,9 @@ CallDAG::~CallDAG()
 
 const size_t CallDAG::InvalidIndex = std::numeric_limits<size_t>::max();
 
-size_t CallDAG::findIndex(const TIntermAggregate *function) const
+size_t CallDAG::findIndex(const TFunctionSymbolInfo *functionInfo) const
 {
-    TOperator op = function->getOp();
-    ASSERT(op == EOpPrototype || op == EOpFunction || op == EOpFunctionCall);
-    UNUSED_ASSERTION_VARIABLE(op);
-
-    auto it = mFunctionIdToIndex.find(function->getFunctionId());
+    auto it = mFunctionIdToIndex.find(functionInfo->getId());
 
     if (it == mFunctionIdToIndex.end())
     {
@@ -309,7 +311,7 @@ const CallDAG::Record &CallDAG::getRecordFromIndex(size_t index) const
 
 const CallDAG::Record &CallDAG::getRecord(const TIntermAggregate *function) const
 {
-    size_t index = findIndex(function);
+    size_t index = findIndex(function->getFunctionSymbolInfo());
     ASSERT(index != InvalidIndex && index < mRecords.size());
     return mRecords[index];
 }
@@ -325,11 +327,9 @@ void CallDAG::clear()
     mFunctionIdToIndex.clear();
 }
 
-CallDAG::InitResult CallDAG::init(TIntermNode *root, TInfoSinkBase *info)
+CallDAG::InitResult CallDAG::init(TIntermNode *root, TDiagnostics *diagnostics)
 {
-    ASSERT(info);
-
-    CallDAGCreator creator(info);
+    CallDAGCreator creator(diagnostics);
 
     // Creates the mapping of functions to callees
     root->traverse(&creator);
@@ -344,3 +344,5 @@ CallDAG::InitResult CallDAG::init(TIntermNode *root, TInfoSinkBase *info)
     creator.fillDataStructures(&mRecords, &mFunctionIdToIndex);
     return INITDAG_SUCCESS;
 }
+
+}  // namespace sh

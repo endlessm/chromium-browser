@@ -8,7 +8,6 @@
 
 #include "base/memory/ptr_util.h"
 #include "content/browser/media/android/browser_media_player_manager.h"
-#include "content/browser/media/android/browser_media_session_manager.h"
 #include "content/browser/media/android/browser_surface_view_manager.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/common/media/media_player_delegate_messages.h"
@@ -46,24 +45,11 @@ MediaWebContentsObserverAndroid::GetMediaPlayerManager(
     RenderFrameHost* render_frame_host) {
   auto it = media_player_managers_.find(render_frame_host);
   if (it != media_player_managers_.end())
-    return it->second;
+    return it->second.get();
 
   BrowserMediaPlayerManager* manager =
       BrowserMediaPlayerManager::Create(render_frame_host);
-  media_player_managers_.set(render_frame_host, base::WrapUnique(manager));
-  return manager;
-}
-
-BrowserMediaSessionManager*
-MediaWebContentsObserverAndroid::GetMediaSessionManager(
-    RenderFrameHost* render_frame_host) {
-  auto it = media_session_managers_.find(render_frame_host);
-  if (it != media_session_managers_.end())
-    return it->second;
-
-  BrowserMediaSessionManager* manager =
-      new BrowserMediaSessionManager(render_frame_host);
-  media_session_managers_.set(render_frame_host, base::WrapUnique(manager));
+  media_player_managers_[render_frame_host] = base::WrapUnique(manager);
   return manager;
 }
 
@@ -72,18 +58,12 @@ MediaWebContentsObserverAndroid::GetSurfaceViewManager(
     RenderFrameHost* render_frame_host) {
   auto it = surface_view_managers_.find(render_frame_host);
   if (it != surface_view_managers_.end())
-    return it->second;
+    return it->second.get();
 
   BrowserSurfaceViewManager* manager =
       new BrowserSurfaceViewManager(render_frame_host);
-  surface_view_managers_.set(render_frame_host, base::WrapUnique(manager));
+  surface_view_managers_[render_frame_host] = base::WrapUnique(manager);
   return manager;
-}
-
-void MediaWebContentsObserverAndroid::SetMediaSessionManagerForTest(
-    RenderFrameHost* render_frame_host,
-    std::unique_ptr<BrowserMediaSessionManager> manager) {
-  media_session_managers_.set(render_frame_host, std::move(manager));
 }
 
 void MediaWebContentsObserverAndroid::SuspendAllMediaPlayers() {
@@ -114,7 +94,6 @@ void MediaWebContentsObserverAndroid::RenderFrameDeleted(
   MediaWebContentsObserver::RenderFrameDeleted(render_frame_host);
 
   media_player_managers_.erase(render_frame_host);
-  media_session_managers_.erase(render_frame_host);
   surface_view_managers_.erase(render_frame_host);
 }
 
@@ -172,6 +151,9 @@ bool MediaWebContentsObserverAndroid::OnMediaPlayerMessageReceived(
         MediaPlayerHostMsg_RequestRemotePlaybackControl,
         GetMediaPlayerManager(render_frame_host),
         BrowserMediaPlayerManager::OnRequestRemotePlaybackControl)
+    IPC_MESSAGE_FORWARD(MediaPlayerHostMsg_RequestRemotePlaybackStop,
+                        GetMediaPlayerManager(render_frame_host),
+                        BrowserMediaPlayerManager::OnRequestRemotePlaybackStop)
     IPC_MESSAGE_UNHANDLED(handled = false)
   IPC_END_MESSAGE_MAP()
   return handled;

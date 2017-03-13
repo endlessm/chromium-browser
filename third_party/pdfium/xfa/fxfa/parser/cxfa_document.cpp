@@ -50,7 +50,7 @@ void MergeNodeRecurse(CXFA_Document* pDocument,
     }
     return;
   }
-  CXFA_Node* pNewNode = pProtoNode->Clone(TRUE);
+  CXFA_Node* pNewNode = pProtoNode->Clone(true);
   pNewNode->SetTemplateNode(pProtoNode);
   pDestNodeParent->InsertChild(pNewNode, nullptr);
 }
@@ -234,7 +234,7 @@ void CXFA_Document::AddPurgeNode(CXFA_Node* pNode) {
   m_PurgeNodes.insert(pNode);
 }
 
-FX_BOOL CXFA_Document::RemovePurgeNode(CXFA_Node* pNode) {
+bool CXFA_Document::RemovePurgeNode(CXFA_Node* pNode) {
   return !!m_PurgeNodes.erase(pNode);
 }
 
@@ -245,29 +245,29 @@ void CXFA_Document::PurgeNodes() {
   m_PurgeNodes.clear();
 }
 
-void CXFA_Document::SetFlag(uint32_t dwFlag, FX_BOOL bOn) {
+void CXFA_Document::SetFlag(uint32_t dwFlag, bool bOn) {
   if (bOn)
     m_dwDocFlags |= dwFlag;
   else
     m_dwDocFlags &= ~dwFlag;
 }
 
-FX_BOOL CXFA_Document::IsInteractive() {
+bool CXFA_Document::IsInteractive() {
   if (m_dwDocFlags & XFA_DOCFLAG_HasInteractive)
     return !!(m_dwDocFlags & XFA_DOCFLAG_Interactive);
 
   CXFA_Node* pConfig = ToNode(GetXFAObject(XFA_HASHCODE_Config));
   if (!pConfig)
-    return FALSE;
+    return false;
 
   CFX_WideString wsInteractive;
   CXFA_Node* pPresent = pConfig->GetFirstChildByClass(XFA_Element::Present);
   if (!pPresent)
-    return FALSE;
+    return false;
 
   CXFA_Node* pPDF = pPresent->GetFirstChildByClass(XFA_Element::Pdf);
   if (!pPDF)
-    return FALSE;
+    return false;
 
   CXFA_Node* pFormFiller = pPDF->GetChild(0, XFA_Element::Interactive);
   if (pFormFiller) {
@@ -275,18 +275,17 @@ FX_BOOL CXFA_Document::IsInteractive() {
     if (pFormFiller->TryContent(wsInteractive) &&
         wsInteractive == FX_WSTRC(L"1")) {
       m_dwDocFlags |= XFA_DOCFLAG_Interactive;
-      return TRUE;
+      return true;
     }
   }
-  return FALSE;
+  return false;
 }
 
 CXFA_LocaleMgr* CXFA_Document::GetLocalMgr() {
   if (!m_pLocalMgr) {
-    CFX_WideString wsLanguage;
-    GetNotify()->GetAppProvider()->GetLanguage(wsLanguage);
-    m_pLocalMgr = new CXFA_LocaleMgr(
-        ToNode(GetXFAObject(XFA_HASHCODE_LocaleSet)), wsLanguage);
+    m_pLocalMgr =
+        new CXFA_LocaleMgr(ToNode(GetXFAObject(XFA_HASHCODE_LocaleSet)),
+                           GetNotify()->GetAppProvider()->GetLanguage());
   }
   return m_pLocalMgr;
 }
@@ -352,7 +351,7 @@ void CXFA_Document::DoProtoMerge() {
   if (!pTemplateRoot)
     return;
 
-  CFX_MapPtrTemplate<uint32_t, CXFA_Node*> mIDMap;
+  std::map<uint32_t, CXFA_Node*> mIDMap;
   CXFA_NodeSet sUseNodes;
   CXFA_NodeIterator sIterator(pTemplateRoot);
   for (CXFA_Node* pNode = sIterator.GetCurrent(); pNode;
@@ -411,13 +410,13 @@ void CXFA_Document::DoProtoMerge() {
       XFA_RESOLVENODE_RS resoveNodeRS;
       int32_t iRet = m_pScriptContext->ResolveObjects(pUseHrefNode, wsSOM,
                                                       resoveNodeRS, dwFlag);
-      if (iRet > 0 && resoveNodeRS.nodes[0]->IsNode()) {
+      if (iRet > 0 && resoveNodeRS.nodes[0]->IsNode())
         pProtoNode = resoveNodeRS.nodes[0]->AsNode();
-      }
     } else if (!wsID.IsEmpty()) {
-      if (!mIDMap.Lookup(FX_HashCode_GetW(wsID, false), pProtoNode)) {
+      auto it = mIDMap.find(FX_HashCode_GetW(wsID, false));
+      if (it == mIDMap.end())
         continue;
-      }
+      pProtoNode = it->second;
     }
     if (!pProtoNode)
       continue;

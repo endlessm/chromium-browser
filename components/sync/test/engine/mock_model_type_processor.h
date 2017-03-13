@@ -10,13 +10,14 @@
 
 #include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
 #include "base/callback.h"
 #include "base/macros.h"
-#include "components/sync/core/model_type_processor.h"
-#include "components/sync/core/non_blocking_sync_common.h"
+#include "components/sync/engine/model_type_processor.h"
+#include "components/sync/engine/non_blocking_sync_common.h"
 #include "components/sync/protocol/model_type_state.pb.h"
 
 namespace syncer {
@@ -139,6 +140,10 @@ class MockModelTypeProcessor : public ModelTypeProcessor {
   std::map<const std::string, int64_t> sequence_numbers_;
   std::map<const std::string, int64_t> base_versions_;
   std::map<const std::string, std::string> assigned_ids_;
+
+  // Set of tag hashes which were deleted with DeleteRequest but haven't yet
+  // been confirmed by the server with OnCommitCompleted.
+  std::set<std::string> pending_deleted_hashes_;
 
   // Callback which will be call during disconnection
   DisconnectCallback disconnect_callback_;

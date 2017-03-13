@@ -25,19 +25,20 @@ tr.exportTo('tr.ui.tracks', function() {
     tr.model.ProxySelectableItem.call(this, modelItem);
     this.x = x;
     this.y = y;
+    this.dotLetter = undefined;
 
     // If the base y-coordinate is undefined, the bottom edge of the associated
     // bar in a bar chart will start at the outer bottom edge (which is most
     // likely slightly below zero).
     this.yBase = opt_yBase;
-  };
+  }
 
   ChartPoint.prototype = {
-    __proto__: tr.model.ProxySelectableItem.prototype
+    __proto__: tr.model.ProxySelectableItem.prototype,
   };
 
   return {
-    ChartPoint: ChartPoint
+    ChartPoint,
   };
 });
 </script>

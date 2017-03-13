@@ -19,7 +19,7 @@ const char kGpuDriverBugListJson[] = LONG_STRING_CONST(
 {
   "name": "gpu driver bug list",
   // Please update the version number whenever you change this file.
-  "version": "9.15",
+  "version": "9.29",
   "entries": [
     {
       "id": 1,
@@ -419,6 +419,7 @@ const char kGpuDriverBugListJson[] = LONG_STRING_CONST(
     },
     {
       "id": 52,
+      "cr_bugs": [449116, 471200, 612474],
       "description": "ES3 MSAA is broken on Qualcomm",
       "os": {
         "type": "android"
@@ -1738,7 +1739,11 @@ LONG_STRING_CONST(
       "description": "Mac Drivers store texture level parameters on int16_t that overflow",
       "cr_bugs": [610153],
       "os": {
-        "type": "macosx"
+        "type": "macosx",
+        "version": {
+          "op": "<",
+          "value": "10.12.2"
+        }
       },
       "features": [
         "use_shadowed_tex_level_params"
@@ -1782,11 +1787,14 @@ LONG_STRING_CONST(
             "type" : "chromeos"
           },
           "vendor_id": "0x8086",
-          "device_id": ["0x1602", "0x1606", "0x160a", "0x160b", "0x160d",
-                        "0x160e", "0x1612", "0x1616", "0x161a", "0x161b",
-                        "0x161d", "0x161e", "0x1622", "0x1626", "0x162a",
-                        "0x162b", "0x162d", "0x162e", "0x22b0", "0x22b1",
-                        "0x22b2", "0x22b3"]
+          "driver_vendor": "Mesa",
+          "gl_vendor": "Intel.*",
+          "gl_renderer": ".*Intel.*(Braswell|Broadwell|Skylake).*",
+          "gl_type": "gles",
+          "gl_version": {
+            "op": ">=",
+            "value": "3.1"
+          }
         }
       ],
       "features": [
@@ -1900,7 +1908,6 @@ LONG_STRING_CONST(
       "os": {
         "type": "macosx"
       },
-      "vendor_id": "0x8086",
       "features": [
         "reset_base_mipmap_level_before_texstorage"
       ]
@@ -2001,14 +2008,18 @@ LONG_STRING_CONST(
     },
     {
       "id": 189,
-      "description": "Do TexImage2D first before CopyTexImage2D for cube map texture on Intel Mac",
+      "description": "Do TexImage2D first before CopyTexImage2D for cube map texture on Intel Mac 10.11",
       "cr_bugs": [648197],
       "os": {
-        "type": "macosx"
+        "type": "macosx",
+        "version": {
+          "op": "<=",
+          "value": "10.11"
+        }
       },
       "vendor_id": "0x8086",
       "features": [
-        "do_teximage_before_copyteximage_to_cube_map"
+        "init_one_cube_map_level_before_copyteximage"
       ]
     },
     {
@@ -2026,6 +2037,129 @@ LONG_STRING_CONST(
     },
     {
       "id": 191,
+      "description": "Emulate GLSL function isnan() on Intel Mac",
+      "cr_bugs": [650547],
+      "os": {
+        "type": "macosx"
+      },
+      "vendor_id": "0x8086",
+      "device_id" : [
+        "0x1902", "0x1906", "0x190A", "0x190B", "0x190E", "0x1912", "0x1913", "0x1915",
+        "0x1916", "0x1917", "0x191A", "0x191B", "0x191D", "0x191E", "0x1921", "0x1923",
+        "0x1926", "0x1927", "0x192A", "0x192B", "0x192D", "0x1932", "0x193A", "0x193B",
+        "0x193D"
+      ],
+      "features" : [
+        "emulate_isnan_on_float"
+      ]
+    },
+    {
+      "id": 192,
+      "description": "Decode and encode before generateMipmap for srgb format textures on os except macosx",
+      "cr_bugs": [634519],
+      "gl_type": "gl",
+      "gl_version": {
+        "op": "<",
+        "value": "4.4"
+      },
+      "exceptions": [
+        {
+          "os": {
+            "type": "macosx"
+          }
+        }
+      ],
+      "features": [
+        "decode_encode_srgb_for_generatemipmap"
+      ]
+    },
+    {
+      "id": 193,
+      "description": "Decode and encode before generateMipmap for srgb format textures on macosx",
+      "cr_bugs": [634519],
+      "os": {
+        "type": "macosx"
+      },
+      "features": [
+        "decode_encode_srgb_for_generatemipmap"
+      ]
+    },
+    {
+      "id": 194,
+      "description": "Init first two levels before CopyTexImage2D for cube map texture on Intel Mac 10.12",
+      "cr_bugs": [648197],
+      "os": {
+        "type": "macosx",
+        "version": {
+          "op": ">=",
+          "value": "10.12"
+        }
+      },
+      "vendor_id": "0x8086",
+      "features": [
+        "init_two_cube_map_levels_before_copyteximage"
+      ]
+    },
+    {
+      "id": 195,
+      "description": "Insert statements to reference all members in unused std140/shared blocks on Mac",
+      "cr_bugs": [618464],
+      "os": {
+        "type": "macosx"
+      },
+      "features": [
+        "use_unused_standard_shared_blocks"
+      ]
+    },
+    {
+      "id": 196,
+      "description": "Tex(Sub)Image3D performs incorrectly when uploading from unpack buffer with GL_UNPACK_IMAGE_HEIGHT greater than zero on Intel Macs",
+      "cr_bugs": [654258],
+      "os": {
+        "type": "macosx"
+      },
+      "vendor_id": "0x8086",
+      "features": [
+        "unpack_image_height_workaround_with_unpack_buffer"
+      ]
+    },
+    {
+      "id": 197,
+      "description": "adjust src/dst region if blitting pixels outside read framebuffer on Mac",
+      "cr_bugs": [644740],
+      "os": {
+        "type": "macosx"
+      },
+      "features": [
+        "adjust_src_dst_region_for_blitframebuffer"
+      ]
+    },
+    {
+      "id": 198,
+      "description": "adjust src/dst region if blitting pixels outside read framebuffer on Linux Intel",
+      "cr_bugs": [664740],
+      "os": {
+        "type": "linux"
+      },
+      "vendor_id": "0x8086",
+      "features": [
+        "adjust_src_dst_region_for_blitframebuffer"
+      ]
+    },
+    {
+      "id": 199,
+      "description": "adjust src/dst region if blitting pixels outside read framebuffer on Linux AMD",
+      "cr_bugs": [664740],
+      "os": {
+        "type": "linux"
+      },
+      "vendor_id": "0x1002",
+      "features": [
+        "adjust_src_dst_region_for_blitframebuffer"
+      ]
+    },
+    {
+      "id": 200,
       "description": "ES3 support is unreliable on some older drivers",
       "cr_bugs": [657925],
       "os": {
@@ -2037,6 +2171,167 @@ LONG_STRING_CONST(
       },
       "features": [
         "disable_es3_gl_context"
+      ]
+    },
+    {
+      "id": 201,
+      "cr_bugs": [659326,639760],
+      "description": "AMD drivers in Linux require invariant qualifier to match between vertex and fragment shaders",
+      "os": {
+        "type": "linux"
+      },
+      "vendor_id": "0x1002",
+      "features": [
+        "dont_remove_invariant_for_fragment_input",
+        "remove_invariant_and_centroid_for_essl3"
+      ]
+    },
+    {
+      "id": 202,
+      "cr_bugs": [639760,641129],
+      "description": "Mac driver GL 4.1 requires invariant and centroid to match between shaders",
+      "os": {
+        "type": "macosx"
+      },
+      "features": [
+        "remove_invariant_and_centroid_for_essl3"
+      ]
+    },
+    {
+      "id": 203,
+      "cr_bugs": [639760,641129],
+      "description": "Mesa driver GL 3.3 requires invariant and centroid to match between shaders",
+      "os": {
+        "type": "linux"
+      },
+      "driver_vendor": "Mesa",
+      "gl_version": {
+        "op": "=",
+        "value": "3.3"
+      },
+      "features": [
+        "remove_invariant_and_centroid_for_essl3"
+      ]
+    },
+    {
+      "id": 205,
+      "description": "Adreno 5xx support for EXT_multisampled_render_to_texture is buggy on Android 7.1",
+      "cr_bugs": [663811],
+      "os": {
+        "type": "android",
+        "version": {
+          "op": "=",
+          "value": "7.1.0"
+        }
+      },
+      "gl_renderer": "Adreno \\(TM\\) 5.*",
+      "disabled_extensions": [
+        "GL_EXT_multisampled_render_to_texture"
+      ]
+    },
+    {
+      "id": 206,
+      "description": "Disable KHR_blend_equation_advanced until cc shaders are updated",
+      "cr_bugs": [661715],
+      "disabled_extensions": [
+        "GL_KHR_blend_equation_advanced",
+        "GL_KHR_blend_equation_advanced_coherent"
+      ]
+    },
+    {
+      "id": 207,
+      "description": "Decode and Encode before generateMipmap for srgb format textures on Windows",
+      "cr_bugs": [634519],
+      "os" : {
+        "type": "win"
+      },
+      "features" : [
+        "decode_encode_srgb_for_generatemipmap"
+      ]
+    },
+    {
+      "id": 208,
+      "description": "Decode and Encode before generateMipmap for srgb format textures on Linux Mesa ANGLE path",
+      "cr_bugs": [634519],
+      "os": {
+        "type": "linux"
+      },
+      "gl_renderer": "ANGLE.*",
+      "vendor_id": "0x8086",
+      "features": [
+        "decode_encode_srgb_for_generatemipmap"
+      ]
+    },
+    {
+      "id": 209,
+      "description": "Decode and Encode before generateMipmap for srgb format textures on Chromeos Intel",
+      "cr_bugs": [634519],
+      "os": {
+        "type": "chromeos"
+      },
+      "vendor_id": "0x8086",
+      "features": [
+        "decode_encode_srgb_for_generatemipmap"
+      ]
+    },
+    {
+      "id": 210,
+      "description": "Decode and Encode before generateMipmap for srgb format textures on Linux AMD",
+      "cr_bugs": [634519],
+      "os": {
+        "type": "linux"
+      },
+      "vendor_id": "0x1002",
+      "features": [
+        "decode_encode_srgb_for_generatemipmap"
+      ]
+    },
+    {
+      "id": 211,
+      "description": "Rewrite -float to 0.0 - float for Intel Mac",
+      "cr_bugs": [672380],
+      "os": {
+        "type": "macosx",
+        "version": {
+          "op": "<=",
+          "value": "10.11"
+        }
+      },
+      "vendor_id": "0x8086",
+      "features": [
+        "rewrite_float_unary_minus_operator"
+      ]
+    },
+    {
+      "id": 212,
+      "description": "Program binaries don't contain transform feedback varyings on Qualcomm GPUs",
+      "cr_bugs": [658074],
+      "os": {
+        "type": "android"
+      },
+      "gl_renderer": "Adreno.*",
+      "features": [
+        "disable_program_caching_for_transform_feedback"
+      ]
+    },
+    {
+      "id": 213,
+      "description": "The Mali-Gxx driver does not guarantee flush ordering",
+      "cr_bugs": [678508],
+      "gl_vendor": "ARM.*",
+      "gl_renderer": "Mali-G.*",
+      "features": [
+        "use_virtualized_gl_contexts"
+      ]
+    },
+    {
+      "id": 214,
+      "description": "Certain versions of Qualcomm driver don't setup scissor state correctly when FBO0 is bound.",
+      "cr_bugs": [670607],
+      "gl_vendor": "Qualcomm.*",
+      "machine_model_name": ["Nexus 7"],
+      "features": [
+        "force_update_scissor_state_when_binding_fbo0"
       ]
     }
   ]

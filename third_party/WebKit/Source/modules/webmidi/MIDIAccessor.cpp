@@ -37,18 +37,20 @@
 #include <memory>
 
 using blink::WebString;
+using midi::mojom::PortState;
+using midi::mojom::Result;
 
 namespace blink {
 
 // Factory method
 std::unique_ptr<MIDIAccessor> MIDIAccessor::create(MIDIAccessorClient* client) {
-  return wrapUnique(new MIDIAccessor(client));
+  return WTF::wrapUnique(new MIDIAccessor(client));
 }
 
 MIDIAccessor::MIDIAccessor(MIDIAccessorClient* client) : m_client(client) {
   DCHECK(client);
 
-  m_accessor = wrapUnique(Platform::current()->createMIDIAccessor(this));
+  m_accessor = WTF::wrapUnique(Platform::current()->createMIDIAccessor(this));
 
   DCHECK(m_accessor);
 }
@@ -68,7 +70,7 @@ void MIDIAccessor::didAddInputPort(const WebString& id,
                                    const WebString& manufacturer,
                                    const WebString& name,
                                    const WebString& version,
-                                   MIDIPortState state) {
+                                   PortState state) {
   m_client->didAddInputPort(id, manufacturer, name, version, state);
 }
 
@@ -76,24 +78,20 @@ void MIDIAccessor::didAddOutputPort(const WebString& id,
                                     const WebString& manufacturer,
                                     const WebString& name,
                                     const WebString& version,
-                                    MIDIPortState state) {
+                                    PortState state) {
   m_client->didAddOutputPort(id, manufacturer, name, version, state);
 }
 
-void MIDIAccessor::didSetInputPortState(unsigned portIndex,
-                                        MIDIPortState state) {
+void MIDIAccessor::didSetInputPortState(unsigned portIndex, PortState state) {
   m_client->didSetInputPortState(portIndex, state);
 }
 
-void MIDIAccessor::didSetOutputPortState(unsigned portIndex,
-                                         MIDIPortState state) {
+void MIDIAccessor::didSetOutputPortState(unsigned portIndex, PortState state) {
   m_client->didSetOutputPortState(portIndex, state);
 }
 
-void MIDIAccessor::didStartSession(bool success,
-                                   const WebString& error,
-                                   const WebString& message) {
-  m_client->didStartSession(success, error, message);
+void MIDIAccessor::didStartSession(Result result) {
+  m_client->didStartSession(result);
 }
 
 void MIDIAccessor::didReceiveMIDIData(unsigned portIndex,

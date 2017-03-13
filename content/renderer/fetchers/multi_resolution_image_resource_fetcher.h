@@ -24,7 +24,7 @@ enum class WebCachePolicy;
 
 namespace content {
 
-class ResourceFetcher;
+class AssociatedResourceFetcher;
 
 // A resource fetcher that returns all (differently-sized) frames in
 // an image. Useful for favicons.
@@ -52,6 +52,9 @@ class MultiResolutionImageResourceFetcher {
   // HTTP status code upon fetch completion.
   int http_status_code() const { return http_status_code_; }
 
+  // Called when associated RenderFrame is destructed.
+  void OnRenderFrameDestruct();
+
  private:
   // ResourceFetcher::Callback. Decodes the image and invokes callback_.
   void OnURLFetchComplete(const blink::WebURLResponse& response,
@@ -69,7 +72,7 @@ class MultiResolutionImageResourceFetcher {
   const GURL image_url_;
 
   // Does the actual download.
-  std::unique_ptr<ResourceFetcher> fetcher_;
+  std::unique_ptr<AssociatedResourceFetcher> fetcher_;
 
   DISALLOW_COPY_AND_ASSIGN(MultiResolutionImageResourceFetcher);
 };

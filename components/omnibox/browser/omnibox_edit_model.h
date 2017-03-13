@@ -33,7 +33,6 @@ class OmniboxView;
 
 namespace gfx {
 class Image;
-class Rect;
 }
 
 // Reasons why the Omnibox could change into keyword mode.
@@ -60,7 +59,6 @@ class OmniboxEditModel {
   struct State {
     State(bool user_input_in_progress,
           const base::string16& user_text,
-          const base::string16& gray_text,
           const base::string16& keyword,
           bool is_keyword_hint,
           KeywordModeEntryMethod keyword_mode_entry_method,
@@ -72,7 +70,6 @@ class OmniboxEditModel {
 
     bool user_input_in_progress;
     const base::string16 user_text;
-    const base::string16 gray_text;
     const base::string16 keyword;
     const bool is_keyword_hint;
     KeywordModeEntryMethod keyword_mode_entry_method;
@@ -159,15 +156,10 @@ class OmniboxEditModel {
   bool UpdatePermanentText();
 
   // Returns the URL corresponding to the permanent text.
-  GURL PermanentURL();
+  GURL PermanentURL() const;
 
   // Sets the user_text_ to |text|.  Only the View should call this.
   void SetUserText(const base::string16& text);
-
-  // Commits the gray suggested text as if it's been input by the user.
-  // Returns true if the text was committed.
-  // TODO: can the return type be void?
-  bool CommitSuggestedText();
 
   // Invoked any time the text may have changed in the edit. Notifies the
   // controller.
@@ -177,10 +169,10 @@ class OmniboxEditModel {
   // no user input in progress).
   void Revert();
 
-  // Directs the popup to start autocomplete.
+  // Directs the popup to start autocomplete.  Makes use of the |view_| text and
+  // selection, so make sure to set those before calling StartAutocomplete().
   void StartAutocomplete(bool has_selected_text,
-                         bool prevent_inline_autocomplete,
-                         bool entering_keyword_mode);
+                         bool prevent_inline_autocomplete);
 
   // Closes the popup and cancels any pending asynchronous queries.
   void StopAutocomplete();
@@ -245,7 +237,9 @@ class OmniboxEditModel {
   bool AcceptKeyword(KeywordModeEntryMethod entry_method);
 
   // Sets the current keyword to that of the user's default search provider and
-  // updates the view so the user sees the keyword chip in the omnibox.
+  // updates the view so the user sees the keyword chip in the omnibox.  Adjusts
+  // user_text_ and the selection based on the display text and the keyword
+  // entry method.
   void EnterKeywordModeForDefaultSearchProvider(
       KeywordModeEntryMethod entry_method);
 
@@ -302,9 +296,6 @@ class OmniboxEditModel {
 
   // Returns true if pasting is in progress.
   bool is_pasting() const { return paste_state_ == PASTING; }
-
-  // TODO(beaudoin): Try not to expose this.
-  bool in_revert() const { return in_revert_; }
 
   // Called when the user presses up or down.  |count| is a repeat count,
   // negative for moving up, positive for moving down.

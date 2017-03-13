@@ -101,7 +101,6 @@ class PLATFORM_EXPORT ImageBuffer {
   bool wasDrawnToAfterSnapshot() const {
     return m_snapshotState == DrawnToAfterSnapshot;
   }
-  void didDisableAcceleration() const;
 
   void setFilterQuality(SkFilterQuality filterQuality) {
     m_surface->setFilterQuality(filterQuality);
@@ -141,17 +140,20 @@ class PLATFORM_EXPORT ImageBuffer {
   WebLayer* platformLayer() const;
 
   // Destroys the TEXTURE_2D binding for the active texture unit of the passed
-  // context.
+  // context. Assumes the destination texture has already been allocated.
   // FIXME: Current implementations of this method only work with textures that
   // are RGB or RGBA format, UNSIGNED_BYTE type and level 0, as specified in
   // Extensions3D::canUseCopyTextureCHROMIUM().
-  bool copyToPlatformTexture(gpu::gles2::GLES2Interface*,
+  bool copyToPlatformTexture(SnapshotReason,
+                             gpu::gles2::GLES2Interface*,
                              GLuint texture,
                              GLenum internalFormat,
                              GLenum destType,
                              GLint level,
                              bool premultiplyAlpha,
-                             bool flipY);
+                             bool flipY,
+                             const IntPoint& destPoint,
+                             const IntRect& sourceSubRectangle);
 
   bool copyRenderingResultsFromDrawingBuffer(DrawingBuffer*,
                                              SourceDrawingBuffer);
@@ -169,10 +171,7 @@ class PLATFORM_EXPORT ImageBuffer {
 
   sk_sp<SkPicture> getPicture() { return m_surface->getPicture(); }
 
-  void draw(GraphicsContext&,
-            const FloatRect&,
-            const FloatRect*,
-            SkXfermode::Mode);
+  void draw(GraphicsContext&, const FloatRect&, const FloatRect*, SkBlendMode);
 
   void updateGPUMemoryUsage() const;
   static intptr_t getGlobalGPUMemoryUsage() { return s_globalGPUMemoryUsage; }
@@ -182,6 +181,7 @@ class PLATFORM_EXPORT ImageBuffer {
   intptr_t getGPUMemoryUsage() { return m_gpuMemoryUsage; }
 
   void disableAcceleration();
+  void setSurface(std::unique_ptr<ImageBufferSurface>);
 
   WeakPtrFactory<ImageBuffer> m_weakPtrFactory;
 

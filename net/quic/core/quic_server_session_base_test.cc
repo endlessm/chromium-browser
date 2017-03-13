@@ -14,37 +14,27 @@
 #include "net/quic/core/quic_connection.h"
 #include "net/quic/core/quic_crypto_server_stream.h"
 #include "net/quic/core/quic_utils.h"
+#include "net/quic/platform/api/quic_ptr_util.h"
+#include "net/quic/platform/api/quic_socket_address.h"
 #include "net/quic/test_tools/crypto_test_utils.h"
+#include "net/quic/test_tools/fake_proof_source.h"
 #include "net/quic/test_tools/quic_config_peer.h"
 #include "net/quic/test_tools/quic_connection_peer.h"
+#include "net/quic/test_tools/quic_crypto_server_config_peer.h"
 #include "net/quic/test_tools/quic_sent_packet_manager_peer.h"
 #include "net/quic/test_tools/quic_session_peer.h"
 #include "net/quic/test_tools/quic_spdy_session_peer.h"
 #include "net/quic/test_tools/quic_spdy_stream_peer.h"
+#include "net/quic/test_tools/quic_stream_peer.h"
 #include "net/quic/test_tools/quic_sustained_bandwidth_recorder_peer.h"
 #include "net/quic/test_tools/quic_test_utils.h"
 #include "net/test/gtest_util.h"
+#include "net/tools/quic/quic_epoll_connection_helper.h"
 #include "net/tools/quic/quic_simple_server_stream.h"
 #include "net/tools/quic/test_tools/mock_quic_server_session_visitor.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
-using net::test::CryptoTestUtils;
-using net::test::MockQuicConnection;
-using net::test::MockQuicConnectionHelper;
-using net::test::QuicConfigPeer;
-using net::test::QuicConnectionPeer;
-using net::test::QuicSpdyStreamPeer;
-using net::test::QuicSentPacketManagerPeer;
-using net::test::QuicSessionPeer;
-using net::test::QuicSpdySessionPeer;
-using net::test::QuicSustainedBandwidthRecorderPeer;
-using net::test::SupportedVersions;
-using net::test::kClientDataStreamId1;
-using net::test::kClientDataStreamId2;
-using net::test::kClientDataStreamId3;
-using net::test::kInitialSessionFlowControlWindowForTest;
-using net::test::kInitialStreamFlowControlWindowForTest;
 using std::string;
 using testing::StrictMock;
 using testing::_;
@@ -54,8 +44,8 @@ namespace test {
 
 class QuicServerSessionBasePeer {
  public:
-  static ReliableQuicStream* GetOrCreateDynamicStream(QuicServerSessionBase* s,
-                                                      QuicStreamId id) {
+  static QuicStream* GetOrCreateDynamicStream(QuicServerSessionBase* s,
+                                              QuicStreamId id) {
     return s->GetOrCreateDynamicStream(id);
   }
   static void SetCryptoStream(QuicServerSessionBase* s,
@@ -74,16 +64,18 @@ class TestServerSession : public QuicServerSessionBase {
  public:
   TestServerSession(const QuicConfig& config,
                     QuicConnection* connection,
-                    QuicServerSessionBase::Visitor* visitor,
+                    QuicSession::Visitor* visitor,
                     QuicCryptoServerStream::Helper* helper,
                     const QuicCryptoServerConfig* crypto_config,
-                    QuicCompressedCertsCache* compressed_certs_cache)
+                    QuicCompressedCertsCache* compressed_certs_cache,
+                    QuicHttpResponseCache* response_cache)
       : QuicServerSessionBase(config,
                               connection,
                               visitor,
                               helper,
                               crypto_config,
-                              compressed_certs_cache) {}
+                              compressed_certs_cache),
+        response_cache_(response_cache) {}
 
   ~TestServerSession() override { delete connection(); };
 
@@ -92,8 +84,9 @@ class TestServerSession : public QuicServerSessionBase {
     if (!ShouldCreateIncomingDynamicStream(id)) {
       return nullptr;
     }
-    QuicSpdyStream* stream = new QuicSimpleServerStream(id, this);
-    ActivateStream(stream);
+    QuicSpdyStream* stream =
+        new QuicSimpleServerStream(id, this, response_cache_);
+    ActivateStream(QuicWrapUnique(stream));
     return stream;
   }
 
@@ -102,10 +95,10 @@ class TestServerSession : public QuicServerSessionBase {
       return nullptr;
     }
 
-    QuicSpdyStream* stream =
-        new QuicSimpleServerStream(GetNextOutgoingStreamId(), this);
+    QuicSpdyStream* stream = new QuicSimpleServerStream(
+        GetNextOutgoingStreamId(), this, response_cache_);
     stream->SetPriority(priority);
-    ActivateStream(stream);
+    ActivateStream(QuicWrapUnique(stream));
     return stream;
   }
 
@@ -114,8 +107,12 @@ class TestServerSession : public QuicServerSessionBase {
       QuicCompressedCertsCache* compressed_certs_cache) override {
     return new QuicCryptoServerStream(
         crypto_config, compressed_certs_cache,
-        FLAGS_enable_quic_stateless_reject_support, this, stream_helper());
+        FLAGS_quic_reloadable_flag_enable_quic_stateless_reject_support, this,
+        stream_helper());
   }
+
+ private:
+  QuicHttpResponseCache* response_cache_;  // Owned by QuicServerSessionBaseTest
 };
 
 const size_t kMaxStreamsForTest = 10;
@@ -123,9 +120,12 @@ const size_t kMaxStreamsForTest = 10;
 class QuicServerSessionBaseTest : public ::testing::TestWithParam<QuicVersion> {
  protected:
   QuicServerSessionBaseTest()
+      : QuicServerSessionBaseTest(CryptoTestUtils::ProofSourceForTesting()) {}
+
+  explicit QuicServerSessionBaseTest(std::unique_ptr<ProofSource> proof_source)
       : crypto_config_(QuicCryptoServerConfig::TESTING,
                        QuicRandom::GetInstance(),
-                       CryptoTestUtils::ProofSourceForTesting()),
+                       std::move(proof_source)),
         compressed_certs_cache_(
             QuicCompressedCertsCache::kQuicCompressedCertsCacheSize) {
     config_.SetMaxStreamsPerConnection(kMaxStreamsForTest, kMaxStreamsForTest);
@@ -140,9 +140,9 @@ class QuicServerSessionBaseTest : public ::testing::TestWithParam<QuicVersion> {
     connection_ = new StrictMock<MockQuicConnection>(
         &helper_, &alarm_factory_, Perspective::IS_SERVER,
         SupportedVersions(GetParam()));
-    session_.reset(new TestServerSession(config_, connection_, &owner_,
-                                         &stream_helper_, &crypto_config_,
-                                         &compressed_certs_cache_));
+    session_.reset(new TestServerSession(
+        config_, connection_, &owner_, &stream_helper_, &crypto_config_,
+        &compressed_certs_cache_, &response_cache_));
     MockClock clock;
     handshake_message_.reset(crypto_config_.AddDefaultConfig(
         QuicRandom::GetInstance(), &clock,
@@ -151,7 +151,7 @@ class QuicServerSessionBaseTest : public ::testing::TestWithParam<QuicVersion> {
     visitor_ = QuicConnectionPeer::GetVisitor(connection_);
   }
 
-  StrictMock<MockQuicServerSessionVisitor> owner_;
+  StrictMock<MockQuicSessionVisitor> owner_;
   StrictMock<MockQuicCryptoServerStreamHelper> stream_helper_;
   MockQuicConnectionHelper helper_;
   MockAlarmFactory alarm_factory_;
@@ -159,6 +159,7 @@ class QuicServerSessionBaseTest : public ::testing::TestWithParam<QuicVersion> {
   QuicConfig config_;
   QuicCryptoServerConfig crypto_config_;
   QuicCompressedCertsCache compressed_certs_cache_;
+  QuicHttpResponseCache response_cache_;
   std::unique_ptr<TestServerSession> session_;
   std::unique_ptr<CryptoHandshakeMessage> handshake_message_;
   QuicConnectionVisitorInterface* visitor_;
@@ -184,9 +185,8 @@ MATCHER_P(EqualsProto, network_params, "") {
 INSTANTIATE_TEST_CASE_P(Tests,
                         QuicServerSessionBaseTest,
                         ::testing::ValuesIn(AllSupportedVersions()));
-
 TEST_P(QuicServerSessionBaseTest, ServerPushDisabledByDefault) {
-  FLAGS_quic_enable_server_push_by_default = true;
+  FLAGS_quic_reloadable_flag_quic_enable_server_push_by_default = true;
   // Without the client explicitly sending kSPSH, server push will be disabled
   // at the server, until version 35 when it is enabled by default.
   EXPECT_FALSE(
@@ -349,10 +349,10 @@ TEST_P(QuicServerSessionBaseTest, MaxAvailableStreams) {
 }
 
 // TODO(ckrasic): remove this when
-// FLAGS_quic_enable_server_push_by_default is
+// FLAGS_quic_reloadable_flag_quic_enable_server_push_by_default is
 // deprecated.
 TEST_P(QuicServerSessionBaseTest, EnableServerPushThroughConnectionOption) {
-  FLAGS_quic_enable_server_push_by_default = false;
+  FLAGS_quic_reloadable_flag_quic_enable_server_push_by_default = false;
   // Assume server received server push connection option.
   QuicTagVector copt;
   copt.push_back(kSPSH);
@@ -383,11 +383,12 @@ class MockQuicCryptoServerStream : public QuicCryptoServerStream {
       QuicCompressedCertsCache* compressed_certs_cache,
       QuicServerSessionBase* session,
       QuicCryptoServerStream::Helper* helper)
-      : QuicCryptoServerStream(crypto_config,
-                               compressed_certs_cache,
-                               FLAGS_enable_quic_stateless_reject_support,
-                               session,
-                               helper) {}
+      : QuicCryptoServerStream(
+            crypto_config,
+            compressed_certs_cache,
+            FLAGS_quic_reloadable_flag_enable_quic_stateless_reject_support,
+            session,
+            helper) {}
   ~MockQuicCryptoServerStream() override {}
 
   MOCK_METHOD1(SendServerConfigUpdate,
@@ -430,8 +431,7 @@ TEST_P(QuicServerSessionBaseTest, BandwidthEstimates) {
 
   // Set some initial bandwidth values.
   QuicSentPacketManager* sent_packet_manager =
-      QuicConnectionPeer::GetSentPacketManager(session_->connection(),
-                                               kDefaultPathId);
+      QuicConnectionPeer::GetSentPacketManager(session_->connection());
   QuicSustainedBandwidthRecorder& bandwidth_recorder =
       QuicSentPacketManagerPeer::GetBandwidthRecorder(sent_packet_manager);
   // Seed an rtt measurement equal to the initial default rtt.
@@ -570,6 +570,78 @@ TEST_P(QuicServerSessionBaseTest, NoBandwidthResumptionByDefault) {
   session_->OnConfigNegotiated();
   EXPECT_FALSE(
       QuicServerSessionBasePeer::IsBandwidthResumptionEnabled(session_.get()));
+}
+
+// Tests which check the lifetime management of data members of
+// QuicCryptoServerStream objects when async GetProof is in use.
+class StreamMemberLifetimeTest : public QuicServerSessionBaseTest {
+ public:
+  StreamMemberLifetimeTest()
+      : QuicServerSessionBaseTest(
+            std::unique_ptr<FakeProofSource>(new FakeProofSource())),
+        crypto_config_peer_(&crypto_config_) {
+    GetFakeProofSource()->Activate();
+  }
+
+  FakeProofSource* GetFakeProofSource() const {
+    return static_cast<FakeProofSource*>(crypto_config_peer_.GetProofSource());
+  }
+
+ private:
+  QuicCryptoServerConfigPeer crypto_config_peer_;
+};
+
+INSTANTIATE_TEST_CASE_P(StreamMemberLifetimeTests,
+                        StreamMemberLifetimeTest,
+                        ::testing::ValuesIn(AllSupportedVersions()));
+
+// Trigger an operation which causes an async invocation of
+// ProofSource::GetProof.  Delay the completion of the operation until after the
+// stream has been destroyed, and verify that there are no memory bugs.
+TEST_P(StreamMemberLifetimeTest, Basic) {
+  FLAGS_quic_reloadable_flag_enable_async_get_proof = true;
+  FLAGS_quic_reloadable_flag_enable_quic_stateless_reject_support = true;
+  FLAGS_quic_reloadable_flag_quic_use_cheap_stateless_rejects = true;
+  FLAGS_quic_reloadable_flag_quic_create_session_after_insertion = true;
+
+  const QuicClock* clock = helper_.GetClock();
+  QuicVersion version = AllSupportedVersions().front();
+  CryptoHandshakeMessage chlo = CryptoTestUtils::GenerateDefaultInchoateCHLO(
+      clock, version, &crypto_config_);
+  chlo.SetVector(kCOPT, QuicTagVector{kSREJ});
+  std::vector<QuicVersion> packet_version_list = {version};
+  std::unique_ptr<QuicEncryptedPacket> packet(ConstructEncryptedPacket(
+      1, true, false, false, kDefaultPathId, 1,
+      chlo.GetSerialized().AsStringPiece().as_string(),
+      PACKET_8BYTE_CONNECTION_ID, PACKET_6BYTE_PACKET_NUMBER,
+      &packet_version_list));
+
+  EXPECT_CALL(stream_helper_, CanAcceptClientHello(_, _, _))
+      .WillOnce(testing::Return(true));
+  EXPECT_CALL(stream_helper_, GenerateConnectionIdForReject(_))
+      .WillOnce(testing::Return(12345));
+
+  // Set the current packet
+  QuicConnectionPeer::SetCurrentPacket(session_->connection(),
+                                       packet->AsStringPiece());
+
+  // Yes, this is horrible.  But it's the easiest way to trigger the behavior we
+  // need to exercise.
+  QuicCryptoServerStreamBase* crypto_stream =
+      const_cast<QuicCryptoServerStreamBase*>(session_->crypto_stream());
+
+  // Feed the CHLO into the crypto stream, which will trigger a call to
+  // ProofSource::GetProof
+  crypto_stream->OnHandshakeMessage(chlo);
+  ASSERT_EQ(GetFakeProofSource()->NumPendingCallbacks(), 1);
+
+  // Destroy the stream
+  session_.reset();
+
+  // Allow the async ProofSource::GetProof call to complete.  Verify (under
+  // asan) that this does not result in accesses to any freed memory from the
+  // session or its subobjects.
+  GetFakeProofSource()->InvokePendingCallback(0);
 }
 
 }  // namespace

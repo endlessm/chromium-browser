@@ -6,6 +6,7 @@
 
 #include <vector>
 
+#include "base/threading/thread_task_runner_handle.h"
 #include "content/browser/service_worker/embedded_worker_status.h"
 #include "content/browser/service_worker/service_worker_context_core.h"
 #include "content/browser/service_worker/service_worker_context_wrapper.h"
@@ -48,11 +49,6 @@ ServiceWorkerRegistration::ServiceWorkerRegistration(
 }
 
 ServiceWorkerRegistration::~ServiceWorkerRegistration() {
-  // Can be false during shutdown, in which case the DCHECK_CURRENTLY_ON below
-  // would cry.
-  if (!BrowserThread::IsThreadInitialized(BrowserThread::IO))
-    return;
-
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
   DCHECK(!listeners_.might_have_observers());
   if (context_)
@@ -78,18 +74,20 @@ void ServiceWorkerRegistration::RemoveListener(Listener* listener) {
 }
 
 void ServiceWorkerRegistration::NotifyRegistrationFailed() {
-  FOR_EACH_OBSERVER(Listener, listeners_, OnRegistrationFailed(this));
+  for (auto& observer : listeners_)
+    observer.OnRegistrationFailed(this);
   NotifyRegistrationFinished();
 }
 
 void ServiceWorkerRegistration::NotifyUpdateFound() {
-  FOR_EACH_OBSERVER(Listener, listeners_, OnUpdateFound(this));
+  for (auto& observer : listeners_)
+    observer.OnUpdateFound(this);
 }
 
 void ServiceWorkerRegistration::NotifyVersionAttributesChanged(
     ChangedVersionAttributesMask mask) {
-  FOR_EACH_OBSERVER(Listener, listeners_,
-                    OnVersionAttributesChanged(this, mask, GetInfo()));
+  for (auto& observer : listeners_)
+    observer.OnVersionAttributesChanged(this, mask, GetInfo());
   if (mask.active_changed() || mask.waiting_changed())
     NotifyRegistrationFinished();
 }
@@ -118,8 +116,10 @@ void ServiceWorkerRegistration::SetActiveVersion(
   if (active_version_)
     active_version_->RemoveListener(this);
   active_version_ = version;
-  if (active_version_)
+  if (active_version_) {
     active_version_->AddListener(this);
+    active_version_->SetNavigationPreloadState(navigation_preload_state_);
+  }
   mask.add(ChangedVersionAttributesMask::ACTIVE_VERSION);
 
   NotifyVersionAttributesChanged(mask);
@@ -314,8 +314,10 @@ void ServiceWorkerRegistration::ActivateWaitingVersion(bool delay) {
   // "activating" as arguments."
   activating_version->SetStatus(ServiceWorkerVersion::ACTIVATING);
   // "9. Fire a simple event named controllerchange..."
-  if (activating_version->skip_waiting())
-    FOR_EACH_OBSERVER(Listener, listeners_, OnSkippedWaiting(this));
+  if (activating_version->skip_waiting()) {
+    for (auto& observer : listeners_)
+      observer.OnSkippedWaiting(this);
+  }
 
   // "10. Queue a task to fire an event named activate..."
   // The browser could be shutting down. To avoid spurious start worker
@@ -388,6 +390,19 @@ void ServiceWorkerRegistration::NotifyRegistrationFinished() {
 void ServiceWorkerRegistration::SetTaskRunnerForTest(
     scoped_refptr<base::SingleThreadTaskRunner> task_runner) {
   task_runner_ = task_runner;
+}
+
+void ServiceWorkerRegistration::EnableNavigationPreload(bool enable) {
+  navigation_preload_state_.enabled = enable;
+  if (active_version_)
+    active_version_->SetNavigationPreloadState(navigation_preload_state_);
+}
+
+void ServiceWorkerRegistration::SetNavigationPreloadHeader(
+    const std::string& header) {
+  navigation_preload_state_.header = header;
+  if (active_version_)
+    active_version_->SetNavigationPreloadState(navigation_preload_state_);
 }
 
 void ServiceWorkerRegistration::RegisterRegistrationFinishedCallback(
@@ -488,8 +503,8 @@ void ServiceWorkerRegistration::Clear() {
       version->Doom();
   }
 
-  FOR_EACH_OBSERVER(
-      Listener, listeners_, OnRegistrationFinishedUninstalling(this));
+  for (auto& observer : listeners_)
+    observer.OnRegistrationFinishedUninstalling(this);
 }
 
 void ServiceWorkerRegistration::OnRestoreFinished(

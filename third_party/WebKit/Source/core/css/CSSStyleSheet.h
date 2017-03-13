@@ -24,6 +24,7 @@
 
 #include "core/CoreExport.h"
 #include "core/css/CSSRule.h"
+#include "core/css/MediaQueryEvaluator.h"
 #include "core/css/StyleSheet.h"
 #include "platform/heap/Handle.h"
 #include "wtf/Noncopyable.h"
@@ -40,8 +41,6 @@ class ExceptionState;
 class MediaQuerySet;
 class SecurityOrigin;
 class StyleSheetContents;
-
-enum StyleSheetUpdateType { PartialRuleUpdate, EntireStyleSheetUpdate };
 
 class CORE_EXPORT CSSStyleSheet final : public StyleSheet {
   DEFINE_WRAPPERTYPEINFO();
@@ -99,8 +98,15 @@ class CORE_EXPORT CSSStyleSheet final : public StyleSheet {
 
   void clearOwnerRule() { m_ownerRule = nullptr; }
   Document* ownerDocument() const;
-  MediaQuerySet* mediaQueries() const { return m_mediaQueries.get(); }
+  const MediaQuerySet* mediaQueries() const { return m_mediaQueries; }
   void setMediaQueries(MediaQuerySet*);
+  bool matchesMediaQueries(const MediaQueryEvaluator&);
+  const MediaQueryResultList& viewportDependentMediaQueryResults() const {
+    return m_viewportDependentMediaQueryResults;
+  }
+  const MediaQueryResultList& deviceDependentMediaQueryResults() const {
+    return m_deviceDependentMediaQueryResults;
+  }
   void setTitle(const String& title) { m_title = title; }
   // Set by LinkStyle iff CORS-enabled fetch of stylesheet succeeded from this
   // origin.
@@ -121,7 +127,7 @@ class CORE_EXPORT CSSStyleSheet final : public StyleSheet {
 
   void willMutateRules();
   void didMutateRules();
-  void didMutate(StyleSheetUpdateType = PartialRuleUpdate);
+  void didMutate();
 
   StyleSheetContents* contents() const { return m_contents.get(); }
 
@@ -152,10 +158,13 @@ class CORE_EXPORT CSSStyleSheet final : public StyleSheet {
   void setLoadCompleted(bool);
 
   Member<StyleSheetContents> m_contents;
-  bool m_isInlineStylesheet;
-  bool m_isDisabled;
+  bool m_isInlineStylesheet = false;
+  bool m_isDisabled = false;
+  bool m_loadCompleted = false;
   String m_title;
   Member<MediaQuerySet> m_mediaQueries;
+  MediaQueryResultList m_viewportDependentMediaQueryResults;
+  MediaQueryResultList m_deviceDependentMediaQueryResults;
 
   RefPtr<SecurityOrigin> m_allowRuleAccessFromOrigin;
 
@@ -163,7 +172,6 @@ class CORE_EXPORT CSSStyleSheet final : public StyleSheet {
   Member<CSSRule> m_ownerRule;
 
   TextPosition m_startPosition;
-  bool m_loadCompleted;
   mutable Member<MediaList> m_mediaCSSOMWrapper;
   mutable HeapVector<Member<CSSRule>> m_childRuleCSSOMWrappers;
   mutable Member<CSSRuleList> m_ruleListCSSOMWrapper;
@@ -176,7 +184,7 @@ inline CSSStyleSheet::RuleMutationScope::RuleMutationScope(CSSStyleSheet* sheet)
 }
 
 inline CSSStyleSheet::RuleMutationScope::RuleMutationScope(CSSRule* rule)
-    : m_styleSheet(rule ? rule->parentStyleSheet() : 0) {
+    : m_styleSheet(rule ? rule->parentStyleSheet() : nullptr) {
   if (m_styleSheet)
     m_styleSheet->willMutateRules();
 }

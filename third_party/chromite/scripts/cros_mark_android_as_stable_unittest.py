@@ -10,7 +10,7 @@ import itertools
 import mock
 import os
 
-from chromite.cbuildbot import constants
+from chromite.lib import constants
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
 from chromite.lib import cros_test_lib
@@ -80,6 +80,8 @@ class CrosMarkAndroidAsStable(cros_test_lib.MockTempDirTestCase):
     self.acls = {
         'ARM': self.arm_acl,
         'X86': self.x86_acl,
+        'X86_USERDEBUG': self.x86_acl,
+        'AOSP_X86_USERDEBUG': self.x86_acl,
         'SDK_TOOLS': self.cts_acl,
     }
 
@@ -99,6 +101,12 @@ class CrosMarkAndroidAsStable(cros_test_lib.MockTempDirTestCase):
             self.partial_new_version
         ],
         'X86': [self.old_version, self.old2_version, self.new_version],
+        'X86_USERDEBUG': [
+            self.old_version, self.old2_version, self.new_version
+        ],
+        'AOSP_X86_USERDEBUG': [
+            self.old_version, self.old2_version, self.new_version
+        ],
         'SDK_TOOLS': [
             self.old_version, self.old2_version, self.new_version,
             self.partial_new_version
@@ -115,11 +123,16 @@ class CrosMarkAndroidAsStable(cros_test_lib.MockTempDirTestCase):
     self.new_subpaths = {
         'ARM': 'linux-cheets_arm-user100',
         'X86': 'linux-cheets_x86-user100',
+        'X86_USERDEBUG': 'linux-cheets_x86-userdebug100',
+        'AOSP_X86_USERDEBUG': 'linux-aosp_cheets_x86-userdebug100',
         'SDK_TOOLS': 'linux-static_sdk_tools100',
     }
 
     self.setupMockBuild('ARM', self.partial_new_version)
     self.setupMockBuild('X86', self.partial_new_version, valid=False)
+    self.setupMockBuild('X86_USERDEBUG', self.partial_new_version, valid=False)
+    self.setupMockBuild('AOSP_X86_USERDEBUG', self.partial_new_version,
+                        valid=False)
     self.setupMockBuild('SDK_TOOLS', self.partial_new_version)
 
     for key in self.targets.iterkeys():
@@ -141,7 +154,9 @@ class CrosMarkAndroidAsStable(cros_test_lib.MockTempDirTestCase):
       # Show files.
       mock_file_template_list = {
           'ARM': ['file-%(version)s.zip', 'adb'],
-          'X86': ['file-%(version)s.zip', 'adb'],
+          'X86': ['file-%(version)s.zip'],
+          'X86_USERDEBUG': ['cheets_x86-file-%(version)s.zip'],
+          'AOSP_X86_USERDEBUG': ['aosp_cheets_x86-file-%(version)s.zip'],
           'SDK_TOOLS': ['aapt', 'adb']
       }
       filelist = [template % {'version': version}
@@ -156,6 +171,17 @@ class CrosMarkAndroidAsStable(cros_test_lib.MockTempDirTestCase):
 
       # Show nothing in destination.
       dst_url = self.makeDstUrl(target, version)
+      # Show files.
+      mock_file_template_list = {
+          'ARM': ['file-%(version)s.zip', 'adb'],
+          'X86': ['file-%(version)s.zip'],
+          'X86_USERDEBUG': ['cheets_x86_userdebug-file-%(version)s.zip'],
+          'AOSP_X86_USERDEBUG':
+              ['cheets_aosp_x86_userdebug-file-%(version)s.zip'],
+          'SDK_TOOLS': ['aapt', 'adb']
+      }
+      filelist = [template % {'version': version}
+                  for template in mock_file_template_list[key]]
       dst_filelist = [os.path.join(dst_url, filename)
                       for filename in filelist]
       for dst_file in dst_filelist:
@@ -199,9 +225,13 @@ class CrosMarkAndroidAsStable(cros_test_lib.MockTempDirTestCase):
                                                           self.old_version,
                                                           self.targets)
     self.assertTrue(subpaths)
-    self.assertEquals(len(subpaths), 3)
+    self.assertEquals(len(subpaths), 5)
     self.assertEquals(subpaths['ARM'], 'linux-cheets_arm-user25')
     self.assertEquals(subpaths['X86'], 'linux-cheets_x86-user25')
+    self.assertEquals(subpaths['X86_USERDEBUG'],
+                      'linux-cheets_x86-userdebug25')
+    self.assertEquals(subpaths['AOSP_X86_USERDEBUG'],
+                      'linux-aosp_cheets_x86-userdebug25')
     self.assertEquals(subpaths['SDK_TOOLS'], 'linux-static_sdk_tools25')
 
     subpaths = cros_mark_android_as_stable.IsBuildIdValid(self.bucket_url,
@@ -238,10 +268,69 @@ class CrosMarkAndroidAsStable(cros_test_lib.MockTempDirTestCase):
         self.bucket_url, self.build_branch, self.targets)
     self.assertEqual(version, self.new_version)
     self.assertTrue(subpaths)
-    self.assertEquals(len(subpaths), 3)
+    self.assertEquals(len(subpaths), 5)
     self.assertEquals(subpaths['ARM'], 'linux-cheets_arm-user100')
     self.assertEquals(subpaths['X86'], 'linux-cheets_x86-user100')
+    self.assertEquals(subpaths['X86_USERDEBUG'],
+                      'linux-cheets_x86-userdebug100')
+    self.assertEquals(subpaths['AOSP_X86_USERDEBUG'],
+                      'linux-aosp_cheets_x86-userdebug100')
     self.assertEquals(subpaths['SDK_TOOLS'], 'linux-static_sdk_tools100')
+
+  def _AuxGetArcBasename(self, build, basename):
+    """Helper function for readability."""
+    # pylint: disable=protected-access
+    return cros_mark_android_as_stable._GetArcBasename(build, basename)
+
+  def testGetArcBasenameNoRename(self):
+    """Test build targets that don't require renaming."""
+    default_bn = 'do_not_rename_basename'
+    no_rename_build_targets = ['ARM', 'X86', 'SDK_TOOLS', 'XTS']
+    for build in no_rename_build_targets:
+      self.assertEquals(self._AuxGetArcBasename(build, default_bn), default_bn)
+
+    self.assertEquals(self._AuxGetArcBasename('UNKNOWN', default_bn),
+                      default_bn)
+    self.assertEquals(self._AuxGetArcBasename('', default_bn), default_bn)
+    self.assertEquals(self._AuxGetArcBasename(None, default_bn), default_bn)
+
+  def testGetArcBasenameRenameValid(self):
+    """Test renaming when input basename is valid."""
+    # Actual name patterns.
+    build_targets = {
+        'X86_USERDEBUG':
+            ('cheets_x86-target_files-25.zip',
+             'cheets_x86_userdebug-target_files-25.zip'),
+        'AOSP_X86_USERDEBUG':
+            ('aosp_cheets_x86-target_files-25.zip',
+             'cheets_aosp_x86_userdebug-target_files-25.zip'),
+    }
+    for build, (src, dst) in build_targets.iteritems():
+      self.assertEquals(self._AuxGetArcBasename(build, src), dst)
+
+    # More generic name patterns.
+    build_targets['X86_USERDEBUG'] = (
+        ('cheets_-XXX', 'cheets_x86_userdebug-XXX')
+    )
+    build_targets['AOSP_X86_USERDEBUG'] = (
+        ('cheets_-XXX', 'cheets_aosp_x86_userdebug-XXX')
+    )
+    for build, (src, dst) in build_targets.iteritems():
+      self.assertEquals(self._AuxGetArcBasename(build, src), dst)
+
+  def testGetArcBasenameRenameInvalid(self):
+    """"Test that basename is unchanged if it's not as expected."""
+    # Missing hyphen.
+    self.assertEquals(self._AuxGetArcBasename('X86_USERDEBUG',
+                                              'cheets_x86.zip'),
+                      'cheets_x86.zip')
+    # Missing 'cheets_' before first hyphen.
+    self.assertEquals(self._AuxGetArcBasename('X86_USERDEBUG',
+                                              'marlin_x86-25.zip'),
+                      'marlin_x86-25.zip')
+    self.assertEquals(self._AuxGetArcBasename('X86_USERDEBUG',
+                                              'XX-cheets_x86-25.zip'),
+                      'XX-cheets_x86-25.zip')
 
   def testCopyToArcBucket(self):
     """Test copying of images to ARC bucket."""
@@ -275,6 +364,8 @@ class CrosMarkAndroidAsStable(cros_test_lib.MockTempDirTestCase):
   def testMarkAndroidEBuildAsStable(self):
     """Test updating of ebuild."""
     self.PatchObject(cros_build_lib, 'RunCommand')
+    self.PatchObject(portage_util.EBuild, 'GetCrosWorkonVars',
+                     return_value=None)
     git_mock = self.PatchObject(git, 'RunGit')
     commit_mock = self.PatchObject(portage_util.EBuild, 'CommitChange')
     stable_candidate = portage_util.EBuild(self.old2)

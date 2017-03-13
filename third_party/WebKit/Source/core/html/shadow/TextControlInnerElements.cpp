@@ -82,7 +82,7 @@ PassRefPtr<ComputedStyle> EditingViewPortElement::customStyleForLayoutObject() {
   style->setFlexGrow(1);
   style->setMinWidth(Length(0, Fixed));
   style->setDisplay(EDisplay::Block);
-  style->setDirection(LTR);
+  style->setDirection(TextDirection::kLtr);
 
   // We don't want the shadow dom to be editable, so we set this block to
   // read-only in case the input itself is editable.
@@ -133,7 +133,7 @@ void TextControlInnerEditorElement::defaultEventHandler(Event* event) {
 
 LayoutObject* TextControlInnerEditorElement::createLayoutObject(
     const ComputedStyle&) {
-  return new LayoutTextControlInnerBlock(this);
+  return new LayoutTextControlInnerEditor(this);
 }
 
 PassRefPtr<ComputedStyle>
@@ -165,7 +165,7 @@ SearchFieldCancelButtonElement* SearchFieldCancelButtonElement::create(
   SearchFieldCancelButtonElement* element =
       new SearchFieldCancelButtonElement(document);
   element->setShadowPseudoId(AtomicString("-webkit-search-cancel-button"));
-  element->setAttribute(idAttr, ShadowElementNames::clearButton());
+  element->setAttribute(idAttr, ShadowElementNames::searchClearButton());
   return element;
 }
 

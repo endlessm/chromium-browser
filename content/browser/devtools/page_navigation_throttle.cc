@@ -11,10 +11,9 @@
 #include "content/public/browser/web_contents.h"
 
 namespace content {
-namespace devtools {
 
 PageNavigationThrottle::PageNavigationThrottle(
-    base::WeakPtr<page::PageHandler> page_handler,
+    base::WeakPtr<protocol::PageHandler> page_handler,
     int navigation_id,
     content::NavigationHandle* navigation_handle)
     : content::NavigationThrottle(navigation_handle),
@@ -57,17 +56,22 @@ void PageNavigationThrottle::AlwaysProceed() {
 void PageNavigationThrottle::Resume() {
   if (!navigation_deferred_)
     return;
-  navigation_handle()->Resume();
   navigation_deferred_ = false;
+  navigation_handle()->Resume();
+
+  // Do not add code after this as the PageNavigationThrottle may be deleted by
+  // the line above.
 }
 
 void PageNavigationThrottle::CancelDeferredNavigation(
     NavigationThrottle::ThrottleCheckResult result) {
   if (!navigation_deferred_)
     return;
-  navigation_handle()->CancelDeferredNavigation(result);
   navigation_deferred_ = false;
+  navigation_handle()->CancelDeferredNavigation(result);
+
+  // Do not add code after this as the PageNavigationThrottle may be deleted by
+  // the line above.
 }
 
-}  // namespace devtools
 }  // namespace content

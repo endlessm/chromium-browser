@@ -47,7 +47,7 @@ class SessionManagerOperationTest : public testing::Test {
       : ui_thread_(content::BrowserThread::UI, &message_loop_),
         file_thread_(content::BrowserThread::FILE, &message_loop_),
         owner_key_util_(new ownership::MockOwnerKeyUtil()),
-        user_manager_(new user_manager::FakeUserManager()),
+        user_manager_(new chromeos::FakeChromeUserManager()),
         user_manager_enabler_(user_manager_),
         validated_(false) {
     OwnerSettingsServiceChromeOSFactory::GetInstance()
@@ -93,7 +93,7 @@ class SessionManagerOperationTest : public testing::Test {
   DeviceSettingsTestHelper device_settings_test_helper_;
   scoped_refptr<ownership::MockOwnerKeyUtil> owner_key_util_;
 
-  user_manager::FakeUserManager* user_manager_;
+  chromeos::FakeChromeUserManager* user_manager_;
   ScopedUserManagerEnabler user_manager_enabler_;
 
   std::unique_ptr<TestingProfile> profile_;
@@ -107,6 +107,7 @@ class SessionManagerOperationTest : public testing::Test {
 
 TEST_F(SessionManagerOperationTest, LoadNoPolicyNoKey) {
   LoadSettingsOperation op(
+      false /* force_key_load */, true /* cloud_validations */,
       base::Bind(&SessionManagerOperationTest::OnOperationCompleted,
                  base::Unretained(this)));
 
@@ -126,6 +127,7 @@ TEST_F(SessionManagerOperationTest, LoadNoPolicyNoKey) {
 TEST_F(SessionManagerOperationTest, LoadOwnerKey) {
   owner_key_util_->SetPublicKeyFromPrivateKey(*policy_.GetSigningKey());
   LoadSettingsOperation op(
+      false /* force_key_load */, true /* cloud_validations */,
       base::Bind(&SessionManagerOperationTest::OnOperationCompleted,
                  base::Unretained(this)));
 
@@ -143,6 +145,7 @@ TEST_F(SessionManagerOperationTest, LoadPolicy) {
   owner_key_util_->SetPublicKeyFromPrivateKey(*policy_.GetSigningKey());
   device_settings_test_helper_.set_policy_blob(policy_.GetBlob());
   LoadSettingsOperation op(
+      false /* force_key_load */, true /* cloud_validations */,
       base::Bind(&SessionManagerOperationTest::OnOperationCompleted,
                  base::Unretained(this)));
 
@@ -165,6 +168,7 @@ TEST_F(SessionManagerOperationTest, RestartLoad) {
   owner_key_util_->SetPrivateKey(policy_.GetSigningKey());
   device_settings_test_helper_.set_policy_blob(policy_.GetBlob());
   LoadSettingsOperation op(
+      false /* force_key_load */, true /* cloud_validations */,
       base::Bind(&SessionManagerOperationTest::OnOperationCompleted,
                  base::Unretained(this)));
 

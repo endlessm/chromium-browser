@@ -21,11 +21,11 @@
 #include <stdint.h>
 
 #include <map>
+#include <memory>
 #include <queue>
 
 #include "base/compiler_specific.h"
 #include "base/macros.h"
-#include "base/memory/linked_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/values.h"
 #include "build/build_config.h"
@@ -37,9 +37,9 @@
 #include "content/public/browser/web_contents_observer.h"
 #include "third_party/WebKit/public/platform/WebDragOperation.h"
 #include "third_party/WebKit/public/platform/WebFocusType.h"
+#include "third_party/WebKit/public/platform/WebInputEvent.h"
 #include "third_party/WebKit/public/web/WebCompositionUnderline.h"
 #include "third_party/WebKit/public/web/WebDragStatus.h"
-#include "third_party/WebKit/public/web/WebInputEvent.h"
 #include "ui/base/ime/text_input_mode.h"
 #include "ui/base/ime/text_input_type.h"
 #include "ui/gfx/geometry/rect.h"
@@ -51,7 +51,6 @@ struct FrameHostMsg_ShowPopup_Params;
 #endif
 
 namespace cc {
-class CompositorFrame;
 class SurfaceId;
 struct SurfaceSequence;
 }  // namespace cc
@@ -65,6 +64,7 @@ namespace content {
 class BrowserPluginGuestManager;
 class RenderViewHostImpl;
 class RenderWidgetHost;
+class RenderWidgetHostImpl;
 class RenderWidgetHostView;
 class RenderWidgetHostViewBase;
 class SiteInstance;
@@ -202,7 +202,7 @@ class CONTENT_EXPORT BrowserPluginGuest : public GuestHost,
 
   // Helper to send messages to embedder. If this guest is not yet attached,
   // then IPCs will be queued until attachment.
-  void SendMessageToEmbedder(IPC::Message* msg);
+  void SendMessageToEmbedder(std::unique_ptr<IPC::Message> msg);
 
   // Returns whether the guest is attached to an embedder.
   bool attached() const { return attached_; }
@@ -258,6 +258,9 @@ class CONTENT_EXPORT BrowserPluginGuest : public GuestHost,
     return can_use_cross_process_frames_;
   }
 
+  gfx::Point GetCoordinatesInEmbedderWebContents(
+      const gfx::Point& relative_point);
+
  protected:
 
   // BrowserPluginGuest is a WebContentsObserver of |web_contents| and
@@ -278,6 +281,9 @@ class CONTENT_EXPORT BrowserPluginGuest : public GuestHost,
 
  private:
   class EmbedderVisibilityObserver;
+
+  // The RenderWidgetHostImpl corresponding to the owner frame of BrowserPlugin.
+  RenderWidgetHostImpl* GetOwnerRenderWidgetHost() const;
 
   void InitInternal(const BrowserPluginHostMsg_Attach_Params& params,
                     WebContentsImpl* owner_web_contents);
@@ -344,9 +350,11 @@ class CONTENT_EXPORT BrowserPluginGuest : public GuestHost,
       const std::vector<blink::WebCompositionUnderline>& underlines,
       int selection_start,
       int selection_end);
-  void OnImeCommitText(int instance_id,
-                       const std::string& text,
-                       int relative_cursor_pos);
+  void OnImeCommitText(
+      int instance_id,
+      const std::string& text,
+      const std::vector<blink::WebCompositionUnderline>& underlines,
+      int relative_cursor_pos);
   void OnImeFinishComposingText(bool keep_selection);
   void OnExtendSelectionAndDelete(int instance_id, int before, int after);
   void OnImeCancelComposition();
@@ -381,7 +389,8 @@ class CONTENT_EXPORT BrowserPluginGuest : public GuestHost,
   // the input was created with browser_plugin::kInstanceIdNone, else it returns
   // the input message unmodified. If no current browser_plugin_instance_id()
   // is set, or anything goes wrong, the input message is returned.
-  IPC::Message* UpdateInstanceIdIfNecessary(IPC::Message* msg) const;
+  std::unique_ptr<IPC::Message> UpdateInstanceIdIfNecessary(
+      std::unique_ptr<IPC::Message> msg) const;
 
   // Forwards all messages from the |pending_messages_| queue to the embedder.
   void SendQueuedMessages();
@@ -447,7 +456,7 @@ class CONTENT_EXPORT BrowserPluginGuest : public GuestHost,
 
   // This is a queue of messages that are destined to be sent to the embedder
   // once the guest is attached to a particular embedder.
-  std::deque<linked_ptr<IPC::Message> > pending_messages_;
+  std::deque<std::unique_ptr<IPC::Message>> pending_messages_;
 
   BrowserPluginGuestDelegate* const delegate_;
 

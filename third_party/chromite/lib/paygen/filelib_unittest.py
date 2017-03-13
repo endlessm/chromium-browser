@@ -8,10 +8,10 @@ from __future__ import print_function
 
 import os
 import shutil
-import subprocess
 
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_test_lib
+from chromite.lib import osutils
 from chromite.lib.paygen import filelib
 from chromite.lib.paygen import utils
 
@@ -37,7 +37,7 @@ class TestFileManipulation(cros_test_lib.TestCase):
       out2.write(self.FILE2_CONTENTS)
 
     subdir = os.path.join(tempdir, self.SUBDIR)
-    filelib.Makedir(subdir)
+    osutils.SafeMakedirs(subdir)
 
     with open(os.path.join(tempdir, self.SUBFILE), 'w') as out3:
       out3.write(self.SUBFILE_CONTENTS)
@@ -112,44 +112,31 @@ class TestFileManipulation(cros_test_lib.TestCase):
 
 
 class TestFileLib(cros_test_lib.MoxTempDirTestCase):
-  """Test filelib module."""
+  """Test filelib module.
+
+  Note: We use tools for hashes to avoid relying on hashlib since that's what
+  the filelib module uses.  We want to verify things rather than have a single
+  hashlib bug break both the code and the tests.
+  """
 
   def _MD5Sum(self, file_path):
     """Use RunCommand to get the md5sum of a file."""
-    md5_path = '/usr/bin/md5sum'
-    if not os.path.exists(md5_path):
-      self.fail('%s is required to test MD5 logic.')
-    cmd = [md5_path, file_path]
     return cros_build_lib.RunCommand(
-        cmd, redirect_stdout=True).output.split(' ')[0]
+        ['md5sum', file_path], redirect_stdout=True).output.split(' ')[0]
 
   def _SHA1Sum(self, file_path):
     """Use sha1sum utility to get SHA1 of a file."""
-    # The sha1sum utility gives SHA1 in base 16 encoding.  We need
-    # base 64, so use combination of xxd and base64 utilities.
-    proc1 = subprocess.Popen(['sha1sum', file_path], stdout=subprocess.PIPE)
-    proc2 = subprocess.Popen(['cut', '-f1', '-d', ' '], stdin=proc1.stdout,
-                             stdout=subprocess.PIPE)
-    proc3 = subprocess.Popen(['xxd', '-r', '-p'], stdin=proc2.stdout,
-                             stdout=subprocess.PIPE)
-    proc4 = subprocess.Popen(['base64'], stdin=proc3.stdout,
-                             stdout=subprocess.PIPE)
-    result = proc4.communicate()
-    return result[0][:-1]
+    # The sha1sum utility gives SHA1 in base 16 encoding.  We need base 64.
+    hash16 = cros_build_lib.RunCommand(
+        ['sha1sum', file_path], redirect_stdout=True).output.split(' ')[0]
+    return hash16.decode('hex').encode('base64').rstrip()
 
   def _SHA256Sum(self, file_path):
     """Use sha256 utility to get SHA256 of a file."""
-    # The sha256sum utility gives SHA256 in base 16 encoding.  We need
-    # base 64, so use combination of xxd and base64 utilities.
-    proc1 = subprocess.Popen(['sha256sum', file_path], stdout=subprocess.PIPE)
-    proc2 = subprocess.Popen(['cut', '-f1', '-d', ' '], stdin=proc1.stdout,
-                             stdout=subprocess.PIPE)
-    proc3 = subprocess.Popen(['xxd', '-r', '-p'], stdin=proc2.stdout,
-                             stdout=subprocess.PIPE)
-    proc4 = subprocess.Popen(['base64'], stdin=proc3.stdout,
-                             stdout=subprocess.PIPE)
-    result = proc4.communicate()
-    return result[0][:-1]
+    # The sha256sum utility gives SHA256 in base 16 encoding.  We need base 64.
+    hash16 = cros_build_lib.RunCommand(
+        ['sha256sum', file_path], redirect_stdout=True).output.split(' ')[0]
+    return hash16.decode('hex').encode('base64').rstrip()
 
   def testMD5Sum(self):
     """Test MD5Sum output with the /usr/bin/md5sum binary."""
@@ -197,7 +184,7 @@ class TestFileLib(cros_test_lib.MoxTempDirTestCase):
     relative_path = 'relative.bin'
 
     self.mox.StubOutWithMock(filelib, 'Exists')
-    self.mox.StubOutWithMock(filelib, 'Makedir')
+    self.mox.StubOutWithMock(osutils, 'SafeMakedirs')
     self.mox.StubOutWithMock(filelib.shutil, 'copy2')
 
     # Set up the test replay script.
@@ -206,7 +193,7 @@ class TestFileLib(cros_test_lib.MoxTempDirTestCase):
     filelib.shutil.copy2(path1, path2)
     # Run 2, path2 directory does not exist.
     filelib.Exists(os.path.dirname(path2), as_dir=True).AndReturn(False)
-    filelib.Makedir(os.path.dirname(path2), fill_path=True)
+    osutils.SafeMakedirs(os.path.dirname(path2))
     filelib.shutil.copy2(path1, path2)
 
     # Run 3, there is target directory is '.', don't test existence.

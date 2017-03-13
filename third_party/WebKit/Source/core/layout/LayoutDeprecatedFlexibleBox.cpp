@@ -43,9 +43,9 @@ class FlexBoxIterator {
       : m_box(parent), m_largestOrdinal(1) {
     if (m_box->style()->boxOrient() == HORIZONTAL &&
         !m_box->style()->isLeftToRightDirection())
-      m_forward = m_box->style()->boxDirection() != BNORMAL;
+      m_forward = m_box->style()->boxDirection() != EBoxDirection::kNormal;
     else
-      m_forward = m_box->style()->boxDirection() == BNORMAL;
+      m_forward = m_box->style()->boxDirection() == EBoxDirection::kNormal;
     if (!m_forward) {
       // No choice, since we're going backwards, we have to find out the highest
       // ordinal up front.
@@ -139,7 +139,7 @@ static int getHeightForLineCount(const LayoutBlockFlow* blockFlow,
                                  int lineCount,
                                  bool includeBottom,
                                  int& count) {
-  if (blockFlow->style()->visibility() != EVisibility::Visible)
+  if (blockFlow->style()->visibility() != EVisibility::kVisible)
     return -1;
   if (blockFlow->childrenInline()) {
     for (RootInlineBox* box = blockFlow->firstRootBox(); box;
@@ -181,7 +181,7 @@ static int getHeightForLineCount(const LayoutBlockFlow* blockFlow,
 static RootInlineBox* lineAtIndex(const LayoutBlockFlow* blockFlow, int i) {
   ASSERT(i >= 0);
 
-  if (blockFlow->style()->visibility() != EVisibility::Visible)
+  if (blockFlow->style()->visibility() != EVisibility::kVisible)
     return nullptr;
 
   if (blockFlow->childrenInline()) {
@@ -209,7 +209,7 @@ static RootInlineBox* lineAtIndex(const LayoutBlockFlow* blockFlow, int i) {
 static int lineCount(const LayoutBlockFlow* blockFlow,
                      const RootInlineBox* stopRootInlineBox = nullptr,
                      bool* found = nullptr) {
-  if (blockFlow->style()->visibility() != EVisibility::Visible)
+  if (blockFlow->style()->visibility() != EVisibility::kVisible)
     return 0;
   int count = 0;
   if (blockFlow->childrenInline()) {
@@ -243,7 +243,7 @@ static int lineCount(const LayoutBlockFlow* blockFlow,
 }
 
 static void clearTruncation(LayoutBlockFlow* blockFlow) {
-  if (blockFlow->style()->visibility() != EVisibility::Visible)
+  if (blockFlow->style()->visibility() != EVisibility::kVisible)
     return;
   if (blockFlow->childrenInline() && blockFlow->hasMarkupTruncation()) {
     blockFlow->setHasMarkupTruncation(false);
@@ -297,7 +297,7 @@ static LayoutUnit marginWidthForChild(LayoutBox* child) {
 static bool childDoesNotAffectWidthOrFlexing(LayoutObject* child) {
   // Positioned children and collapsed children don't affect the min/max width.
   return child->isOutOfFlowPositioned() ||
-         child->style()->visibility() == EVisibility::Collapse;
+         child->style()->visibility() == EVisibility::kCollapse;
 }
 
 static LayoutUnit contentWidthForChild(LayoutBox* child) {
@@ -366,7 +366,7 @@ void LayoutDeprecatedFlexibleBox::layoutBlock(bool relayoutChildren) {
 
   {
     // LayoutState needs this deliberate scope to pop before paint invalidation.
-    LayoutState state(*this, locationOffset());
+    LayoutState state(*this);
 
     LayoutSize previousSize = size();
 
@@ -403,10 +403,6 @@ void LayoutDeprecatedFlexibleBox::layoutBlock(bool relayoutChildren) {
 
   updateLayerTransformAfterLayout();
   updateAfterLayout();
-
-  if (view()->layoutState()->pageLogicalHeight())
-    setPageLogicalOffset(
-        view()->layoutState()->pageLogicalOffset(*this, logicalTop()));
 
   clearNeedsLayout();
 }
@@ -445,6 +441,7 @@ void LayoutDeprecatedFlexibleBox::layoutHorizontalBox(bool relayoutChildren) {
   LayoutUnit yPos = borderTop() + paddingTop();
   LayoutUnit xPos = borderLeft() + paddingLeft();
   bool heightSpecified = false;
+  bool paginated = view()->layoutState()->isPaginated();
   LayoutUnit oldHeight;
 
   LayoutUnit remainingSpace;
@@ -456,7 +453,7 @@ void LayoutDeprecatedFlexibleBox::layoutHorizontalBox(bool relayoutChildren) {
   gatherFlexChildrenInfo(iterator, relayoutChildren, highestFlexGroup,
                          lowestFlexGroup, haveFlex);
 
-  PaintLayerScrollableArea::DelayScrollPositionClampScope delayClampScope;
+  PaintLayerScrollableArea::DelayScrollOffsetClampScope delayClampScope;
 
   // We do 2 passes.  The first pass is simply to lay everyone out at
   // their preferred widths.  The second pass handles flexing the children.
@@ -514,6 +511,9 @@ void LayoutDeprecatedFlexibleBox::layoutHorizontalBox(bool relayoutChildren) {
         setHeight(std::max(size().height(), yPos + child->size().height() +
                                                 child->marginHeight()));
       }
+
+      if (paginated)
+        updateFragmentationInfoForChild(*child);
     }
 
     if (!iterator.first() && hasLineIfEmpty())
@@ -548,7 +548,7 @@ void LayoutDeprecatedFlexibleBox::layoutHorizontalBox(bool relayoutChildren) {
         continue;
       }
 
-      if (child->style()->visibility() == EVisibility::Collapse) {
+      if (child->style()->visibility() == EVisibility::kCollapse) {
         // visibility: collapsed children do not participate in our positioning.
         // But we need to lay them down.
         child->layoutIfNeeded();
@@ -672,7 +672,7 @@ void LayoutDeprecatedFlexibleBox::layoutHorizontalBox(bool relayoutChildren) {
           for (LayoutBox* child = iterator.first();
                child && spaceAvailableThisPass && totalFlex;
                child = iterator.next()) {
-            if (child->style()->visibility() == EVisibility::Collapse)
+            if (child->style()->visibility() == EVisibility::kCollapse)
               continue;
 
             if (allowedChildFlex(child, expanding, i)) {
@@ -784,6 +784,7 @@ void LayoutDeprecatedFlexibleBox::layoutVerticalBox(bool relayoutChildren) {
   LayoutUnit toAdd =
       borderBottom() + paddingBottom() + horizontalScrollbarHeight();
   bool heightSpecified = false;
+  bool paginated = view()->layoutState()->isPaginated();
   LayoutUnit oldHeight;
 
   LayoutUnit remainingSpace;
@@ -802,7 +803,7 @@ void LayoutDeprecatedFlexibleBox::layoutVerticalBox(bool relayoutChildren) {
   if (haveLineClamp)
     applyLineClamp(iterator, relayoutChildren);
 
-  PaintLayerScrollableArea::DelayScrollPositionClampScope delayClampScope;
+  PaintLayerScrollableArea::DelayScrollOffsetClampScope delayClampScope;
 
   // We do 2 passes.  The first pass is simply to lay everyone out at
   // their preferred widths.  The second pass handles flexing the children.
@@ -833,7 +834,7 @@ void LayoutDeprecatedFlexibleBox::layoutVerticalBox(bool relayoutChildren) {
                                  child->style()->height().isPercentOrCalc()))))
         layoutScope.setChildNeedsLayout(child);
 
-      if (child->style()->visibility() == EVisibility::Collapse) {
+      if (child->style()->visibility() == EVisibility::kCollapse) {
         // visibility: collapsed children do not participate in our positioning.
         // But we need to lay them down.
         child->layoutIfNeeded();
@@ -882,6 +883,9 @@ void LayoutDeprecatedFlexibleBox::layoutVerticalBox(bool relayoutChildren) {
       placeChild(child, LayoutPoint(childX, size().height()));
       setHeight(size().height() + child->size().height() +
                 child->marginBottom());
+
+      if (paginated)
+        updateFragmentationInfoForChild(*child);
     }
 
     yPos = size().height();
@@ -1133,7 +1137,7 @@ void LayoutDeprecatedFlexibleBox::applyLineClamp(FlexBoxIterator& iterator,
     child->forceChildLayout();
 
     // FIXME: For now don't support RTL.
-    if (style()->direction() != LTR)
+    if (style()->direction() != TextDirection::kLtr)
       continue;
 
     // Get the last line

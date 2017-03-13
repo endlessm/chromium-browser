@@ -13,6 +13,7 @@
 #include <limits>
 #include <string>
 
+#include "webrtc/api/video/i420_buffer.h"
 #include "webrtc/common_video/libyuv/include/webrtc_libyuv.h"
 
 namespace {
@@ -116,7 +117,8 @@ int I420Encoder::Encode(const VideoFrame& inputImage,
     return WEBRTC_VIDEO_CODEC_MEMORY;
   _encodedImage._length = ret_length + kI420HeaderSize;
 
-  _encodedCompleteCallback->Encoded(_encodedImage, NULL, NULL);
+  _encodedCompleteCallback->OnEncodedImage(_encodedImage, nullptr, nullptr);
+
   return WEBRTC_VIDEO_CODEC_OK;
 }
 

@@ -95,10 +95,9 @@ blink::WebPlugin* ShellContentRendererClient::CreatePluginReplacement(
 }
 
 bool ShellContentRendererClient::WillSendRequest(
-    blink::WebFrame* frame,
+    blink::WebLocalFrame* frame,
     ui::PageTransition transition_type,
-    const GURL& url,
-    const GURL& first_party_for_cookies,
+    const blink::WebURL& url,
     GURL* new_url) {
   // TODO(jamescook): Cause an error for bad extension scheme requests?
   return false;

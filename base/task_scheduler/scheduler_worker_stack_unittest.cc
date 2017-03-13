@@ -22,12 +22,11 @@ namespace {
 
 class MockSchedulerWorkerDelegate : public SchedulerWorker::Delegate {
  public:
-  void OnMainEntry(SchedulerWorker* worker,
-                   const TimeDelta& detach_duration) override {}
+  void OnMainEntry(SchedulerWorker* worker) override {}
   scoped_refptr<Sequence> GetWork(SchedulerWorker* worker) override {
     return nullptr;
   }
-  void DidRunTask(const Task* task, const TimeDelta& task_latency) override {
+  void DidRunTask() override {
     ADD_FAILURE() << "Unexpected call to DidRunTask()";
   }
   void ReEnqueueSequence(scoped_refptr<Sequence> sequence) override {
@@ -39,6 +38,7 @@ class MockSchedulerWorkerDelegate : public SchedulerWorker::Delegate {
   bool CanDetach(SchedulerWorker* worker) override {
     return false;
   }
+  void OnDetach() override { ADD_FAILURE() << "Unexpected call to OnDetach()"; }
 };
 
 class TaskSchedulerWorkerStackTest : public testing::Test {

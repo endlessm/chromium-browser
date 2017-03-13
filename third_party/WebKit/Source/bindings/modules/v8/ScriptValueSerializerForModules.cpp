@@ -9,6 +9,7 @@
 #include "bindings/modules/v8/V8CryptoKey.h"
 #include "bindings/modules/v8/V8DOMFileSystem.h"
 #include "bindings/modules/v8/V8RTCCertificate.h"
+#include "bindings/modules/v8/serialization/WebCryptoSubTags.h"
 #include "modules/filesystem/DOMFileSystem.h"
 #include "modules/peerconnection/RTCCertificate.h"
 #include "public/platform/Platform.h"
@@ -18,65 +19,6 @@
 #include <memory>
 
 namespace blink {
-
-enum CryptoKeyAlgorithmTag {
-  AesCbcTag = 1,
-  HmacTag = 2,
-  RsaSsaPkcs1v1_5Tag = 3,
-  // ID 4 was used by RsaEs, while still behind experimental flag.
-  Sha1Tag = 5,
-  Sha256Tag = 6,
-  Sha384Tag = 7,
-  Sha512Tag = 8,
-  AesGcmTag = 9,
-  RsaOaepTag = 10,
-  AesCtrTag = 11,
-  AesKwTag = 12,
-  RsaPssTag = 13,
-  EcdsaTag = 14,
-  EcdhTag = 15,
-  HkdfTag = 16,
-  Pbkdf2Tag = 17,
-  // Maximum allowed value is 2^32-1
-};
-
-enum NamedCurveTag {
-  P256Tag = 1,
-  P384Tag = 2,
-  P521Tag = 3,
-};
-
-enum CryptoKeyUsage {
-  // Extractability is not a "usage" in the WebCryptoKeyUsages sense, however
-  // it fits conveniently into this bitfield.
-  ExtractableUsage = 1 << 0,
-
-  EncryptUsage = 1 << 1,
-  DecryptUsage = 1 << 2,
-  SignUsage = 1 << 3,
-  VerifyUsage = 1 << 4,
-  DeriveKeyUsage = 1 << 5,
-  WrapKeyUsage = 1 << 6,
-  UnwrapKeyUsage = 1 << 7,
-  DeriveBitsUsage = 1 << 8,
-  // Maximum allowed value is 1 << 31
-};
-
-enum CryptoKeySubTag {
-  AesKeyTag = 1,
-  HmacKeyTag = 2,
-  // ID 3 was used by RsaKeyTag, while still behind experimental flag.
-  RsaHashedKeyTag = 4,
-  EcKeyTag = 5,
-  NoParamsKeyTag = 6,
-  // Maximum allowed value is 255
-};
-
-enum AssymetricCryptoKeyType {
-  PublicKeyType = 1,
-  PrivateKeyType = 2,
-  // Maximum allowed value is 2^32-1
-};
 
 ScriptValueSerializerForModules::ScriptValueSerializerForModules(
     SerializedScriptValueWriter& writer,
@@ -394,7 +336,7 @@ bool SerializedScriptValueReaderForModules::readDOMFileSystem(
   DOMFileSystem* fs = DOMFileSystem::create(
       getScriptState()->getExecutionContext(), name,
       static_cast<FileSystemType>(type), KURL(ParsedURLString, url));
-  *value = toV8(fs, getScriptState()->context()->Global(), isolate());
+  *value = ToV8(fs, getScriptState()->context()->Global(), isolate());
   return !value->IsEmpty();
 }
 
@@ -451,7 +393,7 @@ bool SerializedScriptValueReaderForModules::readCryptoKey(
     return false;
   }
 
-  *value = toV8(CryptoKey::create(key), getScriptState()->context()->Global(),
+  *value = ToV8(CryptoKey::create(key), getScriptState()->context()->Global(),
                 isolate());
   return !value->IsEmpty();
 }
@@ -466,14 +408,16 @@ bool SerializedScriptValueReaderForModules::readRTCCertificate(
     return false;
 
   std::unique_ptr<WebRTCCertificateGenerator> certificateGenerator =
-      wrapUnique(Platform::current()->createRTCCertificateGenerator());
+      WTF::wrapUnique(Platform::current()->createRTCCertificateGenerator());
 
   std::unique_ptr<WebRTCCertificate> certificate(
       certificateGenerator->fromPEM(pemPrivateKey, pemCertificate));
+  if (!certificate)
+    return false;
   RTCCertificate* jsCertificate = new RTCCertificate(std::move(certificate));
 
   *value =
-      toV8(jsCertificate, getScriptState()->context()->Global(), isolate());
+      ToV8(jsCertificate, getScriptState()->context()->Global(), isolate());
   return !value->IsEmpty();
 }
 
@@ -631,7 +575,7 @@ bool SerializedScriptValueReaderForModules::doReadAsymmetricKeyType(
   if (!doReadUint32(&rawType))
     return false;
 
-  switch (static_cast<AssymetricCryptoKeyType>(rawType)) {
+  switch (static_cast<AsymmetricCryptoKeyType>(rawType)) {
     case PublicKeyType:
       type = WebCryptoKeyTypePublic;
       return true;

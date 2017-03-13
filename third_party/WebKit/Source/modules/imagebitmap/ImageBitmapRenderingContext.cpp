@@ -27,9 +27,16 @@ void ImageBitmapRenderingContext::setCanvasGetContextResult(
 }
 
 void ImageBitmapRenderingContext::transferFromImageBitmap(
-    ImageBitmap* imageBitmap) {
+    ImageBitmap* imageBitmap,
+    ExceptionState& exceptionState) {
   if (!imageBitmap) {
     m_image.release();
+    return;
+  }
+
+  if (imageBitmap->isNeutered()) {
+    exceptionState.throwDOMException(InvalidStateError,
+                                     "The input ImageBitmap has been detached");
     return;
   }
 
@@ -37,7 +44,11 @@ void ImageBitmapRenderingContext::transferFromImageBitmap(
   if (!m_image)
     return;
 
-  sk_sp<SkImage> skImage = m_image->imageForCurrentFrame();
+  // TODO(ccameron): Determine the correct color behavior here.
+  // ImageBitmapRenderingContext.
+  // https://crbug.com/672306
+  sk_sp<SkImage> skImage =
+      m_image->imageForCurrentFrame(ColorBehavior::transformToGlobalTarget());
   if (skImage->isTextureBacked()) {
     // TODO(junov): crbug.com/585607 Eliminate this readback and use an
     // ExternalTextureLayer
@@ -53,6 +64,7 @@ void ImageBitmapRenderingContext::transferFromImageBitmap(
   }
   canvas()->didDraw(
       FloatRect(FloatPoint(), FloatSize(m_image->width(), m_image->height())));
+  imageBitmap->close();
 }
 
 bool ImageBitmapRenderingContext::paint(GraphicsContext& gc, const IntRect& r) {
@@ -60,10 +72,12 @@ bool ImageBitmapRenderingContext::paint(GraphicsContext& gc, const IntRect& r) {
     return true;
 
   // With impl-side painting, it is unsafe to use a gpu-backed SkImage
-  ASSERT(!m_image->imageForCurrentFrame()->isTextureBacked());
+  DCHECK(
+      !m_image->imageForCurrentFrame(ColorBehavior::transformToGlobalTarget())
+           ->isTextureBacked());
   gc.drawImage(m_image.get(), r, nullptr, creationAttributes().alpha()
-                                              ? SkXfermode::kSrcOver_Mode
-                                              : SkXfermode::kSrc_Mode);
+                                              ? SkBlendMode::kSrcOver
+                                              : SkBlendMode::kSrc);
 
   return true;
 }

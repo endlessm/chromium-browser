@@ -12,7 +12,6 @@ import static org.chromium.third_party.android.datausagechart.ChartDataUsageView
 import android.annotation.SuppressLint;
 import android.content.Context;
 import android.preference.Preference;
-import android.preference.PreferenceCategory;
 import android.text.format.DateUtils;
 import android.text.format.Formatter;
 import android.util.AttributeSet;
@@ -27,9 +26,9 @@ import org.chromium.third_party.android.datausagechart.NetworkStatsHistory;
 import java.util.TimeZone;
 
 /**
- * Preference category used to display statistics on data reduction.
+ * Preference used to display statistics on data reduction.
  */
-public class DataReductionStatsPreference extends PreferenceCategory {
+public class DataReductionStatsPreference extends Preference {
     private NetworkStatsHistory mOriginalNetworkStatsHistory;
     private NetworkStatsHistory mReceivedNetworkStatsHistory;
 
@@ -51,14 +50,17 @@ public class DataReductionStatsPreference extends PreferenceCategory {
     public DataReductionStatsPreference(
             Context context, AttributeSet attrs, int defStyle) {
         super(context, attrs, defStyle);
+        setWidgetLayoutResource(R.layout.data_reduction_stats_layout);
     }
 
     public DataReductionStatsPreference(Context context, AttributeSet attrs) {
         super(context, attrs);
+        setWidgetLayoutResource(R.layout.data_reduction_stats_layout);
     }
 
     public DataReductionStatsPreference(Context context) {
         super(context);
+        setWidgetLayoutResource(R.layout.data_reduction_stats_layout);
     }
 
     /**
@@ -83,18 +85,13 @@ public class DataReductionStatsPreference extends PreferenceCategory {
     }
 
     @Override
-    protected boolean onPrepareAddPreference(Preference preference) {
-        return super.onPrepareAddPreference(preference);
-    }
-
-    @Override
     public boolean isEnabled() {
         return super.isEnabled();
     }
 
     /**
      * Sets up a data usage chart and text views containing data reduction statistics.
-     * @oaram view The current view.
+     * @param view The current view.
      */
     @Override
     protected void onBindView(View view) {
@@ -163,6 +160,9 @@ public class DataReductionStatsPreference extends PreferenceCategory {
 
         mStartDatePhrase = formatDate(context, start);
         mEndDatePhrase = formatDate(context, end);
+
+        DataReductionProxyUma.dataReductionProxyUserViewedSavings(
+                compressedTotalBytes, originalTotalBytes, 100.0 * percentage);
     }
 
     private static String formatDate(Context context, long millisSinceEpoch) {

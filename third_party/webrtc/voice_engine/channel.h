@@ -13,6 +13,7 @@
 
 #include <memory>
 
+#include "webrtc/api/audio/audio_mixer.h"
 #include "webrtc/api/call/audio_sink.h"
 #include "webrtc/base/criticalsection.h"
 #include "webrtc/base/optional.h"
@@ -26,13 +27,12 @@
 #include "webrtc/modules/rtp_rtcp/include/remote_ntp_time_estimator.h"
 #include "webrtc/modules/rtp_rtcp/include/rtp_header_parser.h"
 #include "webrtc/modules/rtp_rtcp/include/rtp_rtcp.h"
-#include "webrtc/modules/utility/include/file_player.h"
-#include "webrtc/modules/utility/include/file_recorder.h"
+#include "webrtc/voice_engine/file_player.h"
+#include "webrtc/voice_engine/file_recorder.h"
 #include "webrtc/voice_engine/include/voe_audio_processing.h"
 #include "webrtc/voice_engine/include/voe_base.h"
 #include "webrtc/voice_engine/include/voe_network.h"
 #include "webrtc/voice_engine/level_indicator.h"
-#include "webrtc/voice_engine/network_predictor.h"
 #include "webrtc/voice_engine/shared_data.h"
 #include "webrtc/voice_engine/voice_engine_defines.h"
 
@@ -67,6 +67,7 @@ namespace voe {
 
 class OutputMixer;
 class RtcEventLogProxy;
+class RtcpRttStatsProxy;
 class RtpPacketSenderProxy;
 class Statistics;
 class StatisticsProxy;
@@ -88,7 +89,6 @@ class ChannelState {
     bool input_file_playing = false;
     bool playing = false;
     bool sending = false;
-    bool receiving = false;
   };
 
   ChannelState() {}
@@ -129,11 +129,6 @@ class ChannelState {
     state_.sending = enable;
   }
 
-  void SetReceiving(bool enable) {
-    rtc::CritScope lock(&lock_);
-    state_.receiving = enable;
-  }
-
  private:
   rtc::CriticalSection lock_;
   State state_;
@@ -148,8 +143,8 @@ class Channel
       public AudioPacketizationCallback,  // receive encoded packets from the
                                           // ACM
       public ACMVADCallback,              // receive voice activity from the ACM
-      public MixerParticipant  // supplies output mixer with audio frames
-{
+      public MixerParticipant,  // supplies output mixer with audio frames
+      public OverheadObserver {
  public:
   friend class VoERtcpObserver;
 
@@ -189,9 +184,7 @@ class Channel
   int32_t StopPlayout();
   int32_t StartSend();
   int32_t StopSend();
-  int32_t StartReceiving();
-  int32_t StopReceiving();
-
+  void ResetDiscardedPacketCount();
   int32_t RegisterVoiceEngineObserver(VoiceEngineObserver& observer);
   int32_t DeRegisterVoiceEngineObserver();
 
@@ -199,7 +192,7 @@ class Channel
   int32_t GetSendCodec(CodecInst& codec);
   int32_t GetRecCodec(CodecInst& codec);
   int32_t SetSendCodec(const CodecInst& codec);
-  void SetBitRate(int bitrate_bps);
+  void SetBitRate(int bitrate_bps, int64_t probing_interval_ms);
   int32_t SetVADStatus(bool enableVAD, ACMVADMode mode, bool disableDTX);
   int32_t GetVADStatus(bool& enabledVAD, ACMVADMode& mode, bool& disabledDTX);
   int32_t SetRecPayloadType(const CodecInst& codec);
@@ -208,6 +201,10 @@ class Channel
   int SetOpusMaxPlaybackRate(int frequency_hz);
   int SetOpusDtx(bool enable_dtx);
   int GetOpusDtx(bool* enabled);
+  bool EnableAudioNetworkAdaptor(const std::string& config_string);
+  void DisableAudioNetworkAdaptor();
+  void SetReceiverFrameLengthRange(int min_frame_length_ms,
+                                   int max_frame_length_ms);
 
   // VoENetwork
   int32_t RegisterExternalTransport(Transport* transport);
@@ -290,7 +287,7 @@ class Channel
 
   // DTMF
   int SendTelephoneEventOutband(int event, int duration_ms);
-  int SetSendTelephoneEventPayloadType(int payload_type);
+  int SetSendTelephoneEventPayloadType(int payload_type, int payload_frequency);
 
   // VoEAudioProcessingImpl
   int VoiceActivityIndicator(int& activity);
@@ -374,6 +371,11 @@ class Channel
       AudioFrame* audioFrame) override;
   int32_t NeededFrequency(int32_t id) const override;
 
+  // From AudioMixer::Source.
+  AudioMixer::Source::AudioFrameInfo GetAudioFrameWithInfo(
+      int sample_rate_hz,
+      AudioFrame* audio_frame);
+
   // From FileCallback
   void PlayNotification(int32_t id, uint32_t durationMs) override;
   void RecordNotification(int32_t id, uint32_t durationMs) override;
@@ -384,7 +386,6 @@ class Channel
   int32_t ChannelId() const { return _channelId; }
   bool Playing() const { return channel_state_.Get().playing; }
   bool Sending() const { return channel_state_.Get().sending; }
-  bool Receiving() const { return channel_state_.Get().receiving; }
   bool ExternalTransport() const {
     rtc::CritScope cs(&_callbackCritSect);
     return _externalTransport;
@@ -405,17 +406,18 @@ class Channel
 
   // Associate to a send channel.
   // Used for obtaining RTT for a receive-only channel.
-  void set_associate_send_channel(const ChannelOwner& channel) {
-    assert(_channelId != channel.channel()->ChannelId());
-    rtc::CritScope lock(&assoc_send_channel_lock_);
-    associate_send_channel_ = channel;
-  }
-
+  void set_associate_send_channel(const ChannelOwner& channel);
   // Disassociate a send channel if it was associated.
   void DisassociateSendChannel(int channel_id);
 
   // Set a RtcEventLog logging object.
   void SetRtcEventLog(RtcEventLog* event_log);
+
+  void SetRtcpRttStats(RtcpRttStats* rtcp_rtt_stats);
+  void SetTransportOverhead(size_t transport_overhead_per_packet);
+
+  // From OverheadObserver in the RTP/RTCP module
+  void OnOverheadChanged(size_t overhead_bytes_per_packet) override;
 
  protected:
   void OnIncomingFractionLoss(int fraction_lost);
@@ -440,7 +442,9 @@ class Channel
                                 RTPExtensionType type,
                                 unsigned char id);
 
-  int32_t GetPlayoutFrequency() const;
+  void UpdateOverheadForEncoder();
+
+  int GetRtpTimestampRateHz() const;
   int64_t GetRTT(bool allow_associate_channel) const;
 
   rtc::CriticalSection _fileCritSect;
@@ -452,6 +456,7 @@ class Channel
   ChannelState channel_state_;
 
   std::unique_ptr<voe::RtcEventLogProxy> event_log_proxy_;
+  std::unique_ptr<voe::RtcpRttStatsProxy> rtcp_rtt_stats_proxy_;
 
   std::unique_ptr<RtpHeaderParser> rtp_header_parser_;
   std::unique_ptr<RTPPayloadRegistry> rtp_payload_registry_;
@@ -510,7 +515,7 @@ class Channel
   VoiceEngineObserver* _voiceEngineObserverPtr;  // owned by base
   rtc::CriticalSection* _callbackCritSectPtr;    // owned by base
   Transport* _transportPtr;  // WebRtc socket or external transport
-  RMSLevel rms_level_;
+  RmsLevel rms_level_;
   int32_t _sendFrameType;  // Send data is voice, 1-voice, 0-otherwise
   // VoEBase
   bool _externalMixing;
@@ -525,6 +530,8 @@ class Channel
   uint32_t _lastLocalTimeStamp;
   int8_t _lastPayloadType;
   bool _includeAudioLevelIndication;
+  size_t transport_overhead_per_packet_;
+  size_t rtp_overhead_per_packet_;
   // VoENetwork
   AudioFrame::SpeechType _outputSpeechType;
   // VoEVideoSync
@@ -533,7 +540,6 @@ class Channel
   bool restored_packet_in_use_;
   // RtcpBandwidthObserver
   std::unique_ptr<VoERtcpObserver> rtcp_observer_;
-  std::unique_ptr<NetworkPredictor> network_predictor_;
   // An associated send channel.
   rtc::CriticalSection assoc_send_channel_lock_;
   ChannelOwner associate_send_channel_ GUARDED_BY(assoc_send_channel_lock_);

@@ -38,7 +38,9 @@ def _GetHeader(filename):
 
 
 def _CppHeader(filename):
-  guard = filename.replace('/', '_').replace('.', '_').upper() + '_'
+  guard = filename.upper() + '_'
+  for char in '/.+':
+    guard = guard.replace(char, '_')
   return '\n'.join([
     '',
     '#ifndef ' + guard,
@@ -49,16 +51,21 @@ def _CppHeader(filename):
   ])
 
 
-def _CppImplementation(filename):
+def _RemoveTestSuffix(filename):
   base, _ = os.path.splitext(filename)
-  include = '#include "' + base + '.h"'
-  return '\n'.join(['', include])
+  suffixes = [ '_test', '_unittest', '_browsertest' ]
+  for suffix in suffixes:
+    l = len(suffix)
+    if base[-l:] == suffix:
+      return base[:-l]
+  return base
+
+def _CppImplementation(filename):
+  return '\n#include "' + _RemoveTestSuffix(filename) + '.h"\n'
 
 
 def _ObjCppImplementation(filename):
-  base, _ = os.path.splitext(filename)
-  include = '#import "' + base + '.h"'
-  return '\n'.join(['', include])
+  return '\n#import "' + _RemoveTestSuffix(filename) + '.h"\n'
 
 
 def _CreateFile(filename):

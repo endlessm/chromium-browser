@@ -17,17 +17,16 @@
 #include <vector>
 #include <utility>
 
+#include "webrtc/api/call/transport.h"
 #include "webrtc/base/platform_file.h"
 #include "webrtc/common_types.h"
 #include "webrtc/common_video/include/frame_callback.h"
 #include "webrtc/config.h"
 #include "webrtc/media/base/videosinkinterface.h"
 #include "webrtc/media/base/videosourceinterface.h"
-#include "webrtc/transport.h"
 
 namespace webrtc {
 
-class LoadObserver;
 class VideoEncoder;
 
 class VideoSendStream {
@@ -37,6 +36,7 @@ class VideoSendStream {
 
     FrameCounts frame_counts;
     bool is_rtx = false;
+    bool is_flexfec = false;
     int width = 0;
     int height = 0;
     // TODO(holmer): Move bitrate_bps out to the webrtc::Call layer.
@@ -56,6 +56,8 @@ class VideoSendStream {
     int encode_frame_rate = 0;
     int avg_encode_time_ms = 0;
     int encode_usage_percent = 0;
+    uint32_t frames_encoded = 0;
+    rtc::Optional<uint64_t> qp_sum;
     // Bitrate the encoder is currently configured to use due to bandwidth
     // limitations.
     int target_media_bitrate_bps = 0;
@@ -66,6 +68,10 @@ class VideoSendStream {
     int preferred_media_bitrate_bps = 0;
     bool suspended = false;
     bool bw_limited_resolution = false;
+    bool cpu_limited_resolution = false;
+    // Total number of times resolution as been requested to be changed due to
+    // CPU adaptation.
+    int number_of_cpu_adapt_changes = 0;
     std::map<uint32_t, StreamStats> substreams;
   };
 
@@ -129,8 +135,24 @@ class VideoSendStream {
       // See NackConfig for description.
       NackConfig nack;
 
-      // See FecConfig for description.
-      FecConfig fec;
+      // See UlpfecConfig for description.
+      UlpfecConfig ulpfec;
+
+      struct Flexfec {
+        // Payload type of FlexFEC. Set to -1 to disable sending FlexFEC.
+        int payload_type = -1;
+
+        // SSRC of FlexFEC stream.
+        uint32_t ssrc = 0;
+
+        // Vector containing a single element, corresponding to the SSRC of the
+        // media stream being protected by this FlexFEC stream.
+        // The vector MUST have size 1.
+        //
+        // TODO(brandtr): Update comment above when we support
+        // multistream protection.
+        std::vector<uint32_t> protected_media_ssrcs;
+      } flexfec;
 
       // Settings for RTP retransmission payload format, see RFC 4588 for
       // details.
@@ -149,10 +171,6 @@ class VideoSendStream {
 
     // Transport for outgoing packets.
     Transport* send_transport = nullptr;
-
-    // Callback for overuse and normal usage based on the jitter of incoming
-    // captured frames. 'nullptr' disables the callback.
-    LoadObserver* overuse_callback = nullptr;
 
     // Called for each I420 frame before encoding the frame. Can be used for
     // effects, snapshots etc. 'nullptr' disables the callback.
@@ -178,6 +196,9 @@ class VideoSendStream {
     // stream may send at a rate higher than the estimated available bitrate.
     bool suspend_below_min_bitrate = false;
 
+    // Enables periodic bandwidth probing in application-limited region.
+    bool periodic_alr_bandwidth_probing = false;
+
    private:
     // Access to the copy constructor is private to force use of the Copy()
     // method for those exceptional cases where we do use it.
@@ -191,8 +212,17 @@ class VideoSendStream {
   // When a stream is stopped, it can't receive, process or deliver packets.
   virtual void Stop() = 0;
 
+  // Based on the spec in
+  // https://w3c.github.io/webrtc-pc/#idl-def-rtcdegradationpreference.
+  enum class DegradationPreference {
+    kMaintainResolution,
+    // TODO(perkj): Implement kMaintainFrameRate. kBalanced will drop frames
+    // if the encoder overshoots or the encoder can not encode fast enough.
+    kBalanced,
+  };
   virtual void SetSource(
-      rtc::VideoSourceInterface<webrtc::VideoFrame>* source) = 0;
+      rtc::VideoSourceInterface<webrtc::VideoFrame>* source,
+      const DegradationPreference& degradation_preference) = 0;
 
   // Set which streams to send. Must have at least as many SSRCs as configured
   // in the config. Encoder settings are passed on to the encoder instance along

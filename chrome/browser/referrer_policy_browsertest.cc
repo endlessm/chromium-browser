@@ -28,7 +28,7 @@
 #include "content/public/common/content_switches.h"
 #include "content/public/test/browser_test_utils.h"
 #include "net/test/url_request/url_request_mock_http_job.h"
-#include "third_party/WebKit/public/web/WebInputEvent.h"
+#include "third_party/WebKit/public/platform/WebInputEvent.h"
 
 class ReferrerPolicyTest : public InProcessBrowserTest {
  public:
@@ -177,14 +177,15 @@ class ReferrerPolicyTest : public InProcessBrowserTest {
     ui_test_utils::NavigateToURL(browser(), start_url);
 
     if (button != blink::WebMouseEvent::Button::NoButton) {
-      blink::WebMouseEvent mouse_event;
-      mouse_event.type = blink::WebInputEvent::MouseDown;
+      blink::WebMouseEvent mouse_event(
+          blink::WebInputEvent::MouseDown, blink::WebInputEvent::NoModifiers,
+          blink::WebInputEvent::TimeStampForTesting);
       mouse_event.button = button;
       mouse_event.x = 15;
       mouse_event.y = 15;
       mouse_event.clickCount = 1;
       tab->GetRenderViewHost()->GetWidget()->ForwardMouseEvent(mouse_event);
-      mouse_event.type = blink::WebInputEvent::MouseUp;
+      mouse_event.setType(blink::WebInputEvent::MouseUp);
       tab->GetRenderViewHost()->GetWidget()->ForwardMouseEvent(mouse_event);
     }
 

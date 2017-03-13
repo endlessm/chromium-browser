@@ -17,6 +17,7 @@ from dashboard import bisect_stats
 from dashboard import bisect_fyi
 from dashboard import buildbucket_job_status
 from dashboard import change_internal_only
+from dashboard import create_health_report
 from dashboard import debug_alert
 from dashboard import delete_test_data
 from dashboard import dump_graph_json
@@ -37,6 +38,7 @@ from dashboard import list_monitored_tests
 from dashboard import list_tests
 from dashboard import load_from_prod
 from dashboard import main
+from dashboard import memory_report
 from dashboard import migrate_test_names
 from dashboard import mr
 from dashboard import navbar
@@ -48,7 +50,9 @@ from dashboard import report
 from dashboard import send_stoppage_alert_emails
 from dashboard import set_warning_message
 from dashboard import short_uri
+from dashboard import speed_releasing
 from dashboard import start_try_job
+from dashboard import stoppage_alert_debugging_info
 from dashboard import test_buildbucket
 from dashboard import update_bug_with_results
 from dashboard import update_test_suites
@@ -67,6 +71,7 @@ _URL_MAPPING = [
     (r'/buildbucket_job_status/(\d+)',
      buildbucket_job_status.BuildbucketJobStatusHandler),
     ('/change_internal_only', change_internal_only.ChangeInternalOnlyHandler),
+    ('/create_health_report', create_health_report.CreateHealthReportHandler),
     ('/debug_alert', debug_alert.DebugAlertHandler),
     ('/delete_expired_entities', layered_cache.DeleteExpiredEntitiesHandler),
     ('/delete_test_data', delete_test_data.DeleteTestDataHandler),
@@ -87,6 +92,7 @@ _URL_MAPPING = [
     ('/list_tests', list_tests.ListTestsHandler),
     ('/load_from_prod', load_from_prod.LoadFromProdHandler),
     ('/', main.MainHandler),
+    ('/memory_report', memory_report.MemoryReportHandler),
     ('/migrate_test_names', migrate_test_names.MigrateTestNamesHandler),
     ('/mr_deprecate_tests', mr.MRDeprecateTestsHandler),
     ('/navbar', navbar.NavbarHandler),
@@ -98,7 +104,10 @@ _URL_MAPPING = [
      send_stoppage_alert_emails.SendStoppageAlertEmailsHandler),
     ('/set_warning_message', set_warning_message.SetWarningMessageHandler),
     ('/short_uri', short_uri.ShortUriHandler),
+    ('/speed_releasing', speed_releasing.SpeedReleasingHandler),
     ('/start_try_job', start_try_job.StartBisectHandler),
+    ('/stoppage_alert_debugging_info',
+     stoppage_alert_debugging_info.StoppageAlertDebuggingInfoHandler),
     ('/test_buildbucket', test_buildbucket.TestBuildbucketHandler),
     ('/update_bug_with_results',
      update_bug_with_results.UpdateBugWithResultsHandler),

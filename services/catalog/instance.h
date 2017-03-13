@@ -6,46 +6,44 @@
 #define SERVICES_CATALOG_INSTANCE_H_
 
 #include "base/files/file_path.h"
-#include "base/memory/weak_ptr.h"
 #include "base/path_service.h"
 #include "base/values.h"
 #include "mojo/public/cpp/bindings/binding_set.h"
 #include "services/catalog/entry.h"
 #include "services/catalog/public/interfaces/catalog.mojom.h"
 #include "services/catalog/store.h"
-#include "services/catalog/types.h"
-#include "services/shell/public/cpp/interface_factory.h"
-#include "services/shell/public/interfaces/resolver.mojom.h"
+#include "services/service_manager/public/cpp/interface_factory.h"
+#include "services/service_manager/public/interfaces/resolver.mojom.h"
 
 namespace catalog {
 
+class EntryCache;
 class Reader;
-class Store;
 
-class Instance : public shell::mojom::Resolver,
+class Instance : public service_manager::mojom::Resolver,
                  public mojom::Catalog {
  public:
   // |manifest_provider| may be null.
-  Instance(std::unique_ptr<Store> store, Reader* system_reader);
+  explicit Instance(Reader* system_reader);
   ~Instance() override;
 
-  void BindResolver(shell::mojom::ResolverRequest request);
+  void BindResolver(service_manager::mojom::ResolverRequest request);
   void BindCatalog(mojom::CatalogRequest request);
 
   // Called when |cache| has been populated by a directory scan.
   void CacheReady(EntryCache* cache);
 
  private:
-  // shell::mojom::Resolver:
-  void ResolveMojoName(const std::string& mojo_name,
-                       const ResolveMojoNameCallback& callback) override;
+  // service_manager::mojom::Resolver:
+  void ResolveServiceName(const std::string& service_name,
+                          const ResolveServiceNameCallback& callback) override;
 
   // mojom::Catalog:
   void GetEntries(const base::Optional<std::vector<std::string>>& names,
                   const GetEntriesCallback& callback) override;
-  void GetEntriesProvidingClass(
-      const std::string& clazz,
-      const GetEntriesProvidingClassCallback& callback) override;
+  void GetEntriesProvidingCapability(
+      const std::string& capability,
+      const GetEntriesProvidingCapabilityCallback& callback) override;
   void GetEntriesConsumingMIMEType(
       const std::string& mime_type,
       const GetEntriesConsumingMIMETypeCallback& callback) override;
@@ -53,21 +51,7 @@ class Instance : public shell::mojom::Resolver,
       const std::string& scheme,
       const GetEntriesSupportingSchemeCallback& callback) override;
 
-  // Populate/serialize the cache from/to the supplied store.
-  void DeserializeCatalog();
-  void SerializeCatalog();
-
-  // Receives the result of manifest parsing, may be received after the
-  // catalog object that issued the request is destroyed.
-  static void OnReadManifest(base::WeakPtr<Instance> instance,
-                             const std::string& mojo_name,
-                             const ResolveMojoNameCallback& callback,
-                             shell::mojom::ResolveResultPtr result);
-
-  // User-specific persistent storage of package manifests and other settings.
-  std::unique_ptr<Store> store_;
-
-  mojo::BindingSet<shell::mojom::Resolver> resolver_bindings_;
+  mojo::BindingSet<service_manager::mojom::Resolver> resolver_bindings_;
   mojo::BindingSet<mojom::Catalog> catalog_bindings_;
 
   Reader* system_reader_;
@@ -79,10 +63,9 @@ class Instance : public shell::mojom::Resolver,
 
   // We only bind requests for these interfaces once the catalog has been
   // populated. These data structures queue requests until that happens.
-  std::vector<shell::mojom::ResolverRequest> pending_resolver_requests_;
+  std::vector<service_manager::mojom::ResolverRequest>
+      pending_resolver_requests_;
   std::vector<mojom::CatalogRequest> pending_catalog_requests_;
-
-  base::WeakPtrFactory<Instance> weak_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(Instance);
 };

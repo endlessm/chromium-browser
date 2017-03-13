@@ -39,7 +39,8 @@ login.createScreen('GaiaSigninScreen', 'gaia-signin', function() {
   var ScreenMode = {
     DEFAULT: 0,           // Default GAIA login flow.
     OFFLINE: 1,           // GAIA offline login.
-    SAML_INTERSTITIAL: 2  // Interstitial page before SAML redirection.
+    SAML_INTERSTITIAL: 2, // Interstitial page before SAML redirection.
+    AD_AUTH: 3            // Offline Active Directory login flow.
   };
 
   return {
@@ -49,6 +50,7 @@ login.createScreen('GaiaSigninScreen', 'gaia-signin', function() {
       'monitorOfflineIdle',
       'updateControlsState',
       'showWhitelistCheckFailedError',
+      'invalidateAd',
     ],
 
     /**
@@ -193,12 +195,25 @@ login.createScreen('GaiaSigninScreen', 'gaia-signin', function() {
           'ready', this.onAuthReady_.bind(this));
 
       var that = this;
-      [this.gaiaAuthHost_, $('offline-gaia')].forEach(function(frame) {
+      [this.gaiaAuthHost_, $('offline-gaia'), $('offline-ad-auth')].
+          forEach(function(frame) {
         // Ignore events from currently inactive frame.
         var frameFilter = function(callback) {
           return function(e) {
-            var isEventOffline = frame === $('offline-gaia');
-            if (isEventOffline === that.isOffline())
+            var currentFrame = null;
+            switch (that.screenMode_) {
+              case ScreenMode.DEFAULT:
+              case ScreenMode.SAML_INTERSTITIAL:
+                currentFrame = that.gaiaAuthHost_;
+                break;
+              case ScreenMode.OFFLINE:
+                currentFrame = $('offline-gaia');
+                break;
+              case ScreenMode.AD_AUTH:
+                currentFrame = $('offline-ad-auth');
+                break;
+            }
+            if (frame === currentFrame)
               callback.call(that, e);
           };
         };
@@ -314,16 +329,25 @@ login.createScreen('GaiaSigninScreen', 'gaia-signin', function() {
           $('signin-frame').hidden = false;
           $('offline-gaia').hidden = true;
           $('saml-interstitial').hidden = true;
+          $('offline-ad-auth').hidden = true;
           break;
         case ScreenMode.OFFLINE:
           $('signin-frame').hidden = true;
           $('offline-gaia').hidden = false;
           $('saml-interstitial').hidden = true;
+          $('offline-ad-auth').hidden = true;
+          break;
+        case ScreenMode.AD_AUTH:
+          $('signin-frame').hidden = true;
+          $('offline-gaia').hidden = true;
+          $('saml-interstitial').hidden = true;
+          $('offline-ad-auth').hidden = false;
           break;
         case ScreenMode.SAML_INTERSTITIAL:
           $('signin-frame').hidden = true;
           $('offline-gaia').hidden = true;
           $('saml-interstitial').hidden = false;
+          $('offline-ad-auth').hidden = true;
           break;
       }
 
@@ -518,6 +542,9 @@ login.createScreen('GaiaSigninScreen', 'gaia-signin', function() {
       // Header is hidden once GAIA reports on successful sign in.
       Oobe.getInstance().headerHidden = false;
 
+      // Re-enable navigation in case it was disabled before refresh.
+      this.navigation_.disabled = false;
+
       this.lastBackMessageValue_ = false;
       this.updateControlsState();
     },
@@ -528,6 +555,8 @@ login.createScreen('GaiaSigninScreen', 'gaia-signin', function() {
           return $('signin-frame');
         case ScreenMode.OFFLINE:
           return $('offline-gaia');
+        case ScreenMode.AD_AUTH:
+          return $('offline-ad-auth');
         case ScreenMode.SAML_INTERSTITIAL:
           return $('saml-interstitial');
       }
@@ -601,6 +630,10 @@ login.createScreen('GaiaSigninScreen', 'gaia-signin', function() {
 
         case ScreenMode.OFFLINE:
           this.loadOffline(params);
+          break;
+
+        case ScreenMode.AD_AUTH:
+          this.loadAdAuth(params);
           break;
 
         case ScreenMode.SAML_INTERSTITIAL:
@@ -819,7 +852,7 @@ login.createScreen('GaiaSigninScreen', 'gaia-signin', function() {
      * Invoked when the dialog where the user enters a manual password for the
      * device, when password scraping fails.
      * @param {string} password The password the user entered. Not necessarily
-     *     the same as his SAML password.
+     *     the same as their SAML password.
      */
     onManualPasswordCollected_: function(password) {
       this.gaiaAuthHost_.completeAuthWithManualPassword(password);
@@ -869,7 +902,12 @@ login.createScreen('GaiaSigninScreen', 'gaia-signin', function() {
      * @private
      */
     onAuthCompleted_: function(credentials) {
-      if (credentials.useOffline) {
+      if (this.screenMode_ == ScreenMode.AD_AUTH) {
+        this.email = credentials.username;
+        chrome.send('completeAdAuthentication',
+                    [credentials.username,
+                     credentials.password]);
+      } else if (credentials.useOffline) {
         this.email = credentials.email;
         chrome.send('authenticateUser',
                     [credentials.email,
@@ -1045,6 +1083,19 @@ login.createScreen('GaiaSigninScreen', 'gaia-signin', function() {
       this.onAuthReady_();
     },
 
+    loadAdAuth: function(params) {
+      this.loading = true;
+      this.startLoadingTimer_();
+      var ADAuthUI = this.getSigninFrame_();
+      if ('realm' in params) {
+        ADAuthUI.realm = params['realm'];
+        ADAuthUI.userRealm = '@' + params['realm'];
+      }
+      if ('email' in params)
+        ADAuthUI.setUser(params['email']);
+      this.onAuthReady_();
+    },
+
     /**
      * Show/Hide error when user is not in whitelist. When UI is hidden
      * GAIA is reloaded.
@@ -1068,6 +1119,15 @@ login.createScreen('GaiaSigninScreen', 'gaia-signin', function() {
         Oobe.showSigninUI();
 
       this.updateControlsState();
+    },
+
+    invalidateAd: function(username) {
+      if (this.screenMode_ != ScreenMode.AD_AUTH)
+        return;
+      var adAuthUI = this.getSigninFrame_();
+      adAuthUI.setUser(username);
+      adAuthUI.setInvalid(ACTIVE_DIRECTORY_ERROR_STATE.BAD_PASSWORD);
+      this.loading = false;
     }
   };
 });

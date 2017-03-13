@@ -182,18 +182,14 @@ int CrashyMain(int argc, wchar_t* argv[]) {
                              std::string(),
                              std::map<std::string, std::string>(),
                              std::vector<std::string>(),
-                             false)) {
+                             false,
+                             true)) {
       LOG(ERROR) << "StartHandler";
       return EXIT_FAILURE;
     }
   } else {
     fprintf(stderr, "Usage: %ls <server_pipe_name>\n", argv[0]);
     fprintf(stderr, "       %ls <handler_path> <database_path>\n", argv[0]);
-    return EXIT_FAILURE;
-  }
-
-  if (!client.UseHandler()) {
-    LOG(ERROR) << "UseHandler";
     return EXIT_FAILURE;
   }
 
@@ -205,8 +201,8 @@ int CrashyMain(int argc, wchar_t* argv[]) {
   AllocateExtraUnsavedMemory(extra_ranges);
 
   // Load and unload some uncommonly used modules so we can see them in the list
-  // reported by `lm`. At least two so that we confirm we got the size of
-  // RTL_UNLOAD_EVENT_TRACE right.
+  // reported by `lm`. At least two so that we confirm we got the element size
+  // advancement of RTL_UNLOAD_EVENT_TRACE correct.
   CHECK(GetModuleHandle(L"lz32.dll") == nullptr);
   CHECK(GetModuleHandle(L"wmerror.dll") == nullptr);
   HMODULE lz32 = LoadLibrary(L"lz32.dll");

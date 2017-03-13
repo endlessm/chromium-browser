@@ -23,12 +23,14 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+// https://dvcs.w3.org/hg/speech-api/raw-file/tip/webspeechapi.html#dfn-speechgrammarlist
+
 [
     Constructor,
     NoInterfaceObject,
 ] interface SpeechGrammarList {
     readonly attribute unsigned long length;
     getter SpeechGrammar item(unsigned long index);
-    [CallWith=ExecutionContext] void addFromUri(DOMString src, optional float weight);
+    [CallWith=ScriptState] void addFromUri(DOMString src, optional float weight);
     void addFromString(DOMString string, optional float weight);
 };

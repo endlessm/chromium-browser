@@ -31,7 +31,6 @@
 #ifndef ShadowList_h
 #define ShadowList_h
 
-#include "core/style/ComputedStyle.h"
 #include "core/style/ShadowData.h"
 #include "platform/geometry/FloatRectOutsets.h"
 #include "platform/geometry/LayoutRect.h"
@@ -72,10 +71,9 @@ class ShadowList : public RefCounted<ShadowList> {
 
   void adjustRectForShadow(FloatRect&) const;
 
-  std::unique_ptr<DrawLooperBuilder> createDrawLooper(
-      DrawLooperBuilder::ShadowAlphaMode,
-      const Color& currentColor,
-      bool isHorizontal = true) const;
+  sk_sp<SkDrawLooper> createDrawLooper(DrawLooperBuilder::ShadowAlphaMode,
+                                       const Color& currentColor,
+                                       bool isHorizontal = true) const;
 
  private:
   ShadowList(ShadowDataVector& shadows) {

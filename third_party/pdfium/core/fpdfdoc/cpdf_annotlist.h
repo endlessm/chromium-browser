@@ -27,16 +27,16 @@ class CPDF_AnnotList {
 
   void DisplayAnnots(CPDF_Page* pPage,
                      CPDF_RenderContext* pContext,
-                     FX_BOOL bPrinting,
-                     CFX_Matrix* pMatrix,
-                     FX_BOOL bShowWidget,
+                     bool bPrinting,
+                     const CFX_Matrix* pMatrix,
+                     bool bShowWidget,
                      CPDF_RenderOptions* pOptions);
 
   void DisplayAnnots(CPDF_Page* pPage,
                      CFX_RenderDevice* pDevice,
                      CPDF_RenderContext* pContext,
-                     FX_BOOL bPrinting,
-                     CFX_Matrix* pMatrix,
+                     bool bPrinting,
+                     const CFX_Matrix* pMatrix,
                      uint32_t dwAnnotFlags,
                      CPDF_RenderOptions* pOptions,
                      FX_RECT* pClipRect);
@@ -51,9 +51,9 @@ class CPDF_AnnotList {
   void DisplayPass(CPDF_Page* pPage,
                    CFX_RenderDevice* pDevice,
                    CPDF_RenderContext* pContext,
-                   FX_BOOL bPrinting,
-                   CFX_Matrix* pMatrix,
-                   FX_BOOL bWidget,
+                   bool bPrinting,
+                   const CFX_Matrix* pMatrix,
+                   bool bWidget,
                    CPDF_RenderOptions* pOptions,
                    FX_RECT* clip_rect);
 

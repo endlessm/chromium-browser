@@ -17,7 +17,6 @@
 #include "SkRegion.h"
 #include "SkShader.h"
 #include "SkUtils.h"
-#include "SkXfermode.h"
 #include "SkColorPriv.h"
 #include "SkColorFilter.h"
 #include "SkTime.h"
@@ -188,8 +187,7 @@ void Patch::draw(SkCanvas* canvas, const SkPaint& paint, int nu, int nv,
         t += dt;
         canvas->drawVertices(SkCanvas::kTriangleStrip_VertexMode, stripCount,
                              strip, doTextures ? tex : nullptr,
-                             doColors ? colors : nullptr, nullptr,
-                             nullptr, 0, paint);
+                             doColors ? colors : nullptr, nullptr, 0, paint);
     }
 }
 

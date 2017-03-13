@@ -19,7 +19,6 @@
 #include "media/base/key_systems.h"
 #include "media/mojo/common/media_type_converters.h"
 #include "media/mojo/services/mojo_cdm_service_context.h"
-#include "mojo/common/common_type_converters.h"
 #include "url/gurl.h"
 
 namespace media {
@@ -34,14 +33,15 @@ class CdmManager {
   ~CdmManager() {}
 
   // Returns the CDM associated with |cdm_id|. Can be called on any thread.
-  scoped_refptr<MediaKeys> GetCdm(int cdm_id) {
+  scoped_refptr<ContentDecryptionModule> GetCdm(int cdm_id) {
     base::AutoLock lock(lock_);
     auto iter = cdm_map_.find(cdm_id);
     return iter == cdm_map_.end() ? nullptr : iter->second;
   }
 
   // Registers the |cdm| for |cdm_id|.
-  void RegisterCdm(int cdm_id, const scoped_refptr<MediaKeys>& cdm) {
+  void RegisterCdm(int cdm_id,
+                   const scoped_refptr<ContentDecryptionModule>& cdm) {
     base::AutoLock lock(lock_);
     DCHECK(!cdm_map_.count(cdm_id));
     cdm_map_[cdm_id] = cdm;
@@ -57,7 +57,7 @@ class CdmManager {
  private:
   // Lock to protect |cdm_map_|.
   base::Lock lock_;
-  std::map<int, scoped_refptr<MediaKeys>> cdm_map_;
+  std::map<int, scoped_refptr<ContentDecryptionModule>> cdm_map_;
 
   DISALLOW_COPY_AND_ASSIGN(CdmManager);
 };
@@ -72,8 +72,9 @@ using NewSessionMojoCdmPromise = MojoCdmPromise<std::string>;
 int MojoCdmService::next_cdm_id_ = CdmContext::kInvalidCdmId + 1;
 
 // static
-scoped_refptr<MediaKeys> MojoCdmService::LegacyGetCdm(int cdm_id) {
-  DVLOG(1) << __FUNCTION__ << ": " << cdm_id;
+scoped_refptr<ContentDecryptionModule> MojoCdmService::LegacyGetCdm(
+    int cdm_id) {
+  DVLOG(1) << __func__ << ": " << cdm_id;
   return g_cdm_manager.Get().GetCdm(cdm_id);
 }
 
@@ -101,16 +102,16 @@ void MojoCdmService::SetClient(mojom::ContentDecryptionModuleClientPtr client) {
   client_ = std::move(client);
 }
 
-void MojoCdmService::Initialize(const mojo::String& key_system,
-                                const mojo::String& security_origin,
+void MojoCdmService::Initialize(const std::string& key_system,
+                                const std::string& security_origin,
                                 mojom::CdmConfigPtr cdm_config,
                                 const InitializeCallback& callback) {
-  DVLOG(1) << __FUNCTION__ << ": " << key_system;
+  DVLOG(1) << __func__ << ": " << key_system;
   DCHECK(!cdm_);
 
   auto weak_this = weak_factory_.GetWeakPtr();
   cdm_factory_->Create(
-      key_system, GURL(security_origin.get()), cdm_config.To<CdmConfig>(),
+      key_system, GURL(security_origin), cdm_config.To<CdmConfig>(),
       base::Bind(&MojoCdmService::OnSessionMessage, weak_this),
       base::Bind(&MojoCdmService::OnSessionClosed, weak_this),
       base::Bind(&MojoCdmService::OnSessionKeysChange, weak_this),
@@ -119,72 +120,70 @@ void MojoCdmService::Initialize(const mojo::String& key_system,
 }
 
 void MojoCdmService::SetServerCertificate(
-    mojo::Array<uint8_t> certificate_data,
+    const std::vector<uint8_t>& certificate_data,
     const SetServerCertificateCallback& callback) {
-  DVLOG(2) << __FUNCTION__;
-  cdm_->SetServerCertificate(certificate_data.storage(),
+  DVLOG(2) << __func__;
+  cdm_->SetServerCertificate(certificate_data,
                              base::MakeUnique<SimpleMojoCdmPromise>(callback));
 }
 
 void MojoCdmService::CreateSessionAndGenerateRequest(
-    mojom::ContentDecryptionModule::SessionType session_type,
-    mojom::ContentDecryptionModule::InitDataType init_data_type,
-    mojo::Array<uint8_t> init_data,
+    CdmSessionType session_type,
+    EmeInitDataType init_data_type,
+    const std::vector<uint8_t>& init_data,
     const CreateSessionAndGenerateRequestCallback& callback) {
-  DVLOG(2) << __FUNCTION__;
+  DVLOG(2) << __func__;
   cdm_->CreateSessionAndGenerateRequest(
-      static_cast<MediaKeys::SessionType>(session_type),
-      static_cast<EmeInitDataType>(init_data_type), init_data.storage(),
+      session_type, init_data_type, init_data,
       base::MakeUnique<NewSessionMojoCdmPromise>(callback));
 }
 
-void MojoCdmService::LoadSession(
-    mojom::ContentDecryptionModule::SessionType session_type,
-    const mojo::String& session_id,
-    const LoadSessionCallback& callback) {
-  DVLOG(2) << __FUNCTION__;
-  cdm_->LoadSession(static_cast<MediaKeys::SessionType>(session_type),
-                    session_id.To<std::string>(),
+void MojoCdmService::LoadSession(CdmSessionType session_type,
+                                 const std::string& session_id,
+                                 const LoadSessionCallback& callback) {
+  DVLOG(2) << __func__;
+  cdm_->LoadSession(session_type, session_id,
                     base::MakeUnique<NewSessionMojoCdmPromise>(callback));
 }
 
-void MojoCdmService::UpdateSession(const mojo::String& session_id,
-                                   mojo::Array<uint8_t> response,
+void MojoCdmService::UpdateSession(const std::string& session_id,
+                                   const std::vector<uint8_t>& response,
                                    const UpdateSessionCallback& callback) {
-  DVLOG(2) << __FUNCTION__;
+  DVLOG(2) << __func__;
   cdm_->UpdateSession(
-      session_id.To<std::string>(), response.storage(),
+      session_id, response,
       std::unique_ptr<SimpleCdmPromise>(new SimpleMojoCdmPromise(callback)));
 }
 
-void MojoCdmService::CloseSession(const mojo::String& session_id,
+void MojoCdmService::CloseSession(const std::string& session_id,
                                   const CloseSessionCallback& callback) {
-  DVLOG(2) << __FUNCTION__;
-  cdm_->CloseSession(session_id.To<std::string>(),
+  DVLOG(2) << __func__;
+  cdm_->CloseSession(session_id,
                      base::MakeUnique<SimpleMojoCdmPromise>(callback));
 }
 
-void MojoCdmService::RemoveSession(const mojo::String& session_id,
+void MojoCdmService::RemoveSession(const std::string& session_id,
                                    const RemoveSessionCallback& callback) {
-  DVLOG(2) << __FUNCTION__;
-  cdm_->RemoveSession(session_id.To<std::string>(),
+  DVLOG(2) << __func__;
+  cdm_->RemoveSession(session_id,
                       base::MakeUnique<SimpleMojoCdmPromise>(callback));
 }
 
-scoped_refptr<MediaKeys> MojoCdmService::GetCdm() {
+scoped_refptr<ContentDecryptionModule> MojoCdmService::GetCdm() {
   return cdm_;
 }
 
-void MojoCdmService::OnCdmCreated(const InitializeCallback& callback,
-                                  const scoped_refptr<MediaKeys>& cdm,
-                                  const std::string& error_message) {
+void MojoCdmService::OnCdmCreated(
+    const InitializeCallback& callback,
+    const scoped_refptr<::media::ContentDecryptionModule>& cdm,
+    const std::string& error_message) {
   mojom::CdmPromiseResultPtr cdm_promise_result(mojom::CdmPromiseResult::New());
 
   // TODO(xhwang): This should not happen when KeySystemInfo is properly
   // populated. See http://crbug.com/469366
   if (!cdm || !context_) {
     cdm_promise_result->success = false;
-    cdm_promise_result->exception = mojom::CdmException::NOT_SUPPORTED_ERROR;
+    cdm_promise_result->exception = CdmPromise::Exception::NOT_SUPPORTED_ERROR;
     cdm_promise_result->system_code = 0;
     cdm_promise_result->error_message = error_message;
     callback.Run(std::move(cdm_promise_result), 0, nullptr);
@@ -205,53 +204,51 @@ void MojoCdmService::OnCdmCreated(const InitializeCallback& callback,
     // MojoDecryptorService takes a reference to the CDM, but it is still owned
     // by |this|.
     decryptor_.reset(new MojoDecryptorService(
-        cdm_, GetProxy(&decryptor_service),
+        cdm_, MakeRequest(&decryptor_service),
         base::Bind(&MojoCdmService::OnDecryptorConnectionError, weak_this_)));
   }
 
-  DVLOG(1) << __FUNCTION__ << ": CDM successfully created with ID " << cdm_id_;
+  DVLOG(1) << __func__ << ": CDM successfully created with ID " << cdm_id_;
   cdm_promise_result->success = true;
   callback.Run(std::move(cdm_promise_result), cdm_id_,
                std::move(decryptor_service));
 }
 
-void MojoCdmService::OnSessionMessage(const std::string& session_id,
-                                      MediaKeys::MessageType message_type,
-                                      const std::vector<uint8_t>& message) {
-  DVLOG(2) << __FUNCTION__ << "(" << message_type << ")";
-  client_->OnSessionMessage(session_id,
-                            static_cast<mojom::CdmMessageType>(message_type),
-                            mojo::Array<uint8_t>::From(message));
+void MojoCdmService::OnSessionMessage(
+    const std::string& session_id,
+    ::media::ContentDecryptionModule::MessageType message_type,
+    const std::vector<uint8_t>& message) {
+  DVLOG(2) << __func__ << "(" << message_type << ")";
+  client_->OnSessionMessage(session_id, message_type, message);
 }
 
 void MojoCdmService::OnSessionKeysChange(const std::string& session_id,
                                          bool has_additional_usable_key,
                                          CdmKeysInfo keys_info) {
-  DVLOG(2) << __FUNCTION__
+  DVLOG(2) << __func__
            << " has_additional_usable_key=" << has_additional_usable_key;
 
-  mojo::Array<mojom::CdmKeyInformationPtr> keys_data;
+  std::vector<mojom::CdmKeyInformationPtr> keys_data;
   for (auto* key : keys_info)
     keys_data.push_back(mojom::CdmKeyInformation::From(*key));
   client_->OnSessionKeysChange(session_id, has_additional_usable_key,
                                std::move(keys_data));
 }
 
-void MojoCdmService::OnSessionExpirationUpdate(
-    const std::string& session_id,
-    const base::Time& new_expiry_time_sec) {
-  DVLOG(2) << __FUNCTION__ << " expiry=" << new_expiry_time_sec;
+void MojoCdmService::OnSessionExpirationUpdate(const std::string& session_id,
+                                               base::Time new_expiry_time_sec) {
+  DVLOG(2) << __func__ << " expiry=" << new_expiry_time_sec;
   client_->OnSessionExpirationUpdate(session_id,
                                      new_expiry_time_sec.ToDoubleT());
 }
 
 void MojoCdmService::OnSessionClosed(const std::string& session_id) {
-  DVLOG(2) << __FUNCTION__;
+  DVLOG(2) << __func__;
   client_->OnSessionClosed(session_id);
 }
 
 void MojoCdmService::OnDecryptorConnectionError() {
-  DVLOG(2) << __FUNCTION__;
+  DVLOG(2) << __func__;
 
   // MojoDecryptorService has lost connectivity to it's client, so it can be
   // freed.

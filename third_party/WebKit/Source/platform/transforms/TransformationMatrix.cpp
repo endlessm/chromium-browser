@@ -497,10 +497,12 @@ static bool inverse(const TransformationMatrix::Matrix4& matrix,
   // Calculate the adjoint matrix
   adjoint(matrix, result);
 
+  double rdet = 1 / det;
+
   // Scale the adjoint matrix to get the inverse
   for (int i = 0; i < 4; i++)
     for (int j = 0; j < 4; j++)
-      result[i][j] = result[i][j] / det;
+      result[i][j] = result[i][j] * rdet;
 #endif
   return true;
 }
@@ -1263,6 +1265,16 @@ TransformationMatrix& TransformationMatrix::applyTransformOrigin(double x,
                                                                  double z) {
   translateRight3d(x, y, z);
   translate3d(-x, -y, -z);
+  return *this;
+}
+
+TransformationMatrix& TransformationMatrix::zoom(double zoomFactor) {
+  m_matrix[0][3] /= zoomFactor;
+  m_matrix[1][3] /= zoomFactor;
+  m_matrix[2][3] /= zoomFactor;
+  m_matrix[3][0] *= zoomFactor;
+  m_matrix[3][1] *= zoomFactor;
+  m_matrix[3][2] *= zoomFactor;
   return *this;
 }
 

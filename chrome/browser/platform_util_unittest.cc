@@ -18,10 +18,12 @@
 
 #if defined(OS_CHROMEOS)
 #include "base/json/json_string_value_serializer.h"
+#include "base/memory/ptr_util.h"
 #include "base/values.h"
 #include "chrome/browser/chrome_content_browser_client.h"
 #include "chrome/browser/chromeos/file_manager/app_id.h"
 #include "chrome/browser/chromeos/fileapi/file_system_backend.h"
+#include "chrome/browser/chromeos/fileapi/file_system_backend_delegate.h"
 #include "chrome/browser/extensions/extension_special_storage_policy.h"
 #include "chrome/test/base/browser_with_test_window_test.h"
 #include "content/public/browser/browser_context.h"
@@ -49,15 +51,16 @@ class PlatformUtilTestContentBrowserClient : public ChromeContentBrowserClient {
   void GetAdditionalFileSystemBackends(
       content::BrowserContext* browser_context,
       const base::FilePath& storage_partition_path,
-      ScopedVector<storage::FileSystemBackend>* additional_backends) override {
+      std::vector<std::unique_ptr<storage::FileSystemBackend>>*
+          additional_backends) override {
     storage::ExternalMountPoints* external_mount_points =
         content::BrowserContext::GetMountPoints(browser_context);
 
     // New FileSystemBackend that uses our MockSpecialStoragePolicy.
-    chromeos::FileSystemBackend* backend = new chromeos::FileSystemBackend(
-        nullptr, nullptr, nullptr, external_mount_points,
-        storage::ExternalMountPoints::GetSystemInstance());
-    additional_backends->push_back(backend);
+    additional_backends->push_back(
+        base::MakeUnique<chromeos::FileSystemBackend>(
+            nullptr, nullptr, nullptr, nullptr, nullptr, external_mount_points,
+            storage::ExternalMountPoints::GetSystemInstance()));
   }
 };
 

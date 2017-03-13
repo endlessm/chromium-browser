@@ -27,7 +27,7 @@
 #include "wtf/Noncopyable.h"
 #include "wtf/WTFExport.h"
 
-#if ENABLE(ASSERT)
+#if DCHECK_IS_ON()
 #define CHECK_REF_COUNTED_LIFECYCLE 1
 #include "wtf/ThreadRestrictionVerifier.h"
 #else
@@ -43,24 +43,24 @@ class WTF_EXPORT RefCountedBase {
  public:
   void ref() const {
 #if CHECK_REF_COUNTED_LIFECYCLE
-    m_verifier.onRef(m_refCount);
-    ASSERT(!m_adoptionIsRequired);
+    SECURITY_DCHECK(m_verifier.onRef(m_refCount));
+    DCHECK(!m_adoptionIsRequired);
 #endif
-    ASSERT_WITH_SECURITY_IMPLICATION(!m_deletionHasBegun);
+    SECURITY_DCHECK(!m_deletionHasBegun);
     ++m_refCount;
   }
 
   bool hasOneRef() const {
-    ASSERT_WITH_SECURITY_IMPLICATION(!m_deletionHasBegun);
+    SECURITY_DCHECK(!m_deletionHasBegun);
 #if CHECK_REF_COUNTED_LIFECYCLE
-    m_verifier.checkSafeToUse();
+    SECURITY_DCHECK(m_verifier.isSafeToUse());
 #endif
     return m_refCount == 1;
   }
 
   int refCount() const {
 #if CHECK_REF_COUNTED_LIFECYCLE
-    m_verifier.checkSafeToUse();
+    SECURITY_DCHECK(m_verifier.isSafeToUse());
 #endif
     return m_refCount;
   }
@@ -80,21 +80,21 @@ class WTF_EXPORT RefCountedBase {
   }
 
   ~RefCountedBase() {
-    ASSERT_WITH_SECURITY_IMPLICATION(m_deletionHasBegun);
+    SECURITY_DCHECK(m_deletionHasBegun);
 #if CHECK_REF_COUNTED_LIFECYCLE
-    ASSERT(!m_adoptionIsRequired);
+    DCHECK(!m_adoptionIsRequired);
 #endif
   }
 
   // Returns whether the pointer should be freed or not.
   bool derefBase() const {
-    ASSERT_WITH_SECURITY_IMPLICATION(!m_deletionHasBegun);
+    SECURITY_DCHECK(!m_deletionHasBegun);
 #if CHECK_REF_COUNTED_LIFECYCLE
-    m_verifier.onDeref(m_refCount);
-    ASSERT(!m_adoptionIsRequired);
+    SECURITY_DCHECK(m_verifier.onDeref(m_refCount));
+    DCHECK(!m_adoptionIsRequired);
 #endif
 
-    ASSERT(m_refCount > 0);
+    DCHECK_GT(m_refCount, 0);
     --m_refCount;
     if (!m_refCount) {
 #if ENABLE(SECURITY_ASSERT)
@@ -129,7 +129,7 @@ class WTF_EXPORT RefCountedBase {
 inline void adopted(RefCountedBase* object) {
   if (!object)
     return;
-  ASSERT_WITH_SECURITY_IMPLICATION(!object->m_deletionHasBegun);
+  SECURITY_DCHECK(!object->m_deletionHasBegun);
 #if CHECK_REF_COUNTED_LIFECYCLE
   object->m_adoptionIsRequired = false;
 #endif

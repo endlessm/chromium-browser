@@ -31,7 +31,7 @@
 #ifndef UserMediaRequest_h
 #define UserMediaRequest_h
 
-#include "core/dom/ActiveDOMObject.h"
+#include "core/dom/SuspendableObject.h"
 #include "modules/ModulesExport.h"
 #include "modules/mediastream/NavigatorUserMediaErrorCallback.h"
 #include "modules/mediastream/NavigatorUserMediaSuccessCallback.h"
@@ -41,7 +41,6 @@
 
 namespace blink {
 
-class Dictionary;
 class Document;
 class MediaErrorState;
 class MediaStreamConstraints;
@@ -91,7 +90,7 @@ class MODULES_EXPORT UserMediaRequest final
   bool isSecureContextUse(String& errorMessage);
 
   // ContextLifecycleObserver
-  void contextDestroyed() override;
+  void contextDestroyed(ExecutionContext*) override;
 
   DECLARE_VIRTUAL_TRACE();
 

@@ -8,9 +8,8 @@
 
 #include "base/i18n/case_conversion.h"
 #include "base/macros.h"
-#include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
-#include "ui/accessibility/ax_view_state.h"
+#include "ui/accessibility/ax_node_data.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/models/menu_model.h"
 #include "ui/gfx/canvas.h"
@@ -154,30 +153,30 @@ bool MenuItemView::GetTooltipText(const gfx::Point& p,
   return !tooltip->empty();
 }
 
-void MenuItemView::GetAccessibleState(ui::AXViewState* state) {
-  state->role = ui::AX_ROLE_MENU_ITEM;
+void MenuItemView::GetAccessibleNodeData(ui::AXNodeData* node_data) {
+  node_data->role = ui::AX_ROLE_MENU_ITEM;
 
   base::string16 item_text;
   if (IsContainer()) {
     // The first child is taking over, just use its accessible name instead of
     // |title_|.
     View* child = child_at(0);
-    ui::AXViewState state;
-    child->GetAccessibleState(&state);
-    item_text = state.name;
+    ui::AXNodeData node_data;
+    child->GetAccessibleNodeData(&node_data);
+    item_text = node_data.GetString16Attribute(ui::AX_ATTR_NAME);
   } else {
     item_text = title_;
   }
-  state->name = GetAccessibleNameForMenuItem(item_text, GetMinorText());
+  node_data->SetName(GetAccessibleNameForMenuItem(item_text, GetMinorText()));
 
   switch (GetType()) {
     case SUBMENU:
-      state->AddStateFlag(ui::AX_STATE_HASPOPUP);
+      node_data->AddStateFlag(ui::AX_STATE_HASPOPUP);
       break;
     case CHECKBOX:
     case RADIO:
       if (GetDelegate()->IsItemChecked(GetCommand()))
-        state->AddStateFlag(ui::AX_STATE_CHECKED);
+        node_data->AddStateFlag(ui::AX_STATE_CHECKED);
       break;
     case NORMAL:
     case SEPARATOR:
@@ -525,7 +524,9 @@ void MenuItemView::ChildrenChanged() {
     }
   }
 
-  base::STLDeleteElements(&removed_items_);
+  for (auto item : removed_items_)
+    delete item;
+  removed_items_.clear();
 }
 
 void MenuItemView::Layout() {
@@ -598,7 +599,8 @@ MenuItemView::MenuItemView(MenuItemView* parent,
 
 MenuItemView::~MenuItemView() {
   delete submenu_;
-  base::STLDeleteElements(&removed_items_);
+  for (auto item : removed_items_)
+    delete item;
 }
 
 const char* MenuItemView::GetClassName() const {
@@ -843,7 +845,7 @@ void MenuItemView::PaintButton(gfx::Canvas* canvas, PaintButtonMode mode) {
         subtitle_,
         font_list,
         GetNativeTheme()->GetSystemColor(
-            ui::NativeTheme::kColorId_ButtonDisabledColor),
+            ui::NativeTheme::kColorId_MenuItemSubtitleColor),
         text_bounds + gfx::Vector2d(0, font_list.GetHeight()),
         flags);
   }
@@ -889,7 +891,7 @@ void MenuItemView::PaintMinorText(gfx::Canvas* canvas,
       GetFontList(),
       GetNativeTheme()->GetSystemColor(render_selection ?
           ui::NativeTheme::kColorId_SelectedMenuItemForegroundColor :
-          ui::NativeTheme::kColorId_ButtonDisabledColor),
+          ui::NativeTheme::kColorId_MenuItemSubtitleColor),
       accel_bounds,
       flags);
 }

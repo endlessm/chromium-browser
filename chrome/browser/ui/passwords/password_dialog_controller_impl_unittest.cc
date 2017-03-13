@@ -52,13 +52,6 @@ autofill::PasswordForm GetLocalForm() {
   return form;
 }
 
-autofill::PasswordForm GetFederationProviderForm() {
-  autofill::PasswordForm form;
-  form.username_value = base::ASCIIToUTF16(kUsername);
-  form.origin = GURL("http://idp.com");
-  return form;
-}
-
 class PasswordDialogControllerTest : public testing::Test {
  public:
   PasswordDialogControllerTest()
@@ -86,21 +79,15 @@ TEST_F(PasswordDialogControllerTest, ShowAccountChooser) {
   autofill::PasswordForm local_form = GetLocalForm();
   autofill::PasswordForm local_form2 = local_form;
   local_form2.username_value = base::ASCIIToUTF16(kUsername2);
-  autofill::PasswordForm idp_form = GetFederationProviderForm();
   std::vector<std::unique_ptr<autofill::PasswordForm>> locals;
   locals.push_back(base::MakeUnique<autofill::PasswordForm>(local_form));
   locals.push_back(base::MakeUnique<autofill::PasswordForm>(local_form2));
   autofill::PasswordForm* local_form_ptr = locals[0].get();
-  std::vector<std::unique_ptr<autofill::PasswordForm>> federations;
-  federations.push_back(base::MakeUnique<autofill::PasswordForm>(idp_form));
 
   EXPECT_CALL(prompt, ShowAccountChooser());
-  controller().ShowAccountChooser(&prompt,
-                                  std::move(locals), std::move(federations));
+  controller().ShowAccountChooser(&prompt, std::move(locals));
   EXPECT_THAT(controller().GetLocalForms(), ElementsAre(Pointee(local_form),
                                                         Pointee(local_form2)));
-  EXPECT_THAT(controller().GetFederationsForms(),
-              ElementsAre(Pointee(idp_form)));
   EXPECT_FALSE(controller().ShouldShowSignInButton());
 
   // Close the dialog.
@@ -111,9 +98,6 @@ TEST_F(PasswordDialogControllerTest, ShowAccountChooser) {
   controller().OnChooseCredentials(
       *local_form_ptr,
       password_manager::CredentialType::CREDENTIAL_TYPE_PASSWORD);
-  histogram_tester.ExpectUniqueSample(
-      "PasswordManager.AccountChooserDialog",
-       password_manager::metrics_util::ACCOUNT_CHOOSER_CREDENTIAL_CHOSEN, 1);
   histogram_tester.ExpectUniqueSample(
       "PasswordManager.AccountChooserDialogMultipleAccounts",
        password_manager::metrics_util::ACCOUNT_CHOOSER_CREDENTIAL_CHOSEN, 1);
@@ -127,13 +111,10 @@ TEST_F(PasswordDialogControllerTest, ShowAccountChooserAndSignIn) {
   autofill::PasswordForm local_form = GetLocalForm();
   std::vector<std::unique_ptr<autofill::PasswordForm>> locals;
   locals.push_back(base::MakeUnique<autofill::PasswordForm>(local_form));
-  std::vector<std::unique_ptr<autofill::PasswordForm>> federations;
 
   EXPECT_CALL(prompt, ShowAccountChooser());
-  controller().ShowAccountChooser(&prompt,
-                                  std::move(locals), std::move(federations));
+  controller().ShowAccountChooser(&prompt, std::move(locals));
   EXPECT_THAT(controller().GetLocalForms(), ElementsAre(Pointee(local_form)));
-  EXPECT_THAT(controller().GetFederationsForms(), testing::IsEmpty());
   EXPECT_TRUE(controller().ShouldShowSignInButton());
 
   // Close the dialog.
@@ -142,9 +123,6 @@ TEST_F(PasswordDialogControllerTest, ShowAccountChooserAndSignIn) {
       local_form,
       password_manager::CredentialType::CREDENTIAL_TYPE_PASSWORD));
   controller().OnSignInClicked();
-  histogram_tester.ExpectUniqueSample(
-      "PasswordManager.AccountChooserDialog",
-       password_manager::metrics_util::ACCOUNT_CHOOSER_SIGN_IN, 1);
   histogram_tester.ExpectUniqueSample(
       "PasswordManager.AccountChooserDialogOneAccount",
        password_manager::metrics_util::ACCOUNT_CHOOSER_SIGN_IN, 1);
@@ -158,14 +136,10 @@ TEST_F(PasswordDialogControllerTest, AccountChooserClosed) {
   std::vector<std::unique_ptr<autofill::PasswordForm>> locals;
   locals.push_back(base::MakeUnique<autofill::PasswordForm>(GetLocalForm()));
   EXPECT_CALL(prompt, ShowAccountChooser());
-  controller().ShowAccountChooser(&prompt, std::move(locals),
-                                  PasswordDialogController::FormsVector());
+  controller().ShowAccountChooser(&prompt, std::move(locals));
 
   EXPECT_CALL(ui_controller_mock(), OnDialogHidden());
   controller().OnCloseDialog();
-  histogram_tester.ExpectUniqueSample(
-      "PasswordManager.AccountChooserDialog",
-       password_manager::metrics_util::ACCOUNT_CHOOSER_DISMISSED, 1);
   histogram_tester.ExpectUniqueSample(
       "PasswordManager.AccountChooserDialogOneAccount",
        password_manager::metrics_util::ACCOUNT_CHOOSER_DISMISSED, 1);

@@ -22,6 +22,8 @@
 #include "third_party/WebKit/public/platform/WebMediaKeySystemConfiguration.h"
 #include "third_party/WebKit/public/platform/WebSecurityOrigin.h"
 #include "third_party/WebKit/public/platform/WebString.h"
+#include "url/gurl.h"
+#include "url/origin.h"
 
 namespace media {
 
@@ -102,8 +104,7 @@ void WebEncryptedMediaClientImpl::requestMediaKeySystemAccess(
   GetReporter(request.keySystem())->ReportRequested();
 
   if (GetMediaClient()) {
-    GURL security_origin(
-        blink::WebStringToGURL(request.getSecurityOrigin().toString()));
+    GURL security_origin(url::Origin(request.getSecurityOrigin()).GetURL());
 
     GetMediaClient()->RecordRapporURL("Media.OriginUrl.EME", security_origin);
 
@@ -127,8 +128,9 @@ void WebEncryptedMediaClientImpl::CreateCdm(
     const blink::WebSecurityOrigin& security_origin,
     const CdmConfig& cdm_config,
     std::unique_ptr<blink::WebContentDecryptionModuleResult> result) {
-  WebContentDecryptionModuleImpl::Create(
-      cdm_factory_, key_system, security_origin, cdm_config, std::move(result));
+  WebContentDecryptionModuleImpl::Create(cdm_factory_, key_system.utf16(),
+                                         security_origin, cdm_config,
+                                         std::move(result));
 }
 
 void WebEncryptedMediaClientImpl::OnRequestSucceeded(
@@ -138,9 +140,21 @@ void WebEncryptedMediaClientImpl::OnRequestSucceeded(
   GetReporter(request.keySystem())->ReportSupported();
   // TODO(sandersd): Pass |are_secure_codecs_required| along and use it to
   // configure the CDM security level and use of secure surfaces on Android.
+
+  // If the frame is closed while the permission prompt is displayed,
+  // the permission prompt is dismissed and this may result in the
+  // requestMediaKeySystemAccess request succeeding. However, the blink
+  // objects may have been cleared, so check if this is the case and simply
+  // reject the request.
+  blink::WebSecurityOrigin origin = request.getSecurityOrigin();
+  if (origin.isNull()) {
+    request.requestNotSupported("Unable to create MediaKeySystemAccess");
+    return;
+  }
+
   request.requestSucceeded(WebContentDecryptionModuleAccessImpl::Create(
-      request.keySystem(), request.getSecurityOrigin(),
-      accumulated_configuration, cdm_config, weak_factory_.GetWeakPtr()));
+      request.keySystem(), origin, accumulated_configuration, cdm_config,
+      weak_factory_.GetWeakPtr()));
 }
 
 void WebEncryptedMediaClientImpl::OnRequestNotSupported(
@@ -154,17 +168,15 @@ WebEncryptedMediaClientImpl::Reporter* WebEncryptedMediaClientImpl::GetReporter(
   // Assumes that empty will not be found by GetKeySystemNameForUMA().
   // TODO(sandersd): Avoid doing ASCII conversion more than once.
   std::string key_system_ascii;
-  if (base::IsStringASCII(key_system))
-    key_system_ascii = base::UTF16ToASCII(base::StringPiece16(key_system));
+  if (key_system.containsOnlyASCII())
+    key_system_ascii = key_system.ascii();
 
   // Return a per-frame singleton so that UMA reports will be once-per-frame.
   std::string uma_name = GetKeySystemNameForUMA(key_system_ascii);
-  Reporter* reporter = reporters_.get(uma_name);
-  if (!reporter) {
-    reporter = new Reporter(uma_name);
-    reporters_.add(uma_name, base::WrapUnique(reporter));
-  }
-  return reporter;
+  std::unique_ptr<Reporter>& reporter = reporters_[uma_name];
+  if (!reporter)
+    reporter = base::MakeUnique<Reporter>(uma_name);
+  return reporter.get();
 }
 
 }  // namespace media

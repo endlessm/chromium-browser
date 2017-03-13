@@ -32,7 +32,6 @@
 #include "SkRandom.h"
 #include "SkTypeface.h"
 #include "SkUtils.h"
-#include "SkXfermode.h"
 
 #include <math.h>
 #include "DecodeFile.h"
@@ -248,7 +247,7 @@ static void apply_shader(SkPaint* paint, int index) {
         paint->setRasterizer(rastBuilder.detach());
     }
 
-#if 1
+#ifdef SK_SUPPORT_LEGACY_EMBOSSMASKFILTER
     SkScalar dir[] = { SK_Scalar1, SK_Scalar1, SK_Scalar1 };
     paint->setMaskFilter(SkBlurMaskFilter::MakeEmboss(
                 SkBlurMask::ConvertRadiusToSigma(SkIntToScalar(3)), dir,
@@ -504,7 +503,7 @@ protected:
         auto shaderB = SkGradientShader::MakeLinear(pts, colors2, nullptr,
             2, SkShader::kClamp_TileMode);
         return SkShader::MakeComposeShader(std::move(shaderA), std::move(shaderB),
-                                           SkXfermode::Make(SkXfermode::kDstIn_Mode));
+                                           SkBlendMode::kDstIn);
     }
 
     virtual void startTest() {

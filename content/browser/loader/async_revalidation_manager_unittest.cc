@@ -25,7 +25,6 @@
 #include "content/common/resource_request.h"
 #include "content/public/browser/resource_context.h"
 #include "content/public/common/appcache_info.h"
-#include "content/public/common/process_type.h"
 #include "content/public/common/resource_type.h"
 #include "content/public/test/test_browser_context.h"
 #include "content/public/test/test_browser_thread_bundle.h"
@@ -207,14 +206,13 @@ class BlackholeFilter : public ResourceMessageFilter {
   explicit BlackholeFilter(ResourceContext* resource_context)
       : ResourceMessageFilter(
             ChildProcessHostImpl::GenerateChildProcessUniqueId(),
-            PROCESS_TYPE_RENDERER,
-            nullptr,
             nullptr,
             nullptr,
             nullptr,
             nullptr,
             base::Bind(&BlackholeFilter::GetContexts, base::Unretained(this))),
         resource_context_(resource_context) {
+    InitializeForTest();
     ChildProcessSecurityPolicyImpl::GetInstance()->Add(child_id());
   }
 
@@ -248,6 +246,7 @@ ResourceRequest CreateResourceRequest(const char* method,
   request.method = std::string(method);
   request.url = url;
   request.first_party_for_cookies = url;  // Bypass third-party cookie blocking.
+  request.request_initiator = url::Origin(url);  // Ensure initiator is set.
   request.referrer_policy = blink::WebReferrerPolicyDefault;
   request.load_flags = 0;
   request.origin_pid = 0;
@@ -289,6 +288,7 @@ class AsyncRevalidationManagerTest : public ::testing::Test {
             base::WrapUnique(new net::TestNetworkDelegate)) {}
 
   void TearDown() override {
+    filter_->OnChannelClosing();
     host_.CancelRequestsForProcess(filter_->child_id());
     host_.Shutdown();
     host_.CancelRequestsForContext(browser_context_->GetResourceContext());
@@ -306,7 +306,7 @@ class AsyncRevalidationManagerTest : public ::testing::Test {
     ResourceRequest request =
         CreateResourceRequest("GET", RESOURCE_TYPE_SUB_RESOURCE, url);
     ResourceHostMsg_RequestResource msg(render_view_id, request_id, request);
-    host_.OnMessageReceived(msg, filter_.get());
+    filter_->OnMessageReceived(msg);
     base::RunLoop().RunUntilIdle();
   }
 
@@ -343,7 +343,7 @@ TEST_F(AsyncRevalidationManagerTest, AsyncRevalidationNotSupportedForPOST) {
   ResourceRequest request = CreateResourceRequest(
       "POST", RESOURCE_TYPE_SUB_RESOURCE, GURL("http://example.com/baz.php"));
   ResourceHostMsg_RequestResource msg(0, 1, request);
-  host_.OnMessageReceived(msg, filter_.get());
+  filter_->OnMessageReceived(msg);
   base::RunLoop().RunUntilIdle();
 
   net::URLRequest* url_request(

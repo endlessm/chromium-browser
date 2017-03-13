@@ -122,7 +122,6 @@ if (window.testRunner) {
             document.body.appendChild(pre);
         }
         document.getElementById("log").innerHTML += text + "\n";
-        window.scrollTo(0, document.body.height);
     }
 
     PerfTestRunner.log = function (text) {
@@ -145,7 +144,7 @@ if (window.testRunner) {
             doc.documentElement.offsetHeight;
     };
 
-    function start(test, runner) {
+    function start(test, scheduler, runner) {
         if (!test) {
             PerfTestRunner.logFatalError("Got a bad test object.");
             return;
@@ -156,17 +155,16 @@ if (window.testRunner) {
         iterationCount = test.dromaeoIterationCount || (window.testRunner ? 5 : 20);
         if (test.warmUpCount && test.warmUpCount > 0)
             completedIterations = -test.warmUpCount;
-        logLines = window.testRunner ? [] : null;
+        logLines = PerfTestRunner.bufferedLog || window.testRunner ? [] : null;
         PerfTestRunner.log("Running " + iterationCount + " times");
         if (test.doNotIgnoreInitialRun)
             completedIterations++;
         if (runner)
-            scheduleNextRun(runner);
+            scheduleNextRun(scheduler, runner);
     }
 
-    function scheduleNextRun(runner) {
-        PerfTestRunner.gc();
-        window.setTimeout(function () {
+    function scheduleNextRun(scheduler, runner) {
+        scheduler(function () {
             try {
                 if (currentTest.setup)
                     currentTest.setup();
@@ -187,10 +185,10 @@ if (window.testRunner) {
             }
 
             if (completedIterations < iterationCount)
-                scheduleNextRun(runner);
+                scheduleNextRun(scheduler, runner);
             else
                 finish();
-        }, 0);
+        });
     }
 
     function ignoreWarmUpAndLog(measuredValue) {
@@ -216,6 +214,7 @@ if (window.testRunner) {
             }
             if (logLines)
                 logLines.forEach(logInDocument);
+            window.scrollTo(0, document.body.offsetHeight);
             if (currentTest.done)
                 currentTest.done();
         } catch (exception) {
@@ -245,12 +244,45 @@ if (window.testRunner) {
             finish();
     }
 
+    PerfTestRunner.measureFrameTime = function (test) {
+        PerfTestRunner.unit = "ms";
+        PerfTestRunner.bufferedLog = true;
+        // Force gc before starting the test to avoid the measured time from
+        // being affected by gc performance. See crbug.com/667811#c16.
+        PerfTestRunner.gc();
+        start(test, requestAnimationFrame, measureFrameTimeOnce);
+    }
+
+    var lastFrameTime = -1;
+    function measureFrameTimeOnce() {
+        var now = PerfTestRunner.now();
+        var result = lastFrameTime == -1 ? -1 : now - lastFrameTime;
+        lastFrameTime = now;
+
+        var returnValue = currentTest.run();
+        if (returnValue - 0 === returnValue) {
+            if (returnValue < 0)
+                PerfTestRunner.log("runFunction returned a negative value: " + returnValue);
+            return returnValue;
+        }
+
+        return result;
+    }
+
     PerfTestRunner.measureTime = function (test) {
         PerfTestRunner.unit = "ms";
-        start(test, measureTimeOnce);
+        PerfTestRunner.bufferedLog = true;
+        start(test, zeroTimeoutScheduler, measureTimeOnce);
+    }
+
+    function zeroTimeoutScheduler(task) {
+        setTimeout(task, 0);
     }
 
     function measureTimeOnce() {
+        // Force gc before measuring time to avoid interference between tests.
+        PerfTestRunner.gc();
+
         var start = PerfTestRunner.now();
         var returnValue = currentTest.run();
         var end = PerfTestRunner.now();
@@ -266,7 +298,7 @@ if (window.testRunner) {
 
     PerfTestRunner.measureRunsPerSecond = function (test) {
         PerfTestRunner.unit = "runs/s";
-        start(test, measureRunsPerSecondOnce);
+        start(test, zeroTimeoutScheduler, measureRunsPerSecondOnce);
     }
 
     function measureRunsPerSecondOnce() {
@@ -285,6 +317,9 @@ if (window.testRunner) {
     }
 
     function callRunAndMeasureTime(callsPerIteration) {
+        // Force gc before measuring time to avoid interference between tests.
+        PerfTestRunner.gc();
+
         var startTime = PerfTestRunner.now();
         for (var i = 0; i < callsPerIteration; i++)
             currentTest.run();

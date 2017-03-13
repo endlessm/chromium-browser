@@ -49,7 +49,7 @@ static bool ParseIntValue(const std::string &, int emptyDefault, int *outValue);
 //
 void GenerateResources(ShBuiltInResources *resources)
 {
-    ShInitBuiltInResources(resources);
+    sh::InitBuiltInResources(resources);
 
     resources->MaxVertexAttribs = 8;
     resources->MaxVertexUniformVectors = 128;
@@ -77,7 +77,7 @@ int main(int argc, char *argv[])
     ShShaderSpec spec = SH_GLES2_SPEC;
     ShShaderOutput output = SH_ESSL_OUTPUT;
 
-    ShInitialize();
+    sh::Initialize();
 
     ShBuiltInResources resources;
     GenerateResources(&resources);
@@ -93,7 +93,6 @@ int main(int argc, char *argv[])
               case 'i': compileOptions |= SH_INTERMEDIATE_TREE; break;
               case 'o': compileOptions |= SH_OBJECT_CODE; break;
               case 'u': compileOptions |= SH_VARIABLES; break;
-              case 'l': compileOptions |= SH_UNROLL_FOR_LOOP_WITH_INTEGER_INDEX; break;
               case 'p': resources.WEBGL_debug_shader_precision = 1; break;
               case 's':
                 if (argv[0][2] == '=')
@@ -206,6 +205,10 @@ int main(int argc, char *argv[])
                       case 'f': resources.EXT_shader_framebuffer_fetch = 1; break;
                       case 'n': resources.NV_shader_framebuffer_fetch = 1; break;
                       case 'a': resources.ARM_shader_framebuffer_fetch = 1; break;
+                      case 'm':
+                          resources.OVR_multiview = 1;
+                          compileOptions |= SH_TRANSLATE_VIEWID_OVR_TO_UNIFORM;
+                          break;
                       default: failCode = EFailUsage;
                     }
                     // clang-format on
@@ -230,16 +233,16 @@ int main(int argc, char *argv[])
               case GL_VERTEX_SHADER:
                 if (vertexCompiler == 0)
                 {
-                    vertexCompiler = ShConstructCompiler(
-                        GL_VERTEX_SHADER, spec, output, &resources);
+                    vertexCompiler =
+                        sh::ConstructCompiler(GL_VERTEX_SHADER, spec, output, &resources);
                 }
                 compiler = vertexCompiler;
                 break;
               case GL_FRAGMENT_SHADER:
                 if (fragmentCompiler == 0)
                 {
-                    fragmentCompiler = ShConstructCompiler(
-                        GL_FRAGMENT_SHADER, spec, output, &resources);
+                    fragmentCompiler =
+                        sh::ConstructCompiler(GL_FRAGMENT_SHADER, spec, output, &resources);
                 }
                 compiler = fragmentCompiler;
                 break;
@@ -247,7 +250,7 @@ int main(int argc, char *argv[])
                   if (computeCompiler == 0)
                   {
                       computeCompiler =
-                          ShConstructCompiler(GL_COMPUTE_SHADER, spec, output, &resources);
+                          sh::ConstructCompiler(GL_COMPUTE_SHADER, spec, output, &resources);
                   }
                   compiler = computeCompiler;
                   break;
@@ -259,7 +262,7 @@ int main(int argc, char *argv[])
                 bool compiled = CompileFile(argv[0], compiler, compileOptions);
 
                 LogMsg("BEGIN", "COMPILER", numCompiles, "INFO LOG");
-                std::string log = ShGetInfoLog(compiler);
+                std::string log = sh::GetInfoLog(compiler);
                 puts(log.c_str());
                 LogMsg("END", "COMPILER", numCompiles, "INFO LOG");
                 printf("\n\n");
@@ -267,7 +270,7 @@ int main(int argc, char *argv[])
                 if (compiled && (compileOptions & SH_OBJECT_CODE))
                 {
                     LogMsg("BEGIN", "COMPILER", numCompiles, "OBJ CODE");
-                    std::string code = ShGetObjectCode(compiler);
+                    std::string code = sh::GetObjectCode(compiler);
                     puts(code.c_str());
                     LogMsg("END", "COMPILER", numCompiles, "OBJ CODE");
                     printf("\n\n");
@@ -296,13 +299,13 @@ int main(int argc, char *argv[])
         usage();
 
     if (vertexCompiler)
-        ShDestruct(vertexCompiler);
+        sh::Destruct(vertexCompiler);
     if (fragmentCompiler)
-        ShDestruct(fragmentCompiler);
+        sh::Destruct(fragmentCompiler);
     if (computeCompiler)
-        ShDestruct(computeCompiler);
+        sh::Destruct(computeCompiler);
 
-    ShFinalize();
+    sh::Finalize();
 
     return failCode;
 }
@@ -319,7 +322,6 @@ void usage()
         "       -i       : print intermediate tree\n"
         "       -o       : print translated code\n"
         "       -u       : print active attribs, uniforms, varyings and program outputs\n"
-        "       -l       : unroll for-loops with integer indices\n"
         "       -p       : use precision emulation\n"
         "       -s=e2    : use GLES2 spec (this is by default)\n"
         "       -s=e3    : use GLES3 spec (in development)\n"
@@ -341,7 +343,8 @@ void usage()
         "       -x=l     : enable EXT_shader_texture_lod\n"
         "       -x=f     : enable EXT_shader_framebuffer_fetch\n"
         "       -x=n     : enable NV_shader_framebuffer_fetch\n"
-        "       -x=a     : enable ARM_shader_framebuffer_fetch\n");
+        "       -x=a     : enable ARM_shader_framebuffer_fetch\n"
+        "       -x=m     : enable OVR_multiview\n");
     // clang-format on
 }
 
@@ -376,7 +379,7 @@ sh::GLenum FindShaderType(const char *fileName)
 }
 
 //
-//   Read a file's data into a string, and compile it using ShCompile
+//   Read a file's data into a string, and compile it using sh::Compile
 //
 bool CompileFile(char *fileName, ShHandle compiler, ShCompileOptions compileOptions)
 {
@@ -384,7 +387,7 @@ bool CompileFile(char *fileName, ShHandle compiler, ShCompileOptions compileOpti
     if (!ReadShaderSource(fileName, source))
         return false;
 
-    int ret = ShCompile(compiler, &source[0], source.size(), compileOptions);
+    int ret = sh::Compile(compiler, &source[0], source.size(), compileOptions);
 
     FreeShaderSource(source);
     return ret ? true : false;
@@ -425,8 +428,101 @@ void PrintVariable(const std::string &prefix, size_t index, const sh::ShaderVari
       case GL_FLOAT_MAT2x4: typeName = "GL_FLOAT_MAT2x4"; break;
       case GL_FLOAT_MAT3x4: typeName = "GL_FLOAT_MAT3x4"; break;
       case GL_FLOAT_MAT4x3: typeName = "GL_FLOAT_MAT4x3"; break;
+
       case GL_SAMPLER_2D: typeName = "GL_SAMPLER_2D"; break;
-      case GL_SAMPLER_CUBE: typeName = "GL_SAMPLER_CUBE"; break;
+      case GL_SAMPLER_3D:
+          typeName = "GL_SAMPLER_3D";
+          break;
+      case GL_SAMPLER_CUBE:
+          typeName = "GL_SAMPLER_CUBE";
+          break;
+      case GL_SAMPLER_CUBE_SHADOW:
+          typeName = "GL_SAMPLER_CUBE_SHADOW";
+          break;
+      case GL_SAMPLER_2D_SHADOW:
+          typeName = "GL_SAMPLER_2D_ARRAY_SHADOW";
+          break;
+      case GL_SAMPLER_2D_ARRAY:
+          typeName = "GL_SAMPLER_2D_ARRAY";
+          break;
+      case GL_SAMPLER_2D_ARRAY_SHADOW:
+          typeName = "GL_SAMPLER_2D_ARRAY_SHADOW";
+          break;
+      case GL_SAMPLER_2D_MULTISAMPLE:
+          typeName = "GL_SAMPLER_2D_MULTISAMPLE";
+          break;
+      case GL_IMAGE_2D:
+          typeName = "GL_IMAGE_2D";
+          break;
+      case GL_IMAGE_3D:
+          typeName = "GL_IMAGE_3D";
+          break;
+      case GL_IMAGE_CUBE:
+          typeName = "GL_IMAGE_CUBE";
+          break;
+      case GL_IMAGE_2D_ARRAY:
+          typeName = "GL_IMAGE_2D_ARRAY";
+          break;
+
+      case GL_INT_SAMPLER_2D:
+          typeName = "GL_INT_SAMPLER_2D";
+          break;
+      case GL_INT_SAMPLER_3D:
+          typeName = "GL_INT_SAMPLER_3D";
+          break;
+      case GL_INT_SAMPLER_CUBE:
+          typeName = "GL_INT_SAMPLER_CUBE";
+          break;
+      case GL_INT_SAMPLER_2D_ARRAY:
+          typeName = "GL_INT_SAMPLER_2D_ARRAY";
+          break;
+      case GL_INT_SAMPLER_2D_MULTISAMPLE:
+          typeName = "GL_INT_SAMPLER_2D_MULTISAMPLE";
+          break;
+      case GL_INT_IMAGE_2D:
+          typeName = "GL_INT_IMAGE_2D";
+          break;
+      case GL_INT_IMAGE_3D:
+          typeName = "GL_INT_IMAGE_3D";
+          break;
+      case GL_INT_IMAGE_CUBE:
+          typeName = "GL_INT_IMAGE_CUBE";
+          break;
+      case GL_INT_IMAGE_2D_ARRAY:
+          typeName = "GL_INT_IMAGE_2D_ARRAY";
+          break;
+
+      case GL_UNSIGNED_INT_SAMPLER_2D:
+          typeName = "GL_UNSIGNED_INT_SAMPLER_2D";
+          break;
+      case GL_UNSIGNED_INT_SAMPLER_3D:
+          typeName = "GL_UNSIGNED_INT_SAMPLER_3D";
+          break;
+      case GL_UNSIGNED_INT_SAMPLER_CUBE:
+          typeName = "GL_UNSIGNED_INT_SAMPLER_CUBE";
+          break;
+      case GL_UNSIGNED_INT_SAMPLER_2D_ARRAY:
+          typeName = "GL_UNSIGNED_INT_SAMPLER_2D_ARRAY";
+          break;
+      case GL_UNSIGNED_INT_ATOMIC_COUNTER:
+          typeName = "GL_UNSIGNED_INT_ATOMIC_COUNTER";
+          break;
+      case GL_UNSIGNED_INT_SAMPLER_2D_MULTISAMPLE:
+          typeName = "GL_UNSIGNED_INT_SAMPLER_2D_MULTISAMPLE";
+          break;
+      case GL_UNSIGNED_INT_IMAGE_2D:
+          typeName = "GL_UNSIGNED_INT_IMAGE_2D";
+          break;
+      case GL_UNSIGNED_INT_IMAGE_3D:
+          typeName = "GL_UNSIGNED_INT_IMAGE_3D";
+          break;
+      case GL_UNSIGNED_INT_IMAGE_CUBE:
+          typeName = "GL_UNSIGNED_INT_IMAGE_CUBE";
+          break;
+      case GL_UNSIGNED_INT_IMAGE_2D_ARRAY:
+          typeName = "GL_UNSIGNED_INT_IMAGE_2D_ARRAY";
+          break;
+
       case GL_SAMPLER_EXTERNAL_OES: typeName = "GL_SAMPLER_EXTERNAL_OES"; break;
       default: typeName = "UNKNOWN"; break;
     }
@@ -447,10 +543,10 @@ void PrintVariable(const std::string &prefix, size_t index, const sh::ShaderVari
 
 static void PrintActiveVariables(ShHandle compiler)
 {
-    const std::vector<sh::Uniform> *uniforms = ShGetUniforms(compiler);
-    const std::vector<sh::Varying> *varyings = ShGetVaryings(compiler);
-    const std::vector<sh::Attribute> *attributes = ShGetAttributes(compiler);
-    const std::vector<sh::OutputVariable> *outputs = ShGetOutputVariables(compiler);
+    const std::vector<sh::Uniform> *uniforms       = sh::GetUniforms(compiler);
+    const std::vector<sh::Varying> *varyings       = sh::GetVaryings(compiler);
+    const std::vector<sh::Attribute> *attributes   = sh::GetAttributes(compiler);
+    const std::vector<sh::OutputVariable> *outputs = sh::GetOutputVariables(compiler);
     for (size_t varCategory = 0; varCategory < 4; ++varCategory)
     {
         size_t numVars = 0;

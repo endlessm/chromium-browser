@@ -31,20 +31,98 @@
 #include "core/dom/ElementTraversal.h"
 #include "core/editing/EditingUtilities.h"
 #include "core/editing/Editor.h"
+#include "core/editing/PlainTextRange.h"
 #include "core/editing/SelectionModifier.h"
 #include "core/editing/VisiblePosition.h"
 #include "core/editing/VisibleUnits.h"
 #include "core/editing/commands/BreakBlockquoteCommand.h"
+#include "core/editing/commands/InsertIncrementalTextCommand.h"
 #include "core/editing/commands/InsertLineBreakCommand.h"
 #include "core/editing/commands/InsertParagraphSeparatorCommand.h"
 #include "core/editing/commands/InsertTextCommand.h"
 #include "core/editing/spellcheck/SpellChecker.h"
 #include "core/events/BeforeTextInsertedEvent.h"
+#include "core/events/TextEvent.h"
 #include "core/frame/LocalFrame.h"
 #include "core/html/HTMLBRElement.h"
 #include "core/layout/LayoutObject.h"
 
 namespace blink {
+
+namespace {
+
+String dispatchBeforeTextInsertedEvent(const String& text,
+                                       const VisibleSelection& selection) {
+  String newText = text;
+  if (Node* startNode = selection.start().computeContainerNode()) {
+    if (rootEditableElement(*startNode)) {
+      // Send BeforeTextInsertedEvent. The event handler will update text if
+      // necessary.
+      BeforeTextInsertedEvent* evt = BeforeTextInsertedEvent::create(text);
+      rootEditableElement(*startNode)->dispatchEvent(evt);
+      newText = evt->text();
+    }
+  }
+  return newText;
+}
+
+DispatchEventResult dispatchTextInputEvent(LocalFrame* frame,
+                                           const String& text) {
+  if (Element* target = frame->document()->focusedElement()) {
+    // Send TextInputEvent. Unlike BeforeTextInsertedEvent, there is no need to
+    // update text for TextInputEvent as it doesn't have the API to modify text.
+    TextEvent* event = TextEvent::create(frame->domWindow(), text,
+                                         TextEventInputIncrementalInsertion);
+    event->setUnderlyingEvent(nullptr);
+    return target->dispatchEvent(event);
+  }
+  return DispatchEventResult::CanceledBeforeDispatch;
+}
+
+PlainTextRange getSelectionOffsets(LocalFrame* frame) {
+  EphemeralRange range = firstEphemeralRangeOf(frame->selection().selection());
+  if (range.isNull())
+    return PlainTextRange();
+  ContainerNode* editable =
+      frame->selection().rootEditableElementOrTreeScopeRootNode();
+  DCHECK(editable);
+  return PlainTextRange::create(*editable, range);
+}
+
+SelectionInDOMTree createSelection(const size_t start,
+                                   const size_t end,
+                                   const bool isDirectional,
+                                   Element* element) {
+  const EphemeralRange& startRange =
+      PlainTextRange(0, static_cast<int>(start)).createRange(*element);
+  DCHECK(startRange.isNotNull());
+  const Position& startPosition = startRange.endPosition();
+
+  const EphemeralRange& endRange =
+      PlainTextRange(0, static_cast<int>(end)).createRange(*element);
+  DCHECK(endRange.isNotNull());
+  const Position& endPosition = endRange.endPosition();
+
+  const SelectionInDOMTree& selection =
+      SelectionInDOMTree::Builder()
+          .setBaseAndExtent(startPosition, endPosition)
+          .setIsDirectional(isDirectional)
+          .build();
+  return selection;
+}
+
+bool canAppendNewLineFeedToSelection(const VisibleSelection& selection) {
+  Element* element = selection.rootEditableElement();
+  if (!element)
+    return false;
+
+  BeforeTextInsertedEvent* event =
+      BeforeTextInsertedEvent::create(String("\n"));
+  element->dispatchEvent(event);
+  return event->text().length();
+}
+
+}  // anonymous namespace
 
 using namespace HTMLNames;
 
@@ -143,9 +221,9 @@ void TypingCommand::forwardDeleteKeyPressed(Document& document,
 }
 
 String TypingCommand::textDataForInputEvent() const {
-  if (m_commands.isEmpty())
+  if (m_commands.isEmpty() || isIncrementalInsertion())
     return m_textToInsert;
-  return m_commands.last()->textDataForInputEvent();
+  return m_commands.back()->textDataForInputEvent();
 }
 
 void TypingCommand::updateSelectionIfDifferentFromCurrentSelection(
@@ -157,33 +235,14 @@ void TypingCommand::updateSelectionIfDifferentFromCurrentSelection(
     return;
 
   typingCommand->setStartingSelection(currentSelection);
-  typingCommand->setEndingSelection(currentSelection);
-}
-
-static String dispatchBeforeTextInsertedEvent(
-    const String& text,
-    const VisibleSelection& selectionForInsertion,
-    bool insertionIsForUpdatingComposition) {
-  if (insertionIsForUpdatingComposition)
-    return text;
-
-  String newText = text;
-  if (Node* startNode = selectionForInsertion.start().computeContainerNode()) {
-    if (rootEditableElement(*startNode)) {
-      // Send BeforeTextInsertedEvent. The event handler will update text if
-      // necessary.
-      BeforeTextInsertedEvent* evt = BeforeTextInsertedEvent::create(text);
-      rootEditableElement(*startNode)->dispatchEvent(evt);
-      newText = evt->text();
-    }
-  }
-  return newText;
+  typingCommand->setEndingVisibleSelection(currentSelection);
 }
 
 void TypingCommand::insertText(Document& document,
                                const String& text,
                                Options options,
-                               TextCompositionType composition) {
+                               TextCompositionType composition,
+                               const bool isIncrementalInsertion) {
   LocalFrame* frame = document.frame();
   DCHECK(frame);
 
@@ -192,7 +251,33 @@ void TypingCommand::insertText(Document& document,
         isSpaceOrNewline(text[0]));
 
   insertText(document, text, frame->selection().selection(), options,
-             composition);
+             composition, isIncrementalInsertion);
+}
+
+void TypingCommand::adjustSelectionAfterIncrementalInsertion(
+    LocalFrame* frame,
+    const size_t textLength) {
+  if (!isIncrementalInsertion())
+    return;
+
+  // TODO(xiaochengh): The use of updateStyleAndLayoutIgnorePendingStylesheets
+  // needs to be audited. see http://crbug.com/590369 for more details.
+  frame->document()->updateStyleAndLayoutIgnorePendingStylesheets();
+
+  Element* element = frame->selection().selection().rootEditableElement();
+  DCHECK(element);
+
+  const size_t end = m_selectionStart + textLength;
+  const size_t start =
+      compositionType() == TextCompositionUpdate ? m_selectionStart : end;
+  const SelectionInDOMTree& selection =
+      createSelection(start, end, endingSelection().isDirectional(), element);
+
+  if (selection == frame->selection().selection().asSelection())
+    return;
+
+  setEndingSelection(selection);
+  frame->selection().setSelection(selection);
 }
 
 // FIXME: We shouldn't need to take selectionForInsertion. It should be
@@ -201,14 +286,35 @@ void TypingCommand::insertText(Document& document,
                                const String& text,
                                const VisibleSelection& selectionForInsertion,
                                Options options,
-                               TextCompositionType compositionType) {
+                               TextCompositionType compositionType,
+                               const bool isIncrementalInsertion) {
   LocalFrame* frame = document.frame();
   DCHECK(frame);
 
   VisibleSelection currentSelection = frame->selection().selection();
 
-  String newText = dispatchBeforeTextInsertedEvent(
-      text, selectionForInsertion, compositionType == TextCompositionUpdate);
+  String newText = text;
+  if (compositionType != TextCompositionUpdate)
+    newText = dispatchBeforeTextInsertedEvent(text, selectionForInsertion);
+
+  if (compositionType == TextCompositionConfirm) {
+    if (dispatchTextInputEvent(frame, newText) !=
+        DispatchEventResult::NotCanceled)
+      return;
+  }
+
+  // Do nothing if no need to delete and insert.
+  if (selectionForInsertion.isCaret() && newText.isEmpty())
+    return;
+
+  // TODO(xiaochengh): The use of updateStyleAndLayoutIgnorePendingStylesheets
+  // needs to be audited. see http://crbug.com/590369 for more details.
+  document.updateStyleAndLayoutIgnorePendingStylesheets();
+
+  const PlainTextRange selectionOffsets = getSelectionOffsets(frame);
+  if (selectionOffsets.isNull())
+    return;
+  const size_t selectionStart = selectionOffsets.start();
 
   // Set the starting and ending selection appropriately if we are using a
   // selection that is different from the current selection.  In the future, we
@@ -218,7 +324,7 @@ void TypingCommand::insertText(Document& document,
           lastTypingCommandIfStillOpenForTyping(frame)) {
     if (lastTypingCommand->endingSelection() != selectionForInsertion) {
       lastTypingCommand->setStartingSelection(selectionForInsertion);
-      lastTypingCommand->setEndingSelection(selectionForInsertion);
+      lastTypingCommand->setEndingVisibleSelection(selectionForInsertion);
     }
 
     lastTypingCommand->setCompositionType(compositionType);
@@ -227,9 +333,10 @@ void TypingCommand::insertText(Document& document,
     lastTypingCommand->setShouldPreventSpellChecking(options &
                                                      PreventSpellChecking);
     EditingState editingState;
+    lastTypingCommand->m_isIncrementalInsertion = isIncrementalInsertion;
+    lastTypingCommand->m_selectionStart = selectionStart;
     lastTypingCommand->insertText(newText, options & SelectInsertedText,
                                   &editingState);
-    // Nothing to do even if the command was aborted.
     return;
   }
 
@@ -238,11 +345,14 @@ void TypingCommand::insertText(Document& document,
   bool changeSelection = selectionForInsertion != currentSelection;
   if (changeSelection) {
     command->setStartingSelection(selectionForInsertion);
-    command->setEndingSelection(selectionForInsertion);
+    command->setEndingVisibleSelection(selectionForInsertion);
   }
+  command->m_isIncrementalInsertion = isIncrementalInsertion;
+  command->m_selectionStart = selectionStart;
   command->apply();
+
   if (changeSelection) {
-    command->setEndingSelection(currentSelection);
+    command->setEndingVisibleSelection(currentSelection);
     frame->selection().setSelection(currentSelection);
   }
 }
@@ -385,6 +495,8 @@ void TypingCommand::typingAddedToOpenCommand(
 void TypingCommand::insertText(const String& text,
                                bool selectInsertedText,
                                EditingState* editingState) {
+  m_textToInsert = text;
+
   if (text.isEmpty()) {
     insertTextRunWithoutNewlines(text, selectInsertedText, editingState);
     return;
@@ -400,11 +512,14 @@ void TypingCommand::insertText(const String& text,
   size_t newline;
   while ((newline = text.find('\n', offset)) != kNotFound) {
     if (newline > offset) {
-      const bool notSelectInsertedText = false;
-      insertTextRunWithoutNewlines(text.substring(offset, newline - offset),
-                                   notSelectInsertedText, editingState);
+      const size_t insertionLength = newline - offset;
+      insertTextRunWithoutNewlines(text.substring(offset, insertionLength),
+                                   false, editingState);
       if (editingState->isAborted())
         return;
+
+      adjustSelectionAfterIncrementalInsertion(document().frame(),
+                                               insertionLength);
     }
 
     insertParagraphSeparator(editingState);
@@ -416,38 +531,49 @@ void TypingCommand::insertText(const String& text,
 
   if (!offset) {
     insertTextRunWithoutNewlines(text, selectInsertedText, editingState);
+    if (editingState->isAborted())
+      return;
+
+    adjustSelectionAfterIncrementalInsertion(document().frame(), text.length());
     return;
   }
 
-  if (text.length() > offset)
-    insertTextRunWithoutNewlines(text.substring(offset, text.length() - offset),
+  if (text.length() > offset) {
+    const size_t insertionLength = text.length() - offset;
+    insertTextRunWithoutNewlines(text.substring(offset, insertionLength),
                                  selectInsertedText, editingState);
+    if (editingState->isAborted())
+      return;
+
+    adjustSelectionAfterIncrementalInsertion(document().frame(),
+                                             insertionLength);
+  }
 }
 
 void TypingCommand::insertTextRunWithoutNewlines(const String& text,
                                                  bool selectInsertedText,
                                                  EditingState* editingState) {
-  InsertTextCommand* command = InsertTextCommand::create(
-      document(), text, selectInsertedText,
-      m_compositionType == TextCompositionNone
-          ? InsertTextCommand::RebalanceLeadingAndTrailingWhitespaces
-          : InsertTextCommand::RebalanceAllWhitespaces);
+  CompositeEditCommand* command;
+  if (isIncrementalInsertion()) {
+    command = InsertIncrementalTextCommand::create(
+        document(), text, selectInsertedText,
+        m_compositionType == TextCompositionNone
+            ? InsertIncrementalTextCommand::
+                  RebalanceLeadingAndTrailingWhitespaces
+            : InsertIncrementalTextCommand::RebalanceAllWhitespaces);
+  } else {
+    command = InsertTextCommand::create(
+        document(), text, selectInsertedText,
+        m_compositionType == TextCompositionNone
+            ? InsertTextCommand::RebalanceLeadingAndTrailingWhitespaces
+            : InsertTextCommand::RebalanceAllWhitespaces);
+  }
 
   applyCommandToComposite(command, endingSelection(), editingState);
   if (editingState->isAborted())
     return;
+
   typingAddedToOpenCommand(InsertText);
-}
-
-static bool canAppendNewLineFeedToSelection(const VisibleSelection& selection) {
-  Element* element = selection.rootEditableElement();
-  if (!element)
-    return false;
-
-  BeforeTextInsertedEvent* event =
-      BeforeTextInsertedEvent::create(String("\n"));
-  element->dispatchEvent(event);
-  return event->text().length();
 }
 
 void TypingCommand::insertLineBreak(EditingState* editingState) {
@@ -512,9 +638,10 @@ bool TypingCommand::makeEditableRootEmpty(EditingState* editingState) {
   addBlockPlaceholderIfNeeded(root, editingState);
   if (editingState->isAborted())
     return false;
-  setEndingSelection(createVisibleSelectionDeprecated(
-      Position::firstPositionInNode(root), TextAffinity::Downstream,
-      endingSelection().isDirectional()));
+  setEndingSelection(SelectionInDOMTree::Builder()
+                         .collapse(Position::firstPositionInNode(root))
+                         .setIsDirectional(endingSelection().isDirectional())
+                         .build());
 
   return true;
 }
@@ -548,6 +675,7 @@ void TypingCommand::deleteKeyPressed(TextGranularity granularity,
         typingAddedToOpenCommand(DeleteKey);
 
       m_smartDelete = false;
+      document().updateStyleAndLayoutIgnorePendingStylesheets();
 
       SelectionModifier selectionModifier(*frame, endingSelection());
       selectionModifier.modify(FrameSelection::AlterationExtend,
@@ -557,7 +685,7 @@ void TypingCommand::deleteKeyPressed(TextGranularity granularity,
         selectionModifier.modify(FrameSelection::AlterationExtend,
                                  DirectionBackward, CharacterGranularity);
 
-      VisiblePosition visibleStart(endingSelection().visibleStartDeprecated());
+      VisiblePosition visibleStart(endingSelection().visibleStart());
       if (previousPositionOf(visibleStart, CannotCrossEditingBoundary)
               .isNull()) {
         // When the caret is at the start of the editable area in an empty list
@@ -593,7 +721,7 @@ void TypingCommand::deleteKeyPressed(TextGranularity granularity,
 
       // If the caret is at the start of a paragraph after a table, move content
       // into the last table cell.
-      if (isStartOfParagraphDeprecated(visibleStart) &&
+      if (isStartOfParagraph(visibleStart) &&
           tableElementJustBefore(
               previousPositionOf(visibleStart, CannotCrossEditingBoundary))) {
         // Unless the caret is just before a table.  We don't want to move a
@@ -607,9 +735,12 @@ void TypingCommand::deleteKeyPressed(TextGranularity granularity,
         // If the caret is just after a table, select the table and don't delete
         // anything.
       } else if (Element* table = tableElementJustBefore(visibleStart)) {
-        setEndingSelection(createVisibleSelectionDeprecated(
-            Position::beforeNode(table), endingSelection().start(),
-            TextAffinity::Downstream, endingSelection().isDirectional()));
+        setEndingSelection(
+            SelectionInDOMTree::Builder()
+                .collapse(Position::beforeNode(table))
+                .extend(endingSelection().start())
+                .setIsDirectional(endingSelection().isDirectional())
+                .build());
         typingAddedToOpenCommand(DeleteKey);
         return;
       }
@@ -693,6 +824,7 @@ void TypingCommand::forwardDeleteKeyPressed(TextGranularity granularity,
       break;
     case CaretSelection: {
       m_smartDelete = false;
+      document().updateStyleAndLayoutIgnorePendingStylesheets();
 
       // Handle delete at beginning-of-block case.
       // Do nothing in the case that the caret is at the start of a
@@ -707,7 +839,7 @@ void TypingCommand::forwardDeleteKeyPressed(TextGranularity granularity,
 
       Position downstreamEnd =
           mostForwardCaretPosition(endingSelection().end());
-      VisiblePosition visibleEnd = endingSelection().visibleEndDeprecated();
+      VisiblePosition visibleEnd = endingSelection().visibleEnd();
       Node* enclosingTableCell =
           enclosingNodeOfType(visibleEnd.deepEquivalent(), &isTableCell);
       if (enclosingTableCell &&
@@ -716,7 +848,7 @@ void TypingCommand::forwardDeleteKeyPressed(TextGranularity granularity,
                   .deepEquivalent())
         return;
       if (visibleEnd.deepEquivalent() ==
-          endOfParagraphDeprecated(visibleEnd).deepEquivalent())
+          endOfParagraph(visibleEnd).deepEquivalent())
         downstreamEnd = mostForwardCaretPosition(
             nextPositionOf(visibleEnd, CannotCrossEditingBoundary)
                 .deepEquivalent());
@@ -724,10 +856,13 @@ void TypingCommand::forwardDeleteKeyPressed(TextGranularity granularity,
       if (isDisplayInsideTable(downstreamEnd.computeContainerNode()) &&
           downstreamEnd.computeOffsetInContainerNode() <=
               caretMinOffset(downstreamEnd.computeContainerNode())) {
-        setEndingSelection(createVisibleSelectionDeprecated(
-            endingSelection().end(),
-            Position::afterNode(downstreamEnd.computeContainerNode()),
-            TextAffinity::Downstream, endingSelection().isDirectional()));
+        setEndingSelection(
+            SelectionInDOMTree::Builder()
+                .setBaseAndExtentDeprecated(
+                    endingSelection().end(),
+                    Position::afterNode(downstreamEnd.computeContainerNode()))
+                .setIsDirectional(endingSelection().isDirectional())
+                .build());
         typingAddedToOpenCommand(ForwardDeleteKey);
         return;
       }
@@ -736,8 +871,7 @@ void TypingCommand::forwardDeleteKeyPressed(TextGranularity granularity,
       // the next paragraph (if any)
       if (granularity == ParagraphBoundary &&
           selectionModifier.selection().isCaret() &&
-          isEndOfParagraphDeprecated(
-              selectionModifier.selection().visibleEndDeprecated()))
+          isEndOfParagraph(selectionModifier.selection().visibleEnd()))
         selectionModifier.modify(FrameSelection::AlterationExtend,
                                  DirectionForward, CharacterGranularity);
 

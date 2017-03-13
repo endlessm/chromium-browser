@@ -8,23 +8,52 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
 #include "chrome/common/chrome_features.h"
+#include "chrome/common/pref_names.h"
+#include "components/prefs/pref_registry_simple.h"
+#include "components/prefs/pref_service.h"
 #include "components/user_manager/user_manager.h"
 
 namespace chromeos {
 
 namespace {
 bool enable_for_testing_ = false;
+// Options for the quick unlock whitelist.
+const char kQuickUnlockWhitelistOptionAll[] = "all";
+const char kQuickUnlockWhitelistOptionPin[] = "PIN";
+// Default minimum PIN length. Policy can increase or decrease this value.
+constexpr int kDefaultMinimumPinLength = 6;
 }  // namespace
 
-bool IsQuickUnlockEnabled() {
+void RegisterQuickUnlockProfilePrefs(PrefRegistrySimple* registry) {
+  base::ListValue quick_unlock_whitelist_default;
+  quick_unlock_whitelist_default.AppendString(kQuickUnlockWhitelistOptionPin);
+  registry->RegisterListPref(prefs::kQuickUnlockModeWhitelist,
+                             quick_unlock_whitelist_default.DeepCopy());
+  registry->RegisterIntegerPref(
+      prefs::kQuickUnlockTimeout,
+      static_cast<int>(QuickUnlockPasswordConfirmationFrequency::DAY));
+
+  // Preferences related the lock screen pin unlock.
+  registry->RegisterIntegerPref(prefs::kPinUnlockMinimumLength,
+                                kDefaultMinimumPinLength);
+  // 0 indicates no maximum length for the pin.
+  registry->RegisterIntegerPref(prefs::kPinUnlockMaximumLength, 0);
+  registry->RegisterBooleanPref(prefs::kPinUnlockWeakPinsAllowed, true);
+}
+
+bool IsPinUnlockEnabled(PrefService* pref_service) {
   if (enable_for_testing_)
     return true;
 
-  // TODO(jdufault): Implement a proper policy check. For now, just disable if
-  // the device is enterprise enrolled. See crbug.com/612271.
-  if (g_browser_process->platform_part()
-          ->browser_policy_connector_chromeos()
-          ->IsEnterpriseManaged()) {
+  // Check if policy allows PIN.
+  const base::ListValue* quick_unlock_whitelist =
+      pref_service->GetList(prefs::kQuickUnlockModeWhitelist);
+  base::StringValue all_value(kQuickUnlockWhitelistOptionAll);
+  base::StringValue pin_value(kQuickUnlockWhitelistOptionPin);
+  if (quick_unlock_whitelist->Find(all_value) ==
+          quick_unlock_whitelist->end() &&
+      quick_unlock_whitelist->Find(pin_value) ==
+          quick_unlock_whitelist->end()) {
     return false;
   }
 

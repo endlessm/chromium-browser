@@ -21,7 +21,7 @@
 namespace media {
 
 class DecoderBuffer;
-class MediaKeys;
+class ContentDecryptionModule;
 class MojoDecoderBufferReader;
 class MojoDecoderBufferWriter;
 
@@ -29,10 +29,13 @@ class MojoDecoderBufferWriter;
 // and uses a weak binding across the mojo interface.
 class MojoDecryptorService : public mojom::Decryptor {
  public:
+  using StreamType = media::Decryptor::StreamType;
+  using Status = media::Decryptor::Status;
+
   // Constructs a MojoDecryptorService and binds it to the |request|. Keeps a
   // copy of |cdm| to prevent it from being deleted as long as it is needed.
   // |error_handler| will be called if a connection error occurs.
-  MojoDecryptorService(const scoped_refptr<MediaKeys>& cdm,
+  MojoDecryptorService(const scoped_refptr<ContentDecryptionModule>& cdm,
                        mojo::InterfaceRequest<mojom::Decryptor> request,
                        const base::Closure& error_handler);
 
@@ -41,10 +44,10 @@ class MojoDecryptorService : public mojom::Decryptor {
   // mojom::Decryptor implementation.
   void Initialize(mojo::ScopedDataPipeConsumerHandle receive_pipe,
                   mojo::ScopedDataPipeProducerHandle transmit_pipe) final;
-  void Decrypt(mojom::DemuxerStream::Type stream_type,
+  void Decrypt(StreamType stream_type,
                mojom::DecoderBufferPtr encrypted,
                const DecryptCallback& callback) final;
-  void CancelDecrypt(mojom::DemuxerStream::Type stream_type) final;
+  void CancelDecrypt(StreamType stream_type) final;
   void InitializeAudioDecoder(
       mojom::AudioDecoderConfigPtr config,
       const InitializeAudioDecoderCallback& callback) final;
@@ -57,15 +60,18 @@ class MojoDecryptorService : public mojom::Decryptor {
   void DecryptAndDecodeVideo(
       mojom::DecoderBufferPtr encrypted,
       const DecryptAndDecodeVideoCallback& callback) final;
-  void ResetDecoder(mojom::DemuxerStream::Type stream_type) final;
-  void DeinitializeDecoder(mojom::DemuxerStream::Type stream_type) final;
+  void ResetDecoder(StreamType stream_type) final;
+  void DeinitializeDecoder(StreamType stream_type) final;
   void ReleaseSharedBuffer(mojo::ScopedSharedBufferHandle buffer,
                            uint64_t buffer_size) final;
 
  private:
+  void OnReadDone(StreamType stream_type,
+                  const DecryptCallback& callback,
+                  scoped_refptr<DecoderBuffer> buffer);
   // Callback executed once Decrypt() is done.
   void OnDecryptDone(const DecryptCallback& callback,
-                     media::Decryptor::Status status,
+                     Status status,
                      const scoped_refptr<DecoderBuffer>& buffer);
 
   // Callbacks executed once decoder initialized.
@@ -74,12 +80,17 @@ class MojoDecryptorService : public mojom::Decryptor {
   void OnVideoDecoderInitialized(const InitializeVideoDecoderCallback& callback,
                                  bool success);
 
+  void OnAudioRead(const DecryptAndDecodeAudioCallback& callback,
+                   scoped_refptr<DecoderBuffer> buffer);
+  void OnVideoRead(const DecryptAndDecodeVideoCallback& callback,
+                   scoped_refptr<DecoderBuffer> buffer);
+
   // Callbacks executed when DecryptAndDecode are done.
   void OnAudioDecoded(const DecryptAndDecodeAudioCallback& callback,
-                      media::Decryptor::Status status,
+                      Status status,
                       const media::Decryptor::AudioFrames& frames);
   void OnVideoDecoded(const DecryptAndDecodeVideoCallback& callback,
-                      media::Decryptor::Status status,
+                      Status status,
                       const scoped_refptr<VideoFrame>& frame);
 
   // A weak binding is used to connect to the MojoDecryptor.
@@ -93,7 +104,7 @@ class MojoDecryptorService : public mojom::Decryptor {
 
   // Keep ownership of |cdm_| while it is being used. |decryptor_| is the actual
   // Decryptor referenced by |cdm_|.
-  scoped_refptr<MediaKeys> cdm_;
+  scoped_refptr<ContentDecryptionModule> cdm_;
   media::Decryptor* decryptor_;
 
   // Keep a reference to VideoFrames until ReleaseSharedBuffer() is called

@@ -8,15 +8,16 @@
 #include "chrome/browser/themes/theme_properties.h"
 #include "chrome/browser/ui/content_settings/content_setting_bubble_model.h"
 #include "chrome/browser/ui/content_settings/content_setting_image_model.h"
-#include "chrome/browser/ui/layout_constants.h"
 #include "chrome/browser/ui/views/content_setting_bubble_contents.h"
 #include "chrome/browser/ui/views/location_bar/location_bar_view.h"
 #include "chrome/grit/theme_resources.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/material_design/material_design_controller.h"
 #include "ui/base/theme_provider.h"
 #include "ui/events/event_utils.h"
 #include "ui/gfx/color_palette.h"
 #include "ui/gfx/color_utils.h"
+#include "ui/views/animation/ink_drop_impl.h"
 #include "ui/views/controls/image_view.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/widget/widget.h"
@@ -26,18 +27,17 @@ namespace {
 const int kStayOpenTimeMS = 3200;
 }
 
-
 // static
 const int ContentSettingImageView::kAnimationDurationMS =
     (IconLabelBubbleView::kOpenTimeMS * 2) + kStayOpenTimeMS;
 
 ContentSettingImageView::ContentSettingImageView(
-    ContentSettingImageModel* image_model,
+    std::unique_ptr<ContentSettingImageModel> image_model,
     LocationBarView* parent,
     const gfx::FontList& font_list)
     : IconLabelBubbleView(font_list, false),
       parent_(parent),
-      content_setting_image_model_(image_model),
+      content_setting_image_model_(std::move(image_model)),
       slide_animator_(this),
       pause_animation_(false),
       pause_animation_state_(0.0),
@@ -149,8 +149,10 @@ void ContentSettingImageView::OnNativeThemeChanged(
   IconLabelBubbleView::OnNativeThemeChanged(native_theme);
 }
 
-bool ContentSettingImageView::ShouldShowInkDropForFocus() const {
-  return true;
+std::unique_ptr<views::InkDrop> ContentSettingImageView::CreateInkDrop() {
+  std::unique_ptr<views::InkDropImpl> ink_drop = CreateDefaultInkDropImpl();
+  ink_drop->SetShowHighlightOnFocus(true);
+  return std::move(ink_drop);
 }
 
 SkColor ContentSettingImageView::GetTextColor() const {
@@ -160,9 +162,8 @@ SkColor ContentSettingImageView::GetTextColor() const {
 
 bool ContentSettingImageView::ShouldShowLabel() const {
   return (!IsShrinking() ||
-          (width() >
-           (image()->GetPreferredSize().width() +
-            2 * GetLayoutConstant(LOCATION_BAR_HORIZONTAL_PADDING)))) &&
+          (width() > (image()->GetPreferredSize().width() +
+                      2 * LocationBarView::kHorizontalPadding))) &&
          (slide_animator_.is_animating() || pause_animation_);
 }
 
@@ -209,11 +210,14 @@ bool ContentSettingImageView::OnActivate(const ui::Event& event) {
 
   content::WebContents* web_contents = parent_->GetWebContents();
   if (web_contents && !bubble_view_) {
+    views::View* anchor = this;
+    if (ui::MaterialDesignController::IsSecondaryUiMaterial())
+      anchor = parent_;
     bubble_view_ = new ContentSettingBubbleContents(
                 content_setting_image_model_->CreateBubbleModel(
                     parent_->delegate()->GetContentSettingBubbleModelDelegate(),
                     web_contents, parent_->profile()),
-                web_contents, this, views::BubbleBorder::TOP_RIGHT);
+                web_contents, anchor, views::BubbleBorder::TOP_RIGHT);
     views::Widget* bubble_widget =
         views::BubbleDialogDelegateView::CreateBubble(bubble_view_);
     bubble_widget->AddObserver(this);

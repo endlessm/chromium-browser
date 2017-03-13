@@ -13,10 +13,6 @@
 #include "gpu/command_buffer/service/indexed_buffer_binding_host.h"
 #include "gpu/gpu_export.h"
 
-namespace gfx {
-struct GLVersionInfo;
-};
-
 namespace gpu {
 namespace gles2 {
 
@@ -26,7 +22,8 @@ class TransformFeedbackManager;
 // Info about TransformFeedbacks currently in the system.
 class GPU_EXPORT TransformFeedback : public IndexedBufferBindingHost {
  public:
-  TransformFeedback(TransformFeedbackManager* manager, GLuint service_id);
+  TransformFeedback(
+      TransformFeedbackManager* manager, GLuint client_id, GLuint service_id);
 
   // All the following functions do state update and call the underlying GL
   // function.  All validations have been done already and the GL function is
@@ -36,6 +33,10 @@ class GPU_EXPORT TransformFeedback : public IndexedBufferBindingHost {
   void DoEndTransformFeedback();
   void DoPauseTransformFeedback();
   void DoResumeTransformFeedback();
+
+  GLuint client_id() const {
+    return client_id_;
+  }
 
   GLuint service_id() const {
     return service_id_;
@@ -63,6 +64,7 @@ class GPU_EXPORT TransformFeedback : public IndexedBufferBindingHost {
   // The manager that owns this Buffer.
   TransformFeedbackManager* manager_;
 
+  GLuint client_id_;
   GLuint service_id_;
 
   bool has_been_bound_;
@@ -76,7 +78,9 @@ class GPU_EXPORT TransformFeedback : public IndexedBufferBindingHost {
 // This class keeps tracks of the transform feedbacks and their states.
 class GPU_EXPORT TransformFeedbackManager {
  public:
-  // |needs_emulation| is true on Desktop GL 4.1 or lower.
+  // In theory |needs_emulation| needs to be true on Desktop GL 4.1 or lower.
+  // However, we set it to true everywhere, not to trust drivers to handle
+  // out-of-bounds buffer accesses.
   TransformFeedbackManager(GLuint max_transform_feedback_separate_attribs,
                            bool needs_emulation);
   ~TransformFeedbackManager();
@@ -97,8 +101,6 @@ class GPU_EXPORT TransformFeedbackManager {
 
   // Removes a TransformFeedback info for the given client ID.
   void RemoveTransformFeedback(GLuint client_id);
-
-  void RemoveBoundBuffer(Buffer* buffer);
 
   GLuint max_transform_feedback_separate_attribs() const {
     return max_transform_feedback_separate_attribs_;

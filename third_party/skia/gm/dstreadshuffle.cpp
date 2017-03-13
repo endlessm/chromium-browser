@@ -9,7 +9,6 @@
 #include "SkPath.h"
 #include "SkRandom.h"
 #include "SkShader.h"
-#include "SkXfermode.h"
 
 namespace skiagm {
 
@@ -157,8 +156,8 @@ protected:
                             SkPaint p;
                             p.setAntiAlias(true);
                             p.setColor(color);
-                            // In order to get some batching on the GPU backend we do 2 src over for
-                            // each xfer mode which requires a dst read
+                            // In order to get some op combining on the GPU backend we do 2 src over
+                            // for each xfer mode which requires a dst read
                             p.setBlendMode(r % 3 == 0 ? SkBlendMode::kLighten :
                                                         SkBlendMode::kSrcOver);
                             SetStyle(&p, style, width);
@@ -180,9 +179,9 @@ private:
     enum {
         kNumShapes = 100,
     };
-    SkAutoTUnref<SkShader> fBG;
-    SkPath                 fConcavePath;
-    SkPath                 fConvexPath;
+    sk_sp<SkShader>      fBG;
+    SkPath               fConcavePath;
+    SkPath               fConvexPath;
     static constexpr int kWidth = 900;
     static constexpr int kHeight = 400;
     typedef GM INHERITED;

@@ -6,6 +6,7 @@
 
 #include <stddef.h>
 
+#include <memory>
 #include <set>
 #include <string>
 #include <utility>
@@ -20,7 +21,6 @@
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/macros.h"
-#include "base/memory/scoped_vector.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/sparse_histogram.h"
 #include "base/strings/string16.h"
@@ -103,7 +103,7 @@ struct NavigationCorrection {
 struct NavigationCorrectionResponse {
   std::string event_id;
   std::string fingerprint;
-  ScopedVector<NavigationCorrection> corrections;
+  std::vector<std::unique_ptr<NavigationCorrection>> corrections;
 
   static void RegisterJSONConverter(
       base::JSONValueConverter<NavigationCorrectionResponse>* converter) {
@@ -302,9 +302,8 @@ std::unique_ptr<ErrorPageParams> CreateErrorPageParams(
   std::unique_ptr<ErrorPageParams> params(new ErrorPageParams());
   params->override_suggestions.reset(new base::ListValue());
   std::unique_ptr<base::ListValue> parsed_corrections(new base::ListValue());
-  for (ScopedVector<NavigationCorrection>::const_iterator it =
-           response.corrections.begin();
-       it != response.corrections.end(); ++it) {
+  for (auto it = response.corrections.begin(); it != response.corrections.end();
+       ++it) {
     // Doesn't seem like a good idea to show these.
     if ((*it)->is_porn || (*it)->is_soft_porn)
       continue;
@@ -427,7 +426,7 @@ struct NetErrorHelperCore::ErrorPageInfo {
         reload_button_in_page(false),
         show_saved_copy_button_in_page(false),
         show_cached_copy_button_in_page(false),
-        show_offline_pages_button_in_page(false),
+        download_button_in_page(false),
         is_finished_loading(false),
         auto_reload_triggered(false) {}
 
@@ -462,7 +461,7 @@ struct NetErrorHelperCore::ErrorPageInfo {
   bool reload_button_in_page;
   bool show_saved_copy_button_in_page;
   bool show_cached_copy_button_in_page;
-  bool show_offline_pages_button_in_page;
+  bool download_button_in_page;
 
   // True if a page has completed loading, at which point it can receive
   // updates.
@@ -497,6 +496,8 @@ bool NetErrorHelperCore::IsReloadableError(
          // handshake_failure alert.
          // https://crbug.com/431387
          info.error.reason != net::ERR_SSL_PROTOCOL_ERROR &&
+         // Do not trigger for XSS Auditor violations.
+         info.error.reason != net::ERR_BLOCKED_BY_XSS_AUDITOR &&
          !info.was_failed_post &&
          // Don't auto-reload non-http/https schemas.
          // https://crbug.com/471713
@@ -520,9 +521,6 @@ NetErrorHelperCore::NetErrorHelperCore(Delegate* delegate,
       online_(true),
       visible_(is_visible),
       auto_reload_count_(0),
-#if defined(OS_ANDROID)
-      has_offline_pages_(false),
-#endif  // defined(OS_ANDROID)
       navigation_from_button_(NO_BUTTON) {
 }
 
@@ -623,11 +621,11 @@ void NetErrorHelperCore::OnCommitLoad(FrameType frame_type, const GURL& url) {
     const GURL& error_url = error.unreachableURL;
     if (url == error_url)
       ReportAutoReloadSuccess(error, auto_reload_count_);
-    else if (url != GURL(content::kUnreachableWebDataURL))
+    else if (url != content::kUnreachableWebDataURL)
       ReportAutoReloadFailure(error, auto_reload_count_);
   }
 
-  committed_error_page_info_.reset(pending_error_page_info_.release());
+  committed_error_page_info_ = std::move(pending_error_page_info_);
 }
 
 void NetErrorHelperCore::OnFinishLoad(FrameType frame_type) {
@@ -648,8 +646,8 @@ void NetErrorHelperCore::OnFinishLoad(FrameType frame_type) {
   if (committed_error_page_info_->show_saved_copy_button_in_page) {
     RecordEvent(NETWORK_ERROR_PAGE_SHOW_SAVED_COPY_BUTTON_SHOWN);
   }
-  if (committed_error_page_info_->show_offline_pages_button_in_page) {
-    RecordEvent(NETWORK_ERROR_PAGE_SHOW_OFFLINE_PAGES_BUTTON_SHOWN);
+  if (committed_error_page_info_->download_button_in_page) {
+    RecordEvent(NETWORK_ERROR_PAGE_DOWNLOAD_BUTTON_SHOWN);
   }
   if (committed_error_page_info_->reload_button_in_page &&
       committed_error_page_info_->show_saved_copy_button_in_page) {
@@ -658,6 +656,9 @@ void NetErrorHelperCore::OnFinishLoad(FrameType frame_type) {
   if (committed_error_page_info_->show_cached_copy_button_in_page) {
     RecordEvent(NETWORK_ERROR_PAGE_CACHED_COPY_BUTTON_SHOWN);
   }
+
+  delegate_->SetIsShowingDownloadButton(
+      committed_error_page_info_->download_button_in_page);
 
   delegate_->EnablePageHelperFunctions();
 
@@ -705,14 +706,13 @@ void NetErrorHelperCore::GetErrorHTML(FrameType frame_type,
     bool reload_button_in_page;
     bool show_saved_copy_button_in_page;
     bool show_cached_copy_button_in_page;
-    bool show_offline_pages_button_in_page;
+    bool download_button_in_page;
 
     delegate_->GenerateLocalizedErrorPage(
         error, is_failed_post,
-        false /* No diagnostics dialogs allowed for subframes. */,
-        false /* No offline button provided in subframes */, nullptr,
+        false /* No diagnostics dialogs allowed for subframes. */, nullptr,
         &reload_button_in_page, &show_saved_copy_button_in_page,
-        &show_cached_copy_button_in_page, &show_offline_pages_button_in_page,
+        &show_cached_copy_button_in_page, &download_button_in_page,
         error_html);
   }
 }
@@ -749,12 +749,6 @@ void NetErrorHelperCore::OnSetNavigationCorrectionInfo(
   navigation_correction_params_.search_url = search_url;
 }
 
-void NetErrorHelperCore::OnSetHasOfflinePages(bool has_offline_pages) {
-#if defined(OS_ANDROID)
-  has_offline_pages_ = has_offline_pages;
-#endif  // defined(OS_ANDROID)
-}
-
 void NetErrorHelperCore::GetErrorHtmlForMainFrame(
     ErrorPageInfo* pending_error_page_info,
     std::string* error_html) {
@@ -781,11 +775,11 @@ void NetErrorHelperCore::GetErrorHtmlForMainFrame(
 
   delegate_->GenerateLocalizedErrorPage(
       error, pending_error_page_info->was_failed_post,
-      can_show_network_diagnostics_dialog_, HasOfflinePages(), nullptr,
+      can_show_network_diagnostics_dialog_, nullptr,
       &pending_error_page_info->reload_button_in_page,
       &pending_error_page_info->show_saved_copy_button_in_page,
       &pending_error_page_info->show_cached_copy_button_in_page,
-      &pending_error_page_info->show_offline_pages_button_in_page, error_html);
+      &pending_error_page_info->download_button_in_page, error_html);
 }
 
 void NetErrorHelperCore::UpdateErrorPage() {
@@ -808,8 +802,7 @@ void NetErrorHelperCore::UpdateErrorPage() {
   delegate_->UpdateErrorPage(
       GetUpdatedError(committed_error_page_info_->error),
       committed_error_page_info_->was_failed_post,
-      can_show_network_diagnostics_dialog_,
-      HasOfflinePages());
+      can_show_network_diagnostics_dialog_);
 }
 
 void NetErrorHelperCore::OnNavigationCorrectionsFetched(
@@ -844,11 +837,11 @@ void NetErrorHelperCore::OnNavigationCorrectionsFetched(
     delegate_->GenerateLocalizedErrorPage(
         pending_error_page_info_->error,
         pending_error_page_info_->was_failed_post,
-        can_show_network_diagnostics_dialog_, HasOfflinePages(),
+        can_show_network_diagnostics_dialog_,
         std::move(params), &pending_error_page_info_->reload_button_in_page,
         &pending_error_page_info_->show_saved_copy_button_in_page,
         &pending_error_page_info_->show_cached_copy_button_in_page,
-        &pending_error_page_info_->show_offline_pages_button_in_page,
+        &pending_error_page_info_->download_button_in_page,
         &error_html);
   } else {
     // Since |navigation_correction_params| in |pending_error_page_info_| is
@@ -1013,9 +1006,9 @@ void NetErrorHelperCore::ExecuteButtonPress(Button button) {
       delegate_->DiagnoseError(
           committed_error_page_info_->error.unreachableURL);
       return;
-    case SHOW_OFFLINE_PAGES_BUTTON:
-      RecordEvent(NETWORK_ERROR_PAGE_SHOW_OFFLINE_PAGES_BUTTON_CLICKED);
-      delegate_->ShowOfflinePages();
+    case DOWNLOAD_BUTTON:
+      RecordEvent(NETWORK_ERROR_PAGE_DOWNLOAD_BUTTON_CLICKED);
+      delegate_->DownloadPageLater();
       return;
     case NO_BUTTON:
       NOTREACHED();
@@ -1059,14 +1052,6 @@ void NetErrorHelperCore::TrackClick(int tracking_id) {
   delegate_->SendTrackingRequest(
       committed_error_page_info_->navigation_correction_params->url,
       request_body);
-}
-
-bool NetErrorHelperCore::HasOfflinePages() const {
-#if defined(OS_ANDROID)
-  return has_offline_pages_;
-#else
-  return false;
-#endif  // defined(OS_ANDROID)
 }
 
 }  // namespace error_page

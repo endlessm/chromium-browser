@@ -35,7 +35,7 @@
 #include "bindings/core/v8/ToV8.h"
 #include "bindings/core/v8/V8ThrowException.h"
 #include "core/dom/DOMException.h"
-#include "core/inspector/InstanceCounters.h"
+#include "platform/InstanceCounters.h"
 #include <v8.h>
 
 namespace blink {
@@ -299,7 +299,7 @@ ScriptPromise ScriptPromise::reject(ScriptState* scriptState,
 ScriptPromise ScriptPromise::rejectWithDOMException(ScriptState* scriptState,
                                                     DOMException* exception) {
   ASSERT(scriptState->isolate()->InContext());
-  return reject(scriptState, toV8(exception, scriptState->context()->Global(),
+  return reject(scriptState, ToV8(exception, scriptState->context()->Global(),
                                   scriptState->isolate()));
 }
 

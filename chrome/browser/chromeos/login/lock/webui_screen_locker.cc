@@ -8,6 +8,7 @@
 #include "ash/shell.h"
 #include "ash/system/chromeos/power/power_event_observer.h"
 #include "base/command_line.h"
+#include "base/feature_list.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
@@ -16,19 +17,28 @@
 #include "chrome/browser/chromeos/accessibility/accessibility_util.h"
 #include "chrome/browser/chromeos/login/helper.h"
 #include "chrome/browser/chromeos/login/lock/screen_locker.h"
+#include "chrome/browser/chromeos/login/ui/preloaded_web_view.h"
+#include "chrome/browser/chromeos/login/ui/preloaded_web_view_factory.h"
 #include "chrome/browser/chromeos/login/ui/webui_login_display.h"
+#include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/ui/webui/chromeos/login/oobe_ui.h"
 #include "chrome/browser/ui/webui/chromeos/login/signin_screen_handler.h"
+#include "chrome/common/chrome_features.h"
+#include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
+#include "chrome/grit/generated_resources.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
+#include "components/prefs/pref_service.h"
 #include "components/user_manager/user.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/notification_types.h"
 #include "content/public/browser/render_widget_host_view.h"
+#include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_ui.h"
 #include "ui/aura/client/capture_client.h"
 #include "ui/aura/window_event_dispatcher.h"
+#include "ui/base/l10n/l10n_util.h"
 #include "ui/base/x/x11_util.h"
 #include "ui/display/display.h"
 #include "ui/display/screen.h"
@@ -57,11 +67,54 @@ void ResetKeyboardOverscrollOverride() {
 
 namespace chromeos {
 
+// static
+void WebUIScreenLocker::RequestPreload() {
+  if (!ShouldPreloadLockScreen())
+    return;
+
+  VLOG(1) << "Preloading lock screen";
+  PreloadedWebView* preloaded_web_view =
+      PreloadedWebViewFactory::GetForProfile(ProfileHelper::GetSigninProfile());
+  preloaded_web_view->PreloadOnIdle(
+      base::BindOnce(&WebUIScreenLocker::DoPreload));
+}
+
+// static
+bool WebUIScreenLocker::ShouldPreloadLockScreen() {
+  Profile* profile = ProfileHelper::Get()->GetProfileByUser(
+      user_manager::UserManager::Get()->GetActiveUser());
+
+  // We only want to preload the lock screen if the user is likely to see the
+  // lock screen (since caching the lock screen uses memory). Without
+  // preloading, showing the lock screen can take so long we will timeout and
+  // crash the browser process (which currently takes down all of Chrome). See
+  // crbug.com/452599 for more context.
+  //
+  // prefs::kEnableAutoScreenLock controls if the lock screen is shown on
+  // suspend, so that is our primary hueristic.
+
+  // Note that |profile| can be null in tests.
+  return base::FeatureList::IsEnabled(features::kPreloadLockScreen) &&
+         profile &&
+         profile->GetPrefs()->GetBoolean(prefs::kEnableAutoScreenLock);
+}
+
+// static
+std::unique_ptr<views::WebView> WebUIScreenLocker::DoPreload(Profile* profile) {
+  auto web_view = base::MakeUnique<views::WebView>(profile);
+  web_view->set_owned_by_client();
+  web_view->LoadInitialURL(GURL(kLoginURL));
+  InitializeWebView(web_view.get(), l10n_util::GetStringUTF16(
+                                        IDS_LOCK_SCREEN_TASK_MANAGER_NAME));
+  return web_view;
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // WebUIScreenLocker implementation.
 
 WebUIScreenLocker::WebUIScreenLocker(ScreenLocker* screen_locker)
-    : ScreenLockerDelegate(screen_locker),
+    : WebUILoginView(BuildConfigSettings()),
+      screen_locker_(screen_locker),
       network_state_helper_(new login::NetworkStateHelper),
       weak_factory_(this) {
   set_should_emit_login_prompt_visible(false);
@@ -76,22 +129,46 @@ WebUIScreenLocker::WebUIScreenLocker(ScreenLocker* screen_locker)
   }
 }
 
+WebUIScreenLocker::~WebUIScreenLocker() {
+  DBusThreadManager::Get()->GetPowerManagerClient()->RemoveObserver(this);
+  display::Screen::GetScreen()->RemoveObserver(this);
+  ash::WmShell::Get()->RemoveLockStateObserver(this);
+  ash::WmShell::Get()->RemoveShellObserver(this);
+  // In case of shutdown, lock_window_ may be deleted before WebUIScreenLocker.
+  if (lock_window_) {
+    lock_window_->RemoveObserver(this);
+    lock_window_->Close();
+  }
+  // If LockScreen() was called, we need to clear the signin screen handler
+  // delegate set in ShowSigninScreen so that it no longer points to us.
+  if (login_display_.get() && GetOobeUI())
+    GetOobeUI()->ResetSigninScreenHandlerDelegate();
+
+  if (keyboard::KeyboardController::GetInstance() && is_observing_keyboard_) {
+    keyboard::KeyboardController::GetInstance()->RemoveObserver(this);
+    is_observing_keyboard_ = false;
+  }
+
+  ResetKeyboardOverscrollOverride();
+
+  RequestPreload();
+}
+
 void WebUIScreenLocker::LockScreen() {
   gfx::Rect bounds = display::Screen::GetScreen()->GetPrimaryDisplay().bounds();
 
   lock_time_ = base::TimeTicks::Now();
-  LockWindow* lock_window = LockWindow::Create();
-  lock_window->set_observer(this);
-  lock_window->set_initially_focused_view(this);
-  lock_window_ = lock_window->GetWidget();
+  lock_window_ = new LockWindow(this);
   lock_window_->AddObserver(this);
-  WebUILoginView::Init();
-  content::WebContentsObserver::Observe(webui_login_->GetWebContents());
+
+  Init();
+  content::WebContentsObserver::Observe(web_view()->GetWebContents());
+
   lock_window_->SetContentsView(this);
   lock_window_->SetBounds(bounds);
   lock_window_->Show();
   LoadURL(GURL(kLoginURL));
-  lock_window->Grab();
+  OnLockWindowReady();
 
   signin_screen_controller_.reset(
       new SignInScreenController(GetOobeUI(), this));
@@ -99,22 +176,12 @@ void WebUIScreenLocker::LockScreen() {
   login_display_.reset(new WebUILoginDisplay(this));
   login_display_->set_background_bounds(bounds);
   login_display_->set_parent_window(GetNativeWindow());
-  login_display_->Init(screen_locker()->users(), false, true, false);
+  login_display_->Init(screen_locker_->users(), false, true, false);
 
   GetOobeUI()->ShowSigninScreen(
       LoginScreenContext(), login_display_.get(), login_display_.get());
 
   DisableKeyboardOverscroll();
-}
-
-void WebUIScreenLocker::ScreenLockReady() {
-  UMA_HISTOGRAM_TIMES("LockScreen.LockReady",
-                      base::TimeTicks::Now() - lock_time_);
-  ScreenLockerDelegate::ScreenLockReady();
-  SetInputEnabled(true);
-}
-
-void WebUIScreenLocker::OnAuthenticate() {
 }
 
 void WebUIScreenLocker::SetInputEnabled(bool enabled) {
@@ -138,18 +205,28 @@ void WebUIScreenLocker::ClearErrors() {
   GetWebUI()->CallJavascriptFunctionUnsafe("cr.ui.Oobe.clearErrors");
 }
 
-gfx::NativeWindow WebUIScreenLocker::GetNativeWindow() const {
-  return lock_window_->GetNativeWindow();
+void WebUIScreenLocker::ScreenLockReady() {
+  UMA_HISTOGRAM_TIMES("LockScreen.LockReady",
+                      base::TimeTicks::Now() - lock_time_);
+  screen_locker_->ScreenLockReady();
+  SetInputEnabled(true);
 }
 
-content::WebUI* WebUIScreenLocker::GetAssociatedWebUI() {
-  return GetWebUI();
+void WebUIScreenLocker::OnLockWindowReady() {
+  VLOG(1) << "Lock window ready; WebUI is " << (webui_ready_ ? "too" : "not");
+  lock_ready_ = true;
+  if (webui_ready_)
+    ScreenLockReady();
+}
+
+gfx::NativeWindow WebUIScreenLocker::GetNativeWindow() const {
+  return lock_window_->GetNativeWindow();
 }
 
 void WebUIScreenLocker::FocusUserPod() {
   if (!webui_ready_)
     return;
-  webui_login_->RequestFocus();
+  web_view()->RequestFocus();
   GetWebUI()->CallJavascriptFunctionUnsafe(
       "cr.ui.Oobe.forceLockedUserPodFocus");
 }
@@ -161,29 +238,14 @@ void WebUIScreenLocker::ResetAndFocusUserPod() {
   FocusUserPod();
 }
 
-WebUIScreenLocker::~WebUIScreenLocker() {
-  DBusThreadManager::Get()->GetPowerManagerClient()->RemoveObserver(this);
-  display::Screen::GetScreen()->RemoveObserver(this);
-  ash::WmShell::Get()->RemoveLockStateObserver(this);
-  ash::WmShell::Get()->RemoveShellObserver(this);
-  // In case of shutdown, lock_window_ may be deleted before WebUIScreenLocker.
-  if (lock_window_) {
-    lock_window_->RemoveObserver(this);
-    lock_window_->Close();
+WebUILoginView::WebViewSettings WebUIScreenLocker::BuildConfigSettings() {
+  chromeos::WebUILoginView::WebViewSettings settings;
+  if (chromeos::WebUIScreenLocker::ShouldPreloadLockScreen()) {
+    settings.check_for_preload = true;
+    settings.web_view_title =
+        l10n_util::GetStringUTF16(IDS_LOCK_SCREEN_TASK_MANAGER_NAME);
   }
-  // If LockScreen() was called, we need to clear the signin screen handler
-  // delegate set in ShowSigninScreen so that it no longer points to us.
-  if (login_display_.get()) {
-    static_cast<OobeUI*>(GetWebUI()->GetController())->
-        ResetSigninScreenHandlerDelegate();
-  }
-
-  if (keyboard::KeyboardController::GetInstance() && is_observing_keyboard_) {
-    keyboard::KeyboardController::GetInstance()->RemoveObserver(this);
-    is_observing_keyboard_ = false;
-  }
-
-  ResetKeyboardOverscrollOverride();
+  return settings;
 }
 
 void WebUIScreenLocker::OnLockWebUIReady() {
@@ -203,10 +265,6 @@ void WebUIScreenLocker::OnHeaderBarVisible() {
   DCHECK(ash::Shell::HasInstance());
 
   ash::Shell::GetInstance()->power_event_observer()->OnLockAnimationsComplete();
-}
-
-OobeUI* WebUIScreenLocker::GetOobeUI() {
-  return static_cast<OobeUI*>(GetWebUI()->GetController());
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -243,6 +301,10 @@ void WebUIScreenLocker::OnSigninScreenReady() {
   VLOG(2) << "Lock screen signin screen is ready";
 }
 
+void WebUIScreenLocker::OnGaiaScreenReady() {
+  VLOG(2) << "Lock screen gaia screen is ready";
+}
+
 void WebUIScreenLocker::OnStartEnterpriseEnrollment() {
   NOTREACHED();
 }
@@ -263,8 +325,7 @@ void WebUIScreenLocker::ShowWrongHWIDScreen() {
   NOTREACHED();
 }
 
-void WebUIScreenLocker::ResetPublicSessionAutoLoginTimer() {
-}
+void WebUIScreenLocker::ResetAutoLoginTimer() {}
 
 void WebUIScreenLocker::ResyncUserData() {
   NOTREACHED();
@@ -281,15 +342,6 @@ void WebUIScreenLocker::Signout() {
 bool WebUIScreenLocker::IsUserWhitelisted(const AccountId& account_id) {
   NOTREACHED();
   return true;
-}
-////////////////////////////////////////////////////////////////////////////////
-// LockWindow::Observer:
-
-void WebUIScreenLocker::OnLockWindowReady() {
-  VLOG(1) << "Lock window ready; WebUI is " << (webui_ready_ ? "too" : "not");
-  lock_ready_ = true;
-  if (webui_ready_)
-    ScreenLockReady();
 }
 
 ////////////////////////////////////////////////////////////////////////////////

@@ -10,16 +10,12 @@
 #include "base/metrics/histogram_macros_local.h"
 #include "base/time/time.h"
 
+
 // Macros for efficient use of histograms.
 //
 // For best practices on deciding when to emit to a histogram and what form
 // the histogram should take, see
 // https://chromium.googlesource.com/chromium/src.git/+/HEAD/tools/metrics/histograms/README.md
-//
-// TODO(nikunjb): Move sparse macros to this file.
-//
-// UMA_HISTOGRAM_SPARSE_SLOWLY is defined in sparse_histogram.h as it has
-// different #include dependencies.
 
 // TODO(rkaplow): Link to proper documentation on metric creation once we have
 // it in a good state.
@@ -71,8 +67,8 @@
 
 // Sample usage:
 //   UMA_HISTOGRAM_EXACT_LINEAR("Histogram.Linear", count, 10);
-#define UMA_HISTOGRAM_EXACT_LINEAR(name, sample, value_max)                    \
-    UMA_HISTOGRAM_ENUMERATION(name, sample, value_max+1)
+#define UMA_HISTOGRAM_EXACT_LINEAR(name, sample, value_max) \
+  UMA_HISTOGRAM_ENUMERATION(name, sample, value_max)
 
 // Used for capturing basic percentages. This will be 100 buckets of size 1.
 
@@ -243,6 +239,54 @@
         name, sample, enum_max,                                                \
         base::HistogramBase::kUmaStabilityHistogramFlag)
 
+//------------------------------------------------------------------------------
+// Sparse histograms.
+
+// Sparse histograms are well suited for recording counts of exact sample values
+// that are sparsely distributed over a large range.
+//
+// UMA_HISTOGRAM_SPARSE_SLOWLY is good for sparsely distributed and/or
+// infrequently recorded values since the implementation is slower
+// and takes more memory.
+//
+// For instance, Sqlite.Version.* are sparse because for any given database,
+// there's going to be exactly one version logged.
+// The |sample| can be a negative or non-negative number.
+#define UMA_HISTOGRAM_SPARSE_SLOWLY(name, sample)                              \
+    INTERNAL_HISTOGRAM_SPARSE_SLOWLY(name, sample)
+
+//------------------------------------------------------------------------------
+// Histogram instantiation helpers.
+
+// Support a collection of histograms, perhaps one for each entry in an
+// enumeration. This macro manages a block of pointers, adding to a specific
+// one by its index.
+//
+// A typical instantiation looks something like this:
+//  STATIC_HISTOGRAM_POINTER_GROUP(
+//      GetHistogramNameForIndex(histogram_index),
+//      histogram_index, MAXIMUM_HISTOGRAM_INDEX, Add(some_delta),
+//      base::Histogram::FactoryGet(
+//          GetHistogramNameForIndex(histogram_index),
+//          MINIMUM_SAMPLE, MAXIMUM_SAMPLE, BUCKET_COUNT,
+//          base::HistogramBase::kUmaTargetedHistogramFlag));
+//
+// Though it seems inefficient to generate the name twice, the first
+// instance will be used only for DCHECK builds and the second will
+// execute only during the first access to the given index, after which
+// the pointer is cached and the name never needed again.
+#define STATIC_HISTOGRAM_POINTER_GROUP(constant_histogram_name, index,        \
+                                       constant_maximum,                      \
+                                       histogram_add_method_invocation,       \
+                                       histogram_factory_get_invocation)      \
+  do {                                                                        \
+    static base::subtle::AtomicWord atomic_histograms[constant_maximum];      \
+    DCHECK_LE(0, index);                                                      \
+    DCHECK_LT(index, constant_maximum);                                       \
+    HISTOGRAM_POINTER_USE(&atomic_histograms[index], constant_histogram_name, \
+                          histogram_add_method_invocation,                    \
+                          histogram_factory_get_invocation);                  \
+  } while (0)
 
 //------------------------------------------------------------------------------
 // Deprecated histogram macros. Not recommended for current use.

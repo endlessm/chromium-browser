@@ -15,6 +15,8 @@
 #include <string>
 
 #include "webrtc/base/platform_file.h"
+#include "webrtc/call/audio_receive_stream.h"
+#include "webrtc/call/audio_send_stream.h"
 #include "webrtc/video_receive_stream.h"
 #include "webrtc/video_send_stream.h"
 
@@ -38,7 +40,13 @@ class RtcEventLog {
   virtual ~RtcEventLog() {}
 
   // Factory method to create an RtcEventLog object.
-  static std::unique_ptr<RtcEventLog> Create(const Clock* clock);
+  static std::unique_ptr<RtcEventLog> Create();
+  // TODO(nisse): webrtc::Clock is deprecated. Delete this method and
+  // above forward declaration of Clock when
+  // webrtc/system_wrappers/include/clock.h is deleted.
+  static std::unique_ptr<RtcEventLog> Create(const Clock* clock) {
+    return Create();
+  }
 
   // Create an RtcEventLog object that does nothing.
   static std::unique_ptr<RtcEventLog> CreateNull();
@@ -76,6 +84,14 @@ class RtcEventLog {
   // Logs configuration information for webrtc::VideoSendStream.
   virtual void LogVideoSendStreamConfig(
       const webrtc::VideoSendStream::Config& config) = 0;
+
+  // Logs configuration information for webrtc::AudioReceiveStream.
+  virtual void LogAudioReceiveStreamConfig(
+      const webrtc::AudioReceiveStream::Config& config) = 0;
+
+  // Logs configuration information for webrtc::AudioSendStream.
+  virtual void LogAudioSendStreamConfig(
+      const webrtc::AudioSendStream::Config& config) = 0;
 
   // Logs the header of an incoming or outgoing RTP packet. packet_length
   // is the total length of the packet, including both header and payload.
@@ -123,6 +139,10 @@ class RtcEventLogNullImpl final : public RtcEventLog {
       const VideoReceiveStream::Config& config) override {}
   void LogVideoSendStreamConfig(
       const VideoSendStream::Config& config) override {}
+  void LogAudioReceiveStreamConfig(
+      const AudioReceiveStream::Config& config) override {}
+  void LogAudioSendStreamConfig(
+      const AudioSendStream::Config& config) override {}
   void LogRtpHeader(PacketDirection direction,
                     MediaType media_type,
                     const uint8_t* header,

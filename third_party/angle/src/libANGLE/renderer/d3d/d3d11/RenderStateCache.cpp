@@ -126,7 +126,7 @@ gl::Error RenderStateCache::getBlendState(const gl::Framebuffer *framebuffer, co
         BlendStateCounterPair &state = keyIter->second;
         state.second = mCounter++;
         *outBlendState = state.first;
-        return gl::Error(GL_NO_ERROR);
+        return gl::NoError();
     }
     else
     {
@@ -184,7 +184,7 @@ gl::Error RenderStateCache::getBlendState(const gl::Framebuffer *framebuffer, co
         mBlendStateCache.insert(std::make_pair(key, std::make_pair(dx11BlendState, mCounter++)));
 
         *outBlendState = dx11BlendState;
-        return gl::Error(GL_NO_ERROR);
+        return gl::NoError();
     }
 }
 
@@ -220,7 +220,7 @@ gl::Error RenderStateCache::getRasterizerState(const gl::RasterizerState &raster
         RasterizerStateCounterPair &state = keyIter->second;
         state.second = mCounter++;
         *outRasterizerState = state.first;
-        return gl::Error(GL_NO_ERROR);
+        return gl::NoError();
     }
     else
     {
@@ -280,7 +280,7 @@ gl::Error RenderStateCache::getRasterizerState(const gl::RasterizerState &raster
         mRasterizerStateCache.insert(std::make_pair(key, std::make_pair(dx11RasterizerState, mCounter++)));
 
         *outRasterizerState = dx11RasterizerState;
-        return gl::Error(GL_NO_ERROR);
+        return gl::NoError();
     }
 }
 
@@ -328,7 +328,7 @@ gl::Error RenderStateCache::getDepthStencilState(const gl::DepthStencilState &or
         DepthStencilStateCounterPair &state = keyIter->second;
         state.second = mCounter++;
         *outDSState = state.first;
-        return gl::Error(GL_NO_ERROR);
+        return gl::NoError();
     }
 
     if (mDepthStencilStateCache.size() >= kMaxDepthStencilStates)
@@ -378,7 +378,7 @@ gl::Error RenderStateCache::getDepthStencilState(const gl::DepthStencilState &or
         std::make_pair(glState, std::make_pair(dx11DepthStencilState, mCounter++)));
 
     *outDSState = dx11DepthStencilState;
-    return gl::Error(GL_NO_ERROR);
+    return gl::NoError();
 }
 
 std::size_t RenderStateCache::hashSamplerState(const gl::SamplerState &samplerState)
@@ -408,7 +408,7 @@ gl::Error RenderStateCache::getSamplerState(const gl::SamplerState &samplerState
         SamplerStateCounterPair &state = keyIter->second;
         state.second = mCounter++;
         *outSamplerState = state.first;
-        return gl::Error(GL_NO_ERROR);
+        return gl::NoError();
     }
     else
     {
@@ -436,7 +436,8 @@ gl::Error RenderStateCache::getSamplerState(const gl::SamplerState &samplerState
         samplerDesc.AddressV = gl_d3d11::ConvertTextureWrap(samplerState.wrapT);
         samplerDesc.AddressW = gl_d3d11::ConvertTextureWrap(samplerState.wrapR);
         samplerDesc.MipLODBias = 0;
-        samplerDesc.MaxAnisotropy = static_cast<UINT>(samplerState.maxAnisotropy);
+        samplerDesc.MaxAnisotropy =
+            gl_d3d11::ConvertMaxAnisotropy(samplerState.maxAnisotropy, mDevice->GetFeatureLevel());
         samplerDesc.ComparisonFunc = gl_d3d11::ConvertComparison(samplerState.compareFunc);
         samplerDesc.BorderColor[0] = 0.0f;
         samplerDesc.BorderColor[1] = 0.0f;
@@ -465,7 +466,7 @@ gl::Error RenderStateCache::getSamplerState(const gl::SamplerState &samplerState
         mSamplerStateCache.insert(std::make_pair(samplerState, std::make_pair(dx11SamplerState, mCounter++)));
 
         *outSamplerState = dx11SamplerState;
-        return gl::Error(GL_NO_ERROR);
+        return gl::NoError();
     }
 }
 

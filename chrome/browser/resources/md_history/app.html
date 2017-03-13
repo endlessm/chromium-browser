@@ -1,7 +1,6 @@
 <link rel="import" href="chrome://resources/html/polymer.html">
 <link rel="import" href="chrome://resources/html/cr/ui.html">
 <link rel="import" href="chrome://resources/html/cr/ui/command.html">
-<link rel="import" href="chrome://resources/html/web_ui_listener_behavior.html">
 <link rel="import" href="chrome://resources/polymer/v1_0/iron-media-query/iron-media-query.html">
 <link rel="import" href="chrome://resources/polymer/v1_0/iron-pages/iron-pages.html">
 <link rel="import" href="chrome://resources/polymer/v1_0/iron-scroll-target-behavior/iron-scroll-target-behavior.html">
@@ -12,19 +11,22 @@
 <link rel="import" href="chrome://history/side_bar.html">
 <link rel="stylesheet" href="chrome://resources/css/md_colors.css">
 
-<!-- Lazy loaded: history-synced-device-manager, app-drawer. -->
+<!-- Lazy loaded: history-synced-device-manager, cr-drawer. -->
 
 <dom-module id="history-app">
   <template>
     <style include="shared-style">
       :host {
+        color: var(--primary-text-color);
         display: block;
         height: 100%;
         overflow: hidden;
+        z-index: 0;
       }
 
       history-toolbar {
         background: var(--md-toolbar-color);
+        z-index: 2;
       }
 
       /* Sizing this with flex causes slow load performance, see
@@ -32,6 +34,7 @@
       #main-container {
         height: calc(100% - var(--toolbar-height));
         position: relative;
+        z-index: 1;
       }
 
       :host([grouped_]) #main-container {
@@ -49,25 +52,6 @@
       #content,
       #content > * {
         height: 100%;
-      }
-
-      #drawer:unresolved {
-        display: none;
-      }
-
-      #drawer-header {
-        align-items: center;
-        border-bottom: 1px solid rgba(0, 0, 0, 0.08);
-        display: flex;
-        height: var(--toolbar-height);
-        margin-bottom: 5px;
-      }
-
-      h1 {
-        -webkit-padding-start: 24px;
-        color: rgb(66, 66, 66);
-        font-size: 123%;
-        font-weight: 400;
       }
 
       #drop-shadow {
@@ -90,16 +74,20 @@
         query-state="{{queryState_}}">
     </history-router>
     <history-toolbar id="toolbar"
+        grouped-offset="{{queryState_.groupedOffset}}"
+        grouped-range="{{queryState_.range}}"
+        has-drawer="[[hasDrawer_]]"
+        is-grouped-mode="{{grouped_}}"
+        query-end-time="[[queryResult_.info.queryEndTime]]"
+        has-more-results="[[!queryResult_.info.finished]]"
+        query-start-time="[[queryResult_.info.queryStartTime]]"
+        querying="[[queryState_.querying]]"
+        search-term="{{queryState_.searchTerm}}"
+        show-menu-promo="[[showMenuPromo_]]"
+        show-sync-notice="[[showSyncNotice_(hasSyncedResults, selectedPage_)]]"
         spinner-active="[[shouldShowSpinner_(queryState_.querying,
                                              queryState_.incremental,
-                                             queryState_.searchTerm)]]"
-        is-grouped-mode="{{grouped_}}"
-        grouped-range="{{queryState_.range}}"
-        search-term="{{queryState_.searchTerm}}"
-        query-start-time="[[queryResult_.info.queryStartTime]]"
-        query-end-time="[[queryResult_.info.queryEndTime]]"
-        has-drawer="[[hasDrawer_]]"
-        show-sync-notice="[[showSyncNotice_(hasSyncedResults, selectedPage_)]]">
+                                             queryState_.searchTerm)]]">
     </history-toolbar>
 
     <div id="main-container">
@@ -127,15 +115,14 @@
       <div id="drop-shadow"></div>
     </div>
 
-    <template is="dom-if" if="[[hasDrawer_]]">
-      <app-drawer id="drawer" swipe-open align="start" tabindex="0">
-        <div id="drawer-header">
-          <h1>$i18n{title}</h1>
-        </div>
-        <history-side-bar id="drawer-side-bar" selected-page="{{selectedPage_}}"
-            show-footer="[[showSidebarFooter]]" drawer>
+    <template is="cr-lazy-render" id="drawer">
+      <dialog is="cr-drawer" swipe-open>
+        <div class="drawer-header">$i18n{title}</div>
+        <history-side-bar id="drawer-side-bar" class="drawer-content"
+            selected-page="{{selectedPage_}}"
+            show-footer="[[showSidebarFooter]]">
         </history-side-bar>
-      </app-drawer>
+      </dialog>
     </template>
 
     <iron-media-query query="(max-width: 1023px)"

@@ -20,7 +20,6 @@
 #include "base/memory/shared_memory.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/numerics/safe_conversions.h"
-#include "base/optional.h"
 #include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
 #include "base/task_runner.h"
@@ -45,11 +44,10 @@ using storage::BlobItemBytesRequest;
 using storage::BlobItemBytesResponse;
 using storage::IPCBlobItemRequestStrategy;
 using storage::DataElement;
-using storage::kBlobStorageIPCThresholdBytes;
 
 using storage::BlobItemBytesResponse;
 using storage::BlobItemBytesRequest;
-using storage::IPCBlobCreationCancelCode;
+using storage::BlobStatus;
 
 namespace content {
 using ConsolidatedItem = BlobConsolidation::ConsolidatedItem;
@@ -92,39 +90,30 @@ bool WriteSingleChunk(base::File* file, const char* memory, size_t size) {
   return true;
 }
 
-base::Optional<base::Time> WriteSingleRequestToDisk(
-    const BlobConsolidation* consolidation,
-    const BlobItemBytesRequest& request,
-    File* file) {
+bool WriteSingleRequestToDisk(const BlobConsolidation* consolidation,
+                              const BlobItemBytesRequest& request,
+                              File* file) {
   if (!file->IsValid())
-    return base::nullopt;
+    return false;
   int64_t seek_distance = file->Seek(
       File::FROM_BEGIN, base::checked_cast<int64_t>(request.handle_offset));
   bool seek_failed = seek_distance < 0;
   UMA_HISTOGRAM_BOOLEAN("Storage.Blob.RendererFileSeekFailed", seek_failed);
-  if (seek_failed) {
-    return base::nullopt;
-  }
+  if (seek_failed)
+    return false;
   BlobConsolidation::ReadStatus status = consolidation->VisitMemory(
       request.renderer_item_index, request.renderer_item_offset, request.size,
       base::Bind(&WriteSingleChunk, file));
   if (status != BlobConsolidation::ReadStatus::OK)
-    return base::nullopt;
-  File::Info info;
-  file->GetInfo(&info);
-  return base::make_optional(info.last_modified);
+    return false;
+  return true;
 }
 
-// This returns either the responses, or if they're empty, an error code.
-std::pair<std::vector<storage::BlobItemBytesResponse>,
-          IPCBlobCreationCancelCode>
-WriteDiskRequests(
+base::Optional<std::vector<BlobItemBytesResponse>> WriteDiskRequests(
     scoped_refptr<BlobConsolidation> consolidation,
     std::unique_ptr<std::vector<BlobItemBytesRequest>> requests,
     const std::vector<IPC::PlatformFileForTransit>& file_handles) {
   std::vector<BlobItemBytesResponse> responses;
-  std::vector<base::Time> last_modified_times;
-  last_modified_times.resize(file_handles.size());
   // We grab ownership of the file handles here. When this vector is destroyed
   // it will close the files.
   std::vector<File> files;
@@ -133,21 +122,31 @@ WriteDiskRequests(
     files.emplace_back(IPC::PlatformFileForTransitToFile(file_handle));
   }
   for (const auto& request : *requests) {
-    base::Optional<base::Time> last_modified = WriteSingleRequestToDisk(
-        consolidation.get(), request, &files[request.handle_index]);
-    if (!last_modified) {
-      return std::make_pair(std::vector<storage::BlobItemBytesResponse>(),
-                            IPCBlobCreationCancelCode::FILE_WRITE_FAILED);
+    if (!WriteSingleRequestToDisk(consolidation.get(), request,
+                                  &files[request.handle_index])) {
+      return base::nullopt;
     }
-    last_modified_times[request.handle_index] = last_modified.value();
   }
+  // The last modified time needs to be collected after we flush the file.
+  std::vector<base::Time> last_modified_times;
+  last_modified_times.resize(file_handles.size());
+  for (size_t i = 0; i < files.size(); ++i) {
+    auto& file = files[i];
+    if (!file.Flush())
+      return base::nullopt;
+    File::Info info;
+    if (!file.GetInfo(&info))
+      return base::nullopt;
+    last_modified_times[i] = info.last_modified;
+  }
+
   for (const auto& request : *requests) {
     responses.push_back(BlobItemBytesResponse(request.request_number));
     responses.back().time_file_modified =
         last_modified_times[request.handle_index];
   }
 
-  return std::make_pair(responses, IPCBlobCreationCancelCode::UNKNOWN);
+  return responses;
 }
 
 }  // namespace
@@ -170,10 +169,10 @@ void BlobTransportController::InitiateBlobTransfer(
     main_runner->PostTask(FROM_HERE, base::Bind(&IncChildProcessRefCount));
   }
 
+  storage::BlobStorageLimits quotas;
   std::vector<storage::DataElement> descriptions;
-  std::set<std::string> referenced_blobs = consolidation->referenced_blobs();
   BlobTransportController::GetDescriptions(
-      consolidation.get(), kBlobStorageIPCThresholdBytes, &descriptions);
+      consolidation.get(), quotas.max_ipc_memory_size, &descriptions);
   // I post the task first to make sure that we store our consolidation before
   // we get a request back from the browser.
   io_runner->PostTask(
@@ -182,10 +181,8 @@ void BlobTransportController::InitiateBlobTransfer(
                  base::Unretained(BlobTransportController::GetInstance()), uuid,
                  base::Passed(std::move(consolidation)),
                  base::Passed(std::move(main_runner))));
-  // TODO(dmurph): Merge register and start messages.
-  sender->Send(new BlobStorageMsg_RegisterBlobUUID(uuid, content_type, "",
-                                                   referenced_blobs));
-  sender->Send(new BlobStorageMsg_StartBuildingBlob(uuid, descriptions));
+  sender->Send(
+      new BlobStorageMsg_RegisterBlob(uuid, content_type, "", descriptions));
 }
 
 void BlobTransportController::OnMemoryRequest(
@@ -304,15 +301,12 @@ void BlobTransportController::OnMemoryRequest(
     sender->Send(new BlobStorageMsg_MemoryItemResponse(uuid, responses));
 }
 
-void BlobTransportController::OnCancel(
-    const std::string& uuid,
-    storage::IPCBlobCreationCancelCode code) {
-  DVLOG(1) << "Received blob cancel for blob " << uuid
-           << " with code: " << static_cast<int>(code);
-  ReleaseBlobConsolidation(uuid);
-}
-
-void BlobTransportController::OnDone(const std::string& uuid) {
+void BlobTransportController::OnBlobFinalStatus(const std::string& uuid,
+                                                storage::BlobStatus code) {
+  DVLOG_IF(1, storage::BlobStatusIsError(code))
+      << "Received blob error for blob " << uuid
+      << " with code: " << static_cast<int>(code);
+  DCHECK(!BlobStatusIsPending(code));
   ReleaseBlobConsolidation(uuid);
 }
 
@@ -388,16 +382,16 @@ BlobTransportController::~BlobTransportController() {}
 void BlobTransportController::OnFileWriteComplete(
     IPC::Sender* sender,
     const std::string& uuid,
-    const std::pair<std::vector<BlobItemBytesResponse>,
-                    IPCBlobCreationCancelCode>& result) {
+    const base::Optional<std::vector<storage::BlobItemBytesResponse>>& result) {
   if (blob_storage_.find(uuid) == blob_storage_.end())
     return;
-  if (!result.first.empty()) {
-    sender->Send(new BlobStorageMsg_MemoryItemResponse(uuid, result.first));
+  if (!result) {
+    sender->Send(new BlobStorageMsg_SendBlobStatus(
+        uuid, BlobStatus::ERR_FILE_WRITE_FAILED));
+    ReleaseBlobConsolidation(uuid);
     return;
   }
-  sender->Send(new BlobStorageMsg_CancelBuildingBlob(uuid, result.second));
-  ReleaseBlobConsolidation(uuid);
+  sender->Send(new BlobStorageMsg_MemoryItemResponse(uuid, result.value()));
 }
 
 void BlobTransportController::StoreBlobDataForRequests(

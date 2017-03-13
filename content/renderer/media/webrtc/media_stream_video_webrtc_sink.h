@@ -27,7 +27,7 @@ class PeerConnectionDependencyFactory;
 // to an RTCPeerConnection object.
 // Instances of this class is owned by the WebRtcMediaStreamAdapter object that
 // created it.
-class MediaStreamVideoWebRtcSink : public MediaStreamVideoSink {
+class CONTENT_EXPORT MediaStreamVideoWebRtcSink : public MediaStreamVideoSink {
  public:
   MediaStreamVideoWebRtcSink(const blink::WebMediaStreamTrack& track,
                              PeerConnectionDependencyFactory* factory);
@@ -37,9 +37,13 @@ class MediaStreamVideoWebRtcSink : public MediaStreamVideoSink {
     return video_track_.get();
   }
 
+  rtc::Optional<bool> SourceNeedsDenoisingForTesting() const;
+
  protected:
   // Implementation of MediaStreamSink.
   void OnEnabledChanged(bool enabled) override;
+  void OnContentHintChanged(
+      blink::WebMediaStreamTrack::ContentHintType content_hint) override;
 
  private:
   // Helper to request a refresh frame from the source. Called via the callback

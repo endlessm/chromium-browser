@@ -1,14 +1,18 @@
 {
-  "name": "service:content_utility",
-  "capabilities": {
-    "provided": {
-      "browser": [
-        "mojom::ImageDecoder",
-        "mojom::ResourceUsageReporter",
-        "mojom::ShellHandler",
-        "net::interfaces::ProxyResolverFactory",
-        "safe_json::mojom::SafeJsonParser"
-      ]
+  "name": "content_utility",
+  "interface_provider_specs": {
+    "service_manager:connector": {
+      "provides": {
+        "browser": [
+          "chrome::mojom::ProfileImport",
+          "chrome::mojom::ResourceUsageReporter",
+          "chrome::mojom::ShellHandler",
+          "extensions::mojom::MediaParser",
+          "extensions::mojom::WiFiCredentialsGetter",
+          "net::interfaces::ProxyResolverFactory",
+          "safe_json::mojom::SafeJsonParser"
+        ]
+      }
     }
   }
 }

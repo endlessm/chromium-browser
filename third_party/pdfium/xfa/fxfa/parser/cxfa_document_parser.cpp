@@ -6,23 +6,25 @@
 
 #include "xfa/fxfa/parser/cxfa_document_parser.h"
 
+#include "third_party/base/ptr_util.h"
 #include "xfa/fxfa/fxfa.h"
 #include "xfa/fxfa/parser/cxfa_document.h"
 
 CXFA_DocumentParser::CXFA_DocumentParser(CXFA_FFNotify* pNotify)
-    : m_nodeParser(nullptr, TRUE), m_pNotify(pNotify) {}
+    : m_nodeParser(nullptr, true), m_pNotify(pNotify) {}
 
 CXFA_DocumentParser::~CXFA_DocumentParser() {
 }
 
-int32_t CXFA_DocumentParser::StartParse(IFX_FileRead* pStream,
-                                        XFA_XDPPACKET ePacketID) {
+int32_t CXFA_DocumentParser::StartParse(
+    const CFX_RetainPtr<IFX_SeekableReadStream>& pStream,
+    XFA_XDPPACKET ePacketID) {
   m_pDocument.reset();
   m_nodeParser.CloseParser();
 
   int32_t nRetStatus = m_nodeParser.StartParse(pStream, ePacketID);
   if (nRetStatus == XFA_PARSESTATUS_Ready) {
-    m_pDocument.reset(new CXFA_Document(this));
+    m_pDocument = pdfium::MakeUnique<CXFA_Document>(this);
     m_nodeParser.SetFactory(m_pDocument.get());
   }
   return nRetStatus;

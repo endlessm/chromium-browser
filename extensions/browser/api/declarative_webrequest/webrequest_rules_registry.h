@@ -24,8 +24,7 @@
 #include "extensions/browser/api/declarative_webrequest/webrequest_action.h"
 #include "extensions/browser/api/declarative_webrequest/webrequest_condition.h"
 #include "extensions/browser/info_map.h"
-
-class WebRequestPermissions;
+#include "extensions/common/extension_id.h"
 
 namespace content {
 class BrowserContext;
@@ -35,13 +34,7 @@ namespace extension_web_request_api_helpers {
 struct EventResponseDelta;
 }
 
-namespace net {
-class URLRequest;
-}
-
 namespace extensions {
-
-class RulesRegistryService;
 
 typedef linked_ptr<extension_web_request_api_helpers::EventResponseDelta>
     LinkedPtrEventResponseDelta;
@@ -182,7 +175,7 @@ class WebRequestRulesRegistry : public RulesRegistry {
   // separately.
   std::set<const WebRequestRule*> rules_with_untriggered_conditions_;
 
-  std::map<WebRequestRule::ExtensionId, RulesMap> webrequest_rules_;
+  std::map<ExtensionId, RulesMap> webrequest_rules_;
 
   url_matcher::URLMatcher url_matcher_;
 

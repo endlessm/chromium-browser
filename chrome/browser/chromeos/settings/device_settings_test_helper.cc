@@ -188,11 +188,15 @@ void DeviceSettingsTestHelper::CheckArcAvailability(
 void DeviceSettingsTestHelper::StartArcInstance(
     const cryptohome::Identification& cryptohome_id,
     bool disable_boot_completed_broadcast,
-    const ArcCallback& callback) {}
+    const StartArcInstanceCallback& callback) {}
 
 void DeviceSettingsTestHelper::StopArcInstance(const ArcCallback& callback) {}
 
 void DeviceSettingsTestHelper::PrioritizeArcInstance(
+    const ArcCallback& callback) {}
+
+void DeviceSettingsTestHelper::SetArcCpuRestriction(
+    login_manager::ContainerCpuRestrictionState restriction_state,
     const ArcCallback& callback) {}
 
 void DeviceSettingsTestHelper::EmitArcBooted() {}

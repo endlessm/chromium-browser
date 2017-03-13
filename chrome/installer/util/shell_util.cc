@@ -27,7 +27,7 @@
 #include "base/macros.h"
 #include "base/md5.h"
 #include "base/memory/scoped_vector.h"
-#include "base/metrics/sparse_histogram.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/path_service.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_number_conversions.h"
@@ -1375,7 +1375,7 @@ const wchar_t* ShellUtil::kAppPathsRegistryPathName = L"Path";
 const wchar_t* ShellUtil::kDefaultFileAssociations[] = {L".htm", L".html",
     L".shtml", L".xht", L".xhtml", NULL};
 const wchar_t* ShellUtil::kPotentialFileAssociations[] = {L".htm", L".html",
-    L".shtml", L".xht", L".xhtml", L".webp", NULL};
+    L".pdf", L".shtml", L".svg", L".xht", L".xhtml", L".webp", NULL};
 const wchar_t* ShellUtil::kBrowserProtocolAssociations[] = {L"ftp", L"http",
     L"https", NULL};
 const wchar_t* ShellUtil::kPotentialProtocolAssociations[] = {L"ftp", L"http",

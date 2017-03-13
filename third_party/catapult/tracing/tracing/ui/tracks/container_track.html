@@ -75,8 +75,9 @@ tr.exportTo('tr.ui.tracks', function() {
     },
 
     addEventsToTrackMap: function(eventToTrackMap) {
-      for (var i = 0; i < this.children.length; ++i)
-        this.children[i].addEventsToTrackMap(eventToTrackMap);
+      for (var track of this.tracks_) {
+        track.addEventsToTrackMap(eventToTrackMap);
+      }
     },
 
     addAllEventsMatchingFilterToSelection: function(filter, selection) {
@@ -91,7 +92,7 @@ tr.exportTo('tr.ui.tracks', function() {
         task.subTask(function(i) { return function() {
           this.tracks_[i].addAllEventsMatchingFilterToSelection(
               filter, selection);
-        } }(i), this);
+        }; }(i), this);
       }
       return task;
     },
@@ -126,7 +127,7 @@ tr.exportTo('tr.ui.tracks', function() {
   };
 
   return {
-    ContainerTrack: ContainerTrack
+    ContainerTrack,
   };
 });
 </script>

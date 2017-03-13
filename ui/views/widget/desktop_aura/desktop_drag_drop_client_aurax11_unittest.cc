@@ -17,6 +17,7 @@
 #include "base/single_thread_task_runner.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/thread_task_runner_handle.h"
+#include "ui/aura/client/drag_drop_delegate.h"
 #include "ui/aura/test/test_screen.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_tree_host.h"
@@ -25,13 +26,11 @@
 #include "ui/events/event_utils.h"
 #include "ui/gfx/x/x11_atom_cache.h"
 #include "ui/gfx/x/x11_types.h"
-#include "ui/views/widget/desktop_aura/desktop_cursor_loader_updater.h"
 #include "ui/views/widget/desktop_aura/desktop_drag_drop_client_aurax11.h"
 #include "ui/views/widget/desktop_aura/desktop_native_cursor_manager.h"
 #include "ui/views/widget/desktop_aura/desktop_native_widget_aura.h"
 #include "ui/views/widget/desktop_aura/x11_move_loop.h"
 #include "ui/views/widget/widget.h"
-#include "ui/wm/public/drag_drop_delegate.h"
 
 #include <X11/Xlib.h>
 
@@ -420,8 +419,7 @@ class DesktopDragDropClientAuraX11Test : public ViewsTestBase {
     widget_->Init(params);
     widget_->Show();
 
-    cursor_manager_.reset(new DesktopNativeCursorManager(
-        DesktopCursorLoaderUpdater::Create()));
+    cursor_manager_.reset(new DesktopNativeCursorManager());
 
     client_.reset(new TestDragDropClient(widget_->GetNativeWindow(),
                                          cursor_manager_.get()));
@@ -896,8 +894,7 @@ class DesktopDragDropClientAuraX11ChromeSourceTargetTest
     widget_->Init(params);
     widget_->Show();
 
-    cursor_manager_.reset(new DesktopNativeCursorManager(
-        DesktopCursorLoaderUpdater::Create()));
+    cursor_manager_.reset(new DesktopNativeCursorManager());
 
     client_.reset(new SimpleTestDragDropClient(widget_->GetNativeWindow(),
                                                cursor_manager_.get()));

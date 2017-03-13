@@ -94,7 +94,6 @@ class PixelIntegrationTest(
       cls.ResetGpuInfo()
       cls.CustomizeBrowserArgs(browser_args)
       cls.StartBrowser()
-      cls.tab = cls.browser.tabs[0]
 
   @classmethod
   def AddCommandlineArgs(cls, parser):
@@ -113,19 +112,10 @@ class PixelIntegrationTest(
   def GenerateGpuTests(cls, options):
     cls.SetParsedCommandLineOptions(options)
     name = 'Pixel'
-    pages = pixel_test_pages.ES2AndES3Pages(name)
+    pages = pixel_test_pages.DefaultPages(name)
+    pages += pixel_test_pages.GpuRasterizationPages(name)
     pages += pixel_test_pages.ExperimentalCanvasFeaturesPages(name)
     if sys.platform.startswith('darwin'):
-      # TOOD(kbr): replace this with CopyPagesWithNewBrowserArgsAndPrefix,
-      # and removeCopyPagesWithNewBrowserArgsAndSuffix. This renaming
-      # will cause all of the ES3 tests to be run back-to-back,
-      # reducing the number of browser restarts and speeding up the
-      # tests. Note that this will require all the ES3 tests to be
-      # temporarily marked failing on macOS, and is too big a change
-      # to do along with the port to the new harness.
-      pages += pixel_test_pages.CopyPagesWithNewBrowserArgsAndSuffix(
-        pixel_test_pages.ES2AndES3Pages(name),
-        ['--enable-unsafe-es3-apis'], 'ES3')
       pages += pixel_test_pages.MacSpecificPages(name)
     for p in pages:
       yield(p.name, p.url, (p))

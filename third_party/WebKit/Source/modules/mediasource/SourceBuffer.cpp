@@ -38,7 +38,6 @@
 #include "core/dom/ExecutionContext.h"
 #include "core/events/Event.h"
 #include "core/events/GenericEventQueue.h"
-#include "core/fileapi/FileReaderLoader.h"
 #include "core/frame/Deprecation.h"
 #include "core/frame/UseCounter.h"
 #include "core/html/HTMLMediaElement.h"
@@ -48,11 +47,10 @@
 #include "core/html/track/AudioTrackList.h"
 #include "core/html/track/VideoTrack.h"
 #include "core/html/track/VideoTrackList.h"
-#include "core/streams/Stream.h"
 #include "modules/mediasource/MediaSource.h"
 #include "modules/mediasource/SourceBufferTrackBaseSupplement.h"
 #include "platform/RuntimeEnabledFeatures.h"
-#include "platform/tracing/TraceEvent.h"
+#include "platform/instrumentation/tracing/TraceEvent.h"
 #include "public/platform/WebSourceBuffer.h"
 #include "wtf/MathExtras.h"
 #include <limits>
@@ -81,8 +79,8 @@ static bool throwExceptionIfRemovedOrUpdating(bool isRemoved,
   if (isUpdating) {
     MediaSource::logAndThrowDOMException(
         exceptionState, InvalidStateError,
-        "This SourceBuffer is still processing an 'appendBuffer', "
-        "'appendStream', or 'remove' operation.");
+        "This SourceBuffer is still processing an 'appendBuffer' or "
+        "'remove' operation.");
     return true;
   }
 
@@ -118,8 +116,7 @@ SourceBuffer* SourceBuffer::create(
 SourceBuffer::SourceBuffer(std::unique_ptr<WebSourceBuffer> webSourceBuffer,
                            MediaSource* source,
                            GenericEventQueue* asyncEventQueue)
-    : ActiveScriptWrappable(this),
-      ActiveDOMObject(source->getExecutionContext()),
+    : SuspendableObject(source->getExecutionContext()),
       m_webSourceBuffer(std::move(webSourceBuffer)),
       m_source(source),
       m_trackDefaults(TrackDefaultList::create()),
@@ -138,18 +135,12 @@ SourceBuffer::SourceBuffer(std::unique_ptr<WebSourceBuffer> webSourceBuffer,
       m_pendingRemoveEnd(-1),
       m_removeAsyncPartRunner(AsyncMethodRunner<SourceBuffer>::create(
           this,
-          &SourceBuffer::removeAsyncPart)),
-      m_streamMaxSizeValid(false),
-      m_streamMaxSize(0),
-      m_appendStreamAsyncPartRunner(AsyncMethodRunner<SourceBuffer>::create(
-          this,
-          &SourceBuffer::appendStreamAsyncPart)) {
+          &SourceBuffer::removeAsyncPart)) {
   BLINK_SBLOG << __func__ << " this=" << this;
 
   DCHECK(m_webSourceBuffer);
   DCHECK(m_source);
   DCHECK(m_source->mediaElement());
-  ThreadState::current()->registerPreFinalizer(this);
   m_audioTracks = AudioTrackList::create(*m_source->mediaElement());
   m_videoTracks = VideoTrackList::create(*m_source->mediaElement());
   m_webSourceBuffer->setClient(this);
@@ -276,12 +267,12 @@ void SourceBuffer::setTimestampOffset(double offset,
 }
 
 AudioTrackList& SourceBuffer::audioTracks() {
-  DCHECK(RuntimeEnabledFeatures::audioVideoTracksEnabled());
+  DCHECK(HTMLMediaElement::mediaTracksEnabledInternally());
   return *m_audioTracks;
 }
 
 VideoTrackList& SourceBuffer::videoTracks() {
-  DCHECK(RuntimeEnabledFeatures::audioVideoTracksEnabled());
+  DCHECK(HTMLMediaElement::mediaTracksEnabledInternally());
   return *m_videoTracks;
 }
 
@@ -376,22 +367,6 @@ void SourceBuffer::appendBuffer(DOMArrayBufferView* data,
   // https://dvcs.w3.org/hg/html-media/raw-file/default/media-source/media-source.html#widl-SourceBuffer-appendBuffer-void-ArrayBufferView-data
   appendBufferInternal(static_cast<const unsigned char*>(data->baseAddress()),
                        data->byteLength(), exceptionState);
-}
-
-void SourceBuffer::appendStream(Stream* stream,
-                                ExceptionState& exceptionState) {
-  m_streamMaxSizeValid = false;
-  appendStreamInternal(stream, exceptionState);
-}
-
-void SourceBuffer::appendStream(Stream* stream,
-                                unsigned long long maxSize,
-                                ExceptionState& exceptionState) {
-  BLINK_SBLOG << __func__ << " this=" << this << " maxSize=" << maxSize;
-  m_streamMaxSizeValid = maxSize > 0;
-  if (m_streamMaxSizeValid)
-    m_streamMaxSize = maxSize;
-  appendStreamInternal(stream, exceptionState);
 }
 
 void SourceBuffer::abort(ExceptionState& exceptionState) {
@@ -559,21 +534,13 @@ void SourceBuffer::abortIfUpdating() {
 
   DCHECK_EQ(m_pendingRemoveStart, -1);
 
-  const char* traceEventName = 0;
-  if (m_stream) {
-    traceEventName = "SourceBuffer::appendStream";
-  } else {
-    traceEventName = "SourceBuffer::appendBuffer";
-  }
+  const char* traceEventName = "SourceBuffer::appendBuffer";
 
   // 4.1. Abort the buffer append and stream append loop algorithms if they are
   //      running.
   m_appendBufferAsyncPartRunner->stop();
   m_pendingAppendData.clear();
   m_pendingAppendDataOffset = 0;
-
-  m_appendStreamAsyncPartRunner->stop();
-  clearAppendStreamState();
 
   // 4.2. Set the updating attribute to false.
   m_updating = false;
@@ -600,7 +567,7 @@ void SourceBuffer::removedFromMediaSource() {
     abortIfUpdating();
   }
 
-  if (RuntimeEnabledFeatures::audioVideoTracksEnabled()) {
+  if (HTMLMediaElement::mediaTracksEnabledInternally()) {
     DCHECK(m_source);
     if (m_source->mediaElement()->audioTracks().length() > 0 ||
         m_source->mediaElement()->videoTracks().length() > 0) {
@@ -623,7 +590,7 @@ double SourceBuffer::highestPresentationTimestamp() {
 }
 
 void SourceBuffer::removeMediaTracks() {
-  DCHECK(RuntimeEnabledFeatures::audioVideoTracksEnabled());
+  DCHECK(HTMLMediaElement::mediaTracksEnabledInternally());
   // Spec:
   // http://w3c.github.io/media-source/#widl-MediaSource-removeSourceBuffer-void-SourceBuffer-sourceBuffer
   DCHECK(m_source);
@@ -787,7 +754,7 @@ bool SourceBuffer::initializationSegmentReceived(
   DCHECK(m_source->mediaElement());
   DCHECK(m_updating);
 
-  if (!RuntimeEnabledFeatures::audioVideoTracksEnabled()) {
+  if (!HTMLMediaElement::mediaTracksEnabledInternally()) {
     if (!m_firstInitializationSegmentReceived) {
       m_source->setSourceBufferActive(this, true);
       m_firstInitializationSegmentReceived = true;
@@ -805,11 +772,11 @@ bool SourceBuffer::initializationSegmentReceived(
   for (const MediaTrackInfo& trackInfo : newTracks) {
     const TrackBase* track = nullptr;
     if (trackInfo.trackType == WebMediaPlayer::AudioTrack) {
-      newAudioTracks.append(trackInfo);
+      newAudioTracks.push_back(trackInfo);
       if (m_firstInitializationSegmentReceived)
         track = findExistingTrackById(audioTracks(), trackInfo.id);
     } else if (trackInfo.trackType == WebMediaPlayer::VideoTrack) {
-      newVideoTracks.append(trackInfo);
+      newVideoTracks.push_back(trackInfo);
       if (m_firstInitializationSegmentReceived)
         track = findExistingTrackById(videoTracks(), trackInfo.id);
     } else {
@@ -1065,23 +1032,20 @@ bool SourceBuffer::hasPendingActivity() const {
 void SourceBuffer::suspend() {
   m_appendBufferAsyncPartRunner->suspend();
   m_removeAsyncPartRunner->suspend();
-  m_appendStreamAsyncPartRunner->suspend();
 }
 
 void SourceBuffer::resume() {
   m_appendBufferAsyncPartRunner->resume();
   m_removeAsyncPartRunner->resume();
-  m_appendStreamAsyncPartRunner->resume();
 }
 
-void SourceBuffer::contextDestroyed() {
+void SourceBuffer::contextDestroyed(ExecutionContext*) {
   m_appendBufferAsyncPartRunner->stop();
   m_removeAsyncPartRunner->stop();
-  m_appendStreamAsyncPartRunner->stop();
 }
 
 ExecutionContext* SourceBuffer::getExecutionContext() const {
-  return ActiveDOMObject::getExecutionContext();
+  return SuspendableObject::getExecutionContext();
 }
 
 const AtomicString& SourceBuffer::interfaceName() const {
@@ -1157,6 +1121,13 @@ bool SourceBuffer::prepareAppend(size_t newDataSize,
 bool SourceBuffer::evictCodedFrames(size_t newDataSize) {
   DCHECK(m_source);
   DCHECK(m_source->mediaElement());
+
+  // Nothing to do if the mediaElement does not yet have frames to evict.
+  if (m_source->mediaElement()->getReadyState() <
+      HTMLMediaElement::kHaveMetadata) {
+    return true;
+  }
+
   double currentTime = m_source->mediaElement()->currentTime();
   bool result = m_webSourceBuffer->evictCodedFrames(currentTime, newDataSize);
   if (!result) {
@@ -1242,7 +1213,7 @@ void SourceBuffer::appendBufferAsyncPart() {
   if (!appendSuccess) {
     m_pendingAppendData.clear();
     m_pendingAppendDataOffset = 0;
-    appendError(DecodeError);
+    appendError();
   } else {
     m_pendingAppendDataOffset += appendSize;
 
@@ -1298,116 +1269,8 @@ void SourceBuffer::removeAsyncPart() {
   scheduleEvent(EventTypeNames::updateend);
 }
 
-void SourceBuffer::appendStreamInternal(Stream* stream,
-                                        ExceptionState& exceptionState) {
-  TRACE_EVENT_ASYNC_BEGIN0("media", "SourceBuffer::appendStream", this);
-
-  // Section 3.2 appendStream()
-  // http://w3c.github.io/media-source/#widl-SourceBuffer-appendStream-void-ReadableStream-stream-unsigned-long-long-maxSize
-  // (0. If the stream has been neutered, then throw an InvalidAccessError
-  //     exception and abort these steps.)
-  if (stream->isNeutered()) {
-    MediaSource::logAndThrowDOMException(
-        exceptionState, InvalidAccessError,
-        "The stream provided has been neutered.");
-    TRACE_EVENT_ASYNC_END0("media", "SourceBuffer::appendStream", this);
-    return;
-  }
-
-  // 1. Run the prepare append algorithm.
-  size_t newDataSize = m_streamMaxSizeValid ? m_streamMaxSize : 0;
-  if (!prepareAppend(newDataSize, exceptionState)) {
-    TRACE_EVENT_ASYNC_END0("media", "SourceBuffer::appendStream", this);
-    return;
-  }
-
-  // 2. Set the updating attribute to true.
-  m_updating = true;
-
-  // 3. Queue a task to fire a simple event named updatestart at this
-  //    SourceBuffer object.
-  scheduleEvent(EventTypeNames::updatestart);
-
-  // 4. Asynchronously run the stream append loop algorithm with stream and
-  //    maxSize.
-  stream->neuter();
-  m_loader = FileReaderLoader::create(FileReaderLoader::ReadByClient, this);
-  m_stream = stream;
-  m_appendStreamAsyncPartRunner->runAsync();
-}
-
-void SourceBuffer::appendStreamAsyncPart() {
-  DCHECK(m_updating);
-  DCHECK(m_loader);
-  DCHECK(m_stream);
-  TRACE_EVENT_ASYNC_STEP_INTO0("media", "SourceBuffer::appendStream", this,
-                               "appendStreamAsyncPart");
-
-  // Section 3.5.6 Stream Append Loop
-  // http://w3c.github.io/media-source/#sourcebuffer-stream-append-loop
-
-  // 1. If maxSize is set, then let bytesLeft equal maxSize.
-  // 2. Loop Top: If maxSize is set and bytesLeft equals 0, then jump to the
-  //    loop done step below.
-  if (m_streamMaxSizeValid && !m_streamMaxSize) {
-    appendStreamDone(NoError);
-    return;
-  }
-
-  // Steps 3-11 are handled by m_loader.
-  // Note: Passing 0 here signals that maxSize was not set. (i.e. Read all the
-  // data in the stream).
-  m_loader->start(getExecutionContext(), *m_stream,
-                  m_streamMaxSizeValid ? m_streamMaxSize : 0);
-}
-
-void SourceBuffer::appendStreamDone(AppendStreamDoneAction action) {
-  DCHECK(m_updating);
-  DCHECK(m_loader);
-  DCHECK(m_stream);
-
-  clearAppendStreamState();
-
-  if (action != NoError) {
-    if (action == RunAppendErrorWithNoDecodeError) {
-      appendError(NoDecodeError);
-    } else {
-      DCHECK_EQ(action, RunAppendErrorWithDecodeError);
-      appendError(DecodeError);
-    }
-
-    TRACE_EVENT_ASYNC_END0("media", "SourceBuffer::appendStream", this);
-    return;
-  }
-
-  // Section 3.5.6 Stream Append Loop
-  // Steps 1-11 are handled by appendStreamAsyncPart(), |m_loader|, and
-  // |m_webSourceBuffer|.
-
-  // 12. Loop Done: Set the updating attribute to false.
-  m_updating = false;
-
-  // 13. Queue a task to fire a simple event named update at this SourceBuffer
-  //     object.
-  scheduleEvent(EventTypeNames::update);
-
-  // 14. Queue a task to fire a simple event named updateend at this
-  //     SourceBuffer object.
-  scheduleEvent(EventTypeNames::updateend);
-  TRACE_EVENT_ASYNC_END0("media", "SourceBuffer::appendStream", this);
-  BLINK_SBLOG << __func__ << " ended. this=" << this << " buffered="
-              << webTimeRangesToString(m_webSourceBuffer->buffered());
-}
-
-void SourceBuffer::clearAppendStreamState() {
-  m_streamMaxSizeValid = false;
-  m_streamMaxSize = 0;
-  m_loader.reset();
-  m_stream = nullptr;
-}
-
-void SourceBuffer::appendError(AppendError err) {
-  BLINK_SBLOG << __func__ << " this=" << this << " AppendError=" << err;
+void SourceBuffer::appendError() {
+  BLINK_SBLOG << __func__ << " this=" << this;
   // Section 3.5.3 Append Error Algorithm
   // https://dvcs.w3.org/hg/html-media/raw-file/default/media-source/media-source.html#sourcebuffer-append-error
 
@@ -1427,55 +1290,7 @@ void SourceBuffer::appendError(AppendError err) {
 
   // 5. If decode error is true, then run the end of stream algorithm with the
   // error parameter set to "decode".
-  if (err == DecodeError) {
-    m_source->endOfStream("decode", ASSERT_NO_EXCEPTION);
-  } else {
-    DCHECK_EQ(err, NoDecodeError);
-    // Nothing else to do in this case.
-  }
-}
-
-void SourceBuffer::didStartLoading() {
-  BLINK_SBLOG << __func__ << " this=" << this;
-}
-
-void SourceBuffer::didReceiveDataForClient(const char* data,
-                                           unsigned dataLength) {
-  BLINK_SBLOG << __func__ << " this=" << this << " dataLength=" << dataLength;
-  DCHECK(m_updating);
-  DCHECK(m_loader);
-
-  // Section 3.5.6 Stream Append Loop
-  // http://w3c.github.io/media-source/#sourcebuffer-stream-append-loop
-
-  // 10. Run the coded frame eviction algorithm.
-  if (!evictCodedFrames(dataLength)) {
-    // 11. (in appendStreamDone) If the buffer full flag equals true, then run
-    //     the append error algorithm with the decode error parameter set to
-    //     false and abort this algorithm.
-    appendStreamDone(RunAppendErrorWithNoDecodeError);
-    return;
-  }
-
-  if (!m_webSourceBuffer->append(reinterpret_cast<const unsigned char*>(data),
-                                 dataLength, &m_timestampOffset))
-    appendStreamDone(RunAppendErrorWithDecodeError);
-}
-
-void SourceBuffer::didFinishLoading() {
-  BLINK_SBLOG << __func__ << " this=" << this;
-  DCHECK(m_loader);
-  appendStreamDone(NoError);
-}
-
-void SourceBuffer::didFail(FileError::ErrorCode errorCode) {
-  BLINK_SBLOG << __func__ << " this=" << this << " errorCode=" << errorCode;
-  // m_loader might be already released, in case appendStream has failed due
-  // to evictCodedFrames or WebSourceBuffer append failing in
-  // didReceiveDataForClient. In that case appendStreamDone will be invoked
-  // from there, no need to repeat it here.
-  if (m_loader)
-    appendStreamDone(RunAppendErrorWithNoDecodeError);
+  m_source->endOfStream("decode", ASSERT_NO_EXCEPTION);
 }
 
 DEFINE_TRACE(SourceBuffer) {
@@ -1484,12 +1299,10 @@ DEFINE_TRACE(SourceBuffer) {
   visitor->trace(m_asyncEventQueue);
   visitor->trace(m_appendBufferAsyncPartRunner);
   visitor->trace(m_removeAsyncPartRunner);
-  visitor->trace(m_appendStreamAsyncPartRunner);
-  visitor->trace(m_stream);
   visitor->trace(m_audioTracks);
   visitor->trace(m_videoTracks);
   EventTargetWithInlineData::trace(visitor);
-  ActiveDOMObject::trace(visitor);
+  SuspendableObject::trace(visitor);
 }
 
 }  // namespace blink

@@ -84,6 +84,8 @@ class RobustClientMemoryTest : public ANGLETest
             eglGetProcAddress("glGetBufferPointervRobustANGLE"));
         glGetIntegeri_vRobustANGLE = reinterpret_cast<PFNGLGETINTEGERI_VROBUSTANGLE>(
             eglGetProcAddress("glGetIntegeri_vRobustANGLE"));
+        glGetInternalformativRobustANGLE = reinterpret_cast<PFNGETINTERNALFORMATIVROBUSTANGLE>(
+            eglGetProcAddress("glGetInternalformativRobustANGLE"));
         glGetVertexAttribIivRobustANGLE = reinterpret_cast<PFNGLGETVERTEXATTRIBIIVROBUSTANGLE>(
             eglGetProcAddress("glGetVertexAttribIivRobustANGLE"));
         glGetVertexAttribIuivRobustANGLE = reinterpret_cast<PFNGLGETVERTEXATTRIBIUIVROBUSTANGLE>(
@@ -203,6 +205,7 @@ class RobustClientMemoryTest : public ANGLETest
     PFNGLGETQUERYOBJECTUIVROBUSTANGLE glGetQueryObjectuivRobustANGLE                   = nullptr;
     PFNGLGETBUFFERPOINTERVROBUSTANGLE glGetBufferPointervRobustANGLE                   = nullptr;
     PFNGLGETINTEGERI_VROBUSTANGLE glGetIntegeri_vRobustANGLE                           = nullptr;
+    PFNGETINTERNALFORMATIVROBUSTANGLE glGetInternalformativRobustANGLE                 = nullptr;
     PFNGLGETVERTEXATTRIBIIVROBUSTANGLE glGetVertexAttribIivRobustANGLE                 = nullptr;
     PFNGLGETVERTEXATTRIBIUIVROBUSTANGLE glGetVertexAttribIuivRobustANGLE               = nullptr;
     PFNGLGETUNIFORMUIVROBUSTANGLE glGetUniformuivRobustANGLE                           = nullptr;
@@ -272,7 +275,6 @@ TEST_P(RobustClientMemoryTest, GetInteger)
         glGetIntegervRobustANGLE(GL_COMPRESSED_TEXTURE_FORMATS, numCompressedFormats - 1, &length,
                                  resultBuf.data());
         EXPECT_GL_ERROR(GL_INVALID_OPERATION);
-        EXPECT_EQ(0, length);
         EXPECT_TRUE(std::all_of(resultBuf.begin(), resultBuf.end(),
                                 [](GLint value) { return value == 0; }));
 
@@ -331,6 +333,39 @@ TEST_P(RobustClientMemoryTest, TexImage2D)
         glTexImage2DRobustANGLE(GL_TEXTURE_2D, 0, GL_RGBA, dataDimension, dataDimension, 0, GL_RGBA,
                                 GL_UNSIGNED_BYTE, static_cast<GLsizei>(rgbaData.size()),
                                 rgbaData.data());
+        EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+    }
+}
+
+// Test basic usage and validation of glReadPixelsRobustANGLE
+TEST_P(RobustClientMemoryTest, ReadPixels)
+{
+    if (!extensionsPresent())
+    {
+        return;
+    }
+
+    GLsizei dataDimension = 16;
+    std::vector<GLubyte> rgbaData(dataDimension * dataDimension * 4);
+
+    // Test the regular case
+    GLsizei length = 0;
+    glReadPixelsRobustANGLE(0, 0, dataDimension, dataDimension, GL_RGBA, GL_UNSIGNED_BYTE,
+                            static_cast<GLsizei>(rgbaData.size()), &length, rgbaData.data());
+    EXPECT_GL_NO_ERROR();
+    EXPECT_EQ(static_cast<GLsizei>(rgbaData.size()), length);
+
+    // Test with a data size that is too small
+    glReadPixelsRobustANGLE(0, 0, dataDimension, dataDimension, GL_RGBA, GL_UNSIGNED_BYTE,
+                            static_cast<GLsizei>(rgbaData.size()) - 1, &length, rgbaData.data());
+    EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+
+    if (getClientMajorVersion() >= 3)
+    {
+        // Set a pack parameter that would cause the driver to write past the end of the buffer
+        glPixelStorei(GL_PACK_ROW_LENGTH, dataDimension + 1);
+        glReadPixelsRobustANGLE(0, 0, dataDimension, dataDimension, GL_RGBA, GL_UNSIGNED_BYTE,
+                                static_cast<GLsizei>(rgbaData.size()), &length, rgbaData.data());
         EXPECT_GL_ERROR(GL_INVALID_OPERATION);
     }
 }

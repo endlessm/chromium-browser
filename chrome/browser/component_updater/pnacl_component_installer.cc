@@ -11,6 +11,7 @@
 #include "base/atomicops.h"
 #include "base/base_paths.h"
 #include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/callback.h"
 #include "base/files/file_enumerator.h"
 #include "base/files/file_path.h"
@@ -22,14 +23,18 @@
 #include "base/strings/string_util.h"
 #include "base/values.h"
 #include "base/version.h"
-#include "base/win/windows_version.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/common/chrome_paths.h"
 #include "components/component_updater/component_updater_service.h"
 #include "components/nacl/common/nacl_switches.h"
 #include "components/update_client/update_query_params.h"
+#include "components/update_client/utils.h"
 #include "content/public/browser/browser_thread.h"
+
+#if defined(OS_WIN)
+#include "base/win/windows_version.h"
+#endif
 
 using content::BrowserThread;
 using update_client::CrxComponent;
@@ -131,7 +136,7 @@ base::DictionaryValue* ReadJSONManifest(const base::FilePath& manifest_path) {
   std::unique_ptr<base::Value> root = deserializer.Deserialize(NULL, &error);
   if (!root.get())
     return NULL;
-  if (!root->IsType(base::Value::TYPE_DICTIONARY))
+  if (!root->IsType(base::Value::Type::DICTIONARY))
     return NULL;
   return static_cast<base::DictionaryValue*>(root.release());
 }
@@ -225,8 +230,16 @@ base::FilePath PnaclComponentInstaller::GetPnaclBaseDirectory() {
   return result;
 }
 
-bool PnaclComponentInstaller::Install(const base::DictionaryValue& manifest,
-                                      const base::FilePath& unpack_path) {
+update_client::CrxInstaller::Result PnaclComponentInstaller::Install(
+    const base::DictionaryValue& manifest,
+    const base::FilePath& unpack_path) {
+  return update_client::InstallFunctionWrapper(
+      base::Bind(&PnaclComponentInstaller::DoInstall, base::Unretained(this),
+                 base::ConstRef(manifest), base::ConstRef(unpack_path)));
+}
+
+bool PnaclComponentInstaller::DoInstall(const base::DictionaryValue& manifest,
+                                        const base::FilePath& unpack_path) {
   std::unique_ptr<base::DictionaryValue> pnacl_manifest(
       ReadPnaclManifest(unpack_path));
   if (pnacl_manifest == NULL) {

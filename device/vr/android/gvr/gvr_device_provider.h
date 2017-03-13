@@ -7,10 +7,8 @@
 
 #include <memory>
 
+#include "base/callback.h"
 #include "base/macros.h"
-#include "base/single_thread_task_runner.h"
-#include "device/vr/vr_client_dispatcher.h"
-#include "device/vr/vr_device.h"
 #include "device/vr/vr_device_provider.h"
 #include "device/vr/vr_export.h"
 
@@ -18,7 +16,6 @@ namespace device {
 
 class GvrDelegate;
 class GvrDevice;
-class GvrNonPresentingDelegate;
 
 class DEVICE_VR_EXPORT GvrDeviceProvider : public VRDeviceProvider {
  public:
@@ -28,24 +25,26 @@ class DEVICE_VR_EXPORT GvrDeviceProvider : public VRDeviceProvider {
   void GetDevices(std::vector<VRDevice*>* devices) override;
   void Initialize() override;
 
-  // Called from GvrDevice
-  bool RequestPresent();
+  void SetListeningForActivate(bool listening) override;
+
+  // Called from GvrDevice.
+  void RequestPresent(const base::Callback<void(bool)>& callback);
   void ExitPresent();
 
-  // Called from GvrDelegate
   void OnGvrDelegateReady(GvrDelegate* delegate);
   void OnGvrDelegateRemoved();
 
-  void SetClient(VRClientDispatcher* client) override;
+  // TODO(mthiesse): Make the NonPresentingDelegate owned by this class so that
+  // it cannot be removed.
+  void OnNonPresentingDelegateRemoved();
+  void OnDisplayBlur();
+  void OnDisplayFocus();
+  void OnDisplayActivate();
 
  private:
-  void GvrDelegateReady(GvrDelegate* delegate);
-  void GvrDelegateRemoved();
+  void SwitchToNonPresentingDelegate();
 
-  std::unique_ptr<VRClientDispatcher> client_;
   std::unique_ptr<GvrDevice> vr_device_;
-
-  scoped_refptr<base::SingleThreadTaskRunner> main_thread_task_runner_;
 
   DISALLOW_COPY_AND_ASSIGN(GvrDeviceProvider);
 };

@@ -42,6 +42,16 @@ const char* GetMotionEventActionName(MotionEvent::Action action) {
       return "ACTION_CANCEL";
     case MotionEvent::ACTION_MOVE:
       return "ACTION_MOVE";
+    case MotionEvent::ACTION_HOVER_ENTER:
+      return "ACTION_HOVER_ENTER";
+    case MotionEvent::ACTION_HOVER_EXIT:
+      return "ACTION_HOVER_EXIT";
+    case MotionEvent::ACTION_HOVER_MOVE:
+      return "ACTION_HOVER_MOVE";
+    case MotionEvent::ACTION_BUTTON_PRESS:
+      return "ACTION_BUTTON_PRESS";
+    case MotionEvent::ACTION_BUTTON_RELEASE:
+      return "ACTION_BUTTON_RELEASE";
   }
   return "";
 }
@@ -69,7 +79,7 @@ gfx::RectF ClampBoundingBox(const gfx::RectF& bounds,
 // GestureProvider:::Config
 
 GestureProvider::Config::Config()
-    : display(display::Display::kInvalidDisplayID, gfx::Rect(1, 1)),
+    : display(display::kInvalidDisplayId, gfx::Rect(1, 1)),
       double_tap_support_for_platform_enabled(true),
       gesture_begin_end_types_enabled(false),
       min_gesture_bounds_length(0),
@@ -853,6 +863,11 @@ void GestureProvider::OnTouchEventHandlingBegin(const MotionEvent& event) {
     case MotionEvent::ACTION_MOVE:
       break;
     case MotionEvent::ACTION_NONE:
+    case MotionEvent::ACTION_HOVER_ENTER:
+    case MotionEvent::ACTION_HOVER_EXIT:
+    case MotionEvent::ACTION_HOVER_MOVE:
+    case MotionEvent::ACTION_BUTTON_PRESS:
+    case MotionEvent::ACTION_BUTTON_RELEASE:
       NOTREACHED();
       break;
   }
@@ -881,6 +896,11 @@ void GestureProvider::OnTouchEventHandlingEnd(const MotionEvent& event) {
     case MotionEvent::ACTION_MOVE:
       break;
     case MotionEvent::ACTION_NONE:
+    case MotionEvent::ACTION_HOVER_ENTER:
+    case MotionEvent::ACTION_HOVER_EXIT:
+    case MotionEvent::ACTION_HOVER_MOVE:
+    case MotionEvent::ACTION_BUTTON_PRESS:
+    case MotionEvent::ACTION_BUTTON_RELEASE:
       NOTREACHED();
       break;
   }

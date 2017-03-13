@@ -6,24 +6,35 @@
       <div class="option-name">
         <div class="checkbox controlled-setting-with-label">
           <label>
-            <input pref="settings.enable_stylus_tools" type="checkbox">
+            <input pref="settings.enable_stylus_tools" type="checkbox"
+                dialog-pref>
             <span i18n-content="stylusEnableStylusTools"></span>
           </label>
         </div>
         <div class="checkbox controlled-setting-with-label">
           <label>
-            <input pref="settings.launch_palette_on_eject_event"
-                   type="checkbox">
+            <input id="launch-palette-on-eject-input"
+                   pref="settings.launch_palette_on_eject_event"
+                   type="checkbox" dialog-pref>
             <span i18n-content="stylusAutoOpenStylusTools"></span>
           </label>
         </div>
       </div>
+      <div class="settings-row">
+        <div class="controlled-setting-with-label">
+          <label>
+            <span class="option-name"
+                i18n-content="stylusNoteTakingApp"></span>
+            <select id="stylus-note-taking-app-select" class="option-value">
+            </select>
+          </label>
+        </div>
+      </div>
     </div>
-
-    <!-- TODO(jdufault): Real webstore link -->
-    <a is="action-link" i18n-content="stylusFindMoreApps" target="_blank"
-       id='stylus-find-more-link'
-       href="https://play.google.com/store/apps/collection/promotion_30023cb_stylus_apps"></a>
+    <div class="settings-row">
+      <a is="action-link" i18n-content="stylusFindMoreApps"
+         id='stylus-find-more-link'></a>
+    </div>
   </div>
 
   <div class="action-area">

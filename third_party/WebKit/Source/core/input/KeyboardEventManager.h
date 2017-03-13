@@ -35,7 +35,7 @@ class CORE_EXPORT KeyboardEventManager
       WebInputEvent::AltKey;
 #endif
 
-  KeyboardEventManager(LocalFrame*, ScrollManager*);
+  KeyboardEventManager(LocalFrame&, ScrollManager&);
   DECLARE_TRACE();
 
   bool handleAccessKey(const WebKeyboardEvent&);
@@ -55,7 +55,7 @@ class CORE_EXPORT KeyboardEventManager
   void defaultBackspaceEventHandler(KeyboardEvent*);
   void defaultTabEventHandler(KeyboardEvent*);
   void defaultEscapeEventHandler(KeyboardEvent*);
-  void defaultArrowEventHandler(WebFocusType, KeyboardEvent*);
+  void defaultArrowEventHandler(KeyboardEvent*, Node*);
 
   const Member<LocalFrame> m_frame;
 

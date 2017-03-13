@@ -9,16 +9,11 @@
 
 #include "ui/gfx/native_widget_types.h"
 
-namespace aura {
-class Window;
-}
-
 namespace gfx {
 class Point;
 }
 
-// Class used by the tabstrip to find chrome windows that we can attach tabs
-// to.
+// Class used by the tabstrip to find chrome windows that we can attach tabs to.
 class WindowFinder {
  public:
   WindowFinder();

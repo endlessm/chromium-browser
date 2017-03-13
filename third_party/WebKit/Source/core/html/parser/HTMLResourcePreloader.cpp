@@ -26,19 +26,19 @@
 #include "core/html/parser/HTMLResourcePreloader.h"
 
 #include "core/dom/Document.h"
-#include "core/fetch/CSSStyleSheetResource.h"
-#include "core/fetch/FetchInitiatorInfo.h"
+#include "core/fetch/Resource.h"
 #include "core/fetch/ResourceFetcher.h"
 #include "core/frame/Deprecation.h"
 #include "core/frame/Settings.h"
 #include "core/loader/DocumentLoader.h"
+#include "core/loader/resource/CSSStyleSheetResource.h"
 #include "platform/Histogram.h"
 #include "public/platform/Platform.h"
 #include <memory>
 
 namespace blink {
 
-inline HTMLResourcePreloader::HTMLResourcePreloader(Document& document)
+HTMLResourcePreloader::HTMLResourcePreloader(Document& document)
     : m_document(document) {}
 
 HTMLResourcePreloader* HTMLResourcePreloader::create(Document& document) {
@@ -76,36 +76,20 @@ void HTMLResourcePreloader::preload(
   // TODO(yoichio): Should preload if document is imported.
   if (!m_document->loader())
     return;
-  FetchRequest request = preload->resourceRequest(m_document);
-  // TODO(dgozman): This check should go to HTMLPreloadScanner, but this
-  // requires making Document::completeURLWithOverride logic to be statically
-  // accessible.
-  if (request.url().protocolIsData())
-    return;
-  if (preload->resourceType() == Resource::Script ||
-      preload->resourceType() == Resource::CSSStyleSheet ||
-      preload->resourceType() == Resource::ImportResource)
-    request.setCharset(preload->charset().isEmpty()
-                           ? m_document->characterSet().getString()
-                           : preload->charset());
-  request.setForPreload(true, preload->discoveryTime());
+
   int duration = static_cast<int>(
       1000 * (monotonicallyIncreasingTime() - preload->discoveryTime()));
   DEFINE_STATIC_LOCAL(CustomCountHistogram, preloadDelayHistogram,
                       ("WebCore.PreloadDelayMs", 0, 2000, 20));
   preloadDelayHistogram.count(duration);
 
-  if (preload->scriptHasInvalidTypeOrLanguage()) {
-    Deprecation::countDeprecation(m_document,
-                                  UseCounter::ScriptInvalidTypeOrLanguage);
-  }
+  Resource* resource = preload->start(m_document);
 
-  Resource* resource =
-      m_document->loader()->startPreload(preload->resourceType(), request);
-  if (resource && preload->resourceType() == Resource::CSSStyleSheet) {
+  if (resource && !resource->isLoaded() &&
+      preload->resourceType() == Resource::CSSStyleSheet) {
     Settings* settings = m_document->settings();
-    if (settings && (settings->cssExternalScannerNoPreload() ||
-                     settings->cssExternalScannerPreload()))
+    if (settings && (settings->getCSSExternalScannerNoPreload() ||
+                     settings->getCSSExternalScannerPreload()))
       m_cssPreloaders.add(new CSSPreloaderResourceClient(resource, this));
   }
 }

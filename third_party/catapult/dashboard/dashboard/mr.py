@@ -62,6 +62,39 @@ def SaveAllMapper(entity):
   entity.put()
 
 
+class MRStoreUnitsHandler(request_handler.RequestHandler):
+  """Handler to run a anomaly units mapper job."""
+
+  def get(self):
+    name = 'Update anomalies with units.'
+    handler = ('dashboard.mr.StoreUnitsInAnomalyEntity')
+    reader = 'mapreduce.input_readers.DatastoreInputReader'
+    mapper_parameters = {
+        'entity_kind': ('dashboard.models.graph_data.Anomaly'),
+        'filters': [],
+    }
+    mr_control.start_map(name, handler, reader, mapper_parameters)
+
+def StoreUnitsInAnomalyEntity(entity):
+  """Puts units field from the TestMetaData entity into the anomaly directly.
+
+  We would like to store the units in the anomaly directly, for speedier
+  lookup.
+
+  Args:
+    anomaly: The Anomaly entity to check.
+
+  Yields:
+    One datastore mutation operation.
+  """
+  if entity.test:
+    test_key = utils.TestMetadataKey(entity.test)
+    test = test_key.get()
+    if test:
+      entity.units = test.units
+  yield op.db.Put(entity)
+
+
 class MRDeprecateTestsHandler(request_handler.RequestHandler):
   """Handler to run a deprecate tests mapper job."""
 
@@ -135,6 +168,13 @@ def DeprecateTestsMapper(entity):
     yield operation
 
 
+def _IsRef(test):
+  if test.test_path.endswith('/ref') or test.test_path.endswith('_ref'):
+    return True
+
+  return False
+
+
 def _CreateStoppageAlerts(test, last_row):
   """Yields put operations for any StoppageAlert that may be created.
 
@@ -151,7 +191,7 @@ def _CreateStoppageAlerts(test, last_row):
   Yields:
     Either one op.db.Put, or nothing.
   """
-  if not test.sheriff:
+  if not test.sheriff or _IsRef(test):
     return
   sheriff_entity = test.sheriff.get()
   warn_sheriff_delay_days = sheriff_entity.stoppage_alert_delay

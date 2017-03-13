@@ -14,15 +14,16 @@
 #include <memory>
 #include <vector>
 
-#include "webrtc/call.h"
-#include "webrtc/call/transport_adapter.h"
 #include "webrtc/common_video/include/incoming_video_stream.h"
 #include "webrtc/common_video/libyuv/include/webrtc_libyuv.h"
+#include "webrtc/modules/rtp_rtcp/include/flexfec_receiver.h"
+#include "webrtc/modules/video_coding/frame_buffer2.h"
 #include "webrtc/modules/video_coding/video_coding_impl.h"
 #include "webrtc/system_wrappers/include/clock.h"
 #include "webrtc/video/receive_statistics_proxy.h"
 #include "webrtc/video/rtp_stream_receiver.h"
 #include "webrtc/video/rtp_streams_synchronizer.h"
+#include "webrtc/video/transport_adapter.h"
 #include "webrtc/video/video_stream_decoder.h"
 #include "webrtc/video_receive_stream.h"
 
@@ -35,6 +36,8 @@ class ProcessThread;
 class RTPFragmentationHeader;
 class VoiceEngine;
 class VieRemb;
+class VCMTiming;
+class VCMJitterEstimator;
 
 namespace internal {
 
@@ -42,10 +45,12 @@ class VideoReceiveStream : public webrtc::VideoReceiveStream,
                            public rtc::VideoSinkInterface<VideoFrame>,
                            public EncodedImageCallback,
                            public NackSender,
-                           public KeyFrameRequestSender {
+                           public KeyFrameRequestSender,
+                           public video_coding::OnCompleteFrameCallback {
  public:
   VideoReceiveStream(int num_cpu_cores,
                      CongestionController* congestion_controller,
+                     PacketRouter* packet_router,
                      VideoReceiveStream::Config config,
                      webrtc::VoiceEngine* voice_engine,
                      ProcessThread* process_thread,
@@ -59,6 +64,8 @@ class VideoReceiveStream : public webrtc::VideoReceiveStream,
                   size_t length,
                   const PacketTime& packet_time);
 
+  bool OnRecoveredPacket(const uint8_t* packet, size_t length);
+
   // webrtc::VideoReceiveStream implementation.
   void Start() override;
   void Stop() override;
@@ -67,6 +74,10 @@ class VideoReceiveStream : public webrtc::VideoReceiveStream,
 
   // Overrides rtc::VideoSinkInterface<VideoFrame>.
   void OnFrame(const VideoFrame& video_frame) override;
+
+  // Implements video_coding::OnCompleteFrameCallback.
+  void OnCompleteFrame(
+      std::unique_ptr<video_coding::FrameObject> frame) override;
 
   // Overrides EncodedImageCallback.
   EncodedImageCallback::Result OnEncodedImage(
@@ -98,6 +109,7 @@ class VideoReceiveStream : public webrtc::VideoReceiveStream,
 
   TransportAdapter transport_adapter_;
   const VideoReceiveStream::Config config_;
+  const int num_cpu_cores_;
   ProcessThread* const process_thread_;
   Clock* const clock_;
 
@@ -106,6 +118,7 @@ class VideoReceiveStream : public webrtc::VideoReceiveStream,
   CongestionController* const congestion_controller_;
   CallStats* const call_stats_;
 
+  std::unique_ptr<VCMTiming> timing_;  // Jitter buffer experiment.
   vcm::VideoReceiver video_receiver_;
   std::unique_ptr<rtc::VideoSinkInterface<VideoFrame>> incoming_video_stream_;
   ReceiveStatisticsProxy stats_proxy_;
@@ -115,6 +128,11 @@ class VideoReceiveStream : public webrtc::VideoReceiveStream,
 
   rtc::CriticalSection ivf_writer_lock_;
   std::unique_ptr<IvfFileWriter> ivf_writer_ GUARDED_BY(ivf_writer_lock_);
+
+  // Members for the new jitter buffer experiment.
+  const bool jitter_buffer_experiment_;
+  std::unique_ptr<VCMJitterEstimator> jitter_estimator_;
+  std::unique_ptr<video_coding::FrameBuffer> frame_buffer_;
 };
 }  // namespace internal
 }  // namespace webrtc

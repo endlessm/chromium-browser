@@ -10,7 +10,7 @@
 
 #include "base/json/json_reader.h"
 #include "base/metrics/histogram.h"
-#include "base/metrics/sparse_histogram.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/time/time.h"
@@ -120,7 +120,7 @@ std::unique_ptr<base::DictionaryValue> ParseGetAccessTokenResponse(
   std::string data;
   source->GetResponseAsString(&data);
   std::unique_ptr<base::Value> value = base::JSONReader::Read(data);
-  if (!value.get() || value->GetType() != base::Value::TYPE_DICTIONARY)
+  if (!value.get() || value->GetType() != base::Value::Type::DICTIONARY)
     value.reset();
 
   return std::unique_ptr<base::DictionaryValue>(

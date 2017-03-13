@@ -14,6 +14,7 @@
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/suggest_permission_util.h"
 #include "extensions/common/permissions/api_permission.h"
+#include "third_party/WebKit/public/platform/WebGestureEvent.h"
 
 namespace extensions {
 
@@ -32,9 +33,9 @@ AppWebContentsHelper::AppWebContentsHelper(
 bool AppWebContentsHelper::ShouldSuppressGestureEvent(
     const blink::WebGestureEvent& event) {
   // Disable pinch zooming in app windows.
-  return event.type == blink::WebGestureEvent::GesturePinchBegin ||
-         event.type == blink::WebGestureEvent::GesturePinchUpdate ||
-         event.type == blink::WebGestureEvent::GesturePinchEnd;
+  return event.type() == blink::WebGestureEvent::GesturePinchBegin ||
+         event.type() == blink::WebGestureEvent::GesturePinchUpdate ||
+         event.type() == blink::WebGestureEvent::GesturePinchEnd;
 }
 
 content::WebContents* AppWebContentsHelper::OpenURLFromTab(

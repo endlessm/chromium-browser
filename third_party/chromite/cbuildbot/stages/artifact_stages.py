@@ -14,9 +14,9 @@ import os
 import shutil
 
 from chromite.cbuildbot import commands
-from chromite.cbuildbot import failures_lib
-from chromite.cbuildbot import config_lib
-from chromite.cbuildbot import constants
+from chromite.lib import failures_lib
+from chromite.lib import config_lib
+from chromite.lib import constants
 from chromite.cbuildbot import prebuilts
 from chromite.cbuildbot.stages import generic_stages
 from chromite.lib import cros_build_lib
@@ -207,23 +207,12 @@ class ArchiveStage(generic_stages.BoardSpecificBuilderStage,
         if config['factory_install_netboot']:
           commands.MakeNetboot(buildroot, board, factory_install_symlink)
 
-      # Build the factory toolkit.
-      chroot_dir = os.path.join(buildroot, constants.DEFAULT_CHROOT_DIR)
-      chroot_tmp_dir = os.path.join(chroot_dir, 'tmp')
-      with osutils.TempDir(base_dir=chroot_tmp_dir, sudo_rm=True) as tempdir:
-        # Build the factory toolkit.
-        if config['factory_toolkit']:
-          toolkit_dir = os.path.join(tempdir, 'factory_toolkit')
-          os.makedirs(toolkit_dir)
-          commands.MakeFactoryToolkit(
-              buildroot, board, toolkit_dir, self._run.attrs.release_tag)
-
-        # Build and upload factory zip if needed.
-        if factory_install_symlink or config['factory_toolkit']:
-          filename = commands.BuildFactoryZip(
-              buildroot, board, archive_path, factory_install_symlink,
-              toolkit_dir, self._run.attrs.release_tag)
-          self._release_upload_queue.put([filename])
+      # Build and upload factory zip if needed.
+      if factory_install_symlink or config['factory_toolkit']:
+        filename = commands.BuildFactoryZip(
+            buildroot, board, archive_path, factory_install_symlink,
+            self._run.attrs.release_tag)
+        self._release_upload_queue.put([filename])
 
     def ArchiveStandaloneArtifact(artifact_info):
       """Build and upload a single archive."""
@@ -384,7 +373,7 @@ class CPEExportStage(generic_stages.BoardSpecificBuilderStage,
 
   @failures_lib.SetFailureType(failures_lib.InfrastructureFailure)
   def PerformStage(self):
-    """Generate debug symbols and upload debug.tgz."""
+    """Generate and upload CPE files."""
     buildroot = self._build_root
     board = self._current_board
     useflags = self._run.config.useflags
@@ -425,6 +414,9 @@ class DebugSymbolsStage(generic_stages.BoardSpecificBuilderStage,
     # Upload them.
     self.UploadDebugTarball()
 
+    # Upload debug/breakpad tarball.
+    self.UploadDebugBreakpadTarball()
+
     # Upload them to crash server.
     if self._run.config.upload_symbols:
       self.UploadSymbols(buildroot, board)
@@ -437,6 +429,13 @@ class DebugSymbolsStage(generic_stages.BoardSpecificBuilderStage,
     self.UploadArtifact(filename, archive=False)
     logging.info('Announcing availability of debug tarball now.')
     self.board_runattrs.SetParallel('debug_tarball_generated', True)
+
+  def UploadDebugBreakpadTarball(self):
+    """Generate and upload the debug tarball with only breakpad files."""
+    filename = commands.GenerateDebugTarball(
+        self._build_root, self._current_board, self.archive_path, False,
+        archive_name='debug_breakpad.tar.xz')
+    self.UploadArtifact(filename, archive=False)
 
   def UploadSymbols(self, buildroot, board):
     """Upload generated debug symbols."""
@@ -472,6 +471,14 @@ class DebugSymbolsStage(generic_stages.BoardSpecificBuilderStage,
   def _HandleStageException(self, exc_info):
     """Tell other stages to not wait on us if we die for some reason."""
     self._SymbolsNotGenerated()
+
+    # TODO(dgarrett): Get failures tracked in metrics (crbug.com/652463).
+    exc_type, e, _ = exc_info
+    if (issubclass(exc_type, DebugSymbolsUploadException) or
+        (isinstance(e, failures_lib.CompoundFailure) and
+         e.MatchesFailureType(DebugSymbolsUploadException))):
+      return self._HandleExceptionAsWarning(exc_info)
+
     return super(DebugSymbolsStage, self)._HandleStageException(exc_info)
 
 
@@ -671,7 +678,9 @@ class UploadTestArtifactsStage(generic_stages.BoardSpecificBuilderStage,
   def BuildUpdatePayloads(self):
     """Archives update payloads when they are ready."""
     # If we are not configured to generate payloads, don't.
-    if not (self._run.config.upload_hw_test_artifacts and
+    if not (self._run.options.build and
+            self._run.options.tests and
+            self._run.config.upload_hw_test_artifacts and
             self._run.config.images):
       return
 

@@ -358,7 +358,7 @@ gl::Error Framebuffer11::blitImpl(const gl::Rectangle &sourceArea,
 GLenum Framebuffer11::getRenderTargetImplementationFormat(RenderTargetD3D *renderTarget) const
 {
     RenderTarget11 *renderTarget11 = GetAs<RenderTarget11>(renderTarget);
-    return renderTarget11->getFormatSet().format.fboImplementationInternalFormat;
+    return renderTarget11->getFormatSet().format().fboImplementationInternalFormat;
 }
 
 void Framebuffer11::updateColorRenderTarget(size_t colorIndex)
@@ -423,6 +423,12 @@ void Framebuffer11::signal(SignalToken token)
         mInternalDirtyBits.set(gl::Framebuffer::DIRTY_BIT_COLOR_ATTACHMENT_0 + token);
         mCachedColorRenderTargets[token] = nullptr;
     }
+}
+
+gl::Error Framebuffer11::getSamplePosition(size_t index, GLfloat *xy) const
+{
+    UNIMPLEMENTED();
+    return gl::InternalError() << "getSamplePosition is unimplemented.";
 }
 
 bool Framebuffer11::hasAnyInternalDirtyBit() const

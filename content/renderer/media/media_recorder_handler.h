@@ -57,7 +57,6 @@ class CONTENT_EXPORT MediaRecorderHandler final
                   const blink::WebString& codecs,
                   int32_t audio_bits_per_second,
                   int32_t video_bits_per_second) override;
-  bool start() override;
   bool start(int timeslice) override;
   void stop() override;
   void pause() override;
@@ -66,7 +65,7 @@ class CONTENT_EXPORT MediaRecorderHandler final
  private:
   friend class MediaRecorderHandlerTest;
 
-  void OnEncodedVideo(const scoped_refptr<media::VideoFrame>& video_frame,
+  void OnEncodedVideo(const media::WebmMuxer::VideoParameters& params,
                       std::unique_ptr<std::string> encoded_data,
                       base::TimeTicks timestamp,
                       bool is_key_frame);

@@ -4,8 +4,11 @@
 
 #include "net/quic/core/quic_header_list.h"
 
-#include "net/test/gtest_util.h"
-#include "testing/gmock/include/gmock/gmock.h"
+#include "net/quic/core/quic_flags.h"
+#include "net/quic/test_tools/quic_test_utils.h"
+#include "testing/gtest/include/gtest/gtest.h"
+
+using std::string;
 
 namespace net {
 
@@ -17,6 +20,29 @@ TEST(QuicHeaderListTest, OnHeader) {
   headers.OnHeader("beep", "");
 
   EXPECT_EQ("{ foo=bar, april=fools, beep=, }", headers.DebugString());
+}
+
+TEST(QuicHeaderListTest, TooLarge) {
+  test::QuicFlagSaver flags;
+  FLAGS_quic_reloadable_flag_quic_limit_uncompressed_headers = true;
+  QuicHeaderList headers;
+  string key = "key";
+  string value(1 << 18, '1');
+  headers.OnHeader(key, value);
+  headers.OnHeaderBlockEnd(key.size() + value.size());
+  EXPECT_TRUE(headers.empty());
+
+  EXPECT_EQ("{ }", headers.DebugString());
+}
+
+TEST(QuicHeaderListTest, NotTooLarge) {
+  QuicHeaderList headers;
+  headers.set_max_uncompressed_header_bytes(1 << 20);
+  string key = "key";
+  string value(1 << 18, '1');
+  headers.OnHeader(key, value);
+  headers.OnHeaderBlockEnd(key.size() + value.size());
+  EXPECT_FALSE(headers.empty());
 }
 
 // This test verifies that QuicHeaderList is copyable and assignable.

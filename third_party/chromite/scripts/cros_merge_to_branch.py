@@ -43,7 +43,7 @@ import shutil
 import sys
 import tempfile
 
-from chromite.cbuildbot import constants
+from chromite.lib import constants
 from chromite.cbuildbot import repository
 from chromite.lib import commandline
 from chromite.lib import cros_build_lib
@@ -154,7 +154,7 @@ def _SetupWorkDirectoryForPatch(work_dir, patch, branch, manifest, email):
     # Get the path to the first checkout associated with this change. Since
     # all of the checkouts share git objects, it doesn't matter which checkout
     # we pick.
-    path = manifest.FindCheckouts(patch.project, only_patchable=True)[0]['path']
+    path = manifest.FindCheckouts(patch.project)[0]['path']
 
     reference = os.path.join(constants.SOURCE_ROOT, path)
     if not os.path.isdir(reference):

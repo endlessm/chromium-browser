@@ -104,7 +104,8 @@ GLImageGLX::GLImageGLX(const gfx::Size& size, unsigned internalformat)
     : glx_pixmap_(0), size_(size), internalformat_(internalformat) {}
 
 GLImageGLX::~GLImageGLX() {
-  DCHECK_EQ(0u, glx_pixmap_);
+  if (glx_pixmap_)
+    glXDestroyGLXPixmap(gfx::GetXDisplay(), glx_pixmap_);
 }
 
 bool GLImageGLX::Initialize(XID pixmap) {
@@ -123,7 +124,7 @@ bool GLImageGLX::Initialize(XID pixmap) {
 
   int config_attribs[] = {
       GLX_DRAWABLE_TYPE,                    GLX_PIXMAP_BIT,
-      GLX_BIND_TO_TEXTURE_TARGETS_EXT,      GLX_TEXTURE_2D_EXT,
+      GLX_BIND_TO_TEXTURE_TARGETS_EXT,      GLX_TEXTURE_2D_BIT_EXT,
       BindToTextureFormat(internalformat_), GL_TRUE,
       0};
   int num_elements = 0;
@@ -150,13 +151,6 @@ bool GLImageGLX::Initialize(XID pixmap) {
   }
 
   return true;
-}
-
-void GLImageGLX::Destroy(bool have_context) {
-  if (glx_pixmap_) {
-    glXDestroyGLXPixmap(gfx::GetXDisplay(), glx_pixmap_);
-    glx_pixmap_ = 0;
-  }
 }
 
 gfx::Size GLImageGLX::GetSize() {

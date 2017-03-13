@@ -298,15 +298,15 @@
      inkscape:pageopacity="0.0"
      inkscape:pageshadow="2"
      inkscape:zoom="5.5"
-     inkscape:cx="87.644148"
-     inkscape:cy="14.858115"
+     inkscape:cx="140.93508"
+     inkscape:cy="10.610521"
      inkscape:document-units="px"
      inkscape:current-layer="layer1"
      showgrid="true"
-     inkscape:window-width="1178"
-     inkscape:window-height="865"
-     inkscape:window-x="2254"
-     inkscape:window-y="165"
+     inkscape:window-width="1384"
+     inkscape:window-height="1040"
+     inkscape:window-x="829"
+     inkscape:window-y="333"
      inkscape:window-maximized="0">
     <inkscape:grid
        type="xygrid"
@@ -540,5 +540,15 @@
         </g>
       </g>
     </g>
+    <path
+       style="fill:#ef9d0d;fill-opacity:1;stroke:#a36c01;stroke-width:0.90793478px;stroke-linecap:butt;stroke-linejoin:miter;stroke-opacity:1"
+       d="m 140.454,1042.8291 0,9.0791 5.37181,0 3.58126,-4.54 -3.58126,-4.5391 z"
+       id="path3248"
+       inkscape:connector-curvature="0" />
+    <path
+       style="fill:#698cfe;fill-opacity:1;stroke:#4073f4;stroke-width:0.90792048px;stroke-linecap:butt;stroke-linejoin:miter;stroke-opacity:1"
+       d="m 160.45398,1042.8292 0,9.079 5.37302,0 3.58206,-4.5398 -3.58206,-4.5392 z"
+       id="path3248-6"
+       inkscape:connector-curvature="0" />
   </g>
 </svg>

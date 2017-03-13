@@ -13,22 +13,22 @@
 #include "base/bind.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/ssl/chrome_security_state_model_client.h"
+#include "chrome/browser/ssl/security_state_tab_helper.h"
 #include "chrome/browser/usb/usb_chooser_context.h"
 #include "chrome/browser/usb/usb_chooser_context_factory.h"
 #include "chrome/browser/usb/web_usb_histograms.h"
 #include "chrome/common/url_constants.h"
+#include "components/security_state/core/security_state.h"
 #include "components/url_formatter/elide_url.h"
 #include "content/public/browser/android/content_view_core.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
-#include "device/core/device_client.h"
+#include "device/base/device_client.h"
 #include "device/usb/mojo/type_converters.h"
 #include "device/usb/usb_device.h"
 #include "device/usb/usb_device_filter.h"
 #include "device/usb/webusb_descriptors.h"
 #include "jni/UsbChooserDialog_jni.h"
-#include "mojo/common/common_type_converters.h"
 #include "ui/android/window_android.h"
 #include "url/gurl.h"
 
@@ -49,13 +49,13 @@ void OnDevicePermissionRequestComplete(
 }  // namespace
 
 UsbChooserDialogAndroid::UsbChooserDialogAndroid(
-    std::vector<device::usb::DeviceFilterPtr> filters,
+    const std::vector<device::UsbDeviceFilter>& filters,
     content::RenderFrameHost* render_frame_host,
     const device::usb::ChooserService::GetPermissionCallback& callback)
     : render_frame_host_(render_frame_host),
       callback_(callback),
       usb_service_observer_(this),
-      filters_(mojo::ConvertTo<std::vector<device::UsbDeviceFilter>>(filters)),
+      filters_(filters),
       weak_factory_(this) {
   device::UsbService* usb_service =
       device::DeviceClient::Get()->GetUsbService();
@@ -77,11 +77,11 @@ UsbChooserDialogAndroid::UsbChooserDialogAndroid(
       base::android::ConvertUTF16ToJavaString(
           env, url_formatter::FormatUrlForSecurityDisplay(GURL(
                    render_frame_host->GetLastCommittedOrigin().Serialize())));
-  ChromeSecurityStateModelClient* security_model_client =
-      ChromeSecurityStateModelClient::FromWebContents(web_contents);
-  DCHECK(security_model_client);
-  security_state::SecurityStateModel::SecurityInfo security_info;
-  security_model_client->GetSecurityInfo(&security_info);
+  SecurityStateTabHelper* helper =
+      SecurityStateTabHelper::FromWebContents(web_contents);
+  DCHECK(helper);
+  security_state::SecurityInfo security_info;
+  helper->GetSecurityInfo(&security_info);
   java_dialog_.Reset(Java_UsbChooserDialog_create(
       env, window_android, origin_string, security_info.security_level,
       reinterpret_cast<intptr_t>(this)));
@@ -211,10 +211,7 @@ void UsbChooserDialogAndroid::RemoveDeviceFromChooserDialog(
   JNIEnv* env = base::android::AttachCurrentThread();
   base::android::ScopedJavaLocalRef<jstring> device_guid =
       base::android::ConvertUTF8ToJavaString(env, device->guid());
-  base::android::ScopedJavaLocalRef<jstring> device_name =
-      base::android::ConvertUTF16ToJavaString(env, device->product_string());
-  Java_UsbChooserDialog_removeDevice(env, java_dialog_, device_guid,
-                                     device_name);
+  Java_UsbChooserDialog_removeDevice(env, java_dialog_, device_guid);
 }
 
 void UsbChooserDialogAndroid::OpenUrl(const std::string& url) {

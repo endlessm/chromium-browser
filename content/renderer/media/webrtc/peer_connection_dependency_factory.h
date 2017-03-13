@@ -28,17 +28,11 @@ class GpuVideoAcceleratorFactories;
 }
 
 namespace rtc {
-class NetworkManager;
-class PacketSocketFactory;
 class Thread;
 }
 
 namespace blink {
 class WebFrame;
-class WebMediaConstraints;
-class WebMediaStream;
-class WebMediaStreamSource;
-class WebMediaStreamTrack;
 class WebRTCPeerConnectionHandler;
 class WebRTCPeerConnectionHandlerClient;
 }
@@ -48,9 +42,6 @@ namespace content {
 class IpcNetworkManager;
 class IpcPacketSocketFactory;
 class WebRtcAudioDeviceImpl;
-class WebRtcLoggingHandlerImpl;
-class WebRtcLoggingMessageFilter;
-struct StreamDeviceInfo;
 
 // Object factory for RTC PeerConnections.
 class CONTENT_EXPORT PeerConnectionDependencyFactory

@@ -15,7 +15,6 @@
 #include "base/files/scoped_temp_dir.h"
 #include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
-#include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
@@ -93,8 +92,8 @@ class FailingBackend : public PasswordStoreX::NativeBackend {
 
   // Use this as a landmine to check whether results of failed Get*Logins calls
   // get ignored.
-  static ScopedVector<autofill::PasswordForm> CreateTrashForms() {
-    ScopedVector<autofill::PasswordForm> forms;
+  static std::vector<std::unique_ptr<PasswordForm>> CreateTrashForms() {
+    std::vector<std::unique_ptr<PasswordForm>> forms;
     PasswordForm trash;
     trash.username_element = base::ASCIIToUTF16("trash u. element");
     trash.username_value = base::ASCIIToUTF16("trash u. value");
@@ -102,30 +101,31 @@ class FailingBackend : public PasswordStoreX::NativeBackend {
     trash.password_value = base::ASCIIToUTF16("trash p. value");
     for (size_t i = 0; i < 3; ++i) {
       trash.origin = GURL(base::StringPrintf("http://trash%zu.com", i));
-      forms.push_back(new PasswordForm(trash));
+      forms.push_back(base::MakeUnique<PasswordForm>(trash));
     }
     return forms;
   }
 
   bool GetLogins(const PasswordStore::FormDigest& form,
-                 ScopedVector<autofill::PasswordForm>* forms) override {
+                 std::vector<std::unique_ptr<PasswordForm>>* forms) override {
     *forms = CreateTrashForms();
     return false;
   }
 
   bool GetAutofillableLogins(
-      ScopedVector<autofill::PasswordForm>* forms) override {
+      std::vector<std::unique_ptr<PasswordForm>>* forms) override {
     *forms = CreateTrashForms();
     return false;
   }
 
   bool GetBlacklistLogins(
-      ScopedVector<autofill::PasswordForm>* forms) override {
+      std::vector<std::unique_ptr<PasswordForm>>* forms) override {
     *forms = CreateTrashForms();
     return false;
   }
 
-  bool GetAllLogins(ScopedVector<autofill::PasswordForm>* forms) override {
+  bool GetAllLogins(
+      std::vector<std::unique_ptr<PasswordForm>>* forms) override {
     *forms = CreateTrashForms();
     return false;
   }
@@ -200,32 +200,33 @@ class MockBackend : public PasswordStoreX::NativeBackend {
   }
 
   bool GetLogins(const PasswordStore::FormDigest& form,
-                 ScopedVector<autofill::PasswordForm>* forms) override {
+                 std::vector<std::unique_ptr<PasswordForm>>* forms) override {
     for (size_t i = 0; i < all_forms_.size(); ++i)
       if (all_forms_[i].signon_realm == form.signon_realm)
-        forms->push_back(new PasswordForm(all_forms_[i]));
+        forms->push_back(base::MakeUnique<PasswordForm>(all_forms_[i]));
     return true;
   }
 
   bool GetAutofillableLogins(
-      ScopedVector<autofill::PasswordForm>* forms) override {
+      std::vector<std::unique_ptr<PasswordForm>>* forms) override {
     for (size_t i = 0; i < all_forms_.size(); ++i)
       if (!all_forms_[i].blacklisted_by_user)
-        forms->push_back(new PasswordForm(all_forms_[i]));
+        forms->push_back(base::MakeUnique<PasswordForm>(all_forms_[i]));
     return true;
   }
 
   bool GetBlacklistLogins(
-      ScopedVector<autofill::PasswordForm>* forms) override {
+      std::vector<std::unique_ptr<PasswordForm>>* forms) override {
     for (size_t i = 0; i < all_forms_.size(); ++i)
       if (all_forms_[i].blacklisted_by_user)
-        forms->push_back(new PasswordForm(all_forms_[i]));
+        forms->push_back(base::MakeUnique<PasswordForm>(all_forms_[i]));
     return true;
   }
 
-  bool GetAllLogins(ScopedVector<autofill::PasswordForm>* forms) override {
+  bool GetAllLogins(
+      std::vector<std::unique_ptr<PasswordForm>>* forms) override {
     for (size_t i = 0; i < all_forms_.size(); ++i)
-      forms->push_back(new PasswordForm(all_forms_[i]));
+      forms->push_back(base::MakeUnique<PasswordForm>(all_forms_[i]));
     return true;
   }
 
@@ -398,10 +399,6 @@ class PasswordStoreXTest : public testing::TestWithParam<BackendType> {
 
   base::ScopedTempDir temp_dir_;
 };
-
-ACTION(STLDeleteElements0) {
-  base::STLDeleteContainerPointers(arg0.begin(), arg0.end());
-}
 
 TEST_P(PasswordStoreXTest, Notifications) {
   std::unique_ptr<password_manager::LoginDatabase> login_db(

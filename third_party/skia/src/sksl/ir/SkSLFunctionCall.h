@@ -17,15 +17,15 @@ namespace SkSL {
  * A function invocation.
  */
 struct FunctionCall : public Expression {
-    FunctionCall(Position position, const FunctionDeclaration& function,
+    FunctionCall(Position position, const Type& type, const FunctionDeclaration& function,
                  std::vector<std::unique_ptr<Expression>> arguments)
-    : INHERITED(position, kFunctionCall_Kind, function.fReturnType)
+    : INHERITED(position, kFunctionCall_Kind, type)
     , fFunction(std::move(function))
     , fArguments(std::move(arguments)) {}
 
-    std::string description() const override {
-        std::string result = fFunction.fName + "(";
-        std::string separator = "";
+    SkString description() const override {
+        SkString result = fFunction.fName + "(";
+        SkString separator;
         for (size_t i = 0; i < fArguments.size(); i++) {
             result += separator;
             result += fArguments[i]->description();

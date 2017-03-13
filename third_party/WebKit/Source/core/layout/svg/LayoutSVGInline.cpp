@@ -73,17 +73,16 @@ FloatRect LayoutSVGInline::strokeBoundingBox() const {
   return FloatRect();
 }
 
-FloatRect LayoutSVGInline::paintInvalidationRectInLocalSVGCoordinates() const {
+FloatRect LayoutSVGInline::visualRectInLocalSVGCoordinates() const {
   if (const LayoutSVGText* textRoot =
           LayoutSVGText::locateLayoutSVGTextAncestor(this))
-    return textRoot->paintInvalidationRectInLocalSVGCoordinates();
+    return textRoot->visualRectInLocalSVGCoordinates();
 
   return FloatRect();
 }
 
-LayoutRect LayoutSVGInline::absoluteClippedOverflowRect() const {
-  return SVGLayoutSupport::clippedOverflowRectForPaintInvalidation(*this,
-                                                                   *view());
+LayoutRect LayoutSVGInline::absoluteVisualRect() const {
+  return SVGLayoutSupport::visualRectInAncestorSpace(*this, *view());
 }
 
 void LayoutSVGInline::mapLocalToAncestor(const LayoutBoxModelObject* ancestor,
@@ -99,20 +98,22 @@ const LayoutObject* LayoutSVGInline::pushMappingToContainer(
                                                   geometryMap);
 }
 
-void LayoutSVGInline::absoluteQuads(Vector<FloatQuad>& quads) const {
+void LayoutSVGInline::absoluteQuads(Vector<FloatQuad>& quads,
+                                    MapCoordinatesFlags mode) const {
   const LayoutSVGText* textRoot =
       LayoutSVGText::locateLayoutSVGTextAncestor(this);
   if (!textRoot)
     return;
 
   FloatRect textBoundingBox = textRoot->strokeBoundingBox();
-  for (InlineFlowBox* box = firstLineBox(); box; box = box->nextLineBox())
-    quads.append(
+  for (InlineFlowBox* box = firstLineBox(); box; box = box->nextLineBox()) {
+    quads.push_back(
         localToAbsoluteQuad(FloatRect(textBoundingBox.x() + box->x().toFloat(),
                                       textBoundingBox.y() + box->y().toFloat(),
                                       box->logicalWidth().toFloat(),
                                       box->logicalHeight().toFloat()),
-                            false));
+                            mode));
+  }
 }
 
 void LayoutSVGInline::willBeDestroyed() {

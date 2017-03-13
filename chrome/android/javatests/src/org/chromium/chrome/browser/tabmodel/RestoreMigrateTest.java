@@ -5,8 +5,8 @@
 package org.chromium.chrome.browser.tabmodel;
 
 import android.content.Context;
+import android.support.test.filters.SmallTest;
 import android.test.InstrumentationTestCase;
-import android.test.suitebuilder.annotation.SmallTest;
 
 import org.chromium.base.ContextUtils;
 import org.chromium.base.StreamUtil;
@@ -78,9 +78,9 @@ public class RestoreMigrateTest extends InstrumentationTestCase {
             @Override
             public TabPersistentStore call() throws Exception {
                 TabPersistencePolicy persistencePolicy = new TabbedModeTabPersistencePolicy(
-                        selectorIndex);
+                        selectorIndex, false);
                 TabPersistentStore store = new TabPersistentStore(
-                        persistencePolicy, selector, null, null, false);
+                        persistencePolicy, selector, null, null);
                 return store;
             }
         });

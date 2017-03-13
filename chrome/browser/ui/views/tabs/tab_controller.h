@@ -18,7 +18,7 @@ class Point;
 class Size;
 }
 namespace ui {
-struct AXViewState;
+struct AXNodeData;
 class ListSelectionModel;
 class LocatedEvent;
 class MouseEvent;
@@ -113,9 +113,6 @@ class TabController {
   // in the same window will redraw on top of the the favicon area of any tab.
   virtual bool CanPaintThrobberToLayer() const = 0;
 
-  // Returns true if tabs should be painted in the rectangular light-bar style.
-  virtual bool IsImmersiveStyle() const = 0;
-
   // Returns COLOR_TOOLBAR_TOP_SEPARATOR[,_INACTIVE] depending on the activation
   // state of the window.
   virtual SkColor GetToolbarTopSeparatorColor() const = 0;
@@ -127,7 +124,10 @@ class TabController {
 
   // Adds private information to the tab's accessibility state.
   virtual void UpdateTabAccessibilityState(const Tab* tab,
-                                           ui::AXViewState* state) = 0;
+                                           ui::AXNodeData* node_data) = 0;
+
+  // Returns the accessible tab name for this tab.
+  virtual base::string16 GetAccessibleTabName(const Tab* tab) const = 0;
 
  protected:
   virtual ~TabController() {}

@@ -5,23 +5,26 @@
 #ifndef SERVICES_CATALOG_READER_H_
 #define SERVICES_CATALOG_READER_H_
 
+#include <map>
 #include <memory>
+#include <string>
 
 #include "base/callback.h"
 #include "base/files/file_path.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "services/catalog/types.h"
-#include "services/shell/public/interfaces/resolver.mojom.h"
+#include "services/service_manager/public/interfaces/resolver.mojom.h"
 
 namespace base {
 class SequencedWorkerPool;
 class SingleThreadTaskRunner;
+class Value;
 }
 
 namespace catalog {
 
 class Entry;
+class EntryCache;
 class ManifestProvider;
 
 // Responsible for loading manifests & building the Entry data structures.
@@ -29,7 +32,11 @@ class Reader {
  public:
   using ReadManifestCallback = base::Callback<void(std::unique_ptr<Entry>)>;
   using CreateEntryForNameCallback =
-      base::Callback<void(shell::mojom::ResolveResultPtr)>;
+      service_manager::mojom::Resolver::ResolveServiceNameCallback;
+
+  // Construct a Reader over a static manifest. This Reader never performs
+  // file I/O.
+  Reader(std::unique_ptr<base::Value> static_manifest, EntryCache* cache);
 
   Reader(base::SequencedWorkerPool* worker_pool,
          ManifestProvider* manifest_provider);
@@ -43,12 +50,20 @@ class Reader {
             EntryCache* cache,
             const base::Closure& read_complete_closure);
 
-  // Returns an Entry for |mojo_name| via |callback|, assuming a manifest file
-  // in the canonical location
+  // Returns an Entry for |name| via |callback|, assuming a manifest file in the
+  // canonical location
   void CreateEntryForName(
-      const std::string& mojo_name,
+      const std::string& name,
       EntryCache* cache,
       const CreateEntryForNameCallback& entry_created_callback);
+
+  // Overrides the package name used for a specific service name.
+  void OverridePackageName(const std::string& service_name,
+                           const std::string& package_name);
+
+  // Overrides the manifest path used for a specific service name.
+  void OverrideManifestPath(const std::string& service_name,
+                            const base::FilePath& path);
 
  private:
   explicit Reader(ManifestProvider* manifest_provider);
@@ -57,9 +72,12 @@ class Reader {
                       const CreateEntryForNameCallback& entry_created_callback,
                       std::unique_ptr<Entry> entry);
 
+  const bool using_static_catalog_ = false;
   base::FilePath system_package_dir_;
   scoped_refptr<base::TaskRunner> file_task_runner_;
   ManifestProvider* const manifest_provider_;
+  std::map<std::string, std::string> package_name_overrides_;
+  std::map<std::string, base::FilePath> manifest_path_overrides_;
   base::WeakPtrFactory<Reader> weak_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(Reader);

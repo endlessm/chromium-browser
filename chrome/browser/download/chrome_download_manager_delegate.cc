@@ -13,10 +13,9 @@
 #include "base/macros.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/rand_util.h"
-#include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task_runner.h"
-#include "base/task_runner_util.h"
+#include "base/task_scheduler/post_task.h"
 #include "base/threading/sequenced_worker_pool.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
@@ -52,12 +51,14 @@
 #include "content/public/browser/download_manager.h"
 #include "content/public/browser/notification_source.h"
 #include "content/public/browser/page_navigator.h"
+#include "extensions/features/features.h"
 #include "net/base/filename_util.h"
 #include "net/base/mime_util.h"
+#include "ppapi/features/features.h"
 #include "ui/base/l10n/l10n_util.h"
 
-#if BUILDFLAG(ANDROID_JAVA_UI)
-#include "chrome/browser/android/download/chrome_download_manager_overwrite_infobar_delegate.h"
+#if defined(OS_ANDROID)
+#include "chrome/browser/android/download/chrome_duplicate_download_infobar_delegate.h"
 #include "chrome/browser/infobars/infobar_service.h"
 #endif
 
@@ -66,7 +67,7 @@
 #include "chrome/browser/chromeos/drive/file_system_util.h"
 #endif
 
-#if defined(ENABLE_EXTENSIONS)
+#if BUILDFLAG(ENABLE_EXTENSIONS)
 #include "chrome/browser/extensions/api/downloads/downloads_api.h"
 #include "chrome/browser/extensions/crx_installer.h"
 #include "chrome/browser/extensions/webstore_installer.h"
@@ -175,7 +176,7 @@ void CheckDownloadUrlDone(
 
 #endif  // FULL_SAFE_BROWSING
 
-// Called on the blocking pool to determine the MIME type for |path|.
+// Called asynchronously to determine the MIME type for |path|.
 std::string GetMimeType(const base::FilePath& path) {
   std::string mime_type;
   net::GetMimeTypeFromFile(path, &mime_type);
@@ -288,7 +289,7 @@ bool ChromeDownloadManagerDelegate::ShouldOpenFileBasedOnExtension(
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   if (path.Extension().empty())
     return false;
-#if defined(ENABLE_EXTENSIONS)
+#if BUILDFLAG(ENABLE_EXTENSIONS)
   // TODO(asanka): This determination is done based on |path|, while
   // ShouldOpenDownload() detects extension downloads based on the
   // characteristics of the download. Reconcile this. http://crbug.com/167702
@@ -384,7 +385,7 @@ bool ChromeDownloadManagerDelegate::ShouldCompleteDownload(
 
 bool ChromeDownloadManagerDelegate::ShouldOpenDownload(
     DownloadItem* item, const content::DownloadOpenDelayedCallback& callback) {
-#if defined(ENABLE_EXTENSIONS)
+#if BUILDFLAG(ENABLE_EXTENSIONS)
   if (download_crx_util::IsExtensionDownload(*item) &&
       !extensions::WebstoreInstaller::GetAssociatedApproval(*item)) {
     scoped_refptr<extensions::CrxInstaller> crx_installer =
@@ -569,7 +570,7 @@ void ChromeDownloadManagerDelegate::NotifyExtensions(
     const base::FilePath& virtual_path,
     const NotifyExtensionsCallback& callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-#if defined(ENABLE_EXTENSIONS)
+#if BUILDFLAG(ENABLE_EXTENSIONS)
   extensions::ExtensionDownloadsEventRouter* router =
       DownloadServiceFactory::GetForBrowserContext(profile_)
           ->GetExtensionEventRouter();
@@ -616,9 +617,14 @@ void ChromeDownloadManagerDelegate::PromptUserForDownloadPath(
     const base::FilePath& suggested_path,
     const DownloadTargetDeterminerDelegate::FileSelectedCallback& callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-#if BUILDFLAG(ANDROID_JAVA_UI)
-  chrome::android::ChromeDownloadManagerOverwriteInfoBarDelegate::Create(
-      InfoBarService::FromWebContents(download->GetWebContents()), download,
+#if defined(OS_ANDROID)
+  content::WebContents* web_contents = download->GetWebContents();
+  if (!web_contents) {
+    callback.Run(base::FilePath());
+    return;
+  }
+  chrome::android::ChromeDuplicateDownloadInfoBarDelegate::Create(
+      InfoBarService::FromWebContents(web_contents), download,
       suggested_path, callback);
 #else
   DownloadFilePicker::ShowFilePicker(download, suggested_path, callback);
@@ -656,7 +662,7 @@ void ChromeDownloadManagerDelegate::CheckDownloadUrl(
         service->IsSupportedDownload(*download, suggested_path);
     DVLOG(2) << __func__ << "() Start SB URL check for download = "
              << download->DebugString(false);
-    service->CheckDownloadUrl(*download,
+    service->CheckDownloadUrl(download,
                               base::Bind(&CheckDownloadUrlDone,
                                          callback,
                                          is_content_check_supported));
@@ -670,10 +676,9 @@ void ChromeDownloadManagerDelegate::GetFileMimeType(
     const base::FilePath& path,
     const GetFileMimeTypeCallback& callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  base::PostTaskAndReplyWithResult(BrowserThread::GetBlockingPool(),
-                                   FROM_HERE,
-                                   base::Bind(&GetMimeType, path),
-                                   callback);
+  base::PostTaskWithTraitsAndReplyWithResult(
+      FROM_HERE, base::TaskTraits().MayBlock(), base::Bind(&GetMimeType, path),
+      callback);
 }
 
 #if defined(FULL_SAFE_BROWSING)
@@ -746,7 +751,7 @@ void ChromeDownloadManagerDelegate::Observe(
     int type,
     const content::NotificationSource& source,
     const content::NotificationDetails& details) {
-#if defined(ENABLE_EXTENSIONS)
+#if BUILDFLAG(ENABLE_EXTENSIONS)
   DCHECK_EQ(extensions::NOTIFICATION_CRX_INSTALLER_DONE, type);
 
   registrar_.Remove(this, extensions::NOTIFICATION_CRX_INSTALLER_DONE, source);
@@ -795,7 +800,7 @@ bool ChromeDownloadManagerDelegate::IsOpenInBrowserPreferreredForFile(
 
   // On Android, always prefer opening with an external app. On ChromeOS, there
   // are no external apps so just allow all opens to be handled by the "System."
-#if !defined(OS_ANDROID) && !defined(OS_CHROMEOS) && defined(ENABLE_PLUGINS)
+#if !defined(OS_ANDROID) && !defined(OS_CHROMEOS) && BUILDFLAG(ENABLE_PLUGINS)
   // TODO(asanka): Consider other file types and MIME types.
   // http://crbug.com/323561
   if (path.MatchesExtension(FILE_PATH_LITERAL(".pdf")) ||

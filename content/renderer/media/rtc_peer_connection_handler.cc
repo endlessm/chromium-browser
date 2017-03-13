@@ -14,9 +14,9 @@
 #include "base/lazy_instance.h"
 #include "base/location.h"
 #include "base/logging.h"
+#include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/sparse_histogram.h"
-#include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/trace_event/trace_event.h"
@@ -138,7 +138,8 @@ GetWebKitSignalingState(webrtc::PeerConnectionInterface::SignalingState state) {
 blink::WebRTCSessionDescription CreateWebKitSessionDescription(
     const std::string& sdp, const std::string& type) {
   blink::WebRTCSessionDescription description;
-  description.initialize(base::UTF8ToUTF16(type), base::UTF8ToUTF16(sdp));
+  description.initialize(blink::WebString::fromUTF8(type),
+                         blink::WebString::fromUTF8(sdp));
   return description;
 }
 
@@ -187,51 +188,49 @@ void GetSdpAndTypeFromSessionDescription(
   }
 }
 
-// Converter functions from WebKit types to WebRTC types.
+// Converter functions from Blink types to WebRTC types.
 
+// This function doesn't assume |webrtc_config| is empty. Any fields in
+// |blink_config| replace the corresponding fields in |webrtc_config|, but
+// fields that only exist in |webrtc_config| are left alone.
 void GetNativeRtcConfiguration(
     const blink::WebRTCConfiguration& blink_config,
     webrtc::PeerConnectionInterface::RTCConfiguration* webrtc_config) {
   DCHECK(webrtc_config);
-  if (blink_config.isNull())
-    return;
 
-  for (size_t i = 0; i < blink_config.numberOfServers(); ++i) {
+  webrtc_config->servers.clear();
+  for (const blink::WebRTCIceServer& blink_server : blink_config.iceServers) {
     webrtc::PeerConnectionInterface::IceServer server;
-    const blink::WebRTCICEServer& webkit_server =
-        blink_config.server(i);
-    server.username =
-        base::UTF16ToUTF8(base::StringPiece16(webkit_server.username()));
-    server.password =
-        base::UTF16ToUTF8(base::StringPiece16(webkit_server.credential()));
-    server.uri = webkit_server.uri().string().utf8();
+    server.username = blink_server.username.utf8();
+    server.password = blink_server.credential.utf8();
+    server.uri = blink_server.url.string().utf8();
     webrtc_config->servers.push_back(server);
   }
 
-  switch (blink_config.iceTransports()) {
-    case blink::WebRTCIceTransportsNone:
+  switch (blink_config.iceTransportPolicy) {
+    case blink::WebRTCIceTransportPolicy::kNone:
       webrtc_config->type = webrtc::PeerConnectionInterface::kNone;
       break;
-    case blink::WebRTCIceTransportsRelay:
+    case blink::WebRTCIceTransportPolicy::kRelay:
       webrtc_config->type = webrtc::PeerConnectionInterface::kRelay;
       break;
-    case blink::WebRTCIceTransportsAll:
+    case blink::WebRTCIceTransportPolicy::kAll:
       webrtc_config->type = webrtc::PeerConnectionInterface::kAll;
       break;
     default:
       NOTREACHED();
   }
 
-  switch (blink_config.bundlePolicy()) {
-    case blink::WebRTCBundlePolicyBalanced:
+  switch (blink_config.bundlePolicy) {
+    case blink::WebRTCBundlePolicy::kBalanced:
       webrtc_config->bundle_policy =
           webrtc::PeerConnectionInterface::kBundlePolicyBalanced;
       break;
-    case blink::WebRTCBundlePolicyMaxBundle:
+    case blink::WebRTCBundlePolicy::kMaxBundle:
       webrtc_config->bundle_policy =
           webrtc::PeerConnectionInterface::kBundlePolicyMaxBundle;
       break;
-    case blink::WebRTCBundlePolicyMaxCompat:
+    case blink::WebRTCBundlePolicy::kMaxCompat:
       webrtc_config->bundle_policy =
           webrtc::PeerConnectionInterface::kBundlePolicyMaxCompat;
       break;
@@ -239,12 +238,12 @@ void GetNativeRtcConfiguration(
       NOTREACHED();
   }
 
-  switch (blink_config.rtcpMuxPolicy()) {
-    case blink::WebRTCRtcpMuxPolicyNegotiate:
+  switch (blink_config.rtcpMuxPolicy) {
+    case blink::WebRTCRtcpMuxPolicy::kNegotiate:
       webrtc_config->rtcp_mux_policy =
           webrtc::PeerConnectionInterface::kRtcpMuxPolicyNegotiate;
       break;
-    case blink::WebRTCRtcpMuxPolicyRequire:
+    case blink::WebRTCRtcpMuxPolicy::kRequire:
       webrtc_config->rtcp_mux_policy =
           webrtc::PeerConnectionInterface::kRtcpMuxPolicyRequire;
       break;
@@ -252,10 +251,12 @@ void GetNativeRtcConfiguration(
       NOTREACHED();
   }
 
-  for (size_t i = 0; i < blink_config.numberOfCertificates(); ++i) {
+  webrtc_config->certificates.clear();
+  for (const std::unique_ptr<blink::WebRTCCertificate>& blink_certificate :
+       blink_config.certificates) {
     webrtc_config->certificates.push_back(
-        static_cast<RTCCertificate*>(
-            blink_config.certificate(i))->rtcCertificate());
+        static_cast<RTCCertificate*>(blink_certificate.get())
+            ->rtcCertificate());
   }
 }
 
@@ -387,7 +388,7 @@ class CreateSessionDescriptionRequest
     }
 
     tracker_.TrackOnFailure(error);
-    webkit_request_.requestFailed(base::UTF8ToUTF16(error));
+    webkit_request_.requestFailed(blink::WebString::fromUTF8(error));
     webkit_request_.reset();
   }
 
@@ -440,7 +441,7 @@ class SetSessionDescriptionRequest
       return;
     }
     tracker_.TrackOnFailure(error);
-    webkit_request_.requestFailed(base::UTF8ToUTF16(error));
+    webkit_request_.requestFailed(blink::WebString::fromUTF8(error));
     webkit_request_.reset();
   }
 
@@ -747,6 +748,14 @@ class PeerConnectionUMAObserver : public webrtc::UMAObserver {
         break;
       case webrtc::kEnumCounterDtlsHandshakeError:
         UMA_HISTOGRAM_ENUMERATION("WebRTC.PeerConnection.DtlsHandshakeError",
+                                  counter, counter_max);
+        break;
+      case webrtc::kEnumCounterIceRestart:
+        UMA_HISTOGRAM_ENUMERATION("WebRTC.PeerConnection.IceRestartState",
+                                  counter, counter_max);
+        break;
+      case webrtc::kEnumCounterIceRegathering:
+        UMA_HISTOGRAM_ENUMERATION("WebRTC.PeerConnection.IceRegatheringReason",
                                   counter, counter_max);
         break;
       default:
@@ -1057,7 +1066,6 @@ RTCPeerConnectionHandler::~RTCPeerConnectionHandler() {
   g_peer_connection_handlers.Get().erase(this);
   if (peer_connection_tracker_)
     peer_connection_tracker_->UnregisterPeerConnection(this);
-  base::STLDeleteValues(&remote_streams_);
 
   UMA_HISTOGRAM_COUNTS_10000(
       "WebRTC.NumDataChannelsPerPeerConnection", num_data_channels_created_);
@@ -1089,21 +1097,20 @@ bool RTCPeerConnectionHandler::initialize(
   peer_connection_tracker_ =
       RenderThreadImpl::current()->peer_connection_tracker()->AsWeakPtr();
 
-  webrtc::PeerConnectionInterface::RTCConfiguration config;
-  GetNativeRtcConfiguration(server_configuration, &config);
+  GetNativeRtcConfiguration(server_configuration, &configuration_);
 
   // Choose between RTC smoothness algorithm and prerenderer smoothing.
   // Prerenderer smoothing is turned on if RTC smoothness is turned off.
-  config.set_prerenderer_smoothing(
+  configuration_.set_prerenderer_smoothing(
       base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kDisableRTCSmoothnessAlgorithm));
 
   // Copy all the relevant constraints into |config|.
-  CopyConstraintsIntoRtcConfiguration(options, &config);
+  CopyConstraintsIntoRtcConfiguration(options, &configuration_);
 
   peer_connection_observer_ = new Observer(weak_factory_.GetWeakPtr());
   native_peer_connection_ = dependency_factory_->CreatePeerConnection(
-      config, frame_, peer_connection_observer_.get());
+      configuration_, frame_, peer_connection_observer_.get());
 
   if (!native_peer_connection_.get()) {
     LOG(ERROR) << "Failed to initialize native PeerConnection.";
@@ -1111,8 +1118,8 @@ bool RTCPeerConnectionHandler::initialize(
   }
 
   if (peer_connection_tracker_) {
-    peer_connection_tracker_->RegisterPeerConnection(this, config, options,
-                                                     frame_);
+    peer_connection_tracker_->RegisterPeerConnection(this, configuration_,
+                                                     options, frame_);
   }
 
   uma_observer_ = new rtc::RefCountedObject<PeerConnectionUMAObserver>();
@@ -1125,14 +1132,13 @@ bool RTCPeerConnectionHandler::InitializeForTest(
     const blink::WebMediaConstraints& options,
     const base::WeakPtr<PeerConnectionTracker>& peer_connection_tracker) {
   DCHECK(thread_checker_.CalledOnValidThread());
-  webrtc::PeerConnectionInterface::RTCConfiguration config;
-  GetNativeRtcConfiguration(server_configuration, &config);
+  GetNativeRtcConfiguration(server_configuration, &configuration_);
 
   peer_connection_observer_ = new Observer(weak_factory_.GetWeakPtr());
-  CopyConstraintsIntoRtcConfiguration(options, &config);
+  CopyConstraintsIntoRtcConfiguration(options, &configuration_);
 
   native_peer_connection_ = dependency_factory_->CreatePeerConnection(
-      config, nullptr, peer_connection_observer_.get());
+      configuration_, nullptr, peer_connection_observer_.get());
   if (!native_peer_connection_.get()) {
     LOG(ERROR) << "Failed to initialize native PeerConnection.";
     return false;
@@ -1236,9 +1242,13 @@ void RTCPeerConnectionHandler::setLocalDescription(
   DCHECK(thread_checker_.CalledOnValidThread());
   TRACE_EVENT0("webrtc", "RTCPeerConnectionHandler::setLocalDescription");
 
-  std::string sdp = base::UTF16ToUTF8(base::StringPiece16(description.sdp()));
-  std::string type =
-      base::UTF16ToUTF8(base::StringPiece16(description.type()));
+  std::string sdp = description.sdp().utf8();
+  std::string type = description.type().utf8();
+
+  if (peer_connection_tracker_) {
+    peer_connection_tracker_->TrackSetSessionDescription(
+        this, sdp, type, PeerConnectionTracker::SOURCE_LOCAL);
+  }
 
   webrtc::SdpParseError error;
   // Since CreateNativeSessionDescription uses the dependency factory, we need
@@ -1252,12 +1262,12 @@ void RTCPeerConnectionHandler::setLocalDescription(
     reason_str.append(error.description);
     LOG(ERROR) << reason_str;
     request.requestFailed(blink::WebString::fromUTF8(reason_str));
+    if (peer_connection_tracker_) {
+      peer_connection_tracker_->TrackSessionDescriptionCallback(
+          this, PeerConnectionTracker::ACTION_SET_LOCAL_DESCRIPTION,
+          "OnFailure", reason_str);
+    }
     return;
-  }
-
-  if (peer_connection_tracker_) {
-    peer_connection_tracker_->TrackSetSessionDescription(
-        this, sdp, type, PeerConnectionTracker::SOURCE_LOCAL);
   }
 
   if (!first_local_description_ && IsOfferOrAnswer(native_desc)) {
@@ -1290,9 +1300,13 @@ void RTCPeerConnectionHandler::setRemoteDescription(
     const blink::WebRTCSessionDescription& description) {
   DCHECK(thread_checker_.CalledOnValidThread());
   TRACE_EVENT0("webrtc", "RTCPeerConnectionHandler::setRemoteDescription");
-  std::string sdp = base::UTF16ToUTF8(base::StringPiece16(description.sdp()));
-  std::string type =
-      base::UTF16ToUTF8(base::StringPiece16(description.type()));
+  std::string sdp = description.sdp().utf8();
+  std::string type = description.type().utf8();
+
+  if (peer_connection_tracker_) {
+    peer_connection_tracker_->TrackSetSessionDescription(
+        this, sdp, type, PeerConnectionTracker::SOURCE_REMOTE);
+  }
 
   webrtc::SdpParseError error;
   // Since CreateNativeSessionDescription uses the dependency factory, we need
@@ -1306,12 +1320,12 @@ void RTCPeerConnectionHandler::setRemoteDescription(
     reason_str.append(error.description);
     LOG(ERROR) << reason_str;
     request.requestFailed(blink::WebString::fromUTF8(reason_str));
+    if (peer_connection_tracker_) {
+      peer_connection_tracker_->TrackSessionDescriptionCallback(
+          this, PeerConnectionTracker::ACTION_SET_REMOTE_DESCRIPTION,
+          "OnFailure", reason_str);
+    }
     return;
-  }
-
-  if (peer_connection_tracker_) {
-    peer_connection_tracker_->TrackSetSessionDescription(
-        this, sdp, type, PeerConnectionTracker::SOURCE_REMOTE);
   }
 
   if (!first_remote_description_ && IsOfferOrAnswer(native_desc)) {
@@ -1379,23 +1393,16 @@ RTCPeerConnectionHandler::remoteDescription() {
   return CreateWebKitSessionDescription(sdp, type);
 }
 
-bool RTCPeerConnectionHandler::updateICE(
-    const blink::WebRTCConfiguration& server_configuration) {
+bool RTCPeerConnectionHandler::setConfiguration(
+    const blink::WebRTCConfiguration& blink_config) {
   DCHECK(thread_checker_.CalledOnValidThread());
-  TRACE_EVENT0("webrtc", "RTCPeerConnectionHandler::updateICE");
-  webrtc::PeerConnectionInterface::RTCConfiguration config;
-  GetNativeRtcConfiguration(server_configuration, &config);
+  TRACE_EVENT0("webrtc", "RTCPeerConnectionHandler::setConfiguration");
+  GetNativeRtcConfiguration(blink_config, &configuration_);
 
   if (peer_connection_tracker_)
-    peer_connection_tracker_->TrackUpdateIce(this, config);
+    peer_connection_tracker_->TrackSetConfiguration(this, configuration_);
 
-  return native_peer_connection_->UpdateIce(config.servers);
-}
-
-void RTCPeerConnectionHandler::logSelectedRtcpMuxPolicy(
-    blink::RtcpMuxPolicy selectedRtcpMuxPolicy) {
-  UMA_HISTOGRAM_ENUMERATION("WebRTC.PeerConnection.SelectedRtcpMuxPolicy",
-                            selectedRtcpMuxPolicy, blink::RtcpMuxPolicyMax);
+  return native_peer_connection_->SetConfiguration(configuration_);
 }
 
 bool RTCPeerConnectionHandler::addICECandidate(
@@ -1421,10 +1428,9 @@ bool RTCPeerConnectionHandler::addICECandidate(
   DCHECK(thread_checker_.CalledOnValidThread());
   TRACE_EVENT0("webrtc", "RTCPeerConnectionHandler::addICECandidate");
   std::unique_ptr<webrtc::IceCandidateInterface> native_candidate(
-      dependency_factory_->CreateIceCandidate(
-          base::UTF16ToUTF8(base::StringPiece16(candidate.sdpMid())),
-          candidate.sdpMLineIndex(),
-          base::UTF16ToUTF8(base::StringPiece16(candidate.candidate()))));
+      dependency_factory_->CreateIceCandidate(candidate.sdpMid().utf8(),
+                                              candidate.sdpMLineIndex(),
+                                              candidate.candidate().utf8()));
   bool return_value = false;
 
   if (native_candidate) {
@@ -1450,7 +1456,7 @@ void RTCPeerConnectionHandler::OnaddICECandidateResult(
     // We don't have the actual error code from the libjingle, so for now
     // using a generic error string.
     return webkit_request.requestFailed(
-        base::UTF8ToUTF16("Error processing ICE candidate"));
+        blink::WebString::fromUTF8("Error processing ICE candidate"));
   }
 
   return webkit_request.requestSucceeded();
@@ -1602,8 +1608,7 @@ blink::WebRTCDataChannelHandler* RTCPeerConnectionHandler::createDataChannel(
     const blink::WebString& label, const blink::WebRTCDataChannelInit& init) {
   DCHECK(thread_checker_.CalledOnValidThread());
   TRACE_EVENT0("webrtc", "RTCPeerConnectionHandler::createDataChannel");
-  DVLOG(1) << "createDataChannel label "
-           << base::UTF16ToUTF8(base::StringPiece16(label));
+  DVLOG(1) << "createDataChannel label " << label.utf8();
 
   webrtc::DataChannelInit config;
   // TODO(jiayl): remove the deprecated reliable field once Libjingle is updated
@@ -1614,11 +1619,10 @@ blink::WebRTCDataChannelHandler* RTCPeerConnectionHandler::createDataChannel(
   config.negotiated = init.negotiated;
   config.maxRetransmits = init.maxRetransmits;
   config.maxRetransmitTime = init.maxRetransmitTime;
-  config.protocol = base::UTF16ToUTF8(base::StringPiece16(init.protocol));
+  config.protocol = init.protocol.utf8();
 
   rtc::scoped_refptr<webrtc::DataChannelInterface> webrtc_channel(
-      native_peer_connection_->CreateDataChannel(
-          base::UTF16ToUTF8(base::StringPiece16(label)), &config));
+      native_peer_connection_->CreateDataChannel(label.utf8(), &config));
   if (!webrtc_channel) {
     DLOG(ERROR) << "Could not create native data channel.";
     return NULL;
@@ -1782,30 +1786,28 @@ void RTCPeerConnectionHandler::OnAddStream(
   DCHECK(stream->webkit_stream().getExtraData()) << "Initialization not done";
   TRACE_EVENT0("webrtc", "RTCPeerConnectionHandler::OnAddStreamImpl");
 
-  // Ownership is with remote_streams_ now.
-  RemoteMediaStreamImpl* s = stream.release();
-  remote_streams_.insert(
-      std::pair<webrtc::MediaStreamInterface*, RemoteMediaStreamImpl*> (
-          s->webrtc_stream().get(), s));
+  RemoteMediaStreamImpl* stream_ptr = stream.get();
+  remote_streams_[stream_ptr->webrtc_stream().get()] = std::move(stream);
 
   if (peer_connection_tracker_) {
     peer_connection_tracker_->TrackAddStream(
-        this, s->webkit_stream(), PeerConnectionTracker::SOURCE_REMOTE);
+        this, stream_ptr->webkit_stream(),
+        PeerConnectionTracker::SOURCE_REMOTE);
   }
 
   PerSessionWebRTCAPIMetrics::GetInstance()->IncrementStreamCounter();
 
   track_metrics_.AddStream(MediaStreamTrackMetrics::RECEIVED_STREAM,
-                           s->webrtc_stream().get());
+                           stream_ptr->webrtc_stream().get());
   if (!is_closed_)
-    client_->didAddRemoteStream(s->webkit_stream());
+    client_->didAddRemoteStream(stream_ptr->webkit_stream());
 }
 
 void RTCPeerConnectionHandler::OnRemoveStream(
     const scoped_refptr<webrtc::MediaStreamInterface>& stream) {
   DCHECK(thread_checker_.CalledOnValidThread());
   TRACE_EVENT0("webrtc", "RTCPeerConnectionHandler::OnRemoveStreamImpl");
-  RemoteStreamMap::iterator it = remote_streams_.find(stream.get());
+  auto it = remote_streams_.find(stream.get());
   if (it == remote_streams_.end()) {
     NOTREACHED() << "Stream not found";
     return;
@@ -1815,7 +1817,7 @@ void RTCPeerConnectionHandler::OnRemoveStream(
                               stream.get());
   PerSessionWebRTCAPIMetrics::GetInstance()->DecrementStreamCounter();
 
-  std::unique_ptr<RemoteMediaStreamImpl> remote_stream(it->second);
+  std::unique_ptr<RemoteMediaStreamImpl> remote_stream = std::move(it->second);
   const blink::WebMediaStream& webkit_stream = remote_stream->webkit_stream();
   DCHECK(!webkit_stream.isNull());
   remote_streams_.erase(it);
@@ -1849,8 +1851,8 @@ void RTCPeerConnectionHandler::OnIceCandidate(
   DCHECK(thread_checker_.CalledOnValidThread());
   TRACE_EVENT0("webrtc", "RTCPeerConnectionHandler::OnIceCandidateImpl");
   blink::WebRTCICECandidate web_candidate;
-  web_candidate.initialize(base::UTF8ToUTF16(sdp),
-                           base::UTF8ToUTF16(sdp_mid),
+  web_candidate.initialize(blink::WebString::fromUTF8(sdp),
+                           blink::WebString::fromUTF8(sdp_mid),
                            sdp_mline_index);
   if (peer_connection_tracker_) {
     peer_connection_tracker_->TrackAddIceCandidate(

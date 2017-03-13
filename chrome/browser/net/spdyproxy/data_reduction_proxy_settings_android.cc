@@ -35,12 +35,6 @@ DataReductionProxySettingsAndroid::DataReductionProxySettingsAndroid() {
 DataReductionProxySettingsAndroid::~DataReductionProxySettingsAndroid() {
 }
 
-jboolean DataReductionProxySettingsAndroid::IsDataReductionProxyAllowed(
-    JNIEnv* env,
-    const JavaParamRef<jobject>& obj) {
-  return Settings()->Allowed();
-}
-
 jboolean DataReductionProxySettingsAndroid::IsDataReductionProxyPromoAllowed(
     JNIEnv* env,
     const JavaParamRef<jobject>& obj) {
@@ -114,6 +108,12 @@ DataReductionProxySettingsAndroid::GetContentLengths(
   return Java_ContentLengths_create(env,
                                     original_content_length,
                                     received_content_length);
+}
+
+jlong DataReductionProxySettingsAndroid::GetTotalHttpContentLengthSaved(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& obj) {
+  return Settings()->GetTotalHttpContentLengthSaved();
 }
 
 ScopedJavaLocalRef<jlongArray>

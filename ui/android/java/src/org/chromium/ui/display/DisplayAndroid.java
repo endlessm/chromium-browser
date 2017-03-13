@@ -4,11 +4,10 @@
 
 package org.chromium.ui.display;
 
-import android.annotation.TargetApi;
 import android.content.Context;
 import android.graphics.Point;
-import android.os.Build;
 import android.view.Display;
+import android.view.Surface;
 
 import java.util.WeakHashMap;
 
@@ -30,28 +29,58 @@ public class DisplayAndroid {
          * @param orientation One of Surface.ROTATION_* values.
          */
         void onRotationChanged(int rotation);
+
+        /**
+         * Called whenever the screen density changes.
+         *
+         * @param screen density, aka Density Independent Pixel scale.
+         */
+        void onDIPScaleChanged(float dipScale);
     }
 
     private static final DisplayAndroidObserver[] EMPTY_OBSERVER_ARRAY =
             new DisplayAndroidObserver[0];
 
-    private final int mSdkDisplayId;
     private final WeakHashMap<DisplayAndroidObserver, Object /* null */> mObservers;
     // Do NOT add strong references to objects with potentially complex lifetime, like Context.
 
-    // Updated by updateFromDisplay.
-    private final Point mSize;
-    private final Point mPhysicalSize;
+    private final int mDisplayId;
+    private Point mSize;
+    private Point mPhysicalSize;
+    private float mDipScale;
+    private int mBitsPerPixel;
+    private int mBitsPerComponent;
     private int mRotation;
 
-    private static DisplayAndroidManager getManager() {
+    protected static DisplayAndroidManager getManager() {
         return DisplayAndroidManager.getInstance();
     }
 
-    // Internal implementation. Should not be called outside of UI.
-    public static DisplayAndroid get(Context context) {
-        Display display = DisplayAndroidManager.getDisplayFromContext(context);
+    /**
+     * Get the non-multi-display DisplayAndroid for the given context. It's safe to call this with
+     * any type of context, including the Application.
+     *
+     * To support multi-display, obtain DisplayAndroid from WindowAndroid instead.
+     *
+     * This function is intended to be analogous to GetPrimaryDisplay() for other platforms.
+     * However, Android has historically had no real concept of a Primary Display, and instead uses
+     * the notion of a default display for an Activity. Under normal circumstances, this function,
+     * called with the correct context, will return the expected display for an Activity. However,
+     * virtual, or "fake", displays that are not associated with any context may be used in special
+     * cases, like Virtual Reality, and will lead to this function returning the incorrect display.
+     *
+     * @return What the Android WindowManager considers to be the default display for this context.
+     */
+    public static DisplayAndroid getNonMultiDisplay(Context context) {
+        Display display = DisplayAndroidManager.getDefaultDisplayForContext(context);
         return getManager().getDisplayAndroid(display);
+    }
+
+    /**
+     * @return Display id that does not necessarily match the one defined in Android's Display.
+     */
+    public int getDisplayId() {
+        return mDisplayId;
     }
 
     /**
@@ -90,6 +119,48 @@ public class DisplayAndroid {
     }
 
     /**
+     * @return current orientation in degrees. One of the values 0, 90, 180, 270.
+     */
+    /* package */ int getRotationDegrees() {
+        switch (getRotation()) {
+            case Surface.ROTATION_0:
+                return 0;
+            case Surface.ROTATION_90:
+                return 90;
+            case Surface.ROTATION_180:
+                return 180;
+            case Surface.ROTATION_270:
+                return 270;
+        }
+
+        // This should not happen.
+        assert false;
+        return 0;
+    }
+
+    /**
+     * @return A scaling factor for the Density Independent Pixel unit.
+     */
+    public float getDipScale() {
+        return mDipScale;
+    }
+
+    /**
+     * @return Number of bits per pixel.
+     */
+    /* package */ int getBitsPerPixel() {
+        return mBitsPerPixel;
+    }
+
+    /**
+     * @return Number of bits per each color component.
+     */
+    @SuppressWarnings("deprecation")
+    /* package */ int getBitsPerComponent() {
+        return mBitsPerComponent;
+    }
+
+    /**
      * Add observer. Note repeat observers will be called only one.
      * Observers are held only weakly by Display.
      */
@@ -117,39 +188,59 @@ public class DisplayAndroid {
      * this method is called as many times as startAccurateListening().
      */
     public static void stopAccurateListening() {
-        getManager().startAccurateListening();
+        getManager().stopAccurateListening();
     }
 
-    /* package */ DisplayAndroid(Display display) {
-        mSdkDisplayId = display.getDisplayId();
+    protected DisplayAndroid(int displayId) {
+        mDisplayId = displayId;
         mObservers = new WeakHashMap<>();
         mSize = new Point();
         mPhysicalSize = new Point();
-        updateFromDisplay(display);
     }
 
-    @TargetApi(Build.VERSION_CODES.JELLY_BEAN_MR1)
-    /* package */ void updateFromDisplay(Display display) {
-        display.getSize(mSize);
+    private DisplayAndroidObserver[] getObservers() {
+        // Makes a copy to allow concurrent edit.
+        return mObservers.keySet().toArray(EMPTY_OBSERVER_ARRAY);
+    }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1) {
-            display.getRealSize(mPhysicalSize);
-        }
+    /**
+     * Update the display to the provided parameters. Null values leave the parameter unchanged.
+     */
+    protected void update(Point size, Point physicalSize, Float dipScale, Integer bitsPerPixel,
+            Integer bitsPerComponent, Integer rotation) {
+        boolean sizeChanged = size != null && !mSize.equals(size);
+        boolean physicalSizeChanged = physicalSize != null && !mPhysicalSize.equals(physicalSize);
+        // Intentional comparison of floats: we assume that if scales differ, they differ
+        // significantly.
+        boolean dipScaleChanged = dipScale != null && mDipScale != dipScale;
+        boolean bitsPerPixelChanged = bitsPerPixel != null && mBitsPerPixel != bitsPerPixel;
+        boolean bitsPerComponentChanged = bitsPerComponent != null
+                && mBitsPerComponent != bitsPerComponent;
+        boolean rotationChanged = rotation != null && mRotation != rotation;
 
-        int newRotation = display.getRotation();
-        boolean rotationChanged = newRotation != mRotation;
-        mRotation = newRotation;
+        boolean changed = sizeChanged || physicalSizeChanged || dipScaleChanged
+                || bitsPerPixelChanged || bitsPerComponentChanged || rotationChanged;
+        if (!changed) return;
 
+        if (sizeChanged) mSize = size;
+        if (physicalSizeChanged) mPhysicalSize = physicalSize;
+        if (dipScaleChanged) mDipScale = dipScale;
+        if (bitsPerPixelChanged) mBitsPerPixel = bitsPerPixel;
+        if (bitsPerComponentChanged) mBitsPerComponent = bitsPerComponent;
+        if (rotationChanged) mRotation = rotation;
+
+        getManager().updateDisplayOnNativeSide(this);
         if (rotationChanged) {
             DisplayAndroidObserver[] observers = getObservers();
             for (DisplayAndroidObserver o : observers) {
                 o.onRotationChanged(mRotation);
             }
         }
-    }
-
-    private DisplayAndroidObserver[] getObservers() {
-        // Makes a copy to allow concurrent edit.
-        return mObservers.keySet().toArray(EMPTY_OBSERVER_ARRAY);
+        if (dipScaleChanged) {
+            DisplayAndroidObserver[] observers = getObservers();
+            for (DisplayAndroidObserver o : observers) {
+                o.onDIPScaleChanged(mDipScale);
+            }
+        }
     }
 }

@@ -7,25 +7,21 @@ define([
     "file",
     "gin/test/expect",
     "mojo/public/interfaces/bindings/tests/validation_test_interfaces.mojom",
+    "mojo/public/js/bindings",
     "mojo/public/js/buffer",
     "mojo/public/js/codec",
-    "mojo/public/js/connection",
-    "mojo/public/js/connector",
     "mojo/public/js/core",
     "mojo/public/js/test/validation_test_input_parser",
-    "mojo/public/js/router",
     "mojo/public/js/validator",
 ], function(console,
             file,
             expect,
             testInterface,
+            bindings,
             buffer,
             codec,
-            connection,
-            connector,
             core,
             parser,
-            router,
             validator) {
 
   var noError = validator.validationError.NONE;
@@ -38,7 +34,7 @@ define([
 
     TestMessageParserFailure.prototype.toString = function() {
       return 'Error: ' + this.message + ' for "' + this.input + '"';
-    }
+    };
 
     function checkData(data, expectedData, input) {
       if (data.byteLength != expectedData.byteLength) {
@@ -225,8 +221,6 @@ define([
     for (var i = 0; i < testFiles.length; i++) {
       // TODO(hansmuller) Temporarily skipping array pointer overflow tests
       // because JS numbers are limited to 53 bits.
-      // TODO(yzshen) Skipping struct versioning tests (tests with "mthd11"
-      // in the name) because the feature is not supported in JS yet.
       // TODO(rudominer): Temporarily skipping 'no-such-method',
       // 'invalid_request_flags', and 'invalid_response_flags' until additional
       // logic in *RequestValidator and *ResponseValidator is ported from
@@ -234,7 +228,6 @@ define([
       // TODO(crbug/640298): Implement max recursion depth for JS.
       // TODO(crbug/628104): Support struct map keys for JS.
       if (testFiles[i].indexOf("overflow") != -1 ||
-          testFiles[i].indexOf("mthd11") != -1 ||
           testFiles[i].indexOf("conformance_mthd19") != -1 ||
           testFiles[i].indexOf("conformance_mthd20") != -1 ||
           testFiles[i].indexOf("no_such_method") != -1 ||
@@ -277,18 +270,23 @@ define([
         testInterface.BoundsCheckTestInterface.validateResponse]);
   }
 
-  function testIntegratedMessageValidation(testFilesPattern,
-                                           localFactory,
-                                           remoteFactory) {
+  function testIntegratedMessageValidation(testFilesPattern, endpoint) {
     var testFiles = getMessageTestFiles(testFilesPattern);
     expect(testFiles.length).toBeGreaterThan(0);
 
     var testMessagePipe = core.createMessagePipe();
     expect(testMessagePipe.result).toBe(core.RESULT_OK);
-    var testConnection = new connection.TestConnection(
-        testMessagePipe.handle1, localFactory, remoteFactory);
+
+    endpoint.bind(testMessagePipe.handle1);
+    var testingController = endpoint.enableTestingMode();
+
+    var validationError;
+    testingController.setInvalidIncomingMessageHandler(function(error) {
+      validationError = error;
+    });
 
     for (var i = 0; i < testFiles.length; i++) {
+      validationError = noError;
       var testMessage = readTestMessage(testFiles[i]);
       var handles = new Array(testMessage.handleCount);
 
@@ -299,42 +297,32 @@ define([
           core.WRITE_MESSAGE_FLAG_NONE);
       expect(writeMessageValue).toBe(core.RESULT_OK);
 
-      var validationError = noError;
-      testConnection.router_.validationErrorHandler = function(err) {
-        validationError = err;
-      }
-
-      testConnection.router_.connector_.waitForNextMessage();
+      testingController.waitForNextMessage();
       checkValidationResult(testFiles[i], validationError);
     }
 
-    testConnection.close();
     expect(core.close(testMessagePipe.handle0)).toBe(core.RESULT_OK);
   }
 
   function testIntegratedMessageHeaderValidation() {
     testIntegratedMessageValidation(
         "integration_msghdr",
-        testInterface.IntegrationTestInterface.stubClass,
-        undefined);
+        new bindings.Binding(testInterface.IntegrationTestInterface, {}));
     testIntegratedMessageValidation(
         "integration_msghdr",
-        undefined,
-        testInterface.IntegrationTestInterface.proxyClass);
+        new testInterface.IntegrationTestInterfacePtr().ptr);
   }
 
   function testIntegratedRequestMessageValidation() {
     testIntegratedMessageValidation(
         "integration_intf_rqst",
-        testInterface.IntegrationTestInterface.stubClass,
-        undefined);
+        new bindings.Binding(testInterface.IntegrationTestInterface, {}));
   }
 
   function testIntegratedResponseMessageValidation() {
     testIntegratedMessageValidation(
         "integration_intf_resp",
-        undefined,
-        testInterface.IntegrationTestInterface.proxyClass);
+        new testInterface.IntegrationTestInterfacePtr().ptr);
   }
 
   expect(checkTestMessageParser()).toBeNull();

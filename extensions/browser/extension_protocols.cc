@@ -23,7 +23,7 @@
 #include "base/message_loop/message_loop.h"
 #include "base/metrics/field_trial.h"
 #include "base/metrics/histogram.h"
-#include "base/metrics/sparse_histogram.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/sha1.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
@@ -36,6 +36,7 @@
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/resource_request_info.h"
 #include "content/public/common/browser_side_navigation_policy.h"
+#include "content/public/common/resource_type.h"
 #include "crypto/secure_hash.h"
 #include "crypto/sha2.h"
 #include "extensions/browser/content_verifier.h"
@@ -65,12 +66,13 @@
 
 using content::BrowserThread;
 using content::ResourceRequestInfo;
-using content::ResourceType;
 using extensions::Extension;
 using extensions::SharedModuleInfo;
 
 namespace extensions {
 namespace {
+
+ExtensionProtocolTestHandler* g_test_handler = nullptr;
 
 class GeneratedBackgroundPageJob : public net::URLRequestSimpleJob {
  public:
@@ -369,7 +371,7 @@ bool AllowExtensionResourceLoad(net::URLRequest* request,
   // PlzNavigate: frame navigations to extensions have already been checked in
   // the ExtensionNavigationThrottle.
   if (info->GetChildID() == -1 &&
-      info->GetResourceType() == content::RESOURCE_TYPE_MAIN_FRAME &&
+      content::IsResourceTypeFrame(info->GetResourceType()) &&
       content::IsBrowserSideNavigationEnabled()) {
     return true;
   }
@@ -391,11 +393,12 @@ bool URLIsForExtensionIcon(const GURL& url, const Extension* extension) {
   if (!extension)
     return false;
 
-  std::string path = url.path();
   DCHECK_EQ(url.host(), extension->id());
+  base::StringPiece path = url.path_piece();
   DCHECK(path.length() > 0 && path[0] == '/');
-  path = path.substr(1);
-  return extensions::IconsInfo::GetIcons(extension).ContainsPath(path);
+  base::StringPiece path_without_slash = path.substr(1);
+  return extensions::IconsInfo::GetIcons(extension).ContainsPath(
+      path_without_slash);
 }
 
 class ExtensionProtocolHandler
@@ -522,6 +525,14 @@ ExtensionProtocolHandler::MaybeCreateJob(
       return NULL;
     }
   }
+
+  if (g_test_handler) {
+    net::URLRequestJob* test_job =
+        g_test_handler->Run(request, network_delegate, relative_path);
+    if (test_job)
+      return test_job;
+  }
+
   ContentVerifyJob* verify_job = NULL;
   ContentVerifier* verifier = extension_info_map_->content_verifier();
   if (verifier) {
@@ -587,6 +598,10 @@ CreateExtensionProtocolHandler(bool is_incognito,
                                extensions::InfoMap* extension_info_map) {
   return base::MakeUnique<ExtensionProtocolHandler>(is_incognito,
                                                     extension_info_map);
+}
+
+void SetExtensionProtocolTestHandler(ExtensionProtocolTestHandler* handler) {
+  g_test_handler = handler;
 }
 
 }  // namespace extensions

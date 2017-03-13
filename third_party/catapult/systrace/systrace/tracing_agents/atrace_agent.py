@@ -269,18 +269,16 @@ class AtraceAgent(tracing_agents.TracingAgent):
 
     if _FIX_THREAD_IDS:
       # Issue ps command to device and patch thread names
-      ps_dump = do_preprocess_adb_cmd('ps -T -o USER,TID,PPID,VSIZE,RSS'
-                                      ',WCHAN,ADDR=PC,S,CMD || ps -t',
-                                      self._config.device_serial_number)
+      ps_dump = '\n'.join(self._device_utils.RunShellCommand(
+          'ps -T -o USER,TID,PPID,VSIZE,RSS,WCHAN,ADDR=PC,S,CMD || ps -t'))
       if ps_dump is not None:
         thread_names = extract_thread_list(ps_dump)
         trace_data = fix_thread_names(trace_data, thread_names)
 
     if _FIX_MISSING_TGIDS:
       # Issue printf command to device and patch tgids
-      procfs_dump = do_preprocess_adb_cmd('printf "%s\n" ' +
-                                          '/proc/[0-9]*/task/[0-9]*',
-                                          self._config.device_serial_number)
+      procfs_dump = '\n'.join(self._device_utils.RunShellCommand(
+          'printf "%s\n" /proc/[0-9]*/task/[0-9]*'))
       if procfs_dump is not None:
         pid2_tgid = extract_tgids(procfs_dump)
         trace_data = fix_missing_tgids(trace_data, pid2_tgid)
@@ -349,9 +347,17 @@ def extract_thread_list(trace_text):
   """
 
   threads = {}
-  # start at line 1 to skip the top of the ps dump:
+  # Assume any line that starts with USER is the header
   text = trace_text.splitlines()
-  for line in text[1:]:
+  header = -1
+  for i, line in enumerate(text):
+    cols = line.split()
+    if len(cols) >= 8 and cols[0] == 'USER':
+      header = i
+      break
+  if header == -1:
+    return threads
+  for line in text[header + 1:]:
     cols = line.split(None, 8)
     if len(cols) == 9:
       tid = int(cols[1])
@@ -506,25 +512,6 @@ def fix_circular_traces(out):
     end_of_header = re.search(r'^[^#]', out, re.MULTILINE).start()
     out = out[:end_of_header] + out[start_of_full_trace:]
   return out
-
-def do_preprocess_adb_cmd(command, serial):
-  """Run an ADB command for preprocessing of output.
-
-  Run an ADB command and get the results. This function is used for
-  running commands relating to preprocessing of output data.
-
-  Args:
-      command: Command to run.
-      serial: Serial number of device.
-  """
-
-  args = [command]
-  dump, ret_code = util.run_adb_shell(args, serial)
-  if ret_code != 0:
-    return None
-
-  dump = ''.join(dump)
-  return dump
 
 
 class AtraceConfig(tracing_agents.TracingConfig):

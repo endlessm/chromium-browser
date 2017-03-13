@@ -33,12 +33,14 @@
 namespace blink {
 
 class Event;
-class TextTrackContainer;
+class MediaControlsMediaEventListener;
+class MediaControlsOrientationLockDelegate;
 class MediaControlsWindowEventListener;
+class ShadowRoot;
 
 class CORE_EXPORT MediaControls final : public HTMLDivElement {
  public:
-  static MediaControls* create(HTMLMediaElement&);
+  static MediaControls* create(HTMLMediaElement&, ShadowRoot&);
 
   HTMLMediaElement& mediaElement() const { return *m_mediaElement; }
 
@@ -48,35 +50,25 @@ class CORE_EXPORT MediaControls final : public HTMLDivElement {
   void hide();
   bool isVisible() const;
 
-  void playbackStarted();
-  void playbackProgressed();
-  void playbackStopped();
-
   void beginScrubbing();
   void endScrubbing();
 
   void updateCurrentTimeDisplay();
 
-  void updateVolume();
-
-  void changedClosedCaptionsVisibility();
-  void refreshClosedCaptionsButtonVisibility();
   void toggleTextTrackList();
+  void showTextTrackAtIndex(unsigned indexToEnable);
+  void disableShowingTextTracks();
 
-  void enteredFullscreen();
-  void exitedFullscreen();
+  // Called by the fullscreen buttons to toggle fulllscreen on/off.
+  void enterFullscreen();
+  void exitFullscreen();
 
-  void startedCasting();
-  void stoppedCasting();
-  void refreshCastButtonVisibility();
   void showOverlayCastButtonIfNeeded();
   // Update cast button visibility, but don't try to update our panel
   // button visibility for space.
   void refreshCastButtonVisibilityWithoutUpdate();
 
   void setAllowHiddenVolumeControls(bool);
-
-  void mediaElementFocused();
 
   // Returns the layout object for the part of the controls that should be
   // used for overlap checking during text track layout. May be null.
@@ -101,9 +93,28 @@ class CORE_EXPORT MediaControls final : public HTMLDivElement {
 
   bool overflowMenuVisible();
 
+  // TODO(mlamouri): this is temporary to notify the controls that an
+  // HTMLTrackElement failed to load because there is no web exposed way to
+  // be notified on the TextTrack object. See https://crbug.com/669977
+  void onTrackElementFailedToLoad() { onTextTracksAddedOrRemoved(); }
+
+  // TODO(mlamouri): the following methods will be able to become private when
+  // the controls have moved to modules/ and have access to RemotePlayback.
+  void onRemotePlaybackAvailabilityChanged() { refreshCastButtonVisibility(); }
+  void onRemotePlaybackConnecting() { startedCasting(); }
+  void onRemotePlaybackDisconnected() { stoppedCasting(); }
+
+  // TODO(mlamouri): this method is needed in order to notify the controls that
+  // the attribute have changed.
+  void onDisableRemotePlaybackAttributeChanged() {
+    refreshCastButtonVisibility();
+  }
+
   DECLARE_VIRTUAL_TRACE();
 
  private:
+  friend class MediaControlsMediaEventListener;
+  friend class MediaControlsOrientationLockDelegateTest;
   friend class MediaControlsTest;
 
   void invalidate(Element*);
@@ -147,6 +158,27 @@ class CORE_EXPORT MediaControls final : public HTMLDivElement {
   void defaultEventHandler(Event*) override;
   bool containsRelatedTarget(Event*);
 
+  // Methods called by MediaControlsMediaEventListener.
+  void onInsertedIntoDocument();
+  void onRemovedFromDocument();
+  void onVolumeChange();
+  void onFocusIn();
+  void onTimeUpdate();
+  void onDurationChange();
+  void onPlay();
+  void onPause();
+  void onTextTracksAddedOrRemoved();
+  void onTextTracksChanged();
+  void onError();
+  void onLoadedMetadata();
+  void onEnteredFullscreen();
+  void onExitedFullscreen();
+
+  // Internal cast related methods.
+  void startedCasting();
+  void stoppedCasting();
+  void refreshCastButtonVisibility();
+
   Member<HTMLMediaElement> m_mediaElement;
 
   // Media control elements.
@@ -171,17 +203,18 @@ class CORE_EXPORT MediaControls final : public HTMLDivElement {
   Member<MediaControlFullscreenButtonElement> m_fullscreenButton;
   Member<MediaControlDownloadButtonElement> m_downloadButton;
 
+  Member<MediaControlsMediaEventListener> m_mediaEventListener;
   Member<MediaControlsWindowEventListener> m_windowEventListener;
+  Member<MediaControlsOrientationLockDelegate> m_orientationLockDelegate;
 
-  Timer<MediaControls> m_hideMediaControlsTimer;
+  TaskRunnerTimer<MediaControls> m_hideMediaControlsTimer;
   unsigned m_hideTimerBehaviorFlags;
   bool m_isMouseOverControls : 1;
   bool m_isPausedForScrubbing : 1;
 
-  Timer<MediaControls> m_panelWidthChangedTimer;
+  TaskRunnerTimer<MediaControls> m_panelWidthChangedTimer;
   int m_panelWidth;
 
-  bool m_allowHiddenVolumeControls : 1;
   bool m_keepShowingUntilTimerFires : 1;
 };
 

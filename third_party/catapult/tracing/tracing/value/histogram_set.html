@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<!--
+Copyright 2016 The Chromium Authors. All rights reserved.
+Use of this source code is governed by a BSD-style license that can be
+found in the LICENSE file.
+-->
+
+<link rel="import" href="/tracing/base/iteration_helpers.html">
+<link rel="import" href="/tracing/value/histogram.html">
+
+<script>
+'use strict';
+
+tr.exportTo('tr.v', function() {
+  /*
+   * See HistogramSet.groupHistogramsRecursively() and
+   * tr-ui-b-grouping-table-groupby-picker.
+   */
+  class HistogramGrouping {
+    /**
+     * @param {string} key
+     * @param {!function(!tr.v.Histogram):string} callback
+     * @param {string=} opt_label
+     */
+    constructor(key, callback, opt_label) {
+      this.key = key;
+      this.callback = callback;
+      this.label = opt_label || key;
+    }
+  }
+
+  class HistogramSet {
+    constructor(opt_histograms) {
+      this.histogramsByGuid_ = new Map();
+      this.sharedDiagnosticsByGuid_ = new Map();
+
+      if (opt_histograms !== undefined) {
+        for (var hist of opt_histograms) {
+          this.addHistogram(hist);
+        }
+      }
+    }
+
+    /**
+     * @param {!tr.v.Histogram} hist
+     * @param {(!Object|!tr.v.d.DiagnosticMap)=} opt_diagnostics
+     */
+    addHistogram(hist, opt_diagnostics) {
+      if (this.histogramsByGuid_.has(hist.guid)) {
+        throw new Error('Cannot add same Histogram twice');
+      }
+
+      if (opt_diagnostics !== undefined) {
+        if (opt_diagnostics instanceof tr.v.d.DiagnosticMap) {
+          for (var [name, diagnostic] of opt_diagnostics) {
+            hist.diagnostics.set(name, diagnostic);
+          }
+        } else {
+          tr.b.iterItems(opt_diagnostics, (name, diagnostic) =>
+              hist.diagnostics.set(name, diagnostic));
+        }
+      }
+
+      this.histogramsByGuid_.set(hist.guid, hist);
+    }
+
+    /**
+     * Add a Diagnostic to all Histograms in this HistogramSet in such a way
+     * that it will only be serialized once rather than once per Histogram.
+     *
+     * @param {string} name
+     * @param {!tr.v.d.Diagnostic} diagnostic
+     */
+    addSharedDiagnostic(name, diagnostic) {
+      this.sharedDiagnosticsByGuid_.set(diagnostic.guid, diagnostic);
+
+      for (var hist of this) {
+        hist.diagnostics.set(name, diagnostic);
+      }
+    }
+
+    get length() {
+      return this.histogramsByGuid_.size;
+    }
+
+    * [Symbol.iterator]() {
+      for (var hist of this.histogramsByGuid_.values()) {
+        yield hist;
+      }
+    }
+
+    /**
+     * Filters Histograms by matching their name exactly.
+     *
+     * @param {string} name Histogram name.
+     * @return {!Array.<!tr.v.Histogram>}
+     */
+    getValuesNamed(name) {
+      return [...this].filter(h => h.name === name);
+    }
+
+    /**
+     * Lookup a Histogram by its guid.
+     *
+     * @param {string} guid
+     * @return {!tr.v.Histogram|undefined}
+     */
+    lookupHistogram(guid) {
+      return this.histogramsByGuid_.get(guid);
+    }
+
+    /**
+     * Lookup a Diagnostic by its guid.
+     *
+     * @param {string} guid
+     * @return {!tr.v.d.Diagnostic|undefined}
+     */
+    lookupDiagnostic(guid) {
+      return this.sharedDiagnosticsByGuid_.get(guid);
+    }
+
+    resolveRelatedHistograms() {
+      var histogramSet = this;
+      function handleDiagnosticMap(dm) {
+        for (var [name, diagnostic] of dm) {
+          if ((diagnostic instanceof tr.v.d.RelatedHistogramSet) ||
+              (diagnostic instanceof tr.v.d.RelatedHistogramMap)) {
+            diagnostic.resolve(histogramSet);
+          }
+        }
+      }
+
+      for (var hist of this) {
+        hist.diagnostics.resolveSharedDiagnostics(this);
+
+        handleDiagnosticMap(hist.diagnostics);
+
+        for (var dm of hist.nanDiagnosticMaps) {
+          handleDiagnosticMap(dm);
+        }
+
+        for (var bin of hist.allBins) {
+          for (var dm of bin.diagnosticMaps) {
+            handleDiagnosticMap(dm);
+          }
+        }
+      }
+    }
+
+    /**
+     * Convert dicts to either Histograms or shared Diagnostics.
+     * Does not resolve RelatedHistogramSet/RelatedHistogramMap diagnostics. See
+     * resolveRelatedHistograms().
+     *
+     * @param {!Object} dicts
+     */
+    importDicts(dicts) {
+      for (var dict of dicts) {
+        if (dict.type && tr.v.d.Diagnostic.findTypeInfoWithName(dict.type)) {
+          this.sharedDiagnosticsByGuid_.set(dict.guid,
+              tr.v.d.Diagnostic.fromDict(dict));
+        } else {
+          this.addHistogram(tr.v.Histogram.fromDict(dict));
+        }
+      }
+    }
+
+    /**
+     * Serialize all of the Histograms and shared Diagnostics to an Array of
+     * dictionaries.
+     *
+     * @return {!Array.<!Object>}
+     */
+    asDicts() {
+      var dicts = [];
+      for (var diagnostic of this.sharedDiagnosticsByGuid_.values()) {
+        dicts.push(diagnostic.asDict());
+      }
+      for (var hist of this) {
+        dicts.push(hist.asDict());
+      }
+      return dicts;
+    }
+
+    /**
+     * Find the Histograms that are not contained in any other Histograms'
+     * RelatedHistogramSet or RelatedHistogramMap diagnostics.
+     *
+     * @return {!Array.<!tr.v.Histogram>}
+     */
+    get sourceValues() {
+      var sourceValues = new Map(this.histogramsByGuid_);
+      // If a Histogram is in a RelatedHistogramSet or RelatedHistogramMap,
+      // which can be owned either by Values or by numeric samples, then it is
+      // not a source Histogram.
+      function deleteSourceValues(diagnosticMap) {
+        for (var [name, diagnostic] of diagnosticMap) {
+          if (diagnostic instanceof tr.v.d.RelatedHistogramSet) {
+            for (var relatedValue of diagnostic) {
+              sourceValues.delete(relatedValue.guid);
+            }
+          } else if (diagnostic instanceof tr.v.d.RelatedHistogramMap) {
+            for (var [name, relatedValue] of diagnostic) {
+              sourceValues.delete(relatedValue.guid);
+            }
+          }
+        }
+      }
+
+      for (var hist of this) {
+        deleteSourceValues(hist.diagnostics);
+        for (var dm of hist.nanDiagnosticMaps) {
+          deleteSourceValues(dm);
+        }
+        for (var b of hist.allBins) {
+          for (var dm of b.diagnosticMaps) {
+            deleteSourceValues(dm);
+          }
+        }
+      }
+      return new HistogramSet([...sourceValues.values()]);
+    }
+
+    /**
+     * Return a nested Map, whose keys are strings and leaf values are Arrays of
+     * Histograms.
+     * See GROUPINGS for example |groupings|.
+     * Groupings are skipped when |opt_skipGroupingCallback| is specified and
+     * returns true.
+     *
+     * @typedef {!Array.<tr.v.Histogram>} HistogramArray
+     * @typedef {!Map.<string,!(HistogramArray|HistogramArrayMap)>}
+     *   HistogramArrayMap
+     * @typedef {!Map.<string,!HistogramArray>} LeafHistogramArrayMap
+     *
+     * @param {!Array.<!tr.v.HistogramGrouping>} groupings
+     * @param {!function(!Grouping, !LeafHistogramArrayMap):boolean=}
+     *   opt_skipGroupingCallback
+     *
+     * @return {!(HistogramArray|HistogramArrayMap)}
+     */
+    groupHistogramsRecursively(groupings, opt_skipGroupingCallback) {
+      function recurse(histograms, level) {
+        if (level === groupings.length) {
+          return histograms;  // recursion base case
+        }
+
+        var grouping = groupings[level];
+        var groupedHistograms = tr.b.groupIntoMap(
+            histograms, grouping.callback);
+
+        if (opt_skipGroupingCallback && opt_skipGroupingCallback(
+              grouping, groupedHistograms)) {
+          return recurse(histograms, level + 1);
+        }
+
+        for (var [key, group] of groupedHistograms) {
+          groupedHistograms.set(key, recurse(group, level + 1));
+        }
+
+        return groupedHistograms;
+      }
+
+      return recurse([...this], 0);
+    }
+  }
+
+  // This does not contain storyGroupingKeys!
+  HistogramSet.GROUPINGS = {
+    HISTOGRAM_NAME: new HistogramGrouping('name', h => h.name),
+
+    BENCHMARK_NAME: new HistogramGrouping(
+        'benchmark',
+        h => tr.v.d.TelemetryInfo.getField(h, 'benchmarkName', '')),
+
+    BENCHMARK_START: new HistogramGrouping(
+        'time',
+        h => tr.v.d.TelemetryInfo.getField(h, 'benchmarkStartString', '')),
+
+    STORYSET_REPEAT: new HistogramGrouping(
+        'storyset_repeat',
+        h => tr.v.d.TelemetryInfo.getField(
+            h, 'storysetRepeatCounterLabel', 0),
+        'storyset repeat'),
+
+    STORY_REPEAT: new HistogramGrouping(
+        'story_repeat',
+        h => tr.v.d.TelemetryInfo.getField(
+            h, 'storyRepeatCounterLabel', 0),
+        'story repeat'),
+
+    STORY_NAME: new HistogramGrouping(
+        'story',
+        h => tr.v.d.TelemetryInfo.getField(h, 'storyDisplayName', '')),
+
+    LEGACY_TIR_LABEL: new HistogramGrouping(
+        'tir',
+        h => tr.v.d.TelemetryInfo.getField(h, 'legacyTIRLabel', '')),
+
+    MASTER_NAME: new HistogramGrouping(
+        'master',
+        h => tr.v.d.BuildbotInfo.getField(h, 'buildbotMasterName', '')),
+
+    SLAVE_NAME: new HistogramGrouping(
+        'bot',
+        h => tr.v.d.BuildbotInfo.getField(h, 'buildbotName', '')),
+
+    BUILD_NUMBER: new HistogramGrouping(
+        'build',
+        h => tr.v.d.BuildbotInfo.getField(h, 'buildNumber', '')),
+
+    DISPLAY_LABEL: new HistogramGrouping(
+        'label',
+        h => tr.v.d.TelemetryInfo.getField(h, 'displayLabel', 'Value'))
+  };
+
+  return {
+    HistogramGrouping,
+    HistogramSet,
+  };
+});
+</script>

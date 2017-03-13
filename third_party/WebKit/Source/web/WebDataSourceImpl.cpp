@@ -40,17 +40,21 @@
 
 namespace blink {
 
-WebDataSourceImpl* WebDataSourceImpl::create(LocalFrame* frame,
-                                             const ResourceRequest& request,
-                                             const SubstituteData& data) {
-  return new WebDataSourceImpl(frame, request, data);
+WebDataSourceImpl* WebDataSourceImpl::create(
+    LocalFrame* frame,
+    const ResourceRequest& request,
+    const SubstituteData& data,
+    ClientRedirectPolicy clientRedirectPolicy) {
+  DCHECK(frame);
+
+  return new WebDataSourceImpl(frame, request, data, clientRedirectPolicy);
 }
 
 const WebURLRequest& WebDataSourceImpl::originalRequest() const {
   return m_originalRequestWrapper;
 }
 
-const WebURLRequest& WebDataSourceImpl::request() const {
+const WebURLRequest& WebDataSourceImpl::getRequest() const {
   return m_requestWrapper;
 }
 
@@ -109,7 +113,7 @@ WebDataSource::ExtraData* WebDataSourceImpl::getExtraData() const {
 void WebDataSourceImpl::setExtraData(ExtraData* extraData) {
   // extraData can't be a std::unique_ptr because setExtraData is a WebKit API
   // function.
-  m_extraData = wrapUnique(extraData);
+  m_extraData = WTF::wrapUnique(extraData);
 }
 
 void WebDataSourceImpl::setNavigationStartTime(double navigationStart) {
@@ -136,10 +140,11 @@ WebNavigationType WebDataSourceImpl::toWebNavigationType(NavigationType type) {
 
 WebDataSourceImpl::WebDataSourceImpl(LocalFrame* frame,
                                      const ResourceRequest& request,
-                                     const SubstituteData& data)
-    : DocumentLoader(frame, request, data),
+                                     const SubstituteData& data,
+                                     ClientRedirectPolicy clientRedirectPolicy)
+    : DocumentLoader(frame, request, data, clientRedirectPolicy),
       m_originalRequestWrapper(DocumentLoader::originalRequest()),
-      m_requestWrapper(DocumentLoader::request()),
+      m_requestWrapper(DocumentLoader::getRequest()),
       m_responseWrapper(DocumentLoader::response()) {}
 
 WebDataSourceImpl::~WebDataSourceImpl() {

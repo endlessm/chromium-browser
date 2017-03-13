@@ -10,16 +10,17 @@
 
 #include "base/logging.h"
 #import "base/mac/scoped_nsobject.h"
+#include "base/memory/ptr_util.h"
 #include "base/strings/sys_string_conversions.h"
 #import "ios/web/navigation/crw_session_controller+private_constructors.h"
-#include "ios/web/navigation/crw_session_entry.h"
-#include "ios/web/navigation/navigation_item_impl.h"
+#import "ios/web/navigation/crw_session_entry.h"
+#import "ios/web/navigation/navigation_item_impl.h"
 #include "ios/web/public/referrer.h"
-#include "ios/web/public/test/test_browser_state.h"
+#include "ios/web/public/test/fakes/test_browser_state.h"
 #include "ios/web/public/test/test_web_thread_bundle.h"
 #import "net/base/mac/url_conversions.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "testing/gtest_mac.h"
+#import "testing/gtest_mac.h"
 #include "testing/platform_test.h"
 
 @interface CRWSessionController (Testing)
@@ -70,6 +71,21 @@ TEST_F(CRWSessionControllerTest, InitWithWindowName) {
   EXPECT_EQ(nil, [session_controller_ currentEntry]);
 }
 
+// Tests session controller state after setting a pending index.
+TEST_F(CRWSessionControllerTest, SetPendingIndex) {
+  [session_controller_ addPendingEntry:GURL("http://www.example.com")
+                              referrer:web::Referrer()
+                            transition:ui::PAGE_TRANSITION_TYPED
+                     rendererInitiated:NO];
+  [session_controller_ commitPendingEntry];
+
+  EXPECT_EQ(-1, [session_controller_ pendingEntryIndex]);
+  [session_controller_ setPendingEntryIndex:0];
+  EXPECT_EQ(0, [session_controller_ pendingEntryIndex]);
+  EXPECT_EQ([[session_controller_ entries] lastObject],
+            [session_controller_ pendingEntry]);
+}
+
 TEST_F(CRWSessionControllerTest, AddPendingEntry) {
   [session_controller_
         addPendingEntry:GURL("http://www.url.com")
@@ -104,6 +120,35 @@ TEST_F(CRWSessionControllerTest, AddPendingEntryWithCommittedEntries) {
   EXPECT_EQ(
       GURL("http://www.url.com/"),
       [session_controller_ currentURL]);
+}
+
+// Tests that adding a pending entry resets pending entry index.
+TEST_F(CRWSessionControllerTest, AddPendingEntryWithExisingPendingEntryIndex) {
+  [session_controller_ addPendingEntry:GURL("http://www.example.com")
+                              referrer:web::Referrer()
+                            transition:ui::PAGE_TRANSITION_TYPED
+                     rendererInitiated:NO];
+  [session_controller_ commitPendingEntry];
+  [session_controller_ addPendingEntry:GURL("http://www.example.com/0")
+                              referrer:web::Referrer()
+                            transition:ui::PAGE_TRANSITION_TYPED
+                     rendererInitiated:NO];
+  [session_controller_ commitPendingEntry];
+
+  // Set 0 as pending entry index.
+  [session_controller_ setPendingEntryIndex:0];
+  EXPECT_EQ(GURL("http://www.example.com/"),
+            [[session_controller_ pendingEntry] navigationItem]->GetURL());
+  EXPECT_EQ(0, [session_controller_ pendingEntryIndex]);
+
+  // Add a pending entry, which should drop pending navigation index.
+  [session_controller_ addPendingEntry:GURL("http://www.example.com/1")
+                              referrer:web::Referrer()
+                            transition:ui::PAGE_TRANSITION_TYPED
+                     rendererInitiated:NO];
+  EXPECT_EQ(GURL("http://www.example.com/1"),
+            [[session_controller_ pendingEntry] navigationItem]->GetURL());
+  EXPECT_EQ(-1, [session_controller_ pendingEntryIndex]);
 }
 
 TEST_F(CRWSessionControllerTest, AddPendingEntryOverriding) {
@@ -202,6 +247,23 @@ TEST_F(CRWSessionControllerTest, AddPendingEntryAndDiscard) {
   EXPECT_EQ(nil, [session_controller_ currentEntry]);
 }
 
+// Tests discarding pending entry added via |setPendingEntryIndex:| call.
+TEST_F(CRWSessionControllerTest, SetPendingEntryIndexAndDiscard) {
+  [session_controller_ addPendingEntry:GURL("http://www.example.com")
+                              referrer:web::Referrer()
+                            transition:ui::PAGE_TRANSITION_TYPED
+                     rendererInitiated:NO];
+  [session_controller_ commitPendingEntry];
+
+  [session_controller_ setPendingEntryIndex:0];
+  EXPECT_TRUE([session_controller_ pendingEntry]);
+  EXPECT_EQ(0, [session_controller_ pendingEntryIndex]);
+
+  [session_controller_ discardNonCommittedEntries];
+  EXPECT_FALSE([session_controller_ pendingEntry]);
+  EXPECT_EQ(-1, [session_controller_ pendingEntryIndex]);
+}
+
 TEST_F(CRWSessionControllerTest, AddPendingEntryAndDiscardAndAddAndCommit) {
   [session_controller_
         addPendingEntry:GURL("http://www.url.com")
@@ -277,6 +339,82 @@ TEST_F(CRWSessionControllerTest,
       [session_controller_ currentEntry]);
 }
 
+// Tests that forward entries are discarded after navigation entry is committed.
+TEST_F(CRWSessionControllerTest, CommitPendingEntryWithExistingForwardEntries) {
+  // Make 3 entries.
+  [session_controller_ addPendingEntry:GURL("http://www.example.com/0")
+                              referrer:MakeReferrer("http://www.example.com/a")
+                            transition:ui::PAGE_TRANSITION_LINK
+                     rendererInitiated:YES];
+  [session_controller_ commitPendingEntry];
+  [session_controller_ addPendingEntry:GURL("http://www.example.com/1")
+                              referrer:MakeReferrer("http://www.example.com/b")
+                            transition:ui::PAGE_TRANSITION_LINK
+                     rendererInitiated:YES];
+  [session_controller_ commitPendingEntry];
+  [session_controller_ addPendingEntry:GURL("http://www.example.com/2")
+                              referrer:MakeReferrer("http://www.example.com/c")
+                            transition:ui::PAGE_TRANSITION_LINK
+                     rendererInitiated:YES];
+  [session_controller_ commitPendingEntry];
+
+  // Go back to the first entry.
+  [session_controller_ goToEntryAtIndex:0];
+
+  // Create and commit a new pending entry.
+  [session_controller_ addPendingEntry:GURL("http://www.example.com/2")
+                              referrer:MakeReferrer("http://www.example.com/c")
+                            transition:ui::PAGE_TRANSITION_LINK
+                     rendererInitiated:YES];
+  [session_controller_ commitPendingEntry];
+
+  // All forward entries should go away.
+  EXPECT_EQ(2U, [[session_controller_ entries] count]);
+  EXPECT_EQ(0U, [[session_controller_ forwardEntries] count]);
+  ASSERT_EQ(1, [session_controller_ currentNavigationIndex]);
+  ASSERT_EQ(0, [session_controller_ previousNavigationIndex]);
+}
+
+// Tests committing pending entry index from the middle.
+TEST_F(CRWSessionControllerTest, CommitPendingEntryIndex) {
+  [session_controller_ addPendingEntry:GURL("http://www.example.com/0")
+                              referrer:web::Referrer()
+                            transition:ui::PAGE_TRANSITION_TYPED
+                     rendererInitiated:NO];
+  [session_controller_ commitPendingEntry];
+  [session_controller_ addPendingEntry:GURL("http://www.example.com/1")
+                              referrer:web::Referrer()
+                            transition:ui::PAGE_TRANSITION_TYPED
+                     rendererInitiated:NO];
+  [session_controller_ commitPendingEntry];
+  [session_controller_ addPendingEntry:GURL("http://www.example.com/2")
+                              referrer:web::Referrer()
+                            transition:ui::PAGE_TRANSITION_TYPED
+                     rendererInitiated:NO];
+  [session_controller_ commitPendingEntry];
+  ASSERT_EQ(3U, [[session_controller_ entries] count]);
+
+  // Go to the middle, and commit first pending entry index.
+  [session_controller_ goToEntryAtIndex:1];
+  [session_controller_ setPendingEntryIndex:0];
+  ASSERT_EQ(0, [session_controller_ pendingEntryIndex]);
+  base::scoped_nsobject<CRWSessionEntry> pendingEntry(
+      [[session_controller_ pendingEntry] retain]);
+  ASSERT_TRUE(pendingEntry);
+  ASSERT_EQ(1, [session_controller_ currentNavigationIndex]);
+  EXPECT_EQ(2, [session_controller_ previousNavigationIndex]);
+  [session_controller_ commitPendingEntry];
+
+  // Verify that pending entry has been committed and current and previous entry
+  // indices updated.
+  EXPECT_EQ(pendingEntry, [session_controller_ lastCommittedEntry]);
+  EXPECT_EQ(-1, [session_controller_ pendingEntryIndex]);
+  EXPECT_FALSE([session_controller_ pendingEntry]);
+  EXPECT_EQ(0, [session_controller_ currentNavigationIndex]);
+  EXPECT_EQ(1, [session_controller_ previousNavigationIndex]);
+  EXPECT_EQ(3U, [[session_controller_ entries] count]);
+}
+
 TEST_F(CRWSessionControllerTest,
        DiscardPendingEntryWithoutPendingOrCommittedEntry) {
   [session_controller_ discardNonCommittedEntries];
@@ -348,403 +486,203 @@ TEST_F(CRWSessionControllerTest,
       [session_controller_ currentEntry]);
 }
 
-TEST_F(CRWSessionControllerTest, GoBackWithoutCommitedEntry) {
-  [session_controller_ goBack];
+// Tests inserting session controller state.
+TEST_F(CRWSessionControllerTest, InsertState) {
+  // Add 1 committed and 1 pending entry to target controller.
+  [session_controller_ addPendingEntry:GURL("http://www.url.com/2")
+                              referrer:web::Referrer()
+                            transition:ui::PAGE_TRANSITION_TYPED
+                     rendererInitiated:NO];
+  [session_controller_ commitPendingEntry];
+  [session_controller_ addPendingEntry:GURL("http://www.url.com/3")
+                              referrer:web::Referrer()
+                            transition:ui::PAGE_TRANSITION_TYPED
+                     rendererInitiated:NO];
 
+  // Create source session controller with 1 committed entry.
+  base::scoped_nsobject<CRWSessionController> other_session_controller(
+      [[CRWSessionController alloc] initWithWindowName:nil
+                                              openerId:nil
+                                           openedByDOM:NO
+                                 openerNavigationIndex:0
+                                          browserState:&browser_state_]);
+  [other_session_controller setWindowName:@"test-window"];
+  [other_session_controller addPendingEntry:GURL("http://www.url.com/0")
+                                   referrer:web::Referrer()
+                                 transition:ui::PAGE_TRANSITION_TYPED
+                          rendererInitiated:NO];
+  [other_session_controller commitPendingEntry];
+  [other_session_controller addPendingEntry:GURL("http://www.url.com/1")
+                                   referrer:web::Referrer()
+                                 transition:ui::PAGE_TRANSITION_TYPED
+                          rendererInitiated:NO];
+
+  // Insert and verify the state of target session controller.
+  [session_controller_
+      insertStateFromSessionController:other_session_controller.get()];
+
+  EXPECT_NSEQ(@"test-window", [session_controller_ windowName]);
+  EXPECT_EQ(2U, [[session_controller_ entries] count]);
+  EXPECT_EQ(1, [session_controller_ currentNavigationIndex]);
+  EXPECT_EQ(-1, [session_controller_ previousNavigationIndex]);
+  EXPECT_EQ(-1, [session_controller_ pendingEntryIndex]);
+
+  EXPECT_EQ(GURL("http://www.url.com/0"),
+            [session_controller_ URLForSessionAtIndex:0]);
+  EXPECT_EQ(GURL("http://www.url.com/2"),
+            [session_controller_ URLForSessionAtIndex:1]);
+  EXPECT_EQ(GURL("http://www.url.com/3"),
+            [[session_controller_ pendingEntry] navigationItem]->GetURL());
+}
+
+// Tests inserting session controller state from empty session controller.
+TEST_F(CRWSessionControllerTest, InsertStateFromEmptySessionController) {
+  // Add 2 committed entries to target controller.
+  [session_controller_ addPendingEntry:GURL("http://www.url.com/0")
+                              referrer:web::Referrer()
+                            transition:ui::PAGE_TRANSITION_TYPED
+                     rendererInitiated:NO];
+  [session_controller_ commitPendingEntry];
+  [session_controller_ addPendingEntry:GURL("http://www.url.com/1")
+                              referrer:web::Referrer()
+                            transition:ui::PAGE_TRANSITION_TYPED
+                     rendererInitiated:NO];
+  [session_controller_ commitPendingEntry];
+
+  // Create empty source session controller.
+  base::scoped_nsobject<CRWSessionController> other_session_controller(
+      [[CRWSessionController alloc] initWithWindowName:nil
+                                              openerId:nil
+                                           openedByDOM:NO
+                                 openerNavigationIndex:0
+                                          browserState:&browser_state_]);
+  [other_session_controller setWindowName:@"test-window"];
+
+  // Insert and verify the state of target session controller.
+  [session_controller_
+      insertStateFromSessionController:other_session_controller.get()];
+
+  EXPECT_NSEQ(@"test-window", [session_controller_ windowName]);
+  EXPECT_EQ(2U, [[session_controller_ entries] count]);
+  EXPECT_EQ(1, [session_controller_ currentNavigationIndex]);
+  EXPECT_EQ(0, [session_controller_ previousNavigationIndex]);
+  EXPECT_EQ(-1, [session_controller_ pendingEntryIndex]);
+  EXPECT_FALSE([session_controller_ pendingEntry]);
+  EXPECT_EQ(GURL("http://www.url.com/0"),
+            [session_controller_ URLForSessionAtIndex:0]);
+  EXPECT_EQ(GURL("http://www.url.com/1"),
+            [session_controller_ URLForSessionAtIndex:1]);
+}
+
+// Tests inserting session controller state to empty session controller.
+TEST_F(CRWSessionControllerTest, InsertStateToEmptySessionController) {
+  // Create source session controller with 2 committed entries and one
+  // pending entry.
+  base::scoped_nsobject<CRWSessionController> other_session_controller(
+      [[CRWSessionController alloc] initWithWindowName:nil
+                                              openerId:nil
+                                           openedByDOM:NO
+                                 openerNavigationIndex:0
+                                          browserState:&browser_state_]);
+  [other_session_controller setWindowName:@"test-window"];
+  [other_session_controller addPendingEntry:GURL("http://www.url.com/0")
+                                   referrer:web::Referrer()
+                                 transition:ui::PAGE_TRANSITION_TYPED
+                          rendererInitiated:NO];
+  [other_session_controller commitPendingEntry];
+  [other_session_controller addPendingEntry:GURL("http://www.url.com/1")
+                                   referrer:web::Referrer()
+                                 transition:ui::PAGE_TRANSITION_TYPED
+                          rendererInitiated:NO];
+  [other_session_controller commitPendingEntry];
+  [other_session_controller addPendingEntry:GURL("http://www.url.com/2")
+                                   referrer:web::Referrer()
+                                 transition:ui::PAGE_TRANSITION_TYPED
+                          rendererInitiated:NO];
+
+  // Insert and verify the state of target session controller.
+  [session_controller_
+      insertStateFromSessionController:other_session_controller.get()];
+
+  EXPECT_NSEQ(@"test-window", [session_controller_ windowName]);
+  EXPECT_EQ(2U, [[session_controller_ entries] count]);
+  EXPECT_EQ(1, [session_controller_ currentNavigationIndex]);
+  EXPECT_EQ(-1, [session_controller_ previousNavigationIndex]);
+  EXPECT_EQ(-1, [session_controller_ pendingEntryIndex]);
+  EXPECT_FALSE([session_controller_ pendingEntry]);
+  EXPECT_EQ(GURL("http://www.url.com/0"),
+            [session_controller_ URLForSessionAtIndex:0]);
+  EXPECT_EQ(GURL("http://www.url.com/1"),
+            [session_controller_ URLForSessionAtIndex:1]);
+}
+
+// Tests inserting session controller state. Verifies that pending entry index
+// remains valid.
+TEST_F(CRWSessionControllerTest,
+       InsertStateWithPendingEntryIndexInTargetController) {
+  // Add 2 committed entries and make the first entry pending.
+  [session_controller_ addPendingEntry:GURL("http://www.url.com/2")
+                              referrer:web::Referrer()
+                            transition:ui::PAGE_TRANSITION_TYPED
+                     rendererInitiated:NO];
+  [session_controller_ commitPendingEntry];
+  [session_controller_ addPendingEntry:GURL("http://www.url.com/3")
+                              referrer:web::Referrer()
+                            transition:ui::PAGE_TRANSITION_TYPED
+                     rendererInitiated:NO];
+  [session_controller_ commitPendingEntry];
+  [session_controller_ setPendingEntryIndex:0];
+
+  // Create source session controller with 1 committed entry.
+  base::scoped_nsobject<CRWSessionController> other_session_controller(
+      [[CRWSessionController alloc] initWithWindowName:nil
+                                              openerId:nil
+                                           openedByDOM:NO
+                                 openerNavigationIndex:0
+                                          browserState:&browser_state_]);
+  [other_session_controller setWindowName:@"test-window"];
+  [other_session_controller addPendingEntry:GURL("http://www.url.com/0")
+                                   referrer:web::Referrer()
+                                 transition:ui::PAGE_TRANSITION_TYPED
+                          rendererInitiated:NO];
+  [other_session_controller commitPendingEntry];
+
+  // Insert and verify the state of target session controller.
+  [session_controller_
+      insertStateFromSessionController:other_session_controller.get()];
+
+  EXPECT_NSEQ(@"test-window", [session_controller_ windowName]);
+  EXPECT_EQ(3U, [[session_controller_ entries] count]);
+  EXPECT_EQ(2, [session_controller_ currentNavigationIndex]);
+  EXPECT_EQ(-1, [session_controller_ previousNavigationIndex]);
+  EXPECT_EQ(1, [session_controller_ pendingEntryIndex]);
+  EXPECT_EQ(GURL("http://www.url.com/0"),
+            [session_controller_ URLForSessionAtIndex:0]);
+  EXPECT_EQ(GURL("http://www.url.com/2"),
+            [session_controller_ URLForSessionAtIndex:1]);
+  EXPECT_EQ(GURL("http://www.url.com/2"),
+            [[session_controller_ pendingEntry] navigationItem]->GetURL());
+}
+
+// Tests state of an empty session controller.
+TEST_F(CRWSessionControllerTest, EmptyController) {
   EXPECT_EQ(0U, [[session_controller_ entries] count]);
-  EXPECT_EQ(nil, [session_controller_ currentEntry]);
+  EXPECT_EQ(-1, [session_controller_ currentNavigationIndex]);
+  EXPECT_EQ(-1, [session_controller_ previousNavigationIndex]);
+  EXPECT_FALSE([session_controller_ currentEntry]);
+  EXPECT_FALSE([session_controller_ pendingEntry]);
+  EXPECT_EQ(-1, [session_controller_ pendingEntryIndex]);
 }
 
-TEST_F(CRWSessionControllerTest, GoBackWithSingleCommitedEntry) {
-  [session_controller_
-        addPendingEntry:GURL("http://www.url.com")
-               referrer:MakeReferrer("http://www.referer.com")
-             transition:ui::PAGE_TRANSITION_TYPED
-      rendererInitiated:NO];
-  [session_controller_ commitPendingEntry];
-
-  [session_controller_ goBack];
-
-  EXPECT_EQ(1U, [[session_controller_ entries] count]);
-  EXPECT_EQ(
-      GURL("http://www.url.com/"),
-      [session_controller_ URLForSessionAtIndex:0U]);
-  EXPECT_EQ(
-      [[session_controller_ entries] objectAtIndex:0U],
-      [session_controller_ currentEntry]);
-}
-
-TEST_F(CRWSessionControllerTest, GoBackFromTheEnd) {
-  [session_controller_
-        addPendingEntry:GURL("http://www.url.com")
-               referrer:MakeReferrer("http://www.referer.com")
-             transition:ui::PAGE_TRANSITION_TYPED
-      rendererInitiated:NO];
-  [session_controller_ commitPendingEntry];
-  [session_controller_
-        addPendingEntry:GURL("http://www.url2.com")
-               referrer:MakeReferrer("http://www.referer.com")
-             transition:ui::PAGE_TRANSITION_TYPED
-      rendererInitiated:NO];
-  [session_controller_ commitPendingEntry];
-
-  [session_controller_ goBack];
-
-  EXPECT_EQ(2U, [[session_controller_ entries] count]);
-  EXPECT_EQ(
-      GURL("http://www.url.com/"),
-      [session_controller_ URLForSessionAtIndex:0U]);
-  EXPECT_EQ(
-      GURL("http://www.url2.com/"),
-      [session_controller_ URLForSessionAtIndex:1U]);
-  EXPECT_EQ(
-      [[session_controller_ entries] objectAtIndex:0U],
-      [session_controller_ currentEntry]);
-}
-
-TEST_F(CRWSessionControllerTest, GoBackFromTheBeginning) {
-  [session_controller_
-        addPendingEntry:GURL("http://www.url.com")
-               referrer:MakeReferrer("http://www.referer.com")
-             transition:ui::PAGE_TRANSITION_TYPED
-      rendererInitiated:NO];
-  [session_controller_ commitPendingEntry];
-  [session_controller_
-        addPendingEntry:GURL("http://www.url2.com")
-               referrer:MakeReferrer("http://www.referer.com")
-             transition:ui::PAGE_TRANSITION_TYPED
-      rendererInitiated:NO];
-  [session_controller_ commitPendingEntry];
-
-  [session_controller_ goBack];
-  [session_controller_ goBack];
-
-  EXPECT_EQ(2U, [[session_controller_ entries] count]);
-  EXPECT_EQ(
-      GURL("http://www.url.com/"),
-      [session_controller_ URLForSessionAtIndex:0U]);
-  EXPECT_EQ(
-      GURL("http://www.url2.com/"),
-      [session_controller_ URLForSessionAtIndex:1U]);
-  EXPECT_EQ(
-      [[session_controller_ entries] objectAtIndex:0U],
-      [session_controller_ currentEntry]);
-}
-
-TEST_F(CRWSessionControllerTest, GoBackFromTheMiddle) {
-  [session_controller_
-        addPendingEntry:GURL("http://www.url.com")
-               referrer:MakeReferrer("http://www.referer.com")
-             transition:ui::PAGE_TRANSITION_TYPED
-      rendererInitiated:NO];
-  [session_controller_ commitPendingEntry];
-  [session_controller_
-        addPendingEntry:GURL("http://www.url2.com")
-               referrer:MakeReferrer("http://www.referer.com")
-             transition:ui::PAGE_TRANSITION_TYPED
-      rendererInitiated:NO];
-  [session_controller_ commitPendingEntry];
-  [session_controller_
-        addPendingEntry:GURL("http://www.url3.com")
-               referrer:MakeReferrer("http://www.referer.com")
-             transition:ui::PAGE_TRANSITION_TYPED
-      rendererInitiated:NO];
-  [session_controller_ commitPendingEntry];
-  [session_controller_
-        addPendingEntry:GURL("http://www.url4.com")
-               referrer:MakeReferrer("http://www.referer.com")
-             transition:ui::PAGE_TRANSITION_TYPED
-      rendererInitiated:NO];
-  [session_controller_ commitPendingEntry];
-
-  [session_controller_ goBack];
-  [session_controller_ goBack];
-
-  EXPECT_EQ(4U, [[session_controller_ entries] count]);
-  EXPECT_EQ(
-      GURL("http://www.url.com/"),
-      [session_controller_ URLForSessionAtIndex:0U]);
-  EXPECT_EQ(
-      GURL("http://www.url2.com/"),
-      [session_controller_ URLForSessionAtIndex:1U]);
-  EXPECT_EQ(
-      GURL("http://www.url3.com/"),
-      [session_controller_ URLForSessionAtIndex:2U]);
-  EXPECT_EQ(
-      GURL("http://www.url4.com/"),
-      [session_controller_ URLForSessionAtIndex:3U]);
-  EXPECT_EQ(
-      [[session_controller_ entries] objectAtIndex:1U],
-      [session_controller_ currentEntry]);
-}
-
-TEST_F(CRWSessionControllerTest, GoBackAndRemove) {
-  [session_controller_
-   addPendingEntry:GURL("http://www.url.com")
-   referrer:MakeReferrer("http://www.referer.com")
-   transition:ui::PAGE_TRANSITION_TYPED
-   rendererInitiated:NO];
-  [session_controller_ commitPendingEntry];
-  [session_controller_
-   addPendingEntry:GURL("http://www.url2.com")
-   referrer:MakeReferrer("http://www.referer.com")
-   transition:ui::PAGE_TRANSITION_TYPED
-   rendererInitiated:NO];
-  [session_controller_ commitPendingEntry];
-
-  [session_controller_ goBack];
-  [session_controller_ removeEntryAtIndex:1];
-
-  EXPECT_EQ(1U, [[session_controller_ entries] count]);
-  EXPECT_EQ(
-            GURL("http://www.url.com/"),
-            [session_controller_ URLForSessionAtIndex:0U]);
-  EXPECT_EQ(
-            [[session_controller_ entries] objectAtIndex:0U],
-            [session_controller_ currentEntry]);
-  EXPECT_EQ([session_controller_ currentEntry],
-            [session_controller_ previousEntry]);
-}
-
-TEST_F(CRWSessionControllerTest, GoForwardWithoutCommitedEntry) {
-  [session_controller_ goForward];
-
-  EXPECT_EQ(0U, [[session_controller_ entries] count]);
-  EXPECT_EQ(nil, [session_controller_ currentEntry]);
-}
-
-TEST_F(CRWSessionControllerTest, GoForwardWithSingleCommitedEntry) {
-  [session_controller_
-        addPendingEntry:GURL("http://www.url.com")
-               referrer:MakeReferrer("http://www.referer.com")
-             transition:ui::PAGE_TRANSITION_TYPED
-      rendererInitiated:NO];
-  [session_controller_ commitPendingEntry];
-
-  [session_controller_ goForward];
-
-  EXPECT_EQ(1U, [[session_controller_ entries] count]);
-  EXPECT_EQ(
-      GURL("http://www.url.com/"),
-      [session_controller_ URLForSessionAtIndex:0U]);
-  EXPECT_EQ(
-      [[session_controller_ entries] objectAtIndex:0U],
-      [session_controller_ currentEntry]);
-}
-
-TEST_F(CRWSessionControllerTest, GoForewardFromTheEnd) {
-  [session_controller_
-        addPendingEntry:GURL("http://www.url.com")
-               referrer:MakeReferrer("http://www.referer.com")
-             transition:ui::PAGE_TRANSITION_TYPED
-      rendererInitiated:NO];
-  [session_controller_ commitPendingEntry];
-  [session_controller_
-        addPendingEntry:GURL("http://www.url2.com")
-               referrer:MakeReferrer("http://www.referer.com")
-             transition:ui::PAGE_TRANSITION_TYPED
-      rendererInitiated:NO];
-  [session_controller_ commitPendingEntry];
-
-  [session_controller_ goForward];
-
-  EXPECT_EQ(2U, [[session_controller_ entries] count]);
-  EXPECT_EQ(
-      GURL("http://www.url.com/"),
-      [session_controller_ URLForSessionAtIndex:0U]);
-  EXPECT_EQ(
-      GURL("http://www.url2.com/"),
-      [session_controller_ URLForSessionAtIndex:1U]);
-  EXPECT_EQ(
-      [[session_controller_ entries] objectAtIndex:1U],
-      [session_controller_ currentEntry]);
-}
-
-TEST_F(CRWSessionControllerTest, GoForewardFromTheBeginning) {
-  [session_controller_
-        addPendingEntry:GURL("http://www.url.com")
-               referrer:MakeReferrer("http://www.referer.com")
-             transition:ui::PAGE_TRANSITION_TYPED
-      rendererInitiated:NO];
-  [session_controller_ commitPendingEntry];
-  [session_controller_
-        addPendingEntry:GURL("http://www.url2.com")
-               referrer:MakeReferrer("http://www.referer.com")
-             transition:ui::PAGE_TRANSITION_TYPED
-      rendererInitiated:NO];
-  [session_controller_ commitPendingEntry];
-
-  [session_controller_ goBack];
-  [session_controller_ goForward];
-
-  EXPECT_EQ(2U, [[session_controller_ entries] count]);
-  EXPECT_EQ(
-      GURL("http://www.url.com/"),
-      [session_controller_ URLForSessionAtIndex:0U]);
-  EXPECT_EQ(
-      GURL("http://www.url2.com/"),
-      [session_controller_ URLForSessionAtIndex:1U]);
-  EXPECT_EQ(
-      [[session_controller_ entries] objectAtIndex:1U],
-      [session_controller_ currentEntry]);
-}
-
-TEST_F(CRWSessionControllerTest, GoForwardFromTheMiddle) {
-  [session_controller_
-        addPendingEntry:GURL("http://www.url.com")
-               referrer:MakeReferrer("http://www.referer.com")
-             transition:ui::PAGE_TRANSITION_TYPED
-      rendererInitiated:NO];
-  [session_controller_ commitPendingEntry];
-  [session_controller_
-        addPendingEntry:GURL("http://www.url2.com")
-               referrer:MakeReferrer("http://www.referer.com")
-             transition:ui::PAGE_TRANSITION_TYPED
-      rendererInitiated:NO];
-  [session_controller_ commitPendingEntry];
-  [session_controller_
-        addPendingEntry:GURL("http://www.url3.com")
-               referrer:MakeReferrer("http://www.referer.com")
-             transition:ui::PAGE_TRANSITION_TYPED
-      rendererInitiated:NO];
-  [session_controller_ commitPendingEntry];
-  [session_controller_
-        addPendingEntry:GURL("http://www.url4.com")
-               referrer:MakeReferrer("http://www.referer.com")
-             transition:ui::PAGE_TRANSITION_TYPED
-      rendererInitiated:NO];
-  [session_controller_ commitPendingEntry];
-
-  [session_controller_ goBack];
-  [session_controller_ goBack];
-  [session_controller_ goForward];
-
-  EXPECT_EQ(4U, [[session_controller_ entries] count]);
-  EXPECT_EQ(
-      GURL("http://www.url.com/"),
-      [session_controller_ URLForSessionAtIndex:0U]);
-  EXPECT_EQ(
-      GURL("http://www.url2.com/"),
-      [session_controller_ URLForSessionAtIndex:1U]);
-  EXPECT_EQ(
-      GURL("http://www.url3.com/"),
-      [session_controller_ URLForSessionAtIndex:2U]);
-  EXPECT_EQ(
-      GURL("http://www.url4.com/"),
-      [session_controller_ URLForSessionAtIndex:3U]);
-  EXPECT_EQ(
-      [[session_controller_ entries] objectAtIndex:2U],
-      [session_controller_ currentEntry]);
-}
-
-TEST_F(CRWSessionControllerTest, CanGoBackWithoutCommitedEntry) {
-  EXPECT_FALSE([session_controller_ canGoBack]);
-}
-
-TEST_F(CRWSessionControllerTest, CanGoBackWithSingleCommitedEntry) {
-  [session_controller_
-        addPendingEntry:GURL("http://www.url.com")
-               referrer:MakeReferrer("http://www.referer.com")
-             transition:ui::PAGE_TRANSITION_TYPED
-      rendererInitiated:NO];
-  [session_controller_ commitPendingEntry];
-
-  EXPECT_FALSE([session_controller_ canGoBack]);
-}
-
-TEST_F(CRWSessionControllerTest, CanGoBackWithMultipleCommitedEntries) {
-  [session_controller_
-        addPendingEntry:GURL("http://www.url.com")
-               referrer:MakeReferrer("http://www.referer.com")
-             transition:ui::PAGE_TRANSITION_TYPED
-      rendererInitiated:NO];
-  [session_controller_ commitPendingEntry];
-  [session_controller_
-        addPendingEntry:GURL("http://www.url1.com")
-               referrer:MakeReferrer("http://www.referer.com")
-             transition:ui::PAGE_TRANSITION_TYPED
-      rendererInitiated:NO];
-  [session_controller_ commitPendingEntry];
-  [session_controller_
-        addPendingEntry:GURL("http://www.url2.com")
-               referrer:MakeReferrer("http://www.referer.com")
-             transition:ui::PAGE_TRANSITION_TYPED
-      rendererInitiated:NO];
-  [session_controller_ commitPendingEntry];
-
-  EXPECT_TRUE([session_controller_ canGoBack]);
-
-  [session_controller_ goBack];
-  EXPECT_TRUE([session_controller_ canGoBack]);
-
-  [session_controller_ goBack];
-  EXPECT_FALSE([session_controller_ canGoBack]);
-
-  [session_controller_ goBack];
-  EXPECT_FALSE([session_controller_ canGoBack]);
-
-  [session_controller_ goForward];
-  EXPECT_TRUE([session_controller_ canGoBack]);
-}
-
-TEST_F(CRWSessionControllerTest, CanGoForwardWithoutCommitedEntry) {
-  EXPECT_FALSE([session_controller_ canGoBack]);
-}
-
-TEST_F(CRWSessionControllerTest, CanGoForwardWithSingleCommitedEntry) {
-  [session_controller_
-        addPendingEntry:GURL("http://www.url.com")
-               referrer:MakeReferrer("http://www.referer.com")
-             transition:ui::PAGE_TRANSITION_TYPED
-      rendererInitiated:NO];
-  [session_controller_ commitPendingEntry];
-
-  EXPECT_FALSE([session_controller_ canGoBack]);
-}
-
-TEST_F(CRWSessionControllerTest, CanGoForwardWithMultipleCommitedEntries) {
-  [session_controller_
-        addPendingEntry:GURL("http://www.url.com")
-               referrer:MakeReferrer("http://www.referer.com")
-             transition:ui::PAGE_TRANSITION_TYPED
-      rendererInitiated:NO];
-  [session_controller_ commitPendingEntry];
-  [session_controller_
-        addPendingEntry:GURL("http://www.url1.com")
-               referrer:MakeReferrer("http://www.referer.com")
-             transition:ui::PAGE_TRANSITION_TYPED
-      rendererInitiated:NO];
-  [session_controller_ commitPendingEntry];
-  [session_controller_
-        addPendingEntry:GURL("http://www.url2.com")
-               referrer:MakeReferrer("http://www.referer.com")
-             transition:ui::PAGE_TRANSITION_TYPED
-      rendererInitiated:NO];
-  [session_controller_ commitPendingEntry];
-
-  EXPECT_FALSE([session_controller_ canGoForward]);
-
-  [session_controller_ goBack];
-  EXPECT_TRUE([session_controller_ canGoForward]);
-
-  [session_controller_ goBack];
-  EXPECT_TRUE([session_controller_ canGoForward]);
-
-  [session_controller_ goForward];
-  EXPECT_TRUE([session_controller_ canGoForward]);
-
-  [session_controller_ goForward];
-  EXPECT_FALSE([session_controller_ canGoForward]);
-}
-
-// Helper to create a NavigationItem. Caller is responsible for freeing
-// the memory.
-web::NavigationItem* CreateNavigationItem(const std::string& url,
-                                          const std::string& referrer,
-                                          NSString* title) {
+// Helper to create a NavigationItem.
+std::unique_ptr<web::NavigationItemImpl> CreateNavigationItem(
+    const std::string& url,
+    const std::string& referrer,
+    NSString* title) {
   web::Referrer referrer_object(GURL(referrer),
                                 web::ReferrerPolicyDefault);
-  web::NavigationItemImpl* navigation_item = new web::NavigationItemImpl();
+  std::unique_ptr<web::NavigationItemImpl> navigation_item =
+      base::MakeUnique<web::NavigationItemImpl>();
   navigation_item->SetURL(GURL(url));
   navigation_item->SetReferrer(referrer_object);
   navigation_item->SetTitle(base::SysNSStringToUTF16(title));
@@ -754,7 +692,7 @@ web::NavigationItem* CreateNavigationItem(const std::string& url,
 }
 
 TEST_F(CRWSessionControllerTest, CreateWithEmptyNavigations) {
-  ScopedVector<web::NavigationItem> items;
+  std::vector<std::unique_ptr<web::NavigationItem>> items;
   base::scoped_nsobject<CRWSessionController> controller(
       [[CRWSessionController alloc] initWithNavigationItems:std::move(items)
                                                currentIndex:0
@@ -766,7 +704,7 @@ TEST_F(CRWSessionControllerTest, CreateWithEmptyNavigations) {
 }
 
 TEST_F(CRWSessionControllerTest, CreateWithNavList) {
-  ScopedVector<web::NavigationItem> items;
+  std::vector<std::unique_ptr<web::NavigationItem>> items;
   items.push_back(CreateNavigationItem("http://www.google.com",
                                        "http://www.referrer.com", @"Google"));
   items.push_back(CreateNavigationItem("http://www.yahoo.com",
@@ -789,19 +727,23 @@ TEST_F(CRWSessionControllerTest, CreateWithNavList) {
   EXPECT_EQ([[controller openerId] length], 0UL);
 }
 
+// Tests index of previous navigation entry.
 TEST_F(CRWSessionControllerTest, PreviousNavigationEntry) {
+  EXPECT_EQ(session_controller_.get().previousNavigationIndex, -1);
   [session_controller_
         addPendingEntry:GURL("http://www.url.com")
                referrer:MakeReferrer("http://www.referer.com")
              transition:ui::PAGE_TRANSITION_TYPED
       rendererInitiated:NO];
   [session_controller_ commitPendingEntry];
+  EXPECT_EQ(session_controller_.get().previousNavigationIndex, -1);
   [session_controller_
         addPendingEntry:GURL("http://www.url1.com")
                referrer:MakeReferrer("http://www.referer.com")
              transition:ui::PAGE_TRANSITION_TYPED
       rendererInitiated:NO];
   [session_controller_ commitPendingEntry];
+  EXPECT_EQ(session_controller_.get().previousNavigationIndex, 0);
   [session_controller_
         addPendingEntry:GURL("http://www.url2.com")
                referrer:MakeReferrer("http://www.referer.com")
@@ -811,21 +753,21 @@ TEST_F(CRWSessionControllerTest, PreviousNavigationEntry) {
 
   EXPECT_EQ(session_controller_.get().previousNavigationIndex, 1);
 
-  [session_controller_ goBack];
+  [session_controller_ goToEntryAtIndex:1];
   EXPECT_EQ(session_controller_.get().previousNavigationIndex, 2);
 
-  [session_controller_ goBack];
+  [session_controller_ goToEntryAtIndex:0];
   EXPECT_EQ(session_controller_.get().previousNavigationIndex, 1);
 
-  [session_controller_ goForward];
+  [session_controller_ goToEntryAtIndex:1];
   EXPECT_EQ(session_controller_.get().previousNavigationIndex, 0);
 
-  [session_controller_ goForward];
+  [session_controller_ goToEntryAtIndex:2];
   EXPECT_EQ(session_controller_.get().previousNavigationIndex, 1);
 }
 
 TEST_F(CRWSessionControllerTest, PushNewEntry) {
-  ScopedVector<web::NavigationItem> items;
+  std::vector<std::unique_ptr<web::NavigationItem>> items;
   items.push_back(CreateNavigationItem("http://www.firstpage.com",
                                        "http://www.starturl.com", @"First"));
   items.push_back(CreateNavigationItem("http://www.secondpage.com",
@@ -868,7 +810,7 @@ TEST_F(CRWSessionControllerTest, PushNewEntry) {
 }
 
 TEST_F(CRWSessionControllerTest, IsSameDocumentNavigation) {
-  ScopedVector<web::NavigationItem> items;
+  std::vector<std::unique_ptr<web::NavigationItem>> items;
   items.push_back(
       CreateNavigationItem("http://foo.com", "http://google.com", @"First"));
   // Push state navigation.
@@ -915,7 +857,7 @@ TEST_F(CRWSessionControllerTest, IsSameDocumentNavigation) {
 }
 
 TEST_F(CRWSessionControllerTest, UpdateCurrentEntry) {
-  ScopedVector<web::NavigationItem> items;
+  std::vector<std::unique_ptr<web::NavigationItem>> items;
   items.push_back(CreateNavigationItem("http://www.firstpage.com",
                                        "http://www.starturl.com", @"First"));
   items.push_back(CreateNavigationItem("http://www.secondpage.com",
@@ -983,14 +925,14 @@ TEST_F(CRWSessionControllerTest, TestBackwardForwardEntries) {
   NSArray* backEntries = [session_controller_ backwardEntries];
   EXPECT_EQ(2U, [backEntries count]);
   EXPECT_EQ(0U, [[session_controller_ forwardEntries] count]);
-  EXPECT_EQ("http://www.example.com/1",
+  EXPECT_EQ("http://www.example.com/redirect",
             [[backEntries objectAtIndex:0] navigationItem]->GetURL().spec());
 
-  [session_controller_ goBack];
+  [session_controller_ goToEntryAtIndex:1];
   EXPECT_EQ(1U, [[session_controller_ backwardEntries] count]);
   EXPECT_EQ(1U, [[session_controller_ forwardEntries] count]);
 
-  [session_controller_ goBack];
+  [session_controller_ goToEntryAtIndex:0];
   NSArray* forwardEntries = [session_controller_ forwardEntries];
   EXPECT_EQ(0U, [[session_controller_ backwardEntries] count]);
   EXPECT_EQ(2U, [forwardEntries count]);
@@ -998,7 +940,8 @@ TEST_F(CRWSessionControllerTest, TestBackwardForwardEntries) {
             [[forwardEntries objectAtIndex:1] navigationItem]->GetURL().spec());
 }
 
-TEST_F(CRWSessionControllerTest, GoToEntry) {
+// Tests going to entries with existing and non-existing indices.
+TEST_F(CRWSessionControllerTest, GoToEntryAtIndex) {
   [session_controller_ addPendingEntry:GURL("http://www.example.com/0")
                              referrer:MakeReferrer("http://www.example.com/a")
                            transition:ui::PAGE_TRANSITION_LINK
@@ -1019,18 +962,170 @@ TEST_F(CRWSessionControllerTest, GoToEntry) {
                            transition:ui::PAGE_TRANSITION_LINK
                     rendererInitiated:NO];
   [session_controller_ commitPendingEntry];
+  [session_controller_ addPendingEntry:GURL("http://www.example.com/3")
+                              referrer:MakeReferrer("http://www.example.com/d")
+                            transition:ui::PAGE_TRANSITION_LINK
+                     rendererInitiated:NO];
+  [session_controller_ addTransientEntryWithURL:GURL("http://www.example.com")];
   EXPECT_EQ(3, session_controller_.get().currentNavigationIndex);
+  EXPECT_EQ(2, session_controller_.get().previousNavigationIndex);
+  EXPECT_TRUE(session_controller_.get().pendingEntry);
+  EXPECT_TRUE(session_controller_.get().transientEntry);
 
-  CRWSessionEntry* entry1 = [session_controller_.get().entries objectAtIndex:1];
-  [session_controller_ goToEntry:entry1];
+  // Going back should discard transient and pending entries.
+  [session_controller_ goToEntryAtIndex:1];
   EXPECT_EQ(1, session_controller_.get().currentNavigationIndex);
+  EXPECT_EQ(3, session_controller_.get().previousNavigationIndex);
+  EXPECT_FALSE(session_controller_.get().pendingEntry);
+  EXPECT_FALSE(session_controller_.get().transientEntry);
 
-  // Remove an entry and attempt to go it. Ensure it outlives the removal.
-  base::scoped_nsobject<CRWSessionEntry> entry3(
-      [[session_controller_.get().entries objectAtIndex:3] retain]);
-  [session_controller_ removeEntryAtIndex:3];
-  [session_controller_ goToEntry:entry3];
-  EXPECT_EQ(1, session_controller_.get().currentNavigationIndex);
+  // Going forward should discard transient entry.
+  [session_controller_ addTransientEntryWithURL:GURL("http://www.example.com")];
+  EXPECT_TRUE(session_controller_.get().transientEntry);
+  [session_controller_ goToEntryAtIndex:2];
+  EXPECT_EQ(2, session_controller_.get().currentNavigationIndex);
+  EXPECT_EQ(1, session_controller_.get().previousNavigationIndex);
+  EXPECT_FALSE(session_controller_.get().transientEntry);
+
+  // Out of bounds navigations should be no-op.
+  [session_controller_ goToEntryAtIndex:-1];
+  EXPECT_EQ(2, session_controller_.get().currentNavigationIndex);
+  EXPECT_EQ(1, session_controller_.get().previousNavigationIndex);
+  [session_controller_ goToEntryAtIndex:NSIntegerMax];
+  EXPECT_EQ(2, session_controller_.get().currentNavigationIndex);
+  EXPECT_EQ(1, session_controller_.get().previousNavigationIndex);
+
+  // Going to current index should not change the previous index.
+  [session_controller_ goToEntryAtIndex:2];
+  EXPECT_EQ(2, session_controller_.get().currentNavigationIndex);
+  EXPECT_EQ(1, session_controller_.get().previousNavigationIndex);
+}
+
+// Tests that visible URL is the same as transient URL if there are no committed
+// entries.
+TEST_F(CRWSessionControllerTest, VisibleEntryWithSingleTransientEntry) {
+  [session_controller_ addTransientEntryWithURL:GURL("http://www.example.com")];
+  web::NavigationItem* visible_item =
+      [[session_controller_ visibleEntry] navigationItem];
+  ASSERT_TRUE(visible_item);
+  EXPECT_EQ("http://www.example.com/", visible_item->GetURL().spec());
+}
+
+// Tests that visible URL is the same as transient URL if there is a committed
+// entry.
+TEST_F(CRWSessionControllerTest, VisibleEntryWithCommittedAndTransientEntries) {
+  [session_controller_ addPendingEntry:GURL("http://www.example.com/0")
+                              referrer:MakeReferrer("http://www.example.com/a")
+                            transition:ui::PAGE_TRANSITION_LINK
+                     rendererInitiated:NO];
+  [session_controller_ commitPendingEntry];
+  [session_controller_ addTransientEntryWithURL:GURL("http://www.example.com")];
+  web::NavigationItem* visible_item =
+      [[session_controller_ visibleEntry] navigationItem];
+  ASSERT_TRUE(visible_item);
+  EXPECT_EQ("http://www.example.com/", visible_item->GetURL().spec());
+}
+
+// Tests that visible URL is the same as pending URL if it was user-initiated.
+TEST_F(CRWSessionControllerTest,
+       VisibleEntryWithSingleUserInitiatedPendingEntry) {
+  [session_controller_ addPendingEntry:GURL("http://www.example.com/0")
+                              referrer:MakeReferrer("http://www.example.com/a")
+                            transition:ui::PAGE_TRANSITION_LINK
+                     rendererInitiated:NO];
+  web::NavigationItem* visible_item =
+      [[session_controller_ visibleEntry] navigationItem];
+  ASSERT_TRUE(visible_item);
+  EXPECT_EQ("http://www.example.com/0", visible_item->GetURL().spec());
+}
+
+// Tests that visible URL is the same as pending URL if it was user-initiated
+// and there is a committed entry.
+TEST_F(CRWSessionControllerTest,
+       VisibleEntryWithCommittedAndUserInitiatedPendingEntry) {
+  [session_controller_ addPendingEntry:GURL("http://www.example.com")
+                              referrer:MakeReferrer("http://www.example.com/a")
+                            transition:ui::PAGE_TRANSITION_LINK
+                     rendererInitiated:NO];
+  [session_controller_ commitPendingEntry];
+  [session_controller_ addPendingEntry:GURL("http://www.example.com/0")
+                              referrer:MakeReferrer("http://www.example.com/b")
+                            transition:ui::PAGE_TRANSITION_LINK
+                     rendererInitiated:NO];
+  web::NavigationItem* visible_item =
+      [[session_controller_ visibleEntry] navigationItem];
+  ASSERT_TRUE(visible_item);
+  EXPECT_EQ("http://www.example.com/0", visible_item->GetURL().spec());
+}
+
+// Tests that visible URL is not the same as pending URL if it was
+// renderer-initiated.
+TEST_F(CRWSessionControllerTest,
+       VisibleEntryWithSingleRendererInitiatedPendingEntry) {
+  [session_controller_ addPendingEntry:GURL("http://www.example.com/0")
+                              referrer:MakeReferrer("http://www.example.com/a")
+                            transition:ui::PAGE_TRANSITION_LINK
+                     rendererInitiated:YES];
+  web::NavigationItem* visible_item =
+      [[session_controller_ visibleEntry] navigationItem];
+  ASSERT_FALSE(visible_item);
+}
+
+// Tests that visible URL is not the same as pending URL if it was
+// renderer-initiated and there is a committed entry.
+TEST_F(CRWSessionControllerTest,
+       VisibleEntryWithCommittedAndRendererInitiatedPendingEntry) {
+  [session_controller_ addPendingEntry:GURL("http://www.example.com")
+                              referrer:MakeReferrer("http://www.example.com/a")
+                            transition:ui::PAGE_TRANSITION_LINK
+                     rendererInitiated:YES];
+  [session_controller_ commitPendingEntry];
+  [session_controller_ addPendingEntry:GURL("http://www.example.com/0")
+                              referrer:MakeReferrer("http://www.example.com/b")
+                            transition:ui::PAGE_TRANSITION_LINK
+                     rendererInitiated:YES];
+  web::NavigationItem* visible_item =
+      [[session_controller_ visibleEntry] navigationItem];
+  ASSERT_TRUE(visible_item);
+  EXPECT_EQ("http://www.example.com/", visible_item->GetURL().spec());
+}
+
+// Tests that visible URL is not the same as pending URL created via pending
+// navigation index.
+TEST_F(CRWSessionControllerTest, VisibleEntryWithPendingNavigationIndex) {
+  [session_controller_ addPendingEntry:GURL("http://www.example.com")
+                              referrer:MakeReferrer("http://www.example.com/a")
+                            transition:ui::PAGE_TRANSITION_LINK
+                     rendererInitiated:NO];
+  [session_controller_ commitPendingEntry];
+  [session_controller_ addPendingEntry:GURL("http://www.example.com/0")
+                              referrer:MakeReferrer("http://www.example.com/b")
+                            transition:ui::PAGE_TRANSITION_LINK
+                     rendererInitiated:NO];
+  [session_controller_ commitPendingEntry];
+
+  [session_controller_ setPendingEntryIndex:0];
+
+  web::NavigationItem* visible_item =
+      [[session_controller_ visibleEntry] navigationItem];
+  ASSERT_TRUE(visible_item);
+  EXPECT_EQ("http://www.example.com/0", visible_item->GetURL().spec());
+}
+
+// Tests that |-backwardEntries| is empty if all preceding entries are
+// redirects.
+TEST_F(CRWSessionControllerTest, BackwardEntriesForAllRedirects) {
+  [session_controller_ addPendingEntry:GURL("http://www.example.com")
+                              referrer:MakeReferrer("http://www.example.com/a")
+                            transition:ui::PAGE_TRANSITION_CLIENT_REDIRECT
+                     rendererInitiated:YES];
+  [session_controller_ commitPendingEntry];
+  [session_controller_ addPendingEntry:GURL("http://www.example.com/0")
+                              referrer:MakeReferrer("http://www.example.com/b")
+                            transition:ui::PAGE_TRANSITION_CLIENT_REDIRECT
+                     rendererInitiated:YES];
+  [session_controller_ commitPendingEntry];
+  EXPECT_EQ(0U, [session_controller_ backwardEntries].count);
 }
 
 }  // anonymous namespace

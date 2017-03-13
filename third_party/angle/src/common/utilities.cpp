@@ -128,14 +128,17 @@ GLenum VariableComponentType(GLenum type)
       case GL_SAMPLER_CUBE:
       case GL_SAMPLER_2D_ARRAY:
       case GL_SAMPLER_EXTERNAL_OES:
+      case GL_SAMPLER_2D_MULTISAMPLE:
       case GL_INT_SAMPLER_2D:
       case GL_INT_SAMPLER_3D:
       case GL_INT_SAMPLER_CUBE:
       case GL_INT_SAMPLER_2D_ARRAY:
+      case GL_INT_SAMPLER_2D_MULTISAMPLE:
       case GL_UNSIGNED_INT_SAMPLER_2D:
       case GL_UNSIGNED_INT_SAMPLER_3D:
       case GL_UNSIGNED_INT_SAMPLER_CUBE:
       case GL_UNSIGNED_INT_SAMPLER_2D_ARRAY:
+      case GL_UNSIGNED_INT_SAMPLER_2D_MULTISAMPLE:
       case GL_SAMPLER_2D_SHADOW:
       case GL_SAMPLER_CUBE_SHADOW:
       case GL_SAMPLER_2D_ARRAY_SHADOW:
@@ -236,18 +239,33 @@ int VariableRowCount(GLenum type)
       case GL_SAMPLER_2D_ARRAY:
       case GL_SAMPLER_EXTERNAL_OES:
       case GL_SAMPLER_2D_RECT_ARB:
+      case GL_SAMPLER_2D_MULTISAMPLE:
       case GL_INT_SAMPLER_2D:
       case GL_INT_SAMPLER_3D:
       case GL_INT_SAMPLER_CUBE:
       case GL_INT_SAMPLER_2D_ARRAY:
+      case GL_INT_SAMPLER_2D_MULTISAMPLE:
       case GL_UNSIGNED_INT_SAMPLER_2D:
       case GL_UNSIGNED_INT_SAMPLER_3D:
       case GL_UNSIGNED_INT_SAMPLER_CUBE:
       case GL_UNSIGNED_INT_SAMPLER_2D_ARRAY:
+      case GL_UNSIGNED_INT_SAMPLER_2D_MULTISAMPLE:
       case GL_SAMPLER_2D_SHADOW:
       case GL_SAMPLER_CUBE_SHADOW:
       case GL_SAMPLER_2D_ARRAY_SHADOW:
-        return 1;
+      case GL_IMAGE_2D:
+      case GL_INT_IMAGE_2D:
+      case GL_UNSIGNED_INT_IMAGE_2D:
+      case GL_IMAGE_2D_ARRAY:
+      case GL_INT_IMAGE_2D_ARRAY:
+      case GL_UNSIGNED_INT_IMAGE_2D_ARRAY:
+      case GL_IMAGE_3D:
+      case GL_INT_IMAGE_3D:
+      case GL_UNSIGNED_INT_IMAGE_3D:
+      case GL_IMAGE_CUBE:
+      case GL_INT_IMAGE_CUBE:
+      case GL_UNSIGNED_INT_IMAGE_CUBE:
+          return 1;
       case GL_FLOAT_MAT2:
       case GL_FLOAT_MAT3x2:
       case GL_FLOAT_MAT4x2:
@@ -282,16 +300,19 @@ int VariableColumnCount(GLenum type)
       case GL_SAMPLER_3D:
       case GL_SAMPLER_CUBE:
       case GL_SAMPLER_2D_ARRAY:
+      case GL_SAMPLER_2D_MULTISAMPLE:
       case GL_INT_SAMPLER_2D:
       case GL_INT_SAMPLER_3D:
       case GL_INT_SAMPLER_CUBE:
       case GL_INT_SAMPLER_2D_ARRAY:
+      case GL_INT_SAMPLER_2D_MULTISAMPLE:
       case GL_SAMPLER_EXTERNAL_OES:
       case GL_SAMPLER_2D_RECT_ARB:
       case GL_UNSIGNED_INT_SAMPLER_2D:
       case GL_UNSIGNED_INT_SAMPLER_3D:
       case GL_UNSIGNED_INT_SAMPLER_CUBE:
       case GL_UNSIGNED_INT_SAMPLER_2D_ARRAY:
+      case GL_UNSIGNED_INT_SAMPLER_2D_MULTISAMPLE:
       case GL_SAMPLER_2D_SHADOW:
       case GL_SAMPLER_CUBE_SHADOW:
       case GL_SAMPLER_2D_ARRAY_SHADOW:
@@ -336,14 +357,17 @@ bool IsSamplerType(GLenum type)
       case GL_SAMPLER_CUBE:
       case GL_SAMPLER_2D_ARRAY:
       case GL_SAMPLER_EXTERNAL_OES:
+      case GL_SAMPLER_2D_MULTISAMPLE:
       case GL_INT_SAMPLER_2D:
       case GL_INT_SAMPLER_3D:
       case GL_INT_SAMPLER_CUBE:
       case GL_INT_SAMPLER_2D_ARRAY:
+      case GL_INT_SAMPLER_2D_MULTISAMPLE:
       case GL_UNSIGNED_INT_SAMPLER_2D:
       case GL_UNSIGNED_INT_SAMPLER_3D:
       case GL_UNSIGNED_INT_SAMPLER_CUBE:
       case GL_UNSIGNED_INT_SAMPLER_2D_ARRAY:
+      case GL_UNSIGNED_INT_SAMPLER_2D_MULTISAMPLE:
       case GL_SAMPLER_2D_SHADOW:
       case GL_SAMPLER_CUBE_SHADOW:
       case GL_SAMPLER_2D_ARRAY_SHADOW:
@@ -382,6 +406,11 @@ GLenum SamplerTypeToTextureType(GLenum samplerType)
       case GL_INT_SAMPLER_3D:
       case GL_UNSIGNED_INT_SAMPLER_3D:
         return GL_TEXTURE_3D;
+
+      case GL_SAMPLER_2D_MULTISAMPLE:
+      case GL_INT_SAMPLER_2D_MULTISAMPLE:
+      case GL_UNSIGNED_INT_SAMPLER_2D_MULTISAMPLE:
+          return GL_TEXTURE_2D_MULTISAMPLE;
 
       default:
         UNREACHABLE();
@@ -593,15 +622,18 @@ int VariableSortOrder(GLenum type)
       case GL_SAMPLER_EXTERNAL_OES:
       case GL_SAMPLER_2D_RECT_ARB:
       case GL_SAMPLER_2D_ARRAY:
+      case GL_SAMPLER_2D_MULTISAMPLE:
       case GL_SAMPLER_3D:
       case GL_INT_SAMPLER_2D:
       case GL_INT_SAMPLER_3D:
       case GL_INT_SAMPLER_CUBE:
       case GL_INT_SAMPLER_2D_ARRAY:
+      case GL_INT_SAMPLER_2D_MULTISAMPLE:
       case GL_UNSIGNED_INT_SAMPLER_2D:
       case GL_UNSIGNED_INT_SAMPLER_3D:
       case GL_UNSIGNED_INT_SAMPLER_CUBE:
       case GL_UNSIGNED_INT_SAMPLER_2D_ARRAY:
+      case GL_UNSIGNED_INT_SAMPLER_2D_MULTISAMPLE:
       case GL_SAMPLER_2D_SHADOW:
       case GL_SAMPLER_2D_ARRAY_SHADOW:
       case GL_SAMPLER_CUBE_SHADOW:
@@ -642,6 +674,29 @@ std::string ParseUniformName(const std::string &name, size_t *outSubscript)
     }
 
     return name.substr(0, open);
+}
+
+template <>
+GLuint ConvertToGLuint(GLfloat param)
+{
+    return uiround<GLuint>(param);
+}
+
+template <>
+GLint ConvertToGLint(GLfloat param)
+{
+    return iround<GLint>(param);
+}
+
+template <>
+GLint ConvertFromGLfloat(GLfloat param)
+{
+    return iround<GLint>(param);
+}
+template <>
+GLuint ConvertFromGLfloat(GLfloat param)
+{
+    return uiround<GLuint>(param);
 }
 
 unsigned int ParseAndStripArrayIndex(std::string *name)

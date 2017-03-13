@@ -18,10 +18,8 @@
 
 namespace gfx {
 class Point;
-class PointF;
 class ScrollOffset;
 class SizeF;
-class Vector2d;
 class Vector2dF;
 }
 
@@ -63,6 +61,7 @@ class CC_EXPORT InputHandlerClient {
       float page_scale_factor,
       float min_page_scale_factor,
       float max_page_scale_factor) = 0;
+  virtual void DeliverInputForBeginFrame() = 0;
 
  protected:
   InputHandlerClient() {}
@@ -103,6 +102,12 @@ class CC_EXPORT InputHandler {
     TOUCHSCREEN,
     WHEEL,
     NON_BUBBLING_GESTURE
+  };
+
+  enum class TouchStartEventListenerType {
+    NO_HANDLER,
+    HANDLER,
+    HANDLER_ON_SCROLLING_LAYER
   };
 
   // Binds a client to this handler to receive notifications. Only one client
@@ -155,6 +160,7 @@ class CC_EXPORT InputHandler {
   virtual void MouseMoveAt(const gfx::Point& mouse_position) = 0;
   virtual void MouseDown() = 0;
   virtual void MouseUp() = 0;
+  virtual void MouseLeave() = 0;
 
   // Stop scrolling the selected layer. Should only be called if ScrollBegin()
   // returned SCROLL_STARTED.
@@ -187,9 +193,12 @@ class CC_EXPORT InputHandler {
   virtual EventListenerProperties GetEventListenerProperties(
       EventListenerClass event_class) const = 0;
 
+  // It returns the type of a touch start event listener at |viewport_point|.
   // Whether the page should be given the opportunity to suppress scrolling by
-  // consuming touch events that started at |viewport_point|.
-  virtual bool DoTouchEventsBlockScrollAt(const gfx::Point& viewport_point) = 0;
+  // consuming touch events that started at |viewport_point|, and whether
+  // |viewport_point| is on the currently scrolling layer.
+  virtual TouchStartEventListenerType EventListenerTypeForTouchStartAt(
+      const gfx::Point& viewport_point) = 0;
 
   // Calling CreateLatencyInfoSwapPromiseMonitor() to get a scoped
   // LatencyInfoSwapPromiseMonitor. During the life time of the

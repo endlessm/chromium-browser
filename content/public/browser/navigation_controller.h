@@ -17,6 +17,7 @@
 #include "build/build_config.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/global_request_id.h"
+#include "content/public/browser/reload_type.h"
 #include "content/public/browser/restore_type.h"
 #include "content/public/browser/session_storage_namespace.h"
 #include "content/public/browser/site_instance.h"
@@ -349,28 +350,13 @@ class NavigationController {
   // the offset is out of bounds.
   virtual void GoToOffset(int offset) = 0;
 
-  // Reloads the current entry. If |check_for_repost| is true and the current
-  // entry has POST data the user is prompted to see if they really want to
-  // reload the page. In nearly all cases pass in true.  If a transient entry
-  // is showing, initiates a new navigation to its URL.
-  virtual void Reload(bool check_for_repost) = 0;
-
-  // Like Reload(), but for refreshing page content and may not need to
-  // validate cache content.
-  // TODO(kinuko): Update the comment once we fix the cache validation
-  // behavior.
-  virtual void ReloadToRefreshContent(bool check_for_repost) = 0;
-
-  // Like Reload(), but don't use caches (aka "shift-reload").
-  virtual void ReloadBypassingCache(bool check_for_repost) = 0;
-
-  // Reloads the current entry using the original URL used to create it.  This
-  // is used for cases where the user wants to refresh a page using a different
-  // user agent after following a redirect.
-  virtual void ReloadOriginalRequestURL(bool check_for_repost) = 0;
-
-  // Like Reload(), but disables Lo-Fi.
-  virtual void ReloadDisableLoFi(bool check_for_repost) = 0;
+  // Reloads the current entry under the specified ReloadType.  If
+  // |check_for_repost| is true and the current entry has POST data the user is
+  // prompted to see if they really want to reload the page.  In nearly all
+  // cases pass in true in production code, but would do false for testing, or
+  // in cases where no user interface is available for prompting.  If a
+  // transient entry is showing, initiates a new navigation to its URL.
+  virtual void Reload(ReloadType reload_type, bool check_for_repost) = 0;
 
   // Removing of entries -------------------------------------------------------
 
@@ -390,14 +376,6 @@ class NavigationController {
   // TODO(ajwong): Remove this once prerendering, instant, and session restore
   // are migrated.
   virtual SessionStorageNamespace* GetDefaultSessionStorageNamespace() = 0;
-
-  // Sets the max restored page ID this NavigationController has seen, if it
-  // was restored from a previous session.
-  virtual void SetMaxRestoredPageID(int32_t max_id) = 0;
-
-  // Returns the largest restored page ID seen in this navigation controller,
-  // if it was restored from a previous session.  (-1 otherwise)
-  virtual int32_t GetMaxRestoredPageID() const = 0;
 
   // Returns true if a reload happens when activated (SetActive(true) is
   // invoked). This is true for session/tab restore, cloned tabs and tabs that

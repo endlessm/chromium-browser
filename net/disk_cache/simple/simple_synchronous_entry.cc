@@ -16,7 +16,6 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/sha1.h"
-#include "base/strings/stringprintf.h"
 #include "base/timer/elapsed_timer.h"
 #include "crypto/secure_hash.h"
 #include "net/base/hash_value.h"
@@ -73,6 +72,7 @@ enum CheckEOFResult {
 enum CloseResult {
   CLOSE_RESULT_SUCCESS,
   CLOSE_RESULT_WRITE_FAILURE,
+  CLOSE_RESULT_MAX,
 };
 
 // Used in histograms, please only add entries at the end.
@@ -108,7 +108,7 @@ void RecordCheckEOFResult(net::CacheType cache_type, CheckEOFResult result) {
 
 void RecordCloseResult(net::CacheType cache_type, CloseResult result) {
   SIMPLE_CACHE_UMA(ENUMERATION,
-                   "SyncCloseResult", cache_type, result, WRITE_RESULT_MAX);
+                   "SyncCloseResult", cache_type, result, CLOSE_RESULT_MAX);
 }
 
 void RecordKeySHA256Result(net::CacheType cache_type, KeySHA256Result result) {

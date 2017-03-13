@@ -6,6 +6,7 @@
 
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/exclusive_access/exclusive_access_context.h"
+#include "chrome/browser/ui/exclusive_access/exclusive_access_manager.h"
 #include "content/public/test/test_utils.h"
 
 MockNotificationDelegate::MockNotificationDelegate(const std::string& id)
@@ -34,6 +35,19 @@ const Notification& StubNotificationUIManager::GetNotificationAt(
 void StubNotificationUIManager::SetNotificationAddedCallback(
     const base::Closure& callback) {
   notification_added_callback_ = callback;
+}
+
+bool StubNotificationUIManager::SilentDismissById(
+    const std::string& delegate_id,
+    ProfileID profile_id) {
+  auto iter = notifications_.begin();
+  for (; iter != notifications_.end(); ++iter) {
+    if (iter->first.delegate_id() != delegate_id || iter->second != profile_id)
+      continue;
+    notifications_.erase(iter);
+    return true;
+  }
+  return false;
 }
 
 void StubNotificationUIManager::Add(const Notification& notification,

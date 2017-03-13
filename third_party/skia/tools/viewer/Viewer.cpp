@@ -9,14 +9,18 @@
 
 #include "GMSlide.h"
 #include "ImageSlide.h"
+#include "Resources.h"
 #include "SampleSlide.h"
 #include "SKPSlide.h"
 
+#include "SkATrace.h"
 #include "SkCanvas.h"
-#include "SkCommonFlags.h"
+#include "SkCommandLineFlags.h"
 #include "SkDashPathEffect.h"
+#include "SkGraphics.h"
 #include "SkMetaData.h"
 #include "SkOSFile.h"
+#include "SkOSPath.h"
 #include "SkRandom.h"
 #include "SkStream.h"
 #include "SkSurface.h"
@@ -47,9 +51,9 @@ static void on_ui_state_changed_handler(const SkString& stateName, const SkStrin
     return viewer->onUIStateChanged(stateName, stateValue);
 }
 
-DEFINE_bool2(fullscreen, f, true, "Run fullscreen.");
-DEFINE_string(key, "", "Space-separated key/value pairs to add to JSON identifying this builder.");
-DEFINE_string2(match, m, nullptr,
+static DEFINE_bool2(fullscreen, f, true, "Run fullscreen.");
+
+static DEFINE_string2(match, m, nullptr,
                "[~][^]substring[$] [...] of bench name to run.\n"
                "Multiple matches may be separated by spaces.\n"
                "~ causes a matching bench to always be skipped\n"
@@ -66,14 +70,16 @@ DEFINE_string2(match, m, nullptr,
 #endif
 
 #ifdef SK_BUILD_FOR_ANDROID
-DEFINE_string(skps, "/data/local/tmp/skia", "Directory to read skps from.");
-DEFINE_string(jpgs, "/data/local/tmp/skia", "Directory to read jpgs from.");
+static DEFINE_string(skps, "/data/local/tmp/skia", "Directory to read skps from.");
+static DEFINE_string(jpgs, "/data/local/tmp/skia", "Directory to read jpgs from.");
 #else
-DEFINE_string(skps, "skps", "Directory to read skps from.");
-DEFINE_string(jpgs, "jpgs", "Directory to read jpgs from.");
+static DEFINE_string(skps, "skps", "Directory to read skps from.");
+static DEFINE_string(jpgs, "jpgs", "Directory to read jpgs from.");
 #endif
 
-DEFINE_string2(backend, b, "sw", "Backend to use. Allowed values are " BACKENDS_STR ".");
+static DEFINE_string2(backend, b, "sw", "Backend to use. Allowed values are " BACKENDS_STR ".");
+
+static DEFINE_bool(atrace, false, "Enable support for using ATrace. ATrace is only supported on Android.");
 
 const char *kBackendTypeStrings[sk_app::Window::kBackendTypeCount] = {
     " [OpenGL]",
@@ -123,6 +129,7 @@ Viewer::Viewer(int argc, char** argv, void* platformData)
     , fZoomLevel(0.0f)
     , fZoomScale(SK_Scalar1)
 {
+    SkGraphics::Init();
     memset(fMeasurements, 0, sizeof(fMeasurements));
 
     SkDebugf("Command line arguments: ");
@@ -132,14 +139,17 @@ Viewer::Viewer(int argc, char** argv, void* platformData)
     SkDebugf("\n");
 
     SkCommandLineFlags::Parse(argc, argv);
+#ifdef SK_BUILD_FOR_ANDROID
+    SetResourcePath("/data/local/tmp/skia");
+#endif
+
+    if (FLAGS_atrace) {
+        SkEventTracer::SetInstance(new SkATrace());
+    }
 
     fBackendType = get_backend_type(FLAGS_backend[0]);
     fWindow = Window::CreateNativeWindow(platformData);
     fWindow->attach(fBackendType, DisplayParams());
-#if defined(SK_VULKAN) && defined(SK_BUILD_FOR_UNIX)
-    // Vulkan doesn't seem to handle a single refresh properly on Linux
-    fRefresh = (sk_app::Window::kVulkan_BackendType == fBackendType);
-#endif
 
     // register callbacks
     fCommands.attach(fWindow);
@@ -155,7 +165,7 @@ Viewer::Viewer(int argc, char** argv, void* platformData)
     fCommands.addCommand('c', "Modes", "Toggle sRGB color mode", [this]() {
         DisplayParams params = fWindow->getDisplayParams();
         params.fColorSpace = (nullptr == params.fColorSpace)
-            ? SkColorSpace::NewNamed(SkColorSpace::kSRGB_Named) : nullptr;
+            ? SkColorSpace::MakeNamed(SkColorSpace::kSRGB_Named) : nullptr;
         fWindow->setDisplayParams(params);
         this->updateTitle();
         fWindow->inval();
@@ -184,8 +194,8 @@ Viewer::Viewer(int argc, char** argv, void* platformData)
         this->changeZoomLevel(-1.f / 32.f);
         fWindow->inval();
     });
-#if defined(SK_BUILD_FOR_WIN) || defined(SK_BUILD_FOR_MAC)
     fCommands.addCommand('d', "Modes", "Change rendering backend", [this]() {
+#if defined(SK_BUILD_FOR_WIN) || defined(SK_BUILD_FOR_MAC)
         if (sk_app::Window::kRaster_BackendType == fBackendType) {
             fBackendType = sk_app::Window::kNativeGL_BackendType;
 #ifdef SK_VULKAN
@@ -195,14 +205,19 @@ Viewer::Viewer(int argc, char** argv, void* platformData)
         } else {
             fBackendType = sk_app::Window::kRaster_BackendType;
         }
-
+#elif defined(SK_BUILD_FOR_UNIX)
+        // Switching to and from Vulkan is problematic on Linux so disabled for now
+        if (sk_app::Window::kRaster_BackendType == fBackendType) {
+            fBackendType = sk_app::Window::kNativeGL_BackendType;
+        } else if (sk_app::Window::kNativeGL_BackendType == fBackendType) {
+            fBackendType = sk_app::Window::kRaster_BackendType;
+        }
+#endif
         fWindow->detach();
 
-#ifdef SK_VULKAN
-        // Switching from OpenGL to Vulkan in the same window is problematic at this point,
-        // so we just delete the window and recreate it.
-        // On Windows, only tearing down the window when going from OpenGL to Vulkan works fine.
-        // On Linux, we may need to tear down the window for the Vulkan to OpenGL case as well.
+#if defined(SK_BUILD_FOR_WIN) && defined(SK_VULKAN)
+        // Switching from OpenGL to Vulkan in the same window is problematic at this point on
+        // Windows, so we just delete the window and recreate it.
         if (sk_app::Window::kVulkan_BackendType == fBackendType) {
             delete fWindow;
             fWindow = Window::CreateNativeWindow(nullptr);
@@ -215,16 +230,11 @@ Viewer::Viewer(int argc, char** argv, void* platformData)
         }
 #endif
         fWindow->attach(fBackendType, DisplayParams());
-#if defined(SK_VULKAN) && defined(SK_BUILD_FOR_UNIX)
-        // Vulkan doesn't seem to handle a single refresh properly on Linux
-        fRefresh = (sk_app::Window::kVulkan_BackendType == fBackendType);
-#endif
 
         this->updateTitle();
         fWindow->inval();
         fWindow->show();
     });
-#endif
 
     // set up slides
     this->initSlides();
@@ -243,7 +253,7 @@ void Viewer::initSlides() {
 
     const skiagm::GMRegistry* gms(skiagm::GMRegistry::Head());
     while (gms) {
-        SkAutoTDelete<skiagm::GM> gm(gms->factory()(nullptr));
+        std::unique_ptr<skiagm::GM> gm(gms->factory()(nullptr));
 
         if (!SkCommandLineFlags::ShouldSkip(FLAGS_match, gm->getName())) {
             sk_sp<Slide> slide(new GMSlide(gm.release()));

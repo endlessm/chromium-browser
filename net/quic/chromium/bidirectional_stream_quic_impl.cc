@@ -9,6 +9,7 @@
 #include "base/bind.h"
 #include "base/location.h"
 #include "base/logging.h"
+#include "base/threading/thread_task_runner_handle.h"
 #include "base/timer/timer.h"
 #include "net/http/bidirectional_stream_request_info.h"
 #include "net/quic/core/quic_connection.h"
@@ -234,7 +235,7 @@ void BidirectionalStreamQuicImpl::OnHeadersAvailable(
     const SpdyHeaderBlock& headers,
     size_t frame_len) {
   headers_bytes_received_ += frame_len;
-  negotiated_protocol_ = kProtoQUIC1SPDY3;
+  negotiated_protocol_ = kProtoQUIC;
   if (!has_received_headers_) {
     has_received_headers_ = true;
     connect_timing_ = session_->GetConnectTiming();
@@ -288,6 +289,9 @@ void BidirectionalStreamQuicImpl::OnCryptoHandshakeConfirmed() {
   if (waiting_for_confirmation_)
     NotifyStreamReady();
 }
+
+void BidirectionalStreamQuicImpl::OnSuccessfulVersionNegotiation(
+    const QuicVersion& version) {}
 
 void BidirectionalStreamQuicImpl::OnSessionClosed(
     int error,

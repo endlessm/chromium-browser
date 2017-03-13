@@ -8,10 +8,11 @@
 
 #include "base/base64.h"
 #include "base/command_line.h"
-#include "base/feature_list.h"
 #include "base/json/json_reader.h"
+#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "base/test/histogram_tester.h"
+#include "base/test/scoped_feature_list.h"
 #include "base/values.h"
 #include "chrome/common/chrome_features.h"
 #include "content/public/test/test_browser_thread_bundle.h"
@@ -38,19 +39,24 @@ class TestCertificateReportSender : public net::ReportSender {
       : ReportSender(nullptr, net::ReportSender::DO_NOT_SEND_COOKIES) {}
   ~TestCertificateReportSender() override {}
 
-  void Send(const GURL& report_uri,
-            base::StringPiece content_type,
-            base::StringPiece serialized_report) override {
+  void Send(
+      const GURL& report_uri,
+      base::StringPiece content_type,
+      base::StringPiece serialized_report,
+      const base::Callback<void()>& success_callback,
+      const base::Callback<void(const GURL&, int)>& error_callback) override {
     latest_report_uri_ = report_uri;
     serialized_report.CopyToString(&latest_serialized_report_);
     content_type.CopyToString(&latest_content_type_);
   }
 
-  const GURL& latest_report_uri() { return latest_report_uri_; }
+  const GURL& latest_report_uri() const { return latest_report_uri_; }
 
-  const std::string& latest_content_type() { return latest_content_type_; }
+  const std::string& latest_content_type() const {
+    return latest_content_type_;
+  }
 
-  const std::string& latest_serialized_report() {
+  const std::string& latest_serialized_report() const {
     return latest_serialized_report_;
   }
 
@@ -232,7 +238,7 @@ void CheckExpectCTReport(const std::string& serialized_report,
                          const net::SSLInfo& ssl_info) {
   std::unique_ptr<base::Value> value(base::JSONReader::Read(serialized_report));
   ASSERT_TRUE(value);
-  ASSERT_TRUE(value->IsType(base::Value::TYPE_DICTIONARY));
+  ASSERT_TRUE(value->IsType(base::Value::Type::DICTIONARY));
 
   base::DictionaryValue* report_dict;
   ASSERT_TRUE(value->GetAsDictionary(&report_dict));
@@ -295,19 +301,21 @@ class TestExpectCTNetworkDelegate : public net::NetworkDelegateImpl {
 class ChromeExpectCTReporterWaitTest : public ::testing::Test {
  public:
   ChromeExpectCTReporterWaitTest()
-      : context_(true),
-        thread_bundle_(content::TestBrowserThreadBundle::IO_MAINLOOP) {
-    context_.set_network_delegate(&network_delegate_);
-    context_.Init();
-  }
+      : thread_bundle_(content::TestBrowserThreadBundle::IO_MAINLOOP) {}
 
-  void SetUp() override { net::URLRequestFailedJob::AddUrlHandler(); }
+  void SetUp() override {
+    // Initializes URLRequestContext after the thread is set up.
+    context_.reset(new net::TestURLRequestContext(true));
+    context_->set_network_delegate(&network_delegate_);
+    context_->Init();
+    net::URLRequestFailedJob::AddUrlHandler();
+  }
 
   void TearDown() override {
     net::URLRequestFilter::GetInstance()->ClearHandlers();
   }
 
-  net::TestURLRequestContext* context() { return &context_; }
+  net::TestURLRequestContext* context() { return context_.get(); }
 
  protected:
   void SendReport(ChromeExpectCTReporter* reporter,
@@ -323,24 +331,17 @@ class ChromeExpectCTReporterWaitTest : public ::testing::Test {
 
  private:
   TestExpectCTNetworkDelegate network_delegate_;
-  net::TestURLRequestContext context_;
+  std::unique_ptr<net::TestURLRequestContext> context_;
   content::TestBrowserThreadBundle thread_bundle_;
 
   DISALLOW_COPY_AND_ASSIGN(ChromeExpectCTReporterWaitTest);
 };
 
-void EnableFeature() {
-  base::FeatureList::ClearInstanceForTesting();
-  std::unique_ptr<base::FeatureList> feature_list(new base::FeatureList);
-  feature_list->InitializeFromCommandLine(features::kExpectCTReporting.name,
-                                          "");
-  base::FeatureList::SetInstance(std::move(feature_list));
-}
-
 }  // namespace
 
 // Test that no report is sent when the feature is not enabled.
 TEST(ChromeExpectCTReporterTest, FeatureDisabled) {
+  base::MessageLoop message_loop;
   base::HistogramTester histograms;
   histograms.ExpectTotalCount(kSendHistogramName, 0);
 
@@ -369,10 +370,13 @@ TEST(ChromeExpectCTReporterTest, FeatureDisabled) {
 
 // Test that no report is sent if the report URI is empty.
 TEST(ChromeExpectCTReporterTest, EmptyReportURI) {
+  base::MessageLoop message_loop;
   base::HistogramTester histograms;
   histograms.ExpectTotalCount(kSendHistogramName, 0);
 
-  EnableFeature();
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndEnableFeature(features::kExpectCTReporting);
+
   TestCertificateReportSender* sender = new TestCertificateReportSender();
   net::TestURLRequestContext context;
   ChromeExpectCTReporter reporter(&context);
@@ -390,7 +394,9 @@ TEST(ChromeExpectCTReporterTest, EmptyReportURI) {
 
 // Test that if a report fails to send, the UMA metric is recorded.
 TEST_F(ChromeExpectCTReporterWaitTest, SendReportFailure) {
-  EnableFeature();
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndEnableFeature(features::kExpectCTReporting);
+
   base::HistogramTester histograms;
   histograms.ExpectTotalCount(kFailureHistogramName, 0);
   histograms.ExpectTotalCount(kSendHistogramName, 0);
@@ -418,11 +424,14 @@ TEST_F(ChromeExpectCTReporterWaitTest, SendReportFailure) {
 
 // Test that a sent report has the right format.
 TEST(ChromeExpectCTReporterTest, SendReport) {
+  base::MessageLoop message_loop;
   base::HistogramTester histograms;
   histograms.ExpectTotalCount(kFailureHistogramName, 0);
   histograms.ExpectTotalCount(kSendHistogramName, 0);
 
-  EnableFeature();
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndEnableFeature(features::kExpectCTReporting);
+
   TestCertificateReportSender* sender = new TestCertificateReportSender();
   net::TestURLRequestContext context;
   ChromeExpectCTReporter reporter(&context);

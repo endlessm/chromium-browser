@@ -92,9 +92,9 @@ class BattOrTracingAgentTest(unittest.TestCase):
     self._config = tracing_config.TracingConfig()
     self._config.enable_battor_trace = True
 
-    # Monkey patch BattorWrapper.
-    self._battor_wrapper = battor_wrapper.BattorWrapper
-    battor_wrapper.BattorWrapper = FakeBattOr
+    # Monkey patch BattOrWrapper.
+    self._battor_wrapper = battor_wrapper.BattOrWrapper
+    battor_wrapper.BattOrWrapper = FakeBattOr
     battor_wrapper.IsBattOrConnected = lambda x, android_device=None: True
 
     self._battery_utils = battery_utils.BatteryUtils
@@ -109,7 +109,7 @@ class BattOrTracingAgentTest(unittest.TestCase):
         battor_tracing_agent.BattOrTracingAgent(self.desktop_backend))
 
   def tearDown(self):
-    battor_wrapper.BattorWrapper = self._battor_wrapper
+    battor_wrapper.BattOrWrapper = self._battor_wrapper
     battery_utils.BatteryUtils = self._battery_utils
 
   def testInit(self):
@@ -155,9 +155,9 @@ class BattOrTracingAgentTest(unittest.TestCase):
 
   def testStartAgentTracingFail(self):
     def throw_battor_error():
-      raise battor_error.BattorError('Forced Exception')
+      raise battor_error.BattOrError('Forced Exception')
     self.android_agent._battor.StartTracing = throw_battor_error
-    with self.assertRaises(battor_error.BattorError):
+    with self.assertRaises(battor_error.BattOrError):
       self.android_agent.StartAgentTracing(self._config, 0)
 
   def testStopAgentTracing(self):
@@ -169,9 +169,9 @@ class BattOrTracingAgentTest(unittest.TestCase):
     self.android_agent.CollectAgentTraceData(builder)
     self.assertTrue(self.android_agent._battor._collect_trace_data_called)
     builder = builder.AsData()
-    self.assertTrue(builder.HasTraceFor(trace_data.BATTOR_TRACE_PART))
-    data_from_builder = builder.GetTraceFor(trace_data.BATTOR_TRACE_PART)
-    self.assertEqual(_BATTOR_RETURN, data_from_builder)
+    self.assertTrue(builder.HasTracesFor(trace_data.BATTOR_TRACE_PART))
+    data_from_builder = builder.GetTracesFor(trace_data.BATTOR_TRACE_PART)
+    self.assertEqual([_BATTOR_RETURN], data_from_builder)
 
   def testAndroidCharging(self):
     self.assertTrue(self.android_agent._battery.GetCharging())

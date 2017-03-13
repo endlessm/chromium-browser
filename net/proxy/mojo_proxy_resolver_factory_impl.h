@@ -12,8 +12,6 @@
 #include "net/interfaces/proxy_resolver_service.mojom.h"
 
 namespace net {
-class HostResolver;
-class ProxyResolverErrorObserver;
 class ProxyResolverV8TracingFactory;
 
 class MojoProxyResolverFactoryImpl : public interfaces::ProxyResolverFactory {
@@ -29,7 +27,7 @@ class MojoProxyResolverFactoryImpl : public interfaces::ProxyResolverFactory {
 
   // interfaces::ProxyResolverFactory override.
   void CreateResolver(
-      const mojo::String& pac_script,
+      const std::string& pac_script,
       interfaces::ProxyResolverRequest request,
       interfaces::ProxyResolverFactoryRequestClientPtr client) override;
 

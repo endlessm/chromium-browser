@@ -29,7 +29,9 @@ DataUseUserData::AppState GetCurrentAppState() {
 }  // namespace
 
 DataUseUserData::DataUseUserData(ServiceName service_name, AppState app_state)
-    : service_name_(service_name), app_state_(app_state) {}
+    : service_name_(service_name),
+      app_state_(app_state),
+      content_type_(DataUseContentType::OTHER) {}
 
 DataUseUserData::~DataUseUserData() {}
 
@@ -86,6 +88,18 @@ std::string DataUseUserData::GetServiceNameAsString(ServiceName service_name) {
       return "Precache";
     case NTP_TILES:
       return "NTPTiles";
+    case FEEDBACK_UPLOADER:
+      return "FeedbackUploader";
+    case TRACING_UPLOADER:
+      return "TracingUploader";
+    case DOM_DISTILLER:
+      return "DOMDistiller";
+    case CLOUD_PRINT:
+      return "CloudPrint";
+    case SEARCH_PROVIDER_LOGOS:
+      return "SearchProviderLogos";
+    case UPDATE_CLIENT:
+      return "UpdateClient";
   }
   return "INVALID";
 }

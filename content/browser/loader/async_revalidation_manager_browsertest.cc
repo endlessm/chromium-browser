@@ -8,14 +8,15 @@
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
-#include "base/feature_list.h"
 #include "base/macros.h"
 #include "base/run_loop.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/test/scoped_feature_list.h"
 #include "content/public/common/browser_side_navigation_policy.h"
+#include "content/public/common/content_features.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test.h"
 #include "content/public/test/content_browser_test_utils.h"
@@ -43,21 +44,20 @@ class AsyncRevalidationManagerBrowserTest : public ContentBrowserTest {
   ~AsyncRevalidationManagerBrowserTest() override {}
 
   void SetUp() override {
-    base::FeatureList::ClearInstanceForTesting();
-    std::unique_ptr<base::FeatureList> feature_list(new base::FeatureList);
-    feature_list->InitializeFromCommandLine(
-        "StaleWhileRevalidate2", std::string());
-    base::FeatureList::SetInstance(std::move(feature_list));
-
-    ASSERT_TRUE(embedded_test_server()->InitializeAndListen());
+    scoped_feature_list_.InitAndEnableFeature(features::kStaleWhileRevalidate);
     ContentBrowserTest::SetUp();
   }
 
   void SetUpOnMainThread() override {
-    embedded_test_server()->StartAcceptingConnections();
+    ContentBrowserTest::SetUpOnMainThread();
+    run_loop_.reset(new base::RunLoop);
   }
 
-  base::RunLoop* run_loop() { return &run_loop_; }
+  base::RunLoop* run_loop() {
+    DCHECK(run_loop_);
+    return run_loop_.get();
+  }
+
   int requests_counted() const { return requests_counted_; }
 
   // This method lacks diagnostics for the failure case because TitleWatcher
@@ -99,8 +99,10 @@ class AsyncRevalidationManagerBrowserTest : public ContentBrowserTest {
 
     // The second time this handler is run is the async revalidation. Tests can
     // use this for synchronisation.
-    if (version == 2)
-      run_loop_.Quit();
+    if (version == 2) {
+      BrowserThread::PostTask(BrowserThread::UI, FROM_HERE,
+                              run_loop()->QuitClosure());
+    }
     return std::move(http_response);
   }
 
@@ -149,8 +151,9 @@ class AsyncRevalidationManagerBrowserTest : public ContentBrowserTest {
     return http_response;
   }
 
-  base::RunLoop run_loop_;
+  std::unique_ptr<base::RunLoop> run_loop_;
   int requests_counted_ = 0;
+  base::test::ScopedFeatureList scoped_feature_list_;
 
   DISALLOW_COPY_AND_ASSIGN(AsyncRevalidationManagerBrowserTest);
 };
@@ -159,11 +162,13 @@ class AsyncRevalidationManagerBrowserTest : public ContentBrowserTest {
 // triggers an async revalidation.
 IN_PROC_BROWSER_TEST_F(AsyncRevalidationManagerBrowserTest,
                        StaleWhileRevalidateIsApplied) {
+  RegisterCountingRequestHandler();
+  ASSERT_TRUE(embedded_test_server()->Start());
+
   // PlzNavigate: Stale while revalidate is disabled.
   // TODO(clamy): Re-enable the test when there is support.
   if (IsBrowserSideNavigationEnabled())
     return;
-  RegisterCountingRequestHandler();
   GURL url(embedded_test_server()->GetURL(kCountedHtmlPath));
 
   EXPECT_TRUE(TitleBecomes(url, "Version 1"));
@@ -186,12 +191,14 @@ IN_PROC_BROWSER_TEST_F(AsyncRevalidationManagerBrowserTest,
 // The fresh cache entry must become visible once the async revalidation request
 // has been sent.
 IN_PROC_BROWSER_TEST_F(AsyncRevalidationManagerBrowserTest, CacheIsUpdated) {
+  RegisterCountingRequestHandler();
+  ASSERT_TRUE(embedded_test_server()->Start());
+
   // PlzNavigate: Stale while revalidate is disabled.
   // TODO(clamy): Re-enable the test when there is support.
   if (IsBrowserSideNavigationEnabled())
     return;
   using base::ASCIIToUTF16;
-  RegisterCountingRequestHandler();
   GURL url(embedded_test_server()->GetURL(kCountedHtmlPath));
 
   EXPECT_TRUE(TitleBecomes(url, "Version 1"));
@@ -218,11 +225,13 @@ IN_PROC_BROWSER_TEST_F(AsyncRevalidationManagerBrowserTest, CacheIsUpdated) {
 // applied immediately.
 IN_PROC_BROWSER_TEST_F(AsyncRevalidationManagerBrowserTest,
                        CookieSetAsynchronously) {
+  RegisterCookieRequestHandler();
+  ASSERT_TRUE(embedded_test_server()->Start());
+
   // PlzNavigate: Stale while revalidate is disabled.
   // TODO(clamy): Re-enable the test when there is support.
   if (IsBrowserSideNavigationEnabled())
     return;
-  RegisterCookieRequestHandler();
   GURL url(embedded_test_server()->GetURL(kCookieHtmlPath));
 
   // Set cookie to version=1

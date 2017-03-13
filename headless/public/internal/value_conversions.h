@@ -14,7 +14,7 @@ namespace headless {
 namespace internal {
 
 // Generic conversion from a type to a base::Value. Implemented in
-// type_conversions.h after all type-specific ToValueImpls have been defined.
+// types_DOMAIN.cc after all type-specific ToValueImpls have been defined.
 template <typename T>
 std::unique_ptr<base::Value> ToValue(const T& value);
 
@@ -67,7 +67,7 @@ std::unique_ptr<base::Value> ToValueImpl(const std::vector<T>& vector,
 template <typename T>
 std::unique_ptr<base::Value> ToValueImpl(const std::unique_ptr<T>& value,
                                          std::unique_ptr<T>*) {
-  return ToValue(value.get());
+  return ToValue(*value);
 }
 
 // FromValue specializations for basic types.

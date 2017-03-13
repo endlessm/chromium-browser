@@ -23,13 +23,13 @@ WebLayerTreeViewImplForTesting::WebLayerTreeViewImplForTesting()
 
 WebLayerTreeViewImplForTesting::WebLayerTreeViewImplForTesting(
     const cc::LayerTreeSettings& settings) {
+  m_animationHost = cc::AnimationHost::CreateMainInstance();
   cc::LayerTreeHostInProcess::InitParams params;
   params.client = this;
   params.settings = &settings;
   params.main_task_runner = base::ThreadTaskRunnerHandle::Get();
   params.task_graph_runner = &m_taskGraphRunner;
-  params.animation_host =
-      cc::AnimationHost::CreateForTesting(cc::ThreadInstance::MAIN);
+  params.mutator_host = m_animationHost.get();
   m_layerTreeHost =
       cc::LayerTreeHostInProcess::CreateSingleThreaded(this, &params);
   ASSERT(m_layerTreeHost);
@@ -62,18 +62,8 @@ void WebLayerTreeViewImplForTesting::clearRootLayer() {
   m_layerTreeHost->GetLayerTree()->SetRootLayer(scoped_refptr<cc::Layer>());
 }
 
-void WebLayerTreeViewImplForTesting::attachCompositorAnimationTimeline(
-    cc::AnimationTimeline* compositorTimeline) {
-  DCHECK(m_layerTreeHost->GetLayerTree()->animation_host());
-  m_layerTreeHost->GetLayerTree()->animation_host()->AddAnimationTimeline(
-      compositorTimeline);
-}
-
-void WebLayerTreeViewImplForTesting::detachCompositorAnimationTimeline(
-    cc::AnimationTimeline* compositorTimeline) {
-  DCHECK(m_layerTreeHost->GetLayerTree()->animation_host());
-  m_layerTreeHost->GetLayerTree()->animation_host()->RemoveAnimationTimeline(
-      compositorTimeline);
+cc::AnimationHost* WebLayerTreeViewImplForTesting::compositorAnimationHost() {
+  return m_animationHost.get();
 }
 
 void WebLayerTreeViewImplForTesting::setViewportSize(
@@ -150,7 +140,7 @@ void WebLayerTreeViewImplForTesting::ApplyViewportDeltas(
     const gfx::Vector2dF& outerDelta,
     const gfx::Vector2dF& elasticOverscrollDelta,
     float pageScale,
-    float topControlsDelta) {}
+    float browserControlsDelta) {}
 
 void WebLayerTreeViewImplForTesting::RequestNewCompositorFrameSink() {
   // Intentionally do not create and set an CompositorFrameSink.

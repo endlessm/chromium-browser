@@ -13,6 +13,7 @@
 
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
+#include "base/unguessable_token.h"
 #include "gpu/command_buffer/client/gles2_interface.h"
 #include "gpu/command_buffer/common/mailbox.h"
 #include "media/base/media_export.h"
@@ -27,7 +28,6 @@ class SharedMemory;
 }
 
 namespace gfx {
-class Rect;
 class Size;
 }
 
@@ -59,8 +59,23 @@ class MEDIA_EXPORT GpuVideoAcceleratorFactories {
     DISALLOW_COPY_AND_ASSIGN(ScopedGLContextLock);
   };
 
+  enum class OutputFormat {
+    UNDEFINED = 0,    // Unset state
+    I420,             // 3 x R8 GMBs
+    UYVY,             // One 422 GMB
+    NV12_SINGLE_GMB,  // One NV12 GMB
+    NV12_DUAL_GMB,    // One R8, one RG88 GMB
+  };
+
   // Return whether GPU encoding/decoding is enabled.
   virtual bool IsGpuVideoAcceleratorEnabled() = 0;
+
+  // Return the channel token, or an empty token if the channel is unusable.
+  virtual base::UnguessableToken GetChannelToken() = 0;
+
+  // Returns the |route_id| of the command buffer, or 0 if there is none.
+  virtual int32_t GetCommandBufferRouteId() = 0;
+
   // Caller owns returned pointer, but should call Destroy() on it (instead of
   // directly deleting) for proper destruction, as per the
   // VideoDecodeAccelerator interface.
@@ -84,7 +99,7 @@ class MEDIA_EXPORT GpuVideoAcceleratorFactories {
 
   virtual void WaitSyncToken(const gpu::SyncToken& sync_token) = 0;
 
-  virtual std::unique_ptr<gfx::GpuMemoryBuffer> AllocateGpuMemoryBuffer(
+  virtual std::unique_ptr<gfx::GpuMemoryBuffer> CreateGpuMemoryBuffer(
       const gfx::Size& size,
       gfx::BufferFormat format,
       gfx::BufferUsage usage) = 0;
@@ -93,7 +108,7 @@ class MEDIA_EXPORT GpuVideoAcceleratorFactories {
   virtual unsigned ImageTextureTarget(gfx::BufferFormat format) = 0;
   // Pixel format of the hardware video frames created when GpuMemoryBuffers
   // video frames are enabled.
-  virtual VideoPixelFormat VideoFrameOutputFormat() = 0;
+  virtual OutputFormat VideoFrameOutputFormat() = 0;
 
   virtual std::unique_ptr<ScopedGLContextLock> GetGLContextLock() = 0;
 

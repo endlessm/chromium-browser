@@ -6,9 +6,10 @@
 
 #include "base/command_line.h"
 #include "base/macros.h"
+#include "base/memory/ptr_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "third_party/skia/include/core/SkBitmap.h"
-#include "ui/accessibility/ax_view_state.h"
+#include "ui/accessibility/ax_node_data.h"
 #include "ui/base/material_design/material_design_controller.h"
 #include "ui/base/test/material_design_controller_test_api.h"
 #include "ui/base/ui_base_switches.h"
@@ -128,10 +129,10 @@ TEST_F(LabelButtonTest, Init) {
 
   EXPECT_EQ(text, button.GetText());
 
-  ui::AXViewState accessible_state;
-  button.GetAccessibleState(&accessible_state);
-  EXPECT_EQ(ui::AX_ROLE_BUTTON, accessible_state.role);
-  EXPECT_EQ(text, accessible_state.name);
+  ui::AXNodeData accessible_node_data;
+  button.GetAccessibleNodeData(&accessible_node_data);
+  EXPECT_EQ(ui::AX_ROLE_BUTTON, accessible_node_data.role);
+  EXPECT_EQ(text, accessible_node_data.GetString16Attribute(ui::AX_ATTR_NAME));
 
   EXPECT_FALSE(button.is_default());
   EXPECT_EQ(button.style(), Button::STYLE_TEXTBUTTON);
@@ -171,27 +172,31 @@ TEST_F(LabelButtonTest, Label) {
   EXPECT_LT(button_->GetPreferredSize().width(), long_text_width);
 }
 
-// Test behavior of View::GetAccessibleState() for buttons when setting a label.
+// Test behavior of View::GetAccessibleNodeData() for buttons when setting a
+// label.
 TEST_F(LabelButtonTest, AccessibleState) {
-  ui::AXViewState accessible_state;
+  ui::AXNodeData accessible_node_data;
 
-  button_->GetAccessibleState(&accessible_state);
-  EXPECT_EQ(ui::AX_ROLE_BUTTON, accessible_state.role);
-  EXPECT_EQ(base::string16(), accessible_state.name);
+  button_->GetAccessibleNodeData(&accessible_node_data);
+  EXPECT_EQ(ui::AX_ROLE_BUTTON, accessible_node_data.role);
+  EXPECT_EQ(base::string16(),
+            accessible_node_data.GetString16Attribute(ui::AX_ATTR_NAME));
 
   // Without a label (e.g. image-only), the accessible name should automatically
   // be set from the tooltip.
   const base::string16 tooltip_text = ASCIIToUTF16("abc");
   button_->SetTooltipText(tooltip_text);
-  button_->GetAccessibleState(&accessible_state);
-  EXPECT_EQ(tooltip_text, accessible_state.name);
+  button_->GetAccessibleNodeData(&accessible_node_data);
+  EXPECT_EQ(tooltip_text,
+            accessible_node_data.GetString16Attribute(ui::AX_ATTR_NAME));
   EXPECT_EQ(base::string16(), button_->GetText());
 
   // Setting a label overrides the tooltip text.
   const base::string16 label_text = ASCIIToUTF16("def");
   button_->SetText(label_text);
-  button_->GetAccessibleState(&accessible_state);
-  EXPECT_EQ(label_text, accessible_state.name);
+  button_->GetAccessibleNodeData(&accessible_node_data);
+  EXPECT_EQ(label_text,
+            accessible_node_data.GetString16Attribute(ui::AX_ATTR_NAME));
   EXPECT_EQ(label_text, button_->GetText());
 
   base::string16 tooltip;
@@ -287,24 +292,21 @@ TEST_F(LabelButtonTest, LabelAndImage) {
   EXPECT_LT(button_->GetPreferredSize().height(), image_size);
 }
 
-TEST_F(LabelButtonTest, FontList) {
+TEST_F(LabelButtonTest, AdjustFontSize) {
   button_->SetText(base::ASCIIToUTF16("abc"));
 
-  const gfx::FontList original_font_list = button_->GetFontList();
-  const gfx::FontList large_font_list =
-      original_font_list.DeriveWithSizeDelta(100);
   const int original_width = button_->GetPreferredSize().width();
   const int original_height = button_->GetPreferredSize().height();
 
   // The button size increases when the font size is increased.
-  button_->SetFontList(large_font_list);
+  button_->AdjustFontSize(100);
   EXPECT_GT(button_->GetPreferredSize().width(), original_width);
   EXPECT_GT(button_->GetPreferredSize().height(), original_height);
 
   // The button returns to its original size when the minimal size is cleared
   // and the original font size is restored.
   button_->SetMinSize(gfx::Size());
-  button_->SetFontList(original_font_list);
+  button_->AdjustFontSize(-100);
   EXPECT_EQ(original_width, button_->GetPreferredSize().width());
   EXPECT_EQ(original_height, button_->GetPreferredSize().height());
 }

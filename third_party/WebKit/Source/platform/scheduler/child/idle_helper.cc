@@ -25,7 +25,8 @@ IdleHelper::IdleHelper(
     base::TimeDelta required_quiescence_duration_before_long_idle_period)
     : helper_(helper),
       delegate_(delegate),
-      idle_queue_(helper_->NewTaskQueue(TaskQueue::Spec("idle_tq"))),
+      idle_queue_(
+          helper_->NewTaskQueue(TaskQueue::Spec(TaskQueue::QueueType::IDLE))),
       state_(helper,
              delegate,
              tracing_category,
@@ -35,6 +36,7 @@ IdleHelper::IdleHelper(
           required_quiescence_duration_before_long_idle_period),
       disabled_by_default_tracing_category_(
           disabled_by_default_tracing_category),
+      is_shutdown_(false),
       weak_factory_(this) {
   weak_idle_helper_ptr_ = weak_factory_.GetWeakPtr();
   enable_next_long_idle_period_closure_.Reset(
@@ -45,13 +47,26 @@ IdleHelper::IdleHelper(
   idle_task_runner_ = make_scoped_refptr(
       new SingleThreadIdleTaskRunner(idle_queue_, this, tracing_category));
 
-  idle_queue_->SetQueueEnabled(false);
+  // This fence will block any idle tasks from running.
+  idle_queue_->InsertFence(TaskQueue::InsertFencePosition::BEGINNING_OF_TIME);
   idle_queue_->SetQueuePriority(TaskQueue::BEST_EFFORT_PRIORITY);
 
   helper_->AddTaskObserver(this);
 }
 
 IdleHelper::~IdleHelper() {
+  Shutdown();
+}
+
+void IdleHelper::Shutdown() {
+  if (is_shutdown_)
+    return;
+
+  EndIdlePeriod();
+  is_shutdown_ = true;
+  weak_factory_.InvalidateWeakPtrs();
+  // Belt & braces, might not be needed.
+  idle_queue_->InsertFence(TaskQueue::InsertFencePosition::BEGINNING_OF_TIME);
   helper_->RemoveTaskObserver(this);
 }
 
@@ -108,9 +123,6 @@ IdleHelper::IdlePeriodState IdleHelper::ComputeNewLongIdlePeriodState(
 bool IdleHelper::ShouldWaitForQuiescence() {
   helper_->CheckOnValidThread();
 
-  if (helper_->IsShutdown())
-    return false;
-
   if (required_quiescence_duration_before_long_idle_period_ ==
       base::TimeDelta()) {
     return false;
@@ -125,7 +137,7 @@ bool IdleHelper::ShouldWaitForQuiescence() {
 void IdleHelper::EnableLongIdlePeriod() {
   TRACE_EVENT0(disabled_by_default_tracing_category_, "EnableLongIdlePeriod");
   helper_->CheckOnValidThread();
-  if (helper_->IsShutdown())
+  if (is_shutdown_)
     return;
 
   // End any previous idle period.
@@ -157,9 +169,13 @@ void IdleHelper::EnableLongIdlePeriod() {
 void IdleHelper::StartIdlePeriod(IdlePeriodState new_state,
                                  base::TimeTicks now,
                                  base::TimeTicks idle_period_deadline) {
+  DCHECK(!is_shutdown_);
   DCHECK_GT(idle_period_deadline, now);
   helper_->CheckOnValidThread();
   DCHECK(IsInIdlePeriod(new_state));
+
+  // Allow any ready delayed idle tasks to run.
+  idle_task_runner_->EnqueueReadyDelayedIdleTasks();
 
   base::TimeDelta idle_period_duration(idle_period_deadline - now);
   if (idle_period_duration <
@@ -172,15 +188,17 @@ void IdleHelper::StartIdlePeriod(IdlePeriodState new_state,
   }
 
   TRACE_EVENT0(disabled_by_default_tracing_category_, "StartIdlePeriod");
-  idle_queue_->SetQueueEnabled(true);
   // Use a fence to make sure any idle tasks posted after this point do not run
-  // until the next idle period.
-  idle_queue_->InsertFence();
+  // until the next idle period and unblock existing tasks.
+  idle_queue_->InsertFence(TaskQueue::InsertFencePosition::NOW);
 
   state_.UpdateState(new_state, idle_period_deadline, now);
 }
 
 void IdleHelper::EndIdlePeriod() {
+  if (is_shutdown_)
+    return;
+
   helper_->CheckOnValidThread();
   TRACE_EVENT0(disabled_by_default_tracing_category_, "EndIdlePeriod");
 
@@ -191,15 +209,19 @@ void IdleHelper::EndIdlePeriod() {
   if (!IsInIdlePeriod(state_.idle_period_state()))
     return;
 
-  idle_queue_->SetQueueEnabled(false);
+  // This fence will block any idle tasks from running.
+  idle_queue_->InsertFence(TaskQueue::InsertFencePosition::BEGINNING_OF_TIME);
   state_.UpdateState(IdlePeriodState::NOT_IN_IDLE_PERIOD, base::TimeTicks(),
                      base::TimeTicks());
 }
 
-void IdleHelper::WillProcessTask(const base::PendingTask& pending_task) {}
+void IdleHelper::WillProcessTask(const base::PendingTask& pending_task) {
+  DCHECK(!is_shutdown_);
+}
 
 void IdleHelper::DidProcessTask(const base::PendingTask& pending_task) {
   helper_->CheckOnValidThread();
+  DCHECK(!is_shutdown_);
   TRACE_EVENT0(disabled_by_default_tracing_category_, "DidProcessTask");
   if (IsInIdlePeriod(state_.idle_period_state()) &&
       state_.idle_period_state() !=
@@ -220,6 +242,7 @@ void IdleHelper::DidProcessTask(const base::PendingTask& pending_task) {
 
 void IdleHelper::UpdateLongIdlePeriodStateAfterIdleTask() {
   helper_->CheckOnValidThread();
+  DCHECK(!is_shutdown_);
   DCHECK(IsInLongIdlePeriod(state_.idle_period_state()));
   TRACE_EVENT0(disabled_by_default_tracing_category_,
                "UpdateLongIdlePeriodStateAfterIdleTask");
@@ -261,6 +284,8 @@ base::TimeTicks IdleHelper::CurrentIdleTaskDeadline() const {
 
 void IdleHelper::OnIdleTaskPosted() {
   TRACE_EVENT0(disabled_by_default_tracing_category_, "OnIdleTaskPosted");
+  if (is_shutdown_)
+    return;
   if (idle_task_runner_->RunsTasksOnCurrentThread()) {
     OnIdleTaskPostedOnMainThread();
   } else {
@@ -272,6 +297,8 @@ void IdleHelper::OnIdleTaskPosted() {
 void IdleHelper::OnIdleTaskPostedOnMainThread() {
   TRACE_EVENT0(disabled_by_default_tracing_category_,
                "OnIdleTaskPostedOnMainThread");
+  if (is_shutdown_)
+    return;
   if (state_.idle_period_state() ==
       IdlePeriodState::IN_LONG_IDLE_PERIOD_PAUSED) {
     // Restart long idle period ticks.
@@ -282,16 +309,23 @@ void IdleHelper::OnIdleTaskPostedOnMainThread() {
 
 base::TimeTicks IdleHelper::WillProcessIdleTask() {
   helper_->CheckOnValidThread();
+  DCHECK(!is_shutdown_);
   state_.TraceIdleIdleTaskStart();
   return CurrentIdleTaskDeadline();
 }
 
 void IdleHelper::DidProcessIdleTask() {
   helper_->CheckOnValidThread();
+  if (is_shutdown_)
+    return;
   state_.TraceIdleIdleTaskEnd();
   if (IsInLongIdlePeriod(state_.idle_period_state())) {
     UpdateLongIdlePeriodStateAfterIdleTask();
   }
+}
+
+base::TimeTicks IdleHelper::NowTicks() {
+  return helper_->scheduler_tqm_delegate()->NowTicks();
 }
 
 // static

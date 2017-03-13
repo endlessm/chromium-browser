@@ -10,7 +10,6 @@
 #include "base/command_line.h"
 #include "base/memory/ptr_util.h"
 #include "base/strings/string_util.h"
-#include "base/strings/stringprintf.h"
 #include "base/values.h"
 #include "build/build_config.h"
 #include "chrome/browser/chrome_notification_types.h"
@@ -1597,8 +1596,7 @@ class GetAuthTokenFunctionPublicSessionTest : public GetAuthTokenFunctionTest {
     // enterprise-managed.
      std::unique_ptr<chromeos::StubInstallAttributes> attributes
          = base::MakeUnique<chromeos::StubInstallAttributes>();
-     attributes->SetDomain("example.com");
-     attributes->SetRegistrationUser("user@example.com");
+     attributes->SetEnterprise("example.com", "fake-id");
      policy::BrowserPolicyConnectorChromeOS::SetInstallAttributesForTesting(
          attributes.release());
   }

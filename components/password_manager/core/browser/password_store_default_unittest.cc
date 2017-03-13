@@ -13,9 +13,9 @@
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
-#include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "components/password_manager/core/browser/login_database.h"
 #include "components/password_manager/core/browser/password_manager_test_utils.h"
@@ -155,10 +155,6 @@ base::FilePath PasswordStoreDefaultTestDelegate::test_login_db_file_path()
 INSTANTIATE_TYPED_TEST_CASE_P(Default,
                               PasswordStoreOriginTest,
                               PasswordStoreDefaultTestDelegate);
-
-ACTION(STLDeleteElements0) {
-  base::STLDeleteContainerPointers(arg0.begin(), arg0.end());
-}
 
 TEST(PasswordStoreDefaultTest, NonASCIIData) {
   PasswordStoreDefaultTestDelegate delegate;

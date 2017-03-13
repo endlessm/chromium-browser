@@ -22,10 +22,13 @@
       addresses: Array,
 
       /**
-       * Assigning a non-null value triggers the add/edit dialog.
+       * The model for any address related action menus or dialogs.
        * @private {?chrome.autofillPrivate.AddressEntry}
        */
       activeAddress: Object,
+
+      /** @private */
+      showAddressDialog_: Boolean,
 
       /**
        * An array of saved addresses.
@@ -34,24 +37,13 @@
       creditCards: Array,
 
       /**
-       * Assigning a non-null value triggers the add/edit dialog.
+       * The model for any credit card related action menus or dialogs.
        * @private {?chrome.autofillPrivate.CreditCardEntry}
        */
       activeCreditCard: Object,
-   },
 
-    listeners: {
-      'addressList.scroll': 'closeMenu_',
-      'creditCardList.scroll': 'closeMenu_',
-    },
-
-    /**
-     * Formats an AddressEntry so it's displayed as an address.
-     * @param {!chrome.autofillPrivate.AddressEntry} item
-     * @return {string}
-     */
-    address_: function(item) {
-      return item.metadata.summaryLabel + item.metadata.summarySublabel;
+      /** @private */
+      showCreditCardDialog_: Boolean,
     },
 
     /**
@@ -64,52 +56,49 @@
     },
 
     /**
-     * Toggles the address overflow menu.
+     * Open the address action menu.
      * @param {!Event} e The polymer event.
      * @private
      */
     onAddressMenuTap_: function(e) {
-      // Close the other menu.
-      this.$.creditCardSharedMenu.closeMenu();
-
       var menuEvent = /** @type {!{model: !{item: !Object}}} */(e);
-      var address = /** @type {!chrome.autofillPrivate.AddressEntry} */(
+      this.activeAddress = /** @type {!chrome.autofillPrivate.AddressEntry} */(
           menuEvent.model.item);
-      this.$.menuRemoveAddress.hidden = !address.metadata.isLocal;
-      this.$.addressSharedMenu.toggleMenu(Polymer.dom(e).localTarget, address);
-      e.stopPropagation();  // Prevent the tap event from closing the menu.
+
+      var dotsButton = /** @type {!HTMLElement} */ (Polymer.dom(e).localTarget);
+      /** @type {!CrActionMenuElement} */ (
+          this.$.addressSharedMenu).showAt(dotsButton);
     },
 
     /**
      * Handles tapping on the "Add address" button.
-     * @param {!Event} e
+     * @param {!Event} e The polymer event.
      * @private
      */
     onAddAddressTap_: function(e) {
       e.preventDefault();
       this.activeAddress = {};
+      this.showAddressDialog_ = true;
+    },
+
+    /** @private */
+    onAddressDialogClosed_: function() {
+      this.showAddressDialog_ = false;
     },
 
     /**
      * Handles tapping on the "Edit" address button.
+     * @param {!Event} e The polymer event.
      * @private
      */
-    onMenuEditAddressTap_: function() {
-      var menu = this.$.addressSharedMenu;
-      /** @type {chrome.autofillPrivate.AddressEntry} */
-      var address = menu.itemData;
-
-      if (address.metadata.isLocal)
-        this.activeAddress = address;
+    onMenuEditAddressTap_: function(e) {
+      e.preventDefault();
+      if (this.activeAddress.metadata.isLocal)
+        this.showAddressDialog_ = true;
       else
         window.open(this.i18n('manageAddressesUrl'));
 
-      menu.closeMenu();
-    },
-
-    /** @private */
-    unstampAddressEditDialog_: function(e) {
-      this.activeAddress = null;
+      this.$.addressSharedMenu.close();
     },
 
     /**
@@ -117,28 +106,24 @@
      * @private
      */
     onMenuRemoveAddressTap_: function() {
-      var menu = this.$.addressSharedMenu;
-      this.fire('remove-address', menu.itemData);
-      menu.closeMenu();
+      this.fire('remove-address', this.activeAddress);
+      this.$.addressSharedMenu.close();
     },
 
     /**
-     * Toggles the credit card overflow menu.
+     * Opens the credit card action menu.
      * @param {!Event} e The polymer event.
      * @private
      */
     onCreditCardMenuTap_: function(e) {
-      // Close the other menu.
-      this.$.addressSharedMenu.closeMenu();
-
       var menuEvent = /** @type {!{model: !{item: !Object}}} */(e);
-      var creditCard = /** @type {!chrome.autofillPrivate.CreditCardEntry} */(
-          menuEvent.model.item);
-      this.$.menuRemoveCreditCard.hidden = !creditCard.metadata.isLocal;
-      this.$.menuClearCreditCard.hidden = !creditCard.metadata.isCached;
-      this.$.creditCardSharedMenu.toggleMenu(
-          Polymer.dom(e).localTarget, creditCard);
-      e.stopPropagation();  // Prevent the tap event from closing the menu.
+      this.activeCreditCard =
+          /** @type {!chrome.autofillPrivate.CreditCardEntry} */(
+              menuEvent.model.item);
+
+      var dotsButton = /** @type {!HTMLElement} */ (Polymer.dom(e).localTarget);
+      /** @type {!CrActionMenuElement} */ (
+          this.$.creditCardSharedMenu).showAt(dotsButton);
     },
 
     /**
@@ -147,45 +132,44 @@
      * @private
      */
     onAddCreditCardTap_: function(e) {
+      e.preventDefault();
       var date = new Date();  // Default to current month/year.
       var expirationMonth = date.getMonth() + 1;  // Months are 0 based.
       this.activeCreditCard = {
         expirationMonth: expirationMonth.toString(),
         expirationYear: date.getFullYear().toString(),
       };
-      e.preventDefault();
+      this.showCreditCardDialog_ = true;
+    },
+
+    /** @private */
+    onCreditCardDialogClosed_: function() {
+      this.showCreditCardDialog_ = false;
     },
 
     /**
      * Handles tapping on the "Edit" credit card button.
+     * @param {!Event} e The polymer event.
      * @private
      */
-    onMenuEditCreditCardTap_: function() {
-      var menu = this.$.creditCardSharedMenu;
-      /** @type {chrome.autofillPrivate.CreditCardEntry} */
-      var creditCard = menu.itemData;
-
-      if (creditCard.metadata.isLocal)
-        this.activeCreditCard = creditCard;
+    onMenuEditCreditCardTap_: function(e) {
+      e.preventDefault();
+      if (this.activeCreditCard.metadata.isLocal)
+        this.showCreditCardDialog_ = true;
       else
         window.open(this.i18n('manageCreditCardsUrl'));
 
-      menu.closeMenu();
+      this.$.creditCardSharedMenu.close();
     },
 
-    /** @private */
-    unstampCreditCardEditDialog_: function(e) {
-      this.activeCreditCard = null;
-    },
 
     /**
      * Handles tapping on the "Remove" credit card button.
      * @private
      */
     onMenuRemoveCreditCardTap_: function() {
-      var menu = this.$.creditCardSharedMenu;
-      this.fire('remove-credit-card', menu.itemData);
-      menu.closeMenu();
+      this.fire('remove-credit-card', this.activeCreditCard);
+      this.$.creditCardSharedMenu.close();
     },
 
     /**
@@ -193,18 +177,8 @@
      * @private
      */
     onMenuClearCreditCardTap_: function() {
-      var menu = this.$.creditCardSharedMenu;
-      this.fire('clear-credit-card', menu.itemData);
-      menu.closeMenu();
-    },
-
-    /**
-     * Closes the overflow menus.
-     * @private
-     */
-    closeMenu_: function() {
-      this.$.addressSharedMenu.closeMenu();
-      this.$.creditCardSharedMenu.closeMenu();
+      this.fire('clear-credit-card', this.activeCreditCard);
+      this.$.creditCardSharedMenu.close();
     },
 
     /**

@@ -41,9 +41,7 @@ inline SVGFEDropShadowElement::SVGFEDropShadowElement(Document& document)
                                                   SVGNames::stdDeviationAttr,
                                                   2,
                                                   2)),
-      m_in1(SVGAnimatedString::create(this,
-                                      SVGNames::inAttr,
-                                      SVGString::create())) {
+      m_in1(SVGAnimatedString::create(this, SVGNames::inAttr)) {
   addToPropertyMap(m_dx);
   addToPropertyMap(m_dy);
   addToPropertyMap(m_stdDeviation);
@@ -119,7 +117,7 @@ FilterEffect* SVGFEDropShadowElement::build(SVGFilterBuilder* filterBuilder,
   FilterEffect* effect = FEDropShadow::create(
       filter, stdDevX, stdDevY, m_dx->currentValue()->value(),
       m_dy->currentValue()->value(), color, opacity);
-  effect->inputEffects().append(input1);
+  effect->inputEffects().push_back(input1);
   return effect;
 }
 

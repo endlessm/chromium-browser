@@ -10,8 +10,6 @@
 namespace headless {
 
 class HeadlessBrowserImpl;
-class HeadlessBrowserMainParts;
-class HeadlessDevToolsManagerDelegate;
 
 class HeadlessContentBrowserClient : public content::ContentBrowserClient {
  public:
@@ -24,6 +22,8 @@ class HeadlessContentBrowserClient : public content::ContentBrowserClient {
   void OverrideWebkitPrefs(content::RenderViewHost* render_view_host,
                            content::WebPreferences* prefs) override;
   content::DevToolsManagerDelegate* GetDevToolsManagerDelegate() override;
+  std::unique_ptr<base::Value> GetServiceManifestOverlay(
+      base::StringPiece name) override;
 
  private:
   HeadlessBrowserImpl* browser_;  // Not owned.

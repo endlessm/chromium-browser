@@ -13,19 +13,21 @@
 #include "content/common/edit_command.h"
 #include "content/common/input/input_event.h"
 #include "content/common/input/input_event_ack.h"
+#include "content/common/input/input_event_ack_source.h"
 #include "content/common/input/input_event_ack_state.h"
 #include "content/common/input/input_event_dispatch_type.h"
 #include "content/common/input/input_param_traits.h"
 #include "content/common/input/synthetic_gesture_packet.h"
 #include "content/common/input/synthetic_gesture_params.h"
 #include "content/common/input/synthetic_pinch_gesture_params.h"
+#include "content/common/input/synthetic_pointer_action_list_params.h"
 #include "content/common/input/synthetic_pointer_action_params.h"
 #include "content/common/input/synthetic_smooth_drag_gesture_params.h"
 #include "content/common/input/synthetic_smooth_scroll_gesture_params.h"
 #include "content/common/input/synthetic_tap_gesture_params.h"
 #include "content/common/input/touch_action.h"
 #include "ipc/ipc_message_macros.h"
-#include "third_party/WebKit/public/web/WebInputEvent.h"
+#include "third_party/WebKit/public/platform/WebInputEvent.h"
 #include "ui/events/blink/did_overscroll_params.h"
 #include "ui/events/ipc/latency_info_param_traits.h"
 #include "ui/gfx/geometry/point.h"
@@ -44,6 +46,8 @@
 
 #define IPC_MESSAGE_START InputMsgStart
 
+IPC_ENUM_TRAITS_MAX_VALUE(content::InputEventAckSource,
+                          content::InputEventAckSource::MAX)
 IPC_ENUM_TRAITS_MAX_VALUE(
     content::SyntheticGestureParams::GestureSourceType,
     content::SyntheticGestureParams::GESTURE_SOURCE_TYPE_MAX)
@@ -54,6 +58,9 @@ IPC_ENUM_TRAITS_MAX_VALUE(
     content::SyntheticPointerActionParams::PointerActionType,
     content::SyntheticPointerActionParams::PointerActionType::
         POINTER_ACTION_TYPE_MAX)
+IPC_ENUM_TRAITS_MAX_VALUE(
+    content::SyntheticPointerActionParams::Button,
+    content::SyntheticPointerActionParams::Button::BUTTON_MAX)
 IPC_ENUM_TRAITS_MAX_VALUE(content::InputEventDispatchType,
                           content::InputEventDispatchType::DISPATCH_TYPE_MAX)
 IPC_ENUM_TRAITS_MAX_VALUE(content::TouchAction, content::TOUCH_ACTION_MAX)
@@ -108,13 +115,19 @@ IPC_STRUCT_TRAITS_BEGIN(content::SyntheticTapGestureParams)
 IPC_STRUCT_TRAITS_END()
 
 IPC_STRUCT_TRAITS_BEGIN(content::SyntheticPointerActionParams)
-  IPC_STRUCT_TRAITS_PARENT(content::SyntheticGestureParams)
   IPC_STRUCT_TRAITS_MEMBER(pointer_action_type_)
   IPC_STRUCT_TRAITS_MEMBER(index_)
   IPC_STRUCT_TRAITS_MEMBER(position_)
+  IPC_STRUCT_TRAITS_MEMBER(button_)
+IPC_STRUCT_TRAITS_END()
+
+IPC_STRUCT_TRAITS_BEGIN(content::SyntheticPointerActionListParams)
+  IPC_STRUCT_TRAITS_PARENT(content::SyntheticGestureParams)
+  IPC_STRUCT_TRAITS_MEMBER(params)
 IPC_STRUCT_TRAITS_END()
 
 IPC_STRUCT_TRAITS_BEGIN(content::InputEventAck)
+  IPC_STRUCT_TRAITS_MEMBER(source)
   IPC_STRUCT_TRAITS_MEMBER(type)
   IPC_STRUCT_TRAITS_MEMBER(state)
   IPC_STRUCT_TRAITS_MEMBER(latency)
@@ -145,6 +158,12 @@ IPC_MESSAGE_ROUTED2(InputMsg_ExtendSelectionAndDelete,
                     int /* before */,
                     int /* after */)
 
+// Deletes text before and after the current cursor position, excluding the
+// selection.
+IPC_MESSAGE_ROUTED2(InputMsg_DeleteSurroundingText,
+                    int /* before */,
+                    int /* after */)
+
 // Selects between the given start and end offsets in the currently focused
 // editable field.
 IPC_MESSAGE_ROUTED2(InputMsg_SetEditableSelectionOffsets,
@@ -162,10 +181,12 @@ IPC_MESSAGE_ROUTED5(
 
 // This message deletes the current composition, inserts specified text, and
 // moves the cursor.
-IPC_MESSAGE_ROUTED3(InputMsg_ImeCommitText,
-                    base::string16 /* text */,
-                    gfx::Range /* replacement_range */,
-                    int /* relative_cursor_pos */)
+IPC_MESSAGE_ROUTED4(
+    InputMsg_ImeCommitText,
+    base::string16 /* text */,
+    std::vector<blink::WebCompositionUnderline>, /* underlines */
+    gfx::Range /* replacement_range */,
+    int /* relative_cursor_pos */)
 
 // This message inserts the ongoing composition.
 IPC_MESSAGE_ROUTED1(InputMsg_ImeFinishComposingText, bool /* keep_selection */)
@@ -251,11 +272,6 @@ IPC_MESSAGE_ROUTED1(InputMsg_MoveCaret,
                     gfx::Point /* location */)
 
 #if defined(OS_ANDROID)
-// Sent by the browser as ACK to ViewHostMsg_TextInputState when necessary.
-// NOTE: ImeEventAck and other Ime* messages should be of the same type,
-// otherwise a race condition can happen.
-IPC_MESSAGE_ROUTED0(InputMsg_ImeEventAck)
-
 // Request from browser to update text input state.
 IPC_MESSAGE_ROUTED0(InputMsg_RequestTextInputStateUpdate)
 #endif

@@ -13,11 +13,18 @@ from metrics import webrtc_stats
 class WebRTC(legacy_page_test.LegacyPageTest):
   """Gathers WebRTC-related metrics on a page set."""
 
-  def __init__(self):
+  def __init__(self, particular_metrics=None):
+    """Create the measurement and include selected stats.
+
+    Args:
+        particular_metrics: A list of the stats to include (see webrtc_stats.py
+            for a list of valid names) or None to select all metrics.
+    """
     super(WebRTC, self).__init__()
     self._cpu_metric = None
     self._media_metric = None
     self._power_metric = None
+    self._particular_metrics = particular_metrics
     self._webrtc_stats_metric = None
 
   def WillStartBrowser(self, platform):
@@ -25,7 +32,8 @@ class WebRTC(legacy_page_test.LegacyPageTest):
 
   def DidStartBrowser(self, browser):
     self._cpu_metric = cpu.CpuMetric(browser)
-    self._webrtc_stats_metric = webrtc_stats.WebRtcStatisticsMetric()
+    self._webrtc_stats_metric = webrtc_stats.WebRtcStatisticsMetric(
+        self._particular_metrics)
 
   def DidNavigateToPage(self, page, tab):
     self._cpu_metric.Start(page, tab)

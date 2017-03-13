@@ -12,13 +12,11 @@
 #include <vector>
 
 #include "base/macros.h"
-#include "base/memory/linked_ptr.h"
 #include "base/observer_list.h"
 #include "chrome/browser/extensions/api/mdns/dns_sd_delegate.h"
 
 namespace local_discovery {
 class ServiceDiscoverySharedClient;
-class ServiceDiscoveryClient;
 }
 
 namespace extensions {
@@ -94,10 +92,6 @@ class DnsSdRegistry : public DnsSdDelegate {
     DISALLOW_COPY_AND_ASSIGN(ServiceTypeData);
   };
 
-  // Maps service types to associated data such as listers and service lists.
-  typedef std::map<std::string, linked_ptr<ServiceTypeData> >
-      DnsSdServiceTypeDataMap;
-
   virtual DnsSdDeviceLister* CreateDnsSdDeviceLister(
       DnsSdDelegate* delegate,
       const std::string& service_type,
@@ -111,7 +105,7 @@ class DnsSdRegistry : public DnsSdDelegate {
                       const std::string& service_name) override;
   void ServicesFlushed(const std::string& service_type) override;
 
-  DnsSdServiceTypeDataMap service_data_map_;
+  std::map<std::string, std::unique_ptr<ServiceTypeData>> service_data_map_;
 
  private:
   void DispatchApiEvent(const std::string& service_type);

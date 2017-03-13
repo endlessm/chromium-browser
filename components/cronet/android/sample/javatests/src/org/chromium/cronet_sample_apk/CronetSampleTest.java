@@ -8,8 +8,8 @@ import android.content.ComponentName;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.ConditionVariable;
+import android.support.test.filters.SmallTest;
 import android.test.ActivityInstrumentationTestCase2;
-import android.test.suitebuilder.annotation.SmallTest;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.widget.TextView;
@@ -32,8 +32,7 @@ public class CronetSampleTest extends
     @Override
     protected void setUp() throws Exception {
         super.setUp();
-        mTestServer =
-                EmbeddedTestServer.createAndStartDefaultServer(getInstrumentation().getContext());
+        mTestServer = EmbeddedTestServer.createAndStartServer(getInstrumentation().getContext());
         mUrl = mTestServer.getURL("/echo?status=200");
     }
 

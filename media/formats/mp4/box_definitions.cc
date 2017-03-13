@@ -9,6 +9,7 @@
 
 #include "base/command_line.h"
 #include "base/logging.h"
+#include "base/numerics/safe_math.h"
 #include "base/strings/string_number_conversions.h"
 #include "media/base/media_switches.h"
 #include "media/base/video_types.h"
@@ -26,6 +27,12 @@
 namespace media {
 namespace mp4 {
 
+namespace {
+
+const size_t kKeyIdSize = 16;
+
+}  // namespace
+
 FileType::FileType() {}
 FileType::FileType(const FileType& other) = default;
 FileType::~FileType() {}
@@ -33,7 +40,7 @@ FourCC FileType::BoxType() const { return FOURCC_FTYP; }
 
 bool FileType::Parse(BoxReader* reader) {
   RCHECK(reader->ReadFourCC(&major_brand) && reader->Read4(&minor_version));
-  size_t num_brands = (reader->size() - reader->pos()) / sizeof(FourCC);
+  size_t num_brands = (reader->box_size() - reader->pos()) / sizeof(FourCC);
   return reader->SkipBytes(sizeof(FourCC) * num_brands);  // compatible_brands
 }
 
@@ -47,7 +54,7 @@ bool ProtectionSystemSpecificHeader::Parse(BoxReader* reader) {
   // Don't bother validating the box's contents.
   // Copy the entire box, including the header, for passing to EME as initData.
   DCHECK(raw_box.empty());
-  raw_box.assign(reader->data(), reader->data() + reader->size());
+  raw_box.assign(reader->buffer(), reader->buffer() + reader->box_size());
   return true;
 }
 
@@ -117,8 +124,17 @@ bool SampleAuxiliaryInformationOffset::Parse(BoxReader* reader) {
     RCHECK(reader->SkipBytes(8));
 
   uint32_t count;
-  RCHECK(reader->Read4(&count) &&
-         reader->HasBytes(count * (reader->version() == 1 ? 8 : 4)));
+  RCHECK(reader->Read4(&count));
+  int bytes_per_offset = reader->version() == 1 ? 8 : 4;
+
+  // Cast |count| to size_t before multiplying to support maximum platform size.
+  base::CheckedNumeric<size_t> bytes_needed =
+      base::CheckMul(bytes_per_offset, static_cast<size_t>(count));
+  RCHECK_MEDIA_LOGGED(bytes_needed.IsValid(), reader->media_log(),
+                      "Extreme SAIO count exceeds implementation limit.");
+  RCHECK(reader->HasBytes(bytes_needed.ValueOrDie()));
+
+  RCHECK(count <= offsets.max_size());
   offsets.resize(count);
 
   for (uint32_t i = 0; i < count; i++) {
@@ -160,8 +176,10 @@ bool SampleEncryptionEntry::Parse(BufferReader* reader,
                                   uint8_t iv_size,
                                   bool has_subsamples) {
   // According to ISO/IEC FDIS 23001-7: CENC spec, IV should be either
-  // 64-bit (8-byte) or 128-bit (16-byte).
-  RCHECK(iv_size == 8 || iv_size == 16);
+  // 64-bit (8-byte) or 128-bit (16-byte). The 3rd Edition allows |iv_size|
+  // to be 0, for the case of a "constant IV". In this case, the existence of
+  // the constant IV must be ensured by the caller.
+  RCHECK(iv_size == 0 || iv_size == 8 || iv_size == 16);
 
   memset(initialization_vector, 0, sizeof(initialization_vector));
   for (uint8_t i = 0; i < iv_size; i++)
@@ -175,6 +193,7 @@ bool SampleEncryptionEntry::Parse(BufferReader* reader,
   uint16_t subsample_count;
   RCHECK(reader->Read2(&subsample_count));
   RCHECK(subsample_count > 0);
+  RCHECK(subsample_count <= subsamples.max_size());
   subsamples.resize(subsample_count);
   for (SubsampleEntry& subsample : subsamples) {
     uint16_t clear_bytes;
@@ -208,8 +227,8 @@ FourCC SampleEncryption::BoxType() const {
 bool SampleEncryption::Parse(BoxReader* reader) {
   RCHECK(reader->ReadFullBoxHeader());
   use_subsample_encryption = (reader->flags() & kUseSubsampleEncryption) != 0;
-  sample_encryption_data.assign(reader->data() + reader->pos(),
-                                reader->data() + reader->size());
+  sample_encryption_data.assign(reader->buffer() + reader->pos(),
+                                reader->buffer() + reader->box_size());
   return true;
 }
 
@@ -235,7 +254,15 @@ bool SchemeType::Parse(BoxReader* reader) {
 }
 
 TrackEncryption::TrackEncryption()
-  : is_encrypted(false), default_iv_size(0) {
+    : is_encrypted(false),
+      default_iv_size(0)
+#if BUILDFLAG(ENABLE_CBCS_ENCRYPTION_SCHEME)
+      ,
+      default_crypt_byte_block(0),
+      default_skip_byte_block(0),
+      default_constant_iv_size(0)
+#endif
+{
 }
 TrackEncryption::TrackEncryption(const TrackEncryption& other) = default;
 TrackEncryption::~TrackEncryption() {}
@@ -243,14 +270,31 @@ FourCC TrackEncryption::BoxType() const { return FOURCC_TENC; }
 
 bool TrackEncryption::Parse(BoxReader* reader) {
   uint8_t flag;
+  uint8_t possible_pattern_info;
   RCHECK(reader->ReadFullBoxHeader() &&
-         reader->SkipBytes(2) &&
-         reader->Read1(&flag) &&
+         reader->SkipBytes(1) &&  // skip reserved byte
+         reader->Read1(&possible_pattern_info) && reader->Read1(&flag) &&
          reader->Read1(&default_iv_size) &&
-         reader->ReadVec(&default_kid, 16));
+         reader->ReadVec(&default_kid, kKeyIdSize));
   is_encrypted = (flag != 0);
   if (is_encrypted) {
+#if BUILDFLAG(ENABLE_CBCS_ENCRYPTION_SCHEME)
+    if (reader->version() > 0) {
+      default_crypt_byte_block = (possible_pattern_info >> 4) & 0x0f;
+      default_skip_byte_block = possible_pattern_info & 0x0f;
+    }
+    if (default_iv_size == 0) {
+      RCHECK(reader->Read1(&default_constant_iv_size));
+      RCHECK(default_constant_iv_size == 8 || default_constant_iv_size == 16);
+      memset(default_constant_iv, 0, sizeof(default_constant_iv));
+      for (uint8_t i = 0; i < default_constant_iv_size; i++)
+        RCHECK(reader->Read1(default_constant_iv + i));
+    } else {
+      RCHECK(default_iv_size == 8 || default_iv_size == 16);
+    }
+#else
     RCHECK(default_iv_size == 8 || default_iv_size == 16);
+#endif
   } else {
     RCHECK(default_iv_size == 0);
   }
@@ -276,13 +320,24 @@ bool ProtectionSchemeInfo::Parse(BoxReader* reader) {
   RCHECK(reader->ScanChildren() &&
          reader->ReadChild(&format) &&
          reader->ReadChild(&type));
-  if (type.type == FOURCC_CENC)
+  if (HasSupportedScheme())
     RCHECK(reader->ReadChild(&info));
   // Other protection schemes are silently ignored. Since the protection scheme
   // type can't be determined until this box is opened, we return 'true' for
-  // non-CENC protection scheme types. It is the parent box's responsibility to
+  // unsupported protection schemes. It is the parent box's responsibility to
   // ensure that this scheme type is a supported one.
   return true;
+}
+
+bool ProtectionSchemeInfo::HasSupportedScheme() const {
+  FourCC fourCC = type.type;
+  if (fourCC == FOURCC_CENC)
+    return true;
+#if BUILDFLAG(ENABLE_CBCS_ENCRYPTION_SCHEME)
+  if (fourCC == FOURCC_CBCS)
+    return true;
+#endif
+  return false;
 }
 
 MovieHeader::MovieHeader()
@@ -428,11 +483,16 @@ bool EditList::Parse(BoxReader* reader) {
   uint32_t count;
   RCHECK(reader->ReadFullBoxHeader() && reader->Read4(&count));
 
-  if (reader->version() == 1) {
-    RCHECK(reader->HasBytes(count * 20));
-  } else {
-    RCHECK(reader->HasBytes(count * 12));
-  }
+  const size_t bytes_per_edit = reader->version() == 1 ? 20 : 12;
+
+  // Cast |count| to size_t before multiplying to support maximum platform size.
+  base::CheckedNumeric<size_t> bytes_needed =
+      base::CheckMul(bytes_per_edit, static_cast<size_t>(count));
+  RCHECK_MEDIA_LOGGED(bytes_needed.IsValid(), reader->media_log(),
+                      "Extreme ELST count exceeds implementation limit.");
+  RCHECK(reader->HasBytes(bytes_needed.ValueOrDie()));
+
+  RCHECK(count <= edits.max_size());
   edits.resize(count);
 
   for (std::vector<EditListEntry>::iterator edit = edits.begin();
@@ -476,7 +536,7 @@ bool HandlerReference::Parse(BoxReader* reader) {
   // zero byte, otherwise we'll string the first byte (containing the length of
   // the Pascal-style string).
   std::vector<uint8_t> name_bytes;
-  RCHECK(reader->ReadVec(&name_bytes, reader->size() - reader->pos()));
+  RCHECK(reader->ReadVec(&name_bytes, reader->box_size() - reader->pos()));
   if (name_bytes.size() == 0) {
     name = "";
   } else if (name_bytes.back() == 0) {
@@ -652,7 +712,7 @@ bool VideoSampleEntry::Parse(BoxReader* reader) {
   if (format == FOURCC_ENCV) {
     // Continue scanning until a recognized protection scheme is found, or until
     // we run out of protection schemes.
-    while (sinf.type.type != FOURCC_CENC) {
+    while (!sinf.HasSupportedScheme()) {
       if (!reader->ReadChild(&sinf))
         return false;
     }
@@ -663,8 +723,7 @@ bool VideoSampleEntry::Parse(BoxReader* reader) {
   switch (actual_format) {
     case FOURCC_AVC1:
     case FOURCC_AVC3: {
-      DVLOG(2) << __FUNCTION__
-               << " reading AVCDecoderConfigurationRecord (avcC)";
+      DVLOG(2) << __func__ << " reading AVCDecoderConfigurationRecord (avcC)";
       std::unique_ptr<AVCDecoderConfigurationRecord> avcConfig(
           new AVCDecoderConfigurationRecord());
       RCHECK(reader->ReadChild(avcConfig.get()));
@@ -678,8 +737,7 @@ bool VideoSampleEntry::Parse(BoxReader* reader) {
 #if BUILDFLAG(ENABLE_HEVC_DEMUXING)
     case FOURCC_HEV1:
     case FOURCC_HVC1: {
-      DVLOG(2) << __FUNCTION__
-               << " parsing HEVCDecoderConfigurationRecord (hvcC)";
+      DVLOG(2) << __func__ << " parsing HEVCDecoderConfigurationRecord (hvcC)";
       std::unique_ptr<HEVCDecoderConfigurationRecord> hevcConfig(
           new HEVCDecoderConfigurationRecord());
       RCHECK(reader->ReadChild(hevcConfig.get()));
@@ -693,8 +751,7 @@ bool VideoSampleEntry::Parse(BoxReader* reader) {
     case FOURCC_VP09:
       if (base::CommandLine::ForCurrentProcess()->HasSwitch(
               switches::kEnableVp9InMp4)) {
-        DVLOG(2) << __FUNCTION__
-                 << " parsing VPCodecConfigurationRecord (vpcC)";
+        DVLOG(2) << __func__ << " parsing VPCodecConfigurationRecord (vpcC)";
         std::unique_ptr<VPCodecConfigurationRecord> vp_config(
             new VPCodecConfigurationRecord());
         RCHECK(reader->ReadChild(vp_config.get()));
@@ -708,7 +765,7 @@ bool VideoSampleEntry::Parse(BoxReader* reader) {
       break;
     default:
       // Unknown/unsupported format
-      MEDIA_LOG(ERROR, reader->media_log()) << __FUNCTION__
+      MEDIA_LOG(ERROR, reader->media_log()) << __func__
                                             << " unsupported video format "
                                             << FourCCToString(actual_format);
       return false;
@@ -753,7 +810,7 @@ bool ElementaryStreamDescriptor::Parse(BoxReader* reader) {
   ESDescriptor es_desc;
 
   RCHECK(reader->ReadFullBoxHeader());
-  RCHECK(reader->ReadVec(&data, reader->size() - reader->pos()));
+  RCHECK(reader->ReadVec(&data, reader->box_size() - reader->pos()));
   RCHECK(es_desc.Parse(data));
 
   object_type = es_desc.object_type();
@@ -802,7 +859,7 @@ bool AudioSampleEntry::Parse(BoxReader* reader) {
   if (format == FOURCC_ENCA) {
     // Continue scanning until a recognized protection scheme is found, or until
     // we run out of protection schemes.
-    while (sinf.type.type != FOURCC_CENC) {
+    while (!sinf.HasSupportedScheme()) {
       if (!reader->ReadChild(&sinf))
         return false;
     }
@@ -1081,16 +1138,33 @@ bool TrackFragmentRun::Parse(BoxReader* reader) {
 
   int fields = sample_duration_present + sample_size_present +
       sample_flags_present + sample_composition_time_offsets_present;
-  RCHECK(reader->HasBytes(fields * sample_count));
+  const size_t bytes_per_field = 4;
 
-  if (sample_duration_present)
+  // Cast |sample_count| to size_t before multiplying to support maximum
+  // platform size.
+  base::CheckedNumeric<size_t> bytes_needed = base::CheckMul(
+      fields, bytes_per_field, static_cast<size_t>(sample_count));
+  RCHECK_MEDIA_LOGGED(
+      bytes_needed.IsValid(), reader->media_log(),
+      "Extreme TRUN sample count exceeds implementation limit.");
+  RCHECK(reader->HasBytes(bytes_needed.ValueOrDie()));
+
+  if (sample_duration_present) {
+    RCHECK(sample_count <= sample_durations.max_size());
     sample_durations.resize(sample_count);
-  if (sample_size_present)
+  }
+  if (sample_size_present) {
+    RCHECK(sample_count <= sample_sizes.max_size());
     sample_sizes.resize(sample_count);
-  if (sample_flags_present)
+  }
+  if (sample_flags_present) {
+    RCHECK(sample_count <= sample_flags.max_size());
     sample_flags.resize(sample_count);
-  if (sample_composition_time_offsets_present)
+  }
+  if (sample_composition_time_offsets_present) {
+    RCHECK(sample_count <= sample_composition_time_offsets.max_size());
     sample_composition_time_offsets.resize(sample_count);
+  }
 
   for (uint32_t i = 0; i < sample_count; ++i) {
     if (sample_duration_present)
@@ -1133,6 +1207,16 @@ bool SampleToGroup::Parse(BoxReader* reader) {
 
   uint32_t count;
   RCHECK(reader->Read4(&count));
+
+  const size_t bytes_per_entry = 8;
+  // Cast |count| to size_t before multiplying to support maximum platform size.
+  base::CheckedNumeric<size_t> bytes_needed =
+      base::CheckMul(bytes_per_entry, static_cast<size_t>(count));
+  RCHECK_MEDIA_LOGGED(bytes_needed.IsValid(), reader->media_log(),
+                      "Extreme SBGP count exceeds implementation limit.");
+  RCHECK(reader->HasBytes(bytes_needed.ValueOrDie()));
+
+  RCHECK(count <= entries.max_size());
   entries.resize(count);
   for (uint32_t i = 0; i < count; ++i) {
     RCHECK(reader->Read4(&entries[i].sample_count) &&
@@ -1142,10 +1226,49 @@ bool SampleToGroup::Parse(BoxReader* reader) {
 }
 
 CencSampleEncryptionInfoEntry::CencSampleEncryptionInfoEntry()
-    : is_encrypted(false), iv_size(0) {}
+    : is_encrypted(false),
+      iv_size(0)
+#if BUILDFLAG(ENABLE_CBCS_ENCRYPTION_SCHEME)
+      ,
+      crypt_byte_block(0),
+      skip_byte_block(0),
+      constant_iv_size(0)
+#endif
+{
+}
 CencSampleEncryptionInfoEntry::CencSampleEncryptionInfoEntry(
     const CencSampleEncryptionInfoEntry& other) = default;
 CencSampleEncryptionInfoEntry::~CencSampleEncryptionInfoEntry() {}
+
+bool CencSampleEncryptionInfoEntry::Parse(BoxReader* reader) {
+  uint8_t flag;
+  uint8_t possible_pattern_info;
+  RCHECK(reader->SkipBytes(1) &&  // reserved.
+         reader->Read1(&possible_pattern_info) && reader->Read1(&flag) &&
+         reader->Read1(&iv_size) && reader->ReadVec(&key_id, kKeyIdSize));
+
+  is_encrypted = (flag != 0);
+  if (is_encrypted) {
+#if BUILDFLAG(ENABLE_CBCS_ENCRYPTION_SCHEME)
+    crypt_byte_block = (possible_pattern_info >> 4) & 0x0f;
+    skip_byte_block = possible_pattern_info & 0x0f;
+    if (iv_size == 0) {
+      RCHECK(reader->Read1(&constant_iv_size));
+      RCHECK(constant_iv_size == 8 || constant_iv_size == 16);
+      memset(constant_iv, 0, sizeof(constant_iv));
+      for (uint8_t i = 0; i < constant_iv_size; i++)
+        RCHECK(reader->Read1(constant_iv + i));
+    } else {
+      RCHECK(iv_size == 8 || iv_size == 16);
+    }
+#else
+    RCHECK(iv_size == 8 || iv_size == 16);
+#endif
+  } else {
+    RCHECK(iv_size == 0);
+  }
+  return true;
+}
 
 SampleGroupDescription::SampleGroupDescription() : grouping_type(0) {}
 SampleGroupDescription::SampleGroupDescription(
@@ -1165,7 +1288,6 @@ bool SampleGroupDescription::Parse(BoxReader* reader) {
 
   const uint8_t version = reader->version();
 
-  const size_t kKeyIdSize = 16;
   const size_t kEntrySize = sizeof(uint32_t) + kKeyIdSize;
   uint32_t default_length = 0;
   if (version == 1) {
@@ -1175,6 +1297,19 @@ bool SampleGroupDescription::Parse(BoxReader* reader) {
 
   uint32_t count;
   RCHECK(reader->Read4(&count));
+
+  // Check that we have at least two bytes for each entry before allocating a
+  // potentially huge entries vector. In reality each entry will require a
+  // variable number of bytes in excess of 2.
+  const int bytes_per_entry = 2;
+  // Cast |count| to size_t before multiplying to support maximum platform size.
+  base::CheckedNumeric<size_t> bytes_needed =
+      base::CheckMul(bytes_per_entry, static_cast<size_t>(count));
+  RCHECK_MEDIA_LOGGED(bytes_needed.IsValid(), reader->media_log(),
+                      "Extreme SGPD count exceeds implementation limit.");
+  RCHECK(reader->HasBytes(bytes_needed.ValueOrDie()));
+
+  RCHECK(count <= entries.max_size());
   entries.resize(count);
   for (uint32_t i = 0; i < count; ++i) {
     if (version == 1) {
@@ -1184,19 +1319,7 @@ bool SampleGroupDescription::Parse(BoxReader* reader) {
         RCHECK(description_length >= kEntrySize);
       }
     }
-
-    uint8_t flag;
-    RCHECK(reader->SkipBytes(2) &&  // reserved.
-           reader->Read1(&flag) &&
-           reader->Read1(&entries[i].iv_size) &&
-           reader->ReadVec(&entries[i].key_id, kKeyIdSize));
-
-    entries[i].is_encrypted = (flag != 0);
-    if (entries[i].is_encrypted) {
-      RCHECK(entries[i].iv_size == 8 || entries[i].iv_size == 16);
-    } else {
-      RCHECK(entries[i].iv_size == 0);
-    }
+    RCHECK(entries[i].Parse(reader));
   }
   return true;
 }
@@ -1207,14 +1330,13 @@ TrackFragment::~TrackFragment() {}
 FourCC TrackFragment::BoxType() const { return FOURCC_TRAF; }
 
 bool TrackFragment::Parse(BoxReader* reader) {
-  RCHECK(reader->ScanChildren() &&
-         reader->ReadChild(&header) &&
+  RCHECK(reader->ScanChildren() && reader->ReadChild(&header) &&
          // Media Source specific: 'tfdt' required
-         reader->ReadChild(&decode_time) &&
-         reader->MaybeReadChildren(&runs) &&
+         reader->ReadChild(&decode_time) && reader->MaybeReadChildren(&runs) &&
          reader->MaybeReadChild(&auxiliary_offset) &&
          reader->MaybeReadChild(&auxiliary_size) &&
-         reader->MaybeReadChild(&sdtp));
+         reader->MaybeReadChild(&sdtp) &&
+         reader->MaybeReadChild(&sample_encryption));
 
   // There could be multiple SampleGroupDescription and SampleToGroup boxes with
   // different grouping types. For common encryption, the relevant grouping type
@@ -1259,9 +1381,10 @@ bool IndependentAndDisposableSamples::Parse(BoxReader* reader) {
   RCHECK(reader->version() == 0);
   RCHECK(reader->flags() == 0);
 
-  int sample_count = reader->size() - reader->pos();
+  size_t sample_count = reader->box_size() - reader->pos();
+  RCHECK(sample_count <= sample_depends_on_.max_size());
   sample_depends_on_.resize(sample_count);
-  for (int i = 0; i < sample_count; ++i) {
+  for (size_t i = 0; i < sample_count; ++i) {
     uint8_t sample_info;
     RCHECK(reader->Read1(&sample_info));
 

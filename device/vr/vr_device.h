@@ -5,44 +5,59 @@
 #ifndef DEVICE_VR_VR_DEVICE_H
 #define DEVICE_VR_VR_DEVICE_H
 
+#include "base/callback.h"
 #include "base/macros.h"
 #include "device/vr/vr_export.h"
 #include "device/vr/vr_service.mojom.h"
 
-namespace blink {
-struct WebHMDSensorState;
-}
-
-namespace ui {
-class BaseWindow;
-}
-
 namespace device {
 
-class VRDeviceProvider;
+class VRDisplayImpl;
 
 const unsigned int VR_DEVICE_LAST_ID = 0xFFFFFFFF;
 
 class DEVICE_VR_EXPORT VRDevice {
  public:
-  explicit VRDevice(VRDeviceProvider* provider);
+  VRDevice();
   virtual ~VRDevice();
 
-  VRDeviceProvider* provider() const { return provider_; }
   unsigned int id() const { return id_; }
 
-  virtual VRDisplayPtr GetVRDevice() = 0;
-  virtual VRPosePtr GetPose() = 0;
+  virtual mojom::VRDisplayInfoPtr GetVRDevice() = 0;
+  virtual mojom::VRPosePtr GetPose() = 0;
   virtual void ResetPose() = 0;
 
-  virtual bool RequestPresent(bool secure_origin);
-  virtual void ExitPresent(){};
-  virtual void SubmitFrame(VRPosePtr pose){};
-  virtual void UpdateLayerBounds(VRLayerBoundsPtr leftBounds,
-                                 VRLayerBoundsPtr rightBounds){};
+  virtual void RequestPresent(const base::Callback<void(bool)>& callback) = 0;
+  virtual void SetSecureOrigin(bool secure_origin) = 0;
+  virtual void ExitPresent() = 0;
+  virtual void SubmitFrame(mojom::VRPosePtr pose) = 0;
+  virtual void UpdateLayerBounds(mojom::VRLayerBoundsPtr left_bounds,
+                                 mojom::VRLayerBoundsPtr right_bounds) = 0;
+
+  virtual void AddDisplay(VRDisplayImpl* display);
+  virtual void RemoveDisplay(VRDisplayImpl* display);
+
+  virtual bool IsAccessAllowed(VRDisplayImpl* display);
+  virtual bool CheckPresentingDisplay(VRDisplayImpl* display);
+
+  virtual void OnChanged();
+  virtual void OnExitPresent();
+  virtual void OnBlur();
+  virtual void OnFocus();
+  virtual void OnActivate(mojom::VRDisplayEventReason reason);
+  virtual void OnDeactivate(mojom::VRDisplayEventReason reason);
+
+ protected:
+  friend class VRDisplayImpl;
+  friend class VRDisplayImplTest;
+
+  void SetPresentingDisplay(VRDisplayImpl* display);
 
  private:
-  VRDeviceProvider* provider_;
+  std::set<VRDisplayImpl*> displays_;
+
+  VRDisplayImpl* presenting_display_;
+
   unsigned int id_;
 
   static unsigned int next_id_;

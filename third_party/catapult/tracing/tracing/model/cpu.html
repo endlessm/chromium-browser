@@ -60,23 +60,23 @@ tr.exportTo('tr.model', function() {
       return 'CPU ' + this.cpuNumber;
     },
 
-    findTopmostSlicesInThisContainer: function*(eventPredicate, opt_this) {
+    findTopmostSlicesInThisContainer: function* (eventPredicate, opt_this) {
       // All CpuSlices are toplevel since CpuSlices do not nest.
       for (var s of this.slices) {
-        yield * s.findTopmostSlicesRelativeToThisSlice(
+        yield* s.findTopmostSlicesRelativeToThisSlice(
             eventPredicate, opt_this);
       }
     },
 
-    childEvents: function*() {
-      yield * this.slices;
+    childEvents: function* () {
+      yield* this.slices;
 
       if (this.samples_)
-        yield * this.samples_;
+        yield* this.samples_;
     },
 
-    childEventContainers: function*() {
-      yield * tr.b.dictionaryValues(this.counters);
+    childEventContainers: function* () {
+      yield* tr.b.dictionaryValues(this.counters);
     },
 
     /**
@@ -146,8 +146,6 @@ tr.exportTo('tr.model', function() {
       for (var i = 0; i < this.samples_.length; i++)
         categoriesDict[this.samples_[i].category] = true;
     },
-
-
 
     /*
      * Returns the index of the slice in the CPU's slices, or undefined.
@@ -266,7 +264,7 @@ tr.exportTo('tr.model', function() {
 
 
   return {
-    Cpu: Cpu
+    Cpu,
   };
 });
 </script>

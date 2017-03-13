@@ -27,12 +27,15 @@
 #ifndef ResourceError_h
 #define ResourceError_h
 
+#include "net/base/net_errors.h"
 #include "platform/PlatformExport.h"
 #include "wtf/Allocator.h"
 #include "wtf/text/WTFString.h"
 #include <iosfwd>
 
 namespace blink {
+
+enum class ResourceRequestBlockedReason;
 
 // Used for errors that won't be exposed to clients.
 PLATFORM_EXPORT extern const char errorDomainBlinkInternal[];
@@ -41,8 +44,18 @@ class PLATFORM_EXPORT ResourceError final {
   DISALLOW_NEW();
 
  public:
+  enum Error {
+    ACCESS_DENIED = net::ERR_ACCESS_DENIED,
+    BLOCKED_BY_XSS_AUDITOR = net::ERR_BLOCKED_BY_XSS_AUDITOR
+  };
+
   static ResourceError cancelledError(const String& failingURL);
-  static ResourceError cancelledDueToAccessCheckError(const String& failingURL);
+  static ResourceError cancelledDueToAccessCheckError(
+      const String& failingURL,
+      ResourceRequestBlockedReason);
+
+  // Only for Blink internal usage.
+  static ResourceError cacheMissError(const String& failingURL);
 
   ResourceError()
       : m_errorCode(0),
@@ -51,7 +64,9 @@ class PLATFORM_EXPORT ResourceError final {
         m_isAccessCheck(false),
         m_isTimeout(false),
         m_staleCopyInCache(false),
-        m_wasIgnoredByHandler(false) {}
+        m_wasIgnoredByHandler(false),
+        m_isCacheMiss(false),
+        m_shouldCollapseInitiator(false) {}
 
   ResourceError(const String& domain,
                 int errorCode,
@@ -66,7 +81,9 @@ class PLATFORM_EXPORT ResourceError final {
         m_isAccessCheck(false),
         m_isTimeout(false),
         m_staleCopyInCache(false),
-        m_wasIgnoredByHandler(false) {}
+        m_wasIgnoredByHandler(false),
+        m_isCacheMiss(false),
+        m_shouldCollapseInitiator(false) {}
 
   // Makes a deep copy. Useful for when you need to use a ResourceError on
   // another thread.
@@ -99,6 +116,17 @@ class PLATFORM_EXPORT ResourceError final {
   }
   bool wasIgnoredByHandler() const { return m_wasIgnoredByHandler; }
 
+  void setIsCacheMiss(bool isCacheMiss) { m_isCacheMiss = isCacheMiss; }
+  bool isCacheMiss() const { return m_isCacheMiss; }
+  bool wasBlockedByResponse() const {
+    return m_errorCode == net::ERR_BLOCKED_BY_RESPONSE;
+  }
+
+  void setShouldCollapseInitiator(bool shouldCollapseInitiator) {
+    m_shouldCollapseInitiator = shouldCollapseInitiator;
+  }
+  bool shouldCollapseInitiator() const { return m_shouldCollapseInitiator; }
+
   static bool compare(const ResourceError&, const ResourceError&);
 
  private:
@@ -112,6 +140,8 @@ class PLATFORM_EXPORT ResourceError final {
   bool m_isTimeout;
   bool m_staleCopyInCache;
   bool m_wasIgnoredByHandler;
+  bool m_isCacheMiss;
+  bool m_shouldCollapseInitiator;
 };
 
 inline bool operator==(const ResourceError& a, const ResourceError& b) {

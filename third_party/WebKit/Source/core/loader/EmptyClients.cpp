@@ -27,7 +27,9 @@
 
 #include "core/loader/EmptyClients.h"
 
+#include "core/frame/FrameHost.h"
 #include "core/frame/LocalFrame.h"
+#include "core/frame/VisualViewport.h"
 #include "core/html/HTMLFormElement.h"
 #include "core/html/forms/ColorChooser.h"
 #include "core/html/forms/DateTimeChooser.h"
@@ -69,22 +71,23 @@ class EmptyPopupMenu : public PopupMenu {
 
 class EmptyFrameScheduler : public WebFrameScheduler {
  public:
+  EmptyFrameScheduler() { DCHECK(isMainThread()); }
   void setFrameVisible(bool) override {}
-  WebTaskRunner* loadingTaskRunner() override;
-  WebTaskRunner* timerTaskRunner() override;
-  WebTaskRunner* unthrottledTaskRunner() override;
+  RefPtr<WebTaskRunner> loadingTaskRunner() override;
+  RefPtr<WebTaskRunner> timerTaskRunner() override;
+  RefPtr<WebTaskRunner> unthrottledTaskRunner() override;
 };
 
-WebTaskRunner* EmptyFrameScheduler::loadingTaskRunner() {
-  return Platform::current()->currentThread()->getWebTaskRunner();
+RefPtr<WebTaskRunner> EmptyFrameScheduler::loadingTaskRunner() {
+  return Platform::current()->mainThread()->getWebTaskRunner();
 }
 
-WebTaskRunner* EmptyFrameScheduler::timerTaskRunner() {
-  return Platform::current()->currentThread()->getWebTaskRunner();
+RefPtr<WebTaskRunner> EmptyFrameScheduler::timerTaskRunner() {
+  return Platform::current()->mainThread()->getWebTaskRunner();
 }
 
-WebTaskRunner* EmptyFrameScheduler::unthrottledTaskRunner() {
-  return Platform::current()->currentThread()->getWebTaskRunner();
+RefPtr<WebTaskRunner> EmptyFrameScheduler::unthrottledTaskRunner() {
+  return Platform::current()->mainThread()->getWebTaskRunner();
 }
 
 PopupMenu* EmptyChromeClient::openPopupMenu(LocalFrame&, HTMLSelectElement&) {
@@ -107,13 +110,21 @@ void EmptyChromeClient::openTextDataListChooser(HTMLInputElement&) {}
 
 void EmptyChromeClient::openFileChooser(LocalFrame*, PassRefPtr<FileChooser>) {}
 
+void EmptyChromeClient::attachRootGraphicsLayer(GraphicsLayer* layer,
+                                                LocalFrame* localRoot) {
+  Page* page = localRoot ? localRoot->page() : nullptr;
+  if (!page)
+    return;
+  page->frameHost().visualViewport().attachToLayerTree(layer);
+}
+
 String EmptyChromeClient::acceptLanguages() {
   return String();
 }
 
 std::unique_ptr<WebFrameScheduler> EmptyChromeClient::createFrameScheduler(
     BlameContext*) {
-  return wrapUnique(new EmptyFrameScheduler());
+  return WTF::makeUnique<EmptyFrameScheduler>();
 }
 
 NavigationPolicy EmptyFrameLoaderClient::decidePolicyForNavigation(
@@ -122,7 +133,8 @@ NavigationPolicy EmptyFrameLoaderClient::decidePolicyForNavigation(
     NavigationType,
     NavigationPolicy,
     bool,
-    bool) {
+    bool,
+    HTMLFormElement*) {
   return NavigationPolicyIgnore;
 }
 
@@ -133,8 +145,12 @@ void EmptyFrameLoaderClient::dispatchWillSubmitForm(HTMLFormElement*) {}
 DocumentLoader* EmptyFrameLoaderClient::createDocumentLoader(
     LocalFrame* frame,
     const ResourceRequest& request,
-    const SubstituteData& substituteData) {
-  return DocumentLoader::create(frame, request, substituteData);
+    const SubstituteData& substituteData,
+    ClientRedirectPolicy clientRedirectPolicy) {
+  DCHECK(frame);
+
+  return DocumentLoader::create(frame, request, substituteData,
+                                clientRedirectPolicy);
 }
 
 LocalFrame* EmptyFrameLoaderClient::createFrame(const FrameLoadRequest&,
@@ -160,6 +176,11 @@ std::unique_ptr<WebMediaPlayer> EmptyFrameLoaderClient::createWebMediaPlayer(
   return nullptr;
 }
 
+WebRemotePlaybackClient* EmptyFrameLoaderClient::createWebRemotePlaybackClient(
+    HTMLMediaElement&) {
+  return nullptr;
+}
+
 void EmptyTextCheckerClient::requestCheckingOfString(TextCheckingRequest*) {}
 
 void EmptyTextCheckerClient::cancelAllPendingRequests() {}
@@ -174,5 +195,7 @@ EmptyFrameLoaderClient::createApplicationCacheHost(
     WebApplicationCacheHostClient*) {
   return nullptr;
 }
+
+EmptyRemoteFrameClient::EmptyRemoteFrameClient() = default;
 
 }  // namespace blink

@@ -29,6 +29,7 @@
 #include "modules/EventTargetModules.h"
 #include "modules/ModulesExport.h"
 #include "platform/audio/AudioBus.h"
+#include "platform/audio/AudioUtilities.h"
 #include "wtf/Forward.h"
 #include "wtf/RefPtr.h"
 #include "wtf/ThreadSafeRefCounted.h"
@@ -72,8 +73,6 @@ class ExceptionState;
 // collected.
 class MODULES_EXPORT AudioHandler : public ThreadSafeRefCounted<AudioHandler> {
  public:
-  enum { ProcessingSizeInFrames = 128 };
-
   enum NodeType {
     NodeTypeUnknown = 0,
     NodeTypeDestination = 1,
@@ -95,7 +94,8 @@ class MODULES_EXPORT AudioHandler : public ThreadSafeRefCounted<AudioHandler> {
     NodeTypeDynamicsCompressor = 17,
     NodeTypeWaveShaper = 18,
     NodeTypeIIRFilter = 19,
-    NodeTypeEnd = 20
+    NodeTypeConstantSource = 20,
+    NodeTypeEnd = 21
   };
 
   AudioHandler(NodeType, AudioNode&, float sampleRate);
@@ -140,6 +140,11 @@ class MODULES_EXPORT AudioHandler : public ThreadSafeRefCounted<AudioHandler> {
   // results in the AudioBus(s) of its AudioNodeOutput(s) (if any).
   // Called from context's audio thread.
   virtual void process(size_t framesToProcess) = 0;
+
+  // Like process(), but only causes the automations to process; the
+  // normal processing of the node is bypassed.  By default, we assume
+  // no AudioParams need to be updated.
+  virtual void processOnlyAudioParams(size_t framesToProcess){};
 
   // No significant resources should be allocated until initialize() is called.
   // Processing may not occur until a node is initialized.
@@ -228,6 +233,11 @@ class MODULES_EXPORT AudioHandler : public ThreadSafeRefCounted<AudioHandler> {
 
   void updateChannelCountMode();
   void updateChannelInterpretation();
+
+  // Default callbackBufferSize should be the render quantum size
+  virtual size_t callbackBufferSize() const {
+    return AudioUtilities::kRenderQuantumFrames;
+  }
 
  protected:
   // Inputs and outputs must be created before the AudioHandler is

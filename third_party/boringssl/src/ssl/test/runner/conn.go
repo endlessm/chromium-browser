@@ -21,6 +21,8 @@ import (
 	"time"
 )
 
+var errNoCertificateAlert = errors.New("tls: no certificate alert")
+
 // A Conn represents a secured connection.
 // It implements the net.Conn interface.
 type Conn struct {
@@ -92,6 +94,8 @@ type Conn struct {
 	handMsgLen       int      // handshake message length, not including the header
 	pendingFragments [][]byte // pending outgoing handshake fragments.
 
+	keyUpdateRequested bool
+
 	tmp [16]byte
 }
 
@@ -159,8 +163,9 @@ type halfConn struct {
 	// used to save allocating a new buffer for each MAC.
 	inDigestBuf, outDigestBuf []byte
 
-	trafficSecret       []byte
-	keyUpdateGeneration int
+	trafficSecret []byte
+
+	shortHeader bool
 
 	config *Config
 }
@@ -207,9 +212,9 @@ func (hc *halfConn) changeCipherSpec(config *Config) error {
 }
 
 // useTrafficSecret sets the current cipher state for TLS 1.3.
-func (hc *halfConn) useTrafficSecret(version uint16, suite *cipherSuite, secret, phase []byte, side trafficDirection) {
+func (hc *halfConn) useTrafficSecret(version uint16, suite *cipherSuite, secret []byte, side trafficDirection) {
 	hc.version = version
-	hc.cipher = deriveTrafficAEAD(version, suite, secret, phase, side)
+	hc.cipher = deriveTrafficAEAD(version, suite, secret, side)
 	if hc.config.Bugs.NullAllCiphers {
 		hc.cipher = nullCipher{}
 	}
@@ -222,8 +227,7 @@ func (hc *halfConn) doKeyUpdate(c *Conn, isOutgoing bool) {
 	if c.isClient == isOutgoing {
 		side = clientWrite
 	}
-	hc.useTrafficSecret(hc.version, c.cipherSuite, updateTrafficSecret(c.cipherSuite.hash(), hc.trafficSecret), applicationPhase, side)
-	hc.keyUpdateGeneration++
+	hc.useTrafficSecret(hc.version, c.cipherSuite, updateTrafficSecret(c.cipherSuite.hash(), hc.trafficSecret), side)
 }
 
 // incSeq increments the sequence number.
@@ -301,9 +305,16 @@ func (hc *halfConn) updateOutSeq() {
 	copy(hc.outSeq[:], hc.seq[:])
 }
 
+func (hc *halfConn) isShortHeader() bool {
+	return hc.shortHeader && hc.cipher != nil
+}
+
 func (hc *halfConn) recordHeaderLen() int {
 	if hc.isDTLS {
 		return dtlsRecordHeaderLen
+	}
+	if hc.isShortHeader() {
+		return 2
 	}
 	return tlsRecordHeaderLen
 }
@@ -608,6 +619,9 @@ func (hc *halfConn) encrypt(b *block, explicitIVLen int, typ recordType) (bool, 
 	n := len(b.data) - recordHeaderLen
 	b.data[recordHeaderLen-2] = byte(n >> 8)
 	b.data[recordHeaderLen-1] = byte(n)
+	if hc.isShortHeader() && !hc.config.Bugs.ClearShortHeaderBit {
+		b.data[0] |= 0x80
+	}
 	hc.incSeq(true)
 
 	return true, 0
@@ -716,7 +730,7 @@ func (c *Conn) doReadRecord(want recordType) (recordType, *block, error) {
 		return c.dtlsDoReadRecord(want)
 	}
 
-	recordHeaderLen := tlsRecordHeaderLen
+	recordHeaderLen := c.in.recordHeaderLen()
 
 	if c.rawInput == nil {
 		c.rawInput = c.in.newBlock()
@@ -736,33 +750,52 @@ func (c *Conn) doReadRecord(want recordType) (recordType, *block, error) {
 		}
 		return 0, nil, err
 	}
-	typ := recordType(b.data[0])
 
-	// No valid TLS record has a type of 0x80, however SSLv2 handshakes
-	// start with a uint16 length where the MSB is set and the first record
-	// is always < 256 bytes long. Therefore typ == 0x80 strongly suggests
-	// an SSLv2 client.
-	if want == recordTypeHandshake && typ == 0x80 {
-		c.sendAlert(alertProtocolVersion)
-		return 0, nil, c.in.setErrorLocked(errors.New("tls: unsupported SSLv2 handshake received"))
+	var typ recordType
+	var vers uint16
+	var n int
+	if c.in.isShortHeader() {
+		typ = recordTypeApplicationData
+		vers = VersionTLS10
+		n = int(b.data[0])<<8 | int(b.data[1])
+		if n&0x8000 == 0 {
+			c.sendAlert(alertDecodeError)
+			return 0, nil, c.in.setErrorLocked(errors.New("tls: length did not have high bit set"))
+		}
+
+		n = n & 0x7fff
+	} else {
+		typ = recordType(b.data[0])
+
+		// No valid TLS record has a type of 0x80, however SSLv2 handshakes
+		// start with a uint16 length where the MSB is set and the first record
+		// is always < 256 bytes long. Therefore typ == 0x80 strongly suggests
+		// an SSLv2 client.
+		if want == recordTypeHandshake && typ == 0x80 {
+			c.sendAlert(alertProtocolVersion)
+			return 0, nil, c.in.setErrorLocked(errors.New("tls: unsupported SSLv2 handshake received"))
+		}
+
+		vers = uint16(b.data[1])<<8 | uint16(b.data[2])
+		n = int(b.data[3])<<8 | int(b.data[4])
 	}
 
-	vers := uint16(b.data[1])<<8 | uint16(b.data[2])
-	n := int(b.data[3])<<8 | int(b.data[4])
 	// Alerts sent near version negotiation do not have a well-defined
 	// record-layer version prior to TLS 1.3. (In TLS 1.3, the record-layer
 	// version is irrelevant.)
 	if typ != recordTypeAlert {
+		var expect uint16
 		if c.haveVers {
-			if vers != c.vers && c.vers < VersionTLS13 {
-				c.sendAlert(alertProtocolVersion)
-				return 0, nil, c.in.setErrorLocked(fmt.Errorf("tls: received record with version %x when expecting version %x", vers, c.vers))
+			expect = c.vers
+			if c.vers >= VersionTLS13 {
+				expect = VersionTLS10
 			}
 		} else {
-			if expect := c.config.Bugs.ExpectInitialRecordVersion; expect != 0 && vers != expect {
-				c.sendAlert(alertProtocolVersion)
-				return 0, nil, c.in.setErrorLocked(fmt.Errorf("tls: received record with version %x when expecting version %x", vers, expect))
-			}
+			expect = c.config.Bugs.ExpectInitialRecordVersion
+		}
+		if expect != 0 && vers != expect {
+			c.sendAlert(alertProtocolVersion)
+			return 0, nil, c.in.setErrorLocked(fmt.Errorf("tls: received record with version %x when expecting version %x", vers, expect))
 		}
 	}
 	if n > maxCiphertext {
@@ -843,7 +876,11 @@ Again:
 		return err
 	}
 	data := b.data[b.off:]
-	if len(data) > maxPlaintext {
+	max := maxPlaintext
+	if c.config.Bugs.MaxReceivePlaintext != 0 {
+		max = c.config.Bugs.MaxReceivePlaintext
+	}
+	if len(data) > max {
 		err := c.sendAlert(alertRecordOverflow)
 		c.in.freeBlock(b)
 		return c.in.setErrorLocked(err)
@@ -864,6 +901,11 @@ Again:
 		}
 		switch data[0] {
 		case alertLevelWarning:
+			if alert(data[1]) == alertNoCertificate {
+				c.in.freeBlock(b)
+				return errNoCertificateAlert
+			}
+
 			// drop on the floor
 			c.in.freeBlock(b)
 			goto Again
@@ -932,7 +974,7 @@ func (c *Conn) sendAlertLocked(level byte, err alert) error {
 // L < c.out.Mutex.
 func (c *Conn) sendAlert(err alert) error {
 	level := byte(alertLevelError)
-	if err == alertNoRenegotiation || err == alertCloseNotify || err == alertNoCertficate {
+	if err == alertNoRenegotiation || err == alertCloseNotify || err == alertNoCertificate {
 		level = alertLevelWarning
 	}
 	return c.SendAlert(level, err)
@@ -1005,7 +1047,7 @@ func (c *Conn) writeRecord(typ recordType, data []byte) (n int, err error) {
 }
 
 func (c *Conn) doWriteRecord(typ recordType, data []byte) (n int, err error) {
-	recordHeaderLen := tlsRecordHeaderLen
+	recordHeaderLen := c.out.recordHeaderLen()
 	b := c.out.newBlock()
 	first := true
 	isClientHello := typ == recordTypeHandshake && len(data) > 0 && data[0] == typeClientHello
@@ -1047,26 +1089,36 @@ func (c *Conn) doWriteRecord(typ recordType, data []byte) (n int, err error) {
 			}
 		}
 		b.resize(recordHeaderLen + explicitIVLen + m)
-		b.data[0] = byte(typ)
-		if c.vers >= VersionTLS13 && c.out.cipher != nil {
-			b.data[0] = byte(recordTypeApplicationData)
-			if outerType := c.config.Bugs.OuterRecordType; outerType != 0 {
-				b.data[0] = byte(outerType)
+		// If using a short record header, the length will be filled in
+		// by encrypt.
+		if !c.out.isShortHeader() {
+			b.data[0] = byte(typ)
+			if c.vers >= VersionTLS13 && c.out.cipher != nil {
+				b.data[0] = byte(recordTypeApplicationData)
+				if outerType := c.config.Bugs.OuterRecordType; outerType != 0 {
+					b.data[0] = byte(outerType)
+				}
 			}
+			vers := c.vers
+			if vers == 0 || vers >= VersionTLS13 {
+				// Some TLS servers fail if the record version is
+				// greater than TLS 1.0 for the initial ClientHello.
+				//
+				// TLS 1.3 fixes the version number in the record
+				// layer to {3, 1}.
+				vers = VersionTLS10
+			}
+			if c.config.Bugs.SendRecordVersion != 0 {
+				vers = c.config.Bugs.SendRecordVersion
+			}
+			if c.vers == 0 && c.config.Bugs.SendInitialRecordVersion != 0 {
+				vers = c.config.Bugs.SendInitialRecordVersion
+			}
+			b.data[1] = byte(vers >> 8)
+			b.data[2] = byte(vers)
+			b.data[3] = byte(m >> 8)
+			b.data[4] = byte(m)
 		}
-		vers := c.vers
-		if vers == 0 || vers >= VersionTLS13 {
-			// Some TLS servers fail if the record version is
-			// greater than TLS 1.0 for the initial ClientHello.
-			//
-			// TLS 1.3 fixes the version number in the record
-			// layer to {3, 1}.
-			vers = VersionTLS10
-		}
-		b.data[1] = byte(vers >> 8)
-		b.data[2] = byte(vers)
-		b.data[3] = byte(m >> 8)
-		b.data[4] = byte(m)
 		if explicitIVLen > 0 {
 			explicitIV := b.data[recordHeaderLen : recordHeaderLen+explicitIVLen]
 			if explicitIVIsSeq {
@@ -1154,6 +1206,13 @@ func (c *Conn) doReadHandshake() ([]byte, error) {
 // c.in.Mutex < L; c.out.Mutex < L.
 func (c *Conn) readHandshake() (interface{}, error) {
 	data, err := c.doReadHandshake()
+	if err == errNoCertificateAlert {
+		if c.hand.Len() != 0 {
+			// The warning alert may not interleave with a handshake message.
+			return nil, c.in.setErrorLocked(c.sendAlert(alertUnexpectedMessage))
+		}
+		return new(ssl3NoCertificateMsg), nil
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -1328,11 +1387,11 @@ func (c *Conn) Write(b []byte) (int, error) {
 		return 0, alertInternalError
 	}
 
-	// Catch up with KeyUpdates from the peer.
-	for c.out.keyUpdateGeneration < c.in.keyUpdateGeneration {
-		if err := c.sendKeyUpdateLocked(); err != nil {
+	if c.keyUpdateRequested {
+		if err := c.sendKeyUpdateLocked(keyUpdateNotRequested); err != nil {
 			return 0, err
 		}
+		c.keyUpdateRequested = false
 	}
 
 	if c.config.Bugs.SendSpuriousAlert != 0 {
@@ -1342,10 +1401,6 @@ func (c *Conn) Write(b []byte) (int, error) {
 	if c.config.Bugs.SendHelloRequestBeforeEveryAppDataRecord {
 		c.writeRecord(recordTypeHandshake, []byte{typeHelloRequest, 0, 0, 0})
 		c.flushHandshake()
-	}
-
-	if c.config.Bugs.SendKeyUpdateBeforeEveryAppDataRecord {
-		c.sendKeyUpdateLocked()
 	}
 
 	// SSL 3.0 and TLS 1.0 are susceptible to a chosen-plaintext
@@ -1396,6 +1451,18 @@ func (c *Conn) handlePostHandshakeMessage() error {
 
 	if c.isClient {
 		if newSessionTicket, ok := msg.(*newSessionTicketMsg); ok {
+			if c.config.Bugs.ExpectGREASE && !newSessionTicket.hasGREASEExtension {
+				return errors.New("tls: no GREASE ticket extension found")
+			}
+
+			if c.config.Bugs.ExpectTicketEarlyDataInfo && newSessionTicket.earlyDataInfo == 0 {
+				return errors.New("tls: no ticket_early_data_info extension found")
+			}
+
+			if c.config.Bugs.ExpectNoNewSessionTicket {
+				return errors.New("tls: received unexpected NewSessionTicket")
+			}
+
 			if c.config.ClientSessionCache == nil || newSessionTicket.ticketLifetime == 0 {
 				return nil
 			}
@@ -1410,7 +1477,6 @@ func (c *Conn) handlePostHandshakeMessage() error {
 				ocspResponse:       c.ocspResponse,
 				ticketCreationTime: c.config.time(),
 				ticketExpiration:   c.config.time().Add(time.Duration(newSessionTicket.ticketLifetime) * time.Second),
-				ticketFlags:        newSessionTicket.ticketFlags,
 				ticketAgeAdd:       newSessionTicket.ticketAgeAdd,
 			}
 
@@ -1420,8 +1486,11 @@ func (c *Conn) handlePostHandshakeMessage() error {
 		}
 	}
 
-	if _, ok := msg.(*keyUpdateMsg); ok {
+	if keyUpdate, ok := msg.(*keyUpdateMsg); ok {
 		c.in.doKeyUpdate(c, false)
+		if keyUpdate.keyUpdateRequest == keyUpdateRequested {
+			c.keyUpdateRequested = true
+		}
 		return nil
 	}
 
@@ -1606,6 +1675,7 @@ func (c *Conn) ConnectionState() ConnectionState {
 		state.SCTList = c.sctList
 		state.PeerSignatureAlgorithm = c.peerSignatureAlgorithm
 		state.CurveID = c.curveID
+		state.ShortHeader = c.in.shortHeader
 	}
 
 	return state
@@ -1691,17 +1761,22 @@ func (c *Conn) SendNewSessionTicket() error {
 		peerCertificatesRaw = append(peerCertificatesRaw, cert.Raw)
 	}
 
-	var ageAdd uint32
-	if err := binary.Read(c.config.rand(), binary.LittleEndian, &ageAdd); err != nil {
-		return err
+	addBuffer := make([]byte, 4)
+	_, err := io.ReadFull(c.config.rand(), addBuffer)
+	if err != nil {
+		c.sendAlert(alertInternalError)
+		return errors.New("tls: short read from Rand: " + err.Error())
 	}
+	ticketAgeAdd := uint32(addBuffer[3])<<24 | uint32(addBuffer[2])<<16 | uint32(addBuffer[1])<<8 | uint32(addBuffer[0])
 
 	// TODO(davidben): Allow configuring these values.
 	m := &newSessionTicketMsg{
-		version:        c.vers,
-		ticketLifetime: uint32(24 * time.Hour / time.Second),
-		ticketFlags:    ticketAllowDHEResumption | ticketAllowPSKResumption,
-		ticketAgeAdd:   ageAdd,
+		version:                c.vers,
+		ticketLifetime:         uint32(24 * time.Hour / time.Second),
+		earlyDataInfo:          c.config.Bugs.SendTicketEarlyDataInfo,
+		duplicateEarlyDataInfo: c.config.Bugs.DuplicateTicketEarlyDataInfo,
+		customExtension:        c.config.Bugs.CustomTicketExtension,
+		ticketAgeAdd:           ticketAgeAdd,
 	}
 
 	state := sessionState{
@@ -1711,8 +1786,7 @@ func (c *Conn) SendNewSessionTicket() error {
 		certificates:       peerCertificatesRaw,
 		ticketCreationTime: c.config.time(),
 		ticketExpiration:   c.config.time().Add(time.Duration(m.ticketLifetime) * time.Second),
-		ticketFlags:        m.ticketFlags,
-		ticketAgeAdd:       ageAdd,
+		ticketAgeAdd:       uint32(addBuffer[3])<<24 | uint32(addBuffer[2])<<16 | uint32(addBuffer[1])<<8 | uint32(addBuffer[0]),
 	}
 
 	if !c.config.Bugs.SendEmptySessionTicket {
@@ -1725,18 +1799,24 @@ func (c *Conn) SendNewSessionTicket() error {
 
 	c.out.Lock()
 	defer c.out.Unlock()
-	_, err := c.writeRecord(recordTypeHandshake, m.marshal())
+	_, err = c.writeRecord(recordTypeHandshake, m.marshal())
 	return err
 }
 
-func (c *Conn) SendKeyUpdate() error {
+func (c *Conn) SendKeyUpdate(keyUpdateRequest byte) error {
 	c.out.Lock()
 	defer c.out.Unlock()
-	return c.sendKeyUpdateLocked()
+	return c.sendKeyUpdateLocked(keyUpdateRequest)
 }
 
-func (c *Conn) sendKeyUpdateLocked() error {
-	m := new(keyUpdateMsg)
+func (c *Conn) sendKeyUpdateLocked(keyUpdateRequest byte) error {
+	if c.vers < VersionTLS13 {
+		return errors.New("tls: attempted to send KeyUpdate before TLS 1.3")
+	}
+
+	m := keyUpdateMsg{
+		keyUpdateRequest: keyUpdateRequest,
+	}
 	if _, err := c.writeRecord(recordTypeHandshake, m.marshal()); err != nil {
 		return err
 	}
@@ -1745,4 +1825,22 @@ func (c *Conn) sendKeyUpdateLocked() error {
 	}
 	c.out.doKeyUpdate(c, true)
 	return nil
+}
+
+func (c *Conn) sendFakeEarlyData(len int) error {
+	// Assemble a fake early data record. This does not use writeRecord
+	// because the record layer may be using different keys at this point.
+	payload := make([]byte, 5+len)
+	payload[0] = byte(recordTypeApplicationData)
+	payload[1] = 3
+	payload[2] = 1
+	payload[3] = byte(len >> 8)
+	payload[4] = byte(len)
+	_, err := c.conn.Write(payload)
+	return err
+}
+
+func (c *Conn) setShortHeader() {
+	c.in.shortHeader = true
+	c.out.shortHeader = true
 }

@@ -19,15 +19,15 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-#define BITSTREAM_READER_LE
-
 #include "libavutil/channel_layout.h"
+
+#define BITSTREAM_READER_LE
 #include "avcodec.h"
+#include "bytestream.h"
 #include "get_bits.h"
 #include "internal.h"
 #include "thread.h"
 #include "unary.h"
-#include "bytestream.h"
 #include "wavpack.h"
 
 /**
@@ -1016,7 +1016,7 @@ static int wavpack_decode_block(AVCodecContext *avctx, int block_no,
 
     if (wc->ch_offset + s->stereo >= avctx->channels) {
         av_log(avctx, AV_LOG_WARNING, "Too many channels coded in a packet.\n");
-        return (avctx->err_recognition & AV_EF_EXPLODE) ? AVERROR_INVALIDDATA : 0;
+        return ((avctx->err_recognition & AV_EF_EXPLODE) || !wc->ch_offset) ? AVERROR_INVALIDDATA : 0;
     }
 
     samples_l = frame->extended_data[wc->ch_offset];

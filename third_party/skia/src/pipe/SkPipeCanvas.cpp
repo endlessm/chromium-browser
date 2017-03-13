@@ -5,15 +5,16 @@
  * found in the LICENSE file.
  */
 
-#include "SkPathEffect.h"
+#include "SkAutoMalloc.h"
 #include "SkColorFilter.h"
 #include "SkDrawLooper.h"
 #include "SkImageFilter.h"
 #include "SkMaskFilter.h"
+#include "SkPathEffect.h"
 #include "SkPipeCanvas.h"
 #include "SkPipeFormat.h"
-#include "SkRasterizer.h"
 #include "SkRSXform.h"
+#include "SkRasterizer.h"
 #include "SkShader.h"
 #include "SkStream.h"
 #include "SkTextBlob.h"
@@ -208,7 +209,7 @@ public:
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 SkPipeCanvas::SkPipeCanvas(const SkRect& cull, SkPipeDeduper* deduper, SkWStream* stream)
-    : INHERITED(SkScalarCeilToInt(cull.width()), SkScalarCeilToInt(cull.height()))
+    : INHERITED(cull.roundOut())
     , fDeduper(deduper)
     , fStream(stream)
 {}
@@ -309,21 +310,21 @@ void SkPipeCanvas::didSetMatrix(const SkMatrix& matrix) {
     this->INHERITED::didSetMatrix(matrix);
 }
 
-void SkPipeCanvas::onClipRect(const SkRect& rect, ClipOp op, ClipEdgeStyle edgeStyle) {
+void SkPipeCanvas::onClipRect(const SkRect& rect, SkClipOp op, ClipEdgeStyle edgeStyle) {
     fStream->write32(pack_verb(SkPipeVerb::kClipRect, ((unsigned)op << 1) | edgeStyle));
     fStream->write(&rect, 4 * sizeof(SkScalar));
 
     this->INHERITED::onClipRect(rect, op, edgeStyle);
 }
 
-void SkPipeCanvas::onClipRRect(const SkRRect& rrect, ClipOp op, ClipEdgeStyle edgeStyle) {
+void SkPipeCanvas::onClipRRect(const SkRRect& rrect, SkClipOp op, ClipEdgeStyle edgeStyle) {
     fStream->write32(pack_verb(SkPipeVerb::kClipRRect, ((unsigned)op << 1) | edgeStyle));
     write_rrect(fStream, rrect);
 
     this->INHERITED::onClipRRect(rrect, op, edgeStyle);
 }
 
-void SkPipeCanvas::onClipPath(const SkPath& path, ClipOp op, ClipEdgeStyle edgeStyle) {
+void SkPipeCanvas::onClipPath(const SkPath& path, SkClipOp op, ClipEdgeStyle edgeStyle) {
     SkPipeWriter writer(this);
     writer.write32(pack_verb(SkPipeVerb::kClipPath, ((unsigned)op << 1) | edgeStyle));
     writer.writePath(path);
@@ -331,7 +332,7 @@ void SkPipeCanvas::onClipPath(const SkPath& path, ClipOp op, ClipEdgeStyle edgeS
     this->INHERITED::onClipPath(path, op, edgeStyle);
 }
 
-void SkPipeCanvas::onClipRegion(const SkRegion& deviceRgn, ClipOp op) {
+void SkPipeCanvas::onClipRegion(const SkRegion& deviceRgn, SkClipOp op) {
     SkPipeWriter writer(this);
     writer.write32(pack_verb(SkPipeVerb::kClipRegion, (unsigned)op << 1));
     writer.writeRegion(deviceRgn);
@@ -352,7 +353,7 @@ void SkPipeCanvas::onDrawArc(const SkRect& bounds, SkScalar startAngle, SkScalar
 }
 
 void SkPipeCanvas::onDrawAtlas(const SkImage* image, const SkRSXform xform[], const SkRect rect[],
-                               const SkColor colors[], int count, SkXfermode::Mode mode,
+                               const SkColor colors[], int count, SkBlendMode mode,
                                const SkRect* cull, const SkPaint* paint) {
     unsigned extra = (unsigned)mode;
     SkASSERT(0 == (extra & ~kMode_DrawAtlasMask));
@@ -732,7 +733,7 @@ void SkPipeCanvas::onDrawRegion(const SkRegion& region, const SkPaint& paint) {
 
 void SkPipeCanvas::onDrawVertices(VertexMode vmode, int vertexCount,
                                   const SkPoint vertices[], const SkPoint texs[],
-                                  const SkColor colors[], SkXfermode* xmode,
+                                  const SkColor colors[], SkBlendMode bmode,
                                   const uint16_t indices[], int indexCount,
                                   const SkPaint& paint) {
     SkASSERT(vertexCount > 0);
@@ -742,12 +743,7 @@ void SkPipeCanvas::onDrawVertices(VertexMode vmode, int vertexCount,
         extra |= vertexCount;
     }
     extra |= (unsigned)vmode << kVMode_DrawVerticesShift;
-
-    SkXfermode::Mode mode = SkXfermode::kModulate_Mode;
-    if (xmode && !SkXfermode::AsMode(xmode, &mode)) {
-        mode = (SkXfermode::Mode)0xFF;  // sentinel for read the xfer later
-    }
-    extra |= (unsigned)mode << kXMode_DrawVerticesShift;
+    extra |= (unsigned)bmode << kXMode_DrawVerticesShift;
 
     if (texs) {
         extra |= kHasTex_DrawVerticesMask;
@@ -763,9 +759,6 @@ void SkPipeCanvas::onDrawVertices(VertexMode vmode, int vertexCount,
     writer.write32(pack_verb(SkPipeVerb::kDrawVertices, extra));
     if (vertexCount > kVCount_DrawVerticesMask) {
         writer.write32(vertexCount);
-    }
-    if (mode == (SkXfermode::Mode)0xFF) {
-        writer.writeFlattenable(xmode);
     }
     writer.write(vertices, vertexCount * sizeof(SkPoint));
     if (texs) {
@@ -783,18 +776,12 @@ void SkPipeCanvas::onDrawVertices(VertexMode vmode, int vertexCount,
 }
 
 void SkPipeCanvas::onDrawPatch(const SkPoint cubics[12], const SkColor colors[4],
-                               const SkPoint texCoords[4], SkXfermode* xfer,
+                               const SkPoint texCoords[4], SkBlendMode bmode,
                                const SkPaint& paint) {
     SkPipeWriter writer(this);
     unsigned extra = 0;
-    SkXfermode::Mode mode = SkXfermode::kModulate_Mode;
-    if (xfer && !xfer->asMode(&mode)) {
-        mode = (SkXfermode::Mode)kExplicitXfer_DrawPatchExtraValue;
-    } else {
-        xfer = nullptr;    // signal that we're using the mode enum
-    }
-    SkASSERT(0 == (mode & ~kModeEnum_DrawPatchExtraMask));
-    extra = (unsigned)mode;
+    SkASSERT(0 == ((int)bmode & ~kModeEnum_DrawPatchExtraMask));
+    extra = (unsigned)bmode;
     if (colors) {
         extra |= kHasColors_DrawPatchExtraMask;
     }
@@ -808,9 +795,6 @@ void SkPipeCanvas::onDrawPatch(const SkPoint cubics[12], const SkColor colors[4]
     }
     if (texCoords) {
         writer.write(texCoords, sizeof(SkPoint) * 4);
-    }
-    if (xfer) {
-        xfer->flatten(writer);
     }
     write_paint(writer, paint, kGeometry_PaintUsage);
 }
@@ -862,6 +846,15 @@ protected:
     }
 };
 
+static sk_sp<SkData> default_image_serializer(SkImage* image) {
+    A8Serializer serial;
+    sk_sp<SkData> data(image->encode(&serial));
+    if (!data) {
+        data.reset(image->encode());
+    }
+    return data;
+}
+
 static bool show_deduper_traffic = false;
 
 int SkPipeDeduper::findOrDefineImage(SkImage* image) {
@@ -874,11 +867,8 @@ int SkPipeDeduper::findOrDefineImage(SkImage* image) {
         return index;
     }
 
-    A8Serializer serial;
-    sk_sp<SkData> data(image->encode(&serial));
-    if (!data) {
-        data.reset(image->encode());
-    }
+    sk_sp<SkData> data = fIMSerializer ? fIMSerializer->serialize(image)
+                                       : default_image_serializer(image);
     if (data) {
         index = fImages.add(image->uniqueID());
         SkASSERT(index > 0);
@@ -1015,6 +1005,10 @@ SkPipeSerializer::~SkPipeSerializer() {
 
 void SkPipeSerializer::setTypefaceSerializer(SkTypefaceSerializer* tfs) {
     fImpl->fDeduper.setTypefaceSerializer(tfs);
+}
+
+void SkPipeSerializer::setImageSerializer(SkImageSerializer* ims) {
+    fImpl->fDeduper.setImageSerializer(ims);
 }
 
 void SkPipeSerializer::resetCache() {

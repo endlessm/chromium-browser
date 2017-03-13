@@ -13,7 +13,6 @@
 #include "base/strings/stringprintf.h"
 #include "base/test/trace_event_analyzer.h"
 #include "base/time/default_tick_clock.h"
-#include "base/win/windows_version.h"
 #include "chrome/browser/extensions/extension_apitest.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/tab_helper.h"
@@ -48,11 +47,15 @@
 #include "net/base/net_errors.h"
 #include "net/base/rand_callback.h"
 #include "net/log/net_log_source.h"
-#include "net/udp/udp_server_socket.h"
+#include "net/socket/udp_server_socket.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "testing/perf/perf_test.h"
 #include "ui/compositor/compositor_switches.h"
 #include "ui/gl/gl_switches.h"
+
+#if defined(OS_WIN)
+#include "base/win/windows_version.h"
+#endif
 
 namespace {
 

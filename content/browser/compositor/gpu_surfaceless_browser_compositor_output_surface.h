@@ -25,10 +25,9 @@ class GpuSurfacelessBrowserCompositorOutputSurface
     : public GpuBrowserCompositorOutputSurface {
  public:
   GpuSurfacelessBrowserCompositorOutputSurface(
-      scoped_refptr<ContextProviderCommandBuffer> context,
+      scoped_refptr<ui::ContextProviderCommandBuffer> context,
       gpu::SurfaceHandle surface_handle,
-      scoped_refptr<ui::CompositorVSyncManager> vsync_manager,
-      cc::SyntheticBeginFrameSource* begin_frame_source,
+      const UpdateVSyncParametersCallback& update_vsync_parameters_callback,
       std::unique_ptr<display_compositor::CompositorOverlayCandidateValidator>
           overlay_candidate_validator,
       unsigned int target,
@@ -42,9 +41,10 @@ class GpuSurfacelessBrowserCompositorOutputSurface
   void BindFramebuffer() override;
   uint32_t GetFramebufferCopyTextureFormat() override;
   void Reshape(const gfx::Size& size,
-               float scale_factor,
+               float device_scale_factor,
                const gfx::ColorSpace& color_space,
-               bool alpha) override;
+               bool has_alpha,
+               bool use_stencil) override;
   bool IsDisplayedAsOverlayPlane() const override;
   unsigned GetOverlayTextureId() const override;
 

@@ -21,13 +21,13 @@ import com.google.android.gms.gcm.PeriodicTask;
 
 import org.chromium.base.ContextUtils;
 import org.chromium.base.Log;
+import org.chromium.base.NonThreadSafe;
 import org.chromium.base.VisibleForTesting;
 import org.chromium.base.library_loader.LibraryLoader;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.chrome.browser.ChromeBackgroundService;
 import org.chromium.chrome.browser.ChromeVersionInfo;
-import org.chromium.chrome.browser.util.NonThreadSafe;
 import org.chromium.components.precache.DeviceState;
 import org.chromium.components.sync.ModelType;
 
@@ -94,7 +94,7 @@ public class PrecacheController {
     SyncServiceInitializedNotifier mSyncServiceNotifier;
 
     /** True if a precache session is in progress. Threadsafe. */
-    private boolean mIsPrecaching = false;
+    private boolean mIsPrecaching;
 
     /** Wakelock that is held while precaching is in progress. */
     private WakeLock mPrecachingWakeLock;

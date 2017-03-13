@@ -7,8 +7,10 @@
 #include <stddef.h>
 
 #include <algorithm>
+#include <memory>
 #include <set>
 #include <utility>
+#include <vector>
 
 #include "base/callback.h"
 #include "base/files/file_path.h"
@@ -20,9 +22,10 @@
 namespace {
 
 // Add {selector -> app_id} mapping to |map|.
-void AddAppSelectorList(const ScopedVector<std::string>& selectors,
-                        const std::string& app_id,
-                        std::multimap<std::string, std::string>* map) {
+void AddAppSelectorList(
+    const std::vector<std::unique_ptr<std::string>>& selectors,
+    const std::string& app_id,
+    std::multimap<std::string, std::string>* map) {
   for (size_t i = 0; i < selectors.size(); ++i)
     map->insert(std::make_pair(*selectors[i], app_id));
 }
@@ -189,9 +192,8 @@ void DriveAppRegistry::UpdateFromAppList(const google_apis::AppList& app_list) {
     AddAppSelectorList(app.secondary_file_extensions(), id, &extension_map_);
   }
 
-  FOR_EACH_OBSERVER(DriveAppRegistryObserver,
-                    observers_,
-                    OnDriveAppRegistryUpdated());
+  for (auto& observer : observers_)
+    observer.OnDriveAppRegistryUpdated();
 }
 
 void DriveAppRegistry::AddObserver(DriveAppRegistryObserver* observer) {

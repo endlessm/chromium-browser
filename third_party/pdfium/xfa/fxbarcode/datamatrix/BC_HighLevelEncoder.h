@@ -7,6 +7,8 @@
 #ifndef XFA_FXBARCODE_DATAMATRIX_BC_HIGHLEVELENCODER_H_
 #define XFA_FXBARCODE_DATAMATRIX_BC_HIGHLEVELENCODER_H_
 
+#include <vector>
+
 #include "xfa/fxbarcode/datamatrix/BC_SymbolShapeHint.h"
 
 #define ASCII_ENCODATION 0
@@ -34,8 +36,8 @@ class CBC_HighLevelEncoder : public CBC_SymbolShapeHint {
   static int32_t lookAheadTest(CFX_WideString msg,
                                int32_t startpos,
                                int32_t currentMode);
-  static FX_BOOL isDigit(FX_WCHAR ch);
-  static FX_BOOL isExtendedASCII(FX_WCHAR ch);
+  static bool isDigit(FX_WCHAR ch);
+  static bool isExtendedASCII(FX_WCHAR ch);
   static int32_t determineConsecutiveDigitCount(CFX_WideString msg,
                                                 int32_t startpos);
   static void illegalCharacter(FX_WCHAR c, int32_t& e);
@@ -61,17 +63,17 @@ class CBC_HighLevelEncoder : public CBC_SymbolShapeHint {
 
  private:
   static FX_WCHAR randomize253State(FX_WCHAR ch, int32_t codewordPosition);
-  static int32_t findMinimums(CFX_FloatArray& charCounts,
+  static int32_t findMinimums(std::vector<FX_FLOAT>& charCounts,
                               CFX_Int32Array& intCharCounts,
                               int32_t min,
                               CFX_ByteArray& mins);
   static int32_t getMinimumCount(CFX_ByteArray& mins);
-  static FX_BOOL isNativeC40(FX_WCHAR ch);
-  static FX_BOOL isNativeText(FX_WCHAR ch);
-  static FX_BOOL isNativeX12(FX_WCHAR ch);
-  static FX_BOOL isX12TermSep(FX_WCHAR ch);
-  static FX_BOOL isNativeEDIFACT(FX_WCHAR ch);
-  static FX_BOOL isSpecialB256(FX_WCHAR ch);
+  static bool isNativeC40(FX_WCHAR ch);
+  static bool isNativeText(FX_WCHAR ch);
+  static bool isNativeX12(FX_WCHAR ch);
+  static bool isX12TermSep(FX_WCHAR ch);
+  static bool isNativeEDIFACT(FX_WCHAR ch);
+  static bool isSpecialB256(FX_WCHAR ch);
 };
 
 #endif  // XFA_FXBARCODE_DATAMATRIX_BC_HIGHLEVELENCODER_H_

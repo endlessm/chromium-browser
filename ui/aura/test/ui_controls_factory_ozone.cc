@@ -107,7 +107,7 @@ class UIControlsOzone : public ui_controls::UIControlsAura {
     }
 
     gfx::Point host_location = root_location;
-    host_->ConvertPointToHost(&host_location);
+    host_->ConvertDIPToPixels(&host_location);
 
     ui::EventType event_type;
 
@@ -116,7 +116,7 @@ class UIControlsOzone : public ui_controls::UIControlsAura {
     else
       event_type = ui::ET_MOUSE_MOVED;
 
-    PostMouseEvent(event_type, host_location, 0, 0);
+    PostMouseEvent(event_type, host_location, button_down_mask_, 0);
 
     RunClosureAfterAllPendingUIEvents(closure);
     return true;
@@ -137,7 +137,7 @@ class UIControlsOzone : public ui_controls::UIControlsAura {
     }
 
     gfx::Point host_location = root_location;
-    host_->ConvertPointToHost(&host_location);
+    host_->ConvertDIPToPixels(&host_location);
 
     int flag = 0;
 

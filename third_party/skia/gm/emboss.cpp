@@ -10,7 +10,7 @@
 #include "SkCanvas.h"
 #include "SkColorFilter.h"
 
-#include "SkColorFilter.h"
+#ifdef SK_SUPPORT_LEGACY_EMBOSSMASKFILTER
 static SkBitmap make_bm() {
     SkBitmap bm;
     bm.allocN32Pixels(100, 100);
@@ -49,7 +49,7 @@ protected:
 
         // this combination of emboss+colorfilter used to crash -- so we exercise it to
         // confirm that we have a fix.
-        paint.setColorFilter(SkColorFilter::MakeModeFilter(0xFFFF0000, SkXfermode::kSrcATop_Mode));
+        paint.setColorFilter(SkColorFilter::MakeModeFilter(0xFFFF0000, SkBlendMode::kSrcATop));
         canvas->translate(bm.width() + SkIntToScalar(10), 0);
         canvas->drawBitmap(bm, 10, 10, &paint);
     }
@@ -59,3 +59,4 @@ private:
 };
 
 DEF_GM(return new EmbossGM;)
+#endif

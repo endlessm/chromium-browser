@@ -150,7 +150,10 @@ std::unique_ptr<DragImage> DragImage::create(
   if (!image)
     return nullptr;
 
-  sk_sp<SkImage> skImage = image->imageForCurrentFrame();
+  // TODO(ccameron): DragImage needs to be color space aware.
+  // https://crbug.com/672316
+  sk_sp<SkImage> skImage =
+      image->imageForCurrentFrame(ColorBehavior::transformToGlobalTarget());
   if (!skImage)
     return nullptr;
 
@@ -167,7 +170,8 @@ std::unique_ptr<DragImage> DragImage::create(
       !resizedImage->asLegacyBitmap(&bm, SkImage::kRO_LegacyBitmapMode))
     return nullptr;
 
-  return wrapUnique(new DragImage(bm, deviceScaleFactor, interpolationQuality));
+  return WTF::wrapUnique(
+      new DragImage(bm, deviceScaleFactor, interpolationQuality));
 }
 
 static Font deriveDragLabelFont(int size,
@@ -188,8 +192,16 @@ std::unique_ptr<DragImage> DragImage::create(const KURL& url,
                                              float deviceScaleFactor) {
   const Font labelFont =
       deriveDragLabelFont(kDragLinkLabelFontSize, FontWeightBold, systemFont);
+  const SimpleFontData* labelFontData = labelFont.primaryFont();
+  DCHECK(labelFontData);
   const Font urlFont =
       deriveDragLabelFont(kDragLinkUrlFontSize, FontWeightNormal, systemFont);
+  const SimpleFontData* urlFontData = urlFont.primaryFont();
+  DCHECK(urlFontData);
+
+  if (!labelFontData || !urlFontData)
+    return nullptr;
+
   FontCachePurgePreventer fontCachePurgePreventer;
 
   bool drawURLString = true;
@@ -209,8 +221,8 @@ std::unique_ptr<DragImage> DragImage::create(const KURL& url,
   TextRun labelRun(label.impl());
   TextRun urlRun(urlString.impl());
   IntSize labelSize(labelFont.width(labelRun),
-                    labelFont.getFontMetrics().ascent() +
-                        labelFont.getFontMetrics().descent());
+                    labelFontData->getFontMetrics().ascent() +
+                        labelFontData->getFontMetrics().descent());
 
   if (labelSize.width() > maxDragLabelStringWidthDIP) {
     labelSize.setWidth(maxDragLabelStringWidthDIP);
@@ -223,8 +235,8 @@ std::unique_ptr<DragImage> DragImage::create(const KURL& url,
 
   if (drawURLString) {
     urlStringSize.setWidth(urlFont.width(urlRun));
-    urlStringSize.setHeight(urlFont.getFontMetrics().ascent() +
-                            urlFont.getFontMetrics().descent());
+    urlStringSize.setHeight(urlFontData->getFontMetrics().ascent() +
+                            urlFontData->getFontMetrics().descent());
     imageSize.setHeight(imageSize.height() + urlStringSize.height());
     if (urlStringSize.width() > maxDragLabelStringWidthDIP) {
       imageSize.setWidth(maxDragLabelStringWidthDIP);
@@ -249,6 +261,7 @@ std::unique_ptr<DragImage> DragImage::create(const KURL& url,
   IntRect rect(IntPoint(), imageSize);
   SkPaint backgroundPaint;
   backgroundPaint.setColor(SkColorSetRGB(140, 140, 140));
+  backgroundPaint.setAntiAlias(true);
   SkRRect rrect;
   rrect.setRectXY(SkRect::MakeWH(imageSize.width(), imageSize.height()),
                   DragLabelRadius, DragLabelRadius);
@@ -260,9 +273,10 @@ std::unique_ptr<DragImage> DragImage::create(const KURL& url,
     if (clipURLString)
       urlString = StringTruncator::centerTruncate(
           urlString, imageSize.width() - (kDragLabelBorderX * 2.0f), urlFont);
-    IntPoint textPos(kDragLabelBorderX,
-                     imageSize.height() - (kLabelBorderYOffset +
-                                           urlFont.getFontMetrics().descent()));
+    IntPoint textPos(
+        kDragLabelBorderX,
+        imageSize.height() -
+            (kLabelBorderYOffset + urlFontData->getFontMetrics().descent()));
     TextRun textRun(urlString);
     urlFont.drawText(buffer->canvas(), TextRunPaintInfo(textRun), textPos,
                      deviceScaleFactor, textPaint);
@@ -277,7 +291,7 @@ std::unique_ptr<DragImage> DragImage::create(const KURL& url,
   IntPoint textPos(
       kDragLabelBorderX,
       kDragLabelBorderY + labelFont.getFontDescription().computedPixelSize());
-  if (hasStrongDirectionality && textRun.direction() == RTL) {
+  if (hasStrongDirectionality && textRun.direction() == TextDirection::kRtl) {
     float textWidth = labelFont.width(textRun);
     int availableWidth = imageSize.width() - kDragLabelBorderX * 2;
     textPos.setX(availableWidth - ceilf(textWidth));

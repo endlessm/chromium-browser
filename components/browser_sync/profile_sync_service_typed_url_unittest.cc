@@ -32,13 +32,13 @@
 #include "components/history/core/browser/history_service.h"
 #include "components/history/core/browser/typed_url_data_type_controller.h"
 #include "components/signin/core/browser/signin_manager.h"
-#include "components/sync/api/data_type_error_handler_mock.h"
-#include "components/sync/core/read_node.h"
-#include "components/sync/core/read_transaction.h"
-#include "components/sync/core/write_node.h"
-#include "components/sync/core/write_transaction.h"
 #include "components/sync/driver/data_type_manager_impl.h"
+#include "components/sync/model/data_type_error_handler_mock.h"
 #include "components/sync/protocol/typed_url_specifics.pb.h"
+#include "components/sync/syncable/read_node.h"
+#include "components/sync/syncable/read_transaction.h"
+#include "components/sync/syncable/write_node.h"
+#include "components/sync/syncable/write_transaction.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
@@ -60,8 +60,9 @@ const char kDummySavingBrowserHistoryDisabled[] = "dummyPref";
 // Visits with this timestamp are treated as expired.
 static const int EXPIRED_VISIT = -1;
 
-ACTION(ReturnNewDataTypeManager) {
-  return new syncer::DataTypeManagerImpl(arg0, arg1, arg2, arg3, arg4);
+ACTION_P(ReturnNewDataTypeManager, sync_client) {
+  return new syncer::DataTypeManagerImpl(sync_client, arg0, arg1, arg2, arg3,
+                                         arg4, arg5);
 }
 
 class HistoryBackendMock : public HistoryBackend {
@@ -124,7 +125,7 @@ class HistoryServiceMock : public history::HistoryService {
 
  private:
   void RunTaskOnDBThread(history::HistoryDBTask* task) {
-    EXPECT_TRUE(task->RunOnDBThread(backend_.get(), NULL));
+    EXPECT_TRUE(task->RunOnDBThread(backend_.get(), nullptr));
   }
 
   scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
@@ -247,10 +248,10 @@ class ProfileSyncServiceTypedUrlTest : public AbstractProfileSyncServiceTest {
       SigninManagerBase* signin =
           profile_sync_service_bundle()->signin_manager();
       signin->SetAuthenticatedAccountInfo("gaia_id", "test");
-      CreateSyncService(std::move(sync_client_), callback);
       EXPECT_CALL(*profile_sync_service_bundle()->component_factory(),
-                  CreateDataTypeManager(_, _, _, _, _))
-          .WillOnce(ReturnNewDataTypeManager());
+                  CreateDataTypeManager(_, _, _, _, _, _))
+          .WillOnce(ReturnNewDataTypeManager(sync_client_.get()));
+      CreateSyncService(std::move(sync_client_), callback);
 
       profile_sync_service_bundle()->auth_service()->UpdateCredentials(
           account_id, "oauth2_login_token");
@@ -512,7 +513,7 @@ TEST_F(ProfileSyncServiceTypedUrlTest, HasNativeHasSyncNoMerge) {
   history::URLRows new_sync_entries;
   GetTypedUrlsFromSyncDB(&new_sync_entries);
 
-  EXPECT_TRUE(new_sync_entries.size() == expected.size());
+  EXPECT_EQ(expected.size(), new_sync_entries.size());
   for (history::URLRows::iterator entry = new_sync_entries.begin();
        entry != new_sync_entries.end(); ++entry) {
     EXPECT_TRUE(URLsEqual(expected[entry->url().spec()], *entry));

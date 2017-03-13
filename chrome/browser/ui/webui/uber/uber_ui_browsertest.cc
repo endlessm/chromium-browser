@@ -6,14 +6,13 @@
 #include <utility>
 
 #include "base/command_line.h"
-#include "base/feature_list.h"
 #include "base/macros.h"
+#include "base/test/scoped_feature_list.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/test_extension_system.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
-#include "chrome/browser/ui/webui/md_history_ui.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/url_constants.h"
@@ -88,11 +87,8 @@ IN_PROC_BROWSER_TEST_F(UberUIBrowserTest, HistoryOverride) {
 }
 
 IN_PROC_BROWSER_TEST_F(UberUIBrowserTest, EnableMdExtensionsHidesExtensions) {
-  std::unique_ptr<base::FeatureList> feature_list(new base::FeatureList);
-  feature_list->InitializeFromCommandLine(
-      features::kMaterialDesignExtensions.name, "");
-  base::FeatureList::ClearInstanceForTesting();
-  base::FeatureList::SetInstance(std::move(feature_list));
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndEnableFeature(features::kMaterialDesignExtensions);
 
   ui_test_utils::NavigateToURL(browser(), GURL(chrome::kChromeUIUberFrameURL));
   SelectTab();
@@ -100,7 +96,8 @@ IN_PROC_BROWSER_TEST_F(UberUIBrowserTest, EnableMdExtensionsHidesExtensions) {
 }
 
 IN_PROC_BROWSER_TEST_F(UberUIBrowserTest, EnableMdHistoryHidesHistory) {
-  MdHistoryUI::SetEnabledForTesting(true);
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndEnableFeature(features::kMaterialDesignHistory);
 
   ui_test_utils::NavigateToURL(browser(), GURL(chrome::kChromeUIUberFrameURL));
   SelectTab();
@@ -108,11 +105,8 @@ IN_PROC_BROWSER_TEST_F(UberUIBrowserTest, EnableMdHistoryHidesHistory) {
 }
 
 IN_PROC_BROWSER_TEST_F(UberUIBrowserTest, EnableMdSettingsHidesSettings) {
-  std::unique_ptr<base::FeatureList> feature_list(new base::FeatureList);
-  feature_list->InitializeFromCommandLine(
-      features::kMaterialDesignSettings.name, "");
-  base::FeatureList::ClearInstanceForTesting();
-  base::FeatureList::SetInstance(std::move(feature_list));
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndEnableFeature(features::kMaterialDesignSettings);
 
   ui_test_utils::NavigateToURL(browser(), GURL(chrome::kChromeUIUberFrameURL));
   SelectTab();

@@ -5,49 +5,70 @@
 #include "core/offscreencanvas/OffscreenCanvas.h"
 
 #include "core/dom/ExceptionCode.h"
+#include "core/fileapi/Blob.h"
+#include "core/frame/ImageBitmap.h"
+#include "core/html/ImageData.h"
+#include "core/html/canvas/CanvasAsyncBlobCreator.h"
 #include "core/html/canvas/CanvasContextCreationAttributes.h"
 #include "core/html/canvas/CanvasRenderingContext.h"
 #include "core/html/canvas/CanvasRenderingContextFactory.h"
 #include "platform/graphics/Image.h"
 #include "platform/graphics/ImageBuffer.h"
 #include "platform/graphics/OffscreenCanvasFrameDispatcherImpl.h"
+#include "platform/graphics/StaticBitmapImage.h"
+#include "platform/image-encoders/ImageEncoderUtils.h"
 #include "wtf/MathExtras.h"
 #include <memory>
 
 namespace blink {
 
-OffscreenCanvas::OffscreenCanvas(const IntSize& size)
-    : m_size(size), m_originClean(true) {}
+OffscreenCanvas::OffscreenCanvas(const IntSize& size) : m_size(size) {}
 
 OffscreenCanvas* OffscreenCanvas::create(unsigned width, unsigned height) {
   return new OffscreenCanvas(
       IntSize(clampTo<int>(width), clampTo<int>(height)));
 }
 
-void OffscreenCanvas::setWidth(unsigned width, ExceptionState& exceptionState) {
-  // If this OffscreenCanvas is transferred control by an html canvas,
-  // its size is determined by html canvas's size and cannot be resized.
-  if (m_canvasId >= 0) {
-    exceptionState.throwDOMException(InvalidStateError,
-                                     "Resizing is not allowed on an "
-                                     "OffscreenCanvas that has been "
-                                     "transferred control from a canvas.");
-    return;
+OffscreenCanvas::~OffscreenCanvas() {}
+
+void OffscreenCanvas::dispose() {
+  if (m_context) {
+    m_context->detachOffscreenCanvas();
+    m_context = nullptr;
   }
-  m_size.setWidth(clampTo<int>(width));
+  if (m_commitPromiseResolver) {
+    // keepAliveWhilePending() guarantees the promise resolver is never
+    // GC-ed before the OffscreenCanvas
+    m_commitPromiseResolver->reject();
+    m_commitPromiseResolver.clear();
+  }
 }
 
-void OffscreenCanvas::setHeight(unsigned height,
-                                ExceptionState& exceptionState) {
-  // Same comment as above.
-  if (m_canvasId >= 0) {
-    exceptionState.throwDOMException(InvalidStateError,
-                                     "Resizing is not allowed on an "
-                                     "OffscreenCanvas that has been "
-                                     "transferred control from a canvas.");
-    return;
+void OffscreenCanvas::setWidth(unsigned width) {
+  IntSize newSize = m_size;
+  newSize.setWidth(clampTo<int>(width));
+  setSize(newSize);
+}
+
+void OffscreenCanvas::setHeight(unsigned height) {
+  IntSize newSize = m_size;
+  newSize.setHeight(clampTo<int>(height));
+  setSize(newSize);
+}
+
+void OffscreenCanvas::setSize(const IntSize& size) {
+  if (m_context) {
+    if (m_context->is3d()) {
+      if (size != m_size)
+        m_context->reshape(size.width(), size.height());
+    } else if (m_context->is2d()) {
+      m_context->reset();
+    }
   }
-  m_size.setHeight(clampTo<int>(height));
+  m_size = size;
+  if (m_frameDispatcher) {
+    m_frameDispatcher->reshape(m_size.width(), m_size.height());
+  }
 }
 
 void OffscreenCanvas::setNeutered() {
@@ -58,6 +79,7 @@ void OffscreenCanvas::setNeutered() {
 }
 
 ImageBitmap* OffscreenCanvas::transferToImageBitmap(
+    ScriptState* scriptState,
     ExceptionState& exceptionState) {
   if (m_isNeutered) {
     exceptionState.throwDOMException(
@@ -71,7 +93,7 @@ ImageBitmap* OffscreenCanvas::transferToImageBitmap(
                                      "OffscreenCanvas with no context");
     return nullptr;
   }
-  ImageBitmap* image = m_context->transferToImageBitmap(exceptionState);
+  ImageBitmap* image = m_context->transferToImageBitmap(scriptState);
   if (!image) {
     // Undocumented exception (not in spec)
     exceptionState.throwDOMException(V8Error, "Out of memory");
@@ -86,7 +108,10 @@ PassRefPtr<Image> OffscreenCanvas::getSourceImageForCanvas(
     const FloatSize& size) const {
   if (!m_context) {
     *status = InvalidSourceImageStatus;
-    return nullptr;
+    sk_sp<SkSurface> surface =
+        SkSurface::MakeRasterN32Premul(m_size.width(), m_size.height());
+    return surface ? StaticBitmapImage::create(surface->makeImageSnapshot())
+                   : nullptr;
   }
   if (!size.width() || !size.height()) {
     *status = ZeroSizeCanvasSourceImageStatus;
@@ -99,6 +124,30 @@ PassRefPtr<Image> OffscreenCanvas::getSourceImageForCanvas(
     *status = NormalSourceImageStatus;
   }
   return image.release();
+}
+
+IntSize OffscreenCanvas::bitmapSourceSize() const {
+  return m_size;
+}
+
+ScriptPromise OffscreenCanvas::createImageBitmap(
+    ScriptState* scriptState,
+    EventTarget&,
+    Optional<IntRect> cropRect,
+    const ImageBitmapOptions& options,
+    ExceptionState& exceptionState) {
+  if ((cropRect &&
+       !ImageBitmap::isSourceSizeValid(cropRect->width(), cropRect->height(),
+                                       exceptionState)) ||
+      !ImageBitmap::isSourceSizeValid(bitmapSourceSize().width(),
+                                      bitmapSourceSize().height(),
+                                      exceptionState))
+    return ScriptPromise();
+  if (!ImageBitmap::isResizeOptionValid(options, exceptionState))
+    return ScriptPromise();
+  return ImageBitmapSource::fulfillImageBitmap(
+      scriptState,
+      isPaintable() ? ImageBitmap::create(this, cropRect, options) : nullptr);
 }
 
 bool OffscreenCanvas::isOpaque() const {
@@ -165,7 +214,7 @@ bool OffscreenCanvas::originClean() const {
 bool OffscreenCanvas::isPaintable() const {
   if (!m_context)
     return ImageBuffer::canCreateImageBuffer(m_size);
-  return m_context->isPaintable();
+  return m_context->isPaintable() && m_size.width() && m_size.height();
 }
 
 bool OffscreenCanvas::isAccelerated() const {
@@ -177,14 +226,103 @@ OffscreenCanvasFrameDispatcher* OffscreenCanvas::getOrCreateFrameDispatcher() {
     // The frame dispatcher connects the current thread of OffscreenCanvas
     // (either main or worker) to the browser process and remains unchanged
     // throughout the lifetime of this OffscreenCanvas.
-    m_frameDispatcher = wrapUnique(new OffscreenCanvasFrameDispatcherImpl(
-        m_clientId, m_sinkId, m_localId, m_nonce, width(), height()));
+    m_frameDispatcher = WTF::wrapUnique(new OffscreenCanvasFrameDispatcherImpl(
+        this, m_clientId, m_sinkId, m_placeholderCanvasId, m_size.width(),
+        m_size.height()));
   }
   return m_frameDispatcher.get();
 }
 
+ScriptPromise OffscreenCanvas::commit(RefPtr<StaticBitmapImage> image,
+                                      bool isWebGLSoftwareRendering,
+                                      ScriptState* scriptState) {
+  if (m_commitPromiseResolver) {
+    if (image) {
+      m_overdrawFrame = std::move(image);
+      m_overdrawFrameIsWebGLSoftwareRendering = isWebGLSoftwareRendering;
+    }
+  } else {
+    m_overdrawFrame = nullptr;
+    m_commitPromiseResolver = ScriptPromiseResolver::create(scriptState);
+    m_commitPromiseResolver->keepAliveWhilePending();
+    doCommit(std::move(image), isWebGLSoftwareRendering);
+  }
+  return m_commitPromiseResolver->promise();
+}
+
+void OffscreenCanvas::doCommit(RefPtr<StaticBitmapImage> image,
+                               bool isWebGLSoftwareRendering) {
+  double commitStartTime = WTF::monotonicallyIncreasingTime();
+  getOrCreateFrameDispatcher()->dispatchFrame(std::move(image), commitStartTime,
+                                              isWebGLSoftwareRendering);
+}
+
+void OffscreenCanvas::beginFrame() {
+  if (m_overdrawFrame) {
+    // if we have an overdraw backlog, push the frame from the backlog
+    // first and save the promise resolution for later.
+    doCommit(std::move(m_overdrawFrame),
+             m_overdrawFrameIsWebGLSoftwareRendering);
+  } else if (m_commitPromiseResolver) {
+    m_commitPromiseResolver->resolve();
+    m_commitPromiseResolver.clear();
+  }
+}
+
+ScriptPromise OffscreenCanvas::convertToBlob(ScriptState* scriptState,
+                                             const ImageEncodeOptions& options,
+                                             ExceptionState& exceptionState) {
+  if (this->isNeutered()) {
+    exceptionState.throwDOMException(InvalidStateError,
+                                     "OffscreenCanvas object is detached.");
+    return exceptionState.reject(scriptState);
+  }
+
+  if (!this->originClean()) {
+    exceptionState.throwSecurityError(
+        "Tainted OffscreenCanvas may not be exported.");
+    return exceptionState.reject(scriptState);
+  }
+
+  if (!this->isPaintable()) {
+    exceptionState.throwDOMException(
+        IndexSizeError, "The size of the OffscreenCanvas is zero.");
+    return exceptionState.reject(scriptState);
+  }
+
+  double startTime = WTF::monotonicallyIncreasingTime();
+  String encodingMimeType = ImageEncoderUtils::toEncodingMimeType(
+      options.type(), ImageEncoderUtils::EncodeReasonConvertToBlobPromise);
+
+  ImageData* imageData = nullptr;
+  if (this->renderingContext()) {
+    imageData = this->renderingContext()->toImageData(SnapshotReasonUnknown);
+  }
+  if (!imageData) {
+    return ScriptPromise();
+  }
+
+  ScriptPromiseResolver* resolver = ScriptPromiseResolver::create(scriptState);
+
+  Document* document =
+      scriptState->getExecutionContext()->isDocument()
+          ? static_cast<Document*>(scriptState->getExecutionContext())
+          : nullptr;
+
+  CanvasAsyncBlobCreator* asyncCreator = CanvasAsyncBlobCreator::create(
+      imageData->data(), encodingMimeType, imageData->size(), startTime,
+      document, resolver);
+
+  asyncCreator->scheduleAsyncBlobCreation(options.quality());
+
+  return resolver->promise();
+}
+
 DEFINE_TRACE(OffscreenCanvas) {
   visitor->trace(m_context);
+  visitor->trace(m_executionContext);
+  visitor->trace(m_commitPromiseResolver);
+  EventTargetWithInlineData::trace(visitor);
 }
 
 }  // namespace blink

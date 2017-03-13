@@ -7,6 +7,7 @@
 
 #include <stdint.h>
 
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -22,9 +23,6 @@
 
 namespace base {
 class TaskRunner;
-}
-namespace file_util {
-struct FileInfo;
 }
 
 namespace net {
@@ -44,16 +42,29 @@ class NET_EXPORT URLRequestFileJob : public URLRequestJob {
   void Kill() override;
   int ReadRawData(IOBuffer* buf, int buf_size) override;
   bool IsRedirectResponse(GURL* location, int* http_status_code) override;
-  std::unique_ptr<Filter> SetupFilter() const override;
   bool GetMimeType(std::string* mime_type) const override;
   void SetExtraRequestHeaders(const HttpRequestHeaders& headers) override;
 
   // An interface for subclasses who wish to monitor read operations.
+  //
+  // |result| is the net::Error code resulting from attempting to open the file.
+  // Called before OnSeekComplete, only called if the request advanced to the
+  // point the file was opened, without being canceled.
+  virtual void OnOpenComplete(int result);
+  // Called at most once.  On success, |result| is the non-negative offset into
+  // the file that the request will read from.  On seek failure, it's a negative
+  // net:Error code.
   virtual void OnSeekComplete(int64_t result);
+  // Called once per read attempt.  |buf| contains the read data, if any.
+  // |result| is the number of read bytes.  0 (net::OK) indicates EOF, negative
+  // numbers indicate it's a net::Error code.
   virtual void OnReadComplete(IOBuffer* buf, int result);
 
  protected:
   ~URLRequestFileJob() override;
+
+  // URLRequestJob implementation.
+  std::unique_ptr<SourceStream> SetUpSourceStream() override;
 
   int64_t remaining_bytes() const { return remaining_bytes_; }
 

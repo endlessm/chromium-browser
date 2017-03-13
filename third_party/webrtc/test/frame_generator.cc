@@ -15,7 +15,10 @@
 
 #include <memory>
 
+#include "webrtc/api/video/i420_buffer.h"
 #include "webrtc/base/checks.h"
+#include "webrtc/base/keep_ref_until_done.h"
+#include "webrtc/common_video/include/video_frame_buffer.h"
 #include "webrtc/common_video/libyuv/include/webrtc_libyuv.h"
 #include "webrtc/system_wrappers/include/clock.h"
 #include "webrtc/test/frame_utils.h"
@@ -88,9 +91,9 @@ class YuvFileGenerator : public FrameGenerator {
         frame_buffer_(new uint8_t[frame_size_]),
         frame_display_count_(frame_repeat_count),
         current_display_count_(0) {
-    assert(width > 0);
-    assert(height > 0);
-    assert(frame_repeat_count > 0);
+    RTC_DCHECK_GT(width, 0);
+    RTC_DCHECK_GT(height, 0);
+    RTC_DCHECK_GT(frame_repeat_count, 0);
   }
 
   virtual ~YuvFileGenerator() {
@@ -154,21 +157,18 @@ class ScrollingImageFrameGenerator : public FrameGenerator {
         scroll_time_(scroll_time_ms),
         pause_time_(pause_time_ms),
         num_frames_(files.size()),
+        target_width_(static_cast<int>(target_width)),
+        target_height_(static_cast<int>(target_height)),
         current_frame_num_(num_frames_ - 1),
         current_source_frame_(nullptr),
         file_generator_(files, source_width, source_height, 1) {
     RTC_DCHECK(clock_ != nullptr);
-    RTC_DCHECK_GT(num_frames_, 0u);
+    RTC_DCHECK_GT(num_frames_, 0);
     RTC_DCHECK_GE(source_height, target_height);
     RTC_DCHECK_GE(source_width, target_width);
     RTC_DCHECK_GE(scroll_time_ms, 0);
     RTC_DCHECK_GE(pause_time_ms, 0);
     RTC_DCHECK_GT(scroll_time_ms + pause_time_ms, 0);
-    current_frame_.CreateEmptyFrame(static_cast<int>(target_width),
-                                    static_cast<int>(target_height),
-                                    static_cast<int>(target_width),
-                                    static_cast<int>((target_width + 1) / 2),
-                                    static_cast<int>((target_width + 1) / 2));
   }
 
   virtual ~ScrollingImageFrameGenerator() {}
@@ -190,7 +190,7 @@ class ScrollingImageFrameGenerator : public FrameGenerator {
     }
     CropSourceToScrolledImage(scroll_factor);
 
-    return &current_frame_;
+    return current_frame_ ? &*current_frame_ : nullptr;
   }
 
   void UpdateSourceFrame(size_t frame_num) {
@@ -202,12 +202,10 @@ class ScrollingImageFrameGenerator : public FrameGenerator {
   }
 
   void CropSourceToScrolledImage(double scroll_factor) {
-    const int kTargetWidth = current_frame_.width();
-    const int kTargetHeight = current_frame_.height();
-    int scroll_margin_x = current_source_frame_->width() - kTargetWidth;
+    int scroll_margin_x = current_source_frame_->width() - target_width_;
     int pixels_scrolled_x =
         static_cast<int>(scroll_margin_x * scroll_factor + 0.5);
-    int scroll_margin_y = current_source_frame_->height() - kTargetHeight;
+    int scroll_margin_y = current_source_frame_->height() - target_height_;
     int pixels_scrolled_y =
         static_cast<int>(scroll_margin_y * scroll_factor + 0.5);
 
@@ -221,15 +219,16 @@ class ScrollingImageFrameGenerator : public FrameGenerator {
                     (pixels_scrolled_y / 2)) +
                    (pixels_scrolled_x / 2);
 
-    current_frame_.CreateFrame(
-        &current_source_frame_->video_frame_buffer()->DataY()[offset_y],
-        &current_source_frame_->video_frame_buffer()->DataU()[offset_u],
-        &current_source_frame_->video_frame_buffer()->DataV()[offset_v],
-        kTargetWidth, kTargetHeight,
-        current_source_frame_->video_frame_buffer()->StrideY(),
-        current_source_frame_->video_frame_buffer()->StrideU(),
-        current_source_frame_->video_frame_buffer()->StrideV(),
-        kVideoRotation_0);
+    rtc::scoped_refptr<VideoFrameBuffer> frame_buffer(
+        current_source_frame_->video_frame_buffer());
+    current_frame_ = rtc::Optional<webrtc::VideoFrame>(webrtc::VideoFrame(
+        new rtc::RefCountedObject<webrtc::WrappedI420Buffer>(
+            target_width_, target_height_,
+            &frame_buffer->DataY()[offset_y], frame_buffer->StrideY(),
+            &frame_buffer->DataU()[offset_u], frame_buffer->StrideU(),
+            &frame_buffer->DataV()[offset_v], frame_buffer->StrideV(),
+            KeepRefUntilDone(frame_buffer)),
+        kVideoRotation_0, 0));
   }
 
   Clock* const clock_;
@@ -237,9 +236,12 @@ class ScrollingImageFrameGenerator : public FrameGenerator {
   const int64_t scroll_time_;
   const int64_t pause_time_;
   const size_t num_frames_;
+  const int target_width_;
+  const int target_height_;
+
   size_t current_frame_num_;
   VideoFrame* current_source_frame_;
-  VideoFrame current_frame_;
+  rtc::Optional<VideoFrame> current_frame_;
   YuvFileGenerator file_generator_;
 };
 
@@ -258,12 +260,23 @@ void FrameForwarder::AddOrUpdateSink(rtc::VideoSinkInterface<VideoFrame>* sink,
   rtc::CritScope lock(&crit_);
   RTC_DCHECK(!sink_ || sink_ == sink);
   sink_ = sink;
+  sink_wants_ = wants;
 }
 
 void FrameForwarder::RemoveSink(rtc::VideoSinkInterface<VideoFrame>* sink) {
   rtc::CritScope lock(&crit_);
   RTC_DCHECK_EQ(sink, sink_);
   sink_ = nullptr;
+}
+
+rtc::VideoSinkWants FrameForwarder::sink_wants() const {
+  rtc::CritScope lock(&crit_);
+  return sink_wants_;
+}
+
+bool FrameForwarder::has_sinks() const {
+  rtc::CritScope lock(&crit_);
+  return sink_ != nullptr;
 }
 
 FrameGenerator* FrameGenerator::CreateChromaGenerator(size_t width,
@@ -276,7 +289,7 @@ FrameGenerator* FrameGenerator::CreateFromYuvFile(
     size_t width,
     size_t height,
     int frame_repeat_count) {
-  assert(!filenames.empty());
+  RTC_DCHECK(!filenames.empty());
   std::vector<FILE*> files;
   for (const std::string& filename : filenames) {
     FILE* file = fopen(filename.c_str(), "rb");
@@ -296,7 +309,7 @@ FrameGenerator* FrameGenerator::CreateScrollingInputFromYuvFiles(
     size_t target_height,
     int64_t scroll_time_ms,
     int64_t pause_time_ms) {
-  assert(!filenames.empty());
+  RTC_DCHECK(!filenames.empty());
   std::vector<FILE*> files;
   for (const std::string& filename : filenames) {
     FILE* file = fopen(filename.c_str(), "rb");

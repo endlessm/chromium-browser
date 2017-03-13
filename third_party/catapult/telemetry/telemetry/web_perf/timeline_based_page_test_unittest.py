@@ -72,7 +72,8 @@ class TimelineBasedPageTestTest(page_test_test_case.PageTestTestCase):
 
   # This test should eventually work on all platforms, but currently this
   # this metric is flaky on desktop: crbug.com/453131
-  @decorators.Enabled('android')
+  # https://github.com/catapult-project/catapult/issues/3099 (Android)
+  @decorators.Disabled('all')
   def testGPUTimesTimelineBasedMeasurementForSmoke(self):
     ps = self.CreateEmptyPageSet()
     ps.AddStory(TestTimelinebasedMeasurementPage(
@@ -128,19 +129,20 @@ class TimelineBasedPageTestTest(page_test_test_case.PageTestTestCase):
     results = self.RunMeasurement(tbm, ps, self._options)
 
     self.assertEquals(0, len(results.failures))
-    self.assertEquals(1, len(results.value_set))
-    diagnostics = results.value_set[0]['diagnostics']
+    self.assertEquals(2, len(results.value_set))
+    diagnostics = results.value_set[1]['diagnostics']
     self.assertEquals(1, len(diagnostics))
-    iter_info = diagnostics['iteration']
-    self.assertEqual('IterationInfo', iter_info['type'])
-    self.assertEqual('', iter_info['benchmarkName'])
+    telemetry_info = results.value_set[0]
+    self.assertEquals(telemetry_info['guid'], diagnostics['telemetry'])
+    self.assertEqual('TelemetryInfo', telemetry_info['type'])
+    self.assertEqual('', telemetry_info['benchmarkName'])
     self.assertEqual('interaction_enabled_page.html',
-                     iter_info['storyDisplayName'])
-    self.assertEqual({}, iter_info['storyGroupingKeys'])
-    self.assertEqual(0, iter_info['storyRepeatCounter'])
-    self.assertEqual(0, iter_info['storysetRepeatCounter'])
+                     telemetry_info['storyDisplayName'])
+    self.assertEqual({}, telemetry_info['storyGroupingKeys'])
+    self.assertEqual(0, telemetry_info['storyRepeatCounter'])
+    self.assertEqual(0, telemetry_info['storysetRepeatCounter'])
     self.assertEqual('file://interaction_enabled_page.html',
-                     iter_info['storyUrl'])
+                     telemetry_info['storyUrl'])
     v_foo = results.FindAllPageSpecificValuesNamed('foo_avg')
     self.assertEquals(len(v_foo), 1)
     self.assertEquals(v_foo[0].value, 50)

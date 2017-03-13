@@ -8,7 +8,9 @@
 #define CORE_FPDFAPI_EDIT_CPDF_CREATOR_H_
 
 #include <memory>
+#include <vector>
 
+#include "core/fxcrt/cfx_retain_ptr.h"
 #include "core/fxcrt/fx_basic.h"
 
 class CPDF_Array;
@@ -32,9 +34,9 @@ class CPDF_Creator {
   ~CPDF_Creator();
 
   void RemoveSecurity();
-  bool Create(IFX_StreamWrite* pFile, uint32_t flags = 0);
+  bool Create(const CFX_RetainPtr<IFX_WriteStream>& pFile, uint32_t flags = 0);
   int32_t Continue(IFX_Pause* pPause = nullptr);
-  FX_BOOL SetFileVersion(int32_t fileVersion = 17);
+  bool SetFileVersion(int32_t fileVersion = 17);
 
  private:
   friend class CPDF_ObjectStream;
@@ -46,7 +48,7 @@ class CPDF_Creator {
 
   void InitOldObjNumOffsets();
   void InitNewObjNumOffsets();
-  void InitID(FX_BOOL bDefault = TRUE);
+  void InitID(bool bDefault = true);
 
   void AppendNewObjNum(uint32_t objbum);
   int32_t AppendObjectNumberToXRef(uint32_t objnum);
@@ -58,11 +60,11 @@ class CPDF_Creator {
 
   int32_t WriteOldIndirectObject(uint32_t objnum);
   int32_t WriteOldObjs(IFX_Pause* pPause);
-  int32_t WriteNewObjs(FX_BOOL bIncremental, IFX_Pause* pPause);
+  int32_t WriteNewObjs(bool bIncremental, IFX_Pause* pPause);
   int32_t WriteIndirectObj(const CPDF_Object* pObj);
   int32_t WriteDirectObj(uint32_t objnum,
                          const CPDF_Object* pObj,
-                         FX_BOOL bEncrypt = TRUE);
+                         bool bEncrypt = true);
   int32_t WriteIndirectObjectToStream(const CPDF_Object* pObj);
   int32_t WriteIndirectObj(uint32_t objnum, const CPDF_Object* pObj);
   int32_t WriteIndirectObjectToStream(uint32_t objnum,
@@ -75,13 +77,13 @@ class CPDF_Creator {
 
   CPDF_Document* const m_pDocument;
   CPDF_Parser* const m_pParser;
-  FX_BOOL m_bSecurityChanged;
+  bool m_bSecurityChanged;
   CPDF_Dictionary* m_pEncryptDict;
   uint32_t m_dwEncryptObjNum;
-  FX_BOOL m_bEncryptCloned;
+  bool m_bEncryptCloned;
   CPDF_CryptoHandler* m_pCryptoHandler;
   // Whether this owns the crypto handler |m_pCryptoHandler|.
-  FX_BOOL m_bLocalCryptoHandler;
+  bool m_bLocalCryptoHandler;
   CPDF_Object* m_pMetadata;
   std::unique_ptr<CPDF_XRefStream> m_pXRefStream;
   int32_t m_ObjectStreamSize;
@@ -93,8 +95,8 @@ class CPDF_Creator {
   FX_POSITION m_Pos;
   FX_FILESIZE m_XrefStart;
   CFX_FileSizeListArray m_ObjectOffset;
-  CFX_ArrayTemplate<uint32_t> m_NewObjNumArray;
-  std::unique_ptr<CPDF_Array, ReleaseDeleter<CPDF_Array>> m_pIDArray;
+  std::vector<uint32_t> m_NewObjNumArray;  // Sorted, ascending.
+  std::unique_ptr<CPDF_Array> m_pIDArray;
   int32_t m_FileVersion;
 };
 

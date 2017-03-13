@@ -733,6 +733,56 @@ ServiceWorkerDatabase::Status ServiceWorkerDatabase::UpdateLastCheckTime(
   return WriteBatch(&batch);
 }
 
+ServiceWorkerDatabase::Status
+ServiceWorkerDatabase::UpdateNavigationPreloadEnabled(int64_t registration_id,
+                                                      const GURL& origin,
+                                                      bool enable) {
+  DCHECK(sequence_checker_.CalledOnValidSequence());
+  Status status = LazyOpen(false);
+  if (IsNewOrNonexistentDatabase(status))
+    return STATUS_ERROR_NOT_FOUND;
+  if (status != STATUS_OK)
+    return status;
+  if (!origin.is_valid())
+    return STATUS_ERROR_FAILED;
+
+  RegistrationData registration;
+  status = ReadRegistrationData(registration_id, origin, &registration);
+  if (status != STATUS_OK)
+    return status;
+
+  registration.navigation_preload_state.enabled = enable;
+
+  leveldb::WriteBatch batch;
+  WriteRegistrationDataInBatch(registration, &batch);
+  return WriteBatch(&batch);
+}
+
+ServiceWorkerDatabase::Status
+ServiceWorkerDatabase::UpdateNavigationPreloadHeader(int64_t registration_id,
+                                                     const GURL& origin,
+                                                     const std::string& value) {
+  DCHECK(sequence_checker_.CalledOnValidSequence());
+  Status status = LazyOpen(false);
+  if (IsNewOrNonexistentDatabase(status))
+    return STATUS_ERROR_NOT_FOUND;
+  if (status != STATUS_OK)
+    return status;
+  if (!origin.is_valid())
+    return STATUS_ERROR_FAILED;
+
+  RegistrationData registration;
+  status = ReadRegistrationData(registration_id, origin, &registration);
+  if (status != STATUS_OK)
+    return status;
+
+  registration.navigation_preload_state.header = value;
+
+  leveldb::WriteBatch batch;
+  WriteRegistrationDataInBatch(registration, &batch);
+  return WriteBatch(&batch);
+}
+
 ServiceWorkerDatabase::Status ServiceWorkerDatabase::DeleteRegistration(
     int64_t registration_id,
     const GURL& origin,
@@ -1223,6 +1273,23 @@ ServiceWorkerDatabase::Status ServiceWorkerDatabase::ParseRegistrationData(
     }
     out->foreign_fetch_origins.push_back(parsed_origin);
   }
+  if (data.has_origin_trial_tokens()) {
+    const ServiceWorkerOriginTrialInfo& info = data.origin_trial_tokens();
+    TrialTokenValidator::FeatureToTokensMap origin_trial_tokens;
+    for (int i = 0; i < info.features_size(); ++i) {
+      const auto& feature = info.features(i);
+      for (int j = 0; j < feature.tokens_size(); ++j)
+        origin_trial_tokens[feature.name()].push_back(feature.tokens(j));
+    }
+    out->origin_trial_tokens = origin_trial_tokens;
+  }
+  if (data.has_navigation_preload_state()) {
+    const ServiceWorkerNavigationPreloadState& state =
+        data.navigation_preload_state();
+    out->navigation_preload_state.enabled = state.enabled();
+    if (state.has_header())
+      out->navigation_preload_state.header = state.header();
+  }
 
   return ServiceWorkerDatabase::STATUS_OK;
 }
@@ -1256,6 +1323,19 @@ void ServiceWorkerDatabase::WriteRegistrationDataInBatch(
   }
   for (const url::Origin& origin : registration.foreign_fetch_origins)
     data.add_foreign_fetch_origin(origin.Serialize());
+  if (registration.origin_trial_tokens) {
+    ServiceWorkerOriginTrialInfo* info = data.mutable_origin_trial_tokens();
+    for (const auto& feature : *registration.origin_trial_tokens) {
+      ServiceWorkerOriginTrialFeature* feature_out = info->add_features();
+      feature_out->set_name(feature.first);
+      for (const auto& token : feature.second)
+        feature_out->add_tokens(token);
+    }
+  }
+  ServiceWorkerNavigationPreloadState* state =
+      data.mutable_navigation_preload_state();
+  state->set_enabled(registration.navigation_preload_state.enabled);
+  state->set_header(registration.navigation_preload_state.header);
 
   std::string value;
   bool success = data.SerializeToString(&value);

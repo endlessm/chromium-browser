@@ -9,32 +9,18 @@
 #include <string>
 #include <utility>
 
-#if defined(OS_ANDROID)
-#include <jni.h>
-#endif
-
+#include "base/bind.h"
 #include "base/callback.h"
-#include "base/command_line.h"
 #include "base/feature_list.h"
-#include "base/metrics/field_trial.h"
-#include "base/metrics/histogram.h"
-#include "base/metrics/histogram_macros.h"
-#include "base/metrics/sparse_histogram.h"
-#include "base/strings/string_number_conversions.h"
-#include "base/strings/string_util.h"
-#include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/history/core/browser/top_sites.h"
 #include "components/ntp_tiles/constants.h"
+#include "components/ntp_tiles/field_trial.h"
+#include "components/ntp_tiles/icon_cacher.h"
 #include "components/ntp_tiles/pref_names.h"
 #include "components/ntp_tiles/switches.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/prefs/pref_service.h"
-
-#if defined(OS_ANDROID)
-#include "base/android/jni_android.h"
-#include "jni/MostVisitedSites_jni.h"
-#endif
 
 using history::TopSites;
 using suggestions::ChromeSuggestion;
@@ -45,119 +31,40 @@ namespace ntp_tiles {
 
 namespace {
 
-// Identifiers for the various tile sources.
-const char kHistogramClientName[] = "client";
-const char kHistogramServerName[] = "server";
-const char kHistogramPopularName[] = "popular";
-const char kHistogramWhitelistName[] = "whitelist";
-
 const base::Feature kDisplaySuggestionsServiceTiles{
     "DisplaySuggestionsServiceTiles", base::FEATURE_ENABLED_BY_DEFAULT};
-
-// Log an event for a given |histogram| at a given element |position|. This
-// routine exists because regular histogram macros are cached thus can't be used
-// if the name of the histogram will change at a given call site.
-void LogHistogramEvent(const std::string& histogram,
-                       int position,
-                       int num_sites) {
-  base::HistogramBase* counter = base::LinearHistogram::FactoryGet(
-      histogram,
-      1,
-      num_sites,
-      num_sites + 1,
-      base::Histogram::kUmaTargetedHistogramFlag);
-  if (counter)
-    counter->Add(position);
-}
-
-bool ShouldShowPopularSites() {
-  // Note: It's important to query the field trial state first, to ensure that
-  // UMA reports the correct group.
-  const std::string group_name =
-      base::FieldTrialList::FindFullName(kPopularSitesFieldTrialName);
-
-  base::CommandLine* cmd_line = base::CommandLine::ForCurrentProcess();
-  if (cmd_line->HasSwitch(switches::kDisableNTPPopularSites))
-    return false;
-
-  if (cmd_line->HasSwitch(switches::kEnableNTPPopularSites))
-    return true;
-
-#if defined(OS_ANDROID)
-  if (Java_MostVisitedSites_isPopularSitesForceEnabled(
-          base::android::AttachCurrentThread())) {
-    return true;
-  }
-#endif
-
-  return base::StartsWith(group_name, "Enabled",
-                          base::CompareCase::INSENSITIVE_ASCII);
-}
 
 // Determine whether we need any tiles from PopularSites to fill up a grid of
 // |num_tiles| tiles.
 bool NeedPopularSites(const PrefService* prefs, int num_tiles) {
-  if (num_tiles <= prefs->GetInteger(prefs::kNumPersonalTiles))
-    return false;
-
-  // TODO(treib): Remove after M55.
-  const base::ListValue* source_list =
-      prefs->GetList(prefs::kDeprecatedNTPTilesIsPersonal);
-  // If there aren't enough previous tiles to fill the grid, we need tiles from
-  // PopularSites.
-  if (static_cast<int>(source_list->GetSize()) < num_tiles)
-    return true;
-  // Otherwise, if any of the previous tiles are not personal, then also
-  // get tiles from PopularSites.
-  for (int i = 0; i < num_tiles; ++i) {
-    bool is_personal = false;
-    if (source_list->GetBoolean(i, &is_personal) && !is_personal)
-      return true;
-  }
-  // The whole grid is already filled with personal tiles, no point in bothering
-  // with popular ones.
-  return false;
+  return prefs->GetInteger(prefs::kNumPersonalTiles) < num_tiles;
 }
 
 bool AreURLsEquivalent(const GURL& url1, const GURL& url2) {
-  return url1.host() == url2.host() && url1.path() == url2.path();
-}
-
-std::string GetSourceHistogramName(NTPTileSource source) {
-  switch (source) {
-    case NTPTileSource::TOP_SITES:
-      return kHistogramClientName;
-    case NTPTileSource::POPULAR:
-      return kHistogramPopularName;
-    case NTPTileSource::WHITELIST:
-      return kHistogramWhitelistName;
-    case NTPTileSource::SUGGESTIONS_SERVICE:
-      return kHistogramServerName;
-  }
-  NOTREACHED();
-  return std::string();
+  return url1.host_piece() == url2.host_piece() &&
+         url1.path_piece() == url2.path_piece();
 }
 
 }  // namespace
 
-MostVisitedSites::MostVisitedSites(PrefService* prefs,
-                                   scoped_refptr<history::TopSites> top_sites,
-                                   SuggestionsService* suggestions,
-                                   std::unique_ptr<PopularSites> popular_sites,
-                                   MostVisitedSitesSupervisor* supervisor)
+MostVisitedSites::MostVisitedSites(
+    PrefService* prefs,
+    scoped_refptr<history::TopSites> top_sites,
+    SuggestionsService* suggestions,
+    std::unique_ptr<PopularSites> popular_sites,
+    std::unique_ptr<IconCacher> icon_cacher,
+    std::unique_ptr<MostVisitedSitesSupervisor> supervisor)
     : prefs_(prefs),
       top_sites_(top_sites),
       suggestions_service_(suggestions),
       popular_sites_(std::move(popular_sites)),
-      supervisor_(supervisor),
+      icon_cacher_(std::move(icon_cacher)),
+      supervisor_(std::move(supervisor)),
       observer_(nullptr),
       num_sites_(0),
-      waiting_for_most_visited_sites_(true),
-      waiting_for_popular_sites_(true),
-      recorded_uma_(false),
       top_sites_observer_(this),
-      mv_source_(NTPTileSource::SUGGESTIONS_SERVICE),
-      weak_ptr_factory_(this) {
+      mv_source_(NTPTileSource::TOP_SITES),
+      top_sites_weak_ptr_factory_(this) {
   DCHECK(prefs_);
   // top_sites_ can be null in tests.
   // TODO(sfiera): have iOS use a dummy TopSites in its tests.
@@ -177,13 +84,13 @@ void MostVisitedSites::SetMostVisitedURLsObserver(Observer* observer,
   observer_ = observer;
   num_sites_ = num_sites;
 
-  if (popular_sites_ && ShouldShowPopularSites() &&
-      NeedPopularSites(prefs_, num_sites_)) {
-    popular_sites_->StartFetch(
-        false, base::Bind(&MostVisitedSites::OnPopularSitesAvailable,
+  // The order for this condition is important, ShouldShowPopularSites() should
+  // always be called last to keep metrics as relevant as possible.
+  if (popular_sites_ && NeedPopularSites(prefs_, num_sites_) &&
+      ShouldShowPopularSites()) {
+    popular_sites_->MaybeStartFetch(
+        false, base::Bind(&MostVisitedSites::OnPopularSitesDownloaded,
                           base::Unretained(this)));
-  } else {
-    waiting_for_popular_sites_ = false;
   }
 
   if (top_sites_) {
@@ -204,6 +111,10 @@ void MostVisitedSites::SetMostVisitedURLsObserver(Observer* observer,
   // SuggestionsService's cache or, if that is empty, sites from TopSites.
   BuildCurrentTiles();
   // Also start a request for fresh suggestions.
+  Refresh();
+}
+
+void MostVisitedSites::Refresh() {
   suggestions_service_->FetchSuggestionsData();
 }
 
@@ -226,46 +137,16 @@ void MostVisitedSites::AddOrRemoveBlacklistedUrl(const GURL& url,
   }
 }
 
-void MostVisitedSites::RecordTileTypeMetrics(
-    const std::vector<MostVisitedTileType>& tile_types,
-    const std::vector<NTPTileSource>& sources) {
-  int counts_per_type[NUM_TILE_TYPES] = {0};
-  for (size_t i = 0; i < tile_types.size(); ++i) {
-    MostVisitedTileType tile_type = tile_types[i];
-    ++counts_per_type[tile_type];
-
-    UMA_HISTOGRAM_ENUMERATION("NewTabPage.TileType", tile_type, NUM_TILE_TYPES);
-
-    std::string histogram = base::StringPrintf(
-        "NewTabPage.TileType.%s",
-        GetSourceHistogramName(sources[i]).c_str());
-    LogHistogramEvent(histogram, tile_type, NUM_TILE_TYPES);
+void MostVisitedSites::ClearBlacklistedUrls() {
+  if (top_sites_) {
+    // Always update the blacklist in the local TopSites.
+    top_sites_->ClearBlacklistedURLs();
   }
 
-  UMA_HISTOGRAM_SPARSE_SLOWLY("NewTabPage.IconsReal",
-                              counts_per_type[ICON_REAL]);
-  UMA_HISTOGRAM_SPARSE_SLOWLY("NewTabPage.IconsColor",
-                              counts_per_type[ICON_COLOR]);
-  UMA_HISTOGRAM_SPARSE_SLOWLY("NewTabPage.IconsGray",
-                              counts_per_type[ICON_DEFAULT]);
-}
-
-void MostVisitedSites::RecordOpenedMostVisitedItem(
-    int index,
-    MostVisitedTileType tile_type,
-    NTPTileSource source) {
-  UMA_HISTOGRAM_ENUMERATION("NewTabPage.MostVisited", index, num_sites_);
-
-  std::string histogram = base::StringPrintf(
-      "NewTabPage.MostVisited.%s", GetSourceHistogramName(source).c_str());
-  LogHistogramEvent(histogram, index, num_sites_);
-
-  UMA_HISTOGRAM_ENUMERATION(
-      "NewTabPage.TileTypeClicked", tile_type, NUM_TILE_TYPES);
-
-  histogram = base::StringPrintf("NewTabPage.TileTypeClicked.%s",
-                                 GetSourceHistogramName(source).c_str());
-  LogHistogramEvent(histogram, tile_type, NUM_TILE_TYPES);
+  // Only update the server-side blacklist if it's active.
+  if (mv_source_ == NTPTileSource::SUGGESTIONS_SERVICE) {
+    suggestions_service_->ClearBlacklist();
+  }
 }
 
 void MostVisitedSites::OnBlockedSitesChanged() {
@@ -276,24 +157,24 @@ void MostVisitedSites::OnBlockedSitesChanged() {
 void MostVisitedSites::RegisterProfilePrefs(
     user_prefs::PrefRegistrySyncable* registry) {
   registry->RegisterIntegerPref(prefs::kNumPersonalTiles, 0);
-  // TODO(treib): Remove after M55.
-  registry->RegisterListPref(prefs::kDeprecatedNTPTilesURL);
-  registry->RegisterListPref(prefs::kDeprecatedNTPTilesIsPersonal);
 }
 
 void MostVisitedSites::BuildCurrentTiles() {
   // Get the current suggestions from cache. If the cache is empty, this will
   // fall back to TopSites.
   OnSuggestionsProfileAvailable(
-      suggestions_service_->GetSuggestionsDataFromCache());
+      suggestions_service_->GetSuggestionsDataFromCache().value_or(
+          SuggestionsProfile()));
 }
 
 void MostVisitedSites::InitiateTopSitesQuery() {
   if (!top_sites_)
     return;
+  if (top_sites_weak_ptr_factory_.HasWeakPtrs())
+    return;  // Ongoing query.
   top_sites_->GetMostVisitedURLs(
       base::Bind(&MostVisitedSites::OnMostVisitedURLsAvailable,
-                 weak_ptr_factory_.GetWeakPtr()),
+                 top_sites_weak_ptr_factory_.GetWeakPtr()),
       false);
 }
 
@@ -309,6 +190,12 @@ base::FilePath MostVisitedSites::GetWhitelistLargeIconPath(const GURL& url) {
 
 void MostVisitedSites::OnMostVisitedURLsAvailable(
     const history::MostVisitedURLList& visited_list) {
+  // Ignore the event if tiles provided by the Suggestions Service, which take
+  // precedence.
+  if (mv_source_ == NTPTileSource::SUGGESTIONS_SERVICE) {
+    return;
+  }
+
   NTPTilesVector tiles;
   size_t num_tiles =
       std::min(visited_list.size(), static_cast<size_t>(num_sites_));
@@ -330,7 +217,6 @@ void MostVisitedSites::OnMostVisitedURLsAvailable(
     tiles.push_back(std::move(tile));
   }
 
-  waiting_for_most_visited_sites_ = false;
   mv_source_ = NTPTileSource::TOP_SITES;
   SaveNewTiles(std::move(tiles));
   NotifyMostVisitedURLsObserver();
@@ -342,6 +228,7 @@ void MostVisitedSites::OnSuggestionsProfileAvailable(
   // With no server suggestions, fall back to local TopSites.
   if (num_tiles == 0 ||
       !base::FeatureList::IsEnabled(kDisplaySuggestionsServiceTiles)) {
+    mv_source_ = NTPTileSource::TOP_SITES;
     InitiateTopSitesQuery();
     return;
   }
@@ -360,11 +247,12 @@ void MostVisitedSites::OnSuggestionsProfileAvailable(
     tile.url = url;
     tile.source = NTPTileSource::SUGGESTIONS_SERVICE;
     tile.whitelist_icon_path = GetWhitelistLargeIconPath(url);
+    tile.thumbnail_url = GURL(suggestion_pb.thumbnail());
+    tile.favicon_url = GURL(suggestion_pb.favicon_url());
 
     tiles.push_back(std::move(tile));
   }
 
-  waiting_for_most_visited_sites_ = false;
   mv_source_ = NTPTileSource::SUGGESTIONS_SERVICE;
   SaveNewTiles(std::move(tiles));
   NotifyMostVisitedURLsObserver();
@@ -450,6 +338,9 @@ NTPTilesVector MostVisitedSites::CreatePopularSitesTiles(
       tile.source = NTPTileSource::POPULAR;
 
       popular_sites_tiles.push_back(std::move(tile));
+      icon_cacher_->StartFetch(
+          popular_site, base::Bind(&MostVisitedSites::OnIconMadeAvailable,
+                                   base::Unretained(this), popular_site.url));
       if (popular_sites_tiles.size() >= num_popular_sites_tiles)
         break;
     }
@@ -478,9 +369,6 @@ void MostVisitedSites::SaveNewTiles(NTPTilesVector personal_tiles) {
       num_personal_tiles++;
   }
   prefs_->SetInteger(prefs::kNumPersonalTiles, num_personal_tiles);
-  // TODO(treib): Remove after M55.
-  prefs_->ClearPref(prefs::kDeprecatedNTPTilesIsPersonal);
-  prefs_->ClearPref(prefs::kDeprecatedNTPTilesURL);
 }
 
 // static
@@ -498,47 +386,26 @@ NTPTilesVector MostVisitedSites::MergeTiles(NTPTilesVector personal_tiles,
 }
 
 void MostVisitedSites::NotifyMostVisitedURLsObserver() {
-  if (!waiting_for_most_visited_sites_ && !waiting_for_popular_sites_ &&
-      !recorded_uma_) {
-    RecordImpressionUMAMetrics();
-    recorded_uma_ = true;
-  }
-
   if (!observer_)
     return;
 
   observer_->OnMostVisitedURLsAvailable(current_tiles_);
 }
 
-void MostVisitedSites::OnPopularSitesAvailable(bool success) {
-  waiting_for_popular_sites_ = false;
-
+void MostVisitedSites::OnPopularSitesDownloaded(bool success) {
   if (!success) {
     LOG(WARNING) << "Download of popular sites failed";
     return;
   }
 
-  // Pass the popular sites to the observer. This will cause it to fetch any
-  // missing icons, but will *not* cause it to display the popular sites.
-  observer_->OnPopularURLsAvailable(popular_sites_->sites());
-
   // Re-build the tile list. Once done, this will notify the observer.
   BuildCurrentTiles();
 }
 
-void MostVisitedSites::RecordImpressionUMAMetrics() {
-  UMA_HISTOGRAM_SPARSE_SLOWLY("NewTabPage.NumberOfTiles",
-                              current_tiles_.size());
-
-  for (size_t i = 0; i < current_tiles_.size(); i++) {
-    UMA_HISTOGRAM_ENUMERATION(
-        "NewTabPage.SuggestionsImpression", static_cast<int>(i), num_sites_);
-
-    std::string histogram = base::StringPrintf(
-        "NewTabPage.SuggestionsImpression.%s",
-        GetSourceHistogramName(current_tiles_[i].source).c_str());
-    LogHistogramEvent(histogram, static_cast<int>(i), num_sites_);
-  }
+void MostVisitedSites::OnIconMadeAvailable(const GURL& site_url,
+                                           bool newly_available) {
+  if (newly_available)
+    observer_->OnIconMadeAvailable(site_url);
 }
 
 void MostVisitedSites::TopSitesLoaded(TopSites* top_sites) {}

@@ -40,7 +40,7 @@
 #include "third_party/skia/include/effects/SkBlurMaskFilter.h"
 #include "third_party/skia/include/effects/SkLayerDrawLooper.h"
 #include "third_party/skia/include/pathops/SkPathOps.h"
-#include "ui/accessibility/ax_view_state.h"
+#include "ui/accessibility/ax_node_data.h"
 #include "ui/base/default_theme_provider.h"
 #include "ui/base/dragdrop/drag_drop_types.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -137,13 +137,13 @@ sk_sp<SkDrawLooper> CreateShadowDrawLooper(SkColor color) {
   SkLayerDrawLooper::LayerInfo layer_info;
   layer_info.fPaintBits |= SkLayerDrawLooper::kMaskFilter_Bit;
   layer_info.fPaintBits |= SkLayerDrawLooper::kColorFilter_Bit;
-  layer_info.fColorMode = SkXfermode::kDst_Mode;
+  layer_info.fColorMode = SkBlendMode::kDst;
   layer_info.fOffset.set(0, 1);
   SkPaint* layer_paint = looper_builder.addLayer(layer_info);
   layer_paint->setMaskFilter(SkBlurMaskFilter::Make(
       kNormal_SkBlurStyle, 0.5, SkBlurMaskFilter::kHighQuality_BlurFlag));
   layer_paint->setColorFilter(
-      SkColorFilter::MakeModeFilter(color, SkXfermode::kSrcIn_Mode));
+      SkColorFilter::MakeModeFilter(color, SkBlendMode::kSrcIn));
 
   return looper_builder.detach();
 }
@@ -253,7 +253,7 @@ const TabSizeInfo& GetTabSizeInfo() {
   tab_size_info->min_active_width = Tab::GetMinimumActiveSize().width();
   tab_size_info->min_inactive_width = Tab::GetMinimumInactiveSize().width();
   tab_size_info->max_size = Tab::GetStandardSize();
-  tab_size_info->tab_overlap = GetLayoutConstant(TABSTRIP_TAB_OVERLAP);
+  tab_size_info->tab_overlap = Tab::kOverlap;
   tab_size_info->pinned_to_normal_offset = kPinnedToNonPinnedOffset;
   return *tab_size_info;
 }
@@ -322,6 +322,7 @@ NewTabButton::NewTabButton(TabStrip* tab_strip, views::ButtonListener* listener)
     : views::ImageButton(listener),
       tab_strip_(tab_strip),
       destroyed_(NULL) {
+  set_animate_on_state_change(true);
 #if defined(OS_LINUX) && !defined(OS_CHROMEOS)
   set_triggerable_event_flags(triggerable_event_flags() |
                               ui::EF_MIDDLE_MOUSE_BUTTON);
@@ -397,7 +398,7 @@ void NewTabButton::OnPaint(gfx::Canvas* canvas) {
     canvas->ClipPath(stroke, true);
   Op(stroke, fill, kDifference_SkPathOp, &stroke);
   if (!pressed)
-    canvas->sk_canvas()->clipPath(fill, SkRegion::kDifference_Op, true);
+    canvas->sk_canvas()->clipPath(fill, SkClipOp::kDifference, true);
   // Now draw the stroke and shadow; the stroke will always be visible, while
   // the shadow will be affected by the clip we set above.
   SkPaint paint;
@@ -592,16 +593,15 @@ TabStrip::TabStrip(TabStripController* controller)
       stacked_layout_(false),
       adjust_layout_(false),
       reset_to_shrink_on_exit_(false),
-      mouse_move_count_(0),
-      immersive_style_(false) {
+      mouse_move_count_(0) {
   Init();
   SetEventTargeter(
       std::unique_ptr<views::ViewTargeter>(new views::ViewTargeter(this)));
 }
 
 TabStrip::~TabStrip() {
-  FOR_EACH_OBSERVER(TabStripObserver, observers_,
-                    TabStripDeleted(this));
+  for (TabStripObserver& observer : observers_)
+    observer.TabStripDeleted(this);
 
   // The animations may reference the tabs. Shut down the animation before we
   // delete the tabs.
@@ -699,8 +699,8 @@ void TabStrip::AddTabAt(int model_index,
 
   SwapLayoutIfNecessary();
 
-  FOR_EACH_OBSERVER(TabStripObserver, observers_,
-                    TabStripAddedTabAt(this, model_index));
+  for (TabStripObserver& observer : observers_)
+    observer.TabStripAddedTabAt(this, model_index);
 
   // Stop dragging when a new tab is added and dragging a window. Doing
   // otherwise results in a confusing state if the user attempts to reattach. We
@@ -740,8 +740,8 @@ void TabStrip::MoveTab(int from_model_index,
   }
   SwapLayoutIfNecessary();
 
-  FOR_EACH_OBSERVER(TabStripObserver, observers_,
-                    TabStripMovedTab(this, from_model_index, to_model_index));
+  for (TabStripObserver& observer : observers_)
+    observer.TabStripMovedTab(this, from_model_index, to_model_index);
 }
 
 void TabStrip::RemoveTabAt(content::WebContents* contents, int model_index) {
@@ -762,8 +762,8 @@ void TabStrip::RemoveTabAt(content::WebContents* contents, int model_index) {
   }
   SwapLayoutIfNecessary();
 
-  FOR_EACH_OBSERVER(TabStripObserver, observers_,
-                    TabStripRemovedTabAt(this, model_index));
+  for (TabStripObserver& observer : observers_)
+    observer.TabStripRemovedTabAt(this, model_index);
 
   // Stop dragging when a new tab is removed and dragging a window. Doing
   // otherwise results in a confusing state if the user attempts to reattach. We
@@ -871,7 +871,7 @@ void TabStrip::PrepareForCloseAt(int model_index, CloseTabSource source) {
     Tab* last_tab = tab_at(model_count - 1);
     Tab* tab_being_removed = tab_at(model_index);
     available_width_for_tabs_ = last_tab->x() + last_tab->width() -
-        tab_being_removed->width() + GetLayoutConstant(TABSTRIP_TAB_OVERLAP);
+                                tab_being_removed->width() + Tab::kOverlap;
     if (model_index == 0 && tab_being_removed->data().pinned &&
         !tab_at(1)->data().pinned) {
       available_width_for_tabs_ -= kPinnedToNonPinnedOffset;
@@ -1017,12 +1017,6 @@ void TabStrip::SetBackgroundOffset(const gfx::Point& offset) {
   newtab_button_->set_background_offset(offset);
 }
 
-void TabStrip::SetImmersiveStyle(bool enable) {
-  if (immersive_style_ == enable)
-    return;
-  immersive_style_ = enable;
-}
-
 SkAlpha TabStrip::GetInactiveAlpha(bool for_new_tab_button) const {
 #if defined(USE_ASH)
   static const SkAlpha kInactiveTabAlphaAsh = 230;
@@ -1164,10 +1158,6 @@ void TabStrip::MaybeStartDrag(
     return;
   }
 
-  // Do not do any dragging of tabs when using the super short immersive style.
-  if (IsImmersiveStyle())
-    return;
-
   int model_index = GetModelIndexOfTab(tab);
   if (!IsValidModelIndex(model_index)) {
     CHECK(false);
@@ -1296,8 +1286,7 @@ bool TabStrip::ShouldPaintTab(
     if (current_x < previous_x)
       return true;  // Can happen during dragging.
 
-    if (previous_bounds.right() - GetLayoutConstant(TABSTRIP_TAB_OVERLAP) !=
-        current_x) {
+    if (previous_bounds.right() - Tab::kOverlap != current_x) {
       *clip = border_callback.Run(tab_at(index - 1)->size());
       clip->offset(SkIntToScalar(previous_x - current_x), 0);
     }
@@ -1308,20 +1297,24 @@ bool TabStrip::ShouldPaintTab(
 bool TabStrip::CanPaintThrobberToLayer() const {
   // Disable layer-painting of throbbers if dragging, if any tab animation is in
   // progress, or if stacked tabs are enabled. Also disable in fullscreen: when
-  // "immersive" the tab strip could be sliding in or out while transitioning to
-  // or away from |immersive_style_| and, for other modes, there's no tab strip.
+  // "immersive" the tab strip could be sliding in or out; for other modes,
+  // there's no tab strip.
   const bool dragging = drag_controller_ && drag_controller_->started_drag();
   const views::Widget* widget = GetWidget();
   return widget && !touch_layout_ && !dragging && !IsAnimating() &&
          !widget->IsFullscreen();
 }
 
-bool TabStrip::IsImmersiveStyle() const {
-  return immersive_style_;
-}
-
 SkColor TabStrip::GetToolbarTopSeparatorColor() const {
   return controller_->GetToolbarTopSeparatorColor();
+}
+
+// Returns the accessible tab name for the tab.
+base::string16 TabStrip::GetAccessibleTabName(const Tab* tab) const {
+  int model_index = GetModelIndexOfTab(tab);
+  if (IsValidModelIndex(model_index))
+    return controller_->GetAccessibleTabName(tab);
+  return base::string16();
 }
 
 int TabStrip::GetBackgroundResourceId(bool* custom_image) const {
@@ -1349,9 +1342,9 @@ int TabStrip::GetBackgroundResourceId(bool* custom_image) const {
 }
 
 void TabStrip::UpdateTabAccessibilityState(const Tab* tab,
-                                           ui::AXViewState* state) {
-  state->count = tab_count();
-  state->index = GetModelIndexOfTab(tab);
+                                           ui::AXNodeData* node_data) {
+  node_data->AddIntAttribute(ui::AX_ATTR_SET_SIZE, tab_count());
+  node_data->AddIntAttribute(ui::AX_ATTR_POS_IN_SET, GetModelIndexOfTab(tab));
 }
 
 void TabStrip::MouseMovedOutOfHost() {
@@ -1467,7 +1460,7 @@ void TabStrip::PaintChildren(const ui::PaintContext& context) {
   if (active_tab) {
     canvas->sk_canvas()->clipRect(
         gfx::RectToSkRect(active_tab->GetMirroredBounds()),
-        SkRegion::kDifference_Op);
+        SkClipOp::kDifference);
   }
   BrowserView::Paint1pxHorizontalLine(canvas, GetToolbarTopSeparatorColor(),
                                       GetLocalBounds(), true);
@@ -1496,20 +1489,18 @@ gfx::Size TabStrip::GetPreferredSize() const {
       needed_tab_width += kPinnedToNonPinnedOffset + min_selected_width +
                           ((remaining_tab_count - 1) * min_unselected_width);
     }
-    const int tab_overlap = GetLayoutConstant(TABSTRIP_TAB_OVERLAP);
     if (tab_count() > 1)
-      needed_tab_width -= (tab_count() - 1) * tab_overlap;
+      needed_tab_width -= (tab_count() - 1) * Tab::kOverlap;
 
     // Don't let the tabstrip shrink smaller than is necessary to show one tab,
     // and don't force it to be larger than is necessary to show 20 tabs.
     const int largest_min_tab_width =
-        min_selected_width + 19 * (min_unselected_width - tab_overlap);
+        min_selected_width + 19 * (min_unselected_width - Tab::kOverlap);
     needed_tab_width = std::min(
         std::max(needed_tab_width, min_selected_width), largest_min_tab_width);
   }
   return gfx::Size(needed_tab_width + GetNewTabButtonWidth(),
-                   immersive_style_ ? Tab::GetImmersiveHeight()
-                                    : Tab::GetMinimumInactiveSize().height());
+                   Tab::GetMinimumInactiveSize().height());
 }
 
 void TabStrip::OnDragEntered(const DropTargetEvent& event) {
@@ -1577,8 +1568,8 @@ int TabStrip::OnPerformDrop(const DropTargetEvent& event) {
   return GetDropEffect(event);
 }
 
-void TabStrip::GetAccessibleState(ui::AXViewState* state) {
-  state->role = ui::AX_ROLE_TAB_LIST;
+void TabStrip::GetAccessibleNodeData(ui::AXNodeData* node_data) {
+  node_data->role = ui::AX_ROLE_TAB_LIST;
 }
 
 views::View* TabStrip::GetTooltipHandlerForPoint(const gfx::Point& point) {
@@ -1607,11 +1598,6 @@ views::View* TabStrip::GetTooltipHandlerForPoint(const gfx::Point& point) {
       return ConvertPointToViewAndGetTooltipHandler(this, tab, point);
   }
   return this;
-}
-
-// static
-int TabStrip::GetImmersiveHeight() {
-  return Tab::GetImmersiveHeight();
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -1658,9 +1644,9 @@ void TabStrip::StartInsertTabAnimation(int model_index) {
                    ideal_bounds(model_index).height());
   } else {
     Tab* last_tab = tab_at(model_index - 1);
-    tab->SetBounds(
-        last_tab->bounds().right() - GetLayoutConstant(TABSTRIP_TAB_OVERLAP),
-        ideal_bounds(model_index).y(), 0, ideal_bounds(model_index).height());
+    tab->SetBounds(last_tab->bounds().right() - Tab::kOverlap,
+                   ideal_bounds(model_index).y(), 0,
+                   ideal_bounds(model_index).height());
   }
 
   AnimateToIdealBounds();
@@ -1908,7 +1894,7 @@ void TabStrip::CalculateBoundsForDraggedTabs(const Tabs& tabs,
     gfx::Rect new_bounds = tab->bounds();
     new_bounds.set_origin(gfx::Point(x, 0));
     bounds->push_back(new_bounds);
-    x += tab->width() - GetLayoutConstant(TABSTRIP_TAB_OVERLAP);
+    x += tab->width() - Tab::kOverlap;
   }
 }
 
@@ -1921,7 +1907,7 @@ int TabStrip::GetSizeNeededForTabs(const Tabs& tabs) {
       width += kPinnedToNonPinnedOffset;
   }
   if (!tabs.empty())
-    width -= GetLayoutConstant(TABSTRIP_TAB_OVERLAP) * (tabs.size() - 1);
+    width -= Tab::kOverlap * (tabs.size() - 1);
   return width;
 }
 
@@ -2255,13 +2241,12 @@ gfx::Rect TabStrip::GetDropBounds(int drop_index,
                                   bool* is_beneath) {
   DCHECK_NE(drop_index, -1);
   int center_x;
-  const int tab_overlap = GetLayoutConstant(TABSTRIP_TAB_OVERLAP);
   if (drop_index < tab_count()) {
     Tab* tab = tab_at(drop_index);
-    center_x = tab->x() + ((drop_before ? tab_overlap : tab->width()) / 2);
+    center_x = tab->x() + ((drop_before ? Tab::kOverlap : tab->width()) / 2);
   } else {
     Tab* last_tab = tab_at(drop_index - 1);
-    center_x = last_tab->x() + last_tab->width() - (tab_overlap / 2);
+    center_x = last_tab->x() + last_tab->width() - (Tab::kOverlap / 2);
   }
 
   // Mirror the center point if necessary.
@@ -2427,8 +2412,10 @@ void TabStrip::GenerateIdealBounds() {
                          GetLayoutConstant(TABSTRIP_NEW_TAB_BUTTON_OVERLAP));
   const int old_max_x = newtab_button_bounds_.right();
   newtab_button_bounds_.set_origin(gfx::Point(new_tab_x, 0));
-  if (newtab_button_bounds_.right() != old_max_x)
-    FOR_EACH_OBSERVER(TabStripObserver, observers_, TabStripMaxXChanged(this));
+  if (newtab_button_bounds_.right() != old_max_x) {
+    for (TabStripObserver& observer : observers_)
+      observer.TabStripMaxXChanged(this);
+  }
 }
 
 int TabStrip::GenerateIdealBoundsForPinnedTabs(int* first_non_pinned_index) {
@@ -2447,8 +2434,7 @@ int TabStrip::GenerateIdealBoundsForPinnedTabs(int* first_non_pinned_index) {
     tabs_.set_ideal_bounds(i, tab_bounds[i]);
   return (num_pinned_tabs < tab_count())
              ? tab_bounds[num_pinned_tabs].x()
-             : tab_bounds[num_pinned_tabs - 1].right() -
-                   GetLayoutConstant(TABSTRIP_TAB_OVERLAP);
+             : tab_bounds[num_pinned_tabs - 1].right() - Tab::kOverlap;
 }
 
 int TabStrip::GetTabAreaWidth() const {
@@ -2475,7 +2461,7 @@ void TabStrip::StartMouseInitiatedRemoveTabAnimation(int model_index) {
   // The user initiated the close. We want to persist the bounds of all the
   // existing tabs, so we manually shift ideal_bounds then animate.
   Tab* tab_closing = tab_at(model_index);
-  int delta = tab_closing->width() - GetLayoutConstant(TABSTRIP_TAB_OVERLAP);
+  int delta = tab_closing->width() - Tab::kOverlap;
   // If the tab being closed is a pinned tab next to a non-pinned tab, be sure
   // to add the extra padding.
   DCHECK_LT(model_index, tab_count() - 1);
@@ -2528,8 +2514,7 @@ int TabStrip::GetStartXForNormalTabs() const {
   int pinned_tab_count = GetPinnedTabCount();
   if (pinned_tab_count == 0)
     return 0;
-  const int overlap = GetLayoutConstant(TABSTRIP_TAB_OVERLAP);
-  return pinned_tab_count * (Tab::GetPinnedWidth() - overlap) +
+  return pinned_tab_count * (Tab::GetPinnedWidth() - Tab::kOverlap) +
          kPinnedToNonPinnedOffset;
 }
 
@@ -2595,14 +2580,9 @@ void TabStrip::SwapLayoutIfNecessary() {
     return;
 
   if (needs_touch) {
-    gfx::Size tab_size(Tab::GetMinimumActiveSize());
-    tab_size.set_width(Tab::GetTouchWidth());
+    gfx::Size tab_size(Tab::GetTouchWidth(), GetLayoutConstant(TAB_HEIGHT));
     touch_layout_.reset(new StackedTabStripLayout(
-                            tab_size,
-                            GetLayoutConstant(TABSTRIP_TAB_OVERLAP),
-                            kStackedPadding,
-                            kMaxStackedCount,
-                            &tabs_));
+        tab_size, Tab::kOverlap, kStackedPadding, kMaxStackedCount, &tabs_));
     touch_layout_->SetWidth(GetTabAreaWidth());
     // This has to be after SetWidth() as SetWidth() is going to reset the
     // bounds of the pinned tabs (since StackedTabStripLayout doesn't yet know
@@ -2630,9 +2610,9 @@ bool TabStrip::NeedsTouchLayout() const {
   int normal_count = tab_count() - pinned_tab_count;
   if (normal_count <= 1 || normal_count == pinned_tab_count)
     return false;
-  const int overlap = GetLayoutConstant(TABSTRIP_TAB_OVERLAP);
-  return (Tab::GetTouchWidth() * normal_count - overlap * (normal_count - 1)) >
-      GetTabAreaWidth() - GetStartXForNormalTabs();
+  return (Tab::GetTouchWidth() * normal_count -
+          Tab::kOverlap * (normal_count - 1)) >
+         GetTabAreaWidth() - GetStartXForNormalTabs();
 }
 
 void TabStrip::SetResetToShrinkOnExit(bool value) {

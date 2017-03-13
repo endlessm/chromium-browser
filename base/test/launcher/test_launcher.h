@@ -21,11 +21,6 @@
 #include "base/time/time.h"
 #include "base/timer/timer.h"
 
-namespace testing {
-class TestCase;
-class TestInfo;
-}
-
 namespace base {
 
 class CommandLine;
@@ -147,10 +142,13 @@ class TestLauncher {
   // Runs all tests in current iteration. Uses callbacks to communicate success.
   void RunTests();
 
+  void CombinePositiveTestFilters(std::vector<std::string> filter_a,
+                                  std::vector<std::string> filter_b);
+
   void RunTestIteration();
 
   // Saves test results summary as JSON if requested from command line.
-  void MaybeSaveSummaryAsJSON();
+  void MaybeSaveSummaryAsJSON(const std::vector<std::string>& additional_tags);
 
   // Called on a worker thread after a child process finishes.
   void OnLaunchTestProcessFinished(
@@ -186,6 +184,7 @@ class TestLauncher {
   int cycles_;  // Number of remaining test itreations, or -1 for infinite.
 
   // Test filters (empty means no filter).
+  bool has_at_least_one_positive_filter_;
   std::vector<std::string> positive_test_filter_;
   std::vector<std::string> negative_test_filter_;
 

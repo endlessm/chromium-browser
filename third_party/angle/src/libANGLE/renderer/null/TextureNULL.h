@@ -80,6 +80,14 @@ class TextureNULL : public TextureImpl
 
     void bindTexImage(egl::Surface *surface) override;
     void releaseTexImage() override;
+
+    void syncState(const gl::Texture::DirtyBits &dirtyBits) override;
+
+    gl::Error setStorageMultisample(GLenum target,
+                                    GLsizei samples,
+                                    GLint internalformat,
+                                    const gl::Extents &size,
+                                    GLboolean fixedSampleLocations) override;
 };
 
 }  // namespace rx

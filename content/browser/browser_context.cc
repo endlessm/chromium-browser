@@ -33,18 +33,18 @@
 #include "content/public/browser/site_instance.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/service_manager_connection.h"
-#include "content/public/common/service_names.h"
+#include "content/public/common/service_names.mojom.h"
 #include "net/cookies/cookie_store.h"
 #include "net/ssl/channel_id_service.h"
 #include "net/ssl/channel_id_store.h"
 #include "net/url_request/url_request_context.h"
 #include "net/url_request/url_request_context_getter.h"
 #include "services/file/file_service.h"
-#include "services/file/public/cpp/constants.h"
+#include "services/file/public/interfaces/constants.mojom.h"
 #include "services/file/user_id_map.h"
-#include "services/shell/public/cpp/connection.h"
-#include "services/shell/public/cpp/connector.h"
-#include "services/shell/public/interfaces/service.mojom.h"
+#include "services/service_manager/public/cpp/connection.h"
+#include "services/service_manager/public/cpp/connector.h"
+#include "services/service_manager/public/interfaces/service.mojom.h"
 #include "storage/browser/database/database_tracker.h"
 #include "storage/browser/fileapi/external_mount_points.h"
 
@@ -150,9 +150,9 @@ void SetDownloadManager(BrowserContext* context,
 class BrowserContextServiceManagerConnectionHolder
     : public base::SupportsUserData::Data {
  public:
-   BrowserContextServiceManagerConnectionHolder(
-      std::unique_ptr<shell::Connection> connection,
-      shell::mojom::ServiceRequest request)
+  BrowserContextServiceManagerConnectionHolder(
+      std::unique_ptr<service_manager::Connection> connection,
+      service_manager::mojom::ServiceRequest request)
       : root_connection_(std::move(connection)),
         service_manager_connection_(ServiceManagerConnection::Create(
             std::move(request),
@@ -164,7 +164,7 @@ class BrowserContextServiceManagerConnectionHolder
   }
 
  private:
-  std::unique_ptr<shell::Connection> root_connection_;
+  std::unique_ptr<service_manager::Connection> root_connection_;
   std::unique_ptr<ServiceManagerConnection> service_manager_connection_;
 
   DISALLOW_COPY_AND_ASSIGN(BrowserContextServiceManagerConnectionHolder);
@@ -237,8 +237,6 @@ StoragePartition* BrowserContext::GetStoragePartition(
   std::string partition_name;
   bool in_memory = false;
 
-  // TODO(ajwong): After GetDefaultStoragePartition() is removed, get rid of
-  // this conditional and require that |site_instance| is non-NULL.
   if (site_instance) {
     GetContentClient()->browser()->GetStoragePartitionConfigForSite(
         browser_context, site_instance->GetSiteURL(), true,
@@ -431,23 +429,22 @@ void BrowserContext::Initialize(
 
   ServiceManagerConnection* service_manager_connection =
       ServiceManagerConnection::GetForProcess();
-  if (service_manager_connection && base::MessageLoop::current()) {
+  if (service_manager_connection && base::ThreadTaskRunnerHandle::IsSet()) {
     // NOTE: Many unit tests create a TestBrowserContext without initializing
     // Mojo or the global service manager connection.
 
-    shell::mojom::ServicePtr service;
-    shell::mojom::ServiceRequest service_request = mojo::GetProxy(&service);
+    service_manager::mojom::ServicePtr service;
+    service_manager::mojom::ServiceRequest service_request(&service);
 
-    shell::mojom::PIDReceiverPtr pid_receiver;
-    shell::Connector::ConnectParams params(
-        shell::Identity(kBrowserServiceName, new_id));
-    params.set_client_process_connection(std::move(service),
-                                         mojo::GetProxy(&pid_receiver));
+    service_manager::mojom::PIDReceiverPtr pid_receiver;
+    service_manager::Identity identity(mojom::kBrowserServiceName, new_id);
+    service_manager_connection->GetConnector()->StartService(
+        identity, std::move(service), mojo::MakeRequest(&pid_receiver));
     pid_receiver->SetPID(base::GetCurrentProcId());
 
     BrowserContextServiceManagerConnectionHolder* connection_holder =
         new BrowserContextServiceManagerConnectionHolder(
-            service_manager_connection->GetConnector()->Connect(&params),
+            service_manager_connection->GetConnector()->Connect(identity),
             std::move(service_request));
     browser_context->SetUserData(kServiceManagerConnection, connection_holder);
 
@@ -464,7 +461,7 @@ void BrowserContext::Initialize(
           base::Bind(&file::CreateFileService,
                      BrowserThread::GetTaskRunnerForThread(BrowserThread::FILE),
                      BrowserThread::GetTaskRunnerForThread(BrowserThread::DB));
-      connection->AddEmbeddedService(file::kFileServiceName, info);
+      connection->AddEmbeddedService(file::mojom::kServiceName, info);
     }
   }
 }
@@ -489,7 +486,7 @@ BrowserContext* BrowserContext::GetBrowserContextForServiceUserId(
 }
 
 // static
-shell::Connector* BrowserContext::GetConnectorFor(
+service_manager::Connector* BrowserContext::GetConnectorFor(
     BrowserContext* browser_context) {
   ServiceManagerConnection* connection =
       GetServiceManagerConnectionFor(browser_context);

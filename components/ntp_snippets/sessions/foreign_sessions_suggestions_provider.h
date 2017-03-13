@@ -40,7 +40,6 @@ class ForeignSessionsSuggestionsProvider : public ContentSuggestionsProvider {
  public:
   ForeignSessionsSuggestionsProvider(
       ContentSuggestionsProvider::Observer* observer,
-      CategoryFactory* category_factory,
       std::unique_ptr<ForeignSessionsProvider> foreign_sessions_provider,
       PrefService* pref_service);
   ~ForeignSessionsSuggestionsProvider() override;
@@ -57,6 +56,9 @@ class ForeignSessionsSuggestionsProvider : public ContentSuggestionsProvider {
   void DismissSuggestion(const ContentSuggestion::ID& suggestion_id) override;
   void FetchSuggestionImage(const ContentSuggestion::ID& suggestion_id,
                             const ImageFetchedCallback& callback) override;
+  void Fetch(const Category& category,
+             const std::set<std::string>& known_suggestion_ids,
+             const FetchDoneCallback& callback) override;
   void ClearHistory(
       base::Time begin,
       base::Time end,
@@ -69,7 +71,8 @@ class ForeignSessionsSuggestionsProvider : public ContentSuggestionsProvider {
 
   void OnForeignTabChange();
   std::vector<ContentSuggestion> BuildSuggestions();
-  std::vector<SessionData> GetSuggestionCandidates();
+  std::vector<SessionData> GetSuggestionCandidates(
+      const base::Callback<bool(const std::string& id)>& suggestions_filter);
   ContentSuggestion BuildSuggestion(const SessionData& data);
 
   CategoryStatus category_status_;

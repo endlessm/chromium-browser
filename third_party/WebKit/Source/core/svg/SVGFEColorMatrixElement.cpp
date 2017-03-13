@@ -29,11 +29,12 @@ template <>
 const SVGEnumerationStringEntries& getStaticStringEntries<ColorMatrixType>() {
   DEFINE_STATIC_LOCAL(SVGEnumerationStringEntries, entries, ());
   if (entries.isEmpty()) {
-    entries.append(std::make_pair(FECOLORMATRIX_TYPE_MATRIX, "matrix"));
-    entries.append(std::make_pair(FECOLORMATRIX_TYPE_SATURATE, "saturate"));
-    entries.append(std::make_pair(FECOLORMATRIX_TYPE_HUEROTATE, "hueRotate"));
-    entries.append(std::make_pair(FECOLORMATRIX_TYPE_LUMINANCETOALPHA,
-                                  "luminanceToAlpha"));
+    entries.push_back(std::make_pair(FECOLORMATRIX_TYPE_MATRIX, "matrix"));
+    entries.push_back(std::make_pair(FECOLORMATRIX_TYPE_SATURATE, "saturate"));
+    entries.push_back(
+        std::make_pair(FECOLORMATRIX_TYPE_HUEROTATE, "hueRotate"));
+    entries.push_back(std::make_pair(FECOLORMATRIX_TYPE_LUMINANCETOALPHA,
+                                     "luminanceToAlpha"));
   }
   return entries;
 }
@@ -41,12 +42,8 @@ const SVGEnumerationStringEntries& getStaticStringEntries<ColorMatrixType>() {
 inline SVGFEColorMatrixElement::SVGFEColorMatrixElement(Document& document)
     : SVGFilterPrimitiveStandardAttributes(SVGNames::feColorMatrixTag,
                                            document),
-      m_values(SVGAnimatedNumberList::create(this,
-                                             SVGNames::valuesAttr,
-                                             SVGNumberList::create())),
-      m_in1(SVGAnimatedString::create(this,
-                                      SVGNames::inAttr,
-                                      SVGString::create())),
+      m_values(SVGAnimatedNumberList::create(this, SVGNames::valuesAttr)),
+      m_in1(SVGAnimatedString::create(this, SVGNames::inAttr)),
       m_type(SVGAnimatedEnumeration<ColorMatrixType>::create(
           this,
           SVGNames::typeAttr,
@@ -105,7 +102,7 @@ FilterEffect* SVGFEColorMatrixElement::build(SVGFilterBuilder* filterBuilder,
   Vector<float> filterValues = m_values->currentValue()->toFloatVector();
   FilterEffect* effect =
       FEColorMatrix::create(filter, filterType, filterValues);
-  effect->inputEffects().append(input1);
+  effect->inputEffects().push_back(input1);
   return effect;
 }
 

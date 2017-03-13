@@ -104,6 +104,9 @@ class InputMethodEngineBase : virtual public ui::IMEEngineHandlerInterface {
                                           int anchor_pos,
                                           int offset_pos) = 0;
 
+    // Called when the engine's MaybeSwitchEngine is called.
+    virtual void OnRequestEngineSwitch() = 0;
+
 #if defined(OS_CHROMEOS)
 
     // Called when an InputContext's properties change while it is focused.
@@ -137,6 +140,7 @@ class InputMethodEngineBase : virtual public ui::IMEEngineHandlerInterface {
   void Enable(const std::string& component_id) override;
   void Disable() override;
   void Reset() override;
+  void MaybeSwitchEngine() override;
   void ProcessKeyEvent(const ui::KeyEvent& key_event,
                        KeyEventDoneCallback& callback) override;
   void SetSurroundingText(const std::string& text,
@@ -176,9 +180,6 @@ class InputMethodEngineBase : virtual public ui::IMEEngineHandlerInterface {
   std::string AddRequest(
       const std::string& component_id,
       ui::IMEEngineHandlerInterface::KeyEventDoneCallback& key_data);
-
-  // Called when a key event is handled.
-  void KeyEventHandled();
 
  protected:
   // Notifies InputContextHandler that the composition is changed.
@@ -229,9 +230,11 @@ class InputMethodEngineBase : virtual public ui::IMEEngineHandlerInterface {
 
   // The composition text to be set from calling input.ime.setComposition API.
   ui::CompositionText composition_;
+  bool composition_changed_;
 
   // The text to be committed from calling input.ime.commitText API.
   std::string text_;
+  bool commit_text_changed_;
 
   // Indicates whether the IME extension is currently handling a physical key
   // event. This is used in CommitText/UpdateCompositionText/etc.

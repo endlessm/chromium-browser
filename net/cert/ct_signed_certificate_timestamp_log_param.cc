@@ -10,10 +10,8 @@
 
 #include "base/base64.h"
 #include "base/strings/string_number_conversions.h"
-#include "base/strings/stringprintf.h"
 #include "base/values.h"
 #include "net/cert/ct_sct_to_string.h"
-#include "net/cert/ct_verify_result.h"
 #include "net/cert/signed_certificate_timestamp.h"
 #include "net/log/net_log_capture_mode.h"
 
@@ -23,10 +21,9 @@ namespace {
 
 // Base64 encode the given |value| string and put it in |dict| with the
 // description |key|.
-void SetBinaryData(
-    const char* key,
-    const std::string& value,
-    base::DictionaryValue* dict) {
+void SetBinaryData(const char* key,
+                   base::StringPiece value,
+                   base::DictionaryValue* dict) {
   std::string b64_value;
   base::Base64Encode(value, &b64_value);
 
@@ -76,25 +73,25 @@ std::unique_ptr<base::ListValue> SCTListToPrintableValues(
 }  // namespace
 
 std::unique_ptr<base::Value> NetLogSignedCertificateTimestampCallback(
-    const ct::CTVerifyResult* ct_result,
+    const SignedCertificateTimestampAndStatusList* scts,
     NetLogCaptureMode capture_mode) {
   std::unique_ptr<base::DictionaryValue> dict(new base::DictionaryValue());
 
-  dict->Set("scts", SCTListToPrintableValues(ct_result->scts));
+  dict->Set("scts", SCTListToPrintableValues(*scts));
 
   return std::move(dict);
 }
 
 std::unique_ptr<base::Value> NetLogRawSignedCertificateTimestampCallback(
-    const std::string* embedded_scts,
-    const std::string* sct_list_from_ocsp,
-    const std::string* sct_list_from_tls_extension,
+    base::StringPiece embedded_scts,
+    base::StringPiece sct_list_from_ocsp,
+    base::StringPiece sct_list_from_tls_extension,
     NetLogCaptureMode capture_mode) {
   std::unique_ptr<base::DictionaryValue> dict(new base::DictionaryValue());
 
-  SetBinaryData("embedded_scts", *embedded_scts, dict.get());
-  SetBinaryData("scts_from_ocsp_response", *sct_list_from_ocsp, dict.get());
-  SetBinaryData("scts_from_tls_extension", *sct_list_from_tls_extension,
+  SetBinaryData("embedded_scts", embedded_scts, dict.get());
+  SetBinaryData("scts_from_ocsp_response", sct_list_from_ocsp, dict.get());
+  SetBinaryData("scts_from_tls_extension", sct_list_from_tls_extension,
                 dict.get());
 
   return std::move(dict);

@@ -20,6 +20,7 @@ addtrack
 animationend
 animationiteration
 animationstart
+appinstalled
 audioend
 audioprocess
 audiostart
@@ -164,6 +165,7 @@ pagehide
 pageshow
 paste
 pause
+paymentrequest
 periodicsync
 play
 playing
@@ -250,6 +252,8 @@ vrdisplayconnect
 vrdisplaydisconnect
 vrdisplayactivate
 vrdisplaydeactivate
+vrdisplayblur
+vrdisplayfocus
 vrdisplaypresentchange
 waiting
 waitingforkey
@@ -268,7 +272,6 @@ webkitprerenderdomcontentloaded
 webkitprerenderload
 webkitprerenderstart
 webkitprerenderstop
-webkitresourcetimingbufferfull
 webkitspeechchange
 webkitvisibilitychange
 wheel

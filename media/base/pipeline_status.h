@@ -5,11 +5,12 @@
 #ifndef MEDIA_BASE_PIPELINE_STATUS_H_
 #define MEDIA_BASE_PIPELINE_STATUS_H_
 
-#include "base/callback.h"
-
 #include <stdint.h>
-
 #include <string>
+
+#include "base/callback.h"
+#include "base/time/time.h"
+#include "media/base/timestamp_constants.h"
 
 namespace media {
 
@@ -44,7 +45,7 @@ enum PipelineStatus {
 
   // Audio rendering errors.
   AUDIO_RENDERER_ERROR = 19,
-  AUDIO_RENDERER_ERROR_SPLICE_FAILED = 20,
+  // Deprecated: AUDIO_RENDERER_ERROR_SPLICE_FAILED = 20,
 
   // Must be equal to the largest value ever logged.
   PIPELINE_STATUS_MAX = PIPELINE_ERROR_EXTERNAL_RENDERER_FAILED,
@@ -59,6 +60,7 @@ struct PipelineStatistics {
   uint32_t video_frames_dropped = 0;
   int64_t audio_memory_usage = 0;
   int64_t video_memory_usage = 0;
+  base::TimeDelta video_keyframe_distance_average = kNoTimestamp;
 };
 
 // Used for updating pipeline statistics; the passed value should be a delta

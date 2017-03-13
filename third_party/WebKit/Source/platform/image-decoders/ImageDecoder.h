@@ -28,8 +28,10 @@
 #define ImageDecoder_h
 
 #include "SkColorPriv.h"
+#include "SkColorSpaceXform.h"
 #include "platform/PlatformExport.h"
 #include "platform/SharedBuffer.h"
+#include "platform/graphics/ColorBehavior.h"
 #include "platform/graphics/ImageOrientation.h"
 #include "platform/image-decoders/ImageAnimation.h"
 #include "platform/image-decoders/ImageFrame.h"
@@ -42,23 +44,17 @@
 #include "wtf/text/WTFString.h"
 #include <memory>
 
-#if USE(QCMSLIB)
-#include "qcms.h"
-#endif
-
 namespace blink {
 
-#if USE(QCMSLIB)
-struct QCMSTransformDeleter {
-  void operator()(qcms_transform* transform) {
-    if (transform)
-      qcms_transform_release(transform);
-  }
-};
-
-using QCMSTransformUniquePtr =
-    std::unique_ptr<qcms_transform, QCMSTransformDeleter>;
-#endif  // USE(QCMSLIB)
+#if SK_B32_SHIFT
+inline SkColorSpaceXform::ColorFormat xformColorFormat() {
+  return SkColorSpaceXform::kRGBA_8888_ColorFormat;
+}
+#else
+inline SkColorSpaceXform::ColorFormat xformColorFormat() {
+  return SkColorSpaceXform::kBGRA_8888_ColorFormat;
+}
+#endif
 
 // ImagePlanes can be used to decode color components into provided buffers
 // instead of using an ImageFrame.
@@ -91,11 +87,6 @@ class PLATFORM_EXPORT ImageDecoder {
 
   enum AlphaOption { AlphaPremultiplied, AlphaNotPremultiplied };
 
-  enum GammaAndColorProfileOption {
-    GammaAndColorProfileApplied,
-    GammaAndColorProfileIgnored
-  };
-
   virtual ~ImageDecoder() {}
 
   // Returns a caller-owned decoder of the appropriate type.  Returns nullptr if
@@ -105,14 +96,14 @@ class PLATFORM_EXPORT ImageDecoder {
   static std::unique_ptr<ImageDecoder> create(PassRefPtr<SegmentReader> data,
                                               bool dataComplete,
                                               AlphaOption,
-                                              GammaAndColorProfileOption);
+                                              const ColorBehavior&);
   static std::unique_ptr<ImageDecoder> create(
       PassRefPtr<SharedBuffer> data,
       bool dataComplete,
       AlphaOption alphaoption,
-      GammaAndColorProfileOption colorOptions) {
+      const ColorBehavior& colorBehavior) {
     return create(SegmentReader::createFromSharedBuffer(std::move(data)),
-                  dataComplete, alphaoption, colorOptions);
+                  dataComplete, alphaoption, colorBehavior);
   }
 
   virtual String filenameExtension() const = 0;
@@ -215,27 +206,25 @@ class PLATFORM_EXPORT ImageDecoder {
 
   ImageOrientation orientation() const { return m_orientation; }
 
-  bool ignoresGammaAndColorProfile() const {
-    return m_ignoreGammaAndColorProfile;
-  }
-  static void setTargetColorProfile(const WebVector<char>&);
+  bool ignoresColorSpace() const { return m_colorBehavior.isIgnore(); }
+  const ColorBehavior& colorBehavior() const { return m_colorBehavior; }
 
-  // Note that hasColorProfile refers to the existence of a not-ignored
-  // embedded color profile, and is independent of whether or not that
-  // profile's transform has been baked into the pixel values.
-  bool hasColorProfile() const { return m_hasColorProfile; }
-  void setColorProfileAndComputeTransform(const char* iccData,
-                                          unsigned iccLength,
-                                          bool hasAlpha,
-                                          bool useSRGB);
+  // This returns the color space that will be included in the SkImageInfo of
+  // SkImages created from this decoder. This will be nullptr unless the
+  // decoder was created with the option ColorSpaceTagged.
+  sk_sp<SkColorSpace> colorSpaceForSkImages() const;
 
-#if USE(QCMSLIB)
-  // In contrast with hasColorProfile, this refers to the transform that has
-  // been baked into the pixels.
-  qcms_transform* colorTransform() {
-    return m_sourceToOutputDeviceColorTransform.get();
-  }
-#endif
+  // This returns whether or not the image included a not-ignored embedded
+  // color space. This is independent of whether or not that space's transform
+  // has been baked into the pixel values.
+  bool hasEmbeddedColorSpace() const { return m_embeddedColorSpace.get(); }
+
+  // Set the embedded color space directly or via ICC profile.
+  void setEmbeddedColorProfile(const char* iccData, unsigned iccLength);
+  void setEmbeddedColorSpace(sk_sp<SkColorSpace> srcSpace);
+
+  // Transformation from embedded color space to target color space.
+  SkColorSpaceXform* colorTransform();
 
   // Sets the "decode failure" flag.  For caller convenience (since so
   // many callers want to return false after calling this), returns false
@@ -248,10 +237,21 @@ class PLATFORM_EXPORT ImageDecoder {
 
   bool failed() const { return m_failed; }
 
-  // Clears decoded pixel data from all frames except the provided frame.
+  // Clears decoded pixel data from all frames except the provided frame. If
+  // subsequent frames depend on this frame's required previous frame, then that
+  // frame is also kept in cache to prevent re-decoding from the beginning.
   // Callers may pass WTF::kNotFound to clear all frames.
   // Note: If |m_frameBufferCache| contains only one frame, it won't be cleared.
   // Returns the number of bytes of frame data actually cleared.
+  //
+  // This is a virtual method because MockImageDecoder needs to override it in
+  // order to run the test ImageFrameGeneratorTest::clearMultiFrameDecode.
+  //
+  // @TODO  Let MockImageDecoder override ImageFrame::clearFrameBuffer instead,
+  //        so this method can be made non-virtual. It is used in the test
+  //        ImageFrameGeneratorTest::clearMultiFrameDecode. The test needs to
+  //        be modified since two frames may be kept in cache, instead of
+  //        always just one, with this clearCacheExceptFrame implementation.
   virtual size_t clearCacheExceptFrame(size_t);
 
   // If the image has a cursor hot-spot, stores it in the argument
@@ -274,11 +274,10 @@ class PLATFORM_EXPORT ImageDecoder {
 
  protected:
   ImageDecoder(AlphaOption alphaOption,
-               GammaAndColorProfileOption colorOptions,
+               const ColorBehavior& colorBehavior,
                size_t maxDecodedBytes)
       : m_premultiplyAlpha(alphaOption == AlphaPremultiplied),
-        m_ignoreGammaAndColorProfile(colorOptions ==
-                                     GammaAndColorProfileIgnored),
+        m_colorBehavior(colorBehavior),
         m_maxDecodedBytes(maxDecodedBytes),
         m_purgeAggressively(false) {}
 
@@ -301,6 +300,9 @@ class PLATFORM_EXPORT ImageDecoder {
   // ImageFrame::m_requiredPreviousFrameIndex.
   size_t findRequiredPreviousFrame(size_t frameIndex, bool frameRectIsOpaque);
 
+  // This is called by clearCacheExceptFrame() if that method decides it wants
+  // to preserve another frame, to avoid unnecessary redecoding.
+  size_t clearCacheExceptTwoFrames(size_t, size_t);
   virtual void clearFrameBuffer(size_t frameIndex);
 
   // Decodes the image sufficiently to determine the image size.
@@ -310,6 +312,12 @@ class PLATFORM_EXPORT ImageDecoder {
   // returns that number.
   virtual size_t decodeFrameCount() { return 1; }
 
+  // Called to initialize the frame buffer with the given index, based on the
+  // provided and previous frame's characteristics. Returns true on success. On
+  // failure, this will mark the image as failed. Before calling this method,
+  // the caller must verify that the frame exists.
+  bool initFrameBuffer(size_t);
+
   // Performs any additional setup of the requested frame after it has been
   // initially created, e.g. setting a duration or disposal method.
   virtual void initializeNewFrame(size_t) {}
@@ -317,13 +325,35 @@ class PLATFORM_EXPORT ImageDecoder {
   // Decodes the requested frame.
   virtual void decode(size_t) = 0;
 
-  // Returns the embedded image color profile.
-  const ImageFrame::ICCProfile& colorProfile() const { return m_colorProfile; }
+  // This method is only required for animated images. It returns a vector with
+  // all frame indices that need to be decoded in order to succesfully decode
+  // the provided frame.  The indices are returned in reverse order, so the
+  // last frame needs to be decoded first.  Before calling this method, the
+  // caller must verify that the frame exists.
+  Vector<size_t> findFramesToDecode(size_t) const;
+
+  // This is called by decode() after decoding a frame in an animated image.
+  // Before calling this method, the caller must verify that the frame exists.
+  // @return true  if the frame was fully decoded,
+  //         false otherwise.
+  bool postDecodeProcessing(size_t);
+
+  // The GIF and PNG decoders set the default alpha setting of the ImageFrame to
+  // true. When the frame rect does not contain any (semi-) transparent pixels,
+  // this may need to be changed to false. This depends on whether the required
+  // previous frame adds transparency to the image, outside of the frame rect.
+  // This methods corrects the alpha setting of the frame buffer to false when
+  // the whole frame is opaque.
+  //
+  // This method should be called by the GIF and PNG decoder when the pixels in
+  // the frame rect do *not* contain any transparent pixels. Before calling
+  // this method, the caller must verify that the frame exists.
+  void correctAlphaWhenFrameBufferSawNoAlpha(size_t);
 
   RefPtr<SegmentReader> m_data;  // The encoded data.
   Vector<ImageFrame, 1> m_frameBufferCache;
   const bool m_premultiplyAlpha;
-  const bool m_ignoreGammaAndColorProfile;
+  const ColorBehavior m_colorBehavior;
   ImageOrientation m_orientation;
 
   // The maximum amount of memory a decoded image should require. Ideally,
@@ -338,7 +368,26 @@ class PLATFORM_EXPORT ImageDecoder {
   // If that happens, m_purgeAggressively is set to true. This signals
   // future decodes to purge old frames as it goes.
   void updateAggressivePurging(size_t index);
-  bool m_purgeAggressively;
+
+  // The method is only relevant for multi-frame images.
+  //
+  // This method indicates whether the provided frame has enough data to decode
+  // successive frames that depend on it. It is used by clearCacheExceptFrame
+  // to determine which frame to keep in cache when the indicated frame is not
+  // yet sufficiently decoded.
+  //
+  // The default condition is that the frame status needs to be FramePartial or
+  // FrameComplete, since the data of previous frames is copied in
+  // initFrameBuffer() before setting the status to FramePartial. For WebP,
+  // however, the status needs to be FrameComplete since the complete buffer is
+  // used to do alpha blending in WEBPImageDecoder::applyPostProcessing().
+  //
+  // Before calling this, verify that frame |index| exists by checking that
+  // |index| is smaller than |m_frameBufferCache|.size().
+  virtual bool frameStatusSufficientForSuccessors(size_t index) {
+    DCHECK(index < m_frameBufferCache.size());
+    return m_frameBufferCache[index].getStatus() != ImageFrame::FrameEmpty;
+  }
 
  private:
   enum class SniffResult { JPEG, PNG, GIF, WEBP, ICO, BMP, Invalid };
@@ -353,17 +402,25 @@ class PLATFORM_EXPORT ImageDecoder {
     return total_size > ((1 << 29) - 1);
   }
 
+  bool m_purgeAggressively;
+
+  // This methods gets called at the end of initFrameBuffer. Subclasses can do
+  // format specific initialization, for e.g. alpha settings, here.
+  virtual void onInitFrameBuffer(size_t){};
+
+  // Called by initFrameBuffer to determine if it can take the bitmap of the
+  // previous frame. This condition is different for GIF and WEBP.
+  virtual bool canReusePreviousFrameBuffer(size_t) const { return false; }
+
   IntSize m_size;
   bool m_sizeAvailable = false;
   bool m_isAllDataReceived = false;
   bool m_failed = false;
+  bool m_hasHistogrammedColorSpace = false;
 
-  bool m_hasColorProfile = false;
-  ImageFrame::ICCProfile m_colorProfile;
-
-#if USE(QCMSLIB)
-  QCMSTransformUniquePtr m_sourceToOutputDeviceColorTransform;
-#endif
+  sk_sp<SkColorSpace> m_embeddedColorSpace = nullptr;
+  bool m_sourceToTargetColorTransformNeedsUpdate = false;
+  std::unique_ptr<SkColorSpaceXform> m_sourceToTargetColorTransform;
 };
 
 }  // namespace blink

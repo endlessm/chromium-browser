@@ -51,6 +51,7 @@ const remoting::protocol::NameMapElement<It2MeHostState> kIt2MeHostStates[] = {
     {kConnected, "CONNECTED"},
     {kError, "ERROR"},
     {kInvalidDomainError, "INVALID_DOMAIN_ERROR"},
+    {kConnecting, "CONNECTING"},
 };
 
 #if defined(OS_WIN)
@@ -118,7 +119,7 @@ void It2MeNativeMessagingHost::OnMessage(const std::string& message) {
 
   std::unique_ptr<base::DictionaryValue> response(new base::DictionaryValue());
   std::unique_ptr<base::Value> message_value = base::JSONReader::Read(message);
-  if (!message_value->IsType(base::Value::TYPE_DICTIONARY)) {
+  if (!message_value->IsType(base::Value::Type::DICTIONARY)) {
     LOG(ERROR) << "Received a message that's not a dictionary.";
     client_->CloseChannel(std::string());
     return;

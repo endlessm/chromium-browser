@@ -7,14 +7,15 @@
 
 #include <memory>
 #include <utility>
+#include <vector>
 
-#include "base/memory/scoped_vector.h"
 #include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "dbus/object_path.h"
 #include "device/bluetooth/bluetooth_adapter.h"
 #include "device/bluetooth/bluetooth_adapter_factory.h"
 #include "device/bluetooth/bluetooth_device.h"
+#include "device/bluetooth/bluetooth_discovery_filter.h"
 #include "device/bluetooth/bluetooth_gatt_connection.h"
 #include "device/bluetooth/bluetooth_gatt_notify_session.h"
 #include "device/bluetooth/bluetooth_remote_gatt_characteristic.h"
@@ -34,6 +35,7 @@
 
 using device::BluetoothAdapter;
 using device::BluetoothDevice;
+using device::BluetoothDiscoveryFilter;
 using device::BluetoothRemoteGattCharacteristic;
 using device::BluetoothGattConnection;
 using device::BluetoothRemoteGattDescriptor;
@@ -42,10 +44,22 @@ using device::BluetoothGattNotifySession;
 using device::BluetoothUUID;
 using device::TestBluetoothAdapterObserver;
 
+using UUIDSet = device::BluetoothDevice::UUIDSet;
+
+typedef std::unordered_map<device::BluetoothDevice*,
+                           device::BluetoothDevice::UUIDSet>
+    DeviceToUUIDs;
+
 namespace bluez {
 
 namespace {
 
+const BluetoothUUID kGenericAccessServiceUUID(
+    bluez::FakeBluetoothGattServiceClient::kGenericAccessServiceUUID);
+const BluetoothUUID kBatteryServiceUUID(
+    bluez::FakeBluetoothGattServiceClient::kBatteryServiceUUID);
+const BluetoothUUID kHeartRateServiceUUID(
+    bluez::FakeBluetoothGattServiceClient::kHeartRateServiceUUID);
 const BluetoothUUID kHeartRateMeasurementUUID(
     bluez::FakeBluetoothGattCharacteristicClient::kHeartRateMeasurementUUID);
 const BluetoothUUID kBodySensorLocationUUID(
@@ -128,6 +142,31 @@ class BluetoothGattBlueZTest : public testing::Test {
     ASSERT_TRUE(adapter_->IsInitialized());
     ASSERT_TRUE(adapter_->IsPresent());
   }
+
+  BluetoothDevice* AddLeDevice() {
+    fake_bluetooth_device_client_->CreateDevice(
+        dbus::ObjectPath(bluez::FakeBluetoothAdapterClient::kAdapterPath),
+        dbus::ObjectPath(bluez::FakeBluetoothDeviceClient::kLowEnergyPath));
+    bluez::FakeBluetoothDeviceClient::Properties* properties1 =
+        fake_bluetooth_device_client_->GetProperties(
+            dbus::ObjectPath(bluez::FakeBluetoothDeviceClient::kLowEnergyPath));
+    properties1->connected.ReplaceValue(true);
+
+    return adapter_->GetDevice(
+        bluez::FakeBluetoothDeviceClient::kLowEnergyAddress);
+  }
+
+  BluetoothDevice* AddDualDevice() {
+    fake_bluetooth_device_client_->CreateDevice(
+        dbus::ObjectPath(bluez::FakeBluetoothAdapterClient::kAdapterPath),
+        dbus::ObjectPath(bluez::FakeBluetoothDeviceClient::kDualPath));
+    bluez::FakeBluetoothDeviceClient::Properties* properties2 =
+        fake_bluetooth_device_client_->GetProperties(
+            dbus::ObjectPath(bluez::FakeBluetoothDeviceClient::kDualPath));
+    properties2->connected.ReplaceValue(true);
+
+    return adapter_->GetDevice(bluez::FakeBluetoothDeviceClient::kDualAddress);
+  };
 
   void BatteryServiceShouldBeComplete(BluetoothDevice* device) {
     ASSERT_TRUE(device);
@@ -220,7 +259,7 @@ class BluetoothGattBlueZTest : public testing::Test {
   void NotifySessionCallback(
       std::unique_ptr<BluetoothGattNotifySession> session) {
     ++success_callback_count_;
-    update_sessions_.push_back(session.release());
+    update_sessions_.push_back(std::move(session));
     QuitMessageLoop();
   }
 
@@ -256,7 +295,7 @@ class BluetoothGattBlueZTest : public testing::Test {
   bluez::FakeBluetoothGattDescriptorClient*
       fake_bluetooth_gatt_descriptor_client_;
   std::unique_ptr<device::BluetoothGattConnection> gatt_conn_;
-  ScopedVector<BluetoothGattNotifySession> update_sessions_;
+  std::vector<std::unique_ptr<BluetoothGattNotifySession>> update_sessions_;
   scoped_refptr<BluetoothAdapter> adapter_;
 
   int success_callback_count_;
@@ -264,6 +303,105 @@ class BluetoothGattBlueZTest : public testing::Test {
   std::vector<uint8_t> last_read_value_;
   BluetoothRemoteGattService::GattErrorCode last_service_error_;
 };
+
+TEST_F(BluetoothGattBlueZTest,
+       RetrieveGattConnectedDevicesWithDiscoveryFilter_NoFilter) {
+  BluetoothDevice* le = AddLeDevice();
+  BluetoothDevice* dual = AddDualDevice();
+
+  BluetoothDiscoveryFilter discovery_filter(device::BLUETOOTH_TRANSPORT_LE);
+  DeviceToUUIDs result =
+      adapter_->RetrieveGattConnectedDevicesWithDiscoveryFilter(
+          discovery_filter);
+
+  EXPECT_EQ(DeviceToUUIDs({{le, UUIDSet()}, {dual, UUIDSet()}}), result);
+}
+
+TEST_F(BluetoothGattBlueZTest,
+       RetrieveGattConnectedDevicesWithDiscoveryFilter_NonMatchingFilter) {
+  AddLeDevice();
+  AddDualDevice();
+
+  BluetoothDiscoveryFilter discovery_filter(device::BLUETOOTH_TRANSPORT_LE);
+  discovery_filter.AddUUID(kBatteryServiceUUID);
+
+  DeviceToUUIDs result =
+      adapter_->RetrieveGattConnectedDevicesWithDiscoveryFilter(
+          discovery_filter);
+
+  EXPECT_TRUE(result.empty());
+}
+
+TEST_F(
+    BluetoothGattBlueZTest,
+    RetrieveGattConnectedDevicesWithDiscoveryFilter_OneMatchingServiceOneDevice) {
+  AddLeDevice();
+  BluetoothDevice* dual = AddDualDevice();
+
+  BluetoothDiscoveryFilter discovery_filter(device::BLUETOOTH_TRANSPORT_LE);
+  discovery_filter.AddUUID(kGenericAccessServiceUUID);
+
+  DeviceToUUIDs result =
+      adapter_->RetrieveGattConnectedDevicesWithDiscoveryFilter(
+          discovery_filter);
+
+  EXPECT_EQ(DeviceToUUIDs({{dual, UUIDSet({kGenericAccessServiceUUID})}}),
+            result);
+}
+
+TEST_F(
+    BluetoothGattBlueZTest,
+    RetrieveGattConnectedDevicesWithDiscoveryFilter_OneMatchingServiceTwoDevices) {
+  BluetoothDevice* le = AddLeDevice();
+  BluetoothDevice* dual = AddDualDevice();
+
+  BluetoothDiscoveryFilter discovery_filter(device::BLUETOOTH_TRANSPORT_LE);
+  discovery_filter.AddUUID(kHeartRateServiceUUID);
+
+  DeviceToUUIDs result =
+      adapter_->RetrieveGattConnectedDevicesWithDiscoveryFilter(
+          discovery_filter);
+
+  EXPECT_EQ(DeviceToUUIDs({{le, UUIDSet({kHeartRateServiceUUID})},
+                           {dual, UUIDSet({kHeartRateServiceUUID})}}),
+            result);
+}
+
+TEST_F(BluetoothGattBlueZTest,
+       RetrieveGattConnectedDevicesWithDiscoveryFilter_TwoServicesTwoDevices) {
+  BluetoothDevice* le = AddLeDevice();
+  BluetoothDevice* dual = AddDualDevice();
+
+  BluetoothDiscoveryFilter discovery_filter(device::BLUETOOTH_TRANSPORT_LE);
+  discovery_filter.AddUUID(kGenericAccessServiceUUID);
+  discovery_filter.AddUUID(kHeartRateServiceUUID);
+
+  DeviceToUUIDs result =
+      adapter_->RetrieveGattConnectedDevicesWithDiscoveryFilter(
+          discovery_filter);
+
+  EXPECT_EQ(DeviceToUUIDs({{le, UUIDSet({kHeartRateServiceUUID})},
+                           {dual, UUIDSet({kHeartRateServiceUUID,
+                                           kGenericAccessServiceUUID})}}),
+            result);
+}
+
+TEST_F(
+    BluetoothGattBlueZTest,
+    RetrieveGattConnectedDevicesWithDiscoveryFilter_OneMatchingServiceOneNonMatchingService) {
+  AddLeDevice();
+  BluetoothDevice* dual = AddDualDevice();
+  BluetoothDiscoveryFilter discovery_filter(device::BLUETOOTH_TRANSPORT_LE);
+  discovery_filter.AddUUID(kGenericAccessServiceUUID);
+  discovery_filter.AddUUID(kBatteryServiceUUID);
+
+  DeviceToUUIDs result =
+      adapter_->RetrieveGattConnectedDevicesWithDiscoveryFilter(
+          discovery_filter);
+
+  EXPECT_EQ(DeviceToUUIDs({{dual, UUIDSet({kGenericAccessServiceUUID})}}),
+            result);
+}
 
 TEST_F(BluetoothGattBlueZTest, GattConnection) {
   fake_bluetooth_device_client_->CreateDevice(
@@ -1278,12 +1416,13 @@ TEST_F(BluetoothGattBlueZTest, NotifySessions) {
   EXPECT_EQ(0, error_callback_count_);
   EXPECT_EQ(1, observer.gatt_characteristic_value_changed_count());
   EXPECT_TRUE(update_sessions_.empty());
-  EXPECT_TRUE(characteristic->IsNotifying());
+  EXPECT_FALSE(characteristic->IsNotifying());
 
   // Run the main loop. The initial call should complete. The queued call should
   // succeed immediately.
   base::RunLoop().Run();
 
+  EXPECT_TRUE(characteristic->IsNotifying());
   EXPECT_EQ(3, success_callback_count_);
   EXPECT_EQ(0, error_callback_count_);
   EXPECT_EQ(1, observer.gatt_characteristic_value_changed_count());
@@ -1295,10 +1434,14 @@ TEST_F(BluetoothGattBlueZTest, NotifySessions) {
 
   // Stop one of the sessions. The session should become inactive but the
   // characteristic should still be notifying.
-  BluetoothGattNotifySession* session = update_sessions_[0];
+  BluetoothGattNotifySession* session = update_sessions_[0].get();
   EXPECT_TRUE(session->IsActive());
   session->Stop(base::Bind(&BluetoothGattBlueZTest::SuccessCallback,
                            base::Unretained(this)));
+
+  // Run message loop to stop the notify session.
+  base::RunLoop().Run();
+
   EXPECT_EQ(4, success_callback_count_);
   EXPECT_EQ(0, error_callback_count_);
   EXPECT_FALSE(session->IsActive());
@@ -1316,6 +1459,10 @@ TEST_F(BluetoothGattBlueZTest, NotifySessions) {
   // Clear the last session.
   update_sessions_.clear();
   EXPECT_TRUE(update_sessions_.empty());
+
+  // Run message loop in order to do proper cleanup of sessions.
+  base::RunLoop().RunUntilIdle();
+
   EXPECT_FALSE(characteristic->IsNotifying());
 
   success_callback_count_ = 0;
@@ -1331,7 +1478,7 @@ TEST_F(BluetoothGattBlueZTest, NotifySessions) {
   EXPECT_EQ(0, error_callback_count_);
   EXPECT_EQ(1, observer.gatt_characteristic_value_changed_count());
   EXPECT_TRUE(update_sessions_.empty());
-  EXPECT_TRUE(characteristic->IsNotifying());
+  EXPECT_FALSE(characteristic->IsNotifying());
 
   // Run the message loop. Notifications should begin.
   base::RunLoop().Run();
@@ -1353,6 +1500,10 @@ TEST_F(BluetoothGattBlueZTest, NotifySessions) {
                  base::Unretained(this)),
       base::Bind(&BluetoothGattBlueZTest::ServiceErrorCallback,
                  base::Unretained(this)));
+
+  // Run message loop to stop the notify session.
+  base::RunLoop().Run();
+
   EXPECT_EQ(2, success_callback_count_);
   EXPECT_EQ(0, error_callback_count_);
   EXPECT_EQ(2U, update_sessions_.size());
@@ -1426,7 +1577,7 @@ TEST_F(BluetoothGattBlueZTest, NotifySessionsMadeInactive) {
   EXPECT_EQ(0, success_callback_count_);
   EXPECT_EQ(0, error_callback_count_);
   EXPECT_EQ(1, observer.gatt_characteristic_value_changed_count());
-  EXPECT_TRUE(characteristic->IsNotifying());
+  EXPECT_FALSE(characteristic->IsNotifying());
   EXPECT_TRUE(update_sessions_.empty());
 
   // Run the main loop. The initial call should complete. The queued calls
@@ -1452,6 +1603,10 @@ TEST_F(BluetoothGattBlueZTest, NotifySessionsMadeInactive) {
                  base::Unretained(this)));
   EXPECT_EQ(5, success_callback_count_);
   EXPECT_EQ(0, error_callback_count_);
+
+  // Run message loop to stop the notify session.
+  base::RunLoop().RunUntilIdle();
+
   EXPECT_FALSE(characteristic->IsNotifying());
   EXPECT_EQ(4U, update_sessions_.size());
 
@@ -1469,10 +1624,13 @@ TEST_F(BluetoothGattBlueZTest, NotifySessionsMadeInactive) {
       base::Bind(&BluetoothGattBlueZTest::ServiceErrorCallback,
                  base::Unretained(this)));
 
+  // Run message loop to start the notify session.
+  base::RunLoop().RunUntilIdle();
+
   EXPECT_EQ(0, success_callback_count_);
   EXPECT_EQ(0, error_callback_count_);
   EXPECT_EQ(1, observer.gatt_characteristic_value_changed_count());
-  EXPECT_TRUE(characteristic->IsNotifying());
+  EXPECT_FALSE(characteristic->IsNotifying());
   EXPECT_TRUE(update_sessions_.empty());
 
   base::RunLoop().Run();

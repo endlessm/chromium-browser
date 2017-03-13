@@ -31,17 +31,6 @@ const char kPasswordManagerSettingMigrationFieldTrialName[] =
 const char kEnabledPasswordManagerSettingsMigrationGroupName[] = "Enable";
 const char kDisablePasswordManagerSettingsMigrationGroupName[] = "Disable";
 
-const char kPasswordManagerSettingsBehaviourChangeFieldTrialName[] =
-    "PasswordManagerSettingsBehaviourChange";
-const char kPasswordManagerSettingsBehaviourChangeEnabledGroupName[] =
-    "PasswordManagerSettingsBehaviourChange.Active";
-const char kPasswordManagerSettingsBehaviourChangeDisabledGroupName[] =
-    "PasswordManagerSettingsBehaviourChange.NotActive";
-
-const char kBrandingExperimentName[] = "PasswordBranding";
-const char kSmartLockBrandingGroupName[] = "SmartLockBranding";
-const char kSmartLockNoBrandingGroupName[] = "NoSmartLockBranding";
-
 }  // namespace
 
 class ManagePasswordsViewUtilDesktopTest : public testing::Test {
@@ -59,17 +48,6 @@ class ManagePasswordsViewUtilDesktopTest : public testing::Test {
   void EnforcePasswordManagerSettingMigrationExperiment(const char* name) {
     settings_migration_ = base::FieldTrialList::CreateFieldTrial(
         kPasswordManagerSettingMigrationFieldTrialName, name);
-  }
-
-  void EnforcePasswordManagerSettingsBehaviourChangeExperiment(
-      const char* name) {
-    settings_behaviour_change_ = base::FieldTrialList::CreateFieldTrial(
-        kPasswordManagerSettingsBehaviourChangeFieldTrialName, name);
-  }
-
-  void EnforceSmartLockBrandingExperiment(const char* name) {
-    smart_lock_branding_ =
-        base::FieldTrialList::CreateFieldTrial(kBrandingExperimentName, name);
   }
 
   browser_sync::ProfileSyncService* GetSyncServiceForSmartLockUser() {
@@ -99,58 +77,27 @@ class ManagePasswordsViewUtilDesktopTest : public testing::Test {
   TestingProfile profile_;
   scoped_refptr<base::FieldTrial> smart_lock_branding_;
   scoped_refptr<base::FieldTrial> settings_migration_;
-  scoped_refptr<base::FieldTrial> settings_behaviour_change_;
 };
 
 TEST_F(ManagePasswordsViewUtilDesktopTest, GetPasswordManagerSettingsStringId) {
   const struct {
     const char* description;
-    const char* smart_lock_branding_experiment_group;
     const char* settings_migration_experiment_group;
-    const char* settings_behaviour_change_experiment_group;
     UserType user_type;
     int expected_setting_description_id;
   } kTestData[] = {
-      {"Smart Lock User, branding, behavioral change, migration active.",
-       kSmartLockBrandingGroupName,
-       kEnabledPasswordManagerSettingsMigrationGroupName,
-       kPasswordManagerSettingsBehaviourChangeEnabledGroupName, SMART_LOCK_USER,
+      {"Smart Lock User, migration active",
+       kEnabledPasswordManagerSettingsMigrationGroupName, SMART_LOCK_USER,
        IDS_OPTIONS_PASSWORD_MANAGER_SMART_LOCK_ENABLE},
-      {"Smart Lock User no branding, behavioral change, migration active.",
-       kSmartLockNoBrandingGroupName,
-       kEnabledPasswordManagerSettingsMigrationGroupName,
-       kPasswordManagerSettingsBehaviourChangeEnabledGroupName, SMART_LOCK_USER,
-       IDS_OPTIONS_PASSWORD_MANAGER_SMART_LOCK_ENABLE},
-      {"Smart Lock User no branding, no behavioral change, migration active.",
-       kSmartLockNoBrandingGroupName,
-       kEnabledPasswordManagerSettingsMigrationGroupName,
-       kPasswordManagerSettingsBehaviourChangeDisabledGroupName,
-       SMART_LOCK_USER, IDS_OPTIONS_PASSWORD_MANAGER_SMART_LOCK_ENABLE},
-      {"Smart Lock User no branding, no behavioral change, no migration",
-       kSmartLockNoBrandingGroupName,
-       kDisablePasswordManagerSettingsMigrationGroupName,
-       kPasswordManagerSettingsBehaviourChangeDisabledGroupName,
-       SMART_LOCK_USER, IDS_OPTIONS_PASSWORD_MANAGER_ENABLE},
-      {"Smart Lock User branding, no behavioral change, no migration",
-       kSmartLockBrandingGroupName,
-       kDisablePasswordManagerSettingsMigrationGroupName,
-       kPasswordManagerSettingsBehaviourChangeDisabledGroupName,
-       SMART_LOCK_USER, IDS_OPTIONS_PASSWORD_MANAGER_SMART_LOCK_ENABLE},
-      {"Non Smart Lock User, no behavioral change, no migration",
-       kSmartLockNoBrandingGroupName,
-       kDisablePasswordManagerSettingsMigrationGroupName,
-       kPasswordManagerSettingsBehaviourChangeDisabledGroupName,
-       NON_SMART_LOCK_USER, IDS_OPTIONS_PASSWORD_MANAGER_ENABLE},
-      {"Non Smart Lock User, no behavioral change, migration",
-       kSmartLockNoBrandingGroupName,
-       kEnabledPasswordManagerSettingsMigrationGroupName,
-       kPasswordManagerSettingsBehaviourChangeDisabledGroupName,
-       NON_SMART_LOCK_USER, IDS_OPTIONS_PASSWORD_MANAGER_ENABLE},
-      {"Non Smart Lock User, behavioral change, migration",
-       kSmartLockNoBrandingGroupName,
-       kEnabledPasswordManagerSettingsMigrationGroupName,
-       kPasswordManagerSettingsBehaviourChangeEnabledGroupName,
-       NON_SMART_LOCK_USER, IDS_OPTIONS_PASSWORD_MANAGER_ENABLE},
+      {"Smart Lock User, no migration",
+       kDisablePasswordManagerSettingsMigrationGroupName, SMART_LOCK_USER,
+       IDS_OPTIONS_PASSWORD_MANAGER_ENABLE},
+      {"Non Smart Lock User, no migration",
+       kDisablePasswordManagerSettingsMigrationGroupName, NON_SMART_LOCK_USER,
+       IDS_OPTIONS_PASSWORD_MANAGER_ENABLE},
+      {"Non Smart Lock User, migration",
+       kEnabledPasswordManagerSettingsMigrationGroupName, NON_SMART_LOCK_USER,
+       IDS_OPTIONS_PASSWORD_MANAGER_ENABLE},
   };
 
   for (const auto& test_case : kTestData) {
@@ -162,12 +109,8 @@ TEST_F(ManagePasswordsViewUtilDesktopTest, GetPasswordManagerSettingsStringId) {
       sync_service = GetSyncServiceForSmartLockUser();
     else
       sync_service = GetSyncServiceForNonSmartLockUser();
-    EnforceSmartLockBrandingExperiment(
-        test_case.smart_lock_branding_experiment_group);
     EnforcePasswordManagerSettingMigrationExperiment(
         test_case.settings_migration_experiment_group);
-    EnforcePasswordManagerSettingsBehaviourChangeExperiment(
-        test_case.settings_behaviour_change_experiment_group);
     EXPECT_EQ(
         l10n_util::GetStringUTF16(test_case.expected_setting_description_id),
         l10n_util::GetStringUTF16(

@@ -17,7 +17,6 @@
 
 namespace cc {
 class Layer;
-class SolidColorLayer;
 }
 
 namespace android {
@@ -38,9 +37,11 @@ class ToolbarSceneLayer : public SceneLayer {
       jint toolbar_background_color,
       jint url_bar_resource_id,
       jfloat url_bar_alpha,
-      jfloat top_offset,
+      jfloat y_offset,
+      jfloat view_height,
       bool visible,
-      bool show_shadow);
+      bool show_shadow,
+      bool browser_controls_at_bottom);
 
   // Update the progress bar.
   void UpdateProgressBar(

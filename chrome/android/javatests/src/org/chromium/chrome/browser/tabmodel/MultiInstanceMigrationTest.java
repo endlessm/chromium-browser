@@ -5,8 +5,8 @@
 package org.chromium.chrome.browser.tabmodel;
 
 import android.content.Context;
+import android.support.test.filters.MediumTest;
 import android.test.InstrumentationTestCase;
-import android.test.suitebuilder.annotation.MediumTest;
 
 import org.chromium.base.ContextUtils;
 import org.chromium.base.ThreadUtils;
@@ -54,9 +54,9 @@ public class MultiInstanceMigrationTest extends InstrumentationTestCase {
             public void run() {
                 MockTabModelSelector selector = new MockTabModelSelector(0, 0, null);
                 TabbedModeTabPersistencePolicy persistencePolicy =
-                        new TabbedModeTabPersistencePolicy(0);
+                        new TabbedModeTabPersistencePolicy(0, false);
                 TabPersistentStore store = new TabPersistentStore(
-                        persistencePolicy, selector, null, null, false);
+                        persistencePolicy, selector, null, null);
                 store.waitForMigrationToFinish();
             }
         });

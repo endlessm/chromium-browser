@@ -7,16 +7,14 @@
 
 #include "bindings/core/v8/ActiveScriptWrappable.h"
 #include "core/CoreExport.h"
-#include "core/dom/ActiveDOMObject.h"
 #include "core/dom/MessagePort.h"
+#include "core/dom/SuspendableObject.h"
 #include "core/events/EventListener.h"
 #include "core/events/EventTarget.h"
 #include "core/workers/AbstractWorker.h"
-#include "platform/heap/Handle.h"
 #include "wtf/Forward.h"
 #include "wtf/PassRefPtr.h"
 #include "wtf/RefPtr.h"
-#include "wtf/text/AtomicStringHash.h"
 
 namespace blink {
 
@@ -27,8 +25,9 @@ class WorkerScriptLoader;
 
 // Base class for workers that operate in the same process as the document that
 // creates them.
-class CORE_EXPORT InProcessWorkerBase : public AbstractWorker,
-                                        public ActiveScriptWrappable {
+class CORE_EXPORT InProcessWorkerBase
+    : public AbstractWorker,
+      public ActiveScriptWrappable<InProcessWorkerBase> {
  public:
   ~InProcessWorkerBase() override;
 
@@ -36,17 +35,14 @@ class CORE_EXPORT InProcessWorkerBase : public AbstractWorker,
                    PassRefPtr<SerializedScriptValue> message,
                    const MessagePortArray&,
                    ExceptionState&);
+  static bool canTransferArrayBuffersAndImageBitmaps() { return true; }
   void terminate();
 
-  // ActiveDOMObject
-  void contextDestroyed() override;
+  // SuspendableObject
+  void contextDestroyed(ExecutionContext*) override;
 
   // ScriptWrappable
   bool hasPendingActivity() const final;
-
-  ContentSecurityPolicy* contentSecurityPolicy();
-
-  String referrerPolicy();
 
   DEFINE_ATTRIBUTE_EVENT_LISTENER(message);
 
@@ -69,8 +65,6 @@ class CORE_EXPORT InProcessWorkerBase : public AbstractWorker,
   void onFinished();
 
   RefPtr<WorkerScriptLoader> m_scriptLoader;
-  Member<ContentSecurityPolicy> m_contentSecurityPolicy;
-  String m_referrerPolicy;
 
   // The proxy outlives the worker to perform thread shutdown.
   InProcessWorkerMessagingProxy* m_contextProxy;

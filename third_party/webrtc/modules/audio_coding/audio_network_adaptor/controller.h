@@ -25,18 +25,7 @@ class Controller {
     rtc::Optional<float> uplink_packet_loss_fraction;
     rtc::Optional<int> target_audio_bitrate_bps;
     rtc::Optional<int> rtt_ms;
-  };
-
-  struct Constraints {
-    Constraints();
-    ~Constraints();
-    struct FrameLengthRange {
-      FrameLengthRange(int min_frame_length_ms, int max_frame_length_ms);
-      ~FrameLengthRange();
-      int min_frame_length_ms;
-      int max_frame_length_ms;
-    };
-    rtc::Optional<FrameLengthRange> receiver_frame_length_range;
+    rtc::Optional<size_t> overhead_bytes_per_packet;
   };
 
   virtual ~Controller() = default;
@@ -44,8 +33,6 @@ class Controller {
   virtual void MakeDecision(
       const NetworkMetrics& metrics,
       AudioNetworkAdaptor::EncoderRuntimeConfig* config) = 0;
-
-  virtual void SetConstraints(const Constraints& constraints);
 };
 
 }  // namespace webrtc

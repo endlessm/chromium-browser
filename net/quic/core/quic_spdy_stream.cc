@@ -6,17 +6,17 @@
 
 #include <utility>
 
-#include "base/logging.h"
-#include "base/strings/string_number_conversions.h"
-#include "net/quic/core/quic_bug_tracker.h"
+#include "net/base/parse_number.h"
 #include "net/quic/core/quic_spdy_session.h"
 #include "net/quic/core/quic_utils.h"
 #include "net/quic/core/quic_write_blocked_list.h"
 #include "net/quic/core/spdy_utils.h"
+#include "net/quic/platform/api/quic_bug_tracker.h"
+#include "net/quic/platform/api/quic_logging.h"
+#include "net/quic/platform/api/quic_text_utils.h"
 
 using base::IntToString;
 using base::StringPiece;
-using std::min;
 using std::string;
 
 namespace net {
@@ -26,9 +26,10 @@ namespace net {
                                                                      " ")
 
 QuicSpdyStream::QuicSpdyStream(QuicStreamId id, QuicSpdySession* spdy_session)
-    : ReliableQuicStream(id, spdy_session),
+    : QuicStream(id, spdy_session),
       spdy_session_(spdy_session),
       visitor_(nullptr),
+      allow_bidirectional_data_(false),
       headers_decompressed_(false),
       priority_(kDefaultPriority),
       trailers_decompressed_(false),
@@ -46,35 +47,23 @@ QuicSpdyStream::~QuicSpdyStream() {
   }
 }
 
-void QuicSpdyStream::CloseWriteSide() {
-  if (!fin_received() && !rst_received() && sequencer()->ignore_read_data() &&
-      !rst_sent()) {
-    DCHECK(fin_sent());
-    // Tell the peer to stop sending further data.
-    DVLOG(1) << ENDPOINT << "Send QUIC_STREAM_NO_ERROR on stream " << id();
-    Reset(QUIC_STREAM_NO_ERROR);
-  }
-
-  ReliableQuicStream::CloseWriteSide();
-}
-
 void QuicSpdyStream::StopReading() {
   if (!fin_received() && !rst_received() && write_side_closed() &&
       !rst_sent()) {
     DCHECK(fin_sent());
     // Tell the peer to stop sending further data.
-    DVLOG(1) << ENDPOINT << "Send QUIC_STREAM_NO_ERROR on stream " << id();
+    QUIC_DVLOG(1) << ENDPOINT << "Send QUIC_STREAM_NO_ERROR on stream " << id();
     Reset(QUIC_STREAM_NO_ERROR);
   }
-  ReliableQuicStream::StopReading();
+  QuicStream::StopReading();
 }
 
 size_t QuicSpdyStream::WriteHeaders(
     SpdyHeaderBlock header_block,
     bool fin,
-    QuicAckListenerInterface* ack_notifier_delegate) {
+    QuicReferenceCountedPointer<QuicAckListenerInterface> ack_listener) {
   size_t bytes_written = spdy_session_->WriteHeaders(
-      id(), std::move(header_block), fin, priority_, ack_notifier_delegate);
+      id(), std::move(header_block), fin, priority_, std::move(ack_listener));
   if (fin) {
     // TODO(rch): Add test to ensure fin_sent_ is set whenever a fin is sent.
     set_fin_sent(true);
@@ -86,13 +75,13 @@ size_t QuicSpdyStream::WriteHeaders(
 void QuicSpdyStream::WriteOrBufferBody(
     const string& data,
     bool fin,
-    QuicAckListenerInterface* ack_notifier_delegate) {
-  WriteOrBufferData(data, fin, ack_notifier_delegate);
+    QuicReferenceCountedPointer<QuicAckListenerInterface> ack_listener) {
+  WriteOrBufferData(data, fin, std::move(ack_listener));
 }
 
 size_t QuicSpdyStream::WriteTrailers(
     SpdyHeaderBlock trailer_block,
-    QuicAckListenerInterface* ack_notifier_delegate) {
+    QuicReferenceCountedPointer<QuicAckListenerInterface> ack_listener) {
   if (fin_sent()) {
     QUIC_BUG << "Trailers cannot be sent after a FIN.";
     return 0;
@@ -100,17 +89,18 @@ size_t QuicSpdyStream::WriteTrailers(
 
   // The header block must contain the final offset for this stream, as the
   // trailers may be processed out of order at the peer.
-  DVLOG(1) << "Inserting trailer: (" << kFinalOffsetHeaderKey << ", "
-           << stream_bytes_written() + queued_data_bytes() << ")";
-  trailer_block.insert(std::make_pair(
-      kFinalOffsetHeaderKey,
-      IntToString(stream_bytes_written() + queued_data_bytes())));
+  QUIC_DLOG(INFO) << "Inserting trailer: (" << kFinalOffsetHeaderKey << ", "
+                  << stream_bytes_written() + queued_data_bytes() << ")";
+  trailer_block.insert(
+      std::make_pair(kFinalOffsetHeaderKey,
+                     QuicTextUtils::Uint64ToString(stream_bytes_written() +
+                                                   queued_data_bytes())));
 
   // Write the trailing headers with a FIN, and close stream for writing:
   // trailers are the last thing to be sent on a stream.
   const bool kFin = true;
   size_t bytes_written = spdy_session_->WriteHeaders(
-      id(), std::move(trailer_block), kFin, priority_, ack_notifier_delegate);
+      id(), std::move(trailer_block), kFin, priority_, std::move(ack_listener));
   set_fin_sent(kFin);
 
   // Trailers are the last thing to be sent on a stream, but if there is still
@@ -145,21 +135,7 @@ bool QuicSpdyStream::IsDoneReading() const {
 }
 
 bool QuicSpdyStream::HasBytesToRead() const {
-  bool headers_to_read = !decompressed_headers_.empty();
-  bool body_to_read = sequencer()->HasBytesToRead();
-  bool trailers_to_read = !decompressed_trailers_.empty();
-  return headers_to_read || body_to_read || trailers_to_read;
-}
-
-void QuicSpdyStream::MarkHeadersConsumed(size_t bytes_consumed) {
-  decompressed_headers_.erase(0, bytes_consumed);
-  if (FinishedReadingHeaders()) {
-    sequencer()->SetUnblocked();
-  }
-}
-
-void QuicSpdyStream::MarkTrailersConsumed(size_t bytes_consumed) {
-  decompressed_trailers_.erase(0, bytes_consumed);
+  return sequencer()->HasBytesToRead();
 }
 
 void QuicSpdyStream::MarkTrailersConsumed() {
@@ -179,31 +155,27 @@ void QuicSpdyStream::SetPriority(SpdyPriority priority) {
   priority_ = priority;
 }
 
-void QuicSpdyStream::OnStreamHeaders(StringPiece headers_data) {
-  if (!headers_decompressed_) {
-    headers_data.AppendToString(&decompressed_headers_);
-  } else {
-    DCHECK(!trailers_decompressed_);
-    headers_data.AppendToString(&decompressed_trailers_);
-  }
-}
-
 void QuicSpdyStream::OnStreamHeadersPriority(SpdyPriority priority) {
   DCHECK_EQ(Perspective::IS_SERVER, session()->connection()->perspective());
   SetPriority(priority);
 }
 
-void QuicSpdyStream::OnStreamHeadersComplete(bool fin, size_t frame_len) {
-  if (!headers_decompressed_) {
-    OnInitialHeadersComplete(fin, frame_len);
-  } else {
-    OnTrailingHeadersComplete(fin, frame_len);
-  }
-}
-
 void QuicSpdyStream::OnStreamHeaderList(bool fin,
                                         size_t frame_len,
                                         const QuicHeaderList& header_list) {
+  // The headers list avoid infinite buffering by clearing the headers list
+  // if the current headers are too large. So if the list is empty here
+  // then the headers list must have been too large, and the stream should
+  // be reset.
+  // TODO(rch): Use an explicit "headers too large" signal. An empty header list
+  // might be acceptable if it corresponds to a trailing header frame.
+  if (FLAGS_quic_reloadable_flag_quic_limit_uncompressed_headers &&
+      header_list.empty()) {
+    OnHeadersTooLarge();
+    if (IsDoneReading()) {
+      return;
+    }
+  }
   if (!headers_decompressed_) {
     OnInitialHeadersComplete(fin, frame_len, header_list);
   } else {
@@ -211,14 +183,8 @@ void QuicSpdyStream::OnStreamHeaderList(bool fin,
   }
 }
 
-void QuicSpdyStream::OnInitialHeadersComplete(bool fin, size_t /*frame_len*/) {
-  headers_decompressed_ = true;
-  if (fin) {
-    OnStreamFrame(QuicStreamFrame(id(), fin, 0, StringPiece()));
-  }
-  if (FinishedReadingHeaders()) {
-    sequencer()->SetUnblocked();
-  }
+void QuicSpdyStream::OnHeadersTooLarge() {
+  Reset(QUIC_HEADERS_TOO_LARGE);
 }
 
 void QuicSpdyStream::OnInitialHeadersComplete(
@@ -235,21 +201,6 @@ void QuicSpdyStream::OnInitialHeadersComplete(
   }
 }
 
-void QuicSpdyStream::OnPromiseHeaders(StringPiece headers_data) {
-  headers_data.AppendToString(&decompressed_headers_);
-}
-
-void QuicSpdyStream::OnPromiseHeadersComplete(
-    QuicStreamId /* promised_stream_id */,
-    size_t /* frame_len */) {
-  // To be overridden in QuicSpdyClientStream.  Not supported on
-  // server side.
-  session()->connection()->CloseConnection(
-      QUIC_INVALID_HEADERS_STREAM_DATA, "Promise headers received by server",
-      ConnectionCloseBehavior::SEND_CONNECTION_CLOSE_PACKET);
-  return;
-}
-
 void QuicSpdyStream::OnPromiseHeaderList(
     QuicStreamId /* promised_id */,
     size_t /* frame_len */,
@@ -262,55 +213,20 @@ void QuicSpdyStream::OnPromiseHeaderList(
   return;
 }
 
-void QuicSpdyStream::OnTrailingHeadersComplete(bool fin, size_t /*frame_len*/) {
-  DCHECK(!trailers_decompressed_);
-  if (fin_received()) {
-    DLOG(ERROR) << "Received Trailers after FIN, on stream: " << id();
-    session()->connection()->CloseConnection(
-        QUIC_INVALID_HEADERS_STREAM_DATA, "Trailers after fin",
-        ConnectionCloseBehavior::SEND_CONNECTION_CLOSE_PACKET);
-    return;
-  }
-  if (!fin) {
-    DLOG(ERROR) << "Trailers must have FIN set, on stream: " << id();
-    session()->connection()->CloseConnection(
-        QUIC_INVALID_HEADERS_STREAM_DATA, "Fin missing from trailers",
-        ConnectionCloseBehavior::SEND_CONNECTION_CLOSE_PACKET);
-    return;
-  }
-
-  size_t final_byte_offset = 0;
-  if (!SpdyUtils::ParseTrailers(decompressed_trailers().data(),
-                                decompressed_trailers().length(),
-                                &final_byte_offset, &received_trailers_)) {
-    DLOG(ERROR) << "Trailers are malformed: " << id();
-    session()->connection()->CloseConnection(
-        QUIC_INVALID_HEADERS_STREAM_DATA, "Trailers are malformed",
-        ConnectionCloseBehavior::SEND_CONNECTION_CLOSE_PACKET);
-    return;
-  }
-
-  // The data on this stream ends at |final_byte_offset|.
-  DVLOG(1) << "Stream ends at byte offset: " << final_byte_offset
-           << "  currently read: " << stream_bytes_read();
-  trailers_decompressed_ = true;
-  OnStreamFrame(QuicStreamFrame(id(), fin, final_byte_offset, StringPiece()));
-}
-
 void QuicSpdyStream::OnTrailingHeadersComplete(
     bool fin,
     size_t /*frame_len*/,
     const QuicHeaderList& header_list) {
   DCHECK(!trailers_decompressed_);
   if (fin_received()) {
-    DLOG(ERROR) << "Received Trailers after FIN, on stream: " << id();
+    QUIC_DLOG(ERROR) << "Received Trailers after FIN, on stream: " << id();
     session()->connection()->CloseConnection(
         QUIC_INVALID_HEADERS_STREAM_DATA, "Trailers after fin",
         ConnectionCloseBehavior::SEND_CONNECTION_CLOSE_PACKET);
     return;
   }
   if (!fin) {
-    DLOG(ERROR) << "Trailers must have FIN set, on stream: " << id();
+    QUIC_DLOG(ERROR) << "Trailers must have FIN set, on stream: " << id();
     session()->connection()->CloseConnection(
         QUIC_INVALID_HEADERS_STREAM_DATA, "Fin missing from trailers",
         ConnectionCloseBehavior::SEND_CONNECTION_CLOSE_PACKET);
@@ -320,7 +236,7 @@ void QuicSpdyStream::OnTrailingHeadersComplete(
   size_t final_byte_offset = 0;
   if (!SpdyUtils::CopyAndValidateTrailers(header_list, &final_byte_offset,
                                           &received_trailers_)) {
-    DLOG(ERROR) << "Trailers are malformed: " << id();
+    QUIC_DLOG(ERROR) << "Trailers are malformed: " << id();
     session()->connection()->CloseConnection(
         QUIC_INVALID_HEADERS_STREAM_DATA, "Trailers are malformed",
         ConnectionCloseBehavior::SEND_CONNECTION_CLOSE_PACKET);
@@ -332,10 +248,10 @@ void QuicSpdyStream::OnTrailingHeadersComplete(
 
 void QuicSpdyStream::OnStreamReset(const QuicRstStreamFrame& frame) {
   if (frame.error_code != QUIC_STREAM_NO_ERROR) {
-    ReliableQuicStream::OnStreamReset(frame);
+    QuicStream::OnStreamReset(frame);
     return;
   }
-  DVLOG(1) << "Received QUIC_STREAM_NO_ERROR, not discarding response";
+  QUIC_DVLOG(1) << "Received QUIC_STREAM_NO_ERROR, not discarding response";
   set_rst_received(true);
   MaybeIncreaseHighestReceivedOffset(frame.byte_offset);
   set_stream_error(frame.error_code);
@@ -343,7 +259,7 @@ void QuicSpdyStream::OnStreamReset(const QuicRstStreamFrame& frame) {
 }
 
 void QuicSpdyStream::OnClose() {
-  ReliableQuicStream::OnClose();
+  QuicStream::OnClose();
 
   if (visitor_) {
     Visitor* visitor = visitor_;
@@ -355,7 +271,7 @@ void QuicSpdyStream::OnClose() {
 }
 
 void QuicSpdyStream::OnCanWrite() {
-  ReliableQuicStream::OnCanWrite();
+  QuicStream::OnCanWrite();
 
   // Trailers (and hence a FIN) may have been sent ahead of queued body bytes.
   if (!HasBufferedData() && fin_sent()) {
@@ -364,8 +280,7 @@ void QuicSpdyStream::OnCanWrite() {
 }
 
 bool QuicSpdyStream::FinishedReadingHeaders() const {
-  return headers_decompressed_ && decompressed_headers_.empty() &&
-         header_list_.empty();
+  return headers_decompressed_ && header_list_.empty();
 }
 
 bool QuicSpdyStream::ParseHeaderStatusCode(const SpdyHeaderBlock& header,
@@ -378,15 +293,19 @@ bool QuicSpdyStream::ParseHeaderStatusCode(const SpdyHeaderBlock& header,
   if (status.size() != 3) {
     return false;
   }
-  // First character must be an integer in range [1,5].
-  if (status[0] < '1' || status[0] > '5') {
+
+  unsigned int result;
+  if (!ParseUint32(status, &result, nullptr)) {
     return false;
   }
-  // The remaining two characters must be integers.
-  if (!isdigit(status[1]) || !isdigit(status[2])) {
+
+  // Valid status codes are only in the range [100, 599].
+  if (result < 100 || result >= 600) {
     return false;
   }
-  return StringToInt(status, status_code);
+
+  *status_code = static_cast<int>(result);
+  return true;
 }
 
 bool QuicSpdyStream::FinishedReadingTrailers() const {
@@ -397,7 +316,7 @@ bool QuicSpdyStream::FinishedReadingTrailers() const {
   } else if (!trailers_decompressed_) {
     return true;
   } else {
-    return trailers_consumed_ && decompressed_trailers_.empty();
+    return trailers_consumed_;
   }
 }
 
@@ -413,14 +332,13 @@ QuicConsumedData QuicSpdyStream::WritevDataInner(
     QuicIOVector iov,
     QuicStreamOffset offset,
     bool fin,
-    QuicAckListenerInterface* ack_notifier_delegate) {
+    QuicReferenceCountedPointer<QuicAckListenerInterface> ack_listener) {
   if (spdy_session_->headers_stream() != nullptr &&
       spdy_session_->force_hol_blocking()) {
-    return spdy_session_->headers_stream()->WritevStreamData(
-        id(), iov, offset, fin, ack_notifier_delegate);
+    return spdy_session_->WritevStreamData(id(), iov, offset, fin,
+                                           std::move(ack_listener));
   }
-  return ReliableQuicStream::WritevDataInner(iov, offset, fin,
-                                             ack_notifier_delegate);
+  return QuicStream::WritevDataInner(iov, offset, fin, std::move(ack_listener));
 }
 
 }  // namespace net

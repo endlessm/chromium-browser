@@ -7,11 +7,12 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/memory/ptr_util.h"
 #include "components/dom_distiller/content/common/distiller_page_notifier_service.mojom.h"
 #include "components/dom_distiller/content/renderer/distiller_page_notifier_service_impl.h"
 #include "content/public/renderer/render_frame.h"
 #include "mojo/public/cpp/bindings/strong_binding.h"
-#include "services/shell/public/cpp/interface_registry.h"
+#include "services/service_manager/public/cpp/interface_registry.h"
 #include "v8/include/v8.h"
 
 namespace dom_distiller {
@@ -41,7 +42,6 @@ void DistillerJsRenderFrameObserver::DidFinishLoad() {
 
 void DistillerJsRenderFrameObserver::DidCreateScriptContext(
     v8::Local<v8::Context> context,
-    int extension_group,
     int world_id) {
   if (world_id != distiller_isolated_world_id_ || !is_distiller_page_) {
     return;

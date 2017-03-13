@@ -75,23 +75,9 @@ FakeCompositorDependencies::GetCompositorImplThreadTaskRunner() {
   return nullptr;  // Currently never threaded compositing in unit tests.
 }
 
-cc::SharedBitmapManager* FakeCompositorDependencies::GetSharedBitmapManager() {
-  return &shared_bitmap_manager_;
-}
-
-gpu::GpuMemoryBufferManager*
-FakeCompositorDependencies::GetGpuMemoryBufferManager() {
-  return &gpu_memory_buffer_manager_;
-}
-
 blink::scheduler::RendererScheduler*
 FakeCompositorDependencies::GetRendererScheduler() {
   return &renderer_scheduler_;
-}
-
-cc::ImageSerializationProcessor*
-FakeCompositorDependencies::GetImageSerializationProcessor() {
-  return nullptr;
 }
 
 cc::TaskGraphRunner* FakeCompositorDependencies::GetTaskGraphRunner() {

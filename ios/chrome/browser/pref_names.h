@@ -22,7 +22,6 @@ extern const char kEnableDoNotTrack[];
 extern const char kHttpServerProperties[];
 extern const char kIosBookmarkFolderDefault[];
 extern const char kIosBookmarkPromoAlreadySeen[];
-extern const char kIosHandoffToOtherDevices[];
 extern const char kIosPhysicalWebEnabled[];
 extern const char kLastSessionExitedCleanly[];
 extern const char kMetricsReportingWifiOnly[];
@@ -37,9 +36,6 @@ extern const char kNetworkPredictionWifiOnly[];
 
 extern const char kNtpShownBookmarksFolder[];
 extern const char kShowMemoryDebuggingTools[];
-
-extern const char kVoiceSearchLocale[];
-extern const char kVoiceSearchTTS[];
 
 extern const char kSigninLastAccounts[];
 extern const char kSigninLastAccountsMigrated[];

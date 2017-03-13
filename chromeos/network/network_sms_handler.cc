@@ -392,7 +392,8 @@ void NetworkSmsHandler::AddReceivedMessage(
 
 void NetworkSmsHandler::NotifyMessageReceived(
     const base::DictionaryValue& message) {
-  FOR_EACH_OBSERVER(Observer, observers_, MessageReceived(message));
+  for (auto& observer : observers_)
+    observer.MessageReceived(message);
 }
 
 void NetworkSmsHandler::MessageReceived(const base::DictionaryValue& message) {
@@ -409,7 +410,7 @@ void NetworkSmsHandler::ManagerPropertiesCallback(
   }
   const base::Value* value;
   if (!properties.GetWithoutPathExpansion(shill::kDevicesProperty, &value) ||
-      value->GetType() != base::Value::TYPE_LIST) {
+      value->GetType() != base::Value::Type::LIST) {
     LOG(ERROR) << "NetworkSmsHandler: No list value for: "
                << shill::kDevicesProperty;
     return;

@@ -14,6 +14,7 @@
 #include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
 #include "base/run_loop.h"
+#include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/chromeos/login/existing_user_controller.h"
 #include "chrome/browser/chromeos/login/help_app_launcher.h"
@@ -40,7 +41,6 @@
 #include "chromeos/login/auth/key.h"
 #include "chromeos/login/auth/mock_url_fetchers.h"
 #include "chromeos/login/auth/user_context.h"
-#include "chromeos/login/user_names.h"
 #include "chromeos/settings/cros_settings_names.h"
 #include "chromeos/settings/cros_settings_provider.h"
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
@@ -213,7 +213,7 @@ class ExistingUserControllerTest : public policy::DevicePolicyCrosBrowserTest {
   }
 
   int auto_login_delay() const {
-    return existing_user_controller()->public_session_auto_login_delay_;
+    return existing_user_controller()->auto_login_delay_;
   }
 
   bool is_login_in_progress() const {
@@ -253,7 +253,7 @@ IN_PROC_BROWSER_TEST_F(ExistingUserControllerTest, DISABLED_ExistingUserLogin) {
   EXPECT_CALL(*mock_login_display_, SetUIEnabled(true))
       .Times(1);
   EXPECT_CALL(*mock_login_display_host_,
-              StartWizard(WizardController::kTermsOfServiceScreenName))
+              StartWizard(OobeScreen::SCREEN_TERMS_OF_SERVICE))
       .Times(0);
 
   content::WindowedNotificationObserver profile_prepared_observer(
@@ -446,7 +446,7 @@ class ExistingUserControllerPublicSessionTest
         UserSessionManager::GetInstance());
     session_manager_test_api.InjectStubUserContext(user_context);
     EXPECT_CALL(*mock_login_display_host_,
-                StartWizard(WizardController::kTermsOfServiceScreenName))
+                StartWizard(OobeScreen::SCREEN_TERMS_OF_SERVICE))
         .Times(0);
     EXPECT_CALL(*mock_login_display_, SetUIEnabled(false)).Times(AnyNumber());
     EXPECT_CALL(*mock_login_display_, SetUIEnabled(true)).Times(AnyNumber());
@@ -455,7 +455,7 @@ class ExistingUserControllerPublicSessionTest
   void SetAutoLoginPolicy(const std::string& user_email, int delay) {
     // Wait until ExistingUserController has finished auto-login
     // configuration by observing the same settings that trigger
-    // ConfigurePublicSessionAutoLogin.
+    // ConfigureAutoLogin.
 
     em::ChromeDeviceSettingsProto& proto(device_policy()->payload());
 
@@ -495,7 +495,7 @@ class ExistingUserControllerPublicSessionTest
   }
 
   void ConfigureAutoLogin() {
-    existing_user_controller()->ConfigurePublicSessionAutoLogin();
+    existing_user_controller()->ConfigureAutoLogin();
   }
 
   void FireAutoLogin() {
@@ -593,8 +593,9 @@ IN_PROC_BROWSER_TEST_F(ExistingUserControllerPublicSessionTest,
   content::RunAllPendingInMessageLoop();
 }
 
+// See http://crbug.com/654719
 IN_PROC_BROWSER_TEST_F(ExistingUserControllerPublicSessionTest,
-                       LoginStopsAutoLogin) {
+                       DISABLED_LoginStopsAutoLogin) {
   // Set up mocks to check login success.
   UserContext user_context(account_id_);
   user_context.SetKey(Key(kPassword));

@@ -10,6 +10,10 @@
 #include "testing/platform_test.h"
 #import "third_party/ocmock/OCMock/OCMock.h"
 
+#if !defined(__has_feature) || !__has_feature(objc_arc)
+#error "This file requires ARC support."
+#endif
+
 namespace {
 
 void PostKeyboardWillChangeNotification(CGRect beginFrame, CGRect endFrame) {
@@ -24,17 +28,7 @@ void PostKeyboardWillChangeNotification(CGRect beginFrame, CGRect endFrame) {
                   }];
 }
 
-class HardwareKeyboardWatcherTest : public PlatformTest {
- public:
-  HardwareKeyboardWatcherTest() {
-    _window.reset(
-        [[UIWindow alloc] initWithFrame:[[UIScreen mainScreen] bounds]]);
-    [_window makeKeyAndVisible];
-  }
-
- protected:
-  base::scoped_nsobject<UIWindow> _window;
-};
+typedef PlatformTest HardwareKeyboardWatcherTest;
 
 TEST_F(HardwareKeyboardWatcherTest, AccessoryViewNotInHierarchy_NoHistogram) {
   base::HistogramTester histogram_tester;

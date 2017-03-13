@@ -49,7 +49,6 @@ namespace blink {
 
 class Document;
 class LocalFrame;
-class GeolocationError;
 class ExecutionContext;
 
 class MODULES_EXPORT Geolocation final
@@ -65,8 +64,8 @@ class MODULES_EXPORT Geolocation final
   ~Geolocation();
   DECLARE_VIRTUAL_TRACE();
 
-  // Inherited from ContextLifecycleObserver AND PageVisibilityObserver.
-  void contextDestroyed() override;
+  // Inherited from ContextLifecycleObserver and PageVisibilityObserver.
+  void contextDestroyed(ExecutionContext*) override;
 
   Document* document() const;
   LocalFrame* frame() const;

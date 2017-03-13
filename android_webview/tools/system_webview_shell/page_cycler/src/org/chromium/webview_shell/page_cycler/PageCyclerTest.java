@@ -4,14 +4,14 @@
 
 package org.chromium.webview_shell.page_cycler;
 
+import android.support.test.filters.LargeTest;
 import android.test.ActivityInstrumentationTestCase2;
-import android.test.suitebuilder.annotation.LargeTest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 
+import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.Restriction;
-import org.chromium.content.browser.test.util.CallbackHelper;
 import org.chromium.webview_shell.PageCyclerTestActivity;
 
 import java.util.concurrent.TimeUnit;

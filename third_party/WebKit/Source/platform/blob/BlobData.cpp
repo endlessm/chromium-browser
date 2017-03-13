@@ -74,7 +74,16 @@ void BlobDataItem::detachFromCurrentThread() {
 }
 
 std::unique_ptr<BlobData> BlobData::create() {
-  return wrapUnique(new BlobData());
+  return WTF::wrapUnique(
+      new BlobData(FileCompositionStatus::NO_UNKNOWN_SIZE_FILES));
+}
+
+std::unique_ptr<BlobData> BlobData::createForFileWithUnknownSize(
+    const String& path) {
+  std::unique_ptr<BlobData> data = WTF::wrapUnique(
+      new BlobData(FileCompositionStatus::SINGLE_UNKNOWN_SIZE_FILE));
+  data->m_items.push_back(BlobDataItem(path));
+  return data;
 }
 
 void BlobData::detachFromCurrentThread() {
@@ -93,40 +102,48 @@ void BlobData::setContentType(const String& contentType) {
 void BlobData::appendData(PassRefPtr<RawData> data,
                           long long offset,
                           long long length) {
-  m_items.append(BlobDataItem(std::move(data), offset, length));
-}
-
-void BlobData::appendFile(const String& path) {
-  m_items.append(BlobDataItem(path));
+  CHECK_EQ(m_fileComposition, FileCompositionStatus::NO_UNKNOWN_SIZE_FILES)
+      << "Blobs with a unknown-size file cannot have other items.";
+  m_items.push_back(BlobDataItem(std::move(data), offset, length));
 }
 
 void BlobData::appendFile(const String& path,
                           long long offset,
                           long long length,
                           double expectedModificationTime) {
-  m_items.append(BlobDataItem(path, offset, length, expectedModificationTime));
+  CHECK_EQ(m_fileComposition, FileCompositionStatus::NO_UNKNOWN_SIZE_FILES)
+      << "Blobs with a unknown-size file cannot have other items.";
+  m_items.push_back(
+      BlobDataItem(path, offset, length, expectedModificationTime));
 }
 
 void BlobData::appendBlob(PassRefPtr<BlobDataHandle> dataHandle,
                           long long offset,
                           long long length) {
-  m_items.append(BlobDataItem(std::move(dataHandle), offset, length));
+  CHECK_EQ(m_fileComposition, FileCompositionStatus::NO_UNKNOWN_SIZE_FILES)
+      << "Blobs with a unknown-size file cannot have other items.";
+  m_items.push_back(BlobDataItem(std::move(dataHandle), offset, length));
 }
 
 void BlobData::appendFileSystemURL(const KURL& url,
                                    long long offset,
                                    long long length,
                                    double expectedModificationTime) {
-  m_items.append(BlobDataItem(url, offset, length, expectedModificationTime));
+  CHECK_EQ(m_fileComposition, FileCompositionStatus::NO_UNKNOWN_SIZE_FILES)
+      << "Blobs with a unknown-size file cannot have other items.";
+  m_items.push_back(
+      BlobDataItem(url, offset, length, expectedModificationTime));
 }
 
 void BlobData::appendText(const String& text,
                           bool doNormalizeLineEndingsToNative) {
+  CHECK_EQ(m_fileComposition, FileCompositionStatus::NO_UNKNOWN_SIZE_FILES)
+      << "Blobs with a unknown-size file cannot have other items.";
   CString utf8Text = UTF8Encoding().encode(text, WTF::EntitiesForUnencodables);
   RefPtr<RawData> data = nullptr;
   Vector<char>* buffer;
   if (canConsolidateData(text.length())) {
-    buffer = m_items.last().data->mutableData();
+    buffer = m_items.back().data->mutableData();
   } else {
     data = RawData::create();
     buffer = data->mutableData();
@@ -139,19 +156,21 @@ void BlobData::appendText(const String& text,
   }
 
   if (data)
-    m_items.append(BlobDataItem(data.release()));
+    m_items.push_back(BlobDataItem(std::move(data)));
 }
 
 void BlobData::appendBytes(const void* bytes, size_t length) {
+  CHECK_EQ(m_fileComposition, FileCompositionStatus::NO_UNKNOWN_SIZE_FILES)
+      << "Blobs with a unknown-size file cannot have other items.";
   if (canConsolidateData(length)) {
-    m_items.last().data->mutableData()->append(static_cast<const char*>(bytes),
+    m_items.back().data->mutableData()->append(static_cast<const char*>(bytes),
                                                length);
     return;
   }
   RefPtr<RawData> data = RawData::create();
   Vector<char>* buffer = data->mutableData();
   buffer->append(static_cast<const char*>(bytes), length);
-  m_items.append(BlobDataItem(data.release()));
+  m_items.push_back(BlobDataItem(std::move(data)));
 }
 
 long long BlobData::length() const {
@@ -182,7 +201,7 @@ long long BlobData::length() const {
 bool BlobData::canConsolidateData(size_t length) {
   if (m_items.isEmpty())
     return false;
-  BlobDataItem& lastItem = m_items.last();
+  BlobDataItem& lastItem = m_items.back();
   if (lastItem.type != BlobDataItem::Data)
     return false;
   if (lastItem.data->length() + length > kMaxConsolidatedItemSizeInBytes)

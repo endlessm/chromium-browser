@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "ios/web/webui/crw_web_ui_page_builder.h"
+#import "ios/web/webui/crw_web_ui_page_builder.h"
 
 #include <map>
 #include <string>
@@ -10,7 +10,7 @@
 
 #include "base/logging.h"
 #include "base/mac/bundle_locations.h"
-#include "base/mac/scoped_nsobject.h"
+#import "base/mac/scoped_nsobject.h"
 #include "base/strings/sys_string_conversions.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
@@ -116,6 +116,7 @@ NSString* const kWebUIJSURL = @"chrome://resources/js/ios/web_ui.js";
            completionHandler:(web::WebUIPageCompletion)completionHandler {
   [self fetchResourceWithURL:webUIURL
            completionHandler:^(NSString* webUIHTML, const GURL& URL) {
+             DCHECK(webUIHTML);
              [self buildWebUIPageForHTML:webUIHTML
                                 webUIURL:URL
                        completionHandler:completionHandler];
@@ -140,6 +141,7 @@ NSString* const kWebUIJSURL = @"chrome://resources/js/ios/web_ui.js";
   __block __weak web::WebUIDelegateCompletion weakSubresourceHandler = nil;
   web::WebUIDelegateCompletion subresourceHandler = [^(
       NSString* subresource, const GURL& subresourceURL) {
+    DCHECK(subresource);
     // Import statements in CSS resources are also loaded.
     if ([self isCSSSubresourceURL:subresourceURL]) {
       NSSet* URLStrings = [weakSelf URLStringsFromCSS:subresource];
@@ -212,6 +214,9 @@ NSString* const kWebUIJSURL = @"chrome://resources/js/ios/web_ui.js";
   DCHECK(prefix);
   DCHECK(suffix);
   NSMutableSet* URLStrings = [NSMutableSet set];
+  if (!resource) {
+    return URLStrings;
+  }
   NSError* error = nil;
   NSString* tagPattern = [NSString
       stringWithFormat:@"%@(.*?)%@",

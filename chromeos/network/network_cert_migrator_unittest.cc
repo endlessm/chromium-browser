@@ -67,6 +67,7 @@ class NetworkCertMigratorTest : public testing::Test {
   }
 
   void TearDown() override {
+    network_state_handler_->Shutdown();
     network_cert_migrator_.reset();
     network_state_handler_.reset();
     CertLoader::Shutdown();
@@ -89,7 +90,7 @@ class NetworkCertMigratorTest : public testing::Test {
   }
 
   void SetupNetworkHandlers() {
-    network_state_handler_.reset(NetworkStateHandler::InitializeForTest());
+    network_state_handler_ = NetworkStateHandler::InitializeForTest();
     network_cert_migrator_.reset(new NetworkCertMigrator);
     network_cert_migrator_->Init(network_state_handler_.get());
   }

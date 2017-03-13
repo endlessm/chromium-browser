@@ -5,9 +5,10 @@
 #ifndef MEDIA_CAPTURE_VIDEO_VIDEO_CAPTURE_DEVICE_DESCRIPTOR_H_
 #define MEDIA_CAPTURE_VIDEO_VIDEO_CAPTURE_DEVICE_DESCRIPTOR_H_
 
-#include <list>
 #include <string>
+#include <vector>
 
+#include "media/base/video_facing.h"
 #include "media/capture/capture_export.h"
 
 namespace media {
@@ -48,12 +49,14 @@ struct CAPTURE_EXPORT VideoCaptureDeviceDescriptor {
       VideoCaptureApi capture_api = VideoCaptureApi::UNKNOWN,
       VideoCaptureTransportType transport_type =
           VideoCaptureTransportType::OTHER_TRANSPORT);
-  VideoCaptureDeviceDescriptor(const std::string& display_name,
-                               const std::string& device_id,
-                               const std::string& model_id,
-                               VideoCaptureApi capture_api,
-                               VideoCaptureTransportType transport_type =
-                                   VideoCaptureTransportType::OTHER_TRANSPORT);
+  VideoCaptureDeviceDescriptor(
+      const std::string& display_name,
+      const std::string& device_id,
+      const std::string& model_id,
+      VideoCaptureApi capture_api,
+      VideoCaptureTransportType transport_type =
+          VideoCaptureTransportType::OTHER_TRANSPORT,
+      VideoFacingMode facing = VideoFacingMode::MEDIA_VIDEO_FACING_NONE);
   VideoCaptureDeviceDescriptor(const VideoCaptureDeviceDescriptor& other);
   ~VideoCaptureDeviceDescriptor();
 
@@ -63,11 +66,7 @@ struct CAPTURE_EXPORT VideoCaptureDeviceDescriptor {
   bool operator==(const VideoCaptureDeviceDescriptor& other) const {
     return (other.device_id == device_id) && (other.capture_api == capture_api);
   }
-  bool operator<(const VideoCaptureDeviceDescriptor& other) const {
-    if (device_id < other.device_id)
-      return true;
-    return capture_api < other.capture_api;
-  }
+  bool operator<(const VideoCaptureDeviceDescriptor& other) const;
 
   const char* GetCaptureApiTypeString() const;
   // Friendly name of a device, plus the model identifier in parentheses.
@@ -80,11 +79,13 @@ struct CAPTURE_EXPORT VideoCaptureDeviceDescriptor {
   // otherwise.
   std::string model_id;
 
+  VideoFacingMode facing;
+
   VideoCaptureApi capture_api;
   VideoCaptureTransportType transport_type;
 };
 
-using VideoCaptureDeviceDescriptors = std::list<VideoCaptureDeviceDescriptor>;
+using VideoCaptureDeviceDescriptors = std::vector<VideoCaptureDeviceDescriptor>;
 
 }  // namespace media
 

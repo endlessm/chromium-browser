@@ -4,8 +4,7 @@
 
 package org.chromium.chrome.browser;
 
-import android.os.Environment;
-import android.test.suitebuilder.annotation.MediumTest;
+import android.support.test.filters.MediumTest;
 import android.text.TextUtils;
 
 import org.chromium.base.ThreadUtils;
@@ -53,8 +52,7 @@ public class PopupTest extends ChromeActivityTestCaseBase<ChromeActivity> {
             }
         });
 
-        mTestServer = EmbeddedTestServer.createAndStartFileServer(
-                getInstrumentation().getContext(), Environment.getExternalStorageDirectory());
+        mTestServer = EmbeddedTestServer.createAndStartServer(getInstrumentation().getContext());
         mPopupHtmlUrl = mTestServer.getURL(POPUP_HTML_PATH);
     }
 

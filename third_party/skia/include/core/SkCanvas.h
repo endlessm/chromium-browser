@@ -15,15 +15,15 @@
 #include "SkDeque.h"
 #include "SkImage.h"
 #include "SkPaint.h"
+#include "SkRasterHandleAllocator.h"
 #include "SkRefCnt.h"
 #include "SkRegion.h"
 #include "SkSurfaceProps.h"
-#include "SkXfermode.h"
 #include "SkLights.h"
 #include "../private/SkShadowParams.h"
 
 class GrContext;
-class GrDrawContext;
+class GrRenderTargetContext;
 class SkBaseDevice;
 class SkCanvasClipVisitor;
 class SkClipStack;
@@ -43,8 +43,6 @@ class SkSurface;
 class SkSurface_Base;
 class SkTextBlob;
 
-//#define SK_SUPPORT_LEGACY_CLIP_REGIONOPS
-
 /** \class SkCanvas
 
     A Canvas encapsulates all of the state about drawing into a device (bitmap).
@@ -60,31 +58,12 @@ class SkTextBlob;
     color, typeface, textSize, strokeWidth, shader (e.g. gradients, patterns),
     etc.
 */
-class SK_API SkCanvas : public SkRefCnt {
+class SK_API SkCanvas : SkNoncopyable {
     enum PrivateSaveLayerFlags {
         kDontClipToLayer_PrivateSaveLayerFlag   = 1U << 31,
     };
 
 public:
-#ifdef SK_SUPPORT_LEGACY_CLIP_REGIONOPS
-    typedef SkRegion::Op ClipOp;
-
-    static const ClipOp kDifference_Op         = SkRegion::kDifference_Op;
-    static const ClipOp kIntersect_Op          = SkRegion::kIntersect_Op;
-    static const ClipOp kUnion_Op              = SkRegion::kUnion_Op;
-    static const ClipOp kXOR_Op                = SkRegion::kXOR_Op;
-    static const ClipOp kReverseDifference_Op  = SkRegion::kReverseDifference_Op;
-    static const ClipOp kReplace_Op            = SkRegion::kReplace_Op;
-#else
-    typedef SkClipOp ClipOp;
-
-    static const ClipOp kDifference_Op         = kDifference_SkClipOp;
-    static const ClipOp kIntersect_Op          = kIntersect_SkClipOp;
-    static const ClipOp kUnion_Op              = kUnion_SkClipOp;
-    static const ClipOp kXOR_Op                = kXOR_SkClipOp;
-    static const ClipOp kReverseDifference_Op  = kReverseDifference_SkClipOp;
-    static const ClipOp kReplace_Op            = kReplace_SkClipOp;
-#endif
     /**
      *  Attempt to allocate raster canvas, matching the ImageInfo, that will draw directly into the
      *  specified pixels. To access the pixels after drawing to them, the caller should call
@@ -100,10 +79,11 @@ public:
      *  Note: it is valid to request a supported ImageInfo, but with zero
      *  dimensions.
      */
-    static SkCanvas* NewRasterDirect(const SkImageInfo&, void*, size_t);
+    static std::unique_ptr<SkCanvas> MakeRasterDirect(const SkImageInfo&, void*, size_t);
 
-    static SkCanvas* NewRasterDirectN32(int width, int height, SkPMColor* pixels, size_t rowBytes) {
-        return NewRasterDirect(SkImageInfo::MakeN32Premul(width, height), pixels, rowBytes);
+    static std::unique_ptr<SkCanvas> MakeRasterDirectN32(int width, int height, SkPMColor* pixels,
+                                                         size_t rowBytes) {
+        return MakeRasterDirect(SkImageInfo::MakeN32Premul(width, height), pixels, rowBytes);
     }
 
     /**
@@ -177,40 +157,6 @@ public:
     SkISize getDeviceSize() const { return this->getBaseLayerSize(); }
 
     /**
-     *  DEPRECATED.
-     *  Return the canvas' device object, which may be null. The device holds
-     *  the bitmap of the pixels that the canvas draws into. The reference count
-     *  of the returned device is not changed by this call.
-     */
-#ifndef SK_SUPPORT_LEGACY_GETDEVICE
-protected:  // Can we make this private?
-#endif
-    SkBaseDevice* getDevice() const;
-public:
-    SkBaseDevice* getDevice_just_for_deprecated_compatibility_testing() const {
-        return this->getDevice();
-    }
-
-    /**
-     *  saveLayer() can create another device (which is later drawn onto
-     *  the previous device). getTopDevice() returns the top-most device current
-     *  installed. Note that this can change on other calls like save/restore,
-     *  so do not access this device after subsequent canvas calls.
-     *  The reference count of the device is not changed.
-     *
-     * @param updateMatrixClip If this is true, then before the device is
-     *        returned, we ensure that its has been notified about the current
-     *        matrix and clip. Note: this happens automatically when the device
-     *        is drawn to, but is optional here, as there is a small perf hit
-     *        sometimes.
-     */
-#ifndef SK_SUPPORT_LEGACY_GETTOPDEVICE
-private:
-#endif
-    SkBaseDevice* getTopDevice(bool updateMatrixClip = false) const;
-public:
-
-    /**
      *  Create a new surface matching the specified info, one that attempts to
      *  be maximally compatible when used with this canvas. If there is no matching Surface type,
      *  NULL is returned.
@@ -220,9 +166,6 @@ public:
      *  surface, then the new surface is created with default properties.
      */
     sk_sp<SkSurface> makeSurface(const SkImageInfo&, const SkSurfaceProps* = nullptr);
-#ifdef SK_SUPPORT_LEGACY_NEW_SURFACE_API
-    SkSurface* newSurface(const SkImageInfo& info, const SkSurfaceProps* props = NULL);
-#endif
 
     /**
      * Return the GPU context of the device that is associated with the canvas.
@@ -245,6 +188,8 @@ public:
      */
     void* accessTopLayerPixels(SkImageInfo* info, size_t* rowBytes, SkIPoint* origin = NULL);
 
+    SkRasterHandleAllocator::Handle accessTopRasterHandle() const;
+
     /**
      *  If the canvas has readable pixels in its base layer (and is not recording to a picture
      *  or other non-raster target) and has direct access to its pixels (i.e. they are in
@@ -257,10 +202,6 @@ public:
      *  On failure, returns false and the pixmap parameter will be ignored.
      */
     bool peekPixels(SkPixmap*);
-
-#ifdef SK_SUPPORT_LEGACY_PEEKPIXELS_PARMS
-    const void* peekPixels(SkImageInfo* info, size_t* rowBytes);
-#endif
 
     /**
      *  Copy the pixels from the base-layer into the specified buffer (pixels + rowBytes),
@@ -500,13 +441,24 @@ public:
      *  @param op The region op to apply to the current clip
      *  @param doAntiAlias true if the clip should be antialiased
      */
-    void clipRect(const SkRect& rect, ClipOp, bool doAntiAlias);
-    void clipRect(const SkRect& rect, ClipOp op) {
+    void clipRect(const SkRect& rect, SkClipOp, bool doAntiAlias);
+    void clipRect(const SkRect& rect, SkClipOp op) {
         this->clipRect(rect, op, false);
     }
     void clipRect(const SkRect& rect, bool doAntiAlias = false) {
-        this->clipRect(rect, kIntersect_Op, doAntiAlias);
+        this->clipRect(rect, SkClipOp::kIntersect, doAntiAlias);
     }
+
+    /**
+     * Sets the max clip rectangle, which can be set by clipRect, clipRRect and
+     * clipPath and intersect the current clip with the specified rect.
+     * The max clip affects only future ops (it is not retroactive).
+     * We DON'T record the clip restriction in pictures.
+     * This is private API to be used only by Android framework.
+     * @param rect   The maximum allowed clip in device coordinates.
+     *               Empty rect means max clip is not enforced.
+     */
+    void androidFramework_setDeviceClipRestriction(const SkIRect& rect);
 
     /**
      *  Modify the current clip with the specified SkRRect.
@@ -514,12 +466,12 @@ public:
      *  @param op The region op to apply to the current clip
      *  @param doAntiAlias true if the clip should be antialiased
      */
-    void clipRRect(const SkRRect& rrect, ClipOp op, bool doAntiAlias);
-    void clipRRect(const SkRRect& rrect, ClipOp op) {
+    void clipRRect(const SkRRect& rrect, SkClipOp op, bool doAntiAlias);
+    void clipRRect(const SkRRect& rrect, SkClipOp op) {
         this->clipRRect(rrect, op, false);
     }
     void clipRRect(const SkRRect& rrect, bool doAntiAlias = false) {
-        this->clipRRect(rrect, kIntersect_Op, doAntiAlias);
+        this->clipRRect(rrect, SkClipOp::kIntersect, doAntiAlias);
     }
 
     /**
@@ -528,12 +480,12 @@ public:
      *  @param op The region op to apply to the current clip
      *  @param doAntiAlias true if the clip should be antialiased
      */
-    void clipPath(const SkPath& path, ClipOp op, bool doAntiAlias);
-    void clipPath(const SkPath& path, ClipOp op) {
+    void clipPath(const SkPath& path, SkClipOp op, bool doAntiAlias);
+    void clipPath(const SkPath& path, SkClipOp op) {
         this->clipPath(path, op, false);
     }
     void clipPath(const SkPath& path, bool doAntiAlias = false) {
-        this->clipPath(path, kIntersect_Op, doAntiAlias);
+        this->clipPath(path, SkClipOp::kIntersect, doAntiAlias);
     }
 
     /** EXPERIMENTAL -- only used for testing
@@ -550,7 +502,7 @@ public:
         @param deviceRgn    The region to apply to the current clip
         @param op The region op to apply to the current clip
     */
-    void clipRegion(const SkRegion& deviceRgn, ClipOp op = kIntersect_Op);
+    void clipRegion(const SkRegion& deviceRgn, SkClipOp op = SkClipOp::kIntersect);
 
     /** Return true if the specified rectangle, after being transformed by the
         current matrix, would lie completely outside of the current clip. Call
@@ -587,7 +539,6 @@ public:
     */
     virtual bool getClipDeviceBounds(SkIRect* bounds) const;
 
-
     /** Fill the entire canvas' bitmap (restricted to the current clip) with the
         specified ARGB color, using the specified mode.
         @param a    the alpha component (0..255) of the color to fill the canvas
@@ -597,11 +548,6 @@ public:
         @param mode the mode to apply the color in (defaults to SrcOver)
     */
     void drawARGB(U8CPU a, U8CPU r, U8CPU g, U8CPU b, SkBlendMode mode = SkBlendMode::kSrcOver);
-#ifdef SK_SUPPORT_LEGACY_XFERMODE_OBJECT
-    void drawARGB(U8CPU a, U8CPU r, U8CPU g, U8CPU b, SkXfermode::Mode mode) {
-        this->drawARGB(a, r, g, b, (SkBlendMode)mode);
-    }
-#endif
 
     /** Fill the entire canvas' bitmap (restricted to the current clip) with the
         specified color and mode.
@@ -609,11 +555,6 @@ public:
         @param mode the mode to apply the color in (defaults to SrcOver)
     */
     void drawColor(SkColor color, SkBlendMode mode = SkBlendMode::kSrcOver);
-#ifdef SK_SUPPORT_LEGACY_XFERMODE_OBJECT
-    void drawColor(SkColor color, SkXfermode::Mode mode) {
-        this->drawColor(color, (SkBlendMode)mode);
-    }
-#endif
 
     /**
      *  Helper method for drawing a color in SRC mode, completely replacing all the pixels
@@ -1196,10 +1137,9 @@ public:
                     in _texture_ space (not uv space) for each vertex.
         @param colors May be null. If not null, specifies a color for each
                       vertex, to be interpolated across the triangle.
-        @param xmode Used if both texs and colors are present. In this
+        @param mode Used if both texs and colors are present. In this
                     case the colors are combined with the texture using mode,
-                    before being drawn using the paint. If mode is null, then
-                    kModulate_Mode is used.
+                    before being drawn using the paint. 
         @param indices If not null, array of indices to reference into the
                     vertex (texs, colors) array.
         @param indexCount number of entries in the indices array (if not null)
@@ -1207,15 +1147,14 @@ public:
     */
     void drawVertices(VertexMode vmode, int vertexCount,
                       const SkPoint vertices[], const SkPoint texs[],
-                      const SkColor colors[], SkXfermode* xmode,
+                      const SkColor colors[], SkBlendMode mode,
                       const uint16_t indices[], int indexCount,
                       const SkPaint& paint);
     void drawVertices(VertexMode vmode, int vertexCount,
                       const SkPoint vertices[], const SkPoint texs[],
-                      const SkColor colors[], const sk_sp<SkXfermode>& xmode,
-                      const uint16_t indices[], int indexCount,
+                      const SkColor colors[], const uint16_t indices[], int indexCount,
                       const SkPaint& paint) {
-        this->drawVertices(vmode, vertexCount, vertices, texs, colors, xmode.get(),
+        this->drawVertices(vmode, vertexCount, vertices, texs, colors, SkBlendMode::kModulate,
                            indices, indexCount, paint);
     }
 
@@ -1228,15 +1167,15 @@ public:
                     their order is clockwise starting at the top left corner.
      @param texCoords specifies the texture coordinates that will be bilerp across the patch,
                     their order is the same as the colors.
-     @param xmode specifies how are the colors and the textures combined if both of them are
+     @param mode specifies how are the colors and the textures combined if both of them are
                     present.
      @param paint Specifies the shader/texture if present.
      */
     void drawPatch(const SkPoint cubics[12], const SkColor colors[4],
-                   const SkPoint texCoords[4], SkXfermode* xmode, const SkPaint& paint);
-    void drawPatch(const SkPoint cubics[12], const SkColor colors[4], const SkPoint texCoords[4],
-                   const sk_sp<SkXfermode>& xmode, const SkPaint& paint) {
-        this->drawPatch(cubics, colors, texCoords, xmode.get(), paint);
+                   const SkPoint texCoords[4], SkBlendMode mode, const SkPaint& paint);
+    void drawPatch(const SkPoint cubics[12], const SkColor colors[4],
+                   const SkPoint texCoords[4], const SkPaint& paint) {
+        this->drawPatch(cubics, colors, texCoords, SkBlendMode::kModulate, paint);
     }
 
     /**
@@ -1247,32 +1186,30 @@ public:
      *      xform maps [0, 0, tex.width, tex.height] -> quad
      *
      *  The color array is optional. When specified, each color modulates the pixels in its
-     *  corresponding quad (via the specified SkXfermode::Mode).
+     *  corresponding quad (via the specified SkBlendMode).
      *
      *  The cullRect is optional. When specified, it must be a conservative bounds of all of the
      *  resulting transformed quads, allowing the canvas to skip drawing if the cullRect does not
      *  intersect the current clip.
      *
      *  The paint is optional. If specified, its antialiasing, alpha, color-filter, image-filter
-     *  and xfermode are used to affect each of the quads.
+     *  and blendmode are used to affect each of the quads.
      */
     void drawAtlas(const SkImage* atlas, const SkRSXform xform[], const SkRect tex[],
-                   const SkColor colors[], int count, SkXfermode::Mode, const SkRect* cullRect,
+                   const SkColor colors[], int count, SkBlendMode, const SkRect* cullRect,
                    const SkPaint* paint);
-
+    void drawAtlas(const sk_sp<SkImage>& atlas, const SkRSXform xform[], const SkRect tex[],
+                   const SkColor colors[], int count, SkBlendMode mode, const SkRect* cullRect,
+                   const SkPaint* paint) {
+        this->drawAtlas(atlas.get(), xform, tex, colors, count, mode, cullRect, paint);
+    }
     void drawAtlas(const SkImage* atlas, const SkRSXform xform[], const SkRect tex[], int count,
                    const SkRect* cullRect, const SkPaint* paint) {
-        this->drawAtlas(atlas, xform, tex, NULL, count, SkXfermode::kDst_Mode, cullRect, paint);
-    }
-
-    void drawAtlas(const sk_sp<SkImage>& atlas, const SkRSXform xform[], const SkRect tex[],
-                   const SkColor colors[], int count, SkXfermode::Mode mode, const SkRect* cull,
-                   const SkPaint* paint) {
-        this->drawAtlas(atlas.get(), xform, tex, colors, count, mode, cull, paint);
+        this->drawAtlas(atlas, xform, tex, nullptr, count, SkBlendMode::kDst, cullRect, paint);
     }
     void drawAtlas(const sk_sp<SkImage>& atlas, const SkRSXform xform[], const SkRect tex[],
                    int count, const SkRect* cullRect, const SkPaint* paint) {
-        this->drawAtlas(atlas.get(), xform, tex, nullptr, count, SkXfermode::kDst_Mode,
+        this->drawAtlas(atlas.get(), xform, tex, nullptr, count, SkBlendMode::kDst,
                         cullRect, paint);
     }
 
@@ -1351,15 +1288,6 @@ public:
     */
     const SkMatrix& getTotalMatrix() const;
 
-    /** Return the clip stack. The clip stack stores all the individual
-     *  clips organized by the save/restore frame in which they were
-     *  added.
-     *  @return the current clip stack ("list" of individual clip elements)
-     */
-    const SkClipStack* getClipStack() const {
-        return fClipStack;
-    }
-
     typedef SkCanvasClipVisitor ClipVisitor;
     /**
      *  Replays the clip operations, back to front, that have been applied to
@@ -1371,7 +1299,7 @@ public:
     ///////////////////////////////////////////////////////////////////////////
 
     // don't call
-    GrDrawContext* internal_private_accessTopLayerDrawContext();
+    GrRenderTargetContext* internal_private_accessTopLayerRenderTargetContext();
 
     // don't call
     static void Internal_Private_SetIgnoreSaveLayerBounds(bool);
@@ -1460,7 +1388,7 @@ protected:
                                 const SkPaint& paint);
 
     virtual void onDrawPatch(const SkPoint cubics[12], const SkColor colors[4],
-                           const SkPoint texCoords[4], SkXfermode* xmode, const SkPaint& paint);
+                           const SkPoint texCoords[4], SkBlendMode, const SkPaint& paint);
 
     virtual void onDrawDrawable(SkDrawable*, const SkMatrix*);
 
@@ -1473,11 +1401,11 @@ protected:
     virtual void onDrawRRect(const SkRRect&, const SkPaint&);
     virtual void onDrawPoints(PointMode, size_t count, const SkPoint pts[], const SkPaint&);
     virtual void onDrawVertices(VertexMode, int vertexCount, const SkPoint vertices[],
-                                const SkPoint texs[], const SkColor colors[], SkXfermode*,
+                                const SkPoint texs[], const SkColor colors[], SkBlendMode,
                                 const uint16_t indices[], int indexCount, const SkPaint&);
 
     virtual void onDrawAtlas(const SkImage*, const SkRSXform[], const SkRect[], const SkColor[],
-                             int count, SkXfermode::Mode, const SkRect* cull, const SkPaint*);
+                             int count, SkBlendMode, const SkRect* cull, const SkPaint*);
     virtual void onDrawPath(const SkPath&, const SkPaint&);
     virtual void onDrawImage(const SkImage*, SkScalar dx, SkScalar dy, const SkPaint*);
     virtual void onDrawImageRect(const SkImage*, const SkRect*, const SkRect&, const SkPaint*,
@@ -1500,10 +1428,10 @@ protected:
         kSoft_ClipEdgeStyle
     };
 
-    virtual void onClipRect(const SkRect& rect, ClipOp, ClipEdgeStyle);
-    virtual void onClipRRect(const SkRRect& rrect, ClipOp, ClipEdgeStyle);
-    virtual void onClipPath(const SkPath& path, ClipOp, ClipEdgeStyle);
-    virtual void onClipRegion(const SkRegion& deviceRgn, ClipOp);
+    virtual void onClipRect(const SkRect& rect, SkClipOp, ClipEdgeStyle);
+    virtual void onClipRRect(const SkRRect& rrect, SkClipOp, ClipEdgeStyle);
+    virtual void onClipPath(const SkPath& path, SkClipOp, ClipEdgeStyle);
+    virtual void onClipRegion(const SkRegion& deviceRgn, SkClipOp);
 
     virtual void onDiscard();
 
@@ -1515,12 +1443,6 @@ protected:
                                        const SkPaint*,
                                        const SkShadowParams& params);
 #endif
-    
-    // Returns the canvas to be used by DrawIter. Default implementation
-    // returns this. Subclasses that encapsulate an indirect canvas may
-    // need to overload this method. The impl must keep track of this, as it
-    // is not released or deleted by the caller.
-    virtual SkCanvas* canvasForDrawIter();
 
     // Clip rectangle bounds. Called internally by saveLayer.
     // returns false if the entire rectangle is entirely clipped out
@@ -1567,7 +1489,7 @@ private:
         SkPaint           fDefaultPaint;
         bool              fDone;
     };
-    
+
     static bool BoundsAffectsClip(SaveLayerFlags);
     static SaveLayerFlags LegacySaveFlagsToSaveLayerFlags(uint32_t legacySaveFlags);
 
@@ -1590,9 +1512,12 @@ private:
                                                                 : kNotOpaque_ShaderOverrideOpacity);
     }
 
+    SkBaseDevice* getDevice() const;
+    SkBaseDevice* getTopDevice() const;
+
     class MCRec;
 
-    SkAutoTUnref<SkClipStack> fClipStack;
+    sk_sp<SkClipStack> fClipStack;
     SkDeque     fMCStack;
     // points to top of stack
     MCRec*      fMCRec;
@@ -1600,7 +1525,7 @@ private:
     enum {
         kMCRecSize      = 128,  // most recent measurement
         kMCRecCount     = 32,   // common depth for save/restores
-        kDeviceCMSize   = 176,  // most recent measurement
+        kDeviceCMSize   = 184,  // most recent measurement
     };
     intptr_t fMCRecStorage[kMCRecSize * kMCRecCount / sizeof(intptr_t)];
     intptr_t fDeviceCMStorage[kDeviceCMSize / sizeof(intptr_t)];
@@ -1610,6 +1535,7 @@ private:
     int         fSaveCount;         // value returned by getSaveCount()
 
     SkMetaData* fMetaData;
+    std::unique_ptr<SkRasterHandleAllocator> fAllocator;
 
     SkSurface_Base*  fSurfaceBase;
     SkSurface_Base* getSurfaceBase() const { return fSurfaceBase; }
@@ -1620,6 +1546,7 @@ private:
     friend class SkSurface_Gpu;
 
     bool fDeviceCMDirty;            // cleared by updateDeviceCMCache()
+    SkIRect fClipRestrictionRect = SkIRect::MakeEmpty();
     void updateDeviceCMCache();
 
     void doSave();
@@ -1631,12 +1558,15 @@ private:
     friend class SkLua;             // needs top layer size and offset
     friend class SkDebugCanvas;     // needs experimental fAllowSimplifyClip
     friend class SkSurface_Raster;  // needs getDevice()
-    friend class SkRecorder;        // InitFlags
-    friend class SkLiteRecorder;        // InitFlags
-    friend class SkNoSaveLayerCanvas;   // InitFlags
+    friend class SkRecorder;        // resetForNextPicture
+    friend class SkLiteRecorder;    // resetForNextPicture
+    friend class SkNoDrawCanvas;    // InitFlags
     friend class SkPictureImageFilter;  // SkCanvas(SkBaseDevice*, SkSurfaceProps*, InitFlags)
     friend class SkPictureRecord;   // predrawNotify (why does it need it? <reed>)
     friend class SkPicturePlayback; // SaveFlagsToSaveLayerFlags
+    friend class SkDeferredCanvas;  // For use of resetForNextPicture
+    friend class SkOverdrawCanvas;
+    friend class SkRasterHandleAllocator;
 
     enum InitFlags {
         kDefault_InitFlags                  = 0,
@@ -1644,6 +1574,8 @@ private:
     };
     SkCanvas(const SkIRect& bounds, InitFlags);
     SkCanvas(SkBaseDevice* device, InitFlags);
+    SkCanvas(const SkBitmap&, std::unique_ptr<SkRasterHandleAllocator>,
+             SkRasterHandleAllocator::Handle);
 
     void resetForNextPicture(const SkIRect& bounds);
 
@@ -1694,6 +1626,18 @@ private:
      */
     bool canDrawBitmapAsSprite(SkScalar x, SkScalar y, int w, int h, const SkPaint&);
 
+#ifdef SK_SUPPORT_LEGACY_CANVAS_GETCLIPSTACK
+public:
+#endif
+    /** Return the clip stack. The clip stack stores all the individual
+     *  clips organized by the save/restore frame in which they were
+     *  added.
+     *  @return the current clip stack ("list" of individual clip elements)
+     */
+    const SkClipStack* getClipStack() const {
+        return fClipStack.get();
+    }
+private:
 
     /**
      *  Keep track of the device clip bounds and if the matrix is scale-translate.  This allows
@@ -1766,9 +1710,9 @@ private:
 class SkCanvasClipVisitor {
 public:
     virtual ~SkCanvasClipVisitor();
-    virtual void clipRect(const SkRect&, SkCanvas::ClipOp, bool antialias) = 0;
-    virtual void clipRRect(const SkRRect&, SkCanvas::ClipOp, bool antialias) = 0;
-    virtual void clipPath(const SkPath&, SkCanvas::ClipOp, bool antialias) = 0;
+    virtual void clipRect(const SkRect&, SkClipOp, bool antialias) = 0;
+    virtual void clipRRect(const SkRRect&, SkClipOp, bool antialias) = 0;
+    virtual void clipPath(const SkPath&, SkClipOp, bool antialias) = 0;
 };
 
 #endif

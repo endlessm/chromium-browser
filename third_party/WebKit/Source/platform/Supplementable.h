@@ -31,7 +31,7 @@
 #include "wtf/HashMap.h"
 #include "wtf/Noncopyable.h"
 
-#if ENABLE(ASSERT)
+#if DCHECK_IS_ON()
 #include "wtf/Threading.h"
 #endif
 
@@ -76,14 +76,15 @@ namespace blink {
 // What you should know about thread checks
 // ========================================
 // When assertion is enabled this class performs thread-safety check so that
-// provideTo and from happen on the same thread. If you want to provide
-// some value for Workers this thread check may not work very well though,
-// since in most case you'd provide the value while worker preparation is
-// being done on the main thread, even before the worker thread is started.
+// supplements are provided to and from the same thread.
+// If you want to provide some value for Workers, this thread check may be too
+// strict, since in you'll be providing the value while worker preparation is
+// being done on the main thread, even before the worker thread has started.
 // If that's the case you can explicitly call reattachThread() when the
 // Supplementable object is passed to the final destination thread (i.e.
-// worker thread). Please be extremely careful to use the method though,
-// as randomly calling the method could easily cause racy condition.
+// worker thread). This will allow supplements to be accessed on that thread.
+// Please be extremely careful to use the method though, as randomly calling
+// the method could easily cause racy condition.
 //
 // Note that reattachThread() does nothing if assertion is not enabled.
 //
@@ -94,21 +95,37 @@ class Supplementable;
 template <typename T>
 class Supplement : public GarbageCollectedMixin {
  public:
-  static void provideTo(Supplementable<T>& host,
+  // TODO(haraken): Remove the default constructor.
+  // All Supplement objects should be instantiated with m_host.
+  Supplement() {}
+
+  explicit Supplement(T& supplementable) : m_supplementable(&supplementable) {}
+
+  // Supplementable and its supplements live and die together.
+  // Thus supplementable() should never return null (if the default constructor
+  // is completely removed).
+  T* supplementable() const { return m_supplementable; }
+
+  static void provideTo(Supplementable<T>& supplementable,
                         const char* key,
                         Supplement<T>* supplement) {
-    host.provideSupplement(key, supplement);
+    supplementable.provideSupplement(key, supplement);
   }
 
-  static Supplement<T>* from(Supplementable<T>& host, const char* key) {
-    return host.requireSupplement(key);
+  static Supplement<T>* from(Supplementable<T>& supplementable,
+                             const char* key) {
+    return supplementable.requireSupplement(key);
   }
 
-  static Supplement<T>* from(Supplementable<T>* host, const char* key) {
-    return host ? host->requireSupplement(key) : 0;
+  static Supplement<T>* from(Supplementable<T>* supplementable,
+                             const char* key) {
+    return supplementable ? supplementable->requireSupplement(key) : 0;
   }
 
-  DEFINE_INLINE_VIRTUAL_TRACE() {}
+  DEFINE_INLINE_VIRTUAL_TRACE() { visitor->trace(m_supplementable); }
+
+ private:
+  Member<T> m_supplementable;
 };
 
 // Supplementable<T> inherits from GarbageCollectedMixin virtually
@@ -119,23 +136,29 @@ class Supplementable : public virtual GarbageCollectedMixin {
 
  public:
   void provideSupplement(const char* key, Supplement<T>* supplement) {
-    ASSERT(m_threadId == currentThread());
+#if DCHECK_IS_ON()
+    DCHECK_EQ(m_creationThreadId, currentThread());
+#endif
     this->m_supplements.set(key, supplement);
   }
 
   void removeSupplement(const char* key) {
-    ASSERT(m_threadId == currentThread());
+#if DCHECK_IS_ON()
+    DCHECK_EQ(m_creationThreadId, currentThread());
+#endif
     this->m_supplements.remove(key);
   }
 
   Supplement<T>* requireSupplement(const char* key) {
-    ASSERT(m_threadId == currentThread());
+#if DCHECK_IS_ON()
+    DCHECK_EQ(m_attachedThreadId, currentThread());
+#endif
     return this->m_supplements.get(key);
   }
 
   void reattachThread() {
-#if ENABLE(ASSERT)
-    m_threadId = currentThread();
+#if DCHECK_IS_ON()
+    m_attachedThreadId = currentThread();
 #endif
   }
 
@@ -147,15 +170,17 @@ class Supplementable : public virtual GarbageCollectedMixin {
   SupplementMap m_supplements;
 
   Supplementable()
-#if ENABLE(ASSERT)
-      : m_threadId(currentThread())
+#if DCHECK_IS_ON()
+      : m_attachedThreadId(currentThread()),
+        m_creationThreadId(currentThread())
 #endif
   {
   }
 
-#if ENABLE(ASSERT)
+#if DCHECK_IS_ON()
  private:
-  ThreadIdentifier m_threadId;
+  ThreadIdentifier m_attachedThreadId;
+  ThreadIdentifier m_creationThreadId;
 #endif
 };
 

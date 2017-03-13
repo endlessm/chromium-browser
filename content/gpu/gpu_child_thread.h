@@ -27,7 +27,8 @@
 #include "gpu/ipc/service/gpu_config.h"
 #include "gpu/ipc/service/x_util.h"
 #include "mojo/public/cpp/bindings/binding_set.h"
-#include "services/shell/public/interfaces/service_factory.mojom.h"
+#include "services/service_manager/public/interfaces/service_factory.mojom.h"
+#include "services/ui/gpu/interfaces/gpu_main.mojom.h"
 #include "ui/gfx/native_widget_types.h"
 
 namespace gpu {
@@ -37,7 +38,7 @@ class SyncPointManager;
 }
 
 namespace media {
-class MediaService;
+class MediaGpuChannelManager;
 }
 
 namespace sandbox {
@@ -56,7 +57,12 @@ class GpuChildThread : public ChildThreadImpl,
                        public gpu::GpuChannelManagerDelegate,
                        public base::FieldTrialList::Observer {
  public:
-  typedef std::queue<IPC::Message*> DeferredMessages;
+  struct LogMessage {
+    int severity;
+    std::string header;
+    std::string message;
+  };
+  typedef std::queue<LogMessage> DeferredMessages;
 
   GpuChildThread(std::unique_ptr<gpu::GpuWatchdogThread> gpu_watchdog_thread,
                  bool dead_on_arrival,
@@ -77,6 +83,8 @@ class GpuChildThread : public ChildThreadImpl,
   gpu::GpuWatchdogThread* watchdog_thread() { return watchdog_thread_.get(); }
 
  private:
+  void CreateGpuMainService(ui::mojom::GpuMainAssociatedRequest request);
+
   // ChildThreadImpl:.
   bool Send(IPC::Message* msg) override;
   bool OnControlMessageReceived(const IPC::Message& msg) override;
@@ -127,7 +135,8 @@ class GpuChildThread : public ChildThreadImpl,
 #endif
   void OnLoseAllContexts();
 
-  void BindServiceFactoryRequest(shell::mojom::ServiceFactoryRequest request);
+  void BindServiceFactoryRequest(
+      service_manager::mojom::ServiceFactoryRequest request);
 
   // Set this flag to true if a fatal error occurred before we receive the
   // OnInitialize message, in which case we just declare ourselves DOA.
@@ -145,7 +154,7 @@ class GpuChildThread : public ChildThreadImpl,
 
   std::unique_ptr<gpu::GpuChannelManager> gpu_channel_manager_;
 
-  std::unique_ptr<media::MediaService> media_service_;
+  std::unique_ptr<media::MediaGpuChannelManager> media_gpu_channel_manager_;
 
   // Information about the GPU, such as device and vendor ID.
   gpu::GPUInfo gpu_info_;
@@ -159,11 +168,12 @@ class GpuChildThread : public ChildThreadImpl,
   // The gpu::GpuMemoryBufferFactory instance used to allocate GpuMemoryBuffers.
   gpu::GpuMemoryBufferFactory* const gpu_memory_buffer_factory_;
 
-  // ServiceFactory for shell::Service hosting.
+  // ServiceFactory for service_manager::Service hosting.
   std::unique_ptr<GpuServiceFactory> service_factory_;
 
-  // Bindings to the shell::mojom::ServiceFactory impl.
-  mojo::BindingSet<shell::mojom::ServiceFactory> service_factory_bindings_;
+  // Bindings to the service_manager::mojom::ServiceFactory impl.
+  mojo::BindingSet<service_manager::mojom::ServiceFactory>
+      service_factory_bindings_;
 
   DISALLOW_COPY_AND_ASSIGN(GpuChildThread);
 };

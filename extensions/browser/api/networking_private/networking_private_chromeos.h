@@ -92,6 +92,7 @@ class NetworkingPrivateChromeOS : public NetworkingPrivateDelegate {
                            const FailureCallback& failure_callback) override;
   std::unique_ptr<base::ListValue> GetEnabledNetworkTypes() override;
   std::unique_ptr<DeviceStateList> GetDeviceStateList() override;
+  std::unique_ptr<base::DictionaryValue> GetGlobalPolicy() override;
   bool EnableNetworkType(const std::string& type) override;
   bool DisableNetworkType(const std::string& type) override;
   bool RequestScan() override;
@@ -100,7 +101,9 @@ class NetworkingPrivateChromeOS : public NetworkingPrivateDelegate {
   // Callback for both GetProperties and GetManagedProperties. Copies
   // |dictionary| and appends any networkingPrivate API specific properties,
   // then calls |callback| with the result.
-  void GetPropertiesCallback(const DictionaryCallback& callback,
+  void GetPropertiesCallback(const std::string& guid,
+                             bool managed,
+                             const DictionaryCallback& callback,
                              const std::string& service_path,
                              const base::DictionaryValue& dictionary);
 
@@ -108,6 +111,10 @@ class NetworkingPrivateChromeOS : public NetworkingPrivateDelegate {
   // VPNs. The provider name needs to be looked up from the list of extensions
   // which is not available to the chromeos/network module.
   void AppendThirdPartyProviderName(base::DictionaryValue* dictionary);
+
+  // Sets the active proxy values in managed network configurations.
+  void SetManagedActiveProxyValues(const std::string& guid,
+                                   base::DictionaryValue* dictionary);
 
   // Handles connection failures, possibly showing UI for configuration
   // failures, then calls the appropriate callback.

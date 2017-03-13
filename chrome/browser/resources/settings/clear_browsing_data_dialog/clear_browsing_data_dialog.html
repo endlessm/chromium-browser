@@ -14,10 +14,6 @@
 <dom-module id="settings-clear-browsing-data-dialog">
   <template>
     <style include="settings-shared">
-      #dialog {
-        max-width: 600px;
-      }
-
       #dialog:not(.fully-rendered) {
         visibility: hidden;
       }
@@ -86,12 +82,6 @@
         text-decoration: none;
       }
 
-      :host {
-        --settings-secondary-unchecked: {
-          display: none;
-        };
-      }
-
       #clearFrom {
         margin-left: 0.5em;
       }
@@ -110,7 +100,7 @@
       }
     </style>
 
-    <dialog is="cr-dialog" id="dialog">
+    <dialog is="cr-dialog" id="dialog" ignore-popstate>
       <div class="title">$i18n{clearBrowsingData}</div>
       <div class="body">
         <div class="row">

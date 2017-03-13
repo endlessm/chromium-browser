@@ -34,9 +34,7 @@ inline SVGFEGaussianBlurElement::SVGFEGaussianBlurElement(Document& document)
                                                   SVGNames::stdDeviationAttr,
                                                   0,
                                                   0)),
-      m_in1(SVGAnimatedString::create(this,
-                                      SVGNames::inAttr,
-                                      SVGString::create())) {
+      m_in1(SVGAnimatedString::create(this, SVGNames::inAttr)) {
   addToPropertyMap(m_stdDeviation);
   addToPropertyMap(m_in1);
 }
@@ -80,7 +78,7 @@ FilterEffect* SVGFEGaussianBlurElement::build(SVGFilterBuilder* filterBuilder,
   float stdDevX = std::max(0.0f, stdDeviationX()->currentValue()->value());
   float stdDevY = std::max(0.0f, stdDeviationY()->currentValue()->value());
   FilterEffect* effect = FEGaussianBlur::create(filter, stdDevX, stdDevY);
-  effect->inputEffects().append(input1);
+  effect->inputEffects().push_back(input1);
   return effect;
 }
 

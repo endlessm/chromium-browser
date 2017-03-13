@@ -3,22 +3,22 @@
 // found in the LICENSE file.
 
 #include <keyhi.h>
-#include <openssl/rsa.h>
 #include <pk11pub.h>
 #include <prerror.h>
 
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
-#include "base/sequenced_task_runner.h"
 #include "crypto/scoped_nss_types.h"
-#include "crypto/scoped_openssl_types.h"
 #include "net/cert/x509_certificate.h"
 #include "net/ssl/client_key_store.h"
 #include "net/ssl/ssl_platform_key.h"
-#include "net/ssl/ssl_platform_key_task_runner.h"
+#include "net/ssl/ssl_platform_key_util.h"
 #include "net/ssl/ssl_private_key.h"
 #include "net/ssl/threaded_ssl_private_key.h"
+#include "third_party/boringssl/src/include/openssl/mem.h"
+#include "third_party/boringssl/src/include/openssl/nid.h"
+#include "third_party/boringssl/src/include/openssl/rsa.h"
 
 namespace net {
 
@@ -41,11 +41,8 @@ class SSLPlatformKeyChromecast : public ThreadedSSLPrivateKey::Delegate {
   SSLPrivateKey::Type GetType() override { return SSLPrivateKey::Type::RSA; }
 
   std::vector<SSLPrivateKey::Hash> GetDigestPreferences() override {
-    static const SSLPrivateKey::Hash kHashes[] = {
-        SSLPrivateKey::Hash::SHA256, SSLPrivateKey::Hash::SHA1,
-        SSLPrivateKey::Hash::MD5_SHA1};
-    return std::vector<SSLPrivateKey::Hash>(kHashes,
-                                            kHashes + arraysize(kHashes));
+    return std::vector<SSLPrivateKey::Hash>{SSLPrivateKey::Hash::SHA256,
+                                            SSLPrivateKey::Hash::SHA1};
   }
 
   size_t GetMaxSignatureLengthInBytes() override {
@@ -63,7 +60,7 @@ class SSLPlatformKeyChromecast : public ThreadedSSLPrivateKey::Delegate {
         const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(input.data()));
     digest_item.len = input.size();
 
-    crypto::ScopedOpenSSLBytes free_digest_info;
+    bssl::UniquePtr<uint8_t> free_digest_info;
     // PK11_Sign expects the caller to prepend the DigestInfo.
     int hash_nid = NID_undef;
     switch (hash) {
@@ -119,7 +116,7 @@ class SSLPlatformKeyChromecast : public ThreadedSSLPrivateKey::Delegate {
 }  // namespace
 
 scoped_refptr<SSLPrivateKey> FetchClientCertPrivateKey(
-    X509Certificate* certificate) {
+    const X509Certificate* certificate) {
   crypto::ScopedSECKEYPrivateKey key(
       PK11_FindKeyByAnyCert(certificate->os_cert_handle(), nullptr));
   if (!key) {

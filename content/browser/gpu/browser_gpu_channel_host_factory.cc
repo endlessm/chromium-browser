@@ -18,7 +18,7 @@
 #include "content/browser/gpu/browser_gpu_memory_buffer_manager.h"
 #include "content/browser/gpu/gpu_data_manager_impl.h"
 #include "content/browser/gpu/gpu_process_host.h"
-#include "content/browser/gpu/shader_disk_cache.h"
+#include "content/browser/gpu/shader_cache_factory.h"
 #include "content/common/child_process_host_impl.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/content_browser_client.h"
@@ -28,7 +28,7 @@
 #include "gpu/ipc/common/gpu_messages.h"
 #include "ipc/ipc_channel_handle.h"
 #include "ipc/message_filter.h"
-#include "services/shell/runner/common/client_util.h"
+#include "services/service_manager/runner/common/client_util.h"
 
 namespace content {
 
@@ -198,6 +198,14 @@ void BrowserGpuChannelHostFactory::EstablishRequest::Cancel() {
   finished_ = true;
 }
 
+void BrowserGpuChannelHostFactory::CloseChannel() {
+  DCHECK(instance_);
+  if (instance_->gpu_channel_) {
+    instance_->gpu_channel_->DestroyChannel();
+    instance_->gpu_channel_ = nullptr;
+  }
+}
+
 bool BrowserGpuChannelHostFactory::CanUseForTesting() {
   return GpuDataManager::GetInstance()->GpuAccessAllowed(NULL);
 }
@@ -273,7 +281,7 @@ BrowserGpuChannelHostFactory::AllocateSharedMemory(size_t size) {
 
 void BrowserGpuChannelHostFactory::EstablishGpuChannel(
     const gpu::GpuChannelEstablishedCallback& callback) {
-  DCHECK(!shell::ShellIsRemote());
+  DCHECK(!service_manager::ServiceManagerIsRemote());
   if (gpu_channel_.get() && gpu_channel_->IsLost()) {
     DCHECK(!pending_request_.get());
     // Recreate the channel if it has been lost.
@@ -350,10 +358,10 @@ void BrowserGpuChannelHostFactory::GpuChannelEstablished() {
       FROM_HERE_WITH_EXPLICIT_FUNCTION(
           "466866 BrowserGpuChannelHostFactory::GpuChannelEstablished2"));
 
-  for (size_t n = 0; n < established_callbacks_.size(); n++)
-    established_callbacks_[n].Run(gpu_channel_);
-
-  established_callbacks_.clear();
+  std::vector<gpu::GpuChannelEstablishedCallback> established_callbacks;
+  established_callbacks_.swap(established_callbacks);
+  for (auto& callback : established_callbacks)
+    callback.Run(gpu_channel_);
 }
 
 // static
@@ -371,7 +379,7 @@ void BrowserGpuChannelHostFactory::AddFilterOnIO(
 void BrowserGpuChannelHostFactory::InitializeShaderDiskCacheOnIO(
     int gpu_client_id,
     const base::FilePath& cache_dir) {
-  ShaderCacheFactory::GetInstance()->SetCacheInfo(gpu_client_id, cache_dir);
+  GetShaderCacheFactorySingleton()->SetCacheInfo(gpu_client_id, cache_dir);
 }
 
 }  // namespace content

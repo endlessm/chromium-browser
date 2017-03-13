@@ -7,10 +7,11 @@
 #include "base/logging.h"
 #include "base/strings/sys_string_conversions.h"
 #include "components/version_info/version_info.h"
+#include "ios/chrome/common/ios_app_bundle_id_prefix.h"
 
-namespace {
-NSString* const kChromeAppGroupIdentifier = @"group.com.google.chrome";
-}
+#if !defined(__has_feature) || !__has_feature(objc_arc)
+#error "This file requires ARC support."
+#endif
 
 namespace app_group {
 
@@ -46,7 +47,8 @@ NSString* ApplicationGroup() {
   NSBundle* bundle = [NSBundle mainBundle];
   NSString* group = [bundle objectForInfoDictionaryKey:@"KSApplicationGroup"];
   if (![group length]) {
-    return kChromeAppGroupIdentifier;
+    return [NSString stringWithFormat:@"group.%s.chrome",
+                                      BUILDFLAG(IOS_APP_BUNDLE_ID_PREFIX), nil];
   }
   return group;
 }
@@ -64,8 +66,7 @@ NSUserDefaults* GetGroupUserDefaults() {
   NSUserDefaults* defaults = nil;
   NSString* applicationGroup = ApplicationGroup();
   if (applicationGroup) {
-    defaults = [[[NSUserDefaults alloc] initWithSuiteName:applicationGroup]
-        autorelease];
+    defaults = [[NSUserDefaults alloc] initWithSuiteName:applicationGroup];
     if (defaults)
       return defaults;
   }

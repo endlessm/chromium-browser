@@ -44,7 +44,8 @@ class FunctionsGLCGL : public FunctionsGL
     void *mDylibHandle;
 };
 
-DisplayCGL::DisplayCGL() : DisplayGL(), mEGLDisplay(nullptr), mFunctions(nullptr), mContext(nullptr)
+DisplayCGL::DisplayCGL(const egl::DisplayState &state)
+    : DisplayGL(state), mEGLDisplay(nullptr), mFunctions(nullptr), mContext(nullptr)
 {
 }
 
@@ -110,7 +111,6 @@ void DisplayCGL::terminate()
 }
 
 SurfaceImpl *DisplayCGL::createWindowSurface(const egl::SurfaceState &state,
-                                             const egl::Config *configuration,
                                              EGLNativeWindowType window,
                                              const egl::AttributeMap &attribs)
 {
@@ -118,7 +118,6 @@ SurfaceImpl *DisplayCGL::createWindowSurface(const egl::SurfaceState &state,
 }
 
 SurfaceImpl *DisplayCGL::createPbufferSurface(const egl::SurfaceState &state,
-                                              const egl::Config *configuration,
                                               const egl::AttributeMap &attribs)
 {
     EGLint width  = static_cast<EGLint>(attribs.get(EGL_WIDTH, 0));
@@ -127,8 +126,8 @@ SurfaceImpl *DisplayCGL::createPbufferSurface(const egl::SurfaceState &state,
 }
 
 SurfaceImpl *DisplayCGL::createPbufferFromClientBuffer(const egl::SurfaceState &state,
-                                                       const egl::Config *configuration,
-                                                       EGLClientBuffer shareHandle,
+                                                       EGLenum buftype,
+                                                       EGLClientBuffer clientBuffer,
                                                        const egl::AttributeMap &attribs)
 {
     UNIMPLEMENTED();
@@ -136,7 +135,6 @@ SurfaceImpl *DisplayCGL::createPbufferFromClientBuffer(const egl::SurfaceState &
 }
 
 SurfaceImpl *DisplayCGL::createPixmapSurface(const egl::SurfaceState &state,
-                                             const egl::Config *configuration,
                                              NativePixmapType nativePixmap,
                                              const egl::AttributeMap &attribs)
 {
@@ -228,8 +226,8 @@ egl::Error DisplayCGL::restoreLostDevice()
 
 bool DisplayCGL::isValidNativeWindow(EGLNativeWindowType window) const
 {
-    // TODO(cwallez) investigate implementing this
-    return true;
+    NSObject *layer = reinterpret_cast<NSObject *>(window);
+    return [layer isKindOfClass:[CALayer class]];
 }
 
 std::string DisplayCGL::getVendorString() const

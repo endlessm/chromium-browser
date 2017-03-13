@@ -15,7 +15,6 @@
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
-#include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
@@ -137,10 +136,7 @@ class InstantExtendedTest : public InProcessBrowserTest,
       : on_most_visited_change_calls_(0),
         most_visited_items_count_(0),
         first_most_visited_item_id_(0),
-        on_native_suggestions_calls_(0),
-        on_change_calls_(0),
         submit_count_(0),
-        on_esc_key_press_event_calls_(0),
         on_focus_changed_calls_(0),
         is_focused_(false) {}
 
@@ -172,22 +168,15 @@ class InstantExtendedTest : public InProcessBrowserTest,
                         &most_visited_items_count_) &&
            GetIntFromJS(contents, "firstMostVisitedItemId",
                         &first_most_visited_item_id_) &&
-           GetIntFromJS(contents, "onNativeSuggestionsCalls",
-                        &on_native_suggestions_calls_) &&
-           GetIntFromJS(contents, "onChangeCalls",
-                        &on_change_calls_) &&
            GetIntFromJS(contents, "submitCount",
                         &submit_count_) &&
            GetStringFromJS(contents, "apiHandle.value",
                            &query_value_) &&
-           GetIntFromJS(contents, "onEscKeyPressedCalls",
-                        &on_esc_key_press_event_calls_) &&
            GetIntFromJS(contents, "onFocusChangedCalls",
                        &on_focus_changed_calls_) &&
            GetBoolFromJS(contents, "isFocused",
                          &is_focused_) &&
            GetStringFromJS(contents, "prefetchQuery", &prefetch_query_value_);
-
   }
 
   TemplateURL* GetDefaultSearchProviderTemplateURL() {
@@ -238,10 +227,7 @@ class InstantExtendedTest : public InProcessBrowserTest,
   int on_most_visited_change_calls_;
   int most_visited_items_count_;
   int first_most_visited_item_id_;
-  int on_native_suggestions_calls_;
-  int on_change_calls_;
   int submit_count_;
-  int on_esc_key_press_event_calls_;
   std::string query_value_;
   int on_focus_changed_calls_;
   bool is_focused_;
@@ -321,7 +307,13 @@ class InstantPolicyTest : public ExtensionBrowserTest, public InstantTestBase {
   DISALLOW_COPY_AND_ASSIGN(InstantPolicyTest);
 };
 
-IN_PROC_BROWSER_TEST_F(InstantExtendedTest, SearchDoesntReuseInstantTab) {
+// Flaky on Windows in the CQ and Linux memory bot: https://crbug.com/678975
+#if defined(OS_WIN) || defined(OS_LINUX)
+#define MAYBE_SearchDoesntReuseInstantTab DISABLED_SearchDoesntReuseInstantTab
+#else
+#define MAYBE_SearchDoesntReuseInstantTab SearchDoesntReuseInstantTab
+#endif
+IN_PROC_BROWSER_TEST_F(InstantExtendedTest, MAYBE_SearchDoesntReuseInstantTab) {
   ASSERT_NO_FATAL_FAILURE(SetupInstant(browser()));
   FocusOmnibox();
 
@@ -579,7 +571,6 @@ IN_PROC_BROWSER_TEST_F(InstantExtendedTest,
   // Set the text and press enter to navigate from NTP.
   SetOmniboxText("Pen");
   PressEnterAndWaitForNavigation();
-  EXPECT_EQ(ASCIIToUTF16("Pen"), omnibox()->GetText());
   observer.Wait();
 
   // Navigate back to NTP.

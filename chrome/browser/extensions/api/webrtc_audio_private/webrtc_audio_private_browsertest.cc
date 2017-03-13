@@ -15,7 +15,6 @@
 #include "base/synchronization/waitable_event.h"
 #include "base/threading/platform_thread.h"
 #include "base/time/time.h"
-#include "base/win/windows_version.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/extensions/api/webrtc_audio_private/webrtc_audio_private_api.h"
@@ -26,6 +25,7 @@
 #include "chrome/browser/media/webrtc/webrtc_log_uploader.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
+#include "chrome/common/features.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "content/public/browser/browser_thread.h"
@@ -39,10 +39,14 @@
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
+#if defined(OS_WIN)
+#include "base/win/windows_version.h"
+#endif
+
 using base::JSONWriter;
 using content::RenderProcessHost;
 using content::WebContents;
-using media::AudioDeviceNames;
+using media::AudioDeviceDescriptions;
 using media::AudioManager;
 
 namespace extensions {
@@ -128,22 +132,22 @@ class WebrtcAudioPrivateTest : public AudioWaitingExtensionTest {
 
   // Synchronously (from the calling thread's point of view) runs the
   // given enumeration function on the device thread. On return,
-  // |device_names| has been filled with the device names resulting
-  // from that call.
-  void GetAudioDeviceNames(
-      void (AudioManager::*EnumerationFunc)(AudioDeviceNames*),
-      AudioDeviceNames* device_names) {
+  // |device_descriptions| has been filled with the device descriptions
+  // resulting from that call.
+  void GetAudioDeviceDescriptions(
+      void (AudioManager::*EnumerationFunc)(AudioDeviceDescriptions*),
+      AudioDeviceDescriptions* device_descriptions) {
     AudioManager* audio_manager = AudioManager::Get();
 
     if (!audio_manager->GetTaskRunner()->BelongsToCurrentThread()) {
       audio_manager->GetTaskRunner()->PostTask(
           FROM_HERE,
-          base::Bind(&WebrtcAudioPrivateTest::GetAudioDeviceNames,
-                     base::Unretained(this),
-                     EnumerationFunc, device_names));
+          base::Bind(&WebrtcAudioPrivateTest::GetAudioDeviceDescriptions,
+                     base::Unretained(this), EnumerationFunc,
+                     device_descriptions));
       enumeration_event_.Wait();
     } else {
-      (audio_manager->*EnumerationFunc)(device_names);
+      (audio_manager->*EnumerationFunc)(device_descriptions);
       enumeration_event_.Signal();
     }
   }
@@ -180,8 +184,9 @@ class WebrtcAudioPrivateTest : public AudioWaitingExtensionTest {
 #if !defined(OS_MACOSX)
 // http://crbug.com/334579
 IN_PROC_BROWSER_TEST_F(WebrtcAudioPrivateTest, GetSinks) {
-  AudioDeviceNames devices;
-  GetAudioDeviceNames(&AudioManager::GetAudioOutputDeviceNames, &devices);
+  AudioDeviceDescriptions devices;
+  GetAudioDeviceDescriptions(&AudioManager::GetAudioOutputDeviceDescriptions,
+                             &devices);
 
   base::ListValue* sink_list = NULL;
   std::unique_ptr<base::Value> result = InvokeGetSinks(&sink_list);
@@ -195,7 +200,7 @@ IN_PROC_BROWSER_TEST_F(WebrtcAudioPrivateTest, GetSinks) {
   // Iterate through both lists in lockstep and compare. The order
   // should be identical.
   size_t ix = 0;
-  AudioDeviceNames::const_iterator it = devices.begin();
+  AudioDeviceDescriptions::const_iterator it = devices.begin();
   for (; ix < sink_list->GetSize() && it != devices.end();
        ++ix, ++it) {
     base::DictionaryValue* dict = NULL;
@@ -331,18 +336,17 @@ IN_PROC_BROWSER_TEST_F(WebrtcAudioPrivateTest, GetAssociatedSink) {
   // Get the list of input devices. We can cheat in the unit test and
   // run this on the main thread since nobody else will be running at
   // the same time.
-  AudioDeviceNames devices;
-  GetAudioDeviceNames(&AudioManager::GetAudioInputDeviceNames, &devices);
+  AudioDeviceDescriptions devices;
+  GetAudioDeviceDescriptions(&AudioManager::GetAudioInputDeviceDescriptions,
+                             &devices);
 
   // Try to get an associated sink for each source.
-  for (AudioDeviceNames::const_iterator device = devices.begin();
-       device != devices.end();
-       ++device) {
+  for (const auto& device : devices) {
     scoped_refptr<WebrtcAudioPrivateGetAssociatedSinkFunction> function =
         new WebrtcAudioPrivateGetAssociatedSinkFunction();
     function->set_source_url(source_url_);
 
-    std::string raw_device_id = device->unique_id;
+    std::string raw_device_id = device.unique_id;
     VLOG(2) << "Trying to find associated sink for device " << raw_device_id;
     std::string source_id_in_origin;
     GURL origin(GURL("http://www.google.com/").GetOrigin());
@@ -399,7 +403,7 @@ class HangoutServicesBrowserTest : public AudioWaitingExtensionTest {
   }
 };
 
-#if defined(GOOGLE_CHROME_BUILD) || defined(ENABLE_HANGOUT_SERVICES_EXTENSION)
+#if BUILDFLAG(ENABLE_HANGOUT_SERVICES_EXTENSION)
 IN_PROC_BROWSER_TEST_F(HangoutServicesBrowserTest,
                        RunComponentExtensionTest) {
   // This runs the end-to-end JavaScript test for the Hangout Services
@@ -436,6 +440,6 @@ IN_PROC_BROWSER_TEST_F(HangoutServicesBrowserTest,
   g_browser_process->webrtc_log_uploader()->OverrideUploadWithBufferForTesting(
       NULL);
 }
-#endif  // defined(GOOGLE_CHROME_BUILD) || defined(ENABLE_HANGOUT_SERVICES_EXTENSION)
+#endif  // BUILDFLAG(ENABLE_HANGOUT_SERVICES_EXTENSION)
 
 }  // namespace extensions

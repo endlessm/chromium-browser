@@ -12,6 +12,7 @@
 #include "EGLWindow.h"
 #include "OSWindow.h"
 #include "test_utils/angle_test_configs.h"
+#include "test_utils/gl_raii.h"
 
 using namespace angle;
 
@@ -222,6 +223,181 @@ ANGLE_INSTANTIATE_TEST(ProgramBinaryTest,
                        ES2_OPENGL(),
                        ES3_OPENGL());
 
+class ProgramBinaryES3Test : public ANGLETest
+{
+  protected:
+    void testBinaryAndUBOBlockIndexes(bool drawWithProgramFirst);
+};
+
+void ProgramBinaryES3Test::testBinaryAndUBOBlockIndexes(bool drawWithProgramFirst)
+{
+    // We can't run the test if no program binary formats are supported.
+    GLint binaryFormatCount = 0;
+    glGetIntegerv(GL_NUM_PROGRAM_BINARY_FORMATS, &binaryFormatCount);
+    if (binaryFormatCount == 0)
+    {
+        std::cout << "Test skipped because no program binary formats available." << std::endl;
+        return;
+    }
+
+    const std::string &vertexShader =
+        "#version 300 es\n"
+        "uniform block {\n"
+        "    float f;\n"
+        "};\n"
+        "in vec4 position;\n"
+        "out vec4 color;\n"
+        "void main() {\n"
+        "    gl_Position = position;\n"
+        "    color = vec4(f, f, f, 1);\n"
+        "}";
+    const std::string &fragmentShader =
+        "#version 300 es\n"
+        "precision mediump float;\n"
+        "in vec4 color;\n"
+        "out vec4 colorOut;\n"
+        "void main() {\n"
+        "    colorOut = color;\n"
+        "}";
+
+    // Init and draw with the program.
+    ANGLE_GL_PROGRAM(program, vertexShader, fragmentShader);
+
+    float fData[4]   = {1.0f, 1.0f, 1.0f, 1.0f};
+    GLuint bindIndex = 2;
+
+    GLBuffer ubo;
+    glBindBuffer(GL_UNIFORM_BUFFER, ubo.get());
+    glBufferData(GL_UNIFORM_BUFFER, sizeof(fData), &fData, GL_STATIC_DRAW);
+    glBindBufferRange(GL_UNIFORM_BUFFER, bindIndex, ubo.get(), 0, sizeof(fData));
+
+    GLint blockIndex = glGetUniformBlockIndex(program.get(), "block");
+    ASSERT_NE(-1, blockIndex);
+
+    glUniformBlockBinding(program.get(), blockIndex, bindIndex);
+
+    glClearColor(1.0, 0.0, 0.0, 1.0);
+    glClear(GL_COLOR_BUFFER_BIT);
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::red);
+
+    if (drawWithProgramFirst)
+    {
+        drawQuad(program.get(), "position", 0.5f);
+        ASSERT_GL_NO_ERROR();
+        EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::white);
+    }
+
+    // Read back the binary.
+    GLint programLength = 0;
+    glGetProgramiv(program.get(), GL_PROGRAM_BINARY_LENGTH_OES, &programLength);
+    ASSERT_GL_NO_ERROR();
+
+    GLsizei readLength  = 0;
+    GLenum binaryFormat = GL_NONE;
+    std::vector<uint8_t> binary(programLength);
+    glGetProgramBinary(program.get(), programLength, &readLength, &binaryFormat, binary.data());
+    ASSERT_GL_NO_ERROR();
+
+    EXPECT_EQ(static_cast<GLsizei>(programLength), readLength);
+
+    // Load a new program with the binary and draw.
+    ANGLE_GL_BINARY_ES3_PROGRAM(binaryProgram, binary, binaryFormat);
+
+    glClearColor(1.0, 0.0, 0.0, 1.0);
+    glClear(GL_COLOR_BUFFER_BIT);
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::red);
+
+    drawQuad(binaryProgram.get(), "position", 0.5f);
+    ASSERT_GL_NO_ERROR();
+    EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::white);
+}
+
+// Tests that saving and loading a program perserves uniform block binding info.
+TEST_P(ProgramBinaryES3Test, UniformBlockBindingWithDraw)
+{
+    testBinaryAndUBOBlockIndexes(true);
+}
+
+// Same as above, but does not do an initial draw with the program. Covers an ANGLE crash.
+// http://anglebug.com/1637
+TEST_P(ProgramBinaryES3Test, UniformBlockBindingNoDraw)
+{
+    // TODO(jmadill): Investigate Intel failure.
+    // http://anglebug.com/1637
+    if (IsWindows() && IsOpenGL() && IsIntel())
+    {
+        std::cout << "Test skipped on Windows Intel OpenGL." << std::endl;
+        return;
+    }
+
+    testBinaryAndUBOBlockIndexes(false);
+}
+
+ANGLE_INSTANTIATE_TEST(ProgramBinaryES3Test, ES3_D3D11(), ES3_OPENGL(), ES3_OPENGLES());
+
+class ProgramBinaryES31Test : public ANGLETest
+{
+  protected:
+    ProgramBinaryES31Test()
+    {
+        setWindowWidth(128);
+        setWindowHeight(128);
+        setConfigRedBits(8);
+        setConfigGreenBits(8);
+        setConfigBlueBits(8);
+        setConfigAlphaBits(8);
+    }
+};
+
+// Tests that saving and loading a program attached with computer shader.
+TEST_P(ProgramBinaryES31Test, ProgramBinaryWithComputeShader)
+{
+    // We can't run the test if no program binary formats are supported.
+    GLint binaryFormatCount = 0;
+    glGetIntegerv(GL_NUM_PROGRAM_BINARY_FORMATS, &binaryFormatCount);
+    if (binaryFormatCount == 0)
+    {
+        std::cout << "Test skipped because no program binary formats available." << std::endl;
+        return;
+    }
+
+    const std::string &computeShader =
+        "#version 310 es\n"
+        "layout(local_size_x=4, local_size_y=3, local_size_z=1) in;\n"
+        "uniform block {\n"
+        "    vec2 f;\n"
+        "};\n"
+        "uniform vec2 g;\n"
+        "uniform highp sampler2D tex;\n"
+        "void main() {\n"
+        "    vec4 color = texture(tex, f + g);\n"
+        "}";
+
+    ANGLE_GL_COMPUTE_PROGRAM(program, computeShader);
+
+    // Read back the binary.
+    GLint programLength = 0;
+    glGetProgramiv(program.get(), GL_PROGRAM_BINARY_LENGTH, &programLength);
+    ASSERT_GL_NO_ERROR();
+
+    GLsizei readLength  = 0;
+    GLenum binaryFormat = GL_NONE;
+    std::vector<uint8_t> binary(programLength);
+    glGetProgramBinary(program.get(), programLength, &readLength, &binaryFormat, binary.data());
+    ASSERT_GL_NO_ERROR();
+
+    EXPECT_EQ(static_cast<GLsizei>(programLength), readLength);
+
+    // Load a new program with the binary.
+    ANGLE_GL_BINARY_ES3_PROGRAM(binaryProgram, binary, binaryFormat);
+
+    // TODO(Xinghua): add dispatch support when available.
+
+    ASSERT_GL_NO_ERROR();
+}
+
+ANGLE_INSTANTIATE_TEST(ProgramBinaryES31Test, ES31_D3D11(), ES31_OPENGL(), ES31_OPENGLES());
+
 class ProgramBinaryTransformFeedbackTest : public ANGLETest
 {
   protected:
@@ -412,7 +588,7 @@ class ProgramBinariesAcrossPlatforms : public testing::TestWithParam<PlatformsWi
 
     void destroyEGLWindow(EGLWindow **eglWindow)
     {
-        ASSERT(*eglWindow != nullptr);
+        ASSERT_NE(nullptr, *eglWindow);
         (*eglWindow)->destroyGL();
         SafeDelete(*eglWindow);
         *eglWindow = nullptr;
@@ -621,6 +797,7 @@ TEST_P(ProgramBinariesAcrossPlatforms, CreateAndReloadBinary)
     destroyEGLWindow(&eglWindow);
 }
 
+// clang-format off
 ANGLE_INSTANTIATE_TEST(ProgramBinariesAcrossPlatforms,
                        //                     | Save the program   | Load the program      | Expected
                        //                     | using these params | using these params    | link result
@@ -631,9 +808,6 @@ ANGLE_INSTANTIATE_TEST(ProgramBinariesAcrossPlatforms,
                        PlatformsWithLinkResult(ES2_D3D11_FL9_3(),   ES2_D3D11_FL9_3_WARP(), false        ), // Switching from hardware to software shouldn't work for FL9 either
                        PlatformsWithLinkResult(ES2_D3D11(),         ES2_D3D9(),             false        ), // Switching from D3D11 to D3D9 shouldn't work
                        PlatformsWithLinkResult(ES2_D3D9(),          ES2_D3D11(),            false        ), // Switching from D3D9 to D3D11 shouldn't work
-                       PlatformsWithLinkResult(ES2_D3D11(),         ES3_D3D11(),            true         )  // Switching to newer client version should work
-
-                       // TODO: ANGLE issue 523
-                       // Compiling a program with client version 3, saving the binary, then loading it with client version 2 should not work
-                       // PlatformsWithLinkResult(ES3_D3D11(),         ES2_D3D11(),            false       )
+                       PlatformsWithLinkResult(ES2_D3D11(),         ES3_D3D11(),            false        ), // Switching to newer client version shouldn't work
                        );
+// clang-format on

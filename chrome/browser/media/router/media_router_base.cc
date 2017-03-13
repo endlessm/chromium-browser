@@ -27,17 +27,19 @@ class MediaRouterBase::InternalMediaRoutesObserver
   void OnRoutesUpdated(
       const std::vector<MediaRoute>& routes,
       const std::vector<MediaRoute::Id>& joinable_route_ids) override {
+    current_routes = routes;
     incognito_route_ids.clear();
     // TODO(crbug.com/611486): Have the MRPM pass a list of joinable route ids
     // via |joinable_route_ids|, and check here if it is non-empty.
     has_route = !routes.empty();
     for (const auto& route : routes) {
-      if (route.incognito())
+      if (route.is_incognito())
         incognito_route_ids.push_back(route.media_route_id());
     }
   }
 
   bool has_route;
+  std::vector<MediaRoute> current_routes;
   std::vector<MediaRoute::Id> incognito_route_ids;
 
  private:
@@ -54,14 +56,12 @@ MediaRouterBase::AddPresentationConnectionStateChangedCallback(
     const content::PresentationConnectionStateChangedCallback& callback) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
-  auto* callbacks = presentation_connection_state_callbacks_.get(route_id);
+  auto& callbacks = presentation_connection_state_callbacks_[route_id];
   if (!callbacks) {
-    callbacks = new PresentationConnectionStateChangedCallbacks;
+    callbacks = base::MakeUnique<PresentationConnectionStateChangedCallbacks>();
     callbacks->set_removal_callback(base::Bind(
         &MediaRouterBase::OnPresentationConnectionStateCallbackRemoved,
         base::Unretained(this), route_id));
-    presentation_connection_state_callbacks_.add(route_id,
-                                                 base::WrapUnique(callbacks));
   }
 
   return callbacks->Add(callback);
@@ -70,6 +70,10 @@ MediaRouterBase::AddPresentationConnectionStateChangedCallback(
 void MediaRouterBase::OnIncognitoProfileShutdown() {
   for (const auto& route_id : internal_routes_observer_->incognito_route_ids)
     TerminateRoute(route_id);
+}
+
+std::vector<MediaRoute> MediaRouterBase::GetCurrentRoutes() const {
+  return internal_routes_observer_->current_routes;
 }
 
 MediaRouterBase::MediaRouterBase() : initialized_(false) {}
@@ -82,26 +86,29 @@ std::string MediaRouterBase::CreatePresentationId() {
 void MediaRouterBase::NotifyPresentationConnectionStateChange(
     const MediaRoute::Id& route_id,
     content::PresentationConnectionState state) {
-  auto* callbacks = presentation_connection_state_callbacks_.get(route_id);
-  if (!callbacks)
+  // We should call NotifyPresentationConnectionClose() for the CLOSED state.
+  DCHECK_NE(state, content::PRESENTATION_CONNECTION_STATE_CLOSED);
+
+  auto it = presentation_connection_state_callbacks_.find(route_id);
+  if (it == presentation_connection_state_callbacks_.end())
     return;
 
-  callbacks->Notify(content::PresentationConnectionStateChangeInfo(state));
+  it->second->Notify(content::PresentationConnectionStateChangeInfo(state));
 }
 
 void MediaRouterBase::NotifyPresentationConnectionClose(
     const MediaRoute::Id& route_id,
     content::PresentationConnectionCloseReason reason,
     const std::string& message) {
-  auto* callbacks = presentation_connection_state_callbacks_.get(route_id);
-  if (!callbacks)
+  auto it = presentation_connection_state_callbacks_.find(route_id);
+  if (it == presentation_connection_state_callbacks_.end())
     return;
 
   content::PresentationConnectionStateChangeInfo info(
       content::PRESENTATION_CONNECTION_STATE_CLOSED);
   info.close_reason = reason;
   info.message = message;
-  callbacks->Notify(info);
+  it->second->Notify(info);
 }
 
 bool MediaRouterBase::HasJoinableRoute() const {
@@ -118,9 +125,11 @@ void MediaRouterBase::Initialize() {
 
 void MediaRouterBase::OnPresentationConnectionStateCallbackRemoved(
     const MediaRoute::Id& route_id) {
-  auto* callbacks = presentation_connection_state_callbacks_.get(route_id);
-  if (callbacks && callbacks->empty())
+  auto it = presentation_connection_state_callbacks_.find(route_id);
+  if (it != presentation_connection_state_callbacks_.end() &&
+      it->second->empty()) {
     presentation_connection_state_callbacks_.erase(route_id);
+  }
 }
 
 void MediaRouterBase::Shutdown() {

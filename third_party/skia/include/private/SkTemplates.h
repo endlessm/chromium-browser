@@ -81,33 +81,6 @@ public:
     operator T*() const { return this->get(); }
 };
 
-/** \class SkAutoTDelete
-  An SkAutoTDelete<T> is like a T*, except that the destructor of SkAutoTDelete<T>
-  automatically deletes the pointer it holds (if any).  That is, SkAutoTDelete<T>
-  owns the T object that it points to.  Like a T*, an SkAutoTDelete<T> may hold
-  either NULL or a pointer to a T object.  Also like T*, SkAutoTDelete<T> is
-  thread-compatible, and once you dereference it, you get the threadsafety
-  guarantees of T.
-
-  The size of a SkAutoTDelete is small: sizeof(SkAutoTDelete<T>) == sizeof(T*)
-*/
-template <typename T> class SkAutoTDelete : public std::unique_ptr<T> {
-public:
-    SkAutoTDelete(T* obj = NULL) : std::unique_ptr<T>(obj) {}
-
-    operator T*() const { return this->get(); }
-
-#if defined(SK_BUILD_FOR_ANDROID_FRAMEWORK)
-    // Need to update graphics/BitmapRegionDecoder.cpp.
-    T* detach() { return this->release(); }
-#endif
-};
-
-template <typename T> class SkAutoTDeleteArray : public std::unique_ptr<T[]> {
-public:
-    SkAutoTDeleteArray(T array[]) : std::unique_ptr<T[]>(array) {}
-};
-
 /** Allocate an array of T elements, and free the array in the destructor
  */
 template <typename T> class SkAutoTArray : SkNoncopyable {
@@ -230,6 +203,14 @@ public:
     /** Return the array of T elements. Will be NULL if count == 0
      */
     T* get() const { return fArray; }
+
+    T* begin() { return fArray; }
+
+    const T* begin() const { return fArray; }
+
+    T* end() { return fArray + fCount; }
+
+    const T* end() const { return fArray + fCount; }
 
     /** Return the nth element in the array
      */
@@ -488,5 +469,7 @@ public:
 private:
     SkAlignedSStorage<sizeof(T)*N> fStorage;
 };
+
+using SkAutoFree = std::unique_ptr<void, SkFunctionWrapper<void, void, sk_free>>;
 
 #endif

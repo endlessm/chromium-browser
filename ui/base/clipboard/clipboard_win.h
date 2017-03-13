@@ -13,6 +13,16 @@
 #include "base/macros.h"
 #include "ui/base/clipboard/clipboard.h"
 
+namespace base {
+namespace win {
+class MessageWindow;
+}
+}
+
+namespace gfx {
+class Size;
+}
+
 namespace ui {
 
 class ClipboardWin : public Clipboard {
@@ -23,6 +33,7 @@ class ClipboardWin : public Clipboard {
   ~ClipboardWin() override;
 
   // Clipboard overrides:
+  void OnPreShutdown() override;
   uint64_t GetSequenceNumber(ClipboardType type) const override;
   bool IsFormatAvailable(const FormatType& format,
                          ClipboardType type) const override;

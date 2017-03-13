@@ -12,6 +12,17 @@ namespace switches {
 // Allow access to external pages during layout tests.
 const char kAllowExternalPages[] = "allow-external-pages";
 
+#if defined(OS_ANDROID)
+// Redirect stderr to the given port. Only supported on Android.
+const char kAndroidStderrPort[] = "android-stderr-port";
+
+// Redirect stdin to the given port. Only supported on Android.
+const char kAndroidStdinPort[] = "android-stdin-port";
+
+// Redirect stdout to the given port. Only supported on Android.
+const char kAndroidStdoutPort[] = "android-stdout-port";
+#endif // defined(OS_ANDROID)
+
 // Check whether all system dependencies for running layout tests are met.
 const char kCheckLayoutTestSysDeps[] = "check-layout-test-sys-deps";
 
@@ -21,6 +32,9 @@ const char kCrashOnFailure[] = "crash-on-failure";
 
 // Run devtools tests in debug mode (not bundled and minified)
 const char kDebugDevTools[] = "debug-devtools";
+
+// Specify a custom path to devtools for devtools tests
+const char kCustomDevToolsFrontend[] = "custom-devtools-frontend";
 
 // Enable accelerated 2D canvas.
 const char kEnableAccelerated2DCanvas[] = "enable-accelerated-2d-canvas";

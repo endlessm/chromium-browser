@@ -26,7 +26,6 @@
 #include "components/policy/proto/device_management_backend.pb.h"
 #include "components/prefs/scoped_user_pref_update.h"
 #include "components/prefs/testing_pref_service.h"
-#include "components/user_manager/fake_user_manager.h"
 #include "content/public/test/test_browser_thread_bundle.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -56,10 +55,6 @@ class DeviceDisablingManagerTestBase : public testing::Test,
 
   virtual void CreateDeviceDisablingManager();
   virtual void DestroyDeviceDisablingManager();
-
-  void UpdateInstallAttributes(const std::string& enrollment_domain,
-                               const std::string& registration_user,
-                               policy::DeviceMode device_mode);
   void LogIn();
 
   // DeviceDisablingManager::Delegate:
@@ -70,18 +65,25 @@ class DeviceDisablingManagerTestBase : public testing::Test,
     return device_disabling_manager_.get();
   }
 
+  // Configure install attributes.
+  void SetUnowned();
+  void SetEnterpriseOwned();
+  void SetConsumerOwned();
+
  private:
+  chromeos::StubInstallAttributes* GetInstallAttributes();
+
   chromeos::ScopedStubInstallAttributes install_attributes_;
   chromeos::ScopedTestDeviceSettingsService test_device_settings_service_;
   chromeos::ScopedTestCrosSettings test_cros_settings_;
-  user_manager::FakeUserManager fake_user_manager_;
+  chromeos::FakeChromeUserManager fake_user_manager_;
   std::unique_ptr<DeviceDisablingManager> device_disabling_manager_;
 
   DISALLOW_COPY_AND_ASSIGN(DeviceDisablingManagerTestBase);
 };
 
 DeviceDisablingManagerTestBase::DeviceDisablingManagerTestBase()
-    : install_attributes_("", "", "", policy::DEVICE_MODE_NOT_SET) {
+    : install_attributes_(ScopedStubInstallAttributes::CreateUnset()) {
 }
 
 void DeviceDisablingManagerTestBase::TearDown() {
@@ -99,23 +101,29 @@ void DeviceDisablingManagerTestBase::DestroyDeviceDisablingManager() {
   device_disabling_manager_.reset();
 }
 
-void DeviceDisablingManagerTestBase::UpdateInstallAttributes(
-    const std::string& enrollment_domain,
-    const std::string& registration_user,
-    policy::DeviceMode device_mode) {
-  chromeos::StubInstallAttributes* install_attributes =
-      static_cast<chromeos::StubInstallAttributes*>(
-          TestingBrowserProcess::GetGlobal()
-              ->platform_part()
-              ->browser_policy_connector_chromeos()
-              ->GetInstallAttributes());
-  install_attributes->SetDomain(enrollment_domain);
-  install_attributes->SetRegistrationUser(registration_user);
-  install_attributes->SetMode(device_mode);
-}
-
 void DeviceDisablingManagerTestBase::LogIn() {
   fake_user_manager_.AddUser(AccountId::FromUserEmail(kTestUser));
+}
+
+void DeviceDisablingManagerTestBase::SetUnowned() {
+  GetInstallAttributes()->Clear();
+}
+
+void DeviceDisablingManagerTestBase::SetEnterpriseOwned() {
+  GetInstallAttributes()->SetEnterprise(kEnrollmentDomain, "fake-id");
+}
+
+void DeviceDisablingManagerTestBase::SetConsumerOwned() {
+  GetInstallAttributes()->SetConsumer();
+}
+
+chromeos::StubInstallAttributes*
+DeviceDisablingManagerTestBase::GetInstallAttributes() {
+  return static_cast<chromeos::StubInstallAttributes*>(
+      TestingBrowserProcess::GetGlobal()
+      ->platform_part()
+      ->browser_policy_connector_chromeos()
+      ->GetInstallAttributes());
 }
 
 // Base class for tests that verify device disabling behavior during OOBE, when
@@ -216,9 +224,7 @@ TEST_F(DeviceDisablingManagerOOBETest, NotDisabledWhenTurnedOffByFlag) {
 // Verifies that the device is not considered disabled during OOBE when it is
 // already enrolled, even if the device is marked as disabled.
 TEST_F(DeviceDisablingManagerOOBETest, NotDisabledWhenEnterpriseOwned) {
-  UpdateInstallAttributes(kEnrollmentDomain,
-                          kTestUser,
-                          policy::DEVICE_MODE_ENTERPRISE);
+  SetEnterpriseOwned();
   SetDeviceDisabled(true);
   CheckWhetherDeviceDisabledDuringOOBE();
   EXPECT_FALSE(device_disabled());
@@ -227,9 +233,7 @@ TEST_F(DeviceDisablingManagerOOBETest, NotDisabledWhenEnterpriseOwned) {
 // Verifies that the device is not considered disabled during OOBE when it is
 // already owned by a consumer, even if the device is marked as disabled.
 TEST_F(DeviceDisablingManagerOOBETest, NotDisabledWhenConsumerOwned) {
-  UpdateInstallAttributes(std::string() /* enrollment_domain */,
-                          std::string() /* registration_user */,
-                          policy::DEVICE_MODE_CONSUMER);
+  SetConsumerOwned();
   SetDeviceDisabled(true);
   CheckWhetherDeviceDisabledDuringOOBE();
   EXPECT_FALSE(device_disabled());
@@ -262,9 +266,6 @@ class DeviceDisablingManagerTest : public DeviceDisablingManagerTestBase,
   // DeviceDisablingManager::Observer:
   MOCK_METHOD1(OnDisabledMessageChanged, void(const std::string&));
 
-  void SetUnowned();
-  void SetEnterpriseOwned();
-  void SetConsumerOwned();
   void MakeCrosSettingsTrusted();
 
   void SetDeviceDisabled(bool disabled);
@@ -297,24 +298,6 @@ void DeviceDisablingManagerTest::DestroyDeviceDisablingManager() {
   if (GetDeviceDisablingManager())
     GetDeviceDisablingManager()->RemoveObserver(this);
   DeviceDisablingManagerTestBase::DestroyDeviceDisablingManager();
-}
-
-void DeviceDisablingManagerTest::SetUnowned() {
-  UpdateInstallAttributes(std::string() /* enrollment_domain */,
-                          std::string() /* registration_user */,
-                          policy::DEVICE_MODE_NOT_SET);
-}
-
-void DeviceDisablingManagerTest::SetEnterpriseOwned() {
-  UpdateInstallAttributes(kEnrollmentDomain,
-                          kTestUser,
-                          policy::DEVICE_MODE_ENTERPRISE);
-}
-
-void DeviceDisablingManagerTest::SetConsumerOwned() {
-  UpdateInstallAttributes(std::string() /* enrollment_domain */,
-                          std::string() /* registration_user */,
-                          policy::DEVICE_MODE_CONSUMER);
 }
 
 void DeviceDisablingManagerTest::MakeCrosSettingsTrusted() {

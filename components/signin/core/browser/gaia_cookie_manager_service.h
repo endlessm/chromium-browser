@@ -80,9 +80,14 @@ class GaiaCookieManagerService : public KeyedService,
    public:
     // Called whenever a merge session is completed.  The account that was
     // merged is given by |account_id|.  If |error| is equal to
-    // GoogleServiceAuthError::AuthErrorNone() then the merge succeeeded.
+    // GoogleServiceAuthError::AuthErrorNone() then the merge succeeded.
     virtual void OnAddAccountToCookieCompleted(
         const std::string& account_id,
+        const GoogleServiceAuthError& error) {}
+
+    // Called whenever a logout is completed. If |error| is equal to
+    // GoogleServiceAuthError::AuthErrorNone() then the logout succeeded.
+    virtual void OnLogOutAccountsFromCookieCompleted(
         const GoogleServiceAuthError& error) {}
 
     // Called whenever the GaiaCookieManagerService's list of GAIA accounts is
@@ -237,8 +242,11 @@ class GaiaCookieManagerService : public KeyedService,
   // Returns the source value to use for GaiaFetcher requests.  This is
   // virtual to allow tests and fake classes to override.
   virtual std::string GetSourceForRequest(
-      const GaiaCookieManagerService::GaiaCookieRequest& request,
-      const std::string& source_default);
+      const GaiaCookieManagerService::GaiaCookieRequest& request);
+
+  // Returns the default source value to use for GaiaFetcher requests.  This is
+  // virtual to allow tests and fake classes to override.
+  virtual std::string GetDefaultSourceForRequest();
 
   // Called when a cookie changes. If the cookie relates to a GAIA APISID
   // cookie, then we call ListAccounts and fire OnGaiaAccountsInCookieUpdated.

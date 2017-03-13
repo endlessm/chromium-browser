@@ -42,6 +42,7 @@ namespace blink {
 // from top.
 enum BoxSide { BSTop, BSRight, BSBottom, BSLeft };
 
+// See core/dom/stylerecalc.md for an explanation on what each state means
 enum StyleRecalcChange {
   NoChange,
   NoInherit,
@@ -52,9 +53,6 @@ enum StyleRecalcChange {
   Reattach,
   ReattachNoLayoutObject
 };
-
-static const size_t PrintColorAdjustBits = 1;
-enum PrintColorAdjust { PrintColorAdjustEconomy, PrintColorAdjustExact };
 
 // Static pseudo styles. Dynamic ones are produced on the fly.
 enum PseudoId {
@@ -92,8 +90,6 @@ enum PseudoId {
 enum ColumnFill { ColumnFillBalance, ColumnFillAuto };
 
 enum ColumnSpan { ColumnSpanNone = 0, ColumnSpanAll };
-
-enum EBorderCollapse { BorderCollapseSeparate = 0, BorderCollapseCollapse = 1 };
 
 // These have been defined in the order of their precedence for
 // border-collapsing. Do not change this order! This order also must match the
@@ -144,33 +140,33 @@ enum EBoxDecorationBreak { BoxDecorationBreakSlice, BoxDecorationBreakClone };
 
 // Box attributes. Not inherited.
 
-enum EBoxSizing { BoxSizingContentBox, BoxSizingBorderBox };
+enum class EBoxSizing : unsigned { kContentBox, kBorderBox };
 
 // Random visual rendering model attributes. Not inherited.
 
-enum EOverflowAnchor { AnchorVisible, AnchorNone, AnchorAuto };
+enum class EOverflowAnchor : unsigned { Visible, None, Auto };
 
-enum EOverflow {
-  OverflowVisible,
-  OverflowHidden,
-  OverflowScroll,
-  OverflowAuto,
-  OverflowOverlay,
-  OverflowPagedX,
-  OverflowPagedY
+enum class EOverflow : unsigned {
+  Visible,
+  Hidden,
+  Scroll,
+  Auto,
+  Overlay,
+  PagedX,
+  PagedY
 };
 
-enum EVerticalAlign {
-  VerticalAlignBaseline,
-  VerticalAlignMiddle,
-  VerticalAlignSub,
-  VerticalAlignSuper,
-  VerticalAlignTextTop,
-  VerticalAlignTextBottom,
-  VerticalAlignTop,
-  VerticalAlignBottom,
-  VerticalAlignBaselineMiddle,
-  VerticalAlignLength
+enum class EVerticalAlign : unsigned {
+  Baseline,
+  Middle,
+  Sub,
+  Super,
+  TextTop,
+  TextBottom,
+  Top,
+  Bottom,
+  BaselineMiddle,
+  Length
 };
 
 enum EClear { ClearNone = 0, ClearLeft = 1, ClearRight = 2, ClearBoth = 3 };
@@ -216,7 +212,6 @@ enum EBoxPack { BoxPackStart, BoxPackCenter, BoxPackEnd, BoxPackJustify };
 enum EBoxAlignment { BSTRETCH, BSTART, BCENTER, BEND, BBASELINE };
 enum EBoxOrient { HORIZONTAL, VERTICAL };
 enum EBoxLines { SINGLE, MULTIPLE };
-enum EBoxDirection { BNORMAL, BREVERSE };
 
 // CSS3 Flexbox Properties
 
@@ -267,88 +262,9 @@ enum LineBreak {
 
 enum EResize { RESIZE_NONE, RESIZE_BOTH, RESIZE_HORIZONTAL, RESIZE_VERTICAL };
 
-// The order of this enum must match the order of the list style types in
-// CSSValueKeywords.in.
-enum EListStyleType {
-  Disc,
-  Circle,
-  Square,
-  DecimalListStyle,
-  DecimalLeadingZero,
-  ArabicIndic,
-  Bengali,
-  Cambodian,
-  Khmer,
-  Devanagari,
-  Gujarati,
-  Gurmukhi,
-  Kannada,
-  Lao,
-  Malayalam,
-  Mongolian,
-  Myanmar,
-  Oriya,
-  Persian,
-  Urdu,
-  Telugu,
-  Tibetan,
-  Thai,
-  LowerRoman,
-  UpperRoman,
-  LowerGreek,
-  LowerAlpha,
-  LowerLatin,
-  UpperAlpha,
-  UpperLatin,
-  CjkEarthlyBranch,
-  CjkHeavenlyStem,
-  EthiopicHalehame,
-  EthiopicHalehameAm,
-  EthiopicHalehameTiEr,
-  EthiopicHalehameTiEt,
-  Hangul,
-  HangulConsonant,
-  KoreanHangulFormal,
-  KoreanHanjaFormal,
-  KoreanHanjaInformal,
-  Hebrew,
-  Armenian,
-  LowerArmenian,
-  UpperArmenian,
-  Georgian,
-  CJKIdeographic,
-  SimpChineseFormal,
-  SimpChineseInformal,
-  TradChineseFormal,
-  TradChineseInformal,
-  Hiragana,
-  Katakana,
-  HiraganaIroha,
-  KatakanaIroha,
-  NoneListStyle
-};
-
 enum QuoteType { OPEN_QUOTE, CLOSE_QUOTE, NO_OPEN_QUOTE, NO_CLOSE_QUOTE };
 
 enum EAnimPlayState { AnimPlayStatePlaying, AnimPlayStatePaused };
-
-enum EWhiteSpace { NORMAL, PRE, PRE_WRAP, PRE_LINE, NOWRAP, KHTML_NOWRAP };
-
-// The order of this enum must match the order of the text align values in
-// CSSValueKeywords.in.
-enum ETextAlign {
-  LEFT,
-  RIGHT,
-  CENTER,
-  JUSTIFY,
-  WEBKIT_LEFT,
-  WEBKIT_RIGHT,
-  WEBKIT_CENTER,
-  TASTART,
-  TAEND,
-};
-
-enum ETextTransform { CAPITALIZE, UPPERCASE, LOWERCASE, TTNONE };
 
 static const size_t TextDecorationBits = 4;
 enum TextDecoration {
@@ -372,6 +288,22 @@ enum TextDecorationStyle {
   TextDecorationStyleDashed,
   TextDecorationStyleWavy
 };
+
+static const size_t TextDecorationSkipBits = 3;
+enum TextDecorationSkip {
+  TextDecorationSkipNone = 0x0,
+  TextDecorationSkipObjects = 0x1,
+  TextDecorationSkipInk = 0x2
+};
+inline TextDecorationSkip operator|(TextDecorationSkip a,
+                                    TextDecorationSkip b) {
+  return TextDecorationSkip(static_cast<unsigned>(a) |
+                            static_cast<unsigned>(b));
+}
+inline TextDecorationSkip& operator|=(TextDecorationSkip& a,
+                                      TextDecorationSkip b) {
+  return a = a | b;
+}
 
 enum TextAlignLast {
   TextAlignLastAuto,
@@ -409,56 +341,45 @@ enum EBreak {
                // shorthands.
 };
 
-enum class EEmptyCells : unsigned { Show, Hide };
-
-enum class ECaptionSide : unsigned { Top, Bottom, Left, Right };
-
-enum class EListStylePosition : unsigned { Outside, Inside };
-
-enum ECursor {
-  // The following must match the order in CSSValueKeywords.in.
-  CURSOR_AUTO,
-  CURSOR_CROSS,
-  CURSOR_DEFAULT,
-  CURSOR_POINTER,
-  CURSOR_MOVE,
-  CURSOR_VERTICAL_TEXT,
-  CURSOR_CELL,
-  CURSOR_CONTEXT_MENU,
-  CURSOR_ALIAS,
-  CURSOR_PROGRESS,
-  CURSOR_NO_DROP,
-  CURSOR_NOT_ALLOWED,
-  CURSOR_ZOOM_IN,
-  CURSOR_ZOOM_OUT,
-  CURSOR_E_RESIZE,
-  CURSOR_NE_RESIZE,
-  CURSOR_NW_RESIZE,
-  CURSOR_N_RESIZE,
-  CURSOR_SE_RESIZE,
-  CURSOR_SW_RESIZE,
-  CURSOR_S_RESIZE,
-  CURSOR_W_RESIZE,
-  CURSOR_EW_RESIZE,
-  CURSOR_NS_RESIZE,
-  CURSOR_NESW_RESIZE,
-  CURSOR_NWSE_RESIZE,
-  CURSOR_COL_RESIZE,
-  CURSOR_ROW_RESIZE,
-  CURSOR_TEXT,
-  CURSOR_WAIT,
-  CURSOR_HELP,
-  CURSOR_ALL_SCROLL,
-  CURSOR_WEBKIT_GRAB,
-  CURSOR_WEBKIT_GRABBING,
-
-  // The following are handled as exceptions so don't need to match.
-  CURSOR_COPY,
-  CURSOR_NONE
+enum class ECursor : unsigned {
+  Auto,
+  Cross,
+  Default,
+  Pointer,
+  Move,
+  VerticalText,
+  Cell,
+  ContextMenu,
+  Alias,
+  Progress,
+  NoDrop,
+  NotAllowed,
+  ZoomIn,
+  ZoomOut,
+  EResize,
+  NeResize,
+  NwResize,
+  NResize,
+  SeResize,
+  SwResize,
+  SResize,
+  WResize,
+  EwResize,
+  NsResize,
+  NeswResize,
+  NwseResize,
+  ColResize,
+  RowResize,
+  Text,
+  Wait,
+  Help,
+  AllScroll,
+  WebkitGrab,
+  WebkitGrabbing,
+  Copy,
+  None
 };
 
-// The order of this enum must match the order of the display values in
-// CSSValueKeywords.in.
 enum class EDisplay : unsigned {
   Inline,
   Block,
@@ -474,29 +395,20 @@ enum class EDisplay : unsigned {
   TableColumn,
   TableCell,
   TableCaption,
-  Box,
-  InlineBox,
+  WebkitBox,
+  WebkitInlineBox,
   Flex,
   InlineFlex,
   Grid,
   InlineGrid,
+  Contents,
   None
 };
 
-enum EInsideLink { NotInsideLink, InsideUnvisitedLink, InsideVisitedLink };
-
-enum EPointerEvents {
-  PE_NONE,
-  PE_AUTO,
-  PE_STROKE,
-  PE_FILL,
-  PE_PAINTED,
-  PE_VISIBLE,
-  PE_VISIBLE_STROKE,
-  PE_VISIBLE_FILL,
-  PE_VISIBLE_PAINTED,
-  PE_BOUNDINGBOX,
-  PE_ALL
+enum class EInsideLink : unsigned {
+  kNotInsideLink,
+  kInsideUnvisitedLink,
+  kInsideVisitedLink
 };
 
 enum ETransformStyle3D { TransformStyle3DFlat, TransformStyle3DPreserve3D };
@@ -554,8 +466,6 @@ enum EImageRendering {
   ImageRenderingOptimizeContrast,
   ImageRenderingPixelated
 };
-
-enum Order { LogicalOrder = 0, VisualOrder };
 
 enum RubyPosition { RubyPositionBefore, RubyPositionAfter };
 

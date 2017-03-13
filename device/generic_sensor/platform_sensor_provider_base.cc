@@ -13,9 +13,9 @@ namespace device {
 
 namespace {
 
+const uint64_t kReadingBufferSize = sizeof(SensorReadingSharedBuffer);
 const uint64_t kSharedBufferSizeInBytes =
-    mojom::SensorInitParams::kReadBufferSize *
-    static_cast<uint64_t>(mojom::SensorType::LAST);
+    kReadingBufferSize * static_cast<uint64_t>(mojom::SensorType::LAST);
 
 }  // namespace
 
@@ -24,8 +24,6 @@ PlatformSensorProviderBase::~PlatformSensorProviderBase() = default;
 
 void PlatformSensorProviderBase::CreateSensor(
     mojom::SensorType type,
-    uint64_t size,
-    uint64_t offset,
     const CreateSensorCallback& callback) {
   DCHECK(CalledOnValidThread());
 
@@ -34,8 +32,7 @@ void PlatformSensorProviderBase::CreateSensor(
     return;
   }
 
-  mojo::ScopedSharedBufferMapping mapping =
-      shared_buffer_handle_->MapAtOffset(size, offset);
+  mojo::ScopedSharedBufferMapping mapping = MapSharedBufferForType(type);
   if (!mapping) {
     callback.Run(nullptr);
     return;
@@ -44,11 +41,11 @@ void PlatformSensorProviderBase::CreateSensor(
   auto it = requests_map_.find(type);
   if (it != requests_map_.end()) {
     it->second.push_back(callback);
-  } else {
+  } else {  // This is the first CreateSensor call.
     requests_map_[type] = CallbackQueue({callback});
 
     CreateSensorInternal(
-        type, std::move(mapping), size,
+        type, std::move(mapping),
         base::Bind(&PlatformSensorProviderBase::NotifySensorCreated,
                    base::Unretained(this), type));
   }
@@ -79,15 +76,23 @@ void PlatformSensorProviderBase::RemoveSensor(mojom::SensorType type) {
   DCHECK(ContainsKey(sensor_map_, type));
   sensor_map_.erase(type);
 
-  if (sensor_map_.empty())
+  if (sensor_map_.empty()) {
+    AllSensorsRemoved();
     shared_buffer_handle_.reset();
+  }
 }
 
 mojo::ScopedSharedBufferHandle
 PlatformSensorProviderBase::CloneSharedBufferHandle() {
   DCHECK(CalledOnValidThread());
   CreateSharedBufferIfNeeded();
-  return shared_buffer_handle_->Clone();
+  return shared_buffer_handle_->Clone(
+      mojo::SharedBufferHandle::AccessMode::READ_ONLY);
+}
+
+bool PlatformSensorProviderBase::HasSensors() const {
+  DCHECK(CalledOnValidThread());
+  return !sensor_map_.empty();
 }
 
 void PlatformSensorProviderBase::NotifySensorCreated(
@@ -107,6 +112,22 @@ void PlatformSensorProviderBase::NotifySensorCreated(
     callback.Run(sensor);
 
   requests_map_.erase(type);
+}
+
+std::vector<mojom::SensorType>
+PlatformSensorProviderBase::GetPendingRequestTypes() {
+  std::vector<mojom::SensorType> request_types;
+  for (auto const& entry : requests_map_)
+    request_types.push_back(entry.first);
+  return request_types;
+}
+
+mojo::ScopedSharedBufferMapping
+PlatformSensorProviderBase::MapSharedBufferForType(mojom::SensorType type) {
+  mojo::ScopedSharedBufferMapping mapping = shared_buffer_handle_->MapAtOffset(
+      kReadingBufferSize, SensorReadingSharedBuffer::GetOffset(type));
+  memset(mapping.get(), 0, kReadingBufferSize);
+  return mapping;
 }
 
 }  // namespace device

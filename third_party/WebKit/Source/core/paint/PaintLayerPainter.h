@@ -8,6 +8,7 @@
 #include "core/CoreExport.h"
 #include "core/paint/PaintLayerFragment.h"
 #include "core/paint/PaintLayerPaintingInfo.h"
+#include "core/paint/PaintResult.h"
 #include "wtf/Allocator.h"
 
 namespace blink {
@@ -27,18 +28,6 @@ class CORE_EXPORT PaintLayerPainter {
  public:
   enum FragmentPolicy { AllowMultipleFragments, ForceSingleFragment };
 
-  // When adding new values, must update the number of bits of
-  // PaintLayer::m_previousPaintingResult.
-  enum PaintResult {
-    // The layer is fully painted. This includes cases that nothing needs
-    // painting regardless of the paint rect.
-    FullyPainted,
-    // Some part of the layer is out of the paint rect and may be not fully
-    // painted.  The results cannot be cached because they may change when paint
-    // rect changes.
-    MayBeClippedByPaintDirtyRect
-  };
-
   PaintLayerPainter(PaintLayer& paintLayer) : m_paintLayer(paintLayer) {}
 
   // The paint() method paints the layers that intersect the damage rect from
@@ -48,11 +37,11 @@ class CORE_EXPORT PaintLayerPainter {
              const LayoutRect& damageRect,
              const GlobalPaintFlags = GlobalPaintNormalPhase,
              PaintLayerFlags = 0);
-  // paintLayer() assumes that the caller will clip to the bounds of the
-  // painting dirty if necessary.
-  PaintResult paintLayer(GraphicsContext&,
-                         const PaintLayerPaintingInfo&,
-                         PaintLayerFlags);
+  // paint() assumes that the caller will clip to the bounds of the painting
+  // dirty if necessary.
+  PaintResult paint(GraphicsContext&,
+                    const PaintLayerPaintingInfo&,
+                    PaintLayerFlags);
   // paintLayerContents() assumes that the caller will clip to the bounds of the
   // painting dirty rect if necessary.
   PaintResult paintLayerContents(GraphicsContext&,
@@ -66,6 +55,18 @@ class CORE_EXPORT PaintLayerPainter {
 
  private:
   enum ClipState { HasNotClipped, HasClipped };
+
+  inline bool isFixedPositionObjectInPagedMedia();
+
+  // "For paged media, boxes with fixed positions are repeated on every page."
+  // https://www.w3.org/TR/2011/REC-CSS2-20110607/visuren.html#fixed-positioning
+  // Repeats singleFragmentIgnoredPagination of the fixed-position object in
+  // each page, with paginationOffset and layerBounds adjusted for each page.
+  // TODO(wangxianzhu): Fold this into PaintLayer::collectFragments().
+  void repeatFixedPositionObjectInPages(
+      const PaintLayerFragment& singleFragmentIgnoredPagination,
+      const PaintLayerPaintingInfo&,
+      PaintLayerFragments&);
 
   PaintResult paintLayerContentsCompositingAllPhases(
       GraphicsContext&,
@@ -131,6 +132,8 @@ class CORE_EXPORT PaintLayerPainter {
                                           const PaintLayerPaintingInfo&,
                                           PaintLayerFlags);
 
+  void fillMaskingFragment(GraphicsContext&, const ClipRect&);
+
   static bool needsToClip(const PaintLayerPaintingInfo& localPaintingInfo,
                           const ClipRect&);
 
@@ -139,7 +142,18 @@ class CORE_EXPORT PaintLayerPainter {
   bool shouldPaintLayerInSoftwareMode(const GlobalPaintFlags,
                                       PaintLayerFlags paintFlags);
 
+  // Returns true if the painted output of this PaintLayer and its children is
+  // invisible and therefore can't impact painted output.
+  bool paintedOutputInvisible(const PaintLayerPaintingInfo&);
+
   PaintLayer& m_paintLayer;
+
+  FRIEND_TEST_ALL_PREFIXES(PaintLayerPainterTest, DontPaintWithTinyOpacity);
+  FRIEND_TEST_ALL_PREFIXES(PaintLayerPainterTest,
+                           DontPaintWithTinyOpacityAndBackdropFilter);
+  FRIEND_TEST_ALL_PREFIXES(PaintLayerPainterTest,
+                           DoPaintWithCompositedTinyOpacity);
+  FRIEND_TEST_ALL_PREFIXES(PaintLayerPainterTest, DoPaintWithNonTinyOpacity);
 };
 
 }  // namespace blink

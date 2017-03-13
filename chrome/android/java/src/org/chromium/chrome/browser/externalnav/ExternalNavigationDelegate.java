@@ -18,7 +18,8 @@ import java.util.List;
  */
 interface ExternalNavigationDelegate {
     /**
-     * Get the list of component name of activities which can resolve |intent|.
+     * Get the list of component name of activities which can resolve |intent|.  If the request
+     * fails, null will be returned.
      */
     List<ResolveInfo> queryIntentActivities(Intent intent);
 
@@ -52,12 +53,6 @@ interface ExternalNavigationDelegate {
      * @return The package name of the first valid WebAPK. Null if no valid WebAPK was found.
      */
     String findWebApkPackageName(List<ResolveInfo> infos);
-
-    /**
-     * Get the name of the package of the currently running activity so that incoming intents
-     * can be identified as originating from this activity.
-     */
-    String getPackageName();
 
     /**
      * Start an activity for the intent. Used for intents that must be handled externally.
@@ -156,9 +151,8 @@ interface ExternalNavigationDelegate {
             boolean isIncomingRedirect);
 
     /**
-     * @param referrerUrl The referrer URL.
      * @param tab The current tab.
      * @return whether this navigation is from the search results page.
      */
-    boolean isSerpReferrer(String referrerUrl, Tab tab);
+    boolean isSerpReferrer(Tab tab);
 }

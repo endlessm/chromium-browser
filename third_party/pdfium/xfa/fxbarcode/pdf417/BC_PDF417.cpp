@@ -21,6 +21,8 @@
  */
 
 #include "xfa/fxbarcode/pdf417/BC_PDF417.h"
+
+#include "third_party/base/ptr_util.h"
 #include "xfa/fxbarcode/pdf417/BC_PDF417BarcodeMatrix.h"
 #include "xfa/fxbarcode/pdf417/BC_PDF417BarcodeRow.h"
 #include "xfa/fxbarcode/pdf417/BC_PDF417Compaction.h"
@@ -381,9 +383,9 @@ const int32_t CBC_PDF417::CODEWORD_TABLE[][929] = {
      0x10396, 0x107b6, 0x187d4, 0x187d2, 0x10794, 0x10fb4, 0x10792, 0x10fb2,
      0x1c7ea}};
 
-CBC_PDF417::CBC_PDF417() : CBC_PDF417(FALSE) {}
+CBC_PDF417::CBC_PDF417() : CBC_PDF417(false) {}
 
-CBC_PDF417::CBC_PDF417(FX_BOOL compact)
+CBC_PDF417::CBC_PDF417(bool compact)
     : m_compact(compact),
       m_compaction(AUTO),
       m_minCols(1),
@@ -432,7 +434,7 @@ void CBC_PDF417::generateBarcodeLogic(CFX_WideString msg,
       dataCodewords, errorCorrectionLevel, e);
   BC_EXCEPTION_CHECK_ReturnVoid(e);
   CFX_WideString fullCodewords = dataCodewords + ec;
-  m_barcodeMatrix.reset(new CBC_BarcodeMatrix(rows, cols));
+  m_barcodeMatrix = pdfium::MakeUnique<CBC_BarcodeMatrix>(rows, cols);
   encodeLowLevel(fullCodewords, cols, rows, errorCorrectionLevel,
                  m_barcodeMatrix.get());
 }
@@ -451,7 +453,7 @@ void CBC_PDF417::setCompaction(Compaction compaction) {
   m_compaction = compaction;
 }
 
-void CBC_PDF417::setCompact(FX_BOOL compact) {
+void CBC_PDF417::setCompact(bool compact) {
   m_compact = compact;
 }
 
@@ -475,10 +477,10 @@ void CBC_PDF417::encodeChar(int32_t pattern,
                             int32_t len,
                             CBC_BarcodeRow* logic) {
   int32_t map = 1 << (len - 1);
-  FX_BOOL last = ((pattern & map) != 0);
+  bool last = ((pattern & map) != 0);
   int32_t width = 0;
   for (int32_t i = 0; i < len; i++) {
-    FX_BOOL black = ((pattern & map) != 0);
+    bool black = ((pattern & map) != 0);
     if (last == black) {
       width++;
     } else {

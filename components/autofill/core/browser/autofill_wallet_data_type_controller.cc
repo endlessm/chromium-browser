@@ -4,27 +4,31 @@
 
 #include "components/autofill/core/browser/autofill_wallet_data_type_controller.h"
 
+#include <utility>
+
 #include "base/bind.h"
 #include "components/autofill/core/browser/personal_data_manager.h"
 #include "components/autofill/core/browser/webdata/autofill_webdata_service.h"
 #include "components/autofill/core/common/autofill_pref_names.h"
 #include "components/prefs/pref_service.h"
-#include "components/sync/api/sync_error.h"
-#include "components/sync/api/syncable_service.h"
 #include "components/sync/driver/sync_client.h"
 #include "components/sync/driver/sync_service.h"
+#include "components/sync/model/sync_error.h"
+#include "components/sync/model/syncable_service.h"
 
 namespace browser_sync {
 
 AutofillWalletDataTypeController::AutofillWalletDataTypeController(
     syncer::ModelType type,
-    const scoped_refptr<base::SingleThreadTaskRunner>& db_thread,
+    scoped_refptr<base::SingleThreadTaskRunner> db_thread,
     const base::Closure& dump_stack,
     syncer::SyncClient* sync_client,
     const scoped_refptr<autofill::AutofillWebDataService>& web_data_service)
-    : NonUIDataTypeController(type, dump_stack, sync_client),
-      db_thread_(db_thread),
-      sync_client_(sync_client),
+    : AsyncDirectoryTypeController(type,
+                                   dump_stack,
+                                   sync_client,
+                                   syncer::GROUP_DB,
+                                   std::move(db_thread)),
       callback_registered_(false),
       web_data_service_(web_data_service),
       currently_enabled_(IsEnabled()) {
@@ -38,18 +42,6 @@ AutofillWalletDataTypeController::AutofillWalletDataTypeController(
 }
 
 AutofillWalletDataTypeController::~AutofillWalletDataTypeController() {}
-
-syncer::ModelSafeGroup AutofillWalletDataTypeController::model_safe_group()
-    const {
-  return syncer::GROUP_DB;
-}
-
-bool AutofillWalletDataTypeController::PostTaskOnBackendThread(
-    const tracked_objects::Location& from_here,
-    const base::Closure& task) {
-  DCHECK(CalledOnValidThread());
-  return db_thread_->PostTask(from_here, task);
-}
 
 bool AutofillWalletDataTypeController::StartModels() {
   DCHECK(CalledOnValidThread());

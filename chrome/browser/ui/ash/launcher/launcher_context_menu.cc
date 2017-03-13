@@ -6,17 +6,18 @@
 
 #include <string>
 
-#include "ash/common/session/session_state_delegate.h"
 #include "ash/common/shelf/shelf_model.h"
-#include "ash/common/shelf/shelf_widget.h"
 #include "ash/common/shelf/wm_shelf.h"
 #include "ash/common/strings/grit/ash_strings.h"
 #include "ash/common/wallpaper/wallpaper_delegate.h"
 #include "ash/common/wm_shell.h"
+#include "ash/common/wm_window.h"
 #include "build/build_config.h"
+#include "chrome/browser/chromeos/login/users/wallpaper/wallpaper_manager.h"
 #include "chrome/browser/fullscreen.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/app_list/arc/arc_app_list_prefs.h"
+#include "chrome/browser/ui/app_list/arc/arc_app_utils.h"
 #include "chrome/browser/ui/ash/launcher/arc_launcher_context_menu.h"
 #include "chrome/browser/ui/ash/launcher/chrome_launcher_controller_impl.h"
 #include "chrome/browser/ui/ash/launcher/chrome_launcher_controller_util.h"
@@ -25,6 +26,7 @@
 #include "chrome/common/pref_names.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/prefs/pref_service.h"
+#include "components/session_manager/core/session_manager.h"
 #include "content/public/common/context_menu_params.h"
 
 namespace {
@@ -50,8 +52,7 @@ LauncherContextMenu* LauncherContextMenu::Create(
 
   // Create ArcLauncherContextMenu if the item is an Arc app.
   const std::string& app_id = controller->GetAppIDForShelfID(item->id);
-  ArcAppListPrefs* arc_prefs = ArcAppListPrefs::Get(controller->GetProfile());
-  if (arc_prefs && arc_prefs->IsRegistered(app_id))
+  if (arc::IsArcItem(controller->profile(), app_id))
     return new ArcLauncherContextMenu(controller, item, wm_shelf);
 
   // Create ExtensionLauncherContextMenu for the item.
@@ -70,8 +71,7 @@ LauncherContextMenu::LauncherContextMenu(
   set_delegate(this);
 }
 
-LauncherContextMenu::~LauncherContextMenu() {
-}
+LauncherContextMenu::~LauncherContextMenu() {}
 
 bool LauncherContextMenu::IsItemForCommandIdDynamic(int command_id) const {
   return false;
@@ -94,13 +94,15 @@ bool LauncherContextMenu::IsCommandIdChecked(int command_id) const {
 bool LauncherContextMenu::IsCommandIdEnabled(int command_id) const {
   switch (command_id) {
     case MENU_PIN:
-      return controller_->IsPinnable(item_.id);
+      // Users cannot modify the pinned state of apps pinned by policy.
+      return !item_.pinned_by_policy && (item_.type == ash::TYPE_APP_SHORTCUT ||
+                                         item_.type == ash::TYPE_APP);
     case MENU_CHANGE_WALLPAPER:
       return ash::WmShell::Get()
           ->wallpaper_delegate()
           ->CanOpenSetWallpaperPage();
     case MENU_AUTO_HIDE:
-      return CanUserModifyShelfAutoHideBehavior(controller_->GetProfile());
+      return CanUserModifyShelfAutoHideBehavior(controller_->profile());
     default:
       DCHECK(command_id < MENU_ITEM_COUNT);
       return true;
@@ -138,7 +140,7 @@ void LauncherContextMenu::ExecuteCommand(int command_id, int event_flags) {
     case MENU_ALIGNMENT_MENU:
       break;
     case MENU_CHANGE_WALLPAPER:
-      ash::WmShell::Get()->wallpaper_delegate()->OpenSetWallpaperPage();
+      chromeos::WallpaperManager::Get()->Open();
       break;
     default:
       NOTREACHED();
@@ -150,7 +152,7 @@ void LauncherContextMenu::AddPinMenu() {
   DCHECK(item_.id);
   int menu_pin_string_id;
   const std::string app_id = controller_->GetAppIDForShelfID(item_.id);
-  switch (GetPinnableForAppID(app_id, controller_->GetProfile())) {
+  switch (GetPinnableForAppID(app_id, controller_->profile())) {
     case AppListControllerDelegate::PIN_EDITABLE:
       menu_pin_string_id = controller_->IsPinned(item_.id)
                                ? IDS_LAUNCHER_CONTEXT_MENU_UNPIN
@@ -169,22 +171,23 @@ void LauncherContextMenu::AddPinMenu() {
 }
 
 void LauncherContextMenu::AddShelfOptionsMenu() {
-  // In fullscreen, the launcher is either hidden or autohidden depending
-  // on thethe type of fullscreen. Do not show the auto-hide menu item while in
-  // while in fullscreen because it is confusing when the preference appears
+  // In fullscreen, the launcher is either hidden or auto hidden depending
+  // on the type of fullscreen. Do not show the auto-hide menu item while in
+  // fullscreen per display because it is confusing when the preference appears
   // not to apply.
-  if (!IsFullScreenMode() &&
-      CanUserModifyShelfAutoHideBehavior(controller_->GetProfile())) {
+  int64_t display_id = wm_shelf_->GetWindow()->GetDisplayNearestWindow().id();
+  if (!IsFullScreenMode(display_id) &&
+      CanUserModifyShelfAutoHideBehavior(controller_->profile())) {
     AddCheckItemWithStringId(MENU_AUTO_HIDE,
                              IDS_ASH_SHELF_CONTEXT_MENU_AUTO_HIDE);
   }
-  if (ash::ShelfWidget::ShelfAlignmentAllowed() &&
-      !ash::WmShell::Get()->GetSessionStateDelegate()->IsScreenLocked()) {
+  if (ash::WmShelf::CanChangeShelfAlignment() &&
+      !session_manager::SessionManager::Get()->IsScreenLocked()) {
     AddSubMenuWithStringId(MENU_ALIGNMENT_MENU,
                            IDS_ASH_SHELF_CONTEXT_MENU_POSITION,
                            &shelf_alignment_menu_);
   }
-  if (!controller_->GetProfile()->IsGuestSession())
+  if (!controller_->profile()->IsGuestSession())
     AddItemWithStringId(MENU_CHANGE_WALLPAPER, IDS_AURA_SET_DESKTOP_WALLPAPER);
 }
 

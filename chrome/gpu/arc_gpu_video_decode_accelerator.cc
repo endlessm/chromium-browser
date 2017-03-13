@@ -6,6 +6,7 @@
 
 #include "base/callback_helpers.h"
 #include "base/logging.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/numerics/safe_math.h"
 #include "base/run_loop.h"
 #include "media/base/video_frame.h"
@@ -68,6 +69,17 @@ ArcGpuVideoDecodeAccelerator::~ArcGpuVideoDecodeAccelerator() {
 }
 
 ArcVideoAccelerator::Result ArcGpuVideoDecodeAccelerator::Initialize(
+    const Config& config,
+    ArcVideoAccelerator::Client* client) {
+  auto result = InitializeTask(config, client);
+  // Report initialization status to UMA.
+  UMA_HISTOGRAM_ENUMERATION(
+      "Media.ArcGpuVideoDecodeAccelerator.InitializeResult", result,
+      RESULT_MAX);
+  return result;
+}
+
+ArcVideoAccelerator::Result ArcGpuVideoDecodeAccelerator::InitializeTask(
     const Config& config,
     ArcVideoAccelerator::Client* client) {
   DVLOG(5) << "Initialize(device=" << config.device_type
@@ -146,12 +158,9 @@ void ArcGpuVideoDecodeAccelerator::SetNumberOfOutputBuffers(size_t number) {
 
   std::vector<media::PictureBuffer> buffers;
   for (size_t id = 0; id < number; ++id) {
-    media::PictureBuffer::TextureIds texture_ids;
-    texture_ids.push_back(0);
-
     // TODO(owenlin): Make sure the |coded_size| is what we want.
-    buffers.push_back(media::PictureBuffer(base::checked_cast<int32_t>(id),
-                                           coded_size_, texture_ids));
+    buffers.push_back(
+        media::PictureBuffer(base::checked_cast<int32_t>(id), coded_size_));
   }
   vda_->AssignPictureBuffers(buffers);
 
@@ -189,7 +198,8 @@ void ArcGpuVideoDecodeAccelerator::BindSharedMemory(PortType port,
 
 bool ArcGpuVideoDecodeAccelerator::VerifyDmabuf(
     const base::ScopedFD& dmabuf_fd,
-    const std::vector<DmabufPlane>& dmabuf_planes) const {
+    const std::vector<::arc::ArcVideoAcceleratorDmabufPlane>& dmabuf_planes)
+    const {
   size_t num_planes = media::VideoFrame::NumPlanes(output_pixel_format_);
   if (dmabuf_planes.size() != num_planes) {
     DLOG(ERROR) << "Invalid number of dmabuf planes passed: "
@@ -212,7 +222,7 @@ bool ArcGpuVideoDecodeAccelerator::VerifyDmabuf(
     size_t rows =
         media::VideoFrame::Rows(i, output_pixel_format_, coded_size_.height());
     base::CheckedNumeric<off_t> current_size(plane.offset);
-    current_size += plane.stride * rows;
+    current_size += base::CheckMul(plane.stride, rows);
 
     if (!current_size.IsValid() || current_size.ValueOrDie() > size) {
       DLOG(ERROR) << "Invalid strides/offsets";
@@ -229,7 +239,7 @@ void ArcGpuVideoDecodeAccelerator::BindDmabuf(
     PortType port,
     uint32_t index,
     base::ScopedFD dmabuf_fd,
-    const std::vector<DmabufPlane>& dmabuf_planes) {
+    const std::vector<::arc::ArcVideoAcceleratorDmabufPlane>& dmabuf_planes) {
   DCHECK(thread_checker_.CalledOnValidThread());
 
   if (!vda_) {

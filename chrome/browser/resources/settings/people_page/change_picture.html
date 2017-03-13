@@ -10,6 +10,7 @@
 <link rel="import" href="/icons.html">
 <link rel="import" href="/people_page/camera.html">
 <link rel="import" href="/people_page/change_picture_browser_proxy.html">
+<link rel="import" href="/route.html">
 <link rel="import" href="/settings_shared_css.html">
 
 <dom-module id="settings-change-picture">
@@ -18,7 +19,12 @@
       #container {
         -webkit-margin-start: 16px;
         align-items: flex-start;
+        outline: none;
         padding-top: 16px;
+      }
+
+      #availableIcons {
+        margin: -8px;
       }
 
       #availableIcons img,
@@ -35,6 +41,9 @@
       }
 
       #availableIcons iron-icon {
+        --iron-icon-fill-color: var(--google-grey-500);
+        --iron-icon-height: 32px;
+        --iron-icon-width: 32px;
         border: 1px solid var(--google-grey-500);
         padding: 17px;
       }
@@ -76,9 +85,9 @@
       }
 
       #discardOldImage {
+        --iron-icon-fill-color: white;
         background-color: var(--paper-red-500);
         border-radius: 50%;
-        color: white;
         display: block;
         margin: 0 auto 0 auto;
       }
@@ -92,21 +101,22 @@
             selected-item="{{selectedItem_}}">
           <iron-icon id="cameraImage"
               data-type$="[[selectionTypesEnum_.CAMERA]]"
-              icon="settings:camera-alt" alt="$i18n{takePhoto}"
+              icon="settings:camera-alt" title="$i18n{takePhoto}"
               hidden="[[!cameraPresent_]]">
           </iron-icon>
           <iron-icon data-type$="[[selectionTypesEnum_.FILE]]"
-              icon="settings:folder" alt="$i18n{chooseFile}">
+              icon="cr:folder" title="$i18n{chooseFile}">
           </iron-icon>
           <img id="profileImage"
               data-type$="[[selectionTypesEnum_.PROFILE]]"
-              src="[[profileImageUrl_]]" alt="$i18n{profilePhotoLoading}">
+              src="[[profileImageUrl_]]" title="$i18n{profilePhotoLoading}">
           <img id="oldImage" data-type$="[[selectionTypesEnum_.OLD]]"
-              src="[[oldImageUrl_]]" hidden="[[!oldImageUrl_]]">
+              src="[[oldImageUrl_]]" hidden="[[!oldImageUrl_]]"
+              title="$i18n{oldPhoto}">
           <template is="dom-repeat" items="[[defaultImages_]]">
             <img data-type$="[[selectionTypesEnum_.DEFAULT]]"
                 data-default-image-index$="[[index]]" src="[[item.url]]"
-                alt="[[item.title]]">
+                title="[[item.title]]">
           </template>
         </iron-selector>
         <template is="dom-if" if="[[isAuthorCreditShown_(selectedItem_)]]">
@@ -133,6 +143,7 @@
         <settings-camera id="camera"
             camera-active="[[isCameraActive_(cameraPresent_, selectedItem_)]]"
             on-phototaken="onPhotoTaken_">
+        </settings-camera>
       </div>
     </div>
   </template>

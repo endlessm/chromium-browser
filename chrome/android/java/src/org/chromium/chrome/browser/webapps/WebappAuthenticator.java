@@ -12,7 +12,7 @@ import android.os.SystemClock;
 import android.util.Log;
 
 import org.chromium.base.SecureRandomInitializer;
-import org.chromium.chrome.browser.metrics.LaunchMetrics.TimesHistogramSample;
+import org.chromium.base.metrics.CachedMetrics.TimesHistogramSample;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -47,7 +47,7 @@ public class WebappAuthenticator {
     private static final Object sLock = new Object();
 
     private static FutureTask<SecretKey> sMacKeyGenerator;
-    private static SecretKey sKey = null;
+    private static SecretKey sKey;
 
     private static final TimesHistogramSample sWebappValidationTimes = new TimesHistogramSample(
             "Android.StrictMode.WebappAuthenticatorMac", TimeUnit.MILLISECONDS);

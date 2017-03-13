@@ -122,8 +122,8 @@ void SkSweepGradient::SweepGradientContext::shadeSpan(int x, int y, SkPMColor* S
 #if SK_SUPPORT_GPU
 
 #include "SkGr.h"
+#include "GrShaderCaps.h"
 #include "gl/GrGLContext.h"
-#include "glsl/GrGLSLCaps.h"
 #include "glsl/GrGLSLFragmentShaderBuilder.h"
 
 class GrSweepGradient : public GrGradientEffect {
@@ -145,7 +145,7 @@ private:
 
     GrGLSLFragmentProcessor* onCreateGLSLInstance() const override;
 
-    virtual void onGetGLSLProcessorKey(const GrGLSLCaps& caps,
+    virtual void onGetGLSLProcessorKey(const GrShaderCaps& caps,
                                        GrProcessorKeyBuilder* b) const override;
 
     GR_DECLARE_FRAGMENT_PROCESSOR_TEST;
@@ -162,7 +162,7 @@ public:
 
     virtual void emitCode(EmitArgs&) override;
 
-    static void GenKey(const GrProcessor& processor, const GrGLSLCaps&, GrProcessorKeyBuilder* b) {
+    static void GenKey(const GrProcessor& processor, const GrShaderCaps&, GrProcessorKeyBuilder* b) {
         b->add32(GenBaseGradientKey(processor));
     }
 
@@ -177,7 +177,7 @@ GrGLSLFragmentProcessor* GrSweepGradient::onCreateGLSLInstance() const {
     return new GrSweepGradient::GLSLSweepProcessor(*this);
 }
 
-void GrSweepGradient::onGetGLSLProcessorKey(const GrGLSLCaps& caps,
+void GrSweepGradient::onGetGLSLProcessorKey(const GrShaderCaps& caps,
                                             GrProcessorKeyBuilder* b) const {
     GrSweepGradient::GLSLSweepProcessor::GenKey(*this, caps, b);
 }
@@ -190,18 +190,14 @@ GR_DEFINE_FRAGMENT_PROCESSOR_TEST(GrSweepGradient);
 sk_sp<GrFragmentProcessor> GrSweepGradient::TestCreate(GrProcessorTestData* d) {
     SkPoint center = {d->fRandom->nextUScalar1(), d->fRandom->nextUScalar1()};
 
-    SkColor colors[kMaxRandomGradientColors];
-    SkScalar stopsArray[kMaxRandomGradientColors];
-    SkScalar* stops = stopsArray;
-    SkShader::TileMode tmIgnored;
-    int colorCount = RandomGradientParams(d->fRandom, colors, &stops, &tmIgnored);
-    sk_sp<SkShader> shader(SkGradientShader::MakeSweep(center.fX, center.fY,  colors, stops,
-                                                       colorCount));
-    SkMatrix viewMatrix = GrTest::TestMatrix(d->fRandom);
-    auto dstColorSpace = GrTest::TestColorSpace(d->fRandom);
-    sk_sp<GrFragmentProcessor> fp = shader->asFragmentProcessor(SkShader::AsFPArgs(
-        d->fContext, &viewMatrix, NULL, kNone_SkFilterQuality, dstColorSpace.get(),
-        SkSourceGammaTreatment::kRespect));
+    RandomGradientParams params(d->fRandom);
+    auto shader = params.fUseColors4f ?
+        SkGradientShader::MakeSweep(center.fX, center.fY, params.fColors4f, params.fColorSpace,
+                                    params.fStops, params.fColorCount) :
+        SkGradientShader::MakeSweep(center.fX, center.fY,  params.fColors,
+                                    params.fStops, params.fColorCount);
+    GrTest::TestAsFPArgs asFPArgs(d);
+    sk_sp<GrFragmentProcessor> fp = shader->asFragmentProcessor(asFPArgs.args());
     GrAlwaysAssert(fp);
     return fp;
 }
@@ -214,18 +210,11 @@ void GrSweepGradient::GLSLSweepProcessor::emitCode(EmitArgs& args) {
     SkString coords2D = args.fFragBuilder->ensureCoords2D(args.fTransformedCoords[0]);
     SkString t;
     // 0.1591549430918 is 1/(2*pi), used since atan returns values [-pi, pi]
-    // On Intel GPU there is an issue where it reads the second arguement to atan "- %s.x" as an int
-    // thus must us -1.0 * %s.x to work correctly
-    if (args.fGLSLCaps->mustForceNegatedAtanParamToFloat()){
-        t.printf("(atan(- %s.y, -1.0 * %s.x) * 0.1591549430918 + 0.5)",
-                 coords2D.c_str(), coords2D.c_str());
-    } else {
-        t.printf("(atan(- %s.y, - %s.x) * 0.1591549430918 + 0.5)",
-                 coords2D.c_str(), coords2D.c_str());
-    }
+    t.printf("(atan(- %s.y, - %s.x) * 0.1591549430918 + 0.5)",
+             coords2D.c_str(), coords2D.c_str());
     this->emitColor(args.fFragBuilder,
                     args.fUniformHandler,
-                    args.fGLSLCaps,
+                    args.fShaderCaps,
                     ge, t.c_str(),
                     args.fOutputColor,
                     args.fInputColor,

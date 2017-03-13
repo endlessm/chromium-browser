@@ -140,7 +140,7 @@ enum {
 };
 
 // From looking at the sqlite3 docs, it's not directly stated, but it
-// seems the overhead for storing a NULL blob is very small.
+// seems the overhead for storing a null blob is very small.
 enum ProtoField {
   SPECIFICS = PROTO_FIELDS_BEGIN,
   SERVER_SPECIFICS,
@@ -225,6 +225,7 @@ struct EntryKernel {
       dirty_index->insert(ref(META_HANDLE));
     }
     dirty_ = true;
+    memory_usage_ = kMemoryUsageUnknown;
   }
 
   // Clear the dirty bit, and optionally remove this entry's metahandle from
@@ -373,13 +374,17 @@ struct EntryKernel {
   // Dumps all kernel info into a DictionaryValue and returns it.
   // Transfers ownership of the DictionaryValue to the caller.
   // Note: |cryptographer| is an optional parameter for use in decrypting
-  // encrypted specifics. If it is NULL or the specifics are not decryptsble,
+  // encrypted specifics. If it is null or the specifics are not decryptsble,
   // they will be serialized as empty proto's.
   base::DictionaryValue* ToValue(Cryptographer* cryptographer) const;
+
+  size_t EstimateMemoryUsage() const;
 
  private:
   // Tracks whether this entry needs to be saved to the database.
   bool dirty_;
+  mutable size_t memory_usage_;
+  constexpr static size_t kMemoryUsageUnknown = size_t(-1);
 };
 
 template <typename T>

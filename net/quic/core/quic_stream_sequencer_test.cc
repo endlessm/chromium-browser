@@ -10,12 +10,11 @@
 #include <utility>
 #include <vector>
 
-#include "base/logging.h"
-#include "base/rand_util.h"
 #include "net/base/ip_endpoint.h"
 #include "net/quic/core/quic_flags.h"
+#include "net/quic/core/quic_stream.h"
 #include "net/quic/core/quic_utils.h"
-#include "net/quic/core/reliable_quic_stream.h"
+#include "net/quic/platform/api/quic_logging.h"
 #include "net/quic/test_tools/mock_clock.h"
 #include "net/quic/test_tools/quic_stream_sequencer_peer.h"
 #include "net/quic/test_tools/quic_test_utils.h"
@@ -25,11 +24,7 @@
 #include "testing/gtest/include/gtest/gtest.h"
 
 using base::StringPiece;
-using std::map;
-using std::min;
-using std::pair;
 using std::string;
-using std::vector;
 using testing::_;
 using testing::AnyNumber;
 using testing::CreateFunctor;
@@ -40,10 +35,9 @@ using testing::StrEq;
 namespace net {
 namespace test {
 
-class MockStream : public ReliableQuicStream {
+class MockStream : public QuicStream {
  public:
-  MockStream(QuicSession* session, QuicStreamId id)
-      : ReliableQuicStream(id, session) {}
+  MockStream(QuicSession* session, QuicStreamId id) : QuicStream(id, session) {}
 
   MOCK_METHOD0(OnFinRead, void());
   MOCK_METHOD0(OnDataAvailable, void());
@@ -53,12 +47,13 @@ class MockStream : public ReliableQuicStream {
   MOCK_METHOD0(OnCanWrite, void());
   virtual bool IsFlowControlEnabled() const { return true; }
 
-  const IPEndPoint& PeerAddressOfLatestPacket() const override {
+  const QuicSocketAddress& PeerAddressOfLatestPacket() const override {
     return peer_address_;
   }
 
  protected:
-  IPEndPoint peer_address_ = IPEndPoint(net::test::Any4(), 65535);
+  QuicSocketAddress peer_address_ =
+      QuicSocketAddress(QuicIpAddress::Any4(), 65535);
 };
 
 namespace {
@@ -87,17 +82,17 @@ class QuicStreamSequencerTest : public ::testing::Test {
         sequencer_(new QuicStreamSequencer(&stream_, &clock_)) {}
 
   // Verify that the data in first region match with the expected[0].
-  bool VerifyReadableRegion(const vector<string>& expected) {
+  bool VerifyReadableRegion(const std::vector<string>& expected) {
     iovec iovecs[1];
     if (sequencer_->GetReadableRegions(iovecs, 1)) {
-      return (VerifyIovecs(iovecs, 1, vector<string>{expected[0]}));
+      return (VerifyIovecs(iovecs, 1, std::vector<string>{expected[0]}));
     }
     return false;
   }
 
   // Verify that the data in each of currently readable regions match with each
   // item given in |expected|.
-  bool VerifyReadableRegions(const vector<string>& expected) {
+  bool VerifyReadableRegions(const std::vector<string>& expected) {
     iovec iovecs[5];
     size_t num_iovecs =
         sequencer_->GetReadableRegions(iovecs, arraysize(iovecs));
@@ -107,7 +102,7 @@ class QuicStreamSequencerTest : public ::testing::Test {
 
   bool VerifyIovecs(iovec* iovecs,
                     size_t num_iovecs,
-                    const vector<string>& expected) {
+                    const std::vector<string>& expected) {
     int start_position = 0;
     for (size_t i = 0; i < num_iovecs; ++i) {
       if (!VerifyIovec(iovecs[i],
@@ -121,13 +116,13 @@ class QuicStreamSequencerTest : public ::testing::Test {
 
   bool VerifyIovec(const iovec& iovec, StringPiece expected) {
     if (iovec.iov_len != expected.length()) {
-      LOG(ERROR) << "Invalid length: " << iovec.iov_len << " vs "
-                 << expected.length();
+      QUIC_LOG(ERROR) << "Invalid length: " << iovec.iov_len << " vs "
+                      << expected.length();
       return false;
     }
     if (memcmp(iovec.iov_base, expected.data(), expected.length()) != 0) {
-      LOG(ERROR) << "Invalid data: " << static_cast<char*>(iovec.iov_base)
-                 << " vs " << expected;
+      QUIC_LOG(ERROR) << "Invalid data: " << static_cast<char*>(iovec.iov_base)
+                      << " vs " << expected;
       return false;
     }
     return true;
@@ -390,23 +385,29 @@ TEST_F(QuicStreamSequencerTest, MutipleOffsets) {
 
 class QuicSequencerRandomTest : public QuicStreamSequencerTest {
  public:
-  typedef pair<int, string> Frame;
-  typedef vector<Frame> FrameList;
+  typedef std::pair<int, string> Frame;
+  typedef std::vector<Frame> FrameList;
 
   void CreateFrames() {
     int payload_size = arraysize(kPayload) - 1;
     int remaining_payload = payload_size;
     while (remaining_payload != 0) {
-      int size = min(OneToN(6), remaining_payload);
+      int size = std::min(OneToN(6), remaining_payload);
       int index = payload_size - remaining_payload;
       list_.push_back(std::make_pair(index, string(kPayload + index, size)));
       remaining_payload -= size;
     }
   }
 
-  QuicSequencerRandomTest() { CreateFrames(); }
+  QuicSequencerRandomTest() {
+    uint64_t seed = QuicRandom::GetInstance()->RandUint64();
+    VLOG(1) << "**** The current seed is " << seed << " ****";
+    random_.set_seed(seed);
 
-  int OneToN(int n) { return base::RandInt(1, n); }
+    CreateFrames();
+  }
+
+  int OneToN(int n) { return random_.RandUint64() % n + 1; }
 
   void ReadAvailableData() {
     // Read all available data
@@ -422,6 +423,7 @@ class QuicSequencerRandomTest : public QuicStreamSequencerTest {
   string output_;
   // Data which peek at using GetReadableRegion if we back up.
   string peeked_;
+  SimpleRandom random_;
   FrameList list_;
 };
 
@@ -436,7 +438,7 @@ TEST_F(QuicSequencerRandomTest, RandomFramesNoDroppingNoBackup) {
 
   while (!list_.empty()) {
     int index = OneToN(list_.size()) - 1;
-    LOG(ERROR) << "Sending index " << index << " " << list_[index].second;
+    QUIC_LOG(ERROR) << "Sending index " << index << " " << list_[index].second;
     OnFrame(list_[index].first, list_[index].second.data());
 
     list_.erase(list_.begin() + index);
@@ -457,7 +459,7 @@ TEST_F(QuicSequencerRandomTest, RandomFramesNoDroppingBackup) {
   EXPECT_CALL(stream_, OnDataAvailable()).Times(AnyNumber());
 
   while (output_.size() != arraysize(kPayload) - 1) {
-    if (!list_.empty() && (base::RandUint64() % 2 == 0)) {  // Send data
+    if (!list_.empty() && OneToN(2) == 1) {  // Send data
       int index = OneToN(list_.size()) - 1;
       OnFrame(list_[index].first, list_[index].second.data());
       list_.erase(list_.begin() + index);
@@ -475,7 +477,8 @@ TEST_F(QuicSequencerRandomTest, RandomFramesNoDroppingBackup) {
       }
       int total_bytes_to_peek = arraysize(buffer);
       for (int i = 0; i < iovs_peeked; ++i) {
-        int bytes_to_peek = min<int>(peek_iov[i].iov_len, total_bytes_to_peek);
+        int bytes_to_peek =
+            std::min<int>(peek_iov[i].iov_len, total_bytes_to_peek);
         peeked_.append(static_cast<char*>(peek_iov[i].iov_base), bytes_to_peek);
         total_bytes_to_peek -= bytes_to_peek;
         if (total_bytes_to_peek == 0) {
@@ -504,14 +507,14 @@ TEST_F(QuicStreamSequencerTest, MarkConsumed) {
   EXPECT_EQ(9u, sequencer_->NumBytesBuffered());
 
   // Peek into the data.
-  vector<string> expected = {"abcdefghi"};
+  std::vector<string> expected = {"abcdefghi"};
   ASSERT_TRUE(VerifyReadableRegions(expected));
 
   // Consume 1 byte.
   sequencer_->MarkConsumed(1);
   EXPECT_EQ(1u, stream_.flow_controller()->bytes_consumed());
   // Verify data.
-  vector<string> expected2 = {"bcdefghi"};
+  std::vector<string> expected2 = {"bcdefghi"};
   ASSERT_TRUE(VerifyReadableRegions(expected2));
   EXPECT_EQ(8u, sequencer_->NumBytesBuffered());
 
@@ -519,7 +522,7 @@ TEST_F(QuicStreamSequencerTest, MarkConsumed) {
   sequencer_->MarkConsumed(2);
   EXPECT_EQ(3u, stream_.flow_controller()->bytes_consumed());
   // Verify data.
-  vector<string> expected3 = {"defghi"};
+  std::vector<string> expected3 = {"defghi"};
   ASSERT_TRUE(VerifyReadableRegions(expected3));
   EXPECT_EQ(6u, sequencer_->NumBytesBuffered());
 
@@ -527,7 +530,7 @@ TEST_F(QuicStreamSequencerTest, MarkConsumed) {
   sequencer_->MarkConsumed(5);
   EXPECT_EQ(8u, stream_.flow_controller()->bytes_consumed());
   // Verify data.
-  vector<string> expected4{"i"};
+  std::vector<string> expected4{"i"};
   ASSERT_TRUE(VerifyReadableRegions(expected4));
   EXPECT_EQ(1u, sequencer_->NumBytesBuffered());
 }
@@ -540,7 +543,7 @@ TEST_F(QuicStreamSequencerTest, MarkConsumedError) {
 
   // Peek into the data.  Only the first chunk should be readable because of the
   // missing data.
-  vector<string> expected{"abc"};
+  std::vector<string> expected{"abc"};
   ASSERT_TRUE(VerifyReadableRegions(expected));
 
   // Now, attempt to mark consumed more data than was readable and expect the
@@ -560,7 +563,7 @@ TEST_F(QuicStreamSequencerTest, MarkConsumedWithMissingPacket) {
   // Missing packet: 6, ghi.
   OnFrame(9, "jkl");
 
-  vector<string> expected = {"abcdef"};
+  std::vector<string> expected = {"abcdef"};
   ASSERT_TRUE(VerifyReadableRegions(expected));
 
   sequencer_->MarkConsumed(6);
@@ -663,27 +666,14 @@ TEST_F(QuicStreamSequencerTest, OutOfOrderTimestamps) {
 }
 
 TEST_F(QuicStreamSequencerTest, OnStreamFrameWithNullSource) {
-  FLAGS_quic_stream_sequencer_buffer_debug = true;
   // Pass in a frame with data pointing to null address, expect to close
   // connection with error.
-  StringPiece source(nullptr, 5u);
+  StringPiece source;
+  source.set(nullptr, 5u);
   QuicStreamFrame frame(kClientDataStreamId1, false, 1, source);
   EXPECT_CALL(stream_, CloseConnectionWithDetails(
                            QUIC_STREAM_SEQUENCER_INVALID_STATE, _));
   sequencer_->OnStreamFrame(frame);
-}
-
-TEST_F(QuicStreamSequencerTest, ReadvError) {
-  FLAGS_quic_stream_sequencer_buffer_debug = true;
-  EXPECT_CALL(stream_, OnDataAvailable());
-  string source(100, 'a');
-  OnFrame(0u, source.data());
-  EXPECT_EQ(source.length(), sequencer_->NumBytesBuffered());
-  // Pass in a null iovec, expect to tear down connection.
-  EXPECT_CALL(stream_, CloseConnectionWithDetails(
-                           QUIC_STREAM_SEQUENCER_INVALID_STATE, _));
-  iovec iov{nullptr, 512};
-  sequencer_->Readv(&iov, 1u);
 }
 
 }  // namespace

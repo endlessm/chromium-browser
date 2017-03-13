@@ -9,6 +9,7 @@
 #include <ostream>
 
 #include "base/logging.h"
+#include "base/task_scheduler/scoped_set_task_priority_for_current_thread.h"
 
 namespace base {
 
@@ -16,14 +17,20 @@ namespace base {
 // the header; anything else is subject to change. Tasks should explicitly
 // request defaults if the behavior is critical to the task.
 TaskTraits::TaskTraits()
-    : with_file_io_(false),
-      priority_(TaskPriority::BACKGROUND),
+    : may_block_(false),
+      with_base_sync_primitives_(false),
+      priority_(internal::GetTaskPriorityForCurrentThread()),
       shutdown_behavior_(TaskShutdownBehavior::SKIP_ON_SHUTDOWN) {}
 
 TaskTraits::~TaskTraits() = default;
 
-TaskTraits& TaskTraits::WithFileIO() {
-  with_file_io_ = true;
+TaskTraits& TaskTraits::MayBlock() {
+  may_block_ = true;
+  return *this;
+}
+
+TaskTraits& TaskTraits::WithBaseSyncPrimitives() {
+  with_base_sync_primitives_ = true;
   return *this;
 }
 
@@ -65,19 +72,6 @@ const char* TaskShutdownBehaviorToString(
   return "";
 }
 
-const char* ExecutionModeToString(ExecutionMode execution_mode) {
-  switch (execution_mode) {
-    case ExecutionMode::PARALLEL:
-      return "PARALLEL";
-    case ExecutionMode::SEQUENCED:
-      return "SEQUENCED";
-    case ExecutionMode::SINGLE_THREADED:
-      return "SINGLE_THREADED";
-  }
-  NOTREACHED();
-  return "";
-}
-
 std::ostream& operator<<(std::ostream& os, const TaskPriority& task_priority) {
   os << TaskPriorityToString(task_priority);
   return os;
@@ -86,12 +80,6 @@ std::ostream& operator<<(std::ostream& os, const TaskPriority& task_priority) {
 std::ostream& operator<<(std::ostream& os,
                          const TaskShutdownBehavior& shutdown_behavior) {
   os << TaskShutdownBehaviorToString(shutdown_behavior);
-  return os;
-}
-
-std::ostream& operator<<(std::ostream& os,
-                         const ExecutionMode& execution_mode) {
-  os << ExecutionModeToString(execution_mode);
   return os;
 }
 

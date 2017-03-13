@@ -6,6 +6,7 @@
 
 #include <utility>
 
+#include "base/memory/ptr_util.h"
 #include "components/contextual_search/browser/contextual_search_js_api_handler.h"
 #include "mojo/public/cpp/bindings/strong_binding.h"
 
@@ -18,7 +19,7 @@ ContextualSearchJsApiServiceImpl::ContextualSearchJsApiServiceImpl(
 ContextualSearchJsApiServiceImpl::~ContextualSearchJsApiServiceImpl() {}
 
 void ContextualSearchJsApiServiceImpl::HandleSetCaption(
-    const mojo::String& caption,
+    const std::string& caption,
     bool does_answer) {
   contextual_search_js_api_handler_->SetCaption(caption, does_answer);
 }

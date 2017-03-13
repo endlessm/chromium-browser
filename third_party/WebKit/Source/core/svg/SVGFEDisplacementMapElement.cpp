@@ -29,10 +29,10 @@ const SVGEnumerationStringEntries&
 getStaticStringEntries<ChannelSelectorType>() {
   DEFINE_STATIC_LOCAL(SVGEnumerationStringEntries, entries, ());
   if (entries.isEmpty()) {
-    entries.append(std::make_pair(CHANNEL_R, "R"));
-    entries.append(std::make_pair(CHANNEL_G, "G"));
-    entries.append(std::make_pair(CHANNEL_B, "B"));
-    entries.append(std::make_pair(CHANNEL_A, "A"));
+    entries.push_back(std::make_pair(CHANNEL_R, "R"));
+    entries.push_back(std::make_pair(CHANNEL_G, "G"));
+    entries.push_back(std::make_pair(CHANNEL_B, "B"));
+    entries.push_back(std::make_pair(CHANNEL_A, "A"));
   }
   return entries;
 }
@@ -44,12 +44,8 @@ inline SVGFEDisplacementMapElement::SVGFEDisplacementMapElement(
       m_scale(SVGAnimatedNumber::create(this,
                                         SVGNames::scaleAttr,
                                         SVGNumber::create(0))),
-      m_in1(SVGAnimatedString::create(this,
-                                      SVGNames::inAttr,
-                                      SVGString::create())),
-      m_in2(SVGAnimatedString::create(this,
-                                      SVGNames::in2Attr,
-                                      SVGString::create())),
+      m_in1(SVGAnimatedString::create(this, SVGNames::inAttr)),
+      m_in2(SVGAnimatedString::create(this, SVGNames::in2Attr)),
       m_xChannelSelector(SVGAnimatedEnumeration<ChannelSelectorType>::create(
           this,
           SVGNames::xChannelSelectorAttr,
@@ -127,8 +123,8 @@ FilterEffect* SVGFEDisplacementMapElement::build(
       m_scale->currentValue()->value());
   FilterEffectVector& inputEffects = effect->inputEffects();
   inputEffects.reserveCapacity(2);
-  inputEffects.append(input1);
-  inputEffects.append(input2);
+  inputEffects.push_back(input1);
+  inputEffects.push_back(input2);
   return effect;
 }
 

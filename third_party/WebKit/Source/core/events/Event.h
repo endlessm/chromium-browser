@@ -32,11 +32,13 @@
 #include "core/events/EventInit.h"
 #include "core/events/EventPath.h"
 #include "platform/heap/Handle.h"
+#include "wtf/Time.h"
 #include "wtf/text/AtomicString.h"
 
 namespace blink {
 
 class DOMWrapperWorld;
+class EventDispatchMediator;
 class EventTarget;
 class ExecutionContext;
 
@@ -52,25 +54,6 @@ class CORE_EXPORT Event : public GarbageCollectedFinalized<Event>,
     kBubblingPhase = 3
   };
 
-  enum EventType {
-    kMousedown = 1,
-    kMouseup = 2,
-    kMouseover = 4,
-    kMouseout = 8,
-    kMousemove = 16,
-    kMousedrag = 32,
-    kClick = 64,
-    kDblclick = 128,
-    kKeydown = 256,
-    kKeyup = 512,
-    kKeypress = 1024,
-    kDragdrop = 2048,
-    kFocus = 4096,
-    kBlur = 8192,
-    kSelect = 16384,
-    kChange = 32768
-  };
-
   enum RailsMode {
     RailsModeFree = 0,
     RailsModeHorizontal = 1,
@@ -83,9 +66,17 @@ class CORE_EXPORT Event : public GarbageCollectedFinalized<Event>,
   };
 
   enum class PassiveMode {
+    // Not passive, default initialized.
+    NotPassiveDefault,
+    // Not passive, explicitly specified.
     NotPassive,
+    // Passive, explicitly specified.
     Passive,
+    // Passive, not explicitly specified and forced due to document level
+    // listener.
     PassiveForcedDocumentLevel,
+    // Passive, default initialized.
+    PassiveDefault,
   };
 
   static Event* create() { return new Event; }
@@ -147,10 +138,16 @@ class CORE_EXPORT Event : public GarbageCollectedFinalized<Event>,
   // using the platform timestamp (see |m_platformTimeStamp|).
   // For more info see http://crbug.com/160524
   double timeStamp(ScriptState*) const;
-  double platformTimeStamp() const { return m_platformTimeStamp; }
+  TimeTicks platformTimeStamp() const { return m_platformTimeStamp; }
 
   void stopPropagation() { m_propagationStopped = true; }
+  void setStopPropagation(bool stopPropagation) {
+    m_propagationStopped = stopPropagation;
+  }
   void stopImmediatePropagation() { m_immediatePropagationStopped = true; }
+  void setStopImmediatePropagation(bool stopImmediatePropagation) {
+    m_immediatePropagationStopped = stopImmediatePropagation;
+  }
 
   // IE Extensions
   EventTarget* srcElement() const {
@@ -232,6 +229,11 @@ class CORE_EXPORT Event : public GarbageCollectedFinalized<Event>,
   bool isTrusted() const { return m_isTrusted; }
   void setTrusted(bool value) { m_isTrusted = value; }
 
+  void setComposed(bool composed) {
+    DCHECK(!isBeingDispatched());
+    m_composed = composed;
+  }
+
   void setHandlingPassive(PassiveMode);
 
   bool preventDefaultCalledDuringPassive() const {
@@ -250,11 +252,11 @@ class CORE_EXPORT Event : public GarbageCollectedFinalized<Event>,
         bool canBubble,
         bool cancelable,
         ComposedMode,
-        double platformTimeStamp);
+        TimeTicks platformTimeStamp);
   Event(const AtomicString& type,
         bool canBubble,
         bool cancelable,
-        double platformTimeStamp);
+        TimeTicks platformTimeStamp);
   Event(const AtomicString& type,
         bool canBubble,
         bool cancelable,
@@ -302,7 +304,7 @@ class CORE_EXPORT Event : public GarbageCollectedFinalized<Event>,
   // The monotonic platform time in seconds, for input events it is the
   // event timestamp provided by the host OS and reported in the original
   // WebInputEvent instance.
-  double m_platformTimeStamp;
+  TimeTicks m_platformTimeStamp;
 };
 
 #define DEFINE_EVENT_TYPE_CASTS(typeName)                          \

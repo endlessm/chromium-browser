@@ -4,21 +4,23 @@
 
 package org.chromium.chrome.browser.webapps;
 
-import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Looper;
-import android.provider.Settings;
 
 import org.chromium.base.ApplicationState;
 import org.chromium.base.ApplicationStatus;
+import org.chromium.base.Callback;
+import org.chromium.base.ContentUriUtils;
 import org.chromium.base.ContextUtils;
-import org.chromium.base.Log;
 import org.chromium.base.annotations.CalledByNative;
+import org.chromium.chrome.browser.ChromeApplication;
 import org.chromium.chrome.browser.ShortcutHelper;
 import org.chromium.chrome.browser.banners.InstallerDelegate;
+import org.chromium.chrome.browser.util.IntentUtils;
 
 import java.io.File;
 
@@ -45,8 +47,13 @@ public class WebApkInstaller {
     /** Weak pointer to the native WebApkInstaller. */
     private long mNativePointer;
 
+    /** Talks to Google Play to install WebAPKs. */
+    private GooglePlayWebApkInstallDelegate mGooglePlayWebApkInstallDelegate;
+
     private WebApkInstaller(long nativePtr) {
         mNativePointer = nativePtr;
+        ChromeApplication application = (ChromeApplication) ContextUtils.getApplicationContext();
+        mGooglePlayWebApkInstallDelegate = application.getGooglePlayWebApkInstallDelegate();
     }
 
     @CalledByNative
@@ -55,8 +62,16 @@ public class WebApkInstaller {
     }
 
     @CalledByNative
+    private boolean canUseGooglePlayInstallService() {
+        return ChromeWebApkHost.canUseGooglePlayToInstallWebApk();
+    }
+
+    @CalledByNative
     private void destroy() {
-        ApplicationStatus.unregisterApplicationStateListener(mListener);
+        if (mListener != null) {
+            ApplicationStatus.unregisterApplicationStateListener(mListener);
+        }
+        mListener = null;
         mNativePointer = 0;
     }
 
@@ -70,11 +85,6 @@ public class WebApkInstaller {
     @CalledByNative
     private boolean installAsyncAndMonitorInstallationFromNative(
             String filePath, String packageName) {
-        if (!installingFromUnknownSourcesAllowed()) {
-            Log.e(TAG,
-                    "WebAPK install failed because installation from unknown sources is disabled.");
-            return false;
-        }
         mIsInstall = true;
         mWebApkPackageName = packageName;
 
@@ -91,20 +101,95 @@ public class WebApkInstaller {
     }
 
     /**
-     * Send intent to Android to show prompt and install downloaded WebAPK.
+     * Installs a WebAPK from Google Play and monitors the installation.
+     * @param packageName The package name of the WebAPK to install.
+     * @param version The version of WebAPK to install.
+     * @param title The title of the WebAPK to display during installation.
+     * @param token The token from WebAPK Server.
+     * @param url The start URL of the WebAPK to install.
+     * @return True if the install was started. A "true" return value does not guarantee that the
+     *         install succeeds.
+     */
+    @CalledByNative
+    private boolean installWebApkFromGooglePlayAsync(String packageName, int version, String title,
+            String token, String url) {
+        if (mGooglePlayWebApkInstallDelegate == null) {
+            notify(false);
+            return false;
+        }
+
+        Callback<Boolean> callback = new Callback<Boolean>() {
+            @Override
+            public void onResult(Boolean success) {
+                WebApkInstaller.this.notify(success);
+            }
+        };
+        return mGooglePlayWebApkInstallDelegate.installAsync(packageName, version, title, token,
+                url, callback);
+    }
+
+    private void notify(boolean success) {
+        if (mNativePointer != 0) {
+            nativeOnInstallFinished(mNativePointer, success);
+        }
+    }
+
+    /**
+     * Updates a WebAPK.
+     * @param filePath File to update.
+     * @return True if the update was started. A "true" return value does not guarantee that the
+     *         update succeeds.
+     */
+    @CalledByNative
+    private boolean updateAsyncFromNative(String filePath) {
+        mIsInstall = false;
+        return installDownloadedWebApk(filePath);
+    }
+
+    /**
+     * Updates a WebAPK using Google Play.
+     * @param packageName The package name of the WebAPK to install.
+     * @param version The version of WebAPK to install.
+     * @param title The title of the WebAPK to display during installation.
+     * @param token The token from WebAPK Server.
+     * @param url The start URL of the WebAPK to install.
+     * @return True if the update was started. A "true" return value does not guarantee that the
+     *         update succeeds.
+     */
+    @CalledByNative
+    private boolean updateAsyncFromGooglePlay(String packageName, int version, String title,
+            String token, String url) {
+        if (mGooglePlayWebApkInstallDelegate == null) return false;
+
+        // TODO(hanxi):crbug.com/634499. Adds a callback to show an infobar after the update
+        // succeeded.
+        return mGooglePlayWebApkInstallDelegate.installAsync(packageName, version, title, token,
+                url, null);
+    }
+
+    /**
+     * Sends intent to Android to show prompt and install downloaded WebAPK.
      * @param filePath File to install.
      */
     private boolean installDownloadedWebApk(String filePath) {
-        Intent intent = new Intent(Intent.ACTION_VIEW);
-        Uri fileUri = Uri.fromFile(new File(filePath));
-        intent.setDataAndType(fileUri, "application/vnd.android.package-archive");
-        intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        try {
-            ContextUtils.getApplicationContext().startActivity(intent);
-        } catch (ActivityNotFoundException e) {
-            return false;
+        // TODO(pkotwicz|hanxi): For Chrome Stable figure out a different way of installing
+        // WebAPKs which does not involve enabling "installation from Unsigned Sources".
+        Context context = ContextUtils.getApplicationContext();
+        Intent intent;
+        File pathToInstall = new File(filePath);
+
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
+            intent = new Intent(Intent.ACTION_VIEW);
+            Uri fileUri = Uri.fromFile(pathToInstall);
+            intent.setDataAndType(fileUri, "application/vnd.android.package-archive");
+            intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        } else {
+            Uri source = ContentUriUtils.getContentUriFromFile(context, pathToInstall);
+            intent = new Intent(Intent.ACTION_INSTALL_PACKAGE);
+            intent.setFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            intent.setData(source);
         }
-        return true;
+        return IntentUtils.safeStartActivity(context, intent);
     }
 
     private InstallerDelegate.Observer createInstallerDelegateObserver() {
@@ -126,38 +211,6 @@ public class WebApkInstaller {
         if (success && mIsInstall) {
             ShortcutHelper.addWebApkShortcut(ContextUtils.getApplicationContext(),
                     mWebApkPackageName);
-        }
-    }
-
-    /**
-     * Updates a WebAPK.
-     * @param filePath File to update.
-     * @return True if the update was started. A "true" return value does not guarantee that the
-     *         update succeeds.
-     */
-    @CalledByNative
-    private boolean updateAsyncFromNative(String filePath) {
-        if (!installingFromUnknownSourcesAllowed()) {
-            Log.e(TAG,
-                    "WebAPK update failed because installation from unknown sources is disabled.");
-            return false;
-        }
-        mIsInstall = false;
-        return installDownloadedWebApk(filePath);
-    }
-
-    /**
-     * Returns whether the user has enabled installing apps from sources other than the Google Play
-     * Store.
-     */
-    private static boolean installingFromUnknownSourcesAllowed() {
-        Context context = ContextUtils.getApplicationContext();
-        try {
-            return Settings.Secure.getInt(
-                           context.getContentResolver(), Settings.Secure.INSTALL_NON_MARKET_APPS)
-                    == 1;
-        } catch (Settings.SettingNotFoundException e) {
-            return false;
         }
     }
 

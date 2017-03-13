@@ -44,14 +44,11 @@ static const int kMaxRecursionDepth = 3;
 static const double progressNotificationIntervalMS = 50;
 
 FileWriter* FileWriter::create(ExecutionContext* context) {
-  FileWriter* fileWriter = new FileWriter(context);
-  fileWriter->suspendIfNeeded();
-  return fileWriter;
+  return new FileWriter(context);
 }
 
 FileWriter::FileWriter(ExecutionContext* context)
-    : ActiveScriptWrappable(this),
-      ActiveDOMObject(context),
+    : ContextLifecycleObserver(context),
       m_readyState(kInit),
       m_operationInProgress(OperationNone),
       m_queuedOperation(OperationNone),
@@ -64,21 +61,15 @@ FileWriter::FileWriter(ExecutionContext* context)
 
 FileWriter::~FileWriter() {
   ASSERT(!m_recursionDepth);
-  if (m_readyState == kWriting)
-    contextDestroyed();
+  DCHECK(!writer());
 }
 
 const AtomicString& FileWriter::interfaceName() const {
   return EventTargetNames::FileWriter;
 }
 
-void FileWriter::contextDestroyed() {
-  // Make sure we've actually got something to stop, and haven't already called
-  // abort().
-  if (!writer() || m_readyState != kWriting)
-    return;
-  doOperation(OperationAbort);
-  m_readyState = kDone;
+void FileWriter::contextDestroyed(ExecutionContext*) {
+  dispose();
 }
 
 bool FileWriter::hasPendingActivity() const {
@@ -87,6 +78,8 @@ bool FileWriter::hasPendingActivity() const {
 }
 
 void FileWriter::write(Blob* data, ExceptionState& exceptionState) {
+  if (!getExecutionContext())
+    return;
   ASSERT(data);
   ASSERT(writer());
   ASSERT(m_truncateLength == -1);
@@ -116,6 +109,8 @@ void FileWriter::write(Blob* data, ExceptionState& exceptionState) {
 }
 
 void FileWriter::seek(long long position, ExceptionState& exceptionState) {
+  if (!getExecutionContext())
+    return;
   ASSERT(writer());
   if (m_readyState == kWriting) {
     setError(FileError::kInvalidStateErr, exceptionState);
@@ -128,6 +123,8 @@ void FileWriter::seek(long long position, ExceptionState& exceptionState) {
 }
 
 void FileWriter::truncate(long long position, ExceptionState& exceptionState) {
+  if (!getExecutionContext())
+    return;
   ASSERT(writer());
   ASSERT(m_truncateLength == -1);
   if (m_readyState == kWriting || position < 0) {
@@ -155,6 +152,8 @@ void FileWriter::truncate(long long position, ExceptionState& exceptionState) {
 }
 
 void FileWriter::abort(ExceptionState& exceptionState) {
+  if (!getExecutionContext())
+    return;
   ASSERT(writer());
   if (m_readyState != kWriting)
     return;
@@ -307,12 +306,22 @@ void FileWriter::setError(FileError::ErrorCode errorCode,
   m_error = FileError::createDOMException(errorCode);
 }
 
+void FileWriter::dispose() {
+  // Make sure we've actually got something to stop, and haven't already called
+  // abort().
+  if (writer() && m_readyState == kWriting) {
+    doOperation(OperationAbort);
+    m_readyState = kDone;
+  }
+  resetWriter();
+}
+
 DEFINE_TRACE(FileWriter) {
   visitor->trace(m_error);
   visitor->trace(m_blobBeingWritten);
   EventTargetWithInlineData::trace(visitor);
   FileWriterBase::trace(visitor);
-  ActiveDOMObject::trace(visitor);
+  ContextLifecycleObserver::trace(visitor);
 }
 
 }  // namespace blink

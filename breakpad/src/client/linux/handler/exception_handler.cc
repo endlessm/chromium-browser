@@ -424,7 +424,7 @@ int ExceptionHandler::ThreadEntry(void *arg) {
 
 // This function runs in a compromised context: see the top of the file.
 // Runs on the crashing thread.
-bool ExceptionHandler::HandleSignal(int sig, siginfo_t* info, void* uc) {
+bool ExceptionHandler::HandleSignal(int /*sig*/, siginfo_t* info, void* uc) {
   if (filter_ && !filter_(callback_context_))
     return false;
 
@@ -592,6 +592,8 @@ bool ExceptionHandler::DoDump(pid_t crashing_process, const void* context,
         context,
         context_size,
         mapping_list_,
+        minidump_descriptor_.skip_dump_if_principal_mapping_not_referenced(),
+        minidump_descriptor_.address_within_principal_mapping(),
         *minidump_descriptor_.microdump_extra_info());
   }
   if (minidump_descriptor_.IsFD()) {

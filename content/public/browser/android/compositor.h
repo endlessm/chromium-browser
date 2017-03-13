@@ -13,14 +13,8 @@
 #include "ui/gfx/geometry/size.h"
 #include "ui/gfx/native_widget_types.h"
 
-class SkBitmap;
-
 namespace cc {
 class Layer;
-}
-
-namespace gfx {
-class JavaBitmap;
 }
 
 namespace ui {
@@ -47,9 +41,6 @@ class CONTENT_EXPORT Compositor {
 
   // Attaches the layer tree.
   virtual void SetRootLayer(scoped_refptr<cc::Layer> root) = 0;
-
-  // Set the scale factor from DIP to pixel.
-  virtual void setDeviceScaleFactor(float factor) = 0;
 
   // Set the output surface bounds.
   virtual void SetWindowBounds(const gfx::Size& size) = 0;

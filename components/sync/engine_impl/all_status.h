@@ -1,9 +1,6 @@
 // Copyright (c) 2012 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
-//
-// The AllStatus object watches various sync engine components and aggregates
-// the status of all of them into one place.
 
 #ifndef COMPONENTS_SYNC_ENGINE_IMPL_ALL_STATUS_H_
 #define COMPONENTS_SYNC_ENGINE_IMPL_ALL_STATUS_H_
@@ -23,11 +20,11 @@
 namespace syncer {
 
 class ScopedStatusLock;
-struct ServerConnectionEvent;
 struct SyncCycleEvent;
 
-// This class collects data and uses it to update its internal state.  It can
-// return a snapshot of this state as a SyncerStatus object.
+// This class watches various sync engine components, updating its internal
+// state upon change. It can return a snapshot of this state as a SyncerStatus
+// object, aggregating all this data into one place.
 //
 // Most of this data ends up on the about:sync page.  But the page is only
 // 'pinged' to update itself at the end of a sync cycle.  A user could refresh
@@ -45,6 +42,7 @@ class AllStatus : public SyncEngineEventListener {
   void OnActionableError(const SyncProtocolError& error) override;
   void OnRetryTimeChanged(base::Time retry_time) override;
   void OnThrottledTypesChanged(ModelTypeSet throttled_types) override;
+  void OnBackedOffTypesChanged(ModelTypeSet backed_off_types) override;
   void OnMigrationRequested(ModelTypeSet types) override;
   void OnProtocolEvent(const ProtocolEvent& event) override;
 
@@ -67,6 +65,8 @@ class AllStatus : public SyncEngineEventListener {
   void SetInvalidatorClientId(const std::string& invalidator_client_id);
 
   void IncrementNudgeCounter(NudgeSource source);
+
+  void SetLocalBackendFolder(const std::string& folder);
 
  protected:
   // Examines syncer to calculate syncing and the unsynced count,

@@ -20,7 +20,7 @@ Blink IDL also does not support certain recent features of the Web IDL grammar:
 Semantically, only certain extended attributes allow lists. Similarly, only certain extended attributes allow string literals.
 
 Extended attributes either take no value, take a required value, or take an optional value.
-In the following explanations, _(i)_, _(m)_, _(s)_, _(a)_, _(p)_, _(c)_, and _(d)_ mean that a given extended attribute can be specified on interfaces, methods, special operations, attributes, parameters, constants, and dictionaries, respectively. For example, _(a,p)_ means that the IDL attribute can be specified on attributes and parameters.
+In the following explanations, _(i)_, _(m)_, _(s)_, _(a)_, _(p)_, _(c)_, _(d)_, and _(f)_ mean that a given extended attribute can be specified on interfaces, methods, special operations, attributes, parameters, constants, dictionaries, and callback functions respectively. For example, _(a,p)_ means that the IDL attribute can be specified on attributes and parameters.
 
 *** note
 These restrictions are not enforced by the parser: extended attributes used in unsupported contexts will simply be ignored.
@@ -304,7 +304,7 @@ Standard: [HTMLConstructor](https://html.spec.whatwg.org/multipage/dom.html#html
 
 Summary: HTML Elements have special constructor behavior. Interface object of given interface with the `[HTMLConstructor]` attribute will have specific behavior when called.
 
-Usage: Must take no arguments, and must not appear on anything other than an interface. It much appear once on an interface, and the interface cannot be annotated with `[Constructor]` or `[NoInterfaceObject]` extended attributes. It must not be used on a callback interface.
+Usage: Must take no arguments, and must not appear on anything other than an interface. It must appear once on an interface, and the interface cannot be annotated with `[Constructor]` or `[NoInterfaceObject]` extended attributes. It must not be used on a callback interface.
 
 ### [NamedConstructor] _(i)_
 
@@ -439,31 +439,22 @@ Standard: [SecureContext](https://heycam.github.io/webidl/#SecureContext)
 
 Summary: Interfaces and interface members with a `SecureContext` attribute are exposed only inside ["Secure Contexts"](https://w3c.github.io/webappsec-secure-contexts/).
 
-### [TreatNullAs] _(a,p)_, [TreatUndefinedAs] _(a,p)_
+### [TreatNullAs] _(a,p)_
 
-Standard: [TreatNullAs](http://heycam.github.io/webidl/#TreatNullAs)
+Standard: [TreatNullAs](https://heycam.github.io/webidl/#TreatNullAs)
 
-`[TreatUndefinedAs]` has been been removed from the spec.
+Summary: `[TreatNullAs=EmptyString]` indicates that a JavaScript null is converted to `""` instead of `"null"`.
 
-Summary: They control the behavior when a JavaScript null or undefined is passed to a DOMString attribute or parameter.
-
-Implementation: **Non-standard:** Web IDL specifies the EmptyString identifier for both these extended attributes, and `Null` and `Missing` for `TreatUndefinedAs`. Blink uses the `NullString` identifier instead of `EmptyString` which yields a Blink null string, corresponding to JavaScript `null`, for which both `String::IsEmpty()` and `String::IsNull()` return true, instead of the empty string `""`, which is empty but not `null`. This is for performance reasons; see [Strings in Blink](https://docs.google.com/a/google.com/document/d/1kOCUlJdh2WJMJGDf-WoEQhmnjKLaOYRbiHz5TiGJl14/edit) for reference. It also does not implement `TreatUndefinedAs=Null` or `TreatUndefinedAs=Missing`.
-
-Further, both extended attributes are both overloaded for indexed setters and named setters, in which case they take a method name (?), though this usage is rare.
-
-Usage: The possible usage is `[TreatNullAs=NullString]` or `[TreatNullAs=NullString, TreatUndefinedAs=NullString]`. They can be specified on DOMString attributes or DOMString parameters only:
+Usage: Can be specified on DOMString attributes or DOMString parameters only:
 
 ```webidl
-[TreatNullAs=NullString] attribute DOMString str;
-void func([TreatNullAs=NullString, TreatUndefinedAs=NullString] DOMString str);
+[TreatNullAs=EmptyString] attribute DOMString str;
+void func([TreatNullAs=Emptytring] DOMString str);
 ```
 
-`[TreatNullAs=NullString]` indicates that if a JavaScript null is passed to the attribute or parameter, then it is converted to a Blink null string, for which both String::IsEmpty() and String::IsNull() will return true. Without `[TreatNullAs=NullString]`, a JavaScript null is converted to a Blink string "null".
-`[TreatNullAs=NullString]` in Blink corresponds to `[TreatNullAs=EmptyString]` in the Web IDL spec. Unless the spec specifies `[TreatNullAs=EmptyString]`, you should not specify `[TreatNullAs=NullString]` in Blink.
+Implementation: Given `[TreatNullAs=EmptyString]`, a JavaScript null is converted to a Blink empty string, for which `String::IsEmpty()` returns true, but `String::IsNull()` return false.
 
-`[TreatUndefinedAs=NullString]` indicates that if a JavaScript undefined is passed to the attribute or parameter, then it is converted to a Blink null string, for which both String::IsEmpty() and String::IsNull() will return true. Without `[TreatUndefinedAs=NullString]`, a JavaScript undefined is converted to a Blink string "undefined".
-
-`[TreatUndefinedAs=NullString]` in Blink corresponds to `[TreatUndefinedAs=EmptyString]` in the Web IDL spec. Unless the spec specifies `[TreatUndefinedAs=EmptyString]`, you should not specify `[TreatUndefinedAs=NullString]` in Blink.
+**Non-standard:** Blink also supports the `NullString` identifier. Given `[TreatNullAs=NullString]`, a JavaScript null is converted to a Blink null string, for which both `String::IsEmpty()` and `String::IsNull()` return true. This is for performance reasons; see [Strings in Blink](https://docs.google.com/a/google.com/document/d/1kOCUlJdh2WJMJGDf-WoEQhmnjKLaOYRbiHz5TiGJl14/edit) for reference. Unless the spec specifies `[TreatNullAs=EmptyString]`, you should not specify `[TreatNullAs=NullString]` in Blink. Care must be taken to not treat null and empty strings differently, as they would be indistinguishable when using `[TreatNullAs=EmptyString]`.
 
 ### [Unforgeable] _(m,a)_
 
@@ -527,7 +518,7 @@ If a given DOM object needs to be kept alive as long as the DOM object has pendi
 If you use `[ActiveScriptWrappable]`, the corresponding Blink class needs to inherit ActiveScriptWrappable and override hasPendingActivity(). For example, in case of XMLHttpRequest, core/xml/XMLHttpRequest.h would look like this:
 
 ```c++
-class XMLHttpRequest : public ActiveScriptWrappable
+class XMLHttpRequest : public ActiveScriptWrappable<XMLHttpRequest>
 {
     // Returns true if the object needs to be kept alive.
     bool hasPendingActivity() const override { return ...; }
@@ -559,21 +550,18 @@ For methods all calls are logged, and by default for attributes all access (call
 
 Summary: `[CallWith]` indicates that the bindings code calls the Blink implementation with additional information.
 
-Each value changes the signature of the Blink methods by adding an additional parameter to the head of the parameter list, such as `&state` for `[CallWith=ScriptState]`.
-
-Multiple values can be specified e.g. `[CallWith=ScriptState|ScriptArguments]`. The order of the values in the IDL file doesn't matter: the generated parameter list is always in a fixed order (specifically `&state`, `scriptContext`, `scriptArguments.release()`, if present, corresponding to `ScriptState`, `ScriptExecutionContext`, `ScriptArguments`, respectively).
+Each value changes the signature of the Blink methods by adding an additional parameter to the head of the parameter list, such as `ScriptState*` for `[CallWith=ScriptState]`.
 
 There are also three rarely used values: `CurrentWindow`, `EnteredWindow`, `ThisValue`.
 
 `[SetterCallWith]` applies to attributes, and only affects the signature of the setter; this is only used in Location.idl, with `CurrentWindow&EnteredWindow`.
 
-Syntax:
-`CallWith=ScriptState|ScriptExecutionContext|ScriptArguments|CurrentWindow|EnteredWindow|ThisValue`
-
 #### [CallWith=ScriptState] _(m, a*)_
-`[CallWith=ScriptState]` is used in a number of places for methods.
 
-`[CallWith=ScriptState]` _can_ be used for attributes, but is not used in real IDL files.
+`[CallWith=ScriptState]` is used in a number of places for methods.
+ScriptState holds all information about script execution.
+You can retrieve Frame, ExcecutionContext, v8::Context, v8::Isolate etc
+from ScriptState.
 
 IDL example:
 
@@ -591,7 +579,18 @@ String Example::str(ScriptState* state);
 String Example::func(ScriptState* state, bool a, bool b);
 ```
 
-#### [CallWith=ExecutionContext] _(m,a)_
+Be careful when you use `[CallWith=ScriptState]`.
+You should not store the passed-in ScriptState on a DOM object (using RefPtr<ScriptState>).
+This is because if the stored ScriptState is used by some method called by a different
+world (note that the DOM object is shared among multiple worlds), it leaks the ScriptState
+to the world. ScriptState must be carefully maintained in a way that doesn't leak
+to another world.
+
+#### [CallWith=ExecutionContext] _(m,a)_  _deprecated_
+
+`[CallWith=ExecutionContext]` is a less convenient version of `[CallWith=ScriptState]`
+because you can just retrieve ExecutionContext from ScriptState.
+Use `[CallWith=ScriptState]` instead.
 
 IDL example:
 
@@ -607,24 +606,6 @@ C++ Blink function signatures:
 ```c++
 String Example::str(ExecutionContext* context);
 String Example::func(ExecutionContext* context, bool a, bool b);
-```
-
-You can retrieve the document and frame from a `ExecutionContext*`.
-
-#### [CallWith=ScriptArguments] _(m)_
-
-IDL example:
-
-```webidl
-interface Example {
-    [CallWith=ScriptState] DOMString func(boolean a, boolean b);
-};
-```
-
-C++ Blink function signature:
-
-```c++
-String Example::func(ScriptArguments* arguments, bool a, bool b);
 ```
 
 _(rare CallWith values)_
@@ -664,7 +645,7 @@ If `[Constructor]` is specified on an interface, `[ConstructorCallWith]` can be 
 ```webidl
 [
     Constructor(float x, float y, DOMString str),
-    ConstructorCallWith=Document|ExecutionContext,
+    ConstructorCallWith=ExecutionContext,
 ]
 interface XXX {
     ...
@@ -678,15 +659,20 @@ Then XXX::create(...) can have the following signature
 ***
 
 ```c++
-PassRefPtr<XXX> XXX::create(ScriptExecutionContext* context, ScriptState* state, float x, float y, String str)
+PassRefPtr<XXX> XXX::create(ExecutionContext* context, float x, float y, String str)
 {
     ...;
 }
 ```
 
-You can retrieve document or frame from ScriptExecutionContext.
+Be careful when you use `[ConstructorCallWith=ScriptState]`.
+You should not store the passed-in ScriptState on a DOM object (using RefPtr<ScriptState>).
+This is because if the stored ScriptState is used by some method called by a different
+world (note that the DOM object is shared among multiple worlds), it leaks the ScriptState
+to the world. ScriptState must be carefully maintained in a way that doesn't leak
+to another world.
 
-### [Custom] _(i, m, s, a)_
+### [Custom] _(i, m, s, a, f)_
 
 Summary: They allow you to write bindings code manually as you like: full bindings for methods and attributes, certain functions for interfaces.
 
@@ -789,6 +775,19 @@ interface YYY {  // special operations with identifiers
 }
 ```
 
+`[Custom]` may also be specified on callback functions:
+
+```webidl
+[Custom] callback SomeCallback = void ();
+interface XXX {
+    void func(SomeCallback callback);
+};
+```
+
+When`[Custom]` is specified on a callback function, the code generator doesn't
+generate bindings for the callback function. The binding layer uses a
+`ScriptValue` instead.
+
 #### [Custom=PropertyQuery|PropertyEnumerator] _(s)_
 
 Summary: `[Custom=PropertyEnumerator]` allows you to write custom bindings for the case where properties of a given interface are enumerated; a custom named enumerator. There is currently only one use, and in that case it is used with `[Custom=PropertyQuery]`, since the query is also custom.
@@ -823,7 +822,7 @@ v8::Handle<v8::Array> V8XXX::namedPropertyEnumerator(const v8::AccessorInfo& inf
 }
 ```
 
-#### [Custom=LegacyCallAsFunction] _(i) _deprecated__
+#### [Custom=LegacyCallAsFunction] _(i) _deprecated_
 
 Summary: `[Custom=LegacyCallAsFunction]` allows you to write custom bindings for call(...) of a given interface.
 
@@ -1076,6 +1075,10 @@ Usage: `[PostMessage]` can be specified on methods
 ```webidl
 [PostMessage] void postMessage(any message, optional sequence<Transferable> transfer);
 ```
+
+### [PrefixGet] _(d)_
+
+Summary: If this extended attribute is specified on a dictionary member, the code generator adds 'get' prefix to the getter method of the member.
 
 ### [RaisesException] _(i, m, a)_
 
@@ -1332,14 +1335,14 @@ interface HTMLFoo {
 Without `[CachedAttribute]`, the key getter works in the following way:
 
 1. HTMLFoo::key() is called in Blink.
-2. The result of HTMLFoo::key() is passed to toV8(), and is converted to a wrapped object.
+2. The result of HTMLFoo::key() is passed to ToV8(), and is converted to a wrapped object.
 3. The wrapped object is returned.
 
 In case where HTMLFoo::key() or the operation to wrap the result is costly, you can cache the wrapped object onto the DOM object. With CachedAttribute, the key getter works in the following way:
 
 1. If the wrapped object is cached, the cached wrapped object is returned. That's it.
 2. Otherwise, `HTMLFoo::key()` is called in Blink.
-3. The result of `HTMLFoo::key()` is passed to `toV8()`, and is converted to a wrapped object.
+3. The result of `HTMLFoo::key()` is passed to `ToV8()`, and is converted to a wrapped object.
 4. The wrapped object is cached.
 5. The wrapped object is returned.
 
@@ -1347,7 +1350,7 @@ In case where HTMLFoo::key() or the operation to wrap the result is costly, you 
 
 1. `HTMLFoo::serializedValue()` is called in Blink.
 2. The result of `HTMLFoo::serializedValue()` is deserialized.
-3. The deserialized result is passed to `toV8()`, and is converted to a wrapped object.
+3. The deserialized result is passed to `ToV8()`, and is converted to a wrapped object.
 4. The wrapped object is returned.
 
 In case where `HTMLFoo::serializedValue()`, the deserialization or the operation to wrap the result is costly, you can cache the wrapped object onto the DOM object. With `[CachedAttribute]`, the serializedValue getter works in the following way:
@@ -1355,7 +1358,7 @@ In case where `HTMLFoo::serializedValue()`, the deserialization or the operation
 1. If the wrapped object is cached, the cached wrapped object is returned. That's it.
 2. Otherwise, `HTMLFoo::serializedValue()` is called in Blink.
 3. The result of `HTMLFoo::serializedValue()` is deserialized.
-4. The deserialized result is passed to `toJS()` or `toV8()`, and is converted to a wrapped object.
+4. The deserialized result is passed to `toJS()` or `ToV8()`, and is converted to a wrapped object.
 5. The wrapped object is cached.
 6. The wrapped object is returned.
 
@@ -1380,7 +1383,7 @@ bool Object::isAttributeDirty()
 }
 
 // Called by generated binding code if no value cached or isAttributeDirty() returns true
-ScriptValue Object::attribute(ScriptExecutionContext* context)
+ScriptValue Object::attribute(ExecutionContext* context)
 {
     m_attributeDirty = false;
     return convertDataToScriptValue(m_data);
@@ -1389,44 +1392,91 @@ ScriptValue Object::attribute(ScriptExecutionContext* context)
 
 ### [CheckSecurity] _(i, m, a)_
 
-### [DoNotCheckSecurity] _(m, a)_
-
-Summary: Check whether a given access is allowed or not, in terms of the same-origin security policy. Used in Location.idl, Window.idl, and a few HTML*Element.idl.
-
-If the security check is necessary, you should specify `[CheckSecurity]`.
+Summary: Check whether a given access is allowed or not in terms of the
+same-origin security policy.
 
 *** note
-This is very important for security.
+It is very important to use this attribute for interfaces and properties that
+are exposed cross-origin!
 ***
 
-Usage: `[CheckSecurity=Frame]` can be specified on interfaces, which enables a _frame_ security check for all members (methods and attributes) of the interface. This can then be selectively disabled with `[DoNotCheckSecurity]`; this is only done in Location.idl and Window.idl. On attributes, `[DoNotCheckSecurity]` takes an optional identifier, as `[DoNotCheckSecurity=Setter]` (used only one place, Location.href, since setting `href` _changes_ the page, which is ok, but reading `href` leaks information).
-
-* `[DoNotCheckSecurity]` on a method disables the security check for the method.
-* `[DoNotCheckSecurity]` on an attribute disables the security check for a getter and setter of the attribute; for read only attributes this is just the getter.
-* `[DoNotCheckSecurity=Setter]` on an attribute disables the security check for a setter of the attribute, but not the getter.
+Usage for interfaces: `[CheckSecurity=Receiver]` enables a security check for
+all methods of an interface. The security check verifies that the caller still
+has access to the receiver object of the method when it is invoked. This is
+security-critical for interfaces that can be returned cross-origin, such as the
+Location or Window interface.
 
 ```webidl
 [
-    CheckSecurity=Frame,
+    CheckSecurity=Receiver,
 ] interface DOMWindow {
-    attribute DOMString str1;
-    [DoNotCheckSecurity] attribute DOMString str2;
-    [DoNotCheckSecurity=Setter] attribute DOMString str3;
-    void func1();
-    [DoNotCheckSecurity] void func2();
+    Selection? getSelection();
 };
 ```
 
-Consider the case where you access `window.parent` from inside an iframe that comes from a different origin. While it is allowed to access window.parent, it is not allowed to access `window.parent.document`. In such cases, you need to specify `[CheckSecurity]` in order to check whether a given DOM object is allowed to access the attribute or method, in terms of the same-origin security policy.
+Forgetting this attribute would make it possible to cache a method reference and
+invoke it on a cross-origin object:
 
-`[CheckSecurity=Node]` can be specified on methods and attributes, which enables a _node_ security check on that member. In practice all attribute uses are read only, and method uses all also have `[RaisesException]`:
-
-```webidl
-[CheckSecurity=Node] readonly attribute Document contentDocument;
-[CheckSecurity=Node] SVGDocument getSVGDocument();
+```js
+var iframe = document.body.appendChild(document.createElement('iframe'));
+var addEventListenerMethod = iframe.contentWindow.addEventListener;
+iframe.src = 'https://example.com';
+iframe.onload = function () {
+  addEventListenerMethod('pointermove', function (event) {
+    event.target.ownerDocument.body.innerText = 'Text from a different origin.';
+  });
+};
 ```
 
-In terms of the same-origin security policy, node.contentDocument should return undefined if the parent frame and the child frame are from different origins.
+Usage for attributes and methods: `[CheckSecurity=ReturnValue]` enables a
+security check on that property. The security check verifies that the caller is
+allowed to access the returned value. If access is denied, the return value will
+be `undefined` and an exception will be raised. In practice, attribute uses are
+all `[readonly]`, and method uses are all `[RaisesException]`.
+
+```webidl
+[CheckSecurity=ReturnValue] readonly attribute Document contentDocument;
+[CheckSecurity=ReturnValue] SVGDocument getSVGDocument();
+```
+
+This is important because cross-origin access is not transitive. For example, if
+`window` and `window.parent` are cross-origin, access to `window.parent` is
+allowed, but access to `window.parent.document` is not.
+
+### [CrossOrigin] _(m, a)_
+
+Summary: Allows cross-origin access to an attribute or method. Used for
+implementing [CrossOriginProperties] from the spec in Location.idl and
+Window.idl.
+
+Usage for methods:
+```webidl
+[CrossOrigin] void blur();
+```
+
+Note that setting this attribute on a method will disable [security
+checks](#_CheckSecurity_i_m_a_), since this method can be invoked cross-origin.
+
+Usage for attributes:
+```webidl
+[CrossOrigin] readonly attribute unsigned long length;
+```
+With no arguments, defaults to allowing cross-origin reads, but
+not cross-origin writes.
+
+```webidl
+[CrossOrigin=Setter] attribute DOMString href;
+```
+With `Setter`, allows cross-origin writes, but not cross-origin reads. This is
+used for the `Location.href` attribute: cross-origin writes to this attribute
+are allowed, since it navigates the browsing context, but allowing cross-origin
+reads would leak cross-origin information.
+
+```webidl
+[CrossOrigin=(Getter,Setter)] readonly attribute Location location;
+```
+With both `Getter` and `Setter`, allows both cross-origin reads and cross-origin
+writes. This is used for the `Window.location` attribute.
 
 ### [CustomConstructor] _(i)_
 
@@ -1493,33 +1543,44 @@ You need to specify `[URL]` if a given DOMString represents a URL, since getters
 
 Only used in some HTML*ELement.idl files and one other place.
 
-### [NoImplHeader] _(i)_
-
-Summary: `[NoImplHeader]` indicates that a given interface does not have a corresponding header file in the impl side.
-
-Usage: `[NoImplHeader]` can be specified on any interface:
-
-```webidl
-[
-    NoImplHeader,
-] interface XXX {
-    ...;
-};
-```
-
-Without `[NoImplHeader]`, the IDL compiler assumes that there is XXX.h in the impl side. With `[NoImplHeader]`, you can tell the IDL compiler that there is no XXX.h. You can use `[NoImplHeader]` when all of the DOM attributes and methods of the interface are implemented in Blink-in-JS and thus don't have any C++ header file.
-
 ## Temporary Blink-specific IDL Extended Attributes
 
 These extended attributes are _temporary_ and are only in use while some change is in progress. Unless you are involved with the change, you can generally ignore them, and should not use them.
 
-### [ExperimentalCallbackFunction]
-
-Summary: `[ExperimentalCallbackFunction]` on a callback function is a flag to collect callback functions. Currently the code generator doesn't generate bindings for IDL callback functions (instead, it just uses `ScriptValue`). While generating bindings for callback functions, to change existing code which uses callback functions until the generated bindings are stabilized is undesirable. To implement bindings generation for IDL callback functions incrementally, [ExperimentalCallbackFunction] extended attribute is added. The code generator keeps using ScriptValue for IDL callback functions which don't have this extended attribute.
-
 ### [LegacyTreatAsPartialInterface] _(i)_
 
 Summary: `[LegacyTreatAsPartialInterface]` on an interface that is the target of an `implements` statement means that the interface is treated as a partial interface, meaning members are accessed via static member functions in a separate class, rather than as instance methods on the instance object `*impl` or class methods on the C++ class implementing the (main) interface. This is legacy from original implementation of `implements`, and is being removed ([Bug 360435](https://crbug.com/360435), nbarth@).
+
+
+### [CachedAccessor] _(a)_
+
+Summary: Caches the accessor result in a private property (not directly accesible from JS). Improves accessor reads (getter) at the expense of extra memory and manual invalidation which should be trivial in most cases.
+
+
+*** note
+* The getter cannot have any side effects since calls to the getter will be replaced by a cheap property load.
+* It uses a **push approach**, so updates must be _pushed_ every single time, it **DOES NOT** invalidate/update the cache automatically.
+* Despite being cached, the getter can still be called on certain circumstances, consistency is a must.
+* The cache **MUST** be initialized before using it. There's no default value like _undefined_ or a _hole_.
+***
+
+
+Usage: `[CachedAccessor]` takes no arguments, can be specified on attributes.
+
+```webidl
+interface HTMLFoo {
+    [CachedAccessor] readonly attribute Bar bar;
+};
+```
+
+
+Register the required property in V8PrivateProperty.h.
+To update the cached value (e.g. for HTMLFoo.bar) proceed as follows:
+
+```c++
+V8PrivateProperty::getHTMLFooBarCachedAccessor().set(context, object, newValue);
+```
+
 
 ## Discouraged Blink-specific IDL Extended Attributes
 
@@ -1585,7 +1646,6 @@ Added to members of a partial interface definition (and implemented interfaces w
 
 * `[PerWorldBindings]` :: interacts with `[LogActivity]`
 * `[OverrideBuiltins]` :: used on named accessors
-* `[ImplementedInPrivateScript]`, `[OnlyExposedToPrivateScript]`
 
 -------------
 
@@ -1603,3 +1663,5 @@ Redistribution and use in source and binary forms, with or without modification,
 
 THIS SOFTWARE IS PROVIDED BY APPLE INC. AND ITS CONTRIBUTORS “AS IS” AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL APPLE INC. OR ITS CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ***
+
+[CrossOriginProperties]: https://html.spec.whatwg.org/multipage/browsers.html#crossoriginproperties-(-o-)

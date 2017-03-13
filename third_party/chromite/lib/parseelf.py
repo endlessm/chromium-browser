@@ -8,6 +8,7 @@ from __future__ import print_function
 
 import cStringIO
 import os
+import struct
 
 from chromite.scripts import lddtree
 
@@ -48,6 +49,7 @@ def ParseELFSymbols(elf):
     # Find strtab and symtab virtual addresses.
     strtab_ptr = None
     symtab_ptr = None
+    dthash_ptr = None
     symbol_size = elf.structs.Elf_Sym.sizeof()
     for tag in segment.iter_tags():
       if tag.entry.d_tag == 'DT_SYMTAB':
@@ -56,14 +58,29 @@ def ParseELFSymbols(elf):
         strtab_ptr = tag.entry.d_ptr
       if tag.entry.d_tag == 'DT_SYMENT':
         assert symbol_size == tag.entry.d_val
+      if tag.entry.d_tag == 'DT_HASH':
+        dthash_ptr = tag.entry.d_ptr
 
     stringtable = segment._get_stringtable()  # pylint: disable=W0212
 
     symtab_offset = next(elf.address_offsets(symtab_ptr))
-    # Assume that symtab ends right before strtab.
-    # This is the same assumption that glibc makes in dl-addr.c.
+
+    if dthash_ptr:
+      # DT_SYMTAB provides no information on the number of symbols table
+      # entries. Instead, we use DT_HASH's nchain value, which according to the
+      # spec, "should equal the number of symbol table entries".
+      # nchain is the second 32-bit integer at the address pointed by DT_HASH,
+      # both for ELF and ELF64 formats.
+      fmt = "<I" if elf.little_endian else ">I"
+      elf.stream.seek(dthash_ptr + 4)
+      nsymbols = struct.unpack(fmt, elf.stream.read(4))[0]
+    else:
+      # If DT_HASH is not defined, assume that symtab ends right before strtab.
+      # This is the same assumption that glibc makes in dl-addr.c.
+      nsymbols = (strtab_ptr - symtab_ptr) / symbol_size
+
     # The first symbol is always local undefined, unnamed so we ignore it.
-    for i in range(1, (strtab_ptr - symtab_ptr) / symbol_size):
+    for i in range(1, nsymbols):
       symbol_offset = symtab_offset + (i * symbol_size)
       symbol = utils.struct_parse(elf.structs.Elf_Sym, elf.stream,
                                   symbol_offset)
@@ -72,9 +89,9 @@ def ParseELFSymbols(elf):
         continue
       symbol_name = stringtable.get_string(symbol.st_name)
       if symbol['st_shndx'] == 'SHN_UNDEF':
-        if symbol['st_info']['bind'] == 'STB_GLOBAL':
+        if symbol['st_info']['bind'] == 'STB_GLOBAL' and symbol_name:
           # Global undefined --> required symbols.
-          # We ignore weak undefined symbols.
+          # We ignore weak undefined symbols, and empty strings.
           imp.add(symbol_name)
       elif symbol['st_other']['visibility'] == 'STV_DEFAULT':
         # Exported symbols must have default visibility.

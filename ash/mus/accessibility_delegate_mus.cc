@@ -4,11 +4,13 @@
 
 #include "ash/mus/accessibility_delegate_mus.h"
 
-#include "services/shell/public/cpp/connector.h"
+#include "services/service_manager/public/cpp/connector.h"
+#include "services/ui/public/interfaces/constants.mojom.h"
 
 namespace ash {
 
-AccessibilityDelegateMus::AccessibilityDelegateMus(shell::Connector* connector)
+AccessibilityDelegateMus::AccessibilityDelegateMus(
+    service_manager::Connector* connector)
     : connector_(connector) {}
 
 AccessibilityDelegateMus::~AccessibilityDelegateMus() {}
@@ -16,7 +18,8 @@ AccessibilityDelegateMus::~AccessibilityDelegateMus() {}
 ui::mojom::AccessibilityManager*
 AccessibilityDelegateMus::GetAccessibilityManager() {
   if (!accessibility_manager_ptr_.is_bound())
-    connector_->ConnectToInterface("service:ui", &accessibility_manager_ptr_);
+    connector_->BindInterface(ui::mojom::kServiceName,
+                              &accessibility_manager_ptr_);
   return accessibility_manager_ptr_.get();
 }
 

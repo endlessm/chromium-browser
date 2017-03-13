@@ -29,8 +29,8 @@
 #include "bindings/core/v8/Iterable.h"
 #include "bindings/core/v8/ScriptPromise.h"
 #include "core/css/FontFace.h"
-#include "core/dom/ActiveDOMObject.h"
 #include "core/dom/Document.h"
+#include "core/dom/SuspendableObject.h"
 #include "core/events/EventListener.h"
 #include "core/events/EventTarget.h"
 #include "platform/AsyncMethodRunner.h"
@@ -46,21 +46,17 @@
 
 namespace blink {
 
-class CSSFontFace;
-class CSSFontFaceSource;
 class CSSFontSelector;
-class Dictionary;
 class ExceptionState;
 class Font;
 class FontFaceCache;
-class FontResource;
 class ExecutionContext;
 
 using FontFaceSetIterable = PairIterable<Member<FontFace>, Member<FontFace>>;
 
 class FontFaceSet final : public EventTargetWithInlineData,
                           public Supplement<Document>,
-                          public ActiveDOMObject,
+                          public SuspendableObject,
                           public FontFaceSetIterable,
                           public FontFace::LoadFontCallback {
   USING_GARBAGE_COLLECTED_MIXIN(FontFaceSet);
@@ -100,10 +96,10 @@ class FontFaceSet final : public EventTargetWithInlineData,
 
   size_t approximateBlankCharacterCount() const;
 
-  // ActiveDOMObject
+  // SuspendableObject
   void suspend() override;
   void resume() override;
-  void contextDestroyed() override;
+  void contextDestroyed(ExecutionContext*) override;
 
   static FontFaceSet* from(Document&);
   static void didLayout(Document&);
@@ -159,7 +155,7 @@ class FontFaceSet final : public EventTargetWithInlineData,
     bool m_recorded;
   };
 
-  FontFaceSet(Document&);
+  explicit FontFaceSet(Document&);
 
   bool inActiveDocumentContext() const;
   void addToLoadingFonts(FontFace*);

@@ -17,7 +17,6 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/sequenced_task_runner.h"
 #include "base/strings/string_util.h"
-#include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/sequenced_worker_pool.h"
 #include "base/threading/thread_restrictions.h"
@@ -340,17 +339,20 @@ CrxInstallError CrxInstaller::AllowInstall(const Extension* extension) {
     } else {
       const char kHistogramName[] = "Extensions.OffStoreInstallDecisionHard";
       if (is_gallery_install()) {
-        UMA_HISTOGRAM_ENUMERATION(kHistogramName, OnStoreInstall,
+        UMA_HISTOGRAM_ENUMERATION(kHistogramName,
+                                  OffStoreInstallDecision::OnStoreInstall,
                                   NumOffStoreInstallDecision);
       } else if (off_store_install_allow_reason_ != OffStoreInstallDisallowed) {
-        UMA_HISTOGRAM_ENUMERATION(kHistogramName, OffStoreInstallAllowed,
-                                  NumOffStoreInstallDecision);
+        UMA_HISTOGRAM_ENUMERATION(
+            kHistogramName, OffStoreInstallDecision::OffStoreInstallAllowed,
+            NumOffStoreInstallDecision);
         UMA_HISTOGRAM_ENUMERATION("Extensions.OffStoreInstallAllowReason",
                                   off_store_install_allow_reason_,
                                   NumOffStoreInstallAllowReasons);
       } else {
-        UMA_HISTOGRAM_ENUMERATION(kHistogramName, OffStoreInstallDisallowed,
-                                  NumOffStoreInstallDecision);
+        UMA_HISTOGRAM_ENUMERATION(
+            kHistogramName, OffStoreInstallDecision::OffStoreInstallDisallowed,
+            NumOffStoreInstallDecision);
         // Don't delete source in this case so that the user can install
         // manually if they want.
         delete_source_ = false;

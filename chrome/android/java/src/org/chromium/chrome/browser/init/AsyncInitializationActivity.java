@@ -27,8 +27,10 @@ import android.view.WindowManager;
 import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.base.TraceEvent;
 import org.chromium.base.VisibleForTesting;
+import org.chromium.base.library_loader.LibraryLoader;
 import org.chromium.base.library_loader.LoaderErrors;
 import org.chromium.base.library_loader.ProcessInitException;
+import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ChromeApplication;
 import org.chromium.chrome.browser.WarmupManager;
 import org.chromium.chrome.browser.metrics.MemoryUma;
@@ -60,6 +62,12 @@ public abstract class AsyncInitializationActivity extends AppCompatActivity impl
     private MemoryUma mMemoryUma;
     private long mLastUserInteractionTime;
     private boolean mIsTablet;
+    private boolean mHadWarmStart;
+    private boolean mIsWarmOnResume;
+
+    // Stores whether the activity was not resumed yet. Always false after the
+    // first |onResume| call.
+    private boolean mFirstResumePending = true;
 
     public AsyncInitializationActivity() {
         mHandler = new Handler();
@@ -72,8 +80,7 @@ public abstract class AsyncInitializationActivity extends AppCompatActivity impl
     }
 
     @Override
-    // TODO(estevenson): Replace with Build.VERSION_CODES.N when available.
-    @TargetApi(24)
+    @TargetApi(Build.VERSION_CODES.N)
     protected void attachBaseContext(Context newBase) {
         super.attachBaseContext(newBase);
 
@@ -94,7 +101,15 @@ public abstract class AsyncInitializationActivity extends AppCompatActivity impl
 
     @Override
     public void preInflationStartup() {
-        mIsTablet = DeviceFormFactor.isTablet(this);
+        mHadWarmStart = LibraryLoader.isInitialized();
+        // On some devices, OEM modifications have been made to the resource loader that cause the
+        // DeviceFormFactor calculation of whether a device is using tablet resources to be
+        // incorrect. Check which resources were actually loaded and set the DeviceFormFactor
+        // values. See crbug.com/662338.
+        boolean isTablet = getResources().getBoolean(R.bool.is_tablet);
+        boolean isLargeTablet = getResources().getBoolean(R.bool.is_large_tablet);
+        DeviceFormFactor.setIsTablet(isTablet, isLargeTablet);
+        mIsTablet = isTablet;
     }
 
     @Override
@@ -229,12 +244,20 @@ public abstract class AsyncInitializationActivity extends AppCompatActivity impl
             return;
         }
 
-        super.onCreate(savedInstanceState);
+        super.onCreate(transformSavedInstanceStateForOnCreate(savedInstanceState));
         mOnCreateTimestampMs = SystemClock.elapsedRealtime();
         mOnCreateTimestampUptimeMs = SystemClock.uptimeMillis();
         mSavedInstanceState = savedInstanceState;
 
         ChromeBrowserInitializer.getInstance(this).handlePreNativeStartup(this);
+    }
+
+    /**
+     * Allows subclasses to override the instance state passed to super.onCreate().
+     * The original instance state will still be available via getSavedInstanceState().
+     */
+    protected Bundle transformSavedInstanceStateForOnCreate(Bundle savedInstanceState) {
+        return savedInstanceState;
     }
 
     /**
@@ -283,6 +306,8 @@ public abstract class AsyncInitializationActivity extends AppCompatActivity impl
         super.onResume();
         mNativeInitializationController.onResume();
         if (mLaunchBehindWorkaround != null) mLaunchBehindWorkaround.onResume();
+        mIsWarmOnResume = !mFirstResumePending || hadWarmStart();
+        mFirstResumePending = false;
     }
 
     @Override
@@ -361,6 +386,11 @@ public abstract class AsyncInitializationActivity extends AppCompatActivity impl
     public void onNewIntentWithNative(Intent intent) { }
 
     @Override
+    public Intent getInitialIntent() {
+        return getIntent();
+    }
+
+    @Override
     public boolean onActivityResultWithNative(int requestCode, int resultCode, Intent data) {
         return false;
     }
@@ -382,6 +412,26 @@ public abstract class AsyncInitializationActivity extends AppCompatActivity impl
      */
     public boolean isTablet() {
         return mIsTablet;
+    }
+
+    /**
+     * @return Whether the activity had a warm start because the native library was already fully
+     *     loaded and initialized.
+     */
+    public boolean hadWarmStart() {
+        return mHadWarmStart;
+    }
+
+    /**
+     * This returns true if the activity was started warm (native library loaded and initialized) or
+     * if a cold starts have been completed by the time onResume is/will be called.
+     * This is useful to distinguish between the case where an already running instance of Chrome is
+     * being brought back to the foreground from the case where Chrome is started, in order to avoid
+     * contention on browser startup
+     * @return Whether the activity is warm in onResume.
+     */
+    public boolean isWarmOnResume() {
+        return mIsWarmOnResume;
     }
 
     @Override
@@ -472,7 +522,7 @@ public abstract class AsyncInitializationActivity extends AppCompatActivity impl
                     : null;
 
     private class LaunchBehindWorkaround {
-        private boolean mPaused = false;
+        private boolean mPaused;
 
         private View getDecorView() {
             return getWindow().getDecorView();

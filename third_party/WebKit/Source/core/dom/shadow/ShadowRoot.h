@@ -27,7 +27,9 @@
 #ifndef ShadowRoot_h
 #define ShadowRoot_h
 
+#include "bindings/core/v8/ScriptWrappableVisitor.h"
 #include "core/CoreExport.h"
+#include "core/css/StyleSheetList.h"
 #include "core/dom/ContainerNode.h"
 #include "core/dom/DocumentFragment.h"
 #include "core/dom/Element.h"
@@ -39,11 +41,9 @@ class Document;
 class ElementShadow;
 class ExceptionState;
 class HTMLShadowElement;
-class HTMLSlotElement;
 class InsertionPoint;
 class ShadowRootRareDataV0;
 class SlotAssignment;
-class StyleSheetList;
 
 enum class ShadowRootType { UserAgent, V0, Open, Closed };
 
@@ -123,14 +123,22 @@ class CORE_EXPORT ShadowRoot final : public DocumentFragment, public TreeScope {
   void registerScopedHTMLStyleChild();
   void unregisterScopedHTMLStyleChild();
 
-  SlotAssignment& ensureSlotAssignment();
+  SlotAssignment& slotAssignment() {
+    DCHECK(m_slotAssignment);
+    return *m_slotAssignment;
+  }
+
+  HTMLSlotElement* assignedSlotFor(const Node&);
+  void didAddSlot(HTMLSlotElement&);
+  void didChangeHostChildSlotName(const AtomicString& oldValue,
+                                  const AtomicString& newValue);
 
   void distributeV1();
 
   Element* activeElement() const;
 
   String innerHTML() const;
-  void setInnerHTML(const String&, ExceptionState&);
+  void setInnerHTML(const String&, ExceptionState& = ASSERT_NO_EXCEPTION);
 
   Node* cloneNode(bool, ExceptionState&);
 
@@ -142,10 +150,10 @@ class CORE_EXPORT ShadowRoot final : public DocumentFragment, public TreeScope {
   StyleSheetList& styleSheets();
   void setStyleSheets(StyleSheetList* styleSheetList) {
     m_styleSheetList = styleSheetList;
+    ScriptWrappableVisitor::writeBarrier(this, m_styleSheetList);
   }
 
   DECLARE_VIRTUAL_TRACE();
-
   DECLARE_VIRTUAL_TRACE_WRAPPERS();
 
  private:
@@ -155,6 +163,7 @@ class CORE_EXPORT ShadowRoot final : public DocumentFragment, public TreeScope {
   void childrenChanged(const ChildrenChange&) override;
 
   ShadowRootRareDataV0& ensureShadowRootRareDataV0();
+  SlotAssignment& ensureSlotAssignment();
 
   void addChildShadowRoot() { ++m_childShadowRootCount; }
   void removeChildShadowRoot() {

@@ -11,9 +11,9 @@
 #include "base/macros.h"
 #include "ui/message_center/message_center_export.h"
 #include "ui/message_center/views/message_view.h"
+#include "ui/views/controls/button/button.h"
+#include "ui/views/controls/button/image_button.h"
 #include "ui/views/view_targeter_delegate.h"
-
-class GURL;
 
 namespace views {
 class ProgressBar;
@@ -22,9 +22,7 @@ class ProgressBar;
 namespace message_center {
 
 class BoundedLabel;
-class MessageCenter;
 class NotificationButton;
-class PaddedButton;
 class ProportionalImageView;
 
 // View that displays all current types of notification (web, basic, image, and
@@ -33,6 +31,7 @@ class ProportionalImageView;
 // returned by the Create() factory method below.
 class MESSAGE_CENTER_EXPORT NotificationView
     : public MessageView,
+      public views::ButtonListener,
       public views::ViewTargeterDelegate {
  public:
   NotificationView(MessageCenterController* controller,
@@ -50,6 +49,12 @@ class MESSAGE_CENTER_EXPORT NotificationView
   // Overridden from MessageView:
   void UpdateWithNotification(const Notification& notification) override;
   void ButtonPressed(views::Button* sender, const ui::Event& event) override;
+  bool IsCloseButtonFocused() const override;
+  void RequestFocusOnCloseButton() override;
+  bool IsPinned() const override;
+
+ protected:
+  views::ImageButton* close_button() { return close_button_.get(); }
 
  private:
   FRIEND_TEST_ALL_PREFIXES(NotificationViewTest, CreateOrUpdateTest);
@@ -79,6 +84,7 @@ class MESSAGE_CENTER_EXPORT NotificationView
   void CreateOrUpdateIconView(const Notification& notification);
   void CreateOrUpdateImageView(const Notification& notification);
   void CreateOrUpdateActionButtonViews(const Notification& notification);
+  void CreateOrUpdateCloseButtonView(const Notification& notification);
 
   int GetMessageLineLimit(int title_lines, int width) const;
   int GetMessageHeight(int width, int limit) const;
@@ -106,6 +112,7 @@ class MESSAGE_CENTER_EXPORT NotificationView
   views::ProgressBar* progress_bar_view_ = nullptr;
   std::vector<NotificationButton*> action_buttons_;
   std::vector<views::View*> separators_;
+  std::unique_ptr<views::ImageButton> close_button_ = nullptr;
 
   DISALLOW_COPY_AND_ASSIGN(NotificationView);
 };

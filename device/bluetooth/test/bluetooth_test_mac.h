@@ -40,6 +40,8 @@ class BluetoothTestMac : public BluetoothTestBase {
   void InitWithoutDefaultAdapter() override;
   void InitWithFakeAdapter() override;
   BluetoothDevice* SimulateLowEnergyDevice(int device_ordinal) override;
+  void SimulateConnectedLowEnergyDevice(
+      ConnectedDeviceType device_ordinal) override;
   void SimulateGattConnection(BluetoothDevice* device) override;
   void SimulateGattConnectionError(
       BluetoothDevice* device,
@@ -64,6 +66,8 @@ class BluetoothTestMac : public BluetoothTestBase {
   void SimulateGattCharacteristicWriteError(
       BluetoothRemoteGattCharacteristic* characteristic,
       BluetoothRemoteGattService::GattErrorCode error_code) override;
+  void SimulateGattDescriptor(BluetoothRemoteGattCharacteristic* characteristic,
+                              const std::string& uuid) override;
   void SimulateGattNotifySessionStarted(
       BluetoothRemoteGattCharacteristic* characteristic) override;
   void SimulateGattNotifySessionStartError(
@@ -86,13 +90,21 @@ class BluetoothTestMac : public BluetoothTestBase {
   void OnFakeBluetoothCharacteristicWriteValue(std::vector<uint8_t> value);
   void OnFakeBluetoothGattSetCharacteristicNotification();
 
+  // Returns the service UUIDs used to retrieve connected peripherals.
+  BluetoothDevice::UUIDSet RetrieveConnectedPeripheralServiceUUIDs();
+  // Reset RetrieveConnectedPeripheralServiceUUIDs set.
+  void ResetRetrieveConnectedPeripheralServiceUUIDs();
+
  protected:
   class ScopedMockCentralManager;
 
   // Returns MockCBPeripheral from BluetoothRemoteGattService.
   MockCBPeripheral* GetMockCBPeripheral(
       BluetoothRemoteGattService* service) const;
-  // Returns MockCBPeripheral from BluetoothRemoteGattService.
+  // Returns MockCBPeripheral from BluetoothRemoteGattCharacteristic.
+  MockCBPeripheral* GetMockCBPeripheral(
+      BluetoothRemoteGattCharacteristic* characteristic) const;
+  // Returns MockCBCharacteristic from BluetoothRemoteGattCharacteristic.
   MockCBCharacteristic* GetCBMockCharacteristic(
       BluetoothRemoteGattCharacteristic* characteristic) const;
 

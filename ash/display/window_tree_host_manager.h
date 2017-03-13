@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef ASH_DISPLAY_DISPLAY_CONTROLLER_H_
-#define ASH_DISPLAY_DISPLAY_CONTROLLER_H_
+#ifndef ASH_DISPLAY_WINDOW_TREE_HOST_MANAGER_H_
+#define ASH_DISPLAY_WINDOW_TREE_HOST_MANAGER_H_
 
 #include <stdint.h>
 
@@ -12,7 +12,6 @@
 #include <vector>
 
 #include "ash/ash_export.h"
-#include "ash/display/display_manager.h"
 #include "base/compiler_specific.h"
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
@@ -24,16 +23,11 @@
 #include "ui/base/ime/input_method.h"
 #include "ui/base/ime/input_method_delegate.h"
 #include "ui/display/display_observer.h"
+#include "ui/display/manager/display_manager.h"
 #include "ui/gfx/geometry/point.h"
 
 namespace aura {
 class WindowTreeHost;
-}
-
-namespace base {
-class Value;
-template <typename T>
-class JSONValueConverter;
 }
 
 namespace gfx {
@@ -44,7 +38,6 @@ namespace ash {
 class AshWindowTreeHost;
 struct AshWindowTreeHostInitParams;
 class CursorWindowController;
-class DisplayManager;
 class FocusActivationStore;
 class InputMethodEventHandler;
 class MirrorWindowController;
@@ -55,7 +48,7 @@ class RootWindowController;
 class ASH_EXPORT WindowTreeHostManager
     : public display::DisplayObserver,
       public aura::WindowTreeHostObserver,
-      public DisplayManager::Delegate,
+      public display::DisplayManager::Delegate,
       public ui::internal::InputMethodDelegate {
  public:
   // TODO(oshima): Consider moving this to display::DisplayObserver.
@@ -123,9 +116,6 @@ class ASH_EXPORT WindowTreeHostManager
   // root window host to to new primary display.
   void SetPrimaryDisplayId(int64_t id);
 
-  // Closes all child windows in the all root windows.
-  void CloseChildWindows();
-
   // Returns all root windows. In non extended desktop mode, this
   // returns the primary root window only.
   aura::Window::Windows GetAllRootWindows();
@@ -158,17 +148,13 @@ class ASH_EXPORT WindowTreeHostManager
   // aura::WindowTreeHostObserver overrides:
   void OnHostResized(const aura::WindowTreeHost* host) override;
 
-  // ash::DisplayManager::Delegate overrides:
+  // display::DisplayManager::Delegate overrides:
   void CreateOrUpdateMirroringDisplay(
-      const DisplayInfoList& info_list) override;
+      const display::DisplayInfoList& info_list) override;
   void CloseMirroringDisplayIfNotNecessary() override;
   void PreDisplayConfigurationChange(bool clear_focus) override;
-  void PostDisplayConfigurationChange() override;
-#if defined(OS_CHROMEOS)
-  ui::DisplayConfigurator* display_configurator() override;
-#endif
-  std::string GetInternalDisplayNameString() override;
-  std::string GetUnknownDisplayNameString() override;
+  void PostDisplayConfigurationChange(bool must_clear_window) override;
+  display::DisplayConfigurator* display_configurator() override;
 
   // ui::internal::InputMethodDelegate overrides:
   ui::EventDispatchDetails DispatchKeyEventPostIME(
@@ -181,7 +167,6 @@ class ASH_EXPORT WindowTreeHostManager
  private:
   FRIEND_TEST_ALL_PREFIXES(WindowTreeHostManagerTest, BoundsUpdated);
   FRIEND_TEST_ALL_PREFIXES(WindowTreeHostManagerTest, SecondaryDisplayLayout);
-  friend class DisplayManager;
   friend class MirrorWindowController;
 
   // Creates a WindowTreeHost for |display| and stores it in the
@@ -230,4 +215,4 @@ class ASH_EXPORT WindowTreeHostManager
 
 }  // namespace ash
 
-#endif  // ASH_DISPLAY_DISPLAY_CONTROLLER_H_
+#endif  // ASH_DISPLAY_WINDOW_TREE_HOST_MANAGER_H_

@@ -8,6 +8,7 @@
 #define CORE_FXGE_CFX_FACECACHE_H_
 
 #include <map>
+#include <memory>
 
 #include "core/fxge/fx_font.h"
 #include "core/fxge/fx_freetype.h"
@@ -18,7 +19,7 @@ class CFX_FaceCache {
   ~CFX_FaceCache();
   const CFX_GlyphBitmap* LoadGlyphBitmap(const CFX_Font* pFont,
                                          uint32_t glyph_index,
-                                         FX_BOOL bFontStyle,
+                                         bool bFontStyle,
                                          const CFX_Matrix* pMatrix,
                                          int dest_width,
                                          int anti_alias,
@@ -27,14 +28,14 @@ class CFX_FaceCache {
                                     uint32_t glyph_index,
                                     int dest_width);
 
-#ifdef _SKIA_SUPPORT_
+#if defined _SKIA_SUPPORT_ || _SKIA_SUPPORT_PATHS_
   CFX_TypeFace* GetDeviceCache(const CFX_Font* pFont);
 #endif
 
  private:
   CFX_GlyphBitmap* RenderGlyph(const CFX_Font* pFont,
                                uint32_t glyph_index,
-                               FX_BOOL bFontStyle,
+                               bool bFontStyle,
                                const CFX_Matrix* pMatrix,
                                int dest_width,
                                int anti_alias);
@@ -47,7 +48,7 @@ class CFX_FaceCache {
                                      const CFX_Matrix* pMatrix,
                                      const CFX_ByteString& FaceGlyphsKey,
                                      uint32_t glyph_index,
-                                     FX_BOOL bFontStyle,
+                                     bool bFontStyle,
                                      int dest_width,
                                      int anti_alias);
   void InitPlatform();
@@ -56,7 +57,7 @@ class CFX_FaceCache {
   FXFT_Face const m_Face;
   std::map<CFX_ByteString, std::unique_ptr<CFX_SizeGlyphCache>> m_SizeMap;
   std::map<uint32_t, std::unique_ptr<CFX_PathData>> m_PathMap;
-#ifdef _SKIA_SUPPORT_
+#if defined _SKIA_SUPPORT_ || _SKIA_SUPPORT_PATHS_
   CFX_TypeFace* m_pTypeface;
 #endif
 };

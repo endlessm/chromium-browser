@@ -4,12 +4,12 @@
 
 package org.chromium.net;
 
-import android.test.suitebuilder.annotation.SmallTest;
+import android.support.test.filters.SmallTest;
+
+import org.json.JSONObject;
 
 import org.chromium.base.PathUtils;
 import org.chromium.base.test.util.Feature;
-import org.chromium.net.CronetTestBase.OnlyRunNativeCronet;
-import org.json.JSONObject;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -19,16 +19,17 @@ import java.io.FileReader;
  * Tests for experimental options.
  */
 public class ExperimentalOptionsTest extends CronetTestBase {
-    private static final String TAG = "cr.QuicTest";
+    private static final String TAG = ExperimentalOptionsTest.class.getSimpleName();
     private CronetTestFramework mTestFramework;
-    private CronetEngine.Builder mBuilder;
+    private ExperimentalCronetEngine.Builder mBuilder;
 
     @Override
     protected void setUp() throws Exception {
         super.setUp();
         System.loadLibrary("cronet_tests");
-        mBuilder = new CronetEngine.Builder(getContext());
-        mBuilder.setMockCertVerifierForTesting(QuicTestServer.createMockCertVerifier());
+        mBuilder = new ExperimentalCronetEngine.Builder(getContext());
+        CronetTestUtil.setMockCertVerifierForTesting(
+                mBuilder, QuicTestServer.createMockCertVerifier());
         assertTrue(Http2TestServer.startHttp2TestServer(
                 getContext(), QuicTestServer.getServerCert(), QuicTestServer.getServerCertKey()));
     }
@@ -55,8 +56,8 @@ public class ExperimentalOptionsTest extends CronetTestBase {
         mTestFramework = new CronetTestFramework(null, null, getContext(), mBuilder);
 
         TestUrlRequestCallback callback = new TestUrlRequestCallback();
-        UrlRequest.Builder builder = new UrlRequest.Builder(
-                url, callback, callback.getExecutor(), mTestFramework.mCronetEngine);
+        UrlRequest.Builder builder = mTestFramework.mCronetEngine.newUrlRequestBuilder(
+                url, callback, callback.getExecutor());
         UrlRequest urlRequest = builder.build();
         urlRequest.start();
         callback.blockForDone();

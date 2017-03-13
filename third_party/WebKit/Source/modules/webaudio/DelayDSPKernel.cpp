@@ -33,7 +33,7 @@ namespace blink {
 const float SmoothingTimeConstant = 0.020f;  // 20ms
 
 DelayDSPKernel::DelayDSPKernel(DelayProcessor* processor)
-    : AudioDelayDSPKernel(processor, AudioHandler::ProcessingSizeInFrames) {
+    : AudioDelayDSPKernel(processor, AudioUtilities::kRenderQuantumFrames) {
   DCHECK(processor);
   DCHECK_GT(processor->sampleRate(), 0);
   if (!(processor && processor->sampleRate() > 0))
@@ -65,6 +65,15 @@ void DelayDSPKernel::calculateSampleAccurateValues(float* delayTimes,
 
 double DelayDSPKernel::delayTime(float) {
   return getDelayProcessor()->delayTime().finalValue();
+}
+
+void DelayDSPKernel::processOnlyAudioParams(size_t framesToProcess) {
+  DCHECK_LE(framesToProcess, AudioUtilities::kRenderQuantumFrames);
+
+  float values[AudioUtilities::kRenderQuantumFrames];
+
+  getDelayProcessor()->delayTime().calculateSampleAccurateValues(
+      values, framesToProcess);
 }
 
 }  // namespace blink

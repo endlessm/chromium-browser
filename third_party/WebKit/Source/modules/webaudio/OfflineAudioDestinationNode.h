@@ -59,16 +59,20 @@ class OfflineAudioDestinationHandler final : public AudioDestinationHandler {
   void stopRendering() override;
   unsigned long maxChannelCount() const override;
 
+  // Returns the rendering callback buffer size.  This should never be
+  // called.
+  size_t callbackBufferSize() const override;
+
   float sampleRate() const override { return m_renderTarget->sampleRate(); }
 
-  size_t renderQuantumFrames() const { return renderQuantumSize; }
+  size_t renderQuantumFrames() const {
+    return AudioUtilities::kRenderQuantumFrames;
+  }
 
   WebThread* offlineRenderThread();
 
  private:
   OfflineAudioDestinationHandler(AudioNode&, AudioBuffer* renderTarget);
-
-  static const size_t renderQuantumSize;
 
   // Set up the rendering and start. After setting the context up, it will
   // eventually call |doOfflineRendering|.

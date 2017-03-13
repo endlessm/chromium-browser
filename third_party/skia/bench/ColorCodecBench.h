@@ -9,12 +9,9 @@
 #define ColorCodecBench_DEFINED
 
 #include "Benchmark.h"
+#include "SkAutoMalloc.h"
 #include "SkData.h"
 #include "SkImageInfo.h"
-
-#if defined(SK_TEST_QCMS)
-#include "qcms.h"
-#endif
 
 class ColorCodecBench : public Benchmark {
 public:
@@ -29,22 +26,15 @@ protected:
 private:
     void decodeAndXform();
     void xformOnly();
-#if !defined(GOOGLE3)
-    void decodeAndXformQCMS();
-    void xformOnlyQCMS();
-#endif
 
-    SkString                                             fName;
-    sk_sp<SkData>                                        fEncoded;
-    SkImageInfo                                          fSrcInfo;
-    SkImageInfo                                          fDstInfo;
-    SkAutoMalloc                                         fDst;
-    SkAutoMalloc                                         fSrc;
-    sk_sp<SkColorSpace>                                  fDstSpace;
-#if defined(SK_TEST_QCMS)
-    SkAutoTCallVProc<qcms_profile, qcms_profile_release> fDstSpaceQCMS;
-#endif
-    sk_sp<SkData>                                        fSrcData;
+    SkString            fName;
+    sk_sp<SkData>       fEncoded;
+    SkImageInfo         fSrcInfo;
+    SkImageInfo         fDstInfo;
+    SkAutoMalloc        fDst;
+    SkAutoMalloc        fSrc;
+    sk_sp<SkColorSpace> fDstSpace;
+    sk_sp<SkColorSpace> fSrcSpace;
 
     typedef Benchmark INHERITED;
 };

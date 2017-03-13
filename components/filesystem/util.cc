@@ -14,7 +14,6 @@
 #include "base/logging.h"
 #include "base/strings/string_util.h"
 #include "build/build_config.h"
-#include "mojo/public/cpp/bindings/string.h"
 
 #if defined(OS_WIN)
 #include "base/strings/utf_string_conversions.h"
@@ -146,17 +145,16 @@ mojom::FileInformationPtr MakeFileInformation(const base::File::Info& info) {
   return file_info;
 }
 
-mojom::FileError ValidatePath(const mojo::String& raw_path,
+mojom::FileError ValidatePath(const std::string& raw_path,
                               const base::FilePath& filesystem_base,
                               base::FilePath* out) {
-  DCHECK(!raw_path.is_null());
-  if (!base::IsStringUTF8(raw_path.get()))
+  if (!base::IsStringUTF8(raw_path))
     return mojom::FileError::INVALID_OPERATION;
 
 #if defined(OS_POSIX)
   base::FilePath::StringType path = raw_path;
 #elif defined(OS_WIN)
-  base::FilePath::StringType path = base::UTF8ToUTF16(raw_path.get());
+  base::FilePath::StringType path = base::UTF8ToUTF16(raw_path);
 #endif
 
   // TODO(erg): This isn't really what we want. FilePath::AppendRelativePath()
