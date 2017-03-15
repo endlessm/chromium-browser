@@ -50,7 +50,7 @@ namespace {
 
 // Default (for countries with no better engine set)
 const PrepopulatedEngine* const engines_default[] = {
-    &google, &bing, &yahoo,
+    &google, &bing, &yahoo, &duckduckgo,
 };
 
 // United Arab Emirates
@@ -165,7 +165,7 @@ const PrepopulatedEngine* const engines_CZ[] = {
 
 // Germany
 const PrepopulatedEngine* const engines_DE[] = {
-    &google, &bing, &yahoo_de,
+    &google, &bing, &yahoo_de, &duckduckgo,
 };
 
 // Denmark
@@ -215,12 +215,12 @@ const PrepopulatedEngine* const engines_FI[] = {
 
 // France
 const PrepopulatedEngine* const engines_FR[] = {
-    &google, &bing, &yahoo_fr,
+    &google, &bing, &yahoo_fr, &duckduckgo,
 };
 
 // United Kingdom
 const PrepopulatedEngine* const engines_GB[] = {
-    &google, &bing, &yahoo_uk, &ask_uk,
+    &google, &bing, &yahoo_uk, &ask_uk, &duckduckgo,
 };
 
 // Greece
@@ -555,7 +555,7 @@ const PrepopulatedEngine* const engines_UA[] = {
 
 // United States
 const PrepopulatedEngine* const engines_US[] = {
-    &google, &bing, &yahoo, &aol, &ask,
+    &google, &bing, &yahoo, &aol, &ask, &duckduckgo,
 };
 
 // Uruguay
@@ -590,6 +590,7 @@ const PrepopulatedEngine* const engines_ZW[] = {
 
 // A list of all the engines that we know about.
 const PrepopulatedEngine* const kAllEngines[] = {
+    &duckduckgo,
     // Prepopulated engines:
     &aol, &ask, &ask_br, &ask_uk, &baidu, &bing, &daum, &google, &kvasir,
     &mail_ru, &najdi, &naver, &onet, &seznam, &sogou, &vinden, &virgilio,
