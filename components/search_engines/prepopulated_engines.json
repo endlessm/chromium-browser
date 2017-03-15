@@ -86,6 +86,7 @@
       "keyword": "baidu.com",
       "favicon_url": "https://www.baidu.com/favicon.ico",
       "search_url": "https://www.baidu.com/#ie={inputEncoding}&wd={searchTerms}",
+      "search_url": "https://www.baidu.com/#ie={inputEncoding}&tn=ubuntuu_cb&wd={searchTerms}",
       "suggest_url": "http://suggestion.baidu.com/su?wd={searchTerms}&action=opensearch&ie={inputEncoding}",
       "type": "SEARCH_ENGINE_BAIDU",
       "id": 21
