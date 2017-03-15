@@ -1,82 +1,33 @@
-chromium-browser (55.0.2883.87-0ubuntu0.16.04.1263) xenial-security; urgency=medium
+chromium-browser (56.0.2924.76-0ubuntu0.16.04.1268) xenial-security; urgency=medium
 
-  * debian/rules: Build extra codecs as part of main chromium program,
-    and libre/crippled/h.264less on its own. Seems to make h.264 work 
-    again. Weird.
-  * debian/chromium-browser.links: Make link to ./ instead of / to fix
-    path problems that codec-using other apps might see.
-  * Upstream release of 55.0.2883.87:
-    - Change Flash running default to important content only.
-  * debian/chromium-browser.sh.in: Insert the Flash version if empty and
-    detectable.
-  * debian/rules, debian/control: Use gcc/g++ 4.8 to build.
-  * Upstream release of 55.0.2883.75:
-    - CVE-2016-9651: Private property access in V8.
-    - CVE-2016-5208: Universal XSS in Blink.
-    - CVE-2016-5207: Universal XSS in Blink.
-    - CVE-2016-5206: Same-origin bypass in PDFium.
-    - CVE-2016-5205: Universal XSS in Blink.
-    - CVE-2016-5204: Universal XSS in Blink.
-    - CVE-2016-5209: Out of bounds write in Blink.
-    - CVE-2016-5203: Use after free in PDFium.
-    - CVE-2016-5210: Out of bounds write in PDFium.
-    - CVE-2016-5212: Local file disclosure in DevTools.
-    - CVE-2016-5211: Use after free in PDFium.
-    - CVE-2016-5213: Use after free in V8.
-    - CVE-2016-5214: File download protection bypass.
-    - CVE-2016-5216: Use after free in PDFium.
-    - CVE-2016-5215: Use after free in Webaudio.
-    - CVE-2016-5217: Use of unvalidated data in PDFium.
-    - CVE-2016-5218: Address spoofing in Omnibox.
-    - CVE-2016-5219: Use after free in V8.
-    - CVE-2016-5221: Integer overflow in ANGLE.
-    - CVE-2016-5220: Local file access in PDFium.
-    - CVE-2016-5222: Address spoofing in Omnibox.
-    - CVE-2016-9650: CSP Referrer disclosure.
-    - CVE-2016-5223: Integer overflow in PDFium.
-    - CVE-2016-5226: Limited XSS in Blink.
-    - CVE-2016-5225: CSP bypass in Blink.
-    - CVE-2016-5224: Same-origin bypass in SVG
-    - CVE-2016-9652: Various fixes from internal audits, fuzzing and other
-      initiatives
-  * Upstream release of 54.0.2840.100:
-    - CVE-2016-5199: Heap corruption in FFmpeg.
-    - CVE-2016-5200: Out of bounds memory access in V8.
-    - CVE-2016-5201: Info leak in extensions.
-    - CVE-2016-5202: Various fixes from internal audits, fuzzing and other
-      initiatives
-  * Move to using GN to build chromium.
-    - debian/known_gn_gen_args
-    - debian/rules
-    patches
-  * debian/rules, lintians, installs, script: Move component libs out of
-    libs/, to /usr/lib/chromium-browser/ only.
-  * debian/patches/do-not-use-bundled-clang: Use clang from path.
-  * debian/control: Express that binary packages could be on "any"
-    architecture.
-  * debian/control: additionally build-dep on libgtk-3-dev
-  * debian/patches/arm64-support: Fail nicer if aarch64/arm64 mismatch.
-  * Upstrem release of 54.0.2840.59:
-    - CVE-2016-5181: Universal XSS in Blink.
-    - CVE-2016-5182: Heap overflow in Blink.
-    - CVE-2016-5183: Use after free in PDFium.
-    - CVE-2016-5184: Use after free in PDFium.
-    - CVE-2016-5185: Use after free in Blink.
-    - CVE-2016-5187: URL spoofing.
-    - CVE-2016-5188: UI spoofing.
-    - CVE-2016-5192: Cross-origin bypass in Blink.
-    - CVE-2016-5189: URL spoofing.
-    - CVE-2016-5186: Out of bounds read in DevTools.
-    - CVE-2016-5191: Universal XSS in Bookmarks.
-    - CVE-2016-5190: Use after free in Internals.
-    - CVE-2016-5193: Scheme bypass.
-    - CVE-2016-5194: Various fixes from internal audits, fuzzing and other
-      initiatives
-  * debian/patches/allow-component-build: Hard-code, override
-    release -> no component logic.
-  * debian/known_gyp_flags: Remove old GYP known-flags list.
-  * debian/default-allocator: Insist on not using tcmalloc allocator.
-  * debian/rules: Set LDFLAGS to limit memory usage.
-  * debian/control: Remove extraneous dependencies.
+  * Upstream release: 56.0.2924.76
+    - CVE-2017-5007: Universal XSS in Blink.
+    - CVE-2017-5006: Universal XSS in Blink.
+    - CVE-2017-5008: Universal XSS in Blink.
+    - CVE-2017-5010: Universal XSS in Blink.
+    - CVE-2017-5011: Unauthorised file access in Devtools.
+    - CVE-2017-5009: Out of bounds memory access in WebRTC.
+    - CVE-2017-5012: Heap overflow in V8.
+    - CVE-2017-5013: Address spoofing in Omnibox.
+    - CVE-2017-5014: Heap overflow in Skia.
+    - CVE-2017-5015: Address spoofing in Omnibox.
+    - CVE-2017-5019: Use after free in Renderer.
+    - CVE-2017-5016: UI spoofing in Blink.
+    - CVE-2017-5017: Uninitialised memory access in webm video.
+    - CVE-2017-5018: Universal XSS in chrome://apps.
+    - CVE-2017-5020: Universal XSS in chrome://downloads.
+    - CVE-2017-5021: Use after free in Extensions.
+    - CVE-2017-5022: Bypass of Content Security Policy in Blink.
+    - CVE-2017-5023: Type confusion in metrics.
+    - CVE-2017-5024: Heap overflow in FFmpeg.
+    - CVE-2017-5025: Heap overflow in FFmpeg.
+    - CVE-2017-5026: UI spoofing.
+  * debian/patches/screen_capturer: allow compilation on gcc4
+  * debian/patches/arm64-support: reenable arm64
+  * debian/patches/memory-free-assertion-failure: discover memory management
+    assertion failures.
+  * debian/rules: Avoid field trial experiments to get stable code.
+    (closes: LP#1667125)
+  * debian/patches/enable-chromecast-by-default: (closes: LP#1621753)
 
- -- Chad MILLER <chad.miller@canonical.com>  Sat, 17 Dec 2016 12:05:53 -0500
+ -- Chad MILLER <chad.miller@canonical.com>  Wed, 22 Feb 2017 17:20:28 -0500
