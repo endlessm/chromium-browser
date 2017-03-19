@@ -1,4 +1,9 @@
-chromium-browser (56.0.2924.76-0ubuntu0.16.04.1268) xenial-security; urgency=medium
+chromium-browser (57.0.2987.98-0endless1) eos; urgency=medium
+
+  * Upstream release: 57.0.2987.98
+
+ -- Michael Catanzaro <mcatanzaro@igalia.com>  Sun, 19 Mar 2017 16:48:45 -0500
+
 
   * Upstream release: 56.0.2924.76
     - CVE-2017-5007: Universal XSS in Blink.
