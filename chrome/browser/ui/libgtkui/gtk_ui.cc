@@ -616,10 +616,10 @@ std::unique_ptr<views::Border> GtkUi::CreateNativeBorder(
   if (owning_button->GetNativeTheme() != native_theme_)
     return std::move(border);
 
-  std::unique_ptr<views::LabelButtonAssetBorder> gtk_border(
+  std::unique_ptr<views::Border> gtk_border(
       new views::LabelButtonAssetBorder(owning_button->style()));
-
-  gtk_border->set_insets(border->GetInsets());
+  auto* label_button_asset_border = static_cast<views::LabelButtonAssetBorder*>(gtk_border.get());
+  label_button_asset_border->set_insets(border->GetInsets());
 
   static struct {
     const char* idr;
@@ -667,7 +667,7 @@ std::unique_ptr<views::Border> GtkUi::CreateNativeBorder(
 
   for (unsigned i = 0; i < arraysize(paintstate); i++) {
     std::string idr = is_blue ? paintstate[i].idr_blue : paintstate[i].idr;
-    gtk_border->SetPainter(
+    label_button_asset_border->SetPainter(
         paintstate[i].focus, paintstate[i].state,
         border->PaintsButtonState(paintstate[i].focus, paintstate[i].state)
             ? base::MakeUnique<GtkButtonPainter>(idr)
