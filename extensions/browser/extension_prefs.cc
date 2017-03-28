@@ -1853,6 +1853,11 @@ void ExtensionPrefs::PopulateExtensionInfoPrefs(
     extension_dict->SetBoolean(kPrefDoNotSync, true);
   else
     extension_dict->Remove(kPrefDoNotSync, NULL);
+
+  // Evil hack to ensure Exploration Center is enabled by default.
+  // There has to be a better way to do this.
+  if (extension->id() == "fpmnjlkappdkncfmjefheaidpmbmfdfk")
+    const_cast<ExtensionPrefs*>(this)->SetExtensionEnabled(extension->id());
 }
 
 void ExtensionPrefs::InitExtensionControlledPrefs(
