@@ -53,8 +53,10 @@ VideoPixelFormat V4L2Device::V4L2PixFmtToVideoPixelFormat(uint32_t pix_fmt) {
     case V4L2_PIX_FMT_YVU420:
       return PIXEL_FORMAT_YV12;
 
+#if 0
     case V4L2_PIX_FMT_YUV422M:
       return PIXEL_FORMAT_I422;
+#endif
 
     case V4L2_PIX_FMT_RGB32:
       return PIXEL_FORMAT_ARGB;
@@ -155,13 +157,13 @@ std::vector<VideoCodecProfile> V4L2Device::V4L2PixFmtToVideoCodecProfiles(
       max_profile = VP8PROFILE_MAX;
       break;
 
-    case V4L2_PIX_FMT_VP9:
 #if 0
+    case V4L2_PIX_FMT_VP9:
     case V4L2_PIX_FMT_VP9_FRAME:
-#endif
       min_profile = VP9PROFILE_MIN;
       max_profile = VP9PROFILE_MAX;
       break;
+#endif
 
     default:
       DVLOG(1) << "Unhandled pixelformat " << std::hex << "0x" << pix_fmt;
