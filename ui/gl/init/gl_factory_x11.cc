@@ -28,10 +28,14 @@ namespace init {
 
 std::vector<GLImplementation> GetAllowedGLImplementations() {
   std::vector<GLImplementation> impls;
+#if defined (__ARMEL__)
+  impls.push_back(kGLImplementationEGLGLES2);
+#else
   impls.push_back(kGLImplementationDesktopGL);
   impls.push_back(kGLImplementationEGLGLES2);
   impls.push_back(kGLImplementationOSMesaGL);
   impls.push_back(kGLImplementationSwiftShaderGL);
+#endif
   return impls;
 }
 
