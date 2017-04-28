@@ -106,16 +106,15 @@ Polymer({
     if (eventType === 'keydown') {
       if (!useCapture)
         return this.bubblingKeyDownHotKeys_;
-      else
-        return this.capturingKeyDownHotKeys_;
-    } else if (eventType === 'keypress') {
+      return this.capturingKeyDownHotKeys_;
+    }
+    if (eventType === 'keypress') {
       if (!useCapture)
         return this.bubblingKeyPressHotKeys_;
-      else
-        return this.capturingKeyPressHotKeys_;
-    } else {
-      throw new Error('Unsupported key event');
+      return this.capturingKeyPressHotKeys_;
     }
+
+    throw new Error('Unsupported key event');
   },
 
   addHotKey: function(hotKey) {
@@ -202,22 +201,19 @@ Polymer({
   },
 
   findHost_: function() {
-    if (this.globalMode_) {
+    if (this.globalMode_)
       return document.body;
-    } else {
-      if (this.parentElement)
-        return this.parentElement;
+    if (this.parentElement)
+      return this.parentElement;
 
-      var node = this;
-      while (Polymer.dom(node).parentNode) {
-        node = Polymer.dom(node).parentNode;
-      }
-      return node.host;
-    }
+    var node = this;
+    while (Polymer.dom(node).parentNode)
+      node = Polymer.dom(node).parentNode;
+    return node.host;
   },
 
   appendMatchingHotKeysTo_: function(matchedHotKeys,
-                                      useCapture, e) {
+      useCapture, e) {
     var localKeyMap = this.getKeyMapForEventType_(e.type, useCapture);
     var localHotKey = localKeyMap[e.keyCode];
     if (localHotKey)
@@ -226,7 +222,7 @@ Polymer({
     for (var i = 0; i < this.childControllers_.length; i++) {
       var controller = this.childControllers_[i];
       controller.appendMatchingHotKeysTo_(matchedHotKeys,
-                                           useCapture, e);
+          useCapture, e);
     }
   },
 
@@ -266,7 +262,6 @@ Polymer({
 <script>
 'use strict';
 tr.exportTo('tr.b', function() {
-
   function getHotkeyControllerForElement(refElement) {
     var curElement = refElement;
     while (curElement) {

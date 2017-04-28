@@ -14,72 +14,132 @@ found in the LICENSE file.
 
 tr.exportTo('tr.v.d', function() {
   class RelatedHistogramSet extends tr.v.d.Diagnostic {
-    constructor(opt_values) {
+    constructor(opt_histograms) {
       super();
-      this.valuesByGuid_ = new Map();
+      this.histogramsByGuid_ = new Map();
 
-      if (opt_values)
-        for (var value of opt_values)
-          this.add(value);
+      if (opt_histograms) {
+        for (let hist of opt_histograms) {
+          this.add(hist);
+        }
+      }
+    }
+
+    canAddDiagnostic(otherDiagnostic) {
+      return otherDiagnostic instanceof RelatedHistogramSet;
+    }
+
+    addDiagnostic(otherDiagnostic) {
+      // Related Histograms might not exist yet.
+    }
+
+    mergeRelationships(otherDiagnostic, parentHist, otherParentHist) {
+      /*
+        Modify |this| to contain Histograms that should be related to
+        |parentHist|.
+
+        |otherParentHist| was merged to |parentHist|.
+        |otherDiagnostic| contains Histograms that are related to
+        |otherParentHist|.
+
+        Since mergeRelationships() is called after all Histograms are merged,
+        then the MERGED_TO diagnostics of the Histograms in |otherDiagnostic|
+        contain Histograms that should be related to |parentHist| via |this|
+        RelatedHistogramSet.
+
+        otherParentHist -----------------------------> parentHist
+        |               merged to RelatedHistogramSet   |
+        |                                               |
+        | otherDiagnostic                               | this
+        | RelatedHistogramSet                           | RelatedHistogramSet
+        v                                               v
+        otherRelatedHist -----------------------------> relatedHist
+                         merged to RelatedHistogramSet
+
+        However, |otherRelatedHist| may have been merged to Histograms using
+        different grouping keys, so if |relatedHist|'s merge path is different
+        from |parentHist|'s merge path, then |relatedHist| should not be related
+        to |parentHist|.
+       */
+      let parentGroupingPath = tr.v.d.GroupingPath.getFromHistogram(parentHist);
+      for (let otherRelatedHist of otherDiagnostic) {
+        let mergedTo = otherRelatedHist.diagnostics.get(
+            tr.v.d.MERGED_TO_DIAGNOSTIC_KEY);
+        if (mergedTo === undefined) continue;
+
+        for (let relatedHist of mergedTo) {
+          if (this.has(relatedHist)) continue;
+
+          let relatedGroupingPath = tr.v.d.GroupingPath.getFromHistogram(
+              relatedHist);
+          if (relatedGroupingPath === undefined) continue;
+          if (!parentGroupingPath.equals(relatedGroupingPath)) continue;
+
+          this.add(relatedHist);
+        }
+      }
     }
 
     /**
      * @param {!(tr.v.d.HistogramRef|tr.v.Histogram)} v
      */
-    add(value) {
-      if (!(value instanceof tr.v.Histogram) &&
-          !(value instanceof tr.v.d.HistogramRef)) {
+    add(hist) {
+      if (!(hist instanceof tr.v.Histogram) &&
+          !(hist instanceof tr.v.d.HistogramRef)) {
         throw new Error('Must be instanceof Histogram or HistogramRef: ' +
-            value);
+            hist);
       }
 
-      if (this.valuesByGuid_.get(value.guid))
-        throw new Error('Tried to add same value twice');
+      if (this.histogramsByGuid_.has(hist.guid)) {
+        throw new Error('Tried to add same hist twice');
+      }
 
-      this.valuesByGuid_.set(value.guid, value);
+      this.histogramsByGuid_.set(hist.guid, hist);
     }
 
-    has(value) {
-      return this.valuesByGuid_.has(value.guid);
+    has(hist) {
+      return this.histogramsByGuid_.has(hist.guid);
     }
 
     get length() {
-      return this.valuesByGuid_.size;
+      return this.histogramsByGuid_.size;
     }
 
     * [Symbol.iterator]() {
-      for (var [guid, value] of this.valuesByGuid_)
-        yield value;
+      for (let [guid, hist] of this.histogramsByGuid_) {
+        yield hist;
+      }
     }
 
     /**
-     * Resolve all HistogramRefs into Values by looking up their guids in
-     * |valueSet|.
-     * If a value cannot be found and |opt_required| is true, then throw an
+     * Resolve all HistogramRefs into Histograms by looking up their guids in
+     * |histograms|.
+     * If a Histogram cannot be found and |opt_required| is true, then throw an
      * Error.
-     * If a value cannot be found and |opt_required| is false, then the
+     * If a Histogram cannot be found and |opt_required| is false, then the
      * HistogramRef will remain a HistogramRef.
      *
-     * @param {!tr.v.HistogramSet} valueSet
+     * @param {!tr.v.HistogramSet} histograms
      * @param {boolean=} opt_required
      */
-    resolve(valueSet, opt_required) {
-      for (var [guid, value] of this.valuesByGuid_) {
-        if (!(value instanceof tr.v.d.HistogramRef))
-          continue;
+    resolve(histograms, opt_required) {
+      for (let [guid, hist] of this.histogramsByGuid_) {
+        if (!(hist instanceof tr.v.d.HistogramRef)) continue;
 
-        value = valueSet.lookupHistogram(guid);
-        if (value instanceof tr.v.Histogram)
-          this.valuesByGuid_.set(guid, value);
-        else if (opt_required)
+        hist = histograms.lookupHistogram(guid);
+        if (hist instanceof tr.v.Histogram) {
+          this.histogramsByGuid_.set(guid, hist);
+        } else if (opt_required) {
           throw new Error('Unable to find Histogram ' + guid);
+        }
       }
     }
 
     asDictInto_(d) {
       d.guids = [];
-      for (var value of this)
-        d.guids.push(value.guid);
+      for (let hist of this) {
+        d.guids.push(hist.guid);
+      }
     }
 
     static fromDict(d) {

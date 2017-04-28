@@ -610,6 +610,7 @@ willPositionSheet:(NSWindow*)sheet
 
   [self setSheetHiddenForFullscreenTransition:YES];
   [self adjustUIForEnteringFullscreen];
+  browser_->WindowFullscreenStateWillChange();
 }
 
 - (void)windowDidEnterFullScreen:(NSNotification*)notification {
@@ -700,6 +701,7 @@ willPositionSheet:(NSWindow*)sheet
   } else {
     [self adjustUIForExitingFullscreen];
   }
+  browser_->WindowFullscreenStateWillChange();
 }
 
 - (void)windowDidExitFullScreen:(NSNotification*)notification {
@@ -968,18 +970,10 @@ willPositionSheet:(NSWindow*)sheet
 - (void)updateSubviewZOrderFullscreen {
   base::scoped_nsobject<NSMutableArray> subviews([[NSMutableArray alloc] init]);
 
-  // The infobar should overlay the toolbar if the toolbar is fully shown.
-  FullscreenToolbarLayout layout = [fullscreenToolbarController_ computeLayout];
-  BOOL shouldInfoBarOverlayToolbar =
-      ui::IsCGFloatEqual(layout.toolbarFraction, 1.0);
-
   if ([downloadShelfController_ view])
     [subviews addObject:[downloadShelfController_ view]];
   if ([self tabContentArea])
     [subviews addObject:[self tabContentArea]];
-
-  if (!shouldInfoBarOverlayToolbar && [infoBarContainerController_ view])
-    [subviews addObject:[infoBarContainerController_ view]];
 
   if ([self placeBookmarkBarBelowInfoBar]) {
     if ([bookmarkBarController_ view])
@@ -996,7 +990,7 @@ willPositionSheet:(NSWindow*)sheet
   if ([toolbarController_ view])
     [subviews addObject:[toolbarController_ view]];
 
-  if (shouldInfoBarOverlayToolbar && [infoBarContainerController_ view])
+  if ([infoBarContainerController_ view])
     [subviews addObject:[infoBarContainerController_ view]];
 
   if ([findBarCocoaController_ view])

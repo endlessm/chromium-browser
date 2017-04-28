@@ -28,7 +28,7 @@ tr.b.unittest.testSuite(function() {
   };
 
   tr.model.ObjectSnapshot.subTypes.register(
-    TestBlameContextSnapshot,
+      TestBlameContextSnapshot,
     {typeName: 'Test'});
 
   function TestBlameContextInstance() {
@@ -44,7 +44,7 @@ tr.b.unittest.testSuite(function() {
   };
 
   tr.model.ObjectInstance.subTypes.register(
-    TestBlameContextInstance,
+      TestBlameContextInstance,
     {typeName: 'Test'});
 
   var TestUtils = tr.c.TestUtils;
@@ -55,7 +55,7 @@ tr.b.unittest.testSuite(function() {
     TestUtils.newModel(function(model) {
       parent = TestUtils.newSnapshot(model, {id: '0x1', name: 'Test'});
       child = TestUtils.newSnapshot(model, {id: '0x2', name: 'Test',
-                                            args: {parent: {id_ref: '0x1'}}});
+        args: {parent: {id_ref: '0x1'}}});
     });
 
     assert.isTrue(child.parentContext === parent);

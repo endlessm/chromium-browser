@@ -65,14 +65,13 @@ Polymer({
           if (row.layer) {
             var linkEl = document.createElement('tr-ui-a-analysis-link');
             linkEl.setSelectionAndContent(
-              function() {
-                return new tr.ui.e.chrome.cc.LayerSelection(costs.layer);
-              },
-              'Layer ' + row.layerId);
+                function() {
+                  return new tr.ui.e.chrome.cc.LayerSelection(costs.layer);
+                },
+                'Layer ' + row.layerId);
             return linkEl;
-          } else {
-            return 'Layer ' + row.layerId;
           }
+          return 'Layer ' + row.layerId;
         },
         width: '250px'
       },
@@ -139,7 +138,7 @@ Polymer({
     var lthi = tr.e.cc.getTileFromRasterTaskSlice(
         tr.b.getFirstElement(this.selection_)).containingSnapshot;
     this.$.link.setSelectionAndContent(function() {
-        return new tr.model.EventSet(lthi);
+      return new tr.model.EventSet(lthi);
     }, lthi.userFriendlyName);
 
     // Get costs by layer.

@@ -13,8 +13,10 @@ from dashboard import associate_alerts
 from dashboard import auto_bisect
 from dashboard import auto_triage
 from dashboard import bad_bisect
+from dashboard import benchmark_health_report
 from dashboard import bisect_stats
 from dashboard import bisect_fyi
+from dashboard import bug_details
 from dashboard import buildbucket_job_status
 from dashboard import change_internal_only
 from dashboard import create_health_report
@@ -66,8 +68,11 @@ _URL_MAPPING = [
     ('/auto_bisect', auto_bisect.AutoBisectHandler),
     ('/auto_triage', auto_triage.AutoTriageHandler),
     ('/bad_bisect', bad_bisect.BadBisectHandler),
+    ('/benchmark_health_report',
+     benchmark_health_report.BenchmarkHealthReportHandler),
     ('/bisect_fyi', bisect_fyi.BisectFYIHandler),
     ('/bisect_stats', bisect_stats.BisectStatsHandler),
+    ('/bug_details', bug_details.BugDetailsHandler),
     (r'/buildbucket_job_status/(\d+)',
      buildbucket_job_status.BuildbucketJobStatusHandler),
     ('/change_internal_only', change_internal_only.ChangeInternalOnlyHandler),
@@ -104,6 +109,8 @@ _URL_MAPPING = [
      send_stoppage_alert_emails.SendStoppageAlertEmailsHandler),
     ('/set_warning_message', set_warning_message.SetWarningMessageHandler),
     ('/short_uri', short_uri.ShortUriHandler),
+    (r'/speed_releasing/(.*)',
+     speed_releasing.SpeedReleasingHandler),
     ('/speed_releasing', speed_releasing.SpeedReleasingHandler),
     ('/start_try_job', start_try_job.StartBisectHandler),
     ('/stoppage_alert_debugging_info',

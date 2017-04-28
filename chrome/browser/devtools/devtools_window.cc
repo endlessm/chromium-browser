@@ -770,7 +770,8 @@ bool DevToolsWindow::NeedsToInterceptBeforeUnload(
     WebContents* contents) {
   DevToolsWindow* window =
       DevToolsWindow::GetInstanceForInspectedWebContents(contents);
-  return window && !window->intercepted_page_beforeunload_;
+  return window && !window->intercepted_page_beforeunload_ &&
+         window->life_stage_ == kLoadCompleted;
 }
 
 // static
@@ -1276,7 +1277,7 @@ void DevToolsWindow::OnLoadCompleted() {
     SessionTabHelper* session_tab_helper =
         SessionTabHelper::FromWebContents(inspected_web_contents);
     if (session_tab_helper) {
-      base::FundamentalValue tabId(session_tab_helper->session_id().id());
+      base::Value tabId(session_tab_helper->session_id().id());
       bindings_->CallClientFunction("DevToolsAPI.setInspectedTabId",
                                     &tabId, NULL, NULL);
     }
@@ -1352,9 +1353,8 @@ void DevToolsWindow::DoAction(const DevToolsToggleAction& action) {
           action.params();
       CHECK(params);
       base::StringValue url_value(params->url);
-      base::FundamentalValue line_value(static_cast<int>(params->line_number));
-      base::FundamentalValue column_value(
-          static_cast<int>(params->column_number));
+      base::Value line_value(static_cast<int>(params->line_number));
+      base::Value column_value(static_cast<int>(params->column_number));
       bindings_->CallClientFunction("DevToolsAPI.revealSourceLine",
                                     &url_value, &line_value, &column_value);
       break;
@@ -1411,7 +1411,7 @@ bool DevToolsWindow::ReloadInspectedWebContents(bool bypass_cache) {
   WebContents* wc = GetInspectedWebContents();
   if (!wc || wc->GetCrashedStatus() != base::TERMINATION_STATUS_STILL_RUNNING)
     return false;
-  base::FundamentalValue bypass_cache_value(bypass_cache);
+  base::Value bypass_cache_value(bypass_cache);
   bindings_->CallClientFunction("DevToolsAPI.reloadInspectedPage",
                                 &bypass_cache_value, nullptr, nullptr);
   return true;

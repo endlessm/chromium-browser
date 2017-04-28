@@ -67,9 +67,8 @@ class TracingBackendTest(tab_test_case.TabTestCase):
 
     # Check that clock sync data is in tracing data.
     clock_sync_found = False
-    traces = tracing_data.GetTracesFor(trace_data.CHROME_TRACE_PART)
-    self.assertEqual(len(traces), 1)
-    for event in traces[0]['traceEvents']:
+    trace = tracing_data.GetTraceFor(trace_data.CHROME_TRACE_PART)
+    for event in trace['traceEvents']:
       if event['name'] == 'clock_sync' or 'ClockSyncEvent' in event['name']:
         clock_sync_found = True
         break
@@ -112,13 +111,21 @@ class TracingBackendTest(tab_test_case.TabTestCase):
     self.assertEqual(len(list(model.IterGlobalMemoryDumps())), 0)
 
 
-class TracingBackendUnitTest(unittest.TestCase):
+class TracingBackendUnittest(unittest.TestCase):
   def setUp(self):
     self._fake_timer = fakes.FakeTimer(tracing_backend)
     self._inspector_socket = fakes.FakeInspectorWebsocket(self._fake_timer)
 
   def tearDown(self):
     self._fake_timer.Restore()
+
+  def _GetRawChromeTracesFor(self, trace_data_builder):
+    data = trace_data_builder.AsData().GetTracesFor(
+        trace_data.CHROME_TRACE_PART)
+    traces = []
+    for d in data:
+      traces.append(d)
+    return traces
 
   def testCollectTracingDataTimeout(self):
     self._inspector_socket.AddEvent(
@@ -133,8 +140,7 @@ class TracingBackendUnitTest(unittest.TestCase):
     # a TracingTimeoutException.
     with self.assertRaises(tracing_backend.TracingTimeoutException):
       backend._CollectTracingData(trace_data_builder, 10)
-    traces = trace_data_builder.AsData().GetTracesFor(
-        trace_data.CHROME_TRACE_PART)
+    traces = self._GetRawChromeTracesFor(trace_data_builder)
     self.assertEqual(2, len(traces))
     self.assertEqual(1, len(traces[0].get('traceEvents', [])))
     self.assertEqual(1, len(traces[1].get('traceEvents', [])))
@@ -149,8 +155,7 @@ class TracingBackendUnitTest(unittest.TestCase):
     backend = tracing_backend.TracingBackend(self._inspector_socket)
     trace_data_builder = trace_data.TraceDataBuilder()
     backend._CollectTracingData(trace_data_builder, 10)
-    traces = trace_data_builder.AsData().GetTracesFor(
-        trace_data.CHROME_TRACE_PART)
+    traces = self._GetRawChromeTracesFor(trace_data_builder)
     self.assertEqual(2, len(traces))
     self.assertEqual(1, len(traces[0].get('traceEvents', [])))
     self.assertEqual(1, len(traces[1].get('traceEvents', [])))
@@ -166,8 +171,8 @@ class TracingBackendUnitTest(unittest.TestCase):
     backend = tracing_backend.TracingBackend(self._inspector_socket)
     trace_data_builder = trace_data.TraceDataBuilder()
     backend._CollectTracingData(trace_data_builder, 10)
-    trace_events = trace_data_builder.AsData().GetTracesFor(
-        trace_data.CHROME_TRACE_PART)[0].get('traceEvents', [])
+    trace_events = self._GetRawChromeTracesFor(trace_data_builder)[0].get(
+        'traceEvents', [])
     self.assertEqual(5, len(trace_events))
     self.assertTrue(backend._has_received_all_tracing_data)
 
@@ -183,8 +188,7 @@ class TracingBackendUnitTest(unittest.TestCase):
     backend = tracing_backend.TracingBackend(self._inspector_socket)
     trace_data_builder = trace_data.TraceDataBuilder()
     backend._CollectTracingData(trace_data_builder, 10)
-    data = trace_data_builder.AsData()
-    chrome_trace = data.GetTracesFor(trace_data.CHROME_TRACE_PART)[0]
+    chrome_trace = self._GetRawChromeTracesFor(trace_data_builder)[0]
 
     self.assertEqual(3, len(chrome_trace.get('traceEvents', [])))
     self.assertEqual(dict, type(chrome_trace.get('metadata')))

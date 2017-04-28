@@ -38,8 +38,8 @@ DEFAULT_RETRIES = 2
 _ADB_VERSION_RE = re.compile(r'Android Debug Bridge version (\d+\.\d+\.\d+)')
 _EMULATOR_RE = re.compile(r'^emulator-[0-9]+$')
 _READY_STATE = 'device'
-_VERITY_DISABLE_RE = re.compile('Verity (already)? disabled')
-_VERITY_ENABLE_RE = re.compile('Verity (already)? enabled')
+_VERITY_DISABLE_RE = re.compile(r'Verity (already )?disabled')
+_VERITY_ENABLE_RE = re.compile(r'Verity (already )?enabled')
 
 
 def VerifyLocalFileExists(path):
@@ -281,18 +281,21 @@ class AdbWrapper(object):
                            device_serial=self._device_serial,
                            check_error=check_error)
 
-  def _IterRunDeviceAdbCmd(self, args, timeout):
+  def _IterRunDeviceAdbCmd(self, args, iter_timeout, timeout):
     """Runs an adb command and returns an iterator over its output lines.
 
     Args:
       args: A list of arguments to adb.
-      timeout: Timeout in seconds.
+      iter_timeout: Timeout for each iteration in seconds.
+      timeout: Timeout for the entire command in seconds.
 
     Yields:
       The output of the command line by line.
     """
     return cmd_helper.IterCmdOutputLines(
-      self._BuildAdbCmd(args, self._device_serial), timeout=timeout)
+        self._BuildAdbCmd(args, self._device_serial),
+        iter_timeout=iter_timeout,
+        timeout=timeout)
 
   def __eq__(self, other):
     """Consider instances equal if they refer to the same device.
@@ -453,7 +456,9 @@ class AdbWrapper(object):
       VerifyLocalFileExists(local)
     except IOError:
       raise device_errors.AdbCommandFailedError(
-          cmd, 'File not found on host: %s' % local, device_serial=str(self))
+          cmd,
+          'File pulled from the device did not arrive on the host: %s' % local,
+          device_serial=str(self))
 
   def Shell(self, command, expect_status=0, timeout=DEFAULT_TIMEOUT,
             retries=DEFAULT_RETRIES):
@@ -548,8 +553,8 @@ class AdbWrapper(object):
           device_serial=self._device_serial)
 
   def Logcat(self, clear=False, dump=False, filter_specs=None,
-             logcat_format=None, ring_buffer=None, timeout=None,
-             retries=DEFAULT_RETRIES):
+             logcat_format=None, ring_buffer=None, iter_timeout=None,
+             timeout=None, retries=DEFAULT_RETRIES):
     """Get an iterable over the logcat output.
 
     Args:
@@ -562,6 +567,9 @@ class AdbWrapper(object):
       ring_buffer: If set, a list of alternate ring buffers to request.
         Options include "main", "system", "radio", "events", "crash" or "all".
         The default is equivalent to ["main", "system", "crash"].
+      iter_timeout: If set and neither clear nor dump is set, the number of
+        seconds to wait between iterations. If no line is found before the
+        given number of seconds elapses, the iterable will yield None.
       timeout: (optional) If set, timeout per try in seconds. If clear or dump
         is set, defaults to DEFAULT_TIMEOUT.
       retries: (optional) If clear or dump is set, the number of retries to
@@ -587,7 +595,7 @@ class AdbWrapper(object):
       cmd.extend(filter_specs)
 
     if use_iter:
-      return self._IterRunDeviceAdbCmd(cmd, timeout)
+      return self._IterRunDeviceAdbCmd(cmd, iter_timeout, timeout)
     else:
       timeout = timeout if timeout is not None else DEFAULT_TIMEOUT
       return self._RunDeviceAdbCmd(cmd, timeout, retries).splitlines()
@@ -886,14 +894,14 @@ class AdbWrapper(object):
   def DisableVerity(self, timeout=DEFAULT_TIMEOUT, retries=DEFAULT_RETRIES):
     """Disable Marshmallow's Verity security feature"""
     output = self._RunDeviceAdbCmd(['disable-verity'], timeout, retries)
-    if output and _VERITY_DISABLE_RE.search(output):
+    if output and not _VERITY_DISABLE_RE.search(output):
       raise device_errors.AdbCommandFailedError(
           ['disable-verity'], output, device_serial=self._device_serial)
 
   def EnableVerity(self, timeout=DEFAULT_TIMEOUT, retries=DEFAULT_RETRIES):
     """Enable Marshmallow's Verity security feature"""
     output = self._RunDeviceAdbCmd(['enable-verity'], timeout, retries)
-    if output and _VERITY_ENABLE_RE.search(output):
+    if output and not _VERITY_ENABLE_RE.search(output):
       raise device_errors.AdbCommandFailedError(
           ['enable-verity'], output, device_serial=self._device_serial)
 

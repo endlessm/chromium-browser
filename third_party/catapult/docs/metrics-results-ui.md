@@ -141,9 +141,9 @@ small control elements. Let's start at the left.
 
 ### The Search box
 
-Type a string in the Search box to filter Histograms out of the displayed
-HistogramSet whose name, shortName, and description do not contain the search
-query.
+Type a [regex](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Regular_Expressions)
+in the Search box to filter Histograms out of the displayed HistogramSet whose
+name do not match the regex.
 
 For example, the v8 metric produces Histograms whose names end with either
 "duration" or "count". The "duration" Histograms cannot be merged with the
@@ -203,6 +203,20 @@ displayed:
 
 ![Select a reference column.
 ](/docs/images/metrics-results-ui-reference-column.png)
+
+### The Summary Statistic Selector
+
+This selector controls which statistics are displayed in the table. You can
+select from the any of the statistics that any Histogram was configured to
+produce by the metric that produced it.
+
+When a reference column is selected, you can also select from any of several
+delta statistics: absΔavg, %Δavg, z-score, absΔstd, %Δstd, p-value, U.
+These delta statistics will only be displayed in non-reference columns; avg or
+std will be displayed in the reference column.
+
+![Select a summary statistic.
+](/docs/images/metrics-results-ui-summary-statistic-selector.png)
 
 ### The Download CSV Button
 

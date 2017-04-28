@@ -19,7 +19,6 @@ found in the LICENSE file.
  */
 
 tr.exportTo('tr.ui.b', function() {
-
   /**
    * @constructor
    * @param {HTMLElement} targetElement will recv events 'mouse-tracker-start',
@@ -91,7 +90,7 @@ tr.exportTo('tr.ui.b', function() {
   };
 
   function trackMouseMovesUntilMouseUp(mouseMoveHandler,
-                                       opt_mouseUpHandler, opt_keyUpHandler) {
+      opt_mouseUpHandler, opt_keyUpHandler) {
     function cleanupAndDispatchToMouseUp(e) {
       document.removeEventListener('mousemove', mouseMoveHandler);
       if (opt_keyUpHandler)

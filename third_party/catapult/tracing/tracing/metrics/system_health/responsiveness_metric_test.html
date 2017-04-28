@@ -27,11 +27,11 @@ tr.b.unittest.testSuite(function() {
           var group = new tr.model.SliceGroup(thread);
           frameTimestamps.forEach(function(time) {
             group.pushSlice(tr.c.TestUtils.newSliceEx({
-                title: tr.model.helpers.IMPL_RENDERING_STATS,
-                start: time,
-                end: time,
-                cpuStart: time,
-                cpuEnd: time
+              title: tr.model.helpers.IMPL_RENDERING_STATS,
+              start: time,
+              end: time,
+              cpuStart: time,
+              cpuEnd: time
             }));
           });
           group.createSubSlices();
@@ -53,8 +53,7 @@ tr.b.unittest.testSuite(function() {
     var model = createModel([[]]);
     var valueList = new tr.v.HistogramSet();
     tr.metrics.sh.responsivenessMetric(valueList, model);
-    var value = tr.b.getOnlyElement(valueList.getValuesNamed(
-        'animation throughput'));
+    var value = valueList.getHistogramNamed('animation throughput');
     assert.strictEqual(value.numValues, 0);
   });
 
@@ -62,8 +61,7 @@ tr.b.unittest.testSuite(function() {
     var model = createModel([[0, 100], []]);
     var valueList = new tr.v.HistogramSet();
     tr.metrics.sh.responsivenessMetric(valueList, model);
-    var value = tr.b.getOnlyElement(valueList.getValuesNamed(
-        'animation throughput'));
+    var value = valueList.getHistogramNamed('animation throughput');
     assert.strictEqual(value.average, 20);
   });
 });

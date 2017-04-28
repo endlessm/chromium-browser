@@ -4,8 +4,10 @@
 
 """Module containing utilities for apk packages."""
 
+import itertools
 import re
 
+from devil import base_error
 from devil.android.sdk import aapt
 
 
@@ -54,16 +56,22 @@ def _ParseManifestFromApk(apk_path):
 
     m = _MANIFEST_ELEMENT_RE.match(line[len(indent) * indent_depth:])
     if m:
-      if not m.group(1) in node:
-        node[m.group(1)] = {}
-      node_stack += [node[m.group(1)]]
+      manifest_key = m.group(1)
+      if manifest_key in node:
+        node[manifest_key] += [{}]
+      else:
+        node[manifest_key] = [{}]
+      node_stack += [node[manifest_key][-1]]
       continue
 
     m = _MANIFEST_ATTRIBUTE_RE.match(line[len(indent) * indent_depth:])
     if m:
-      if not m.group(1) in node:
-        node[m.group(1)] = []
-      node[m.group(1)].append(m.group(2) or m.group(3))
+      manifest_key = m.group(1)
+      if manifest_key in node:
+        raise base_error.BaseError(
+            "A single attribute should have one key and one value")
+      else:
+        node[manifest_key] = m.group(2) or m.group(3)
       continue
 
   return parsed_manifest
@@ -84,8 +92,8 @@ class ApkHelper(object):
     manifest_info = self._GetManifest()
     try:
       activity = (
-          manifest_info['manifest']['application']['activity']
-              ['android:name'][0])
+          manifest_info['manifest'][0]['application'][0]['activity'][0]
+              ['android:name'])
     except KeyError:
       return None
     if '.' not in activity:
@@ -97,24 +105,34 @@ class ApkHelper(object):
   def GetInstrumentationName(
       self, default='android.test.InstrumentationTestRunner'):
     """Returns the name of the Instrumentation in the apk."""
-    manifest_info = self._GetManifest()
+    all_instrumentations = self.GetAllInstrumentations(default=default)
+    if len(all_instrumentations) != 1:
+      raise base_error.BaseError(
+          'There is more than one instrumentation. Expected one.')
+    else:
+      return all_instrumentations[0]['android:name']
+
+  def GetAllInstrumentations(
+      self, default='android.test.InstrumentationTestRunner'):
+    """Returns a list of all Instrumentations in the apk."""
     try:
-      return manifest_info['manifest']['instrumentation']['android:name'][0]
+      return self._GetManifest()['manifest'][0]['instrumentation']
     except KeyError:
-      return default
+      return [{'android:name': default}]
 
   def GetPackageName(self):
     """Returns the package name of the apk."""
     manifest_info = self._GetManifest()
     try:
-      return manifest_info['manifest']['package'][0]
+      return manifest_info['manifest'][0]['package']
     except KeyError:
       raise Exception('Failed to determine package name of %s' % self._apk_path)
 
   def GetPermissions(self):
     manifest_info = self._GetManifest()
     try:
-      return manifest_info['manifest']['uses-permission']['android:name']
+      return [p['android:name'] for
+              p in manifest_info['manifest'][0]['uses-permission']]
     except KeyError:
       return []
 
@@ -122,7 +140,7 @@ class ApkHelper(object):
     """Returns the name of the split of the apk."""
     manifest_info = self._GetManifest()
     try:
-      return manifest_info['manifest']['split'][0]
+      return manifest_info['manifest'][0]['split']
     except KeyError:
       return None
 
@@ -130,8 +148,12 @@ class ApkHelper(object):
     """Returns whether any services exist that use isolatedProcess=true."""
     manifest_info = self._GetManifest()
     try:
-      services = manifest_info['manifest']['application']['service']
-      return any(int(v, 0) for v in services['android:isolatedProcess'])
+      applications = manifest_info['manifest'][0].get('application', [])
+      services = itertools.chain(
+          *(application.get('service', []) for application in applications))
+      return any(
+          int(s.get('android:isolatedProcess', '0'), 0)
+          for s in services)
     except KeyError:
       return False
 

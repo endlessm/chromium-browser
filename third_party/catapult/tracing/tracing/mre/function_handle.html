@@ -10,7 +10,6 @@ found in the LICENSE file.
 'use strict';
 
 tr.exportTo('tr.mre', function() {
-
   var FunctionRegistry = {
     allFunctions_: [],
     allFunctionsByName_: {},
@@ -131,7 +130,7 @@ tr.exportTo('tr.mre', function() {
 
     toString: function() {
       var modulesToLoadStr = this.modulesToLoad.map(function(module) {
-          return module.toString();
+        return module.toString();
       });
       return 'FunctionHandle(modulesToLoad=[' + modulesToLoadStr + '], ' +
           'functionName="' + this.functionName + '", options="' +

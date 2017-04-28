@@ -568,7 +568,7 @@ class RemoteDevice(object):
 
   def __init__(self, hostname, port=None, username=None,
                base_dir=DEFAULT_BASE_DIR, connect_settings=None,
-               private_key=None, debug_level=logging.DEBUG, ping=True,
+               private_key=None, debug_level=logging.DEBUG, ping=False,
                connect=True):
     """Initializes a RemoteDevice object.
 
@@ -724,6 +724,11 @@ class RemoteDevice(object):
   def CopyToWorkDir(self, src, dest='', **kwargs):
     """Copy path to working directory on the device."""
     return self.CopyToDevice(src, os.path.join(self.work_dir, dest), **kwargs)
+
+  def IfFileExists(self, path, **kwargs):
+    """Check if the given path exists on the device."""
+    result = self.RunCommand(['test -f %s' % path], **kwargs)
+    return result.returncode == 0
 
   def IsDirWritable(self, path):
     """Checks if the given directory is writable on the device.

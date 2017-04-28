@@ -101,7 +101,7 @@ tr.b.unittest.testSuite(function() {
     this.addHTMLOutput(subView);
 
     var gov = tr.b.findDeepElementMatching(subView,
-                                           'tr-ui-a-generic-object-view');
+        'tr-ui-a-generic-object-view');
     assert.isDefined(gov);
   });
 
@@ -146,7 +146,7 @@ tr.b.unittest.testSuite(function() {
   test('instantiate_withDifferentStartAndEndStackFrames', function() {
     var selection = createSelectionWithSingleSlice(
         {withStartStackFrame: 'a',
-         withEndStackFrame: 'b'});
+          withEndStackFrame: 'b'});
 
     var analysisEl = document.createElement('tr-ui-a-single-event-sub-view');
     analysisEl.selection = selection;
@@ -170,7 +170,7 @@ tr.b.unittest.testSuite(function() {
   test('instantiate_withSameStartAndEndStackFrames', function() {
     var selection = createSelectionWithSingleSlice(
         {withStartStackFrame: 'a',
-         withEndStackFrame: 'a'});
+          withEndStackFrame: 'a'});
 
     var analysisEl = document.createElement('tr-ui-a-single-event-sub-view');
     analysisEl.selection = selection;
@@ -243,7 +243,7 @@ tr.b.unittest.testSuite(function() {
     this.addHTMLOutput(subView);
 
     var analysisLink = tr.b.findDeepElementMatching(subView,
-                                                    'tr-ui-a-analysis-link');
+        'tr-ui-a-analysis-link');
     assert.isDefined(analysisLink);
   });
 

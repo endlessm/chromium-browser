@@ -23,6 +23,16 @@ tr.exportTo('tr.v.d', function() {
       this.logUri_ = info.logUri || '';
     }
 
+    addToHistogram(hist) {
+      hist.diagnostics.set(BuildbotInfo.NAME, this);
+    }
+
+    clone() {
+      let clone = new tr.v.d.MergedBuildbotInfo();
+      clone.addDiagnostic(this);
+      return clone;
+    }
+
     asDictInto_(d) {
       d.displayMasterName = this.displayMasterName;
       d.displayBotName = this.displayBotName;
@@ -75,7 +85,7 @@ tr.exportTo('tr.v.d', function() {
      * @return {*}
      */
     static getField(hist, fieldName, defaultValue) {
-      var buildbot = BuildbotInfo.getFromHistogram(hist);
+      let buildbot = BuildbotInfo.getFromHistogram(hist);
       if (!(buildbot instanceof tr.v.d.BuildbotInfo) ||
           !buildbot[fieldName]) {
         return defaultValue;

@@ -14,6 +14,7 @@
 
 #include "third_party/googletest/src/include/gtest/gtest.h"
 
+#include "./vp9_rtcd.h"
 #include "./vpx_config.h"
 #include "./vpx_dsp_rtcd.h"
 
@@ -186,7 +187,7 @@ class IntProColTest : public AverageTestBase,
   int16_t sum_c_;
 };
 
-typedef int (*SatdFunc)(const int16_t *coeffs, int length);
+typedef int (*SatdFunc)(const tran_low_t *coeffs, int length);
 typedef std::tr1::tuple<int, SatdFunc> SatdTestParam;
 
 class SatdTest : public ::testing::Test,
@@ -196,7 +197,7 @@ class SatdTest : public ::testing::Test,
     satd_size_ = GET_PARAM(0);
     satd_func_ = GET_PARAM(1);
     rnd_.Reset(ACMRandom::DeterministicSeed());
-    src_ = reinterpret_cast<int16_t *>(
+    src_ = reinterpret_cast<tran_low_t *>(
         vpx_memalign(16, sizeof(*src_) * satd_size_));
     ASSERT_TRUE(src_ != NULL);
   }
@@ -206,12 +207,15 @@ class SatdTest : public ::testing::Test,
     vpx_free(src_);
   }
 
-  void FillConstant(const int16_t val) {
+  void FillConstant(const tran_low_t val) {
     for (int i = 0; i < satd_size_; ++i) src_[i] = val;
   }
 
   void FillRandom() {
-    for (int i = 0; i < satd_size_; ++i) src_[i] = rnd_.Rand16();
+    for (int i = 0; i < satd_size_; ++i) {
+      const int16_t tmp = rnd_.Rand16();
+      src_[i] = (tran_low_t)tmp;
+    }
   }
 
   void Check(const int expected) {
@@ -223,8 +227,63 @@ class SatdTest : public ::testing::Test,
   int satd_size_;
 
  private:
-  int16_t *src_;
+  tran_low_t *src_;
   SatdFunc satd_func_;
+  ACMRandom rnd_;
+};
+
+typedef int64_t (*BlockErrorFunc)(const tran_low_t *coeff,
+                                  const tran_low_t *dqcoeff, int block_size);
+typedef std::tr1::tuple<int, BlockErrorFunc> BlockErrorTestFPParam;
+
+class BlockErrorTestFP
+    : public ::testing::Test,
+      public ::testing::WithParamInterface<BlockErrorTestFPParam> {
+ protected:
+  virtual void SetUp() {
+    txfm_size_ = GET_PARAM(0);
+    block_error_func_ = GET_PARAM(1);
+    rnd_.Reset(ACMRandom::DeterministicSeed());
+    coeff_ = reinterpret_cast<tran_low_t *>(
+        vpx_memalign(16, sizeof(*coeff_) * txfm_size_));
+    dqcoeff_ = reinterpret_cast<tran_low_t *>(
+        vpx_memalign(16, sizeof(*dqcoeff_) * txfm_size_));
+    ASSERT_TRUE(coeff_ != NULL);
+    ASSERT_TRUE(dqcoeff_ != NULL);
+  }
+
+  virtual void TearDown() {
+    libvpx_test::ClearSystemState();
+    vpx_free(coeff_);
+    vpx_free(dqcoeff_);
+  }
+
+  void FillConstant(const tran_low_t coeff_val, const tran_low_t dqcoeff_val) {
+    for (int i = 0; i < txfm_size_; ++i) coeff_[i] = coeff_val;
+    for (int i = 0; i < txfm_size_; ++i) dqcoeff_[i] = dqcoeff_val;
+  }
+
+  void FillRandom() {
+    // Just two fixed seeds
+    rnd_.Reset(0xb0b9);
+    for (int i = 0; i < txfm_size_; ++i) coeff_[i] = rnd_.Rand16() >> 1;
+    rnd_.Reset(0xb0c8);
+    for (int i = 0; i < txfm_size_; ++i) dqcoeff_[i] = rnd_.Rand16() >> 1;
+  }
+
+  void Check(const int64_t expected) {
+    int64_t total;
+    ASM_REGISTER_STATE_CHECK(
+        total = block_error_func_(coeff_, dqcoeff_, txfm_size_));
+    EXPECT_EQ(expected, total);
+  }
+
+  int txfm_size_;
+
+ private:
+  tran_low_t *coeff_;
+  tran_low_t *dqcoeff_;
+  BlockErrorFunc block_error_func_;
   ACMRandom rnd_;
 };
 
@@ -308,6 +367,35 @@ TEST_P(SatdTest, Random) {
   Check(expected);
 }
 
+TEST_P(BlockErrorTestFP, MinValue) {
+  const int64_t kMin = -32640;
+  const int64_t expected = kMin * kMin * txfm_size_;
+  FillConstant(kMin, 0);
+  Check(expected);
+}
+
+TEST_P(BlockErrorTestFP, MaxValue) {
+  const int64_t kMax = 32640;
+  const int64_t expected = kMax * kMax * txfm_size_;
+  FillConstant(kMax, 0);
+  Check(expected);
+}
+
+TEST_P(BlockErrorTestFP, Random) {
+  int64_t expected;
+  switch (txfm_size_) {
+    case 16: expected = 2051681432; break;
+    case 64: expected = 11075114379; break;
+    case 256: expected = 44386271116; break;
+    case 1024: expected = 184774996089; break;
+    default:
+      FAIL() << "Invalid satd size (" << txfm_size_
+             << ") valid: 16/64/256/1024";
+  }
+  FillRandom();
+  Check(expected);
+}
+
 using std::tr1::make_tuple;
 
 INSTANTIATE_TEST_CASE_P(
@@ -320,6 +408,13 @@ INSTANTIATE_TEST_CASE_P(C, SatdTest,
                                           make_tuple(64, &vpx_satd_c),
                                           make_tuple(256, &vpx_satd_c),
                                           make_tuple(1024, &vpx_satd_c)));
+
+INSTANTIATE_TEST_CASE_P(
+    C, BlockErrorTestFP,
+    ::testing::Values(make_tuple(16, &vp9_block_error_fp_c),
+                      make_tuple(64, &vp9_block_error_fp_c),
+                      make_tuple(256, &vp9_block_error_fp_c),
+                      make_tuple(1024, &vp9_block_error_fp_c)));
 
 #if HAVE_SSE2
 INSTANTIATE_TEST_CASE_P(
@@ -350,7 +445,14 @@ INSTANTIATE_TEST_CASE_P(SSE2, SatdTest,
                                           make_tuple(64, &vpx_satd_sse2),
                                           make_tuple(256, &vpx_satd_sse2),
                                           make_tuple(1024, &vpx_satd_sse2)));
-#endif
+
+INSTANTIATE_TEST_CASE_P(
+    SSE2, BlockErrorTestFP,
+    ::testing::Values(make_tuple(16, &vp9_block_error_fp_sse2),
+                      make_tuple(64, &vp9_block_error_fp_sse2),
+                      make_tuple(256, &vp9_block_error_fp_sse2),
+                      make_tuple(1024, &vp9_block_error_fp_sse2)));
+#endif  // HAVE_SSE2
 
 #if HAVE_NEON
 INSTANTIATE_TEST_CASE_P(
@@ -381,7 +483,18 @@ INSTANTIATE_TEST_CASE_P(NEON, SatdTest,
                                           make_tuple(64, &vpx_satd_neon),
                                           make_tuple(256, &vpx_satd_neon),
                                           make_tuple(1024, &vpx_satd_neon)));
-#endif
+
+// TODO(jianj): Remove the highbitdepth flag once the SIMD functions are
+// in place.
+#if !CONFIG_VP9_HIGHBITDEPTH
+INSTANTIATE_TEST_CASE_P(
+    NEON, BlockErrorTestFP,
+    ::testing::Values(make_tuple(16, &vp9_block_error_fp_neon),
+                      make_tuple(64, &vp9_block_error_fp_neon),
+                      make_tuple(256, &vp9_block_error_fp_neon),
+                      make_tuple(1024, &vp9_block_error_fp_neon)));
+#endif  // !CONFIG_VP9_HIGHBITDEPTH
+#endif  // HAVE_NEON
 
 #if HAVE_MSA
 INSTANTIATE_TEST_CASE_P(
@@ -392,6 +505,30 @@ INSTANTIATE_TEST_CASE_P(
                       make_tuple(16, 16, 0, 4, &vpx_avg_4x4_msa),
                       make_tuple(16, 16, 5, 4, &vpx_avg_4x4_msa),
                       make_tuple(32, 32, 15, 4, &vpx_avg_4x4_msa)));
-#endif
+
+INSTANTIATE_TEST_CASE_P(
+    MSA, IntProRowTest,
+    ::testing::Values(make_tuple(16, &vpx_int_pro_row_msa, &vpx_int_pro_row_c),
+                      make_tuple(32, &vpx_int_pro_row_msa, &vpx_int_pro_row_c),
+                      make_tuple(64, &vpx_int_pro_row_msa,
+                                 &vpx_int_pro_row_c)));
+
+INSTANTIATE_TEST_CASE_P(
+    MSA, IntProColTest,
+    ::testing::Values(make_tuple(16, &vpx_int_pro_col_msa, &vpx_int_pro_col_c),
+                      make_tuple(32, &vpx_int_pro_col_msa, &vpx_int_pro_col_c),
+                      make_tuple(64, &vpx_int_pro_col_msa,
+                                 &vpx_int_pro_col_c)));
+
+// TODO(jingning): Remove the highbitdepth flag once the SIMD functions are
+// in place.
+#if !CONFIG_VP9_HIGHBITDEPTH
+INSTANTIATE_TEST_CASE_P(MSA, SatdTest,
+                        ::testing::Values(make_tuple(16, &vpx_satd_msa),
+                                          make_tuple(64, &vpx_satd_msa),
+                                          make_tuple(256, &vpx_satd_msa),
+                                          make_tuple(1024, &vpx_satd_msa)));
+#endif  // !CONFIG_VP9_HIGHBITDEPTH
+#endif  // HAVE_MSA
 
 }  // namespace

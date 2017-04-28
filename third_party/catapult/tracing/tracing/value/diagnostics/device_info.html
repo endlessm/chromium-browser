@@ -16,13 +16,31 @@ tr.exportTo('tr.v.d', function() {
     constructor(opt_info) {
       super();
 
-      var info = opt_info || {};
+      let info = opt_info || {};
       this.chromeVersion_ = info.chromeVersion || '';
       this.osName_ = info.osName || '';
       this.osVersion_ = info.osVersion || '';
       this.gpuInfo_ = info.gpuInfo || undefined;
       this.arch_ = info.arch || undefined;
       this.ram_ = info.ram || 0;
+    }
+
+    addToHistogram(hist) {
+      hist.diagnostics.set(DeviceInfo.NAME, this);
+    }
+
+    /**
+     * @param {!tr.v.Histogram} hist
+     * @return {(undefined|!tr.v.d.DeviceInfo)}
+     */
+    static getFromHistogram(hist) {
+      return hist.diagnostics.get(DeviceInfo.NAME);
+    }
+
+    clone() {
+      let clone = new tr.v.d.MergedDeviceInfo();
+      clone.addDiagnostic(this);
+      return clone;
     }
 
     asDictInto_(d) {
@@ -62,6 +80,8 @@ tr.exportTo('tr.v.d', function() {
       return this.ram_;
     }
   }
+
+  DeviceInfo.NAME = 'device';
 
   tr.v.d.Diagnostic.register(DeviceInfo, {
     elementName: 'tr-v-ui-device-info-span'

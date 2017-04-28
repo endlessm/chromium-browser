@@ -187,12 +187,26 @@ class ActionRunnerTest(tab_test_case.TabTestCase):
 
     action_runner.ExecuteJavaScript('window.testing = 219;')
     action_runner.WaitForJavaScriptCondition(
-        'window.testing == 219', timeout_in_seconds=0.1)
+        'window.testing == 219', timeout=0.1)
     action_runner.ExecuteJavaScript(
         'window.setTimeout(function() { window.testing = 220; }, 50);')
     action_runner.WaitForJavaScriptCondition(
-        'window.testing == 220', timeout_in_seconds=0.1)
+        'window.testing == 220', timeout=0.1)
     self.assertEqual(220, self._tab.EvaluateJavaScript('window.testing'))
+
+  def testWaitForJavaScriptCondition_returnsValue(self):
+    action_runner = action_runner_module.ActionRunner(self._tab,
+                                                      skip_waits=True)
+    self.Navigate('blank.html')
+
+    action_runner.ExecuteJavaScript('window.testing = 0;')
+    action_runner.WaitForJavaScriptCondition(
+        'window.testing == 0', timeout=0.1)
+    action_runner.ExecuteJavaScript(
+        'window.setTimeout(function() { window.testing = 42; }, 50);')
+    self.assertEqual(
+        42,
+        action_runner.WaitForJavaScriptCondition('window.testing', timeout=10))
 
   def testWaitForElement(self):
     action_runner = action_runner_module.ActionRunner(self._tab,
@@ -416,7 +430,7 @@ class ActionRunnerTest(tab_test_case.TabTestCase):
 
     # Check that the contents of the textarea is correct. It might take a second
     # until all keystrokes have been handled by the browser (crbug.com/630017).
-    self._tab.WaitForJavaScriptExpression(
+    self._tab.WaitForJavaScriptCondition(
         'document.querySelector("textarea").value === "This is interesting"',
         timeout=1)
 
@@ -427,7 +441,7 @@ class InteractionTest(unittest.TestCase):
     self.mock_action_runner = mock.Mock(action_runner_module.ActionRunner)
 
     def expected_js_call(method):
-      return mock.call.ExecuteJavaScript2(
+      return mock.call.ExecuteJavaScript(
           '%s({{ marker }});' % method, marker='Interaction.ABC')
 
     self.expected_calls = [

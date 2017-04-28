@@ -19,6 +19,10 @@ from dashboard.common import utils
 from dashboard.models import graph_data
 
 
+class BadRequestError(Exception):
+  pass
+
+
 class ListTestsHandler(request_handler.RequestHandler):
   """URL endpoint for AJAX requests to list masters, bots, and tests."""
 
@@ -32,6 +36,12 @@ class ListTestsHandler(request_handler.RequestHandler):
       p: Test path pattern (applies only if type is "pattern").
       has_rows: "1" if the requester wants to list only list tests that
           have points (applies only if type is "pattern").
+      test_path_dict: A test path dict having the format specified in
+          GetTestsForTestPathDict, below (applies only if type is
+          "test_path_dict").
+      return_selected: "1" if the requester wants to return selected tests,
+          otherwise unselected tests will be returned (applies only if type is
+          "test_path_dict").
 
     Outputs:
       A data structure with test names in JSON format, or nothing.
@@ -52,6 +62,16 @@ class ListTestsHandler(request_handler.RequestHandler):
       test_list = GetTestsMatchingPattern(
           pattern, only_with_rows=only_with_rows)
       self.response.out.write(json.dumps(test_list))
+
+    if list_type == 'test_path_dict':
+      test_path_dict = self.request.get('test_path_dict')
+      return_selected = self.request.get('return_selected') == '1'
+      try:
+        test_list = GetTestsForTestPathDict(
+            json.loads(test_path_dict), return_selected)
+        self.response.out.write(json.dumps(test_list))
+      except BadRequestError as e:
+        self.ReportError(e.message, status=400)
 
 
 def GetSubTests(suite_name, bot_names):
@@ -77,42 +97,35 @@ def GetSubTests(suite_name, bot_names):
   for bot_name in bot_names:
     master, bot = bot_name.split('/')
     suite_key = ndb.Key('TestMetadata', '%s/%s/%s' % (master, bot, suite_name))
-    cached = layered_cache.Get(_ListSubTestCacheKey(suite_key))
+
+    cache_key = _ListSubTestCacheKey(suite_key)
+    cached = layered_cache.Get(cache_key)
     if cached:
-      combined = _MergeSubTestsDict(combined, cached)
+      combined = _MergeSubTestsDict(combined, json.loads(cached))
     else:
-      sub_test_paths = _FetchSubTestPaths(suite_key, False)
-      deprecated_sub_test_paths = _FetchSubTestPaths(suite_key, True)
-      sub_tests = _MergeSubTestsDict(
-          _SubTestsDict(sub_test_paths, False),
-          _SubTestsDict(deprecated_sub_test_paths, True))
-      layered_cache.Set(_ListSubTestCacheKey(suite_key), sub_tests)
+      sub_test_paths_futures = _GetTestDescendantsAsync(
+          suite_key, has_rows=True, deprecated=False)
+      deprecated_sub_test_path_futures = _GetTestDescendantsAsync(
+          suite_key, has_rows=True, deprecated=True)
+
+      ndb.Future.wait_all(
+          [sub_test_paths_futures, deprecated_sub_test_path_futures])
+      sub_test_paths = _MapTestDescendantsToSubTestPaths(
+          sub_test_paths_futures.get_result())
+      deprecated_sub_test_paths = _MapTestDescendantsToSubTestPaths(
+          deprecated_sub_test_path_futures.get_result())
+
+      d1 = _SubTestsDict(sub_test_paths, False)
+      d2 = _SubTestsDict(deprecated_sub_test_paths, True)
+
+      sub_tests = _MergeSubTestsDict(d1, d2)
+
+      # Pickle is actually really slow, json.dumps to bypass that.
+      layered_cache.Set(cache_key, json.dumps(sub_tests))
+
       combined = _MergeSubTestsDict(combined, sub_tests)
+
   return combined
-
-
-def _FetchSubTestPaths(test_key, deprecated):
-  """Makes a list of partial test paths for descendants of a test suite.
-
-  Args:
-    test_key: A ndb.Key object for a TestMetadata entity.
-    deprecated: Whether or not to fetch deprecated tests.
-
-  Returns:
-    A list of test paths for all descendant TestMetadata entities that have
-    associated Row entities. These test paths omit the Master/bot/suite part.
-  """
-  keys = GetTestDescendants(test_key, has_rows=True, deprecated=deprecated)
-  return map(_SubTestPath, keys)
-
-
-def _SubTestPath(test_key):
-  """Returns the part of a test path starting from after the test suite."""
-  full_test_path = utils.TestPath(test_key)
-  parts = full_test_path.split('/')
-  assert len(parts) > 3
-  return '/'.join(parts[3:])
-
 
 def _SubTestsDict(paths, deprecated):
   """Constructs a sub-test dict from a list of test paths.
@@ -126,31 +139,48 @@ def _SubTestsDict(paths, deprecated):
   Returns:
     A recursively nested dict of sub-tests, as returned by GetSubTests.
   """
-  sub_tests = {}
-  top_level = set(p.split('/')[0] for p in paths if p)
-  for name in top_level:
-    sub_test_paths = _SubPaths(paths, name)
-    has_rows = name in paths
-    sub_tests[name] = _SubTestsDictEntry(sub_test_paths, has_rows, deprecated)
-  return sub_tests
+  merged = {}
+  for p in paths:
+    test_name = p[0]
+    if not test_name in merged:
+      merged[test_name] = {'has_rows': False, 'sub_tests': []}
+    sub_test_path = p[1:]
+
+    # If this is a top level name, then there are rows
+    if not sub_test_path:
+      merged[test_name]['has_rows'] = True
+    else:
+      merged[test_name]['sub_tests'].append(sub_test_path)
 
 
-def _SubPaths(paths, first_part):
-  """Returns paths of sub-tests that start with some name."""
-  assert first_part
-  return ['/'.join(p.split('/')[1:]) for p in paths
-          if '/' in p and p.split('/')[0] == first_part]
-
-
-def _SubTestsDictEntry(sub_test_paths, has_rows, deprecated):
-  """Recursively gets an entry in a sub-tests dict."""
-  entry = {
-      'has_rows': has_rows,
-      'sub_tests': _SubTestsDict(sub_test_paths, deprecated)
-  }
   if deprecated:
-    entry['deprecated'] = True
-  return entry
+    for k, v in merged.iteritems():
+      merged[k]['deprecated'] = True
+
+  for k, v in merged.iteritems():
+    merged[k]['sub_tests'] = _SubTestsDict(v['sub_tests'], deprecated)
+  return merged
+
+
+def _MapTestDescendantsToSubTestPaths(keys):
+  """Makes a list of partial test paths for descendants of a test suite.
+
+  Args:
+    keys: A list of TestMetadata keys
+
+  Returns:
+    A list of test paths for all descendant TestMetadata entities that have
+    associated Row entities. These test paths omit the Master/bot/suite part.
+  """
+  return map(_SubTestPath, keys)
+
+
+def _SubTestPath(test_key):
+  """Returns the part of a test path starting from after the test suite."""
+  full_test_path = utils.TestPath(test_key)
+  parts = full_test_path.split('/')
+  assert len(parts) > 3
+  return parts[3:]
 
 
 def _ListSubTestCacheKey(test_key):
@@ -258,6 +288,24 @@ def GetTestDescendants(
   Returns:
     A list of keys of all descendants of the given test.
   """
+  return _GetTestDescendantsAsync(test_key,
+                                  has_rows=has_rows,
+                                  deprecated=deprecated,
+                                  keys_only=keys_only).get_result()
+
+
+def _GetTestDescendantsAsync(
+    test_key, has_rows=None, deprecated=None, keys_only=True):
+  """Returns all the tests which are subtests of the test with the given key.
+
+  Args:
+    test_key: The key of the TestMetadata entity to get descendants of.
+    has_rows: If set, filter the query for this value of has_rows.
+    deprecated: If set, filter the query for this value of deprecated.
+
+  Returns:
+    A future for a list of keys of all descendants of the given test.
+  """
   test_parts = utils.TestPath(test_key).split('/')
   query_parts = [
       ('master_name', test_parts[0]),
@@ -273,5 +321,134 @@ def GetTestDescendants(
     query = query.filter(graph_data.TestMetadata.has_rows == has_rows)
   if deprecated is not None:
     query = query.filter(graph_data.TestMetadata.deprecated == deprecated)
-  descendants = query.fetch(keys_only=keys_only)
-  return descendants
+  futures = query.fetch_async(keys_only=keys_only)
+  return futures
+
+
+def GetTestsForTestPathDict(test_path_dict, return_selected):
+  """Outputs a list of selected/unselected tests for a given test path dict.
+
+  When figuring out what chart data to query for, we use a test path dict,
+  which maps full test paths to either:
+
+    * an exact list of subtests
+    * 'all', which specifies that all subtests that have rows should be added,
+      or
+    * 'core', which specifies that only those subtests that are 'core' as
+      determined by the algorithm (which will be implemented in a forthcoming
+      CL) should be added.
+
+  This method resolves the dict into a list of full test paths which are to
+  be selected or unselected, so that this list can be passed to /graph_json to
+  acquire the timeseries data.
+
+  An example dict could be:
+
+  {
+    "ChromiumPerf/win-zenbook/sunspider/Total": ["Total", "ref"]
+  }
+
+  which specifies that the test itself, as well as its corresponding ref test
+  ChromiumPerf/win-zenbook/sunspider/Total/ref, should be selected.
+
+  If the |return_selected| argument is true, we should expect this
+  list:
+
+  [
+    "ChromiumPerf/win-zenbook/sunspider/Total",
+    "ChromiumPerf/win-zenbook/sunspider/Total/ref"
+  ]
+
+  but if |return_selected| is false, then we should expect the other subtests
+  of 'ChromiumPerf/win-zenbook/sunspider/Total' to be returned.
+
+  Args:
+    test_path_dict: A dict having the structure described above.
+    return_selected: true if selected tests should be returned, false if
+        unselected tests should be returned.
+
+  Outputs:
+    A list of selected/unselected test paths.
+  """
+  # TODO(eakuefner): Caching once people are using this
+  if not isinstance(test_path_dict, dict):
+    raise BadRequestError('test_path_dict must be a dict')
+
+  if return_selected:
+    return _GetSelectedTestPathsForDict(test_path_dict)
+
+  return _GetUnselectedTestPathsForDict(test_path_dict)
+
+
+def _GetSelectedTestPathsForDict(test_path_dict):
+  paths = []
+  for path, selection in test_path_dict.iteritems():
+    if selection == 'core':
+      paths.extend(_GetCoreTestPathsForTest(path, True))
+    elif selection == 'all':
+      paths.append(path)
+      paths.extend(GetTestsMatchingPattern(
+          '%s/*' % path, only_with_rows=True))
+    elif isinstance(selection, list):
+      parent_test_name = path.split('/')[-1]
+      for part in selection:
+        if part == parent_test_name:
+          # When the element in the selected list is the same as the last part
+          # of the path, it's meant to mean just the path.
+          # TODO(eakuefner): Disambiguate this by making it explicit.
+          paths.append(path)
+        else:
+          # Otherwise, the element is intended to be appended to the path.
+          paths.append('%s/%s' % (path, part))
+    else:
+      raise BadRequestError("selected must be 'all', 'core', or a list of "
+                            "subtests")
+  return paths
+
+
+def _GetUnselectedTestPathsForDict(test_path_dict):
+  paths = []
+  for path, selection in test_path_dict.iteritems():
+    if selection == 'core':
+      paths.extend(_GetCoreTestPathsForTest(path, False))
+    elif selection == 'all':
+      return []
+    elif isinstance(selection, list):
+      # The parent is represented in the selection by its last component, so if
+      # we don't see it, we know we need to include it in unselected.
+      parent_test_name = path.split('/')[-1]
+      if not parent_test_name in selection:
+        paths.append(path)
+      # We want to find all the complementary children, which are
+      # those that do not appear in the selection, with rows.
+      children = GetTestsMatchingPattern(
+          '%s/*' % path, only_with_rows=True)
+      for child in children:
+        item = child.split('/')[-1]
+        if item not in selection:
+          paths.append(child)
+  return paths
+
+
+def _GetCoreTestPathsForTest(path, return_selected):
+  if len(path.split('/')) < 4:
+    raise BadRequestError(
+        'path must be a full subtest path in order to select core tests.')
+
+  paths = []
+  parent_test = utils.TestKey(path).get()
+  # Monitoring information is stored on the suite's entity
+  monitored = utils.TestKey('/'.join(path.split('/')[:3])).get().monitored
+  # The parent test is always considered core as long as it has rows.
+  if return_selected and parent_test.has_rows:
+    paths.append(path)
+  for subtest in GetTestsMatchingPattern(
+      '%s/*' % path, only_with_rows=True, list_entities=True):
+    # All subtests that are monitored are core.
+    if return_selected and subtest.key in monitored:
+      paths.append(utils.TestPath(subtest.key))
+    elif not return_selected and subtest.key not in monitored:
+      paths.append(utils.TestPath(subtest.key))
+
+
+  return paths

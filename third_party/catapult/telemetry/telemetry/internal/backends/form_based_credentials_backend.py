@@ -59,24 +59,25 @@ class FormBasedCredentialsBackend(object):
     action_runner.WaitForJavaScriptCondition(
         '(document.querySelector({{ form_id }}) !== null) || ({{ @code }})',
         form_id='#' + self.login_form_id, code=self.logged_in_javascript,
-        timeout_in_seconds=60)
+        timeout=60)
 
   def _SubmitLoginFormAndWait(self, action_runner, tab, username, password):
     """Submits the login form and waits for the navigation."""
     tab.WaitForDocumentReadyStateToBeInteractiveOrBetter()
-    # TODO(catapult:#3028): Fix interpolation of JavaScript values.
-    email_id = 'document.querySelector("#%s #%s").value = "%s"; ' % (
-        self.login_form_id, self.login_input_id, username)
-    password = 'document.querySelector("#%s #%s").value = "%s"; ' % (
-        self.login_form_id, self.password_input_id, password)
-    tab.ExecuteJavaScript(email_id)
-    tab.ExecuteJavaScript(password)
+    tab.ExecuteJavaScript(
+        'document.querySelector({{ selector }}).value = {{ username }};',
+        selector='#%s #%s' % (self.login_form_id, self.login_input_id),
+        username=username)
+    tab.ExecuteJavaScript(
+        'document.querySelector({{ selector }}).value = {{ password }};',
+        selector='#%s #%s' % (self.login_form_id, self.password_input_id),
+        password=password)
     if self.login_button_javascript:
       tab.ExecuteJavaScript(self.login_button_javascript)
     else:
-      # TODO(catapult:#3028): Fix interpolation of JavaScript values.
       tab.ExecuteJavaScript(
-          'document.getElementById("%s").submit();' % self.login_form_id)
+          'document.getElementById({{ form_id }}).submit();',
+          form_id=self.login_form_id)
     # Wait for the form element to disappear as confirmation of the navigation.
     action_runner.WaitForNavigate()
 

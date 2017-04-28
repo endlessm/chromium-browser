@@ -6,9 +6,9 @@ found in the LICENSE file.
 -->
 
 <link rel="import" href="/tracing/base/iteration_helpers.html">
+<link rel="import" href="/tracing/base/scalar.html">
 <link rel="import" href="/tracing/ui/base/dom_helpers.html">
 <link rel="import" href="/tracing/ui/base/table.html">
-<link rel="import" href="/tracing/value/numeric.html">
 <link rel="import" href="/tracing/value/ui/scalar_span.html">
 
 <script>
@@ -18,7 +18,6 @@ found in the LICENSE file.
  * @fileoverview Helper code for memory dump sub-views.
  */
 tr.exportTo('tr.ui.analysis', function() {
-
   var NO_BREAK_SPACE = String.fromCharCode(160);
   var RIGHTWARDS_ARROW = String.fromCharCode(8594);
 
@@ -407,15 +406,14 @@ tr.exportTo('tr.ui.analysis', function() {
     formatFields: function(fields) {
       if (fields.length === 1)
         return this.formatSingleField(fields[0]);
-      else
-        return this.formatMultipleFields(fields);
+      return this.formatMultipleFields(fields);
     },
 
     /**
      * Format a single defined field.
      *
      * This method is intended to be overriden by field type specific columns
-     * (e.g. show '1.0 KiB' instead of '1024' for ScalarNumeric(s) representing
+     * (e.g. show '1.0 KiB' instead of '1024' for Scalar(s) representing
      * bytes).
      */
     formatSingleField: function(field) {
@@ -485,8 +483,7 @@ tr.exportTo('tr.ui.analysis', function() {
     compareFields: function(fieldsA, fieldsB) {
       if (fieldsA.length === 1)
         return this.compareSingleFields(fieldsA[0], fieldsB[0]);
-      else
-        return this.compareMultipleFields(fieldsA, fieldsB);
+      return this.compareMultipleFields(fieldsA, fieldsB);
     },
 
     /**
@@ -598,17 +595,16 @@ tr.exportTo('tr.ui.analysis', function() {
       } else if (firstString === lastString) {
         // String didn't change ("VALUE" with unchanged color).
         return this.formatSingleField(firstString);
-      } else {
-        // String changed ("OLD_VALUE -> NEW_VALUE" in orange).
-        var spanEl = tr.ui.b.createSpan({color: 'DarkOrange'});
-        Polymer.dom(spanEl).appendChild(tr.ui.b.asHTMLOrTextNode(
-            this.formatSingleField(firstString)));
-        Polymer.dom(spanEl).appendChild(tr.ui.b.asHTMLOrTextNode(
-            ' ' + RIGHTWARDS_ARROW + ' '));
-        Polymer.dom(spanEl).appendChild(tr.ui.b.asHTMLOrTextNode(
-            this.formatSingleField(lastString)));
-        return spanEl;
       }
+      // String changed ("OLD_VALUE -> NEW_VALUE" in orange).
+      var spanEl = tr.ui.b.createSpan({color: 'DarkOrange'});
+      Polymer.dom(spanEl).appendChild(tr.ui.b.asHTMLOrTextNode(
+          this.formatSingleField(firstString)));
+      Polymer.dom(spanEl).appendChild(tr.ui.b.asHTMLOrTextNode(
+          ' ' + RIGHTWARDS_ARROW + ' '));
+      Polymer.dom(spanEl).appendChild(tr.ui.b.asHTMLOrTextNode(
+          this.formatSingleField(lastString)));
+      return spanEl;
     },
 
     compareSingleFields: function(stringA, stringB) {
@@ -768,7 +764,7 @@ tr.exportTo('tr.ui.analysis', function() {
 
     getDiffField_: function(firstNumeric, lastNumeric) {
       var definedNumeric = firstNumeric || lastNumeric;
-      return new tr.v.ScalarNumeric(definedNumeric.unit.correspondingDeltaUnit,
+      return new tr.b.Scalar(definedNumeric.unit.correspondingDeltaUnit,
           this.getDiffFieldValue_(firstNumeric, lastNumeric));
     },
 

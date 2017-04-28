@@ -19,7 +19,7 @@
 #include "device/bluetooth/bluetooth_remote_gatt_descriptor.h"
 #include "device/bluetooth/bluetooth_remote_gatt_service.h"
 #include "device/bluetooth/string_util_icu.h"
-#include "grit/bluetooth_strings.h"
+#include "device/bluetooth/strings/grit/bluetooth_strings.h"
 #include "ui/base/l10n/l10n_util.h"
 
 namespace device {
@@ -274,22 +274,10 @@ bool BluetoothDevice::IsPairable() const {
   // Microsoft "Microsoft Bluetooth Notebook Mouse 5000", model X807028-001
   if (type == BluetoothDeviceType::MOUSE && vendor == "7C:ED:8D")
     return false;
-  // Sony PlayStation Dualshock3
-  if (IsTrustable())
-    return false;
 
   // TODO: Move this database into a config file.
 
   return true;
-}
-
-bool BluetoothDevice::IsTrustable() const {
-  // Sony PlayStation Dualshock3
-  if ((GetVendorID() == 0x054c && GetProductID() == 0x0268 &&
-       GetName() == std::string("PLAYSTATION(R)3 Controller")))
-    return true;
-
-  return false;
 }
 
 BluetoothDevice::UUIDSet BluetoothDevice::GetUUIDs() const {

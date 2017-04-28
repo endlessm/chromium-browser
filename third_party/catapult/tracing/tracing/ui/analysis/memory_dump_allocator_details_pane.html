@@ -324,18 +324,18 @@ tr.exportTo('tr.ui.analysis', function() {
               if (ownedCount < numerics.length)
                 messageBuilder.appendSomeTimestampsQuantifier();
               messageBuilder.appendImportanceRange(ownedEntry.importanceRange);
-            messageBuilder.append(' with');
-            messageBuilder.appendMap(
-                ownedEntry.sharerNameToEntry,
-                false /* hasPluralSuffix */,
-                ' no other dumps',
-                function(sharerName, sharerEntry) {
-                  messageBuilder.append(sharerName);
-                  if (sharerEntry.count < ownedCount)
-                    messageBuilder.appendSomeTimestampsQuantifier();
-                  messageBuilder.appendImportanceRange(
-                      sharerEntry.importanceRange);
-                }, this);
+              messageBuilder.append(' with');
+              messageBuilder.appendMap(
+                  ownedEntry.sharerNameToEntry,
+                  false /* hasPluralSuffix */,
+                  ' no other dumps',
+                  function(sharerName, sharerEntry) {
+                    messageBuilder.append(sharerName);
+                    if (sharerEntry.count < ownedCount)
+                      messageBuilder.appendSomeTimestampsQuantifier();
+                    messageBuilder.appendImportanceRange(
+                        sharerEntry.importanceRange);
+                  }, this);
             }, this);
         infos.push({
           message: messageBuilder.build(),

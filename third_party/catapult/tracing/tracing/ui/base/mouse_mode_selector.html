@@ -81,8 +81,7 @@ tr.exportTo('tr.ui.b', function() {
   function isCmdOrCtrlPressed(event) {
     if (tr.isMac)
       return event.metaKey;
-    else
-      return event.ctrlKey;
+    return event.ctrlKey;
   }
 
   /**
@@ -262,7 +261,6 @@ tr.exportTo('tr.ui.b', function() {
 
         // End event.
         if (this.isInteracting_) {
-
           var mouseEvent = this.createEvent_(
               MOUSE_SELECTOR_MODE_INFOS[this.mode].eventNames.end);
           this.dispatchEvent(mouseEvent);
@@ -295,8 +293,6 @@ tr.exportTo('tr.ui.b', function() {
               MOUSE_SELECTOR_MODE_INFOS[this.mode].eventNames.begin);
           this.dispatchEvent(mouseEvent);
         }
-
-
       }
 
       if (this.settingsKey_ && !this.isInAlternativeMode_)
@@ -422,14 +418,14 @@ tr.exportTo('tr.ui.b', function() {
         this.spacePressed_ = false;
 
       var didHandleKey = false;
-      tr.b.iterItems(this.modeToKeyCodeMap_, function(modeStr, keyCode) {
+      for (var [modeStr, keyCode] of Object.entries(this.modeToKeyCodeMap_)) {
         if (e.keyCode === keyCode) {
           this.modeBeforeAlternativeModeActivated_ = undefined;
           var mode = parseInt(modeStr);
           this.mode = mode;
           didHandleKey = true;
         }
-      }, this);
+      }
 
       if (didHandleKey) {
         e.preventDefault();

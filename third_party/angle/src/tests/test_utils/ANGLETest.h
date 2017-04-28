@@ -21,6 +21,11 @@
 #include "shader_utils.h"
 #include "system_utils.h"
 
+#define ASSERT_GL_TRUE(a) ASSERT_EQ(static_cast<GLboolean>(GL_TRUE), (a))
+#define ASSERT_GL_FALSE(a) ASSERT_EQ(static_cast<GLboolean>(GL_FALSE), (a))
+#define EXPECT_GL_TRUE(a) EXPECT_EQ(static_cast<GLboolean>(GL_TRUE), (a))
+#define EXPECT_GL_FALSE(a) EXPECT_EQ(static_cast<GLboolean>(GL_FALSE), (a))
+
 #define EXPECT_GL_ERROR(err) EXPECT_EQ(static_cast<GLenum>(err), glGetError())
 #define EXPECT_GL_NO_ERROR() EXPECT_EQ(static_cast<GLenum>(GL_NO_ERROR), glGetError())
 
@@ -84,6 +89,14 @@ struct GLColor
     static const GLColor yellow;
 };
 
+struct GLColor32F
+{
+    GLColor32F();
+    GLColor32F(GLfloat r, GLfloat g, GLfloat b, GLfloat a);
+
+    GLfloat R, G, B, A;
+};
+
 struct WorkaroundsD3D;
 
 // Useful to cast any type to GLubyte.
@@ -98,14 +111,33 @@ bool operator==(const GLColor &a, const GLColor &b);
 std::ostream &operator<<(std::ostream &ostream, const GLColor &color);
 GLColor ReadColor(GLint x, GLint y);
 
+// Useful to cast any type to GLfloat.
+template <typename TR, typename TG, typename TB, typename TA>
+GLColor32F MakeGLColor32F(TR r, TG g, TB b, TA a)
+{
+    return GLColor32F(static_cast<GLfloat>(r), static_cast<GLfloat>(g), static_cast<GLfloat>(b),
+                      static_cast<GLfloat>(a));
+}
+
+bool operator==(const GLColor32F &a, const GLColor32F &b);
+std::ostream &operator<<(std::ostream &ostream, const GLColor32F &color);
+GLColor32F ReadColor32F(GLint x, GLint y);
+
 }  // namespace angle
 
 #define EXPECT_PIXEL_EQ(x, y, r, g, b, a) \
     EXPECT_EQ(angle::MakeGLColor(r, g, b, a), angle::ReadColor(x, y))
 
+#define EXPECT_PIXEL_32F_EQ(x, y, r, g, b, a) \
+    EXPECT_EQ(angle::MakeGLColor32F(r, g, b, a), angle::ReadColor32F(x, y))
+
 #define EXPECT_PIXEL_ALPHA_EQ(x, y, a) EXPECT_EQ(a, angle::ReadColor(x, y).A)
 
+#define EXPECT_PIXEL_ALPHA32F_EQ(x, y, a) EXPECT_EQ(a, angle::ReadColor32F(x, y).A)
+
 #define EXPECT_PIXEL_COLOR_EQ(x, y, angleColor) EXPECT_EQ(angleColor, angle::ReadColor(x, y))
+
+#define EXPECT_PIXEL_COLOR32F_EQ(x, y, angleColor) EXPECT_EQ(angleColor, angle::ReadColor32F(x, y))
 
 #define EXPECT_PIXEL_NEAR(x, y, r, g, b, a, abs_error) \
 { \
@@ -134,6 +166,13 @@ GLColor ReadColor(GLint x, GLint y);
 
 class EGLWindow;
 class OSWindow;
+class ANGLETest;
+
+struct TestPlatformContext final : angle::NonCopyable
+{
+    bool ignoreMessages    = false;
+    ANGLETest *currentTest = nullptr;
+};
 
 class ANGLETest : public ::testing::TestWithParam<angle::PlatformParameters>
 {
@@ -191,12 +230,14 @@ class ANGLETest : public ::testing::TestWithParam<angle::PlatformParameters>
     void setConfigAlphaBits(int bits);
     void setConfigDepthBits(int bits);
     void setConfigStencilBits(int bits);
+    void setConfigComponentType(EGLenum componentType);
     void setMultisampleEnabled(bool enabled);
     void setDebugEnabled(bool enabled);
     void setNoErrorEnabled(bool enabled);
     void setWebGLCompatibilityEnabled(bool webglCompatibility);
     void setBindGeneratesResource(bool bindGeneratesResource);
     void setVulkanLayersEnabled(bool enabled);
+    void setClientArraysEnabled(bool enabled);
 
     int getClientMajorVersion() const;
     int getClientMinorVersion() const;
@@ -227,7 +268,15 @@ class ANGLETest : public ::testing::TestWithParam<angle::PlatformParameters>
     // Used for indexed quad rendering
     GLuint mQuadVertexBuffer;
 
+    TestPlatformContext mPlatformContext;
+
     static OSWindow *mOSWindow;
+
+    // Workaround for NVIDIA not being able to share a window with OpenGL and Vulkan.
+    static Optional<EGLint> mLastRendererType;
+
+    // For loading and freeing platform
+    static std::unique_ptr<angle::Library> mGLESLibrary;
 };
 
 class ANGLETestEnvironment : public testing::Environment
@@ -235,10 +284,6 @@ class ANGLETestEnvironment : public testing::Environment
   public:
     void SetUp() override;
     void TearDown() override;
-
-  private:
-    // For loading and freeing platform
-    std::unique_ptr<angle::Library> mGLESLibrary;
 };
 
 // Driver vendors
@@ -270,9 +315,6 @@ bool IsVulkan();
 // Debug/Release
 bool IsDebug();
 bool IsRelease();
-
-// Negative tests may trigger expected errors/warnings in the ANGLE Platform.
-void IgnoreANGLEPlatformMessages();
 
 // Note: git cl format messes up this formatting.
 #define ANGLE_SKIP_TEST_IF(COND)                              \

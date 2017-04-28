@@ -25,14 +25,15 @@ tr.exportTo('tr.metrics.v8', function() {
     var chromeHelper = model.getOrCreateHelper(
         tr.model.helpers.ChromeModelHelper);
     var domContentLoadedTime = 0;
-    tr.b.iterItems(chromeHelper.rendererHelpers, (pid, rendererHelper) => {
+
+    for (var rendererHelper of Object.values(chromeHelper.rendererHelpers)) {
       for (var ev of rendererHelper.mainThread.sliceGroup.childEvents()) {
         if (ev.title === 'domContentLoadedEventEnd' &&
             ev.start > domContentLoadedTime) {
           domContentLoadedTime = ev.start;
         }
       }
-    });
+    }
     return domContentLoadedTime;
   }
 
@@ -40,19 +41,19 @@ tr.exportTo('tr.metrics.v8', function() {
     var chromeHelper = model.getOrCreateHelper(
         tr.model.helpers.ChromeModelHelper);
     var interactiveTime = 0;
-    tr.b.iterItems(chromeHelper.rendererHelpers, (pid, rendererHelper) => {
+    for (var rendererHelper of Object.values(chromeHelper.rendererHelpers)) {
       var samples = tr.metrics.sh.collectLoadingMetricsForRenderer(
           rendererHelper).firstInteractiveSamples;
       // TODO(fmeawad): Support multiple navigations.
       if (samples.length === 0) {
-        return;
+        continue;
       }
       if (interactiveTime !== 0) {
         throw new Error('Too many navigations');
       }
       interactiveTime = tr.b.getOnlyElement(samples).diagnostics[
         'Navigation infos'].value.interactive;
-    });
+    }
     return interactiveTime;
   }
 
@@ -78,14 +79,12 @@ tr.exportTo('tr.metrics.v8', function() {
 
   function convertMicroToMilli_(time) {
     return tr.b.convertUnit(time,
-      tr.b.UnitPrefixScale.METRIC.MICRO, tr.b.UnitPrefixScale.METRIC.MILLI);
+        tr.b.UnitPrefixScale.METRIC.MICRO, tr.b.UnitPrefixScale.METRIC.MILLI);
   }
 
-  function computeRuntimeStats(values, model, endTime) {
-    var slices = [...model.getDescendantEvents()].filter(event =>
-        event instanceof tr.e.v8.V8ThreadSlice &&
-        event.start <= endTime);
-
+  // TODO(crbug.com/688342): Remove this function when runtimeStatsMetric is
+  // removed.
+  function computeRuntimeStats(histograms, slices) {
     var runtimeGroupCollection = new tr.e.v8.RuntimeStatsGroupCollection();
     runtimeGroupCollection.addSlices(slices);
 
@@ -96,12 +95,12 @@ tr.exportTo('tr.metrics.v8', function() {
         var durationSampleHistogram = createDurationHistogram_(entry.name);
         durationSampleHistogram.addSample(convertMicroToMilli_(entry.time));
         durationSamples.set(entry.name + ':duration', durationSampleHistogram);
-        values.addHistogram(durationSampleHistogram);
+        histograms.addHistogram(durationSampleHistogram);
 
         var countSampleHistogram = createCountHistogram_(entry.name);
         countSampleHistogram.addSample(entry.count);
         countSamples.set(entry.name + ':count', countSampleHistogram);
-        values.addHistogram(countSampleHistogram);
+        histograms.addHistogram(countSampleHistogram);
       }
 
       var durationHistogram = createDurationHistogram_(runtimeGroup.name);
@@ -113,22 +112,148 @@ tr.exportTo('tr.metrics.v8', function() {
         samples: countSamples
       });
 
-      values.addHistogram(durationHistogram);
-      values.addHistogram(countHistogram);
+      histograms.addHistogram(durationHistogram);
+      histograms.addHistogram(countHistogram);
     }
   }
 
-  function runtimeStatsMetric(values, model) {
+  // TODO(crbug.com/688342): Remove this metric and use runtimeStatsTotalMetric
+  // instead when the runtimeStatsTotalMetric is stable.
+  function runtimeStatsMetric(histograms, model) {
     var interactiveTime = computeInteractiveTime_(model);
     var domContentLoadedTime = computeDomContentLoadedTime_(model);
     var endTime = Math.max(interactiveTime, domContentLoadedTime);
-    computeRuntimeStats(values, model, endTime);
+    var slices = [...model.getDescendantEvents()].filter(event =>
+          event instanceof tr.e.v8.V8ThreadSlice && event.start <= endTime);
+    computeRuntimeStats(histograms, slices);
   }
 
+  function computeRuntimeStatsBucketOnUE(histograms, slices,
+      v8SlicesBucketOnUEMap) {
+    let durationRelatedHistsByGroupName = new Map();
+    let countRelatedHistsByGroupName = new Map();
+
+    // Compute runtimeStats in each of the UE buckets. Also record the
+    // histograms in RelatedHistogramMap. These histograms are added to the
+    // corresponding histograms in the total bucket as a diagnostic. This keeps
+    // the data grouped.
+    for (var [name, slicesUE] of v8SlicesBucketOnUEMap) {
+      var runtimeGroupCollection = new tr.e.v8.RuntimeStatsGroupCollection();
+      runtimeGroupCollection.addSlices(slicesUE);
+
+      for (var runtimeGroup of runtimeGroupCollection.runtimeGroups) {
+        var histogramName = name + '_' + runtimeGroup.name;
+        var durationHistogram = createDurationHistogram_(histogramName);
+        durationHistogram.addSample(convertMicroToMilli_(runtimeGroup.time));
+        histograms.addHistogram(durationHistogram);
+
+        // Record this histogram in RelatedHistogramMap.
+        if (durationRelatedHistsByGroupName.get(runtimeGroup.name) ===
+            undefined) {
+          var durationHistogramMap = new tr.v.d.RelatedHistogramMap();
+          durationHistogramMap.set(name, durationHistogram);
+          durationRelatedHistsByGroupName.set(runtimeGroup.name,
+              durationHistogramMap);
+        } else {
+          durationRelatedHistsByGroupName.get(runtimeGroup.name).set(name,
+              durationHistogram);
+        }
+
+        var countHistogram = createCountHistogram_(histogramName);
+        countHistogram.addSample(runtimeGroup.count);
+        histograms.addHistogram(countHistogram);
+
+        // Record this histogram in RelatedHistogramMap.
+        if (countRelatedHistsByGroupName.get(runtimeGroup.name) === undefined) {
+          var countHistogramMap = new tr.v.d.RelatedHistogramMap();
+          countHistogramMap.set(name, countHistogram);
+          countRelatedHistsByGroupName.set(runtimeGroup.name,
+              countHistogramMap);
+        } else {
+          countRelatedHistsByGroupName.get(runtimeGroup.name).set(name,
+              countHistogram);
+        }
+      }
+    }
+
+    // Add the runtimeStats for all the samples. Please note, the values in
+    // the UE buckets may not add upto the values computed here. Since UEs
+    // can overlap, we count some of the samples in multiple UE buckets.
+    var runtimeGroupCollection = new tr.e.v8.RuntimeStatsGroupCollection();
+    runtimeGroupCollection.addSlices(slices);
+    for (var runtimeGroup of runtimeGroupCollection.runtimeGroups) {
+      var histogramName = runtimeGroup.name;
+      var durationHistogram = createDurationHistogram_(histogramName);
+      durationHistogram.addSample(convertMicroToMilli_(runtimeGroup.time));
+      histograms.addHistogram(durationHistogram);
+      // Add UE histograms as a diagnostic, so they can be hidden in the main
+      // view, and the data across UE buckets can be grouped together.
+      var durationRelatedHistogram = durationRelatedHistsByGroupName.get(
+          runtimeGroup.name);
+      if (durationRelatedHistogram !== undefined) {
+        durationHistogram.diagnostics.set('RAIL stages',
+            durationRelatedHistogram);
+      }
+
+      var countHistogram = createCountHistogram_(histogramName);
+      countHistogram.addSample(runtimeGroup.count);
+      // Add UE histograms as a diagnostic, so they can be hidden in the main
+      // view, and the data across UE buckets can be grouped together.
+      var countRelatedHistogram = countRelatedHistsByGroupName.get(
+          runtimeGroup.name);
+      if (countRelatedHistogram !== undefined) {
+        countHistogram.diagnostics.set('RAIL stages', countRelatedHistogram);
+      }
+      histograms.addHistogram(countHistogram);
+    }
+  }
+
+  function runtimeStatsTotalMetric(histograms, model) {
+    var v8ThreadSlices = [...model.getDescendantEvents()].filter(event =>
+          event instanceof tr.e.v8.V8ThreadSlice).sort((e1, e2) =>
+          e1.start - e2.start);
+    var v8SlicesBucketOnUEMap = new Map();
+    // User expectations can sometime overlap. So, certain v8 slices can be
+    // included in more than one expectation. We count such slices in each
+    // of the expectations. This is done so as to minimize the noise due to
+    // the differences in the extent of overlap between the runs.
+    for (var expectation of model.userModel.expectations) {
+      var slices = expectation.range.filterArray(v8ThreadSlices,
+          event => event.start);
+      if (slices.length === 0) continue;
+      // filterArray filters the array that intersects the range inclusively.
+      // Expectations are not inclusive i.e. expectations are like [0, 1),
+      // [1, 2). v8ThreadSlices that start at 1 should be counted only in [1,2)
+      // bucket. Filter out sample at the boundary so that they are not counted
+      // twice.
+      var lastSlice = slices[slices.length - 1];
+      if (!expectation.range.intersectsRangeExclusive(lastSlice.range)) {
+        slices.pop();
+      }
+
+      if (v8SlicesBucketOnUEMap.get(expectation.stageTitle) === undefined) {
+        v8SlicesBucketOnUEMap.set(expectation.stageTitle, slices);
+      } else {
+        var totalSlices = v8SlicesBucketOnUEMap.get(expectation.stageTitle)
+                                               .concat(slices);
+        v8SlicesBucketOnUEMap.set(expectation.stageTitle, totalSlices);
+      }
+    }
+
+    // Compute runtimeStats in each of the UE buckets and also compute
+    // runtimeStats on all of the samples. The values in UE buckets do not add
+    // up to the total of all samples, since we duplicate some of the samples in
+    // multiple buckets when the UEs overlap.
+    computeRuntimeStatsBucketOnUE(histograms, v8ThreadSlices,
+        v8SlicesBucketOnUEMap);
+  }
+
+  tr.metrics.MetricRegistry.register(runtimeStatsTotalMetric);
   tr.metrics.MetricRegistry.register(runtimeStatsMetric);
 
   return {
     runtimeStatsMetric,
+    runtimeStatsTotalMetric,
   };
 });
 </script>

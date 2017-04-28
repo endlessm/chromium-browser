@@ -35,6 +35,12 @@ _TRYBOT_MARKER = '.trybot'
 # Default sleep time(second) between retries
 DEFAULT_SLEEP_TIME = 5
 
+# Retry limit for 'repo init'
+REPO_INIT_RETRY_LIMIT = 2
+
+SELFUPDATE_WARNING = r'Skipped upgrade to unverified version'
+
+SELFUPDATE_WARNING_RE = re.compile(SELFUPDATE_WARNING, re.IGNORECASE)
 
 class SrcCheckOutException(Exception):
   """Exception gets thrown for failure to sync sources"""
@@ -283,6 +289,61 @@ class RepoRepository(object):
     os.unlink(manifest_path)
     shutil.copyfile(local_manifest, manifest_path)
 
+  def _RepoSelfupdate(self):
+    """Execute repo selfupdate command.
+
+    'repo selfupdate' would clean up the .repo/repo dir on certain exceptions
+    and warnings, it must be followed by the 'repo init' command, which would
+    recover .repo/repo in this circumstance.
+    """
+    cmd = [self.repo_cmd, 'selfupdate']
+    failed_to_selfupdate = False
+    try:
+      cmd_result = cros_build_lib.RunCommand(
+          cmd, cwd=self.directory, capture_output=True, log_output=True)
+
+      if (cmd_result.error is not None and
+          SELFUPDATE_WARNING_RE.search(cmd_result.error)):
+        logging.warning('Unable to selfupdate because of warning "%s"',
+                        SELFUPDATE_WARNING)
+        failed_to_selfupdate = True
+    except cros_build_lib.RunCommandError as e:
+      logging.warning('repo selfupdate failed with exception: %s', e)
+      failed_to_selfupdate = True
+
+    if failed_to_selfupdate:
+      metrics.Counter(constants.MON_REPO_SELFUPDATE_FAILURE_COUNT).increment()
+      logging.warning('Failed to selfupdate repo, cleaning .repo/repo in %s',
+                      self.directory)
+      osutils.RmDir(os.path.join(self.directory, '.repo', 'repo'),
+                    ignore_missing=True)
+
+  def _CleanUpRepoManifest(self, directory):
+    """Clean up the manifest and repo dirs under the '.repo' dir.
+
+    Args:
+      directory: The directory where stores repo and manifest dirs.
+    """
+    paths = [os.path.join(directory, '.repo', x) for x in
+             ('manifest.xml', 'manifests.git', 'manifests', 'repo')]
+    cros_build_lib.SudoRunCommand(['rm', '-rf'] + paths)
+
+  def _RepoInit(self, *args, **kwargs):
+    """Run 'repo init' and clean up repo manifest on init failures.
+
+    Args:
+      args: args to pass to cros_build_lib.RunCommand.
+      kwargs: kwargs to pass to cros_build_lib.RunCommand.
+    """
+    try:
+      kwargs.setdefault('cwd', self.directory)
+      kwargs.setdefault('input', '\n\ny\n')
+      cros_build_lib.RunCommand(*args, **kwargs)
+    except cros_build_lib.RunCommandError as e:
+      logging.warning("Wiping %r due to `repo init` failures.", self.directory)
+      self._CleanUpRepoManifest(self.directory)
+      raise e
+
   def Initialize(self, local_manifest=None, manifest_repo_url=None,
                  extra_args=()):
     """Initializes a repository.  Optionally forces a local manifest.
@@ -304,11 +365,10 @@ class RepoRepository(object):
       try:
         cros_build_lib.RunCommand(cmd, cwd=self.directory, capture_output=True)
       except cros_build_lib.RunCommandError:
+        metrics.Counter(constants.MON_REPO_MANIFEST_FAILURE_COUNT).increment()
         logging.warning("Wiping %r due to `repo manifest` failure",
                         self.directory)
-        paths = [os.path.join(self.directory, '.repo', x) for x in
-                 ('manifest.xml', 'manifests.git', 'manifests', 'repo')]
-        cros_build_lib.SudoRunCommand(['rm', '-rf'] + paths)
+        self._CleanUpRepoManifest(self.directory)
         self._repo_update_needed = False
 
     # Wipe local_manifest.xml if it exists- it can interfere w/ things in
@@ -326,12 +386,7 @@ class RepoRepository(object):
     # Additionally, note that this method may be called multiple times;
     # thus code appropriately.
     if self._repo_update_needed:
-      cmd = [self.repo_cmd, 'selfupdate']
-      try:
-        cros_build_lib.RunCommand(cmd, cwd=self.directory)
-      except cros_build_lib.RunCommandError:
-        osutils.RmDir(os.path.join(self.directory, '.repo', 'repo'),
-                      ignore_missing=True)
+      self._RepoSelfupdate()
       self._repo_update_needed = False
 
     # Use our own repo, in case android.kernel.org (the default location) is
@@ -354,7 +409,16 @@ class RepoRepository(object):
     if self.groups:
       init_cmd.extend(['--groups', self.groups])
 
-    cros_build_lib.RunCommand(init_cmd, cwd=self.directory, input='\n\ny\n')
+    fields = {'manifest_url': self.manifest_repo_url}
+    retry_util.RetryCommand(self._RepoInit,
+                            REPO_INIT_RETRY_LIMIT,
+                            init_cmd,
+                            sleep=DEFAULT_SLEEP_TIME,
+                            backoff_factor=2,
+                            log_retries=True,
+                            mon_retry_name=constants.MON_REPO_INIT_RETRY_COUNT,
+                            mon_fields=fields)
+
     if local_manifest and local_manifest != self._manifest:
       self._SwitchToLocalManifest(local_manifest)
 

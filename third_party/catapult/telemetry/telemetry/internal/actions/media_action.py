@@ -8,7 +8,6 @@ import logging
 
 from telemetry.internal.actions import page_action
 from telemetry.internal.actions import utils
-from telemetry.util import js_template
 
 import py_utils
 
@@ -36,11 +35,9 @@ class MediaAction(page_action.PageAction):
         timeout=timeout_in_seconds)
 
   def HasEventCompletedOrError(self, tab, selector, event_name):
-    # TODO(catapult:#3028): Render in JavaScript method when supported by API.
-    code = js_template.Render(
+    if tab.EvaluateJavaScript(
         'window.__hasEventCompleted({{ selector }}, {{ event_name }});',
-        selector=selector, event_name=event_name)
-    if tab.EvaluateJavaScript(code):
+        selector=selector, event_name=event_name):
       return True
     error = tab.EvaluateJavaScript('window.__error')
     if error:

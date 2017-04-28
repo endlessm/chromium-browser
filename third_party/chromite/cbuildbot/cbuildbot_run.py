@@ -25,6 +25,7 @@ from __future__ import print_function
 import cPickle
 import functools
 import os
+import re
 try:
   import Queue
 except ImportError:
@@ -40,6 +41,8 @@ from chromite.lib import metadata_lib
 from chromite.cbuildbot import tree_status
 from chromite.lib import cidb
 from chromite.lib import cros_build_lib
+from chromite.lib import osutils
+from chromite.lib import path_util
 from chromite.lib import portage_util
 
 
@@ -101,6 +104,10 @@ class AttrTimeoutError(RunAttributesError):
     self.args = (attr, ) + tuple(args)
 
 
+class NoAndroidBranchError(Exception):
+  """For when Android branch cannot be determined."""
+
+
 class NoAndroidVersionError(Exception):
   """For when Android version cannot be determined."""
 
@@ -155,6 +162,7 @@ class RunAttributes(object):
   """
 
   REGULAR_ATTRS = frozenset((
+      'android_branch',   # Set by AndroidMetadataStage.
       'android_version',  # Set by UprevAndroidStage, if it runs.
       'chrome_version',   # Set by SyncChromeStage, if it runs.
       'manifest_manager', # Set by ManifestVersionedSyncStage.
@@ -621,6 +629,7 @@ class _BuilderRunBase(object):
 
     # Certain run attributes have sensible defaults which can be set here.
     # This allows all code to safely assume that the run attribute exists.
+    attrs.android_branch = None
     attrs.android_version = None
     attrs.chrome_version = None
     attrs.metadata = metadata_lib.CBuildbotMetadata(
@@ -793,6 +802,40 @@ class _BuilderRunBase(object):
 
     return calc_version
 
+  def HasUseFlag(self, board, use_flag):
+    """Return the state of a USE flag for a board as a boolean."""
+    return use_flag in portage_util.GetBoardUseFlags(board)
+
+  def DetermineAndroidBranch(self, board):
+    """Returns the Android branch in use by the active container ebuild."""
+    try:
+      android_package = self.DetermineAndroidPackage(board)
+    except cros_build_lib.RunCommandError:
+      raise NoAndroidBranchError(
+          'Android branch could not be determined for %s' % board)
+    if not android_package:
+      raise NoAndroidBranchError(
+          'Android branch could not be determined for %s (no package?)' % board)
+    ebuild_path = portage_util.FindEbuildForBoardPackage(android_package, board)
+    host_ebuild_path = path_util.FromChrootPath(ebuild_path)
+    ebuild_content = osutils.SourceEnvironment(host_ebuild_path, ['ARM_TARGET'])
+    # We assume all targets pull from the same branch and that we always
+    # have an ARM_TARGET.
+    if 'ARM_TARGET' in ebuild_content:
+      return re.search(r'(.*?)-linux-cheets',
+                       ebuild_content['ARM_TARGET']).group(1)
+    raise NoAndroidBranchError(
+        'Android branch could not be determined for %s (ebuild empty?)' % board)
+
+  def DetermineAndroidPackage(self, board):
+    """Returns the active Android container package in use by the board."""
+    packages = portage_util.GetPackageDependencies(board, 'virtual/target-os')
+    # We assume there is only one Android package in the depgraph.
+    for package in packages:
+      if package.startswith('chromeos-base/android-container'):
+        return package
+    return None
+
   def DetermineAndroidVersion(self, boards=None):
     """Determine the current Android version in buildroot now and return it.
 
@@ -808,30 +851,25 @@ class _BuilderRunBase(object):
     Raises:
       NoAndroidVersionError: if no unique Android version can be determined.
     """
+    if not boards:
+      return None
+    # Verify that all boards have the same version.
     version = None
-    try:
-      if boards:
-        # Verify that all boards have the same version.
-        for board in boards:
-          cpv = portage_util.BestVisible(constants.ANDROID_CP,
-                                         buildroot=self.buildroot,
-                                         board=board)
-          if version is None:
-            version = cpv.version_no_rev
-          elif version != cpv.version_no_rev:
-            raise NoAndroidVersionError(
-                'Different Android versions (%s vs %s) for %s' %
-                (version, cpv.version_no_rev, boards))
-
-      else:
-        # This is expected to fail until ANDROID_CP is in the main overlays.
-        cpv = portage_util.BestVisible(constants.ANDROID_CP,
-                                       buildroot=self.buildroot)
+    for board in boards:
+      package = self.DetermineAndroidPackage(board)
+      if not package:
+        raise NoAndroidVersionError(
+            'Android version could not be determined for %s' % boards)
+      cpv = portage_util.SplitCPV(package)
+      if not cpv:
+        raise NoAndroidVersionError(
+            'Android version could not be determined for %s' % board)
+      if not version:
         version = cpv.version_no_rev
-    except cros_build_lib.RunCommandError as ex:
-      raise NoAndroidVersionError(
-          'Android version could not be determined for %s' % boards, ex)
-
+      elif version != cpv.version_no_rev:
+        raise NoAndroidVersionError(
+            'Different Android versions (%s vs %s) for %s' %
+            (version, cpv.version_no_rev, boards))
     return version
 
   def DetermineChromeVersion(self):

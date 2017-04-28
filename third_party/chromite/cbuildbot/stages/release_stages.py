@@ -15,6 +15,7 @@ from chromite.lib import failures_lib
 from chromite.lib import config_lib
 from chromite.cbuildbot.stages import artifact_stages
 from chromite.cbuildbot.stages import generic_stages
+from chromite.lib import constants
 from chromite.lib import cros_logging as logging
 from chromite.lib import gs
 from chromite.lib import osutils
@@ -151,8 +152,8 @@ class SigningStage(generic_stages.BoardSpecificBuilderStage):
       signer_json: The parsed json status from a signer operation.
 
     Returns:
-      string with a simple status: 'passed', 'failed', 'downloading', etc,
-      or '' if the json doesn't contain a status.
+      string with a simple status: SIGNER_STATUS_PASSED, SIGNER_STATUS_FAILED,
+      etc, or '' if the json doesn't contain a status.
     """
     return (signer_json or {}).get('status', {}).get('status', '')
 
@@ -169,7 +170,8 @@ class SigningStage(generic_stages.BoardSpecificBuilderStage):
     Returns:
       Number of results not yet collected.
     """
-    COMPLETED_STATUS = ('passed', 'failed')
+    COMPLETED_STATUS = (constants.SIGNER_STATUS_PASSED,
+                        constants.SIGNER_STATUS_FAILED)
 
     # Assume we are done, then try to prove otherwise.
     results_completed = True
@@ -209,10 +211,11 @@ class SigningStage(generic_stages.BoardSpecificBuilderStage):
       # If we reach here, the channel has just been completed for the first
       # time.
 
-      # If all results 'passed' the channel was successfully signed.
+      # If all results passed the channel was successfully signed.
       channel_success = True
       for signer_result in self.signing_results[channel].values():
-        if self._SigningStatusFromJson(signer_result) != 'passed':
+        if (self._SigningStatusFromJson(signer_result) !=
+            constants.SIGNER_STATUS_PASSED):
           channel_success = False
 
       # If we successfully completed the channel, inform someone.
@@ -258,7 +261,7 @@ class SigningStage(generic_stages.BoardSpecificBuilderStage):
         logging.info(json.dumps(signer_result, indent=4))
 
         status = self._SigningStatusFromJson(signer_result)
-        if status != 'passed':
+        if status != constants.SIGNER_STATUS_PASSED:
           failures.append(result_description)
           logging.error('Signing failed for: %s', result_description)
 
@@ -418,7 +421,8 @@ class PaygenBuildStage(generic_stages.BoardSpecificBuilderStage):
       skip_delta_payloads: Skip generating delta payloads.
       skip_duts_check: Do not check minimum available DUTs before tests.
     """
-    super(PaygenBuildStage, self).__init__(builder_run, board, **kwargs)
+    super(PaygenBuildStage, self).__init__(
+        builder_run, board, suffix=channel.capitalize(), **kwargs)
     self._run = builder_run
     self.board = board
     self.channel = channel
@@ -460,8 +464,10 @@ class PaygenBuildStage(generic_stages.BoardSpecificBuilderStage):
 
         # Now, schedule the payload tests if desired.
         if not self.skip_testing:
-          PaygenTestStage(suite_name, archive_board, archive_build,
-                          finished_uri, self.skip_duts_check, self._run).Run()
+          PaygenTestStage(
+              self._run, suite_name, archive_board, self.channel,
+              archive_build, finished_uri, self.skip_duts_check,
+              self.debug).Run()
 
       except (paygen_build_lib.BuildFinished,
               paygen_build_lib.BuildLocked) as e:
@@ -476,22 +482,39 @@ class PaygenBuildStage(generic_stages.BoardSpecificBuilderStage):
 
 class PaygenTestStage(generic_stages.BoardSpecificBuilderStage):
   """Stage that schedules the payload tests."""
-  def __init__(self, suite_name, board, build, finished_uri, skip_duts_check,
-               builder_run, **kwargs):
+  def __init__(self, builder_run, suite_name, board, channel, build,
+               finished_uri, skip_duts_check, debug, **kwargs):
+    """Init that accepts the channels argument, if present.
+
+    Args:
+      builder_run: See builder_run on ArchiveStage
+      suite_name: See builder_run on ArchiveStage
+      board: Board of payloads to generate ('x86-mario', 'x86-alex-he', etc)
+      channel: Channel of payloads to generate ('stable', 'beta', etc)
+      build: Version of payloads to generate.
+      finished_uri: GS URI of the finished flag to create on success.
+      skip_duts_check: Do not check minimum available DUTs before tests.
+      debug: Boolean indicating if this is a test run or a real run.
+    """
     self.suite_name = suite_name
     self.board = board
     self.build = build
     self.finished_uri = finished_uri
     self.skip_duts_check = skip_duts_check
-    super(PaygenTestStage, self).__init__(builder_run, board, **kwargs)
-    self._drm = dryrun_lib.DryRunMgr(self._run.debug)
+    self.debug = debug
+    # We don't need the '-channel'suffix.
+    if channel.endswith('-channel'):
+      channel = channel[0:-len('-channel')]
+    super(PaygenTestStage, self).__init__(
+        builder_run, board, suffix=channel.capitalize(), **kwargs)
+    self._drm = dryrun_lib.DryRunMgr(self.debug)
 
   def PerformStage(self):
     """Schedule the tests to run."""
     # Schedule the tests to run and wait for the results.
     paygen_build_lib.ScheduleAutotestTests(self.suite_name, self.board,
                                            self.build, self.skip_duts_check,
-                                           self._run.debug)
+                                           self.debug)
 
     # Mark the build as finished since the payloads were generated, uploaded,
     # and tested by this point.

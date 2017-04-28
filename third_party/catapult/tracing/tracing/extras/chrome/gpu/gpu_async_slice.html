@@ -23,19 +23,18 @@ tr.exportTo('tr.e.gpu', function() {
       if (this.args.channel) {
         if (this.category === 'disabled-by-default-gpu.device')
           return 'Device.' + this.args.channel;
-        else
-          return 'Service.' + this.args.channel;
+        return 'Service.' + this.args.channel;
       }
       return this.title;
     }
   };
 
   AsyncSlice.subTypes.register(
-    GpuAsyncSlice,
-    {
-      categoryParts: ['disabled-by-default-gpu.device',
-                      'disabled-by-default-gpu.service']
-    });
+      GpuAsyncSlice,
+      {
+        categoryParts: ['disabled-by-default-gpu.device',
+          'disabled-by-default-gpu.service']
+      });
 
   return {
     GpuAsyncSlice,

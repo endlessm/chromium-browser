@@ -36,10 +36,9 @@ tr.b.unittest.testSuite(function() {
         args: {frame: '0xdeadbeef'}
       }));
     });
-    var values = new tr.v.HistogramSet();
-    tr.metrics.sh.loadingMetric(values, model);
-    var numeric = tr.b.getOnlyElement(values.getValuesNamed(
-        'timeToFirstContentfulPaint'));
+    var histograms = new tr.v.HistogramSet();
+    tr.metrics.sh.loadingMetric(histograms, model);
+    var numeric = histograms.getHistogramNamed('timeToFirstContentfulPaint');
     assert.equal(1, numeric.running.count);
     assert.equal(800, numeric.running.mean);
   });
@@ -100,10 +99,9 @@ tr.b.unittest.testSuite(function() {
         args: {frame: '0xdeadbeef'}
       }));
     });
-    var values = new tr.v.HistogramSet();
-    tr.metrics.sh.loadingMetric(values, model);
-    var numeric = tr.b.getOnlyElement(values.getValuesNamed(
-        'timeToFirstContentfulPaint'));
+    var histograms = new tr.v.HistogramSet();
+    tr.metrics.sh.loadingMetric(histograms, model);
+    var numeric = histograms.getHistogramNamed('timeToFirstContentfulPaint');
     assert.equal(1, numeric.running.count);
     assert.equal(400, numeric.running.mean);
   });
@@ -138,10 +136,9 @@ tr.b.unittest.testSuite(function() {
         args: {frame: '0xdeadbeef'}
       }));
     });
-    var values = new tr.v.HistogramSet();
-    tr.metrics.sh.loadingMetric(values, model);
-    var numeric = tr.b.getOnlyElement(values.getValuesNamed(
-        'timeToFirstMeaningfulPaint'));
+    var histograms = new tr.v.HistogramSet();
+    tr.metrics.sh.loadingMetric(histograms, model);
+    var numeric = histograms.getHistogramNamed('timeToFirstMeaningfulPaint');
     assert.equal(1, numeric.running.count);
     assert.equal(800, numeric.running.mean);
   });
@@ -221,16 +218,15 @@ tr.b.unittest.testSuite(function() {
         duration: 10,
       }));
     });
-    var values = new tr.v.HistogramSet();
-    tr.metrics.sh.loadingMetric(values, model);
-    var numeric = tr.b.getOnlyElement(values.getValuesNamed(
-        'timeToFirstInteractive'));
+    var histograms = new tr.v.HistogramSet();
+    tr.metrics.sh.loadingMetric(histograms, model);
+    var numeric = histograms.getHistogramNamed('timeToFirstInteractive');
     assert.equal(1, numeric.running.count);
     assert.equal(15200, numeric.running.mean);
     var binsWithSampleDiagnosticMaps = numeric.allBins.filter(
         bin => bin.diagnosticMaps.length > 0);
     var diagnostic = binsWithSampleDiagnosticMaps[0].diagnosticMaps[0].get(
-                                                        'Navigation infos');
+        'Navigation infos');
     assert.equal(diagnostic.value.start, 200);
     assert.equal(diagnostic.value.interactive, 15400);
     assert.equal(diagnostic.value.pid, 1984);
@@ -326,10 +322,9 @@ tr.b.unittest.testSuite(function() {
         duration: 10,
       }));
     });
-    var values = new tr.v.HistogramSet();
-    tr.metrics.sh.loadingMetric(values, model);
-    var numeric = tr.b.getOnlyElement(values.getValuesNamed(
-        'timeToFirstInteractive'));
+    var histograms = new tr.v.HistogramSet();
+    tr.metrics.sh.loadingMetric(histograms, model);
+    var numeric = histograms.getHistogramNamed('timeToFirstInteractive');
     assert.equal(2, numeric.running.count);
     assert.equal(4000, numeric.running.min);
     assert.equal(15200, numeric.running.max);
@@ -369,17 +364,14 @@ tr.b.unittest.testSuite(function() {
       var compositorThread = process.getOrCreateThread(3);
       compositorThread.name = 'Compositor';
     });
-    var values = new tr.v.HistogramSet();
-    tr.metrics.sh.loadingMetric(values, model);
-    var fcp = tr.b.getOnlyElement(values.getValuesNamed(
-        'timeToFirstContentfulPaint'));
+    var histograms = new tr.v.HistogramSet();
+    tr.metrics.sh.loadingMetric(histograms, model);
+    var fcp = histograms.getHistogramNamed('timeToFirstContentfulPaint');
     assert.equal(1, fcp.running.count);
     assert.equal(400, fcp.running.mean);
-    var fmp = tr.b.getOnlyElement(values.getValuesNamed(
-        'timeToFirstMeaningfulPaint'));
+    var fmp = histograms.getHistogramNamed('timeToFirstMeaningfulPaint');
     assert.equal(1, fmp.running.count);
     assert.equal(800, fmp.running.mean);
   });
-
 });
 </script>

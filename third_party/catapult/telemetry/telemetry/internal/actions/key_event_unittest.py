@@ -80,7 +80,7 @@ class KeyPressActionTest(tab_test_case.TabTestCase):
 
     # Check that the contents of the textarea is correct. It might take a second
     # until all keystrokes have been handled by the browser (crbug.com/630017).
-    self._tab.WaitForJavaScriptExpression(
+    self._tab.WaitForJavaScriptCondition(
         'document.querySelector("textarea").value === "Hello,\\nWorld!"',
         timeout=1)
 

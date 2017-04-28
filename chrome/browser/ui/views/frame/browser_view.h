@@ -360,7 +360,8 @@ class BrowserView : public BrowserWindow,
   void ShowAvatarBubbleFromAvatarButton(
       AvatarBubbleMode mode,
       const signin::ManageAccountsParams& manage_accounts_params,
-      signin_metrics::AccessPoint access_point) override;
+      signin_metrics::AccessPoint access_point,
+      bool is_source_keyboard) override;
   int GetRenderViewHeightInsetWithDetachedBookmarkBar() override;
   void ExecuteExtensionCommand(const extensions::Extension* extension,
                                const extensions::Command& command) override;
@@ -435,12 +436,12 @@ class BrowserView : public BrowserWindow,
   // Overridden from views::View:
   const char* GetClassName() const override;
   void Layout() override;
+  void OnGestureEvent(ui::GestureEvent* event) override;
   void ViewHierarchyChanged(
       const ViewHierarchyChangedDetails& details) override;
   void ChildPreferredSizeChanged(View* child) override;
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
   void OnThemeChanged() override;
-  void OnNativeThemeChanged(const ui::NativeTheme* theme) override;
 
   // Overridden from ui::AcceleratorTarget:
   bool AcceleratorPressed(const ui::Accelerator& accelerator) override;
@@ -477,6 +478,9 @@ class BrowserView : public BrowserWindow,
   views::View* GetContentsContainerForTest() { return contents_container_; }
   views::WebView* GetContentsWebViewForTest() { return contents_web_view_; }
   views::WebView* GetDevToolsWebViewForTest() { return devtools_web_view_; }
+
+  // Called by BrowserFrame during theme changes.
+  void NativeThemeUpdated(const ui::NativeTheme* theme);
 
  private:
   // Do not friend BrowserViewLayout. Use the BrowserViewLayoutDelegate

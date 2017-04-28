@@ -30,8 +30,19 @@ class TraceEventTimelineImporter(importer.TimelineImporter):
     self._all_memory_dumps_by_dump_id = collections.defaultdict(list)
 
     self._events = []
+    self._metadata = []
     for trace in trace_data.GetTracesFor(trace_data_module.CHROME_TRACE_PART):
       self._events.extend(trace['traceEvents'])
+      self.CollectMetadataRecords(trace)
+
+  def CollectMetadataRecords(self, trace):
+    part_field_names = {p.raw_field_name for p in
+                        trace_data_module.ALL_TRACE_PARTS}
+    for k, v in trace.iteritems():
+      if k in part_field_names:
+        continue
+      self._metadata.append({'name': k, 'value': v})
+
 
   @staticmethod
   def GetSupportedPart():
@@ -215,6 +226,8 @@ class TraceEventTimelineImporter(importer.TimelineImporter):
     """Walks through the events_ list and outputs the structures discovered to
     model_.
     """
+    for r in self._metadata:
+      self._model.metadata.append(r)
     memory_dump_events = []
     for event in self._events:
       phase = event.get('ph', None)

@@ -56,7 +56,6 @@ dictionary represents either a Histogram or a Diagnostic.
     "label": "abc",
     "storyDisplayName": "my story",
     "storyGroupingKeys": {"state": "pre"},
-    "storyRepeatCounter": 0,
     "storyUrl": "http://example.com/",
     "storysetRepeatCounter": 0,
   },
@@ -160,7 +159,6 @@ to compare or merge results across similar telemetry story runs.
  * `legacyTIRLabel`: string
  * `storyDisplayName`: string
  * `storyGroupingKeys`: dictionary mapping from strings to strings
- * `storyRepeatCounter`: number
  * `storyUrl`: string
  * `storysetRepeatCounter`: number
 
@@ -169,6 +167,8 @@ to compare or merge results across similar telemetry story runs.
 This tracks revisions of the software under test to allow users to compare or
 merge results across revisions.
 
+ * `chromiumCommitPosition`: optional integer
+ * `v8CommitPosition`: optional integer
  * `chromium`: array of 1 or 2 strings
  * `v8`: array of 1 or 2 strings
  * `catapult`: array of 1 or 2 strings

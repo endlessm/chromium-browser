@@ -83,18 +83,22 @@ CONFIG_TEMPLATE_BOARD_GROUP = 'board_group'
 CONFIG_TEMPLATE_BUILDER = 'builder'
 CONFIG_TEMPLATE_RELEASE = 'RELEASE'
 CONFIG_TEMPLATE_CONFIGS = 'configs'
+CONFIG_TEMPLATE_ARCH = 'arch'
 CONFIG_TEMPLATE_RELEASE_BRANCH = 'release_branch'
+
+CONFIG_X86_INTERNAL = 'X86_INTERNAL'
+CONFIG_X86_EXTERNAL = 'X86_EXTERNAL'
+CONFIG_ARM_INTERNAL = 'ARM_INTERNAL'
+CONFIG_ARM_EXTERNAL = 'ARM_EXTERNAL'
 
 def IsPFQType(b_type):
   """Returns True if this build type is a PFQ."""
   return b_type in (constants.PFQ_TYPE, constants.PALADIN_TYPE,
                     constants.CHROME_PFQ_TYPE, constants.ANDROID_PFQ_TYPE)
 
-
 def IsCQType(b_type):
   """Returns True if this build type is a Commit Queue."""
   return b_type == constants.PALADIN_TYPE
-
 
 def IsCanaryType(b_type):
   """Returns True if this build type is a Canary."""
@@ -108,16 +112,25 @@ def IsMasterAndroidPFQ(config):
   """Returns True if this build is master Android PFQ type."""
   return config.build_type == constants.ANDROID_PFQ_TYPE and config.master
 
+def IsMasterCQ(config):
+  """Returns True if this build is master CQ."""
+  return config.build_type == constants.PALADIN_TYPE and config.master
+
 def IsMasterBuild(config):
   """Returns True if this build is master."""
   return config.master
 
 def UseBuildbucketScheduler(config):
   """Returns True if this build uses Buildbucket to schedule builds."""
-  return config.name in (constants.CQ_MASTER,
-                         constants.CANARY_MASTER,
-                         constants.PFQ_MASTER,
-                         constants.PRE_CQ_LAUNCHER_NAME)
+  return (config.active_waterfall in (constants.WATERFALL_INTERNAL,
+                                      constants.WATERFALL_EXTERNAL,
+                                      constants.WATERFALL_TRYBOT) and
+          config.name in (constants.CQ_MASTER,
+                          constants.CANARY_MASTER,
+                          constants.PFQ_MASTER,
+                          constants.ANDROID_PFQ_MASTER,
+                          constants.TOOLCHAIN_MASTTER,
+                          constants.PRE_CQ_LAUNCHER_NAME))
 
 def RetryAlreadyStartedSlaves(config):
   """Returns True if wants to retry slaves which already start but fail.
@@ -129,13 +142,19 @@ def RetryAlreadyStartedSlaves(config):
   return config.name == constants.CQ_MASTER
 
 def GetCriticalStageForRetry(config):
-  """Returns the name of the critical stage for retry decisions.
+  """Get critical stage names for retry decisions.
 
   For a slave scheduled by Buildbucket, its master may want to retry it
   if it didn't pass the critical stage.
+
+  Returns:
+    A set of critical stage names (strings) for the config;
+      default to an empty set.
   """
   if config.name == constants.CQ_MASTER:
-    return 'CommitQueueSync'
+    return {'CommitQueueSync', 'MasterSlaveLKGMSync'}
+  else:
+    return set()
 
 def ScheduledByBuildbucket(config):
   """Returns True if this build is scheduled by Buildbucket."""
@@ -444,7 +463,7 @@ def DefaultSettings():
       # What type of builder is used for this build? This is a hint sent to
       # the waterfall code. It is ignored by the trybot waterfall.
       #   constants.VALID_BUILD_SLAVE_TYPES
-      buildslave_type=constants.BAREMETAL_BUILD_SLAVE_TYPE,
+      buildslave_type=constants.GCE_BEEFY_BUILD_SLAVE_TYPE,
 
       # A list of boards to build.
       boards=None,
@@ -1503,7 +1522,24 @@ def GroupBoardsByBuilder(board_list):
 
   return builder_to_boards_dict
 
+def GetArchBoardDict(ge_build_config):
+  """Get a dict mapping arch types to board names.
 
+  Args:
+    ge_build_config: Dictionary containing the decoded GE configuration file.
+
+  Returns:
+    A dict mapping arch types to board names.
+  """
+  arch_board_dict = {}
+
+  for b in ge_build_config[CONFIG_TEMPLATE_BOARDS]:
+    board_name = b[CONFIG_TEMPLATE_NAME]
+    for config in b[CONFIG_TEMPLATE_CONFIGS]:
+      arch = config[CONFIG_TEMPLATE_ARCH]
+      arch_board_dict.setdefault(arch, set()).add(board_name)
+
+  return arch_board_dict
 
 #
 # Methods related to loading/saving Json.

@@ -289,8 +289,11 @@ NextCipherSuite:
 				// server accepted the ticket and is resuming a session
 				// (see RFC 5077).
 				sessionIdLen := 16
-				if c.config.Bugs.OversizedSessionId {
-					sessionIdLen = 33
+				if c.config.Bugs.TicketSessionIDLength != 0 {
+					sessionIdLen = c.config.Bugs.TicketSessionIDLength
+				}
+				if c.config.Bugs.EmptyTicketSessionID {
+					sessionIdLen = 0
 				}
 				hello.sessionId = make([]byte, sessionIdLen)
 				if _, err := io.ReadFull(c.config.rand(), hello.sessionId); err != nil {
@@ -324,8 +327,16 @@ NextCipherSuite:
 		hello.cipherSuites = c.config.Bugs.SendCipherSuites
 	}
 
-	if c.config.Bugs.SendEarlyDataLength > 0 && !c.config.Bugs.OmitEarlyDataExtension {
+	var sendEarlyData bool
+	if len(hello.pskIdentities) > 0 && session.maxEarlyDataSize > 0 && c.config.Bugs.SendEarlyData != nil {
 		hello.hasEarlyData = true
+		sendEarlyData = true
+	}
+	if c.config.Bugs.SendFakeEarlyDataLength > 0 {
+		hello.hasEarlyData = true
+	}
+	if c.config.Bugs.OmitEarlyDataExtension {
+		hello.hasEarlyData = false
 	}
 
 	var helloBytes []byte
@@ -368,9 +379,25 @@ NextCipherSuite:
 	if c.config.Bugs.SendEarlyAlert {
 		c.sendAlert(alertHandshakeFailure)
 	}
-	if c.config.Bugs.SendEarlyDataLength > 0 {
-		c.sendFakeEarlyData(c.config.Bugs.SendEarlyDataLength)
+	if c.config.Bugs.SendFakeEarlyDataLength > 0 {
+		c.sendFakeEarlyData(c.config.Bugs.SendFakeEarlyDataLength)
 	}
+
+	// Derive early write keys and set Conn state to allow early writes.
+	if sendEarlyData {
+		finishedHash := newFinishedHash(session.vers, pskCipherSuite)
+		finishedHash.addEntropy(session.masterSecret)
+		finishedHash.Write(helloBytes)
+		earlyTrafficSecret := finishedHash.deriveSecret(earlyTrafficLabel)
+		c.out.useTrafficSecret(session.vers, pskCipherSuite, earlyTrafficSecret, clientWrite)
+
+		for _, earlyData := range c.config.Bugs.SendEarlyData {
+			if _, err := c.writeRecord(recordTypeApplicationData, earlyData); err != nil {
+				return err
+			}
+		}
+	}
+
 	msg, err := c.readHandshake()
 	if err != nil {
 		return err
@@ -427,6 +454,7 @@ NextCipherSuite:
 	helloRetryRequest, haveHelloRetryRequest := msg.(*helloRetryRequestMsg)
 	var secondHelloBytes []byte
 	if haveHelloRetryRequest {
+		c.out.resetCipher()
 		if len(helloRetryRequest.cookie) > 0 {
 			hello.tls13Cookie = helloRetryRequest.cookie
 		}
@@ -701,9 +729,9 @@ func (hs *clientHandshakeState) doTLS13Handshake() error {
 		c.setShortHeader()
 	}
 
-	// Switch to handshake traffic keys.
+	// Derive handshake traffic keys and switch read key to handshake
+	// traffic key.
 	clientHandshakeTrafficSecret := hs.finishedHash.deriveSecret(clientHandshakeTrafficLabel)
-	c.out.useTrafficSecret(c.vers, hs.suite, clientHandshakeTrafficSecret, clientWrite)
 	serverHandshakeTrafficSecret := hs.finishedHash.deriveSecret(serverHandshakeTrafficLabel)
 	c.in.useTrafficSecret(c.vers, hs.suite, serverHandshakeTrafficSecret, serverWrite)
 
@@ -835,6 +863,31 @@ func (hs *clientHandshakeState) doTLS13Handshake() error {
 	hs.finishedHash.addEntropy(zeroSecret)
 	clientTrafficSecret := hs.finishedHash.deriveSecret(clientApplicationTrafficLabel)
 	serverTrafficSecret := hs.finishedHash.deriveSecret(serverApplicationTrafficLabel)
+	c.exporterSecret = hs.finishedHash.deriveSecret(exporterLabel)
+
+	// Switch to application data keys on read. In particular, any alerts
+	// from the client certificate are read over these keys.
+	c.in.useTrafficSecret(c.vers, hs.suite, serverTrafficSecret, serverWrite)
+
+	// If we're expecting 0.5-RTT messages from the server, read them
+	// now.
+	for _, expectedMsg := range c.config.Bugs.ExpectHalfRTTData {
+		if err := c.readRecord(recordTypeApplicationData); err != nil {
+			return err
+		}
+		if !bytes.Equal(c.input.data[c.input.off:], expectedMsg) {
+			return errors.New("ExpectHalfRTTData: did not get expected message")
+		}
+		c.in.freeBlock(c.input)
+		c.input = nil
+	}
+
+	// Send EndOfEarlyData and then switch write key to handshake
+	// traffic key.
+	if c.out.cipher != nil {
+		c.sendAlert(alertEndOfEarlyData)
+	}
+	c.out.useTrafficSecret(c.vers, hs.suite, clientHandshakeTrafficSecret, clientWrite)
 
 	if certReq != nil && !c.config.Bugs.SkipClientCertificate {
 		certMsg := &certificateMsg{
@@ -919,9 +972,7 @@ func (hs *clientHandshakeState) doTLS13Handshake() error {
 
 	// Switch to application data keys.
 	c.out.useTrafficSecret(c.vers, hs.suite, clientTrafficSecret, clientWrite)
-	c.in.useTrafficSecret(c.vers, hs.suite, serverTrafficSecret, serverWrite)
 
-	c.exporterSecret = hs.finishedHash.deriveSecret(exporterLabel)
 	c.resumptionSecret = hs.finishedHash.deriveSecret(resumptionLabel)
 	return nil
 }
@@ -1301,6 +1352,10 @@ func (hs *clientHandshakeState) processServerExtensions(serverExtensions *server
 func (hs *clientHandshakeState) serverResumedSession() bool {
 	// If the server responded with the same sessionId then it means the
 	// sessionTicket is being used to resume a TLS session.
+	//
+	// Note that, if hs.hello.sessionId is a non-nil empty array, this will
+	// accept an empty session ID from the server as resumption. See
+	// EmptyTicketSessionID.
 	return hs.session != nil && hs.hello.sessionId != nil &&
 		bytes.Equal(hs.serverHello.sessionId, hs.hello.sessionId)
 }

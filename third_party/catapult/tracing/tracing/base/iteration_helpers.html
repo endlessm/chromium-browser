@@ -11,7 +11,6 @@ found in the LICENSE file.
 'use strict';
 
 tr.exportTo('tr.b', function() {
-
   /**
    * Converts any object which is either (a) an iterable, or (b) an
    * "array-ish" object (has length property and can be indexed into)
@@ -163,15 +162,6 @@ tr.exportTo('tr.b', function() {
       items.push(element);
     }
     return results;
-  }
-
-  function iterItems(dict, fn, opt_this) {
-    opt_this = opt_this || this;
-    var keys = Object.keys(dict);
-    for (var i = 0; i < keys.length; i++) {
-      var key = keys[i];
-      fn.call(opt_this, key, dict[key]);
-    }
   }
 
   /**
@@ -374,6 +364,12 @@ tr.exportTo('tr.b', function() {
     return values;
   }
 
+  function setsEqual(a, b) {
+    if (!(a instanceof Set) || !(b instanceof Set)) return false;
+    if (a.size !== b.size) return false;
+    return Array.from(a).every(x => b.has(x));
+  }
+
   return {
     asArray,
     concatenateObjects,
@@ -386,7 +382,6 @@ tr.exportTo('tr.b', function() {
     getFirstElement,
     group,
     groupIntoMap,
-    iterItems,
     mapItems,
     filterItems,
     iterObjectFieldsRecursively,
@@ -397,6 +392,7 @@ tr.exportTo('tr.b', function() {
     findFirstInArray,
     findFirstKeyInDictMatching,
     mapValues,
+    setsEqual,
   };
 });
 </script>

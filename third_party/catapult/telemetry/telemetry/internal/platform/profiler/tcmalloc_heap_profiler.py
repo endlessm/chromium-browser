@@ -34,11 +34,7 @@ class _TCMallocHeapProfilerAndroid(object):
   def _SetDeviceProperties(self, properties):
     device_configured = False
     # This profiler requires adb root to set properties.
-    try:
-      self._browser_backend.device.EnableRoot()
-    except:
-      logging.exception('New exception caused by DeviceUtils conversion')
-      raise
+    self._browser_backend.device.EnableRoot()
     for values in properties.itervalues():
       device_property = self._browser_backend.device.GetProp(values[0])
       if not device_property or not device_property.strip():
@@ -47,9 +43,9 @@ class _TCMallocHeapProfilerAndroid(object):
     if not self._browser_backend.device.FileExists(
         self._DEFAULT_DEVICE_DIR):
       self._browser_backend.device.RunShellCommand(
-          'mkdir -p ' + self._DEFAULT_DEVICE_DIR)
+          ['mkdir', '-p', self._DEFAULT_DEVICE_DIR], check_return=True)
       self._browser_backend.device.RunShellCommand(
-          'chmod 777 ' + self._DEFAULT_DEVICE_DIR)
+          ['chmod', '777', self._DEFAULT_DEVICE_DIR], check_return=True)
       device_configured = True
     if device_configured:
       raise Exception('Device required special config, run again.')
@@ -61,8 +57,10 @@ class _TCMallocHeapProfilerAndroid(object):
     except:
       logging.exception('New exception caused by DeviceUtils conversion')
       raise
+    # Note: command must be passed as a string to expand wildcards.
     self._browser_backend.device.RunShellCommand(
-        'rm ' + os.path.join(self._DEFAULT_DEVICE_DIR, '*'))
+        'rm -f ' + os.path.join(self._DEFAULT_DEVICE_DIR, '*'),
+        check_return=True)
     if os.path.exists(self._output_path):
       logging.info('TCMalloc dumps pulled to %s', self._output_path)
       with file(os.path.join(self._output_path,

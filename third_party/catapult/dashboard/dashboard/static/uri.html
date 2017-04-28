@@ -14,7 +14,6 @@ found in the LICENSE file.
  * Utility functions for dealing with URIs.
  */
 var uri = (function() {
-
   /**
    * URI controller.
    * @param {function()} pageStateCallback callback for getting the page state.
@@ -190,7 +189,7 @@ var uri = (function() {
     };
     request.open('post', '/short_uri', true);
     request.setRequestHeader('Content-type',
-                             'application/x-www-form-urlencoded');
+        'application/x-www-form-urlencoded');
     request.send(postData);
     this.stateRequest_ = request;
   };
@@ -264,12 +263,22 @@ var uri = (function() {
     return window.location.pathname + '?' + pairs.join('&');
   };
 
+  /**
+   * Gets the second argument after the .com/.
+   * @return {string} second path element.
+   */
+  var getPathName = function() {
+    return window.location.pathname.split('/')[2];
+  };
+
+
   return {
     Controller: Controller,
     getParameter: getParameter,
     getAllParameters: getAllParameters,
     getCurrentPathWithParams: getCurrentPathWithParams,
-    getQueryString: getQueryString
+    getQueryString: getQueryString,
+    getPathName: getPathName,
   };
 })();
 

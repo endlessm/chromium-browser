@@ -2519,7 +2519,7 @@ TEST_F(FragmentShaderValidationTest, ImageR32FNoMemoryQualifier)
 // Images which do not have r32f, r32i or r32ui as internal format, must have readonly or writeonly
 // specified.
 // GLSL ES 3.10, Revision 4, 4.9 Memory Access Qualifiers
-TEST_F(FragmentShaderValidationTest, ImageR32FWithCorrectMemoryQualifier)
+TEST_F(FragmentShaderValidationTest, ImageRGBA32FWithIncorrectMemoryQualifier)
 {
     const std::string &shaderString =
         "#version 310 es\n"
@@ -2568,6 +2568,52 @@ TEST_F(FragmentShaderValidationTest, LoadFromWriteOnlyImage)
         "layout(r32f) uniform writeonly image2D myImage;\n"
         "void main() {\n"
         "   imageLoad(myImage, ivec2(0));\n"
+        "}\n";
+
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+    }
+}
+
+// It is a compile-time error to call imageStore when the image is qualified as readonly.
+// Test to make sure this is validated correctly for images in arrays.
+// GLSL ES 3.10 Revision 4, 4.9 Memory Access Qualifiers
+TEST_F(FragmentShaderValidationTest, StoreInReadOnlyImageArray)
+{
+    const std::string &shaderString =
+        "#version 310 es\n"
+        "precision mediump float;\n"
+        "precision mediump image2D;\n"
+        "in vec4 myInput;\n"
+        "layout(r32f) uniform readonly image2D myImage[2];\n"
+        "void main() {\n"
+        "   imageStore(myImage[0], ivec2(0), vec4(1.0));\n"
+        "}\n";
+
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+    }
+}
+
+// It is a compile-time error to call imageStore when the image is qualified as readonly.
+// Test to make sure that checking this doesn't crash when validating an image in a struct.
+// Image in a struct in itself isn't accepted by the parser, but error recovery still results in
+// an image in the struct.
+// GLSL ES 3.10 Revision 4, 4.9 Memory Access Qualifiers
+TEST_F(FragmentShaderValidationTest, StoreInReadOnlyImageInStruct)
+{
+    const std::string &shaderString =
+        "#version 310 es\n"
+        "precision mediump float;\n"
+        "precision mediump image2D;\n"
+        "in vec4 myInput;\n"
+        "uniform struct S {\n"
+        "    layout(r32f) readonly image2D myImage;\n"
+        "} s;\n"
+        "void main() {\n"
+        "   imageStore(s.myImage, ivec2(0), vec4(1.0));\n"
         "}\n";
 
     if (compile(shaderString))
@@ -2683,6 +2729,52 @@ TEST_F(FragmentShaderValidationTest, ReadOnlyQualifierMissingInFunctionArgument)
         "void myFunc(in image2D someImage) {}\n"
         "void main() {\n"
         "   myFunc(myImage);\n"
+        "}\n";
+
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+    }
+}
+
+// Passing an image qualifier to a function should not be able to discard the readonly qualifier.
+// Test with an image from an array.
+// GLSL ES 3.10 Revision 4, 4.9 Memory Access Qualifiers
+TEST_F(FragmentShaderValidationTest, ReadOnlyQualifierMissingInFunctionArgumentArray)
+{
+    const std::string &shaderString =
+        "#version 310 es\n"
+        "precision mediump float;\n"
+        "precision mediump image2D;\n"
+        "layout(rgba32f) uniform readonly image2D myImage[2];\n"
+        "void myFunc(in image2D someImage) {}\n"
+        "void main() {\n"
+        "   myFunc(myImage[0]);\n"
+        "}\n";
+
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure:\n" << mInfoLog;
+    }
+}
+
+// Passing an image qualifier to a function should not be able to discard the readonly qualifier.
+// Test that validation doesn't crash on this for an image in a struct.
+// Image in a struct in itself isn't accepted by the parser, but error recovery still results in
+// an image in the struct.
+// GLSL ES 3.10 Revision 4, 4.9 Memory Access Qualifiers
+TEST_F(FragmentShaderValidationTest, ReadOnlyQualifierMissingInFunctionArgumentStruct)
+{
+    const std::string &shaderString =
+        "#version 310 es\n"
+        "precision mediump float;\n"
+        "precision mediump image2D;\n"
+        "uniform struct S {\n"
+        "    layout(r32f) readonly image2D myImage;\n"
+        "} s;\n"
+        "void myFunc(in image2D someImage) {}\n"
+        "void main() {\n"
+        "   myFunc(s.myImage);\n"
         "}\n";
 
     if (compile(shaderString))
@@ -3413,6 +3505,202 @@ TEST_F(FragmentShaderValidationTest, InvalidMainPrototypeParameters)
         "#version 300 es\n"
         "void main(int a);\n"
         "void main() {}\n";
+
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure " << mInfoLog;
+    }
+}
+
+// Regression test for a crash in the empty constructor of unsized array
+// of a structure with non-basic fields fields. Test with "void".
+TEST_F(FragmentShaderValidationTest, VoidFieldStructUnsizedArrayEmptyConstructor)
+{
+    const std::string &shaderString =
+        "#version 300 es\n"
+        "struct S {void a;};"
+        "void main() {S s[] = S[]();}\n";
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure " << mInfoLog;
+    }
+}
+
+// Regression test for a crash in the empty constructor of unsized array
+// of a structure with non-basic fields fields. Test with something other than "void".
+TEST_F(FragmentShaderValidationTest, SamplerFieldStructUnsizedArrayEmptyConstructor)
+{
+    const std::string &shaderString =
+        "#version 300 es\n"
+        "struct S {sampler2D a;};"
+        "void main() {S s[] = S[]();}\n";
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure " << mInfoLog;
+    }
+}
+
+// Checks that odd array initialization syntax is an error, and does not produce
+// an ASSERT failure.
+TEST_F(VertexShaderValidationTest, InvalidArrayConstruction)
+{
+    const std::string &shaderString =
+        "struct S { mediump float i; mediump int ggb; };\n"
+        "void main() {\n"
+        "  S s[2];\n"
+        "  s = S[](s.x, 0.0);\n"
+        "  gl_Position = vec4(1, 0, 0, 1);\n"
+        "}";
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure " << mInfoLog;
+    }
+}
+
+// Correct usage of image binding layout qualifier.
+TEST_F(ComputeShaderValidationTest, CorrectImageBindingLayoutQualifier)
+{
+    const std::string &shaderString =
+        "#version 310 es\n"
+        "precision mediump float;\n"
+        "precision mediump image2D;\n"
+        "layout(local_size_x = 5) in;\n"
+        "layout(binding = 1, rgba32f) writeonly uniform image2D myImage;\n"
+        "void main()\n"
+        "{\n"
+        "   imageStore(myImage, ivec2(gl_LocalInvocationID.xy), vec4(1.0));\n"
+        "}\n";
+
+    if (!compile(shaderString))
+    {
+        FAIL() << "Shader compilation failed, expecting success " << mInfoLog;
+    }
+}
+
+// Incorrect use of "binding" on a global layout qualifier.
+TEST_F(ComputeShaderValidationTest, IncorrectGlobalBindingLayoutQualifier)
+{
+    const std::string &shaderString =
+        "#version 310 es\n"
+        "layout(local_size_x = 5, binding = 0) in;\n"
+        "void main() {}\n";
+
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure " << mInfoLog;
+    }
+}
+
+// Incorrect use of "binding" on a struct field layout qualifier.
+TEST_F(ComputeShaderValidationTest, IncorrectStructFieldBindingLayoutQualifier)
+{
+    const std::string &shaderString =
+        "#version 310 es\n"
+        "precision mediump float;\n"
+        "layout(local_size_x = 1) in;\n"
+        "struct S\n"
+        "{\n"
+        "  layout(binding = 0) float f;\n"
+        "};\n"
+        "void main() {}\n";
+
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure " << mInfoLog;
+    }
+}
+
+// Variable binding layout qualifier is set to a negative value. 0xffffffff wraps around to -1
+// according to the integer parsing rules.
+TEST_F(FragmentShaderValidationTest, ImageBindingUnitNegative)
+{
+    const std::string &shaderString =
+        "#version 310 es\n"
+        "precision mediump float;\n"
+        "layout(rgba32f, binding = 0xffffffff) writeonly uniform mediump image2D myImage;\n"
+        "out vec4 outFrag;\n"
+        "void main()\n"
+        "{\n"
+        "   outFrag = vec4(0.0);\n"
+        "}\n";
+
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure " << mInfoLog;
+    }
+}
+
+// Image binding layout qualifier value is greater than the maximum image binding.
+TEST_F(FragmentShaderValidationTest, ImageBindingUnitTooBig)
+{
+    const std::string &shaderString =
+        "#version 310 es\n"
+        "precision mediump float;\n"
+        "layout(rgba32f, binding = 9999) writeonly uniform mediump image2D myImage;\n"
+        "out vec4 outFrag;\n"
+        "void main()\n"
+        "{\n"
+        "   outFrag = vec4(0.0);\n"
+        "}\n";
+
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure " << mInfoLog;
+    }
+}
+
+// Uniform variable binding is set on a non-opaque type.
+TEST_F(FragmentShaderValidationTest, NonOpaqueUniformBinding)
+{
+    const std::string &shaderString =
+        "#version 310 es\n"
+        "precision mediump float;\n"
+        "layout(binding = 0) uniform float myFloat;\n"
+        "out vec4 outFrag;\n"
+        "void main()\n"
+        "{\n"
+        "   outFrag = vec4(myFloat);\n"
+        "}\n";
+
+    if (compile(shaderString))
+    {
+        FAIL() << "Shader compilation succeeded, expecting failure " << mInfoLog;
+    }
+}
+
+// Uniform variable binding is set on a sampler type.
+// ESSL 3.10 section 4.4.5 Opaque Uniform Layout Qualifiers.
+TEST_F(FragmentShaderValidationTest, SamplerUniformBinding)
+{
+    const std::string &shaderString =
+        "#version 310 es\n"
+        "precision mediump float;\n"
+        "layout(binding = 0) uniform mediump sampler2D mySampler;\n"
+        "out vec4 outFrag;\n"
+        "void main()\n"
+        "{\n"
+        "   outFrag = vec4(0.0);\n"
+        "}\n";
+
+    if (!compile(shaderString))
+    {
+        FAIL() << "Shader compilation failed, expecting success " << mInfoLog;
+    }
+}
+
+// Uniform variable binding is set on a sampler type in an ESSL 3.00 shader.
+// The binding layout qualifier was added in ESSL 3.10, so this is incorrect.
+TEST_F(FragmentShaderValidationTest, SamplerUniformBindingESSL300)
+{
+    const std::string &shaderString =
+        "#version 300 es\n"
+        "precision mediump float;\n"
+        "layout(binding = 0) uniform mediump sampler2D mySampler;\n"
+        "out vec4 outFrag;\n"
+        "void main()\n"
+        "{\n"
+        "   outFrag = vec4(0.0);\n"
+        "}\n";
 
     if (compile(shaderString))
     {

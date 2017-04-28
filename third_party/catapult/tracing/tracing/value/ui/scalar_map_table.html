@@ -22,7 +22,7 @@ Polymer({
   is: 'tr-v-ui-scalar-map-table',
 
   created: function() {
-    /** @type {!Map.<string, !tr.v.ScalarNumeric>} */
+    /** @type {!Map.<string, !tr.b.Scalar>} */
     this.scalarMap_ = new Map();
 
     /** @type {!Map.<string, !tr.b.Statistics.Significance>} */
@@ -39,7 +39,7 @@ Polymer({
       },
       {
         value: function(row) {
-          var span = tr.v.ui.createScalarSpan(row.value);
+          let span = tr.v.ui.createScalarSpan(row.value);
           if (row.significance !== undefined) {
             span.significance = row.significance;
           } else if (row.anyRowsHaveSignificance) {
@@ -58,7 +58,7 @@ Polymer({
   },
 
   /**
-   * @param {!Map.<string,!tr.v.ScalarNumeric>} map
+   * @param {!Map.<string,!tr.b.Scalar>} map
    */
   set scalarMap(map) {
     this.scalarMap_ = map;
@@ -75,8 +75,8 @@ Polymer({
   },
 
   updateContents_: function() {
-    var rows = [];
-    for (var [key, scalar] of this.scalarMap) {
+    let rows = [];
+    for (let [key, scalar] of this.scalarMap) {
       rows.push({
         name: key,
         value: scalar,

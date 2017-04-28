@@ -2,10 +2,16 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+from google.appengine.api import taskqueue
 from google.appengine.ext import ndb
 
 from dashboard.pinpoint.models import attempt as attempt_module
 from dashboard.pinpoint.models import quest
+
+
+# We want this to be fast to minimize overhead while waiting for tasks to
+# finish, but don't want to consume too many resources.
+_TASK_INTERVAL = 10
 
 
 def JobFromId(job_id):
@@ -43,11 +49,11 @@ class Job(ndb.Model):
   @classmethod
   def New(cls, configuration, test_suite, test, metric, auto_explore):
     # Get list of quests.
-    quests = [quest.FindIsolated(configuration=configuration)]
+    quests = [quest.FindIsolated(configuration)]
     if test_suite:
-      quests.append(quest.RunTest(test_suite=test_suite, test=test))
+      quests.append(quest.RunTest(configuration, test_suite, test))
     if metric:
-      quests.append(quest.ReadValue(metric=metric))
+      quests.append(quest.ReadValue(metric))
 
     # Create job.
     return cls(
@@ -58,14 +64,51 @@ class Job(ndb.Model):
         auto_explore=auto_explore,
         state=_JobState(quests))
 
+  @property
+  def job_id(self):
+    return self.key.urlsafe()
+
+  @property
+  def running(self):
+    return bool(self.task)
+
   def AddChange(self, change):
     self.state.AddChange(change)
 
-  def Explore(self):
-    self.state.Explore()
+  def Start(self):
+    task = taskqueue.add(queue_name='job-queue', target='pinpoint',
+                         url='/run/' + self.job_id,
+                         countdown=_TASK_INTERVAL)
+    self.task = task.name
 
-  def ScheduleWork(self):
-    return self.state.ScheduleWork()
+  def Run(self):
+    if self.auto_explore:
+      self.state.Explore()
+    work_left = self.state.ScheduleWork()
+
+    # Schedule moar task.
+    if work_left:
+      self.Start()
+    else:
+      self.task = None
+
+  def AsDict(self):
+    if self.running:
+      status = 'RUNNING'
+    else:
+      status = 'COMPLETED'
+
+    return {
+        'job_id': self.job_id,
+        'configuration': self.configuration,
+        'test_suite': self.test_suite,
+        'test': self.test,
+        'metric': self.metric,
+        'auto_explore': self.auto_explore,
+        'created': self.created.strftime('%Y-%m-%d %H:%M:%S %Z'),
+        'updated': self.updated.strftime('%Y-%m-%d %H:%M:%S %Z'),
+        'status': status,
+    }
 
 
 class _JobState(object):

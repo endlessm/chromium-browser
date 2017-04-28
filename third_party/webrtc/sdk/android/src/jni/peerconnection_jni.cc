@@ -45,19 +45,11 @@
 
 #include "third_party/libyuv/include/libyuv/convert_from.h"
 #include "third_party/libyuv/include/libyuv/scale.h"
-#include "webrtc/sdk/android/src/jni/androidmediadecoder_jni.h"
-#include "webrtc/sdk/android/src/jni/androidmediaencoder_jni.h"
-#include "webrtc/sdk/android/src/jni/androidnetworkmonitor_jni.h"
-#include "webrtc/sdk/android/src/jni/androidvideotracksource.h"
-#include "webrtc/sdk/android/src/jni/classreferenceholder.h"
-#include "webrtc/sdk/android/src/jni/jni_helpers.h"
-#include "webrtc/sdk/android/src/jni/native_handle_impl.h"
 #include "webrtc/api/mediaconstraintsinterface.h"
 #include "webrtc/api/peerconnectioninterface.h"
 #include "webrtc/api/rtpreceiverinterface.h"
 #include "webrtc/api/rtpsenderinterface.h"
 #include "webrtc/api/videosourceproxy.h"
-#include "webrtc/api/webrtcsdp.h"
 #include "webrtc/base/bind.h"
 #include "webrtc/base/checks.h"
 #include "webrtc/base/event_tracer.h"
@@ -72,6 +64,14 @@
 #include "webrtc/media/engine/webrtcvideodecoderfactory.h"
 #include "webrtc/media/engine/webrtcvideoencoderfactory.h"
 #include "webrtc/system_wrappers/include/field_trial.h"
+#include "webrtc/pc/webrtcsdp.h"
+#include "webrtc/sdk/android/src/jni/androidmediadecoder_jni.h"
+#include "webrtc/sdk/android/src/jni/androidmediaencoder_jni.h"
+#include "webrtc/sdk/android/src/jni/androidnetworkmonitor_jni.h"
+#include "webrtc/sdk/android/src/jni/androidvideotracksource.h"
+#include "webrtc/sdk/android/src/jni/classreferenceholder.h"
+#include "webrtc/sdk/android/src/jni/jni_helpers.h"
+#include "webrtc/sdk/android/src/jni/native_handle_impl.h"
 #include "webrtc/system_wrappers/include/field_trial_default.h"
 #include "webrtc/system_wrappers/include/logcat_trace_context.h"
 #include "webrtc/system_wrappers/include/trace.h"
@@ -90,6 +90,7 @@ using webrtc::DataBuffer;
 using webrtc::DataChannelInit;
 using webrtc::DataChannelInterface;
 using webrtc::DataChannelObserver;
+using webrtc::DtmfSenderInterface;
 using webrtc::IceCandidateInterface;
 using webrtc::LogcatTraceContext;
 using webrtc::MediaConstraintsInterface;
@@ -157,6 +158,47 @@ static DataChannelInit JavaDataChannelInitToNative(
   return init;
 }
 
+static cricket::MediaType JavaMediaTypeToJsepMediaType(JNIEnv* jni,
+                                                       jobject j_media_type) {
+  jclass j_media_type_class =
+      FindClass(jni, "org/webrtc/MediaStreamTrack$MediaType");
+  jmethodID j_name_id =
+      GetMethodID(jni, j_media_type_class, "name", "()Ljava/lang/String;");
+  jstring j_type_string =
+      (jstring)jni->CallObjectMethod(j_media_type, j_name_id);
+  CHECK_EXCEPTION(jni) << "error during CallObjectMethod";
+  std::string type_string = JavaToStdString(jni, j_type_string);
+
+  RTC_DCHECK(type_string == "MEDIA_TYPE_AUDIO" ||
+             type_string == "MEDIA_TYPE_VIDEO")
+      << "Media type: " << type_string;
+  return type_string == "MEDIA_TYPE_AUDIO" ? cricket::MEDIA_TYPE_AUDIO
+                                           : cricket::MEDIA_TYPE_VIDEO;
+}
+
+static jobject JsepMediaTypeToJavaMediaType(JNIEnv* jni,
+                                            cricket::MediaType media_type) {
+  jclass j_media_type_class =
+      FindClass(jni, "org/webrtc/MediaStreamTrack$MediaType");
+
+  const char* media_type_str = nullptr;
+  switch (media_type) {
+    case cricket::MEDIA_TYPE_AUDIO:
+      media_type_str = "MEDIA_TYPE_AUDIO";
+      break;
+    case cricket::MEDIA_TYPE_VIDEO:
+      media_type_str = "MEDIA_TYPE_VIDEO";
+      break;
+    case cricket::MEDIA_TYPE_DATA:
+      RTC_NOTREACHED();
+      break;
+  }
+  jfieldID j_media_type_fid =
+      GetStaticFieldID(jni, j_media_type_class, media_type_str,
+                       "Lorg/webrtc/MediaStreamTrack$MediaType;");
+  return GetStaticObjectField(jni, j_media_type_class, j_media_type_fid);
+}
+
 class ConstraintsWrapper;
 
 // Adapter between the C++ PeerConnectionObserver interface and the Java
@@ -203,12 +245,16 @@ class PCOJava : public PeerConnectionObserver {
     std::string sdp;
     RTC_CHECK(candidate->ToString(&sdp)) << "got so far: " << sdp;
     jclass candidate_class = FindClass(jni(), "org/webrtc/IceCandidate");
-    jmethodID ctor = GetMethodID(jni(), candidate_class,
-        "<init>", "(Ljava/lang/String;ILjava/lang/String;)V");
+    jmethodID ctor = GetMethodID(
+        jni(), candidate_class, "<init>",
+        "(Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;)V");
     jstring j_mid = JavaStringFromStdString(jni(), candidate->sdp_mid());
     jstring j_sdp = JavaStringFromStdString(jni(), sdp);
-    jobject j_candidate = jni()->NewObject(candidate_class, ctor, j_mid,
-                                           candidate->sdp_mline_index(), j_sdp);
+    jstring j_url =
+        JavaStringFromStdString(jni(), candidate->candidate().url());
+    jobject j_candidate =
+        jni()->NewObject(candidate_class, ctor, j_mid,
+                         candidate->sdp_mline_index(), j_sdp, j_url);
     CHECK_EXCEPTION(jni()) << "error during NewObject";
     jmethodID m = GetMethodID(jni(), *j_observer_class_,
                               "onIceCandidate", "(Lorg/webrtc/IceCandidate;)V");
@@ -740,9 +786,9 @@ class StatsObserverWrapper : public StatsObserver {
 
   virtual ~StatsObserverWrapper() {}
 
-  void OnCompleteReports(std::unique_ptr<StatsReports> reports) override {
+  void OnComplete(const StatsReports& reports) override {
     ScopedLocalRefFrame local_ref_frame(jni());
-    jobjectArray j_reports = ReportsToJava(jni(), *reports);
+    jobjectArray j_reports = ReportsToJava(jni(), reports);
     jmethodID m = GetMethodID(jni(), *j_observer_class_, "onComplete",
                               "([Lorg/webrtc/StatsReport;)V");
     jni()->CallVoidMethod(*j_observer_global_, m, j_reports);
@@ -916,20 +962,7 @@ class RtpReceiverObserver : public RtpReceiverObserverInterface {
         jni, GetObjectClass(jni, *j_observer_global_), "onFirstPacketReceived",
         "(Lorg/webrtc/MediaStreamTrack$MediaType;)V");
     // Get the Java version of media type.
-    jclass j_media_type_class =
-        FindClass(jni, "org/webrtc/MediaStreamTrack$MediaType");
-
-    RTC_DCHECK(media_type == cricket::MEDIA_TYPE_AUDIO ||
-               media_type == cricket::MEDIA_TYPE_VIDEO)
-        << "Media type: " << media_type;
-    const char* media_type_str = media_type == cricket::MEDIA_TYPE_AUDIO
-                                     ? "MEDIA_TYPE_AUDIO"
-                                     : "MEDIA_TYPE_VIDEO";
-    jfieldID j_media_type_fid =
-        GetStaticFieldID(jni, j_media_type_class, media_type_str,
-                         "Lorg/webrtc/MediaStreamTrack$MediaType;");
-    jobject JavaMediaType =
-        GetStaticObjectField(jni, j_media_type_class, j_media_type_fid);
+    jobject JavaMediaType = JsepMediaTypeToJavaMediaType(jni, media_type);
     // Trigger the callback function.
     jni->CallVoidMethod(*j_observer_global_, j_on_first_packet_received_mid,
                         JavaMediaType);
@@ -1758,6 +1791,11 @@ static void JavaRTCConfigurationToJsepRTCConfiguration(
   jfieldID j_prune_turn_ports_id =
       GetFieldID(jni, j_rtc_config_class, "pruneTurnPorts", "Z");
 
+  jfieldID j_ice_check_min_interval_id = GetFieldID(
+      jni, j_rtc_config_class, "iceCheckMinInterval", "Ljava/lang/Integer;");
+  jclass j_integer_class = jni->FindClass("java/lang/Integer");
+  jmethodID int_value_id = GetMethodID(jni, j_integer_class, "intValue", "()I");
+
   rtc_config->type =
       JavaIceTransportsTypeToNativeType(jni, j_ice_transports_type);
   rtc_config->bundle_policy =
@@ -1786,6 +1824,14 @@ static void JavaRTCConfigurationToJsepRTCConfiguration(
       GetBooleanField(jni, j_rtc_config, j_prune_turn_ports_id);
   rtc_config->presume_writable_when_fully_relayed = GetBooleanField(
       jni, j_rtc_config, j_presume_writable_when_fully_relayed_id);
+  jobject j_ice_check_min_interval =
+      GetNullableObjectField(jni, j_rtc_config, j_ice_check_min_interval_id);
+  if (!IsNull(jni, j_ice_check_min_interval)) {
+    int ice_check_min_interval_value =
+        jni->CallIntMethod(j_ice_check_min_interval, int_value_id);
+    rtc_config->ice_check_min_interval =
+        rtc::Optional<int>(ice_check_min_interval_value);
+  }
 }
 
 JOW(jlong, PeerConnectionFactory_nativeCreatePeerConnection)(
@@ -2237,6 +2283,19 @@ JOW(void, VideoFileRenderer_nativeI420Scale)(
   }
 }
 
+JOW(jobject, VideoFileRenderer_nativeCreateNativeByteBuffer)
+(JNIEnv* jni, jclass, jint size) {
+  void* new_data = ::operator new(size);
+  jobject byte_buffer = jni->NewDirectByteBuffer(new_data, size);
+  return byte_buffer;
+}
+
+JOW(void, VideoFileRenderer_nativeFreeNativeByteBuffer)
+(JNIEnv* jni, jclass, jobject byte_buffer) {
+  void* data = jni->GetDirectBufferAddress(byte_buffer);
+  ::operator delete(data);
+}
+
 JOW(jstring, MediaStreamTrack_nativeId)(JNIEnv* jni, jclass, jlong j_p) {
   return JavaStringFromStdString(
       jni, reinterpret_cast<MediaStreamTrackInterface*>(j_p)->id());
@@ -2344,13 +2403,19 @@ JOW(jboolean, RtpSender_nativeSetTrack)(JNIEnv* jni,
       ->SetTrack(reinterpret_cast<MediaStreamTrackInterface*>(j_track_pointer));
 }
 
-JOW(jlong, RtpSender_nativeGetTrack)(JNIEnv* jni,
-                                  jclass,
-                                  jlong j_rtp_sender_pointer,
-                                  jlong j_track_pointer) {
+JOW(jlong, RtpSender_nativeGetTrack)
+(JNIEnv* jni, jclass, jlong j_rtp_sender_pointer) {
   return jlongFromPointer(
       reinterpret_cast<RtpSenderInterface*>(j_rtp_sender_pointer)
           ->track()
+          .release());
+}
+
+JOW(jlong, RtpSender_nativeGetDtmfSender)
+(JNIEnv* jni, jclass, jlong j_rtp_sender_pointer) {
+  return jlongFromPointer(
+      reinterpret_cast<RtpSenderInterface*>(j_rtp_sender_pointer)
+          ->GetDtmfSender()
           .release());
 }
 
@@ -2367,7 +2432,6 @@ static void JavaRtpParametersToJsepRtpParameters(
 
   // Convert encodings.
   jobject j_encodings = GetObjectField(jni, j_parameters, encodings_id);
-  const int kBitrateUnlimited = -1;
   jclass j_encoding_parameters_class =
       jni->FindClass("org/webrtc/RtpParameters$Encoding");
   jfieldID active_id =
@@ -2389,9 +2453,7 @@ static void JavaRtpParametersToJsepRtpParameters(
     if (!IsNull(jni, j_bitrate)) {
       int bitrate_value = jni->CallIntMethod(j_bitrate, int_value_id);
       CHECK_EXCEPTION(jni) << "error during CallIntMethod";
-      encoding.max_bitrate_bps = bitrate_value;
-    } else {
-      encoding.max_bitrate_bps = kBitrateUnlimited;
+      encoding.max_bitrate_bps = rtc::Optional<int>(bitrate_value);
     }
     jobject j_ssrc =
         GetNullableObjectField(jni, j_encoding_parameters, ssrc_id);
@@ -2407,18 +2469,33 @@ static void JavaRtpParametersToJsepRtpParameters(
   jobject j_codecs = GetObjectField(jni, j_parameters, codecs_id);
   jclass codec_class = jni->FindClass("org/webrtc/RtpParameters$Codec");
   jfieldID payload_type_id = GetFieldID(jni, codec_class, "payloadType", "I");
-  jfieldID mime_type_id =
-      GetFieldID(jni, codec_class, "mimeType", "Ljava/lang/String;");
-  jfieldID clock_rate_id = GetFieldID(jni, codec_class, "clockRate", "I");
-  jfieldID channels_id = GetFieldID(jni, codec_class, "channels", "I");
+  jfieldID name_id = GetFieldID(jni, codec_class, "name", "Ljava/lang/String;");
+  jfieldID kind_id = GetFieldID(jni, codec_class, "kind",
+                                "Lorg/webrtc/MediaStreamTrack$MediaType;");
+  jfieldID clock_rate_id =
+      GetFieldID(jni, codec_class, "clockRate", "Ljava/lang/Integer;");
+  jfieldID num_channels_id =
+      GetFieldID(jni, codec_class, "numChannels", "Ljava/lang/Integer;");
 
   for (jobject j_codec : Iterable(jni, j_codecs)) {
     webrtc::RtpCodecParameters codec;
     codec.payload_type = GetIntField(jni, j_codec, payload_type_id);
-    codec.mime_type =
-        JavaToStdString(jni, GetStringField(jni, j_codec, mime_type_id));
-    codec.clock_rate = GetIntField(jni, j_codec, clock_rate_id);
-    codec.channels = GetIntField(jni, j_codec, channels_id);
+    codec.name = JavaToStdString(jni, GetStringField(jni, j_codec, name_id));
+    codec.kind = JavaMediaTypeToJsepMediaType(
+        jni, GetObjectField(jni, j_codec, kind_id));
+    jobject j_clock_rate = GetNullableObjectField(jni, j_codec, clock_rate_id);
+    if (!IsNull(jni, j_clock_rate)) {
+      int clock_rate_value = jni->CallIntMethod(j_clock_rate, int_value_id);
+      CHECK_EXCEPTION(jni) << "error during CallIntMethod";
+      codec.clock_rate = rtc::Optional<int>(clock_rate_value);
+    }
+    jobject j_num_channels =
+        GetNullableObjectField(jni, j_codec, num_channels_id);
+    if (!IsNull(jni, j_num_channels)) {
+      int num_channels_value = jni->CallIntMethod(j_num_channels, int_value_id);
+      CHECK_EXCEPTION(jni) << "error during CallIntMethod";
+      codec.num_channels = rtc::Optional<int>(num_channels_value);
+    }
     parameters->codecs.push_back(codec);
   }
 }
@@ -2440,8 +2517,7 @@ static jobject JsepRtpParametersToJavaRtpParameters(
   jobject j_encodings = GetObjectField(jni, j_parameters, encodings_id);
   jmethodID encodings_add = GetMethodID(jni, GetObjectClass(jni, j_encodings),
                                         "add", "(Ljava/lang/Object;)Z");
-  jfieldID active_id =
-      GetFieldID(jni, encoding_class, "active", "Z");
+  jfieldID active_id = GetFieldID(jni, encoding_class, "active", "Z");
   jfieldID bitrate_id =
       GetFieldID(jni, encoding_class, "maxBitrateBps", "Ljava/lang/Integer;");
   jfieldID ssrc_id =
@@ -2458,9 +2534,9 @@ static jobject JsepRtpParametersToJavaRtpParameters(
     CHECK_EXCEPTION(jni) << "error during NewObject";
     jni->SetBooleanField(j_encoding_parameters, active_id, encoding.active);
     CHECK_EXCEPTION(jni) << "error during SetBooleanField";
-    if (encoding.max_bitrate_bps > 0) {
-      jobject j_bitrate_value =
-          jni->NewObject(integer_class, integer_ctor, encoding.max_bitrate_bps);
+    if (encoding.max_bitrate_bps) {
+      jobject j_bitrate_value = jni->NewObject(integer_class, integer_ctor,
+                                               *(encoding.max_bitrate_bps));
       CHECK_EXCEPTION(jni) << "error during NewObject";
       jni->SetObjectField(j_encoding_parameters, bitrate_id, j_bitrate_value);
       CHECK_EXCEPTION(jni) << "error during SetObjectField";
@@ -2484,26 +2560,42 @@ static jobject JsepRtpParametersToJavaRtpParameters(
   jfieldID codecs_id =
       GetFieldID(jni, parameters_class, "codecs", "Ljava/util/LinkedList;");
   jobject j_codecs = GetObjectField(jni, j_parameters, codecs_id);
-  jmethodID codecs_add = GetMethodID(jni, GetObjectClass(jni, j_codecs),
-                                     "add", "(Ljava/lang/Object;)Z");
+  jmethodID codecs_add = GetMethodID(jni, GetObjectClass(jni, j_codecs), "add",
+                                     "(Ljava/lang/Object;)Z");
   jfieldID payload_type_id = GetFieldID(jni, codec_class, "payloadType", "I");
-  jfieldID mime_type_id =
-      GetFieldID(jni, codec_class, "mimeType", "Ljava/lang/String;");
-  jfieldID clock_rate_id = GetFieldID(jni, codec_class, "clockRate", "I");
-  jfieldID channels_id = GetFieldID(jni, codec_class, "channels", "I");
+  jfieldID name_id = GetFieldID(jni, codec_class, "name", "Ljava/lang/String;");
+  jfieldID kind_id = GetFieldID(jni, codec_class, "kind",
+                                "Lorg/webrtc/MediaStreamTrack$MediaType;");
+  jfieldID clock_rate_id =
+      GetFieldID(jni, codec_class, "clockRate", "Ljava/lang/Integer;");
+  jfieldID num_channels_id =
+      GetFieldID(jni, codec_class, "numChannels", "Ljava/lang/Integer;");
 
   for (const webrtc::RtpCodecParameters& codec : parameters.codecs) {
     jobject j_codec = jni->NewObject(codec_class, codec_ctor);
     CHECK_EXCEPTION(jni) << "error during NewObject";
     jni->SetIntField(j_codec, payload_type_id, codec.payload_type);
     CHECK_EXCEPTION(jni) << "error during SetIntField";
-    jni->SetObjectField(j_codec, mime_type_id,
-                        JavaStringFromStdString(jni, codec.mime_type));
+    jni->SetObjectField(j_codec, name_id,
+                        JavaStringFromStdString(jni, codec.name));
     CHECK_EXCEPTION(jni) << "error during SetObjectField";
-    jni->SetIntField(j_codec, clock_rate_id, codec.clock_rate);
-    CHECK_EXCEPTION(jni) << "error during SetIntField";
-    jni->SetIntField(j_codec, channels_id, codec.channels);
-    CHECK_EXCEPTION(jni) << "error during SetIntField";
+    jni->SetObjectField(j_codec, kind_id,
+                        JsepMediaTypeToJavaMediaType(jni, codec.kind));
+    CHECK_EXCEPTION(jni) << "error during SetObjectField";
+    if (codec.clock_rate) {
+      jobject j_clock_rate_value =
+          jni->NewObject(integer_class, integer_ctor, *(codec.clock_rate));
+      CHECK_EXCEPTION(jni) << "error during NewObject";
+      jni->SetObjectField(j_codec, clock_rate_id, j_clock_rate_value);
+      CHECK_EXCEPTION(jni) << "error during SetObjectField";
+    }
+    if (codec.num_channels) {
+      jobject j_num_channels_value =
+          jni->NewObject(integer_class, integer_ctor, *(codec.num_channels));
+      CHECK_EXCEPTION(jni) << "error during NewObject";
+      jni->SetObjectField(j_codec, num_channels_id, j_num_channels_value);
+      CHECK_EXCEPTION(jni) << "error during SetObjectField";
+    }
     jboolean added = jni->CallBooleanMethod(j_codecs, codecs_add, j_codec);
     CHECK_EXCEPTION(jni) << "error during CallBooleanMethod";
     RTC_CHECK(added);
@@ -2600,6 +2692,47 @@ JOW(void, RtpReceiver_nativeUnsetObserver)
   if (observer) {
     delete observer;
   }
+}
+
+JOW(jboolean, DtmfSender_nativeCanInsertDtmf)
+(JNIEnv* jni, jclass, jlong j_dtmf_sender_pointer) {
+  return reinterpret_cast<DtmfSenderInterface*>(j_dtmf_sender_pointer)
+      ->CanInsertDtmf();
+}
+
+JOW(jboolean, DtmfSender_nativeInsertDtmf)
+(JNIEnv* jni,
+ jclass,
+ jlong j_dtmf_sender_pointer,
+ jstring tones,
+ jint duration,
+ jint inter_tone_gap) {
+  return reinterpret_cast<DtmfSenderInterface*>(j_dtmf_sender_pointer)
+      ->InsertDtmf(JavaToStdString(jni, tones), duration, inter_tone_gap);
+}
+
+JOW(jstring, DtmfSender_nativeTones)
+(JNIEnv* jni, jclass, jlong j_dtmf_sender_pointer) {
+  return JavaStringFromStdString(
+      jni,
+      reinterpret_cast<DtmfSenderInterface*>(j_dtmf_sender_pointer)->tones());
+}
+
+JOW(jint, DtmfSender_nativeDuration)
+(JNIEnv* jni, jclass, jlong j_dtmf_sender_pointer) {
+  return reinterpret_cast<DtmfSenderInterface*>(j_dtmf_sender_pointer)
+      ->duration();
+}
+
+JOW(jint, DtmfSender_nativeInterToneGap)
+(JNIEnv* jni, jclass, jlong j_dtmf_sender_pointer) {
+  return reinterpret_cast<DtmfSenderInterface*>(j_dtmf_sender_pointer)
+      ->inter_tone_gap();
+}
+
+JOW(void, DtmfSender_free)
+(JNIEnv* jni, jclass, jlong j_dtmf_sender_pointer) {
+  reinterpret_cast<DtmfSenderInterface*>(j_dtmf_sender_pointer)->Release();
 }
 
 }  // namespace webrtc_jni

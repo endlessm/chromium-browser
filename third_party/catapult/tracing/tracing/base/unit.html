@@ -20,6 +20,38 @@ tr.exportTo('tr.b', function() {
 
   var PLUS_MINUS_SIGN = String.fromCharCode(177);
 
+  var CACHED_FORMATTERS = {};
+  function getNumberFormatter(minSpec, maxSpec, minCtx, maxCtx) {
+    var key = minSpec + '-' + maxSpec + '-' + minCtx + '-' + maxCtx;
+    var formatter = CACHED_FORMATTERS[key];
+    if (formatter === undefined) {
+      var minimumFractionDigits = minCtx !== undefined ? minCtx : minSpec;
+      var maximumFractionDigits = maxCtx !== undefined ? maxCtx : maxSpec;
+
+      // If the context overrides only one of the two |*FractionDigits|
+      // properties and the other one is provided by the unit, we might need to
+      // shift the other property so that
+      // |minimumFractionDigits| <= |maximumFractionDigits|.
+      if (minimumFractionDigits > maximumFractionDigits) {
+        if (minCtx !== undefined && maxCtx === undefined) {
+          // Only minimumFractionDigits was overriden by context.
+          maximumFractionDigits = minimumFractionDigits;
+        } else if (minCtx === undefined && maxCtx !== undefined) {
+          // Only maximumFractionDigits was overriden by context.
+          minimumFractionDigits = maximumFractionDigits;
+        }
+      }
+
+      formatter = new Intl.NumberFormat(undefined, {
+        minimumFractionDigits,
+        maximumFractionDigits,
+      });
+
+      CACHED_FORMATTERS[key] = formatter;
+    }
+    return formatter;
+  }
+
   function max(a, b) {
     if (a === undefined)
       return b;
@@ -104,6 +136,21 @@ tr.exportTo('tr.b', function() {
       return scale[0].baseSymbol || scale[0].symbol;
     },
 
+    /**
+     * Returns a human readable string representation of the value passed.
+     *
+     * Example: .00023 formatted using the timeInMsAutoFormat Unit would return
+     *   '230 ns' since the base unit scale is ms.
+     *
+     * @param {number} value - The value to be formatted.
+     * @param {Object} [opt_context] - Optional formatting parameters.
+     * @param {!tr.b.UnitScale=} [opt_context.unitScale] - A UnitScale to use
+     *   while formatting the value instead of this Unit's UnitScale.
+     * @param {!tr.b.UnitPrefix=} [opt_context.unitPrefix] - A UnitPrefix that
+     *   the value should be formatted into.
+     * @param {number} [opt_context.deltaValue] - Format the value based on
+     *   this delta between it and another number instead of the actual value.
+     */
     format: function(value, opt_context) {
       var signString = '';
       if (value < 0) {
@@ -115,9 +162,12 @@ tr.exportTo('tr.b', function() {
 
       var context = opt_context || {};
       var scale = this.getUnitScale_(context);
+      var deltaValue = context.deltaValue === undefined ? value :
+          context.deltaValue;
+      deltaValue = Math.abs(deltaValue) * this.scaleBaseUnit.value;
       var i = 0;
       while (i < scale.length - 1 &&
-             value / scale[i + 1].value >= 1) {
+             deltaValue / scale[i + 1].value >= 1) {
         i++;
       }
       var selectedSubUnit = scale[i];
@@ -130,34 +180,12 @@ tr.exportTo('tr.b', function() {
         unitString += selectedSubUnit.symbol;
       }
 
-      var minimumFractionDigits =
-          context.minimumFractionDigits !== undefined ?
-          context.minimumFractionDigits : formatSpec.minimumFractionDigits;
-      var maximumFractionDigits =
-          context.maximumFractionDigits !== undefined ?
-          context.maximumFractionDigits : formatSpec.maximumFractionDigits;
-
-      // If the context overrides only one of the two |*FractionDigits|
-      // properties and the other one is provided by the unit, we might need to
-      // shift the other property so that
-      // |minimumFractionDigits| <= |maximumFractionDigits|.
-      if (minimumFractionDigits > maximumFractionDigits) {
-        if ('minimumFractionDigits' in context &&
-            !('maximumFractionDigits' in context)) {
-          // Only minimumFractionDigits was overriden by context.
-          maximumFractionDigits = minimumFractionDigits;
-        } else if ('maximumFractionDigits' in context &&
-            !('minimumFractionDigits' in context)) {
-          // Only maximumFractionDigits was overriden by context.
-          minimumFractionDigits = maximumFractionDigits;
-        }
-      }
-
       value = tr.b.convertUnit(value, this.scaleBaseUnit, selectedSubUnit);
-      var numberString = value.toLocaleString(undefined, {
-        minimumFractionDigits: minimumFractionDigits,
-        maximumFractionDigits: maximumFractionDigits
-      });
+      var numberString = getNumberFormatter(
+          formatSpec.minimumFractionDigits,
+          formatSpec.maximumFractionDigits,
+          context.minimumFractionDigits,
+          context.maximumFractionDigits).format(value);
 
       return signString + numberString + unitString;
     }
@@ -241,7 +269,7 @@ tr.exportTo('tr.b', function() {
   Unit.define = function(params) {
     var definedUnits = [];
 
-    tr.b.iterItems(ImprovementDirection, function(_, improvementDirection) {
+    for (var improvementDirection of Object.values(ImprovementDirection)) {
       var regularUnit =
           Unit.defineUnitVariant_(params, false, improvementDirection);
       var deltaUnit =
@@ -250,7 +278,7 @@ tr.exportTo('tr.b', function() {
       regularUnit.correspondingDeltaUnit = deltaUnit;
       deltaUnit.correspondingDeltaUnit = deltaUnit;
       definedUnits.push(regularUnit, deltaUnit);
-    });
+    }
 
     var baseUnit = Unit.byName[params.baseUnitName];
     definedUnits.forEach(u => u.baseUnit = baseUnit);

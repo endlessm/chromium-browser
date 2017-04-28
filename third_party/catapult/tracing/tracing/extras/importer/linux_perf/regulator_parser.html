@@ -14,7 +14,6 @@ found in the LICENSE file.
  * @fileoverview Parses regulator events in the Linux event trace format.
  */
 tr.exportTo('tr.e.importer.linux_perf', function() {
-
   var ColorScheme = tr.b.ColorScheme;
   var Parser = tr.e.importer.linux_perf.Parser;
 
@@ -65,7 +64,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       if (ctr.series[0] === undefined) {
         ctr.addSeries(new tr.model.CounterSeries(valueName,
         ColorScheme.getColorIdForGeneralPurposeString(
-        ctrName + '.' + valueName)));
+            ctrName + '.' + valueName)));
       }
       return ctr;
     },
@@ -91,7 +90,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
     },
 
     regulatorEnableCompleteEvent: function(eventName, cpuNum, pid, ts,
-                                           eventBase) {
+        eventBase) {
       return true;
     },
 
@@ -109,7 +108,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
     },
 
     regulatorDisableCompleteEvent: function(eventName, cpuNum, pid, ts,
-                                            eventBase) {
+        eventBase) {
       return true;
     },
 
@@ -118,7 +117,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
     },
 
     regulatorSetVoltageCompleteEvent: function(eventName, cpuNum, pid, ts,
-                                               eventBase) {
+        eventBase) {
       var event = regulatorSetVoltageCompleteRE.exec(eventBase.details);
       if (!event)
         return false;

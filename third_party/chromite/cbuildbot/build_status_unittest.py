@@ -12,11 +12,12 @@ import time
 
 from chromite.cbuildbot import buildbucket_lib
 from chromite.cbuildbot import build_status
+from chromite.cbuildbot import validation_pool_unittest
 from chromite.lib import constants
 from chromite.lib import config_lib
-from chromite.lib import cros_test_lib
 from chromite.lib import fake_cidb
 from chromite.lib import metadata_lib
+from chromite.lib import patch_unittest
 
 # pylint: disable=protected-access
 
@@ -25,70 +26,79 @@ class BuildbucketInfos(object):
 
   @staticmethod
   def GetScheduledBuild(bb_id='scheduled_id_1', retry=0):
-    return build_status.BuildbucketInfo(
+    return buildbucket_lib.BuildbucketInfo(
         buildbucket_id=bb_id,
         retry=retry,
+        created_ts=1,
         status=constants.BUILDBUCKET_BUILDER_STATUS_SCHEDULED,
         result=None
     )
 
   @staticmethod
   def GetStartedBuild(bb_id='started_id_1', retry=0):
-    return build_status.BuildbucketInfo(
+    return buildbucket_lib.BuildbucketInfo(
         buildbucket_id=bb_id,
         retry=retry,
+        created_ts=1,
         status=constants.BUILDBUCKET_BUILDER_STATUS_STARTED,
         result=None
     )
 
   @staticmethod
   def GetSuccessBuild(bb_id='success_id_1', retry=0):
-    return build_status.BuildbucketInfo(
+    return buildbucket_lib.BuildbucketInfo(
         buildbucket_id=bb_id,
         retry=retry,
+        created_ts=1,
         status=constants.BUILDBUCKET_BUILDER_STATUS_COMPLETED,
         result=constants.BUILDBUCKET_BUILDER_RESULT_SUCCESS
     )
 
   @staticmethod
   def GetFailureBuild(bb_id='failure_id_1', retry=0):
-    return build_status.BuildbucketInfo(
+    return buildbucket_lib.BuildbucketInfo(
         buildbucket_id=bb_id,
         retry=retry,
+        created_ts=1,
         status=constants.BUILDBUCKET_BUILDER_STATUS_COMPLETED,
         result=constants.BUILDBUCKET_BUILDER_RESULT_FAILURE
     )
 
   @staticmethod
   def GetCanceledBuild(bb_id='canceled_id_1', retry=0):
-    return build_status.BuildbucketInfo(
+    return buildbucket_lib.BuildbucketInfo(
         buildbucket_id=bb_id,
         retry=retry,
+        created_ts=1,
         status=constants.BUILDBUCKET_BUILDER_STATUS_COMPLETED,
         result=constants.BUILDBUCKET_BUILDER_RESULT_CANCELED
     )
 
   @staticmethod
   def GetMissingBuild(bb_id='missing_id_1', retry=0):
-    return build_status.BuildbucketInfo(
+    return buildbucket_lib.BuildbucketInfo(
         buildbucket_id=bb_id,
         retry=retry,
+        created_ts=1,
         status=None,
         result=None
     )
 
-class SlaveStatusTest(cros_test_lib.MockTestCase):
+class SlaveStatusTest(patch_unittest.MockPatchBase):
   """Test methods testing methods in SalveStatus class."""
 
   def setUp(self):
     self.time_now = datetime.datetime.now()
     self.master_build_id = 0
     self.master_test_config = config_lib.BuildConfig(
-        name='master-test', master=True)
+        name='master-test', master=True,
+        active_waterfall=constants.WATERFALL_INTERNAL)
     self.master_cq_config = config_lib.BuildConfig(
-        name='master-paladin', master=True)
+        name='master-paladin', master=True,
+        active_waterfall=constants.WATERFALL_INTERNAL)
     self.master_canary_config = config_lib.BuildConfig(
-        name='master-release', master=True)
+        name='master-release', master=True,
+        active_waterfall=constants.WATERFALL_INTERNAL)
     self.metadata = metadata_lib.CBuildbotMetadata()
     self.db = fake_cidb.FakeCIDBConnection()
     self.buildbucket_client = mock.Mock()
@@ -96,7 +106,7 @@ class SlaveStatusTest(cros_test_lib.MockTestCase):
   def _GetSlaveStatus(self, start_time=None, builders_array=None,
                       master_build_id=None, db=None, config=None,
                       metadata=None, buildbucket_client=None,
-                      dry_run=True):
+                      pool=None, dry_run=True):
     if start_time is None:
       start_time = self.time_now
     if builders_array is None:
@@ -115,17 +125,22 @@ class SlaveStatusTest(cros_test_lib.MockTestCase):
         config=config,
         metadata=metadata,
         buildbucket_client=buildbucket_client,
+        pool=pool,
         dry_run=dry_run)
 
   def _Mock_GetSlaveStatusesFromCIDB(self, cidb_status=None):
     return self.PatchObject(build_status.SlaveStatus,
-                            '_GetSlaveStatusesFromCIDB',
+                            '_GetNewSlaveCIDBStatusInfo',
                             return_value=cidb_status)
 
-  def _Mock_GetSlaveStatusesFromBuildbucket(self, buildbucket_info_dict):
-    return self.PatchObject(build_status.SlaveStatus,
-                            '_GetSlaveStatusesFromBuildbucket',
-                            return_value=buildbucket_info_dict)
+  def _Mock_GetSlaveStatusesFromBuildbucket(self, buildbucket_info_dict=None):
+    self.PatchObject(build_status.SlaveStatus,
+                     '_GetAllSlaveBuildbucketInfo')
+    self.PatchObject(build_status.SlaveStatus,
+                     '_GetNewlyCompletedSlaveBuildbucketInfo',
+                     return_value=buildbucket_info_dict)
+    self.PatchObject(buildbucket_lib, 'GetBuildInfoDict',
+                     return_value=buildbucket_info_dict)
 
   def _Mock_GetRetriableBuilds(self, builds=None):
     return self.PatchObject(build_status.SlaveStatus,
@@ -138,10 +153,33 @@ class SlaveStatusTest(cros_test_lib.MockTestCase):
     self.PatchObject(build_status.SlaveStatus, '_RetryBuilds',
                      return_value=builds)
 
-  def _GetFullBuildInfoDict(self):
-    return {
+  def _GetFullBuildConfigs(self, exclude_builds=None):
+    build_config_list = ['scheduled', 'started', 'completed_success',
+                         'completed_failure', 'completed_canceled']
+
+    if exclude_builds:
+      for exclude_build in exclude_builds:
+        build_config_list.remove(exclude_build)
+
+    return build_config_list
+
+  def _GetFullBuildInfoDict(self, exclude_builds=None):
+    buildbucket_info_dict = {
         'scheduled': BuildbucketInfos.GetScheduledBuild(),
         'started': BuildbucketInfos.GetStartedBuild(),
+        'completed_success': BuildbucketInfos.GetSuccessBuild(),
+        'completed_failure': BuildbucketInfos.GetFailureBuild(),
+        'completed_canceled': BuildbucketInfos.GetCanceledBuild()
+    }
+
+    if exclude_builds:
+      for exclude_build in exclude_builds:
+        buildbucket_info_dict.pop(exclude_build, None)
+
+    return buildbucket_info_dict
+
+  def _GetCompletedBuildInfoDict(self):
+    return {
         'completed_success': BuildbucketInfos.GetSuccessBuild(),
         'completed_failure': BuildbucketInfos.GetFailureBuild(),
         'completed_canceled': BuildbucketInfos.GetCanceledBuild()
@@ -151,6 +189,49 @@ class SlaveStatusTest(cros_test_lib.MockTestCase):
     return set(['completed_success',
                 'completed_failure',
                 'completed_canceled'])
+
+  def _GetFullCIDBStatusInfo(self, exclude_builds=None):
+    cidb_status = {
+        'started': build_status.CIDBStatusInfo(
+            1, constants.BUILDER_STATUS_INFLIGHT),
+        'completed_success': build_status.CIDBStatusInfo(
+            2, constants.BUILDER_STATUS_PASSED),
+        'completed_failure': build_status.CIDBStatusInfo(
+            3, constants.BUILDER_STATUS_FAILED),
+        'completed_canceled': build_status.CIDBStatusInfo(
+            4, constants.BUILDER_STATUS_INFLIGHT)
+    }
+
+    if exclude_builds:
+      for exclude_build in exclude_builds:
+        cidb_status.pop(exclude_build, None)
+
+    return cidb_status
+
+  def testGetSlaveStatusWithValidationPool(self):
+    """Test build SlaveStatus with ValidationPool."""
+    self.patch_mock = self.StartPatcher(
+        validation_pool_unittest.MockPatchSeries())
+    p = self.GetPatches(how_many=3)
+    pool = validation_pool_unittest.MakePool(applied=p)
+
+    self.patch_mock.SetGerritDependencies(p[0], [])
+    self.patch_mock.SetGerritDependencies(p[1], [])
+    self.patch_mock.SetGerritDependencies(p[2], [])
+
+    self.patch_mock.SetCQDependencies(p[1], [p[0]])
+    self.patch_mock.SetCQDependencies(p[2], [p[0]])
+
+    slave_status = self._GetSlaveStatus(
+        builders_array=self._GetFullBuildConfigs(),
+        config=self.master_cq_config,
+        pool=pool)
+
+    expected_map = {
+        p[0]: {p[1], p[2]},
+    }
+
+    self.assertDictEqual(expected_map, slave_status.dependency_map)
 
   def testGetMissingBuilds(self):
     """Tests GetMissingBuilds returns the missing builders."""
@@ -253,24 +334,14 @@ class SlaveStatusTest(cros_test_lib.MockTestCase):
 
   def testGetRetriableBuildsReturnsNone(self):
     """GetRetriableBuilds returns no build to retry."""
-    cidb_status = {
-        'started': build_status.CIDBStatusInfo(
-            1, constants.BUILDER_STATUS_INFLIGHT),
-        'completed_success': build_status.CIDBStatusInfo(
-            2, constants.BUILDER_STATUS_PASSED),
-        'completed_failure': build_status.CIDBStatusInfo(
-            3, constants.BUILDER_STATUS_FAILED),
-        'completed_canceled': build_status.CIDBStatusInfo(
-            4, constants.BUILDER_STATUS_INFLIGHT)
-    }
-    self._Mock_GetSlaveStatusesFromCIDB(cidb_status)
+    self._Mock_GetSlaveStatusesFromCIDB(
+        self._GetFullCIDBStatusInfo())
 
     self._Mock_GetSlaveStatusesFromBuildbucket(
         self._GetFullBuildInfoDict())
 
     slave_status = self._GetSlaveStatus(
-        builders_array=['scheduled', 'started', 'completed_success',
-                        'completed_failure', 'completed_canceled'],
+        builders_array=self._GetFullBuildConfigs(),
         config=self.master_canary_config)
     self.assertEqual(
         slave_status._GetRetriableBuilds(self._GetCompletedAllSet()),
@@ -278,38 +349,30 @@ class SlaveStatusTest(cros_test_lib.MockTestCase):
 
     self.db.InsertBuildStage(3, 'CommitQueueSync',
                              status=constants.BUILDER_STATUS_PASSED)
-    self.db.InsertBuildStage(4, 'CommitQueueSync',
+    self.db.InsertBuildStage(4, 'MasterSlaveLKGMSync',
                              status=constants.BUILDER_STATUS_PASSED)
     slave_status = self._GetSlaveStatus(
-        builders_array=['scheduled', 'started', 'completed_success',
-                        'completed_failure', 'completed_canceled'],
+        builders_array=self._GetFullBuildConfigs(),
         config=self.master_cq_config)
     self.assertEqual(
         slave_status._GetRetriableBuilds(self._GetCompletedAllSet()),
         set())
 
-  def _MockForGetRetriableBuildsTests(self):
+  def _MockForGetRetriableBuildsTests(self, exclude_cidb_builds=None):
     """Helper method for GetRetriableBuilds tests."""
-    cidb_status = {
-        'started': build_status.CIDBStatusInfo(
-            1, constants.BUILDER_STATUS_INFLIGHT),
-        'completed_success': build_status.CIDBStatusInfo(
-            2, constants.BUILDER_STATUS_PASSED),
-        'completed_failure': build_status.CIDBStatusInfo(
-            3, constants.BUILDER_STATUS_FAILED)
-    }
-    self._Mock_GetSlaveStatusesFromCIDB(cidb_status)
+    self._Mock_GetSlaveStatusesFromCIDB(
+        self._GetFullCIDBStatusInfo(exclude_builds=exclude_cidb_builds))
 
     self._Mock_GetSlaveStatusesFromBuildbucket(
         self._GetFullBuildInfoDict())
 
   def testGetRetriableBuildsNotRetryOnStartedBuilds(self):
     """test _GetRetriableBuilds for master not retrying started builds."""
-    self._MockForGetRetriableBuildsTests()
+    self._MockForGetRetriableBuildsTests(
+        exclude_cidb_builds=['completed_canceled'])
 
     slave_status = self._GetSlaveStatus(
-        builders_array=['scheduled', 'started', 'completed_success',
-                        'completed_failure', 'completed_canceled'],
+        builders_array=self._GetFullBuildConfigs(),
         config=self.master_canary_config)
     self.assertEqual(
         slave_status._GetRetriableBuilds(self._GetCompletedAllSet()),
@@ -321,9 +384,10 @@ class SlaveStatusTest(cros_test_lib.MockTestCase):
 
     self.db.InsertBuildStage(3, 'CommitQueueSync',
                              status=constants.BUILDER_STATUS_FAILED)
+    self.db.InsertBuildStage(4, 'MasterSlaveLKGMSync',
+                             status=constants.BUILDER_STATUS_FAILED)
     slave_status = self._GetSlaveStatus(
-        builders_array=['scheduled', 'started', 'completed_success',
-                        'completed_failure', 'completed_canceled'],
+        builders_array=self._GetFullBuildConfigs(),
         config=self.master_cq_config)
     self.assertEqual(
         slave_status._GetRetriableBuilds(self._GetCompletedAllSet()),
@@ -334,8 +398,7 @@ class SlaveStatusTest(cros_test_lib.MockTestCase):
     self._MockForGetRetriableBuildsTests()
 
     slave_status = self._GetSlaveStatus(
-        builders_array=['scheduled', 'started', 'completed_success',
-                        'completed_failure', 'completed_canceled'],
+        builders_array=self._GetFullBuildConfigs(),
         config=self.master_cq_config)
     self.assertEqual(
         slave_status._GetRetriableBuilds(self._GetCompletedAllSet()),
@@ -347,9 +410,10 @@ class SlaveStatusTest(cros_test_lib.MockTestCase):
 
     self.db.InsertBuildStage(3, 'CommitQueueSync',
                              status=constants.BUILDER_STATUS_PLANNED)
+    self.db.InsertBuildStage(4, 'MasterSlaveLKGMSync',
+                             status=constants.BUILDER_STATUS_PLANNED)
     slave_status = self._GetSlaveStatus(
-        builders_array=['scheduled', 'started', 'completed_success',
-                        'completed_failure', 'completed_canceled'],
+        builders_array=self._GetFullBuildConfigs(),
         config=self.master_cq_config)
     self.assertEqual(
         slave_status._GetRetriableBuilds(self._GetCompletedAllSet()),
@@ -375,8 +439,7 @@ class SlaveStatusTest(cros_test_lib.MockTestCase):
     self._Mock_GetSlaveStatusesFromBuildbucket(buildbucket_info_dict)
 
     slave_status = self._GetSlaveStatus(
-        builders_array=['scheduled', 'started', 'completed_success',
-                        'completed_failure', 'completed_canceled'],
+        builders_array=self._GetFullBuildConfigs(),
         config=self.master_cq_config)
 
     self.assertEqual(
@@ -385,24 +448,14 @@ class SlaveStatusTest(cros_test_lib.MockTestCase):
 
   def testGetCompletedBuildsWithBuildbucket(self):
     """Tests GetCompletedBuilds with Buildbucket"""
-    cidb_status = {
-        'started': build_status.CIDBStatusInfo(
-            1, constants.BUILDER_STATUS_INFLIGHT),
-        'completed_success': build_status.CIDBStatusInfo(
-            2, constants.BUILDER_STATUS_PASSED),
-        'completed_failure': build_status.CIDBStatusInfo(
-            3, constants.BUILDER_STATUS_FAILED),
-        'completed_canceled': build_status.CIDBStatusInfo(
-            4, constants.BUILDER_STATUS_INFLIGHT)
-    }
-    self._Mock_GetSlaveStatusesFromCIDB(cidb_status)
+    self._Mock_GetSlaveStatusesFromCIDB(
+        self._GetFullCIDBStatusInfo())
 
     self._Mock_GetSlaveStatusesFromBuildbucket(
         self._GetFullBuildInfoDict())
 
     slave_status = self._GetSlaveStatus(
-        builders_array=['scheduled', 'started', 'completed_success',
-                        'completed_failure', 'completed_canceled'],
+        builders_array=self._GetFullBuildConfigs(),
         config=self.master_canary_config)
 
     self.assertEqual(slave_status._GetCompletedBuilds(),
@@ -411,8 +464,7 @@ class SlaveStatusTest(cros_test_lib.MockTestCase):
 
     self._Mock_GetRetriableBuilds(builds=set(['completed_failure']))
     slave_status = self._GetSlaveStatus(
-        builders_array=['scheduled', 'started', 'completed_success',
-                        'completed_failure', 'completed_canceled'],
+        builders_array=self._GetFullBuildConfigs(),
         config=self.master_cq_config)
 
     self.assertEqual(slave_status._GetCompletedBuilds(),
@@ -431,28 +483,19 @@ class SlaveStatusTest(cros_test_lib.MockTestCase):
     self._Mock_GetSlaveStatusesFromCIDB(cidb_status)
 
     slave_status = self._GetSlaveStatus(
-        builders_array=['scheduled', 'started', 'completed_success',
-                        'completed_failure', 'completed_canceled'])
+        builders_array=self._GetFullBuildConfigs())
     self.assertEqual(slave_status._GetBuildsToRetry(), None)
 
   def testGetBuildsToRetryWithBuildbucket(self):
     """Test GetBuildsToRetry with Buildbucket."""
-    cidb_status = {
-        'started': build_status.CIDBStatusInfo(
-            1, constants.BUILDER_STATUS_INFLIGHT),
-        'completed_success': build_status.CIDBStatusInfo(
-            2, constants.BUILDER_STATUS_PASSED),
-        'completed_canceled': build_status.CIDBStatusInfo(
-            3, constants.BUILDER_STATUS_INFLIGHT)
-    }
-    self._Mock_GetSlaveStatusesFromCIDB(cidb_status)
+    self._Mock_GetSlaveStatusesFromCIDB(
+        self._GetFullCIDBStatusInfo(exclude_builds=['completed_failure']))
 
     self._Mock_GetSlaveStatusesFromBuildbucket(
         self._GetFullBuildInfoDict())
 
     slave_status = self._GetSlaveStatus(
-        builders_array=['scheduled', 'started', 'completed_success',
-                        'completed_failure', 'completed_canceled'],
+        builders_array=self._GetFullBuildConfigs(),
         config=self.master_canary_config)
 
     self.assertEqual(slave_status._GetBuildsToRetry(),
@@ -530,6 +573,15 @@ class SlaveStatusTest(cros_test_lib.MockTestCase):
     self._Mock_GetRetriableBuilds(builds=set())
     slaveStatusCompleted = self._GetSlaveStatus(
         builders_array=builders_array,
+        config=self.master_cq_config)
+    self.assertTrue(slaveStatusCompleted._Completed())
+
+  def testCompletedWithNoSlaveScheduledByBuildbucket(self):
+    """Tests Completed returns True when no slaves are scheduled."""
+    self._Mock_GetSlaveStatusesFromCIDB({})
+    self._Mock_GetSlaveStatusesFromBuildbucket({})
+    slaveStatusCompleted = self._GetSlaveStatus(
+        builders_array=['build1', 'build2'],
         config=self.master_cq_config)
     self.assertTrue(slaveStatusCompleted._Completed())
 
@@ -960,27 +1012,27 @@ class SlaveStatusTest(cros_test_lib.MockTestCase):
     self.assertEqual(retried_builds, builds_to_retry)
     buildbucket_info_dict = buildbucket_lib.GetBuildInfoDict(
         slave_status.metadata)
-    self.assertEqual(buildbucket_info_dict['failure']['buildbucket_id'],
+    self.assertEqual(buildbucket_info_dict['failure'].buildbucket_id,
                      'retry_id')
-    self.assertEqual(buildbucket_info_dict['failure']['retry'], 1)
+    self.assertEqual(buildbucket_info_dict['failure'].retry, 1)
 
     retried_builds = slave_status._RetryBuilds(builds_to_retry)
     self.assertEqual(retried_builds, builds_to_retry)
     buildbucket_info_dict = buildbucket_lib.GetBuildInfoDict(
         slave_status.metadata)
-    self.assertEqual(buildbucket_info_dict['canceled']['buildbucket_id'],
+    self.assertEqual(buildbucket_info_dict['canceled'].buildbucket_id,
                      'retry_id')
-    self.assertEqual(buildbucket_info_dict['canceled']['retry'], 2)
+    self.assertEqual(buildbucket_info_dict['canceled'].retry, 2)
 
-  def test_GetSlaveStatusesFromBuildbucket(self):
-    """Test _GetSlaveStatusesFromBuildbucket."""
+  def test_GetAllSlaveBuildbucketInfo(self):
+    """Test _GetAllSlaveBuildbucketInfo."""
     self._Mock_GetSlaveStatusesFromCIDB()
     self.PatchObject(build_status.SlaveStatus, 'UpdateSlaveStatus')
 
     # Test completed builds.
     buildbucket_info_dict = {
-        'build1': {'buildbucket_id': 'id_1', 'retry': 0},
-        'build2': {'buildbucket_id': 'id_2', 'retry': 0}
+        'build1': buildbucket_lib.BuildbucketInfo('id_1', 1, 0, None, None),
+        'build2': buildbucket_lib.BuildbucketInfo('id_2', 1, 0, None, None)
     }
     self.PatchObject(buildbucket_lib, 'GetScheduledBuildDict',
                      return_value=buildbucket_info_dict)
@@ -999,7 +1051,7 @@ class SlaveStatusTest(cros_test_lib.MockTestCase):
         config=self.master_cq_config)
     slave_status.buildbucket_client.GetBuildRequest.return_value = content
     updated_buildbucket_info_dict = (
-        slave_status._GetSlaveStatusesFromBuildbucket())
+        slave_status._GetAllSlaveBuildbucketInfo(buildbucket_info_dict))
 
     self.assertEqual(updated_buildbucket_info_dict['build1'].status,
                      expected_status)
@@ -1020,7 +1072,7 @@ class SlaveStatusTest(cros_test_lib.MockTestCase):
     }
     slave_status.buildbucket_client.GetBuildRequest.return_value = content
     updated_buildbucket_info_dict = (
-        slave_status._GetSlaveStatusesFromBuildbucket())
+        slave_status._GetAllSlaveBuildbucketInfo(buildbucket_info_dict))
 
     self.assertEqual(updated_buildbucket_info_dict['build1'].status,
                      expected_status)
@@ -1035,9 +1087,24 @@ class SlaveStatusTest(cros_test_lib.MockTestCase):
     slave_status.buildbucket_client.GetBuildRequest.side_effect = (
         buildbucket_lib.BuildbucketResponseException)
     updated_buildbucket_info_dict = (
-        slave_status._GetSlaveStatusesFromBuildbucket())
+        slave_status._GetAllSlaveBuildbucketInfo(buildbucket_info_dict))
     self.assertIsNone(updated_buildbucket_info_dict['build1'].status)
     self.assertIsNone(updated_buildbucket_info_dict['build2'].status)
+
+  def test_GetNewlyCompletedSlaveBuildbucketInfo(self):
+    """Test GetNewlyCompletedSlaveBuildbucketInfo."""
+    all_buildbucket_info_dict = self._GetCompletedBuildInfoDict()
+    completed = {'completed_success'}
+
+    slave_status = self._GetSlaveStatus(
+        builders_array=[self._GetCompletedAllSet()],
+        config=self.master_cq_config)
+
+    new_buildbucket_info = slave_status._GetNewlyCompletedSlaveBuildbucketInfo(
+        all_buildbucket_info_dict, completed)
+
+    self.assertItemsEqual(new_buildbucket_info.keys(),
+                          ['completed_canceled', 'completed_failure'])
 
   def _InsertMasterSlaveBuildsToCIDB(self):
     """Insert master and slave builds into fake_cidb."""
@@ -1051,24 +1118,24 @@ class SlaveStatusTest(cros_test_lib.MockTestCase):
                                  buildbucket_id='id_2', status='fail')
     return master, slave1, slave2
 
-  def test_GetSlaveStatusesFromCIDB(self):
-    """_GetSlaveStatusesFromCIDB without Buildbucket info."""
+  def test_GetAllSlaveCIDBStatusInfo(self):
+    """_GetAllSlaveCIDBStatusInfo without Buildbucket info."""
     self.PatchObject(build_status.SlaveStatus, 'UpdateSlaveStatus')
     _, slave1_id, slave2_id = self._InsertMasterSlaveBuildsToCIDB()
     slave_status = self._GetSlaveStatus(builders_array=['slave1', 'slave2'])
 
-    cidb_status = slave_status._GetSlaveStatusesFromCIDB(None)
+    cidb_status = slave_status._GetAllSlaveCIDBStatusInfo(None)
     self.assertEqual(set(cidb_status.keys()), set(['slave1', 'slave2']))
     self.assertEqual(cidb_status['slave1'].build_id, slave1_id)
     self.assertEqual(cidb_status['slave2'].build_id, slave2_id)
 
     slave_status.completed_builds.update(['slave1'])
-    cidb_status = slave_status._GetSlaveStatusesFromCIDB(None)
+    cidb_status = slave_status._GetAllSlaveCIDBStatusInfo(None)
     self.assertEqual(set(cidb_status.keys()), set(['slave2']))
     self.assertEqual(cidb_status['slave2'].build_id, slave2_id)
 
-  def test_GetSlaveStatusesFromCIDBWithBuildbucket(self):
-    """_GetSlaveStatusesFromCIDB with Buildbucket info."""
+  def test_GetAllSlaveCIDBStatusInfoWithBuildbucket(self):
+    """_GetAllSlaveCIDBStatusInfo with Buildbucket info."""
     self.PatchObject(build_status.SlaveStatus, 'UpdateSlaveStatus')
     self._InsertMasterSlaveBuildsToCIDB()
     slave_status = self._GetSlaveStatus(
@@ -1080,15 +1147,15 @@ class SlaveStatusTest(cros_test_lib.MockTestCase):
         'slave2': BuildbucketInfos.GetStartedBuild(bb_id='id_2')
     }
 
-    cidb_status = slave_status._GetSlaveStatusesFromCIDB(buildbucket_info_dict)
+    cidb_status = slave_status._GetAllSlaveCIDBStatusInfo(buildbucket_info_dict)
     self.assertEqual(set(cidb_status.keys()), set(['slave1', 'slave2']))
 
     slave_status.completed_builds.update(['slave1'])
-    cidb_status = slave_status._GetSlaveStatusesFromCIDB(buildbucket_info_dict)
+    cidb_status = slave_status._GetAllSlaveCIDBStatusInfo(buildbucket_info_dict)
     self.assertEqual(set(cidb_status.keys()), set(['slave2']))
 
-  def test_GetSlaveStatusesFromCIDBWithRetriedBuilds(self):
-    """_GetSlaveStatusesFromCIDB doesn't return retried builds."""
+  def test_GetAllSlaveCIDBStatusInfoWithRetriedBuilds(self):
+    """_GetAllSlaveCIDBStatusInfo doesn't return retried builds."""
     self.PatchObject(build_status.SlaveStatus, 'UpdateSlaveStatus')
     self._InsertMasterSlaveBuildsToCIDB()
     self.db.InsertBuild('slave1', constants.WATERFALL_INTERNAL, 3,
@@ -1104,6 +1171,63 @@ class SlaveStatusTest(cros_test_lib.MockTestCase):
         'slave2': BuildbucketInfos.GetStartedBuild(bb_id='id_4')
     }
 
-    cidb_status = slave_status._GetSlaveStatusesFromCIDB(buildbucket_info_dict)
+    cidb_status = slave_status._GetAllSlaveCIDBStatusInfo(buildbucket_info_dict)
     self.assertEqual(set(cidb_status.keys()), set(['slave1']))
     self.assertEqual(cidb_status['slave1'].status, 'inflight')
+
+  def test_GetNewSlaveCIDBStatusInfo(self):
+    """Test _GetNewSlaveCIDBStatusInfo."""
+    all_cidb_status_dict = self._GetFullCIDBStatusInfo()
+    buildbucket_info_dict = self._GetFullBuildInfoDict(
+        exclude_builds=['scheduled'])
+
+    slave_status = self._GetSlaveStatus(
+        builders_array=self._GetFullBuildConfigs(),
+        config=self.master_cq_config)
+
+    cidb_status_dict = slave_status._GetNewSlaveCIDBStatusInfo(
+        all_cidb_status_dict, buildbucket_info_dict)
+
+    self.assertItemsEqual(cidb_status_dict.keys(), all_cidb_status_dict.keys())
+
+  def test_GetNewSlaveCIDBStatusInfoWithLessCIDBBuilds(self):
+    """Test _GetSlaveStatusesFromCIDB with less CIDB build info."""
+    all_cidb_status_dict = self._GetFullCIDBStatusInfo(
+        exclude_builds=['completed_canceled'])
+    buildbucket_info_dict = self._GetFullBuildInfoDict()
+
+    slave_status = self._GetSlaveStatus(
+        builders_array=self._GetFullBuildConfigs(),
+        config=self.master_cq_config)
+
+    cidb_status_dict = slave_status._GetNewSlaveCIDBStatusInfo(
+        all_cidb_status_dict, buildbucket_info_dict)
+
+    self.assertItemsEqual(cidb_status_dict.keys(), all_cidb_status_dict.keys())
+
+  def test_GetNewSlaveCIDBStatusInfoWithLessBuildbucketBuilds(self):
+    """test _GetNewSlaveCIDBStatusInfo with less buildbucket build info."""
+    all_cidb_status_dict = self._GetFullCIDBStatusInfo()
+    buildbucket_info_dict = self._GetFullBuildInfoDict(
+        exclude_builds=['scheduled', 'completed_canceled'])
+
+    slave_status = self._GetSlaveStatus(
+        builders_array=self._GetFullBuildConfigs(),
+        config=self.master_cq_config)
+
+    cidb_status_dict = slave_status._GetNewSlaveCIDBStatusInfo(
+        all_cidb_status_dict, buildbucket_info_dict)
+
+    self.assertItemsEqual(cidb_status_dict.keys(), buildbucket_info_dict.keys())
+
+  def test_GetNewSlaveCIDBStatusInfoWithNonebuildbucket_info_dict(self):
+    """Test _GetNewSlaveCIDBStatusInfo with None buildbucket_info_dict."""
+    all_cidb_status_dict = self._GetFullCIDBStatusInfo()
+    slave_status = self._GetSlaveStatus(
+        builders_array=self._GetFullBuildConfigs(),
+        config=self.master_cq_config)
+
+    cidb_status_dict = slave_status._GetNewSlaveCIDBStatusInfo(
+        all_cidb_status_dict, None)
+
+    self.assertItemsEqual(cidb_status_dict.keys(), cidb_status_dict.keys())

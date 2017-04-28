@@ -4,20 +4,17 @@
 
 package org.chromium.components.signin;
 
-import android.Manifest;
 import android.accounts.Account;
 import android.accounts.AuthenticatorDescription;
 import android.app.Activity;
 import android.content.Context;
-import android.content.pm.PackageManager;
 import android.os.AsyncTask;
-import android.os.Process;
 
-import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.base.Callback;
 import org.chromium.base.Log;
 import org.chromium.base.VisibleForTesting;
 import org.chromium.net.NetworkChangeNotifier;
+import org.chromium.net.NetworkChangeNotifier.ConnectionTypeObserver;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -295,15 +292,23 @@ public class AccountManagerHelper {
      * Gets the auth token and returns the response asynchronously.
      * This should be called when we have a foreground activity that needs an auth token.
      * If encountered an IO error, it will attempt to retry when the network is back.
+     * If {@code handleUserRecoverableErrors} is true, attempt to immediately resolve
+     * user-recoverable errors. This should only be used if getting the auth token is absolutely
+     * necessary for the browser to function.
      *
      * - Assumes that the account is a valid account.
      */
     public void getAuthToken(final Account account, final String authTokenType,
-            final GetAuthTokenCallback callback) {
+            final boolean handleUserRecoverableErrors, final GetAuthTokenCallback callback) {
         ConnectionRetry.runAuthTask(new AuthTask<String>() {
             @Override
             public String run() throws AuthException {
-                return mAccountManager.getAuthToken(account, authTokenType);
+                if (handleUserRecoverableErrors) {
+                    return mAccountManager.getAuthTokenAndFixUserRecoverableErrorIfNeeded(
+                            account, authTokenType);
+                } else {
+                    return mAccountManager.getAuthToken(account, authTokenType);
+                }
             }
             @Override
             public void onSuccess(String token) {
@@ -316,12 +321,6 @@ public class AccountManagerHelper {
         });
     }
 
-    public boolean hasGetAccountsPermission() {
-        return ApiCompatibilityUtils.checkPermission(mApplicationContext,
-                       Manifest.permission.GET_ACCOUNTS, Process.myPid(), Process.myUid())
-                == PackageManager.PERMISSION_GRANTED;
-    }
-
     /**
      * Invalidates the old token (if non-null/non-empty) and asynchronously generates a new one.
      *
@@ -330,7 +329,7 @@ public class AccountManagerHelper {
     public void getNewAuthToken(Account account, String authToken, String authTokenType,
             GetAuthTokenCallback callback) {
         invalidateAuthToken(authToken);
-        getAuthToken(account, authTokenType, callback);
+        getAuthToken(account, authTokenType, false /* handleUserRecoverableErrors */, callback);
     }
 
     /**

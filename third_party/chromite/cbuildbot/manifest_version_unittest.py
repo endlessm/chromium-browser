@@ -10,6 +10,7 @@ import mock
 import os
 import tempfile
 
+from chromite.cbuildbot import buildbucket_lib
 from chromite.cbuildbot import build_status
 from chromite.cbuildbot import build_status_unittest
 from chromite.cbuildbot import manifest_version
@@ -366,7 +367,7 @@ class BuildSpecsManagerTest(cros_test_lib.MockTempDirTestCase):
       status_runs: List of dictionaries of expected build and status.
     """
     self.PatchObject(build_status.SlaveStatus,
-                     '_GetSlaveStatusesFromCIDB',
+                     '_GetAllSlaveCIDBStatusInfo',
                      side_effect=status_runs)
 
     final_status_dict = status_runs[-1]
@@ -431,8 +432,10 @@ class BuildSpecsManagerTest(cros_test_lib.MockTempDirTestCase):
   def _CreateCanaryMasterManager(self, config=None, metadata=None,
                                  buildbucket_client=None):
     if config is None:
-      config = config_lib.BuildConfig(name='master-release',
-                                      master=True)
+      config = config_lib.BuildConfig(
+          name='master-release', master=True,
+          active_waterfall=constants.WATERFALL_INTERNAL)
+
     if metadata is None:
       metadata = metadata_lib.CBuildbotMetadata()
 
@@ -454,10 +457,13 @@ class BuildSpecsManagerTest(cros_test_lib.MockTempDirTestCase):
                         buildbucket_ids.
     """
     self.PatchObject(build_status.SlaveStatus,
-                     '_GetSlaveStatusesFromCIDB',
+                     '_GetAllSlaveCIDBStatusInfo',
                      side_effect=status_runs)
+    self.PatchObject(buildbucket_lib,
+                     'GetBuildInfoDict',
+                     side_effect=buildbucket_info_dicts)
     self.PatchObject(build_status.SlaveStatus,
-                     '_GetSlaveStatusesFromBuildbucket',
+                     '_GetAllSlaveBuildbucketInfo',
                      side_effect=buildbucket_info_dicts)
 
     final_status_dict = status_runs[-1]

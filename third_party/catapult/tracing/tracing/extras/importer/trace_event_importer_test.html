@@ -5,6 +5,7 @@ Use of this source code is governed by a BSD-style license that can be
 found in the LICENSE file.
 -->
 
+<link rel="import" href="/tracing/base/scalar.html">
 <link rel="import" href="/tracing/base/time_display_modes.html">
 <link rel="import" href="/tracing/base/unit.html">
 <link rel="import" href="/tracing/core/test_utils.html">
@@ -17,7 +18,6 @@ found in the LICENSE file.
 <link rel="import" href="/tracing/model/memory_dump_test_utils.html">
 <link rel="import" href="/tracing/model/scoped_id.html">
 <link rel="import" href="/tracing/model/vm_region.html">
-<link rel="import" href="/tracing/value/numeric.html">
 
 <script>
 'use strict';
@@ -29,7 +29,7 @@ tr.b.unittest.testSuite(function() {
   var MeasureAsyncSlice = tr.e.measure.MeasureAsyncSlice;
   var ScopedId = tr.model.ScopedId;
   var VMRegion = tr.model.VMRegion;
-  var ScalarNumeric = tr.v.ScalarNumeric;
+  var Scalar = tr.b.Scalar;
   var unitlessNumber_smallerIsBetter =
       tr.b.Unit.byName.unitlessNumber_smallerIsBetter;
   var checkDumpNumericsAndDiagnostics =
@@ -446,7 +446,7 @@ tr.b.unittest.testSuite(function() {
     // The test below depends on hashing of 'a' !== 'b'. Fail early if that
     // assumption is incorrect.
     assert.notEqual(ColorScheme.getStringHash('a'),
-                    ColorScheme.getStringHash('b'));
+        ColorScheme.getStringHash('b'));
 
     var events = [
       {name: 'a', args: {}, pid: 1, ts: 1, cat: 'foo', tid: 1, ph: 'B'},
@@ -482,7 +482,7 @@ tr.b.unittest.testSuite(function() {
     var p = m.processes[1];
     var t = p.threads[1];
     assert.equal(t.sliceGroup.slices[0].colorId,
-                 ColorScheme.getColorIdForReservedName('thread_state_unknown'));
+        ColorScheme.getColorIdForReservedName('thread_state_unknown'));
   });
 
   test('durationColorEnd', function() {
@@ -495,7 +495,7 @@ tr.b.unittest.testSuite(function() {
     var p = m.processes[1];
     var t = p.threads[1];
     assert.equal(t.sliceGroup.slices[0].colorId,
-                 ColorScheme.getColorIdForReservedName('thread_state_unknown'));
+        ColorScheme.getColorIdForReservedName('thread_state_unknown'));
   });
 
   test('completeColorArgument', function() {
@@ -507,7 +507,7 @@ tr.b.unittest.testSuite(function() {
     var p = m.processes[1];
     var t = p.threads[1];
     assert.equal(t.sliceGroup.slices[0].colorId,
-                 ColorScheme.getColorIdForReservedName('generic_work'));
+        ColorScheme.getColorIdForReservedName('generic_work'));
   });
 
   test('asyncColorArgument', function() {
@@ -520,7 +520,7 @@ tr.b.unittest.testSuite(function() {
     var p = m.processes[1];
     var t = p.threads[1];
     assert.equal(t.asyncSliceGroup.slices[0].colorId,
-                 ColorScheme.getColorIdForReservedName('generic_work'));
+        ColorScheme.getColorIdForReservedName('generic_work'));
   });
 
   test('asyncColorEnd', function() {
@@ -533,7 +533,7 @@ tr.b.unittest.testSuite(function() {
     var p = m.processes[1];
     var t = p.threads[1];
     assert.equal(t.asyncSliceGroup.slices[0].colorId,
-                 ColorScheme.getColorIdForReservedName('generic_work'));
+        ColorScheme.getColorIdForReservedName('generic_work'));
   });
 
   test('instantThreadColorArgument', function() {
@@ -545,7 +545,7 @@ tr.b.unittest.testSuite(function() {
     var p = m.processes[1];
     var t = p.threads[1];
     assert.equal(t.sliceGroup.slices[0].colorId,
-                 ColorScheme.getColorIdForReservedName('generic_work'));
+        ColorScheme.getColorIdForReservedName('generic_work'));
   });
 
   test('instantProcessColorArgument', function() {
@@ -556,7 +556,7 @@ tr.b.unittest.testSuite(function() {
     var m = makeModel(events);
     var p = m.processes[1];
     assert.equal(p.instantEvents[0].colorId,
-                 ColorScheme.getColorIdForReservedName('generic_work'));
+        ColorScheme.getColorIdForReservedName('generic_work'));
   });
 
   test('counterColorArgument', function() {
@@ -567,7 +567,7 @@ tr.b.unittest.testSuite(function() {
     var m = makeModel(events);
     var p = m.processes[1];
     assert.equal(p.counters['foo.a[1]'].series[0].color,
-                 ColorScheme.getColorIdForReservedName('generic_work'));
+        ColorScheme.getColorIdForReservedName('generic_work'));
     assert.equal(p.counters['foo.a[1]'].series.length, 1);
   });
 
@@ -582,7 +582,7 @@ tr.b.unittest.testSuite(function() {
     var p = m.processes[1];
     var i = p.objects.instanceMapsByScopedId_['ptr'][1].instances[0];
     assert.equal(i.colorId,
-                 ColorScheme.getColorIdForReservedName('generic_work'));
+        ColorScheme.getColorIdForReservedName('generic_work'));
   });
 
   test('objectColorEnd', function() {
@@ -596,7 +596,7 @@ tr.b.unittest.testSuite(function() {
     var p = m.processes[1];
     var i = p.objects.instanceMapsByScopedId_['ptr'][1].instances[0];
     assert.equal(i.colorId,
-                 ColorScheme.getColorIdForReservedName('generic_work'));
+        ColorScheme.getColorIdForReservedName('generic_work'));
   });
 
   test('multipleThreadParsing', function() {
@@ -769,8 +769,8 @@ tr.b.unittest.testSuite(function() {
         pid: 14, ts: 0, tid: 0, ph: 'M'}
     ];
     var m = makeModel(events);
-    assert.equal(m.kernel.softwareMeasuredCpuCount, 4);
-    assert.equal(m.kernel.bestGuessAtCpuCount, 4);
+    assert.equal(m.device.softwareMeasuredCpuCount, 4);
+    assert.equal(m.device.bestGuessAtCpuCount, 4);
   });
 
   test('cpuCountsWithSandboxBeingConfused', function() {
@@ -781,8 +781,8 @@ tr.b.unittest.testSuite(function() {
         pid: 14, ts: 0, tid: 0, ph: 'M'}
     ];
     var m = makeModel(events);
-    assert.equal(m.kernel.softwareMeasuredCpuCount, 4);
-    assert.equal(m.kernel.bestGuessAtCpuCount, 4);
+    assert.equal(m.device.softwareMeasuredCpuCount, 4);
+    assert.equal(m.device.bestGuessAtCpuCount, 4);
   });
 
   test('parsingWhenEndComesFirst', function() {
@@ -862,7 +862,7 @@ tr.b.unittest.testSuite(function() {
 
     assert.equal(ctr.series[0].name, 'value');
     assert.equal(ctr.series[0].color,
-                 ColorScheme.getColorIdForGeneralPurposeString('ctr.value'));
+        ColorScheme.getColorIdForGeneralPurposeString('ctr.value'));
 
     assert.deepEqual(ctr.timestamps, [0, 0.01, 0.02]);
 
@@ -966,13 +966,13 @@ tr.b.unittest.testSuite(function() {
     assert.equal(ctr.bounds.max, 7);
     assert.equal(ctr.maxTotal, 8);
     assert.deepEqual([0, 0,
-                       1, 1,
-                       1, 2,
-                       2, 3.1,
-                       3, 3,
-                       1, 8,
-                       3, 3,
-                       3.1, 3.6], ctr.totals);
+      1, 1,
+      1, 2,
+      2, 3.1,
+      3, 3,
+      1, 8,
+      3, 3,
+      3.1, 3.6], ctr.totals);
   });
 
   test('multiCounter', function() {
@@ -994,9 +994,9 @@ tr.b.unittest.testSuite(function() {
     assert.equal(ctr.series[0].name, 'value1');
     assert.equal(ctr.series[1].name, 'value2');
     assert.equal(ctr.series[0].color,
-                 ColorScheme.getColorIdForGeneralPurposeString('ctr.value1'));
+        ColorScheme.getColorIdForGeneralPurposeString('ctr.value1'));
     assert.equal(ctr.series[1].color,
-                 ColorScheme.getColorIdForGeneralPurposeString('ctr.value2'));
+        ColorScheme.getColorIdForGeneralPurposeString('ctr.value2'));
 
     assert.deepEqual(ctr.timestamps, [0, 0.01, 0.02]);
     var samples = [];
@@ -1011,8 +1011,8 @@ tr.b.unittest.testSuite(function() {
     });
     assert.deepEqual(samples1, [7, 4, 1]);
     assert.deepEqual([0, 7,
-                       10, 14,
-                       0, 1], ctr.totals);
+      10, 14,
+      0, 1], ctr.totals);
     assert.equal(ctr.maxTotal, 14);
   });
 
@@ -1377,7 +1377,7 @@ tr.b.unittest.testSuite(function() {
         id: 72, ph: 'e', tts: 40000},
       // Async slice with tts field but with use_async_tts marker set to 0.
       {name: 'c', args: {params: ''}, pid: 52, ts: 50000, cat: 'foo', tid: 53,
-       id: 72, ph: 'b', tts: 50000, use_async_tts: 0},
+        id: 72, ph: 'b', tts: 50000, use_async_tts: 0},
       {name: 'c', args: {params: ''}, pid: 52, ts: 60000, cat: 'foo', tid: 53,
         id: 72, ph: 'e', tts: 60000, use_async_tts: 0}
     ];
@@ -1403,7 +1403,7 @@ tr.b.unittest.testSuite(function() {
   test('asyncSliceWithCPUDuration', function() {
     var events = [
       {name: 'a', args: {params: ''}, pid: 52, ts: 50000, cat: 'foo', tid: 53,
-       id: 72, ph: 'b', tts: 100000, use_async_tts: 1},
+        id: 72, ph: 'b', tts: 100000, use_async_tts: 1},
       {name: 'a', args: {params: ''}, pid: 52, ts: 60000, cat: 'foo', tid: 53,
         id: 72, ph: 'e', tts: 105000, use_async_tts: 1}
     ];
@@ -2907,7 +2907,7 @@ tr.b.unittest.testSuite(function() {
       ]
     };
     var m = makeModel(events, false);
-    assert.isDefined(m.kernel.cpus[0]);
+    assert.isDefined(m.device.cpus[0]);
     assert.equal(m.getAllThreads().length, 1);
 
     assert.equal(m.samples.length, 3);
@@ -2915,8 +2915,8 @@ tr.b.unittest.testSuite(function() {
     var t1 = m.processes[1].threads[1];
     assert.equal(t1.samples.length, 3);
 
-    var c0 = m.kernel.cpus[0];
-    var c1 = m.kernel.cpus[1];
+    var c0 = m.device.cpus[0];
+    var c1 = m.device.cpus[1];
     assert.equal(c0.samples.length, 2);
     assert.equal(c1.samples.length, 1);
 
@@ -2926,8 +2926,8 @@ tr.b.unittest.testSuite(function() {
     assert.equal(m.samples[0].start, 1);
     assert.deepEqual(
       ['a_sub', 'a', 'main'],
-      m.samples[0].userFriendlyStack
-        .map(x => x.substr(0, x.indexOf('url') - 1)));
+        m.samples[0].userFriendlyStack
+            .map(x => x.substr(0, x.indexOf('url') - 1)));
     assert.equal(m.samples[0].weight, 1);
   });
 
@@ -3315,7 +3315,7 @@ tr.b.unittest.testSuite(function() {
     assert.include(d.memoryAllocatorDumps, v8Root);
 
     checkDumpNumericsAndDiagnostics(oilpanRoot, {
-      'objects_count': new ScalarNumeric(unitlessNumber_smallerIsBetter, 47),
+      'objects_count': new Scalar(unitlessNumber_smallerIsBetter, 47),
       'size': 32768,
       'effective_size': 32768,
       'inner_size': 4096
@@ -3328,7 +3328,7 @@ tr.b.unittest.testSuite(function() {
     assert.equal(oilpanBucket1.fullName, 'oilpan/heap2/bucket1');
     assert.equal(oilpanBucket1.name, 'bucket1');
     checkDumpNumericsAndDiagnostics(oilpanBucket1, {
-      'objects_count': new ScalarNumeric(unitlessNumber_smallerIsBetter, 31),
+      'objects_count': new Scalar(unitlessNumber_smallerIsBetter, 31),
       'size': 8192,
       'effective_size': 8192,
       'inner_size': 8192
@@ -3415,7 +3415,7 @@ tr.b.unittest.testSuite(function() {
     assert.include(d.memoryAllocatorDumps, v8Root);
 
     checkDumpNumericsAndDiagnostics(oilpanRoot, {
-      'objects_count': new ScalarNumeric(unitlessNumber_smallerIsBetter, 94),
+      'objects_count': new Scalar(unitlessNumber_smallerIsBetter, 94),
       'size': 24576,
       'effective_size': 24576,
       'inner_size': 20480
@@ -3428,7 +3428,7 @@ tr.b.unittest.testSuite(function() {
     assert.equal(oilpanBucket1.fullName, 'oilpan/heap2/bucket1');
     assert.equal(oilpanBucket1.name, 'bucket1');
     checkDumpNumericsAndDiagnostics(oilpanBucket1, {
-      'objects_count': new ScalarNumeric(unitlessNumber_smallerIsBetter, 31),
+      'objects_count': new Scalar(unitlessNumber_smallerIsBetter, 31),
       'size': 8192,
       'effective_size': 8192,
       'inner_size': 8192
@@ -3517,7 +3517,7 @@ tr.b.unittest.testSuite(function() {
     assert.include(gmd.memoryAllocatorDumps, sharedBitmapManager);
 
     checkDumpNumericsAndDiagnostics(sharedBitmapManager, {
-      'objects_count': new ScalarNumeric(unitlessNumber_smallerIsBetter, 31),
+      'objects_count': new Scalar(unitlessNumber_smallerIsBetter, 31),
       'size': 8192,
       'effective_size': 8192,
       'inner_size': 8192
@@ -3531,7 +3531,7 @@ tr.b.unittest.testSuite(function() {
     assert.strictEqual(bitmap2.parent, sharedBitmapManager);
 
     checkDumpNumericsAndDiagnostics(bitmap2, {
-      'objects_count': new ScalarNumeric(unitlessNumber_smallerIsBetter, 31),
+      'objects_count': new Scalar(unitlessNumber_smallerIsBetter, 31),
       'size': 8192,
       'effective_size': 8192,
       'inner_size': 8192
@@ -3549,7 +3549,7 @@ tr.b.unittest.testSuite(function() {
     assert.isUndefined(tileManagerRoot.parent);
 
     checkDumpNumericsAndDiagnostics(tileManagerRoot, {
-      'objects_count': new ScalarNumeric(unitlessNumber_smallerIsBetter, 63),
+      'objects_count': new Scalar(unitlessNumber_smallerIsBetter, 63),
       'size': 16384,
       'effective_size': 16384,
       'inner_size': 12288
@@ -3563,7 +3563,7 @@ tr.b.unittest.testSuite(function() {
     assert.strictEqual(tile1.parent, tileManagerRoot);
 
     checkDumpNumericsAndDiagnostics(tile1, {
-      'objects_count': new ScalarNumeric(unitlessNumber_smallerIsBetter, 63),
+      'objects_count': new Scalar(unitlessNumber_smallerIsBetter, 63),
       'size': 16384,
       'effective_size': 16384,
       'inner_size': 12288
@@ -3727,7 +3727,7 @@ tr.b.unittest.testSuite(function() {
     assert.isDefined(globalDumpShared);
     assert.include(globalDump.memoryAllocatorDumps, globalDumpShared);
     checkDumpNumericsAndDiagnostics(globalDumpShared, {
-      'area': new ScalarNumeric(unitlessNumber_smallerIsBetter, 9)
+      'area': new Scalar(unitlessNumber_smallerIsBetter, 9)
     }, { 'color': 'blue' });
     assert.lengthOf(globalDumpShared.children, 0);
     assert.isUndefined(globalDumpShared.parent);
@@ -3745,7 +3745,7 @@ tr.b.unittest.testSuite(function() {
     assert.isDefined(browserDumpLocal);
     assert.include(browserDump.memoryAllocatorDumps, browserDumpLocal);
     checkDumpNumericsAndDiagnostics(browserDumpLocal, {
-      'area': new ScalarNumeric(unitlessNumber_smallerIsBetter, 9)
+      'area': new Scalar(unitlessNumber_smallerIsBetter, 9)
     }, { 'color': 'blue', 'mood': 'very good' });
     assert.lengthOf(browserDumpLocal.children, 0);
     assert.isUndefined(browserDumpLocal.parent);
@@ -3769,7 +3769,7 @@ tr.b.unittest.testSuite(function() {
     assert.isDefined(rendererDumpLocal);
     assert.include(rendererDump.memoryAllocatorDumps, rendererDumpLocal);
     checkDumpNumericsAndDiagnostics(rendererDumpLocal, {
-      'area': new ScalarNumeric(unitlessNumber_smallerIsBetter, 9),
+      'area': new Scalar(unitlessNumber_smallerIsBetter, 9),
       'length': 3
     }, { 'color': 'blue' });
     assert.lengthOf(rendererDumpLocal.children, 0);
@@ -3793,7 +3793,7 @@ tr.b.unittest.testSuite(function() {
     assert.isDefined(gpuDumpLocal1);
     assert.include(gpuDump.memoryAllocatorDumps, gpuDumpLocal1);
     checkDumpNumericsAndDiagnostics(gpuDumpLocal1, {
-      'area': new ScalarNumeric(unitlessNumber_smallerIsBetter, 9)
+      'area': new Scalar(unitlessNumber_smallerIsBetter, 9)
     }, { 'state': 'ON', 'color': 'blue' });
     assert.lengthOf(gpuDumpLocal1.children, 0);
     assert.isUndefined(gpuDumpLocal1.parent);
@@ -3819,7 +3819,7 @@ tr.b.unittest.testSuite(function() {
     assert.isDefined(gpuDumpLocal2);
     assert.include(gpuDump.memoryAllocatorDumps, gpuDumpLocal2);
     checkDumpNumericsAndDiagnostics(gpuDumpLocal2, {
-      'temperature': new ScalarNumeric(unitlessNumber_smallerIsBetter, 100)
+      'temperature': new Scalar(unitlessNumber_smallerIsBetter, 100)
     }, {});
     assert.lengthOf(gpuDumpLocal2.children, 0);
     assert.isUndefined(gpuDumpLocal2.parent);
@@ -4401,10 +4401,10 @@ tr.b.unittest.testSuite(function() {
         ['<self>'], undefined /* sum over all types */);
     checkHeapEntry(partitionAllocEntries3[4], partitionAllocDump3, 6384,
         ['<self>', 'UpdateLayoutTree', 'TimerBase::run',
-            'MessageLoop::RunTask'], undefined /* sum over all types */);
+          'MessageLoop::RunTask'], undefined /* sum over all types */);
     checkHeapEntry(partitionAllocEntries3[5], partitionAllocDump3, 58280,
         ['<self>', 'FunctionCall', 'ScheduledAction::execute', 'TimerBase::run',
-            'MessageLoop::RunTask'], undefined /* sum over all types */);
+          'MessageLoop::RunTask'], undefined /* sum over all types */);
 
     var mallocDump3 = hds3['malloc'];
     assert.strictEqual(mallocDump3.processMemoryDump, pmd3);
@@ -4741,13 +4741,13 @@ tr.b.unittest.testSuite(function() {
         ['<self>'], '[unknown]');
     checkHeapEntry(partitionAllocEntries3[4], partitionAllocDump3, 6384,
         ['<self>', 'UpdateLayoutTree', 'TimerBase::run',
-            'MessageLoop::RunTask'], undefined /* sum over all types */, 256);
+          'MessageLoop::RunTask'], undefined /* sum over all types */, 256);
     checkHeapEntry(partitionAllocEntries3[5], partitionAllocDump3, 3192,
         ['<self>', 'UpdateLayoutTree', 'TimerBase::run',
-            'MessageLoop::RunTask'], 'blink::WebFrame *');
+          'MessageLoop::RunTask'], 'blink::WebFrame *');
     checkHeapEntry(partitionAllocEntries3[6], partitionAllocDump3, 58280,
         ['<self>', 'FunctionCall', 'ScheduledAction::execute', 'TimerBase::run',
-            'MessageLoop::RunTask'], undefined /* sum over all types */);
+          'MessageLoop::RunTask'], undefined /* sum over all types */);
 
     var mallocDump3 = hds3['malloc'];
     assert.strictEqual(mallocDump3.processMemoryDump, pmd3);
@@ -4764,7 +4764,7 @@ tr.b.unittest.testSuite(function() {
         112);
     checkHeapEntry(mallocEntries3[3], mallocDump3, 205,
         ['FunctionCall', 'ScheduledAction::execute', 'TimerBase::run',
-            'MessageLoop::RunTask'], 'blink::ContextLifecycleObserver *', 128);
+          'MessageLoop::RunTask'], 'blink::ContextLifecycleObserver *', 128);
 
     // All heap dumps in Process 42 should use the same stack frames.
     assert.strictEqual(
@@ -5370,16 +5370,16 @@ tr.b.unittest.testSuite(function() {
 
   test('importTraceConfigAsMetadata', function() {
     var traceConfigData = {
-        enable_argument_filter: false,
-        enable_sampling: false,
-        enable_systrace: false,
-        record_mode: 'record-until-full'
+      enable_argument_filter: false,
+      enable_sampling: false,
+      enable_systrace: false,
+      record_mode: 'record-until-full'
     };
 
     var eventData = {
       traceEvents: [
-      { name: 'TraceConfig', args: { value: traceConfigData },
-        pid: 2, ts: 0, tid: 1, ph: 'M', cat: '__metadata' },
+        { name: 'TraceConfig', args: { value: traceConfigData },
+          pid: 2, ts: 0, tid: 1, ph: 'M', cat: '__metadata' },
       ],
     };
 
@@ -5866,50 +5866,50 @@ tr.b.unittest.testSuite(function() {
     var events = {
       'traceEvents': [
         {'pid': 1, 'tid': 2, 'ts': 3, 'ph': 'P',
-         'cat': 'disabled-by-default-v8.cpu_profiler',
-         'name': 'Profile',
-         'args': {'data': {'startTime': 10}},
-         'id': 123
+          'cat': 'disabled-by-default-v8.cpu_profiler',
+          'name': 'Profile',
+          'args': {'data': {'startTime': 10}},
+          'id': 123
         },
         {'pid': 1, 'tid': 3, 'ts': 4, 'ph': 'P',
-         'cat': 'disabled-by-default-v8.cpu_profiler',
-         'name': 'Profile',
-         'args': {
-           'data': {
-             'timeDeltas': [1, 1],
-             'cpuProfile': {
-               'nodes': [
+          'cat': 'disabled-by-default-v8.cpu_profiler',
+          'name': 'Profile',
+          'args': {
+            'data': {
+              'timeDeltas': [1, 1],
+              'cpuProfile': {
+                'nodes': [
                  // eslint-disable-next-line
                  {'callFrame': {'functionName': '(root)', 'scriptId': 0}, 'id': 1},
                  // eslint-disable-next-line
                  {'callFrame': {'functionName': 'a', 'url': 'a.js', 'scriptId': 1, 'lineNumber': 1, 'columnNumber': 2}, 'id': 2, 'parent': 1},
                  // eslint-disable-next-line
                  {'callFrame': {'functionName': 'b', 'url': 'b.js', 'scriptId': 2, 'lineNumber': 1, 'columnNumber': 2}, 'deoptReason': 'a reason', 'id': 3, 'parent': 2}
-               ],
-               'samples': [3, 2]
-             }
-           }
-         },
-         'id': 123
+                ],
+                'samples': [3, 2]
+              }
+            }
+          },
+          'id': 123
         },
         {'pid': 1, 'tid': 3, 'ts': 4, 'ph': 'P',
-         'cat': 'disabled-by-default-v8.cpu_profiler',
-         'name': 'Profile',
-         'args': {
-           'data': {
-             'timeDeltas': [3, 3],
-             'cpuProfile': {
-               'nodes': [
+          'cat': 'disabled-by-default-v8.cpu_profiler',
+          'name': 'Profile',
+          'args': {
+            'data': {
+              'timeDeltas': [3, 3],
+              'cpuProfile': {
+                'nodes': [
                  // eslint-disable-next-line
                  {'callFrame': {'functionName': 'c', 'url': 'c.js', 'scriptId': 3, 'lineNumber': 2, 'columnNumber': 3}, 'id': 4, 'parent': 2},
                  // eslint-disable-next-line
                  {'callFrame': {'functionName': 'd', 'url': 'd.js', 'scriptId': 4, 'lineNumber': 2, 'columnNumber': 3}, 'deoptReason': 'another reason', 'id': 5, 'parent': 3}
-               ],
-               'samples': [5, 4]
-             }
-           }
-         },
-         'id': 123
+                ],
+                'samples': [5, 4]
+              }
+            }
+          },
+          'id': 123
         }
       ]
     };

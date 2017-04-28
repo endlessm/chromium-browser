@@ -3,7 +3,6 @@
 # found in the LICENSE file.
 
 import re
-import warnings
 
 from telemetry.story import shared_state as shared_state_module
 
@@ -22,8 +21,6 @@ class Story(object):
     shared_state_class: subclass of telemetry.story.shared_state.SharedState.
     name: string name of this story that can be used for identifying this story
         in results output.
-    labels: A list or set of string labels that are used for filtering. See
-        story.story_filter for more information. (Deprecated - use tags intead).
     tags: A list or set of string labels that are used for filtering. See
         story.story_filter for more information.
     is_local: If True, the story does not require network.
@@ -31,9 +28,9 @@ class Story(object):
         on this story.
   """
 
-  def __init__(self, shared_state_class, name='', labels=None, tags=None,
+  def __init__(self, shared_state_class, name='', tags=None,
                is_local=False, make_javascript_deterministic=True,
-               grouping_keys=None):
+               grouping_keys=None, platform_specific=False):
     """
     Args:
       make_javascript_deterministic: Whether JavaScript performed on
@@ -42,20 +39,17 @@ class Story(object):
           to take effect. This setting does not affect stories containing no web
           content or where the HTTP MIME type is not text/html.See also:
           _InjectScripts method in third_party/web-page-replay/httpclient.py.
+      platform_specific: Boolean indicating if a separate web page replay
+          recording is required on each platform.
     """
     assert issubclass(shared_state_class,
                       shared_state_module.SharedState)
     self._shared_state_class = shared_state_class
     self._name = name
+    self._platform_specific = platform_specific
     global _next_story_id
     self._id = _next_story_id
     _next_story_id += 1
-    if labels is not None:
-      assert tags is None, 'Cannot specify both |labels| and |tags|'
-      warnings.warn('Parameter |labels| is deprecated. It will no longer be '
-                    'supported on Jan 17th 2017. Please switch to |tags| '
-                    'instead.')
-      tags = labels
     if tags is None:
       tags = set()
     elif isinstance(tags, list):
@@ -74,10 +68,6 @@ class Story(object):
   def Run(self, shared_state):
     """Execute the interactions with the applications and/or platforms."""
     raise NotImplementedError
-
-  @property
-  def labels(self):
-    return self._tags
 
   @property
   def tags(self):
@@ -146,3 +136,7 @@ class Story(object):
   @property
   def make_javascript_deterministic(self):
     return self._make_javascript_deterministic
+
+  @property
+  def platform_specific(self):
+    return self._platform_specific

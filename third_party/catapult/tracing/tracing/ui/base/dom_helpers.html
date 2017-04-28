@@ -19,7 +19,6 @@ found in the LICENSE file.
 'use strict';
 
 tr.exportTo('tr.ui.b', function() {
-
   function createSpan(opt_dictionary) {
     var ownerDocument = document;
     if (opt_dictionary && opt_dictionary.ownerDocument)
@@ -191,8 +190,8 @@ tr.exportTo('tr.ui.b', function() {
   }
 
   function createOptionGroup(targetEl, targetElProperty,
-                             settingsKey, defaultValue,
-                             items) {
+      settingsKey, defaultValue,
+      items) {
     function onChange() {
       var value = [];
       if (this.value.length)
@@ -213,8 +212,8 @@ tr.exportTo('tr.ui.b', function() {
       Polymer.dom(radioEl).setAttribute('name', 'category-presets-group');
       Polymer.dom(radioEl).setAttribute('value', item.value);
       radioEl.addEventListener('change', onChange.bind(radioEl, targetEl,
-                                                       targetElProperty,
-                                                       settingsKey));
+          targetElProperty,
+          settingsKey));
       if (valuesEqual(initialValue, item.value))
         radioEl.checked = true;
 
@@ -255,8 +254,8 @@ tr.exportTo('tr.ui.b', function() {
 
   var nextCheckboxId = 1;
   function createCheckBox(targetEl, targetElProperty,
-                          settingsKey, defaultValue,
-                          label, opt_changeCb) {
+      settingsKey, defaultValue,
+      label, opt_changeCb) {
     var buttonEl = document.createElement('input');
     buttonEl.type = 'checkbox';
 

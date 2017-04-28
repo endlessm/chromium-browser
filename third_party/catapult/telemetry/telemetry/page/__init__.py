@@ -19,19 +19,20 @@ class Page(story.Story):
 
   def __init__(self, url, page_set=None, base_dir=None, name='',
                credentials_path=None,
-               credentials_bucket=cloud_storage.PUBLIC_BUCKET, labels=None,
-               tags=None, startup_url='', make_javascript_deterministic=True,
+               credentials_bucket=cloud_storage.PUBLIC_BUCKET, tags=None,
+               startup_url='', make_javascript_deterministic=True,
                shared_page_state_class=shared_page_state.SharedPageState,
                grouping_keys=None,
                cache_temperature=cache_temperature_module.ANY,
-               traffic_setting=traffic_setting_module.NONE):
+               traffic_setting=traffic_setting_module.NONE,
+               platform_specific=False):
     self._url = url
 
     super(Page, self).__init__(
-        shared_page_state_class, name=name, labels=labels, tags=tags,
+        shared_page_state_class, name=name, tags=tags,
         is_local=self._scheme in ['file', 'chrome', 'about'],
         make_javascript_deterministic=make_javascript_deterministic,
-        grouping_keys=grouping_keys)
+        grouping_keys=grouping_keys, platform_specific=platform_specific)
 
     self._page_set = page_set
     # Default value of base_dir is the directory of the file that defines the

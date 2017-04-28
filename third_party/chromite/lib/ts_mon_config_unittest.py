@@ -41,8 +41,8 @@ class TestConsumeMessages(cros_test_lib.MockTestCase):
 
     ts_mon_config.SetupTsMonGlobalState.assert_called_once_with(
         '', auto_flush=False)
-    ts_mon_config.time.time.assert_not_called()
-    ts_mon_config.metrics.Flush.assert_not_called()
+    self.assertFalse(ts_mon_config.time.time.called)
+    self.assertFalse(ts_mon_config.metrics.Flush.called)
 
   def testConsumeOneMetric(self):
     """Tests that sending one metric calls flush once."""
@@ -54,7 +54,9 @@ class TestConsumeMessages(cros_test_lib.MockTestCase):
 
     ts_mon_config._ConsumeMessages(q, [''], {})
 
-    self.assertEqual(1, ts_mon_config.time.time.call_count)
+    self.assertEqual(2, ts_mon_config.time.time.call_count)
+    ts_mon_config.time.sleep.assert_called_once_with(
+        ts_mon_config.FLUSH_INTERVAL - 1)
     ts_mon_config.metrics.Flush.assert_called_once_with(reset_after=[])
     self.mock_metric.return_value.mock_name.assert_called_once_with(
         'arg1', kwarg1='value')
@@ -72,7 +74,9 @@ class TestConsumeMessages(cros_test_lib.MockTestCase):
 
     ts_mon_config._ConsumeMessages(q, [''], {})
 
-    self.assertEqual(2, ts_mon_config.time.time.call_count)
+    self.assertEqual(3, ts_mon_config.time.time.call_count)
+    ts_mon_config.time.sleep.assert_called_once_with(
+        ts_mon_config.FLUSH_INTERVAL - 2)
     ts_mon_config.metrics.Flush.assert_called_once_with(reset_after=[])
     self.mock_metric.return_value.mock_name1.assert_called_once_with(
         'arg1', kwarg1='value')
@@ -121,7 +125,9 @@ class TestConsumeMessages(cros_test_lib.MockTestCase):
     ts_mon_config._ConsumeMessages(q, [''], {})
 
     self.assertEqual(1, mock_logging.call_count)
-    self.assertEqual(1, ts_mon_config.time.time.call_count)
+    self.assertEqual(2, ts_mon_config.time.time.call_count)
+    ts_mon_config.time.sleep.assert_called_once_with(
+        ts_mon_config.FLUSH_INTERVAL - 1)
     ts_mon_config.metrics.Flush.assert_called_once_with(reset_after=[])
 
   def testResetAfter(self):

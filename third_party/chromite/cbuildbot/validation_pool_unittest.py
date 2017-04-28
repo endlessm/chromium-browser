@@ -22,7 +22,6 @@ import time
 from chromite.cbuildbot import patch_series
 from chromite.cbuildbot import repository
 from chromite.cbuildbot import tree_status
-from chromite.cbuildbot import triage_lib
 from chromite.cbuildbot import validation_pool
 from chromite.lib import cidb
 from chromite.lib import config_lib
@@ -40,6 +39,7 @@ from chromite.lib import parallel_unittest
 from chromite.lib import partial_mock
 from chromite.lib import patch as cros_patch
 from chromite.lib import patch_unittest
+from chromite.lib import triage_lib
 
 
 site_config = config_lib.GetConfig()
@@ -303,6 +303,15 @@ class ValidationFailureOrTimeout(MoxBase):
       action_history = self.fake_db.GetActionsForChanges([change])
       self.assertEqual([x.action for x in action_history], actions)
 
+  def testGetAppliedPatches(self):
+    """Test GetAppliedPatches."""
+    self.assertTrue(isinstance(self._pool.GetAppliedPatches(),
+                               patch_series.PatchSeries))
+
+    mock_patches = mock.Mock()
+    self._pool.applied_patches = mock_patches
+    self.assertEqual(self._pool.GetAppliedPatches(), mock_patches)
+
   def testPatchesWereRejectedByFailure(self):
     """Tests that all patches are rejected by failure."""
     self._pool.HandleValidationFailure([self._BUILD_MESSAGE])
@@ -474,7 +483,8 @@ class TestCoreLogic(MoxBase):
       # thinking that the first arg isn't passed in; we suppress it to suppress
       # the pylnt bug.
       # pylint: disable=E1120
-      gerrit.GerritHelper.RemoveReady(failure.patch, dryrun=False)
+      gerrit.GerritHelper.RemoveReady(
+          failure.patch, extra_labels=None, dryrun=False)
 
     self.mox.ReplayAll()
     master_pool._HandleApplyFailure(notified_patches)
@@ -775,28 +785,7 @@ class TestCoreLogic(MoxBase):
     self.mox.VerifyAll()
     self.mox.ResetAll()
 
-    # 3) Test, tree throttled -> get changes and finish.
-    tree_status.WaitForTreeStatus(
-        period=mox.IgnoreArg(),
-        throttled_ok=mox.IgnoreArg(),
-        timeout=mox.IgnoreArg()).AndReturn(constants.TREE_THROTTLED)
-    repo.Sync()
-    validation_pool.ValidationPool.AcquireChanges(
-        mox.IgnoreArg(), mox.IgnoreArg(), mox.IgnoreArg()).AndReturn(True)
-
-    self.mox.ReplayAll()
-    query = constants.CQ_READY_QUERY
-    pool = validation_pool.ValidationPool.AcquirePool(
-        constants.PUBLIC_OVERLAYS, repo, 1, 'buildname', query, dryrun=False,
-        check_tree_open=True)
-
-    self.assertTrue(pool.tree_was_open)
-    self.mox.VerifyAll()
-    self.mox.ResetAll()
-
-    # 4) Test, tree throttled -> use exponential fallback logic.
-    # We force this case to be different than 3 by setting the exponential
-    # fallback timeout from 10 minutes to 0 seconds.
+    # 3) Test, tree throttled -> use exponential fallback logic.
     tree_status.WaitForTreeStatus(
         period=mox.IgnoreArg(),
         throttled_ok=mox.IgnoreArg(),
@@ -807,7 +796,6 @@ class TestCoreLogic(MoxBase):
 
     self.mox.ReplayAll()
 
-    validation_pool.ValidationPool.CQ_THROTTLED_TIMEOUT = 0
     query = constants.CQ_READY_QUERY
     pool = validation_pool.ValidationPool.AcquirePool(
         constants.PUBLIC_OVERLAYS, repo, 1, 'buildname', query, dryrun=False,
@@ -927,6 +915,168 @@ class TestCoreLogic(MoxBase):
     self.assertEqual(len(slave_pool.candidates), 1)
     self.mox.VerifyAll()
 
+  def _UpdatedDependencyMap(self, dependency_map):
+    pool = self.MakePool()
+
+    visited = set()
+    visiting = set()
+
+    keys = dependency_map.keys()
+    for change in keys:
+      pool._UpdateDependencyMap(dependency_map, change, visiting, visited)
+
+  def test_UpdateDependencyMapOnTransitiveDependency(self):
+    """Test _UpdateDependencyMap on transitive dependency."""
+    dep_map = {
+        'A': {'B'},
+        'B': {'C'},
+        'C': {'D'}
+    }
+
+    self._UpdatedDependencyMap(dep_map)
+
+    expect_map = {
+        'A': {'B', 'C', 'D'},
+        'B': {'C', 'D'},
+        'C': {'D'}
+    }
+    self.assertDictEqual(dep_map, expect_map)
+
+  def test_UpdateDependencyMapOnMutualDependency(self):
+    """Test _UpdateDependencyMap on mutual dependency."""
+    dep_map = {
+        'A': {'B', 'D', 'E'},
+        'B': {'A'}
+    }
+
+    self._UpdatedDependencyMap(dep_map)
+
+    expect_map = {
+        'A': {'B', 'D', 'E'},
+        'B': {'A', 'D', 'E'}
+    }
+    self.assertDictEqual(dep_map, expect_map)
+
+  def test_UpdateDependencyMapOnCircularDependency(self):
+    """Test _UpdateDependencyMap on circular dependency."""
+    dep_map = {
+        'A': {'B'},
+        'B': {'C'},
+        'C': {'D'},
+        'D': {'A'}
+    }
+
+    self._UpdatedDependencyMap(dep_map)
+
+    expect_map = {
+        'A': {'B', 'C', 'D'},
+        'B': {'A', 'C', 'D'},
+        'C': {'A', 'B', 'D'},
+        'D': {'A', 'B', 'C'}
+    }
+    self.assertDictEqual(dep_map, expect_map)
+
+  def test_UpdateDependencyMapMix(self):
+    """Test _UpdateDependencyMap on mixed dependencies."""
+    dep_map = {
+        'B': {'A'},
+        'C': {'B'},
+        'F': {'E'},
+        'E': {'D', 'G'},
+        'H': {'I'},
+        'I': {'H'}
+    }
+
+    self._UpdatedDependencyMap(dep_map)
+
+    expect_map = {
+        'B': {'A'},
+        'C': {'A', 'B'},
+        'E': {'D', 'G'},
+        'F': {'D', 'E', 'G'},
+        'H': {'I'},
+        'I': {'H'}
+    }
+    self.assertDictEqual(dep_map, expect_map)
+
+  def testGetDependMapForChangesOnNoDependency(self):
+    """Test GetDependMapForChanges on no dependency."""
+    pool = self.MakePool()
+    patches = patch_series.PatchSeries('path')
+    p = self.GetPatches(how_many=3)
+
+    for patch in p:
+      self.patch_mock.SetGerritDependencies(patch, [])
+      self.patch_mock.SetCQDependencies(patch, [])
+
+    dep_map = pool.GetDependMapForChanges(p, patches)
+    expected_map = {}
+
+    self.assertDictEqual(dep_map, expected_map)
+
+  def testGetDependMapForChangesOnMutualDependency(self):
+    """Test GetDependMapForChanges on mutual dependency."""
+    pool = self.MakePool()
+    patches = patch_series.PatchSeries('path')
+    p = self.GetPatches(how_many=2)
+
+    for patch in p:
+      self.patch_mock.SetGerritDependencies(patch, [])
+
+    # p1 -> p0, p0 -> p1
+    self.patch_mock.SetCQDependencies(p[0], [p[1]])
+    self.patch_mock.SetCQDependencies(p[1], [p[0]])
+
+    dep_map = pool.GetDependMapForChanges(p, patches)
+    expected_map = {
+        p[0]: {p[1]},
+        p[1]: {p[0]}
+    }
+    self.assertDictEqual(dep_map, expected_map)
+
+  def testGetDependMapForChangesOnCircularDependency(self):
+    """Test GetDependMapForChanges on circular dependency."""
+    pool = self.MakePool()
+    patches = patch_series.PatchSeries('path')
+    p = self.GetPatches(how_many=3)
+
+    for patch in p:
+      self.patch_mock.SetGerritDependencies(patch, [])
+
+    # p0 -> p2, p1 -> p2, p2 -> p0
+    self.patch_mock.SetCQDependencies(p[0], [p[1]])
+    self.patch_mock.SetCQDependencies(p[1], [p[2]])
+    self.patch_mock.SetCQDependencies(p[2], [p[0]])
+
+    dep_map = pool.GetDependMapForChanges(p, patches)
+    expected_map = {
+        p[0]: {p[1], p[2]},
+        p[1]: {p[0], p[2]},
+        p[2]: {p[0], p[1]}
+    }
+    self.assertDictEqual(dep_map, expected_map)
+
+  def testGetDependMapForChangesOnTransitiveDependency(self):
+    """Test GetDependMapForChanges on transitive dependency."""
+    pool = self.MakePool()
+    patches = patch_series.PatchSeries('path')
+    p = self.GetPatches(how_many=4)
+
+    for patch in p:
+      self.patch_mock.SetGerritDependencies(patch, [])
+
+    # p1 -> p0, p2 -> p1
+    self.patch_mock.SetCQDependencies(p[0], [])
+    self.patch_mock.SetCQDependencies(p[1], [p[0]])
+    self.patch_mock.SetCQDependencies(p[2], [p[1]])
+    self.patch_mock.SetCQDependencies(p[3], [])
+
+    dep_map = pool.GetDependMapForChanges(p, patches)
+    expected_map = {
+        p[0]: {p[1], p[2]},
+        p[1]: {p[2]}
+    }
+    self.assertDictEqual(dep_map, expected_map)
 
 class TestPickling(cros_test_lib.TempDirTestCase):
   """Tests to validate pickling of ValidationPool, covering CQ's needs"""
@@ -1315,7 +1465,7 @@ class SubmitPoolTest(BaseSubmitPoolTestCase):
 
   def testConflict(self):
     """Submit a change that conflicts with TOT."""
-    error = gob_util.GOBError(httplib.CONFLICT, 'Conflict')
+    error = gob_util.GOBError(http_status=httplib.CONFLICT, reason='Conflict')
     self.pool_mock.submit_results[self.patches[0]] = error
     self.SubmitPool(submitted=[self.patches[0]], rejected=self.patches[::-1])
     notify_error = validation_pool.PatchConflict(self.patches[0])
@@ -1323,7 +1473,8 @@ class SubmitPoolTest(BaseSubmitPoolTestCase):
 
   def testConflictAlreadyMerged(self):
     """Submit a change that conflicts with TOT because it was already merged."""
-    error = gob_util.GOBError(httplib.CONFLICT, 'change is merged\n')
+    error = gob_util.GOBError(http_status=httplib.CONFLICT,
+                              reason=gob_util.GOB_ERROR_REASON_CLOSED_CHANGE)
     self.pool_mock.submit_results[self.patches[0]] = error
     self.SubmitPool(submitted=self.patches, rejected=())
 
@@ -1456,3 +1607,73 @@ class LoadManifestTest(cros_test_lib.TempDirTestCase):
     self.assertEqual(self.pool.candidates[0].fail_count, 2)
     self.assertEqual(self.pool.candidates[0].pass_count, 0)
     self.assertEqual(self.pool.candidates[0].total_fail_count, 3)
+
+
+class RemoveReadyTest(cros_test_lib.MockTempDirTestCase,
+                      patch_unittest.MockPatchBase):
+  """Tests for RemoveReady."""
+
+  def setUp(self):
+    """Sets up a pool."""
+    self.pool = MakePool()
+
+  def test_RemoveCodeReview_PreCQ(self):
+    """Test _RemoveCodeReview on PreCQ."""
+    pre_cq_pool = MakePool(builder_name=constants.PRE_CQ_LAUNCHER_NAME)
+    patch = self.GetPatches(1)
+    failure = cros_patch.BrokenCQDepends(patch, 'text')
+    self.assertTrue(pre_cq_pool._RemoveCodeReview(failure))
+
+  def test_RemoveCodeReview_CQ(self):
+    """Test _RemoveCodeReview on CQ."""
+    patch = self.GetPatches(1)
+    failure = cros_patch.BrokenCQDepends(patch, 'text')
+    self.assertFalse(self.pool._RemoveCodeReview(failure))
+
+  def test_RemoveCodeReviewNoneFailure(self):
+    """Test _RemoveCodeReview on None failure."""
+    self.assertFalse(self.pool._RemoveCodeReview(None))
+
+  def testRemoveReadyRemoveCodeReview(self):
+    """Test RemoveReady by removing Code-Review."""
+    pre_cq_pool = MakePool(builder_name=constants.PRE_CQ_LAUNCHER_NAME)
+    remove_ready_mock = self.PatchObject(gerrit.GerritHelper, 'RemoveReady')
+    patch = self.GetPatches(1)
+    failure = cros_patch.BrokenCQDepends(patch, 'text')
+
+    pre_cq_pool.RemoveReady(patch, failure)
+    remove_ready_mock.assert_called_with(
+        patch, extra_labels={'Code-Review'}, dryrun=True)
+
+  def testRemoveReadyDoNotRemoveCodeReview(self):
+    """Test RemoveReady by not removing Code-Review."""
+    remove_ready_mock = self.PatchObject(gerrit.GerritHelper, 'RemoveReady')
+    patch = self.GetPatches(1)
+    failure = cros_patch.BrokenCQDepends(patch, 'text')
+
+    self.pool.RemoveReady(patch, failure)
+    remove_ready_mock.assert_called_with(
+        patch, extra_labels=None, dryrun=True)
+
+  def testRemoveReadyRaisesException(self):
+    """Test RemoveReady which raises exception."""
+    patch = self.GetPatches(1)
+    remove_ready_mock = self.PatchObject(gerrit.GerritHelper, 'RemoveReady')
+    remove_ready_mock.side_effect = (
+        gob_util.GOBError(http_status=409, reason="test"))
+
+    self.assertRaises(gob_util.GOBError, self.pool.RemoveReady, patch)
+
+  def testRemoveReadyDoesNotRaiseException(self):
+    """Test RemoveReady which does not raise exception."""
+    patch = self.GetPatches(1)
+    remove_ready_mock = self.PatchObject(gerrit.GerritHelper, 'RemoveReady')
+    remove_ready_mock.side_effect = (
+        gob_util.GOBError(http_status=409,
+                          reason=gob_util.GOB_ERROR_REASON_CLOSED_CHANGE))
+
+    self.pool._run = None
+    self.PatchObject(validation_pool.ValidationPool,
+                     '_InsertCLActionToDatabase')
+
+    self.pool.RemoveReady(patch)

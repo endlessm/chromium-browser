@@ -17,11 +17,10 @@ found in the LICENSE file.
 'use strict';
 
 tr.exportTo('tr.mre', function() {
-
   var Failure = tr.mre.Failure;
 
   function runAndConvertErrorsToFailures(result, job,
-                                         traceHandle, cb, opt_this) {
+      traceHandle, cb, opt_this) {
     try {
       cb.call(opt_this);
     } catch (e) {

@@ -179,7 +179,7 @@ TEST(MinidumpWriterTest, MappingInfo) {
   memcpy(mapping.second, kModuleGUID, sizeof(MDGUID));
   mappings.push_back(mapping);
   ASSERT_TRUE(WriteMinidump(templ.c_str(), child, &context, sizeof(context),
-                            mappings, memory_list));
+                            mappings, memory_list, false, 0, false));
 
   // Read the minidump. Load the module list, and ensure that
   // the mmap'ed |memory| is listed with the given module name
@@ -212,6 +212,146 @@ TEST(MinidumpWriterTest, MappingInfo) {
   EXPECT_TRUE(minidump.SeekToStreamType(MD_LINUX_MAPS, &len));
   EXPECT_TRUE(minidump.SeekToStreamType(MD_LINUX_DSO_DEBUG, &len));
 
+  close(fds[1]);
+}
+
+// Test that minidumping is skipped while writing minidumps if principal mapping
+// is not referenced.
+TEST(MinidumpWriterTest, MinidumpSkippedIfRequested) {
+  int fds[2];
+  ASSERT_NE(-1, pipe(fds));
+
+  const pid_t child = fork();
+  if (child == 0) {
+    close(fds[1]);
+    char b;
+    IGNORE_RET(HANDLE_EINTR(read(fds[0], &b, sizeof(b))));
+    close(fds[0]);
+    syscall(__NR_exit);
+  }
+  close(fds[0]);
+
+  ExceptionHandler::CrashContext context;
+  memset(&context, 0, sizeof(context));
+  ASSERT_EQ(0, getcontext(&context.context));
+  context.tid = child;
+
+  AutoTempDir temp_dir;
+  string templ = temp_dir.path() + kMDWriterUnitTestFileName;
+
+  // pass an invalid principal mapping address, which will force
+  // WriteMinidump to not write a minidump.
+  ASSERT_FALSE(WriteMinidump(templ.c_str(), child, &context, sizeof(context),
+                            true, static_cast<uintptr_t>(0x0102030405060708ull),
+                            false));
+  close(fds[1]);
+}
+
+// Test that minidumping is skipped while writing minidumps if principal mapping
+// is not referenced.
+TEST(MinidumpWriterTest, MinidumpStacksSkippedIfRequested) {
+  int fds[2];
+  ASSERT_NE(-1, pipe(fds));
+
+  const pid_t child = fork();
+  if (child == 0) {
+    close(fds[1]);
+
+    // Create a thread that does not return, and only references libc (not the
+    // current executable). This thread should not be captured in the minidump.
+    pthread_t thread;
+    pthread_attr_t thread_attributes;
+    pthread_attr_init(&thread_attributes);
+    pthread_attr_setdetachstate(&thread_attributes, PTHREAD_CREATE_DETACHED);
+    sigset_t sigset;
+    sigemptyset(&sigset);
+    pthread_create(&thread, &thread_attributes,
+                   reinterpret_cast<void* (*)(void*)>(&sigsuspend), &sigset);
+
+    char b;
+    IGNORE_RET(HANDLE_EINTR(read(fds[0], &b, sizeof(b))));
+    close(fds[0]);
+    syscall(__NR_exit);
+  }
+  close(fds[0]);
+
+  ExceptionHandler::CrashContext context;
+  memset(&context, 0, sizeof(context));
+  ASSERT_EQ(0, getcontext(&context.context));
+  context.tid = child;
+
+  AutoTempDir temp_dir;
+  string templ = temp_dir.path() + kMDWriterUnitTestFileName;
+
+  // Pass an invalid principal mapping address, which will force
+  // WriteMinidump to not dump any thread stacks.
+  ASSERT_TRUE(WriteMinidump(
+      templ.c_str(), child, &context, sizeof(context), true,
+      reinterpret_cast<uintptr_t>(google_breakpad::WriteFile), false));
+
+  // Read the minidump. And ensure that thread memory was dumped only for the
+  // main thread.
+  Minidump minidump(templ);
+  ASSERT_TRUE(minidump.Read());
+
+  MinidumpThreadList *threads = minidump.GetThreadList();
+  int threads_with_stacks = 0;
+  for (unsigned int i = 0; i < threads->thread_count(); ++i) {
+    MinidumpThread *thread = threads->GetThreadAtIndex(i);
+    if (thread->GetMemory()) {
+      ++threads_with_stacks;
+    }
+  }
+  ASSERT_EQ(1, threads_with_stacks);
+  close(fds[1]);
+}
+
+// Test that stacks can be sanitized while writing minidumps.
+TEST(MinidumpWriterTest, StacksAreSanitizedIfRequested) {
+  int fds[2];
+  ASSERT_NE(-1, pipe(fds));
+
+  const pid_t child = fork();
+  if (child == 0) {
+    close(fds[1]);
+    char b;
+    IGNORE_RET(HANDLE_EINTR(read(fds[0], &b, sizeof(b))));
+    close(fds[0]);
+    syscall(__NR_exit);
+  }
+  close(fds[0]);
+
+  ExceptionHandler::CrashContext context;
+  memset(&context, 0, sizeof(context));
+  ASSERT_EQ(0, getcontext(&context.context));
+  context.tid = child;
+
+  AutoTempDir temp_dir;
+  string templ = temp_dir.path() + kMDWriterUnitTestFileName;
+  // pass an invalid principal mapping address, which will force
+  // WriteMinidump to not dump any thread stacks.
+  ASSERT_TRUE(WriteMinidump(templ.c_str(), child, &context, sizeof(context),
+                            false, 0, true));
+
+  // Read the minidump. And ensure that thread memory contains a defaced value.
+  Minidump minidump(templ);
+  ASSERT_TRUE(minidump.Read());
+
+  const uintptr_t defaced =
+#if defined(__LP64__)
+      0x0defaced0defaced;
+#else
+      0x0defaced;
+#endif
+  MinidumpThreadList *threads = minidump.GetThreadList();
+  for (unsigned int i = 0; i < threads->thread_count(); ++i) {
+    MinidumpThread *thread = threads->GetThreadAtIndex(i);
+    MinidumpMemoryRegion *mem = thread->GetMemory();
+    ASSERT_TRUE(mem != nullptr);
+    uint32_t sz = mem->GetSize();
+    const uint8_t *data = mem->GetMemory();
+    ASSERT_TRUE(memmem(data, sz, &defaced, sizeof(defaced)) != nullptr);
+  }
   close(fds[1]);
 }
 

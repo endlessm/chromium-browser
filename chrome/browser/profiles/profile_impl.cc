@@ -123,6 +123,7 @@
 #include "chrome/browser/chromeos/locale_change_guard.h"
 #include "chrome/browser/chromeos/preferences.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
+#include "chrome/browser/chromeos/settings/device_settings_service.h"
 #include "components/user_manager/user_manager.h"
 #endif
 
@@ -380,6 +381,8 @@ void ProfileImpl::RegisterProfilePrefs(
   registry->RegisterStringPref(prefs::kHomePage,
                                std::string(),
                                home_page_flags);
+  registry->RegisterStringPref(prefs::kNewTabPageLocationOverride,
+                               std::string());
 #if BUILDFLAG(ENABLE_PRINTING)
   registry->RegisterBooleanPref(prefs::kPrintingEnabled, true);
 #endif
@@ -389,7 +392,10 @@ void ProfileImpl::RegisterProfilePrefs(
   registry->RegisterBooleanPref(prefs::kForceEphemeralProfiles, false);
 #if defined(ENABLE_MEDIA_ROUTER)
   registry->RegisterBooleanPref(prefs::kEnableMediaRouter, true);
-#endif
+#if !defined(OS_ANDROID)
+  registry->RegisterBooleanPref(prefs::kShowCastIconInToolbar, false);
+#endif  // !defined(OS_ANDROID)
+#endif  // defined(ENABLE_MEDIA_ROUTER)
   // Initialize the cache prefs.
   registry->RegisterFilePathPref(prefs::kDiskCacheDir, base::FilePath());
   registry->RegisterIntegerPref(prefs::kDiskCacheSize, 0);
@@ -434,6 +440,8 @@ ProfileImpl::ProfileImpl(
       policy::SchemaRegistryServiceFactory::CreateForContext(
           this, connector->GetChromeSchema(), connector->GetSchemaRegistry());
 #if defined(OS_CHROMEOS)
+  if (force_immediate_policy_load)
+    chromeos::DeviceSettingsService::Get()->LoadImmediately();
   configuration_policy_provider_ =
       policy::UserPolicyManagerFactoryChromeOS::CreateForProfile(
           this, force_immediate_policy_load, sequenced_task_runner);

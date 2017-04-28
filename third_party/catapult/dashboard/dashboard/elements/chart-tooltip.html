@@ -33,6 +33,10 @@ was just clicked.
       overflow-y: auto;
       max-height: 250px;
     }
+
+    #close-button {
+      float: right;
+    }
   </style>
 
   <template>
@@ -105,6 +109,7 @@ was just clicked.
           </div>
 
           <div>
+            <span class="annotation-link"><a href="/group_report?rev={{pointId}}" target="_blank">See all performance changes at {{pointId}}</a></span><br />
             <template is="dom-repeat" items={{links}}>
               <span class="annotation-link"><a href="{{item.url}}" target="_blank">{{item.text}}</a></span><br />
             </template>
@@ -124,6 +129,7 @@ was just clicked.
                 test-path="{{testPath}}"
                 test-rev="{{pointId}}"></stoppage-alert-debug-button>
           </template>
+          <paper-button id="close-button" raised dismissive on-click="close">Close</paper-button>
         </div>
 
       </paper-card>

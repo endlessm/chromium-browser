@@ -8,6 +8,7 @@ found in the LICENSE file.
 <link rel="import" href="/tracing/base/base64.html">
 <link rel="import" href="/tracing/base/color_scheme.html">
 <link rel="import" href="/tracing/base/range.html">
+<link rel="import" href="/tracing/base/scalar.html">
 <link rel="import" href="/tracing/base/unit.html">
 <link rel="import" href="/tracing/base/utils.html">
 <link rel="import" href="/tracing/extras/importer/heap_dump_trace_event_importer.html">
@@ -33,7 +34,6 @@ found in the LICENSE file.
 <link rel="import" href="/tracing/model/slice_group.html">
 <link rel="import" href="/tracing/model/vm_region.html">
 <link rel="import" href="/tracing/model/x_marker_annotation.html">
-<link rel="import" href="/tracing/value/numeric.html">
 
 <script>
 'use strict';
@@ -71,7 +71,7 @@ tr.exportTo('tr.e.importer', function() {
   var LIGHT = tr.model.ContainerMemoryDump.LevelOfDetail.LIGHT;
   var DETAILED = tr.model.ContainerMemoryDump.LevelOfDetail.DETAILED;
   var MEMORY_DUMP_LEVEL_OF_DETAIL_ORDER = [undefined, BACKGROUND, LIGHT,
-                                           DETAILED];
+    DETAILED];
 
   var GLOBAL_MEMORY_ALLOCATOR_DUMP_PREFIX = 'global/';
 
@@ -491,11 +491,11 @@ tr.exportTo('tr.e.importer', function() {
           throw new Error('This should never happen');
 
         thread.sliceGroup.beginSlice(event.cat, event.name,
-                                     this.toModelTimeFromUs_(event.ts),
-                                     this.deepCopyIfNeeded_(event.args),
-                                     this.toModelTimeFromUs_(event.tts),
-                                     event.argsStripped,
-                                     getEventColor(event));
+            this.toModelTimeFromUs_(event.ts),
+            this.deepCopyIfNeeded_(event.args),
+            this.toModelTimeFromUs_(event.tts),
+            event.argsStripped,
+            getEventColor(event));
         var slice = thread.sliceGroup.endSlice(
             this.toModelTimeFromUs_(event.ts),
             this.toModelTimeFromUs_(event.tts));
@@ -656,7 +656,7 @@ tr.exportTo('tr.e.importer', function() {
           this.importObjectTypeNameMap_(objectTypeNameMap, event.pid);
         }
       } else if (event.name === 'TraceConfig') {
-          this.model_.metadata.push(
+        this.model_.metadata.push(
               {name: 'TraceConfig', value: event.args.value});
       } else {
         this.model_.importWarning({
@@ -772,9 +772,9 @@ tr.exportTo('tr.e.importer', function() {
             // Get the sepcific ProfileNode type based on sampleType.
             var ProfileNodeType =
                 tr.model.ProfileNode.subTypes.getConstructor(undefined,
-                                                             sampleType);
+                    sampleType);
             let profileNode = ProfileNodeType.constructFromObject(profileTree,
-                                                                  node);
+                node);
             if (profileNode === undefined) {
               continue;
             }
@@ -790,7 +790,7 @@ tr.exportTo('tr.e.importer', function() {
             profileTree.endTime += timeDeltas[i];
             let start = this.toModelTimeFromUs_(profileTree.endTime);
             this.model_.samples.push(
-              new tr.model.Sample(start, node.sampleTitle, node, thread));
+                new tr.model.Sample(start, node.sampleTitle, node, thread));
           }
         }
       }
@@ -809,11 +809,11 @@ tr.exportTo('tr.e.importer', function() {
       var profileTree = this.getOrCreateProfileTree_(sampleType, event.pid);
       if (profileTree.getNode(-1) === undefined) {
         profileTree.add(
-          new ProfileNodeType(-1, {
-            url: '',
-            scriptId: -1,
-            functionName: 'unknown'
-          }, undefined));
+            new ProfileNodeType(-1, {
+              url: '',
+              scriptId: -1,
+              functionName: 'unknown'
+            }, undefined));
       }
       // There are several types of v8 sample events, gc, native, compiler, etc.
       // Some of these types have stacks and some don't, we handle those two
@@ -865,7 +865,7 @@ tr.exportTo('tr.e.importer', function() {
           .getOrCreateThread(event.tid);
 
       this.model_.samples.push(
-        new tr.model.Sample(this.toModelTimeFromUs_(event.ts),
+          new tr.model.Sample(this.toModelTimeFromUs_(event.ts),
                             node.sampleTitle, node, thread));
     },
 
@@ -887,7 +887,7 @@ tr.exportTo('tr.e.importer', function() {
         }
         var ProfileNodeType =
             tr.model.ProfileNode.subTypes.getConstructor(undefined,
-                                                         'legacySample');
+                'legacySample');
         node = this.stackFrameTree_.add(new ProfileNodeType(
           id, {
             functionName: event.name
@@ -1113,7 +1113,6 @@ tr.exportTo('tr.e.importer', function() {
               'begin_end (non-compact)', event.cat, event.name, event.ts,
               eventSizeInBytes);
           this.processDurationEvent(event);
-
         } else if (event.ph === 'X') {
           modelStats.willProcessBasicTraceEvent(
               'begin_end (compact)', event.cat, event.name, event.ts,
@@ -1124,7 +1123,6 @@ tr.exportTo('tr.e.importer', function() {
           // https://github.com/catapult-project/catapult/issues/1259
           if (slice !== undefined && event.bind_id !== undefined)
             this.processFlowEvent(event, slice);
-
         } else if (event.ph === 'b' || event.ph === 'e' || event.ph === 'n' ||
                    event.ph === 'S' || event.ph === 'F' || event.ph === 'T' ||
                    event.ph === 'p') {
@@ -1138,7 +1136,6 @@ tr.exportTo('tr.e.importer', function() {
           modelStats.willProcessBasicTraceEvent(
               'instant', event.cat, event.name, event.ts, eventSizeInBytes);
           this.processInstantEvent(event);
-
         } else if (event.ph === 'P') {
           modelStats.willProcessBasicTraceEvent(
               'samples', event.cat, event.name, event.ts, eventSizeInBytes);
@@ -1151,23 +1148,19 @@ tr.exportTo('tr.e.importer', function() {
           modelStats.willProcessBasicTraceEvent(
               'metadata', event.cat, event.name, event.ts, eventSizeInBytes);
           this.processMetadataEvent(event);
-
         } else if (event.ph === 'N' || event.ph === 'D' || event.ph === 'O') {
           modelStats.willProcessBasicTraceEvent(
               'objects', event.cat, event.name, event.ts, eventSizeInBytes);
           this.processObjectEvent(event);
-
         } else if (event.ph === 's' || event.ph === 't' || event.ph === 'f') {
           modelStats.willProcessBasicTraceEvent(
               'flows', event.cat, event.name, event.ts, eventSizeInBytes);
           this.processFlowEvent(event);
-
         } else if (event.ph === 'v') {
           modelStats.willProcessBasicTraceEvent(
               'memory_dumps', event.cat, event.name, event.ts,
               eventSizeInBytes);
           this.processMemoryDumpEvent(event);
-
         } else if (event.ph === '(' || event.ph === ')') {
           this.processContextEvent(event);
         } else if (event.ph === 'c') {
@@ -1187,9 +1180,9 @@ tr.exportTo('tr.e.importer', function() {
 
       // Remove all the root stack frame children as they should
       // already be added.
-      tr.b.iterItems(this.v8ProcessRootStackFrame_, function(name, frame) {
+      for (var frame of Object.values(this.v8ProcessRootStackFrame_)) {
         frame.removeAllChildren();
-      });
+      }
     },
 
     importStackFrames_: function(rawStackFrames, idPrefix) {
@@ -1237,7 +1230,7 @@ tr.exportTo('tr.e.importer', function() {
       // We keep the StackFrame version for compatibility for now.
       var ProfileNodeType =
           tr.model.ProfileNode.subTypes.getConstructor(undefined,
-                                                       'legacySample');
+              'legacySample');
       if (idPrefix === 'g') {
         for (var id in rawStackFrames) {
           var rawStackFrame = rawStackFrames[id];
@@ -1308,8 +1301,8 @@ tr.exportTo('tr.e.importer', function() {
           // With compiler-specific prefix and suffix (automatically annotated
           // object types).
           objectTypeNameMap[objectTypeId] = rawObjectTypeName.substring(
-               objectTypeNamePrefix.length,
-               rawObjectTypeName.length - objectTypeNameSuffix.length);
+              objectTypeNamePrefix.length,
+              rawObjectTypeName.length - objectTypeNameSuffix.length);
         } else {
           // Without compiler-specific prefix and suffix (manually annotated
           // object types and '[unknown]').
@@ -1323,7 +1316,7 @@ tr.exportTo('tr.e.importer', function() {
     importAnnotations_: function() {
       for (var id in this.traceAnnotations_) {
         var annotation = tr.model.Annotation.fromDictIfPossible(
-           this.traceAnnotations_[id]);
+            this.traceAnnotations_[id]);
         if (!annotation) {
           this.model_.importWarning({
             type: 'annotation_warning',
@@ -1342,7 +1335,7 @@ tr.exportTo('tr.e.importer', function() {
      */
     finalizeImport: function() {
       if (this.softwareMeasuredCpuCount_ !== undefined) {
-        this.model_.kernel.softwareMeasuredCpuCount =
+        this.model_.device.softwareMeasuredCpuCount =
             this.softwareMeasuredCpuCount_;
       }
       this.createAsyncSlices_();
@@ -1429,7 +1422,7 @@ tr.exportTo('tr.e.importer', function() {
 
         var cpu;
         if (event.cpu !== undefined)
-          cpu = m.kernel.getOrCreateCpu(event.cpu);
+          cpu = m.device.getOrCreateCpu(event.cpu);
 
         var leafNode = this.stackFrameTree_.getNode('g' + event.sf);
 
@@ -1511,7 +1504,7 @@ tr.exportTo('tr.e.importer', function() {
 
         var key = event.cat + ':' + id.toStringWithDelimiter(':');
         if (nestableAsyncEventsByKey[key] === undefined)
-           nestableAsyncEventsByKey[key] = [];
+          nestableAsyncEventsByKey[key] = [];
         nestableAsyncEventsByKey[key].push(asyncEventState);
       }
       // Handle legacy async events.
@@ -1599,15 +1592,15 @@ tr.exportTo('tr.e.importer', function() {
             // Create a slice from start to end.
             var asyncSliceConstructor =
                tr.model.AsyncSlice.subTypes.getConstructor(
-                  events[0].event.cat,
-                  name);
+                   events[0].event.cat,
+                   name);
             var slice = new asyncSliceConstructor(
                 events[0].event.cat,
                 name,
                 getEventColor(events[0].event),
                 this.toModelTimeFromUs_(events[0].event.ts),
                 tr.b.concatenateObjects(events[0].event.args,
-                                      events[events.length - 1].event.args),
+                    events[events.length - 1].event.args),
                 this.toModelTimeFromUs_(event.ts - events[0].event.ts),
                 true, undefined, undefined, events[0].event.argsStripped);
             slice.startThread = events[0].thread;
@@ -1656,8 +1649,8 @@ tr.exportTo('tr.e.importer', function() {
 
               var asyncSliceConstructor =
                  tr.model.AsyncSlice.subTypes.getConstructor(
-                    events[0].event.cat,
-                    subName);
+                     events[0].event.cat,
+                     subName);
               var subSlice = new asyncSliceConstructor(
                   events[0].event.cat,
                   subName,
@@ -1665,7 +1658,7 @@ tr.exportTo('tr.e.importer', function() {
                   this.toModelTimeFromUs_(events[startIndex].event.ts),
                   this.deepCopyIfNeeded_(events[j].event.args),
                   this.toModelTimeFromUs_(
-                    events[endIndex].event.ts - events[startIndex].event.ts),
+                      events[endIndex].event.ts - events[startIndex].event.ts),
                       undefined, undefined,
                       events[startIndex].event.argsStripped);
               subSlice.startThread = events[startIndex].thread;
@@ -1761,7 +1754,7 @@ tr.exportTo('tr.e.importer', function() {
                 // Make an argument object to hold the combined params.
                 var args3 = {};
                 args3.params = tr.b.concatenateObjects(args1.params,
-                                                       args2.params);
+                    args2.params);
                 return tr.b.concatenateObjects(args1, args2, args3);
               }
               var endArgs = eventStateEntry.end.event.args || {};
@@ -1787,8 +1780,8 @@ tr.exportTo('tr.e.importer', function() {
           var isTopLevel = (eventStateEntry.parentEntry === undefined);
           var asyncSliceConstructor =
               tr.model.AsyncSlice.subTypes.getConstructor(
-                eventStateEntry.event.cat,
-                eventStateEntry.event.name);
+                  eventStateEntry.event.cat,
+                  eventStateEntry.event.name);
 
           var threadStart = undefined;
           var threadDuration = undefined;
@@ -1832,7 +1825,7 @@ tr.exportTo('tr.e.importer', function() {
         }
         for (var si = 0; si < topLevelSlices.length; si++) {
           topLevelSlices[si].startThread.asyncSliceGroup.push(
-            topLevelSlices[si]);
+              topLevelSlices[si]);
         }
       }
     },
@@ -1960,8 +1953,8 @@ tr.exportTo('tr.e.importer', function() {
         var flowEvent = flowIdToEvent[event.bind_id];
         if (flowEvent === undefined) {
           that.model_.importWarning({
-              type: 'flow_slice_ordering_error',
-              message: 'Flow consumer ' + event.bind_id + ' does not have ' +
+            type: 'flow_slice_ordering_error',
+            message: 'Flow consumer ' + event.bind_id + ' does not have ' +
                   'a flow producer'});
           return false;
         } else if (flowEvent.endSlice) {
@@ -1973,13 +1966,13 @@ tr.exportTo('tr.e.importer', function() {
         }
 
         var ok = finishFlowEventWith(flowEvent, undefined, event,
-                                     refGuid, undefined, slice);
+            refGuid, undefined, slice);
         if (ok) {
           that.model_.flowEvents.push(flowEvent);
         } else {
           that.model_.importWarning({
-              type: 'flow_slice_end_error',
-              message: 'Flow consumer ' + event.bind_id + ' does not end ' +
+            type: 'flow_slice_end_error',
+            message: 'Flow consumer ' + event.bind_id + ' does not end ' +
                   'at an actual slice, so cannot be created.'});
           return false;
         }
@@ -1993,16 +1986,16 @@ tr.exportTo('tr.e.importer', function() {
           // Can't open the same flow again while it's still open.
           // This is essentially the multi-producer case which we don't support
           that.model_.importWarning({
-              type: 'flow_slice_start_error',
-              message: 'Flow producer ' + event.bind_id + ' already seen'});
+            type: 'flow_slice_start_error',
+            message: 'Flow producer ' + event.bind_id + ' already seen'});
           return false;
         }
 
         var flowEvent = createFlowEvent(undefined, event, slice);
         if (!flowEvent) {
           that.model_.importWarning({
-              type: 'flow_slice_start_error',
-              message: 'Flow producer ' + event.bind_id + ' does not start' +
+            type: 'flow_slice_start_error',
+            message: 'Flow producer ' + event.bind_id + ' does not start' +
                   'a flow'});
           return false;
         }
@@ -2037,8 +2030,7 @@ tr.exportTo('tr.e.importer', function() {
             if (!processFlowProducer(flowIdToEvent, flowStatus, event, slice))
               continue;
             flowStatus[event.bind_id] = true; // open the flow.
-          }
-          else {
+          } else {
             if (!processFlowConsumer(flowIdToEvent, sliceGuidToEvent,
                 event, slice))
               continue;
@@ -2073,7 +2065,6 @@ tr.exportTo('tr.e.importer', function() {
             continue;
           }
           flowIdToEvent[event.id] = flowEvent;
-
         } else if (event.ph === 't' || event.ph === 'f') {
           flowEvent = flowIdToEvent[event.id];
           if (flowEvent === undefined) {
@@ -2099,8 +2090,8 @@ tr.exportTo('tr.e.importer', function() {
             } else {
               if (event.bp !== 'e') {
                 this.model_.importWarning({
-                 type: 'flow_slice_bind_point_error',
-                 message: 'Flow event with invalid binding point (event.bp).'
+                  type: 'flow_slice_bind_point_error',
+                  message: 'Flow event with invalid binding point (event.bp).'
                 });
                 continue;
               }
@@ -2109,7 +2100,7 @@ tr.exportTo('tr.e.importer', function() {
           }
 
           var ok = finishFlowEventWith(flowEvent, thread, event,
-                                       refGuid, bindToParent);
+              refGuid, bindToParent);
           if (ok) {
             that.model_.flowEvents.push(flowEvent);
           } else {
@@ -2251,20 +2242,19 @@ tr.exportTo('tr.e.importer', function() {
     },
 
     createImplicitObjects_: function() {
-      tr.b.iterItems(this.model_.processes, function(pid, process) {
-        this.createImplicitObjectsForProcess_(process);
-      }, this);
+      for (var proc of Object.values(this.model_.processes)) {
+        this.createImplicitObjectsForProcess_(proc);
+      }
     },
 
     // Here, we collect all the snapshots that internally contain a
     // Javascript-level object inside their args list that has an "id" field,
     // and turn that into a snapshot of the instance referred to by id.
     createImplicitObjectsForProcess_: function(process) {
-
       function processField(referencingObject,
-                            referencingObjectFieldName,
-                            referencingObjectFieldValue,
-                            containingSnapshot) {
+          referencingObjectFieldName,
+          referencingObjectFieldValue,
+          containingSnapshot) {
         if (!referencingObjectFieldValue)
           return;
 
@@ -2337,7 +2327,7 @@ tr.exportTo('tr.e.importer', function() {
         if (object instanceof Array) {
           for (var i = 0; i < object.length; i++) {
             var res = func.call(thisArg, object, i, object[i],
-                                containingSnapshot);
+                containingSnapshot);
             if (res === null)
               continue;
             if (res)
@@ -2350,7 +2340,7 @@ tr.exportTo('tr.e.importer', function() {
 
         for (var key in object) {
           var res = func.call(thisArg, object, key, object[key],
-                              containingSnapshot);
+              containingSnapshot);
           if (res === null)
             continue;
           if (res)
@@ -2558,8 +2548,8 @@ tr.exportTo('tr.e.importer', function() {
       if (totals.peakResidentBytes === undefined &&
           totals.arePeakResidentBytesResettable !== undefined) {
         this.model_.importWarning({
-            type: 'memory_dump_parse_error',
-            message: 'Optional field peak_resident_set_bytes found' +
+          type: 'memory_dump_parse_error',
+          message: 'Optional field peak_resident_set_bytes found' +
                 ' but is_peak_rss_resetable not found in' +
                 ' process memory dump for PID=' + pid +
                 ' and dump ID=' + dumpId + '.'
@@ -2568,8 +2558,8 @@ tr.exportTo('tr.e.importer', function() {
       if (totals.arePeakResidentBytesResettable !== undefined &&
           totals.peakResidentBytes === undefined) {
         this.model_.importWarning({
-            type: 'memory_dump_parse_error',
-            message: 'Optional field is_peak_rss_resetable found' +
+          type: 'memory_dump_parse_error',
+          message: 'Optional field is_peak_rss_resetable found' +
                 ' but peak_resident_set_bytes not found in' +
                 ' process memory dump for PID=' + pid +
                 ' and dump ID=' + dumpId + '.'
@@ -2813,8 +2803,8 @@ tr.exportTo('tr.e.importer', function() {
           // belonged to the same process or was also global.
           if (allocatorDump.containerMemoryDump !== containerMemoryDump) {
             this.model_.importWarning({
-            type: 'memory_dump_parse_error',
-            message: 'Memory allocator dump ' + fullName +
+              type: 'memory_dump_parse_error',
+              message: 'Memory allocator dump ' + fullName +
                 ' (GUID=' + guid + ') for PID=' + pid + ' and dump ID=' +
                 dumpId + ' dumped in different contexts.'
             });
@@ -2823,8 +2813,8 @@ tr.exportTo('tr.e.importer', function() {
           // Check that the names of the memory allocator dumps match.
           if (allocatorDump.fullName !== fullName) {
             this.model_.importWarning({
-            type: 'memory_dump_parse_error',
-            message: 'Memory allocator dump with GUID=' + guid + ' for PID=' +
+              type: 'memory_dump_parse_error',
+              message: 'Memory allocator dump with GUID=' + guid + ' for PID=' +
                 pid + ' and dump ID=' + dumpId + ' has multiple names: ' +
                 allocatorDump.fullName + ', ' + fullName + ' (ignored).'
             });
@@ -2858,8 +2848,8 @@ tr.exportTo('tr.e.importer', function() {
             case 'scalar':
               if (attrName in allocatorDump.numerics) {
                 this.model_.importWarning({
-                type: 'memory_dump_parse_error',
-                message: 'Multiple values provided for scalar attribute ' +
+                  type: 'memory_dump_parse_error',
+                  message: 'Multiple values provided for scalar attribute ' +
                     attrName + ' of memory allocator dump ' + fullName +
                     ' (GUID=' + guid + ') for PID=' + pid + ' and dump ID=' +
                     dumpId + '.'
@@ -2871,14 +2861,14 @@ tr.exportTo('tr.e.importer', function() {
                   tr.b.Unit.byName.unitlessNumber_smallerIsBetter;
               var value = parseInt(attrValue, 16);
               allocatorDump.addNumeric(attrName,
-                  new tr.v.ScalarNumeric(unit, value));
+                  new tr.b.Scalar(unit, value));
               break;
 
             case 'string':
               if (attrName in allocatorDump.diagnostics) {
                 this.model_.importWarning({
-                type: 'memory_dump_parse_error',
-                message: 'Multiple values provided for string attribute ' +
+                  type: 'memory_dump_parse_error',
+                  message: 'Multiple values provided for string attribute ' +
                     attrName + ' of memory allocator dump ' + fullName +
                     ' (GUID=' + guid + ') for PID=' + pid + ' and dump ID=' +
                     dumpId + '.'
@@ -2890,8 +2880,8 @@ tr.exportTo('tr.e.importer', function() {
 
             default:
               this.model_.importWarning({
-              type: 'memory_dump_parse_error',
-              message: 'Unknown type provided for attribute ' + attrName +
+                type: 'memory_dump_parse_error',
+                message: 'Unknown type provided for attribute ' + attrName +
                   ' of memory allocator dump ' + fullName + ' (GUID=' + guid +
                   ') for PID=' + pid + ' and dump ID=' + dumpId + ': ' +
                   attrType

@@ -132,6 +132,9 @@ class DeviceSettingsService : public SessionManagerClient::Observer {
   // load the device settings.
   void Load();
 
+  // Synchronously pulls the public key and loads the device settings.
+  void LoadImmediately();
+
   // Stores a policy blob to session_manager. The result of the operation is
   // reported through |callback|. If successful, the updated device settings are
   // present in policy_data() and device_settings() when the callback runs.
@@ -169,6 +172,12 @@ class DeviceSettingsService : public SessionManagerClient::Observer {
 
   ownership::OwnerSettingsService* GetOwnerSettingsService() const;
 
+  // Mark that the device will establish consumer ownership. If the flag is set
+  // and ownership is not taken, policy reload will be deferred until InitOwner
+  // is called. So that the ownership status is flipped after the private part
+  // of owner is fully loaded.
+  void MarkWillEstablishConsumerOwnership();
+
   // Adds an observer.
   void AddObserver(Observer* observer);
   // Removes an observer.
@@ -196,10 +205,15 @@ class DeviceSettingsService : public SessionManagerClient::Observer {
   void StartNextOperation();
 
   // Updates status, policy data and owner key from a finished operation.
-  // Starts the next pending operation if available.
   void HandleCompletedOperation(const base::Closure& callback,
                                 SessionManagerOperation* operation,
                                 Status status);
+
+  // Same as HandleCompletedOperation(), but also starts the next pending
+  // operation if available.
+  void HandleCompletedAsyncOperation(const base::Closure& callback,
+                                     SessionManagerOperation* operation,
+                                     Status status);
 
   // Updates status and invokes the callback immediately.
   void HandleError(Status status, const base::Closure& callback);
@@ -241,6 +255,9 @@ class DeviceSettingsService : public SessionManagerClient::Observer {
 
   // For recoverable load errors how many retries are left before we give up.
   int load_retries_left_;
+
+  // Whether the device will be establishing consumer ownership.
+  bool will_establish_consumer_ownership_ = false;
 
   base::WeakPtrFactory<DeviceSettingsService> weak_factory_;
 

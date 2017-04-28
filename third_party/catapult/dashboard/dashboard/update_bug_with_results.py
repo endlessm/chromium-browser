@@ -21,6 +21,7 @@ from dashboard import quick_logger
 from dashboard.common import datastore_hooks
 from dashboard.common import request_handler
 from dashboard.common import utils
+from dashboard.models import alert_group
 from dashboard.models import anomaly
 from dashboard.models import bug_data
 from dashboard.models import try_job
@@ -253,7 +254,7 @@ def _PostSuccessfulResult(job, issue_tracker):
   merge_issue_id = None
   if merge_issue:
     if merge_issue.get('status') != issue_tracker_service.STATUS_DUPLICATE:
-      merge_issue_id = merge_issue.get('id')
+      merge_issue_id = str(merge_issue.get('id'))
 
   # Only skip cc'ing the authors if we're going to merge this isn't another
   # issue.
@@ -333,9 +334,9 @@ def _MapAnomaliesToMergeIntoBug(dest_bug_id, source_bug_id):
   query = anomaly.Anomaly.query(
       anomaly.Anomaly.bug_id == int(source_bug_id))
   anomalies = query.fetch()
-  for anomaly_entity in anomalies:
-    anomaly_entity.bug_id = int(dest_bug_id)
-  ndb.put_multi(anomalies)
+
+  alert_group.ModifyAlertsAndAssociatedGroups(
+      anomalies, bug_id=int(dest_bug_id))
 
 
 def _GetCommitHashCacheKey(results_data):
@@ -424,10 +425,10 @@ def _SendFYIBisectEmail(job, message):
                  html=email_data['html'])
 
 
-def UpdateQuickLog(job):
+def UpdateQuickLog(job, in_progress=False):
   if not job.bug_id or job.bug_id < 0:
     return
-  report = bisect_report.GetReport(job)
+  report = bisect_report.GetReport(job, in_progress)
   if not report:
     logging.error('Bisect report returns empty for job id %s, bug_id %s.',
                   job.key.id(), job.bug_id)

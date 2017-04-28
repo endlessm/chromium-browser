@@ -6,6 +6,7 @@ found in the LICENSE file.
 -->
 
 <link rel="import" href="/tracing/base/rect.html">
+<link rel="import" href="/tracing/base/scalar.html">
 <link rel="import" href="/tracing/base/utils.html">
 <link rel="import" href="/tracing/model/event_set.html">
 <link rel="import" href="/tracing/model/object_instance.html">
@@ -13,7 +14,6 @@ found in the LICENSE file.
 <link rel="import" href="/tracing/ui/analysis/analysis_link.html">
 <link rel="import" href="/tracing/ui/base/table.html">
 <link rel="import" href="/tracing/ui/base/ui.html">
-<link rel="import" href="/tracing/value/numeric.html">
 <link rel="import" href="/tracing/value/ui/scalar_span.html">
 
 <dom-module id='tr-ui-a-generic-object-view'>
@@ -96,64 +96,59 @@ Polymer({
 
     if (!(object instanceof Object)) {
       var type = typeof object;
-      if (type === 'string') {
-        var objectReplaced = false;
-        if ((object[0] === '{' && object[object.length - 1] === '}') ||
-            (object[0] === '[' && object[object.length - 1] === ']')) {
-          try {
-            object = JSON.parse(object);
-            objectReplaced = true;
-          } catch (e) {
-          }
-        }
-        if (!objectReplaced) {
-          if (object.indexOf('\n') !== -1) {
-            var lines = object.split('\n');
-            lines.forEach(function(line, i) {
-              var text;
-              var ioff;
-              var ll;
-              var ss;
-              if (i === 0) {
-                text = '"' + line;
-                ioff = 0;
-                ll = label;
-                ss = '';
-              } else if (i < lines.length - 1) {
-                text = line;
-                ioff = 1;
-                ll = '';
-                ss = '';
-              } else {
-                text = line + '"';
-                ioff = 1;
-                ll = '';
-                ss = suffix;
-              }
-
-              var el = this.appendSimpleText_(
-                  ll, indent + ioff * label.length + ioff, text, ss);
-              el.style.whiteSpace = 'pre';
-              return el;
-            }, this);
-            return;
-          } else if (object.match(URL_REGEX)) {
-            var link = document.createElement('a');
-            link.href = object;
-            link.textContent = object;
-            this.appendElementWithLabel_(label, indent, link, suffix);
-            return;
-          } else {
-            this.appendSimpleText_(
-                label, indent, '"' + object + '"', suffix);
-            return;
-          }
-        }
-        else {
-          /* Fall through to the flow below */
-        }
-      } else {
+      if (type !== 'string')
         return this.appendSimpleText_(label, indent, object, suffix);
+      var objectReplaced = false;
+      if ((object[0] === '{' && object[object.length - 1] === '}') ||
+          (object[0] === '[' && object[object.length - 1] === ']')) {
+        try {
+          object = JSON.parse(object);
+          objectReplaced = true;
+        } catch (e) {
+        }
+      }
+      if (!objectReplaced) {
+        if (object.indexOf('\n') !== -1) {
+          var lines = object.split('\n');
+          lines.forEach(function(line, i) {
+            var text;
+            var ioff;
+            var ll;
+            var ss;
+            if (i === 0) {
+              text = '"' + line;
+              ioff = 0;
+              ll = label;
+              ss = '';
+            } else if (i < lines.length - 1) {
+              text = line;
+              ioff = 1;
+              ll = '';
+              ss = '';
+            } else {
+              text = line + '"';
+              ioff = 1;
+              ll = '';
+              ss = suffix;
+            }
+
+            var el = this.appendSimpleText_(
+                ll, indent + ioff * label.length + ioff, text, ss);
+            el.style.whiteSpace = 'pre';
+            return el;
+          }, this);
+          return;
+        }
+        if (object.match(URL_REGEX)) {
+          var link = document.createElement('a');
+          link.href = object;
+          link.textContent = object;
+          this.appendElementWithLabel_(label, indent, link, suffix);
+          return;
+        }
+        this.appendSimpleText_(
+            label, indent, '"' + object + '"', suffix);
+        return;
       }
     }
 
@@ -176,7 +171,7 @@ Polymer({
       return;
     }
 
-    if (object instanceof tr.v.ScalarNumeric) {
+    if (object instanceof tr.b.Scalar) {
       var el = this.ownerDocument.createElement('tr-v-ui-scalar-span');
       el.value = object;
       el.inline = true;
@@ -204,7 +199,7 @@ Polymer({
     if (isTable(object)) {
       var table = document.createElement('tr-ui-b-table');
       var columns = [];
-      tr.b.iterItems(object[0], function(colName) {
+      for (let colName of Object.keys(object[0])) {
         var allStrings = true;
         var allNumbers = true;
         for (var i = 0; i < object.length; ++i) {
@@ -233,7 +228,7 @@ Polymer({
           };
         }
         columns.push(column);
-      });
+      }
       table.tableColumns = columns;
       table.tableRows = object;
       this.appendElementWithLabel_(label, indent, table, suffix);

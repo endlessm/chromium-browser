@@ -21,7 +21,6 @@ found in the LICENSE file.
 'use strict';
 
 tr.exportTo('tr.ui.tracks', function() {
-
   /**
    * A track that displays a chart.
    *
@@ -241,7 +240,7 @@ tr.exportTo('tr.ui.tracks', function() {
     },
 
     addClosestEventToSelection: function(worldX, worldMaxDist, loY, hiY,
-                                         selection) {
+        selection) {
       this.series_.forEach(function(series) {
         series.addClosestEventToSelection(
             worldX, worldMaxDist, loY, hiY, selection);
@@ -256,11 +255,11 @@ tr.exportTo('tr.ui.tracks', function() {
      * configuration argument flags.
      */
     autoSetAllAxes: function(opt_config) {
-      tr.b.iterItems(this.axisGuidToAxisData_, function(axisGuid, axisData) {
+      for (var axisData of Object.values(this.axisGuidToAxisData_)) {
         var seriesYAxis = axisData.axis;
         var series = axisData.series;
         seriesYAxis.autoSetFromSeries(series, opt_config);
-      }, this);
+      }
     },
 
     /**

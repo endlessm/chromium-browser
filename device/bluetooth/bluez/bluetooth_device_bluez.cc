@@ -167,6 +167,13 @@ BluetoothDeviceBlueZ::BluetoothDeviceBlueZ(
     VLOG(2) << "Gatt services have not been fully resolved for device "
             << object_path_.value();
   }
+
+  // Update all the data that we cache within Chrome and do not pull from
+  // properties every time. TODO(xiaoyinh): Add a test for this. See
+  // http://crbug.com/688566.
+  UpdateServiceData();
+  UpdateManufacturerData();
+  UpdateAdvertisingDataFlags();
 }
 
 BluetoothDeviceBlueZ::~BluetoothDeviceBlueZ() {
@@ -326,10 +333,11 @@ bool BluetoothDeviceBlueZ::IsPaired() const {
           object_path_);
   DCHECK(properties);
 
-  // Trusted devices are devices that don't support pairing but that the
-  // user has explicitly connected; it makes no sense for UI purposes to
-  // treat them differently from each other.
-  return properties->paired.value() || properties->trusted.value();
+  // The Paired property reflects the successful pairing for BR/EDR/LE. The
+  // value of the Paired property is always false for the devices that don't
+  // support pairing. Once a device is paired successfully, both Paired and
+  // Trusted properties will be set to true.
+  return properties->paired.value();
 }
 
 bool BluetoothDeviceBlueZ::IsConnected() const {
@@ -442,7 +450,7 @@ void BluetoothDeviceBlueZ::Connect(
   VLOG(1) << object_path_.value() << ": Connecting, " << num_connecting_calls_
           << " in progress";
 
-  if (IsPaired() || !pairing_delegate || !IsPairable()) {
+  if (IsPaired() || !pairing_delegate) {
     // No need to pair, or unable to, skip straight to connection.
     ConnectInternal(false, callback, error_callback);
   } else {
@@ -603,8 +611,8 @@ void BluetoothDeviceBlueZ::UpdateServiceData() {
   bluez::BluetoothDeviceClient::Properties* properties =
       bluez::BluezDBusManager::Get()->GetBluetoothDeviceClient()->GetProperties(
           object_path_);
-  DCHECK(properties);
-  DCHECK(properties->service_data.is_valid());
+  if (!properties || !properties->service_data.is_valid())
+    return;
 
   service_data_.clear();
   for (const auto& pair : properties->service_data.value())
@@ -615,7 +623,8 @@ void BluetoothDeviceBlueZ::UpdateManufacturerData() {
   bluez::BluetoothDeviceClient::Properties* properties =
       bluez::BluezDBusManager::Get()->GetBluetoothDeviceClient()->GetProperties(
           object_path_);
-  DCHECK(properties);
+  if (!properties || !properties->manufacturer_data.is_valid())
+    return;
   manufacturer_data_.clear();
 
   if (properties->manufacturer_data.is_valid()) {
@@ -628,15 +637,13 @@ void BluetoothDeviceBlueZ::UpdateAdvertisingDataFlags() {
   bluez::BluetoothDeviceClient::Properties* properties =
       bluez::BluezDBusManager::Get()->GetBluetoothDeviceClient()->GetProperties(
           object_path_);
-  DCHECK(properties);
-  advertising_data_flags_ = base::nullopt;
-
+  if (!properties || !properties->advertising_data_flags.is_valid())
+    return;
   // The advertising data flags property is a vector<uint8> because the
   // Supplement to Bluetooth Core Specification Version 6 page 13 said that
   // "The Flags field may be zero or more octets long." However, only the first
   // byte of that is needed because there is only 5 bits of data defined there.
-  if (properties->advertising_data_flags.is_valid())
-    advertising_data_flags_ = properties->advertising_data_flags.value()[0];
+  advertising_data_flags_ = properties->advertising_data_flags.value()[0];
 }
 
 BluetoothPairingBlueZ* BluetoothDeviceBlueZ::BeginPairing(

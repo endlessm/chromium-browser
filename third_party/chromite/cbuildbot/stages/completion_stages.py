@@ -11,16 +11,15 @@ from chromite.cbuildbot import build_status
 from chromite.cbuildbot import chroot_lib
 from chromite.cbuildbot import commands
 from chromite.cbuildbot import prebuilts
+from chromite.cbuildbot import relevant_changes
 from chromite.cbuildbot import tree_status
 from chromite.cbuildbot.stages import generic_stages
 from chromite.cbuildbot.stages import sync_stages
 from chromite.lib import clactions
 from chromite.lib import config_lib
 from chromite.lib import constants
-from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
 from chromite.lib import failures_lib
-from chromite.lib import patch as cros_patch
 from chromite.lib import results_lib
 
 
@@ -147,6 +146,27 @@ class MasterSlaveSyncCompletionStage(ManifestVersionedSyncCompletionStage):
     status_obj = build_status.BuilderStatus(status, self.message)
     return {self._bot_id: status_obj}
 
+  def _GetSlaveBuildStatus(self, manager, build_id, db, builder_names,
+                           timeout):
+    """Return the statuses of slave builds.
+
+    Args:
+      manager: An instance of BuildSpecsManager.
+      build_id: The build id of the master build.
+      db: An instance of cidb.CIDBConnection.
+      builder_names: A list of builder names (strings) of slave builds.
+      timeout: Number of seconds to wait for the results.
+
+    Returns:
+      A build_config name-> status dictionary of build statuses
+      (See BuildSpecsManager.GetBuildersStatus).
+    """
+    return manager.GetBuildersStatus(
+        build_id,
+        db,
+        builder_names,
+        timeout=timeout)
+
   def _FetchSlaveStatuses(self):
     """Fetch and return build status for slaves of this build.
 
@@ -186,11 +206,8 @@ class MasterSlaveSyncCompletionStage(ManifestVersionedSyncCompletionStage):
       manager = self._run.attrs.manifest_manager
       if sync_stages.MasterSlaveLKGMSyncStage.external_manager:
         manager = sync_stages.MasterSlaveLKGMSyncStage.external_manager
-      slave_statuses.update(manager.GetBuildersStatus(
-          build_id,
-          db,
-          builder_names,
-          timeout=timeout))
+      slave_statuses.update(self._GetSlaveBuildStatus(
+          manager, build_id, db, builder_names, timeout))
     return slave_statuses
 
   def _HandleStageException(self, exc_info):
@@ -321,7 +338,7 @@ class MasterSlaveSyncCompletionStage(ManifestVersionedSyncCompletionStage):
 
     for config_name in no_stat:
       if config_name in buildbucket_info_dict:
-        buildbucket_id = buildbucket_info_dict[config_name]['buildbucket_id']
+        buildbucket_id = buildbucket_info_dict[config_name].buildbucket_id
         assert buildbucket_id is not None, 'buildbucket_id is None'
         try:
           content = self.buildbucket_client.GetBuildRequest(
@@ -597,107 +614,6 @@ class CommitQueueCompletionStage(MasterSlaveSyncCompletionStage):
       clactions.RecordSubmissionMetrics(action_history,
                                         submitted_change_strategies)
 
-  def _GetSlaveMappingAndCLActions(self, changes, slave_buildbucket_ids):
-    """Query CIDB to for slaves and CL actions.
-
-    Args:
-      changes: A list of GerritPatch instances to examine.
-      slave_buildbucket_ids: A list of buildbucket_ids (strings) of slave builds
-                             scheduled by Buildbucket.
-
-    Returns:
-      A tuple of (config_map, action_history), where the config_map
-      is a dictionary mapping build_id to config name for all slaves
-      in this run plus the master, and action_history is a list of all
-      CL actions associated with |changes|.
-    """
-    # build_id is the master build id for the run.
-    build_id, db = self._run.GetCIDBHandle()
-    assert db, 'No database connection to use.'
-
-    slave_list = db.GetSlaveStatuses(
-        build_id, buildbucket_ids=slave_buildbucket_ids)
-    # TODO(akeshet): We are getting the full action history for all changes that
-    # were in this CQ run. It would make more sense to only get the actions from
-    # build_ids of this master and its slaves.
-    action_history = db.GetActionsForChanges(changes)
-
-    config_map = dict()
-
-    for d in slave_list:
-      config_map[d['id']] = d['build_config']
-
-    # TODO(akeshet): We are giving special treatment to the CQ master, which
-    # makes this logic CQ specific. We only use this logic in the CQ anyway at
-    # the moment, but may need to reconsider if we need to generalize to other
-    # master-slave builds.
-    assert self._run.config.name == constants.CQ_MASTER
-    config_map[build_id] = constants.CQ_MASTER
-
-    return config_map, action_history
-
-  def GetRelevantChangesForSlaves(self, changes, no_stat,
-                                  slave_buildbucket_ids):
-    """Compile a set of relevant changes for each slave.
-
-    Args:
-      changes: A list of GerritPatch instances to examine.
-      no_stat: Set of builder names of slave builders that had status None.
-      slave_buildbucket_ids: A list of buildbucket_ids (strings) of slave builds
-                             scheduled by Buildbucket.
-
-    Returns:
-      A dictionary mapping a slave config name to a set of relevant changes.
-    """
-    # Retrieve the slaves and clactions from CIDB.
-    config_map, action_history = self._GetSlaveMappingAndCLActions(
-        changes, slave_buildbucket_ids)
-    changes_by_build_id = clactions.GetRelevantChangesForBuilds(
-        changes, action_history, config_map.keys())
-
-    # Convert index from build_ids to config names.
-    changes_by_config = dict()
-    for k, v in changes_by_build_id.iteritems():
-      changes_by_config[config_map[k]] = v
-
-    for config in no_stat:
-      # If a slave is in |no_stat|, it means that the slave never
-      # finished applying the changes in the sync stage. Hence the CL
-      # pickup actions for this slave may be
-      # inaccurate. Conservatively assume all changes are relevant.
-      changes_by_config[config] = set(changes)
-
-    return changes_by_config
-
-  def GetSubsysResultForSlaves(self):
-    """Get the pass/fail HWTest subsystems results for each slave.
-
-    Returns:
-      A dictionary mapping a slave config name to a dictionary of the pass/fail
-      subsystems. E.g.
-      {'foo-paladin': {'pass_subsystems':{'A', 'B'},
-                       'fail_subsystems':{'C'}}}
-    """
-    # build_id is the master build id for the run
-    build_id, db = self._run.GetCIDBHandle()
-    assert db, 'No database connection to use.'
-    slave_msgs = db.GetSlaveBuildMessages(build_id)
-    slave_subsys_msgs = ([m for m in slave_msgs
-                          if m['message_type'] == constants.SUBSYSTEMS])
-    subsys_by_config = dict()
-    group_msg_by_config = cros_build_lib.GroupByKey(slave_subsys_msgs,
-                                                    'build_config')
-    for config, dict_list in group_msg_by_config.iteritems():
-      d = subsys_by_config.setdefault(config, {})
-      subsys_groups = cros_build_lib.GroupByKey(dict_list, 'message_subtype')
-      for k, v in subsys_groups.iteritems():
-        if k == constants.SUBSYSTEM_PASS:
-          d['pass_subsystems'] = set([x['message_value'] for x in v])
-        if k == constants.SUBSYSTEM_FAIL:
-          d['fail_subsystems'] = set([x['message_value'] for x in v])
-        # If message_subtype==subsystem_unused, keep d as an empty dict.
-    return subsys_by_config
-
   def _ShouldSubmitPartialPool(self, slave_buildbucket_ids):
     """Determine whether we should attempt or skip SubmitPartialPool.
 
@@ -767,9 +683,14 @@ class CommitQueueCompletionStage(MasterSlaveSyncCompletionStage):
     do_partial_submission = self._ShouldSubmitPartialPool(slave_buildbucket_ids)
 
     if do_partial_submission:
-      changes_by_config = self.GetRelevantChangesForSlaves(
-          changes, no_stat, slave_buildbucket_ids)
-      subsys_by_config = self.GetSubsysResultForSlaves()
+      build_id, db = self._run.GetCIDBHandle()
+      changes_by_config = (
+          relevant_changes.RelevantChanges.GetRelevantChangesForSlaves(
+              build_id, db, self._run.config, changes, no_stat,
+              slave_buildbucket_ids))
+      subsys_by_config = (
+          relevant_changes.RelevantChanges.GetSubsysResultForSlaves(
+              build_id, db))
 
       # Even if there was a failure, we can submit the changes that indicate
       # that they don't care about this failure.
@@ -871,40 +792,31 @@ class CommitQueueCompletionStage(MasterSlaveSyncCompletionStage):
     return not any([x in slave_statuses and slave_statuses[x].Failed() for
                     x in sanity_check_slaves])
 
-  def GetIrrelevantChanges(self, board_metadata):
-    """Calculates irrelevant changes.
+  def _GetSlaveBuildStatus(self, manager, build_id, db, builder_names, timeout):
+    """Return the statuses of slave builds.
 
     Args:
-      board_metadata: A dictionary of board specific metadata.
+      manager: An instance of BuildSpecsManager.
+      build_id: The build id of the master build.
+      db: An instance of cidb.CIDBConnection.
+      builder_names: A list of builder names (strings) of slave builds.
+      timeout: Number of seconds to wait for the results.
 
     Returns:
-      A set of irrelevant changes to the build.
+      A build_config name-> status dictionary of build statuses
+      (See BuildSpecsManager.GetBuildersStatus).
     """
-    if not board_metadata:
-      return set()
-    # changes irrelevant to all the boards are irrelevant to the build
-    changeset_per_board_list = list()
-    for v in board_metadata.values():
-      changes_dict_list = v.get('irrelevant_changes', None)
-      if changes_dict_list:
-        changes_set = set(cros_patch.GerritFetchOnlyPatch.FromAttrDict(d) for d
-                          in changes_dict_list)
-        changeset_per_board_list.append(changes_set)
-      else:
-        # If any board has no irrelevant change, the whole build not have also.
-        return set()
-
-    return set.intersection(*changeset_per_board_list)
+    # CQ master build needs needs validation_pool to keep track of applied
+    # changes and change dependencies.
+    return manager.GetBuildersStatus(
+        build_id,
+        db,
+        builder_names,
+        pool=self.sync_stage.pool,
+        timeout=timeout)
 
   def PerformStage(self):
     """Run CommitQueueCompletionStage."""
-    if (not self._run.config.master and
-        not self._run.config.do_not_apply_cq_patches):
-      # Slave needs to record what change are irrelevant to this build.
-      board_metadata = self._run.attrs.metadata.GetDict().get('board-metadata')
-      irrelevant_changes = self.GetIrrelevantChanges(board_metadata)
-      self.sync_stage.pool.RecordIrrelevantChanges(irrelevant_changes)
-
     super(CommitQueueCompletionStage, self).PerformStage()
 
 

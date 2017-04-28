@@ -6,6 +6,7 @@ found in the LICENSE file.
 -->
 
 <link rel="import" href="/tracing/base/iteration_helpers.html">
+<link rel="import" href="/tracing/base/scalar.html">
 <link rel="import" href="/tracing/base/unit.html">
 <link rel="import" href="/tracing/core/test_utils.html">
 <link rel="import" href="/tracing/importer/import.html">
@@ -14,7 +15,6 @@ found in the LICENSE file.
 <link rel="import" href="/tracing/model/memory_dump_test_utils.html">
 <link rel="import" href="/tracing/model/model.html">
 <link rel="import" href="/tracing/model/process_memory_dump.html">
-<link rel="import" href="/tracing/value/numeric.html">
 
 <script>
 'use strict';
@@ -25,7 +25,7 @@ tr.b.unittest.testSuite(function() {
   var ProcessMemoryDump = tr.model.ProcessMemoryDump;
   var MemoryAllocatorDump = tr.model.MemoryAllocatorDump;
   var MemoryAllocatorDumpLink = tr.model.MemoryAllocatorDumpLink;
-  var ScalarNumeric = tr.v.ScalarNumeric;
+  var Scalar = tr.b.Scalar;
   var sizeInBytes_smallerIsBetter =
       tr.b.Unit.byName.sizeInBytes_smallerIsBetter;
   var newAllocatorDump = tr.model.MemoryDumpTestUtils.newAllocatorDump;
@@ -63,8 +63,8 @@ tr.b.unittest.testSuite(function() {
         '\' of memory allocator dump \'' + dump.fullName + '\' in ' +
         dump.containerMemoryDump.userFriendlyName + ' to ';
 
-    assert.instanceOf(numeric, ScalarNumeric,
-        errorMessagePrefix + 'be an instance of ScalarNumeric');
+    assert.instanceOf(numeric, Scalar,
+        errorMessagePrefix + 'be an instance of Scalar');
     assert.equal(numeric.unit, expectedUnit,
         errorMessagePrefix + 'have unit \'' + expectedUnit.unitName +
         '\' but got \'' + numeric.unit.unitName + '\' instead');
@@ -218,7 +218,7 @@ tr.b.unittest.testSuite(function() {
 
         if (size !== undefined) {
           dump.addNumeric(
-              'size', new ScalarNumeric(sizeInBytes_smallerIsBetter, size));
+              'size', new Scalar(sizeInBytes_smallerIsBetter, size));
         }
         if (guid !== undefined) {
           assert.notProperty(guid, ownableDumps);
@@ -244,10 +244,16 @@ tr.b.unittest.testSuite(function() {
           });
         }
 
-        if (numerics !== undefined)
-          tr.b.iterItems(numerics, dump.addNumeric, dump);
-        if (diagnostics !== undefined)
-          tr.b.iterItems(diagnostics, dump.addDiagnostic, dump);
+        if (numerics !== undefined) {
+          for (var [name, item] of Object.entries(numerics)) {
+            dump.addNumeric(name, item);
+          }
+        }
+        if (diagnostics !== undefined) {
+          for (var [name, item] of Object.entries(diagnostics)) {
+            dump.addDiagnostic(name, item);
+          }
+        }
 
         if (weak)
           dump.weak = true;
@@ -268,7 +274,7 @@ tr.b.unittest.testSuite(function() {
       buildAndAddDumpTrees(containerDumps[i], allTreeRecipes[i]);
 
     // Hook up ownership links.
-    tr.b.iterItems(ownerDumps, function(ownedGuid, ownershipInfos) {
+    for (var [ownedGuid, ownershipInfos] of Object.entries(ownerDumps)) {
       var ownedDump = ownableDumps[ownedGuid];
       assert.isDefined(ownedDump, 'Tree recipes don\'t contain a memory ' +
           'allocator dump with guid \'' + ownedGuid + '\'');
@@ -277,7 +283,7 @@ tr.b.unittest.testSuite(function() {
         addOwnershipLink(
             ownershipInfo.dump, ownedDump, ownershipInfo.importance);
       });
-    });
+    }
 
     return containerDumps;
   }
@@ -812,46 +818,46 @@ tr.b.unittest.testSuite(function() {
 
   test('testSanityCheck_checkDumpTrees_invalidWeakFlag',
       function() {
-    var containerDumps = createContainerDumps(0);
-    var gmd = containerDumps[0];
-    var parentDump = new MemoryAllocatorDump(gmd, 'parent');
-    var childDump = addChildDump(parentDump, 'child');
-    childDump.weak = true;
-    gmd.memoryAllocatorDumps = [parentDump];
+        var containerDumps = createContainerDumps(0);
+        var gmd = containerDumps[0];
+        var parentDump = new MemoryAllocatorDump(gmd, 'parent');
+        var childDump = addChildDump(parentDump, 'child');
+        childDump.weak = true;
+        gmd.memoryAllocatorDumps = [parentDump];
 
-    assert.throws(function() {
-      checkDumpTrees(containerDumps, [
-        [
-          {
-            'name': 'parent',
-            'children': [
+        assert.throws(function() {
+          checkDumpTrees(containerDumps, [
+            [
               {
-                'name': 'child',
+                'name': 'parent',
+                'children': [
+                  {
+                    'name': 'child',
                 // Missing "'weak': true".
+                  }
+                ]
               }
             ]
-          }
-        ]
-      ]);
-    }, /'parent\/child'.*\binvalid weak flag\b/);
+          ]);
+        }, /'parent\/child'.*\binvalid weak flag\b/);
 
-    assert.throws(function() {
-      checkDumpTrees(containerDumps, [
-        [
-          {
-            'name': 'parent',
-            'weak': true,  // This should be false (or not provided).
-            'children': [
+        assert.throws(function() {
+          checkDumpTrees(containerDumps, [
+            [
               {
-                'name': 'child',
-                'weak': true
+                'name': 'parent',
+                'weak': true,  // This should be false (or not provided).
+                'children': [
+                  {
+                    'name': 'child',
+                    'weak': true
+                  }
+                ]
               }
             ]
-          }
-        ]
-      ]);
-    }, /'parent'.*\binvalid weak flag\b/);
-  });
+          ]);
+        }, /'parent'.*\binvalid weak flag\b/);
+      });
 
   test('testSanityCheck_checkDumpTrees_dumpNotRemoved', function() {
     var containerDumps = createContainerDumps(0);
@@ -1308,107 +1314,107 @@ tr.b.unittest.testSuite(function() {
 
   test('traverseAllocatorDumpsInDepthFirstOrder_oneTreeWithoutOwners',
       function() {
-    var containerDumps = buildDumpTrees([
-      [  // GMD.
-        {
-          'name': 'root',
-          'children': [
+        var containerDumps = buildDumpTrees([
+          [  // GMD.
             {
-              'name': 'parent',
+              'name': 'root',
               'children': [
                 {
-                  'name': 'child1'
-                },
-                {
-                  'name': 'child2'
+                  'name': 'parent',
+                  'children': [
+                    {
+                      'name': 'child1'
+                    },
+                    {
+                      'name': 'child2'
+                    }
+                  ]
                 }
               ]
             }
           ]
-        }
-      ]
-    ]);
-    var gmd = containerDumps[0];
+        ]);
+        var gmd = containerDumps[0];
 
     // Post-order.
-    var visitedAllocatorDumps = [];
-    gmd.traverseAllocatorDumpsInDepthFirstPostOrder(
-        buildArgPusher(visitedAllocatorDumps));
-    assert.deepEqual(visitedAllocatorDumps, [
-      gmd.getMemoryAllocatorDumpByFullName('root/parent/child1'),
-      gmd.getMemoryAllocatorDumpByFullName('root/parent/child2'),
-      gmd.getMemoryAllocatorDumpByFullName('root/parent'),
-      gmd.getMemoryAllocatorDumpByFullName('root')
-    ]);
+        var visitedAllocatorDumps = [];
+        gmd.traverseAllocatorDumpsInDepthFirstPostOrder(
+            buildArgPusher(visitedAllocatorDumps));
+        assert.deepEqual(visitedAllocatorDumps, [
+          gmd.getMemoryAllocatorDumpByFullName('root/parent/child1'),
+          gmd.getMemoryAllocatorDumpByFullName('root/parent/child2'),
+          gmd.getMemoryAllocatorDumpByFullName('root/parent'),
+          gmd.getMemoryAllocatorDumpByFullName('root')
+        ]);
 
     // Pre-order.
-    var visitedAllocatorDumps = [];
-    gmd.traverseAllocatorDumpsInDepthFirstPreOrder(
-        buildArgPusher(visitedAllocatorDumps));
-    assert.deepEqual(visitedAllocatorDumps, [
-      gmd.getMemoryAllocatorDumpByFullName('root'),
-      gmd.getMemoryAllocatorDumpByFullName('root/parent'),
-      gmd.getMemoryAllocatorDumpByFullName('root/parent/child1'),
-      gmd.getMemoryAllocatorDumpByFullName('root/parent/child2')
-    ]);
-  });
+        var visitedAllocatorDumps = [];
+        gmd.traverseAllocatorDumpsInDepthFirstPreOrder(
+            buildArgPusher(visitedAllocatorDumps));
+        assert.deepEqual(visitedAllocatorDumps, [
+          gmd.getMemoryAllocatorDumpByFullName('root'),
+          gmd.getMemoryAllocatorDumpByFullName('root/parent'),
+          gmd.getMemoryAllocatorDumpByFullName('root/parent/child1'),
+          gmd.getMemoryAllocatorDumpByFullName('root/parent/child2')
+        ]);
+      });
 
   test('traverseAllocatorDumpsInDepthFirstOrder_oneTreeWithOwners',
       function() {
-    var containerDumps = buildDumpTrees([
+        var containerDumps = buildDumpTrees([
       [],  // GMD.
-      [  // PMD.
-        {
-          'name': 'root',
-          'children': [
+          [  // PMD.
             {
-              'name': 'parent',
+              'name': 'root',
               'children': [
                 {
-                  'name': 'child1',
-                  'owns': 0
-                },
-                {
-                  'name': 'child2',
-                  'guid': 0
-                },
-                {
-                  'name': 'child3',
-                  'owns': 0
+                  'name': 'parent',
+                  'children': [
+                    {
+                      'name': 'child1',
+                      'owns': 0
+                    },
+                    {
+                      'name': 'child2',
+                      'guid': 0
+                    },
+                    {
+                      'name': 'child3',
+                      'owns': 0
+                    }
+                  ]
                 }
               ]
             }
           ]
-        }
-      ]
-    ]);
-    var gmd = containerDumps[0];
-    var pmd = containerDumps[1];
+        ]);
+        var gmd = containerDumps[0];
+        var pmd = containerDumps[1];
 
     // Post-order.
-    var visitedAllocatorDumps = [];
-    gmd.traverseAllocatorDumpsInDepthFirstPostOrder(
-        buildArgPusher(visitedAllocatorDumps));
-    assert.deepEqual(visitedAllocatorDumps, [
-      pmd.getMemoryAllocatorDumpByFullName('root/parent/child1'),
-      pmd.getMemoryAllocatorDumpByFullName('root/parent/child3'),
-      pmd.getMemoryAllocatorDumpByFullName('root/parent/child2'),
-      pmd.getMemoryAllocatorDumpByFullName('root/parent'),
-      pmd.getMemoryAllocatorDumpByFullName('root')
-    ]);
+        var visitedAllocatorDumps = [];
+        gmd.traverseAllocatorDumpsInDepthFirstPostOrder(
+            buildArgPusher(visitedAllocatorDumps));
+        assert.deepEqual(visitedAllocatorDumps, [
+          pmd.getMemoryAllocatorDumpByFullName('root/parent/child1'),
+          pmd.getMemoryAllocatorDumpByFullName('root/parent/child3'),
+          pmd.getMemoryAllocatorDumpByFullName('root/parent/child2'),
+          pmd.getMemoryAllocatorDumpByFullName('root/parent'),
+          pmd.getMemoryAllocatorDumpByFullName('root')
+        ]);
 
     // Pre-order.
-    var visitedAllocatorDumps = [];
-    gmd.traverseAllocatorDumpsInDepthFirstPreOrder(
-        buildArgPusher(visitedAllocatorDumps));
-    assert.deepEqual(visitedAllocatorDumps, [
-      pmd.getMemoryAllocatorDumpByFullName('root'),
-      pmd.getMemoryAllocatorDumpByFullName('root/parent'),
-      pmd.getMemoryAllocatorDumpByFullName('root/parent/child2'),
-      pmd.getMemoryAllocatorDumpByFullName('root/parent/child1'),
-      pmd.getMemoryAllocatorDumpByFullName('root/parent/child3')
-    ]);
-  });
+        var visitedAllocatorDumps = [];
+        gmd.traverseAllocatorDumpsInDepthFirstPreOrder(
+            buildArgPusher(visitedAllocatorDumps));
+        assert.deepEqual(visitedAllocatorDumps, [
+          pmd.getMemoryAllocatorDumpByFullName('root'),
+          pmd.getMemoryAllocatorDumpByFullName('root/parent'),
+          pmd.getMemoryAllocatorDumpByFullName('root/parent/child2'),
+          pmd.getMemoryAllocatorDumpByFullName('root/parent/child1'),
+          pmd.getMemoryAllocatorDumpByFullName('root/parent/child3')
+        ]);
+      });
 
   test('traverseAllocatorDumpsInDepthFirstOrder_multipleTrees', function() {
     var containerDumps = buildDumpTrees([
@@ -3451,7 +3457,7 @@ tr.b.unittest.testSuite(function() {
               {
                 'name': 'owned_child1',
                 'numerics': {
-                  'summed': new ScalarNumeric(sizeInBytes_smallerIsBetter, 12)
+                  'summed': new Scalar(sizeInBytes_smallerIsBetter, 12)
                 },
                 'diagnostics': {
                   'url2': 'http://not.aggregated.to/owned/parent/dump'
@@ -3460,7 +3466,7 @@ tr.b.unittest.testSuite(function() {
               {
                 'name': 'owned_child2',
                 'numerics': {
-                  'summed': new ScalarNumeric(sizeInBytes_smallerIsBetter, 15)
+                  'summed': new Scalar(sizeInBytes_smallerIsBetter, 15)
                 }
               }
             ]
@@ -3486,7 +3492,7 @@ tr.b.unittest.testSuite(function() {
                 'name': 'sibling',
                 'size': 5,
                 'numerics': {
-                  'summed': new ScalarNumeric(sizeInBytes_smallerIsBetter, 13)
+                  'summed': new Scalar(sizeInBytes_smallerIsBetter, 13)
                 }
               }
             ]
@@ -3495,7 +3501,7 @@ tr.b.unittest.testSuite(function() {
             'name': 'precedent_owner',
             'owns': 1,
             'numerics': {
-              'summed': new ScalarNumeric(sizeInBytes_smallerIsBetter, 0)
+              'summed': new Scalar(sizeInBytes_smallerIsBetter, 0)
             }
           },
           {

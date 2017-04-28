@@ -268,11 +268,11 @@ found in the LICENSE file.
       }
 
       #alerts .kd-button.counter {
-        height: 14px;
-        line-height: 14px;
+        height: 17px;
+        line-height: 17px;
         min-width: 17px;
-        padding: 2px;
-        width: 17px;
+        padding: 1px;
+        width: 20px;
       }
 
       #alerts .kd-button:hover {
@@ -376,7 +376,10 @@ found in the LICENSE file.
             </bisect-status>
           </td>
           <td class="revision_range">
-            <revision-range start="{{item.start_revision}}" end="{{item.end_revision}}"></revision-range>
+            <revision-range start="{{getDisplayStartRev(item)}}" 
+                            end="{{getDisplayEndRev(item)}}"
+                            alert-key="{{item.key}}">
+            </revision-range>
           </td>
           <td class="master">{{item.master}}</td>
           <td class="bot">{{item.bot}}</td>
@@ -403,7 +406,6 @@ found in the LICENSE file.
   'use strict';
 
   (function() {
-
     /**
      * Returns the intersection of the two ranges.
      *
@@ -516,6 +518,20 @@ found in the LICENSE file.
 
       computeIsPlural: (n) => n > 1,
 
+      getDisplayStartRev: function(item) {
+        if (item['display_start']) {
+          return item['display_start'];
+        }
+        return item['start_revision'];
+      },
+
+      getDisplayEndRev: function(item) {
+        if (item['display_end']) {
+          return item['display_end'];
+        }
+        return item['end_revision'];
+      },
+
       /**
        * Determines how to format the unit. E.g. switching between MiB and
        * KiB as appropriate. Accepts tbmv1 and tbmv2 units.
@@ -534,14 +550,13 @@ found in the LICENSE file.
             unitInfo = unitInfo.name;
             return (tr.b.Unit.byName[unitInfo].format(item[key]));
           }
-          else {
-            var value = item[key];
-            value = parseFloat(value).toFixed(3);
-            if (!unitName)
-              unitName = '(unformatted)';
-            value = value + ' ' + unitName;
-            return value;
-          }
+  
+          var value = item[key];
+          value = parseFloat(value).toFixed(3);
+          if (!unitName)
+            unitName = '(unformatted)';
+          value = value + ' ' + unitName;
+          return value;
         }
         return item[key];
       },
@@ -701,6 +716,7 @@ found in the LICENSE file.
        * @param {array} alerts The array of alerts to modify.
        */
       selectAlertsInKeysParameter: function(alerts) {
+        var showImprovements = uri.getParameter('improvements', false);
         if (!this.selectedKeys)
           return;
         var keys = this.selectedKeys;
@@ -714,7 +730,7 @@ found in the LICENSE file.
           if (keySet[alerts[i].key]) {
             alert.selected = true;
             alert.hideRow = false;
-          } else if (alert.improvement) {
+          } else if (alert.improvement && !showImprovements) {
             alert.hideRow = true;
           }
         }
@@ -838,7 +854,7 @@ found in the LICENSE file.
         for (var i = 0; i < headers.length; i++) {
           if (headers[i].id == this.sortBy) {
             Polymer.dom(headers[i]).setAttribute('data-sort-direction',
-                                                 this.sortDirection);
+                this.sortDirection);
           } else {
             Polymer.dom(headers[i]).removeAttribute('data-sort-direction');
           }
@@ -872,6 +888,10 @@ found in the LICENSE file.
           var numA = parseNumber(valA);
           var numB = parseNumber(valB);
           if (numA && numB) {
+            if (!alertA.improvement)
+              numA = -numA;
+            if (!alertB.improvement)
+              numB = -numB;
             var result = numA - numB;
           } else {
             var result = 0;
@@ -1095,14 +1115,14 @@ found in the LICENSE file.
         var newTab = window.open('about:blank');
 
         simple_xhr.send('/short_uri',
-          {'page_state': JSON.stringify(this.checkedAlerts.map(
-            alert => alert.key))},
-          response => {
-            newTab.location.replace('/group_report?sid=' + response.sid);
-          },
-          msg => {
-            this.error = msg;
-          });
+            {'page_state': JSON.stringify(this.checkedAlerts.map(
+                alert => alert.key))},
+            response => {
+              newTab.location.replace('/group_report?sid=' + response.sid);
+            },
+            msg => {
+              this.error = msg;
+            });
       },
 
       /**

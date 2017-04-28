@@ -348,11 +348,11 @@ class UpdateBugWithResultsTest(testing_common.TestCase):
     self.testapp.get('/update_bug_with_results')
     mock_update_bug.assert_called_once_with(
         mock.ANY, mock.ANY,
-        cc_list=[], merge_issue=111222, labels=None, owner=None)
+        cc_list=[], merge_issue='111222', labels=None, owner=None)
     # Should have skipped updating cache.
     self.assertEqual(
         layered_cache.GetExternal('commit_hash_2a1781d64d'), 111222)
-    mock_merge_anomalies.assert_called_once_with(111222, 12345)
+    mock_merge_anomalies.assert_called_once_with('111222', 12345)
 
   @mock.patch(
       'google.appengine.api.urlfetch.fetch',
@@ -454,6 +454,29 @@ class UpdateBugWithResultsTest(testing_common.TestCase):
     caches = layered_cache.CachedPickledString.query().fetch()
     # Only 1 cache for bisect stats.
     self.assertEqual(1, len(caches))
+
+  @mock.patch(
+      'google.appengine.api.urlfetch.fetch',
+      mock.MagicMock(side_effect=_MockFetch))
+  @mock.patch.object(
+      update_bug_with_results, '_IsJobCompleted',
+      mock.MagicMock(return_value=True))
+  @mock.patch.object(
+      buildbucket_service, 'GetJobStatus',
+      mock.MagicMock(
+          return_value=_MockBuildBucketResponse(
+              result='FAILURE',
+              updated_ts=int(round(time.time() * 1000000)))))
+  def testGet_InProgressResult_BuildbucketFailure(self):
+    sample_bisect_results = copy.deepcopy(_SAMPLE_BISECT_RESULTS_JSON)
+    sample_bisect_results['status'] = 'started'
+
+    job_key = try_job.TryJob(bug_id=12345, status='started', bot='win_perf',
+                             results_data=sample_bisect_results).put()
+    self.testapp.get('/update_bug_with_results')
+
+    job = job_key.get()
+    self.assertEqual(job.results_data['status'], 'started')
 
   def testMapAnomaliesToMergeIntoBug(self):
     # Add anomalies.

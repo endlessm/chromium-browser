@@ -204,8 +204,12 @@ class SchemaVersionedMySQLConnection(object):
     # but we do not know for sure that sqlalchemy has been successfully imported
     # until we enter this method (i.e. this class cannot be module-level).
     class StrictModeListener(sqlalchemy.interfaces.PoolListener):
-      """This listener ensures that STRICT_ALL_TABLES for all connections."""
+      """Listener to set up a connection with STRICT_ALL_TABLES."""
+      def __init__(self):
+        pass
+
       def connect(self, dbapi_con, *_args, **_kwargs):
+        """This listener ensures that STRICT_ALL_TABLES for all connections."""
         cur = dbapi_con.cursor()
         cur.execute("SET SESSION sql_mode='STRICT_ALL_TABLES'")
         cur.close()
@@ -609,7 +613,8 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
   BUILD_STATUS_KEYS = (
       'id', 'build_config', 'start_time', 'finish_time', 'status', 'waterfall',
       'build_number', 'builder_name', 'platform_version', 'full_version',
-      'milestone_version', 'important', 'buildbucket_id', 'summary')
+      'milestone_version', 'important', 'buildbucket_id', 'summary',
+      'buildbot_generation')
 
   def __init__(self, db_credentials_dir, *args, **kwargs):
     super(CIDBConnection, self).__init__('cidb', CIDB_MIGRATIONS_DIR,
@@ -813,7 +818,7 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
               'board': board}
     return self._Insert('buildMessageTable', values)
 
-  @minimum_schema(2)
+  @minimum_schema(55)
   def UpdateMetadata(self, build_id, metadata):
     """Update the given metadata row in database.
 
@@ -834,7 +839,8 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
                          'sdk_version': d.get('sdk-versions'),
                          'toolchain_url': d.get('toolchain-url'),
                          'build_type': d.get('build_type'),
-                         'important': d.get('important')})
+                         'important': d.get('important'),
+                         'unibuild': d.get('unibuild', False)})
 
   @minimum_schema(2)
   def GetMetadata(self, build_id):
@@ -1250,11 +1256,6 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
       start_time, finish_time, platform_version, full_version, status,
       important, buildbucket_id].
     """
-    # TODO(akeshet): Unify this with BUILD_STATUS_KEYS
-    columns = ['id', 'build_config', 'buildbot_generation', 'waterfall',
-               'build_number', 'start_time', 'finish_time', 'platform_version',
-               'full_version', 'status', 'important', 'buildbucket_id']
-
     where_clauses = ['build_config = "%s"' % build_config]
     if start_date is not None:
       where_clauses.append('date(start_time) >= date("%s")' %
@@ -1275,12 +1276,44 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
         ' FROM buildTable'
         ' WHERE %s'
         ' ORDER BY id DESC' %
-        (', '.join(columns), ' AND '.join(where_clauses)))
+        (', '.join(CIDBConnection.BUILD_STATUS_KEYS),
+         ' AND '.join(where_clauses)))
     if num_results != self.NUM_RESULTS_NO_LIMIT:
       query += ' LIMIT %d' % num_results
 
     results = self._Execute(query).fetchall()
-    return [dict(zip(columns, values)) for values in results]
+    return [dict(zip(CIDBConnection.BUILD_STATUS_KEYS, values))
+            for values in results]
+
+  @minimum_schema(47)
+  def GetMostRecentBuild(self, waterfall, build_config, milestone_version=None):
+    """Returns basic information about most recent completed build.
+
+    Args:
+      waterfall: waterfall of the build.
+      build_config: config name of the build.
+      milestone_version: optional milestone_version to filter upon.
+
+    Returns:
+      A dictionary with keys BUILD_STATUS_KEYS, or None if no results.
+    """
+    where_clauses = ['waterfall = "%s"' % waterfall,
+                     'build_config = "%s"' % build_config,
+                     'final = 1']
+    if milestone_version:
+      where_clauses.append('milestone_version = "%d"' % milestone_version)
+
+    query = (
+        'SELECT %s'
+        ' FROM buildTable'
+        ' WHERE %s'
+        ' ORDER BY id DESC'
+        ' LIMIT 1' %
+        (', '.join(self.BUILD_STATUS_KEYS), ' AND '.join(where_clauses)))
+
+    results = self._Execute(query).fetchall()
+    return (dict(zip(self.BUILD_STATUS_KEYS, results[0]))
+            if len(results) else None)
 
   @minimum_schema(26)
   def GetAnnotationsForBuilds(self, build_ids):

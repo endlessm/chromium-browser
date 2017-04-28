@@ -33,4 +33,4 @@ class MouseClickAction(page_action.PageAction):
         }'''
     page_action.EvaluateCallbackWithElement(
         tab, code, selector=self._selector)
-    tab.WaitForJavaScriptExpression('window.__mouseClickActionDone', 60)
+    tab.WaitForJavaScriptCondition('window.__mouseClickActionDone', timeout=60)

@@ -8,6 +8,7 @@ found in the LICENSE file.
 <link rel="import" href="/tracing/base/color_scheme.html">
 <link rel="import" href="/tracing/base/iteration_helpers.html">
 <link rel="import" href="/tracing/base/multi_dimensional_view.html">
+<link rel="import" href="/tracing/base/scalar.html">
 <link rel="import" href="/tracing/ui/analysis/memory_dump_heap_details_breakdown_view.html">
 <link rel="import" href="/tracing/ui/analysis/memory_dump_heap_details_path_view.html">
 <link rel="import" href="/tracing/ui/analysis/memory_dump_heap_details_util.html">
@@ -16,7 +17,6 @@ found in the LICENSE file.
 <link rel="import" href="/tracing/ui/base/dom_helpers.html">
 <link rel="import" href="/tracing/ui/base/drag_handle.html">
 <link rel="import" href="/tracing/ui/base/info_bar.html">
-<link rel="import" href="/tracing/value/numeric.html">
 
 <dom-module id='tr-ui-a-memory-dump-heap-details-pane'>
   <template>
@@ -92,7 +92,7 @@ found in the LICENSE file.
       </div>
     </div>
     <div id="contents">
-      <tr-ui-b-info-bar id="info_bar" class="info-bar-hidden">
+      <tr-ui-b-info-bar id="info_bar" hidden>
       </tr-ui-b-info-bar>
 
       <div id="info_text">No heap dump selected</div>
@@ -111,8 +111,7 @@ found in the LICENSE file.
 'use strict';
 
 tr.exportTo('tr.ui.analysis', function() {
-
-  var ScalarNumeric = tr.v.ScalarNumeric;
+  var Scalar = tr.b.Scalar;
   var sizeInBytes_smallerIsBetter =
       tr.b.Unit.byName.sizeInBytes_smallerIsBetter;
   var count_smallerIsBetter = tr.b.Unit.byName.count_smallerIsBetter;
@@ -137,10 +136,9 @@ tr.exportTo('tr.ui.analysis', function() {
       if (this.heavyView_) {
         // Show lower-bound and exact values in heavy views.
         return TotalState.LOWER_BOUND;
-      } else {
-        // Show only exact values in tree view.
-        return TotalState.EXACT;
       }
+      // Show only exact values in tree view.
+      return TotalState.EXACT;
     },
 
     get childNodes() {
@@ -247,12 +245,12 @@ tr.exportTo('tr.ui.analysis', function() {
           function(stackFrameNode) {
             var size = stackFrameNode.values[0].total;
             var numerics = {
-              'Size': new ScalarNumeric(sizeInBytes_smallerIsBetter, size)
+              'Size': new Scalar(sizeInBytes_smallerIsBetter, size)
             };
             var countValue = stackFrameNode.values[1];
             if (countValue.totalState >= this.minDisplayedTotalState_) {
               var count = countValue.total;
-              numerics['Count'] = new ScalarNumeric(
+              numerics['Count'] = new Scalar(
                   count_smallerIsBetter, count);
             }
             return numerics;
@@ -268,6 +266,7 @@ tr.exportTo('tr.ui.analysis', function() {
       this.heapDumps_ = undefined;
       this.viewMode_ = undefined;
       this.aggregationMode_ = undefined;
+      this.cachedBuilders_ = new Map();
     },
 
     ready: function() {
@@ -369,7 +368,7 @@ tr.exportTo('tr.ui.analysis', function() {
         this.$.info_text.style.display = 'block';
         this.$.split_view.style.display = 'none';
         this.$.view_mode_container.style.display = 'none';
-        this.$.info_bar.visible = false;
+        this.$.info_bar.hidden = true;
         this.$.path_view.selectedNode = undefined;
         return;
       }
@@ -380,7 +379,7 @@ tr.exportTo('tr.ui.analysis', function() {
       this.$.view_mode_container.style.display = 'block';
 
       // Show the info bar if in heavy view mode.
-      this.$.info_bar.visible = this.heavyView;
+      this.$.info_bar.hidden = !this.heavyView;
 
       this.$.path_view.selectedNode = this.createHeapTree_();
       this.$.path_view.rebuild();
@@ -403,33 +402,44 @@ tr.exportTo('tr.ui.analysis', function() {
     },
 
     createStackFrameTrees_: function(heapDumps) {
-      return heapDumps.map(function(heapDump) {
-        if (heapDump === undefined)
-          return undefined;
-
-        var builder = new MultiDimensionalViewBuilder(
-            2 /* dimensions (stack frames, object type) */,
-            2 /* valueCount (size, count) */);
-
-        // Build the heap tree.
-        heapDump.entries.forEach(function(entry) {
-          var leafStackFrame = entry.leafStackFrame;
-          var stackTracePath = leafStackFrame === undefined ?
-              [] : leafStackFrame.getUserFriendlyStackTrace().reverse();
-
-          var objectTypeName = entry.objectTypeName;
-          var objectTypeNamePath = objectTypeName === undefined ?
-              [] : [objectTypeName];
-
-          builder.addPath([stackTracePath, objectTypeNamePath],
-              [entry.size, entry.count],
-              MultiDimensionalViewBuilder.ValueKind.TOTAL);
-        }, this);
-
+      var builders = heapDumps.map(heapDump => this.createBuilder_(heapDump));
+      var views = builders.map(builder => {
+        if (builder === undefined) return undefined;
         return builder.buildView(this.viewMode);
-      }, this);
-    }
-   });
+      });
+      return views;
+    },
+
+    createBuilder_: function(heapDump) {
+      if (heapDump === undefined) return undefined;
+
+      if (this.cachedBuilders_.has(heapDump)) {
+        return this.cachedBuilders_.get(heapDump);
+      }
+
+      var dimensions = 2; // stack frames, object type
+      var valueCount = 2; // size, count
+      var builder = new MultiDimensionalViewBuilder(dimensions, valueCount);
+
+      // Build the heap tree.
+      for (var entry of heapDump.entries) {
+        var leafStackFrame = entry.leafStackFrame;
+        var stackTracePath = leafStackFrame === undefined ?
+            [] : leafStackFrame.getUserFriendlyStackTrace().reverse();
+
+        var objectTypeName = entry.objectTypeName;
+        var objectTypeNamePath = objectTypeName === undefined ?
+            [] : [objectTypeName];
+
+        builder.addPath([stackTracePath, objectTypeNamePath],
+            [entry.size, entry.count],
+            MultiDimensionalViewBuilder.ValueKind.TOTAL);
+      }
+
+      this.cachedBuilders_.set(heapDump, builder);
+      return builder;
+    },
+  });
 
   return {};
 });

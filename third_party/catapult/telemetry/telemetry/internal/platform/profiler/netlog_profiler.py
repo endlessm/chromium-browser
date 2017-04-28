@@ -2,7 +2,6 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import logging
 import tempfile
 
 from telemetry.internal.platform import profiler
@@ -37,14 +36,9 @@ class NetLogProfiler(profiler.Profiler):
     # On Android pull the output file to the host.
     if self._platform_backend.GetOSName() == 'android':
       host_output_file = '%s.json' % self._output_path
-      try:
-        self._browser_backend.device.PullFile(
-            output_file, host_output_file)
-      except:
-        logging.exception('New exception caused by DeviceUtils conversion')
-        raise
+      self._browser_backend.device.PullFile(output_file, host_output_file)
       # Clean the device
-      self._browser_backend.device.RunShellCommand('rm %s' % output_file)
+      self._browser_backend.device.RemovePath(output_file)
       output_file = host_output_file
     print 'Net-internals log saved as %s' % output_file
     print 'To view, open in chrome://net-internals'

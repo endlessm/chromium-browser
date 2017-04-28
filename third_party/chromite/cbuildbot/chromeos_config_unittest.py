@@ -48,10 +48,13 @@ class ConfigDumpTest(ChromeosConfigTestBase):
     new_dump = self.site_config.SaveConfigToString()
     old_dump = osutils.ReadFile(constants.CHROMEOS_CONFIG_FILE).rstrip()
 
-    self.assertTrue(
-        new_dump == old_dump, 'config_dump.json does not match the '
-        'configs defined in chromeos_config.py. Run '
-        'bin/cbuildbot_view_config --update_config')
+    if new_dump != old_dump:
+      if cros_test_lib.GlobalTestConfig.UPDATE_GENERATED_FILES:
+        osutils.WriteFile(constants.CHROMEOS_CONFIG_FILE, new_dump)
+      else:
+        self.fail('config_dump.json does not match the '
+                  'defined configs. Run '
+                  'cbuildbot/chromeos_config_unittest --update')
 
   def testWaterfallLayout(self):
     """Make sure that watefall_layout_dump.txt is kept current."""
@@ -61,10 +64,13 @@ class ConfigDumpTest(ChromeosConfigTestBase):
     new_dump = output.GetStdout()
     old_dump = osutils.ReadFile(constants.WATERFALL_CONFIG_FILE)
 
-    self.assertTrue(
-        new_dump == old_dump, 'waterfall_layout_dump.txt does not match the '
-        'configs defined in chromeos_config.py. Run '
-        'bin/cros_show_waterfall_layout > cbuildbot/waterfall_layout_dump.txt')
+    if new_dump != old_dump:
+      if cros_test_lib.GlobalTestConfig.UPDATE_GENERATED_FILES:
+        osutils.WriteFile(constants.WATERFALL_CONFIG_FILE, new_dump)
+      else:
+        self.fail('waterfall_layout_dump.txt does not match the '
+                  'defined configs. Run '
+                  'cbuildbot/chromeos_config_unittest --update')
 
   def testSaveLoadReload(self):
     """Make sure that loading and reloading the config is a no-op."""
@@ -213,6 +219,15 @@ class ConfigClassTest(ChromeosConfigTestBase):
 
 class CBuildBotTest(ChromeosConfigTestBase):
   """General tests of chromeos_config."""
+
+  def _GetBoardTypeToBoardsDict(self):
+    """Get boards dict.
+
+    Returns:
+      A dict mapping a board type to a collections of board names.
+    """
+    ge_build_config = config_lib.LoadGEBuildConfigFromFile()
+    return chromeos_config.GetBoardTypeToBoardsDict(ge_build_config)
 
   def testConfigsKeysMismatch(self):
     """Verify that all configs contain exactly the default keys.
@@ -465,6 +480,40 @@ class CBuildBotTest(ChromeosConfigTestBase):
                          config.build_type)
         found_types.add(config.build_type)
 
+  def testActivePfqsHavePaladins(self):
+    """Make sure that every active PFQ has an associated Paladin.
+
+    This checks that every configured active PFQ on the external or internal
+    main waterfall has an associated active Paladin config.
+    """
+    # Get a list of all active Paladins.
+    active_paladin_boards = set()
+    for config in self.site_config.itervalues():
+      if config.active_waterfall and config_lib.IsCQType(config.build_type):
+        active_paladin_boards.update(config.boards)
+
+    # Scan for active PFQs.
+    check_waterfalls = set((constants.WATERFALL_INTERNAL,
+                            constants.WATERFALL_EXTERNAL))
+    failures = set()
+    for config in self.site_config.itervalues():
+      if not (config.active_waterfall in check_waterfalls and
+              config.build_type == constants.CHROME_PFQ_TYPE):
+        continue
+
+      for board in config.boards:
+        if board not in active_paladin_boards:
+          failures.add(config.name)
+
+    # TODO(dgarrett): Once crbug.com/679022 is resolved, remove this exception.
+    failures.remove('veyron_jerry-chromium-pfq')
+
+    self.assertSetEqual(
+        failures,
+        set(),
+        "Some active PFQ configs don't have active Paladins: %s" % (
+            ', '.join(sorted(failures)),))
+
   def testGetSlavesOnTrybot(self):
     """Make sure every master has a sane list of slaves"""
     mock_options = mock.Mock()
@@ -707,11 +756,12 @@ class CBuildBotTest(ChromeosConfigTestBase):
 
   def testAllBoardsExist(self):
     """Verifies that all config boards are in _all_boards."""
+    boards_dict = self._GetBoardTypeToBoardsDict()
     for build_name, config in self.site_config.iteritems():
       self.assertIsNotNone(config['boards'],
                            'Config %s has boards = None' % build_name)
       for board in config['boards']:
-        self.assertIn(board, chromeos_config._all_boards,
+        self.assertIn(board, boards_dict['all_boards'],
                       'Config %s has unknown board %s.' %
                       (build_name, board))
 
@@ -847,10 +897,11 @@ class CBuildBotTest(ChromeosConfigTestBase):
 
   def testDistinctBoardSets(self):
     """Verify that distinct board sets are distinct."""
+    boards_dict = self._GetBoardTypeToBoardsDict()
     # Every board should be in exactly one of the distinct board sets.
-    for board in chromeos_config._all_boards:
+    for board in boards_dict['all_boards']:
       found = False
-      for s in chromeos_config._distinct_board_sets:
+      for s in boards_dict['distinct_board_sets']:
         if board in s:
           if found:
             assert False, '%s in multiple board sets.' % board
@@ -858,9 +909,9 @@ class CBuildBotTest(ChromeosConfigTestBase):
             found = True
       if not found:
         assert False, '%s in no board sets' % board
-    for s in chromeos_config._distinct_board_sets:
-      for board in s - chromeos_config._all_boards:
-        assert False, ('%s in _distinct_board_sets but not in _all_boards' %
+    for s in boards_dict['distinct_board_sets']:
+      for board in s - boards_dict['all_boards']:
+        assert False, ('%s in distinct_board_sets but not in all_boards' %
                        board)
 
   def testBuildTimeouts(self):
@@ -902,7 +953,7 @@ class OverrideForTrybotTest(ChromeosConfigTestBase):
     self.assertEquals(new['vm_tests'], old['vm_tests'])
 
     # Don't override vm tests for brillo boards.
-    old = self.site_config['storm-paladin']
+    old = self.site_config['whirlwind-paladin']
     new = config_lib.OverrideConfigForTrybot(old, mock_options)
     self.assertEquals(new['vm_tests'], old['vm_tests'])
 

@@ -219,7 +219,6 @@ tr.exportTo('tr.ui.e.chrome.cc', function() {
     },
 
     onMutation_: function(mutations) {
-
       for (var m = 0; m < mutations.length; m++) {
         // A style change would indicate that the element has resized
         // so we should re-render the chart.
@@ -361,8 +360,8 @@ tr.exportTo('tr.ui.e.chrome.cc', function() {
       var w = imgCanvas.width;
       var h = imgCanvas.height;
       this.rasterCtx_.drawImage(imgCanvas, 0, 0, w, h,
-                                0, 0, w * this.zoomScaleValue_,
-                                h * this.zoomScaleValue_);
+          0, 0, w * this.zoomScaleValue_,
+          h * this.zoomScaleValue_);
     },
 
     rasterize_: function() {

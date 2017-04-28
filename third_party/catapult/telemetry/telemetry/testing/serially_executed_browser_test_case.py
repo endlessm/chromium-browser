@@ -3,13 +3,19 @@
 # found in the LICENSE file.
 
 import inspect
+import logging
 import re
 import unittest
 
 from py_utils import cloud_storage
 from telemetry.internal.browser import browser_finder
-from telemetry.testing import options_for_unittests
+from telemetry.testing import browser_test_context
 from telemetry.util import wpr_modes
+
+
+DEFAULT_LOG_FORMAT = (
+  '(%(levelname)s) %(asctime)s %(module)s.%(funcName)s:%(lineno)d  '
+  '%(message)s')
 
 
 class SeriallyExecutedBrowserTestCase(unittest.TestCase):
@@ -30,8 +36,24 @@ class SeriallyExecutedBrowserTestCase(unittest.TestCase):
     pass
 
   @classmethod
-  def setUpClass(cls):
-    cls._finder_options = options_for_unittests.GetCopy()
+  def SetUpProcess(cls):
+    """ Set up testing logic before running the test case.
+    This is guaranteed to be called only once for all the tests before the test
+    suite runs.
+    """
+    finder_options = browser_test_context.GetCopy().finder_options
+    cls._finder_options = finder_options
+
+    # Set up logging based on the verbosity passed from the parent to
+    # the child process.
+    if finder_options.verbosity >= 2:
+      logging.getLogger().setLevel(logging.DEBUG)
+    elif finder_options.verbosity:
+      logging.getLogger().setLevel(logging.INFO)
+    else:
+      logging.getLogger().setLevel(logging.WARNING)
+    logging.basicConfig(format=DEFAULT_LOG_FORMAT)
+
     cls.platform = None
     cls.browser = None
     cls._browser_to_create = None
@@ -92,7 +114,12 @@ class SeriallyExecutedBrowserTestCase(unittest.TestCase):
     cls.browser = None
 
   @classmethod
-  def tearDownClass(cls):
+  def TearDownProcess(cls):
+    """ Tear down the testing logic after running the test cases.
+    This is guaranteed to be called only once for all the tests after the test
+    suite finishes running.
+    """
+
     if cls.platform:
       cls.platform.StopAllLocalServers()
       cls.platform.network_controller.Close()
@@ -142,12 +169,24 @@ def LoadAllTestsInModule(module):
     test cases to be run.
   """
   suite = unittest.TestSuite()
+  test_context = browser_test_context.GetCopy()
+  if not test_context:
+    return suite
   for _, obj in inspect.getmembers(module):
     if (inspect.isclass(obj) and
         issubclass(obj, SeriallyExecutedBrowserTestCase)):
+      # We bail out early if this class doesn't match the targeted
+      # test_class in test_context to avoid calling GenerateTestCases
+      # for tests that we don't intend to run. This is to avoid possible errors
+      # in GenerateTestCases as the test class may define custom options in
+      # the finder_options object, and hence would raise error if they can't
+      # find their custom options in finder_options object.
+      if test_context.test_class != obj:
+        continue
       for test in GenerateTestCases(
-          test_class=obj, finder_options=options_for_unittests.GetCopy()):
-        suite.addTest(test)
+          test_class=obj, finder_options=test_context.finder_options):
+        if test.id() in test_context.test_case_ids_to_run:
+          suite.addTest(test)
   return suite
 
 

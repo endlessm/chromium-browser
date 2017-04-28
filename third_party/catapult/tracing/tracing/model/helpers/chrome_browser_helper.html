@@ -39,6 +39,10 @@ tr.exportTo('tr.model.helpers', function() {
       return hasInProcessRendererThread ? 'webview' : 'chrome';
     },
 
+    get mainThread() {
+      return this.mainThread_;
+    },
+
     get rendererHelpers() {
       return this.modelHelper.rendererHelpers;
     },
@@ -105,7 +109,7 @@ tr.exportTo('tr.model.helpers', function() {
             return;
 
           if (rangeOfInterest.intersectsExplicitRangeInclusive(
-                slice.start, slice.end))
+              slice.start, slice.end))
             networkEvents.push(slice);
         });
       });
@@ -113,16 +117,16 @@ tr.exportTo('tr.model.helpers', function() {
     },
 
     iterAllThreads: function(func, opt_this) {
-      tr.b.iterItems(this.process.threads, function(tid, thread) {
+      for (var thread of Object.values(this.process.threads)) {
         func.call(opt_this, thread);
-      });
+      }
 
-      tr.b.iterItems(this.rendererHelpers, function(pid, rendererHelper) {
+      for (var rendererHelper of Object.values(this.rendererHelpers)) {
         var rendererProcess = rendererHelper.process;
-        tr.b.iterItems(rendererProcess.threads, function(tid, thread) {
+        for (var thread of Object.values(rendererProcess.threads)) {
           func.call(opt_this, thread);
-        });
-      }, this);
+        }
+      }
     }
   };
 

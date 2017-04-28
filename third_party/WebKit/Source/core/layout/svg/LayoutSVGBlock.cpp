@@ -99,9 +99,6 @@ void LayoutSVGBlock::styleDidChange(StyleDifference diff,
 void LayoutSVGBlock::mapLocalToAncestor(const LayoutBoxModelObject* ancestor,
                                         TransformState& transformState,
                                         MapCoordinatesFlags flags) const {
-  // Convert from local HTML coordinates to local SVG coordinates.
-  transformState.move(locationOffset());
-  // Apply other mappings on local SVG coordinates.
   SVGLayoutSupport::mapLocalToAncestor(this, ancestor, transformState, flags);
 }
 
@@ -111,18 +108,12 @@ void LayoutSVGBlock::mapAncestorToLocal(const LayoutBoxModelObject* ancestor,
   if (this == ancestor)
     return;
 
-  // Map to local SVG coordinates.
   SVGLayoutSupport::mapAncestorToLocal(*this, ancestor, transformState, flags);
-  // Convert from local SVG coordinates to local HTML coordinates.
-  transformState.move(-locationOffset());
 }
 
 const LayoutObject* LayoutSVGBlock::pushMappingToContainer(
     const LayoutBoxModelObject* ancestorToStopAt,
     LayoutGeometryMap& geometryMap) const {
-  // Convert from local HTML coordinates to local SVG coordinates.
-  geometryMap.push(this, locationOffset());
-  // Apply other mappings on local SVG coordinates.
   return SVGLayoutSupport::pushMappingToContainer(this, ancestorToStopAt,
                                                   geometryMap);
 }
@@ -131,15 +122,16 @@ LayoutRect LayoutSVGBlock::absoluteVisualRect() const {
   return SVGLayoutSupport::visualRectInAncestorSpace(*this, *view());
 }
 
-bool LayoutSVGBlock::mapToVisualRectInAncestorSpace(
+bool LayoutSVGBlock::mapToVisualRectInAncestorSpaceInternal(
     const LayoutBoxModelObject* ancestor,
-    LayoutRect& rect,
+    TransformState& transformState,
     VisualRectFlags) const {
-  // Convert from local HTML coordinates to local SVG coordinates.
-  rect.moveBy(location());
-  // Apply other mappings on local SVG coordinates.
-  return SVGLayoutSupport::mapToVisualRectInAncestorSpace(
+  transformState.flatten();
+  LayoutRect rect(transformState.lastPlanarQuad().boundingBox());
+  bool retval = SVGLayoutSupport::mapToVisualRectInAncestorSpace(
       *this, ancestor, FloatRect(rect), rect);
+  transformState.setQuad(FloatQuad(FloatRect(rect)));
+  return retval;
 }
 
 bool LayoutSVGBlock::nodeAtPoint(HitTestResult&,

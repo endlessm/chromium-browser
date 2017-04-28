@@ -11,7 +11,6 @@ found in the LICENSE file.
 'use strict';
 
 tr.exportTo('tr.model', function() {
-
   /**
    * @constructor
    */
@@ -23,13 +22,15 @@ tr.exportTo('tr.model', function() {
     this.allTraceEventStatsInTimeIntervals_ = [];
 
     this.hasEventSizesinBytes_ = false;
+
+    this.traceImportDurationMs_ = undefined;
   }
 
   ModelStats.prototype = {
     TIME_INTERVAL_SIZE_IN_MS: 100,
 
     willProcessBasicTraceEvent: function(phase, category, title, ts,
-                                         opt_eventSizeinBytes) {
+        opt_eventSizeinBytes) {
       var key = phase + '/' + category + '/' + title;
       var eventStats = this.traceEventCountsByKey_.get(key);
       if (eventStats === undefined) {
@@ -56,7 +57,7 @@ tr.exportTo('tr.model', function() {
           totalEventSizeinBytes: 0
         };
         this.traceEventStatsInTimeIntervals_.set(timeIntervalKey,
-                                                eventStatsByTimeInverval);
+            eventStatsByTimeInverval);
         this.allTraceEventStatsInTimeIntervals_.push(eventStatsByTimeInverval);
       }
       eventStatsByTimeInverval.numEvents++;
@@ -78,6 +79,14 @@ tr.exportTo('tr.model', function() {
 
     get hasEventSizesinBytes() {
       return this.hasEventSizesinBytes_;
+    },
+
+    get traceImportDurationMs() {
+      return this.traceImportDurationMs_;
+    },
+
+    set traceImportDurationMs(traceImportDurationMs) {
+      this.traceImportDurationMs_ = traceImportDurationMs;
     }
   };
 

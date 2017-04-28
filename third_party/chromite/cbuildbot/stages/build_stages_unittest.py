@@ -14,6 +14,7 @@ from chromite.cbuildbot import cbuildbot_unittest
 from chromite.cbuildbot import chromeos_config
 from chromite.cbuildbot import commands
 from chromite.cbuildbot.stages import build_stages
+from chromite.cbuildbot.stages import generic_stages
 from chromite.cbuildbot.stages import generic_stages_unittest
 from chromite.lib import auth
 from chromite.lib import cidb
@@ -23,6 +24,7 @@ from chromite.lib import cros_build_lib
 from chromite.lib import cros_build_lib_unittest
 from chromite.lib import cros_test_lib
 from chromite.lib import fake_cidb
+from chromite.lib import osutils
 from chromite.lib import parallel
 from chromite.lib import parallel_unittest
 from chromite.lib import partial_mock
@@ -239,18 +241,22 @@ class BuildPackagesStageTest(AllConfigsTestCase,
 
   def setUp(self):
     self._release_tag = None
+    self._update_metadata = False
+    self._mock_configurator = None
     self.PatchObject(commands, 'ExtractDependencies', return_value=dict())
 
   def ConstructStage(self):
     self._run.attrs.release_tag = self._release_tag
-    return build_stages.BuildPackagesStage(self._run, self._current_board)
+    return build_stages.BuildPackagesStage(
+        self._run, self._current_board,
+        update_metadata=self._update_metadata)
 
   def RunTestsWithBotId(self, bot_id, options_tests=True):
     """Test with the config for the specified bot_id."""
     self._Prepare(bot_id)
     self._run.options.tests = options_tests
 
-    with self.RunStageWithConfig() as rc:
+    with self.RunStageWithConfig(self._mock_configurator) as rc:
       cfg = self._run.config
       rc.assertCommandContains(['./build_packages'])
       rc.assertCommandContains(['./build_packages', '--skip_chroot_upgrade'])
@@ -268,10 +274,53 @@ class BuildPackagesStageTest(AllConfigsTestCase,
     self.RunTestsWithBotId('x86-generic-paladin', options_tests=False)
 
   def testIgnoreExtractDependenciesError(self):
-    """Igore errors when failing to extract dependencies."""
+    """Ignore errors when failing to extract dependencies."""
     self.PatchObject(commands, 'ExtractDependencies',
                      side_effect=Exception('unmet dependency'))
     self.RunTestsWithBotId('x86-generic-paladin')
+
+  def testFirmwareVersions(self):
+    """Test that firmware versions are extracted correctly."""
+    expected_main_firmware_version = 'reef_v1.1.5822-78709a5'
+    expected_ec_firmware_version = 'Google_Reef.9042.30.0'
+
+    def _HookRunCommandFirmwareUpdate(rc):
+      rc.AddCmdResult(partial_mock.ListRegex('chromeos-firmwareupdate'),
+                      output='BIOS version: %s\nEC version: %s' %
+                      (expected_main_firmware_version,
+                       expected_ec_firmware_version))
+
+    self._update_metadata = True
+    update = os.path.join(
+        self.build_root,
+        'chroot/build/x86-generic/usr/sbin/chromeos-firmwareupdate')
+    osutils.Touch(update, makedirs=True)
+
+    self._mock_configurator = _HookRunCommandFirmwareUpdate
+    self.RunTestsWithBotId('x86-generic-paladin', options_tests=False)
+    board_metadata = (self._run.attrs.metadata.GetDict()['board-metadata']
+                      .get('x86-generic'))
+    if board_metadata:
+      self.assertIn('main-firmware-version', board_metadata)
+      self.assertEqual(board_metadata['main-firmware-version'],
+                       expected_main_firmware_version)
+      self.assertIn('ec-firmware-version', board_metadata)
+      self.assertEqual(board_metadata['ec-firmware-version'],
+                       expected_ec_firmware_version)
+      self.assertFalse(self._run.attrs.metadata.GetDict()['unibuild'])
+
+  def testUnifiedBuilds(self):
+    """Test that unified builds are marked as such."""
+    def _HookRunCommandFdtget(rc):
+      rc.AddCmdResult(partial_mock.ListRegex('fdtget'), output='reef')
+
+    self._update_metadata = True
+    fdtget = os.path.join(self.build_root,
+                          'chroot/build/x86-generic/usr/bin/fdtget')
+    osutils.Touch(fdtget, makedirs=True)
+    self._mock_configurator = _HookRunCommandFdtget
+    self.RunTestsWithBotId('x86-generic-paladin', options_tests=False)
+    self.assertTrue(self._run.attrs.metadata.GetDict()['unibuild'])
 
 
 class BuildImageStageMock(partial_mock.PartialMock):
@@ -326,8 +375,13 @@ class BuildImageStageTest(BuildPackagesStageTest):
     steps = [lambda tag=x: task(tag) for x in (release_tag,)]
     parallel.RunParallelSteps(steps)
 
+  def testUnifiedBuilds(self):
+    pass
+
 class CleanUpStageTest(generic_stages_unittest.StageTestCase):
   """Test CleanUpStage."""
+
+  # pylint: disable=protected-access
 
   BOT_ID = 'master-paladin'
 
@@ -361,6 +415,46 @@ class CleanUpStageTest(generic_stages_unittest.StageTestCase):
 
   def ConstructStage(self):
     return build_stages.CleanUpStage(self._run)
+
+  def test_GetBuildbucketBucketsForSlavesOnMixedWaterfalls(self):
+    """Test _GetBuildbucketBucketsForSlaves with mixed waterfalls."""
+    stage = self.ConstructStage()
+    slave_config_map = {
+        'slave_1': config_lib.BuildConfig(
+            name='slave1',
+            active_waterfall=constants.WATERFALL_EXTERNAL),
+        'slave_2': config_lib.BuildConfig(
+            name='slave2',
+            active_waterfall=constants.WATERFALL_INTERNAL),
+        'slave_3': config_lib.BuildConfig(
+            name='slave3',
+            active_waterfall=None)
+    }
+    self.PatchObject(generic_stages.BuilderStage, '_GetSlaveConfigMap',
+                     return_value=slave_config_map)
+    buckets = stage._GetBuildbucketBucketsForSlaves()
+
+    expected_list = ['master.chromiumos', 'master.chromeos']
+    self.assertItemsEqual(expected_list, buckets)
+
+  def test_GetBuildbucketBucketsForSlavesOnSingleWaterfall(self):
+    """Test _GetBuildbucketBucketsForSlaves with a signle waterfall."""
+    stage = self.ConstructStage()
+
+    slave_config_map = {
+        'slave_1': config_lib.BuildConfig(
+            name='slave1',
+            active_waterfall=constants.WATERFALL_INTERNAL),
+        'slave_2': config_lib.BuildConfig(
+            name='slave2',
+            active_waterfall=constants.WATERFALL_INTERNAL)
+    }
+    self.PatchObject(generic_stages.BuilderStage, '_GetSlaveConfigMap',
+                     return_value=slave_config_map)
+    buckets = stage._GetBuildbucketBucketsForSlaves()
+
+    expected_list = ['master.chromeos']
+    self.assertItemsEqual(expected_list, buckets)
 
   def testCancelObsoleteSlaveBuilds(self):
     """Test CancelObsoleteSlaveBuilds."""
@@ -434,3 +528,15 @@ class CleanUpStageTest(generic_stages_unittest.StageTestCase):
     stage.CancelObsoleteSlaveBuilds()
 
     self.assertEqual(cancel_mock.call_count, 0)
+
+  def testCancelObsoleteSlaveBuildsWithNoSlaveBuilds(self):
+    """Test CancelObsoleteSlaveBuilds with no slave builds."""
+    self.PatchObject(build_stages.CleanUpStage,
+                     '_GetBuildbucketBucketsForSlaves',
+                     return_value=set())
+    stage = self.ConstructStage()
+    stage.CancelObsoleteSlaveBuilds()
+
+    search_mock = self.PatchObject(buildbucket_lib.BuildbucketClient,
+                                   'SearchAllBuilds')
+    search_mock.assertNotCalled()

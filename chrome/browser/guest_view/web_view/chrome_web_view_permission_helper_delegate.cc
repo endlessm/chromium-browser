@@ -11,7 +11,7 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/features.h"
 #include "chrome/common/render_messages.h"
-#include "content/public/browser/permission_type.h"
+#include "components/content_settings/core/common/content_settings_types.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_view_host.h"
@@ -25,8 +25,8 @@ namespace extensions {
 namespace {
 
 void CallbackWrapper(const base::Callback<void(bool)>& callback,
-                     blink::mojom::PermissionStatus status) {
-  callback.Run(status == blink::mojom::PermissionStatus::GRANTED);
+                     ContentSetting status) {
+  callback.Run(status == CONTENT_SETTING_ALLOW);
 }
 
 }  // anonymous namespace
@@ -197,7 +197,7 @@ void ChromeWebViewPermissionHelperDelegate::RequestGeolocationPermission(
 void ChromeWebViewPermissionHelperDelegate::OnGeolocationPermissionResponse(
     int bridge_id,
     bool user_gesture,
-    const base::Callback<void(blink::mojom::PermissionStatus)>& callback,
+    const base::Callback<void(ContentSetting)>& callback,
     bool allow,
     const std::string& user_input) {
   // The <webview> embedder has allowed the permission. We now need to make sure
@@ -205,7 +205,7 @@ void ChromeWebViewPermissionHelperDelegate::OnGeolocationPermissionResponse(
   RemoveBridgeID(bridge_id);
 
   if (!allow || !web_view_guest()->attached()) {
-    callback.Run(blink::mojom::PermissionStatus::DENIED);
+    callback.Run(CONTENT_SETTING_BLOCK);
     return;
   }
 
@@ -226,7 +226,7 @@ void ChromeWebViewPermissionHelperDelegate::OnGeolocationPermissionResponse(
   Profile* profile = Profile::FromBrowserContext(
       web_view_guest()->browser_context());
   PermissionManager::Get(profile)->RequestPermission(
-      content::PermissionType::GEOLOCATION, web_contents->GetMainFrame(),
+      CONTENT_SETTINGS_TYPE_GEOLOCATION, web_contents->GetMainFrame(),
       web_view_guest()
           ->embedder_web_contents()
           ->GetLastCommittedURL()

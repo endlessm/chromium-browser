@@ -102,7 +102,7 @@ found in the LICENSE file.
       var builder = new MultiDimensionalViewBuilder(
           1 /* dimensions */, 1 /* valueCount */);
       var samples = selection.filter(
-        event => event instanceof tr.model.Sample);
+          event => event instanceof tr.model.Sample);
 
       samples.forEach(function(sample) {
         builder.addPath([sample.userFriendlyStack.reverse()],
@@ -167,9 +167,8 @@ found in the LICENSE file.
               });
               spanEl.innerText = row.functionName;
               return spanEl;
-            } else {
-              return row.functionName;
             }
+            return row.functionName;
           },
           width: '150px',
           cmp: (a, b) => a.functionName.localeCompare(b.functionName),
@@ -225,11 +224,11 @@ found in the LICENSE file.
   });
 
   tr.ui.analysis.AnalysisSubView.register(
-    'tr-ui-a-multi-sample-sub-view',
-    tr.model.Sample,
-    {
-      multi: true,
-      title: 'Samples',
-    });
+      'tr-ui-a-multi-sample-sub-view',
+      tr.model.Sample,
+      {
+        multi: true,
+        title: 'Samples',
+      });
 })();
 </script>

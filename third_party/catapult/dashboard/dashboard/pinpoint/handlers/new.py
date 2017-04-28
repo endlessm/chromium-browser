@@ -4,10 +4,9 @@
 
 import webapp2
 
-from google.appengine.api import taskqueue
-
 from dashboard.pinpoint.models import change
 from dashboard.pinpoint.models import job as job_module
+from dashboard.services import gitiles_service
 
 
 class NewHandler(webapp2.RequestHandler):
@@ -26,7 +25,13 @@ class NewHandler(webapp2.RequestHandler):
     if metric and not test_suite:
       raise ValueError("Specified a metric but there's no test_suite to run.")
 
-    # TODO: Validate commit hashes.
+    # Validate commit hashes.
+    for repository, git_hash in commits:
+      try:
+        gitiles_service.CommitInfo(repository, git_hash)
+      except gitiles_service.NotFoundError:
+        raise ValueError('Could not find the commit with Gitiles: %s@%s' %
+                         (repository, git_hash))
 
     # Convert parameters to canonical internal representation.
 
@@ -47,9 +52,7 @@ class NewHandler(webapp2.RequestHandler):
     job_id = job.put().urlsafe()
 
     # Start job.
-    task = taskqueue.add(queue_name='job-queue', target='pinpoint',
-                         url='/run/' + job_id)
-    job.task = task.name
+    job.Start()
     job.put()
 
     # Show status page.

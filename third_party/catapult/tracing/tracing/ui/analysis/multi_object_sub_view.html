@@ -65,9 +65,9 @@ Polymer({
           Polymer.dom(spanEl).appendChild(tr.v.ui.createScalarSpan(
               event.creationTs, timeSpanConfig));
           Polymer.dom(spanEl).appendChild(tr.ui.b.createSpan({
-              textContent: '-',
-              marginLeft: '4px',
-              marginRight: '4px'
+            textContent: '-',
+            marginLeft: '4px',
+            marginRight: '4px'
           }));
           if (event.deletionTs !== Number.MAX_VALUE) {
             Polymer.dom(spanEl).appendChild(tr.v.ui.createScalarSpan(
@@ -82,7 +82,7 @@ Polymer({
         value: function(event) {
           var linkEl = document.createElement('tr-ui-a-analysis-link');
           linkEl.setSelectionAndContent(function() {
-              return new tr.model.EventSet(event);
+            return new tr.model.EventSet(event);
           }, event.userFriendlyName);
           return linkEl;
         },

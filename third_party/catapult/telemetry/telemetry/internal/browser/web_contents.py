@@ -4,7 +4,6 @@
 
 import os
 
-from telemetry import decorators
 from telemetry.core import exceptions
 
 from py_trace_event import trace_event
@@ -67,11 +66,11 @@ class WebContents(object):
     """Waits for the document to finish loading.
 
     Raises:
-      exceptions.Error: See WaitForJavaScriptCondition2() for a detailed list
+      exceptions.Error: See WaitForJavaScriptCondition() for a detailed list
       of possible exceptions.
     """
 
-    self.WaitForJavaScriptCondition2(
+    self.WaitForJavaScriptCondition(
         'document.readyState == "complete"', timeout=timeout)
 
   def WaitForDocumentReadyStateToBeInteractiveOrBetter(self,
@@ -79,10 +78,10 @@ class WebContents(object):
     """Waits for the document to be interactive.
 
     Raises:
-      exceptions.Error: See WaitForJavaScriptCondition2() for a detailed list
+      exceptions.Error: See WaitForJavaScriptCondition() for a detailed list
       of possible exceptions.
     """
-    self.WaitForJavaScriptCondition2(
+    self.WaitForJavaScriptCondition(
         'document.readyState == "interactive" || '
         'document.readyState == "complete"', timeout=timeout)
 
@@ -91,24 +90,17 @@ class WebContents(object):
     """Waits for a frame to be displayed before returning.
 
     Raises:
-      exceptions.Error: See WaitForJavaScriptCondition2() for a detailed list
+      exceptions.Error: See WaitForJavaScriptCondition() for a detailed list
       of possible exceptions.
     """
     # Generate a new id for each call of this function to ensure that we track
     # each request to wait seperately.
     self._wait_for_frame_id += 1
-    self.WaitForJavaScriptCondition2(
+    self.WaitForJavaScriptCondition(
         '{{ @script }}; window.__telemetry_testHasFramePassed({{ frame_id }})',
         script=self._wait_for_frame_js,
         frame_id=str(self._wait_for_frame_id),  # Place id as a str.
         timeout=timeout)
-
-  @decorators.Deprecated(
-      2017, 2, 28,
-      'New clients should use WaitForJavaScriptCondition2. See go/catabug/3028')
-  def WaitForJavaScriptExpression(self, expr, timeout):
-    """Waits for the given JavaScript expression to be True."""
-    self._inspector_backend.WaitForJavaScriptCondition2(expr, timeout=timeout)
 
   def HasReachedQuiescence(self):
     """Determine whether the page has reached quiescence after loading.
@@ -117,21 +109,21 @@ class WebContents(object):
       True if 2 seconds have passed since last resource received, false
       otherwise.
     Raises:
-      exceptions.Error: See EvaluateJavaScript2() for a detailed list of
+      exceptions.Error: See EvaluateJavaScript() for a detailed list of
       possible exceptions.
     """
     # Inclusion of the script that provides
     # window.__telemetry_testHasReachedNetworkQuiescence()
     # is idempotent, it's run on every call because WebContents doesn't track
     # page loads and we need to execute anew for every newly loaded page.
-    return self.EvaluateJavaScript2(
+    return self.EvaluateJavaScript(
         '{{ @script }}; window.__telemetry_testHasReachedNetworkQuiescence()',
         script=self._quiescence_js)
 
-  def ExecuteJavaScript2(self, *args, **kwargs):
+  def ExecuteJavaScript(self, *args, **kwargs):
     """Executes a given JavaScript statement. Does not return the result.
 
-    Example: runner.ExecuteJavaScript2('var foo = {{ value }};', value='hi');
+    Example: runner.ExecuteJavaScript('var foo = {{ value }};', value='hi');
 
     Args:
       statement: The statement to execute (provided as a string).
@@ -149,12 +141,12 @@ class WebContents(object):
       exceptions.WebSocketException
       exceptions.DevtoolsTargetCrashException
     """
-    return self._inspector_backend.ExecuteJavaScript2(*args, **kwargs)
+    return self._inspector_backend.ExecuteJavaScript(*args, **kwargs)
 
-  def EvaluateJavaScript2(self, *args, **kwargs):
+  def EvaluateJavaScript(self, *args, **kwargs):
     """Returns the result of evaluating a given JavaScript expression.
 
-    Example: runner.ExecuteJavaScript2('document.location.href');
+    Example: runner.ExecuteJavaScript('document.location.href');
 
     Args:
       expression: The expression to execute (provided as a string).
@@ -172,12 +164,12 @@ class WebContents(object):
       exceptions.WebSocketException
       exceptions.DevtoolsTargetCrashException
     """
-    return self._inspector_backend.EvaluateJavaScript2(*args, **kwargs)
+    return self._inspector_backend.EvaluateJavaScript(*args, **kwargs)
 
-  def WaitForJavaScriptCondition2(self, *args, **kwargs):
+  def WaitForJavaScriptCondition(self, *args, **kwargs):
     """Wait for a JavaScript condition to become true.
 
-    Example: runner.WaitForJavaScriptCondition2('window.foo == 10');
+    Example: runner.WaitForJavaScriptCondition('window.foo == 10');
 
     Args:
       condition: The JavaScript condition (provided as string).
@@ -196,39 +188,19 @@ class WebContents(object):
       exceptions.WebSocketException
       exceptions.DevtoolsTargetCrashException
     """
-    return self._inspector_backend.WaitForJavaScriptCondition2(*args, **kwargs)
+    return self._inspector_backend.WaitForJavaScriptCondition(*args, **kwargs)
 
-  @decorators.Deprecated(
-      2017, 2, 28,
-      'New clients should use ExecuteJavaScript2. See go/catabug/3028')
-  def ExecuteJavaScript(self, statement, timeout=DEFAULT_WEB_CONTENTS_TIMEOUT):
-    """Executes statement in JavaScript. Does not return the result."""
-    return self.ExecuteJavaScript2(statement, context_id=None, timeout=timeout)
+  def ExecuteJavaScript2(self, *args, **kwargs):
+    """Alias to be removed soon. Do not use in new code."""
+    return self.ExecuteJavaScript(*args, **kwargs)
 
-  @decorators.Deprecated(
-      2017, 2, 28,
-      'New clients should use EvaluateJavaScript2. See go/catabug/3028')
-  def EvaluateJavaScript(self, expr, timeout=DEFAULT_WEB_CONTENTS_TIMEOUT):
-    """Evalutes expr in JavaScript and returns the JSONized result."""
-    return self.EvaluateJavaScript2(expr, context_id=None, timeout=timeout)
+  def EvaluateJavaScript2(self, *args, **kwargs):
+    """Alias to be removed soon. Do not use in new code."""
+    return self.EvaluateJavaScript(*args, **kwargs)
 
-  @decorators.Deprecated(
-      2017, 2, 28,
-      'New clients should use ExecuteJavaScript2. See go/catabug/3028')
-  def ExecuteJavaScriptInContext(self, expr, context_id,
-                                 timeout=DEFAULT_WEB_CONTENTS_TIMEOUT):
-    """Similar to ExecuteJavaScript, but context_id can refer to an iframe."""
-    return self._inspector_backend.ExecuteJavaScript2(
-        expr, context_id=context_id, timeout=timeout)
-
-  @decorators.Deprecated(
-      2017, 2, 28,
-      'New clients should use EvaluateJavaScript2. See go/catabug/3028')
-  def EvaluateJavaScriptInContext(self, expr, context_id,
-                                  timeout=DEFAULT_WEB_CONTENTS_TIMEOUT):
-    """Similar to ExecuteJavaScript, but context_id can refer to an iframe."""
-    return self._inspector_backend.EvaluateJavaScript2(
-        expr, context_id=context_id, timeout=timeout)
+  def WaitForJavaScriptCondition2(self, *args, **kwargs):
+    """Alias to be removed soon. Do not use in new code."""
+    return self.WaitForJavaScriptCondition(*args, **kwargs)
 
   def EnableAllContexts(self):
     """Enable all contexts in a page. Returns the number of available contexts.
@@ -286,8 +258,8 @@ class WebContents(object):
     """
     if not self.IsAlive():
       raise exceptions.DevtoolsTargetCrashException
-    self.ExecuteJavaScript2('window.chrome && chrome.benchmarking &&'
-                            'chrome.benchmarking.closeConnections()')
+    self.ExecuteJavaScript('window.chrome && chrome.benchmarking &&'
+                           'chrome.benchmarking.closeConnections()')
 
   def SynthesizeScrollGesture(self, x=100, y=800, xDistance=0, yDistance=-500,
                               xOverscroll=None, yOverscroll=None,

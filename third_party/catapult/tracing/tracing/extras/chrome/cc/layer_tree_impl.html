@@ -14,7 +14,6 @@ found in the LICENSE file.
 'use strict';
 
 tr.exportTo('tr.e.cc', function() {
-
   var constants = tr.e.cc.constants;
   var ObjectSnapshot = tr.model.ObjectSnapshot;
 
@@ -95,7 +94,7 @@ tr.exportTo('tr.e.cc', function() {
 
       var thisLTHI = this.layerTreeHostImpl;
       var thisLTHIIndex = thisLTHI.objectInstance.snapshots.indexOf(
-        thisLTHI);
+          thisLTHI);
       var prevLTHIIndex = thisLTHIIndex - 1;
       if (prevLTHIIndex < 0 ||
           prevLTHIIndex >= thisLTHI.objectInstance.snapshots.length)

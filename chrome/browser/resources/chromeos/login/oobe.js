@@ -86,6 +86,21 @@ cr.define('cr.ui.Oobe', function() {
     },
 
     /**
+     * Returns value of the selected option (see setupSelect() above).
+     * @param {!Object} list The same as in setupSelect() above.
+     */
+    getSelectedValue: function(list) {
+      for (var i = 0; i < list.length; ++i) {
+        var item = list[i];
+        if (item.optionGroupName)
+          continue;
+        if (item.selected)
+          return item.value;
+      }
+      return null;
+    },
+
+    /**
      * Initializes the OOBE flow.  This will cause all C++ handlers to
      * be invoked to do final setup.
      */
@@ -334,9 +349,11 @@ cr.define('cr.ui.Oobe', function() {
       if (loadTimeData.getString('newOobeUI') == 'on') {
         $('oobe').setAttribute('md-mode', 'true');
         $('oobe-shield').setAttribute('md-mode', 'true');
+        $('popup-overlay').setAttribute('md-mode', 'true');
       } else {
         $('oobe').removeAttribute('md-mode');
         $('oobe-shield').removeAttribute('md-mode');
+        $('popup-overlay').removeAttribute('md-mode');
       }
     },
   };

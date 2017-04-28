@@ -77,4 +77,4 @@ class SwipeAction(page_action.PageAction):
     page_action.EvaluateCallbackWithElement(
         tab, code, selector=self._selector, text=self._text,
         element_function=self._element_function)
-    tab.WaitForJavaScriptExpression('window.__swipeActionDone', 60)
+    tab.WaitForJavaScriptCondition('window.__swipeActionDone', timeout=60)

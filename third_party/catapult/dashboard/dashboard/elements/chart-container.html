@@ -176,7 +176,7 @@ triaging functionality in the chart.
 
         <div id="warning">
           <template is="dom-repeat" items="{{warnings}}">
-            <span>{{item}}</span><br>
+            <span>{{item.value}}</span><br>
           </template>
         </div>
 
@@ -200,72 +200,11 @@ triaging functionality in the chart.
   <script>
     'use strict';
     (function() {
-
-      // Minimum multiple standard deviation for a value to be considered
-      // an outlier.
-      var MULTIPLE_OF_STD_DEV = 5;
-
       // Regex for links in series annotation which are shown in tooltip.
       var TOOLTIP_LINK_REGEX = /\[(.+?)\]\((.+?)\)/;
 
       // Sinebow generator for graph color picking.
       var GENERATOR = new tr.b.SinebowColorGenerator();
-
-      /**
-       * Gets the mean for list of numbers.
-       *
-       * @return {number} A number.
-       */
-      function calculateMean(values) {
-        var len = values.length;
-        var sum = values.reduce(function(v1, v2) { return v1 + v2;}, 0);
-        return sum / len;
-      }
-
-      /**
-       * Gets standard deviation for list of numbers and a mean.
-       *
-       * @return {number} A number.
-       */
-      function calculateStdDev(values, mean) {
-        var squaredDevianceSum = values.reduce(
-            function(v1, v2) {return v1 + Math.pow(v2 - mean, 2);}, 0);
-        var variance = squaredDevianceSum / values.length;
-        return Math.sqrt(variance);
-      }
-
-      /**
-       * Finds outliers in a series, along with their directions.
-       *
-       * An outlier is defined as a value that deviates from the mean by over
-       * MULTIPLE_OF_STD_DEV times the standard deviation. An outlier direction
-       * is either 1 for positive, -1 for negative and 0 for non-outlier.
-       *
-       * Example:
-       * Input values: [50, 50, 50, 100, 50, 10, 50, 50, 50]
-       * Output directions: [0, 0, 0, 1, 0, -1, 0, 0, 0]
-       *
-       * @param {Array.<number>} values List of numbers.
-       * @return {Array.<number>} List of outlier directions.
-       */
-      function getOutlierDirections(values) {
-        var mean = calculateMean(values);
-        var stddev = calculateStdDev(values, mean);
-        var outlierDirections = [];
-        for (var i = 0; i < values.length; i++) {
-          var direction = 0;
-          var value = values[i];
-          var multDevFromMean = Math.abs(value - mean) / stddev;
-          if (multDevFromMean > MULTIPLE_OF_STD_DEV) {
-            if (value >= mean) {
-              direction = 1;
-            }
-            direction = -1;
-          }
-          outlierDirections.push(direction);
-        }
-        return outlierDirections;
-      }
 
       /**
        * Returns a date corresponding to the given timestamp, or null.
@@ -546,6 +485,7 @@ triaging functionality in the chart.
           // Warning text to be shown over the chart, if any.
           warnings: {
             type: Array,
+            notify: true,
             value: () => [],
             observer: 'warningsChanged'
           },
@@ -585,7 +525,6 @@ triaging functionality in the chart.
          * See https://github.com/Polymer/polymer/releases/tag/v0.0.20131025
          */
         ready: function() {
-
           // Handler for the 'resize' event.
           this.resizeHandler = this.onResize.bind(this);
 
@@ -708,20 +647,29 @@ triaging functionality in the chart.
         /**
          * Sends a request for graph JSON.
          *
-         * @param {Object} testPathDict Dictionary of test path to list of
-         *     selected series.
+         * @param {Object} testPathDictOrList Dictionary of test path to list of
+         *     selected series, or flat list of test paths.
          * @return {boolean} isSelected Whether this request is for selected
          *     or unselected series.
          */
-        sendGraphJsonRequest: function(testPathDict, isSelected) {
+        sendGraphJsonRequest: function(testPathDictOrList, isSelected) {
           var params = JSON.parse(JSON.stringify(this.graphParams));
-          params['test_path_dict'] = testPathDict;
+
+          if (testPathDictOrList instanceof Array) {
+            var testPaths = testPathDictOrList;
+            params.test_path_list = testPathDictOrList;
+          } else {
+            var testPaths = Object.keys(testPathDictOrList);
+            params.test_path_dict = testPathDictOrList;
+          }
+
+          // TODO(eakuefner): Figure out how to remove this parameter since in
+          // list mode we only need it for the _MAX_UNSELECTED_TESTS hack.
           if (isSelected) {
             params['is_selected'] = true;
           }
 
-          this.updateSeriesGroupLoadingCounter(
-              Object.keys(testPathDict), true);
+          this.updateSeriesGroupLoadingCounter(testPaths, true);
 
           var req = simple_xhr.send(
               '/graph_json',
@@ -736,7 +684,7 @@ triaging functionality in the chart.
                 }
 
                 this.updateSeriesGroupLoadingCounter(
-                    Object.keys(testPathDict), false);
+                    testPaths, false);
                 this.$['loading-div'].style.display = 'none';
               }.bind(this),
               function(error) {
@@ -746,7 +694,7 @@ triaging functionality in the chart.
                   console.warn(error);
                 }
                 this.updateSeriesGroupLoadingCounter(
-                    Object.keys(testPathDict), false);
+                    testPaths, false);
                 this.$['loading-div'].style.display = 'none';
               }.bind(this)
           );
@@ -778,14 +726,14 @@ triaging functionality in the chart.
           testPaths.forEach(function(testPath) {
             var index = testPathToGroupIndex[testPath];
             this.set('seriesGroupList.' + index + '.numPendingRequests',
-                     this.seriesGroupList[index].numPendingRequests + delta);
+                this.seriesGroupList[index].numPendingRequests + delta);
           }.bind(this));
         },
 
         checkForInternalUser: function() {
           if (!this.isInternalUser) {
-             this.addWarnings(
-               'Note that some data is only available when logged in.');
+            this.addWarnings(
+                'Note that some data is only available when logged in.');
           }
         },
 
@@ -794,11 +742,11 @@ triaging functionality in the chart.
          */
         addWarnings: function(warning) {
           for (var i = 0; i < this.warnings.length; i++) {
-            if (this.warnings[i].indexOf(warning) == 0) {
+            if (this.warnings[i].value.indexOf(warning) == 0) {
               return;
             }
           }
-          this.warnings.push(warning);
+          this.push('warnings', {'value': warning});
         },
 
         /**
@@ -896,7 +844,7 @@ triaging functionality in the chart.
             newSeries[nextIndex] = newJson.annotations.series[index];
 
             this.updateErrorBarsIndex(newJson['error_bars'][index], nextIndex,
-                                      color);
+                color);
             this.json['error_bars'][nextIndex] = newJson['error_bars'][index];
           }
 
@@ -1002,7 +950,7 @@ triaging functionality in the chart.
             for (var key in newTest) {
               this.set('seriesGroupList.' + seriesGroupIndex + '.tests.' +
                        testIndex + '.' + key,
-                       newTest[key]);
+                  newTest[key]);
             }
           } else {
             this.addTestToSeriesGroup(seriesGroupIndex, newTest);
@@ -1029,11 +977,11 @@ triaging functionality in the chart.
               this.set('seriesGroupList.' + seriesGroupIndex + '.numHidden', 0);
             }
             this.set('seriesGroupList.' + seriesGroupIndex + '.numHidden',
-                     seriesGroup.numHidden + 1);
+                seriesGroup.numHidden + 1);
           }
           this.push('seriesGroupList.' + seriesGroupIndex + '.tests', test);
           this.set('seriesGroupList.' + seriesGroupIndex + '.tests',
-                   seriesGroup.tests.sort(this.compareTest));
+              seriesGroup.tests.sort(this.compareTest));
         },
 
         getTestIndexInSeriesGroup: function(seriesGroupIndex, name) {
@@ -1264,7 +1212,7 @@ triaging functionality in the chart.
         },
 
         /**
-         * Determines a min and a max from a list of numbers without outliers.
+         * Determines a min and a max from a list of numbers.
          *
          * @param {number} seriesIndex Index into the data series list
          *     (this.json.data).
@@ -1275,25 +1223,14 @@ triaging functionality in the chart.
           values = values.filter(function(v) {
             return v != null;
           });
-          var outlierDirections = getOutlierDirections(values);
 
-          // Exclude value that is a stand-alone spike which has either
-          // outlier direction 1 or -1 in between zeros. Also include
-          // points that has an Anomaly.
-          var resultValues = [];
-          for (var i = 0; i < outlierDirections.length; i++) {
-            var direction = outlierDirections[i];
-            if (direction == 0 || this.hasAnomaly(seriesIndex, i)) {
-              resultValues.push(values[i]);
-            } else if (i > 0 && i < outlierDirections.length - 1) {
-              if (direction == outlierDirections[i - 1] ||
-                  direction == outlierDirections[i + 1]) {
-                resultValues.push(values[i]);
-              }
-            }
-          }
-          return {'min': Math.min.apply(Math, resultValues),
-                  'max': Math.max.apply(Math, resultValues)};
+          // We used to discard outliers, but there are cases in which users
+          // want to be able to examine them. Since you can zoom, we're
+          // just going to remove that feature.
+          // See https://github.com/catapult-project/catapult/issues/3213 for
+          // more context.
+          return {'min': Math.min.apply(Math, values),
+            'max': Math.max.apply(Math, values)};
         },
 
         /**
@@ -1448,7 +1385,7 @@ triaging functionality in the chart.
               data.push(tr.b.deepCopy(this.json.data[index]));
             } else {
               console.debug('getDataForFlot: indicesToGraph: ',
-                            this.indicesToGraph);
+                  this.indicesToGraph);
               return [];
             }
           }
@@ -1461,7 +1398,7 @@ triaging functionality in the chart.
               data.push(tr.b.deepCopy(this.json['error_bars'][index][1]));
             } else {
               console.debug('getDataForFlot: indicesToGraph: ',
-                            this.indicesToGraph);
+                  this.indicesToGraph);
               return [];
             }
           }
@@ -1634,8 +1571,8 @@ triaging functionality in the chart.
 
               var alertIcon = document.createElement('alert-icon');
               alertIcon.initialize(
-                annotations[jsonSeriesIndex][dataIndex]['g_anomaly'],
-                this.alertKey);
+                  annotations[jsonSeriesIndex][dataIndex]['g_anomaly'],
+                  this.alertKey);
               Polymer.dom(
                   this.$['alert-icon-container']).appendChild(alertIcon);
               alertIcon.setPosition(top, left);
@@ -2003,7 +1940,7 @@ triaging functionality in the chart.
           this.$.tooltip.revisions = this.getRevisions(
               jsonSeriesIndex, dataIndex);
           this.$.tooltip.links = this.getTooltipLinks(annotation, series.path,
-                                                      pointId);
+              pointId);
           if (annotation.timestamp) {
             var d = new Date(annotation.timestamp);
             this.$.tooltip.timestamp = d.toISOString();
@@ -2031,15 +1968,15 @@ triaging functionality in the chart.
             for (var i in annotation['a_trace_rerun_options']) {
               var currentOption = annotation['a_trace_rerun_options'][i];
               traceRerunInfo.push({
-                  'name': i,
-                  'option': currentOption
+                'name': i,
+                'option': currentOption
               });
             }
           } else {
-              traceRerunInfo.push({
-                  'name': 'Default Trace Profiler',
-                  'option': '--profiler=trace'
-              });
+            traceRerunInfo.push({
+              'name': 'Default Trace Profiler',
+              'option': '--profiler=trace'
+            });
           }
           this.$.tooltip.bisectInfo = {
             canBisect: series.can_bisect,
@@ -2135,20 +2072,20 @@ triaging functionality in the chart.
               var debugUrl = '/debug_alert?test_path=' + testPath +
                              '&rev=' + pointId;
               links.push({
-                  'text': 'Debug alert',
-                  'url': debugUrl
+                'text': 'Debug alert',
+                'url': debugUrl
               });
             } else if (key == 'a_tracing_uri') {
               links.push({
-                  'text': 'Trace',
-                  'url': annotation['a_tracing_uri']
+                'text': 'Trace',
+                'url': annotation['a_tracing_uri']
               });
             } else if (key.indexOf('a_') === 0) {
               var match = TOOLTIP_LINK_REGEX.exec(annotation[key]);
               if (match) {
                 links.push({
-                    'text': match[1],
-                    'url': match[2]
+                  'text': match[1],
+                  'url': match[2]
                 });
               }
             }
@@ -2336,7 +2273,7 @@ triaging functionality in the chart.
           }
           // The chart is resized when it's updated.
           this.updateChart();
-         },
+        },
 
         /**
          * On collapseLegend change, updates graph and chart-revision sizes.
@@ -2379,7 +2316,7 @@ triaging functionality in the chart.
             if (targetIndices.indexOf(series.index) != -1) {
               this.updateSeriesHighlighting(series, 2.5, 1, 0.2, 4);
             } else {
-               this.updateSeriesHighlighting(series, 2, 0.25, 0, 0);
+              this.updateSeriesHighlighting(series, 2, 0.25, 0, 0);
             }
           }
 
@@ -2427,7 +2364,7 @@ triaging functionality in the chart.
         },
 
         updateSeriesHighlighting: function(series, lineWidth, opacity,
-                                           fill, shadowSize) {
+            fill, shadowSize) {
           if (series.fillBetween) {
             series.lines.fill = fill;
           } else {

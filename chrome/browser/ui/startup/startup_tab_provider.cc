@@ -56,6 +56,7 @@ StartupTabs StartupTabProviderImpl::GetOnboardingTabs(Profile* profile) const {
   PrefService* prefs = profile->GetPrefs();
   bool has_seen_welcome_page =
       prefs && prefs->GetBoolean(prefs::kHasSeenWelcomePage);
+  bool is_signin_allowed = profile->IsSyncAllowed();
   SigninManagerBase* signin_manager =
       SigninManagerFactory::GetForProfile(profile);
   bool is_signed_in = signin_manager && signin_manager->IsAuthenticated();
@@ -81,14 +82,16 @@ StartupTabs StartupTabProviderImpl::GetOnboardingTabs(Profile* profile) const {
     bool is_default_browser =
         g_browser_process->CachedDefaultWebClientState() ==
         shell_integration::IS_DEFAULT;
-    return CheckWin10OnboardingTabPolicy(
-        is_first_run, has_seen_welcome_page, has_seen_win10_promo, is_signed_in,
-        set_default_browser_allowed, is_default_browser, is_supervised_user);
+    return GetWin10OnboardingTabsForState(
+        is_first_run, has_seen_welcome_page, has_seen_win10_promo,
+        is_signin_allowed, is_signed_in, set_default_browser_allowed,
+        is_default_browser, is_supervised_user);
   }
 #endif  // defined(OS_WIN)
 
-  return CheckStandardOnboardingTabPolicy(is_first_run, has_seen_welcome_page,
-                                          is_signed_in, is_supervised_user);
+  return GetStandardOnboardingTabsForState(is_first_run, has_seen_welcome_page,
+                                           is_signin_allowed, is_signed_in,
+                                           is_supervised_user);
 #endif  // defined(OS_CHROMEOS)
 }
 
@@ -96,7 +99,7 @@ StartupTabs StartupTabProviderImpl::GetDistributionFirstRunTabs(
     StartupBrowserCreator* browser_creator) const {
   if (!browser_creator)
     return StartupTabs();
-  StartupTabs tabs = CheckMasterPrefsTabPolicy(
+  StartupTabs tabs = GetMasterPrefsTabsForState(
       first_run::IsChromeFirstRun(), browser_creator->first_run_tabs_);
   browser_creator->first_run_tabs_.clear();
   return tabs;
@@ -108,13 +111,13 @@ StartupTabs StartupTabProviderImpl::GetResetTriggerTabs(
       TriggeredProfileResetterFactory::GetForBrowserContext(profile);
   bool has_reset_trigger = triggered_profile_resetter &&
                            triggered_profile_resetter->HasResetTrigger();
-  return CheckResetTriggerTabPolicy(has_reset_trigger);
+  return GetResetTriggerTabsForState(has_reset_trigger);
 }
 
 StartupTabs StartupTabProviderImpl::GetPinnedTabs(
     const base::CommandLine& command_line,
     Profile* profile) const {
-  return CheckPinnedTabPolicy(
+  return GetPinnedTabsForState(
       StartupBrowserCreator::GetSessionStartupPref(command_line, profile),
       PinnedTabCodec::ReadPinnedTabs(profile),
       ProfileHasOtherTabbedBrowser(profile));
@@ -123,7 +126,7 @@ StartupTabs StartupTabProviderImpl::GetPinnedTabs(
 StartupTabs StartupTabProviderImpl::GetPreferencesTabs(
     const base::CommandLine& command_line,
     Profile* profile) const {
-  return CheckPreferencesTabPolicy(
+  return GetPreferencesTabsForState(
       StartupBrowserCreator::GetSessionStartupPref(command_line, profile),
       ProfileHasOtherTabbedBrowser(profile));
 }
@@ -131,28 +134,31 @@ StartupTabs StartupTabProviderImpl::GetPreferencesTabs(
 StartupTabs StartupTabProviderImpl::GetNewTabPageTabs(
     const base::CommandLine& command_line,
     Profile* profile) const {
-  return CheckNewTabPageTabPolicy(
+  return GetNewTabPageTabsForState(
       StartupBrowserCreator::GetSessionStartupPref(command_line, profile));
 }
 
 // static
-StartupTabs StartupTabProviderImpl::CheckStandardOnboardingTabPolicy(
+StartupTabs StartupTabProviderImpl::GetStandardOnboardingTabsForState(
     bool is_first_run,
     bool has_seen_welcome_page,
+    bool is_signin_allowed,
     bool is_signed_in,
     bool is_supervised_user) {
   StartupTabs tabs;
-  if (!has_seen_welcome_page && !is_signed_in && !is_supervised_user)
+  if (!has_seen_welcome_page && is_signin_allowed && !is_signed_in &&
+      !is_supervised_user)
     tabs.emplace_back(GetWelcomePageUrl(!is_first_run), false);
   return tabs;
 }
 
 #if defined(OS_WIN)
 // static
-StartupTabs StartupTabProviderImpl::CheckWin10OnboardingTabPolicy(
+StartupTabs StartupTabProviderImpl::GetWin10OnboardingTabsForState(
     bool is_first_run,
     bool has_seen_welcome_page,
     bool has_seen_win10_promo,
+    bool is_signin_allowed,
     bool is_signed_in,
     bool set_default_browser_allowed,
     bool is_default_browser,
@@ -165,7 +171,7 @@ StartupTabs StartupTabProviderImpl::CheckWin10OnboardingTabPolicy(
   if (set_default_browser_allowed && !has_seen_win10_promo &&
       !is_default_browser) {
     tabs.emplace_back(GetWin10WelcomePageUrl(!is_first_run), false);
-  } else if (!has_seen_welcome_page && !is_signed_in) {
+  } else if (!has_seen_welcome_page && is_signin_allowed && !is_signed_in) {
     tabs.emplace_back(GetWelcomePageUrl(!is_first_run), false);
   }
   return tabs;
@@ -173,7 +179,7 @@ StartupTabs StartupTabProviderImpl::CheckWin10OnboardingTabPolicy(
 #endif
 
 // static
-StartupTabs StartupTabProviderImpl::CheckMasterPrefsTabPolicy(
+StartupTabs StartupTabProviderImpl::GetMasterPrefsTabsForState(
     bool is_first_run,
     const std::vector<GURL>& first_run_tabs) {
   // Constants: Magic words used by Master Preferences files in place of a URL
@@ -196,7 +202,7 @@ StartupTabs StartupTabProviderImpl::CheckMasterPrefsTabPolicy(
 }
 
 // static
-StartupTabs StartupTabProviderImpl::CheckResetTriggerTabPolicy(
+StartupTabs StartupTabProviderImpl::GetResetTriggerTabsForState(
     bool profile_has_trigger) {
   StartupTabs tabs;
   if (profile_has_trigger)
@@ -205,7 +211,7 @@ StartupTabs StartupTabProviderImpl::CheckResetTriggerTabPolicy(
 }
 
 // static
-StartupTabs StartupTabProviderImpl::CheckPinnedTabPolicy(
+StartupTabs StartupTabProviderImpl::GetPinnedTabsForState(
     const SessionStartupPref& pref,
     const StartupTabs& pinned_tabs,
     bool profile_has_other_tabbed_browser) {
@@ -216,7 +222,7 @@ StartupTabs StartupTabProviderImpl::CheckPinnedTabPolicy(
 }
 
 // static
-StartupTabs StartupTabProviderImpl::CheckPreferencesTabPolicy(
+StartupTabs StartupTabProviderImpl::GetPreferencesTabsForState(
     const SessionStartupPref& pref,
     bool profile_has_other_tabbed_browser) {
   StartupTabs tabs;
@@ -229,7 +235,7 @@ StartupTabs StartupTabProviderImpl::CheckPreferencesTabPolicy(
 }
 
 // static
-StartupTabs StartupTabProviderImpl::CheckNewTabPageTabPolicy(
+StartupTabs StartupTabProviderImpl::GetNewTabPageTabsForState(
     const SessionStartupPref& pref) {
   StartupTabs tabs;
   if (pref.type != SessionStartupPref::Type::LAST)

@@ -82,6 +82,10 @@ found in the LICENSE file.
       display: flex;
       justify-content: center;
     }
+
+    .alert-togglebutton[active] {
+      background-color: #EEE;
+    }
   </style>
   <template>
     <template is="dom-if" if="{{loading}}">
@@ -91,15 +95,16 @@ found in the LICENSE file.
       <div class="error">{{error}}</div>
     </template>
     <login-warning id="login-warning" login-link="{{loginLink}}"
-                   hidden?="{{isInternalUser}}">
+                   missing="{{missing}}">
     </login-warning>
     <div id="top">
       <div id="action-bar" hidden$="{{computeOr(loading, error)}}">
-        <paper-button toggle raised
+        <paper-button toggles raised
                       id="improvements-toggle"
                       class="alert-togglebutton"
+                      active$="{{showingImprovements}}"
                       on-click="onToggleImprovements">
-          Show all improvements
+          {{getLabel(showingImprovements)}} all improvements
         </paper-button>
       </div>
       <bug-info id="bug-info" xsrf-token="{{xsrfToken}}"></bug-info>
@@ -174,6 +179,12 @@ found in the LICENSE file.
           value: false
         },
 
+        missing: {
+          type: String,
+          notify: true,
+          value: ''
+        },
+
         selectedKeys: {
           type: Array,
           value: () => []
@@ -197,11 +208,18 @@ found in the LICENSE file.
         warningMessage: {
           type: String,
           value: ''
-        }
+        },
+
+        showingImprovements: {
+          type: Boolean,
+          value: false
+        },
       },
       get alertsTable() {
         return this.$['alerts-table'];
       },
+
+      getLabel: toggleState => (toggleState ? 'hide' : 'show'),
 
       getCharts() {
         // Note: This cannot be a property getter for attribute charts because
@@ -215,23 +233,27 @@ found in the LICENSE file.
       },
 
       onToggleImprovements: function(event, details) {
+        var alertList = this.alertsTable['alertList'];
         var improvementsToggle = event.currentTarget;
         if (improvementsToggle.hasAttribute('active')) {
-          this.alertsTable['alertList'].forEach(function(alert) {
+          for (var i = 0; i < alertList.length; i++) {
+            var alert = alertList[i];
             if (alert['improvement']) {
-              alert['hideRow'] = false;
+              this.alertsTable.setAlertList(i, 'hideRow', false);
             }
-          });
+          }
         } else {
-          this.alertsTable['alertList'].forEach(function(alert) {
+          for (var i = 0; i < alertList.length; i++) {
+            var alert = alertList[i];
             if (alert['improvement'] && !alert['selected']) {
-              alert['hideRow'] = true;
-              alert['selected'] = false;
+              this.alertsTable.setAlertList(i, 'hideRow', true);
+              this.alertsTable.setAlertList(i, 'selected', false);
             }
-          });
+          }
           // Make the table update its list of checked alerts.
           this.alertsTable.onCheckboxChange();
         }
+        this.showingImprovements = !this.showingImprovements;
       },
 
       alertChangedRevisions: function(event) {
@@ -278,17 +300,29 @@ found in the LICENSE file.
       },
 
       getTestPathAndSelectedSeries: function(alert) {
+        // Show the test for the alert, as well as the corresponding ref build
+        // if possible.
         var testPath = this.getTestPath(alert);
-        var traceName = testPath.split('/').pop();
-
-        // Get a list of selected traces. This should include the series that
-        // the alert was on, as well as any related reference build result
-        // series.
-        var selectedTraces = [traceName];
-        // TODO(sullivan): Add in ref trace when available.
-        // https://github.com/catapult-project/catapult/issues/2887
-
-        return [testPath, selectedTraces];
+        var testPathParts = testPath.split('/');
+        var testName = testPathParts[testPathParts.length - 1];
+        var refPath = alert.ref_test;
+        if (refPath) {
+          var refPathParts = refPath.split('/');
+          var refName = refPathParts[refPathParts.length - 1];
+          if (testPathParts.length == refPathParts.length) {
+            // Main test and ref are siblings. List them as:
+            // [shared_test_path, [test_name, ref_name]]
+            testPathParts.pop();
+            return [testPathParts.join('/'), [testName, refName]];
+          } else if (testPathParts.length == refPathParts.length - 1) {
+            // Ref is a child of the main test. List them as:
+            // [full_main_test_path, [test_name, ref_name]]
+            // The server 'un-doubles' the main test name when listed this way.
+            return [testPath, [testName, refName]];
+          }
+        }
+        // No ref build or malformed ref build name, only show selected test.
+        return [testPath, [testName]];
       },
 
       setChartData: function(chart) {
@@ -325,7 +359,7 @@ found in the LICENSE file.
           chart.addSeriesGroup([this.getTestPathAndSelectedSeries(alert)]);
           chart.addEventListener('chartclosed', this.onGraphClose, false);
           chart.addEventListener('alertChangedRevisions',
-                                 this.alertChangedRevisions, true);
+              this.alertChangedRevisions, true);
           this.setChartData(chart);
         }
       },
@@ -426,39 +460,43 @@ found in the LICENSE file.
           params['rev'] = rev;
         }
         simple_xhr.send('/group_report', params,
-          function(response) {
-            this.revisionInfo = response['revision_info'];
-            this.loginLink = response['login_url'];
-            this.isInternalUser = response['is_internal_user'];
-            this.testSuites = response['test_suites'];
-            this.xsrfToken = response['xsrf_token'];
-            this.warningBug = response['warning_bug'];
-            this.warningMessage = response['warning_message'];
-            this.setExtraColumns(response['alert_list']);
-            this.alertList = response['alert_list'];
-            this.selectedKeys = response['selected_keys'];
-            if (this.warningMessage) {
-              this.fire('display-toast', {
+            function(response) {
+              this.revisionInfo = response['revision_info'];
+              this.loginLink = response['login_url'];
+              this.isInternalUser = response['is_internal_user'];
+              this.testSuites = response['test_suites'];
+              this.xsrfToken = response['xsrf_token'];
+              this.warningBug = response['warning_bug'];
+              this.warningMessage = response['warning_message'];
+              this.setExtraColumns(response['alert_list']);
+              this.alertList = response['alert_list'];
+              if (this.alertList.length == 0) {
+                this.missing = response['display_username'];
+              }
+              this.selectedKeys = response['selected_keys'];
+              if (this.warningMessage) {
+                this.fire('display-toast', {
                   'content': this.$.warningtoast,
                   'error': true
-              });
-            }
-            this.bugId = uri.getParameter('bug_id');
-            if (this.bugId) {
-              this.$['bug-info'].initialize(
-                  this.bugId, this.alertsTable);
-            }
-            var charts = this.getCharts();
-            for (var i = 0; i < charts.length; i++) {
-              this.setChartData(charts[i]);
-            }
-            this.onAlertSelectionChange();
-            this.loading = false;
-          }.bind(this),
-          function(msg) {
-            this.error = msg;
-            this.loading = false;
-          }.bind(this));
+                });
+              }
+              this.bugId = uri.getParameter('bug_id');
+              if (this.bugId) {
+                this.$['bug-info'].initialize(
+                    this.bugId, this.alertsTable);
+              }
+              var charts = this.getCharts();
+              for (var i = 0; i < charts.length; i++) {
+                this.setChartData(charts[i]);
+              }
+              this.onAlertSelectionChange();
+              this.loading = false;
+            }.bind(this),
+            function(msg) {
+              this.error = msg;
+              this.loading = false;
+              this.missing = 'Unknown';
+            }.bind(this));
       },
       computeOr: function(error, loading) {
         return error | loading;

@@ -29,6 +29,12 @@ class JavaScriptTemplateTest(unittest.TestCase):
             var_name='foo', x='bar', y=None),
         'var foo = "bar" + null;')
 
+  def testRenderWithArgumentExpansion(self):
+    self.assertEquals(
+        js_template.Render(
+            '{{ @f }}({{ *args }})', f='foo', args=(1, 'hi!', None)),
+        'foo(1, "hi!", null)')
+
   def testRenderRaisesWithUnknownIdentifier(self):
     with self.assertRaises(KeyError):
       js_template.Render('foo({{ some_name }})', another_name='bar')
@@ -40,3 +46,7 @@ class JavaScriptTemplateTest(unittest.TestCase):
   def testRenderRaisesWithBadLiteralValue(self):
     with self.assertRaises(ValueError):
       js_template.Render('function() { {{ @code }} }', code=['foo', 'bar'])
+
+  def testRenderRaisesWithUnusedKeywordArgs(self):
+    with self.assertRaises(TypeError):
+      js_template.Render('foo = {{ x }};', x=4, y=5, timemout=6)

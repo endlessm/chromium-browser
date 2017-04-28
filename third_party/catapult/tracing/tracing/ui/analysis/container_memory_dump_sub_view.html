@@ -29,7 +29,6 @@ found in the LICENSE file.
 'use strict';
 
 tr.exportTo('tr.ui.analysis', function() {
-
   Polymer({
     is: 'tr-ui-a-container-memory-dump-sub-view',
     behaviors: [tr.ui.analysis.AnalysisSubView],
@@ -123,8 +122,7 @@ tr.exportTo('tr.ui.analysis', function() {
           value: function(row) {
             if (row.subRows === undefined)
               return this.singleDumpValue_(row);
-            else
-              return this.groupedDumpValue_(row);
+            return this.groupedDumpValue_(row);
           },
 
           singleDumpValue_: function(row) {

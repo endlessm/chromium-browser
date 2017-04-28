@@ -15,7 +15,6 @@ found in the LICENSE file.
 'use strict';
 
 tr.exportTo('tr.model', function() {
-
   var EventRegistry = tr.model.EventRegistry;
 
   var RequestSelectionChangeEvent = tr.b.Event.bind(
@@ -28,6 +27,7 @@ tr.exportTo('tr.model', function() {
   function EventSet(opt_events) {
     this.bounds_ = new tr.b.Range();
     this.events_ = new Set();
+    this.guid_ = tr.b.GUID.allocateSimple();
 
     if (opt_events) {
       if (opt_events instanceof Array) {
@@ -72,30 +72,34 @@ tr.exportTo('tr.model', function() {
       this.events_.clear();
     },
 
-    // push pushes only unique events.
-    // If an event has been already pushed, do nothing.
-    push: function(event) {
-      if (event.guid === undefined)
-        throw new Error('Event must have a GUID');
+    /**
+     * Pushes each argument onto the EventSet. Returns the number of
+     * arguments pushed.
+     */
+    push: function(...events) {
+      var numPushed;
+      for (var event of events) {
+        if (event.guid === undefined)
+          throw new Error('Event must have a GUID');
 
-      if (!this.events_.has(event)) {
-        this.events_.add(event);
-        // Some uses of eventSet, particularly in tests, have Events as objects
-        // that don't have addBoundsToRange as a function. Thus we need to
-        // handle this case.
-        if (event.addBoundsToRange)
-          if (this.bounds_ !== undefined)
-            event.addBoundsToRange(this.bounds_);
+        if (!this.events_.has(event)) {
+          this.events_.add(event);
+          // Some uses of eventSet (e.g. in tests) have Events as objects that
+          // don't have addBoundsToRange as a function. Thus we need to handle
+          // this case.
+          if (event.addBoundsToRange)
+            if (this.bounds_ !== undefined)
+              event.addBoundsToRange(this.bounds_);
+        }
+        numPushed++;
       }
-
-      return event;
+      return numPushed;
     },
 
     contains: function(event) {
       if (this.events_.has(event))
         return event;
-      else
-        return undefined;
+      return undefined;
     },
 
     addEventSet: function(eventSet) {

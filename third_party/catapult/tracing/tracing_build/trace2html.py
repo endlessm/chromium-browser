@@ -65,7 +65,7 @@ class ViewerDataScript(generate.ExtraScript):
   def WriteToFile(self, output_file):
     output_file.write('<script id="viewer-data" type="%s">\n' % self._mime_type)
     compressed_trace = StringIO.StringIO()
-    with gzip.GzipFile(fileobj=compressed_trace, mode='w') as f:
+    with gzip.GzipFile(fileobj=compressed_trace, mode='w', mtime=0) as f:
       f.write(self._trace_data_string)
     b64_content = base64.b64encode(compressed_trace.getvalue())
     output_file.write(b64_content)
@@ -107,9 +107,14 @@ def WriteHTMLForTracesToFile(trace_filenames, output_file, title='',
                              config_name=None):
   trace_data_list = []
   for filename in trace_filenames:
-    with open(filename, 'r') as f:
-      trace_data = f.read()
-      trace_data_list.append(trace_data)
+    try:
+      with gzip.GzipFile(filename, 'r') as f:
+        # If filename is not gzipped, then read() will raise IOError.
+        trace_data = f.read()
+    except IOError:
+      with open(filename, 'r') as f:
+        trace_data = f.read()
+    trace_data_list.append(trace_data)
   if not title:
     title = "Trace from %s" % ','.join(trace_filenames)
   WriteHTMLForTraceDataToFile(trace_data_list, title, output_file, config_name)

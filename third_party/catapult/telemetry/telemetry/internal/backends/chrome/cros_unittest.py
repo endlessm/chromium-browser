@@ -22,6 +22,8 @@ class CrOSCryptohomeTest(cros_test_case.CrOSTestCase):
       self.assertEquals(1, len(b.tabs))
       self.assertTrue(b.tabs[0].url)
       self.assertTrue(self._IsCryptohomeMounted())
+      self.assertTrue(
+          self._cri.IsCryptohomeMounted(self._username, self._is_guest))
 
       # TODO(achuith): Remove dependency on /home/chronos/user.
       chronos_fs = self._cri.FilesystemMountedAt('/home/chronos/user')
@@ -34,6 +36,8 @@ class CrOSCryptohomeTest(cros_test_case.CrOSTestCase):
         self.assertEquals(crypto_fs, chronos_fs)
 
     self.assertFalse(self._IsCryptohomeMounted())
+    self.assertFalse(
+        self._cri.IsCryptohomeMounted(self._username, self._is_guest))
     self.assertEquals(self._cri.FilesystemMountedAt('/home/chronos/user'),
                       '/dev/mapper/encstateful')
 
@@ -159,30 +163,28 @@ class CrOSScreenLockerTest(cros_test_case.CrOSTestCase):
       return (browser.oobe_exists and
           browser.oobe.EvaluateJavaScript("typeof Oobe == 'function'") and
           browser.oobe.EvaluateJavaScript(
-          "typeof Oobe.authenticateForTesting == 'function'"))
+              "typeof Oobe.authenticateForTesting == 'function'"))
     py_utils.WaitFor(ScreenLocked, 10)
     self.assertTrue(self._IsScreenLocked(browser))
 
   def _AttemptUnlockBadPassword(self, browser):
     logging.info('Trying a bad password')
     def ErrorBubbleVisible():
-      return not browser.oobe.EvaluateJavaScript('''
-          document.getElementById('bubble').hidden
-      ''')
+      return not browser.oobe.EvaluateJavaScript(
+          "document.getElementById('bubble').hidden")
+
     self.assertFalse(ErrorBubbleVisible())
-    # TODO(catapult:#3028): Fix interpolation of JavaScript values.
-    browser.oobe.ExecuteJavaScript('''
-        Oobe.authenticateForTesting('%s', 'bad');
-    ''' % self._username)
+    browser.oobe.ExecuteJavaScript(
+        "Oobe.authenticateForTesting({{ username }}, 'bad');",
+        username=self._username)
     py_utils.WaitFor(ErrorBubbleVisible, 10)
     self.assertTrue(self._IsScreenLocked(browser))
 
   def _UnlockScreen(self, browser):
     logging.info('Unlocking')
-    # TODO(catapult:#3028): Fix interpolation of JavaScript values.
-    browser.oobe.ExecuteJavaScript('''
-        Oobe.authenticateForTesting('%s', '%s');
-    ''' % (self._username, self._password))
+    browser.oobe.ExecuteJavaScript(
+        'Oobe.authenticateForTesting({{ username }}, {{ password }});',
+        username=self._username, password=self._password)
     py_utils.WaitFor(lambda: not browser.oobe_exists, 10)
     self.assertFalse(self._IsScreenLocked(browser))
 

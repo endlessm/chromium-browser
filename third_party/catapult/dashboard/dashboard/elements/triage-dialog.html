@@ -292,23 +292,23 @@ on an alert, or clicks on a "triage" button on the alerts page. It allows the
 
         this.loading = true;
         simple_xhr.send('/edit_anomalies', params,
-          function() {
-            this.fire('triaged', {
-              'alerts': this.alerts,
-              'bugid': this.bugid
-            });
-            this.loading = false;
-            if (successMessage) {
-              this.fire('display-toast', {'text': successMessage});
-            }
-          }.bind(this),
-          function(msg) {
-            this.fire('display-toast', {
+            function() {
+              this.fire('triaged', {
+                'alerts': this.alerts,
+                'bugid': this.bugid
+              });
+              this.loading = false;
+              if (successMessage) {
+                this.fire('display-toast', {'text': successMessage});
+              }
+            }.bind(this),
+            function(msg) {
+              this.fire('display-toast', {
                 'text': 'There was a problem triaging the bug: ' + msg,
                 'error': true
-            });
-            this.loading = false;
-          }.bind(this));
+              });
+              this.loading = false;
+            }.bind(this));
       },
 
       /**
@@ -324,23 +324,23 @@ on an alert, or clicks on a "triage" button on the alerts page. It allows the
         };
         this.loading = true;
         simple_xhr.send('/edit_anomalies', params,
-          function() {
-            this.fire('alertChangedRevisions', {
-              'startRev': info.startRevision,
-              'endRev': info.endRevision,
-              'newDataIndex': info.dataIndex,
-              'alerts': this.alerts
-            });
-            this.fire('display-toast', {'text': 'Alert moved.'});
-            this.loading = false;
-          }.bind(this),
-          function(msg) {
-            this.fire('display-toast', {
+            function() {
+              this.fire('alertChangedRevisions', {
+                'startRev': info.startRevision,
+                'endRev': info.endRevision,
+                'newDataIndex': info.dataIndex,
+                'alerts': this.alerts
+              });
+              this.fire('display-toast', {'text': 'Alert moved.'});
+              this.loading = false;
+            }.bind(this),
+            function(msg) {
+              this.fire('display-toast', {
                 'text': 'There was a problem triaging the bug: ' + msg,
                 'error': true
-            });
-            this.loading = false;
-          }.bind(this));
+              });
+              this.loading = false;
+            }.bind(this));
       },
 
       /**
@@ -359,9 +359,8 @@ on an alert, or clicks on a "triage" button on the alerts page. It allows the
       getBugTitle: function() {
         if (this.alerts[0].percent_changed) {
           return this.getBugTitleForAnomaly();
-        } else {
-          return this.getBugTitleForStoppageAlert();
         }
+        return this.getBugTitleForStoppageAlert();
       },
 
       getBugTitleForAnomaly: function() {
@@ -380,9 +379,9 @@ on an alert, or clicks on a "triage" button on the alerts page. It allows the
           if (alert.percent_changed == this.FREAKIN_HUGE &&
               !maxRegressionFound) {
             maxRegressionFound = true;
-          }
-          else
+          } else {
             percent = Math.abs(parseFloat(alert.percent_changed));
+          }
           if (percent < percentMin) {
             percentMin = percent;
           }
@@ -406,13 +405,11 @@ on an alert, or clicks on a "triage" button on the alerts page. It allows the
             // Both percentMin and percentMax were at Infinity.
             // Record a "freakin' huge" (TM) regression.
             minMax = 'A ' + this.FREAKIN_HUGE;
-          }
-          else {
+          } else {
             // Regressions ranged from Infinity to some other lower percentage.
             minMax = 'A ' + this.FREAKIN_HUGE + ' to ' + percentMin + '%';
           }
-        }
-        else if (percentMin == percentMax) {
+        } else if (percentMin == percentMax) {
           minMax = percentMin + '%';
         }
 

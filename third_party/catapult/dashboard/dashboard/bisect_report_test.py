@@ -61,7 +61,8 @@ _SAMPLE_BISECT_CULPRIT_JSON = json.loads("""
 
 _ABORTED_NO_VALUES = ('Bisect cannot identify a culprit: No values were found '\
     'while testing the reference range.')
-
+_ABORTED_NO_OUTPUT = ('Bisect cannot identify a culprit: Testing the \"good\" '\
+    'revision failed: Test runs failed to produce output.')
 
 class BisectReportTest(testing_common.TestCase):
 
@@ -144,7 +145,7 @@ Debug Info
 
 | O O | Visit http://www.chromium.org/developers/speed-infra/perf-bug-faq
 |  X  | for more information addressing perf regression bugs. For feedback,
-| / \ | file a bug with component Tests>AutoBisect.  Thank you!"""
+| / \ | file a bug with component Speed>Bisection.  Thank you!"""
     self.assertEqual(log_with_culprit, bisect_report.GetReport(job))
 
   def testGetReport_CompletedWithCulprit_Memory(self):
@@ -195,7 +196,7 @@ Debug Info
 
 | O O | Visit http://www.chromium.org/developers/speed-infra/perf-bug-faq
 |  X  | for more information addressing perf regression bugs. For feedback,
-| / \ | file a bug with component Tests>AutoBisect.  Thank you!"""
+| / \ | file a bug with component Speed>Bisection.  Thank you!"""
     self.assertEqual(log_with_culprit, bisect_report.GetReport(job))
 
   def testGetReport_CompletedWithCulpritReturnCode(self):
@@ -241,7 +242,7 @@ Debug Info
 
 | O O | Visit http://www.chromium.org/developers/speed-infra/perf-bug-faq
 |  X  | for more information addressing perf regression bugs. For feedback,
-| / \ | file a bug with component Tests>AutoBisect.  Thank you!"""
+| / \ | file a bug with component Speed>Bisection.  Thank you!"""
 
     self.assertEqual(expected_output, bisect_report.GetReport(job))
 
@@ -281,7 +282,7 @@ Debug Info
 
 | O O | Visit http://www.chromium.org/developers/speed-infra/perf-bug-faq
 |  X  | for more information addressing perf regression bugs. For feedback,
-| / \ | file a bug with component Tests>AutoBisect.  Thank you!"""
+| / \ | file a bug with component Speed>Bisection.  Thank you!"""
 
     self.assertEqual(log_without_culprit, bisect_report.GetReport(job))
 
@@ -329,7 +330,7 @@ Debug Info
 
 | O O | Visit http://www.chromium.org/developers/speed-infra/perf-bug-faq
 |  X  | for more information addressing perf regression bugs. For feedback,
-| / \ | file a bug with component Tests>AutoBisect.  Thank you!"""
+| / \ | file a bug with component Speed>Bisection.  Thank you!"""
 
     self.assertEqual(log_without_culprit, bisect_report.GetReport(job))
 
@@ -383,7 +384,7 @@ Debug Info
 
 | O O | Visit http://www.chromium.org/developers/speed-infra/perf-bug-faq
 |  X  | for more information addressing perf regression bugs. For feedback,
-| / \ | file a bug with component Tests>AutoBisect.  Thank you!"""
+| / \ | file a bug with component Speed>Bisection.  Thank you!"""
 
     self.assertEqual(expected_output, bisect_report.GetReport(job))
 
@@ -434,7 +435,7 @@ Debug Info
 
 | O O | Visit http://www.chromium.org/developers/speed-infra/perf-bug-faq
 |  X  | for more information addressing perf regression bugs. For feedback,
-| / \ | file a bug with component Tests>AutoBisect.  Thank you!"""
+| / \ | file a bug with component Speed>Bisection.  Thank you!"""
 
     self.assertEqual(log_without_culprit, bisect_report.GetReport(job))
 
@@ -468,7 +469,41 @@ Debug Info
 
 | O O | Visit http://www.chromium.org/developers/speed-infra/perf-bug-faq
 |  X  | for more information addressing perf regression bugs. For feedback,
-| / \ | file a bug with component Tests>AutoBisect.  Thank you!"""
+| / \ | file a bug with component Speed>Bisection.  Thank you!"""
+
+    self.assertEqual(log_without_culprit, bisect_report.GetReport(job))
+
+  def testGetReport_Completed_AbortedWithNoOutput(self):
+    results_data = self._BisectResults(
+        revision_data=self._Revisions(
+            [
+                {'commit': 100},
+                {'commit': 105},
+            ]),
+        aborted=True, aborted_reason=_ABORTED_NO_OUTPUT,
+        good_revision=100, bad_revision=105)
+    job = self._AddTryJob(results_data)
+
+    log_without_culprit = r"""
+=== BISECT JOB RESULTS ===
+<b>NO Perf regression found, tests failed to produce values</b>
+
+Bisect Details
+  Configuration: staging_android_nexus5X_perf_bisect
+  Benchmark    : foo
+  Metric       : Total/Score
+
+
+To Run This Test
+  src/tools/perf/run_benchmark foo
+
+Debug Info
+  https://test-rietveld.appspot.com/200039
+
+
+| O O | Visit http://www.chromium.org/developers/speed-infra/perf-bug-faq
+|  X  | for more information addressing perf regression bugs. For feedback,
+| / \ | file a bug with component Speed>Bisection.  Thank you!"""
 
     self.assertEqual(log_without_culprit, bisect_report.GetReport(job))
 
@@ -523,7 +558,7 @@ Debug Info
 
 | O O | Visit http://www.chromium.org/developers/speed-infra/perf-bug-faq
 |  X  | for more information addressing perf regression bugs. For feedback,
-| / \ | file a bug with component Tests>AutoBisect.  Thank you!"""
+| / \ | file a bug with component Speed>Bisection.  Thank you!"""
 
     self.assertEqual(expected_output, bisect_report.GetReport(job))
 
@@ -589,7 +624,7 @@ Debug Info
 
 | O O | Visit http://www.chromium.org/developers/speed-infra/perf-bug-faq
 |  X  | for more information addressing perf regression bugs. For feedback,
-| / \ | file a bug with component Tests>AutoBisect.  Thank you!"""
+| / \ | file a bug with component Speed>Bisection.  Thank you!"""
 
     self.assertEqual(expected_output, bisect_report.GetReport(job))
 
@@ -620,7 +655,7 @@ Debug Info
 
 | O O | Visit http://www.chromium.org/developers/speed-infra/perf-bug-faq
 |  X  | for more information addressing perf regression bugs. For feedback,
-| / \ | file a bug with component Tests>AutoBisect.  Thank you!"""
+| / \ | file a bug with component Speed>Bisection.  Thank you!"""
 
     self.assertEqual(expected_output, bisect_report.GetReport(job))
 
@@ -656,7 +691,7 @@ Debug Info
 
 | O O | Visit http://www.chromium.org/developers/speed-infra/perf-bug-faq
 |  X  | for more information addressing perf regression bugs. For feedback,
-| / \ | file a bug with component Tests>AutoBisect.  Thank you!"""
+| / \ | file a bug with component Speed>Bisection.  Thank you!"""
 
     self.assertEqual(expected_output, bisect_report.GetReport(job))
 
@@ -702,7 +737,7 @@ Debug Info
 
 | O O | Visit http://www.chromium.org/developers/speed-infra/perf-bug-faq
 |  X  | for more information addressing perf regression bugs. For feedback,
-| / \ | file a bug with component Tests>AutoBisect.  Thank you!"""
+| / \ | file a bug with component Speed>Bisection.  Thank you!"""
 
     self.assertEqual(expected_output, bisect_report.GetReport(job))
 
@@ -726,7 +761,6 @@ Debug Info
 The bisect was able to narrow the range, you can try running with:
   good_revision: 101
   bad_revision : 105
-
 
 If failures persist contact the team (see below) and report the error.
 
@@ -752,7 +786,106 @@ Debug Info
 
 | O O | Visit http://www.chromium.org/developers/speed-infra/perf-bug-faq
 |  X  | for more information addressing perf regression bugs. For feedback,
-| / \ | file a bug with component Tests>AutoBisect.  Thank you!"""
+| / \ | file a bug with component Speed>Bisection.  Thank you!"""
+
+    self.assertEqual(expected_output, bisect_report.GetReport(job))
+
+  def testGetReport_StatusStarted_FailureReason(self):
+    results_data = self._BisectResults(
+        revision_data=self._Revisions(
+            [
+                {'commit': 100, 'mean': 100, 'num': 10, 'result': 'good'},
+                {'commit': 101, 'mean': 100, 'num': 10, 'result': 'good'},
+                {'commit': 105, 'mean': 200, 'num': 10, 'result': 'bad'},
+                {'commit': 106, 'mean': 200, 'num': 10, 'result': 'bad'},
+            ]),
+        good_revision=100, bad_revision=106,
+        failure_reason='INFRA_FAILURE',
+        status='started')
+    job = self._AddTryJob(results_data)
+
+    expected_output = r"""
+=== BISECT JOB RESULTS ===
+<b>Bisect was unable to run to completion</b>
+
+Error: INFRA_FAILURE
+
+The bisect was able to narrow the range, you can try running with:
+  good_revision: 101
+  bad_revision : 105
+
+If failures persist contact the team (see below) and report the error.
+
+
+Bisect Details
+  Configuration: staging_android_nexus5X_perf_bisect
+  Benchmark    : foo
+  Metric       : Total/Score
+  Change       : 7.35% | 100 -> 200
+
+Revision      Result        N
+100           100 +- 0      10      good
+101           100 +- 0      10      good
+105           200 +- 0      10      bad
+106           200 +- 0      10      bad
+
+To Run This Test
+  src/tools/perf/run_benchmark foo
+
+Debug Info
+  https://test-rietveld.appspot.com/200039
+
+
+| O O | Visit http://www.chromium.org/developers/speed-infra/perf-bug-faq
+|  X  | for more information addressing perf regression bugs. For feedback,
+| / \ | file a bug with component Speed>Bisection.  Thank you!"""
+
+    self.assertEqual(expected_output, bisect_report.GetReport(job))
+
+  def testGetReport_StatusInProgress(self):
+    results_data = self._BisectResults(
+        revision_data=self._Revisions(
+            [
+                {'commit': 100, 'mean': 100, 'num': 10, 'result': 'good'},
+                {'commit': 101, 'mean': 100, 'num': 10, 'result': 'good'},
+                {'commit': 105, 'mean': 200, 'num': 10, 'result': 'bad'},
+                {'commit': 106, 'mean': 200, 'num': 10, 'result': 'bad'},
+            ]),
+        good_revision=100, bad_revision=106,
+        status='in_progress')
+    job = self._AddTryJob(results_data)
+
+    expected_output = r"""
+=== BISECT JOB RESULTS ===
+<b>Bisect is still in progress, results below are incomplete</b>
+
+The bisect was able to narrow the range, you can try running with:
+  good_revision: 101
+  bad_revision : 105
+
+
+Bisect Details
+  Configuration: staging_android_nexus5X_perf_bisect
+  Benchmark    : foo
+  Metric       : Total/Score
+  Change       : 7.35% | 100 -> 200
+
+Revision      Result        N
+100           100 +- 0      10      good
+101           100 +- 0      10      good
+105           200 +- 0      10      bad
+106           200 +- 0      10      bad
+
+To Run This Test
+  src/tools/perf/run_benchmark foo
+
+Debug Info
+  https://test-rietveld.appspot.com/200039
+
+
+| O O | Visit http://www.chromium.org/developers/speed-infra/perf-bug-faq
+|  X  | for more information addressing perf regression bugs. For feedback,
+| / \ | file a bug with component Speed>Bisection.  Thank you!"""
 
     self.assertEqual(expected_output, bisect_report.GetReport(job))
 
@@ -804,7 +937,7 @@ Debug Info
 
 | O O | Visit http://www.chromium.org/developers/speed-infra/perf-bug-faq
 |  X  | for more information addressing perf regression bugs. For feedback,
-| / \ | file a bug with component Tests>AutoBisect.  Thank you!"""
+| / \ | file a bug with component Speed>Bisection.  Thank you!"""
 
     self.assertEqual(expected_output, bisect_report.GetReport(job))
 
@@ -857,7 +990,7 @@ Is this bisect wrong?
 
 | O O | Visit http://www.chromium.org/developers/speed-infra/perf-bug-faq
 |  X  | for more information addressing perf regression bugs. For feedback,
-| / \ | file a bug with component Tests>AutoBisect.  Thank you!""" % job_id
+| / \ | file a bug with component Speed>Bisection.  Thank you!""" % job_id
 
     self.assertEqual(expected_output, bisect_report.GetReport(job))
 

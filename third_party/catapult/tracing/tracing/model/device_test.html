@@ -13,10 +13,37 @@ found in the LICENSE file.
 'use strict';
 
 tr.b.unittest.testSuite(function() {
+  function newModel(events, callback) {
+    return tr.c.TestUtils.newModelWithEvents([events], {
+      shiftWorldToZero: false,
+      pruneContainers: false,
+      customizeModelCallback: callback
+    });
+  }
 
   var Device = tr.model.Device;
   var Model = tr.Model;
   var PowerSeries = tr.model.PowerSeries;
+
+  test('bestGuessAtCpuCount_noData', function() {
+    var m = newModel([]);
+    assert.isUndefined(m.device.bestGuessAtCpuCount);
+  });
+
+  test('bestGuessAtCpuCount', function() {
+    var m = newModel([], (m) => {
+      var c1 = m.device.getOrCreateCpu(1);
+      var c2 = m.device.getOrCreateCpu(2);
+    });
+    assert.equal(m.device.bestGuessAtCpuCount, 2);
+  });
+
+  test('bestGuessAtCpuCount_softwareCpuCount', function() {
+    var m = newModel([], (m) => {
+      m.device.softwareMeasuredCpuCount = 2;
+    });
+    assert.equal(m.device.bestGuessAtCpuCount, 2);
+  });
 
   test('updateBounds', function() {
     var device = new Device(new Model());
@@ -36,7 +63,7 @@ tr.b.unittest.testSuite(function() {
 
     assert.equal(device.bounds.min, 100);
     assert.equal(device.bounds.max, 700);
- });
+  });
 
   test('shiftTimestampsForward', function() {
     var device = new Device(new Model());
@@ -66,6 +93,5 @@ tr.b.unittest.testSuite(function() {
       childEventContainers.push(container);
     assert.deepEqual(childEventContainers, [device.powerSeries]);
   });
-
 });
 </script>

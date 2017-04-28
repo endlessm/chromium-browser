@@ -209,7 +209,7 @@ class CIDBAPITest(CIDBIntegrationTest):
       self.assertIn(k, build_status)
 
   def testBuildMessages(self):
-    db = self._PrepareFreshDatabase(47)
+    db = self._PrepareFreshDatabase(55)
     self.assertEqual([], db.GetBuildMessages(1))
     master_build_id = db.InsertBuild('builder name',
                                      constants.WATERFALL_TRYBOT,
@@ -293,12 +293,12 @@ def GetTestDataSeries(test_data_path):
 class DataSeries0Test(CIDBIntegrationTest):
   """Simulate a set of 630 master/slave CQ builds."""
 
-  def testCQWithSchema48(self):
-    """Run the CQ test with schema version 48."""
-    self._PrepareFreshDatabase(48)
-    self._runCQTest()
+  def testCQWithSchema55(self):
+    """Run the CQ test with schema version 55."""
+    db = self._PrepareFreshDatabase(55)
+    self._runCQTest(db)
 
-  def _runCQTest(self):
+  def _runCQTest(self, db):
     """Simulate a set of 630 master/slave CQ builds.
 
     Note: This test takes about 2.5 minutes to populate its 630 builds
@@ -315,7 +315,9 @@ class DataSeries0Test(CIDBIntegrationTest):
     self.simulate_builds(bot_db, metadatas)
 
     # Perform some sanity check queries against the database, connected
-    # as the readonly user.
+    # as the readonly user. Apply schema migrations first to ensure that we can
+    # use the latest version or the readonly password.
+    db.ApplySchemaMigrations()
     readonly_db = self.LocalCIDBConnection(self.CIDB_USER_READONLY)
 
     self._start_and_finish_time_checks(readonly_db)
@@ -367,6 +369,14 @@ class DataSeries0Test(CIDBIntegrationTest):
     last_status = readonly_db.GetBuildHistory('master-paladin', 5,
                                               milestone_version=52)
     self.assertEqual(len(last_status), 0)
+    last_build = readonly_db.GetMostRecentBuild('chromeos', 'master-paladin')
+    self.assertEqual(last_build['id'], 601)
+    last_build = readonly_db.GetMostRecentBuild('chromeos', 'master-paladin',
+                                                38)
+    self.assertEqual(last_build['id'], 601)
+    last_build = readonly_db.GetMostRecentBuild('chromeos', 'master-paladin',
+                                                39)
+    self.assertEqual(last_build, None)
     # Make sure keys are sorted correctly.
     build_ids = []
     for index, status in enumerate(last_status):
@@ -858,7 +868,7 @@ class DataSeries1Test(CIDBIntegrationTest):
   """Simulate a single set of canary builds."""
 
   def runTest(self):
-    """Simulate a single set of canary builds with database schema v44."""
+    """Simulate a single set of canary builds with database schema v55."""
     metadatas = GetTestDataSeries(SERIES_1_TEST_DATA_PATH)
     self.assertEqual(len(metadatas), 18, 'Did not load expected amount of '
                                          'test data')
@@ -866,7 +876,7 @@ class DataSeries1Test(CIDBIntegrationTest):
     # Migrate db to specified version. As new schema versions are added,
     # migrations to later version can be applied after the test builds are
     # simulated, to test that db contents are correctly migrated.
-    self._PrepareFreshDatabase(47)
+    self._PrepareFreshDatabase(55)
 
     bot_db = self.LocalCIDBConnection(self.CIDB_USER_BOT)
 
@@ -926,7 +936,6 @@ class DataSeries1Test(CIDBIntegrationTest):
     db.UpdateMetadata(build_id, metadata)
 
     status = metadata_dict['status']['status']
-    status = _TranslateStatus(status)
 
     for child_config_dict in metadata_dict['child-configs']:
       # Note, we are not using test data here, because the test data
@@ -939,18 +948,6 @@ class DataSeries1Test(CIDBIntegrationTest):
     db.FinishBuild(build_id, status)
 
     return build_id
-
-
-def _TranslateStatus(status):
-  # TODO(akeshet): The status strings used in BuildStatus are not the same as
-  # those recorded in CBuildbotMetadata. Use a general purpose adapter.
-  if status == 'passed':
-    return 'pass'
-
-  if status == 'failed':
-    return 'fail'
-
-  return status
 
 
 def _SimulateBuildStart(db, metadata, master_build_id=None, important=None):
@@ -985,7 +982,6 @@ def _SimulateCQBuildFinish(db, metadata, build_id):
   db.UpdateMetadata(build_id, metadata)
 
   status = metadata_dict['status']['status']
-  status = _TranslateStatus(status)
   # The build summary reported by a real CQ run is more complicated -- it is
   # computed from slave summaries by a master. For sanity checking, we just
   # insert the current builer's summary.

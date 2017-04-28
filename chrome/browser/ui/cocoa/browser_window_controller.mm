@@ -48,6 +48,7 @@
 #import "chrome/browser/ui/cocoa/browser_window_command_handler.h"
 #import "chrome/browser/ui/cocoa/browser_window_controller_private.h"
 #import "chrome/browser/ui/cocoa/browser_window_layout.h"
+#import "chrome/browser/ui/cocoa/browser_window_touch_bar.h"
 #import "chrome/browser/ui/cocoa/browser_window_utils.h"
 #import "chrome/browser/ui/cocoa/dev_tools_controller.h"
 #import "chrome/browser/ui/cocoa/download/download_shelf_controller.h"
@@ -96,6 +97,7 @@
 #include "content/public/browser/web_contents.h"
 #import "ui/base/cocoa/cocoa_base_utils.h"
 #import "ui/base/cocoa/nsview_additions.h"
+#import "ui/base/cocoa/touch_bar_forward_declarations.h"
 #include "ui/base/material_design/material_design_controller.h"
 #include "ui/display/screen.h"
 #import "ui/gfx/mac/coordinate_conversion.h"
@@ -319,8 +321,8 @@ bool IsTabDetachingInFullscreenEnabled() {
     toolbarController_.reset([[ToolbarController alloc]
         initWithCommands:browser->command_controller()->command_updater()
                  profile:browser->profile()
-                 browser:browser
-          resizeDelegate:self]);
+                 browser:browser]);
+    [[toolbarController_ toolbarView] setResizeDelegate:self];
     [toolbarController_ setHasToolbar:[self hasToolbar]
                        hasLocationBar:[self hasLocationBar]];
 
@@ -1003,6 +1005,9 @@ bool IsTabDetachingInFullscreenEnabled() {
 
 - (void)setStarredState:(BOOL)isStarred {
   [toolbarController_ setStarredState:isStarred];
+
+  [touchBar_ setIsStarred:isStarred];
+  [self invalidateTouchBar];
 }
 
 - (void)setCurrentPageIsTranslated:(BOOL)on {
@@ -1025,11 +1030,7 @@ bool IsTabDetachingInFullscreenEnabled() {
       manager->DisplayPendingRequests();
   }
 
-  // If the web contents want to focus on the location bar, do not call the
-  // animation since the location bar will drop down when it's focused.
-  bool willFocusLocationBar =
-      newContents && newContents->FocusLocationBarByDefault();
-  if ([self isInAnyFullscreenMode] && !willFocusLocationBar)
+  if ([self isInAnyFullscreenMode])
     [[self fullscreenToolbarController] revealToolbarForTabStripChanges];
 }
 
@@ -1144,6 +1145,8 @@ bool IsTabDetachingInFullscreenEnabled() {
 
 - (void)setIsLoading:(BOOL)isLoading force:(BOOL)force {
   [toolbarController_ setIsLoading:isLoading force:force];
+  [touchBar_ setIsPageLoading:isLoading];
+  [self invalidateTouchBar];
 }
 
 // Make the location bar the first responder, if possible.
@@ -1467,10 +1470,8 @@ bool IsTabDetachingInFullscreenEnabled() {
 }
 
 - (void)onTabInsertedInForeground:(BOOL)inForeground {
-  if ([self isInAnyFullscreenMode] && !inForeground &&
-      ![toolbarController_ isLocationBarFocused]) {
+  if ([self isInAnyFullscreenMode] && !inForeground)
     [[self fullscreenToolbarController] revealToolbarForTabStripChanges];
-  }
 }
 
 - (void)userChangedTheme {
@@ -1643,14 +1644,15 @@ bool IsTabDetachingInFullscreenEnabled() {
   // the browser profile's name unless the browser is incognito.
   NSView* view;
   if ([self shouldUseNewAvatarButton]) {
-    avatarButtonController_.reset(
-      [[AvatarButtonController alloc] initWithBrowser:browser_.get()]);
+    avatarButtonController_.reset([[AvatarButtonController alloc]
+        initWithBrowser:browser_.get()
+                 window:[self window]]);
   } else {
     avatarButtonController_.reset(
       [[AvatarIconController alloc] initWithBrowser:browser_.get()]);
   }
   view = [avatarButtonController_ view];
-  if (cocoa_l10n_util::ShouldDoExperimentalRTLLayout())
+  if (cocoa_l10n_util::ShouldFlipWindowControlsInRTL())
     [view setAutoresizingMask:NSViewMaxXMargin | NSViewMinYMargin];
   else
     [view setAutoresizingMask:NSViewMinXMargin | NSViewMinYMargin];
@@ -1849,6 +1851,21 @@ willAnimateFromState:(BookmarkBar::State)oldState
   return static_cast<BrowserWindowCocoa*>([self browserWindow])->alert_state();
 }
 
+- (BrowserWindowTouchBar*)browserWindowTouchBar {
+  if (!touchBar_) {
+    touchBar_.reset([[BrowserWindowTouchBar alloc]
+                initWithBrowser:browser_.get()
+        browserWindowController:self]);
+  }
+
+  return touchBar_.get();
+}
+
+- (void)invalidateTouchBar {
+  if ([[self window] respondsToSelector:@selector(setTouchBar:)])
+    [[self window] performSelector:@selector(setTouchBar:) withObject:nil];
+}
+
 @end  // @implementation BrowserWindowController
 
 @implementation BrowserWindowController(Fullscreen)
@@ -1879,10 +1896,6 @@ willAnimateFromState:(BookmarkBar::State)oldState
   return NO;
 }
 
-- (BOOL)isInAnyFullscreenMode {
-  return [self isInImmersiveFullscreen] || [self isInAppKitFullscreen];
-}
-
 - (BOOL)isInImmersiveFullscreen {
   return fullscreenWindow_.get() != nil || enteringImmersiveFullscreen_;
 }
@@ -1892,6 +1905,10 @@ willAnimateFromState:(BookmarkBar::State)oldState
          (([[self window] styleMask] & NSFullScreenWindowMask) ==
               NSFullScreenWindowMask ||
           enteringAppKitFullscreen_);
+}
+
+- (BOOL)isInAnyFullscreenMode {
+  return [self isInImmersiveFullscreen] || [self isInAppKitFullscreen];
 }
 
 - (NSView*)avatarView {

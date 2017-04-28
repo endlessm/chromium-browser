@@ -13,13 +13,12 @@ found in the LICENSE file.
 var GREEK_SMALL_LETTER_MU = String.fromCharCode(956);
 
 tr.exportTo('tr.b', function() {
-
   var SECONDS_IN_A_MINUTE = 60;
   var SECONDS_IN_AN_HOUR = SECONDS_IN_A_MINUTE * 60;
   var SECONDS_IN_A_DAY = SECONDS_IN_AN_HOUR * 24;
   var SECONDS_IN_A_WEEK = SECONDS_IN_A_DAY * 7;
-  var SECONDS_IN_A_MONTH = SECONDS_IN_A_YEAR / 12;
   var SECONDS_IN_A_YEAR = SECONDS_IN_A_DAY * 365.2422;
+  var SECONDS_IN_A_MONTH = SECONDS_IN_A_YEAR / 12;
 
   var UnitPrefixScale = {};
   var UnitScale = {};
@@ -130,7 +129,7 @@ tr.exportTo('tr.b', function() {
   UnitScale.defineUnitScale('TIME', {
     NANO_SEC: { value: 1e-9, symbol: 'ns', baseSymbol: 's'},
     MICRO_SEC: { value: 1e-6, symbol: GREEK_SMALL_LETTER_MU + 's',
-        baseSymbol: 's'},
+      baseSymbol: 's'},
     MILLI_SEC: { value: 1e-3, symbol: 'ms', baseSymbol: 's'},
     SEC: { value: 1, symbol: 's', baseSymbol: 's'},
     MINUTE: { value: SECONDS_IN_A_MINUTE, symbol: 'min', baseSymbol: 's'},

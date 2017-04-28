@@ -2,7 +2,6 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import logging
 import os
 import signal
 import subprocess
@@ -27,8 +26,9 @@ class _TCPDumpProfilerAndroid(object):
   def __init__(self, device, output_path):
     self._device = device
     self._output_path = output_path
-    self._device.RunShellCommand('mkdir -p ' +
-                                 os.path.dirname(self._DEVICE_DUMP_FILE))
+    self._device.RunShellCommand(
+        ['mkdir', '-p', os.path.dirname(self._DEVICE_DUMP_FILE)],
+        check_return=True)
     self._proc = subprocess.Popen(
         [self._device.adb.GetAdbPath(),
          '-s', self._device.adb.GetDeviceSerial(),
@@ -47,15 +47,12 @@ class _TCPDumpProfilerAndroid(object):
           'At most one instance of process tcpdump expected but found pids: '
           '%s' % tcpdump_pid)
     tcpdump_pid = int(tcpdump_pid['tcpdump'][0])
-    self._device.RunShellCommand('kill -term ' + tcpdump_pid)
+    self._device.RunShellCommand(
+        ['kill', '-term', str(tcpdump_pid)], check_return=True)
     self._proc.terminate()
     host_dump = os.path.join(self._output_path,
                              os.path.basename(self._DEVICE_DUMP_FILE))
-    try:
-      self._device.PullFile(self._DEVICE_DUMP_FILE, host_dump)
-    except:
-      logging.exception('New exception caused by DeviceUtils conversion')
-      raise
+    self._device.PullFile(self._DEVICE_DUMP_FILE, host_dump)
     print 'TCP dump available at: %s ' % host_dump
     print 'Use Wireshark to open it.'
     return host_dump

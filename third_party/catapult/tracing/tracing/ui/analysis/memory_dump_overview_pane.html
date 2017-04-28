@@ -5,22 +5,20 @@ Use of this source code is governed by a BSD-style license that can be
 found in the LICENSE file.
 -->
 
-<link rel="import" href="/tracing/base/color_scheme.html">
+<link rel="import" href="/tracing/base/fixed_color_scheme.html">
 <link rel="import" href="/tracing/base/iteration_helpers.html">
+<link rel="import" href="/tracing/base/scalar.html">
 <link rel="import" href="/tracing/base/unit.html">
 <link rel="import" href="/tracing/base/unit_scale.html">
 <link rel="import" href="/tracing/model/memory_allocator_dump.html">
-<link rel="import"
-    href="/tracing/ui/analysis/memory_dump_allocator_details_pane.html">
+<link rel="import" href="/tracing/ui/analysis/memory_dump_allocator_details_pane.html">
 <link rel="import" href="/tracing/ui/analysis/memory_dump_sub_view_util.html">
-<link rel="import"
-    href="/tracing/ui/analysis/memory_dump_vm_regions_details_pane.html">
+<link rel="import" href="/tracing/ui/analysis/memory_dump_vm_regions_details_pane.html">
 <link rel="import" href="/tracing/ui/analysis/stacked_pane.html">
 <link rel="import" href="/tracing/ui/base/color_legend.html">
 <link rel="import" href="/tracing/ui/base/dom_helpers.html">
 <link rel="import" href="/tracing/ui/base/table.html">
 <link rel="import" href="/tracing/ui/view_specific_brushing_state.html">
-<link rel="import" href="/tracing/value/numeric.html">
 
 <dom-module id='tr-ui-a-memory-dump-overview-pane'>
   <template>
@@ -40,6 +38,11 @@ found in the LICENSE file.
 
         font-size:  15px;
         font-weight: bold;
+      }
+
+      #label a {
+        font-weight: normal;
+        float: right;
       }
 
       #contents {
@@ -66,7 +69,7 @@ found in the LICENSE file.
     <tr-ui-b-view-specific-brushing-state id="state"
         view-id="analysis.memory_dump_overview_pane">
     </tr-ui-b-view-specific-brushing-state>
-    <div id="label">Overview</div>
+    <div id="label">Overview <a href="https://chromium.googlesource.com/chromium/src/+/master/docs/memory-infra">Help</a></div>
     <div id="contents">
       <div id="info_text">No memory memory dumps selected</div>
       <tr-ui-b-table id="table"></tr-ui-b-table>
@@ -77,9 +80,8 @@ found in the LICENSE file.
 'use strict';
 
 tr.exportTo('tr.ui.analysis', function() {
-
-  var ColorScheme = tr.b.ColorScheme;
-  var ScalarNumeric = tr.v.ScalarNumeric;
+  var MemoryColumnColorScheme = tr.b.MemoryColumnColorScheme;
+  var Scalar = tr.b.Scalar;
   var sizeInBytes_smallerIsBetter =
       tr.b.Unit.byName.sizeInBytes_smallerIsBetter;
 
@@ -136,9 +138,9 @@ tr.exportTo('tr.ui.analysis', function() {
   }
 
   UsedMemoryColumn.COLOR =
-      ColorScheme.getColorForReservedNameAsString('used_memory_column');
+      MemoryColumnColorScheme.getColor('used_memory_column').toString();
   UsedMemoryColumn.OLDER_COLOR =
-      ColorScheme.getColorForReservedNameAsString('older_used_memory_column');
+      MemoryColumnColorScheme.getColor('older_used_memory_column').toString();
 
   UsedMemoryColumn.prototype = {
     __proto__: tr.ui.analysis.NumericMemoryColumn.prototype,
@@ -245,8 +247,7 @@ tr.exportTo('tr.ui.analysis', function() {
       // the defined process memory dumps had own VM regions).
       if (allOlderValues)
         return UsedMemoryColumn.OLDER_COLOR;
-      else
-        return UsedMemoryColumn.COLOR;
+      return UsedMemoryColumn.COLOR;
     },
 
     addInfos: function(numerics, processMemoryDumps, infos) {
@@ -425,7 +426,7 @@ tr.exportTo('tr.ui.analysis', function() {
   }
 
   TracingColumn.COLOR =
-      ColorScheme.getColorForReservedNameAsString('tracing_memory_column');
+      MemoryColumnColorScheme.getColor('tracing_memory_column').toString();
 
   TracingColumn.prototype = {
     __proto__: AllocatorColumn.prototype,
@@ -591,85 +592,88 @@ tr.exportTo('tr.ui.analysis', function() {
       // Process (list index) -> Component (dict key) -> Cell.
       return tr.b.dictionaryValues(tr.b.mapItems(
           pidToTimeToProcessMemoryDump, function(pid, timeToDump) {
-        // Get the process associated with the dumps. We can use any defined
-        // process memory dump in timeToDump since they all have the same pid.
-        var process = tr.b.findFirstInArray(timeToDump).process;
+            // Get the process associated with the dumps. We can use any defined
+            // process memory dump in timeToDump since they all have the same
+            // pid.
+            var process = tr.b.findFirstInArray(timeToDump).process;
 
-        // Used memory (total resident, PSS, ...).
-        var usedMemoryCells = tr.ui.analysis.createCells(timeToDump,
-            function(dump) {
-              var sizes = {};
+            // Used memory (total resident, PSS, ...).
+            var usedMemoryCells = tr.ui.analysis.createCells(timeToDump,
+                function(dump) {
+                  var sizes = {};
 
-              var totals = dump.totals;
-              if (totals !== undefined) {
-                // Common totals.
-                for (var [totalName, cellName] of
+                  var totals = dump.totals;
+                  if (totals !== undefined) {
+                    // Common totals.
+                    for (var [totalName, cellName] of
                     Object.entries(UsedMemoryColumn.TOTALS_MAP)) {
-                  var total = totals[totalName];
-                  if (total === undefined) continue;
-                  sizes[cellName] = new ScalarNumeric(
+                      var total = totals[totalName];
+                      if (total === undefined) continue;
+                      sizes[cellName] = new Scalar(
                       sizeInBytes_smallerIsBetter, total);
-                }
-
-                // Platform-specific totals (e.g. private resident on Mac).
-                var platformSpecific = totals.platformSpecific;
-                if (platformSpecific !== undefined) {
-                  for (var [name, size] of Object.entries(platformSpecific)) {
-                    // Change raw OS-specific total name to a user-friendly
-                    // column title (e.g. 'private_bytes' -> 'Private').
-                    if (name.endsWith(PLATFORM_SPECIFIC_TOTAL_NAME_SUFFIX)) {
-                      name = name.substring(0, name.length -
-                          PLATFORM_SPECIFIC_TOTAL_NAME_SUFFIX.length);
                     }
-                    name = name.replace('_', ' ').trim();
-                    name = name.charAt(0).toUpperCase() + name.slice(1);
-                    sizes[name] = new ScalarNumeric(
+
+                    // Platform-specific totals (e.g. private resident on Mac).
+                    var platformSpecific = totals.platformSpecific;
+                    if (platformSpecific !== undefined) {
+                      for (var [name, size] of
+                          Object.entries(platformSpecific)) {
+                        // Change raw OS-specific total name to a user-friendly
+                        // column title (e.g. 'private_bytes' -> 'Private').
+                        if (name.endsWith(
+                            PLATFORM_SPECIFIC_TOTAL_NAME_SUFFIX)) {
+                          name = name.substring(0, name.length -
+                          PLATFORM_SPECIFIC_TOTAL_NAME_SUFFIX.length);
+                        }
+                        name = name.replace('_', ' ').trim();
+                        name = name.charAt(0).toUpperCase() + name.slice(1);
+                        sizes[name] = new Scalar(
                         sizeInBytes_smallerIsBetter, size);
+                      }
+                    }
                   }
-                }
-              }
 
-              // VM regions byte stats.
-              var vmRegions = dump.mostRecentVmRegions;
-              if (vmRegions !== undefined) {
-                for (var [byteStatName, cellName] of
+                  // VM regions byte stats.
+                  var vmRegions = dump.mostRecentVmRegions;
+                  if (vmRegions !== undefined) {
+                    for (var [byteStatName, cellName] of
                      Object.entries(UsedMemoryColumn.BYTE_STAT_MAP)) {
-                  var byteStat = vmRegions.byteStats[byteStatName];
-                  if (byteStat === undefined) continue;
-                  sizes[cellName] = new ScalarNumeric(
+                      var byteStat = vmRegions.byteStats[byteStatName];
+                      if (byteStat === undefined) continue;
+                      sizes[cellName] = new Scalar(
                       sizeInBytes_smallerIsBetter, byteStat);
-                }
-              }
+                    }
+                  }
 
-              return sizes;
-            });
+                  return sizes;
+                });
 
-        // Allocator memory (v8, oilpan, ...).
-        var allocatorCells = tr.ui.analysis.createCells(timeToDump,
-            function(dump) {
-              var memoryAllocatorDumps = dump.memoryAllocatorDumps;
-              if (memoryAllocatorDumps === undefined)
-                return undefined;
-              var sizes = {};
-              memoryAllocatorDumps.forEach(function(allocatorDump) {
-                var rootDisplayedSizeNumeric = allocatorDump.numerics[
+            // Allocator memory (v8, oilpan, ...).
+            var allocatorCells = tr.ui.analysis.createCells(timeToDump,
+                function(dump) {
+                  var memoryAllocatorDumps = dump.memoryAllocatorDumps;
+                  if (memoryAllocatorDumps === undefined)
+                    return undefined;
+                  var sizes = {};
+                  memoryAllocatorDumps.forEach(function(allocatorDump) {
+                    var rootDisplayedSizeNumeric = allocatorDump.numerics[
                     DISPLAYED_SIZE_NUMERIC_NAME];
-                if (rootDisplayedSizeNumeric === undefined) {
-                  rootDisplayedSizeNumeric =
-                      new ScalarNumeric(sizeInBytes_smallerIsBetter, 0);
-                }
-                sizes[allocatorDump.fullName] = rootDisplayedSizeNumeric;
-              });
-              return sizes;
-            });
+                    if (rootDisplayedSizeNumeric === undefined) {
+                      rootDisplayedSizeNumeric =
+                      new Scalar(sizeInBytes_smallerIsBetter, 0);
+                    }
+                    sizes[allocatorDump.fullName] = rootDisplayedSizeNumeric;
+                  });
+                  return sizes;
+                });
 
-        return {
-          title: process.userFriendlyName,
-          contexts: timeToDump,
-          usedMemoryCells: usedMemoryCells,
-          allocatorCells: allocatorCells
-        };
-      }));
+            return {
+              title: process.userFriendlyName,
+              contexts: timeToDump,
+              usedMemoryCells: usedMemoryCells,
+              allocatorCells: allocatorCells
+            };
+          }));
     },
 
     createFooterRows_: function(rows, columns) {
@@ -732,16 +736,16 @@ tr.exportTo('tr.ui.analysis', function() {
       var selectedColumnName = settings.columnName;
       var selectedColumnIndex = tr.b.findFirstIndexInArray(
           this.$.table.tableColumns, function(column) {
-        return column.name === selectedColumnName;
-      });
+            return column.name === selectedColumnName;
+          });
       if (selectedColumnIndex < 0)
         return;
 
       var selectedRowTitle = settings.rowTitle;
       var selectedRow = tr.b.findFirstInArray(this.$.table.tableRows,
           function(row) {
-        return row.title === selectedRowTitle;
-      });
+            return row.title === selectedRowTitle;
+          });
       if (selectedRow === undefined)
         return;
 

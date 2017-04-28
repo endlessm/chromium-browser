@@ -14,7 +14,6 @@ found in the LICENSE file.
 'use strict';
 
 tr.exportTo('tr.metrics.sh', function() {
-
   // Bin boundaries for clock sync latency. 0-20 ms with 0.2 ms bins.
   // 20 ms is a good upper limit because the highest latencies we've seen are
   // around 10-15 ms, and we expect average latency to go down as we improve
@@ -31,12 +30,12 @@ tr.exportTo('tr.metrics.sh', function() {
             domains[i].toLowerCase() + '_to_' + domains[j].toLowerCase(),
             tr.b.Unit.byName.timeDurationInMs_smallerIsBetter, LATENCY_BOUNDS);
         hist.customizeSummaryOptions({
-            avg: true,
-            count: false,
-            max: false,
-            min: false,
-            std: false,
-            sum: false,
+          avg: true,
+          count: false,
+          max: false,
+          min: false,
+          std: false,
+          sum: false,
         });
         hist.description = 'Clock sync latency for domain ' + domains[i] +
             ' to domain ' + domains[j];

@@ -14,7 +14,6 @@ found in the LICENSE file.
  * @fileoverview Parses sync events in the Linux event trace format.
  */
 tr.exportTo('tr.e.importer.linux_perf', function() {
-
   var ColorScheme = tr.b.ColorScheme;
   var Parser = tr.e.importer.linux_perf.Parser;
 
@@ -48,7 +47,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
      * Parses sync events and sets up state in the importer.
      */
     timelineEvent: function(eventName, cpuNumber, pid,
-                            ts, eventBase) {
+        ts, eventBase) {
       var event = syncTimelineRE.exec(eventBase.details);
       if (!event)
         return false;
@@ -73,7 +72,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
     },
 
     syncWaitEvent: function(eventName, cpuNumber, pid, ts,
-                            eventBase) {
+        eventBase) {
       var event = syncWaitRE.exec(eventBase.details);
       if (!event)
         return false;

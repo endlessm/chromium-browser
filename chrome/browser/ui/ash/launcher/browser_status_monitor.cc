@@ -18,6 +18,7 @@
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/web_applications/web_app.h"
+#include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "ui/aura/window.h"
@@ -37,9 +38,12 @@ class BrowserStatusMonitor::LocalWebContentsObserver
   ~LocalWebContentsObserver() override {}
 
   // content::WebContentsObserver
-  void DidNavigateMainFrame(
-      const content::LoadCommittedDetails& details,
-      const content::FrameNavigateParams& params) override {
+  void DidFinishNavigation(
+      content::NavigationHandle* navigation_handle) override {
+    if (!navigation_handle->IsInMainFrame() ||
+        !navigation_handle->HasCommitted())
+      return;
+
     ChromeLauncherController::AppState state =
         ChromeLauncherController::APP_STATE_INACTIVE;
     Browser* browser = chrome::FindBrowserWithWebContents(web_contents());
@@ -79,11 +83,7 @@ BrowserStatusMonitor::BrowserStatusMonitor(
     : launcher_controller_(launcher_controller),
       browser_tab_strip_tracker_(this, this, this) {
   DCHECK(launcher_controller_);
-
   ash::Shell::GetInstance()->activation_client()->AddObserver(this);
-
-  browser_tab_strip_tracker_.Init(
-      BrowserTabStripTracker::InitWith::ALL_BROWERS);
 }
 
 BrowserStatusMonitor::~BrowserStatusMonitor() {
@@ -91,10 +91,18 @@ BrowserStatusMonitor::~BrowserStatusMonitor() {
   browser_tab_strip_tracker_.StopObservingAndSendOnBrowserRemoved();
 }
 
+void BrowserStatusMonitor::Initialize() {
+  DCHECK(!initialized_);
+  initialized_ = true;
+  browser_tab_strip_tracker_.Init(
+      BrowserTabStripTracker::InitWith::ALL_BROWERS);
+}
+
 void BrowserStatusMonitor::UpdateAppItemState(
     content::WebContents* contents,
     ChromeLauncherController::AppState app_state) {
   DCHECK(contents);
+  DCHECK(initialized_);
   // It is possible to come here from Browser::SwapTabContent where the contents
   // cannot be associated with a browser. A removal however should be properly
   // processed.
@@ -105,6 +113,7 @@ void BrowserStatusMonitor::UpdateAppItemState(
 }
 
 void BrowserStatusMonitor::UpdateBrowserItemState() {
+  DCHECK(initialized_);
   launcher_controller_->GetBrowserShortcutLauncherItemController()->
       UpdateBrowserItemState();
 }
@@ -113,6 +122,7 @@ void BrowserStatusMonitor::OnWindowActivated(
     aura::client::ActivationChangeObserver::ActivationReason reason,
     aura::Window* gained_active,
     aura::Window* lost_active) {
+  DCHECK(initialized_);
   Browser* browser = NULL;
   content::WebContents* contents_from_gained = NULL;
   content::WebContents* contents_from_lost = NULL;
@@ -149,6 +159,7 @@ bool BrowserStatusMonitor::ShouldTrackBrowser(Browser* browser) {
 }
 
 void BrowserStatusMonitor::OnBrowserAdded(Browser* browser) {
+  DCHECK(initialized_);
   if (browser->is_type_popup() && browser->is_app()) {
     // Note: A V1 application will set the tab strip observer when the app gets
     // added to the shelf. This makes sure that in the multi user case we will
@@ -158,6 +169,7 @@ void BrowserStatusMonitor::OnBrowserAdded(Browser* browser) {
 }
 
 void BrowserStatusMonitor::OnBrowserRemoved(Browser* browser) {
+  DCHECK(initialized_);
   if (browser->is_type_popup() && browser->is_app())
     RemoveV1AppFromShelf(browser);
 
@@ -244,6 +256,7 @@ void BrowserStatusMonitor::WebContentsDestroyed(
 
 void BrowserStatusMonitor::AddV1AppToShelf(Browser* browser) {
   DCHECK(browser->is_type_popup() && browser->is_app());
+  DCHECK(initialized_);
 
   std::string app_id =
       web_app::GetExtensionIdFromApplicationName(browser->app_name());
@@ -255,6 +268,7 @@ void BrowserStatusMonitor::AddV1AppToShelf(Browser* browser) {
 
 void BrowserStatusMonitor::RemoveV1AppFromShelf(Browser* browser) {
   DCHECK(browser->is_type_popup() && browser->is_app());
+  DCHECK(initialized_);
 
   if (browser_to_app_id_map_.find(browser) != browser_to_app_id_map_.end()) {
     launcher_controller_->UnlockV1AppWithID(browser_to_app_id_map_[browser]);

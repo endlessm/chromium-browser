@@ -9,6 +9,7 @@
  */
 
 #include <algorithm>
+#include <deque>
 #include <memory>
 #include <vector>
 
@@ -19,18 +20,20 @@
 #include "third_party/libyuv/include/libyuv/convert.h"
 #include "third_party/libyuv/include/libyuv/convert_from.h"
 #include "third_party/libyuv/include/libyuv/video_common.h"
-#include "webrtc/sdk/android/src/jni/androidmediacodeccommon.h"
-#include "webrtc/sdk/android/src/jni/classreferenceholder.h"
-#include "webrtc/sdk/android/src/jni/native_handle_impl.h"
-#include "webrtc/sdk/android/src/jni/surfacetexturehelper_jni.h"
 #include "webrtc/base/bind.h"
 #include "webrtc/base/checks.h"
 #include "webrtc/base/logging.h"
 #include "webrtc/base/scoped_ref_ptr.h"
 #include "webrtc/base/thread.h"
 #include "webrtc/base/timeutils.h"
+#include "webrtc/common_video/h264/h264_bitstream_parser.h"
 #include "webrtc/common_video/include/i420_buffer_pool.h"
 #include "webrtc/modules/video_coding/include/video_codec_interface.h"
+#include "webrtc/modules/video_coding/utility/vp8_header_parser.h"
+#include "webrtc/sdk/android/src/jni/androidmediacodeccommon.h"
+#include "webrtc/sdk/android/src/jni/classreferenceholder.h"
+#include "webrtc/sdk/android/src/jni/native_handle_impl.h"
+#include "webrtc/sdk/android/src/jni/surfacetexturehelper_jni.h"
 #include "webrtc/system_wrappers/include/logcat_trace_context.h"
 
 using rtc::Bind;
@@ -132,6 +135,8 @@ class MediaCodecVideoDecoder : public webrtc::VideoDecoder,
   int current_decoding_time_ms_;  // Overall decoding time in the current second
   int current_delay_time_ms_;  // Overall delay time in the current second.
   uint32_t max_pending_frames_;  // Maximum number of pending input frames.
+  webrtc::H264BitstreamParser h264_bitstream_parser_;
+  std::deque<rtc::Optional<uint8_t>> pending_frame_qps_;
 
   // State that is constant for the lifetime of this object once the ctor
   // returns.
@@ -323,6 +328,7 @@ void MediaCodecVideoDecoder::ResetVariables() {
   current_bytes_ = 0;
   current_decoding_time_ms_ = 0;
   current_delay_time_ms_ = 0;
+  pending_frame_qps_.clear();
 }
 
 int32_t MediaCodecVideoDecoder::InitDecodeOnCodecThread() {
@@ -653,6 +659,21 @@ int32_t MediaCodecVideoDecoder::DecodeOnCodecThread(
   // Save input image timestamps for later output.
   frames_received_++;
   current_bytes_ += inputImage._length;
+  rtc::Optional<uint8_t> qp;
+  if (codecType_ == kVideoCodecVP8) {
+    int qp_int;
+    if (webrtc::vp8::GetQp(inputImage._buffer, inputImage._length, &qp_int)) {
+      qp = rtc::Optional<uint8_t>(qp_int);
+    }
+  } else if (codecType_ == kVideoCodecH264) {
+    h264_bitstream_parser_.ParseBitstream(inputImage._buffer,
+                                          inputImage._length);
+    int qp_int;
+    if (h264_bitstream_parser_.GetLastSliceQp(&qp_int)) {
+      qp = rtc::Optional<uint8_t>(qp_int);
+    }
+  }
+  pending_frame_qps_.push_back(qp);
 
   // Feed input to decoder.
   bool success = jni->CallBooleanMethod(
@@ -679,6 +700,7 @@ int32_t MediaCodecVideoDecoder::DecodeOnCodecThread(
 
 bool MediaCodecVideoDecoder::DeliverPendingOutputs(
     JNIEnv* jni, int dequeue_timeout_ms) {
+  CheckOnCodecThread();
   if (frames_received_ <= frames_decoded_) {
     // No need to query for output buffers - decoder is drained.
     return true;
@@ -707,6 +729,7 @@ bool MediaCodecVideoDecoder::DeliverPendingOutputs(
   int stride = GetIntField(jni, *j_media_codec_video_decoder_, j_stride_field_);
   int slice_height = GetIntField(jni, *j_media_codec_video_decoder_,
       j_slice_height_field_);
+  RTC_CHECK_GE(slice_height, height);
 
   rtc::scoped_refptr<webrtc::VideoFrameBuffer> frame_buffer;
   int64_t presentation_timestamps_ms = 0;
@@ -782,22 +805,46 @@ bool MediaCodecVideoDecoder::DeliverPendingOutputs(
     payload += output_buffer_offset;
 
     // Create yuv420 frame.
-    rtc::scoped_refptr<webrtc::I420Buffer> i420_buffer;
-
-    i420_buffer = decoded_frame_pool_.CreateBuffer(width, height);
+    rtc::scoped_refptr<webrtc::I420Buffer> i420_buffer =
+        decoded_frame_pool_.CreateBuffer(width, height);
     if (color_format == COLOR_FormatYUV420Planar) {
       RTC_CHECK_EQ(0, stride % 2);
-      RTC_CHECK_EQ(0, slice_height % 2);
       const int uv_stride = stride / 2;
-      const int u_slice_height = slice_height / 2;
       const uint8_t* y_ptr = payload;
       const uint8_t* u_ptr = y_ptr + stride * slice_height;
-      const uint8_t* v_ptr = u_ptr + uv_stride * u_slice_height;
-      libyuv::I420Copy(y_ptr, stride, u_ptr, uv_stride, v_ptr, uv_stride,
-                       i420_buffer->MutableDataY(), i420_buffer->StrideY(),
-                       i420_buffer->MutableDataU(), i420_buffer->StrideU(),
-                       i420_buffer->MutableDataV(), i420_buffer->StrideV(),
-                       width, height);
+
+      // Note that the case with odd |slice_height| is handled in a special way.
+      // The chroma height contained in the payload is rounded down instead of
+      // up, making it one row less than what we expect in WebRTC. Therefore, we
+      // have to duplicate the last chroma rows for this case. Also, the offset
+      // between the Y plane and the U plane is unintuitive for this case. See
+      // http://bugs.webrtc.org/6651 for more info.
+      const int chroma_width = (width + 1) / 2;
+      const int chroma_height =
+          (slice_height % 2 == 0) ? (height + 1) / 2 : height / 2;
+      const int u_offset = uv_stride * slice_height / 2;
+      const uint8_t* v_ptr = u_ptr + u_offset;
+      libyuv::CopyPlane(y_ptr, stride,
+                        i420_buffer->MutableDataY(), i420_buffer->StrideY(),
+                        width, height);
+      libyuv::CopyPlane(u_ptr, uv_stride,
+                        i420_buffer->MutableDataU(), i420_buffer->StrideU(),
+                        chroma_width, chroma_height);
+      libyuv::CopyPlane(v_ptr, uv_stride,
+                        i420_buffer->MutableDataV(), i420_buffer->StrideV(),
+                        chroma_width, chroma_height);
+      if (slice_height % 2 == 1) {
+        RTC_CHECK_EQ(height, slice_height);
+        // Duplicate the last chroma rows.
+        uint8_t* u_last_row_ptr = i420_buffer->MutableDataU() +
+                                  chroma_height * i420_buffer->StrideU();
+        memcpy(u_last_row_ptr, u_last_row_ptr - i420_buffer->StrideU(),
+               i420_buffer->StrideU());
+        uint8_t* v_last_row_ptr = i420_buffer->MutableDataV() +
+                                  chroma_height * i420_buffer->StrideV();
+        memcpy(v_last_row_ptr, v_last_row_ptr - i420_buffer->StrideV(),
+               i420_buffer->StrideV());
+      }
     } else {
       // All other supported formats are nv12.
       const uint8_t* y_ptr = payload;
@@ -861,11 +908,10 @@ bool MediaCodecVideoDecoder::DeliverPendingOutputs(
     decoded_frame.set_timestamp(output_timestamps_ms);
     decoded_frame.set_ntp_time_ms(output_ntp_timestamps_ms);
 
-    const int32_t callback_status =
-        callback_->Decoded(decoded_frame, decode_time_ms);
-    if (callback_status > 0) {
-      ALOGE << "callback error";
-    }
+    rtc::Optional<uint8_t> qp = pending_frame_qps_.front();
+    pending_frame_qps_.pop_front();
+    callback_->Decoded(decoded_frame, rtc::Optional<int32_t>(decode_time_ms),
+                       qp);
   }
   return true;
 }

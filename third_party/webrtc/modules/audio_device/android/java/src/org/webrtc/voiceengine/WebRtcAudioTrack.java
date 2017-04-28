@@ -10,16 +10,15 @@
 
 package org.webrtc.voiceengine;
 
-import org.webrtc.Logging;
-
+import android.annotation.TargetApi;
 import android.content.Context;
 import android.media.AudioFormat;
 import android.media.AudioManager;
 import android.media.AudioTrack;
 import android.os.Process;
-
 import java.lang.Thread;
 import java.nio.ByteBuffer;
+import org.webrtc.Logging;
 
 public class WebRtcAudioTrack {
   private static final boolean DEBUG = false;
@@ -130,6 +129,7 @@ public class WebRtcAudioTrack {
       audioTrack.flush();
     }
 
+    @TargetApi(21)
     private int writeOnLollipop(AudioTrack audioTrack, ByteBuffer byteBuffer, int sizeInBytes) {
       return audioTrack.write(byteBuffer, sizeInBytes, AudioTrack.WRITE_BLOCKING);
     }
@@ -284,6 +284,7 @@ public class WebRtcAudioTrack {
             + "max gain: " + audioTrack.getMaxVolume());
   }
 
+  @TargetApi(24)
   private void logMainParametersExtended() {
     if (WebRtcAudioUtils.runningOnMarshmallowOrHigher()) {
       Logging.d(TAG, "AudioTrack: "
@@ -303,6 +304,7 @@ public class WebRtcAudioTrack {
   // potential audio glitch.
   // TODO(henrika): keep track of this value in the field and possibly add new
   // UMA stat if needed.
+  @TargetApi(24)
   private void logUnderrunCount() {
     if (WebRtcAudioUtils.runningOnNougatOrHigher()) {
       Logging.d(TAG, "underrun count: " + audioTrack.getUnderrunCount());

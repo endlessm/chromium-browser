@@ -35,6 +35,9 @@ tr.exportTo('tr.metrics.sh', function() {
   LEVEL_OF_DETAIL_NAMES.set(LIGHT, 'light');
   LEVEL_OF_DETAIL_NAMES.set(DETAILED, 'detailed');
 
+  // Some detailed dumps contain heap profiler information.
+  var HEAP_PROFILER_DETAIL_NAME = 'heap_profiler';
+
   var BOUNDARIES_FOR_UNIT_MAP = new WeakMap();
   // For unitless numerics (process counts), we use 20 linearly scaled bins
   // from 0 to 20.
@@ -287,16 +290,17 @@ tr.exportTo('tr.metrics.sh', function() {
           });
 
           if (processDump.totals !== undefined) {
-            tr.b.iterItems({
-              'residentBytes': RESIDENT_SIZE,
-              'peakResidentBytes': PEAK_RESIDENT_SIZE
-            }, function(totalName, property) {
-              addProcessScalar({
-                source: 'reported_by_os',
-                property: property,
-                component: ['system_memory'],
-                value: processDump.totals[totalName]
-              });
+            addProcessScalar({
+              source: 'reported_by_os',
+              property: RESIDENT_SIZE,
+              component: ['system_memory'],
+              value: processDump.totals['residentBytes']
+            });
+            addProcessScalar({
+              source: 'reported_by_os',
+              property: PEAK_RESIDENT_SIZE,
+              component: ['system_memory'],
+              value: processDump.totals['peakResidentBytes']
             });
           }
 
@@ -363,7 +367,7 @@ tr.exportTo('tr.metrics.sh', function() {
       var mallocDump = isolateDump.getDescendantDumpByFullName('malloc');
       if (mallocDump !== undefined) {
         addV8ComponentValues(mallocDump, ['v8', 'allocated_by_malloc'],
-                             addProcessScalar);
+            addProcessScalar);
       }
       // v8:heap:...
       var heapDump = isolateDump.getDescendantDumpByFullName('heap_spaces');
@@ -373,7 +377,7 @@ tr.exportTo('tr.metrics.sh', function() {
           if (spaceDump.name === 'other_spaces')
             return;
           addV8ComponentValues(spaceDump, ['v8', 'heap', spaceDump.name],
-                               addProcessScalar);
+              addProcessScalar);
         });
       }
     });
@@ -403,7 +407,7 @@ tr.exportTo('tr.metrics.sh', function() {
    * @param {!function} addProcessScalar The callback for adding a scalar value.
    */
   function addV8ComponentValues(componentDump, componentPath,
-                                addProcessScalar) {
+      addProcessScalar) {
     CHROME_VALUE_PROPERTIES.forEach(function(property) {
       addProcessScalar({
         source: 'reported_by_chrome',
@@ -676,28 +680,27 @@ tr.exportTo('tr.metrics.sh', function() {
         function(processDump, addProcessScalar) {
           // Add memory:<browser-name>:<process-name>:reported_by_os:
           // system_memory:... values.
-          tr.b.iterItems(
-              SYSTEM_VALUE_COMPONENTS,
-              function(componentName, componentSpec) {
-                tr.b.iterItems({
-                  'proportionalResident': PROPORTIONAL_RESIDENT_SIZE,
-                  'privateDirtyResident': PRIVATE_DIRTY_SIZE
-                }, function(byteStatName, property) {
-                  var node = getDescendantVmRegionClassificationNode(
-                      processDump.vmRegions,
-                      componentSpec.classificationPath);
-                  var componentPath = ['system_memory'];
-                  if (componentName)
-                    componentPath.push(componentName);
-                  addProcessScalar({
-                    source: 'reported_by_os',
-                    component: componentPath,
-                    property: property,
-                    value: node === undefined ?
-                        0 : (node.byteStats[byteStatName] || 0)
-                  });
-                });
-              });
+          for (var [componentName, componentSpec] of
+              Object.entries(SYSTEM_VALUE_COMPONENTS)) {
+            var node = getDescendantVmRegionClassificationNode(
+                processDump.vmRegions, componentSpec.classificationPath);
+            var componentPath = ['system_memory'];
+            if (componentName) componentPath.push(componentName);
+            addProcessScalar({
+              source: 'reported_by_os',
+              component: componentPath,
+              property: PROPORTIONAL_RESIDENT_SIZE,
+              value: node === undefined ?
+                  0 : (node.byteStats['proportionalResident'] || 0)
+            });
+            addProcessScalar({
+              source: 'reported_by_os',
+              component: componentPath,
+              property: PRIVATE_DIRTY_SIZE,
+              value: node === undefined ?
+                  0 : (node.byteStats['privateDirtyResident'] || 0)
+            });
+          }
 
           // Add memory:<browser-name>:<process-name>:reported_by_os:
           // gpu_memory:... values.
@@ -732,6 +735,10 @@ tr.exportTo('tr.metrics.sh', function() {
     'native_heap': {
       classificationPath: ['Native heap'],
       userFriendlyName: 'the native heap'
+    },
+    'stack': {
+      classificationPath: ['Stack'],
+      userFriendlyName: 'the thread stacks'
     }
   };
 
@@ -754,7 +761,8 @@ tr.exportTo('tr.metrics.sh', function() {
    * adds the following values:
    *
    *   * DUMP COUNTS
-   *     memory:{chrome, webview}:all_processes:dump_count[:{light, detailed}]
+   *     memory:{chrome, webview}:all_processes:dump_count
+   *         [:{light, detailed, heap_profiler}]
    *     type: tr.v.Histogram
    *     unit: count_smallerIsBetter
    *
@@ -770,6 +778,7 @@ tr.exportTo('tr.metrics.sh', function() {
       LEVEL_OF_DETAIL_NAMES.forEach(function(levelOfDetailName) {
         levelOfDetailNameToDumpCount[levelOfDetailName] = 0;
       });
+      levelOfDetailNameToDumpCount[HEAP_PROFILER_DETAIL_NAME] = 0;
 
       globalDumps.forEach(function(globalDump) {
         totalDumpCount++;
@@ -777,20 +786,40 @@ tr.exportTo('tr.metrics.sh', function() {
         // Increment the level-of-detail-specific dump count (if possible).
         var levelOfDetailName =
             LEVEL_OF_DETAIL_NAMES.get(globalDump.levelOfDetail);
-        if (!(levelOfDetailName in levelOfDetailNameToDumpCount))
+        if (levelOfDetailName === undefined)
           return;  // Unknown level of detail.
         levelOfDetailNameToDumpCount[levelOfDetailName]++;
+        if (globalDump.levelOfDetail === DETAILED) {
+          if (detectHeapProfilerInMemoryDump(globalDump)) {
+            levelOfDetailNameToDumpCount[HEAP_PROFILER_DETAIL_NAME]++;
+          }
+        }
       });
 
       // Add memory:<browser-name>:all_processes:dump_count[:<level>] values.
       reportMemoryDumpCountAsValue(browserName, undefined /* total */,
           totalDumpCount, values);
-      tr.b.iterItems(levelOfDetailNameToDumpCount,
-          function(levelOfDetailName, levelOfDetailDumpCount) {
-            reportMemoryDumpCountAsValue(browserName, levelOfDetailName,
-                levelOfDetailDumpCount, values);
-          });
+      for (var [levelOfDetailName, levelOfDetailDumpCount] of
+          Object.entries(levelOfDetailNameToDumpCount)) {
+        reportMemoryDumpCountAsValue(browserName, levelOfDetailName,
+            levelOfDetailDumpCount, values);
+      }
     });
+  }
+
+  /**
+   * Check whether detailed global dump has heap profiler information or not.
+   */
+  function detectHeapProfilerInMemoryDump(globalDump) {
+    for (let processDump of Object.values(globalDump.processMemoryDumps)) {
+      if (processDump.heapDumps && processDump.heapDumps.malloc) {
+        var mallocDump = processDump.heapDumps.malloc;
+        if (mallocDump.entries && mallocDump.entries.length > 0) {
+          return true;
+        }
+      }
+    }
+    return false;
   }
 
   /**
@@ -811,10 +840,14 @@ tr.exportTo('tr.metrics.sh', function() {
         BOUNDARIES_FOR_UNIT_MAP.get(count_smallerIsBetter));
     histogram.addSample(levelOfDetailDumpCount);
 
+    // If |levelOfDetail| argument is undefined it means a total value.
+    var userFriendlyLevelOfDetail =
+        (levelOfDetailName || 'all').replace('_', ' ');
+
     // Build the options for the memory value.
     histogram.description = [
       'total number of',
-      levelOfDetailName || 'all',
+      userFriendlyLevelOfDetail,
       'memory dumps added by',
       convertBrowserNameToUserFriendlyName(browserName),
       'to the trace'
@@ -991,11 +1024,11 @@ tr.exportTo('tr.metrics.sh', function() {
     var sourceToPropertyToBuilder = new Map();
     var dumpCount = globalDumps.length;
     globalDumps.forEach(function(globalDump, dumpIndex) {
-      tr.b.iterItems(globalDump.processMemoryDumps, function(_, processDump) {
+      for (var processDump of Object.values(globalDump.processMemoryDumps)) {
         extractDataFromProcessDump(
             processDump, sourceToPropertyToBuilder, dumpIndex, dumpCount,
             customProcessDumpValueExtractor);
-      });
+      }
     });
     return sourceToPropertyToBuilder;
   }
@@ -1015,16 +1048,16 @@ tr.exportTo('tr.metrics.sh', function() {
           var component = spec.component || [];
           function createDetailsForErrorMessage() {
             return ['source=', spec.source, ', property=',
-                spec.property.name || '(undefined)', ', component=',
-                component.length === 0 ? '(empty)' : component.join(':'),
-                ' in ', processDump.process.userFriendlyName].join('');
+              spec.property.name || '(undefined)', ', component=',
+              component.length === 0 ? '(empty)' : component.join(':'),
+              ' in ', processDump.process.userFriendlyName].join('');
           }
 
           var value;
-          if (spec.value instanceof tr.v.ScalarNumeric) {
+          if (spec.value instanceof tr.b.Scalar) {
             value = spec.value.value;
             if (spec.value.unit !== spec.property.unit) {
-              throw new Error('ScalarNumeric unit for ' +
+              throw new Error('Scalar unit for ' +
                   createDetailsForErrorMessage() + ' (' +
                   spec.value.unit.unitName +
                   ') doesn\'t match the unit of the property (' +
@@ -1059,7 +1092,6 @@ tr.exportTo('tr.metrics.sh', function() {
 
   function reportDataAsValues(sourceToPropertyToBuilder, browserName,
       customComponentTreeModifier, values) {
-
     // For each source name (e.g. 'reported_by_os')...
     sourceToPropertyToBuilder.forEach(function(propertyToBuilder, sourceName) {
       // For each property (e.g. EFFECTIVE_SIZE)...
@@ -1086,7 +1118,6 @@ tr.exportTo('tr.metrics.sh', function() {
    */
   function reportComponentDataAsValues(browserName, sourceName, property,
       componentPath, tree, values, customComponentTreeModifier) {
-
     var breakdown = new tr.v.d.RelatedHistogramBreakdown();
     breakdown.colorScheme = PROCESS_COLOR_SCHEME_NAME;
 
@@ -1154,7 +1185,7 @@ tr.exportTo('tr.metrics.sh', function() {
    * |componentPath|.
    */
   function buildNamedMemoryNumericFromNode(
-        browserName, sourceName, property, processName, componentPath, node) {
+      browserName, sourceName, property, processName, componentPath, node) {
     var name = getNumericName(
         browserName, sourceName, property.name, processName, componentPath);
     var description = getNumericDescription(

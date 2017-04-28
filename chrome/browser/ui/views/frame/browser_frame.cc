@@ -33,8 +33,7 @@
 #include "ui/views/widget/native_widget.h"
 
 #if defined(OS_CHROMEOS)
-#include "ash/common/session/session_state_delegate.h"  // nogncheck
-#include "ash/common/wm_shell.h"  // nogncheck
+#include "components/user_manager/user_manager.h"
 #endif
 
 #if defined(OS_LINUX)
@@ -230,6 +229,11 @@ void BrowserFrame::OnNativeWidgetWorkspaceChanged() {
   Widget::OnNativeWidgetWorkspaceChanged();
 }
 
+void BrowserFrame::OnNativeThemeUpdated(ui::NativeTheme* observed_theme) {
+  views::Widget::OnNativeThemeUpdated(observed_theme);
+  browser_view_->NativeThemeUpdated(observed_theme);
+}
+
 void BrowserFrame::ShowContextMenuForView(views::View* source,
                                           const gfx::Point& p,
                                           ui::MenuSourceType source_type) {
@@ -257,9 +261,8 @@ void BrowserFrame::ShowContextMenuForView(views::View* source,
 
 ui::MenuModel* BrowserFrame::GetSystemMenuModel() {
 #if defined(OS_CHROMEOS)
-  ash::SessionStateDelegate* delegate =
-      ash::WmShell::Get()->GetSessionStateDelegate();
-  if (delegate && delegate->NumberOfLoggedInUsers() > 1) {
+  if (user_manager::UserManager::IsInitialized() &&
+      user_manager::UserManager::Get()->GetLoggedInUsers().size() > 1) {
     // In Multi user mode, the number of users as well as the order of users
     // can change. Coming here we have more than one user and since the menu
     // model contains the user information, it must get updated to show any

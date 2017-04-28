@@ -37,8 +37,8 @@ class D3D11EmulatedIndexedBufferTest : public ANGLETest
 
         mSourceBuffer      = new rx::Buffer11(mBufferState, mRenderer);
         GLfloat testData[] = { 1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f };
-        gl::Error error =
-            mSourceBuffer->setData(GL_ARRAY_BUFFER, testData, sizeof(testData), GL_STATIC_DRAW);
+        gl::Error error    = mSourceBuffer->setData(nullptr, GL_ARRAY_BUFFER, testData,
+                                                 sizeof(testData), GL_STATIC_DRAW);
         ASSERT_FALSE(error.isError());
 
         mTranslatedAttribute.baseOffset            = 0;
@@ -166,7 +166,7 @@ TEST_P(D3D11EmulatedIndexedBufferTest, TestSourceBufferRemainsUntouchedAfterExpa
     // Copy the original source buffer before any expand calls have been made
     gl::BufferState cleanSourceState;
     rx::Buffer11 *cleanSourceBuffer = new rx::Buffer11(cleanSourceState, mRenderer);
-    cleanSourceBuffer->copySubData(mSourceBuffer, 0, 0, mSourceBuffer->getSize());
+    cleanSourceBuffer->copySubData(nullptr, mSourceBuffer, 0, 0, mSourceBuffer->getSize());
 
     // Do a basic exanded and compare test.
     rx::SourceIndexData srcData = {nullptr, muintIndices.data(),

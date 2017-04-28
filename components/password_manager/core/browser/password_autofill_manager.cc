@@ -17,7 +17,7 @@
 #include "base/strings/string16.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
-#include "components/autofill/core/browser/autofill_driver.h"
+#include "components/autofill/core/browser/autofill_client.h"
 #include "components/autofill/core/browser/autofill_experiments.h"
 #include "components/autofill/core/browser/popup_item_ids.h"
 #include "components/autofill/core/browser/suggestion.h"
@@ -29,7 +29,6 @@
 #include "components/password_manager/core/browser/password_manager_metrics_util.h"
 #include "components/security_state/core/security_state.h"
 #include "components/strings/grit/components_strings.h"
-#include "grit/components_strings.h"
 #include "ui/base/l10n/l10n_util.h"
 
 namespace password_manager {
@@ -139,8 +138,7 @@ PasswordAutofillManager::PasswordAutofillManager(
     autofill::AutofillClient* autofill_client)
     : password_manager_driver_(password_manager_driver),
       autofill_client_(autofill_client),
-      weak_ptr_factory_(this) {
-}
+      weak_ptr_factory_(this) {}
 
 PasswordAutofillManager::~PasswordAutofillManager() {
 }
@@ -258,6 +256,16 @@ void PasswordAutofillManager::OnShowNotSecureWarning(
     base::i18n::TextDirection text_direction,
     const gfx::RectF& bounds) {
   DCHECK(security_state::IsHttpWarningInFormEnabled());
+  // TODO(estark): Other code paths in this file don't do null checks before
+  // using |autofill_client_|. It seems that these other code paths somehow
+  // short-circuit before dereferencing |autofill_client_| in cases where it's
+  // null; it would be good to understand why/how and make a firm decision about
+  // whether |autofill_client_| is allowed to be null. Ideally we would be able
+  // to get rid of such cases so that we can enable Form-Not-Secure warnings
+  // here in all cases. https://crbug.com/699217
+  if (!autofill_client_)
+    return;
+
   std::vector<autofill::Suggestion> suggestions;
   autofill::Suggestion http_warning_suggestion(
       l10n_util::GetStringUTF8(IDS_AUTOFILL_LOGIN_HTTP_WARNING_MESSAGE),
@@ -342,6 +350,10 @@ void PasswordAutofillManager::ClearPreviewedForm() {
 
 bool PasswordAutofillManager::IsCreditCardPopup() {
   return false;
+}
+
+autofill::AutofillDriver* PasswordAutofillManager::GetAutofillDriver() {
+  return password_manager_driver_->GetAutofillDriver();
 }
 
 ////////////////////////////////////////////////////////////////////////////////

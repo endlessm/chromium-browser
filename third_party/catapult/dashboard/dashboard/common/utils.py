@@ -332,7 +332,7 @@ def IsGroupMember(identity, group):
     return False
 
 
-def ServiceAccountHttp():
+def ServiceAccountHttp(*args, **kwargs):
   """Returns the Credentials of the service account if available."""
   account_details = stored_object.Get(SERVICE_ACCOUNT_KEY)
   if not account_details:
@@ -343,7 +343,7 @@ def ServiceAccountHttp():
       private_key=account_details['private_key'],
       scope=EMAIL_SCOPE)
 
-  http = httplib2.Http()
+  http = httplib2.Http(*args, **kwargs)
   credentials.authorize(http)
   return http
 
@@ -485,6 +485,16 @@ def GetBuildDetailsFromStdioLink(stdio_link):
   return base_url, master, bot, buildnumber, step
 
 
+def GetStdioLinkFromRow(row):
+  """Returns the markdown-style buildbot stdio link.
+
+  Due to crbug.com/690630, many row entities have this set to "a_a_stdio_uri"
+  instead of "a_stdio_uri".
+  """
+  return(getattr(row, 'a_stdio_uri', None) or
+         getattr(row, 'a_a_stdio_uri', None))
+
+
 def GetBuildbotStatusPageUriFromStdioLink(stdio_link):
   base_url, _, bot, buildnumber, _ = GetBuildDetailsFromStdioLink(
       stdio_link)
@@ -504,3 +514,7 @@ def GetLogdogLogUriFromStdioLink(stdio_link):
   s_param = urllib.quote('chrome/bb/%s/%s/%s/+/recipes/steps/%s/0/stdout' % (
       master, bot, buildnumber, step), safe='')
   return 'https://luci-logdog.appspot.com/v/?s=%s' % s_param
+
+def GetRowKey(testmetadata_key, revision):
+  test_container_key = GetTestContainerKey(testmetadata_key)
+  return ndb.Key('Row', revision, parent=test_container_key)

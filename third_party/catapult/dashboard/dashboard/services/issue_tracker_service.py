@@ -146,7 +146,8 @@ class IssueTrackerService(object):
     if owner:
       body['owner'] = {'name': owner}
     if cc:
-      body['cc'] = [{'name': account} for account in cc.split(',') if account]
+      body['cc'] = [{'name': account.strip()}
+                    for account in cc.split(',') if account.strip()]
     return self._MakeCreateRequest(body)
 
   def _MakeCreateRequest(self, body):
@@ -168,6 +169,26 @@ class IssueTrackerService(object):
       return response['id']
     logging.error('Failed to create new bug; response %s', response)
     return None
+
+  def GetIssueComments(self, bug_id):
+    """Gets all the comments for the given bug.
+
+    Args:
+      bug_id: Bug ID of the issue to update.
+
+    Returns:
+      A list of comments
+    """
+    if not bug_id or bug_id < 0:
+      return None
+    response = self._MakeGetCommentsRequest(bug_id)
+    if not response:
+      return None
+    return [{
+        'author': r['author'].get('name'),
+        'content': r['content'],
+        'published': r['published']
+        } for r in response.get('items')]
 
   def GetLastBugCommentsAndTimestamp(self, bug_id):
     """Gets last updated comments and timestamp in the given bug.

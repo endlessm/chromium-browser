@@ -56,9 +56,9 @@
 
 #if defined(OS_CHROMEOS)
 #include "ash/common/multi_profile_uma.h"
-#include "ash/common/session/session_state_delegate.h"
 #include "ash/common/wm_shell.h"
 #include "chrome/browser/memory/tab_manager_delegate_chromeos.h"
+#include "components/user_manager/user_manager.h"
 #endif
 
 using base::TimeDelta;
@@ -138,6 +138,8 @@ void NotifyRendererProcess(
 
 ////////////////////////////////////////////////////////////////////////////////
 // TabManager
+
+constexpr base::TimeDelta TabManager::kDefaultTimeToFirstPurge;
 
 TabManager::TabManager()
     : discard_count_(0),
@@ -226,13 +228,13 @@ void TabManager::Start() {
   // https://docs.google.com/document/d/1hPHkKtXXBTlsZx9s-9U17XC-ofEIzPo9FYbBEc7PPbk/edit?usp=sharing
   std::string purge_and_suspend_time = variations::GetVariationParamValue(
       "PurgeAndSuspend", "purge-and-suspend-time");
-  unsigned time_to_first_suspension_sec;
+  unsigned int time_to_first_purge_sec = 0;
   if (purge_and_suspend_time.empty() ||
-      !base::StringToUint(purge_and_suspend_time,
-                          &time_to_first_suspension_sec))
-    time_to_first_suspension_sec = 108000;
-  time_to_first_suspension_ =
-      base::TimeDelta::FromSeconds(time_to_first_suspension_sec);
+      !base::StringToUint(purge_and_suspend_time, &time_to_first_purge_sec))
+    time_to_first_suspension_ = kDefaultTimeToFirstPurge;
+  else
+    time_to_first_suspension_ =
+        base::TimeDelta::FromSeconds(time_to_first_purge_sec);
 }
 
 void TabManager::Stop() {
@@ -241,7 +243,7 @@ void TabManager::Stop() {
   memory_pressure_listener_.reset();
 }
 
-TabStatsList TabManager::GetTabStats() {
+TabStatsList TabManager::GetTabStats() const {
   TabStatsList stats_list(GetUnsortedTabStats());
 
   // Sort the collected data so that least desirable to be killed is first, most
@@ -251,7 +253,8 @@ TabStatsList TabManager::GetTabStats() {
   return stats_list;
 }
 
-std::vector<content::RenderProcessHost*> TabManager::GetOrderedRenderers() {
+std::vector<content::RenderProcessHost*>
+TabManager::GetOrderedRenderers() const {
   // Get the tab stats.
   auto tab_stats = GetTabStats();
 
@@ -397,7 +400,7 @@ void TabManager::set_test_tick_clock(base::TickClock* test_tick_clock) {
 // 1) whether or not a tab is pinned
 // 2) last time a tab was selected
 // 3) is the tab currently selected
-TabStatsList TabManager::GetUnsortedTabStats() {
+TabStatsList TabManager::GetUnsortedTabStats() const {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   TabStatsList stats_list;
   stats_list.reserve(32);  // 99% of users have < 30 tabs open.
@@ -440,7 +443,8 @@ void TabManager::SetTabAutoDiscardableState(content::WebContents* contents,
   GetWebContentsData(contents)->SetAutoDiscardableState(state);
 }
 
-content::WebContents* TabManager::GetWebContentsById(int64_t tab_contents_id) {
+content::WebContents* TabManager::GetWebContentsById(
+    int64_t tab_contents_id) const {
   TabStripModel* model = nullptr;
   int index = FindTabStripModelById(tab_contents_id, &model);
   if (index == -1)
@@ -448,7 +452,7 @@ content::WebContents* TabManager::GetWebContentsById(int64_t tab_contents_id) {
   return model->GetWebContentsAt(index);
 }
 
-bool TabManager::CanSuspendBackgroundedRenderer(int render_process_id) {
+bool TabManager::CanSuspendBackgroundedRenderer(int render_process_id) const {
   // A renderer can be suspended if it's not playing media.
   auto tab_stats = GetUnsortedTabStats();
   for (auto& tab : tab_stats) {
@@ -563,9 +567,8 @@ void TabManager::RecordDiscardStatistics() {
   // Record the discarded tab in relation to the amount of simultaneously
   // logged in users.
   if (ash::WmShell::HasInstance()) {
-    ash::MultiProfileUMA::RecordDiscardedTab(ash::WmShell::Get()
-                                                 ->GetSessionStateDelegate()
-                                                 ->NumberOfLoggedInUsers());
+    ash::MultiProfileUMA::RecordDiscardedTab(
+        user_manager::UserManager::Get()->GetLoggedInUsers().size());
   }
 #endif
   // TODO(jamescook): If the time stats prove too noisy, then divide up users
@@ -632,7 +635,7 @@ int TabManager::GetTabCount() const {
   return tab_count;
 }
 
-void TabManager::AddTabStats(TabStatsList* stats_list) {
+void TabManager::AddTabStats(TabStatsList* stats_list) const {
   BrowserList* browser_list = BrowserList::GetInstance();
   for (BrowserList::const_reverse_iterator browser_iterator =
            browser_list->begin_last_active();
@@ -651,7 +654,7 @@ void TabManager::AddTabStats(TabStatsList* stats_list) {
 void TabManager::AddTabStats(const TabStripModel* model,
                              bool is_app,
                              bool active_model,
-                             TabStatsList* stats_list) {
+                             TabStatsList* stats_list) const {
   for (int i = 0; i < model->count(); i++) {
     WebContents* contents = model->GetWebContentsAt(i);
     if (!contents->IsCrashed()) {
@@ -1020,7 +1023,7 @@ content::WebContents* TabManager::DiscardTabImpl() {
 // Check the variation parameter to see if a tab can be discarded only once or
 // multiple times.
 // Default is to only discard once per tab.
-bool TabManager::CanOnlyDiscardOnce() {
+bool TabManager::CanOnlyDiscardOnce() const {
 #if defined(OS_WIN) || defined(OS_MACOSX)
   // On Windows and MacOS, default to discarding only once unless otherwise
   // specified by the variation parameter.

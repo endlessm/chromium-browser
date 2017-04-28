@@ -17,20 +17,12 @@ found in the LICENSE file.
 Polymer({
   is: 'tr-v-ui-telemetry-info-span',
 
-  ready: function() {
+  ready() {
     this.diagnostic_ = undefined;
     this.$.table.showHeader = false;
     this.$.table.tableColumns = [
-      {
-        value: function(row) {
-          return row[0];
-        },
-      },
-      {
-        value: function(row) {
-          return row[1];
-        }
-      }
+      {value: row => row[0]},
+      {value: row => row[1]},
     ];
   },
 
@@ -43,13 +35,13 @@ Polymer({
     this.updateContents_();
   },
 
-  updateContents_: function() {
+  updateContents_() {
     if (this.diagnostic === undefined) {
       this.$.table.tableRows = [];
       return;
     }
 
-    var rows = [];
+    let rows = [];
 
     if (this.diagnostic.benchmarkName) {
       rows.push(['benchmark name', this.diagnostic.benchmarkName]);
@@ -66,16 +58,16 @@ Polymer({
     if (this.diagnostic.storysetRepeatCounter !== undefined) {
       rows.push(['storyset repeat', this.diagnostic.storysetRepeatCounter]);
     }
-    if (this.diagnostic.storyRepeatCounter !== undefined) {
-      rows.push(['story repeat', this.diagnostic.storyRepeatCounter]);
-    }
     if (this.diagnostic.label) {
       rows.push(['label', this.diagnostic.label]);
     }
-    if (this.diagnostic.storyGroupingKeys &&
-        (tr.b.dictionaryLength(this.diagnostic.storyGroupingKeys) > 0)) {
-      var gov = document.createElement('tr-ui-a-generic-object-view');
-      gov.object = this.diagnostic.storyGroupingKeys;
+    if (this.diagnostic.storyGroupingKeys.size) {
+      let gov = document.createElement('tr-ui-a-generic-object-view');
+      let obj = {};
+      for (let [key, value] of this.diagnostic.storyGroupingKeys) {
+        obj[key] = value;
+      }
+      gov.object = obj;
       rows.push(['grouping keys', gov]);
     }
     this.$.table.tableRows = rows;

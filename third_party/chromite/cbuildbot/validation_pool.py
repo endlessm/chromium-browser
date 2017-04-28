@@ -20,7 +20,6 @@ from xml.dom import minidom
 
 from chromite.cbuildbot import lkgm_manager
 from chromite.cbuildbot import tree_status
-from chromite.cbuildbot import triage_lib
 from chromite.cbuildbot import patch_series
 from chromite.lib import config_lib
 from chromite.lib import constants
@@ -35,6 +34,7 @@ from chromite.lib import gob_util
 from chromite.lib import parallel
 from chromite.lib import patch as cros_patch
 from chromite.lib import timeout_util
+from chromite.lib import triage_lib
 
 
 site_config = config_lib.GetConfig()
@@ -183,8 +183,6 @@ class ValidationPool(object):
   THROTTLED_OK = True
   GLOBAL_DRYRUN = False
   DEFAULT_TIMEOUT = 60 * 60 * 4
-  # How long to wait when the tree is throttled before checking for CR+1 CL's.
-  CQ_THROTTLED_TIMEOUT = 60 * 10
   SLEEP_TIMEOUT = 30
   # Buffer time to leave when using the global build deadline as the sync stage
   # timeout. We need some time to possibly extend the global build deadline
@@ -283,6 +281,9 @@ class ValidationPool(object):
     self.candidates = candidates or []
     self.non_manifest_changes = non_os_changes or []
     self.applied = applied or []
+    self.applied_patches = None
+    # Whether this pool picked up new chumpped CLs.
+    self.has_chump_cls = False
 
     # Note, we hold onto these CLs since they conflict against our current CLs
     # being tested; if our current ones succeed, we notify the user to deal
@@ -297,6 +298,17 @@ class ValidationPool(object):
 
     # Set to False if the tree was not open when we acquired changes.
     self.tree_was_open = tree_was_open
+
+  def GetAppliedPatches(self):
+    """Get the applied_patches instance.
+
+    Returns:
+      Return applied_patches (a patch_series.PatchSeries instance) if it's
+      not None so we can reuse the cached Gerrit query results; else,
+      create and return a patch_series.PatchSeries instance.
+    """
+    return self.applied_patches or patch_series.PatchSeries(
+        self.build_root, helper_pool=self._helper_pool)
 
   @property
   def build_log(self):
@@ -353,8 +365,6 @@ class ValidationPool(object):
     # Dictionary that maps CQ Queries to msg's to display.
     if query == constants.CQ_READY_QUERY:
       return 'new CLs'
-    elif query == constants.THROTTLED_CQ_READY_QUERY:
-      return 'new CQ+2 CLs or the tree to open'
     else:
       return 'waiting for tree to open'
 
@@ -448,9 +458,6 @@ class ValidationPool(object):
           timeout = time_to_deadline - cls.EXTENSION_TIMEOUT_BUFFER
 
     end_time = time.time() + timeout
-    # How long to wait until if the tree is throttled and we want to be more
-    # accepting of changes. We leave it as end_time whenever the tree is open.
-    tree_throttled_time = end_time
     status = constants.TREE_OPEN
 
     while True:
@@ -462,14 +469,6 @@ class ValidationPool(object):
           status = tree_status.WaitForTreeStatus(
               period=cls.SLEEP_TIMEOUT, timeout=time_left,
               throttled_ok=cls.THROTTLED_OK)
-          # Manages the timer for accepting CL's >= CR+1 based on tree status.
-          # If the tree is not open.
-          if status == constants.TREE_OPEN:
-            # Reset the timer in case it was changed.
-            tree_throttled_time = end_time
-          elif tree_throttled_time == end_time:
-            # Tree not open and tree_throttled_time not set.
-            tree_throttled_time = current_time + cls.CQ_THROTTLED_TIMEOUT
         except timeout_util.TimeoutError:
           raise TreeIsClosedException(
               closed_or_throttled=not cls.THROTTLED_OK)
@@ -477,18 +476,8 @@ class ValidationPool(object):
       # Sync so that we are up-to-date on what is committed.
       repo.Sync()
 
-      # Determine the query to use.
       gerrit_query, ready_fn = query
-      tree_was_open = True
-      if (status == constants.TREE_THROTTLED and
-          query == constants.CQ_READY_QUERY):
-        if current_time < tree_throttled_time:
-          gerrit_query, ready_fn = constants.THROTTLED_CQ_READY_QUERY
-        else:
-          # Note we only apply the tree not open logic after a given
-          # window.
-          tree_was_open = False
-          gerrit_query, ready_fn = constants.CQ_READY_QUERY
+      tree_was_open = (status == constants.TREE_OPEN)
 
       pool = ValidationPool(overlays, repo.directory, build_number,
                             builder_name, True, dryrun, builder_run=builder_run,
@@ -761,7 +750,8 @@ class ValidationPool(object):
     applied = []
     failed_tot = []
     failed_inflight = []
-    patches = patch_series.PatchSeries(
+
+    self.applied_patches = patch_series.PatchSeries(
         self.build_root, helper_pool=self._helper_pool)
 
     if self.is_master:
@@ -770,7 +760,7 @@ class ValidationPool(object):
                       c not in self.applied and filter_fn(c)]
 
         # pylint: disable=E1123
-        applied, failed_tot, failed_inflight = patches.Apply(
+        applied, failed_tot, failed_inflight = self.applied_patches.Apply(
             candidates, manifest=manifest)
       except (KeyboardInterrupt, RuntimeError, SystemExit):
         raise
@@ -811,7 +801,7 @@ class ValidationPool(object):
       for change in self.candidates:
         try:
           # pylint: disable=E1123
-          patches.ApplyChange(change, manifest=manifest)
+          self.applied_patches.ApplyChange(change, manifest=manifest)
         except cros_patch.PatchException as e:
           # Fail if any patch cannot be applied.
           self._HandleApplyFailure([InternalCQError(change, e)])
@@ -855,6 +845,110 @@ class ValidationPool(object):
     self.applied.extend(applied)
 
     return bool(self.applied)
+
+  def GetDependMapForChanges(self, changes, patches):
+    """Get a dependency map for changes.
+
+    Generate and return a dict mapping each change to a set of changes which
+    depend on this change.
+    For instance, say "A -> B" means "A depends on B"
+    Suppose we have changes:
+    A -> B -> C
+
+    D -> E -> F
+         ^
+         |
+         G
+
+    H -> I (mutual dependency)
+    |    |
+      <-
+
+    We return the map:
+    {B : {A},
+     C : {A, B},
+     E : {D, G},
+     F : {D, E, G}
+     H : {I},
+     I : {H}}
+
+    Args:
+      changes: A list of changes to parse to generate the dependency map.
+      patches: A patch_series.PatchesSeries instance to get patch dependency.
+
+    Returns:
+      A dict mapping a change (patch.GerritPatch instance) to a set of changes
+      (patch.GerritPatch instances) depending on this change.
+    """
+    dependency_map = {}
+
+    for change in changes:
+      gerrit_deps, cq_deps = patches.GetDepChangesForChange(change)
+
+      for dep in gerrit_deps + cq_deps:
+        # Maps each change to the changes directly depending on it.
+        dependency_map.setdefault(dep, set()).add(change)
+
+    visited = set()
+    visiting = set()
+    for change in changes:
+      # Update dependency_map to map each change to all changes directly or
+      # indirectly depending on it.
+      self._UpdateDependencyMap(dependency_map, change, visiting, visited)
+
+    return dependency_map
+
+  def _UpdateDependencyMap(self, dependency_map, change, visiting, visited):
+    """For a change, find all changes depending on it and update dependency map.
+
+    The value part of a change key in the dependency map is a set of changes
+    depending on it. Some other changes may indirectly depend on this change.
+    Given the change and the dependency map, search through the dependency map
+    to find all changes (directly and indirectly) depending on this change,
+    add all the changes to the value of this change key in the dependency map.
+
+    Args:
+      dependency_map: A dict mapping a change (patch.GerritPatch instance)
+        to a set of changes (patch.GerritPatch instances) depending on this
+        change.
+      change: The change (patch.GerritPatch instance) to update.
+      visiting: A set of changes (patch.GerritPatch instance) in visiting
+        status in this search.
+      visited: A set of changes (patch.GerritPatch instance) has been visited
+        and updated with all changes depending on them.
+
+    Returns:
+      A set of changes (patch.GerritPatch instance) depending on the change,
+         or None if no change depends on this change.
+    """
+    if change in visited:
+      return dependency_map.get(change)
+
+    if change in visiting:
+      return {change}
+
+    visiting.add(change)
+
+    if change in dependency_map:
+      updated_deps = set()
+      for dep in dependency_map[change]:
+        dep_deps = self._UpdateDependencyMap(
+            dependency_map, dep, visiting, visited)
+
+        if dep_deps:
+          updated_deps.update(dep_deps)
+
+      updated_deps.discard(change)
+      dependency_map[change].update(updated_deps)
+
+    visiting.remove(change)
+
+    depends = dependency_map.get(change)
+
+    if not depends or not visiting.intersection(depends):
+      visited.add(change)
+
+    return depends
 
   @staticmethod
   def Load(filename, builder_run=None):
@@ -924,8 +1018,9 @@ class ValidationPool(object):
           if success or self.dryrun:
             submitted.append(dep_change)
         except (gob_util.GOBError, gerrit.GerritException) as e:
-          if getattr(e, 'http_status', None) == httplib.CONFLICT:
-            if e.message.rstrip().endswith('change is merged'):
+          if (isinstance(e, gob_util.GOBError) and
+              e.http_status == httplib.CONFLICT):
+            if e.reason == gob_util.GOB_ERROR_REASON_CLOSED_CHANGE:
               submitted.append(dep_change)
             else:
               dep_error = PatchConflict(dep_change)
@@ -1194,7 +1289,6 @@ class ValidationPool(object):
       return
 
     metadata = self._run.attrs.metadata
-    _, db = self._run.GetCIDBHandle()
     timestamp = int(time.time())
 
     for change in changes:
@@ -1203,8 +1297,7 @@ class ValidationPool(object):
       # TODO(akeshet): If a separate query for each insert here becomes
       # a performance issue, consider batch inserting all the cl actions
       # with a single query.
-      if db:
-        self._InsertCLActionToDatabase(change, constants.CL_ACTION_PICKED_UP)
+      self._InsertCLActionToDatabase(change, constants.CL_ACTION_PICKED_UP)
 
   @classmethod
   def FilterModifiedChanges(cls, changes):
@@ -1364,17 +1457,49 @@ class ValidationPool(object):
     metadata = self._run.attrs.metadata
     timestamp = int(time.time())
     metadata.RecordCLAction(change, action, timestamp)
-    _, db = self._run.GetCIDBHandle()
     # NOTE(akeshet): The same |reason| will be recorded, regardless of whether
     # the change was submitted successfully or unsuccessfully. This is
     # probably what we want, because it gives us a way to determine why we
     # tried to submit changes that failed to submit.
-    if db:
-      self._InsertCLActionToDatabase(change, action, reason)
+    self._InsertCLActionToDatabase(change, action, reason)
 
-  def RemoveReady(self, change, reason=None):
-    """Remove the commit ready and trybot ready bits for |change|."""
-    self._helper_pool.ForChange(change).RemoveReady(change, dryrun=self.dryrun)
+  def _RemoveCodeReview(self, failure):
+    """Determine whether to remove the 'Code-Review' ready label.
+
+    Args:
+      failure: cros_patch.PatchException instance.
+
+    Returns:
+      Boolean indicating whether to reset the Code-Review to 0.
+    """
+    if (self._builder_name == constants.PRE_CQ_LAUNCHER_NAME and
+        (isinstance(failure, cros_patch.BrokenCQDepends) or
+         isinstance(failure, cros_patch.BrokenChangeID))):
+      return True
+    else:
+      return False
+
+  def RemoveReady(self, change, failure=None, reason=None):
+    """Remove the commit ready and trybot ready bits for |change|.
+
+    Args:
+      change: A GerritPatch or GerritPatchTuple object.
+      failure: A cros_patch.PatchException instance.
+      reason: string reason for submission to be recorded in cidb. (Should be
+              None or constant with name STRATEGY_* from constants.py):
+    """
+    try:
+      extra_labels = ({'Code-Review'} if self._RemoveCodeReview(failure)
+                      else None)
+      self._helper_pool.ForChange(change).RemoveReady(
+          change, extra_labels=extra_labels, dryrun=self.dryrun)
+    except gob_util.GOBError as e:
+      if (e.http_status == httplib.CONFLICT and
+          e.reason == gob_util.GOB_ERROR_REASON_CLOSED_CHANGE):
+        logging.warning('The change is closed. Ignore the GOB CONFLICT error.')
+      else:
+        raise
+
     if self._run:
       metadata = self._run.attrs.metadata
       timestamp = int(time.time())
@@ -1520,7 +1645,7 @@ class ValidationPool(object):
     msg = ('%(queue)s failed to apply your change in %(build_log)s .'
            ' %(failure)s')
     self.SendNotification(failure.patch, msg, failure=failure)
-    self.RemoveReady(failure.patch)
+    self.RemoveReady(failure.patch, failure=failure)
 
   def _HandleIncorrectSubmission(self, failure):
     """Handler for when Paladin incorrectly submits a change."""
@@ -1798,19 +1923,3 @@ class ValidationPool(object):
     if failed:
       self._HandleApplyFailure(failed)
     return plans
-
-  def RecordIrrelevantChanges(self, changes):
-    """Records |changes| irrelevant to the slave build into cidb.
-
-    Args:
-      changes: A set of irrelevant changes to record.
-    """
-    if changes:
-      logging.info('The following changes are irrelevant to this build: %s',
-                   cros_patch.GetChangesAsString(changes))
-    else:
-      logging.info('All changes are considered relevant to this build.')
-
-    for change in changes:
-      self._InsertCLActionToDatabase(change,
-                                     constants.CL_ACTION_IRRELEVANT_TO_SLAVE)

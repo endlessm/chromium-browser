@@ -81,24 +81,48 @@ class GraphJsonHandler(request_handler.RequestHandler):
       logging.error('Invalid JSON string for graphs')
       return None
 
-    if not graphs.get('test_path_dict'):
-      logging.error('No test_path_dict specified')
+    test_path_dict = graphs.get('test_path_dict')
+    test_path_list = graphs.get('test_path_list')
+    is_selected = graphs.get('is_selected')
+
+    if test_path_dict and test_path_list:
+      logging.error(
+          'Only one of test_path_dict and test_path_list may be specified')
+      return None
+    elif test_path_dict:
+      test_paths = _ResolveTestPathDict(test_path_dict, is_selected)
+    elif test_path_list:
+      test_paths = test_path_list
+    else:
+      logging.error(
+          'Exactly one of test_path_dict or test_path_list must be specified')
       return None
 
     arguments = {
-        'test_path_dict': graphs['test_path_dict'],
+        'test_paths': test_paths,
         'rev': _PositiveIntOrNone(graphs.get('rev')),
         'num_points': (_PositiveIntOrNone(graphs.get('num_points'))
                        or _DEFAULT_NUM_POINTS),
-        'is_selected': graphs.get('is_selected'),
+        'is_selected': is_selected,
         'start_rev': _PositiveIntOrNone(graphs.get('start_rev')),
         'end_rev': _PositiveIntOrNone(graphs.get('end_rev')),
     }
     return arguments
 
 
+def _ResolveTestPathDict(test_path_dict, is_selected):
+  # TODO(eakuefner): These are old-style test path dicts which means that []
+  # doesn't mean 'no tests' but rather 'all tests'. Remove this hack.
+  if is_selected:
+    for test, selected in test_path_dict.iteritems():
+      if selected == []:
+        test_path_dict[test] = 'all'
+
+  return list_tests.GetTestsForTestPathDict(test_path_dict, bool(is_selected))
+
+
 def GetGraphJson(
-    test_path_dict, rev=None, num_points=None,
+    test_paths, rev=None, num_points=None,
     is_selected=True, start_rev=None, end_rev=None):
   """Makes a JSON serialization of data for one chart with multiple series.
 
@@ -108,7 +132,7 @@ def GetGraphJson(
   with the arguments rev, num_points, start_rev, and end_rev.
 
   Args:
-    test_path_dict: Dictionary of test path to list of selected series.
+    test_paths: A list of test paths.
     rev: A revision number that the chart may be clamped relative to.
     num_points: Number of points to plot.
     is_selected: Whether this request is for selected or un-selected series.
@@ -119,12 +143,6 @@ def GetGraphJson(
     JSON serialization of a dict with info that will be used to plot a chart.
   """
   # TODO(qyearsley): Parallelize queries if possible.
-
-  if is_selected:
-    test_paths = _GetTestPathFromDict(test_path_dict)
-  else:
-    test_paths = _GetUnselectedTestPathFromDict(test_path_dict)
-
   # If a particular test has a lot of children, then a request will be made
   # for data for a lot of unselected series, which may be very slow and may
   # time out. In this case, return nothing.
@@ -471,63 +489,3 @@ def _FlotSeries(index):
       'color': index,
       'id': 'line_%d' % index
   }
-
-
-def _GetTestPathFromDict(test_path_dict):
-  """Gets a list of test paths from a test path dictionary.
-
-  This function looks up series and the corresponding list of selected
-  series.
-
-  Args:
-    test_path_dict: Dictionary of test path to list of selected series.
-
-  Returns:
-    List of test paths.
-  """
-  test_paths = []
-  for test_path, selected in test_path_dict.iteritems():
-    if selected:
-      # With an explicit selection, just add all the test_paths listed.
-      parent_test_name = test_path.split('/')[-1]
-      for selection in selected:
-        if selection == parent_test_name:
-          # When the element in the selected list is the same as the last part
-          # of the test_path, it's meant to mean just the test_path.
-          test_paths.append(test_path)
-        else:
-          # Generally the selected element is intended to be the last part of
-          # the test path.
-          test_paths.append('%s/%s' % (test_path, selection))
-    else:
-      # Without an explicit selection, add this test_path and any children.
-      test_paths.append(test_path)
-      test_paths.extend(list_tests.GetTestsMatchingPattern(
-          '%s/*' % test_path, only_with_rows=True))
-  return test_paths
-
-
-def _GetUnselectedTestPathFromDict(test_path_dict):
-  """Gets a list of test paths for unselected series for a test path dictionary.
-
-  This function looks up series that are directly under the provided test path
-  that are also not in the list of selected series.
-
-  Args:
-    test_path_dict: Dictionary of test path to list of selected sub-series.
-
-  Returns:
-    List of test paths.
-  """
-  test_paths = []
-  for test_path, selected in test_path_dict.iteritems():
-    parent = test_path.split('/')[-1]
-    if not parent in selected:
-      test_paths.append(test_path)
-    children = list_tests.GetTestsMatchingPattern(
-        '%s/*' % test_path, only_with_rows=True)
-    for child in children:
-      selection = child.split('/')[-1]
-      if selection not in selected:
-        test_paths.append(child)
-  return test_paths

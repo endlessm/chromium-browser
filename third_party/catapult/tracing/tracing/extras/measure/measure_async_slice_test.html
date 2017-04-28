@@ -22,17 +22,17 @@ tr.b.unittest.testSuite(function() {
     s.duration = 100;
 
     assert.equal(AsyncSlice.subTypes.getConstructor(
-      'blink.user_timing', 'createImports'),
-                 MeasureAsyncSlice);
+        'blink.user_timing', 'createImports'),
+        MeasureAsyncSlice);
     assert.equal(s.viewSubGroupTitle, 'Ungrouped Measure');
   });
 
   test('import', function() {
     var events = [
       {name: 'createImports', args: {}, pid: 1, ts: 100,
-       cat: 'blink.user_timing', tid: 2, ph: 'b', id: 71},
+        cat: 'blink.user_timing', tid: 2, ph: 'b', id: 71},
       {name: 'createImports', args: {}, pid: 1, ts: 200,
-       cat: 'blink.user_timing', tid: 2, ph: 'e', id: 71}
+        cat: 'blink.user_timing', tid: 2, ph: 'e', id: 71}
     ];
     var m = tr.c.TestUtils.newModelWithEvents([events]);
     var t2 = m.getOrCreateProcess(1).getOrCreateThread(2);
@@ -43,13 +43,13 @@ tr.b.unittest.testSuite(function() {
   test('groupMeasureAsyncSlice', function() {
     var events = [
       {name: 'createImports', args: {}, pid: 1, ts: 100,
-       cat: 'blink.user_timing', tid: 2, ph: 'b', id: 71},
+        cat: 'blink.user_timing', tid: 2, ph: 'b', id: 71},
       {name: 'createImports', args: {}, pid: 1, ts: 200,
-       cat: 'blink.user_timing', tid: 2, ph: 'e', id: 71},
+        cat: 'blink.user_timing', tid: 2, ph: 'e', id: 71},
       {name: 'runAutoClosers', args: {}, pid: 1, ts: 210,
-       cat: 'blink.user_timing', tid: 2, ph: 'b', id: 72},
+        cat: 'blink.user_timing', tid: 2, ph: 'b', id: 72},
       {name: 'runAutoClosers', args: {}, pid: 1, ts: 310,
-       cat: 'blink.user_timing', tid: 2, ph: 'e', id: 72}
+        cat: 'blink.user_timing', tid: 2, ph: 'e', id: 72}
     ];
     var m = tr.c.TestUtils.newModelWithEvents([events]);
     var t2 = m.getOrCreateProcess(1).getOrCreateThread(2);
@@ -59,6 +59,5 @@ tr.b.unittest.testSuite(function() {
     assert.instanceOf(t2.asyncSliceGroup.slices[0], MeasureAsyncSlice);
     assert.instanceOf(t2.asyncSliceGroup.slices[1], MeasureAsyncSlice);
   });
-
 });
 </script>

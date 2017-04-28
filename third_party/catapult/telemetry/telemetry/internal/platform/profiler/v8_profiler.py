@@ -2,7 +2,6 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import logging
 import re
 import tempfile
 
@@ -39,14 +38,9 @@ class V8Profiler(profiler.Profiler):
     # On Android pull the output file to the host.
     if self._platform_backend.GetOSName() == 'android':
       host_output_file = '%s.log' % self._output_path
-      try:
-        self._browser_backend.device.PullFile(
-            output_file, host_output_file)
-      except:
-        logging.exception('New exception caused by DeviceUtils conversion')
-        raise
+      self._browser_backend.device.PullFile(output_file, host_output_file)
       # Clean the device
-      self._browser_backend.device.RunShellCommand('rm %s' % output_file)
+      self._browser_backend.device.RemovePath(output_file)
       output_file = host_output_file
     print 'V8 profile saved as %s' % output_file
     print 'To view, open in ' \

@@ -45,7 +45,8 @@ DeviceLocalAccountPolicyProvider::~DeviceLocalAccountPolicyProvider() {
 std::unique_ptr<DeviceLocalAccountPolicyProvider>
 DeviceLocalAccountPolicyProvider::Create(
     const std::string& user_id,
-    DeviceLocalAccountPolicyService* device_local_account_policy_service) {
+    DeviceLocalAccountPolicyService* device_local_account_policy_service,
+    bool force_immediate_load) {
   DeviceLocalAccount::Type type;
   if (!device_local_account_policy_service ||
       !IsDeviceLocalAccountUser(user_id, &type)) {
@@ -62,7 +63,7 @@ DeviceLocalAccountPolicyProvider::Create(
     chrome_policy_overrides->Set(
         key::kLidCloseAction, POLICY_LEVEL_MANDATORY, POLICY_SCOPE_MACHINE,
         POLICY_SOURCE_PUBLIC_SESSION_OVERRIDE,
-        base::MakeUnique<base::FundamentalValue>(
+        base::MakeUnique<base::Value>(
             chromeos::PowerPolicyController::ACTION_STOP_SESSION),
         nullptr);
     // Force the |ShelfAutoHideBehavior| policy to |Never|, ensuring that the
@@ -73,22 +74,25 @@ DeviceLocalAccountPolicyProvider::Create(
         base::MakeUnique<base::StringValue>("Never"), nullptr);
     // Force the |ShowLogoutButtonInTray| policy to |true|, ensuring that a big,
     // red logout button is shown in the ash system tray.
-    chrome_policy_overrides->Set(
-        key::kShowLogoutButtonInTray, POLICY_LEVEL_MANDATORY,
-        POLICY_SCOPE_MACHINE, POLICY_SOURCE_PUBLIC_SESSION_OVERRIDE,
-        base::MakeUnique<base::FundamentalValue>(true), nullptr);
+    chrome_policy_overrides->Set(key::kShowLogoutButtonInTray,
+                                 POLICY_LEVEL_MANDATORY, POLICY_SCOPE_MACHINE,
+                                 POLICY_SOURCE_PUBLIC_SESSION_OVERRIDE,
+                                 base::MakeUnique<base::Value>(true), nullptr);
     // Force the |FullscreenAllowed| policy to |false|, ensuring that the ash
     // shelf cannot be hidden by entering fullscreen mode.
-    chrome_policy_overrides->Set(
-        key::kFullscreenAllowed, POLICY_LEVEL_MANDATORY, POLICY_SCOPE_MACHINE,
-        POLICY_SOURCE_PUBLIC_SESSION_OVERRIDE,
-        base::MakeUnique<base::FundamentalValue>(false), nullptr);
+    chrome_policy_overrides->Set(key::kFullscreenAllowed,
+                                 POLICY_LEVEL_MANDATORY, POLICY_SCOPE_MACHINE,
+                                 POLICY_SOURCE_PUBLIC_SESSION_OVERRIDE,
+                                 base::MakeUnique<base::Value>(false), nullptr);
   }
 
   std::unique_ptr<DeviceLocalAccountPolicyProvider> provider(
       new DeviceLocalAccountPolicyProvider(user_id,
                                            device_local_account_policy_service,
                                            std::move(chrome_policy_overrides)));
+  // In case of restore-after-restart broker should already be initialized.
+  if (force_immediate_load && provider->GetBroker())
+    provider->GetBroker()->LoadImmediately();
   return provider;
 }
 

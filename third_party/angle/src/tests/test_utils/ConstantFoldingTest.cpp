@@ -18,12 +18,38 @@ using namespace sh;
 void ConstantFoldingExpressionTest::evaluateFloat(const std::string &floatExpression)
 {
     std::stringstream shaderStream;
-    shaderStream << "#version 300 es\n"
+    shaderStream << "#version 310 es\n"
                     "precision mediump float;\n"
                     "out float my_FragColor;\n"
                     "void main()\n"
                     "{\n"
                  << "    my_FragColor = " << floatExpression << ";\n"
+                 << "}\n";
+    compileAssumeSuccess(shaderStream.str());
+}
+
+void ConstantFoldingExpressionTest::evaluateInt(const std::string &intExpression)
+{
+    std::stringstream shaderStream;
+    shaderStream << "#version 310 es\n"
+                    "precision mediump int;\n"
+                    "out int my_FragColor;\n"
+                    "void main()\n"
+                    "{\n"
+                 << "    my_FragColor = " << intExpression << ";\n"
+                 << "}\n";
+    compileAssumeSuccess(shaderStream.str());
+}
+
+void ConstantFoldingExpressionTest::evaluateUint(const std::string &uintExpression)
+{
+    std::stringstream shaderStream;
+    shaderStream << "#version 310 es\n"
+                    "precision mediump int;\n"
+                    "out uint my_FragColor;\n"
+                    "void main()\n"
+                    "{\n"
+                 << "    my_FragColor = " << uintExpression << ";\n"
                  << "}\n";
     compileAssumeSuccess(shaderStream.str());
 }

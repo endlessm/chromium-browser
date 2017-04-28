@@ -19,7 +19,6 @@ found in the LICENSE file.
 'use strict';
 
 tr.exportTo('tr.ui.tracks', function() {
-
   var SelectionState = tr.model.SelectionState;
   var EventPresenter = tr.ui.b.EventPresenter;
 
@@ -234,7 +233,7 @@ tr.exportTo('tr.ui.tracks', function() {
           function(x) { return x.creationTs; },
           function(x) { return x.deletionTs - x.creationTs; },
           loWX, hiWX,
-          selection.push.bind(selection));
+          (value) => { selection.push(value); });
     },
 
     /**
@@ -269,7 +268,7 @@ tr.exportTo('tr.ui.tracks', function() {
     },
 
     addClosestEventToSelection: function(worldX, worldMaxDist, loY, hiY,
-                                         selection) {
+        selection) {
       var snapshot = tr.b.findClosestElementInSortedArray(
           this.objectSnapshots_,
           function(x) { return x.ts; },

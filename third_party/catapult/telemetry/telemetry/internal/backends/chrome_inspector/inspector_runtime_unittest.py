@@ -15,8 +15,7 @@ class InspectorRuntimeTest(tab_test_case.TabTestCase):
 
   def testRuntimeEvaluateThatFails(self):
     with self.assertRaises(exceptions.EvaluateException) as ex_context:
-      self._tab.EvaluateJavaScript('var x = 1;\n'
-                                   'fsdfsdfsf')
+      self._tab.EvaluateJavaScript('var x = 1;\nfsdfsdfsf')
     exception_message = str(ex_context.exception)
     self.assertIn('ReferenceError: fsdfsdfsf is not defined', exception_message)
 
@@ -44,7 +43,7 @@ class InspectorRuntimeTest(tab_test_case.TabTestCase):
 
     # Access host page.
     test_defined_js = "typeof(testVar) != 'undefined'"
-    self._tab.WaitForJavaScriptExpression(test_defined_js, timeout=10)
+    self._tab.WaitForJavaScriptCondition(test_defined_js, timeout=10)
 
     py_utils.WaitFor(lambda: self._tab.EnableAllContexts() != starting_contexts,
                  timeout=10)
@@ -54,8 +53,8 @@ class InspectorRuntimeTest(tab_test_case.TabTestCase):
     def TestVarReady(context_id):
       """Returns True if the context and testVar are both ready."""
       try:
-        return self._tab.EvaluateJavaScriptInContext(test_defined_js,
-                                                     context_id)
+        return self._tab.EvaluateJavaScript(
+            test_defined_js, context_id=context_id)
       except exceptions.EvaluateException:
         # This happens when the context is not ready.
         return False
@@ -64,7 +63,7 @@ class InspectorRuntimeTest(tab_test_case.TabTestCase):
       """Waits for testVar and the context to be ready, then returns the value
       of testVar."""
       py_utils.WaitFor(lambda: TestVarReady(context_id), timeout=10)
-      return self._tab.EvaluateJavaScriptInContext('testVar', context_id)
+      return self._tab.EvaluateJavaScript('testVar', context_id=context_id)
 
     all_contexts = self._tab.EnableAllContexts()
     # Access parent page using EvaluateJavaScriptInContext.
@@ -79,5 +78,5 @@ class InspectorRuntimeTest(tab_test_case.TabTestCase):
 
     # Accessing a non-existent iframe throws an exception.
     self.assertRaises(exceptions.EvaluateException,
-        lambda: self._tab.EvaluateJavaScriptInContext(
-          '1+1', context_id=all_contexts+1))
+        lambda: self._tab.EvaluateJavaScript(
+            '1+1', context_id=all_contexts + 1))

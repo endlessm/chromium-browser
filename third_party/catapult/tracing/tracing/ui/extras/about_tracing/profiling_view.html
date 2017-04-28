@@ -225,12 +225,11 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
           }.bind(this));
 
       this.saveButton_.addEventListener('click',
-                                        this.onSaveClicked_.bind(this));
+          this.onSaveClicked_.bind(this));
       this.saveButton_.disabled = true;
     },
 
     requestFilename_: function() {
-
       // unsafe filename patterns:
       var illegalRe = /[\/\?<>\\:\*\|":]/g;
       var controlRe = /[\x00-\x1f\x80-\x9f]/g;
@@ -266,10 +265,10 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
       filename = defaultName.replace(fileRegex, name) + fileExtension;
 
       return filename
-              .replace(illegalRe, '.')
-              .replace(controlRe, '\u2022')
-              .replace(reservedRe, '')
-              .replace(/\s+/g, '_');
+          .replace(illegalRe, '.')
+          .replace(controlRe, '\u2022')
+          .replace(reservedRe, '')
+          .replace(/\s+/g, '_');
     },
 
     onSaveClicked_: function() {

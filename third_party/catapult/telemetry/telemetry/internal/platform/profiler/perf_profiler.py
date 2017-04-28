@@ -92,9 +92,9 @@ class _SingleProcessPerfProfiler(object):
                                  os.path.basename(output_file))
       self._device_output_file = output_file
       browser_backend.device.RunShellCommand(
-          'mkdir -p ' + os.path.dirname(self._device_output_file))
-      browser_backend.device.RunShellCommand(
-          'rm -f ' + self._device_output_file)
+          ['mkdir', '-p', os.path.dirname(self._device_output_file)],
+          check_return=True)
+      browser_backend.device.RemovePath(self._device_output_file, force=True)
     else:
       cmd_prefix = [perf_binary]
     perf_args += ['--output', output_file] + _PERF_OPTIONS
@@ -135,11 +135,7 @@ Try rerunning this script under sudo or setting
                                   self._output_file)
     if self._is_android:
       device = self._browser_backend.device
-      try:
-        device.PullFile(self._device_output_file, self._output_file)
-      except:
-        logging.exception('New exception caused by DeviceUtils conversion')
-        raise
+      device.PullFile(self._device_output_file, self._output_file)
       required_libs = \
           android_profiling_helper.GetRequiredLibrariesForPerfProfile(
               self._output_file)

@@ -71,11 +71,11 @@ Polymer({
     });
 
     rows.push({
-        title: 'Sample time',
-        value: tr.v.ui.createScalarSpan(sample.start, {
-          unit: tr.b.Unit.byName.timeStampInMs,
-          ownerDocument: this.ownerDocument
-        })
+      title: 'Sample time',
+      value: tr.v.ui.createScalarSpan(sample.start, {
+        unit: tr.b.Unit.byName.timeStampInMs,
+        ownerDocument: this.ownerDocument
+      })
     });
 
     var callStackTableEl = document.createElement('tr-ui-b-table');

@@ -32,7 +32,19 @@ Panel.Mode = {
   COLLAPSED: 'collapsed',
   FOCUSED: 'focused',
   FULLSCREEN_MENUS: 'menus',
-  FULLSCREEN_TUTORIAL: 'tutorial'
+  FULLSCREEN_TUTORIAL: 'tutorial',
+  SEARCH: 'search'
+};
+
+/**
+ * @type {!Object<string, {title: string, location: (string|undefined)}>}
+ */
+Panel.ModeInfo = {
+  collapsed: {title: 'panel_title', location: '#'},
+  focused: {title: 'panel_title', location: '#focus'},
+  menus: {title: 'panel_menus_title', location: '#fullscreen'},
+  tutorial: {title: 'panel_tutorial_title', location: '#fullscreen'},
+  search: {title: 'panel_title', location: '#focus'}
 };
 
 /**
@@ -72,6 +84,17 @@ Panel.init = function() {
   /** @type {Panel.Mode} @private */
   this.mode_ = Panel.Mode.COLLAPSED;
 
+  var blockedSessionQuery = location.search.match(
+      /[?&]?blockedUserSession=(true|false)/);
+  /**
+   * Whether the panel is loaded for blocked user session - e.g. on sign-in or
+   * lock screen.
+   * @type {boolean}
+   * @private @const
+   */
+  this.isUserSessionBlocked_ =
+      !!blockedSessionQuery && blockedSessionQuery[1] == 'true';
+
   /**
    * The array of top-level menus.
    * @type {!Array<PanelMenu>}
@@ -92,14 +115,8 @@ Panel.init = function() {
    * @type {boolean}
    * @private
    */
-  this.menusEnabled_ = localStorage['useClassic'] == 'false';
-
-  /**
-   * True if we're currently in incremental search mode.
-   * @type {boolean}
-   * @private
-   */
-  this.searching_ = false;
+  this.menusEnabled_ =
+      !this.isUserSessionBlocked_ && localStorage['useClassic'] == 'false';
 
   /**
    * @type {Tutorial}
@@ -123,8 +140,16 @@ Panel.init = function() {
     Panel.exec(/** @type {PanelCommand} */(command));
   }, false);
 
-  $('menus_button').addEventListener('mousedown', Panel.onOpenMenus, false);
-  $('options').addEventListener('click', Panel.onOptions, false);
+  if (this.isUserSessionBlocked_) {
+    $('menus_button').disabled = true;
+    $('triangle').hidden = true;
+
+    $('options').disabled = true;
+  } else {
+    $('menus_button').addEventListener('mousedown', Panel.onOpenMenus, false);
+    $('options').addEventListener('click', Panel.onOptions, false);
+  }
+
   $('close').addEventListener('click', Panel.onClose, false);
 
   $('tutorial_next').addEventListener('click', Panel.onTutorialNext, false);
@@ -146,7 +171,7 @@ Panel.init = function() {
  * Update the display based on prefs.
  */
 Panel.updateFromPrefs = function() {
-  if (Panel.searching_) {
+  if (Panel.mode_ == Panel.Mode.SEARCH) {
     this.speechContainer_.hidden = true;
     this.brailleContainer_.hidden = true;
     this.searchContainer_.hidden = false;
@@ -233,6 +258,8 @@ Panel.exec = function(command) {
  * Enable the ChromeVox Menus.
  */
 Panel.onEnableMenus = function() {
+  if (this.isUserSessionBlocked_)
+    return;
   Panel.menusEnabled_ = true;
   $('menus_button').disabled = false;
   $('triangle').hidden = false;
@@ -242,6 +269,8 @@ Panel.onEnableMenus = function() {
  * Disable the ChromeVox Menus.
  */
 Panel.onDisableMenus = function() {
+  if (this.isUserSessionBlocked_)
+    return;
   Panel.menusEnabled_ = false;
   $('menus_button').disabled = true;
   $('triangle').hidden = true;
@@ -256,23 +285,13 @@ Panel.setMode = function(mode) {
   if (this.mode_ == mode)
     return;
 
+  if (this.isUserSessionBlocked_ &&
+      mode != Panel.Mode.COLLAPSED && mode != Panel.Mode.FOCUSED)
+    return;
   this.mode_ = mode;
 
-  if (this.mode_ == Panel.Mode.FULLSCREEN_MENUS ||
-      this.mode_ == Panel.Mode.FULLSCREEN_TUTORIAL) {
-    // Change the url fragment to 'fullscreen', which signals the native
-    // host code to make the window fullscreen and give it focus.
-    window.location = '#fullscreen';
-  } else if (this.mode_ == Panel.Mode.FOCUSED) {
-    // Change the url fragment to 'focus', which signals the native
-    // host code to give the window focus.
-    window.location = '#focus';
-  } else {
-    // Remove the url fragment, which signals the native host code to
-    // collapse the panel to its normal size and cause it to lose focus.
-    window.location = '#';
-  }
-
+  document.title = Msgs.getMsg(Panel.ModeInfo[this.mode_].title);
+  window.location = Panel.ModeInfo[this.mode_].location;
   $('main').hidden = (this.mode_ == Panel.Mode.FULLSCREEN_TUTORIAL);
   $('menus_background').hidden = (this.mode_ != Panel.Mode.FULLSCREEN_MENUS);
   $('tutorial').hidden = (this.mode_ != Panel.Mode.FULLSCREEN_TUTORIAL);
@@ -427,11 +446,10 @@ Panel.onOpenMenus = function(opt_event, opt_activateMenuTitle) {
 
 /** Open incremental search. */
 Panel.onSearch = function() {
+  Panel.setMode(Panel.Mode.SEARCH);
   Panel.clearMenus();
   Panel.pendingCallback_ = null;
-  Panel.searching_ = true;
   Panel.updateFromPrefs();
-  Panel.setMode(Panel.Mode.FOCUSED);
 
   ISearchUI.init(Panel.searchInput_);
 };
@@ -514,7 +532,9 @@ Panel.onUpdateBraille = function(data) {
   }
 
   var row1, row2;
+  // Number of rows already written.
   rowCount = 0;
+  // Number of cells already written in this row.
   var cellCount = cols;
   for (var i = 0; i < groups.length; i++) {
     if (cellCount == cols) {
@@ -544,32 +564,42 @@ Panel.onUpdateBraille = function(data) {
     bottomCell.setAttribute('data-companionIDs', i + '-textCell');
     bottomCell.className = 'unhighlighted-cell';
     if (cellCount + groups[i][1].length > cols) {
-      bottomCell.innerHTML = groups[i][1].substring(0, cols - cellCount);
-      if (rowCount == rows)
-        break;
-      rowCount++;
-      row1 = this.brailleTableElement_.insertRow(-1);
-      if (sideBySide) {
-        // Side by side.
-        row2 = this.brailleTableElement2_.insertRow(-1);
-      } else {
-        // Interleaved.
-        row2 = this.brailleTableElement_.insertRow(-1);
-      }
-      var bottomCell2 = row2.insertCell(-1);
-      bottomCell2.id = i + '-brailleCell2';
-      bottomCell2.setAttribute('data-companionIDs',
-          i + '-textCell ' + i + '-brailleCell');
-      bottomCell.setAttribute('data-companionIDs',
-          bottomCell.getAttribute('data-companionIDs') +
-          ' ' + i + '-brailleCell2');
-      topCell.setAttribute('data-companionID2',
-          bottomCell.getAttribute('data-companionIDs') +
-          ' ' + i + '-brailleCell2');
+      var brailleText = groups[i][1];
+      while (cellCount + brailleText.length > cols) {
+        // At this point we already have a bottomCell to fill, so fill it.
+        bottomCell.innerHTML = brailleText.substring(0, cols - cellCount);
+        // Update to see what we still have to fill.
+        brailleText = brailleText.substring(cols - cellCount);
+        // Make new row.
+        if (rowCount == rows)
+          break;
+        rowCount++;
+        row1 = this.brailleTableElement_.insertRow(-1);
+        if (sideBySide) {
+          // Side by side.
+          row2 = this.brailleTableElement2_.insertRow(-1);
+        } else {
+          // Interleaved.
+          row2 = this.brailleTableElement_.insertRow(-1);
+        }
+        var bottomCell2 = row2.insertCell(-1);
+        bottomCell2.id = i + '-brailleCell2';
+        bottomCell2.setAttribute('data-companionIDs',
+            i + '-textCell ' + i + '-brailleCell');
+        bottomCell.setAttribute('data-companionIDs',
+            bottomCell.getAttribute('data-companionIDs') +
+            ' ' + i + '-brailleCell2');
+        topCell.setAttribute('data-companionID2',
+            bottomCell.getAttribute('data-companionIDs') +
+            ' ' + i + '-brailleCell2');
 
-      bottomCell2.className = 'unhighlighted-cell';
-      bottomCell2.innerHTML = groups[i][1].substring(cols - cellCount);
-      cellCount = bottomCell2.innerHTML.length;
+        bottomCell2.className = 'unhighlighted-cell';
+        bottomCell = bottomCell2;
+        cellCount = 0;
+      }
+      // Fill the rest.
+      bottomCell.innerHTML = brailleText;
+      cellCount = brailleText.length;
     } else {
       bottomCell.innerHTML = groups[i][1];
       cellCount += groups[i][1].length;
@@ -794,7 +824,7 @@ Panel.getCallbackForCurrentItem = function() {
 Panel.closeMenusAndRestoreFocus = function() {
   // Watch for the next focus event.
   var onFocus = function(desktop, evt) {
-    desktop.removeEventListener(chrome.automation.EventType.focus, onFocus);
+    desktop.removeEventListener(chrome.automation.EventType.FOCUS, onFocus);
     if (Panel.pendingCallback_) {
       // Clear it before calling it, in case the callback itself triggers
       // another pending callback.
@@ -807,7 +837,7 @@ Panel.closeMenusAndRestoreFocus = function() {
   chrome.automation.getDesktop(function(desktop) {
     onFocus = /** @type {function(chrome.automation.AutomationEvent)} */(
         onFocus.bind(this, desktop));
-    desktop.addEventListener(chrome.automation.EventType.focus,
+    desktop.addEventListener(chrome.automation.EventType.FOCUS,
                              onFocus,
                              true);
 

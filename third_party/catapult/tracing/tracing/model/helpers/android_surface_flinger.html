@@ -25,7 +25,6 @@ tr.exportTo('tr.model.helpers', function() {
   var TIMESTAMP_FUDGE_MS = 0.01;
 
   function getVsyncTimestamps(process, counterName) {
-
     var vsync = process.counters[counterName];
     if (!vsync)
       vsync = process.counters[VSYNC_FALLBACK_NAME];
@@ -81,8 +80,8 @@ tr.exportTo('tr.model.helpers', function() {
 
       var firstGreaterIndex =
           findLowIndexInSortedArray(this.appVsyncTimestamps_,
-                                    function(x) { return x; },
-                                    timestamp + TIMESTAMP_FUDGE_MS);
+              function(x) { return x; },
+              timestamp + TIMESTAMP_FUDGE_MS);
 
       if (firstGreaterIndex < 1)
         return undefined;
@@ -95,8 +94,8 @@ tr.exportTo('tr.model.helpers', function() {
 
       var firstGreaterIndex =
           findLowIndexInSortedArray(this.sfVsyncTimestamps_,
-                                    function(x) { return x; },
-                                    timestamp + this.deadlineDelayMs_);
+              function(x) { return x; },
+              timestamp + this.deadlineDelayMs_);
       if (firstGreaterIndex >= this.sfVsyncTimestamps_.length)
         return undefined;
       return this.sfVsyncTimestamps_[firstGreaterIndex];

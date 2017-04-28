@@ -60,10 +60,9 @@ tr.exportTo('tr.ui.tracks', function() {
     });
 
     // Add ownership links between them.
-    tr.b.iterItems(dumpData, function(allocatorName, data) {
+    for (var [allocatorName, data] of Object.entries(dumpData)) {
       var owns = data.owns;
-      if (owns === undefined)
-        return;
+      if (owns === undefined) continue;
 
       var ownerDump = allocatorDumps[allocatorName];
       assert.isDefined(ownerDump);  // Sanity check.
@@ -71,7 +70,7 @@ tr.exportTo('tr.ui.tracks', function() {
       assert.isDefined(ownedDump);  // Sanity check.
 
       addOwnershipLink(ownerDump, ownedDump);
-    });
+    }
 
     return tr.b.dictionaryValues(allocatorDumps);
   }
@@ -109,7 +108,7 @@ tr.exportTo('tr.ui.tracks', function() {
           maybeDumpData({v8: {size: 512}}));
       addProcessMemoryDumpWithFields(gmd2, pc, 5.12, undefined,
           maybeDumpData({oilpan: {size: 128, owns: 'v8'},
-              v8: {size: 384, owns: 'tracing'}, tracing: {size: 65920}}));
+            v8: {size: 384, owns: 'tracing'}, tracing: {size: 65920}}));
 
       var gmd3 = addGlobalMemoryDump(model, {ts: 15, levelOfDetail: DETAILED});
       addProcessMemoryDumpWithFields(gmd3, pa, 15.5, maybePssValues([]),
@@ -124,7 +123,6 @@ tr.exportTo('tr.ui.tracks', function() {
       addProcessMemoryDumpWithFields(gmd5, pa, 0, maybePssValues([105]));
       addProcessMemoryDumpWithFields(gmd5, pb, 0.2, undefined,
           maybeDumpData({oilpan: {size: 100}}));
-
     });
   }
 

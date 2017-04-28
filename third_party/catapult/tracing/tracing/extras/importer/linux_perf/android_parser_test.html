@@ -104,6 +104,9 @@ tr.b.unittest.testSuite(function() {
     var slice = thread.asyncSliceGroup.slices[0];
     assert.equal(slice.title, 'animator:childrenOutlineAlpha');
     assert.closeTo(118.169, slice.duration, 1e-5);
+
+    // no subslice events created
+    assert.equal(slice.subSlices.length, 0);
   });
 
   test('androidUserlandLegacyKernelImport', function() {
@@ -180,11 +183,11 @@ tr.b.unittest.testSuite(function() {
     assert.equal(thread.sliceGroup.slices[1].args['source'], 'test=test');
     assert.equal(thread.sliceGroup.slices[1].category, 'cat2');
     assert.equal('DeferOrRunPendingTask',
-                 thread.sliceGroup.slices[1].title);
+        thread.sliceGroup.slices[1].title);
     assert.equal(thread.sliceGroup.slices[1].args['task'], 'xyz');
 
     assert.equal('ipc/ipc_sync_message_filter.cc:Send',
-                 thread.sliceGroup.slices[2].args['source']);
+        thread.sliceGroup.slices[2].args['source']);
 
     assert.equal(thread.asyncSliceGroup.length, 1);
     assert.equal(thread.asyncSliceGroup.slices[0].args['arg1'], '1');
@@ -200,7 +203,7 @@ tr.b.unittest.testSuite(function() {
     assert.equal(counters[0].getSeries(0).getSample(0).value, 10);
 
     assert.equal(Math.round((253.780659 - (255.663276 - 128)) * 1000),
-                 Math.round(thread.sliceGroup.slices[0].start));
+        Math.round(thread.sliceGroup.slices[0].start));
   });
 
   test('androidNeedReschedImport', function() {

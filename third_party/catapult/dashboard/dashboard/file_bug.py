@@ -17,6 +17,7 @@ from dashboard import oauth2_decorator
 from dashboard.common import request_handler
 from dashboard.common import utils
 from dashboard.models import alert
+from dashboard.models import alert_group
 from dashboard.models import bug_data
 from dashboard.models import bug_label_patterns
 from dashboard.services import issue_tracker_service
@@ -111,6 +112,14 @@ class FileBugHandler(request_handler.RequestHandler):
       components: List of component strings for the new bug.
       urlsafe_keys: Comma-separated alert keys in urlsafe format.
     """
+    # Only project members (@chromium.org accounts) can be owners of bugs.
+    owner = self.request.get('owner')
+    if owner and not owner.endswith('@chromium.org'):
+      self.RenderHtml('bug_result.html', {
+          'error': 'Owner email address must end with @chromium.org.'
+      })
+      return
+
     alert_keys = [ndb.Key(urlsafe=k) for k in urlsafe_keys.split(',')]
     alerts = ndb.get_multi(alert_keys)
 
@@ -120,14 +129,6 @@ class FileBugHandler(request_handler.RequestHandler):
     milestone_label = _MilestoneLabel(alerts)
     if milestone_label:
       labels.append(milestone_label)
-
-    # Only project members (@chromium.org accounts) can be owners of bugs.
-    owner = self.request.get('owner')
-    if owner and not owner.endswith('@chromium.org'):
-      self.RenderHtml('bug_result.html', {
-          'error': 'Owner email address must end with @chromium.org.'
-      })
-      return
 
     cc = self.request.get('cc')
 
@@ -142,9 +143,8 @@ class FileBugHandler(request_handler.RequestHandler):
       return
 
     bug_data.Bug(id=bug_id).put()
-    for alert_entity in alerts:
-      alert_entity.bug_id = bug_id
-    ndb.put_multi(alerts)
+
+    alert_group.ModifyAlertsAndAssociatedGroups(alerts, bug_id=bug_id)
 
     comment_body = _AdditionalDetails(bug_id, alerts)
     service.AddBugComment(bug_id, comment_body)
@@ -232,24 +232,26 @@ def _MilestoneLabel(alerts):
   Chromium milestones, do not label them (see
   https://github.com/catapult-project/catapult/issues/2906).
   """
-  revisions = [a.start_revision for a in alerts if hasattr(a, 'start_revision')]
+  revisions = [a.end_revision for a in alerts if hasattr(a, 'end_revision')]
   if not revisions:
     return None
-  start_revision = min(revisions)
-
+  end_revision = min(revisions)
   for a in alerts:
-    if a.start_revision == start_revision:
-      master = utils.TestPath(a.GetTestMetadataKey()).split('/')[0]
-      if master != 'ChromiumPerf' and master != 'ChromiumPerfFyi':
+    if a.end_revision == end_revision:
+      row_key = utils.GetRowKey(a.test, a.end_revision)
+      row = row_key.get()
+      if hasattr(row, 'r_commit_pos'):
+        end_revision = row.r_commit_pos
+      else:
         return None
       break
   try:
-    milestone = _GetMilestoneForRevision(start_revision)
+    milestone = _GetMilestoneForRevision(end_revision)
   except KeyError:
     logging.error('List of versions not in the expected format')
   if not milestone:
     return None
-  logging.info('Matched rev %s to milestone %s.', start_revision, milestone)
+  logging.info('Matched rev %s to milestone %s.', end_revision, milestone)
   return 'M-%d' % milestone
 
 
@@ -260,7 +262,7 @@ def _GetMilestoneForRevision(revision):
   by a suspected regression. We do this by locating in the list of current
   versions, regardless of platform and channel, all the version strings (e.g.
   36.0.1234.56) that match revisions (commit positions) later than the earliest
-  possible start_revision of the suspected regression; we then parse out the
+  possible end_revision of the suspected regression; we then parse out the
   first numeric part of such strings, assume it to be the corresponding
   milestone, and return the lowest one in the set.
 

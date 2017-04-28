@@ -12,7 +12,6 @@ found in the LICENSE file.
 'use strict';
 
 tr.b.unittest.testSuite(function() {
-
   var VIEW_L_WORLD = 100;
   var VIEW_R_WORLD = 1000;
 
@@ -169,7 +168,7 @@ tr.b.unittest.testSuite(function() {
     testGenerateStripes(
         [0, VIEW_L_WORLD, 200, 500, VIEW_R_WORLD, 2000],
         [rangeLeftWorldToLeftWorld, range200To500,
-         rangeRightWorldToRightWorld]);
+          rangeRightWorldToRightWorld]);
     testGenerateStripes(
         [0, 10, VIEW_L_WORLD, VIEW_R_WORLD, 2000, 3000],
         [rangeLeftWorldToRightWorld]);

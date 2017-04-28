@@ -16,6 +16,37 @@ tr.exportTo('tr.v.d', function() {
       this.guid_ = undefined;
     }
 
+    /**
+     * Returns a new Diagnostic that is like this one but distinct.
+     * This is useful when merging Diagnostics.
+     * @return {!tr.v.d.Diagnostic}
+     */
+    clone() {
+      return new this.constructor();
+    }
+
+    /**
+     * Return true if |this| can be merged with |otherDiagnostic|.
+     *
+     * @param {!tr.v.d.Diagnostic} otherDiagnostic
+     * @return {!boolean}
+     */
+    canAddDiagnostic(otherDiagnostic) {
+      return false;
+    }
+
+    /**
+     * If subclasses override canAddDiagnostic() then they must also override
+     * this method to modify |this| to include information from
+     * |otherDiagnostic|.
+     *
+     * @param {!tr.v.d.Diagnostic} otherDiagnostic
+     */
+    addDiagnostic(otherDiagnostic) {
+      throw new Error('Abstract virtual method: subclasses must override ' +
+          'this method if they override canAddDiagnostic');
+    }
+
     get guid() {
       if (this.guid_ === undefined) {
         this.guid_ = tr.b.GUID.allocateUUID4();
@@ -52,7 +83,7 @@ tr.exportTo('tr.v.d', function() {
      * @return {!Object}
      */
     asDict() {
-      var result = {type: this.constructor.name};
+      let result = {type: this.constructor.name};
       if (this.guid_ !== undefined) {
         result.guid = this.guid_;
       }
@@ -61,11 +92,12 @@ tr.exportTo('tr.v.d', function() {
     }
 
     asDictInto_(d) {
-      throw new Error('Abstract virtual method');
+      throw new Error('Abstract virtual method: subclasses must override ' +
+          'this method if they override canAddDiagnostic');
     }
 
     static fromDict(d) {
-      var typeInfo = Diagnostic.findTypeInfoWithName(d.type);
+      let typeInfo = Diagnostic.findTypeInfoWithName(d.type);
       if (!typeInfo) {
         throw new Error('Unrecognized diagnostic type: ' + d.type);
       }
@@ -74,13 +106,13 @@ tr.exportTo('tr.v.d', function() {
     }
   }
 
-  var options = new tr.b.ExtensionRegistryOptions(tr.b.BASIC_REGISTRY_MODE);
+  let options = new tr.b.ExtensionRegistryOptions(tr.b.BASIC_REGISTRY_MODE);
   options.defaultMetadata = {};
   options.mandatoryBaseClass = Diagnostic;
   tr.b.decorateExtensionRegistry(Diagnostic, options);
 
   Diagnostic.addEventListener('will-register', function(e) {
-    var constructor = e.typeInfo.constructor;
+    let constructor = e.typeInfo.constructor;
     if (!(constructor.fromDict instanceof Function) ||
         (constructor.fromDict === Diagnostic.fromDict) ||
         (constructor.fromDict.length !== 1)) {

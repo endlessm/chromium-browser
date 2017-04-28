@@ -76,11 +76,11 @@ class TabTest(tab_test_case.TabTestCase):
              window.__one = 1;
         }
         setTimeout(buggyReference, 200);""")
-    self._tab.WaitForJavaScriptExpression(
-        'window.__set_timeout_called === true', 5)
+    self._tab.WaitForJavaScriptCondition(
+        'window.__set_timeout_called === true', timeout=5)
     with self.assertRaises(py_utils.TimeoutException) as context:
-      self._tab.WaitForJavaScriptExpression(
-          'window.__one === 1', 1)
+      self._tab.WaitForJavaScriptCondition(
+          'window.__one === 1', timeout=1)
       self.assertIn(
         ("(error) :5: Uncaught TypeError: Cannot read property 'not_defined' "
         'of undefined\n'),

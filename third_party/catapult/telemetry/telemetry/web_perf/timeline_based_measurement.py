@@ -291,20 +291,23 @@ class TimelineBasedMeasurement(story_test.StoryTest):
     trace_value = trace.TraceValue(results.current_page, trace_result)
     results.AddValue(trace_value)
 
-    if self._tbm_options.GetTimelineBasedMetrics():
-      self._ComputeTimelineBasedMetrics(results, trace_value)
-      # Legacy metrics can be computed, but only if explicitly specified.
-      if self._tbm_options.GetLegacyTimelineBasedMetrics():
+    try:
+      if self._tbm_options.GetTimelineBasedMetrics():
+        assert not self._tbm_options.GetLegacyTimelineBasedMetrics(), (
+            'Specifying both TBMv1 and TBMv2 metrics is not allowed.')
+        self._ComputeTimelineBasedMetrics(results, trace_value)
+      else:
+        # Run all TBMv1 metrics if no other metric is specified
+        # (legacy behavior)
+        if not self._tbm_options.GetLegacyTimelineBasedMetrics():
+          logging.warn('Please specify the TBMv1 metrics you are interested in '
+                       'explicitly. This implicit functionality will be removed'
+                       ' on July 17, 2016.')
+          self._tbm_options.SetLegacyTimelineBasedMetrics(
+              _GetAllLegacyTimelineBasedMetrics())
         self._ComputeLegacyTimelineBasedMetrics(results, trace_result)
-    else:
-      # Run all TBMv1 metrics if no other metric is specified (legacy behavior)
-      if not self._tbm_options.GetLegacyTimelineBasedMetrics():
-        logging.warn('Please specify the TBMv1 metrics you are interested in '
-                     'explicitly. This implicit functionality will be removed '
-                     'on July 17, 2016.')
-        self._tbm_options.SetLegacyTimelineBasedMetrics(
-            _GetAllLegacyTimelineBasedMetrics())
-      self._ComputeLegacyTimelineBasedMetrics(results, trace_result)
+    finally:
+      trace_result.CleanUpAllTraces()
 
   def DidRunStory(self, platform):
     """Clean up after running the story."""

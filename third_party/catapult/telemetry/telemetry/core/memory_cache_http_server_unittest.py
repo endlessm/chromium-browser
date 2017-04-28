@@ -44,7 +44,6 @@ class MemoryCacheHTTPServerTest(tab_test_case.TabTestCase):
 
   def CheckContentHeaders(self, content_range_request, content_range_response,
                           content_length_response):
-    # TODO(catapult:#3028): Fix interpolation of JavaScript values.
     self._tab.ExecuteJavaScript("""
         var loaded = false;
         var xmlhttp = new XMLHttpRequest();
@@ -52,11 +51,13 @@ class MemoryCacheHTTPServerTest(tab_test_case.TabTestCase):
           loaded = true;
         };
         // Avoid cached content by appending unique URL param.
-        xmlhttp.open('GET', "%s?t=" + Date.now(), true);
-        xmlhttp.setRequestHeader('Range', 'bytes=%s');
+        xmlhttp.open('GET', {{ url }} + "?t=" + Date.now(), true);
+        xmlhttp.setRequestHeader('Range', {{ range }});
         xmlhttp.send();
-    """ % (self.UrlOfUnittestFile(self._test_filename), content_range_request))
-    self._tab.WaitForJavaScriptExpression('loaded', 5)
+        """,
+        url=self.UrlOfUnittestFile(self._test_filename),
+        range='bytes=%s' % content_range_request)
+    self._tab.WaitForJavaScriptCondition('loaded', timeout=5)
     content_range = self._tab.EvaluateJavaScript(
         'xmlhttp.getResponseHeader("Content-Range");')
     content_range_response = 'bytes %s/%d' % (content_range_response,

@@ -12,31 +12,33 @@ import os
 import sys
 import StringIO
 
+from chromite.cbuildbot import buildbucket_lib
 from chromite.cbuildbot import cbuildbot_run
 from chromite.cbuildbot import commands
-from chromite.lib import config_lib
-from chromite.lib import constants
-from chromite.lib import failures_lib
-from chromite.lib import metadata_lib
-from chromite.lib import results_lib
 from chromite.cbuildbot import tree_status
-from chromite.cbuildbot import triage_lib
 from chromite.cbuildbot import validation_pool
 from chromite.cbuildbot.stages import completion_stages
 from chromite.cbuildbot.stages import generic_stages
 from chromite.lib import build_time_stats
 from chromite.lib import cidb
+from chromite.lib import config_lib
+from chromite.lib import constants
+from chromite.lib import clactions
 from chromite.lib import cros_build_lib
 from chromite.lib import cros_logging as logging
-from chromite.lib import graphite
+from chromite.lib import failures_lib
 from chromite.lib import git
+from chromite.lib import graphite
 from chromite.lib import gs
+from chromite.lib import metadata_lib
 from chromite.lib import metrics
 from chromite.lib import osutils
 from chromite.lib import patch as cros_patch
 from chromite.lib import portage_util
+from chromite.lib import results_lib
 from chromite.lib import retry_stats
 from chromite.lib import toolchain
+from chromite.lib import triage_lib
 
 
 site_config = config_lib.GetConfig()
@@ -167,9 +169,9 @@ def GetChildConfigListMetadata(child_configs, config_status_map):
     pass_fail_status = None
     if config_status_map:
       if config_status_map[c['name']]:
-        pass_fail_status = constants.FINAL_STATUS_PASSED
+        pass_fail_status = constants.BUILDER_STATUS_PASSED
       else:
-        pass_fail_status = constants.FINAL_STATUS_FAILED
+        pass_fail_status = constants.BUILDER_STATUS_FAILED
     child_config_list.append({'name': c['name'],
                               'boards': c['boards'],
                               'status': pass_fail_status})
@@ -237,16 +239,26 @@ class BuildStartStage(generic_stages.BuilderStage):
       if db:
         waterfall = d['buildbot-master-name']
         assert waterfall in constants.CIDB_KNOWN_WATERFALLS
-        build_id = db.InsertBuild(
-            builder_name=d['builder-name'],
-            waterfall=waterfall,
-            build_number=d['build-number'],
-            build_config=d['bot-config'],
-            bot_hostname=d['bot-hostname'],
-            master_build_id=d['master_build_id'],
-            timeout_seconds=self._GetBuildTimeoutSeconds(),
-            important=d['important'],
-            buildbucket_id=self._run.options.buildbucket_id)
+        try:
+          build_id = db.InsertBuild(
+              builder_name=d['builder-name'],
+              waterfall=waterfall,
+              build_number=d['build-number'],
+              build_config=d['bot-config'],
+              bot_hostname=d['bot-hostname'],
+              master_build_id=d['master_build_id'],
+              timeout_seconds=self._GetBuildTimeoutSeconds(),
+              important=d['important'],
+              buildbucket_id=self._run.options.buildbucket_id)
+        except Exception as e:
+          logging.error('Error: %s\n If the buildbucket_id to insert is '
+                        'duplicated to the buildbucket_id of an old build and '
+                        'the old build was canceled because of a waterfall '
+                        'master restart, please ignore this error. Else, '
+                        'the error needs more investigation. More context: '
+                        'crbug.com/679974 and crbug.com/685889', e)
+          raise e
+
         self._run.attrs.metadata.UpdateWithDict({'build_id': build_id,
                                                  'db_type': db_type})
         logging.info('Inserted build_id %s into cidb database type %s.',
@@ -570,7 +582,7 @@ class ReportStage(generic_stages.BuilderStage,
 
     Args:
       final_status: String indicating final status of build,
-                    constants.FINAL_STATUS_PASSED indicating success.
+                    constants.BUILDER_STATUS_PASSED indicating success.
       counter_name: Name of counter to increment, typically the name of the
                     build config.
       dry_run: Pretend to update counter only. Default: False.
@@ -584,7 +596,7 @@ class ReportStage(generic_stages.BuilderStage,
                                counter_name)
     gs_counter = gs.GSCounter(gs_ctx, counter_url)
 
-    if final_status == constants.FINAL_STATUS_PASSED:
+    if final_status == constants.BUILDER_STATUS_PASSED:
       streak_value = gs_counter.StreakIncrement()
     else:
       streak_value = gs_counter.StreakDecrement()
@@ -776,20 +788,6 @@ class ReportStage(generic_stages.BuilderStage,
         debug=self._run.debug, acl=self.acl)
     return os.path.join(archive.download_url_file, timeline_file)
 
-  def _MakeViceroyBuildDetailsLink(self, build_id):
-    """Generates a link to the Viceroy build details page.
-
-    Args:
-      build_id: CIDB id for the master build.
-
-    Returns:
-      The URL of the timeline is returned if slave builds exists.  If no
-        slave builds exists then this returns None.
-    """
-    _LINK = ('https://viceroy.corp.google.com/'
-             'chromeos/build_details?build_id=%(build_id)s')
-    return _LINK % {'build_id': build_id}
-
   def GetReportMetadata(self, config=None, stage=None, final_status=None,
                         completion_instance=None):
     """Generate ReportStage metadata.
@@ -831,8 +829,8 @@ class ReportStage(generic_stages.BuilderStage,
     """Archive our build results.
 
     Args:
-      final_status: constants.FINAL_STATUS_PASSED or
-                    constants.FINAL_STATUS_FAILED
+      final_status: constants.BUILDER_STATUS_PASSED or
+                    constants.BUILDER_STATUS_FAILED
       build_id: CIDB id for the current build.
       db: CIDBConnection instance.
     """
@@ -846,7 +844,7 @@ class ReportStage(generic_stages.BuilderStage,
     self._UpdateRunStreak(self._run, final_status)
 
     # Alert if the Pre-CQ has infra failures.
-    if final_status == constants.FINAL_STATUS_FAILED:
+    if final_status == constants.BUILDER_STATUS_FAILED:
       self._SendPreCQInfraAlertMessageIfNeeded()
 
     # Iterate through each builder run, whether there is just the main one
@@ -861,7 +859,7 @@ class ReportStage(generic_stages.BuilderStage,
           logging.PrintBuildbotLink('Slaves timeline', timeline)
 
       if build_id is not None:
-        details_link = self._MakeViceroyBuildDetailsLink(build_id)
+        details_link = tree_status.ConstructViceroyBuildDetailsURL(build_id)
         logging.PrintBuildbotLink('Build details', details_link)
 
       # Generate links to archived artifacts if there are any.  All the
@@ -874,7 +872,7 @@ class ReportStage(generic_stages.BuilderStage,
 
       # Check if the builder_run is tied to any boards and if so get all
       # upload urls.
-      if final_status == constants.FINAL_STATUS_PASSED:
+      if final_status == constants.BUILDER_STATUS_PASSED:
         # Update the LATEST files if the build passed.
         try:
           upload_urls = self._GetUploadUrls(
@@ -889,6 +887,41 @@ class ReportStage(generic_stages.BuilderStage,
             archive.UpdateLatestMarkers(builder_run.manifest_branch,
                                         builder_run.debug,
                                         upload_urls=upload_urls)
+
+  def IsSheriffOMaticImportantBuild(self):
+    """Determines if the current build is important for Sheriff-o-matic.
+
+    Returns:
+      True if the build is important
+    """
+    if self._run.debug:
+      return False
+    # active_waterfall can be wrong for things like try jobs.
+    for build in constants.SOM_IMPORTANT_BUILDS:
+      if (os.environ.get('BUILDBOT_MASTERNAME', '') == build[0] and
+          self._run.config.name == build[1]):
+        return True
+    return False
+
+  @failures_lib.SetFailureType(failures_lib.InfrastructureFailure)
+  def RunAlertsDispatcher(self, db_credentials_dir):
+    """Submit alerts summary to Sheriff-o-Matic.
+
+    Args:
+      db_credentials_dir: Path to CIDB database credentials.
+    """
+    dispatcher_cmd = [os.path.join(self._build_root, 'chromite', 'scripts',
+                                   'som_alerts_dispatcher')]
+    if buildbucket_lib.GetServiceAccount(constants.CHROMEOS_SERVICE_ACCOUNT):
+      # User the service account file if it exists.
+      dispatcher_cmd.extend(['--service_acct_json',
+                             constants.CHROMEOS_SERVICE_ACCOUNT])
+    dispatcher_cmd.append(db_credentials_dir)
+
+    try:
+      cros_build_lib.RunCommand(dispatcher_cmd)
+    except cros_build_lib.RunCommandError as e:
+      logging.warn('Unable to run alerts dispatcher: %s', e)
 
   def CollectComparativeBuildTimings(self, output, build_id, db):
     """Create a report comparing this build to recent history.
@@ -931,9 +964,9 @@ class ReportStage(generic_stages.BuilderStage,
     """
     build_id, db = self._run.GetCIDBHandle()
     if results_lib.Results.BuildSucceededSoFar(db, build_id, self.name):
-      final_status = constants.FINAL_STATUS_PASSED
+      final_status = constants.BUILDER_STATUS_PASSED
     else:
-      final_status = constants.FINAL_STATUS_FAILED
+      final_status = constants.BUILDER_STATUS_FAILED
 
     if not hasattr(self._run.attrs, 'release_tag'):
       # If, for some reason, sync stage was not completed and
@@ -987,18 +1020,13 @@ class ReportStage(generic_stages.BuilderStage,
 
 
     if db:
-      # TODO(akeshet): Eliminate this status string translate once
-      # these differing status strings are merged, crbug.com/318930
-      translateStatus = lambda s: (constants.BUILDER_STATUS_PASSED
-                                   if s == constants.FINAL_STATUS_PASSED
-                                   else constants.BUILDER_STATUS_FAILED)
-      status_for_db = translateStatus(final_status)
+      status_for_db = final_status
 
       child_metadatas = self._run.attrs.metadata.GetDict().get(
           'child-configs', [])
       for child_metadata in child_metadatas:
         db.FinishChildConfig(build_id, child_metadata['name'],
-                             translateStatus(child_metadata['status']))
+                             child_metadata['status'])
 
       # TODO(pprabhu): After BuildData and CBuildbotMetdata are merged, remove
       # this extra temporary object creation.
@@ -1030,12 +1058,14 @@ class ReportStage(generic_stages.BuilderStage,
       # Dump report about things we retry.
       retry_stats.ReportStats(sys.stdout)
 
+      if self.IsSheriffOMaticImportantBuild():
+        self.RunAlertsDispatcher(db.db_credentials_dir)
+
       # Dump performance stats for this build versus recent builds.
-      if db:
-        output = StringIO.StringIO()
-        self.CollectComparativeBuildTimings(output, build_id, db)
-        # Bunch up our output, so it doesn't interleave with CIDB logs.
-        sys.stdout.write(output.getvalue())
+      output = StringIO.StringIO()
+      self.CollectComparativeBuildTimings(output, build_id, db)
+      # Bunch up our output, so it doesn't interleave with CIDB logs.
+      sys.stdout.write(output.getvalue())
 
   def _GetBuildDuration(self):
     """Fetches the duration of this build in seconds, from cidb.
@@ -1134,6 +1164,27 @@ class DetectIrrelevantChangesStage(generic_stages.BoardSpecificBuilderStage):
 
     return subsystem_set
 
+  def _RecordIrrelevantChanges(self, changes):
+    """Records |changes| irrelevant to the slave build into cidb.
+
+    Args:
+      builder_run: BuilderRun instance for this build.
+      changes: A set of irrelevant changes to record.
+    """
+    if not changes:
+      logging.info('All changes are considered relevant to this build.')
+      return
+
+    logging.info('The following changes are irrelevant to this build: %s',
+                 cros_patch.GetChangesAsString(changes))
+
+    build_id, db = self._run.GetCIDBHandle()
+    if db:
+      cl_actions = [clactions.CLAction.FromGerritPatchAndAction(
+          change, constants.CL_ACTION_IRRELEVANT_TO_SLAVE)
+                    for change in changes]
+      db.InsertCLActions(build_id, cl_actions)
+
   @failures_lib.SetFailureType(failures_lib.InfrastructureFailure)
   def PerformStage(self):
     """Run DetectIrrelevantChangesStage."""
@@ -1150,12 +1201,23 @@ class DetectIrrelevantChangesStage(generic_stages.BoardSpecificBuilderStage):
       self._run.attrs.metadata.UpdateBoardDictWithDict(
           self._current_board, {'irrelevant_changes': change_dict_list})
 
+      if (not self._run.config.do_not_apply_cq_patches and
+          config_lib.IsCQType(self._run.config.build_type)):
+        # As each CQ build config has only one board, it's safe to record
+        # irrelevant changes in this stage. For builds with multiple board
+        # configurations, irrelevant changes have to be sorted and reocrded in
+        # Completion stage which means each board has detected and recorded its
+        # irrelevant changes to metadata in the DetectIrrelevantChanges stage.
+
+        # Record the irrelevant changes to CIDB.
+        self._RecordIrrelevantChanges(irrelevant_changes)
+
     if irrelevant_changes:
       relevant_changes = list(set(self.changes) - irrelevant_changes)
       logging.info('Below are the irrelevant changes for board: %s.',
                    self._current_board)
-      (validation_pool.ValidationPool.
-       PrintLinksToChanges(list(irrelevant_changes)))
+      validation_pool.ValidationPool.PrintLinksToChanges(
+          list(irrelevant_changes))
     else:
       relevant_changes = self.changes
 

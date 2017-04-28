@@ -1244,3 +1244,176 @@ TEST_F(ConstantFoldingExpressionTest, FoldDivideByInfinity)
     evaluateFloat(floatString);
     ASSERT_TRUE(constantFoundInAST(0.0f));
 }
+
+// Test that unsigned bitfieldExtract is folded correctly.
+TEST_F(ConstantFoldingExpressionTest, FoldUnsignedBitfieldExtract)
+{
+    const std::string &uintString = "bitfieldExtract(0x00110000u, 16, 5)";
+    evaluateUint(uintString);
+    ASSERT_TRUE(constantFoundInAST(0x11u));
+}
+
+// Test that unsigned bitfieldExtract to extract 32 bits is folded correctly.
+TEST_F(ConstantFoldingExpressionTest, FoldUnsignedBitfieldExtract32Bits)
+{
+    const std::string &uintString = "bitfieldExtract(0xff0000ffu, 0, 32)";
+    evaluateUint(uintString);
+    ASSERT_TRUE(constantFoundInAST(0xff0000ffu));
+}
+
+// Test that signed bitfieldExtract is folded correctly. The higher bits should be set to 1 if the
+// most significant bit of the extracted value is 1.
+TEST_F(ConstantFoldingExpressionTest, FoldSignedBitfieldExtract)
+{
+    const std::string &intString = "bitfieldExtract(0x00110000, 16, 5)";
+    evaluateInt(intString);
+    // 0xfffffff1 == -15
+    ASSERT_TRUE(constantFoundInAST(-15));
+}
+
+// Test that bitfieldInsert is folded correctly.
+TEST_F(ConstantFoldingExpressionTest, FoldBitfieldInsert)
+{
+    const std::string &uintString = "bitfieldInsert(0x04501701u, 0x11u, 8, 5)";
+    evaluateUint(uintString);
+    ASSERT_TRUE(constantFoundInAST(0x04501101u));
+}
+
+// Test that bitfieldInsert to insert 32 bits is folded correctly.
+TEST_F(ConstantFoldingExpressionTest, FoldBitfieldInsert32Bits)
+{
+    const std::string &uintString = "bitfieldInsert(0xff0000ffu, 0x11u, 0, 32)";
+    evaluateUint(uintString);
+    ASSERT_TRUE(constantFoundInAST(0x11u));
+}
+
+// Test that bitfieldReverse is folded correctly.
+TEST_F(ConstantFoldingExpressionTest, FoldBitfieldReverse)
+{
+    const std::string &uintString = "bitfieldReverse((1u << 4u) | (1u << 7u))";
+    evaluateUint(uintString);
+    uint32_t flag1 = 1u << (31u - 4u);
+    uint32_t flag2 = 1u << (31u - 7u);
+    ASSERT_TRUE(constantFoundInAST(flag1 | flag2));
+}
+
+// Test that bitCount is folded correctly.
+TEST_F(ConstantFoldingExpressionTest, FoldBitCount)
+{
+    const std::string &intString = "bitCount(0x17103121u)";
+    evaluateInt(intString);
+    ASSERT_TRUE(constantFoundInAST(10));
+}
+
+// Test that findLSB is folded correctly.
+TEST_F(ConstantFoldingExpressionTest, FoldFindLSB)
+{
+    const std::string &intString = "findLSB(0x80010000u)";
+    evaluateInt(intString);
+    ASSERT_TRUE(constantFoundInAST(16));
+}
+
+// Test that findLSB is folded correctly when the operand is zero.
+TEST_F(ConstantFoldingExpressionTest, FoldFindLSBZero)
+{
+    const std::string &intString = "findLSB(0u)";
+    evaluateInt(intString);
+    ASSERT_TRUE(constantFoundInAST(-1));
+}
+
+// Test that findMSB is folded correctly.
+TEST_F(ConstantFoldingExpressionTest, FoldFindMSB)
+{
+    const std::string &intString = "findMSB(0x01000008u)";
+    evaluateInt(intString);
+    ASSERT_TRUE(constantFoundInAST(24));
+}
+
+// Test that findMSB is folded correctly when the operand is zero.
+TEST_F(ConstantFoldingExpressionTest, FoldFindMSBZero)
+{
+    const std::string &intString = "findMSB(0u)";
+    evaluateInt(intString);
+    ASSERT_TRUE(constantFoundInAST(-1));
+}
+
+// Test that findMSB is folded correctly for a negative integer.
+// It is supposed to return the index of the most significant bit set to 0.
+TEST_F(ConstantFoldingExpressionTest, FoldFindMSBNegativeInt)
+{
+    const std::string &intString = "findMSB(-8)";
+    evaluateInt(intString);
+    ASSERT_TRUE(constantFoundInAST(2));
+}
+
+// Test that findMSB is folded correctly for -1.
+TEST_F(ConstantFoldingExpressionTest, FoldFindMSBMinusOne)
+{
+    const std::string &intString = "findMSB(-1)";
+    evaluateInt(intString);
+    ASSERT_TRUE(constantFoundInAST(-1));
+}
+
+// Test that packUnorm4x8 is folded correctly for a vector of zeroes.
+TEST_F(ConstantFoldingExpressionTest, FoldPackUnorm4x8Zero)
+{
+    const std::string &intString = "packUnorm4x8(vec4(0.0))";
+    evaluateUint(intString);
+    ASSERT_TRUE(constantFoundInAST(0u));
+}
+
+// Test that packUnorm4x8 is folded correctly for a vector of ones.
+TEST_F(ConstantFoldingExpressionTest, FoldPackUnorm4x8One)
+{
+    const std::string &intString = "packUnorm4x8(vec4(1.0))";
+    evaluateUint(intString);
+    ASSERT_TRUE(constantFoundInAST(0xffffffffu));
+}
+
+// Test that packSnorm4x8 is folded correctly for a vector of zeroes.
+TEST_F(ConstantFoldingExpressionTest, FoldPackSnorm4x8Zero)
+{
+    const std::string &intString = "packSnorm4x8(vec4(0.0))";
+    evaluateUint(intString);
+    ASSERT_TRUE(constantFoundInAST(0u));
+}
+
+// Test that packSnorm4x8 is folded correctly for a vector of ones.
+TEST_F(ConstantFoldingExpressionTest, FoldPackSnorm4x8One)
+{
+    const std::string &intString = "packSnorm4x8(vec4(1.0))";
+    evaluateUint(intString);
+    ASSERT_TRUE(constantFoundInAST(0x7f7f7f7fu));
+}
+
+// Test that packSnorm4x8 is folded correctly for a vector of minus ones.
+TEST_F(ConstantFoldingExpressionTest, FoldPackSnorm4x8MinusOne)
+{
+    const std::string &intString = "packSnorm4x8(vec4(-1.0))";
+    evaluateUint(intString);
+    ASSERT_TRUE(constantFoundInAST(0x81818181u));
+}
+
+// Test that unpackSnorm4x8 is folded correctly when it needs to clamp the result.
+TEST_F(ConstantFoldingExpressionTest, FoldUnpackSnorm4x8Clamp)
+{
+    const std::string &floatString = "unpackSnorm4x8(0x00000080u).x";
+    evaluateFloat(floatString);
+    ASSERT_TRUE(constantFoundInAST(-1.0f));
+}
+
+// Test that unpackUnorm4x8 is folded correctly.
+TEST_F(ConstantFoldingExpressionTest, FoldUnpackUnorm4x8)
+{
+    const std::string &floatString = "unpackUnorm4x8(0x007bbeefu).z";
+    evaluateFloat(floatString);
+    ASSERT_TRUE(constantFoundInAST(123.0f / 255.0f));
+}
+
+// Test that ldexp is folded correctly.
+TEST_F(ConstantFoldingExpressionTest, FoldLdexp)
+{
+    const std::string &floatString = "ldexp(0.625, 1)";
+    evaluateFloat(floatString);
+    ASSERT_TRUE(constantFoundInAST(1.25f));
+}

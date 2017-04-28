@@ -67,13 +67,13 @@ tr.b.unittest.testSuite(function() {
   test('getTimesliceForCpuSlice', function() {
     var m = new tr.Model();
     var SCHEDULING_STATE = tr.model.SCHEDULING_STATE;
-    var cpu = m.kernel.getOrCreateCpu(1);
+    var cpu = m.device.getOrCreateCpu(1);
     var t2 = m.getOrCreateProcess(1).getOrCreateThread(2);
     t2.timeSlices = [newThreadSlice(t2, SCHEDULING_STATE.RUNNING, 0, 10, cpu),
-                     newThreadSlice(t2, SCHEDULING_STATE.SLEEPING, 10, 10),
-                     newThreadSlice(t2, SCHEDULING_STATE.RUNNING, 20, 10, cpu)];
+      newThreadSlice(t2, SCHEDULING_STATE.SLEEPING, 10, 10),
+      newThreadSlice(t2, SCHEDULING_STATE.RUNNING, 20, 10, cpu)];
     cpu.slices = [newCpuSliceNamed(cpu, 'x', 0, 10, t2),
-                  newCpuSliceNamed(cpu, 'x', 20, 10, t2)];
+      newCpuSliceNamed(cpu, 'x', 20, 10, t2)];
     assert.equal(cpu.slices[0].getAssociatedTimeslice(), t2.timeSlices[0]);
     assert.equal(cpu.slices[1].getAssociatedTimeslice(), t2.timeSlices[2]);
 
@@ -92,17 +92,17 @@ tr.b.unittest.testSuite(function() {
   test('putToSleepFor', function() {
     var m = new tr.Model();
     var SCHEDULING_STATE = tr.model.SCHEDULING_STATE;
-    var cpu = m.kernel.getOrCreateCpu(1);
+    var cpu = m.device.getOrCreateCpu(1);
 
     var t2 = m.getOrCreateProcess(1).getOrCreateThread(2);
     var t3 = m.getOrCreateProcess(1).getOrCreateThread(3);
     t2.timeSlices = [newThreadSlice(t2, SCHEDULING_STATE.RUNNING, 0, 10, cpu),
-                     newThreadSlice(t2, SCHEDULING_STATE.SLEEPING, 10, 10),
-                     newThreadSlice(t2, SCHEDULING_STATE.RUNNING, 20, 10, cpu)];
+      newThreadSlice(t2, SCHEDULING_STATE.SLEEPING, 10, 10),
+      newThreadSlice(t2, SCHEDULING_STATE.RUNNING, 20, 10, cpu)];
     t3.timeSlices = [newThreadSlice(t3, SCHEDULING_STATE.RUNNING, 10, 5, cpu)];
     cpu.slices = [newCpuSliceNamed(cpu, 'x', 0, 10, t2),
-                   newCpuSliceNamed(cpu, 'x', 10, 5, t3),
-                   newCpuSliceNamed(cpu, 'x', 20, 10, t2)];
+      newCpuSliceNamed(cpu, 'x', 10, 5, t3),
+      newCpuSliceNamed(cpu, 'x', 20, 10, t2)];
 
     // At timeslice 0, the thread is running.
     assert.isUndefined(t2.timeSlices[0].getCpuSliceThatTookCpu());
@@ -116,23 +116,23 @@ tr.b.unittest.testSuite(function() {
   test('putToSleepForNothing', function() {
     var m = new tr.Model();
     var SCHEDULING_STATE = tr.model.SCHEDULING_STATE;
-    var cpu = m.kernel.getOrCreateCpu(1);
+    var cpu = m.device.getOrCreateCpu(1);
 
     var t2 = m.getOrCreateProcess(1).getOrCreateThread(2);
     var t3 = m.getOrCreateProcess(1).getOrCreateThread(3);
     t2.timeSlices = [newThreadSlice(t2, SCHEDULING_STATE.RUNNING, 0, 10, cpu),
-                     newThreadSlice(t2, SCHEDULING_STATE.SLEEPING, 10, 10),
-                     newThreadSlice(t2, SCHEDULING_STATE.RUNNING, 20, 10, cpu)];
+      newThreadSlice(t2, SCHEDULING_STATE.SLEEPING, 10, 10),
+      newThreadSlice(t2, SCHEDULING_STATE.RUNNING, 20, 10, cpu)];
     t3.timeSlices = [newThreadSlice(t3, SCHEDULING_STATE.RUNNING, 15, 5, cpu)];
     cpu.slices = [newCpuSliceNamed(cpu, 'x', 0, 10, t2),
-                   newCpuSliceNamed(cpu, 'x', 15, 5, t3),
-                   newCpuSliceNamed(cpu, 'x', 20, 10, t2)];
+      newCpuSliceNamed(cpu, 'x', 15, 5, t3),
+      newCpuSliceNamed(cpu, 'x', 20, 10, t2)];
     assert.isUndefined(t2.timeSlices[1].getCpuSliceThatTookCpu());
   });
 
   test('switchActiveThread', function() {
     var m = new tr.Model();
-    var cpu = m.kernel.getOrCreateCpu(1);
+    var cpu = m.device.getOrCreateCpu(1);
 
     cpu.switchActiveThread(5, {}, 0, 'idle thread', {});
     cpu.switchActiveThread(10, {}, 1, 'thread one', {a: 1});
@@ -180,7 +180,7 @@ tr.b.unittest.testSuite(function() {
 
   test('getFrequencyStats', function() {
     var m = new tr.Model();
-    var cpu = m.kernel.getOrCreateCpu(1);
+    var cpu = m.device.getOrCreateCpu(1);
     var powerCounter = cpu.getOrCreateCounter('', 'Clock Frequency');
     var series = powerCounter.addSeries(new tr.model.CounterSeries('state',
         ColorScheme.getColorIdForGeneralPurposeString('test')));

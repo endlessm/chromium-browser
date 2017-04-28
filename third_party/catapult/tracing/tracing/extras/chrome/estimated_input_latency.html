@@ -11,7 +11,6 @@ found in the LICENSE file.
 <script>
 'use strict';
 tr.exportTo('tr.e.chrome', function() {
-
   // TODO(dproy): Because title and category are properties of TimedEvent
   // subclasses and not TimedEvent itself, we have to write our own "has title
   // and category" function rather than having it provided by TimedEvent.
@@ -40,7 +39,7 @@ tr.exportTo('tr.e.chrome', function() {
     var interactiveTimestampsMap = new Map();
     var chromeHelper = model.getOrCreateHelper(
         tr.model.helpers.ChromeModelHelper);
-    tr.b.iterItems(chromeHelper.rendererHelpers, (pid, rendererHelper) => {
+    for (var rendererHelper of Object.values(chromeHelper.rendererHelpers)) {
       var timestamps = [];
       interactiveTimestampsMap.set(rendererHelper.pid, timestamps);
       var samples = tr.metrics.sh.collectLoadingMetricsForRenderer(
@@ -49,7 +48,7 @@ tr.exportTo('tr.e.chrome', function() {
         timestamps.push(
             sample.diagnostics['Navigation infos'].value.interactive);
       }
-    });
+    }
     return interactiveTimestampsMap;
   }
 
@@ -300,7 +299,7 @@ tr.exportTo('tr.e.chrome', function() {
    * @returns {number}
    */
   function maxExpectedQueueingTimeInSlidingWindow(startTime, endTime,
-                                                  windowSize, tasks) {
+      windowSize, tasks) {
     if (windowSize <= 0) {
       throw Error('The window size must be positive number');
     }
@@ -311,7 +310,14 @@ tr.exportTo('tr.e.chrome', function() {
     var sortedTasks = tasks.slice().sort((a, b) => a.start - b.start);
 
     for (var i = 1; i < sortedTasks.length; i++) {
-      if (sortedTasks[i - 1].end > sortedTasks[i].start) {
+      // Due to floating-point precision errors it might happen that the end
+      // of the previous task is larger than the start of the current task.
+      // Here is an example from a real trace of system-health benchmark:
+      // Task 1: start=1932.0179090499878 end=1932.070909049988.
+      // Task 2: start=1932.0709090232850 end=1932.118909023285.
+      // To account for precision errors we consider tasks as overlapping
+      // if the overlap is sufficiently large.
+      if (sortedTasks[i - 1].end > sortedTasks[i].start + 1e-3) {
         throw Error('Tasks must not overlap');
       }
     }

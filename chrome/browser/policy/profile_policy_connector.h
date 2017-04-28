@@ -33,10 +33,13 @@ class ProfilePolicyConnector : public KeyedService {
   // |user| is only used in Chrome OS builds and should be set to nullptr
   // otherwise.  |configuration_policy_provider| and |policy_store| are nullptr
   // for non-regular users.
+  // If |force_immediate_load| is true, DeviceLocalAccountPolicy is loaded
+  // synchronously.
   void Init(const user_manager::User* user,
             SchemaRegistry* schema_registry,
             ConfigurationPolicyProvider* configuration_policy_provider,
-            const CloudPolicyStore* policy_store);
+            const CloudPolicyStore* policy_store,
+            bool force_immediate_load);
 
   void InitForTesting(std::unique_ptr<PolicyService> service);
   void OverrideIsManagedForTesting(bool is_managed);
@@ -62,6 +65,9 @@ class ProfilePolicyConnector : public KeyedService {
   bool IsProfilePolicy(const char* policy_key) const;
 
  private:
+  // Returns the policy store which is actually used.
+  const CloudPolicyStore* GetActualPolicyStore() const;
+
   // Find the policy provider that provides the |policy_key| policy, if any. In
   // case of multiple providers sharing the same policy, the one with the
   // highest priority will be returned.

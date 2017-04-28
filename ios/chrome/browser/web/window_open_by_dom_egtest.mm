@@ -17,9 +17,9 @@
 #include "ios/web/public/test/http_server_util.h"
 
 using chrome_test_util::AssertMainTabCount;
-using chrome_test_util::omniboxText;
+using chrome_test_util::OmniboxText;
 using chrome_test_util::TapWebViewElementWithId;
-using chrome_test_util::webViewContainingText;
+using chrome_test_util::WebViewContainingText;
 using web::test::HttpServer;
 
 namespace {
@@ -48,7 +48,7 @@ const char kTestURL[] =
   [super setUp];
   // Open the test page. There should only be one tab open.
   [ChromeEarlGrey loadURL:HttpServer::MakeUrl(kTestURL)];
-  [[EarlGrey selectElementWithMatcher:webViewContainingText("Expected result")]
+  [[EarlGrey selectElementWithMatcher:WebViewContainingText("Expected result")]
       assertWithMatcher:grey_notNil()];
   AssertMainTabCount(1);
 }
@@ -58,6 +58,25 @@ const char kTestURL[] =
 - (void)testLinkWithBlankTargetWithImmediateClose {
   TapWebViewElementWithId("webScenarioWindowOpenBlankTargetWithImmediateClose");
   AssertMainTabCount(1);
+}
+
+// Tests that sessionStorage content is available for windows opened by DOM via
+// target="_blank" links.
+- (void)testLinkWithBlankTargetSessionStorage {
+  using chrome_test_util::ExecuteJavaScript;
+
+  NSError* error = nil;
+  ExecuteJavaScript(@"sessionStorage.setItem('key', 'value');", &error);
+  GREYAssert(!error, @"Error during script execution: %@", error);
+
+  TapWebViewElementWithId("webScenarioWindowOpenSamePageWithBlankTarget");
+  AssertMainTabCount(2);
+  [[EarlGrey selectElementWithMatcher:WebViewContainingText("Expected result")]
+      assertWithMatcher:grey_notNil()];
+
+  id value = ExecuteJavaScript(@"sessionStorage.getItem('key');", &error);
+  GREYAssert(!error, @"Error during script execution: %@", error);
+  GREYAssert([value isEqual:@"value"], @"sessionStorage is not shared");
 }
 
 // Tests a link with target="_blank".
@@ -92,7 +111,7 @@ const char kTestURL[] =
   // Ensure that the resulting tab is updated as expected.
   const GURL targetURL =
       HttpServer::MakeUrl(std::string(kTestURL) + "#assigned");
-  [[EarlGrey selectElementWithMatcher:omniboxText(targetURL.GetContent())]
+  [[EarlGrey selectElementWithMatcher:OmniboxText(targetURL.GetContent())]
       assertWithMatcher:grey_notNil()];
 }
 
@@ -106,7 +125,7 @@ const char kTestURL[] =
   // Ensure that the resulting tab is updated as expected.
   const GURL targetURL =
       HttpServer::MakeUrl(std::string(kTestURL) + "#updated");
-  [[EarlGrey selectElementWithMatcher:omniboxText(targetURL.GetContent())]
+  [[EarlGrey selectElementWithMatcher:OmniboxText(targetURL.GetContent())]
       assertWithMatcher:grey_notNil()];
 }
 
@@ -159,7 +178,7 @@ const char kTestURL[] =
   // Ensure that the starting tab hasn't navigated.
   chrome_test_util::CloseCurrentTab();
   const GURL URL = HttpServer::MakeUrl(kTestURL);
-  [[EarlGrey selectElementWithMatcher:omniboxText(URL.GetContent())]
+  [[EarlGrey selectElementWithMatcher:OmniboxText(URL.GetContent())]
       assertWithMatcher:grey_notNil()];
 }
 

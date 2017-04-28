@@ -2,12 +2,17 @@
 
 ## Prerequisites
 
-Running the tests, running the local server and
-deploying all depends on having the [the App Engine
-SDK](https://cloud.google.com/appengine/downloads).
-
-After downloading and unpacking, you should add the path to the SDK to
-both `PATH` and `PYTHONPATH`.
+1. Make sure you have Python 2.7.x installed. Python 3.x is not supported.
+2. [Download the Google Cloud SDK.](https://cloud.google.com/sdk/downloads)
+3. Update the Cloud SDK and set the default project to your project ID by
+   invoking the following commands:
+   ```
+   gcloud components update
+   gcloud components install app-engine-python
+   gcloud config set project [PROJECT-ID]
+   ```
+   Replace `[PROJECT-ID]` with your project ID. For chromeperf.appspot.com,
+   it's `chromeperf`.
 
 ## Running the tests
 
@@ -25,14 +30,16 @@ To load sample graph or alert data from production, navigate to
 
 ## Deploying to production
 
-To deploy, you can run `bin/deploy`, which prepares the
-code to be deployed and runs `appcfg.py`. Note that this
-doesn't set the new version as the default version; to do
-this, you can use the versions page on the [Google Developers
-Console](https://console.developers.google.com/) if you have edit or
-owner permissions for the App Engine project; otherwise if you want to
-request to set a new default version for chromeperf.appspot.com you can
-contact chrome-perf-dashboard-team@google.com.
+To deploy, you can run `bin/deploy`, which prepares the code to be deployed and
+runs `gcloud app deploy`. If you modify any `*.yaml` files, you can pass them as
+parameters to `bin/deploy` to deploy the updated configs.
+
+When deploying services, `bin/deploy` doesn't set the new version as the default
+version; to do this, you can use the Versions page on the [Google Developers
+Console](https://console.developers.google.com/) if you have edit or owner
+permissions for the App Engine project; otherwise if you want to request to set
+a new default version for chromeperf.appspot.com you can contact
+chrome-perf-dashboard-team@google.com.
 
 After deploying, there is a checklist to verify that no major functionality
 has regressed: [deploy checklist](/dashboard/docs/deploy-checklist.md).

@@ -44,6 +44,7 @@ namespace blink {
 
 class Document;
 class FetchEvent;
+class ParentFrameTaskRunners;
 class ServiceWorkerGlobalScope;
 class WebDataConsumerHandle;
 class WebEmbeddedWorkerImpl;
@@ -84,13 +85,13 @@ class ServiceWorkerGlobalScopeProxy final
       int eventID,
       const WebString& message,
       const WebSecurityOrigin& sourceOrigin,
-      const WebMessagePortChannelArray&,
+      WebMessagePortChannelArray,
       const WebServiceWorkerClientInfo&) override;
   void dispatchExtendableMessageEvent(
       int eventID,
       const WebString& message,
       const WebSecurityOrigin& sourceOrigin,
-      const WebMessagePortChannelArray&,
+      WebMessagePortChannelArray,
       std::unique_ptr<WebServiceWorker::Handle>) override;
   void dispatchFetchEvent(int fetchEventID,
                           const WebServiceWorkerRequest&,
@@ -108,8 +109,7 @@ class ServiceWorkerGlobalScopeProxy final
                                       const WebNotificationData&) override;
   void dispatchPushEvent(int, const WebString& data) override;
   void dispatchSyncEvent(int, const WebString& tag, LastChanceOption) override;
-  void dispatchPaymentRequestEvent(int,
-                                   const WebPaymentAppRequestData&) override;
+  void dispatchPaymentRequestEvent(int, const WebPaymentAppRequest&) override;
   bool hasFetchEventHandler() override;
   void onNavigationPreloadResponse(
       int fetchEventID,
@@ -130,7 +130,6 @@ class ServiceWorkerGlobalScopeProxy final
                             const String& message,
                             SourceLocation*) override;
   void postMessageToPageInspector(const String&) override;
-  ParentFrameTaskRunners* getParentFrameTaskRunners() override;
   void didCreateWorkerGlobalScope(WorkerOrWorkletGlobalScope*) override;
   void didInitializeWorkerContext() override;
   void willEvaluateWorkerScript(size_t scriptSize,
@@ -167,7 +166,15 @@ class ServiceWorkerGlobalScopeProxy final
 
   Member<ParentFrameTaskRunners> m_parentFrameTaskRunners;
 
-  HeapHashMap<int, Member<FetchEvent>> m_pendingPreloadFetchEvents;
+  // The worker thread uses this map to track |FetchEvent|s created
+  // on the worker thread (heap.) But as the proxy object is created
+  // on the main thread & its heap, we must use a cross-heap reference
+  // to each |FetchEvent| so as to obey the "per-thread heap rule" that
+  // a heap should only have per-thread heap references. Keeping a
+  // cross-heap reference requires the use of a CrossThreadPersistent<>
+  // to remain safe and sound.
+  //
+  HashMap<int, CrossThreadPersistent<FetchEvent>> m_pendingPreloadFetchEvents;
 
   WebServiceWorkerContextClient* m_client;
 

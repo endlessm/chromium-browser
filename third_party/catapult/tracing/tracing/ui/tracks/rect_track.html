@@ -19,7 +19,6 @@ found in the LICENSE file.
 'use strict';
 
 tr.exportTo('tr.ui.tracks', function() {
-
   /**
    * A track that displays an array of Rect objects.
    * @constructor
@@ -164,9 +163,11 @@ tr.exportTo('tr.ui.tracks', function() {
       var instantEventWidth = 2 * viewPixWidthWorld;
       tr.b.iterateOverIntersectingIntervals(this.rects_,
           function(x) { return x.start; },
-          function(x) { return x.duration === 0 ?
-                               x.duration + instantEventWidth :
-                               x.duration; },
+          function(x) {
+            return x.duration === 0 ?
+              x.duration + instantEventWidth :
+              x.duration;
+          },
           loWX, hiWX,
           onRect);
     },
@@ -210,7 +211,7 @@ tr.exportTo('tr.ui.tracks', function() {
     },
 
     addClosestEventToSelection: function(worldX, worldMaxDist, loY, hiY,
-                                         selection) {
+        selection) {
       var rect = tr.b.findClosestIntervalInSortedIntervals(
           this.rects_,
           function(x) { return x.start; },

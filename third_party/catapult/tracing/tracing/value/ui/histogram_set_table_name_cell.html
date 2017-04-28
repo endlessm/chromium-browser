@@ -72,17 +72,17 @@ found in the LICENSE file.
 <script>
 'use strict';
 tr.exportTo('tr.v.ui', function() {
-  var NAME_COLUMN_WIDTH_PX = 300;
+  const NAME_COLUMN_WIDTH_PX = 300;
 
   Polymer({
     is: 'tr-v-ui-histogram-set-table-name-cell',
 
-    created: function() {
+    created() {
       this.row_ = undefined;
       this.overviewChart_ = undefined;
     },
 
-    attached: function() {
+    attached() {
       this.maybeDispatchOverflow_();
     },
 
@@ -112,14 +112,14 @@ tr.exportTo('tr.v.ui', function() {
       return NAME_COLUMN_WIDTH_PX - (16 * this.row.depth);
     },
 
-    maybeDispatchOverflow_: function() {
+    maybeDispatchOverflow_() {
       if (this.$.name.style.maxWidth !== 'none' &&
           parseInt(getComputedStyle(this.$.name).width) === this.nameWidthPx) {
         this.dispatchEvent(new tr.b.Event('name-cell-overflow'));
       }
     },
 
-    hideOverview_: function(opt_event) {
+    hideOverview_(opt_event) {
       if (opt_event) {
         opt_event.stopPropagation();
       }
@@ -127,21 +127,21 @@ tr.exportTo('tr.v.ui', function() {
       this.$.hide_overview.style.display = 'none';
       this.$.show_overview.style.display = 'block';
 
-      for (var [displayLabel, cell] of this.row.cells) {
+      for (let [displayLabel, cell] of this.row.cells) {
         cell.hideOverview();
       }
     },
 
-    showOverview_: function(opt_event) {
+    showOverview_(opt_event) {
       if (opt_event) {
         opt_event.preventDefault();
         opt_event.stopPropagation();
       }
       this.$.overview_container.style.display = 'block';
       if (this.overviewChart_ === undefined) {
-        var data = [];
-        var unitString = undefined;
-        for (var [displayLabel, hist] of this.row.columns) {
+        let data = [];
+        let unitString = undefined;
+        for (let [displayLabel, hist] of this.row.columns) {
           data.push({x: displayLabel, y: hist.average});
           unitString = hist.unit.unitString;
         }
@@ -159,7 +159,7 @@ tr.exportTo('tr.v.ui', function() {
       this.$.hide_overview.style.display = 'block';
       this.$.show_overview.style.display = 'none';
 
-      for (var [displayLabel, cell] of this.row.cells) {
+      for (let [displayLabel, cell] of this.row.cells) {
         cell.showOverview();
       }
     }

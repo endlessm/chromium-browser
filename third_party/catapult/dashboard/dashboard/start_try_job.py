@@ -87,7 +87,11 @@ _NON_TELEMETRY_TEST_COMMANDS = {
     ],
 }
 _DISABLE_STORY_FILTER = set(_NON_TELEMETRY_TEST_COMMANDS)
-_DISABLE_STORY_FILTER.add('octane')  # Has a single story.
+_DISABLE_STORY_FILTER.update([
+    'octane',  # Has a single story.
+    'memory.top_10_mobile',  # Stories are not independent.
+    'memory.top_10_mobile_stress',  # Stories are not independent.
+])
 
 
 class StartBisectHandler(request_handler.RequestHandler):
@@ -459,13 +463,18 @@ def _GuessCommandTelemetry(suite, bisect_bot, story_filter, rerun_option):
 
   test_cmd = 'src/tools/perf/run_benchmark'
 
+  # TODO(simonhatch): Workaround for crbug.com/677843
+  pageset_repeat = 1
+  if 'startup.warm' in suite:
+    pageset_repeat = 2
+
   command.extend([
       test_cmd,
       '-v',
       '--browser=%s' % _GuessBrowserName(bisect_bot),
       '--output-format=chartjson',
       '--upload-results',
-      '--pageset-repeat=1',
+      '--pageset-repeat=%d' % pageset_repeat,
       '--also-run-disabled-tests',
   ])
   if story_filter:
@@ -526,10 +535,6 @@ def GuessStoryFilter(test_path):
     pass
   if subtest_keys:  # Stories do not have subtests.
     return ''
-  if story_name.startswith('after_'):
-    # TODO(perezju,#1811): Remove this hack after deprecating the
-    # memory.top_10_mobile benchmark.
-    story_name = story_name[len('after_'):]
 
   # During import, some chars in story names got replaced by "_" so they
   # could be safely included in the test_path. At this point we don't know
@@ -681,7 +686,7 @@ def _PerformPerfTryJob(perf_job):
   try:
     base_config = gitiles_service.FileContents('chromium/src', 'master',
                                                _PERF_CONFIG_PATH)
-  except urlfetch.Error:
+  except (urlfetch.Error, gitiles_service.NotFoundError):
     base_config = None
 
   if not base_config:

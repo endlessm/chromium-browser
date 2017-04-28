@@ -11,6 +11,7 @@
 #include "base/md5.h"
 #include "base/memory/scoped_vector.h"
 #include "base/message_loop/message_loop.h"
+#include "base/test/scoped_task_scheduler.h"
 #include "media/audio/clockless_audio_sink.h"
 #include "media/audio/null_audio_sink.h"
 #include "media/base/demuxer.h"
@@ -68,7 +69,8 @@ class PipelineIntegrationTestBase : public Pipeline::Client {
     kNormal = 0,
     kHashed = 1,
     kClockless = 2,
-    kExpectDemuxerFailure = 4
+    kExpectDemuxerFailure = 4,
+    kUnreliableDuration = 8,
   };
 
   // Starts the pipeline with a file specified by |filename|, optionally with a
@@ -132,6 +134,9 @@ class PipelineIntegrationTestBase : public Pipeline::Client {
   base::MD5Context md5_context_;
   bool hashing_enabled_;
   bool clockless_playback_;
+
+  // TaskScheduler is used only for FFmpegDemuxer.
+  std::unique_ptr<base::test::ScopedTaskScheduler> task_scheduler_;
   std::unique_ptr<Demuxer> demuxer_;
   std::unique_ptr<DataSource> data_source_;
   std::unique_ptr<PipelineImpl> pipeline_;

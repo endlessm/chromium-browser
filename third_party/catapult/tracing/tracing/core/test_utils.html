@@ -28,7 +28,6 @@ tr.exportTo('tr.c', function() {
 
   function _getStartAndCpuDurationFromDict(
       options, required, startFieldName, durationFieldName, endFieldName) {
-
     if (options[startFieldName] === undefined) {
       if (required)
         throw new Error('Too little information.');
@@ -224,6 +223,8 @@ tr.exportTo('tr.c', function() {
 
     var cat = options.cat ? options.cat : 'cat';
 
+    var bindId = options.bindId ? options.bindId : 0;
+
     var type;
     if (options.type)
       type = options.type;
@@ -237,7 +238,8 @@ tr.exportTo('tr.c', function() {
         sd.start,
         options.args ? options.args : {},
         sd.duration,
-        cpuSD.start, cpuSD.duration);
+        cpuSD.start, cpuSD.duration,
+        undefined, bindId);
 
     if (options.isTopLevel)
       slice.isTopLevel = true;
@@ -286,7 +288,7 @@ tr.exportTo('tr.c', function() {
     for (var i = 0; i < slices.length; i++)
       if (slices[i].title === name)
         return slices[i];
-      return undefined;
+    return undefined;
   };
 
   TestUtils.newInteractionRecord = function(parentModel, start, duration) {

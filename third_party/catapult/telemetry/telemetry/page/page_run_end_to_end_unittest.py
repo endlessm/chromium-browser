@@ -283,7 +283,8 @@ class ActualPageRunEndToEndTests(unittest.TestCase):
     class TestUserAgent(legacy_page_test.LegacyPageTest):
       def ValidateAndMeasurePage(self, page, tab, results):
         del page, results  # unused
-        actual_user_agent = tab.EvaluateJavaScript('window.navigator.userAgent')
+        actual_user_agent = tab.EvaluateJavaScript(
+            'window.navigator.userAgent')
         expected_user_agent = user_agent.UA_TYPE_MAPPING['tablet']
         assert actual_user_agent.strip() == expected_user_agent
 
@@ -452,7 +453,7 @@ class ActualPageRunEndToEndTests(unittest.TestCase):
         del page, tab, results  # not used
 
     options = options_for_unittests.GetCopy()
-    options.page_repeat = 2
+    options.pageset_repeat = 2
     options.output_formats = ['none']
     options.suppress_gtest_report = True
     if not browser_finder.FindBrowser(options):
@@ -565,7 +566,7 @@ class ActualPageRunEndToEndTests(unittest.TestCase):
       self.assertEquals(0, len(results.failures))
       self.assertEquals(0, len(results.all_page_specific_values))
       self.assertTrue(os.path.isfile(
-          os.path.join(options.output_dir, 'blank_html.zip')))
+          os.path.join(options.output_dir, 'blank_html.html')))
     finally:
       shutil.rmtree(options.output_dir)
 

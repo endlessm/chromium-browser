@@ -141,9 +141,9 @@ tr.exportTo('tr.ui.e.chrome.cc', function() {
           'layerView.tileHeatmapType', TILE_HEATMAP_TYPE.NONE,
           [{label: 'None',
             value: TILE_HEATMAP_TYPE.NONE},
-           {label: 'Scheduled Priority',
+          {label: 'Scheduled Priority',
             value: TILE_HEATMAP_TYPE.SCHEDULED_PRIORITY},
-           {label: 'Is using GPU memory',
+          {label: 'Is using GPU memory',
             value: TILE_HEATMAP_TYPE.USING_GPU_MEMORY}
           ]);
       Polymer.dom(this.controls_).appendChild(tileHeatmapSelector);
@@ -484,7 +484,6 @@ tr.exportTo('tr.ui.e.chrome.cc', function() {
                 tr.b.UnitPrefixScale.BINARY.NONE,
                 tr.b.UnitPrefixScale.BINARY.MEBI).toFixed(1) + ' MiB, ' +
             tmgs.memoryLimitPolicy + ')';
-
       } else {
         // Old Chromes do not have a globalState on the LTHI dump.
         // But they do issue a DidManage event wiht the globalstate. Find that
@@ -725,7 +724,7 @@ tr.exportTo('tr.ui.e.chrome.cc', function() {
         var iq = layerQuad.projectUnitRect(unitRect);
         iq.backgroundColor = 'rgba(0, 255, 0, 0.1)';
         if (rect.reason === 'renderer insertion')
-            iq.backgroundColor = 'rgba(0, 255, 128, 0.1)';
+          iq.backgroundColor = 'rgba(0, 255, 128, 0.1)';
         iq.borderColor = 'rgba(0, 255, 0, 1)';
         iq.stackingGroupId = layerQuad.stackingGroupId;
         iq.selectionToSetIfClicked = new cc.LayerRectSelection(
@@ -788,11 +787,11 @@ tr.exportTo('tr.ui.e.chrome.cc', function() {
       }
 
       processRegion(layer.touchEventHandlerRegion, 'Touch listener',
-                    tr.b.Color.fromString('rgb(228, 226, 27)'));
+          tr.b.Color.fromString('rgb(228, 226, 27)'));
       processRegion(layer.wheelEventHandlerRegion, 'Wheel listener',
-                    tr.b.Color.fromString('rgb(176, 205, 29)'));
+          tr.b.Color.fromString('rgb(176, 205, 29)'));
       processRegion(layer.nonFastScrollableRegion, 'Repaints on scroll',
-                    tr.b.Color.fromString('rgb(213, 134, 32)'));
+          tr.b.Color.fromString('rgb(213, 134, 32)'));
     },
 
     appendTileCoverageRectQuads_: function(
@@ -997,7 +996,6 @@ tr.exportTo('tr.ui.e.chrome.cc', function() {
         quadForDrawing.borderColor = color.withAlpha(1.0).darken().toString();
         quadForDrawing.stackingGroupId = layerQuad.stackingGroupId;
         quads.push(quadForDrawing);
-
       }, this);
     },
 
@@ -1075,7 +1073,7 @@ tr.exportTo('tr.ui.e.chrome.cc', function() {
           this.appendUnrecordedRegionQuads_(quads, layer, layerQuad);
         if (this.showBottlenecks)
           this.appendBottleneckQuads_(quads, layer, layerQuad,
-                                      layerQuad.stackingGroupId);
+              layerQuad.stackingGroupId);
         if (this.showLayoutRects)
           this.appendLayoutRectQuads_(quads, layer, layerQuad);
 

@@ -145,8 +145,7 @@ void DeviceLocalAccountPolicyServiceTestBase::SetUp() {
 
   expected_policy_map_.Set(key::kSearchSuggestEnabled, POLICY_LEVEL_MANDATORY,
                            POLICY_SCOPE_USER, POLICY_SOURCE_CLOUD,
-                           base::MakeUnique<base::FundamentalValue>(true),
-                           nullptr);
+                           base::MakeUnique<base::Value>(true), nullptr);
 
   device_local_account_policy_.payload()
       .mutable_searchsuggestenabled()
@@ -797,7 +796,7 @@ DeviceLocalAccountPolicyProviderTest::DeviceLocalAccountPolicyProviderTest() {
   provider_ = DeviceLocalAccountPolicyProvider::Create(
       GenerateDeviceLocalAccountUserId(kAccount1,
                                        DeviceLocalAccount::TYPE_PUBLIC_SESSION),
-      service_.get());
+      service_.get(), false /*force_immediate_load*/);
 }
 
 void DeviceLocalAccountPolicyProviderTest::SetUp() {
@@ -809,21 +808,21 @@ void DeviceLocalAccountPolicyProviderTest::SetUp() {
   expected_policy_map_.Set(
       key::kLidCloseAction, POLICY_LEVEL_MANDATORY, POLICY_SCOPE_MACHINE,
       POLICY_SOURCE_PUBLIC_SESSION_OVERRIDE,
-      base::MakeUnique<base::FundamentalValue>(
+      base::MakeUnique<base::Value>(
           chromeos::PowerPolicyController::ACTION_STOP_SESSION),
       nullptr);
   expected_policy_map_.Set(
       key::kShelfAutoHideBehavior, POLICY_LEVEL_MANDATORY, POLICY_SCOPE_MACHINE,
       POLICY_SOURCE_PUBLIC_SESSION_OVERRIDE,
       base::MakeUnique<base::StringValue>("Never"), nullptr);
-  expected_policy_map_.Set(
-      key::kShowLogoutButtonInTray, POLICY_LEVEL_MANDATORY,
-      POLICY_SCOPE_MACHINE, POLICY_SOURCE_PUBLIC_SESSION_OVERRIDE,
-      base::MakeUnique<base::FundamentalValue>(true), nullptr);
-  expected_policy_map_.Set(
-      key::kFullscreenAllowed, POLICY_LEVEL_MANDATORY, POLICY_SCOPE_MACHINE,
-      POLICY_SOURCE_PUBLIC_SESSION_OVERRIDE,
-      base::MakeUnique<base::FundamentalValue>(false), nullptr);
+  expected_policy_map_.Set(key::kShowLogoutButtonInTray, POLICY_LEVEL_MANDATORY,
+                           POLICY_SCOPE_MACHINE,
+                           POLICY_SOURCE_PUBLIC_SESSION_OVERRIDE,
+                           base::MakeUnique<base::Value>(true), nullptr);
+  expected_policy_map_.Set(key::kFullscreenAllowed, POLICY_LEVEL_MANDATORY,
+                           POLICY_SCOPE_MACHINE,
+                           POLICY_SOURCE_PUBLIC_SESSION_OVERRIDE,
+                           base::MakeUnique<base::Value>(false), nullptr);
 
   // Policy defaults (for policies not set by admin).
   SetEnterpriseUsersDefaults(&expected_policy_map_);
@@ -876,7 +875,7 @@ TEST_F(DeviceLocalAccountPolicyProviderTest, Policy) {
   // Make sure the Dinosaur game is disabled by default. This ensures the
   // default policies have been set in Public Sessions.
   bool allow_dinosaur_game = true;
-  auto policy_value =
+  auto* policy_value =
       provider_->policies()
           .Get(PolicyNamespace(POLICY_DOMAIN_CHROME, std::string()))
           .GetValue(key::kAllowDinosaurEasterEgg);
@@ -901,7 +900,7 @@ TEST_F(DeviceLocalAccountPolicyProviderTest, Policy) {
       .Get(PolicyNamespace(POLICY_DOMAIN_CHROME, std::string()))
       .Set(key::kSearchSuggestEnabled, POLICY_LEVEL_MANDATORY,
            POLICY_SCOPE_USER, POLICY_SOURCE_CLOUD,
-           base::MakeUnique<base::FundamentalValue>(false), nullptr);
+           base::MakeUnique<base::Value>(false), nullptr);
   EXPECT_TRUE(expected_policy_bundle.Equals(provider_->policies()));
 
   // Any values set for the |ShelfAutoHideBehavior|, |ShowLogoutButtonInTray|
@@ -987,6 +986,54 @@ TEST_F(DeviceLocalAccountPolicyProviderTest, RefreshPolicies) {
   request_job->SendResponse(DM_STATUS_SUCCESS, response);
   FlushDeviceSettings();
   Mock::VerifyAndClearExpectations(&provider_observer_);
+}
+
+class DeviceLocalAccountPolicyProviderLoadImmediateTest
+    : public DeviceLocalAccountPolicyServiceTestBase {
+ protected:
+  DeviceLocalAccountPolicyProviderLoadImmediateTest();
+
+  void SetUp() override;
+  void TearDown() override;
+
+  std::unique_ptr<DeviceLocalAccountPolicyProvider> provider_;
+  MockDeviceLocalAccountPolicyServiceObserver service_observer_;
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(DeviceLocalAccountPolicyProviderLoadImmediateTest);
+};
+
+DeviceLocalAccountPolicyProviderLoadImmediateTest::
+    DeviceLocalAccountPolicyProviderLoadImmediateTest() {
+  CreatePolicyService();
+}
+
+void DeviceLocalAccountPolicyProviderLoadImmediateTest::SetUp() {
+  service_->AddObserver(&service_observer_);
+  DeviceLocalAccountPolicyServiceTestBase::SetUp();
+}
+
+void DeviceLocalAccountPolicyProviderLoadImmediateTest::TearDown() {
+  service_->RemoveObserver(&service_observer_);
+  provider_->Shutdown();
+  provider_.reset();
+  DeviceLocalAccountPolicyServiceTestBase::TearDown();
+}
+
+TEST_F(DeviceLocalAccountPolicyProviderLoadImmediateTest, Initialization) {
+  InstallDeviceLocalAccountPolicy(kAccount1);
+  AddDeviceLocalAccountToPolicy(kAccount1);
+  EXPECT_CALL(service_observer_, OnPolicyUpdated(account_1_user_id_))
+      .Times(AtLeast(2));
+  EXPECT_CALL(service_observer_, OnDeviceLocalAccountsChanged());
+  InstallDevicePolicy();
+
+  provider_ = DeviceLocalAccountPolicyProvider::Create(
+      GenerateDeviceLocalAccountUserId(kAccount1,
+                                       DeviceLocalAccount::TYPE_PUBLIC_SESSION),
+      service_.get(), true /*force_immediate_load*/);
+
+  EXPECT_TRUE(provider_->IsInitializationComplete(POLICY_DOMAIN_CHROME));
 }
 
 }  // namespace policy

@@ -15,7 +15,6 @@ found in the LICENSE file.
 'use strict';
 
 tr.b.unittest.testSuite(function() {
-
   function createModel(start, end, slices) {
     var opts = {
       customizeModelCallback: function(model) {
@@ -37,12 +36,12 @@ tr.b.unittest.testSuite(function() {
   }
 
   function run(slices) {
-    var values = new tr.v.HistogramSet();
+    var histograms = new tr.v.HistogramSet();
     var startTime = slices.reduce((acc, slice) => (Math.min(acc, slice.start)));
     var endTime = slices.reduce((acc, slice) => (Math.max(acc, slice.end)));
     var model = createModel(startTime - 1, endTime + 1, slices);
-    tr.metrics.v8.gcMetric(values, model);
-    return values;
+    tr.metrics.v8.gcMetric(histograms, model);
+    return histograms;
   }
 
   test('topEvents', function() {
@@ -56,7 +55,7 @@ tr.b.unittest.testSuite(function() {
       'V8.GCPhantomHandleProcessingCallback': 'v8-gc-phantom-handle-callback',
       'V8.GCScavenger': 'v8-gc-scavenger'
     };
-    tr.b.iterItems(events, function(timelineName, telemetryName) {
+    for (var [timelineName, telemetryName] of Object.entries(events)) {
       var slices = [
         {
           title: timelineName, args: {}, start: 100, end: 200,
@@ -65,34 +64,32 @@ tr.b.unittest.testSuite(function() {
       ];
       var actual = run(slices);
 
-      var value = tr.b.getOnlyElement(actual.getValuesNamed(telemetryName));
+      var value = actual.getHistogramNamed(telemetryName);
       assert.strictEqual(value.running.sum, 100);
       assert.strictEqual(value.numValues, 1);
       assert.strictEqual(value.average, 100);
       assert.strictEqual(value.running.max, 100);
       assert.closeTo(value.getApproximatePercentile(0.90), 100, 1);
 
-      value = tr.b.getOnlyElement(actual.getValuesNamed(
-          telemetryName + '_idle_deadline_overrun'));
+      value = actual.getHistogramNamed(
+          `${telemetryName}_idle_deadline_overrun`);
       assert.strictEqual(value.running.sum, 0);
       assert.strictEqual(value.numValues, 1);
       assert.strictEqual(value.average, 0);
       assert.strictEqual(value.running.max, 0);
 
-      value = tr.b.getOnlyElement(actual.getValuesNamed(
-          telemetryName + '_outside_idle'));
+      value = actual.getHistogramNamed(`${telemetryName}_outside_idle`);
       assert.strictEqual(value.running.sum, 100);
       assert.strictEqual(value.numValues, 1);
       assert.strictEqual(value.average, 100);
 
-      value = tr.b.getOnlyElement(actual.getValuesNamed(
-          telemetryName + '_percentage_idle'));
+      value = actual.getHistogramNamed(`${telemetryName}_percentage_idle`);
       assert.strictEqual(value.average, 0);
-    });
+    }
   });
 
   test('idleTimes', function() {
-    var values = new tr.v.HistogramSet();
+    var histograms = new tr.v.HistogramSet();
     var slices = [
       {
         title: 'SingleThreadIdleTaskRunner::RunTask',
@@ -106,32 +103,31 @@ tr.b.unittest.testSuite(function() {
     ];
     var actual = run(slices);
 
-    var value = tr.b.getOnlyElement(actual.getValuesNamed(
-          'v8-gc-latency-mark-compactor'));
+    var value = actual.getHistogramNamed('v8-gc-latency-mark-compactor');
     assert.strictEqual(value.running.sum, 80);
     assert.strictEqual(value.numValues, 1);
     assert.strictEqual(value.average, 80);
     assert.strictEqual(value.running.max, 80);
 
-    value = tr.b.getOnlyElement(actual.getValuesNamed(
-        'v8-gc-latency-mark-compactor_idle_deadline_overrun'));
+    value = actual.getHistogramNamed(
+        'v8-gc-latency-mark-compactor_idle_deadline_overrun');
     assert.strictEqual(value.running.sum, 0);
     assert.strictEqual(value.average, 0);
     assert.strictEqual(value.running.max, 0);
 
-    value = tr.b.getOnlyElement(actual.getValuesNamed(
-        'v8-gc-latency-mark-compactor_outside_idle'));
+    value = actual.getHistogramNamed(
+        'v8-gc-latency-mark-compactor_outside_idle');
     assert.strictEqual(value.running.sum, 0);
     assert.strictEqual(value.average, 0);
     assert.strictEqual(value.running.max, 0);
 
-    value = tr.b.getOnlyElement(actual.getValuesNamed(
-        'v8-gc-latency-mark-compactor_percentage_idle'));
+    value = actual.getHistogramNamed(
+        'v8-gc-latency-mark-compactor_percentage_idle');
     assert.strictEqual(value.average, 1);
   });
 
   test('idleTimeOverrun', function() {
-    var values = new tr.v.HistogramSet();
+    var histograms = new tr.v.HistogramSet();
     var slices = [
       {
         title: 'SingleThreadIdleTaskRunner::RunTask',
@@ -145,32 +141,31 @@ tr.b.unittest.testSuite(function() {
     ];
     var actual = run(slices);
 
-    var value = tr.b.getOnlyElement(actual.getValuesNamed(
-          'v8-gc-latency-mark-compactor'));
+    var value = actual.getHistogramNamed('v8-gc-latency-mark-compactor');
     assert.strictEqual(value.running.sum, 80);
     assert.strictEqual(value.numValues, 1);
     assert.strictEqual(value.average, 80);
     assert.strictEqual(value.running.max, 80);
 
-    value = tr.b.getOnlyElement(actual.getValuesNamed(
-        'v8-gc-latency-mark-compactor_idle_deadline_overrun'));
+    value = actual.getHistogramNamed(
+        'v8-gc-latency-mark-compactor_idle_deadline_overrun');
     assert.strictEqual(value.running.sum, 70);
     assert.strictEqual(value.average, 70);
     assert.strictEqual(value.running.max, 70);
 
-    value = tr.b.getOnlyElement(actual.getValuesNamed(
-        'v8-gc-latency-mark-compactor_outside_idle'));
+    value = actual.getHistogramNamed(
+        'v8-gc-latency-mark-compactor_outside_idle');
     assert.strictEqual(value.running.sum, 70);
     assert.strictEqual(value.average, 70);
     assert.strictEqual(value.running.max, 70);
 
-    value = tr.b.getOnlyElement(actual.getValuesNamed(
-        'v8-gc-latency-mark-compactor_percentage_idle'));
+    value = actual.getHistogramNamed(
+        'v8-gc-latency-mark-compactor_percentage_idle');
     assert.closeTo(value.average, 1 / 8, 1e-6);
   });
 
   test('subEvents', function() {
-    var values = new tr.v.HistogramSet();
+    var histograms = new tr.v.HistogramSet();
     var slices = [
       {
         title: 'V8.GCFinalizeMC', args: {}, start: 100, end: 200,
@@ -183,14 +178,14 @@ tr.b.unittest.testSuite(function() {
     ];
     var actual = run(slices);
     var telemetryName = 'v8-gc-latency-mark-compactor-mark';
-    var value = tr.b.getOnlyElement(actual.getValuesNamed(telemetryName));
+    var value = actual.getHistogramNamed(telemetryName);
     assert.strictEqual(value.average, 80);
     assert.strictEqual(value.running.max, 80);
     assert.closeTo(value.getApproximatePercentile(0.90), 80, 1);
   });
 
   test('total', function() {
-    var values = new tr.v.HistogramSet();
+    var histograms = new tr.v.HistogramSet();
     var slices = [
       {
         title: 'V8.GCFinalizeMC', args: {}, start: 100, end: 200,
@@ -203,31 +198,28 @@ tr.b.unittest.testSuite(function() {
     ];
     var actual = run(slices);
 
-    var value = tr.b.getOnlyElement(actual.getValuesNamed('v8-gc-total'));
+    var value = actual.getHistogramNamed('v8-gc-total');
     assert.strictEqual(value.running.sum, 180);
     assert.strictEqual(value.numValues, 2);
     assert.strictEqual(value.average, 90);
     assert.strictEqual(value.running.max, 100);
 
-    value = tr.b.getOnlyElement(actual.getValuesNamed(
-        'v8-gc-total_idle_deadline_overrun'));
+    value = actual.getHistogramNamed('v8-gc-total_idle_deadline_overrun');
     assert.strictEqual(value.running.sum, 0);
     assert.strictEqual(value.average, 0);
     assert.strictEqual(value.running.max, 0);
 
-    value = tr.b.getOnlyElement(actual.getValuesNamed(
-        'v8-gc-total_outside_idle'));
+    value = actual.getHistogramNamed('v8-gc-total_outside_idle');
     assert.strictEqual(value.running.sum, 180);
     assert.strictEqual(value.average, 90);
     assert.strictEqual(value.running.max, 100);
 
-    value = tr.b.getOnlyElement(actual.getValuesNamed(
-        'v8-gc-total_percentage_idle'));
+    value = actual.getHistogramNamed('v8-gc-total_percentage_idle');
     assert.strictEqual(value.average, 0);
   });
 
   test('percentageInV8Execute', function() {
-    var values = new tr.v.HistogramSet();
+    var histograms = new tr.v.HistogramSet();
     var slices = [
       {
         title: 'V8.Execute',
@@ -244,14 +236,14 @@ tr.b.unittest.testSuite(function() {
       }
     ];
     var actual = run(slices);
-    var value = tr.b.getOnlyElement(actual.getValuesNamed(
-        'v8-gc-latency-mark-compactor_percentage_in_v8_execute'));
+    var value = actual.getHistogramNamed(
+        'v8-gc-latency-mark-compactor_percentage_in_v8_execute');
     assert.strictEqual(value.average,
         (190 - 110) / ((190 - 110) + (220 - 210)));
   });
 
   test('mutatorUtilization', function() {
-    var values = new tr.v.HistogramSet();
+    var histograms = new tr.v.HistogramSet();
     var slices = [
       {
         title: 'V8.Execute', args: {}, start: 100, end: 200,
@@ -275,15 +267,15 @@ tr.b.unittest.testSuite(function() {
         [{start: 50, end: 60}, {start: 110, end: 120}]);
     var actual = run(slices);
 
-    var value = tr.b.getOnlyElement(actual.getValuesNamed(
-        'v8-execute-mutator-utilization_pct_095'));
+    var value = actual.getHistogramNamed(
+        'v8-execute-mutator-utilization_pct_095');
     assert.closeTo(value.average,
         mutatorUtilization.percentile(1 - 0.95), 1e-2);
 
-    value = tr.b.getOnlyElement(actual.getValuesNamed(
-        'v8-execute-mutator-utilization_pct_099'));
+    value = actual.getHistogramNamed(
+        'v8-execute-mutator-utilization_pct_099');
     assert.closeTo(value.average,
         mutatorUtilization.percentile(1 - 0.99), 1e-2);
- });
+  });
 });
 </script>

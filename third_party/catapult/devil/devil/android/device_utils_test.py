@@ -2233,56 +2233,129 @@ class DeviceUtilsSetPropTest(DeviceUtilsTest):
 
 class DeviceUtilsGetPidsTest(DeviceUtilsTest):
 
+  def testGetPids_sdkGreaterThanNougatMR1(self):
+    with self.patch_call(self.call.device.build_version_sdk,
+                         return_value=(version_codes.NOUGAT_MR1 + 1)):
+      with self.patch_call(self.call.device.build_id,
+                           return_value='ZZZ99Z'):
+        with self.assertCall(
+            self.call.device._RunPipedShellCommand(
+                'ps -e | grep -F example.process'), []):
+          self.device.GetPids('example.process')
+
   def testGetPids_noMatches(self):
-    with self.assertCall(
-        self.call.device._RunPipedShellCommand('ps | grep -F does.not.match'),
-        []):
-      self.assertEqual({}, self.device.GetPids('does.not.match'))
+    with self.patch_call(self.call.device.build_version_sdk,
+                         return_value=version_codes.LOLLIPOP):
+      with self.assertCall(
+          self.call.device._RunPipedShellCommand('ps | grep -F does.not.match'),
+          []):
+        self.assertEqual({}, self.device.GetPids('does.not.match'))
 
   def testGetPids_oneMatch(self):
-    with self.assertCall(
-        self.call.device._RunPipedShellCommand('ps | grep -F one.match'),
-        ['user  1001    100   1024 1024   ffffffff 00000000 one.match']):
-      self.assertEqual(
-          {'one.match': ['1001']},
-          self.device.GetPids('one.match'))
+    with self.patch_call(self.call.device.build_version_sdk,
+                         return_value=version_codes.LOLLIPOP):
+      with self.assertCall(
+          self.call.device._RunPipedShellCommand('ps | grep -F one.match'),
+          ['user  1001    100   1024 1024   ffffffff 00000000 one.match']):
+        self.assertEqual(
+            {'one.match': ['1001']},
+            self.device.GetPids('one.match'))
 
   def testGetPids_multipleMatches(self):
-    with self.assertCall(
-        self.call.device._RunPipedShellCommand('ps | grep -F match'),
-        ['user  1001    100   1024 1024   ffffffff 00000000 one.match',
-         'user  1002    100   1024 1024   ffffffff 00000000 two.match',
-         'user  1003    100   1024 1024   ffffffff 00000000 three.match']):
-      self.assertEqual(
-          {'one.match': ['1001'],
-           'two.match': ['1002'],
-           'three.match': ['1003']},
-          self.device.GetPids('match'))
+    with self.patch_call(self.call.device.build_version_sdk,
+                         return_value=version_codes.LOLLIPOP):
+      with self.assertCall(
+          self.call.device._RunPipedShellCommand('ps | grep -F match'),
+          ['user  1001    100   1024 1024   ffffffff 00000000 one.match',
+           'user  1002    100   1024 1024   ffffffff 00000000 two.match',
+           'user  1003    100   1024 1024   ffffffff 00000000 three.match']):
+        self.assertEqual(
+            {'one.match': ['1001'],
+             'two.match': ['1002'],
+             'three.match': ['1003']},
+            self.device.GetPids('match'))
 
   def testGetPids_exactMatch(self):
-    with self.assertCall(
-        self.call.device._RunPipedShellCommand('ps | grep -F exact.match'),
-        ['user  1000    100   1024 1024   ffffffff 00000000 not.exact.match',
-         'user  1234    100   1024 1024   ffffffff 00000000 exact.match']):
-      self.assertEqual(
-          {'not.exact.match': ['1000'], 'exact.match': ['1234']},
-          self.device.GetPids('exact.match'))
+    with self.patch_call(self.call.device.build_version_sdk,
+                         return_value=version_codes.LOLLIPOP):
+      with self.assertCall(
+          self.call.device._RunPipedShellCommand('ps | grep -F exact.match'),
+          ['user  1000    100   1024 1024   ffffffff 00000000 not.exact.match',
+           'user  1234    100   1024 1024   ffffffff 00000000 exact.match']):
+        self.assertEqual(
+            {'not.exact.match': ['1000'], 'exact.match': ['1234']},
+            self.device.GetPids('exact.match'))
 
   def testGetPids_quotable(self):
-    with self.assertCall(
-        self.call.device._RunPipedShellCommand("ps | grep -F 'my$process'"),
-        ['user  1234    100   1024 1024   ffffffff 00000000 my$process']):
-      self.assertEqual(
-          {'my$process': ['1234']}, self.device.GetPids('my$process'))
+    with self.patch_call(self.call.device.build_version_sdk,
+                         return_value=version_codes.LOLLIPOP):
+      with self.assertCall(
+          self.call.device._RunPipedShellCommand("ps | grep -F 'my$process'"),
+          ['user  1234    100   1024 1024   ffffffff 00000000 my$process']):
+        self.assertEqual(
+            {'my$process': ['1234']}, self.device.GetPids('my$process'))
 
   def testGetPids_multipleInstances(self):
-    with self.assertCall(
-        self.call.device._RunPipedShellCommand('ps | grep -F foo'),
-        ['user  1000    100   1024 1024   ffffffff 00000000 foo',
-         'user  1234    100   1024 1024   ffffffff 00000000 foo']):
-      self.assertEqual(
-          {'foo': ['1000', '1234']},
-          self.device.GetPids('foo'))
+    with self.patch_call(self.call.device.build_version_sdk,
+                         return_value=version_codes.LOLLIPOP):
+      with self.assertCall(
+          self.call.device._RunPipedShellCommand('ps | grep -F foo'),
+          ['user  1000    100   1024 1024   ffffffff 00000000 foo',
+           'user  1234    100   1024 1024   ffffffff 00000000 foo']):
+        self.assertEqual(
+            {'foo': ['1000', '1234']},
+            self.device.GetPids('foo'))
+
+
+class DeviceUtilsGetSetEnforce(DeviceUtilsTest):
+
+  def testGetEnforce_Enforcing(self):
+    with self.assertCall(self.call.adb.Shell('getenforce'), 'Enforcing'):
+      self.assertEqual(True, self.device.GetEnforce())
+
+  def testGetEnforce_Permissive(self):
+    with self.assertCall(self.call.adb.Shell('getenforce'), 'Permissive'):
+      self.assertEqual(False, self.device.GetEnforce())
+
+  def testGetEnforce_Disabled(self):
+    with self.assertCall(self.call.adb.Shell('getenforce'), 'Disabled'):
+      self.assertEqual(None, self.device.GetEnforce())
+
+  def testSetEnforce_Enforcing(self):
+    with self.assertCalls(
+        (self.call.device.NeedsSU(), False),
+        (self.call.adb.Shell('setenforce 1'), '')):
+      self.device.SetEnforce(enabled=True)
+
+  def testSetEnforce_Permissive(self):
+    with self.assertCalls(
+        (self.call.device.NeedsSU(), False),
+        (self.call.adb.Shell('setenforce 0'), '')):
+      self.device.SetEnforce(enabled=False)
+
+  def testSetEnforce_EnforcingWithInt(self):
+    with self.assertCalls(
+        (self.call.device.NeedsSU(), False),
+        (self.call.adb.Shell('setenforce 1'), '')):
+      self.device.SetEnforce(enabled=1)
+
+  def testSetEnforce_PermissiveWithInt(self):
+    with self.assertCalls(
+        (self.call.device.NeedsSU(), False),
+        (self.call.adb.Shell('setenforce 0'), '')):
+      self.device.SetEnforce(enabled=0)
+
+  def testSetEnforce_EnforcingWithStr(self):
+    with self.assertCalls(
+        (self.call.device.NeedsSU(), False),
+        (self.call.adb.Shell('setenforce 1'), '')):
+      self.device.SetEnforce(enabled='1')
+
+  def testSetEnforce_PermissiveWithStr(self):
+    with self.assertCalls(
+        (self.call.device.NeedsSU(), False),
+        (self.call.adb.Shell('setenforce 0'), '')):
+      self.device.SetEnforce(enabled='0')  # Not recommended but it works!
 
 
 class DeviceUtilsTakeScreenshotTest(DeviceUtilsTest):

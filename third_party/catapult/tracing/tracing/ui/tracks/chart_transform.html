@@ -11,7 +11,6 @@ found in the LICENSE file.
 'use strict';
 
 tr.exportTo('tr.ui.tracks', function() {
-
   /**
    * A helper object encapsulating all parameters necessary to draw a chart
    * series and provides conversion between world coordinates and physical
@@ -72,12 +71,12 @@ tr.exportTo('tr.ui.tracks', function() {
     },
 
     vectorToWorldDistance: function(viewY) {
-        return this.axis_.bounds.range * Math.abs(viewY / this.innerHeight_);
+      return this.axis_.bounds.range * Math.abs(viewY / this.innerHeight_);
     },
 
     viewYToWorldY: function(viewY) {
       return this.axis_.unitRangeToValue(
-           1 - (viewY - this.innerTopViewY) / this.innerHeight_);
+          1 - (viewY - this.innerTopViewY) / this.innerHeight_);
     },
 
     worldYToViewY: function(worldY) {

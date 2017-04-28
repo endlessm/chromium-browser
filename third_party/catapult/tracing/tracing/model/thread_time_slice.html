@@ -50,9 +50,9 @@ tr.exportTo('tr.model', function() {
    * @constructor
    */
   function ThreadTimeSlice(thread, schedulingState, cat,
-                           start, args, opt_duration) {
+      start, args, opt_duration) {
     Slice.call(this, cat, schedulingState,
-               this.getColorForState_(schedulingState),
+        this.getColorForState_(schedulingState),
         start, args, opt_duration);
     this.thread = thread;
     this.schedulingState = schedulingState;

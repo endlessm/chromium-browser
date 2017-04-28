@@ -358,7 +358,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
     importEvents: function() {
       var modelTimeTransformer =
           this.model_.clockSyncManager.getModelTimeTransformer(
-            tr.model.ClockDomainId.LINUX_FTRACE_GLOBAL);
+              tr.model.ClockDomainId.LINUX_FTRACE_GLOBAL);
 
       this.importCpuData_(modelTimeTransformer);
       this.buildMapFromLinuxPidsToThreads_();
@@ -377,7 +377,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
      * @return {Cpu} A Cpu corresponding to the given cpuNumber.
      */
     getOrCreateCpu: function(cpuNumber) {
-      return this.model_.kernel.getOrCreateCpu(cpuNumber);
+      return this.model_.device.getOrCreateCpu(cpuNumber);
     },
 
     /**
@@ -457,7 +457,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       // these as tids, so the change of nomenclature happens in the following
       // construction of the wakeup object.
       this.blockedReasons_.push({ts: ts, tid: pid, iowait: iowait,
-                                  caller: caller});
+        caller: caller});
     },
 
     /**
@@ -484,8 +484,8 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       var SCHEDULING_STATE = tr.model.SCHEDULING_STATE;
 
       // Push the cpu slices to the threads that they run on.
-      for (var cpuNumber in this.model_.kernel.cpus) {
-        var cpu = this.model_.kernel.cpus[cpuNumber];
+      for (var cpuNumber in this.model_.device.cpus) {
+        var cpu = this.model_.device.cpus[cpuNumber];
 
         for (var i = 0; i < cpu.slices.length; i++) {
           var cpuSlice = cpu.slices[i];
@@ -794,8 +794,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
      * Processes a trace_marking_write event.
      */
     traceMarkingWriteEvent_: function(eventName, cpuNumber, pid, ts, eventBase,
-                                     threadName) {
-
+        threadName) {
       // Some profiles end up with a \n\ on the end of each line. Strip it
       // before we do the comparisons.
       eventBase.details = eventBase.details.replace(/\\n.*$/, '');

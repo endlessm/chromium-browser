@@ -36,6 +36,16 @@ class WebGLCompatibilityTest : public ANGLETest
 
     void TearDown() override { ANGLETest::TearDown(); }
 
+    // Called from RenderingFeedbackLoopWithDrawBuffersEXT.
+    void drawBuffersEXTFeedbackLoop(GLuint program,
+                                    const std::array<GLenum, 2> &drawBuffers,
+                                    GLenum expectedError);
+
+    // Called from RenderingFeedbackLoopWithDrawBuffers.
+    void drawBuffersFeedbackLoop(GLuint program,
+                                 const std::array<GLenum, 2> &drawBuffers,
+                                 GLenum expectedError);
+
     PFNGLREQUESTEXTENSIONANGLEPROC glRequestExtensionANGLE = nullptr;
 };
 
@@ -361,37 +371,69 @@ TEST_P(WebGLCompatibilityTest, DrawArraysBufferOutOfBoundsNonInstanced)
     ASSERT_GL_NO_ERROR();
 }
 
-// Tests that NPOT is not enabled by default in WebGL 1 and that it can be enabled
-TEST_P(WebGLCompatibilityTest, NPOT)
+// Test the checks for OOB reads in the index buffer
+TEST_P(WebGLCompatibilityTest, DrawElementsBufferOutOfBoundsInIndexBuffer)
 {
-    EXPECT_FALSE(extensionEnabled("GL_OES_texture_npot"));
+    const std::string &vert =
+        "attribute float a_pos;\n"
+        "void main()\n"
+        "{\n"
+        "    gl_Position = vec4(a_pos, a_pos, a_pos, 1.0);\n"
+        "}\n";
 
-    // Create a texture and set an NPOT mip 0, should always be acceptable.
-    GLTexture texture;
-    glBindTexture(GL_TEXTURE_2D, texture.get());
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 10, 10, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    const std::string &frag =
+        "precision highp float;\n"
+        "void main()\n"
+        "{\n"
+        "    gl_FragColor = vec4(1.0);\n"
+        "}\n";
+
+    ANGLE_GL_PROGRAM(program, vert, frag);
+
+    GLint posLocation = glGetAttribLocation(program.get(), "a_pos");
+    ASSERT_NE(-1, posLocation);
+    glUseProgram(program.get());
+
+    GLBuffer vertexBuffer;
+    glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer.get());
+    glBufferData(GL_ARRAY_BUFFER, 16, nullptr, GL_STATIC_DRAW);
+
+    glEnableVertexAttribArray(posLocation);
+
+    const uint8_t *zeroOffset   = nullptr;
+    const uint8_t zeroIndices[] = {0, 0, 0, 0, 0, 0, 0, 0};
+
+    glVertexAttribPointer(0, 1, GL_UNSIGNED_BYTE, GL_FALSE, 0, zeroOffset);
+
+    GLBuffer indexBuffer;
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBuffer.get());
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(zeroIndices), zeroIndices, GL_STATIC_DRAW);
     ASSERT_GL_NO_ERROR();
 
-    // Try setting an NPOT mip 1 and verify the error if WebGL 1
-    glTexImage2D(GL_TEXTURE_2D, 1, GL_RGBA, 5, 5, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-    if (getClientMajorVersion() < 3)
-    {
-        ASSERT_GL_ERROR(GL_INVALID_VALUE);
-    }
-    else
-    {
-        ASSERT_GL_NO_ERROR();
-    }
+    // Test touching the last index is valid
+    glDrawElements(GL_POINTS, 4, GL_UNSIGNED_BYTE, zeroOffset + 4);
+    ASSERT_GL_NO_ERROR();
 
-    if (extensionRequestable("GL_OES_texture_npot"))
-    {
-        glRequestExtensionANGLE("GL_OES_texture_npot");
-        ASSERT_GL_NO_ERROR();
+    // Test touching the last + 1 element is invalid
+    glDrawElements(GL_POINTS, 4, GL_UNSIGNED_BYTE, zeroOffset + 5);
+    EXPECT_GL_ERROR(GL_INVALID_OPERATION);
 
-        // Try again to set NPOT mip 1
-        glTexImage2D(GL_TEXTURE_2D, 1, GL_RGBA, 5, 5, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-        ASSERT_GL_NO_ERROR();
-    }
+    // Test any offset if valid if count is zero
+    glDrawElements(GL_POINTS, 0, GL_UNSIGNED_BYTE, zeroOffset + 42);
+    ASSERT_GL_NO_ERROR();
+}
+
+// Test depth range with 'near' more or less than 'far.'
+TEST_P(WebGLCompatibilityTest, DepthRange)
+{
+    glDepthRangef(0, 1);
+    ASSERT_GL_NO_ERROR();
+
+    glDepthRangef(.5, .5);
+    ASSERT_GL_NO_ERROR();
+
+    glDepthRangef(1, 0);
+    EXPECT_GL_ERROR(GL_INVALID_OPERATION);
 }
 
 // Test the checks for OOB reads in the vertex buffers, instanced version
@@ -452,6 +494,93 @@ TEST_P(WebGL2CompatibilityTest, DrawArraysBufferOutOfBoundsInstanced)
     ASSERT_GL_NO_ERROR();
 }
 
+// Tests that NPOT is not enabled by default in WebGL 1 and that it can be enabled
+TEST_P(WebGLCompatibilityTest, NPOT)
+{
+    EXPECT_FALSE(extensionEnabled("GL_OES_texture_npot"));
+
+    // Create a texture and set an NPOT mip 0, should always be acceptable.
+    GLTexture texture;
+    glBindTexture(GL_TEXTURE_2D, texture.get());
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 10, 10, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    ASSERT_GL_NO_ERROR();
+
+    // Try setting an NPOT mip 1 and verify the error if WebGL 1
+    glTexImage2D(GL_TEXTURE_2D, 1, GL_RGBA, 5, 5, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    if (getClientMajorVersion() < 3)
+    {
+        ASSERT_GL_ERROR(GL_INVALID_VALUE);
+    }
+    else
+    {
+        ASSERT_GL_NO_ERROR();
+    }
+
+    if (extensionRequestable("GL_OES_texture_npot"))
+    {
+        glRequestExtensionANGLE("GL_OES_texture_npot");
+        ASSERT_GL_NO_ERROR();
+
+        // Try again to set NPOT mip 1
+        glTexImage2D(GL_TEXTURE_2D, 1, GL_RGBA, 5, 5, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+        ASSERT_GL_NO_ERROR();
+    }
+}
+
+template <typename T>
+void FillTexture2D(GLuint texture,
+                   GLsizei width,
+                   GLsizei height,
+                   const T &onePixelData,
+                   GLint level,
+                   GLint internalFormat,
+                   GLenum format,
+                   GLenum type)
+{
+    std::vector<T> allPixelsData(width * height, onePixelData);
+
+    glBindTexture(GL_TEXTURE_2D, texture);
+    glTexImage2D(GL_TEXTURE_2D, level, internalFormat, width, height, 0, format, type,
+                 allPixelsData.data());
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+}
+
+// Test that unset gl_Position defaults to (0,0,0,0).
+TEST_P(WebGLCompatibilityTest, DefaultPosition)
+{
+    // Draw a quad where each vertex is red if gl_Position is (0,0,0,0) before it is set,
+    // and green otherwise.  The center of each quadrant will be red if and only if all
+    // four corners are red.
+    const std::string vertexShader =
+        "attribute vec3 pos;\n"
+        "varying vec4 color;\n"
+        "void main() {\n"
+        "    if (gl_Position == vec4(0,0,0,0)) {\n"
+        "        color = vec4(1,0,0,1);\n"
+        "    } else {\n"
+        "        color = vec4(0,1,0,1);\n"
+        "    }\n"
+        "    gl_Position = vec4(pos,1);\n"
+        "}\n";
+
+    const std::string fragmentShader =
+        "precision mediump float;\n"
+        "varying vec4 color;\n"
+        "void main() {\n"
+        "    gl_FragColor = color;\n"
+        "}\n";
+
+    ANGLE_GL_PROGRAM(program, vertexShader, fragmentShader);
+    drawQuad(program.get(), "pos", 0.0f, 1.0f, true);
+    EXPECT_PIXEL_COLOR_EQ(getWindowWidth() * 1 / 4, getWindowHeight() * 1 / 4, GLColor::red);
+    EXPECT_PIXEL_COLOR_EQ(getWindowWidth() * 1 / 4, getWindowHeight() * 3 / 4, GLColor::red);
+    EXPECT_PIXEL_COLOR_EQ(getWindowWidth() * 3 / 4, getWindowHeight() * 1 / 4, GLColor::red);
+    EXPECT_PIXEL_COLOR_EQ(getWindowWidth() * 3 / 4, getWindowHeight() * 3 / 4, GLColor::red);
+}
+
 // Tests that a rendering feedback loop triggers a GL error under WebGL.
 // Based on WebGL test conformance/renderbuffers/feedback-loop.html.
 TEST_P(WebGLCompatibilityTest, RenderingFeedbackLoop)
@@ -474,12 +603,7 @@ TEST_P(WebGLCompatibilityTest, RenderingFeedbackLoop)
         "}\n";
 
     GLTexture texture;
-    glBindTexture(GL_TEXTURE_2D, texture.get());
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, &GLColor::red);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    FillTexture2D(texture.get(), 1, 1, GLColor::red, 0, GL_RGBA, GL_RGBA, GL_UNSIGNED_BYTE);
 
     ASSERT_GL_NO_ERROR();
 
@@ -513,12 +637,7 @@ TEST_P(WebGLCompatibilityTest, RenderingFeedbackLoop)
 
     // Drawing when texture is bound to an inactive uniform should succeed
     GLTexture texture2;
-    glBindTexture(GL_TEXTURE_2D, texture2.get());
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, &GLColor::green);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    FillTexture2D(texture2.get(), 1, 1, GLColor::green, 0, GL_RGBA, GL_RGBA, GL_UNSIGNED_BYTE);
 
     glBindFramebuffer(GL_FRAMEBUFFER, framebuffer.get());
     glActiveTexture(GL_TEXTURE1);
@@ -526,6 +645,211 @@ TEST_P(WebGLCompatibilityTest, RenderingFeedbackLoop)
     drawQuad(program.get(), "a_position", 0.5f, 1.0f, true);
     ASSERT_GL_NO_ERROR();
     EXPECT_PIXEL_COLOR_EQ(0, 0, GLColor::red);
+}
+
+// Test for the max draw buffers and color attachments.
+TEST_P(WebGLCompatibilityTest, MaxDrawBuffersAttachmentPoints)
+{
+    // This test only applies to ES2.
+    if (getClientMajorVersion() != 2)
+    {
+        return;
+    }
+
+    GLFramebuffer fbo[2];
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo[0].get());
+
+    // Test that is valid when we bind with a single attachment point.
+    GLTexture texture;
+    glBindTexture(GL_TEXTURE_2D, texture.get());
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture.get(), 0);
+    ASSERT_GL_NO_ERROR();
+
+    // Test that enabling the draw buffers extension will allow us to bind with a non-zero
+    // attachment point.
+    if (extensionRequestable("GL_EXT_draw_buffers"))
+    {
+        glRequestExtensionANGLE("GL_EXT_draw_buffers");
+        EXPECT_GL_NO_ERROR();
+        EXPECT_TRUE(extensionEnabled("GL_EXT_draw_buffers"));
+
+        glBindFramebuffer(GL_FRAMEBUFFER, fbo[1].get());
+
+        GLTexture texture2;
+        glBindTexture(GL_TEXTURE_2D, texture2.get());
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, texture2.get(),
+                               0);
+        ASSERT_GL_NO_ERROR();
+    }
+}
+
+// Test that the offset in the index buffer is forced to be a multiple of the element size
+TEST_P(WebGLCompatibilityTest, DrawElementsOffsetRestriction)
+{
+    const std::string &vert =
+        "attribute vec3 a_pos;\n"
+        "void main()\n"
+        "{\n"
+        "    gl_Position = vec4(a_pos, 1.0);\n"
+        "}\n";
+
+    const std::string &frag =
+        "precision highp float;\n"
+        "void main()\n"
+        "{\n"
+        "    gl_FragColor = vec4(1.0);\n"
+        "}\n";
+
+    ANGLE_GL_PROGRAM(program, vert, frag);
+
+    GLint posLocation = glGetAttribLocation(program.get(), "a_pos");
+    ASSERT_NE(-1, posLocation);
+    glUseProgram(program.get());
+
+    const auto &vertices = GetQuadVertices();
+
+    GLBuffer vertexBuffer;
+    glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer.get());
+    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices[0]) * vertices.size(), vertices.data(),
+                 GL_STATIC_DRAW);
+
+    glVertexAttribPointer(posLocation, 3, GL_FLOAT, GL_FALSE, 0, 0);
+    glEnableVertexAttribArray(posLocation);
+
+    GLBuffer indexBuffer;
+    const GLubyte indices[] = {0, 0, 0, 0, 0, 0, 0};
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBuffer.get());
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
+
+    ASSERT_GL_NO_ERROR();
+
+    const char *zeroIndices = nullptr;
+
+    glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_BYTE, zeroIndices);
+    ASSERT_GL_NO_ERROR();
+
+    glDrawElements(GL_TRIANGLES, 3, GL_UNSIGNED_SHORT, zeroIndices);
+    ASSERT_GL_NO_ERROR();
+
+    glDrawElements(GL_TRIANGLES, 3, GL_UNSIGNED_SHORT, zeroIndices + 1);
+    EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+}
+
+// Test that the offset and stride in the vertex buffer is forced to be a multiple of the element
+// size
+TEST_P(WebGLCompatibilityTest, VertexAttribPointerOffsetRestriction)
+{
+    const char *zeroOffset = nullptr;
+
+    // Base case, vector of two floats
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, zeroOffset);
+    ASSERT_GL_NO_ERROR();
+
+    // Test setting a non-multiple offset
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, zeroOffset + 1);
+    EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, zeroOffset + 2);
+    EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, zeroOffset + 3);
+    EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+
+    // Test setting a non-multiple stride
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 1, zeroOffset);
+    EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2, zeroOffset);
+    EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 3, zeroOffset);
+    EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+}
+
+void WebGLCompatibilityTest::drawBuffersEXTFeedbackLoop(GLuint program,
+                                                        const std::array<GLenum, 2> &drawBuffers,
+                                                        GLenum expectedError)
+{
+    glDrawBuffersEXT(2, drawBuffers.data());
+
+    // Make sure framebuffer is complete before feedback loop detection
+    ASSERT_GLENUM_EQ(GL_FRAMEBUFFER_COMPLETE, glCheckFramebufferStatus(GL_FRAMEBUFFER));
+
+    drawQuad(program, "aPosition", 0.5f, 1.0f, true);
+
+    // "Rendering to a texture where it samples from should geneates INVALID_OPERATION. Otherwise,
+    // it should be NO_ERROR"
+    EXPECT_GL_ERROR(expectedError);
+}
+
+// This tests that rendering feedback loops works as expected with GL_EXT_draw_buffers.
+// Based on WebGL test conformance/extensions/webgl-draw-buffers-feedback-loop.html
+TEST_P(WebGLCompatibilityTest, RenderingFeedbackLoopWithDrawBuffersEXT)
+{
+    const std::string vertexShader =
+        "attribute vec4 aPosition;\n"
+        "varying vec2 texCoord;\n"
+        "void main() {\n"
+        "    gl_Position = aPosition;\n"
+        "    texCoord = (aPosition.xy * 0.5) + 0.5;\n"
+        "}\n";
+
+    const std::string fragmentShader =
+        "#extension GL_EXT_draw_buffers : require\n"
+        "precision mediump float;\n"
+        "uniform sampler2D tex;\n"
+        "varying vec2 texCoord;\n"
+        "void main() {\n"
+        "    gl_FragData[0] = texture2D(tex, texCoord);\n"
+        "    gl_FragData[1] = texture2D(tex, texCoord);\n"
+        "}\n";
+
+    GLsizei width  = 8;
+    GLsizei height = 8;
+
+    // This shader cannot be run in ES3, because WebGL 2 does not expose the draw buffers
+    // extension and gl_FragData semantics are changed to enforce indexing by zero always.
+    // TODO(jmadill): This extension should be disabled in WebGL 2 contexts.
+    if (/*!extensionEnabled("GL_EXT_draw_buffers")*/ getClientMajorVersion() != 2)
+    {
+        // No WEBGL_draw_buffers support -- this is legal.
+        return;
+    }
+
+    GLint maxDrawBuffers = 0;
+    glGetIntegerv(GL_MAX_DRAW_BUFFERS, &maxDrawBuffers);
+
+    if (maxDrawBuffers < 2)
+    {
+        std::cout << "Test skipped because MAX_DRAW_BUFFERS is too small." << std::endl;
+        return;
+    }
+
+    ANGLE_GL_PROGRAM(program, vertexShader, fragmentShader);
+    glUseProgram(program.get());
+    glViewport(0, 0, width, height);
+
+    GLTexture tex0;
+    GLTexture tex1;
+    GLFramebuffer fbo;
+    FillTexture2D(tex0.get(), width, height, GLColor::red, 0, GL_RGBA, GL_RGBA, GL_UNSIGNED_BYTE);
+    FillTexture2D(tex1.get(), width, height, GLColor::green, 0, GL_RGBA, GL_RGBA, GL_UNSIGNED_BYTE);
+    ASSERT_GL_NO_ERROR();
+
+    glBindTexture(GL_TEXTURE_2D, tex1.get());
+    GLint texLoc = glGetUniformLocation(program.get(), "tex");
+    ASSERT_NE(-1, texLoc);
+    glUniform1i(texLoc, 0);
+    ASSERT_GL_NO_ERROR();
+
+    // The sampling texture is bound to COLOR_ATTACHMENT1 during resource allocation
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo.get());
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex0.get(), 0);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, tex1.get(), 0);
+
+    drawBuffersEXTFeedbackLoop(program.get(), {{GL_NONE, GL_COLOR_ATTACHMENT1}},
+                               GL_INVALID_OPERATION);
+    drawBuffersEXTFeedbackLoop(program.get(), {{GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1}},
+                               GL_INVALID_OPERATION);
+    drawBuffersEXTFeedbackLoop(program.get(), {{GL_COLOR_ATTACHMENT0, GL_NONE}}, GL_NO_ERROR);
 }
 
 // Test tests that texture copying feedback loops are properly rejected in WebGL.
@@ -589,6 +913,233 @@ TEST_P(WebGLCompatibilityTest, TextureCopyingFeedbackLoops)
     EXPECT_GL_NO_ERROR();
 }
 
+void WebGLCompatibilityTest::drawBuffersFeedbackLoop(GLuint program,
+                                                     const std::array<GLenum, 2> &drawBuffers,
+                                                     GLenum expectedError)
+{
+    glDrawBuffers(2, drawBuffers.data());
+
+    // Make sure framebuffer is complete before feedback loop detection
+    ASSERT_GLENUM_EQ(GL_FRAMEBUFFER_COMPLETE, glCheckFramebufferStatus(GL_FRAMEBUFFER));
+
+    drawQuad(program, "aPosition", 0.5f, 1.0f, true);
+
+    // "Rendering to a texture where it samples from should geneates INVALID_OPERATION. Otherwise,
+    // it should be NO_ERROR"
+    EXPECT_GL_ERROR(expectedError);
+}
+
+// This tests that rendering feedback loops works as expected with WebGL 2.
+// Based on WebGL test conformance2/rendering/rendering-sampling-feedback-loop.html
+TEST_P(WebGL2CompatibilityTest, RenderingFeedbackLoopWithDrawBuffers)
+{
+    const std::string vertexShader =
+        "#version 300 es\n"
+        "in vec4 aPosition;\n"
+        "out vec2 texCoord;\n"
+        "void main() {\n"
+        "    gl_Position = aPosition;\n"
+        "    texCoord = (aPosition.xy * 0.5) + 0.5;\n"
+        "}\n";
+
+    const std::string fragmentShader =
+        "#version 300 es\n"
+        "precision mediump float;\n"
+        "uniform sampler2D tex;\n"
+        "in vec2 texCoord;\n"
+        "out vec4 oColor;\n"
+        "void main() {\n"
+        "    oColor = texture(tex, texCoord);\n"
+        "}\n";
+
+    GLsizei width  = 8;
+    GLsizei height = 8;
+
+    GLint maxDrawBuffers = 0;
+    glGetIntegerv(GL_MAX_DRAW_BUFFERS, &maxDrawBuffers);
+    // ES3 requires a minimum value of 4 for MAX_DRAW_BUFFERS.
+    ASSERT_GE(maxDrawBuffers, 2);
+
+    ANGLE_GL_PROGRAM(program, vertexShader, fragmentShader);
+    glUseProgram(program.get());
+    glViewport(0, 0, width, height);
+
+    GLTexture tex0;
+    GLTexture tex1;
+    GLFramebuffer fbo;
+    FillTexture2D(tex0.get(), width, height, GLColor::red, 0, GL_RGBA, GL_RGBA, GL_UNSIGNED_BYTE);
+    FillTexture2D(tex1.get(), width, height, GLColor::green, 0, GL_RGBA, GL_RGBA, GL_UNSIGNED_BYTE);
+    ASSERT_GL_NO_ERROR();
+
+    glBindTexture(GL_TEXTURE_2D, tex1.get());
+    GLint texLoc = glGetUniformLocation(program.get(), "tex");
+    ASSERT_NE(-1, texLoc);
+    glUniform1i(texLoc, 0);
+
+    // The sampling texture is bound to COLOR_ATTACHMENT1 during resource allocation
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo.get());
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex0.get(), 0);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, tex1.get(), 0);
+    ASSERT_GL_NO_ERROR();
+
+    drawBuffersFeedbackLoop(program.get(), {{GL_NONE, GL_COLOR_ATTACHMENT1}}, GL_INVALID_OPERATION);
+    drawBuffersFeedbackLoop(program.get(), {{GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1}},
+                            GL_INVALID_OPERATION);
+    drawBuffersFeedbackLoop(program.get(), {{GL_COLOR_ATTACHMENT0, GL_NONE}}, GL_NO_ERROR);
+}
+
+// This test covers detection of rendering feedback loops between the FBO and a depth Texture.
+// Based on WebGL test conformance2/rendering/depth-stencil-feedback-loop.html
+TEST_P(WebGL2CompatibilityTest, RenderingFeedbackLoopWithDepthStencil)
+{
+    const std::string vertexShader =
+        "#version 300 es\n"
+        "in vec4 aPosition;\n"
+        "out vec2 texCoord;\n"
+        "void main() {\n"
+        "    gl_Position = aPosition;\n"
+        "    texCoord = (aPosition.xy * 0.5) + 0.5;\n"
+        "}\n";
+
+    const std::string fragmentShader =
+        "#version 300 es\n"
+        "precision mediump float;\n"
+        "uniform sampler2D tex;\n"
+        "in vec2 texCoord;\n"
+        "out vec4 oColor;\n"
+        "void main() {\n"
+        "    oColor = texture(tex, texCoord);\n"
+        "}\n";
+
+    GLsizei width  = 8;
+    GLsizei height = 8;
+
+    ANGLE_GL_PROGRAM(program, vertexShader, fragmentShader);
+    glUseProgram(program.get());
+
+    glViewport(0, 0, width, height);
+
+    GLint texLoc = glGetUniformLocation(program.get(), "tex");
+    glUniform1i(texLoc, 0);
+
+    // Create textures and allocate storage
+    GLTexture tex0;
+    GLTexture tex1;
+    GLRenderbuffer rb;
+    FillTexture2D(tex0.get(), width, height, GLColor::black, 0, GL_RGBA, GL_RGBA, GL_UNSIGNED_BYTE);
+    FillTexture2D(tex1.get(), width, height, 0x80, 0, GL_DEPTH_COMPONENT16, GL_DEPTH_COMPONENT,
+                  GL_UNSIGNED_INT);
+    glBindRenderbuffer(GL_RENDERBUFFER, rb.get());
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_STENCIL_INDEX8, width, height);
+    ASSERT_GL_NO_ERROR();
+
+    GLFramebuffer fbo;
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo.get());
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex0.get(), 0);
+
+    // Test rendering and sampling feedback loop for depth buffer
+    glBindTexture(GL_TEXTURE_2D, tex1.get());
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, tex1.get(), 0);
+    ASSERT_GLENUM_EQ(GL_FRAMEBUFFER_COMPLETE, glCheckFramebufferStatus(GL_FRAMEBUFFER));
+
+    // The same image is used as depth buffer during rendering.
+    glEnable(GL_DEPTH_TEST);
+    drawQuad(program.get(), "aPosition", 0.5f, 1.0f, true);
+    EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+
+    // The same image is used as depth buffer. But depth mask is false.
+    glDepthMask(GL_FALSE);
+    drawQuad(program.get(), "aPosition", 0.5f, 1.0f, true);
+    EXPECT_GL_NO_ERROR();
+
+    // The same image is used as depth buffer. But depth test is not enabled during rendering.
+    glDepthMask(GL_TRUE);
+    glDisable(GL_DEPTH_TEST);
+    drawQuad(program.get(), "aPosition", 0.5f, 1.0f, true);
+    EXPECT_GL_NO_ERROR();
+
+    // Test rendering and sampling feedback loop for stencil buffer
+    glBindTexture(GL_RENDERBUFFER, rb.get());
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, 0, 0);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT, GL_RENDERBUFFER, rb.get());
+    ASSERT_GLENUM_EQ(GL_FRAMEBUFFER_COMPLETE, glCheckFramebufferStatus(GL_FRAMEBUFFER));
+    constexpr GLint stencilClearValue = 0x40;
+    glClearBufferiv(GL_STENCIL, 0, &stencilClearValue);
+
+    // The same image is used as stencil buffer during rendering.
+    glEnable(GL_STENCIL_TEST);
+    drawQuad(program.get(), "aPosition", 0.5f, 1.0f, true);
+    EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+
+    // The same image is used as stencil buffer. But stencil mask is zero.
+    glStencilMask(0x0);
+    drawQuad(program.get(), "aPosition", 0.5f, 1.0f, true);
+    EXPECT_GL_NO_ERROR();
+
+    // The same image is used as stencil buffer. But stencil test is not enabled during rendering.
+    glStencilMask(0xffff);
+    glDisable(GL_STENCIL_TEST);
+    drawQuad(program.get(), "aPosition", 0.5f, 1.0f, true);
+    EXPECT_GL_NO_ERROR();
+}
+
+// The source and the target for CopyTexSubImage3D are the same 3D texture.
+// But the level of the 3D texture != the level of the read attachment.
+TEST_P(WebGL2CompatibilityTest, NoTextureCopyingFeedbackLoopBetween3DLevels)
+{
+    GLTexture texture;
+    GLFramebuffer framebuffer;
+
+    glBindTexture(GL_TEXTURE_3D, texture.get());
+    glBindFramebuffer(GL_FRAMEBUFFER, framebuffer.get());
+
+    glTexImage3D(GL_TEXTURE_3D, 0, GL_RGBA8, 2, 2, 2, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    glTexImage3D(GL_TEXTURE_3D, 1, GL_RGBA8, 2, 2, 2, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    glFramebufferTextureLayer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, texture.get(), 0, 0);
+    ASSERT_GL_NO_ERROR();
+
+    glCopyTexSubImage3D(GL_TEXTURE_3D, 1, 0, 0, 0, 0, 0, 2, 2);
+    EXPECT_GL_NO_ERROR();
+}
+
+// The source and the target for CopyTexSubImage3D are the same 3D texture.
+// But the zoffset of the 3D texture != the layer of the read attachment.
+TEST_P(WebGL2CompatibilityTest, NoTextureCopyingFeedbackLoopBetween3DLayers)
+{
+    GLTexture texture;
+    GLFramebuffer framebuffer;
+
+    glBindTexture(GL_TEXTURE_3D, texture.get());
+    glBindFramebuffer(GL_FRAMEBUFFER, framebuffer.get());
+
+    glTexImage3D(GL_TEXTURE_3D, 0, GL_RGBA8, 2, 2, 2, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    glFramebufferTextureLayer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, texture.get(), 0, 1);
+    ASSERT_GL_NO_ERROR();
+
+    glCopyTexSubImage3D(GL_TEXTURE_3D, 0, 0, 0, 0, 0, 0, 2, 2);
+    EXPECT_GL_NO_ERROR();
+}
+
+// The source and the target for CopyTexSubImage3D are the same 3D texture.
+// And the level / zoffset of the 3D texture is equal to the level / layer of the read attachment.
+TEST_P(WebGL2CompatibilityTest, TextureCopyingFeedbackLoop3D)
+{
+    GLTexture texture;
+    GLFramebuffer framebuffer;
+
+    glBindTexture(GL_TEXTURE_3D, texture.get());
+    glBindFramebuffer(GL_FRAMEBUFFER, framebuffer.get());
+
+    glTexImage3D(GL_TEXTURE_3D, 0, GL_RGBA8, 4, 4, 4, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    glTexImage3D(GL_TEXTURE_3D, 1, GL_RGBA8, 2, 2, 2, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    glTexImage3D(GL_TEXTURE_3D, 2, GL_RGBA8, 1, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    glFramebufferTextureLayer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, texture.get(), 1, 0);
+    ASSERT_GL_NO_ERROR();
+
+    glCopyTexSubImage3D(GL_TEXTURE_3D, 1, 0, 0, 0, 0, 0, 2, 2);
+    EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+}
+
 // Use this to select which configurations (e.g. which renderer, which GLES major version) these
 // tests should be run against.
 ANGLE_INSTANTIATE_TEST(WebGLCompatibilityTest,
@@ -601,9 +1152,5 @@ ANGLE_INSTANTIATE_TEST(WebGLCompatibilityTest,
                        ES2_OPENGLES(),
                        ES3_OPENGLES());
 
-ANGLE_INSTANTIATE_TEST(WebGL2CompatibilityTest,
-                       ES3_D3D11(),
-                       ES3_OPENGL(),
-                       ES3_OPENGLES());
-
+ANGLE_INSTANTIATE_TEST(WebGL2CompatibilityTest, ES3_D3D11(), ES3_OPENGL(), ES3_OPENGLES());
 }  // namespace

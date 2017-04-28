@@ -10,7 +10,6 @@ found in the LICENSE file.
 'use strict';
 
 tr.exportTo('tr.b', function() {
-
   var RegisteredTypeInfo = tr.b.RegisteredTypeInfo;
   var ExtensionRegistryOptions = tr.b.ExtensionRegistryOptions;
 
@@ -19,7 +18,7 @@ tr.exportTo('tr.b', function() {
     registry.registeredTypeInfos_ = [];
 
     registry.register = function(constructor,
-                                 opt_metadata) {
+        opt_metadata) {
       if (registry.findIndexOfRegisteredConstructor(
           constructor) !== undefined)
         throw new Error('Handler already registered for ' + constructor);

@@ -121,7 +121,7 @@ def EvaluateCallbackWithElement(
       info_msg=info_msg)
 
   if wait:
-    tab.WaitForJavaScriptExpression(code, timeout_in_seconds)
+    tab.WaitForJavaScriptCondition(code, timeout=timeout_in_seconds)
     return True
   else:
     return tab.EvaluateJavaScript(code)
@@ -138,9 +138,7 @@ def IsGestureSourceTypeSupported(tab, gesture_source_type):
     return (tab.browser.platform.GetOSName() != 'mac' or
             gesture_source_type.lower() != 'touch')
 
-  # TODO(catapult:#3028): Render in JavaScript method when supported by API.
-  code = js_template.Render("""
+  return tab.EvaluateJavaScript("""
       chrome.gpuBenchmarking.gestureSourceTypeSupported(
           chrome.gpuBenchmarking.{{ @gesture_source_type }}_INPUT)""",
       gesture_source_type=gesture_source_type.upper())
-  return tab.EvaluateJavaScript(code)

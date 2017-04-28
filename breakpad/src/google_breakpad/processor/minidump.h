@@ -350,7 +350,7 @@ class MinidumpThreadList : public MinidumpStream {
 
   static const uint32_t kStreamType = MD_THREAD_LIST_STREAM;
 
-  bool Read(uint32_t aExpectedSize);
+  bool Read(uint32_t aExpectedSize) override;
 
   // The largest number of threads that will be read from a minidump.  The
   // default is 256.
@@ -399,6 +399,7 @@ class MinidumpModule : public MinidumpObject,
   virtual string debug_identifier() const;
   virtual string version() const;
   virtual CodeModule* Copy() const;
+  virtual bool is_unloaded() const { return false; }
 
   // Getter and setter for shrink_down_delta.  This is used when the address
   // range for a module is shrunk down due to address range conflicts with
@@ -591,7 +592,7 @@ class MinidumpMemoryList : public MinidumpStream {
 
   explicit MinidumpMemoryList(Minidump* minidump);
 
-  bool Read(uint32_t expected_size);
+  bool Read(uint32_t expected_size) override;
 
   // The largest number of memory regions that will be read from a minidump.
   // The default is 256.
@@ -646,7 +647,7 @@ class MinidumpException : public MinidumpStream {
 
   explicit MinidumpException(Minidump* minidump);
 
-  bool Read(uint32_t expected_size);
+  bool Read(uint32_t expected_size) override;
 
   MDRawExceptionStream exception_;
   MinidumpContext*     context_;
@@ -686,7 +687,7 @@ class MinidumpAssertion : public MinidumpStream {
 
   explicit MinidumpAssertion(Minidump* minidump);
 
-  bool Read(uint32_t expected_size);
+  bool Read(uint32_t expected_size) override;
 
   MDRawAssertionInfo assertion_;
   string expression_;
@@ -743,7 +744,7 @@ class MinidumpSystemInfo : public MinidumpStream {
 
   static const uint32_t kStreamType = MD_SYSTEM_INFO_STREAM;
 
-  bool Read(uint32_t expected_size);
+  bool Read(uint32_t expected_size) override;
 
   // A string identifying the CPU vendor, if known.
   const string* cpu_vendor_;
@@ -775,6 +776,7 @@ class MinidumpUnloadedModule : public MinidumpObject,
   string debug_identifier() const override;
   string version() const override;
   CodeModule* Copy() const override;
+  bool is_unloaded() const override { return true; }
   uint64_t shrink_down_delta() const override;
   void SetShrinkDownDelta(uint64_t shrink_down_delta) override;
 
@@ -847,8 +849,7 @@ class MinidumpUnloadedModuleList : public MinidumpStream,
 
   static const uint32_t kStreamType = MD_UNLOADED_MODULE_LIST_STREAM;
 
-
-  bool Read(uint32_t expected_size_);
+  bool Read(uint32_t expected_size_) override;
 
   // The largest number of modules that will be read from a minidump.  The
   // default is 1024.
@@ -884,7 +885,7 @@ class MinidumpMiscInfo : public MinidumpStream {
 
   explicit MinidumpMiscInfo(Minidump* minidump_);
 
-  bool Read(uint32_t expected_size_);
+  bool Read(uint32_t expected_size_) override;
 
   MDRawMiscInfo misc_info_;
 
@@ -925,7 +926,7 @@ class MinidumpBreakpadInfo : public MinidumpStream {
 
   explicit MinidumpBreakpadInfo(Minidump* minidump_);
 
-  bool Read(uint32_t expected_size_);
+  bool Read(uint32_t expected_size_) override;
 
   MDRawBreakpadInfo breakpad_info_;
 
@@ -993,7 +994,7 @@ class MinidumpMemoryInfoList : public MinidumpStream {
 
   explicit MinidumpMemoryInfoList(Minidump* minidump_);
 
-  bool Read(uint32_t expected_size);
+  bool Read(uint32_t expected_size) override;
 
   // Access to memory info using addresses as the key.
   RangeMap<uint64_t, unsigned int> *range_map_;
@@ -1088,7 +1089,7 @@ class MinidumpLinuxMapsList : public MinidumpStream {
   // Read and load the contents of the process mapping data.
   // The stream should have data in the form of /proc/self/maps.
   // This method returns whether the stream was read successfully.
-  bool Read(uint32_t expected_size);
+  bool Read(uint32_t expected_size) override;
 
   // The list of individual mappings.
   MinidumpLinuxMappings *maps_;

@@ -15,7 +15,6 @@ found in the LICENSE file.
 'use strict';
 
 tr.exportTo('tr.ui.b', function() {
-
   var TableFormat = {};
 
   TableFormat.SelectionMode = {
@@ -582,8 +581,7 @@ tr.exportTo('tr.ui.b', function() {
         function calc(base, delta) {
           if (delta)
             return 'calc(' + base + ' - ' + delta + ')';
-          else
-            return base;
+          return base;
         }
 
         var w = this.tableColumns_[i].width;
@@ -613,14 +611,14 @@ tr.exportTo('tr.ui.b', function() {
     },
 
     generateTableRowNodes_: function(tableSection, userRows, rowInfoMap,
-                                     indentation, lastAddedRow,
-                                     parentRowInfo) {
+        indentation, lastAddedRow,
+        parentRowInfo) {
       if (this.sortColumnIndex_ !== undefined &&
           tableSection === this.$.body) {
         userRows = userRows.slice(); // Don't mess with the input data.
         userRows.sort(function(rowA, rowB) {
           var c = this.tableColumns_[this.sortColumnIndex_].cmp(
-                rowA, rowB);
+              rowA, rowB);
           if (this.sortDescending_)
             c = -c;
           return c;
@@ -630,7 +628,7 @@ tr.exportTo('tr.ui.b', function() {
       for (var i = 0; i < userRows.length; i++) {
         var userRow = userRows[i];
         var rowInfo = this.getOrCreateRowInfoFor_(rowInfoMap, userRow,
-                                                  parentRowInfo);
+            parentRowInfo);
         var htmlNode = this.getHTMLNodeForRowInfo_(
             tableSection, rowInfo, rowInfoMap, indentation);
 
@@ -693,7 +691,7 @@ tr.exportTo('tr.ui.b', function() {
     },
 
     getHTMLNodeForRowInfo_: function(tableSection, rowInfo,
-                                     rowInfoMap, indentation) {
+        rowInfoMap, indentation) {
       if (rowInfo.htmlNode) {
         this.customizeTableRow_(rowInfo.userRow, rowInfo.htmlNode);
         return rowInfo.htmlNode;
@@ -963,11 +961,11 @@ tr.exportTo('tr.ui.b', function() {
       if (rowInfo === undefined)
         throw new Error('Row has not been seen, must expand its parents');
       return this.setExpandedForUserRow_(this.$.body, this.tableRowsInfo_,
-                                         userRow, expanded);
+          userRow, expanded);
     },
 
     setExpandedForUserRow_: function(tableSection, rowInfoMap,
-                                     userRow, expanded) {
+        userRow, expanded) {
       this.rebuildIfNeeded_();
 
       var rowInfo = rowInfoMap.get(userRow);
@@ -1417,8 +1415,10 @@ tr.exportTo('tr.ui.b', function() {
     },
 
     onFocus_: function(e) {
+      // This method should be idempotent. If it can't be, then focus() must be
+      // updated.
       if (this.selectionMode_ === SelectionMode.NONE ||
-          this.selectedTableRowInfo_ ||
+          this.selectedTableRow ||
           this.tableRows_.length === 0) {
         return;
       }
@@ -1435,6 +1435,14 @@ tr.exportTo('tr.ui.b', function() {
 
     focus: function() {
       this.$.body.focus();
+
+      // Need to manually call onFocus_ here: if the table is invisible for any
+      // reason, then the focus event will not fire, but the table may become
+      // visible later, and should reflect the focus accurately.
+      // If the table is already visible, then this will cause onFocus_ to be
+      // called multiple times. That shouldn't be a problem since onFocus_ is
+      // idempotent.
+      this.onFocus_();
     },
 
     blur: function() {

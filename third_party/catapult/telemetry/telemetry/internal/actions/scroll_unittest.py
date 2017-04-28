@@ -65,7 +65,8 @@ class ScrollActionTest(tab_test_case.TabTestCase):
 
     self._MakePageHorizontallyScrollable()
     self.assertEquals(
-        self._tab.EvaluateJavaScript('document.scrollingElement.scrollLeft'), 0)
+        self._tab.EvaluateJavaScript('document.scrollingElement.scrollLeft'),
+        0)
 
     i = scroll.ScrollAction(direction='downright')
     i.WillRunAction(self._tab)
@@ -95,7 +96,8 @@ class ScrollActionTest(tab_test_case.TabTestCase):
 
     self._MakePageHorizontallyScrollable()
     self.assertEquals(
-        self._tab.EvaluateJavaScript('document.scrollingElement.scrollLeft'), 0)
+        self._tab.EvaluateJavaScript('document.scrollingElement.scrollLeft'),
+        0)
 
     self._tab.ExecuteJavaScript("""
         window.scrollTo(__GestureCommon_GetWindowWidth(),

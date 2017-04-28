@@ -92,10 +92,6 @@ const AppRegistrationData& BrowserDistribution::GetAppRegistrationData() const {
   return *app_reg_data_;
 }
 
-base::string16 BrowserDistribution::GetAppGuid() const {
-  return app_reg_data_->GetAppGuid();
-}
-
 base::string16 BrowserDistribution::GetStateKey() const {
   return app_reg_data_->GetStateKey();
 }
@@ -205,10 +201,6 @@ BrowserDistribution::DefaultBrowserControlPolicy
 
 bool BrowserDistribution::CanCreateDesktopShortcuts() {
   return true;
-}
-
-bool BrowserDistribution::GetChromeChannel(base::string16* channel) {
-  return false;
 }
 
 base::string16 BrowserDistribution::GetCommandExecuteImplClsid() {

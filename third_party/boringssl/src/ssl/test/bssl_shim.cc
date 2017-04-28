@@ -108,6 +108,7 @@ struct TestState {
   bssl::UniquePtr<SSL_SESSION> new_session;
   bool ticket_decrypt_done = false;
   bool alpn_select_done = false;
+  bool early_callback_ready = false;
 };
 
 static void TestStateExFree(void *parent, void *ptr, CRYPTO_EX_DATA *ad,
@@ -479,7 +480,9 @@ static int SelectCertificateCallback(const SSL_CLIENT_HELLO *client_hello) {
 
   // Install the certificate in the early callback.
   if (config->use_early_callback) {
-    if (config->async) {
+    bool early_callback_ready =
+        GetTestState(client_hello->ssl)->early_callback_ready;
+    if (config->async && !early_callback_ready) {
       // Install the certificate asynchronously.
       return 0;
     }
@@ -924,7 +927,7 @@ static bssl::UniquePtr<SSL_CTX> SetupCtx(const TestConfig *config) {
     cipher_list = config->cipher;
     SSL_CTX_set_options(ssl_ctx.get(), SSL_OP_CIPHER_SERVER_PREFERENCE);
   }
-  if (!SSL_CTX_set_cipher_list(ssl_ctx.get(), cipher_list.c_str())) {
+  if (!SSL_CTX_set_strict_cipher_list(ssl_ctx.get(), cipher_list.c_str())) {
     return nullptr;
   }
 
@@ -1104,8 +1107,8 @@ static bool RetryAsync(SSL *ssl, int ret) {
       test_state->session = std::move(test_state->pending_session);
       return true;
     case SSL_ERROR_PENDING_CERTIFICATE:
-      // The handshake will resume without a second call to the early callback.
-      return InstallCertificate(ssl);
+      test_state->early_callback_ready = true;
+      return true;
     case SSL_ERROR_WANT_PRIVATE_KEY_OPERATION:
       test_state->private_key_retries++;
       return true;
@@ -1247,6 +1250,17 @@ static bool CheckHandshakeProperties(SSL *ssl, bool is_resume) {
       fprintf(stderr,
               "new session was%s cached, but we expected the opposite\n",
               GetTestState(ssl)->got_new_session ? "" : " not");
+      return false;
+    }
+  }
+
+  if (!is_resume) {
+    if (config->expect_session_id && !GetTestState(ssl)->got_new_session) {
+      fprintf(stderr, "session was not cached on the server.\n");
+      return false;
+    }
+    if (config->expect_no_session_id && GetTestState(ssl)->got_new_session) {
+      fprintf(stderr, "session was unexpectedly cached on the server.\n");
       return false;
     }
   }
@@ -1463,7 +1477,7 @@ static bool CheckHandshakeProperties(SSL *ssl, bool is_resume) {
   }
 
   if (expected_sha256_client_cert &&
-      SSL_get_session(ssl)->x509_peer != nullptr) {
+      SSL_get_session(ssl)->certs != nullptr) {
     fprintf(stderr, "Have both client cert and SHA-256 hash: is_resume:%d.\n",
             is_resume);
     return false;
@@ -1570,13 +1584,11 @@ static bool DoExchange(bssl::UniquePtr<SSL_SESSION> *out_session,
       !SSL_set_srtp_profiles(ssl.get(), config->srtp_profiles.c_str())) {
     return false;
   }
-  if (config->enable_ocsp_stapling &&
-      !SSL_enable_ocsp_stapling(ssl.get())) {
-    return false;
+  if (config->enable_ocsp_stapling) {
+    SSL_enable_ocsp_stapling(ssl.get());
   }
-  if (config->enable_signed_cert_timestamps &&
-      !SSL_enable_signed_cert_timestamps(ssl.get())) {
-    return false;
+  if (config->enable_signed_cert_timestamps) {
+    SSL_enable_signed_cert_timestamps(ssl.get());
   }
   if (config->min_version != 0 &&
       !SSL_set_min_proto_version(ssl.get(), (uint16_t)config->min_version)) {

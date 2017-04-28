@@ -652,6 +652,30 @@ ResendHelloRetryRequest:
 		}
 	}
 
+	// Decide whether or not to accept early data.
+	// TODO(nharper): This does not check that ALPN or SNI matches.
+	if hs.clientHello.hasEarlyData {
+		if !sendHelloRetryRequest && hs.sessionState != nil {
+			encryptedExtensions.extensions.hasEarlyData = true
+			earlyTrafficSecret := hs.finishedHash.deriveSecret(earlyTrafficLabel)
+			c.in.useTrafficSecret(c.vers, hs.suite, earlyTrafficSecret, clientWrite)
+
+			for _, expectedMsg := range config.Bugs.ExpectEarlyData {
+				if err := c.readRecord(recordTypeApplicationData); err != nil {
+					return err
+				}
+				if !bytes.Equal(c.input.data[c.input.off:], expectedMsg) {
+					return errors.New("ExpectEarlyData: did not get expected message")
+				}
+				c.in.freeBlock(c.input)
+				c.input = nil
+
+			}
+		} else {
+			c.skipEarlyData = true
+		}
+	}
+
 	// Resolve ECDHE and compute the handshake secret.
 	if hs.hello.hasKeyShare {
 		// Once a curve has been selected and a key share identified,
@@ -725,8 +749,8 @@ ResendHelloRetryRequest:
 	// Switch to handshake traffic keys.
 	serverHandshakeTrafficSecret := hs.finishedHash.deriveSecret(serverHandshakeTrafficLabel)
 	c.out.useTrafficSecret(c.vers, hs.suite, serverHandshakeTrafficSecret, serverWrite)
+	// Derive handshake traffic read key, but don't switch yet.
 	clientHandshakeTrafficSecret := hs.finishedHash.deriveSecret(clientHandshakeTrafficLabel)
-	c.in.useTrafficSecret(c.vers, hs.suite, clientHandshakeTrafficSecret, clientWrite)
 
 	// Send EncryptedExtensions.
 	hs.writeServerHash(encryptedExtensions.marshal())
@@ -851,6 +875,26 @@ ResendHelloRetryRequest:
 	// Switch to application data keys on write. In particular, any alerts
 	// from the client certificate are sent over these keys.
 	c.out.useTrafficSecret(c.vers, hs.suite, serverTrafficSecret, serverWrite)
+
+	// Send 0.5-RTT messages.
+	for _, halfRTTMsg := range config.Bugs.SendHalfRTTData {
+		if _, err := c.writeRecord(recordTypeApplicationData, halfRTTMsg); err != nil {
+			return err
+		}
+	}
+
+	// Read end_of_early_data alert.
+	if encryptedExtensions.extensions.hasEarlyData {
+		if err := c.readRecord(recordTypeAlert); err != errEndOfEarlyDataAlert {
+			if err == nil {
+				panic("readRecord(recordTypeAlert) returned nil")
+			}
+			return err
+		}
+	}
+
+	// Switch input stream to handshake traffic keys.
+	c.in.useTrafficSecret(c.vers, hs.suite, clientHandshakeTrafficSecret, clientWrite)
 
 	// If we requested a client certificate, then the client must send a
 	// certificate message, even if it's empty.
@@ -1199,6 +1243,8 @@ func (hs *serverHandshakeState) processClientExtensions(serverExtensions *server
 	if !hs.clientHello.hasGREASEExtension && config.Bugs.ExpectGREASE {
 		return errors.New("tls: no GREASE extension found")
 	}
+
+	serverExtensions.serverNameAck = c.config.Bugs.SendServerNameAck
 
 	return nil
 }
@@ -1668,6 +1714,9 @@ func (hs *serverHandshakeState) sendSessionTicket() error {
 	}
 
 	m := new(newSessionTicketMsg)
+	if c.config.Bugs.SendTicketLifetime != 0 {
+		m.ticketLifetime = uint32(c.config.Bugs.SendTicketLifetime / time.Second)
+	}
 
 	if !c.config.Bugs.SendEmptySessionTicket {
 		var err error

@@ -13,9 +13,16 @@ found in the LICENSE file.
 
 <link rel="import" href="/tracing/value/diagnostics/breakdown.html">
 <link rel="import" href="/tracing/value/diagnostics/buildbot_info.html">
+<link rel="import" href="/tracing/value/diagnostics/collected_generic.html">
+<link rel="import" href="/tracing/value/diagnostics/collected_related_event_set.html">
 <link rel="import" href="/tracing/value/diagnostics/device_info.html">
 <link rel="import" href="/tracing/value/diagnostics/diagnostic_ref.html">
 <link rel="import" href="/tracing/value/diagnostics/generic.html">
+<link rel="import" href="/tracing/value/diagnostics/grouping_path.html">
+<link rel="import" href="/tracing/value/diagnostics/merged_buildbot_info.html">
+<link rel="import" href="/tracing/value/diagnostics/merged_device_info.html">
+<link rel="import" href="/tracing/value/diagnostics/merged_revision_info.html">
+<link rel="import" href="/tracing/value/diagnostics/merged_telemetry_info.html">
 <link rel="import" href="/tracing/value/diagnostics/related_event_set.html">
 <link rel="import" href="/tracing/value/diagnostics/related_histogram_breakdown.html">
 <link rel="import" href="/tracing/value/diagnostics/related_histogram_map.html">
@@ -23,11 +30,15 @@ found in the LICENSE file.
 <link rel="import" href="/tracing/value/diagnostics/revision_info.html">
 <link rel="import" href="/tracing/value/diagnostics/scalar.html">
 <link rel="import" href="/tracing/value/diagnostics/telemetry_info.html">
+<link rel="import" href="/tracing/value/diagnostics/unmergeable_diagnostic_set.html">
 
 <script>
 'use strict';
 
 tr.exportTo('tr.v.d', function() {
+  const MERGED_FROM_DIAGNOSTIC_KEY = 'merged from';
+  const MERGED_TO_DIAGNOSTIC_KEY = 'merged to';
+
   class DiagnosticMap extends Map {
     /**
      * Add a new Diagnostic to this map.
@@ -54,22 +65,22 @@ tr.exportTo('tr.v.d', function() {
      * @param {Object} dict
      */
     addDicts(dict) {
-      tr.b.iterItems(dict, (name, diagnosticDict) => {
+      for (var [name, diagnosticDict] of Object.entries(dict)) {
         if (typeof diagnosticDict === 'string') {
           this.set(name, new tr.v.d.DiagnosticRef(diagnosticDict));
         } else {
           this.set(name, tr.v.d.Diagnostic.fromDict(diagnosticDict));
         }
-      });
+      }
     }
 
     resolveSharedDiagnostics(histograms, opt_required) {
-      for (var [name, diagnostic] of this) {
+      for (let [name, diagnostic] of this) {
         if (!(diagnostic instanceof tr.v.d.DiagnosticRef)) {
           continue;
         }
 
-        var guid = diagnostic.guid;
+        let guid = diagnostic.guid;
         diagnostic = histograms.lookupDiagnostic(guid);
         if (diagnostic instanceof tr.v.d.Diagnostic) {
           this.set(name, diagnostic);
@@ -80,30 +91,107 @@ tr.exportTo('tr.v.d', function() {
     }
 
     asDict() {
-      var dict = {};
-      for (var [name, diagnostic] of this) {
+      let dict = {};
+      for (let [name, diagnostic] of this) {
         dict[name] = diagnostic.asDictOrReference();
       }
       return dict;
     }
 
     static fromDict(d) {
-      var diagnostics = new DiagnosticMap();
+      let diagnostics = new DiagnosticMap();
       diagnostics.addDicts(d);
       return diagnostics;
     }
 
     static fromObject(obj) {
-      var diagnostics = new DiagnosticMap();
-      tr.b.iterItems(obj, function(name, diagnostic) {
+      let diagnostics = new DiagnosticMap();
+      for (let [name, diagnostic] of Object.entries(obj))
         diagnostics.set(name, diagnostic);
-      });
       return diagnostics;
+    }
+
+    addDiagnostics(other) {
+      for (let [name, otherDiagnostic] of other) {
+        if (name === MERGED_FROM_DIAGNOSTIC_KEY ||
+            name === MERGED_TO_DIAGNOSTIC_KEY ||
+            name === tr.v.d.GroupingPath) {
+          continue;
+        }
+
+        let myDiagnostic = this.get(name);
+
+        if (myDiagnostic !== undefined &&
+            myDiagnostic.canAddDiagnostic(otherDiagnostic)) {
+          myDiagnostic.addDiagnostic(otherDiagnostic);
+          continue;
+        }
+
+        // We need to avoid storing references to |otherDiagnostic| in both
+        // |this| and |other| because future merge()s may add yet other
+        // Diagnostics to |this|, and they shouldn't accidentally modify
+        // anything in |other|.
+        // Now, either |this| doesn't already have a Diagnostic named |name|
+        // (myDiagnostic is undefined), or
+        // |this| already has a Diagnostic named |name| that can't be merged
+        // with |otherDiagnostic|.
+        // Either way, we need to clone |otherDiagnostic|.
+        // However, clones produced via fromDict/toDict cannot necessarily be
+        // merged with yet other Diagnostics, either because of semantics (as in
+        // the case of TelemtryInfo and the like) or because guids must not be
+        // shared by distinct Diagnostics. Therefore, Diagnostics support
+        // another way of cloning that is specifically targeted at supporting
+        // merging: clone().
+
+        let clone = otherDiagnostic.clone();
+
+        if (myDiagnostic === undefined) {
+          this.set(name, clone);
+          continue;
+        }
+
+        // Now, |myDiagnostic| exists and it is unmergeable with |clone|, which
+        // is safe to store in |this|.
+        this.set(name, new tr.v.d.UnmergeableDiagnosticSet(
+              [myDiagnostic, clone]));
+      }
+    }
+
+    /**
+     * RelatedHistogram diagnostics cannot be merged when Histograms are merged
+     * because the related Histograms might not exist yet.
+     * This method assumes that all related Histograms exist and that duplicate
+     * Diagnostics have been deduplicated.
+     *
+     * @param {!tr.v.Histogram} parentHist
+     */
+    mergeRelationships(parentHist) {
+      for (let [name, diagnostic] of this) {
+        if (!(diagnostic instanceof tr.v.d.RelatedHistogramSet) &&
+            !(diagnostic instanceof tr.v.d.RelatedHistogramMap) &&
+            !(diagnostic instanceof tr.v.d.RelatedHistogramBreakdown) &&
+            !(diagnostic instanceof tr.v.d.UnmergeableDiagnosticSet)) {
+          continue;
+        }
+
+        for (let otherHist of this.get(MERGED_FROM_DIAGNOSTIC_KEY)) {
+          let otherDiagnostic = otherHist.diagnostics.get(name);
+          if (!(otherDiagnostic instanceof tr.v.d.RelatedHistogramSet) &&
+              !(otherDiagnostic instanceof tr.v.d.RelatedHistogramMap) &&
+              !(otherDiagnostic instanceof tr.v.d.RelatedHistogramBreakdown) &&
+              !(otherDiagnostic instanceof tr.v.d.UnmergeableDiagnosticSet)) {
+            continue;
+          }
+          diagnostic.mergeRelationships(otherDiagnostic, parentHist, otherHist);
+        }
+      }
     }
   }
 
   return {
     DiagnosticMap,
+    MERGED_FROM_DIAGNOSTIC_KEY,
+    MERGED_TO_DIAGNOSTIC_KEY,
   };
 });
 </script>

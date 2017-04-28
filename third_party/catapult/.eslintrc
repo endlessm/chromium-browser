@@ -10,7 +10,9 @@
       }],
       "arrow-parens": "off",
       "block-scoped-var": "off",
-      "brace-style": "off",
+      "brace-style": ["error", "1tbs", {
+        "allowSingleLine": true
+      }],
       "camelcase": "off",
       "catapult-camelcase": ["error", {
         "properties": "never"
@@ -29,7 +31,14 @@
       "generator-star-spacing": ["error", "after"],
       "guard-for-in": "off",
       "handle-callback-err": "off",
-      "indent": "off",
+      "indent": ["error", 2, {
+        "CallExpression": {"arguments": 2},
+        "FunctionDeclaration": {"parameters": 2},
+        "FunctionExpression": {"parameters": 2},
+        "MemberExpression": 2,
+        "SwitchCase": 1,
+        "VariableDeclarator": 2,
+      }],
       "key-spacing": "error",
       "keyword-spacing": "error",
       "linebreak-style": "error",
@@ -51,7 +60,7 @@
       "no-constant-condition": "off",
       "no-control-regex": "off",
       "no-dupe-keys": "off",
-      "no-else-return": "off",
+      "no-else-return": "error",
       "no-eq-null": "off",
       "no-extend-native": "error",
       "no-extra-bind": "off",
@@ -107,7 +116,7 @@
       }],
       "one-var-declaration-per-line": "off",
       "operator-assignment": "off",
-      "padded-blocks": "off",
+      "padded-blocks": ["error", "never"],
       "quote-props": ["error", "consistent"], ## TODO(alexandermont): want to eventually make this disallowQuotedKeysInObjects
       "quotes": ["error", "single"],
       "radix": "off",

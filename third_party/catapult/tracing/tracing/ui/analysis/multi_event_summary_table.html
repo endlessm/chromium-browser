@@ -167,11 +167,10 @@ Polymer({
         cmp: function(rowA, rowB) {
           if (hasCpuData) {
             return rowA.cpuDuration / rowA.numEvents -
-              rowB.cpuDuration / rowB.numEvents;
-          } else {
-            return rowA.duration / rowA.numEvents -
-              rowB.duration / rowB.numEvents;
+                rowB.cpuDuration / rowB.numEvents;
           }
+          return rowA.duration / rowA.numEvents -
+              rowB.duration / rowB.numEvents;
         }
       });
     }
@@ -315,7 +314,7 @@ Polymer({
     if (this.eventsHaveDuration) {
       for (var column in maxValues) {
         maxValues[column] = tr.b.Statistics.max(rows, function(event) {
-                return event[column];
+          return event[column];
         });
       }
     }

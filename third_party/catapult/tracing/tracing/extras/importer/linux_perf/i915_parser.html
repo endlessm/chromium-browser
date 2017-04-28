@@ -174,7 +174,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
     },
 
     gemObjectChangeDomainEvent: function(eventName, cpuNumber, pid, ts,
-                                         eventBase) {
+        eventBase) {
       var event = /obj=(\w+), read=(\w+=>\w+), write=(\w+=>\w+)/
           .exec(eventBase.details);
       if (!event)
@@ -193,7 +193,7 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
     },
 
     gemObjectPreadWriteEvent: function(eventName, cpuNumber, pid, ts,
-                                       eventBase) {
+        eventBase) {
       var event = /obj=(\w+), offset=(\d+), len=(\d+)/.exec(eventBase.details);
       if (!event)
         return false;
@@ -355,8 +355,8 @@ tr.exportTo('tr.e.importer.linux_perf', function() {
       var freq = parseInt(event[1]);
 
       this.i915FreqChangeSlice(ts, eventName, {
-            freq: freq
-          });
+        freq: freq
+      });
       return true;
     }
   };

@@ -34,7 +34,6 @@ found in the LICENSE file.
 'use strict';
 
 tr.exportTo('tr.ui.e.v8', function() {
-
   // The constant variables below should be consistent with
   // https://github.com/mlippautz/v8-heap-stats/blob/master/app/utils.js#L120
   var InstanceTypeGroups = {
@@ -200,7 +199,7 @@ tr.exportTo('tr.ui.e.v8', function() {
   var InstanceSubTypeNames = {
     FIXED_ARRAY_TYPE: {
       keyToName: key => key.slice('*FIXED_ARRAY_'.length)
-        .slice(0, -('_SUB_TYPE'.length)),
+          .slice(0, -('_SUB_TYPE'.length)),
       nameToKey: name => '*FIXED_ARRAY_' + name + '_SUB_TYPE'
     },
     CODE_TYPE: {
@@ -267,7 +266,7 @@ tr.exportTo('tr.ui.e.v8', function() {
 
   class Entry {
     constructor(title, count, overall, overAllocated, histogram,
-                overAllocatedHistogram) {
+        overAllocatedHistogram) {
       this.title_ = title;
       this.overall_ = overall;
       this.count_ = count;
@@ -338,16 +337,16 @@ tr.exportTo('tr.ui.e.v8', function() {
                              other.overAllocated_ - this.overAllocated, [], []);
       entry.overallPercent = computePercentage(entry.overall, this.overall);
       entry.overAllocatedPercent = computePercentage(entry.overAllocated,
-                                                     this.overAllocated);
+          this.overAllocated);
       return new DiffEntry(this, entry);
     }
   }
 
   class GroupedEntry extends Entry {
     constructor(title, count, overall, overAllocated, histogram,
-                overAllocatedHistogram) {
+        overAllocatedHistogram) {
       super(title, count, overall, overAllocated, histogram,
-            overAllocatedHistogram);
+          overAllocatedHistogram);
       this.histogram_.fill(0);
       this.overAllocatedHistogram_.fill(0);
       this.entries_ = new Map();
@@ -429,7 +428,7 @@ tr.exportTo('tr.ui.e.v8', function() {
       }
       result.overallPercent = computePercentage(result.overall, this.overall);
       result.overAllocatedPercent = computePercentage(result.overAllocated,
-                                                      this.overAllocated);
+          this.overAllocated);
       return new DiffEntry(this, result);
     }
   }
@@ -636,13 +635,13 @@ tr.exportTo('tr.ui.e.v8', function() {
       }
       this.$.diffOption.style.display = 'inline-block';
       this.selector1_ = createSelector(
-        this, '', items, this.diffOptionChanged_);
+          this, '', items, this.diffOptionChanged_);
       Polymer.dom(this.$.diffOption).appendChild(this.selector1_);
       var spanEl = tr.ui.b.createSpan();
       spanEl.innerText = ' VS ';
       Polymer.dom(this.$.diffOption).appendChild(spanEl);
       this.selector2_ = createSelector(
-        this, '', items, this.diffOptionChanged_);
+          this, '', items, this.diffOptionChanged_);
       Polymer.dom(this.$.diffOption).appendChild(this.selector2_);
     },
 
@@ -835,11 +834,11 @@ tr.exportTo('tr.ui.e.v8', function() {
         var deadBucketSize = deadObjects.bucket_sizes.length;
 
         this.build_(tr.b.deepCopy(liveObjects.type_data), liveEntry,
-                    liveBucketSize);
+            liveBucketSize);
         isolateEntry.add(liveEntry);
 
         this.build_(tr.b.deepCopy(deadObjects.type_data), deadEntry,
-                    deadBucketSize);
+            deadBucketSize);
         isolateEntry.add(deadEntry);
 
         isolateEntry.calculatePercentage();

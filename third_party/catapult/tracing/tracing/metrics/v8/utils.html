@@ -35,14 +35,14 @@ tr.exportTo('tr.metrics.v8.utils', function() {
 
   // Maps the top-level GC events in timeline to telemetry friendly names.
   var TOP_GC_EVENTS = {
-      'V8.GCCompactor': 'v8-gc-full-mark-compactor',
-      'V8.GCFinalizeMC': 'v8-gc-latency-mark-compactor',
-      'V8.GCFinalizeMCReduceMemory': 'v8-gc-memory-mark-compactor',
-      'V8.GCIncrementalMarking': 'v8-gc-incremental-step',
-      'V8.GCIncrementalMarkingFinalize': 'v8-gc-incremental-finalize',
-      'V8.GCIncrementalMarkingStart': 'v8-gc-incremental-start',
-      'V8.GCPhantomHandleProcessingCallback': 'v8-gc-phantom-handle-callback',
-      'V8.GCScavenger': 'v8-gc-scavenger'
+    'V8.GCCompactor': 'v8-gc-full-mark-compactor',
+    'V8.GCFinalizeMC': 'v8-gc-latency-mark-compactor',
+    'V8.GCFinalizeMCReduceMemory': 'v8-gc-memory-mark-compactor',
+    'V8.GCIncrementalMarking': 'v8-gc-incremental-step',
+    'V8.GCIncrementalMarkingFinalize': 'v8-gc-incremental-finalize',
+    'V8.GCIncrementalMarkingStart': 'v8-gc-incremental-start',
+    'V8.GCPhantomHandleProcessingCallback': 'v8-gc-phantom-handle-callback',
+    'V8.GCScavenger': 'v8-gc-scavenger'
   };
 
   var LOW_MEMORY_MARK_COMPACTOR = 'v8-gc-low-memory-mark-compactor';
@@ -134,7 +134,7 @@ tr.exportTo('tr.metrics.v8.utils', function() {
    * @param {Function} processCallback Takes a name, and an array of events.
    */
   function groupAndProcessEvents(model, filterCallback,
-                                 nameCallback, processCallback) {
+      nameCallback, processCallback) {
     // Map: name -> [events].
     var nameToEvents = {};
     for (var event of model.getDescendantEvents()) {
@@ -143,9 +143,9 @@ tr.exportTo('tr.metrics.v8.utils', function() {
       nameToEvents[name] = nameToEvents[name] || [];
       nameToEvents[name].push(event);
     }
-    tr.b.iterItems(nameToEvents, function(name, events) {
+    for (var [name, events] of Object.entries(nameToEvents)) {
       processCallback(name, events);
-    });
+    }
   }
 
   /**
@@ -156,13 +156,14 @@ tr.exportTo('tr.metrics.v8.utils', function() {
     if (intervals.length === 0)
       return [];
     return tr.b.mergeRanges(
-      intervals.map(x => { return { min: x.start, max: x.end }; }), 1e-6,
-      function(ranges) {
-        return {
-          start: ranges.reduce((acc, x) => Math.min(acc, x.min), ranges[0].min),
-          end: ranges.reduce((acc, x) => Math.max(acc, x.max), ranges[0].max)
-        };
-      }
+        intervals.map(x => { return { min: x.start, max: x.end }; }), 1e-6,
+        function(ranges) {
+          return {
+            start: ranges.reduce(
+                (acc, x) => Math.min(acc, x.min), ranges[0].min),
+            end: ranges.reduce((acc, x) => Math.max(acc, x.max), ranges[0].max)
+          };
+        }
     );
   }
 
@@ -269,7 +270,7 @@ tr.exportTo('tr.metrics.v8.utils', function() {
         var position2 = left.position;
         var value2 = right.cummulativePause - left.cummulativePause;
         mu.push(position1, 1.0 - value1 / timeWindow,
-                position2, 1.0 - value2 / timeWindow);
+            position2, 1.0 - value2 / timeWindow);
       }
     }
     return mu;

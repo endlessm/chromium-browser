@@ -250,8 +250,8 @@ class BrowserWindowControllerTest : public InProcessBrowserTest {
     SimpleAlertInfoBarDelegate::Create(
         InfoBarService::FromWebContents(
             browser->tab_strip_model()->GetActiveWebContents()),
-        infobars::InfoBarDelegate::TEST_INFOBAR,
-        0, gfx::VectorIconId::VECTOR_ICON_NONE, base::string16(), false);
+        infobars::InfoBarDelegate::TEST_INFOBAR, nullptr, base::string16(),
+        false);
   }
 
   NSView* GetViewWithID(ViewID view_id) const {
@@ -779,14 +779,12 @@ IN_PROC_BROWSER_TEST_F(BrowserWindowControllerTest,
   // Insert a NTP new tab in the foreground.
   AddTabAtIndex(0, GURL("about:blank"), ui::PAGE_TRANSITION_LINK);
   ASSERT_TRUE([[controller() toolbarController] isLocationBarFocused]);
-  EXPECT_FALSE([fullscreenToolbarController isRevealingToolbarForTabstrip]);
+  EXPECT_TRUE([fullscreenToolbarController isRevealingToolbarForTabstrip]);
   [fullscreenToolbarController resetToolbarFlag];
 
-  // Insert a new tab in the background. The animation should not be triggered
-  // since the location bar should still be focused.
   AddTabAtBackground(1, GURL("http://google.com"));
   ASSERT_TRUE([[controller() toolbarController] isLocationBarFocused]);
-  EXPECT_FALSE([fullscreenToolbarController isRevealingToolbarForTabstrip]);
+  EXPECT_TRUE([fullscreenToolbarController isRevealingToolbarForTabstrip]);
   [fullscreenToolbarController resetToolbarFlag];
 
   // Switch to a non-NTP tab.

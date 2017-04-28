@@ -5,11 +5,11 @@ Use of this source code is governed by a BSD-style license that can be
 found in the LICENSE file.
 -->
 
+<link rel="import" href="/tracing/base/scalar.html">
 <link rel="import" href="/tracing/base/unit.html">
 <link rel="import" href="/tracing/model/object_instance.html">
 <link rel="import" href="/tracing/ui/analysis/generic_object_view.html">
 <link rel="import" href="/tracing/ui/base/deep_utils.html">
-<link rel="import" href="/tracing/value/numeric.html">
 
 <script>
 'use strict';
@@ -43,10 +43,9 @@ tr.b.unittest.testSuite(function() {
   test('multiLineStringValueInsideObject', function() {
     var view = document.createElement('tr-ui-a-generic-object-view');
     view.object = {key: 'i am a\n  string value\ni have\n  various indents',
-                   value: 'simple'};
+      value: 'simple'};
     this.addHTMLOutput(view);
     var c = view.$.content;
-
   });
 
   test('jsonObjectStringValue', function() {
@@ -135,7 +134,7 @@ tr.b.unittest.testSuite(function() {
                    {col2: 'Object', col3: 1}];
     this.addHTMLOutput(view);
     assert.equal(undefined, tr.b.findDeepElementMatching(
-      view.$.content, 'table'));
+        view.$.content, 'table'));
   });
 
   test('instantiate_arrayWithDeepObjectValue', function() {
@@ -143,7 +142,7 @@ tr.b.unittest.testSuite(function() {
     view.object = [{key: {deep: 'object values make isTable() return false'}}];
     this.addHTMLOutput(view);
     assert.equal(undefined, tr.b.findDeepElementMatching(
-      view.$.content, 'table'));
+        view.$.content, 'table'));
   });
 
   test('jsonTableValue', function() {
@@ -179,24 +178,24 @@ tr.b.unittest.testSuite(function() {
   test('timeDurationValue', function() {
     var view = document.createElement('tr-ui-a-generic-object-view');
     view.object =
-        new tr.v.ScalarNumeric(tr.b.Unit.byName.timeDurationInMs, 3);
+        new tr.b.Scalar(tr.b.Unit.byName.timeDurationInMs, 3);
     this.addHTMLOutput(view);
     assert.isDefined(tr.b.findDeepElementMatching(
-      view.$.content, 'tr-v-ui-scalar-span'));
+        view.$.content, 'tr-v-ui-scalar-span'));
   });
 
   test('timeStampValue', function() {
     var view = document.createElement('tr-ui-a-generic-object-view');
-    view.object = new tr.v.ScalarNumeric(tr.b.Unit.byName.timeStampInMs, 3);
+    view.object = new tr.b.Scalar(tr.b.Unit.byName.timeStampInMs, 3);
     this.addHTMLOutput(view);
     assert.isDefined(tr.b.findDeepElementMatching(
-      view.$.content, 'tr-v-ui-scalar-span'));
+        view.$.content, 'tr-v-ui-scalar-span'));
   });
 
   test('scalarValue', function() {
     var view = document.createElement('tr-ui-a-generic-object-view');
     view.object =
-        new tr.v.ScalarNumeric(tr.b.Unit.byName.normalizedPercentage, .3);
+        new tr.b.Scalar(tr.b.Unit.byName.normalizedPercentage, .3);
     this.addHTMLOutput(view);
     var m = tr.b.findDeepElementMatching(
         view.$.content, 'tr-v-ui-scalar-span');

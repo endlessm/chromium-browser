@@ -18,7 +18,7 @@ tr.exportTo('tr.b', function() {
 
 
   function decorateTypeBasedExtensionRegistry(registry,
-                                              extensionRegistryOptions) {
+      extensionRegistryOptions) {
     var savedStateStack = [];
 
     registry.registeredTypeInfos_ = [];
@@ -27,8 +27,7 @@ tr.exportTo('tr.b', function() {
     registry.typeNameToTypeInfoMap_ = new Map();
 
     registry.register = function(constructor,
-                                 metadata) {
-
+        metadata) {
       extensionRegistryOptions.validateConstructor(constructor);
 
       var typeInfo = new RegisteredTypeInfo(
@@ -41,11 +40,11 @@ tr.exportTo('tr.b', function() {
         typeInfo.typeNames.push(metadata.typeName);
       if (metadata && metadata.typeNames) {
         typeInfo.typeNames.push.apply(
-          typeInfo.typeNames, metadata.typeNames);
+            typeInfo.typeNames, metadata.typeNames);
       }
       if (metadata && metadata.categoryParts) {
         typeInfo.categoryParts.push.apply(
-          typeInfo.categoryParts, metadata.categoryParts);
+            typeInfo.categoryParts, metadata.categoryParts);
       }
 
       if (typeInfo.typeNames.length === 0 &&

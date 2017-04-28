@@ -14,7 +14,6 @@ found in the LICENSE file.
 'use strict';
 
 tr.b.unittest.testSuite(function() {
-
   var testOptions = {
     tearDown: function() {
       testing_common.clearXhrMock();
@@ -28,9 +27,8 @@ tr.b.unittest.testSuite(function() {
       'display_username': 'foo@bar.com'
     };
     testing_common.addXhrMock('*', JSON.stringify(mockResponse));
-      var bar = document.createElement('nav-bar');
-      this.addHTMLOutput(bar);
+    var bar = document.createElement('nav-bar');
+    this.addHTMLOutput(bar);
   }, testOptions);
-
 });
 </script>

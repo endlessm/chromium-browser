@@ -16,6 +16,7 @@ from chromite.cbuildbot import cbuildbot_run
 from chromite.cbuildbot import commands
 from chromite.cbuildbot import manifest_version
 from chromite.cbuildbot import prebuilts
+from chromite.cbuildbot import relevant_changes
 from chromite.cbuildbot.stages import completion_stages
 from chromite.cbuildbot.stages import generic_stages_unittest
 from chromite.cbuildbot.stages import sync_stages_unittest
@@ -29,7 +30,6 @@ from chromite.lib import config_lib
 from chromite.lib import constants
 from chromite.lib import failures_lib
 from chromite.lib import results_lib
-from chromite.lib import patch as cros_patch
 from chromite.lib import patch_unittest
 
 
@@ -503,7 +503,7 @@ class BaseCommitQueueCompletionStageTest(
                      'HandleFailure')
     self.PatchObject(completion_stages.CommitQueueCompletionStage,
                      '_GetFailedMessages')
-    self.PatchObject(completion_stages.CommitQueueCompletionStage,
+    self.PatchObject(relevant_changes.RelevantChanges,
                      '_GetSlaveMappingAndCLActions',
                      return_value=(dict(), []))
     self.PatchObject(clactions, 'GetRelevantChangesForBuilds')
@@ -734,32 +734,6 @@ class MasterCommitQueueCompletionStageTest(BaseCommitQueueCompletionStageTest):
     stage._run.config.sanity_check_slaves = ['sanity']
     self.VerifyStage([], ['sanity'], build_passed=True)
 
-  def testGetRelevantChangesForSlave(self):
-    """Tests the logic of GetRelevantChangesForSlaves()."""
-    change_set1 = set(self.GetPatches(how_many=2))
-    change_set2 = set(self.GetPatches(how_many=3))
-    changes = set.union(change_set1, change_set2)
-    no_stat = ['no_stat-paladin']
-    config_map = {'123': 'foo-paladin',
-                  '124': 'bar-paladin',
-                  '125': 'no_stat-paladin'}
-    changes_by_build_id = {'123': change_set1,
-                           '124': change_set2}
-    # If a slave did not report status (no_stat), assume all changes
-    # are relevant.
-    expected = {'foo-paladin': change_set1,
-                'bar-paladin': change_set2,
-                'no_stat-paladin': changes}
-    self.PatchObject(completion_stages.CommitQueueCompletionStage,
-                     '_GetSlaveMappingAndCLActions',
-                     return_value=(config_map, []))
-    self.PatchObject(clactions, 'GetRelevantChangesForBuilds',
-                     return_value=changes_by_build_id)
-
-    stage = self.ConstructStage()
-    results = stage.GetRelevantChangesForSlaves(changes, no_stat, None)
-    self.assertEqual(results, expected)
-
   def testWithExponentialFallbackApplied(self):
     """Tests that we don't treat TOT as sane when it isn't."""
     failing = ['foo', 'bar']
@@ -775,105 +749,6 @@ class MasterCommitQueueCompletionStageTest(BaseCommitQueueCompletionStageTest):
                      handle_timeout=False, sane_tot=False, alert=True,
                      stage=stage)
 
-  def testGetIrrelevantChanges(self):
-    """Tests the logic of GetIrrelevantChanges()."""
-    change_dict_1 = {
-        cros_patch.ATTR_PROJECT_URL: 'https://host/chromite/tacos',
-        cros_patch.ATTR_PROJECT: 'chromite/tacos',
-        cros_patch.ATTR_REF: 'refs/changes/11/12345/4',
-        cros_patch.ATTR_BRANCH: 'master',
-        cros_patch.ATTR_REMOTE: 'cros-internal',
-        cros_patch.ATTR_COMMIT: '7181e4b5e182b6f7d68461b04253de095bad74f9',
-        cros_patch.ATTR_CHANGE_ID: 'I47ea30385af60ae4cc2acc5d1a283a46423bc6e1',
-        cros_patch.ATTR_GERRIT_NUMBER: '12345',
-        cros_patch.ATTR_PATCH_NUMBER: '4',
-        cros_patch.ATTR_OWNER_EMAIL: 'foo@chromium.org',
-        cros_patch.ATTR_FAIL_COUNT: 1,
-        cros_patch.ATTR_PASS_COUNT: 1,
-        cros_patch.ATTR_TOTAL_FAIL_COUNT: 3}
-    change_dict_2 = {
-        cros_patch.ATTR_PROJECT_URL: 'https://host/chromite/foo',
-        cros_patch.ATTR_PROJECT: 'chromite/foo',
-        cros_patch.ATTR_REF: 'refs/changes/11/12344/3',
-        cros_patch.ATTR_BRANCH: 'master',
-        cros_patch.ATTR_REMOTE: 'cros-internal',
-        cros_patch.ATTR_COMMIT: 'cf23df2207d99a74fbe169e3eba035e633b65d94',
-        cros_patch.ATTR_CHANGE_ID: 'Iab9bf08b9b9bd4f72721cfc36e843ed302aca11a',
-        cros_patch.ATTR_GERRIT_NUMBER: '12344',
-        cros_patch.ATTR_PATCH_NUMBER: '3',
-        cros_patch.ATTR_OWNER_EMAIL: 'foo@chromium.org',
-        cros_patch.ATTR_FAIL_COUNT: 0,
-        cros_patch.ATTR_PASS_COUNT: 0,
-        cros_patch.ATTR_TOTAL_FAIL_COUNT: 1}
-    change_1 = cros_patch.GerritFetchOnlyPatch.FromAttrDict(change_dict_1)
-    change_2 = cros_patch.GerritFetchOnlyPatch.FromAttrDict(change_dict_2)
-
-    board_metadata_1 = {
-        'board-1': {'info':'foo', 'irrelevant_changes': [change_dict_1,
-                                                         change_dict_2]},
-        'board-2': {'info':'foo', 'irrelevant_changes': [change_dict_1]}
-    }
-    board_metadata_2 = {
-        'board-1': {'info':'foo', 'irrelevant_changes': [change_dict_1]},
-        'board-2': {'info':'foo', 'irrelevant_changes': [change_dict_2]}
-    }
-    board_metadata_3 = {
-        'board-1': {'info':'foo', 'irrelevant_changes': [change_dict_1,
-                                                         change_dict_2]},
-        'board-2': {'info':'foo', 'irrelevant_changes': []}
-    }
-    board_metadata_4 = {
-        'board-1': {'info':'foo', 'irrelevant_changes': [change_dict_1,
-                                                         change_dict_2]},
-        'board-2': {'info':'foo'}
-    }
-    board_metadata_5 = {}
-    board_metadata_6 = {
-        'board-1': {'info':'foo', 'irrelevant_changes': [change_dict_1,
-                                                         change_dict_2]},
-    }
-    stage = self.ConstructStage()
-    self.assertEqual(stage.GetIrrelevantChanges(board_metadata_1), {change_1})
-    self.assertEqual(stage.GetIrrelevantChanges(board_metadata_2), set())
-    self.assertEqual(stage.GetIrrelevantChanges(board_metadata_3), set())
-    self.assertEqual(stage.GetIrrelevantChanges(board_metadata_4), set())
-    self.assertEqual(stage.GetIrrelevantChanges(board_metadata_5), set())
-    self.assertEqual(stage.GetIrrelevantChanges(board_metadata_6), {change_1,
-                                                                    change_2})
-
-  def testGetSubsysResultForSlaves(self):
-    """Tests for the GetSubsysResultForSlaves."""
-    def get_dict(build_config, message_type, message_subtype, message_value):
-      return {'build_config': build_config,
-              'message_type': message_type,
-              'message_subtype': message_subtype,
-              'message_value': message_value}
-
-    slave_msgs = [get_dict('config_1', constants.SUBSYSTEMS,
-                           constants.SUBSYSTEM_PASS, 'a'),
-                  get_dict('config_1', constants.SUBSYSTEMS,
-                           constants.SUBSYSTEM_PASS, 'b'),
-                  get_dict('config_1', constants.SUBSYSTEMS,
-                           constants.SUBSYSTEM_FAIL, 'c'),
-                  get_dict('config_2', constants.SUBSYSTEMS,
-                           constants.SUBSYSTEM_UNUSED, None),
-                  get_dict('config_3', constants.SUBSYSTEMS,
-                           constants.SUBSYSTEM_PASS, 'a'),
-                  get_dict('config_3', constants.SUBSYSTEMS,
-                           constants.SUBSYSTEM_PASS, 'e'),]
-    # Setup DB and provide list of slave build messages.
-    mock_cidb = mock.MagicMock()
-    cidb.CIDBConnectionFactory.SetupMockCidb(mock_cidb)
-    self.PatchObject(mock_cidb, 'GetSlaveBuildMessages',
-                     return_value=slave_msgs)
-
-    expect_result = {
-        'config_1': {'pass_subsystems':set(['a', 'b']),
-                     'fail_subsystems':set(['c'])},
-        'config_2': {},
-        'config_3': {'pass_subsystems':set(['a', 'e'])}}
-    stage = self.ConstructStage()
-    self.assertEqual(stage.GetSubsysResultForSlaves(), expect_result)
 
 class PublishUprevChangesStageTest(
     generic_stages_unittest.AbstractStageTestCase):
@@ -978,7 +853,7 @@ class PublishUprevChangesStageTest(
   def testAndroidPush(self):
     """Test values for PublishUprevChanges with Android PFQ."""
     self.build_type = constants.ANDROID_PFQ_TYPE
-    self._Prepare(bot_id='master-android-pfq',
+    self._Prepare(bot_id=constants.ANDROID_PFQ_MASTER,
                   extra_config={'build_type': constants.BUILD_FROM_SOURCE_TYPE,
                                 'push_overlays': constants.PUBLIC_OVERLAYS,
                                 'master': True},
