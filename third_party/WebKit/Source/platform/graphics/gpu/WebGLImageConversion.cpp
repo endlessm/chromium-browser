@@ -441,7 +441,7 @@ void unpack<WebGLImageConversion::DataFormatBGRA8, uint8_t, uint8_t>(
   const uint32_t* source32 = reinterpret_cast_ptr<const uint32_t*>(source);
   uint32_t* destination32 = reinterpret_cast_ptr<uint32_t*>(destination);
 
-#if CPU(X86) || CPU(X86_64)
+#if CPU(X86_64)
   SIMD::unpackOneRowOfBGRA8LittleToRGBA8(source32, destination32, pixelsPerRow);
 #endif
 #if HAVE(MIPS_MSA_INTRINSICS)
@@ -467,7 +467,7 @@ void unpack<WebGLImageConversion::DataFormatRGBA5551, uint16_t, uint8_t>(
     const uint16_t* source,
     uint8_t* destination,
     unsigned pixelsPerRow) {
-#if CPU(X86) || CPU(X86_64)
+#if CPU(X86_64)
   SIMD::unpackOneRowOfRGBA5551LittleToRGBA8(source, destination, pixelsPerRow);
 #endif
 #if HAVE(ARM_NEON_INTRINSICS)
@@ -496,7 +496,7 @@ void unpack<WebGLImageConversion::DataFormatRGBA4444, uint16_t, uint8_t>(
     const uint16_t* source,
     uint8_t* destination,
     unsigned pixelsPerRow) {
-#if CPU(X86) || CPU(X86_64)
+#if CPU(X86_64)
   SIMD::unpackOneRowOfRGBA4444LittleToRGBA8(source, destination, pixelsPerRow);
 #endif
 #if HAVE(ARM_NEON_INTRINSICS)
@@ -711,7 +711,7 @@ void pack<WebGLImageConversion::DataFormatR8,
           uint8_t>(const uint8_t* source,
                    uint8_t* destination,
                    unsigned pixelsPerRow) {
-#if CPU(X86) || CPU(X86_64)
+#if CPU(X86_64)
   SIMD::packOneRowOfRGBA8LittleToR8(source, destination, pixelsPerRow);
 #endif
 #if HAVE(MIPS_MSA_INTRINSICS)
@@ -768,7 +768,7 @@ void pack<WebGLImageConversion::DataFormatRA8,
           uint8_t>(const uint8_t* source,
                    uint8_t* destination,
                    unsigned pixelsPerRow) {
-#if CPU(X86) || CPU(X86_64)
+#if CPU(X86_64)
   SIMD::packOneRowOfRGBA8LittleToRA8(source, destination, pixelsPerRow);
 #endif
 #if HAVE(MIPS_MSA_INTRINSICS)
@@ -880,7 +880,7 @@ void pack<WebGLImageConversion::DataFormatRGBA8,
           uint8_t>(const uint8_t* source,
                    uint8_t* destination,
                    unsigned pixelsPerRow) {
-#if CPU(X86) || CPU(X86_64)
+#if CPU(X86_64)
   SIMD::packOneRowOfRGBA8LittleToRGBA8(source, destination, pixelsPerRow);
 #endif
 #if HAVE(MIPS_MSA_INTRINSICS)

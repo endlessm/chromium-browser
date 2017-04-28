@@ -32,7 +32,7 @@
 #include "wtf/PtrUtil.h"
 #include <algorithm>
 
-#if CPU(X86) || CPU(X86_64)
+#if CPU(X86_64)
 #include <emmintrin.h>
 #endif
 
@@ -1269,7 +1269,7 @@ std::tuple<size_t, float, unsigned> AudioParamTimeline::processLinearRamp(
     size_t currentFrame,
     float value,
     unsigned writeIndex) {
-#if CPU(X86) || CPU(X86_64)
+#if CPU(X86_64)
   auto numberOfValues = currentState.numberOfValues;
 #endif
   auto fillToFrame = currentState.fillToFrame;
@@ -1282,7 +1282,7 @@ std::tuple<size_t, float, unsigned> AudioParamTimeline::processLinearRamp(
   double deltaTime = time2 - time1;
   float k = deltaTime > 0 ? 1 / deltaTime : 0;
   const float valueDelta = value2 - value1;
-#if CPU(X86) || CPU(X86_64)
+#if CPU(X86_64)
   if (fillToFrame > writeIndex) {
     // Minimize in-loop operations. Calculate starting value and increment.
     // Next step: value += inc.
@@ -1409,7 +1409,7 @@ std::tuple<size_t, float, unsigned> AudioParamTimeline::processSetTarget(
     size_t currentFrame,
     float value,
     unsigned writeIndex) {
-#if CPU(X86) || CPU(X86_64)
+#if CPU(X86_64)
   auto numberOfValues = currentState.numberOfValues;
 #endif
   auto fillToFrame = currentState.fillToFrame;
@@ -1459,7 +1459,7 @@ std::tuple<size_t, float, unsigned> AudioParamTimeline::processSetTarget(
     for (; writeIndex < fillToFrame; ++writeIndex)
       values[writeIndex] = target;
   } else {
-#if CPU(X86) || CPU(X86_64)
+#if CPU(X86_64)
     if (fillToFrame > writeIndex) {
       // Resolve recursion by expanding constants to achieve a 4-step
       // loop unrolling.
@@ -1591,7 +1591,7 @@ std::tuple<size_t, float, unsigned> AudioParamTimeline::processSetValueCurve(
   // Oversampled curve data can be provided if sharp discontinuities are
   // desired.
   unsigned k = 0;
-#if CPU(X86) || CPU(X86_64)
+#if CPU(X86_64)
   if (fillToFrame > writeIndex) {
     const __m128 vCurveVirtualIndex = _mm_set_ps1(curveVirtualIndex);
     const __m128 vCurvePointsPerFrame = _mm_set_ps1(curvePointsPerFrame);
