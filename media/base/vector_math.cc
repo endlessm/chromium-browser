@@ -11,7 +11,7 @@
 #include "build/build_config.h"
 
 // NaCl does not allow intrinsics.
-#if defined(ARCH_CPU_X86_FAMILY) && !defined(OS_NACL)
+#if defined(__x86_64__) && !defined(OS_NACL)
 #include <xmmintrin.h>
 // Don't use custom SSE versions where the auto-vectorized C version performs
 // better, which is anywhere clang is used.
@@ -89,7 +89,7 @@ std::pair<float, float> EWMAAndMaxPower_C(
   return result;
 }
 
-#if defined(ARCH_CPU_X86_FAMILY) && !defined(OS_NACL)
+#if defined(__x86_64__) && !defined(OS_NACL)
 void FMUL_SSE(const float src[], float scale, int len, float dest[]) {
   const int rem = len % 4;
   const int last_index = len - rem;

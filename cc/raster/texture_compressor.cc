@@ -8,7 +8,7 @@
 #include "base/memory/ptr_util.h"
 #include "cc/raster/texture_compressor_etc1.h"
 
-#if defined(ARCH_CPU_X86_FAMILY)
+#if defined(ARCH_CPU_X86_64)
 #include "base/cpu.h"
 #include "cc/raster/texture_compressor_etc1_sse.h"
 #endif
@@ -18,7 +18,7 @@ namespace cc {
 std::unique_ptr<TextureCompressor> TextureCompressor::Create(Format format) {
   switch (format) {
     case kFormatETC1: {
-#if defined(ARCH_CPU_X86_FAMILY)
+#if defined(ARCH_CPU_X86_64)
       base::CPU cpu;
       if (cpu.has_sse2()) {
         return base::WrapUnique(new TextureCompressorETC1SSE());
