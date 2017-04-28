@@ -52,11 +52,7 @@ class CommonSwitches {
                          FeatureSwitch::DEFAULT_ENABLED),
         load_media_router_component_extension(
             kLoadMediaRouterComponentExtensionFlag,
-#if defined(GOOGLE_CHROME_BUILD)
             FeatureSwitch::DEFAULT_ENABLED),
-#else
-            FeatureSwitch::DEFAULT_DISABLED),
-#endif  // defined(GOOGLE_CHROME_BUILD)
         native_crx_bindings(switches::kNativeCrxBindings,
                             kNativeCrxBindingsFieldTrial,
                             FeatureSwitch::DEFAULT_DISABLED),
