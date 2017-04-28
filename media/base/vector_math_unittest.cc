@@ -76,7 +76,7 @@ TEST_F(VectorMathTest, FMAC) {
     VerifyOutput(kResult);
   }
 
-#if defined(ARCH_CPU_X86_FAMILY)
+#if defined(__x86_64__)
   {
     SCOPED_TRACE("FMAC_SSE");
     FillTestVectors(kInputFillValue, kOutputFillValue);
@@ -117,7 +117,7 @@ TEST_F(VectorMathTest, FMUL) {
     VerifyOutput(kResult);
   }
 
-#if defined(ARCH_CPU_X86_FAMILY)
+#if defined(__x86_64__)
   {
     SCOPED_TRACE("FMUL_SSE");
     FillTestVectors(kInputFillValue, kOutputFillValue);
@@ -225,7 +225,7 @@ class EWMATestScenario {
       EXPECT_NEAR(expected_max_, result.second, 0.0000001f);
     }
 
-#if defined(ARCH_CPU_X86_FAMILY)
+#if defined(__x86_64__)
     {
       SCOPED_TRACE("EWMAAndMaxPower_SSE");
       const std::pair<float, float>& result = vector_math::EWMAAndMaxPower_SSE(
