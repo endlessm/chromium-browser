@@ -44,7 +44,7 @@ Build-Depends:
 Standards-Version: 3.9.6
 
 Package: chromium-browser
-Architecture: any
+Architecture: i386 amd64 armhf arm64
 Pre-Depends: dpkg (>= 1.15.6)
 Depends: ${shlibs:Depends}, ${misc:Depends},
 	bash (>= 4),
@@ -79,7 +79,7 @@ Description: chromium-browser language packages
  sk, sl, sr, sv, sw, ta, te, th, tr, ug, uk, vi, zh-CN, zh-TW
 
 Package: chromium-codecs-ffmpeg
-Architecture: any
+Architecture: i386 amd64 armhf arm64
 Pre-Depends: dpkg (>= 1.15.6)
 Depends: ${shlibs:Depends}, ${misc:Depends}
 Conflicts: chromium-codecs-ffmpeg-extra, chromium-browser (<< 44)
@@ -93,7 +93,7 @@ Description: Free ffmpeg codecs for the Chromium Browser
  included. See chromium-codecs-ffmpeg-extra for additional codecs
 
 Package: chromium-codecs-ffmpeg-extra
-Architecture: any
+Architecture: i386 amd64 armhf arm64
 Pre-Depends: dpkg (>= 1.15.6)
 Depends: ${shlibs:Depends}, ${misc:Depends}
 Conflicts: chromium-codecs-ffmpeg, chromium-browser (<< 44)
@@ -108,7 +108,7 @@ Description: Extra ffmpeg codecs for the Chromium Browser
  chromium-codecs-ffmpeg if you prefer only the patent-free codecs
 
 Package: chromium-chromedriver
-Architecture: any
+Architecture: i386 amd64 armhf arm64
 Pre-Depends: dpkg (>= 1.15.6)
 Depends: ${shlibs:Depends}, ${misc:Depends}, chromium-browser (>= 4.0.203.0~)
 Description: WebDriver driver for the Chromium Browser
