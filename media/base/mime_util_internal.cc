@@ -8,6 +8,7 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
+#include "base/sys_info.h"
 #include "build/build_config.h"
 #include "media/base/media.h"
 #include "media/base/media_client.h"
@@ -1011,7 +1012,10 @@ SupportsType MimeUtil::IsCodecSupported(const std::string& mime_type_lower_case,
 #endif
 
 #ifdef __arm__
-  if (codec == MimeUtil::VP8 || codec == MimeUtil::VP9)
+  // XXX: HACK
+  std::string arch = base::SysInfo::OperatingSystemArchitecture();
+
+  if (arch == "armv7l" && (codec == MimeUtil::VP8 || codec == MimeUtil::VP9))
     return IsNotSupported;
 #endif
 
