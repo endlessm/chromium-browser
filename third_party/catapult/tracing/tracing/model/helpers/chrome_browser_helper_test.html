@@ -20,7 +20,7 @@ tr.b.unittest.testSuite(function() {
   var INPUT_TYPE = tr.e.cc.INPUT_EVENT_TYPE_NAMES;
 
   function getRange(min, max) {
-    var range = new tr.b.Range();
+    var range = new tr.b.math.Range();
     range.min = min;
     range.max = max;
     return range;
@@ -31,7 +31,7 @@ tr.b.unittest.testSuite(function() {
     var modelHelper = model.getOrCreateHelper(
         tr.model.helpers.ChromeModelHelper);
     tr.e.chrome.ChromeTestUtils.addLoadingEvent(model, {start: 1, end: 10});
-    assert.equal(1, modelHelper.browserHelper.getLoadingEventsInRange(
+    assert.strictEqual(1, modelHelper.browserHelper.getLoadingEventsInRange(
         getRange(0, 100)).length);
   });
 
@@ -40,7 +40,7 @@ tr.b.unittest.testSuite(function() {
     var modelHelper = model.getOrCreateHelper(
         tr.model.helpers.ChromeModelHelper);
     tr.e.chrome.ChromeTestUtils.addCommitLoadEvent(model, {start: 1, end: 10});
-    assert.equal(1,
+    assert.strictEqual(1,
         modelHelper.browserHelper.getCommitProvisionalLoadEventsInRange(
             getRange(0, 100)).length);
   });
@@ -51,16 +51,7 @@ tr.b.unittest.testSuite(function() {
         tr.model.helpers.ChromeModelHelper);
     tr.e.chrome.ChromeTestUtils.addInputEvent(
         model, INPUT_TYPE.UNKNOWN, {start: 1, end: 10});
-    assert.equal(1, modelHelper.browserHelper.getLatencyEventsInRange(
-        getRange(0, 100)).length);
-  });
-
-  test('NetworkEvent', function() {
-    var model = tr.e.chrome.ChromeTestUtils.newChromeModel(function() { });
-    var modelHelper = model.getOrCreateHelper(
-        tr.model.helpers.ChromeModelHelper);
-    tr.e.chrome.ChromeTestUtils.addNetworkEvent(model, {start: 1, end: 10});
-    assert.equal(1, modelHelper.browserHelper.getAllNetworkEventsInRange(
+    assert.strictEqual(1, modelHelper.browserHelper.getLatencyEventsInRange(
         getRange(0, 100)).length);
   });
 

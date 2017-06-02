@@ -8,7 +8,7 @@ found in the LICENSE file.
 <link rel="stylesheet" href="/tracing/ui/tracks/object_instance_track.css">
 
 <link rel="import" href="/tracing/base/extension_registry.html">
-<link rel="import" href="/tracing/base/sorted_array_utils.html">
+<link rel="import" href="/tracing/base/math/sorted_array_utils.html">
 <link rel="import" href="/tracing/model/event.html">
 <link rel="import" href="/tracing/ui/base/event_presenter.html">
 <link rel="import" href="/tracing/ui/base/heading.html">
@@ -119,7 +119,7 @@ tr.exportTo('tr.ui.tracks', function() {
 
       // Instances
       var objectInstances = this.objectInstances_;
-      var loI = tr.b.findLowIndexInSortedArray(
+      var loI = tr.b.math.findLowIndexInSortedArray(
           objectInstances,
           function(instance) {
             return instance.deletionTs;
@@ -129,8 +129,7 @@ tr.exportTo('tr.ui.tracks', function() {
       for (var i = loI; i < objectInstances.length; ++i) {
         var instance = objectInstances[i];
         var x = instance.creationTs;
-        if (x > viewRWorld)
-          break;
+        if (x > viewRWorld) break;
 
         var right = instance.deletionTs === Number.MAX_VALUE ?
             viewRWorld : instance.deletionTs;
@@ -141,7 +140,7 @@ tr.exportTo('tr.ui.tracks', function() {
 
       // Snapshots. Has to run in worldspace because ctx.arc gets transformed.
       var objectSnapshots = this.objectSnapshots_;
-      loI = tr.b.findLowIndexInSortedArray(
+      loI = tr.b.math.findLowIndexInSortedArray(
           objectSnapshots,
           function(snapshot) {
             return snapshot.ts + snapshotRadiusWorld;
@@ -150,8 +149,8 @@ tr.exportTo('tr.ui.tracks', function() {
       for (var i = loI; i < objectSnapshots.length; ++i) {
         var snapshot = objectSnapshots[i];
         var x = snapshot.ts;
-        if (x - snapshotRadiusWorld > viewRWorld)
-          break;
+        if (x - snapshotRadiusWorld > viewRWorld) break;
+
         var xView = dt.xWorldToView(x);
 
         ctx.fillStyle = EventPresenter.getObjectSnapshotColor(snapshot);
@@ -218,17 +217,16 @@ tr.exportTo('tr.ui.tracks', function() {
       }
       var snapshotRadiusView = this.snapshotRadiusView;
       var snapshotRadiusWorld = viewPixWidthWorld * snapshotRadiusView;
-      tr.b.iterateOverIntersectingIntervals(
+      tr.b.math.iterateOverIntersectingIntervals(
           this.objectSnapshots_,
           function(x) { return x.ts - snapshotRadiusWorld; },
           function(x) { return 2 * snapshotRadiusWorld; },
           loWX, hiWX,
           onSnapshot);
-      if (foundSnapshot)
-        return;
+      if (foundSnapshot) return;
 
       // Try picking instances.
-      tr.b.iterateOverIntersectingIntervals(
+      tr.b.math.iterateOverIntersectingIntervals(
           this.objectInstances_,
           function(x) { return x.creationTs; },
           function(x) { return x.deletionTs - x.creationTs; },
@@ -248,12 +246,13 @@ tr.exportTo('tr.ui.tracks', function() {
      */
     addEventNearToProvidedEventToSelection: function(event, offset, selection) {
       var events;
-      if (event instanceof tr.model.ObjectSnapshot)
+      if (event instanceof tr.model.ObjectSnapshot) {
         events = this.objectSnapshots_;
-      else if (event instanceof tr.model.ObjectInstance)
+      } else if (event instanceof tr.model.ObjectInstance) {
         events = this.objectInstances_;
-      else
+      } else {
         throw new Error('Unrecognized event');
+      }
 
       var index = events.indexOf(event);
       var newIndex = index + offset;
@@ -269,14 +268,13 @@ tr.exportTo('tr.ui.tracks', function() {
 
     addClosestEventToSelection: function(worldX, worldMaxDist, loY, hiY,
         selection) {
-      var snapshot = tr.b.findClosestElementInSortedArray(
+      var snapshot = tr.b.math.findClosestElementInSortedArray(
           this.objectSnapshots_,
           function(x) { return x.ts; },
           worldX,
           worldMaxDist);
 
-      if (!snapshot)
-        return;
+      if (!snapshot) return;
 
       selection.push(snapshot);
 

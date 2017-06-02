@@ -5,7 +5,7 @@ Use of this source code is governed by a BSD-style license that can be
 found in the LICENSE file.
 -->
 
-<link rel="import" href="/tracing/base/range.html">
+<link rel="import" href="/tracing/base/math/range.html">
 <link rel="import" href="/tracing/base/unit.html">
 <link rel="import" href="/tracing/value/diagnostics/diagnostic_map.html">
 <link rel="import" href="/tracing/value/diagnostics/generic.html">
@@ -220,7 +220,7 @@ tr.b.unittest.testSuite(function() {
     let aHist = new tr.v.Histogram('aHist', tr.b.Unit.byName.count);
     let histograms = new tr.v.HistogramSet([aHist]);
 
-    assert.equal(histograms.getHistogramNamed('aHist'), aHist);
+    assert.strictEqual(histograms.getHistogramNamed('aHist'), aHist);
   });
 
   test('getHistogramNamed_multipleHistogramsFound', function() {

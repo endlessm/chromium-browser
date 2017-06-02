@@ -16,6 +16,7 @@ from chromite.lib import constants
 from chromite.lib import cidb
 from chromite.lib import commandline
 from chromite.lib import cros_build_lib
+from chromite.cli.cros import cros_cidbcreds  # TODO: Move into lib???
 from chromite.lib import cros_logging as logging
 
 
@@ -629,27 +630,6 @@ CQ run time was <b>{cq_run_time_50:.2f} hours</b> 50%ile <b>{cq_run_time_90:.2f}
 </table>
 </p>
 
-The tree <b>was:</b><br>
-<p id="note">
-Get this value from <a href="https://chromiumos-status.appspot.com/status_viewer?curView=stats&startTime=TODAY&numDays=7">here</a> (subtract 100% - %open - %throttled)
-</p>
-<b>
-<table>
-  <tr>
-    <td>Open</td>
-    <td>_<replace>REPLACE</replace>_</td>
-  </tr>
-  <tr>
-    <td>Throttle</td>
-    <td>_<replace>REPLACE</replace>_</td>
-  </tr>
-  <tr>
-    <td>Close</td>
-    <td>_<replace>REPLACE</replace>_</td>
-  </tr>
-</table>
-</b>
-
 <p>
 The pre-CQ + CQ <b>incorrectly rejected [{patch_flake_rejections}] unique changes a total of [{false_rejection_total}] times</b> this week. (Pre-CQ:[{false_rejection_pre_cq}]; CQ: [{false_rejection_cq}])<br>
 The probability of a good patch being incorrectly rejected by the CQ or Pre-CQ is [{false_rejection_rate[combined]:.2f}]%. (Pre-CQ:[{false_rejection_rate[pre-cq]:.2f}]%; CQ: [{false_rejection_rate[cq]:.2f}])<br>
@@ -768,7 +748,7 @@ def GetParser():
   ex_group.add_argument('--past-day', action='store_true', default=False,
                         help='Limit scope to the past day up to now.')
 
-  parser.add_argument('--cred-dir', action='store', required=True,
+  parser.add_argument('--cred-dir', action='store',
                       metavar='CIDB_CREDENTIALS_DIR',
                       help='Database credentials directory with certificates '
                            'and other connection information. Obtain your '
@@ -801,7 +781,11 @@ def main(argv):
   if not _CheckOptions(options):
     sys.exit(1)
 
-  db = cidb.CIDBConnection(options.cred_dir)
+  credentials = options.cred_dir
+  if not credentials:
+    credentials = cros_cidbcreds.CheckAndGetCIDBCreds()
+
+  db = cidb.CIDBConnection(credentials)
 
   if options.end_date:
     end_date = options.end_date

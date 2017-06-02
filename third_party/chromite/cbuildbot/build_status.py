@@ -6,11 +6,11 @@
 
 from __future__ import print_function
 
-import cPickle
 import collections
 import datetime
 
 from chromite.cbuildbot import buildbucket_lib
+from chromite.cbuildbot import relevant_changes
 from chromite.lib import config_lib
 from chromite.lib import constants
 from chromite.lib import cros_logging as logging
@@ -38,7 +38,7 @@ class SlaveStatus(object):
 
   def __init__(self, start_time, builders_array, master_build_id, db,
                config=None, metadata=None, buildbucket_client=None,
-               pool=None, dry_run=True):
+               version=None, pool=None, dry_run=True):
     """Initializes a SlaveStatus instance.
 
     Args:
@@ -50,6 +50,8 @@ class SlaveStatus(object):
       metadata: Instance of metadata_lib.CBuildbotMetadata. Metadata of this
                 build.
       buildbucket_client: Instance of buildbucket_lib.buildbucket_client.
+      version: Current manifest version string. See the return type of
+               VersionInfo.VersionString().
       pool: An instance of ValidationPool.validation_pool used by sync stage
             to apply changes.
       dry_run: Boolean indicating whether it's a dry run. Default to True.
@@ -61,6 +63,7 @@ class SlaveStatus(object):
     self.config = config
     self.metadata = metadata
     self.buildbucket_client = buildbucket_client
+    self.version = version
     self.pool = pool
     self.dry_run = dry_run
 
@@ -88,10 +91,14 @@ class SlaveStatus(object):
 
     self.UpdateSlaveStatus()
 
-  def _GetAllSlaveCIDBStatusInfo(self, all_buildbucket_info_dict):
-    """Get all slaves status information from CIDB.
+  @staticmethod
+  def GetAllSlaveCIDBStatusInfo(db, master_build_id,
+                                all_buildbucket_info_dict):
+    """Get build status information from CIDB for all slaves.
 
     Args:
+      db: An instance of cidb.CIDBConnection.
+      master_build_id: The build_id of the master build for slaves.
       all_buildbucket_info_dict: A dict mapping all build config names to their
         information fetched from Buildbucket server (in the format of
         BuildbucketInfo).
@@ -99,66 +106,63 @@ class SlaveStatus(object):
     Returns:
       A dict mapping build config names to their cidb infos (in the format of
       CIDBStatusInfo). If all_buildbucket_info_dict is not None, the returned
-      map only contains the builds in all_buildbucket_info_dict.
+      map only contains slave builds which are associated with buildbucket_ids
+      recorded in all_buildbucket_info_dict.
     """
     all_cidb_status_dict = {}
-    if self.db is not None:
+    if db is not None:
       buildbucket_ids = None if all_buildbucket_info_dict is None else [
           info.buildbucket_id for info in all_buildbucket_info_dict.values()]
 
-      slave_statuses = self.db.GetSlaveStatuses(
-          self.master_build_id, buildbucket_ids=buildbucket_ids)
+      slave_statuses = db.GetSlaveStatuses(
+          master_build_id, buildbucket_ids=buildbucket_ids)
 
       all_cidb_status_dict = {
           s['build_config']: CIDBStatusInfo(s['id'], s['status'])
-          for s in slave_statuses
-          if s['build_config'] not in self.completed_builds}
+          for s in slave_statuses}
 
     return all_cidb_status_dict
 
-  def _GetNewSlaveCIDBStatusInfo(self, all_cidb_status_dict,
-                                 new_buildbucket_info_dict):
-    """Get new slave CIDB status information given buildbucket_info_dict.
+  def _GetNewSlaveCIDBStatusInfo(self, all_cidb_status_dict, completed_builds):
+    """Get build status information for new slaves not in completed_builds.
 
     Args:
       all_cidb_status_dict: A dict mapping all build config names to their
         information fetched from CIDB (in the format of CIDBStatusInfo).
-      new_buildbucket_info_dict: A dict mapping build config names to their
-        information fetched from Buildbucket server (in the format of
-        BuildbucketInfo). The dict only contains newly completed builds.
+      completed_builds: A set of slave build configs (strings) completed before.
 
     Returns:
       A dict mapping the build config names to their cidb infos (in the format
-      of CIDBStatusInfo). If new_buildbucket_info_dict is not None, the returned
-      map only contains the builds in new_buildbucket_info_dict.
+      of CIDBStatusInfo).
     """
-    if new_buildbucket_info_dict is not None:
-      return {build_config: status_info
-              for build_config, status_info in all_cidb_status_dict.iteritems()
-              if build_config in new_buildbucket_info_dict}
-    else:
-      return all_cidb_status_dict
+    return {build_config: status_info
+            for build_config, status_info in all_cidb_status_dict.iteritems()
+            if build_config not in completed_builds}
 
-  def _GetAllSlaveBuildbucketInfo(self, scheduled_buildbucket_info_dict):
+  @staticmethod
+  def GetAllSlaveBuildbucketInfo(buildbucket_client,
+                                 scheduled_buildbucket_info_dict,
+                                 dry_run=True):
     """Get buildbucket info from Buildbucket for all scheduled slave builds.
 
     For each build in the scheduled builds dict, get build status and build
     result from Buildbucket and return a updated buildbucket_info_dict.
 
     Args:
+      buildbucket_client: Instance of buildbucket_lib.buildbucket_client.
       scheduled_buildbucket_info_dict: A dict mapping scheduled slave build
         config name to its buildbucket information in the format of
         BuildbucketInfo (see buildbucket.GetBuildInfoDict for details).
+      dry_run: Boolean indicating whether it's a dry run. Default to True.
 
     Returns:
       A dict mapping all scheduled slave build config names to their
       BuildbucketInfos (The BuildbucketInfo of the most recently retried one of
       there're multiple retries for a slave build config).
     """
-    assert self.buildbucket_client is not None, 'buildbucket_client is None'
+    assert buildbucket_client is not None, 'buildbucket_client is None'
 
     all_buildbucket_info_dict = {}
-
     for build_config, build_info in scheduled_buildbucket_info_dict.iteritems():
       buildbucket_id = build_info.buildbucket_id
       retry = build_info.retry
@@ -167,8 +171,7 @@ class SlaveStatus(object):
       result = None
 
       try:
-        content = self.buildbucket_client.GetBuildRequest(
-            buildbucket_id, self.dry_run)
+        content = buildbucket_client.GetBuildRequest(buildbucket_id, dry_run)
         status = buildbucket_lib.GetBuildStatus(content)
         result = buildbucket_lib.GetBuildResult(content)
       except buildbucket_lib.BuildbucketResponseException as e:
@@ -216,16 +219,17 @@ class SlaveStatus(object):
       scheduled_buildbucket_info_dict = buildbucket_lib.GetBuildInfoDict(
           self.metadata)
       self.builders_array = scheduled_buildbucket_info_dict.keys()
-      self.all_buildbucket_info_dict = self._GetAllSlaveBuildbucketInfo(
-          scheduled_buildbucket_info_dict)
+      self.all_buildbucket_info_dict = self.GetAllSlaveBuildbucketInfo(
+          self.buildbucket_client, scheduled_buildbucket_info_dict,
+          dry_run=self.dry_run)
       self.buildbucket_info_dict = self._GetNewlyCompletedSlaveBuildbucketInfo(
           self.all_buildbucket_info_dict, self.completed_builds)
       self._SetStatusBuildsDict()
 
-    self.all_cidb_status_dict = self._GetAllSlaveCIDBStatusInfo(
-        self.all_buildbucket_info_dict)
+    self.all_cidb_status_dict = self.GetAllSlaveCIDBStatusInfo(
+        self.db, self.master_build_id, self.all_buildbucket_info_dict)
     self.new_cidb_status_dict = self._GetNewSlaveCIDBStatusInfo(
-        self.all_cidb_status_dict, self.buildbucket_info_dict)
+        self.all_cidb_status_dict, self.completed_builds)
 
     self.missing_builds = self._GetMissingBuilds()
     self.scheduled_builds = self._GetScheduledBuilds()
@@ -493,6 +497,24 @@ class SlaveStatus(object):
                     'within 5 mins.')
       return False
 
+    if self.pool is not None:
+      triage_relevant_changes = relevant_changes.TriageRelevantChanges(
+          self.master_build_id, self.db, self.config, self.version,
+          self.pool.build_root, self.pool.applied,
+          self.all_buildbucket_info_dict, self.all_cidb_status_dict,
+          self.completed_builds, self.dependency_map)
+
+      if not triage_relevant_changes.ShouldWait():
+        logging.warning('No need to wait for the remaining running slaves given'
+                        ' the results of relevant change triages.')
+        self.metadata.UpdateWithDict({constants.SELF_DESTRUCTED_BUILD: True})
+
+        fields = {'build_config': self.config.name}
+        metrics.Counter(constants.MON_CQ_SELF_DESTRUCTION_COUNT).increment(
+            fields=fields)
+
+        return False
+
     # We got here which means no problems, we should still wait.
     logging.info('Still waiting for the following builds to complete: %r',
                  sorted(set(self.builders_array) - self.completed_builds))
@@ -502,77 +524,3 @@ class SlaveStatus(object):
       self.builds_to_retry -= retried_builds
 
     return True
-
-
-class BuilderStatus(object):
-  """Object representing the status of a build."""
-
-  def __init__(self, status, message, dashboard_url=None):
-    """Constructor for BuilderStatus.
-
-    Args:
-      status: Status string (should be one of BUILDER_STATUS_FAILED,
-              BUILDER_STATUS_PASSED, BUILDER_STATUS_INFLIGHT, or
-              BUILDER_STATUS_MISSING).
-      message: A failures_lib.BuildFailureMessage object with details
-               of builder failure. Or, None.
-      dashboard_url: Optional url linking to builder dashboard for this build.
-    """
-    self.status = status
-    self.message = message
-    self.dashboard_url = dashboard_url
-
-  # Helper methods to make checking the status object easy.
-
-  def Failed(self):
-    """Returns True if the Builder failed."""
-    return self.status == constants.BUILDER_STATUS_FAILED
-
-  def Passed(self):
-    """Returns True if the Builder passed."""
-    return self.status == constants.BUILDER_STATUS_PASSED
-
-  def Inflight(self):
-    """Returns True if the Builder is still inflight."""
-    return self.status == constants.BUILDER_STATUS_INFLIGHT
-
-  def Missing(self):
-    """Returns True if the Builder is missing any status."""
-    return self.status == constants.BUILDER_STATUS_MISSING
-
-  def Completed(self):
-    """Returns True if the Builder has completed."""
-    return self.status in constants.BUILDER_COMPLETED_STATUSES
-
-  @classmethod
-  def GetCompletedStatus(cls, success):
-    """Return the appropriate status constant for a completed build.
-
-    Args:
-      success: Whether the build was successful or not.
-    """
-    if success:
-      return constants.BUILDER_STATUS_PASSED
-    else:
-      return constants.BUILDER_STATUS_FAILED
-
-  def AsFlatDict(self):
-    """Returns a flat json-able representation of this builder status.
-
-    Returns:
-      A dictionary of the form {'status' : status, 'message' : message,
-      'dashboard_url' : dashboard_url} where all values are guaranteed
-      to be strings. If dashboard_url is None, the key will be excluded.
-    """
-    flat_dict = {'status' : str(self.status),
-                 'message' : str(self.message),
-                 'reason' : str(None if self.message is None
-                                else self.message.reason)}
-    if self.dashboard_url is not None:
-      flat_dict['dashboard_url'] = str(self.dashboard_url)
-    return flat_dict
-
-  def AsPickledDict(self):
-    """Returns a pickled dictionary representation of this builder status."""
-    return cPickle.dumps(dict(status=self.status, message=self.message,
-                              dashboard_url=self.dashboard_url))

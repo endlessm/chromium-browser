@@ -85,6 +85,7 @@ const Flag<bool> kBoolFlags[] = {
   { "-use-ticket-callback", &TestConfig::use_ticket_callback },
   { "-renew-ticket", &TestConfig::renew_ticket },
   { "-enable-early-data", &TestConfig::enable_early_data },
+  { "-enable-resume-early-data", &TestConfig::enable_resume_early_data },
   { "-enable-client-custom-extension",
     &TestConfig::enable_client_custom_extension },
   { "-enable-server-custom-extension",
@@ -104,7 +105,6 @@ const Flag<bool> kBoolFlags[] = {
   { "-use-sparse-dh-prime", &TestConfig::use_sparse_dh_prime },
   { "-use-old-client-cert-callback",
     &TestConfig::use_old_client_cert_callback },
-  { "-use-null-client-ca-list", &TestConfig::use_null_client_ca_list },
   { "-send-alert", &TestConfig::send_alert },
   { "-peek-then-read", &TestConfig::peek_then_read },
   { "-enable-grease", &TestConfig::enable_grease },
@@ -117,7 +117,6 @@ const Flag<bool> kBoolFlags[] = {
     &TestConfig::expect_sha256_client_cert_initial },
   { "-expect-sha256-client-cert-resume",
     &TestConfig::expect_sha256_client_cert_resume },
-  { "-enable-short-header", &TestConfig::enable_short_header },
   { "-read-with-unfinished-write", &TestConfig::read_with_unfinished_write },
   { "-expect-secure-renegotiation",
     &TestConfig::expect_secure_renegotiation },
@@ -125,6 +124,13 @@ const Flag<bool> kBoolFlags[] = {
     &TestConfig::expect_no_secure_renegotiation },
   { "-expect-session-id", &TestConfig::expect_session_id },
   { "-expect-no-session-id", &TestConfig::expect_no_session_id },
+  { "-expect-accept-early-data", &TestConfig::expect_accept_early_data },
+  { "-expect-reject-early-data", &TestConfig::expect_reject_early_data },
+  { "-expect-no-alpn", &TestConfig::expect_no_alpn },
+  { "-expect-no-resume-alpn", &TestConfig::expect_no_resume_alpn },
+  { "-no-op-extra-handshake", &TestConfig::no_op_extra_handshake },
+  { "-handshake-twice", &TestConfig::handshake_twice },
+  { "-allow-unknown-alpn-protos", &TestConfig::allow_unknown_alpn_protos },
 };
 
 const Flag<std::string> kStringFlags[] = {
@@ -139,8 +145,10 @@ const Flag<std::string> kStringFlags[] = {
   { "-host-name", &TestConfig::host_name },
   { "-advertise-alpn", &TestConfig::advertise_alpn },
   { "-expect-alpn", &TestConfig::expected_alpn },
+  { "-expect-resume-alpn", &TestConfig::expected_resume_alpn },
   { "-expect-advertised-alpn", &TestConfig::expected_advertised_alpn },
   { "-select-alpn", &TestConfig::select_alpn },
+  { "-select-resume-alpn", &TestConfig::select_resume_alpn },
   { "-psk", &TestConfig::psk },
   { "-psk-identity", &TestConfig::psk_identity },
   { "-srtp-profiles", &TestConfig::srtp_profiles },
@@ -148,6 +156,8 @@ const Flag<std::string> kStringFlags[] = {
   { "-export-label", &TestConfig::export_label },
   { "-export-context", &TestConfig::export_context },
   { "-expect-peer-cert-file", &TestConfig::expect_peer_cert_file },
+  { "-use-client-ca-list", &TestConfig::use_client_ca_list },
+  { "-expect-client-ca-list", &TestConfig::expected_client_ca_list },
 };
 
 const Flag<std::string> kBase64Flags[] = {
@@ -180,6 +190,7 @@ const Flag<int> kIntFlags[] = {
   { "-resumption-delay", &TestConfig::resumption_delay },
   { "-max-send-fragment", &TestConfig::max_send_fragment },
   { "-read-size", &TestConfig::read_size },
+  { "-expect-ticket-age-skew", &TestConfig::expect_ticket_age_skew },
 };
 
 const Flag<std::vector<int>> kIntVectorFlags[] = {

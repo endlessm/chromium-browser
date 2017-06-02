@@ -7,6 +7,9 @@ import logging
 import posixpath
 import re
 
+from devil.android.sdk import version_codes
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -33,12 +36,24 @@ def CustomCommandLineFlags(device, cmdline_name, flags):
     cmdline_name: Name of the command line file where to store flags.
     flags: A sequence of command line flags to set.
   """
-  changer = FlagChanger(device, cmdline_name)
+  # On Android N and above, we need to temporarily set SELinux to permissive
+  # so that Chrome is allowed to read the command line file.
+  # TODO(crbug.com/699082): Remove when a solution to avoid this is implemented.
+  needs_permissive = (
+      device.build_version_sdk >= version_codes.NOUGAT and
+      device.GetEnforce())
+  if needs_permissive:
+    device.SetEnforce(enabled=False)
   try:
-    changer.ReplaceFlags(flags)
-    yield
+    changer = FlagChanger(device, cmdline_name)
+    try:
+      changer.ReplaceFlags(flags)
+      yield
+    finally:
+      changer.Restore()
   finally:
-    changer.Restore()
+    if needs_permissive:
+      device.SetEnforce(enabled=True)
 
 
 class FlagChanger(object):
@@ -58,21 +73,13 @@ class FlagChanger(object):
     """
     self._device = device
 
-    unused_dir, basename = posixpath.split(cmdline_file)
-    self._cmdline_path = posixpath.join(_CMDLINE_DIR, basename)
+    if posixpath.sep in cmdline_file:
+      raise ValueError(
+          'cmdline_file should be a file name only, do not include path'
+          ' separators in: %s' % cmdline_file)
+    self._cmdline_path = posixpath.join(_CMDLINE_DIR, cmdline_file)
 
-    # TODO(catapult:#3112): Make this fail instead of warn after all clients
-    # have been switched.
-    if unused_dir:
-      logging.warning(
-          'cmdline_file argument of %s() should be a file name only (not a'
-          ' full path).', type(self).__name__)
-      if cmdline_file != self._cmdline_path:
-        logging.warning(
-            'Client supplied %r, but %r will be used instead.',
-            cmdline_file, self._cmdline_path)
-
-    cmdline_path_legacy = posixpath.join(_CMDLINE_DIR_LEGACY, basename)
+    cmdline_path_legacy = posixpath.join(_CMDLINE_DIR_LEGACY, cmdline_file)
     if self._device.PathExists(cmdline_path_legacy):
       logging.warning(
             'Removing legacy command line file %r.', cmdline_path_legacy)
@@ -193,7 +200,7 @@ class FlagChanger(object):
     if command_line is not None:
       self._device.WriteFile(self._cmdline_path, command_line)
     else:
-      self._device.RunShellCommand('rm ' + self._cmdline_path)
+      self._device.RemovePath(self._cmdline_path, force=True)
 
     current_flags = self.GetCurrentFlags()
     logger.info('Flags now set on the device: %s', current_flags)
@@ -287,14 +294,7 @@ def _QuoteFlag(flag):
 
   if value is None:
     return key
-  else:
-    # TODO(catapult:#3112): Remove this check when all clients comply.
-    if value and value[0] in _QUOTES and value[0] == value[-1]:
-      logging.warning(
-          'Flag %s appears to be quoted, so will be passed as-is.', flag)
-      logging.warning(
-          'Note: this behavior will be changed in the future. '
-          'Clients should pass values unquoted to prevent double-quoting.')
-    elif _RE_NEEDS_QUOTING.search(value):
-      value = '"%s"' % value.replace('"', r'\"')
-    return '='.join([key, value])
+
+  if _RE_NEEDS_QUOTING.search(value):
+    value = '"%s"' % value.replace('"', r'\"')
+  return '='.join([key, value])

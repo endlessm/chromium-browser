@@ -27,6 +27,7 @@ from chromite.lib import constants
 from chromite.lib import cros_logging as logging
 from chromite.lib import git
 from chromite.lib import retry_util
+from chromite.lib import timeout_util
 
 
 try:
@@ -35,6 +36,7 @@ except (IOError, netrc.NetrcParseError):
   NETRC = netrc.netrc(os.devnull)
 TRY_LIMIT = 10
 SLEEP = 0.5
+REQUEST_TIMEOUT_SECONDS = 120  # 2 minutes.
 
 # Controls the transport protocol used to communicate with Gerrit servers using
 # git. This is parameterized primarily to enable cros_test_lib.GerritTestCase.
@@ -175,6 +177,7 @@ def FetchUrl(host, path, reqtype='GET', headers=None, body=None,
   Returns:
     A string buffer containing the connection's reply.
   """
+  @timeout_util.TimeoutDecorator(REQUEST_TIMEOUT_SECONDS)
   def _FetchUrlHelper():
     err_prefix = 'A transient error occured while querying %s:\n' % (host,)
     try:
@@ -248,8 +251,10 @@ def FetchUrl(host, path, reqtype='GET', headers=None, body=None,
     else:
       raise GOBError(http_status=response.status, reason=response.reason)
 
-  return retry_util.RetryException((socket.error, InternalGOBError), TRY_LIMIT,
-                                   _FetchUrlHelper, sleep=SLEEP)
+  return retry_util.RetryException(
+      (socket.error, InternalGOBError, timeout_util.TimeoutError),
+      TRY_LIMIT,
+      _FetchUrlHelper, sleep=SLEEP)
 
 
 def FetchUrlJson(*args, **kwargs):
@@ -496,7 +501,7 @@ def SetReview(host, change, revision='current', msg=None, labels=None,
   if notify:
     body['notify'] = notify
   response = FetchUrlJson(host, path, reqtype='POST', body=body)
-  if not response:
+  if response is None:
     raise GOBError(
         http_status=404,
         reason='CL %s not found in %s' % (change, host))
@@ -514,6 +519,21 @@ def SetTopic(host, change, topic):
   path = '%s/topic' % _GetChangePath(change)
   body = {'topic': topic}
   return FetchUrlJson(host, path, reqtype='PUT', body=body, ignore_404=False)
+
+
+def SetHashtags(host, change, add, remove):
+  """Adds and / or removes hashtags from a change.
+
+  Args:
+    host: Hostname (without protocol prefix) of the gerrit server.
+    change: A gerrit change number.
+    add: a list of hashtags to be added.
+    remove: a list of hashtags to be removed.
+  """
+  path = '%s/hashtags' % _GetChangePath(change)
+  return FetchUrlJson(host, path, reqtype='POST',
+                      body={'add': add, 'remove': remove},
+                      ignore_404=False)
 
 
 def ResetReviewLabels(host, change, label, value='0', revision='current',

@@ -15,6 +15,7 @@ found in the LICENSE file.
 
 <script>
 'use strict';
+/* eslint-disable no-console */
 
 tr.exportTo('tr.mre', function() {
   function jsonReplacer(key, value) {
@@ -25,8 +26,9 @@ tr.exportTo('tr.mre', function() {
   }
 
   function reduceMapResultsMain(args) {
-    if (args.length !== 3)
+    if (args.length !== 3) {
       throw new Error('Must provide three arguments');
+    }
 
     var options = {
       key: args[0],
@@ -48,9 +50,10 @@ tr.exportTo('tr.mre', function() {
               reduceFunction);
         });
 
-    if (Object.keys(jobResults.pairs).length !== 0)
+    if (Object.keys(jobResults.pairs).length !== 0) {
       console.log('JOB_RESULTS: ' + JSON.stringify(jobResults.pairs,
           jsonReplacer));
+    }
     jobResults.failures.forEach(function(failure) {
       console.log('JOB_FAILURE: ' + JSON.stringify(failure.asDict()));
     });
@@ -63,7 +66,8 @@ tr.exportTo('tr.mre', function() {
 });
 
 
-if (tr.isHeadless)
+if (tr.isHeadless) {
   quit(tr.mre.reduceMapResultsMain(sys.argv.slice(1)));
+}
 
 </script>

@@ -7,8 +7,8 @@ found in the LICENSE file.
 
 <link rel="import" href="/tracing/base/base.html">
 <link rel="import" href="/tracing/base/iteration_helpers.html">
-<link rel="import" href="/tracing/base/range.html">
-<link rel="import" href="/tracing/base/statistics.html">
+<link rel="import" href="/tracing/base/math/range.html">
+<link rel="import" href="/tracing/base/math/statistics.html">
 <link rel="import" href="/tracing/base/unit.html">
 <link rel="import" href="/tracing/model/event_set.html">
 <link rel="import" href="/tracing/ui/analysis/analysis_link.html">
@@ -50,12 +50,15 @@ Polymer({
     var hasCpuData = false;
     var hasAlerts = false;
     rows.forEach(function(row) {
-      if (row.cpuDuration !== undefined)
+      if (row.cpuDuration !== undefined) {
         hasCpuData = true;
-      if (row.cpuSelfTime !== undefined)
+      }
+      if (row.cpuSelfTime !== undefined) {
         hasCpuData = true;
-      if (row.numAlerts)
+      }
+      if (row.numAlerts) {
         hasAlerts = true;
+      }
     });
 
     var ownerDocument = this.ownerDocument;
@@ -65,8 +68,7 @@ Polymer({
     columns.push({
       title: 'Name',
       value: function(row) {
-        if (row.title === 'Totals')
-          return 'Totals';
+        if (row.title === 'Totals') return 'Totals';
 
         var linkEl = document.createElement('tr-ui-a-analysis-link');
         linkEl.setSelectionAndContent(function() {
@@ -86,7 +88,7 @@ Polymer({
           return tr.v.ui.createScalarSpan(row.duration, {
             unit: tr.b.Unit.byName.timeDurationInMs,
             customContextRange: row.totalsRow ? undefined :
-                tr.b.Range.fromExplicitRange(0, maxValues.duration),
+                tr.b.math.Range.fromExplicitRange(0, maxValues.duration),
             ownerDocument: ownerDocument,
           });
         },
@@ -104,7 +106,7 @@ Polymer({
           return tr.v.ui.createScalarSpan(row.cpuDuration, {
             unit: tr.b.Unit.byName.timeDurationInMs,
             customContextRange: row.totalsRow ? undefined :
-                tr.b.Range.fromExplicitRange(0, maxValues.cpuDuration),
+                tr.b.math.Range.fromExplicitRange(0, maxValues.cpuDuration),
             ownerDocument: ownerDocument,
           });
         },
@@ -122,7 +124,7 @@ Polymer({
           return tr.v.ui.createScalarSpan(row.selfTime, {
             unit: tr.b.Unit.byName.timeDurationInMs,
             customContextRange: row.totalsRow ? undefined :
-                tr.b.Range.fromExplicitRange(0, maxValues.selfTime),
+                tr.b.math.Range.fromExplicitRange(0, maxValues.selfTime),
             ownerDocument: ownerDocument,
           });
         },
@@ -140,7 +142,7 @@ Polymer({
           return tr.v.ui.createScalarSpan(row.cpuSelfTime, {
             unit: tr.b.Unit.byName.timeDurationInMs,
             customContextRange: row.totalsRow ? undefined :
-                tr.b.Range.fromExplicitRange(0, maxValues.cpuSelfTime),
+                tr.b.math.Range.fromExplicitRange(0, maxValues.cpuSelfTime),
             ownerDocument: ownerDocument,
           });
         },
@@ -159,7 +161,7 @@ Polymer({
           return tr.v.ui.createScalarSpan(totalDuration / row.numEvents, {
             unit: tr.b.Unit.byName.timeDurationInMs,
             customContextRange: row.totalsRow ? undefined :
-                tr.b.Range.fromExplicitRange(0, maxValues.duration),
+                tr.b.math.Range.fromExplicitRange(0, maxValues.duration),
             ownerDocument: ownerDocument,
           });
         },
@@ -201,13 +203,15 @@ Polymer({
       alertsColumnIndex = columns.length - 1;
     }
     var colWidthPercentage;
-    if (columns.length === 1)
+    if (columns.length === 1) {
       colWidthPercentage = '100%';
-    else
+    } else {
       colWidthPercentage = (100 / (columns.length - 1)).toFixed(3) + '%';
+    }
 
-    for (var i = 1; i < columns.length; i++)
+    for (var i = 1; i < columns.length; i++) {
       columns[i].width = colWidthPercentage;
+    }
 
     this.$.table.tableColumns = columns;
 
@@ -218,23 +222,27 @@ Polymer({
   },
 
   configure: function(config) {
-    if (config.eventsByTitle === undefined)
+    if (config.eventsByTitle === undefined) {
       throw new Error('Required: eventsByTitle');
+    }
 
-    if (config.showTotals !== undefined)
+    if (config.showTotals !== undefined) {
       this.showTotals_ = config.showTotals;
-    else
+    } else {
       this.showTotals_ = true;
+    }
 
-    if (config.eventsHaveDuration !== undefined)
+    if (config.eventsHaveDuration !== undefined) {
       this.eventsHaveDuration_ = config.eventsHaveDuration;
-    else
+    } else {
       this.eventsHaveDuration_ = true;
+    }
 
-    if (config.eventsHaveSubRows !== undefined)
+    if (config.eventsHaveSubRows !== undefined) {
       this.eventsHaveSubRows_ = config.eventsHaveSubRows;
-    else
+    } else {
       this.eventsHaveSubRows_ = true;
+    }
 
     this.eventsByTitle_ = config.eventsByTitle;
     this.updateContents_();
@@ -287,15 +295,16 @@ Polymer({
 
   updateContents_: function() {
     var eventsByTitle;
-    if (this.eventsByTitle_ !== undefined)
+    if (this.eventsByTitle_ !== undefined) {
       eventsByTitle = this.eventsByTitle_;
-    else
+    } else {
       eventsByTitle = [];
+    }
 
     var allEvents = new tr.model.EventSet();
     var rows = [];
     for (var [title, eventsOfSingleTitle] of Object.entries(eventsByTitle)) {
-      for (var event of allEvents) allEvents.push(event);
+      for (var event of eventsOfSingleTitle) allEvents.push(event);
       var row = new tr.ui.analysis.MultiEventSummary(
           title, eventsOfSingleTitle);
       rows.push(row);
@@ -313,7 +322,7 @@ Polymer({
 
     if (this.eventsHaveDuration) {
       for (var column in maxValues) {
-        maxValues[column] = tr.b.Statistics.max(rows, function(event) {
+        maxValues[column] = tr.b.math.Statistics.max(rows, function(event) {
           return event[column];
         });
       }

@@ -150,20 +150,52 @@ class ScheduleSalvesStageTest(generic_stages_unittest.AbstractStageTestCase):
     schedule_mock = self.PatchObject(
         scheduler_stages.ScheduleSlavesStage,
         'ScheduleSlaveBuildsViaBuildbucket')
-    self.sync_stage.pool.applied = []
-    self.sync_stage.pool.has_chump_cls = False
+    self.sync_stage.pool.HasPickedUpCLs.return_value = False
 
     stage.PerformStage()
     self.assertFalse(schedule_mock.called)
 
-  def testScheduleSlaveBuildsWithChumpCLs(self):
+  def testScheduleSlaveBuildsWithCLs(self):
     """Test no slave builds are scheduled."""
     stage = self.ConstructStage()
     schedule_mock = self.PatchObject(
         scheduler_stages.ScheduleSlavesStage,
         'ScheduleSlaveBuildsViaBuildbucket')
-    self.sync_stage.pool.applied = []
-    self.sync_stage.pool.has_chump_cls = True
+    self.sync_stage.pool.HasPickedUpCLs.return_value = True
 
     stage.PerformStage()
     self.assertTrue(schedule_mock.called)
+
+  def testPostSlaveBuildToBuildbucketOnSingleBoardBuild(self):
+    """Test PostSlaveBuildToBuildbucket on builds with a single board."""
+    content = {'build':{'id':'bb_id_1', 'created_ts':1}}
+    self.PatchObject(buildbucket_lib.BuildbucketClient, 'PutBuildRequest',
+                     return_value=content)
+    slave_config = config_lib.BuildConfig(
+        name='slave',
+        important=True, active_waterfall=constants.WATERFALL_INTERNAL,
+        boards=['board_A'], build_type='paladin')
+
+    stage = self.ConstructStage()
+    buildbucket_id, created_ts = stage.PostSlaveBuildToBuildbucket(
+        'slave', slave_config, 0, 'buildset_tag', True)
+
+    self.assertEqual(buildbucket_id, 'bb_id_1')
+    self.assertEqual(created_ts, 1)
+
+  def testPostSlaveBuildToBuildbucketOnMultiBoardsBuild(self):
+    """Test PostSlaveBuildToBuildbucket on builds with muiltiple boards."""
+    content = {'build':{'id':'bb_id_1', 'created_ts':1}}
+    self.PatchObject(buildbucket_lib.BuildbucketClient, 'PutBuildRequest',
+                     return_value=content)
+    slave_config = config_lib.BuildConfig(
+        name='slave',
+        important=True, active_waterfall=constants.WATERFALL_INTERNAL,
+        boards=['board_A', 'board_B'], build_type='paladin')
+
+    stage = self.ConstructStage()
+    buildbucket_id, created_ts = stage.PostSlaveBuildToBuildbucket(
+        'slave', slave_config, 0, 'buildset_tag', True)
+
+    self.assertEqual(buildbucket_id, 'bb_id_1')
+    self.assertEqual(created_ts, 1)

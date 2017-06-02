@@ -252,11 +252,53 @@ class FakeCIDBConnection(object):
               if b['master_build_id'] == master_build_id and
               b['buildbucket_id'] in buildbucket_ids]
 
+  def GetBuildStage(self, build_stage_id):
+    """Get build stage given the build_stage_id.
+
+    Args:
+      build_stage_id: The build_stage_id to get the stage.
+
+    Returns:
+      A dict prensenting the stage if the build_stage_id exists in
+      the buildStageTable; else, None.
+    """
+    return self.buildStageTable.get(build_stage_id)
+
   def GetBuildStages(self, build_id):
     """Gets build stages given the build_id"""
     return [self.buildStageTable[_id]
             for _id in self.buildStageTable
             if self.buildStageTable[_id]['build_id'] == build_id]
+
+  def GetSlaveStages(self, master_build_id, buildbucket_ids=None):
+    """Get the slave stages of the given build.
+
+    Args:
+      master_build_id: The build id (string) of the master build.
+      buildbucket_ids: A list of buildbucket ids (strings) of the slaves.
+
+    Returns:
+      A list of slave stages (in format of dicts).
+    """
+    slave_builds = []
+
+    if buildbucket_ids is None:
+      slave_builds = {b['id']: b for b in self.buildTable
+                      if b['master_build_id'] == master_build_id}
+    else:
+      slave_builds = {b['id']: b for b in self.buildTable
+                      if b['master_build_id'] == master_build_id and
+                      b['buildbucket_id'] in buildbucket_ids}
+
+    slave_stages = []
+    for _id in self.buildStageTable:
+      build_id = self.buildStageTable[_id]['build_id']
+      if build_id in slave_builds:
+        stage = self.buildStageTable[_id].copy()
+        stage['build_config'] = slave_builds[build_id]['build_config']
+        slave_stages.append(stage)
+
+    return slave_stages
 
   def GetBuildHistory(self, build_config, num_results,
                       ignore_build_id=None, start_date=None, end_date=None,
@@ -303,3 +345,20 @@ class FakeCIDBConnection(object):
         return self._TrimStatus(row)
 
     return None
+
+  def HasFailureMsgForStage(self, build_stage_id):
+    """Determine whether a build stage has failure messages in failureTable.
+
+    Args:
+      build_stage_id: The id of the build_stage to query for.
+
+    Returns:
+      True if there're failures reported to failureTable for this build stage
+      to cidb; else, False.
+    """
+    stages = self.failureTable.values()
+    for stage in stages:
+      if stage['build_stage_id'] == build_stage_id:
+        return True
+
+    return False

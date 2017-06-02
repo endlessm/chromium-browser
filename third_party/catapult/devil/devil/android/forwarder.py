@@ -13,6 +13,7 @@ from devil import base_error
 from devil import devil_env
 from devil.android import device_errors
 from devil.android.constants import file_system
+from devil.android.sdk import adb_wrapper
 from devil.android.valgrind_tools import base_tool
 from devil.utils import cmd_helper
 
@@ -130,7 +131,7 @@ class Forwarder(object):
 
       device_serial = str(device)
       map_arg_lists = [
-          ['--adb=' + devil_env.config.FetchPath('adb'),
+          ['--adb=' + adb_wrapper.AdbWrapper.GetAdbPath(),
            '--serial-id=' + device_serial,
            '--map', str(device_port), str(host_port)]
           for device_port, host_port in port_pairs]
@@ -203,7 +204,7 @@ class Forwarder(object):
       instance = Forwarder._GetInstanceLocked(None)
       unmap_all_cmd = [
           instance._host_forwarder_path,
-          '--adb=%s' % devil_env.config.FetchPath('adb'),
+          '--adb=%s' % adb_wrapper.AdbWrapper.GetAdbPath(),
           '--serial-id=%s' % device.serial,
           '--unmap-all'
       ]
@@ -307,7 +308,7 @@ class Forwarder(object):
 
     unmap_cmd = [
         instance._host_forwarder_path,
-        '--adb=%s' % devil_env.config.FetchPath('adb'),
+        '--adb=%s' % adb_wrapper.AdbWrapper.GetAdbPath(),
         '--serial-id=%s' % serial,
         '--unmap', str(device_port)
     ]
@@ -387,7 +388,10 @@ class Forwarder(object):
         forwarder_device_path_on_host,
         forwarder_device_path_on_device)])
 
-    cmd = '%s %s' % (tool.GetUtilWrapper(), Forwarder._DEVICE_FORWARDER_PATH)
+    cmd = [Forwarder._DEVICE_FORWARDER_PATH]
+    wrapper = tool.GetUtilWrapper()
+    if wrapper:
+      cmd.insert(0, wrapper)
     device.RunShellCommand(
         cmd, env={'LD_LIBRARY_PATH': Forwarder._DEVICE_FORWARDER_FOLDER},
         check_return=True)
@@ -451,8 +455,10 @@ class Forwarder(object):
     if not device.FileExists(Forwarder._DEVICE_FORWARDER_PATH):
       return
 
-    cmd = '%s %s --kill-server' % (tool.GetUtilWrapper(),
-                                   Forwarder._DEVICE_FORWARDER_PATH)
+    cmd = [Forwarder._DEVICE_FORWARDER_PATH, '--kill-server']
+    wrapper = tool.GetUtilWrapper()
+    if wrapper:
+      cmd.insert(0, wrapper)
     device.RunShellCommand(
         cmd, env={'LD_LIBRARY_PATH': Forwarder._DEVICE_FORWARDER_FOLDER},
         check_return=True)

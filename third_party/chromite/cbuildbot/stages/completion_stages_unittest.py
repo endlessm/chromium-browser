@@ -11,18 +11,19 @@ import mock
 import sys
 
 from chromite.cbuildbot import buildbucket_lib
-from chromite.cbuildbot import build_status
 from chromite.cbuildbot import cbuildbot_run
 from chromite.cbuildbot import commands
 from chromite.cbuildbot import manifest_version
 from chromite.cbuildbot import prebuilts
 from chromite.cbuildbot import relevant_changes
+from chromite.cbuildbot import tree_status
 from chromite.cbuildbot.stages import completion_stages
 from chromite.cbuildbot.stages import generic_stages_unittest
 from chromite.cbuildbot.stages import sync_stages_unittest
 from chromite.cbuildbot.stages import sync_stages
 from chromite.lib import alerts
 from chromite.lib import auth
+from chromite.lib import builder_status_lib
 from chromite.lib import cidb
 from chromite.lib import clactions
 from chromite.lib import cros_logging as logging
@@ -136,6 +137,7 @@ class MasterSlaveSyncCompletionStageMockConfigTest(
         boards=[],
         build_type=self.build_type,
         master=True,
+        slave_configs=['test3', 'test5'],
         manifest_version=True,
         active_waterfall=constants.WATERFALL_INTERNAL,
     )
@@ -264,23 +266,6 @@ class MasterSlaveSyncCompletionStageTest(
     self.assertFalse(stage._IsFailureFatal(set(), set(),
                                            set(['sanity'])))
 
-  def testAnnotateFailingBuilders(self):
-    """Tests that _AnnotateFailingBuilders is free of syntax errors."""
-    stage = self.ConstructStage()
-
-    failing = {'a'}
-    inflight = {}
-    failed_msg = failures_lib.BuildFailureMessage(
-        'message', [], True, 'reason', 'bot')
-    status = build_status.BuilderStatus('failed', failed_msg, 'url')
-
-    statuses = {'a' : status}
-    no_stat = set()
-    stage._AnnotateFailingBuilders(failing, inflight, no_stat, statuses)
-
-    no_stat = set(['b'])
-    stage._AnnotateFailingBuilders(failing, inflight, no_stat, statuses)
-
   def testExceptionHandler(self):
     """Verify _HandleStageException is sane."""
     stage = self.ConstructStage()
@@ -314,6 +299,8 @@ class MasterSlaveSyncCompletionStageTestWithMasterPaladin(
     self.PatchObject(buildbucket_lib.BuildbucketClient,
                      '_GetHost',
                      return_value=buildbucket_lib.BUILDBUCKET_TEST_HOST)
+    self.mock_handle_failure = self.PatchObject(
+        completion_stages.MasterSlaveSyncCompletionStage, 'HandleFailure')
 
     self._Prepare()
 
@@ -329,24 +316,42 @@ class MasterSlaveSyncCompletionStageTestWithMasterPaladin(
     return completion_stages.MasterSlaveSyncCompletionStage(
         self._run, sync_stage, success=True)
 
-  def testPerformStage(self):
+  def testPerformStageWithFatalFailure(self):
     """Test PerformStage on master-paladin."""
     stage = self.ConstructStage()
 
     stage._run.attrs.manifest_manager = mock.MagicMock()
 
     statuses = {
-        'build_1': build_status.BuilderStatus(
-            constants.BUILDER_STATUS_MISSING, None),
-        'build_2': build_status.BuilderStatus(
+        'build_1': builder_status_lib.BuilderStatus(
+            constants.BUILDER_STATUS_INFLIGHT, None),
+        'build_2': builder_status_lib.BuilderStatus(
             constants.BUILDER_STATUS_MISSING, None)
     }
 
     self.PatchObject(completion_stages.MasterSlaveSyncCompletionStage,
                      '_FetchSlaveStatuses', return_value=statuses)
+    mock_annotate = self.PatchObject(
+        completion_stages.MasterSlaveSyncCompletionStage,
+        '_AnnotateFailingBuilders')
 
     with self.assertRaises(completion_stages.ImportantBuilderFailedException):
       stage.PerformStage()
+    mock_annotate.assert_called_once_with(
+        set(), {'build_1'}, {'build_2'}, statuses, False)
+    self.mock_handle_failure.assert_called_once_with(
+        set(), {'build_1'}, {'build_2'}, False)
+
+    mock_annotate.reset_mock()
+    self.mock_handle_failure.reset_mock()
+    stage._run.attrs.metadata.UpdateWithDict(
+        {constants.SELF_DESTRUCTED_BUILD: True})
+    with self.assertRaises(completion_stages.ImportantBuilderFailedException):
+      stage.PerformStage()
+    mock_annotate.assert_called_once_with(
+        set(), {'build_1'}, {'build_2'}, statuses, True)
+    self.mock_handle_failure.assert_called_once_with(
+        set(), {'build_1'}, {'build_2'}, True)
 
   def testAnnotateBuildStatusFromBuildbucket(self):
     """Test AnnotateBuildStatusFromBuildbucket"""
@@ -419,35 +424,45 @@ class MasterSlaveSyncCompletionStageTestWithMasterPaladin(
         'No status found for build %s buildbucket_id %s' %
         ('build_1', 'buildbucket_id_1'))
 
-  def testAnnotateFailingBuilders(self):
-    """Tests that _AnnotateFailingBuilders is free of syntax errors."""
+  def test_AnnotateNoStatBuildersWithBuildbucketSchedulder(self):
+    """Tests _AnnotateNoStatBuilders with master using Buildbucket scheduler."""
     stage = self.ConstructStage()
 
     annotate_mock = self.PatchObject(
         completion_stages.MasterSlaveSyncCompletionStage,
         '_AnnotateBuildStatusFromBuildbucket')
 
+    no_stat = {'no_stat_1', 'no_stat_2'}
+    stage._AnnotateNoStatBuilders(no_stat)
+    annotate_mock.assert_called_once_with(no_stat)
+
+  def testAnnotateFailingBuilders(self):
+    """Tests that _AnnotateFailingBuilders is free of syntax errors."""
+    stage = self.ConstructStage()
+
+    annotate_mock = self.PatchObject(
+        completion_stages.MasterSlaveSyncCompletionStage,
+        '_AnnotateNoStatBuilders')
+
     failing = {'failing_build'}
-    inflight = {}
+    inflight = {'inflight_build'}
+    no_stat = {'no_stat_build'}
     failed_msg = failures_lib.BuildFailureMessage(
         'message', [], True, 'reason', 'bot')
-    status = build_status.BuilderStatus('failed', failed_msg, 'url')
+    failed_status = builder_status_lib.BuilderStatus(
+        'failed', failed_msg, 'url')
+    inflight_status = builder_status_lib.BuilderStatus('inflight', None, 'url')
+    statuses = {'failing_build' : failed_status,
+                'inflight_build': inflight_status}
 
-    statuses = {'failing_build' : status}
-    no_stat = set(['no_stat_build'])
-    stage._AnnotateFailingBuilders(failing, inflight, no_stat, statuses)
-    annotate_mock.called_once_with(no_stat)
+    stage._AnnotateFailingBuilders(failing, inflight, set(), statuses, False)
+    self.assertEqual(annotate_mock.call_count, 1)
 
+    stage._AnnotateFailingBuilders(failing, inflight, no_stat, statuses, False)
+    self.assertEqual(annotate_mock.call_count, 2)
 
-class MasterSlaveSyncCompletionStageTestWithLKGMSync(
-    MasterSlaveSyncCompletionStageTest):
-  """Tests the MasterSlaveSyncCompletionStage with MasterSlaveLKGMSyncStage."""
-  BOT_ID = 'x86-generic-paladin'
-
-  def ConstructStage(self):
-    sync_stage = sync_stages.MasterSlaveLKGMSyncStage(self._run)
-    return completion_stages.MasterSlaveSyncCompletionStage(
-        self._run, sync_stage, success=True)
+    stage._AnnotateFailingBuilders(failing, inflight, no_stat, statuses, True)
+    self.assertEqual(annotate_mock.call_count, 3)
 
 
 class CanaryCompletionStageTest(
@@ -560,10 +575,10 @@ class BaseCommitQueueCompletionStageTest(
     stage._run.attrs.manifest_manager = mock.MagicMock()
     statuses = {}
     for x in failing:
-      statuses[x] = build_status.BuilderStatus(
+      statuses[x] = builder_status_lib.BuilderStatus(
           constants.BUILDER_STATUS_FAILED, message=None)
     for x in inflight:
-      statuses[x] = build_status.BuilderStatus(
+      statuses[x] = builder_status_lib.BuilderStatus(
           constants.BUILDER_STATUS_INFLIGHT, message=None)
     if self._run.config.master:
       self.PatchObject(stage._run.attrs.manifest_manager, 'GetBuildersStatus',
@@ -612,8 +627,9 @@ class BaseCommitQueueCompletionStageTest(
       self.tot_sanity_mock.assert_called_once_with(mock.ANY, mock.ANY)
 
       if alert:
-        self.alert_email_mock.called_once_with(
-            mock.ANY, mock.ANY, mock.ANY, mock.ANY)
+        self.alert_email_mock.assert_called_once_with(
+            mock.ANY, mock.ANY, server=mock.ANY, message=mock.ANY,
+            extra_fields=mock.ANY)
 
       self.assertEqual(do_submit_partial, spmock.called)
 
@@ -748,6 +764,53 @@ class MasterCommitQueueCompletionStageTest(BaseCommitQueueCompletionStageTest):
     self.VerifyStage(failing, inflight, handle_failure=False,
                      handle_timeout=False, sane_tot=False, alert=True,
                      stage=stage)
+
+  def test_IsFailureFatalWithCLs(self):
+    """Test _IsFailureFatal with CLs."""
+    stage = self.ConstructStage()
+    stage.sync_stage.pool.HasPickedUpCLs.return_value = True
+
+    self.assertFalse(stage._IsFailureFatal(set(), set(), set()))
+    self.assertTrue(stage._IsFailureFatal(set(['test3']), set(), set()))
+
+  def test_IsFailureFatalWithoutCLs(self):
+    """Test _IsFailureFatal without CLs."""
+    stage = self.ConstructStage()
+    stage.sync_stage.pool.HasPickedUpCLs.return_value = False
+
+    self.assertFalse(stage._IsFailureFatal(set(), set(), set()))
+    self.assertFalse(stage._IsFailureFatal(set(['test3']), set(), set()))
+
+  def testSendInfraAlertIfNeededWithAlerts(self):
+    """Test SendInfraAlertIfNeeded which sends alerts."""
+    mock_send_alert = self.PatchObject(tree_status, 'SendHealthAlert')
+    self.PatchObject(completion_stages.CommitQueueCompletionStage,
+                     '_GetInfraFailMessages', return_value=['failure_message'])
+    self.PatchObject(completion_stages.CommitQueueCompletionStage,
+                     '_GetBuildersWithNoneMessages', return_value=[])
+    stage = self.ConstructStage()
+    failing = {'failing_build'}
+    inflight = {'inflight_build'}
+    no_stat = {'no_stat_build'}
+
+    stage.SendInfraAlertIfNeeded(failing, inflight, no_stat, False)
+    self.assertEqual(mock_send_alert.call_count, 1)
+    stage.SendInfraAlertIfNeeded(failing, inflight, no_stat, True)
+    self.assertEqual(mock_send_alert.call_count, 2)
+
+  def testSendInfraAlertIfNeededWithoutAlerts(self):
+    """Test SendInfraAlertIfNeeded which doesn't send alerts."""
+    mock_send_alert = self.PatchObject(tree_status, 'SendHealthAlert')
+    self.PatchObject(completion_stages.CommitQueueCompletionStage,
+                     '_GetInfraFailMessages', return_value=[])
+    self.PatchObject(completion_stages.CommitQueueCompletionStage,
+                     '_GetBuildersWithNoneMessages', return_value=[])
+    stage = self.ConstructStage()
+    inflight = {'inflight_build'}
+    no_stat = {'no_stat_build'}
+
+    stage.SendInfraAlertIfNeeded({}, inflight, no_stat, True)
+    self.assertEqual(mock_send_alert.call_count, 0)
 
 
 class PublishUprevChangesStageTest(

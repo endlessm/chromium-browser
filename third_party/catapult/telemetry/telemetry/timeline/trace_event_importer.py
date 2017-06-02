@@ -14,7 +14,7 @@ import telemetry.timeline.async_slice as tracing_async_slice
 import telemetry.timeline.flow_event as tracing_flow_event
 from telemetry.timeline import importer
 from telemetry.timeline import memory_dump_event
-from telemetry.timeline import trace_data as trace_data_module
+from tracing.trace_data import trace_data as trace_data_module
 
 
 class TraceEventTimelineImporter(importer.TimelineImporter):
@@ -174,6 +174,9 @@ class TraceEventTimelineImporter(importer.TimelineImporter):
     elif event['name'] == 'process_labels':
       process = self._GetOrCreateProcess(event['pid'])
       process.labels = event['args']['labels']
+    elif event['name'] == 'process_uptime_seconds':
+      process = self._GetOrCreateProcess(event['pid'])
+      process.uptime_seconds = event['args']['uptime']
     elif event['name'] == 'trace_buffer_overflowed':
       process = self._GetOrCreateProcess(event['pid'])
       process.SetTraceBufferOverflowTimestamp(event['args']['overflowed_at_ts'])

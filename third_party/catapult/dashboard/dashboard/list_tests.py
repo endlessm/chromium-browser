@@ -103,9 +103,9 @@ def GetSubTests(suite_name, bot_names):
     if cached:
       combined = _MergeSubTestsDict(combined, json.loads(cached))
     else:
-      sub_test_paths_futures = _GetTestDescendantsAsync(
+      sub_test_paths_futures = GetTestDescendantsAsync(
           suite_key, has_rows=True, deprecated=False)
-      deprecated_sub_test_path_futures = _GetTestDescendantsAsync(
+      deprecated_sub_test_path_futures = GetTestDescendantsAsync(
           suite_key, has_rows=True, deprecated=True)
 
       ndb.Future.wait_all(
@@ -151,7 +151,6 @@ def _SubTestsDict(paths, deprecated):
       merged[test_name]['has_rows'] = True
     else:
       merged[test_name]['sub_tests'].append(sub_test_path)
-
 
   if deprecated:
     for k, v in merged.iteritems():
@@ -216,7 +215,9 @@ def _MergeSubTestsDictEntry(a, b):
   return entry
 
 
-def GetTestsMatchingPattern(pattern, only_with_rows=False, list_entities=False):
+@ndb.synctasklet
+def GetTestsMatchingPattern(
+    pattern, only_with_rows=False, list_entities=False, use_cache=True):
   """Gets the TestMetadata entities or keys which match |pattern|.
 
   For this function, it's assumed that a test path should only have up to seven
@@ -233,13 +234,22 @@ def GetTestsMatchingPattern(pattern, only_with_rows=False, list_entities=False):
   Returns:
     A list of test paths, or test entities if list_entities is True.
   """
+  result = yield GetTestsMatchingPatternAsync(
+      pattern, only_with_rows=only_with_rows, list_entities=list_entities,
+      use_cache=use_cache)
+  raise ndb.Return(result)
+
+
+@ndb.tasklet
+def GetTestsMatchingPatternAsync(
+    pattern, only_with_rows=False, list_entities=False, use_cache=True):
   property_names = [
       'master_name', 'bot_name', 'suite_name', 'test_part1_name',
       'test_part2_name', 'test_part3_name', 'test_part4_name',
       'test_part5_name']
   pattern_parts = pattern.split('/')
   if len(pattern_parts) > 8:
-    return []
+    raise ndb.Return([])
 
   # Below, we first build a list of (property_name, value) pairs to filter on.
   query_filters = []
@@ -266,14 +276,15 @@ def GetTestsMatchingPattern(pattern, only_with_rows=False, list_entities=False):
   if only_with_rows:
     query = query.filter(
         graph_data.TestMetadata.has_rows == True)
-  test_keys = query.fetch(keys_only=True)
+  test_keys = yield query.fetch_async(keys_only=True)
 
   # Filter to include only tests that match the pattern.
   test_keys = [k for k in test_keys if utils.TestMatchesPattern(k, pattern)]
 
   if list_entities:
-    return ndb.get_multi(test_keys)
-  return [utils.TestPath(k) for k in test_keys]
+    result = yield ndb.get_multi_async(test_keys, use_cache=use_cache)
+    raise ndb.Return(result)
+  raise ndb.Return([utils.TestPath(k) for k in test_keys])
 
 
 def GetTestDescendants(
@@ -288,13 +299,13 @@ def GetTestDescendants(
   Returns:
     A list of keys of all descendants of the given test.
   """
-  return _GetTestDescendantsAsync(test_key,
-                                  has_rows=has_rows,
-                                  deprecated=deprecated,
-                                  keys_only=keys_only).get_result()
+  return GetTestDescendantsAsync(test_key,
+                                 has_rows=has_rows,
+                                 deprecated=deprecated,
+                                 keys_only=keys_only).get_result()
 
 
-def _GetTestDescendantsAsync(
+def GetTestDescendantsAsync(
     test_key, has_rows=None, deprecated=None, keys_only=True):
   """Returns all the tests which are subtests of the test with the given key.
 

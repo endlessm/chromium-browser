@@ -120,6 +120,11 @@ class FrameBuffer {
 
   using FrameMap = std::map<FrameKey, FrameInfo>;
 
+  // Updates the minimal and maximal playout delays
+  // depending on the frame.
+  void UpdatePlayoutDelays(const FrameObject& frame)
+      EXCLUSIVE_LOCKS_REQUIRED(crit_);
+
   // Update all directly dependent and indirectly dependent frames and mark
   // them as continuous if all their references has been fulfilled.
   void PropagateContinuity(FrameMap::iterator start)
@@ -149,7 +154,7 @@ class FrameBuffer {
 
   rtc::CriticalSection crit_;
   Clock* const clock_;
-  rtc::Event new_countinuous_frame_event_;
+  rtc::Event new_continuous_frame_event_;
   VCMJitterEstimator* const jitter_estimator_ GUARDED_BY(crit_);
   VCMTiming* const timing_ GUARDED_BY(crit_);
   VCMInterFrameDelay inter_frame_delay_ GUARDED_BY(crit_);

@@ -112,7 +112,7 @@ UPLOAD_MIN_RATE = CRASH_SERVER_FILE_LIMIT / (30 * 60)
 # The lowest timeout (in seconds) we'll allow.  If the server is overloaded,
 # then there might be a delay in setting up the connection, not just with the
 # transfer.  So even a small file might need a larger value.
-UPLOAD_MIN_TIMEOUT = 2 * 60
+UPLOAD_MIN_TIMEOUT = 5 * 60
 
 
 # Sleep for 500ms in between uploads to avoid DoS'ing symbol server.
@@ -528,7 +528,8 @@ def PerformSymbolsFileUpload(symbols, upload_url, product_name='ChromeOS'):
         # This command retries the upload multiple times with growing delays. We
         # only consider the upload a failure if these retries fail.
         def ShouldRetryUpload(exception):
-          return isinstance(exception, (urllib2.HTTPError, urllib2.URLError))
+          return isinstance(exception, (urllib2.HTTPError, urllib2.URLError,
+                                        httplib.HTTPException, socket.error))
 
         with cros_build_lib.TimedSection() as timer:
           retry_stats.RetryWithStats(
@@ -545,7 +546,8 @@ def PerformSymbolsFileUpload(symbols, upload_url, product_name='ChromeOS'):
         s.status = SymbolFile.ERROR
         failures += 1
       except (urllib2.URLError, httplib.HTTPException, socket.error) as e:
-        logging.warning('could not upload: %s: %s', s.display_name, e)
+        logging.warning('could not upload: %s: %s %s', s.display_name,
+                        type(e).__name__, e)
         s.status = SymbolFile.ERROR
         failures += 1
 

@@ -12,6 +12,7 @@ import time
 
 from chromite.cbuildbot import buildbucket_lib
 from chromite.cbuildbot import build_status
+from chromite.cbuildbot import relevant_changes
 from chromite.cbuildbot import validation_pool_unittest
 from chromite.lib import constants
 from chromite.lib import config_lib
@@ -105,7 +106,7 @@ class SlaveStatusTest(patch_unittest.MockPatchBase):
 
   def _GetSlaveStatus(self, start_time=None, builders_array=None,
                       master_build_id=None, db=None, config=None,
-                      metadata=None, buildbucket_client=None,
+                      metadata=None, buildbucket_client=None, version=None,
                       pool=None, dry_run=True):
     if start_time is None:
       start_time = self.time_now
@@ -125,6 +126,7 @@ class SlaveStatusTest(patch_unittest.MockPatchBase):
         config=config,
         metadata=metadata,
         buildbucket_client=buildbucket_client,
+        version=version,
         pool=pool,
         dry_run=dry_run)
 
@@ -135,7 +137,7 @@ class SlaveStatusTest(patch_unittest.MockPatchBase):
 
   def _Mock_GetSlaveStatusesFromBuildbucket(self, buildbucket_info_dict=None):
     self.PatchObject(build_status.SlaveStatus,
-                     '_GetAllSlaveBuildbucketInfo')
+                     'GetAllSlaveBuildbucketInfo')
     self.PatchObject(build_status.SlaveStatus,
                      '_GetNewlyCompletedSlaveBuildbucketInfo',
                      return_value=buildbucket_info_dict)
@@ -976,6 +978,52 @@ class SlaveStatusTest(patch_unittest.MockPatchBase):
     slave_status.ShouldWait()
     self.assertEqual(slave_status.builds_to_retry, set([]))
 
+  def testShouldWaitWithTriageRelevantChangesShouldWaitFalse(self):
+    """Test ShouldWait with TriageRelevantChanges.ShouldWait is False."""
+    relevant_changes.TriageRelevantChanges.__init__ = mock.Mock(
+        return_value=None)
+    self.PatchObject(relevant_changes.TriageRelevantChanges,
+                     'ShouldWait', return_value=False)
+    self.PatchObject(build_status.SlaveStatus,
+                     '_Completed',
+                     return_value=False)
+    self.PatchObject(build_status.SlaveStatus,
+                     '_ShouldFailForBuilderStartTimeout',
+                     return_value=False)
+    pool = validation_pool_unittest.MakePool(applied=[])
+    slave_status = self._GetSlaveStatus(
+        builders_array=['slave1', 'slave2'],
+        config=self.master_cq_config,
+        version='9289.0.0-rc2',
+        pool=pool)
+
+    self.assertFalse(slave_status.ShouldWait())
+    self.assertTrue(slave_status.metadata.GetValueWithDefault(
+        constants.SELF_DESTRUCTED_BUILD, False))
+
+  def testShouldWaitWithTriageRelevantChangesShouldWaitTrue(self):
+    """Test ShouldWait with TriageRelevantChanges.ShouldWait is True."""
+    relevant_changes.TriageRelevantChanges.__init__ = mock.Mock(
+        return_value=None)
+    self.PatchObject(relevant_changes.TriageRelevantChanges,
+                     'ShouldWait', return_value=True)
+    self.PatchObject(build_status.SlaveStatus,
+                     '_Completed',
+                     return_value=False)
+    self.PatchObject(build_status.SlaveStatus,
+                     '_ShouldFailForBuilderStartTimeout',
+                     return_value=False)
+    pool = validation_pool_unittest.MakePool(applied=[])
+    slave_status = self._GetSlaveStatus(
+        builders_array=['slave1', 'slave2'],
+        config=self.master_cq_config,
+        version='9289.0.0-rc2',
+        pool=pool)
+
+    self.assertTrue(slave_status.ShouldWait())
+    self.assertFalse(slave_status.metadata.GetValueWithDefault(
+        constants.SELF_DESTRUCTED_BUILD, False))
+
   def testRetryBuilds(self):
     """Test RetryBuilds."""
     self._Mock_GetSlaveStatusesFromCIDB()
@@ -1024,8 +1072,8 @@ class SlaveStatusTest(patch_unittest.MockPatchBase):
                      'retry_id')
     self.assertEqual(buildbucket_info_dict['canceled'].retry, 2)
 
-  def test_GetAllSlaveBuildbucketInfo(self):
-    """Test _GetAllSlaveBuildbucketInfo."""
+  def testGetAllSlaveBuildbucketInfo(self):
+    """Test GetAllSlaveBuildbucketInfo."""
     self._Mock_GetSlaveStatusesFromCIDB()
     self.PatchObject(build_status.SlaveStatus, 'UpdateSlaveStatus')
 
@@ -1051,7 +1099,8 @@ class SlaveStatusTest(patch_unittest.MockPatchBase):
         config=self.master_cq_config)
     slave_status.buildbucket_client.GetBuildRequest.return_value = content
     updated_buildbucket_info_dict = (
-        slave_status._GetAllSlaveBuildbucketInfo(buildbucket_info_dict))
+        slave_status.GetAllSlaveBuildbucketInfo(
+            self.buildbucket_client, buildbucket_info_dict))
 
     self.assertEqual(updated_buildbucket_info_dict['build1'].status,
                      expected_status)
@@ -1072,7 +1121,8 @@ class SlaveStatusTest(patch_unittest.MockPatchBase):
     }
     slave_status.buildbucket_client.GetBuildRequest.return_value = content
     updated_buildbucket_info_dict = (
-        slave_status._GetAllSlaveBuildbucketInfo(buildbucket_info_dict))
+        slave_status.GetAllSlaveBuildbucketInfo(
+            self.buildbucket_client, buildbucket_info_dict))
 
     self.assertEqual(updated_buildbucket_info_dict['build1'].status,
                      expected_status)
@@ -1087,7 +1137,8 @@ class SlaveStatusTest(patch_unittest.MockPatchBase):
     slave_status.buildbucket_client.GetBuildRequest.side_effect = (
         buildbucket_lib.BuildbucketResponseException)
     updated_buildbucket_info_dict = (
-        slave_status._GetAllSlaveBuildbucketInfo(buildbucket_info_dict))
+        slave_status.GetAllSlaveBuildbucketInfo(
+            self.buildbucket_client, buildbucket_info_dict))
     self.assertIsNone(updated_buildbucket_info_dict['build1'].status)
     self.assertIsNone(updated_buildbucket_info_dict['build2'].status)
 
@@ -1118,26 +1169,30 @@ class SlaveStatusTest(patch_unittest.MockPatchBase):
                                  buildbucket_id='id_2', status='fail')
     return master, slave1, slave2
 
-  def test_GetAllSlaveCIDBStatusInfo(self):
-    """_GetAllSlaveCIDBStatusInfo without Buildbucket info."""
+  def testGetAllSlaveCIDBStatusInfo(self):
+    """GetAllSlaveCIDBStatusInfo without Buildbucket info."""
     self.PatchObject(build_status.SlaveStatus, 'UpdateSlaveStatus')
     _, slave1_id, slave2_id = self._InsertMasterSlaveBuildsToCIDB()
     slave_status = self._GetSlaveStatus(builders_array=['slave1', 'slave2'])
 
-    cidb_status = slave_status._GetAllSlaveCIDBStatusInfo(None)
-    self.assertEqual(set(cidb_status.keys()), set(['slave1', 'slave2']))
-    self.assertEqual(cidb_status['slave1'].build_id, slave1_id)
-    self.assertEqual(cidb_status['slave2'].build_id, slave2_id)
+    expected_status = {
+        'slave1': build_status.CIDBStatusInfo(slave1_id, 'fail'),
+        'slave2': build_status.CIDBStatusInfo(slave2_id, 'fail')
+    }
+
+    cidb_status = slave_status.GetAllSlaveCIDBStatusInfo(
+        self.db, self.master_build_id, None)
+    self.assertDictEqual(cidb_status, expected_status)
 
     slave_status.completed_builds.update(['slave1'])
-    cidb_status = slave_status._GetAllSlaveCIDBStatusInfo(None)
-    self.assertEqual(set(cidb_status.keys()), set(['slave2']))
-    self.assertEqual(cidb_status['slave2'].build_id, slave2_id)
+    cidb_status = slave_status.GetAllSlaveCIDBStatusInfo(
+        self.db, self.master_build_id, None)
+    self.assertDictEqual(cidb_status, expected_status)
 
-  def test_GetAllSlaveCIDBStatusInfoWithBuildbucket(self):
-    """_GetAllSlaveCIDBStatusInfo with Buildbucket info."""
+  def testGetAllSlaveCIDBStatusInfoWithBuildbucket(self):
+    """GetAllSlaveCIDBStatusInfo with Buildbucket info."""
     self.PatchObject(build_status.SlaveStatus, 'UpdateSlaveStatus')
-    self._InsertMasterSlaveBuildsToCIDB()
+    _, slave1_id, slave2_id = self._InsertMasterSlaveBuildsToCIDB()
     slave_status = self._GetSlaveStatus(
         builders_array=['slave1', 'slave2'],
         config=self.master_cq_config)
@@ -1147,15 +1202,22 @@ class SlaveStatusTest(patch_unittest.MockPatchBase):
         'slave2': BuildbucketInfos.GetStartedBuild(bb_id='id_2')
     }
 
-    cidb_status = slave_status._GetAllSlaveCIDBStatusInfo(buildbucket_info_dict)
-    self.assertEqual(set(cidb_status.keys()), set(['slave1', 'slave2']))
+    expected_status = {
+        'slave1': build_status.CIDBStatusInfo(slave1_id, 'fail'),
+        'slave2': build_status.CIDBStatusInfo(slave2_id, 'fail')
+    }
+
+    cidb_status = slave_status.GetAllSlaveCIDBStatusInfo(
+        self.db, self.master_build_id, buildbucket_info_dict)
+    self.assertDictEqual(cidb_status, expected_status)
 
     slave_status.completed_builds.update(['slave1'])
-    cidb_status = slave_status._GetAllSlaveCIDBStatusInfo(buildbucket_info_dict)
-    self.assertEqual(set(cidb_status.keys()), set(['slave2']))
+    cidb_status = slave_status.GetAllSlaveCIDBStatusInfo(
+        self.db, self.master_build_id, buildbucket_info_dict)
+    self.assertDictEqual(cidb_status, expected_status)
 
-  def test_GetAllSlaveCIDBStatusInfoWithRetriedBuilds(self):
-    """_GetAllSlaveCIDBStatusInfo doesn't return retried builds."""
+  def testGetAllSlaveCIDBStatusInfoWithRetriedBuilds(self):
+    """GetAllSlaveCIDBStatusInfo doesn't return retried builds."""
     self.PatchObject(build_status.SlaveStatus, 'UpdateSlaveStatus')
     self._InsertMasterSlaveBuildsToCIDB()
     self.db.InsertBuild('slave1', constants.WATERFALL_INTERNAL, 3,
@@ -1171,63 +1233,31 @@ class SlaveStatusTest(patch_unittest.MockPatchBase):
         'slave2': BuildbucketInfos.GetStartedBuild(bb_id='id_4')
     }
 
-    cidb_status = slave_status._GetAllSlaveCIDBStatusInfo(buildbucket_info_dict)
+    cidb_status = slave_status.GetAllSlaveCIDBStatusInfo(
+        self.db, self.master_build_id, buildbucket_info_dict)
     self.assertEqual(set(cidb_status.keys()), set(['slave1']))
     self.assertEqual(cidb_status['slave1'].status, 'inflight')
 
-  def test_GetNewSlaveCIDBStatusInfo(self):
-    """Test _GetNewSlaveCIDBStatusInfo."""
-    all_cidb_status_dict = self._GetFullCIDBStatusInfo()
-    buildbucket_info_dict = self._GetFullBuildInfoDict(
-        exclude_builds=['scheduled'])
-
-    slave_status = self._GetSlaveStatus(
-        builders_array=self._GetFullBuildConfigs(),
-        config=self.master_cq_config)
-
-    cidb_status_dict = slave_status._GetNewSlaveCIDBStatusInfo(
-        all_cidb_status_dict, buildbucket_info_dict)
-
-    self.assertItemsEqual(cidb_status_dict.keys(), all_cidb_status_dict.keys())
-
-  def test_GetNewSlaveCIDBStatusInfoWithLessCIDBBuilds(self):
-    """Test _GetSlaveStatusesFromCIDB with less CIDB build info."""
-    all_cidb_status_dict = self._GetFullCIDBStatusInfo(
-        exclude_builds=['completed_canceled'])
-    buildbucket_info_dict = self._GetFullBuildInfoDict()
-
-    slave_status = self._GetSlaveStatus(
-        builders_array=self._GetFullBuildConfigs(),
-        config=self.master_cq_config)
-
-    cidb_status_dict = slave_status._GetNewSlaveCIDBStatusInfo(
-        all_cidb_status_dict, buildbucket_info_dict)
-
-    self.assertItemsEqual(cidb_status_dict.keys(), all_cidb_status_dict.keys())
-
-  def test_GetNewSlaveCIDBStatusInfoWithLessBuildbucketBuilds(self):
-    """test _GetNewSlaveCIDBStatusInfo with less buildbucket build info."""
-    all_cidb_status_dict = self._GetFullCIDBStatusInfo()
-    buildbucket_info_dict = self._GetFullBuildInfoDict(
-        exclude_builds=['scheduled', 'completed_canceled'])
-
-    slave_status = self._GetSlaveStatus(
-        builders_array=self._GetFullBuildConfigs(),
-        config=self.master_cq_config)
-
-    cidb_status_dict = slave_status._GetNewSlaveCIDBStatusInfo(
-        all_cidb_status_dict, buildbucket_info_dict)
-
-    self.assertItemsEqual(cidb_status_dict.keys(), buildbucket_info_dict.keys())
-
-  def test_GetNewSlaveCIDBStatusInfoWithNonebuildbucket_info_dict(self):
-    """Test _GetNewSlaveCIDBStatusInfo with None buildbucket_info_dict."""
+  def test_GetNewSlaveCIDBStatusInfoWithCompletedBuilds(self):
+    """test _GetNewSlaveCIDBStatusInfo with completed_builds."""
     all_cidb_status_dict = self._GetFullCIDBStatusInfo()
     slave_status = self._GetSlaveStatus(
         builders_array=self._GetFullBuildConfigs(),
         config=self.master_cq_config)
-
     cidb_status_dict = slave_status._GetNewSlaveCIDBStatusInfo(
-        all_cidb_status_dict, None)
+        all_cidb_status_dict, set(['completed_success']))
 
-    self.assertItemsEqual(cidb_status_dict.keys(), cidb_status_dict.keys())
+    self.assertItemsEqual(
+        cidb_status_dict.keys(),
+        ['started', 'completed_failure', 'completed_canceled'])
+
+  def test_GetNewSlaveCIDBStatusInfoWithEmptyCompletedBuilds(self):
+    """Test _GetNewSlaveCIDBStatusInfo with empty completed_builds."""
+    all_cidb_status_dict = self._GetFullCIDBStatusInfo()
+    slave_status = self._GetSlaveStatus(
+        builders_array=self._GetFullBuildConfigs(),
+        config=self.master_cq_config)
+    cidb_status_dict = slave_status._GetNewSlaveCIDBStatusInfo(
+        all_cidb_status_dict, set())
+
+    self.assertDictEqual(cidb_status_dict, all_cidb_status_dict)

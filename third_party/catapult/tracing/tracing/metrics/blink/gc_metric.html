@@ -5,7 +5,7 @@ Use of this source code is governed by a BSD-style license that can be
 found in the LICENSE file.
 -->
 
-<link rel="import" href="/tracing/base/range.html">
+<link rel="import" href="/tracing/base/math/range.html">
 <link rel="import" href="/tracing/base/unit.html">
 <link rel="import" href="/tracing/metrics/metric_registry.html">
 <link rel="import" href="/tracing/metrics/v8/utils.html">
@@ -80,10 +80,11 @@ tr.exportTo('tr.metrics.blink', function() {
 
   function createPercentage(name, numerator, denominator) {
     var histogram = new tr.v.Histogram(name, percentage_biggerIsBetter);
-    if (denominator === 0)
+    if (denominator === 0) {
       histogram.addSample(0);
-    else
+    } else {
       histogram.addSample(numerator / denominator);
+    }
     return histogram;
   }
 

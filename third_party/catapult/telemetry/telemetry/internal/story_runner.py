@@ -24,6 +24,7 @@ from telemetry import story as story_module
 from telemetry.util import wpr_modes
 from telemetry.value import failure
 from telemetry.value import skip
+from telemetry.value import scalar
 from telemetry.web_perf import story_test
 
 
@@ -108,7 +109,7 @@ def _RunStoryAndProcessErrorIfNeeded(story, results, state, test):
       # if state.DidRunStory raises exception, things are messed up badly and we
       # do not need to run test.DidRunStory at that point.
       if isinstance(test, story_test.StoryTest):
-        test.DidRunStory(state.platform)
+        test.DidRunStory(state.platform, results)
       else:
         test.DidRunPage(state.platform)
       # TODO(mikecase): Remove this logging once Android perf bots are swarmed.
@@ -301,6 +302,7 @@ def RunBenchmark(benchmark, finder_options):
     The number of failure values (up to 254) or 255 if there is an uncaught
     exception.
   """
+  start = time.time()
   benchmark.CustomizeBrowserOptions(finder_options.browser_options)
 
   benchmark_metadata = benchmark.GetMetadata()
@@ -375,6 +377,9 @@ def RunBenchmark(benchmark, finder_options):
         results.UploadTraceFilesToCloud(bucket)
         results.UploadProfilingFilesToCloud(bucket)
     finally:
+      duration = time.time() - start
+      results.AddSummaryValue(scalar.ScalarValue(
+          None, 'benchmark_duration', 'minutes', duration / 60.0))
       results.PrintSummary()
   return return_code
 
@@ -400,8 +405,6 @@ def _UpdateAndCheckArchives(archive_data_file, wpr_archive_info,
                     '.gclient using http://goto/read-src-internal, '
                     'or create a new archive using record_wpr.')
       raise ArchiveError('No archive info file.')
-    # Downloads archives for all platforms.
-    logging.info('Downloading WPR archives. This can take a long time.')
     wpr_archive_info.DownloadArchivesIfNeeded()
 
   # Report any problems with individual story.

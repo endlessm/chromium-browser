@@ -11,7 +11,7 @@ import traceback
 from telemetry import decorators
 from telemetry.internal.backends.chrome_inspector import inspector_websocket
 from telemetry.internal.backends.chrome_inspector import websocket
-from telemetry.timeline import trace_data as trace_data_module
+from tracing.trace_data import trace_data as trace_data_module
 
 
 class TracingUnsupportedException(Exception):
@@ -224,7 +224,7 @@ class TracingBackend(object):
     result = response['result']
     return result['dumpGuid'] if result['success'] else None
 
-  def CollectTraceData(self, trace_data_builder, timeout=30):
+  def CollectTraceData(self, trace_data_builder, timeout=60):
     if not self._can_collect_data:
       raise Exception('Cannot collect before tracing is finished.')
     self._CollectTracingData(trace_data_builder, timeout)

@@ -7,6 +7,7 @@ found in the LICENSE file.
 
 <link rel="import" href="/tracing/base/iteration_helpers.html">
 <link rel="import" href="/tracing/extras/chrome/estimated_input_latency.html">
+<link rel="import" href="/tracing/metrics/v8/utils.html">
 <link rel="import" href="/tracing/model/helpers/chrome_model_helper.html">
 <link rel="import" href="/tracing/value/histogram.html">
 
@@ -31,6 +32,26 @@ tr.exportTo('tr.metrics.sh', function() {
   const WINDOW_SIZE_MS = 500;
   const EQT_BOUNDARIES = tr.v.HistogramBinBoundaries
       .createExponential(0.01, WINDOW_SIZE_MS, 50);
+  const V8_EVENT_NAMES_TO_FILTERS = new Map([
+    ['v8', tr.metrics.v8.utils.isV8Event],
+    ['v8:compile', tr.metrics.v8.utils.isCompileEvent],
+    ['v8:execute', tr.metrics.v8.utils.isV8ExecuteEvent],
+    ['v8:gc', tr.metrics.v8.utils.isGarbageCollectionEvent],
+    ['v8:gc:full-mark-compactor', tr.metrics.v8.utils.isFullMarkCompactorEvent],
+    [
+      'v8:gc:incremental-marking',
+      tr.metrics.v8.utils.isIncrementalMarkingEvent
+    ],
+    [
+      'v8:gc:latency-mark-compactor',
+      tr.metrics.v8.utils.isLatencyMarkCompactorEvent
+    ],
+    [
+      'v8:gc:memory-mark-compactor',
+      tr.metrics.v8.utils.isMemoryMarkCompactorEvent
+    ],
+    ['v8:gc:scavenger', tr.metrics.v8.utils.isScavengerEvent]
+  ]);
 
   /**
    * Returns true if the slice contains a forced GC event. Some stories force
@@ -72,20 +93,22 @@ tr.exportTo('tr.metrics.sh', function() {
    * Each renderer process adds one sample to the histograms.
    */
   function expectedQueueingTimeMetric(histograms, model) {
-    let chromeHelper = model.getOrCreateHelper(
+    const chromeHelper = model.getOrCreateHelper(
         tr.model.helpers.ChromeModelHelper);
-    let totalHistogram = createHistogramForEQT_(
+    const totalHistogram = createHistogramForEQT_(
         `total:${WINDOW_SIZE_MS}ms_window:renderer_eqt`,
         `The maximum EQT in a ${WINDOW_SIZE_MS}ms sliding window` +
         ' for a given renderer');
-    let interactiveHistogram = createHistogramForEQT_(
+    const interactiveHistogram = createHistogramForEQT_(
         `interactive:${WINDOW_SIZE_MS}ms_window:renderer_eqt`,
         `The maximum EQT in a ${WINDOW_SIZE_MS}ms sliding window` +
         ' for a given renderer while the page is interactive');
-    let rendererHelpers = tr.b.dictionaryValues(chromeHelper.rendererHelpers);
+    const rendererHelpers = tr.b.dictionaryValues(chromeHelper.rendererHelpers);
+    const rendererToInteractiveTimestamps =
+        tr.e.chrome.getInteractiveTimestamps(model);
     for (let rendererHelper of rendererHelpers) {
       if (rendererHelper.isChromeTracingUI) continue;
-      let tasks = rendererHelper.mainThread.sliceGroup.topLevelSlices
+      const tasks = rendererHelper.mainThread.sliceGroup.topLevelSlices
           .filter(slice => slice.duration > 0 && !containsForcedGC_(slice))
           .map(slice => {return {start: slice.start, end: slice.end};});
       totalHistogram.addSample(
@@ -93,24 +116,57 @@ tr.exportTo('tr.metrics.sh', function() {
               rendererHelper.mainThread.bounds.min,
               rendererHelper.mainThread.bounds.max,
               WINDOW_SIZE_MS, tasks));
-      let interactiveTimestamps =
-          tr.e.chrome.getInteractiveTimestamps(model).get(rendererHelper.pid);
+      const interactiveTimestamps =
+        rendererToInteractiveTimestamps.get(rendererHelper.pid);
       if (interactiveTimestamps.length === 0) continue;
       if (interactiveTimestamps.length > 1) {
         // TODO(ulan): Support multiple interactive time windows when
         // https://crbug.com/692112 is fixed.
         continue;
       }
-      let interactiveWindow =
-          tr.b.Range.fromExplicitRange(interactiveTimestamps[0], Infinity)
+      const interactiveWindow =
+          tr.b.math.Range.fromExplicitRange(interactiveTimestamps[0], Infinity)
           .findIntersection(rendererHelper.mainThread.bounds);
       interactiveHistogram.addSample(
           tr.e.chrome.maxExpectedQueueingTimeInSlidingWindow(
               interactiveWindow.min, interactiveWindow.max,
               WINDOW_SIZE_MS, tasks));
     }
+    addV8ContributionToExpectedQueueingTime(
+        totalHistogram, interactiveHistogram, rendererToInteractiveTimestamps,
+        histograms, model);
     histograms.addHistogram(totalHistogram);
     histograms.addHistogram(interactiveHistogram);
+  }
+
+  /**
+   * Adds v8 related diagnostic histograms for the total and interactive EQT
+   * of the renderer.
+   * Sample histograms:
+   * - total:500ms_window:renderer_eqt:v8,
+   * - total:500ms_window:renderer_eqt:v8:gc,
+   * - interactive:500ms_window:renderer_eqt:v8:gc:scavenger,
+   * - interactive:500ms_window:renderer_eqt:v8:compile.
+   * @param totalEqtHistogram the main total EQT histogram.
+   * @param interactiveEqtHistogram the main interactive EQT histogram.
+   * @param rendererToInteractiveTimestamps a map from renderer pid to an array
+   *     of interactive timestamps.
+   */
+  function addV8ContributionToExpectedQueueingTime(
+      totalEqtHistogram, interactiveEqtHistogram,
+      rendererToInteractiveTimestamps, histograms, model) {
+    if (!model.categories.includes('v8')) return;
+    const breakdownForTotal = new tr.v.d.RelatedHistogramMap();
+    const breakdownForInteractive = new tr.v.d.RelatedHistogramMap();
+    for (let [eventName, filter] of V8_EVENT_NAMES_TO_FILTERS) {
+      const contribution = contributionToExpectedQueueingTime(
+          filter, eventName, rendererToInteractiveTimestamps,
+          histograms, model);
+      breakdownForTotal.set(eventName, contribution.total);
+      breakdownForInteractive.set(eventName, contribution.interactive);
+    }
+    totalEqtHistogram.diagnostics.set('v8', breakdownForTotal);
+    interactiveEqtHistogram.diagnostics.set('v8', breakdownForInteractive);
   }
 
   /**
@@ -134,36 +190,41 @@ tr.exportTo('tr.metrics.sh', function() {
    * - removing subevents shrinks a task by shifting its end time closer to
    *   the start time. The start time does not change.
    *
-   * Similar to the expectedQueueingTime this function adds two histograms:
+   * Similar to the expectedQueueingTime this function computes two histograms:
    * total and interactive. For example:
    * - total:500ms_window:renderer_eqt:v8,
    * - interactive:500ms_window:renderer_eqt:v8.
    * Each renderer process adds one sample to the histograms.
+   * Both histograms are added to the given histogram set.
    *
    * @param eventPredicate the predicate for selecting events.
    * @param eventName the name describing the selected events. This name will be
    *     added to metric names.
+   * @param rendererToInteractiveTimestamps a map from renderer pid to an array
+   *     of interactive timestamps.
+   * @returns {{total: !tr.v.Histogram, interactive: !tr.v.Histogram}}
    */
   function contributionToExpectedQueueingTime(
-      eventPredicate, eventName, histograms, model) {
-    let chromeHelper = model.getOrCreateHelper(
+      eventPredicate, eventName, rendererToInteractiveTimestamps, histograms,
+      model) {
+    const chromeHelper = model.getOrCreateHelper(
         tr.model.helpers.ChromeModelHelper);
-    let totalHistogram = createHistogramForEQT_(
+    const totalHistogram = createHistogramForEQT_(
         `total:${WINDOW_SIZE_MS}ms_window:renderer_eqt:${eventName}`,
         `Contribution to the expected queueing time by ${eventName}` +
         ' for a given renderer. It is computed as the maximum EQT in' +
         ` a ${WINDOW_SIZE_MS}ms sliding window after shrinking top-level` +
         ` tasks to contain only ${eventName} subevents`);
-    let interactiveHistogram = createHistogramForEQT_(
+    const interactiveHistogram = createHistogramForEQT_(
         `interactive:${WINDOW_SIZE_MS}ms_window:renderer_eqt:${eventName}`,
         `Contribution to the expected queueing time by ${eventName}` +
         ' for a given renderer while the page is interactive. It is computed' +
         ` as the maximum EQT in a ${WINDOW_SIZE_MS}ms sliding window after` +
         ` shrinking top-level tasks to contain only ${eventName} subevents`);
-    let rendererHelpers = tr.b.dictionaryValues(chromeHelper.rendererHelpers);
+    const rendererHelpers = tr.b.dictionaryValues(chromeHelper.rendererHelpers);
     for (let rendererHelper of rendererHelpers) {
       if (rendererHelper.isChromeTracingUI) continue;
-      let tasks = rendererHelper.mainThread.sliceGroup.topLevelSlices
+      const tasks = rendererHelper.mainThread.sliceGroup.topLevelSlices
           .filter(slice => slice.duration > 0 && !containsForcedGC_(slice))
           .map(slice => {
             return {
@@ -177,16 +238,16 @@ tr.exportTo('tr.metrics.sh', function() {
               rendererHelper.mainThread.bounds.min,
               rendererHelper.mainThread.bounds.max,
               WINDOW_SIZE_MS, tasks));
-      let interactiveTimestamps =
-          tr.e.chrome.getInteractiveTimestamps(model).get(rendererHelper.pid);
+      const interactiveTimestamps =
+          rendererToInteractiveTimestamps.get(rendererHelper.pid);
       if (interactiveTimestamps.length === 0) continue;
       if (interactiveTimestamps.length > 1) {
         // TODO(ulan): Support multiple interactive time windows when
         // https://crbug.com/692112 is fixed.
         continue;
       }
-      let interactiveWindow =
-          tr.b.Range.fromExplicitRange(interactiveTimestamps[0], Infinity)
+      const interactiveWindow =
+          tr.b.math.Range.fromExplicitRange(interactiveTimestamps[0], Infinity)
           .findIntersection(rendererHelper.mainThread.bounds);
       interactiveHistogram.addSample(
           tr.e.chrome.maxExpectedQueueingTimeInSlidingWindow(
@@ -195,6 +256,10 @@ tr.exportTo('tr.metrics.sh', function() {
     }
     histograms.addHistogram(totalHistogram);
     histograms.addHistogram(interactiveHistogram);
+    return {
+      total: totalHistogram,
+      interactive: interactiveHistogram
+    };
   }
 
   tr.metrics.MetricRegistry.register(expectedQueueingTimeMetric);

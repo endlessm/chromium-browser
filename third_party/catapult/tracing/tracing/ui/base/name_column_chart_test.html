@@ -44,7 +44,7 @@ tr.b.unittest.testSuite(function() {
       {x: 'dog', alpha: 50, beta: 125}
     ];
 
-    var r = new tr.b.Range();
+    var r = new tr.b.math.Range();
     r.addValue(20);
     r.addValue(40);
     chart.brushedRange = r;
@@ -92,7 +92,7 @@ tr.b.unittest.testSuite(function() {
     var currentMouseIndex = undefined;
 
     function updateBrushedRange() {
-      var r = new tr.b.Range();
+      var r = new tr.b.math.Range();
       r.min = Math.max(0, Math.min(mouseDownIndex, currentMouseIndex));
       r.max = Math.min(chart.data.length,
           Math.max(mouseDownIndex, currentMouseIndex) + 1);
@@ -105,8 +105,8 @@ tr.b.unittest.testSuite(function() {
       updateBrushedRange();
     });
     chart.addEventListener('item-mousemove', function(e) {
-      if (e.button === undefined)
-        return;
+      if (e.button === undefined) return;
+
       currentMouseIndex = e.index;
       updateBrushedRange();
     });

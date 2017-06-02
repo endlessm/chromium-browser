@@ -561,6 +561,7 @@ class DatarateTestVP9Large
     }
 
     encoder->Control(VP9E_SET_NOISE_SENSITIVITY, denoiser_on_);
+    encoder->Control(VP9E_SET_TILE_COLUMNS, (cfg_.g_threads >> 1));
 
     if (cfg_.ts_number_layers > 1) {
       if (video->frame() == 0) {
@@ -988,7 +989,7 @@ TEST_P(DatarateTestVP9LargeDenoiser, LowNoise) {
 }
 
 // Check basic datarate targeting, for a single bitrate, when denoiser is on,
-// for clip with high noise level.
+// for clip with high noise level. Use 2 threads.
 TEST_P(DatarateTestVP9LargeDenoiser, HighNoise) {
   cfg_.rc_buf_initial_sz = 500;
   cfg_.rc_buf_optimal_sz = 500;
@@ -998,8 +999,38 @@ TEST_P(DatarateTestVP9LargeDenoiser, HighNoise) {
   cfg_.rc_max_quantizer = 56;
   cfg_.rc_end_usage = VPX_CBR;
   cfg_.g_lag_in_frames = 0;
+  cfg_.g_threads = 2;
 
   ::libvpx_test::Y4mVideoSource video("noisy_clip_640_360.y4m", 0, 200);
+
+  // For the temporal denoiser (#if CONFIG_VP9_TEMPORAL_DENOISING),
+  // there is only one denoiser mode: kDenoiserOnYOnly(which is 1),
+  // but may add more modes in the future.
+  cfg_.rc_target_bitrate = 1000;
+  ResetModel();
+  // Turn on the denoiser.
+  denoiser_on_ = 1;
+  ASSERT_NO_FATAL_FAILURE(RunLoop(&video));
+  ASSERT_GE(effective_datarate_[0], cfg_.rc_target_bitrate * 0.85)
+      << " The datarate for the file is lower than target by too much!";
+  ASSERT_LE(effective_datarate_[0], cfg_.rc_target_bitrate * 1.15)
+      << " The datarate for the file is greater than target by too much!";
+}
+
+// Check basic datarate targeting, for a single bitrate, when denoiser is on,
+// for 1280x720 clip with 4 threads.
+TEST_P(DatarateTestVP9LargeDenoiser, 4threads) {
+  cfg_.rc_buf_initial_sz = 500;
+  cfg_.rc_buf_optimal_sz = 500;
+  cfg_.rc_buf_sz = 1000;
+  cfg_.rc_dropframe_thresh = 1;
+  cfg_.rc_min_quantizer = 2;
+  cfg_.rc_max_quantizer = 56;
+  cfg_.rc_end_usage = VPX_CBR;
+  cfg_.g_lag_in_frames = 0;
+  cfg_.g_threads = 4;
+
+  ::libvpx_test::Y4mVideoSource video("niklas_1280_720_30.y4m", 0, 300);
 
   // For the temporal denoiser (#if CONFIG_VP9_TEMPORAL_DENOISING),
   // there is only one denoiser mode: denoiserYonly(which is 1),
@@ -1011,7 +1042,7 @@ TEST_P(DatarateTestVP9LargeDenoiser, HighNoise) {
   ASSERT_NO_FATAL_FAILURE(RunLoop(&video));
   ASSERT_GE(effective_datarate_[0], cfg_.rc_target_bitrate * 0.85)
       << " The datarate for the file is lower than target by too much!";
-  ASSERT_LE(effective_datarate_[0], cfg_.rc_target_bitrate * 1.15)
+  ASSERT_LE(effective_datarate_[0], cfg_.rc_target_bitrate * 1.28)
       << " The datarate for the file is greater than target by too much!";
 }
 
@@ -1074,6 +1105,8 @@ class DatarateOnePassCbrSvc
     mismatch_psnr_ = 0.0;
     mismatch_nframes_ = 0;
     denoiser_on_ = 0;
+    tune_content_ = 0;
+    base_speed_setting_ = 5;
   }
   virtual void BeginPassHook(unsigned int /*pass*/) {}
   virtual void PreEncodeFrameHook(::libvpx_test::VideoSource *video,
@@ -1084,7 +1117,7 @@ class DatarateOnePassCbrSvc
         svc_params_.max_quantizers[i] = 63;
         svc_params_.min_quantizers[i] = 0;
       }
-      svc_params_.speed_per_layer[0] = 5;
+      svc_params_.speed_per_layer[0] = base_speed_setting_;
       for (i = 1; i < VPX_SS_MAX_LAYERS; ++i) {
         svc_params_.speed_per_layer[i] = speed_setting_;
       }
@@ -1096,7 +1129,9 @@ class DatarateOnePassCbrSvc
       encoder->Control(VP9E_SET_TILE_COLUMNS, 0);
       encoder->Control(VP8E_SET_MAX_INTRA_BITRATE_PCT, 300);
       encoder->Control(VP9E_SET_TILE_COLUMNS, (cfg_.g_threads >> 1));
+      encoder->Control(VP9E_SET_ROW_MT, 1);
       encoder->Control(VP8E_SET_STATIC_THRESHOLD, 1);
+      encoder->Control(VP9E_SET_TUNE_CONTENT, tune_content_);
     }
     const vpx_rational_t tb = video->timebase();
     timebase_ = static_cast<double>(tb.num) / tb.den;
@@ -1153,6 +1188,8 @@ class DatarateOnePassCbrSvc
   double mismatch_psnr_;
   int mismatch_nframes_;
   int denoiser_on_;
+  int tune_content_;
+  int base_speed_setting_;
 };
 static void assign_layer_bitrates(vpx_codec_enc_cfg_t *const enc_cfg,
                                   const vpx_svc_extra_cfg_t *svc_params,
@@ -1182,6 +1219,39 @@ static void assign_layer_bitrates(vpx_codec_enc_cfg_t *const enc_cfg,
       enc_cfg->layer_target_bitrate[index + 1] = spatial_layer_target;
     }
   }
+}
+
+// Check basic rate targeting for 1 pass CBR SVC: 2 spatial layers and 1temporal
+// layer, with screen content mode on and same speed setting for all layers.
+TEST_P(DatarateOnePassCbrSvc, OnePassCbrSvc2patialLayersScreenContent1) {
+  cfg_.rc_buf_initial_sz = 500;
+  cfg_.rc_buf_optimal_sz = 500;
+  cfg_.rc_buf_sz = 1000;
+  cfg_.rc_min_quantizer = 0;
+  cfg_.rc_max_quantizer = 63;
+  cfg_.rc_end_usage = VPX_CBR;
+  cfg_.g_lag_in_frames = 0;
+  cfg_.ss_number_layers = 2;
+  cfg_.ts_number_layers = 1;
+  cfg_.ts_rate_decimator[0] = 1;
+  cfg_.g_error_resilient = 1;
+  cfg_.g_threads = 1;
+  cfg_.temporal_layering_mode = 0;
+  svc_params_.scaling_factor_num[0] = 144;
+  svc_params_.scaling_factor_den[0] = 288;
+  svc_params_.scaling_factor_num[1] = 288;
+  svc_params_.scaling_factor_den[1] = 288;
+  cfg_.rc_dropframe_thresh = 0;
+  cfg_.kf_max_dist = 9999;
+  ::libvpx_test::Y4mVideoSource video("niklas_1280_720_30.y4m", 0, 300);
+  cfg_.rc_target_bitrate = 500;
+  ResetModel();
+  tune_content_ = 1;
+  base_speed_setting_ = speed_setting_;
+  assign_layer_bitrates(&cfg_, &svc_params_, cfg_.ss_number_layers,
+                        cfg_.ts_number_layers, cfg_.temporal_layering_mode);
+  ASSERT_NO_FATAL_FAILURE(RunLoop(&video));
+  EXPECT_EQ(static_cast<unsigned int>(0), GetMismatchFrames());
 }
 
 // Check basic rate targeting for 1 pass CBR SVC: 2 spatial layers and
@@ -1227,7 +1297,7 @@ TEST_P(DatarateOnePassCbrSvc, OnePassCbrSvc2SpatialLayers) {
 }
 
 // Check basic rate targeting for 1 pass CBR SVC with denoising.
-// 2 spatial layers and 3 temporal layer. Run CIF clip with 1 thread.
+// 2 spatial layers and 3 temporal layer. Run HD clip with 2 threads.
 TEST_P(DatarateOnePassCbrSvc, OnePassCbrSvc2SpatialLayersDenoiserOn) {
   cfg_.rc_buf_initial_sz = 500;
   cfg_.rc_buf_optimal_sz = 500;
@@ -1242,7 +1312,7 @@ TEST_P(DatarateOnePassCbrSvc, OnePassCbrSvc2SpatialLayersDenoiserOn) {
   cfg_.ts_rate_decimator[1] = 2;
   cfg_.ts_rate_decimator[2] = 1;
   cfg_.g_error_resilient = 1;
-  cfg_.g_threads = 1;
+  cfg_.g_threads = 2;
   cfg_.temporal_layering_mode = 3;
   svc_params_.scaling_factor_num[0] = 144;
   svc_params_.scaling_factor_den[0] = 288;
@@ -1250,11 +1320,10 @@ TEST_P(DatarateOnePassCbrSvc, OnePassCbrSvc2SpatialLayersDenoiserOn) {
   svc_params_.scaling_factor_den[1] = 288;
   cfg_.rc_dropframe_thresh = 10;
   cfg_.kf_max_dist = 9999;
-  ::libvpx_test::I420VideoSource video("hantro_collage_w352h288.yuv", 352, 288,
-                                       30, 1, 0, 200);
+  ::libvpx_test::Y4mVideoSource video("niklas_1280_720_30.y4m", 0, 300);
   // TODO(marpan): Check that effective_datarate for each layer hits the
   // layer target_bitrate.
-  for (int i = 200; i <= 800; i += 200) {
+  for (int i = 600; i <= 1000; i += 200) {
     cfg_.rc_target_bitrate = i;
     ResetModel();
     denoiser_on_ = 1;

@@ -34,11 +34,11 @@ tr.b.unittest.testSuite(function() {
   test('runningSlice', function() {
     var m = createBasicModel();
 
-    var cpu = m.device.cpus[1];
+    var cpu = m.kernel.cpus[1];
     var binderSlice = cpu.slices[0];
-    assert.equal(binderSlice.title, 'Binder_1');
+    assert.strictEqual(binderSlice.title, 'Binder_1');
     var launcherSlice = cpu.slices[1];
-    assert.equal(launcherSlice.title, 'Android.launcher');
+    assert.strictEqual(launcherSlice.title, 'Android.launcher');
 
 
     var thread = m.findAllThreadsNamed('Binder_1')[0];
@@ -63,11 +63,11 @@ tr.b.unittest.testSuite(function() {
   test('sleepingSlice', function() {
     var m = createBasicModel();
 
-    var cpu = m.device.cpus[1];
+    var cpu = m.kernel.cpus[1];
     var binderSlice = cpu.slices[0];
-    assert.equal(binderSlice.title, 'Binder_1');
+    assert.strictEqual(binderSlice.title, 'Binder_1');
     var launcherSlice = cpu.slices[1];
-    assert.equal(launcherSlice.title, 'Android.launcher');
+    assert.strictEqual(launcherSlice.title, 'Android.launcher');
 
 
     var thread = m.findAllThreadsNamed('Binder_1')[0];

@@ -6,7 +6,7 @@ found in the LICENSE file.
 -->
 
 <link rel="import" href="/tracing/base/guid.html">
-<link rel="import" href="/tracing/base/range.html">
+<link rel="import" href="/tracing/base/math/range.html">
 <link rel="import" href="/tracing/model/event_set.html">
 <link rel="import" href="/tracing/model/selectable_item.html">
 <link rel="import" href="/tracing/model/selection_state.html">
@@ -48,7 +48,7 @@ tr.exportTo('tr.model', function() {
     },
 
     get range() {
-      var range = new tr.b.Range();
+      var range = new tr.b.math.Range();
       this.addBoundsToRange(range);
       return range;
     },
@@ -58,8 +58,9 @@ tr.exportTo('tr.model', function() {
     associatedAlerts: IMMUTABLE_EMPTY_SET,
 
     addAssociatedAlert: function(alert) {
-      if (this.associatedAlerts === IMMUTABLE_EMPTY_SET)
+      if (this.associatedAlerts === IMMUTABLE_EMPTY_SET) {
         this.associatedAlerts = new tr.model.EventSet();
+      }
       this.associatedAlerts.push(alert);
     },
 

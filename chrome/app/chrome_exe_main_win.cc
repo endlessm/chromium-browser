@@ -218,11 +218,6 @@ int RunFallbackCrashHandler(const base::CommandLine& cmd_line) {
 
 }  // namespace
 
-#if defined(SYZYASAN)
-// This is in chrome_elf.
-extern "C" void BlockUntilHandlerStartedImpl();
-#endif  // SYZYASAN
-
 #if !defined(WIN_CONSOLE_APP)
 int APIENTRY wWinMain(HINSTANCE instance, HINSTANCE prev, wchar_t*, int) {
 #else
@@ -250,7 +245,7 @@ int main() {
   if (process_type == crash_reporter::switches::kCrashpadHandler) {
     crash_reporter::SetupFallbackCrashHandling(*command_line);
     return crash_reporter::RunAsCrashpadHandler(
-        *base::CommandLine::ForCurrentProcess());
+        *base::CommandLine::ForCurrentProcess(), switches::kProcessType);
   } else if (process_type == crash_reporter::switches::kFallbackCrashHandler) {
     return RunFallbackCrashHandler(*command_line);
   }
@@ -259,14 +254,6 @@ int main() {
 
   // Signal Chrome Elf that Chrome has begun to start.
   SignalChromeElf();
-
-#if defined(SYZYASAN)
-  if (process_type.empty()) {
-    // This is a temporary workaround for a race during startup with the
-    // syzyasan_rtl.dll. See https://crbug.com/675710.
-    BlockUntilHandlerStartedImpl();
-  }
-#endif  // SYZYASAN
 
   // The exit manager is in charge of calling the dtors of singletons.
   base::AtExitManager exit_manager;

@@ -455,6 +455,25 @@ def RunCrosSigningTests(buildroot, network=False):
   cros_build_lib.RunCommand(cmd, enter_chroot=True)
 
 
+def RunChromiteTests(buildroot, network=False):
+  """Run the chromite unittests.
+
+  Normal builds run these via an ebuild. This runs them directly.
+
+  Args:
+    buildroot: The buildroot of the current build.
+    network: Do we run the network tests? (bool)
+  """
+  cmd = [os.path.join(buildroot, 'chromite', 'cbuildbot', 'run_tests')]
+  if network:
+    cmd.append('--network')
+
+  # Since Chromite tests include testing our ability to enter the chroot, they
+  # must run outside the chroot. Also note, this command will create the chroot
+  # if it doesn't already exist.
+  cros_build_lib.RunCommand(cmd, cwd=os.path.join(buildroot, 'chromite'))
+
+
 def UpdateBinhostJson(buildroot):
   """Test prebuilts for all boards, making sure everybody gets Chrome prebuilts.
 
@@ -713,7 +732,7 @@ def RunTestSuite(buildroot, board, image_path, results_dir, test_type,
   osutils.RmDir(results_dir_in_chroot, ignore_missing=True)
 
   cwd = os.path.join(buildroot, 'src', 'scripts')
-  dut_type = 'gce' if test_type == constants.GCE_VM_TEST_TYPE else 'vm'
+  dut_type = 'gce' if test_type in constants.VALID_GCE_TEST_TYPES else 'vm'
 
   cmd = ['bin/ctest',
          '--board=%s' % board,
@@ -724,7 +743,8 @@ def RunTestSuite(buildroot, board, image_path, results_dir, test_type,
          '--test_results_root=%s' % results_dir_in_chroot
         ]
 
-  if test_type not in constants.VALID_VM_TEST_TYPES:
+  if test_type not in (constants.VALID_VM_TEST_TYPES +
+                       constants.VALID_GCE_TEST_TYPES):
     raise AssertionError('Unrecognized test type %r' % test_type)
 
   if test_type == constants.FULL_AU_TEST_TYPE:
@@ -733,9 +753,12 @@ def RunTestSuite(buildroot, board, image_path, results_dir, test_type,
     if test_type == constants.SMOKE_SUITE_TEST_TYPE:
       cmd.append('--only_verify')
       cmd.append('--suite=smoke')
-    elif test_type == constants.GCE_VM_TEST_TYPE:
+    elif test_type == constants.GCE_SMOKE_TEST_TYPE:
       cmd.append('--only_verify')
       cmd.append('--suite=gce-smoke')
+    elif test_type == constants.GCE_SANITY_TEST_TYPE:
+      cmd.append('--only_verify')
+      cmd.append('--suite=gce-sanity')
     elif test_type == constants.TELEMETRY_SUITE_TEST_TYPE:
       cmd.append('--only_verify')
       cmd.append('--suite=telemetry_unit')
@@ -943,7 +966,7 @@ def RunHWTestSuite(build, suite, board, pool=None, num=None, file_bugs=None,
                    retry=None, max_retries=None,
                    minimum_duts=0, suite_min_duts=0,
                    offload_failures_only=None, debug=True, subsystems=None,
-                   skip_duts_check=False):
+                   skip_duts_check=False, job_keyvals=None):
   """Run the test suite in the Autotest lab.
 
   Args:
@@ -973,6 +996,7 @@ def RunHWTestSuite(build, suite, board, pool=None, num=None, file_bugs=None,
     subsystems: A set of subsystems that the relevant changes affect, for
                 testing purposes.
     skip_duts_check: If True, skip minimum available DUTs check.
+    job_keyvals: A dict of job keyvals to be inject to suite control file.
 
   Returns:
     An instance of named tuple HWTestSuiteResult, the first element is the
@@ -984,7 +1008,7 @@ def RunHWTestSuite(build, suite, board, pool=None, num=None, file_bugs=None,
     cmd += _GetRunSuiteArgs(build, suite, board, pool, num, file_bugs,
                             priority, timeout_mins, retry, max_retries,
                             minimum_duts, suite_min_duts, offload_failures_only,
-                            subsystems, skip_duts_check)
+                            subsystems, skip_duts_check, job_keyvals)
     swarming_args = _CreateSwarmingArgs(build, suite, board, priority,
                                         timeout_mins)
     running_json_dump_flag = False
@@ -1068,7 +1092,8 @@ def _GetRunSuiteArgs(build, suite, board, pool=None, num=None,
                      file_bugs=None, priority=None, timeout_mins=None,
                      retry=None, max_retries=None, minimum_duts=0,
                      suite_min_duts=0, offload_failures_only=None,
-                     subsystems=None, skip_duts_check=False):
+                     subsystems=None, skip_duts_check=False,
+                     job_keyvals=None):
   """Get a list of args for run_suite.
 
   Args:
@@ -1134,6 +1159,9 @@ def _GetRunSuiteArgs(build, suite, board, pool=None, num=None,
 
     if skip_duts_check:
       args += ['--skip_duts_check']
+
+    if job_keyvals:
+      args += ['--job_keyvals', repr(job_keyvals)]
   return args
 
 
@@ -1657,6 +1685,22 @@ def GenerateBreakpadSymbols(buildroot, board, debug):
   RunBuildScript(buildroot, cmd, enter_chroot=True, chromite_cmd=True)
 
 
+def GenerateAndroidBreakpadSymbols(buildroot, board, symbols_file):
+  """Generate breakpad symbols of Android binaries.
+
+  Args:
+    buildroot: The root directory where the build occurs.
+    board: Board type that was built on this machine.
+    symbols_file: Path to a symbol archive file.
+  """
+  board_path = cros_build_lib.GetSysroot(board=board)
+  breakpad_dir = os.path.join(board_path, 'usr', 'lib', 'debug', 'breakpad')
+  cmd = ['cros_generate_android_breakpad_symbols',
+         '--symbols_file=%s' % path_util.ToChrootPath(symbols_file),
+         '--breakpad_dir=%s' % breakpad_dir]
+  RunBuildScript(buildroot, cmd, enter_chroot=True, chromite_cmd=True)
+
+
 def GenerateDebugTarball(buildroot, board, archive_path, gdb_symbols,
                          archive_name='debug.tgz'):
   """Generates a debug tarball in the archive_dir.
@@ -1855,6 +1899,45 @@ def _UploadPathToGS(local_path, upload_urls, debug, timeout, acl=None):
     with timeout_util.Timeout(timeout):
       gs_context.CopyInto(local_path, upload_url, parallel=True,
                           recursive=True)
+
+
+@failures_lib.SetFailureType(failures_lib.InfrastructureFailure)
+def ExportToGCloud(build_root, creds_file, filename, namespace=None,
+                   parent_key=None, project_id=None):
+  """Export the given file to gCloud Datastore using export_to_gcloud
+
+  Args:
+    build_root: The root of the chromium os checkout.
+    creds_file: Filename of gcloud credential file
+    filename: Name of file to export.
+    namespace: Optional, namespace to store entities. Defaults to
+               datastore credentials
+    parent_key: Optional, Key of parent entity to insert into, expects tuple.
+    project_id: Optional, project_id of datastore to write to. Defaults to
+                datastore credentials
+
+  Returns:
+    If command was successfully run or not
+  """
+  export_cmd = os.path.join(build_root, 'chromite', 'bin', 'export_to_gcloud')
+
+  cmd = [export_cmd, creds_file, filename]
+
+  if namespace:
+    cmd.extend(['--namespace', namespace])
+
+  if parent_key:
+    cmd.extend(['--parent_key', repr(parent_key)])
+
+  if project_id:
+    cmd.extend(['--project_id', project_id])
+
+  try:
+    cros_build_lib.RunCommand(cmd)
+  except cros_build_lib.RunCommandError as e:
+    logging.warn('Unable to export to datastore: %s', e)
+    return False
+  return True
 
 
 @failures_lib.SetFailureType(failures_lib.InfrastructureFailure)

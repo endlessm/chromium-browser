@@ -7,7 +7,7 @@ found in the LICENSE file.
 
 <link rel="import" href="/tracing/base/base.html">
 <link rel="import" href="/tracing/base/iteration_helpers.html">
-<link rel="import" href="/tracing/base/statistics.html">
+<link rel="import" href="/tracing/base/math/statistics.html">
 
 <script>
 'use strict';
@@ -33,8 +33,9 @@ tr.exportTo('tr.ui.analysis', function() {
   MultiEventSummary.prototype = {
 
     set title(title) {
-      if (title === 'Totals')
+      if (title === 'Totals') {
         this.totalsRow = true;
+      }
       this.title_ = title;
     },
 
@@ -44,7 +45,7 @@ tr.exportTo('tr.ui.analysis', function() {
 
     get duration() {
       if (this.duration_ === undefined) {
-        this.duration_ = tr.b.Statistics.sum(
+        this.duration_ = tr.b.math.Statistics.sum(
             this.events_, function(event) {
               return event.duration;
             });
@@ -63,8 +64,7 @@ tr.exportTo('tr.ui.analysis', function() {
     },
 
     computeCpuTimesIfNeeded_: function() {
-      if (this.cpuTimesComputed_)
-        return;
+      if (this.cpuTimesComputed_) return;
       this.cpuTimesComputed_ = true;
 
       var cpuSelfTime = 0;
@@ -90,9 +90,11 @@ tr.exportTo('tr.ui.analysis', function() {
     get selfTime() {
       if (this.selfTime_ === undefined) {
         this.selfTime_ = 0;
-        for (var event of this.events_)
-          if (event.selfTime !== undefined)
+        for (var event of this.events_) {
+          if (event.selfTime !== undefined) {
             this.selfTime_ += event.selfTime;
+          }
+        }
       }
       return this.selfTime_;
     },
@@ -107,9 +109,9 @@ tr.exportTo('tr.ui.analysis', function() {
 
     get numAlerts() {
       if (this.numAlerts_ === undefined) {
-        this.numAlerts_ = tr.b.Statistics.sum(this.events_, function(event) {
-          return event.associatedAlerts.length;
-        });
+        this.numAlerts_ = tr.b.math.Statistics.sum(this.events_, event =>
+          event.associatedAlerts.length
+        );
       }
       return this.numAlerts_;
     },
@@ -127,7 +129,7 @@ tr.exportTo('tr.ui.analysis', function() {
 
     get maxDuration() {
       if (this.maxDuration_ === undefined) {
-        this.maxDuration_ = tr.b.Statistics.max(
+        this.maxDuration_ = tr.b.math.Statistics.max(
             this.events_, function(event) {
               return event.duration;
             });
@@ -138,7 +140,7 @@ tr.exportTo('tr.ui.analysis', function() {
 
     get maxCpuDuration() {
       if (this.maxCpuDuration_ === undefined) {
-        this.maxCpuDuration_ = tr.b.Statistics.max(
+        this.maxCpuDuration_ = tr.b.math.Statistics.max(
             this.events_, function(event) {
               return event.cpuDuration;
             });
@@ -149,7 +151,7 @@ tr.exportTo('tr.ui.analysis', function() {
 
     get maxSelfTime() {
       if (this.maxSelfTime_ === undefined) {
-        this.maxSelfTime_ = tr.b.Statistics.max(
+        this.maxSelfTime_ = tr.b.math.Statistics.max(
             this.events_, function(event) {
               return event.selfTime;
             });
@@ -160,7 +162,7 @@ tr.exportTo('tr.ui.analysis', function() {
 
     get maxCpuSelfTime() {
       if (this.maxCpuSelfTime_ === undefined) {
-        this.maxCpuSelfTime_ = tr.b.Statistics.max(
+        this.maxCpuSelfTime_ = tr.b.math.Statistics.max(
             this.events_, function(event) {
               return event.cpuSelfTime;
             });
@@ -170,8 +172,7 @@ tr.exportTo('tr.ui.analysis', function() {
 
 
     updateArgsIfNeeded_: function() {
-      if (this.totalledArgs_ !== undefined)
-        return;
+      if (this.totalledArgs_ !== undefined) return;
 
       var untotallableArgs = {};
       var totalledArgs = {};
@@ -188,8 +189,9 @@ tr.exportTo('tr.ui.analysis', function() {
             continue;
           }
 
-          if (totalledArgs[argName] === undefined)
+          if (totalledArgs[argName] === undefined) {
             totalledArgs[argName] = 0;
+          }
           totalledArgs[argName] += argVal;
         }
       }

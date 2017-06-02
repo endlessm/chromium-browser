@@ -12,19 +12,16 @@
 # exec_python -- Execute Python module inside of virtualenv
 set -eu
 
-virtualenv_dir=../../infra_virtualenv
-venv_dir=../venv/.full_venv
-reqs_file=../venv/full_requirements.txt
+readonly virtualenv_dir=../../infra_virtualenv
+readonly venv_dir=../venv/.venv
+readonly reqs_file=../venv/requirements.txt
 
 _create_venv() {
     "$virtualenv_dir/create_venv" "$venv_dir" "$reqs_file" >&2
 }
 
-_exec_venv_command() {
-    exec "$virtualenv_dir/venv_command" "$venv_dir" "$@"
-}
-
 exec_python_module() {
     _create_venv
-    _exec_venv_command python -m "$@"
+    export PYTHONPATH='../venv'
+    exec "$venv_dir/bin/python" -m "$@"
 }

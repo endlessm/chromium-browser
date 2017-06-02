@@ -44,27 +44,27 @@ tr.exportTo('tr.ui.b', function() {
       Polymer.dom(item).classList.add('list-item');
       item.addEventListener('click', this.onItemClicked_, true);
 
-      var listView = this;
       Object.defineProperty(
           item,
           'selected', {
             configurable: true,
-            set: function(value) {
-              var oldSelection = listView.selectedElement;
-              if (oldSelection && oldSelection !== this && value)
-                Polymer.dom(listView.selectedElement).removeAttribute(
-                    'selected');
-              if (value)
-                Polymer.dom(this).setAttribute('selected', 'selected');
-              else
-                Polymer.dom(this).removeAttribute('selected');
-              var newSelection = listView.selectedElement;
-              if (newSelection !== oldSelection)
-                tr.b.dispatchSimpleEvent(listView, 'selection-changed', false);
+            get: () => item.hasAttribute('selected'),
+            set: value => {
+              // |this| is the ListView.
+              const oldSelection = this.selectedElement;
+              if (oldSelection && oldSelection !== item && value) {
+                Polymer.dom(this.selectedElement).removeAttribute('selected');
+              }
+              if (value) {
+                Polymer.dom(item).setAttribute('selected', 'selected');
+              } else {
+                Polymer.dom(item).removeAttribute('selected');
+              }
+              const newSelection = this.selectedElement;
+              if (newSelection !== oldSelection) {
+                tr.b.dispatchSimpleEvent(this, 'selection-changed', false);
+              }
             },
-            get: function() {
-              return this.hasAttribute('selected');
-            }
           });
     },
 
@@ -81,27 +81,29 @@ tr.exportTo('tr.ui.b', function() {
     },
 
     doneDecoratingForNow_: function() {
-      if (this.selectionChanged_)
+      if (this.selectionChanged_) {
         tr.b.dispatchSimpleEvent(this, 'selection-changed', false);
+      }
     },
 
     get selectedElement() {
       var el = Polymer.dom(this).querySelector('.list-item[selected]');
-      if (!el)
-        return undefined;
+      if (!el) return undefined;
       return el;
     },
 
     set selectedElement(el) {
       if (!el) {
-        if (this.selectedElement)
+        if (this.selectedElement) {
           this.selectedElement.selected = false;
+        }
         return;
       }
 
-      if (el.parentElement !== this)
+      if (el.parentElement !== this) {
         throw new Error(
             'Can only select elements that are children of this list view');
+      }
       el.selected = true;
     },
 
@@ -113,25 +115,28 @@ tr.exportTo('tr.ui.b', function() {
     clear: function() {
       var changed = this.selectedElement !== undefined;
       tr.ui.b.ContainerThatDecoratesItsChildren.prototype.clear.call(this);
-      if (changed)
+      if (changed) {
         tr.b.dispatchSimpleEvent(this, 'selection-changed', false);
+      }
     },
 
     onItemClicked_: function(e) {
       var currentSelectedElement = this.selectedElement;
-      if (currentSelectedElement)
+      if (currentSelectedElement) {
         Polymer.dom(currentSelectedElement).removeAttribute('selected');
+      }
       var element = e.target;
-      while (element.parentElement !== this)
+      while (element.parentElement !== this) {
         element = element.parentElement;
-      if (element !== currentSelectedElement)
+      }
+      if (element !== currentSelectedElement) {
         Polymer.dom(element).setAttribute('selected', 'selected');
+      }
       tr.b.dispatchSimpleEvent(this, 'selection-changed', false);
     },
 
     onKeyDown_: function(e) {
-      if (this.selectedElement === undefined)
-        return;
+      if (this.selectedElement === undefined) return;
 
       if (e.keyCode === 38) { // Up arrow.
         var prev = Polymer.dom(this.selectedElement).previousSibling;

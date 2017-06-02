@@ -12,6 +12,7 @@ import json
 from chromite.cbuildbot import topology
 from chromite.cbuildbot import tree_status
 from chromite.lib import cidb
+from chromite.lib import classifier
 from chromite.lib import commandline
 from chromite.lib import constants
 from chromite.lib import cros_logging as logging
@@ -47,6 +48,10 @@ def GetParser():
                       help='Filename to write JSON to.')
   parser.add_argument('--json_file', type=str, action='store',
                       help='JSON file to send.')
+  parser.add_argument('builds', type=str, nargs='*', action='store',
+                      metavar='WATERFALL,TREE,SEVERITY|BUILD_ID,SEVERITY',
+                      help='Builds to report on.  eg chromeos,elm-release,1000 '
+                           'or chromeos,master-paladin,1001 or 1234567,,1000')
   return parser
 
 
@@ -91,25 +96,21 @@ def AddLogsLink(logdog_client, name,
     annotation_stream: Logdog annotation for the stream.
     logs_links: List to add to if the stream is valid.
   """
-  if annotation_stream and annotation_stream.name:
+  if annotation_stream and annotation_stream['name']:
     url = logdog_client.ConstructViewerURL(waterfall,
                                            logdog_prefix,
-                                           annotation_stream.name)
+                                           annotation_stream['name'])
     logs_links.append(som.Link(name, url))
 
 
-def GenerateAlertStage(build, stage, exceptions,
-                       buildbot, logdog_prefix, annotation_steps,
-                       logdog_client):
+def GenerateAlertStage(build, stage, exceptions, buildinfo, logdog_client):
   """Generate alert details for a single build stage.
 
   Args:
     build: Dictionary of build details from CIDB.
     stage: Dictionary fo stage details from CIDB.
     exceptions: Dictionary of build failures from CIDB.
-    buildbot: Buildbot build JSON file from MILO.
-    logdog_prefix: Logdog prefix for the build.
-    annotation_steps: Full set of Logdog annotations for the build.
+    buildinfo: BuildInfo build JSON file from MILO.
     logdog_client: logdog.LogdogClient object.
 
   Returns:
@@ -127,38 +128,56 @@ def GenerateAlertStage(build, stage, exceptions,
   logs_links = []
   notes = []
 
-  # Generate links to the logs of the stage.
-  if logdog_prefix and annotation_steps and stage['name'] in annotation_steps:
-    annotation = annotation_steps[stage['name']]
+  # Generate links to the logs of the stage and use them for classification.
+  if buildinfo and stage['name'] in buildinfo['steps']:
+    prefix = buildinfo['annotationStream']['prefix']
+    annotation = buildinfo['steps'][stage['name']]
     AddLogsLink(logdog_client, 'stdout', build['waterfall'],
-                logdog_prefix, annotation.stdout_stream, logs_links)
+                prefix, annotation.get('stdoutStream'), logs_links)
     AddLogsLink(logdog_client, 'stderr', build['waterfall'],
-                logdog_prefix, annotation.stderr_stream, logs_links)
+                prefix, annotation.get('stderrStream'), logs_links)
+
+    # Use the logs in an attempt to classify the failure.
+    if (annotation.get('stdoutStream') and
+        annotation['stdoutStream'].get('name')):
+      path = '%s/+/%s' % (prefix, annotation['stdoutStream']['name'])
+      try:
+        logs = logdog_client.GetLines(build['waterfall'], path)
+        classification = classifier.ClassifyFailure(stage['name'], logs)
+        for c in classification or []:
+          notes.append('Classification: %s' % (c))
+      except Exception as e:
+        logging.exception('Could not classify logs: %s', e)
+        notes.append('Warning: unable to classify logs: %s' % (e))
   else:
-    notes.append('stage logs unavailable')
+    notes.append('Warning: stage logs unavailable')
 
   # Copy the links from the buildbot build JSON.
   stage_links = []
-  if buildbot:
+  if buildinfo:
     if stage['status'] == constants.BUILDER_STATUS_FORGIVEN:
       # TODO: Include these links but hide them by default in frontend.
       pass
-    elif stage['name'] in buildbot['steps']:
-      step = buildbot['steps'][stage['name']]
-      stage_links = [som.Link(url, step['urls'][url]) for url in step['urls']]
+    elif stage['name'] in buildinfo['steps']:
+      step = buildinfo['steps'][stage['name']]
+      stage_links = [som.Link(l['label'], l['url'])
+                     for l in step.get('otherLinks', [])]
     else:
+      steps = [s for s in buildinfo['steps'].keys()
+               if s is not None and not isinstance(s, tuple)]
       logging.warn('Could not find stage %s in: %s',
-                   stage['name'], ', '.join(buildbot['steps'].keys()))
+                   stage['name'], ', '.join(steps))
   else:
-    notes.append('stage details unavailable')
+    notes.append('Warning: stage details unavailable')
 
   # Limit the number of links that will be displayed for a single stage.
   # Let there be one extra since it doesn't make sense to have a line
   # saying there is one more.
   # TODO: Move this to frontend so they can be unhidden by clicking.
   if len(stage_links) > MAX_STAGE_LINKS + 1:
-    notes.append('... and %d more URLs' %
-                 (len(stage_links) - MAX_STAGE_LINKS))
+    # Insert at the beginning of the notes which come right after the links.
+    notes.insert(0, '... and %d more URLs' % (len(stage_links) -
+                                              MAX_STAGE_LINKS))
     del stage_links[MAX_STAGE_LINKS:]
 
   # Add all exceptions recording in CIDB as notes.
@@ -215,43 +234,30 @@ def GenerateBuildAlert(build, slave_stages, exceptions, severity, now,
                                  ToEpoch(build['finish_time'] or now),
                                  build['build_number'], build['build_number'])]
 
-  # Access the buildbot build JSON for per-stage links of failed stages.
+  # Access the BuildInfo for per-stage links of failed stages.
   try:
-    buildbot = milo_client.GetBuildbotBuildJSON(build['waterfall'],
-                                                build['builder_name'],
-                                                build['build_number'])
+    buildinfo = milo_client.BuildInfoGetBuildbot(build['waterfall'],
+                                                 build['builder_name'],
+                                                 build['build_number'])
   except prpc.PRPCResponseException as e:
-    logging.warning('Unable to retrieve buildbot build JSON: %s', e)
-    buildbot = None
-
-  # Logdog prefix and annotations to determine log stream name of stages.
-  try:
-    annotations, prefix = logdog_client.GetAnnotations(build['waterfall'],
-                                                       build['builder_name'],
-                                                       build['build_number'])
-  except (prpc.PRPCResponseException, logdog.LogdogResponseException) as e:
-    logging.warning('Unable to retrieve log annotations: %s', e)
-    annotations = None
-    prefix = None
-
-  if annotations:
-    annotation_steps = {s.step.name: s.step for s in annotations.substep}
-  else:
-    annotation_steps = None
+    logging.warning('Unable to retrieve BuildInfo: %s', e)
+    buildinfo = None
 
   # Highlight the problematic stages.
   stages = []
   for stage in slave_stages:
     alert_stage = GenerateAlertStage(build, stage, exceptions,
-                                     buildbot, prefix, annotation_steps,
+                                     buildinfo,
                                      logdog_client)
     if alert_stage:
       stages.append(alert_stage)
 
   # Add the alert to the summary.
+  key = '%s:%s:%d' % (build['waterfall'], build['build_config'],
+                      build['build_number'])
   alert_name = '%s:%d %s' % (build['build_config'], build['build_number'],
                              MapCIDBToSOMStatus(build['status']))
-  return som.Alert(build['build_config'], alert_name, alert_name, severity,
+  return som.Alert(key, alert_name, alert_name, int(severity),
                    ToEpoch(now), ToEpoch(build['finish_time'] or now),
                    links, [], 'cros-failure',
                    som.CrosBuildFailure(stages, builders))
@@ -281,21 +287,46 @@ def GenerateAlertsSummary(db, builds=None,
   alerts = []
   now = datetime.datetime.utcnow()
 
-  # Iterate over relvevant masters.
+  # Iterate over relevant masters.
+  # build_tuple is either: waterfall, build_config, severity
+  #  or: build_id, severity
   for build_tuple in builds:
-    # Find the most recent build, their slaves, and the individual slave stages.
-    master = db.GetMostRecentBuild(build_tuple[0], build_tuple[1])
-    slaves = db.GetSlaveStatuses(master['id'])
-    slave_stages = db.GetSlaveStages(master['id'])
-    exceptions = db.GetSlaveFailures(master['id'])
-    logging.info('%s %s (id %d): %d slaves, %d slave stages',
-                 build_tuple[0], build_tuple[1], master['id'],
-                 len(slaves), len(slave_stages))
+    # Find the specified build.
+    if len(build_tuple) == 2:
+      # pylint: disable=unbalanced-tuple-unpacking
+      build_id, severity = build_tuple
+      # pylint: enable=unbalanced-tuple-unpacking
+      master = db.GetBuildStatus(build_id)
+      waterfall = master['waterfall']
+      build_config = master['build_config']
+    elif len(build_tuple) == 3:
+      waterfall, build_config, severity = build_tuple
+      master = db.GetMostRecentBuild(waterfall, build_config)
+    else:
+      logging.error('Invalid build tuple: %s' % str(build_tuple))
+      continue
+
+    # Find any slave builds, and the individual slave stages.
+    statuses = db.GetSlaveStatuses(master['id'])
+    if len(statuses):
+      stages = db.GetSlaveStages(master['id'])
+      exceptions = db.GetSlaveFailures(master['id'])
+      logging.info('%s %s (id %d): %d slaves, %d slave stages',
+                   waterfall, build_config, master['id'],
+                   len(statuses), len(stages))
+    else:
+      # Didn't find any slaves, so treat as a singular build.
+      statuses = [master]
+      stages = db.GetBuildStages(master['id'])
+      exceptions = db.GetBuildsFailures([master['id']])
+      logging.info('%s %s (id %d): single build, %d stages',
+                   waterfall, build_config, master['id'],
+                   len(stages))
 
     # Look for failing and inflight (signifying timeouts) slave builds.
-    for slave in sorted(slaves, key=lambda s: s['builder_name']):
-      alert = GenerateBuildAlert(slave, slave_stages, exceptions,
-                                 build_tuple[2], now,
+    for build in sorted(statuses, key=lambda s: s['builder_name']):
+      alert = GenerateBuildAlert(build, stages, exceptions,
+                                 severity, now,
                                  logdog_client, milo_client)
       if alert:
         alerts.append(alert)
@@ -315,6 +346,7 @@ def ToEpoch(value):
 def main(argv):
   parser = GetParser()
   options = parser.parse_args(argv)
+  builds = [tuple(x.split(',')) for x in options.builds]
 
   # Determine which hosts to connect to.
   db = cidb.CIDBConnection(options.cred_dir)
@@ -332,7 +364,8 @@ def main(argv):
                                         host=options.logdog_host)
     milo_client = milo.MiloClient(options.service_acct_json,
                                   host=options.milo_host)
-    summary_json = GenerateAlertsSummary(db, logdog_client=logdog_client,
+    summary_json = GenerateAlertsSummary(db, builds=builds,
+                                         logdog_client=logdog_client,
                                          milo_client=milo_client)
     if options.output_json:
       with open(options.output_json, 'w') as f:

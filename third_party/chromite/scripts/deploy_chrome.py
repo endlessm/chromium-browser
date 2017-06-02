@@ -39,7 +39,6 @@ from chromite.lib import gs
 from chromite.lib import osutils
 from chromite.lib import parallel
 from chromite.lib import remote_access as remote
-from chromite.lib import stats
 from chromite.lib import timeout_util
 from gn_helpers import gn_helpers
 
@@ -246,13 +245,16 @@ class DeployChrome(object):
     logging.info('Copying Chrome to %s on device...', self.options.target_dir)
     # Show the output (status) for this command.
     dest_path = _CHROME_DIR
+    # CopyToDevice will fall back to scp if rsync is corrupted on stateful.
+    # This does not work for deploy.
     if not self.device.HasRsync():
       raise DeployFailure(
           'rsync is not found on the device.\n'
           'Run dev_install on the device to get rsync installed')
     self.device.CopyToDevice('%s/' % os.path.abspath(self.staging_dir),
                              self.options.target_dir,
-                             inplace=True, debug_level=logging.INFO,
+                             mode='rsync', inplace=True,
+                             debug_level=logging.INFO,
                              verbose=self.options.verbose)
 
     for p in self.copy_paths:
@@ -621,19 +623,14 @@ def main(argv):
   else:
     logging.getLogger().setLevel(logging.INFO)
 
-  with stats.UploadContext() as queue:
-    cmd_stats = stats.Stats.SafeInit(cmd_line=argv, cmd_base='deploy_chrome')
-    if cmd_stats:
-      queue.put([cmd_stats, stats.StatsUploader.URL, 1])
+  with osutils.TempDir(set_global=True) as tempdir:
+    staging_dir = options.staging_dir
+    if not staging_dir:
+      staging_dir = os.path.join(tempdir, 'chrome')
 
-    with osutils.TempDir(set_global=True) as tempdir:
-      staging_dir = options.staging_dir
-      if not staging_dir:
-        staging_dir = os.path.join(tempdir, 'chrome')
-
-      deploy = DeployChrome(options, tempdir, staging_dir)
-      try:
-        deploy.Perform()
-      except failures_lib.StepFailure as ex:
-        raise SystemExit(str(ex).strip())
-      deploy.Cleanup()
+    deploy = DeployChrome(options, tempdir, staging_dir)
+    try:
+      deploy.Perform()
+    except failures_lib.StepFailure as ex:
+      raise SystemExit(str(ex).strip())
+    deploy.Cleanup()

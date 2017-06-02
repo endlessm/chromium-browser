@@ -31,6 +31,45 @@ tr.exportTo('tr.ui', function() {
   // Keep 5 digits of precision when rounding the major mark distances.
   var MAJOR_MARK_ROUNDING_FACTOR = 100000;
 
+  class AnimationControllerProxy {
+    constructor(target) {
+      this.target_ = target;
+    }
+
+    get panX() {
+      return this.target_.currentDisplayTransform_.panX;
+    }
+
+    set panX(panX) {
+      this.target_.currentDisplayTransform_.panX = panX;
+    }
+
+    get panY() {
+      return this.target_.currentDisplayTransform_.panY;
+    }
+
+    set panY(panY) {
+      this.target_.currentDisplayTransform_.panY = panY;
+    }
+
+    get scaleX() {
+      return this.target_.currentDisplayTransform_.scaleX;
+    }
+
+    set scaleX(scaleX) {
+      this.target_.currentDisplayTransform_.scaleX = scaleX;
+    }
+
+    cloneAnimationState() {
+      return this.target_.currentDisplayTransform_.clone();
+    }
+
+    xPanWorldPosToViewPos(xWorld, xView) {
+      this.target_.currentDisplayTransform_.xPanWorldPosToViewPos(
+          xWorld, xView, this.target_.modelTrackContainer_.canvas.clientWidth);
+    }
+  }
+
   /**
    * The TimelineViewport manages the transform used for navigating
    * within the timeline. It is a simple transform:
@@ -71,6 +110,7 @@ tr.exportTo('tr.ui', function() {
     this.onModelTrackControllerScroll_ =
         this.onModelTrackControllerScroll_.bind(this);
 
+    this.timeMode_ = TimelineViewport.TimeMode.TIME_IN_MS;
     // Major mark positions are where the gridlines/ruler marks are placed along
     // the x-axis.
     this.majorMarkWorldPositions_ = [];
@@ -83,6 +123,11 @@ tr.exportTo('tr.ui', function() {
     this.dispatchChangeEvent = this.dispatchChangeEvent.bind(this);
   }
 
+  TimelineViewport.TimeMode = {
+    TIME_IN_MS: 0,
+    REVISIONS: 1
+  };
+
   TimelineViewport.prototype = {
     __proto__: tr.b.EventTarget.prototype,
 
@@ -92,8 +137,7 @@ tr.exportTo('tr.ui', function() {
      */
     get isAttachedToDocumentOrInTestMode() {
       // Allow not providing a parent element, used by tests.
-      if (this.parentEl_ === undefined)
-        return;
+      if (this.parentEl_ === undefined) return;
       return tr.ui.b.isElementAttachedToDocument(this.parentEl_);
     },
 
@@ -120,41 +164,7 @@ tr.exportTo('tr.ui', function() {
             this.onCurentDisplayTransformChange_(e.oldTargetState);
           }.bind(this));
 
-      var that = this;
-      this.dtAnimationController_.target = {
-        get panX() {
-          return that.currentDisplayTransform_.panX;
-        },
-
-        set panX(panX) {
-          that.currentDisplayTransform_.panX = panX;
-        },
-
-        get panY() {
-          return that.currentDisplayTransform_.panY;
-        },
-
-        set panY(panY) {
-          that.currentDisplayTransform_.panY = panY;
-        },
-
-        get scaleX() {
-          return that.currentDisplayTransform_.scaleX;
-        },
-
-        set scaleX(scaleX) {
-          that.currentDisplayTransform_.scaleX = scaleX;
-        },
-
-        cloneAnimationState: function() {
-          return that.currentDisplayTransform_.clone();
-        },
-
-        xPanWorldPosToViewPos: function(xWorld, xView) {
-          that.currentDisplayTransform_.xPanWorldPosToViewPos(
-              xWorld, xView, that.modelTrackContainer_.canvas.clientWidth);
-        }
-      };
+      this.dtAnimationController_.target = new AnimationControllerProxy(this);
     },
 
     get currentDisplayTransform() {
@@ -171,15 +181,16 @@ tr.exportTo('tr.ui', function() {
     },
 
     queueDisplayTransformAnimation: function(animation) {
-      if (!(animation instanceof tr.ui.b.Animation))
+      if (!(animation instanceof tr.ui.b.Animation)) {
         throw new Error('animation must be instanceof tr.ui.b.Animation');
+      }
       this.dtAnimationController_.queueAnimation(animation);
     },
 
     onCurentDisplayTransformChange_: function(oldDisplayTransform) {
       // Ensure panY stays clamped in the track container's scroll range.
       if (this.modelTrackContainer_) {
-        this.currentDisplayTransform.panY = tr.b.clamp(
+        this.currentDisplayTransform.panY = tr.b.math.clamp(
             this.currentDisplayTransform.panY,
             0,
             this.modelTrackContainer_.scrollHeight -
@@ -189,16 +200,19 @@ tr.exportTo('tr.ui', function() {
       var changed = !this.currentDisplayTransform.equals(oldDisplayTransform);
       var yChanged = this.currentDisplayTransform.panY !==
           oldDisplayTransform.panY;
-      if (yChanged)
+      if (yChanged) {
         this.modelTrackContainer_.scrollTop = this.currentDisplayTransform.panY;
-      if (changed)
+      }
+      if (changed) {
         this.dispatchChangeEvent();
+      }
     },
 
     onModelTrackControllerScroll_: function(e) {
       if (this.dtAnimationController_.activeAnimation &&
-          this.dtAnimationController_.activeAnimation.affectsPanY)
+          this.dtAnimationController_.activeAnimation.affectsPanY) {
         this.dtAnimationController_.cancelActiveAnimation();
+      }
       var panY = this.modelTrackContainer_.scrollTop;
       this.currentDisplayTransform_.panY = panY;
     },
@@ -208,9 +222,10 @@ tr.exportTo('tr.ui', function() {
     },
 
     set modelTrackContainer(m) {
-      if (this.modelTrackContainer_)
+      if (this.modelTrackContainer_) {
         this.modelTrackContainer_.removeEventListener('scroll',
             this.onModelTrackControllerScroll_);
+      }
 
       this.modelTrackContainer_ = m;
       this.modelTrackContainer_.addEventListener('scroll',
@@ -249,8 +264,7 @@ tr.exportTo('tr.ui', function() {
     },
 
     set gridEnabled(enabled) {
-      if (this.gridEnabled_ === enabled)
-        return;
+      if (this.gridEnabled_ === enabled) return;
 
       this.gridEnabled_ = enabled && true;
       this.dispatchChangeEvent();
@@ -261,8 +275,8 @@ tr.exportTo('tr.ui', function() {
     },
 
     set gridTimebase(timebase) {
-      if (this.gridTimebase_ === timebase)
-        return;
+      if (this.gridTimebase_ === timebase) return;
+
       this.gridTimebase_ = timebase;
       this.dispatchChangeEvent();
     },
@@ -280,7 +294,24 @@ tr.exportTo('tr.ui', function() {
     },
 
     get majorMarkUnit() {
-      return tr.b.Unit.byName.timeInMsAutoFormat;
+      switch (this.timeMode_) {
+        case TimelineViewport.TimeMode.TIME_IN_MS:
+          return tr.b.Unit.byName.timeInMsAutoFormat;
+        case TimelineViewport.TimeMode.REVISIONS:
+          return tr.b.Unit.byName.count;
+        default:
+          throw new Error(
+              'Cannot get Unit for unsupported time mode ' + this.timeMode_);
+      }
+    },
+
+    get timeMode() {
+      return this.timeMode_;
+    },
+
+    set timeMode(mode) {
+      this.timeMode_ = mode;
+      this.dispatchChangeEvent();
     },
 
     updateMajorMarkData: function(viewLWorld, viewRWorld) {
@@ -292,7 +323,7 @@ tr.exportTo('tr.ui', function() {
       var idealMajorMarkDistanceWorld =
           dt.xViewVectorToWorld(idealMajorMarkDistancePix);
 
-      var majorMarkDistanceWorld = tr.b.preferredNumberLargerThanMin(
+      var majorMarkDistanceWorld = tr.b.math.preferredNumberLargerThanMin(
           idealMajorMarkDistanceWorld);
 
       var firstMajorMark = Math.floor(
@@ -326,8 +357,7 @@ tr.exportTo('tr.ui', function() {
     },
 
     drawGridLines: function(ctx, viewLWorld, viewRWorld) {
-      if (!this.gridEnabled)
-        return;
+      if (!this.gridEnabled) return;
 
       var dt = this.currentDisplayTransform;
       var x = this.gridTimebase;
@@ -382,8 +412,8 @@ tr.exportTo('tr.ui', function() {
             event, offset, newSelection);
       }
 
-      if (newSelection.length === 0)
-        return undefined;
+      if (newSelection.length === 0) return undefined;
+
       return newSelection;
     },
 

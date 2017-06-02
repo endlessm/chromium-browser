@@ -4,7 +4,9 @@
 
 """Puppet metrics"""
 
+from __future__ import absolute_import
 from __future__ import print_function
+from __future__ import unicode_literals
 
 import time
 
@@ -86,7 +88,7 @@ class _PuppetRunSummary(object):
     return self.times.get('last_run')
 
 
-def get_puppet_summary():
+def collect_puppet_summary():
   """Send Puppet run summary metrics."""
   try:
     summary = _PuppetRunSummary(LAST_RUN_FILE)

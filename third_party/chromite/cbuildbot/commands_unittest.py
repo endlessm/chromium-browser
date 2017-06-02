@@ -35,7 +35,7 @@ from chromite.scripts import pushimage
 site_config = config_lib.GetConfig()
 
 
-class RunBuildScriptTest(cros_test_lib.TempDirTestCase):
+class RunBuildScriptTest(cros_build_lib_unittest.RunCommandTempDirTestCase):
   """Test RunBuildScript in a variety of cases."""
 
   def _assertRunBuildScript(self, in_chroot=False, error=None, raises=None,
@@ -60,22 +60,24 @@ class RunBuildScriptTest(cros_test_lib.TempDirTestCase):
       osutils.SafeMakedirs(os.path.join(buildroot, 'chroot', 'tmp'))
 
     # Run the command, throwing an exception if it fails.
-    with cros_build_lib_unittest.RunCommandMock() as m:
-      cmd = ['example', 'command']
-      sudo_cmd = ['sudo', '--'] + cmd
-      returncode = 1 if raises else 0
-      m.AddCmdResult(cmd, returncode=returncode, side_effect=WriteError)
-      m.AddCmdResult(sudo_cmd, returncode=returncode, side_effect=WriteError)
-      with mock.patch.object(path_util, 'ToChrootPath',
-                             side_effect=lambda x: x):
-        with cros_test_lib.LoggingCapturer():
-          # If the script failed, the exception should be raised and printed.
-          if raises:
-            self.assertRaises(raises, commands.RunBuildScript, buildroot,
-                              cmd, enter_chroot=in_chroot, **kwargs)
-          else:
-            commands.RunBuildScript(buildroot, cmd, enter_chroot=in_chroot,
-                                    **kwargs)
+    cmd = ['example', 'command']
+    sudo_cmd = ['sudo', '--'] + cmd
+    returncode = 1 if raises else 0
+    self.rc.AddCmdResult(cmd, returncode=returncode,
+                         side_effect=WriteError)
+    self.rc.AddCmdResult(sudo_cmd, returncode=returncode,
+                         side_effect=WriteError)
+
+    self.PatchObject(path_util, 'ToChrootPath', side_effect=lambda x: x)
+
+    with cros_test_lib.LoggingCapturer():
+      # If the script failed, the exception should be raised and printed.
+      if raises:
+        self.assertRaises(raises, commands.RunBuildScript, buildroot,
+                          cmd, enter_chroot=in_chroot, **kwargs)
+      else:
+        commands.RunBuildScript(buildroot, cmd, enter_chroot=in_chroot,
+                                **kwargs)
 
   def testSuccessOutsideChroot(self):
     """Test executing a command outside the chroot."""
@@ -143,13 +145,19 @@ class RunTestSuiteTest(cros_build_lib_unittest.RunCommandTempDirTestCase):
     self._RunTestSuite(constants.SMOKE_SUITE_TEST_TYPE)
     self.assertCommandContains(['--only_verify'])
 
-  def testGceVmTestType(self):
-    """Test GCE_VM_TEST_TYPE."""
-    self._RunTestSuite(constants.GCE_VM_TEST_TYPE)
+  def testGceSmokeTestType(self):
+    """Test GCE_SMOKE_TEST_TYPE."""
+    self._RunTestSuite(constants.GCE_SMOKE_TEST_TYPE)
     self.assertCommandContains(['--only_verify'])
     self.assertCommandContains(['--type=gce'])
     self.assertCommandContains(['--suite=gce-smoke'])
 
+  def testGceSanityTestType(self):
+    """Test GCE_SANITY_TEST_TYPE."""
+    self._RunTestSuite(constants.GCE_SANITY_TEST_TYPE)
+    self.assertCommandContains(['--only_verify'])
+    self.assertCommandContains(['--type=gce'])
+    self.assertCommandContains(['--suite=gce-sanity'])
 
 class ChromeSDKTest(cros_build_lib_unittest.RunCommandTempDirTestCase):
   """Basic tests for ChromeSDK commands with RunCommand mocked out."""
@@ -694,10 +702,20 @@ f6b0b80d5f2d9a2fb41ebb6e2cee7ad8 *./updater4.sh
     self.testBuild(extra_env=extra_env)
     self.assertCommandContains(['./build_packages'], extra_env=extra_env)
 
-  def testGenerateSymbols(self):
+  def testGenerateBreakpadSymbols(self):
     """Test GenerateBreakpadSymbols Command."""
     commands.GenerateBreakpadSymbols(self.tempdir, self._board, False)
     self.assertCommandContains(['--board=%s' % self._board])
+
+  def testGenerateAndroidBreakpadSymbols(self):
+    """Test GenerateAndroidBreakpadSymbols Command."""
+    with mock.patch.object(path_util, 'ToChrootPath', side_effect=lambda s: s):
+      commands.GenerateAndroidBreakpadSymbols(
+          '/buildroot', 'MyBoard', 'symbols.zip')
+    self.assertCommandContains(
+        ['/buildroot/chromite/bin/cros_generate_android_breakpad_symbols',
+         '--symbols_file=symbols.zip',
+         '--breakpad_dir=/build/MyBoard/usr/lib/debug/breakpad'])
 
   def testUploadSymbolsMinimal(self):
     """Test uploading symbols for official builds"""
@@ -731,6 +749,22 @@ f6b0b80d5f2d9a2fb41ebb6e2cee7ad8 *./updater4.sh
          '--failed-list', '/failed_list.txt',
          '--breakpad_root', '/breakpad',
          '--product_name', 'CoolProduct'])
+
+  def testExportToGCloudParentKey(self):
+    """Test ExportToGCloud with parent_key"""
+    build_root = '/buildroot'
+    creds_file = 'dummy.cert'
+    json_file = 'dummy.json'
+    parent_key = ('MyParent', 42)
+    parent_key_str = repr(parent_key)
+    commands.ExportToGCloud(build_root, creds_file, json_file,
+                            parent_key=parent_key)
+    self.assertCommandContains(
+        ['/buildroot/chromite/bin/export_to_gcloud',
+         creds_file,
+         json_file,
+         '--parent_key',
+         parent_key_str])
 
   def testPushImages(self):
     """Test PushImages Command."""

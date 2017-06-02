@@ -451,7 +451,7 @@ static SkBudgeted is_budgeted(const sk_sp<SkSurface>& surf) {
 }
 
 static SkBudgeted is_budgeted(SkImage* image) {
-    return ((SkImage_Gpu*)image)->peekTexture()->resourcePriv().isBudgeted();
+    return ((SkImage_Gpu*)image)->peekProxy()->isBudgeted();
 }
 
 static SkBudgeted is_budgeted(const sk_sp<SkImage> image) {
@@ -460,27 +460,24 @@ static SkBudgeted is_budgeted(const sk_sp<SkImage> image) {
 
 DEF_GPUTEST_FOR_RENDERING_CONTEXTS(SurfaceBudget, reporter, ctxInfo) {
     SkImageInfo info = SkImageInfo::MakeN32Premul(8,8);
-    for (auto sbudgeted : { SkBudgeted::kNo, SkBudgeted::kYes }) {
-        for (auto ibudgeted : { SkBudgeted::kNo, SkBudgeted::kYes }) {
-            auto surface(SkSurface::MakeRenderTarget(ctxInfo.grContext(), sbudgeted, info));
-            SkASSERT(surface);
-            REPORTER_ASSERT(reporter, sbudgeted == is_budgeted(surface));
+    for (auto budgeted : { SkBudgeted::kNo, SkBudgeted::kYes }) {
+        auto surface(SkSurface::MakeRenderTarget(ctxInfo.grContext(), budgeted, info));
+        SkASSERT(surface);
+        REPORTER_ASSERT(reporter, budgeted == is_budgeted(surface));
 
-            sk_sp<SkImage> image(surface->makeImageSnapshot(ibudgeted));
+        sk_sp<SkImage> image(surface->makeImageSnapshot());
 
-            // Initially the image shares a texture with the surface, and the surface decides
-            // whether it is budgeted or not.
-            REPORTER_ASSERT(reporter, sbudgeted == is_budgeted(surface));
-            REPORTER_ASSERT(reporter, sbudgeted == is_budgeted(image));
+        // Initially the image shares a texture with the surface, and the
+        // the budgets should always match.
+        REPORTER_ASSERT(reporter, budgeted == is_budgeted(surface));
+        REPORTER_ASSERT(reporter, budgeted == is_budgeted(image));
 
-            // Now trigger copy-on-write
-            surface->getCanvas()->clear(SK_ColorBLUE);
+        // Now trigger copy-on-write
+        surface->getCanvas()->clear(SK_ColorBLUE);
 
-            // They don't share a texture anymore. They should each have made their own budget
-            // decision.
-            REPORTER_ASSERT(reporter, sbudgeted == is_budgeted(surface));
-            REPORTER_ASSERT(reporter, ibudgeted == is_budgeted(image));
-        }
+        // They don't share a texture anymore but the budgets should still match.
+        REPORTER_ASSERT(reporter, budgeted == is_budgeted(surface));
+        REPORTER_ASSERT(reporter, budgeted == is_budgeted(image));
     }
 }
 #endif
@@ -775,6 +772,9 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(SurfacePartialDraw_Gpu, reporter, ctxInfo) {
 DEF_GPUTEST_FOR_GL_RENDERING_CONTEXTS(SurfaceAttachStencil_Gpu, reporter, ctxInfo) {
     GrGpu* gpu = ctxInfo.grContext()->getGpu();
     if (!gpu) {
+        return;
+    }
+    if (gpu->caps()->avoidStencilBuffers()) {
         return;
     }
     static const uint32_t kOrigColor = 0xFFAABBCC;

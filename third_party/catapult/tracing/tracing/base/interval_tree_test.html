@@ -39,8 +39,7 @@ tr.b.unittest.testSuite(function() {
 
   function sortSimpleResults(intersection) {
     intersection.sort(function(a, b) {
-      if (a.start === b.start)
-        return a.end - b.end;
+      if (a.start === b.start) return a.end - b.end;
       return a.start - b.start;
     });
   }
@@ -51,7 +50,7 @@ tr.b.unittest.testSuite(function() {
     sortSimpleResults(intersection);
 
     var expected = [tree.v1, tree.v3, tree.v0, tree.v4, tree.v5, tree.v6];
-    assert.equal(intersection.length, 6);
+    assert.strictEqual(intersection.length, 6);
     assert.deepEqual(intersection, expected);
   });
 
@@ -61,7 +60,7 @@ tr.b.unittest.testSuite(function() {
     sortSimpleResults(intersection);
 
     var expected = [tree.v1, tree.v3];
-    assert.equal(intersection.length, 2);
+    assert.strictEqual(intersection.length, 2);
     assert.deepEqual(intersection, expected);
   });
 
@@ -99,7 +98,7 @@ tr.b.unittest.testSuite(function() {
         function(s) { return s.start; },
         function(s) { return s.end; });
 
-    assert.equal(tree.size, 0);
+    assert.strictEqual(tree.size, 0);
 
     tree.insert({start: 1, end: 4});
     tree.insert({start: 3, end: 5});
@@ -112,7 +111,7 @@ tr.b.unittest.testSuite(function() {
       'data': [[3, 5]]
     };
 
-    assert.equal(tree.size, 2);
+    assert.strictEqual(tree.size, 2);
     assert.deepEqual(tree.dump_(), outTree);
   });
 
@@ -121,7 +120,7 @@ tr.b.unittest.testSuite(function() {
         function(s) { return s.start; },
         function(s) { return s.end; });
 
-    assert.equal(tree.size, 0);
+    assert.strictEqual(tree.size, 0);
 
     tree.insert({start: 3, end: 5});
     tree.insert({start: 1, end: 4});
@@ -134,7 +133,7 @@ tr.b.unittest.testSuite(function() {
       'data': [[3, 5]]
     };
 
-    assert.equal(tree.size, 2);
+    assert.strictEqual(tree.size, 2);
     assert.deepEqual(tree.dump_(), outTree);
   });
 
@@ -143,10 +142,11 @@ tr.b.unittest.testSuite(function() {
         function(s) { return s.start; },
         function(s) { return s.end; });
 
-    assert.equal(tree.size, 0);
+    assert.strictEqual(tree.size, 0);
 
-    for (var i = 0; i < 10; ++i)
+    for (var i = 0; i < 10; ++i) {
       tree.insert({start: i, end: 5});
+    }
     tree.updateHighValues();
 
     var outTree = {
@@ -188,7 +188,7 @@ tr.b.unittest.testSuite(function() {
         function(s) { return s.start; },
         function(s) { return s.end; });
 
-    assert.equal(tree.size, 0);
+    assert.strictEqual(tree.size, 0);
 
     tree.insert({start: 1, end: 4});
     tree.insert({start: 3, end: 5});
@@ -203,7 +203,7 @@ tr.b.unittest.testSuite(function() {
       'data': [[3, 5], [3, 5], [3, 6]]
     };
 
-    assert.equal(tree.size, 4);
+    assert.strictEqual(tree.size, 4);
     assert.deepEqual(tree.dump_(), outTree);
   });
 
@@ -221,8 +221,7 @@ tr.b.unittest.testSuite(function() {
 
     var result = [];
     function walk(node) {
-      if (node === undefined)
-        return;
+      if (node === undefined) return;
 
       walk(node.leftNode);
       result.push([node.maxHighLeft, node.maxHighRight]);

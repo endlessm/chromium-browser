@@ -44,12 +44,10 @@ CONFIG_TYPE_DUMP_ORDER = (
     'sdk',
     'chromium-pfq',
     'chromium-pfq-informational',
-    'chromium-pfq-informational-gn',
     'chrome-perf',
     'chrome-pfq',
     'chrome-pfq-cheets-informational',
     'chrome-pfq-informational',
-    'chrome-pfq-informational-gn',
     'android-pfq',
     'config-updater',
     'pre-flight-branch',
@@ -334,6 +332,28 @@ class BuildConfig(AttrDict):
     """
     return self.deepcopy().apply(*args, **kwargs)
 
+  def AddSlave(self, slave):
+    """Assign slave config(s) to a build master.
+
+    A helper for adding slave configs to a master config.
+    """
+    assert self.master
+    if self['slave_configs'] is None:
+      self['slave_configs'] = []
+    self.slave_configs.append(slave.name)
+    self.slave_configs.sort()
+
+  def AddSlaves(self, slaves):
+    """Assign slave config(s) to a build master.
+
+    A helper for adding slave configs to a master config.
+    """
+    assert self.master
+    if self['slave_configs'] is None:
+      self['slave_configs'] = []
+    self.slave_configs.extend(slave_config.name for slave_config in slaves)
+    self.slave_configs.sort()
+
 
 class VMTestConfig(object):
   """Config object for virtual machine tests suites.
@@ -352,6 +372,26 @@ class VMTestConfig(object):
 
   def __eq__(self, other):
     return self.__dict__ == other.__dict__
+
+
+class GCETestConfig(object):
+  """Config object for GCE tests suites.
+
+  Members:
+    test_type: Test type to be run.
+    timeout: Number of seconds to wait before timing out waiting for
+             results.
+  """
+  DEFAULT_TEST_TIMEOUT = 60 * 60
+
+  def __init__(self, test_type, timeout=DEFAULT_TEST_TIMEOUT):
+    """Constructor -- see members above."""
+    self.test_type = test_type
+    self.timeout = timeout
+
+  def __eq__(self, other):
+    return self.__dict__ == other.__dict__
+
 
 class HWTestConfig(object):
   """Config object for hardware tests suites.
@@ -473,6 +513,10 @@ def DefaultSettings():
 
       # This bot pushes changes to the overlays.
       master=False,
+
+      # If this bot triggers slave builds, this will contain a list of
+      # slave config names.
+      slave_configs=None,
 
       # If False, this flag indicates that the CQ should not check whether
       # this bot passed or failed. Set this to False if you are setting up a
@@ -601,6 +645,9 @@ def DefaultSettings():
       # Uprev Android, values of 'latest_release', or None.
       android_rev=None,
 
+      # Which Android branch build do we try to uprev from.
+      android_import_branch=None,
+
       # Uprev Chrome, values of 'tot', 'stable_release', or None.
       chrome_rev=None,
 
@@ -665,9 +712,9 @@ def DefaultSettings():
       # If true, uploads individual image tarballs.
       upload_standalone_images=True,
 
-      # If true, runs tests as specified in overlay private gce_tests.json, or
-      # the default gce-smoke suite if none, on GCE VMs.
-      run_gce_tests=False,
+      # Default to not run gce tests. Currently only some lakitu builders run
+      # gce tests.
+      gce_tests=[],
 
       # List of patterns for portage packages for which stripped binpackages
       # should be uploaded to GS. The patterns are used to search for packages
@@ -1141,23 +1188,17 @@ class SiteConfig(dict):
     return both[0]
 
   def GetSlaveConfigMapForMaster(self, master_config, options=None,
-                                 important_only=True, active_only=True):
-    """Gets the slave builds corresponding to this master.
+                                 important_only=True):
+    """Gets the slave builds triggered by a master config.
 
-    A slave config is one that matches the master config in build_type,
-    chrome_rev, branch. For the full requirements see the logic in code below.
-
-    The master itself is eligible to be a slave (of itself) if it has boards.
-
-    TODO(dgarrett): Replace this with explicit master/slave defitions to make
-    the concept less Chrome OS specific. crbug.com/492382.
+    If a master builder also performs a build, it can (incorrectly) return
+    itself.
 
     Args:
       master_config: A build config for a master builder.
-      options: The options passed on the commandline. This argument is optional,
-               and only makes sense when called from cbuildbot.
+      options: The options passed on the commandline. This argument is required
+      for normal operation, but we accept None to assist with testing.
       important_only: If True, only get the important slaves.
-      active_only: If True, only get the slaves having active_waterfall.
 
     Returns:
       A slave_name to slave_config map, corresponding to the slaves for the
@@ -1167,32 +1208,29 @@ class SiteConfig(dict):
       AssertionError if the given config is not a master config or it does
         not have a manifest_version.
     """
-    assert master_config['manifest_version']
-    assert master_config['master']
+    assert master_config.manifest_version
+    assert master_config.master
+    assert master_config.slave_configs is not None
 
     slave_name_config_map = {}
     if options is not None and options.remote_trybot:
-      return slave_name_config_map
+      return {}
 
-    # TODO(davidjames): In CIDB the master isn't considered a slave of itself,
-    # so we probably shouldn't consider it a slave here either.
-    for build_config_name, build_config in self.iteritems():
-      if important_only and not build_config['important']:
-        continue
-      if active_only and not build_config['active_waterfall']:
-        continue
+    # Look up the build configs for all slaves named by the master.
+    slave_name_config_map = {
+        name: self[name] for name in master_config.slave_configs
+    }
 
-      if (build_config['manifest_version'] and
-          (not build_config['master'] or build_config['boards']) and
-          build_config['build_type'] == master_config['build_type'] and
-          build_config['chrome_rev'] == master_config['chrome_rev'] and
-          build_config['branch'] == master_config['branch']):
-        slave_name_config_map[build_config_name] = build_config
+    if important_only:
+      # Remove unimportant configs from the result.
+      slave_name_config_map = {
+          k: v for k, v in slave_name_config_map.iteritems() if v.important
+      }
 
     return slave_name_config_map
 
   def GetSlavesForMaster(self, master_config, options=None,
-                         important_only=True, active_only=True):
+                         important_only=True):
     """Get a list of qualified build slave configs given the master_config.
 
     Args:
@@ -1200,11 +1238,9 @@ class SiteConfig(dict):
       options: The options passed on the commandline. This argument is optional,
                and only makes sense when called from cbuildbot.
       important_only: If True, only get the important slaves.
-      active_only: If True, only get the slaves having active_waterfall.
     """
     slave_map = self.GetSlaveConfigMapForMaster(
-        master_config, options=options, important_only=important_only,
-        active_only=active_only)
+        master_config, options=options, important_only=important_only)
     return slave_map.values()
 
   #
@@ -1308,7 +1344,12 @@ class SiteConfig(dict):
       template: The template to use for all configs created.
       *args: Mixin templates to apply.
       **kwargs: Additional keyword arguments to be used in AddConfig.
+
+    Returns:
+      List of the configs created.
     """
+    result = []
+
     for board in boards:
       config_name = '%s-%s' % (board, suffix)
 
@@ -1318,7 +1359,10 @@ class SiteConfig(dict):
         mixins = mixins + (per_board[board],)
 
       # Create the new config for this board.
-      self.Add(config_name, template, *mixins, **kwargs)
+      result.append(
+          self.Add(config_name, template, *mixins, **kwargs))
+
+    return result
 
   def AddTemplate(self, name, *args, **kwargs):
     """Create a template named |name|.
@@ -1645,9 +1689,18 @@ def _CreateHwTestConfig(jsonString):
   return HWTestConfig(**hw_test_config)
 
 
+def _CreateGceTestConfig(jsonString):
+  """Create a GCETestConfig object from a JSON string."""
+  if isinstance(jsonString, GCETestConfig):
+    return jsonString
+  # Each GCE Test is dumped as a json string embedded in json.
+  gce_test_config = json.loads(jsonString, object_hook=_DecodeDict)
+  return GCETestConfig(**gce_test_config)
+
+
 def _UpdateConfig(build_dict):
   """Updates a config dictionary with recreated objects."""
-  # Both VM and HW test configs are serialized as strings (rather than JSON
+  # VM, HW and GCE test configs are serialized as strings (rather than JSON
   # objects), so we need to turn them into real objects before they can be
   # consumed.
   vmtests = build_dict.pop('vm_tests', None)
@@ -1673,6 +1726,11 @@ def _UpdateConfig(build_dict):
     ]
   else:
     build_dict['hw_tests_override'] = None
+
+  gcetests = build_dict.pop('gce_tests', None)
+  if gcetests is not None:
+    build_dict['gce_tests'] = [_CreateGceTestConfig(gcetest) for gcetest in
+                               gcetests]
 
 
 def _CreateBuildConfig(name, default, build_dict, templates):

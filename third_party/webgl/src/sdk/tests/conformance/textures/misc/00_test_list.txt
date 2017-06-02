@@ -1,6 +1,7 @@
 --max-version 1.9.9 compressed-tex-image.html
 copy-tex-image-and-sub-image-2d.html
 --min-version 1.0.2 copy-tex-image-2d-formats.html
+--min-version 1.0.4 copy-tex-image-crash.html
 --min-version 1.0.4 copytexsubimage2d-large-partial-copy-corruption.html
 --min-version 1.0.4 copytexsubimage2d-subrects.html 
 --min-version 1.0.4 cube-incomplete-fbo.html
@@ -26,6 +27,7 @@ texture-active-bind.html
 --min-version 1.0.2 texture-clear.html
 texture-complete.html
 --min-version 1.0.3 texture-copying-feedback-loops.html
+--min-version 1.0.4 texture-corner-case-videos.html
 --min-version 1.0.4 texture-cube-as-fbo-attachment.html
 --min-version 1.0.2 texture-hd-dpi.html
 --min-version 1.0.2 --max-version 1.9.9 texture-formats-test.html

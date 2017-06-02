@@ -22,7 +22,6 @@ from chromite.lib import git
 from chromite.lib import gs
 from chromite.lib import osutils
 from chromite.lib import path_util
-from chromite.lib import stats
 from chromite.cbuildbot import archive_lib
 from chromite.lib import config_lib
 from chromite.lib import constants
@@ -165,6 +164,8 @@ class SDKFetcher(object):
     """
     version = osutils.ReadFile(os.path.join(
         chrome_src_dir, constants.PATH_TO_CHROME_LKGM))
+    logging.debug('Loading LKGM version from "%s": %s',
+                  constants.PATH_TO_CHROME_LKGM, version)
     return version
 
   def _GetRepoCheckoutVersion(self, repo_root):
@@ -437,21 +438,8 @@ class ChromeSDKCommand(command.CliCommand):
   GOMACC_PORT_CMD = ['./gomacc', 'port']
   FETCH_GOMA_CMD = ['wget', _GOMA_URL]
 
-  # Override base class property to enable stats upload.
-  upload_stats = True
-
   # Override base class property to use cache related commandline options.
   use_caching_options = True
-
-  @property
-  def upload_stats_timeout(self):
-    # Give a longer timeout for interactive SDK shell invocations, since the
-    # user will not notice a longer wait because it's happening in the
-    # background.
-    if self.options.cmd:
-      return super(ChromeSDKCommand, self).upload_stats_timeout
-    else:
-      return stats.StatsUploader.UPLOAD_TIMEOUT
 
   @staticmethod
   def ValidateVersion(version):
@@ -495,12 +483,11 @@ class ChromeSDKCommand(command.CliCommand):
              'Chrome, rather than Chromium.')
     parser.add_argument(
         '--component', action='store_true', default=False,
-        help='Sets up SDK for building a componentized build of Chrome '
-             '(is_component_build=true in GN).')
+        help='Deprecated and ignored. Set is_component_build=true in args.gn '
+             'instead.')
     parser.add_argument(
         '--fastbuild', action='store_true', default=False,
-        help='Turn off debugging information for a faster build '
-             '(symbol_level=1 in GN).')
+        help='Deprecated and ignored. Set symbol_level=1 in args.gn instead.')
     parser.add_argument(
         '--use-external-config', action='store_true', default=False,
         help='Use the external configuration for the specified board, even if '
@@ -704,6 +691,13 @@ class ChromeSDKCommand(command.CliCommand):
     # SYSROOT is necessary for Goma and the sysroot wrapper.
     env['SYSROOT'] = sysroot
 
+    # Deprecated options warnings. TODO(stevenjb): Eliminate these entirely
+    # once removed from any builders.
+    if options.component:
+      logging.warning('--component is deprecated, ignoring')
+    if options.fastbuild:
+      logging.warning('--fastbuild is deprecated, ignoring')
+
     gn_args['target_sysroot'] = sysroot
     gn_args.pop('pkg_config', None)
     if options.clang:
@@ -715,14 +709,6 @@ class ChromeSDKCommand(command.CliCommand):
       gn_args.pop('is_chrome_branded', None)
       gn_args.pop('is_official_build', None)
       gn_args.pop('internal_gles2_conform_tests', None)
-    if options.component:
-      gn_args['is_component_build'] = True
-    if options.fastbuild:
-      # symbol_level corresponds to GYP's fastbuild (https://goo.gl/ZC4fUO).
-      gn_args['symbol_level'] = 1
-    else:
-      # Enable debug fission for GN.
-      gn_args['use_debug_fission'] = True
 
     # For SimpleChrome, we use the binutils that comes bundled within Chrome.
     # We should not use the binutils from the host system.

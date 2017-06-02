@@ -10,20 +10,23 @@
 </head>
 <body onload="generateTOC(document.getElementById('toc'))">
     <!--begin-logo-->
-    <div class=head>
-        <p>
-            <a href="http://khronos.org/">
-                <img alt=Khronos height=60 src="../../../resources/KhronosGroup-3D.png" width=220>
-            </a>
-        </p>
+    <div class="head">
+        <div class="left">
+            <p>
+                <a href="http://webgl.org/">
+                    <img alt="WebGL" width="240" height="100" src="../../../resources/WebGL-Logo.png"/>
+                </a>
+            </p>
+        </div>
+        <div class="right">
+            <p>
+                <a href="http://khronos.org/">
+                    <img alt=Khronos height=60 src="../../../resources/KhronosGroup-3D.png" width=220>
+                </a>
+            </p>
+        </div>
     </div>
-    <div class=head>
-        <p>
-            <a href="http://webgl.org/">
-                <img alt=WebGL height=72 src="../../../resources/WebGL-Logo.png" width=156>
-            </a>
-        </p>
-    </div>
+    <div style="clear: both;"></div>
     <!--end-logo-->
 
     <h1>WebGL 2 Specification</h1>
@@ -88,7 +91,7 @@
         This context allows rendering using an API that conforms closely to the OpenGL ES 3.0 API.
     </p>
     <p>
-      This document should be read as an extension to the <a href="https://www.khronos.org/registry/webgl/specs/1.0.2/">
+      This document should be read as an extension to the <a href="https://www.khronos.org/registry/webgl/specs/latest/1.0/">
         WebGL 1.0 specification</a>. It will only describe the differences from 1.0.</a>
 
     <h2 class="no-toc">Status of this document</h2>
@@ -3887,9 +3890,9 @@ WebGL2RenderingContext implements WebGL2RenderingContextBase;
     <h3>Normative references</h3>
     <dl>
         <dt id="refsWEBGL10">[WEBGL10]</dt>
-        <dd><cite><a href="http://www.khronos.org/registry/webgl/specs/1.0/">
-            WebGL Specification 1.0.2</a></cite>,
-            C. Marrin 2013.
+        <dd><cite><a href="http://www.khronos.org/registry/webgl/specs/latest/1.0/">
+            WebGL Specification 1.0.4 Editor's Draft</a></cite>,
+            Dean Jackson, Jeff Gilbert.
         </dd>
         <dt id="refsCANVAS">[CANVAS]</dt>
         <dd><cite><a href="http://www.w3.org/TR/html5/scripting-1.html#the-canvas-element">

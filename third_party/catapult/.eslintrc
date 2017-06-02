@@ -1,5 +1,8 @@
 {
     "extends": "google",
+    "parserOptions": {
+      "ecmaVersion": 2017,
+    },
     "plugins": ["html"],
     "rules": {
       "accessor-pairs": "off",
@@ -21,8 +24,9 @@
       "comma-spacing": "error",
       "comma-style": "error",
       "computed-property-spacing": "error",
+      "consistent-this": ["error", "void"],
       "constructor-super": "error",
-      "curly": "off",
+      "curly": ["error", "multi-line", "consistent"],
       "default-case": "off",
       "dot-location": "off",
       "dot-notation": "off",
@@ -57,6 +61,7 @@
       "no-confusing-arrow": ["error", {
         "allowParens": true
       }],
+      "no-console": "error",
       "no-constant-condition": "off",
       "no-control-regex": "off",
       "no-dupe-keys": "off",
@@ -118,7 +123,7 @@
       "operator-assignment": "off",
       "padded-blocks": ["error", "never"],
       "quote-props": ["error", "consistent"], ## TODO(alexandermont): want to eventually make this disallowQuotedKeysInObjects
-      "quotes": ["error", "single"],
+      "quotes": ["error", "single", {"allowTemplateLiterals": true}],
       "radix": "off",
       "require-jsdoc": "off",
       "semi": "error",

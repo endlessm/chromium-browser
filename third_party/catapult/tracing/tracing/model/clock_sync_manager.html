@@ -25,15 +25,16 @@ tr.exportTo('tr.model', function() {
         'WIN_ROLLOVER_PROTECTED_TIME_GET_TIME',
     WIN_QPC: 'WIN_QPC',
 
-    // "Telemetry" isn't really a clock domain because Telemetry actually
-    // can use one of several clock domains, just like Chrome. However,
-    // because there's a chance that Telemetry is running off of the same
-    // clock as Chrome (e.g. LINUX_CLOCK_MONOTONIC) but on a separate device
-    // (i.e. on a host computer with Chrome running on an attached phone),
-    // there's a chance that Chrome and Telemetry will erroneously get put into
+    // 'TELEMETRY' and 'SYSTRACE' aren't really clock domains because they
+    // actually can use one of several clock domains, just like Chrome. However,
+    // because there's a chance that they are running off of the same clock as
+    // Chrome (e.g. LINUX_CLOCK_MONOTONIC) but on a separate device (i.e. on a
+    // a host computer with Chrome running on an attached phone), there's a
+    // chance that Chrome and the controller will erroneously get put into
     // the same clock domain. The solution for this is that clock domains should
     // actually be some (unique_device_id, clock_id) tuple. For now, though,
     // we'll hack around this by putting Telemetry into its own clock domain.
+    SYSTRACE: 'SYSTRACE',
     TELEMETRY: 'TELEMETRY'
   };
 
@@ -118,8 +119,9 @@ tr.exportTo('tr.model', function() {
             'complete - cannot add a third clock sync marker to it.');
       }
 
-      if (markers[0].domainId === domainId)
+      if (markers[0].domainId === domainId) {
         throw new Error('A clock domain cannot sync with itself.');
+      }
 
       markers.push(marker);
       this.onSyncCompleted_(markers[0], marker);
@@ -150,8 +152,9 @@ tr.exportTo('tr.model', function() {
     getModelTimeTransformer: function(domainId) {
       this.onDomainSeen_(domainId);
 
-      if (!this.modelDomainId_)
+      if (!this.modelDomainId_) {
         this.selectModelDomainId_();
+      }
 
       return this.getTimeTransformerRaw_(domainId, this.modelDomainId_).fn;
     },
@@ -201,18 +204,19 @@ tr.exportTo('tr.model', function() {
 
         var current = queue.shift();
 
-        if (current.domainId === toDomainId)
+        if (current.domainId === toDomainId) {
           return current.transformer;
+        }
 
-        if (visitedDomainIds.has(current.domainId))
+        if (visitedDomainIds.has(current.domainId)) {
           continue;
+        }
         visitedDomainIds.add(current.domainId);
 
         var outgoingTransformers =
             this.transformerMapByDomainId_[current.domainId];
 
-        if (!outgoingTransformers)
-          continue;
+        if (!outgoingTransformers) continue;
 
         // Add all nodes that are directly connected to this one to the queue.
         for (var outgoingDomainId in outgoingTransformers) {
@@ -295,8 +299,9 @@ tr.exportTo('tr.model', function() {
         // one attached to UNKNOWN_CHROME_LEGACY and the other attached to the
         // real Chrome clock domain.
         for (var chromeDomainId of POSSIBLE_CHROME_CLOCK_DOMAINS) {
-          if (chromeDomainId === ClockDomainId.UNKNOWN_CHROME_LEGACY)
+          if (chromeDomainId === ClockDomainId.UNKNOWN_CHROME_LEGACY) {
             continue;
+          }
 
           this.collapseDomains_(
               ClockDomainId.UNKNOWN_CHROME_LEGACY, chromeDomainId);
@@ -337,10 +342,41 @@ tr.exportTo('tr.model', function() {
      * how to transform timestamps between directly connected clock domains.
      */
     getOrCreateTransformerMap_: function(domainId) {
-      if (!this.transformerMapByDomainId_[domainId])
+      if (!this.transformerMapByDomainId_[domainId]) {
         this.transformerMapByDomainId_[domainId] = {};
+      }
 
       return this.transformerMapByDomainId_[domainId];
+    },
+
+    /**
+     * @return {string} The clock sync graph represented in the DOT language.
+     * This is useful for debugging incorrect clock sync behavior.
+     */
+    computeDotGraph: function() {
+      let dotString = 'graph {\n';
+
+      const domainsSeen = [...this.domainsSeen_].sort();
+      for (const domainId of domainsSeen) {
+        dotString += `  ${domainId}[shape=box]\n`;
+      }
+
+      const markersBySyncIdEntries = [...this.markersBySyncId_.entries()].sort(
+          ([syncId1, markers1], [syncId2, markers2]) =>
+              syncId1.localeCompare(syncId2));
+
+      for (const [syncId, markers] of markersBySyncIdEntries) {
+        const sortedMarkers = markers.sort(
+            (a, b) => a.domainId.localeCompare(b.domainId));
+        for (const m of markers) {
+          dotString += `  "${syncId}" -- ${m.domainId} `;
+          dotString += `[label="[${m.startTs}, ${m.endTs}]"]\n`;
+        }
+      }
+
+      dotString += '}';
+
+      return dotString;
     }
   };
 

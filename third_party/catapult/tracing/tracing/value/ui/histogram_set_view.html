@@ -5,8 +5,10 @@ Use of this source code is governed by a BSD-style license that can be
 found in the LICENSE file.
 -->
 
-<link rel="import" href="/tracing/ui/base/tab_view.html">
-<link rel="import" href="/tracing/ui/brushing_state_controller.html">
+<link rel="import" href="/tracing/ui/null_brushing_state_controller.html">
+<link rel="import" href="/tracing/value/csv_builder.html">
+<link rel="import" href="/tracing/value/histogram_parameter_collector.html">
+<link rel="import" href="/tracing/value/ui/histogram_set_controls.html">
 <link rel="import" href="/tracing/value/ui/histogram_set_table.html">
 
 <dom-module id="tr-v-ui-histogram-set-view">
@@ -15,182 +17,49 @@ found in the LICENSE file.
     :host {
       font-family: sans-serif;
     }
+
+    #zero {
+      color: red;
+      /* histogram-set-table is used by both metrics-side-panel and results2.html.
+       * This font-size rule has no effect in results2.html, but improves
+       * legibility in the metrics-side-panel, which sets font-size in order to
+       * make this table denser.
+       */
+      font-size: initial;
+    }
+
+    #container {
+      display: none;
+    }
     </style>
 
-    <tr-v-ui-histogram-set-table id="histograms"></tr-v-ui-histogram-set-table>
+    <div id="zero">zero Histograms</div>
+
+    <div id="container">
+      <tr-v-ui-histogram-set-controls id="controls">
+      </tr-v-ui-histogram-set-controls>
+
+      <tr-v-ui-histogram-set-table id="table"></tr-v-ui-histogram-set-table>
+    </div>
   </template>
 </dom-module>
 
 <script>
 'use strict';
 tr.exportTo('tr.v.ui', function() {
-  function NullBrushingStateController() {
-    this.parentController = undefined;
-  }
-
-  NullBrushingStateController.prototype = {
-    __proto__: tr.c.BrushingStateController.prototype,
-
-    dispatchChangeEvent_() {
-      if (this.parentController) this.parentController.dispatchChangeEvent_();
-    },
-
-    get model() {
-      if (!this.parentController) return undefined;
-      return this.parentController.model;
-    },
-
-    get trackView() {
-      if (!this.parentController) return undefined;
-      return this.parentController.trackView;
-    },
-
-    get viewport() {
-      if (!this.parentController) return undefined;
-      return this.parentController.viewport;
-    },
-
-    get historyEnabled() {
-      if (!this.parentController) return undefined;
-      return this.parentController.historyEnabled;
-    },
-
-    set historyEnabled(historyEnabled) {
-      if (this.parentController) {
-        this.parentController.historyEnabled = historyEnabled;
-      }
-    },
-
-    modelWillChange() {
-      if (this.parentController) this.parentController.modelWillChange();
-    },
-
-    modelDidChange() {
-      if (this.parentController) this.parentController.modelDidChange();
-    },
-
-    onUserInitiatedSelectionChange_() {
-      if (this.parentController) {
-        this.parentController.onUserInitiatedSelectionChange_();
-      }
-    },
-
-    onPopState_(e) {
-      if (this.parentController) this.parentController.onPopState_(e);
-    },
-
-    get selection() {
-      if (!this.parentController) return undefined;
-      return this.parentController.selection;
-    },
-
-    get findMatches() {
-      if (!this.parentController) return undefined;
-      return this.parentController.findMatches;
-    },
-
-    get selectionOfInterest() {
-      if (!this.parentController) return undefined;
-      return this.parentController.selectionOfInterest;
-    },
-
-    get currentBrushingState() {
-      if (!this.parentController) return undefined;
-      return this.parentController.currentBrushingState;
-    },
-
-    set currentBrushingState(newBrushingState) {
-      if (this.parentController) {
-        this.parentController.currentBrushingState = newBrushingState;
-      }
-    },
-
-    addAllEventsMatchingFilterToSelectionAsTask(filter, selection) {
-      if (this.parentController) {
-        this.parentController.addAllEventsMatchingFilterToSelectionAsTask(
-            filter, selection);
-      }
-    },
-
-    findTextChangedTo(allPossibleMatches) {
-      if (this.parentController) {
-        this.parentController.findTextChangedTo(allPossibleMatches);
-      }
-    },
-
-    findFocusChangedTo(currentFocus) {
-      if (this.parentController) {
-        this.parentController.findFocusChangedTo(currentFocus);
-      }
-    },
-
-    findTextCleared() {
-      if (this.parentController) {
-        this.parentController.findTextCleared();
-      }
-    },
-
-    uiStateFromString(string) {
-      if (this.parentController) {
-        this.parentController.uiStateFromString(string);
-      }
-    },
-
-    navToPosition(uiState, showNavLine) {
-      if (this.parentController) {
-        this.parentController.navToPosition(uiState, showNavLine);
-      }
-    },
-
-    changeSelectionFromTimeline(selection) {
-      if (this.parentController) {
-        this.parentController.changeSelectionFromTimeline(selection);
-      }
-    },
-
-    showScriptControlSelection(selection) {
-      if (this.parentController) {
-        this.parentController.showScriptControlSelection(selection);
-      }
-    },
-
-    changeSelectionFromRequestSelectionChangeEvent(selection) {
-      if (this.parentController) {
-        this.parentController.changeSelectionFromRequestSelectionChangeEvent(
-            selection);
-      }
-    },
-
-    changeAnalysisViewRelatedEvents(eventSet) {
-      if (this.parentController && (eventSet instanceof tr.model.EventSet)) {
-        this.parentController.changeAnalysisViewRelatedEvents(eventSet);
-      }
-    },
-
-    changeAnalysisLinkHoveredEvents(eventSet) {
-      if (this.parentController && (eventSet instanceof tr.model.EventSet)) {
-        this.parentController.changeAnalysisLinkHoveredEvents(eventSet);
-      }
-    },
-
-    getViewSpecificBrushingState(viewId) {
-      if (this.parentController) {
-        this.parentController.getViewSpecificBrushingState(viewId);
-      }
-    },
-
-    changeViewSpecificBrushingState(viewId, newState) {
-      if (this.parentController) {
-        this.parentController.changeViewSpecificBrushingState(viewId, newState);
-      }
-    }
-  };
-
   Polymer({
     is: 'tr-v-ui-histogram-set-view',
 
+    created() {
+      this.brushingStateController_ = new tr.ui.NullBrushingStateController();
+      this.viewState_ = new tr.v.ui.HistogramSetViewState();
+    },
+
     ready() {
-      this.brushingStateController = new NullBrushingStateController();
+      this.$.table.viewState = this.viewState;
+      this.$.controls.viewState = this.viewState;
+      this.$.controls.addEventListener(
+          'download-csv', this.downloadCSV_.bind(this));
     },
 
     attached() {
@@ -198,18 +67,75 @@ tr.exportTo('tr.v.ui', function() {
           tr.c.BrushingStateController.getControllerForElement(this.parentNode);
     },
 
+    get brushingStateController() {
+      return this.brushingStateController_;
+    },
+
+    get viewState() {
+      return this.viewState_;
+    },
+
     set helpHref(href) {
-      this.$.histograms.helpHref = href;
+      this.$.controls.helpHref = href;
+    },
+
+    get histograms() {
+      return this.$.table.histograms;
     },
 
     /**
      * @param {!tr.v.HistogramSet} histograms
+     * @param {function(string):!Promise=} opt_progress
      */
-    set histograms(histograms) {
-      this.$.histograms.histograms = histograms;
+    async build(histograms, opt_progress) {
+      const progress = opt_progress || (() => Promise.resolve());
+
+      if (histograms === undefined || histograms.length === 0) {
+        this.$.container.style.display = 'none';
+        this.$.zero.style.display = 'block';
+        this.style.display = 'block';
+        return;
+      }
+      this.$.zero.style.display = 'none';
+      this.$.container.style.display = 'block';
+      this.$.container.style.maxHeight = (window.innerHeight - 16) + 'px';
+
+      await progress('Finding important Histograms...');
+      const sourceHistograms = histograms.sourceHistograms;
+      // Disable show_all if all values are sourceHistograms.
+      this.$.controls.showAllEnabled = (
+          sourceHistograms.length !== histograms.length);
+
+      await progress('Collecting parameters...');
+      const parameterCollector = new tr.v.HistogramParameterCollector();
+      parameterCollector.process(histograms);
+      this.$.controls.baseStatisticNames = parameterCollector.statisticNames;
+      this.$.controls.possibleGroupings = parameterCollector.possibleGroupings;
+      const displayLabels = parameterCollector.labels;
+      this.$.controls.displayLabels = displayLabels;
+
+      // Table.build() displays its own progress.
+      await this.$.table.build(
+          histograms, sourceHistograms, displayLabels, progress);
+    },
+
+    downloadCSV_() {
+      const anchor = document.createElement('a');
+
+      const path = window.location.pathname.split('/');
+      const basename = path[path.length - 1].split('.')[0] || 'histograms';
+      anchor.download = basename + '.csv';
+
+      const csv = new tr.v.CSVBuilder(this.$.table.leafHistograms);
+      csv.build();
+      const blob = new window.Blob([csv.toString()], {type: 'text/csv'});
+      anchor.href = window.URL.createObjectURL(blob);
+
+      anchor.click();
     }
   });
 
-  return {};
+  return {
+  };
 });
 </script>

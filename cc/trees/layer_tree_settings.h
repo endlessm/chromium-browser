@@ -10,7 +10,7 @@
 #include <vector>
 
 #include "base/time/time.h"
-#include "cc/base/cc_export.h"
+#include "cc/cc_export.h"
 #include "cc/debug/layer_tree_debug_state.h"
 #include "cc/output/managed_memory_policy.h"
 #include "cc/output/renderer_settings.h"
@@ -27,8 +27,6 @@ class CC_EXPORT LayerTreeSettings {
   LayerTreeSettings(const LayerTreeSettings& other);
   virtual ~LayerTreeSettings();
 
-  bool operator==(const LayerTreeSettings& other) const;
-
   SchedulerSettings ToSchedulerSettings() const;
   TileManagerSettings ToTileManagerSettings() const;
 
@@ -44,6 +42,7 @@ class CC_EXPORT LayerTreeSettings {
   int gpu_rasterization_msaa_sample_count = 0;
   float gpu_rasterization_skewport_target_time_in_seconds = 0.2f;
   bool create_low_res_tiling = false;
+  bool use_stream_video_draw_quad = false;
 
   enum ScrollbarAnimator {
     NO_ANIMATOR,
@@ -51,10 +50,9 @@ class CC_EXPORT LayerTreeSettings {
     AURA_OVERLAY,
   };
   ScrollbarAnimator scrollbar_animator = NO_ANIMATOR;
-  base::TimeDelta scrollbar_show_delay;
-  base::TimeDelta scrollbar_fade_out_delay;
+  base::TimeDelta scrollbar_fade_delay;
   base::TimeDelta scrollbar_fade_out_resize_delay;
-  base::TimeDelta scrollbar_fade_out_duration;
+  base::TimeDelta scrollbar_fade_duration;
   base::TimeDelta scrollbar_thinning_duration;
   SkColor solid_color_scrollbar_color = SK_ColorWHITE;
   bool timeout_and_draw_when_animation_checkerboards = true;
@@ -82,7 +80,6 @@ class CC_EXPORT LayerTreeSettings {
   bool ignore_root_layer_flings = false;
   size_t scheduled_raster_task_limit = 32;
   bool use_occlusion_for_tile_prioritization = false;
-  bool verify_clip_tree_calculations = false;
 
   // TODO(khushalsagar): Enable for all client and remove this flag if possible.
   // See crbug/com/696864.
@@ -92,11 +89,11 @@ class CC_EXPORT LayerTreeSettings {
   int max_staging_buffer_usage_in_bytes = 32 * 1024 * 1024;
   ManagedMemoryPolicy gpu_memory_policy;
   ManagedMemoryPolicy software_memory_policy;
-  size_t gpu_decoded_image_budget_bytes = 96 * 1024 * 1024;
-  size_t software_decoded_image_budget_bytes = 128 * 1024 * 1024;
+  size_t decoded_image_cache_budget_bytes = 128 * 1024 * 1024;
+  size_t decoded_image_working_set_budget_bytes = 128 * 1024 * 1024;
   int max_preraster_distance_in_screen_pixels = 1000;
 
-  bool enable_color_correct_rendering = false;
+  bool enable_color_correct_rasterization = false;
 
   // TODO(sunxd): remove this flag when filter demoting and aa of mask layers
   // are implemented.
@@ -108,6 +105,14 @@ class CC_EXPORT LayerTreeSettings {
   bool enable_checker_imaging = false;
 
   LayerTreeDebugState initial_debug_state;
+
+  // Indicates that the LayerTreeHost should defer commits unless it has a valid
+  // LocalSurfaceId set.
+  bool enable_surface_synchronization = false;
+
+  // Indicates the case when a sub-frame gets its own LayerTree because it's
+  // rendered in a different process from its ancestor frames.
+  bool is_layer_tree_for_subframe = false;
 };
 
 }  // namespace cc

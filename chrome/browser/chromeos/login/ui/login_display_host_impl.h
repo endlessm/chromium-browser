@@ -11,7 +11,7 @@
 #include <string>
 #include <vector>
 
-#include "ash/common/shell_observer.h"
+#include "ash/shell_observer.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/chromeos/login/app_launch_controller.h"
@@ -122,7 +122,8 @@ class LoginDisplayHostImpl : public LoginDisplayHost,
   void OnActiveOutputNodeChanged() override;
 
   // ash::ShellObserver:
-  void OnVirtualKeyboardStateChanged(bool activated) override;
+  void OnVirtualKeyboardStateChanged(bool activated,
+                                     ash::WmWindow* root_window) override;
 
   // Overridden from keyboard::KeyboardControllerObserver:
   void OnKeyboardBoundsChanging(const gfx::Rect& new_bounds) override;

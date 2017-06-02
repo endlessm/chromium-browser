@@ -10,6 +10,30 @@
 
 #include "test_utils/gl_raii.h"
 
+namespace
+{
+
+bool ConstantColorAndAlphaBlendFunctions(GLenum first, GLenum second)
+{
+    return (first == GL_CONSTANT_COLOR || first == GL_ONE_MINUS_CONSTANT_COLOR) &&
+           (second == GL_CONSTANT_ALPHA || second == GL_ONE_MINUS_CONSTANT_ALPHA);
+}
+
+void CheckBlendFunctions(GLenum src, GLenum dst)
+{
+    if (ConstantColorAndAlphaBlendFunctions(src, dst) ||
+        ConstantColorAndAlphaBlendFunctions(dst, src))
+    {
+        EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+    }
+    else
+    {
+        ASSERT_GL_NO_ERROR();
+    }
+}
+
+}  // namespace
+
 namespace angle
 {
 
@@ -33,8 +57,6 @@ class WebGLCompatibilityTest : public ANGLETest
         glRequestExtensionANGLE = reinterpret_cast<PFNGLREQUESTEXTENSIONANGLEPROC>(
             eglGetProcAddress("glRequestExtensionANGLE"));
     }
-
-    void TearDown() override { ANGLETest::TearDown(); }
 
     // Called from RenderingFeedbackLoopWithDrawBuffersEXT.
     void drawBuffersEXTFeedbackLoop(GLuint program,
@@ -124,6 +146,45 @@ TEST_P(WebGLCompatibilityTest, EnableExtensionUintIndices)
 
         glDrawElements(GL_TRIANGLES, 2, GL_UNSIGNED_INT, nullptr);
         EXPECT_GL_NO_ERROR();
+    }
+}
+
+// Test enabling the GL_EXT_texture_filter_anisotropic extension
+TEST_P(WebGLCompatibilityTest, EnableExtensionTextureFilterAnisotropic)
+{
+    EXPECT_FALSE(extensionEnabled("GL_EXT_texture_filter_anisotropic"));
+
+    GLfloat maxAnisotropy = 0.0f;
+    glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, &maxAnisotropy);
+    EXPECT_GL_ERROR(GL_INVALID_ENUM);
+
+    GLTexture texture;
+    glBindTexture(GL_TEXTURE_2D, texture.get());
+    ASSERT_GL_NO_ERROR();
+
+    glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, 1.0f);
+    EXPECT_GL_ERROR(GL_INVALID_ENUM);
+
+    GLfloat currentAnisotropy = 0.0f;
+    glGetTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, &currentAnisotropy);
+    EXPECT_GL_ERROR(GL_INVALID_ENUM);
+
+    if (extensionRequestable("GL_EXT_texture_filter_anisotropic"))
+    {
+        glRequestExtensionANGLE("GL_EXT_texture_filter_anisotropic");
+        EXPECT_GL_NO_ERROR();
+        EXPECT_TRUE(extensionEnabled("GL_EXT_texture_filter_anisotropic"));
+
+        glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, &maxAnisotropy);
+        ASSERT_GL_NO_ERROR();
+        EXPECT_GE(maxAnisotropy, 2.0f);
+
+        glGetTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, &currentAnisotropy);
+        ASSERT_GL_NO_ERROR();
+        EXPECT_EQ(1.0f, currentAnisotropy);
+
+        glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, 2.0f);
+        ASSERT_GL_NO_ERROR();
     }
 }
 
@@ -219,10 +280,12 @@ TEST_P(WebGLCompatibilityTest, ForbidsClientSideElementBuffer)
     glVertexAttribPointer(posLocation, 3, GL_FLOAT, GL_FALSE, 0, 0);
     glEnableVertexAttribArray(posLocation);
 
-    const GLubyte indices[] = {0, 1, 2, 3, 4, 5};
-
     ASSERT_GL_NO_ERROR();
-    glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_BYTE, indices);
+
+    // Use the pointer with value of 1 for indices instead of an actual pointer because WebGL also
+    // enforces that the top bit of indices must be 0 (i.e. offset >= 0) and would generate
+    // GL_INVALID_VALUE in that case. Using a null pointer gets caught by another check.
+    glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_BYTE, reinterpret_cast<const void*>(intptr_t(1)));
     EXPECT_GL_ERROR(GL_INVALID_OPERATION);
 }
 
@@ -421,6 +484,16 @@ TEST_P(WebGLCompatibilityTest, DrawElementsBufferOutOfBoundsInIndexBuffer)
     // Test any offset if valid if count is zero
     glDrawElements(GL_POINTS, 0, GL_UNSIGNED_BYTE, zeroOffset + 42);
     ASSERT_GL_NO_ERROR();
+
+    // Test touching the first index is valid
+    glDrawElements(GL_POINTS, 4, GL_UNSIGNED_BYTE, zeroOffset + 4);
+    ASSERT_GL_NO_ERROR();
+
+    // Test touching the first - 1 index is invalid
+    // The error ha been specified to be INVALID_VALUE instead of INVALID_OPERATION because it was
+    // the historic behavior of WebGL implementations
+    glDrawElements(GL_POINTS, 4, GL_UNSIGNED_BYTE, zeroOffset - 1);
+    EXPECT_GL_ERROR(GL_INVALID_VALUE);
 }
 
 // Test depth range with 'near' more or less than 'far.'
@@ -434,6 +507,50 @@ TEST_P(WebGLCompatibilityTest, DepthRange)
 
     glDepthRangef(1, 0);
     EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+}
+
+// Test all blend function combinations.
+// In WebGL it is invalid to combine constant color with constant alpha.
+TEST_P(WebGLCompatibilityTest, BlendWithConstantColor)
+{
+    constexpr GLenum srcFunc[] = {
+        GL_ZERO,
+        GL_ONE,
+        GL_SRC_COLOR,
+        GL_ONE_MINUS_SRC_COLOR,
+        GL_DST_COLOR,
+        GL_ONE_MINUS_DST_COLOR,
+        GL_SRC_ALPHA,
+        GL_ONE_MINUS_SRC_ALPHA,
+        GL_DST_ALPHA,
+        GL_ONE_MINUS_DST_ALPHA,
+        GL_CONSTANT_COLOR,
+        GL_ONE_MINUS_CONSTANT_COLOR,
+        GL_CONSTANT_ALPHA,
+        GL_ONE_MINUS_CONSTANT_ALPHA,
+        GL_SRC_ALPHA_SATURATE,
+    };
+
+    constexpr GLenum dstFunc[] = {
+        GL_ZERO,           GL_ONE,
+        GL_SRC_COLOR,      GL_ONE_MINUS_SRC_COLOR,
+        GL_DST_COLOR,      GL_ONE_MINUS_DST_COLOR,
+        GL_SRC_ALPHA,      GL_ONE_MINUS_SRC_ALPHA,
+        GL_DST_ALPHA,      GL_ONE_MINUS_DST_ALPHA,
+        GL_CONSTANT_COLOR, GL_ONE_MINUS_CONSTANT_COLOR,
+        GL_CONSTANT_ALPHA, GL_ONE_MINUS_CONSTANT_ALPHA,
+    };
+
+    for (GLenum src : srcFunc)
+    {
+        for (GLenum dst : dstFunc)
+        {
+            glBlendFunc(src, dst);
+            CheckBlendFunctions(src, dst);
+            glBlendFuncSeparate(src, dst, GL_ONE, GL_ONE);
+            CheckBlendFunctions(src, dst);
+        }
+    }
 }
 
 // Test the checks for OOB reads in the vertex buffers, instanced version
@@ -929,6 +1046,37 @@ void WebGLCompatibilityTest::drawBuffersFeedbackLoop(GLuint program,
     EXPECT_GL_ERROR(expectedError);
 }
 
+// Tests invariance matching rules between built in varyings.
+// Based on WebGL test conformance/glsl/misc/shaders-with-invariance.html.
+TEST_P(WebGLCompatibilityTest, BuiltInInvariant)
+{
+    const std::string vertexShaderVariant =
+        "varying vec4 v_varying;\n"
+        "void main()\n"
+        "{\n"
+        "    gl_PointSize = 1.0;\n"
+        "    gl_Position = v_varying;\n"
+        "}";
+    const std::string fragmentShaderInvariantGlFragCoord =
+        "invariant gl_FragCoord;\n"
+        "void main()\n"
+        "{\n"
+        "    gl_FragColor = gl_FragCoord;\n"
+        "}";
+    const std::string fragmentShaderInvariantGlPointCoord =
+        "invariant gl_PointCoord;\n"
+        "void main()\n"
+        "{\n"
+        "    gl_FragColor = vec4(gl_PointCoord, 0.0, 0.0);\n"
+        "}";
+
+    GLuint program = CompileProgram(vertexShaderVariant, fragmentShaderInvariantGlFragCoord);
+    EXPECT_EQ(0u, program);
+
+    program = CompileProgram(vertexShaderVariant, fragmentShaderInvariantGlPointCoord);
+    EXPECT_EQ(0u, program);
+}
+
 // This tests that rendering feedback loops works as expected with WebGL 2.
 // Based on WebGL test conformance2/rendering/rendering-sampling-feedback-loop.html
 TEST_P(WebGL2CompatibilityTest, RenderingFeedbackLoopWithDrawBuffers)
@@ -1138,6 +1286,94 @@ TEST_P(WebGL2CompatibilityTest, TextureCopyingFeedbackLoop3D)
 
     glCopyTexSubImage3D(GL_TEXTURE_3D, 1, 0, 0, 0, 0, 0, 2, 2);
     EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+}
+
+// Verify that errors are generated when there isn not a defined conversion between the clear type
+// and the buffer type.
+TEST_P(WebGL2CompatibilityTest, ClearBufferTypeCompatibity)
+{
+    if (IsD3D11())
+    {
+        std::cout << "Test skipped because it generates D3D11 runtime warnings." << std::endl;
+        return;
+    }
+
+    constexpr float clearFloat[]       = {0.0f, 0.0f, 0.0f, 0.0f};
+    constexpr int clearInt[]           = {0, 0, 0, 0};
+    constexpr unsigned int clearUint[] = {0, 0, 0, 0};
+
+    GLTexture texture;
+    GLFramebuffer framebuffer;
+
+    glBindTexture(GL_TEXTURE_2D, texture.get());
+    glBindFramebuffer(GL_FRAMEBUFFER, framebuffer.get());
+
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture.get(), 0);
+    ASSERT_GL_NO_ERROR();
+
+    // Unsigned integer buffer
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32UI, 1, 1, 0, GL_RGBA_INTEGER, GL_UNSIGNED_INT, nullptr);
+    ASSERT_GL_NO_ERROR();
+
+    glClearBufferfv(GL_COLOR, 0, clearFloat);
+    EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+
+    glClearBufferiv(GL_COLOR, 0, clearInt);
+    EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+
+    glClearBufferuiv(GL_COLOR, 0, clearUint);
+    EXPECT_GL_NO_ERROR();
+
+    glClear(GL_COLOR_BUFFER_BIT);
+    EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+
+    // Integer buffer
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32I, 1, 1, 0, GL_RGBA_INTEGER, GL_INT, nullptr);
+    ASSERT_GL_NO_ERROR();
+
+    glClearBufferfv(GL_COLOR, 0, clearFloat);
+    EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+
+    glClearBufferiv(GL_COLOR, 0, clearInt);
+    EXPECT_GL_NO_ERROR();
+
+    glClearBufferuiv(GL_COLOR, 0, clearUint);
+    EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+
+    glClear(GL_COLOR_BUFFER_BIT);
+    EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+
+    // Float buffer
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, 1, 1, 0, GL_RGBA, GL_FLOAT, nullptr);
+    ASSERT_GL_NO_ERROR();
+
+    glClearBufferfv(GL_COLOR, 0, clearFloat);
+    EXPECT_GL_NO_ERROR();
+
+    glClearBufferiv(GL_COLOR, 0, clearInt);
+    EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+
+    glClearBufferuiv(GL_COLOR, 0, clearUint);
+    EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+
+    glClear(GL_COLOR_BUFFER_BIT);
+    EXPECT_GL_NO_ERROR();
+
+    // Normalized uint buffer
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    ASSERT_GL_NO_ERROR();
+
+    glClearBufferfv(GL_COLOR, 0, clearFloat);
+    EXPECT_GL_NO_ERROR();
+
+    glClearBufferiv(GL_COLOR, 0, clearInt);
+    EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+
+    glClearBufferuiv(GL_COLOR, 0, clearUint);
+    EXPECT_GL_ERROR(GL_INVALID_OPERATION);
+
+    glClear(GL_COLOR_BUFFER_BIT);
+    EXPECT_GL_NO_ERROR();
 }
 
 // Use this to select which configurations (e.g. which renderer, which GLES major version) these

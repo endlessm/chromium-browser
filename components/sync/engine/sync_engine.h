@@ -181,12 +181,13 @@ class SyncEngine : public ModelTypeConfigurer {
   virtual void RefreshTypesForTest(ModelTypeSet types) = 0;
 
   // See SyncManager::ClearServerData.
-  virtual void ClearServerData(
-      const SyncManager::ClearServerDataCallback& callback) = 0;
+  virtual void ClearServerData(const base::Closure& callback) = 0;
 
   // Notify the syncer that the cookie jar has changed.
   // See SyncManager::OnCookieJarChanged.
-  virtual void OnCookieJarChanged(bool account_mismatch, bool empty_jar) = 0;
+  virtual void OnCookieJarChanged(bool account_mismatch,
+                                  bool empty_jar,
+                                  const base::Closure& callback) = 0;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(SyncEngine);

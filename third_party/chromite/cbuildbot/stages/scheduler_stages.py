@@ -56,6 +56,17 @@ class ScheduleSlavesStage(generic_stages.BuilderStage):
                     More context: crbug.com/661689
       dryrun: Whether a dryrun.
     """
+    tags = ['buildset:%s' % buildset_tag,
+            'build_type:%s' % build_config.build_type,
+            'master:False',
+            'cbb_config:%s' % build_name,
+            'cbb_branch:%s' % self._run.manifest_branch,
+            'cbb_master_build_id:%s' % master_build_id]
+
+    if build_config.boards:
+      for board in build_config.boards:
+        tags.append('board:%s' % board)
+
     body = json.dumps({
         'bucket': self._GetBuildbucketBucket(build_name, build_config),
         'parameters_json': json.dumps({
@@ -66,12 +77,7 @@ class ScheduleSlavesStage(generic_stages.BuilderStage):
                 'cbb_master_build_id': master_build_id,
             }
         }),
-        'tags':['buildset:%s' % buildset_tag,
-                'build_type:%s' % build_config.build_type,
-                'master:False',
-                'cbb_config:%s' % build_name,
-                'cbb_branch:%s' % self._run.manifest_branch,
-                'cbb_master_build_id:%s' % master_build_id]
+        'tags': tags
     })
 
     content = self.buildbucket_client.PutBuildRequest(body, dryrun)
@@ -134,8 +140,7 @@ class ScheduleSlavesStage(generic_stages.BuilderStage):
   @failures_lib.SetFailureType(failures_lib.InfrastructureFailure)
   def PerformStage(self):
     if (config_lib.IsMasterCQ(self._run.config) and
-        not (self.sync_stage.pool.applied or
-             self.sync_stage.pool.has_chump_cls)):
+        not self.sync_stage.pool.HasPickedUpCLs()):
       logging.info('No new CLs or chumpped CLs found to verify in this CQ run,'
                    'do not schedule CQ slaves.')
       return

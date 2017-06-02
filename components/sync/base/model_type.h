@@ -17,7 +17,6 @@
 namespace base {
 class ListValue;
 class Value;
-using StringValue = Value;
 }
 
 namespace sync_pb {
@@ -133,6 +132,8 @@ enum ModelType {
   PRINTERS,
   // Reading list items.
   READING_LIST,
+  // Commit only user events.
+  USER_EVENTS,
 
   // ---- Proxy types ----
   // Proxy types are excluded from the sync protocol, but are still considered
@@ -286,7 +287,7 @@ int ModelTypeToHistogramInt(ModelType model_type);
 // Handles all model types, and not just real ones.
 //
 // Caller takes ownership of returned value.
-base::StringValue* ModelTypeToValue(ModelType model_type);
+base::Value* ModelTypeToValue(ModelType model_type);
 
 // Converts a Value into a ModelType - complement to ModelTypeToValue().
 ModelType ModelTypeFromValue(const base::Value& value);

@@ -10,12 +10,15 @@ import os
 
 from chromite.cbuildbot import cbuildbot_run
 from chromite.cbuildbot import commands
-from chromite.lib import constants
-from chromite.lib import failures_lib
-from chromite.lib import results_lib
 from chromite.cbuildbot.stages import generic_stages
+from chromite.lib import config_lib
+from chromite.lib import constants
 from chromite.lib import cros_logging as logging
+from chromite.lib import failures_lib
+from chromite.lib import gs
 from chromite.lib import osutils
+from chromite.lib import portage_util
+from chromite.lib import results_lib
 
 ANDROIDPIN_MASK_PATH = os.path.join(constants.SOURCE_ROOT,
                                     constants.CHROMIUMOS_OVERLAY_DIR,
@@ -152,13 +155,15 @@ class AndroidMetadataStage(generic_stages.BuilderStage,
 
     if self.android_version:
       logging.PrintBuildbotStepText('tag %s' % self.android_version)
+    if self.android_branch:
+      logging.PrintBuildbotStepText('branch %s' % self.android_branch)
 
   def _WriteAndroidVersionToMetadata(self):
     """Write Android version to metadata and upload partial json file."""
     self._run.attrs.metadata.UpdateKeyDictWithDict(
         'version',
         {'android': self._run.attrs.android_version,
-         'android-branch':  self._run.attrs.android_branch})
+         'android-branch': self._run.attrs.android_branch})
     self.UploadMetadata(filename=constants.PARTIAL_METADATA_JSON)
 
   def Finish(self):
@@ -166,5 +171,52 @@ class AndroidMetadataStage(generic_stages.BuilderStage,
     # Even if the stage failed, a None value for android_version still
     # means something.  In other words, this stage tried to run.
     self._run.attrs.android_version = self.android_version
+    self._run.attrs.android_branch = self.android_branch
     self._WriteAndroidVersionToMetadata()
     super(AndroidMetadataStage, self).Finish()
+
+
+class DownloadAndroidDebugSymbolsStage(generic_stages.BoardSpecificBuilderStage,
+                                       generic_stages.ArchivingStageMixin):
+  """Stage that downloads Android debug symbols.
+
+  Downloaded archive will be picked up by DebugSymbolsStage.
+  """
+
+  @failures_lib.SetFailureType(failures_lib.InfrastructureFailure)
+  def PerformStage(self):
+    if not config_lib.IsCanaryType(self._run.config.build_type):
+      logging.info('This stage runs only in release builders.')
+      return
+
+    # Get the Android versions set by AndroidMetadataStage.
+    version_dict = self._run.attrs.metadata.GetDict().get('version', {})
+    android_build_branch = version_dict.get('android-branch')
+    android_version = version_dict.get('android')
+
+    # On boards not supporting Android, versions will be None.
+    if not (android_build_branch and android_version):
+      logging.info('Android is not enabled on this board. Skipping.')
+      return
+
+    logging.info(
+        'Downloading symbols of Android %s (%s)...',
+        android_version, android_build_branch)
+
+    board_use_flags = portage_util.GetBoardUseFlags(self._current_board)
+    arch = None
+    for arch_use_flag, arch in constants.ARC_USE_FLAG_TO_ARCH.items():
+      if arch_use_flag in board_use_flags:
+        break
+    if not arch:
+      raise AssertionError(
+          'Could not determine the arch of %s.' % self._current_board)
+
+    symbols_file_url = constants.ANDROID_SYMBOLS_URL_TEMPLATE % {
+        'branch': android_build_branch,
+        'arch': arch,
+        'version': android_version}
+    symbols_file = os.path.join(self.archive_path,
+                                constants.ANDROID_SYMBOLS_FILE)
+    gs_context = gs.GSContext()
+    gs_context.Copy(symbols_file_url, symbols_file)

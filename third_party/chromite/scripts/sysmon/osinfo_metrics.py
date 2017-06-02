@@ -2,13 +2,11 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-# Copyright (c) 2015 The Chromium Authors. All rights reserved.
-# Use of this source code is governed by a BSD-style license that can be
-# found in the LICENSE file.
-
 """System metrics."""
 
+from __future__ import absolute_import
 from __future__ import print_function
+from __future__ import unicode_literals
 
 import collections
 import platform
@@ -33,7 +31,7 @@ _python_arch_metric = ts_mon.StringMetric(
     description='python userland architecture on this machine')
 
 
-def get_os_info():
+def collect_os_info():
   os_info = _get_osinfo()
   _os_name_metric.set(os_info.name)
   _os_version_metric.set(os_info.version)

@@ -106,8 +106,9 @@ tr.exportTo('tr.v.d', function() {
 
     static fromObject(obj) {
       let diagnostics = new DiagnosticMap();
-      for (let [name, diagnostic] of Object.entries(obj))
+      for (let [name, diagnostic] of Object.entries(obj)) {
         diagnostics.set(name, diagnostic);
+      }
       return diagnostics;
     }
 

@@ -47,7 +47,7 @@ Polymer({
     this.currentSelection_ = selection;
 
     var objectEvents = tr.b.asArray(selection).sort(
-        tr.b.Range.compareByMinTimes);
+        tr.b.math.Range.compareByMinTimes);
 
     var timeSpanConfig = {
       unit: tr.b.Unit.byName.timeStampInMs,
@@ -58,8 +58,9 @@ Polymer({
       {
         title: 'First',
         value: function(event) {
-          if (event instanceof tr.model.ObjectSnapshot)
+          if (event instanceof tr.model.ObjectSnapshot) {
             return tr.v.ui.createScalarSpan(event.ts, timeSpanConfig);
+          }
 
           var spanEl = document.createElement('span');
           Polymer.dom(spanEl).appendChild(tr.v.ui.createScalarSpan(

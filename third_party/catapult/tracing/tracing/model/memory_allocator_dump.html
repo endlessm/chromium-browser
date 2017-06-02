@@ -87,28 +87,28 @@ tr.exportTo('tr.model', function() {
     },
 
     isDescendantOf: function(otherDump) {
-      var dump = this;
-      while (dump !== undefined) {
-        if (dump === otherDump)
-          return true;
-        dump = dump.parent;
-      }
-      return false;
+      if (this === otherDump) return true;
+      if (this.parent === undefined) return false;
+      return this.parent.isDescendantOf(otherDump);
     },
 
     addNumeric: function(name, numeric) {
-      if (!(numeric instanceof tr.b.Scalar))
+      if (!(numeric instanceof tr.b.Scalar)) {
         throw new Error('Numeric value must be an instance of Scalar.');
-      if (name in this.numerics)
+      }
+      if (name in this.numerics) {
         throw new Error('Duplicate numeric name: ' + name + '.');
+      }
       this.numerics[name] = numeric;
     },
 
     addDiagnostic: function(name, text) {
-      if (typeof text !== 'string')
+      if (typeof text !== 'string') {
         throw new Error('Diagnostic text must be a string.');
-      if (name in this.diagnostics)
+      }
+      if (name in this.diagnostics) {
         throw new Error('Duplicate diagnostic name: ' + name + '.');
+      }
       this.diagnostics[name] = text;
     },
 
@@ -119,8 +119,9 @@ tr.exportTo('tr.model', function() {
       // numeric names.
       this.children.forEach(function(child) {
         child.aggregateNumericsRecursively(opt_model);
-        for (var [item, value] of Object.entries(child.numerics))
+        for (var [item, value] of Object.entries(child.numerics)) {
           numericNames.add(item, value);
+        }
       }, this);
 
       // Aggregate children's numerics.
@@ -151,8 +152,7 @@ tr.exportTo('tr.model', function() {
 
     // Aggregate the units and sum up the values of the numerics.
     numerics.forEach(function(numeric) {
-      if (numeric === undefined)
-        return;
+      if (numeric === undefined) return;
 
       var unit = numeric.unit;
       if (aggregatedUnit === undefined) {
@@ -174,8 +174,7 @@ tr.exportTo('tr.model', function() {
       aggregatedValue += numeric.value;
     }, this);
 
-    if (aggregatedUnit === undefined)
-      return undefined;
+    if (aggregatedUnit === undefined) return undefined;
 
     return new tr.b.Scalar(aggregatedUnit, aggregatedValue);
   };

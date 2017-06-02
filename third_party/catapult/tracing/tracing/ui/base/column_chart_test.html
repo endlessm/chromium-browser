@@ -23,18 +23,12 @@ tr.b.unittest.testSuite(function() {
     key.target = 'orange ipsum';
     key.color = 'orange';
     this.addHTMLOutput(key);
-    key.addEventListener('requestSelectionChange', function(e) {
-      console.debug(e);
-    });
 
     key = document.createElement('tr-ui-b-chart-legend-key');
     key.target = 'brown dolor';
     key.color = 'brown';
     key.textContent = 'dolor sit amet';
     this.addHTMLOutput(key);
-    key.addEventListener('requestSelectionChange', function(e) {
-      console.debug(e);
-    });
   });
 
   test('instantiation_legendTargets', function() {
@@ -48,9 +42,6 @@ tr.b.unittest.testSuite(function() {
     chart.hideXAxis = true;
     this.addHTMLOutput(chart);
     chart.data = [{x: 0, foo: 3, lorem_ipsum: 5, bar: 1, qux: 2}];
-    chart.addEventListener('requestSelectionChange', function(e) {
-      console.debug(e);
-    });
 
     assert.isDefined(tr.b.findDeepElementMatchingPredicate(
         chart, function(element) {
@@ -124,7 +115,7 @@ tr.b.unittest.testSuite(function() {
       {x: 40, alpha: 50, beta: 125}
     ];
 
-    var r = new tr.b.Range();
+    var r = new tr.b.math.Range();
     r.addValue(20);
     r.addValue(40);
     chart.brushedRange = r;
@@ -141,7 +132,7 @@ tr.b.unittest.testSuite(function() {
       {x: 40, alpha: 50, beta: 125}
     ];
 
-    var r = new tr.b.Range();
+    var r = new tr.b.math.Range();
     r.addValue(20);
     r.addValue(40);
     chart.brushedRange = r;
@@ -181,25 +172,25 @@ tr.b.unittest.testSuite(function() {
       {x: 120, value: 90}
     ];
     chart.data = data;
-    var r = new tr.b.Range();
+    var r = new tr.b.math.Range();
 
     // Range min should be 10.
     r = chart.computeBrushRangeFromIndices(-2, 1);
-    assert.equal(r.min, 10);
+    assert.strictEqual(r.min, 10);
 
     // Range max should be 120.
     r = chart.computeBrushRangeFromIndices(3, 10);
-    assert.equal(r.max, 120);
+    assert.strictEqual(r.max, 120);
 
     // Range should be [10, 120]
     r = chart.computeBrushRangeFromIndices(-2, 10);
-    assert.equal(r.min, 10);
-    assert.equal(r.max, 120);
+    assert.strictEqual(r.min, 10);
+    assert.strictEqual(r.max, 120);
 
     // Range should be [20, 100]
     r = chart.computeBrushRangeFromIndices(1, 3);
-    assert.equal(r.min, 20);
-    assert.equal(r.max, 100);
+    assert.strictEqual(r.min, 20);
+    assert.strictEqual(r.max, 100);
   });
 
   test('instantiation_interactiveBrushing', function() {
@@ -221,10 +212,10 @@ tr.b.unittest.testSuite(function() {
 
     function updateBrushedRange() {
       if (mouseDownX === undefined || (mouseDownX === curMouseX)) {
-        chart.brushedRange = new tr.b.Range();
+        chart.brushedRange = new tr.b.math.Range();
         return;
       }
-      var r = new tr.b.Range();
+      var r = new tr.b.math.Range();
       r.min = Math.min(mouseDownX, curMouseX);
       r.max = Math.max(mouseDownX, curMouseX);
       chart.brushedRange = r;
@@ -236,8 +227,7 @@ tr.b.unittest.testSuite(function() {
       updateBrushedRange();
     });
     chart.addEventListener('item-mousemove', function(e) {
-      if (e.button === undefined)
-        return;
+      if (e.button === undefined) return;
       curMouseX = e.x;
       updateBrushedRange();
     });
@@ -249,7 +239,7 @@ tr.b.unittest.testSuite(function() {
 
   test('overrideDataRange', function() {
     var chart = new tr.ui.b.ColumnChart();
-    chart.overrideDataRange = tr.b.Range.fromExplicitRange(10, 90);
+    chart.overrideDataRange = tr.b.math.Range.fromExplicitRange(10, 90);
     this.addHTMLOutput(chart);
     chart.data = [
       {x: 0, value: 0},
@@ -257,7 +247,7 @@ tr.b.unittest.testSuite(function() {
     ];
 
     chart = new tr.ui.b.ColumnChart();
-    chart.overrideDataRange = tr.b.Range.fromExplicitRange(-10, 100);
+    chart.overrideDataRange = tr.b.math.Range.fromExplicitRange(-10, 100);
     this.addHTMLOutput(chart);
     chart.data = [
       {x: 0, value: 0},

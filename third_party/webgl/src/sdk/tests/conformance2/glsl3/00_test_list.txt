@@ -14,6 +14,7 @@ const-array-init.html
 --min-version 2.0.1 float-parsing.html
 forbidden-operators.html
 frag-depth.html
+--min-version 2.0.1 gradient-in-discontinuous-loop.html
 invalid-default-precision.html
 invalid-invariant.html
 loops-with-side-effects.html
@@ -36,6 +37,8 @@ texture-offset-out-of-range.html
 uniform-block-layouts.html
 uniform-block-layout-match.html
 uniform-location-length-limits.html
+--min-version 2.0.1 uniform-struct-with-non-square-matrix.html
 valid-invariant.html
 vector-dynamic-indexing.html
 --min-version 2.0.1 vector-dynamic-indexing-nv-driver-bug.html
+--min-version 2.0.1 vector-dynamic-indexing-swizzled-lvalue.html

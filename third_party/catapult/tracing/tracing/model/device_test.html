@@ -13,37 +13,9 @@ found in the LICENSE file.
 'use strict';
 
 tr.b.unittest.testSuite(function() {
-  function newModel(events, callback) {
-    return tr.c.TestUtils.newModelWithEvents([events], {
-      shiftWorldToZero: false,
-      pruneContainers: false,
-      customizeModelCallback: callback
-    });
-  }
-
   var Device = tr.model.Device;
   var Model = tr.Model;
   var PowerSeries = tr.model.PowerSeries;
-
-  test('bestGuessAtCpuCount_noData', function() {
-    var m = newModel([]);
-    assert.isUndefined(m.device.bestGuessAtCpuCount);
-  });
-
-  test('bestGuessAtCpuCount', function() {
-    var m = newModel([], (m) => {
-      var c1 = m.device.getOrCreateCpu(1);
-      var c2 = m.device.getOrCreateCpu(2);
-    });
-    assert.equal(m.device.bestGuessAtCpuCount, 2);
-  });
-
-  test('bestGuessAtCpuCount_softwareCpuCount', function() {
-    var m = newModel([], (m) => {
-      m.device.softwareMeasuredCpuCount = 2;
-    });
-    assert.equal(m.device.bestGuessAtCpuCount, 2);
-  });
 
   test('updateBounds', function() {
     var device = new Device(new Model());
@@ -54,15 +26,15 @@ tr.b.unittest.testSuite(function() {
     device.powerSeries.addPowerSample(200, 5);
     device.updateBounds();
 
-    assert.equal(device.bounds.min, 100);
-    assert.equal(device.bounds.max, 200);
+    assert.strictEqual(device.bounds.min, 100);
+    assert.strictEqual(device.bounds.max, 200);
 
     // Add a new sample and verify that the bounds change.
     device.powerSeries.addPowerSample(700, 5);
     device.updateBounds();
 
-    assert.equal(device.bounds.min, 100);
-    assert.equal(device.bounds.max, 700);
+    assert.strictEqual(device.bounds.min, 100);
+    assert.strictEqual(device.bounds.max, 700);
   });
 
   test('shiftTimestampsForward', function() {
@@ -73,15 +45,16 @@ tr.b.unittest.testSuite(function() {
     device.powerSeries.addPowerSample(200, 2);
     device.shiftTimestampsForward(2);
 
-    assert.equal(device.powerSeries.samples[0].start, 102);
-    assert.equal(device.powerSeries.samples[1].start, 202);
+    assert.strictEqual(device.powerSeries.samples[0].start, 102);
+    assert.strictEqual(device.powerSeries.samples[1].start, 202);
   });
 
   test('childEventContainers_noPowerSeries', function() {
     var device = new Device(new Model());
     var childEventContainers = [];
-    for (var container of device.childEventContainers())
+    for (var container of device.childEventContainers()) {
       childEventContainers.push(container);
+    }
     assert.deepEqual(childEventContainers, []);
   });
 
@@ -89,8 +62,9 @@ tr.b.unittest.testSuite(function() {
     var device = new Device(new Model());
     device.powerSeries = new PowerSeries(device);
     var childEventContainers = [];
-    for (var container of device.childEventContainers())
+    for (var container of device.childEventContainers()) {
       childEventContainers.push(container);
+    }
     assert.deepEqual(childEventContainers, [device.powerSeries]);
   });
 });

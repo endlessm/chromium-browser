@@ -365,20 +365,32 @@ class GerritHelper(object):
       return
     gob_util.SetTopic(self.host, self._to_changenum(change), topic=topic)
 
-  def RemoveReady(self, change, extra_labels=None, dryrun=False):
-    """Set the 'Commit-Queue' and 'Trybot-Ready' labels on a |change| to '0'."""
-    labels_to_reset = {'Commit-Queue', 'Trybot-Ready'}
-    if extra_labels is not None:
-      labels_to_reset |= extra_labels
+  def SetHashtags(self, change, add, remove, dryrun=False):
+    """Add/Remove hashtags for a gerrit change.
 
+    Args:
+      change: A gerrit change number.
+      add: a list of hashtags to add.
+      remove: a list of hashtags to remove.
+      dryrun: If True, don't actually set the hashtag.
+    """
     if dryrun:
-      logging.info('Would have reset %s labels for '
-                   '%s', ', '.join(labels_to_reset), change)
+      logging.info('Would add %r and remove %r for change %s',
+                   add, remove, change)
       return
+    gob_util.SetHashtags(self.host, self._to_changenum(change),
+                         add=add, remove=remove)
 
-    for label in labels_to_reset:
-      gob_util.ResetReviewLabels(self.host, self._to_changenum(change),
-                                 label=label, notify='OWNER')
+  def RemoveReady(self, change, dryrun=False):
+    """Set the 'Commit-Queue' and 'Trybot-Ready' labels on a |change| to '0'."""
+    if dryrun:
+      logging.info('Would have reset Commit-Queue and Trybot-Ready label for '
+                   '%s', change)
+      return
+    gob_util.ResetReviewLabels(self.host, self._to_changenum(change),
+                               label='Commit-Queue', notify='OWNER')
+    gob_util.ResetReviewLabels(self.host, self._to_changenum(change),
+                               label='Trybot-Ready', notify='OWNER')
 
   def SubmitChange(self, change, dryrun=False):
     """Land (merge) a gerrit change using the JSON API."""

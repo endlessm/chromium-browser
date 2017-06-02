@@ -63,6 +63,7 @@
 #include "webrtc/media/base/videocapturer.h"
 #include "webrtc/media/engine/webrtcvideodecoderfactory.h"
 #include "webrtc/media/engine/webrtcvideoencoderfactory.h"
+#include "webrtc/modules/utility/include/jvm_android.h"
 #include "webrtc/system_wrappers/include/field_trial.h"
 #include "webrtc/pc/webrtcsdp.h"
 #include "webrtc/sdk/android/src/jni/androidmediadecoder_jni.h"
@@ -206,13 +207,6 @@ class ConstraintsWrapper;
 // and dispatches C++ callbacks to Java.
 class PCOJava : public PeerConnectionObserver {
  public:
-  // We need these using declarations because there are two versions of each of
-  // the below methods and we only override one of them.
-  // TODO(deadbeef): Remove once there's only one version of the methods.
-  using PeerConnectionObserver::OnAddStream;
-  using PeerConnectionObserver::OnRemoveStream;
-  using PeerConnectionObserver::OnDataChannel;
-
   PCOJava(JNIEnv* jni, jobject j_observer)
       : j_observer_global_(jni, j_observer),
         j_observer_class_(jni, GetObjectClass(jni, *j_observer_global_)),
@@ -1138,25 +1132,19 @@ JOW(jlong, PeerConnectionFactory_nativeCreateObserver)(
   return (jlong)new PCOJava(jni, j_observer);
 }
 
-JOW(jboolean, PeerConnectionFactory_initializeAndroidGlobals)
+JOW(void, PeerConnectionFactory_initializeAndroidGlobals)
 (JNIEnv* jni,
  jclass,
  jobject context,
- jboolean initialize_audio,
- jboolean initialize_video,
  jboolean video_hw_acceleration) {
-  bool failure = false;
   video_hw_acceleration_enabled = video_hw_acceleration;
   AndroidNetworkMonitor::SetAndroidContext(jni, context);
   if (!factory_static_initialized) {
     RTC_DCHECK(j_application_context == nullptr);
     j_application_context = NewGlobalRef(jni, context);
-
-    if (initialize_audio)
-      failure |= webrtc::VoiceEngine::SetAndroidObjects(GetJVM(), context);
+    webrtc::JVM::Initialize(GetJVM(), context);
     factory_static_initialized = true;
   }
-  return !failure;
 }
 
 JOW(void, PeerConnectionFactory_initializeFieldTrials)(
@@ -1796,6 +1784,9 @@ static void JavaRTCConfigurationToJsepRTCConfiguration(
   jclass j_integer_class = jni->FindClass("java/lang/Integer");
   jmethodID int_value_id = GetMethodID(jni, j_integer_class, "intValue", "()I");
 
+  jfieldID j_disable_ipv6_on_wifi_id =
+      GetFieldID(jni, j_rtc_config_class, "disableIPv6OnWifi", "Z");
+
   rtc_config->type =
       JavaIceTransportsTypeToNativeType(jni, j_ice_transports_type);
   rtc_config->bundle_policy =
@@ -1832,6 +1823,8 @@ static void JavaRTCConfigurationToJsepRTCConfiguration(
     rtc_config->ice_check_min_interval =
         rtc::Optional<int>(ice_check_min_interval_value);
   }
+  rtc_config->disable_ipv6_on_wifi =
+      GetBooleanField(jni, j_rtc_config, j_disable_ipv6_on_wifi_id);
 }
 
 JOW(jlong, PeerConnectionFactory_nativeCreatePeerConnection)(

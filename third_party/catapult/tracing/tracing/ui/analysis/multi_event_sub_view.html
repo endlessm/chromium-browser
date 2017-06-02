@@ -80,8 +80,7 @@ tr.exportTo('tr.ui.analysis', function() {
     var diagnostics = {};
     for (var item of EVENT_FIELD) {
       var fieldName = item.key;
-      if (slice[fieldName] === undefined)
-        continue;
+      if (slice[fieldName] === undefined) continue;
       diagnostics[fieldName] = new tr.v.d.Scalar(new tr.b.Scalar(
         tr.b.Unit.byName.timeDurationInMs, slice[fieldName]));
     }
@@ -109,6 +108,7 @@ tr.exportTo('tr.ui.analysis', function() {
       });
 
       this.$.histogramSpan.graphWidth = 400;
+      this.$.histogramSpan.canMergeSampleDiagnostics = false;
       this.$.histogramContainer.style.display = 'none';
     },
 
@@ -117,8 +117,9 @@ tr.exportTo('tr.ui.analysis', function() {
     },
 
     set selection(selection) {
-      if (selection.length <= 1)
+      if (selection.length <= 1) {
         throw new Error('Only supports multiple items');
+      }
       this.setSelectionWithoutErrorChecks(selection);
     },
 
@@ -151,7 +152,7 @@ tr.exportTo('tr.ui.analysis', function() {
 
     buildHistogram_(selectedKey) {
       var leftBoundary = Number.MAX_VALUE;
-      var rightBoundary = tr.b.Statistics.percentile(
+      var rightBoundary = tr.b.math.Statistics.percentile(
           this.currentSelection_, 0.95,
           function(value) {
             leftBoundary = Math.min(leftBoundary, value[selectedKey]);

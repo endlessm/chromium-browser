@@ -35,8 +35,6 @@ class WebGLFramebufferTest : public ANGLETest
             eglGetProcAddress("glRequestExtensionANGLE"));
     }
 
-    void TearDown() override { ANGLETest::TearDown(); }
-
     void drawUByteColorQuad(GLuint program, GLint uniformLoc, const GLColor &color);
     void testDepthStencilDepthStencil(GLint width, GLint height);
     void testDepthStencilRenderbuffer(GLint width,
@@ -795,6 +793,35 @@ TEST_P(WebGLFramebufferTest, CheckValidColorDepthCombination)
         testUsingIncompleteFramebuffer(depthFormat, depthAttachment);
         testReadingFromMissingAttachment();
     }
+}
+
+// Test to cover a bug in preserving the texture image index for WebGL framebuffer attachments
+TEST_P(WebGLFramebufferTest, TextureAttachmentCommitBug)
+{
+    if (extensionRequestable("GL_ANGLE_depth_texture"))
+    {
+        glRequestExtensionANGLE("GL_ANGLE_depth_texture");
+    }
+
+    if (!extensionEnabled("GL_ANGLE_depth_texture"))
+    {
+        std::cout << "Test skipped because depth textures are not available.\n";
+        return;
+    }
+
+    GLTexture depthTexture;
+    glBindTexture(GL_TEXTURE_2D, depthTexture.get());
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, 1, 1, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT,
+                 nullptr);
+
+    GLFramebuffer framebuffer;
+    glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, depthTexture.get(),
+                           0);
+
+    glCheckFramebufferStatus(GL_FRAMEBUFFER);
+
+    EXPECT_GL_NO_ERROR();
 }
 
 // Only run against WebGL 1 validation, since much was changed in 2.

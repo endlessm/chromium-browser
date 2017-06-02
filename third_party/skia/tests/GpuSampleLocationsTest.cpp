@@ -91,21 +91,8 @@ public:
     virtual ~TestSampleLocationsInterface() {}
 };
 
-static void construct_dummy_pipeline(GrRenderTargetContext* dc, GrPipeline* pipeline) {
-    GrPipelineBuilder dummyBuilder(GrPaint(), GrAAType::kNone);
-    GrScissorState dummyScissor;
-    GrWindowRectsState dummyWindows;
-
-    GrAppliedClip dummyAppliedClip(SkRect::MakeLargest());
-    GrProcessorSet::FragmentProcessorAnalysis analysis;
-    GrPipeline::InitArgs args;
-    dummyBuilder.getPipelineInitArgs(&args);
-    args.fRenderTarget = dc->accessRenderTarget();
-    args.fAnalysis = &analysis;
-    args.fCaps = dc->caps();
-    args.fAppliedClip = &dummyAppliedClip;
-    args.fDstTexture = GrXferProcessor::DstTexture();
-    pipeline->init(args);
+static sk_sp<GrPipeline> construct_dummy_pipeline(GrRenderTargetContext* dc) {
+    return sk_sp<GrPipeline>(new GrPipeline(dc->accessRenderTarget(), SkBlendMode::kSrcOver));
 }
 
 void assert_equal(skiatest::Reporter* reporter, const SamplePattern& pattern,
@@ -150,11 +137,10 @@ void test_sampleLocations(skiatest::Reporter* reporter, TestSampleLocationsInter
         for (int i = 0; i < numTestPatterns; ++i) {
             testInterface->overrideSamplePattern(kTestPatterns[i]);
             for (GrRenderTargetContext* dc : {bottomUps[i].get(), topDowns[i].get()}) {
-                GrPipeline dummyPipeline;
-                construct_dummy_pipeline(dc, &dummyPipeline);
+                sk_sp<GrPipeline> dummyPipeline = construct_dummy_pipeline(dc);
                 GrRenderTarget* rt = dc->accessRenderTarget();
                 assert_equal(reporter, kTestPatterns[i],
-                             rt->renderTargetPriv().getMultisampleSpecs(dummyPipeline),
+                             rt->renderTargetPriv().getMultisampleSpecs(*dummyPipeline),
                              kBottomLeft_GrSurfaceOrigin == rt->origin());
             }
         }
@@ -204,6 +190,11 @@ private:
 DEF_GPUTEST(GLSampleLocations, reporter, /*factory*/) {
     GLTestSampleLocationsInterface testInterface;
     sk_sp<GrContext> ctx(GrContext::Create(kOpenGL_GrBackend, testInterface));
+
+    // This test relies on at least 2 samples.
+    if (ctx->caps()->maxSampleCount() < 2) {
+        return;
+    }
     test_sampleLocations(reporter, &testInterface, ctx.get());
 }
 

@@ -26,7 +26,6 @@ if version != (2, 7):
 import optparse
 import os
 import time
-from distutils.spawn import find_executable
 
 _SYSTRACE_DIR = os.path.abspath(
     os.path.join(os.path.dirname(__file__), os.path.pardir))
@@ -46,9 +45,11 @@ from systrace.tracing_agents import atrace_agent
 from systrace.tracing_agents import atrace_from_file_agent
 from systrace.tracing_agents import battor_trace_agent
 from systrace.tracing_agents import ftrace_agent
+from systrace.tracing_agents import walt_agent
+
 
 ALL_MODULES = [atrace_agent, atrace_from_file_agent,
-               battor_trace_agent, ftrace_agent]
+               battor_trace_agent, ftrace_agent, walt_agent]
 
 
 def parse_options(argv):
@@ -92,10 +93,27 @@ def parse_options(argv):
 
   return (options, categories)
 
+def find_adb():
+  """Finds adb on the path.
+
+  This method is provided to avoid the issue of diskutils.spawn's
+  find_executable which first searches the current directory before
+  searching $PATH. That behavior results in issues where systrace.py
+  uses a different adb than the one in the path.
+  """
+  paths = os.environ['PATH'].split(os.pathsep)
+  executable = 'adb'
+  if sys.platform == 'win32':
+    executable = executable + '.exe'
+  for p in paths:
+    f = os.path.join(p, executable)
+    if os.path.isfile(f):
+      return f
+  return None
 
 def initialize_devil():
   """Initialize devil to use adb from $PATH"""
-  adb_path = find_executable('adb')
+  adb_path = find_adb()
   if adb_path is None:
     print >> sys.stderr, "Unable to find adb, is it in your path?"
     sys.exit(1)

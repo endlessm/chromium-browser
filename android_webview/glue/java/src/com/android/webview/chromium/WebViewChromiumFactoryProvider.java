@@ -16,6 +16,7 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Looper;
 import android.os.Process;
+import android.os.StrictMode;
 import android.os.UserManager;
 import android.provider.Settings;
 import android.util.Log;
@@ -63,7 +64,6 @@ import org.chromium.base.library_loader.LibraryLoader;
 import org.chromium.base.library_loader.LibraryProcessType;
 import org.chromium.base.library_loader.NativeLibraries;
 import org.chromium.base.library_loader.ProcessInitException;
-import org.chromium.content.browser.ContentViewStatics;
 import org.chromium.content.browser.input.LGEmailActionModeWorkaround;
 import org.chromium.net.NetworkChangeNotifier;
 
@@ -248,8 +248,15 @@ public class WebViewChromiumFactoryProvider implements WebViewFactoryProvider {
         System.loadLibrary("webviewchromium_plat_support");
 
         // Use shared preference to check for package downgrade.
-        mWebViewPrefs = ContextUtils.getApplicationContext().getSharedPreferences(
-                CHROMIUM_PREFS_NAME, Context.MODE_PRIVATE);
+        // Since N, getSharedPreferences creates the preference dir if it doesn't exist,
+        // causing a disk write.
+        StrictMode.ThreadPolicy oldPolicy = StrictMode.allowThreadDiskWrites();
+        try {
+            mWebViewPrefs = ContextUtils.getApplicationContext().getSharedPreferences(
+                    CHROMIUM_PREFS_NAME, Context.MODE_PRIVATE);
+        } finally {
+            StrictMode.setThreadPolicy(oldPolicy);
+        }
         int lastVersion = mWebViewPrefs.getInt(VERSION_CODE_PREF, 0);
         int currentVersion = packageInfo.versionCode;
         if (!versionCodeGE(currentVersion, lastVersion)) {
@@ -335,10 +342,7 @@ public class WebViewChromiumFactoryProvider implements WebViewFactoryProvider {
                     new AwNetworkChangeNotifierRegistrationPolicy());
         }
 
-        int targetSdkVersion = applicationContext.getApplicationInfo().targetSdkVersion;
-        // TODO(sgurun) We need to change this to > N_MR1 when we roll N_MR1 sdk or
-        //  >= O when we roll O SDK to upstream. crbug/688556
-        AwContentsStatics.setCheckClearTextPermitted(targetSdkVersion > 25);
+        AwContentsStatics.setCheckClearTextPermitted(BuildInfo.targetsAtLeastO(applicationContext));
     }
 
     private void ensureChromiumStartedLocked(boolean onMainThread) {
@@ -385,7 +389,7 @@ public class WebViewChromiumFactoryProvider implements WebViewFactoryProvider {
     // lives in the ui/ layer. See ui/base/ui_base_paths.h
     private static final int DIR_RESOURCE_PAKS_ANDROID = 3003;
 
-    private void startChromiumLocked() {
+    protected void startChromiumLocked() {
         assert Thread.holdsLock(mLock) && ThreadUtils.runningOnUiThread();
 
         // The post-condition of this method is everything is ready, so notify now to cover all
@@ -405,10 +409,13 @@ public class WebViewChromiumFactoryProvider implements WebViewFactoryProvider {
         PathService.override(PathService.DIR_MODULE, "/system/lib/");
         PathService.override(DIR_RESOURCE_PAKS_ANDROID, "/system/framework/webview/paks");
 
+        final Context context = ContextUtils.getApplicationContext();
+        // Future calls to PlatformServiceBridge.getInstance() rely on it having been created here.
+        PlatformServiceBridge.getOrCreateInstance();
+
         // Make sure that ResourceProvider is initialized before starting the browser process.
         final PackageInfo webViewPackageInfo = WebViewFactory.getLoadedPackageInfo();
         final String webViewPackageName = webViewPackageInfo.packageName;
-        final Context context = ContextUtils.getApplicationContext();
         setUpResources(webViewPackageInfo, context);
         initPlatSupportLibrary();
         doNetworkInitializations(context);
@@ -422,18 +429,17 @@ public class WebViewChromiumFactoryProvider implements WebViewFactoryProvider {
             AwBrowserProcess.handleMinidumps(webViewPackageName, true /* enabled */);
         }
 
-        // Actions conditioned on whether the Android Checkbox is toggled on
-        PlatformServiceBridge.getInstance(context)
-                .queryMetricsSetting(new ValueCallback<Boolean>() {
-                    public void onReceiveValue(Boolean enabled) {
-                        ThreadUtils.assertOnUiThread();
-                        AwMetricsServiceClient.setConsentSetting(context, enabled);
+        PlatformServiceBridge.getInstance().queryMetricsSetting(new ValueCallback<Boolean>() {
+            // Actions conditioned on whether the Android Checkbox is toggled on
+            public void onReceiveValue(Boolean enabled) {
+                ThreadUtils.assertOnUiThread();
+                AwMetricsServiceClient.setConsentSetting(context, enabled);
 
-                        if (!enableMinidumpUploadingForTesting) {
-                            AwBrowserProcess.handleMinidumps(webViewPackageName, enabled);
-                        }
-                    }
-                });
+                if (!enableMinidumpUploadingForTesting) {
+                    AwBrowserProcess.handleMinidumps(webViewPackageName, enabled);
+                }
+            }
+        });
 
         if (CommandLineUtil.isBuildDebuggable()) {
             setWebContentsDebuggingEnabled(true);
@@ -525,7 +531,7 @@ public class WebViewChromiumFactoryProvider implements WebViewFactoryProvider {
                 mStaticMethods = new WebViewFactoryProvider.Statics() {
                     @Override
                     public String findAddress(String addr) {
-                        return ContentViewStatics.findAddress(addr);
+                        return AwContentsStatics.findAddress(addr);
                     }
 
                     @Override

@@ -39,6 +39,15 @@ class TestTimelinebasedMeasurementPage(page_module.Page):
       with action_runner.CreateGestureInteraction('Scroll'):
         action_runner.ScrollPage()
 
+class FailedTimelinebasedMeasurementPage(page_module.Page):
+
+  def __init__(self, ps, base_dir):
+    super(FailedTimelinebasedMeasurementPage, self).__init__(
+        'file://interaction_enabled_page.html', ps, base_dir)
+
+  def RunPageInteractions(self, action_runner):
+    action_runner.TapElement('#does-not-exist')
+
 
 class TimelineBasedPageTestTest(page_test_test_case.PageTestTestCase):
 
@@ -114,6 +123,21 @@ class TimelineBasedPageTestTest(page_test_test_case.PageTestTestCase):
         'Gesture_Scroll', 'frame_time_discrepancy')
     self.assertEquals(len(v), 1)
 
+  @decorators.Isolated
+  def testTraceCaptureUponFailure(self):
+    ps = self.CreateEmptyPageSet()
+    ps.AddStory(FailedTimelinebasedMeasurementPage(ps, ps.base_dir))
+
+    options = tbm_module.Options()
+    options.config.enable_chrome_trace = True
+    options.SetTimelineBasedMetrics(['sampleMetric'])
+
+    tbm = tbm_module.TimelineBasedMeasurement(options)
+    results = self.RunMeasurement(tbm, ps, self._options)
+
+    self.assertEquals(1, len(results.failures))
+    self.assertEquals(1, len(results.FindAllTraceValues()))
+
   # Fails on chromeos: crbug.com/483212
   @decorators.Disabled('chromeos')
   @decorators.Isolated
@@ -140,13 +164,15 @@ class TimelineBasedPageTestTest(page_test_test_case.PageTestTestCase):
                      telemetry_info['storyDisplayName'])
     self.assertNotIn('storyGroupingKeys', telemetry_info)
     self.assertEqual(0, telemetry_info['storysetRepeatCounter'])
-    self.assertEqual('file://interaction_enabled_page.html',
-                     telemetry_info['storyUrl'])
     v_foo = results.FindAllPageSpecificValuesNamed('foo_avg')
     self.assertEquals(len(v_foo), 1)
     self.assertEquals(v_foo[0].value, 50)
     self.assertIsNotNone(v_foo[0].page)
 
+
+  # TODO(ksakamoto): enable this in reference once the reference build of
+  # telemetry is updated.
+  @decorators.Disabled('reference')
   @decorators.Disabled('chromeos')
   def testFirstPaintMetricSmoke(self):
     ps = self.CreateEmptyPageSet()
@@ -167,13 +193,9 @@ class TimelineBasedPageTestTest(page_test_test_case.PageTestTestCase):
         'timeToFirstContentfulPaint_max')
     self.assertEquals(len(v_ttfcp_max), 1)
     self.assertIsNotNone(v_ttfcp_max[0].page)
-    # TODO(kouhei): enable this once the reference build of telemetry is
-    # updated.
-    #  self.assertGreater(v_ttfcp_max[0].value, 0)
+    self.assertGreater(v_ttfcp_max[0].value, 0)
 
     v_ttfmp_max = results.FindAllPageSpecificValuesNamed(
        'timeToFirstMeaningfulPaint_max')
     self.assertEquals(len(v_ttfmp_max), 1)
-    # TODO(ksakamoto): enable this once the reference build of telemetry is
-    # updated.
-    # self.assertIsNotNone(v_ttfmp_max[0].page)
+    self.assertIsNotNone(v_ttfmp_max[0].page)

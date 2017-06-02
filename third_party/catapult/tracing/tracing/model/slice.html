@@ -53,17 +53,21 @@ tr.exportTo('tr.model', function() {
     // After SliceGroup processes Slices, isTopLevel should be equivalent to
     // !parentSlice.
 
-    if (opt_duration !== undefined)
+    if (opt_duration !== undefined) {
       this.duration = opt_duration;
+    }
 
-    if (opt_cpuStart !== undefined)
+    if (opt_cpuStart !== undefined) {
       this.cpuStart = opt_cpuStart;
+    }
 
-    if (opt_cpuDuration !== undefined)
+    if (opt_cpuDuration !== undefined) {
       this.cpuDuration = opt_cpuDuration;
+    }
 
-    if (opt_argsStripped !== undefined)
+    if (opt_argsStripped !== undefined) {
       this.argsStripped = true;
+    }
   }
 
   Slice.prototype = {
@@ -90,12 +94,14 @@ tr.exportTo('tr.model', function() {
     },
 
     findDescendentSlice: function(targetTitle) {
-      if (!this.subSlices)
+      if (!this.subSlices) {
         return undefined;
+      }
 
       for (var i = 0; i < this.subSlices.length; i++) {
-        if (this.subSlices[i].title === targetTitle)
+        if (this.subSlices[i].title === targetTitle) {
           return this.subSlices[i];
+        }
         var slice = this.subSlices[i].findDescendentSlice(targetTitle);
         if (slice) return slice;
       }
@@ -103,24 +109,23 @@ tr.exportTo('tr.model', function() {
     },
 
     get mostTopLevelSlice() {
-      var curSlice = this;
-      while (curSlice.parentSlice)
-        curSlice = curSlice.parentSlice;
-
-      return curSlice;
+      if (!this.parentSlice) return this;
+      return this.parentSlice.mostTopLevelSlice;
     },
 
     getProcess: function() {
       var thread = this.parentContainer;
-      if (thread && thread.getProcess)
+      if (thread && thread.getProcess) {
         return thread.getProcess();
+      }
       return undefined;
     },
 
     get model() {
       var process = this.getProcess();
-      if (process !== undefined)
+      if (process !== undefined) {
         return this.getProcess().model;
+      }
       return undefined;
     },
 
@@ -147,8 +152,9 @@ tr.exportTo('tr.model', function() {
         yield this;
         return;
       }
-      for (var s of this.subSlices)
+      for (var s of this.subSlices) {
         yield* s.findTopmostSlicesRelativeToThisSlice(eventPredicate);
+      }
     },
 
     /**
@@ -185,10 +191,11 @@ tr.exportTo('tr.model', function() {
       while (parentStack.length !== 0) {
         var curSlice = parentStack.pop();
 
-        if (started)
+        if (started) {
           callback.call(opt_this, curSlice);
-        else
+        } else {
           started = (curSlice.guid === this.guid);
+        }
 
         for (var i = curSlice.subSlices.length - 1; i >= 0; i--) {
           parentStack.push(curSlice.subSlices[i]);
@@ -216,19 +223,15 @@ tr.exportTo('tr.model', function() {
      * will yield D, then A, in the order from the leaves to the root.
      */
     enumerateAllAncestors: function* () {
-      var curSlice = this;
-
-      while (curSlice.parentSlice) {
-        curSlice = curSlice.parentSlice;
+      let curSlice = this.parentSlice;
+      while (curSlice) {
         yield curSlice;
+        curSlice = curSlice.parentSlice;
       }
     },
 
     get ancestorSlices() {
-      var res = [];
-      for (var slice of this.enumerateAllAncestors())
-        res.push(slice);
-      return res;
+      return Array.from(this.enumerateAllAncestors());
     },
 
     iterateEntireHierarchy: function(callback, opt_this) {
@@ -262,8 +265,9 @@ tr.exportTo('tr.model', function() {
 
       res.push(this);
 
-      for (var aSlice of this.enumerateAllAncestors())
+      for (var aSlice of this.enumerateAllAncestors()) {
         res.push(aSlice);
+      }
 
       this.iterateAllSubsequentSlices(function(sSlice) {
         res.push(sSlice);
@@ -273,16 +277,19 @@ tr.exportTo('tr.model', function() {
     },
 
     enumerateAllDescendents: function* () {
-      for (var slice of this.subSlices)
+      for (var slice of this.subSlices) {
         yield slice;
-      for (var slice of this.subSlices)
+      }
+      for (var slice of this.subSlices) {
         yield* slice.enumerateAllDescendents();
+      }
     },
 
     get descendentSlices() {
       var res = [];
-      for (var slice of this.enumerateAllDescendents())
+      for (var slice of this.enumerateAllDescendents()) {
         res.push(slice);
+      }
       return res;
     }
 

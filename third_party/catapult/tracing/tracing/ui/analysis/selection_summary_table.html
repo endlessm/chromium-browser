@@ -33,7 +33,7 @@ found in the LICENSE file.
 Polymer({
   is: 'tr-ui-a-selection-summary-table',
   created: function() {
-    this.selection_ = new tr.b.Range();
+    this.selection_ = new tr.b.math.Range();
   },
 
   ready: function() {
@@ -67,10 +67,11 @@ Polymer({
     var selection = this.selection_;
     var rows = [];
     var hasRange;
-    if (this.selection_ && (!selection.bounds.isEmpty))
+    if (this.selection_ && (!selection.bounds.isEmpty)) {
       hasRange = true;
-    else
+    } else {
       hasRange = false;
+    }
 
     rows.push({
       title: 'Selection start',

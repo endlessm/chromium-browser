@@ -6,8 +6,8 @@ found in the LICENSE file.
 -->
 
 <link rel="import" href="/tracing/core/test_utils.html">
-<link rel="import" href="/tracing/ui/tracks/track.html">
 <link rel="import" href="/tracing/ui/base/ui_state.html">
+<link rel="import" href="/tracing/ui/tracks/track.html">
 
 <script>
 'use strict';
@@ -42,8 +42,9 @@ tr.b.unittest.testSuite(function() {
     this.containerToTrackMap = {
       // "1.2" is the only valid stableId this test function accepts.
       getTrackByStableId: function(stableId) {
-        if (stableId === '1.2')
+        if (stableId === '1.2') {
           return new FakeTrack;
+        }
         return undefined;
       }
     };
@@ -87,13 +88,13 @@ tr.b.unittest.testSuite(function() {
     var uiState = UIState.fromUserFriendlyString(model, vp, str);
 
     assert.isDefined(uiState);
-    assert.equal(uiState.location.xWorld, -50125.51231);
-    assert.equal(
+    assert.strictEqual(uiState.location.xWorld, -50125.51231);
+    assert.strictEqual(
         uiState.location.getContainingTrack(vp).eventContainer.stableId,
         '1.2');
-    assert.equal(uiState.scaleX, 1.12345);
+    assert.strictEqual(uiState.scaleX, 1.12345);
 
-    assert.equal(uiState.toUserFriendlyString(vp), str);
+    assert.strictEqual(uiState.toUserFriendlyString(vp), str);
   });
 });
 </script>

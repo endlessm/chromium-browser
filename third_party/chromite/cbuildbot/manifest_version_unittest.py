@@ -15,11 +15,11 @@ from chromite.cbuildbot import build_status
 from chromite.cbuildbot import build_status_unittest
 from chromite.cbuildbot import manifest_version
 from chromite.cbuildbot import repository
+from chromite.lib import builder_status_lib
 from chromite.lib import constants
 from chromite.lib import config_lib
 from chromite.lib import cros_build_lib_unittest
 from chromite.lib import cros_test_lib
-from chromite.lib import failures_lib
 from chromite.lib import git
 from chromite.lib import metadata_lib
 from chromite.lib import osutils
@@ -259,15 +259,16 @@ class BuildSpecsManagerTest(cros_test_lib.MockTempDirTestCase):
       osutils.Touch(m)
 
     # Fake BuilderStatus with status MISSING.
-    missing = build_status.BuilderStatus(constants.BUILDER_STATUS_MISSING,
-                                         None)
+    missing = builder_status_lib.BuilderStatus(
+        constants.BUILDER_STATUS_MISSING, None)
 
     # Fail 1, pass 2, leave 3,4 unprocessed.
     manifest_version.CreateSymlink(m1, os.path.join(
         for_build, 'fail', CHROME_BRANCH, os.path.basename(m1)))
     manifest_version.CreateSymlink(m1, os.path.join(
         for_build, 'pass', CHROME_BRANCH, os.path.basename(m2)))
-    m = self.PatchObject(self.manager, 'GetBuildStatus', return_value=missing)
+    m = self.PatchObject(builder_status_lib.BuilderStatusManager,
+                         'GetBuilderStatus', return_value=missing)
     self.manager.InitializeManifestVariables(info)
     self.assertEqual(self.manager.latest_unprocessed, '1.2.5')
     m.assert_called_once_with(self.build_names[0], '1.2.5')
@@ -337,28 +338,6 @@ class BuildSpecsManagerTest(cros_test_lib.MockTempDirTestCase):
     self.manager.GetNextBuildSpec(retries=0)
     self.manager.UpdateStatus({self.build_names[0]: True})
 
-  def testUnpickleBuildStatus(self):
-    """Tests that _UnpickleBuildStatus returns the correct values."""
-    self.manager = self.BuildManager()
-    failed_msg = failures_lib.BuildFailureMessage(
-        'you failed', ['traceback'], True, 'taco', 'bot')
-    failed_input_status = build_status.BuilderStatus(
-        constants.BUILDER_STATUS_FAILED, failed_msg)
-    passed_input_status = build_status.BuilderStatus(
-        constants.BUILDER_STATUS_PASSED, None)
-
-    failed_output_status = self.manager._UnpickleBuildStatus(
-        failed_input_status.AsPickledDict())
-    passed_output_status = self.manager._UnpickleBuildStatus(
-        passed_input_status.AsPickledDict())
-    empty_string_status = self.manager._UnpickleBuildStatus('')
-
-    self.assertEqual(failed_input_status.AsFlatDict(),
-                     failed_output_status.AsFlatDict())
-    self.assertEqual(passed_input_status.AsFlatDict(),
-                     passed_output_status.AsFlatDict())
-    self.assertTrue(empty_string_status.Failed())
-
   def _GetBuildersStatus(self, builders, status_runs):
     """Test a call to BuildSpecsManager.GetBuildersStatus.
 
@@ -367,16 +346,16 @@ class BuildSpecsManagerTest(cros_test_lib.MockTempDirTestCase):
       status_runs: List of dictionaries of expected build and status.
     """
     self.PatchObject(build_status.SlaveStatus,
-                     '_GetAllSlaveCIDBStatusInfo',
+                     'GetAllSlaveCIDBStatusInfo',
                      side_effect=status_runs)
 
     final_status_dict = status_runs[-1]
     build_statuses = [
-        build_status.BuilderStatus(final_status_dict.get(x).status, None)
+        builder_status_lib.BuilderStatus(final_status_dict.get(x).status, None)
         for x in builders
     ]
-    self.PatchObject(manifest_version.BuildSpecsManager,
-                     'GetBuildStatus',
+    self.PatchObject(builder_status_lib.BuilderStatusManager,
+                     'GetBuilderStatus',
                      side_effect=build_statuses)
 
     return self.manager.GetBuildersStatus(
@@ -457,22 +436,22 @@ class BuildSpecsManagerTest(cros_test_lib.MockTempDirTestCase):
                         buildbucket_ids.
     """
     self.PatchObject(build_status.SlaveStatus,
-                     '_GetAllSlaveCIDBStatusInfo',
+                     'GetAllSlaveCIDBStatusInfo',
                      side_effect=status_runs)
     self.PatchObject(buildbucket_lib,
                      'GetBuildInfoDict',
                      side_effect=buildbucket_info_dicts)
     self.PatchObject(build_status.SlaveStatus,
-                     '_GetAllSlaveBuildbucketInfo',
+                     'GetAllSlaveBuildbucketInfo',
                      side_effect=buildbucket_info_dicts)
 
     final_status_dict = status_runs[-1]
     build_statuses = [
-        build_status.BuilderStatus(final_status_dict.get(x).status, None)
+        builder_status_lib.BuilderStatus(final_status_dict.get(x).status, None)
         for x in builders
     ]
-    self.PatchObject(manifest_version.BuildSpecsManager,
-                     'GetBuildStatus',
+    self.PatchObject(builder_status_lib.BuilderStatusManager,
+                     'GetBuilderStatus',
                      side_effect=build_statuses)
 
     return self.manager.GetBuildersStatus(

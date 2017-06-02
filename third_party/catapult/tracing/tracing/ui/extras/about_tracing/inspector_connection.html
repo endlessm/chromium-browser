@@ -31,8 +31,9 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
    * @constructor
    */
   function InspectorConnection() {
-    if (InspectorConnection.instance)
+    if (InspectorConnection.instance) {
       throw new Error('Singleton');
+    }
 
     this.nextRequestId_ = 1;
     this.pendingRequestResolversId_ = {};
@@ -70,7 +71,7 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
       // Special handling for Tracing.dataCollected because it is high
       // bandwidth.
       var isDataCollectedMessage = isStringPayload ?
-          payload.indexOf('"method": "Tracing.dataCollected"') !== -1 :
+          payload.includes('"method": "Tracing.dataCollected"') :
           payload.method === 'Tracing.dataCollected';
       if (isDataCollectedMessage) {
         var listener = this.notificationListenersByMethodName_[
@@ -89,7 +90,6 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
       if (message.id) {
         var resolver = this.pendingRequestResolversId_[message.id];
         if (resolver === undefined) {
-          console.log('Unrecognized ack', message);
           return;
         }
         if (message.error) {
@@ -103,20 +103,19 @@ tr.exportTo('tr.ui.e.about_tracing', function() {
       if (message['method']) {
         var listener = this.notificationListenersByMethodName_[message.method];
         if (listener === undefined) {
-          console.log('Unhandled ', message.method);
           return;
         }
         listener(message.params);
         return;
       }
-      console.log('Unknown dispatchMessage: ', payload);
     }
   };
 
-  if (window.DevToolsHost)
+  if (window.DevToolsHost) {
     InspectorConnection.instance = new InspectorConnection();
-  else
+  } else {
     InspectorConnection.instance = undefined;
+  }
 
   return {
     InspectorConnection,

@@ -548,34 +548,30 @@ class BuildStagesAndFailureTest(CIDBIntegrationTest):
     build_stage_id = bot_db.InsertBuildStage(build_id,
                                              'My Stage',
                                              board='bunny')
-
-    values = bot_db._Select('buildStageTable', build_stage_id, ['start_time'])
+    values = bot_db.GetBuildStage(build_stage_id)
     self.assertEqual(None, values['start_time'])
 
     bot_db.WaitBuildStage(build_stage_id)
-    values = bot_db._Select('buildStageTable', build_stage_id,
-                            ['start_time', 'status'])
+    values = bot_db.GetBuildStage(build_stage_id)
     self.assertEqual(None, values['start_time'])
     self.assertEqual(constants.BUILDER_STATUS_WAITING, values['status'])
 
     bot_db.StartBuildStage(build_stage_id)
-    values = bot_db._Select('buildStageTable', build_stage_id,
-                            ['start_time', 'status'])
+    values = bot_db.GetBuildStage(build_stage_id)
     self.assertNotEqual(None, values['start_time'])
     self.assertEqual(constants.BUILDER_STATUS_INFLIGHT, values['status'])
 
     bot_db.FinishBuildStage(build_stage_id, constants.BUILDER_STATUS_PASSED)
-    values = bot_db._Select('buildStageTable', build_stage_id,
-                            ['finish_time', 'status', 'final'])
+    values = bot_db.GetBuildStage(build_stage_id)
     self.assertNotEqual(None, values['finish_time'])
     self.assertEqual(True, values['final'])
     self.assertEqual(constants.BUILDER_STATUS_PASSED, values['status'])
 
-    self.assertFalse(bot_db.HasBuildStageFailed(build_stage_id))
+    self.assertFalse(bot_db.HasFailureMsgForStage(build_stage_id))
     for category in constants.EXCEPTION_CATEGORY_ALL_CATEGORIES:
       e = ValueError('The value was erroneous.')
       bot_db.InsertFailure(build_stage_id, type(e).__name__, str(e), category)
-      self.assertTrue(bot_db.HasBuildStageFailed(build_stage_id))
+      self.assertTrue(bot_db.HasFailureMsgForStage(build_stage_id))
 
     failures = bot_db.GetSlaveFailures(master_build_id)
     self.assertEqual(len(failures),
@@ -646,7 +642,7 @@ class BuildStagesAndFailureTest(CIDBIntegrationTest):
     self.assertEqual(len(slave_stages), 0)
 
   def testGetSlaveFailures(self):
-    """Test GetSlaveFailures"""
+    """Test GetSlaveFailures and GetBuildFailures"""
     self._PrepareDatabase()
 
     bot_db = self.LocalCIDBConnection(self.CIDB_USER_BOT)
@@ -693,6 +689,14 @@ class BuildStagesAndFailureTest(CIDBIntegrationTest):
                                        buildbucket_ids=['bb_id_2'])
     self.assertEqual(len(failures), 1)
     self.assertEqual(failures[0]['buildbucket_id'], 'bb_id_2')
+
+    failures = bot_db.GetBuildsFailures([build_id_1])
+    self.assertEqual(len(failures), 1)
+    self.assertEqual(failures[0]['build_id'], build_id_1)
+
+    failures = bot_db.GetBuildsFailures([build_id_1, build_id_2])
+    self.assertEqual(len(failures), 2)
+
 
 class BuildTableTest(CIDBIntegrationTest):
   """Test buildTable functionality not tested by the DataSeries tests."""

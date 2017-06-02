@@ -249,8 +249,10 @@ class VideoResourceUpdaterTest : public testing::Test {
 };
 
 TEST_F(VideoResourceUpdaterTest, SoftwareFrame) {
+  bool use_stream_video_draw_quad = false;
   VideoResourceUpdater updater(context_provider_.get(),
-                               resource_provider3d_.get());
+                               resource_provider3d_.get(),
+                               use_stream_video_draw_quad);
   scoped_refptr<media::VideoFrame> video_frame = CreateTestYUVVideoFrame();
 
   VideoFrameExternalResources resources =
@@ -259,8 +261,10 @@ TEST_F(VideoResourceUpdaterTest, SoftwareFrame) {
 }
 
 TEST_F(VideoResourceUpdaterTest, HighBitFrameNoF16) {
+  bool use_stream_video_draw_quad = false;
   VideoResourceUpdater updater(context_provider_.get(),
-                               resource_provider3d_.get());
+                               resource_provider3d_.get(),
+                               use_stream_video_draw_quad);
   scoped_refptr<media::VideoFrame> video_frame = CreateTestHighBitFrame();
 
   VideoFrameExternalResources resources =
@@ -276,8 +280,10 @@ class VideoResourceUpdaterTestWithF16 : public VideoResourceUpdaterTest {
 };
 
 TEST_F(VideoResourceUpdaterTestWithF16, HighBitFrame) {
+  bool use_stream_video_draw_quad = false;
   VideoResourceUpdater updater(context_provider_.get(),
-                               resource_provider3d_.get());
+                               resource_provider3d_.get(),
+                               use_stream_video_draw_quad);
   scoped_refptr<media::VideoFrame> video_frame = CreateTestHighBitFrame();
 
   VideoFrameExternalResources resources =
@@ -296,7 +302,9 @@ TEST_F(VideoResourceUpdaterTestWithF16, HighBitFrame) {
 }
 
 TEST_F(VideoResourceUpdaterTest, HighBitFrameSoftwareCompositor) {
-  VideoResourceUpdater updater(nullptr, resource_provider_software_.get());
+  bool use_stream_video_draw_quad = false;
+  VideoResourceUpdater updater(nullptr, resource_provider_software_.get(),
+                               use_stream_video_draw_quad);
   scoped_refptr<media::VideoFrame> video_frame = CreateTestHighBitFrame();
 
   VideoFrameExternalResources resources =
@@ -305,8 +313,10 @@ TEST_F(VideoResourceUpdaterTest, HighBitFrameSoftwareCompositor) {
 }
 
 TEST_F(VideoResourceUpdaterTest, WonkySoftwareFrame) {
+  bool use_stream_video_draw_quad = false;
   VideoResourceUpdater updater(context_provider_.get(),
-                               resource_provider3d_.get());
+                               resource_provider3d_.get(),
+                               use_stream_video_draw_quad);
   scoped_refptr<media::VideoFrame> video_frame = CreateWonkyTestYUVVideoFrame();
 
   VideoFrameExternalResources resources =
@@ -315,7 +325,9 @@ TEST_F(VideoResourceUpdaterTest, WonkySoftwareFrame) {
 }
 
 TEST_F(VideoResourceUpdaterTest, WonkySoftwareFrameSoftwareCompositor) {
-  VideoResourceUpdater updater(nullptr, resource_provider_software_.get());
+  bool use_stream_video_draw_quad = false;
+  VideoResourceUpdater updater(nullptr, resource_provider_software_.get(),
+                               use_stream_video_draw_quad);
   scoped_refptr<media::VideoFrame> video_frame = CreateWonkyTestYUVVideoFrame();
 
   VideoFrameExternalResources resources =
@@ -324,8 +336,10 @@ TEST_F(VideoResourceUpdaterTest, WonkySoftwareFrameSoftwareCompositor) {
 }
 
 TEST_F(VideoResourceUpdaterTest, ReuseResource) {
+  bool use_stream_video_draw_quad = false;
   VideoResourceUpdater updater(context_provider_.get(),
-                               resource_provider3d_.get());
+                               resource_provider3d_.get(),
+                               use_stream_video_draw_quad);
   scoped_refptr<media::VideoFrame> video_frame = CreateTestYUVVideoFrame();
   video_frame->set_timestamp(base::TimeDelta::FromSeconds(1234));
 
@@ -356,8 +370,10 @@ TEST_F(VideoResourceUpdaterTest, ReuseResource) {
 }
 
 TEST_F(VideoResourceUpdaterTest, ReuseResourceNoDelete) {
+  bool use_stream_video_draw_quad = false;
   VideoResourceUpdater updater(context_provider_.get(),
-                               resource_provider3d_.get());
+                               resource_provider3d_.get(),
+                               use_stream_video_draw_quad);
   scoped_refptr<media::VideoFrame> video_frame = CreateTestYUVVideoFrame();
   video_frame->set_timestamp(base::TimeDelta::FromSeconds(1234));
 
@@ -383,7 +399,9 @@ TEST_F(VideoResourceUpdaterTest, ReuseResourceNoDelete) {
 }
 
 TEST_F(VideoResourceUpdaterTest, SoftwareFrameSoftwareCompositor) {
-  VideoResourceUpdater updater(nullptr, resource_provider_software_.get());
+  bool use_stream_video_draw_quad = false;
+  VideoResourceUpdater updater(nullptr, resource_provider_software_.get(),
+                               use_stream_video_draw_quad);
   scoped_refptr<media::VideoFrame> video_frame = CreateTestYUVVideoFrame();
 
   VideoFrameExternalResources resources =
@@ -392,7 +410,9 @@ TEST_F(VideoResourceUpdaterTest, SoftwareFrameSoftwareCompositor) {
 }
 
 TEST_F(VideoResourceUpdaterTest, ReuseResourceSoftwareCompositor) {
-  VideoResourceUpdater updater(nullptr, resource_provider_software_.get());
+  bool use_stream_video_draw_quad = false;
+  VideoResourceUpdater updater(nullptr, resource_provider_software_.get(),
+                               use_stream_video_draw_quad);
   scoped_refptr<media::VideoFrame> video_frame = CreateTestYUVVideoFrame();
   video_frame->set_timestamp(base::TimeDelta::FromSeconds(1234));
 
@@ -423,7 +443,9 @@ TEST_F(VideoResourceUpdaterTest, ReuseResourceSoftwareCompositor) {
 }
 
 TEST_F(VideoResourceUpdaterTest, ReuseResourceNoDeleteSoftwareCompositor) {
-  VideoResourceUpdater updater(nullptr, resource_provider_software_.get());
+  bool use_stream_video_draw_quad = false;
+  VideoResourceUpdater updater(nullptr, resource_provider_software_.get(),
+                               use_stream_video_draw_quad);
   scoped_refptr<media::VideoFrame> video_frame = CreateTestYUVVideoFrame();
   video_frame->set_timestamp(base::TimeDelta::FromSeconds(1234));
 
@@ -450,8 +472,10 @@ TEST_F(VideoResourceUpdaterTest, ReuseResourceNoDeleteSoftwareCompositor) {
 }
 
 TEST_F(VideoResourceUpdaterTest, CreateForHardwarePlanes) {
+  bool use_stream_video_draw_quad = false;
   VideoResourceUpdater updater(context_provider_.get(),
-                               resource_provider3d_.get());
+                               resource_provider3d_.get(),
+                               use_stream_video_draw_quad);
 
   scoped_refptr<media::VideoFrame> video_frame =
       CreateTestRGBAHardwareVideoFrame();
@@ -482,8 +506,10 @@ TEST_F(VideoResourceUpdaterTest, CreateForHardwarePlanes) {
 }
 
 TEST_F(VideoResourceUpdaterTest, CreateForHardwarePlanes_StreamTexture) {
+  bool use_stream_video_draw_quad = true;
   VideoResourceUpdater updater(context_provider_.get(),
-                               resource_provider3d_.get());
+                               resource_provider3d_.get(),
+                               use_stream_video_draw_quad);
   context3d_->ResetTextureCreationCount();
   scoped_refptr<media::VideoFrame> video_frame =
       CreateTestStreamTextureHardwareVideoFrame(false);
@@ -519,61 +545,23 @@ TEST_F(VideoResourceUpdaterTest, CreateForHardwarePlanes_StreamTexture) {
   EXPECT_FALSE(context3d_->WasImmutableTextureCreated());
 }
 
-namespace {
+TEST_F(VideoResourceUpdaterTest, CreateForHardwarePlanes_TextureQuad) {
+  bool use_stream_video_draw_quad = false;
+  VideoResourceUpdater updater(context_provider_.get(),
+                               resource_provider3d_.get(),
+                               use_stream_video_draw_quad);
+  context3d_->ResetTextureCreationCount();
+  scoped_refptr<media::VideoFrame> video_frame =
+      CreateTestStreamTextureHardwareVideoFrame(false);
 
-// Convert an IEEE 754 half-float to a double value
-// that we can do math on.
-double FromHalfFloat(uint16_t half_float) {
-  if (!half_float)
-    return 0.0;
-  int sign = (half_float & 0x8000) ? -1 : 1;
-  int exponent = (half_float >> 10) & 0x1F;
-  int fraction = half_float & 0x3FF;
-  if (exponent == 0) {
-    return pow(2.0, -24.0) * fraction;
-  } else if (exponent == 0x1F) {
-    return sign * 1000000000000.0;
-  } else {
-    return pow(2.0, exponent - 25) * (0x400 + fraction);
-  }
-}
-
-}  // namespace
-
-TEST_F(VideoResourceUpdaterTest, MakeHalfFloatTest) {
-  unsigned short integers[1 << 16];
-  unsigned short half_floats[1 << 16];
-  for (int bits = 9; bits <= 16; bits++) {
-    std::unique_ptr<VideoResourceUpdater::HalfFloatMaker> half_float_maker;
-    half_float_maker = VideoResourceUpdater::NewHalfFloatMaker(bits);
-    int num_values = 1 << bits;
-    for (int i = 0; i < num_values; i++)
-      integers[i] = i;
-
-    half_float_maker->MakeHalfFloats(integers, num_values, half_floats);
-    // Multiplier to converting integers to 0.0..1.0 range.
-    double multiplier = 1.0 / (num_values - 1);
-
-    for (int i = 0; i < num_values; i++) {
-      // This value is in range 0..1
-      float value = integers[i] * multiplier;
-      // Reverse the effect of offset and multiplier to get the expected
-      // output value from the half-float converter.
-      float expected_value =
-          value / half_float_maker->Multiplier() + half_float_maker->Offset();
-      EXPECT_EQ(integers[i], i);
-
-      // We expect the result to be within +/- one least-significant bit.
-      // Within the range we care about, half-floats values and
-      // their representation both sort in the same order, so we
-      // can just add one to get the next bigger half-float.
-      float expected_precision =
-          FromHalfFloat(half_floats[i] + 1) - FromHalfFloat(half_floats[i]);
-      EXPECT_NEAR(FromHalfFloat(half_floats[i]), expected_value,
-                  expected_precision)
-          << "i = " << i << " bits = " << bits;
-    }
-  }
+  VideoFrameExternalResources resources =
+      updater.CreateExternalResourcesFromVideoFrame(video_frame);
+  EXPECT_EQ(VideoFrameExternalResources::RGBA_RESOURCE, resources.type);
+  EXPECT_EQ(1u, resources.mailboxes.size());
+  EXPECT_EQ((GLenum)GL_TEXTURE_EXTERNAL_OES, resources.mailboxes[0].target());
+  EXPECT_EQ(1u, resources.release_callbacks.size());
+  EXPECT_EQ(0u, resources.software_resources.size());
+  EXPECT_EQ(0, context3d_->TextureCreationCount());
 }
 
 }  // namespace

@@ -5,7 +5,7 @@ Use of this source code is governed by a BSD-style license that can be
 found in the LICENSE file.
 -->
 
-<link rel="import" href="/tracing/base/range.html">
+<link rel="import" href="/tracing/base/math/range.html">
 <link rel="import" href="/tracing/model/thread_time_slice.html">
 
 <script>
@@ -36,15 +36,18 @@ tr.exportTo('tr.model', function() {
     },
 
     getAssociatedTimeslice: function() {
-      if (!this.threadThatWasRunning)
+      if (!this.threadThatWasRunning) {
         return undefined;
+      }
       var timeSlices = this.threadThatWasRunning.timeSlices;
       for (var i = 0; i < timeSlices.length; i++) {
         var timeSlice = timeSlices[i];
-        if (timeSlice.start !== this.start)
+        if (timeSlice.start !== this.start) {
           continue;
-        if (timeSlice.duration !== this.duration)
+        }
+        if (timeSlice.duration !== this.duration) {
           continue;
+        }
         return timeSlice;
       }
       return undefined;

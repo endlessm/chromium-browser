@@ -136,6 +136,9 @@ GLColor32F ReadColor32F(GLint x, GLint y);
 #define EXPECT_PIXEL_ALPHA32F_EQ(x, y, a) EXPECT_EQ(a, angle::ReadColor32F(x, y).A)
 
 #define EXPECT_PIXEL_COLOR_EQ(x, y, angleColor) EXPECT_EQ(angleColor, angle::ReadColor(x, y))
+#define EXPECT_PIXEL_COLOR_EQ_VEC2(vec2, angleColor) \
+    EXPECT_EQ(angleColor,                            \
+              angle::ReadColor(static_cast<GLint>(vec2.x()), static_cast<GLint>(vec2.y())))
 
 #define EXPECT_PIXEL_COLOR32F_EQ(x, y, angleColor) EXPECT_EQ(angleColor, angle::ReadColor32F(x, y))
 
@@ -238,6 +241,10 @@ class ANGLETest : public ::testing::TestWithParam<angle::PlatformParameters>
     void setBindGeneratesResource(bool bindGeneratesResource);
     void setVulkanLayersEnabled(bool enabled);
     void setClientArraysEnabled(bool enabled);
+    void setRobustResourceInit(bool enabled);
+
+    // Some EGL extension tests would like to defer the Context init until the test body.
+    void setDeferContextInit(bool enabled);
 
     int getClientMajorVersion() const;
     int getClientMinorVersion() const;
@@ -254,7 +261,6 @@ class ANGLETest : public ::testing::TestWithParam<angle::PlatformParameters>
     static OSWindow *GetOSWindow() { return mOSWindow; }
 
   private:
-    bool createEGLContext();
     bool destroyEGLContext();
 
     void checkD3D11SDKLayersMessages();
@@ -269,6 +275,8 @@ class ANGLETest : public ::testing::TestWithParam<angle::PlatformParameters>
     GLuint mQuadVertexBuffer;
 
     TestPlatformContext mPlatformContext;
+
+    bool mDeferContextInit;
 
     static OSWindow *mOSWindow;
 
@@ -303,6 +311,7 @@ bool IsD3DSM3();
 bool IsDesktopOpenGL();
 bool IsOpenGLES();
 bool IsOpenGL();
+bool IsOzone();
 bool IsNULL();
 
 // Operating systems

@@ -1,0 +1,129 @@
+# Platform port library
+
+# Target file may define TCUTIL_PLATFORM_SRCS
+if (NOT DEFINED TCUTIL_PLATFORM_SRCS)
+	if (DE_OS_IS_WIN32)
+		set(TCUTIL_PLATFORM_SRCS
+			win32/tcuWin32Platform.hpp
+			win32/tcuWin32Platform.cpp
+			win32/tcuWGLContextFactory.hpp
+			win32/tcuWGLContextFactory.cpp
+			win32/tcuWGL.hpp
+			win32/tcuWGL.cpp
+			win32/tcuWin32API.h
+			win32/tcuWin32Window.cpp
+			win32/tcuWin32Window.hpp
+			win32/tcuWin32EGLNativeDisplayFactory.hpp
+			win32/tcuWin32EGLNativeDisplayFactory.cpp
+			win32/tcuWin32VulkanPlatform.hpp
+			win32/tcuWin32VulkanPlatform.cpp
+			)
+
+	elseif ((DE_OS_IS_UNIX OR DE_OS_IS_OSX) AND DEQP_USE_X11)
+		message(STATUS "DEQP_SUPPORT_GLX        = ${DEQP_SUPPORT_GLX}")
+		if (DEQP_SUPPORT_GLX)
+			add_definitions(-DDEQP_SUPPORT_GLX=1)
+		endif ()
+
+		set(TCUTIL_PLATFORM_SRCS
+			X11/tcuX11.cpp
+			X11/tcuX11.hpp
+			X11/tcuX11EglPlatform.hpp
+			X11/tcuX11EglPlatform.cpp
+			X11/tcuX11Platform.hpp
+			X11/tcuX11Platform.cpp
+			X11/tcuX11VulkanPlatform.hpp
+			X11/tcuX11VulkanPlatform.cpp
+			)
+		if (DEQP_USE_XCB)
+			set(TCUTIL_PLATFORM_SRCS
+				${TCUTIL_PLATFORM_SRCS}
+				X11/tcuX11Xcb.hpp
+				X11/tcuX11Xcb.cpp
+				)
+		endif()
+		if (DEQP_SUPPORT_GLX)
+			set(TCUTIL_PLATFORM_SRCS
+				${TCUTIL_PLATFORM_SRCS}
+				X11/tcuX11GlxPlatform.hpp
+				X11/tcuX11GlxPlatform.cpp
+				)
+		endif()
+	elseif (DE_OS_IS_ANDROID)
+		set(TCUTIL_PLATFORM_SRCS
+			android/tcuAndroidExecService.cpp
+			android/tcuAndroidExecService.hpp
+			)
+
+		if (DE_ANDROID_API GREATER 8)
+			# Add NativeActivity code
+			set(TCUTIL_PLATFORM_SRCS
+				${TCUTIL_PLATFORM_SRCS}
+				android/tcuAndroidAssets.cpp
+				android/tcuAndroidAssets.hpp
+				android/tcuAndroidInternals.cpp
+				android/tcuAndroidInternals.hpp
+				android/tcuAndroidNativeActivity.cpp
+				android/tcuAndroidNativeActivity.hpp
+				android/tcuAndroidPlatform.cpp
+				android/tcuAndroidPlatform.hpp
+				android/tcuAndroidRenderActivity.cpp
+				android/tcuAndroidRenderActivity.hpp
+				android/tcuAndroidTestActivity.cpp
+				android/tcuAndroidTestActivity.hpp
+				android/tcuAndroidUtil.cpp
+				android/tcuAndroidUtil.hpp
+				android/tcuAndroidWindow.cpp
+				android/tcuAndroidWindow.hpp
+				)
+		endif ()
+
+	elseif (DE_OS_IS_IOS)
+		set(TCUTIL_PLATFORM_SRCS
+			ios/tcuIOSApp.mm
+			ios/tcuIOSApp.h
+			ios/tcuIOSPlatform.mm
+			ios/tcuIOSPlatform.hh
+			)
+
+	elseif (DE_OS_IS_OSX)
+		set(TCUTIL_PLATFORM_SRCS
+			osx/tcuOSXPlatform.cpp
+			osx/tcuOSXPlatform.hpp
+			)
+
+	else ()
+		set(TCUTIL_PLATFORM_SRCS
+			vanilla/tcuVanillaPlatform.cpp
+			)
+
+	endif ()
+endif ()
+
+add_library(tcutil-platform STATIC ${TCUTIL_PLATFORM_SRCS})
+
+# Add vkutil to the deps before tcutil so that it picks up the c++11 dependencies
+target_link_libraries(tcutil-platform vkutil)
+
+target_link_libraries(tcutil-platform tcutil ${TCUTIL_PLATFORM_LIBS})
+
+# Always link to glutil as some platforms such as Win32 always support GL
+target_link_libraries(tcutil-platform glutil)
+
+# Always link to eglutil
+target_link_libraries(tcutil-platform eglutil)
+
+# X11 libraries
+if (DEQP_USE_X11)
+	find_package(X11 REQUIRED)
+	target_link_libraries(tcutil-platform ${X11_LIBRARIES})
+	if (DEQP_USE_XCB)
+		find_package(XCB REQUIRED)
+		target_link_libraries(tcutil-platform ${XCB_LIBRARIES})
+                add_definitions(-DDEQP_SUPPORT_XCB=1)
+	endif ()
+	if (DEQP_SUPPORT_GLX)
+	  # GLX functions don't currently have wrappers, so link directly to libGL.
+	  target_link_libraries(tcutil-platform GL)
+	endif ()
+endif ()

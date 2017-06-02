@@ -52,8 +52,12 @@ struct TestConfig {
   std::string host_name;
   std::string advertise_alpn;
   std::string expected_alpn;
+  std::string expected_resume_alpn;
+  bool expect_no_alpn = false;
+  bool expect_no_resume_alpn = false;
   std::string expected_advertised_alpn;
   std::string select_alpn;
+  std::string select_resume_alpn;
   bool decline_alpn = false;
   bool expect_session_miss = false;
   bool expect_extended_master_secret = false;
@@ -84,9 +88,12 @@ struct TestConfig {
   bool expect_ticket_renewal = false;
   bool expect_no_session = false;
   bool expect_early_data_info = false;
+  bool expect_accept_early_data = false;
+  bool expect_reject_early_data = false;
   bool use_ticket_callback = false;
   bool renew_ticket = false;
   bool enable_early_data = false;
+  bool enable_resume_early_data = false;
   bool enable_client_custom_extension = false;
   bool enable_server_custom_extension = false;
   bool custom_extension_skip = false;
@@ -110,7 +117,8 @@ struct TestConfig {
   int expect_resume_curve_id = 0;
   bool use_old_client_cert_callback = false;
   int initial_timeout_duration_ms = 0;
-  bool use_null_client_ca_list = false;
+  std::string use_client_ca_list;
+  std::string expected_client_ca_list;
   bool send_alert = false;
   bool peek_then_read = false;
   bool enable_grease = false;
@@ -125,7 +133,6 @@ struct TestConfig {
   bool retain_only_sha256_client_cert_resume = false;
   bool expect_sha256_client_cert_initial = false;
   bool expect_sha256_client_cert_resume = false;
-  bool enable_short_header = false;
   bool read_with_unfinished_write = false;
   bool expect_secure_renegotiation = false;
   bool expect_no_secure_renegotiation = false;
@@ -133,6 +140,10 @@ struct TestConfig {
   int read_size = 0;
   bool expect_session_id = false;
   bool expect_no_session_id = false;
+  int expect_ticket_age_skew = 0;
+  bool no_op_extra_handshake = false;
+  bool handshake_twice = false;
+  bool allow_unknown_alpn_protos = false;
 };
 
 bool ParseConfig(int argc, char **argv, TestConfig *out_config);

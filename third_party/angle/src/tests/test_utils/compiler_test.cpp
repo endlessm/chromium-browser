@@ -20,14 +20,16 @@ namespace
 class FunctionCallFinder : public TIntermTraverser
 {
   public:
-    FunctionCallFinder(const TString &functionName)
-        : TIntermTraverser(true, false, false), mFunctionName(functionName), mNodeFound(nullptr)
+    FunctionCallFinder(const TString &functionMangledName)
+        : TIntermTraverser(true, false, false),
+          mFunctionMangledName(functionMangledName),
+          mNodeFound(nullptr)
     {
     }
 
     bool visitAggregate(Visit visit, TIntermAggregate *node) override
     {
-        if (node->isFunctionCall() && node->getFunctionSymbolInfo()->getName() == mFunctionName)
+        if (node->isFunctionCall() && node->getSymbolTableMangledName() == mFunctionMangledName)
         {
             mNodeFound = node;
             return false;
@@ -39,7 +41,7 @@ class FunctionCallFinder : public TIntermTraverser
     const TIntermAggregate *getNode() const { return mNodeFound; }
 
   private:
-    TString mFunctionName;
+    TString mFunctionMangledName;
     TIntermAggregate *mNodeFound;
 };
 
@@ -208,9 +210,9 @@ bool MatchOutputCodeTest::notFoundInCode(const char *stringToFind) const
     return true;
 }
 
-const TIntermAggregate *FindFunctionCallNode(TIntermNode *root, const TString &functionName)
+const TIntermAggregate *FindFunctionCallNode(TIntermNode *root, const TString &functionMangledName)
 {
-    FunctionCallFinder finder(functionName);
+    FunctionCallFinder finder(functionMangledName);
     root->traverse(&finder);
     return finder.getNode();
 }

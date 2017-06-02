@@ -171,6 +171,24 @@ if (test) {
 }
 ```
 
+### Variables
+
+Use `const` and `let` instead of `var` in all new files and functions. Prefer `const` over `let` when a variable can only refer to a single value throughout its lifetime.
+
+```javascript
+// bad
+function() {
+  let hello = '  hello  ';
+  return hello.trim();
+}
+
+// good
+function() {
+  const hello = '  hello  ';
+  return hello.trim();
+}
+```
+
 ### Polymer elements
 The `<script>` block for the Polymer element can go either inside or outside of
 the element’s definition. Generally, the block outside is placed outside when
@@ -188,7 +206,7 @@ would make it more readable.
 <script>
 'use strict';
 (function(){   // Use this if you need to define constants scoped to that element.
-Polymer('tr-bar’, {
+Polymer('tr-bar', {
   // ... or here.
 });
 })();
@@ -258,7 +276,7 @@ should not make assertions.
 
 | Feature                  | Status          |
 |--------------------------|-----------------|
-| [Array.prototype.includes](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/includes) | To be discussed |
+| [Array.prototype.includes](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/includes) | [Approved](https://github.com/catapult-project/catapult/issues/3424) |
 | [Exponentiation operator](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Operators/Arithmetic_Operators#Exponentiation_(**))  | To be discussed |
 
 ### ECMAScript 2017 (ES8) features
@@ -268,6 +286,7 @@ should not make assertions.
 | Feature                  | Status          |
 |--------------------------|-----------------|
 | [Object.entries](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Object/entries) and [Object.values](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Object/values) | Approved |
+| [async/await](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/async_function) | Approved |
 
 ### Possible feature statuses
   - **Approved**: this feature is approved for general use.

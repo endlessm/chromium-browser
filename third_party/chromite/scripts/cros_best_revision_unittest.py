@@ -8,9 +8,8 @@ from __future__ import print_function
 
 import os
 
-from chromite.cbuildbot import build_status
-from chromite.cbuildbot import manifest_version
 from chromite.cbuildbot import tree_status
+from chromite.lib import builder_status_lib
 from chromite.lib import constants
 from chromite.lib import cros_build_lib_unittest
 from chromite.lib import cros_test_lib
@@ -27,9 +26,9 @@ class BaseChromeCommitterTest(cros_test_lib.MockTempDirTestCase):
     """Common set up method for all tests."""
     self.committer = cros_best_revision.ChromeCommitter(self.tempdir, False)
     self.lkgm_file = os.path.join(self.tempdir, constants.PATH_TO_CHROME_LKGM)
-    self.pass_status = build_status.BuilderStatus(
+    self.pass_status = builder_status_lib.BuilderStatus(
         constants.BUILDER_STATUS_PASSED, None)
-    self.fail_status = build_status.BuilderStatus(
+    self.fail_status = builder_status_lib.BuilderStatus(
         constants.BUILDER_STATUS_FAILED, None)
 
 
@@ -74,14 +73,15 @@ class ChromeCommitterTester(cros_build_lib_unittest.RunCommandTestCase,
     for canary, results in zip(self.canaries, all_results):
       for version, status in zip(self.versions, results):
         expected[(canary, version)] = status
-    def _GetBuildStatus(canary, version, **_):
+    def _GetBuilderStatus(canary, version, **_):
       return expected[(canary, version)]
     self.PatchObject(self.committer, '_GetLatestCanaryVersions',
                      return_value=self.versions)
     self.PatchObject(self.committer, 'GetCanariesForChromeLKGM',
                      return_value=self.canaries)
-    self.PatchObject(manifest_version.BuildSpecsManager, 'GetBuildStatus',
-                     side_effect=_GetBuildStatus)
+    self.PatchObject(builder_status_lib.BuilderStatusManager,
+                     'GetBuilderStatus',
+                     side_effect=_GetBuilderStatus)
     self.committer.FindNewLKGM()
     self.assertTrue(self.committer._lkgm, lkgm)
 

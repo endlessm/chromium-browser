@@ -25,7 +25,7 @@ tr.exportTo('tr.v', function() {
 
         let pageValuesCount = tr.b.dictionaryLength(pageValues);
         for (let [storyName, value] of Object.entries(pageValues)) {
-          if (pageValuesCount > 1 && storyName === 'summary') return;
+          if (pageValuesCount > 1 && storyName === 'summary') continue;
 
           let unitInfo = tr.v.LEGACY_UNIT_INFO.get(value.units) || {};
           let unitName = unitInfo.name || 'unitlessNumber';

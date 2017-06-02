@@ -63,6 +63,16 @@ src_compile() {
 platform_pkg_test() {
 }"""
 
+  _AUTOTEST_NORMAL = (
+      '\n\t+tests_fake_Test1\n\t+tests_fake_Test2\n',
+      ('fake_Test1', 'fake_Test2',))
+
+  _AUTOTEST_EXTRA_PLUS = (
+      '\n\t++++tests_fake_Test1\n', ('fake_Test1',))
+
+  _AUTOTEST_EXTRA_TAB = (
+      '\t\t\n\t\n\t+tests_fake_Test1\tfoo\n', ('fake_Test1',))
+
   _SINGLE_LINE_TEST = 'src_test() { echo "foo" }'
 
   def _MakeFakeEbuild(self, fake_ebuild_path, fake_ebuild_content=''):
@@ -173,6 +183,22 @@ platform_pkg_test() {
     os.makedirs(package_path)
     with self.assertRaises(failures_lib.PackageBuildFailure):
       portage_util._CheckHasTest(self.tempdir, package_name)
+
+  def testEBuildGetAutotestTests(self):
+    """Test extraction of test names from IUSE_TESTS variable.
+
+    Used for autotest ebuilds.
+    """
+
+    def run_case(tests_str, results):
+      settings = {'IUSE_TESTS' : tests_str}
+      self.assertEquals(
+          portage_util.EBuild._GetAutotestTestsFromSettings(settings), results)
+
+    run_case(self._AUTOTEST_NORMAL[0], list(self._AUTOTEST_NORMAL[1]))
+    run_case(self._AUTOTEST_EXTRA_PLUS[0], list(self._AUTOTEST_EXTRA_PLUS[1]))
+    run_case(self._AUTOTEST_EXTRA_TAB[0], list(self._AUTOTEST_EXTRA_TAB[1]))
+
 
 class ProjectAndPathTest(cros_test_lib.MockTempDirTestCase):
   """Project and Path related tests."""
@@ -959,14 +985,14 @@ class ProjectMappingTest(cros_test_lib.TestCase):
 
   def testFindWorkonProjects(self):
     """Test if we can find the list of workon projects."""
-    ply_image = 'media-gfx/ply-image'
-    ply_image_project = 'chromiumos/third_party/ply-image'
+    frecon = 'sys-apps/frecon'
+    frecon_project = 'chromiumos/platform/frecon'
     this = 'chromeos-base/chromite'
     this_project = 'chromiumos/chromite'
     matches = [
-        ([ply_image], set([ply_image_project])),
+        ([frecon], set([frecon_project])),
         ([this], set([this_project])),
-        ([ply_image, this], set([ply_image_project, this_project]))
+        ([frecon, this], set([frecon_project, this_project]))
     ]
     if portage_util.FindOverlays(constants.BOTH_OVERLAYS):
       for packages, projects in matches:

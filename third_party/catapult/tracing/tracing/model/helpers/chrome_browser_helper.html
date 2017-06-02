@@ -18,8 +18,9 @@ tr.exportTo('tr.model.helpers', function() {
   function ChromeBrowserHelper(modelHelper, process) {
     tr.model.helpers.ChromeProcessHelper.call(this, modelHelper, process);
     this.mainThread_ = process.findAtMostOneThreadNamed('CrBrowserMain');
-    if (!process.name)
+    if (!process.name) {
       process.name = ChromeBrowserHelper.PROCESS_NAME;
+    }
   }
 
   ChromeBrowserHelper.PROCESS_NAME = 'Browser';
@@ -65,14 +66,15 @@ tr.exportTo('tr.model.helpers', function() {
 
     get hasLatencyEvents() {
       var hasLatency = false;
-      for (var thread of this.modelHelper.model.getAllThreads())
+      for (var thread of this.modelHelper.model.getAllThreads()) {
         for (var event of thread.getDescendantEvents()) {
-          if (!event.isTopLevel)
+          if (!event.isTopLevel) continue;
+          if (!(event instanceof tr.e.cc.InputLatencyAsyncSlice)) {
             continue;
-          if (!(event instanceof tr.e.cc.InputLatencyAsyncSlice))
-            continue;
+          }
           hasLatency = true;
         }
+      }
       return hasLatency;
     },
 
@@ -87,33 +89,13 @@ tr.exportTo('tr.model.helpers', function() {
     getAllAsyncSlicesMatching: function(pred, opt_this) {
       var events = [];
       this.iterAllThreads(function(thread) {
-        for (var slice of thread.getDescendantEvents())
-          if (pred.call(opt_this, slice))
+        for (var slice of thread.getDescendantEvents()) {
+          if (pred.call(opt_this, slice)) {
             events.push(slice);
+          }
+        }
       });
       return events;
-    },
-
-    getAllNetworkEventsInRange: function(rangeOfInterest) {
-      var networkEvents = [];
-      this.modelHelper.model.getAllThreads().forEach(function(thread) {
-        thread.asyncSliceGroup.slices.forEach(function(slice) {
-          var match = false;
-          if (slice.category === 'net' ||  // old-style URLRequest/Resource
-              slice.category === 'disabled-by-default-netlog' ||
-              slice.category === 'netlog') {
-            match = true;
-          }
-
-          if (!match)
-            return;
-
-          if (rangeOfInterest.intersectsExplicitRangeInclusive(
-              slice.start, slice.end))
-            networkEvents.push(slice);
-        });
-      });
-      return networkEvents;
     },
 
     iterAllThreads: function(func, opt_this) {

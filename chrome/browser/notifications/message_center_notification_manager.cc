@@ -35,8 +35,8 @@
 #endif
 
 #if defined(USE_ASH)
-#include "ash/common/system/web_notification/web_notification_tray.h"
 #include "ash/shell.h"
+#include "ash/system/web_notification/web_notification_tray.h"
 #endif
 
 using message_center::NotifierId;
@@ -47,8 +47,7 @@ MessageCenterNotificationManager::MessageCenterNotificationManager(
     : message_center_(message_center),
       settings_provider_(std::move(settings_provider)),
       system_observer_(this),
-      stats_collector_(message_center),
-      google_now_stats_collector_(message_center) {
+      stats_collector_(message_center) {
   message_center_->AddObserver(this);
   message_center_->SetNotifierSettingsProvider(settings_provider_.get());
 
@@ -82,6 +81,10 @@ MessageCenterNotificationManager::~MessageCenterNotificationManager() {
 
 void MessageCenterNotificationManager::Add(const Notification& notification,
                                            Profile* profile) {
+  // We won't have time to process and act on this notification.
+  if (is_shutdown_started_)
+    return;
+
   if (Update(notification, profile))
     return;
 
@@ -259,6 +262,11 @@ void MessageCenterNotificationManager::CancelAll() {
       false /* by_user */, message_center::MessageCenter::RemoveType::ALL);
 }
 
+void MessageCenterNotificationManager::StartShutdown() {
+  is_shutdown_started_ = true;
+  CancelAll();
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // MessageCenter::Observer
 void MessageCenterNotificationManager::OnNotificationRemoved(
@@ -284,7 +292,7 @@ void MessageCenterNotificationManager::EnsureMessageCenterClosed() {
 #if defined(USE_ASH)
   if (ash::Shell::HasInstance()) {
     ash::WebNotificationTray* tray =
-        ash::Shell::GetInstance()->GetWebNotificationTray();
+        ash::Shell::Get()->GetWebNotificationTray();
     if (tray)
       tray->GetMessageCenterTray()->HideMessageCenterBubble();
   }

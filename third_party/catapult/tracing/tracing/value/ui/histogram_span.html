@@ -5,7 +5,7 @@ Use of this source code is governed by a BSD-style license that can be
 found in the LICENSE file.
 -->
 
-<link rel="import" href="/tracing/base/statistics.html">
+<link rel="import" href="/tracing/base/math/statistics.html">
 <link rel="import" href="/tracing/ui/base/box_chart.html">
 <link rel="import" href="/tracing/ui/base/drag_handle.html">
 <link rel="import" href="/tracing/ui/base/name_bar_chart.html">
@@ -44,8 +44,10 @@ found in the LICENSE file.
     <tr-v-ui-diagnostic-map-table id="histogram_diagnostics"></tr-v-ui-diagnostic-map-table>
 
     <div id="sample_diagnostics_container">
-      <input type="checkbox" id="merge_sample_diagnostics" checked on-change="updateDiagnostics_">
-      <label for="merge_sample_diagnostics">Merge Sample Diagnostics</label>
+      <div id="merge_sample_diagnostics_container">
+        <input type="checkbox" id="merge_sample_diagnostics" checked on-change="updateDiagnostics_">
+        <label for="merge_sample_diagnostics">Merge Sample Diagnostics</label>
+      </div>
       <tr-v-ui-diagnostic-map-table id="sample_diagnostics"></tr-v-ui-diagnostic-map-table>
     </div>
   </template>
@@ -53,379 +55,455 @@ found in the LICENSE file.
 
 <script>
 'use strict';
+tr.exportTo('tr.v.ui', function() {
+  const DEFAULT_BAR_HEIGHT_PX = 5;
+  const TRUNCATE_BIN_MARGIN = 0.15;
+  const IGNORE_DELTA_STATISTICS_NAMES = [
+    `${tr.v.DELTA}min`,
+    `%${tr.v.DELTA}min`,
+    `${tr.v.DELTA}max`,
+    `%${tr.v.DELTA}max`,
+    `${tr.v.DELTA}sum`,
+    `%${tr.v.DELTA}sum`,
+    `${tr.v.DELTA}count`,
+    `%${tr.v.DELTA}count`,
+  ];
 
-const DELTA = String.fromCharCode(916);
+  Polymer({
+    is: 'tr-v-ui-histogram-span',
 
-const ABS_DELTA_AVG_NAME = 'abs' + DELTA + 'avg';
+    created() {
+      this.viewStateListener_ = this.onViewStateUpdate_.bind(this);
+      this.viewState = new tr.v.ui.HistogramSetTableCellState();
 
-const DEFAULT_BAR_HEIGHT_PX = 5;
-
-const TRUNCATE_BIN_MARGIN = 0.15;
-
-Polymer({
-  is: 'tr-v-ui-histogram-span',
-
-  created() {
-    this.histogram_ = undefined;
-    this.referenceHistogram_ = undefined;
-    this.graphWidth_ = undefined;
-    this.graphHeight_ = undefined;
-    this.mouseDownBin_ = undefined;
-    this.brushedBins_ = [];
-    this.prevBrushedBins_ = [];
-  },
-
-  ready() {
-    this.$.drag_handle.target = this.$.container;
-    this.$.drag_handle.addEventListener(
-        'drag-handle-resize', this.onResize_.bind(this));
-  },
-
-  attached() {
-    if (this.histogram_ !== undefined) this.updateContents_();
-  },
-
-  onResize_(event) {
-    event.stopPropagation();
-    let heightPx = parseInt(this.$.container.style.height);
-    if (heightPx < this.defaultGraphHeight) {
-      heightPx = this.defaultGraphHeight;
-      this.$.container.style.height = this.defaultGraphHeight + 'px';
-    }
-    this.chart_.graphHeight = heightPx - (this.chart_.margin.top +
-        this.chart_.margin.bottom);
-  },
-
-  /**
-   * Get the width in pixels of the widest bar in the bar chart, not the total
-   * bar chart svg tag, which includes margins containing axes and legend.
-   *
-   * @return {number}
-   */
-  get graphWidth() {
-    return this.graphWidth_ || this.defaultGraphWidth;
-  },
-
-  /**
-   * Set the width in pixels of the widest bar in the bar chart, not the total
-   * bar chart svg tag, which includes margins containing axes and legend.
-   *
-   * @param {number} width
-   */
-  set graphWidth(width) {
-    this.graphWidth_ = width;
-  },
-
-  /**
-   * Get the height in pixels of the bars in the bar chart, not the total
-   * bar chart svg tag, which includes margins containing axes and legend.
-   *
-   * @return {number}
-   */
-  get graphHeight() {
-    return this.graphHeight_ || this.defaultGraphHeight;
-  },
-
-  /**
-   * Set the height in pixels of the bars in the bar chart, not the total
-   * bar chart svg tag, which includes margins containing axes and legend.
-   *
-   * @param {number} height
-   */
-  set graphHeight(height) {
-    this.graphHeight_ = height;
-  },
-
-  /**
-   * Get the height in pixels of one bar in the bar chart.
-   *
-   * @return {number}
-   */
-  get barHeight() {
-    return this.chart_.barHeight;
-  },
-
-  /**
-   * Set the height in pixels of one bar in the bar chart.
-   *
-   * @param {number} px
-   */
-  set barHeight(px) {
-    this.graphHeight = this.computeChartHeight_(px);
-  },
-
-  computeChartHeight_(barHeightPx) {
-    return (this.chart_.margin.top +
-        this.chart_.margin.bottom +
-        (barHeightPx * this.histogram.allBins.length));
-  },
-
-  get defaultGraphHeight() {
-    if (this.histogram && this.histogram.allBins.length === 1) {
-      return 150;
-    }
-    return this.computeChartHeight_(DEFAULT_BAR_HEIGHT_PX);
-  },
-
-  get defaultGraphWidth() {
-    if (this.histogram.allBins.length === 1) {
-      return 100;
-    }
-    return 300;
-  },
-
-  get brushedBins() {
-    return this.brushedBins_;
-  },
-
-  set brushedBins(bins) {
-    this.brushedBins_ = bins;
-    let brushedBinIndices = new tr.b.Range();
-    for (let bin of bins) {
-      brushedBinIndices.addValue(this.histogram.allBins.indexOf(bin));
-    }
-    this.chart_.brushedRange = brushedBinIndices;
-    this.updateDiagnostics_();
-  },
-
-  updateBrushedRange_(binIndex) {
-    let brushedBinIndices = new tr.b.Range();
-    brushedBinIndices.addValue(tr.b.clamp(
-        this.mouseDownBinIndex_, 0, this.histogram.allBins.length - 1));
-    brushedBinIndices.addValue(tr.b.clamp(
-        binIndex, 0, this.histogram.allBins.length - 1));
-    brushedBinIndices.max += 1;
-    this.chart_.brushedRange = brushedBinIndices;
-
-    this.brushedBins_ = [];
-    for (let i = brushedBinIndices.min; i < brushedBinIndices.max; ++i) {
-      this.brushedBins.push(this.histogram.allBins[i]);
-    }
-  },
-
-  onMouseDown_(chartEvent) {
-    chartEvent.stopPropagation();
-    if (!this.histogram) {
-      return;
-    }
-    this.prevBrushedBins_ = this.brushedBins_;
-    this.mouseDownBinIndex_ = chartEvent.y;
-    this.updateBrushedRange_(chartEvent.y);
-  },
-
-  onMouseMove_(chartEvent) {
-    chartEvent.stopPropagation();
-    if (!this.histogram) {
-      return;
-    }
-    this.updateBrushedRange_(chartEvent.y);
-  },
-
-  onMouseUp_(chartEvent) {
-    chartEvent.stopPropagation();
-    if (!this.histogram) {
-      return;
-    }
-    this.updateBrushedRange_(chartEvent.y);
-    if (this.prevBrushedBins_.length === 1 &&
-        this.brushedBins_.length === 1 &&
-        this.prevBrushedBins_[0] === this.brushedBins_[0]) {
+      this.histogram_ = undefined;
+      this.referenceHistogram_ = undefined;
+      this.graphWidth_ = undefined;
+      this.graphHeight_ = undefined;
+      this.mouseDownBin_ = undefined;
       this.brushedBins_ = [];
-      this.chart_.brushedRange = new tr.b.Range();
-    }
-    this.updateDiagnostics_();
-    this.mouseDownBinIndex_ = undefined;
-  },
+      this.prevBrushedBins_ = [];
+      this.canMergeSampleDiagnostics_ = true;
+    },
 
-  updateDiagnostics_() {
-    let maps = [];
-    for (let bin of this.brushedBins) {
-      for (let map of bin.diagnosticMaps) {
-        maps.push(map);
+    get viewState() {
+      return this.viewState_;
+    },
+
+    set viewState(vs) {
+      if (this.viewState) {
+        this.viewState.removeUpdateListener(this.viewStateListener_);
       }
-    }
+      this.viewState_ = vs;
+      this.viewState.addUpdateListener(this.viewStateListener_);
+    },
 
-    if (maps.length === 0) {
-      this.$.sample_diagnostics_container.style.display = 'none';
-      return;
-    }
-
-    if (this.$.merge_sample_diagnostics.checked) {
-      let merged = new tr.v.d.DiagnosticMap();
-      for (let map of maps) {
-        merged.addDiagnostics(map);
+    onViewStateUpdate_(event) {
+      if (event.delta.brushedBinRange) {
+        this.brushedBinRange = this.viewState.brushedBinRange;
       }
-      maps = [merged];
-    }
+      if (event.delta.mergeSampleDiagnostics) {
+        this.mergeSampleDiagnostics = this.canMergeSampleDiagnostics &&
+          this.viewState.mergeSampleDiagnostics;
+      }
+    },
 
-    this.$.sample_diagnostics.diagnosticMaps = maps;
-    this.$.sample_diagnostics_container.style.display = 'block';
-  },
+    ready() {
+      this.$.drag_handle.target = this.$.container;
+      this.$.drag_handle.addEventListener(
+          'drag-handle-resize', this.onResize_.bind(this));
+    },
 
-  get histogram() {
-    return this.histogram_;
-  },
+    attached() {
+      if (this.histogram_ !== undefined) this.updateContents_();
+    },
 
-  set histogram(histogram) {
-    if (histogram === this.histogram_) return;
-    this.histogram_ = histogram;
-    if (this.isAttached) this.updateContents_();
-  },
+    get canMergeSampleDiagnostics() {
+      return this.canMergeSampleDiagnostics_;
+    },
 
-  get referenceHistogram() {
-    return this.referenceHistogram_;
-  },
+    set canMergeSampleDiagnostics(merge) {
+      this.canMergeSampleDiagnostics_ = merge;
+      this.$.merge_sample_diagnostics_container.style.display = (
+          merge ? '' : 'none');
+    },
 
-  set referenceHistogram(histogram) {
-    if (histogram === this.referenceHistogram_) {
-      return;
-    }
-    this.referenceHistogram_ = histogram;
-    if (this.histogram) this.updateContents_();
-  },
+    onResize_(event) {
+      event.stopPropagation();
+      let heightPx = parseInt(this.$.container.style.height);
+      if (heightPx < this.defaultGraphHeight) {
+        heightPx = this.defaultGraphHeight;
+        this.$.container.style.height = this.defaultGraphHeight + 'px';
+      }
+      this.chart_.graphHeight = heightPx - (this.chart_.margin.top +
+          this.chart_.margin.bottom);
+    },
 
-  getDeltaScalars_(scalarMap) {
-    if (!(this.referenceHistogram instanceof tr.v.Histogram) ||
-        (this.histogram.unit !== this.referenceHistogram.unit) ||
-        (this.histogram.numValues === 0) &&
-        (this.referenceHistogram.numValues === 0)) {
-      return;
-    }
+    /**
+    * Get the width in pixels of the widest bar in the bar chart, not the total
+    * bar chart svg tag, which includes margins containing axes and legend.
+    *
+    * @return {number}
+    */
+    get graphWidth() {
+      return this.graphWidth_ || this.defaultGraphWidth;
+    },
 
-    let mwu = tr.b.Statistics.mwu(
-        this.histogram.sampleValues, this.referenceHistogram.sampleValues);
+    /**
+    * Set the width in pixels of the widest bar in the bar chart, not the total
+    * bar chart svg tag, which includes margins containing axes and legend.
+    *
+    * @param {number} width
+    */
+    set graphWidth(width) {
+      this.graphWidth_ = width;
+    },
 
-    for (let deltaStatName of tr.v.DELTA_STATISTIC_NAMES) {
-      let scalar = this.histogram.getStatisticScalar(
-          deltaStatName, this.referenceHistogram, mwu);
-      if (scalar === undefined) continue;
-      scalarMap.set(deltaStatName, scalar);
-    }
+    /**
+    * Get the height in pixels of the bars in the bar chart, not the total
+    * bar chart svg tag, which includes margins containing axes and legend.
+    *
+    * @return {number}
+    */
+    get graphHeight() {
+      return this.graphHeight_ || this.defaultGraphHeight;
+    },
 
-    if (this.histogram.unit.improvementDirection !==
-        tr.b.ImprovementDirection.DONT_CARE) {
-      this.$.stats.setSignificanceForKey(
-          tr.v.ABS_DELTA_AVG_NAME, mwu.significance);
-    }
-  },
+    /**
+    * Set the height in pixels of the bars in the bar chart, not the total
+    * bar chart svg tag, which includes margins containing axes and legend.
+    *
+    * @param {number} height
+    */
+    set graphHeight(height) {
+      this.graphHeight_ = height;
+    },
 
-  set isYLogScale(logScale) {
-    this.chart_.isYLogScale = logScale;
-  },
+    /**
+    * Get the height in pixels of one bar in the bar chart.
+    *
+    * @return {number}
+    */
+    get barHeight() {
+      return this.chart_.barHeight;
+    },
 
-  updateContents_() {
-    this.$.chart.style.display = 'none';
-    this.$.drag_handle.style.display = 'none';
-    this.$.sample_diagnostics_container.style.display = 'none';
-    this.$.container.style.justifyContent = '';
-    this.brushedBins_ = [];
+    /**
+    * Set the height in pixels of one bar in the bar chart.
+    *
+    * @param {number} px
+    */
+    set barHeight(px) {
+      this.graphHeight = this.computeChartHeight_(px);
+    },
 
-    while (Polymer.dom(this.$.chart).lastChild) {
-      Polymer.dom(this.$.chart).removeChild(
-          Polymer.dom(this.$.chart).lastChild);
-    }
+    computeChartHeight_(barHeightPx) {
+      return (this.chart_.margin.top +
+          this.chart_.margin.bottom +
+          (barHeightPx * this.histogram.allBins.length));
+    },
 
-    if (!this.histogram) return;
-    this.$.container.style.display = '';
+    get defaultGraphHeight() {
+      if (this.histogram && this.histogram.allBins.length === 1) {
+        return 150;
+      }
+      return this.computeChartHeight_(DEFAULT_BAR_HEIGHT_PX);
+    },
 
-    let scalarMap = new Map();
-    this.getDeltaScalars_(scalarMap);
-    for (let [name, scalar] of this.histogram.statisticsScalars) {
-      scalarMap.set(name, scalar);
-    }
-    this.$.stats.scalarMap = scalarMap;
+    get defaultGraphWidth() {
+      if (this.histogram.allBins.length === 1) {
+        return 100;
+      }
+      return 300;
+    },
 
-    if (this.histogram.diagnostics.size > 0) {
-      let diagnosticMap = new tr.v.d.DiagnosticMap();
-      for (let [key, diagnostic] of this.histogram.diagnostics) {
-        // Hide the 'merged from' and 'merged to' diagnostics, which are
-        // implementation details.
-        if (key !== tr.v.d.MERGED_FROM_DIAGNOSTIC_KEY &&
-            key !== tr.v.d.MERGED_TO_DIAGNOSTIC_KEY) {
-          diagnosticMap.set(key, diagnostic);
+    get brushedBins() {
+      return this.brushedBins_;
+    },
+
+    set brushedBins(bins) {
+      if (this.chart_ === undefined) return;
+      this.brushedBins_ = bins;
+      if (this.chart_ === undefined) return;
+      let brushedBinIndices = new tr.b.math.Range();
+      for (let bin of bins) {
+        brushedBinIndices.addValue(this.histogram.allBins.indexOf(bin));
+      }
+      if (brushedBinIndices.max !== this.viewState.brushedBinRange.max ||
+          brushedBinIndices.max !== this.viewState.brushedBinRange.max) {
+        this.viewState.brushedBinRange = brushedBinIndices;
+      }
+      this.chart_.brushedRange = brushedBinIndices;
+      this.updateDiagnostics_();
+    },
+
+    get brushedBinRange() {
+      if (this.chart_ === undefined) return new tr.b.math.Range();
+      return this.chart_.brushedRange;
+    },
+
+    set brushedBinRange(r) {
+      if (this.chart_ === undefined) return;
+
+      const current = this.brushedBinRange;
+      if (r.min === current.min && r.max === current.max) return;
+
+      const brushedBins = [];
+      for (let i = r.min; i <= r.max; ++i) {
+        brushedBins.push(this.histogram.allBins[i]);
+      }
+      this.brushedBins = brushedBins;
+    },
+
+    get mergeSampleDiagnostics() {
+      return this.canMergeSampleDiagnostics &&
+          this.$.merge_sample_diagnostics.checked;
+    },
+
+    set mergeSampleDiagnostics(m) {
+      this.$.merge_sample_diagnostics.checked = m;
+    },
+
+    updateBrushedRange_(binIndex) {
+      let brushedBinIndices = new tr.b.math.Range();
+      brushedBinIndices.addValue(tr.b.math.clamp(
+          this.mouseDownBinIndex_, 0, this.histogram.allBins.length - 1));
+      brushedBinIndices.addValue(tr.b.math.clamp(
+          binIndex, 0, this.histogram.allBins.length - 1));
+      brushedBinIndices.max += 1;
+      this.chart_.brushedRange = brushedBinIndices;
+
+      this.brushedBins_ = [];
+      for (let i = brushedBinIndices.min; i < brushedBinIndices.max; ++i) {
+        this.brushedBins.push(this.histogram.allBins[i]);
+      }
+    },
+
+    onMouseDown_(chartEvent) {
+      chartEvent.stopPropagation();
+      if (!this.histogram) {
+        return;
+      }
+      this.prevBrushedBins_ = this.brushedBins_;
+      this.mouseDownBinIndex_ = chartEvent.y;
+      this.updateBrushedRange_(chartEvent.y);
+    },
+
+    onMouseMove_(chartEvent) {
+      chartEvent.stopPropagation();
+      if (!this.histogram) {
+        return;
+      }
+      this.updateBrushedRange_(chartEvent.y);
+    },
+
+    onMouseUp_(chartEvent) {
+      chartEvent.stopPropagation();
+      if (!this.histogram) {
+        return;
+      }
+      this.updateBrushedRange_(chartEvent.y);
+      if (this.prevBrushedBins_.length === 1 &&
+          this.brushedBins_.length === 1 &&
+          this.prevBrushedBins_[0] === this.brushedBins_[0]) {
+        this.brushedBins_ = [];
+        this.chart_.brushedRange = new tr.b.math.Range();
+      }
+      this.updateDiagnostics_();
+      this.mouseDownBinIndex_ = undefined;
+    },
+
+    updateDiagnostics_() {
+      let maps = [];
+      for (let bin of this.brushedBins) {
+        for (let map of bin.diagnosticMaps) {
+          maps.push(map);
         }
       }
-      this.$.histogram_diagnostics.diagnosticMaps = [diagnosticMap];
-      this.$.histogram_diagnostics.style.display = 'block';
-    } else {
-      this.$.histogram_diagnostics.style.display = 'none';
-    }
 
-    if (this.histogram.numValues <= 1) {
-      this.brushedBins_ = this.histogram.allBins;
-      this.updateDiagnostics_();
-      this.$.container.style.justifyContent = 'flex-end';
-      return;
-    }
+      if (maps.length === 0) {
+        this.$.sample_diagnostics_container.style.display = 'none';
+        return;
+      }
 
-    this.$.chart.style.display = 'block';
-    this.$.drag_handle.style.display = 'block';
+      this.viewState.mergeSampleDiagnostics = this.mergeSampleDiagnostics;
 
-    if (this.histogram.allBins.length === 1) {
-      this.chart_ = new tr.ui.b.BoxChart();
+      if (this.mergeSampleDiagnostics) {
+        const merged = new tr.v.d.DiagnosticMap();
+        for (const map of maps) {
+          merged.addDiagnostics(map);
+        }
+        maps = [merged];
+      }
+
+      this.$.sample_diagnostics_container.style.display = 'block';
+      this.$.sample_diagnostics.diagnosticMaps = maps;
+    },
+
+    get histogram() {
+      return this.histogram_;
+    },
+
+    set histogram(histogram) {
+      if (histogram === this.histogram_) return;
+      this.histogram_ = histogram;
+      if (this.isAttached) this.updateContents_();
+    },
+
+    get referenceHistogram() {
+      return this.referenceHistogram_;
+    },
+
+    set referenceHistogram(histogram) {
+      if (histogram === this.referenceHistogram_) {
+        return;
+      }
+      this.referenceHistogram_ = histogram;
+      if (this.histogram) this.updateContents_();
+    },
+
+    getDeltaScalars_(statNames, scalarMap) {
+      if (!this.histogram.canCompare(this.referenceHistogram)) return;
+
+      let mwu = tr.b.math.Statistics.mwu(
+          this.histogram.sampleValues, this.referenceHistogram.sampleValues);
+
+      for (let deltaStatName of tr.v.Histogram.getDeltaStatisticsNames(
+          statNames)) {
+        if (IGNORE_DELTA_STATISTICS_NAMES.includes(deltaStatName)) continue;
+        let scalar = this.histogram.getStatisticScalar(
+            deltaStatName, this.referenceHistogram, mwu);
+        if (scalar === undefined) continue;
+        scalarMap.set(deltaStatName, scalar);
+      }
+
+      if (this.histogram.unit.improvementDirection !==
+          tr.b.ImprovementDirection.DONT_CARE) {
+        this.$.stats.setSignificanceForKey(
+            `${tr.v.DELTA}avg`, mwu.significance);
+      }
+    },
+
+    set isYLogScale(logScale) {
+      this.chart_.isYLogScale = logScale;
+    },
+
+    updateContents_() {
+      this.$.chart.style.display = 'none';
+      this.$.drag_handle.style.display = 'none';
+      this.$.sample_diagnostics_container.style.display = 'none';
+      this.$.container.style.justifyContent = '';
+      this.brushedBins_ = [];
+
+      while (Polymer.dom(this.$.chart).lastChild) {
+        Polymer.dom(this.$.chart).removeChild(
+            Polymer.dom(this.$.chart).lastChild);
+      }
+
+      if (!this.histogram) return;
+      this.$.container.style.display = '';
+
+      let scalarMap = new Map();
+      this.getDeltaScalars_(this.histogram.statisticsNames, scalarMap);
+      for (let [name, scalar] of this.histogram.statisticsScalars) {
+        scalarMap.set(name, scalar);
+      }
+      this.$.stats.scalarMap = scalarMap;
+
+      if (this.histogram.diagnostics.size > 0) {
+        let diagnosticMap = new tr.v.d.DiagnosticMap();
+        for (let [key, diagnostic] of this.histogram.diagnostics) {
+          // Hide the 'merged from' and 'merged to' diagnostics, which are
+          // implementation details.
+          if (key !== tr.v.d.MERGED_FROM_DIAGNOSTIC_KEY &&
+              key !== tr.v.d.MERGED_TO_DIAGNOSTIC_KEY) {
+            diagnosticMap.set(key, diagnostic);
+          }
+        }
+        this.$.histogram_diagnostics.diagnosticMaps = [diagnosticMap];
+        this.$.histogram_diagnostics.style.display = 'block';
+      } else {
+        this.$.histogram_diagnostics.style.display = 'none';
+      }
+
+      if (this.histogram.numValues <= 1) {
+        this.brushedBins_ = this.histogram.allBins;
+        this.updateDiagnostics_();
+        this.$.container.style.justifyContent = 'flex-end';
+        return;
+      }
+
+      this.$.chart.style.display = 'block';
+      this.$.drag_handle.style.display = 'block';
+
+      if (this.histogram.allBins.length === 1) {
+        if (this.histogram.min !== this.histogram.max) {
+          this.chart_ = new tr.ui.b.BoxChart();
+          Polymer.dom(this.$.chart).appendChild(this.chart_);
+          this.chart_.graphWidth = this.graphWidth;
+          this.chart_.graphHeight = this.graphHeight;
+          this.chart_.hideXAxis = true;
+          this.chart_.data = [
+            {
+              x: '',
+              color: 'blue',
+              percentile_0: this.histogram.running.min,
+              percentile_25: this.histogram.getApproximatePercentile(0.25),
+              percentile_50: this.histogram.getApproximatePercentile(0.5),
+              percentile_75: this.histogram.getApproximatePercentile(0.75),
+              percentile_100: this.histogram.running.max,
+            }
+          ];
+        }
+        this.brushedBins_ = this.histogram.allBins;
+        this.updateDiagnostics_();
+        return;
+      }
+
+      this.chart_ = new tr.ui.b.NameBarChart();
       Polymer.dom(this.$.chart).appendChild(this.chart_);
       this.chart_.graphWidth = this.graphWidth;
       this.chart_.graphHeight = this.graphHeight;
-      this.chart_.hideXAxis = true;
-      this.chart_.data = [
-        {
-          x: '',
-          color: 'blue',
-          percentile_0: this.histogram.running.min,
-          percentile_25: this.histogram.getApproximatePercentile(0.25),
-          percentile_50: this.histogram.getApproximatePercentile(0.5),
-          percentile_75: this.histogram.getApproximatePercentile(0.75),
-          percentile_100: this.histogram.running.max,
+      this.chart_.addEventListener('item-mousedown',
+          this.onMouseDown_.bind(this));
+      this.chart_.addEventListener('item-mousemove',
+          this.onMouseMove_.bind(this));
+      this.chart_.addEventListener('item-mouseup',
+          this.onMouseUp_.bind(this));
+      this.chart_.hideLegend = true;
+      this.chart_.getDataSeries('y').color = 'blue';
+      this.chart_.xAxisLabel = '#';
+      this.chart_.brushedRange = new tr.b.math.Range();
+
+      let chartData = [];
+      let binCounts = [];
+      for (let bin of this.histogram.allBins) {
+        let x = bin.range.min;
+        if (x === -Number.MAX_VALUE) {
+          x = '<' + new tr.b.Scalar(
+              this.histogram.unit, bin.range.max).toString();
+        } else {
+          x = new tr.b.Scalar(this.histogram.unit, x).toString();
         }
-      ];
-      this.brushedBins_ = this.histogram.allBins;
-      this.updateDiagnostics_();
-      return;
-    }
-
-    this.chart_ = new tr.ui.b.NameBarChart();
-    Polymer.dom(this.$.chart).appendChild(this.chart_);
-    this.chart_.graphWidth = this.graphWidth;
-    this.chart_.graphHeight = this.graphHeight;
-    this.chart_.addEventListener('item-mousedown',
-        this.onMouseDown_.bind(this));
-    this.chart_.addEventListener('item-mousemove',
-        this.onMouseMove_.bind(this));
-    this.chart_.addEventListener('item-mouseup',
-        this.onMouseUp_.bind(this));
-    this.chart_.hideLegend = true;
-    this.chart_.getDataSeries('y').color = 'blue';
-    this.chart_.xAxisLabel = '#';
-    this.chart_.brushedRange = new tr.b.Range();
-
-    let chartData = [];
-    let binCounts = [];
-    for (let bin of this.histogram.allBins) {
-      let x = bin.range.min;
-      if (x === -Number.MAX_VALUE) {
-        x = '<' + new tr.b.Scalar(
-            this.histogram.unit, bin.range.max).toString();
-      } else {
-        x = new tr.b.Scalar(this.histogram.unit, x).toString();
+        chartData.push({x: x, y: bin.count});
+        binCounts.push(bin.count);
       }
-      chartData.push({x: x, y: bin.count});
-      binCounts.push(bin.count);
-    }
 
-    // If the largest 1 or 2 bins are more than twice as large as the next
-    // largest bin, then set the dataRange max to TRUNCATE_BIN_MARGIN% more than
-    // that next largest bin.
-    binCounts.sort((x, y) => y - x);
-    let dataRange = tr.b.Range.fromExplicitRange(0, binCounts[0]);
-    if (binCounts[1] > 0 && binCounts[0] > (binCounts[1] * 2)) {
-      dataRange.max = binCounts[1] * (1 + TRUNCATE_BIN_MARGIN);
-    }
-    if (binCounts[2] > 0 && binCounts[1] > (binCounts[2] * 2)) {
-      dataRange.max = binCounts[2] * (1 + TRUNCATE_BIN_MARGIN);
-    }
-    this.chart_.overrideDataRange = dataRange;
+      // If the largest 1 or 2 bins are more than twice as large as the next
+      // largest bin, then set the dataRange max to TRUNCATE_BIN_MARGIN% more
+      // than that next largest bin.
+      binCounts.sort((x, y) => y - x);
+      let dataRange = tr.b.math.Range.fromExplicitRange(0, binCounts[0]);
+      if (binCounts[1] > 0 && binCounts[0] > (binCounts[1] * 2)) {
+        dataRange.max = binCounts[1] * (1 + TRUNCATE_BIN_MARGIN);
+      }
+      if (binCounts[2] > 0 && binCounts[1] > (binCounts[2] * 2)) {
+        dataRange.max = binCounts[2] * (1 + TRUNCATE_BIN_MARGIN);
+      }
+      this.chart_.overrideDataRange = dataRange;
 
-    this.chart_.data = chartData;
-  }
+      this.chart_.data = chartData;
+    }
+  });
 });
 </script>

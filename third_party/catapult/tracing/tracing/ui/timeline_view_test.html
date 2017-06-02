@@ -93,8 +93,8 @@ tr.b.unittest.testSuite(function() {
   };
 
   var modelsEquivalent = function(lhs, rhs) {
-    if (lhs.length !== rhs.length)
-      return false;
+    if (lhs.length !== rhs.length) return false;
+
     return lhs.every(function(lhsItem, index) {
       var rhsItem = rhs[index];
       return rhsItem.regexpText === lhsItem.regexpText &&
@@ -154,7 +154,7 @@ tr.b.unittest.testSuite(function() {
     var filterTask = sc.addAllEventsMatchingFilterToSelectionAsTask(
         filter, selection);
     Task.RunSynchronously(filterTask);
-    assert.equal(selection.length, 1);
+    assert.strictEqual(selection.length, 1);
   });
 });
 </script>

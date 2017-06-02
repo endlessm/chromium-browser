@@ -19,7 +19,7 @@ from telemetry.internal.backends.chrome_inspector import websocket
 from telemetry.internal.platform.tracing_agent import chrome_tracing_agent
 from telemetry.internal.platform.tracing_agent import (
     chrome_tracing_devtools_manager)
-from telemetry.timeline import trace_data as trace_data_module
+from tracing.trace_data import trace_data as trace_data_module
 
 
 BROWSER_INSPECTOR_WEBSOCKET_URL = 'ws://127.0.0.1:%i/devtools/browser'
@@ -361,7 +361,7 @@ class DevToolsClientBackend(object):
     finally:
       self._tracing_backend.StopTracing()
 
-  def CollectChromeTracingData(self, trace_data_builder, timeout=30):
+  def CollectChromeTracingData(self, trace_data_builder, timeout=60):
     try:
       trace_data_builder.AddTraceFor(
           trace_data_module.TAB_ID_PART, self._tab_ids[:])

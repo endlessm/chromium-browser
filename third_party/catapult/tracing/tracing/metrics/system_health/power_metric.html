@@ -5,8 +5,8 @@ Use of this source code is governed by a BSD-style license that can be
 found in the LICENSE file.
 -->
 
-<link rel="import" href="/tracing/base/range.html">
-<link rel="import" href="/tracing/base/statistics.html">
+<link rel="import" href="/tracing/base/math/range.html">
+<link rel="import" href="/tracing/base/math/statistics.html">
 <link rel="import" href="/tracing/base/unit_scale.html">
 <link rel="import" href="/tracing/importer/find_input_expectations.html">
 <link rel="import" href="/tracing/metrics/metric_registry.html">
@@ -55,13 +55,15 @@ tr.exportTo('tr.metrics.sh', function() {
   }
 
   function createHistograms_(data, interval, histograms) {
-    if (data.histograms[interval.name] === undefined)
+    if (data.histograms[interval.name] === undefined) {
       data.histograms[interval.name] = createEmptyHistogram_(interval,
           histograms);
+    }
     if (data.histograms[interval.name].perSecond) {
       for (var sample of data.model.device.powerSeries.getSamplesWithinRange(
-          interval.bounds.min, interval.bounds.max))
+          interval.bounds.min, interval.bounds.max)) {
         data.histograms[interval.name].energy.addSample(sample.powerInW);
+      }
     } else {
       var energyInJ = data.model.device.powerSeries.getEnergyConsumedInJ(
           interval.bounds.min, interval.bounds.max);
@@ -82,7 +84,7 @@ tr.exportTo('tr.metrics.sh', function() {
           rendererHelper).firstInteractiveSamples;
       for (var sample of samples) {
         var info = sample.diagnostics['Navigation infos'].value;
-        intervals.push(tr.b.Range.fromExplicitRange(
+        intervals.push(tr.b.math.Range.fromExplicitRange(
             info.start, info.interactive));
       }
     }
@@ -134,7 +136,7 @@ tr.exportTo('tr.metrics.sh', function() {
    * in the following form:
    *
    *   {
-   *     bounds {tr.b.Range}: Boundaries of the time interval.
+   *     bounds {tr.b.math.Range}: Boundaries of the time interval.
    *     name {string}: Name of this interval. Used to generate the
    *       metric names.
    *     description {string}: Human readable description of the interval.
@@ -165,7 +167,7 @@ tr.exportTo('tr.metrics.sh', function() {
     var chromeBounds = computeChromeBounds_(model);
     if (chromeBounds.isEmpty) return;
 
-    var powerSeriesBoundsWithGracePeriod = tr.b.Range.fromExplicitRange(
+    var powerSeriesBoundsWithGracePeriod = tr.b.math.Range.fromExplicitRange(
         powerSeries.bounds.min - CHROME_POWER_GRACE_PERIOD_MS,
         powerSeries.bounds.max + CHROME_POWER_GRACE_PERIOD_MS);
     if (!powerSeriesBoundsWithGracePeriod.containsRangeExclusive(
@@ -204,7 +206,7 @@ tr.exportTo('tr.metrics.sh', function() {
    * in the following form:
    *
    *   {
-   *     bounds {tr.b.Range}: Boundaries of the time interval.
+   *     bounds {tr.b.math.Range}: Boundaries of the time interval.
    *     name {string}: Name of this interval. Used to generate the
    *       metric names.
    *     description {string}: Human readable description of the interval.
@@ -219,17 +221,17 @@ tr.exportTo('tr.metrics.sh', function() {
     for (var exp of model.userModel.expectations) {
       var histogramName = exp.title.toLowerCase().replace(' ', '_');
       var energyHist = undefined;
-      if (histogramName.indexOf('response') !== -1) {
+      if (histogramName.includes('response')) {
         yield {
-          bounds: tr.b.Range.fromExplicitRange(exp.start, exp.end),
+          bounds: tr.b.math.Range.fromExplicitRange(exp.start, exp.end),
           name: histogramName,
           description: 'RAIL stage ' + histogramName,
           perSecond: false
         };
-      } else if (histogramName.indexOf('animation') !== -1 ||
-          histogramName.indexOf('idle') !== -1) {
+      } else if (histogramName.includes('animation') ||
+          histogramName.includes('idle')) {
         yield {
-          bounds: tr.b.Range.fromExplicitRange(exp.start, exp.end),
+          bounds: tr.b.math.Range.fromExplicitRange(exp.start, exp.end),
           name: histogramName,
           description: 'RAIL stage ' + histogramName,
           perSecond: true
@@ -246,7 +248,7 @@ tr.exportTo('tr.metrics.sh', function() {
    * in the following form:
    *
    *   {
-   *     bounds {tr.b.Range}: Boundaries of the time interval.
+   *     bounds {tr.b.math.Range}: Boundaries of the time interval.
    *     name {string}: Name of this interval. Used to generate the
    *       metric names.
    *     description {string}: Human readable description of the interval.
@@ -272,7 +274,7 @@ tr.exportTo('tr.metrics.sh', function() {
     }
     if (lastLoadTime !== undefined) {
       yield {
-        bounds: tr.b.Range.fromExplicitRange(
+        bounds: tr.b.math.Range.fromExplicitRange(
             lastLoadTime, chromeBounds.max),
         name: 'after_load',
         description: 'period after load',
@@ -282,10 +284,11 @@ tr.exportTo('tr.metrics.sh', function() {
   }
 
   /**
-   * @returns {tr.b.Range} The boundaries of the Chrome portion of the trace.
+   * @returns {tr.b.math.Range} The boundaries of the Chrome portion of the
+   * trace.
    */
   function computeChromeBounds_(model) {
-    var chromeBounds = new tr.b.Range();
+    var chromeBounds = new tr.b.math.Range();
     var chromeHelper = model.getOrCreateHelper(
         tr.model.helpers.ChromeModelHelper);
     if (chromeHelper === undefined) return chromeBounds;
@@ -363,8 +366,9 @@ tr.exportTo('tr.metrics.sh', function() {
       model: model,
       histograms: {}
     };
-    for (var interval of computeTimeIntervals_(model))
+    for (var interval of computeTimeIntervals_(model)) {
       createHistograms_(data, interval, histograms);
+    }
   }
 
   tr.metrics.MetricRegistry.register(powerMetric);

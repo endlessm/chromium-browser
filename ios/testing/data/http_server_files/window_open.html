@@ -181,13 +181,13 @@ found in the LICENSE file. -->
     <td>Open a window with target=_blank that immediately closes itself<br></td>
   </tr>
 
-  <tr id="_webScenarioWindowOpenSamePageWithBlankTarget">
+  <tr id="_webScenarioWindowOpenSameURLWithBlankTarget">
     <td>
       <a href="#"
          target="_blank"
-         name="webScenarioWindowOpenSamePageWithBlankTarget"
-         id="webScenarioWindowOpenSamePageWithBlankTarget">
-        webScenarioWindowOpenSamePageWithBlankTarget
+         name="webScenarioWindowOpenSameURLWithBlankTarget"
+         id="webScenarioWindowOpenSameURLWithBlankTarget">
+        webScenarioWindowOpenSameURLWithBlankTarget
       </a>
     </td>
     <td>Open same window with target=_blank<br></td>
@@ -214,6 +214,26 @@ found in the LICENSE file. -->
              value="webScenarioWindowClose">
     </td>
     <td>Trying to close the current window should fail.<br></td>
+  </tr>
+
+  <tr id="_webScenarioOpenWindowAndInjectPopup">
+    <td>
+      <script>
+        var openWindowAndInjectPopup = function() {
+          var url = window.location.href;
+          var w = window.open('', '', '');
+          var popupScript =
+              "<script>window.open('" + url + "')\<\/script>";
+          w.document.write(popupScript);
+        };
+      </script>
+      <input type="button"
+             onclick="openWindowAndInjectPopup()"
+             name="webScenarioOpenWindowAndInjectPopup"
+             id="webScenarioOpenWindowAndInjectPopup"
+             value="webScenarioOpenWindowAndInjectPopup">
+    </td>
+    <td>Open a window, then inject a window.open call into that window.<br></td>
   </tr>
 
 </table>

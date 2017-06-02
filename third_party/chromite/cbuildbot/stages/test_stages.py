@@ -179,12 +179,8 @@ class VMTestStage(generic_stages.BoardSpecificBuilderStage,
       commands.RunDevModeTest(
           self._build_root, self._current_board, self.GetImageDirSymlink())
     else:
-      if test_type == constants.GCE_VM_TEST_TYPE:
-        image_path = os.path.join(self.GetImageDirSymlink(),
-                                  constants.TEST_IMAGE_GCE_TAR)
-      else:
-        image_path = os.path.join(self.GetImageDirSymlink(),
-                                  constants.TEST_IMAGE_BIN)
+      image_path = os.path.join(self.GetImageDirSymlink(),
+                                constants.TEST_IMAGE_BIN)
       ssh_private_key = os.path.join(self.GetImageDirSymlink(),
                                      constants.TEST_KEY_PRIVATE)
       if not os.path.exists(ssh_private_key):
@@ -204,48 +200,79 @@ class VMTestStage(generic_stages.BoardSpecificBuilderStage,
 
   def PerformStage(self):
     # These directories are used later to archive test artifacts.
-    test_results_dir = commands.CreateTestRoot(self._build_root)
+    test_results_root = commands.CreateTestRoot(self._build_root)
     test_basename = constants.VM_TEST_RESULTS % dict(attempt=self._attempt)
     try:
       for vm_test in self._run.config.vm_tests:
-        logging.info('Running VM test %s.', vm_test.test_type)
+        test_type = vm_test.test_type
+        logging.info('Running VM test %s.', test_type)
+        per_test_results_dir = os.path.join(test_results_root, test_type)
         with cgroups.SimpleContainChildren('VMTest'):
           r = ' Reached VMTestStage test run timeout.'
           with timeout_util.Timeout(vm_test.timeout, reason_message=r):
-            self._RunTest(vm_test.test_type, test_results_dir)
+            self._RunTest(test_type, per_test_results_dir)
 
     except Exception:
       logging.error(_VM_TEST_ERROR_MSG % dict(vm_test_results=test_basename))
-      self._ArchiveVMFiles(test_results_dir)
+      self._ArchiveVMFiles(test_results_root)
       raise
     finally:
-      self._ArchiveTestResults(test_results_dir, test_basename)
+      self._ArchiveTestResults(test_results_root, test_basename)
 
 
 class GCETestStage(VMTestStage):
   """Run autotests on a GCE VM instance."""
 
-  config_name = 'run_gce_tests'
+  config_name = 'gce_tests'
 
   # TODO: We should revisit whether GCE tests should have their own configs.
   TEST_TIMEOUT = 60 * 60
 
+  def _RunTest(self, test_type, test_results_dir):
+    """Run a GCE test.
+
+    Args:
+      test_type: Any test in constants.VALID_GCE_TEST_TYPES
+      test_results_dir: The base directory to store the results.
+    """
+    image_path = os.path.join(self.GetImageDirSymlink(),
+                              constants.TEST_IMAGE_GCE_TAR)
+    ssh_private_key = os.path.join(self.GetImageDirSymlink(),
+                                   constants.TEST_KEY_PRIVATE)
+    if not os.path.exists(ssh_private_key):
+      # TODO: Disallow usage of default test key completely.
+      logging.warning('Test key was not found in the image directory. '
+                      'Default key will be used.')
+      ssh_private_key = None
+
+    commands.RunTestSuite(self._build_root,
+                          self._current_board,
+                          image_path,
+                          os.path.join(test_results_dir, 'test_harness'),
+                          test_type=test_type,
+                          whitelist_chrome_crashes=self._chrome_rev is None,
+                          archive_dir=self.bot_archive_root,
+                          ssh_private_key=ssh_private_key)
+
   def PerformStage(self):
     # These directories are used later to archive test artifacts.
-    test_results_dir = commands.CreateTestRoot(self._build_root)
+    test_results_root = commands.CreateTestRoot(self._build_root)
     test_basename = constants.GCE_TEST_RESULTS % dict(attempt=self._attempt)
     try:
-      logging.info('Running GCE tests...')
-      with cgroups.SimpleContainChildren('GCETest'):
-        r = ' Reached GCETestStage test run timeout.'
-        with timeout_util.Timeout(self.TEST_TIMEOUT, reason_message=r):
-          self._RunTest(constants.GCE_VM_TEST_TYPE, test_results_dir)
+      for gce_test in self._run.config.gce_tests:
+        test_type = gce_test.test_type
+        logging.info('Running GCE test %s.', test_type)
+        per_test_results_dir = os.path.join(test_results_root, test_type)
+        with cgroups.SimpleContainChildren('GCETest'):
+          r = ' Reached GCETestStage test run timeout.'
+          with timeout_util.Timeout(self.TEST_TIMEOUT, reason_message=r):
+            self._RunTest(gce_test.test_type, per_test_results_dir)
 
     except Exception:
       logging.error(_GCE_TEST_ERROR_MSG % dict(gce_test_results=test_basename))
       raise
     finally:
-      self._ArchiveTestResults(test_results_dir, test_basename)
+      self._ArchiveTestResults(test_results_root, test_basename)
 
 
 class HWTestStage(generic_stages.BoardSpecificBuilderStage,
@@ -384,7 +411,9 @@ class HWTestStage(generic_stages.BoardSpecificBuilderStage,
         minimum_duts=self.suite_config.minimum_duts,
         suite_min_duts=self.suite_config.suite_min_duts,
         offload_failures_only=self.suite_config.offload_failures_only,
-        debug=debug, subsystems=subsystems, skip_duts_check=skip_duts_check)
+        debug=debug, subsystems=subsystems, skip_duts_check=skip_duts_check,
+        job_keyvals={constants.DATASTORE_PARENT_KEY:
+                     ('Build', build_id, 'BuildStage', self._build_stage_id)})
     subsys_tuple = self.GenerateSubsysResult(cmd_result.json_dump_result,
                                              subsystems)
     if db:
@@ -532,15 +561,19 @@ class BranchUtilTestStage(generic_stages.BuilderStage):
 
 
 class CrosSigningTestStage(generic_stages.BuilderStage):
-  """Stage that verifies Chrome prebuilts.
+  """Stage that runs the signer unittests.
 
-  This requires an internal source code checkouts.
+  This requires an internal source code checkout.
   """
-
-  def __init__(self, builder_run, network, **kwargs):
-    super(CrosSigningTestStage, self).__init__(builder_run, **kwargs)
-    self.network = network
 
   def PerformStage(self):
     """Run the cros-signing unittests."""
-    commands.RunCrosSigningTests(self._build_root, self.network)
+    commands.RunCrosSigningTests(self._build_root)
+
+
+class ChromiteTestStage(generic_stages.BuilderStage):
+  """Stage that runs Chromite tests, including network tests."""
+
+  def PerformStage(self):
+    """Run the cros-signing unittests."""
+    commands.RunChromiteTests(self._build_root, network=False)

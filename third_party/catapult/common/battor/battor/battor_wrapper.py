@@ -83,7 +83,6 @@ class BattOrWrapper(object):
   _RECORD_CLOCKSYNC_CMD = 'RecordClockSyncMarker'
   _SUPPORTED_PLATFORMS = ['android', 'chromeos', 'linux', 'mac', 'win']
 
-  _SUPPORTED_AUTOFLASHING_PLATFORMS = ['linux', 'mac', 'win']
   _BATTOR_PARTNO = 'x192a3u'
   _BATTOR_PROGRAMMER = 'avr109'
   _BATTOR_BAUDRATE = '115200'
@@ -157,10 +156,16 @@ class BattOrWrapper(object):
     except ValueError:
       logging.exception('Git hash returned from BattOr was not as expected: %s'
                         % self._git_hash)
-      self._UploadSerialLogToCloudStorage()
-      self._serial_log_file = None
+
     finally:
       if not self._battor_shell:
+        # TODO(charliea): Once we understand why BattOrs are crashing, remove
+        # this log.
+        # http://crbug.com/699581
+        logging.info('_FlashBattOr serial log:')
+        self._UploadSerialLogToCloudStorage()
+        self._serial_log_file = None
+
         self.StartShell()
 
   def KillBattOrShell(self):
@@ -236,8 +241,11 @@ class BattOrWrapper(object):
     if timeout is None:
       timeout = self._stop_tracing_time - self._start_tracing_time
 
-    if self.GetShellReturnCode() == 1:
-      self._UploadSerialLogToCloudStorage()
+    # TODO(charliea): Once we understand why BattOrs are crashing, only do
+    # this on failure.
+    # http://crbug.com/699581
+    logging.info('CollectTraceData serial log:')
+    self._UploadSerialLogToCloudStorage()
 
     with open(self._trace_results_path) as results:
       self._trace_results = results.read()
@@ -370,9 +378,6 @@ class BattOrWrapper(object):
        firmware at hex_path.
     """
     assert not self._battor_shell, 'Cannot flash BattOr with open shell'
-    if self._target_platform not in self._SUPPORTED_AUTOFLASHING_PLATFORMS:
-      logging.critical('Flashing firmware on this platform is not supported.')
-      return False
 
     avrdude_binary = self._dm.FetchPath(
         'avrdude_binary', '%s_%s' % (sys.platform, platform.machine()))

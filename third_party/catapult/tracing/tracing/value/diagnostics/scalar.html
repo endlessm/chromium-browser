@@ -18,9 +18,14 @@ tr.exportTo('tr.v.d', function() {
      */
     constructor(value) {
       super();
-      if (!(value instanceof tr.b.Scalar))
+      if (!(value instanceof tr.b.Scalar)) {
         throw new Error('expected Scalar');
+      }
       this.value = value;
+    }
+
+    clone() {
+      return new Scalar(this.value);
     }
 
     asDictInto_(d) {

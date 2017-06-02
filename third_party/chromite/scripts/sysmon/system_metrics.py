@@ -2,13 +2,11 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-# Copyright (c) 2015 The Chromium Authors. All rights reserved.
-# Use of this source code is governed by a BSD-style license that can be
-# found in the LICENSE file.
-
 """System metrics."""
 
+from __future__ import absolute_import
 from __future__ import print_function
+from __future__ import unicode_literals
 
 import errno
 import os
@@ -60,39 +58,14 @@ _mem_total_metric = ts_mon.GaugeMetric(
     description='Total physical memory in Bytes.',
     units=ts_mon.MetricsDataUnits.BYTES)
 
-BOOT_TIME = psutil.boot_time()
-_net_up_metric = ts_mon.CounterMetric(
-    'dev/net/bytes/up', start_time=BOOT_TIME,
-    description='Number of bytes sent on interface.',
-    units=ts_mon.MetricsDataUnits.BYTES)
-_net_down_metric = ts_mon.CounterMetric(
-    'dev/net/bytes/down', start_time=BOOT_TIME,
-    description='Number of Bytes received on '
-    'interface.',
-    units=ts_mon.MetricsDataUnits.BYTES)
-_net_err_up_metric = ts_mon.CounterMetric(
-    'dev/net/err/up', start_time=BOOT_TIME,
-    description='Total number of errors when '
-    'sending (per interface).')
-_net_err_down_metric = ts_mon.CounterMetric(
-    'dev/net/err/down', start_time=BOOT_TIME,
-    description='Total number of errors when '
-    'receiving (per interface).')
-_net_drop_up_metric = ts_mon.CounterMetric(
-    'dev/net/drop/up', start_time=BOOT_TIME,
-    description='Total number of outgoing '
-    'packets that have been dropped.')
-_net_drop_down_metric = ts_mon.CounterMetric(
-    'dev/net/drop/down', start_time=BOOT_TIME,
-    description='Total number of incoming '
-    'packets that have been dropped.')
+_BOOT_TIME = psutil.boot_time()
 
 _disk_read_metric = ts_mon.CounterMetric(
-    'dev/disk/read', start_time=BOOT_TIME,
+    'dev/disk/read', start_time=_BOOT_TIME,
     description='Number of Bytes read on disk.',
     units=ts_mon.MetricsDataUnits.BYTES)
 _disk_write_metric = ts_mon.CounterMetric(
-    'dev/disk/write', start_time=BOOT_TIME,
+    'dev/disk/write', start_time=_BOOT_TIME,
     description='Number of Bytes written on disk.',
     units=ts_mon.MetricsDataUnits.BYTES)
 
@@ -144,11 +117,11 @@ _python_arch_metric = ts_mon.StringMetric(
     'architecture on this machine')
 
 
-def get_uptime():
-  _uptime_metric.set(int(time.time() - BOOT_TIME))
+def collect_uptime():
+  _uptime_metric.set(int(time.time() - _BOOT_TIME))
 
 
-def get_cpu_info():
+def collect_cpu_info():
   _cpu_count_metric.set(psutil.cpu_count())
 
   times = psutil.cpu_times_percent()
@@ -156,16 +129,16 @@ def get_cpu_info():
     _cpu_time_metric.set(getattr(times, mode), {'mode': mode})
 
 
-def get_disk_info(mountpoints=None):
+def collect_disk_info(mountpoints=None):
   if mountpoints is None:
     mountpoints = [disk.mountpoint for disk in psutil.disk_partitions()]
   for mountpoint in mountpoints:
-    _get_disk_info_single(mountpoint)
-    _get_fs_inode_info(mountpoint)
-  _get_disk_io_info()
+    _collect_disk_info_single(mountpoint)
+    _collect_fs_inode_info(mountpoint)
+  _collect_disk_io_info()
 
 
-def _get_disk_info_single(mountpoint):
+def _collect_disk_info_single(mountpoint):
   fields = {'path': mountpoint}
 
   try:
@@ -183,17 +156,17 @@ def _get_disk_info_single(mountpoint):
 
   # inode counts are only available on Unix.
   if os.name == 'posix':
-    _get_fs_inode_info(mountpoint)
+    _collect_fs_inode_info(mountpoint)
 
 
-def _get_fs_inode_info(mountpoint):
+def _collect_fs_inode_info(mountpoint):
   fields = {'path': mountpoint}
   stats = os.statvfs(mountpoint)
   _inodes_free_metric.set(stats.f_favail, fields=fields)
   _inodes_total_metric.set(stats.f_files, fields=fields)
 
 
-def _get_disk_io_info():
+def _collect_disk_io_info():
   try:
     disk_counters = psutil.disk_io_counters(perdisk=True).iteritems()
   except RuntimeError as ex:
@@ -209,7 +182,7 @@ def _get_disk_io_info():
       _disk_write_metric.set(counters.write_bytes, fields=fields)
 
 
-def get_mem_info():
+def collect_mem_info():
   # We don't report mem.used because (due to virtual memory) it is not
   # useful.
   mem = psutil.virtual_memory()
@@ -217,34 +190,7 @@ def get_mem_info():
   _mem_total_metric.set(mem.total)
 
 
-def get_net_info():
-  metric_counter_names = [
-      (_net_up_metric, 'bytes_sent'),
-      (_net_down_metric, 'bytes_recv'),
-      (_net_err_up_metric, 'errout'),
-      (_net_err_down_metric, 'errin'),
-      (_net_drop_up_metric, 'dropout'),
-      (_net_drop_down_metric, 'dropin'),
-  ]
-
-  nics = psutil.net_io_counters(pernic=True)
-  for nic, counters in nics.iteritems():
-    # TODO(ayatane): Use a different way of identifying virtual interfaces
-    if nic.startswith('veth'):
-      # Skip virtual interfaces
-      continue
-    fields = {'interface': nic}
-    for metric, counter_name in metric_counter_names:
-      try:
-        metric.set(getattr(counters, counter_name), fields=fields)
-      except ts_mon.MonitoringDecreasingValueError as ex:
-        # This normally shouldn't happen, but might if the network
-        # driver module is reloaded, so log an error and continue
-        # instead of raising an exception.
-        logger.warning(str(ex))
-
-
-def get_proc_info():
+def collect_proc_info():
   autoserv_count = 0
   sysmon_count = 0
   total = 0
@@ -279,7 +225,7 @@ def _is_sysmon(proc):
   return proc.cmdline()[:3] == ['python', '-m', 'chromite.scripts.sysmon']
 
 
-def get_load_avg():
+def collect_load_avg():
   try:
     avg1, avg5, avg15 = os.getloadavg()
   except OSError:
@@ -290,5 +236,5 @@ def get_load_avg():
     _load_average_metric.set(avg15, fields={'minutes': 15})
 
 
-def get_unix_time():
+def collect_unix_time():
   _unix_time_metric.set(int(time.time() * 1000))

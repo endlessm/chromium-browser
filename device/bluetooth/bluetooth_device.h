@@ -31,8 +31,6 @@ namespace device {
 
 class BluetoothAdapter;
 class BluetoothGattConnection;
-class BluetoothRemoteGattCharacteristic;
-class BluetoothRemoteGattDescriptor;
 class BluetoothSocket;
 class BluetoothUUID;
 
@@ -77,21 +75,14 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothDevice {
   // Possible errors passed back to an error callback function in case of a
   // failed call to Connect().
   enum ConnectErrorCode {
-    ERROR_ATTRIBUTE_LENGTH_INVALID,
     ERROR_AUTH_CANCELED,
     ERROR_AUTH_FAILED,
     ERROR_AUTH_REJECTED,
     ERROR_AUTH_TIMEOUT,
-    ERROR_CONNECTION_CONGESTED,
     ERROR_FAILED,
     ERROR_INPROGRESS,
-    ERROR_INSUFFICIENT_ENCRYPTION,
-    ERROR_OFFSET_INVALID,
-    ERROR_READ_NOT_PERMITTED,
-    ERROR_REQUEST_NOT_SUPPORTED,
     ERROR_UNKNOWN,
     ERROR_UNSUPPORTED_DEVICE,
-    ERROR_WRITE_NOT_PERMITTED,
     NUM_CONNECT_ERROR_CODES  // Keep as last enum.
   };
 
@@ -553,14 +544,6 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothDevice {
 
   std::vector<BluetoothRemoteGattService*> GetPrimaryServicesByUUID(
       const BluetoothUUID& service_uuid);
-
-  std::vector<BluetoothRemoteGattCharacteristic*> GetCharacteristicsByUUID(
-      const std::string& service_instance_id,
-      const BluetoothUUID& characteristic_uuid);
-
-  std::vector<device::BluetoothRemoteGattDescriptor*> GetDescriptorsByUUID(
-      device::BluetoothRemoteGattCharacteristic* characteristic,
-      const BluetoothUUID& descriptor_uuid);
 
  protected:
   // BluetoothGattConnection is a friend to call Add/RemoveGattConnection.

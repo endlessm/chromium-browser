@@ -1037,7 +1037,7 @@ class CommitQueueSyncStage(MasterSlaveLKGMSyncStage):
         self._run.config.master, self._run.options.debug,
         builder_run=self._run)
 
-  def _GetLGKMVersionFromManifest(self, manifest):
+  def _GetLKGMVersionFromManifest(self, manifest):
     manifest_dom = minidom.parse(manifest)
     elements = manifest_dom.getElementsByTagName(lkgm_manager.LKGM_ELEMENT)
     if elements:
@@ -1095,7 +1095,7 @@ class CommitQueueSyncStage(MasterSlaveLKGMSyncStage):
 
   def ManifestCheckout(self, next_manifest):
     """Checks out the repository to the given manifest."""
-    lkgm_version = self._GetLGKMVersionFromManifest(next_manifest)
+    lkgm_version = self._GetLKGMVersionFromManifest(next_manifest)
     chroot_manager = chroot_lib.ChrootManager(self._build_root)
     # Make sure the chroot version is valid.
     chroot_manager.EnsureChrootAtVersion(lkgm_version)
@@ -1185,7 +1185,7 @@ class PreCQLauncherStage(SyncStage):
   LAUNCH_DELAY = 2
 
   # The number of minutes we allow before considering a launch attempt failed.
-  LAUNCH_TIMEOUT = 30
+  LAUNCH_TIMEOUT = 90
 
   # The number of minutes we allow before considering an in-flight job failed.
   INFLIGHT_TIMEOUT = 240
@@ -1714,7 +1714,7 @@ class PreCQLauncherStage(SyncStage):
         for b in build_dicts:
           url = tree_status.ConstructDashboardURL(
               b['waterfall'], b['builder_name'], b['build_number'])
-          lines.append('(%s) : %s' % (b['build_config'], url))
+          lines.append('(%s) : %s ' % (b['build_config'], url))
 
         # Send notifications.
         pool.HandleApplySuccess(change, build_log=('\n' + '\n'.join(lines)))

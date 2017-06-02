@@ -5,7 +5,7 @@ Use of this source code is governed by a BSD-style license that can be
 found in the LICENSE file.
 -->
 
-<link rel="import" href="/tracing/base/statistics.html">
+<link rel="import" href="/tracing/base/math/statistics.html">
 <link rel="import" href="/tracing/model/event_set.html">
 <link rel="import" href="/tracing/ui/base/dom_helpers.html">
 <link rel="import" href="/tracing/ui/base/line_chart.html">
@@ -44,7 +44,7 @@ Polymer({
 
 
   ready: function() {
-    this.rangeOfInterest_ = new tr.b.Range();
+    this.rangeOfInterest_ = new tr.b.math.Range();
     this.selection_ = undefined;
   },
 
@@ -85,8 +85,9 @@ Polymer({
   alertsByType_: function(alerts) {
     var alertsByType = {};
     alerts.forEach(function(alert) {
-      if (!alertsByType[alert.title])
+      if (!alertsByType[alert.title]) {
         alertsByType[alert.title] = [];
+      }
 
       alertsByType[alert.title].push(alert);
     });
@@ -126,8 +127,9 @@ Polymer({
     table.selectionMode = tr.ui.b.TableFormat.SelectionMode.ROW;
     table.addEventListener('selection-changed', function(e) {
       var row = table.selectedTableRow;
-      if (row)
+      if (row) {
         this.selectAlertsOfType(row.alertType);
+      }
     }.bind(this));
 
     return table;
@@ -135,8 +137,7 @@ Polymer({
 
   updateContents_: function() {
     Polymer.dom(this.$.result_area).textContent = '';
-    if (this.model_ === undefined)
-      return;
+    if (this.model_ === undefined) return;
 
     var panel = this.createAlertsTable_(this.model_.alerts);
     Polymer.dom(this.$.result_area).appendChild(panel);

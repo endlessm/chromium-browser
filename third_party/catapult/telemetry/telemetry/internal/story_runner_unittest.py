@@ -2,10 +2,13 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import json
 import math
 import os
+import shutil
 import StringIO
 import sys
+import tempfile
 import unittest
 
 from py_utils import cloud_storage  # pylint: disable=import-error
@@ -22,6 +25,7 @@ from telemetry.internal.util import exception_formatter as ex_formatter_module
 from telemetry.page import page as page_module
 from telemetry.page import legacy_page_test
 from telemetry import story as story_module
+from telemetry.testing import fakes
 from telemetry.testing import options_for_unittests
 from telemetry.testing import system_stub
 import mock
@@ -33,13 +37,12 @@ from telemetry.value import skip
 from telemetry.value import summary as summary_module
 from telemetry.web_perf import story_test
 from telemetry.web_perf import timeline_based_measurement
-from telemetry.wpr import archive_info2
+from telemetry.wpr import archive_info
 
 # This linter complains if we define classes nested inside functions.
 # pylint: disable=bad-super-call
 
 # pylint: disable=too-many-lines
-
 
 class FakePlatform(object):
   def CanMonitorThermalThrottling(self):
@@ -53,7 +56,6 @@ class FakePlatform(object):
 
   def GetDeviceTypeName(self):
     return "GetDeviceTypeName"
-
 
 class TestSharedState(story_module.SharedState):
 
@@ -150,6 +152,16 @@ def SetupStorySet(allow_multiple_story_states, story_state_list):
     story_set.AddStory(DummyLocalStory(story_state,
                                        name='story%d' % i))
   return story_set
+
+class FakeBenchmark(benchmark.Benchmark):
+  @classmethod
+  def Name(cls):
+    return 'fake'
+
+  test = DummyTest
+
+  def page_set(self):
+    return story_module.StorySet()
 
 
 def _GetOptionForUnittest():
@@ -356,7 +368,7 @@ class StoryRunnerTest(unittest.TestCase):
       def Measure(self, platform, results):
         pass
 
-      def DidRunStory(self, platform):
+      def DidRunStory(self, platform, results):
         pass
 
     class TestSharedStateForStoryTest(TestSharedState):
@@ -648,7 +660,7 @@ class StoryRunnerTest(unittest.TestCase):
   @decorators.Disabled('chromeos')  # crbug.com/483212
   def testUpdateAndCheckArchives(self):
     usr_stub = system_stub.Override(story_runner, ['cloud_storage'])
-    wpr_stub = system_stub.Override(archive_info2, ['cloud_storage'])
+    wpr_stub = system_stub.Override(archive_info, ['cloud_storage'])
     archive_data_dir = os.path.join(
         util.GetTelemetryDir(),
         'telemetry', 'internal', 'testing', 'archive_files')
@@ -838,7 +850,7 @@ class StoryRunnerTest(unittest.TestCase):
       mock.call.state.RunStory(root_mock.results),
       mock.call.test.Measure(root_mock.state.platform, root_mock.results),
       mock.call.state.DidRunStory(root_mock.results),
-      mock.call.test.DidRunStory(root_mock.state.platform),
+      mock.call.test.DidRunStory(root_mock.state.platform, root_mock.results),
       mock.call.state.platform.GetOSName(),
     ])
 
@@ -873,7 +885,7 @@ class StoryRunnerTest(unittest.TestCase):
       mock.call.state.DumpStateUponFailure(root_mock.story, root_mock.results),
       mock.call.results.AddValue(FailureValueMatcher('foo')),
       mock.call.state.DidRunStory(root_mock.results),
-      mock.call.test.DidRunStory(root_mock.state.platform),
+      mock.call.test.DidRunStory(root_mock.state.platform, root_mock.results),
       mock.call.state.platform.GetOSName(),
     ])
 
@@ -894,7 +906,7 @@ class StoryRunnerTest(unittest.TestCase):
       mock.call.state.DumpStateUponFailure(root_mock.story, root_mock.results),
       mock.call.results.AddValue(FailureValueMatcher('foo')),
       mock.call.state.DidRunStory(root_mock.results),
-      mock.call.test.DidRunStory(root_mock.state.platform),
+      mock.call.test.DidRunStory(root_mock.state.platform, root_mock.results),
       mock.call.state.platform.GetOSName(),
     ])
 
@@ -914,7 +926,7 @@ class StoryRunnerTest(unittest.TestCase):
       mock.call.state.RunStory(root_mock.results),
       mock.call.results.AddValue(SkipValueMatcher()),
       mock.call.state.DidRunStory(root_mock.results),
-      mock.call.test.DidRunStory(root_mock.state.platform),
+      mock.call.test.DidRunStory(root_mock.state.platform, root_mock.results),
       mock.call.state.platform.GetOSName(),
     ])
 
@@ -933,7 +945,7 @@ class StoryRunnerTest(unittest.TestCase):
       mock.call.state.DumpStateUponFailure(root_mock.story, root_mock.results),
       mock.call.results.AddValue(FailureValueMatcher('foo')),
       mock.call.state.DidRunStory(root_mock.results),
-      mock.call.test.DidRunStory(root_mock.state.platform),
+      mock.call.test.DidRunStory(root_mock.state.platform, root_mock.results),
       mock.call.state.platform.GetOSName(),
     ])
 
@@ -994,7 +1006,7 @@ class StoryRunnerTest(unittest.TestCase):
       mock.call.state.DumpStateUponFailure(root_mock.story, root_mock.results),
       mock.call.results.AddValue(FailureValueMatcher('foo')),
       mock.call.state.DidRunStory(root_mock.results),
-      mock.call.test.DidRunStory(root_mock.state.platform)
+      mock.call.test.DidRunStory(root_mock.state.platform, root_mock.results)
     ])
 
   def testRunStoryAndProcessErrorIfNeeded_tryUnsupportedAction_finallyException(
@@ -1034,5 +1046,38 @@ class StoryRunnerTest(unittest.TestCase):
       mock.call.state.DumpStateUponFailure(root_mock.story, root_mock.results),
       mock.call.results.AddValue(FailureValueMatcher('foo')),
       mock.call.state.DidRunStory(root_mock.results),
-      mock.call.test.DidRunStory(root_mock.state.platform)
+      mock.call.test.DidRunStory(root_mock.state.platform, root_mock.results)
     ])
+
+  def testRunBenchmarkTimeDuration(self):
+    fake_benchmark = FakeBenchmark()
+    options = fakes.CreateBrowserFinderOptions()
+    options.upload_results = None
+    options.suppress_gtest_report = False
+    options.results_label = None
+    options.use_live_sites = False
+    options.max_failures = 100
+    options.pageset_repeat = 1
+    options.output_formats = ['chartjson']
+
+    with mock.patch('telemetry.internal.story_runner.time.time') as time_patch:
+      # 3, because telemetry code asks for the time at some point
+      time_patch.side_effect = [1, 0, 61]
+      tmp_path = tempfile.mkdtemp()
+
+      try:
+        options.output_dir = tmp_path
+        story_runner.RunBenchmark(fake_benchmark, options)
+        with open(os.path.join(tmp_path, 'results-chart.json')) as f:
+          data = json.load(f)
+
+        self.assertEqual(len(data['charts']), 1)
+        charts = data['charts']
+        self.assertIn('benchmark_duration', charts)
+        duration = charts['benchmark_duration']
+        self.assertIn("summary", duration)
+        summary = duration['summary']
+        duration = summary['value']
+        self.assertAlmostEqual(duration, 1)
+      finally:
+        shutil.rmtree(tmp_path)

@@ -12,8 +12,9 @@ from telemetry.internal.platform import tracing_agent
 from telemetry.internal.platform import linux_platform_backend
 from telemetry.internal.platform import mac_platform_backend
 from telemetry.internal.platform import win_platform_backend
-from telemetry.timeline import trace_data
 from telemetry.timeline import tracing_config
+from tracing.trace_data import trace_data
+
 
 SNAPSHOT_KEYS = ['pid', 'ppid', 'name', 'pCpu', 'pMem']
 TRACE_EVENT_KEYS = ['name', 'tid', 'pid', 'ph', 'args', 'local', 'id', 'ts']
@@ -136,3 +137,14 @@ class CpuTracingAgentTest(unittest.TestCase):
           found_unittest_process = True
 
       self.assertTrue(found_unittest_process)
+
+  @decorators.Enabled('win')
+  def testWindowsCanHandleProcessesWithSpaces(self):
+    proc_collector = cpu_tracing_agent.WindowsProcessCollector()
+    proc_collector.Init()
+    proc = proc_collector._ParseProcessString(
+      '0 1 Multi Word Process 50 75')
+    self.assertEquals(proc['ppid'], 0)
+    self.assertEquals(proc['pid'], 1)
+    self.assertEquals(proc['name'], 'Multi Word Process')
+    self.assertEquals(proc['pCpu'], 50)

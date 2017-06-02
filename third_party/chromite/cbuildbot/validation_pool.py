@@ -196,9 +196,9 @@ class ValidationPool(object):
   REJECTION_GRACE_PERIOD = 30 * 60
 
   # How many CQ runs to go back when making a decision about the CQ health.
-  # Note this impacts the max exponential fallback (2^10=1024 max exponential
+  # Note this impacts the max exponential fallback (1.5^4 ~= 5 max exponential
   # divisor)
-  CQ_SEARCH_HISTORY = 10
+  CQ_SEARCH_HISTORY = 4
 
 
   def __init__(self, overlays, build_root, build_number, builder_name,
@@ -309,6 +309,10 @@ class ValidationPool(object):
     """
     return self.applied_patches or patch_series.PatchSeries(
         self.build_root, helper_pool=self._helper_pool)
+
+  def HasPickedUpCLs(self):
+    """Returns True if this pool has picked up chump CLs or applied new CLs."""
+    return self.has_chump_cls or self.applied
 
   @property
   def build_log(self):
@@ -725,6 +729,13 @@ class ValidationPool(object):
     fail_streak = self._GetFailStreak()
     test_pool_size = max(1, int(len(self.candidates) / (1.5**fail_streak)))
     random.shuffle(self.candidates)
+
+    removed = self.candidates[test_pool_size:]
+    if removed:
+      logging.info('As the tree is throttled, it only picks a random subset of '
+                   'candidate changes. Changes not picked up in this run: %s ',
+                   cros_patch.GetChangesAsString(removed))
+
     self.candidates = self.candidates[:test_pool_size]
 
   def ApplyPoolIntoRepo(self, manifest=None, filter_fn=lambda p: True):
@@ -1463,36 +1474,11 @@ class ValidationPool(object):
     # tried to submit changes that failed to submit.
     self._InsertCLActionToDatabase(change, action, reason)
 
-  def _RemoveCodeReview(self, failure):
-    """Determine whether to remove the 'Code-Review' ready label.
-
-    Args:
-      failure: cros_patch.PatchException instance.
-
-    Returns:
-      Boolean indicating whether to reset the Code-Review to 0.
-    """
-    if (self._builder_name == constants.PRE_CQ_LAUNCHER_NAME and
-        (isinstance(failure, cros_patch.BrokenCQDepends) or
-         isinstance(failure, cros_patch.BrokenChangeID))):
-      return True
-    else:
-      return False
-
-  def RemoveReady(self, change, failure=None, reason=None):
-    """Remove the commit ready and trybot ready bits for |change|.
-
-    Args:
-      change: A GerritPatch or GerritPatchTuple object.
-      failure: A cros_patch.PatchException instance.
-      reason: string reason for submission to be recorded in cidb. (Should be
-              None or constant with name STRATEGY_* from constants.py):
-    """
+  def RemoveReady(self, change, reason=None):
+    """Remove the commit ready and trybot ready bits for |change|."""
     try:
-      extra_labels = ({'Code-Review'} if self._RemoveCodeReview(failure)
-                      else None)
       self._helper_pool.ForChange(change).RemoveReady(
-          change, extra_labels=extra_labels, dryrun=self.dryrun)
+          change, dryrun=self.dryrun)
     except gob_util.GOBError as e:
       if (e.http_status == httplib.CONFLICT and
           e.reason == gob_util.GOB_ERROR_REASON_CLOSED_CHANGE):
@@ -1645,7 +1631,7 @@ class ValidationPool(object):
     msg = ('%(queue)s failed to apply your change in %(build_log)s .'
            ' %(failure)s')
     self.SendNotification(failure.patch, msg, failure=failure)
-    self.RemoveReady(failure.patch, failure=failure)
+    self.RemoveReady(failure.patch)
 
   def _HandleIncorrectSubmission(self, failure):
     """Handler for when Paladin incorrectly submits a change."""

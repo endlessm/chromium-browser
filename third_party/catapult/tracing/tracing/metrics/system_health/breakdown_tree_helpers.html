@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<!--
+Copyright 2017 The Chromium Authors. All rights reserved.
+Use of this source code is governed by a BSD-style license that can be
+found in the LICENSE file.
+-->
+
+<link rel="import" href="/tracing/base/category_util.html">
+<link rel="import" href="/tracing/base/math/statistics.html">
+<link rel="import" href="/tracing/metrics/metric_registry.html">
+<link rel="import" href="/tracing/metrics/system_health/utils.html">
+<link rel="import" href="/tracing/model/helpers/chrome_model_helper.html">
+<link rel="import" href="/tracing/model/timed_event.html">
+<link rel="import" href="/tracing/value/histogram.html">
+
+<script>
+'use strict';
+
+tr.exportTo('tr.metrics.sh', function() {
+  /**
+  * @callback getEventAttributeCallback
+  * @param {!tr.b.Event} event The event to read an attribute from.
+  * @return {number} The value of the attribute.
+  */
+
+  /**
+  * Generate a breakdown tree from all slices of |mainThread| in
+  * |rangeOfInterest|. The callback functions |getEventStart|,
+  * |getEventDuration| and |getEventSelfTime| specify how to get start,
+  * duration and selftime from a given event.
+  *
+  * @param  {!tr.model.Thread} mainThread
+  * @param  {!tr.b.math.Range} rangeOfInterest
+  * @callback {getEventAttributeCallback} getEventStart
+  * @callback {getEventAttributeCallback} getEventDuration
+  * @callback {getEventAttributeCallback} getEventSelfTime
+  * @return {Object.<string, Object>} A time breakdown object whose keys are
+  * Chrome userfriendly title & values are an object that show the total spent
+  * in |rangeOfInterest|, and the list of event labels of the
+  * group and their total time in |rangeOfInterest|.
+  *
+  * Example:
+  *   {
+  *     layout: {
+  *         total: 100,
+  *         events: {'FrameView::performPreLayoutTasks': 20,..}},
+  *     v8_runtime: {
+  *         total: 500,
+  *         events: {'String::NewExternalTwoByte': 0.5,..}},
+  *     ...
+  *   }
+  */
+  function generateTimeBreakdownTree(mainThread, rangeOfInterest, getEventStart,
+      getEventDuration, getEventSelfTime) {
+    if (mainThread === null) return;
+    var breakdownTree = {};
+    for (var title of
+        tr.e.chrome.ChromeUserFriendlyCategoryDriver.ALL_TITLES) {
+      breakdownTree[title] = {total: 0, events: {}};
+    }
+    for (var event of mainThread.getDescendantEvents()) {
+      var eventStart = getEventStart(event);
+      var eventDuration = getEventDuration(event);
+      var eventSelfTime = getEventSelfTime(event);
+      var eventEnd = eventStart + eventDuration;
+      if (!rangeOfInterest.intersectsExplicitRangeExclusive(
+          eventStart, eventEnd)) {
+        continue;
+      }
+      if (eventSelfTime === undefined) continue;
+      var title =
+          tr.e.chrome.ChromeUserFriendlyCategoryDriver.fromEvent(event);
+      var timeIntersectionRatio = 0;
+      if (eventDuration > 0) {
+        timeIntersectionRatio =
+            rangeOfInterest.findExplicitIntersectionDuration(
+                eventStart, eventEnd) / eventDuration;
+      }
+
+      var v8Runtime = event.args['runtime-call-stat'];
+      if (v8Runtime !== undefined) {
+        var v8RuntimeObject = JSON.parse(v8Runtime);
+        for (var runtimeCall in v8RuntimeObject) {
+          // When the V8 Runtime Object contains 2 values, the 2nd value
+          // always represents the V8 Runtime duration.
+          if (v8RuntimeObject[runtimeCall].length === 2) {
+            if (breakdownTree['v8_runtime'].events[runtimeCall] === undefined) {
+              breakdownTree['v8_runtime'].events[runtimeCall] = 0;
+            }
+            var runtimeTime = tr.b.Unit.timestampFromUs(
+                v8RuntimeObject[runtimeCall][1] * timeIntersectionRatio);
+            breakdownTree['v8_runtime'].total += runtimeTime;
+            breakdownTree['v8_runtime'].events[runtimeCall] += runtimeTime;
+          }
+        }
+      }
+      //        [     Slice 1       ]   [      Slice  2   ]   [    Slice 3   ]
+      //            [  Slice 4    ]                             [ Slice 5 ]
+      //              [ Slice 6 ]                                  |
+      //                 |                                         |
+      //                 |                                         |
+      //                 v                                         v
+      //                start                                     end
+      //
+      // For the case where the |start| or |end| overlapped with some existing
+      // slice (see above diagram), we approximate the overlapped self-time
+      // by multiplying the ratio of overlapped wall time to the self-time.
+      // There should be way to compute the exact number, but in practice,
+      // this should rarely happen, and when it does, the overlapped range
+      // is relative small so that using approximation here should be good
+      // enough.
+      var approximatedSelfTimeContribution =
+          eventSelfTime * timeIntersectionRatio;
+      breakdownTree[title].total += approximatedSelfTimeContribution;
+      if (breakdownTree[title].events[event.title] === undefined) {
+        breakdownTree[title].events[event.title] = 0;
+      }
+      breakdownTree[title].events[event.title] +=
+          approximatedSelfTimeContribution;
+    }
+    return breakdownTree;
+  }
+
+  /**
+   * Adds 'blocked_on_network' and 'idle' to the |breakdownTree| that has been
+   * generated by |generateTimeBreakdownTree|. Taking into account the
+   * |networkEvents|, this function is able to distinguish between these two
+   * types of cpu idle time during the range |rangeOfInterest| not used by
+   * events of the main thread |mainThreadEvents|.
+   *
+   * @param {!Object.<string, Object>} breakdownTree The breakdownTree that has
+   * been generated by |generateTimeBreakdownTree|.
+   * @param {!tr.b.Event} mainThreadEvents The top level events of the main
+   * thread.
+   * @param {!tr.b.Event} networkEvents The network events in the renderer.
+   * @param {!tr.b.math.Range} rangeOfInterest The range for which
+   * |breakdownTree| is calculated.
+   */
+  function addIdleAndBlockByNetworkBreakdown_(breakdownTree, mainThreadEvents,
+      networkEvents, rangeOfInterest) {
+    let idleRanges = [rangeOfInterest];
+    const mainThreadEventRanges = tr.b.math.convertEventsToRanges(
+        mainThreadEvents);
+    const networkEventRanges = tr.b.math.convertEventsToRanges(
+        networkEvents);
+    const eventRanges = mainThreadEventRanges.concat(networkEventRanges);
+    eventRanges.sort((a, b) => a.min - b.min);
+    for (const eventRange of eventRanges) {
+      if (!eventRange || eventRange.isEmpty ||
+          eventRange.duration < 0) {
+        throw new Error('Range is invalid');
+      }
+      // Every eventRange does not intersect with any idleRanges prior to the
+      // last freeRange, because:
+      //
+      // freeRange[last-1].max <= eventRange[i-1].min <= eventRange[i].min
+      //             (due to subtraction)      (due to sorting)
+      //
+      // where 'i' is the current index of eventRange.
+      const newLastIdleRanges =
+          tr.b.math.Range.findDifference(
+              idleRanges[idleRanges.length - 1], eventRange);
+      idleRanges.pop();
+      idleRanges = idleRanges.concat(newLastIdleRanges);
+      if (idleRanges.length === 0) break;
+    }
+    const totalFreeDuration = tr.b.math.Statistics.sum(idleRanges,
+        range => range.duration);
+    breakdownTree.idle = {total: totalFreeDuration, events: {}};
+
+    let totalBlockedDuration = rangeOfInterest.duration;
+    for (const component of Object.values(breakdownTree)) {
+      totalBlockedDuration -= component.total;
+    }
+    breakdownTree.blocked_on_network = {
+      total: totalBlockedDuration,
+      events: {}
+    };
+  }
+
+
+  /**
+  * Generate a breakdown that attributes where wall clock time goes in
+  * |rangeOfInterest| on the renderer thread.
+  *
+  * @param {!tr.model.Thread} mainThread
+  * @param {!tr.b.math.Range} rangeOfInterest
+  * @return {Object.<string, Object>} A time breakdown object whose keys are
+  * Chrome userfriendly titles & values are an object that shows the total
+  * wall clock time spent in |rangeOfInterest|, and the list of event
+  * labels of the group and their total wall clock time in |rangeOfInterest|.
+  *
+  * Example:
+  *   {
+  *     layout: {
+  *         total: 100,
+  *         events: {'FrameView::performPreLayoutTasks': 20,..}},
+  *     v8_runtime: {
+  *         total: 500,
+  *         events: {'String::NewExternalTwoByte': 0.5,..}},
+  *     ...
+  *   }
+  */
+  function generateWallClockTimeBreakdownTree(
+      mainThread, networkEvents, rangeOfInterest) {
+    function getEventStart(e) { return e.start; }
+    function getEventDuration(e) { return e.duration; }
+    function getEventSelfTime(e) { return e.selfTime; }
+    const breakdownTree = generateTimeBreakdownTree(
+        mainThread, rangeOfInterest, getEventStart, getEventDuration,
+        getEventSelfTime);
+    const mainThreadEventsInRange = tr.model.helpers.getSlicesIntersectingRange(
+        rangeOfInterest, mainThread.sliceGroup.topLevelSlices);
+    addIdleAndBlockByNetworkBreakdown_(
+        breakdownTree, mainThreadEventsInRange, networkEvents, rangeOfInterest);
+    return breakdownTree;
+  }
+
+  /**
+  * Generate a breakdown that attributes where CPU time goes in
+  * |rangeOfInterestCpuTime| on the renderer thread.
+  *
+  * @param {!tr.model.Thread} mainThread
+  * @param {!tr.b.math.Range} rangeOfInterestCpuTime
+  * @return {Object.<string, Object>} A time breakdown object whose keys are
+  * Chrome userfriendly titles & values are an object that shows the total
+  * CPU time spent in |rangeOfInterestCpuTime|, and the list of event labels
+  * of the group and their total durations in |rangeOfInterestCpuTime|.
+  *
+  * Example:
+  *   {
+  *     layout: {
+  *         total: 100,
+  *         events: {'FrameView::performPreLayoutTasks': 20,..}},
+  *     v8_runtime: {
+  *         total: 500,
+  *         events: {'String::NewExternalTwoByte': 0.5,..}},
+  *     ...
+  *   }
+  */
+  function generateCpuTimeBreakdownTree(mainThread, rangeOfInterestCpuTime) {
+    function getEventStart(e) { return e.cpuStart; }
+    function getEventDuration(e) { return e.cpuDuration; }
+    function getEventSelfTime(e) { return e.cpuSelfTime; }
+    return generateTimeBreakdownTree(mainThread, rangeOfInterestCpuTime,
+        getEventStart, getEventDuration, getEventSelfTime);
+  }
+
+  return {
+    generateTimeBreakdownTree,
+    generateWallClockTimeBreakdownTree,
+    generateCpuTimeBreakdownTree,
+  };
+});
+</script>

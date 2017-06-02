@@ -104,16 +104,18 @@ indexes:
   - name: internal_only
   - name: end_revision
 
-# Used in speed_releasing.py to find anomalies that match a specific test
-# and are between a specified range (usually a milestone).
+# Used in speed_releasing.py to find anomalies that match a specific master
+# and benchmark and are between a specified range (usually a milestone).
 - kind: Anomaly
   properties:
-  - name: test
+  - name: benchmark_name
+  - name: master_name
   - name: end_revision
 - kind: Anomaly
   properties:
   - name: internal_only
-  - name: test
+  - name: benchmark_name
+  - name: master_name
   - name: end_revision
 
 # Used in benchmark_health_report for querying benchmark by name
@@ -134,7 +136,6 @@ indexes:
   - name: master_name
   - name: timestamp
     direction: desc
-
 
 # Might be unused!
 # This index would enable querying for points for a particular test,
@@ -189,6 +190,22 @@ indexes:
   - name: parent_test
   - name: timestamp
     direction: desc
+
+# Used for returning timeseries of diagnostics.
+- kind: SparseDiagnostic
+  properties:
+  - name: start_revision
+    direction: desc
+  - name: end_revision
+    direction: desc
+
+- kind: SparseDiagnostic
+  properties:
+  - name: start_revision
+    direction: desc
+  - name: end_revision
+    direction: desc
+  - name: internal_only
 
 # May be used in send_stoppage_alert_emails to fetch recent StoppageAlert
 # entities for a particular sheriff, for both internal-only and public alerts.

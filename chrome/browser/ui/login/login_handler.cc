@@ -519,7 +519,7 @@ void LoginHandler::GetDialogStrings(const GURL& request_url,
     // TODO(asanka): The string should be different for proxies and servers.
     // http://crbug.com/620756
     *explanation =
-        l10n_util::GetStringUTF16(IDS_WEBSITE_SETTINGS_NON_SECURE_TRANSPORT);
+        l10n_util::GetStringUTF16(IDS_PAGE_INFO_NON_SECURE_TRANSPORT);
   } else {
     explanation->clear();
   }
@@ -626,7 +626,7 @@ void LoginHandler::LoginDialogCallback(const GURL& request_url,
       (is_cross_origin_request || parent_contents->ShowingInterstitialPage() ||
        auth_info->is_proxy) &&
       parent_contents->GetDelegate()->GetDisplayMode(parent_contents) !=
-          blink::WebDisplayModeStandalone) {
+          blink::kWebDisplayModeStandalone) {
     RecordHttpAuthPromptType(AUTH_PROMPT_TYPE_WITH_INTERSTITIAL);
 
     // Show a blank interstitial for main-frame, cross origin requests

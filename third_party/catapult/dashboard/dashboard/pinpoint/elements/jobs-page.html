@@ -56,6 +56,7 @@ found in the LICENSE file.
       </template>
       <template is="dom-if" if="{{!error}}">
         <div id="content">
+          <h1>Pinpoint Jobs</h1>
           <div id="action-bar">
           </div>
           <h2>Running Jobs</h2>
@@ -108,10 +109,12 @@ found in the LICENSE file.
       computeIsSingular: count => count === 1,
 
       computeJobCountString: function() {
-        if (this.totalJobsCount === 1)
+        if (this.totalJobsCount === 1) {
           return '1 job';
-        if (this.totalJobsCount < this.totalJobsCountMax)
+        }
+        if (this.totalJobsCount < this.totalJobsCountMax) {
           return String(this.totalJobsCount) + ' jobs.';
+        }
         return String(this.totalJobsCountMax) + ' or more jobs.';
       },
 
@@ -119,7 +122,12 @@ found in the LICENSE file.
         return this.jobs.length;
       },
 
-      ready: function() {
+      deselected: function() {
+        this.jobs = [];
+      },
+
+      selected: function() {
+        this.loading = true;
         var params = {};
         simple_xhr.send('/_ah/api/jobs', params,
             function(response) {

@@ -31,20 +31,17 @@
 #ifndef AudioDestinationConsumer_h
 #define AudioDestinationConsumer_h
 
+#include <memory>
 #include "platform/PlatformExport.h"
-#include "platform/heap/Handle.h"
 
 namespace blink {
 
 class AudioBus;
 
-class PLATFORM_EXPORT AudioDestinationConsumer
-    : public GarbageCollected<AudioDestinationConsumer> {
+class PLATFORM_EXPORT AudioDestinationConsumer {
  public:
-  virtual void setFormat(size_t numberOfChannels, float sampleRate) = 0;
-  virtual void consumeAudio(AudioBus*, size_t numberOfFrames) = 0;
-
-  DEFINE_INLINE_VIRTUAL_TRACE() {}
+  virtual void SetFormat(size_t number_of_channels, float sample_rate) = 0;
+  virtual void ConsumeAudio(AudioBus*, size_t number_of_frames) = 0;
 };
 
 }  // namespace blink

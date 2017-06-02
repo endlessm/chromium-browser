@@ -1038,6 +1038,25 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
         self.BUILD_STATUS_KEYS)
 
   @minimum_schema(30)
+  def GetBuildStage(self, build_stage_id):
+    """Gets stage given the build_stage_id.
+
+    Args:
+      build_stage_id: build_stage_id to fetch the stage.
+
+    Returns:
+      If the build_stage_id exists, returns a dictionary presenting the stage
+      with keys (id, build_id, name, board, status, last_updated, start_time,
+      finish_time, final); else, returns None.
+    """
+    stage = self._SelectWhere(
+        'buildStageTable',
+        'id = %s' % build_stage_id,
+        ['id', 'build_id', 'name', 'board', 'status',
+         'last_updated', 'start_time', 'finish_time', 'final'])
+    return stage[0] if stage else None
+
+  @minimum_schema(30)
   def GetBuildStages(self, build_id):
     """Gets all the stages of a given build.
 
@@ -1147,6 +1166,36 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
     return [dict(zip(columns, values)) for values in results]
 
   @minimum_schema(44)
+  def GetBuildsFailures(self, build_ids):
+    """Gets the failure entries for all listed build_ids.
+
+    Args:
+      build_ids: list of build ids of the builds to fetch failures for.
+
+    Returns:
+      A list containing, for each failure entry, a dictionary with keys
+      (id, build_stage_id, outer_failure_id, exception_type, exception_message,
+       exception_category, extra_info, timestamp, stage_name, board,
+       stage_status, build_id, master_build_id, builder_name, waterfall,
+       build_number, build_config, build_status, important, buildbucket_id).
+    """
+    if not build_ids:
+      return []
+
+    columns = ['id', 'build_stage_id', 'outer_failure_id', 'exception_type',
+               'exception_message', 'exception_category', 'extra_info',
+               'timestamp', 'stage_name', 'board', 'stage_status', 'build_id',
+               'master_build_id', 'builder_name', 'waterfall', 'build_number',
+               'build_config', 'build_status', 'important', 'buildbucket_id']
+    columns_string = ', '.join(columns)
+
+    query = ('SELECT %s FROM failureView WHERE build_id IN (%s)' %
+             (columns_string, ','.join(str(int(x)) for x in build_ids)))
+
+    results = self._Execute(query).fetchall()
+    return [dict(zip(columns, values)) for values in results]
+
+  @minimum_schema(44)
   def GetSlaveFailures(self, master_build_id, buildbucket_ids=None):
     """Gets the failure entries for slave builds to given build.
 
@@ -1163,7 +1212,7 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
       (id, build_stage_id, outer_failure_id, exception_type, exception_message,
        exception_category, extra_info, timestamp, stage_name, board,
        stage_status, build_id, master_build_id, builder_name, waterfall,
-       build_number, build_config, build_status, important).
+       build_number, build_config, build_status, important, buildbucket_id).
     """
     columns = ['id', 'build_stage_id', 'outer_failure_id', 'exception_type',
                'exception_message', 'exception_category', 'extra_info',
@@ -1224,7 +1273,7 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
   def GetBuildHistory(self, build_config, num_results,
                       ignore_build_id=None, start_date=None, end_date=None,
                       starting_build_number=None, milestone_version=None,
-                      starting_build_id=None):
+                      starting_build_id=None, final=False):
     """Returns basic information about most recent builds.
 
     By default this function returns the most recent builds. Some arguments can
@@ -1248,6 +1297,7 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
           milestone_version.
       starting_build_id: (Optional) The minimum build_id for which data should
           be retrieved.
+      final: (Optional) If True, only retrieve final (ie finished) builds.
 
     Returns:
       A sorted list of dicts containing up to |number| dictionaries for
@@ -1271,6 +1321,8 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
       where_clauses.append('id != %d' % ignore_build_id)
     if milestone_version is not None:
       where_clauses.append('milestone_version = "%s"' % milestone_version)
+    if final:
+      where_clauses.append('final = 1')
     query = (
         'SELECT %s'
         ' FROM buildTable'
@@ -1439,14 +1491,15 @@ class CIDBConnection(SchemaVersionedMySQLConnection):
     return [clactions.CLAction(*values) for values in results]
 
   @minimum_schema(29)
-  def HasBuildStageFailed(self, build_stage_id):
-    """Determine whether a build stage has failed according to cidb.
+  def HasFailureMsgForStage(self, build_stage_id):
+    """Determine whether a build stage has failure messages in failureTable.
 
     Args:
       build_stage_id: The id of the build_stage to query for.
 
     Returns:
-      True if there is a failure reported for this build stage to cidb.
+      True if there're failures reported to failureTable for this build stage
+      to cidb; else, False.
     """
     failures = self._SelectWhere('failureTable',
                                  'build_stage_id = %d' % build_stage_id,

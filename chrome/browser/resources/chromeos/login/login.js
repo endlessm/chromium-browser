@@ -38,6 +38,7 @@ cr.define('cr.ui.Oobe', function() {
       login.DeviceDisabledScreen.register();
       login.UnrecoverableCryptohomeErrorScreen.register();
       login.ActiveDirectoryPasswordChangeScreen.register(/* lazyInit= */ true);
+      login.EncryptionMigrationScreen.register();
 
       cr.ui.Bubble.decorate($('bubble'));
       login.HeaderBar.decorate($('login-header-bar'));
@@ -55,6 +56,7 @@ cr.define('cr.ui.Oobe', function() {
     setOemEulaUrl: function(oemEulaUrl) {},
     setTpmPassword: function(password) {},
     refreshA11yInfo: function(data) {},
+    reloadEulaContent: function(data) {},
 
     /**
      * Reloads content of the page.

@@ -235,6 +235,10 @@ EXCEPTION_CATEGORY_ALL_CATEGORIES = (
 )
 
 # Monarch metric names
+MON_CQ_WALL_CLOCK_SECS = 'chromeos/cbuildbot/cq_wall_clock_seconds'
+MON_CQ_SELF_DESTRUCTION_COUNT = ('chromeos/cbuildbot/build/'
+                                 'cq_self_destruction_count')
+MON_CQ_BUILD_DURATION = 'chromeos/cbuildbot/build/cq_build_durations'
 MON_CL_ACTION = 'chromeos/cbuildbot/cl_action'
 MON_PRECQ_LAUNCH_COUNT = 'chromeos/cbuildbot/pre-cq/launch_count'
 MON_PRECQ_CL_LAUNCH_COUNT = 'chromeos/cbuildbot/pre-cq/cl_launch_count'
@@ -247,6 +251,7 @@ MON_CL_HANDLE_TIME = 'chromeos/cbuildbot/submitted_change/handling_times'
 MON_CL_PRECQ_TIME = 'chromeos/cbuildbot/submitted_change/precq_times'
 MON_CL_WAIT_TIME = 'chromeos/cbuildbot/submitted_change/wait_times'
 MON_CL_CQRUN_TIME = 'chromeos/cbuildbot/submitted_change/cq_run_times'
+MON_CL_CQ_TRIES = 'chromeos/cbuildbot/submitted_change/cq_attempts'
 MON_CL_FALSE_REJ = 'chromeos/cbuildbot/submitted_change/false_rejections'
 MON_CL_FALSE_REJ_TOTAL = ('chromeos/cbuildbot/submitted_change/'
                           'false_rejections_total')
@@ -292,13 +297,16 @@ SOM_IMPORTANT_BUILDS = [
 # Used by --resume and --bootstrap to decipher which options they
 # can pass to the target cbuildbot (since it may not have that
 # option).
-# Format is Major:Minor.  Minor is used for tracking new options added
+# Format is Major.Minor.  Minor is used for tracking new options added
 # that aren't critical to the older version if it's not ran.
 # Major is used for tracking heavy API breakage- for example, no longer
 # supporting the --resume option.
 REEXEC_API_MAJOR = 0
-REEXEC_API_MINOR = 4
+REEXEC_API_MINOR = 5
 REEXEC_API_VERSION = '%i.%i' % (REEXEC_API_MAJOR, REEXEC_API_MINOR)
+
+# Minor version 5 is the first to support --goma_dir and --goma_client_json
+REEXEC_API_GOMA = 5
 
 # Minor version 4 is the first to support --git-cache-dir
 REEXEC_API_GIT_CACHE_DIR = 4
@@ -363,6 +371,16 @@ ARC_BUCKET_ACLS = {
     'SDK_TOOLS': 'googlestorage_acl_public.txt',
     'XTS': 'googlestorage_acl_cts.txt',
 }
+ARC_USE_FLAG_TO_ARCH = {
+    'arm': 'arm',
+    'x86': 'x86',
+    'amd64': 'x86',
+}
+ANDROID_SYMBOLS_URL_TEMPLATE = (
+    ARC_BUCKET_URL +
+    '/%(branch)s-linux-cheets_%(arch)s-user/%(version)s'
+    '/cheets_%(arch)s-symbols-%(version)s.zip')
+ANDROID_SYMBOLS_FILE = 'android-symbols.zip'
 # x86-user, x86-userdebug and x86-eng builders create build artifacts with the
 # same name, e.g. cheets_x86-target_files-${VERSION}.zip. Chrome OS builders
 # that need to select x86-user or x86-userdebug artifacts at emerge time need
@@ -561,12 +579,13 @@ VALID_BUILD_TYPES = (
 
 # The default list of pre-cq configs to use.
 PRE_CQ_DEFAULT_CONFIGS = [
-    'daisy_spring-no-vmtest-pre-cq',  # kernel 3.8 coverage
-    'lumpy-no-vmtest-pre-cq',         # kernel 3.8 coverage
-    'rambi-pre-cq',                   # vmtest coverage
-    'samus-no-vmtest-pre-cq',         # kernel 3.14 coverage
-    'whirlwind-no-vmtest-pre-cq',     # brillo coverage
-    'x86-alex-no-vmtest-pre-cq',      # x86 coverage
+    'caroline-pre-cq',                # skylake      kernel 3.18      vmtest
+    'daisy_spring-no-vmtest-pre-cq',  # arm          kernel 3.8
+    'lumpy-no-vmtest-pre-cq',         # sandybridge  kernel 3.8
+    'rambi-no-vmtest-pre-cq',         # baytrail     kernel 4.4
+    'samus-no-vmtest-pre-cq',         # broadwell    kernel 3.14
+    'whirlwind-no-vmtest-pre-cq',     # brillo
+    'x86-alex-no-vmtest-pre-cq',      # x86          kernel 3.8
 ]
 
 # The name of the pre-cq launching config.
@@ -651,6 +670,9 @@ SUBSYSTEM_PASS = 'subsystem_pass'
 SUBSYSTEM_FAIL = 'subsystem_fail'
 SUBSYSTEM_UNUSED = 'subsystem_unused'
 
+# Define HWTEST job_keyvals
+DATASTORE_PARENT_KEY = 'datastore_parent_key'
+
 # Defines VM Test types.
 FULL_AU_TEST_TYPE = 'full_suite'
 SIMPLE_AU_TEST_TYPE = 'pfq_suite'
@@ -658,12 +680,13 @@ SMOKE_SUITE_TEST_TYPE = 'smoke_suite'
 TELEMETRY_SUITE_TEST_TYPE = 'telemetry_suite'
 CROS_VM_TEST_TYPE = 'cros_vm_test'
 DEV_MODE_TEST_TYPE = 'dev_mode_test'
-# Special test type for the GCE test lab. It runs all tests in the smoke suite,
-# but runs them on GCE.
-GCE_VM_TEST_TYPE = 'gce_vm_test'
 VALID_VM_TEST_TYPES = [FULL_AU_TEST_TYPE, SIMPLE_AU_TEST_TYPE,
                        SMOKE_SUITE_TEST_TYPE, TELEMETRY_SUITE_TEST_TYPE,
-                       CROS_VM_TEST_TYPE, DEV_MODE_TEST_TYPE, GCE_VM_TEST_TYPE]
+                       CROS_VM_TEST_TYPE, DEV_MODE_TEST_TYPE]
+# GCE tests are suites of tests that run on GCE instances.
+GCE_SMOKE_TEST_TYPE = 'gce_smoke_test'  # suite:gce-smoke
+GCE_SANITY_TEST_TYPE = 'gce_sanity_test'  # suite:gce-sanity
+VALID_GCE_TEST_TYPES = [GCE_SMOKE_TEST_TYPE, GCE_SANITY_TEST_TYPE]
 
 CHROMIUMOS_OVERLAY_DIR = 'src/third_party/chromiumos-overlay'
 VERSION_FILE = os.path.join(CHROMIUMOS_OVERLAY_DIR,
@@ -1052,3 +1075,6 @@ BUILDBUCKET_BUILD_RETRY_LIMIT = 2
 # Builder_run metadata keys
 METADATA_SCHEDULED_SLAVES = 'scheduled_slaves'
 METADATA_UNSCHEDULED_SLAVES = 'unscheduled_slaves'
+
+# Metadata key to indicate whether a build is self-destructed.
+SELF_DESTRUCTED_BUILD = 'self_destructed_build'

@@ -11,20 +11,23 @@
 </head>
 <body onload="generateTOC(document.getElementById('toc'))">
     <!--begin-logo-->
-    <div class=head>
-        <p>
-            <a href="http://khronos.org/">
-                <img alt=Khronos height=60 src="../../../resources/KhronosGroup-3D.png" width=220>
-            </a>
-        </p>
+    <div class="head">
+        <div class="left">
+            <p>
+                <a href="http://webgl.org/">
+                    <img alt="WebGL" width="240" height="100" src="../../../resources/WebGL-Logo.png"/>
+                </a>
+            </p>
+        </div>
+        <div class="right">
+            <p>
+                <a href="http://khronos.org/">
+                    <img alt=Khronos height=60 src="../../../resources/KhronosGroup-3D.png" width=220>
+                </a>
+            </p>
+        </div>
     </div>
-    <div class=head>
-        <p>
-            <a href="http://webgl.org/">
-                <img alt=WebGL height=72 src="../../../resources/WebGL-Logo.png" width=156>
-            </a>
-        </p>
-    </div>
+    <div style="clear: both;"></div>
     <!--end-logo-->
 
     <h1>WebGL Specification</h1>
@@ -1236,8 +1239,8 @@ typedef (ImageBitmap or
          HTMLCanvasElement or
          HTMLVideoElement) TexImageSource;
 
-typedef (Float32Array or sequence<GLfloat>) Float32List;
-typedef (Int32Array or sequence<GLint>) Int32List;
+typedef (Float32Array or sequence&lt;GLfloat&gt;) Float32List;
+typedef (Int32Array or sequence&lt;GLint&gt;) Int32List;
 
 [NoInterfaceObject]
 interface <dfn id="WebGLRenderingContextBase">WebGLRenderingContextBase</dfn>
@@ -3043,10 +3046,11 @@ WebGLRenderingContext implements WebGLRenderingContextBase;
         <dd>
             Draw using the currently bound element array buffer.  The given offset is in bytes, and
             must be a valid multiple of the size of the given type or an <code>INVALID_OPERATION</code>
-            error will be generated; see <a href="#BUFFER_OFFSET_AND_STRIDE">Buffer Offset and Stride
-            Requirements</a>. If <code>count</code> is greater than zero, then a non-null
-            <code>WebGLBuffer</code> must be bound to the <code>ELEMENT_ARRAY_BUFFER</code> binding
-            point or an <code>INVALID_OPERATION</code> error will be generated.<br><br>
+            error will be generated; in addition the offset must be non-negative or an
+            <code>INVALID_VALUE</code> error will be generated; see <a href="#BUFFER_OFFSET_AND_STRIDE">
+            Buffer Offset and Stride Requirements</a>. If <code>count</code> is greater than zero,
+            then a non-null <code>WebGLBuffer</code> must be bound to the <code>ELEMENT_ARRAY_BUFFER</code>
+            binding point or an <code>INVALID_OPERATION</code> error will be generated.<br><br>
             If the CURRENT_PROGRAM is null, an <code>INVALID_OPERATION</code> error will be generated.
 
             WebGL performs additional error checking beyond that specified in OpenGL ES 2.0 during
@@ -3477,6 +3481,22 @@ bound in order for texture-related operations and queries to succeed.
 
 </p>
 
+    <h3>No Shader Binaries</h3>
+
+<p>
+
+Accessing binary representations of compiled shaders is not supported in the WebGL API. This
+includes the OpenGL ES 2.0 <code>ShaderBinary</code> entry point. In addition, querying shader
+binary formats and the availability of a shader compiler via <code>getParameter</code> is not
+supported in the WebGL API.
+
+</p>
+<p>
+
+All WebGL implementations must implicitly support an on-line shader compiler.
+
+</p>
+
     <h3><a name="BUFFER_OFFSET_AND_STRIDE">Buffer Offset and Stride Requirements</a></h3>
 
 <p>
@@ -3499,6 +3519,13 @@ size of the data type passed to the call, or an <code>INVALID_OPERATION</code> e
         <code>N</code>."
     </p>
 </div>
+
+<p>
+
+In addition the <code>offset</code> argument to <code>drawElements</code> must be non-negative or
+an <code>INVALID_VALUE</code> error is generated.
+
+</p>
 
     <h3><a name="ATTRIBS_AND_RANGE_CHECKING">Enabled Vertex Attributes and Range Checking</a></h3>
 

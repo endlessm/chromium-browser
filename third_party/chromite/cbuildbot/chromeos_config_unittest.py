@@ -251,6 +251,31 @@ class CBuildBotTest(ChromeosConfigTestBase):
     for build_name, config in self.site_config.iteritems():
       self.assertTrue(build_name == config['name'])
 
+  def testMasterSlaveConfigsExist(self):
+    """Configs listing slave configs, must list valid configs."""
+    for config in self.site_config.itervalues():
+      if config.master:
+        # Any builder with slaves must set both of these.
+        self.assertTrue(config.master)
+        self.assertTrue(config.manifest_version)
+        self.assertIsNotNone(config.slave_configs)
+
+        # If a builder lists slave config names, ensure they are all valid, and
+        # have an assigned waterfall.
+        for slave_name in config.slave_configs:
+          self.assertIn(slave_name, self.site_config)
+          self.assertTrue(self.site_config[slave_name].active_waterfall)
+      else:
+        self.assertIsNone(config.slave_configs)
+
+  def testMasterSlaveConfigsSorted(self):
+    """Configs listing slave configs, must list valid configs."""
+    for config in self.site_config.itervalues():
+      if config.slave_configs is not None:
+        expected = sorted(config.slave_configs)
+
+        self.assertEqual(config.slave_configs, expected)
+
   def testConfigUseflags(self):
     """Useflags must be lists.
 
@@ -343,6 +368,16 @@ class CBuildBotTest(ChromeosConfigTestBase):
         self.assertTrue(
             vm_test.test_type in constants.VALID_VM_TEST_TYPES,
             'Config %s: has unexpected vm test type value.' % build_name)
+
+  def testValidGCETestType(self):
+    """Verify gce_tests has an expected value"""
+    for build_name, config in self.site_config.iteritems():
+      if config['gce_tests'] is None:
+        continue
+      for gce_test in config['gce_tests']:
+        self.assertTrue(
+            gce_test.test_type in constants.VALID_GCE_TEST_TYPES,
+            'Config %s: has unexpected gce test type value.' % build_name)
 
   def testImageTestMustHaveBaseImage(self):
     """Verify image_test build is only enabled with 'base' in images."""
@@ -920,6 +955,8 @@ class CBuildBotTest(ChromeosConfigTestBase):
     for build_name, config in self.site_config.iteritems():
       if config.build_type == constants.PFQ_TYPE:
         expected = 20 * 60
+      elif config.build_type == constants.CHROME_PFQ_TYPE:
+        expected = 6 * 60 *  60
       elif config.build_type == constants.CANARY_TYPE:
         if self.isReleaseBranch():
           expected = 12 * 60 * 60

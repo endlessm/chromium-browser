@@ -11,8 +11,12 @@ from telemetry.internal.platform import linux_based_platform_backend
 from telemetry.internal.platform import tracing_agent
 from telemetry.internal.platform import tracing_controller_backend
 from telemetry.timeline import tracing_config
-from telemetry.timeline import trace_data
+from tracing.trace_data import trace_data
 
+
+class PlatformDevice(object):
+  def __init__(self):
+    self.build_version_sdk = 99
 
 class PlatformBackend(linux_based_platform_backend.LinuxBasedPlatformBackend):
   # pylint: disable=abstract-method
@@ -30,7 +34,7 @@ class PlatformBackend(linux_based_platform_backend.LinuxBasedPlatformBackend):
 
   @property
   def device(self):
-    return 'string'
+    return PlatformDevice()
 
 
 class FakeTracingAgentBase(tracing_agent.TracingAgent):
