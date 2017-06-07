@@ -17,7 +17,6 @@
 #include "base/strings/stringprintf.h"
 #include "base/trace_event/trace_event.h"
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 6, 0)
 #include <linux/types.h>
 
 struct local_dma_buf_sync {
@@ -34,10 +33,6 @@ struct local_dma_buf_sync {
 #define LOCAL_DMA_BUF_BASE 'b'
 #define LOCAL_DMA_BUF_IOCTL_SYNC \
   _IOW(LOCAL_DMA_BUF_BASE, 0, struct local_dma_buf_sync)
-
-#else
-#include <linux/dma-buf.h>
-#endif
 
 namespace gfx {
 
