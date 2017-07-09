@@ -324,7 +324,7 @@ bool SkRasterPipeline::run_with_jumper(size_t x, size_t n) const {
         return false;
     }
 
-#elif defined(__arm__)
+#elif (0 && defined(__arm__))
     if (1 && SkCpu::Supports(SkCpu::NEON|SkCpu::NEON_FMA|SkCpu::VFP_FP16)) {
         if (!build_and_run(2, lookup_vfp4, ASM(just_return,vfp4), ASM(start_pipeline,vfp4))) {
             return false;
