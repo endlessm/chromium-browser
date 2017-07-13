@@ -41,6 +41,16 @@
 
 #if defined(OPENSSL_LINUX)
 
+/*
+ * suppress SYS_getrandom definition as our kernel headers don't have
+ * __NR_getrandom. the macros below assume that SYS_getrandom is declared if
+ * it's defined, which is not true if you have a new glibc but old kernel
+ * headers, because sys/syscall.h has #define SYS_getrandom __NR_getrandom.
+ */
+#if !defined(__NR_getrandom)
+#undef SYS_getrandom
+#endif
+
 #if defined(OPENSSL_X86_64)
 #define EXPECTED_SYS_getrandom 318
 #elif defined(OPENSSL_X86)
