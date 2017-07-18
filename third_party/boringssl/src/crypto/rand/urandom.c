@@ -42,33 +42,33 @@
 #if defined(OPENSSL_LINUX)
 
 #if defined(OPENSSL_X86_64)
-#define EXPECTED_SYS_getrandom 318
+#define EXPECTED_NR_getrandom 318
 #elif defined(OPENSSL_X86)
-#define EXPECTED_SYS_getrandom 355
+#define EXPECTED_NR_getrandom 355
 #elif defined(OPENSSL_AARCH64)
-#define EXPECTED_SYS_getrandom 278
+#define EXPECTED_NR_getrandom 278
 #elif defined(OPENSSL_ARM)
-#define EXPECTED_SYS_getrandom 384
+#define EXPECTED_NR_getrandom 384
 #elif defined(OPENSSL_PPC64LE)
-#define EXPECTED_SYS_getrandom 359
+#define EXPECTED_NR_getrandom 359
 #endif
 
-#if defined(EXPECTED_SYS_getrandom)
-#define USE_SYS_getrandom
+#if defined(EXPECTED_NR_getrandom)
+#define USE_NR_getrandom
 
-#if defined(SYS_getrandom)
+#if defined(__NR_getrandom)
 
-#if SYS_getrandom != EXPECTED_SYS_getrandom
+#if __NR_getrandom != EXPECTED_NR_getrandom
 #error "system call number for getrandom is not the expected value"
 #endif
 
-#else  /* SYS_getrandom */
+#else  /* __NR_getrandom */
 
-#define SYS_getrandom EXPECTED_SYS_getrandom
+#define __NR_getrandom EXPECTED_NR_getrandom
 
-#endif  /* SYS_getrandom */
+#endif  /* __NR_getrandom */
 
-#endif /* EXPECTED_SYS_getrandom */
+#endif /* EXPECTED_NR_getrandom */
 
 #if !defined(GRND_NONBLOCK)
 #define GRND_NONBLOCK 1
@@ -122,10 +122,10 @@ static void init_once(void) {
   int fd = urandom_fd_requested;
   CRYPTO_STATIC_MUTEX_unlock_read(&requested_lock);
 
-#if defined(USE_SYS_getrandom)
+#if defined(USE_NR_getrandom)
   uint8_t dummy;
   long getrandom_ret =
-      syscall(SYS_getrandom, &dummy, sizeof(dummy), GRND_NONBLOCK);
+      syscall(__NR_getrandom, &dummy, sizeof(dummy), GRND_NONBLOCK);
 
   if (getrandom_ret == 1) {
     urandom_fd = kHaveGetrandom;
@@ -137,7 +137,7 @@ static void init_once(void) {
             "will block until entropy is available.\n");
     do {
       getrandom_ret =
-          syscall(SYS_getrandom, &dummy, sizeof(dummy), 0 /* no flags */);
+          syscall(__NR_getrandom, &dummy, sizeof(dummy), 0 /* no flags */);
     } while (getrandom_ret == -1 && errno == EINTR);
 
     if (getrandom_ret == 1) {
@@ -145,7 +145,7 @@ static void init_once(void) {
       return;
     }
   }
-#endif  /* USE_SYS_getrandom */
+#endif  /* USE_NR_getrandom */
 
   if (fd == kUnset) {
     do {
@@ -240,7 +240,7 @@ static struct rand_buffer *get_thread_local_buffer(void) {
   return buf;
 }
 
-#if defined(USE_SYS_getrandom) && defined(__has_feature)
+#if defined(USE_NR_getrandom) && defined(__has_feature)
 #if __has_feature(memory_sanitizer)
 void __msan_unpoison(void *, size_t);
 #endif
@@ -253,9 +253,9 @@ static char fill_with_entropy(uint8_t *out, size_t len) {
     ssize_t r;
 
     if (urandom_fd == kHaveGetrandom) {
-#if defined(USE_SYS_getrandom)
+#if defined(USE_NR_getrandom)
       do {
-        r = syscall(SYS_getrandom, out, len, 0 /* no flags */);
+        r = syscall(__NR_getrandom, out, len, 0 /* no flags */);
       } while (r == -1 && errno == EINTR);
 
 #if defined(__has_feature)
@@ -268,7 +268,7 @@ static char fill_with_entropy(uint8_t *out, size_t len) {
 #endif /* memory_sanitizer */
 #endif /*__has_feature */
 
-#else /* USE_SYS_getrandom */
+#else /* USE_NR_getrandom */
       abort();
 #endif
     } else {
