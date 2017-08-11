@@ -52,6 +52,8 @@ gcc_toolchain("arm") {
 
   extra_cppflags = "-fno-delete-null-pointer-checks"
   extra_ldflags = "-Wl,--no-keep-memory -Wl,--stats"
+  extra_cflags = "-std=gnu11"
+  extra_cxxflags = "-std=gnu++11"
 
   toolchain_args = {
     current_cpu = "arm"
@@ -148,6 +150,8 @@ gcc_toolchain("x64") {
 
   extra_cppflags = "-fno-delete-null-pointer-checks"
   extra_ldflags = "-Wl,--no-keep-memory -Wl,--stats"
+  extra_cflags = "-std=gnu11"
+  extra_cxxflags = "-std=gnu++11"
 
   toolchain_args = {
     current_cpu = "x64"
